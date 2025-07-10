@@ -30,7 +30,7 @@ type GeminiConfig struct {
 // New creates a new GeminiProvider
 func New(config GeminiConfig) (*GeminiProvider, error) {
 	if config.APIKey == "" {
-		return nil, fmt.Errorf("Gemini API key is required")
+		return nil, fmt.Errorf("gemini API key is required")
 	}
 
 	if config.Model == "" {
@@ -101,6 +101,8 @@ func (p *GeminiProvider) ReviewCode(ctx context.Context, diffs []*models.CodeDif
 		}, nil
 	}
 
+	fmt.Println("Preparing code review prompt for", len(diffs), "changed files...")
+
 	// Format the diffs for the prompt
 	prompt := "You are an expert code reviewer. Review the following code changes and provide detailed feedback.\n\n"
 	prompt += "Format your response like this:\n"
@@ -114,6 +116,7 @@ func (p *GeminiProvider) ReviewCode(ctx context.Context, diffs []*models.CodeDif
 
 	// Add each diff to the prompt
 	for i, diff := range diffs {
+		fmt.Printf("Processing file %d of %d: %s\n", i+1, len(diffs), diff.FilePath)
 		prompt += fmt.Sprintf("FILE %d: %s\n", i+1, diff.FilePath)
 
 		if diff.IsNew {
@@ -132,10 +135,13 @@ func (p *GeminiProvider) ReviewCode(ctx context.Context, diffs []*models.CodeDif
 	}
 
 	// Make the request to Gemini API
+	fmt.Println("Sending request to Gemini API...")
 	response, err := p.callGeminiAPI(ctx, prompt)
 	if err != nil {
 		return nil, fmt.Errorf("failed to call Gemini API: %w", err)
 	}
+
+	fmt.Println("Parsing Gemini API response...")
 
 	// Parse the response to extract summary and comments
 	return p.parseResponse(response, diffs)
@@ -177,11 +183,14 @@ func (p *GeminiProvider) callGeminiAPI(ctx context.Context, prompt string) (stri
 
 	req.Header.Set("Content-Type", "application/json")
 
+	fmt.Println("Sending HTTP request to Gemini API...")
 	resp, err := p.httpClient.Do(req)
 	if err != nil {
 		return "", fmt.Errorf("failed to send HTTP request: %w", err)
 	}
 	defer resp.Body.Close()
+
+	fmt.Println("Received response with status:", resp.Status)
 
 	// Read the response
 	respBody, err := io.ReadAll(resp.Body)
@@ -192,6 +201,8 @@ func (p *GeminiProvider) callGeminiAPI(ctx context.Context, prompt string) (stri
 	if resp.StatusCode != http.StatusOK {
 		return "", fmt.Errorf("API request failed with status %d: %s", resp.StatusCode, string(respBody))
 	}
+
+	fmt.Println("Response body length:", len(respBody))
 
 	// Parse the response
 	var respObj reviewResponse
@@ -205,8 +216,12 @@ func (p *GeminiProvider) callGeminiAPI(ctx context.Context, prompt string) (stri
 	}
 
 	// Check if we got a valid response
-	if len(respObj.Candidates) == 0 || len(respObj.Candidates[0].Content.Parts) == 0 {
-		return "", fmt.Errorf("API returned empty response")
+	if len(respObj.Candidates) == 0 {
+		return "", fmt.Errorf("API returned empty response (no candidates): %s", string(respBody))
+	}
+
+	if len(respObj.Candidates[0].Content.Parts) == 0 {
+		return "", fmt.Errorf("API returned response with no content parts: %s", string(respBody))
 	}
 
 	// Return the text from the response
@@ -327,6 +342,8 @@ func (p *GeminiProvider) parseResponse(response string, diffs []*models.CodeDiff
 			})
 		}
 	}
+
+	fmt.Printf("Review complete: Generated %d comments\n", len(result.Comments))
 
 	return result, nil
 }
