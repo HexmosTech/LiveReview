@@ -111,7 +111,13 @@ func (p *GeminiProvider) ReviewCode(ctx context.Context, diffs []*models.CodeDif
 	prompt += "## Files Changed\n"
 	prompt += "<list of files changed>\n\n"
 	prompt += "## Specific Comments\n"
-	prompt += "<specific comments on issues found, including file paths and line numbers>\n\n"
+	prompt += "IMPORTANT: Provide specific comments for EACH file changed. Include file paths and line numbers for each comment.\n"
+	prompt += "For each file, add at least one comment, even if it's to indicate no issues were found.\n\n"
+	prompt += "Example format for each comment:\n"
+	prompt += "FILE: path/to/file.ext, Line: X\n"
+	prompt += "<comment content>\n"
+	prompt += "Severity: [critical|warning|info]\n"
+	prompt += "Suggestion: <if applicable>\n\n"
 	prompt += "Here are the code changes to review:\n\n"
 
 	// Add each diff to the prompt
@@ -252,7 +258,8 @@ func (p *GeminiProvider) parseResponse(response string, diffs []*models.CodeDiff
 			}
 
 			// Check if this is a new comment
-			if strings.HasPrefix(line, "FILE") || strings.HasPrefix(line, "- FILE") {
+			if strings.HasPrefix(line, "FILE") || strings.HasPrefix(line, "- FILE") ||
+				strings.HasPrefix(line, "File:") || strings.HasPrefix(line, "- File:") {
 				// Save the previous comment if it exists
 				if currentComment != nil {
 					result.Comments = append(result.Comments, currentComment)
@@ -261,16 +268,28 @@ func (p *GeminiProvider) parseResponse(response string, diffs []*models.CodeDiff
 				// Start a new comment
 				filePathEnd := strings.Index(line, ":")
 				lineParts := strings.Split(line, "Line")
+				if len(lineParts) == 1 {
+					// Try alternative format "Line:"
+					lineParts = strings.Split(line, "Line:")
+				}
 
 				filePath := ""
 				lineNum := 1
 
 				if filePathEnd > 0 {
-					// Extract file path
-					filePath = strings.TrimSpace(line[filePathEnd+1:])
+					// Extract file path - handle different formats
+					pathPart := line[filePathEnd+1:]
+					// If there's a comma separating filepath and line, handle that
+					if commaIdx := strings.Index(pathPart, ","); commaIdx > 0 {
+						filePath = strings.TrimSpace(pathPart[:commaIdx])
+					} else {
+						filePath = strings.TrimSpace(pathPart)
+					}
+
 					if len(lineParts) > 1 {
 						// Try to extract line number
-						fmt.Sscanf(lineParts[1], "%d", &lineNum)
+						lineStr := strings.TrimSpace(lineParts[1])
+						fmt.Sscanf(lineStr, "%d", &lineNum)
 					}
 				}
 
@@ -322,28 +341,56 @@ func (p *GeminiProvider) parseResponse(response string, diffs []*models.CodeDiff
 		}
 	}
 
-	// If no specific comments were found, add a generic comment on the first file
+	// If no specific comments were found, add a generic comment for each file
 	if len(result.Comments) == 0 && len(diffs) > 0 {
-		var firstFile string
+		// Add a comment for each non-deleted file
 		for _, diff := range diffs {
 			if !diff.IsDeleted {
-				firstFile = diff.FilePath
-				break
+				result.Comments = append(result.Comments, &models.ReviewComment{
+					FilePath: diff.FilePath,
+					Line:     1,
+					Content:  "No specific issues found in this file.",
+					Severity: models.SeverityInfo,
+					Category: "general",
+				})
 			}
 		}
+	} else {
+		// Ensure we have at least one comment for each file that was changed
+		reviewedFiles := make(map[string]bool)
 
-		if firstFile != "" {
-			result.Comments = append(result.Comments, &models.ReviewComment{
-				FilePath: firstFile,
-				Line:     1,
-				Content:  "No specific issues found in the code changes.",
-				Severity: models.SeverityInfo,
-				Category: "general",
-			})
+		// Mark files that already have comments
+		for _, comment := range result.Comments {
+			reviewedFiles[comment.FilePath] = true
+		}
+
+		// Add generic comments for files without specific comments
+		for _, diff := range diffs {
+			if !diff.IsDeleted && !reviewedFiles[diff.FilePath] {
+				result.Comments = append(result.Comments, &models.ReviewComment{
+					FilePath: diff.FilePath,
+					Line:     1,
+					Content:  "No specific issues found in this file.",
+					Severity: models.SeverityInfo,
+					Category: "general",
+				})
+			}
 		}
 	}
 
 	fmt.Printf("Review complete: Generated %d comments\n", len(result.Comments))
+
+	// Debug: Print which files have comments
+	fileCommentCount := make(map[string]int)
+	for _, comment := range result.Comments {
+		fileCommentCount[comment.FilePath]++
+	}
+
+	fmt.Println("Comments by file:")
+	for _, diff := range diffs {
+		count := fileCommentCount[diff.FilePath]
+		fmt.Printf("- %s: %d comments\n", diff.FilePath, count)
+	}
 
 	return result, nil
 }
