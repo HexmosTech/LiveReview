@@ -15,8 +15,11 @@ import (
 
 // GitLabProvider implements the Provider interface for GitLab
 type GitLabProvider struct {
-	client *gitlab.Client
-	config GitLabConfig
+	client      *gitlab.Client
+	httpClient  *GitLabHTTPClient
+	config      GitLabConfig
+	projectID   string // Store the current project ID
+	currentMRID int    // Store the current MR IID
 }
 
 // GitLabConfig contains configuration for the GitLab provider
@@ -31,11 +34,23 @@ func New(config GitLabConfig) (*GitLabProvider, error) {
 	// and the provided token
 	client := gitlab.NewClient(nil, config.Token)
 
-	// We don't need to handle error for setting base URL in this implementation
+	// Set the base URL for the GitLab API
+	if config.URL != "" {
+		err := client.SetBaseURL(fmt.Sprintf("%s/api/v4", config.URL))
+		if err != nil {
+			return nil, fmt.Errorf("failed to set GitLab API base URL: %w", err)
+		}
+	}
+
+	// Initialize our custom HTTP client that bypasses the endpoint issues
+	httpClient := NewHTTPClient(config.URL, config.Token)
+
+	fmt.Printf("Initialized GitLab client with URL: %s\n", config.URL)
 
 	return &GitLabProvider{
-		client: client,
-		config: config,
+		client:     client,
+		httpClient: httpClient,
+		config:     config,
 	}, nil
 }
 
@@ -47,49 +62,95 @@ func (p *GitLabProvider) GetMergeRequestDetails(ctx context.Context, mrURL strin
 		return nil, err
 	}
 
-	// TODO: Implement using GitLab API client
-	// This is a stub implementation
-	return &providers.MergeRequestDetails{
-		ID:           strconv.Itoa(mrIID),
-		ProjectID:    projectID,
-		Title:        "Sample MR",
-		Description:  "Sample description",
-		SourceBranch: "feature-branch",
-		TargetBranch: "main",
-		State:        "opened",
-		URL:          mrURL,
-		ProviderType: "gitlab",
-	}, nil
+	// Store the project ID and MR IID for later use
+	p.projectID = projectID
+	p.currentMRID = mrIID
+
+	// Make an API call to get the merge request details using our custom HTTP client
+	fmt.Printf("Fetching GitLab MR details for project=%s, mrIID=%d using custom HTTP client\n", projectID, mrIID)
+
+	mr, err := p.httpClient.GetMergeRequest(projectID, mrIID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to fetch merge request: %w", err)
+	}
+
+	// Convert GitLab MR to our internal model
+	return ConvertToMergeRequestDetails(mr, projectID), nil
 }
 
 // GetMergeRequestChanges retrieves the code changes in a merge request
 func (p *GitLabProvider) GetMergeRequestChanges(ctx context.Context, mrID string) ([]*models.CodeDiff, error) {
-	// TODO: Implement using GitLab API client
-	// This is a stub implementation
-	return []*models.CodeDiff{
-		{
-			FilePath:   "example.go",
-			OldContent: "package main\n\nfunc main() {\n\tprint(\"Hello World\")\n}\n",
-			NewContent: "package main\n\nfunc main() {\n\tfmt.Println(\"Hello World\")\n}\n",
-			Hunks: []models.DiffHunk{
-				{
-					OldStartLine: 3,
-					OldLineCount: 1,
-					NewStartLine: 3,
-					NewLineCount: 1,
-					Content:      "-\tprint(\"Hello World\")\n+\tfmt.Println(\"Hello World\")\n",
-				},
-			},
-			CommitID: "abc123",
-			FileType: "go",
-		},
-	}, nil
+	// Convert mrID to integer
+	mrIID, err := strconv.Atoi(mrID)
+	if err != nil {
+		return nil, fmt.Errorf("invalid MR ID: %w", err)
+	}
+
+	// Use the stored project ID if available, otherwise try to extract from URL
+	projectID := p.projectID
+	if projectID == "" {
+		// Fallback to trying to extract from a URL (this might not work)
+		var extractErr error
+		projectID, _, extractErr = p.extractMRInfo(fmt.Sprintf("%s/-/merge_requests/%d", p.config.URL, mrIID))
+		if extractErr != nil {
+			return nil, fmt.Errorf("failed to get project ID: %w", extractErr)
+		}
+	}
+
+	// Get merge request changes using our custom HTTP client
+	fmt.Printf("Fetching GitLab MR changes for project=%s, mrIID=%d using custom HTTP client\n", projectID, mrIID)
+
+	changes, err := p.httpClient.GetMergeRequestChanges(projectID, mrIID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to fetch merge request changes: %w", err)
+	}
+
+	// Convert the changes to our internal model
+	return ConvertToCodeDiffs(changes), nil
 }
 
 // PostComment posts a comment on a merge request
 func (p *GitLabProvider) PostComment(ctx context.Context, mrID string, comment *models.ReviewComment) error {
-	// TODO: Implement using GitLab API client
-	return nil
+	// Convert mrID to integer
+	mrIID, err := strconv.Atoi(mrID)
+	if err != nil {
+		return fmt.Errorf("invalid MR ID: %w", err)
+	}
+
+	// Use the stored project ID if available, otherwise try to extract from URL
+	projectID := p.projectID
+	if projectID == "" {
+		// Fallback to trying to extract from a URL (this might not work)
+		var extractErr error
+		projectID, _, extractErr = p.extractMRInfo(fmt.Sprintf("%s/-/merge_requests/%d", p.config.URL, mrIID))
+		if extractErr != nil {
+			return fmt.Errorf("failed to get project ID: %w", extractErr)
+		}
+	}
+
+	// Create and post the comment using our custom HTTP client
+	commentText := comment.Content
+
+	// Add file and line information for specific comments
+	if comment.FilePath != "" && comment.Line > 0 {
+		commentText = fmt.Sprintf("**File: %s, Line: %d**\n\n%s", comment.FilePath, comment.Line, commentText)
+	}
+
+	// Add severity information
+	if comment.Severity != "" {
+		commentText = fmt.Sprintf("**Severity: %s**\n\n%s", comment.Severity, commentText)
+	}
+
+	// Add suggestions
+	if len(comment.Suggestions) > 0 {
+		commentText += "\n\n**Suggestions:**\n"
+		for _, suggestion := range comment.Suggestions {
+			commentText += fmt.Sprintf("- %s\n", suggestion)
+		}
+	}
+
+	fmt.Printf("Posting comment on MR #%d for project %s\n", mrIID, projectID)
+	return p.httpClient.CreateMRComment(projectID, mrIID, commentText)
 }
 
 // PostComments posts multiple comments on a merge request
@@ -109,7 +170,36 @@ func (p *GitLabProvider) Name() string {
 
 // Configure configures the provider with the given configuration
 func (p *GitLabProvider) Configure(config map[string]interface{}) error {
-	// TODO: Implement configuration
+	// Extract URL
+	if url, ok := config["url"].(string); ok && url != "" {
+		p.config.URL = url
+	} else {
+		return fmt.Errorf("GitLab URL is required")
+	}
+
+	// Extract token
+	if token, ok := config["token"].(string); ok && token != "" {
+		p.config.Token = token
+	} else {
+		return fmt.Errorf("GitLab token is required")
+	}
+
+	// Create a new client with the provided token
+	client := gitlab.NewClient(nil, p.config.Token)
+
+	// Set the base URL for the GitLab API
+	err := client.SetBaseURL(fmt.Sprintf("%s/api/v4", p.config.URL))
+	if err != nil {
+		return fmt.Errorf("failed to set GitLab API base URL: %w", err)
+	}
+
+	// Initialize our custom HTTP client
+	httpClient := NewHTTPClient(p.config.URL, p.config.Token)
+
+	// Update the provider
+	p.client = client
+	p.httpClient = httpClient
+
 	return nil
 }
 
@@ -122,8 +212,15 @@ func (p *GitLabProvider) extractMRInfo(mrURL string) (string, int, error) {
 		return "", 0, fmt.Errorf("invalid URL: %w", err)
 	}
 
-	re := regexp.MustCompile(`/(.+)/-/merge_requests/(\d+)$`)
-	matches := re.FindStringSubmatch(parsedURL.Path)
+	// Remove the leading slash from the path
+	path := parsedURL.Path
+	if path[0] == '/' {
+		path = path[1:]
+	}
+
+	// Look for the merge_requests part
+	re := regexp.MustCompile(`(.+)/-/merge_requests/(\d+)$`)
+	matches := re.FindStringSubmatch(path)
 	if len(matches) != 3 {
 		return "", 0, fmt.Errorf("could not extract project and MR ID from URL: %s", mrURL)
 	}
@@ -134,7 +231,6 @@ func (p *GitLabProvider) extractMRInfo(mrURL string) (string, int, error) {
 		return "", 0, fmt.Errorf("invalid MR ID: %w", err)
 	}
 
-	// TODO: Convert project path to project ID using API
-
+	fmt.Printf("Extracted project=%s, mrIID=%d from URL=%s\n", projectPath, mrIID, mrURL)
 	return projectPath, mrIID, nil
 }

@@ -4,7 +4,7 @@ AI-powered code review tool for GitLab, GitHub, and BitBucket.
 
 ## Overview
 
-LiveReview helps automate code reviews using AI across different code hosting platforms. The first implementation supports GitLab with Gemini AI integration.
+LiveReview helps automate code reviews using AI across different code hosting platforms. The first implementation supports GitLab with Gemini AI integration. The tool analyzes code changes in merge/pull requests and provides insightful comments and suggestions.
 
 ## Features
 
@@ -12,6 +12,8 @@ LiveReview helps automate code reviews using AI across different code hosting pl
 - AI-powered code review using Google's Gemini
 - Command-line interface for easy use
 - Configurable through TOML configuration file
+- Support for dry-run mode to preview reviews without posting comments
+- Detailed review summaries with file-specific suggestions
 
 ## Installation
 
@@ -128,6 +130,42 @@ temperature = 0.2
 ## Architecture
 
 LiveReview uses a modular architecture that supports multiple code hosting providers and AI backends through abstraction interfaces.
+
+## Current Status and Known Issues
+
+### Implementation Status
+
+The current implementation includes:
+- Basic GitLab integration with mock data
+- Gemini AI provider implementation with mock review generation
+- Command line interface with support for dry-run mode and verbose output
+
+### Known Issues
+
+1. **GitLab API Client Compatibility**: The GitLab client library (v0.3.0) uses incorrect API endpoint paths:
+   - It uses `/merge_request/` (singular) instead of `/merge_requests/` (plural) 
+   - This causes 404 errors when trying to fetch MR details
+   - Currently using mock implementations to work around this issue
+
+### Next Steps
+
+1. **Fix GitLab API Integration**:
+   - Option A: Upgrade to a newer version of the GitLab client
+   - Option B: Implement direct HTTP requests to GitLab API
+   - Option C: Create a custom fork of the client with fixed endpoints
+
+2. **Implement Real AI Integration**:
+   - Connect to Gemini API with proper prompt engineering
+   - Implement context-aware code review capabilities
+   - Add support for different types of feedback (security, performance, style)
+
+3. **Add Support for Other Providers**:
+   - GitHub integration
+   - BitBucket integration
+
+4. **Add Daemon Mode**:
+   - Implement a background service that monitors for new MRs/PRs
+   - Automatically trigger reviews based on configurable rules
 
 ## License
 

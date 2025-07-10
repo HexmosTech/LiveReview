@@ -23,6 +23,12 @@ type DiffHunk struct {
 	Content      string
 }
 
+// ReviewResult contains the overall review result including summary and specific comments
+type ReviewResult struct {
+	Summary  string           // High-level summary of what the diff is about
+	Comments []*ReviewComment // Specific comments on the code
+}
+
 // ReviewComment represents a single comment from the AI review
 type ReviewComment struct {
 	FilePath    string

@@ -12,6 +12,7 @@ import (
 	"github.com/livereview/internal/config"
 	"github.com/livereview/internal/providers"
 	"github.com/livereview/internal/providers/gitlab"
+	"github.com/livereview/pkg/models"
 )
 
 // ReviewCommand returns the review command
@@ -54,6 +55,9 @@ func runReview(c *cli.Context) error {
 	mrURL := c.Args().Get(0)
 	dryRun := c.Bool("dry-run")
 	verbose := c.Bool("verbose") // Use the command-specific verbose flag
+
+	fmt.Printf("Starting review of MR: %s (dry-run: %v, verbose: %v)\n", mrURL, dryRun, verbose)
+	fmt.Printf("Debug: All flags: dry-run=%v, v=%v, d=%v\n", c.Bool("dry-run"), c.Bool("v"), c.Bool("d"))
 
 	// Load configuration
 	cfg, err := config.LoadConfig(c.String("config"))
@@ -139,6 +143,8 @@ func runReviewProcess(
 	dryRun bool,
 	verbose bool,
 ) error {
+	fmt.Println("Starting review process...")
+
 	// Get MR details
 	if verbose {
 		fmt.Println("Fetching merge request details...")
@@ -148,6 +154,8 @@ func runReviewProcess(
 	if err != nil {
 		return fmt.Errorf("failed to get merge request details: %w", err)
 	}
+
+	fmt.Printf("Got MR details: ID=%s, Title=%s\n", mrDetails.ID, mrDetails.Title)
 
 	// Get MR changes
 	if verbose {
@@ -159,43 +167,65 @@ func runReviewProcess(
 		return fmt.Errorf("failed to get code changes: %w", err)
 	}
 
+	fmt.Printf("Got %d changed files\n", len(changes))
+
 	// Review code
 	if verbose {
 		fmt.Println("Reviewing code changes...")
 	}
 
-	comments, err := aiProvider.ReviewCode(ctx, changes)
+	result, err := aiProvider.ReviewCode(ctx, changes)
 	if err != nil {
 		return fmt.Errorf("failed to review code: %w", err)
 	}
 
+	fmt.Println("AI Review completed successfully")
+
 	// Post comments
 	if !dryRun {
 		if verbose {
-			fmt.Println("Posting review comments...")
+			fmt.Println("Posting review summary and comments...")
 		}
 
-		err = provider.PostComments(ctx, mrDetails.ID, comments)
-		if err != nil {
-			return fmt.Errorf("failed to post comments: %w", err)
+		// Post the summary as a general comment
+		summaryComment := &models.ReviewComment{
+			FilePath: "", // Empty for MR-level comment
+			Line:     0,  // 0 for MR-level comment
+			Content:  fmt.Sprintf("# AI Review Summary\n\n%s", result.Summary),
+			Severity: models.SeverityInfo,
+			Category: "summary",
+		}
+
+		if err := provider.PostComment(ctx, mrDetails.ID, summaryComment); err != nil {
+			return fmt.Errorf("failed to post summary comment: %w", err)
+		}
+
+		// Post specific comments
+		if len(result.Comments) > 0 {
+			err = provider.PostComments(ctx, mrDetails.ID, result.Comments)
+			if err != nil {
+				return fmt.Errorf("failed to post comments: %w", err)
+			}
 		}
 
 		if verbose {
-			fmt.Printf("Posted %d comments on merge request\n", len(comments))
+			fmt.Printf("Posted summary and %d comments on merge request\n", len(result.Comments))
 		}
-	} else {
-		// Print comments in dry-run mode
-		fmt.Println("Dry run mode - Comments not posted:")
-		for i, comment := range comments {
-			fmt.Printf("\n--- Comment %d ---\n", i+1)
-			fmt.Printf("File: %s, Line: %d\n", comment.FilePath, comment.Line)
-			fmt.Printf("Severity: %s\n", comment.Severity)
-			fmt.Printf("Content: %s\n", comment.Content)
-			if len(comment.Suggestions) > 0 {
-				fmt.Println("Suggestions:")
-				for _, suggestion := range comment.Suggestions {
-					fmt.Printf("  - %s\n", suggestion)
-				}
+	}
+
+	// Always print the results
+	fmt.Println("\n=== AI Review Summary ===")
+	fmt.Println(result.Summary)
+	fmt.Println("\n=== Specific Comments ===")
+	for i, comment := range result.Comments {
+		fmt.Printf("\n--- Comment %d ---\n", i+1)
+		fmt.Printf("File: %s, Line: %d\n", comment.FilePath, comment.Line)
+		fmt.Printf("Severity: %s\n", comment.Severity)
+		fmt.Printf("Content: %s\n", comment.Content)
+		if len(comment.Suggestions) > 0 {
+			fmt.Println("Suggestions:")
+			for _, suggestion := range comment.Suggestions {
+				fmt.Printf("  - %s\n", suggestion)
 			}
 		}
 	}

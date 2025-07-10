@@ -8,8 +8,8 @@ import (
 
 // Provider represents an AI service that can review code
 type Provider interface {
-	// ReviewCode takes code diff information and returns review comments
-	ReviewCode(ctx context.Context, diffs []*models.CodeDiff) ([]*models.ReviewComment, error)
+	// ReviewCode takes code diff information and returns a review result with summary and comments
+	ReviewCode(ctx context.Context, diffs []*models.CodeDiff) (*models.ReviewResult, error)
 
 	// Configure sets up the provider with needed configuration
 	Configure(config map[string]interface{}) error

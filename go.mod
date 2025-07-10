@@ -9,6 +9,9 @@ require (
 	github.com/knadh/koanf/providers/file v0.1.0
 	github.com/knadh/koanf/v2 v2.0.1
 	github.com/urfave/cli/v2 v2.25.7
+	// NOTE: We still keep the GitLab client for listing MRs and other operations
+	// but we've implemented a custom HTTP client to work around endpoint issues
+	// with direct HTTP requests to the correct plural endpoints
 	gitlab.com/gitlab-org/api/client-go v0.3.0
 )
 
