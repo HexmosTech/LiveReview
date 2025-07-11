@@ -184,7 +184,7 @@ func runReviewProcess(
 	// Post comments
 	if !dryRun {
 		if verbose {
-			fmt.Println("Posting review summary and comments...")
+			fmt.Println("Posting review comments...")
 		}
 
 		// Post the summary as a general comment
@@ -200,12 +200,16 @@ func runReviewProcess(
 			return fmt.Errorf("failed to post summary comment: %w", err)
 		}
 
+		fmt.Printf("Posted summary comment to merge request\n")
+
 		// Post specific comments
 		if len(result.Comments) > 0 {
+			fmt.Printf("Posting %d individual comments to merge request...\n", len(result.Comments))
 			err = provider.PostComments(ctx, mrDetails.ID, result.Comments)
 			if err != nil {
 				return fmt.Errorf("failed to post comments: %w", err)
 			}
+			fmt.Printf("Successfully posted all comments\n")
 		}
 
 		if verbose {

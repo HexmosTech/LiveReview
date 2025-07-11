@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"regexp"
+	"strconv"
 	"strings"
 
 	"github.com/livereview/pkg/models"
@@ -105,19 +107,26 @@ func (p *GeminiProvider) ReviewCode(ctx context.Context, diffs []*models.CodeDif
 
 	// Format the diffs for the prompt
 	prompt := "You are an expert code reviewer. Review the following code changes and provide detailed feedback.\n\n"
-	prompt += "Format your response like this:\n"
-	prompt += "# AI Review Summary\n"
-	prompt += "<overall summary of the changes>\n\n"
-	prompt += "## Files Changed\n"
-	prompt += "<list of files changed>\n\n"
-	prompt += "## Specific Comments\n"
-	prompt += "IMPORTANT: Provide specific comments for EACH file changed. Include file paths and line numbers for each comment.\n"
-	prompt += "For each file, add at least one comment, even if it's to indicate no issues were found.\n\n"
-	prompt += "Example format for each comment:\n"
-	prompt += "FILE: path/to/file.ext, Line: X\n"
-	prompt += "<comment content>\n"
-	prompt += "Severity: [critical|warning|info]\n"
-	prompt += "Suggestion: <if applicable>\n\n"
+	prompt += "IMPORTANT: Format your response as a valid JSON object with the following structure:\n"
+	prompt += "{\n"
+	prompt += "  \"summary\": \"Overall summary of the changes\",\n"
+	prompt += "  \"filesChanged\": [\"file1.ext\", \"file2.ext\"],\n"
+	prompt += "  \"comments\": [\n"
+	prompt += "    {\n"
+	prompt += "      \"filePath\": \"path/to/file.ext\",\n"
+	prompt += "      \"lineNumber\": 42,\n"
+	prompt += "      \"content\": \"Your detailed comment about the code\",\n"
+	prompt += "      \"severity\": \"critical|warning|info\",\n"
+	prompt += "      \"suggestions\": [\"Suggestion 1\", \"Suggestion 2\"]\n"
+	prompt += "    }\n"
+	prompt += "  ]\n"
+	prompt += "}\n\n"
+	prompt += "RULES:\n"
+	prompt += "1. Ensure the response is VALID JSON that can be parsed.\n"
+	prompt += "2. Include at least one comment for each file.\n"
+	prompt += "3. Use EXACT file paths from the diffs provided.\n"
+	prompt += "4. Always include a lineNumber for each comment (use an integer, not a string).\n"
+	prompt += "5. If you cannot determine a specific line number, use the start line of the relevant hunk.\n\n"
 	prompt += "Here are the code changes to review:\n\n"
 
 	// Add each diff to the prompt
@@ -133,9 +142,37 @@ func (p *GeminiProvider) ReviewCode(ctx context.Context, diffs []*models.CodeDif
 			prompt += fmt.Sprintf("[RENAMED FROM: %s]\n", diff.OldFilePath)
 		}
 
-		// Add hunks
+		// Add hunks with enhanced line number information
 		for _, hunk := range diff.Hunks {
-			prompt += hunk.Content + "\n"
+			// Add hunk header with line numbers
+			prompt += fmt.Sprintf("@@ -L%d,%d +L%d,%d @@\n",
+				hunk.OldStartLine, hunk.OldLineCount,
+				hunk.NewStartLine, hunk.NewLineCount)
+
+			// Add the hunk content with explicit line numbers for easier reference
+			lines := strings.Split(hunk.Content, "\n")
+			currentOldLine := hunk.OldStartLine
+			currentNewLine := hunk.NewStartLine
+
+			for _, line := range lines {
+				if strings.HasPrefix(line, "+") {
+					// Added line - only exists in new version
+					prompt += fmt.Sprintf("L%-5d %s\n", currentNewLine, line)
+					currentNewLine++
+				} else if strings.HasPrefix(line, "-") {
+					// Removed line - only exists in old version
+					prompt += fmt.Sprintf("L%-5d %s\n", currentOldLine, line)
+					currentOldLine++
+				} else if strings.HasPrefix(line, " ") {
+					// Context line - exists in both versions
+					prompt += fmt.Sprintf("L%-5d %s\n", currentNewLine, line)
+					currentNewLine++
+					currentOldLine++
+				} else {
+					// Other line (e.g., diff metadata)
+					prompt += fmt.Sprintf("      %s\n", line)
+				}
+			}
 		}
 		prompt += "\n---\n\n"
 	}
@@ -236,16 +273,199 @@ func (p *GeminiProvider) callGeminiAPI(ctx context.Context, prompt string) (stri
 
 // parseResponse parses the response from Gemini API into a ReviewResult
 func (p *GeminiProvider) parseResponse(response string, diffs []*models.CodeDiff) (*models.ReviewResult, error) {
-	// Extract summary and comments from the response
-	sections := strings.Split(response, "## Specific Comments")
+	fmt.Println("Parsing Gemini response...")
 
-	// Initialize the result with the summary section
+	// Try to parse as JSON first
+	trimmedResponse := strings.TrimSpace(response)
+	isJSON := strings.HasPrefix(trimmedResponse, "{") && strings.HasSuffix(trimmedResponse, "}")
+
+	// If it looks like JSON or has JSON structure hints, try JSON parsing first
+	if isJSON || strings.Contains(response, "\"summary\"") || strings.Contains(response, "\"comments\"") {
+		fmt.Println("Response appears to be JSON-formatted, attempting JSON parsing...")
+
+		// Try to extract JSON - first check if the whole response is JSON
+		var jsonStr string
+		if isJSON {
+			jsonStr = trimmedResponse
+		} else {
+			// Try to extract JSON from markdown code blocks
+			jsonCodeBlockRegex := regexp.MustCompile("```(?:json)?\n(\\{[\\s\\S]*?\\})\n```")
+			if matches := jsonCodeBlockRegex.FindStringSubmatch(response); len(matches) > 1 {
+				jsonStr = matches[1]
+				fmt.Println("Found JSON in code block")
+			} else {
+				// No JSON code block found, maybe JSON is embedded elsewhere
+				// Try to find any {...} pattern that looks like JSON
+				jsonPattern := regexp.MustCompile("(\\{[\\s\\S]*?\"summary\"[\\s\\S]*?\"comments\"[\\s\\S]*?\\})")
+				if matches := jsonPattern.FindStringSubmatch(response); len(matches) > 1 {
+					potentialJSON := matches[1]
+					// Verify this looks like our expected JSON structure
+					if strings.Contains(potentialJSON, "\"summary\"") && strings.Contains(potentialJSON, "\"comments\"") {
+						jsonStr = potentialJSON
+						fmt.Println("Found embedded JSON in response")
+					}
+				}
+			}
+		}
+
+		// If we found JSON to parse, try to parse it
+		if jsonStr != "" {
+			// Define JSON structures for Gemini response
+			type GeminiComment struct {
+				FilePath    string   `json:"filePath"`
+				LineNumber  int      `json:"lineNumber"`
+				Content     string   `json:"content"`
+				Severity    string   `json:"severity"`
+				Suggestions []string `json:"suggestions"`
+			}
+
+			type GeminiResponse struct {
+				Summary      string          `json:"summary"`
+				FilesChanged []string        `json:"filesChanged"`
+				Comments     []GeminiComment `json:"comments"`
+			}
+
+			// Try to parse the JSON
+			var jsonResponse GeminiResponse
+			err := json.Unmarshal([]byte(jsonStr), &jsonResponse)
+
+			// If full JSON parsing failed, try to extract structured data from it
+			if err != nil {
+				fmt.Printf("Full JSON parsing failed: %v\n", err)
+				fmt.Println("Attempting to extract structured data from partial JSON...")
+
+				// Try to manually extract the summary
+				summaryRegex := regexp.MustCompile(`"summary"\s*:\s*"([^"]+)"`)
+				if summaryMatches := summaryRegex.FindStringSubmatch(jsonStr); len(summaryMatches) > 1 {
+					jsonResponse.Summary = summaryMatches[1]
+					fmt.Printf("Extracted summary: %s\n", jsonResponse.Summary)
+				}
+
+				// Try to extract file paths
+				filesRegex := regexp.MustCompile(`"filesChanged"\s*:\s*\[\s*"([^"]+)"`)
+				if filesMatches := filesRegex.FindAllStringSubmatch(jsonStr, -1); len(filesMatches) > 0 {
+					jsonResponse.FilesChanged = make([]string, 0)
+					for _, match := range filesMatches {
+						if len(match) > 1 {
+							jsonResponse.FilesChanged = append(jsonResponse.FilesChanged, match[1])
+						}
+					}
+				}
+
+				// Try to extract comments from the partial JSON
+				// Find all complete comment blocks with regex - this handles truncated JSON better
+				commentRegex := regexp.MustCompile(`\{\s*"filePath"\s*:\s*"([^"]+)"\s*,\s*"lineNumber"\s*:\s*(\d+)\s*,\s*"content"\s*:\s*"([^"]+)"\s*,\s*"severity"\s*:\s*"([^"]+)"(?:\s*,\s*"suggestions"\s*:\s*\[((?:"[^"]*"(?:\s*,\s*"[^"]*")*)?)\])?`)
+
+				if commentMatches := commentRegex.FindAllStringSubmatch(jsonStr, -1); len(commentMatches) > 0 {
+					jsonResponse.Comments = make([]GeminiComment, 0, len(commentMatches))
+					for _, match := range commentMatches {
+						if len(match) > 4 { // Only need 4 minimum fields
+							lineNum, _ := strconv.Atoi(match[2])
+
+							// Extract suggestions - handle cases where they might be truncated
+							suggestions := make([]string, 0)
+							if len(match) > 5 && match[5] != "" {
+								suggestionRegex := regexp.MustCompile(`"([^"]+)"`)
+								if suggestionMatches := suggestionRegex.FindAllStringSubmatch(match[5], -1); len(suggestionMatches) > 0 {
+									for _, suggMatch := range suggestionMatches {
+										if len(suggMatch) > 1 {
+											suggestions = append(suggestions, suggMatch[1])
+										}
+									}
+								}
+							}
+
+							comment := GeminiComment{
+								FilePath:    match[1],
+								LineNumber:  lineNum,
+								Content:     match[3],
+								Severity:    match[4],
+								Suggestions: suggestions,
+							}
+
+							jsonResponse.Comments = append(jsonResponse.Comments, comment)
+						}
+					}
+
+					fmt.Printf("Extracted %d comments from partial JSON\n", len(jsonResponse.Comments))
+				}
+			}
+
+			// If JSON parsing succeeded and has required fields
+			if jsonResponse.Summary != "" && (len(jsonResponse.Comments) > 0 || err == nil) {
+				fmt.Println("Successfully parsed JSON response")
+
+				// Create the result
+				result := &models.ReviewResult{
+					Summary:  jsonResponse.Summary,
+					Comments: []*models.ReviewComment{},
+				}
+
+				// Convert comments
+				for _, comment := range jsonResponse.Comments {
+					severity := models.SeverityInfo
+					switch strings.ToLower(comment.Severity) {
+					case "critical", "error", "high":
+						severity = models.SeverityCritical
+					case "warning", "medium":
+						severity = models.SeverityWarning
+					}
+
+					// Create the review comment
+					reviewComment := &models.ReviewComment{
+						FilePath:    comment.FilePath,
+						Line:        comment.LineNumber,
+						Content:     comment.Content,
+						Severity:    severity,
+						Suggestions: comment.Suggestions,
+						Category:    "review",
+					}
+
+					// Try to match with a real file if path doesn't match exactly
+					if !p.fileExists(reviewComment.FilePath, diffs) {
+						for _, diff := range diffs {
+							if strings.Contains(diff.FilePath, reviewComment.FilePath) ||
+								strings.Contains(reviewComment.FilePath, diff.FilePath) {
+								reviewComment.FilePath = diff.FilePath
+								break
+							}
+						}
+					}
+
+					result.Comments = append(result.Comments, reviewComment)
+				}
+
+				// Add generic comments for any files without specific comments
+				p.ensureCommentsForAllFiles(result, diffs)
+
+				fmt.Printf("Review complete: Generated %d comments from JSON\n", len(result.Comments))
+
+				// Debug: Print which files have comments
+				p.printCommentsByFile(result.Comments, diffs)
+
+				return result, nil
+			} else {
+				// JSON parsing failed or incomplete
+				fmt.Printf("JSON parsing failed or incomplete: %v\n", err)
+			}
+		}
+	}
+
+	// Fallback to text parsing if JSON parsing failed
+	fmt.Println("Falling back to text parsing")
+
+	// Initialize the result
 	result := &models.ReviewResult{
-		Summary:  strings.TrimSpace(sections[0]),
 		Comments: []*models.ReviewComment{},
 	}
 
-	// If there are specific comments, parse them
+	// Extract summary and comments from the text response
+	sections := strings.Split(response, "## Specific Comments")
+
+	// Set the summary section
+	result.Summary = strings.TrimSpace(sections[0])
+
+	// Parse comments if we have the specific comments section
 	if len(sections) > 1 {
 		commentLines := strings.Split(sections[1], "\n")
 
@@ -267,12 +487,6 @@ func (p *GeminiProvider) parseResponse(response string, diffs []*models.CodeDiff
 
 				// Start a new comment
 				filePathEnd := strings.Index(line, ":")
-				lineParts := strings.Split(line, "Line")
-				if len(lineParts) == 1 {
-					// Try alternative format "Line:"
-					lineParts = strings.Split(line, "Line:")
-				}
-
 				filePath := ""
 				lineNum := 1
 
@@ -285,17 +499,46 @@ func (p *GeminiProvider) parseResponse(response string, diffs []*models.CodeDiff
 					} else {
 						filePath = strings.TrimSpace(pathPart)
 					}
+				}
 
-					if len(lineParts) > 1 {
-						// Try to extract line number
-						lineStr := strings.TrimSpace(lineParts[1])
-						fmt.Sscanf(lineStr, "%d", &lineNum)
+				// Look for different line number formats more robustly
+				// First check for "Line X" or "Line: X"
+				lineRegex := regexp.MustCompile(`Line:?\s*(\d+)`)
+				lineMatches := lineRegex.FindStringSubmatch(line)
+				if len(lineMatches) > 1 {
+					lineNum, _ = strconv.Atoi(lineMatches[1])
+					fmt.Printf("Found line number %d using regex from: %s\n", lineNum, line)
+				} else {
+					// Check for other formats like "at line X"
+					altLineRegex := regexp.MustCompile(`at line\s*(\d+)`)
+					altLineMatches := altLineRegex.FindStringSubmatch(line)
+					if len(altLineMatches) > 1 {
+						lineNum, _ = strconv.Atoi(altLineMatches[1])
+						fmt.Printf("Found line number %d using alt regex from: %s\n", lineNum, line)
+					} else {
+						// Check for "L123" format
+						lLineRegex := regexp.MustCompile(`L(\d+)`)
+						lLineMatches := lLineRegex.FindStringSubmatch(line)
+						if len(lLineMatches) > 1 {
+							lineNum, _ = strconv.Atoi(lLineMatches[1])
+							fmt.Printf("Found line number %d using L-format regex from: %s\n", lineNum, line)
+						} else {
+							// Check for any number following a comma
+							commaNumRegex := regexp.MustCompile(`,\s*(\d+)`)
+							commaNumMatches := commaNumRegex.FindStringSubmatch(line)
+							if len(commaNumMatches) > 1 {
+								lineNum, _ = strconv.Atoi(commaNumMatches[1])
+								fmt.Printf("Found line number %d using comma-number regex from: %s\n", lineNum, line)
+							} else {
+								fmt.Printf("Could not extract line number from: %s, defaulting to line 1\n", line)
+							}
+						}
 					}
 				}
 
 				// Try to match with a real file
 				for _, diff := range diffs {
-					if strings.Contains(filePath, diff.FilePath) {
+					if strings.Contains(diff.FilePath, filePath) {
 						filePath = diff.FilePath
 						break
 					}
@@ -341,6 +584,19 @@ func (p *GeminiProvider) parseResponse(response string, diffs []*models.CodeDiff
 		}
 	}
 
+	// Add generic comments for any files without specific comments
+	p.ensureCommentsForAllFiles(result, diffs)
+
+	fmt.Printf("Review complete: Generated %d comments from text\n", len(result.Comments))
+
+	// Debug: Print which files have comments
+	p.printCommentsByFile(result.Comments, diffs)
+
+	return result, nil
+}
+
+// Helper function to ensure we have at least one comment for each file
+func (p *GeminiProvider) ensureCommentsForAllFiles(result *models.ReviewResult, diffs []*models.CodeDiff) {
 	// If no specific comments were found, add a generic comment for each file
 	if len(result.Comments) == 0 && len(diffs) > 0 {
 		// Add a comment for each non-deleted file
@@ -355,34 +611,35 @@ func (p *GeminiProvider) parseResponse(response string, diffs []*models.CodeDiff
 				})
 			}
 		}
-	} else {
-		// Ensure we have at least one comment for each file that was changed
-		reviewedFiles := make(map[string]bool)
-
-		// Mark files that already have comments
-		for _, comment := range result.Comments {
-			reviewedFiles[comment.FilePath] = true
-		}
-
-		// Add generic comments for files without specific comments
-		for _, diff := range diffs {
-			if !diff.IsDeleted && !reviewedFiles[diff.FilePath] {
-				result.Comments = append(result.Comments, &models.ReviewComment{
-					FilePath: diff.FilePath,
-					Line:     1,
-					Content:  "No specific issues found in this file.",
-					Severity: models.SeverityInfo,
-					Category: "general",
-				})
-			}
-		}
+		return
 	}
 
-	fmt.Printf("Review complete: Generated %d comments\n", len(result.Comments))
+	// Ensure we have at least one comment for each file that was changed
+	reviewedFiles := make(map[string]bool)
 
-	// Debug: Print which files have comments
-	fileCommentCount := make(map[string]int)
+	// Mark files that already have comments
 	for _, comment := range result.Comments {
+		reviewedFiles[comment.FilePath] = true
+	}
+
+	// Add generic comments for files without specific comments
+	for _, diff := range diffs {
+		if !diff.IsDeleted && !reviewedFiles[diff.FilePath] {
+			result.Comments = append(result.Comments, &models.ReviewComment{
+				FilePath: diff.FilePath,
+				Line:     1,
+				Content:  "No specific issues found in this file.",
+				Severity: models.SeverityInfo,
+				Category: "general",
+			})
+		}
+	}
+}
+
+// Helper function to print debug info about comments by file
+func (p *GeminiProvider) printCommentsByFile(comments []*models.ReviewComment, diffs []*models.CodeDiff) {
+	fileCommentCount := make(map[string]int)
+	for _, comment := range comments {
 		fileCommentCount[comment.FilePath]++
 	}
 
@@ -391,8 +648,24 @@ func (p *GeminiProvider) parseResponse(response string, diffs []*models.CodeDiff
 		count := fileCommentCount[diff.FilePath]
 		fmt.Printf("- %s: %d comments\n", diff.FilePath, count)
 	}
+}
 
-	return result, nil
+// Helper function to check if a file exists in the diffs
+func (p *GeminiProvider) fileExists(filePath string, diffs []*models.CodeDiff) bool {
+	for _, diff := range diffs {
+		if diff.FilePath == filePath {
+			return true
+		}
+	}
+	return false
+}
+
+// Helper function to get min of two ints
+func min(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
 }
 
 // Configure sets up the provider with needed configuration

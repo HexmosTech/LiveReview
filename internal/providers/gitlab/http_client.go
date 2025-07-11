@@ -328,6 +328,8 @@ func (c *GitLabHTTPClient) CreateMRLineComment(projectID string, mrIID int, file
 
 	// Use the latest version (first in the list)
 	latestVersion := versions[0]
+	fmt.Printf("Using MR version with base_sha=%s, start_sha=%s, head_sha=%s\n",
+		latestVersion.BaseCommitSHA, latestVersion.StartCommitSHA, latestVersion.HeadCommitSHA)
 
 	// Create the correct URL for discussions (which supports line comments)
 	requestURL := fmt.Sprintf("%s/projects/%s/merge_requests/%d/discussions",
@@ -339,10 +341,27 @@ func (c *GitLabHTTPClient) CreateMRLineComment(projectID string, mrIID int, file
 	form.Add("position[base_sha]", latestVersion.BaseCommitSHA)
 	form.Add("position[start_sha]", latestVersion.StartCommitSHA)
 	form.Add("position[head_sha]", latestVersion.HeadCommitSHA)
+
+	// Use the "text" position type which is more reliable
 	form.Add("position[position_type]", "text")
+
+	// For new files, we need different parameters
 	form.Add("position[new_path]", filePath)
 	form.Add("position[new_line]", fmt.Sprintf("%d", lineNum))
+
+	// Generate a line_code based on SHAs and path - this is required by GitLab
+	lineCode := fmt.Sprintf("%s_%s_%s_%s_%d",
+		latestVersion.BaseCommitSHA[:8],
+		latestVersion.HeadCommitSHA[:8],
+		strings.ReplaceAll(filePath, "/", "_"),
+		"right", // We're always commenting on the new version
+		lineNum)
+	form.Add("position[line_code]", lineCode)
+
+	// Add old_path and old_line only for modified files, not for new files
+	// For now, let's assume the file is modified and set both
 	form.Add("position[old_path]", filePath)
+	form.Add("position[old_line]", fmt.Sprintf("%d", lineNum))
 
 	// Make the request
 	req, err := http.NewRequest("POST", requestURL, strings.NewReader(form.Encode()))
@@ -364,7 +383,8 @@ func (c *GitLabHTTPClient) CreateMRLineComment(projectID string, mrIID int, file
 	// Check for errors
 	if resp.StatusCode != http.StatusCreated && resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(resp.Body)
-		fmt.Printf("API request failed with status %d: %s\n", resp.StatusCode, string(body))
+		fmt.Printf("Line comment API request failed with status %d: %s\n", resp.StatusCode, string(body))
+
 		// If the line-specific comment fails, fall back to a regular comment
 		return c.createFallbackLineComment(projectID, mrIID, filePath, lineNum, comment)
 	}
