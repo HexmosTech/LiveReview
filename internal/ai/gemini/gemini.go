@@ -16,10 +16,7 @@ import (
 
 // GeminiProvider implements the AI Provider interface for Google's Gemini
 type GeminiProvider struct {
-	apiKey      string
-	model       string
-	temperature float64
-	httpClient  *http.Client
+	TestableFields
 }
 
 // GeminiConfig contains configuration for the Gemini provider
@@ -44,10 +41,12 @@ func New(config GeminiConfig) (*GeminiProvider, error) {
 	}
 
 	return &GeminiProvider{
-		apiKey:      config.APIKey,
-		model:       config.Model,
-		temperature: config.Temperature,
-		httpClient:  &http.Client{},
+		TestableFields: TestableFields{
+			APIKey:      config.APIKey,
+			Model:       config.Model,
+			Temperature: config.Temperature,
+			HTTPClient:  &http.Client{},
+		},
 	}, nil
 }
 
@@ -121,12 +120,14 @@ func (p *GeminiProvider) ReviewCode(ctx context.Context, diffs []*models.CodeDif
 	prompt += "    }\n"
 	prompt += "  ]\n"
 	prompt += "}\n\n"
-	prompt += "RULES:\n"
-	prompt += "1. Ensure the response is VALID JSON that can be parsed.\n"
-	prompt += "2. Include at least one comment for each file.\n"
-	prompt += "3. Use EXACT file paths from the diffs provided.\n"
-	prompt += "4. Always include a lineNumber for each comment (use an integer, not a string).\n"
-	prompt += "5. If you cannot determine a specific line number, use the start line of the relevant hunk.\n\n"
+	prompt += "CRITICAL RULES (MUST FOLLOW):\n"
+	prompt += "1. Ensure the response is STRICTLY VALID JSON that can be parsed - escape quotes in content properly.\n"
+	prompt += "2. ALWAYS place comments in specific files at specific lines, NEVER create general comments.\n"
+	prompt += "3. For issues that apply to multiple lines, create separate comments for each specific line.\n"
+	prompt += "4. Use EXACT file paths from the diffs provided without any modifications.\n"
+	prompt += "5. Always use actual integers for lineNumber, corresponding to the 'L' numbers shown in the code.\n"
+	prompt += "6. Avoid creating comments that refer to multiple files or multiple line numbers at once.\n"
+	prompt += "7. If you need to reference other lines in your comment, do so in the content text but still attach the comment to a specific line.\n\n"
 	prompt += "Here are the code changes to review:\n\n"
 
 	// Add each diff to the prompt
@@ -190,9 +191,20 @@ func (p *GeminiProvider) ReviewCode(ctx context.Context, diffs []*models.CodeDif
 	return p.parseResponse(response, diffs)
 }
 
+// APIURLFormat is the format string for the Gemini API URL
+var APIURLFormat = "https://generativelanguage.googleapis.com/v1/models/%s:generateContent?key=%s"
+
+// TestableFields exposes fields for testing
+type TestableFields struct {
+	APIKey      string
+	Model       string
+	Temperature float64
+	HTTPClient  *http.Client
+}
+
 // callGeminiAPI makes a call to the Gemini API
 func (p *GeminiProvider) callGeminiAPI(ctx context.Context, prompt string) (string, error) {
-	apiURL := fmt.Sprintf("https://generativelanguage.googleapis.com/v1/models/%s:generateContent?key=%s", p.model, p.apiKey)
+	apiURL := fmt.Sprintf(APIURLFormat, p.Model, p.APIKey)
 
 	// Create the request
 	reqBody := reviewRequest{
@@ -206,7 +218,7 @@ func (p *GeminiProvider) callGeminiAPI(ctx context.Context, prompt string) (stri
 			},
 		},
 		GenerationConfig: generationConfig{
-			Temperature:     p.temperature,
+			Temperature:     p.Temperature,
 			MaxOutputTokens: 4096,
 			TopK:            40,
 			TopP:            0.95,
@@ -227,7 +239,7 @@ func (p *GeminiProvider) callGeminiAPI(ctx context.Context, prompt string) (stri
 	req.Header.Set("Content-Type", "application/json")
 
 	fmt.Println("Sending HTTP request to Gemini API...")
-	resp, err := p.httpClient.Do(req)
+	resp, err := p.HTTPClient.Do(req)
 	if err != nil {
 		return "", fmt.Errorf("failed to send HTTP request: %w", err)
 	}
@@ -353,8 +365,8 @@ func (p *GeminiProvider) parseResponse(response string, diffs []*models.CodeDiff
 				}
 
 				// Try to extract comments from the partial JSON
-				// Find all complete comment blocks with regex - this handles truncated JSON better
-				commentRegex := regexp.MustCompile(`\{\s*"filePath"\s*:\s*"([^"]+)"\s*,\s*"lineNumber"\s*:\s*(\d+)\s*,\s*"content"\s*:\s*"([^"]+)"\s*,\s*"severity"\s*:\s*"([^"]+)"(?:\s*,\s*"suggestions"\s*:\s*\[((?:"[^"]*"(?:\s*,\s*"[^"]*")*)?)\])?`)
+				// Use a more robust regex to extract comments, handling escaped quotes and newlines in content
+				commentRegex := regexp.MustCompile(`\{\s*"filePath"\s*:\s*"([^"]+)"\s*,\s*"lineNumber"\s*:\s*(\d+)\s*,\s*"content"\s*:\s*"((?:\\"|[^"])*?)"\s*,\s*"severity"\s*:\s*"([^"]+)"(?:\s*,\s*"suggestions"\s*:\s*\[((?:"(?:\\"|[^"])*?"(?:\s*,\s*"(?:\\"|[^"])*?")*)?)\])?`)
 
 				if commentMatches := commentRegex.FindAllStringSubmatch(jsonStr, -1); len(commentMatches) > 0 {
 					jsonResponse.Comments = make([]GeminiComment, 0, len(commentMatches))
@@ -362,14 +374,24 @@ func (p *GeminiProvider) parseResponse(response string, diffs []*models.CodeDiff
 						if len(match) > 4 { // Only need 4 minimum fields
 							lineNum, _ := strconv.Atoi(match[2])
 
+							// Unescape content
+							content := match[3]
+							content = strings.ReplaceAll(content, `\"`, `"`)
+							content = strings.ReplaceAll(content, `\\`, `\`)
+							content = strings.ReplaceAll(content, `\n`, "\n")
+
 							// Extract suggestions - handle cases where they might be truncated
 							suggestions := make([]string, 0)
 							if len(match) > 5 && match[5] != "" {
-								suggestionRegex := regexp.MustCompile(`"([^"]+)"`)
+								suggestionRegex := regexp.MustCompile(`"((?:\\"|[^"])*?)"`)
 								if suggestionMatches := suggestionRegex.FindAllStringSubmatch(match[5], -1); len(suggestionMatches) > 0 {
 									for _, suggMatch := range suggestionMatches {
 										if len(suggMatch) > 1 {
-											suggestions = append(suggestions, suggMatch[1])
+											suggestion := suggMatch[1]
+											suggestion = strings.ReplaceAll(suggestion, `\"`, `"`)
+											suggestion = strings.ReplaceAll(suggestion, `\\`, `\`)
+											suggestion = strings.ReplaceAll(suggestion, `\n`, "\n")
+											suggestions = append(suggestions, suggestion)
 										}
 									}
 								}
@@ -378,12 +400,18 @@ func (p *GeminiProvider) parseResponse(response string, diffs []*models.CodeDiff
 							comment := GeminiComment{
 								FilePath:    match[1],
 								LineNumber:  lineNum,
-								Content:     match[3],
+								Content:     content,
 								Severity:    match[4],
 								Suggestions: suggestions,
 							}
 
-							jsonResponse.Comments = append(jsonResponse.Comments, comment)
+							// Validate the comment has necessary fields
+							if comment.FilePath != "" && comment.LineNumber > 0 && comment.Content != "" {
+								jsonResponse.Comments = append(jsonResponse.Comments, comment)
+								fmt.Printf("Extracted comment for file %s at line %d\n", comment.FilePath, comment.LineNumber)
+							} else {
+								fmt.Printf("Skipping invalid comment: %+v\n", comment)
+							}
 						}
 					}
 
@@ -403,6 +431,12 @@ func (p *GeminiProvider) parseResponse(response string, diffs []*models.CodeDiff
 
 				// Convert comments
 				for _, comment := range jsonResponse.Comments {
+					// Skip comments without valid file paths or line numbers
+					if comment.FilePath == "" || comment.LineNumber <= 0 {
+						fmt.Printf("Skipping comment with invalid file path or line number: %+v\n", comment)
+						continue
+					}
+
 					severity := models.SeverityInfo
 					switch strings.ToLower(comment.Severity) {
 					case "critical", "error", "high":
@@ -423,12 +457,21 @@ func (p *GeminiProvider) parseResponse(response string, diffs []*models.CodeDiff
 
 					// Try to match with a real file if path doesn't match exactly
 					if !p.fileExists(reviewComment.FilePath, diffs) {
+						matched := false
 						for _, diff := range diffs {
 							if strings.Contains(diff.FilePath, reviewComment.FilePath) ||
 								strings.Contains(reviewComment.FilePath, diff.FilePath) {
+								fmt.Printf("Matched incorrect file path '%s' to actual path '%s'\n",
+									reviewComment.FilePath, diff.FilePath)
 								reviewComment.FilePath = diff.FilePath
+								matched = true
 								break
 							}
+						}
+
+						if !matched {
+							fmt.Printf("Warning: Could not match file path '%s' to any files in the diff\n",
+								reviewComment.FilePath)
 						}
 					}
 
@@ -599,16 +642,24 @@ func (p *GeminiProvider) parseResponse(response string, diffs []*models.CodeDiff
 func (p *GeminiProvider) ensureCommentsForAllFiles(result *models.ReviewResult, diffs []*models.CodeDiff) {
 	// If no specific comments were found, add a generic comment for each file
 	if len(result.Comments) == 0 && len(diffs) > 0 {
+		fmt.Println("No comments found, adding generic comments for all files")
 		// Add a comment for each non-deleted file
 		for _, diff := range diffs {
 			if !diff.IsDeleted {
+				// Default to line 1, but try to use a more meaningful line number if available
+				lineNum := 1
+				if len(diff.Hunks) > 0 && diff.Hunks[0].NewStartLine > 0 {
+					lineNum = diff.Hunks[0].NewStartLine
+				}
+
 				result.Comments = append(result.Comments, &models.ReviewComment{
 					FilePath: diff.FilePath,
-					Line:     1,
+					Line:     lineNum,
 					Content:  "No specific issues found in this file.",
 					Severity: models.SeverityInfo,
 					Category: "general",
 				})
+				fmt.Printf("Added generic comment for file %s at line %d\n", diff.FilePath, lineNum)
 			}
 		}
 		return
@@ -625,13 +676,20 @@ func (p *GeminiProvider) ensureCommentsForAllFiles(result *models.ReviewResult, 
 	// Add generic comments for files without specific comments
 	for _, diff := range diffs {
 		if !diff.IsDeleted && !reviewedFiles[diff.FilePath] {
+			// Default to line 1, but try to use a more meaningful line number if available
+			lineNum := 1
+			if len(diff.Hunks) > 0 && diff.Hunks[0].NewStartLine > 0 {
+				lineNum = diff.Hunks[0].NewStartLine
+			}
+
 			result.Comments = append(result.Comments, &models.ReviewComment{
 				FilePath: diff.FilePath,
-				Line:     1,
+				Line:     lineNum,
 				Content:  "No specific issues found in this file.",
 				Severity: models.SeverityInfo,
 				Category: "general",
 			})
+			fmt.Printf("Added generic comment for file %s at line %d\n", diff.FilePath, lineNum)
 		}
 	}
 }
@@ -672,17 +730,17 @@ func min(a, b int) int {
 func (p *GeminiProvider) Configure(config map[string]interface{}) error {
 	// Extract configuration values
 	if apiKey, ok := config["api_key"].(string); ok {
-		p.apiKey = apiKey
+		p.APIKey = apiKey
 	} else {
 		return fmt.Errorf("api_key is required")
 	}
 
 	if model, ok := config["model"].(string); ok && model != "" {
-		p.model = model
+		p.Model = model
 	}
 
 	if temp, ok := config["temperature"].(float64); ok && temp > 0 {
-		p.temperature = temp
+		p.Temperature = temp
 	}
 
 	return nil

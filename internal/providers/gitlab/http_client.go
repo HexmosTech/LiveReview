@@ -316,14 +316,14 @@ func (c *GitLabHTTPClient) CreateMRLineComment(projectID string, mrIID int, file
 	versions, err := c.GetMergeRequestVersions(projectID, mrIID)
 	if err != nil {
 		fmt.Printf("Error getting MR versions: %v\n", err)
-		// Fallback to a regular comment if we can't get the versions
-		return c.createFallbackLineComment(projectID, mrIID, filePath, lineNum, comment)
+		// Try direct commenting with the note_position parameter first
+		return c.createDirectLineComment(projectID, mrIID, filePath, lineNum, comment)
 	}
 
 	if len(versions) == 0 {
 		fmt.Println("No versions found for this MR")
-		// Fallback to a regular comment if there are no versions
-		return c.createFallbackLineComment(projectID, mrIID, filePath, lineNum, comment)
+		// Try direct commenting with the note_position parameter
+		return c.createDirectLineComment(projectID, mrIID, filePath, lineNum, comment)
 	}
 
 	// Use the latest version (first in the list)
@@ -385,7 +385,50 @@ func (c *GitLabHTTPClient) CreateMRLineComment(projectID string, mrIID int, file
 		body, _ := io.ReadAll(resp.Body)
 		fmt.Printf("Line comment API request failed with status %d: %s\n", resp.StatusCode, string(body))
 
-		// If the line-specific comment fails, fall back to a regular comment
+		// Try simpler direct line comment method
+		return c.createDirectLineComment(projectID, mrIID, filePath, lineNum, comment)
+	}
+
+	return nil
+}
+
+// createDirectLineComment tries to create a line comment using a simpler method
+// This method uses note_position_type which is used in newer GitLab versions
+func (c *GitLabHTTPClient) createDirectLineComment(projectID string, mrIID int, filePath string, lineNum int, comment string) error {
+	fmt.Println("Using direct method for line comment")
+	requestURL := fmt.Sprintf("%s/projects/%s/merge_requests/%d/notes",
+		c.baseURL, url.PathEscape(projectID), mrIID)
+
+	// Create the query parameters - using simpler parameters that work with newer GitLab versions
+	values := url.Values{}
+	values.Add("body", comment)
+	values.Add("path", filePath)
+	values.Add("line", fmt.Sprintf("%d", lineNum))
+	values.Add("line_type", "new") // Comment on the new version of the code
+
+	// Make the request
+	req, err := http.NewRequest("POST", requestURL, strings.NewReader(values.Encode()))
+	if err != nil {
+		return fmt.Errorf("failed to create request: %w", err)
+	}
+
+	// Add headers
+	req.Header.Add("PRIVATE-TOKEN", c.token)
+	req.Header.Add("Content-Type", "application/x-www-form-urlencoded")
+
+	// Execute the request
+	resp, err := c.client.Do(req)
+	if err != nil {
+		return fmt.Errorf("failed to execute request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	// Check for errors
+	if resp.StatusCode != http.StatusCreated {
+		body, _ := io.ReadAll(resp.Body)
+		fmt.Printf("Direct line comment failed with status %d: %s\n", resp.StatusCode, string(body))
+
+		// As a last resort, fall back to a regular comment with file and line info
 		return c.createFallbackLineComment(projectID, mrIID, filePath, lineNum, comment)
 	}
 

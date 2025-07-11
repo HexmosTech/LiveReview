@@ -1,0 +1,35 @@
+# Run unit tests for a specific component
+.PHONY: test-parser
+test-parser:
+	@echo "Running parser tests..."
+	go test -v ./internal/ai/gemini/tests -run TestParseResponse
+
+.PHONY: test-prompt
+test-prompt:
+	@echo "Running prompt construction tests..."
+	go test -v ./internal/ai/gemini/tests -run TestConstructPrompt
+
+.PHONY: test-api
+test-api:
+	@echo "Running API tests..."
+	go test -v ./internal/ai/gemini/tests -run TestCallGeminiAPI
+
+.PHONY: test-gitlab-mr
+test-gitlab-mr:
+	@echo "Running GitLab MR tests..."
+	go test -v ./internal/providers/gitlab/tests -run TestGetMergeRequestContext
+
+.PHONY: test-gitlab-comments
+test-gitlab-comments:
+	@echo "Running GitLab comments tests..."
+	go test -v ./internal/providers/gitlab/tests -run TestPostComments
+
+.PHONY: test-pipeline
+test-pipeline:
+	@echo "Running pipeline tests..."
+	go test -v ./tests -run TestCompletePipeline
+
+# Run all tests
+.PHONY: test-all
+test-all: test-parser test-prompt test-api test-gitlab-mr test-gitlab-comments test-pipeline
+	@echo "All tests completed!"
