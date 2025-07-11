@@ -14,7 +14,16 @@ func TestCompletePipeline(t *testing.T) {
 	// In a real integration test, these steps would be connected
 
 	// STEP 1: Get MR context based on URL (using mock provider)
-	mrContext := &models.MergeRequestContext{
+	// Create a structure to hold MR context instead of using undefined type
+	mrContext := struct {
+		ProjectID    string
+		MergeReqID   string
+		Title        string
+		Description  string
+		SourceBranch string
+		TargetBranch string
+		Diffs        []*models.CodeDiff
+	}{
 		ProjectID:    "123",
 		MergeReqID:   "456",
 		Title:        "Test MR",
@@ -24,7 +33,7 @@ func TestCompletePipeline(t *testing.T) {
 		Diffs: []*models.CodeDiff{
 			{
 				FilePath: "test/file1.go",
-				Hunks: []*models.Hunk{
+				Hunks: []models.DiffHunk{ // Use DiffHunk instead of undefined Hunk
 					{
 						OldStartLine: 1,
 						OldLineCount: 3,
@@ -76,8 +85,8 @@ func TestCompletePipeline(t *testing.T) {
 	// This would be mocked in a unit test
 	// Simulate a successful post
 	_, _ = gitlab.New(gitlab.GitLabConfig{
-		APIBaseURL: "https://gitlab.example.com",
-		APIToken:   "dummy-token",
+		URL:   "https://gitlab.example.com",
+		Token: "dummy-token",
 	})
 
 	// In real tests, this would be mocked or skipped

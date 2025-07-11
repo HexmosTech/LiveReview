@@ -29,6 +29,11 @@ test-pipeline:
 	@echo "Running pipeline tests..."
 	go test -v ./tests -run TestCompletePipeline
 
+.PHONY: test-mr335
+test-mr335:
+	@echo "Running MR 335 details test..."
+	go test -v ./tests -run TestFetchMR335Details
+
 # Run all tests
 .PHONY: test-all
 test-all: test-parser test-prompt test-api test-gitlab-mr test-gitlab-comments test-pipeline

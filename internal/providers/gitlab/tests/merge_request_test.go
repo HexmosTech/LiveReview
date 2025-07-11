@@ -2,6 +2,7 @@ package gitlab_test
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -13,8 +14,12 @@ import (
 func TestGetMergeRequestContext(t *testing.T) {
 	// Create a mock GitLab server
 	mockServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// Check the path to determine which API is being called
-		if r.URL.Path == "/api/v4/projects/123/merge_requests/456" {
+		// Extract the path for easier checking
+		path := r.URL.Path
+
+		// Check if the path contains the project and merge request ID
+		if path == "/api/v4/projects/group%2Fproject/merge_requests/456" ||
+			path == "/api/v4/projects/group/project/merge_requests/456" {
 			// Return a mock MR response
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusOK)
@@ -28,7 +33,8 @@ func TestGetMergeRequestContext(t *testing.T) {
 				"target_branch": "main",
 				"web_url": "https://gitlab.example.com/group/project/-/merge_requests/456"
 			}`))
-		} else if r.URL.Path == "/api/v4/projects/123/merge_requests/456/changes" {
+		} else if path == "/api/v4/projects/group%2Fproject/merge_requests/456/changes" ||
+			path == "/api/v4/projects/group/project/merge_requests/456/changes" {
 			// Return mock changes
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusOK)
@@ -42,26 +48,32 @@ func TestGetMergeRequestContext(t *testing.T) {
 				]
 			}`))
 		} else {
+			fmt.Printf("Mock server: Unhandled path: %s\n", path)
 			w.WriteHeader(http.StatusNotFound)
+			w.Write([]byte(`{"error": "Not found", "path": "` + path + `"}`))
 		}
 	}))
 	defer mockServer.Close()
 
 	// Create a GitLab provider with the mock server URL
 	provider, err := gitlab.New(gitlab.GitLabConfig{
-		APIBaseURL: mockServer.URL,
-		APIToken:   "test-token",
+		URL:   mockServer.URL,
+		Token: "test-token",
 	})
 	assert.NoError(t, err)
 
 	// Test fetching MR context
 	ctx := context.Background()
-	mrContext, err := provider.GetMergeRequestContext(ctx, "123", "456")
+	mrDetails, err := provider.GetMergeRequestDetails(ctx, mockServer.URL+"/group/project/-/merge_requests/456")
 	assert.NoError(t, err)
 
-	// Verify the MR context
-	assert.Equal(t, "Test Merge Request", mrContext.Title)
-	assert.Equal(t, "This is a test MR", mrContext.Description)
-	assert.Equal(t, 1, len(mrContext.Diffs))
-	assert.Equal(t, "file1.go", mrContext.Diffs[0].FilePath)
+	// Verify the MR details
+	assert.Equal(t, "Test Merge Request", mrDetails.Title)
+	assert.Equal(t, "This is a test MR", mrDetails.Description)
+
+	// Now test getting changes
+	diffs, err := provider.GetMergeRequestChanges(ctx, "456")
+	assert.NoError(t, err)
+	assert.Equal(t, 1, len(diffs))
+	assert.Equal(t, "file1.go", diffs[0].FilePath)
 }
