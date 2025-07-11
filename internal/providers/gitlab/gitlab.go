@@ -128,13 +128,8 @@ func (p *GitLabProvider) PostComment(ctx context.Context, mrID string, comment *
 		}
 	}
 
-	// Create and post the comment using our custom HTTP client
+	// Prepare the comment text
 	commentText := comment.Content
-
-	// Add file and line information for specific comments
-	if comment.FilePath != "" && comment.Line > 0 {
-		commentText = fmt.Sprintf("**File: %s, Line: %d**\n\n%s", comment.FilePath, comment.Line, commentText)
-	}
 
 	// Add severity information
 	if comment.Severity != "" {
@@ -150,7 +145,15 @@ func (p *GitLabProvider) PostComment(ctx context.Context, mrID string, comment *
 	}
 
 	fmt.Printf("Posting comment on MR #%d for project %s\n", mrIID, projectID)
-	return p.httpClient.CreateMRComment(projectID, mrIID, commentText)
+
+	// If we have file path and line number, post a line-specific comment
+	if comment.FilePath != "" && comment.Line > 0 {
+		fmt.Printf("  (as line comment on %s:%d)\n", comment.FilePath, comment.Line)
+		return p.httpClient.CreateMRLineComment(projectID, mrIID, comment.FilePath, comment.Line, commentText)
+	} else {
+		// Otherwise post a general MR comment
+		return p.httpClient.CreateMRComment(projectID, mrIID, commentText)
+	}
 }
 
 // PostComments posts multiple comments on a merge request
