@@ -310,58 +310,132 @@ func (c *GitLabHTTPClient) GetMergeRequestVersions(projectID string, mrIID int) 
 
 // CreateMRLineComment creates a comment on a specific line in a file in a merge request
 func (c *GitLabHTTPClient) CreateMRLineComment(projectID string, mrIID int, filePath string, lineNum int, comment string) error {
-	fmt.Printf("Creating line comment for file %s at line %d\n", filePath, lineNum)
+	// Normalize file path - remove any leading slash
+	filePath = strings.TrimPrefix(filePath, "/")
 
-	// First, get the merge request versions to get the SHAs we need
-	versions, err := c.GetMergeRequestVersions(projectID, mrIID)
-	if err != nil {
-		fmt.Printf("Error getting MR versions: %v\n", err)
-		// Try direct commenting with the note_position parameter first
-		return c.createDirectLineComment(projectID, mrIID, filePath, lineNum, comment)
+	fmt.Printf("DEBUG: Creating line comment\n")
+	fmt.Printf("DEBUG: - Project ID: %s\n", projectID)
+	fmt.Printf("DEBUG: - MR IID: %d\n", mrIID)
+	fmt.Printf("DEBUG: - File Path: %s (normalized)\n", filePath)
+	fmt.Printf("DEBUG: - Line Number: %d\n", lineNum)
+	fmt.Printf("DEBUG: - Comment begins: %s\n", getCommentBeginning(comment, 50))
+
+	// First try the discussions-based approach which should work for GitLab's Changes tab
+	err := c.CreateLineCommentViaDiscussions(projectID, mrIID, filePath, lineNum, comment)
+	if err == nil {
+		fmt.Println("DEBUG: Successfully posted comment using discussions approach")
+		return nil
 	}
 
-	if len(versions) == 0 {
-		fmt.Println("No versions found for this MR")
-		// Try direct commenting with the note_position parameter
-		return c.createDirectLineComment(projectID, mrIID, filePath, lineNum, comment)
+	fmt.Printf("DEBUG: Discussions approach failed: %v\n", err)
+	fmt.Println("DEBUG: Trying notes API approach...")
+
+	// Try the notes API approach next
+	// Create the correct URL
+	requestURL := fmt.Sprintf("%s/projects/%s/merge_requests/%d/notes",
+		c.baseURL, url.PathEscape(projectID), mrIID)
+
+	// Create the form data
+	form := url.Values{}
+	form.Add("body", comment)
+	form.Add("path", filePath)
+	form.Add("line", fmt.Sprintf("%d", lineNum))
+	form.Add("line_type", "new")
+
+	// Make the request
+	req, err := http.NewRequest("POST", requestURL, strings.NewReader(form.Encode()))
+	if err != nil {
+		return fmt.Errorf("failed to create request: %w", err)
+	}
+
+	// Add headers
+	req.Header.Add("PRIVATE-TOKEN", c.token)
+	req.Header.Add("Content-Type", "application/x-www-form-urlencoded")
+
+	// Execute the request
+	resp, err := c.client.Do(req)
+	if err != nil {
+		return fmt.Errorf("failed to execute request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	// Check the response
+	if resp.StatusCode == http.StatusCreated {
+		fmt.Println("DEBUG: Successfully posted comment using notes API")
+		return nil
+	}
+
+	body, _ := io.ReadAll(resp.Body)
+	fmt.Printf("DEBUG: Notes API failed with status %d: %s\n", resp.StatusCode, string(body))
+
+	// As a last resort, fall back to a regular comment with file and line info
+	fmt.Println("DEBUG: All line comment methods failed, falling back to regular comment with file/line info")
+	return c.createFallbackLineComment(projectID, mrIID, filePath, lineNum, comment)
+}
+
+// createDirectLineComment tries to create a line comment using a simpler method
+// This method uses note_position_type which is used in newer GitLab versions
+func (c *GitLabHTTPClient) createDirectLineComment(projectID string, mrIID int, filePath string, lineNum int, comment string) error {
+	fmt.Println("DEBUG: Using direct method for line comment")
+
+	// First get the versions to get the SHAs needed for proper positioning
+	versions, err := c.GetMergeRequestVersions(projectID, mrIID)
+	if err != nil || len(versions) == 0 {
+		fmt.Printf("DEBUG: Error getting MR versions: %v\n", err)
+		return fmt.Errorf("failed to get MR versions: %v", err)
 	}
 
 	// Use the latest version (first in the list)
 	latestVersion := versions[0]
-	fmt.Printf("Using MR version with base_sha=%s, start_sha=%s, head_sha=%s\n",
+	fmt.Printf("DEBUG: Using MR version with base_sha=%s, start_sha=%s, head_sha=%s\n",
 		latestVersion.BaseCommitSHA, latestVersion.StartCommitSHA, latestVersion.HeadCommitSHA)
 
-	// Create the correct URL for discussions (which supports line comments)
+	// Use the discussions endpoint instead of notes for line comments
+	// This is crucial for properly attaching comments to specific lines in the Changes tab
 	requestURL := fmt.Sprintf("%s/projects/%s/merge_requests/%d/discussions",
 		c.baseURL, url.PathEscape(projectID), mrIID)
 
-	// Create form data for the request - we're using form data to handle all parameters properly
+	fmt.Printf("DEBUG: Request URL: %s\n", requestURL)
+
+	// Normalize file path - ensure no leading slash
+	filePath = strings.TrimPrefix(filePath, "/")
+
+	// Create the form data with all required parameters
 	form := url.Values{}
+
+	// The actual comment text
 	form.Add("body", comment)
+
+	// These position parameters are critical for line comments to appear in the Changes tab
 	form.Add("position[base_sha]", latestVersion.BaseCommitSHA)
 	form.Add("position[start_sha]", latestVersion.StartCommitSHA)
 	form.Add("position[head_sha]", latestVersion.HeadCommitSHA)
 
-	// Use the "text" position type which is more reliable
+	// Position type must be "text" for it to work reliably
 	form.Add("position[position_type]", "text")
 
-	// For new files, we need different parameters
+	// Set path and line info for the new version of the file
 	form.Add("position[new_path]", filePath)
 	form.Add("position[new_line]", fmt.Sprintf("%d", lineNum))
 
-	// Generate a line_code based on SHAs and path - this is required by GitLab
+	// Generate a line_code which is crucial for proper positioning
+	// Format: SHA1_SHA2_path_line
 	lineCode := fmt.Sprintf("%s_%s_%s_%s_%d",
-		latestVersion.BaseCommitSHA[:8],
+		latestVersion.StartCommitSHA[:8],
 		latestVersion.HeadCommitSHA[:8],
 		strings.ReplaceAll(filePath, "/", "_"),
-		"right", // We're always commenting on the new version
+		"right", // right side of the diff
 		lineNum)
 	form.Add("position[line_code]", lineCode)
 
-	// Add old_path and old_line only for modified files, not for new files
-	// For now, let's assume the file is modified and set both
+	// Include old path and line for context (helps GitLab position the comment correctly)
 	form.Add("position[old_path]", filePath)
 	form.Add("position[old_line]", fmt.Sprintf("%d", lineNum))
+
+	fmt.Printf("DEBUG: Form values for direct line comment:\n")
+	for k, v := range form {
+		fmt.Printf("DEBUG: - %s: %s\n", k, v[0])
+	}
 
 	// Make the request
 	req, err := http.NewRequest("POST", requestURL, strings.NewReader(form.Encode()))
@@ -381,56 +455,15 @@ func (c *GitLabHTTPClient) CreateMRLineComment(projectID string, mrIID int, file
 	defer resp.Body.Close()
 
 	// Check for errors
+	body, _ := io.ReadAll(resp.Body)
 	if resp.StatusCode != http.StatusCreated && resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(resp.Body)
-		fmt.Printf("Line comment API request failed with status %d: %s\n", resp.StatusCode, string(body))
-
-		// Try simpler direct line comment method
-		return c.createDirectLineComment(projectID, mrIID, filePath, lineNum, comment)
+		fmt.Printf("DEBUG: Direct line comment failed with status %d\n", resp.StatusCode)
+		fmt.Printf("DEBUG: Response body: %s\n", string(body))
+		return fmt.Errorf("API request failed with status %d: %s", resp.StatusCode, string(body))
 	}
 
-	return nil
-}
-
-// createDirectLineComment tries to create a line comment using a simpler method
-// This method uses note_position_type which is used in newer GitLab versions
-func (c *GitLabHTTPClient) createDirectLineComment(projectID string, mrIID int, filePath string, lineNum int, comment string) error {
-	fmt.Println("Using direct method for line comment")
-	requestURL := fmt.Sprintf("%s/projects/%s/merge_requests/%d/notes",
-		c.baseURL, url.PathEscape(projectID), mrIID)
-
-	// Create the query parameters - using simpler parameters that work with newer GitLab versions
-	values := url.Values{}
-	values.Add("body", comment)
-	values.Add("path", filePath)
-	values.Add("line", fmt.Sprintf("%d", lineNum))
-	values.Add("line_type", "new") // Comment on the new version of the code
-
-	// Make the request
-	req, err := http.NewRequest("POST", requestURL, strings.NewReader(values.Encode()))
-	if err != nil {
-		return fmt.Errorf("failed to create request: %w", err)
-	}
-
-	// Add headers
-	req.Header.Add("PRIVATE-TOKEN", c.token)
-	req.Header.Add("Content-Type", "application/x-www-form-urlencoded")
-
-	// Execute the request
-	resp, err := c.client.Do(req)
-	if err != nil {
-		return fmt.Errorf("failed to execute request: %w", err)
-	}
-	defer resp.Body.Close()
-
-	// Check for errors
-	if resp.StatusCode != http.StatusCreated {
-		body, _ := io.ReadAll(resp.Body)
-		fmt.Printf("Direct line comment failed with status %d: %s\n", resp.StatusCode, string(body))
-
-		// As a last resort, fall back to a regular comment with file and line info
-		return c.createFallbackLineComment(projectID, mrIID, filePath, lineNum, comment)
-	}
+	fmt.Printf("DEBUG: Direct line comment succeeded with status %d\n", resp.StatusCode)
+	fmt.Printf("DEBUG: Response body: %s\n", getCommentBeginning(string(body), 100))
 
 	return nil
 }
@@ -472,6 +505,105 @@ func (c *GitLabHTTPClient) createFallbackLineComment(projectID string, mrIID int
 		return fmt.Errorf("API request failed with status %d: %s", resp.StatusCode, string(body))
 	}
 
+	return nil
+}
+
+// createDiscussionLineComment creates a line comment using the discussions endpoint
+// which may have better support for attaching comments to specific lines
+// Note: This method is currently unused but kept for reference and possible future use
+func (c *GitLabHTTPClient) createDiscussionLineComment(projectID string, mrIID int, filePath string, lineNum int, comment string) error {
+	fmt.Println("DEBUG: Using discussions endpoint for line comment")
+
+	// Get the merge request versions to get the SHAs
+	versions, err := c.GetMergeRequestVersions(projectID, mrIID)
+	if err != nil {
+		fmt.Printf("DEBUG: Error getting MR versions: %v\n", err)
+		return err
+	}
+
+	if len(versions) == 0 {
+		return fmt.Errorf("no versions found for this MR")
+	}
+
+	// Use the latest version (first in the list)
+	latestVersion := versions[0]
+	fmt.Printf("DEBUG: Using MR version with base_sha=%s, start_sha=%s, head_sha=%s\n",
+		latestVersion.BaseCommitSHA, latestVersion.StartCommitSHA, latestVersion.HeadCommitSHA)
+
+	// Create the correct URL for discussions endpoint
+	requestURL := fmt.Sprintf("%s/projects/%s/merge_requests/%d/discussions",
+		c.baseURL, url.PathEscape(projectID), mrIID)
+
+	fmt.Printf("DEBUG: Discussions endpoint URL: %s\n", requestURL)
+
+	// Ensure file path has no leading slash
+	filePath = strings.TrimPrefix(filePath, "/")
+
+	// Create form data for the request
+	form := url.Values{}
+	form.Add("body", comment)
+
+	// Position data is critical for line comments
+	form.Add("position[base_sha]", latestVersion.BaseCommitSHA)
+	form.Add("position[start_sha]", latestVersion.StartCommitSHA)
+	form.Add("position[head_sha]", latestVersion.HeadCommitSHA)
+
+	// Try with "text" position_type which sometimes works better
+	form.Add("position[position_type]", "text")
+
+	// File path and line information
+	form.Add("position[new_path]", filePath)
+	form.Add("position[new_line]", fmt.Sprintf("%d", lineNum))
+
+	// Line code is important for GitLab to locate the correct line
+	// Format: start_sha_head_sha_file_path_right_line
+	lineCode := fmt.Sprintf("%s_%s_%s_%s_%d",
+		latestVersion.StartCommitSHA[:8],
+		latestVersion.HeadCommitSHA[:8],
+		strings.ReplaceAll(filePath, "/", "_"),
+		"right", // right side of the diff
+		lineNum)
+	form.Add("position[line_code]", lineCode)
+
+	// For completeness, add old_path as well
+	form.Add("position[old_path]", filePath)
+	form.Add("position[old_line]", fmt.Sprintf("%d", lineNum))
+
+	// Print debug info
+	fmt.Println("DEBUG: Discussion position parameters:")
+	for k, v := range form {
+		if strings.HasPrefix(k, "position") {
+			fmt.Printf("DEBUG: - %s: %s\n", k, v[0])
+		}
+	}
+
+	// Make the request
+	req, err := http.NewRequest("POST", requestURL, strings.NewReader(form.Encode()))
+	if err != nil {
+		return fmt.Errorf("failed to create request: %w", err)
+	}
+
+	// Add headers
+	req.Header.Add("PRIVATE-TOKEN", c.token)
+	req.Header.Add("Content-Type", "application/x-www-form-urlencoded")
+
+	// Execute the request
+	resp, err := c.client.Do(req)
+	if err != nil {
+		return fmt.Errorf("failed to execute request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	// Check response
+	body, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode != http.StatusCreated && resp.StatusCode != http.StatusOK {
+		fmt.Printf("DEBUG: Discussion endpoint failed with status %d\n", resp.StatusCode)
+		fmt.Printf("DEBUG: Response body: %s\n", string(body))
+		return fmt.Errorf("API request failed with status %d: %s", resp.StatusCode, string(body))
+	}
+
+	fmt.Printf("DEBUG: Discussion endpoint succeeded with status %d\n", resp.StatusCode)
+	fmt.Printf("DEBUG: Response body: %s\n", getCommentBeginning(string(body), 100))
 	return nil
 }
 
@@ -517,4 +649,121 @@ func ConvertToCodeDiffs(changes *GitLabMergeRequestChanges) []*models.CodeDiff {
 	}
 
 	return diffs
+}
+
+// Helper function to get the beginning of a comment for logging purposes
+func getCommentBeginning(comment string, maxLen int) string {
+	if len(comment) <= maxLen {
+		return comment
+	}
+	return comment[:maxLen] + "..."
+}
+
+// TEST METHODS FOR DEBUGGING GITLAB COMMENT ISSUES
+
+// TestCreateDirectLineComment exposes the createDirectLineComment method for testing
+func (c *GitLabHTTPClient) TestCreateDirectLineComment(projectID string, mrIID int, filePath string, lineNum int, comment string) error {
+	return c.createDirectLineComment(projectID, mrIID, filePath, lineNum, comment)
+}
+
+// TestCreateFallbackLineComment exposes the createFallbackLineComment method for testing
+func (c *GitLabHTTPClient) TestCreateFallbackLineComment(projectID string, mrIID int, filePath string, lineNum int, comment string) error {
+	return c.createFallbackLineComment(projectID, mrIID, filePath, lineNum, comment)
+}
+
+// GetBaseURL returns the base URL for testing
+func (c *GitLabHTTPClient) GetBaseURL() string {
+	return c.baseURL
+}
+
+// GetToken returns the token for testing
+func (c *GitLabHTTPClient) GetToken() string {
+	return c.token
+}
+
+// TestCreateCommentWithPositionType creates a comment with a specific position_type value
+func (c *GitLabHTTPClient) TestCreateCommentWithPositionType(projectID string, mrIID int, filePath string, lineNum int, comment string, positionType string) error {
+	// First, get the merge request versions to get the SHAs we need
+	versions, err := c.GetMergeRequestVersions(projectID, mrIID)
+	if err != nil {
+		fmt.Printf("DEBUG: Error getting MR versions: %v\n", err)
+		return err
+	}
+
+	if len(versions) == 0 {
+		return fmt.Errorf("no versions found for this MR")
+	}
+
+	// Use the latest version (first in the list)
+	latestVersion := versions[0]
+	fmt.Printf("Using MR version with base_sha=%s, start_sha=%s, head_sha=%s\n",
+		latestVersion.BaseCommitSHA, latestVersion.StartCommitSHA, latestVersion.HeadCommitSHA)
+
+	// Create the correct URL for discussions (which supports line comments)
+	requestURL := fmt.Sprintf("%s/projects/%s/merge_requests/%d/discussions",
+		c.baseURL, url.PathEscape(projectID), mrIID)
+
+	// Create form data for the request
+	form := url.Values{}
+	form.Add("body", comment)
+	form.Add("position[base_sha]", latestVersion.BaseCommitSHA)
+	form.Add("position[start_sha]", latestVersion.StartCommitSHA)
+	form.Add("position[head_sha]", latestVersion.HeadCommitSHA)
+
+	// Use the specified position type
+	form.Add("position[position_type]", positionType)
+
+	// Add file path and line information
+	form.Add("position[new_path]", filePath)
+	form.Add("position[new_line]", fmt.Sprintf("%d", lineNum))
+
+	// Generate a line_code
+	lineCode := fmt.Sprintf("%s_%s_%s_%s_%d",
+		latestVersion.BaseCommitSHA[:8],
+		latestVersion.HeadCommitSHA[:8],
+		strings.ReplaceAll(filePath, "/", "_"),
+		"right",
+		lineNum)
+	form.Add("position[line_code]", lineCode)
+
+	// Add old_path and old_line (these may be needed for modified files)
+	form.Add("position[old_path]", filePath)
+	form.Add("position[old_line]", fmt.Sprintf("%d", lineNum))
+
+	// Print debug info
+	fmt.Printf("DEBUG: Testing comment with position_type=%s\n", positionType)
+	fmt.Printf("DEBUG: Request URL: %s\n", requestURL)
+	fmt.Printf("DEBUG: Form data:\n")
+	for k, v := range form {
+		fmt.Printf("DEBUG:   %s: %s\n", k, v)
+	}
+
+	// Make the request
+	req, err := http.NewRequest("POST", requestURL, strings.NewReader(form.Encode()))
+	if err != nil {
+		return fmt.Errorf("failed to create request: %w", err)
+	}
+
+	// Add headers
+	req.Header.Add("PRIVATE-TOKEN", c.token)
+	req.Header.Add("Content-Type", "application/x-www-form-urlencoded")
+
+	// Execute the request
+	resp, err := c.client.Do(req)
+	if err != nil {
+		return fmt.Errorf("failed to execute request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	// Check for errors
+	body, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode != http.StatusCreated && resp.StatusCode != http.StatusOK {
+		fmt.Printf("DEBUG: API request failed with status %d\n", resp.StatusCode)
+		fmt.Printf("DEBUG: Response body: %s\n", string(body))
+		return fmt.Errorf("API request failed with status %d: %s", resp.StatusCode, string(body))
+	}
+
+	fmt.Printf("DEBUG: API request succeeded with status %d\n", resp.StatusCode)
+	fmt.Printf("DEBUG: Response body: %s\n", getCommentBeginning(string(body), 100))
+	return nil
 }

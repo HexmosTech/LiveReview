@@ -83,19 +83,25 @@ func (p *GeminiProvider) parseJSONResponse(response string, diffs []*models.Code
 			Category:    "review",
 		}
 
+		fmt.Printf("DEBUG: Processing comment - original FilePath=%s, Line=%d\n", comment.FilePath, comment.LineNumber)
+
 		// Try to match with a real file if path doesn't match exactly
 		found := false
 		for _, diff := range diffs {
 			if diff.FilePath == reviewComment.FilePath {
 				found = true
+				fmt.Printf("DEBUG: Exact file path match found: %s\n", diff.FilePath)
 				break
 			}
 		}
 
 		if !found {
+			fmt.Printf("DEBUG: No exact match found, trying partial matches\n")
 			for _, diff := range diffs {
 				if strings.Contains(diff.FilePath, reviewComment.FilePath) ||
 					strings.Contains(reviewComment.FilePath, diff.FilePath) {
+					fmt.Printf("DEBUG: Partial match - changing FilePath from '%s' to '%s'\n",
+						reviewComment.FilePath, diff.FilePath)
 					reviewComment.FilePath = diff.FilePath
 					break
 				}

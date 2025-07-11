@@ -181,6 +181,25 @@ func runReviewProcess(
 
 	fmt.Println("AI Review completed successfully")
 
+	// Debug output of results when verbose
+	if verbose {
+		fmt.Println("\nDEBUG: REVIEW RESULT DETAILS")
+		fmt.Println("=============================")
+		fmt.Printf("Summary length: %d characters\n", len(result.Summary))
+		fmt.Printf("Number of comments: %d\n", len(result.Comments))
+
+		for i, comment := range result.Comments {
+			fmt.Printf("\nDEBUG: Comment #%d\n", i+1)
+			fmt.Printf("  File Path: '%s'\n", comment.FilePath)
+			fmt.Printf("  Line Number: %d\n", comment.Line)
+			fmt.Printf("  Severity: %s\n", comment.Severity)
+			fmt.Printf("  Content begins: %s\n",
+				comment.Content[:min(50, len(comment.Content))])
+			fmt.Printf("  Number of suggestions: %d\n", len(comment.Suggestions))
+		}
+		fmt.Println("=============================")
+	}
+
 	// Post comments
 	if !dryRun {
 		if verbose {
@@ -235,4 +254,12 @@ func runReviewProcess(
 	}
 
 	return nil
+}
+
+// Helper function to get the minimum of two integers
+func min(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
 }

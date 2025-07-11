@@ -171,6 +171,11 @@ func (p *GitLabProvider) Name() string {
 	return "gitlab"
 }
 
+// GetHTTPClient returns the HTTP client for direct access in tests
+func (p *GitLabProvider) GetHTTPClient() *GitLabHTTPClient {
+	return p.httpClient
+}
+
 // Configure configures the provider with the given configuration
 func (p *GitLabProvider) Configure(config map[string]interface{}) error {
 	// Extract URL

@@ -1,0 +1,49 @@
+{
+  "id": "cdbf388d3a6d92f699bf56890dfc3a0199261114",
+  "individual_note": false,
+  "notes": [
+    {
+      "id": 22561,
+      "type": "DiffNote",
+      "body": "This line could use some additional error handling.",
+      "attachment": null,
+      "author": {
+        "id": 3,
+        "username": "shrijith",
+        "name": "Shrijith",
+        "state": "active",
+        "locked": false,
+        "avatar_url": "https://secure.gravatar.com/avatar/315382e7b250a15a9858e6e2735e316e1c32ee2807191d0596fc2e0a6f7d723f?s=80&d=identicon",
+        "web_url": "https://git.apps.hexmos.com/shrijith"
+      },
+      "created_at": "2025-07-11T15:33:44.455Z",
+      "updated_at": "2025-07-11T15:33:44.455Z",
+      "system": false,
+      "noteable_id": 1709,
+      "noteable_type": "MergeRequest",
+      "project_id": 170,
+      "commit_id": null,
+      "position": {
+        "base_sha": "fbb8cc2b56ff7838f2bb6a6ceb2cb092a2bffb4b",
+        "start_sha": "b77351c2c8ca17955021305eb77aebd1d28ce158",
+        "head_sha": "15f5443ead84dea08d3d3d5d94c5889514c19a4e",
+        "old_path": "liveapi-backend/exam/metric_analysis.go",
+        "new_path": "liveapi-backend/exam/metric_analysis.go",
+        "position_type": "text",
+        "old_line": null,
+        "new_line": 19,
+        "line_range": null
+      },
+      "resolvable": true,
+      "resolved": false,
+      "resolved_by": null,
+      "resolved_at": null,
+      "confidential": false,
+      "internal": false,
+      "imported": false,
+      "imported_from": "none",
+      "noteable_iid": 335,
+      "commands_changes": {}
+    }
+  ]
+}

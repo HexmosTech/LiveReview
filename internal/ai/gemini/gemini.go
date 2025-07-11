@@ -280,7 +280,33 @@ func (p *GeminiProvider) callGeminiAPI(ctx context.Context, prompt string) (stri
 	}
 
 	// Return the text from the response
-	return respObj.Candidates[0].Content.Parts[0].Text, nil
+	responseText := respObj.Candidates[0].Content.Parts[0].Text
+
+	// Debug: Print the first part of the response
+	firstPart := responseText
+	if len(firstPart) > 200 {
+		firstPart = firstPart[:200] + "..."
+	}
+	fmt.Printf("DEBUG: First part of Gemini response: %s\n", firstPart)
+
+	// If there seems to be JSON in the response, log a larger portion
+	if strings.Contains(responseText, "\"filePath\"") {
+		// Find a filePath occurrence and show context around it
+		index := strings.Index(responseText, "\"filePath\"")
+		if index > 0 {
+			start := index - 50
+			if start < 0 {
+				start = 0
+			}
+			end := index + 150
+			if end > len(responseText) {
+				end = len(responseText)
+			}
+			fmt.Printf("DEBUG: FilePath context: %s\n", responseText[start:end])
+		}
+	}
+
+	return responseText, nil
 }
 
 // parseResponse parses the response from Gemini API into a ReviewResult
@@ -456,12 +482,19 @@ func (p *GeminiProvider) parseResponse(response string, diffs []*models.CodeDiff
 					}
 
 					// Try to match with a real file if path doesn't match exactly
+					fmt.Printf("DEBUG: Comment for file '%s' at line %d, looking for exact match...\n",
+						reviewComment.FilePath, reviewComment.Line)
+
 					if !p.fileExists(reviewComment.FilePath, diffs) {
+						fmt.Printf("DEBUG: No exact match for '%s', trying partial matches\n", reviewComment.FilePath)
 						matched := false
 						for _, diff := range diffs {
+							// Debug - print the comparison
+							fmt.Printf("DEBUG: Comparing '%s' with diff file '%s'\n", reviewComment.FilePath, diff.FilePath)
+
 							if strings.Contains(diff.FilePath, reviewComment.FilePath) ||
 								strings.Contains(reviewComment.FilePath, diff.FilePath) {
-								fmt.Printf("Matched incorrect file path '%s' to actual path '%s'\n",
+								fmt.Printf("DEBUG: Matched incorrect file path '%s' to actual path '%s'\n",
 									reviewComment.FilePath, diff.FilePath)
 								reviewComment.FilePath = diff.FilePath
 								matched = true
@@ -470,9 +503,16 @@ func (p *GeminiProvider) parseResponse(response string, diffs []*models.CodeDiff
 						}
 
 						if !matched {
-							fmt.Printf("Warning: Could not match file path '%s' to any files in the diff\n",
+							fmt.Printf("DEBUG: WARNING: Could not match file path '%s' to any files in the diff\n",
 								reviewComment.FilePath)
+							// List available files in diff for debugging
+							fmt.Println("DEBUG: Available files in diff:")
+							for _, diff := range diffs {
+								fmt.Printf("DEBUG: - %s\n", diff.FilePath)
+							}
 						}
+					} else {
+						fmt.Printf("DEBUG: Found exact match for file '%s'\n", reviewComment.FilePath)
 					}
 
 					result.Comments = append(result.Comments, reviewComment)
