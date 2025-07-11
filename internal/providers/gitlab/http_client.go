@@ -181,42 +181,9 @@ func (c *GitLabHTTPClient) ListMergeRequests(projectID string) ([]GitLabMergeReq
 }
 
 // CreateMRComment creates a comment on a merge request
+// This is now implemented using CreateMRGeneralComment for consistency
 func (c *GitLabHTTPClient) CreateMRComment(projectID string, mrIID int, comment string) error {
-	// Create the correct URL
-	requestURL := fmt.Sprintf("%s/projects/%s/merge_requests/%d/notes",
-		c.baseURL, url.PathEscape(projectID), mrIID)
-
-	// Create the query parameters
-	values := url.Values{}
-	values.Add("body", comment)
-
-	// Make the request
-	req, err := http.NewRequest("POST", requestURL, nil)
-	if err != nil {
-		return fmt.Errorf("failed to create request: %w", err)
-	}
-
-	// Add the query parameters
-	req.URL.RawQuery = values.Encode()
-
-	// Add authentication
-	req.Header.Add("PRIVATE-TOKEN", c.token)
-	req.Header.Add("Content-Type", "application/x-www-form-urlencoded")
-
-	// Execute the request
-	resp, err := c.client.Do(req)
-	if err != nil {
-		return fmt.Errorf("failed to execute request: %w", err)
-	}
-	defer resp.Body.Close()
-
-	// Check for errors
-	if resp.StatusCode != http.StatusCreated {
-		body, _ := io.ReadAll(resp.Body)
-		return fmt.Errorf("API request failed with status %d: %s", resp.StatusCode, string(body))
-	}
-
-	return nil
+	return c.CreateMRGeneralComment(projectID, mrIID, comment)
 }
 
 // GetMergeRequestDiffs gets the raw diff for a merge request
@@ -308,70 +275,8 @@ func (c *GitLabHTTPClient) GetMergeRequestVersions(projectID string, mrIID int) 
 	return versions, nil
 }
 
-// CreateMRLineComment creates a comment on a specific line in a file in a merge request
-func (c *GitLabHTTPClient) CreateMRLineComment(projectID string, mrIID int, filePath string, lineNum int, comment string) error {
-	// Normalize file path - remove any leading slash
-	filePath = strings.TrimPrefix(filePath, "/")
-
-	fmt.Printf("DEBUG: Creating line comment\n")
-	fmt.Printf("DEBUG: - Project ID: %s\n", projectID)
-	fmt.Printf("DEBUG: - MR IID: %d\n", mrIID)
-	fmt.Printf("DEBUG: - File Path: %s (normalized)\n", filePath)
-	fmt.Printf("DEBUG: - Line Number: %d\n", lineNum)
-	fmt.Printf("DEBUG: - Comment begins: %s\n", getCommentBeginning(comment, 50))
-
-	// First try the discussions-based approach which should work for GitLab's Changes tab
-	err := c.CreateLineCommentViaDiscussions(projectID, mrIID, filePath, lineNum, comment)
-	if err == nil {
-		fmt.Println("DEBUG: Successfully posted comment using discussions approach")
-		return nil
-	}
-
-	fmt.Printf("DEBUG: Discussions approach failed: %v\n", err)
-	fmt.Println("DEBUG: Trying notes API approach...")
-
-	// Try the notes API approach next
-	// Create the correct URL
-	requestURL := fmt.Sprintf("%s/projects/%s/merge_requests/%d/notes",
-		c.baseURL, url.PathEscape(projectID), mrIID)
-
-	// Create the form data
-	form := url.Values{}
-	form.Add("body", comment)
-	form.Add("path", filePath)
-	form.Add("line", fmt.Sprintf("%d", lineNum))
-	form.Add("line_type", "new")
-
-	// Make the request
-	req, err := http.NewRequest("POST", requestURL, strings.NewReader(form.Encode()))
-	if err != nil {
-		return fmt.Errorf("failed to create request: %w", err)
-	}
-
-	// Add headers
-	req.Header.Add("PRIVATE-TOKEN", c.token)
-	req.Header.Add("Content-Type", "application/x-www-form-urlencoded")
-
-	// Execute the request
-	resp, err := c.client.Do(req)
-	if err != nil {
-		return fmt.Errorf("failed to execute request: %w", err)
-	}
-	defer resp.Body.Close()
-
-	// Check the response
-	if resp.StatusCode == http.StatusCreated {
-		fmt.Println("DEBUG: Successfully posted comment using notes API")
-		return nil
-	}
-
-	body, _ := io.ReadAll(resp.Body)
-	fmt.Printf("DEBUG: Notes API failed with status %d: %s\n", resp.StatusCode, string(body))
-
-	// As a last resort, fall back to a regular comment with file and line info
-	fmt.Println("DEBUG: All line comment methods failed, falling back to regular comment with file/line info")
-	return c.createFallbackLineComment(projectID, mrIID, filePath, lineNum, comment)
-}
+// CreateMRLineComment function is now implemented in gitlab_comment.go
+// All references to this function will use the enhanced implementation there.
 
 // createDirectLineComment tries to create a line comment using a simpler method
 // This method uses note_position_type which is used in newer GitLab versions

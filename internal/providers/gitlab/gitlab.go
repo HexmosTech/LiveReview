@@ -152,7 +152,7 @@ func (p *GitLabProvider) PostComment(ctx context.Context, mrID string, comment *
 		return p.httpClient.CreateMRLineComment(projectID, mrIID, comment.FilePath, comment.Line, commentText)
 	} else {
 		// Otherwise post a general MR comment
-		return p.httpClient.CreateMRComment(projectID, mrIID, commentText)
+		return p.httpClient.CreateMRGeneralComment(projectID, mrIID, commentText)
 	}
 }
 
