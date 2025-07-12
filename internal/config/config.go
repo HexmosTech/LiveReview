@@ -21,6 +21,7 @@ type Config struct {
 
 	Providers map[string]map[string]interface{} `koanf:"providers"`
 	AI        map[string]map[string]interface{} `koanf:"ai"`
+	Batch     map[string]interface{}            `koanf:"batch"`
 }
 
 // LoadConfig loads the configuration from a file

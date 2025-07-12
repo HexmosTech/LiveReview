@@ -9,6 +9,7 @@ import (
 
 	"github.com/livereview/internal/ai"
 	"github.com/livereview/internal/ai/gemini"
+	"github.com/livereview/internal/batch"
 	"github.com/livereview/internal/config"
 	"github.com/livereview/internal/providers"
 	"github.com/livereview/internal/providers/gitlab"
@@ -41,6 +42,12 @@ func ReviewCommand() *cli.Command {
 				Aliases: []string{"v"},
 				Usage:   "Enable verbose output for this command",
 			},
+			&cli.IntFlag{
+				Name:    "batch-size",
+				Aliases: []string{"b"},
+				Usage:   "Maximum number of tokens per batch (0 for provider default)",
+				Value:   0,
+			},
 		},
 		ArgsUsage: "MR_URL",
 		Action:    runReview,
@@ -54,10 +61,11 @@ func runReview(c *cli.Context) error {
 
 	mrURL := c.Args().Get(0)
 	dryRun := c.Bool("dry-run")
-	verbose := c.Bool("verbose") // Use the command-specific verbose flag
+	verbose := c.Bool("verbose")     // Use the command-specific verbose flag
+	batchSize := c.Int("batch-size") // Get batch size from command line
 
-	fmt.Printf("Starting review of MR: %s (dry-run: %v, verbose: %v)\n", mrURL, dryRun, verbose)
-	fmt.Printf("Debug: All flags: dry-run=%v, v=%v, d=%v\n", c.Bool("dry-run"), c.Bool("v"), c.Bool("d"))
+	fmt.Printf("Starting review of MR: %s (dry-run: %v, verbose: %v, batch-size: %d)\n",
+		mrURL, dryRun, verbose, batchSize)
 
 	// Load configuration
 	cfg, err := config.LoadConfig(c.String("config"))
@@ -94,11 +102,24 @@ func runReview(c *cli.Context) error {
 		return fmt.Errorf("failed to create AI provider: %w", err)
 	}
 
+	// Get batch configuration
+	var batchConfig batch.Config
+	if cfg.Batch != nil {
+		batchConfig = batch.ConfigFromMap(cfg.Batch)
+	} else {
+		batchConfig = batch.DefaultConfig()
+	}
+
+	// Override batch size from command line if specified
+	if batchSize > 0 {
+		batchConfig.MaxBatchSize = batchSize
+	}
+
 	// Run review
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute) // Increased timeout for batch processing
 	defer cancel()
 
-	return runReviewProcess(ctx, provider, aiProvider, mrURL, dryRun, verbose)
+	return runReviewProcess(ctx, provider, aiProvider, mrURL, dryRun, verbose, batchConfig)
 }
 
 func createProvider(name string, config map[string]interface{}) (providers.Provider, error) {
@@ -142,6 +163,7 @@ func runReviewProcess(
 	mrURL string,
 	dryRun bool,
 	verbose bool,
+	batchConfig batch.Config,
 ) error {
 	fmt.Println("Starting review process...")
 
@@ -169,12 +191,35 @@ func runReviewProcess(
 
 	fmt.Printf("Got %d changed files\n", len(changes))
 
-	// Review code
+	// Review code using batch processing
 	if verbose {
-		fmt.Println("Reviewing code changes...")
+		fmt.Println("Reviewing code changes (with batch processing)...")
 	}
 
-	result, err := aiProvider.ReviewCode(ctx, changes)
+	// Create a batch processor with the config
+	batchProcessor := batch.DefaultBatchProcessor()
+
+	// Configure the batch processor with the batch config
+	batchProcessor.MaxBatchTokens = batchConfig.MaxBatchSize
+	batchProcessor.TaskQueueConfig = batchConfig
+
+	// Set up logging based on verbose flag
+	if verbose {
+		batchProcessor.SetVerboseLogging(true)
+	}
+
+	// Override with AI provider max tokens if not specified in config
+	if batchProcessor.MaxBatchTokens <= 0 {
+		batchProcessor.MaxBatchTokens = aiProvider.MaxTokensPerBatch()
+	}
+
+	if verbose {
+		fmt.Printf("🔄 Using batch processor with max tokens: %d, workers: %d\n",
+			batchProcessor.MaxBatchTokens, batchProcessor.TaskQueueConfig.MaxWorkers)
+	}
+
+	// Perform the review with batch processing
+	result, err := aiProvider.ReviewCodeWithBatching(ctx, changes, batchProcessor)
 	if err != nil {
 		return fmt.Errorf("failed to review code: %w", err)
 	}

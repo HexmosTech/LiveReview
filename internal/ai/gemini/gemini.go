@@ -21,9 +21,10 @@ type GeminiProvider struct {
 
 // GeminiConfig contains configuration for the Gemini provider
 type GeminiConfig struct {
-	APIKey      string  `koanf:"api_key"`
-	Model       string  `koanf:"model"`
-	Temperature float64 `koanf:"temperature"`
+	APIKey            string  `koanf:"api_key"`
+	Model             string  `koanf:"model"`
+	Temperature       float64 `koanf:"temperature"`
+	MaxTokensPerBatch int     `koanf:"max_tokens_per_batch"`
 }
 
 // New creates a new GeminiProvider
@@ -40,12 +41,17 @@ func New(config GeminiConfig) (*GeminiProvider, error) {
 		config.Temperature = 0.2
 	}
 
+	if config.MaxTokensPerBatch == 0 {
+		config.MaxTokensPerBatch = 10000
+	}
+
 	return &GeminiProvider{
 		TestableFields: TestableFields{
-			APIKey:      config.APIKey,
-			Model:       config.Model,
-			Temperature: config.Temperature,
-			HTTPClient:  &http.Client{},
+			APIKey:            config.APIKey,
+			Model:             config.Model,
+			Temperature:       config.Temperature,
+			MaxTokensPerBatch: config.MaxTokensPerBatch,
+			HTTPClient:        &http.Client{},
 		},
 	}, nil
 }
@@ -196,10 +202,11 @@ var APIURLFormat = "https://generativelanguage.googleapis.com/v1/models/%s:gener
 
 // TestableFields exposes fields for testing
 type TestableFields struct {
-	APIKey      string
-	Model       string
-	Temperature float64
-	HTTPClient  *http.Client
+	APIKey            string
+	Model             string
+	Temperature       float64
+	MaxTokensPerBatch int
+	HTTPClient        *http.Client
 }
 
 // callGeminiAPI makes a call to the Gemini API
@@ -770,17 +777,24 @@ func min(a, b int) int {
 func (p *GeminiProvider) Configure(config map[string]interface{}) error {
 	// Extract configuration values
 	if apiKey, ok := config["api_key"].(string); ok {
-		p.APIKey = apiKey
+		p.TestableFields.APIKey = apiKey
 	} else {
 		return fmt.Errorf("api_key is required")
 	}
 
 	if model, ok := config["model"].(string); ok && model != "" {
-		p.Model = model
+		p.TestableFields.Model = model
 	}
 
 	if temp, ok := config["temperature"].(float64); ok && temp > 0 {
-		p.Temperature = temp
+		p.TestableFields.Temperature = temp
+	}
+
+	if maxTokens, ok := config["max_tokens_per_batch"].(int); ok && maxTokens > 0 {
+		p.TestableFields.MaxTokensPerBatch = maxTokens
+	} else if maxTokens, ok := config["max_tokens_per_batch"].(float64); ok && maxTokens > 0 {
+		// Handle case where the value comes as float64 from JSON or TOML
+		p.TestableFields.MaxTokensPerBatch = int(maxTokens)
 	}
 
 	return nil

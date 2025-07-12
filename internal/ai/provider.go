@@ -3,19 +3,32 @@ package ai
 import (
 	"context"
 
+	"github.com/livereview/internal/batch"
 	"github.com/livereview/pkg/models"
 )
 
 // Provider represents an AI service that can review code
 type Provider interface {
 	// ReviewCode takes code diff information and returns a review result with summary and comments
+	// This is the legacy method that doesn't use batching
 	ReviewCode(ctx context.Context, diffs []*models.CodeDiff) (*models.ReviewResult, error)
+
+	// ReviewCodeBatch processes a single batch of code diffs
+	// Used internally by ReviewCodeWithBatching
+	ReviewCodeBatch(ctx context.Context, diffs []models.CodeDiff) (*batch.BatchResult, error)
+
+	// ReviewCodeWithBatching processes code diffs in batches for large merge requests
+	// Uses a batch processor to split the diffs into manageable chunks
+	ReviewCodeWithBatching(ctx context.Context, diffs []*models.CodeDiff, batchProcessor *batch.BatchProcessor) (*models.ReviewResult, error)
 
 	// Configure sets up the provider with needed configuration
 	Configure(config map[string]interface{}) error
 
 	// Name returns the provider's name
 	Name() string
+
+	// MaxTokensPerBatch returns the maximum number of tokens allowed per batch
+	MaxTokensPerBatch() int
 }
 
 // Factory creates AI providers based on configuration
