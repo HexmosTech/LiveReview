@@ -2,6 +2,7 @@ package batch
 
 import (
 	"fmt"
+	"path/filepath"
 	"regexp"
 	"strings"
 
@@ -94,15 +95,68 @@ type BatchInput struct {
 }
 
 // PrepareFullInput organizes the full input for token counting
+// and filters out binary files that shouldn't be processed by the LLM
 func (p *BatchProcessor) PrepareFullInput(diffs []*models.CodeDiff) []models.CodeDiff {
 	p.Logger.Debug("Preparing full input for token counting: %d diffs", len(diffs))
 	result := make([]models.CodeDiff, 0, len(diffs))
 
 	for _, diff := range diffs {
+		// Skip binary files
+		if p.shouldSkipFile(diff) {
+			p.Logger.Info("Skipping binary or non-textual file: %s", diff.FilePath)
+			continue
+		}
+
 		result = append(result, *diff)
 	}
 
+	p.Logger.Info("Processed %d diffs, %d included after filtering binary files",
+		len(diffs), len(result))
 	return result
+}
+
+// shouldSkipFile determines if a file should be skipped in the review process
+// It checks if the file is binary or otherwise not suitable for text-based review
+func (p *BatchProcessor) shouldSkipFile(diff *models.CodeDiff) bool {
+	// Check file extension for common binary formats
+	ext := strings.ToLower(filepath.Ext(diff.FilePath))
+
+	// Common binary file extensions to skip
+	binaryExtensions := map[string]bool{
+		".png": true, ".jpg": true, ".jpeg": true, ".gif": true, ".bmp": true,
+		".ico": true, ".tif": true, ".tiff": true, ".webp": true, ".svg": true,
+		".exe": true, ".dll": true, ".so": true, ".dylib": true, ".a": true, ".lib": true,
+		".zip": true, ".tar": true, ".gz": true, ".bz2": true, ".xz": true, ".7z": true,
+		".rar": true, ".jar": true, ".war": true, ".ear": true, ".class": true,
+		".pdf": true, ".doc": true, ".docx": true, ".xls": true, ".xlsx": true,
+		".ppt": true, ".pptx": true, ".bin": true, ".dat": true, ".o": true,
+		".mp3": true, ".mp4": true, ".avi": true, ".mov": true, ".wmv": true,
+		".flv": true, ".webm": true, ".ttf": true, ".woff": true, ".woff2": true,
+		".eot": true, ".pyc": true, ".pyd": true, ".pyo": true,
+	}
+
+	if binaryExtensions[ext] {
+		return true
+	}
+
+	// For files without a recognized binary extension, check content
+	if len(diff.Hunks) == 0 {
+		// If the file is empty or has no hunks, let it pass through
+		return false
+	}
+
+	// Check the content of the hunks for binary data
+	// Combine a sample of content from hunks for binary detection
+	sampleContent := ""
+
+	// Take a sample from each hunk up to a maximum size
+	for i, hunk := range diff.Hunks {
+		if i < 3 { // Only sample first few hunks
+			sampleContent += hunk.Content[:min(len(hunk.Content), 256)]
+		}
+	}
+
+	return IsBinaryFile(sampleContent)
 }
 
 // AssessBatchRequirements determines if batching is needed and how many batches
@@ -317,6 +371,14 @@ func getSeverityLevel(severity models.CommentSeverity) int {
 	}
 }
 
+// min returns the smaller of two integers
+func min(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
+}
+
 // SetLogger sets a custom logger for the batch processor
 func (p *BatchProcessor) SetLogger(logger Logger) {
 	p.Logger = logger
@@ -327,4 +389,37 @@ func (p *BatchProcessor) SetVerboseLogging(verbose bool) {
 	if defaultLogger, ok := p.Logger.(*DefaultLogger); ok {
 		defaultLogger.Verbose = verbose
 	}
+}
+
+// IsBinaryFile checks if a file is likely to be a binary (non-text) file
+// This is a simple heuristic based on looking for null bytes and a high
+// percentage of non-printable characters in a sample of the content
+func IsBinaryFile(content string) bool {
+	if len(content) == 0 {
+		return false
+	}
+
+	// Check for null bytes, which are common in binary files
+	if strings.Contains(content, "\x00") {
+		return true
+	}
+
+	// Limit the sample size to avoid processing very large files completely
+	sampleSize := 512
+	if len(content) < sampleSize {
+		sampleSize = len(content)
+	}
+
+	sample := content[:sampleSize]
+	nonPrintable := 0
+
+	for _, r := range sample {
+		// Check for non-printable characters (control chars excluding common whitespace)
+		if (r < 32 && r != 9 && r != 10 && r != 13) || r >= 127 {
+			nonPrintable++
+		}
+	}
+
+	// If more than 30% of characters are non-printable, consider it binary
+	return float64(nonPrintable)/float64(sampleSize) > 0.3
 }
