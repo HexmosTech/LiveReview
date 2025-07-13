@@ -526,7 +526,7 @@ func (p *GeminiProvider) parseResponse(response string, diffs []*models.CodeDiff
 				}
 
 				// Add generic comments for any files without specific comments
-				p.ensureCommentsForAllFiles(result, diffs)
+				// p.ensureCommentsForAllFiles(result, diffs) - Skip this to avoid useless "No specific issues found" comments
 
 				fmt.Printf("Review complete: Generated %d comments from JSON\n", len(result.Comments))
 
@@ -675,7 +675,7 @@ func (p *GeminiProvider) parseResponse(response string, diffs []*models.CodeDiff
 	}
 
 	// Add generic comments for any files without specific comments
-	p.ensureCommentsForAllFiles(result, diffs)
+	// p.ensureCommentsForAllFiles(result, diffs) - Skip this to avoid useless "No specific issues found" comments
 
 	fmt.Printf("Review complete: Generated %d comments from text\n", len(result.Comments))
 
@@ -683,62 +683,6 @@ func (p *GeminiProvider) parseResponse(response string, diffs []*models.CodeDiff
 	p.printCommentsByFile(result.Comments, diffs)
 
 	return result, nil
-}
-
-// Helper function to ensure we have at least one comment for each file
-func (p *GeminiProvider) ensureCommentsForAllFiles(result *models.ReviewResult, diffs []*models.CodeDiff) {
-	// If no specific comments were found, add a generic comment for each file
-	if len(result.Comments) == 0 && len(diffs) > 0 {
-		fmt.Println("No comments found, adding generic comments for all files")
-		// Add a comment for each non-deleted file
-		for _, diff := range diffs {
-			if !diff.IsDeleted {
-				// Default to line 1, but try to use a more meaningful line number if available
-				lineNum := 1
-				if len(diff.Hunks) > 0 && diff.Hunks[0].NewStartLine > 0 {
-					lineNum = diff.Hunks[0].NewStartLine
-				}
-
-				result.Comments = append(result.Comments, &models.ReviewComment{
-					FilePath: diff.FilePath,
-					Line:     lineNum,
-					Content:  "No specific issues found in this file.",
-					Severity: models.SeverityInfo,
-					Category: "general",
-				})
-				fmt.Printf("Added generic comment for file %s at line %d\n", diff.FilePath, lineNum)
-			}
-		}
-		return
-	}
-
-	// Ensure we have at least one comment for each file that was changed
-	reviewedFiles := make(map[string]bool)
-
-	// Mark files that already have comments
-	for _, comment := range result.Comments {
-		reviewedFiles[comment.FilePath] = true
-	}
-
-	// Add generic comments for files without specific comments
-	for _, diff := range diffs {
-		if !diff.IsDeleted && !reviewedFiles[diff.FilePath] {
-			// Default to line 1, but try to use a more meaningful line number if available
-			lineNum := 1
-			if len(diff.Hunks) > 0 && diff.Hunks[0].NewStartLine > 0 {
-				lineNum = diff.Hunks[0].NewStartLine
-			}
-
-			result.Comments = append(result.Comments, &models.ReviewComment{
-				FilePath: diff.FilePath,
-				Line:     lineNum,
-				Content:  "No specific issues found in this file.",
-				Severity: models.SeverityInfo,
-				Category: "general",
-			})
-			fmt.Printf("Added generic comment for file %s at line %d\n", diff.FilePath, lineNum)
-		}
-	}
 }
 
 // Helper function to print debug info about comments by file
@@ -763,14 +707,6 @@ func (p *GeminiProvider) fileExists(filePath string, diffs []*models.CodeDiff) b
 		}
 	}
 	return false
-}
-
-// Helper function to get min of two ints
-func min(a, b int) int {
-	if a < b {
-		return a
-	}
-	return b
 }
 
 // Configure sets up the provider with needed configuration

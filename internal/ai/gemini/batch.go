@@ -120,7 +120,16 @@ func (p *GeminiProvider) ReviewCodeWithBatching(
 		return nil, err
 	}
 
-	fmt.Printf("✅ Final result: %d unique comments\n", len(result.Comments))
+	// Filter out any "No specific issues found" comments that might have been added by other components
+	var filteredComments []*models.ReviewComment
+	for _, comment := range result.Comments {
+		if comment.Content != "No specific issues found in this file." {
+			filteredComments = append(filteredComments, comment)
+		}
+	}
+	result.Comments = filteredComments
+
+	fmt.Printf("✅ Final result: %d meaningful comments (removed generic 'no issues' comments)\n", len(result.Comments))
 	fmt.Printf("================================\n\n")
 
 	return result, nil

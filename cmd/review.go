@@ -7,6 +7,8 @@ import (
 
 	"github.com/urfave/cli/v2"
 
+	"math"
+
 	"github.com/livereview/internal/ai"
 	"github.com/livereview/internal/ai/gemini"
 	"github.com/livereview/internal/batch"
@@ -239,7 +241,7 @@ func runReviewProcess(
 			fmt.Printf("  Line Number: %d\n", comment.Line)
 			fmt.Printf("  Severity: %s\n", comment.Severity)
 			fmt.Printf("  Content begins: %s\n",
-				comment.Content[:min(50, len(comment.Content))])
+				comment.Content[:int(math.Min(50, float64(len(comment.Content))))])
 			fmt.Printf("  Number of suggestions: %d\n", len(comment.Suggestions))
 		}
 		fmt.Println("=============================")
@@ -299,12 +301,4 @@ func runReviewProcess(
 	}
 
 	return nil
-}
-
-// Helper function to get the minimum of two integers
-func min(a, b int) int {
-	if a < b {
-		return a
-	}
-	return b
 }
