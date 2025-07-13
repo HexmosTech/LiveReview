@@ -1,7 +1,7 @@
 const package = require('./package.json');
 
-const title = '' || package.name;
-const description = `` || package.description;
+const title = 'LiveReview' || package.name;
+const description = `A powerful tool for automated code reviews` || package.description;
 const homepage = '' || package.homepage;
 const thumbnail = `${homepage}/public/thumbnail.jpg`;
 
@@ -10,8 +10,8 @@ module.exports = {
     meta: {
         language: 'en',
         description,
-        keywords: '',
-        author: '',
+        keywords: 'code review, automation, gitlab, github, continuous integration',
+        author: 'LiveReview Team',
         /**
          * Open Graph tags optimize how your pages appear when shared on social media platform
          */
