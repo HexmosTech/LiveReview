@@ -287,15 +287,20 @@ func runReviewProcess(
 	fmt.Println("\n=== AI Review Summary ===")
 	fmt.Println(result.Summary)
 	fmt.Println("\n=== Specific Comments ===")
-	for i, comment := range result.Comments {
-		fmt.Printf("\n--- Comment %d ---\n", i+1)
-		fmt.Printf("File: %s, Line: %d\n", comment.FilePath, comment.Line)
-		fmt.Printf("Severity: %s\n", comment.Severity)
-		fmt.Printf("Content: %s\n", comment.Content)
-		if len(comment.Suggestions) > 0 {
-			fmt.Println("Suggestions:")
-			for _, suggestion := range comment.Suggestions {
-				fmt.Printf("  - %s\n", suggestion)
+
+	if len(result.Comments) == 0 {
+		fmt.Println("\nNo specific issues were identified in the code review.")
+	} else {
+		for i, comment := range result.Comments {
+			fmt.Printf("\n--- Comment %d ---\n", i+1)
+			fmt.Printf("File: %s, Line: %d\n", comment.FilePath, comment.Line)
+			fmt.Printf("Severity: %s\n", comment.Severity)
+			fmt.Printf("Content: %s\n", comment.Content)
+			if len(comment.Suggestions) > 0 {
+				fmt.Println("Suggestions:")
+				for _, suggestion := range comment.Suggestions {
+					fmt.Printf("  - %s\n", suggestion)
+				}
 			}
 		}
 	}

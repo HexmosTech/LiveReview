@@ -38,7 +38,7 @@ func New(config GeminiConfig) (*GeminiProvider, error) {
 	}
 
 	if config.Temperature == 0 {
-		config.Temperature = 0.2
+		config.Temperature = 0.4 // Increased from 0.2 to encourage more thorough analysis
 	}
 
 	if config.MaxTokensPerBatch == 0 {
@@ -111,29 +111,41 @@ func (p *GeminiProvider) ReviewCode(ctx context.Context, diffs []*models.CodeDif
 	fmt.Println("Preparing code review prompt for", len(diffs), "changed files...")
 
 	// Format the diffs for the prompt
-	prompt := "You are an expert code reviewer. Review the following code changes and provide detailed feedback.\n\n"
-	prompt += "IMPORTANT: Format your response as a valid JSON object with the following structure:\n"
+	prompt := "You are an expert code reviewer. Review the following code changes and provide detailed, insightful feedback.\n\n"
+	prompt += "THE RESPONSE MUST HAVE TWO MAIN SECTIONS:\n"
+	prompt += "1. SUMMARY: A clear, concise human-readable summary of the key changes and your overall assessment, focusing on:\n"
+	prompt += "   - The main changes and their purpose\n"
+	prompt += "   - Overall code quality assessment\n"
+	prompt += "   - Any significant issues or patterns found\n"
+	prompt += "   - Recommendations for improvement\n\n"
+	prompt += "2. SPECIFIC COMMENTS: Detailed code review comments for each issue found, with:\n"
+	prompt += "   - Specific file paths and line numbers\n"
+	prompt += "   - Clear explanation of the issue\n"
+	prompt += "   - Concrete suggestions for improvement\n"
+	prompt += "   - Severity level (critical, warning, info)\n\n"
+	prompt += "DO NOT provide general comments like 'No specific issues found in this file.' ONLY comment on files that have actual issues.\n\n"
+	prompt += "FOR JSON PARSING, your response should be structured as follows:\n"
 	prompt += "{\n"
-	prompt += "  \"summary\": \"Overall summary of the changes\",\n"
-	prompt += "  \"filesChanged\": [\"file1.ext\", \"file2.ext\"],\n"
+	prompt += "  \"summary\": \"A comprehensive, human-readable summary of the changes with your expert assessment\",\n"
+	prompt += "  \"filesReviewed\": [\"file1.ext\", \"file2.ext\"],\n"
 	prompt += "  \"comments\": [\n"
 	prompt += "    {\n"
 	prompt += "      \"filePath\": \"path/to/file.ext\",\n"
 	prompt += "      \"lineNumber\": 42,\n"
-	prompt += "      \"content\": \"Your detailed comment about the code\",\n"
+	prompt += "      \"content\": \"Detailed explanation of the issue and why it matters\",\n"
 	prompt += "      \"severity\": \"critical|warning|info\",\n"
-	prompt += "      \"suggestions\": [\"Suggestion 1\", \"Suggestion 2\"]\n"
+	prompt += "      \"suggestions\": [\"Specific suggestion for improvement\", \"Alternative approach\"]\n"
 	prompt += "    }\n"
 	prompt += "  ]\n"
 	prompt += "}\n\n"
 	prompt += "CRITICAL RULES (MUST FOLLOW):\n"
-	prompt += "1. Ensure the response is STRICTLY VALID JSON that can be parsed - escape quotes in content properly.\n"
-	prompt += "2. ALWAYS place comments in specific files at specific lines, NEVER create general comments.\n"
-	prompt += "3. For issues that apply to multiple lines, create separate comments for each specific line.\n"
-	prompt += "4. Use EXACT file paths from the diffs provided without any modifications.\n"
-	prompt += "5. Always use actual integers for lineNumber, corresponding to the 'L' numbers shown in the code.\n"
-	prompt += "6. Avoid creating comments that refer to multiple files or multiple line numbers at once.\n"
-	prompt += "7. If you need to reference other lines in your comment, do so in the content text but still attach the comment to a specific line.\n\n"
+	prompt += "1. BE THOROUGH: Look carefully for issues in all files - ensure you identify real problems in the code.\n"
+	prompt += "2. BE SPECIFIC: Your comments must point to actual lines of code with concrete issues.\n"
+	prompt += "3. BE HELPFUL: Focus on providing actionable feedback that helps improve the code.\n"
+	prompt += "4. NO FILLER: Do not create generic comments like 'No issues found' - only comment on real issues.\n"
+	prompt += "5. FORMAT CORRECTLY: Ensure your response can be parsed as valid JSON with properly escaped quotes.\n"
+	prompt += "6. PRIORITIZE IMPORTANT ISSUES: Focus on security, performance, maintainability, and correctness.\n"
+	prompt += "7. INCLUDE LINE NUMBERS: Use the 'L' numbers from the diff to specify exact locations.\n\n"
 	prompt += "Here are the code changes to review:\n\n"
 
 	// Add each diff to the prompt
@@ -226,7 +238,7 @@ func (p *GeminiProvider) callGeminiAPI(ctx context.Context, prompt string) (stri
 		},
 		GenerationConfig: generationConfig{
 			Temperature:     p.Temperature,
-			MaxOutputTokens: 4096,
+			MaxOutputTokens: 8192, // Increased from 4096 to allow for more detailed reviews
 			TopK:            40,
 			TopP:            0.95,
 		},
@@ -458,7 +470,7 @@ func (p *GeminiProvider) parseResponse(response string, diffs []*models.CodeDiff
 
 				// Create the result
 				result := &models.ReviewResult{
-					Summary:  jsonResponse.Summary,
+					Summary:  extractHumanReadableSummary(jsonResponse.Summary),
 					Comments: []*models.ReviewComment{},
 				}
 
@@ -525,10 +537,10 @@ func (p *GeminiProvider) parseResponse(response string, diffs []*models.CodeDiff
 					result.Comments = append(result.Comments, reviewComment)
 				}
 
-				// Add generic comments for any files without specific comments
-				// p.ensureCommentsForAllFiles(result, diffs) - Skip this to avoid useless "No specific issues found" comments
+				// Filter comments to remove useless ones and enhance the rest
+				result.Comments = filterAndEnhanceComments(result.Comments)
 
-				fmt.Printf("Review complete: Generated %d comments from JSON\n", len(result.Comments))
+				fmt.Printf("Review complete: Generated %d quality comments from JSON\n", len(result.Comments))
 
 				// Debug: Print which files have comments
 				p.printCommentsByFile(result.Comments, diffs)
@@ -553,7 +565,7 @@ func (p *GeminiProvider) parseResponse(response string, diffs []*models.CodeDiff
 	sections := strings.Split(response, "## Specific Comments")
 
 	// Set the summary section
-	result.Summary = strings.TrimSpace(sections[0])
+	result.Summary = extractHumanReadableSummary(strings.TrimSpace(sections[0]))
 
 	// Parse comments if we have the specific comments section
 	if len(sections) > 1 {
@@ -674,15 +686,66 @@ func (p *GeminiProvider) parseResponse(response string, diffs []*models.CodeDiff
 		}
 	}
 
-	// Add generic comments for any files without specific comments
-	// p.ensureCommentsForAllFiles(result, diffs) - Skip this to avoid useless "No specific issues found" comments
+	// Filter comments to remove useless ones and enhance the rest
+	result.Comments = filterAndEnhanceComments(result.Comments)
 
-	fmt.Printf("Review complete: Generated %d comments from text\n", len(result.Comments))
+	fmt.Printf("Review complete: Generated %d quality comments from text\n", len(result.Comments))
 
 	// Debug: Print which files have comments
 	p.printCommentsByFile(result.Comments, diffs)
 
 	return result, nil
+}
+
+// Filter out low-quality comments and ensure we have useful feedback
+func filterAndEnhanceComments(comments []*models.ReviewComment) []*models.ReviewComment {
+	if len(comments) == 0 {
+		return comments
+	}
+
+	var filtered []*models.ReviewComment
+
+	// Skip comments that are just noise
+	uselessPhrases := []string{
+		"no specific issues found",
+		"no issues found",
+		"looks good",
+		"code looks fine",
+		"nothing to comment",
+	}
+
+	for _, comment := range comments {
+		isUseless := false
+		lowerContent := strings.ToLower(comment.Content)
+
+		// Skip useless comments
+		for _, phrase := range uselessPhrases {
+			if strings.Contains(lowerContent, phrase) {
+				isUseless = true
+				break
+			}
+		}
+
+		// Skip empty or very short comments
+		if len(strings.TrimSpace(comment.Content)) < 10 {
+			isUseless = true
+		}
+
+		if !isUseless {
+			// Enhance comment if needed
+			if !strings.Contains(comment.Content, "Suggestion:") && len(comment.Suggestions) > 0 {
+				// Add suggestions to the content if they're not already there
+				comment.Content += "\n\nSuggestions:\n"
+				for i, suggestion := range comment.Suggestions {
+					comment.Content += fmt.Sprintf("%d. %s\n", i+1, suggestion)
+				}
+			}
+
+			filtered = append(filtered, comment)
+		}
+	}
+
+	return filtered
 }
 
 // Helper function to print debug info about comments by file
@@ -707,6 +770,43 @@ func (p *GeminiProvider) fileExists(filePath string, diffs []*models.CodeDiff) b
 		}
 	}
 	return false
+}
+
+// extractHumanReadableSummary processes the summary from the AI to ensure it's human-readable
+// and not just a JSON dump or code block
+func extractHumanReadableSummary(summary string) string {
+	// Clean up common formatting issues
+	summary = strings.TrimSpace(summary)
+
+	// Remove JSON or code block markers
+	summary = strings.ReplaceAll(summary, "```json", "")
+	summary = strings.ReplaceAll(summary, "```", "")
+
+	// Check if the summary is a JSON object and extract just the text content
+	if strings.HasPrefix(summary, "{") && strings.HasSuffix(summary, "}") {
+		// Try to extract just the text value if it's a simple JSON string
+		summaryRegex := regexp.MustCompile(`"summary"\s*:\s*"((?:\\"|[^"])*?)"`)
+		if matches := summaryRegex.FindStringSubmatch(summary); len(matches) > 1 {
+			extractedSummary := matches[1]
+			// Unescape JSON escapes
+			extractedSummary = strings.ReplaceAll(extractedSummary, `\"`, `"`)
+			extractedSummary = strings.ReplaceAll(extractedSummary, `\\`, `\`)
+			extractedSummary = strings.ReplaceAll(extractedSummary, `\n`, "\n")
+			summary = extractedSummary
+		}
+	}
+
+	// If the summary is too short, add a default header
+	if len(summary) < 50 {
+		summary = "# AI Code Review Summary\n\n" + summary
+	}
+
+	// Make sure the summary has a heading
+	if !strings.HasPrefix(summary, "#") {
+		summary = "# AI Code Review Summary\n\n" + summary
+	}
+
+	return summary
 }
 
 // Configure sets up the provider with needed configuration
