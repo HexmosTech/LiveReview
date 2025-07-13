@@ -113,7 +113,7 @@ func (c *GitLabHTTPClient) CreateMRDiscussion(projectID string, mrIID int, comme
 }
 
 // CreateMRLineCommentWithPosition creates a comment on a specific line in a file in a merge request
-// using the discussions endpoint and providing position data
+// using the discussions endpoint and providing position data according to GitLab API documentation
 func (c *GitLabHTTPClient) CreateMRLineCommentWithPosition(projectID string, mrIID int, filePath string, lineNum int, comment string) error {
 	// Get the latest merge request version to obtain required SHAs
 	version, err := c.GetLatestMRVersion(projectID, mrIID)
@@ -125,6 +125,7 @@ func (c *GitLabHTTPClient) CreateMRLineCommentWithPosition(projectID string, mrI
 	filePath = strings.TrimPrefix(filePath, "/")
 
 	// Prepare position data according to GitLab API requirements
+	// Based on official GitLab API documentation for creating threads in MR diffs
 	position := map[string]interface{}{
 		"position_type": "text",
 		"base_sha":      version.BaseCommitSHA,
@@ -155,44 +156,190 @@ func (c *GitLabHTTPClient) CreateMRGeneralComment(projectID string, mrIID int, c
 	return nil
 }
 
-// Enhanced implementation of CreateMRLineComment that uses the newer approach
+// Enhanced implementation of CreateMRLineComment that uses the GitLab API documentation approach
 // This overrides the implementation in http_client.go
 func (c *GitLabHTTPClient) CreateMRLineComment(projectID string, mrIID int, filePath string, lineNum int, comment string) error {
 	// Log what we're trying to do
 	fmt.Printf("Creating line comment on %s line %d for MR %d in project %s\n",
 		filePath, lineNum, mrIID, projectID)
 
-	// Try the newer approach first
-	err := c.CreateMRLineCommentWithPosition(projectID, mrIID, filePath, lineNum, comment)
-	if err == nil {
-		fmt.Println("Successfully created line comment using position data")
-		return nil
+	// Get the latest MR version information
+	version, err := c.GetLatestMRVersion(projectID, mrIID)
+	if err != nil {
+		fmt.Printf("Error getting MR version: %v\n", err)
+		return fmt.Errorf("failed to get MR version: %w", err)
 	}
 
-	// Log the error and fall back
-	fmt.Printf("Failed to create line comment with position data: %v\n", err)
-	fmt.Println("Trying fallback method...")
+	// Normalize file path (remove leading slash)
+	filePath = strings.TrimPrefix(filePath, "/")
 
-	// Fall back to the existing method
-	err = c.CreateLineCommentViaDiscussions(projectID, mrIID, filePath, lineNum, comment)
-	if err == nil {
-		fmt.Println("Successfully created line comment via discussions approach")
-		return nil
+	// Create the request URL for discussions endpoint
+	requestURL := fmt.Sprintf("%s/projects/%s/merge_requests/%d/discussions",
+		c.baseURL, url.PathEscape(projectID), mrIID)
+
+	// Generate a valid line_code - this now includes both new and old style formats
+	lineCode := GenerateLineCode(version.StartCommitSHA, version.HeadCommitSHA, filePath, lineNum)
+	parts := strings.Split(lineCode, ":")
+	newStyleCode := parts[0]
+	oldStyleCode := ""
+	if len(parts) > 1 {
+		oldStyleCode = parts[1]
 	}
 
-	// Log this error too
-	fmt.Printf("Failed to create line comment via discussions: %v\n", err)
-	fmt.Println("Trying direct approach...")
-
-	// As a last resort, try the direct approach
-	err = c.createDirectLineComment(projectID, mrIID, filePath, lineNum, comment)
-	if err == nil {
-		fmt.Println("Successfully created line comment using direct approach")
-		return nil
+	// Prepare the request data according to GitLab API documentation
+	// Include all possible parameters that GitLab might expect
+	requestData := map[string]interface{}{
+		"body": comment,
+		"position": map[string]interface{}{
+			"position_type": "text",
+			"base_sha":      version.BaseCommitSHA,
+			"head_sha":      version.HeadCommitSHA,
+			"start_sha":     version.StartCommitSHA,
+			"new_path":      filePath,
+			"old_path":      filePath,
+			"new_line":      lineNum,
+			"line_code":     newStyleCode, // Try the new style line code first
+		},
 	}
 
-	// If all else fails, use the fallback to create a regular comment with file/line info
-	fmt.Printf("All line comment methods failed: %v\n", err)
-	fmt.Println("Falling back to regular comment with file/line info")
-	return c.createFallbackLineComment(projectID, mrIID, filePath, lineNum, comment)
+	// Convert request data to JSON
+	requestBody, err := json.Marshal(requestData)
+	if err != nil {
+		return fmt.Errorf("failed to marshal request body: %w", err)
+	}
+
+	// Create the request
+	req, err := http.NewRequest("POST", requestURL, strings.NewReader(string(requestBody)))
+	if err != nil {
+		return fmt.Errorf("failed to create request: %w", err)
+	}
+
+	// Add headers
+	req.Header.Add("PRIVATE-TOKEN", c.token)
+	req.Header.Add("Content-Type", "application/json")
+
+	// Execute the request
+	resp, err := c.client.Do(req)
+	if err != nil {
+		return fmt.Errorf("failed to execute request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	// Check for errors
+	body, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode != http.StatusCreated && resp.StatusCode != http.StatusOK {
+		// If the new style line code failed, try with the old style line code
+		if oldStyleCode != "" && strings.Contains(string(body), "line_code") {
+			fmt.Printf("New style line code failed, trying old style: %s\n", oldStyleCode)
+
+			// Update the line_code to use the old style format
+			requestData["position"].(map[string]interface{})["line_code"] = oldStyleCode
+
+			// Convert updated request data to JSON
+			requestBody, err = json.Marshal(requestData)
+			if err != nil {
+				return fmt.Errorf("failed to marshal request body: %w", err)
+			}
+
+			// Create a new request with the old style line code
+			req, err = http.NewRequest("POST", requestURL, strings.NewReader(string(requestBody)))
+			if err != nil {
+				return fmt.Errorf("failed to create request: %w", err)
+			}
+
+			// Add headers
+			req.Header.Add("PRIVATE-TOKEN", c.token)
+			req.Header.Add("Content-Type", "application/json")
+
+			// Execute the request
+			resp, err = c.client.Do(req)
+			if err != nil {
+				return fmt.Errorf("failed to execute request: %w", err)
+			}
+			defer resp.Body.Close()
+
+			// Check for errors again
+			body, _ = io.ReadAll(resp.Body)
+			if resp.StatusCode == http.StatusCreated || resp.StatusCode == http.StatusOK {
+				fmt.Println("Successfully created line comment with old style line code")
+				return nil
+			}
+		}
+
+		// If both line code styles failed, log the error and try the fallback method
+		fmt.Printf("API request failed with status %d: %s\n", resp.StatusCode, string(body))
+
+		// Try with form-based approach
+		fmt.Println("Trying form-based approach...")
+		err = c.tryFormBasedLineComment(projectID, mrIID, filePath, lineNum, comment, version)
+		if err == nil {
+			fmt.Println("Successfully created line comment via form-based approach")
+			return nil
+		}
+
+		// Try the fallback method if the primary method fails
+		fmt.Println("Trying fallback method...")
+		err = c.CreateLineCommentViaDiscussions(projectID, mrIID, filePath, lineNum, comment)
+		if err == nil {
+			fmt.Println("Successfully created line comment via discussions approach")
+			return nil
+		}
+
+		// If the fallback fails, use a regular comment with file/line info
+		fmt.Printf("Failed to create line comment via discussions: %v\n", err)
+		fmt.Println("Falling back to regular comment with file/line info")
+		return c.createFallbackLineComment(projectID, mrIID, filePath, lineNum, comment)
+	}
+
+	fmt.Println("Successfully created line comment")
+	return nil
+}
+
+// tryFormBasedLineComment tries to create a line comment using form URL encoding
+// instead of JSON, which sometimes works better with GitLab
+func (c *GitLabHTTPClient) tryFormBasedLineComment(projectID string, mrIID int, filePath string, lineNum int, comment string, version *MRVersion) error {
+	requestURL := fmt.Sprintf("%s/projects/%s/merge_requests/%d/discussions",
+		c.baseURL, url.PathEscape(projectID), mrIID)
+
+	// Generate both line code styles
+	lineCode := GenerateLineCode(version.StartCommitSHA, version.HeadCommitSHA, filePath, lineNum)
+	parts := strings.Split(lineCode, ":")
+	newStyleCode := parts[0]
+
+	// Create form data with all possible parameters
+	form := url.Values{}
+	form.Add("body", comment)
+	form.Add("position[position_type]", "text")
+	form.Add("position[base_sha]", version.BaseCommitSHA)
+	form.Add("position[start_sha]", version.StartCommitSHA)
+	form.Add("position[head_sha]", version.HeadCommitSHA)
+	form.Add("position[new_path]", filePath)
+	form.Add("position[old_path]", filePath)
+	form.Add("position[new_line]", fmt.Sprintf("%d", lineNum))
+	form.Add("position[line_code]", newStyleCode)
+
+	// Make the request
+	req, err := http.NewRequest("POST", requestURL, strings.NewReader(form.Encode()))
+	if err != nil {
+		return fmt.Errorf("failed to create request: %w", err)
+	}
+
+	// Add headers
+	req.Header.Add("PRIVATE-TOKEN", c.token)
+	req.Header.Add("Content-Type", "application/x-www-form-urlencoded")
+
+	// Execute the request
+	resp, err := c.client.Do(req)
+	if err != nil {
+		return fmt.Errorf("failed to execute request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	// Check for errors
+	body, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode != http.StatusCreated && resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("form-based API request failed with status %d: %s", resp.StatusCode, string(body))
+	}
+
+	return nil
 }

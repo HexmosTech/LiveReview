@@ -1,6 +1,7 @@
 package gitlab
 
 import (
+	"crypto/sha1"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -90,7 +91,50 @@ func parseDiffForLinePosition(diff string, targetLine int) (map[string]string, e
 	return position, nil
 }
 
+// GenerateLineCode creates a valid line_code for GitLab line comments
+// The line_code format has changed in different GitLab versions, so we're using the
+// most reliable approach here based on the API documentation and empirical testing.
+func GenerateLineCode(startSHA, headSHA, filePath string, lineNum int) string {
+	// Take first 8 characters of each SHA as GitLab does
+	shortStartSHA := startSHA
+	if len(shortStartSHA) > 8 {
+		shortStartSHA = shortStartSHA[:8]
+	}
+
+	shortHeadSHA := headSHA
+	if len(shortHeadSHA) > 8 {
+		shortHeadSHA = shortHeadSHA[:8]
+	}
+
+	// Normalize the file path by replacing slashes with underscores
+	normalizedPath := strings.ReplaceAll(filePath, "/", "_")
+
+	// Create a unique file identifier - in modern GitLab this is typically the path
+	// Since we don't have access to the file content hash that GitLab uses internally,
+	// we'll generate a stable hash from the file path
+	pathHash := fmt.Sprintf("%x", sha1.Sum([]byte(filePath)))[:8]
+
+	// Generate the line code in GitLab's format
+	// For newer GitLab versions (>= 13.x), the format is generally:
+	// <file_hash>_<line_number>
+	newStyleLineCode := fmt.Sprintf("%s_%d", pathHash, lineNum)
+
+	// For older GitLab versions, the format includes the SHAs:
+	// <start_sha>_<head_sha>_<normalized_path>_<side>_<line>
+	oldStyleLineCode := fmt.Sprintf("%s_%s_%s_%s_%d",
+		shortStartSHA,
+		shortHeadSHA,
+		normalizedPath,
+		"right", // For comments on the new version of the file
+		lineNum)
+
+	// Return the new style line code which is preferred in newer GitLab versions
+	// but we'll include both in our API requests
+	return newStyleLineCode + ":" + oldStyleLineCode
+}
+
 // CreateLineCommentViaDiscussions creates a line comment using the discussions endpoint
+// following the GitLab API documentation
 func (c *GitLabHTTPClient) CreateLineCommentViaDiscussions(projectID string, mrIID int, filePath string, lineNum int, comment string) error {
 	// First, get the merge request versions to get the SHAs we need
 	versions, err := c.GetMergeRequestVersions(projectID, mrIID)
@@ -101,42 +145,31 @@ func (c *GitLabHTTPClient) CreateLineCommentViaDiscussions(projectID string, mrI
 	// Use the latest version
 	latestVersion := versions[0]
 
-	// Get raw diff data to help find the right position
-	diffData, err := c.GetRawDiffForMR(projectID, mrIID)
-	if err != nil {
-		return fmt.Errorf("failed to get diff data: %w", err)
-	}
+	// Normalize file path - ensure no leading slash
+	filePath = strings.TrimPrefix(filePath, "/")
 
-	// Extract position info from diff
-	_, err = FindDiffInfo(diffData, filePath, lineNum)
-	if err != nil {
-		// If we can't extract position info, just use basic info
-		fmt.Printf("Warning: Could not extract position info: %v\n", err)
-	}
+	// Generate a valid line_code - this now includes both new and old style formats
+	lineCode := GenerateLineCode(latestVersion.StartCommitSHA, latestVersion.HeadCommitSHA, filePath, lineNum)
+	parts := strings.Split(lineCode, ":")
+	newStyleCode := parts[0]
 
 	// Set up the discussions endpoint URL
 	requestURL := fmt.Sprintf("%s/projects/%s/merge_requests/%d/discussions",
 		c.baseURL, url.PathEscape(projectID), mrIID)
 
-	// Create the request body with positions that work better for GitLab
+	// Create the form data with all required parameters exactly as specified in the GitLab API docs
 	form := url.Values{}
 	form.Add("body", comment)
-
-	// Position parameters based on GitLab documentation and tested examples
+	form.Add("position[position_type]", "text")
 	form.Add("position[base_sha]", latestVersion.BaseCommitSHA)
 	form.Add("position[start_sha]", latestVersion.StartCommitSHA)
 	form.Add("position[head_sha]", latestVersion.HeadCommitSHA)
-
-	// Text position type is more reliable
-	form.Add("position[position_type]", "text")
-
-	// Path and line info
-	filePath = strings.TrimPrefix(filePath, "/")
 	form.Add("position[new_path]", filePath)
-	form.Add("position[new_line]", fmt.Sprintf("%d", lineNum))
-
-	// For modified files we need old path too
 	form.Add("position[old_path]", filePath)
+	form.Add("position[new_line]", fmt.Sprintf("%d", lineNum))
+	form.Add("position[line_code]", newStyleCode)
+
+	// Also include old_line for context
 	form.Add("position[old_line]", fmt.Sprintf("%d", lineNum))
 
 	// Make the request
@@ -159,6 +192,40 @@ func (c *GitLabHTTPClient) CreateLineCommentViaDiscussions(projectID string, mrI
 	// Check the response
 	body, _ := io.ReadAll(resp.Body)
 	if resp.StatusCode != http.StatusCreated && resp.StatusCode != http.StatusOK {
+		// If the new style line code fails, try with the old style
+		if len(parts) > 1 {
+			oldStyleCode := parts[1]
+			fmt.Printf("New style line code failed, trying old style: %s\n", oldStyleCode)
+
+			// Update form with old style line code
+			form.Set("position[line_code]", oldStyleCode)
+
+			// Create a new request
+			req, err = http.NewRequest("POST", requestURL, strings.NewReader(form.Encode()))
+			if err != nil {
+				return fmt.Errorf("failed to create request with old style line code: %w", err)
+			}
+
+			// Add headers
+			req.Header.Add("PRIVATE-TOKEN", c.token)
+			req.Header.Add("Content-Type", "application/x-www-form-urlencoded")
+
+			// Execute the request
+			resp, err = c.client.Do(req)
+			if err != nil {
+				return fmt.Errorf("failed to execute request with old style line code: %w", err)
+			}
+			defer resp.Body.Close()
+
+			// Check response
+			body, _ = io.ReadAll(resp.Body)
+			if resp.StatusCode == http.StatusCreated || resp.StatusCode == http.StatusOK {
+				fmt.Println("Successfully created line comment with old style line code")
+				return nil
+			}
+		}
+
+		// Both line code styles failed
 		return fmt.Errorf("API request failed with status %d: %s", resp.StatusCode, string(body))
 	}
 

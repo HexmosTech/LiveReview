@@ -68,11 +68,27 @@ if [ -z "$BASE_SHA" ] || [ -z "$HEAD_SHA" ] || [ -z "$START_SHA" ]; then
     exit 1
 fi
 
+# Generate a valid line_code - two formats
+# 1. New style: path hash and line number
+PATH_HASH=$(echo -n "$FILE_PATH" | sha1sum | cut -c 1-8)
+NEW_STYLE_LINE_CODE="${PATH_HASH}_${LINE_NUM}"
+
+# 2. Old style: SHA and normalized path based
+SHORT_START_SHA=${START_SHA:0:8}
+SHORT_HEAD_SHA=${HEAD_SHA:0:8}
+NORMALIZED_PATH=${FILE_PATH//\//_}
+OLD_STYLE_LINE_CODE="${SHORT_START_SHA}_${SHORT_HEAD_SHA}_${NORMALIZED_PATH}_right_${LINE_NUM}"
+
+echo "Generated line_codes:"
+echo "- New style: $NEW_STYLE_LINE_CODE"
+echo "- Old style: $OLD_STYLE_LINE_CODE"
+echo
+
 # Create a line comment using the discussions API
 echo "Creating line comment..."
 COMMENT_TEXT="Test line comment created at $(date) via script"
 
-# Create JSON data for the request
+# Create JSON data for the request - try with new style line code first
 JSON_DATA=$(cat <<EOF
 {
   "body": "$COMMENT_TEXT",
@@ -83,7 +99,8 @@ JSON_DATA=$(cat <<EOF
     "start_sha": "$START_SHA",
     "new_path": "$FILE_PATH",
     "old_path": "$FILE_PATH",
-    "new_line": $LINE_NUM
+    "new_line": $LINE_NUM,
+    "line_code": "$NEW_STYLE_LINE_CODE"
   }
 }
 EOF
@@ -110,10 +127,51 @@ if echo "$RESPONSE" | grep -q '"id"'; then
     echo "Success! Line comment created with discussion ID: $DISCUSSION_ID"
     echo "View the comment in the merge request: $MR_URL"
 else
-    echo "Error: Failed to create line comment"
-    echo "Full response:"
-    echo "$RESPONSE"
-    exit 1
+    echo "Error: Failed to create line comment with new style line code"
+    echo "Response: $(echo "$RESPONSE" | head -20)"
+    echo
+    echo "Trying with old style line code..."
+    
+    # Try with old style line code
+    JSON_DATA=$(cat <<EOF
+    {
+      "body": "$COMMENT_TEXT",
+      "position": {
+        "position_type": "text",
+        "base_sha": "$BASE_SHA",
+        "head_sha": "$HEAD_SHA",
+        "start_sha": "$START_SHA",
+        "new_path": "$FILE_PATH",
+        "old_path": "$FILE_PATH",
+        "new_line": $LINE_NUM,
+        "line_code": "$OLD_STYLE_LINE_CODE"
+      }
+    }
+EOF
+    )
+    
+    # Post the comment with old style line code
+    echo "Posting comment with old style line code data:"
+    echo "$JSON_DATA"
+    echo
+    
+    RESPONSE=$(curl -s -X POST \
+        -H "PRIVATE-TOKEN: $GITLAB_TOKEN" \
+        -H "Content-Type: application/json" \
+        -d "$JSON_DATA" \
+        "$GITLAB_URL/api/v4/projects/$PROJECT_PATH_ENCODED/merge_requests/$MR_ID/discussions")
+    
+    # Check if the comment was created successfully with old style line code
+    if echo "$RESPONSE" | grep -q '"id"'; then
+        DISCUSSION_ID=$(echo "$RESPONSE" | grep -o '"id":"[^"]*' | head -1 | cut -d'"' -f4)
+        echo "Success! Line comment created with old style line code, discussion ID: $DISCUSSION_ID"
+        echo "View the comment in the merge request: $MR_URL"
+    else
+        echo "Error: Failed to create line comment with both line code styles"
+        echo "Full response:"
+        echo "$RESPONSE"
+        exit 1
+    fi
 fi
 
 echo
