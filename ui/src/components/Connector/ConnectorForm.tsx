@@ -44,12 +44,13 @@ export const ConnectorForm: React.FC<ConnectorFormProps> = ({ onSubmit }) => {
     };
 
     return (
-        <div className="bg-white shadow-md rounded-lg p-6 w-full max-w-md">
-            <h2 className="text-xl font-semibold mb-4">Create New Connector</h2>
-            <form onSubmit={handleSubmit}>                <div className="mb-4">
+        <div className="bg-white shadow-xl rounded-xl p-6 w-full max-w-md border border-gray-100">
+            <h2 className="text-xl font-bold mb-6 text-indigo-700">Create New Connector</h2>
+            <form onSubmit={handleSubmit} className="space-y-5">
+                <div>
                     <label
-                      className="block text-gray-700 text-sm font-bold mb-2"
-                      htmlFor="name"
+                        className="block text-gray-700 text-sm font-semibold mb-2"
+                        htmlFor="name"
                     >
                         Connector Name
                     </label>
@@ -57,7 +58,7 @@ export const ConnectorForm: React.FC<ConnectorFormProps> = ({ onSubmit }) => {
                         id="name"
                         name="name"
                         type="text"
-                        className="shadow appearance-none border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline"
+                        className="w-full px-4 py-3 rounded-lg border border-gray-200 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200 transition-all duration-200 outline-none"
                         value={formData.name}
                         onChange={handleChange}
                         placeholder="My GitLab Instance"
@@ -65,30 +66,37 @@ export const ConnectorForm: React.FC<ConnectorFormProps> = ({ onSubmit }) => {
                     />
                 </div>
 
-                <div className="mb-4">
+                <div>
                     <label
-                        className="block text-gray-700 text-sm font-bold mb-2"
+                        className="block text-gray-700 text-sm font-semibold mb-2"
                         htmlFor="type"
                     >
                         Connector Type
                     </label>
-                    <select
-                        id="type"
-                        name="type"
-                        className="shadow appearance-none border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline"
-                        value={formData.type}
-                        onChange={(e) => handleChange(e)}
-                        required
-                    >
-                        <option value="gitlab">GitLab</option>
-                        <option value="github">GitHub</option>
-                        <option value="custom">Custom</option>
-                    </select>
+                    <div className="relative">
+                        <select
+                            id="type"
+                            name="type"
+                            className="w-full px-4 py-3 rounded-lg border border-gray-200 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200 transition-all duration-200 outline-none appearance-none bg-white"
+                            value={formData.type}
+                            onChange={(e) => handleChange(e)}
+                            required
+                        >
+                            <option value="gitlab">GitLab</option>
+                            <option value="github">GitHub</option>
+                            <option value="custom">Custom</option>
+                        </select>
+                        <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center px-2 text-gray-700">
+                            <svg className="fill-current h-4 w-4" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20">
+                                <path d="M9.293 12.95l.707.707L15.657 8l-1.414-1.414L10 10.828 5.757 6.586 4.343 8z" />
+                            </svg>
+                        </div>
+                    </div>
                 </div>
 
-                <div className="mb-4">
+                <div>
                     <label
-                        className="block text-gray-700 text-sm font-bold mb-2"
+                        className="block text-gray-700 text-sm font-semibold mb-2"
                         htmlFor="url"
                     >
                         URL
@@ -97,7 +105,7 @@ export const ConnectorForm: React.FC<ConnectorFormProps> = ({ onSubmit }) => {
                         id="url"
                         name="url"
                         type="url"
-                        className="shadow appearance-none border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline"
+                        className="w-full px-4 py-3 rounded-lg border border-gray-200 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200 transition-all duration-200 outline-none"
                         value={formData.url}
                         onChange={handleChange}
                         placeholder="https://gitlab.com"
@@ -105,9 +113,9 @@ export const ConnectorForm: React.FC<ConnectorFormProps> = ({ onSubmit }) => {
                     />
                 </div>
 
-                <div className="mb-6">
+                <div>
                     <label
-                        className="block text-gray-700 text-sm font-bold mb-2"
+                        className="block text-gray-700 text-sm font-semibold mb-2"
                         htmlFor="apiKey"
                     >
                         API Key
@@ -116,7 +124,7 @@ export const ConnectorForm: React.FC<ConnectorFormProps> = ({ onSubmit }) => {
                         id="apiKey"
                         name="apiKey"
                         type="password"
-                        className="shadow appearance-none border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline"
+                        className="w-full px-4 py-3 rounded-lg border border-gray-200 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200 transition-all duration-200 outline-none"
                         value={formData.apiKey}
                         onChange={handleChange}
                         placeholder="Your API Key"
@@ -124,9 +132,9 @@ export const ConnectorForm: React.FC<ConnectorFormProps> = ({ onSubmit }) => {
                     />
                 </div>
 
-                <div className="flex items-center justify-end">
+                <div className="pt-2">
                     <button
-                        className="bg-slate-800 hover:bg-slate-700 text-white font-bold py-2 px-4 rounded focus:outline-none focus:shadow-outline transition"
+                        className="w-full py-3 px-6 text-white bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-700 hover:to-purple-700 rounded-lg font-medium shadow-md hover:shadow-lg transition-all duration-200 transform hover:-translate-y-0.5"
                         type="submit"
                     >
                         Create Connector

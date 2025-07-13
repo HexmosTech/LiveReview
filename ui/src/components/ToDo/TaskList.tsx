@@ -30,7 +30,7 @@ export const TaskList = () => {
                 </p>
             </div>
 
-            {tasks.map((task) => {
+            {tasks.map((task: { id: string; name: string; completed: boolean }) => {
                 return (
                     <div
                         key={task.id}

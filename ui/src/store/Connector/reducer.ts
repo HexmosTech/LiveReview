@@ -11,7 +11,7 @@ export type Connector = {
     createdAt: string;
 };
 
-type ConnectorState = {
+export type ConnectorState = {
     connectors: Connector[];
     isLoading: boolean;
     error: string | null;
