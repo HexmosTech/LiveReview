@@ -6,7 +6,7 @@
   "description": "- Migrated Gemini SDK from the old deprecated one to the new one(https://github.com/googleapis/go-genai/).\n- Updated gemini config files, gatekeeper,ratelimit to work with new SDK\n- Added propertyOrdering in schema to address the endpoint http method mismatch issues.",
   "state": "opened",
   "created_at": "2025-07-13T06:24:00.486Z",
-  "updated_at": "2025-07-13T10:32:42.651Z",
+  "updated_at": "2025-07-14T06:51:41.822Z",
   "merged_by": null,
   "merge_user": null,
   "merged_at": null,

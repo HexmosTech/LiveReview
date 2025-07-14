@@ -3,7 +3,7 @@ from pprint import pprint
 url = "https://git.apps.hexmos.com"
 token = "REDACTED_GITLAB_PAT_6"
 
-mr_url = "https://git.apps.hexmos.com/hexmos/liveapi/-/merge_requests/335"
+mr_url = "https://git.apps.hexmos.com/hexmos/liveapi/-/merge_requests/403"
 
 import requests
 import re
@@ -79,13 +79,94 @@ def create_mr_thread(base_url, project_path, mr_id, headers, version_info, comme
         print(f"Error: {response.text}")
         return None
 
+
+def add_general_comment(base_url, project_path, mr_id, headers, comment_text):
+    comment_data = {
+        'body': comment_text
+    }
+    
+    # Get version info first
+    version_info = get_mr_versions(base_url, project_path, mr_id, headers)
+    if not version_info:
+        print("Failed to get version information, cannot add comment")
+        return None
+    
+    # Create the thread
+    result = create_mr_thread(base_url, project_path, mr_id, headers, version_info, comment_data)
+    if result:
+        print(f"\nSuccessfully added general comment: '{comment_text}'")
+        print(f"Thread ID: {result['id']}")
+        return result
+    return None
+
+# Function to add a line comment to a specific file and line
+def add_line_comment(base_url, project_path, mr_id, headers, file_path, line_number, comment_text, changes_data=None):
+    # Get version info first
+    version_info = get_mr_versions(base_url, project_path, mr_id, headers)
+    if not version_info:
+        print("Failed to get version information, cannot add comment")
+        return None
+
+    pprint(["version_info", version_info])
+    # If we don't have changes data, fetch it
+    if not changes_data:
+        changes_url = f"{base_url}/api/v4/projects/{project_path}/merge_requests/{mr_id}/changes"
+        changes_response = requests.get(changes_url, headers=headers)
+        
+        if changes_response.status_code != 200:
+            print(f"Failed to fetch changes. Status code: {changes_response.status_code}")
+            return None
+        
+        changes_data = changes_response.json()
+    
+    # Find the file in the changes
+    # Check the structure of changes_data and access it correctly
+    target_change = None
+    changes_list = changes_data
+    
+    # Handle both list and dict with 'changes' key
+    if isinstance(changes_data, dict) and 'changes' in changes_data:
+        changes_list = changes_data['changes']
+    
+    for change in changes_list:
+        if change['new_path'] == file_path:
+            target_change = change
+            break
+    
+    if not target_change:
+        print(f"File '{file_path}' not found in the merge request changes")
+        return None
+    
+    # Prepare comment data
+    comment_data = {
+        'body': comment_text,
+        'position': {
+            'new_path': file_path,
+            'old_path': target_change['old_path'],
+            'new_line': line_number
+            # Use old_line instead if commenting on a removed line
+        }
+    }
+    
+    # Create the thread
+    result = create_mr_thread(base_url, project_path, mr_id, headers, version_info, comment_data)
+    if result:
+        print(f"\nSuccessfully added line comment to {file_path}:{line_number}")
+        print(f"Comment: '{comment_text}'")
+        print(f"Thread ID: {result['id']}")
+        return result
+    return None
+
+
 # Main script execution
 project_path, mr_id = extract_mr_info(mr_url)
+print("project_path, mr_id", project_path, mr_id)
 if not project_path or not mr_id:
     print(f"Failed to extract project path and MR ID from URL: {mr_url}")
     exit(1)
 
 encoded_project_path = encode_project_path(project_path)
+print("encoded_project_path", encoded_project_path)
 
 # Set up headers for API request
 headers = {
@@ -95,7 +176,9 @@ headers = {
 
 # Fetch merge request details
 api_url = f"{url}/api/v4/projects/{encoded_project_path}/merge_requests/{mr_id}"
+print("api_url", api_url)
 response = requests.get(api_url, headers=headers)
+print("response", response)
 
 if response.status_code == 200:
     mr_details = response.json()
@@ -109,7 +192,9 @@ if response.status_code == 200:
     
     # Example: Fetch the changes (diff)
     changes_url = f"{api_url}/changes"
+    print("changes_url", changes_url)
     changes_response = requests.get(changes_url, headers=headers)
+    print("changes_response", changes_response)
     
     if changes_response.status_code == 200:
         changes = changes_response.json()
@@ -118,6 +203,11 @@ if response.status_code == 200:
         
         # Print changed files
         for change in changes['changes']:
+            print()
+            print()
+            pprint(change)
+            print()
+            print()
             print(f"File: {change['new_path']} (Added: {change['new_file']}, Deleted: {change['deleted_file']})")
     else:
         print(f"Failed to fetch changes. Status code: {changes_response.status_code}")
@@ -170,81 +260,8 @@ if response.status_code == 200:
     print("\nFull details saved to 'mr_details.json'")
     
     # Function to add a general comment to the MR
-def add_general_comment(base_url, project_path, mr_id, headers, comment_text):
-    comment_data = {
-        'body': comment_text
-    }
-    
-    # Get version info first
-    version_info = get_mr_versions(base_url, project_path, mr_id, headers)
-    if not version_info:
-        print("Failed to get version information, cannot add comment")
-        return None
-    
-    # Create the thread
-    result = create_mr_thread(base_url, project_path, mr_id, headers, version_info, comment_data)
-    if result:
-        print(f"\nSuccessfully added general comment: '{comment_text}'")
-        print(f"Thread ID: {result['id']}")
-        return result
-    return None
 
-# Function to add a line comment to a specific file and line
-def add_line_comment(base_url, project_path, mr_id, headers, file_path, line_number, comment_text, changes_data=None):
-    # Get version info first
-    version_info = get_mr_versions(base_url, project_path, mr_id, headers)
-    if not version_info:
-        print("Failed to get version information, cannot add comment")
-        return None
-    
-    # If we don't have changes data, fetch it
-    if not changes_data:
-        changes_url = f"{base_url}/api/v4/projects/{project_path}/merge_requests/{mr_id}/changes"
-        changes_response = requests.get(changes_url, headers=headers)
-        
-        if changes_response.status_code != 200:
-            print(f"Failed to fetch changes. Status code: {changes_response.status_code}")
-            return None
-        
-        changes_data = changes_response.json()
-    
-    # Find the file in the changes
-    # Check the structure of changes_data and access it correctly
-    target_change = None
-    changes_list = changes_data
-    
-    # Handle both list and dict with 'changes' key
-    if isinstance(changes_data, dict) and 'changes' in changes_data:
-        changes_list = changes_data['changes']
-    
-    for change in changes_list:
-        if change['new_path'] == file_path:
-            target_change = change
-            break
-    
-    if not target_change:
-        print(f"File '{file_path}' not found in the merge request changes")
-        return None
-    
-    # Prepare comment data
-    comment_data = {
-        'body': comment_text,
-        'position': {
-            'new_path': file_path,
-            'old_path': target_change['old_path'],
-            'new_line': line_number
-            # Use old_line instead if commenting on a removed line
-        }
-    }
-    
-    # Create the thread
-    result = create_mr_thread(base_url, project_path, mr_id, headers, version_info, comment_data)
-    if result:
-        print(f"\nSuccessfully added line comment to {file_path}:{line_number}")
-        print(f"Comment: '{comment_text}'")
-        print(f"Thread ID: {result['id']}")
-        return result
-    return None
+
 
 # Get merge request versions to retrieve necessary SHAs
 version_info = get_mr_versions(url, encoded_project_path, mr_id, headers)
@@ -255,16 +272,21 @@ if version_info:
     print(f"Base SHA: {version_info['base_commit_sha']}")
     print(f"Head SHA: {version_info['head_commit_sha']}")
     print(f"Start SHA: {version_info['start_commit_sha']}")
+
     
     # Example 1: Add a general comment
     general_comment = "This merge request looks good overall. Nice work!"
-    general_result = add_general_comment(url, encoded_project_path, mr_id, headers, general_comment)
+
+
+    # TODO: Uncomment the following line to add a general comment
+    # general_result = add_general_comment(url, encoded_project_path, mr_id, headers, general_comment)
+
     
-    if general_result:
-        # Save the created thread details
-        with open('general_comment.json', 'w') as f:
-            json.dump(general_result, f, indent=2)
-        print("General comment details saved to 'general_comment.json'")
+    # if general_result:
+    #     # Save the created thread details
+    #     with open('general_comment.json', 'w') as f:
+    #         json.dump(general_result, f, indent=2)
+    #     print("General comment details saved to 'general_comment.json'")
     
     # Example 2: Add a line comment to a file in the MR
     line_comment = "This line could use some additional error handling."
@@ -278,6 +300,10 @@ if version_info:
         changed_files = []
         for i, change in enumerate(changes['changes']):
             changed_files.append(change['new_path'])
+
+        print("changed_files")
+        pprint(changed_files)
+        print("len(chaged_files)", len(changed_files))
             
         if changed_files:
             print("\nAvailable files to comment on:")
@@ -286,6 +312,7 @@ if version_info:
             
             # Choose the first file for the demo (you can modify this to select any file)
             selected_file = changed_files[0]
+            print(selected_file)
             line_number = 19  # Just use line 5 as an example
             
             print(f"\nAdding comment to first available file: {selected_file} at line {line_number}")

@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"os"
+	"path/filepath"
 	"regexp"
 	"strconv"
 	"strings"
@@ -147,6 +149,12 @@ func (p *GeminiProvider) ReviewCode(ctx context.Context, diffs []*models.CodeDif
 	prompt += "6. PRIORITIZE IMPORTANT ISSUES: Focus on security, performance, maintainability, and correctness.\n"
 	prompt += "7. INCLUDE LINE NUMBERS: Use the 'L' numbers from the diff to specify exact locations.\n\n"
 	prompt += "Here are the code changes to review:\n\n"
+	prompt += "NOTE ABOUT LINE NUMBERS: The diffs use a dual-column format showing line numbers for both old and new versions:\n"
+	prompt += "  OldLine# | NewLine# | Content\n"
+	prompt += "For added lines:    | 123| +new code\n"
+	prompt += "For deleted lines: 123|    | -old code\n"
+	prompt += "For context lines: 123| 123|  unchanged code\n"
+	prompt += "IMPORTANT: When referencing line numbers in your comments, use the NEW line numbers (right column) for added/context lines, and OLD line numbers (left column) for deleted lines.\n\n"
 
 	// Add each diff to the prompt
 	for i, diff := range diffs {
@@ -161,37 +169,30 @@ func (p *GeminiProvider) ReviewCode(ctx context.Context, diffs []*models.CodeDif
 			prompt += fmt.Sprintf("[RENAMED FROM: %s]\n", diff.OldFilePath)
 		}
 
-		// Add hunks with enhanced line number information
+		// Add hunks with enhanced dual-column line number formatting
+		originalHunks := make([]string, 0, len(diff.Hunks))
+		formattedHunks := make([]string, 0, len(diff.Hunks))
+
 		for _, hunk := range diff.Hunks {
-			// Add hunk header with line numbers
-			prompt += fmt.Sprintf("@@ -L%d,%d +L%d,%d @@\n",
+			// Store the original hunk content
+			originalHunkContent := fmt.Sprintf("@@ -%d,%d +%d,%d @@\n%s",
 				hunk.OldStartLine, hunk.OldLineCount,
-				hunk.NewStartLine, hunk.NewLineCount)
+				hunk.NewStartLine, hunk.NewLineCount,
+				hunk.Content)
+			originalHunks = append(originalHunks, originalHunkContent)
 
-			// Add the hunk content with explicit line numbers for easier reference
-			lines := strings.Split(hunk.Content, "\n")
-			currentOldLine := hunk.OldStartLine
-			currentNewLine := hunk.NewStartLine
+			// Format the hunk with clear old and new line numbers
+			formattedHunkContent := formatHunkWithLineNumbers(hunk)
+			formattedHunks = append(formattedHunks, formattedHunkContent)
 
-			for _, line := range lines {
-				if strings.HasPrefix(line, "+") {
-					// Added line - only exists in new version
-					prompt += fmt.Sprintf("L%-5d %s\n", currentNewLine, line)
-					currentNewLine++
-				} else if strings.HasPrefix(line, "-") {
-					// Removed line - only exists in old version
-					prompt += fmt.Sprintf("L%-5d %s\n", currentOldLine, line)
-					currentOldLine++
-				} else if strings.HasPrefix(line, " ") {
-					// Context line - exists in both versions
-					prompt += fmt.Sprintf("L%-5d %s\n", currentNewLine, line)
-					currentNewLine++
-					currentOldLine++
-				} else {
-					// Other line (e.g., diff metadata)
-					prompt += fmt.Sprintf("      %s\n", line)
-				}
-			}
+			// Add the formatted hunk to the prompt
+			prompt += formattedHunkContent
+		}
+
+		// Log hunks for inspection
+		err := logHunkFormatting(diff, originalHunks, formattedHunks)
+		if err != nil {
+			fmt.Printf("Warning: Failed to log hunk formatting: %v\n", err)
 		}
 		prompt += "\n---\n\n"
 	}
@@ -601,9 +602,7 @@ func (p *GeminiProvider) parseResponse(response string, diffs []*models.CodeDiff
 					} else {
 						filePath = strings.TrimSpace(pathPart)
 					}
-				}
-
-				// Look for different line number formats more robustly
+				} // Check for different line number formats more robustly
 				// First check for "Line X" or "Line: X"
 				lineRegex := regexp.MustCompile(`Line:?\s*(\d+)`)
 				lineMatches := lineRegex.FindStringSubmatch(line)
@@ -625,14 +624,22 @@ func (p *GeminiProvider) parseResponse(response string, diffs []*models.CodeDiff
 							lineNum, _ = strconv.Atoi(lLineMatches[1])
 							fmt.Printf("Found line number %d using L-format regex from: %s\n", lineNum, line)
 						} else {
-							// Check for any number following a comma
-							commaNumRegex := regexp.MustCompile(`,\s*(\d+)`)
-							commaNumMatches := commaNumRegex.FindStringSubmatch(line)
-							if len(commaNumMatches) > 1 {
-								lineNum, _ = strconv.Atoi(commaNumMatches[1])
-								fmt.Printf("Found line number %d using comma-number regex from: %s\n", lineNum, line)
+							// Check for the new dual-column format reference (e.g., "line 123 (new)" or "new line 123")
+							newLineRegex := regexp.MustCompile(`(?:new|right)(?:\s+line|\s+column)?\s*(\d+)`)
+							newLineMatches := newLineRegex.FindStringSubmatch(line)
+							if len(newLineMatches) > 1 {
+								lineNum, _ = strconv.Atoi(newLineMatches[1])
+								fmt.Printf("Found new line number %d using new-column regex from: %s\n", lineNum, line)
 							} else {
-								fmt.Printf("Could not extract line number from: %s, defaulting to line 1\n", line)
+								// Check for any number following a comma
+								commaNumRegex := regexp.MustCompile(`,\s*(\d+)`)
+								commaNumMatches := commaNumRegex.FindStringSubmatch(line)
+								if len(commaNumMatches) > 1 {
+									lineNum, _ = strconv.Atoi(commaNumMatches[1])
+									fmt.Printf("Found line number %d using comma-number regex from: %s\n", lineNum, line)
+								} else {
+									fmt.Printf("Could not extract line number from: %s, defaulting to line 1\n", line)
+								}
 							}
 						}
 					}
@@ -695,6 +702,151 @@ func (p *GeminiProvider) parseResponse(response string, diffs []*models.CodeDiff
 	p.printCommentsByFile(result.Comments, diffs)
 
 	return result, nil
+}
+
+// formatHunkWithLineNumbers enhances a hunk by adding clear line number annotations for both old and new versions
+func formatHunkWithLineNumbers(hunk models.DiffHunk) string {
+	var formattedContent strings.Builder
+	var debugInfo strings.Builder
+
+	// Add debug info
+	debugInfo.WriteString(fmt.Sprintf("DEBUG: Processing hunk with OldStartLine=%d, OldLineCount=%d, NewStartLine=%d, NewLineCount=%d\n",
+		hunk.OldStartLine, hunk.OldLineCount, hunk.NewStartLine, hunk.NewLineCount))
+
+	// Parse hunk header from content if needed
+	oldStartLine, oldLineCount, newStartLine, newLineCount := hunk.OldStartLine, hunk.OldLineCount, hunk.NewStartLine, hunk.NewLineCount
+	contentToUse := hunk.Content
+
+	// Check if we need to extract line numbers from the content
+	if oldStartLine == 0 && newStartLine == 0 {
+		// Try to extract line numbers from the first line of content
+		lines := strings.Split(hunk.Content, "\n")
+		for i, line := range lines {
+			if strings.HasPrefix(line, "@@") {
+				// Extract line numbers from the header line
+				headerPattern := regexp.MustCompile(`@@ -(\d+),(\d+) \+(\d+),(\d+) @@`)
+				if matches := headerPattern.FindStringSubmatch(line); len(matches) >= 5 {
+					oldStartLine, _ = strconv.Atoi(matches[1])
+					oldLineCount, _ = strconv.Atoi(matches[2])
+					newStartLine, _ = strconv.Atoi(matches[3])
+					newLineCount, _ = strconv.Atoi(matches[4])
+
+					debugInfo.WriteString(fmt.Sprintf("DEBUG: Extracted line numbers from header: oldStart=%d, oldCount=%d, newStart=%d, newCount=%d\n",
+						oldStartLine, oldLineCount, newStartLine, newLineCount))
+
+					// Skip the header line in the content
+					contentToUse = strings.Join(lines[i+1:], "\n")
+					break
+				}
+			}
+		}
+	}
+
+	// Add hunk header with line numbers
+	formattedContent.WriteString(fmt.Sprintf("@@ -%d,%d +%d,%d @@\n",
+		oldStartLine, oldLineCount,
+		newStartLine, newLineCount))
+
+	// Add column headers for clarity
+	formattedContent.WriteString(" OLD | NEW | CONTENT\n")
+	formattedContent.WriteString("-----------------\n")
+
+	// Process each line in the hunk
+	lines := strings.Split(contentToUse, "\n")
+	currentOldLine := oldStartLine
+	currentNewLine := newStartLine
+
+	debugInfo.WriteString(fmt.Sprintf("DEBUG: Starting with currentOldLine=%d, currentNewLine=%d\n",
+		currentOldLine, currentNewLine))
+	debugInfo.WriteString(fmt.Sprintf("DEBUG: Content has %d lines\n", len(lines)))
+
+	lineCount := 0
+	for _, line := range lines {
+		if line == "" {
+			continue
+		}
+
+		lineCount++
+		if strings.HasPrefix(line, "+") {
+			// Added line - only exists in new version
+			debugInfo.WriteString(fmt.Sprintf("DEBUG: Line %d: Added line, currentNewLine=%d\n",
+				lineCount, currentNewLine))
+			formattedContent.WriteString(fmt.Sprintf("    | %3d| %s\n", currentNewLine, line))
+			currentNewLine++
+		} else if strings.HasPrefix(line, "-") {
+			// Removed line - only exists in old version
+			debugInfo.WriteString(fmt.Sprintf("DEBUG: Line %d: Removed line, currentOldLine=%d\n",
+				lineCount, currentOldLine))
+			formattedContent.WriteString(fmt.Sprintf(" %3d|    | %s\n", currentOldLine, line))
+			currentOldLine++
+		} else if strings.HasPrefix(line, " ") {
+			// Context line - exists in both versions
+			debugInfo.WriteString(fmt.Sprintf("DEBUG: Line %d: Context line, currentOldLine=%d, currentNewLine=%d\n",
+				lineCount, currentOldLine, currentNewLine))
+			formattedContent.WriteString(fmt.Sprintf(" %3d| %3d| %s\n", currentOldLine, currentNewLine, line))
+			currentNewLine++
+			currentOldLine++
+		} else {
+			// Other line (e.g., diff metadata)
+			debugInfo.WriteString(fmt.Sprintf("DEBUG: Line %d: Metadata line: %s\n", lineCount, line))
+			formattedContent.WriteString(fmt.Sprintf("    |    | %s\n", line))
+		}
+	}
+
+	debugInfo.WriteString(fmt.Sprintf("DEBUG: Finished with currentOldLine=%d, currentNewLine=%d\n",
+		currentOldLine, currentNewLine))
+
+	// Print debug info to console
+	fmt.Print(debugInfo.String())
+
+	return formattedContent.String()
+}
+
+// logHunkFormatting saves the original and formatted hunks to a file for inspection
+func logHunkFormatting(diff *models.CodeDiff, originalHunks []string, formattedHunks []string) error {
+	logDir := "hunk_format_logs"
+
+	// Create logs directory if it doesn't exist
+	if err := os.MkdirAll(logDir, 0755); err != nil {
+		return fmt.Errorf("failed to create log directory: %w", err)
+	}
+
+	// Create a log file for this file's hunks
+	fileName := filepath.Base(diff.FilePath)
+	logPath := filepath.Join(logDir, fmt.Sprintf("%s_hunks.log", fileName))
+
+	f, err := os.Create(logPath)
+	if err != nil {
+		return fmt.Errorf("failed to create log file: %w", err)
+	}
+	defer f.Close()
+
+	// Write file info header
+	fmt.Fprintf(f, "=== Hunk Formatting Log for %s ===\n\n", diff.FilePath)
+
+	// Write each hunk pair (original and formatted)
+	for i := 0; i < len(originalHunks); i++ {
+		// Add detailed debug info about the hunk
+		if i < len(diff.Hunks) {
+			hunk := diff.Hunks[i]
+			fmt.Fprintf(f, "HUNK DEBUG INFO:\n")
+			fmt.Fprintf(f, "- OldStartLine: %d\n", hunk.OldStartLine)
+			fmt.Fprintf(f, "- OldLineCount: %d\n", hunk.OldLineCount)
+			fmt.Fprintf(f, "- NewStartLine: %d\n", hunk.NewStartLine)
+			fmt.Fprintf(f, "- NewLineCount: %d\n", hunk.NewLineCount)
+			fmt.Fprintf(f, "- Content Lines: %d\n", len(strings.Split(hunk.Content, "\n")))
+			fmt.Fprintf(f, "\n")
+		}
+
+		fmt.Fprintf(f, "--- Original Hunk %d ---\n", i+1)
+		fmt.Fprintln(f, originalHunks[i])
+		fmt.Fprintf(f, "\n--- Formatted Hunk %d ---\n", i+1)
+		fmt.Fprintln(f, formattedHunks[i])
+		fmt.Fprintln(f, "\n"+strings.Repeat("=", 80)+"\n")
+	}
+
+	fmt.Printf("Logged hunk formatting for %s to %s\n", diff.FilePath, logPath)
+	return nil
 }
 
 // Filter out low-quality comments and ensure we have useful feedback
