@@ -295,11 +295,15 @@ func runReviewProcess(
 			fmt.Printf("\n--- Comment %d ---\n", i+1)
 			fmt.Printf("File: %s, Line: %d\n", comment.FilePath, comment.Line)
 			fmt.Printf("Severity: %s\n", comment.Severity)
-			fmt.Printf("Content: %s\n", comment.Content)
+
+			// Print the content (which shouldn't have suggestions in it anymore)
+			fmt.Printf("%s\n", comment.Content)
+
+			// Print suggestions separately
 			if len(comment.Suggestions) > 0 {
-				fmt.Println("Suggestions:")
-				for _, suggestion := range comment.Suggestions {
-					fmt.Printf("  - %s\n", suggestion)
+				fmt.Println("\nSuggestions:")
+				for j, suggestion := range comment.Suggestions {
+					fmt.Printf("%d. %s\n", j+1, suggestion)
 				}
 			}
 		}

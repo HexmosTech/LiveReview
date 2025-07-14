@@ -114,6 +114,7 @@ func (p *GeminiProvider) ReviewCode(ctx context.Context, diffs []*models.CodeDif
 
 	// Format the diffs for the prompt
 	prompt := "You are an expert code reviewer. Review the following code changes and provide detailed, insightful feedback.\n\n"
+	prompt += "CRITICAL: Ensure that each suggestion is unique and never repeated. Duplicate suggestions will cause issues for the user.\n\n"
 	prompt += "THE RESPONSE MUST HAVE TWO MAIN SECTIONS:\n"
 	prompt += "1. SUMMARY: A clear, concise human-readable summary of the key changes and your overall assessment, focusing on:\n"
 	prompt += "   - The main changes and their purpose\n"
@@ -123,7 +124,6 @@ func (p *GeminiProvider) ReviewCode(ctx context.Context, diffs []*models.CodeDif
 	prompt += "2. SPECIFIC COMMENTS: Detailed code review comments for each issue found, with:\n"
 	prompt += "   - Specific file paths and line numbers\n"
 	prompt += "   - Clear explanation of the issue\n"
-	prompt += "   - Concrete suggestions for improvement\n"
 	prompt += "   - Severity level (critical, warning, info)\n\n"
 	prompt += "DO NOT provide general comments like 'No specific issues found in this file.' ONLY comment on files that have actual issues.\n\n"
 	prompt += "FOR JSON PARSING, your response should be structured as follows:\n"
@@ -140,6 +140,10 @@ func (p *GeminiProvider) ReviewCode(ctx context.Context, diffs []*models.CodeDif
 	prompt += "    }\n"
 	prompt += "  ]\n"
 	prompt += "}\n\n"
+	prompt += "IMPORTANT NOTES ON SUGGESTIONS:\n"
+	prompt += "- Every suggestion in the 'suggestions' array must be unique and distinct.\n"
+	prompt += "- Never repeat the same suggestion twice in the same comment.\n"
+	prompt += "- Focus on providing different, complementary solutions to the issue.\n\n"
 	prompt += "CRITICAL RULES (MUST FOLLOW):\n"
 	prompt += "1. BE THOROUGH: Look carefully for issues in all files - ensure you identify real problems in the code.\n"
 	prompt += "2. BE SPECIFIC: Your comments must point to actual lines of code with concrete issues.\n"
@@ -147,7 +151,11 @@ func (p *GeminiProvider) ReviewCode(ctx context.Context, diffs []*models.CodeDif
 	prompt += "4. NO FILLER: Do not create generic comments like 'No issues found' - only comment on real issues.\n"
 	prompt += "5. FORMAT CORRECTLY: Ensure your response can be parsed as valid JSON with properly escaped quotes.\n"
 	prompt += "6. PRIORITIZE IMPORTANT ISSUES: Focus on security, performance, maintainability, and correctness.\n"
-	prompt += "7. INCLUDE LINE NUMBERS: Use the 'L' numbers from the diff to specify exact locations.\n\n"
+	prompt += "7. INCLUDE LINE NUMBERS: Use the 'L' numbers from the diff to specify exact locations.\n"
+	prompt += "8. STRUCTURING COMMENTS: Put explanations in the 'content' field and ONLY put actual suggestions in the 'suggestions' array.\n"
+	prompt += "9. AVOID REPETITION: Do not repeat the same content in both the explanation and suggestions.\n"
+	prompt += "10. NO DUPLICATE SUGGESTIONS: Each suggestion must be unique. Never repeat the same suggestion twice.\n"
+	prompt += "11. EMPTY SUGGESTIONS: If you have no suggestions, use an empty array [] for 'suggestions' - DO NOT add filler like 'No specific suggestion'.\n\n"
 	prompt += "Here are the code changes to review:\n\n"
 	prompt += "NOTE ABOUT LINE NUMBERS: The diffs use a dual-column format showing line numbers for both old and new versions:\n"
 	prompt += "  OldLine# | NewLine# | Content\n"
@@ -181,12 +189,20 @@ func (p *GeminiProvider) ReviewCode(ctx context.Context, diffs []*models.CodeDif
 				hunk.Content)
 			originalHunks = append(originalHunks, originalHunkContent)
 
+			// Check if the hunk contains multiple @@ markers, indicating nested hunks
+			containsMultipleHunks := strings.Count(hunk.Content, "@@") > 2
+
 			// Format the hunk with clear old and new line numbers
 			formattedHunkContent := formatHunkWithLineNumbers(hunk)
 			formattedHunks = append(formattedHunks, formattedHunkContent)
 
 			// Add the formatted hunk to the prompt
 			prompt += formattedHunkContent
+
+			// Log whether we detected multiple hunks in this content
+			if containsMultipleHunks {
+				fmt.Printf("Detected multiple hunks in file %s\n", diff.FilePath)
+			}
 		}
 
 		// Log hunks for inspection
@@ -431,13 +447,25 @@ func (p *GeminiProvider) parseResponse(response string, diffs []*models.CodeDiff
 							if len(match) > 5 && match[5] != "" {
 								suggestionRegex := regexp.MustCompile(`"((?:\\"|[^"])*?)"`)
 								if suggestionMatches := suggestionRegex.FindAllStringSubmatch(match[5], -1); len(suggestionMatches) > 0 {
+									// Use a map for deduplication while preserving order
+									uniqueSuggestions := make(map[string]bool)
+
 									for _, suggMatch := range suggestionMatches {
 										if len(suggMatch) > 1 {
 											suggestion := suggMatch[1]
 											suggestion = strings.ReplaceAll(suggestion, `\"`, `"`)
 											suggestion = strings.ReplaceAll(suggestion, `\\`, `\`)
 											suggestion = strings.ReplaceAll(suggestion, `\n`, "\n")
-											suggestions = append(suggestions, suggestion)
+
+											// Filter out empty or "no suggestion" suggestions
+											lowerSuggestion := strings.ToLower(suggestion)
+											if strings.TrimSpace(suggestion) != "" &&
+												!strings.Contains(lowerSuggestion, "no specific suggestion") &&
+												!strings.Contains(lowerSuggestion, "no suggestion") &&
+												!uniqueSuggestions[lowerSuggestion] { // Check if we've seen this suggestion before
+												suggestions = append(suggestions, suggestion)
+												uniqueSuggestions[lowerSuggestion] = true
+											}
 										}
 									}
 								}
@@ -676,7 +704,24 @@ func (p *GeminiProvider) parseResponse(response string, diffs []*models.CodeDiff
 				} else if strings.HasPrefix(line, "Suggestion:") || strings.HasPrefix(line, "- Suggestion:") {
 					// Extract suggestion
 					suggestion := strings.TrimSpace(strings.TrimPrefix(strings.TrimPrefix(line, "- "), "Suggestion:"))
-					currentComment.Suggestions = append(currentComment.Suggestions, suggestion)
+
+					// Check for duplicates (case-insensitive)
+					isDuplicate := false
+					lowerSuggestion := strings.ToLower(suggestion)
+					for _, existingSuggestion := range currentComment.Suggestions {
+						if strings.ToLower(existingSuggestion) == lowerSuggestion {
+							isDuplicate = true
+							break
+						}
+					}
+
+					// Only add non-empty, non-duplicate, and actual suggestions
+					if !isDuplicate &&
+						strings.TrimSpace(suggestion) != "" &&
+						!strings.Contains(lowerSuggestion, "no specific suggestion") &&
+						!strings.Contains(lowerSuggestion, "no suggestion") {
+						currentComment.Suggestions = append(currentComment.Suggestions, suggestion)
+					}
 				} else {
 					// This is part of the comment content
 					if currentComment.Content != "" {
@@ -713,14 +758,77 @@ func formatHunkWithLineNumbers(hunk models.DiffHunk) string {
 	debugInfo.WriteString(fmt.Sprintf("DEBUG: Processing hunk with OldStartLine=%d, OldLineCount=%d, NewStartLine=%d, NewLineCount=%d\n",
 		hunk.OldStartLine, hunk.OldLineCount, hunk.NewStartLine, hunk.NewLineCount))
 
+	// Split the content to find multiple hunks if they exist
+	lines := strings.Split(hunk.Content, "\n")
+
+	// Find all hunk headers in the content
+	var hunkBoundaries []int
+	for i, line := range lines {
+		if strings.HasPrefix(line, "@@") {
+			hunkBoundaries = append(hunkBoundaries, i)
+		}
+	}
+
+	// If we don't have any hunk headers or just have one at the beginning, process normally
+	if len(hunkBoundaries) <= 1 {
+		return formatSingleHunk(hunk, lines, &debugInfo)
+	}
+
+	// Process multiple hunks if we found them
+	debugInfo.WriteString(fmt.Sprintf("DEBUG: Found multiple hunks (%d) in content\n", len(hunkBoundaries)))
+
+	// Process each hunk separately
+	for i, startIdx := range hunkBoundaries {
+		endIdx := len(lines)
+		if i < len(hunkBoundaries)-1 {
+			endIdx = hunkBoundaries[i+1]
+		}
+
+		hunkLines := lines[startIdx:endIdx]
+
+		// Create a temporary hunk with just these lines
+		tempHunk := models.DiffHunk{
+			Content: strings.Join(hunkLines, "\n"),
+			// Initial values are 0 to force header extraction
+			OldStartLine: 0,
+			OldLineCount: 0,
+			NewStartLine: 0,
+			NewLineCount: 0,
+		}
+
+		debugInfo.WriteString(fmt.Sprintf("DEBUG: Processing sub-hunk %d (lines %d-%d)\n",
+			i+1, startIdx, endIdx-1))
+
+		// Format this individual hunk
+		formattedHunk := formatSingleHunk(tempHunk, hunkLines, &debugInfo)
+
+		// Add to the overall formatted content
+		formattedContent.WriteString(formattedHunk)
+
+		// Add a separator between hunks except for the last one
+		if i < len(hunkBoundaries)-1 {
+			formattedContent.WriteString("\n")
+		}
+	}
+
+	// Print debug info to console
+	fmt.Print(debugInfo.String())
+
+	return formattedContent.String()
+}
+
+// formatSingleHunk formats a single hunk with line numbers
+func formatSingleHunk(hunk models.DiffHunk, lines []string, debugInfo *strings.Builder) string {
+	var formattedContent strings.Builder
+
 	// Parse hunk header from content if needed
 	oldStartLine, oldLineCount, newStartLine, newLineCount := hunk.OldStartLine, hunk.OldLineCount, hunk.NewStartLine, hunk.NewLineCount
 	contentToUse := hunk.Content
+	startFromLine := 0
 
 	// Check if we need to extract line numbers from the content
-	if oldStartLine == 0 && newStartLine == 0 {
+	if oldStartLine == 0 && newStartLine == 0 && len(lines) > 0 {
 		// Try to extract line numbers from the first line of content
-		lines := strings.Split(hunk.Content, "\n")
 		for i, line := range lines {
 			if strings.HasPrefix(line, "@@") {
 				// Extract line numbers from the header line
@@ -735,11 +843,14 @@ func formatHunkWithLineNumbers(hunk models.DiffHunk) string {
 						oldStartLine, oldLineCount, newStartLine, newLineCount))
 
 					// Skip the header line in the content
-					contentToUse = strings.Join(lines[i+1:], "\n")
+					startFromLine = i + 1
+					contentToUse = strings.Join(lines[startFromLine:], "\n")
 					break
 				}
 			}
 		}
+	} else {
+		contentToUse = strings.Join(lines, "\n")
 	}
 
 	// Add hunk header with line numbers
@@ -752,16 +863,16 @@ func formatHunkWithLineNumbers(hunk models.DiffHunk) string {
 	formattedContent.WriteString("-----------------\n")
 
 	// Process each line in the hunk
-	lines := strings.Split(contentToUse, "\n")
+	contentLines := strings.Split(contentToUse, "\n")
 	currentOldLine := oldStartLine
 	currentNewLine := newStartLine
 
 	debugInfo.WriteString(fmt.Sprintf("DEBUG: Starting with currentOldLine=%d, currentNewLine=%d\n",
 		currentOldLine, currentNewLine))
-	debugInfo.WriteString(fmt.Sprintf("DEBUG: Content has %d lines\n", len(lines)))
+	debugInfo.WriteString(fmt.Sprintf("DEBUG: Content has %d lines\n", len(contentLines)))
 
 	lineCount := 0
-	for _, line := range lines {
+	for _, line := range contentLines {
 		if line == "" {
 			continue
 		}
@@ -786,6 +897,11 @@ func formatHunkWithLineNumbers(hunk models.DiffHunk) string {
 			formattedContent.WriteString(fmt.Sprintf(" %3d| %3d| %s\n", currentOldLine, currentNewLine, line))
 			currentNewLine++
 			currentOldLine++
+		} else if strings.HasPrefix(line, "@@") {
+			// This is a hunk header, which should not appear in contentLines
+			// since we've already processed them. Include it as metadata.
+			debugInfo.WriteString(fmt.Sprintf("DEBUG: Line %d: Unexpected hunk header line: %s\n", lineCount, line))
+			formattedContent.WriteString(fmt.Sprintf("    |    | %s\n", line))
 		} else {
 			// Other line (e.g., diff metadata)
 			debugInfo.WriteString(fmt.Sprintf("DEBUG: Line %d: Metadata line: %s\n", lineCount, line))
@@ -795,9 +911,6 @@ func formatHunkWithLineNumbers(hunk models.DiffHunk) string {
 
 	debugInfo.WriteString(fmt.Sprintf("DEBUG: Finished with currentOldLine=%d, currentNewLine=%d\n",
 		currentOldLine, currentNewLine))
-
-	// Print debug info to console
-	fmt.Print(debugInfo.String())
 
 	return formattedContent.String()
 }
@@ -835,6 +948,11 @@ func logHunkFormatting(diff *models.CodeDiff, originalHunks []string, formattedH
 			fmt.Fprintf(f, "- NewStartLine: %d\n", hunk.NewStartLine)
 			fmt.Fprintf(f, "- NewLineCount: %d\n", hunk.NewLineCount)
 			fmt.Fprintf(f, "- Content Lines: %d\n", len(strings.Split(hunk.Content, "\n")))
+
+			// Check for multiple hunks in the content
+			hunkHeaderCount := strings.Count(hunk.Content, "@@") / 2
+			fmt.Fprintf(f, "- Contains multiple hunks: %t (detected %d hunk headers)\n",
+				hunkHeaderCount > 1, hunkHeaderCount)
 			fmt.Fprintf(f, "\n")
 		}
 
@@ -884,20 +1002,119 @@ func filterAndEnhanceComments(comments []*models.ReviewComment) []*models.Review
 		}
 
 		if !isUseless {
-			// Enhance comment if needed
-			if !strings.Contains(comment.Content, "Suggestion:") && len(comment.Suggestions) > 0 {
-				// Add suggestions to the content if they're not already there
-				comment.Content += "\n\nSuggestions:\n"
-				for i, suggestion := range comment.Suggestions {
-					comment.Content += fmt.Sprintf("%d. %s\n", i+1, suggestion)
-				}
-			}
+			// Standardize the comment format
+			standardizeComment(comment)
+
+			// Deduplicate suggestions
+			comment.Suggestions = deduplicateSuggestions(comment.Suggestions)
 
 			filtered = append(filtered, comment)
 		}
 	}
 
 	return filtered
+}
+
+// deduplicateSuggestions removes duplicate suggestions from the slice
+func deduplicateSuggestions(suggestions []string) []string {
+	if len(suggestions) <= 1 {
+		return suggestions
+	}
+
+	// Use a map to track unique suggestions (case-insensitive)
+	uniqueSuggestions := make(map[string]string)
+	for _, suggestion := range suggestions {
+		// Skip empty or "no suggestion" suggestions
+		if strings.TrimSpace(suggestion) == "" ||
+			strings.Contains(strings.ToLower(suggestion), "no specific suggestion") ||
+			strings.Contains(strings.ToLower(suggestion), "no suggestion") {
+			continue
+		}
+
+		// Use lowercase as key for case-insensitive deduplication
+		// but keep the original suggestion text
+		key := strings.ToLower(suggestion)
+		uniqueSuggestions[key] = suggestion
+	}
+
+	// Convert back to slice
+	deduplicated := make([]string, 0, len(uniqueSuggestions))
+	for _, suggestion := range uniqueSuggestions {
+		deduplicated = append(deduplicated, suggestion)
+	}
+
+	return deduplicated
+}
+
+// standardizeComment ensures that a review comment has a consistent structure
+// It removes suggestions from the content and ensures they only exist in the suggestions array
+// This avoids duplication when rendering/displaying comments
+func standardizeComment(comment *models.ReviewComment) {
+	if comment == nil {
+		return
+	}
+
+	// Extract and remove suggestions from content
+	// First, we need to identify if there's a suggestions section
+	content := comment.Content
+	lines := strings.Split(content, "\n")
+
+	// Find where suggestions section starts, if it exists
+	suggestionSectionIndex := -1
+	for i, line := range lines {
+		trimmedLine := strings.ToLower(strings.TrimSpace(line))
+		if trimmedLine == "suggestions:" || trimmedLine == "suggestion:" {
+			suggestionSectionIndex = i
+			break
+		}
+	}
+
+	// If we found a suggestions section
+	if suggestionSectionIndex >= 0 {
+		// Extract suggestions from the content
+		for i := suggestionSectionIndex + 1; i < len(lines); i++ {
+			line := strings.TrimSpace(lines[i])
+
+			// Skip empty lines
+			if line == "" {
+				continue
+			}
+
+			// Extract suggestion text, removing numbering or bullet points
+			suggestionText := line
+			// Remove common prefixes like "1. ", "- ", "* ", etc.
+			if match := regexp.MustCompile(`^\d+\.\s+(.+)$`).FindStringSubmatch(line); len(match) > 1 {
+				suggestionText = match[1]
+			} else if match := regexp.MustCompile(`^[-*•]\s+(.+)$`).FindStringSubmatch(line); len(match) > 1 {
+				suggestionText = match[1]
+			}
+
+			// Only add it if it's not empty and not already in the suggestions array
+			if suggestionText != "" && !containsSuggestion(comment.Suggestions, suggestionText) {
+				comment.Suggestions = append(comment.Suggestions, suggestionText)
+			}
+		}
+
+		// Remove the suggestions section from content
+		comment.Content = strings.TrimSpace(strings.Join(lines[:suggestionSectionIndex], "\n"))
+	} else {
+		// No suggestions section found, keep content as is
+		comment.Content = content
+	}
+
+	// Deduplicate suggestions array
+	comment.Suggestions = deduplicateSuggestions(comment.Suggestions)
+}
+
+// containsSuggestion checks if a suggestion text already exists in the suggestions array (case-insensitive)
+func containsSuggestion(suggestions []string, text string) bool {
+	lowercaseText := strings.ToLower(text)
+	for _, suggestion := range suggestions {
+		if strings.ToLower(suggestion) == lowercaseText {
+			return true
+		}
+	}
+	return false
 }
 
 // Helper function to print debug info about comments by file

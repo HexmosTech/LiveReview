@@ -116,7 +116,6 @@ func (p *GitLabProvider) PostComment(ctx context.Context, mrID string, comment *
 	if err != nil {
 		return fmt.Errorf("invalid MR ID: %w", err)
 	}
-
 	// Use the stored project ID if available, otherwise try to extract from URL
 	projectID := p.projectID
 	if projectID == "" {
@@ -128,21 +127,8 @@ func (p *GitLabProvider) PostComment(ctx context.Context, mrID string, comment *
 		}
 	}
 
-	// Prepare the comment text
-	commentText := comment.Content
-
-	// Add severity information
-	if comment.Severity != "" {
-		commentText = fmt.Sprintf("**Severity: %s**\n\n%s", comment.Severity, commentText)
-	}
-
-	// Add suggestions
-	if len(comment.Suggestions) > 0 {
-		commentText += "\n\n**Suggestions:**\n"
-		for _, suggestion := range comment.Suggestions {
-			commentText += fmt.Sprintf("- %s\n", suggestion)
-		}
-	}
+	// Format the comment for GitLab, ensuring consistent output with no duplications
+	commentText := formatGitLabComment(comment)
 
 	fmt.Printf("Posting comment on MR #%d for project %s\n", mrIID, projectID)
 
@@ -241,4 +227,26 @@ func (p *GitLabProvider) extractMRInfo(mrURL string) (string, int, error) {
 
 	fmt.Printf("Extracted project=%s, mrIID=%d from URL=%s\n", projectPath, mrIID, mrURL)
 	return projectPath, mrIID, nil
+}
+
+// formatGitLabComment creates a consistently formatted comment for GitLab
+// with severity information and suggestions properly formatted
+func formatGitLabComment(comment *models.ReviewComment) string {
+	// Start with the content
+	formattedComment := comment.Content
+
+	// Add severity information at the beginning
+	if comment.Severity != "" {
+		formattedComment = fmt.Sprintf("**Severity: %s**\n\n%s", comment.Severity, formattedComment)
+	}
+
+	// Add suggestions section if we have any
+	if len(comment.Suggestions) > 0 {
+		formattedComment += "\n\n**Suggestions:**\n"
+		for i, suggestion := range comment.Suggestions {
+			formattedComment += fmt.Sprintf("%d. %s\n", i+1, suggestion)
+		}
+	}
+
+	return formattedComment
 }
