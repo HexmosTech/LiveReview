@@ -134,10 +134,16 @@ func (p *GitLabProvider) PostComment(ctx context.Context, mrID string, comment *
 
 	// If we have file path and line number, post a line-specific comment
 	if comment.FilePath != "" && comment.Line > 0 {
-		fmt.Printf("  (as line comment on %s:%d)\n", comment.FilePath, comment.Line)
-		return p.httpClient.CreateMRLineComment(projectID, mrIID, comment.FilePath, comment.Line, commentText)
+		lineType := "new_line"
+		if comment.IsDeletedLine {
+			lineType = "old_line"
+		}
+		fmt.Printf("\nGITLAB PROVIDER [%s:%d]: Posting comment as line comment (isDeletedLine=%v, type: %s)\n",
+			comment.FilePath, comment.Line, comment.IsDeletedLine, lineType)
+		return p.httpClient.CreateMRLineComment(projectID, mrIID, comment.FilePath, comment.Line, commentText, comment.IsDeletedLine)
 	} else {
 		// Otherwise post a general MR comment
+		fmt.Printf("\nGITLAB PROVIDER: Posting general MR comment (no file/line specified)\n")
 		return p.httpClient.CreateMRGeneralComment(projectID, mrIID, commentText)
 	}
 }

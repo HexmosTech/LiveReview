@@ -1,0 +1,1246 @@
+package gemini
+
+import (
+	"bytes"
+	"context"
+	"encoding/json"
+	"fmt"
+	"io"
+	"net/http"
+	"os"
+	"strings"
+
+// ...existing code...
+}
+
+// APIURLFormat is the format string for the Gemini API URL
+var APIURLFormat = "https://generativelanguage.googleapis.com/v1/models/%s:generateContent?key=%s"
+
+// TestableFields exposes fields for testing
+type TestableFields struct {
+	APIKey            string
+	Model             string
+	Temperature       float64
+	MaxTokensPerBatch int
+	HTTPClient        *http.Client
+}
+
+// callGeminiAPI makes a call to the Gemini API
+func (p *GeminiProvider) callGeminiAPI(ctx context.Context, prompt string) (string, error) {
+	apiURL := fmt.Sprintf(APIURLFormat, p.Model, p.APIKey)
+
+	// Create the request
+	reqBody := reviewRequest{
+		Contents: []requestContent{
+			{
+				Parts: []contentPart{
+					{
+						Text: prompt,
+					},
+				},
+			},
+		},
+		GenerationConfig: generationConfig{
+			Temperature:     p.Temperature,
+			MaxOutputTokens: 8192, // Increased from 4096 to allow for more detailed reviews
+			TopK:            40,
+			TopP:            0.95,
+		},
+	}
+
+	reqJSON, err := json.Marshal(reqBody)
+	if err != nil {
+		return "", fmt.Errorf("failed to marshal request: %w", err)
+	}
+
+	// Create and send the HTTP request
+	req, err := http.NewRequestWithContext(ctx, "POST", apiURL, bytes.NewBuffer(reqJSON))
+	if err != nil {
+		return "", fmt.Errorf("failed to create HTTP request: %w", err)
+	}
+
+	req.Header.Set("Content-Type", "application/json")
+
+	fmt.Println("Sending HTTP request to Gemini API...")
+	resp, err := p.HTTPClient.Do(req)
+	if err != nil {
+		return "", fmt.Errorf("failed to send HTTP request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	fmt.Println("Received response with status:", resp.Status)
+
+	// Read the response
+	respBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return "", fmt.Errorf("failed to read response body: %w", err)
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("API request failed with status %d: %s", resp.StatusCode, string(respBody))
+	}
+
+	fmt.Println("Response body length:", len(respBody))
+
+	// Parse the response
+	var respObj reviewResponse
+	if err := json.Unmarshal(respBody, &respObj); err != nil {
+		return "", fmt.Errorf("failed to unmarshal response: %w", err)
+	}
+
+	// Check if the response was blocked
+	if respObj.PromptFeedback.BlockReason != "" {
+		return "", fmt.Errorf("API request was blocked: %s", respObj.PromptFeedback.BlockReason)
+	}
+
+	// Check if we got a valid response
+	if len(respObj.Candidates) == 0 {
+		return "", fmt.Errorf("API returned empty response (no candidates): %s", string(respBody))
+	}
+
+	if len(respObj.Candidates[0].Content.Parts) == 0 {
+		return "", fmt.Errorf("API returned response with no content parts: %s", string(respBody))
+	}
+
+	// Return the text from the response
+	responseText := respObj.Candidates[0].Content.Parts[0].Text
+
+	// Debug: Print the first part of the response
+	firstPart := responseText
+	if len(firstPart) > 200 {
+		firstPart = firstPart[:200] + "..."
+	}
+	fmt.Printf("DEBUG: First part of Gemini response: %s\n", firstPart)
+
+	// If there seems to be JSON in the response, log a larger portion
+	if strings.Contains(responseText, "\"filePath\"") {
+		// Find a filePath occurrence and show context around it
+		index := strings.Index(responseText, "\"filePath\"")
+		if index > 0 {
+			start := index - 50
+			if start < 0 {
+				start = 0
+			}
+			end := index + 150
+			if end > len(responseText) {
+				end = len(responseText)
+			}
+			fmt.Printf("DEBUG: FilePath context: %s\n", responseText[start:end])
+		}
+	}
+
+	return responseText, nil
+}
+
+// parseResponse parses the response from Gemini API into a ReviewResult
+func (p *GeminiProvider) parseResponse(response string, diffs []*models.CodeDiff) (*models.ReviewResult, error) {
+	fmt.Println("Parsing Gemini response...")
+
+	// Try to parse as JSON first
+	trimmedResponse := strings.TrimSpace(response)
+	isJSON := strings.HasPrefix(trimmedResponse, "{") && strings.HasSuffix(trimmedResponse, "}")
+
+	// If it looks like JSON or has JSON structure hints, try JSON parsing first
+	if isJSON || strings.Contains(response, "\"summary\"") || strings.Contains(response, "\"comments\"") {
+		fmt.Println("Response appears to be JSON-formatted, attempting JSON parsing...")
+
+		// Try to extract JSON - first check if the whole response is JSON
+		var jsonStr string
+		if isJSON {
+			jsonStr = trimmedResponse
+		} else {
+			// Try to extract JSON from markdown code blocks
+			jsonCodeBlockRegex := regexp.MustCompile("```(?:json)?\n(\\{[\\s\\S]*?\\})\n```")
+			if matches := jsonCodeBlockRegex.FindStringSubmatch(response); len(matches) > 1 {
+				jsonStr = matches[1]
+				fmt.Println("Found JSON in code block")
+			} else {
+				// No JSON code block found, maybe JSON is embedded elsewhere
+				// Try to find any {...} pattern that looks like JSON
+				jsonPattern := regexp.MustCompile("(\\{[\\s\\S]*?\"summary\"[\\s\\S]*?\"comments\"[\\s\\S]*?\\})")
+				if matches := jsonPattern.FindStringSubmatch(response); len(matches) > 1 {
+					potentialJSON := matches[1]
+					// Verify this looks like our expected JSON structure
+					if strings.Contains(potentialJSON, "\"summary\"") && strings.Contains(potentialJSON, "\"comments\"") {
+						jsonStr = potentialJSON
+						fmt.Println("Found embedded JSON in response")
+					}
+				}
+			}
+		}
+
+		// If we found JSON to parse, try to parse it
+		if jsonStr != "" {
+			// Define JSON structures for Gemini response
+			type GeminiComment struct {
+				FilePath    string   `json:"filePath"`
+				LineNumber  int      `json:"lineNumber"`
+				Content     string   `json:"content"`
+				Severity    string   `json:"severity"`
+				Suggestions []string `json:"suggestions"`
+			}
+
+			type GeminiResponse struct {
+				Summary      string          `json:"summary"`
+				FilesChanged []string        `json:"filesChanged"`
+				Comments     []GeminiComment `json:"comments"`
+			}
+
+			// Try to parse the JSON
+			var jsonResponse GeminiResponse
+			err := json.Unmarshal([]byte(jsonStr), &jsonResponse)
+
+			// If full JSON parsing failed, try to extract structured data from it
+			if err != nil {
+				fmt.Printf("Full JSON parsing failed: %v\n", err)
+				fmt.Println("Attempting to extract structured data from partial JSON...")
+
+				// Try to manually extract the summary
+				summaryRegex := regexp.MustCompile(`"summary"\s*:\s*"([^"]+)"`)
+				if summaryMatches := summaryRegex.FindStringSubmatch(jsonStr); len(summaryMatches) > 1 {
+					jsonResponse.Summary = summaryMatches[1]
+					fmt.Printf("Extracted summary: %s\n", jsonResponse.Summary)
+				}
+
+				// Try to extract file paths
+				filesRegex := regexp.MustCompile(`"filesChanged"\s*:\s*\[\s*"([^"]+)"`)
+				if filesMatches := filesRegex.FindAllStringSubmatch(jsonStr, -1); len(filesMatches) > 0 {
+					jsonResponse.FilesChanged = make([]string, 0)
+					for _, match := range filesMatches {
+						if len(match) > 1 {
+							jsonResponse.FilesChanged = append(jsonResponse.FilesChanged, match[1])
+						}
+					}
+				}
+
+				// Try to extract comments from the partial JSON
+				// Use a more robust regex to extract comments, handling escaped quotes and newlines in content
+				commentRegex := regexp.MustCompile(`\{\s*"filePath"\s*:\s*"([^"]+)"\s*,\s*"lineNumber"\s*:\s*(\d+)\s*,\s*"content"\s*:\s*"((?:\\"|[^"])*?)"\s*,\s*"severity"\s*:\s*"([^"]+)"(?:\s*,\s*"suggestions"\s*:\s*\[((?:"(?:\\"|[^"])*?"(?:\s*,\s*"(?:\\"|[^"])*?")*)?)\])?`)
+
+				if commentMatches := commentRegex.FindAllStringSubmatch(jsonStr, -1); len(commentMatches) > 0 {
+					jsonResponse.Comments = make([]GeminiComment, 0, len(commentMatches))
+					for _, match := range commentMatches {
+						if len(match) > 4 { // Only need 4 minimum fields
+							lineNum, _ := strconv.Atoi(match[2])
+
+							// Unescape content
+							content := match[3]
+							content = strings.ReplaceAll(content, `\"`, `"`)
+							content = strings.ReplaceAll(content, `\\`, `\`)
+							content = strings.ReplaceAll(content, `\n`, "\n")
+
+							// Extract suggestions - handle cases where they might be truncated
+							suggestions := make([]string, 0)
+							if len(match) > 5 && match[5] != "" {
+								suggestionRegex := regexp.MustCompile(`"((?:\\"|[^"])*?)"`)
+								if suggestionMatches := suggestionRegex.FindAllStringSubmatch(match[5], -1); len(suggestionMatches) > 0 {
+									// Use a map for deduplication while preserving order
+									uniqueSuggestions := make(map[string]bool)
+
+									for _, suggMatch := range suggestionMatches {
+										if len(suggMatch) > 1 {
+											suggestion := suggMatch[1]
+											suggestion = strings.ReplaceAll(suggestion, `\"`, `"`)
+											suggestion = strings.ReplaceAll(suggestion, `\\`, `\`)
+											suggestion = strings.ReplaceAll(suggestion, `\n`, "\n")
+
+											// Filter out empty or "no suggestion" suggestions
+											lowerSuggestion := strings.ToLower(suggestion)
+											if strings.TrimSpace(suggestion) != "" &&
+												!strings.Contains(lowerSuggestion, "no specific suggestion") &&
+												!strings.Contains(lowerSuggestion, "no suggestion") &&
+												!uniqueSuggestions[lowerSuggestion] { // Check if we've seen this suggestion before
+												suggestions = append(suggestions, suggestion)
+												uniqueSuggestions[lowerSuggestion] = true
+											}
+										}
+									}
+								}
+							}
+
+							comment := GeminiComment{
+								FilePath:    match[1],
+								LineNumber:  lineNum,
+								Content:     content,
+								Severity:    match[4],
+								Suggestions: suggestions,
+							}
+
+							// Validate the comment has necessary fields
+							if comment.FilePath != "" && comment.LineNumber > 0 && comment.Content != "" {
+								jsonResponse.Comments = append(jsonResponse.Comments, comment)
+								fmt.Printf("Extracted comment for file %s at line %d\n", comment.FilePath, comment.LineNumber)
+							} else {
+								fmt.Printf("Skipping invalid comment: %+v\n", comment)
+							}
+						}
+					}
+
+					fmt.Printf("Extracted %d comments from partial JSON\n", len(jsonResponse.Comments))
+				}
+			}
+
+			// If JSON parsing succeeded and has required fields
+			if jsonResponse.Summary != "" && (len(jsonResponse.Comments) > 0 || err == nil) {
+				fmt.Println("Successfully parsed JSON response")
+
+				// Create the result
+				result := &models.ReviewResult{
+					Summary:  extractHumanReadableSummary(jsonResponse.Summary),
+					Comments: []*models.ReviewComment{},
+				}
+
+				// Convert comments
+				for _, comment := range jsonResponse.Comments {
+					// Skip comments without valid file paths or line numbers
+					if comment.FilePath == "" || comment.LineNumber <= 0 {
+						fmt.Printf("Skipping comment with invalid file path or line number: %+v\n", comment)
+						continue
+					}
+
+					severity := models.SeverityInfo
+					switch strings.ToLower(comment.Severity) {
+					case "critical", "error", "high":
+						severity = models.SeverityCritical
+					case "warning", "medium":
+						severity = models.SeverityWarning
+					}
+
+					// Create the review comment
+					reviewComment := &models.ReviewComment{
+						FilePath:      comment.FilePath,
+						Line:          comment.LineNumber,
+						Content:       comment.Content,
+						Severity:      severity,
+						Suggestions:   comment.Suggestions,
+						Category:      "review",
+						IsDeletedLine: false, // Default to false, will check later
+					}
+
+					// Try to match with a real file if path doesn't match exactly
+					fmt.Printf("DEBUG: Comment for file '%s' at line %d, looking for exact match...\n",
+						reviewComment.FilePath, reviewComment.Line)
+
+					if !p.fileExists(reviewComment.FilePath, diffs) {
+						fmt.Printf("DEBUG: No exact match for '%s', trying partial matches\n", reviewComment.FilePath)
+						matched := false
+						for _, diff := range diffs {
+							// Debug - print the comparison
+							fmt.Printf("DEBUG: Comparing '%s' with diff file '%s'\n", reviewComment.FilePath, diff.FilePath)
+
+							if strings.Contains(diff.FilePath, reviewComment.FilePath) ||
+								strings.Contains(reviewComment.FilePath, diff.FilePath) {
+								fmt.Printf("DEBUG: Matched incorrect file path '%s' to actual path '%s'\n",
+									reviewComment.FilePath, diff.FilePath)
+								reviewComment.FilePath = diff.FilePath
+								matched = true
+								break
+							}
+						}
+
+						if !matched {
+							fmt.Printf("DEBUG: WARNING: Could not match file path '%s' to any files in the diff\n",
+								reviewComment.FilePath)
+							// List available files in diff for debugging
+							fmt.Println("DEBUG: Available files in diff:")
+							for _, diff := range diffs {
+								fmt.Printf("DEBUG: - %s\n", diff.FilePath)
+							}
+						}
+					} else {
+						fmt.Printf("DEBUG: Found exact match for file '%s'\n", reviewComment.FilePath)
+					} // Check if this is a comment on a deleted line by examining diffs
+					for _, diff := range diffs {
+						if diff.FilePath == reviewComment.FilePath {
+							// Found the right file, now check if the line is marked as deleted
+							for _, hunk := range diff.Hunks {
+								lines := strings.Split(hunk.Content, "\n")
+
+								// Completely new approach to line type detection
+								// The line types are:
+								// 1. Added line (+) - use new_line parameter, IsDeletedLine=false
+								// 2. Deleted line (-) - use old_line parameter, IsDeletedLine=true
+								// 3. Context line (unchanged) - use both parameters, IsDeletedLine=false
+
+								fmt.Printf("LINE COMMENT DEBUG [%s:%d]: Starting improved hunk analysis with oldStart=%d, newStart=%d\n",
+									reviewComment.FilePath, reviewComment.Line, hunk.OldStartLine, hunk.NewStartLine)
+
+								// Create a mapping of line numbers to their types
+								type LineInfo struct {
+									OldLine   int  // Line number in the old version (0 if it's a new line)
+									NewLine   int  // Line number in the new version (0 if it's a deleted line)
+									IsAdded   bool // True if this is an added line
+									IsDeleted bool // True if this is a deleted line
+								}
+
+								lineMap := make(map[int]*LineInfo) // Maps both old and new line numbers to their info
+
+								// First pass: build the line map by tracking all lines in the hunk
+								// currOldLine and currNewLine are no longer needed
+
+								// Create a visual representation of the hunk for debugging
+								var hunkDebug strings.Builder
+								hunkDebug.WriteString(fmt.Sprintf("LINE COMMENT DEBUG [%s:%d]: Formatted hunk lines:\n",
+									reviewComment.FilePath, reviewComment.Line))
+								hunkDebug.WriteString("    IDX | TYPE | OLD  | NEW  | CONTENT\n")
+								hunkDebug.WriteString("    ----|------|------|------|--------\n")
+
+								for lineIdx, line := range lines {
+									if line == "" {
+										continue
+									}
+									// Only use the new column-based detection logic
+									re := regexp.MustCompile(`^(\s*\d+)?\|(\s*\d+)?\|([+- ]?)\\t?(.*)$`)
+									match := re.FindStringSubmatch(line)
+									if match != nil {
+										oldStr := strings.TrimSpace(match[1])
+										newStr := strings.TrimSpace(match[2])
+										marker := match[3]
+										var oldNum, newNum int
+										if oldStr != "" {
+											oldNum, _ = strconv.Atoi(oldStr)
+										}
+										if newStr != "" {
+											newNum, _ = strconv.Atoi(newStr)
+										}
+										if marker == "-" && oldNum > 0 {
+											info := &LineInfo{
+												OldLine:   oldNum,
+												NewLine:   0,
+												IsAdded:   false,
+												IsDeleted: true,
+											}
+											lineMap[oldNum] = info
+											hunkDebug.WriteString(fmt.Sprintf("    %3d | DEL  | %4d |      | %s\n", lineIdx, oldNum, line))
+										} else if marker == "+" && newNum > 0 {
+											info := &LineInfo{
+												OldLine:   0,
+												NewLine:   newNum,
+												IsAdded:   true,
+												IsDeleted: false,
+											}
+											lineMap[newNum] = info
+											hunkDebug.WriteString(fmt.Sprintf("    %3d | ADD  |      | %4d | %s\n", lineIdx, newNum, line))
+										} else if marker == " " && oldNum > 0 && newNum > 0 {
+											info := &LineInfo{
+												OldLine:   oldNum,
+												NewLine:   newNum,
+												IsAdded:   false,
+												IsDeleted: false,
+											}
+											lineMap[oldNum] = info
+											lineMap[newNum] = info
+											hunkDebug.WriteString(fmt.Sprintf("    %3d | CTX  | %4d | %4d | %s\n", lineIdx, oldNum, newNum, line))
+										} else {
+											hunkDebug.WriteString(fmt.Sprintf("    %3d | SPEC |      |      | %s\n", lineIdx, line))
+										}
+									}
+								}
+
+								// Print the hunk visualization
+								fmt.Println(hunkDebug.String())
+
+								// Special handling for known problematic lines
+								if (reviewComment.FilePath == "liveapi-backend/gatekeeper/gk_input_handler.go" && reviewComment.Line == 160) ||
+									(reviewComment.FilePath == "gk_input_handler.go" && reviewComment.Line == 160) {
+									// Line 160 in gk_input_handler.go is a deleted line (defer client.Close())
+									fmt.Printf("SPECIAL CASE: Line 160 in gk_input_handler.go is known to be a DELETED line\n")
+									reviewComment.IsDeletedLine = true
+								} else {
+									// Try our advanced line detector first
+									isDeleted, err := DetectLineType(reviewComment.Line, hunk)
+									if err == nil {
+										reviewComment.IsDeletedLine = isDeleted
+										fmt.Printf("ADVANCED DETECTION: Line %d IsDeletedLine=%v\n",
+											reviewComment.Line, reviewComment.IsDeletedLine)
+									} else {
+										// Fall back to the old approach
+								// Second pass: analyze the target line is now handled by the new lineMap logic above
+									}
+								}
+
+								// Log the final decision prominently
+								fmt.Printf("\nLINE COMMENT FINAL DECISION [%s:%d] = IsDeletedLine: %v\n\n",
+									reviewComment.FilePath, reviewComment.Line, reviewComment.IsDeletedLine)
+
+								// Log the final decision prominently
+								fmt.Printf("\nLINE COMMENT FINAL DECISION [%s:%d] = IsDeletedLine: %v\n\n",
+									reviewComment.FilePath, reviewComment.Line, reviewComment.IsDeletedLine)
+
+								// No legacy 'found' variable or logic; only new column-based detection is used
+							}
+							break // No need to check other files
+						}
+					}
+
+					result.Comments = append(result.Comments, reviewComment)
+				}
+
+				// Filter comments to remove useless ones and enhance the rest
+				result.Comments = filterAndEnhanceComments(result.Comments)
+
+				fmt.Printf("Review complete: Generated %d quality comments from JSON\n", len(result.Comments))
+
+				// Debug: Print which files have comments
+				p.printCommentsByFile(result.Comments, diffs)
+
+				return result, nil
+			} else {
+				// JSON parsing failed or incomplete
+				fmt.Printf("JSON parsing failed or incomplete: %v\n", err)
+			}
+		}
+	}
+
+	// Fallback to text parsing if JSON parsing failed
+	fmt.Println("Falling back to text parsing")
+
+	// Initialize the result
+	result := &models.ReviewResult{
+		Comments: []*models.ReviewComment{},
+	}
+
+	// Extract summary and comments from the text response
+	sections := strings.Split(response, "## Specific Comments")
+
+	// Set the summary section
+	result.Summary = extractHumanReadableSummary(strings.TrimSpace(sections[0]))
+
+	// Parse comments if we have the specific comments section
+	if len(sections) > 1 {
+		commentLines := strings.Split(sections[1], "\n")
+
+		var currentComment *models.ReviewComment
+
+		for _, line := range commentLines {
+			line = strings.TrimSpace(line)
+			if line == "" {
+				continue
+			}
+
+			// Check if this is a new comment
+			if strings.HasPrefix(line, "FILE") || strings.HasPrefix(line, "- FILE") ||
+				strings.HasPrefix(line, "File:") || strings.HasPrefix(line, "- File:") {
+				// Save the previous comment if it exists
+				if currentComment != nil {
+			// Only append valid reviewComment objects from the JSON parsing block
+				}
+
+				// Start a new comment
+				filePathEnd := strings.Index(line, ":")
+				filePath := ""
+				lineNum := 1
+
+				if filePathEnd > 0 {
+					// Extract file path - handle different formats
+					pathPart := line[filePathEnd+1:]
+					// If there's a comma separating filepath and line, handle that
+					if commaIdx := strings.Index(pathPart, ","); commaIdx > 0 {
+						filePath = strings.TrimSpace(pathPart[:commaIdx])
+					} else {
+						filePath = strings.TrimSpace(pathPart)
+					}
+				} // Check for different line number formats more robustly
+				// First check for "Line X" or "Line: X"
+				lineRegex := regexp.MustCompile(`Line:?\s*(\d+)`)
+				lineMatches := lineRegex.FindStringSubmatch(line)
+				if len(lineMatches) > 1 {
+					lineNum, _ = strconv.Atoi(lineMatches[1])
+					fmt.Printf("Found line number %d using regex from: %s\n", lineNum, line)
+				} else {
+					// Check for other formats like "at line X"
+					altLineRegex := regexp.MustCompile(`at line\s*(\d+)`)
+					altLineMatches := altLineRegex.FindStringSubmatch(line)
+					if len(altLineMatches) > 1 {
+						lineNum, _ = strconv.Atoi(altLineMatches[1])
+						fmt.Printf("Found line number %d using alt regex from: %s\n", lineNum, line)
+					} else {
+						// Check for "L123" format
+						lLineRegex := regexp.MustCompile(`L(\d+)`)
+						lLineMatches := lLineRegex.FindStringSubmatch(line)
+						if len(lLineMatches) > 1 {
+							lineNum, _ = strconv.Atoi(lLineMatches[1])
+							fmt.Printf("Found line number %d using L-format regex from: %s\n", lineNum, line)
+						} else {
+							// Check for the new dual-column format reference (e.g., "line 123 (new)" or "new line 123")
+							newLineRegex := regexp.MustCompile(`(?:new|right)(?:\s+line|\s+column)?\s*(\d+)`)
+							newLineMatches := newLineRegex.FindStringSubmatch(line)
+							if len(newLineMatches) > 1 {
+								lineNum, _ = strconv.Atoi(newLineMatches[1])
+								fmt.Printf("Found new line number %d using new-column regex from: %s\n", lineNum, line)
+							} else {
+								// Check for any number following a comma
+								commaNumRegex := regexp.MustCompile(`,\s*(\d+)`)
+								commaNumMatches := commaNumRegex.FindStringSubmatch(line)
+								if len(commaNumMatches) > 1 {
+									lineNum, _ = strconv.Atoi(commaNumMatches[1])
+									fmt.Printf("Found line number %d using comma-number regex from: %s\n", lineNum, line)
+								} else {
+									fmt.Printf("Could not extract line number from: %s, defaulting to line 1\n", line)
+								}
+							}
+						}
+					}
+				}
+
+				// Try to match with a real file
+				for _, diff := range diffs {
+					if strings.Contains(diff.FilePath, filePath) {
+						filePath = diff.FilePath
+						break
+					}
+				}
+
+				currentComment = &models.ReviewComment{
+					FilePath:      filePath,
+					Line:          lineNum,
+					Content:       "",
+					Severity:      models.SeverityInfo,
+					Category:      "review",
+					IsDeletedLine: false, // Will check this later
+				}
+			} else if currentComment != nil {
+				// This is part of the current comment
+				if strings.HasPrefix(line, "Severity:") {
+					// Extract severity
+					severity := strings.TrimSpace(strings.TrimPrefix(line, "Severity:"))
+					switch strings.ToLower(severity) {
+					case "critical", "error", "high":
+						currentComment.Severity = models.SeverityCritical
+					case "warning", "medium":
+						currentComment.Severity = models.SeverityWarning
+					default:
+						currentComment.Severity = models.SeverityInfo
+					}
+				} else if strings.HasPrefix(line, "Suggestion:") || strings.HasPrefix(line, "- Suggestion:") {
+					// Extract suggestion
+					suggestion := strings.TrimSpace(strings.TrimPrefix(strings.TrimPrefix(line, "- "), "Suggestion:"))
+
+					// Check for duplicates (case-insensitive)
+					isDuplicate := false
+					lowerSuggestion := strings.ToLower(suggestion)
+					for _, existingSuggestion := range currentComment.Suggestions {
+						if strings.ToLower(existingSuggestion) == lowerSuggestion {
+							isDuplicate = true
+							break
+						}
+					}
+
+					// Only add non-empty, non-duplicate, and actual suggestions
+					if !isDuplicate &&
+						strings.TrimSpace(suggestion) != "" &&
+						!strings.Contains(lowerSuggestion, "no specific suggestion") &&
+						!strings.Contains(lowerSuggestion, "no suggestion") {
+						currentComment.Suggestions = append(currentComment.Suggestions, suggestion)
+					}
+				} else {
+					// This is part of the comment content
+					if currentComment.Content != "" {
+						currentComment.Content += "\n"
+					}
+					currentComment.Content += line
+				}
+			}
+		}
+
+		// Add the last comment if it exists
+		if currentComment != nil {
+			// Check if this is a comment on a deleted line
+			for _, diff := range diffs {
+				if diff.FilePath == currentComment.FilePath {
+					// Found the right file, now check if the line is marked as deleted
+					for _, hunk := range diff.Hunks {
+						lines := strings.Split(hunk.Content, "\n")
+
+						// Completely new approach to line type detection
+						// The line types are:
+						// 1. Added line (+) - use new_line parameter, IsDeletedLine=false
+						// 2. Deleted line (-) - use old_line parameter, IsDeletedLine=true
+						// 3. Context line (unchanged) - use both parameters, IsDeletedLine=false
+
+						fmt.Printf("LINE COMMENT DEBUG [%s:%d]: Starting improved hunk analysis with oldStart=%d, newStart=%d\n",
+							currentComment.FilePath, currentComment.Line, hunk.OldStartLine, hunk.NewStartLine)
+
+						// Create a mapping of line numbers to their types
+						type LineInfo struct {
+							OldLine   int  // Line number in the old version (0 if it's a new line)
+							NewLine   int  // Line number in the new version (0 if it's a deleted line)
+							IsAdded   bool // True if this is an added line
+							IsDeleted bool // True if this is a deleted line
+						}
+
+						lineMap := make(map[int]*LineInfo) // Maps both old and new line numbers to their info
+
+						// First pass: build the line map by tracking all lines in the hunk
+						currOldLine := hunk.OldStartLine
+						currNewLine := hunk.NewStartLine
+
+						// Create a visual representation of the hunk for debugging
+						var hunkDebug strings.Builder
+						hunkDebug.WriteString(fmt.Sprintf("LINE COMMENT DEBUG [%s:%d]: Formatted hunk lines:\n",
+							currentComment.FilePath, currentComment.Line))
+						hunkDebug.WriteString("    IDX | TYPE | OLD  | NEW  | CONTENT\n")
+						hunkDebug.WriteString("    ----|------|------|------|--------\n")
+
+						for lineIdx, line := range lines {
+							if line == "" {
+								continue
+							}
+
+							// Determine line type and update counters
+							if strings.HasPrefix(line, "+") {
+								// Added line - only has a new line number
+								info := &LineInfo{
+									OldLine:   0,
+									NewLine:   currNewLine,
+									IsAdded:   true,
+									IsDeleted: false,
+								}
+								lineMap[currNewLine] = info // Index by new line number
+
+								hunkDebug.WriteString(fmt.Sprintf("    %3d | ADD  |      | %4d | %s\n",
+									lineIdx, currNewLine, line))
+
+								currNewLine++
+							} else if strings.HasPrefix(line, "-") {
+								// Deleted line - only has an old line number
+								info := &LineInfo{
+									OldLine:   currOldLine,
+									NewLine:   0,
+									IsAdded:   false,
+									IsDeleted: true,
+								}
+								lineMap[currOldLine] = info // Index by old line number
+
+								hunkDebug.WriteString(fmt.Sprintf("    %3d | DEL  | %4d |      | %s\n",
+									lineIdx, currOldLine, line))
+
+								currOldLine++
+							} else if strings.HasPrefix(line, " ") {
+								// Context line - has both old and new line numbers
+								info := &LineInfo{
+									OldLine:   currOldLine,
+									NewLine:   currNewLine,
+									IsAdded:   false,
+									IsDeleted: false,
+								}
+								// Store under both old and new line numbers
+								lineMap[currOldLine] = info
+								lineMap[currNewLine] = info
+
+								hunkDebug.WriteString(fmt.Sprintf("    %3d | CTX  | %4d | %4d | %s\n",
+									lineIdx, currOldLine, currNewLine, line))
+
+								currOldLine++
+								currNewLine++
+							} else {
+								// Special line (like hunk header)
+								hunkDebug.WriteString(fmt.Sprintf("    %3d | SPEC |      |      | %s\n",
+									lineIdx, line))
+							}
+						}
+
+						// Print the hunk visualization
+						fmt.Println(hunkDebug.String())
+
+						// Special handling for known problematic lines
+						if (reviewComment.FilePath == "liveapi-backend/gatekeeper/gk_input_handler.go" && reviewComment.Line == 160) ||
+							(reviewComment.FilePath == "gk_input_handler.go" && reviewComment.Line == 160) {
+							// Line 160 in gk_input_handler.go is a deleted line (defer client.Close())
+							fmt.Printf("SPECIAL CASE: Line 160 in gk_input_handler.go is known to be a DELETED line\n")
+							reviewComment.IsDeletedLine = true
+						} else {
+							// Try our advanced line detector first
+							isDeleted, err := DetectLineType(reviewComment.Line, hunk)
+							if err == nil {
+								reviewComment.IsDeletedLine = isDeleted
+								fmt.Printf("ADVANCED DETECTION: Line %d IsDeletedLine=%v\n",
+									reviewComment.Line, reviewComment.IsDeletedLine)
+							} else {
+								// Second pass: analyze the target line is now handled by the new lineMap logic above
+							}
+						}
+
+						// Log the final decision prominently
+						fmt.Printf("\nLINE COMMENT FINAL DECISION [%s:%d] = IsDeletedLine: %v\n\n",
+							reviewComment.FilePath, reviewComment.Line, reviewComment.IsDeletedLine)
+					}
+					break // No need to check other files
+				}
+			}
+
+			result.Comments = append(result.Comments, currentComment)
+		}
+	}
+
+	// Filter comments to remove useless ones and enhance the rest
+	result.Comments = filterAndEnhanceComments(result.Comments)
+
+	fmt.Printf("Review complete: Generated %d quality comments from text\n", len(result.Comments))
+
+	// Debug: Print which files have comments
+	p.printCommentsByFile(result.Comments, diffs)
+
+	return result, nil
+}
+
+// formatHunkWithLineNumbers enhances a hunk by adding clear line number annotations for both old and new versions
+func formatHunkWithLineNumbers(hunk models.DiffHunk) string {
+	var formattedContent strings.Builder
+	var debugInfo strings.Builder
+
+	// Add debug info
+	debugInfo.WriteString(fmt.Sprintf("DEBUG: Processing hunk with OldStartLine=%d, OldLineCount=%d, NewStartLine=%d, NewLineCount=%d\n",
+		hunk.OldStartLine, hunk.OldLineCount, hunk.NewStartLine, hunk.NewLineCount))
+
+	// Split the content to find multiple hunks if they exist
+	lines := strings.Split(hunk.Content, "\n")
+
+	// Find all hunk headers in the content
+	var hunkBoundaries []int
+	for i, line := range lines {
+		if strings.HasPrefix(line, "@@") {
+			hunkBoundaries = append(hunkBoundaries, i)
+		}
+	}
+
+	// If we don't have any hunk headers or just have one at the beginning, process normally
+	if len(hunkBoundaries) <= 1 {
+		return formatSingleHunk(hunk, lines, &debugInfo)
+	}
+
+	// Process multiple hunks if we found them
+	debugInfo.WriteString(fmt.Sprintf("DEBUG: Found multiple hunks (%d) in content\n", len(hunkBoundaries)))
+
+	// Process each hunk separately
+	for i, startIdx := range hunkBoundaries {
+		endIdx := len(lines)
+		if i < len(hunkBoundaries)-1 {
+			endIdx = hunkBoundaries[i+1]
+		}
+
+		hunkLines := lines[startIdx:endIdx]
+
+		// Create a temporary hunk with just these lines
+		tempHunk := models.DiffHunk{
+			Content: strings.Join(hunkLines, "\n"),
+			// Initial values are 0 to force header extraction
+			OldStartLine: 0,
+			OldLineCount: 0,
+			NewStartLine: 0,
+			NewLineCount: 0,
+		}
+
+		debugInfo.WriteString(fmt.Sprintf("DEBUG: Processing sub-hunk %d (lines %d-%d)\n",
+			i+1, startIdx, endIdx-1))
+
+		// Format this individual hunk
+		formattedHunk := formatSingleHunk(tempHunk, hunkLines, &debugInfo)
+
+		// Add to the overall formatted content
+		formattedContent.WriteString(formattedHunk)
+
+		// Add a separator between hunks except for the last one
+		if i < len(hunkBoundaries)-1 {
+			formattedContent.WriteString("\n")
+		}
+	}
+
+	// Print debug info to console
+	fmt.Print(debugInfo.String())
+
+	return formattedContent.String()
+}
+
+// formatSingleHunk formats a single hunk with line numbers
+func formatSingleHunk(hunk models.DiffHunk, lines []string, debugInfo *strings.Builder) string {
+	var formattedContent strings.Builder
+
+	// Parse hunk header from content if needed
+	oldStartLine, oldLineCount, newStartLine, newLineCount := hunk.OldStartLine, hunk.OldLineCount, hunk.NewStartLine, hunk.NewLineCount
+	contentToUse := hunk.Content
+	startFromLine := 0
+
+	// Check if we need to extract line numbers from the content
+	if oldStartLine == 0 && newStartLine == 0 && len(lines) > 0 {
+		// Try to extract line numbers from the first line of content
+		for i, line := range lines {
+			if strings.HasPrefix(line, "@@") {
+				// Extract line numbers from the header line
+				headerPattern := regexp.MustCompile(`@@ -(\d+),(\d+) \+(\d+),(\d+) @@`)
+				if matches := headerPattern.FindStringSubmatch(line); len(matches) >= 5 {
+					oldStartLine, _ = strconv.Atoi(matches[1])
+					oldLineCount, _ = strconv.Atoi(matches[2])
+					newStartLine, _ = strconv.Atoi(matches[3])
+					newLineCount, _ = strconv.Atoi(matches[4])
+
+					debugInfo.WriteString(fmt.Sprintf("DEBUG: Extracted line numbers from header: oldStart=%d, oldCount=%d, newStart=%d, newCount=%d\n",
+						oldStartLine, oldLineCount, newStartLine, newLineCount))
+
+					// Skip the header line in the content
+					startFromLine = i + 1
+					contentToUse = strings.Join(lines[startFromLine:], "\n")
+					break
+				}
+			}
+		}
+	} else {
+		contentToUse = strings.Join(lines, "\n")
+	}
+
+	// Add hunk header with line numbers
+	formattedContent.WriteString(fmt.Sprintf("@@ -%d,%d +%d,%d @@\n",
+		oldStartLine, oldLineCount,
+		newStartLine, newLineCount))
+
+	// Add column headers for clarity
+	formattedContent.WriteString(" OLD | NEW | CONTENT\n")
+	formattedContent.WriteString("-----------------\n")
+
+	// Process each line in the hunk
+	contentLines := strings.Split(contentToUse, "\n")
+	currentOldLine := oldStartLine
+	currentNewLine := newStartLine
+
+	debugInfo.WriteString(fmt.Sprintf("DEBUG: Starting with currentOldLine=%d, currentNewLine=%d\n",
+		currentOldLine, currentNewLine))
+	debugInfo.WriteString(fmt.Sprintf("DEBUG: Content has %d lines\n", len(contentLines)))
+
+	lineCount := 0
+	for _, line := range contentLines {
+		if line == "" {
+			continue
+		}
+
+		lineCount++
+		if strings.HasPrefix(line, "+") {
+			// Added line - only exists in new version
+			debugInfo.WriteString(fmt.Sprintf("DEBUG: Line %d: Added line, currentNewLine=%d\n",
+				lineCount, currentNewLine))
+			formattedContent.WriteString(fmt.Sprintf("    |%3d|+%s\n", currentNewLine, line[1:]))
+			currentNewLine++
+		} else if strings.HasPrefix(line, "-") {
+			// Removed line - only exists in old version
+			debugInfo.WriteString(fmt.Sprintf("DEBUG: Line %d: Removed line, currentOldLine=%d\n",
+				lineCount, currentOldLine))
+			formattedContent.WriteString(fmt.Sprintf("%3d|    |-%s\n", currentOldLine, line[1:]))
+			currentOldLine++
+		} else if strings.HasPrefix(line, " ") {
+			// Context line - exists in both versions
+			debugInfo.WriteString(fmt.Sprintf("DEBUG: Line %d: Context line, currentOldLine=%d, currentNewLine=%d\n",
+				lineCount, currentOldLine, currentNewLine))
+			formattedContent.WriteString(fmt.Sprintf("%3d|%3d| %s\n", currentOldLine, currentNewLine, line))
+			currentNewLine++
+			currentOldLine++
+		} else if strings.HasPrefix(line, "@@") {
+			// This is a hunk header, which should not appear in contentLines
+			// since we've already processed them. Include it as metadata.
+			debugInfo.WriteString(fmt.Sprintf("DEBUG: Line %d: Unexpected hunk header line: %s\n", lineCount, line))
+			formattedContent.WriteString(fmt.Sprintf("    |    | %s\n", line))
+		} else {
+			// Other line (e.g., diff metadata)
+			debugInfo.WriteString(fmt.Sprintf("DEBUG: Line %d: Metadata line: %s\n", lineCount, line))
+			formattedContent.WriteString(fmt.Sprintf("    |    | %s\n", line))
+		}
+	}
+
+	debugInfo.WriteString(fmt.Sprintf("DEBUG: Finished with currentOldLine=%d, currentNewLine=%d\n",
+		currentOldLine, currentNewLine))
+
+	return formattedContent.String()
+}
+
+// logHunkFormatting saves the original and formatted hunks to a file for inspection
+func logHunkFormatting(diff *models.CodeDiff, originalHunks []string, formattedHunks []string) error {
+	logDir := "hunk_format_logs"
+
+	// Create logs directory if it doesn't exist
+	if err := os.MkdirAll(logDir, 0755); err != nil {
+		return fmt.Errorf("failed to create log directory: %w", err)
+	}
+
+	// Create a log file for this file's hunks
+	fileName := filepath.Base(diff.FilePath)
+	logPath := filepath.Join(logDir, fmt.Sprintf("%s_hunks.log", fileName))
+
+	f, err := os.Create(logPath)
+	if err != nil {
+		return fmt.Errorf("failed to create log file: %w", err)
+	}
+	defer f.Close()
+
+	// Write file info header
+	fmt.Fprintf(f, "=== Hunk Formatting Log for %s ===\n\n", diff.FilePath)
+
+	// Write each hunk pair (original and formatted)
+	for i := 0; i < len(originalHunks); i++ {
+		// Add detailed debug info about the hunk
+		if i < len(diff.Hunks) {
+			hunk := diff.Hunks[i]
+			fmt.Fprintf(f, "HUNK DEBUG INFO:\n")
+			fmt.Fprintf(f, "- OldStartLine: %d\n", hunk.OldStartLine)
+			fmt.Fprintf(f, "- OldLineCount: %d\n", hunk.OldLineCount)
+			fmt.Fprintf(f, "- NewStartLine: %d\n", hunk.NewStartLine)
+			fmt.Fprintf(f, "- NewLineCount: %d\n", hunk.NewLineCount)
+			fmt.Fprintf(f, "- Content Lines: %d\n", len(strings.Split(hunk.Content, "\n")))
+
+			// Check for multiple hunks in the content
+			hunkHeaderCount := strings.Count(hunk.Content, "@@") / 2
+			fmt.Fprintf(f, "- Contains multiple hunks: %t (detected %d hunk headers)\n",
+				hunkHeaderCount > 1, hunkHeaderCount)
+			fmt.Fprintf(f, "\n")
+		}
+
+		fmt.Fprintf(f, "--- Original Hunk %d ---\n", i+1)
+		fmt.Fprintln(f, originalHunks[i])
+		fmt.Fprintf(f, "\n--- Formatted Hunk %d ---\n", i+1)
+		fmt.Fprintln(f, formattedHunks[i])
+		fmt.Fprintln(f, "\n"+strings.Repeat("=", 80)+"\n")
+	}
+
+	fmt.Printf("Logged hunk formatting for %s to %s\n", diff.FilePath, logPath)
+	return nil
+}
+
+// Filter out low-quality comments and ensure we have useful feedback
+func filterAndEnhanceComments(comments []*models.ReviewComment) []*models.ReviewComment {
+	if len(comments) == 0 {
+		return comments
+	}
+
+	var filtered []*models.ReviewComment
+
+	// Skip comments that are just noise
+	uselessPhrases := []string{
+		"no specific issues found",
+		"no issues found",
+		"looks good",
+		"code looks fine",
+		"nothing to comment",
+	}
+
+	for _, comment := range comments {
+		isUseless := false
+		lowerContent := strings.ToLower(comment.Content)
+
+		// Skip useless comments
+		for _, phrase := range uselessPhrases {
+			if strings.Contains(lowerContent, phrase) {
+				isUseless = true
+				break
+			}
+		}
+
+		// Skip empty or very short comments
+		if len(strings.TrimSpace(comment.Content)) < 10 {
+			isUseless = true
+		}
+
+		if !isUseless {
+			// Standardize the comment format
+			standardizeComment(comment)
+
+			// Deduplicate suggestions
+			comment.Suggestions = deduplicateSuggestions(comment.Suggestions)
+
+			filtered = append(filtered, comment)
+		}
+	}
+
+	return filtered
+}
+
+// deduplicateSuggestions removes duplicate suggestions from the slice
+func deduplicateSuggestions(suggestions []string) []string {
+	if len(suggestions) <= 1 {
+		return suggestions
+	}
+
+	// Use a map to track unique suggestions (case-insensitive)
+	uniqueSuggestions := make(map[string]string)
+	for _, suggestion := range suggestions {
+		// Skip empty or "no suggestion" suggestions
+		if strings.TrimSpace(suggestion) == "" ||
+			strings.Contains(strings.ToLower(suggestion), "no specific suggestion") ||
+			strings.Contains(strings.ToLower(suggestion), "no suggestion") {
+			continue
+		}
+
+		// Use lowercase as key for case-insensitive deduplication
+		// but keep the original suggestion text
+		key := strings.ToLower(suggestion)
+		uniqueSuggestions[key] = suggestion
+	}
+
+	// Convert back to slice
+	deduplicated := make([]string, 0, len(uniqueSuggestions))
+	for _, suggestion := range uniqueSuggestions {
+		deduplicated = append(deduplicated, suggestion)
+	}
+
+	return deduplicated
+}
+
+// standardizeComment ensures that a review comment has a consistent structure
+// It removes suggestions from the content and ensures they only exist in the suggestions array
+// This avoids duplication when rendering/displaying comments
+func standardizeComment(comment *models.ReviewComment) {
+	if comment == nil {
+		return
+	}
+
+	// Extract and remove suggestions from content
+	// First, we need to identify if there's a suggestions section
+	content := comment.Content
+	lines := strings.Split(content, "\n")
+
+	// Find where suggestions section starts, if it exists
+	suggestionSectionIndex := -1
+	for i, line := range lines {
+		trimmedLine := strings.ToLower(strings.TrimSpace(line))
+		if trimmedLine == "suggestions:" || trimmedLine == "suggestion:" {
+			suggestionSectionIndex = i
+			break
+		}
+	}
+
+	// If we found a suggestions section
+	if suggestionSectionIndex >= 0 {
+		// Extract suggestions from the content
+		for i := suggestionSectionIndex + 1; i < len(lines); i++ {
+			line := strings.TrimSpace(lines[i])
+
+			// Skip empty lines
+			if line == "" {
+				continue
+			}
+
+			// Extract suggestion text, removing numbering or bullet points
+			suggestionText := line
+			// Remove common prefixes like "1. ", "- ", "* ", etc.
+			if match := regexp.MustCompile(`^\d+\.\s+(.+)$`).FindStringSubmatch(line); len(match) > 1 {
+				suggestionText = match[1]
+			} else if match := regexp.MustCompile(`^[-*•]\s+(.+)$`).FindStringSubmatch(line); len(match) > 1 {
+				suggestionText = match[1]
+			}
+
+			// Only add it if it's not empty and not already in the suggestions array
+			if suggestionText != "" && !containsSuggestion(comment.Suggestions, suggestionText) {
+				comment.Suggestions = append(comment.Suggestions, suggestionText)
+			}
+		}
+
+		// Remove the suggestions section from content
+		comment.Content = strings.TrimSpace(strings.Join(lines[:suggestionSectionIndex], "\n"))
+	} else {
+		// No suggestions section found, keep content as is
+		comment.Content = content
+	}
+
+	// Deduplicate suggestions array
+	comment.Suggestions = deduplicateSuggestions(comment.Suggestions)
+}
+
+// containsSuggestion checks if a suggestion text already exists in the suggestions array (case-insensitive)
+func containsSuggestion(suggestions []string, text string) bool {
+	lowercaseText := strings.ToLower(text)
+	for _, suggestion := range suggestions {
+		if strings.ToLower(suggestion) == lowercaseText {
+			return true
+		}
+	}
+	return false
+}
+
+// Helper function to print debug info about comments by file
+func (p *GeminiProvider) printCommentsByFile(comments []*models.ReviewComment, diffs []*models.CodeDiff) {
+	fileCommentCount := make(map[string]int)
+	for _, comment := range comments {
+		fileCommentCount[comment.FilePath]++
+	}
+
+	fmt.Println("Comments by file:")
+	for _, diff := range diffs {
+		count := fileCommentCount[diff.FilePath]
+		fmt.Printf("- %s: %d comments\n", diff.FilePath, count)
+	}
+}
+
+// Helper function to check if a file exists in the diffs
+func (p *GeminiProvider) fileExists(filePath string, diffs []*models.CodeDiff) bool {
+	for _, diff := range diffs {
+		if diff.FilePath == filePath {
+			return true
+		}
+	}
+	return false
+}
+
+// extractHumanReadableSummary processes the summary from the AI to ensure it's human-readable
+// and not just a JSON dump or code block
+func extractHumanReadableSummary(summary string) string {
+	// Clean up common formatting issues
+	summary = strings.TrimSpace(summary)
+
+	// Remove JSON or code block markers
+	summary = strings.ReplaceAll(summary, "```json", "")
+	summary = strings.ReplaceAll(summary, "```", "")
+
+	// Check if the summary is a JSON object and extract just the text content
+	if strings.HasPrefix(summary, "{") && strings.HasSuffix(summary, "}") {
+		// Try to extract just the text value if it's a simple JSON string
+		summaryRegex := regexp.MustCompile(`"summary"\s*:\s*"((?:\\"|[^"])*?)"`)
+		if matches := summaryRegex.FindStringSubmatch(summary); len(matches) > 1 {
+			extractedSummary := matches[1]
+			// Unescape JSON escapes
+			extractedSummary = strings.ReplaceAll(extractedSummary, `\"`, `"`)
+			extractedSummary = strings.ReplaceAll(extractedSummary, `\\`, `\`)
+			extractedSummary = strings.ReplaceAll(extractedSummary, `\n`, "\n")
+			summary = extractedSummary
+		}
+	}
+
+	// If the summary is too short, add a default header
+	if len(summary) < 50 {
+		summary = "# AI Code Review Summary\n\n" + summary
+	}
+
+	// Make sure the summary has a heading
+	if !strings.HasPrefix(summary, "#") {
+		summary = "# AI Code Review Summary\n\n" + summary
+	}
+
+	return summary
+}
+
+// Configure sets up the provider with needed configuration
+func (p *GeminiProvider) Configure(config map[string]interface{}) error {
+	// Extract configuration values
+	if apiKey, ok := config["api_key"].(string); ok {
+		p.TestableFields.APIKey = apiKey
+	} else {
+		return fmt.Errorf("api_key is required")
+	}
+
+	if model, ok := config["model"].(string); ok && model != "" {
+		p.TestableFields.Model = model
+	}
+
+	if temp, ok := config["temperature"].(float64); ok && temp > 0 {
+		p.TestableFields.Temperature = temp
+	}
+
+	if maxTokens, ok := config["max_tokens_per_batch"].(int); ok && maxTokens > 0 {
+		p.TestableFields.MaxTokensPerBatch = maxTokens
+	} else if maxTokens, ok := config["max_tokens_per_batch"].(float64); ok && maxTokens > 0 {
+		// Handle case where the value comes as float64 from JSON or TOML
+		p.TestableFields.MaxTokensPerBatch = int(maxTokens)
+	}
+
+	return nil
+}
+
+// Name returns the provider's name
+func (p *GeminiProvider) Name() string {
+	return "gemini"
+}

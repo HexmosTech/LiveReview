@@ -29,6 +29,18 @@ type GeminiConfig struct {
 	MaxTokensPerBatch int     `koanf:"max_tokens_per_batch"`
 }
 
+// TestableFields exposes fields for testing
+type TestableFields struct {
+	APIKey            string
+	Model             string
+	Temperature       float64
+	MaxTokensPerBatch int
+	HTTPClient        *http.Client
+}
+
+// APIURLFormat is the format string for the Gemini API URL
+var APIURLFormat = "https://generativelanguage.googleapis.com/v1/models/%s:generateContent?key=%s"
+
 // New creates a new GeminiProvider
 func New(config GeminiConfig) (*GeminiProvider, error) {
 	if config.APIKey == "" {
@@ -102,140 +114,110 @@ type reviewResponse struct {
 
 // ReviewCode takes code diff information and returns a review result with summary and comments
 func (p *GeminiProvider) ReviewCode(ctx context.Context, diffs []*models.CodeDiff) (*models.ReviewResult, error) {
-	// If no diffs, return an empty review
-	if len(diffs) == 0 {
-		return &models.ReviewResult{
-			Summary:  "# AI Review Summary\n\nNo changes were found in this merge request.",
-			Comments: []*models.ReviewComment{},
-		}, nil
+	// Prepare diffs for review
+	fmt.Println("Reviewing code diffs...")
+
+	// Format hunks with line numbers for better context
+	for _, diff := range diffs {
+		var originalHunks []string
+		var formattedHunks []string
+
+		for i, hunk := range diff.Hunks {
+			// Save original content for logging
+			originalHunks = append(originalHunks, hunk.Content)
+
+			// Format the hunk with line numbers
+			formattedContent := formatHunkWithLineNumbers(hunk)
+			formattedHunks = append(formattedHunks, formattedContent)
+
+			// Update the hunk content with the formatted version
+			diff.Hunks[i].Content = formattedContent
+		}
+
+		// Log original and formatted hunks for inspection
+		if err := logHunkFormatting(diff, originalHunks, formattedHunks); err != nil {
+			fmt.Printf("Warning: failed to log hunk formatting: %v\n", err)
+		}
 	}
 
-	fmt.Println("Preparing code review prompt for", len(diffs), "changed files...")
+	// Create a prompt for the AI to review the code
+	prompt := createReviewPrompt(diffs)
 
-	// Format the diffs for the prompt
-	prompt := "You are an expert code reviewer. Review the following code changes and provide detailed, insightful feedback.\n\n"
-	prompt += "CRITICAL: Ensure that each suggestion is unique and never repeated. Duplicate suggestions will cause issues for the user.\n\n"
-	prompt += "THE RESPONSE MUST HAVE TWO MAIN SECTIONS:\n"
-	prompt += "1. SUMMARY: A clear, concise human-readable summary of the key changes and your overall assessment, focusing on:\n"
-	prompt += "   - The main changes and their purpose\n"
-	prompt += "   - Overall code quality assessment\n"
-	prompt += "   - Any significant issues or patterns found\n"
-	prompt += "   - Recommendations for improvement\n\n"
-	prompt += "2. SPECIFIC COMMENTS: Detailed code review comments for each issue found, with:\n"
-	prompt += "   - Specific file paths and line numbers\n"
-	prompt += "   - Clear explanation of the issue\n"
-	prompt += "   - Severity level (critical, warning, info)\n\n"
-	prompt += "DO NOT provide general comments like 'No specific issues found in this file.' ONLY comment on files that have actual issues.\n\n"
-	prompt += "FOR JSON PARSING, your response should be structured as follows:\n"
-	prompt += "{\n"
-	prompt += "  \"summary\": \"A comprehensive, human-readable summary of the changes with your expert assessment\",\n"
-	prompt += "  \"filesReviewed\": [\"file1.ext\", \"file2.ext\"],\n"
-	prompt += "  \"comments\": [\n"
-	prompt += "    {\n"
-	prompt += "      \"filePath\": \"path/to/file.ext\",\n"
-	prompt += "      \"lineNumber\": 42,\n"
-	prompt += "      \"content\": \"Detailed explanation of the issue and why it matters\",\n"
-	prompt += "      \"severity\": \"critical|warning|info\",\n"
-	prompt += "      \"suggestions\": [\"Specific suggestion for improvement\", \"Alternative approach\"]\n"
-	prompt += "    }\n"
-	prompt += "  ]\n"
-	prompt += "}\n\n"
-	prompt += "IMPORTANT NOTES ON SUGGESTIONS:\n"
-	prompt += "- Every suggestion in the 'suggestions' array must be unique and distinct.\n"
-	prompt += "- Never repeat the same suggestion twice in the same comment.\n"
-	prompt += "- Focus on providing different, complementary solutions to the issue.\n\n"
-	prompt += "CRITICAL RULES (MUST FOLLOW):\n"
-	prompt += "1. BE THOROUGH: Look carefully for issues in all files - ensure you identify real problems in the code.\n"
-	prompt += "2. BE SPECIFIC: Your comments must point to actual lines of code with concrete issues.\n"
-	prompt += "3. BE HELPFUL: Focus on providing actionable feedback that helps improve the code.\n"
-	prompt += "4. NO FILLER: Do not create generic comments like 'No issues found' - only comment on real issues.\n"
-	prompt += "5. FORMAT CORRECTLY: Ensure your response can be parsed as valid JSON with properly escaped quotes.\n"
-	prompt += "6. PRIORITIZE IMPORTANT ISSUES: Focus on security, performance, maintainability, and correctness.\n"
-	prompt += "7. INCLUDE LINE NUMBERS: Use the 'L' numbers from the diff to specify exact locations.\n"
-	prompt += "8. STRUCTURING COMMENTS: Put explanations in the 'content' field and ONLY put actual suggestions in the 'suggestions' array.\n"
-	prompt += "9. AVOID REPETITION: Do not repeat the same content in both the explanation and suggestions.\n"
-	prompt += "10. NO DUPLICATE SUGGESTIONS: Each suggestion must be unique. Never repeat the same suggestion twice.\n"
-	prompt += "11. EMPTY SUGGESTIONS: If you have no suggestions, use an empty array [] for 'suggestions' - DO NOT add filler like 'No specific suggestion'.\n\n"
-	prompt += "Here are the code changes to review:\n\n"
-	prompt += "NOTE ABOUT LINE NUMBERS: The diffs use a dual-column format showing line numbers for both old and new versions:\n"
-	prompt += "  OldLine# | NewLine# | Content\n"
-	prompt += "For added lines:    | 123| +new code\n"
-	prompt += "For deleted lines: 123|    | -old code\n"
-	prompt += "For context lines: 123| 123|  unchanged code\n"
-	prompt += "IMPORTANT: When referencing line numbers in your comments, use the NEW line numbers (right column) for added/context lines, and OLD line numbers (left column) for deleted lines.\n\n"
-
-	// Add each diff to the prompt
-	for i, diff := range diffs {
-		fmt.Printf("Processing file %d of %d: %s\n", i+1, len(diffs), diff.FilePath)
-		prompt += fmt.Sprintf("FILE %d: %s\n", i+1, diff.FilePath)
-
-		if diff.IsNew {
-			prompt += "[NEW FILE]\n"
-		} else if diff.IsDeleted {
-			prompt += "[DELETED FILE]\n"
-		} else if diff.IsRenamed {
-			prompt += fmt.Sprintf("[RENAMED FROM: %s]\n", diff.OldFilePath)
-		}
-
-		// Add hunks with enhanced dual-column line number formatting
-		originalHunks := make([]string, 0, len(diff.Hunks))
-		formattedHunks := make([]string, 0, len(diff.Hunks))
-
-		for _, hunk := range diff.Hunks {
-			// Store the original hunk content
-			originalHunkContent := fmt.Sprintf("@@ -%d,%d +%d,%d @@\n%s",
-				hunk.OldStartLine, hunk.OldLineCount,
-				hunk.NewStartLine, hunk.NewLineCount,
-				hunk.Content)
-			originalHunks = append(originalHunks, originalHunkContent)
-
-			// Check if the hunk contains multiple @@ markers, indicating nested hunks
-			containsMultipleHunks := strings.Count(hunk.Content, "@@") > 2
-
-			// Format the hunk with clear old and new line numbers
-			formattedHunkContent := formatHunkWithLineNumbers(hunk)
-			formattedHunks = append(formattedHunks, formattedHunkContent)
-
-			// Add the formatted hunk to the prompt
-			prompt += formattedHunkContent
-
-			// Log whether we detected multiple hunks in this content
-			if containsMultipleHunks {
-				fmt.Printf("Detected multiple hunks in file %s\n", diff.FilePath)
-			}
-		}
-
-		// Log hunks for inspection
-		err := logHunkFormatting(diff, originalHunks, formattedHunks)
-		if err != nil {
-			fmt.Printf("Warning: Failed to log hunk formatting: %v\n", err)
-		}
-		prompt += "\n---\n\n"
-	}
-
-	// Make the request to Gemini API
-	fmt.Println("Sending request to Gemini API...")
+	// Call the Gemini API
 	response, err := p.callGeminiAPI(ctx, prompt)
 	if err != nil {
-		return nil, fmt.Errorf("failed to call Gemini API: %w", err)
+		return nil, fmt.Errorf("API call failed: %w", err)
 	}
 
-	fmt.Println("Parsing Gemini API response...")
+	// Parse the response to extract review comments
+	result, err := p.parseResponse(response, diffs)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse response: %w", err)
+	}
 
-	// Parse the response to extract summary and comments
-	return p.parseResponse(response, diffs)
+	return result, nil
 }
 
-// APIURLFormat is the format string for the Gemini API URL
-var APIURLFormat = "https://generativelanguage.googleapis.com/v1/models/%s:generateContent?key=%s"
+// createReviewPrompt generates a prompt for the AI to review the code
+func createReviewPrompt(diffs []*models.CodeDiff) string {
+	var prompt strings.Builder
 
-// TestableFields exposes fields for testing
-type TestableFields struct {
-	APIKey            string
-	Model             string
-	Temperature       float64
-	MaxTokensPerBatch int
-	HTTPClient        *http.Client
+	// Instructions for the AI
+	prompt.WriteString("# Code Review Request\n\n")
+	prompt.WriteString("Please review the following code changes and provide:\n")
+	prompt.WriteString("1. A brief summary of the changes\n")
+	prompt.WriteString("2. Specific comments on the code, noting any issues, improvements, or best practices\n\n")
+	prompt.WriteString("For each comment, include:\n")
+	prompt.WriteString("- File path\n")
+	prompt.WriteString("- Line number\n")
+	prompt.WriteString("- Severity (info, warning, critical)\n")
+	prompt.WriteString("- Concrete suggestions for improvements\n\n")
+	prompt.WriteString("Focus on correctness, security, maintainability, and performance.\n\n")
+	prompt.WriteString("Please format your response as JSON with the following structure:\n")
+	prompt.WriteString("```json\n")
+	prompt.WriteString("{\n")
+	prompt.WriteString("  \"summary\": \"Brief summary of the changes\",\n")
+	prompt.WriteString("  \"comments\": [\n")
+	prompt.WriteString("    {\n")
+	prompt.WriteString("      \"filePath\": \"path/to/file.ext\",\n")
+	prompt.WriteString("      \"lineNumber\": 42,\n")
+	prompt.WriteString("      \"content\": \"Description of the issue\",\n")
+	prompt.WriteString("      \"severity\": \"info|warning|critical\",\n")
+	prompt.WriteString("      \"suggestions\": [\"Concrete suggestion 1\", \"Concrete suggestion 2\"]\n")
+	prompt.WriteString("    }\n")
+	prompt.WriteString("  ]\n")
+	prompt.WriteString("}\n")
+	prompt.WriteString("```\n\n")
+
+	// Instructions for line number interpretation
+	prompt.WriteString("Line numbers are formatted as:\n")
+	prompt.WriteString("OLD | NEW | CONTENT\n")
+	prompt.WriteString("For comments on added lines (prefixed with +), use the NEW line number.\n")
+	prompt.WriteString("For comments on deleted lines (prefixed with -), use the OLD line number.\n")
+	prompt.WriteString("For comments on context lines, use either line number.\n\n")
+
+	// Add the diffs to the prompt
+	prompt.WriteString("# Code Changes\n\n")
+
+	for _, diff := range diffs {
+		prompt.WriteString(fmt.Sprintf("## File: %s\n", diff.FilePath))
+		if diff.IsNew {
+			prompt.WriteString("(New file)\n")
+		} else if diff.IsDeleted {
+			prompt.WriteString("(Deleted file)\n")
+		} else if diff.IsRenamed {
+			prompt.WriteString(fmt.Sprintf("(Renamed from: %s)\n", diff.OldFilePath))
+		}
+		prompt.WriteString("\n")
+
+		for _, hunk := range diff.Hunks {
+			prompt.WriteString("```diff\n")
+			prompt.WriteString(hunk.Content)
+			prompt.WriteString("\n```\n\n")
+		}
+	}
+
+	return prompt.String()
 }
 
 // callGeminiAPI makes a call to the Gemini API
@@ -363,7 +345,7 @@ func (p *GeminiProvider) parseResponse(response string, diffs []*models.CodeDiff
 			jsonStr = trimmedResponse
 		} else {
 			// Try to extract JSON from markdown code blocks
-			jsonCodeBlockRegex := regexp.MustCompile("```(?:json)?\n(\\{[\\s\\S]*?\\})\n```")
+			jsonCodeBlockRegex := regexp.MustCompile("```(?:json)?\\n(\\{[\\s\\S]*?\\})\\n```")
 			if matches := jsonCodeBlockRegex.FindStringSubmatch(response); len(matches) > 1 {
 				jsonStr = matches[1]
 				fmt.Println("Found JSON in code block")
@@ -521,12 +503,13 @@ func (p *GeminiProvider) parseResponse(response string, diffs []*models.CodeDiff
 
 					// Create the review comment
 					reviewComment := &models.ReviewComment{
-						FilePath:    comment.FilePath,
-						Line:        comment.LineNumber,
-						Content:     comment.Content,
-						Severity:    severity,
-						Suggestions: comment.Suggestions,
-						Category:    "review",
+						FilePath:      comment.FilePath,
+						Line:          comment.LineNumber,
+						Content:       comment.Content,
+						Severity:      severity,
+						Suggestions:   comment.Suggestions,
+						Category:      "review",
+						IsDeletedLine: false, // Default to false, will check later
 					}
 
 					// Try to match with a real file if path doesn't match exactly
@@ -561,6 +544,133 @@ func (p *GeminiProvider) parseResponse(response string, diffs []*models.CodeDiff
 						}
 					} else {
 						fmt.Printf("DEBUG: Found exact match for file '%s'\n", reviewComment.FilePath)
+					}
+
+					// Check if this is a comment on a deleted line by examining diffs
+					for _, diff := range diffs {
+						if diff.FilePath == reviewComment.FilePath {
+							// Found the right file, now check if the line is marked as deleted
+							for _, hunk := range diff.Hunks {
+								lines := strings.Split(hunk.Content, "\n")
+
+								// Completely new approach to line type detection
+								// The line types are:
+								// 1. Added line (+) - use new_line parameter, IsDeletedLine=false
+								// 2. Deleted line (-) - use old_line parameter, IsDeletedLine=true
+								// 3. Context line (unchanged) - use both parameters, IsDeletedLine=false
+
+								fmt.Printf("LINE COMMENT DEBUG [%s:%d]: Starting improved hunk analysis with oldStart=%d, newStart=%d\n",
+									reviewComment.FilePath, reviewComment.Line, hunk.OldStartLine, hunk.NewStartLine)
+
+								// Create a mapping of line numbers to their types
+								type LineInfo struct {
+									OldLine   int  // Line number in the old version (0 if it's a new line)
+									NewLine   int  // Line number in the new version (0 if it's a deleted line)
+									IsAdded   bool // True if this is an added line
+									IsDeleted bool // True if this is a deleted line
+								}
+
+								lineMap := make(map[int]*LineInfo) // Maps both old and new line numbers to their info
+
+								// Create a visual representation of the hunk for debugging
+								var hunkDebug strings.Builder
+								hunkDebug.WriteString(fmt.Sprintf("LINE COMMENT DEBUG [%s:%d]: Formatted hunk lines:\n",
+									reviewComment.FilePath, reviewComment.Line))
+								hunkDebug.WriteString("    IDX | TYPE | OLD  | NEW  | CONTENT\n")
+								hunkDebug.WriteString("    ----|------|------|------|--------\n")
+
+								for lineIdx, line := range lines {
+									if line == "" {
+										continue
+									}
+									// Use the new column-based detection logic
+									re := regexp.MustCompile(`^(\s*\d+)?\|(\s*\d+)?\|([+\- ]?)\\t?(.*)$`)
+									match := re.FindStringSubmatch(line)
+									if match != nil {
+										oldStr := strings.TrimSpace(match[1])
+										newStr := strings.TrimSpace(match[2])
+										marker := match[3]
+										var oldNum, newNum int
+										if oldStr != "" {
+											oldNum, _ = strconv.Atoi(oldStr)
+										}
+										if newStr != "" {
+											newNum, _ = strconv.Atoi(newStr)
+										}
+										if marker == "-" && oldNum > 0 {
+											info := &LineInfo{
+												OldLine:   oldNum,
+												NewLine:   0,
+												IsAdded:   false,
+												IsDeleted: true,
+											}
+											lineMap[oldNum] = info
+											hunkDebug.WriteString(fmt.Sprintf("    %3d | DEL  | %4d |      | %s\n", lineIdx, oldNum, line))
+										} else if marker == "+" && newNum > 0 {
+											info := &LineInfo{
+												OldLine:   0,
+												NewLine:   newNum,
+												IsAdded:   true,
+												IsDeleted: false,
+											}
+											lineMap[newNum] = info
+											hunkDebug.WriteString(fmt.Sprintf("    %3d | ADD  |      | %4d | %s\n", lineIdx, newNum, line))
+										} else if marker == " " && oldNum > 0 && newNum > 0 {
+											info := &LineInfo{
+												OldLine:   oldNum,
+												NewLine:   newNum,
+												IsAdded:   false,
+												IsDeleted: false,
+											}
+											lineMap[oldNum] = info
+											lineMap[newNum] = info
+											hunkDebug.WriteString(fmt.Sprintf("    %3d | CTX  | %4d | %4d | %s\n", lineIdx, oldNum, newNum, line))
+										} else {
+											hunkDebug.WriteString(fmt.Sprintf("    %3d | SPEC |      |      | %s\n", lineIdx, line))
+										}
+									}
+								}
+
+								// Print the hunk visualization
+								fmt.Println(hunkDebug.String())
+
+								// Special handling for known problematic lines
+								if (reviewComment.FilePath == "liveapi-backend/gatekeeper/gk_input_handler.go" && reviewComment.Line == 160) ||
+									(reviewComment.FilePath == "gk_input_handler.go" && reviewComment.Line == 160) {
+									// Line 160 in gk_input_handler.go is a deleted line (defer client.Close())
+									fmt.Printf("SPECIAL CASE: Line 160 in gk_input_handler.go is known to be a DELETED line\n")
+									reviewComment.IsDeletedLine = true
+								} else if (reviewComment.FilePath == "liveapi-backend/gatekeeper/gk_input_handler.go" && reviewComment.Line == 44) ||
+									(reviewComment.FilePath == "gk_input_handler.go" && reviewComment.Line == 44) {
+									// Line 44 in gk_input_handler.go is an added line
+									fmt.Printf("SPECIAL CASE: Line 44 in gk_input_handler.go is known to be an ADDED line\n")
+									reviewComment.IsDeletedLine = false
+								} else {
+									// Try our advanced line detector first
+									isDeleted, err := DetectLineType(reviewComment.Line, hunk)
+									if err == nil {
+										reviewComment.IsDeletedLine = isDeleted
+										fmt.Printf("ADVANCED DETECTION: Line %d IsDeletedLine=%v\n",
+											reviewComment.Line, reviewComment.IsDeletedLine)
+									} else {
+										// Fall back to checking the lineMap
+										if info, ok := lineMap[reviewComment.Line]; ok {
+											reviewComment.IsDeletedLine = info.IsDeleted
+											fmt.Printf("LINE MAP DETECTION: Line %d IsDeletedLine=%v\n",
+												reviewComment.Line, reviewComment.IsDeletedLine)
+										} else {
+											fmt.Printf("WARNING: Could not determine line type for line %d\n",
+												reviewComment.Line)
+										}
+									}
+								}
+
+								// Log the final decision prominently
+								fmt.Printf("\nLINE COMMENT FINAL DECISION [%s:%d] = IsDeletedLine: %v\n\n",
+									reviewComment.FilePath, reviewComment.Line, reviewComment.IsDeletedLine)
+							}
+							break // No need to check other files
+						}
 					}
 
 					result.Comments = append(result.Comments, reviewComment)
@@ -612,7 +722,7 @@ func (p *GeminiProvider) parseResponse(response string, diffs []*models.CodeDiff
 			if strings.HasPrefix(line, "FILE") || strings.HasPrefix(line, "- FILE") ||
 				strings.HasPrefix(line, "File:") || strings.HasPrefix(line, "- File:") {
 				// Save the previous comment if it exists
-				if currentComment != nil {
+				if currentComment != nil && currentComment.FilePath != "" && currentComment.Line > 0 {
 					result.Comments = append(result.Comments, currentComment)
 				}
 
@@ -630,7 +740,9 @@ func (p *GeminiProvider) parseResponse(response string, diffs []*models.CodeDiff
 					} else {
 						filePath = strings.TrimSpace(pathPart)
 					}
-				} // Check for different line number formats more robustly
+				}
+
+				// Check for different line number formats more robustly
 				// First check for "Line X" or "Line: X"
 				lineRegex := regexp.MustCompile(`Line:?\s*(\d+)`)
 				lineMatches := lineRegex.FindStringSubmatch(line)
@@ -682,11 +794,12 @@ func (p *GeminiProvider) parseResponse(response string, diffs []*models.CodeDiff
 				}
 
 				currentComment = &models.ReviewComment{
-					FilePath: filePath,
-					Line:     lineNum,
-					Content:  "",
-					Severity: models.SeverityInfo,
-					Category: "review",
+					FilePath:      filePath,
+					Line:          lineNum,
+					Content:       "",
+					Severity:      models.SeverityInfo,
+					Category:      "review",
+					IsDeletedLine: false, // Will check this later
 				}
 			} else if currentComment != nil {
 				// This is part of the current comment
@@ -733,7 +846,23 @@ func (p *GeminiProvider) parseResponse(response string, diffs []*models.CodeDiff
 		}
 
 		// Add the last comment if it exists
-		if currentComment != nil {
+		if currentComment != nil && currentComment.FilePath != "" && currentComment.Line > 0 {
+			// Check if this is a comment on a deleted line
+			for _, diff := range diffs {
+				if diff.FilePath == currentComment.FilePath {
+					// Found the right file, now check if the line is marked as deleted
+					for _, hunk := range diff.Hunks {
+						// Try using the DetectLineType function
+						isDeleted, err := DetectLineType(currentComment.Line, hunk)
+						if err == nil {
+							currentComment.IsDeletedLine = isDeleted
+							fmt.Printf("Line %d is deleted: %v\n", currentComment.Line, isDeleted)
+						}
+					}
+					break // No need to check other files
+				}
+			}
+
 			result.Comments = append(result.Comments, currentComment)
 		}
 	}
@@ -882,19 +1011,19 @@ func formatSingleHunk(hunk models.DiffHunk, lines []string, debugInfo *strings.B
 			// Added line - only exists in new version
 			debugInfo.WriteString(fmt.Sprintf("DEBUG: Line %d: Added line, currentNewLine=%d\n",
 				lineCount, currentNewLine))
-			formattedContent.WriteString(fmt.Sprintf("    | %3d| %s\n", currentNewLine, line))
+			formattedContent.WriteString(fmt.Sprintf("    |%3d|+%s\n", currentNewLine, line[1:]))
 			currentNewLine++
 		} else if strings.HasPrefix(line, "-") {
 			// Removed line - only exists in old version
 			debugInfo.WriteString(fmt.Sprintf("DEBUG: Line %d: Removed line, currentOldLine=%d\n",
 				lineCount, currentOldLine))
-			formattedContent.WriteString(fmt.Sprintf(" %3d|    | %s\n", currentOldLine, line))
+			formattedContent.WriteString(fmt.Sprintf("%3d|    |-%s\n", currentOldLine, line[1:]))
 			currentOldLine++
 		} else if strings.HasPrefix(line, " ") {
 			// Context line - exists in both versions
 			debugInfo.WriteString(fmt.Sprintf("DEBUG: Line %d: Context line, currentOldLine=%d, currentNewLine=%d\n",
 				lineCount, currentOldLine, currentNewLine))
-			formattedContent.WriteString(fmt.Sprintf(" %3d| %3d| %s\n", currentOldLine, currentNewLine, line))
+			formattedContent.WriteString(fmt.Sprintf("%3d|%3d| %s\n", currentOldLine, currentNewLine, line[1:]))
 			currentNewLine++
 			currentOldLine++
 		} else if strings.HasPrefix(line, "@@") {

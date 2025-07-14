@@ -31,13 +31,14 @@ type ReviewResult struct {
 
 // ReviewComment represents a single comment from the AI review
 type ReviewComment struct {
-	FilePath    string
-	Line        int
-	Content     string
-	Severity    CommentSeverity
-	Confidence  float64
-	Category    string
-	Suggestions []string
+	FilePath      string
+	Line          int
+	Content       string
+	Severity      CommentSeverity
+	Confidence    float64
+	Category      string
+	Suggestions   []string
+	IsDeletedLine bool // True if comment is on a deleted line (old_line) rather than new_line
 }
 
 // CommentSeverity represents the severity level of a review comment
