@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg width="800" height="600" viewBox="0 0 800 600" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <!-- Background -->
+  <rect width="800" height="600" fill="#0F172A" />
+  
+  <!-- Title -->
+  <text x="400" y="60" font-family="Inter, Arial, sans-serif" font-size="24" fill="white" text-anchor="middle" font-weight="bold">LiveReview Typography Guide</text>
+  
+  <!-- Headings -->
+  <text x="100" y="120" font-family="Inter, Arial, sans-serif" font-size="20" fill="white" font-weight="bold">Headings</text>
+  
+  <!-- H1 -->
+  <text x="100" y="170" font-family="Inter, Arial, sans-serif" font-size="36" fill="white" font-weight="700">H1: Main Heading</text>
+  <text x="100" y="200" font-family="Inter, Arial, sans-serif" font-size="14" fill="#60A5FA">Inter Bold (700), 36px, Line Height 1.2</text>
+  
+  <!-- H2 -->
+  <text x="100" y="250" font-family="Inter, Arial, sans-serif" font-size="28" fill="white" font-weight="700">H2: Section Heading</text>
+  <text x="100" y="280" font-family="Inter, Arial, sans-serif" font-size="14" fill="#60A5FA">Inter Bold (700), 28px, Line Height 1.2</text>
+  
+  <!-- H3 -->
+  <text x="100" y="330" font-family="Inter, Arial, sans-serif" font-size="22" fill="white" font-weight="600">H3: Subsection Heading</text>
+  <text x="100" y="360" font-family="Inter, Arial, sans-serif" font-size="14" fill="#60A5FA">Inter SemiBold (600), 22px, Line Height 1.3</text>
+  
+  <!-- H4 -->
+  <text x="100" y="410" font-family="Inter, Arial, sans-serif" font-size="18" fill="white" font-weight="600">H4: Content Heading</text>
+  <text x="100" y="440" font-family="Inter, Arial, sans-serif" font-size="14" fill="#60A5FA">Inter SemiBold (600), 18px, Line Height 1.3</text>
+  
+  <!-- Body Text -->
+  <text x="100" y="490" font-family="Inter, Arial, sans-serif" font-size="20" fill="white" font-weight="bold">Body Text</text>
+  
+  <!-- Regular Body -->
+  <text x="100" y="530" font-family="Inter, Arial, sans-serif" font-size="16" fill="white" font-weight="400">Body Text: This is an example of regular body text used throughout the LiveReview application and website.</text>
+  <text x="100" y="560" font-family="Inter, Arial, sans-serif" font-size="14" fill="#60A5FA">Inter Regular (400), 16px, Line Height 1.5</text>
+</svg>

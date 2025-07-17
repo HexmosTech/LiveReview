@@ -6,7 +6,7 @@ import { Provider as ReduxProvider } from 'react-redux';
 
 import configureAppStore, { getPreloadedState } from './store/configureStore';
 import AppContextProvider from './contexts/AppContextProvider';
-import { Dashboard } from './components/Dashboard/Dashboard';
+import App from './App';
 
 (async () => {
     const preloadedState = getPreloadedState();
@@ -16,7 +16,7 @@ import { Dashboard } from './components/Dashboard/Dashboard';
         <React.StrictMode>
             <ReduxProvider store={configureAppStore(preloadedState)}>
                 <AppContextProvider>
-                    <Dashboard />
+                    <App />
                 </AppContextProvider>
             </ReduxProvider>
         </React.StrictMode>
