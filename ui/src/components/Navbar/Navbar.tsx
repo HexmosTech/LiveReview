@@ -26,7 +26,14 @@ export const Navbar: React.FC<NavbarProps> = ({ title, activePage = 'dashboard',
         <nav className="bg-slate-900 shadow-md border-b border-slate-700 sticky top-0 z-10 navbar-dark">
             <div className="container mx-auto px-4 py-4 flex justify-between items-center">
                 <div className="flex items-center">
-                    <img src="/assets/logo-horizontal.svg" alt="LiveReview Logo" className="h-12 w-auto mr-3" />
+                    <div 
+                        onClick={() => handleNavClick('dashboard')} 
+                        className="cursor-pointer"
+                        role="button"
+                        aria-label="Go to home"
+                    >
+                        <img src="/assets/logo-horizontal.svg" alt="LiveReview Logo" className="h-12 w-auto mr-3" />
+                    </div>
                 </div>
                 
                 {/* Mobile menu button */}

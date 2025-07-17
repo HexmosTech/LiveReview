@@ -62,11 +62,18 @@ const Settings = () => (
     </div>
 );
 
-const Footer = () => (
+const Footer = ({ onNavigateToHome }: { onNavigateToHome: () => void }) => (
     <footer className="bg-slate-900 border-t border-slate-700 py-8 mt-auto">
         <div className="container mx-auto px-4 flex flex-col md:flex-row justify-between items-center">
             <div className="flex items-center py-2">
-                <img src="/assets/logo-horizontal.svg" alt="LiveReview Logo" className="h-10 w-auto" />
+                <div 
+                    onClick={onNavigateToHome} 
+                    className="cursor-pointer"
+                    role="button"
+                    aria-label="Go to home"
+                >
+                    <img src="/assets/logo-horizontal.svg" alt="LiveReview Logo" className="h-10 w-auto" />
+                </div>
             </div>
             <div className="text-right mt-4 md:mt-0">
                 <p className="text-sm text-slate-200">© {new Date().getFullYear()} LiveReview. All rights reserved.</p>
@@ -103,7 +110,7 @@ const App: React.FC = () => {
             <div className="flex-grow">
                 {renderPage()}
             </div>
-            <Footer />
+            <Footer onNavigateToHome={() => setPage('dashboard')} />
         </div>
     );
 };
