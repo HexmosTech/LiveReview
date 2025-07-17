@@ -367,6 +367,8 @@ interface StatCardProps {
     isPositive?: boolean;
   };
   className?: string;
+  variant?: 'default' | 'primary';
+  description?: string;
 }
 
 export const StatCard: React.FC<StatCardProps> = ({
@@ -375,7 +377,39 @@ export const StatCard: React.FC<StatCardProps> = ({
   icon,
   trend,
   className,
+  variant = 'default',
+  description,
 }) => {
+  if (variant === 'primary') {
+    return (
+      <Card className={classNames('flex flex-col border-blue-500', className)}>
+        <div className="flex items-start">
+          {icon && (
+            <div className="mr-4 p-3 bg-blue-600 rounded-lg">
+              <div className="text-white text-lg">{icon}</div>
+            </div>
+          )}
+          <div className="flex-grow">
+            <p className="text-lg font-medium text-blue-300 mb-1">{title}</p>
+            <div className="flex items-baseline">
+              <p className="text-3xl font-bold text-white">{value}</p>
+              {trend && (
+                <div className={classNames(
+                  'ml-2 flex items-center text-sm font-medium',
+                  trend.isPositive ? 'text-green-400' : 'text-red-400'
+                )}>
+                  <span>{trend.isPositive ? '↑' : '↓'} {Math.abs(trend.value)}%</span>
+                  {trend.label && <span className="text-slate-300 ml-1">{trend.label}</span>}
+                </div>
+              )}
+            </div>
+            {description && <p className="mt-2 text-sm text-slate-300">{description}</p>}
+          </div>
+        </div>
+      </Card>
+    );
+  }
+  
   return (
     <Card className={classNames('flex flex-col', className)}>
       <div className="flex justify-between items-start mb-2">
@@ -394,6 +428,7 @@ export const StatCard: React.FC<StatCardProps> = ({
           </div>
         )}
       </div>
+      {description && <p className="mt-1 text-xs text-slate-400">{description}</p>}
     </Card>
   );
 };
