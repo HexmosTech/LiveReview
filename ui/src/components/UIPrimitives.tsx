@@ -30,9 +30,9 @@ export const Button: React.FC<ButtonProps> = ({
   
   const variantStyles = {
     primary: 'bg-blue-600 text-white hover:bg-blue-700 focus:ring-blue-500', // Primary Blue #3B82F6
-    secondary: 'bg-gray-700 text-gray-100 hover:bg-gray-600 focus:ring-blue-400',
-    outline: 'border border-gray-600 bg-transparent text-blue-400 hover:bg-gray-700 focus:ring-blue-400', // Dark Blue #1E40AF
-    ghost: 'bg-transparent text-gray-300 hover:bg-gray-700 focus:ring-blue-400',
+    secondary: 'bg-slate-700 text-slate-100 hover:bg-slate-600 focus:ring-blue-400',
+    outline: 'border border-slate-500 bg-transparent text-blue-300 hover:bg-slate-700 hover:text-blue-200 focus:ring-blue-400', // Dark Blue #1E40AF
+    ghost: 'bg-transparent text-slate-300 hover:bg-slate-700 hover:text-slate-100 focus:ring-blue-400',
     danger: 'bg-red-600 text-white hover:bg-red-700 focus:ring-red-500',
   };
   
@@ -139,23 +139,23 @@ export const Input: React.FC<InputProps> = ({
   return (
     <div className="w-full">
       {label && (
-        <label htmlFor={inputId} className="block text-sm font-medium text-gray-700 mb-1">
+        <label htmlFor={inputId} className="block text-sm font-medium text-slate-300 mb-1">
           {label}
         </label>
       )}
       <div className="relative">
         {icon && iconPosition === 'left' && (
-          <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+          <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-slate-400">
             {icon}
           </div>
         )}
         <input
           id={inputId}
           className={classNames(
-            'w-full rounded-lg border focus:ring-2 transition-all duration-200 outline-none px-4 py-2.5',
+            'w-full rounded-lg border bg-slate-700 text-white focus:ring-2 transition-all duration-200 outline-none px-4 py-2.5',
             error 
-              ? 'border-red-300 focus:border-red-500 focus:ring-red-200'
-              : 'border-gray-300 focus:border-blue-500 focus:ring-blue-200',
+              ? 'border-red-500 focus:border-red-500 focus:ring-red-400'
+              : 'border-slate-600 focus:border-blue-500 focus:ring-blue-400',
             icon && iconPosition === 'left' ? 'pl-10' : '',
             icon && iconPosition === 'right' ? 'pr-10' : '',
             className
@@ -164,13 +164,13 @@ export const Input: React.FC<InputProps> = ({
           {...props}
         />
         {icon && iconPosition === 'right' && (
-          <div className="absolute inset-y-0 right-0 pr-3 flex items-center pointer-events-none">
+          <div className="absolute inset-y-0 right-0 pr-3 flex items-center pointer-events-none text-slate-400">
             {icon}
           </div>
         )}
       </div>
       {(error || helperText) && (
-        <p className={classNames('mt-1 text-sm', error ? 'text-red-600' : 'text-gray-500')}>
+        <p className={classNames('mt-1 text-sm', error ? 'text-red-400' : 'text-slate-400')}>
           {error || helperText}
         </p>
       )}
@@ -200,7 +200,7 @@ export const Select: React.FC<SelectProps> = ({
   return (
     <div className="w-full">
       {label && (
-        <label htmlFor={selectId} className="block text-sm font-medium text-gray-700 mb-1">
+        <label htmlFor={selectId} className="block text-sm font-medium text-slate-300 mb-1">
           {label}
         </label>
       )}
@@ -208,29 +208,29 @@ export const Select: React.FC<SelectProps> = ({
         <select
           id={selectId}
           className={classNames(
-            'w-full rounded-lg border focus:ring-2 transition-all duration-200 outline-none px-4 py-2.5 appearance-none bg-white',
+            'w-full rounded-lg border focus:ring-2 transition-all duration-200 outline-none px-4 py-2.5 appearance-none bg-slate-700 text-white',
             error 
-              ? 'border-red-300 focus:border-red-500 focus:ring-red-200' 
-              : 'border-gray-300 focus:border-blue-500 focus:ring-blue-200',
+              ? 'border-red-500 focus:border-red-500 focus:ring-red-400' 
+              : 'border-slate-600 focus:border-blue-500 focus:ring-blue-400',
             className
           )}
           aria-invalid={error ? 'true' : 'false'}
           {...props}
         >
           {options.map((option) => (
-            <option key={option.value} value={option.value}>
+            <option key={option.value} value={option.value} className="bg-slate-700">
               {option.label}
             </option>
           ))}
         </select>
-        <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center px-2 text-gray-700">
+        <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center px-2 text-slate-300">
           <svg className="h-5 w-5" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor">
             <path fillRule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clipRule="evenodd" />
           </svg>
         </div>
       </div>
       {(error || helperText) && (
-        <p className={classNames('mt-1 text-sm', error ? 'text-red-600' : 'text-gray-500')}>
+        <p className={classNames('mt-1 text-sm', error ? 'text-red-400' : 'text-slate-400')}>
           {error || helperText}
         </p>
       )}
@@ -301,9 +301,9 @@ export const EmptyState: React.FC<EmptyStateProps> = ({
 }) => {
   return (
     <div className={classNames('flex flex-col items-center justify-center py-10 text-center', className)}>
-      {icon && <div className="mb-4">{icon}</div>}
-      <h3 className="text-lg font-medium text-gray-900 mb-1">{title}</h3>
-      {description && <p className="text-sm text-gray-500 max-w-sm mb-4">{description}</p>}
+      {icon && <div className="mb-4 text-slate-400">{icon}</div>}
+      <h3 className="text-lg font-medium text-white mb-1">{title}</h3>
+      {description && <p className="text-sm text-slate-300 max-w-sm mb-4">{description}</p>}
       {action && <div>{action}</div>}
     </div>
   );
@@ -590,8 +590,8 @@ export const Section: React.FC<SectionProps> = ({
     <div className={classNames('mb-8', className)}>
       {(title || description) && (
         <div className="mb-4">
-          {title && <h2 className="text-lg font-medium text-gray-900">{title}</h2>}
-          {description && <p className="mt-1 text-sm text-gray-500">{description}</p>}
+          {title && <h2 className="text-lg font-medium text-white">{title}</h2>}
+          {description && <p className="mt-1 text-sm text-slate-300">{description}</p>}
         </div>
       )}
       {children}
@@ -643,14 +643,14 @@ export const Divider: React.FC<DividerProps> = ({ label, className }) => {
     return (
       <div className={classNames('relative', className)}>
         <div className="absolute inset-0 flex items-center">
-          <div className="w-full border-t border-gray-200"></div>
+          <div className="w-full border-t border-slate-600"></div>
         </div>
         <div className="relative flex justify-center">
-          <span className="bg-white px-3 text-sm text-gray-500">{label}</span>
+          <span className="bg-slate-800 px-3 text-sm text-slate-300">{label}</span>
         </div>
       </div>
     );
   }
   
-  return <hr className={classNames('border-t border-gray-200', className)} />;
+  return <hr className={classNames('border-t border-slate-600', className)} />;
 };

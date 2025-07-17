@@ -93,12 +93,12 @@ export const Dashboard: React.FC = () => {
                             className="card-brand"
                         >
                             {recentActivity.length > 0 ? (
-                                <ul className="divide-y divide-gray-100">
+                                <ul className="divide-y divide-slate-700">
                                     {recentActivity.map((item) => (
                                         <li key={item.id} className="py-3 flex justify-between items-center">
                                             <div>
-                                                <p className="text-sm font-medium text-gray-900">{item.action}</p>
-                                                <p className="text-sm text-gray-500">{item.repo}</p>
+                                                <p className="text-sm font-medium text-slate-100">{item.action}</p>
+                                                <p className="text-sm text-slate-300">{item.repo}</p>
                                             </div>
                                             <Badge variant="default" size="sm">{item.date}</Badge>
                                         </li>
@@ -153,13 +153,13 @@ export const Dashboard: React.FC = () => {
                         >
                             <div className="flex items-center mb-4">
                                 <div className="flex-shrink-0 mr-3">
-                                    <div className="h-10 w-10 rounded-full bg-blue-100 flex items-center justify-center">
+                                    <div className="h-10 w-10 rounded-full bg-blue-600 text-white flex items-center justify-center">
                                         <Icons.AI />
                                     </div>
                                 </div>
                                 <div>
-                                    <h4 className="font-medium text-gray-900">{aiService}</h4>
-                                    <p className="text-sm text-gray-500">API Key: {apiKey.substring(0, 3)}...{apiKey.substring(apiKey.length - 4)}</p>
+                                    <h4 className="font-medium text-white">{aiService}</h4>
+                                    <p className="text-sm text-slate-300">API Key: {apiKey.substring(0, 3)}...{apiKey.substring(apiKey.length - 4)}</p>
                                 </div>
                             </div>
                             <Badge variant="success" className="w-full justify-center py-1">

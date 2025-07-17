@@ -50,11 +50,11 @@ const Settings = () => (
                         <div className="flex items-center mb-4">
                             <img src="/assets/logo.svg" alt="LiveReview Logo" className="h-8 w-auto mr-3" />
                             <div>
-                                <h3 className="font-medium text-gray-900">LiveReview v1.0.0</h3>
-                                <p className="text-sm text-gray-500">Automated code reviews powered by AI</p>
+                                <h3 className="font-medium text-white">LiveReview v1.0.0</h3>
+                                <p className="text-sm text-slate-300">Automated code reviews powered by AI</p>
                             </div>
                         </div>
-                        <p className="text-gray-600">App settings content will go here.</p>
+                        <p className="text-slate-300">App settings content will go here.</p>
                     </Card>
                 </Section>
             </div>
@@ -63,13 +63,13 @@ const Settings = () => (
 );
 
 const Footer = () => (
-    <footer className="bg-gray-900 border-t border-gray-700 py-8 mt-auto">
+    <footer className="bg-slate-900 border-t border-slate-700 py-8 mt-auto">
         <div className="container mx-auto px-4 flex flex-col md:flex-row justify-between items-center">
             <div className="flex items-center py-2">
                 <img src="/assets/logo-horizontal.svg" alt="LiveReview Logo" className="h-10 w-auto" />
             </div>
             <div className="text-right mt-4 md:mt-0">
-                <p className="text-sm text-gray-300">© {new Date().getFullYear()} LiveReview. All rights reserved.</p>
+                <p className="text-sm text-slate-200">© {new Date().getFullYear()} LiveReview. All rights reserved.</p>
             </div>
         </div>
     </footer>

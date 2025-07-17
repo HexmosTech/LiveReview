@@ -55,7 +55,7 @@ export const Navbar: React.FC<NavbarProps> = ({ title, activePage = 'dashboard',
                             variant={activePage === link.key ? 'primary' : 'ghost'}
                             onClick={() => handleNavClick(link.key)}
                             icon={link.icon}
-                            className={activePage === link.key ? '' : 'text-gray-600'}
+                            className={activePage === link.key ? '' : 'text-slate-300'}
                         >
                             {link.name}
                         </Button>

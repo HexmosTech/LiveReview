@@ -87,18 +87,18 @@ const AIProviders: React.FC = () => {
                         >
                             <Card className={activeProvider === provider.id ? 'card-brand' : ''}>
                                 <div className="flex flex-col items-center text-center">
-                                    <div className="h-12 w-12 rounded-full bg-blue-100 flex items-center justify-center mb-4">
+                                    <div className="h-12 w-12 rounded-full bg-blue-600 text-white flex items-center justify-center mb-4">
                                         {provider.icon}
                                     </div>
-                                    <h3 className="text-lg font-medium text-gray-900 mb-1">{provider.name}</h3>
-                                    <p className="text-sm text-gray-500 mb-3">{provider.description}</p>
+                                    <h3 className="text-lg font-medium text-white mb-1">{provider.name}</h3>
+                                    <p className="text-sm text-slate-300 mb-3">{provider.description}</p>
                                     <div className="w-full">
                                         {provider.isConfigured ? (
                                             <Button 
                                                 variant="ghost" 
                                                 size="sm" 
                                                 fullWidth
-                                                className="border border-green-200 text-green-700 bg-green-50"
+                                                className="border border-green-600 text-green-400 bg-slate-800"
                                             >
                                                 Configured
                                             </Button>
@@ -107,7 +107,7 @@ const AIProviders: React.FC = () => {
                                                 variant="ghost" 
                                                 size="sm" 
                                                 fullWidth
-                                                className="border border-gray-200"
+                                                className="border border-slate-500 text-slate-300"
                                             >
                                                 Not Configured
                                             </Button>
@@ -136,19 +136,19 @@ const AIProviders: React.FC = () => {
                         {popularAIProviders.find(p => p.id === activeProvider) && (
                             <div className="flex items-center">
                                 <div className="mr-4">
-                                    <div className="h-12 w-12 rounded-full bg-indigo-100 flex items-center justify-center">
+                                    <div className="h-12 w-12 rounded-full bg-indigo-600 text-white flex items-center justify-center">
                                         {popularAIProviders.find(p => p.id === activeProvider)?.icon}
                                     </div>
                                 </div>
                                 <div>
-                                    <h3 className="text-lg font-medium text-gray-900">
+                                    <h3 className="text-lg font-medium text-white">
                                         {popularAIProviders.find(p => p.id === activeProvider)?.name}
                                     </h3>
                                     <a 
                                         href={popularAIProviders.find(p => p.id === activeProvider)?.url} 
                                         target="_blank" 
                                         rel="noopener noreferrer" 
-                                        className="text-sm text-indigo-600 hover:text-indigo-800"
+                                        className="text-sm text-blue-400 hover:text-blue-300"
                                     >
                                         Visit API Documentation
                                     </a>
