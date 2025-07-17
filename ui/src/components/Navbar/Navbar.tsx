@@ -23,10 +23,10 @@ export const Navbar: React.FC<NavbarProps> = ({ title, activePage = 'dashboard',
     };
 
     return (
-        <nav className="bg-gray-800 shadow-sm border-b border-gray-700 sticky top-0 z-10 navbar-dark">
-            <div className="container mx-auto px-4 py-3 flex justify-between items-center">
+        <nav className="bg-slate-900 shadow-md border-b border-slate-700 sticky top-0 z-10 navbar-dark">
+            <div className="container mx-auto px-4 py-4 flex justify-between items-center">
                 <div className="flex items-center">
-                    <img src="/assets/logo-horizontal.svg" alt="LiveReview Logo" className="h-8 w-auto mr-3" />
+                    <img src="/assets/logo-horizontal.svg" alt="LiveReview Logo" className="h-12 w-auto mr-3" />
                 </div>
                 
                 {/* Mobile menu button */}
@@ -65,14 +65,14 @@ export const Navbar: React.FC<NavbarProps> = ({ title, activePage = 'dashboard',
             
             {/* Mobile menu dropdown */}
             {isOpen && (
-                <div className="md:hidden px-4 py-3 space-y-2 bg-gray-800 border-t border-gray-700 shadow-inner">
+                <div className="md:hidden px-4 py-3 space-y-2 bg-slate-800 border-t border-slate-700 shadow-lg">
                     {navLinks.map(link => (
                         <Button
                             key={link.key}
                             variant={activePage === link.key ? 'primary' : 'ghost'}
                             onClick={() => handleNavClick(link.key)}
                             icon={link.icon}
-                            className="w-full justify-start"
+                            className="w-full justify-start text-slate-100"
                             iconPosition="left"
                         >
                             {link.name}

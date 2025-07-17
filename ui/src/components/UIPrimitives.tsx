@@ -91,12 +91,12 @@ export const Card: React.FC<CardProps> = ({
   badgeColor = 'bg-blue-100 text-blue-800',
 }) => {
   return (
-    <div className={classNames('bg-gray-800 rounded-xl shadow-sm border border-gray-700 card-dark', className)}>
+    <div className={classNames('bg-slate-800 rounded-xl shadow-md border border-slate-700 card-dark', className)}>
       {(title || subtitle || badge) && (
-        <div className="flex justify-between items-center p-5 border-b border-gray-700">
+        <div className="flex justify-between items-center p-5 border-b border-slate-700">
           <div>
-            {title && <h3 className="text-lg font-semibold text-gray-100">{title}</h3>}
-            {subtitle && <p className="text-sm text-gray-400 mt-1">{subtitle}</p>}
+            {title && <h3 className="text-lg font-semibold text-slate-100">{title}</h3>}
+            {subtitle && <p className="text-sm text-slate-300 mt-1">{subtitle}</p>}
           </div>
           {badge && (
             <span className={`text-xs font-medium px-2.5 py-1 rounded-full ${badgeColor}`}>
@@ -107,7 +107,7 @@ export const Card: React.FC<CardProps> = ({
       )}
       <div className="p-5">{children}</div>
       {footer && (
-        <div className="border-t border-gray-700 p-5 bg-gray-900 rounded-b-xl">
+        <div className="border-t border-slate-700 p-5 bg-slate-900 rounded-b-xl">
           {footer}
         </div>
       )}
@@ -379,18 +379,18 @@ export const StatCard: React.FC<StatCardProps> = ({
   return (
     <Card className={classNames('flex flex-col', className)}>
       <div className="flex justify-between items-start mb-2">
-        <p className="text-sm font-medium text-gray-400">{title}</p>
-        {icon && <div className="text-gray-300">{icon}</div>}
+        <p className="text-sm font-medium text-slate-300">{title}</p>
+        {icon && <div className="text-slate-200">{icon}</div>}
       </div>
       <div className="flex items-baseline">
-        <p className="text-2xl font-semibold text-gray-100">{value}</p>
+        <p className="text-2xl font-bold text-white">{value}</p>
         {trend && (
           <div className={classNames(
             'ml-2 flex items-center text-xs font-medium',
             trend.isPositive ? 'text-green-400' : 'text-red-400'
           )}>
             <span>{trend.isPositive ? '↑' : '↓'} {Math.abs(trend.value)}%</span>
-            {trend.label && <span className="text-gray-400 ml-1">{trend.label}</span>}
+            {trend.label && <span className="text-slate-300 ml-1">{trend.label}</span>}
           </div>
         )}
       </div>
@@ -564,8 +564,8 @@ export const PageHeader: React.FC<PageHeaderProps> = ({
     <div className={classNames('mb-8', className)}>
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-gray-100">{title}</h1>
-          {description && <p className="mt-1 text-sm text-gray-400">{description}</p>}
+          <h1 className="text-2xl font-bold text-white">{title}</h1>
+          {description && <p className="mt-2 text-base text-slate-300">{description}</p>}
         </div>
         {actions && <div>{actions}</div>}
       </div>

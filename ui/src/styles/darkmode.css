@@ -1,39 +1,40 @@
 /* Dark Mode Theme */
 body {
-  background-color: #111827; /* dark bg-gray-900 */
-  color: #f3f4f6; /* text-gray-100 */
+  background-color: #0f172a; /* dark bg-slate-900 */
+  color: #f8fafc; /* text-slate-50 */
 }
 
 /* Dark navbar */
 .navbar-dark {
-  background-color: #1f2937; /* bg-gray-800 */
-  border-color: #374151; /* border-gray-700 */
+  background-color: #1e293b; /* bg-slate-800 */
+  border-color: #334155; /* border-slate-700 */
 }
 
 /* Dark card */
 .card-dark {
-  background-color: #1f2937; /* bg-gray-800 */
-  border-color: #374151; /* border-gray-700 */
+  background-color: #1e293b; /* bg-slate-800 */
+  border-color: #334155; /* border-slate-700 */
+  box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.2), 0 2px 4px -2px rgb(0 0 0 / 0.2);
 }
 
 /* Stats */
 .stats-dark {
-  background-color: #1f2937; /* bg-gray-800 */
-  color: #f3f4f6; /* text-gray-100 */
+  background-color: #1e293b; /* bg-slate-800 */
+  color: #f8fafc; /* text-slate-50 */
 }
 
 /* Typography adjustments */
 h1, h2, h3, h4, h5, h6 {
-  color: #f9fafb; /* text-gray-50 */
+  color: #f8fafc; /* text-slate-50 */
 }
 
 /* Text colors */
 .text-dark-primary {
-  color: #f3f4f6; /* text-gray-100 */
+  color: #f1f5f9; /* text-slate-100 */
 }
 
 .text-dark-secondary {
-  color: #9ca3af; /* text-gray-400 */
+  color: #cbd5e1; /* text-slate-300 */
 }
 
 /* Border adjustments */
