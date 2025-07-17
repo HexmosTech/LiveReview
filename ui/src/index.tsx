@@ -1,4 +1,6 @@
 import './styles/index.css';
+import './styles/custom.css';
+import './styles/darkmode.css';
 
 import React from 'react';
 import { createRoot } from 'react-dom/client';

@@ -23,11 +23,10 @@ export const Navbar: React.FC<NavbarProps> = ({ title, activePage = 'dashboard',
     };
 
     return (
-        <nav className="bg-white shadow-sm border-b border-gray-200 sticky top-0 z-10">
+        <nav className="bg-gray-800 shadow-sm border-b border-gray-700 sticky top-0 z-10 navbar-dark">
             <div className="container mx-auto px-4 py-3 flex justify-between items-center">
                 <div className="flex items-center">
-                    <img src="/assets/logo.svg" alt="LiveReview Logo" className="h-8 w-auto mr-3" />
-                    <h1 className="text-xl font-bold text-gray-900">{title}</h1>
+                    <img src="/assets/logo-horizontal.svg" alt="LiveReview Logo" className="h-8 w-auto mr-3" />
                 </div>
                 
                 {/* Mobile menu button */}
@@ -66,7 +65,7 @@ export const Navbar: React.FC<NavbarProps> = ({ title, activePage = 'dashboard',
             
             {/* Mobile menu dropdown */}
             {isOpen && (
-                <div className="md:hidden px-4 py-3 space-y-2 bg-white border-t border-gray-200 shadow-inner">
+                <div className="md:hidden px-4 py-3 space-y-2 bg-gray-800 border-t border-gray-700 shadow-inner">
                     {navLinks.map(link => (
                         <Button
                             key={link.key}

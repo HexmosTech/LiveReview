@@ -29,10 +29,10 @@ export const Button: React.FC<ButtonProps> = ({
   const baseStyles = 'inline-flex items-center justify-center font-medium rounded-lg transition-colors focus:outline-none focus:ring-2 focus:ring-offset-2';
   
   const variantStyles = {
-    primary: 'bg-indigo-600 text-white hover:bg-indigo-700 focus:ring-indigo-500',
-    secondary: 'bg-gray-100 text-gray-800 hover:bg-gray-200 focus:ring-gray-500',
-    outline: 'border border-gray-300 bg-transparent text-gray-700 hover:bg-gray-50 focus:ring-gray-500',
-    ghost: 'bg-transparent text-gray-700 hover:bg-gray-100 focus:ring-gray-500',
+    primary: 'bg-blue-600 text-white hover:bg-blue-700 focus:ring-blue-500', // Primary Blue #3B82F6
+    secondary: 'bg-gray-700 text-gray-100 hover:bg-gray-600 focus:ring-blue-400',
+    outline: 'border border-gray-600 bg-transparent text-blue-400 hover:bg-gray-700 focus:ring-blue-400', // Dark Blue #1E40AF
+    ghost: 'bg-transparent text-gray-300 hover:bg-gray-700 focus:ring-blue-400',
     danger: 'bg-red-600 text-white hover:bg-red-700 focus:ring-red-500',
   };
   
@@ -88,15 +88,15 @@ export const Card: React.FC<CardProps> = ({
   subtitle,
   footer,
   badge,
-  badgeColor = 'bg-indigo-100 text-indigo-800',
+  badgeColor = 'bg-blue-100 text-blue-800',
 }) => {
   return (
-    <div className={classNames('bg-white rounded-xl shadow-sm border border-gray-200', className)}>
+    <div className={classNames('bg-gray-800 rounded-xl shadow-sm border border-gray-700 card-dark', className)}>
       {(title || subtitle || badge) && (
-        <div className="flex justify-between items-center p-5 border-b border-gray-100">
+        <div className="flex justify-between items-center p-5 border-b border-gray-700">
           <div>
-            {title && <h3 className="text-lg font-semibold text-gray-900">{title}</h3>}
-            {subtitle && <p className="text-sm text-gray-500 mt-1">{subtitle}</p>}
+            {title && <h3 className="text-lg font-semibold text-gray-100">{title}</h3>}
+            {subtitle && <p className="text-sm text-gray-400 mt-1">{subtitle}</p>}
           </div>
           {badge && (
             <span className={`text-xs font-medium px-2.5 py-1 rounded-full ${badgeColor}`}>
@@ -107,7 +107,7 @@ export const Card: React.FC<CardProps> = ({
       )}
       <div className="p-5">{children}</div>
       {footer && (
-        <div className="border-t border-gray-100 p-5 bg-gray-50 rounded-b-xl">
+        <div className="border-t border-gray-700 p-5 bg-gray-900 rounded-b-xl">
           {footer}
         </div>
       )}
@@ -155,7 +155,7 @@ export const Input: React.FC<InputProps> = ({
             'w-full rounded-lg border focus:ring-2 transition-all duration-200 outline-none px-4 py-2.5',
             error 
               ? 'border-red-300 focus:border-red-500 focus:ring-red-200'
-              : 'border-gray-300 focus:border-indigo-500 focus:ring-indigo-200',
+              : 'border-gray-300 focus:border-blue-500 focus:ring-blue-200',
             icon && iconPosition === 'left' ? 'pl-10' : '',
             icon && iconPosition === 'right' ? 'pr-10' : '',
             className
@@ -211,7 +211,7 @@ export const Select: React.FC<SelectProps> = ({
             'w-full rounded-lg border focus:ring-2 transition-all duration-200 outline-none px-4 py-2.5 appearance-none bg-white',
             error 
               ? 'border-red-300 focus:border-red-500 focus:ring-red-200' 
-              : 'border-gray-300 focus:border-indigo-500 focus:ring-indigo-200',
+              : 'border-gray-300 focus:border-blue-500 focus:ring-blue-200',
             className
           )}
           aria-invalid={error ? 'true' : 'false'}
@@ -257,7 +257,7 @@ export const Badge: React.FC<BadgeProps> = ({
 }) => {
   const variantStyles = {
     default: 'bg-gray-100 text-gray-800',
-    primary: 'bg-indigo-100 text-indigo-800',
+    primary: 'bg-blue-100 text-blue-800',
     success: 'bg-green-100 text-green-800',
     warning: 'bg-yellow-100 text-yellow-800',
     danger: 'bg-red-100 text-red-800',
@@ -379,18 +379,18 @@ export const StatCard: React.FC<StatCardProps> = ({
   return (
     <Card className={classNames('flex flex-col', className)}>
       <div className="flex justify-between items-start mb-2">
-        <p className="text-sm font-medium text-gray-500">{title}</p>
-        {icon && <div className="text-gray-400">{icon}</div>}
+        <p className="text-sm font-medium text-gray-400">{title}</p>
+        {icon && <div className="text-gray-300">{icon}</div>}
       </div>
       <div className="flex items-baseline">
-        <p className="text-2xl font-semibold text-gray-900">{value}</p>
+        <p className="text-2xl font-semibold text-gray-100">{value}</p>
         {trend && (
           <div className={classNames(
             'ml-2 flex items-center text-xs font-medium',
-            trend.isPositive ? 'text-green-600' : 'text-red-600'
+            trend.isPositive ? 'text-green-400' : 'text-red-400'
           )}>
             <span>{trend.isPositive ? '↑' : '↓'} {Math.abs(trend.value)}%</span>
-            {trend.label && <span className="text-gray-500 ml-1">{trend.label}</span>}
+            {trend.label && <span className="text-gray-400 ml-1">{trend.label}</span>}
           </div>
         )}
       </div>
@@ -564,8 +564,8 @@ export const PageHeader: React.FC<PageHeaderProps> = ({
     <div className={classNames('mb-8', className)}>
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">{title}</h1>
-          {description && <p className="mt-1 text-sm text-gray-500">{description}</p>}
+          <h1 className="text-2xl font-bold text-gray-100">{title}</h1>
+          {description && <p className="mt-1 text-sm text-gray-400">{description}</p>}
         </div>
         {actions && <div>{actions}</div>}
       </div>

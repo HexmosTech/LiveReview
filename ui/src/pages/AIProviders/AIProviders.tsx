@@ -82,12 +82,12 @@ const AIProviders: React.FC = () => {
                     {popularAIProviders.map((provider) => (
                         <div 
                             key={provider.id}
-                            className={`cursor-pointer transition-all ${activeProvider === provider.id ? 'ring-2 ring-indigo-500 ring-offset-2' : 'hover:shadow-md'}`}
+                            className={`cursor-pointer transition-all ${activeProvider === provider.id ? 'ring-2 ring-blue-500 ring-offset-2' : 'hover:shadow-md'}`}
                             onClick={() => setActiveProvider(provider.id)}
                         >
-                            <Card>
+                            <Card className={activeProvider === provider.id ? 'card-brand' : ''}>
                                 <div className="flex flex-col items-center text-center">
-                                    <div className="h-12 w-12 rounded-full bg-indigo-100 flex items-center justify-center mb-4">
+                                    <div className="h-12 w-12 rounded-full bg-blue-100 flex items-center justify-center mb-4">
                                         {provider.icon}
                                     </div>
                                     <h3 className="text-lg font-medium text-gray-900 mb-1">{provider.name}</h3>

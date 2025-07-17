@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg width="512" height="512" viewBox="0 0 512 512" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <!-- Background glow effect -->
+  <circle cx="256" cy="256" r="240" fill="white" opacity="0.15" />
+  
+  <!-- Main eye shape -->
+  <circle cx="256" cy="256" r="200" fill="none" />
+  <circle cx="256" cy="256" r="200" stroke="white" stroke-width="16" />
+  
+  <!-- Iris -->
+  <circle cx="256" cy="256" r="100" fill="white" opacity="0.9" />
+  
+  <!-- Pupil -->
+  <circle cx="256" cy="256" r="50" fill="white" opacity="0.6" />
+  
+  <!-- Single light reflection (more subtle) -->
+  <path d="M235 220C235 228.284 228.284 235 220 235C211.716 235 205 228.284 205 220C205 211.716 211.716 205 220 205C228.284 205 235 211.716 235 220Z" fill="white" />
+  
+  <!-- Outer glow -->
+  <circle cx="256" cy="256" r="220" stroke="white" stroke-width="4" opacity="0.4" />
+</svg>

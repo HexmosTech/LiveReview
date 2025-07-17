@@ -41,6 +41,18 @@ const GitProviders: React.FC = () => {
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
                 <div>
                     <ConnectorForm onSubmit={handleAddConnector} />
+                    
+                    {/* Brand Showcase */}
+                    <div className="mt-6 card-brand rounded-lg bg-white p-5 shadow-sm">
+                        <h3 className="text-lg font-medium text-gray-900 mb-3">Why Connect Git Providers?</h3>
+                        <div className="flex items-center">
+                            <img src={require("../../../assets/logo.svg")} alt="LiveReview Eye" className="h-12 w-auto mr-4 logo-animation" />
+                            <p className="text-sm text-gray-500">
+                                LiveReview connects to your repositories to provide real-time AI-powered code reviews, 
+                                helping your team ship better code faster.
+                            </p>
+                        </div>
+                    </div>
                 </div>
                 
                 <div>

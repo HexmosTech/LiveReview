@@ -78,7 +78,7 @@ module.exports =  (env, options)=> {
                 // },
                 {
                     test: /\.(png|jpg|gif|svg)$/,
-                    type: 'asset/resource',
+                    type: 'asset/inline'
                 },
             ]
         },
@@ -99,6 +99,12 @@ module.exports =  (env, options)=> {
                         globOptions: {
                             ignore: ["**/index.html"],
                         },
+                    },
+                    // Copy assets folder to root of build
+                    {
+                        from: "assets",
+                        to: "assets",
+                        force: true
                     }
                 ],
             }),
@@ -106,6 +112,7 @@ module.exports =  (env, options)=> {
                 template: './public/index.html',
                 filename: 'index.html',
                 title: metaConfig.title,
+                favicon: path.resolve(__dirname, './assets/favicon.svg'),
                 meta: metaConfig.meta,
                 minify: {
                     html5                          : true,

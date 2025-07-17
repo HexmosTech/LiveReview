@@ -1,0 +1,99 @@
+/* LiveReview Brand Colors */
+:root {
+  --primary-blue: #3B82F6;
+  --light-blue: #60A5FA;
+  --dark-blue: #1E40AF;
+  --blue-glow: #93C5FD;
+  
+  --bg-dark: #030712;
+  --bg-medium: #111827;
+  --bg-light: #1F2937;
+  
+  --success-green: #10B981;
+}
+
+/* Dark Mode Styles */
+.dark-mode {
+  background-color: var(--bg-dark);
+  color: white;
+}
+
+.dark-mode .card {
+  background-color: var(--bg-medium);
+  border-color: var(--bg-light);
+}
+
+/* Brand Button with Glow Effect */
+.btn-brand {
+  background-color: var(--primary-blue);
+  color: white;
+  transition: all 0.3s ease;
+}
+
+.btn-brand:hover {
+  background-color: var(--light-blue);
+  box-shadow: 0 0 15px var(--blue-glow);
+}
+
+/* Logo Animation */
+.logo-animation {
+  transition: transform 0.3s ease;
+}
+
+.logo-animation:hover {
+  transform: scale(1.05);
+}
+
+/* Custom Card with Brand Accent */
+.card-brand {
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+  border-top-color: transparent !important; 
+  border-top-width: 0 !important;
+}
+
+.card-brand:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 10px 25px -5px rgba(59, 130, 246, 0.1), 0 10px 10px -5px rgba(59, 130, 246, 0.04);
+}
+
+/* Branded Gradient Background */
+.brand-gradient {
+  background: linear-gradient(135deg, var(--bg-dark) 0%, var(--bg-medium) 100%);
+}
+
+/* Brand Badge */
+.badge-brand {
+  background-color: rgba(59, 130, 246, 0.1);
+  color: var(--primary-blue);
+  border: 1px solid rgba(59, 130, 246, 0.2);
+}
+
+/* Success States */
+.status-success {
+  color: var(--success-green);
+}
+
+/* Brand-specific focus states */
+.focus-brand:focus {
+  outline: none;
+  box-shadow: 0 0 0 2px var(--blue-glow);
+}
+
+/* Custom Scrollbar */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: #f1f5f9;
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--primary-blue);
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--dark-blue);
+}

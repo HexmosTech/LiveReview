@@ -46,7 +46,14 @@ const Settings = () => (
             
             <div className="md:col-span-2">
                 <Section title="General Settings">
-                    <Card>
+                    <Card className="card-brand">
+                        <div className="flex items-center mb-4">
+                            <img src="/assets/logo.svg" alt="LiveReview Logo" className="h-8 w-auto mr-3" />
+                            <div>
+                                <h3 className="font-medium text-gray-900">LiveReview v1.0.0</h3>
+                                <p className="text-sm text-gray-500">Automated code reviews powered by AI</p>
+                            </div>
+                        </div>
                         <p className="text-gray-600">App settings content will go here.</p>
                     </Card>
                 </Section>
@@ -56,17 +63,13 @@ const Settings = () => (
 );
 
 const Footer = () => (
-    <footer className="bg-white border-t border-gray-200 py-8 mt-auto">
+    <footer className="bg-gray-900 border-t border-gray-700 py-8 mt-auto">
         <div className="container mx-auto px-4 flex flex-col md:flex-row justify-between items-center">
             <div className="flex items-center">
-                <img src="/assets/logo.svg" alt="LiveReview Logo" className="h-8 w-auto mr-3" />
-                <div>
-                    <h3 className="text-lg font-bold text-gray-900">LiveReview</h3>
-                    <p className="text-sm text-gray-500">Automated code reviews made simple</p>
-                </div>
+                <img src="/assets/logo-with-text.svg" alt="LiveReview Logo" className="h-10 w-auto" />
             </div>
             <div className="text-right mt-4 md:mt-0">
-                <p className="text-sm text-gray-500">© {new Date().getFullYear()} LiveReview. All rights reserved.</p>
+                <p className="text-sm text-gray-400">© {new Date().getFullYear()} LiveReview. All rights reserved.</p>
             </div>
         </div>
     </footer>
@@ -91,7 +94,7 @@ const App: React.FC = () => {
     };
 
     return (
-        <div className="min-h-screen bg-gray-50 flex flex-col">
+        <div className="min-h-screen flex flex-col">
             <Navbar
                 title="LiveReview"
                 activePage={page}

@@ -29,7 +29,7 @@ export const Dashboard: React.FC = () => {
     ];
 
     return (
-        <div className="min-h-screen bg-gray-50">
+        <div className="min-h-screen">
             <main className="container mx-auto px-4 py-8">
                 <PageHeader 
                     title="Dashboard" 
@@ -70,12 +70,27 @@ export const Dashboard: React.FC = () => {
                     </div>
                 </Section>
 
+                {/* Brand showcase */}
+                <div className="my-6 bg-gradient-to-r from-blue-900 to-blue-800 rounded-xl p-6 text-white">
+                    <div className="flex flex-col md:flex-row items-center">
+                        <img src="/assets/logo-mono.svg" alt="LiveReview Logo" className="h-16 w-auto mb-4 md:mb-0 md:mr-6 logo-animation" />
+                        <div>
+                            <h2 className="text-xl font-semibold mb-2">Welcome to LiveReview</h2>
+                            <p className="text-blue-100">
+                                Automated code reviews powered by AI. Connect your Git repositories and start receiving 
+                                intelligent feedback to improve code quality and development velocity.
+                            </p>
+                        </div>
+                    </div>
+                </div>
+
                 <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
                     <div className="lg:col-span-2">
                         <Card 
                             title="Recent Activity" 
                             badge={`${recentActivity.length}`}
                             badgeColor="bg-blue-100 text-blue-800"
+                            className="card-brand"
                         >
                             {recentActivity.length > 0 ? (
                                 <ul className="divide-y divide-gray-100">
@@ -138,7 +153,7 @@ export const Dashboard: React.FC = () => {
                         >
                             <div className="flex items-center mb-4">
                                 <div className="flex-shrink-0 mr-3">
-                                    <div className="h-10 w-10 rounded-full bg-indigo-100 flex items-center justify-center">
+                                    <div className="h-10 w-10 rounded-full bg-blue-100 flex items-center justify-center">
                                         <Icons.AI />
                                     </div>
                                 </div>
