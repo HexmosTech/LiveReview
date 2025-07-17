@@ -2,6 +2,15 @@ import React from 'react';
 import { ConnectorForm, ConnectorData } from '../../components/Connector/ConnectorForm';
 import { useAppDispatch, useAppSelector } from '../../store/configureStore';
 import { addConnector } from '../../store/Connector/reducer';
+import { 
+    PageHeader, 
+    Card, 
+    EmptyState, 
+    Button, 
+    Icons, 
+    Badge,
+    Avatar
+} from '../../components/UIPrimitives';
 
 const GitProviders: React.FC = () => {
     const dispatch = useAppDispatch();
@@ -11,73 +20,118 @@ const GitProviders: React.FC = () => {
         dispatch(addConnector(connectorData));
     };
 
+    const getProviderIcon = (type: string) => {
+        switch (type) {
+            case 'gitlab':
+                return <Icons.GitLab />;
+            case 'github':
+                return <Icons.GitHub />;
+            default:
+                return <Icons.Git />;
+        }
+    };
+
     return (
         <div className="container mx-auto px-4 py-8">
-            <h1 className="text-2xl font-bold text-gray-800 mb-6">Git Providers</h1>
+            <PageHeader 
+                title="Git Providers" 
+                description="Connect and manage your Git repositories"
+            />
+            
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
                 <div>
                     <ConnectorForm onSubmit={handleAddConnector} />
                 </div>
+                
                 <div>
-                    <div className="bg-white shadow-xl rounded-xl p-6 border border-gray-100 h-full">
-                        <div className="flex items-center justify-between mb-6">
-                            <h2 className="text-xl font-bold text-indigo-700">
-                                Your Connectors
-                            </h2>
-                            <span className="bg-indigo-100 text-indigo-800 text-xs font-medium px-2.5 py-0.5 rounded-full">
-                                {connectors.length} total
-                            </span>
-                        </div>
+                    <Card 
+                        title="Your Connectors" 
+                        badge={`${connectors.length}`}
+                    >
                         {connectors.length === 0 ? (
-                            <div className="flex flex-col items-center justify-center py-12 text-center">
-                                <svg className="w-16 h-16 text-gray-300 mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
-                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1} d="M17 14v6m-3-3h6M6 10h2a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v2a2 2 0 002 2zm10 0h2a2 2 0 002-2V6a2 2 0 00-2-2h-2a2 2 0 00-2 2v2a2 2 0 002 2zM6 20h2a2 2 0 002-2v-2a2 2 0 00-2-2H6a2 2 0 00-2 2v2a2 2 0 002 2z" />
-                                </svg>
-                                <p className="text-gray-500 mb-2">
-                                    No connectors yet
-                                </p>
-                                <p className="text-gray-400 text-sm">
-                                    Create your first connector to start integrating with your code repositories
-                                </p>
-                            </div>
+                            <EmptyState
+                                icon={<Icons.EmptyState />}
+                                title="No connectors yet"
+                                description="Create your first connector to start integrating with your code repositories"
+                            />
                         ) : (
-                            <ul className="space-y-3">
+                            <ul className="space-y-4">
                                 {connectors.map((connector) => (
                                     <li
                                         key={connector.id}
-                                        className="border border-gray-100 p-4 rounded-lg hover:bg-gray-50 transition duration-150 ease-in-out"
+                                        className="border border-gray-100 rounded-lg hover:bg-gray-50 transition-colors"
                                     >
-                                        <div className="flex justify-between items-center">
-                                            <div>
+                                        <div className="p-4">
+                                            <div className="flex justify-between items-center">
                                                 <div className="flex items-center">
-                                                    {/* ...existing code for connector icons and info... */}
+                                                    <div className="flex-shrink-0 mr-3">
+                                                        <Avatar 
+                                                            size="md"
+                                                            initials={connector.name.charAt(0).toUpperCase()}
+                                                        />
+                                                    </div>
                                                     <div>
-                                                        <h3 className="font-medium text-gray-800">
-                                                            {connector.name}
-                                                        </h3>
+                                                        <div className="flex items-center">
+                                                            <h3 className="font-medium text-gray-900">
+                                                                {connector.name}
+                                                            </h3>
+                                                            <Badge 
+                                                                variant="primary" 
+                                                                size="sm" 
+                                                                className="ml-2"
+                                                            >
+                                                                {connector.type}
+                                                            </Badge>
+                                                        </div>
                                                         <p className="text-sm text-gray-500">
                                                             {connector.url}
                                                         </p>
                                                     </div>
                                                 </div>
-                                            </div>
-                                            <div className="flex items-center space-x-2">
-                                                <span className="text-xs text-gray-500">{new Date(connector.createdAt).toLocaleDateString()}</span>
-                                                <button
-                                                    className="text-xs bg-indigo-50 hover:bg-indigo-100 text-indigo-600 px-3 py-1.5 rounded-lg transition font-medium"
-                                                    onClick={() => {
-                                                        alert(`Testing connection to ${connector.name}`);
-                                                    }}
-                                                >
-                                                    Test Connection
-                                                </button>
+                                                <div className="flex items-center space-x-2">
+                                                    {connector.createdAt && (
+                                                        <span className="text-xs text-gray-500">
+                                                            {new Date(connector.createdAt).toLocaleDateString()}
+                                                        </span>
+                                                    )}
+                                                    <Button
+                                                        variant="secondary"
+                                                        size="sm"
+                                                        onClick={() => {
+                                                            alert(`Testing connection to ${connector.name}`);
+                                                        }}
+                                                    >
+                                                        Test Connection
+                                                    </Button>
+                                                </div>
                                             </div>
                                         </div>
                                     </li>
                                 ))}
                             </ul>
                         )}
-                    </div>
+                    </Card>
+                    
+                    {connectors.length > 0 && (
+                        <Card title="Connection Status" className="mt-6">
+                            <div className="flex items-center justify-between">
+                                <div className="flex items-center">
+                                    <span className="flex h-3 w-3 relative mr-2">
+                                        <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span>
+                                        <span className="relative inline-flex rounded-full h-3 w-3 bg-green-500"></span>
+                                    </span>
+                                    <p className="text-sm text-gray-700">All connectors working properly</p>
+                                </div>
+                                <Button 
+                                    variant="outline" 
+                                    size="sm"
+                                    icon={<Icons.Dashboard />}
+                                >
+                                    View Details
+                                </Button>
+                            </div>
+                        </Card>
+                    )}
                 </div>
             </div>
         </div>

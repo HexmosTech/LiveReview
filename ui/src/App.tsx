@@ -3,12 +3,73 @@ import { Navbar } from './components/Navbar/Navbar';
 import { Dashboard } from './components/Dashboard/Dashboard';
 import GitProviders from './pages/GitProviders/GitProviders';
 import AIProviders from './pages/AIProviders/AIProviders';
+import { PageHeader, Card, Section, Button, Icons } from './components/UIPrimitives';
 
 const Settings = () => (
     <div className="container mx-auto px-4 py-8">
-        <h1 className="text-2xl font-bold text-gray-800 mb-6">Settings</h1>
-        <p className="text-gray-600">App settings will go here.</p>
+        <PageHeader 
+            title="Settings" 
+            description="Configure application preferences and behaviors"
+        />
+        
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+            <div className="md:col-span-1">
+                <Card title="Navigation">
+                    <div className="space-y-2">
+                        <Button 
+                            variant="ghost" 
+                            fullWidth 
+                            className="justify-start"
+                            icon={<Icons.Settings />}
+                        >
+                            General
+                        </Button>
+                        <Button 
+                            variant="ghost" 
+                            fullWidth 
+                            className="justify-start"
+                            icon={<Icons.AI />}
+                        >
+                            AI Configuration
+                        </Button>
+                        <Button 
+                            variant="ghost" 
+                            fullWidth 
+                            className="justify-start"
+                            icon={<Icons.Dashboard />}
+                        >
+                            UI Preferences
+                        </Button>
+                    </div>
+                </Card>
+            </div>
+            
+            <div className="md:col-span-2">
+                <Section title="General Settings">
+                    <Card>
+                        <p className="text-gray-600">App settings content will go here.</p>
+                    </Card>
+                </Section>
+            </div>
+        </div>
     </div>
+);
+
+const Footer = () => (
+    <footer className="bg-white border-t border-gray-200 py-8 mt-auto">
+        <div className="container mx-auto px-4 flex flex-col md:flex-row justify-between items-center">
+            <div className="flex items-center">
+                <img src="/assets/logo.svg" alt="LiveReview Logo" className="h-8 w-auto mr-3" />
+                <div>
+                    <h3 className="text-lg font-bold text-gray-900">LiveReview</h3>
+                    <p className="text-sm text-gray-500">Automated code reviews made simple</p>
+                </div>
+            </div>
+            <div className="text-right mt-4 md:mt-0">
+                <p className="text-sm text-gray-500">© {new Date().getFullYear()} LiveReview. All rights reserved.</p>
+            </div>
+        </div>
+    </footer>
 );
 
 const App: React.FC = () => {
@@ -30,15 +91,16 @@ const App: React.FC = () => {
     };
 
     return (
-        <div className="min-h-screen bg-gray-50">
+        <div className="min-h-screen bg-gray-50 flex flex-col">
             <Navbar
                 title="LiveReview"
                 activePage={page}
                 onNavigate={setPage}
             />
-            <div>
+            <div className="flex-grow">
                 {renderPage()}
             </div>
+            <Footer />
         </div>
     );
 };

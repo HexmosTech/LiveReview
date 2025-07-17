@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { Button, Icons } from '../UIPrimitives';
 
 type NavbarProps = {
     title: string;
@@ -7,10 +8,10 @@ type NavbarProps = {
 };
 
 const navLinks = [
-    { name: 'Dashboard', key: 'dashboard' },
-    { name: 'Git Providers', key: 'git' },
-    { name: 'AI Providers', key: 'ai' },
-    { name: 'Settings', key: 'settings' },
+    { name: 'Dashboard', key: 'dashboard', icon: <Icons.Dashboard /> },
+    { name: 'Git Providers', key: 'git', icon: <Icons.Git /> },
+    { name: 'AI Providers', key: 'ai', icon: <Icons.AI /> },
+    { name: 'Settings', key: 'settings', icon: <Icons.Settings /> },
 ];
 
 export const Navbar: React.FC<NavbarProps> = ({ title, activePage = 'dashboard', onNavigate }) => {
@@ -18,53 +19,65 @@ export const Navbar: React.FC<NavbarProps> = ({ title, activePage = 'dashboard',
 
     const handleNavClick = (key: string) => {
         if (onNavigate) onNavigate(key);
+        setIsOpen(false);
     };
 
     return (
-        <nav className="bg-livereview text-cardText shadow-xl border-b border-cardPurple">
-            <div className="container mx-auto px-4 py-4 flex justify-between items-center">
+        <nav className="bg-white shadow-sm border-b border-gray-200 sticky top-0 z-10">
+            <div className="container mx-auto px-4 py-3 flex justify-between items-center">
                 <div className="flex items-center">
-                    <h1 className="text-2xl font-extrabold tracking-tight text-accent">{title}</h1>
+                    <img src="/assets/logo.svg" alt="LiveReview Logo" className="h-8 w-auto mr-3" />
+                    <h1 className="text-xl font-bold text-gray-900">{title}</h1>
                 </div>
+                
                 {/* Mobile menu button */}
                 <div className="md:hidden">
-                    <button 
+                    <Button
+                        variant="ghost"
                         onClick={() => setIsOpen(!isOpen)}
-                        className="focus:outline-none"
-                    >
-                        <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
-                            {isOpen ? (
+                        aria-label="Toggle menu"
+                        icon={isOpen ? (
+                            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
                                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                            ) : (
+                            </svg>
+                        ) : (
+                            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
                                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
-                            )}
-                        </svg>
-                    </button>
+                            </svg>
+                        )}
+                    />
                 </div>
+                
                 {/* Desktop menu */}
-                <div className="hidden md:flex items-center space-x-4">
+                <div className="hidden md:flex items-center space-x-1">
                     {navLinks.map(link => (
-                        <button
+                        <Button
                             key={link.key}
+                            variant={activePage === link.key ? 'primary' : 'ghost'}
                             onClick={() => handleNavClick(link.key)}
-                            className={`px-4 py-2 rounded-md font-bold transition focus:outline-none ${activePage === link.key ? 'bg-cardPurple text-cardText shadow' : 'hover:bg-cardPurple hover:text-cardText text-accent'}`}
+                            icon={link.icon}
+                            className={activePage === link.key ? '' : 'text-gray-600'}
                         >
                             {link.name}
-                        </button>
+                        </Button>
                     ))}
                 </div>
             </div>
-            {/* Mobile menu */}
+            
+            {/* Mobile menu dropdown */}
             {isOpen && (
-                <div className="md:hidden px-4 py-3 space-y-2 bg-livereview border-t border-cardPurple shadow-inner">
+                <div className="md:hidden px-4 py-3 space-y-2 bg-white border-t border-gray-200 shadow-inner">
                     {navLinks.map(link => (
-                        <button
+                        <Button
                             key={link.key}
+                            variant={activePage === link.key ? 'primary' : 'ghost'}
                             onClick={() => handleNavClick(link.key)}
-                            className={`block px-3 py-2 rounded-md transition focus:outline-none ${activePage === link.key ? 'bg-cardPurple text-cardText shadow' : 'hover:bg-cardPurple hover:text-cardText text-accent'}`}
+                            icon={link.icon}
+                            className="w-full justify-start"
+                            iconPosition="left"
                         >
                             {link.name}
-                        </button>
+                        </Button>
                     ))}
                 </div>
             )}
