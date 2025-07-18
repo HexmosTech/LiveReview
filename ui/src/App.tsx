@@ -88,17 +88,15 @@ const Settings = () => {
                                         connections with services like GitLab and GitHub.
                                     </p>
                                     
-                                    <div className="flex flex-col sm:flex-row gap-3">
-                                        <div className="flex-grow">
-                                            <Input
-                                                label="Domain"
-                                                placeholder="livereview.your-company.com"
-                                                value={localDomain}
-                                                onChange={(e) => setLocalDomain(e.target.value)}
-                                                helperText="Enter the domain where your LiveReview instance is hosted"
-                                            />
-                                        </div>
-                                        <div className="flex items-end">
+                                    <div className="space-y-4">
+                                        <Input
+                                            label="Domain"
+                                            placeholder="livereview.your-company.com"
+                                            value={localDomain}
+                                            onChange={(e) => setLocalDomain(e.target.value)}
+                                            helperText="Enter the domain where your LiveReview instance is hosted"
+                                        />
+                                        <div className="flex justify-end">
                                             <Button 
                                                 onClick={handleSaveDomain}
                                                 variant="primary"
