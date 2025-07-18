@@ -1,7 +1,7 @@
 import React from 'react';
 import { ConnectorForm, ConnectorData } from '../../components/Connector/ConnectorForm';
 import { useAppDispatch, useAppSelector } from '../../store/configureStore';
-import { addConnector } from '../../store/Connector/reducer';
+import { addConnector, ConnectorType } from '../../store/Connector/reducer';
 import { 
     PageHeader, 
     Card, 
@@ -12,6 +12,36 @@ import {
     Avatar
 } from '../../components/UIPrimitives';
 
+// Spec for GitProviderKit
+// This system will manage Git providers, allowing users to add, edit, and remove Git provider configurations.
+// It will include components for:
+// - Listing all configured Git providers.
+// - Adding a new Git provider.
+// - Editing an existing Git provider.
+// - Removing a Git provider.
+// - Validating Git provider credentials.
+//
+// The system will also include a context provider for managing state and a set of utility functions for interacting with APIs.
+//
+// Components:
+// - GitProviderList: Displays a list of all configured Git providers.
+// - GitProviderForm: A form for adding or editing a Git provider.
+// - GitProviderItem: Represents a single Git provider in the list.
+//
+// Context:
+// - GitProviderContext: Provides state and actions for managing Git providers.
+//
+// Utilities:
+// - validateGitProvider: Validates the credentials of a Git provider.
+// - apiClient: A utility for making API requests related to Git providers.
+//
+// Update to GitProviderForm component spec:
+// - Add a "Connector Type" dropdown with two options: "Gitlab.com" and "Self-Hosted Gitlab".
+// - For "Gitlab.com":
+//   - The URL field is pre-filled with "https://gitlab.com" and is not editable.
+// - For "Self-Hosted Gitlab":
+//   - The URL field has a placeholder text like "https://gitlab.mycompany.com" and is editable.
+
 const GitProviders: React.FC = () => {
     const dispatch = useAppDispatch();
     const connectors = useAppSelector((state) => state.Connector.connectors);
@@ -20,9 +50,21 @@ const GitProviders: React.FC = () => {
         dispatch(addConnector(connectorData));
     };
 
-    const getProviderIcon = (type: string) => {
+    const formatConnectorType = (type: ConnectorType) => {
         switch (type) {
-            case 'gitlab':
+            case 'gitlab-com':
+                return 'GitLab.com';
+            case 'gitlab-self-hosted':
+                return 'Self-Hosted GitLab';
+            default:
+                return type;
+        }
+    };
+
+    const getProviderIcon = (type: ConnectorType) => {
+        switch (type) {
+            case 'gitlab-com':
+            case 'gitlab-self-hosted':
                 return <Icons.GitLab />;
             case 'github':
                 return <Icons.GitHub />;
@@ -92,7 +134,7 @@ const GitProviders: React.FC = () => {
                                                                 size="sm" 
                                                                 className="ml-2"
                                                             >
-                                                                {connector.type}
+                                                                {formatConnectorType(connector.type)}
                                                             </Badge>
                                                         </div>
                                                         <p className="text-sm text-gray-500">

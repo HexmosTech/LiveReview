@@ -1,7 +1,6 @@
 import React, { useState } from 'react';
 import { Card, Input, Select, Button, Icons } from '../UIPrimitives';
-
-type ConnectorType = 'gitlab' | 'github' | 'custom';
+import { ConnectorType } from '../../store/Connector/reducer';
 
 type ConnectorFormProps = {
     onSubmit: (connector: ConnectorData) => void;
@@ -19,8 +18,8 @@ export type ConnectorData = {
 export const ConnectorForm: React.FC<ConnectorFormProps> = ({ onSubmit }) => {
     const [formData, setFormData] = useState<ConnectorData>({
         name: '',
-        type: 'gitlab',
-        url: '',
+        type: 'gitlab-com',
+        url: 'https://gitlab.com',
         apiKey: '',
     });
 
@@ -49,15 +48,16 @@ export const ConnectorForm: React.FC<ConnectorFormProps> = ({ onSubmit }) => {
         // Reset form after submission
         setFormData({
             name: '',
-            type: 'gitlab',
-            url: '',
+            type: 'gitlab-com',
+            url: 'https://gitlab.com',
             apiKey: '',
         });
     };
 
     const getConnectorIcon = () => {
         switch (formData.type) {
-            case 'gitlab':
+            case 'gitlab-com':
+            case 'gitlab-self-hosted':
                 return <Icons.GitLab />;
             case 'github':
                 return <Icons.GitHub />;
@@ -86,9 +86,18 @@ export const ConnectorForm: React.FC<ConnectorFormProps> = ({ onSubmit }) => {
                     name="type"
                     label="Connector Type"
                     value={formData.type}
-                    onChange={handleChange}
+                    onChange={(e) => {
+                        const newType = e.target.value as ConnectorType;
+                        setFormData((prev) => ({
+                            ...prev,
+                            type: newType,
+                            // Set URL field for GitLab.com, clear for other types
+                            url: newType === 'gitlab-com' ? 'https://gitlab.com' : '',
+                        }));
+                    }}
                     options={[
-                        { value: 'gitlab', label: 'GitLab' },
+                        { value: 'gitlab-com', label: 'GitLab.com' },
+                        { value: 'gitlab-self-hosted', label: 'Self-Hosted GitLab' },
                         { value: 'github', label: 'GitHub' },
                         { value: 'custom', label: 'Custom' },
                     ]}
@@ -102,8 +111,9 @@ export const ConnectorForm: React.FC<ConnectorFormProps> = ({ onSubmit }) => {
                     type="url"
                     value={formData.url}
                     onChange={handleChange}
-                    placeholder="https://gitlab.com"
+                    placeholder={formData.type === 'gitlab-self-hosted' ? "https://gitlab.mycompany.com" : "https://gitlab.com"}
                     required
+                    disabled={formData.type === 'gitlab-com'}
                 />
 
                 <Input
