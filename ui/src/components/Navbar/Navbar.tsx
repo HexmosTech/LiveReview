@@ -26,14 +26,18 @@ export const Navbar: React.FC<NavbarProps> = ({ title, activePage = 'dashboard',
         <nav className="bg-slate-900 shadow-md border-b border-slate-700 sticky top-0 z-10 navbar-dark">
             <div className="container mx-auto px-4 py-4 flex justify-between items-center">
                 <div className="flex items-center">
-                    <div 
-                        onClick={() => handleNavClick('dashboard')} 
+                    <a 
+                        href="#dashboard" 
+                        onClick={(e) => {
+                            e.preventDefault();
+                            handleNavClick('dashboard');
+                        }} 
                         className="cursor-pointer"
                         role="button"
                         aria-label="Go to home"
                     >
                         <img src="/assets/logo-horizontal.svg" alt="LiveReview Logo" className="h-12 w-auto mr-3" />
-                    </div>
+                    </a>
                 </div>
                 
                 {/* Mobile menu button */}
@@ -60,9 +64,13 @@ export const Navbar: React.FC<NavbarProps> = ({ title, activePage = 'dashboard',
                         <Button
                             key={link.key}
                             variant={activePage === link.key ? 'primary' : 'ghost'}
-                            onClick={() => handleNavClick(link.key)}
+                            onClick={(e) => {
+                                e.preventDefault();
+                                handleNavClick(link.key);
+                            }}
                             icon={link.icon}
                             className={activePage === link.key ? '' : 'text-slate-300'}
+                            href={`#${link.key}`}
                         >
                             {link.name}
                         </Button>
@@ -77,10 +85,14 @@ export const Navbar: React.FC<NavbarProps> = ({ title, activePage = 'dashboard',
                         <Button
                             key={link.key}
                             variant={activePage === link.key ? 'primary' : 'ghost'}
-                            onClick={() => handleNavClick(link.key)}
+                            onClick={(e) => {
+                                e.preventDefault();
+                                handleNavClick(link.key);
+                            }}
                             icon={link.icon}
                             className="w-full justify-start text-slate-100"
                             iconPosition="left"
+                            href={`#${link.key}`}
                         >
                             {link.name}
                         </Button>

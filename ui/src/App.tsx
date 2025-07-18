@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Navbar } from './components/Navbar/Navbar';
 import { Dashboard } from './components/Dashboard/Dashboard';
 import GitProviders from './pages/GitProviders/GitProviders';
@@ -66,14 +66,18 @@ const Footer = ({ onNavigateToHome }: { onNavigateToHome: () => void }) => (
     <footer className="bg-slate-900 border-t border-slate-700 py-8 mt-auto">
         <div className="container mx-auto px-4 flex flex-col md:flex-row justify-between items-center">
             <div className="flex items-center py-2">
-                <div 
-                    onClick={onNavigateToHome} 
+                <a 
+                    href="#dashboard"
+                    onClick={(e) => {
+                        e.preventDefault();
+                        onNavigateToHome();
+                    }} 
                     className="cursor-pointer"
                     role="button"
                     aria-label="Go to home"
                 >
                     <img src="/assets/logo-horizontal.svg" alt="LiveReview Logo" className="h-10 w-auto" />
-                </div>
+                </a>
             </div>
             <div className="text-right mt-4 md:mt-0">
                 <p className="text-sm text-slate-200">© {new Date().getFullYear()} LiveReview. All rights reserved.</p>
@@ -83,7 +87,31 @@ const Footer = ({ onNavigateToHome }: { onNavigateToHome: () => void }) => (
 );
 
 const App: React.FC = () => {
-    const [page, setPage] = useState('dashboard');
+    // Function to get the initial page from URL hash
+    const getInitialPage = (): string => {
+        const hash = window.location.hash.replace('#', '');
+        return ['dashboard', 'git', 'ai', 'settings'].includes(hash) ? hash : 'dashboard';
+    };
+
+    const [page, setPage] = useState(getInitialPage());
+
+    // Update URL hash when page changes
+    useEffect(() => {
+        window.location.hash = page;
+    }, [page]);
+
+    // Listen for hash changes (e.g. when user uses browser navigation)
+    useEffect(() => {
+        const handleHashChange = () => {
+            const newPage = getInitialPage();
+            if (newPage !== page) {
+                setPage(newPage);
+            }
+        };
+
+        window.addEventListener('hashchange', handleHashChange);
+        return () => window.removeEventListener('hashchange', handleHashChange);
+    }, [page]);
 
     const renderPage = () => {
         switch (page) {
