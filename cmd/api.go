@@ -20,17 +20,92 @@ func APICommand() *cli.Command {
 				Usage:   "Port for the API server",
 				Value:   8888,
 			},
+			&cli.StringFlag{
+				Name:    "set-admin-password",
+				Aliases: []string{"set-password"},
+				Usage:   "Set the admin password for the instance",
+			},
+			&cli.StringFlag{
+				Name:    "reset-admin-password-old",
+				Aliases: []string{"old-password"},
+				Usage:   "The current admin password (used with --reset-admin-password-new)",
+			},
+			&cli.StringFlag{
+				Name:    "reset-admin-password-new",
+				Aliases: []string{"new-password"},
+				Usage:   "The new admin password (used with --reset-admin-password-old)",
+			},
+			&cli.StringFlag{
+				Name:    "verify-admin-password",
+				Aliases: []string{"verify-password"},
+				Usage:   "Verify if the provided admin password is correct",
+			},
 		},
 		Action: func(c *cli.Context) error {
 			port := c.Int("port")
-			fmt.Printf("Starting LiveReview API server on port %d...\n", port)
 
+			// Create server instance
 			server, err := api.NewServer(port)
 			if err != nil {
 				fmt.Fprintf(os.Stderr, "Error initializing server: %v\n", err)
 				return err
 			}
 
+			// Handle set admin password
+			if password := c.String("set-admin-password"); password != "" {
+				fmt.Println("Setting admin password...")
+				if err := server.SetAdminPasswordDirectly(password); err != nil {
+					fmt.Fprintf(os.Stderr, "Error setting admin password: %v\n", err)
+					return err
+				}
+				fmt.Println("Admin password set successfully.")
+				return nil
+			}
+
+			// Handle reset admin password
+			oldPassword := c.String("reset-admin-password-old")
+			newPassword := c.String("reset-admin-password-new")
+
+			if oldPassword != "" || newPassword != "" {
+				// Validate both old and new passwords are provided
+				if oldPassword == "" {
+					fmt.Fprintf(os.Stderr, "Error: --reset-admin-password-old is required when resetting password\n")
+					return fmt.Errorf("missing old password")
+				}
+				if newPassword == "" {
+					fmt.Fprintf(os.Stderr, "Error: --reset-admin-password-new is required when resetting password\n")
+					return fmt.Errorf("missing new password")
+				}
+
+				fmt.Println("Resetting admin password...")
+				if err := server.ResetAdminPasswordDirectly(oldPassword, newPassword); err != nil {
+					fmt.Fprintf(os.Stderr, "Error resetting admin password: %v\n", err)
+					return err
+				}
+				fmt.Println("Admin password reset successfully.")
+				return nil
+			}
+
+			// Handle verify admin password
+			if password := c.String("verify-admin-password"); password != "" {
+				fmt.Println("Verifying admin password...")
+				valid, err := server.VerifyAdminPasswordDirectly(password)
+				if err != nil {
+					// Just return the error, don't print it
+					return err
+				}
+
+				if valid {
+					fmt.Println("Password is valid.")
+				} else {
+					// Just return the error, don't print it
+					return fmt.Errorf("invalid password")
+				}
+				return nil
+			}
+
+			// Start the API server if no password management flags were used
+			fmt.Printf("Starting LiveReview API server on port %d...\n", port)
 			return server.Start()
 		},
 	}

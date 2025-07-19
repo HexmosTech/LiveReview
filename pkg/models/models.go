@@ -1,5 +1,14 @@
 package models
 
+// InstanceDetails represents system-wide instance configuration
+type InstanceDetails struct {
+	ID            int
+	DomainName    string
+	AdminPassword string
+	CreatedAt     string
+	UpdatedAt     string
+}
+
 // CodeDiff represents a code diff from a merge/pull request
 type CodeDiff struct {
 	FilePath    string

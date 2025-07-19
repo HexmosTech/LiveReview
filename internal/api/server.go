@@ -81,6 +81,11 @@ func (s *Server) setupRoutes() {
 	v1.GET("/reviews", s.getReviews)
 	v1.POST("/reviews", s.createReview)
 	v1.GET("/reviews/:id", s.getReviewByID)
+
+	// Password management endpoints
+	v1.POST("/password", s.SetAdminPassword)
+	v1.PUT("/password", s.ResetAdminPassword)
+	v1.POST("/password/verify", s.VerifyAdminPassword)
 }
 
 // Start begins the API server
