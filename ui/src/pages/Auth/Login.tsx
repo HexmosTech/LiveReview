@@ -1,55 +1,47 @@
-import React, { useState, useEffect } from 'react';
-import { Card, Input, Button, Alert, Icons, PageHeader } from '../../components/UIPrimitives';
-import { useAppDispatch, useAppSelector } from '../../store/configureStore';
-import { loginAdmin, clearError } from '../../store/Auth/reducer';
+import React, { useState } from 'react';
+import { Card, Input, Button, Alert, Icons } from '../../components/UIPrimitives';
+import { verifyAdminPassword } from '../../api/auth';
 
 const Login: React.FC = () => {
   const [username, setUsername] = useState('admin');
   const [password, setPassword] = useState('');
-  const [validationError, setValidationError] = useState<string | null>(null);
-  
-  const dispatch = useAppDispatch();
-  const { isLoading, error } = useAppSelector((state) => state.Auth);
-  
-  // Clear validation error when user starts typing
-  useEffect(() => {
-    if (validationError) {
-      setValidationError(null);
-    }
-  }, [username, password]);
-  
-  // Clear API error when user starts typing
-  useEffect(() => {
-    if (error) {
-      dispatch(clearError());
-    }
-  }, [username, password, dispatch, error]);
+  const [error, setError] = useState<string | null>(null);
+  const [isLoading, setIsLoading] = useState(false);
   
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    setError(null);
     
-    // Validate
-    if (username !== 'admin') {
-      setValidationError('Username must be "admin"');
-      return;
-    }
-    
+    // Validate input
     if (!password) {
-      setValidationError('Password is required');
+      setError('Password is required');
       return;
     }
     
-    console.log('Login form submitted with password:', password);
+    // Show loading state
+    setIsLoading(true);
     
-    // Submit
-    const result = dispatch(loginAdmin(password));
-    console.log('Dispatched loginAdmin action, result:', result);
-    
-    // We can log when the promise resolves to see if it succeeds
-    result.then(
-      (action) => console.log('Login action fulfilled:', action),
-      (error) => console.error('Login action rejected:', error)
-    );
+    try {
+      // Call API directly
+      const response = await verifyAdminPassword(password);
+      
+      // Handle response
+      if (response.success) {
+        // Store authentication in localStorage
+        localStorage.setItem('authPassword', password);
+        // Redirect or update app state
+        window.location.href = '/'; // or use react-router navigation
+        console.log('Login successful');
+      } else {
+        setError('Invalid password');
+      }
+    } catch (err) {
+      // Handle error
+      setError('Login failed. Please try again.');
+      console.error('Login error:', err);
+    } finally {
+      setIsLoading(false);
+    }
   };
   
   return (
@@ -63,13 +55,13 @@ const Login: React.FC = () => {
         
         <Card className="shadow-xl border border-slate-700 rounded-xl overflow-hidden">
           <form onSubmit={handleSubmit} className="space-y-6">
-            {(validationError || error) && (
+            {error && (
               <Alert 
                 variant="error" 
                 icon={<Icons.Error />}
                 className="mb-4"
               >
-                {validationError || error}
+                {error}
               </Alert>
             )}
             
@@ -86,7 +78,10 @@ const Login: React.FC = () => {
                 label="Password"
                 type="password"
                 value={password}
-                onChange={(e) => setPassword(e.target.value)}
+                onChange={(e) => {
+                  setPassword(e.target.value);
+                  if (error) setError(null);
+                }}
                 placeholder="Enter your password"
                 className="bg-slate-700 border-slate-600 text-white"
               />
