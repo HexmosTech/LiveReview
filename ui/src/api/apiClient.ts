@@ -59,10 +59,24 @@ async function apiRequest<T>(
       // Try to get error details from the response
       try {
         const errorData = await response.json();
-        throw new Error(errorData.error || `API error: ${response.status}`);
+        // The server returns errors in an "error" field (from ErrorResponse struct)
+        const errorMessage = errorData.error || `API error: ${response.status}`;
+        console.log('API error response:', errorData, response.status); // Debug log
+        
+        const error = new Error(errorMessage);
+        // Add status code to the error object for better error handling
+        (error as any).status = response.status;
+        (error as any).statusText = response.statusText;
+        (error as any).url = url;
+        (error as any).data = errorData;
+        throw error;
       } catch (jsonError) {
-        // If we can't parse the JSON, just throw a generic error
-        throw new Error(`API error: ${response.status}`);
+        // If we can't parse the JSON, throw an error with status information
+        const error = new Error(`API error: ${response.status}`);
+        (error as any).status = response.status;
+        (error as any).statusText = response.statusText;
+        (error as any).url = url;
+        throw error;
       }
     }
     
