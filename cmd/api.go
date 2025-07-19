@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"fmt"
+	"os"
 
 	"github.com/livereview/internal/api"
 	"github.com/urfave/cli/v2"
@@ -24,7 +25,12 @@ func APICommand() *cli.Command {
 			port := c.Int("port")
 			fmt.Printf("Starting LiveReview API server on port %d...\n", port)
 
-			server := api.NewServer(port)
+			server, err := api.NewServer(port)
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "Error initializing server: %v\n", err)
+				return err
+			}
+
 			return server.Start()
 		},
 	}
