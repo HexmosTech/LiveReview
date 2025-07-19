@@ -15,7 +15,7 @@ PG_DATA_DIR="./livereview_pgdata"
 mkdir -p "$PG_DATA_DIR"
 
 usage() {
-  echo "Usage: $0 {start|stop|status|logs|info|rm|migrations}"
+  echo "Usage: $0 {start|stop|status|logs|info|rm|migrations|conn}"
   exit 1
 }
 
@@ -76,6 +76,11 @@ setup_migrations() {
   /usr/local/bin/dbmate --help
 }
 
+print_conn_string() {
+  local conn_string="postgres://${PG_USER}:${PG_PASSWORD}@127.0.0.1:${PG_PORT}/${PG_DB}?sslmode=disable"
+  echo "DATABASE_URL=\"$conn_string\""
+}
+
 # Main
 cmd="${1:-}"
 case "$cmd" in
@@ -86,5 +91,6 @@ case "$cmd" in
   info) info_pg ;;
   rm) rm_pg ;;
   migrations) setup_migrations ;;
+  conn) print_conn_string ;;
   *) usage ;;
 esac
