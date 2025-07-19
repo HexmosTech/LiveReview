@@ -77,7 +77,27 @@ setup_migrations() {
 }
 
 print_conn_string() {
-  local conn_string="postgres://${PG_USER}:${PG_PASSWORD}@127.0.0.1:${PG_PORT}/${PG_DB}?sslmode=disable"
+  # URL encode special characters in password
+  local encoded_password="${PG_PASSWORD//!/%21}"
+  encoded_password="${encoded_password//#/%23}"
+  encoded_password="${encoded_password//\$/%24}"
+  encoded_password="${encoded_password//&/%26}"
+  encoded_password="${encoded_password//\'/%27}"
+  encoded_password="${encoded_password//\(/%28}"
+  encoded_password="${encoded_password//\)/%29}"
+  encoded_password="${encoded_password//\*/%2A}"
+  encoded_password="${encoded_password//+/%2B}"
+  encoded_password="${encoded_password//,/%2C}"
+  encoded_password="${encoded_password//\//%2F}"
+  encoded_password="${encoded_password//\:/%3A}"
+  encoded_password="${encoded_password//\;/%3B}"
+  encoded_password="${encoded_password//\=/%3D}"
+  encoded_password="${encoded_password//\?/%3F}"
+  encoded_password="${encoded_password//\@/%40}"
+  encoded_password="${encoded_password//\[/%5B}"
+  encoded_password="${encoded_password//\]/%5D}"
+  
+  local conn_string="postgres://${PG_USER}:${encoded_password}@127.0.0.1:${PG_PORT}/${PG_DB}?sslmode=disable"
   echo "DATABASE_URL=\"$conn_string\""
 }
 
