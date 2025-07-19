@@ -15,7 +15,7 @@ PG_DATA_DIR="./livereview_pgdata"
 mkdir -p "$PG_DATA_DIR"
 
 usage() {
-  echo "Usage: $0 {start|stop|status|logs|info|rm}"
+  echo "Usage: $0 {start|stop|status|logs|info|rm|migrations}"
   exit 1
 }
 
@@ -69,6 +69,13 @@ rm_pg() {
   docker rm -f "$PG_CONTAINER_NAME" || true
 }
 
+setup_migrations() {
+  echo "Setting up dbmate migrations tool..."
+  sudo curl -fsSL -o /usr/local/bin/dbmate https://github.com/amacneil/dbmate/releases/latest/download/dbmate-linux-amd64
+  sudo chmod +x /usr/local/bin/dbmate
+  /usr/local/bin/dbmate --help
+}
+
 # Main
 cmd="${1:-}"
 case "$cmd" in
@@ -78,5 +85,6 @@ case "$cmd" in
   logs) logs_pg ;;
   info) info_pg ;;
   rm) rm_pg ;;
+  migrations) setup_migrations ;;
   *) usage ;;
 esac
