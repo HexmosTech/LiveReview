@@ -86,6 +86,7 @@ func (s *Server) setupRoutes() {
 	v1.POST("/password", s.SetAdminPassword)
 	v1.PUT("/password", s.ResetAdminPassword)
 	v1.POST("/password/verify", s.VerifyAdminPassword)
+	v1.GET("/password/status", s.CheckAdminPasswordStatus)
 }
 
 // Start begins the API server

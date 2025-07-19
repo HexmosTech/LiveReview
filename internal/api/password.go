@@ -32,6 +32,12 @@ type PasswordVerifyResponse struct {
 	Message string `json:"message"`
 }
 
+// PasswordStatusResponse is the response for checking if a password is set
+type PasswordStatusResponse struct {
+	IsSet   bool   `json:"is_set"`
+	Message string `json:"message"`
+}
+
 // ErrorResponse is a standard error response
 type ErrorResponse struct {
 	Error string `json:"error"`
@@ -347,4 +353,59 @@ func (s *Server) VerifyAdminPasswordDirectly(password string) (bool, error) {
 	}
 
 	return true, nil
+}
+
+// CheckAdminPasswordStatus checks if an admin password has been set
+func (s *Server) CheckAdminPasswordStatus(c echo.Context) error {
+	// Check if admin password is set in the database
+	var adminPassword string
+	err := s.db.QueryRow("SELECT admin_password FROM instance_details LIMIT 1").Scan(&adminPassword)
+
+	if err != nil {
+		if err == sql.ErrNoRows {
+			// No instance details record exists
+			return c.JSON(http.StatusOK, PasswordStatusResponse{
+				IsSet:   false,
+				Message: "No admin password has been set yet",
+			})
+		}
+		// Other database error
+		return c.JSON(http.StatusInternalServerError, ErrorResponse{
+			Error: "Failed to check password status: " + err.Error(),
+		})
+	}
+
+	// Check if the password field is empty
+	isSet := adminPassword != ""
+
+	if isSet {
+		return c.JSON(http.StatusOK, PasswordStatusResponse{
+			IsSet:   true,
+			Message: "Admin password is set",
+		})
+	} else {
+		return c.JSON(http.StatusOK, PasswordStatusResponse{
+			IsSet:   false,
+			Message: "No admin password has been set yet",
+		})
+	}
+}
+
+// CheckAdminPasswordStatusDirectly checks if admin password is set (for CLI use)
+func (s *Server) CheckAdminPasswordStatusDirectly() (bool, error) {
+	// Check if admin password is set
+	var adminPassword string
+	err := s.db.QueryRow("SELECT admin_password FROM instance_details LIMIT 1").Scan(&adminPassword)
+
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return false, nil // No error, just not set
+		}
+		return false, fmt.Errorf("failed to check password status: %v", err)
+	}
+
+	// Check if the password field is empty
+	isSet := adminPassword != ""
+
+	return isSet, nil
 }

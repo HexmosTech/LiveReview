@@ -40,6 +40,11 @@ func APICommand() *cli.Command {
 				Aliases: []string{"verify-password"},
 				Usage:   "Verify if the provided admin password is correct",
 			},
+			&cli.BoolFlag{
+				Name:    "check-admin-password-status",
+				Aliases: []string{"check-password"},
+				Usage:   "Check if an admin password has been set",
+			},
 		},
 		Action: func(c *cli.Context) error {
 			port := c.Int("port")
@@ -100,6 +105,23 @@ func APICommand() *cli.Command {
 				} else {
 					// Just return the error, don't print it
 					return fmt.Errorf("invalid password")
+				}
+				return nil
+			}
+
+			// Handle check admin password status
+			if c.Bool("check-admin-password-status") {
+				fmt.Println("Checking if admin password is set...")
+				isSet, err := server.CheckAdminPasswordStatusDirectly()
+				if err != nil {
+					fmt.Fprintf(os.Stderr, "Error checking password status: %v\n", err)
+					return err
+				}
+
+				if isSet {
+					fmt.Println("Admin password is set.")
+				} else {
+					fmt.Println("No admin password has been set yet.")
 				}
 				return nil
 			}
