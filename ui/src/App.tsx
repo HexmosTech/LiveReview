@@ -156,11 +156,18 @@ const App: React.FC = () => {
 
     // Check password status on app load
     useEffect(() => {
+        console.log('App.tsx - Checking password status on load');
         dispatch(checkPasswordStatus());
     }, [dispatch]);
+    
+    // Debug listener for Auth state changes
+    useEffect(() => {
+        console.log('Auth state changed - isAuthenticated:', isAuthenticated, 'isPasswordSet:', isPasswordSet);
+    }, [isAuthenticated, isPasswordSet]);
 
     // Update URL hash when page changes
     useEffect(() => {
+        console.log('App.tsx - Page changed to:', page);
         window.location.hash = page;
     }, [page]);
 
@@ -169,6 +176,7 @@ const App: React.FC = () => {
         const handleHashChange = () => {
             const newPage = getInitialPage();
             if (newPage !== page) {
+                console.log('App.tsx - Hash changed to:', newPage);
                 setPage(newPage);
             }
         };
@@ -186,6 +194,7 @@ const App: React.FC = () => {
 
     // Show loading state while checking password status
     if (isLoading) {
+        console.log('App.tsx - Rendering loading state');
         return (
             <div className="min-h-screen flex items-center justify-center">
                 <div className="text-center">
@@ -201,15 +210,17 @@ const App: React.FC = () => {
 
     // If not authenticated and password is not set, show set password page
     if (!isAuthenticated && !isPasswordSet) {
-        console.log('Showing SetPassword page - isAuthenticated:', isAuthenticated, 'isPasswordSet:', isPasswordSet);
+        console.log('App.tsx - Showing SetPassword page - isAuthenticated:', isAuthenticated, 'isPasswordSet:', isPasswordSet);
         return <SetPassword />;
     }
 
     // If not authenticated but password is set, show login page
     if (!isAuthenticated && isPasswordSet) {
-        console.log('Showing Login page - isAuthenticated:', isAuthenticated, 'isPasswordSet:', isPasswordSet);
+        console.log('App.tsx - Showing Login page - isAuthenticated:', isAuthenticated, 'isPasswordSet:', isPasswordSet);
         return <Login />;
     }
+    
+    console.log('App.tsx - Showing main application - isAuthenticated:', isAuthenticated, 'isPasswordSet:', isPasswordSet);
 
     const renderPage = () => {
         switch (page) {

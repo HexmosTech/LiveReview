@@ -40,13 +40,21 @@ export const loginAdmin = createAsyncThunk(
   'auth/loginAdmin',
   async (password: string, { rejectWithValue }) => {
     try {
+      console.log('loginAdmin thunk started with password:', password);
       const result = await verifyAdminPassword(password);
-      if (!result.valid) {
+      console.log('verifyAdminPassword result:', result);
+      
+      // Check the success property (which is mapped from valid)
+      if (!result.success) {
+        console.error('Password verification failed');
         throw new Error('Invalid password');
       }
+      
+      console.log('Password verified successfully, returning password');
       // Just return the password
       return password;
     } catch (error) {
+      console.error('Error in loginAdmin thunk:', error);
       return rejectWithValue((error as Error).message);
     }
   }
@@ -109,6 +117,7 @@ const authSlice = createSlice({
         state.error = null;
       })
       .addCase(loginAdmin.fulfilled, (state, action: PayloadAction<string>) => {
+        console.log('loginAdmin.fulfilled with payload:', action.payload);
         state.isLoading = false;
         state.isAuthenticated = true;
         state.password = action.payload;
@@ -117,6 +126,11 @@ const authSlice = createSlice({
         localStorage.setItem('authPassword', action.payload);
         
         console.log('Login successful - stored password in Redux state');
+        console.log('New auth state:', { 
+          isAuthenticated: state.isAuthenticated, 
+          isPasswordSet: state.isPasswordSet,
+          hasPassword: !!state.password
+        });
       })
       .addCase(loginAdmin.rejected, (state, action) => {
         state.isLoading = false;

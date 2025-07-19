@@ -39,8 +39,17 @@ const Login: React.FC = () => {
       return;
     }
     
+    console.log('Login form submitted with password:', password);
+    
     // Submit
-    dispatch(loginAdmin(password));
+    const result = dispatch(loginAdmin(password));
+    console.log('Dispatched loginAdmin action, result:', result);
+    
+    // We can log when the promise resolves to see if it succeeds
+    result.then(
+      (action) => console.log('Login action fulfilled:', action),
+      (error) => console.error('Login action rejected:', error)
+    );
   };
   
   return (

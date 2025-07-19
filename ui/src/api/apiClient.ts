@@ -28,18 +28,8 @@ async function apiRequest<T>(
     ...options,
   };
   
-  // Add the authorization header if a token exists
-  const token = localStorage.getItem('authToken');
+  // If we have a password, add it to request headers for authentication
   const password = localStorage.getItem('authPassword');
-  
-  if (token) {
-    requestOptions.headers = {
-      ...requestOptions.headers,
-      'Authorization': `Bearer ${token}`,
-    };
-  }
-  
-  // If we have a password, add it to request headers for additional auth
   if (password) {
     requestOptions.headers = {
       ...requestOptions.headers,
@@ -54,7 +44,7 @@ async function apiRequest<T>(
     // Handle unauthorized errors globally
     if (response.status === 401) {
       // Clear any stored auth data
-      localStorage.removeItem('authToken');
+      localStorage.removeItem('authPassword');
       
       // Redirect to login if we're not already there
       if (!window.location.hash.includes('login')) {
@@ -78,6 +68,7 @@ async function apiRequest<T>(
     
     // Parse the JSON response
     const data = await response.json();
+    console.log(`API response from ${endpoint}:`, JSON.stringify(data));
     return data as T;
   } catch (error) {
     console.error('API request failed:', error);

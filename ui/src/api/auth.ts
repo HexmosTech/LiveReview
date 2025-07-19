@@ -13,7 +13,6 @@ interface PasswordVerifyResponse {
 interface PasswordResponse {
   success: boolean;
   message: string;
-  token?: string;
 }
 
 /**
@@ -62,35 +61,23 @@ export const setAdminPassword = async (password: string): Promise<{ success: boo
 /**
  * Verify admin password
  * @param password The password to verify
- * @returns Promise with verification status and token
+ * @returns Promise with success status
  */
-export const verifyAdminPassword = async (password: string): Promise<{ valid: boolean, token?: string }> => {
+export const verifyAdminPassword = async (password: string): Promise<{ success: boolean }> => {
   try {
+    console.log('Verifying admin password');
+    
     const response = await apiClient.post<PasswordVerifyResponse>('/api/v1/password/verify', { password });
+    console.log('Password verification raw response:', JSON.stringify(response));
     
-    // For now, this API doesn't return a token but we'll handle it as if it might in the future
-    // If successful login, manually generate a token in localStorage for now
-    // This is a temporary solution until the backend implements proper JWT auth
-    if (response.valid) {
-      // Generate a token for auth purposes
-      const tempToken = `temp_${Math.random().toString(36).substring(2, 15)}`;
-      // Store in localStorage so it persists across page reloads
-      localStorage.setItem('authToken', tempToken);
-      
-      return {
-        valid: true,
-        token: tempToken
-      };
-    }
-    
-    return {
-      valid: response.valid
+    // Map the API's 'valid' property to our 'success' property
+    const result = {
+      success: response.valid // Map 'valid' to 'success'
     };
+    
+    console.log('Mapped verification response:', result);
+    return result;
   } catch (error) {
-    // For unauthorized errors, return a structured response
-    if (error instanceof Error && error.message === 'Unauthorized') {
-      return { valid: false };
-    }
     console.error('Error verifying admin password:', error);
     throw error;
   }
