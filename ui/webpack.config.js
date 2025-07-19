@@ -6,6 +6,7 @@ const CssMinimizerPlugin = require('css-minimizer-webpack-plugin');
 const CopyPlugin = require('copy-webpack-plugin');
 const ForkTsCheckerWebpackPlugin = require('fork-ts-checker-webpack-plugin');
 const BundleAnalyzerPlugin = require('webpack-bundle-analyzer').BundleAnalyzerPlugin;
+const webpack = require('webpack');
 const metaConfig = require('./meta.config.js');
 
 module.exports =  (env, options)=> {
@@ -34,7 +35,7 @@ module.exports =  (env, options)=> {
                 '@store': path.resolve(__dirname, 'src/store/'),
                 '@styles': path.resolve(__dirname, 'src/styles/'),
                 '@utils': path.resolve(__dirname, 'src/utils/'),
-            },
+            }
         },
         module: {
             rules: [

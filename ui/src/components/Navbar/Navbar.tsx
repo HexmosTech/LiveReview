@@ -1,10 +1,11 @@
 import React, { useState } from 'react';
 import { Button, Icons } from '../UIPrimitives';
 
-type NavbarProps = {
+export type NavbarProps = {
     title: string;
     activePage?: string;
     onNavigate?: (page: string) => void;
+    onLogout?: () => void;
 };
 
 const navLinks = [
@@ -14,7 +15,7 @@ const navLinks = [
     { name: 'Settings', key: 'settings', icon: <Icons.Settings /> },
 ];
 
-export const Navbar: React.FC<NavbarProps> = ({ title, activePage = 'dashboard', onNavigate }) => {
+export const Navbar: React.FC<NavbarProps> = ({ title, activePage = 'dashboard', onNavigate, onLogout }) => {
     const [isOpen, setIsOpen] = useState(false);
 
     const handleNavClick = (key: string) => {
@@ -75,6 +76,20 @@ export const Navbar: React.FC<NavbarProps> = ({ title, activePage = 'dashboard',
                             {link.name}
                         </Button>
                     ))}
+                    
+                    {/* Logout button */}
+                    {onLogout && (
+                        <Button
+                            variant="ghost"
+                            onClick={onLogout}
+                            className="ml-4 text-slate-300"
+                            icon={<svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
+                            </svg>}
+                        >
+                            Logout
+                        </Button>
+                    )}
                 </div>
             </div>
             
@@ -97,6 +112,21 @@ export const Navbar: React.FC<NavbarProps> = ({ title, activePage = 'dashboard',
                             {link.name}
                         </Button>
                     ))}
+                    
+                    {/* Mobile logout button */}
+                    {onLogout && (
+                        <Button
+                            variant="ghost"
+                            onClick={onLogout}
+                            className="w-full justify-start text-slate-100"
+                            iconPosition="left"
+                            icon={<svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
+                            </svg>}
+                        >
+                            Logout
+                        </Button>
+                    )}
                 </div>
             )}
         </nav>
