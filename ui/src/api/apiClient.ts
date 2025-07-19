@@ -56,7 +56,14 @@ async function apiRequest<T>(
     
     // Handle any other errors
     if (!response.ok) {
-      throw new Error(`API error: ${response.status}`);
+      // Try to get error details from the response
+      try {
+        const errorData = await response.json();
+        throw new Error(errorData.error || `API error: ${response.status}`);
+      } catch (jsonError) {
+        // If we can't parse the JSON, just throw a generic error
+        throw new Error(`API error: ${response.status}`);
+      }
     }
     
     // Parse the JSON response

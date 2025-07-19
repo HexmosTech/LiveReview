@@ -25,8 +25,12 @@ export const checkPasswordStatus = createAsyncThunk(
   'auth/checkPasswordStatus',
   async (_, { rejectWithValue }) => {
     try {
-      return await checkAdminPasswordStatus();
+      console.log('Dispatching checkPasswordStatus thunk...');
+      const isSet = await checkAdminPasswordStatus();
+      console.log('Password status API response - isSet:', isSet);
+      return isSet;
     } catch (error) {
+      console.error('Error in checkPasswordStatus thunk:', error);
       return rejectWithValue((error as Error).message);
     }
   }
@@ -67,10 +71,13 @@ const authSlice = createSlice({
   initialState,
   reducers: {
     logout: (state) => {
+      // Clear all auth state on logout
       state.isAuthenticated = false;
+      state.isPasswordSet = false;  // Explicitly clear this flag
       state.token = null;
       state.error = null;
-      // Also remove from localStorage
+      
+      // Remove from localStorage
       localStorage.removeItem('authToken');
     },
     clearError: (state) => {
@@ -87,6 +94,7 @@ const authSlice = createSlice({
       .addCase(checkPasswordStatus.fulfilled, (state, action: PayloadAction<boolean>) => {
         state.isLoading = false;
         state.isPasswordSet = action.payload;
+        console.log('checkPasswordStatus fulfilled - setting isPasswordSet to:', action.payload);
       })
       .addCase(checkPasswordStatus.rejected, (state, action) => {
         state.isLoading = false;

@@ -180,6 +180,8 @@ const App: React.FC = () => {
     // Handle logout
     const handleLogout = () => {
         dispatch(logout());
+        // After logout, check the password status to determine which page to show
+        dispatch(checkPasswordStatus());
     };
 
     // Show loading state while checking password status
@@ -199,11 +201,13 @@ const App: React.FC = () => {
 
     // If not authenticated and password is not set, show set password page
     if (!isAuthenticated && !isPasswordSet) {
+        console.log('Showing SetPassword page - isAuthenticated:', isAuthenticated, 'isPasswordSet:', isPasswordSet);
         return <SetPassword />;
     }
 
     // If not authenticated but password is set, show login page
     if (!isAuthenticated && isPasswordSet) {
+        console.log('Showing Login page - isAuthenticated:', isAuthenticated, 'isPasswordSet:', isPasswordSet);
         return <Login />;
     }
 

@@ -100,15 +100,33 @@ func (s *Server) SetAdminPassword(c echo.Context) error {
 		})
 	}
 
-	// Update or insert the admin password
-	_, err = s.db.Exec(`
-		UPDATE instance_details 
-		SET admin_password = $1, updated_at = CURRENT_TIMESTAMP 
-		WHERE id = (SELECT id FROM instance_details LIMIT 1)
-	`, hashedPassword)
+	// Check if instance_details record exists
+	var count int
+	err = s.db.QueryRow("SELECT COUNT(*) FROM instance_details").Scan(&count)
 	if err != nil {
 		return c.JSON(http.StatusInternalServerError, ErrorResponse{
-			Error: "Failed to set admin password",
+			Error: "Failed to check instance details: " + err.Error(),
+		})
+	}
+
+	if count == 0 {
+		// Insert a new record if none exists
+		_, err = s.db.Exec(`
+			INSERT INTO instance_details (domain_name, admin_password) 
+			VALUES ('localhost', $1)
+		`, hashedPassword)
+	} else {
+		// Update existing record
+		_, err = s.db.Exec(`
+			UPDATE instance_details 
+			SET admin_password = $1, updated_at = CURRENT_TIMESTAMP 
+			WHERE id = (SELECT id FROM instance_details LIMIT 1)
+		`, hashedPassword)
+	}
+
+	if err != nil {
+		return c.JSON(http.StatusInternalServerError, ErrorResponse{
+			Error: "Failed to set admin password: " + err.Error(),
 		})
 	}
 
