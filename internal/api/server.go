@@ -87,6 +87,10 @@ func (s *Server) setupRoutes() {
 	v1.PUT("/password", s.ResetAdminPassword)
 	v1.POST("/password/verify", s.VerifyAdminPassword)
 	v1.GET("/password/status", s.CheckAdminPasswordStatus)
+
+	// Production URL endpoints
+	v1.GET("/production-url", s.GetProductionURL)
+	v1.PUT("/production-url", s.UpdateProductionURL)
 }
 
 // Start begins the API server

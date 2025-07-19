@@ -45,10 +45,18 @@ func APICommand() *cli.Command {
 				Aliases: []string{"verify-password"},
 				Usage:   "Verify if the provided admin password is correct",
 			},
-			&cli.BoolFlag{
+			&cli.StringFlag{
 				Name:    "check-admin-password-status",
 				Aliases: []string{"check-password"},
 				Usage:   "Check if an admin password has been set",
+			},
+			&cli.BoolFlag{
+				Name:  "get-prod-url",
+				Usage: "Get the production URL for LiveReview",
+			},
+			&cli.StringFlag{
+				Name:  "set-prod-url",
+				Usage: "Set the production URL for LiveReview",
 			},
 		},
 		Action: func(c *cli.Context) error {
@@ -134,6 +142,29 @@ func APICommand() *cli.Command {
 				} else {
 					fmt.Println("No admin password has been set yet.")
 				}
+				return nil
+			}
+
+			// Handle get production URL
+			if c.Bool("get-prod-url") {
+				fmt.Println("Getting production URL...")
+				url, err := server.GetProductionURLDirectly()
+				if err != nil {
+					fmt.Fprintf(os.Stderr, "Error getting production URL: %v\n", err)
+					return err
+				}
+				fmt.Printf("Production URL: %s\n", url)
+				return nil
+			}
+
+			// Handle set production URL
+			if url := c.String("set-prod-url"); url != "" {
+				fmt.Println("Setting production URL...")
+				if err := server.UpdateProductionURLDirectly(url); err != nil {
+					fmt.Fprintf(os.Stderr, "Error setting production URL: %v\n", err)
+					return err
+				}
+				fmt.Println("Production URL set successfully.")
 				return nil
 			}
 

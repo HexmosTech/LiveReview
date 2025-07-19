@@ -112,7 +112,7 @@ func (s *Server) SetAdminPassword(c echo.Context) error {
 	if count == 0 {
 		// Insert a new record if none exists
 		_, err = s.db.Exec(`
-			INSERT INTO instance_details (domain_name, admin_password) 
+			INSERT INTO instance_details (livereview_prod_url, admin_password) 
 			VALUES ('localhost', $1)
 		`, hashedPassword)
 	} else {
@@ -250,7 +250,7 @@ func (s *Server) SetAdminPasswordDirectly(password string, force bool) error {
 	if count == 0 {
 		// Insert a new record
 		result, err = s.db.Exec(`
-			INSERT INTO instance_details (domain_name, admin_password) 
+			INSERT INTO instance_details (livereview_prod_url, admin_password) 
 			VALUES ('localhost', $1)
 		`, hashedPassword)
 	} else {
