@@ -6,18 +6,18 @@ export type AuthState = {
   isPasswordSet: boolean;
   isLoading: boolean;
   error: string | null;
-  token: string | null;
+  password: string | null; // Only store the actual password
 };
 
-// Check if we have a stored token already
-const storedToken = localStorage.getItem('authToken');
+// Check if we have a stored password
+const storedPassword = localStorage.getItem('authPassword');
 
 const initialState: AuthState = {
-  isAuthenticated: !!storedToken, // Authenticated if we have a token
+  isAuthenticated: !!storedPassword, // Authenticated if we have a password
   isPasswordSet: false,
   isLoading: false,
   error: null,
-  token: storedToken,
+  password: storedPassword,
 };
 
 // Async thunks
@@ -44,7 +44,8 @@ export const loginAdmin = createAsyncThunk(
       if (!result.valid) {
         throw new Error('Invalid password');
       }
-      return result.token || null;
+      // Just return the password
+      return password;
     } catch (error) {
       return rejectWithValue((error as Error).message);
     }
@@ -59,7 +60,8 @@ export const setInitialPassword = createAsyncThunk(
       if (!result.success) {
         throw new Error('Failed to set password');
       }
-      return result.token || null;
+      // Just return the password
+      return password;
     } catch (error) {
       return rejectWithValue((error as Error).message);
     }
@@ -74,11 +76,11 @@ const authSlice = createSlice({
       // Clear all auth state on logout
       state.isAuthenticated = false;
       state.isPasswordSet = false;  // Explicitly clear this flag
-      state.token = null;
+      state.password = null;  // Clear the password
       state.error = null;
       
       // Remove from localStorage
-      localStorage.removeItem('authToken');
+      localStorage.removeItem('authPassword');
     },
     clearError: (state) => {
       state.error = null;
@@ -106,10 +108,15 @@ const authSlice = createSlice({
         state.isLoading = true;
         state.error = null;
       })
-      .addCase(loginAdmin.fulfilled, (state, action: PayloadAction<string | null>) => {
+      .addCase(loginAdmin.fulfilled, (state, action: PayloadAction<string>) => {
         state.isLoading = false;
         state.isAuthenticated = true;
-        state.token = action.payload;
+        state.password = action.payload;
+        
+        // Store password in localStorage for persistence
+        localStorage.setItem('authPassword', action.payload);
+        
+        console.log('Login successful - stored password in Redux state');
       })
       .addCase(loginAdmin.rejected, (state, action) => {
         state.isLoading = false;
@@ -121,11 +128,16 @@ const authSlice = createSlice({
         state.isLoading = true;
         state.error = null;
       })
-      .addCase(setInitialPassword.fulfilled, (state, action: PayloadAction<string | null>) => {
+      .addCase(setInitialPassword.fulfilled, (state, action: PayloadAction<string>) => {
         state.isLoading = false;
         state.isPasswordSet = true;
         state.isAuthenticated = true;
-        state.token = action.payload;
+        state.password = action.payload;
+        
+        // Store password in localStorage for persistence
+        localStorage.setItem('authPassword', action.payload);
+        
+        console.log('Password set successfully - stored password in Redux state');
       })
       .addCase(setInitialPassword.rejected, (state, action) => {
         state.isLoading = false;

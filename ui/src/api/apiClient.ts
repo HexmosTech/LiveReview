@@ -30,10 +30,20 @@ async function apiRequest<T>(
   
   // Add the authorization header if a token exists
   const token = localStorage.getItem('authToken');
+  const password = localStorage.getItem('authPassword');
+  
   if (token) {
     requestOptions.headers = {
       ...requestOptions.headers,
       'Authorization': `Bearer ${token}`,
+    };
+  }
+  
+  // If we have a password, add it to request headers for additional auth
+  if (password) {
+    requestOptions.headers = {
+      ...requestOptions.headers,
+      'X-Admin-Password': password,
     };
   }
   

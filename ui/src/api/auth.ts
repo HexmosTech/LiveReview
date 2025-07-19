@@ -35,9 +35,9 @@ export const checkAdminPasswordStatus = async (): Promise<boolean> => {
 /**
  * Set admin password
  * @param password The password to set
- * @returns Promise with success status and token
+ * @returns Promise with success status
  */
-export const setAdminPassword = async (password: string): Promise<{ success: boolean, token?: string }> => {
+export const setAdminPassword = async (password: string): Promise<{ success: boolean }> => {
   try {
     console.log('Setting admin password:', { passwordLength: password.length });
     
@@ -49,23 +49,6 @@ export const setAdminPassword = async (password: string): Promise<{ success: boo
     
     const response = await apiClient.post<PasswordResponse>('/api/v1/password', { password });
     console.log('Password set response:', response);
-    
-    // For now, this API doesn't return a token but we'll handle it as if it might in the future
-    // If successful, manually generate a token in localStorage for now
-    // This is a temporary solution until the backend implements proper JWT auth
-    if (response.success) {
-      // Generate a token for auth purposes
-      const tempToken = `temp_${Math.random().toString(36).substring(2, 15)}`;
-      console.log('Generated auth token');
-      
-      // Store in localStorage so it persists across page reloads
-      localStorage.setItem('authToken', tempToken);
-      
-      return {
-        success: true,
-        token: tempToken
-      };
-    }
     
     return {
       success: response.success
