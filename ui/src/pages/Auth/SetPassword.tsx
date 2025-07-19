@@ -49,20 +49,16 @@ const SetPassword: React.FC = () => {
   };
   
   return (
-    <div className="container mx-auto px-4 py-8 flex flex-col items-center justify-center min-h-[80vh]">
-      <div className="max-w-md w-full">
-        <div className="flex justify-center mb-8">
-          <img src="/assets/logo.svg" alt="LiveReview Logo" className="h-16 w-auto" />
+    <div className="min-h-screen bg-slate-900 flex flex-col items-center justify-center px-4 py-12">
+      <div className="max-w-md w-full space-y-8">
+        <div className="text-center">
+          <img src="assets/logo.svg" alt="LiveReview Logo" className="mx-auto h-20 w-auto" />
+          <h2 className="mt-6 text-3xl font-extrabold text-white">Set Administrator Password</h2>
+          <p className="mt-2 text-sm text-slate-300">Set up your LiveReview administrator password to secure your installation</p>
         </div>
         
-        <PageHeader 
-          title="Set Administrator Password" 
-          description="Set up your LiveReview administrator password to secure your installation"
-          className="text-center mb-6"
-        />
-        
-        <Card>
-          <form onSubmit={handleSubmit}>
+        <Card className="shadow-xl border border-slate-700 rounded-xl overflow-hidden">
+          <form onSubmit={handleSubmit} className="space-y-6">
             {(validationError || error) && (
               <Alert 
                 variant="error" 
@@ -73,12 +69,13 @@ const SetPassword: React.FC = () => {
               </Alert>
             )}
             
-            <div className="space-y-6">
+            <div className="space-y-5">
               <Input
                 label="Administrator Username"
                 value="admin"
                 disabled
                 helperText="The default administrator username is 'admin'"
+                className="bg-slate-700 border-slate-600 text-white opacity-70"
               />
               
               <Input
@@ -88,6 +85,7 @@ const SetPassword: React.FC = () => {
                 onChange={(e) => setPassword(e.target.value)}
                 placeholder="Enter a secure password"
                 helperText="Password must be at least 8 characters long"
+                className="bg-slate-700 border-slate-600 text-white"
               />
               
               <Input
@@ -96,6 +94,7 @@ const SetPassword: React.FC = () => {
                 value={confirmPassword}
                 onChange={(e) => setConfirmPassword(e.target.value)}
                 placeholder="Confirm your password"
+                className="bg-slate-700 border-slate-600 text-white"
               />
               
               <div className="pt-2">
@@ -105,6 +104,7 @@ const SetPassword: React.FC = () => {
                   fullWidth
                   isLoading={isLoading}
                   disabled={isLoading}
+                  className="py-3 font-semibold"
                 >
                   Set Password & Continue
                 </Button>

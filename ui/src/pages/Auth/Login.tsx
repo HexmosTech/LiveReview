@@ -53,20 +53,16 @@ const Login: React.FC = () => {
   };
   
   return (
-    <div className="container mx-auto px-4 py-8 flex flex-col items-center justify-center min-h-[80vh]">
-      <div className="max-w-md w-full">
-        <div className="flex justify-center mb-8">
-          <img src="/assets/logo.svg" alt="LiveReview Logo" className="h-16 w-auto" />
+    <div className="min-h-screen bg-slate-900 flex flex-col items-center justify-center px-4 py-12">
+      <div className="max-w-md w-full space-y-8">
+        <div className="text-center">
+          <img src="assets/logo.svg" alt="LiveReview Logo" className="mx-auto h-20 w-auto" />
+          <h2 className="mt-6 text-3xl font-extrabold text-white">Administrator Login</h2>
+          <p className="mt-2 text-sm text-slate-300">Please log in to access your LiveReview instance</p>
         </div>
         
-        <PageHeader 
-          title="Administrator Login" 
-          description="Please log in to access your LiveReview instance"
-          className="text-center mb-6"
-        />
-        
-        <Card>
-          <form onSubmit={handleSubmit}>
+        <Card className="shadow-xl border border-slate-700 rounded-xl overflow-hidden">
+          <form onSubmit={handleSubmit} className="space-y-6">
             {(validationError || error) && (
               <Alert 
                 variant="error" 
@@ -77,12 +73,13 @@ const Login: React.FC = () => {
               </Alert>
             )}
             
-            <div className="space-y-6">
+            <div className="space-y-5">
               <Input
                 label="Username"
                 value={username}
                 onChange={(e) => setUsername(e.target.value)}
                 placeholder="admin"
+                className="bg-slate-700 border-slate-600 text-white"
               />
               
               <Input
@@ -91,6 +88,7 @@ const Login: React.FC = () => {
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 placeholder="Enter your password"
+                className="bg-slate-700 border-slate-600 text-white"
               />
               
               <div className="pt-2">
@@ -100,6 +98,7 @@ const Login: React.FC = () => {
                   fullWidth
                   isLoading={isLoading}
                   disabled={isLoading}
+                  className="py-3 font-semibold"
                 >
                   Log In
                 </Button>
