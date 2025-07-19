@@ -25,6 +25,11 @@ func APICommand() *cli.Command {
 				Aliases: []string{"set-password"},
 				Usage:   "Set the admin password for the instance",
 			},
+			&cli.BoolFlag{
+				Name:    "force",
+				Aliases: []string{"f"},
+				Usage:   "Force the password operation even if a password is already set",
+			},
 			&cli.StringFlag{
 				Name:    "reset-admin-password-old",
 				Aliases: []string{"old-password"},
@@ -58,8 +63,14 @@ func APICommand() *cli.Command {
 
 			// Handle set admin password
 			if password := c.String("set-admin-password"); password != "" {
-				fmt.Println("Setting admin password...")
-				if err := server.SetAdminPasswordDirectly(password); err != nil {
+				force := c.Bool("force")
+				if force {
+					fmt.Println("Setting admin password (with force)...")
+				} else {
+					fmt.Println("Setting admin password...")
+				}
+
+				if err := server.SetAdminPasswordDirectly(password, force); err != nil {
 					fmt.Fprintf(os.Stderr, "Error setting admin password: %v\n", err)
 					return err
 				}

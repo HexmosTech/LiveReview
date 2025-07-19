@@ -13,6 +13,7 @@ import (
 type PasswordRequest struct {
 	Password    string `json:"password"`
 	OldPassword string `json:"old_password,omitempty"`
+	Force       bool   `json:"force,omitempty"`
 }
 
 // PasswordVerifyRequest represents a request to verify an admin password
@@ -59,7 +60,7 @@ func comparePasswords(hashedPassword, password string) bool {
 }
 
 // SetAdminPassword sets the admin password for the instance
-// If an admin password already exists, it returns an error
+// If an admin password already exists, it returns an error unless Force is true
 func (s *Server) SetAdminPassword(c echo.Context) error {
 	var req PasswordRequest
 	if err := c.Bind(&req); err != nil {
@@ -75,20 +76,20 @@ func (s *Server) SetAdminPassword(c echo.Context) error {
 		})
 	}
 
-	// Check if admin password already exists
-	var adminPassword string
-	err := s.db.QueryRow("SELECT admin_password FROM instance_details LIMIT 1").Scan(&adminPassword)
-	if err != nil && err != sql.ErrNoRows {
-		return c.JSON(http.StatusInternalServerError, ErrorResponse{
-			Error: "Failed to check existing password",
-		})
-	}
+	// Check if admin password already exists (only if not forcing)
+	if !req.Force {
+		isSet, err := s.CheckAdminPasswordStatusDirectly()
+		if err != nil {
+			return c.JSON(http.StatusInternalServerError, ErrorResponse{
+				Error: "Failed to check password status: " + err.Error(),
+			})
+		}
 
-	// If admin password already exists, return error
-	if err == nil && adminPassword != "" {
-		return c.JSON(http.StatusConflict, ErrorResponse{
-			Error: "Admin password already set. Use reset endpoint to change it.",
-		})
+		if isSet {
+			return c.JSON(http.StatusConflict, ErrorResponse{
+				Error: "Admin password already set. Use reset endpoint to change it, or set force=true to override.",
+			})
+		}
 	}
 
 	// Hash the password
@@ -118,7 +119,7 @@ func (s *Server) SetAdminPassword(c echo.Context) error {
 }
 
 // ResetAdminPassword resets the admin password
-// Requires the old password for verification
+// Requires the old password for verification and a new password
 func (s *Server) ResetAdminPassword(c echo.Context) error {
 	var req PasswordRequest
 	if err := c.Bind(&req); err != nil {
@@ -127,7 +128,14 @@ func (s *Server) ResetAdminPassword(c echo.Context) error {
 		})
 	}
 
-	// Validate new password
+	// Validate new password is provided
+	if req.Password == "" {
+		return c.JSON(http.StatusBadRequest, ErrorResponse{
+			Error: "New password is required",
+		})
+	}
+
+	// Validate new password length
 	if len(req.Password) < 8 {
 		return c.JSON(http.StatusBadRequest, ErrorResponse{
 			Error: "New password must be at least 8 characters long",
@@ -189,10 +197,22 @@ func (s *Server) ResetAdminPassword(c echo.Context) error {
 }
 
 // SetAdminPasswordDirectly sets the admin password directly (for CLI use)
-func (s *Server) SetAdminPasswordDirectly(password string) error {
+func (s *Server) SetAdminPasswordDirectly(password string, force bool) error {
 	// Validate password
 	if len(password) < 8 {
 		return fmt.Errorf("password must be at least 8 characters long")
+	}
+
+	// Check if admin password already exists (only if not forcing)
+	if !force {
+		isSet, err := s.CheckAdminPasswordStatusDirectly()
+		if err != nil {
+			return fmt.Errorf("failed to check password status: %v", err)
+		}
+
+		if isSet {
+			return fmt.Errorf("admin password already set; use --reset-admin-password-* to change it, or use --force to override")
+		}
 	}
 
 	// Hash the password
