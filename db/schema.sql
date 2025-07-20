@@ -61,7 +61,8 @@ CREATE TABLE public.integration_tokens (
     expires_at timestamp with time zone,
     metadata jsonb DEFAULT '{}'::jsonb,
     created_at timestamp with time zone DEFAULT now() NOT NULL,
-    updated_at timestamp with time zone DEFAULT now() NOT NULL
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    code text
 );
 
 
@@ -145,4 +146,5 @@ INSERT INTO public.schema_migrations (version) VALUES
     ('20250719000002'),
     ('20250719000003'),
     ('20250719000004'),
-    ('20250720000001');
+    ('20250720000001'),
+    ('20250720000002');
