@@ -8,6 +8,7 @@ export type Connector = {
     type: ConnectorType;
     url: string;
     apiKey: string;
+    apiSecret?: string; // Added for storing application secret
     createdAt: string;
 };
 

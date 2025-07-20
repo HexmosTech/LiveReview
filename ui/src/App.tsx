@@ -6,6 +6,7 @@ import AIProviders from './pages/AIProviders/AIProviders';
 import Settings from './pages/Settings/Settings';
 import Login from './pages/Auth/Login';
 import SetPassword from './pages/Auth/SetPassword';
+import CodeHostCallback from './pages/Auth/CodeHostCallback';
 import { useAppDispatch, useAppSelector } from './store/configureStore';
 import { logout, checkPasswordStatus } from './store/Auth/reducer';
 
@@ -36,14 +37,38 @@ const Footer = ({ onNavigateToHome }: { onNavigateToHome: () => void }) => (
 const App: React.FC = () => {
     const dispatch = useAppDispatch();
     const { isAuthenticated, isPasswordSet, isLoading } = useAppSelector((state) => state.Auth);
+    const [oauthCode, setOauthCode] = useState<string | null>(null);
     
     // Function to get the initial page from URL hash
     const getInitialPage = (): string => {
-        const hash = window.location.hash.replace('#', '');
-        return ['dashboard', 'git', 'ai', 'settings'].includes(hash) ? hash : 'dashboard';
+        const hashPath = window.location.hash.replace('#', '').replace(/^\//, '');
+        
+        // Handle OAuth callback detection in URL parameters
+        const urlParams = new URLSearchParams(window.location.search);
+        if (urlParams.has('code')) {
+            return 'oauth-callback';
+        }
+        
+        return ['dashboard', 'git', 'ai', 'settings'].includes(hashPath) ? hashPath : 'dashboard';
     };
 
     const [page, setPage] = useState(getInitialPage());
+
+    // Check for OAuth code in URL on load
+    useEffect(() => {
+        const urlParams = new URLSearchParams(window.location.search);
+        const code = urlParams.get('code');
+        if (code) {
+            console.log('App.tsx - Found OAuth code in URL:', code);
+            setOauthCode(code);
+            
+            // Optionally clean up the URL to remove the code parameter
+            if (window.history && window.history.replaceState) {
+                const cleanUrl = window.location.href.split('?')[0];
+                window.history.replaceState({}, document.title, cleanUrl);
+            }
+        }
+    }, []);
 
     // Check password status on app load
     useEffect(() => {
@@ -59,7 +84,10 @@ const App: React.FC = () => {
     // Update URL hash when page changes
     useEffect(() => {
         console.log('App.tsx - Page changed to:', page);
-        window.location.hash = page;
+        // Don't update hash for callback page since it uses path
+        if (page !== 'codehost-callback') {
+            window.location.hash = page;
+        }
     }, [page]);
 
     // Listen for hash changes (e.g. when user uses browser navigation)
@@ -73,6 +101,11 @@ const App: React.FC = () => {
         };
 
         window.addEventListener('hashchange', handleHashChange);
+        
+        // Also handle the initial hash on component mount
+        // This is especially important for handling redirects from external services
+        handleHashChange();
+        
         return () => window.removeEventListener('hashchange', handleHashChange);
     }, [page]);
 
@@ -114,6 +147,11 @@ const App: React.FC = () => {
     console.log('App.tsx - Showing main application - isAuthenticated:', isAuthenticated, 'isPasswordSet:', isPasswordSet);
 
     const renderPage = () => {
+        // If we have an OAuth code, show the callback page
+        if (oauthCode) {
+            return <CodeHostCallback code={oauthCode} />;
+        }
+        
         switch (page) {
             case 'dashboard':
                 return <Dashboard />;
@@ -123,6 +161,8 @@ const App: React.FC = () => {
                 return <AIProviders />;
             case 'settings':
                 return <Settings />;
+            case 'oauth-callback':
+                return <CodeHostCallback />;
             default:
                 return <Dashboard />;
         }

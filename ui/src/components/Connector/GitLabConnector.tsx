@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Card, Input, Button, Icons } from '../UIPrimitives';
-import { ConnectorType } from '../../store/Connector/reducer';
+import { ConnectorType, addConnector } from '../../store/Connector/reducer';
+import { useAppDispatch } from '../../store/configureStore';
 import apiClient from '../../api/apiClient';
 
 type GitLabConnectorProps = {
@@ -9,6 +10,7 @@ type GitLabConnectorProps = {
 };
 
 const GitLabConnector: React.FC<GitLabConnectorProps> = ({ type, onSubmit }) => {
+  const dispatch = useAppDispatch();
   const [step, setStep] = useState<number>(1);
   const [domainInfo, setDomainInfo] = useState({
     url: '',
@@ -20,13 +22,19 @@ const GitLabConnector: React.FC<GitLabConnectorProps> = ({ type, onSubmit }) => 
     applicationId: '',
     applicationSecret: ''
   });
+  const [tempConnectorData, setTempConnectorData] = useState<any>(null);
 
   // Fetch domain info when component mounts
   useEffect(() => {
     const fetchDomainInfo = async () => {
       try {
         const response = await apiClient.get<{url: string, success: boolean, message: string}>('/api/v1/production-url');
+        console.log("Domain info response:", response);
         setDomainInfo({
+          url: response.url || '',
+          isConfigured: !!response.url && response.success
+        });
+        console.log("Set domain info to:", {
           url: response.url || '',
           isConfigured: !!response.url && response.success
         });
@@ -52,16 +60,70 @@ const GitLabConnector: React.FC<GitLabConnectorProps> = ({ type, onSubmit }) => 
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    onSubmit({
+    
+    // Store connector data in Redux
+    const connectorData = {
       name: formData.name,
       type,
       url: formData.url,
       apiKey: formData.applicationId,
       apiSecret: formData.applicationSecret
-    });
+    };
+    
+    // Save to Redux store
+    dispatch(addConnector({
+      name: formData.name,
+      type,
+      url: formData.url,
+      apiKey: formData.applicationId
+    }));
+    
+    // Store complete data (including secret) in component state for authorization
+    setTempConnectorData(connectorData);
+    
+    // Redirect to GitLab authorization
+    redirectToGitLabAuth();
   };
 
-  const callbackUrl = domainInfo.url ? `https://${domainInfo.url}/create-docs` : '';
+  const redirectToGitLabAuth = () => {
+    const SCOPES = ['api'];
+    const gitProviderBaseURL = type === 'gitlab-com' ? 'https://gitlab.com' : formData.url;
+    const gitClientID = formData.applicationId;
+    
+    // Use the homepage as redirect URI since GitLab doesn't allow fragments
+    let REDIRECT_URI = '';
+    if (domainInfo.url) {
+      // Check if domainInfo.url already includes https://
+      if (domainInfo.url.startsWith('https://')) {
+        REDIRECT_URI = domainInfo.url;
+      } else {
+        REDIRECT_URI = `https://${domainInfo.url}`;
+      }
+    } else {
+      REDIRECT_URI = window.location.origin;
+    }
+    
+    const authUrl = `${gitProviderBaseURL}/oauth/authorize?client_id=${gitClientID}&redirect_uri=${encodeURIComponent(REDIRECT_URI)}&scope=${encodeURIComponent(SCOPES.join(' '))}&response_type=code`;
+    
+    console.log("Redirecting to:", authUrl);
+    window.location.href = authUrl;
+  };
+
+  // Format the callback URL correctly for display and copy
+  const getCallbackUrl = () => {
+    if (!domainInfo.url) {
+      return '';
+    }
+
+    // Check if domainInfo.url already includes https://
+    if (domainInfo.url.startsWith('https://')) {
+      return domainInfo.url;
+    } else {
+      return `https://${domainInfo.url}`;
+    }
+  };
+
+  const callbackUrl = getCallbackUrl();
 
   const renderStep1 = () => (
     <>
@@ -103,7 +165,16 @@ const GitLabConnector: React.FC<GitLabConnectorProps> = ({ type, onSubmit }) => 
           <Button
             variant="primary"
             fullWidth
-            onClick={() => setStep(2)}
+            onClick={() => {
+              // Store step 1 data in Redux
+              dispatch(addConnector({
+                name: formData.name,
+                type,
+                url: formData.url,
+                apiKey: '' // Will be updated in step 2
+              }));
+              setStep(2);
+            }}
             disabled={type === 'gitlab-self-hosted' && !formData.url}
           >
             Continue to OAuth Setup
