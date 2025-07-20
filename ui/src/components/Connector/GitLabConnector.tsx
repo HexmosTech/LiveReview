@@ -1,7 +1,7 @@
-import React, { useState } from 'react';
-import { Card, Input, Button, Icons, Alert } from '../UIPrimitives';
+import React, { useState, useEffect } from 'react';
+import { Card, Input, Button, Icons } from '../UIPrimitives';
 import { ConnectorType } from '../../store/Connector/reducer';
-import { useAppSelector } from '../../store/configureStore';
+import apiClient from '../../api/apiClient';
 
 type GitLabConnectorProps = {
   type: 'gitlab-com' | 'gitlab-self-hosted';
@@ -9,13 +9,38 @@ type GitLabConnectorProps = {
 };
 
 const GitLabConnector: React.FC<GitLabConnectorProps> = ({ type, onSubmit }) => {
-  const { domain, isConfigured } = useAppSelector(state => state.Settings);
   const [step, setStep] = useState<number>(1);
+  const [domainInfo, setDomainInfo] = useState({
+    url: '',
+    isConfigured: false
+  });
   const [formData, setFormData] = useState({
     name: type === 'gitlab-com' ? 'GitLab.com' : 'Self-hosted GitLab',
     url: type === 'gitlab-com' ? 'https://gitlab.com' : '',
-    applicationId: ''
+    applicationId: '',
+    applicationSecret: ''
   });
+
+  // Fetch domain info when component mounts
+  useEffect(() => {
+    const fetchDomainInfo = async () => {
+      try {
+        const response = await apiClient.get<{url: string, success: boolean, message: string}>('/api/v1/production-url');
+        setDomainInfo({
+          url: response.url || '',
+          isConfigured: !!response.url && response.success
+        });
+      } catch (error) {
+        console.error('Failed to fetch domain info:', error);
+        setDomainInfo({
+          url: '',
+          isConfigured: false
+        });
+      }
+    };
+
+    fetchDomainInfo();
+  }, []);
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const { name, value } = e.target;
@@ -31,38 +56,15 @@ const GitLabConnector: React.FC<GitLabConnectorProps> = ({ type, onSubmit }) => 
       name: formData.name,
       type,
       url: formData.url,
-      apiKey: formData.applicationId
+      apiKey: formData.applicationId,
+      apiSecret: formData.applicationSecret
     });
   };
 
-  const callbackUrl = domain ? `https://${domain}/create-docs` : '';
-
-  const renderDomainWarning = () => {
-    if (!isConfigured) {
-      return (
-        <Alert
-          variant="warning"
-          icon={<Icons.Warning />}
-          className="mb-4"
-        >
-          <div>
-            <p className="font-medium">Domain not configured</p>
-            <p className="text-sm">
-              Please configure your application domain in the{' '}
-              <a href="#settings" className="font-medium underline">Settings</a>{' '}
-              page before continuing.
-            </p>
-          </div>
-        </Alert>
-      );
-    }
-    return null;
-  };
+  const callbackUrl = domainInfo.url ? `https://${domainInfo.url}/create-docs` : '';
 
   const renderStep1 = () => (
     <>
-      {renderDomainWarning()}
-      
       <h3 className="text-lg font-medium text-white mb-4">
         {type === 'gitlab-com' ? 'Connect to GitLab.com' : 'Connect to Self-hosted GitLab'}
       </h3>
@@ -102,7 +104,7 @@ const GitLabConnector: React.FC<GitLabConnectorProps> = ({ type, onSubmit }) => 
             variant="primary"
             fullWidth
             onClick={() => setStep(2)}
-            disabled={!isConfigured || (type === 'gitlab-self-hosted' && !formData.url)}
+            disabled={type === 'gitlab-self-hosted' && !formData.url}
           >
             Continue to OAuth Setup
           </Button>
@@ -148,6 +150,7 @@ const GitLabConnector: React.FC<GitLabConnectorProps> = ({ type, onSubmit }) => 
                           navigator.clipboard.writeText(callbackUrl);
                         }
                       }}
+                      disabled={!domainInfo.isConfigured}
                     >
                       <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 5H6a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2v-1M8 5a2 2 0 002 2h2a2 2 0 002-2M8 5a2 2 0 012-2h2a2 2 0 012 2m0 0h2a2 2 0 012 2v3m2 4H10m0 0l3-3m-3 3l3 3" />
@@ -161,12 +164,14 @@ const GitLabConnector: React.FC<GitLabConnectorProps> = ({ type, onSubmit }) => 
             </li>
             <li>
               <span className="font-medium text-white">Click </span>
-              <span className="px-2 py-0.5 bg-slate-600 rounded text-white">Create Application</span>
+              <span className="px-2 py-0.5 bg-slate-600 rounded text-white">Save Application</span>
               <span className="font-medium text-white"> and copy the </span>
               <span className="font-medium text-blue-400">Application ID</span>
+              <span className="font-medium text-white"> and </span>
+              <span className="font-medium text-blue-400">Secret</span>
             </li>
             <li>
-              <span className="font-medium text-white">Paste the Application ID in the field below</span>
+              <span className="font-medium text-white">Paste the Application ID and Secret in the fields below</span>
             </li>
           </ol>
         </div>
@@ -183,6 +188,17 @@ const GitLabConnector: React.FC<GitLabConnectorProps> = ({ type, onSubmit }) => 
             required
           />
 
+          <Input
+            id="applicationSecret"
+            name="applicationSecret"
+            label="Application Secret"
+            type="text"
+            value={formData.applicationSecret}
+            onChange={handleChange}
+            placeholder="Enter your GitLab Application Secret"
+            required
+          />
+
           <div className="flex space-x-3">
             <Button
               variant="ghost"
@@ -195,7 +211,7 @@ const GitLabConnector: React.FC<GitLabConnectorProps> = ({ type, onSubmit }) => 
               type="submit"
               variant="primary"
               className="flex-1"
-              disabled={!formData.applicationId}
+              disabled={!formData.applicationId || !formData.applicationSecret}
             >
               Connect
             </Button>

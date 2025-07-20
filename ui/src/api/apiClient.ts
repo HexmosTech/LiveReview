@@ -3,7 +3,8 @@
  */
 
 // Base URL for all API requests
-const BASE_URL = 'http://localhost:8888';
+// const BASE_URL = 'http://localhost:8888';
+const BASE_URL = 'https://talented-manually-turkey.ngrok-free.app';
 
 // Default request options
 const defaultOptions: RequestInit = {

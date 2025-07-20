@@ -22,12 +22,14 @@ type ProductionURLResponse struct {
 
 // GetProductionURL retrieves the livereview_prod_url from instance_details
 func (s *Server) GetProductionURL(c echo.Context) error {
-	var url string
+	var url sql.NullString
 	err := s.db.QueryRow("SELECT livereview_prod_url FROM instance_details LIMIT 1").Scan(&url)
 	if err != nil {
 		if err == sql.ErrNoRows {
-			return c.JSON(http.StatusNotFound, ErrorResponse{
-				Error: "No instance details found",
+			return c.JSON(http.StatusOK, ProductionURLResponse{
+				URL:     "",
+				Success: false,
+				Message: "No production URL configured",
 			})
 		}
 		return c.JSON(http.StatusInternalServerError, ErrorResponse{
@@ -35,10 +37,21 @@ func (s *Server) GetProductionURL(c echo.Context) error {
 		})
 	}
 
+	// Handle the case when URL is NULL in the database
+	urlValue := ""
+	if url.Valid {
+		urlValue = url.String
+	}
+
+	message := "No production URL configured"
+	if urlValue != "" {
+		message = "Production URL retrieved successfully"
+	}
+
 	return c.JSON(http.StatusOK, ProductionURLResponse{
-		URL:     url,
-		Success: true,
-		Message: "Production URL retrieved successfully",
+		URL:     urlValue,
+		Success: urlValue != "",
+		Message: message,
 	})
 }
 
@@ -94,16 +107,21 @@ func (s *Server) UpdateProductionURL(c echo.Context) error {
 
 // GetProductionURLDirectly gets the production URL directly (for CLI use)
 func (s *Server) GetProductionURLDirectly() (string, error) {
-	var url string
+	var url sql.NullString
 	err := s.db.QueryRow("SELECT livereview_prod_url FROM instance_details LIMIT 1").Scan(&url)
 	if err != nil {
 		if err == sql.ErrNoRows {
-			return "", fmt.Errorf("no instance details found")
+			return "", nil // Return empty string with no error when no record exists
 		}
 		return "", fmt.Errorf("failed to retrieve production URL: %v", err)
 	}
 
-	return url, nil
+	// Handle NULL URL
+	if !url.Valid {
+		return "", nil
+	}
+
+	return url.String, nil
 }
 
 // UpdateProductionURLDirectly updates the production URL directly (for CLI use)
