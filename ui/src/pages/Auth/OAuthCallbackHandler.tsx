@@ -1,10 +1,11 @@
 import React, { useEffect } from 'react';
-import { useSearchParams, useNavigate } from 'react-router-dom';
+import { useSearchParams, useNavigate, useLocation } from 'react-router-dom';
 import CodeHostCallback from './CodeHostCallback';
 
 const OAuthCallbackHandler: React.FC = () => {
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
+  const location = useLocation();
   
   // Get code/error from search params
   const code = searchParams.get('code');
@@ -13,25 +14,42 @@ const OAuthCallbackHandler: React.FC = () => {
   useEffect(() => {
     console.log("OAuthCallbackHandler mounted with parameters:", { code, error });
     
-    // If no code in search params, check window.location.search directly
-    // This is needed because React Router HashRouter might not correctly parse
-    // params when redirecting from the OAuth provider
-    if (!code && !error) {
-      const urlParams = new URLSearchParams(window.location.search);
-      const urlCode = urlParams.get('code');
-      const urlError = urlParams.get('error');
+    // If we have code or error parameters, clean up the URL by removing them
+    if (code || error) {
+      // First, store the code/error in sessionStorage so we can access it after URL cleanup
+      if (code) sessionStorage.setItem('oauth_code', code);
+      if (error) sessionStorage.setItem('oauth_error', error);
       
-      if (urlCode || urlError) {
-        console.log("Found OAuth parameters in URL:", { code: urlCode, error: urlError });
-        // Just render the CodeHostCallback component directly with the params
-        return;
+      // Replace the URL with a clean version (without query parameters)
+      navigate('/oauth-callback', { replace: true });
+    }
+    
+    // If no code in search params, check if we have stored values in sessionStorage
+    if (!code && !error) {
+      const storedCode = sessionStorage.getItem('oauth_code');
+      const storedError = sessionStorage.getItem('oauth_error');
+      
+      // If we have stored values, use them and then clear storage
+      if (storedCode || storedError) {
+        console.log("Using stored OAuth parameters:", { code: storedCode, error: storedError });
+        
+        // The CodeHostCallback component will be rendered with these values
+        // Clean up sessionStorage after processing
+        setTimeout(() => {
+          sessionStorage.removeItem('oauth_code');
+          sessionStorage.removeItem('oauth_error');
+        }, 100);
       }
     }
-  }, [code, error]);
+  }, [code, error, navigate, location]);
+
+  // Get the code/error either from URL params or sessionStorage
+  const finalCode = code || sessionStorage.getItem('oauth_code');
+  const finalError = error || sessionStorage.getItem('oauth_error');
 
   // When we have a code, show the CodeHostCallback component
-  if (code || error) {
-    return <CodeHostCallback code={code || undefined} error={error || undefined} />;
+  if (finalCode || finalError) {
+    return <CodeHostCallback code={finalCode || undefined} error={finalError || undefined} />;
   }
 
   // Show a simple loading/processing screen when no code/error found

@@ -145,12 +145,13 @@ const App: React.FC = () => {
             if ((code || error) && window.location.hash === '') {
                 console.log("Detected OAuth redirect parameters:", { code, error });
                 
-                // Preserve the query parameters
-                const newLocation = `/#/oauth-callback${window.location.search}`;
-                console.log("Redirecting to:", newLocation);
+                // Store OAuth parameters in sessionStorage
+                if (code) sessionStorage.setItem('oauth_code', code);
+                if (error) sessionStorage.setItem('oauth_error', error);
                 
-                // Redirect to the OAuth callback route with the hash-based format
-                window.location.href = newLocation;
+                // Redirect to the OAuth callback route with clean URL
+                console.log("Redirecting to OAuth callback route");
+                window.location.href = '/#/oauth-callback';
             }
         };
 
