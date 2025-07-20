@@ -61,12 +61,13 @@ const App: React.FC = () => {
         if (code) {
             console.log('App.tsx - Found OAuth code in URL:', code);
             setOauthCode(code);
+            setPage('git'); // Set page to git so navbar is correct
             
-            // Optionally clean up the URL to remove the code parameter
-            if (window.history && window.history.replaceState) {
-                const cleanUrl = window.location.href.split('?')[0];
-                window.history.replaceState({}, document.title, cleanUrl);
-            }
+            // Add a query parameter to the hash to indicate OAuth callback
+            // But don't modify the URL with replaceState to avoid breaking history
+            const currentHash = window.location.hash || '#git';
+            const hashWithoutQuery = currentHash.split('?')[0];
+            window.location.hash = `${hashWithoutQuery}?oauth=true`;
         }
     }, []);
 
@@ -84,8 +85,12 @@ const App: React.FC = () => {
     // Update URL hash when page changes
     useEffect(() => {
         console.log('App.tsx - Page changed to:', page);
-        // Don't update hash for callback page since it uses path
-        if (page !== 'codehost-callback') {
+        
+        // Don't change the hash if there's an oauth=true parameter
+        const currentHash = window.location.hash;
+        const hasOAuthParam = currentHash.includes('?oauth=true');
+        
+        if (!hasOAuthParam) {
             window.location.hash = page;
         }
     }, [page]);
@@ -147,8 +152,12 @@ const App: React.FC = () => {
     console.log('App.tsx - Showing main application - isAuthenticated:', isAuthenticated, 'isPasswordSet:', isPasswordSet);
 
     const renderPage = () => {
-        // If we have an OAuth code, show the callback page
-        if (oauthCode) {
+        // Check if the URL hash has oauth=true parameter
+        const hashParams = window.location.hash.split('?')[1];
+        const isOAuthCallback = hashParams && new URLSearchParams(hashParams).has('oauth');
+        
+        // If we have an OAuth code and are on the oauth callback page, show the callback component
+        if (oauthCode && isOAuthCallback) {
             return <CodeHostCallback code={oauthCode} />;
         }
         
@@ -156,13 +165,15 @@ const App: React.FC = () => {
             case 'dashboard':
                 return <Dashboard />;
             case 'git':
+                // If we're on git page but have an oauth code and oauth=true in the hash, show callback
+                if (oauthCode && isOAuthCallback) {
+                    return <CodeHostCallback code={oauthCode} />;
+                }
                 return <GitProviders />;
             case 'ai':
                 return <AIProviders />;
             case 'settings':
                 return <Settings />;
-            case 'oauth-callback':
-                return <CodeHostCallback />;
             default:
                 return <Dashboard />;
         }

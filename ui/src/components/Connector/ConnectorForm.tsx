@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Card, Input, Select, Button, Icons } from '../UIPrimitives';
 import { ConnectorType } from '../../store/Connector/reducer';
 import GitLabConnector from './GitLabConnector';
@@ -21,9 +21,54 @@ export const ConnectorForm: React.FC<ConnectorFormProps> = ({ onSubmit }) => {
     const [selectedConnectorType, setSelectedConnectorType] = useState<ConnectorType>('gitlab-com');
     const [showConnectorForm, setShowConnectorForm] = useState<boolean>(false);
     
+    // Check URL fragment on mount to determine view state
+    useEffect(() => {
+        const fragment = window.location.hash;
+        
+        // If URL contains a specific connector type, show that connector's form
+        if (fragment.includes('/gitlab-com')) {
+            setSelectedConnectorType('gitlab-com');
+            setShowConnectorForm(true);
+        } else if (fragment.includes('/gitlab-self-hosted')) {
+            setSelectedConnectorType('gitlab-self-hosted');
+            setShowConnectorForm(true);
+        } else {
+            // Reset to provider selection if no connector type in URL
+            setShowConnectorForm(false);
+        }
+        
+        // Handle browser navigation (back/forward buttons)
+        const handlePopState = () => {
+            const currentFragment = window.location.hash;
+            
+            if (currentFragment.includes('/gitlab-com')) {
+                setSelectedConnectorType('gitlab-com');
+                setShowConnectorForm(true);
+            } else if (currentFragment.includes('/gitlab-self-hosted')) {
+                setSelectedConnectorType('gitlab-self-hosted');
+                setShowConnectorForm(true);
+            } else if (currentFragment === '#git') {
+                setShowConnectorForm(false);
+            }
+        };
+        
+        window.addEventListener('popstate', handlePopState);
+        
+        return () => {
+            window.removeEventListener('popstate', handlePopState);
+        };
+    }, []);
+    
     const handleConnectorSelect = (type: ConnectorType) => {
         setSelectedConnectorType(type);
         setShowConnectorForm(true);
+        
+        // Update URL fragment to reflect selected connector
+        window.history.pushState(
+            null, 
+            '', 
+            `#git/gitlab-${type}/step1`
+        );
     };
 
     const handleGitLabSubmit = (data: ConnectorData) => {
@@ -40,6 +85,13 @@ export const ConnectorForm: React.FC<ConnectorFormProps> = ({ onSubmit }) => {
 
     const handleBackToSelection = () => {
         setShowConnectorForm(false);
+        
+        // Update URL fragment to go back to provider selection
+        window.history.pushState(
+            null, 
+            '', 
+            `#git`
+        );
     };
 
     // Show connector selection screen

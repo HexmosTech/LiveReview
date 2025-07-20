@@ -60,7 +60,8 @@ const CodeHostCallback: React.FC<CodeHostCallbackProps> = ({ code: propCode }) =
   }, [propCode]);
 
   const handleBackToGitProviders = () => {
-    window.location.hash = 'git';
+    // Simply remove the oauth parameter from hash and stay on the git page
+    window.location.hash = '#git';
   };
 
   if (loading) {

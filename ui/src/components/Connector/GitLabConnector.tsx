@@ -24,6 +24,54 @@ const GitLabConnector: React.FC<GitLabConnectorProps> = ({ type, onSubmit }) => 
   });
   const [tempConnectorData, setTempConnectorData] = useState<any>(null);
 
+  // Set the URL fragment based on the current step
+  useEffect(() => {
+    // Get the current fragment
+    const currentHash = window.location.hash;
+    const baseFragment = currentHash.split('/')[0]; // Get #git part
+    
+    // Update the fragment to include the step
+    if (step === 1) {
+      window.history.replaceState(
+        null, 
+        '', 
+        `${baseFragment}/gitlab-${type}/step1`
+      );
+    } else if (step === 2) {
+      window.history.replaceState(
+        null, 
+        '', 
+        `${baseFragment}/gitlab-${type}/step2`
+      );
+    }
+  }, [step, type]);
+
+  // Check the URL fragment on component mount to determine the step
+  useEffect(() => {
+    const fragment = window.location.hash;
+    if (fragment.includes('/step2')) {
+      setStep(2);
+    } else {
+      setStep(1);
+    }
+    
+    // Add event listener for back/forward button
+    const handlePopState = () => {
+      const currentFragment = window.location.hash;
+      if (currentFragment.includes('/step2')) {
+        setStep(2);
+      } else if (currentFragment.includes('/step1') || currentFragment.includes('/gitlab-')) {
+        setStep(1);
+      }
+    };
+    
+    window.addEventListener('popstate', handlePopState);
+    
+    return () => {
+      window.removeEventListener('popstate', handlePopState);
+    };
+  }, []);
+
   // Fetch domain info when component mounts
   useEffect(() => {
     const fetchDomainInfo = async () => {
@@ -61,7 +109,7 @@ const GitLabConnector: React.FC<GitLabConnectorProps> = ({ type, onSubmit }) => 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     
-    // Store connector data in Redux
+    // Store connector data
     const connectorData = {
       name: formData.name,
       type,
@@ -70,15 +118,21 @@ const GitLabConnector: React.FC<GitLabConnectorProps> = ({ type, onSubmit }) => 
       apiSecret: formData.applicationSecret
     };
     
-    // Save to Redux store
-    dispatch(addConnector({
+    // Save to Redux store - include application secret this time
+    const connector = {
       name: formData.name,
       type,
       url: formData.url,
-      apiKey: formData.applicationId
-    }));
+      apiKey: formData.applicationId,
+      apiSecret: formData.applicationSecret // Include the secret
+    };
     
-    // Store complete data (including secret) in component state for authorization
+    dispatch(addConnector(connector));
+    
+    // Call the onSubmit prop to notify parent component
+    onSubmit(connectorData);
+    
+    // Store complete data in component state for authorization
     setTempConnectorData(connectorData);
     
     // Redirect to GitLab authorization
@@ -166,13 +220,17 @@ const GitLabConnector: React.FC<GitLabConnectorProps> = ({ type, onSubmit }) => 
             variant="primary"
             fullWidth
             onClick={() => {
-              // Store step 1 data in Redux
-              dispatch(addConnector({
-                name: formData.name,
-                type,
-                url: formData.url,
-                apiKey: '' // Will be updated in step 2
-              }));
+              // We shouldn't save to Redux here since we don't have all the data yet
+              // Will save in step 2 when we have complete data
+              
+              // Update URL and navigate to step 2
+              const currentHash = window.location.hash;
+              const baseFragment = currentHash.split('/')[0]; // Get #git part
+              window.history.pushState(
+                null, 
+                '', 
+                `${baseFragment}/gitlab-${type}/step2`
+              );
               setStep(2);
             }}
             disabled={type === 'gitlab-self-hosted' && !formData.url}
@@ -273,7 +331,17 @@ const GitLabConnector: React.FC<GitLabConnectorProps> = ({ type, onSubmit }) => 
           <div className="flex space-x-3">
             <Button
               variant="ghost"
-              onClick={() => setStep(1)}
+              onClick={() => {
+                // Update URL and go back to step 1
+                const currentHash = window.location.hash;
+                const baseFragment = currentHash.split('/')[0]; // Get #git part
+                window.history.pushState(
+                  null, 
+                  '', 
+                  `${baseFragment}/gitlab-${type}/step1`
+                );
+                setStep(1);
+              }}
               className="flex-1"
             >
               Back
