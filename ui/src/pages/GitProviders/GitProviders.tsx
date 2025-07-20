@@ -72,16 +72,19 @@ const GitProviders: React.FC = () => {
     }, []);
     
     // Combine store connectors and API connectors
-    const connectors = [...apiConnectors.map(apiConnector => ({
-        id: apiConnector.id.toString(),
-        name: apiConnector.connection_name || `${apiConnector.provider} Connection`,
-        type: apiConnector.provider.includes('gitlab') 
-            ? apiConnector.provider === 'gitlab-com' ? 'gitlab-com' : 'gitlab-self-hosted'
-            : apiConnector.provider as ConnectorType,
-        url: apiConnector.metadata?.url || '',
-        apiKey: '',
-        createdAt: apiConnector.created_at
-    })), ...storeConnectors];
+    const connectors = [...apiConnectors.map(apiConnector => {
+        // For simplicity, just use the provider as returned from the API
+        const connectorType = apiConnector.provider as ConnectorType;
+        
+        return {
+            id: apiConnector.id.toString(),
+            name: apiConnector.connection_name || `${apiConnector.provider} Connection`,
+            type: connectorType,
+            url: apiConnector.metadata?.gitlab_url || apiConnector.metadata?.url || '',
+            apiKey: '',
+            createdAt: apiConnector.created_at
+        };
+    }), ...storeConnectors];
 
     const handleAddConnector = (connectorData: ConnectorData) => {
         dispatch(addConnector(connectorData));
@@ -93,13 +96,18 @@ const GitProviders: React.FC = () => {
                 return 'GitLab.com';
             case 'gitlab-self-hosted':
                 return 'Self-Hosted GitLab';
+            case 'gitlab':
+                return 'GitLab';
+            case 'github':
+                return 'GitHub';
             default:
-                return type;
+                return type.charAt(0).toUpperCase() + type.slice(1);
         }
     };
 
     const getProviderIcon = (type: ConnectorType) => {
         switch (type) {
+            case 'gitlab':
             case 'gitlab-com':
             case 'gitlab-self-hosted':
                 return <Icons.GitLab />;

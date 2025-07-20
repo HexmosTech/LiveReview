@@ -1,6 +1,6 @@
 import { createSlice, PayloadAction } from '@reduxjs/toolkit';
 
-export type ConnectorType = 'gitlab-com' | 'gitlab-self-hosted' | 'github' | 'custom';
+export type ConnectorType = 'gitlab-com' | 'gitlab-self-hosted' | 'gitlab' | 'github' | 'custom';
 
 export type Connector = {
     id: string;
