@@ -97,7 +97,8 @@ CREATE TABLE public.integration_tokens (
     created_at timestamp with time zone DEFAULT now() NOT NULL,
     updated_at timestamp with time zone DEFAULT now() NOT NULL,
     code text,
-    connection_name text
+    connection_name text,
+    provider_url text
 );
 
 
@@ -199,4 +200,5 @@ INSERT INTO public.schema_migrations (version) VALUES
     ('20250720000001'),
     ('20250720000002'),
     ('20250720000003'),
-    ('20250720135317');
+    ('20250720135317'),
+    ('20250720182946');
