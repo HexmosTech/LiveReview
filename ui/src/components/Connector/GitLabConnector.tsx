@@ -119,6 +119,16 @@ const GitLabConnector: React.FC<GitLabConnectorProps> = ({ type, onSubmit }) => 
     const gitProviderBaseURL = type === 'gitlab-com' ? 'https://gitlab.com' : formData.url;
     const gitClientID = formData.applicationId;
     
+    // Store connector details in localStorage for use after OAuth callback
+    const connectorDetails = {
+      name: formData.name,
+      type,
+      url: formData.url,
+      applicationId: formData.applicationId,
+      applicationSecret: formData.applicationSecret
+    };
+    localStorage.setItem('pendingGitLabConnector', JSON.stringify(connectorDetails));
+    
     // Use the homepage as redirect URI since GitLab doesn't allow fragments
     let REDIRECT_URI = '';
     if (domainInfo.url) {

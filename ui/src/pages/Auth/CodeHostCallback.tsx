@@ -8,13 +8,34 @@ interface CodeHostCallbackProps {
   error?: string;
 }
 
+interface ConnectorDetails {
+  name: string;
+  type: string;
+  url: string;
+  applicationId: string;
+  applicationSecret: string;
+}
+
 const CodeHostCallback: React.FC<CodeHostCallbackProps> = ({ code: propCode, error: propError }) => {
   const [callbackData, setCallbackData] = useState<{ code?: string, state?: string, error?: string }>({});
   const [loading, setLoading] = useState(true);
+  const [connectorDetails, setConnectorDetails] = useState<ConnectorDetails | null>(null);
   const connectors = useAppSelector((state) => state.Connector.connectors);
   const navigate = useNavigate();
 
   useEffect(() => {
+    // Retrieve connector details from localStorage
+    const storedDetails = localStorage.getItem('pendingGitLabConnector');
+    if (storedDetails) {
+      try {
+        const parsedDetails = JSON.parse(storedDetails);
+        setConnectorDetails(parsedDetails);
+        console.log("Retrieved connector details:", parsedDetails);
+      } catch (e) {
+        console.error("Error parsing connector details:", e);
+      }
+    }
+
     // If code and error are passed as props, use them
     if (propCode || propError) {
       setCallbackData({
@@ -52,6 +73,8 @@ const CodeHostCallback: React.FC<CodeHostCallbackProps> = ({ code: propCode, err
   }, [propCode, propError]);
 
   const handleBackToGitProviders = () => {
+    // Clear the stored connector details when navigating away
+    localStorage.removeItem('pendingGitLabConnector');
     navigate('/git');
   };
 
@@ -90,6 +113,35 @@ const CodeHostCallback: React.FC<CodeHostCallbackProps> = ({ code: propCode, err
           <div className="bg-orange-900/50 border border-orange-700 rounded-md p-4 mb-6">
             <h3 className="text-lg font-medium text-orange-400 mb-2">Missing Data</h3>
             <p className="text-white">No authorization code or error was received.</p>
+          </div>
+        )}
+        
+        {/* Connector Details Section */}
+        {connectorDetails && (
+          <div className="bg-blue-900/50 border border-blue-700 rounded-md p-4 mb-6">
+            <h3 className="text-lg font-medium text-blue-400 mb-2">Connector Details</h3>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div>
+                <p className="text-white text-sm mb-1 font-medium">Connector Name:</p>
+                <p className="bg-slate-800 p-2 rounded text-slate-300">{connectorDetails.name}</p>
+              </div>
+              <div>
+                <p className="text-white text-sm mb-1 font-medium">Connector Type:</p>
+                <p className="bg-slate-800 p-2 rounded text-slate-300">{connectorDetails.type}</p>
+              </div>
+              <div>
+                <p className="text-white text-sm mb-1 font-medium">GitLab URL:</p>
+                <p className="bg-slate-800 p-2 rounded text-slate-300">{connectorDetails.url}</p>
+              </div>
+              <div>
+                <p className="text-white text-sm mb-1 font-medium">Application ID:</p>
+                <p className="bg-slate-800 p-2 rounded text-slate-300">{connectorDetails.applicationId}</p>
+              </div>
+              <div className="md:col-span-2">
+                <p className="text-white text-sm mb-1 font-medium">Application Secret:</p>
+                <p className="bg-slate-800 p-2 rounded text-slate-300">{connectorDetails.applicationSecret}</p>
+              </div>
+            </div>
           </div>
         )}
         
