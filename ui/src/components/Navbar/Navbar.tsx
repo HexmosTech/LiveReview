@@ -35,7 +35,7 @@ export const Navbar: React.FC<NavbarProps> = ({ title, activePage = 'dashboard',
                         role="button"
                         aria-label="Go to home"
                     >
-                        <img src="/assets/logo-horizontal.svg" alt="LiveReview Logo" className="h-12 w-auto mr-3" />
+                        <img src="assets/logo-horizontal.svg" alt="LiveReview Logo" className="h-12 w-auto mr-3" />
                     </Link>
                 </div>
                 

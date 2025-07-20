@@ -242,7 +242,7 @@ const Settings = () => {
                 <div className="md:col-span-2">
                     <Card>
                         <div className="flex items-center mb-6">
-                            <img src="/assets/logo.svg" alt="LiveReview Logo" className="h-8 w-auto mr-3" />
+                            <img src="assets/logo.svg" alt="LiveReview Logo" className="h-8 w-auto mr-3" />
                             <div>
                                 <h3 className="font-medium text-white">LiveReview v1.0.0</h3>
                                 <p className="text-sm text-slate-300">Automated code reviews powered by AI</p>

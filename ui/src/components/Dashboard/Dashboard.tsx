@@ -90,7 +90,7 @@ export const Dashboard: React.FC = () => {
                 {/* Brand showcase */}
                 <div className="my-6 bg-gradient-to-r from-blue-800 to-blue-600 rounded-xl p-6 text-white shadow-lg">
                     <div className="flex flex-col md:flex-row items-center">
-                        <img src="/assets/logo-mono.svg" alt="LiveReview Logo" className="h-20 w-auto mb-4 md:mb-0 md:mr-8 logo-animation" />
+                        <img src="assets/logo-mono.svg" alt="LiveReview Logo" className="h-20 w-auto mb-4 md:mb-0 md:mr-8 logo-animation" />
                         <div>
                             <h2 className="text-2xl font-bold mb-3">Welcome to LiveReview</h2>
                             <p className="text-blue-50 text-base leading-relaxed mb-4">

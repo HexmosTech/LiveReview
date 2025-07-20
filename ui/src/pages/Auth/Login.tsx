@@ -1,8 +1,13 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { Card, Input, Button, Alert, Icons } from '../../components/UIPrimitives';
 import { verifyAdminPassword } from '../../api/auth';
+import { useAppDispatch } from '../../store/configureStore';
+import { loginAdmin } from '../../store/Auth/reducer';
 
 const Login: React.FC = () => {
+  const navigate = useNavigate();
+  const dispatch = useAppDispatch();
   const [username, setUsername] = useState('admin');
   const [password, setPassword] = useState('');
   const [error, setError] = useState<string | null>(null);
@@ -22,22 +27,15 @@ const Login: React.FC = () => {
     setIsLoading(true);
     
     try {
-      // Call API directly
-      const response = await verifyAdminPassword(password);
+      // Use Redux action to login - this will update auth state and localStorage
+      const result = await dispatch(loginAdmin(password)).unwrap();
+      console.log('Login successful');
       
-      // Handle response
-      if (response.success) {
-        // Store authentication in localStorage
-        localStorage.setItem('authPassword', password);
-        // Redirect or update app state
-        window.location.href = '/'; // or use react-router navigation
-        console.log('Login successful');
-      } else {
-        setError('Invalid password');
-      }
+      // Now navigate to home - the App will re-render with the updated auth state
+      navigate('/');
     } catch (err) {
       // Handle error
-      setError('Login failed. Please try again.');
+      setError('Invalid password. Please try again.');
       console.error('Login error:', err);
     } finally {
       setIsLoading(false);

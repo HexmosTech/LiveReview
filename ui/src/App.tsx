@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { BrowserRouter as Router, Routes, Route, Navigate, useNavigate, useSearchParams, useLocation, Link } from 'react-router-dom';
+import { HashRouter as Router, Routes, Route, Navigate, useNavigate, useSearchParams, useLocation, Link } from 'react-router-dom';
 import { Navbar } from './components/Navbar/Navbar';
 import { Dashboard } from './components/Dashboard/Dashboard';
 import GitProviders from './pages/GitProviders/GitProviders';
@@ -18,7 +18,7 @@ const Footer = () => (
         <div className="container mx-auto px-4 flex flex-col md:flex-row justify-between items-center">
             <div className="flex items-center py-2">
                 <Link to="/" className="cursor-pointer" aria-label="Go to home">
-                    <img src="/assets/logo-horizontal.svg" alt="LiveReview Logo" className="h-10 w-auto" />
+                    <img src="assets/logo-horizontal.svg" alt="LiveReview Logo" className="h-10 w-auto" />
                 </Link>
             </div>
             <div className="text-right mt-4 md:mt-0">
