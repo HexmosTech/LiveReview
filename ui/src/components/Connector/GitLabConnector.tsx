@@ -3,6 +3,7 @@ import { Card, Input, Button, Icons } from '../UIPrimitives';
 import { ConnectorType, addConnector } from '../../store/Connector/reducer';
 import { useAppDispatch } from '../../store/configureStore';
 import apiClient from '../../api/apiClient';
+import { useNavigate, useParams, useLocation } from 'react-router-dom';
 
 type GitLabConnectorProps = {
   type: 'gitlab-com' | 'gitlab-self-hosted';
@@ -11,7 +12,11 @@ type GitLabConnectorProps = {
 
 const GitLabConnector: React.FC<GitLabConnectorProps> = ({ type, onSubmit }) => {
   const dispatch = useAppDispatch();
-  const [step, setStep] = useState<number>(1);
+  const navigate = useNavigate();
+  const location = useLocation();
+  const { step: urlStep } = useParams<{ step?: string }>();
+  
+  const [step, setStep] = useState<number>(urlStep === 'step2' ? 2 : 1);
   const [domainInfo, setDomainInfo] = useState({
     url: '',
     isConfigured: false
@@ -24,53 +29,23 @@ const GitLabConnector: React.FC<GitLabConnectorProps> = ({ type, onSubmit }) => 
   });
   const [tempConnectorData, setTempConnectorData] = useState<any>(null);
 
-  // Set the URL fragment based on the current step
+  // Set the URL path based on the current step
   useEffect(() => {
-    // Get the current fragment
-    const currentHash = window.location.hash;
-    const baseFragment = currentHash.split('/')[0]; // Get #git part
-    
-    // Update the fragment to include the step
-    if (step === 1) {
-      window.history.replaceState(
-        null, 
-        '', 
-        `${baseFragment}/gitlab-${type}/step1`
-      );
-    } else if (step === 2) {
-      window.history.replaceState(
-        null, 
-        '', 
-        `${baseFragment}/gitlab-${type}/step2`
-      );
+    if (step === 1 && urlStep !== 'step1') {
+      navigate(`/git/${type}/step1`, { replace: true });
+    } else if (step === 2 && urlStep !== 'step2') {
+      navigate(`/git/${type}/step2`, { replace: true });
     }
-  }, [step, type]);
+  }, [step, type, navigate, urlStep]);
 
-  // Check the URL fragment on component mount to determine the step
+  // Check the URL path on component mount to determine the step
   useEffect(() => {
-    const fragment = window.location.hash;
-    if (fragment.includes('/step2')) {
+    if (urlStep === 'step2') {
       setStep(2);
     } else {
       setStep(1);
     }
-    
-    // Add event listener for back/forward button
-    const handlePopState = () => {
-      const currentFragment = window.location.hash;
-      if (currentFragment.includes('/step2')) {
-        setStep(2);
-      } else if (currentFragment.includes('/step1') || currentFragment.includes('/gitlab-')) {
-        setStep(1);
-      }
-    };
-    
-    window.addEventListener('popstate', handlePopState);
-    
-    return () => {
-      window.removeEventListener('popstate', handlePopState);
-    };
-  }, []);
+  }, [urlStep]);
 
   // Fetch domain info when component mounts
   useEffect(() => {
@@ -157,6 +132,9 @@ const GitLabConnector: React.FC<GitLabConnectorProps> = ({ type, onSubmit }) => 
       REDIRECT_URI = window.location.origin;
     }
     
+    // Use the root URL as the redirect URL (no path)
+    // REDIRECT_URI = `${REDIRECT_URI}/oauth-callback`;
+    
     const authUrl = `${gitProviderBaseURL}/oauth/authorize?client_id=${gitClientID}&redirect_uri=${encodeURIComponent(REDIRECT_URI)}&scope=${encodeURIComponent(SCOPES.join(' '))}&response_type=code`;
     
     console.log("Redirecting to:", authUrl);
@@ -166,15 +144,19 @@ const GitLabConnector: React.FC<GitLabConnectorProps> = ({ type, onSubmit }) => 
   // Format the callback URL correctly for display and copy
   const getCallbackUrl = () => {
     if (!domainInfo.url) {
-      return '';
+      return window.location.origin;
     }
 
     // Check if domainInfo.url already includes https://
+    let baseUrl = '';
     if (domainInfo.url.startsWith('https://')) {
-      return domainInfo.url;
+      baseUrl = domainInfo.url;
     } else {
-      return `https://${domainInfo.url}`;
+      baseUrl = `https://${domainInfo.url}`;
     }
+    
+    // Return the root URL without any path
+    return baseUrl;
   };
 
   const callbackUrl = getCallbackUrl();
@@ -220,17 +202,8 @@ const GitLabConnector: React.FC<GitLabConnectorProps> = ({ type, onSubmit }) => 
             variant="primary"
             fullWidth
             onClick={() => {
-              // We shouldn't save to Redux here since we don't have all the data yet
-              // Will save in step 2 when we have complete data
-              
-              // Update URL and navigate to step 2
-              const currentHash = window.location.hash;
-              const baseFragment = currentHash.split('/')[0]; // Get #git part
-              window.history.pushState(
-                null, 
-                '', 
-                `${baseFragment}/gitlab-${type}/step2`
-              );
+              // Navigate to step 2 using React Router
+              navigate(`/git/${type}/step2`);
               setStep(2);
             }}
             disabled={type === 'gitlab-self-hosted' && !formData.url}
@@ -271,7 +244,7 @@ const GitLabConnector: React.FC<GitLabConnectorProps> = ({ type, onSubmit }) => 
                 <li>
                   Set the Redirect URI to:
                   <div className="mt-1 bg-slate-800 p-2 rounded border border-slate-600 flex items-center">
-                    <code className="text-green-400">{callbackUrl || 'https://your-domain.com/create-docs'}</code>
+                    <code className="text-green-400">{callbackUrl || 'https://your-domain.com/oauth-callback'}</code>
                     <button 
                       className="ml-2 text-blue-400 hover:text-blue-300"
                       onClick={() => {
@@ -332,14 +305,8 @@ const GitLabConnector: React.FC<GitLabConnectorProps> = ({ type, onSubmit }) => 
             <Button
               variant="ghost"
               onClick={() => {
-                // Update URL and go back to step 1
-                const currentHash = window.location.hash;
-                const baseFragment = currentHash.split('/')[0]; // Get #git part
-                window.history.pushState(
-                  null, 
-                  '', 
-                  `${baseFragment}/gitlab-${type}/step1`
-                );
+                // Navigate back to step 1 using React Router
+                navigate(`/git/${type}/step1`);
                 setStep(1);
               }}
               className="flex-1"

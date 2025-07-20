@@ -3,6 +3,7 @@ import { Card, Input, Select, Button, Icons } from '../UIPrimitives';
 import { ConnectorType } from '../../store/Connector/reducer';
 import GitLabConnector from './GitLabConnector';
 import DomainValidator from './DomainValidator';
+import { useNavigate, useParams, useLocation } from 'react-router-dom';
 
 type ConnectorFormProps = {
     onSubmit: (connector: ConnectorData) => void;
@@ -18,60 +19,33 @@ export type ConnectorData = {
 };
 
 export const ConnectorForm: React.FC<ConnectorFormProps> = ({ onSubmit }) => {
+    const navigate = useNavigate();
+    const location = useLocation();
+    const { providerType } = useParams<{ providerType?: string }>();
+    
     const [selectedConnectorType, setSelectedConnectorType] = useState<ConnectorType>('gitlab-com');
     const [showConnectorForm, setShowConnectorForm] = useState<boolean>(false);
     
-    // Check URL fragment on mount to determine view state
-    useEffect(() => {
-        const fragment = window.location.hash;
-        
-        // If URL contains a specific connector type, show that connector's form
-        if (fragment.includes('/gitlab-com')) {
-            setSelectedConnectorType('gitlab-com');
-            setShowConnectorForm(true);
-        } else if (fragment.includes('/gitlab-self-hosted')) {
-            setSelectedConnectorType('gitlab-self-hosted');
-            setShowConnectorForm(true);
-        } else {
-            // Reset to provider selection if no connector type in URL
-            setShowConnectorForm(false);
-        }
-        
-        // Handle browser navigation (back/forward buttons)
-        const handlePopState = () => {
-            const currentFragment = window.location.hash;
-            
-            if (currentFragment.includes('/gitlab-com')) {
-                setSelectedConnectorType('gitlab-com');
-                setShowConnectorForm(true);
-            } else if (currentFragment.includes('/gitlab-self-hosted')) {
-                setSelectedConnectorType('gitlab-self-hosted');
-                setShowConnectorForm(true);
-            } else if (currentFragment === '#git') {
-                setShowConnectorForm(false);
-            }
-        };
-        
-        window.addEventListener('popstate', handlePopState);
-        
-        return () => {
-            window.removeEventListener('popstate', handlePopState);
-        };
-    }, []);
+  // Check URL path on mount to determine view state
+  useEffect(() => {
+    // If URL contains a specific connector type, show that connector's form
+    if (providerType === 'gitlab-com') {
+      setSelectedConnectorType('gitlab-com');
+      setShowConnectorForm(true);
+    } else if (providerType === 'gitlab-self-hosted') {
+      setSelectedConnectorType('gitlab-self-hosted');
+      setShowConnectorForm(true);
+    } else {
+      // Reset to provider selection if no connector type in URL
+      setShowConnectorForm(false);
+    }
+  }, [providerType]);  const handleConnectorSelect = (type: ConnectorType) => {
+    setSelectedConnectorType(type);
+    setShowConnectorForm(true);
     
-    const handleConnectorSelect = (type: ConnectorType) => {
-        setSelectedConnectorType(type);
-        setShowConnectorForm(true);
-        
-        // Update URL fragment to reflect selected connector
-        window.history.pushState(
-            null, 
-            '', 
-            `#git/gitlab-${type}/step1`
-        );
-    };
-
-    const handleGitLabSubmit = (data: ConnectorData) => {
+    // Navigate to the connector setup page using React Router
+    navigate(`/git/${type}/step1`);
+  };    const handleGitLabSubmit = (data: ConnectorData) => {
         // Add ID and timestamp
         const connectorWithMeta = {
             ...data,
@@ -86,12 +60,8 @@ export const ConnectorForm: React.FC<ConnectorFormProps> = ({ onSubmit }) => {
     const handleBackToSelection = () => {
         setShowConnectorForm(false);
         
-        // Update URL fragment to go back to provider selection
-        window.history.pushState(
-            null, 
-            '', 
-            `#git`
-        );
+        // Navigate back to provider selection using React Router
+        navigate('/git');
     };
 
     // Show connector selection screen

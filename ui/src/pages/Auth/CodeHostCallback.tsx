@@ -1,46 +1,38 @@
 import React, { useEffect, useState } from 'react';
 import { Card } from '../../components/UIPrimitives';
 import { useAppSelector } from '../../store/configureStore';
+import { useNavigate } from 'react-router-dom';
 
 interface CodeHostCallbackProps {
   code?: string;
+  error?: string;
 }
 
-const CodeHostCallback: React.FC<CodeHostCallbackProps> = ({ code: propCode }) => {
+const CodeHostCallback: React.FC<CodeHostCallbackProps> = ({ code: propCode, error: propError }) => {
   const [callbackData, setCallbackData] = useState<{ code?: string, state?: string, error?: string }>({});
   const [loading, setLoading] = useState(true);
   const connectors = useAppSelector((state) => state.Connector.connectors);
+  const navigate = useNavigate();
 
   useEffect(() => {
-    // If code is passed as prop, use it
-    if (propCode) {
+    // If code and error are passed as props, use them
+    if (propCode || propError) {
       setCallbackData({
-        code: propCode
+        code: propCode,
+        error: propError
       });
       setLoading(false);
       return;
     }
     
-    // Extract query parameters from the hash fragment or search params
-    // Example: #/codehost-callback?code=123&state=456 or ?code=123&state=456
+    // Extract query parameters from URL search params
+    // This is a fallback for when props aren't provided
     let code, state, error;
     
-    // Check if params are in the hash (modern SPA)
-    const hashParams = window.location.hash.split('?')[1];
-    if (hashParams) {
-      const hashSearchParams = new URLSearchParams(hashParams);
-      code = hashSearchParams.get('code');
-      state = hashSearchParams.get('state');
-      error = hashSearchParams.get('error');
-    }
-    
-    // If not in hash, check regular query params (fallback)
-    if (!code && !error) {
-      const urlParams = new URLSearchParams(window.location.search);
-      code = urlParams.get('code');
-      state = urlParams.get('state');
-      error = urlParams.get('error');
-    }
+    const urlParams = new URLSearchParams(window.location.search);
+    code = urlParams.get('code');
+    state = urlParams.get('state');
+    error = urlParams.get('error');
     
     console.log("Extracted callback data:", { code, state, error });
     console.log("Original URL:", window.location.href);
@@ -57,11 +49,10 @@ const CodeHostCallback: React.FC<CodeHostCallbackProps> = ({ code: propCode }) =
     // 1. Exchange the code for an access token
     // 2. Store the token securely
     // 3. Redirect to the appropriate page
-  }, [propCode]);
+  }, [propCode, propError]);
 
   const handleBackToGitProviders = () => {
-    // Simply remove the oauth parameter from hash and stay on the git page
-    window.location.hash = '#git';
+    navigate('/git');
   };
 
   if (loading) {

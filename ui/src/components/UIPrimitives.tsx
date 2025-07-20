@@ -1,4 +1,4 @@
-import React, { ButtonHTMLAttributes, InputHTMLAttributes, ReactNode, SelectHTMLAttributes } from 'react';
+import React, { ButtonHTMLAttributes, InputHTMLAttributes, ReactNode, SelectHTMLAttributes, ElementType, ComponentPropsWithRef } from 'react';
 import classNames from 'classnames';
 
 // ===== BUTTON COMPONENTS =====
@@ -13,6 +13,8 @@ interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
   isLoading?: boolean;
   fullWidth?: boolean;
   href?: string;
+  as?: ElementType;
+  to?: string; // For React Router Link
 }
 
 export const Button: React.FC<ButtonProps> = ({
@@ -26,6 +28,8 @@ export const Button: React.FC<ButtonProps> = ({
   className,
   disabled,
   href,
+  as,
+  to,
   ...props
 }) => {
   const baseStyles = 'inline-flex items-center justify-center font-medium rounded-lg transition-colors focus:outline-none focus:ring-2 focus:ring-offset-2';
@@ -60,6 +64,33 @@ export const Button: React.FC<ButtonProps> = ({
     </>
   );
   
+  // Common props for all element types
+  const commonProps = {
+    className: classNames(
+      baseStyles,
+      variantStyles[variant],
+      sizeStyles[size],
+      fullWidth ? 'w-full' : '',
+      loadingOrDisabled ? 'opacity-70 cursor-not-allowed' : '',
+      className
+    ),
+    disabled: loadingOrDisabled,
+    ...props
+  };
+  
+  // If a custom component is provided through 'as' prop (e.g., Link from react-router-dom)
+  if (as) {
+    const Component = as;
+    return (
+      <Component 
+        {...commonProps}
+        to={to} // Pass 'to' prop for react-router Link
+      >
+        {buttonContent}
+      </Component>
+    );
+  }
+  
   // If href is provided, render an anchor tag
   if (href) {
     return (
@@ -73,7 +104,6 @@ export const Button: React.FC<ButtonProps> = ({
           loadingOrDisabled ? 'opacity-70 cursor-not-allowed' : '',
           className
         )}
-        {...(props as any)}
       >
         {buttonContent}
       </a>
@@ -83,16 +113,7 @@ export const Button: React.FC<ButtonProps> = ({
   // Otherwise render a button
   return (
     <button
-      className={classNames(
-        baseStyles,
-        variantStyles[variant],
-        sizeStyles[size],
-        fullWidth ? 'w-full' : '',
-        loadingOrDisabled ? 'opacity-70 cursor-not-allowed' : '',
-        className
-      )}
-      disabled={loadingOrDisabled}
-      {...props}
+      {...commonProps}
     >
       {buttonContent}
     </button>

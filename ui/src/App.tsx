@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { BrowserRouter as Router, Routes, Route, Navigate, useNavigate, useSearchParams, useLocation, Link } from 'react-router-dom';
 import { Navbar } from './components/Navbar/Navbar';
 import { Dashboard } from './components/Dashboard/Dashboard';
 import GitProviders from './pages/GitProviders/GitProviders';
@@ -7,25 +8,18 @@ import Settings from './pages/Settings/Settings';
 import Login from './pages/Auth/Login';
 import SetPassword from './pages/Auth/SetPassword';
 import CodeHostCallback from './pages/Auth/CodeHostCallback';
+import OAuthCallbackHandler from './pages/Auth/OAuthCallbackHandler';
+import HomeWithOAuthCheck from './pages/Home/HomeWithOAuthCheck';
 import { useAppDispatch, useAppSelector } from './store/configureStore';
 import { logout, checkPasswordStatus } from './store/Auth/reducer';
 
-const Footer = ({ onNavigateToHome }: { onNavigateToHome: () => void }) => (
+const Footer = () => (
     <footer className="bg-slate-900 border-t border-slate-700 py-8 mt-auto">
         <div className="container mx-auto px-4 flex flex-col md:flex-row justify-between items-center">
             <div className="flex items-center py-2">
-                <a 
-                    href="#dashboard"
-                    onClick={(e) => {
-                        e.preventDefault();
-                        onNavigateToHome();
-                    }} 
-                    className="cursor-pointer"
-                    role="button"
-                    aria-label="Go to home"
-                >
+                <Link to="/" className="cursor-pointer" aria-label="Go to home">
                     <img src="/assets/logo-horizontal.svg" alt="LiveReview Logo" className="h-10 w-auto" />
-                </a>
+                </Link>
             </div>
             <div className="text-right mt-4 md:mt-0">
                 <p className="text-sm text-slate-200">© {new Date().getFullYear()} LiveReview. All rights reserved.</p>
@@ -34,42 +28,29 @@ const Footer = ({ onNavigateToHome }: { onNavigateToHome: () => void }) => (
     </footer>
 );
 
-const App: React.FC = () => {
+// Main application content with routing
+const AppContent: React.FC = () => {
     const dispatch = useAppDispatch();
+    const navigate = useNavigate();
+    const location = useLocation();
     const { isAuthenticated, isPasswordSet, isLoading } = useAppSelector((state) => state.Auth);
-    const [oauthCode, setOauthCode] = useState<string | null>(null);
     
-    // Function to get the initial page from URL hash
-    const getInitialPage = (): string => {
-        const hashPath = window.location.hash.replace('#', '').replace(/^\//, '');
-        
-        // Handle OAuth callback detection in URL parameters
-        const urlParams = new URLSearchParams(window.location.search);
-        if (urlParams.has('code')) {
-            return 'oauth-callback';
-        }
-        
-        return ['dashboard', 'git', 'ai', 'settings'].includes(hashPath) ? hashPath : 'dashboard';
+    // Extract the current page from the path
+    const getCurrentPage = (): string => {
+        const path = location.pathname;
+        if (path.startsWith('/dashboard')) return 'dashboard';
+        if (path.startsWith('/git')) return 'git';
+        if (path.startsWith('/ai')) return 'ai';
+        if (path.startsWith('/settings')) return 'settings';
+        return 'dashboard';
     };
-
-    const [page, setPage] = useState(getInitialPage());
-
-    // Check for OAuth code in URL on load
+    
+    const [activePage, setActivePage] = useState(getCurrentPage());
+    
+    // Update active page when location changes
     useEffect(() => {
-        const urlParams = new URLSearchParams(window.location.search);
-        const code = urlParams.get('code');
-        if (code) {
-            console.log('App.tsx - Found OAuth code in URL:', code);
-            setOauthCode(code);
-            setPage('git'); // Set page to git so navbar is correct
-            
-            // Add a query parameter to the hash to indicate OAuth callback
-            // But don't modify the URL with replaceState to avoid breaking history
-            const currentHash = window.location.hash || '#git';
-            const hashWithoutQuery = currentHash.split('?')[0];
-            window.location.hash = `${hashWithoutQuery}?oauth=true`;
-        }
-    }, []);
+        setActivePage(getCurrentPage());
+    }, [location]);
 
     // Check password status on app load
     useEffect(() => {
@@ -82,37 +63,10 @@ const App: React.FC = () => {
         console.log('Auth state changed - isAuthenticated:', isAuthenticated, 'isPasswordSet:', isPasswordSet);
     }, [isAuthenticated, isPasswordSet]);
 
-    // Update URL hash when page changes
-    useEffect(() => {
-        console.log('App.tsx - Page changed to:', page);
-        
-        // Don't change the hash if there's an oauth=true parameter
-        const currentHash = window.location.hash;
-        const hasOAuthParam = currentHash.includes('?oauth=true');
-        
-        if (!hasOAuthParam) {
-            window.location.hash = page;
-        }
-    }, [page]);
-
-    // Listen for hash changes (e.g. when user uses browser navigation)
-    useEffect(() => {
-        const handleHashChange = () => {
-            const newPage = getInitialPage();
-            if (newPage !== page) {
-                console.log('App.tsx - Hash changed to:', newPage);
-                setPage(newPage);
-            }
-        };
-
-        window.addEventListener('hashchange', handleHashChange);
-        
-        // Also handle the initial hash on component mount
-        // This is especially important for handling redirects from external services
-        handleHashChange();
-        
-        return () => window.removeEventListener('hashchange', handleHashChange);
-    }, [page]);
+    // Handle navigation
+    const handleNavigate = (page: string) => {
+        navigate(`/${page}`);
+    };
 
     // Handle logout
     const handleLogout = () => {
@@ -151,47 +105,38 @@ const App: React.FC = () => {
     
     console.log('App.tsx - Showing main application - isAuthenticated:', isAuthenticated, 'isPasswordSet:', isPasswordSet);
 
-    const renderPage = () => {
-        // Check if the URL hash has oauth=true parameter
-        const hashParams = window.location.hash.split('?')[1];
-        const isOAuthCallback = hashParams && new URLSearchParams(hashParams).has('oauth');
-        
-        // If we have an OAuth code and are on the oauth callback page, show the callback component
-        if (oauthCode && isOAuthCallback) {
-            return <CodeHostCallback code={oauthCode} />;
-        }
-        
-        switch (page) {
-            case 'dashboard':
-                return <Dashboard />;
-            case 'git':
-                // If we're on git page but have an oauth code and oauth=true in the hash, show callback
-                if (oauthCode && isOAuthCallback) {
-                    return <CodeHostCallback code={oauthCode} />;
-                }
-                return <GitProviders />;
-            case 'ai':
-                return <AIProviders />;
-            case 'settings':
-                return <Settings />;
-            default:
-                return <Dashboard />;
-        }
-    };
-
     return (
         <div className="min-h-screen flex flex-col">
             <Navbar
                 title="LiveReview"
-                activePage={page}
-                onNavigate={setPage}
+                activePage={activePage}
+                onNavigate={handleNavigate}
                 onLogout={handleLogout}
             />
             <div className="flex-grow">
-                {renderPage()}
+                <Routes>
+                    <Route path="/" element={<HomeWithOAuthCheck />} />
+                    <Route path="/dashboard" element={<Dashboard />} />
+                    <Route path="/git" element={<GitProviders />} />
+                    <Route path="/git/:providerType" element={<GitProviders />} />
+                    <Route path="/git/:providerType/:step" element={<GitProviders />} />
+                    <Route path="/ai" element={<AIProviders />} />
+                    <Route path="/settings" element={<Settings />} />
+                    <Route path="/oauth-callback" element={<OAuthCallbackHandler />} />
+                    <Route path="*" element={<Navigate to="/" replace />} />
+                </Routes>
             </div>
-            <Footer onNavigateToHome={() => setPage('dashboard')} />
+            <Footer />
         </div>
+    );
+};
+
+// Main App component with Router
+const App: React.FC = () => {
+    return (
+        <Router>
+            <AppContent />
+        </Router>
     );
 };
 
