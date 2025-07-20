@@ -19,7 +19,7 @@ SET default_table_access_method = heap;
 
 CREATE TABLE public.instance_details (
     id integer NOT NULL,
-    livereview_prod_url text NOT NULL,
+    livereview_prod_url text,
     created_at timestamp with time zone DEFAULT CURRENT_TIMESTAMP NOT NULL,
     updated_at timestamp with time zone DEFAULT CURRENT_TIMESTAMP NOT NULL,
     admin_password text NOT NULL
@@ -144,4 +144,5 @@ INSERT INTO public.schema_migrations (version) VALUES
     ('20250719000001'),
     ('20250719000002'),
     ('20250719000003'),
-    ('20250719000004');
+    ('20250719000004'),
+    ('20250720000001');

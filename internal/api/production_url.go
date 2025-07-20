@@ -52,11 +52,8 @@ func (s *Server) UpdateProductionURL(c echo.Context) error {
 	}
 
 	// Validate URL
-	if req.URL == "" {
-		return c.JSON(http.StatusBadRequest, ErrorResponse{
-			Error: "URL cannot be empty",
-		})
-	}
+	// Empty URLs are allowed (will be stored as NULL)
+	// We're allowing empty URL to effectively clear the current setting
 
 	// Check if instance_details record exists
 	var count int
@@ -71,13 +68,13 @@ func (s *Server) UpdateProductionURL(c echo.Context) error {
 		// Insert a new record if none exists
 		_, err = s.db.Exec(`
 			INSERT INTO instance_details (livereview_prod_url) 
-			VALUES ($1)
+			VALUES (NULLIF($1, ''))
 		`, req.URL)
 	} else {
 		// Update existing record
 		_, err = s.db.Exec(`
 			UPDATE instance_details 
-			SET livereview_prod_url = $1, updated_at = CURRENT_TIMESTAMP 
+			SET livereview_prod_url = NULLIF($1, ''), updated_at = CURRENT_TIMESTAMP 
 			WHERE id = (SELECT id FROM instance_details LIMIT 1)
 		`, req.URL)
 	}
@@ -111,9 +108,8 @@ func (s *Server) GetProductionURLDirectly() (string, error) {
 
 // UpdateProductionURLDirectly updates the production URL directly (for CLI use)
 func (s *Server) UpdateProductionURLDirectly(url string) error {
-	if url == "" {
-		return fmt.Errorf("URL cannot be empty")
-	}
+	// Empty URLs are allowed (will be stored as NULL)
+	// We're allowing empty URL to effectively clear the current setting
 
 	// Check if instance_details record exists
 	var count int
@@ -127,13 +123,13 @@ func (s *Server) UpdateProductionURLDirectly(url string) error {
 		// Insert a new record
 		result, err = s.db.Exec(`
 			INSERT INTO instance_details (livereview_prod_url) 
-			VALUES ($1)
+			VALUES (NULLIF($1, ''))
 		`, url)
 	} else {
 		// Update existing record
 		result, err = s.db.Exec(`
 			UPDATE instance_details 
-			SET livereview_prod_url = $1, updated_at = CURRENT_TIMESTAMP 
+			SET livereview_prod_url = NULLIF($1, ''), updated_at = CURRENT_TIMESTAMP 
 			WHERE id = (SELECT id FROM instance_details LIMIT 1)
 		`, url)
 	}

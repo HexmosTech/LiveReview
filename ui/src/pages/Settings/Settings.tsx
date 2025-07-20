@@ -74,7 +74,7 @@ const Settings = () => {
     const [error, setError] = useState('');
     const [isLoading, setIsLoading] = useState(false);
 
-    // URL validation - must be http/https, not localhost
+    // URL validation - must be http/https, not localhost, and no trailing slash
     const validateUrl = (url: string): boolean => {
         if (!url) return false;
         
@@ -86,10 +86,33 @@ const Settings = () => {
                                urlObj.hostname.startsWith('192.168.') ||
                                urlObj.hostname.startsWith('10.') ||
                                urlObj.hostname.startsWith('172.16.'); 
+            
+            // Check for trailing slash in pathname (when pathname is just a single slash)
+            const hasTrailingSlash = urlObj.pathname !== '/' && urlObj.pathname.endsWith('/');
+            if (hasTrailingSlash) {
+                setError('URL should not contain a trailing slash');
+                return false;
+            }
                                
             return isValidProtocol && !isLocalhost;
         } catch (e) {
             return false;
+        }
+    };
+
+    const handleUrlChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+        // If the user just typed a trailing slash, remove it
+        const newValue = e.target.value;
+        // Only automatically remove trailing slash when it's just added (last character)
+        if (newValue.length > productionUrl.length && newValue.endsWith('/')) {
+            setProductionUrl(newValue.replace(/\/+$/, ''));
+        } else {
+            setProductionUrl(newValue);
+        }
+        
+        // Clear any previous error messages
+        if (error) {
+            setError('');
         }
     };
 
@@ -102,8 +125,9 @@ const Settings = () => {
                 console.log('Production URL response:', response); // Debug log
                 
                 if (response && response.url) {
-                    setProductionUrl(response.url);
-                    dispatch(updateDomain(response.url)); // Update Redux state
+                    const trimmedUrl = response.url.replace(/\/+$/, '');
+                    setProductionUrl(trimmedUrl);
+                    dispatch(updateDomain(trimmedUrl)); // Update Redux state
                 }
             } catch (error) {
                 console.error('Failed to fetch production URL:', error);
@@ -121,8 +145,16 @@ const Settings = () => {
     }, [dispatch]);
 
     const handleSaveDomain = async () => {
+        // Remove trailing slashes from the URL
+        const trimmedUrl = productionUrl.replace(/\/+$/, '');
+        
+        // If the URL was changed, update the state
+        if (trimmedUrl !== productionUrl) {
+            setProductionUrl(trimmedUrl);
+        }
+        
         // Validate URL
-        if (!validateUrl(productionUrl)) {
+        if (!validateUrl(trimmedUrl)) {
             setError('Please enter a valid URL (https://example.com). Local addresses are not allowed.');
             return;
         }
@@ -130,12 +162,12 @@ const Settings = () => {
         setIsLoading(true);
         setError('');
         
-        console.log('Sending request to update production URL:', productionUrl); // Debug log
+        console.log('Sending request to update production URL:', trimmedUrl); // Debug log
         
         try {
             // Use the correct property name "url" as defined in the Go struct
             const response = await apiClient.put<ProductionURLResponse>('/api/v1/production-url', {
-                url: productionUrl  // The server expects this exact field name
+                url: trimmedUrl  // The server expects this exact field name
             });
             
             console.log('Production URL update response:', response); // Debug log
@@ -245,8 +277,8 @@ const Settings = () => {
                                         label="Production URL"
                                         placeholder="https://livereview.your-company.com"
                                         value={productionUrl}
-                                        onChange={(e) => setProductionUrl(e.target.value)}
-                                        helperText="Enter the full URL where your LiveReview instance is hosted (must be https://)"
+                                        onChange={handleUrlChange}
+                                        helperText="Enter the full URL where your LiveReview instance is hosted (must be https:// and no trailing slash)"
                                         disabled={isLoading}
                                     />
                                     <div className="flex justify-end">
