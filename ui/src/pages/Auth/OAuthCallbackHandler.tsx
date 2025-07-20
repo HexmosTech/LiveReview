@@ -5,31 +5,36 @@ import CodeHostCallback from './CodeHostCallback';
 const OAuthCallbackHandler: React.FC = () => {
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
+  
+  // Get code/error from search params
   const code = searchParams.get('code');
   const error = searchParams.get('error');
 
   useEffect(() => {
-    // Process the code or error and then redirect
-    if (code) {
-      console.log("OAuth code received:", code);
-      // Here you would typically exchange the code for an access token
-      // But for now, we'll just redirect to the dashboard after a short delay
-      setTimeout(() => {
-        navigate('/dashboard');
-      }, 2000);
-    } else if (error) {
-      console.error("OAuth error:", error);
-      // Redirect to git providers page after a short delay to show the error
-      setTimeout(() => {
-        navigate('/git');
-      }, 2000);
-    } else {
-      // If there's no code or error, redirect to git providers page immediately
-      navigate('/git');
+    console.log("OAuthCallbackHandler mounted with parameters:", { code, error });
+    
+    // If no code in search params, check window.location.search directly
+    // This is needed because React Router HashRouter might not correctly parse
+    // params when redirecting from the OAuth provider
+    if (!code && !error) {
+      const urlParams = new URLSearchParams(window.location.search);
+      const urlCode = urlParams.get('code');
+      const urlError = urlParams.get('error');
+      
+      if (urlCode || urlError) {
+        console.log("Found OAuth parameters in URL:", { code: urlCode, error: urlError });
+        // Just render the CodeHostCallback component directly with the params
+        return;
+      }
     }
-  }, [code, error, navigate]);
+  }, [code, error]);
 
-  // Show a simple loading/processing screen
+  // When we have a code, show the CodeHostCallback component
+  if (code || error) {
+    return <CodeHostCallback code={code || undefined} error={error || undefined} />;
+  }
+
+  // Show a simple loading/processing screen when no code/error found
   return (
     <div className="container mx-auto px-4 py-8">
       <div className="bg-slate-800 p-6 rounded-lg max-w-3xl mx-auto">
@@ -39,9 +44,7 @@ const OAuthCallbackHandler: React.FC = () => {
             <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
           </svg>
           <h2 className="text-xl font-medium text-white">
-            {code ? "Authentication successful! Redirecting..." : 
-             error ? "Authentication error! Redirecting..." : 
-             "Processing..."}
+            Waiting for authentication data...
           </h2>
         </div>
       </div>

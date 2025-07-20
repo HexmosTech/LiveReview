@@ -133,6 +133,30 @@ const AppContent: React.FC = () => {
 
 // Main App component with Router
 const App: React.FC = () => {
+    // Check if we have OAuth parameters in the URL (for GitLab redirect)
+    // This runs before the router setup
+    React.useEffect(() => {
+        const handleOAuthRedirect = () => {
+            const urlParams = new URLSearchParams(window.location.search);
+            const code = urlParams.get('code');
+            const error = urlParams.get('error');
+            
+            // If we have OAuth parameters and we're at the root URL
+            if ((code || error) && window.location.hash === '') {
+                console.log("Detected OAuth redirect parameters:", { code, error });
+                
+                // Preserve the query parameters
+                const newLocation = `/#/oauth-callback${window.location.search}`;
+                console.log("Redirecting to:", newLocation);
+                
+                // Redirect to the OAuth callback route with the hash-based format
+                window.location.href = newLocation;
+            }
+        };
+
+        handleOAuthRedirect();
+    }, []);
+
     return (
         <Router>
             <AppContent />
