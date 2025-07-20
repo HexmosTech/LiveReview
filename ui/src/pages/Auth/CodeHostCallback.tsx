@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { Card } from '../../components/UIPrimitives';
 import { useAppSelector } from '../../store/configureStore';
 import { useNavigate } from 'react-router-dom';
+import { getGitLabAccessToken } from '../../api/gitlab';
 
 interface CodeHostCallbackProps {
   code?: string;
@@ -16,10 +17,21 @@ interface ConnectorDetails {
   applicationSecret: string;
 }
 
+interface TokenDetails {
+  message: string;
+  token_id: number;
+  integration_id: number;
+  username: string;
+  connection_name: string;
+}
+
 const CodeHostCallback: React.FC<CodeHostCallbackProps> = ({ code: propCode, error: propError }) => {
   const [callbackData, setCallbackData] = useState<{ code?: string, state?: string, error?: string }>({});
   const [loading, setLoading] = useState(true);
   const [connectorDetails, setConnectorDetails] = useState<ConnectorDetails | null>(null);
+  const [tokenDetails, setTokenDetails] = useState<TokenDetails | null>(null);
+  const [tokenError, setTokenError] = useState<string | null>(null);
+  const [tokenLoading, setTokenLoading] = useState(false);
   const connectors = useAppSelector((state) => state.Connector.connectors);
   const navigate = useNavigate();
 
@@ -65,12 +77,44 @@ const CodeHostCallback: React.FC<CodeHostCallbackProps> = ({ code: propCode, err
     });
     
     setLoading(false);
-    
-    // In a real implementation, you would:
-    // 1. Exchange the code for an access token
-    // 2. Store the token securely
-    // 3. Redirect to the appropriate page
   }, [propCode, propError]);
+
+  // Exchange authorization code for access token when we have both code and connector details
+  useEffect(() => {
+    const exchangeCodeForToken = async () => {
+      if (!callbackData.code || !connectorDetails || tokenLoading) {
+        return;
+      }
+
+      setTokenLoading(true);
+      setTokenError(null);
+
+      try {
+        // Get domain info for redirect URI
+        let redirectUri = window.location.origin;
+        
+        // Exchange the code for an access token
+        const response = await getGitLabAccessToken(
+          callbackData.code,
+          connectorDetails.url,
+          connectorDetails.applicationId,
+          connectorDetails.applicationSecret,
+          redirectUri,
+          connectorDetails.name
+        );
+
+        setTokenDetails(response);
+        console.log("Token exchange successful:", response);
+      } catch (error: any) {
+        console.error("Error exchanging code for token:", error);
+        setTokenError(error.message || "Failed to exchange authorization code for access token");
+      } finally {
+        setTokenLoading(false);
+      }
+    };
+
+    exchangeCodeForToken();
+  }, [callbackData.code, connectorDetails]);
 
   const handleBackToGitProviders = () => {
     // Clear the stored connector details when navigating away
@@ -104,10 +148,52 @@ const CodeHostCallback: React.FC<CodeHostCallbackProps> = ({ code: propCode, err
             <h3 className="text-lg font-medium text-red-400 mb-2">Authentication Error</h3>
             <p className="text-white">{callbackData.error}</p>
           </div>
-        ) : callbackData.code ? (
+        ) : tokenError ? (
+          <div className="bg-red-900/50 border border-red-700 rounded-md p-4 mb-6">
+            <h3 className="text-lg font-medium text-red-400 mb-2">Token Exchange Error</h3>
+            <p className="text-white">{tokenError}</p>
+          </div>
+        ) : tokenDetails ? (
           <div className="bg-green-900/50 border border-green-700 rounded-md p-4 mb-6">
-            <h3 className="text-lg font-medium text-green-400 mb-2">Authentication Successful!</h3>
-            <p className="text-white">Successfully received authorization code.</p>
+            <h3 className="text-lg font-medium text-green-400 mb-2">Authentication Complete!</h3>
+            <p className="text-white">{tokenDetails.message}</p>
+            <div className="mt-4 grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div>
+                <p className="text-white text-sm mb-1 font-medium">Token ID:</p>
+                <p className="bg-slate-800 p-2 rounded text-slate-300">{tokenDetails.token_id}</p>
+              </div>
+              <div>
+                <p className="text-white text-sm mb-1 font-medium">Integration ID:</p>
+                <p className="bg-slate-800 p-2 rounded text-slate-300">{tokenDetails.integration_id}</p>
+              </div>
+              <div>
+                <p className="text-white text-sm mb-1 font-medium">Username:</p>
+                <p className="bg-slate-800 p-2 rounded text-slate-300">{tokenDetails.username || 'Not available'}</p>
+              </div>
+              <div>
+                <p className="text-white text-sm mb-1 font-medium">Connection Name:</p>
+                <p className="bg-slate-800 p-2 rounded text-slate-300">{tokenDetails.connection_name}</p>
+              </div>
+            </div>
+          </div>
+        ) : callbackData.code ? (
+          <div className="bg-yellow-900/50 border border-yellow-700 rounded-md p-4 mb-6">
+            <h3 className="text-lg font-medium text-yellow-400 mb-2">
+              {tokenLoading ? "Exchanging Code for Token..." : "Authorization Code Received"}
+            </h3>
+            <p className="text-white">
+              {tokenLoading ? (
+                <span className="flex items-center">
+                  <svg className="animate-spin h-5 w-5 text-yellow-400 mr-2" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                  </svg>
+                  Exchanging authorization code for access token...
+                </span>
+              ) : (
+                "Successfully received authorization code. Waiting to exchange for access token."
+              )}
+            </p>
           </div>
         ) : (
           <div className="bg-orange-900/50 border border-orange-700 rounded-md p-4 mb-6">
@@ -149,13 +235,6 @@ const CodeHostCallback: React.FC<CodeHostCallbackProps> = ({ code: propCode, err
           <h3 className="text-lg font-medium text-white mb-2">Response Data</h3>
           <pre className="bg-slate-900 p-3 rounded-md overflow-auto text-sm text-green-400">
             {JSON.stringify(callbackData, null, 2)}
-          </pre>
-        </div>
-        
-        <div className="bg-slate-800 p-4 rounded-md mb-6">
-          <h3 className="text-lg font-medium text-white mb-2">Available Connectors</h3>
-          <pre className="bg-slate-900 p-3 rounded-md overflow-auto text-sm text-blue-400">
-            {JSON.stringify(connectors, null, 2)}
           </pre>
         </div>
         

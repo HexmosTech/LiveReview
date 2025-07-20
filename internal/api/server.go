@@ -91,6 +91,10 @@ func (s *Server) setupRoutes() {
 	// Production URL endpoints
 	v1.GET("/production-url", s.GetProductionURL)
 	v1.PUT("/production-url", s.UpdateProductionURL)
+
+	// GitLab OAuth endpoints
+	v1.POST("/gitlab/token", s.GitLabGetAccessToken)
+	v1.POST("/gitlab/refresh", s.GitLabRefreshToken)
 }
 
 // Start begins the API server
