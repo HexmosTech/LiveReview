@@ -47,6 +47,44 @@ ALTER SEQUENCE public.instance_details_id_seq OWNED BY public.instance_details.i
 
 
 --
+-- Name: integration_tokens; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.integration_tokens (
+    id bigint NOT NULL,
+    provider text NOT NULL,
+    provider_app_id text NOT NULL,
+    access_token text NOT NULL,
+    refresh_token text,
+    token_type text,
+    scope text,
+    expires_at timestamp with time zone,
+    metadata jsonb DEFAULT '{}'::jsonb,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL
+);
+
+
+--
+-- Name: integration_tokens_id_seq; Type: SEQUENCE; Schema: public; Owner: -
+--
+
+CREATE SEQUENCE public.integration_tokens_id_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+
+--
+-- Name: integration_tokens_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: -
+--
+
+ALTER SEQUENCE public.integration_tokens_id_seq OWNED BY public.integration_tokens.id;
+
+
+--
 -- Name: schema_migrations; Type: TABLE; Schema: public; Owner: -
 --
 
@@ -63,11 +101,26 @@ ALTER TABLE ONLY public.instance_details ALTER COLUMN id SET DEFAULT nextval('pu
 
 
 --
+-- Name: integration_tokens id; Type: DEFAULT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.integration_tokens ALTER COLUMN id SET DEFAULT nextval('public.integration_tokens_id_seq'::regclass);
+
+
+--
 -- Name: instance_details instance_details_pkey; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
 ALTER TABLE ONLY public.instance_details
     ADD CONSTRAINT instance_details_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: integration_tokens integration_tokens_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.integration_tokens
+    ADD CONSTRAINT integration_tokens_pkey PRIMARY KEY (id);
 
 
 --
@@ -90,4 +143,5 @@ ALTER TABLE ONLY public.schema_migrations
 INSERT INTO public.schema_migrations (version) VALUES
     ('20250719000001'),
     ('20250719000002'),
-    ('20250719000003');
+    ('20250719000003'),
+    ('20250719000004');
