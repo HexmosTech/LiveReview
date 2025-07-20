@@ -122,11 +122,11 @@ const GitProviders: React.FC = () => {
                     <ConnectorForm onSubmit={handleAddConnector} />
                     
                     {/* Brand Showcase */}
-                    <div className="mt-6 card-brand rounded-lg bg-white p-5 shadow-sm">
-                        <h3 className="text-lg font-medium text-gray-900 mb-3">Why Connect Git Providers?</h3>
+                    <div className="mt-6 card-brand rounded-lg bg-slate-700 border border-slate-600 p-5 shadow-md">
+                        <h3 className="text-lg font-medium text-white mb-3">Why Connect Git Providers?</h3>
                         <div className="flex items-center">
                             <img src={require("../../../assets/logo.svg")} alt="LiveReview Eye" className="h-12 w-auto mr-4 logo-animation" />
-                            <p className="text-sm text-gray-500">
+                            <p className="text-sm text-slate-300">
                                 LiveReview connects to your repositories to provide real-time AI-powered code reviews, 
                                 helping your team ship better code faster.
                             </p>
@@ -168,7 +168,7 @@ const GitProviders: React.FC = () => {
                                 {connectors.map((connector) => (
                                     <li
                                         key={connector.id}
-                                        className="border border-gray-100 rounded-lg hover:bg-gray-50 transition-colors"
+                                        className="border border-slate-600 rounded-lg bg-slate-700 hover:bg-slate-600 transition-colors"
                                     >
                                         <div className="p-4">
                                             <div className="flex justify-between items-center">
@@ -181,7 +181,7 @@ const GitProviders: React.FC = () => {
                                                     </div>
                                                     <div>
                                                         <div className="flex items-center">
-                                                            <h3 className="font-medium text-gray-900">
+                                                            <h3 className="font-medium text-white">
                                                                 {connector.name}
                                                             </h3>
                                                             <Badge 
@@ -192,14 +192,14 @@ const GitProviders: React.FC = () => {
                                                                 {formatConnectorType(connector.type)}
                                                             </Badge>
                                                         </div>
-                                                        <p className="text-sm text-gray-500">
+                                                        <p className="text-sm text-slate-300">
                                                             {connector.url}
                                                         </p>
                                                     </div>
                                                 </div>
                                                 <div className="flex items-center space-x-2">
                                                     {connector.createdAt && (
-                                                        <span className="text-xs text-gray-500">
+                                                        <span className="text-xs text-slate-300">
                                                             {new Date(connector.createdAt).toLocaleDateString()}
                                                         </span>
                                                     )}
@@ -229,7 +229,7 @@ const GitProviders: React.FC = () => {
                                         <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span>
                                         <span className="relative inline-flex rounded-full h-3 w-3 bg-green-500"></span>
                                     </span>
-                                    <p className="text-sm text-gray-700">All connectors working properly</p>
+                                    <p className="text-sm text-slate-200">All connectors working properly</p>
                                 </div>
                                 <Button 
                                     variant="outline" 
