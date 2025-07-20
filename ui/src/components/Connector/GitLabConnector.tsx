@@ -218,7 +218,7 @@ const GitLabConnector: React.FC<GitLabConnectorProps> = ({ type, onSubmit }) => 
             }}
             disabled={type === 'gitlab-self-hosted' && !formData.url}
           >
-            Continue to OAuth Setup
+            Continue to Setup
           </Button>
         </div>
       </div>
