@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { ConnectorForm, ConnectorData } from '../../components/Connector/ConnectorForm';
 import { useAppDispatch, useAppSelector } from '../../store/configureStore';
 import { addConnector, ConnectorType } from '../../store/Connector/reducer';
@@ -9,8 +9,10 @@ import {
     Button, 
     Icons, 
     Badge,
-    Avatar
+    Avatar,
+    Spinner
 } from '../../components/UIPrimitives';
+import { getConnectors, ConnectorResponse } from '../../api/connectors';
 
 // Spec for GitProviderKit
 // This system will manage Git providers, allowing users to add, edit, and remove Git provider configurations.
@@ -44,7 +46,42 @@ import {
 
 const GitProviders: React.FC = () => {
     const dispatch = useAppDispatch();
-    const connectors = useAppSelector((state) => state.Connector.connectors);
+    const storeConnectors = useAppSelector((state) => state.Connector.connectors);
+    
+    const [apiConnectors, setApiConnectors] = useState<any[]>([]);
+    const [isLoading, setIsLoading] = useState<boolean>(true);
+    const [error, setError] = useState<string | null>(null);
+    
+    // Fetch connectors from API on component mount
+    useEffect(() => {
+        const fetchConnectors = async () => {
+            try {
+                setIsLoading(true);
+                const data = await getConnectors();
+                setApiConnectors(data);
+                setError(null);
+            } catch (err) {
+                console.error('Error fetching connectors:', err);
+                setError('Failed to load connectors. Please try again.');
+            } finally {
+                setIsLoading(false);
+            }
+        };
+        
+        fetchConnectors();
+    }, []);
+    
+    // Combine store connectors and API connectors
+    const connectors = [...apiConnectors.map(apiConnector => ({
+        id: apiConnector.id.toString(),
+        name: apiConnector.connection_name || `${apiConnector.provider} Connection`,
+        type: apiConnector.provider.includes('gitlab') 
+            ? apiConnector.provider === 'gitlab-com' ? 'gitlab-com' : 'gitlab-self-hosted'
+            : apiConnector.provider as ConnectorType,
+        url: apiConnector.metadata?.url || '',
+        apiKey: '',
+        createdAt: apiConnector.created_at
+    })), ...storeConnectors];
 
     const handleAddConnector = (connectorData: ConnectorData) => {
         dispatch(addConnector(connectorData));
@@ -102,7 +139,25 @@ const GitProviders: React.FC = () => {
                         title="Your Connectors" 
                         badge={`${connectors.length}`}
                     >
-                        {connectors.length === 0 ? (
+                        {isLoading ? (
+                            <div className="flex justify-center items-center py-8">
+                                <Spinner size="md" color="text-blue-400" />
+                                <span className="ml-3 text-slate-300">Loading connectors...</span>
+                            </div>
+                        ) : error ? (
+                            <div className="p-4 text-center">
+                                <Icons.Error />
+                                <p className="text-red-400 mt-2">{error}</p>
+                                <Button 
+                                    variant="outline" 
+                                    size="sm" 
+                                    className="mt-3"
+                                    onClick={() => window.location.reload()}
+                                >
+                                    Retry
+                                </Button>
+                            </div>
+                        ) : connectors.length === 0 ? (
                             <EmptyState
                                 icon={<Icons.EmptyState />}
                                 title="No connectors yet"

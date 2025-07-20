@@ -95,6 +95,9 @@ func (s *Server) setupRoutes() {
 	// GitLab OAuth endpoints
 	v1.POST("/gitlab/token", s.GitLabGetAccessToken)
 	v1.POST("/gitlab/refresh", s.GitLabRefreshToken)
+
+	// Connector endpoints
+	v1.GET("/connectors", s.GetConnectors)
 }
 
 // Start begins the API server
