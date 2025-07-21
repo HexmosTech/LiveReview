@@ -255,9 +255,9 @@ func runReviewProcess(
 
 		// Post the summary as a general comment
 		summaryComment := &models.ReviewComment{
-			FilePath: "", // Empty for MR-level comment
-			Line:     0,  // 0 for MR-level comment
-			Content:  fmt.Sprintf("# AI Review Summary\n\n%s", result.Summary),
+			FilePath: "",             // Empty for MR-level comment
+			Line:     0,              // 0 for MR-level comment
+			Content:  result.Summary, // The summary already includes a title
 			Severity: models.SeverityInfo,
 			Category: "summary",
 		}
@@ -284,7 +284,7 @@ func runReviewProcess(
 	}
 
 	// Always print the results
-	fmt.Println("\n=== AI Review Summary ===")
+	fmt.Println("\n=== Code Review Results ===")
 	fmt.Println(result.Summary)
 	fmt.Println("\n=== Specific Comments ===")
 

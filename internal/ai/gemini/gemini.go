@@ -165,9 +165,12 @@ func createReviewPrompt(diffs []*models.CodeDiff) string {
 	// Instructions for the AI
 	prompt.WriteString("# Code Review Request\n\n")
 	prompt.WriteString("Review the following code changes thoroughly and provide:\n")
-	prompt.WriteString("1. A concise summary of the changes\n")
+	prompt.WriteString("1. A concise summary of the changes that describes EXACTLY what was changed and why\n")
 	prompt.WriteString("2. Specific actionable comments highlighting issues, improvements, and best practices\n\n")
 	prompt.WriteString("IMPORTANT REVIEW GUIDELINES:\n")
+	prompt.WriteString("- For the summary: Be specific about what files changed and what exactly was modified\n")
+	prompt.WriteString("- Do NOT add headings/titles to your summary - just provide the content\n")
+	prompt.WriteString("- DO NOT use generic descriptions like 'this change includes...' - be specific\n")
 	prompt.WriteString("- Keep comments concise and use active voice\n")
 	prompt.WriteString("- Focus on finding bugs, security issues, and improvement opportunities\n")
 	prompt.WriteString("- Highlight unclear code and readability issues\n")
@@ -1322,14 +1325,23 @@ func extractHumanReadableSummary(summary string) string {
 		summary = strings.ReplaceAll(summary, strings.ToLower(phrase), "")
 	}
 
-	// If the summary is too short, add a default header
-	if len(summary) < 50 {
-		summary = "# Code Review Summary\n\n" + summary
+	// Check if summary already has a heading that ends with (LiveReview)
+	hasLiveReviewHeading := regexp.MustCompile(`(?m)^#.*\(LiveReview\).*$`).MatchString(summary)
+
+	// Remove existing headings if they don't include (LiveReview)
+	if !hasLiveReviewHeading && strings.HasPrefix(summary, "#") {
+		// Extract the content after the first heading
+		headingEndIdx := strings.Index(summary, "\n")
+		if headingEndIdx > 0 {
+			summary = strings.TrimSpace(summary[headingEndIdx+1:])
+		}
 	}
 
-	// Make sure the summary has a heading
-	if !strings.HasPrefix(summary, "#") {
-		summary = "# Code Review Summary\n\n" + summary
+	// If there's no heading with (LiveReview), add one with a specific title based on the content
+	if !hasLiveReviewHeading {
+		// Generate a title based on the content of the summary
+		title := generateMeaningfulTitle(summary)
+		summary = fmt.Sprintf("# %s (LiveReview)\n\n%s", title, summary)
 	}
 
 	// Clean up multiple newlines
@@ -1337,6 +1349,77 @@ func extractHumanReadableSummary(summary string) string {
 	summary = multipleNewlines.ReplaceAllString(summary, "\n\n")
 
 	return summary
+}
+
+// generateMeaningfulTitle creates a specific, descriptive title based on the summary content
+func generateMeaningfulTitle(summary string) string {
+	// Analyze the summary content to extract key information about the changes
+
+	// Check for common patterns that indicate what type of changes were made
+	lowerSummary := strings.ToLower(summary)
+
+	// Check for version changes
+	if strings.Contains(lowerSummary, "version bump") || strings.Contains(lowerSummary, "version update") ||
+		regexp.MustCompile(`v\d+\.\d+\.\d+`).MatchString(summary) {
+		return "Version Update"
+	}
+
+	// Check for UI/styling changes
+	if strings.Contains(lowerSummary, "css") || strings.Contains(lowerSummary, "style") ||
+		strings.Contains(lowerSummary, "margin") || strings.Contains(lowerSummary, "padding") ||
+		strings.Contains(lowerSummary, "layout") || strings.Contains(lowerSummary, "ui") {
+		return "UI Style Changes"
+	}
+
+	// Check for bug fixes
+	if strings.Contains(lowerSummary, "fix") || strings.Contains(lowerSummary, "bug") ||
+		strings.Contains(lowerSummary, "issue") || strings.Contains(lowerSummary, "error") {
+		return "Bug Fix"
+	}
+
+	// Check for feature additions
+	if strings.Contains(lowerSummary, "add") || strings.Contains(lowerSummary, "new feature") ||
+		strings.Contains(lowerSummary, "implement") || strings.Contains(lowerSummary, "enhancement") {
+		return "Feature Addition"
+	}
+
+	// Check for refactoring
+	if strings.Contains(lowerSummary, "refactor") || strings.Contains(lowerSummary, "restructure") ||
+		strings.Contains(lowerSummary, "reorganize") || strings.Contains(lowerSummary, "clean up") {
+		return "Code Refactoring"
+	}
+
+	// Check for documentation changes
+	if strings.Contains(lowerSummary, "documentation") || strings.Contains(lowerSummary, "docs") ||
+		strings.Contains(lowerSummary, "comment") || strings.Contains(lowerSummary, "readme") {
+		return "Documentation Update"
+	}
+
+	// Check for performance improvements
+	if strings.Contains(lowerSummary, "performance") || strings.Contains(lowerSummary, "optimize") ||
+		strings.Contains(lowerSummary, "speed up") || strings.Contains(lowerSummary, "efficiency") {
+		return "Performance Optimization"
+	}
+
+	// Try to extract the first sentence as it often contains the key information
+	firstSentenceMatch := regexp.MustCompile(`^([^.!?]+[.!?])`).FindStringSubmatch(summary)
+	if len(firstSentenceMatch) > 1 {
+		// Take the first 40 chars of the first sentence if it's long
+		firstSentence := firstSentenceMatch[1]
+		if len(firstSentence) > 40 {
+			// Find the last space before the 40th character
+			lastSpaceIdx := strings.LastIndex(firstSentence[:40], " ")
+			if lastSpaceIdx > 0 {
+				firstSentence = firstSentence[:lastSpaceIdx] + "..."
+			} else {
+				firstSentence = firstSentence[:40] + "..."
+			}
+		}
+		return firstSentence
+	}
+
+	// Default to a generic but more descriptive title
+	return "Code Changes Summary"
 }
 
 // Configure sets up the provider with needed configuration
