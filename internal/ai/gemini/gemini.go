@@ -164,26 +164,32 @@ func createReviewPrompt(diffs []*models.CodeDiff) string {
 
 	// Instructions for the AI
 	prompt.WriteString("# Code Review Request\n\n")
-	prompt.WriteString("Please review the following code changes and provide:\n")
-	prompt.WriteString("1. A brief summary of the changes\n")
-	prompt.WriteString("2. Specific comments on the code, noting any issues, improvements, or best practices\n\n")
+	prompt.WriteString("Review the following code changes thoroughly and provide:\n")
+	prompt.WriteString("1. A concise summary of the changes\n")
+	prompt.WriteString("2. Specific actionable comments highlighting issues, improvements, and best practices\n\n")
+	prompt.WriteString("IMPORTANT REVIEW GUIDELINES:\n")
+	prompt.WriteString("- Keep comments concise and use active voice\n")
+	prompt.WriteString("- Focus on finding bugs, security issues, and improvement opportunities\n")
+	prompt.WriteString("- Highlight unclear code and readability issues\n")
+	prompt.WriteString("- Avoid unnecessary praise or filler comments\n")
+	prompt.WriteString("- For complex files without issues, provide a 1-2 line summary of what the change accomplishes\n\n")
 	prompt.WriteString("For each comment, include:\n")
 	prompt.WriteString("- File path\n")
 	prompt.WriteString("- Line number\n")
 	prompt.WriteString("- Severity (info, warning, critical)\n")
-	prompt.WriteString("- Concrete suggestions for improvements\n\n")
+	prompt.WriteString("- Clear suggestions for improvement\n\n")
 	prompt.WriteString("Focus on correctness, security, maintainability, and performance.\n\n")
-	prompt.WriteString("Please format your response as JSON with the following structure:\n")
+	prompt.WriteString("Format your response as JSON with the following structure:\n")
 	prompt.WriteString("```json\n")
 	prompt.WriteString("{\n")
-	prompt.WriteString("  \"summary\": \"Brief summary of the changes\",\n")
+	prompt.WriteString("  \"summary\": \"Concise summary of the changes\",\n")
 	prompt.WriteString("  \"comments\": [\n")
 	prompt.WriteString("    {\n")
 	prompt.WriteString("      \"filePath\": \"path/to/file.ext\",\n")
 	prompt.WriteString("      \"lineNumber\": 42,\n")
 	prompt.WriteString("      \"content\": \"Description of the issue\",\n")
 	prompt.WriteString("      \"severity\": \"info|warning|critical\",\n")
-	prompt.WriteString("      \"suggestions\": [\"Concrete suggestion 1\", \"Concrete suggestion 2\"]\n")
+	prompt.WriteString("      \"suggestions\": [\"Specific improvement suggestion 1\", \"Specific improvement suggestion 2\"]\n")
 	prompt.WriteString("    }\n")
 	prompt.WriteString("  ]\n")
 	prompt.WriteString("}\n")
@@ -1104,14 +1110,21 @@ func filterAndEnhanceComments(comments []*models.ReviewComment) []*models.Review
 
 	var filtered []*models.ReviewComment
 
-	// Skip comments that are just noise
+	// Skip comments that are just noise or don't add value
 	uselessPhrases := []string{
 		"no specific issues found",
 		"no issues found",
 		"looks good",
 		"code looks fine",
 		"nothing to comment",
+		"great job",
+		"well done",
+		"excellent work",
+		"nice implementation",
+		"this is perfect",
 	}
+
+	praiseOnlyPattern := regexp.MustCompile(`^[^.!?]*?(good|great|nice|well done|excellent)[^.!?]*[.!?]$`)
 
 	for _, comment := range comments {
 		isUseless := false
@@ -1125,8 +1138,8 @@ func filterAndEnhanceComments(comments []*models.ReviewComment) []*models.Review
 			}
 		}
 
-		// Skip empty or very short comments
-		if len(strings.TrimSpace(comment.Content)) < 10 {
+		// Skip empty, very short comments or comments that are just praise
+		if len(strings.TrimSpace(comment.Content)) < 10 || praiseOnlyPattern.MatchString(lowerContent) {
 			isUseless = true
 		}
 
@@ -1271,7 +1284,7 @@ func (p *GeminiProvider) fileExists(filePath string, diffs []*models.CodeDiff) b
 }
 
 // extractHumanReadableSummary processes the summary from the AI to ensure it's human-readable
-// and not just a JSON dump or code block
+// and concise while removing unnecessary praise
 func extractHumanReadableSummary(summary string) string {
 	// Clean up common formatting issues
 	summary = strings.TrimSpace(summary)
@@ -1294,15 +1307,34 @@ func extractHumanReadableSummary(summary string) string {
 		}
 	}
 
+	// Remove unnecessary praise phrases
+	praisePhrases := []string{
+		"Overall, this is a good change",
+		"The code looks good overall",
+		"The changes are well-implemented",
+		"Great job on this change",
+		"Well done",
+		"Good work",
+	}
+
+	for _, phrase := range praisePhrases {
+		summary = strings.ReplaceAll(summary, phrase, "")
+		summary = strings.ReplaceAll(summary, strings.ToLower(phrase), "")
+	}
+
 	// If the summary is too short, add a default header
 	if len(summary) < 50 {
-		summary = "# AI Code Review Summary\n\n" + summary
+		summary = "# Code Review Summary\n\n" + summary
 	}
 
 	// Make sure the summary has a heading
 	if !strings.HasPrefix(summary, "#") {
-		summary = "# AI Code Review Summary\n\n" + summary
+		summary = "# Code Review Summary\n\n" + summary
 	}
+
+	// Clean up multiple newlines
+	multipleNewlines := regexp.MustCompile(`\n{3,}`)
+	summary = multipleNewlines.ReplaceAllString(summary, "\n\n")
 
 	return summary
 }
