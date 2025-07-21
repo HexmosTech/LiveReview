@@ -5,6 +5,7 @@ import GitLabConnector from './GitLabConnector';
 import DomainValidator from './DomainValidator';
 import { useNavigate, useParams, useLocation } from 'react-router-dom';
 import { useAppSelector } from '../../store/configureStore';
+import { isDuplicateConnector, normalizeUrl } from './checkConnectorDuplicate';
 
 type ConnectorFormProps = {
     onSubmit: (connector: ConnectorData) => void;
@@ -49,14 +50,6 @@ export const ConnectorForm: React.FC<ConnectorFormProps> = ({ onSubmit }) => {
         if (type === 'gitlab-com') {
             // Check if any connector has gitlab.com in provider_url
             const hasGitlabComConnector = connectors.some((connector: any) => {
-                // Normalize URL by removing protocol, trailing slashes, and whitespace
-                const normalizeUrl = (url: string) => {
-                    if (!url) return '';
-                    return url.replace(/^https?:\/\//, '')  // Remove protocol
-                              .replace(/\/+$/, '')          // Remove trailing slashes
-                              .trim().toLowerCase();        // Normalize case and whitespace
-                };
-                
                 const connectorUrl = normalizeUrl(connector.url || '');
                 const metadataProviderUrl = connector.metadata?.provider_url ? 
                     normalizeUrl(connector.metadata.provider_url) : '';

@@ -1,9 +1,10 @@
 import React, { useState, useEffect } from 'react';
-import { Card, Input, Button, Icons } from '../UIPrimitives';
+import { Card, Input, Button, Icons, Alert } from '../UIPrimitives';
 import { ConnectorType, addConnector } from '../../store/Connector/reducer';
-import { useAppDispatch } from '../../store/configureStore';
+import { useAppDispatch, useAppSelector } from '../../store/configureStore';
 import apiClient from '../../api/apiClient';
 import { useNavigate, useParams, useLocation } from 'react-router-dom';
+import { isDuplicateConnector } from './checkConnectorDuplicate';
 
 type GitLabConnectorProps = {
   type: 'gitlab-com' | 'gitlab-self-hosted';
@@ -28,6 +29,10 @@ const GitLabConnector: React.FC<GitLabConnectorProps> = ({ type, onSubmit }) => 
     applicationSecret: ''
   });
   const [tempConnectorData, setTempConnectorData] = useState<any>(null);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  
+  // Get connectors from Redux state
+  const connectors = useAppSelector((state) => state.Connector.connectors);
 
   // Set the URL path based on the current step
   useEffect(() => {
@@ -248,6 +253,16 @@ const GitLabConnector: React.FC<GitLabConnectorProps> = ({ type, onSubmit }) => 
         To connect with GitLab, you need to create an OAuth application in GitLab and obtain an Application ID.
       </p>
 
+      {errorMessage && (
+        <Alert 
+          variant="error" 
+          className="mb-6"
+          onClose={() => setErrorMessage(null)}
+        >
+          {errorMessage}
+        </Alert>
+      )}
+
       <div className="space-y-5">
         <Input
           id="name"
@@ -281,11 +296,25 @@ const GitLabConnector: React.FC<GitLabConnectorProps> = ({ type, onSubmit }) => 
             onClick={() => {
               // Normalize the URL by removing trailing slashes before navigating to step 2
               if (type === 'gitlab-self-hosted' && formData.url) {
+                const normalizedUrl = formData.url.replace(/\/+$/, ''); // Remove trailing slashes
+                
+                // Check if this URL already exists in connections
+                if (isDuplicateConnector(connectors, normalizedUrl)) {
+                  // Show error message
+                  setErrorMessage(`A connection to "${normalizedUrl}" already exists`);
+                  return; // Don't proceed
+                }
+                
+                // Clear any previous errors
+                setErrorMessage(null);
+                
+                // Update URL without trailing slashes
                 setFormData(prev => ({
                   ...prev,
-                  url: prev.url.replace(/\/+$/, '') // Remove trailing slashes
+                  url: normalizedUrl
                 }));
               }
+              
               // Navigate to step 2 using React Router
               navigate(`/git/${type}/step2`);
               setStep(2);
