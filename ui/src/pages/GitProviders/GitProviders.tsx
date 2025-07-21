@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { ConnectorForm, ConnectorData } from '../../components/Connector/ConnectorForm';
 import { useAppDispatch, useAppSelector } from '../../store/configureStore';
-import { addConnector, ConnectorType } from '../../store/Connector/reducer';
+import { addConnector, setConnectors, ConnectorType } from '../../store/Connector/reducer';
 import { 
     PageHeader, 
     Card, 
@@ -48,7 +48,7 @@ const GitProviders: React.FC = () => {
     const dispatch = useAppDispatch();
     const storeConnectors = useAppSelector((state) => state.Connector.connectors);
     
-    const [apiConnectors, setApiConnectors] = useState<any[]>([]);
+        // Use redux state only for connectors
     const [isLoading, setIsLoading] = useState<boolean>(true);
     const [error, setError] = useState<string | null>(null);
     
@@ -58,7 +58,20 @@ const GitProviders: React.FC = () => {
             try {
                 setIsLoading(true);
                 const data = await getConnectors();
-                setApiConnectors(data);
+                // Transform API data to Connector[] shape
+                const connectorsFromApi = data.map(apiConnector => {
+                    const connectorType = apiConnector.provider as ConnectorType;
+                    return {
+                        id: apiConnector.id.toString(),
+                        name: apiConnector.connection_name || `${apiConnector.provider} Connection`,
+                        type: connectorType,
+                        url: apiConnector.provider_url || (apiConnector.metadata && apiConnector.metadata.provider_url) || '',
+                        apiKey: apiConnector.provider_app_id || '',
+                        createdAt: apiConnector.created_at,
+                        metadata: apiConnector.metadata || {} // Store the complete metadata
+                    };
+                });
+                dispatch(setConnectors(connectorsFromApi));
                 setError(null);
             } catch (err) {
                 console.error('Error fetching connectors:', err);
@@ -67,24 +80,11 @@ const GitProviders: React.FC = () => {
                 setIsLoading(false);
             }
         };
-        
         fetchConnectors();
     }, []);
     
-    // Combine store connectors and API connectors
-    const connectors = [...apiConnectors.map(apiConnector => {
-        // For simplicity, just use the provider as returned from the API
-        const connectorType = apiConnector.provider as ConnectorType;
-        
-        return {
-            id: apiConnector.id.toString(),
-            name: apiConnector.connection_name || `${apiConnector.provider} Connection`,
-            type: connectorType,
-            url: apiConnector.metadata?.gitlab_url || apiConnector.metadata?.url || '',
-            apiKey: '',
-            createdAt: apiConnector.created_at
-        };
-    }), ...storeConnectors];
+        // Use connectors from redux state only
+        const connectors = storeConnectors;
 
     const handleAddConnector = (connectorData: ConnectorData) => {
         dispatch(addConnector(connectorData));

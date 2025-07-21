@@ -5,6 +5,7 @@ export interface ConnectorResponse {
   provider: string;
   provider_app_id: string;
   connection_name: string;
+  provider_url?: string;
   metadata: any;
   created_at: string;
   updated_at: string;

@@ -1,9 +1,10 @@
 import React, { useState, useEffect } from 'react';
-import { Card, Input, Select, Button, Icons } from '../UIPrimitives';
+import { Card, Input, Select, Button, Icons, Alert } from '../UIPrimitives';
 import { ConnectorType } from '../../store/Connector/reducer';
 import GitLabConnector from './GitLabConnector';
 import DomainValidator from './DomainValidator';
 import { useNavigate, useParams, useLocation } from 'react-router-dom';
+import { useAppSelector } from '../../store/configureStore';
 
 type ConnectorFormProps = {
     onSubmit: (connector: ConnectorData) => void;
@@ -25,6 +26,10 @@ export const ConnectorForm: React.FC<ConnectorFormProps> = ({ onSubmit }) => {
     
     const [selectedConnectorType, setSelectedConnectorType] = useState<ConnectorType>('gitlab-com');
     const [showConnectorForm, setShowConnectorForm] = useState<boolean>(false);
+    const [errorMessage, setErrorMessage] = useState<string | null>(null);
+    
+    // Get connectors from Redux state
+    const connectors = useAppSelector((state) => state.Connector.connectors);
     
   // Check URL path on mount to determine view state
   useEffect(() => {
@@ -39,13 +44,43 @@ export const ConnectorForm: React.FC<ConnectorFormProps> = ({ onSubmit }) => {
       // Reset to provider selection if no connector type in URL
       setShowConnectorForm(false);
     }
-  }, [providerType]);  const handleConnectorSelect = (type: ConnectorType) => {
-    setSelectedConnectorType(type);
-    setShowConnectorForm(true);
-    
-    // Navigate to the connector setup page using React Router
-    navigate(`/git/${type}/step1`);
-  };    const handleGitLabSubmit = (data: ConnectorData) => {
+    }, [providerType]);
+    const handleConnectorSelect = (type: ConnectorType) => {
+        if (type === 'gitlab-com') {
+            // Check if any connector has gitlab.com in provider_url
+            const hasGitlabComConnector = connectors.some((connector: any) => {
+                // Normalize URL by removing protocol, trailing slashes, and whitespace
+                const normalizeUrl = (url: string) => {
+                    if (!url) return '';
+                    return url.replace(/^https?:\/\//, '')  // Remove protocol
+                              .replace(/\/+$/, '')          // Remove trailing slashes
+                              .trim().toLowerCase();        // Normalize case and whitespace
+                };
+                
+                const connectorUrl = normalizeUrl(connector.url || '');
+                const metadataProviderUrl = connector.metadata?.provider_url ? 
+                    normalizeUrl(connector.metadata.provider_url) : '';
+                
+                return connectorUrl.includes('gitlab.com') || metadataProviderUrl.includes('gitlab.com');
+            });
+
+            console.log("The connectors are: ", connectors);
+            
+            if (hasGitlabComConnector) {
+                // Show error message instead of alert
+                setErrorMessage("You already have a GitLab.com connection");
+                return; // Don't proceed with the connection
+            }
+            
+            // Clear any previous error
+            setErrorMessage(null);
+        }
+        setSelectedConnectorType(type);
+        setShowConnectorForm(true);
+        // Navigate to the connector setup page using React Router
+        navigate(`/git/${type}/step1`);
+    }
+        const handleGitLabSubmit = (data: ConnectorData) => {
         // Add ID and timestamp
         const connectorWithMeta = {
             ...data,
@@ -72,6 +107,16 @@ export const ConnectorForm: React.FC<ConnectorFormProps> = ({ onSubmit }) => {
                     <div className="space-y-5">
                         <h3 className="text-lg font-medium text-white">Select Git Provider</h3>
                         <p className="text-slate-300 text-sm">Choose a Git provider to connect with LiveReview</p>
+                        
+                        {errorMessage && (
+                            <Alert 
+                                variant="error" 
+                                title="Connection Error"
+                                onClose={() => setErrorMessage(null)}
+                            >
+                                {errorMessage}
+                            </Alert>
+                        )}
                         
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-3 pt-2">
                             <Button 
