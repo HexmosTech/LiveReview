@@ -110,8 +110,47 @@ const GitLabConnector: React.FC<GitLabConnectorProps> = ({ type, onSubmit }) => 
     // Store complete data in component state for authorization
     setTempConnectorData(connectorData);
     
-    // Redirect to GitLab authorization
-    redirectToGitLabAuth();
+    // Show a loading indicator that covers the screen
+    const loadingDiv = document.createElement('div');
+    loadingDiv.style.position = 'fixed';
+    loadingDiv.style.top = '0';
+    loadingDiv.style.left = '0';
+    loadingDiv.style.width = '100%';
+    loadingDiv.style.height = '100%';
+    loadingDiv.style.backgroundColor = 'rgba(15, 23, 42, 0.9)'; // Tailwind slate-900 with opacity
+    loadingDiv.style.zIndex = '9999';
+    loadingDiv.style.display = 'flex';
+    loadingDiv.style.alignItems = 'center';
+    loadingDiv.style.justifyContent = 'center';
+    
+    // Add a loading spinner and text
+    loadingDiv.innerHTML = `
+      <div style="display: flex; flex-direction: column; align-items: center;">
+        <svg class="animate-spin h-10 w-10 text-blue-500 mb-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" style="color: #3b82f6; animation: spin 1s linear infinite;">
+          <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+          <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+        </svg>
+        <p style="color: white; font-weight: 500;">Redirecting to GitLab...</p>
+      </div>
+    `;
+    
+    // Add the loading overlay to the body
+    document.body.appendChild(loadingDiv);
+    
+    // Add animation for spinner
+    const style = document.createElement('style');
+    style.innerHTML = `
+      @keyframes spin {
+        from { transform: rotate(0deg); }
+        to { transform: rotate(360deg); }
+      }
+    `;
+    document.head.appendChild(style);
+    
+    // Redirect to GitLab after a very short delay to ensure the loading state is visible
+    setTimeout(() => {
+      redirectToGitLabAuth();
+    }, 50);
   };
 
   const redirectToGitLabAuth = () => {
@@ -142,13 +181,37 @@ const GitLabConnector: React.FC<GitLabConnectorProps> = ({ type, onSubmit }) => 
       REDIRECT_URI = window.location.origin;
     }
     
-    // Use the root URL as the redirect URL (no path)
-    // REDIRECT_URI = `${REDIRECT_URI}/oauth-callback`;
+    // Instead of constructing a full URL with query parameters, create a form with hidden inputs
+    // This ensures all parameters are properly passed when redirecting
+    const form = document.createElement('form');
+    form.method = 'GET';
+    form.action = `${gitProviderBaseURL}/oauth/authorize`;
+    form.style.display = 'none';
     
-    const authUrl = `${gitProviderBaseURL}/oauth/authorize?client_id=${gitClientID}&redirect_uri=${encodeURIComponent(REDIRECT_URI)}&scope=${encodeURIComponent(SCOPES.join(' '))}&response_type=code`;
+    // Add all required parameters as hidden form fields
+    const params = {
+      'client_id': gitClientID,
+      'redirect_uri': REDIRECT_URI,
+      'scope': SCOPES.join(' '),
+      'response_type': 'code'
+    };
     
-    console.log("Redirecting to:", authUrl);
-    window.location.href = authUrl;
+    // Create hidden input fields for each parameter
+    Object.entries(params).forEach(([key, value]) => {
+      const input = document.createElement('input');
+      input.type = 'hidden';
+      input.name = key;
+      input.value = value;
+      form.appendChild(input);
+    });
+    
+    // Add the form to the body and submit it
+    document.body.appendChild(form);
+    
+    console.log("Redirecting to GitLab with params:", params);
+    
+    // Submit the form immediately, without user interaction
+    form.submit();
   };
 
   // Format the callback URL correctly for display and copy
