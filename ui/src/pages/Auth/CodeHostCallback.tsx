@@ -107,10 +107,12 @@ const CodeHostCallback: React.FC<CodeHostCallbackProps> = ({ code: propCode, err
         console.log("Token exchange successful:", response);
         
         // After successful token exchange, automatically redirect to the dashboard
-        // This prevents showing an intermediate success page
+        // But give the user a bit more time to see the success message
         setTimeout(() => {
+          // Clear the stored connector details when navigating away
+          localStorage.removeItem('pendingGitLabConnector');
           navigate('/dashboard');
-        }, 500);
+        }, 3000);
         
       } catch (error: any) {
         console.error("Error exchanging code for token:", error);

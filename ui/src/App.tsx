@@ -140,14 +140,22 @@ const App: React.FC = () => {
             const urlParams = new URLSearchParams(window.location.search);
             const code = urlParams.get('code');
             const error = urlParams.get('error');
+            const state = urlParams.get('state');
             
             // If we have OAuth parameters and we're at the root URL
             if ((code || error) && window.location.hash === '') {
-                console.log("Detected OAuth redirect parameters:", { code, error });
+                console.log("Detected OAuth redirect parameters:", { code, error, state });
+                
+                // Check if there's a redirect overlay from previous navigation and remove it
+                const overlay = document.getElementById('gitlab-redirect-overlay');
+                if (overlay) {
+                    overlay.remove();
+                }
                 
                 // Store OAuth parameters in sessionStorage
                 if (code) sessionStorage.setItem('oauth_code', code);
                 if (error) sessionStorage.setItem('oauth_error', error);
+                if (state) sessionStorage.setItem('oauth_state', state);
                 
                 // Redirect to the OAuth callback route with clean URL
                 console.log("Redirecting to OAuth callback route");

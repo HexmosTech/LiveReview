@@ -112,6 +112,7 @@ const GitLabConnector: React.FC<GitLabConnectorProps> = ({ type, onSubmit }) => 
     
     // Show a loading indicator that covers the screen
     const loadingDiv = document.createElement('div');
+    loadingDiv.id = 'gitlab-redirect-overlay';
     loadingDiv.style.position = 'fixed';
     loadingDiv.style.top = '0';
     loadingDiv.style.left = '0';
@@ -130,7 +131,9 @@ const GitLabConnector: React.FC<GitLabConnectorProps> = ({ type, onSubmit }) => 
           <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
           <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
         </svg>
-        <p style="color: white; font-weight: 500;">Redirecting to GitLab...</p>
+        <p style="color: white; font-weight: 500; margin-bottom: 8px;">Redirecting to GitLab...</p>
+        <p style="color: #94a3b8; font-size: 14px;">You'll be redirected to GitLab for authorization.</p>
+        <p style="color: #94a3b8; font-size: 14px;">After authorization, you'll be returned to LiveReview.</p>
       </div>
     `;
     
@@ -193,7 +196,8 @@ const GitLabConnector: React.FC<GitLabConnectorProps> = ({ type, onSubmit }) => 
       'client_id': gitClientID,
       'redirect_uri': REDIRECT_URI,
       'scope': SCOPES.join(' '),
-      'response_type': 'code'
+      'response_type': 'code',
+      'state': 'livereview-gitlab-integration' // Add a state parameter for security
     };
     
     // Create hidden input fields for each parameter
