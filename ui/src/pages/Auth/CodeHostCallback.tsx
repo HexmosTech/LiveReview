@@ -106,13 +106,9 @@ const CodeHostCallback: React.FC<CodeHostCallbackProps> = ({ code: propCode, err
         setTokenDetails(response);
         console.log("Token exchange successful:", response);
         
-        // After successful token exchange, automatically redirect to the dashboard
-        // But give the user a bit more time to see the success message
-        setTimeout(() => {
-          // Clear the stored connector details when navigating away
-          localStorage.removeItem('pendingGitLabConnector');
-          navigate('/dashboard');
-        }, 3000);
+        // No automatic redirection - let the user control when to proceed
+        // Just clear the stored connector details as they're no longer needed
+        localStorage.removeItem('pendingGitLabConnector');
         
       } catch (error: any) {
         console.error("Error exchanging code for token:", error);
@@ -165,7 +161,11 @@ const CodeHostCallback: React.FC<CodeHostCallbackProps> = ({ code: propCode, err
         ) : tokenDetails ? (
           <div className="bg-green-900/50 border border-green-700 rounded-md p-4 mb-6">
             <h3 className="text-lg font-medium text-green-400 mb-2">Authentication Complete!</h3>
-            <p className="text-white">{tokenDetails.message}</p>
+            <p className="text-white mb-3">{tokenDetails.message}</p>
+            <p className="text-white mb-4">
+              Your GitLab integration is now successfully set up. You can now either return to the Git Providers page to manage your connections 
+              or go directly to the Dashboard to start using LiveReview with GitLab.
+            </p>
             <div className="mt-4 grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
                 <p className="text-white text-sm mb-1 font-medium">Token ID:</p>
@@ -247,13 +247,30 @@ const CodeHostCallback: React.FC<CodeHostCallbackProps> = ({ code: propCode, err
           </pre>
         </div>
         
-        <div className="flex justify-center mt-4">
-          <button
-            className="px-4 py-2 bg-blue-600 hover:bg-blue-700 rounded-md text-white font-medium"
-            onClick={handleBackToGitProviders}
-          >
-            Back to Git Providers
-          </button>
+        <div className="flex justify-center gap-4 mt-4">
+          {tokenDetails ? (
+            <>
+              <button
+                className="px-4 py-2 bg-blue-600 hover:bg-blue-700 rounded-md text-white font-medium"
+                onClick={() => navigate('/git')}
+              >
+                Return to Git Providers
+              </button>
+              <button
+                className="px-4 py-2 bg-green-600 hover:bg-green-700 rounded-md text-white font-medium"
+                onClick={() => navigate('/dashboard')}
+              >
+                Go to Dashboard
+              </button>
+            </>
+          ) : (
+            <button
+              className="px-4 py-2 bg-blue-600 hover:bg-blue-700 rounded-md text-white font-medium"
+              onClick={handleBackToGitProviders}
+            >
+              Back to Git Providers
+            </button>
+          )}
         </div>
       </Card>
     </div>
