@@ -48,7 +48,7 @@ func New(config GeminiConfig) (*GeminiProvider, error) {
 	}
 
 	if config.Model == "" {
-		config.Model = "gemini-pro"
+		config.Model = "gemini-2.5-flash"
 	}
 
 	if config.Temperature == 0 {

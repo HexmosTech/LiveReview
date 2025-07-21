@@ -12,6 +12,14 @@ import (
 	"github.com/livereview/pkg/models"
 )
 
+// Helper function to mask tokens for safe logging
+func maskToken(token string) string {
+	if len(token) <= 10 {
+		return "[HIDDEN]"
+	}
+	return token[:5] + "..." + token[len(token)-5:]
+}
+
 // GitLabHTTPClient is a custom HTTP client for GitLab API
 // that doesn't rely on the official client which has endpoint issues
 type GitLabHTTPClient struct {
@@ -75,6 +83,21 @@ func (c *GitLabHTTPClient) GetMergeRequest(projectID string, mrIID int) (*GitLab
 	requestURL := fmt.Sprintf("%s/projects/%s/merge_requests/%d",
 		c.baseURL, url.PathEscape(projectID), mrIID)
 
+	fmt.Printf("GetMergeRequest: Making request to %s\n", requestURL)
+
+	// Determine token type from prefix
+	tokenType := "unknown"
+	if strings.HasPrefix(c.token, "glpat-") {
+		tokenType = "personal access token"
+	} else if strings.HasPrefix(c.token, "glrt-") {
+		tokenType = "refresh token"
+	} else if strings.HasPrefix(c.token, "gloa-") {
+		tokenType = "oauth access token"
+	}
+
+	fmt.Printf("GetMergeRequest: Using token: %s (type: %s, length: %d)\n",
+		maskToken(c.token), tokenType, len(c.token))
+
 	// Make the request
 	req, err := http.NewRequest("GET", requestURL, nil)
 	if err != nil {
@@ -82,7 +105,21 @@ func (c *GitLabHTTPClient) GetMergeRequest(projectID string, mrIID int) (*GitLab
 	}
 
 	// Add authentication
-	req.Header.Add("PRIVATE-TOKEN", c.token)
+	// Check if token looks like a personal access token (PAT) with glpat- prefix
+	// If not, try to use Bearer authentication which is used for OAuth tokens
+	if strings.HasPrefix(c.token, "glpat-") {
+		fmt.Println("GetMergeRequest: Using PRIVATE-TOKEN authentication")
+		req.Header.Add("PRIVATE-TOKEN", c.token)
+	} else {
+		fmt.Println("GetMergeRequest: Token doesn't have glpat- prefix, trying Bearer authentication")
+		req.Header.Add("Authorization", "Bearer "+c.token)
+	}
+
+	// Print all request headers for debugging
+	fmt.Println("GetMergeRequest: Request headers:")
+	for key, values := range req.Header {
+		fmt.Printf("  %s: %s\n", key, values)
+	}
 
 	// Execute the request
 	resp, err := c.client.Do(req)
@@ -94,6 +131,7 @@ func (c *GitLabHTTPClient) GetMergeRequest(projectID string, mrIID int) (*GitLab
 	// Check for errors
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(resp.Body)
+		fmt.Printf("GetMergeRequest: API request failed with status %d: %s\n", resp.StatusCode, string(body))
 		return nil, fmt.Errorf("API request failed with status %d: %s", resp.StatusCode, string(body))
 	}
 
@@ -119,7 +157,15 @@ func (c *GitLabHTTPClient) GetMergeRequestChanges(projectID string, mrIID int) (
 	}
 
 	// Add authentication
-	req.Header.Add("PRIVATE-TOKEN", c.token)
+	// Check if token looks like a personal access token (PAT) with glpat- prefix
+	// If not, try to use Bearer authentication which is used for OAuth tokens
+	if strings.HasPrefix(c.token, "glpat-") {
+		fmt.Println("GetMergeRequestChanges: Using PRIVATE-TOKEN authentication")
+		req.Header.Add("PRIVATE-TOKEN", c.token)
+	} else {
+		fmt.Println("GetMergeRequestChanges: Token doesn't have glpat- prefix, trying Bearer authentication")
+		req.Header.Add("Authorization", "Bearer "+c.token)
+	}
 
 	// Execute the request
 	resp, err := c.client.Do(req)
