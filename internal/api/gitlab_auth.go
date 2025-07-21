@@ -417,6 +417,9 @@ func (s *Server) RefreshGitLabToken(integrationID int64, clientID, clientSecret 
 		return result
 	}
 
+	fmt.Printf("GitLab token refresh response status: %d\n", tokenResp.StatusCode)
+	fmt.Printf("GitLab token refresh response body: %s\n", string(tokenRespBody))
+
 	if tokenResp.StatusCode != http.StatusOK {
 		result.Error = fmt.Errorf("GitLab token refresh failed with status %d: %s",
 			tokenResp.StatusCode, string(tokenRespBody))
