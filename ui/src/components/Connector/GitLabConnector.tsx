@@ -189,6 +189,11 @@ const GitLabConnector: React.FC<GitLabConnectorProps> = ({ type, onSubmit }) => 
       REDIRECT_URI = window.location.origin;
     }
     
+    console.log("Using redirect URI:", REDIRECT_URI);
+    
+    // Create a unique state parameter to help with validation
+    const stateParam = `livereview-gitlab-${Date.now()}`;
+    
     // Instead of constructing a full URL with query parameters, create a form with hidden inputs
     // This ensures all parameters are properly passed when redirecting
     const form = document.createElement('form');
@@ -202,8 +207,15 @@ const GitLabConnector: React.FC<GitLabConnectorProps> = ({ type, onSubmit }) => 
       'redirect_uri': REDIRECT_URI,
       'scope': SCOPES.join(' '),
       'response_type': 'code',
-      'state': 'livereview-gitlab-integration' // Add a state parameter for security
+      'state': stateParam // Add a state parameter for security
     };
+    
+    // Log the auth request
+    console.log("Redirecting to GitLab OAuth with:", {
+      authUrl: `${gitProviderBaseURL}/oauth/authorize`,
+      params: params,
+      fullRedirectUri: REDIRECT_URI
+    });
     
     // Create hidden input fields for each parameter
     Object.entries(params).forEach(([key, value]) => {
@@ -216,8 +228,6 @@ const GitLabConnector: React.FC<GitLabConnectorProps> = ({ type, onSubmit }) => 
     
     // Add the form to the body and submit it
     document.body.appendChild(form);
-    
-    console.log("Redirecting to GitLab with params:", params);
     
     // Submit the form immediately, without user interaction
     form.submit();
@@ -242,6 +252,16 @@ const GitLabConnector: React.FC<GitLabConnectorProps> = ({ type, onSubmit }) => 
   };
 
   const callbackUrl = getCallbackUrl();
+  
+  // Add a cleanup function to remove the overlay if user navigates away
+  useEffect(() => {
+    return () => {
+      const overlay = document.getElementById('gitlab-redirect-overlay');
+      if (overlay) {
+        overlay.remove();
+      }
+    };
+  }, []);
 
   const renderStep1 = () => (
     <>

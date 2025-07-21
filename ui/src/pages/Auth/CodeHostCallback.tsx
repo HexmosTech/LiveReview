@@ -7,6 +7,7 @@ import { getGitLabAccessToken } from '../../api/gitlab';
 interface CodeHostCallbackProps {
   code?: string;
   error?: string;
+  state?: string;
 }
 
 interface ConnectorDetails {
@@ -24,7 +25,7 @@ interface TokenDetails {
   connection_name: string;
 }
 
-const CodeHostCallback: React.FC<CodeHostCallbackProps> = ({ code: propCode, error: propError }) => {
+const CodeHostCallback: React.FC<CodeHostCallbackProps> = ({ code: propCode, error: propError, state: propState }) => {
   const [callbackData, setCallbackData] = useState<{ code?: string, state?: string, error?: string }>({});
   const [loading, setLoading] = useState(true);
   const [connectorDetails, setConnectorDetails] = useState<ConnectorDetails | null>(null);
@@ -45,13 +46,17 @@ const CodeHostCallback: React.FC<CodeHostCallbackProps> = ({ code: propCode, err
       } catch (e) {
         console.error("Error parsing connector details:", e);
       }
+    } else {
+      console.log("No pending GitLab connector found in localStorage");
     }
 
     // If code and error are passed as props, use them
     if (propCode || propError) {
+      console.log("Using props for callback data:", { propCode, propError, propState });
       setCallbackData({
         code: propCode,
-        error: propError
+        error: propError,
+        state: propState
       });
       setLoading(false);
       return;
@@ -66,7 +71,7 @@ const CodeHostCallback: React.FC<CodeHostCallbackProps> = ({ code: propCode, err
     state = urlParams.get('state');
     error = urlParams.get('error');
     
-    console.log("Extracted callback data:", { code, state, error });
+    console.log("Extracted callback data from URL:", { code, state, error });
     console.log("Original URL:", window.location.href);
     
     setCallbackData({
@@ -76,7 +81,7 @@ const CodeHostCallback: React.FC<CodeHostCallbackProps> = ({ code: propCode, err
     });
     
     setLoading(false);
-  }, [propCode, propError]);
+  }, [propCode, propError, propState]);
 
   // Exchange authorization code for access token when we have both code and connector details
   useEffect(() => {
@@ -91,6 +96,15 @@ const CodeHostCallback: React.FC<CodeHostCallbackProps> = ({ code: propCode, err
       try {
         // Get domain info for redirect URI
         let redirectUri = window.location.origin;
+        
+        // Log token exchange attempt details
+        console.log("Attempting token exchange with:", {
+          code: callbackData.code.substring(0, 5) + '...',
+          gitlabUrl: connectorDetails.url,
+          clientId: connectorDetails.applicationId,
+          redirectUri: redirectUri,
+          name: connectorDetails.name
+        });
         
         // Exchange the code for an access token
         const response = await getGitLabAccessToken(
@@ -111,7 +125,25 @@ const CodeHostCallback: React.FC<CodeHostCallbackProps> = ({ code: propCode, err
         
       } catch (error: any) {
         console.error("Error exchanging code for token:", error);
-        setTokenError(error.message || "Failed to exchange authorization code for access token");
+        let errorMessage = "Failed to exchange authorization code for access token";
+        
+        // Get detailed error message if available
+        if (error.data && error.data.error) {
+          errorMessage = `${errorMessage}: ${error.data.error}`;
+        } else if (error.message) {
+          errorMessage = `${errorMessage}: ${error.message}`;
+        }
+        
+        // Log detailed error information for debugging
+        console.error("Token exchange error details:", {
+          message: error.message,
+          status: error.status,
+          statusText: error.statusText,
+          data: error.data,
+          url: error.url
+        });
+        
+        setTokenError(errorMessage);
       } finally {
         setTokenLoading(false);
       }

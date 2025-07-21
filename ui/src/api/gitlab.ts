@@ -34,14 +34,27 @@ export const getGitLabAccessToken = async (
   try {
     console.log('Getting GitLab access token');
     
-    const response = await apiClient.post<GitLabTokenResponse>('/api/v1/gitlab/token', {
+    // Normalize GitLab URL (ensure it doesn't have trailing slashes)
+    const normalizedGitlabUrl = gitlabUrl.replace(/\/+$/, '');
+    
+    const requestBody = {
       code,
-      gitlab_url: gitlabUrl,
+      gitlab_url: normalizedGitlabUrl,
       gitlab_client_id: clientId,
       gitlab_client_secret: clientSecret,
       redirect_uri: redirectUri,
       connection_name: connectionName
+    };
+    
+    console.log('GitLab token request:', {
+      endpoint: '/api/v1/gitlab/token',
+      gitlabUrl: normalizedGitlabUrl,
+      clientId,
+      redirectUri,
+      connectionName
     });
+    
+    const response = await apiClient.post<GitLabTokenResponse>('/api/v1/gitlab/token', requestBody);
     
     console.log('GitLab token response:', response);
     return response;

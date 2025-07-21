@@ -102,7 +102,7 @@ func (s *Server) GitLabHandleCodeExchange(c echo.Context) error {
 	tokenReq.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	tokenReq.Header.Set("Accept", "application/json")
 
-	log.Printf("Making GitLab token request to: %s", tokenReq.URL.String())
+	log.Printf("Making GitLab token request to: %s with params: %+v", tokenReq.URL.String(), form)
 
 	tokenResp, err := httpClient.Do(tokenReq)
 	if err != nil {
@@ -131,13 +131,17 @@ func (s *Server) GitLabHandleCodeExchange(c echo.Context) error {
 		})
 	}
 
+	log.Printf("GitLab token response successful (status %d), parsing response", tokenResp.StatusCode)
+
 	var tokenData GitLabTokenResponse
 	if err := json.Unmarshal(tokenRespBody, &tokenData); err != nil {
-		log.Printf("Failed to parse token response: %v", err)
+		log.Printf("Failed to parse token response: %v - Response body: %s", err, string(tokenRespBody))
 		return c.JSON(http.StatusInternalServerError, ErrorResponse{
 			Error: "Failed to parse token response: " + err.Error(),
 		})
 	}
+
+	log.Printf("Successfully parsed token response. Token type: %s, Expires in: %d", tokenData.TokenType, tokenData.ExpiresIn)
 
 	// Fetch user details from GitLab
 	userInfo, err := fetchGitLabUserInfo(req.GitlabURL, tokenData.AccessToken)
@@ -238,23 +242,24 @@ func (s *Server) GitLabHandleCodeExchange(c echo.Context) error {
 		err = tx.QueryRow(`
 			INSERT INTO integration_tokens 
 			(provider, provider_app_id, access_token, refresh_token, token_type, scope, 
-			 expires_at, metadata, code, connection_name, provider_url)
-			VALUES ('gitlab', $1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+			 expires_at, metadata, code, connection_name, provider_url, client_secret)
+			VALUES ('gitlab', $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
 			RETURNING id
 		`, req.GitlabClientID, tokenData.AccessToken, tokenData.RefreshToken,
 			tokenData.TokenType, tokenData.Scope, expiresAtSQL, metadataJSON,
-			req.Code, connectionName, req.GitlabURL).Scan(&integrationTokenID)
+			req.Code, connectionName, req.GitlabURL, req.GitlabClientSecret).Scan(&integrationTokenID)
 	} else {
 		// Update existing token
 		err = tx.QueryRow(`
 			UPDATE integration_tokens 
 			SET access_token = $1, refresh_token = $2, token_type = $3, scope = $4, 
 			    expires_at = $5, metadata = $6, code = $7, updated_at = CURRENT_TIMESTAMP,
-				provider_url = $8
-			WHERE id = $9
+				provider_url = $8, client_secret = $9
+			WHERE id = $10
 			RETURNING id
 		`, tokenData.AccessToken, tokenData.RefreshToken, tokenData.TokenType,
-			tokenData.Scope, expiresAtSQL, metadataJSON, req.Code, req.GitlabURL, existingID).Scan(&integrationTokenID)
+			tokenData.Scope, expiresAtSQL, metadataJSON, req.Code, req.GitlabURL,
+			req.GitlabClientSecret, existingID).Scan(&integrationTokenID)
 
 		if err == nil {
 			integrationTokenID = existingID
@@ -337,12 +342,12 @@ func (s *Server) RefreshGitLabToken(integrationID int64, clientID, clientSecret 
 	}
 
 	// Retrieve token data
-	var gitlabURL, refreshToken string
+	var gitlabURL, refreshToken, storedClientSecret string
 	err := s.db.QueryRow(`
-		SELECT refresh_token, provider_url
+		SELECT refresh_token, provider_url, client_secret
 		FROM integration_tokens
 		WHERE id = $1 AND provider = 'gitlab'
-	`, integrationID).Scan(&refreshToken, &gitlabURL)
+	`, integrationID).Scan(&refreshToken, &gitlabURL, &storedClientSecret)
 
 	if err != nil {
 		result.Error = fmt.Errorf("failed to retrieve token data: %w", err)
@@ -364,6 +369,11 @@ func (s *Server) RefreshGitLabToken(integrationID int64, clientID, clientSecret 
 			result.Error = fmt.Errorf("failed to retrieve client ID: %w", err)
 			return result
 		}
+	}
+
+	// If client secret wasn't provided, use the one from the database
+	if clientSecret == "" && storedClientSecret != "" {
+		clientSecret = storedClientSecret
 	}
 
 	// Cannot proceed without client secret
@@ -486,7 +496,7 @@ func (s *Server) GitLabRefreshToken(c echo.Context) error {
 		}
 		if strings.Contains(result.Error.Error(), "missing client secret parameter") {
 			return c.JSON(http.StatusBadRequest, ErrorResponse{
-				Error: "Missing gitlab_client_secret parameter and not stored in database",
+				Error: "Client secret not found in request or database",
 			})
 		}
 

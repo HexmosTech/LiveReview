@@ -139,10 +139,18 @@ const App: React.FC = () => {
     // This runs before the router setup
     React.useEffect(() => {
         const handleOAuthRedirect = () => {
+            // Get all URL parameters
             const urlParams = new URLSearchParams(window.location.search);
             const code = urlParams.get('code');
             const error = urlParams.get('error');
             const state = urlParams.get('state');
+            
+            console.log("Checking for OAuth parameters in URL:", { 
+                code: code ? "present" : "absent", 
+                error: error ? "present" : "absent", 
+                state: state ? "present" : "absent",
+                fullUrl: window.location.href
+            });
             
             // If we have OAuth parameters and we're at the root URL
             if ((code || error) && window.location.hash === '') {
@@ -151,6 +159,7 @@ const App: React.FC = () => {
                 // Check if there's a redirect overlay from previous navigation and remove it
                 const overlay = document.getElementById('gitlab-redirect-overlay');
                 if (overlay) {
+                    console.log("Removing gitlab-redirect-overlay");
                     overlay.remove();
                 }
                 
