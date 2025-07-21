@@ -98,6 +98,9 @@ func (s *Server) setupRoutes() {
 
 	// Connector endpoints
 	v1.GET("/connectors", s.GetConnectors)
+
+	// Review trigger endpoints
+	v1.POST("/trigger-review", s.TriggerReview)
 }
 
 // Start begins the API server

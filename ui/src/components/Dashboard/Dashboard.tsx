@@ -1,4 +1,5 @@
 import React from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useAppDispatch, useAppSelector } from '../../store/configureStore';
 import { 
     StatCard, 
@@ -13,6 +14,7 @@ import {
 
 export const Dashboard: React.FC = () => {
     const dispatch = useAppDispatch();
+    const navigate = useNavigate();
     const connectors = useAppSelector((state) => state.Connector.connectors);
     
     // Placeholder stats
@@ -38,7 +40,7 @@ export const Dashboard: React.FC = () => {
                         <Button 
                             variant="primary" 
                             icon={<Icons.Add />}
-                            onClick={() => {/* TODO: Add new code review */}}
+                            onClick={() => navigate('/reviews/new')}
                         >
                             New Review
                         </Button>

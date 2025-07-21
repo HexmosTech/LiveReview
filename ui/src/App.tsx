@@ -5,6 +5,7 @@ import { Dashboard } from './components/Dashboard/Dashboard';
 import GitProviders from './pages/GitProviders/GitProviders';
 import AIProviders from './pages/AIProviders/AIProviders';
 import Settings from './pages/Settings/Settings';
+import NewReview from './pages/Reviews/NewReview';
 import Login from './pages/Auth/Login';
 import SetPassword from './pages/Auth/SetPassword';
 import CodeHostCallback from './pages/Auth/CodeHostCallback';
@@ -122,6 +123,7 @@ const AppContent: React.FC = () => {
                     <Route path="/git/:providerType/:step" element={<GitProviders />} />
                     <Route path="/ai" element={<AIProviders />} />
                     <Route path="/settings" element={<Settings />} />
+                    <Route path="/reviews/new" element={<NewReview />} />
                     <Route path="/oauth-callback" element={<OAuthCallbackHandler />} />
                     <Route path="*" element={<Navigate to="/" replace />} />
                 </Routes>
