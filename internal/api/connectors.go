@@ -15,6 +15,7 @@ type ConnectorResponse struct {
 	Provider       string          `json:"provider"`
 	ProviderAppID  string          `json:"provider_app_id"`
 	ConnectionName string          `json:"connection_name"`
+	ProviderURL    string          `json:"provider_url"`
 	Metadata       json.RawMessage `json:"metadata"`
 	CreatedAt      time.Time       `json:"created_at"`
 	UpdatedAt      time.Time       `json:"updated_at"`
@@ -48,9 +49,9 @@ func (s *Server) GetConnectors(c echo.Context) error {
 
 	// Query the database for all integration tokens
 	rows, err := s.db.Query(`
-		SELECT id, provider, provider_app_id, connection_name, metadata, created_at, updated_at
-		FROM integration_tokens
-		ORDER BY created_at DESC
+	SELECT id, provider, provider_app_id, connection_name, provider_url, metadata, created_at, updated_at
+	FROM integration_tokens
+	ORDER BY created_at DESC
 	`)
 	if err != nil {
 		log.Printf("Failed to query integration tokens: %v", err)
@@ -71,6 +72,7 @@ func (s *Server) GetConnectors(c echo.Context) error {
 			&connector.Provider,
 			&connector.ProviderAppID,
 			&connector.ConnectionName,
+			&connector.ProviderURL,
 			&metadataRaw,
 			&connector.CreatedAt,
 			&connector.UpdatedAt,
