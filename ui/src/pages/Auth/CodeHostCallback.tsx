@@ -19,8 +19,7 @@ interface ConnectorDetails {
 
 interface TokenDetails {
   message: string;
-  token_id: number;
-  integration_id: number;
+  integration_id: number; // The backend returns integration_id instead of token_id
   username: string;
   connection_name: string;
 }
@@ -167,11 +166,7 @@ const CodeHostCallback: React.FC<CodeHostCallbackProps> = ({ code: propCode, err
               or go directly to the Dashboard to start using LiveReview with GitLab.
             </p>
             <div className="mt-4 grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div>
-                <p className="text-white text-sm mb-1 font-medium">Token ID:</p>
-                <p className="bg-slate-800 p-2 rounded text-slate-300 overflow-auto text-sm">{tokenDetails.token_id}</p>
-              </div>
-              <div>
+              <div className="md:col-span-2">
                 <p className="text-white text-sm mb-1 font-medium">Integration ID:</p>
                 <p className="bg-slate-800 p-2 rounded text-slate-300 overflow-auto text-sm">{tokenDetails.integration_id}</p>
               </div>

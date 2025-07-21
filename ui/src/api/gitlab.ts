@@ -2,7 +2,7 @@ import apiClient from './apiClient';
 
 interface GitLabTokenResponse {
   message: string;
-  integration_id: number;
+  integration_id: number; // This is the ID stored in the database
   username: string;
   connection_name: string;
 }
