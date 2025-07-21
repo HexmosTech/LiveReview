@@ -144,9 +144,9 @@ const CodeHostCallback: React.FC<CodeHostCallbackProps> = ({ code: propCode, err
   }
 
   return (
-    <div className="container mx-auto px-4 py-8">
-      <Card className="p-6 max-w-3xl mx-auto">
-        <h2 className="text-2xl font-bold text-white mb-6">Authentication Result</h2>
+    <div className="container mx-auto px-2 sm:px-4 py-4 sm:py-8">
+      <Card className="p-4 sm:p-6 max-w-3xl mx-auto overflow-hidden">
+        <h2 className="text-xl sm:text-2xl font-bold text-white mb-4 sm:mb-6">Authentication Result</h2>
         
         {callbackData.error ? (
           <div className="bg-red-900/50 border border-red-700 rounded-md p-4 mb-6">
@@ -169,19 +169,19 @@ const CodeHostCallback: React.FC<CodeHostCallbackProps> = ({ code: propCode, err
             <div className="mt-4 grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
                 <p className="text-white text-sm mb-1 font-medium">Token ID:</p>
-                <p className="bg-slate-800 p-2 rounded text-slate-300">{tokenDetails.token_id}</p>
+                <p className="bg-slate-800 p-2 rounded text-slate-300 overflow-auto text-sm">{tokenDetails.token_id}</p>
               </div>
               <div>
                 <p className="text-white text-sm mb-1 font-medium">Integration ID:</p>
-                <p className="bg-slate-800 p-2 rounded text-slate-300">{tokenDetails.integration_id}</p>
+                <p className="bg-slate-800 p-2 rounded text-slate-300 overflow-auto text-sm">{tokenDetails.integration_id}</p>
               </div>
               <div>
                 <p className="text-white text-sm mb-1 font-medium">Username:</p>
-                <p className="bg-slate-800 p-2 rounded text-slate-300">{tokenDetails.username || 'Not available'}</p>
+                <p className="bg-slate-800 p-2 rounded text-slate-300 overflow-auto text-sm">{tokenDetails.username || 'Not available'}</p>
               </div>
               <div>
                 <p className="text-white text-sm mb-1 font-medium">Connection Name:</p>
-                <p className="bg-slate-800 p-2 rounded text-slate-300">{tokenDetails.connection_name}</p>
+                <p className="bg-slate-800 p-2 rounded text-slate-300 overflow-auto text-sm">{tokenDetails.connection_name}</p>
               </div>
             </div>
           </div>
@@ -218,23 +218,23 @@ const CodeHostCallback: React.FC<CodeHostCallbackProps> = ({ code: propCode, err
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
                 <p className="text-white text-sm mb-1 font-medium">Connector Name:</p>
-                <p className="bg-slate-800 p-2 rounded text-slate-300">{connectorDetails.name}</p>
+                <p className="bg-slate-800 p-2 rounded text-slate-300 overflow-auto text-sm">{connectorDetails.name}</p>
               </div>
               <div>
                 <p className="text-white text-sm mb-1 font-medium">Connector Type:</p>
-                <p className="bg-slate-800 p-2 rounded text-slate-300">{connectorDetails.type}</p>
+                <p className="bg-slate-800 p-2 rounded text-slate-300 overflow-auto text-sm">{connectorDetails.type}</p>
               </div>
               <div>
                 <p className="text-white text-sm mb-1 font-medium">GitLab URL:</p>
-                <p className="bg-slate-800 p-2 rounded text-slate-300">{connectorDetails.url}</p>
+                <p className="bg-slate-800 p-2 rounded text-slate-300 overflow-auto text-sm">{connectorDetails.url}</p>
               </div>
-              <div>
+              <div className="md:col-span-2">
                 <p className="text-white text-sm mb-1 font-medium">Application ID:</p>
-                <p className="bg-slate-800 p-2 rounded text-slate-300">{connectorDetails.applicationId}</p>
+                <p className="bg-slate-800 p-2 rounded text-slate-300 overflow-auto text-sm whitespace-normal break-all">{connectorDetails.applicationId}</p>
               </div>
               <div className="md:col-span-2">
                 <p className="text-white text-sm mb-1 font-medium">Application Secret:</p>
-                <p className="bg-slate-800 p-2 rounded text-slate-300">{connectorDetails.applicationSecret}</p>
+                <p className="bg-slate-800 p-2 rounded text-slate-300 overflow-auto text-sm whitespace-normal break-all">{connectorDetails.applicationSecret}</p>
               </div>
             </div>
           </div>
@@ -242,7 +242,7 @@ const CodeHostCallback: React.FC<CodeHostCallbackProps> = ({ code: propCode, err
         
         <div className="bg-slate-800 p-4 rounded-md mb-6">
           <h3 className="text-lg font-medium text-white mb-2">Response Data</h3>
-          <pre className="bg-slate-900 p-3 rounded-md overflow-auto text-sm text-green-400">
+          <pre className="bg-slate-900 p-3 rounded-md overflow-auto text-sm text-green-400 max-h-32 md:max-h-48">
             {JSON.stringify(callbackData, null, 2)}
           </pre>
         </div>
