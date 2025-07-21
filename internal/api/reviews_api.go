@@ -342,9 +342,9 @@ func (s *Server) TriggerReview(c echo.Context) error {
 		// Post the summary as a general comment
 		log.Printf("[DEBUG] TriggerReview-goroutine: Creating summary comment")
 		summaryComment := &models.ReviewComment{
-			FilePath: "", // Empty for MR-level comment
-			Line:     0,  // 0 for MR-level comment
-			Content:  fmt.Sprintf("# AI Review Summary\n\n%s", result.Summary),
+			FilePath: "",             // Empty for MR-level comment
+			Line:     0,              // 0 for MR-level comment
+			Content:  result.Summary, // The summary already includes a title
 			Severity: models.SeverityInfo,
 			Category: "summary",
 		}

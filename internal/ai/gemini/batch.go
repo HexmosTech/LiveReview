@@ -18,7 +18,7 @@ func (p *GeminiProvider) ReviewCodeWithBatching(
 	// If no diffs, return an empty review
 	if len(diffs) == 0 {
 		return &models.ReviewResult{
-			Summary:  "# AI Review Summary\n\nNo changes were found in this merge request.",
+			Summary:  "# No Changes Detected (LiveReview)\n\nNo changes were found in this merge request.",
 			Comments: []*models.ReviewComment{},
 		}, nil
 	}

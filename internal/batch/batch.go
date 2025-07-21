@@ -300,7 +300,7 @@ func (p *BatchProcessor) AggregateAndCombineOutputs(results []*BatchResult) (*mo
 	}
 
 	// Combine summaries and comments
-	combinedSummary := "# Combined AI Review Summary\n\n"
+	combinedSummary := "# Multiple Files Review (LiveReview)\n\n"
 	var combinedComments []*models.ReviewComment
 	totalComments := 0
 
