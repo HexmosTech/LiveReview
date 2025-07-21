@@ -279,6 +279,13 @@ const GitLabConnector: React.FC<GitLabConnectorProps> = ({ type, onSubmit }) => 
             variant="primary"
             fullWidth
             onClick={() => {
+              // Normalize the URL by removing trailing slashes before navigating to step 2
+              if (type === 'gitlab-self-hosted' && formData.url) {
+                setFormData(prev => ({
+                  ...prev,
+                  url: prev.url.replace(/\/+$/, '') // Remove trailing slashes
+                }));
+              }
               // Navigate to step 2 using React Router
               navigate(`/git/${type}/step2`);
               setStep(2);
