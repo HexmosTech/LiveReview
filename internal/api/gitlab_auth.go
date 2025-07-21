@@ -43,8 +43,8 @@ type GitLabUserResponse struct {
 	AvatarURL string `json:"avatar_url"`
 }
 
-// GitLabGetAccessToken handles the exchange of authorization code for access token
-func (s *Server) GitLabGetAccessToken(c echo.Context) error {
+// GitLabHandleCodeExchange handles the exchange of authorization code for access token
+func (s *Server) GitLabHandleCodeExchange(c echo.Context) error {
 	// Parse request parameters
 	var req GitLabTokenRequest
 	if err := c.Bind(&req); err != nil {
