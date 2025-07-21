@@ -206,7 +206,7 @@ func (s *Server) GitLabGetAccessToken(c echo.Context) error {
 	}
 
 	// Store token in database
-	var tokenID int64
+	var integrationTokenID int64
 	var expiresAtSQL interface{} = nil
 	if expiresAt != nil {
 		expiresAtSQL = expiresAt.Format(time.RFC3339)
@@ -226,28 +226,38 @@ func (s *Server) GitLabGetAccessToken(c echo.Context) error {
 		})
 	}
 
+	// Prepare for insert/update with proper gitlab URL
+	// If token has gitlabURL, include it in the operations
+	metadataWithURL := make(map[string]interface{})
+	for k, v := range metadata {
+		metadataWithURL[k] = v
+	}
+
 	if err == sql.ErrNoRows {
 		// Insert new token
 		err = tx.QueryRow(`
 			INSERT INTO integration_tokens 
-			(provider, provider_app_id, access_token, refresh_token, token_type, scope, expires_at, metadata, code, connection_name)
-			VALUES ('gitlab', $1, $2, $3, $4, $5, $6, $7, $8, $9)
+			(provider, provider_app_id, access_token, refresh_token, token_type, scope, 
+			 expires_at, metadata, code, connection_name, provider_url)
+			VALUES ('gitlab', $1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
 			RETURNING id
 		`, req.GitlabClientID, tokenData.AccessToken, tokenData.RefreshToken,
-			tokenData.TokenType, tokenData.Scope, expiresAtSQL, metadataJSON, req.Code, connectionName).Scan(&tokenID)
+			tokenData.TokenType, tokenData.Scope, expiresAtSQL, metadataJSON,
+			req.Code, connectionName, req.GitlabURL).Scan(&integrationTokenID)
 	} else {
 		// Update existing token
 		err = tx.QueryRow(`
 			UPDATE integration_tokens 
 			SET access_token = $1, refresh_token = $2, token_type = $3, scope = $4, 
-			    expires_at = $5, metadata = $6, code = $7, updated_at = CURRENT_TIMESTAMP
-			WHERE id = $8
+			    expires_at = $5, metadata = $6, code = $7, updated_at = CURRENT_TIMESTAMP,
+				provider_url = $8
+			WHERE id = $9
 			RETURNING id
 		`, tokenData.AccessToken, tokenData.RefreshToken, tokenData.TokenType,
-			tokenData.Scope, expiresAtSQL, metadataJSON, req.Code, existingID).Scan(&tokenID)
+			tokenData.Scope, expiresAtSQL, metadataJSON, req.Code, req.GitlabURL, existingID).Scan(&integrationTokenID)
 
 		if err == nil {
-			tokenID = existingID
+			integrationTokenID = existingID
 		}
 	}
 
@@ -255,59 +265,6 @@ func (s *Server) GitLabGetAccessToken(c echo.Context) error {
 		log.Printf("Failed to store token in database: %v", err)
 		return c.JSON(http.StatusInternalServerError, ErrorResponse{
 			Error: "Failed to store token: " + err.Error(),
-		})
-	}
-
-	// Check if integration record exists
-	var integrationID int64
-	err = tx.QueryRow(`
-		SELECT id FROM integration_tables 
-		WHERE provider = 'gitlab' AND provider_app_id = $1 AND connection_name = $2
-	`, req.GitlabClientID, connectionName).Scan(&integrationID)
-
-	if err != nil && err != sql.ErrNoRows {
-		log.Printf("Failed to check for existing integration: %v", err)
-		return c.JSON(http.StatusInternalServerError, ErrorResponse{
-			Error: "Database error: " + err.Error(),
-		})
-	}
-
-	integrationMetadata := map[string]interface{}{
-		"gitlab_url": req.GitlabURL,
-	}
-
-	if userInfo != nil {
-		integrationMetadata["user_id"] = userInfo.ID
-		integrationMetadata["username"] = userInfo.Username
-	}
-
-	integrationMetadataJSON, err := json.Marshal(integrationMetadata)
-	if err != nil {
-		log.Printf("Failed to marshal integration metadata: %v", err)
-		integrationMetadataJSON = []byte("{}")
-	}
-
-	if err == sql.ErrNoRows {
-		// Insert new integration record
-		err = tx.QueryRow(`
-			INSERT INTO integration_tables 
-			(provider, provider_app_id, connection_name, metadata)
-			VALUES ('gitlab', $1, $2, $3)
-			RETURNING id
-		`, req.GitlabClientID, connectionName, integrationMetadataJSON).Scan(&integrationID)
-	} else {
-		// Update existing integration record
-		_, err = tx.Exec(`
-			UPDATE integration_tables 
-			SET metadata = $1, updated_at = CURRENT_TIMESTAMP
-			WHERE id = $2
-		`, integrationMetadataJSON, integrationID)
-	}
-
-	if err != nil {
-		log.Printf("Failed to store integration data: %v", err)
-		return c.JSON(http.StatusInternalServerError, ErrorResponse{
-			Error: "Failed to store integration data: " + err.Error(),
 		})
 	}
 
@@ -327,8 +284,7 @@ func (s *Server) GitLabGetAccessToken(c echo.Context) error {
 
 	return c.JSON(http.StatusOK, map[string]interface{}{
 		"message":         "GitLab integration successful",
-		"token_id":        tokenID,
-		"integration_id":  integrationID,
+		"integration_id":  integrationTokenID,
 		"username":        username,
 		"connection_name": connectionName,
 	})
@@ -367,72 +323,53 @@ func fetchGitLabUserInfo(gitlabURL, accessToken string) (*GitLabUserResponse, er
 	return &userInfo, nil
 }
 
-// GitLabRefreshToken refreshes an expired GitLab token
-func (s *Server) GitLabRefreshToken(c echo.Context) error {
-	// Parse request parameters
-	var req struct {
-		TokenID            int64  `json:"token_id" query:"token_id"`
-		GitlabClientID     string `json:"gitlab_client_id" query:"gitlab_client_id"`
-		GitlabClientSecret string `json:"gitlab_client_secret" query:"gitlab_client_secret"`
-	}
+// GitLabRefreshTokenResult contains the result of a GitLab token refresh operation
+type GitLabRefreshTokenResult struct {
+	TokenData     GitLabTokenResponse
+	IntegrationID int64
+	Error         error
+}
 
-	if err := c.Bind(&req); err != nil {
-		return c.JSON(http.StatusBadRequest, ErrorResponse{
-			Error: "Invalid request format",
-		})
-	}
-
-	// Validate required parameters
-	if req.TokenID <= 0 {
-		return c.JSON(http.StatusBadRequest, ErrorResponse{
-			Error: "Missing or invalid token_id parameter",
-		})
+// RefreshGitLabToken refreshes an expired GitLab token and updates it in the database
+func (s *Server) RefreshGitLabToken(integrationID int64, clientID, clientSecret string) GitLabRefreshTokenResult {
+	result := GitLabRefreshTokenResult{
+		IntegrationID: integrationID,
 	}
 
 	// Retrieve token data
 	var gitlabURL, refreshToken string
 	err := s.db.QueryRow(`
-		SELECT t.refresh_token, i.metadata->>'gitlab_url' 
-		FROM integration_tokens t
-		JOIN integration_tables i ON t.provider = i.provider AND t.provider_app_id = i.provider_app_id
-		WHERE t.id = $1 AND t.provider = 'gitlab'
-	`, req.TokenID).Scan(&refreshToken, &gitlabURL)
+		SELECT refresh_token, provider_url
+		FROM integration_tokens
+		WHERE id = $1 AND provider = 'gitlab'
+	`, integrationID).Scan(&refreshToken, &gitlabURL)
 
 	if err != nil {
-		if err == sql.ErrNoRows {
-			return c.JSON(http.StatusNotFound, ErrorResponse{
-				Error: "Token not found",
-			})
-		}
-		return c.JSON(http.StatusInternalServerError, ErrorResponse{
-			Error: "Database error: " + err.Error(),
-		})
+		result.Error = fmt.Errorf("failed to retrieve token data: %w", err)
+		return result
 	}
 
 	if refreshToken == "" {
-		return c.JSON(http.StatusBadRequest, ErrorResponse{
-			Error: "No refresh token available",
-		})
+		result.Error = fmt.Errorf("no refresh token available")
+		return result
 	}
 
-	// If client credentials weren't provided, try to get them from the database
-	if req.GitlabClientID == "" || req.GitlabClientSecret == "" {
+	// If client ID wasn't provided, try to get it from the database
+	if clientID == "" {
 		err := s.db.QueryRow(`
 			SELECT provider_app_id FROM integration_tokens WHERE id = $1
-		`, req.TokenID).Scan(&req.GitlabClientID)
+		`, integrationID).Scan(&clientID)
 
 		if err != nil {
-			return c.JSON(http.StatusInternalServerError, ErrorResponse{
-				Error: "Failed to retrieve client ID: " + err.Error(),
-			})
+			result.Error = fmt.Errorf("failed to retrieve client ID: %w", err)
+			return result
 		}
+	}
 
-		// Note: We can't retrieve the client secret from the database as we don't store it
-		if req.GitlabClientSecret == "" {
-			return c.JSON(http.StatusBadRequest, ErrorResponse{
-				Error: "Missing gitlab_client_secret parameter and not stored in database",
-			})
-		}
+	// Cannot proceed without client secret
+	if clientSecret == "" {
+		result.Error = fmt.Errorf("missing client secret parameter")
+		return result
 	}
 
 	// Construct token endpoint URL
@@ -440,8 +377,8 @@ func (s *Server) GitLabRefreshToken(c echo.Context) error {
 
 	// Prepare the form data for the token refresh request
 	form := url.Values{}
-	form.Add("client_id", req.GitlabClientID)
-	form.Add("client_secret", req.GitlabClientSecret)
+	form.Add("client_id", clientID)
+	form.Add("client_secret", clientSecret)
 	form.Add("refresh_token", refreshToken)
 	form.Add("grant_type", "refresh_token")
 
@@ -449,9 +386,8 @@ func (s *Server) GitLabRefreshToken(c echo.Context) error {
 	httpClient := &http.Client{Timeout: 10 * time.Second}
 	tokenReq, err := http.NewRequest("POST", tokenEndpoint, strings.NewReader(form.Encode()))
 	if err != nil {
-		return c.JSON(http.StatusInternalServerError, ErrorResponse{
-			Error: "Failed to create token request: " + err.Error(),
-		})
+		result.Error = fmt.Errorf("failed to create token request: %w", err)
+		return result
 	}
 
 	tokenReq.Header.Set("Content-Type", "application/x-www-form-urlencoded")
@@ -459,38 +395,33 @@ func (s *Server) GitLabRefreshToken(c echo.Context) error {
 
 	tokenResp, err := httpClient.Do(tokenReq)
 	if err != nil {
-		return c.JSON(http.StatusInternalServerError, ErrorResponse{
-			Error: "Failed to send token request: " + err.Error(),
-		})
+		result.Error = fmt.Errorf("failed to send token request: %w", err)
+		return result
 	}
 	defer tokenResp.Body.Close()
 
 	// Read and parse the response
 	tokenRespBody, err := io.ReadAll(tokenResp.Body)
 	if err != nil {
-		return c.JSON(http.StatusInternalServerError, ErrorResponse{
-			Error: "Failed to read token response: " + err.Error(),
-		})
+		result.Error = fmt.Errorf("failed to read token response: %w", err)
+		return result
 	}
 
 	if tokenResp.StatusCode != http.StatusOK {
-		return c.JSON(http.StatusBadRequest, ErrorResponse{
-			Error: fmt.Sprintf("GitLab token refresh failed with status %d: %s",
-				tokenResp.StatusCode, string(tokenRespBody)),
-		})
+		result.Error = fmt.Errorf("GitLab token refresh failed with status %d: %s",
+			tokenResp.StatusCode, string(tokenRespBody))
+		return result
 	}
 
-	var tokenData GitLabTokenResponse
-	if err := json.Unmarshal(tokenRespBody, &tokenData); err != nil {
-		return c.JSON(http.StatusInternalServerError, ErrorResponse{
-			Error: "Failed to parse token response: " + err.Error(),
-		})
+	if err := json.Unmarshal(tokenRespBody, &result.TokenData); err != nil {
+		result.Error = fmt.Errorf("failed to parse token response: %w", err)
+		return result
 	}
 
 	// Calculate token expiration
 	var expiresAt *time.Time
-	if tokenData.ExpiresIn > 0 {
-		expTime := time.Now().Add(time.Duration(tokenData.ExpiresIn) * time.Second)
+	if result.TokenData.ExpiresIn > 0 {
+		expTime := time.Now().Add(time.Duration(result.TokenData.ExpiresIn) * time.Second)
 		expiresAt = &expTime
 	}
 
@@ -505,18 +436,69 @@ func (s *Server) GitLabRefreshToken(c echo.Context) error {
 		SET access_token = $1, refresh_token = $2, token_type = $3, scope = $4, 
 		    expires_at = $5, updated_at = CURRENT_TIMESTAMP
 		WHERE id = $6
-	`, tokenData.AccessToken, tokenData.RefreshToken, tokenData.TokenType,
-		tokenData.Scope, expiresAtSQL, req.TokenID)
+	`, result.TokenData.AccessToken, result.TokenData.RefreshToken, result.TokenData.TokenType,
+		result.TokenData.Scope, expiresAtSQL, integrationID)
 
 	if err != nil {
+		result.Error = fmt.Errorf("failed to update token: %w", err)
+		return result
+	}
+
+	return result
+}
+
+// GitLabRefreshToken refreshes an expired GitLab token
+func (s *Server) GitLabRefreshToken(c echo.Context) error {
+	// Parse request parameters
+	var req struct {
+		IntegrationID      int64  `json:"integration_id" query:"integration_id"`
+		GitlabClientID     string `json:"gitlab_client_id" query:"gitlab_client_id"`
+		GitlabClientSecret string `json:"gitlab_client_secret" query:"gitlab_client_secret"`
+	}
+
+	if err := c.Bind(&req); err != nil {
+		return c.JSON(http.StatusBadRequest, ErrorResponse{
+			Error: "Invalid request format",
+		})
+	}
+
+	// Validate required parameters
+	if req.IntegrationID <= 0 {
+		return c.JSON(http.StatusBadRequest, ErrorResponse{
+			Error: "Missing or invalid integration_id parameter",
+		})
+	}
+
+	// Call the extracted function to refresh the token
+	result := s.RefreshGitLabToken(req.IntegrationID, req.GitlabClientID, req.GitlabClientSecret)
+
+	if result.Error != nil {
+		// Handle different error types
+		if strings.Contains(result.Error.Error(), "failed to retrieve token data: sql: no rows") {
+			return c.JSON(http.StatusNotFound, ErrorResponse{
+				Error: "Token not found",
+			})
+		}
+		if strings.Contains(result.Error.Error(), "no refresh token available") {
+			return c.JSON(http.StatusBadRequest, ErrorResponse{
+				Error: "No refresh token available",
+			})
+		}
+		if strings.Contains(result.Error.Error(), "missing client secret parameter") {
+			return c.JSON(http.StatusBadRequest, ErrorResponse{
+				Error: "Missing gitlab_client_secret parameter and not stored in database",
+			})
+		}
+
+		// For all other errors, return an internal server error
 		return c.JSON(http.StatusInternalServerError, ErrorResponse{
-			Error: "Failed to update token: " + err.Error(),
+			Error: result.Error.Error(),
 		})
 	}
 
 	return c.JSON(http.StatusOK, map[string]interface{}{
-		"message":    "GitLab token refreshed successfully",
-		"token_id":   req.TokenID,
-		"expires_in": tokenData.ExpiresIn,
+		"message":        "GitLab token refreshed successfully",
+		"integration_id": req.IntegrationID,
+		"expires_in":     result.TokenData.ExpiresIn,
 	})
 }

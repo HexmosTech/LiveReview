@@ -2,7 +2,6 @@ import apiClient from './apiClient';
 
 interface GitLabTokenResponse {
   message: string;
-  token_id: number;
   integration_id: number;
   username: string;
   connection_name: string;
@@ -10,7 +9,7 @@ interface GitLabTokenResponse {
 
 interface GitLabTokenRefreshResponse {
   message: string;
-  token_id: number;
+  integration_id: number;
   expires_in: number;
 }
 
@@ -54,13 +53,13 @@ export const getGitLabAccessToken = async (
 
 /**
  * Refresh GitLab access token
- * @param tokenId ID of the token to refresh
+ * @param integrationId ID of the integration token to refresh
  * @param clientId GitLab application client ID
  * @param clientSecret GitLab application client secret
  * @returns Promise with GitLab token refresh response
  */
 export const refreshGitLabToken = async (
-  tokenId: number,
+  integrationId: number,
   clientId: string,
   clientSecret: string
 ): Promise<GitLabTokenRefreshResponse> => {
@@ -68,7 +67,7 @@ export const refreshGitLabToken = async (
     console.log('Refreshing GitLab token');
     
     const response = await apiClient.post<GitLabTokenRefreshResponse>('/api/v1/gitlab/refresh', {
-      token_id: tokenId,
+      integration_id: integrationId,
       gitlab_client_id: clientId,
       gitlab_client_secret: clientSecret
     });

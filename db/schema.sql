@@ -47,40 +47,6 @@ ALTER SEQUENCE public.instance_details_id_seq OWNED BY public.instance_details.i
 
 
 --
--- Name: integration_tables; Type: TABLE; Schema: public; Owner: -
---
-
-CREATE TABLE public.integration_tables (
-    id bigint NOT NULL,
-    provider text NOT NULL,
-    provider_app_id text NOT NULL,
-    connection_name text NOT NULL,
-    metadata jsonb DEFAULT '{}'::jsonb,
-    created_at timestamp with time zone DEFAULT now() NOT NULL,
-    updated_at timestamp with time zone DEFAULT now() NOT NULL
-);
-
-
---
--- Name: integration_tables_id_seq; Type: SEQUENCE; Schema: public; Owner: -
---
-
-CREATE SEQUENCE public.integration_tables_id_seq
-    START WITH 1
-    INCREMENT BY 1
-    NO MINVALUE
-    NO MAXVALUE
-    CACHE 1;
-
-
---
--- Name: integration_tables_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: -
---
-
-ALTER SEQUENCE public.integration_tables_id_seq OWNED BY public.integration_tables.id;
-
-
---
 -- Name: integration_tokens; Type: TABLE; Schema: public; Owner: -
 --
 
@@ -97,8 +63,8 @@ CREATE TABLE public.integration_tokens (
     created_at timestamp with time zone DEFAULT now() NOT NULL,
     updated_at timestamp with time zone DEFAULT now() NOT NULL,
     code text,
-    connection_name text,
-    provider_url text
+    connection_name text NOT NULL,
+    provider_url text NOT NULL
 );
 
 
@@ -138,13 +104,6 @@ ALTER TABLE ONLY public.instance_details ALTER COLUMN id SET DEFAULT nextval('pu
 
 
 --
--- Name: integration_tables id; Type: DEFAULT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.integration_tables ALTER COLUMN id SET DEFAULT nextval('public.integration_tables_id_seq'::regclass);
-
-
---
 -- Name: integration_tokens id; Type: DEFAULT; Schema: public; Owner: -
 --
 
@@ -157,14 +116,6 @@ ALTER TABLE ONLY public.integration_tokens ALTER COLUMN id SET DEFAULT nextval('
 
 ALTER TABLE ONLY public.instance_details
     ADD CONSTRAINT instance_details_pkey PRIMARY KEY (id);
-
-
---
--- Name: integration_tables integration_tables_pkey; Type: CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.integration_tables
-    ADD CONSTRAINT integration_tables_pkey PRIMARY KEY (id);
 
 
 --
@@ -201,4 +152,5 @@ INSERT INTO public.schema_migrations (version) VALUES
     ('20250720000002'),
     ('20250720000003'),
     ('20250720135317'),
-    ('20250720182946');
+    ('20250720182946'),
+    ('20250721035816');
