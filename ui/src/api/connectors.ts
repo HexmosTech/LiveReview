@@ -51,3 +51,37 @@ export const validateAIProviderKey = async (
     throw error;
   }
 };
+
+/**
+ * Create a new AI connector
+ * @param providerName The provider name (e.g., 'openai', 'gemini', 'claude')
+ * @param apiKey The API key for the connector
+ * @param connectorName A user-friendly name for this connector
+ * @param displayOrder Order to display in the UI (lower numbers first)
+ * @param baseURL Optional base URL for the API (for custom endpoints)
+ * @returns Promise with the created connector
+ */
+export const createAIConnector = async (
+  providerName: string,
+  apiKey: string,
+  connectorName: string,
+  displayOrder: number = 0,
+  baseURL?: string
+): Promise<any> => {
+  try {
+    const response = await apiClient.post(
+      '/api/v1/aiconnectors',
+      {
+        provider_name: providerName,
+        api_key: apiKey,
+        connector_name: connectorName,
+        display_order: displayOrder,
+        base_url: baseURL,
+      }
+    );
+    return response;
+  } catch (error) {
+    console.error('Error creating AI connector:', error);
+    throw error;
+  }
+};

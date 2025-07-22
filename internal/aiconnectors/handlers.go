@@ -2,8 +2,10 @@ package aiconnectors
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
 	"net/http"
+	"time"
 
 	"github.com/labstack/echo/v4"
 	"github.com/rs/zerolog/log"
@@ -22,12 +24,34 @@ type ValidateAPIKeyResponse struct {
 	Message string `json:"message,omitempty"`
 }
 
+// CreateConnectorRequest represents the request for creating a connector
+type CreateConnectorRequest struct {
+	ProviderName  string `json:"provider_name"`
+	APIKey        string `json:"api_key"`
+	ConnectorName string `json:"connector_name"`
+	BaseURL       string `json:"base_url,omitempty"`
+	DisplayOrder  int    `json:"display_order"`
+}
+
+// CreateConnectorResponse represents the response for creating a connector
+type CreateConnectorResponse struct {
+	ID            int64     `json:"id"`
+	ProviderName  string    `json:"provider_name"`
+	ConnectorName string    `json:"connector_name"`
+	DisplayOrder  int       `json:"display_order"`
+	CreatedAt     time.Time `json:"created_at"`
+	UpdatedAt     time.Time `json:"updated_at"`
+}
+
 // RegisterHandlers registers all aiconnectors API handlers to the given router
 func RegisterHandlers(e *echo.Echo) {
 	apiGroup := e.Group("/api/v1")
 
 	// API key validation endpoint
 	apiGroup.POST("/aiconnectors/validate-key", validateAPIKeyHandler)
+
+	// Create connector endpoint
+	apiGroup.POST("/aiconnectors", createConnectorHandler)
 }
 
 // ValidateAPIKeyHandler handles requests to validate an API key
@@ -81,12 +105,71 @@ func validateAPIKeyHandler(c echo.Context) error {
 	})
 }
 
-// Helper function for min
-func min(a, b int) int {
-	if a < b {
-		return a
+// createConnectorHandler handles requests to create a new AI connector
+func createConnectorHandler(c echo.Context) error {
+	var req CreateConnectorRequest
+	if err := c.Bind(&req); err != nil {
+		return c.JSON(http.StatusBadRequest, map[string]string{
+			"error": "Invalid request body",
+		})
 	}
-	return b
+
+	// Validate required fields
+	if req.ProviderName == "" {
+		return c.JSON(http.StatusBadRequest, map[string]string{
+			"error": "Provider name is required",
+		})
+	}
+
+	if req.APIKey == "" {
+		return c.JSON(http.StatusBadRequest, map[string]string{
+			"error": "API key is required",
+		})
+	}
+
+	if req.ConnectorName == "" {
+		return c.JSON(http.StatusBadRequest, map[string]string{
+			"error": "Connector name is required",
+		})
+	}
+
+	// Get the database connection from context
+	db := c.Get("db").(*sql.DB)
+	if db == nil {
+		return c.JSON(http.StatusInternalServerError, map[string]string{
+			"error": "Database connection not available",
+		})
+	}
+
+	// Create a storage instance
+	storage := NewStorage(db)
+
+	// Create a connector record
+	connector := &ConnectorRecord{
+		ProviderName:  req.ProviderName,
+		ApiKey:        req.APIKey,
+		ConnectorName: req.ConnectorName,
+		DisplayOrder:  req.DisplayOrder,
+		BaseURL:       req.BaseURL,
+	}
+
+	// Save the connector to the database
+	if err := storage.CreateConnector(context.Background(), connector); err != nil {
+		log.Error().Err(err).Msg("Failed to create connector")
+		return c.JSON(http.StatusInternalServerError, map[string]string{
+			"error": fmt.Sprintf("Failed to create connector: %v", err),
+		})
+	}
+
+	// Return the created connector
+	return c.JSON(http.StatusCreated, CreateConnectorResponse{
+		ID:            connector.ID,
+		ProviderName:  connector.ProviderName,
+		ConnectorName: connector.ConnectorName,
+		DisplayOrder:  connector.DisplayOrder,
+		CreatedAt:     connector.CreatedAt,
+		UpdatedAt:     connector.UpdatedAt,
+	})
 }
 
 // GetProviderModels returns the available models for a provider
