@@ -23,6 +23,8 @@ interface AIProvider {
     description: string;
     icon: React.ReactNode;
     apiKeyPlaceholder: string;
+    models?: string[]; // Available models for this provider
+    defaultModel?: string; // Default model to use
 }
 
 // AI Connector structure (mapped from API)
@@ -53,7 +55,9 @@ const popularAIProviders: AIProvider[] = [
         url: 'https://platform.openai.com/', 
         description: 'Access GPT models for code understanding and generation',
         icon: <Icons.OpenAI />,
-        apiKeyPlaceholder: 'sk-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx'
+        apiKeyPlaceholder: 'sk-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx',
+        models: ['gpt-3.5-turbo', 'gpt-4', 'gpt-4-turbo', 'gpt-4o'],
+        defaultModel: 'gpt-4'
     },
     { 
         id: 'gemini',
@@ -61,7 +65,9 @@ const popularAIProviders: AIProvider[] = [
         url: 'https://ai.google.dev/', 
         description: 'Google\'s multimodal AI for code and natural language tasks',
         icon: <Icons.Google />,
-        apiKeyPlaceholder: 'gemini-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx'
+        apiKeyPlaceholder: 'gemini-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx',
+        models: ['gemini-pro', 'gemini-pro-vision', 'gemini-ultra'],
+        defaultModel: 'gemini-pro'
     },
     { 
         id: 'claude',
@@ -69,7 +75,9 @@ const popularAIProviders: AIProvider[] = [
         url: 'https://www.anthropic.com/', 
         description: 'Constitutional AI focused on helpful, harmless responses',
         icon: <Icons.AI />,
-        apiKeyPlaceholder: 'claude-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx'
+        apiKeyPlaceholder: 'claude-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx',
+        models: ['claude-3-opus', 'claude-3-sonnet', 'claude-3-haiku'],
+        defaultModel: 'claude-3-sonnet'
     },
     { 
         id: 'cohere',
@@ -77,7 +85,9 @@ const popularAIProviders: AIProvider[] = [
         url: 'https://cohere.com/', 
         description: 'Specialized in understanding and generating human language',
         icon: <Icons.AI />,
-        apiKeyPlaceholder: 'cohere-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx'
+        apiKeyPlaceholder: 'cohere-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx',
+        models: ['command', 'command-light', 'command-r', 'command-r-plus'],
+        defaultModel: 'command-r'
     },
 ];
 
@@ -90,6 +100,7 @@ const AIProviders: React.FC = () => {
     const [isSaved, setIsSaved] = useState(false);
     const [isEditing, setIsEditing] = useState(false);
     const [selectedConnector, setSelectedConnector] = useState<AIConnector | null>(null);
+    const [showProviderSelector, setShowProviderSelector] = useState(false);
     const [formData, setFormData] = useState({
         name: '',
         apiKey: '',
@@ -190,6 +201,7 @@ const AIProviders: React.FC = () => {
                 setConnectors(updatedConnectors);
             } else {
                 // Add new connector
+                const providerInfo = popularAIProviders.find(p => p.id === providerToUse);
                 const newConnector: AIConnector = {
                     id: `temp-${Date.now()}`, // Would be replaced by server-generated ID
                     name: formData.name,
@@ -204,7 +216,8 @@ const AIProviders: React.FC = () => {
                         failedCalls: 0,
                         averageLatency: 0
                     },
-                    models: []
+                    models: providerInfo?.models || [],
+                    selectedModel: providerInfo?.defaultModel
                 };
                 setConnectors([...connectors, newConnector]);
             }
@@ -230,6 +243,7 @@ const AIProviders: React.FC = () => {
         });
         setSelectedConnector(null);
         setIsEditing(false);
+        setShowProviderSelector(false);
     };
 
     // Handle editing a connector
@@ -286,6 +300,7 @@ const AIProviders: React.FC = () => {
                                 onClick={() => {
                                     setSelectedProvider('all');
                                     resetForm();
+                                    setShowProviderSelector(false);
                                 }}
                             >
                                 <div className="flex items-center">
@@ -318,6 +333,7 @@ const AIProviders: React.FC = () => {
                                     }`}
                                     onClick={() => {
                                         setSelectedProvider(provider.id);
+                                        setShowProviderSelector(false);
                                         if (!isEditing) {
                                             setFormData({
                                                 ...formData,
@@ -533,29 +549,67 @@ const AIProviders: React.FC = () => {
                             badge={`${selectedProvider === 'all' ? connectors.length : connectors.filter(c => c.providerName === selectedProvider).length}`}
                         >
                             <div className="flex justify-end mb-4">
-                                <Button
-                                    variant="primary"
-                                    size="sm"
-                                    onClick={() => {
-                                        if (selectedProvider === 'all') {
-                                            setFormData({
-                                                name: '',
-                                                apiKey: '',
-                                                providerType: ''
-                                            });
-                                        } else {
+                                {selectedProvider === 'all' ? (
+                                    <div className="relative inline-block">
+                                        {!showProviderSelector ? (
+                                            <Button
+                                                variant="primary"
+                                                size="sm"
+                                                onClick={() => setShowProviderSelector(true)}
+                                            >
+                                                Add Connector
+                                            </Button>
+                                        ) : (
+                                            <div className="flex items-center space-x-2">
+                                                <select 
+                                                    className="bg-slate-700 border border-slate-600 text-white rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                                                    value={formData.providerType}
+                                                    onChange={(e) => {
+                                                        const selectedProviderId = e.target.value;
+                                                        setFormData({
+                                                            name: generateFriendlyNameForProvider(selectedProviderId),
+                                                            apiKey: '',
+                                                            providerType: selectedProviderId
+                                                        });
+                                                        setIsEditing(false);
+                                                        setSelectedConnector(null);
+                                                        setShowProviderSelector(false);
+                                                    }}
+                                                >
+                                                    <option value="" disabled>Select Provider</option>
+                                                    {popularAIProviders.map(provider => (
+                                                        <option key={provider.id} value={provider.id}>
+                                                            {provider.name}
+                                                        </option>
+                                                    ))}
+                                                </select>
+                                                <Button
+                                                    variant="outline"
+                                                    size="sm"
+                                                    onClick={() => setShowProviderSelector(false)}
+                                                >
+                                                    Cancel
+                                                </Button>
+                                            </div>
+                                        )}
+                                    </div>
+                                ) : (
+                                    <Button
+                                        variant="primary"
+                                        size="sm"
+                                        onClick={() => {
                                             setFormData({
                                                 name: generateFriendlyName(),
                                                 apiKey: '',
                                                 providerType: selectedProvider
                                             });
-                                        }
-                                        setIsEditing(false);
-                                        setSelectedConnector(null);
-                                    }}
-                                >
-                                    {selectedProvider === 'all' ? 'Add Connector' : `Add ${getProviderDetails(selectedProvider).name} Connector`}
-                                </Button>
+                                            setIsEditing(false);
+                                            setSelectedConnector(null);
+                                        }}
+                                    >
+                                        Add {getProviderDetails(selectedProvider).name} Connector
+                                    </Button>
+                                )}
                             </div>
                             {isLoading ? (
                                 <div className="flex justify-center items-center py-8">
