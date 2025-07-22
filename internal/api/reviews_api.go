@@ -323,6 +323,7 @@ func (s *Server) processReviewInBackground(token *IntegrationToken, requestURL, 
 
 	log.Printf("[DEBUG] processReviewInBackground: Review process completed for URL: %s, ReviewID: %s", requestURL, reviewID)
 } // truncateString truncates a string to the specified length
+
 func truncateString(s string, maxLen int) string {
 	if len(s) <= maxLen {
 		return s

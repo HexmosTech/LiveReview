@@ -165,7 +165,7 @@ func createReviewPrompt(diffs []*models.CodeDiff) string {
 	// Instructions for the AI
 	prompt.WriteString("# Code Review Request\n\n")
 	prompt.WriteString("Review the following code changes thoroughly and provide:\n")
-	prompt.WriteString("1. A concise summary of the changes that describes EXACTLY what was changed and why\n")
+	prompt.WriteString("1. A concise summary of the changes that describes EXACTLY what was changed and why. Make it readable with multiple paragraphs and lists (avoid hard to read big text blocks)\n")
 	prompt.WriteString("2. Specific actionable comments highlighting issues, improvements, and best practices\n\n")
 	prompt.WriteString("IMPORTANT REVIEW GUIDELINES:\n")
 	prompt.WriteString("- For the summary: Be specific about what files changed and what exactly was modified\n")
@@ -175,6 +175,7 @@ func createReviewPrompt(diffs []*models.CodeDiff) string {
 	prompt.WriteString("- Focus on finding bugs, security issues, and improvement opportunities\n")
 	prompt.WriteString("- Highlight unclear code and readability issues\n")
 	prompt.WriteString("- Avoid unnecessary praise or filler comments\n")
+	prompt.WriteString("- Avoid commenting on simplistic or obvious or easily understood things a person can figure out without much effort - such as commenting on imports, blank space changes and other such obvious things.\n")
 	prompt.WriteString("- For complex files without issues, provide a 1-2 line summary of what the change accomplishes\n\n")
 	prompt.WriteString("For each comment, include:\n")
 	prompt.WriteString("- File path\n")
