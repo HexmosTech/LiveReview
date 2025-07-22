@@ -23,8 +23,16 @@ CREATE TABLE public.ai_connectors (
     api_key text NOT NULL,
     display_order integer DEFAULT 0 NOT NULL,
     created_at timestamp with time zone DEFAULT CURRENT_TIMESTAMP,
-    updated_at timestamp with time zone DEFAULT CURRENT_TIMESTAMP
+    updated_at timestamp with time zone DEFAULT CURRENT_TIMESTAMP,
+    connector_name character varying(128)
 );
+
+
+--
+-- Name: COLUMN ai_connectors.connector_name; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.ai_connectors.connector_name IS 'A user-friendly name for the connector';
 
 
 --
@@ -205,4 +213,6 @@ INSERT INTO public.schema_migrations (version) VALUES
     ('20250720182946'),
     ('20250721035816'),
     ('20250721141011'),
-    ('20250722035359');
+    ('20250722035359'),
+    ('20250722040308'),
+    ('20250722064012');
