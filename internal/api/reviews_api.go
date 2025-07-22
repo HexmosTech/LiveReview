@@ -11,10 +11,8 @@ import (
 	"time"
 
 	"github.com/labstack/echo/v4"
-	"github.com/livereview/internal/ai/gemini"
 	"github.com/livereview/internal/config"
-	"github.com/livereview/internal/providers/gitlab"
-	"github.com/livereview/pkg/models"
+	"github.com/livereview/internal/review"
 )
 
 // validateAndParseURL validates the input URL string, parses it, and returns the parsed URL and base URL.
@@ -223,132 +221,74 @@ func ensureValidToken(token *IntegrationToken) string {
 	return accessToken
 }
 
-// processReviewInBackground handles the entire review process in a background goroutine
+// processReviewInBackground handles the entire review process using the new decoupled architecture
 func (s *Server) processReviewInBackground(token *IntegrationToken, requestURL, reviewID string) {
 	log.Printf("[DEBUG] processReviewInBackground: Starting background review process for URL: %s, ReviewID: %s", requestURL, reviewID)
-
-	// Create GitLab provider
-	log.Printf("[DEBUG] processReviewInBackground: Creating GitLab provider with URL: %s", token.ProviderURL)
-	log.Printf("[DEBUG] processReviewInBackground: Using GitLab token: %s", maskToken(token.AccessToken))
 
 	// Ensure we have a valid token (with config file fallback if needed)
 	accessToken := ensureValidToken(token)
 
-	gitlabProvider, err := gitlab.New(gitlab.GitLabConfig{
-		URL:   token.ProviderURL,
-		Token: accessToken,
-	})
-	if err != nil {
-		log.Printf("[DEBUG] processReviewInBackground: Error creating GitLab provider: %v", err)
-		return
-	}
-	log.Printf("[DEBUG] processReviewInBackground: GitLab provider created successfully")
-
-	// Create AI provider (Gemini as default)
-	log.Printf("[DEBUG] processReviewInBackground: Creating AI provider (Gemini)")
-	aiProvider, err := gemini.New(gemini.GeminiConfig{
-		APIKey: "AIzaSyDEaJ5eRAn4PLeCI5-kKDjgZMrxTbx00NA",
-		// APIKey:      geminiAPIKey,
-		Model:       "gemini-2.5-flash",
-		Temperature: 0.4,
-	})
-	if err != nil {
-		log.Printf("[DEBUG] processReviewInBackground: Error creating AI provider: %v", err)
-		return
-	}
-	log.Printf("[DEBUG] processReviewInBackground: AI provider created successfully with model: gemini-pro, temperature: 0.4")
-
-	// Create a context with timeout
-	log.Printf("[DEBUG] processReviewInBackground: Creating context with 10-minute timeout")
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
-	defer cancel()
-
-	// Run the review process
-	log.Printf("[DEBUG] processReviewInBackground: Starting review process execution for URL: %s", requestURL)
-
-	// Get MR details
-	log.Printf("[DEBUG] processReviewInBackground: Fetching merge request details for URL: %s", requestURL)
-	mrDetails, err := gitlabProvider.GetMergeRequestDetails(ctx, requestURL)
-	if err != nil {
-		log.Printf("[DEBUG] processReviewInBackground: Failed to get merge request details: %v", err)
-		return
-	}
-	log.Printf("[DEBUG] processReviewInBackground: Retrieved MR details successfully. ID: %s, Project ID: %s, Title: %s, State: %s, Created: %s",
-		mrDetails.ID, mrDetails.ProjectID, mrDetails.Title, mrDetails.State, mrDetails.CreatedAt)
-
-	// Get MR changes
-	log.Printf("[DEBUG] processReviewInBackground: Fetching merge request changes for MR ID: %s", mrDetails.ID)
-	changes, err := gitlabProvider.GetMergeRequestChanges(ctx, mrDetails.ID)
-	if err != nil {
-		log.Printf("[DEBUG] processReviewInBackground: Failed to get code changes: %v", err)
-		return
-	}
-	log.Printf("[DEBUG] processReviewInBackground: Retrieved %d changed files", len(changes))
-
-	// Log details about each changed file
-	for i, change := range changes {
-		changeType := "modified"
-		if change.IsNew {
-			changeType = "added"
-		} else if change.IsDeleted {
-			changeType = "deleted"
-		} else if change.IsRenamed {
-			changeType = "renamed"
-		}
-
-		log.Printf("[DEBUG] processReviewInBackground: Change #%d - Path: %s, Type: %s, Hunks: %d, FileType: %s",
-			i+1, change.FilePath, changeType, len(change.Hunks), change.FileType)
-	}
-
-	// Review code
-	log.Printf("[DEBUG] processReviewInBackground: Sending code to AI for review, total files: %d", len(changes))
-	result, err := aiProvider.ReviewCode(ctx, changes)
-	if err != nil {
-		log.Printf("[DEBUG] processReviewInBackground: Failed to review code: %v", err)
-		return
-	}
-	log.Printf("[DEBUG] processReviewInBackground: AI Review completed successfully with %d comments", len(result.Comments))
-	log.Printf("[DEBUG] processReviewInBackground: Summary length: %d characters", len(result.Summary))
-
-	// Post comments
-	// Post the summary as a general comment
-	log.Printf("[DEBUG] processReviewInBackground: Creating summary comment")
-	summaryComment := &models.ReviewComment{
-		FilePath: "",             // Empty for MR-level comment
-		Line:     0,              // 0 for MR-level comment
-		Content:  result.Summary, // The summary already includes a title
-		Severity: models.SeverityInfo,
-		Category: "summary",
-	}
-
-	log.Printf("[DEBUG] processReviewInBackground: Posting summary comment to MR ID: %s", mrDetails.ID)
-	if err := gitlabProvider.PostComment(ctx, mrDetails.ID, summaryComment); err != nil {
-		log.Printf("[DEBUG] processReviewInBackground: Failed to post summary comment: %v", err)
-		return
-	}
-	log.Printf("[DEBUG] processReviewInBackground: Posted summary comment successfully")
-
-	// Post specific comments
-	if len(result.Comments) > 0 {
-		log.Printf("[DEBUG] processReviewInBackground: Posting %d individual comments to merge request...", len(result.Comments))
-
-		// Log details about each comment
-		for i, comment := range result.Comments {
-			log.Printf("[DEBUG] processReviewInBackground: Comment #%d - File: %s, Line: %d, Severity: %s, Category: %s, Length: %d chars",
-				i+1, comment.FilePath, comment.Line, comment.Severity, comment.Category, len(comment.Content))
-		}
-
-		err = gitlabProvider.PostComments(ctx, mrDetails.ID, result.Comments)
+	// Create or get review service
+	var reviewService *ReviewService
+	if s.reviewService == nil {
+		cfg, err := config.LoadConfig("")
 		if err != nil {
-			log.Printf("[DEBUG] processReviewInBackground: Failed to post comments: %v", err)
+			log.Printf("[DEBUG] processReviewInBackground: Failed to load configuration: %v", err)
 			return
 		}
-		log.Printf("[DEBUG] processReviewInBackground: Successfully posted all %d comments", len(result.Comments))
+		reviewService = NewReviewService(cfg)
+		s.reviewService = reviewService
 	} else {
-		log.Printf("[DEBUG] processReviewInBackground: No individual comments to post")
+		reviewService = s.reviewService
 	}
 
-	log.Printf("[DEBUG] processReviewInBackground: Review process completed successfully for URL: %s, ReviewID: %s", requestURL, reviewID)
+	// Build review request using configuration service
+	reviewRequest, err := reviewService.configService.BuildReviewRequest(
+		context.Background(),
+		requestURL,
+		reviewID,
+		token.Provider,
+		token.ProviderURL,
+		accessToken,
+	)
+	if err != nil {
+		log.Printf("[DEBUG] processReviewInBackground: Failed to build review request: %v", err)
+		return
+	}
+
+	// Set up a callback to handle review completion
+	reviewService.resultCallbacks[reviewID] = func(result *review.ReviewResult) {
+		if result.Success {
+			log.Printf("[INFO] processReviewInBackground: Review %s completed successfully: %s (%d comments, took %v)",
+				result.ReviewID, truncateString(result.Summary, 50),
+				result.CommentsCount, result.Duration)
+		} else {
+			log.Printf("[ERROR] processReviewInBackground: Review %s failed: %v (took %v)",
+				result.ReviewID, result.Error, result.Duration)
+		}
+
+		// Clean up the callback
+		delete(reviewService.resultCallbacks, result.ReviewID)
+	}
+
+	// Process review synchronously since we're already in a goroutine
+	log.Printf("[DEBUG] processReviewInBackground: Processing review using new decoupled service")
+	result := reviewService.reviewService.ProcessReview(context.Background(), *reviewRequest)
+
+	// Call the callback manually since we're not using ProcessReviewAsync
+	if callback, exists := reviewService.resultCallbacks[reviewID]; exists && callback != nil {
+		callback(result)
+	}
+
+	log.Printf("[DEBUG] processReviewInBackground: Review process completed for URL: %s, ReviewID: %s", requestURL, reviewID)
+}
+
+// truncateString truncates a string to the specified length
+func truncateString(s string, maxLen int) string {
+	if len(s) <= maxLen {
+		return s
+	}
+	return s[:maxLen] + "..."
 }
 
 // parseTriggerReviewRequest parses the request body into a TriggerReviewRequest and returns an error if parsing fails.
