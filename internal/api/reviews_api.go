@@ -17,6 +17,28 @@ import (
 	"github.com/livereview/pkg/models"
 )
 
+// validateAndParseURL validates the input URL string, parses it, and returns the parsed URL and base URL.
+func validateAndParseURL(rawURL string) (*url.URL, string, error) {
+	log.Printf("[DEBUG] validateAndParseURL: Validating URL: %s", rawURL)
+	if rawURL == "" {
+		log.Printf("[DEBUG] validateAndParseURL: URL validation failed - URL is empty")
+		return nil, "", fmt.Errorf("URL is required")
+	}
+
+	log.Printf("[DEBUG] validateAndParseURL: Parsing URL")
+	parsedURL, err := url.Parse(rawURL)
+	if err != nil {
+		log.Printf("[DEBUG] validateAndParseURL: URL parsing failed: %v", err)
+		return nil, "", fmt.Errorf("Invalid URL format: %v", err)
+	}
+	log.Printf("[DEBUG] validateAndParseURL: URL parsed successfully. Scheme: %s, Host: %s, Path: %s",
+		parsedURL.Scheme, parsedURL.Host, parsedURL.Path)
+
+	baseURL := parsedURL.Scheme + "://" + parsedURL.Host
+	log.Printf("[DEBUG] validateAndParseURL: Extracted base URL: %s", baseURL)
+	return parsedURL, baseURL, nil
+}
+
 // TriggerReviewRequest represents the request to trigger a new code review
 type TriggerReviewRequest struct {
 	URL string `json:"url"`
@@ -29,6 +51,18 @@ type TriggerReviewResponse struct {
 	ReviewID string `json:"reviewId"`
 }
 
+// parseTriggerReviewRequest parses the request body into a TriggerReviewRequest and returns an error if parsing fails.
+func parseTriggerReviewRequest(c echo.Context) (*TriggerReviewRequest, error) {
+	req := new(TriggerReviewRequest)
+	log.Printf("[DEBUG] TriggerReview: Parsing request body")
+	if err := c.Bind(req); err != nil {
+		log.Printf("[DEBUG] TriggerReview: Failed to parse request body: %v", err)
+		return nil, err
+	}
+	log.Printf("[DEBUG] TriggerReview: Request body parsed successfully")
+	return req, nil
+}
+
 // TriggerReview handles the request to trigger a code review from a URL
 func (s *Server) TriggerReview(c echo.Context) error {
 	log.Printf("[DEBUG] TriggerReview: Starting review request handling")
@@ -39,40 +73,19 @@ func (s *Server) TriggerReview(c echo.Context) error {
 	}
 
 	// Parse request body
-	req := new(TriggerReviewRequest)
-	log.Printf("[DEBUG] TriggerReview: Parsing request body")
-	if err := c.Bind(req); err != nil {
-		log.Printf("[DEBUG] TriggerReview: Failed to parse request body: %v", err)
+	req, err := parseTriggerReviewRequest(c)
+	if err != nil {
 		return c.JSON(http.StatusBadRequest, ErrorResponse{
 			Error: "Invalid request format: " + err.Error(),
 		})
 	}
-	log.Printf("[DEBUG] TriggerReview: Request body parsed successfully")
 
-	// Validate URL
-	log.Printf("[DEBUG] TriggerReview: Validating URL: %s", req.URL)
-	if req.URL == "" {
-		log.Printf("[DEBUG] TriggerReview: URL validation failed - URL is empty")
-		return c.JSON(http.StatusBadRequest, ErrorResponse{
-			Error: "URL is required",
-		})
-	}
-
-	// Parse the URL to ensure it's valid
-	log.Printf("[DEBUG] TriggerReview: Parsing URL")
-	parsedURL, err := url.Parse(req.URL)
+	_, baseURL, err := validateAndParseURL(req.URL)
 	if err != nil {
-		log.Printf("[DEBUG] TriggerReview: URL parsing failed: %v", err)
 		return c.JSON(http.StatusBadRequest, ErrorResponse{
-			Error: "Invalid URL format: " + err.Error(),
+			Error: err.Error(),
 		})
 	}
-	log.Printf("[DEBUG] TriggerReview: URL parsed successfully. Scheme: %s, Host: %s, Path: %s",
-		parsedURL.Scheme, parsedURL.Host, parsedURL.Path)
-
-	// Extract base URL for connector validation
-	baseURL := parsedURL.Scheme + "://" + parsedURL.Host
-	log.Printf("[DEBUG] TriggerReview: Extracted base URL: %s", baseURL)
 
 	// Query the database to find the correct integration token
 	var (
