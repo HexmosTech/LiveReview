@@ -101,6 +101,9 @@ func (s *Server) setupRoutes() {
 
 	// Review trigger endpoints
 	v1.POST("/trigger-review", s.TriggerReview)
+
+	// AI Connector endpoints
+	v1.POST("/aiconnectors/validate-key", s.ValidateAIConnectorKey)
 }
 
 // Start begins the API server
