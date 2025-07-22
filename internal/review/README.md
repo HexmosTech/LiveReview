@@ -1,8 +1,8 @@
-# Review Service Refactoring: From Monolith to Decoupled Architecture
+# Review Service Architecture - Per-Request Service Pattern
 
 ## Overview
 
-This document outlines the refactoring of the extremely complex and tightly coupled `processReviewInBackground` function into a clean, decoupled, and testable architecture.
+This document outlines the complete refactoring of the extremely complex and tightly coupled `processReviewInBackground` function into a clean, decoupled, per-request service architecture. The review system now uses a **per-request service pattern** instead of a global singleton pattern, providing maximum flexibility for dynamic configuration and better resource management.
 
 ## 🚨 Problems with the Original Code
 
@@ -39,11 +39,98 @@ func (s *Server) processReviewInBackground(token *IntegrationToken, requestURL, 
 6. **No Configuration**: Models, temperatures, and endpoints are hard-coded
 7. **Poor Separation of Concerns**: Business logic mixed with infrastructure code
 
-## ✅ New Decoupled Architecture
+## ✅ New Per-Request Service Architecture
+
+### Key Design Principles
+
+#### 1. **Per-Request Service Creation**
+- Each review request creates its own service instance
+- No shared state between concurrent requests
+- Enables dynamic configuration based on request context
+
+#### 2. **Configuration Flexibility**
+- Configuration can be customized per request
+- Database-driven configuration possible
+- User/organization-specific settings supported
+
+#### 3. **Clean Resource Management**
+- Services are created and destroyed per request
+- No memory leaks from long-lived objects
+- Garbage collection friendly
 
 ### Core Components
 
-#### 1. Review Service (`internal/review/service.go`)
+#### Per-Request Service Creation
+```go
+// Each request gets its own service instance
+func (s *Server) createReviewService(token *IntegrationToken) (*review.Service, error) {
+    // Fresh factories per request
+    providerFactory := review.NewStandardProviderFactory()
+    aiProviderFactory := review.NewStandardAIProviderFactory()
+    
+    // Configuration can be customized per request
+    reviewConfig := review.DefaultReviewConfig()
+    // Future: Load from database based on token/user/org
+    // reviewConfig = loadUserSpecificConfig(token.UserID)
+    
+    // Service instance is request-scoped
+    return review.NewService(providerFactory, aiProviderFactory, reviewConfig), nil
+}
+```
+
+#### Request Processing Flow
+```go
+// 1. Create service for this specific request
+reviewService, err := s.createReviewService(token)
+
+// 2. Build request with specific configuration  
+reviewRequest, err := s.buildReviewRequest(token, url, reviewID, accessToken)
+
+// 3. Process with request-scoped service
+go func() {
+    result := reviewService.ProcessReview(ctx, *reviewRequest)
+    // Handle result with automatic cleanup
+}()
+```
+
+### Per-Request Service Benefits
+
+#### 🎯 **Dynamic Configuration**
+Different users can have different AI models, organizations can have custom timeout settings:
+
+```go
+// Example: Custom configuration per organization
+func (s *Server) createReviewService(token *IntegrationToken) (*review.Service, error) {
+    reviewConfig := review.DefaultReviewConfig()
+    
+    if token.OrgType == "enterprise" {
+        reviewConfig.ReviewTimeout = 20 * time.Minute
+        reviewConfig.DefaultAI = "claude-3-opus"
+    } else {
+        reviewConfig.ReviewTimeout = 10 * time.Minute  
+        reviewConfig.DefaultAI = "gemini-2.5-flash"
+    }
+    
+    return review.NewService(factories..., reviewConfig), nil
+}
+```
+
+#### 🔄 **Concurrency Safety**
+- No shared state between requests
+- Thread-safe by design
+- No race conditions
+
+#### 💾 **Memory Efficiency**
+- Services are garbage collected after each request
+- No long-lived objects accumulating state
+- Better memory utilization under load
+
+#### 🧪 **Enhanced Testability**
+- Easy to mock per-request dependencies
+- Isolated test scenarios
+- No global state pollution
+
+### Architecture Components
 The main orchestrator that coordinates the review process:
 
 ```go
@@ -82,84 +169,11 @@ type AIProviderFactory interface {
 - ✅ **Testability**: Easy to mock for unit tests
 - ✅ **Extensibility**: Add new providers without changing core logic
 - ✅ **Configuration**: Provider settings externalized
+- ✅ **Per-Request Fresh Instances**: New instances for each request
 
-#### 3. Configuration Service (`internal/review/config.go`)
-Handles configuration management:
+### Configuration Management
 
-```go
-type ConfigurationService struct {
-    config *config.Config
-}
-
-func (cs *ConfigurationService) BuildReviewRequest(
-    ctx context.Context,
-    url string, 
-    reviewID string,
-    providerType string,
-    providerURL string, 
-    accessToken string,
-) (*ReviewRequest, error)
-```
-
-**Key Benefits:**
-- ✅ **Configuration-Driven**: Reads from config files, not hard-coded
-- ✅ **Environment Aware**: Different settings for dev/staging/prod
-- ✅ **Validation**: Validates configuration at startup
-
-### Usage Comparison
-
-#### OLD: Hard-coded and Monolithic
-```go
-// Single giant function with everything hard-coded
-go s.processReviewInBackground(token, req.URL, reviewID)
-```
-
-#### NEW: Clean and Configurable
-```go
-// Build request from configuration
-reviewRequest, err := reviewService.configService.BuildReviewRequest(
-    ctx, req.URL, reviewID, token.Provider, token.ProviderURL, accessToken,
-)
-
-// Process asynchronously with proper error handling
-reviewService.reviewService.ProcessReviewAsync(ctx, *reviewRequest, callback)
-```
-
-## 🧪 Testability Improvements
-
-### OLD: Untestable
-```go
-// Cannot unit test - everything is hard-coded and coupled
-func TestProcessReview() {
-    // Impossible to test without real GitLab and Gemini API
-}
-```
-
-### NEW: Fully Testable
-```go
-// Complete unit test with mocks (see example_test.go)
-func TestDecoupledReview() {
-    // Mock providers
-    mockProvider := &MockProvider{...}
-    mockAIProvider := &MockAIProvider{...}
-    
-    // Inject mocks via factories
-    providerFactory := &MockProviderFactory{provider: mockProvider}
-    aiProviderFactory := &MockAIProviderFactory{aiProvider: mockAIProvider}
-    
-    // Test the service with mocks
-    service := NewService(providerFactory, aiProviderFactory, config)
-    result := service.ProcessReview(ctx, request)
-    
-    // Verify behavior
-    assert.True(t, result.Success)
-    assert.Equal(t, 1, result.CommentsCount)
-}
-```
-
-## 🔧 Configuration Management
-
-### OLD: Hard-coded Values
+#### OLD: Hard-coded Values
 ```go
 // Everything is hard-coded
 aiProvider, err := gemini.New(gemini.GeminiConfig{
@@ -169,17 +183,113 @@ aiProvider, err := gemini.New(gemini.GeminiConfig{
 })
 ```
 
-### NEW: Configuration-Driven
+#### NEW: Dynamic Per-Request Configuration
 ```toml
-# livereview.toml
+# livereview.toml - Base configuration
 [ai.gemini]
 api_key = "${GEMINI_API_KEY}"  # From environment variable
-model = "gemini-2.5-flash"     # Configurable per environment
-temperature = 0.4              # Tunable parameter
+model = "gemini-2.5-flash"     # Can be overridden per request
+temperature = 0.4              # Can be customized per user/org
 
 [general]
-default_ai = "gemini"          # Can switch AI providers easily
-review_timeout = "10m"         # Configurable timeouts
+default_ai = "gemini"          # Can switch AI providers per request
+review_timeout = "10m"         # Can be customized dynamically
+```
+
+```go
+// Per-request configuration customization
+func (s *Server) createReviewService(token *IntegrationToken) (*review.Service, error) {
+    config := review.DefaultReviewConfig()
+    
+    // Customize based on user/organization
+    if token.OrgType == "enterprise" {
+        config.DefaultAI = "claude-3-opus"
+        config.ReviewTimeout = 20 * time.Minute
+    }
+    
+    return review.NewService(factories..., config), nil
+}
+```
+
+### Usage Comparison
+
+#### OLD: Hard-coded and Monolithic (Global Service)
+```go
+// Global service in Server struct - shared state problems
+type Server struct {
+    reviewService *ReviewService  // ❌ Global, shared state
+}
+
+// Single giant function with everything hard-coded
+go s.processReviewInBackground(token, req.URL, reviewID)
+```
+
+**Problems:**
+- Configuration fixed at startup
+- Shared state between requests  
+- No per-user customization
+- Memory leaks from long-lived callbacks
+
+#### NEW: Clean and Per-Request
+```go
+// No global review service field in Server struct
+type Server struct {
+    // ✅ No global review service field
+}
+
+// Fresh service per request with dynamic configuration
+reviewService, err := s.createReviewService(token)
+reviewRequest, err := s.buildReviewRequest(token, req.URL, reviewID, accessToken)
+
+// Process asynchronously with proper error handling and cleanup
+go func() {
+    result := reviewService.ProcessReview(ctx, *reviewRequest)
+    // Automatic cleanup when function exits
+}()
+```
+
+**Benefits:**
+- ✅ Fresh service per request
+- ✅ Dynamic configuration
+- ✅ No shared state
+- ✅ Automatic cleanup
+
+## 🧪 Enhanced Testability with Per-Request Pattern
+
+### OLD: Untestable Global State
+```go
+// Cannot unit test - everything is hard-coded and coupled
+func TestProcessReview() {
+    // Impossible to test without real GitLab and Gemini API
+    // Global state makes tests interfere with each other
+}
+```
+
+### NEW: Fully Testable with Isolation
+```go
+// Complete unit test with mocks and per-request isolation
+func TestPerRequestReview() {
+    // Mock providers for this test only
+    mockProvider := &MockProvider{...}
+    mockAIProvider := &MockAIProvider{...}
+    
+    // Inject mocks via factories (fresh per test)
+    providerFactory := &MockProviderFactory{provider: mockProvider}
+    aiProviderFactory := &MockAIProviderFactory{aiProvider: mockAIProvider}
+    
+    // Each test gets its own service instance
+    service := NewService(providerFactory, aiProviderFactory, testConfig)
+    result := service.ProcessReview(ctx, request)
+    
+    // No interference between test runs
+    assert.True(t, result.Success)
+    assert.Equal(t, 1, result.CommentsCount)
+}
+```
+
+### NEW: Configuration-Driven
+```toml
+
 ```
 
 ## 📊 Error Handling & Monitoring
@@ -222,7 +332,41 @@ reviewService.resultCallbacks[reviewID] = func(result *review.ReviewResult) {
 reviewService.reviewService.ProcessReviewAsync(ctx, *reviewRequest, callback)
 ```
 
-## 📈 Extensibility
+## � Future Enhancements
+
+### 1. **Database Configuration Loading**
+```go
+func (s *Server) createReviewService(token *IntegrationToken) (*review.Service, error) {
+    // Load user-specific configuration from database
+    userConfig, err := s.loadUserReviewConfig(token.UserID)
+    if err != nil {
+        userConfig = review.DefaultReviewConfig()
+    }
+    
+    // Customize based on organization
+    orgConfig, err := s.loadOrgReviewConfig(token.OrgID)  
+    if err == nil {
+        userConfig = mergeConfigs(userConfig, orgConfig)
+    }
+    
+    return review.NewService(factories..., userConfig), nil
+}
+```
+
+### 2. **Advanced Factory Patterns**
+- Plugin-based provider loading
+- Runtime provider registration
+- Custom AI model integrations
+
+### 3. **Caching Optimization**  
+- Cache expensive factory operations
+- Smart configuration caching
+- Connection pool management
+
+### 4. **Monitoring & Observability**
+- Per-request metrics
+- Configuration audit logs
+- Performance tracking
 
 ### Adding New Providers
 
@@ -271,15 +415,67 @@ func (f *StandardProviderFactory) CreateProvider(ctx context.Context, config Pro
 
 ## 🎯 Summary of Benefits
 
-| Aspect | OLD | NEW |
+| Aspect | OLD (Global Service) | NEW (Per-Request Service) |
 |--------|-----|-----|
 | **Coupling** | Extremely tight | Loose via interfaces |
 | **Testability** | Untestable | Fully unit testable |
-| **Configuration** | Hard-coded | Config file driven |
+| **Configuration** | Hard-coded | Dynamic per-request |
 | **Security** | API keys in code | Environment variables |
 | **Error Handling** | Poor | Comprehensive |
 | **Extensibility** | Modify core code | Implement interfaces |
 | **Maintainability** | Very difficult | Easy to maintain |
 | **Performance** | No monitoring | Full metrics & callbacks |
+| **Memory Usage** | Long-lived objects | Request-scoped cleanup |
+| **Concurrency** | Shared state issues | Thread-safe by design |
+| **Multi-tenancy** | Not supported | Per-user/org configuration |
 
-The new architecture transforms a 296-line monolithic function into a clean, testable, and maintainable system that follows SOLID principles and modern software engineering best practices.
+## 🏗️ Architecture Migration
+
+### Before (Global Service Pattern)
+```go
+type Server struct {
+    reviewService *ReviewService  // ❌ Global, shared state
+}
+
+// Problems:
+// - Configuration fixed at startup
+// - Shared state between requests  
+// - No per-user customization
+// - Memory leaks from long-lived callbacks
+```
+
+### After (Per-Request Service Pattern)
+```go  
+type Server struct {
+    // ✅ No global review service field
+}
+
+func (s *Server) createReviewService(token) (*review.Service, error) {
+    // ✅ Fresh service per request
+    // ✅ Dynamic configuration
+    // ✅ No shared state
+    // ✅ Automatic cleanup
+}
+```
+
+## 🔄 Migration Status
+
+### Phase 1: Architecture Implementation (COMPLETED ✅)
+- ✅ Created per-request service pattern
+- ✅ Implemented factory pattern for providers
+- ✅ Added configuration-driven service creation
+- ✅ Removed global service state from Server struct
+- ✅ All code compiles and builds successfully
+
+### Phase 2: Database Integration (READY FOR IMPLEMENTATION)
+- ⏳ Implement `loadUserReviewConfig()` function
+- ⏳ Implement `loadOrgReviewConfig()` function  
+- ⏳ Add configuration merging logic
+- ⏳ Add configuration caching
+
+### Phase 3: Enhanced Observability (FUTURE)
+- ⏳ Add per-request metrics
+- ⏳ Implement configuration audit logs
+- ⏳ Add performance monitoring
+
+The new per-request service architecture provides the ultimate flexibility for a multi-tenant, enterprise-ready review system while maintaining clean architecture principles and optimal resource usage. The transformation from a 296-line monolithic function to a clean, testable, and maintainable system represents a complete architectural evolution following SOLID principles and modern software engineering best practices.
