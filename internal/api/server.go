@@ -106,6 +106,7 @@ func (s *Server) setupRoutes() {
 	v1.POST("/aiconnectors/validate-key", s.ValidateAIConnectorKey)
 	v1.POST("/aiconnectors", s.CreateAIConnector)
 	v1.GET("/aiconnectors", s.GetAIConnectors)
+	v1.DELETE("/aiconnectors/:id", s.DeleteAIConnector)
 }
 
 // Start begins the API server
