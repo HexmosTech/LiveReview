@@ -3,6 +3,7 @@ package api
 import (
 	"context"
 	"net/http"
+	"strconv"
 	"time"
 
 	"github.com/labstack/echo/v4"
@@ -197,4 +198,38 @@ func (s *Server) GetAIConnectors(c echo.Context) error {
 	}
 
 	return c.JSON(http.StatusOK, response)
+}
+
+// DeleteAIConnector handles requests to delete an AI connector by ID
+func (s *Server) DeleteAIConnector(c echo.Context) error {
+	// Get connector ID from URL parameter
+	id := c.Param("id")
+	if id == "" {
+		return c.JSON(http.StatusBadRequest, map[string]string{
+			"error": "Connector ID is required",
+		})
+	}
+
+	// Convert ID string to int64
+	connectorID, err := strconv.ParseInt(id, 10, 64)
+	if err != nil {
+		return c.JSON(http.StatusBadRequest, map[string]string{
+			"error": "Invalid connector ID format",
+		})
+	}
+
+	// Create a storage instance
+	storage := aiconnectors.NewStorage(s.db)
+
+	// Delete the connector
+	if err := storage.DeleteConnector(context.Background(), connectorID); err != nil {
+		log.Error().Err(err).Int64("id", connectorID).Msg("Failed to delete connector")
+		return c.JSON(http.StatusInternalServerError, map[string]string{
+			"error": "Failed to delete connector: " + err.Error(),
+		})
+	}
+
+	return c.JSON(http.StatusOK, map[string]string{
+		"message": "Connector deleted successfully",
+	})
 }

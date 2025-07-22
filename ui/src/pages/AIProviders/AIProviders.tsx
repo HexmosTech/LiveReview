@@ -92,6 +92,7 @@ const AIProviders: React.FC = () => {
         error,
         fetchConnectors,
         saveConnector,
+        deleteConnector,
         setError
     } = useConnectors();
     
@@ -246,6 +247,27 @@ const AIProviders: React.FC = () => {
         handleProviderTypeChange(providerType, popularAIProviders);
     };
 
+    // Handle deleting a connector
+    const handleDeleteConnector = async () => {
+        if (!selectedConnector) {
+            return;
+        }
+        
+        if (window.confirm(`Are you sure you want to delete the connector "${selectedConnector.name}"?`)) {
+            try {
+                const success = await deleteConnector(selectedConnector.id);
+                
+                if (success) {
+                    // Reset form and update URL
+                    resetForm();
+                    updateUrlFragment(selectedProvider);
+                }
+            } catch (error) {
+                console.error('Error in handleDeleteConnector:', error);
+            }
+        }
+    };
+
     return (
         <div className="container mx-auto px-4 py-8">
             <PageHeader 
@@ -295,6 +317,7 @@ const AIProviders: React.FC = () => {
                                 onGenerateName={handleGenerateName}
                                 onSave={handleSaveConnector}
                                 onCancel={resetForm}
+                                onDelete={isEditing ? handleDeleteConnector : undefined}
                                 setError={setError}
                             />
                         )}

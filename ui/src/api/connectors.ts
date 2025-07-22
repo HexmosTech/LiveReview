@@ -98,3 +98,18 @@ export const createAIConnector = async (
     throw error;
   }
 };
+
+/**
+ * Delete an AI connector
+ * @param connectorId The ID of the connector to delete
+ * @returns Promise with the deletion result
+ */
+export const deleteAIConnector = async (connectorId: string): Promise<any> => {
+  try {
+    const response = await apiClient.delete(`/api/v1/aiconnectors/${connectorId}`);
+    return response;
+  } catch (error) {
+    console.error('Error deleting AI connector:', error);
+    throw error;
+  }
+};

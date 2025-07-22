@@ -21,6 +21,7 @@ interface ConnectorFormProps {
     onGenerateName: () => void;
     onSave: () => void;
     onCancel: () => void;
+    onDelete?: () => void;
     setError: (error: string | null) => void;
 }
 
@@ -37,6 +38,7 @@ const ConnectorForm: React.FC<ConnectorFormProps> = ({
     onGenerateName,
     onSave,
     onCancel,
+    onDelete,
     setError
 }) => {
     const getProviderDetails = (providerId: string) => {
@@ -163,6 +165,16 @@ const ConnectorForm: React.FC<ConnectorFormProps> = ({
                     >
                         Cancel
                     </Button>
+                    {isEditing && onDelete && (
+                        <Button
+                            variant="danger"
+                            onClick={onDelete}
+                            className="ml-auto"
+                            title="Delete this connector"
+                        >
+                            Delete
+                        </Button>
+                    )}
                 </div>
             </div>
         </Card>

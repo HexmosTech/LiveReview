@@ -3,7 +3,8 @@ import { AIConnector } from '../types';
 import { 
     getAIConnectors, 
     createAIConnector, 
-    validateAIProviderKey 
+    validateAIProviderKey,
+    deleteAIConnector
 } from '../../../api/connectors';
 
 interface UseConnectorsResult {
@@ -17,6 +18,7 @@ interface UseConnectorsResult {
         name: string,
         existingConnector?: AIConnector | null
     ) => Promise<boolean>;
+    deleteConnector: (connectorId: string) => Promise<boolean>;
     setError: (error: string | null) => void;
 }
 
@@ -133,12 +135,35 @@ export const useConnectors = (): UseConnectorsResult => {
         }
     };
     
+    const deleteConnector = async (connectorId: string): Promise<boolean> => {
+        try {
+            setIsLoading(true);
+            
+            // Delete the connector via API
+            await deleteAIConnector(connectorId);
+            
+            // Update the UI by removing the deleted connector
+            setConnectors(prevConnectors => 
+                prevConnectors.filter(connector => connector.id !== connectorId)
+            );
+            
+            return true;
+        } catch (error) {
+            console.error('Error deleting connector:', error);
+            setError('Failed to delete connector. Please try again.');
+            return false;
+        } finally {
+            setIsLoading(false);
+        }
+    };
+    
     return {
         connectors,
         isLoading,
         error,
         fetchConnectors,
         saveConnector,
+        deleteConnector,
         setError
     };
 };
