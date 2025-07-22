@@ -12,7 +12,7 @@ import {
     Badge,
     Avatar
 } from '../../components/UIPrimitives';
-import { getConnectors, ConnectorResponse, validateAIProviderKey, createAIConnector } from '../../api/connectors';
+import { getConnectors, ConnectorResponse, validateAIProviderKey, createAIConnector, getAIConnectors } from '../../api/connectors';
 import apiClient from '../../api/apiClient';
 
 // AI Provider data structure
@@ -130,6 +130,44 @@ const AIProviders: React.FC = () => {
     const fetchConnectors = async () => {
         try {
             setIsLoading(true);
+            
+            // Try to get AI connectors from the new endpoint
+            try {
+                const aiConnectorsData = await getAIConnectors();
+                console.log('AI Connectors data:', aiConnectorsData);
+                
+                if (aiConnectorsData && Array.isArray(aiConnectorsData) && aiConnectorsData.length > 0) {
+                    // Map the new format to the component's format
+                    const aiConnectors = aiConnectorsData.map(connector => ({
+                        id: connector.id.toString(),
+                        name: connector.connector_name,
+                        providerName: connector.provider_name,
+                        apiKey: connector.api_key_preview || '',
+                        displayOrder: connector.display_order || 0,
+                        createdAt: new Date(connector.created_at),
+                        lastUsed: undefined,
+                        usageStats: {
+                            totalCalls: 0,
+                            successfulCalls: 0,
+                            failedCalls: 0,
+                            averageLatency: 0
+                        },
+                        models: [],
+                        selectedModel: '',
+                        isActive: true
+                    }));
+                    
+                    setConnectors(aiConnectors);
+                    setError(null);
+                    setIsLoading(false);
+                    return;
+                }
+            } catch (aiErr) {
+                console.warn('Error fetching from AI connectors endpoint:', aiErr);
+                // Fall back to legacy method
+            }
+            
+            // Fallback to original method
             const data = await getConnectors();
             
             // Filter for AI connectors (assuming they have a provider name matching our list)

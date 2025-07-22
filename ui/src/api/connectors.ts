@@ -25,6 +25,19 @@ export const getConnectors = async (): Promise<ConnectorResponse[]> => {
 };
 
 /**
+ * Fetch all AI connectors from the server
+ * @returns Promise with array of AI connectors
+ */
+export const getAIConnectors = async (): Promise<any[]> => {
+  try {
+    return await apiClient.get<any[]>('/api/v1/aiconnectors');
+  } catch (error) {
+    console.error('Error fetching AI connectors:', error);
+    throw error;
+  }
+};
+
+/**
  * Validate an AI provider API key
  * @param provider The provider name (e.g., 'openai', 'gemini', 'claude')
  * @param apiKey The API key to validate
