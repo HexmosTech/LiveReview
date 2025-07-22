@@ -100,12 +100,27 @@ const AIProviders: React.FC = () => {
     const [isSaved, setIsSaved] = useState(false);
     const [isEditing, setIsEditing] = useState(false);
     const [selectedConnector, setSelectedConnector] = useState<AIConnector | null>(null);
-    const [showProviderSelector, setShowProviderSelector] = useState(false);
+    const [showDropdown, setShowDropdown] = useState(false);
+    const dropdownRef = React.useRef<HTMLDivElement>(null);
     const [formData, setFormData] = useState({
         name: '',
         apiKey: '',
         providerType: ''
     });
+    
+    // Close dropdown when clicking outside
+    useEffect(() => {
+        function handleClickOutside(event: MouseEvent) {
+            if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
+                setShowDropdown(false);
+            }
+        }
+        
+        document.addEventListener("mousedown", handleClickOutside);
+        return () => {
+            document.removeEventListener("mousedown", handleClickOutside);
+        };
+    }, [dropdownRef]);
 
     // Fetch connectors from API on component mount
     useEffect(() => {
@@ -243,7 +258,7 @@ const AIProviders: React.FC = () => {
         });
         setSelectedConnector(null);
         setIsEditing(false);
-        setShowProviderSelector(false);
+        setShowDropdown(false);
     };
 
     // Handle editing a connector
@@ -300,7 +315,7 @@ const AIProviders: React.FC = () => {
                                 onClick={() => {
                                     setSelectedProvider('all');
                                     resetForm();
-                                    setShowProviderSelector(false);
+                                    setShowDropdown(false);
                                 }}
                             >
                                 <div className="flex items-center">
@@ -333,7 +348,7 @@ const AIProviders: React.FC = () => {
                                     }`}
                                     onClick={() => {
                                         setSelectedProvider(provider.id);
-                                        setShowProviderSelector(false);
+                                        setShowDropdown(false);
                                         if (!isEditing) {
                                             setFormData({
                                                 ...formData,
@@ -550,46 +565,49 @@ const AIProviders: React.FC = () => {
                         >
                             <div className="flex justify-end mb-4">
                                 {selectedProvider === 'all' ? (
-                                    <div className="relative inline-block">
-                                        {!showProviderSelector ? (
-                                            <Button
-                                                variant="primary"
-                                                size="sm"
-                                                onClick={() => setShowProviderSelector(true)}
-                                            >
-                                                Add Connector
-                                            </Button>
-                                        ) : (
-                                            <div className="flex items-center space-x-2">
-                                                <select 
-                                                    className="bg-slate-700 border border-slate-600 text-white rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                                                    value={formData.providerType}
-                                                    onChange={(e) => {
-                                                        const selectedProviderId = e.target.value;
-                                                        setFormData({
-                                                            name: generateFriendlyNameForProvider(selectedProviderId),
-                                                            apiKey: '',
-                                                            providerType: selectedProviderId
-                                                        });
-                                                        setIsEditing(false);
-                                                        setSelectedConnector(null);
-                                                        setShowProviderSelector(false);
-                                                    }}
-                                                >
-                                                    <option value="" disabled>Select Provider</option>
+                                    <div className="relative" ref={dropdownRef}>
+                                        <Button
+                                            variant="primary"
+                                            size="sm"
+                                            onClick={() => setShowDropdown(!showDropdown)}
+                                            className="flex items-center"
+                                        >
+                                            Add Connector
+                                            <span className="ml-1">
+                                                <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                                                </svg>
+                                            </span>
+                                        </Button>
+                                        
+                                        {showDropdown && (
+                                            <div className="absolute right-0 mt-2 w-56 rounded-md shadow-lg bg-slate-800 ring-1 ring-black ring-opacity-5 z-10">
+                                                <div className="py-1" role="menu" aria-orientation="vertical">
+                                                    <div className="px-3 py-2 text-xs text-slate-400 uppercase">
+                                                        Select Provider
+                                                    </div>
                                                     {popularAIProviders.map(provider => (
-                                                        <option key={provider.id} value={provider.id}>
+                                                        <button
+                                                            key={provider.id}
+                                                            className="w-full text-left px-4 py-2 text-sm text-white hover:bg-slate-700 flex items-center"
+                                                            onClick={() => {
+                                                                setFormData({
+                                                                    name: generateFriendlyNameForProvider(provider.id),
+                                                                    apiKey: '',
+                                                                    providerType: provider.id
+                                                                });
+                                                                setIsEditing(false);
+                                                                setSelectedConnector(null);
+                                                                setShowDropdown(false);
+                                                            }}
+                                                        >
+                                                            <span className="w-8 h-8 flex-shrink-0 rounded-full bg-indigo-600 flex items-center justify-center mr-3">
+                                                                {provider.icon}
+                                                            </span>
                                                             {provider.name}
-                                                        </option>
+                                                        </button>
                                                     ))}
-                                                </select>
-                                                <Button
-                                                    variant="outline"
-                                                    size="sm"
-                                                    onClick={() => setShowProviderSelector(false)}
-                                                >
-                                                    Cancel
-                                                </Button>
+                                                </div>
                                             </div>
                                         )}
                                     </div>
