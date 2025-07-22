@@ -93,7 +93,7 @@ const popularAIProviders: AIProvider[] = [
 
 const AIProviders: React.FC = () => {
     // State
-    const [selectedProvider, setSelectedProvider] = useState<string>(popularAIProviders[0].id);
+    const [selectedProvider, setSelectedProvider] = useState<string>('all');
     const [connectors, setConnectors] = useState<AIConnector[]>([]);
     const [isLoading, setIsLoading] = useState<boolean>(true);
     const [error, setError] = useState<string | null>(null);
