@@ -12,7 +12,7 @@ import {
     Badge,
     Avatar
 } from '../../components/UIPrimitives';
-import { getConnectors, ConnectorResponse } from '../../api/connectors';
+import { getConnectors, ConnectorResponse, validateAIProviderKey } from '../../api/connectors';
 import apiClient from '../../api/apiClient';
 
 // AI Provider data structure
@@ -201,6 +201,24 @@ const AIProviders: React.FC = () => {
                 return;
             }
             
+            // First validate the API key
+            setIsLoading(true);
+            
+            try {
+                const validationResult = await validateAIProviderKey(providerToUse, formData.apiKey);
+                
+                if (!validationResult.valid) {
+                    setError(`API key validation failed: ${validationResult.message}`);
+                    setIsLoading(false);
+                    return;
+                }
+            } catch (validationError) {
+                console.error('Error validating API key:', validationError);
+                setError('Failed to validate API key. Please try again.');
+                setIsLoading(false);
+                return;
+            }
+            
             // For now, just update the UI (we'd add real API call later)
             if (selectedConnector) {
                 // Update existing connector
@@ -246,6 +264,8 @@ const AIProviders: React.FC = () => {
         } catch (error) {
             console.error('Error saving connector:', error);
             setError('Failed to save connector. Please try again.');
+        } finally {
+            setIsLoading(false);
         }
     };
 
