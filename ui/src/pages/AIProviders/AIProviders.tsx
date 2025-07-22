@@ -12,7 +12,7 @@ import {
     Badge,
     Avatar
 } from '../../components/UIPrimitives';
-import { getConnectors, ConnectorResponse, validateAIProviderKey } from '../../api/connectors';
+import { getConnectors, ConnectorResponse, validateAIProviderKey, createAIConnector } from '../../api/connectors';
 import apiClient from '../../api/apiClient';
 
 // AI Provider data structure
@@ -219,40 +219,42 @@ const AIProviders: React.FC = () => {
                 return;
             }
             
-            // For now, just update the UI (we'd add real API call later)
-            if (selectedConnector) {
-                // Update existing connector
-                const updatedConnectors = connectors.map(c => 
-                    c.id === selectedConnector.id 
-                        ? { 
-                            ...c, 
-                            name: formData.name || c.name,
-                            apiKey: formData.apiKey || c.apiKey 
-                        } 
-                        : c
-                );
-                setConnectors(updatedConnectors);
-            } else {
-                // Add new connector
-                const providerInfo = popularAIProviders.find(p => p.id === providerToUse);
-                const newConnector: AIConnector = {
-                    id: `temp-${Date.now()}`, // Would be replaced by server-generated ID
-                    name: formData.name,
-                    providerName: providerToUse,
-                    apiKey: formData.apiKey,
-                    displayOrder: connectors.filter(c => c.providerName === providerToUse).length,
-                    createdAt: new Date(),
-                    isActive: true,
-                    usageStats: {
-                        totalCalls: 0,
-                        successfulCalls: 0,
-                        failedCalls: 0,
-                        averageLatency: 0
-                    },
-                    models: providerInfo?.models || [],
-                    selectedModel: providerInfo?.defaultModel
-                };
-                setConnectors([...connectors, newConnector]);
+            // Now save the connector to the database
+            try {
+                const displayOrder = connectors.filter(c => c.providerName === providerToUse).length;
+                
+                if (selectedConnector) {
+                    // Update existing connector (not implemented yet in the backend)
+                    // For now, just update the UI
+                    const updatedConnectors = connectors.map(c => 
+                        c.id === selectedConnector.id 
+                            ? { 
+                                ...c, 
+                                name: formData.name || c.name,
+                                apiKey: formData.apiKey || c.apiKey 
+                            } 
+                            : c
+                    );
+                    setConnectors(updatedConnectors);
+                } else {
+                    // Create new connector in the backend
+                    const result = await createAIConnector(
+                        providerToUse,
+                        formData.apiKey,
+                        formData.name,
+                        displayOrder
+                    );
+                    
+                    console.log('Connector created:', result);
+                    
+                    // After creating, refresh the connector list
+                    await fetchConnectors();
+                }
+            } catch (saveError) {
+                console.error('Error saving connector to database:', saveError);
+                setError('Failed to save connector to database. Please try again.');
+                setIsLoading(false);
+                return;
             }
             
             // Show success message

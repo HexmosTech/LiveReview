@@ -89,6 +89,12 @@ func NewConnector(ctx context.Context, options ConnectorOptions) (*Connector, er
 
 // ValidateAPIKey validates the provided API key against the provider
 func ValidateAPIKey(ctx context.Context, provider Provider, apiKey string, baseURL string) (bool, error) {
+	log.Debug().
+		Str("provider", string(provider)).
+		Str("api_key_prefix", apiKey[:min(len(apiKey), 10)]).
+		Str("base_url", baseURL).
+		Msg("Starting API key validation")
+
 	// Create temporary options with minimum configuration
 	options := ConnectorOptions{
 		Provider: provider,
@@ -105,7 +111,8 @@ func ValidateAPIKey(ctx context.Context, provider Provider, apiKey string, baseU
 	case ProviderOpenAI:
 		options.ModelConfig.Model = "gpt-3.5-turbo"
 	case ProviderGemini:
-		options.ModelConfig.Model = "gemini-pro"
+		options.ModelConfig.Model = "gemini-2.5-flash"
+		log.Debug().Msg("Using Gemini Pro model for validation")
 	case ProviderClaude:
 		options.ModelConfig.Model = "claude-3-sonnet-20240229"
 	case ProviderCohere:
@@ -113,21 +120,56 @@ func ValidateAPIKey(ctx context.Context, provider Provider, apiKey string, baseU
 	case ProviderOllama:
 		options.ModelConfig.Model = "llama3"
 	default:
+		log.Error().Str("provider", string(provider)).Msg("Unsupported provider")
 		return false, fmt.Errorf("unsupported provider: %s", provider)
 	}
+
+	log.Debug().
+		Str("provider", string(provider)).
+		Str("model", options.ModelConfig.Model).
+		Float64("temperature", options.ModelConfig.Temperature).
+		Int("max_tokens", options.ModelConfig.MaxTokens).
+		Msg("Creating connector with validation options")
 
 	// Create a connector with the API key to validate
 	connector, err := NewConnector(ctx, options)
 	if err != nil {
+		log.Error().Err(err).
+			Str("provider", string(provider)).
+			Str("model", options.ModelConfig.Model).
+			Msg("Failed to create connector during validation")
 		return false, fmt.Errorf("failed to create connector: %w", err)
 	}
 
+	log.Debug().
+		Str("provider", string(provider)).
+		Str("model", options.ModelConfig.Model).
+		Msg("Connector created successfully, attempting to generate text")
+
 	// Test the connection with a simple call
-	_, err = llms.GenerateFromSinglePrompt(ctx, connector.llm, "test", llms.WithMaxTokens(1))
+	promptText := "test"
+	log.Debug().
+		Str("prompt", promptText).
+		Int("max_tokens", 1).
+		Msg("Making validation API call with simple prompt")
+
+	_, err = llms.GenerateFromSinglePrompt(ctx, connector.llm, promptText, llms.WithMaxTokens(1))
 	if err != nil {
-		log.Error().Err(err).Msg("API key validation failed")
+		log.Error().Err(err).
+			Str("provider", string(provider)).
+			Str("model", options.ModelConfig.Model).
+			Str("api_key_prefix", apiKey[:min(len(apiKey), 10)]).
+			Str("error_type", fmt.Sprintf("%T", err)).
+			Str("full_error", fmt.Sprintf("%+v", err)).
+			Msg("API key validation failed with error")
 		return false, nil // API key is invalid, but don't return an error
 	}
+
+	log.Debug().
+		Str("provider", string(provider)).
+		Str("model", options.ModelConfig.Model).
+		Str("api_key_prefix", apiKey[:min(len(apiKey), 10)]).
+		Msg("API key validation successful")
 
 	return true, nil // API key is valid
 }
@@ -151,6 +193,11 @@ func createOpenAIModel(ctx context.Context, options ConnectorOptions) (llms.Mode
 }
 
 func createGeminiModel(ctx context.Context, options ConnectorOptions) (llms.Model, error) {
+	log.Debug().
+		Str("api_key_prefix", options.APIKey[:min(len(options.APIKey), 10)]).
+		Str("model", options.ModelConfig.Model).
+		Msg("Creating Gemini model with options")
+
 	opts := []googleai.Option{
 		googleai.WithAPIKey(options.APIKey),
 		googleai.WithDefaultModel(options.ModelConfig.Model),
@@ -159,21 +206,38 @@ func createGeminiModel(ctx context.Context, options ConnectorOptions) (llms.Mode
 	// Add options for the model
 	if options.ModelConfig.Temperature > 0 {
 		opts = append(opts, googleai.WithDefaultTemperature(options.ModelConfig.Temperature))
+		log.Debug().Float64("temperature", options.ModelConfig.Temperature).Msg("Setting temperature for Gemini model")
 	}
 
 	if options.ModelConfig.MaxTokens > 0 {
 		opts = append(opts, googleai.WithDefaultMaxTokens(options.ModelConfig.MaxTokens))
+		log.Debug().Int("max_tokens", options.ModelConfig.MaxTokens).Msg("Setting max tokens for Gemini model")
 	}
 
 	if options.ModelConfig.TopP > 0 {
 		opts = append(opts, googleai.WithDefaultTopP(options.ModelConfig.TopP))
+		log.Debug().Float64("top_p", options.ModelConfig.TopP).Msg("Setting top_p for Gemini model")
 	}
 
 	if options.ModelConfig.TopK > 0 {
 		opts = append(opts, googleai.WithDefaultTopK(int(options.ModelConfig.TopK)))
+		log.Debug().Float64("top_k", options.ModelConfig.TopK).Msg("Setting top_k for Gemini model")
 	}
 
-	return googleai.New(ctx, opts...)
+	log.Debug().Msg("Calling googleai.New to create client")
+	model, err := googleai.New(ctx, opts...)
+	if err != nil {
+		log.Error().Err(err).
+			Str("api_key_prefix", options.APIKey[:min(len(options.APIKey), 10)]).
+			Str("model", options.ModelConfig.Model).
+			Str("error_type", fmt.Sprintf("%T", err)).
+			Str("full_error", fmt.Sprintf("%+v", err)).
+			Msg("Failed to create Gemini model")
+		return nil, fmt.Errorf("failed to create Gemini model: %w", err)
+	}
+
+	log.Debug().Msg("Gemini model created successfully")
+	return model, nil
 }
 
 func createAnthropicModel(ctx context.Context, options ConnectorOptions) (llms.Model, error) {
@@ -250,4 +314,12 @@ func (c *Connector) GetProvider() Provider {
 // GetModel returns the model name from the config
 func (c *Connector) GetModel() string {
 	return c.options.ModelConfig.Model
+}
+
+// Helper function to get minimum of two integers
+func min(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
 }
