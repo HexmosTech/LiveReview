@@ -14,6 +14,7 @@ import {
 } from '../../components/UIPrimitives';
 import { getConnectors, ConnectorResponse, validateAIProviderKey, createAIConnector, getAIConnectors } from '../../api/connectors';
 import apiClient from '../../api/apiClient';
+import { useNavigate, useLocation } from 'react-router-dom';
 
 // AI Provider data structure
 interface AIProvider {
@@ -92,13 +93,33 @@ const popularAIProviders: AIProvider[] = [
 ];
 
 const AIProviders: React.FC = () => {
+    const navigate = useNavigate();
+    const location = useLocation();
+    
+    // Parse the hash fragment from the URL
+    const parseUrlFragment = () => {
+        const hash = location.hash.replace('#', '');
+        
+        if (!hash) return { provider: 'all', action: null, connectorId: null };
+        
+        const parts = hash.split('/');
+        return {
+            provider: parts[0] || 'all',
+            action: parts[1] || null,
+            connectorId: parts[2] || null
+        };
+    };
+    
+    // Get initial state from URL
+    const { provider: initialProvider, action: initialAction, connectorId: initialConnectorId } = parseUrlFragment();
+    
     // State
-    const [selectedProvider, setSelectedProvider] = useState<string>('all');
+    const [selectedProvider, setSelectedProvider] = useState<string>(initialProvider);
     const [connectors, setConnectors] = useState<AIConnector[]>([]);
     const [isLoading, setIsLoading] = useState<boolean>(true);
     const [error, setError] = useState<string | null>(null);
     const [isSaved, setIsSaved] = useState(false);
-    const [isEditing, setIsEditing] = useState(false);
+    const [isEditing, setIsEditing] = useState(initialAction === 'edit');
     const [selectedConnector, setSelectedConnector] = useState<AIConnector | null>(null);
     const [showDropdown, setShowDropdown] = useState(false);
     const dropdownRef = React.useRef<HTMLDivElement>(null);
@@ -107,6 +128,18 @@ const AIProviders: React.FC = () => {
         apiKey: '',
         providerType: ''
     });
+    
+    // Update URL when selectedProvider changes
+    const updateUrlFragment = (provider: string, action: string | null = null, connectorId: string | null = null) => {
+        let fragment = `#${provider}`;
+        if (action) {
+            fragment += `/${action}`;
+            if (connectorId) {
+                fragment += `/${connectorId}`;
+            }
+        }
+        navigate(`/ai${fragment}`, { replace: true });
+    };
     
     // Close dropdown when clicking outside
     useEffect(() => {
@@ -121,6 +154,35 @@ const AIProviders: React.FC = () => {
             document.removeEventListener("mousedown", handleClickOutside);
         };
     }, [dropdownRef]);
+
+    // Handle URL fragment changes
+    useEffect(() => {
+        const { provider, action, connectorId } = parseUrlFragment();
+        
+        if (provider !== selectedProvider) {
+            setSelectedProvider(provider);
+        }
+        
+        if (action === 'edit' && connectorId) {
+            // Find the connector to edit based on connectorId
+            if (connectors.length > 0) {
+                const connector = connectors.find(c => c.id === connectorId);
+                if (connector) {
+                    handleEditConnector(connector);
+                }
+            }
+        } else if (action === 'add') {
+            setFormData({
+                name: generateFriendlyNameForProvider(provider),
+                apiKey: '',
+                providerType: provider
+            });
+            setIsEditing(false);
+            setSelectedConnector(null);
+        } else if (!action) {
+            resetForm();
+        }
+    }, [location.hash, connectors]);
 
     // Fetch connectors from API on component mount
     useEffect(() => {
@@ -145,14 +207,14 @@ const AIProviders: React.FC = () => {
                         apiKey: connector.api_key_preview || '',
                         displayOrder: connector.display_order || 0,
                         createdAt: new Date(connector.created_at),
-                        lastUsed: undefined,
+                        lastUsed: undefined as Date | undefined,
                         usageStats: {
                             totalCalls: 0,
                             successfulCalls: 0,
                             failedCalls: 0,
                             averageLatency: 0
                         },
-                        models: [],
+                        models: [] as string[],
                         selectedModel: '',
                         isActive: true
                     }));
@@ -180,14 +242,14 @@ const AIProviders: React.FC = () => {
                     apiKey: connector.provider_app_id || '',
                     displayOrder: connector.metadata?.display_order || 0,
                     createdAt: new Date(connector.created_at),
-                    lastUsed: connector.metadata?.last_used ? new Date(connector.metadata.last_used) : undefined,
+                    lastUsed: connector.metadata?.last_used ? new Date(connector.metadata.last_used) : undefined as Date | undefined,
                     usageStats: connector.metadata?.usage_stats || {
                         totalCalls: 0,
                         successfulCalls: 0,
                         failedCalls: 0,
                         averageLatency: 0
                     },
-                    models: connector.metadata?.models || [],
+                    models: connector.metadata?.models || [] as string[],
                     selectedModel: connector.metadata?.selected_model,
                     isActive: connector.metadata?.is_active !== false // Default to true if not specified
                 }));
@@ -301,6 +363,9 @@ const AIProviders: React.FC = () => {
             
             // Reset form
             resetForm();
+            
+            // Update URL to show the provider without any specific action
+            updateUrlFragment(providerToUse);
         } catch (error) {
             console.error('Error saving connector:', error);
             setError('Failed to save connector. Please try again.');
@@ -319,6 +384,7 @@ const AIProviders: React.FC = () => {
         setSelectedConnector(null);
         setIsEditing(false);
         setShowDropdown(false);
+        updateUrlFragment(selectedProvider);
     };
 
     // Handle editing a connector
@@ -331,6 +397,7 @@ const AIProviders: React.FC = () => {
             providerType: connector.providerName
         });
         setIsEditing(true);
+        updateUrlFragment(connector.providerName, 'edit', connector.id);
     };
 
     // Generate friendly name button
@@ -376,6 +443,7 @@ const AIProviders: React.FC = () => {
                                     setSelectedProvider('all');
                                     resetForm();
                                     setShowDropdown(false);
+                                    updateUrlFragment('all');
                                 }}
                             >
                                 <div className="flex items-center">
@@ -409,6 +477,7 @@ const AIProviders: React.FC = () => {
                                     onClick={() => {
                                         setSelectedProvider(provider.id);
                                         setShowDropdown(false);
+                                        updateUrlFragment(provider.id);
                                         if (!isEditing) {
                                             setFormData({
                                                 ...formData,
@@ -659,6 +728,7 @@ const AIProviders: React.FC = () => {
                                                                 setIsEditing(false);
                                                                 setSelectedConnector(null);
                                                                 setShowDropdown(false);
+                                                                updateUrlFragment(provider.id, 'add');
                                                             }}
                                                         >
                                                             <span className="w-8 h-8 flex-shrink-0 rounded-full bg-indigo-600 flex items-center justify-center mr-3">
@@ -683,6 +753,7 @@ const AIProviders: React.FC = () => {
                                             });
                                             setIsEditing(false);
                                             setSelectedConnector(null);
+                                            updateUrlFragment(selectedProvider, 'add');
                                         }}
                                     >
                                         Add {getProviderDetails(selectedProvider).name} Connector
@@ -783,6 +854,9 @@ const AIProviders: React.FC = () => {
                                                                                 updatedConnectors[index - 1].displayOrder = temp;
                                                                                 
                                                                                 setConnectors(updatedConnectors);
+                                                                                
+                                                                                // Update URL but preserve the current view
+                                                                                updateUrlFragment('all');
                                                                             }}
                                                                         >
                                                                             ↑
@@ -803,6 +877,9 @@ const AIProviders: React.FC = () => {
                                                                                 updatedConnectors[index + 1].displayOrder = temp;
                                                                                 
                                                                                 setConnectors(updatedConnectors);
+                                                                                
+                                                                                // Update URL but preserve the current view
+                                                                                updateUrlFragment('all');
                                                                             }}
                                                                         >
                                                                             ↓
@@ -890,6 +967,9 @@ const AIProviders: React.FC = () => {
                                                                                 }
                                                                                 
                                                                                 setConnectors(updatedConnectors);
+                                                                                
+                                                                                // Update URL but preserve the current view
+                                                                                updateUrlFragment(selectedProvider);
                                                                             }}
                                                                         >
                                                                             ↑
@@ -914,6 +994,9 @@ const AIProviders: React.FC = () => {
                                                                                 }
                                                                                 
                                                                                 setConnectors(updatedConnectors);
+                                                                                
+                                                                                // Update URL but preserve the current view
+                                                                                updateUrlFragment(selectedProvider);
                                                                             }}
                                                                         >
                                                                             ↓
