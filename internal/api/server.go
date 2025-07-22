@@ -15,10 +15,9 @@ import (
 
 // Server represents the API server
 type Server struct {
-	echo          *echo.Echo
-	port          int
-	db            *sql.DB
-	reviewService *ReviewService
+	echo *echo.Echo
+	port int
+	db   *sql.DB
 }
 
 // NewServer creates a new API server

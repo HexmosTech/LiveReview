@@ -221,29 +221,49 @@ func ensureValidToken(token *IntegrationToken) string {
 	return accessToken
 }
 
-// processReviewInBackground handles the entire review process using the new decoupled architecture
-func (s *Server) processReviewInBackground(token *IntegrationToken, requestURL, reviewID string) {
-	log.Printf("[DEBUG] processReviewInBackground: Starting background review process for URL: %s, ReviewID: %s", requestURL, reviewID)
+// createReviewService creates a new review service instance per request
+// This allows for dynamic configuration based on request context or database state
+func (s *Server) createReviewService(token *IntegrationToken) (*review.Service, error) {
+	// Create factories for this specific request
+	providerFactory := review.NewStandardProviderFactory()
+	aiProviderFactory := review.NewStandardAIProviderFactory()
 
-	// Ensure we have a valid token (with config file fallback if needed)
-	accessToken := ensureValidToken(token)
+	// Build review configuration (could be customized based on database state)
+	reviewConfig := review.DefaultReviewConfig()
 
-	// Create or get review service
-	var reviewService *ReviewService
-	if s.reviewService == nil {
-		cfg, err := config.LoadConfig("")
-		if err != nil {
-			log.Printf("[DEBUG] processReviewInBackground: Failed to load configuration: %v", err)
-			return
-		}
-		reviewService = NewReviewService(cfg)
-		s.reviewService = reviewService
-	} else {
-		reviewService = s.reviewService
+	// Example: Could customize config based on database state
+	// if token.Provider == "enterprise-gitlab" {
+	//     reviewConfig.ReviewTimeout = 20 * time.Minute
+	// }
+	//
+	// Future enhancement: Load per-user/org config from database
+	// userConfig, err := s.loadUserReviewConfig(token.UserID)
+	// if err == nil {
+	//     reviewConfig = userConfig
+	// }
+
+	// Create review service for this specific request
+	reviewService := review.NewService(providerFactory, aiProviderFactory, reviewConfig)
+
+	return reviewService, nil
+}
+
+// buildReviewRequest creates a review request for the given parameters
+func (s *Server) buildReviewRequest(
+	token *IntegrationToken,
+	requestURL, reviewID, accessToken string,
+) (*review.ReviewRequest, error) {
+	// Load configuration for building the request
+	cfg, err := config.LoadConfig("")
+	if err != nil {
+		return nil, fmt.Errorf("failed to load configuration: %w", err)
 	}
 
-	// Build review request using configuration service
-	reviewRequest, err := reviewService.configService.BuildReviewRequest(
+	// Create configuration service
+	configService := review.NewConfigurationService(cfg)
+
+	// Build review request
+	reviewRequest, err := configService.BuildReviewRequest(
 		context.Background(),
 		requestURL,
 		reviewID,
@@ -252,12 +272,38 @@ func (s *Server) processReviewInBackground(token *IntegrationToken, requestURL, 
 		accessToken,
 	)
 	if err != nil {
+		return nil, fmt.Errorf("failed to build review request: %w", err)
+	}
+
+	return reviewRequest, nil
+}
+
+// processReviewInBackground handles the entire review process using the new decoupled architecture
+// Creates a new review service instance per request for maximum flexibility
+func (s *Server) processReviewInBackground(token *IntegrationToken, requestURL, reviewID string) {
+	log.Printf("[DEBUG] processReviewInBackground: Starting background review process for URL: %s, ReviewID: %s", requestURL, reviewID)
+
+	// Ensure we have a valid token (with config file fallback if needed)
+	accessToken := ensureValidToken(token)
+
+	// Create review service instance for this specific request
+	log.Printf("[DEBUG] processReviewInBackground: Creating review service for request")
+	reviewService, err := s.createReviewService(token)
+	if err != nil {
+		log.Printf("[DEBUG] processReviewInBackground: Failed to create review service: %v", err)
+		return
+	}
+
+	// Build review request
+	log.Printf("[DEBUG] processReviewInBackground: Building review request")
+	reviewRequest, err := s.buildReviewRequest(token, requestURL, reviewID, accessToken)
+	if err != nil {
 		log.Printf("[DEBUG] processReviewInBackground: Failed to build review request: %v", err)
 		return
 	}
 
-	// Set up a callback to handle review completion
-	reviewService.resultCallbacks[reviewID] = func(result *review.ReviewResult) {
+	// Set up completion callback
+	completionCallback := func(result *review.ReviewResult) {
 		if result.Success {
 			log.Printf("[INFO] processReviewInBackground: Review %s completed successfully: %s (%d comments, took %v)",
 				result.ReviewID, truncateString(result.Summary, 50),
@@ -266,24 +312,17 @@ func (s *Server) processReviewInBackground(token *IntegrationToken, requestURL, 
 			log.Printf("[ERROR] processReviewInBackground: Review %s failed: %v (took %v)",
 				result.ReviewID, result.Error, result.Duration)
 		}
-
-		// Clean up the callback
-		delete(reviewService.resultCallbacks, result.ReviewID)
 	}
 
-	// Process review synchronously since we're already in a goroutine
-	log.Printf("[DEBUG] processReviewInBackground: Processing review using new decoupled service")
-	result := reviewService.reviewService.ProcessReview(context.Background(), *reviewRequest)
+	// Process review synchronously (we're already in a goroutine)
+	log.Printf("[DEBUG] processReviewInBackground: Processing review using request-scoped service")
+	result := reviewService.ProcessReview(context.Background(), *reviewRequest)
 
-	// Call the callback manually since we're not using ProcessReviewAsync
-	if callback, exists := reviewService.resultCallbacks[reviewID]; exists && callback != nil {
-		callback(result)
-	}
+	// Call completion callback
+	completionCallback(result)
 
 	log.Printf("[DEBUG] processReviewInBackground: Review process completed for URL: %s, ReviewID: %s", requestURL, reviewID)
-}
-
-// truncateString truncates a string to the specified length
+} // truncateString truncates a string to the specified length
 func truncateString(s string, maxLen int) string {
 	if len(s) <= maxLen {
 		return s
