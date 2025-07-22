@@ -33,37 +33,10 @@ type TriggerReviewResponse struct {
 func (s *Server) TriggerReview(c echo.Context) error {
 	log.Printf("[DEBUG] TriggerReview: Starting review request handling")
 
-	// Check if the user is authenticated
-	password := c.Request().Header.Get("X-Admin-Password")
-	log.Printf("[DEBUG] TriggerReview: Authentication header present: %v", password != "")
-	if password == "" {
-		log.Printf("[DEBUG] TriggerReview: Authentication failed - no password provided")
-		return c.JSON(http.StatusUnauthorized, ErrorResponse{
-			Error: "Authentication required",
-		})
+	// Authenticate admin user
+	if err := s.authenticateAdmin(c); err != nil {
+		return err
 	}
-
-	// Get the stored hashed password
-	var hashedPassword string
-	log.Printf("[DEBUG] TriggerReview: Querying database for admin password")
-	err := s.db.QueryRow("SELECT admin_password FROM instance_details LIMIT 1").Scan(&hashedPassword)
-	if err != nil {
-		log.Printf("[DEBUG] TriggerReview: Database error retrieving password: %v", err)
-		return c.JSON(http.StatusInternalServerError, ErrorResponse{
-			Error: "Failed to check authentication: " + err.Error(),
-		})
-	}
-	log.Printf("[DEBUG] TriggerReview: Retrieved hashed password from database")
-
-	// Verify the provided password
-	log.Printf("[DEBUG] TriggerReview: Verifying password")
-	if !comparePasswords(hashedPassword, password) {
-		log.Printf("[DEBUG] TriggerReview: Authentication failed - invalid password")
-		return c.JSON(http.StatusUnauthorized, ErrorResponse{
-			Error: "Invalid authentication",
-		})
-	}
-	log.Printf("[DEBUG] TriggerReview: Password verification successful")
 
 	// Parse request body
 	req := new(TriggerReviewRequest)
