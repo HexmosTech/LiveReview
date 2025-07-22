@@ -14,7 +14,7 @@ import {
 } from '../../components/UIPrimitives';
 import { getConnectors, ConnectorResponse, validateAIProviderKey, createAIConnector, getAIConnectors } from '../../api/connectors';
 import apiClient from '../../api/apiClient';
-import { useNavigate, useLocation } from 'react-router-dom';
+import { useNavigate, useLocation, useParams } from 'react-router-dom';
 
 // AI Provider data structure
 interface AIProvider {
@@ -95,23 +95,12 @@ const popularAIProviders: AIProvider[] = [
 const AIProviders: React.FC = () => {
     const navigate = useNavigate();
     const location = useLocation();
+    const params = useParams<{ provider?: string; action?: string; connectorId?: string }>();
     
-    // Parse the hash fragment from the URL
-    const parseUrlFragment = () => {
-        const hash = location.hash.replace('#', '');
-        
-        if (!hash) return { provider: 'all', action: null, connectorId: null };
-        
-        const parts = hash.split('/');
-        return {
-            provider: parts[0] || 'all',
-            action: parts[1] || null,
-            connectorId: parts[2] || null
-        };
-    };
-    
-    // Get initial state from URL
-    const { provider: initialProvider, action: initialAction, connectorId: initialConnectorId } = parseUrlFragment();
+    // Get initial state from URL params
+    const initialProvider = params.provider || 'all';
+    const initialAction = params.action || null;
+    const initialConnectorId = params.connectorId || null;
     
     // State
     const [selectedProvider, setSelectedProvider] = useState<string>(initialProvider);
@@ -131,14 +120,14 @@ const AIProviders: React.FC = () => {
     
     // Update URL when selectedProvider changes
     const updateUrlFragment = (provider: string, action: string | null = null, connectorId: string | null = null) => {
-        let fragment = `#${provider}`;
+        let path = `/ai/${provider}`;
         if (action) {
-            fragment += `/${action}`;
+            path += `/${action}`;
             if (connectorId) {
-                fragment += `/${connectorId}`;
+                path += `/${connectorId}`;
             }
         }
-        navigate(`/ai${fragment}`, { replace: true });
+        navigate(path, { replace: true });
     };
     
     // Close dropdown when clicking outside
@@ -155,9 +144,11 @@ const AIProviders: React.FC = () => {
         };
     }, [dropdownRef]);
 
-    // Handle URL fragment changes
+    // Handle URL path changes
     useEffect(() => {
-        const { provider, action, connectorId } = parseUrlFragment();
+        const provider = params.provider || 'all';
+        const action = params.action || null;
+        const connectorId = params.connectorId || null;
         
         if (provider !== selectedProvider) {
             setSelectedProvider(provider);
@@ -168,7 +159,16 @@ const AIProviders: React.FC = () => {
             if (connectors.length > 0) {
                 const connector = connectors.find(c => c.id === connectorId);
                 if (connector) {
-                    handleEditConnector(connector);
+                    // We need to avoid the recursive loop caused by handleEditConnector updating the URL
+                    // So we'll set the form data directly
+                    setSelectedConnector(connector);
+                    setSelectedProvider(connector.providerName);
+                    setFormData({
+                        name: connector.name,
+                        apiKey: connector.apiKey,
+                        providerType: connector.providerName
+                    });
+                    setIsEditing(true);
                 }
             }
         } else if (action === 'add') {
@@ -180,9 +180,13 @@ const AIProviders: React.FC = () => {
             setIsEditing(false);
             setSelectedConnector(null);
         } else if (!action) {
-            resetForm();
+            // Only reset if we're not already in a "no action" state
+            if (isEditing || selectedConnector) {
+                resetForm();
+            }
         }
-    }, [location.hash, connectors]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [params, connectors.length]);
 
     // Fetch connectors from API on component mount
     useEffect(() => {
@@ -265,7 +269,7 @@ const AIProviders: React.FC = () => {
     };
 
     // Generate a friendly name for a specific provider
-    const generateFriendlyNameForProvider = (providerId: string) => {
+    const generateFriendlyNameForProvider = React.useCallback((providerId: string) => {
         const providerInfo = popularAIProviders.find(p => p.id === providerId);
         
         // Generate a friendly name using adjectives and random numbers
@@ -274,12 +278,12 @@ const AIProviders: React.FC = () => {
         const randomNum = Math.floor(Math.random() * 1000);
         
         return `${providerInfo?.name || 'AI'}-${randomAdjective}${randomNum}`;
-    };
+    }, []);
 
     // Generate a friendly name for the current provider
-    const generateFriendlyName = () => {
+    const generateFriendlyName = React.useCallback(() => {
         return generateFriendlyNameForProvider(selectedProvider);
-    };
+    }, [selectedProvider, generateFriendlyNameForProvider]);
 
     // Handle form input changes
     const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {

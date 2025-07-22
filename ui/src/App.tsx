@@ -122,6 +122,9 @@ const AppContent: React.FC = () => {
                     <Route path="/git/:providerType" element={<GitProviders />} />
                     <Route path="/git/:providerType/:step" element={<GitProviders />} />
                     <Route path="/ai" element={<AIProviders />} />
+                    <Route path="/ai/:provider" element={<AIProviders />} />
+                    <Route path="/ai/:provider/:action" element={<AIProviders />} />
+                    <Route path="/ai/:provider/:action/:connectorId" element={<AIProviders />} />
                     <Route path="/settings" element={<Settings />} />
                     <Route path="/reviews/new" element={<NewReview />} />
                     <Route path="/oauth-callback" element={<OAuthCallbackHandler />} />
