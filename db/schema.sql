@@ -14,6 +14,40 @@ SET default_tablespace = '';
 SET default_table_access_method = heap;
 
 --
+-- Name: ai_connectors; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.ai_connectors (
+    id integer NOT NULL,
+    provider_name character varying(64) NOT NULL,
+    api_key text NOT NULL,
+    display_order integer DEFAULT 0 NOT NULL,
+    created_at timestamp with time zone DEFAULT CURRENT_TIMESTAMP,
+    updated_at timestamp with time zone DEFAULT CURRENT_TIMESTAMP
+);
+
+
+--
+-- Name: ai_connectors_id_seq; Type: SEQUENCE; Schema: public; Owner: -
+--
+
+CREATE SEQUENCE public.ai_connectors_id_seq
+    AS integer
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+
+--
+-- Name: ai_connectors_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: -
+--
+
+ALTER SEQUENCE public.ai_connectors_id_seq OWNED BY public.ai_connectors.id;
+
+
+--
 -- Name: instance_details; Type: TABLE; Schema: public; Owner: -
 --
 
@@ -98,6 +132,13 @@ CREATE TABLE public.schema_migrations (
 
 
 --
+-- Name: ai_connectors id; Type: DEFAULT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.ai_connectors ALTER COLUMN id SET DEFAULT nextval('public.ai_connectors_id_seq'::regclass);
+
+
+--
 -- Name: instance_details id; Type: DEFAULT; Schema: public; Owner: -
 --
 
@@ -109,6 +150,14 @@ ALTER TABLE ONLY public.instance_details ALTER COLUMN id SET DEFAULT nextval('pu
 --
 
 ALTER TABLE ONLY public.integration_tokens ALTER COLUMN id SET DEFAULT nextval('public.integration_tokens_id_seq'::regclass);
+
+
+--
+-- Name: ai_connectors ai_connectors_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.ai_connectors
+    ADD CONSTRAINT ai_connectors_pkey PRIMARY KEY (id);
 
 
 --
@@ -155,4 +204,5 @@ INSERT INTO public.schema_migrations (version) VALUES
     ('20250720135317'),
     ('20250720182946'),
     ('20250721035816'),
-    ('20250721141011');
+    ('20250721141011'),
+    ('20250722035359');

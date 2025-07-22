@@ -1,0 +1,12 @@
+-- migrate:up
+CREATE TABLE ai_connectors (
+	id SERIAL PRIMARY KEY,
+	provider_name VARCHAR(64) NOT NULL,
+	api_key TEXT NOT NULL,
+	display_order INTEGER NOT NULL DEFAULT 0,
+	created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+	updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
+-- migrate:down
+DROP TABLE IF EXISTS ai_connectors;
