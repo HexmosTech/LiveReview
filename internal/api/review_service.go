@@ -91,72 +91,48 @@ func (s *Server) TriggerReviewV2(c echo.Context) error {
 	reviewID := fmt.Sprintf("review-%d", time.Now().Unix())
 	log.Printf("[DEBUG] TriggerReviewV2: Generated review ID: %s", reviewID)
 
-	// Create or get review service
-	var reviewService *ReviewService
-	if s.reviewService == nil {
-		cfg, err := config.LoadConfig("")
-		if err != nil {
-			return c.JSON(http.StatusInternalServerError, ErrorResponse{
-				Error: "Failed to load configuration: " + err.Error(),
-			})
-		}
-		reviewService = NewReviewService(cfg)
-		s.reviewService = reviewService
-	} else {
-		reviewService = s.reviewService
+	// Create review service instance for this specific request
+	log.Printf("[DEBUG] TriggerReviewV2: Creating review service for request")
+	reviewService, err := s.createReviewService(token)
+	if err != nil {
+		return c.JSON(http.StatusInternalServerError, ErrorResponse{
+			Error: "Failed to create review service: " + err.Error(),
+		})
 	}
 
-	// Build review request using configuration service
-	reviewRequest, err := reviewService.configService.BuildReviewRequest(
-		context.Background(),
-		req.URL,
-		reviewID,
-		token.Provider,
-		token.ProviderURL,
-		accessToken,
-	)
+	// Build review request
+	log.Printf("[DEBUG] TriggerReviewV2: Building review request")
+	reviewRequest, err := s.buildReviewRequest(token, req.URL, reviewID, accessToken)
 	if err != nil {
 		return c.JSON(http.StatusBadRequest, ErrorResponse{
 			Error: "Failed to build review request: " + err.Error(),
 		})
 	}
 
-	// Set up a callback to handle review completion
-	reviewService.resultCallbacks[reviewID] = func(result *review.ReviewResult) {
+	// Set up completion callback
+	completionCallback := func(result *review.ReviewResult) {
 		if result.Success {
-			log.Printf("[INFO] Review %s completed successfully: %s (%d comments, took %v)",
-				result.ReviewID, result.Summary[:min(50, len(result.Summary))],
+			log.Printf("[INFO] TriggerReviewV2: Review %s completed successfully: %s (%d comments, took %v)",
+				result.ReviewID, truncateString(result.Summary, 50),
 				result.CommentsCount, result.Duration)
 		} else {
-			log.Printf("[ERROR] Review %s failed: %v (took %v)",
+			log.Printf("[ERROR] TriggerReviewV2: Review %s failed: %v (took %v)",
 				result.ReviewID, result.Error, result.Duration)
 		}
-
-		// Clean up the callback
-		delete(reviewService.resultCallbacks, result.ReviewID)
 	}
 
-	// Trigger the review process asynchronously
+	// Process review asynchronously using a goroutine
 	log.Printf("[DEBUG] TriggerReviewV2: Starting review process in background")
-	reviewService.reviewService.ProcessReviewAsync(
-		context.Background(),
-		*reviewRequest,
-		reviewService.resultCallbacks[reviewID],
-	)
+	go func() {
+		result := reviewService.ProcessReview(context.Background(), *reviewRequest)
+		completionCallback(result)
+	}()
 
 	// Return success response immediately
 	log.Printf("[DEBUG] TriggerReviewV2: Returning success response with reviewID: %s", reviewID)
 	return c.JSON(http.StatusOK, TriggerReviewResponse{
-		Message:  "Review triggered successfully using new decoupled architecture. You will receive a notification when it's complete.",
+		Message:  "Review triggered successfully using new per-request decoupled architecture. You will receive a notification when it's complete.",
 		URL:      req.URL,
 		ReviewID: reviewID,
 	})
-}
-
-// min helper function
-func min(a, b int) int {
-	if a < b {
-		return a
-	}
-	return b
 }
