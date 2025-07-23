@@ -103,6 +103,14 @@ func (s *Server) setupRoutes() {
 
 	// GitLab profile validation endpoint
 	v1.POST("/gitlab/validate-profile", s.ValidateGitLabProfile)
+
+	// Create PAT integration token endpoint
+	v1.POST("/integration_tokens/pat", s.HandleCreatePATIntegrationToken)
+}
+
+// Handler for creating PAT integration token, delegates to pat_token.go
+func (s *Server) HandleCreatePATIntegrationToken(c echo.Context) error {
+	return HandleCreatePATIntegrationToken(s.db, c)
 }
 
 // ValidateGitLabProfile validates GitLab PAT and base URL by fetching user profile
