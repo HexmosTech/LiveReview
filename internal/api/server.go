@@ -106,6 +106,15 @@ func (s *Server) setupRoutes() {
 
 	// Create PAT integration token endpoint
 	v1.POST("/integration_tokens/pat", s.HandleCreatePATIntegrationToken)
+
+	// Review trigger endpoints
+	v1.POST("/trigger-review", s.TriggerReview)
+
+	// AI Connector endpoints
+	v1.POST("/aiconnectors/validate-key", s.ValidateAIConnectorKey)
+	v1.POST("/aiconnectors", s.CreateAIConnector)
+	v1.GET("/aiconnectors", s.GetAIConnectors)
+	v1.DELETE("/aiconnectors/:id", s.DeleteAIConnector)
 }
 
 // Handler for creating PAT integration token, delegates to pat_token.go
