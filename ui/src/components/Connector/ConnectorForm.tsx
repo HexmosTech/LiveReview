@@ -174,7 +174,19 @@ export const ConnectorForm: React.FC<ConnectorFormProps> = ({ onSubmit }) => {
                             const result = await validateGitLabProfile('https://gitlab.com', pat);
                             setProfile(result);
                         } catch (err: any) {
-                            setProfileError(err.message);
+                            console.error('GitLab validation error:', err);
+                            // Extract the actual error message from the server response
+                            let errorMessage = 'Failed to validate GitLab credentials';
+                            if (err.data && err.data.error) {
+                                errorMessage = err.data.error;
+                            } else if (err.message && !err.message.includes('API error') && !err.message.includes('Request failed')) {
+                                errorMessage = err.message;
+                            } else if (err.status === 400) {
+                                errorMessage = 'Invalid GitLab URL or Personal Access Token. Please check your credentials and try again.';
+                            } else if (err.status >= 500) {
+                                errorMessage = 'GitLab server error. Please try again later.';
+                            }
+                            setProfileError(errorMessage);
                         } finally {
                             setConfirming(false);
                         }
@@ -197,7 +209,24 @@ export const ConnectorForm: React.FC<ConnectorFormProps> = ({ onSubmit }) => {
                             helperText="Ensure this user has sufficient project/group access for all repositories where you want AI code reviews."
                         />
                         {profileError && (
-                            <Alert variant="error" title="Validation Error" onClose={() => setProfileError(null)}>{profileError}</Alert>
+                            <div className="rounded-md bg-red-900 border border-red-700 px-4 py-3">
+                                <div className="flex items-start">
+                                    <div className="ml-3 flex-1">
+                                        <h3 className="text-sm font-medium text-red-200">GitLab Connection Failed</h3>
+                                        <div className="mt-1 text-sm text-red-300">{profileError}</div>
+                                        <div className="mt-2 text-xs text-red-400">
+                                            Make sure your Personal Access Token has 'api' scope and the GitLab instance is accessible.
+                                        </div>
+                                    </div>
+                                    <button
+                                        type="button"
+                                        className="ml-auto flex-shrink-0 text-red-400 hover:text-red-300 text-lg font-bold"
+                                        onClick={() => setProfileError(null)}
+                                    >
+                                        ×
+                                    </button>
+                                </div>
+                            </div>
                         )}
                         <Button variant="primary" type="submit" disabled={confirming}>{confirming ? 'Validating...' : 'Add Connector'}</Button>
                     </form>
@@ -269,7 +298,19 @@ export const ConnectorForm: React.FC<ConnectorFormProps> = ({ onSubmit }) => {
                             const result = await validateGitLabProfile(url, pat);
                             setProfile(result);
                         } catch (err: any) {
-                            setProfileError(err.message);
+                            console.error('GitLab validation error:', err);
+                            // Extract the actual error message from the server response
+                            let errorMessage = 'Failed to validate GitLab credentials';
+                            if (err.data && err.data.error) {
+                                errorMessage = err.data.error;
+                            } else if (err.message && !err.message.includes('API error') && !err.message.includes('Request failed')) {
+                                errorMessage = err.message;
+                            } else if (err.status === 400) {
+                                errorMessage = 'Invalid GitLab URL or Personal Access Token. Please verify the instance URL is correct and your PAT has api scope.';
+                            } else if (err.status >= 500) {
+                                errorMessage = 'GitLab server error. Please try again later.';
+                            }
+                            setProfileError(errorMessage);
                         } finally {
                             setConfirming(false);
                         }
@@ -300,7 +341,24 @@ export const ConnectorForm: React.FC<ConnectorFormProps> = ({ onSubmit }) => {
                             required
                         />
                         {profileError && (
-                            <Alert variant="error" title="Validation Error" onClose={() => setProfileError(null)}>{profileError}</Alert>
+                            <div className="rounded-md bg-red-900 border border-red-700 px-4 py-3">
+                                <div className="flex items-start">
+                                    <div className="ml-3 flex-1">
+                                        <h3 className="text-sm font-medium text-red-200">GitLab Connection Failed</h3>
+                                        <div className="mt-1 text-sm text-red-300">{profileError}</div>
+                                        <div className="mt-2 text-xs text-red-400">
+                                            Verify your instance URL is correct (no trailing slash) and your PAT has 'api' scope.
+                                        </div>
+                                    </div>
+                                    <button
+                                        type="button"
+                                        className="ml-auto flex-shrink-0 text-red-400 hover:text-red-300 text-lg font-bold"
+                                        onClick={() => setProfileError(null)}
+                                    >
+                                        ×
+                                    </button>
+                                </div>
+                            </div>
                         )}
                         <Button variant="primary" type="submit" disabled={confirming}>{confirming ? 'Validating...' : 'Add Connector'}</Button>
                     </form>

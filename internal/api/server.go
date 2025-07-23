@@ -137,7 +137,7 @@ func (s *Server) ValidateGitLabProfile(c echo.Context) error {
 	}
 	profile, err := FetchGitLabProfile(body.BaseURL, body.PAT)
 	if err != nil {
-		return c.JSON(http.StatusUnauthorized, map[string]string{"error": err.Error()})
+		return c.JSON(http.StatusBadRequest, map[string]string{"error": err.Error()})
 	}
 	return c.JSON(http.StatusOK, profile)
 }
