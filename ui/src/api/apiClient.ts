@@ -59,11 +59,31 @@ async function apiRequest<T>(
     // Handle any other errors
     if (!response.ok) {
       // Try to get error details from the response
+      let errorMessage = `Request failed with status ${response.status}: ${response.statusText}`;
+      let errorData = null;
+      
       try {
-        const errorData = await response.json();
-        // The server returns errors in an "error" field (from ErrorResponse struct)
-        const errorMessage = errorData.error || `API error: ${response.status}`;
-        console.log('API error response:', errorData, response.status); // Debug log
+        const responseText = await response.text();
+        console.log('API error response text:', responseText); // Debug log
+        
+        if (responseText) {
+          try {
+            errorData = JSON.parse(responseText);
+            console.log('API error response parsed:', errorData, response.status); // Debug log
+            
+            // The server returns errors in an "error" field (from ErrorResponse struct)
+            if (errorData.error) {
+              errorMessage = errorData.error;
+            } else if (errorData.message) {
+              errorMessage = errorData.message;
+            }
+          } catch (parseError) {
+            // If JSON parsing fails, use the text as error message if it's reasonable
+            if (responseText.length < 200 && !responseText.includes('<html')) {
+              errorMessage = responseText;
+            }
+          }
+        }
         
         const error = new Error(errorMessage);
         // Add status code to the error object for better error handling
@@ -72,9 +92,10 @@ async function apiRequest<T>(
         (error as any).url = url;
         (error as any).data = errorData;
         throw error;
-      } catch (jsonError) {
-        // If we can't parse the JSON, throw an error with status information
-        const error = new Error(`API error: ${response.status}`);
+      } catch (networkError) {
+        console.log('Failed to read error response:', networkError);
+        // If we can't read the response, throw an error with status information
+        const error = new Error(errorMessage);
         (error as any).status = response.status;
         (error as any).statusText = response.statusText;
         (error as any).url = url;
