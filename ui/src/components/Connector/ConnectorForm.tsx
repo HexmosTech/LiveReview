@@ -1,6 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { Card, Input, Select, Button, Icons, Alert, Avatar } from '../UIPrimitives';
 import { ConnectorType } from '../../store/Connector/reducer';
+import { useDispatch } from 'react-redux';
+import { setConnectors } from '../../store/Connector/reducer';
 import GitLabConnector from './GitLabConnector';
 import DomainValidator from './DomainValidator';
 import { useNavigate, useParams, useLocation } from 'react-router-dom';
@@ -75,6 +77,7 @@ export const ConnectorForm: React.FC<ConnectorFormProps> = ({ onSubmit }) => {
         navigate(`/git/${type}/step1`);
     };
 
+    const dispatch = useDispatch();
     const handleGitLabSubmit = async (data: ConnectorData) => {
         setSaving(true);
         setErrorMessage(null);
@@ -87,10 +90,9 @@ export const ConnectorForm: React.FC<ConnectorFormProps> = ({ onSubmit }) => {
                 pat_token: data.apiKey,
                 metadata: data.metadata,
             });
-            // Refresh connector list in frontend
+            // Refresh connector list in frontend and update Redux state
             const updatedConnectors = await getConnectors();
-            // Optionally update Redux state if needed
-            // dispatch(setConnectors(updatedConnectors));
+            dispatch(setConnectors(updatedConnectors));
             setShowConnectorForm(false);
         } catch (err: any) {
             setErrorMessage(err.message || 'Failed to save connector');
@@ -197,12 +199,11 @@ export const ConnectorForm: React.FC<ConnectorFormProps> = ({ onSubmit }) => {
                         <div className="flex space-x-3 pt-2">
                             <Button variant="primary" size="lg" className="font-bold px-6 py-2" onClick={async () => {
                                 await handleGitLabSubmit({
-                                    name: 'GitLab.com (Manual)',
+                                    name: username,
                                     type: 'gitlab-com',
                                     url: 'https://gitlab.com',
                                     apiKey: pat,
                                     metadata: {
-                                        username,
                                         manual: true,
                                         gitlabProfile: profile,
                                     },
@@ -301,12 +302,11 @@ export const ConnectorForm: React.FC<ConnectorFormProps> = ({ onSubmit }) => {
                         <div className="flex space-x-3 pt-2">
                             <Button variant="primary" size="lg" className="font-bold px-6 py-2" onClick={async () => {
                                 await handleGitLabSubmit({
-                                    name: 'Self-Hosted GitLab (Manual)',
+                                    name: username,
                                     type: 'gitlab-self-hosted',
                                     url,
                                     apiKey: pat,
                                     metadata: {
-                                        username,
                                         manual: true,
                                         gitlabProfile: profile,
                                     },
