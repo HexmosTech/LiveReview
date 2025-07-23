@@ -107,11 +107,12 @@ export const ConnectorForm: React.FC<ConnectorFormProps> = ({ onSubmit }) => {
 
     // Manual GitLab.com form
     const ManualGitLabForm = () => {
-        const [username, setUsername] = useState('');
-        const [pat, setPat] = useState('');
-        const [profile, setProfile] = useState<any | null>(null);
-        const [profileError, setProfileError] = useState<string | null>(null);
-        const [confirming, setConfirming] = useState(false);
+    const [username, setUsername] = useState('');
+    const [pat, setPat] = useState('');
+    const [profile, setProfile] = useState<any | null>(null);
+    const [profileError, setProfileError] = useState<string | null>(null);
+    const [confirming, setConfirming] = useState(false);
+    const usernameHasLiveReview = username.toLowerCase().includes('livereview');
         return (
             <Card title="Manual GitLab.com Connector">
                 {!profile && !confirming && (
@@ -128,8 +129,30 @@ export const ConnectorForm: React.FC<ConnectorFormProps> = ({ onSubmit }) => {
                             setConfirming(false);
                         }
                     }}>
-                        <Input id="manual-username" label="Username" value={username} onChange={e => setUsername(e.target.value)} required />
-                        <Input id="manual-pat" label="Personal Access Token (PAT)" type="password" value={pat} onChange={e => setPat(e.target.value)} required />
+                        <Input
+                            id="manual-username"
+                            label="Connector Name"
+                            value={username}
+                            onChange={e => setUsername(e.target.value)}
+                            required
+                        />
+                        <div className="mt-1 text-sm">
+                            {username.length === 0
+                                ? <span className="text-slate-400">Tip: For best practice, use a username or name containing 'LiveReview' (e.g. LiveReviewBot) for this integration.</span>
+                                : usernameHasLiveReview
+                                    ? <span className="text-green-400">Great! Username contains 'LiveReview'.</span>
+                                    : <span className="text-yellow-400">Consider including 'LiveReview' in the username for best practice.</span>
+                            }
+                        </div>
+                        <Input
+                            id="manual-pat"
+                            label="Personal Access Token (PAT)"
+                            type="password"
+                            value={pat}
+                            onChange={e => setPat(e.target.value)}
+                            required
+                            helperText="Ensure this user has sufficient project/group access for all repositories where you want AI code reviews."
+                        />
                         {profileError && (
                             <Alert variant="error" title="Validation Error" onClose={() => setProfileError(null)}>{profileError}</Alert>
                         )}
@@ -146,6 +169,15 @@ export const ConnectorForm: React.FC<ConnectorFormProps> = ({ onSubmit }) => {
                                 <div className="text-sm text-slate-400 mt-1">{profile.email}</div>
                             </div>
                         </div>
+                        {!(profile.username?.toLowerCase().includes('livereview') || profile.name?.toLowerCase().includes('livereview')) ? (
+                            <div className="rounded-md bg-yellow-900 text-yellow-300 px-4 py-2 text-sm mb-2 border border-yellow-400">
+                                <strong>Recommended:</strong> For best security and auditability, create a dedicated GitLab user (e.g. <span className="font-bold text-yellow-200">LiveReviewBot</span>) with all required project/group access for AI code reviews. This helps you manage permissions and track review activity.
+                            </div>
+                        ) : (
+                            <div className="rounded-md bg-green-900 text-green-300 px-4 py-2 text-sm mb-2 border border-green-400">
+                                <strong>Good!</strong> Your GitLab user is correctly named for LiveReview integration.
+                            </div>
+                        )}
                         <div className="rounded-md bg-slate-800 text-slate-300 px-4 py-2 text-sm mb-2" style={{border: '1px solid #334155'}}>
                             Please confirm this is your GitLab profile before saving the connector.
                         </div>
@@ -174,12 +206,13 @@ export const ConnectorForm: React.FC<ConnectorFormProps> = ({ onSubmit }) => {
 
     // Manual Self-Hosted GitLab form
     const ManualSelfHostedForm = () => {
-        const [username, setUsername] = useState('');
-        const [pat, setPat] = useState('');
-        const [url, setUrl] = useState('');
-        const [profile, setProfile] = useState<any | null>(null);
-        const [profileError, setProfileError] = useState<string | null>(null);
-        const [confirming, setConfirming] = useState(false);
+    const [username, setUsername] = useState('');
+    const [pat, setPat] = useState('');
+    const [url, setUrl] = useState('');
+    const [profile, setProfile] = useState<any | null>(null);
+    const [profileError, setProfileError] = useState<string | null>(null);
+    const [confirming, setConfirming] = useState(false);
+    const usernameHasLiveReview = username.toLowerCase().includes('livereview');
         return (
             <Card title="Manual Self-Hosted GitLab Connector">
                 {!profile && !confirming && (
@@ -196,9 +229,38 @@ export const ConnectorForm: React.FC<ConnectorFormProps> = ({ onSubmit }) => {
                             setConfirming(false);
                         }
                     }}>
-                        <Input id="manual-username" label="Username" value={username} onChange={e => setUsername(e.target.value)} required />
-                        <Input id="manual-pat" label="Personal Access Token (PAT)" type="password" value={pat} onChange={e => setPat(e.target.value)} required />
-                        <Input id="manual-url" label="Instance URL" value={url} onChange={e => setUrl(e.target.value)} placeholder="https://gitlab.mycompany.com" required />
+                        <Input
+                            id="manual-username"
+                            label="Connector Name"
+                            value={username}
+                            onChange={e => setUsername(e.target.value)}
+                            required
+                        />
+                        <div className="mt-1 text-sm">
+                            {username.length === 0
+                                ? <span className="text-slate-400">Tip: For best practice, use a username or name containing 'LiveReview' (e.g. LiveReviewBot) for this integration.</span>
+                                : usernameHasLiveReview
+                                    ? <span className="text-green-400">Great! Username contains 'LiveReview'.</span>
+                                    : <span className="text-yellow-400">Consider including 'LiveReview' in the username for best practice.</span>
+                            }
+                        </div>
+                        <Input
+                            id="manual-pat"
+                            label="Personal Access Token (PAT)"
+                            type="password"
+                            value={pat}
+                            onChange={e => setPat(e.target.value)}
+                            required
+                            helperText="Ensure this user has sufficient project/group access for all repositories where you want AI code reviews."
+                        />
+                        <Input
+                            id="manual-url"
+                            label="Instance URL"
+                            value={url}
+                            onChange={e => setUrl(e.target.value)}
+                            placeholder="https://gitlab.mycompany.com"
+                            required
+                        />
                         {profileError && (
                             <Alert variant="error" title="Validation Error" onClose={() => setProfileError(null)}>{profileError}</Alert>
                         )}
@@ -215,6 +277,15 @@ export const ConnectorForm: React.FC<ConnectorFormProps> = ({ onSubmit }) => {
                                 <div className="text-sm text-slate-400 mt-1">{profile.email}</div>
                             </div>
                         </div>
+                        {!(profile.username?.toLowerCase().includes('livereview') || profile.name?.toLowerCase().includes('livereview')) ? (
+                            <div className="rounded-md bg-yellow-900 text-yellow-300 px-4 py-2 text-sm mb-2 border border-yellow-400">
+                                <strong>Recommended:</strong> For best security and auditability, create a dedicated GitLab user (e.g. <span className="font-bold text-yellow-200">LiveReviewBot</span>) with all required project/group access for AI code reviews. This helps you manage permissions and track review activity.
+                            </div>
+                        ) : (
+                            <div className="rounded-md bg-green-900 text-green-300 px-4 py-2 text-sm mb-2 border border-green-400">
+                                <strong>Good!</strong> Your GitLab user is correctly named for LiveReview integration.
+                            </div>
+                        )}
                         <div className="rounded-md bg-slate-800 text-slate-300 px-4 py-2 text-sm mb-2" style={{border: '1px solid #334155'}}>
                             Please confirm this is your GitLab profile before saving the connector.
                         </div>
