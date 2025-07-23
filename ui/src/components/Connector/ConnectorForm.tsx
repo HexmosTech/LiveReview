@@ -165,7 +165,7 @@ export const ConnectorForm: React.FC<ConnectorFormProps> = ({ onSubmit }) => {
                 <div className="mb-4 rounded-md bg-yellow-900 text-yellow-200 px-4 py-3 border border-yellow-400 text-base font-semibold">
                     <span className="font-bold">Recommended:</span> For best practice, create a dedicated GitLab user such as <span className="font-bold text-yellow-100">LiveReviewBot</span> and grant it access to all projects/groups where you want AI code reviews. This helps with security, auditability, and permission management.
                 </div>
-                {!profile && !confirming && (
+                {!profile && (
                     <form className="space-y-4" onSubmit={async e => {
                         e.preventDefault();
                         setProfileError(null);
@@ -228,7 +228,14 @@ export const ConnectorForm: React.FC<ConnectorFormProps> = ({ onSubmit }) => {
                                 </div>
                             </div>
                         )}
-                        <Button variant="primary" type="submit" disabled={confirming}>{confirming ? 'Validating...' : 'Add Connector'}</Button>
+                        <Button 
+                            variant="primary" 
+                            type="submit" 
+                            disabled={confirming}
+                            isLoading={confirming}
+                        >
+                            {confirming ? 'Validating GitLab Connection...' : 'Add Connector'}
+                        </Button>
                     </form>
                 )}
                 {profile && (
@@ -254,19 +261,28 @@ export const ConnectorForm: React.FC<ConnectorFormProps> = ({ onSubmit }) => {
                             Please confirm this is your GitLab profile before saving the connector.
                         </div>
                         <div className="flex space-x-3 pt-2">
-                            <Button variant="primary" size="lg" className="font-bold px-6 py-2" onClick={async () => {
-                                await handleGitLabSubmit({
-                                    name: username,
-                                    type: 'gitlab-com',
-                                    url: 'https://gitlab.com',
-                                    apiKey: pat,
-                                    metadata: {
-                                        manual: true,
-                                        gitlabProfile: profile,
-                                    },
-                                });
-                                setProfile(null);
-                            }} disabled={saving}>{saving ? 'Saving...' : 'Confirm & Save'}</Button>
+                            <Button 
+                                variant="primary" 
+                                size="lg" 
+                                className="font-bold px-6 py-2" 
+                                onClick={async () => {
+                                    await handleGitLabSubmit({
+                                        name: username,
+                                        type: 'gitlab-com',
+                                        url: 'https://gitlab.com',
+                                        apiKey: pat,
+                                        metadata: {
+                                            manual: true,
+                                            gitlabProfile: profile,
+                                        },
+                                    });
+                                    setProfile(null);
+                                }} 
+                                disabled={saving}
+                                isLoading={saving}
+                            >
+                                {saving ? 'Saving Connector...' : 'Confirm & Save'}
+                            </Button>
                             <Button variant="outline" size="lg" className="px-6 py-2" onClick={() => setProfile(null)} disabled={saving}>Cancel</Button>
                         </div>
                     </div>
@@ -289,7 +305,7 @@ export const ConnectorForm: React.FC<ConnectorFormProps> = ({ onSubmit }) => {
                 <div className="mb-4 rounded-md bg-yellow-900 text-yellow-200 px-4 py-3 border border-yellow-400 text-base font-semibold">
                     <span className="font-bold">Recommended:</span> For best practice, create a dedicated GitLab user such as <span className="font-bold text-yellow-100">LiveReviewBot</span> and grant it access to all projects/groups where you want AI code reviews. This helps with security, auditability, and permission management.
                 </div>
-                {!profile && !confirming && (
+                {!profile && (
                     <form className="space-y-4" onSubmit={async e => {
                         e.preventDefault();
                         setProfileError(null);
@@ -360,7 +376,14 @@ export const ConnectorForm: React.FC<ConnectorFormProps> = ({ onSubmit }) => {
                                 </div>
                             </div>
                         )}
-                        <Button variant="primary" type="submit" disabled={confirming}>{confirming ? 'Validating...' : 'Add Connector'}</Button>
+                        <Button 
+                            variant="primary" 
+                            type="submit" 
+                            disabled={confirming}
+                            isLoading={confirming}
+                        >
+                            {confirming ? 'Validating GitLab Connection...' : 'Add Connector'}
+                        </Button>
                     </form>
                 )}
                 {profile && (
@@ -386,19 +409,28 @@ export const ConnectorForm: React.FC<ConnectorFormProps> = ({ onSubmit }) => {
                             Please confirm this is your GitLab profile before saving the connector.
                         </div>
                         <div className="flex space-x-3 pt-2">
-                            <Button variant="primary" size="lg" className="font-bold px-6 py-2" onClick={async () => {
-                                await handleGitLabSubmit({
-                                    name: username,
-                                    type: 'gitlab-self-hosted',
-                                    url,
-                                    apiKey: pat,
-                                    metadata: {
-                                        manual: true,
-                                        gitlabProfile: profile,
-                                    },
-                                });
-                                setProfile(null);
-                            }} disabled={saving}>{saving ? 'Saving...' : 'Confirm & Save'}</Button>
+                            <Button 
+                                variant="primary" 
+                                size="lg" 
+                                className="font-bold px-6 py-2" 
+                                onClick={async () => {
+                                    await handleGitLabSubmit({
+                                        name: username,
+                                        type: 'gitlab-self-hosted',
+                                        url,
+                                        apiKey: pat,
+                                        metadata: {
+                                            manual: true,
+                                            gitlabProfile: profile,
+                                        },
+                                    });
+                                    setProfile(null);
+                                }} 
+                                disabled={saving}
+                                isLoading={saving}
+                            >
+                                {saving ? 'Saving Connector...' : 'Confirm & Save'}
+                            </Button>
                             <Button variant="outline" size="lg" className="px-6 py-2" onClick={() => setProfile(null)} disabled={saving}>Cancel</Button>
                         </div>
                     </div>
