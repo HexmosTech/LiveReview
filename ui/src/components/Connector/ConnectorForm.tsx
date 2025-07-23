@@ -60,21 +60,9 @@ export const ConnectorForm: React.FC<ConnectorFormProps> = ({ onSubmit }) => {
     }, [providerType]);
 
     const handleConnectorSelect = (type: ConnectorType) => {
-        if (type === 'gitlab-com') {
-            const hasGitlabComConnector = connectors.some((connector: any) => {
-                const connectorUrl = normalizeUrl(connector.url || '');
-                const metadataProviderUrl = connector.metadata?.provider_url ? normalizeUrl(connector.metadata.provider_url) : '';
-                return connectorUrl.includes('gitlab.com') || metadataProviderUrl.includes('gitlab.com');
-            });
-            if (hasGitlabComConnector) {
-                setErrorMessage('You already have a GitLab.com connection');
-                return;
-            }
-            setErrorMessage(null);
-        }
-        setSelectedConnectorType(type);
-        setShowConnectorForm(true);
-        navigate(`/git/${type}/step1`);
+    setSelectedConnectorType(type);
+    setShowConnectorForm(true);
+    navigate(`/git/${type}/step1`);
     };
 
     const dispatch = useDispatch();
@@ -127,7 +115,37 @@ export const ConnectorForm: React.FC<ConnectorFormProps> = ({ onSubmit }) => {
             </Button>
             <Button
                 variant={tab === 'automated' ? 'primary' : 'outline'}
-                onClick={() => setTab('automated')}
+                onClick={() => {
+                    // Only check for duplicate connector when switching to Automated tab, and only for token_type 'Bearer'
+                    if (selectedConnectorType === 'gitlab-com') {
+                        const hasGitlabComConnector = connectors.some((connector: any) => {
+                            const connectorUrl = normalizeUrl(connector.url || '');
+                            const metadataProviderUrl = connector.metadata?.provider_url ? normalizeUrl(connector.metadata.provider_url) : '';
+                            // Only consider connectors with token_type 'Bearer'
+                            const tokenType = connector.metadata?.token_type || connector.token_type || '';
+                            return (tokenType === 'Bearer') && (connectorUrl.includes('gitlab.com') || metadataProviderUrl.includes('gitlab.com'));
+                        });
+                        if (hasGitlabComConnector) {
+                            setErrorMessage('You already have an Automated GitLab.com connection (token_type: Bearer)');
+                            return;
+                        }
+                    }
+                    if (selectedConnectorType === 'gitlab-self-hosted') {
+                        const hasSelfHostedConnector = connectors.some((connector: any) => {
+                            const connectorUrl = normalizeUrl(connector.url || '');
+                            const metadataProviderUrl = connector.metadata?.provider_url ? normalizeUrl(connector.metadata.provider_url) : '';
+                            const tokenType = connector.metadata?.token_type || connector.token_type || '';
+                            // Only consider connectors with token_type 'Bearer' and not gitlab.com
+                            return (tokenType === 'Bearer') && ((connectorUrl && !connectorUrl.includes('gitlab.com')) || (metadataProviderUrl && !metadataProviderUrl.includes('gitlab.com')));
+                        });
+                        if (hasSelfHostedConnector) {
+                            setErrorMessage('You already have an Automated Self-Hosted GitLab connection (token_type: Bearer)');
+                            return;
+                        }
+                    }
+                    setErrorMessage(null); // Clear error on successful tab switch
+                    setTab('automated');
+                }}
             >
                 Automated
             </Button>
