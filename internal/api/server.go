@@ -11,6 +11,7 @@ import (
 
 	"github.com/labstack/echo/v4"
 	"github.com/labstack/echo/v4/middleware"
+	// Import FetchGitLabProfile
 )
 
 // Server represents the API server
@@ -100,14 +101,28 @@ func (s *Server) setupRoutes() {
 	v1.GET("/connectors", s.GetConnectors)
 	v1.DELETE("/connectors/:id", s.DeleteConnector)
 
-	// Review trigger endpoints
-	v1.POST("/trigger-review", s.TriggerReview)
+	// GitLab profile validation endpoint
+	v1.POST("/gitlab/validate-profile", s.ValidateGitLabProfile)
+}
 
-	// AI Connector endpoints
-	v1.POST("/aiconnectors/validate-key", s.ValidateAIConnectorKey)
-	v1.POST("/aiconnectors", s.CreateAIConnector)
-	v1.GET("/aiconnectors", s.GetAIConnectors)
-	v1.DELETE("/aiconnectors/:id", s.DeleteAIConnector)
+// ValidateGitLabProfile validates GitLab PAT and base URL by fetching user profile
+func (s *Server) ValidateGitLabProfile(c echo.Context) error {
+	type reqBody struct {
+		BaseURL string `json:"base_url"`
+		PAT     string `json:"pat"`
+	}
+	var body reqBody
+	if err := c.Bind(&body); err != nil {
+		return c.JSON(http.StatusBadRequest, map[string]string{"error": "Invalid request body"})
+	}
+	if body.BaseURL == "" || body.PAT == "" {
+		return c.JSON(http.StatusBadRequest, map[string]string{"error": "base_url and pat are required"})
+	}
+	profile, err := FetchGitLabProfile(body.BaseURL, body.PAT)
+	if err != nil {
+		return c.JSON(http.StatusUnauthorized, map[string]string{"error": err.Error()})
+	}
+	return c.JSON(http.StatusOK, profile)
 }
 
 // Start begins the API server
