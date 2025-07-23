@@ -107,7 +107,8 @@ CREATE TABLE public.integration_tokens (
     code text,
     connection_name text NOT NULL,
     provider_url text NOT NULL,
-    client_secret text
+    client_secret text,
+    pat_token text
 );
 
 
@@ -215,4 +216,5 @@ INSERT INTO public.schema_migrations (version) VALUES
     ('20250721141011'),
     ('20250722035359'),
     ('20250722040308'),
-    ('20250722064012');
+    ('20250722064012'),
+    ('20250723093453');

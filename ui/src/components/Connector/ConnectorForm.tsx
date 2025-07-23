@@ -7,6 +7,8 @@ import { useNavigate, useParams, useLocation } from 'react-router-dom';
 import { useAppSelector } from '../../store/configureStore';
 import { isDuplicateConnector, normalizeUrl } from './checkConnectorDuplicate';
 import { validateGitLabProfile } from '../../api/gitlabProfile';
+import { createPATConnector } from '../../api/patConnector';
+import { getConnectors } from '../../api/connectors';
 
 type ConnectorFormProps = {
     onSubmit: (connector: ConnectorData) => void;
@@ -39,6 +41,7 @@ export const ConnectorForm: React.FC<ConnectorFormProps> = ({ onSubmit }) => {
     const [profile, setProfile] = useState<any | null>(null);
     const [profileError, setProfileError] = useState<string | null>(null);
     const [confirming, setConfirming] = useState(false);
+    const [saving, setSaving] = useState(false);
     // Get connectors from Redux state
     const connectors = useAppSelector((state) => state.Connector.connectors);
 
@@ -72,14 +75,28 @@ export const ConnectorForm: React.FC<ConnectorFormProps> = ({ onSubmit }) => {
         navigate(`/git/${type}/step1`);
     };
 
-    const handleGitLabSubmit = (data: ConnectorData) => {
-        const connectorWithMeta = {
-            ...data,
-            id: `connector-${Date.now()}`,
-            createdAt: Date.now(),
-        };
-        onSubmit(connectorWithMeta);
-        setShowConnectorForm(false);
+    const handleGitLabSubmit = async (data: ConnectorData) => {
+        setSaving(true);
+        setErrorMessage(null);
+        try {
+            // Call backend API to save PAT connector
+            await createPATConnector({
+                name: data.name,
+                type: data.type,
+                url: data.url,
+                pat_token: data.apiKey,
+                metadata: data.metadata,
+            });
+            // Refresh connector list in frontend
+            const updatedConnectors = await getConnectors();
+            // Optionally update Redux state if needed
+            // dispatch(setConnectors(updatedConnectors));
+            setShowConnectorForm(false);
+        } catch (err: any) {
+            setErrorMessage(err.message || 'Failed to save connector');
+        } finally {
+            setSaving(false);
+        }
     };
 
     const handleBackToSelection = () => {
@@ -178,8 +195,8 @@ export const ConnectorForm: React.FC<ConnectorFormProps> = ({ onSubmit }) => {
                             Please confirm this is your GitLab profile before saving the connector.
                         </div>
                         <div className="flex space-x-3 pt-2">
-                            <Button variant="primary" size="lg" className="font-bold px-6 py-2" onClick={() => {
-                                handleGitLabSubmit({
+                            <Button variant="primary" size="lg" className="font-bold px-6 py-2" onClick={async () => {
+                                await handleGitLabSubmit({
                                     name: 'GitLab.com (Manual)',
                                     type: 'gitlab-com',
                                     url: 'https://gitlab.com',
@@ -191,8 +208,8 @@ export const ConnectorForm: React.FC<ConnectorFormProps> = ({ onSubmit }) => {
                                     },
                                 });
                                 setProfile(null);
-                            }}>Confirm & Save</Button>
-                            <Button variant="outline" size="lg" className="px-6 py-2" onClick={() => setProfile(null)}>Cancel</Button>
+                            }} disabled={saving}>{saving ? 'Saving...' : 'Confirm & Save'}</Button>
+                            <Button variant="outline" size="lg" className="px-6 py-2" onClick={() => setProfile(null)} disabled={saving}>Cancel</Button>
                         </div>
                     </div>
                 )}
@@ -282,8 +299,8 @@ export const ConnectorForm: React.FC<ConnectorFormProps> = ({ onSubmit }) => {
                             Please confirm this is your GitLab profile before saving the connector.
                         </div>
                         <div className="flex space-x-3 pt-2">
-                            <Button variant="primary" size="lg" className="font-bold px-6 py-2" onClick={() => {
-                                handleGitLabSubmit({
+                            <Button variant="primary" size="lg" className="font-bold px-6 py-2" onClick={async () => {
+                                await handleGitLabSubmit({
                                     name: 'Self-Hosted GitLab (Manual)',
                                     type: 'gitlab-self-hosted',
                                     url,
@@ -295,8 +312,8 @@ export const ConnectorForm: React.FC<ConnectorFormProps> = ({ onSubmit }) => {
                                     },
                                 });
                                 setProfile(null);
-                            }}>Confirm & Save</Button>
-                            <Button variant="outline" size="lg" className="px-6 py-2" onClick={() => setProfile(null)}>Cancel</Button>
+                            }} disabled={saving}>{saving ? 'Saving...' : 'Confirm & Save'}</Button>
+                            <Button variant="outline" size="lg" className="px-6 py-2" onClick={() => setProfile(null)} disabled={saving}>Cancel</Button>
                         </div>
                     </div>
                 )}
