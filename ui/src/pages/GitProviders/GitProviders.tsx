@@ -12,7 +12,7 @@ import {
     Avatar,
     Spinner
 } from '../../components/UIPrimitives';
-import { getConnectors, ConnectorResponse } from '../../api/connectors';
+import { getConnectors, ConnectorResponse, deleteConnector } from '../../api/connectors';
 
 // Spec for GitProviderKit
 // This system will manage Git providers, allowing users to add, edit, and remove Git provider configurations.
@@ -88,6 +88,28 @@ const GitProviders: React.FC = () => {
 
     const handleAddConnector = (connectorData: ConnectorData) => {
         dispatch(addConnector(connectorData));
+    };
+
+    const handleDeleteConnector = async (connectorId: string, connectorName: string) => {
+        if (!confirm(`Are you sure you want to delete "${connectorName}"? This action cannot be undone.`)) {
+            return;
+        }
+
+        try {
+            setIsLoading(true);
+            await deleteConnector(connectorId);
+            
+            // Update the redux state by removing the deleted connector
+            const updatedConnectors = connectors.filter(c => c.id !== connectorId);
+            dispatch(setConnectors(updatedConnectors));
+            
+            setError(null);
+        } catch (err) {
+            console.error('Error deleting connector:', err);
+            setError('Failed to delete connector. Please try again.');
+        } finally {
+            setIsLoading(false);
+        }
     };
 
     const formatConnectorType = (type: ConnectorType) => {
@@ -219,6 +241,16 @@ const GitProviders: React.FC = () => {
                                                         }}
                                                     >
                                                         Test Connection
+                                                    </Button>
+                                                    <Button
+                                                        variant="outline"
+                                                        size="sm"
+                                                        onClick={() => handleDeleteConnector(connector.id, connector.name)}
+                                                        disabled={isLoading}
+                                                        title="Delete connector"
+                                                        className="!px-2.5 !text-red-400 hover:!text-red-300 hover:!border-red-400"
+                                                    >
+                                                        <Icons.Delete />
                                                     </Button>
                                                 </div>
                                             </div>

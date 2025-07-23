@@ -25,6 +25,21 @@ export const getConnectors = async (): Promise<ConnectorResponse[]> => {
 };
 
 /**
+ * Delete a Git connector
+ * @param connectorId The ID of the connector to delete
+ * @returns Promise with the deletion result
+ */
+export const deleteConnector = async (connectorId: string): Promise<any> => {
+  try {
+    const response = await apiClient.delete(`/api/v1/connectors/${connectorId}`);
+    return response;
+  } catch (error) {
+    console.error('Error deleting Git connector:', error);
+    throw error;
+  }
+};
+
+/**
  * Fetch all AI connectors from the server
  * @returns Promise with array of AI connectors
  */
