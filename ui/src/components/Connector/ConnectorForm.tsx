@@ -156,9 +156,6 @@ export const ConnectorForm: React.FC<ConnectorFormProps> = ({ onSubmit }) => {
     const ManualGitLabForm = () => {
     const [username, setUsername] = useState('');
     const [pat, setPat] = useState('');
-    const [profile, setProfile] = useState<any | null>(null);
-    const [profileError, setProfileError] = useState<string | null>(null);
-    const [confirming, setConfirming] = useState(false);
     const usernameHasLiveReview = username.toLowerCase().includes('livereview');
         return (
             <Card title="Manual GitLab.com Connector">
@@ -248,13 +245,26 @@ export const ConnectorForm: React.FC<ConnectorFormProps> = ({ onSubmit }) => {
                                 <div className="text-sm text-slate-400 mt-1">{profile.email}</div>
                             </div>
                         </div>
-                        {!(profile.username?.toLowerCase().includes('livereview') || profile.name?.toLowerCase().includes('livereview')) ? (
-                            <div className="rounded-md bg-yellow-900 text-yellow-300 px-4 py-2 text-sm mb-2 border border-yellow-400">
-                                <strong>Recommended:</strong> For best security and auditability, create a dedicated GitLab user (e.g. <span className="font-bold text-yellow-200">LiveReviewBot</span>) with all required project/group access for AI code reviews. This helps you manage permissions and track review activity.
-                            </div>
-                        ) : (
+                        {(profile.username?.toLowerCase().includes('livereview') || profile.name?.toLowerCase().includes('livereview')) ? (
                             <div className="rounded-md bg-green-900 text-green-300 px-4 py-2 text-sm mb-2 border border-green-400">
                                 <strong>Good!</strong> Your GitLab user is correctly named for LiveReview integration.
+                            </div>
+                        ) : (
+                            <div className="rounded-md bg-orange-900 text-orange-200 px-4 py-3 border-2 border-orange-400 text-base font-bold mb-4" style={{ animation: 'pulse 1s ease-in-out 3 alternate' }}>
+                                <div className="flex items-start">
+                                    <div className="flex-shrink-0">
+                                        <span className="text-2xl">⚠️</span>
+                                    </div>
+                                    <div className="ml-3">
+                                        <div className="font-bold text-orange-100 text-lg">Consider Using a Dedicated LiveReview Account</div>
+                                        <div className="mt-1 text-orange-200">
+                                            For better security and organization, we recommend creating a dedicated GitLab user like <span className="font-bold text-orange-100 bg-orange-800 px-1 rounded">LiveReviewBot</span> instead of using your personal account <span className="font-bold">@{profile.username}</span>.
+                                        </div>
+                                        <div className="mt-2 text-sm text-orange-300">
+                                            This helps with permission management, auditability, and keeps AI review activities separate from your personal GitLab usage.
+                                        </div>
+                                    </div>
+                                </div>
                             </div>
                         )}
                         <div className="rounded-md bg-slate-800 text-slate-300 px-4 py-2 text-sm mb-2" style={{border: '1px solid #334155'}}>
@@ -296,9 +306,6 @@ export const ConnectorForm: React.FC<ConnectorFormProps> = ({ onSubmit }) => {
     const [username, setUsername] = useState('');
     const [pat, setPat] = useState('');
     const [url, setUrl] = useState('');
-    const [profile, setProfile] = useState<any | null>(null);
-    const [profileError, setProfileError] = useState<string | null>(null);
-    const [confirming, setConfirming] = useState(false);
     const usernameHasLiveReview = username.toLowerCase().includes('livereview');
         return (
             <Card title="Manual Self-Hosted GitLab Connector">
@@ -396,13 +403,26 @@ export const ConnectorForm: React.FC<ConnectorFormProps> = ({ onSubmit }) => {
                                 <div className="text-sm text-slate-400 mt-1">{profile.email}</div>
                             </div>
                         </div>
-                        {!(profile.username?.toLowerCase().includes('livereview') || profile.name?.toLowerCase().includes('livereview')) ? (
-                            <div className="rounded-md bg-yellow-900 text-yellow-300 px-4 py-2 text-sm mb-2 border border-yellow-400">
-                                <strong>Recommended:</strong> For best security and auditability, create a dedicated GitLab user (e.g. <span className="font-bold text-yellow-200">LiveReviewBot</span>) with all required project/group access for AI code reviews. This helps you manage permissions and track review activity.
-                            </div>
-                        ) : (
+                        {(profile.username?.toLowerCase().includes('livereview') || profile.name?.toLowerCase().includes('livereview')) ? (
                             <div className="rounded-md bg-green-900 text-green-300 px-4 py-2 text-sm mb-2 border border-green-400">
                                 <strong>Good!</strong> Your GitLab user is correctly named for LiveReview integration.
+                            </div>
+                        ) : (
+                            <div className="rounded-md bg-orange-900 text-orange-200 px-4 py-3 border-2 border-orange-400 text-base font-bold mb-4" style={{ animation: 'pulse 1s ease-in-out 3 alternate' }}>
+                                <div className="flex items-start">
+                                    <div className="flex-shrink-0">
+                                        <span className="text-2xl">⚠️</span>
+                                    </div>
+                                    <div className="ml-3">
+                                        <div className="font-bold text-orange-100 text-lg">Consider Using a Dedicated LiveReview Account</div>
+                                        <div className="mt-1 text-orange-200">
+                                            For better security and organization, we recommend creating a dedicated GitLab user like <span className="font-bold text-orange-100 bg-orange-800 px-1 rounded">LiveReviewBot</span> instead of using your personal account <span className="font-bold">@{profile.username}</span>.
+                                        </div>
+                                        <div className="mt-2 text-sm text-orange-300">
+                                            This helps with permission management, auditability, and keeps AI review activities separate from your personal GitLab usage.
+                                        </div>
+                                    </div>
+                                </div>
                             </div>
                         )}
                         <div className="rounded-md bg-slate-800 text-slate-300 px-4 py-2 text-sm mb-2" style={{border: '1px solid #334155'}}>
