@@ -49,7 +49,7 @@ func HandleCreatePATIntegrationToken(db *sql.DB, c echo.Context) error {
 		"PAT",         // token_type
 		body.PATToken, // pat_token
 		"NA",          // access_token
-		body.Name,     // connection_name
+		body.Name,     // connection_name (from frontend 'name')
 		body.URL,      // provider_url
 		metadataJSON,  // metadata
 		nil,           // expires_at
