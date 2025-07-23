@@ -91,7 +91,17 @@ export const ConnectorForm: React.FC<ConnectorFormProps> = ({ onSubmit }) => {
                 metadata: data.metadata,
             });
             // Refresh connector list in frontend and update Redux state
-            const updatedConnectors = await getConnectors();
+            const updatedConnectorsRaw = await getConnectors();
+            // Map backend response to frontend Redux shape
+            const updatedConnectors = updatedConnectorsRaw.map((c: any) => ({
+                id: c.id?.toString() || '',
+                name: c.connection_name || '',
+                type: c.provider || '',
+                url: c.provider_url || '',
+                apiKey: c.provider_app_id || '',
+                createdAt: c.created_at || '',
+                metadata: c.metadata || {},
+            }));
             dispatch(setConnectors(updatedConnectors));
             setShowConnectorForm(false);
         } catch (err: any) {
