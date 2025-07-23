@@ -115,6 +115,9 @@ export const ConnectorForm: React.FC<ConnectorFormProps> = ({ onSubmit }) => {
     const usernameHasLiveReview = username.toLowerCase().includes('livereview');
         return (
             <Card title="Manual GitLab.com Connector">
+                <div className="mb-4 rounded-md bg-yellow-900 text-yellow-200 px-4 py-3 border border-yellow-400 text-base font-semibold">
+                    <span className="font-bold">Recommended:</span> For best practice, create a dedicated GitLab user such as <span className="font-bold text-yellow-100">LiveReviewBot</span> and grant it access to all projects/groups where you want AI code reviews. This helps with security, auditability, and permission management.
+                </div>
                 {!profile && !confirming && (
                     <form className="space-y-4" onSubmit={async e => {
                         e.preventDefault();
@@ -135,15 +138,8 @@ export const ConnectorForm: React.FC<ConnectorFormProps> = ({ onSubmit }) => {
                             value={username}
                             onChange={e => setUsername(e.target.value)}
                             required
+                            helperText="Tip: Give this connector a descriptive name for your reference."
                         />
-                        <div className="mt-1 text-sm">
-                            {username.length === 0
-                                ? <span className="text-slate-400">Tip: For best practice, use a username or name containing 'LiveReview' (e.g. LiveReviewBot) for this integration.</span>
-                                : usernameHasLiveReview
-                                    ? <span className="text-green-400">Great! Username contains 'LiveReview'.</span>
-                                    : <span className="text-yellow-400">Consider including 'LiveReview' in the username for best practice.</span>
-                            }
-                        </div>
                         <Input
                             id="manual-pat"
                             label="Personal Access Token (PAT)"
@@ -215,6 +211,9 @@ export const ConnectorForm: React.FC<ConnectorFormProps> = ({ onSubmit }) => {
     const usernameHasLiveReview = username.toLowerCase().includes('livereview');
         return (
             <Card title="Manual Self-Hosted GitLab Connector">
+                <div className="mb-4 rounded-md bg-yellow-900 text-yellow-200 px-4 py-3 border border-yellow-400 text-base font-semibold">
+                    <span className="font-bold">Recommended:</span> For best practice, create a dedicated GitLab user such as <span className="font-bold text-yellow-100">LiveReviewBot</span> and grant it access to all projects/groups where you want AI code reviews. This helps with security, auditability, and permission management.
+                </div>
                 {!profile && !confirming && (
                     <form className="space-y-4" onSubmit={async e => {
                         e.preventDefault();
@@ -235,15 +234,8 @@ export const ConnectorForm: React.FC<ConnectorFormProps> = ({ onSubmit }) => {
                             value={username}
                             onChange={e => setUsername(e.target.value)}
                             required
+                            helperText="Tip: Give this connector a descriptive name for your reference."
                         />
-                        <div className="mt-1 text-sm">
-                            {username.length === 0
-                                ? <span className="text-slate-400">Tip: For best practice, use a username or name containing 'LiveReview' (e.g. LiveReviewBot) for this integration.</span>
-                                : usernameHasLiveReview
-                                    ? <span className="text-green-400">Great! Username contains 'LiveReview'.</span>
-                                    : <span className="text-yellow-400">Consider including 'LiveReview' in the username for best practice.</span>
-                            }
-                        </div>
                         <Input
                             id="manual-pat"
                             label="Personal Access Token (PAT)"
