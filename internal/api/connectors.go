@@ -283,3 +283,40 @@ func (s *Server) GetConnectors(c echo.Context) error {
 
 	return c.JSON(http.StatusOK, connectors)
 }
+
+// DeleteConnector handles deletion of a git provider connection
+func (s *Server) DeleteConnector(c echo.Context) error {
+	id := c.Param("id")
+
+	// Execute the delete query
+	result, err := s.db.Exec(`
+		DELETE FROM integration_tokens 
+		WHERE id = $1
+	`, id)
+
+	if err != nil {
+		log.Printf("Failed to delete connector with ID %s: %v", id, err)
+		return c.JSON(http.StatusInternalServerError, ErrorResponse{
+			Error: "Database error: " + err.Error(),
+		})
+	}
+
+	// Check if any rows were affected
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		log.Printf("Failed to get rows affected for connector deletion: %v", err)
+		return c.JSON(http.StatusInternalServerError, ErrorResponse{
+			Error: "Database error: " + err.Error(),
+		})
+	}
+
+	if rowsAffected == 0 {
+		return c.JSON(http.StatusNotFound, ErrorResponse{
+			Error: "Connector not found",
+		})
+	}
+
+	return c.JSON(http.StatusOK, map[string]string{
+		"message": "Connector deleted successfully",
+	})
+}

@@ -98,6 +98,7 @@ func (s *Server) setupRoutes() {
 
 	// Connector endpoints
 	v1.GET("/connectors", s.GetConnectors)
+	v1.DELETE("/connectors/:id", s.DeleteConnector)
 
 	// Review trigger endpoints
 	v1.POST("/trigger-review", s.TriggerReview)
