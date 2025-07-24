@@ -118,9 +118,7 @@ const AppContent: React.FC = () => {
                 <Routes>
                     <Route path="/" element={<HomeWithOAuthCheck />} />
                     <Route path="/dashboard" element={<Dashboard />} />
-                    <Route path="/git" element={<GitProviders />} />
-                    <Route path="/git/:providerType" element={<GitProviders />} />
-                    <Route path="/git/:providerType/:step" element={<GitProviders />} />
+                    <Route path="/git/*" element={<GitProviders />} />
                     <Route path="/ai" element={<AIProviders />} />
                     <Route path="/ai/:provider" element={<AIProviders />} />
                     <Route path="/ai/:provider/:action" element={<AIProviders />} />

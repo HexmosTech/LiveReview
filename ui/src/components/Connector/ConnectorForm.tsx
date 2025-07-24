@@ -1,23 +1,18 @@
 import React from 'react';
-import { useLocation } from 'react-router-dom';
+import { Routes, Route, Navigate } from 'react-router-dom';
 import ProviderSelection from './ProviderSelection';
-import ManualGitLabCom from './ManualGitLabCom';
-import ManualSelfHostedGitLab from './ManualSelfHostedGitLab';
+import GitLabComConnector from './GitLabComConnector';
+import GitLabSelfHostedConnector from './GitLabSelfHostedConnector';
 
 const ConnectorForm: React.FC = () => {
-    const location = useLocation();
-    const path = location.pathname;
-    
-    // Route based on current path
-    if (path === '/git') {
-        return <ProviderSelection />;
-    } else if (path.includes('/git/gitlab-com')) {
-        return <ManualGitLabCom />;
-    } else if (path.includes('/git/gitlab-self-hosted')) {
-        return <ManualSelfHostedGitLab />;
-    } else {
-        return <ProviderSelection />;
-    }
+    return (
+        <Routes>
+            <Route index element={<ProviderSelection />} />
+            <Route path="gitlab-com/*" element={<GitLabComConnector />} />
+            <Route path="gitlab-self-hosted/*" element={<GitLabSelfHostedConnector />} />
+            <Route path="*" element={<Navigate to="/git" replace />} />
+        </Routes>
+    );
 };
 
 export default ConnectorForm;

@@ -9,15 +9,19 @@ import { isDuplicateConnector } from './checkConnectorDuplicate';
 type GitLabConnectorProps = {
   type: 'gitlab-com' | 'gitlab-self-hosted';
   onSubmit: (data: any) => void;
+  disableRouting?: boolean;
 };
 
-const GitLabConnector: React.FC<GitLabConnectorProps> = ({ type, onSubmit }) => {
+const GitLabConnector: React.FC<GitLabConnectorProps> = ({ type, onSubmit, disableRouting = false }) => {
   const dispatch = useAppDispatch();
   const navigate = useNavigate();
   const location = useLocation();
   const { step: urlStep } = useParams<{ step?: string }>();
   
-  const [step, setStep] = useState<number>(urlStep === 'step2' ? 2 : 1);
+  const [step, setStep] = useState<number>(() => {
+    if (disableRouting) return 1; // Always start at step 1 when routing is disabled
+    return urlStep === 'step2' ? 2 : 1;
+  });
   const [domainInfo, setDomainInfo] = useState({
     url: '',
     isConfigured: false
@@ -34,23 +38,27 @@ const GitLabConnector: React.FC<GitLabConnectorProps> = ({ type, onSubmit }) => 
   // Get connectors from Redux state
   const connectors = useAppSelector((state) => state.Connector.connectors);
 
-  // Set the URL path based on the current step
+  // Set the URL path based on the current step (only if routing is enabled)
   useEffect(() => {
-    if (step === 1 && urlStep !== 'step1') {
-      navigate(`/git/${type}/step1`, { replace: true });
-    } else if (step === 2 && urlStep !== 'step2') {
-      navigate(`/git/${type}/step2`, { replace: true });
+    if (!disableRouting) {
+      if (step === 1 && urlStep !== 'step1') {
+        navigate(`/git/${type}/step1`, { replace: true });
+      } else if (step === 2 && urlStep !== 'step2') {
+        navigate(`/git/${type}/step2`, { replace: true });
+      }
     }
-  }, [step, type, navigate, urlStep]);
+  }, [step, type, navigate, urlStep, disableRouting]);
 
-  // Check the URL path on component mount to determine the step
+  // Check the URL path on component mount to determine the step (only if routing is enabled)
   useEffect(() => {
-    if (urlStep === 'step2') {
-      setStep(2);
-    } else {
-      setStep(1);
+    if (!disableRouting) {
+      if (urlStep === 'step2') {
+        setStep(2);
+      } else {
+        setStep(1);
+      }
     }
-  }, [urlStep]);
+  }, [urlStep, disableRouting]);
 
   // Fetch domain info when component mounts
   useEffect(() => {
@@ -335,8 +343,10 @@ const GitLabConnector: React.FC<GitLabConnectorProps> = ({ type, onSubmit }) => 
                 }));
               }
               
-              // Navigate to step 2 using React Router
-              navigate(`/git/${type}/step2`);
+              // Navigate to step 2 using React Router (only if routing is enabled)
+              if (!disableRouting) {
+                navigate(`/git/${type}/step2`);
+              }
               setStep(2);
             }}
             disabled={type === 'gitlab-self-hosted' && !formData.url}
@@ -438,8 +448,10 @@ const GitLabConnector: React.FC<GitLabConnectorProps> = ({ type, onSubmit }) => 
             <Button
               variant="ghost"
               onClick={() => {
-                // Navigate back to step 1 using React Router
-                navigate(`/git/${type}/step1`);
+                // Navigate back to step 1 using React Router (only if routing is enabled)
+                if (!disableRouting) {
+                  navigate(`/git/${type}/step1`);
+                }
                 setStep(1);
               }}
               className="flex-1"
