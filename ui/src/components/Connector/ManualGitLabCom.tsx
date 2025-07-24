@@ -20,7 +20,6 @@ const ManualGitLabCom: React.FC = () => {
     const handleSaveConnector = async () => {
         setSaving(true);
         try {
-            // Call backend API to save PAT connector
             await createPATConnector({
                 name: username,
                 type: 'gitlab-com',
@@ -31,9 +30,7 @@ const ManualGitLabCom: React.FC = () => {
                     gitlabProfile: profile,
                 },
             });
-            // Refresh connector list in frontend and update Redux state
             const updatedConnectorsRaw = await getConnectors();
-            // Map backend response to frontend Redux shape
             const updatedConnectors = updatedConnectorsRaw.map((c: any) => ({
                 id: c.id?.toString() || '',
                 name: c.connection_name || '',
@@ -44,11 +41,9 @@ const ManualGitLabCom: React.FC = () => {
                 metadata: c.metadata || {},
             }));
             dispatch(setConnectors(updatedConnectors));
-            // Navigate back to Git providers list
             navigate('/git');
         } catch (err: any) {
             console.error('Failed to save connector:', err);
-            // You might want to show an error message to the user here
         } finally {
             setSaving(false);
         }
@@ -57,7 +52,7 @@ const ManualGitLabCom: React.FC = () => {
     return (
         <Card title="Manual GitLab.com Connector">
             <div className="mb-4 rounded-md bg-yellow-900 text-yellow-200 px-4 py-3 border border-yellow-400 text-base font-semibold">
-                <span className="font-bold">Recommended:</span> For best practice, create a dedicated GitLab user such as <span className="font-bold text-yellow-100">LiveReviewBot</span> and grant it access to all projects/groups where you want AI code reviews. This helps with security, auditability, and permission management.
+                <span className="font-bold">Recommended:</span> For best practice, create a dedicated GitLab user such as <span className="font-bold text-yellow-100">LiveReviewBot</span> and grant it access to all projects/groups where you want AI code reviews.
             </div>
             {!profile && (
                 <form className="space-y-4" onSubmit={async e => {
