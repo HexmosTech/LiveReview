@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
-import { ConnectorForm, ConnectorData } from '../../components/Connector/ConnectorForm';
+import ConnectorForm from '../../components/Connector/ConnectorForm';
 import { useAppDispatch, useAppSelector } from '../../store/configureStore';
-import { addConnector, setConnectors, ConnectorType } from '../../store/Connector/reducer';
+import { addConnector, setConnectors, ConnectorType, Connector } from '../../store/Connector/reducer';
 import { 
     PageHeader, 
     Card, 
@@ -86,10 +86,6 @@ const GitProviders: React.FC = () => {
         // Use connectors from redux state only
         const connectors = storeConnectors;
 
-    const handleAddConnector = (connectorData: ConnectorData) => {
-        dispatch(addConnector(connectorData));
-    };
-
     const handleDeleteConnector = async (connectorId: string, connectorName: string) => {
         if (!confirm(`Are you sure you want to delete "${connectorName}"? This action cannot be undone.`)) {
             return;
@@ -149,7 +145,7 @@ const GitProviders: React.FC = () => {
             
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
                 <div>
-                    <ConnectorForm onSubmit={handleAddConnector} />
+                    <ConnectorForm />
                     
                     {/* Brand Showcase */}
                     <div className="mt-6 card-brand rounded-lg bg-slate-700 border border-slate-600 p-5 shadow-md">
