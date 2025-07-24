@@ -104,6 +104,9 @@ func (s *Server) setupRoutes() {
 	// GitLab profile validation endpoint
 	v1.POST("/gitlab/validate-profile", s.ValidateGitLabProfile)
 
+	// GitHub profile validation endpoint
+	v1.POST("/github/validate-profile", s.ValidateGitHubProfile)
+
 	// Create PAT integration token endpoint
 	v1.POST("/integration_tokens/pat", s.HandleCreatePATIntegrationToken)
 
@@ -136,6 +139,25 @@ func (s *Server) ValidateGitLabProfile(c echo.Context) error {
 		return c.JSON(http.StatusBadRequest, map[string]string{"error": "base_url and pat are required"})
 	}
 	profile, err := FetchGitLabProfile(body.BaseURL, body.PAT)
+	if err != nil {
+		return c.JSON(http.StatusBadRequest, map[string]string{"error": err.Error()})
+	}
+	return c.JSON(http.StatusOK, profile)
+}
+
+// ValidateGitHubProfile validates GitHub PAT by fetching user profile
+func (s *Server) ValidateGitHubProfile(c echo.Context) error {
+	type reqBody struct {
+		PAT string `json:"pat"`
+	}
+	var body reqBody
+	if err := c.Bind(&body); err != nil {
+		return c.JSON(http.StatusBadRequest, map[string]string{"error": "Invalid request body"})
+	}
+	if body.PAT == "" {
+		return c.JSON(http.StatusBadRequest, map[string]string{"error": "pat is required"})
+	}
+	profile, err := FetchGitHubProfile(body.PAT)
 	if err != nil {
 		return c.JSON(http.StatusBadRequest, map[string]string{"error": err.Error()})
 	}

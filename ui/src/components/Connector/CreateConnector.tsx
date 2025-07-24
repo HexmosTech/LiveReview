@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { Card, Button } from '../UIPrimitives';
 import GitLabConnector from './GitLabConnector';
+import GitHubConnector from './GitHubConnector';
 import DomainValidator from './DomainValidator';
 
 // This is an example component that would be used to create a new connector
@@ -57,7 +58,7 @@ const CreateConnector: React.FC = () => {
             )}
             
             {activeTab === 'github' && (
-              <div>GitHub connector component would go here</div>
+              <GitHubConnector />
             )}
           </div>
         </Card>
