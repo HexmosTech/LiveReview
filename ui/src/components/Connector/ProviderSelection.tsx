@@ -21,9 +21,8 @@ const ProviderSelection: React.FC = () => {
                         <Button variant="outline" icon={<Icons.GitHub />} className="h-24 flex-col" onClick={() => navigate('/git/github/manual')}>
                             <span className="text-base mt-2">GitHub</span>
                         </Button>
-                        <Button variant="outline" icon={<Icons.Git />} className="h-24 flex-col" disabled>
-                            <span className="text-base mt-2">Custom</span>
-                            <span className="text-xs mt-1">Coming Soon</span>
+                        <Button variant="outline" icon={<Icons.Bitbucket />} className="h-24 flex-col" onClick={() => navigate('/git/bitbucket/manual')}>
+                            <span className="text-base mt-2">Bitbucket</span>
                         </Button>
                     </div>
                 </div>

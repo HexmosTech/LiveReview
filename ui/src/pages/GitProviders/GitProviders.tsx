@@ -118,6 +118,8 @@ const GitProviders: React.FC = () => {
                 return 'GitLab';
             case 'github':
                 return 'GitHub';
+            case 'bitbucket':
+                return 'Bitbucket';
             default:
                 return type.charAt(0).toUpperCase() + type.slice(1);
         }
@@ -131,6 +133,8 @@ const GitProviders: React.FC = () => {
                 return <Icons.GitLab />;
             case 'github':
                 return <Icons.GitHub />;
+            case 'bitbucket':
+                return <Icons.Bitbucket />;
             default:
                 return <Icons.Git />;
         }

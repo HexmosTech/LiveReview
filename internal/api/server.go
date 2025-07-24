@@ -107,6 +107,9 @@ func (s *Server) setupRoutes() {
 	// GitHub profile validation endpoint
 	v1.POST("/github/validate-profile", s.ValidateGitHubProfile)
 
+	// Bitbucket profile validation endpoint
+	v1.POST("/bitbucket/validate-profile", s.ValidateBitbucketProfile)
+
 	// Create PAT integration token endpoint
 	v1.POST("/integration_tokens/pat", s.HandleCreatePATIntegrationToken)
 
@@ -158,6 +161,28 @@ func (s *Server) ValidateGitHubProfile(c echo.Context) error {
 		return c.JSON(http.StatusBadRequest, map[string]string{"error": "pat is required"})
 	}
 	profile, err := FetchGitHubProfile(body.PAT)
+	if err != nil {
+		return c.JSON(http.StatusBadRequest, map[string]string{"error": err.Error()})
+	}
+	return c.JSON(http.StatusOK, profile)
+}
+
+// ValidateBitbucketProfile validates Bitbucket API Token by fetching user profile
+func (s *Server) ValidateBitbucketProfile(c echo.Context) error {
+	type reqBody struct {
+		Email    string `json:"email"`
+		ApiToken string `json:"api_token"`
+	}
+	var body reqBody
+	if err := c.Bind(&body); err != nil {
+		return c.JSON(http.StatusBadRequest, map[string]string{"error": "Invalid request body"})
+	}
+	if body.Email == "" || body.ApiToken == "" {
+		return c.JSON(http.StatusBadRequest, map[string]string{"error": "email and api_token are required"})
+	}
+
+	// Validate credentials and fetch the profile in one call
+	profile, err := FetchBitbucketProfile(body.Email, body.ApiToken)
 	if err != nil {
 		return c.JSON(http.StatusBadRequest, map[string]string{"error": err.Error()})
 	}
