@@ -189,9 +189,9 @@ func (s *Server) refreshTokenIfNeeded(token *IntegrationToken, forceRefresh bool
 
 // validateProvider checks if the provider is supported
 func validateProvider(provider string) error {
-	if provider != "gitlab" {
+	if provider != "gitlab" && provider != "github" {
 		log.Printf("[DEBUG] validateProvider: Unsupported provider: %s", provider)
-		return fmt.Errorf("unsupported provider type: %s. Currently, only GitLab is supported", provider)
+		return fmt.Errorf("unsupported provider type: %s. Currently, only GitLab and GitHub are supported", provider)
 	}
 	log.Printf("[DEBUG] validateProvider: Provider is supported: %s", provider)
 	return nil

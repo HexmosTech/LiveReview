@@ -18,9 +18,8 @@ const ProviderSelection: React.FC = () => {
                         <Button variant="outline" icon={<Icons.GitLab />} className="h-24 flex-col" onClick={() => navigate('/git/gitlab-self-hosted/manual')}>
                             <span className="text-base mt-2">Self-Hosted GitLab</span>
                         </Button>
-                        <Button variant="outline" icon={<Icons.GitHub />} className="h-24 flex-col" disabled>
+                        <Button variant="outline" icon={<Icons.GitHub />} className="h-24 flex-col" onClick={() => navigate('/git/github/manual')}>
                             <span className="text-base mt-2">GitHub</span>
-                            <span className="text-xs mt-1">Coming Soon</span>
                         </Button>
                         <Button variant="outline" icon={<Icons.Git />} className="h-24 flex-col" disabled>
                             <span className="text-base mt-2">Custom</span>
