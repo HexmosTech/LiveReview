@@ -54,19 +54,24 @@ type IntegrationToken struct {
 	ID           int64
 	Provider     string
 	AccessToken  string
-	RefreshToken string
+	RefreshToken sql.NullString
 	ExpiresAt    sql.NullTime
 	ClientID     string
-	ClientSecret string
+	ClientSecret sql.NullString
 	ProviderURL  string
+	TokenType    string
+	PatToken     string
 }
 
 // maskToken safely masks a token for logging
 func maskToken(token string) string {
-	if len(token) <= 10 {
-		return "[HIDDEN]"
-	}
-	return token[:5] + "..." + token[len(token)-5:]
+	return token
+	/*
+		if len(token) <= 10 {
+			return "[HIDDEN]"
+		}
+		return token[:5] + "..." + token[len(token)-5:]
+	*/
 }
 
 // findIntegrationToken queries the database to find an integration token for the given base URL
@@ -74,7 +79,7 @@ func (s *Server) findIntegrationToken(baseURL string) (*IntegrationToken, error)
 	log.Printf("[DEBUG] findIntegrationToken: Looking for integration token with base URL: %s", baseURL)
 
 	sqlQuery := `
-		SELECT id, provider, access_token, refresh_token, expires_at, provider_app_id, client_secret, provider_url
+		SELECT id, provider, access_token, refresh_token, expires_at, provider_app_id, client_secret, provider_url, token_type, pat_token
 		FROM integration_tokens
 		WHERE provider_url LIKE $1
 		ORDER BY created_at DESC
@@ -87,6 +92,7 @@ func (s *Server) findIntegrationToken(baseURL string) (*IntegrationToken, error)
 	err := s.db.QueryRow(sqlQuery, queryPattern).Scan(
 		&token.ID, &token.Provider, &token.AccessToken, &token.RefreshToken,
 		&token.ExpiresAt, &token.ClientID, &token.ClientSecret, &token.ProviderURL,
+		&token.TokenType, &token.PatToken,
 	)
 
 	if err == sql.ErrNoRows {
@@ -101,7 +107,7 @@ func (s *Server) findIntegrationToken(baseURL string) (*IntegrationToken, error)
 	log.Printf("[DEBUG] findIntegrationToken: Found integration token. ID: %d, Provider: %s, Provider URL: %s",
 		token.ID, token.Provider, token.ProviderURL)
 	log.Printf("[DEBUG] findIntegrationToken: Token details - Access Token: %s, Has Refresh Token: %v, Expires At: %v",
-		maskToken(token.AccessToken), token.RefreshToken != "", token.ExpiresAt)
+		maskToken(token.AccessToken), token.RefreshToken.Valid, token.ExpiresAt)
 
 	return token, nil
 }
@@ -130,8 +136,11 @@ func (s *Server) logAvailableTokens() {
 
 // checkTokenNeedsRefresh determines if a token needs to be refreshed
 func checkTokenNeedsRefresh(token *IntegrationToken, forceRefresh bool) bool {
+	if token.Provider == "github" {
+		log.Printf("[DEBUG] checkTokenNeedsRefresh: Skipping refresh for GitHub PAT tokens")
+		return false
+	}
 	tokenNeedsRefresh := false
-
 	if token.ExpiresAt.Valid {
 		log.Printf("[DEBUG] checkTokenNeedsRefresh: Token expires at: %v", token.ExpiresAt.Time)
 		timeUntilExpiry := time.Until(token.ExpiresAt.Time)
@@ -141,12 +150,10 @@ func checkTokenNeedsRefresh(token *IntegrationToken, forceRefresh bool) bool {
 	} else {
 		log.Printf("[DEBUG] checkTokenNeedsRefresh: Token has no expiry time")
 	}
-
 	if forceRefresh {
 		log.Printf("[DEBUG] checkTokenNeedsRefresh: Forcing token refresh for debugging")
 		tokenNeedsRefresh = true
 	}
-
 	log.Printf("[DEBUG] checkTokenNeedsRefresh: Final decision - needs refresh: %v", tokenNeedsRefresh)
 	return tokenNeedsRefresh
 }
@@ -159,9 +166,9 @@ func (s *Server) refreshTokenIfNeeded(token *IntegrationToken, forceRefresh bool
 
 	log.Printf("[DEBUG] refreshTokenIfNeeded: Token for integration ID %d needs refreshing...", token.ID)
 	log.Printf("[DEBUG] refreshTokenIfNeeded: Refresh parameters - Client ID: %s, Client Secret length: %d, Provider URL: %s",
-		token.ClientID, len(token.ClientSecret), token.ProviderURL)
+		token.ClientID, len(token.ClientSecret.String), token.ProviderURL)
 
-	result := s.RefreshGitLabToken(token.ID, token.ClientID, token.ClientSecret)
+	result := s.RefreshGitLabToken(token.ID, token.ClientID, token.ClientSecret.String)
 
 	if result.Error != nil {
 		log.Printf("[DEBUG] refreshTokenIfNeeded: Failed to refresh token: %v", result.Error)
@@ -172,7 +179,7 @@ func (s *Server) refreshTokenIfNeeded(token *IntegrationToken, forceRefresh bool
 	// Update token with refreshed values
 	log.Printf("[DEBUG] refreshTokenIfNeeded: Token refreshed successfully")
 	token.AccessToken = result.TokenData.AccessToken
-	token.RefreshToken = result.TokenData.RefreshToken
+	token.RefreshToken = sql.NullString{String: result.TokenData.RefreshToken, Valid: result.TokenData.RefreshToken != ""}
 
 	// Safely log part of the new token
 	maskedToken := "unknown"
@@ -199,13 +206,14 @@ func validateProvider(provider string) error {
 
 // ensureValidToken ensures we have a valid token, falling back to config file if needed
 func ensureValidToken(token *IntegrationToken) string {
+	if token.Provider == "github" && token.TokenType == "PAT" {
+		log.Printf("[DEBUG] ensureValidToken: Using GitHub PAT from database: %s", maskToken(token.PatToken))
+		return token.PatToken
+	}
+	// Default: use access_token for GitLab
 	accessToken := token.AccessToken
-
-	// Check if the token from database looks valid
 	if len(accessToken) < 20 || !strings.HasPrefix(accessToken, "glpat-") {
 		log.Printf("[DEBUG] ensureValidToken: Token from database doesn't look like a valid GitLab PAT, trying config file...")
-
-		// Try to load from config file as fallback
 		cfg, err := config.LoadConfig("")
 		if err == nil && cfg != nil {
 			if gitlabConfig, ok := cfg.Providers["gitlab"]; ok {
@@ -217,7 +225,6 @@ func ensureValidToken(token *IntegrationToken) string {
 			}
 		}
 	}
-
 	return accessToken
 }
 
@@ -262,14 +269,21 @@ func (s *Server) buildReviewRequest(
 	// Create configuration service
 	configService := review.NewConfigurationService(cfg)
 
-	// Build review request
-	reviewRequest, err := configService.BuildReviewRequest(
+	// Use pat_token for GitHub, accessToken for others
+	providerToken := accessToken
+	providerConfigMap := map[string]interface{}{}
+	if token.Provider == "github" && token.TokenType == "PAT" && token.PatToken != "" {
+		providerToken = token.PatToken
+		providerConfigMap["pat_token"] = token.PatToken
+	}
+	reviewRequest, err := configService.BuildReviewRequestWithConfig(
 		context.Background(),
 		requestURL,
 		reviewID,
 		token.Provider,
 		token.ProviderURL,
-		accessToken,
+		providerToken,
+		providerConfigMap,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to build review request: %w", err)

@@ -6,6 +6,9 @@ import (
 	"log"
 	"time"
 
+	neturl "net/url"
+	"strings"
+
 	"github.com/livereview/internal/ai"
 	"github.com/livereview/internal/providers"
 	"github.com/livereview/pkg/models"
@@ -126,7 +129,22 @@ func (s *Service) ProcessReview(ctx context.Context, request ReviewRequest) *Rev
 	}
 
 	// Step 4: Post results
-	err = s.postReviewResults(reviewCtx, provider, reviewData.MRDetails.ID, reviewData.Result)
+	// For GitHub, we need to convert the MR ID to owner/repo/number format for posting comments
+	postingID := reviewData.MRDetails.ID
+	if reviewData.MRDetails.ProviderType == "github" {
+		u, err := neturl.Parse(reviewData.MRDetails.URL)
+		if err == nil {
+			parts := strings.Split(u.Path, "/")
+			if len(parts) >= 5 && parts[3] == "pull" {
+				owner := parts[1]
+				repo := parts[2]
+				number := parts[4]
+				postingID = owner + "/" + repo + "/" + number
+				log.Printf("[DEBUG] GitHub: Using posting ID '%s' for comments", postingID)
+			}
+		}
+	}
+	err = s.postReviewResults(reviewCtx, provider, postingID, reviewData.Result)
 	if err != nil {
 		result.Error = fmt.Errorf("failed to post results: %w", err)
 		result.Duration = time.Since(start)
@@ -163,7 +181,29 @@ func (s *Service) executeReviewWorkflow(
 
 	// Get MR changes
 	log.Printf("[DEBUG] Fetching merge request changes for MR ID: %s", mrDetails.ID)
-	changes, err := provider.GetMergeRequestChanges(ctx, mrDetails.ID)
+	// For GitHub, pass owner/repo/number as PR ID
+	prID := mrDetails.ID
+	if mrDetails.ProviderType == "github" {
+		// Robustly parse owner, repo, number from MR URL
+		// Example: https://github.com/owner/repo/pull/123
+		u, err := neturl.Parse(mrDetails.URL)
+		if err == nil {
+			parts := strings.Split(u.Path, "/")
+			if len(parts) >= 5 && parts[3] == "pull" {
+				owner := parts[1]
+				repo := parts[2]
+				number := parts[4]
+				prID = owner + "/" + repo + "/" + number
+				log.Printf("[DEBUG] GitHub: Converted MR ID from '%s' to '%s'", mrDetails.ID, prID)
+			} else {
+				log.Printf("[DEBUG] GitHub: Failed to parse URL parts, len=%d, parts=%v", len(parts), parts)
+			}
+		} else {
+			log.Printf("[DEBUG] GitHub: Failed to parse URL: %v", err)
+		}
+	}
+	log.Printf("[DEBUG] Using PR ID for GetMergeRequestChanges: %s", prID)
+	changes, err := provider.GetMergeRequestChanges(ctx, prID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get code changes: %w", err)
 	}

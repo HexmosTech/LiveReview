@@ -3,10 +3,12 @@ package review
 import (
 	"context"
 	"fmt"
+	"log"
 
 	"github.com/livereview/internal/ai"
 	"github.com/livereview/internal/ai/gemini"
 	"github.com/livereview/internal/providers"
+	"github.com/livereview/internal/providers/github"
 	"github.com/livereview/internal/providers/gitlab"
 )
 
@@ -26,6 +28,16 @@ func (f *StandardProviderFactory) CreateProvider(ctx context.Context, config Pro
 			URL:   config.URL,
 			Token: config.Token,
 		})
+	case "github":
+		log.Printf("[DEBUG] Creating GitHub provider")
+		pat, exists := config.Config["pat_token"].(string)
+		log.Printf("[DEBUG] pat_token exists: %v, length: %d", exists, len(pat))
+		provider := github.NewGitHubProvider(pat)
+		// Always configure with pat_token for safety
+		if err := provider.Configure(config.Config); err != nil {
+			return nil, err
+		}
+		return provider, nil
 	default:
 		return nil, fmt.Errorf("unsupported provider type: %s", config.Type)
 	}
@@ -35,6 +47,8 @@ func (f *StandardProviderFactory) CreateProvider(ctx context.Context, config Pro
 func (f *StandardProviderFactory) SupportsProvider(providerType string) bool {
 	switch providerType {
 	case "gitlab":
+		return true
+	case "github":
 		return true
 	default:
 		return false

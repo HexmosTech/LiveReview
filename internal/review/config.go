@@ -20,29 +20,26 @@ func NewConfigurationService(cfg *config.Config) *ConfigurationService {
 	}
 }
 
-// BuildReviewRequest creates a ReviewRequest from a URL and integration token
-func (cs *ConfigurationService) BuildReviewRequest(
+// BuildReviewRequestWithConfig creates a ReviewRequest from a URL, integration token, and extra config
+func (cs *ConfigurationService) BuildReviewRequestWithConfig(
 	ctx context.Context,
 	url string,
 	reviewID string,
 	providerType string,
 	providerURL string,
 	accessToken string,
+	configMap map[string]interface{},
 ) (*ReviewRequest, error) {
-
-	// Build provider config
 	providerConfig := ProviderConfig{
-		Type:  providerType,
-		URL:   providerURL,
-		Token: accessToken,
+		Type:   providerType,
+		URL:    providerURL,
+		Token:  accessToken,
+		Config: configMap,
 	}
-
-	// Build AI config from configuration
 	aiConfig, err := cs.buildAIConfig()
 	if err != nil {
 		return nil, fmt.Errorf("failed to build AI config: %w", err)
 	}
-
 	return &ReviewRequest{
 		URL:      url,
 		ReviewID: reviewID,
