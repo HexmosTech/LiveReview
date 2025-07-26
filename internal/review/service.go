@@ -10,8 +10,11 @@ import (
 	"strings"
 
 	"github.com/livereview/internal/ai"
+	"github.com/livereview/internal/ai/gemini"
+	"github.com/livereview/internal/batch"
 	"github.com/livereview/internal/providers"
 	"github.com/livereview/pkg/models"
+	"github.com/tmc/langchaingo/llms/googleai"
 )
 
 // Service represents the review orchestration service
@@ -120,6 +123,23 @@ func (s *Service) ProcessReview(ctx context.Context, request ReviewRequest) *Rev
 		return result
 	}
 
+	// Step 2.5: Set up LLM abstraction for synthesis if using Gemini
+	if geminiProvider, ok := aiProvider.(*gemini.GeminiProvider); ok {
+		// Initialize Gemini LLM via langchain
+		llm, err := googleai.New(
+			reviewCtx,
+			googleai.WithAPIKey(request.AI.APIKey),
+			googleai.WithDefaultModel(request.AI.Model),
+		)
+		if err != nil {
+			result.Error = fmt.Errorf("failed to initialize LLM abstraction: %w", err)
+			result.Duration = time.Since(start)
+			return result
+		}
+		geminiProvider.SetLLM(llm)
+		log.Printf("[DEBUG] LLM abstraction configured for synthesis")
+	}
+
 	// Step 3: Execute review workflow
 	reviewData, err := s.executeReviewWorkflow(reviewCtx, provider, aiProvider, request.URL)
 	if err != nil {
@@ -209,18 +229,30 @@ func (s *Service) executeReviewWorkflow(
 	}
 	log.Printf("[DEBUG] Retrieved %d changed files", len(changes))
 
-	// Review code
-	log.Printf("[DEBUG] Sending code to AI for review, total files: %d", len(changes))
-	result, err := aiProvider.ReviewCode(ctx, changes)
+	// Review code using batching, structured output, and retry
+	log.Printf("[DEBUG] Sending code to AI for review (batching enabled), total files: %d", len(changes))
+	batchProcessor := s.createBatchProcessor()
+	result, err := aiProvider.ReviewCodeWithBatching(ctx, changes, batchProcessor)
 	if err != nil {
-		return nil, fmt.Errorf("failed to review code: %w", err)
+		return nil, fmt.Errorf("failed to review code (batching): %w", err)
 	}
-	log.Printf("[DEBUG] AI Review completed successfully with %d comments", len(result.Comments))
+	log.Printf("[DEBUG] AI Review (batching) completed successfully with %d comments", len(result.Comments))
 
 	return &ReviewWorkflowResult{
 		MRDetails: mrDetails,
 		Result:    result,
 	}, nil
+}
+
+// createBatchProcessor returns a batch processor with recommended settings for batching and retry
+func (s *Service) createBatchProcessor() *batch.BatchProcessor {
+	processor := batch.DefaultBatchProcessor()
+	// Set max tokens per batch to 10,000 (or ~40,000 chars)
+	processor.MaxBatchTokens = 10000
+	// Configure retry logic (3 retries, 2s delay)
+	processor.TaskQueueConfig.MaxRetries = 3
+	processor.TaskQueueConfig.RetryDelay = 2 * time.Second
+	return processor
 }
 
 // postReviewResults posts the review results back to the provider
