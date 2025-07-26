@@ -19,6 +19,7 @@ func (p *GeminiProvider) parseJSONResponse(response string, diffs []*models.Code
 		Content     string   `json:"content"`
 		Severity    string   `json:"severity"`
 		Suggestions []string `json:"suggestions"`
+		IsInternal  bool     `json:"isInternal"`
 	}
 
 	type GeminiResponse struct {
@@ -81,6 +82,7 @@ func (p *GeminiProvider) parseJSONResponse(response string, diffs []*models.Code
 			Severity:    severity,
 			Suggestions: comment.Suggestions,
 			Category:    "review",
+			IsInternal:  comment.IsInternal,
 		}
 
 		fmt.Printf("DEBUG: Processing comment - original FilePath=%s, Line=%d\n", comment.FilePath, comment.LineNumber)
@@ -206,11 +208,12 @@ func (p *GeminiProvider) parseTextResponse(response string, diffs []*models.Code
 				}
 
 				currentComment = &models.ReviewComment{
-					FilePath: filePath,
-					Line:     lineNum,
-					Content:  "",
-					Severity: models.SeverityInfo,
-					Category: "review",
+					FilePath:   filePath,
+					Line:       lineNum,
+					Content:    "",
+					Severity:   models.SeverityInfo,
+					Category:   "review",
+					IsInternal: false, // Default for text-parsed comments is external
 				}
 			} else if currentComment != nil {
 				// This is part of the current comment
@@ -251,11 +254,12 @@ func (p *GeminiProvider) parseTextResponse(response string, diffs []*models.Code
 		for _, diff := range diffs {
 			if !diff.IsDeleted {
 				result.Comments = append(result.Comments, &models.ReviewComment{
-					FilePath: diff.FilePath,
-					Line:     1,
-					Content:  "No specific issues found in this file.",
-					Severity: models.SeverityInfo,
-					Category: "general",
+					FilePath:   diff.FilePath,
+					Line:       1,
+					Content:    "No specific issues found in this file.",
+					Severity:   models.SeverityInfo,
+					Category:   "general",
+					IsInternal: true, // Generic comments are internal only
 				})
 			}
 		}
@@ -272,11 +276,12 @@ func (p *GeminiProvider) parseTextResponse(response string, diffs []*models.Code
 		for _, diff := range diffs {
 			if !diff.IsDeleted && !reviewedFiles[diff.FilePath] {
 				result.Comments = append(result.Comments, &models.ReviewComment{
-					FilePath: diff.FilePath,
-					Line:     1,
-					Content:  "No specific issues found in this file.",
-					Severity: models.SeverityInfo,
-					Category: "general",
+					FilePath:   diff.FilePath,
+					Line:       1,
+					Content:    "No specific issues found in this file.",
+					Severity:   models.SeverityInfo,
+					Category:   "general",
+					IsInternal: true, // Generic comments are internal only
 				})
 			}
 		}

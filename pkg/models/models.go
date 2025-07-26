@@ -34,8 +34,9 @@ type DiffHunk struct {
 
 // ReviewResult contains the overall review result including summary and specific comments
 type ReviewResult struct {
-	Summary  string           // High-level summary of what the diff is about
-	Comments []*ReviewComment // Specific comments on the code
+	Summary          string           // High-level summary of what the diff is about
+	Comments         []*ReviewComment // External comments to be posted to the platform
+	InternalComments []*ReviewComment // Internal comments used for synthesis only
 }
 
 // ReviewComment represents a single comment from the AI review
@@ -48,6 +49,7 @@ type ReviewComment struct {
 	Category      string
 	Suggestions   []string
 	IsDeletedLine bool // True if comment is on a deleted line (old_line) rather than new_line
+	IsInternal    bool // True if comment is for internal synthesis only, false if it should be posted to user
 }
 
 // CommentSeverity represents the severity level of a review comment
