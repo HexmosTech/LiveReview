@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
+	"strconv"
 	"strings"
 	"time"
 
@@ -23,6 +25,165 @@ type LangchainProvider struct {
 	apiKey    string
 	modelName string
 	maxTokens int
+}
+
+// minInt returns the minimum of two integers
+func minInt(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
+}
+
+// formatHunkWithLineNumbers processes a diff hunk to add line number annotations
+// This is CRITICAL for proper comment positioning - copied from gemini provider
+func (p *LangchainProvider) formatHunkWithLineNumbers(hunk models.DiffHunk) string {
+	logger := logging.GetCurrentLogger()
+
+	// Extract the original hunk content
+	content := hunk.Content
+	lines := strings.Split(content, "\n")
+
+	// Find the @@ header line to extract line numbers
+	var oldStart, oldCount, newStart, newCount int
+	headerPattern := `@@ -(\d+),(\d+) \+(\d+),(\d+) @@`
+	re := regexp.MustCompile(headerPattern)
+
+	headerFound := false
+	headerLine := ""
+	contentStartIndex := 0
+
+	for i, line := range lines {
+		if matches := re.FindStringSubmatch(line); matches != nil {
+			var err error
+			oldStart, err = strconv.Atoi(matches[1])
+			if err != nil {
+				if logger != nil {
+					logger.LogError("Failed to parse old start: %v", err)
+				}
+				oldStart = hunk.OldStartLine
+			}
+
+			oldCount, err = strconv.Atoi(matches[2])
+			if err != nil {
+				if logger != nil {
+					logger.LogError("Failed to parse old count: %v", err)
+				}
+				oldCount = hunk.OldLineCount
+			}
+
+			newStart, err = strconv.Atoi(matches[3])
+			if err != nil {
+				if logger != nil {
+					logger.LogError("Failed to parse new start: %v", err)
+				}
+				newStart = hunk.NewStartLine
+			}
+
+			newCount, err = strconv.Atoi(matches[4])
+			if err != nil {
+				if logger != nil {
+					logger.LogError("Failed to parse new count: %v", err)
+				}
+				newCount = hunk.NewLineCount
+			}
+
+			headerFound = true
+			headerLine = line
+			contentStartIndex = i + 1
+			break
+		}
+	}
+
+	// Fallback to hunk metadata if header parsing fails
+	if !headerFound {
+		oldStart = hunk.OldStartLine
+		oldCount = hunk.OldLineCount
+		newStart = hunk.NewStartLine
+		newCount = hunk.NewLineCount
+
+		if logger != nil {
+			logger.Log("No @@ header found, using hunk metadata: old=%d+%d, new=%d+%d",
+				oldStart, oldCount, newStart, newCount)
+		}
+	}
+
+	return p.formatSingleHunk(lines[contentStartIndex:], oldStart, newStart, headerLine)
+}
+
+// formatSingleHunk formats a single hunk with line numbers
+// Returns content formatted as "OLD | NEW | CONTENT" table
+func (p *LangchainProvider) formatSingleHunk(lines []string, oldStart, newStart int, header string) string {
+	logger := logging.GetCurrentLogger()
+
+	var result strings.Builder
+
+	// Add header if provided
+	if header != "" {
+		result.WriteString(header + "\n")
+	}
+
+	// Add table header
+	result.WriteString("OLD | NEW | CONTENT\n")
+	result.WriteString("----|-----|--------\n")
+
+	currentOldLine := oldStart
+	currentNewLine := newStart
+
+	for _, line := range lines {
+		if len(line) == 0 {
+			continue
+		}
+
+		prefix := line[0:1]
+		content := ""
+		if len(line) > 1 {
+			content = line[1:]
+		}
+
+		var oldNum, newNum string
+
+		switch prefix {
+		case "+":
+			// Added line - only appears in new version
+			oldNum = "   "
+			newNum = fmt.Sprintf("%3d", currentNewLine)
+			currentNewLine++
+
+		case "-":
+			// Removed line - only appears in old version
+			oldNum = fmt.Sprintf("%3d", currentOldLine)
+			newNum = "   "
+			currentOldLine++
+
+		case " ":
+			// Context line - appears in both versions
+			oldNum = fmt.Sprintf("%3d", currentOldLine)
+			newNum = fmt.Sprintf("%3d", currentNewLine)
+			currentOldLine++
+			currentNewLine++
+
+		default:
+			// Unknown prefix - treat as context
+			if logger != nil {
+				logger.Log("Unknown line prefix '%s' in hunk, treating as context", prefix)
+			}
+			oldNum = fmt.Sprintf("%3d", currentOldLine)
+			newNum = fmt.Sprintf("%3d", currentNewLine)
+			currentOldLine++
+			currentNewLine++
+		}
+
+		// Format the line with proper table structure
+		result.WriteString(fmt.Sprintf("%s | %s | %s%s\n", oldNum, newNum, prefix, content))
+	}
+
+	if logger != nil {
+		logger.Log("Formatted hunk: old lines %d-%d, new lines %d-%d",
+			oldStart, currentOldLine-1, newStart, currentNewLine-1)
+	}
+
+	return result.String()
 }
 
 // Config for the langchain provider
@@ -125,7 +286,60 @@ func (p *LangchainProvider) ReviewCodeBatch(ctx context.Context, diffs []models.
 	// Get global logger
 	logger := logging.GetCurrentLogger()
 
-	// Generate the review prompt
+	// CRITICAL: Add line numbers to hunks BEFORE creating prompt
+	// This is essential for proper comment positioning
+	if logger != nil {
+		logger.LogSection(fmt.Sprintf("LINE NUMBERING - Batch %s", batchId))
+		logger.Log("Adding line numbers to %d diffs before prompt creation", len(diffs))
+	}
+
+	// Process each diff to add line numbers (FIRST STEP - before batching/splitting)
+	for i, diff := range diffs {
+		if logger != nil {
+			logger.Log("Processing diff %d: %s (%d hunks)", i+1, diff.FilePath, len(diff.Hunks))
+		}
+
+		var originalHunks []string
+		var formattedHunks []string
+
+		for j, hunk := range diff.Hunks {
+			// Save original content for logging
+			originalHunks = append(originalHunks, hunk.Content)
+
+			// Format the hunk with line numbers (RESTORE CRITICAL FUNCTIONALITY)
+			formattedContent := p.formatHunkWithLineNumbers(hunk)
+			formattedHunks = append(formattedHunks, formattedContent)
+
+			// Update the hunk content with the formatted version
+			diff.Hunks[j].Content = formattedContent
+
+			if logger != nil {
+				logger.Log("  Hunk %d: Added line numbers (old: %d-%d, new: %d-%d)",
+					j+1, hunk.OldStartLine, hunk.OldStartLine+hunk.OldLineCount-1,
+					hunk.NewStartLine, hunk.NewStartLine+hunk.NewLineCount-1)
+			}
+		}
+
+		// Log the transformation for debugging
+		if logger != nil && len(originalHunks) > 0 {
+			logger.Log("Line numbering transformation for %s:", diff.FilePath)
+			logger.Log("--- ORIGINAL HUNK ---")
+			logger.LogDiff(diff.FilePath, originalHunks[0][:minInt(200, len(originalHunks[0]))]+"...")
+			logger.Log("--- FORMATTED HUNK ---")
+			logger.LogDiff(diff.FilePath, formattedHunks[0][:minInt(200, len(formattedHunks[0]))]+"...")
+		}
+	}
+
+	// Now process the batch with already-formatted diffs
+	return p.reviewCodeBatchFormatted(ctx, diffs, batchId)
+}
+
+// reviewCodeBatchFormatted processes diffs that already have line numbers formatted
+// This is used for recursive batch processing to avoid double line numbering
+func (p *LangchainProvider) reviewCodeBatchFormatted(ctx context.Context, diffs []models.CodeDiff, batchId string) (*batch.BatchResult, error) {
+	logger := logging.GetCurrentLogger()
+
+	// Generate the review prompt (diffs already have line numbers)
 	prompt := p.createReviewPrompt(diffs)
 
 	// Log request to global logger
@@ -177,7 +391,9 @@ func (p *LangchainProvider) ReviewCodeBatch(ctx context.Context, diffs []models.
 		Error:       nil,
 		BatchID:     batchId,
 	}, nil
-} // ReviewCodeWithBatching processes code diffs using the batch processor
+}
+
+// ReviewCodeWithBatching processes code diffs using the batch processor
 func (p *LangchainProvider) ReviewCodeWithBatching(ctx context.Context, diffs []*models.CodeDiff, batchProcessor *batch.BatchProcessor) (*models.ReviewResult, error) {
 	if p.llm == nil {
 		if err := p.initializeLLM(); err != nil {
@@ -188,7 +404,35 @@ func (p *LangchainProvider) ReviewCodeWithBatching(ctx context.Context, diffs []
 	// Convert []*models.CodeDiff to []models.CodeDiff
 	input := batchProcessor.PrepareFullInput(diffs)
 
-	// Create batch input
+	// CRITICAL: Add line numbers to ALL diffs BEFORE batching
+	// This ensures line numbering happens only once, not per batch
+	logger := logging.GetCurrentLogger()
+	if logger != nil {
+		logger.LogSection("LINE NUMBERING - Pre-Batch Processing")
+		logger.Log("Adding line numbers to %d diffs before batching", len(input))
+	}
+
+	// Process each diff to add line numbers (BEFORE batching/splitting)
+	for i, diff := range input {
+		if logger != nil {
+			logger.Log("Processing diff %d: %s (%d hunks)", i+1, diff.FilePath, len(diff.Hunks))
+		}
+
+		for j, hunk := range diff.Hunks {
+			// Format the hunk with line numbers
+			formattedContent := p.formatHunkWithLineNumbers(hunk)
+			// Update the hunk content with the formatted version
+			diff.Hunks[j].Content = formattedContent
+
+			if logger != nil {
+				logger.Log("  Hunk %d: Added line numbers (old: %d-%d, new: %d-%d)",
+					j+1, hunk.OldStartLine, hunk.OldStartLine+hunk.OldLineCount-1,
+					hunk.NewStartLine, hunk.NewStartLine+hunk.NewLineCount-1)
+			}
+		}
+	}
+
+	// Create batch input (AFTER line numbering)
 	batchInput := batchProcessor.BatchInputs(input)
 
 	// Process batches using task queue (following Gemini provider pattern)
@@ -204,8 +448,9 @@ func (p *LangchainProvider) ReviewCodeWithBatching(ctx context.Context, diffs []
 		batchID := fmt.Sprintf("batch-%d", i+1)
 
 		// Create a processor function for this batch
+		// Use the formatted method to avoid double line numbering
 		processor := func(ctx context.Context, batchDiffs []models.CodeDiff) (*batch.BatchResult, error) {
-			return p.ReviewCodeBatch(ctx, batchDiffs)
+			return p.reviewCodeBatchFormatted(ctx, batchDiffs, batchID)
 		}
 
 		// Create and add the task
@@ -289,12 +534,15 @@ func (p *LangchainProvider) createReviewPrompt(diffs []models.CodeDiff) string {
 	prompt.WriteString("  * Important architectural decisions that need visibility\n")
 	prompt.WriteString("Only post comments that add real value to the developer!\n\n")
 
-	prompt.WriteString("CRITICAL: ONLY COMMENT ON CHANGED LINES!\n")
-	prompt.WriteString("- You can ONLY comment on lines that appear in the diff (marked with + or -)\n")
-	prompt.WriteString("- Do NOT comment on unchanged context lines or lines outside the diff\n")
-	prompt.WriteString("- For added lines (prefixed with +), use the NEW line number from the diff header\n")
-	prompt.WriteString("- For deleted lines (prefixed with -), use the OLD line number from the diff header\n")
-	prompt.WriteString("- Check the diff header @@ -oldStart,oldCount +newStart,newCount @@ to understand line ranges\n\n")
+	prompt.WriteString("CRITICAL: LINE NUMBER REFERENCES!\n")
+	prompt.WriteString("- Each diff hunk is formatted as a table with columns: OLD | NEW | CONTENT\n")
+	prompt.WriteString("- The OLD column shows line numbers in the original file\n")
+	prompt.WriteString("- The NEW column shows line numbers in the modified file\n")
+	prompt.WriteString("- For added lines (+ prefix), use the NEW line number for comments\n")
+	prompt.WriteString("- For deleted lines (- prefix), use the OLD line number for comments\n")
+	prompt.WriteString("- For modified lines, comment on the NEW version (+ line) with NEW line number\n")
+	prompt.WriteString("- You can ONLY comment on lines with + or - prefixes (changed lines)\n")
+	prompt.WriteString("- Do NOT comment on context lines (space prefix) or lines outside the diff\n\n")
 
 	// Add the diffs to the prompt
 	prompt.WriteString("# Code Changes\n\n")
