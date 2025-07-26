@@ -50,7 +50,7 @@ func getKeys(m map[string]interface{}) []string {
 }
 
 func (p *GitHubProvider) PostComment(ctx context.Context, prID string, comment *models.ReviewComment) error {
-	log.Printf("[DEBUG] PostComment called with prID: '%s'", prID)
+	log.Printf("[DEBUG] PostComment called with prID: '%s', FilePath: '%s', Line: %d", prID, comment.FilePath, comment.Line)
 	// prID format: owner/repo/number
 	parts := strings.Split(prID, "/")
 	if len(parts) != 3 {
@@ -59,20 +59,104 @@ func (p *GitHubProvider) PostComment(ctx context.Context, prID string, comment *
 	owner := parts[0]
 	repo := parts[1]
 	number := parts[2]
+
+	// If this is a line comment (has FilePath and Line), use the pull request review comments API
+	if comment.FilePath != "" && comment.Line > 0 {
+		return p.postLineComment(ctx, owner, repo, number, comment)
+	}
+
+	// Otherwise, post as a general PR comment (issue comment)
+	return p.postGeneralComment(ctx, owner, repo, number, comment)
+}
+
+func (p *GitHubProvider) postGeneralComment(ctx context.Context, owner, repo, number string, comment *models.ReviewComment) error {
 	url := fmt.Sprintf("https://api.github.com/repos/%s/%s/issues/%s/comments", owner, repo, number)
 	payload := map[string]string{"body": comment.Content}
+
 	data, _ := json.Marshal(payload)
 	req, _ := http.NewRequestWithContext(ctx, "POST", url, bytes.NewBuffer(data))
 	req.Header.Set("Authorization", "token "+p.PAT)
 	req.Header.Set("Accept", "application/vnd.github.v3+json")
+	req.Header.Set("Content-Type", "application/json")
+
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		return err
 	}
 	defer resp.Body.Close()
+
 	if resp.StatusCode != 201 {
-		return fmt.Errorf("GitHub comment failed: %s", resp.Status)
+		return fmt.Errorf("GitHub general comment failed: %s", resp.Status)
 	}
+
+	log.Printf("[DEBUG] Successfully posted general comment")
+	return nil
+}
+
+func (p *GitHubProvider) postLineComment(ctx context.Context, owner, repo, number string, comment *models.ReviewComment) error {
+	// First get the PR details to get the head commit SHA
+	prDetailsURL := fmt.Sprintf("https://api.github.com/repos/%s/%s/pulls/%s", owner, repo, number)
+	req, _ := http.NewRequestWithContext(ctx, "GET", prDetailsURL, nil)
+	req.Header.Set("Authorization", "token "+p.PAT)
+	req.Header.Set("Accept", "application/vnd.github.v3+json")
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return fmt.Errorf("failed to get PR details for line comment: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != 200 {
+		return fmt.Errorf("GitHub PR details failed for line comment: %s", resp.Status)
+	}
+
+	var pr struct {
+		Head struct {
+			SHA string `json:"sha"`
+		} `json:"head"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&pr); err != nil {
+		return fmt.Errorf("failed to decode PR details: %w", err)
+	}
+
+	// Now create the line comment using the pull request comments API
+	url := fmt.Sprintf("https://api.github.com/repos/%s/%s/pulls/%s/comments", owner, repo, number)
+
+	payload := map[string]interface{}{
+		"body":      comment.Content,
+		"commit_id": pr.Head.SHA,
+		"path":      comment.FilePath,
+		"line":      comment.Line,
+	}
+
+	// Determine side based on IsDeletedLine field
+	if comment.IsDeletedLine {
+		payload["side"] = "LEFT" // Comment on the old version (deleted line)
+	} else {
+		payload["side"] = "RIGHT" // Comment on the new version (added line)
+	}
+
+	data, _ := json.Marshal(payload)
+	req, _ = http.NewRequestWithContext(ctx, "POST", url, bytes.NewBuffer(data))
+	req.Header.Set("Authorization", "token "+p.PAT)
+	req.Header.Set("Accept", "application/vnd.github.v3+json")
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err = http.DefaultClient.Do(req)
+	if err != nil {
+		return fmt.Errorf("failed to post line comment: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != 201 {
+		// Read response body for debugging
+		var responseBody bytes.Buffer
+		responseBody.ReadFrom(resp.Body)
+		log.Printf("[DEBUG] Line comment failed. Status: %s, Response: %s", resp.Status, responseBody.String())
+		return fmt.Errorf("GitHub line comment failed: %s", resp.Status)
+	}
+
+	log.Printf("[DEBUG] Successfully posted line comment on %s:%d", comment.FilePath, comment.Line)
 	return nil
 }
 
@@ -82,36 +166,6 @@ func (p *GitHubProvider) PostComments(ctx context.Context, prID string, comments
 		if err != nil {
 			return err
 		}
-	}
-	return nil
-}
-
-func (p *GitHubProvider) PostLineComment(ctx context.Context, prID string, comment *models.ReviewComment, commitID, path string, position int) error {
-	parts := strings.Split(prID, "/")
-	if len(parts) != 3 {
-		return fmt.Errorf("invalid GitHub PR ID format: expected 'owner/repo/number', got '%s'", prID)
-	}
-	owner := parts[0]
-	repo := parts[1]
-	number := parts[2]
-	url := fmt.Sprintf("https://api.github.com/repos/%s/%s/pulls/%s/comments", owner, repo, number)
-	payload := map[string]interface{}{
-		"body":      comment.Content,
-		"commit_id": commitID,
-		"path":      path,
-		"position":  position,
-	}
-	data, _ := json.Marshal(payload)
-	req, _ := http.NewRequestWithContext(ctx, "POST", url, bytes.NewBuffer(data))
-	req.Header.Set("Authorization", "token "+p.PAT)
-	req.Header.Set("Accept", "application/vnd.github.v3+json")
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		return err
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != 201 {
-		return fmt.Errorf("GitHub line comment failed: %s", resp.Status)
 	}
 	return nil
 }

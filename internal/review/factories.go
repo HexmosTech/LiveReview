@@ -7,7 +7,7 @@ import (
 	"strings"
 
 	"github.com/livereview/internal/ai"
-	"github.com/livereview/internal/ai/gemini"
+	"github.com/livereview/internal/ai/langchain"
 	"github.com/livereview/internal/providers"
 	"github.com/livereview/internal/providers/github"
 	"github.com/livereview/internal/providers/gitlab"
@@ -71,23 +71,29 @@ func NewStandardAIProviderFactory() *StandardAIProviderFactory {
 // CreateAIProvider creates an AI provider instance based on configuration
 func (f *StandardAIProviderFactory) CreateAIProvider(ctx context.Context, config AIConfig) (ai.Provider, error) {
 	switch config.Type {
-	case "gemini":
-		return gemini.New(gemini.GeminiConfig{
-			APIKey:      config.APIKey,
-			Model:       config.Model,
-			Temperature: config.Temperature,
-		})
+	case "langchain":
+		return langchain.New(langchain.Config{
+			APIKey:    config.APIKey,
+			ModelName: config.Model,
+			MaxTokens: 30000, // Default max tokens
+		}), nil
 	default:
-		return nil, fmt.Errorf("unsupported AI provider type: %s", config.Type)
+		// Default to langchain for any unrecognized type
+		return langchain.New(langchain.Config{
+			APIKey:    config.APIKey,
+			ModelName: config.Model,
+			MaxTokens: 30000,
+		}), nil
 	}
 }
 
 // SupportsAIProvider checks if the factory supports the given AI provider type
 func (f *StandardAIProviderFactory) SupportsAIProvider(aiType string) bool {
 	switch aiType {
-	case "gemini":
+	case "langchain":
 		return true
 	default:
-		return false
+		// Default to true since we default to langchain
+		return true
 	}
 }

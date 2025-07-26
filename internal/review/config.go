@@ -53,7 +53,7 @@ func (cs *ConfigurationService) buildAIConfig() (AIConfig, error) {
 	// Use configured default AI provider
 	defaultAI := cs.config.General.DefaultAI
 	if defaultAI == "" {
-		defaultAI = "gemini"
+		defaultAI = "langchain"
 	}
 
 	// Get AI config for the default provider
@@ -69,7 +69,7 @@ func (cs *ConfigurationService) buildAIConfig() (AIConfig, error) {
 
 	// Set defaults if not specified
 	if model == "" {
-		model = "gemini-2.5-flash"
+		model = "gemini-2.0-flash-exp"
 	}
 	if temperature == 0 {
 		temperature = 0.4
@@ -88,8 +88,8 @@ func (cs *ConfigurationService) buildAIConfig() (AIConfig, error) {
 func DefaultReviewConfig() Config {
 	return Config{
 		ReviewTimeout: 10 * time.Minute,
-		DefaultAI:     "gemini",
-		DefaultModel:  "gemini-2.5-flash",
+		DefaultAI:     "langchain",
+		DefaultModel:  "gemini-2.0-flash-exp",
 		Temperature:   0.4,
 	}
 }
