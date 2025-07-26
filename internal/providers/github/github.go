@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"regexp"
+	"strconv"
 	"strings"
 
 	"log"
@@ -223,17 +225,103 @@ func (p *GitHubProvider) GetMergeRequestChanges(ctx context.Context, mrID string
 		Deletions int    `json:"deletions"`
 		Changes   int    `json:"changes"`
 		Patch     string `json:"patch"`
+		SHA       string `json:"sha"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&files); err != nil {
 		return nil, err
 	}
+
+	log.Printf("[DEBUG] GitHub API returned %d files", len(files))
+
 	var diffs []*models.CodeDiff
 	for _, f := range files {
-		diffs = append(diffs, &models.CodeDiff{
-			FilePath: f.Filename,
-			// Patch, Status, Additions, Deletions, Changes are not present in CodeDiff
-			// You may want to parse f.Patch into Hunks, or store it in a custom field if needed
-		})
+		log.Printf("[DEBUG] Processing file: %s, status: %s, patch length: %d", f.Filename, f.Status, len(f.Patch))
+
+		// Parse the patch into hunks
+		hunks := p.parsePatchIntoHunks(f.Patch)
+
+		diff := &models.CodeDiff{
+			FilePath:  f.Filename,
+			CommitID:  f.SHA,
+			FileType:  p.getFileType(f.Filename),
+			IsNew:     f.Status == "added",
+			IsDeleted: f.Status == "removed",
+			IsRenamed: f.Status == "renamed",
+			Hunks:     hunks,
+		}
+
+		log.Printf("[DEBUG] Created CodeDiff for %s with %d hunks", f.Filename, len(hunks))
+		diffs = append(diffs, diff)
 	}
+
+	log.Printf("[DEBUG] Returning %d diffs with actual content", len(diffs))
 	return diffs, nil
+}
+
+// parsePatchIntoHunks parses a GitHub patch string into DiffHunk objects
+func (p *GitHubProvider) parsePatchIntoHunks(patch string) []models.DiffHunk {
+	if patch == "" {
+		return nil
+	}
+
+	lines := strings.Split(patch, "\n")
+	var hunks []models.DiffHunk
+	var currentHunk *models.DiffHunk
+	var hunkContent strings.Builder
+
+	// Regex to match hunk headers like @@ -1,3 +1,4 @@
+	hunkHeaderRegex := regexp.MustCompile(`^@@ -(\d+),?(\d*) \+(\d+),?(\d*) @@`)
+
+	for _, line := range lines {
+		if match := hunkHeaderRegex.FindStringSubmatch(line); match != nil {
+			// Save previous hunk if exists
+			if currentHunk != nil {
+				currentHunk.Content = strings.TrimSuffix(hunkContent.String(), "\n")
+				hunks = append(hunks, *currentHunk)
+				hunkContent.Reset()
+			}
+
+			// Parse hunk header
+			oldStart, _ := strconv.Atoi(match[1])
+			oldCount := 1
+			if match[2] != "" {
+				oldCount, _ = strconv.Atoi(match[2])
+			}
+			newStart, _ := strconv.Atoi(match[3])
+			newCount := 1
+			if match[4] != "" {
+				newCount, _ = strconv.Atoi(match[4])
+			}
+
+			currentHunk = &models.DiffHunk{
+				OldStartLine: oldStart,
+				OldLineCount: oldCount,
+				NewStartLine: newStart,
+				NewLineCount: newCount,
+			}
+
+			// Include the header line in the content
+			hunkContent.WriteString(line + "\n")
+		} else if currentHunk != nil {
+			// Add content lines to current hunk
+			hunkContent.WriteString(line + "\n")
+		}
+	}
+
+	// Save the last hunk
+	if currentHunk != nil {
+		currentHunk.Content = strings.TrimSuffix(hunkContent.String(), "\n")
+		hunks = append(hunks, *currentHunk)
+	}
+
+	return hunks
+}
+
+// getFileType determines file type based on extension
+func (p *GitHubProvider) getFileType(filename string) string {
+	parts := strings.Split(filename, ".")
+	if len(parts) > 1 {
+		return parts[len(parts)-1]
+	}
+	return "unknown"
 }
