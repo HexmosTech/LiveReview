@@ -114,7 +114,7 @@ func (s *Server) setupRoutes() {
 	v1.POST("/integration_tokens/pat", s.HandleCreatePATIntegrationToken)
 
 	// Review trigger endpoints
-	v1.POST("/trigger-review", s.TriggerReview)
+	v1.POST("/trigger-review", s.TriggerReviewV2)
 
 	// AI Connector endpoints
 	v1.POST("/aiconnectors/validate-key", s.ValidateAIConnectorKey)
