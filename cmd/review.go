@@ -3,6 +3,7 @@ package cmd
 import (
 	"context"
 	"fmt"
+	"os"
 	"time"
 
 	"github.com/urfave/cli/v2"
@@ -58,7 +59,29 @@ func ReviewCommand() *cli.Command {
 }
 
 func runReview(c *cli.Context) error {
+	// DEBUG PROTOCOL: Initialize early logging to track all trigger-review requests
+	reviewID := fmt.Sprintf("review-%d", time.Now().Unix())
+
+	// Create emergency debug log in case main logging fails
+	debugFile := fmt.Sprintf("review_logs/ENTRY_%s.debug", reviewID)
+	os.MkdirAll("review_logs", 0755)
+
+	emergencyLog := func(message string) {
+		timestamp := time.Now().Format("15:04:05.000")
+		debugContent := fmt.Sprintf("[%s] ENTRY DEBUG: %s\n", timestamp, message)
+		if f, err := os.OpenFile(debugFile, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644); err == nil {
+			f.WriteString(debugContent)
+			f.Close()
+		}
+		fmt.Printf("[DEBUG] %s", debugContent)
+	}
+
+	emergencyLog(fmt.Sprintf("=== TRIGGER-REVIEW STARTED ==="))
+	emergencyLog(fmt.Sprintf("Review ID: %s", reviewID))
+	emergencyLog(fmt.Sprintf("Command args: %v", c.Args().Slice()))
+
 	if c.NArg() < 1 {
+		emergencyLog("ERROR: Missing MR URL argument")
 		return fmt.Errorf("missing required argument: MR URL")
 	}
 
@@ -67,25 +90,35 @@ func runReview(c *cli.Context) error {
 	verbose := c.Bool("verbose")     // Use the command-specific verbose flag
 	batchSize := c.Int("batch-size") // Get batch size from command line
 
+	emergencyLog(fmt.Sprintf("MR URL: %s", mrURL))
+	emergencyLog(fmt.Sprintf("Settings: dry-run=%v, verbose=%v, batch-size=%d", dryRun, verbose, batchSize))
+
 	fmt.Printf("Starting review of MR: %s (dry-run: %v, verbose: %v, batch-size: %d)\n",
 		mrURL, dryRun, verbose, batchSize)
 
 	// Load configuration
+	emergencyLog("Loading configuration...")
 	cfg, err := config.LoadConfig(c.String("config"))
 	if err != nil {
+		emergencyLog(fmt.Sprintf("ERROR: Failed to load config: %v", err))
 		return fmt.Errorf("failed to load config: %w", err)
 	}
+	emergencyLog("Configuration loaded successfully")
 
 	// Validate configuration
+	emergencyLog("Validating configuration...")
 	if err := config.Validate(cfg); err != nil {
+		emergencyLog(fmt.Sprintf("ERROR: Invalid configuration: %v", err))
 		return fmt.Errorf("invalid configuration: %w", err)
 	}
+	emergencyLog("Configuration validation passed")
 
 	// Determine provider to use
 	providerName := cfg.General.DefaultProvider
 	if override := c.String("provider"); override != "" {
 		providerName = override
 	}
+	emergencyLog(fmt.Sprintf("Using provider: %s", providerName))
 
 	// Determine AI provider to use
 	aiName := cfg.General.DefaultAI
@@ -128,7 +161,14 @@ func runReview(c *cli.Context) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute) // Increased timeout for batch processing
 	defer cancel()
 
-	return runReviewProcess(ctx, provider, aiProvider, mrURL, dryRun, verbose, batchConfig)
+	emergencyLog("About to call runReviewProcess...")
+	err = runReviewProcess(ctx, provider, aiProvider, mrURL, dryRun, verbose, batchConfig)
+	if err != nil {
+		emergencyLog(fmt.Sprintf("ERROR: runReviewProcess failed: %v", err))
+		return err
+	}
+	emergencyLog("runReviewProcess completed successfully")
+	return nil
 }
 
 func createProvider(name string, config map[string]interface{}) (providers.Provider, error) {
@@ -159,12 +199,32 @@ func runReviewProcess(
 	// Generate unique review ID
 	reviewID := fmt.Sprintf("review-%d", time.Now().Unix())
 
+	// Emergency debug log for this function entry
+	emergencyLog := func(message string) {
+		timestamp := time.Now().Format("15:04:05.000")
+		debugContent := fmt.Sprintf("[%s] PROCESS DEBUG: %s\n", timestamp, message)
+		debugFile := fmt.Sprintf("review_logs/PROCESS_%s.debug", reviewID)
+		if f, err := os.OpenFile(debugFile, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644); err == nil {
+			f.WriteString(debugContent)
+			f.Close()
+		}
+		fmt.Printf("[DEBUG] %s", debugContent)
+	}
+
+	emergencyLog("=== runReviewProcess CALLED ===")
+	emergencyLog(fmt.Sprintf("Review ID: %s", reviewID))
+	emergencyLog(fmt.Sprintf("MR URL: %s", mrURL))
+	emergencyLog(fmt.Sprintf("Settings: dry-run=%v, verbose=%v", dryRun, verbose))
+
 	// Start comprehensive logging
 	logger, err := logging.StartReviewLogging(reviewID)
 	if err != nil {
+		emergencyLog(fmt.Sprintf("ERROR: Failed to start review logging: %v", err))
 		return fmt.Errorf("failed to start review logging: %w", err)
 	}
 	defer logger.Close()
+
+	emergencyLog("Comprehensive logging started successfully")
 
 	logger.Log("Starting trigger-review process")
 	logger.Log("Review ID: %s", reviewID)
