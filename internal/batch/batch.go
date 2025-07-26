@@ -1,13 +1,23 @@
 package batch
 
 import (
+	"context"
 	"fmt"
 	"path/filepath"
 	"regexp"
 	"strings"
 
 	"github.com/livereview/pkg/models"
+	"github.com/tmc/langchaingo/llms"
 )
+
+// Add ParentHunkID to DiffHunk for tracking
+// (If not present in models, add here for batching purposes)
+type DiffHunkWithParent struct {
+	models.DiffHunk
+	ParentFilePath string
+	ParentHunkIdx  int
+}
 
 // Logger defines a simple logging interface for batch processing
 type Logger interface {
@@ -221,33 +231,58 @@ func (p *BatchProcessor) BatchInputs(input []models.CodeDiff) *BatchInput {
 	currentBatchTokens := 0
 	currentBatchNum := 1
 
-	for i, diff := range input {
-		// Calculate tokens for this diff
+	for _, diff := range input {
 		diffTokens := counter.CountTokens(diff.FilePath)
 		for _, hunk := range diff.Hunks {
-			diffTokens += counter.CountTokens(hunk.Content)
+			hunkTokens := counter.CountTokens(hunk.Content)
+			diffTokens += hunkTokens
+			if hunkTokens > p.MaxBatchTokens {
+				// Split hunk into sub-hunks
+				subHunks := splitHunkByTokens(hunk, p.MaxBatchTokens, counter)
+				for subIdx, subHunk := range subHunks {
+					// Tag sub-hunk with parent info
+					subDiff := models.CodeDiff{
+						FilePath:    diff.FilePath,
+						OldContent:  diff.OldContent,
+						NewContent:  diff.NewContent,
+						Hunks:       []models.DiffHunk{subHunk},
+						CommitID:    diff.CommitID,
+						FileType:    diff.FileType,
+						IsDeleted:   diff.IsDeleted,
+						IsNew:       diff.IsNew,
+						IsRenamed:   diff.IsRenamed,
+						OldFilePath: diff.OldFilePath,
+					}
+					// Attach parent info for merging (using Hunks[0] fields)
+					// You may want to extend models.DiffHunk for real use
+					subDiff.Hunks[0].Content = fmt.Sprintf("[PARENT:%s:%d]%s", diff.FilePath, subIdx, subHunk.Content)
+					// Add sub-hunk diff to batch
+					if currentBatchTokens+counter.CountTokens(subHunk.Content) > p.MaxBatchTokens && len(currentBatch) > 0 {
+						batches = append(batches, currentBatch)
+						currentBatch = make([]models.CodeDiff, 0)
+						currentBatchTokens = 0
+						currentBatchNum++
+					}
+					currentBatch = append(currentBatch, subDiff)
+					currentBatchTokens += counter.CountTokens(subHunk.Content)
+				}
+			} else {
+				// Add normal hunk as part of diff
+				// ...existing code...
+			}
 		}
-
-		p.Logger.Debug("Diff %d (%s): %d tokens", i+1, diff.FilePath, diffTokens)
-
-		// Check if adding this diff would exceed the batch token limit
-		if currentBatchTokens+diffTokens > p.MaxBatchTokens && len(currentBatch) > 0 {
-			// Current batch is full, start a new one
-			p.Logger.Info("Batch %d full: %d files, %d tokens",
-				currentBatchNum, len(currentBatch), currentBatchTokens)
-			batches = append(batches, currentBatch)
-			currentBatch = make([]models.CodeDiff, 0)
-			currentBatchTokens = 0
-			currentBatchNum++
+		// If all hunks are normal, add the diff as usual
+		if diffTokens <= p.MaxBatchTokens {
+			if currentBatchTokens+diffTokens > p.MaxBatchTokens && len(currentBatch) > 0 {
+				batches = append(batches, currentBatch)
+				currentBatch = make([]models.CodeDiff, 0)
+				currentBatchTokens = 0
+				currentBatchNum++
+			}
+			currentBatch = append(currentBatch, diff)
+			currentBatchTokens += diffTokens
 		}
-
-		// Add diff to current batch
-		currentBatch = append(currentBatch, diff)
-		currentBatchTokens += diffTokens
-		p.Logger.Debug("Added to batch %d: %s (%d tokens, batch total: %d tokens)",
-			currentBatchNum, diff.FilePath, diffTokens, currentBatchTokens)
 	}
-
 	// Add the last batch if it's not empty
 	if len(currentBatch) > 0 {
 		p.Logger.Info("Final batch %d: %d files, %d tokens",
@@ -266,16 +301,63 @@ func (p *BatchProcessor) BatchInputs(input []models.CodeDiff) *BatchInput {
 	}
 }
 
+// splitHunkByTokens splits a DiffHunk into sub-hunks each under maxTokens
+func splitHunkByTokens(hunk models.DiffHunk, maxTokens int, counter TokenCounter) []models.DiffHunk {
+	content := hunk.Content
+	var subHunks []models.DiffHunk
+	start := 0
+	for start < len(content) {
+		end := start
+		lastTokenCount := -1
+		for end < len(content) {
+			tokenCount := counter.CountTokens(content[start:end])
+			if tokenCount >= maxTokens {
+				break
+			}
+			// If tokenCount doesn't increase, advance by a line or chunk
+			if tokenCount == lastTokenCount {
+				// Try to find next newline
+				nextNewline := strings.Index(content[end:], "\n")
+				if nextNewline == -1 {
+					end = len(content)
+				} else {
+					end += nextNewline + 1
+				}
+			} else {
+				end++
+			}
+			lastTokenCount = tokenCount
+		}
+		if end == start {
+			// Prevent infinite loop: forcibly advance
+			end = start + min(1000, len(content)-start)
+		}
+		// Create sub-hunk
+		subHunk := models.DiffHunk{
+			OldStartLine: hunk.OldStartLine,
+			OldLineCount: hunk.OldLineCount,
+			NewStartLine: hunk.NewStartLine,
+			NewLineCount: hunk.NewLineCount,
+			Content:      content[start:end],
+		}
+		subHunks = append(subHunks, subHunk)
+		start = end
+	}
+	return subHunks
+	// ...existing code...
+}
+
 // BatchResult represents the result of processing a single batch
 type BatchResult struct {
-	Summary  string
-	Comments []*models.ReviewComment
-	Error    error
-	BatchID  string
+	Summary     string
+	FileSummary string // New: file-level summary if present
+	Comments    []*models.ReviewComment
+	Error       error
+	BatchID     string
 }
 
 // AggregateAndCombineOutputs combines the results of multiple batches
-func (p *BatchProcessor) AggregateAndCombineOutputs(results []*BatchResult) (*models.ReviewResult, error) {
+func (p *BatchProcessor) AggregateAndCombineOutputs(ctx context.Context, llm llms.Model, results []*BatchResult) (*models.ReviewResult, error) {
 	p.Logger.Info("Aggregating outputs from %d batch results", len(results))
 
 	if len(results) == 0 {
@@ -299,38 +381,50 @@ func (p *BatchProcessor) AggregateAndCombineOutputs(results []*BatchResult) (*mo
 		return nil, fmt.Errorf("errors in batch processing: %s", strings.Join(errors, "; "))
 	}
 
-	// Combine summaries and comments
-	combinedSummary := "# Multiple Files Review (LiveReview)\n\n"
+	// Collect file-level summaries and all line comments
+	var fileSummaries []string
 	var combinedComments []*models.ReviewComment
 	totalComments := 0
-
-	for i, result := range results {
-		p.Logger.Debug("Processing result %d: %d comments", i+1, len(result.Comments))
-
-		if len(results) > 1 {
-			batchIDSuffix := ""
-			if result.BatchID != "" {
-				batchIDSuffix = " (" + result.BatchID + ")"
-			}
-			combinedSummary += fmt.Sprintf("## Batch %d%s\n\n", i+1, batchIDSuffix)
+	for _, result := range results {
+		if result.FileSummary != "" {
+			fileSummaries = append(fileSummaries, result.FileSummary)
 		}
-		combinedSummary += result.Summary + "\n\n"
-
-		// Add comments from this batch
 		combinedComments = append(combinedComments, result.Comments...)
 		totalComments += len(result.Comments)
 	}
 
-	// Deduplicate comments based on file path and line number
-	uniqueComments := deduplicateComments(combinedComments)
+	// Synthesize general summary from all file summaries and comments
+	// Use LLM abstraction for synthesis
+	generalSummary := synthesizeGeneralSummary(ctx, llm, fileSummaries, combinedComments)
 
-	p.Logger.Info("Combined %d total comments, %d unique comments after deduplication",
-		totalComments, len(uniqueComments))
-
+	// Output: one general summary, file-level summaries, all line comments
 	return &models.ReviewResult{
-		Summary:  combinedSummary,
-		Comments: uniqueComments,
+		Summary:  generalSummary,
+		Comments: combinedComments,
 	}, nil
+}
+
+// synthesizeGeneralSummary calls the LLM abstraction to generate a high-level summary from file summaries and comments
+
+func synthesizeGeneralSummary(ctx context.Context, llm llms.Model, fileSummaries []string, comments []*models.ReviewComment) string {
+	var prompt strings.Builder
+	prompt.WriteString("You are an expert code reviewer. Given the following file-level summaries and line comments, synthesize a single, high-level summary of the overall change. Focus on the big picture, impact, and intent.\n\n")
+	prompt.WriteString("File-level summaries:\n")
+	for _, fs := range fileSummaries {
+		prompt.WriteString("- " + fs + "\n")
+	}
+	prompt.WriteString("\nLine comments:\n")
+	for _, c := range comments {
+		prompt.WriteString(fmt.Sprintf("- [%s:%d] %s\n", c.FilePath, c.Line, c.Content))
+	}
+	prompt.WriteString("\nProvide only the high-level summary, not file or line details.\n")
+
+	summary, err := llms.GenerateFromSinglePrompt(ctx, llm, prompt.String())
+	if err != nil {
+		return "Error generating summary: " + err.Error()
+	}
+	return summary
+	// ...existing code...
 }
 
 // deduplicateComments removes duplicate comments based on file path and line number

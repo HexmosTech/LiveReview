@@ -14,11 +14,12 @@ import (
 	"strings"
 
 	"github.com/livereview/pkg/models"
+	"github.com/tmc/langchaingo/llms"
 )
 
-// GeminiProvider implements the AI Provider interface for Google's Gemini
 type GeminiProvider struct {
 	TestableFields
+	llm llms.Model
 }
 
 // GeminiConfig contains configuration for the Gemini provider
@@ -59,6 +60,8 @@ func New(config GeminiConfig) (*GeminiProvider, error) {
 		config.MaxTokensPerBatch = 10000
 	}
 
+	// For now, we'll leave the LLM field nil and let the caller provide it
+	// This maintains compatibility while we transition to full langchain abstraction
 	return &GeminiProvider{
 		TestableFields: TestableFields{
 			APIKey:            config.APIKey,
@@ -67,7 +70,13 @@ func New(config GeminiConfig) (*GeminiProvider, error) {
 			MaxTokensPerBatch: config.MaxTokensPerBatch,
 			HTTPClient:        &http.Client{},
 		},
+		llm: nil, // Will be set by caller when needed for synthesis
 	}, nil
+}
+
+// SetLLM sets the langchain LLM instance for synthesis operations
+func (p *GeminiProvider) SetLLM(llm llms.Model) {
+	p.llm = llm
 }
 
 // reviewRequest represents a request to the Gemini API
@@ -165,19 +174,17 @@ func createReviewPrompt(diffs []*models.CodeDiff) string {
 	// Instructions for the AI
 	prompt.WriteString("# Code Review Request\n\n")
 	prompt.WriteString("Review the following code changes thoroughly and provide:\n")
-	prompt.WriteString("1. A concise summary of the changes that describes EXACTLY what was changed and why. Make it readable with multiple paragraphs and lists (avoid hard to read big text blocks)\n")
-	prompt.WriteString("2. Specific actionable comments highlighting issues, improvements, and best practices\n\n")
+	prompt.WriteString("1. Specific actionable line comments highlighting issues, improvements, and best practices\n")
+	prompt.WriteString("2. File-level summaries ONLY for complex files that warrant explanation (not for every file)\n")
+	prompt.WriteString("3. DO NOT provide a general summary here - that will be synthesized separately\n\n")
 	prompt.WriteString("IMPORTANT REVIEW GUIDELINES:\n")
-	prompt.WriteString("- For the summary: Be specific about what files changed and what exactly was modified\n")
-	prompt.WriteString("- Do NOT add headings/titles to your summary - just provide the content\n")
-	prompt.WriteString("- DO NOT use generic descriptions like 'this change includes...' - be specific\n")
-	prompt.WriteString("- Keep comments concise and use active voice\n")
 	prompt.WriteString("- Focus on finding bugs, security issues, and improvement opportunities\n")
 	prompt.WriteString("- Highlight unclear code and readability issues\n")
+	prompt.WriteString("- Keep comments concise and use active voice\n")
 	prompt.WriteString("- Avoid unnecessary praise or filler comments\n")
-	prompt.WriteString("- Avoid commenting on simplistic or obvious or easily understood things a person can figure out without much effort - such as commenting on imports, blank space changes and other such obvious things.\n")
-	prompt.WriteString("- For complex files without issues, provide a 1-2 line summary of what the change accomplishes\n\n")
-	prompt.WriteString("For each comment, include:\n")
+	prompt.WriteString("- Avoid commenting on simplistic or obvious things (imports, blank space changes, etc.)\n")
+	prompt.WriteString("- File summaries should only be provided for complex changes that need explanation\n\n")
+	prompt.WriteString("For each line comment, include:\n")
 	prompt.WriteString("- File path\n")
 	prompt.WriteString("- Line number\n")
 	prompt.WriteString("- Severity (info, warning, critical)\n")
@@ -186,7 +193,7 @@ func createReviewPrompt(diffs []*models.CodeDiff) string {
 	prompt.WriteString("Format your response as JSON with the following structure:\n")
 	prompt.WriteString("```json\n")
 	prompt.WriteString("{\n")
-	prompt.WriteString("  \"summary\": \"Concise summary of the changes\",\n")
+	prompt.WriteString("  \"fileSummary\": \"Optional: Brief summary of complex file changes (omit if file is simple)\",\n")
 	prompt.WriteString("  \"comments\": [\n")
 	prompt.WriteString("    {\n")
 	prompt.WriteString("      \"filePath\": \"path/to/file.ext\",\n")
@@ -396,9 +403,8 @@ func (p *GeminiProvider) parseResponse(response string, diffs []*models.CodeDiff
 			}
 
 			type GeminiResponse struct {
-				Summary      string          `json:"summary"`
-				FilesChanged []string        `json:"filesChanged"`
-				Comments     []GeminiComment `json:"comments"`
+				FileSummary string          `json:"fileSummary"`
+				Comments    []GeminiComment `json:"comments"`
 			}
 
 			// Try to parse the JSON
@@ -410,22 +416,11 @@ func (p *GeminiProvider) parseResponse(response string, diffs []*models.CodeDiff
 				fmt.Printf("Full JSON parsing failed: %v\n", err)
 				fmt.Println("Attempting to extract structured data from partial JSON...")
 
-				// Try to manually extract the summary
-				summaryRegex := regexp.MustCompile(`"summary"\s*:\s*"([^"]+)"`)
+				// Try to manually extract the file summary
+				summaryRegex := regexp.MustCompile(`"fileSummary"\s*:\s*"([^"]+)"`)
 				if summaryMatches := summaryRegex.FindStringSubmatch(jsonStr); len(summaryMatches) > 1 {
-					jsonResponse.Summary = summaryMatches[1]
-					fmt.Printf("Extracted summary: %s\n", jsonResponse.Summary)
-				}
-
-				// Try to extract file paths
-				filesRegex := regexp.MustCompile(`"filesChanged"\s*:\s*\[\s*"([^"]+)"`)
-				if filesMatches := filesRegex.FindAllStringSubmatch(jsonStr, -1); len(filesMatches) > 0 {
-					jsonResponse.FilesChanged = make([]string, 0)
-					for _, match := range filesMatches {
-						if len(match) > 1 {
-							jsonResponse.FilesChanged = append(jsonResponse.FilesChanged, match[1])
-						}
-					}
+					jsonResponse.FileSummary = summaryMatches[1]
+					fmt.Printf("Extracted file summary: %s\n", jsonResponse.FileSummary)
 				}
 
 				// Try to extract comments from the partial JSON
@@ -496,12 +491,12 @@ func (p *GeminiProvider) parseResponse(response string, diffs []*models.CodeDiff
 			}
 
 			// If JSON parsing succeeded and has required fields
-			if jsonResponse.Summary != "" && (len(jsonResponse.Comments) > 0 || err == nil) {
+			if jsonResponse.FileSummary != "" || len(jsonResponse.Comments) > 0 || err == nil {
 				fmt.Println("Successfully parsed JSON response")
 
 				// Create the result
 				result := &models.ReviewResult{
-					Summary:  extractHumanReadableSummary(jsonResponse.Summary),
+					Summary:  jsonResponse.FileSummary, // Store fileSummary temporarily in Summary field
 					Comments: []*models.ReviewComment{},
 				}
 

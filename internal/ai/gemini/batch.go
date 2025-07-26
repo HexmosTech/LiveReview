@@ -114,7 +114,7 @@ func (p *GeminiProvider) ReviewCodeWithBatching(
 
 	// Step 5: Aggregate and combine outputs
 	fmt.Printf("===== 🔄 AGGREGATING RESULTS =====\n")
-	result, err := batchProcessor.AggregateAndCombineOutputs(batchResults)
+	result, err := batchProcessor.AggregateAndCombineOutputs(ctx, p.llm, batchResults)
 	if err != nil {
 		fmt.Printf("❌ Error aggregating results: %v\n", err)
 		return nil, err
@@ -148,9 +148,10 @@ func (p *GeminiProvider) ReviewCodeBatch(
 
 	// Convert to BatchResult
 	return &batch.BatchResult{
-		Summary:  result.Summary,
-		Comments: result.Comments,
-		Error:    nil,
+		Summary:     "",             // No batch-level summary needed
+		FileSummary: result.Summary, // Extract fileSummary from temporarily stored Summary
+		Comments:    result.Comments,
+		Error:       nil,
 	}, nil
 }
 
