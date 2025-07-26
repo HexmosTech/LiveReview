@@ -363,8 +363,9 @@ func (p *BatchProcessor) AggregateAndCombineOutputs(ctx context.Context, llm llm
 	if len(results) == 0 {
 		p.Logger.Warn("No batch results to aggregate")
 		return &models.ReviewResult{
-			Summary:  "No results were produced.",
-			Comments: []*models.ReviewComment{},
+			Summary:          "No results were produced.",
+			Comments:         []*models.ReviewComment{},
+			InternalComments: []*models.ReviewComment{},
 		}, nil
 	}
 
@@ -381,26 +382,40 @@ func (p *BatchProcessor) AggregateAndCombineOutputs(ctx context.Context, llm llm
 		return nil, fmt.Errorf("errors in batch processing: %s", strings.Join(errors, "; "))
 	}
 
-	// Collect file-level summaries and all line comments
+	// Collect file-level summaries and separate internal/external comments
 	var fileSummaries []string
-	var combinedComments []*models.ReviewComment
+	var externalComments []*models.ReviewComment
+	var internalComments []*models.ReviewComment
 	totalComments := 0
 	for _, result := range results {
 		if result.FileSummary != "" {
 			fileSummaries = append(fileSummaries, result.FileSummary)
 		}
-		combinedComments = append(combinedComments, result.Comments...)
-		totalComments += len(result.Comments)
+
+		// Separate internal and external comments
+		for _, comment := range result.Comments {
+			totalComments++
+			if comment.IsInternal {
+				internalComments = append(internalComments, comment)
+			} else {
+				externalComments = append(externalComments, comment)
+			}
+		}
 	}
 
-	// Synthesize general summary from all file summaries and comments
+	// Synthesize general summary from all file summaries and ALL comments (internal + external)
 	// Use LLM abstraction for synthesis
-	generalSummary := synthesizeGeneralSummary(ctx, llm, fileSummaries, combinedComments)
+	allCommentsForSynthesis := append(append([]*models.ReviewComment{}, internalComments...), externalComments...)
+	generalSummary := synthesizeGeneralSummary(ctx, llm, fileSummaries, allCommentsForSynthesis)
 
-	// Output: one general summary, file-level summaries, all line comments
+	p.Logger.Info("Aggregation complete: %d total comments (%d external, %d internal), %d file summaries",
+		totalComments, len(externalComments), len(internalComments), len(fileSummaries))
+
+	// Output: one general summary, only EXTERNAL comments for posting
 	return &models.ReviewResult{
-		Summary:  generalSummary,
-		Comments: combinedComments,
+		Summary:          generalSummary,
+		Comments:         externalComments,
+		InternalComments: internalComments,
 	}, nil
 }
 
@@ -408,7 +423,15 @@ func (p *BatchProcessor) AggregateAndCombineOutputs(ctx context.Context, llm llm
 
 func synthesizeGeneralSummary(ctx context.Context, llm llms.Model, fileSummaries []string, comments []*models.ReviewComment) string {
 	var prompt strings.Builder
-	prompt.WriteString("You are an expert code reviewer. Given the following file-level summaries and line comments, synthesize a single, high-level summary of the overall change. Focus on the big picture, impact, and intent.\n\n")
+	prompt.WriteString("You are an expert code reviewer. Given the following file-level summaries and line comments, synthesize a single, high-level summary of the overall change using proper markdown formatting.\n\n")
+	prompt.WriteString("REQUIREMENTS:\n")
+	prompt.WriteString("1. Use markdown formatting with clear structure: # headings, ## subheadings, **bold**, bullet points\n")
+	prompt.WriteString("2. Focus on the big picture, impact, and intent - NOT individual file details\n")
+	prompt.WriteString("3. Make it scannable and easy to understand quickly\n")
+	prompt.WriteString("4. Start with a clear main title using # heading\n")
+	prompt.WriteString("5. Use bullet points for key changes and impacts\n")
+	prompt.WriteString("6. Keep it concise but informative\n\n")
+
 	prompt.WriteString("File-level summaries:\n")
 	for _, fs := range fileSummaries {
 		prompt.WriteString("- " + fs + "\n")
@@ -417,7 +440,17 @@ func synthesizeGeneralSummary(ctx context.Context, llm llms.Model, fileSummaries
 	for _, c := range comments {
 		prompt.WriteString(fmt.Sprintf("- [%s:%d] %s\n", c.FilePath, c.Line, c.Content))
 	}
-	prompt.WriteString("\nProvide only the high-level summary, not file or line details.\n")
+
+	prompt.WriteString("\nGenerate a well-formatted markdown summary following this structure:\n")
+	prompt.WriteString("# [Clear main title of what changed]\n\n")
+	prompt.WriteString("## Overview\n")
+	prompt.WriteString("Brief description of the change intent and scope.\n\n")
+	prompt.WriteString("## Key Changes\n")
+	prompt.WriteString("- **Area 1**: Description\n")
+	prompt.WriteString("- **Area 2**: Description\n\n")
+	prompt.WriteString("## Impact\n")
+	prompt.WriteString("- **Functionality**: How this affects functionality\n")
+	prompt.WriteString("- **Risk**: Any notable risks or considerations\n")
 
 	summary, err := llms.GenerateFromSinglePrompt(ctx, llm, prompt.String())
 	if err != nil {
