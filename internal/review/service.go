@@ -10,11 +10,9 @@ import (
 	"strings"
 
 	"github.com/livereview/internal/ai"
-	"github.com/livereview/internal/ai/gemini"
 	"github.com/livereview/internal/batch"
 	"github.com/livereview/internal/providers"
 	"github.com/livereview/pkg/models"
-	"github.com/tmc/langchaingo/llms/googleai"
 )
 
 // Service represents the review orchestration service
@@ -121,23 +119,6 @@ func (s *Service) ProcessReview(ctx context.Context, request ReviewRequest) *Rev
 		result.Error = fmt.Errorf("failed to create AI provider: %w", err)
 		result.Duration = time.Since(start)
 		return result
-	}
-
-	// Step 2.5: Set up LLM abstraction for synthesis if using Gemini
-	if geminiProvider, ok := aiProvider.(*gemini.GeminiProvider); ok {
-		// Initialize Gemini LLM via langchain
-		llm, err := googleai.New(
-			reviewCtx,
-			googleai.WithAPIKey(request.AI.APIKey),
-			googleai.WithDefaultModel(request.AI.Model),
-		)
-		if err != nil {
-			result.Error = fmt.Errorf("failed to initialize LLM abstraction: %w", err)
-			result.Duration = time.Since(start)
-			return result
-		}
-		geminiProvider.SetLLM(llm)
-		log.Printf("[DEBUG] LLM abstraction configured for synthesis")
 	}
 
 	// Step 3: Execute review workflow

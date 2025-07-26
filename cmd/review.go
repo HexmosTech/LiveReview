@@ -10,11 +10,12 @@ import (
 	"math"
 
 	"github.com/livereview/internal/ai"
-	"github.com/livereview/internal/ai/gemini"
 	"github.com/livereview/internal/batch"
 	"github.com/livereview/internal/config"
+	"github.com/livereview/internal/logging"
 	"github.com/livereview/internal/providers"
 	"github.com/livereview/internal/providers/gitlab"
+	"github.com/livereview/internal/review"
 	"github.com/livereview/pkg/models"
 )
 
@@ -98,8 +99,14 @@ func runReview(c *cli.Context) error {
 		return fmt.Errorf("failed to create provider: %w", err)
 	}
 
-	// Create AI provider
-	aiProvider, err := createAIProvider(aiName, cfg.AI[aiName])
+	// Create AI provider using factory
+	aiFactory := review.NewStandardAIProviderFactory()
+	aiConfig := review.AIConfig{
+		Type:   aiName,
+		APIKey: cfg.AI[aiName]["api_key"].(string),
+		Model:  cfg.AI[aiName]["model"].(string),
+	}
+	aiProvider, err := aiFactory.CreateAIProvider(context.Background(), aiConfig)
 	if err != nil {
 		return fmt.Errorf("failed to create AI provider: %w", err)
 	}
@@ -140,24 +147,6 @@ func createProvider(name string, config map[string]interface{}) (providers.Provi
 	}
 }
 
-func createAIProvider(name string, config map[string]interface{}) (ai.Provider, error) {
-	switch name {
-	case "gemini":
-		// Extract Gemini config
-		apiKey, _ := config["api_key"].(string)
-		model, _ := config["model"].(string)
-		temperature, _ := config["temperature"].(float64)
-
-		return gemini.New(gemini.GeminiConfig{
-			APIKey:      apiKey,
-			Model:       model,
-			Temperature: temperature,
-		})
-	default:
-		return nil, fmt.Errorf("unsupported AI provider: %s", name)
-	}
-}
-
 func runReviewProcess(
 	ctx context.Context,
 	provider providers.Provider,
@@ -167,36 +156,67 @@ func runReviewProcess(
 	verbose bool,
 	batchConfig batch.Config,
 ) error {
-	fmt.Println("Starting review process...")
+	// Generate unique review ID
+	reviewID := fmt.Sprintf("review-%d", time.Now().Unix())
+
+	// Start comprehensive logging
+	logger, err := logging.StartReviewLogging(reviewID)
+	if err != nil {
+		return fmt.Errorf("failed to start review logging: %w", err)
+	}
+	defer logger.Close()
+
+	logger.Log("Starting trigger-review process")
+	logger.Log("Review ID: %s", reviewID)
+	logger.Log("MR URL: %s", mrURL)
+	logger.Log("Dry run: %v", dryRun)
+	logger.Log("Provider: %s", provider.Name())
+	logger.Log("AI Provider: %s", aiProvider.Name())
+
+	fmt.Printf("Starting review process (ID: %s)...\n", reviewID)
 
 	// Get MR details
 	if verbose {
 		fmt.Println("Fetching merge request details...")
 	}
+	logger.LogSection("FETCHING MR DETAILS")
 
 	mrDetails, err := provider.GetMergeRequestDetails(ctx, mrURL)
 	if err != nil {
+		logger.LogError("GetMergeRequestDetails", err)
 		return fmt.Errorf("failed to get merge request details: %w", err)
 	}
 
+	logger.Log("MR Details: ID=%s, Title=%s", mrDetails.ID, mrDetails.Title)
 	fmt.Printf("Got MR details: ID=%s, Title=%s\n", mrDetails.ID, mrDetails.Title)
 
 	// Get MR changes
 	if verbose {
 		fmt.Println("Fetching code changes...")
 	}
+	logger.LogSection("FETCHING CODE CHANGES")
 
 	changes, err := provider.GetMergeRequestChanges(ctx, mrDetails.ID)
 	if err != nil {
+		logger.LogError("GetMergeRequestChanges", err)
 		return fmt.Errorf("failed to get code changes: %w", err)
 	}
 
+	logger.Log("Retrieved %d changed files", len(changes))
+	for i, change := range changes {
+		logger.LogDiff(change.FilePath, change.Hunks[0].Content) // Log first hunk as sample
+		if i >= 2 {                                              // Limit initial diff logging to first 3 files
+			logger.Log("... (and %d more files)", len(changes)-3)
+			break
+		}
+	}
 	fmt.Printf("Got %d changed files\n", len(changes))
 
 	// Review code using batch processing
 	if verbose {
 		fmt.Println("Reviewing code changes (with batch processing)...")
 	}
+	logger.LogSection("STARTING AI REVIEW")
 
 	// Create a batch processor with the config
 	batchProcessor := batch.DefaultBatchProcessor()

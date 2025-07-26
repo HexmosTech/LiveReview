@@ -208,7 +208,7 @@ func (p *BatchProcessor) AssessBatchRequirements(input []models.CodeDiff) (bool,
 	return needsBatching, batchCount, totalTokens
 }
 
-// BatchInputs splits the input into batches based on token count
+// BatchInputs splits the input into batches based on token count at hunk level
 func (p *BatchProcessor) BatchInputs(input []models.CodeDiff) *BatchInput {
 	needsBatching, batchCount, totalTokens := p.AssessBatchRequirements(input)
 
@@ -231,17 +231,41 @@ func (p *BatchProcessor) BatchInputs(input []models.CodeDiff) *BatchInput {
 	currentBatchTokens := 0
 	currentBatchNum := 1
 
+	// Process each file and split into hunk-level batches
 	for _, diff := range input {
-		diffTokens := counter.CountTokens(diff.FilePath)
-		for _, hunk := range diff.Hunks {
+		filePathTokens := counter.CountTokens(diff.FilePath)
+
+		// Process each hunk individually
+		for hunkIdx, hunk := range diff.Hunks {
 			hunkTokens := counter.CountTokens(hunk.Content)
-			diffTokens += hunkTokens
-			if hunkTokens > p.MaxBatchTokens {
-				// Split hunk into sub-hunks
-				subHunks := splitHunkByTokens(hunk, p.MaxBatchTokens, counter)
+			totalHunkTokens := filePathTokens + hunkTokens
+
+			// If this single hunk exceeds max tokens, split it intelligently
+			if totalHunkTokens > p.MaxBatchTokens {
+				p.Logger.Warn("Hunk %d in file %s (%d tokens) exceeds max batch size (%d), splitting into smaller chunks",
+					hunkIdx, diff.FilePath, totalHunkTokens, p.MaxBatchTokens)
+
+				// Split the hunk into smaller chunks
+				subHunks := p.splitHunkIntelligently(hunk, p.MaxBatchTokens-filePathTokens, counter)
 				for subIdx, subHunk := range subHunks {
-					// Tag sub-hunk with parent info
-					subDiff := models.CodeDiff{
+					subHunkTokens := counter.CountTokens(subHunk.Content)
+					totalSubHunkTokens := filePathTokens + subHunkTokens
+
+					// Check if adding this sub-hunk would exceed the current batch limit
+					if currentBatchTokens+totalSubHunkTokens > p.MaxBatchTokens && len(currentBatch) > 0 {
+						// Finalize current batch
+						p.Logger.Info("Finalizing batch %d: %d files, %d tokens",
+							currentBatchNum, len(currentBatch), currentBatchTokens)
+						batches = append(batches, currentBatch)
+
+						// Start new batch
+						currentBatch = make([]models.CodeDiff, 0)
+						currentBatchTokens = 0
+						currentBatchNum++
+					}
+
+					// Create a single sub-hunk diff for this batch
+					subHunkDiff := models.CodeDiff{
 						FilePath:    diff.FilePath,
 						OldContent:  diff.OldContent,
 						NewContent:  diff.NewContent,
@@ -253,36 +277,50 @@ func (p *BatchProcessor) BatchInputs(input []models.CodeDiff) *BatchInput {
 						IsRenamed:   diff.IsRenamed,
 						OldFilePath: diff.OldFilePath,
 					}
-					// Attach parent info for merging (using Hunks[0] fields)
-					// You may want to extend models.DiffHunk for real use
-					subDiff.Hunks[0].Content = fmt.Sprintf("[PARENT:%s:%d]%s", diff.FilePath, subIdx, subHunk.Content)
-					// Add sub-hunk diff to batch
-					if currentBatchTokens+counter.CountTokens(subHunk.Content) > p.MaxBatchTokens && len(currentBatch) > 0 {
-						batches = append(batches, currentBatch)
-						currentBatch = make([]models.CodeDiff, 0)
-						currentBatchTokens = 0
-						currentBatchNum++
-					}
-					currentBatch = append(currentBatch, subDiff)
-					currentBatchTokens += counter.CountTokens(subHunk.Content)
+
+					// Add to current batch
+					currentBatch = append(currentBatch, subHunkDiff)
+					currentBatchTokens += totalSubHunkTokens
+
+					p.Logger.Debug("Added sub-hunk %d/%d of hunk %d to batch (tokens: %d)",
+						subIdx+1, len(subHunks), hunkIdx, totalSubHunkTokens)
 				}
-			} else {
-				// Add normal hunk as part of diff
-				// ...existing code...
+				continue
 			}
-		}
-		// If all hunks are normal, add the diff as usual
-		if diffTokens <= p.MaxBatchTokens {
-			if currentBatchTokens+diffTokens > p.MaxBatchTokens && len(currentBatch) > 0 {
+
+			// Check if adding this hunk would exceed the current batch limit
+			if currentBatchTokens+totalHunkTokens > p.MaxBatchTokens && len(currentBatch) > 0 {
+				// Finalize current batch
+				p.Logger.Info("Finalizing batch %d: %d files, %d tokens",
+					currentBatchNum, len(currentBatch), currentBatchTokens)
 				batches = append(batches, currentBatch)
+
+				// Start new batch
 				currentBatch = make([]models.CodeDiff, 0)
 				currentBatchTokens = 0
 				currentBatchNum++
 			}
-			currentBatch = append(currentBatch, diff)
-			currentBatchTokens += diffTokens
+
+			// Create a single-hunk diff for this batch
+			hunkDiff := models.CodeDiff{
+				FilePath:    diff.FilePath,
+				OldContent:  diff.OldContent,
+				NewContent:  diff.NewContent,
+				Hunks:       []models.DiffHunk{hunk},
+				CommitID:    diff.CommitID,
+				FileType:    diff.FileType,
+				IsDeleted:   diff.IsDeleted,
+				IsNew:       diff.IsNew,
+				IsRenamed:   diff.IsRenamed,
+				OldFilePath: diff.OldFilePath,
+			}
+
+			// Add to current batch
+			currentBatch = append(currentBatch, hunkDiff)
+			currentBatchTokens += totalHunkTokens
 		}
 	}
+
 	// Add the last batch if it's not empty
 	if len(currentBatch) > 0 {
 		p.Logger.Info("Final batch %d: %d files, %d tokens",
@@ -292,59 +330,20 @@ func (p *BatchProcessor) BatchInputs(input []models.CodeDiff) *BatchInput {
 
 	p.Logger.Info("Created %d batches with %d total tokens", len(batches), totalTokens)
 	for i, batch := range batches {
-		p.Logger.Debug("Batch %d: %d files", i+1, len(batch))
+		batchTokens := 0
+		for _, diff := range batch {
+			batchTokens += counter.CountTokens(diff.FilePath)
+			for _, hunk := range diff.Hunks {
+				batchTokens += counter.CountTokens(hunk.Content)
+			}
+		}
+		p.Logger.Debug("Batch %d: %d diffs, %d tokens", i+1, len(batch), batchTokens)
 	}
 
 	return &BatchInput{
 		Batches:     batches,
 		TotalTokens: totalTokens,
 	}
-}
-
-// splitHunkByTokens splits a DiffHunk into sub-hunks each under maxTokens
-func splitHunkByTokens(hunk models.DiffHunk, maxTokens int, counter TokenCounter) []models.DiffHunk {
-	content := hunk.Content
-	var subHunks []models.DiffHunk
-	start := 0
-	for start < len(content) {
-		end := start
-		lastTokenCount := -1
-		for end < len(content) {
-			tokenCount := counter.CountTokens(content[start:end])
-			if tokenCount >= maxTokens {
-				break
-			}
-			// If tokenCount doesn't increase, advance by a line or chunk
-			if tokenCount == lastTokenCount {
-				// Try to find next newline
-				nextNewline := strings.Index(content[end:], "\n")
-				if nextNewline == -1 {
-					end = len(content)
-				} else {
-					end += nextNewline + 1
-				}
-			} else {
-				end++
-			}
-			lastTokenCount = tokenCount
-		}
-		if end == start {
-			// Prevent infinite loop: forcibly advance
-			end = start + min(1000, len(content)-start)
-		}
-		// Create sub-hunk
-		subHunk := models.DiffHunk{
-			OldStartLine: hunk.OldStartLine,
-			OldLineCount: hunk.OldLineCount,
-			NewStartLine: hunk.NewStartLine,
-			NewLineCount: hunk.NewLineCount,
-			Content:      content[start:end],
-		}
-		subHunks = append(subHunks, subHunk)
-		start = end
-	}
-	return subHunks
-	// ...existing code...
 }
 
 // BatchResult represents the result of processing a single batch
@@ -549,4 +548,96 @@ func IsBinaryFile(content string) bool {
 
 	// If more than 30% of characters are non-printable, consider it binary
 	return float64(nonPrintable)/float64(sampleSize) > 0.3
+}
+
+// splitHunkIntelligently splits a large hunk into smaller sub-hunks that fit within token limits
+func (p *BatchProcessor) splitHunkIntelligently(hunk models.DiffHunk, maxTokens int, counter TokenCounter) []models.DiffHunk {
+	lines := strings.Split(hunk.Content, "\n")
+	if len(lines) <= 1 {
+		// Can't split a single line, return as is
+		return []models.DiffHunk{hunk}
+	}
+
+	var subHunks []models.DiffHunk
+	currentLines := make([]string, 0)
+	currentTokens := 0
+
+	// Keep track of line numbers for proper hunk headers
+	oldLineNum := hunk.OldStartLine
+	newLineNum := hunk.NewStartLine
+	subHunkOldStart := oldLineNum
+	subHunkNewStart := newLineNum
+	subHunkOldCount := 0
+	subHunkNewCount := 0
+
+	for _, line := range lines {
+		lineTokens := counter.CountTokens(line + "\n")
+
+		// If adding this line would exceed the limit and we have content, finalize current sub-hunk
+		if currentTokens+lineTokens > maxTokens && len(currentLines) > 0 {
+			// Create sub-hunk with proper header
+			subHunkContent := p.createHunkHeader(subHunkOldStart, subHunkOldCount, subHunkNewStart, subHunkNewCount) +
+				strings.Join(currentLines, "\n")
+
+			subHunk := models.DiffHunk{
+				OldStartLine: subHunkOldStart,
+				OldLineCount: subHunkOldCount,
+				NewStartLine: subHunkNewStart,
+				NewLineCount: subHunkNewCount,
+				Content:      subHunkContent,
+			}
+			subHunks = append(subHunks, subHunk)
+
+			// Reset for next sub-hunk
+			currentLines = make([]string, 0)
+			currentTokens = 0
+			subHunkOldStart = oldLineNum
+			subHunkNewStart = newLineNum
+			subHunkOldCount = 0
+			subHunkNewCount = 0
+		}
+
+		// Add current line
+		currentLines = append(currentLines, line)
+		currentTokens += lineTokens
+
+		// Update line counters based on diff format
+		if strings.HasPrefix(line, "@@") {
+			// Skip hunk headers when counting lines
+			continue
+		} else if strings.HasPrefix(line, "-") {
+			subHunkOldCount++
+			oldLineNum++
+		} else if strings.HasPrefix(line, "+") {
+			subHunkNewCount++
+			newLineNum++
+		} else if !strings.HasPrefix(line, "\\") { // Context line (not "\ No newline" message)
+			subHunkOldCount++
+			subHunkNewCount++
+			oldLineNum++
+			newLineNum++
+		}
+	}
+
+	// Add the last sub-hunk if there's remaining content
+	if len(currentLines) > 0 {
+		subHunkContent := p.createHunkHeader(subHunkOldStart, subHunkOldCount, subHunkNewStart, subHunkNewCount) +
+			strings.Join(currentLines, "\n")
+
+		subHunk := models.DiffHunk{
+			OldStartLine: subHunkOldStart,
+			OldLineCount: subHunkOldCount,
+			NewStartLine: subHunkNewStart,
+			NewLineCount: subHunkNewCount,
+			Content:      subHunkContent,
+		}
+		subHunks = append(subHunks, subHunk)
+	}
+
+	return subHunks
+}
+
+// createHunkHeader creates a proper git diff hunk header
+func (p *BatchProcessor) createHunkHeader(oldStart, oldCount, newStart, newCount int) string {
+	return fmt.Sprintf("@@ -%d,%d +%d,%d @@\n", oldStart, oldCount, newStart, newCount)
 }
