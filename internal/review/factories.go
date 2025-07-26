@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"strings"
 
 	"github.com/livereview/internal/ai"
 	"github.com/livereview/internal/ai/gemini"
@@ -22,13 +23,16 @@ func NewStandardProviderFactory() *StandardProviderFactory {
 
 // CreateProvider creates a provider instance based on configuration
 func (f *StandardProviderFactory) CreateProvider(ctx context.Context, config ProviderConfig) (providers.Provider, error) {
-	switch config.Type {
-	case "gitlab":
+	// Handle GitLab variants (gitlab, gitlab-self-hosted, etc.)
+	if strings.HasPrefix(config.Type, "gitlab") {
 		return gitlab.New(gitlab.GitLabConfig{
 			URL:   config.URL,
 			Token: config.Token,
 		})
-	case "github":
+	}
+
+	// Handle GitHub variants
+	if strings.HasPrefix(config.Type, "github") {
 		log.Printf("[DEBUG] Creating GitHub provider")
 		pat, exists := config.Config["pat_token"].(string)
 		log.Printf("[DEBUG] pat_token exists: %v, length: %d", exists, len(pat))
@@ -38,21 +42,22 @@ func (f *StandardProviderFactory) CreateProvider(ctx context.Context, config Pro
 			return nil, err
 		}
 		return provider, nil
-	default:
-		return nil, fmt.Errorf("unsupported provider type: %s", config.Type)
 	}
+
+	return nil, fmt.Errorf("unsupported provider type: %s", config.Type)
 }
 
 // SupportsProvider checks if the factory supports the given provider type
 func (f *StandardProviderFactory) SupportsProvider(providerType string) bool {
-	switch providerType {
-	case "gitlab":
+	// Support GitLab variants (gitlab, gitlab-self-hosted, etc.)
+	if strings.HasPrefix(providerType, "gitlab") {
 		return true
-	case "github":
-		return true
-	default:
-		return false
 	}
+	// Support GitHub variants
+	if strings.HasPrefix(providerType, "github") {
+		return true
+	}
+	return false
 }
 
 // StandardAIProviderFactory implements AIProviderFactory for standard AI providers

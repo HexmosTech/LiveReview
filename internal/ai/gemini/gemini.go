@@ -266,6 +266,11 @@ func (p *GeminiProvider) callGeminiAPI(ctx context.Context, prompt string) (stri
 
 	req.Header.Set("Content-Type", "application/json")
 
+	// Log the complete request to a file for inspection
+	if err := p.logRequestAndResponse(prompt, reqJSON, nil, ""); err != nil {
+		fmt.Printf("Warning: failed to log request: %v\n", err)
+	}
+
 	fmt.Println("Sending HTTP request to Gemini API...")
 	resp, err := p.HTTPClient.Do(req)
 	if err != nil {
@@ -279,6 +284,11 @@ func (p *GeminiProvider) callGeminiAPI(ctx context.Context, prompt string) (stri
 	respBody, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return "", fmt.Errorf("failed to read response body: %w", err)
+	}
+
+	// Log the complete response to the same file for inspection
+	if err := p.logRequestAndResponse(prompt, reqJSON, respBody, resp.Status); err != nil {
+		fmt.Printf("Warning: failed to log response: %v\n", err)
 	}
 
 	if resp.StatusCode != http.StatusOK {
@@ -1453,4 +1463,76 @@ func (p *GeminiProvider) Configure(config map[string]interface{}) error {
 // Name returns the provider's name
 func (p *GeminiProvider) Name() string {
 	return "gemini"
+}
+
+// logRequestAndResponse logs the complete request and response to a file for inspection
+func (p *GeminiProvider) logRequestAndResponse(prompt string, reqJSON []byte, respBody []byte, status string) error {
+	logDir := "gemini_logs"
+
+	// Create logs directory if it doesn't exist
+	if err := os.MkdirAll(logDir, 0755); err != nil {
+		return fmt.Errorf("failed to create log directory: %w", err)
+	}
+
+	// Create a timestamped log file
+	timestamp := fmt.Sprintf("%d", os.Getpid())
+	logPath := filepath.Join(logDir, fmt.Sprintf("gemini_request_response_%s.log", timestamp))
+
+	// Open file for appending (or create if it doesn't exist)
+	f, err := os.OpenFile(logPath, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0644)
+	if err != nil {
+		return fmt.Errorf("failed to open log file: %w", err)
+	}
+	defer f.Close()
+
+	// Log request information (only if respBody is nil, meaning this is the request logging call)
+	if respBody == nil {
+		fmt.Fprintf(f, "=== GEMINI API REQUEST LOG ===\n")
+		fmt.Fprintf(f, "Timestamp: %s\n", fmt.Sprintf("%d", os.Getpid()))
+		fmt.Fprintf(f, "Model: %s\n", p.Model)
+		fmt.Fprintf(f, "Temperature: %f\n", p.Temperature)
+		fmt.Fprintf(f, "\n--- PROMPT ---\n")
+		fmt.Fprintf(f, "%s\n", prompt)
+		fmt.Fprintf(f, "\n--- REQUEST JSON ---\n")
+
+		// Pretty print the JSON request
+		var prettyReq bytes.Buffer
+		if err := json.Indent(&prettyReq, reqJSON, "", "  "); err == nil {
+			fmt.Fprintf(f, "%s\n", prettyReq.String())
+		} else {
+			fmt.Fprintf(f, "%s\n", string(reqJSON))
+		}
+
+		fmt.Fprintf(f, "\n%s\n\n", strings.Repeat("=", 80))
+	} else {
+		// Log response information
+		fmt.Fprintf(f, "--- RESPONSE ---\n")
+		fmt.Fprintf(f, "Status: %s\n", status)
+		fmt.Fprintf(f, "Response Body Length: %d bytes\n", len(respBody))
+		fmt.Fprintf(f, "\n--- RESPONSE BODY ---\n")
+
+		// Try to pretty print the JSON response
+		var prettyResp bytes.Buffer
+		if err := json.Indent(&prettyResp, respBody, "", "  "); err == nil {
+			fmt.Fprintf(f, "%s\n", prettyResp.String())
+		} else {
+			// If it's not valid JSON, just write it as is
+			fmt.Fprintf(f, "%s\n", string(respBody))
+		}
+
+		fmt.Fprintf(f, "\n%s\n\n", strings.Repeat("=", 80))
+
+		// Also extract and log just the response text for easier reading
+		var respObj reviewResponse
+		if json.Unmarshal(respBody, &respObj) == nil && len(respObj.Candidates) > 0 && len(respObj.Candidates[0].Content.Parts) > 0 {
+			responseText := respObj.Candidates[0].Content.Parts[0].Text
+			fmt.Fprintf(f, "--- EXTRACTED RESPONSE TEXT ---\n")
+			fmt.Fprintf(f, "%s\n", responseText)
+			fmt.Fprintf(f, "\n%s\n\n", strings.Repeat("=", 80))
+		}
+
+		fmt.Printf("Gemini API request and response logged to: %s\n", logPath)
+	}
+
+	return nil
 }

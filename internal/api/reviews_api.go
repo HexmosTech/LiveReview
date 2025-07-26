@@ -5,7 +5,6 @@ import (
 	"database/sql"
 	"fmt"
 	"log"
-	"net/http"
 	"net/url"
 	"strings"
 	"time"
@@ -196,9 +195,10 @@ func (s *Server) refreshTokenIfNeeded(token *IntegrationToken, forceRefresh bool
 
 // validateProvider checks if the provider is supported
 func validateProvider(provider string) error {
-	if provider != "gitlab" && provider != "github" {
+	// Support GitLab variants (gitlab, gitlab-self-hosted, etc.) and GitHub variants
+	if !strings.HasPrefix(provider, "gitlab") && !strings.HasPrefix(provider, "github") {
 		log.Printf("[DEBUG] validateProvider: Unsupported provider: %s", provider)
-		return fmt.Errorf("unsupported provider type: %s. Currently, only GitLab and GitHub are supported", provider)
+		return fmt.Errorf("unsupported provider type: %s. Currently, only GitLab and GitHub variants are supported", provider)
 	}
 	log.Printf("[DEBUG] validateProvider: Provider is supported: %s", provider)
 	return nil
@@ -206,26 +206,40 @@ func validateProvider(provider string) error {
 
 // ensureValidToken ensures we have a valid token, falling back to config file if needed
 func ensureValidToken(token *IntegrationToken) string {
-	if token.Provider == "github" && token.TokenType == "PAT" {
+	// Handle GitHub PAT tokens
+	if strings.HasPrefix(token.Provider, "github") && token.TokenType == "PAT" {
 		log.Printf("[DEBUG] ensureValidToken: Using GitHub PAT from database: %s", maskToken(token.PatToken))
 		return token.PatToken
 	}
-	// Default: use access_token for GitLab
-	accessToken := token.AccessToken
-	if len(accessToken) < 20 || !strings.HasPrefix(accessToken, "glpat-") {
-		log.Printf("[DEBUG] ensureValidToken: Token from database doesn't look like a valid GitLab PAT, trying config file...")
-		cfg, err := config.LoadConfig("")
-		if err == nil && cfg != nil {
-			if gitlabConfig, ok := cfg.Providers["gitlab"]; ok {
-				if configToken, ok := gitlabConfig["token"].(string); ok && configToken != "" {
-					log.Printf("[DEBUG] ensureValidToken: Found token in config file: %s", maskToken(configToken))
-					log.Printf("[DEBUG] ensureValidToken: Falling back to config file token")
-					accessToken = configToken
+
+	// Handle GitLab variants (gitlab, gitlab-self-hosted, etc.)
+	if strings.HasPrefix(token.Provider, "gitlab") {
+		// Prefer PAT token if available
+		if token.TokenType == "PAT" && token.PatToken != "" {
+			log.Printf("[DEBUG] ensureValidToken: Using GitLab PAT from database: %s", maskToken(token.PatToken))
+			return token.PatToken
+		}
+
+		// Fall back to access token
+		accessToken := token.AccessToken
+		if len(accessToken) < 20 || !strings.HasPrefix(accessToken, "glpat-") {
+			log.Printf("[DEBUG] ensureValidToken: Token from database doesn't look like a valid GitLab PAT, trying config file...")
+			cfg, err := config.LoadConfig("")
+			if err == nil && cfg != nil {
+				if gitlabConfig, ok := cfg.Providers["gitlab"]; ok {
+					if configToken, ok := gitlabConfig["token"].(string); ok && configToken != "" {
+						log.Printf("[DEBUG] ensureValidToken: Found token in config file: %s", maskToken(configToken))
+						log.Printf("[DEBUG] ensureValidToken: Falling back to config file token")
+						accessToken = configToken
+					}
 				}
 			}
 		}
+		return accessToken
 	}
-	return accessToken
+
+	// Default fallback
+	return token.AccessToken
 }
 
 // createReviewService creates a new review service instance per request
@@ -269,12 +283,17 @@ func (s *Server) buildReviewRequest(
 	// Create configuration service
 	configService := review.NewConfigurationService(cfg)
 
-	// Use pat_token for GitHub, accessToken for others
+	// Use pat_token for GitHub and GitLab variants when available
 	providerToken := accessToken
 	providerConfigMap := map[string]interface{}{}
-	if token.Provider == "github" && token.TokenType == "PAT" && token.PatToken != "" {
-		providerToken = token.PatToken
-		providerConfigMap["pat_token"] = token.PatToken
+	if token.TokenType == "PAT" && token.PatToken != "" {
+		if strings.HasPrefix(token.Provider, "github") {
+			providerToken = token.PatToken
+			providerConfigMap["pat_token"] = token.PatToken
+		} else if strings.HasPrefix(token.Provider, "gitlab") {
+			providerToken = token.PatToken
+			providerConfigMap["pat_token"] = token.PatToken
+		}
 	}
 	reviewRequest, err := configService.BuildReviewRequestWithConfig(
 		context.Background(),
@@ -292,52 +311,7 @@ func (s *Server) buildReviewRequest(
 	return reviewRequest, nil
 }
 
-// processReviewInBackground handles the entire review process using the new decoupled architecture
-// Creates a new review service instance per request for maximum flexibility
-func (s *Server) processReviewInBackground(token *IntegrationToken, requestURL, reviewID string) {
-	log.Printf("[DEBUG] processReviewInBackground: Starting background review process for URL: %s, ReviewID: %s", requestURL, reviewID)
-
-	// Ensure we have a valid token (with config file fallback if needed)
-	accessToken := ensureValidToken(token)
-
-	// Create review service instance for this specific request
-	log.Printf("[DEBUG] processReviewInBackground: Creating review service for request")
-	reviewService, err := s.createReviewService(token)
-	if err != nil {
-		log.Printf("[DEBUG] processReviewInBackground: Failed to create review service: %v", err)
-		return
-	}
-
-	// Build review request
-	log.Printf("[DEBUG] processReviewInBackground: Building review request")
-	reviewRequest, err := s.buildReviewRequest(token, requestURL, reviewID, accessToken)
-	if err != nil {
-		log.Printf("[DEBUG] processReviewInBackground: Failed to build review request: %v", err)
-		return
-	}
-
-	// Set up completion callback
-	completionCallback := func(result *review.ReviewResult) {
-		if result.Success {
-			log.Printf("[INFO] processReviewInBackground: Review %s completed successfully: %s (%d comments, took %v)",
-				result.ReviewID, truncateString(result.Summary, 50),
-				result.CommentsCount, result.Duration)
-		} else {
-			log.Printf("[ERROR] processReviewInBackground: Review %s failed: %v (took %v)",
-				result.ReviewID, result.Error, result.Duration)
-		}
-	}
-
-	// Process review synchronously (we're already in a goroutine)
-	log.Printf("[DEBUG] processReviewInBackground: Processing review using request-scoped service")
-	result := reviewService.ProcessReview(context.Background(), *reviewRequest)
-
-	// Call completion callback
-	completionCallback(result)
-
-	log.Printf("[DEBUG] processReviewInBackground: Review process completed for URL: %s, ReviewID: %s", requestURL, reviewID)
-} // truncateString truncates a string to the specified length
-
+// truncateString truncates a string to the specified length
 func truncateString(s string, maxLen int) string {
 	if len(s) <= maxLen {
 		return s
@@ -355,67 +329,4 @@ func parseTriggerReviewRequest(c echo.Context) (*TriggerReviewRequest, error) {
 	}
 	log.Printf("[DEBUG] TriggerReview: Request body parsed successfully")
 	return req, nil
-}
-
-// TriggerReview handles the request to trigger a code review from a URL
-func (s *Server) TriggerReview(c echo.Context) error {
-	log.Printf("[DEBUG] TriggerReview: Starting review request handling")
-
-	// Authenticate admin user
-	if err := s.authenticateAdmin(c); err != nil {
-		return err
-	}
-
-	// Parse request body
-	req, err := parseTriggerReviewRequest(c)
-	if err != nil {
-		return c.JSON(http.StatusBadRequest, ErrorResponse{
-			Error: "Invalid request format: " + err.Error(),
-		})
-	}
-
-	_, baseURL, err := validateAndParseURL(req.URL)
-	if err != nil {
-		return c.JSON(http.StatusBadRequest, ErrorResponse{
-			Error: err.Error(),
-		})
-	}
-
-	// Find and retrieve integration token from database
-	token, err := s.findIntegrationToken(baseURL)
-	if err != nil {
-		return c.JSON(http.StatusBadRequest, ErrorResponse{
-			Error: err.Error(),
-		})
-	}
-
-	// Validate that the provider is supported
-	if err := validateProvider(token.Provider); err != nil {
-		return c.JSON(http.StatusBadRequest, ErrorResponse{
-			Error: err.Error(),
-		})
-	}
-
-	// Check if token needs refresh and refresh if necessary
-	forceRefresh := true // Set to true to force a token refresh for debugging
-	if err := s.refreshTokenIfNeeded(token, forceRefresh); err != nil {
-		// Log the error but continue with existing token as fallback
-		log.Printf("[DEBUG] TriggerReview: Token refresh failed, continuing with existing token: %v", err)
-	}
-
-	// Create a reviewID
-	reviewID := fmt.Sprintf("review-%d", time.Now().Unix())
-	log.Printf("[DEBUG] TriggerReview: Generated review ID: %s", reviewID)
-
-	// Trigger the review process in a goroutine
-	log.Printf("[DEBUG] TriggerReview: Starting review process in background goroutine")
-	go s.processReviewInBackground(token, req.URL, reviewID)
-
-	// Return success response immediately
-	log.Printf("[DEBUG] TriggerReview: Returning success response with reviewID: %s", reviewID)
-	return c.JSON(http.StatusOK, TriggerReviewResponse{
-		Message:  "Review triggered successfully. You will receive a notification when it's complete.",
-		URL:      req.URL,
-		ReviewID: reviewID,
-	})
 }
