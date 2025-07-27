@@ -3,7 +3,7 @@ from pprint import pprint
 url = "https://git.apps.hexmos.com"
 token = "REDACTED_GITLAB_PAT_6"
 
-mr_url = "https://git.apps.hexmos.com/hexmos/liveapi/-/merge_requests/403"
+mr_url = "https://git.apps.hexmos.com/hexmos/liveapi/-/merge_requests/408"
 
 import requests
 import re
