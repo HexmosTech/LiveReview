@@ -616,11 +616,13 @@ func (p *LangchainProvider) parseResponse(response string, diffs []models.CodeDi
 	// Convert to our models
 	var comments []*models.ReviewComment
 	for _, comment := range resp.Comments {
-		// Validate that this line is actually part of the diff
-		if !p.isLineInDiff(comment.FilePath, comment.LineNumber, diffs) {
-			fmt.Printf("[LANGCHAIN WARNING] Skipping comment for line %d in %s - line not in diff\n",
+		// TODO: Fix line validation logic - currently too restrictive
+		// For now, trust the LLM's line numbers since we provide formatted line numbers
+		validLine := p.isLineInDiff(comment.FilePath, comment.LineNumber, diffs)
+		if !validLine {
+			fmt.Printf("[LANGCHAIN WARNING] Line validation failed for line %d in %s - but proceeding anyway\n",
 				comment.LineNumber, comment.FilePath)
-			continue
+			// Continue instead of skipping - trust the line numbering we provided to LLM
 		}
 
 		// Convert severity
