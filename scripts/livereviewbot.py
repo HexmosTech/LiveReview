@@ -161,16 +161,175 @@ def install_webhook():
 # ---------------------------------------------------------------------
 app = Flask(__name__)
 
+def process_livereviewbot_mention(payload, kind):
+    """
+    Check if this is a note event mentioning @livereviewbot and extract relevant info
+    """
+    print(f"\n🔍 [STEP 1] Processing mention detection...")
+    print(f"    📋 Event kind received: '{kind}'")
+    print(f"    🎯 Expected kind: 'note hooks' (case-insensitive)")
+    
+    if kind.lower() != "note hook":
+        print(f"    ❌ Event kind mismatch: '{kind.lower()}' != 'note hooks'")
+        print(f"    🚫 Skipping mention processing")
+        return None
+    print(f"    ✅ Event kind matches!")
+    
+    print(f"\n🔍 [STEP 2] Checking event_type in payload...")
+    event_type = payload.get("event_type")
+    print(f"    📋 Event type found: '{event_type}'")
+    print(f"    🎯 Expected: 'note'")
+    
+    if event_type != "note":
+        print(f"    ❌ Event type mismatch: '{event_type}' != 'note'")
+        print(f"    🚫 Skipping mention processing")
+        return None
+    print(f"    ✅ Event type matches!")
+    
+    print(f"\n🔍 [STEP 3] Extracting note content...")
+    object_attributes = payload.get("object_attributes", {})
+    note_text = object_attributes.get("note", "")
+    description = object_attributes.get("description", "")
+    print(f"    📝 Note text: '{note_text}'")
+    print(f"    📝 Description: '{description}'")
+    
+    print(f"\n🔍 [STEP 4] Checking for @livereviewbot mention...")
+    text_to_check = f"{note_text} {description}".lower()
+    print(f"    🔤 Combined text (lowercase): '{text_to_check}'")
+    print(f"    🎯 Looking for: '@livereviewbot'")
+    
+    if "@livereviewbot" not in text_to_check:
+        print(f"    ❌ No @livereviewbot mention found")
+        print(f"    🚫 Skipping mention processing")
+        return None
+    print(f"    ✅ @livereviewbot mention found!")
+    
+    print(f"\n🔍 [STEP 5] Extracting user information...")
+    user = payload.get("user", {})
+    user_id = user.get("id")
+    username = user.get("username")
+    user_name = user.get("name")
+    user_email = user.get("email")
+    print(f"    👤 User ID: {user_id}")
+    print(f"    👤 Username: {username}")
+    print(f"    👤 Name: {user_name}")
+    print(f"    👤 Email: {user_email}")
+    
+    print(f"\n🔍 [STEP 6] Extracting project information...")
+    project = payload.get("project", {})
+    project_id = project.get("id")
+    project_name = project.get("name")
+    project_path = project.get("path_with_namespace")
+    project_url = project.get("web_url")
+    print(f"    🏗️  Project ID: {project_id}")
+    print(f"    🏗️  Project name: {project_name}")
+    print(f"    🏗️  Project path: {project_path}")
+    print(f"    🏗️  Project URL: {project_url}")
+    
+    print(f"\n🔍 [STEP 7] Building mention_info object...")
+    mention_info = {
+        "event_type": "livereviewbot_mention",
+        "note_id": object_attributes.get("id"),
+        "note_url": object_attributes.get("url"),
+        "note_text": note_text,
+        "note_description": description,
+        "created_at": object_attributes.get("created_at"),
+        "author": {
+            "id": user_id,
+            "username": username,
+            "name": user_name,
+            "email": user_email
+        },
+        "project": {
+            "id": project_id,
+            "name": project_name,
+            "path_with_namespace": project_path,
+            "web_url": project_url
+        }
+    }
+    print(f"    📦 Basic mention_info created")
+    print(f"    🆔 Note ID: {mention_info['note_id']}")
+    print(f"    🔗 Note URL: {mention_info['note_url']}")
+    print(f"    📅 Created at: {mention_info['created_at']}")
+    
+    print(f"\n🔍 [STEP 8] Checking for merge request information...")
+    merge_request = payload.get("merge_request", {})
+    noteable_type = object_attributes.get("noteable_type")
+    print(f"    📋 Noteable type: '{noteable_type}'")
+    print(f"    🎯 Expected for MR: 'MergeRequest'")
+    print(f"    📦 Merge request exists: {bool(merge_request)}")
+    
+    if merge_request and noteable_type == "MergeRequest":
+        print(f"    ✅ This is a merge request comment!")
+        mr_id = merge_request.get("id")
+        mr_iid = merge_request.get("iid")
+        mr_title = merge_request.get("title")
+        mr_state = merge_request.get("state")
+        source_branch = merge_request.get("source_branch")
+        target_branch = merge_request.get("target_branch")
+        mr_url = merge_request.get("url")
+        
+        print(f"    🔀 MR ID: {mr_id}")
+        print(f"    🔀 MR IID: #{mr_iid}")
+        print(f"    🔀 MR Title: '{mr_title}'")
+        print(f"    🔀 MR State: {mr_state}")
+        print(f"    🔀 Source Branch: {source_branch}")
+        print(f"    🔀 Target Branch: {target_branch}")
+        print(f"    🔀 MR URL: {mr_url}")
+        
+        mention_info["merge_request"] = {
+            "id": mr_id,
+            "iid": mr_iid,
+            "title": mr_title,
+            "description": merge_request.get("description"),
+            "state": mr_state,
+            "source_branch": source_branch,
+            "target_branch": target_branch,
+            "url": mr_url,
+            "author_id": merge_request.get("author_id"),
+            "assignee_ids": merge_request.get("assignee_ids", []),
+            "reviewer_ids": merge_request.get("reviewer_ids", []),
+            "last_commit": merge_request.get("last_commit", {})
+        }
+        print(f"    📦 Merge request info added to mention_info")
+    else:
+        if not merge_request:
+            print(f"    ⚠️  No merge request data found")
+        if noteable_type != "MergeRequest":
+            print(f"    ⚠️  Not a merge request comment (type: {noteable_type})")
+        print(f"    📝 This appears to be a general project comment")
+    
+    print(f"\n✅ [STEP 9] Mention processing completed successfully!")
+    print(f"    📊 Final mention_info keys: {list(mention_info.keys())}")
+    return mention_info
+
 @app.post("/api/gitlab-hook")
 def gitlab_hook():
+    print(f"\n🌐 === Webhook Request Received ===")
+    
     # Reject anything that doesn't present our shared secret
-    if request.headers.get("X-Gitlab-Token") != WEBHOOK_SECRET:
+    token = request.headers.get("X-Gitlab-Token")
+    print(f"🔐 Token validation...")
+    print(f"    📋 Received token: {'[PRESENT]' if token else '[MISSING]'}")
+    print(f"    🎯 Expected token: {'[CONFIGURED]' if WEBHOOK_SECRET else '[NOT CONFIGURED]'}")
+    
+    if token != WEBHOOK_SECRET:
+        print(f"    ❌ Token validation failed!")
+        print(f"    🚫 Aborting with 401 Unauthorized")
         abort(401)
+    print(f"    ✅ Token validation successful!")
 
     kind = request.headers.get("X-Gitlab-Event", "unknown")
+    print(f"\n📡 Event processing...")
+    print(f"    📋 Event type: '{kind}'")
+    
     try:
         payload = request.get_json(force=True, silent=False)
-    except Exception:
+        print(f"    ✅ JSON payload parsed successfully")
+        print(f"    📊 Payload keys: {list(payload.keys()) if payload else 'None'}")
+    except Exception as e:
+        print(f"    ❌ JSON parsing failed: {e}")
+        print(f"    🚫 Aborting with 400 Bad Request")
         abort(400)
 
     # Print *exactly* what came in, nicely formatted
@@ -179,7 +338,75 @@ def gitlab_hook():
     print(json.dumps(payload, indent=2, sort_keys=True))
     print("=== End ===\n", flush=True)
 
+    print(f"\n🤖 Starting LiveReviewBot mention detection...")
+    # Check for @livereviewbot mentions first
+    mention_info = process_livereviewbot_mention(payload, kind)
+    if mention_info:
+        print("\n🎉 === LiveReviewBot Mentioned! ===")
+        print(f"Author: {mention_info['author']['name']} (@{mention_info['author']['username']})")
+        print(f"Note: {mention_info['note_text']}")
+        if mention_info.get('merge_request'):
+            mr = mention_info['merge_request']
+            print(f"MR: #{mr['iid']} - {mr['title']}")
+            print(f"MR URL: {mr['url']}")
+            print(f"Source Branch: {mr['source_branch']} -> {mr['target_branch']}")
+        print(f"Note URL: {mention_info['note_url']}")
+        print(f"Project: {mention_info['project']['path_with_namespace']}")
+        print("=== End LiveReviewBot Mention ===\n", flush=True)
+        
+        # You can add your logic here to process the mention
+        # For example: trigger a code review, respond to the comment, etc.
+    else:
+        print(f"    ℹ️  No @livereviewbot mention detected in this event")
+
+    print(f"\n✅ Webhook processing completed successfully")
     return {"ok": True}
+
+def test_mention_processing():
+    """Test the mention processing with a sample payload"""
+    sample_payload = {
+        "event_type": "note",
+        "object_attributes": {
+            "id": 23126,
+            "note": "@LiveReviewBot - hey livereview please review this",
+            "description": "@LiveReviewBot - hey livereview please review this",
+            "created_at": "2025-07-27 15:17:38 UTC",
+            "url": "https://git.apps.hexmos.com/hexmos/liveapi/-/merge_requests/408#note_23126",
+            "noteable_type": "MergeRequest"
+        },
+        "user": {
+            "id": 3,
+            "username": "shrijith",
+            "name": "Shrijith",
+            "email": "test@example.com"
+        },
+        "project": {
+            "id": 170,
+            "name": "LiveAPI",
+            "path_with_namespace": "hexmos/liveapi",
+            "web_url": "https://git.apps.hexmos.com/hexmos/liveapi"
+        },
+        "merge_request": {
+            "id": 1798,
+            "iid": 408,
+            "title": "fixing the ui alligment issue",
+            "description": "Fixing the Ui alligment issue in webview in copilot",
+            "state": "merged",
+            "source_branch": "swagath/meile-key-change",
+            "target_branch": "main",
+            "url": "https://git.apps.hexmos.com/hexmos/liveapi/-/merge_requests/408",
+            "author_id": 68,
+            "assignee_ids": [68],
+            "reviewer_ids": [5]
+        }
+    }
+    
+    mention_info = process_livereviewbot_mention(sample_payload, "Note Hook")
+    if mention_info:
+        print("✅ Test passed! Mention detected:")
+        print(json.dumps(mention_info, indent=2))
+    else:
+        print("❌ Test failed! Mention not detected")
 
 def run_server():
     # Run the Flask dev server. In production, put this behind a real web server.
@@ -194,7 +421,7 @@ if __name__ == "__main__":
     #   python livereviewbot.py listen
     #   python livereviewbot.py install-webhook && python livereviewbot.py listen
     if len(sys.argv) < 2:
-        print("Usage: python livereviewbot.py [install-webhook|listen|check-permissions]")
+        print("Usage: python livereviewbot.py [install-webhook|listen|check-permissions|test-mention]")
         sys.exit(1)
 
     cmd = sys.argv[1]
@@ -204,6 +431,8 @@ if __name__ == "__main__":
         run_server()
     elif cmd == "check-permissions":
         check_permissions()
+    elif cmd == "test-mention":
+        test_mention_processing()
     else:
         print(f"Unknown command: {cmd}")
         sys.exit(1)
