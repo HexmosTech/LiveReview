@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/labstack/echo/v4"
+	"github.com/livereview/internal/aiconnectors"
 	"github.com/livereview/internal/config"
 	"github.com/livereview/internal/review"
 )
@@ -269,21 +270,63 @@ func (s *Server) createReviewService(token *IntegrationToken) (*review.Service, 
 	return reviewService, nil
 }
 
+// getAIConfigFromDatabase retrieves AI configuration from ai_connectors table
+func (s *Server) getAIConfigFromDatabase(ctx context.Context) (review.AIConfig, error) {
+	// Create storage instance to query ai_connectors table
+	storage := aiconnectors.NewStorage(s.db)
+
+	// Get all connectors ordered by display_order
+	connectors, err := storage.GetAllConnectors(ctx)
+	if err != nil {
+		return review.AIConfig{}, fmt.Errorf("failed to get AI connectors: %w", err)
+	}
+
+	// Find the first (highest priority) connector
+	if len(connectors) == 0 {
+		return review.AIConfig{}, fmt.Errorf("no AI connectors found in database")
+	}
+
+	// Use the first connector (lowest display_order)
+	connector := connectors[0]
+
+	// Map provider_name to AI type for langchain
+	aiType := "langchain" // We always use langchain as the AI type
+
+	// Determine model based on provider_name
+	var model string
+	switch connector.ProviderName {
+	case "gemini":
+		model = "gemini-2.0-flash-exp" // Default Gemini model
+	default:
+		// For other providers, we can extend this
+		model = "gemini-2.0-flash-exp" // Default fallback
+	}
+
+	return review.AIConfig{
+		Type:        aiType,
+		APIKey:      connector.ApiKey,
+		Model:       model,
+		Temperature: 0.4, // Default temperature
+		Config: map[string]interface{}{
+			"provider_name":  connector.ProviderName,
+			"connector_name": connector.ConnectorName,
+			"display_order":  connector.DisplayOrder,
+		},
+	}, nil
+}
+
 // buildReviewRequest creates a review request for the given parameters
 func (s *Server) buildReviewRequest(
 	token *IntegrationToken,
 	requestURL, reviewID, accessToken string,
 ) (*review.ReviewRequest, error) {
-	// Load configuration for building the request
-	cfg, err := config.LoadConfig("")
+	// Get AI configuration from database instead of config files
+	aiConfig, err := s.getAIConfigFromDatabase(context.Background())
 	if err != nil {
-		return nil, fmt.Errorf("failed to load configuration: %w", err)
+		return nil, fmt.Errorf("failed to get AI configuration from database: %w", err)
 	}
 
-	// Create configuration service
-	configService := review.NewConfigurationService(cfg)
-
-	// Use pat_token for GitHub and GitLab variants when available
+	// Build provider configuration
 	providerToken := accessToken
 	providerConfigMap := map[string]interface{}{}
 	if token.TokenType == "PAT" && token.PatToken != "" {
@@ -295,17 +338,20 @@ func (s *Server) buildReviewRequest(
 			providerConfigMap["pat_token"] = token.PatToken
 		}
 	}
-	reviewRequest, err := configService.BuildReviewRequestWithConfig(
-		context.Background(),
-		requestURL,
-		reviewID,
-		token.Provider,
-		token.ProviderURL,
-		providerToken,
-		providerConfigMap,
-	)
-	if err != nil {
-		return nil, fmt.Errorf("failed to build review request: %w", err)
+
+	providerConfig := review.ProviderConfig{
+		Type:   token.Provider,
+		URL:    token.ProviderURL,
+		Token:  providerToken,
+		Config: providerConfigMap,
+	}
+
+	// Create review request directly without config service
+	reviewRequest := &review.ReviewRequest{
+		URL:      requestURL,
+		ReviewID: reviewID,
+		Provider: providerConfig,
+		AI:       aiConfig,
 	}
 
 	return reviewRequest, nil
