@@ -158,7 +158,8 @@ CREATE TABLE public.webhook_registry (
     status text DEFAULT 'active'::text,
     last_verified_at timestamp without time zone,
     created_at timestamp without time zone DEFAULT CURRENT_TIMESTAMP NOT NULL,
-    updated_at timestamp without time zone DEFAULT CURRENT_TIMESTAMP NOT NULL
+    updated_at timestamp without time zone DEFAULT CURRENT_TIMESTAMP NOT NULL,
+    integration_token_id bigint
 );
 
 
@@ -251,10 +252,25 @@ ALTER TABLE ONLY public.webhook_registry
 
 
 --
+-- Name: idx_webhook_registry_integration_token_id; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_webhook_registry_integration_token_id ON public.webhook_registry USING btree (integration_token_id);
+
+
+--
 -- Name: idx_webhook_registry_provider_project; Type: INDEX; Schema: public; Owner: -
 --
 
 CREATE INDEX idx_webhook_registry_provider_project ON public.webhook_registry USING btree (provider, provider_project_id);
+
+
+--
+-- Name: webhook_registry fk_webhook_registry_integration_token; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.webhook_registry
+    ADD CONSTRAINT fk_webhook_registry_integration_token FOREIGN KEY (integration_token_id) REFERENCES public.integration_tokens(id) ON DELETE CASCADE;
 
 
 --
@@ -282,4 +298,5 @@ INSERT INTO public.schema_migrations (version) VALUES
     ('20250722040308'),
     ('20250722064012'),
     ('20250723093453'),
-    ('20250728092945');
+    ('20250728092945'),
+    ('20250728093051');
