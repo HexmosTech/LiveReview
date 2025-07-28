@@ -303,6 +303,199 @@ def process_livereviewbot_mention(payload, kind):
     print(f"    📊 Final mention_info keys: {list(mention_info.keys())}")
     return mention_info
 
+def process_reviewer_change(payload, kind):
+    """
+    Check if this is a merge_request event with reviewer changes involving livereview users
+    """
+    print(f"\n🔍 [REVIEWER CHANGE STEP 1] Processing reviewer change detection...")
+    print(f"    📋 Event kind received: '{kind}'")
+    print(f"    🎯 Expected kind: 'merge request hooks' (case-insensitive)")
+    
+    if kind.lower() != "merge request hook":
+        print(f"    ❌ Event kind mismatch: '{kind.lower()}' != 'merge request hook'")
+        print(f"    🚫 Skipping reviewer change processing")
+        return None
+    print(f"    ✅ Event kind matches!")
+    
+    print(f"\n🔍 [REVIEWER CHANGE STEP 2] Checking event_type in payload...")
+    event_type = payload.get("event_type")
+    print(f"    📋 Event type found: '{event_type}'")
+    print(f"    🎯 Expected: 'merge_request'")
+    
+    if event_type != "merge_request":
+        print(f"    ❌ Event type mismatch: '{event_type}' != 'merge_request'")
+        print(f"    🚫 Skipping reviewer change processing")
+        return None
+    print(f"    ✅ Event type matches!")
+    
+    print(f"\n🔍 [REVIEWER CHANGE STEP 3] Checking for changes...")
+    changes = payload.get("changes", {})
+    reviewers_change = changes.get("reviewers")
+    print(f"    📋 Changes found: {list(changes.keys()) if changes else 'None'}")
+    print(f"    🎯 Looking for 'reviewers' change")
+    print(f"    📦 Reviewers change exists: {bool(reviewers_change)}")
+    
+    if not reviewers_change:
+        print(f"    ❌ No reviewers change found")
+        print(f"    🚫 Skipping reviewer change processing")
+        return None
+    print(f"    ✅ Reviewers change found!")
+    
+    print(f"\n🔍 [REVIEWER CHANGE STEP 4] Analyzing reviewer changes...")
+    current_reviewers = reviewers_change.get("current", [])
+    previous_reviewers = reviewers_change.get("previous", [])
+    print(f"    📋 Current reviewers count: {len(current_reviewers)}")
+    print(f"    📋 Previous reviewers count: {len(previous_reviewers)}")
+    
+    # Check for livereview users in both current and previous reviewers
+    livereview_found = False
+    livereview_users = []
+    current_livereview_reviewers = []
+    previous_livereview_reviewers = []
+    
+    print(f"\n🔍 [REVIEWER CHANGE STEP 5] Checking for 'livereview' usernames...")
+    
+    # Check previous reviewers
+    print(f"    📋 Checking previous reviewers...")
+    for i, reviewer in enumerate(previous_reviewers):
+        username = reviewer.get("username", "")
+        print(f"        👤 Previous reviewer {i+1}: '{username}'")
+        if "livereview" in username.lower():
+            print(f"        ✅ Found 'livereview' in username: '{username}'")
+            livereview_found = True
+            livereview_users.append(("previous", reviewer))
+            previous_livereview_reviewers.append(reviewer)
+        else:
+            print(f"        ❌ No 'livereview' in username: '{username}'")
+    
+    # Check current reviewers - THIS IS MOST IMPORTANT for triggering actions
+    print(f"    📋 Checking current reviewers...")
+    for i, reviewer in enumerate(current_reviewers):
+        username = reviewer.get("username", "")
+        print(f"        👤 Current reviewer {i+1}: '{username}'")
+        if "livereview" in username.lower():
+            print(f"        ✅ Found 'livereview' in username: '{username}' - THIS WILL TRIGGER ACTIONS!")
+            livereview_found = True
+            livereview_users.append(("current", reviewer))
+            current_livereview_reviewers.append(reviewer)
+        else:
+            print(f"        ❌ No 'livereview' in username: '{username}'")
+    
+    if not livereview_found:
+        print(f"    ❌ No 'livereview' users found in reviewer changes")
+        print(f"    🚫 Skipping reviewer change processing")
+        return None
+    
+    # Log the important distinction
+    print(f"    ✅ Found {len(livereview_users)} 'livereview' users in reviewer changes!")
+    print(f"    🎯 CURRENT livereview reviewers (will trigger actions): {len(current_livereview_reviewers)}")
+    print(f"    📜 PREVIOUS livereview reviewers: {len(previous_livereview_reviewers)}")
+    
+    # Determine if this is a livereview assignment or removal
+    is_livereview_assigned = len(current_livereview_reviewers) > 0
+    is_livereview_removed = len(previous_livereview_reviewers) > 0 and len(current_livereview_reviewers) == 0
+    
+    print(f"    🚀 LiveReview assigned as reviewer: {is_livereview_assigned}")
+    print(f"    🗑️  LiveReview removed as reviewer: {is_livereview_removed}")
+    
+    print(f"\n🔍 [REVIEWER CHANGE STEP 6] Extracting user information...")
+    user = payload.get("user", {})
+    user_id = user.get("id")
+    username = user.get("username")
+    user_name = user.get("name")
+    user_email = user.get("email")
+    print(f"    👤 User ID: {user_id}")
+    print(f"    👤 Username: {username}")
+    print(f"    👤 Name: {user_name}")
+    print(f"    👤 Email: {user_email}")
+    
+    print(f"\n🔍 [REVIEWER CHANGE STEP 7] Extracting project information...")
+    project = payload.get("project", {})
+    project_id = project.get("id")
+    project_name = project.get("name")
+    project_path = project.get("path_with_namespace")
+    project_url = project.get("web_url")
+    print(f"    🏗️  Project ID: {project_id}")
+    print(f"    🏗️  Project name: {project_name}")
+    print(f"    🏗️  Project path: {project_path}")
+    print(f"    🏗️  Project URL: {project_url}")
+    
+    print(f"\n🔍 [REVIEWER CHANGE STEP 8] Extracting merge request information...")
+    object_attributes = payload.get("object_attributes", {})
+    mr_id = object_attributes.get("id")
+    mr_iid = object_attributes.get("iid")
+    mr_title = object_attributes.get("title")
+    mr_state = object_attributes.get("state")
+    mr_action = object_attributes.get("action")
+    source_branch = object_attributes.get("source_branch")
+    target_branch = object_attributes.get("target_branch")
+    mr_url = object_attributes.get("url")
+    updated_at = object_attributes.get("updated_at")
+    
+    print(f"    🔀 MR ID: {mr_id}")
+    print(f"    🔀 MR IID: #{mr_iid}")
+    print(f"    🔀 MR Title: '{mr_title}'")
+    print(f"    🔀 MR State: {mr_state}")
+    print(f"    🔀 MR Action: {mr_action}")
+    print(f"    🔀 Source Branch: {source_branch}")
+    print(f"    🔀 Target Branch: {target_branch}")
+    print(f"    🔀 MR URL: {mr_url}")
+    print(f"    🔀 Updated at: {updated_at}")
+    
+    print(f"\n🔍 [REVIEWER CHANGE STEP 9] Building reviewer_change_info object...")
+    reviewer_change_info = {
+        "event_type": "reviewer_change",
+        "action": mr_action,
+        "updated_at": updated_at,
+        "livereview_users": livereview_users,
+        "current_livereview_reviewers": current_livereview_reviewers,
+        "previous_livereview_reviewers": previous_livereview_reviewers,
+        "is_livereview_assigned": is_livereview_assigned,
+        "is_livereview_removed": is_livereview_removed,
+        "reviewer_changes": {
+            "current": current_reviewers,
+            "previous": previous_reviewers
+        },
+        "changed_by": {
+            "id": user_id,
+            "username": username,
+            "name": user_name,
+            "email": user_email
+        },
+        "merge_request": {
+            "id": mr_id,
+            "iid": mr_iid,
+            "title": mr_title,
+            "description": object_attributes.get("description"),
+            "state": mr_state,
+            "source_branch": source_branch,
+            "target_branch": target_branch,
+            "url": mr_url,
+            "author_id": object_attributes.get("author_id"),
+            "assignee_ids": object_attributes.get("assignee_ids", []),
+            "reviewer_ids": object_attributes.get("reviewer_ids", []),
+            "last_commit": object_attributes.get("last_commit", {})
+        },
+        "project": {
+            "id": project_id,
+            "name": project_name,
+            "path_with_namespace": project_path,
+            "web_url": project_url
+        }
+    }
+    
+    print(f"    📦 Reviewer change info created")
+    print(f"    🆔 MR ID: {reviewer_change_info['merge_request']['id']}")
+    print(f"    🔗 MR URL: {reviewer_change_info['merge_request']['url']}")
+    print(f"    📅 Updated at: {reviewer_change_info['updated_at']}")
+    print(f"    👥 LiveReview users involved: {len(livereview_users)}")
+    print(f"    🚀 LiveReview assigned: {is_livereview_assigned}")
+    print(f"    🗑️  LiveReview removed: {is_livereview_removed}")
+    
+    print(f"\n✅ [REVIEWER CHANGE STEP 10] Reviewer change processing completed successfully!")
+    print(f"    📊 Final reviewer_change_info keys: {list(reviewer_change_info.keys())}")
+    return reviewer_change_info
+
 @app.post("/api/gitlab-hook")
 def gitlab_hook():
     print(f"\n🌐 === Webhook Request Received ===")
@@ -359,6 +552,61 @@ def gitlab_hook():
     else:
         print(f"    ℹ️  No @livereviewbot mention detected in this event")
 
+    print(f"\n🤖 Starting reviewer change detection...")
+    # Check for reviewer changes involving livereview users
+    reviewer_change_info = process_reviewer_change(payload, kind)
+    if reviewer_change_info:
+        print("\n🎉 === LiveReview User Reviewer Change Detected! ===")
+        print(f"Changed by: {reviewer_change_info['changed_by']['name']} (@{reviewer_change_info['changed_by']['username']})")
+        print(f"Action: {reviewer_change_info['action']}")
+        print(f"Updated at: {reviewer_change_info['updated_at']}")
+        
+        mr = reviewer_change_info['merge_request']
+        print(f"MR: #{mr['iid']} - {mr['title']}")
+        print(f"MR URL: {mr['url']}")
+        print(f"Source Branch: {mr['source_branch']} -> {mr['target_branch']}")
+        print(f"Project: {reviewer_change_info['project']['path_with_namespace']}")
+        
+        # Show the reviewer changes
+        changes = reviewer_change_info['reviewer_changes']
+        print(f"\nReviewer Changes:")
+        print(f"Previous reviewers ({len(changes['previous'])}):")
+        for reviewer in changes['previous']:
+            print(f"  - {reviewer['name']} (@{reviewer['username']})")
+        print(f"Current reviewers ({len(changes['current'])}):")
+        for reviewer in changes['current']:
+            print(f"  - {reviewer['name']} (@{reviewer['username']})")
+        
+        # IMPORTANT: Highlight current livereview reviewers that will trigger actions
+        print(f"\n🚀 === TRIGGER CONDITION ANALYSIS ===")
+        if reviewer_change_info['is_livereview_assigned']:
+            print(f"✅ LiveReview user(s) ASSIGNED as current reviewer(s) - WILL TRIGGER ACTIONS!")
+            print(f"Current LiveReview reviewers ({len(reviewer_change_info['current_livereview_reviewers'])}):")
+            for reviewer in reviewer_change_info['current_livereview_reviewers']:
+                print(f"  🎯 {reviewer['name']} (@{reviewer['username']}) [ID: {reviewer['id']}]")
+        else:
+            print(f"❌ No LiveReview users assigned as current reviewers - NO ACTIONS TRIGGERED")
+        
+        if reviewer_change_info['is_livereview_removed']:
+            print(f"📜 LiveReview user(s) were REMOVED from reviewers")
+            print(f"Previous LiveReview reviewers ({len(reviewer_change_info['previous_livereview_reviewers'])}):")
+            for reviewer in reviewer_change_info['previous_livereview_reviewers']:
+                print(f"  📜 {reviewer['name']} (@{reviewer['username']}) [ID: {reviewer['id']}]")
+        
+        print("=== End LiveReview Reviewer Change ===\n", flush=True)
+        
+        # IMPORTANT: This is where you would add your trigger logic
+        if reviewer_change_info['is_livereview_assigned']:
+            print("🔥 === ACTION TRIGGER POINT ===")
+            print("This is where you would trigger your LiveReview actions:")
+            print("- Start code review process")
+            print("- Send notifications")
+            print("- Update status")
+            print("- etc.")
+            print("=== End Action Trigger ===\n", flush=True)
+    else:
+        print(f"    ℹ️  No livereview user reviewer changes detected in this event")
+
     print(f"\n✅ Webhook processing completed successfully")
     return {"ok": True}
 
@@ -408,6 +656,84 @@ def test_mention_processing():
     else:
         print("❌ Test failed! Mention not detected")
 
+def test_reviewer_change_processing():
+    """Test the reviewer change processing with a sample payload"""
+    sample_payload = {
+        "assignees": [
+            {
+                "avatar_url": "https://secure.gravatar.com/avatar/34e0b837169c9ebf7551bb8eb4df93c03e701491eab1874a08d7d5ae7c09dbd6?s=80&d=identicon",
+                "email": "[REDACTED]",
+                "id": 68,
+                "name": "swagath",
+                "username": "swagath"
+            }
+        ],
+        "changes": {
+            "reviewers": {
+                "current": [
+                    {
+                        "avatar_url": "https://git.apps.hexmos.com/uploads/-/system/user/avatar/48/avatar.png",
+                        "email": "[REDACTED]",
+                        "id": 48,
+                        "name": "Ganesh Kumar",
+                        "username": "Ganesh"
+                    }
+                ],
+                "previous": [
+                    {
+                        "avatar_url": "https://secure.gravatar.com/avatar/3839222089da191e4efe35a7bb35703b9e5c309b4d093410862678833b4d420f?s=80&d=identicon",
+                        "email": "[REDACTED]",
+                        "id": 83,
+                        "name": "LiveReviewBot",
+                        "username": "LiveReviewBot"
+                    }
+                ]
+            },
+            "updated_at": {
+                "current": "2025-07-28 06:39:38 UTC",
+                "previous": "2025-07-28 06:29:08 UTC"
+            }
+        },
+        "event_type": "merge_request",
+        "object_attributes": {
+            "action": "update",
+            "assignee_id": 68,
+            "assignee_ids": [68],
+            "author_id": 68,
+            "id": 1798,
+            "iid": 408,
+            "title": "fixing the ui alligment issue",
+            "description": "Fixing the Ui alligment issue in webview in copilot",
+            "state": "merged",
+            "source_branch": "swagath/meile-key-change",
+            "target_branch": "main",
+            "url": "https://git.apps.hexmos.com/hexmos/liveapi/-/merge_requests/408",
+            "updated_at": "2025-07-28 06:39:38 UTC",
+            "reviewer_ids": [48]
+        },
+        "object_kind": "merge_request",
+        "project": {
+            "id": 170,
+            "name": "LiveAPI",
+            "path_with_namespace": "hexmos/liveapi",
+            "web_url": "https://git.apps.hexmos.com/hexmos/liveapi"
+        },
+        "user": {
+            "avatar_url": "https://secure.gravatar.com/avatar/315382e7b250a15a9858e6e2735e316e1c32ee2807191d0596fc2e0a6f7d723f?s=80&d=identicon",
+            "email": "[REDACTED]",
+            "id": 3,
+            "name": "Shrijith",
+            "username": "shrijith"
+        }
+    }
+    
+    reviewer_change_info = process_reviewer_change(sample_payload, "Merge Request Hook")
+    if reviewer_change_info:
+        print("✅ Test passed! Reviewer change detected:")
+        print(json.dumps(reviewer_change_info, indent=2))
+    else:
+        print("❌ Test failed! Reviewer change not detected")
+
 def run_server():
     # Run the Flask dev server. In production, put this behind a real web server.
     app.run(host="0.0.0.0", port=8888, debug=False)
@@ -421,7 +747,7 @@ if __name__ == "__main__":
     #   python livereviewbot.py listen
     #   python livereviewbot.py install-webhook && python livereviewbot.py listen
     if len(sys.argv) < 2:
-        print("Usage: python livereviewbot.py [install-webhook|listen|check-permissions|test-mention]")
+        print("Usage: python livereviewbot.py [install-webhook|listen|check-permissions|test-mention|test-reviewer-change]")
         sys.exit(1)
 
     cmd = sys.argv[1]
@@ -433,6 +759,8 @@ if __name__ == "__main__":
         check_permissions()
     elif cmd == "test-mention":
         test_mention_processing()
+    elif cmd == "test-reviewer-change":
+        test_reviewer_change_processing()
     else:
         print(f"Unknown command: {cmd}")
         sys.exit(1)
