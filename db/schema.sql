@@ -141,6 +141,48 @@ CREATE TABLE public.schema_migrations (
 
 
 --
+-- Name: webhook_registry; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.webhook_registry (
+    id integer NOT NULL,
+    provider text NOT NULL,
+    provider_project_id text NOT NULL,
+    project_name text NOT NULL,
+    project_full_name text NOT NULL,
+    webhook_id text NOT NULL,
+    webhook_url text NOT NULL,
+    webhook_secret text,
+    webhook_name text,
+    events text,
+    status text DEFAULT 'active'::text,
+    last_verified_at timestamp without time zone,
+    created_at timestamp without time zone DEFAULT CURRENT_TIMESTAMP NOT NULL,
+    updated_at timestamp without time zone DEFAULT CURRENT_TIMESTAMP NOT NULL
+);
+
+
+--
+-- Name: webhook_registry_id_seq; Type: SEQUENCE; Schema: public; Owner: -
+--
+
+CREATE SEQUENCE public.webhook_registry_id_seq
+    AS integer
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+
+--
+-- Name: webhook_registry_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: -
+--
+
+ALTER SEQUENCE public.webhook_registry_id_seq OWNED BY public.webhook_registry.id;
+
+
+--
 -- Name: ai_connectors id; Type: DEFAULT; Schema: public; Owner: -
 --
 
@@ -159,6 +201,13 @@ ALTER TABLE ONLY public.instance_details ALTER COLUMN id SET DEFAULT nextval('pu
 --
 
 ALTER TABLE ONLY public.integration_tokens ALTER COLUMN id SET DEFAULT nextval('public.integration_tokens_id_seq'::regclass);
+
+
+--
+-- Name: webhook_registry id; Type: DEFAULT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.webhook_registry ALTER COLUMN id SET DEFAULT nextval('public.webhook_registry_id_seq'::regclass);
 
 
 --
@@ -194,6 +243,21 @@ ALTER TABLE ONLY public.schema_migrations
 
 
 --
+-- Name: webhook_registry webhook_registry_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.webhook_registry
+    ADD CONSTRAINT webhook_registry_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: idx_webhook_registry_provider_project; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_webhook_registry_provider_project ON public.webhook_registry USING btree (provider, provider_project_id);
+
+
+--
 -- PostgreSQL database dump complete
 --
 
@@ -217,4 +281,5 @@ INSERT INTO public.schema_migrations (version) VALUES
     ('20250722035359'),
     ('20250722040308'),
     ('20250722064012'),
-    ('20250723093453');
+    ('20250723093453'),
+    ('20250728092945');
