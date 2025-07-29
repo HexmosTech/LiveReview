@@ -42,9 +42,9 @@ server {
         proxy_set_header X-Forwarded-Proto $scheme;
     }
 
-    # Everything else to port 8080 (frontend)
+    # Everything else to port 8081 (frontend)
     location / {
-        proxy_pass http://127.0.0.1:8080;
+        proxy_pass http://127.0.0.1:8081;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
