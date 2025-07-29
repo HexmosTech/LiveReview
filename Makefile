@@ -1,4 +1,4 @@
-.PHONY: build run-review run-review-verbose test clean develop develop-reflex
+.PHONY: build run-review run-review-verbose test clean develop develop-reflex river-deps river-install river-migrate river-setup river-ui-install river-ui
 
 # Go parameters
 GOCMD=go
@@ -6,6 +6,10 @@ GOBUILD=$(GOCMD) build
 GOCLEAN=$(GOCMD) clean
 GOTEST=$(GOCMD) test
 BINARY_NAME=livereview
+
+# Load environment variables from .env file
+include .env
+export
 
 build:
 	$(GOBUILD) -o $(BINARY_NAME)
@@ -30,3 +34,24 @@ test:
 clean:
 	$(GOCLEAN)
 	rm -f $(BINARY_NAME)
+
+# River queue setup commands
+river-deps:
+	go get github.com/riverqueue/river
+	go get github.com/riverqueue/river/riverdriver/riverpgxv5
+
+river-install:
+	go install github.com/riverqueue/river/cmd/river@latest
+
+river-ui-install:
+	go install riverqueue.com/riverui/cmd/riverui@latest
+
+river-migrate:
+	river migrate-up --database-url "$(DATABASE_URL)"
+
+river-ui:
+	@echo "Starting River UI with DATABASE_URL: $(DATABASE_URL)"
+	DATABASE_URL="$(DATABASE_URL)" riverui
+
+# 🚀 ONE COMMAND TO DO IT ALL - Install River dependencies, CLI tool, UI tool, and run migrations
+river-setup: river-deps river-install river-ui-install river-migrate
