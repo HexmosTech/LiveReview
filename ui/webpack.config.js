@@ -25,6 +25,18 @@ module.exports =  (env, options)=> {
             clean: true
         },
         devtool: 'source-map',
+        devServer: {
+            port: 8081,
+            hot: true,
+            historyApiFallback: true,
+            proxy: [
+                {
+                    context: ['/api'],
+                    target: 'http://localhost:8888',
+                    changeOrigin: true,
+                }
+            ]
+        },
         resolve: {
             extensions: ['.js', '.jsx', '.json', '.ts', '.tsx'],
             alias: {
