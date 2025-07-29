@@ -6,7 +6,7 @@ import json
 url = "https://git.apps.hexmos.com"
 token = "REDACTED_GITLAB_PAT_6"
 
-mr_url = "https://git.apps.hexmos.com/hexmos/liveapi/-/merge_requests/408"
+mr_url = "https://git.apps.hexmos.com/hexmos/liveapi/-/merge_requests/414"
 
 # Extract project and MR ID from the URL
 def extract_mr_info(mr_url):
