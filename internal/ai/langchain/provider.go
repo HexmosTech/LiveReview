@@ -36,7 +36,7 @@ func minInt(a, b int) int {
 }
 
 // formatHunkWithLineNumbers processes a diff hunk to add line number annotations
-// This is CRITICAL for proper comment positioning - copied from gemini provider
+// This is CRITICAL for proper comment positioning - handles multiple hunks properly
 func (p *LangchainProvider) formatHunkWithLineNumbers(hunk models.DiffHunk) string {
 	logger := logging.GetCurrentLogger()
 
@@ -44,71 +44,97 @@ func (p *LangchainProvider) formatHunkWithLineNumbers(hunk models.DiffHunk) stri
 	content := hunk.Content
 	lines := strings.Split(content, "\n")
 
-	// Find the @@ header line to extract line numbers
-	var oldStart, oldCount, newStart, newCount int
+	if logger != nil {
+		logger.Log("Processing hunk with %d lines of content", len(lines))
+	}
+
+	// Find all hunk headers in the content to handle multiple hunks
+	var hunkBoundaries []int
 	headerPattern := `@@ -(\d+),(\d+) \+(\d+),(\d+) @@`
 	re := regexp.MustCompile(headerPattern)
 
-	headerFound := false
-	headerLine := ""
-	contentStartIndex := 0
-
 	for i, line := range lines {
-		if matches := re.FindStringSubmatch(line); matches != nil {
-			var err error
-			oldStart, err = strconv.Atoi(matches[1])
-			if err != nil {
-				if logger != nil {
-					logger.LogError("Failed to parse old start: %v", err)
-				}
-				oldStart = hunk.OldStartLine
+		if re.MatchString(line) {
+			hunkBoundaries = append(hunkBoundaries, i)
+			if logger != nil {
+				logger.Log("Found hunk header at line %d: %s", i, line)
 			}
-
-			oldCount, err = strconv.Atoi(matches[2])
-			if err != nil {
-				if logger != nil {
-					logger.LogError("Failed to parse old count: %v", err)
-				}
-				oldCount = hunk.OldLineCount
-			}
-
-			newStart, err = strconv.Atoi(matches[3])
-			if err != nil {
-				if logger != nil {
-					logger.LogError("Failed to parse new start: %v", err)
-				}
-				newStart = hunk.NewStartLine
-			}
-
-			newCount, err = strconv.Atoi(matches[4])
-			if err != nil {
-				if logger != nil {
-					logger.LogError("Failed to parse new count: %v", err)
-				}
-				newCount = hunk.NewLineCount
-			}
-
-			headerFound = true
-			headerLine = line
-			contentStartIndex = i + 1
-			break
 		}
 	}
 
-	// Fallback to hunk metadata if header parsing fails
-	if !headerFound {
-		oldStart = hunk.OldStartLine
-		oldCount = hunk.OldLineCount
-		newStart = hunk.NewStartLine
-		newCount = hunk.NewLineCount
+	// If we don't have any hunk headers, process as single hunk with metadata
+	if len(hunkBoundaries) == 0 {
+		if logger != nil {
+			logger.Log("No @@ headers found, using hunk metadata: old=%d+%d, new=%d+%d",
+				hunk.OldStartLine, hunk.OldLineCount, hunk.NewStartLine, hunk.NewLineCount)
+		}
+		return p.formatSingleHunk(lines, hunk.OldStartLine, hunk.NewStartLine, "")
+	}
+
+	// If we have only one hunk header, process normally
+	if len(hunkBoundaries) == 1 {
+		headerIdx := hunkBoundaries[0]
+		headerLine := lines[headerIdx]
+
+		// Extract line numbers from header
+		matches := re.FindStringSubmatch(headerLine)
+		if matches == nil {
+			if logger != nil {
+				logger.Log("Failed to parse header line: %s", headerLine)
+			}
+			return p.formatSingleHunk(lines, hunk.OldStartLine, hunk.NewStartLine, "")
+		}
+
+		oldStart, _ := strconv.Atoi(matches[1])
+		newStart, _ := strconv.Atoi(matches[3])
 
 		if logger != nil {
-			logger.Log("No @@ header found, using hunk metadata: old=%d+%d, new=%d+%d",
-				oldStart, oldCount, newStart, newCount)
+			logger.Log("Single hunk: oldStart=%d, newStart=%d", oldStart, newStart)
+		}
+
+		return p.formatSingleHunk(lines[headerIdx+1:], oldStart, newStart, headerLine)
+	}
+
+	// Handle multiple hunks - process each separately
+	if logger != nil {
+		logger.Log("Found multiple hunks (%d), processing separately", len(hunkBoundaries))
+	}
+
+	var result strings.Builder
+	for i, startIdx := range hunkBoundaries {
+		endIdx := len(lines)
+		if i < len(hunkBoundaries)-1 {
+			endIdx = hunkBoundaries[i+1]
+		}
+
+		headerLine := lines[startIdx]
+		matches := re.FindStringSubmatch(headerLine)
+		if matches == nil {
+			if logger != nil {
+				logger.Log("Failed to parse header line in multi-hunk: %s", headerLine)
+			}
+			continue
+		}
+
+		oldStart, _ := strconv.Atoi(matches[1])
+		newStart, _ := strconv.Atoi(matches[3])
+
+		if logger != nil {
+			logger.Log("Processing sub-hunk %d (lines %d-%d): oldStart=%d, newStart=%d",
+				i+1, startIdx, endIdx-1, oldStart, newStart)
+		}
+
+		// Process this individual hunk
+		hunkContent := p.formatSingleHunk(lines[startIdx+1:endIdx], oldStart, newStart, headerLine)
+		result.WriteString(hunkContent)
+
+		// Add separator between hunks except for the last one
+		if i < len(hunkBoundaries)-1 {
+			result.WriteString("\n")
 		}
 	}
 
-	return p.formatSingleHunk(lines[contentStartIndex:], oldStart, newStart, headerLine)
+	return result.String()
 }
 
 // formatSingleHunk formats a single hunk with line numbers
@@ -164,9 +190,19 @@ func (p *LangchainProvider) formatSingleHunk(lines []string, oldStart, newStart 
 			currentNewLine++
 
 		default:
-			// Unknown prefix - treat as context
-			if logger != nil {
-				logger.Log("Unknown line prefix '%s' in hunk, treating as context", prefix)
+			// Handle special cases first
+			if strings.HasPrefix(line, "@@") {
+				// This is likely a stray hunk header that shouldn't be here
+				if logger != nil {
+					logger.Log("Encountered unexpected hunk header in content: %s", line)
+				}
+				// Skip processing this line
+				continue
+			}
+
+			// Unknown prefix - treat as context but log it
+			if logger != nil && prefix != "" {
+				logger.Log("Unknown line prefix '%s' in hunk, treating as context: %s", prefix, line)
 			}
 			oldNum = fmt.Sprintf("%3d", currentOldLine)
 			newNum = fmt.Sprintf("%3d", currentNewLine)
