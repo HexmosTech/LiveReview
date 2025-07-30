@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
+import { formatDistanceToNow, format } from 'date-fns';
 import { useAppSelector } from '../../store/configureStore';
 import { 
     PageHeader, 
@@ -197,9 +198,12 @@ const ConnectorDetails: React.FC = () => {
                                     <label className="block text-sm font-medium text-slate-300 mb-1">
                                         Created
                                     </label>
-                                    <span className="text-slate-200">
+                                    <span 
+                                        className="text-slate-200 hover:text-slate-100 cursor-help transition-colors"
+                                        title={connector.createdAt ? format(new Date(connector.createdAt), 'PPpp') : undefined}
+                                    >
                                         {connector.createdAt ? 
-                                            new Date(connector.createdAt).toLocaleDateString() : 
+                                            formatDistanceToNow(new Date(connector.createdAt), { addSuffix: true }) : 
                                             'Unknown'
                                         }
                                     </span>
