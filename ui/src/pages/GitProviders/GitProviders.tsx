@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { Routes, Route, useNavigate } from 'react-router-dom';
 import ConnectorForm from '../../components/Connector/ConnectorForm';
 import { useAppDispatch, useAppSelector } from '../../store/configureStore';
 import { addConnector, setConnectors, ConnectorType, Connector } from '../../store/Connector/reducer';
@@ -13,6 +14,7 @@ import {
     Spinner
 } from '../../components/UIPrimitives';
 import { getConnectors, ConnectorResponse, deleteConnector } from '../../api/connectors';
+import ConnectorDetails from './ConnectorDetails';
 
 // Spec for GitProviderKit
 // This system will manage Git providers, allowing users to add, edit, and remove Git provider configurations.
@@ -46,6 +48,20 @@ import { getConnectors, ConnectorResponse, deleteConnector } from '../../api/con
 
 const GitProviders: React.FC = () => {
     const dispatch = useAppDispatch();
+    const navigate = useNavigate();
+    const storeConnectors = useAppSelector((state) => state.Connector.connectors);
+    
+    return (
+        <Routes>
+            <Route index element={<GitProvidersList />} />
+            <Route path="connector/:connectorId" element={<ConnectorDetails />} />
+        </Routes>
+    );
+};
+
+const GitProvidersList: React.FC = () => {
+    const dispatch = useAppDispatch();
+    const navigate = useNavigate();
     const storeConnectors = useAppSelector((state) => state.Connector.connectors);
     
         // Use redux state only for connectors
@@ -234,13 +250,13 @@ const GitProviders: React.FC = () => {
                                                         </span>
                                                     )}
                                                     <Button
-                                                        variant="secondary"
+                                                        variant="outline"
                                                         size="sm"
-                                                        onClick={() => {
-                                                            alert(`Testing connection to ${connector.name}`);
-                                                        }}
+                                                        onClick={() => navigate(`/git/connector/${connector.id}`)}
+                                                        title="Connector details"
+                                                        className="!px-2.5"
                                                     >
-                                                        Test Connection
+                                                        <Icons.Settings />
                                                     </Button>
                                                     <Button
                                                         variant="outline"
