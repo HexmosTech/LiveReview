@@ -40,6 +40,21 @@ export const deleteConnector = async (connectorId: string): Promise<any> => {
 };
 
 /**
+ * Fetch repository access information for a connector
+ * @param connectorId The ID of the connector to get repository access for
+ * @returns Promise with repository access information
+ */
+export const getRepositoryAccess = async (connectorId: string): Promise<any> => {
+  try {
+    const response = await apiClient.get(`/api/v1/connectors/${connectorId}/repository-access`);
+    return response;
+  } catch (error) {
+    console.error('Error fetching repository access:', error);
+    throw error;
+  }
+};
+
+/**
  * Fetch all AI connectors from the server
  * @returns Promise with array of AI connectors
  */

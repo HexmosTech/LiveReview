@@ -100,6 +100,7 @@ func (s *Server) setupRoutes() {
 	// Connector endpoints
 	v1.GET("/connectors", s.GetConnectors)
 	v1.DELETE("/connectors/:id", s.DeleteConnector)
+	v1.GET("/connectors/:connectorId/repository-access", s.GetRepositoryAccess)
 
 	// GitLab profile validation endpoint
 	v1.POST("/gitlab/validate-profile", s.ValidateGitLabProfile)
