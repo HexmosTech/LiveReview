@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Routes, Route, useNavigate } from 'react-router-dom';
+import { formatDistanceToNow, format } from 'date-fns';
 import ConnectorForm from '../../components/Connector/ConnectorForm';
 import { useAppDispatch, useAppSelector } from '../../store/configureStore';
 import { addConnector, setConnectors, ConnectorType, Connector } from '../../store/Connector/reducer';
@@ -245,8 +246,11 @@ const GitProvidersList: React.FC = () => {
                                                 </div>
                                                 <div className="flex items-center space-x-2">
                                                     {connector.createdAt && (
-                                                        <span className="text-xs text-slate-300">
-                                                            {new Date(connector.createdAt).toLocaleDateString()}
+                                                        <span 
+                                                            className="text-xs text-slate-300 hover:text-slate-200 cursor-help transition-colors"
+                                                            title={format(new Date(connector.createdAt), 'PPpp')}
+                                                        >
+                                                            {formatDistanceToNow(new Date(connector.createdAt), { addSuffix: true })}
                                                         </span>
                                                     )}
                                                     <Button
