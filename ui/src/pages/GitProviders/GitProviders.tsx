@@ -215,11 +215,12 @@ const GitProvidersList: React.FC = () => {
                                 {connectors.map((connector) => (
                                     <li
                                         key={connector.id}
-                                        className="border border-slate-600 rounded-lg bg-slate-700 hover:bg-slate-600 transition-colors"
+                                        className="border border-slate-600 rounded-lg bg-slate-700 hover:bg-slate-600 transition-colors cursor-pointer"
+                                        onClick={() => navigate(`/git/connector/${connector.id}`)}
                                     >
                                         <div className="p-4">
                                             <div className="flex justify-between items-center">
-                                                <div className="flex items-center">
+                                                <div className="flex items-center flex-grow">
                                                     <div className="flex-shrink-0 mr-3">
                                                         <Avatar 
                                                             size="md"
@@ -244,7 +245,7 @@ const GitProvidersList: React.FC = () => {
                                                         </p>
                                                     </div>
                                                 </div>
-                                                <div className="flex items-center space-x-2">
+                                                <div className="flex items-center space-x-2" onClick={(e) => e.stopPropagation()}>
                                                     {connector.createdAt && (
                                                         <span 
                                                             className="text-xs text-slate-300 hover:text-slate-200 cursor-help transition-colors"

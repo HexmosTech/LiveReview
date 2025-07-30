@@ -21,10 +21,13 @@ const ConnectorCard: React.FC<ConnectorCardProps> = ({
     isLast
 }) => {
     return (
-        <li className="border border-slate-600 rounded-lg bg-slate-700 hover:bg-slate-600 transition-colors">
+        <li 
+            className="border border-slate-600 rounded-lg bg-slate-700 hover:bg-slate-600 transition-colors cursor-pointer"
+            onClick={onEdit}
+        >
             <div className="p-4">
                 <div className="flex justify-between items-center">
-                    <div className="flex items-center">
+                    <div className="flex items-center flex-grow">
                         <div className="flex-shrink-0 mr-3 relative">
                             <Avatar 
                                 size="md"
@@ -54,7 +57,7 @@ const ConnectorCard: React.FC<ConnectorCardProps> = ({
                             </p>
                         </div>
                     </div>
-                    <div className="flex items-center space-x-2">
+                    <div className="flex items-center space-x-2" onClick={(e) => e.stopPropagation()}>
                         {connector.createdAt && (
                             <span 
                                 className="text-xs text-slate-300 hover:text-slate-200 cursor-help transition-colors"
