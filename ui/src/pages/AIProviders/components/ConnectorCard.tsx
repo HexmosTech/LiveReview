@@ -1,4 +1,5 @@
 import React from 'react';
+import { formatDistanceToNow, format } from 'date-fns';
 import { AIConnector } from '../types';
 import { 
     Button, 
@@ -55,8 +56,17 @@ const ConnectorCard: React.FC<ConnectorCardProps> = ({
                     </div>
                     <div className="flex items-center space-x-2">
                         {connector.createdAt && (
-                            <span className="text-xs text-slate-300">
-                                {connector.createdAt instanceof Date ? connector.createdAt.toLocaleDateString() : 'Recently added'}
+                            <span 
+                                className="text-xs text-slate-300 hover:text-slate-200 cursor-help transition-colors"
+                                title={connector.createdAt instanceof Date ? 
+                                    format(connector.createdAt, 'PPpp') : 
+                                    'Date information unavailable'
+                                }
+                            >
+                                {connector.createdAt instanceof Date ? 
+                                    formatDistanceToNow(connector.createdAt, { addSuffix: true }) : 
+                                    'Recently added'
+                                }
                             </span>
                         )}
                         <div className="flex space-x-1">
