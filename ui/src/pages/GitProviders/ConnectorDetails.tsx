@@ -13,7 +13,16 @@ import {
     Alert
 } from '../../components/UIPrimitives';
 import { Connector } from '../../store/Connector/reducer';
-import { deleteConnector } from '../../api/connectors';
+import { deleteConnector, getRepositoryAccess } from '../../api/connectors';
+
+interface RepositoryAccess {
+    connector_id: number;
+    provider: string;
+    base_url: string;
+    projects: string[];
+    project_count: number;
+    error?: string;
+}
 
 const ConnectorDetails: React.FC = () => {
     const { connectorId } = useParams<{ connectorId: string }>();
@@ -23,6 +32,8 @@ const ConnectorDetails: React.FC = () => {
     const [isLoading, setIsLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
     const [isDeleting, setIsDeleting] = useState(false);
+    const [repositoryAccess, setRepositoryAccess] = useState<RepositoryAccess | null>(null);
+    const [isLoadingRepos, setIsLoadingRepos] = useState(false);
 
     useEffect(() => {
         if (connectorId && connectors.length > 0) {
@@ -30,6 +41,8 @@ const ConnectorDetails: React.FC = () => {
             if (foundConnector) {
                 setConnector(foundConnector);
                 setError(null);
+                // Fetch repository access information
+                fetchRepositoryAccess(connectorId);
             } else {
                 setError('Connector not found');
             }
@@ -39,6 +52,19 @@ const ConnectorDetails: React.FC = () => {
             setIsLoading(true);
         }
     }, [connectorId, connectors]);
+
+    const fetchRepositoryAccess = async (connectorId: string) => {
+        setIsLoadingRepos(true);
+        try {
+            const accessData = await getRepositoryAccess(connectorId);
+            setRepositoryAccess(accessData);
+        } catch (err) {
+            console.error('Error fetching repository access:', err);
+            // Don't show error for repository access, just log it
+        } finally {
+            setIsLoadingRepos(false);
+        }
+    };
 
     const formatConnectorType = (type: string) => {
         switch (type) {
@@ -247,17 +273,73 @@ const ConnectorDetails: React.FC = () => {
                         </div>
                     </Card>
 
-                    {/* Repository Access - Placeholder */}
-                    <Card title="Repository Access" className="mt-6">
-                        <div className="text-center py-8">
-                            <Icons.EmptyState />
-                            <p className="text-slate-400 mt-4">
-                                Repository scope and access information will be displayed here.
-                            </p>
-                            <p className="text-slate-500 text-sm mt-2">
-                                This feature is coming soon.
-                            </p>
-                        </div>
+                    {/* Repository Access */}
+                    <Card title={`Repository Access ${repositoryAccess?.project_count ? `(${repositoryAccess.project_count} projects)` : ''}`} className="mt-6">
+                        {isLoadingRepos ? (
+                            <div className="flex items-center justify-center py-8">
+                                <Spinner size="md" color="text-blue-400" />
+                                <span className="ml-3 text-slate-300">Loading repository access...</span>
+                            </div>
+                        ) : repositoryAccess?.error ? (
+                            <div className="text-center py-8">
+                                <Icons.Warning />
+                                <p className="text-yellow-400 mt-4 font-medium">
+                                    Repository Access Issue
+                                </p>
+                                <p className="text-slate-400 mt-2 text-sm">
+                                    {repositoryAccess.error}
+                                </p>
+                            </div>
+                        ) : repositoryAccess && repositoryAccess.projects.length > 0 ? (
+                            <div className="space-y-4">
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                    <div>
+                                        <label className="block text-sm font-medium text-slate-300 mb-1">
+                                            Provider
+                                        </label>
+                                        <span className="text-slate-200 capitalize">
+                                            {repositoryAccess.provider}
+                                        </span>
+                                    </div>
+                                    <div>
+                                        <label className="block text-sm font-medium text-slate-300 mb-1">
+                                            Total Projects
+                                        </label>
+                                        <span className="text-slate-200 font-semibold">
+                                            {repositoryAccess.project_count}
+                                        </span>
+                                    </div>
+                                </div>
+
+                                <div>
+                                    <label className="block text-sm font-medium text-slate-300 mb-2">
+                                        Accessible Projects
+                                    </label>
+                                    <div className="bg-slate-800 rounded-lg p-4 max-h-64 overflow-y-auto">
+                                        <div className="space-y-2">
+                                            {repositoryAccess.projects.map((project, index) => (
+                                                <div key={index} className="flex items-center py-2 px-3 bg-slate-700 rounded border border-slate-600">
+                                                    <Icons.Git />
+                                                    <span className="ml-3 text-slate-200 font-mono text-sm">
+                                                        {project}
+                                                    </span>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        ) : (
+                            <div className="text-center py-8">
+                                <Icons.EmptyState />
+                                <p className="text-slate-400 mt-4">
+                                    No repository access information available.
+                                </p>
+                                <p className="text-slate-500 text-sm mt-2">
+                                    This may be due to missing credentials or unsupported provider.
+                                </p>
+                            </div>
+                        )}
                     </Card>
                 </div>
 
