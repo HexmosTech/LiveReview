@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { formatDistanceToNow, format } from 'date-fns';
 import { useAppSelector } from '../../store/configureStore';
@@ -10,7 +10,8 @@ import {
     Badge,
     Avatar,
     Spinner,
-    Alert
+    Alert,
+    Input
 } from '../../components/UIPrimitives';
 import { Connector } from '../../store/Connector/reducer';
 import { deleteConnector, getRepositoryAccess } from '../../api/connectors';
@@ -24,6 +25,148 @@ interface RepositoryAccess {
     error?: string;
 }
 
+interface TreeNodeData {
+    children: Record<string, TreeNodeData>;
+    projects: string[];
+    isLeaf: boolean;
+}
+
+interface TreeNodeProps {
+    name: string;
+    data: TreeNodeData;
+    level: number;
+    path: string;
+}
+
+const TreeNode: React.FC<TreeNodeProps> = ({ name, data, level, path }) => {
+    const [isExpanded, setIsExpanded] = useState(level < 2); // Auto-expand first 2 levels
+    const hasChildren = Object.keys(data.children).length > 0;
+    const hasProjects = data.projects.length > 0;
+    const currentPath = path ? `${path}/${name}` : name;
+    
+    // Calculate total project count recursively
+    const getTotalProjectCount = (nodeData: TreeNodeData): number => {
+        let count = nodeData.projects.length;
+        Object.values(nodeData.children).forEach(child => {
+            count += getTotalProjectCount(child);
+        });
+        return count;
+    };
+    
+    const totalProjectCount = getTotalProjectCount(data);
+    
+    const toggleExpanded = () => {
+        setIsExpanded(!isExpanded);
+    };
+
+    // Don't render root nodes that are just containers
+    if (name === '_root') {
+        return (
+            <div>
+                {data.projects.map((project) => (
+                    <div 
+                        key={project} 
+                        className="flex items-center justify-between py-2 px-3 bg-slate-700 rounded border border-slate-600 hover:border-slate-500 transition-colors mb-1"
+                    >
+                        <div className="flex items-center space-x-3">
+                            <Icons.Git />
+                            <span className="text-slate-200 font-mono text-sm">
+                                {project}
+                            </span>
+                        </div>
+                        <div className="flex items-center space-x-1 text-yellow-500">
+                            <Icons.NotReady />
+                            <span className="text-xs">Not Ready</span>
+                        </div>
+                    </div>
+                ))}
+                {/* Render children */}
+                {Object.entries(data.children)
+                    .sort(([a], [b]) => a.localeCompare(b))
+                    .map(([childName, childData]) => (
+                        <TreeNode
+                            key={childName}
+                            name={childName}
+                            data={childData}
+                            level={0}
+                            path=""
+                        />
+                    ))}
+            </div>
+        );
+    }
+
+    return (
+        <div>
+            {/* Namespace/Group node */}
+            <div 
+                className={`flex items-center space-x-2 py-1 px-2 rounded hover:bg-slate-600 transition-colors cursor-pointer`}
+                style={{ paddingLeft: `${level * 16 + 8}px` }}
+                onClick={toggleExpanded}
+            >
+                <span className="text-slate-400">
+                    {isExpanded ? <Icons.ChevronDown /> : <Icons.ChevronRight />}
+                </span>
+                
+                <span className="text-slate-300">
+                    {isExpanded ? <Icons.FolderOpen /> : <Icons.Folder />}
+                </span>
+                
+                <span className="text-slate-200 text-sm font-medium">
+                    {name}
+                </span>
+                
+                {/* Show total project count for namespaces */}
+                {totalProjectCount > 0 && (
+                    <Badge variant="default" size="sm">
+                        {totalProjectCount}
+                    </Badge>
+                )}
+            </div>
+            
+            {/* Render projects directly under this namespace */}
+            {hasProjects && isExpanded && (
+                <div style={{ marginLeft: `${(level + 1) * 16 + 8}px` }}>
+                    {data.projects.map((project) => (
+                        <div 
+                            key={project} 
+                            className="flex items-center justify-between py-2 px-3 bg-slate-700 rounded border border-slate-600 hover:border-slate-500 transition-colors mb-1"
+                        >
+                            <div className="flex items-center space-x-3">
+                                <Icons.Git />
+                                <span className="text-slate-200 font-mono text-sm">
+                                    {project}
+                                </span>
+                            </div>
+                            <div className="flex items-center space-x-1 text-yellow-500">
+                                <Icons.NotReady />
+                                <span className="text-xs">Not Ready</span>
+                            </div>
+                        </div>
+                    ))}
+                </div>
+            )}
+            
+            {/* Render child namespaces */}
+            {hasChildren && isExpanded && (
+                <div>
+                    {Object.entries(data.children)
+                        .sort(([a], [b]) => a.localeCompare(b))
+                        .map(([childName, childData]) => (
+                            <TreeNode
+                                key={childName}
+                                name={childName}
+                                data={childData}
+                                level={level + 1}
+                                path={currentPath}
+                            />
+                        ))}
+                </div>
+            )}
+        </div>
+    );
+};
+
 const ConnectorDetails: React.FC = () => {
     const { connectorId } = useParams<{ connectorId: string }>();
     const navigate = useNavigate();
@@ -34,6 +177,88 @@ const ConnectorDetails: React.FC = () => {
     const [isDeleting, setIsDeleting] = useState(false);
     const [repositoryAccess, setRepositoryAccess] = useState<RepositoryAccess | null>(null);
     const [isLoadingRepos, setIsLoadingRepos] = useState(false);
+    
+    // Repository filtering and grouping state
+    const [searchTerm, setSearchTerm] = useState('');
+    const [viewMode, setViewMode] = useState<'tree' | 'list'>('tree'); // Default to tree view
+    const [lastSyncTime] = useState(new Date(Date.now() - 15 * 60 * 1000)); // Mock: 15 minutes ago
+
+    // Process repositories for filtering and tree structure
+    const processedRepositories = useMemo(() => {
+        if (!repositoryAccess?.projects) return { total: 0, filtered: 0, tree: {} };
+        
+        // Filter repositories based on search term
+        const filtered = repositoryAccess.projects.filter(project =>
+            project.toLowerCase().includes(searchTerm.toLowerCase())
+        );
+        
+        // Create tree structure for namespaces
+        const buildTree = (projects: string[]) => {
+            const result: Record<string, TreeNodeData> = {};
+            
+            projects.forEach(project => {
+                const parts = project.split('/');
+                let current = result;
+                
+                // Build the tree path, but don't create leaf nodes as folders
+                for (let i = 0; i < parts.length - 1; i++) { // Stop before the last part (project name)
+                    const part = parts[i];
+                    if (!current[part]) {
+                        current[part] = {
+                            children: {},
+                            projects: [],
+                            isLeaf: false
+                        };
+                    }
+                    current = current[part].children;
+                }
+                
+                // Add the full project path to the appropriate namespace
+                const namespacePath = parts.slice(0, -1);
+                if (namespacePath.length > 0) {
+                    const namespace = namespacePath[namespacePath.length - 1];
+                    let targetNode = result;
+                    
+                    // Navigate to the correct namespace node
+                    for (const part of namespacePath) {
+                        if (!targetNode[part]) {
+                            targetNode[part] = {
+                                children: {},
+                                projects: [],
+                                isLeaf: false
+                            };
+                        }
+                        targetNode = targetNode[part].children;
+                    }
+                    
+                    // Go back to the namespace node to add the project
+                    targetNode = result;
+                    for (const part of namespacePath.slice(0, -1)) {
+                        targetNode = targetNode[part].children;
+                    }
+                    targetNode[namespace].projects.push(project);
+                } else {
+                    // Handle projects without namespace (root level)
+                    if (!result['_root']) {
+                        result['_root'] = {
+                            children: {},
+                            projects: [],
+                            isLeaf: false
+                        };
+                    }
+                    result['_root'].projects.push(project);
+                }
+            });
+            
+            return result;
+        };
+        
+        return {
+            total: repositoryAccess.projects.length,
+            filtered: filtered.length,
+            tree: buildTree(filtered)
+        };
+    }, [repositoryAccess?.projects, searchTerm]);
 
     useEffect(() => {
         if (connectorId && connectors.length > 0) {
@@ -333,7 +558,26 @@ const ConnectorDetails: React.FC = () => {
                     </Card>
 
                     {/* Repository Access */}
-                    <Card title={`Repository Access ${repositoryAccess?.project_count ? `(${repositoryAccess.project_count} projects)` : ''}`} className="mt-6">
+                    <Card className="mt-6">
+                        {/* Custom Header */}
+                        <div className="flex items-center justify-between mb-6 pb-4 border-b border-slate-700">
+                            <div className="flex items-center space-x-3">
+                                <h3 className="text-lg font-semibold text-slate-100">Repository Access</h3>
+                                {repositoryAccess?.project_count && (
+                                    <Badge variant="info" size="sm">
+                                        {repositoryAccess.project_count} projects
+                                    </Badge>
+                                )}
+                                <div className="flex items-center space-x-1 text-yellow-400">
+                                    <Icons.NotReady />
+                                    <span className="text-xs font-medium">Not Ready</span>
+                                </div>
+                            </div>
+                            <div className="flex items-center space-x-2 text-slate-400 text-xs">
+                                <Icons.Clock />
+                                <span>Synced {formatDistanceToNow(lastSyncTime, { addSuffix: true })}</span>
+                            </div>
+                        </div>
                         {isLoadingRepos ? (
                             <div className="flex items-center justify-center py-8">
                                 <Spinner size="md" color="text-blue-400" />
@@ -350,8 +594,9 @@ const ConnectorDetails: React.FC = () => {
                                 </p>
                             </div>
                         ) : repositoryAccess && repositoryAccess.projects.length > 0 ? (
-                            <div className="space-y-4">
-                                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            <div className="space-y-6">
+                                {/* Repository Summary */}
+                                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                                     <div>
                                         <label className="block text-sm font-medium text-slate-300 mb-1">
                                             Provider
@@ -365,27 +610,147 @@ const ConnectorDetails: React.FC = () => {
                                             Total Projects
                                         </label>
                                         <span className="text-slate-200 font-semibold">
-                                            {repositoryAccess.project_count}
+                                            {processedRepositories.total}
                                         </span>
+                                    </div>
+                                    <div>
+                                        <label className="block text-sm font-medium text-slate-300 mb-1">
+                                            Webhook Status
+                                        </label>
+                                        <div className="flex items-center space-x-2">
+                                            <Icons.NotReady />
+                                            <span className="text-yellow-400 text-sm font-medium">Setup Required</span>
+                                        </div>
                                     </div>
                                 </div>
 
-                                <div>
-                                    <label className="block text-sm font-medium text-slate-300 mb-2">
-                                        Accessible Projects
-                                    </label>
-                                    <div className="bg-slate-800 rounded-lg p-4 max-h-64 overflow-y-auto">
-                                        <div className="space-y-2">
-                                            {repositoryAccess.projects.map((project, index) => (
-                                                <div key={index} className="flex items-center py-2 px-3 bg-slate-700 rounded border border-slate-600">
-                                                    <Icons.Git />
-                                                    <span className="ml-3 text-slate-200 font-mono text-sm">
-                                                        {project}
-                                                    </span>
-                                                </div>
-                                            ))}
+                                {/* Search and Filter Controls */}
+                                <div className="border-t border-slate-700 pt-4">
+                                    <div className="mb-4">
+                                        <Input
+                                            placeholder="Search repositories..."
+                                            value={searchTerm}
+                                            onChange={(e) => setSearchTerm(e.target.value)}
+                                            icon={<Icons.Search />}
+                                            iconPosition="left"
+                                        />
+                                    </div>
+                                    
+                                    {/* Results Summary */}
+                                    <div className="flex items-center justify-between text-sm text-slate-400 mb-3">
+                                        <span>
+                                            Showing {processedRepositories.filtered} of {processedRepositories.total} repositories
+                                        </span>
+                                        {searchTerm && (
+                                            <span className="flex items-center space-x-1">
+                                                <Icons.Filter />
+                                                <span>Filtered results</span>
+                                            </span>
+                                        )}
+                                    </div>
+                                    
+                                    {/* View Toggle */}
+                                    <div className="flex items-center justify-between mb-3">
+                                        <div className="flex items-center text-sm text-slate-400">
+                                            {viewMode === 'tree' && (
+                                                <>
+                                                    <Icons.Grid />
+                                                    <span className="ml-2">Tree view with namespace grouping</span>
+                                                </>
+                                            )}
+                                            {viewMode === 'list' && (
+                                                <>
+                                                    <Icons.List />
+                                                    <span className="ml-2">Flat list view</span>
+                                                </>
+                                            )}
+                                        </div>
+                                        <div className="flex items-center space-x-1 bg-slate-700 rounded-lg p-1">
+                                            <button
+                                                onClick={() => setViewMode('tree')}
+                                                className={`p-2 rounded transition-colors ${
+                                                    viewMode === 'tree' 
+                                                        ? 'bg-blue-600 text-white' 
+                                                        : 'text-slate-400 hover:text-slate-200'
+                                                }`}
+                                                title="Tree view"
+                                            >
+                                                <Icons.Grid />
+                                            </button>
+                                            <button
+                                                onClick={() => setViewMode('list')}
+                                                className={`p-2 rounded transition-colors ${
+                                                    viewMode === 'list' 
+                                                        ? 'bg-blue-600 text-white' 
+                                                        : 'text-slate-400 hover:text-slate-200'
+                                                }`}
+                                                title="List view"
+                                            >
+                                                <Icons.List />
+                                            </button>
                                         </div>
                                     </div>
+                                </div>
+
+                                {/* Repository List */}
+                                <div className="bg-slate-800 rounded-lg p-4">
+                                    <div className="space-y-1">
+                                        {viewMode === 'tree' ? (
+                                            // Tree View
+                                            Object.entries(processedRepositories.tree)
+                                                .sort(([a], [b]) => a.localeCompare(b))
+                                                .map(([rootName, rootData]) => (
+                                                    <TreeNode
+                                                        key={rootName}
+                                                        name={rootName}
+                                                        data={rootData}
+                                                        level={0}
+                                                        path=""
+                                                    />
+                                                ))
+                                        ) : (
+                                            // List View
+                                            repositoryAccess.projects
+                                                .filter(project =>
+                                                    project.toLowerCase().includes(searchTerm.toLowerCase())
+                                                )
+                                                .sort()
+                                                .map((project) => (
+                                                    <div 
+                                                        key={project} 
+                                                        className="flex items-center justify-between py-2 px-3 bg-slate-700 rounded border border-slate-600 hover:border-slate-500 transition-colors mb-1"
+                                                    >
+                                                        <div className="flex items-center space-x-3">
+                                                            <Icons.Git />
+                                                            <span className="text-slate-200 font-mono text-sm">
+                                                                {project}
+                                                            </span>
+                                                        </div>
+                                                        <div className="flex items-center space-x-1 text-yellow-500">
+                                                            <Icons.NotReady />
+                                                            <span className="text-xs">Not Ready</span>
+                                                        </div>
+                                                    </div>
+                                                ))
+                                        )}
+                                    </div>
+                                    
+                                    {processedRepositories.filtered === 0 && searchTerm && (
+                                        <div className="text-center py-8">
+                                            <Icons.Search />
+                                            <p className="text-slate-400 mt-4">
+                                                No repositories found matching "{searchTerm}"
+                                            </p>
+                                            <Button 
+                                                variant="ghost" 
+                                                size="sm" 
+                                                onClick={() => setSearchTerm('')}
+                                                className="mt-2"
+                                            >
+                                                Clear search
+                                            </Button>
+                                        </div>
+                                    )}
                                 </div>
                             </div>
                         ) : (
