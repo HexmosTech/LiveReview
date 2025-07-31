@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Card, Input, Button, Avatar } from '../UIPrimitives';
+import { Input, Button, Avatar } from '../UIPrimitives';
 import { validateGitLabProfile } from '../../api/gitlabProfile';
 import { createPATConnector } from '../../api/patConnector';
 import { getConnectors } from '../../api/connectors';
@@ -56,7 +56,7 @@ const ManualSelfHostedGitLab: React.FC = () => {
     };
 
     return (
-        <Card title="Manual Self-Hosted GitLab Connector">
+        <div>
             <div className="mb-4 rounded-md bg-yellow-900 text-yellow-200 px-4 py-3 border border-yellow-400 text-base font-semibold">
                 <span className="font-bold">Recommended:</span> For best practice, create a dedicated GitLab user such as <span className="font-bold text-yellow-100">LiveReviewBot</span> and grant it access to all projects/groups where you want AI code reviews. This helps with security, auditability, and permission management.
             </div>
@@ -150,7 +150,7 @@ const ManualSelfHostedGitLab: React.FC = () => {
                     </div>
                 </div>
             )}
-        </Card>
+        </div>
     );
 };
 

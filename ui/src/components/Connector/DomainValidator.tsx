@@ -9,6 +9,7 @@ interface DomainValidatorProps {
 /**
  * Domain validator specifically for the Git Providers page
  * Blocks access to connector creation until domain is configured
+ * Allows access in development mode (localhost) even without domain configuration
  */
 const DomainValidator: React.FC<DomainValidatorProps> = ({ children }) => {
   const [state, setState] = useState({
@@ -17,6 +18,11 @@ const DomainValidator: React.FC<DomainValidatorProps> = ({ children }) => {
     error: '',
     url: ''
   });
+
+  // Check if we're running in development mode
+  const isDevelopment = window.location.hostname === 'localhost' || 
+                       window.location.hostname === '127.0.0.1' ||
+                       window.location.hostname.includes('localhost');
 
   useEffect(() => {
     const checkDomain = async () => {
@@ -84,6 +90,12 @@ const DomainValidator: React.FC<DomainValidatorProps> = ({ children }) => {
         </div>
       </Card>
     );
+  }
+
+  // Allow access in development mode even if domain is not configured
+  if (!state.isConfigured && isDevelopment) {
+    console.log('DomainValidator: Allowing access in development mode');
+    return <>{children}</>;
   }
 
   if (!state.isConfigured) {

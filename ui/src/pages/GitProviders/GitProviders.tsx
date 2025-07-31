@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Routes, Route, useNavigate } from 'react-router-dom';
 import { formatDistanceToNow, format } from 'date-fns';
 import ConnectorForm from '../../components/Connector/ConnectorForm';
+import ProviderSelection from '../../components/Connector/ProviderSelection';
 import { useAppDispatch, useAppSelector } from '../../store/configureStore';
 import { addConnector, setConnectors, ConnectorType, Connector } from '../../store/Connector/reducer';
 import { 
@@ -56,6 +57,7 @@ const GitProviders: React.FC = () => {
         <Routes>
             <Route index element={<GitProvidersList />} />
             <Route path="connector/:connectorId" element={<ConnectorDetails />} />
+            <Route path="*" element={<ConnectorForm />} />
         </Routes>
     );
 };
@@ -166,7 +168,7 @@ const GitProvidersList: React.FC = () => {
             
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
                 <div>
-                    <ConnectorForm />
+                    <ProviderSelection />
                     
                     {/* Brand Showcase */}
                     <div className="mt-6 card-brand rounded-lg bg-slate-700 border border-slate-600 p-5 shadow-md">
