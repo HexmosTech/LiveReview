@@ -15,12 +15,13 @@ import (
 
 // RepositoryAccessResponse represents the response for repository access information
 type RepositoryAccessResponse struct {
-	ConnectorID  int      `json:"connector_id"`
-	Provider     string   `json:"provider"`
-	BaseURL      string   `json:"base_url"`
-	Projects     []string `json:"projects"`
-	ProjectCount int      `json:"project_count"`
-	Error        string   `json:"error,omitempty"`
+	ConnectorID  int       `json:"connector_id"`
+	Provider     string    `json:"provider"`
+	BaseURL      string    `json:"base_url"`
+	Projects     []string  `json:"projects"`
+	ProjectCount int       `json:"project_count"`
+	Error        string    `json:"error,omitempty"`
+	UpdatedAt    time.Time `json:"updated_at"`
 }
 
 // CachedProjectData represents the cached project data structure
@@ -67,6 +68,7 @@ func (s *Server) fetchAndCacheRepositoryData(connectorID int, forceRefresh bool,
 		BaseURL:      providerURL,
 		Projects:     []string{},
 		ProjectCount: 0,
+		UpdatedAt:    time.Now(),
 	}
 
 	// Check if we have cached data and not forcing refresh
@@ -77,6 +79,7 @@ func (s *Server) fetchAndCacheRepositoryData(connectorID int, forceRefresh bool,
 			response.Projects = cachedData.Projects
 			response.ProjectCount = cachedData.ProjectCount
 			response.Error = cachedData.Error
+			response.UpdatedAt = cachedData.CachedAt
 			return response, nil
 		}
 		// If unmarshaling fails, continue with fresh fetch
@@ -139,9 +142,9 @@ func (s *Server) updateProjectsCache(connectorID int, response *RepositoryAccess
 
 	_, err = s.db.Exec(`
 		UPDATE integration_tokens 
-		SET projects_cache = $1 
-		WHERE id = $2
-	`, cachedDataJSON, connectorID)
+		SET projects_cache = $1, updated_at = $2 
+		WHERE id = $3
+	`, cachedDataJSON, time.Now(), connectorID)
 
 	if err != nil {
 		// Log error but don't fail the request
