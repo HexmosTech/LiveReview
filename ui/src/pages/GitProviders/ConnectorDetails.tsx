@@ -23,6 +23,7 @@ interface RepositoryAccess {
     projects: string[];
     project_count: number;
     error?: string;
+    updated_at: string;
 }
 
 interface TreeNodeData {
@@ -177,11 +178,11 @@ const ConnectorDetails: React.FC = () => {
     const [isDeleting, setIsDeleting] = useState(false);
     const [repositoryAccess, setRepositoryAccess] = useState<RepositoryAccess | null>(null);
     const [isLoadingRepos, setIsLoadingRepos] = useState(false);
+    const [isRefreshing, setIsRefreshing] = useState(false);
     
     // Repository filtering and grouping state
     const [searchTerm, setSearchTerm] = useState('');
     const [viewMode, setViewMode] = useState<'tree' | 'list'>('tree'); // Default to tree view
-    const [lastSyncTime] = useState(new Date(Date.now() - 15 * 60 * 1000)); // Mock: 15 minutes ago
 
     // Process repositories for filtering and tree structure
     const processedRepositories = useMemo(() => {
@@ -278,17 +279,33 @@ const ConnectorDetails: React.FC = () => {
         }
     }, [connectorId, connectors]);
 
-    const fetchRepositoryAccess = async (connectorId: string) => {
-        setIsLoadingRepos(true);
+    const fetchRepositoryAccess = async (connectorId: string, refresh?: boolean) => {
+        if (refresh) {
+            setIsRefreshing(true);
+        } else {
+            setIsLoadingRepos(true);
+        }
         try {
-            const accessData = await getRepositoryAccess(connectorId);
+            const accessData = await getRepositoryAccess(connectorId, refresh);
             setRepositoryAccess(accessData);
         } catch (err) {
             console.error('Error fetching repository access:', err);
             // Don't show error for repository access, just log it
         } finally {
             setIsLoadingRepos(false);
+            setIsRefreshing(false);
         }
+    };
+
+    const handleRefreshRepositories = async () => {
+        if (!connectorId) return;
+        
+        // Show confirmation dialog for long operation
+        if (!confirm('This operation may take a while as it will fetch fresh data from the Git provider. Continue?')) {
+            return;
+        }
+        
+        await fetchRepositoryAccess(connectorId, true);
     };
 
     const formatConnectorType = (type: string) => {
@@ -573,9 +590,27 @@ const ConnectorDetails: React.FC = () => {
                                     <span className="text-xs font-medium">Not Ready</span>
                                 </div>
                             </div>
-                            <div className="flex items-center space-x-2 text-slate-400 text-xs">
-                                <Icons.Clock />
-                                <span>Synced {formatDistanceToNow(lastSyncTime, { addSuffix: true })}</span>
+                            <div className="flex items-center space-x-4">
+                                <div className="flex items-center space-x-2 text-slate-400 text-xs">
+                                    <Icons.Clock />
+                                    <span>
+                                        {repositoryAccess?.updated_at 
+                                            ? `Synced ${formatDistanceToNow(new Date(repositoryAccess.updated_at), { addSuffix: true })}`
+                                            : 'Never synced'
+                                        }
+                                    </span>
+                                </div>
+                                <Button
+                                    variant="outline"
+                                    size="sm"
+                                    onClick={handleRefreshRepositories}
+                                    disabled={isRefreshing}
+                                    icon={isRefreshing ? <Spinner size="sm" /> : <Icons.Refresh />}
+                                    iconPosition="left"
+                                    className="text-xs"
+                                >
+                                    {isRefreshing ? 'Refreshing...' : 'Refresh'}
+                                </Button>
                             </div>
                         </div>
                         {isLoadingRepos ? (
