@@ -257,8 +257,67 @@ const ConnectorDetails: React.FC = () => {
                                 </div>
                             </div>
 
-                            {/* Metadata */}
-                            {connector.metadata && Object.keys(connector.metadata).length > 0 && (
+                            {/* GitLab Profile Information */}
+                            {(connector.type === 'gitlab' || connector.type === 'gitlab-com' || connector.type === 'gitlab-self-hosted') && 
+                             connector.metadata?.gitlabProfile && (
+                                <div>
+                                    <label className="block text-sm font-medium text-slate-300 mb-3">
+                                        GitLab Profile Information
+                                    </label>
+                                    <div className="bg-slate-800 rounded-lg p-4 border border-slate-600">
+                                        <div className="flex items-center space-x-4">
+                                            {connector.metadata.gitlabProfile.avatar_url && (
+                                                <Avatar 
+                                                    src={connector.metadata.gitlabProfile.avatar_url} 
+                                                    size="lg"
+                                                    initials={connector.metadata.gitlabProfile.name?.charAt(0).toUpperCase() || 'U'}
+                                                />
+                                            )}
+                                            <div className="flex-grow">
+                                                <div className="flex items-center space-x-3 mb-2">
+                                                    <h4 className="text-lg font-semibold text-white">
+                                                        {connector.metadata.gitlabProfile.name || 'Unknown User'}
+                                                    </h4>
+                                                    {connector.metadata.gitlabProfile.username && (
+                                                        <span className="text-blue-300 font-medium">
+                                                            @{connector.metadata.gitlabProfile.username}
+                                                        </span>
+                                                    )}
+                                                </div>
+                                                <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-sm">
+                                                    {connector.metadata.gitlabProfile.email && (
+                                                        <div className="flex items-center space-x-2">
+                                                            <Icons.Email />
+                                                            <span className="text-slate-300">
+                                                                {connector.metadata.gitlabProfile.email}
+                                                            </span>
+                                                        </div>
+                                                    )}
+                                                    {connector.metadata.gitlabProfile.id && (
+                                                        <div className="flex items-center space-x-2">
+                                                            <Icons.User />
+                                                            <span className="text-slate-300">
+                                                                User ID: {connector.metadata.gitlabProfile.id}
+                                                            </span>
+                                                        </div>
+                                                    )}
+                                                </div>
+                                                {connector.metadata.manual && (
+                                                    <div className="mt-3">
+                                                        <Badge variant="info" size="sm">
+                                                            Manual Connection
+                                                        </Badge>
+                                                    </div>
+                                                )}
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            )}
+                            
+                            {/* Other Metadata (for non-GitLab providers or additional data) */}
+                            {connector.metadata && Object.keys(connector.metadata).length > 0 && 
+                             !(connector.type === 'gitlab' || connector.type === 'gitlab-com' || connector.type === 'gitlab-self-hosted') && (
                                 <div>
                                     <label className="block text-sm font-medium text-slate-300 mb-2">
                                         Additional Information
