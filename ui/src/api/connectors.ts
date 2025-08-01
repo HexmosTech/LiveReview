@@ -26,6 +26,21 @@ export interface ConnectorResponse {
 }
 
 /**
+ * Fetch a single connector by ID from the server
+ * @param connectorId The ID of the connector to fetch
+ * @returns Promise with the connector data
+ */
+export const getConnector = async (connectorId: string): Promise<ConnectorResponse> => {
+  try {
+    const response = await apiClient.get<ConnectorResponse>(`/api/v1/connectors/${connectorId}`);
+    return response;
+  } catch (error) {
+    console.error('Error fetching connector:', error);
+    throw error;
+  }
+};
+
+/**
  * Fetch all connectors/integrations from the server
  * @returns Promise with array of connectors
  */

@@ -14,7 +14,7 @@ import {
     Input
 } from '../../components/UIPrimitives';
 import { Connector } from '../../store/Connector/reducer';
-import { deleteConnector, getRepositoryAccess, enableManualTriggerForAllProjects, ProjectWithStatus } from '../../api/connectors';
+import { deleteConnector, getRepositoryAccess, enableManualTriggerForAllProjects, ProjectWithStatus, getConnector } from '../../api/connectors';
 import type { RepositoryAccess } from '../../api/connectors';
 
 // Extended interface to support both old and new API response formats
@@ -300,21 +300,60 @@ const ConnectorDetails: React.FC = () => {
     }, [repositoryAccess?.projects, repositoryAccess?.projects_with_status, searchTerm]);
 
     useEffect(() => {
-        if (connectorId && connectors.length > 0) {
-            const foundConnector = connectors.find(c => c.id === connectorId);
-            if (foundConnector) {
-                setConnector(foundConnector);
-                setError(null);
-                // Fetch repository access information
-                fetchRepositoryAccess(connectorId);
-            } else {
-                setError('Connector not found');
+        const initializeConnector = async () => {
+            if (!connectorId) {
+                setError('No connector ID provided');
+                setIsLoading(false);
+                return;
             }
-            setIsLoading(false);
-        } else if (connectors.length === 0) {
-            // Still loading connectors
-            setIsLoading(true);
-        }
+
+            try {
+                // First try to find connector in Redux state
+                let foundConnector = connectors.find(c => c.id === connectorId);
+                
+                // If not found in Redux state, fetch it directly from API
+                if (!foundConnector && connectors.length === 0) {
+                    // Connectors not loaded yet, try to fetch this specific connector
+                    try {
+                        const connectorResponse = await getConnector(connectorId);
+                        // Transform API response to Connector format
+                        foundConnector = {
+                            id: connectorResponse.id.toString(),
+                            name: connectorResponse.connection_name || `${connectorResponse.provider} Connection`,
+                            type: connectorResponse.provider as any,
+                            url: connectorResponse.provider_url || '',
+                            apiKey: connectorResponse.provider_app_id || '',
+                            createdAt: connectorResponse.created_at,
+                            metadata: connectorResponse.metadata || {}
+                        };
+                    } catch (apiError) {
+                        console.error('Error fetching specific connector:', apiError);
+                        setError('Connector not found');
+                        setIsLoading(false);
+                        return;
+                    }
+                } else if (!foundConnector && connectors.length > 0) {
+                    // Connectors are loaded but this one doesn't exist
+                    setError('Connector not found');
+                    setIsLoading(false);
+                    return;
+                }
+
+                if (foundConnector) {
+                    setConnector(foundConnector);
+                    setError(null);
+                    // Fetch repository access information
+                    fetchRepositoryAccess(connectorId);
+                }
+            } catch (err) {
+                console.error('Error initializing connector:', err);
+                setError('Failed to load connector');
+            } finally {
+                setIsLoading(false);
+            }
+        };
+
+        initializeConnector();
     }, [connectorId, connectors]);
 
     const fetchRepositoryAccess = async (connectorId: string, refresh?: boolean) => {

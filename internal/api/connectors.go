@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"log"
 	"net/http"
+	"strconv"
 	"time"
 
 	"github.com/labstack/echo/v4"
@@ -282,6 +283,99 @@ func (s *Server) GetConnectors(c echo.Context) error {
 	}
 
 	return c.JSON(http.StatusOK, connectors)
+}
+
+// GetConnector handles fetching a single git provider connection by ID
+func (s *Server) GetConnector(c echo.Context) error {
+	// Check if the user is authenticated
+	password := c.Request().Header.Get("X-Admin-Password")
+	if password == "" {
+		return c.JSON(http.StatusUnauthorized, ErrorResponse{
+			Error: "Authentication required",
+		})
+	}
+
+	// Get the stored hashed password
+	var hashedPassword string
+	err := s.db.QueryRow("SELECT admin_password FROM instance_details LIMIT 1").Scan(&hashedPassword)
+	if err != nil {
+		return c.JSON(http.StatusInternalServerError, ErrorResponse{
+			Error: "Failed to check authentication: " + err.Error(),
+		})
+	}
+
+	// Verify the provided password
+	if !comparePasswords(hashedPassword, password) {
+		return c.JSON(http.StatusUnauthorized, ErrorResponse{
+			Error: "Invalid authentication",
+		})
+	}
+
+	// Get connector ID from URL parameter
+	connectorIDStr := c.Param("id")
+	connectorID, err := strconv.Atoi(connectorIDStr)
+	if err != nil {
+		return c.JSON(http.StatusBadRequest, ErrorResponse{
+			Error: "Invalid connector ID",
+		})
+	}
+
+	// Query the database for the specific integration token
+	var connector ConnectorResponse
+	var metadataRaw []byte
+
+	err = s.db.QueryRow(`
+		SELECT id, provider, provider_app_id, connection_name, provider_url, metadata, created_at, updated_at
+		FROM integration_tokens
+		WHERE id = $1
+	`, connectorID).Scan(
+		&connector.ID,
+		&connector.Provider,
+		&connector.ProviderAppID,
+		&connector.ConnectionName,
+		&connector.ProviderURL,
+		&metadataRaw,
+		&connector.CreatedAt,
+		&connector.UpdatedAt,
+	)
+
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return c.JSON(http.StatusNotFound, ErrorResponse{
+				Error: "Connector not found",
+			})
+		}
+		log.Printf("Database error: %v", err)
+		return c.JSON(http.StatusInternalServerError, ErrorResponse{
+			Error: "Database error: " + err.Error(),
+		})
+	}
+
+	// Parse the metadata JSON
+	if metadataRaw != nil {
+		var metadata map[string]interface{}
+		if err := json.Unmarshal(metadataRaw, &metadata); err != nil {
+			log.Printf("Failed to parse metadata JSON: %v", err)
+			connector.Metadata = json.RawMessage("{}")
+		} else {
+			// Remove sensitive info like tokens
+			delete(metadata, "access_token")
+			delete(metadata, "refresh_token")
+
+			// Re-marshal the filtered metadata
+			filteredMetadata, err := json.Marshal(metadata)
+			if err != nil {
+				log.Printf("Failed to marshal filtered metadata: %v", err)
+				connector.Metadata = json.RawMessage("{}")
+			} else {
+				connector.Metadata = filteredMetadata
+			}
+		}
+	} else {
+		connector.Metadata = json.RawMessage("{}")
+	}
+
+	return c.JSON(http.StatusOK, connector)
 }
 
 // DeleteConnector handles deletion of a git provider connection
