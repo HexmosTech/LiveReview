@@ -1,5 +1,19 @@
 import apiClient from './apiClient';
 
+// Types for repository access
+export interface ProjectWithStatus {
+  project_path: string;
+  webhook_status: 'unconnected' | 'manual' | 'automatic';
+  last_verified?: string;
+  webhook_id?: string;
+  updated_at: string;
+}
+
+export interface RepositoryAccess {
+  projects_with_status: ProjectWithStatus[];
+  projects?: string[]; // Legacy field, kept for backward compatibility
+}
+
 export interface ConnectorResponse {
   id: number;
   provider: string;
@@ -45,13 +59,13 @@ export const deleteConnector = async (connectorId: string): Promise<any> => {
  * @param refresh Optional parameter to force refresh the cached data
  * @returns Promise with repository access information
  */
-export const getRepositoryAccess = async (connectorId: string, refresh?: boolean): Promise<any> => {
+export const getRepositoryAccess = async (connectorId: string, refresh?: boolean): Promise<RepositoryAccess> => {
   try {
     let url = `/api/v1/connectors/${connectorId}/repository-access`;
     if (refresh) {
       url += '?refresh=true';
     }
-    const response = await apiClient.get(url);
+    const response = await apiClient.get<RepositoryAccess>(url);
     return response;
   } catch (error) {
     console.error('Error fetching repository access:', error);

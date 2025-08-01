@@ -13,15 +13,25 @@ import (
 	"github.com/livereview/internal/providers/gitlab"
 )
 
+// ProjectWithStatus represents a project with its webhook status
+type ProjectWithStatus struct {
+	ProjectPath   string     `json:"project_path"`
+	WebhookStatus string     `json:"webhook_status"` // "unconnected", "manual", "automatic"
+	LastVerified  *time.Time `json:"last_verified,omitempty"`
+	WebhookID     string     `json:"webhook_id,omitempty"`
+	UpdatedAt     time.Time  `json:"updated_at"`
+}
+
 // RepositoryAccessResponse represents the response for repository access information
 type RepositoryAccessResponse struct {
-	ConnectorID  int       `json:"connector_id"`
-	Provider     string    `json:"provider"`
-	BaseURL      string    `json:"base_url"`
-	Projects     []string  `json:"projects"`
-	ProjectCount int       `json:"project_count"`
-	Error        string    `json:"error,omitempty"`
-	UpdatedAt    time.Time `json:"updated_at"`
+	ConnectorID        int                 `json:"connector_id"`
+	Provider           string              `json:"provider"`
+	BaseURL            string              `json:"base_url"`
+	Projects           []string            `json:"projects"` // Keep for backward compatibility
+	ProjectsWithStatus []ProjectWithStatus `json:"projects_with_status"`
+	ProjectCount       int                 `json:"project_count"`
+	Error              string              `json:"error,omitempty"`
+	UpdatedAt          time.Time           `json:"updated_at"`
 }
 
 // CachedProjectData represents the cached project data structure
@@ -63,12 +73,13 @@ func (s *Server) fetchAndCacheRepositoryData(connectorID int, forceRefresh bool,
 
 	// Initialize response
 	response := &RepositoryAccessResponse{
-		ConnectorID:  connectorID,
-		Provider:     provider,
-		BaseURL:      providerURL,
-		Projects:     []string{},
-		ProjectCount: 0,
-		UpdatedAt:    time.Now(),
+		ConnectorID:        connectorID,
+		Provider:           provider,
+		BaseURL:            providerURL,
+		Projects:           []string{},
+		ProjectsWithStatus: []ProjectWithStatus{},
+		ProjectCount:       0,
+		UpdatedAt:          time.Now(),
 	}
 
 	// Check if we have cached data and not forcing refresh
@@ -80,6 +91,29 @@ func (s *Server) fetchAndCacheRepositoryData(connectorID int, forceRefresh bool,
 			response.ProjectCount = cachedData.ProjectCount
 			response.Error = cachedData.Error
 			response.UpdatedAt = cachedData.CachedAt
+
+			// Always fetch fresh webhook statuses (they change frequently)
+			if len(cachedData.Projects) > 0 {
+				webhookStatuses, err := s.fetchWebhookStatuses(connectorID, cachedData.Projects)
+				if err != nil {
+					fmt.Printf("Warning: Failed to fetch webhook statuses for cached data: %v\n", err)
+				}
+
+				// Build ProjectsWithStatus array
+				response.ProjectsWithStatus = make([]ProjectWithStatus, 0, len(cachedData.Projects))
+				for _, project := range cachedData.Projects {
+					if status, exists := webhookStatuses[project]; exists {
+						response.ProjectsWithStatus = append(response.ProjectsWithStatus, status)
+					} else {
+						response.ProjectsWithStatus = append(response.ProjectsWithStatus, ProjectWithStatus{
+							ProjectPath:   project,
+							WebhookStatus: "unconnected",
+							UpdatedAt:     time.Now(),
+						})
+					}
+				}
+			}
+
 			return response, nil
 		}
 		// If unmarshaling fails, continue with fresh fetch
@@ -116,12 +150,94 @@ func (s *Server) fetchAndCacheRepositoryData(connectorID int, forceRefresh bool,
 	response.Projects = projects
 	response.ProjectCount = len(projects)
 
+	// Fetch webhook statuses for all projects
+	webhookStatuses, err := s.fetchWebhookStatuses(connectorID, projects)
+	if err != nil {
+		fmt.Printf("Warning: Failed to fetch webhook statuses: %v\n", err)
+	}
+
+	// Build ProjectsWithStatus array
+	response.ProjectsWithStatus = make([]ProjectWithStatus, 0, len(projects))
+	for _, project := range projects {
+		if status, exists := webhookStatuses[project]; exists {
+			response.ProjectsWithStatus = append(response.ProjectsWithStatus, status)
+		} else {
+			// Default to unconnected if no webhook status found
+			response.ProjectsWithStatus = append(response.ProjectsWithStatus, ProjectWithStatus{
+				ProjectPath:   project,
+				WebhookStatus: "unconnected",
+				UpdatedAt:     time.Now(),
+			})
+		}
+	}
+
 	// Cache the result if requested
 	if shouldCache {
 		s.updateProjectsCache(connectorID, response)
 	}
 
 	return response, nil
+}
+
+// fetchWebhookStatuses fetches webhook statuses for all projects in a single query
+func (s *Server) fetchWebhookStatuses(connectorID int, projects []string) (map[string]ProjectWithStatus, error) {
+	if len(projects) == 0 {
+		return make(map[string]ProjectWithStatus), nil
+	}
+
+	// Create a map to store results
+	statusMap := make(map[string]ProjectWithStatus)
+
+	// Initialize all projects with "unconnected" status
+	for _, project := range projects {
+		statusMap[project] = ProjectWithStatus{
+			ProjectPath:   project,
+			WebhookStatus: "unconnected",
+			UpdatedAt:     time.Now(),
+		}
+	}
+
+	// Fetch webhook statuses from database in a single query
+	query := `
+		SELECT project_full_name, status, last_verified_at, webhook_id, updated_at
+		FROM webhook_registry 
+		WHERE integration_token_id = $1
+	`
+
+	rows, err := s.db.Query(query, connectorID)
+	if err != nil {
+		return statusMap, fmt.Errorf("failed to fetch webhook statuses: %w", err)
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var projectPath, status, webhookID string
+		var lastVerified, updatedAt sql.NullTime
+
+		err := rows.Scan(&projectPath, &status, &lastVerified, &webhookID, &updatedAt)
+		if err != nil {
+			continue // Skip invalid rows
+		}
+
+		projectStatus := ProjectWithStatus{
+			ProjectPath:   projectPath,
+			WebhookStatus: status,
+			WebhookID:     webhookID,
+			UpdatedAt:     time.Now(),
+		}
+
+		if lastVerified.Valid {
+			projectStatus.LastVerified = &lastVerified.Time
+		}
+
+		if updatedAt.Valid {
+			projectStatus.UpdatedAt = updatedAt.Time
+		}
+
+		statusMap[projectPath] = projectStatus
+	}
+
+	return statusMap, nil
 }
 
 // updateProjectsCache updates the projects_cache column for the given connector

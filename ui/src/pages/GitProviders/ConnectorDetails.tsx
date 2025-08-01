@@ -14,13 +14,16 @@ import {
     Input
 } from '../../components/UIPrimitives';
 import { Connector } from '../../store/Connector/reducer';
-import { deleteConnector, getRepositoryAccess, enableManualTriggerForAllProjects } from '../../api/connectors';
+import { deleteConnector, getRepositoryAccess, enableManualTriggerForAllProjects, ProjectWithStatus } from '../../api/connectors';
+import type { RepositoryAccess } from '../../api/connectors';
 
-interface RepositoryAccess {
+// Extended interface to support both old and new API response formats
+interface RepositoryAccessExtended {
     connector_id: number;
     provider: string;
     base_url: string;
-    projects: string[];
+    projects?: string[]; // Legacy field
+    projects_with_status?: ProjectWithStatus[]; // New field
     project_count: number;
     error?: string;
     updated_at: string;
@@ -32,14 +35,37 @@ interface TreeNodeData {
     isLeaf: boolean;
 }
 
+// Helper function to get webhook status for a project
+const getProjectWebhookStatus = (projectsWithStatus: ProjectWithStatus[] | undefined, projectName: string): { status: string; icon: React.ReactNode; className: string } => {
+    if (!projectsWithStatus) {
+        return { status: 'Not Ready', icon: <Icons.NotReady />, className: 'text-yellow-500' };
+    }
+    
+    const project = projectsWithStatus.find(p => p.project_path === projectName);
+    if (!project) {
+        return { status: 'Not Ready', icon: <Icons.NotReady />, className: 'text-yellow-500' };
+    }
+    
+    switch (project.webhook_status) {
+        case 'automatic':
+            return { status: 'Connected', icon: <Icons.Ready />, className: 'text-green-500' };
+        case 'manual':
+            return { status: 'Manual', icon: <Icons.Clock />, className: 'text-blue-500' };
+        case 'unconnected':
+        default:
+            return { status: 'Not Connected', icon: <Icons.Error />, className: 'text-red-500' };
+    }
+};
+
 interface TreeNodeProps {
     name: string;
     data: TreeNodeData;
     level: number;
     path: string;
+    projectsWithStatus?: ProjectWithStatus[];
 }
 
-const TreeNode: React.FC<TreeNodeProps> = ({ name, data, level, path }) => {
+const TreeNode: React.FC<TreeNodeProps> = ({ name, data, level, path, projectsWithStatus }) => {
     const [isExpanded, setIsExpanded] = useState(level < 2); // Auto-expand first 2 levels
     const hasChildren = Object.keys(data.children).length > 0;
     const hasProjects = data.projects.length > 0;
@@ -64,23 +90,26 @@ const TreeNode: React.FC<TreeNodeProps> = ({ name, data, level, path }) => {
     if (name === '_root') {
         return (
             <div>
-                {data.projects.map((project) => (
-                    <div 
-                        key={project} 
-                        className="flex items-center justify-between py-2 px-3 bg-slate-700 rounded border border-slate-600 hover:border-slate-500 transition-colors mb-1"
-                    >
-                        <div className="flex items-center space-x-3">
-                            <Icons.Git />
-                            <span className="text-slate-200 font-mono text-sm">
-                                {project}
-                            </span>
+                {data.projects.map((project) => {
+                    const webhookStatus = getProjectWebhookStatus(projectsWithStatus, project);
+                    return (
+                        <div
+                            key={project}
+                            className="flex items-center justify-between py-2 px-3 bg-slate-700 rounded border border-slate-600 hover:border-slate-500 transition-colors mb-1"
+                        >
+                            <div className="flex items-center space-x-3">
+                                <Icons.Git />
+                                <span className="text-slate-200 font-mono text-sm">
+                                    {project}
+                                </span>
+                            </div>
+                            <div className={`flex items-center space-x-1 ${webhookStatus.className}`}>
+                                {webhookStatus.icon}
+                                <span className="text-xs">{webhookStatus.status}</span>
+                            </div>
                         </div>
-                        <div className="flex items-center space-x-1 text-yellow-500">
-                            <Icons.NotReady />
-                            <span className="text-xs">Not Ready</span>
-                        </div>
-                    </div>
-                ))}
+                    );
+                })}
                 {/* Render children */}
                 {Object.entries(data.children)
                     .sort(([a], [b]) => a.localeCompare(b))
@@ -91,6 +120,7 @@ const TreeNode: React.FC<TreeNodeProps> = ({ name, data, level, path }) => {
                             data={childData}
                             level={0}
                             path=""
+                            projectsWithStatus={projectsWithStatus}
                         />
                     ))}
             </div>
@@ -128,23 +158,26 @@ const TreeNode: React.FC<TreeNodeProps> = ({ name, data, level, path }) => {
             {/* Render projects directly under this namespace */}
             {hasProjects && isExpanded && (
                 <div style={{ marginLeft: `${(level + 1) * 16 + 8}px` }}>
-                    {data.projects.map((project) => (
-                        <div 
-                            key={project} 
-                            className="flex items-center justify-between py-2 px-3 bg-slate-700 rounded border border-slate-600 hover:border-slate-500 transition-colors mb-1"
-                        >
-                            <div className="flex items-center space-x-3">
-                                <Icons.Git />
-                                <span className="text-slate-200 font-mono text-sm">
-                                    {project}
-                                </span>
+                    {data.projects.map((project) => {
+                        const webhookStatus = getProjectWebhookStatus(projectsWithStatus, project);
+                        return (
+                            <div 
+                                key={project} 
+                                className="flex items-center justify-between py-2 px-3 bg-slate-700 rounded border border-slate-600 hover:border-slate-500 transition-colors mb-1"
+                            >
+                                <div className="flex items-center space-x-3">
+                                    <Icons.Git />
+                                    <span className="text-slate-200 font-mono text-sm">
+                                        {project}
+                                    </span>
+                                </div>
+                                <div className={`flex items-center space-x-1 ${webhookStatus.className}`}>
+                                    {webhookStatus.icon}
+                                    <span className="text-xs">{webhookStatus.status}</span>
+                                </div>
                             </div>
-                            <div className="flex items-center space-x-1 text-yellow-500">
-                                <Icons.NotReady />
-                                <span className="text-xs">Not Ready</span>
-                            </div>
-                        </div>
-                    ))}
+                        );
+                    })}
                 </div>
             )}
             
@@ -160,6 +193,7 @@ const TreeNode: React.FC<TreeNodeProps> = ({ name, data, level, path }) => {
                                 data={childData}
                                 level={level + 1}
                                 path={currentPath}
+                                projectsWithStatus={projectsWithStatus}
                             />
                         ))}
                 </div>
@@ -176,7 +210,7 @@ const ConnectorDetails: React.FC = () => {
     const [isLoading, setIsLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
     const [isDeleting, setIsDeleting] = useState(false);
-    const [repositoryAccess, setRepositoryAccess] = useState<RepositoryAccess | null>(null);
+    const [repositoryAccess, setRepositoryAccess] = useState<RepositoryAccessExtended | null>(null);
     const [isLoadingRepos, setIsLoadingRepos] = useState(false);
     const [isRefreshing, setIsRefreshing] = useState(false);
     const [isEnablingManualTrigger, setIsEnablingManualTrigger] = useState(false);
@@ -187,14 +221,17 @@ const ConnectorDetails: React.FC = () => {
 
     // Process repositories for filtering and tree structure
     const processedRepositories = useMemo(() => {
-        if (!repositoryAccess?.projects) return { total: 0, filtered: 0, tree: {} };
-        
+        // Handle both old and new API response formats
+        const projectsList = repositoryAccess?.projects_with_status 
+            ? repositoryAccess.projects_with_status.map(p => p.project_path)
+            : repositoryAccess?.projects || [];
+            
+        if (projectsList.length === 0) return { total: 0, filtered: 0, tree: {} };
+
         // Filter repositories based on search term
-        const filtered = repositoryAccess.projects.filter(project =>
+        const filtered = projectsList.filter(project =>
             project.toLowerCase().includes(searchTerm.toLowerCase())
-        );
-        
-        // Create tree structure for namespaces
+        );        // Create tree structure for namespaces
         const buildTree = (projects: string[]) => {
             const result: Record<string, TreeNodeData> = {};
             
@@ -256,11 +293,11 @@ const ConnectorDetails: React.FC = () => {
         };
         
         return {
-            total: repositoryAccess.projects.length,
+            total: projectsList.length,
             filtered: filtered.length,
             tree: buildTree(filtered)
         };
-    }, [repositoryAccess?.projects, searchTerm]);
+    }, [repositoryAccess?.projects, repositoryAccess?.projects_with_status, searchTerm]);
 
     useEffect(() => {
         if (connectorId && connectors.length > 0) {
@@ -288,7 +325,7 @@ const ConnectorDetails: React.FC = () => {
         }
         try {
             const accessData = await getRepositoryAccess(connectorId, refresh);
-            setRepositoryAccess(accessData);
+            setRepositoryAccess(accessData as RepositoryAccessExtended);
         } catch (err) {
             console.error('Error fetching repository access:', err);
             // Don't show error for repository access, just log it
@@ -834,32 +871,38 @@ const ConnectorDetails: React.FC = () => {
                                                         data={rootData}
                                                         level={0}
                                                         path=""
+                                                        projectsWithStatus={repositoryAccess?.projects_with_status}
                                                     />
                                                 ))
                                         ) : (
                                             // List View
-                                            repositoryAccess.projects
+                                            (repositoryAccess?.projects_with_status 
+                                                ? repositoryAccess.projects_with_status.map(p => p.project_path)
+                                                : repositoryAccess?.projects || [])
                                                 .filter(project =>
                                                     project.toLowerCase().includes(searchTerm.toLowerCase())
                                                 )
                                                 .sort()
-                                                .map((project) => (
-                                                    <div 
-                                                        key={project} 
-                                                        className="flex items-center justify-between py-2 px-3 bg-slate-700 rounded border border-slate-600 hover:border-slate-500 transition-colors mb-1"
-                                                    >
-                                                        <div className="flex items-center space-x-3">
-                                                            <Icons.Git />
-                                                            <span className="text-slate-200 font-mono text-sm">
-                                                                {project}
-                                                            </span>
+                                                .map((project) => {
+                                                    const webhookStatus = getProjectWebhookStatus(repositoryAccess?.projects_with_status, project);
+                                                    return (
+                                                        <div 
+                                                            key={project} 
+                                                            className="flex items-center justify-between py-2 px-3 bg-slate-700 rounded border border-slate-600 hover:border-slate-500 transition-colors mb-1"
+                                                        >
+                                                            <div className="flex items-center space-x-3">
+                                                                <Icons.Git />
+                                                                <span className="text-slate-200 font-mono text-sm">
+                                                                    {project}
+                                                                </span>
+                                                            </div>
+                                                            <div className={`flex items-center space-x-1 ${webhookStatus.className}`}>
+                                                                {webhookStatus.icon}
+                                                                <span className="text-xs">{webhookStatus.status}</span>
+                                                            </div>
                                                         </div>
-                                                        <div className="flex items-center space-x-1 text-yellow-500">
-                                                            <Icons.NotReady />
-                                                            <span className="text-xs">Not Ready</span>
-                                                        </div>
-                                                    </div>
-                                                ))
+                                                    );
+                                                })
                                         )}
                                     </div>
                                     
