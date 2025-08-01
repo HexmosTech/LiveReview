@@ -109,6 +109,7 @@ func (s *Server) setupRoutes() {
 
 	// Connector endpoints
 	v1.GET("/connectors", s.GetConnectors)
+	v1.GET("/connectors/:id", s.GetConnector)
 	v1.DELETE("/connectors/:id", s.DeleteConnector)
 	v1.GET("/connectors/:connectorId/repository-access", s.GetRepositoryAccess)
 	v1.POST("/connectors/:connectorId/enable-manual-trigger", s.EnableManualTriggerForAllProjects)
