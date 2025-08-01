@@ -215,9 +215,75 @@ const ConnectorDetails: React.FC = () => {
     const [isRefreshing, setIsRefreshing] = useState(false);
     const [isEnablingManualTrigger, setIsEnablingManualTrigger] = useState(false);
     
+    // Simple notification state
+    const [notification, setNotification] = useState<{
+        type: 'success' | 'error' | 'warning' | 'info';
+        message: string;
+        show: boolean;
+        persistent?: boolean; // Don't auto-hide if true
+    } | null>(null);
+    
+    // Confirmation modal state
+    const [confirmModal, setConfirmModal] = useState<{
+        show: boolean;
+        title: string;
+        message: string;
+        onConfirm: () => void;
+        confirmText: string;
+        cancelText: string;
+        type: 'warning' | 'danger';
+    } | null>(null);
+    
     // Repository filtering and grouping state
     const [searchTerm, setSearchTerm] = useState('');
     const [viewMode, setViewMode] = useState<'tree' | 'list'>('tree'); // Default to tree view
+
+    // Helper function to parse simple markdown bold (**text**)
+    const parseMarkdownBold = (text: string) => {
+        const parts = text.split(/(\*\*[^*]+\*\*)/);
+        return parts.map((part, index) => {
+            if (part.startsWith('**') && part.endsWith('**')) {
+                return <strong key={index}>{part.slice(2, -2)}</strong>;
+            }
+            return part;
+        });
+    };
+
+    // Helper function for simple notifications
+    const showNotification = (type: 'success' | 'error' | 'warning' | 'info', message: string, persistent = false) => {
+        setNotification({ type, message, show: true, persistent });
+        // Auto-hide after 5 seconds unless persistent
+        if (!persistent) {
+            setTimeout(() => {
+                setNotification(prev => prev ? { ...prev, show: false } : null);
+            }, 5000);
+        }
+    };
+
+    // Helper function to show confirmation modal
+    const showConfirmModal = (
+        title: string,
+        message: string,
+        onConfirm: () => void,
+        options?: {
+            confirmText?: string;
+            cancelText?: string;
+            type?: 'warning' | 'danger';
+        }
+    ) => {
+        setConfirmModal({
+            show: true,
+            title,
+            message,
+            onConfirm: () => {
+                setConfirmModal(null);
+                onConfirm();
+            },
+            confirmText: options?.confirmText || 'Continue',
+            cancelText: options?.cancelText || 'Cancel',
+            type: options?.type || 'warning'
+        });
+    };
 
     // Process repositories for filtering and tree structure
     const processedRepositories = useMemo(() => {
@@ -377,37 +443,63 @@ const ConnectorDetails: React.FC = () => {
     const handleRefreshRepositories = async () => {
         if (!connectorId) return;
         
-        // Show confirmation dialog for long operation
-        if (!confirm('This operation may take a while as it will fetch fresh data from the Git provider. Continue?')) {
-            return;
-        }
-        
-        await fetchRepositoryAccess(connectorId, true);
+        showConfirmModal(
+            "Refresh Repository Data",
+            "This operation may take a while as it will fetch fresh data from the Git provider. All cached repository information will be updated. Continue?",
+            async () => {
+                try {
+                    await fetchRepositoryAccess(connectorId, true);
+                    showNotification('success', 'Successfully updated repository information from your Git provider.');
+                } catch (err) {
+                    console.error('Error refreshing repositories:', err);
+                    showNotification('error', 'Failed to refresh repository data. Please try again or contact support.');
+                }
+            },
+            {
+                confirmText: 'Yes, Refresh',
+                cancelText: 'Cancel',
+                type: 'warning'
+            }
+        );
     };
 
     const handleEnableManualTrigger = async () => {
         if (!connectorId) return;
         
-        // Show confirmation dialog
-        if (!confirm('This will enable manual trigger for all projects in this connector. You will be able to trigger AI reviews using "@liveapibot" mention or via the web UI. Continue?')) {
-            return;
-        }
+        const modalMessage = "This will configure webhook access for all projects in this connector, allowing you to trigger AI reviews using \"@liveapibot\" mentions or via the web UI. **This process may take several minutes to complete.** Continue?";
         
-        setIsEnablingManualTrigger(true);
-        try {
-            const result = await enableManualTriggerForAllProjects(connectorId);
-            // Reset loading state immediately after successful API call
-            setIsEnablingManualTrigger(false);
-            
-            alert(`Success! Manual trigger enabled for ${result.jobs_queued || result.total_projects || 'all'} projects. You can now trigger AI reviews using "@liveapibot" mention or via the web UI.`);
-            
-            // Refresh repository access to show updated status
-            await fetchRepositoryAccess(connectorId, true);
-        } catch (err) {
-            console.error('Error enabling manual trigger:', err);
-            setIsEnablingManualTrigger(false);
-            alert('Failed to enable manual trigger. Please try again or contact support.');
-        }
+        showConfirmModal(
+            "Enable Manual Trigger for All Projects",
+            modalMessage,
+            async () => {
+                setIsEnablingManualTrigger(true);
+                try {
+                    const result = await enableManualTriggerForAllProjects(connectorId);
+                    // Reset loading state immediately after successful API call
+                    setIsEnablingManualTrigger(false);
+                    
+                    showNotification(
+                        'success', 
+                        `✅ Webhook configuration has been queued for ${result.jobs_queued || result.total_projects || 'all'} projects. **It may take several minutes for all webhook statuses to update.** You can now trigger AI reviews using "@liveapibot" mentions or via the web UI.`,
+                        true // Make it persistent
+                    );
+                    
+                    // Refresh repository access to show updated status after a short delay
+                    setTimeout(() => {
+                        fetchRepositoryAccess(connectorId, true);
+                    }, 2000);
+                } catch (err) {
+                    console.error('Error enabling manual trigger:', err);
+                    setIsEnablingManualTrigger(false);
+                    showNotification('error', 'An error occurred while enabling manual trigger. Please try again or contact support if the problem persists.');
+                }
+            },
+            {
+                confirmText: 'Yes, Enable',
+                cancelText: 'Cancel',
+                type: 'warning'
+            }
+        );
     };
 
     const formatConnectorType = (type: string) => {
@@ -1040,6 +1132,102 @@ const ConnectorDetails: React.FC = () => {
                     </Card>
                 </div>
             </div>
+            
+            {/* Confirmation Modal */}
+            {confirmModal && confirmModal.show && (
+                <div className="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4">
+                    <div className="bg-white rounded-lg shadow-xl max-w-md w-full">
+                        <div className="p-6">
+                            {/* Modal Header */}
+                            <div className="flex items-center mb-4">
+                                <div className={`flex-shrink-0 w-8 h-8 rounded-full flex items-center justify-center mr-3 ${
+                                    confirmModal.type === 'danger' ? 'bg-red-100 text-red-600' : 'bg-yellow-100 text-yellow-600'
+                                }`}>
+                                    {confirmModal.type === 'danger' ? <Icons.Error /> : <Icons.Warning />}
+                                </div>
+                                <h3 className="text-lg font-medium text-gray-900">{confirmModal.title}</h3>
+                            </div>
+                            
+                            {/* Modal Message */}
+                            <div className="mb-6">
+                                <p className="text-sm text-gray-700">
+                                    {parseMarkdownBold(confirmModal.message)}
+                                </p>
+                            </div>
+                            
+                            {/* Modal Actions */}
+                            <div className="flex justify-end space-x-3">
+                                <Button
+                                    variant="outline"
+                                    onClick={() => setConfirmModal(null)}
+                                >
+                                    {confirmModal.cancelText}
+                                </Button>
+                                <Button
+                                    variant={confirmModal.type === 'danger' ? 'danger' : 'primary'}
+                                    onClick={confirmModal.onConfirm}
+                                >
+                                    {confirmModal.confirmText}
+                                </Button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            )}
+            
+            {/* Notification Display */}
+            {notification && notification.show && (
+                <div className={`fixed z-50 transition-all duration-300 ${
+                    notification.persistent 
+                        ? 'inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4' // Full overlay for persistent
+                        : 'top-4 right-4 max-w-md' // Top-right for regular notifications
+                }`}>
+                    <div className={notification.persistent ? 'bg-white rounded-lg shadow-xl max-w-lg w-full p-6' : ''}>
+                        {notification.persistent ? (
+                            // Persistent notification as modal
+                            <div>
+                                <div className="flex items-center mb-4">
+                                    <div className={`flex-shrink-0 w-8 h-8 rounded-full flex items-center justify-center mr-3 ${
+                                        notification.type === 'success' ? 'bg-green-100 text-green-600' :
+                                        notification.type === 'error' ? 'bg-red-100 text-red-600' :
+                                        notification.type === 'warning' ? 'bg-yellow-100 text-yellow-600' : 'bg-blue-100 text-blue-600'
+                                    }`}>
+                                        {notification.type === 'success' ? <Icons.Success /> : 
+                                         notification.type === 'error' ? <Icons.Error /> :
+                                         notification.type === 'warning' ? <Icons.Warning /> : <Icons.Info />}
+                                    </div>
+                                    <h3 className="text-lg font-medium text-gray-900">
+                                        {notification.type === 'success' ? 'Success!' :
+                                         notification.type === 'error' ? 'Error' :
+                                         notification.type === 'warning' ? 'Warning' : 'Information'}
+                                    </h3>
+                                </div>
+                                <div className="mb-6">
+                                    <p className="text-sm text-gray-700">
+                                        {parseMarkdownBold(notification.message)}
+                                    </p>
+                                </div>
+                                <div className="flex justify-end">
+                                    <Button
+                                        variant="primary"
+                                        onClick={() => setNotification(prev => prev ? { ...prev, show: false } : null)}
+                                    >
+                                        Got it
+                                    </Button>
+                                </div>
+                            </div>
+                        ) : (
+                            // Regular notification as Alert
+                            <Alert
+                                variant={notification.type}
+                                onClose={() => setNotification(prev => prev ? { ...prev, show: false } : null)}
+                            >
+                                {notification.message}
+                            </Alert>
+                        )}
+                    </div>
+                </div>
+            )}
         </div>
     );
 };
