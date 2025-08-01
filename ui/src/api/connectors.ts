@@ -47,9 +47,11 @@ export const deleteConnector = async (connectorId: string): Promise<any> => {
  */
 export const getRepositoryAccess = async (connectorId: string, refresh?: boolean): Promise<any> => {
   try {
-    const url = `/api/v1/connectors/${connectorId}/repository-access`;
-    const params = refresh ? { refresh: 'true' } : {};
-    const response = await apiClient.get(url, { params });
+    let url = `/api/v1/connectors/${connectorId}/repository-access`;
+    if (refresh) {
+      url += '?refresh=true';
+    }
+    const response = await apiClient.get(url);
     return response;
   } catch (error) {
     console.error('Error fetching repository access:', error);
