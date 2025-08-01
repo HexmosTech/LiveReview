@@ -316,7 +316,7 @@ CREATE TABLE public.webhook_registry (
     webhook_secret text,
     webhook_name text,
     events text,
-    status text DEFAULT 'active'::text,
+    status text,
     last_verified_at timestamp without time zone,
     created_at timestamp without time zone DEFAULT CURRENT_TIMESTAMP NOT NULL,
     updated_at timestamp without time zone DEFAULT CURRENT_TIMESTAMP NOT NULL,
@@ -566,4 +566,5 @@ INSERT INTO public.schema_migrations (version) VALUES
     ('20250723093453'),
     ('20250728092945'),
     ('20250728093051'),
-    ('20250731131105');
+    ('20250731131105'),
+    ('20250801150601');
