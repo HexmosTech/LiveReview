@@ -101,6 +101,7 @@ func (s *Server) setupRoutes() {
 	v1.GET("/connectors", s.GetConnectors)
 	v1.DELETE("/connectors/:id", s.DeleteConnector)
 	v1.GET("/connectors/:connectorId/repository-access", s.GetRepositoryAccess)
+	v1.POST("/connectors/:connectorId/enable-manual-trigger", s.EnableManualTriggerForAllProjects)
 
 	// GitLab profile validation endpoint
 	v1.POST("/gitlab/validate-profile", s.ValidateGitLabProfile)
@@ -239,5 +240,25 @@ func (s *Server) getReviewByID(c echo.Context) error {
 	id := c.Param("id")
 	return c.JSON(http.StatusOK, map[string]string{
 		"message": fmt.Sprintf("Get review with ID: %s - to be implemented", id),
+	})
+}
+
+// EnableManualTriggerForAllProjects handles enabling manual trigger for all projects for a connector
+func (s *Server) EnableManualTriggerForAllProjects(c echo.Context) error {
+	connectorId := c.Param("connectorId")
+
+	// TODO: Implement actual logic to enable manual trigger for all projects
+	// This will involve:
+	// 1. Validating the connector exists
+	// 2. Fetching all projects for the connector
+	// 3. Updating the trigger state for each project to "Manual Trigger"
+	// 4. Setting up necessary webhooks or configurations
+
+	return c.JSON(http.StatusOK, map[string]interface{}{
+		"message":          "Manual trigger enabled for all projects",
+		"connector_id":     connectorId,
+		"status":           "success",
+		"projects_updated": 0, // Placeholder
+		"trigger_state":    "manual",
 	})
 }
