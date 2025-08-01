@@ -320,14 +320,17 @@ const ConnectorDetails: React.FC = () => {
         setIsEnablingManualTrigger(true);
         try {
             const result = await enableManualTriggerForAllProjects(connectorId);
-            alert(`Success! Manual trigger enabled for ${result.projects_updated || 'all'} projects. You can now trigger AI reviews using "@liveapibot" mention or via the web UI.`);
+            // Reset loading state immediately after successful API call
+            setIsEnablingManualTrigger(false);
+            
+            alert(`Success! Manual trigger enabled for ${result.jobs_queued || result.total_projects || 'all'} projects. You can now trigger AI reviews using "@liveapibot" mention or via the web UI.`);
+            
             // Refresh repository access to show updated status
             await fetchRepositoryAccess(connectorId, true);
         } catch (err) {
             console.error('Error enabling manual trigger:', err);
-            alert('Failed to enable manual trigger. Please try again or contact support.');
-        } finally {
             setIsEnablingManualTrigger(false);
+            alert('Failed to enable manual trigger. Please try again or contact support.');
         }
     };
 
