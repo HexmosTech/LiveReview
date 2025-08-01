@@ -7,18 +7,21 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strconv"
 	"time"
 
 	"github.com/labstack/echo/v4"
 	"github.com/labstack/echo/v4/middleware"
+	"github.com/livereview/internal/jobqueue"
 	// Import FetchGitLabProfile
 )
 
 // Server represents the API server
 type Server struct {
-	echo *echo.Echo
-	port int
-	db   *sql.DB
+	echo     *echo.Echo
+	port     int
+	db       *sql.DB
+	jobQueue *jobqueue.JobQueue
 }
 
 // NewServer creates a new API server
@@ -47,6 +50,12 @@ func NewServer(port int) (*Server, error) {
 		return nil, fmt.Errorf("failed to open database connection: %v", err)
 	}
 
+	// Initialize job queue
+	jq, err := jobqueue.NewJobQueue(dbURL)
+	if err != nil {
+		return nil, fmt.Errorf("failed to initialize job queue: %v", err)
+	}
+
 	e := echo.New()
 
 	// Middleware
@@ -55,9 +64,10 @@ func NewServer(port int) (*Server, error) {
 	e.Use(middleware.CORS())
 
 	server := &Server{
-		echo: e,
-		port: port,
-		db:   db,
+		echo:     e,
+		port:     port,
+		db:       db,
+		jobQueue: jq,
 	}
 
 	// Setup routes
@@ -197,6 +207,15 @@ func (s *Server) Start() error {
 	fmt.Printf("API server is running at http://localhost:%d\n", s.port)
 	fmt.Println("Press Ctrl+C to stop the server")
 
+	// Start job queue workers
+	ctx := context.Background()
+	go func() {
+		if err := s.jobQueue.Start(ctx); err != nil {
+			fmt.Printf("Error starting job queue: %v\n", err)
+		}
+	}()
+	fmt.Println("Job queue workers started")
+
 	// Start server in a goroutine
 	go func() {
 		if err := s.echo.Start(fmt.Sprintf(":%d", s.port)); err != nil && err != http.ErrServerClosed {
@@ -213,6 +232,15 @@ func (s *Server) Start() error {
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
+
+	// Stop job queue workers
+	if s.jobQueue != nil {
+		if err := s.jobQueue.Stop(ctx); err != nil {
+			fmt.Printf("Error stopping job queue: %v\n", err)
+		} else {
+			fmt.Println("Job queue workers stopped")
+		}
+	}
 
 	// Close database connection
 	if s.db != nil {
@@ -245,20 +273,69 @@ func (s *Server) getReviewByID(c echo.Context) error {
 
 // EnableManualTriggerForAllProjects handles enabling manual trigger for all projects for a connector
 func (s *Server) EnableManualTriggerForAllProjects(c echo.Context) error {
-	connectorId := c.Param("connectorId")
+	connectorIdStr := c.Param("connectorId")
+	connectorId, err := strconv.Atoi(connectorIdStr)
+	if err != nil {
+		return c.JSON(http.StatusBadRequest, map[string]string{
+			"error": "Invalid connector ID",
+		})
+	}
 
-	// TODO: Implement actual logic to enable manual trigger for all projects
-	// This will involve:
-	// 1. Validating the connector exists
-	// 2. Fetching all projects for the connector
-	// 3. Updating the trigger state for each project to "Manual Trigger"
-	// 4. Setting up necessary webhooks or configurations
+	// Get repository access data for this connector
+	repositoryData, err := s.fetchAndCacheRepositoryData(connectorId, false, false)
+	if err != nil {
+		return c.JSON(http.StatusInternalServerError, map[string]string{
+			"error": fmt.Sprintf("Failed to fetch repository data: %v", err),
+		})
+	}
 
-	return c.JSON(http.StatusOK, map[string]interface{}{
-		"message":          "Manual trigger enabled for all projects",
-		"connector_id":     connectorId,
-		"status":           "success",
-		"projects_updated": 0, // Placeholder
-		"trigger_state":    "manual",
-	})
+	if repositoryData.Error != "" {
+		return c.JSON(http.StatusBadRequest, map[string]string{
+			"error": fmt.Sprintf("Repository access error: %s", repositoryData.Error),
+		})
+	}
+
+	// Get connector details to pass to job queue
+	var provider, providerURL, patToken string
+	query := `
+		SELECT provider, provider_url, pat_token
+		FROM integration_tokens
+		WHERE id = $1
+	`
+	err = s.db.QueryRow(query, connectorId).Scan(&provider, &providerURL, &patToken)
+	if err != nil {
+		return c.JSON(http.StatusInternalServerError, map[string]string{
+			"error": fmt.Sprintf("Failed to fetch connector details: %v", err),
+		})
+	}
+
+	// Queue webhook installation jobs for each project
+	ctx := context.Background()
+	jobsQueued := 0
+	var queueErrors []string
+
+	for _, projectPath := range repositoryData.Projects {
+		err := s.jobQueue.QueueWebhookInstallJob(ctx, connectorId, projectPath, provider, providerURL, patToken)
+		if err != nil {
+			queueErrors = append(queueErrors, fmt.Sprintf("Failed to queue job for %s: %v", projectPath, err))
+		} else {
+			jobsQueued++
+		}
+	}
+
+	response := map[string]interface{}{
+		"message":        "Manual trigger configuration started",
+		"connector_id":   connectorId,
+		"status":         "success",
+		"total_projects": len(repositoryData.Projects),
+		"jobs_queued":    jobsQueued,
+		"trigger_state":  "manual_pending",
+	}
+
+	if len(queueErrors) > 0 {
+		response["errors"] = queueErrors
+		response["status"] = "partial_success"
+	}
+
+	return c.JSON(http.StatusOK, response)
 }
