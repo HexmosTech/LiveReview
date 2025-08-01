@@ -14,7 +14,7 @@ import {
     Input
 } from '../../components/UIPrimitives';
 import { Connector } from '../../store/Connector/reducer';
-import { deleteConnector, getRepositoryAccess } from '../../api/connectors';
+import { deleteConnector, getRepositoryAccess, enableManualTriggerForAllProjects } from '../../api/connectors';
 
 interface RepositoryAccess {
     connector_id: number;
@@ -179,6 +179,7 @@ const ConnectorDetails: React.FC = () => {
     const [repositoryAccess, setRepositoryAccess] = useState<RepositoryAccess | null>(null);
     const [isLoadingRepos, setIsLoadingRepos] = useState(false);
     const [isRefreshing, setIsRefreshing] = useState(false);
+    const [isEnablingManualTrigger, setIsEnablingManualTrigger] = useState(false);
     
     // Repository filtering and grouping state
     const [searchTerm, setSearchTerm] = useState('');
@@ -306,6 +307,28 @@ const ConnectorDetails: React.FC = () => {
         }
         
         await fetchRepositoryAccess(connectorId, true);
+    };
+
+    const handleEnableManualTrigger = async () => {
+        if (!connectorId) return;
+        
+        // Show confirmation dialog
+        if (!confirm('This will enable manual trigger for all projects in this connector. You will be able to trigger AI reviews using "@liveapibot" mention or via the web UI. Continue?')) {
+            return;
+        }
+        
+        setIsEnablingManualTrigger(true);
+        try {
+            const result = await enableManualTriggerForAllProjects(connectorId);
+            alert(`Success! Manual trigger enabled for ${result.projects_updated || 'all'} projects. You can now trigger AI reviews using "@liveapibot" mention or via the web UI.`);
+            // Refresh repository access to show updated status
+            await fetchRepositoryAccess(connectorId, true);
+        } catch (err) {
+            console.error('Error enabling manual trigger:', err);
+            alert('Failed to enable manual trigger. Please try again or contact support.');
+        } finally {
+            setIsEnablingManualTrigger(false);
+        }
     };
 
     const formatConnectorType = (type: string) => {
@@ -656,6 +679,73 @@ const ConnectorDetails: React.FC = () => {
                                             <Icons.NotReady />
                                             <span className="text-yellow-400 text-sm font-medium">Setup Required</span>
                                         </div>
+                                    </div>
+                                </div>
+
+                                {/* Trigger Configuration */}
+                                <div className="bg-slate-800 rounded-lg p-4 border border-slate-600">
+                                    <div className="flex items-center justify-between mb-4">
+                                        <div>
+                                            <h4 className="text-lg font-medium text-slate-200 mb-2">
+                                                Review Trigger Configuration
+                                            </h4>
+                                            <p className="text-sm text-slate-400">
+                                                Configure how AI reviews are triggered for projects in this connector.
+                                            </p>
+                                        </div>
+                                    </div>
+                                    
+                                    <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 mb-4">
+                                        <div className="bg-slate-700 rounded-lg p-3 border border-slate-600">
+                                            <div className="flex items-center space-x-2 mb-2">
+                                                <Icons.NotReady />
+                                                <span className="text-sm font-medium text-slate-300">Not Connected</span>
+                                            </div>
+                                            <p className="text-xs text-slate-400">
+                                                Cannot trigger AI review on this project
+                                            </p>
+                                        </div>
+                                        
+                                        <div className="bg-slate-700 rounded-lg p-3 border border-slate-600">
+                                            <div className="flex items-center space-x-2 mb-2">
+                                                <Icons.Warning />
+                                                <span className="text-sm font-medium text-yellow-400">Manual Trigger</span>
+                                            </div>
+                                            <p className="text-xs text-slate-400">
+                                                Can manually trigger using "@liveapibot" mention or web UI
+                                            </p>
+                                        </div>
+                                        
+                                        <div className="bg-slate-700 rounded-lg p-3 border border-slate-600">
+                                            <div className="flex items-center space-x-2 mb-2">
+                                                <Icons.Success />
+                                                <span className="text-sm font-medium text-green-400">Automatic Trigger</span>
+                                            </div>
+                                            <p className="text-xs text-slate-400">
+                                                New MR versions automatically get reviewed
+                                            </p>
+                                        </div>
+                                    </div>
+                                    
+                                    <div className="flex items-center justify-between pt-3 border-t border-slate-600">
+                                        <div>
+                                            <p className="text-sm text-slate-300 font-medium">
+                                                Current Status: <span className="text-yellow-400">Not Connected</span>
+                                            </p>
+                                            <p className="text-xs text-slate-400 mt-1">
+                                                Enable manual trigger to start using AI reviews with this connector
+                                            </p>
+                                        </div>
+                                        <Button
+                                            variant="primary"
+                                            size="sm"
+                                            onClick={handleEnableManualTrigger}
+                                            disabled={isEnablingManualTrigger}
+                                            icon={isEnablingManualTrigger ? <Spinner size="sm" /> : <Icons.Settings />}
+                                            iconPosition="left"
+                                        >
+                                            {isEnablingManualTrigger ? 'Enabling...' : 'Enable Manual Trigger for All Projects'}
+                                        </Button>
                                     </div>
                                 </div>
 

@@ -148,3 +148,18 @@ export const deleteAIConnector = async (connectorId: string): Promise<any> => {
     throw error;
   }
 };
+
+/**
+ * Enable manual trigger for all projects for a connector
+ * @param connectorId The ID of the connector to enable manual trigger for
+ * @returns Promise with the result
+ */
+export const enableManualTriggerForAllProjects = async (connectorId: string): Promise<any> => {
+  try {
+    const response = await apiClient.post(`/api/v1/connectors/${connectorId}/enable-manual-trigger`, {});
+    return response;
+  } catch (error) {
+    console.error('Error enabling manual trigger for all projects:', error);
+    throw error;
+  }
+};
