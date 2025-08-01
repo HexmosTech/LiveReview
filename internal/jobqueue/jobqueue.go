@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -28,6 +29,7 @@ func (WebhookInstallJobArgs) Kind() string {
 // WebhookInstallWorker handles webhook installation jobs
 type WebhookInstallWorker struct {
 	river.WorkerDefaults[WebhookInstallJobArgs]
+	pool *pgxpool.Pool
 }
 
 // Work performs the webhook installation
@@ -36,6 +38,13 @@ func (w *WebhookInstallWorker) Work(ctx context.Context, job *river.Job[WebhookI
 
 	log.Printf("Processing webhook installation for project: %s (connector: %d)",
 		args.ProjectPath, args.ConnectorID)
+
+	// First, update the webhook_registry to mark this project as "manual" status
+	err := w.updateWebhookRegistry(ctx, args)
+	if err != nil {
+		log.Printf("Failed to update webhook registry for project %s: %v", args.ProjectPath, err)
+		return fmt.Errorf("failed to update webhook registry: %w", err)
+	}
 
 	// TODO: Implement actual webhook installation logic
 	// For now, just simulate the work
@@ -47,9 +56,109 @@ func (w *WebhookInstallWorker) Work(ctx context.Context, job *river.Job[WebhookI
 	// 1. Create a webhook in the Git provider (GitLab, GitHub, etc.)
 	// 2. Configure the webhook to point to our LiveReview instance
 	// 3. Set up the necessary permissions
-	// 4. Store webhook configuration in the database
+	// 4. Update webhook_registry with actual webhook details
 
 	log.Printf("Webhook installation completed for project: %s", args.ProjectPath)
+	return nil
+}
+
+// updateWebhookRegistry creates or updates the webhook registry entry for a project
+func (w *WebhookInstallWorker) updateWebhookRegistry(ctx context.Context, args WebhookInstallJobArgs) error {
+	// First check if a record already exists
+	var existingID int
+	checkQuery := `
+		SELECT id FROM webhook_registry 
+		WHERE integration_token_id = $1 AND project_full_name = $2
+	`
+	err := w.pool.QueryRow(ctx, checkQuery, args.ConnectorID, args.ProjectPath).Scan(&existingID)
+
+	now := time.Now()
+
+	if err == pgx.ErrNoRows {
+		// No existing record, create a new one
+		insertQuery := `
+			INSERT INTO webhook_registry (
+				provider,
+				provider_project_id,
+				project_name,
+				project_full_name,
+				webhook_id,
+				webhook_url,
+				webhook_secret,
+				webhook_name,
+				events,
+				status,
+				last_verified_at,
+				created_at,
+				updated_at,
+				integration_token_id
+			) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
+		`
+
+		// Extract project name from full path (last part after /)
+		projectName := args.ProjectPath
+		if lastSlash := len(args.ProjectPath) - 1; lastSlash >= 0 {
+			for i := lastSlash; i >= 0; i-- {
+				if args.ProjectPath[i] == '/' {
+					projectName = args.ProjectPath[i+1:]
+					break
+				}
+			}
+		}
+
+		_, err = w.pool.Exec(ctx, insertQuery,
+			args.Provider,               // provider
+			args.ProjectPath,            // provider_project_id (using project path as ID)
+			projectName,                 // project_name
+			args.ProjectPath,            // project_full_name
+			"",                          // webhook_id (empty for manual trigger)
+			"",                          // webhook_url (empty for manual trigger)
+			"",                          // webhook_secret (empty for manual trigger)
+			"LiveReview Manual Trigger", // webhook_name
+			"manual_trigger",            // events
+			"manual",                    // status (manual trigger enabled)
+			now,                         // last_verified_at
+			now,                         // created_at
+			now,                         // updated_at
+			args.ConnectorID,            // integration_token_id
+		)
+
+		if err != nil {
+			return fmt.Errorf("failed to insert webhook registry: %w", err)
+		}
+
+		log.Printf("Created webhook_registry entry for project %s with status 'manual'", args.ProjectPath)
+	} else if err != nil {
+		// Some other error occurred
+		return fmt.Errorf("failed to check existing webhook registry: %w", err)
+	} else {
+		// Record exists, update it
+		updateQuery := `
+			UPDATE webhook_registry 
+			SET status = $1, 
+			    updated_at = $2,
+			    last_verified_at = $3,
+			    webhook_name = $4,
+			    events = $5
+			WHERE id = $6
+		`
+
+		_, err = w.pool.Exec(ctx, updateQuery,
+			"manual",                    // status
+			now,                         // updated_at
+			now,                         // last_verified_at
+			"LiveReview Manual Trigger", // webhook_name
+			"manual_trigger",            // events
+			existingID,                  // id
+		)
+
+		if err != nil {
+			return fmt.Errorf("failed to update webhook registry: %w", err)
+		}
+
+		log.Printf("Updated webhook_registry entry for project %s with status 'manual'", args.ProjectPath)
+	}
+
 	return nil
 }
 
@@ -69,7 +178,7 @@ func NewJobQueue(databaseURL string) (*JobQueue, error) {
 
 	// Create River client
 	workers := river.NewWorkers()
-	river.AddWorker(workers, &WebhookInstallWorker{})
+	river.AddWorker(workers, &WebhookInstallWorker{pool: pool})
 
 	client, err := river.NewClient(riverpgxv5.New(pool), &river.Config{
 		Queues: map[string]river.QueueConfig{
