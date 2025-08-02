@@ -192,3 +192,18 @@ export const enableManualTriggerForAllProjects = async (connectorId: string): Pr
     throw error;
   }
 };
+
+/**
+ * Disable manual trigger for all projects for a connector
+ * @param connectorId The ID of the connector to disable manual trigger for
+ * @returns Promise with the result
+ */
+export const disableManualTriggerForAllProjects = async (connectorId: string): Promise<any> => {
+  try {
+    const response = await apiClient.post(`/api/v1/connectors/${connectorId}/disable-manual-trigger`, {});
+    return response;
+  } catch (error) {
+    console.error('Error disabling manual trigger for all projects:', error);
+    throw error;
+  }
+};

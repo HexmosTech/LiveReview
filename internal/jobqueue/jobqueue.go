@@ -80,6 +80,27 @@ type WebhookInstallWorker struct {
 	config *QueueConfig
 }
 
+// WebhookRemovalJobArgs represents the arguments for a webhook removal job
+type WebhookRemovalJobArgs struct {
+	ConnectorID int    `json:"connector_id"`
+	ProjectPath string `json:"project_path"`
+	Provider    string `json:"provider"`
+	BaseURL     string `json:"base_url"`
+	PAT         string `json:"pat"`
+}
+
+// Kind returns the job kind for River
+func (WebhookRemovalJobArgs) Kind() string {
+	return "webhook_removal"
+}
+
+// WebhookRemovalWorker handles webhook removal jobs
+type WebhookRemovalWorker struct {
+	river.WorkerDefaults[WebhookRemovalJobArgs]
+	pool   *pgxpool.Pool
+	config *QueueConfig
+}
+
 // GitLab API client methods
 func (w *WebhookInstallWorker) makeGitLabRequest(method, endpoint string, payload interface{}, baseURL, pat string) (*http.Response, error) {
 	var body io.Reader
@@ -407,6 +428,260 @@ func (w *WebhookInstallWorker) updateWebhookRegistry(ctx context.Context, args W
 	return nil
 }
 
+// WebhookRemovalWorker methods
+
+// Work processes a webhook removal job
+func (w *WebhookRemovalWorker) Work(ctx context.Context, job *river.Job[WebhookRemovalJobArgs]) error {
+	args := job.Args
+
+	log.Printf("Processing webhook removal for project: %s (connector: %d)",
+		args.ProjectPath, args.ConnectorID)
+
+	// Get the numeric project ID from GitLab
+	projectID, err := w.getProjectID(args.ProjectPath, args.BaseURL, args.PAT)
+	if err != nil {
+		log.Printf("Failed to get project ID for %s: %v", args.ProjectPath, err)
+		return fmt.Errorf("failed to get project ID: %w", err)
+	}
+
+	log.Printf("Resolved project %s to ID: %d", args.ProjectPath, projectID)
+
+	// Remove webhooks from GitLab
+	err = w.removeWebhooks(projectID, args.BaseURL, args.PAT)
+	if err != nil {
+		log.Printf("Failed to remove webhooks for project %s (ID: %d): %v", args.ProjectPath, projectID, err)
+		return fmt.Errorf("failed to remove webhooks: %w", err)
+	}
+
+	log.Printf("Successfully removed webhooks for project %s", args.ProjectPath)
+
+	// Update the webhook registry to mark as unconnected
+	err = w.updateWebhookRegistryForRemoval(ctx, args, projectID)
+	if err != nil {
+		log.Printf("Failed to update webhook registry for project %s: %v", args.ProjectPath, err)
+		return fmt.Errorf("failed to update webhook registry: %w", err)
+	}
+
+	return nil
+}
+
+// getProjectID gets the numeric project ID from GitLab API using project path
+func (w *WebhookRemovalWorker) getProjectID(projectPath, baseURL, pat string) (int, error) {
+	// URL encode the project path
+	encodedPath := url.PathEscape(projectPath)
+	endpoint := fmt.Sprintf("/api/v4/projects/%s", encodedPath)
+
+	resp, err := w.makeGitLabRequest("GET", endpoint, nil, baseURL, pat)
+	if err != nil {
+		return 0, fmt.Errorf("failed to fetch project: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return 0, fmt.Errorf("GitLab API error (status %d): %s", resp.StatusCode, string(body))
+	}
+
+	var project GitLabProject
+	if err := json.NewDecoder(resp.Body).Decode(&project); err != nil {
+		return 0, fmt.Errorf("failed to decode project response: %w", err)
+	}
+
+	log.Printf("Successfully resolved project path '%s' to ID %d", projectPath, project.ID)
+	return project.ID, nil
+}
+
+// makeGitLabRequest makes a request to the GitLab API
+func (w *WebhookRemovalWorker) makeGitLabRequest(method, endpoint string, payload interface{}, baseURL, pat string) (*http.Response, error) {
+	var body io.Reader
+	if payload != nil {
+		jsonData, err := json.Marshal(payload)
+		if err != nil {
+			return nil, fmt.Errorf("failed to marshal request payload: %w", err)
+		}
+		body = bytes.NewBuffer(jsonData)
+		log.Printf("GitLab API %s %s with payload: %s", method, endpoint, string(jsonData))
+	} else {
+		log.Printf("GitLab API %s %s", method, endpoint)
+	}
+
+	req, err := http.NewRequest(method, baseURL+endpoint, body)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create request: %w", err)
+	}
+
+	req.Header.Set("Authorization", "Bearer "+pat)
+	req.Header.Set("Content-Type", "application/json")
+
+	client := &http.Client{Timeout: 30 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("request failed: %w", err)
+	}
+
+	return resp, nil
+}
+
+// removeWebhooks removes all LiveReview webhooks from a GitLab project
+func (w *WebhookRemovalWorker) removeWebhooks(projectID int, baseURL, pat string) error {
+	// Get existing hooks
+	resp, err := w.makeGitLabRequest("GET", fmt.Sprintf("/api/v4/projects/%d/hooks", projectID), nil, baseURL, pat)
+	if err != nil {
+		return fmt.Errorf("failed to fetch existing hooks: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("GitLab API error fetching hooks (status %d): %s", resp.StatusCode, string(body))
+	}
+
+	var hooks []GitLabHook
+	if err := json.NewDecoder(resp.Body).Decode(&hooks); err != nil {
+		return fmt.Errorf("failed to decode hooks response: %w", err)
+	}
+
+	webhookURL := w.config.WebhookConfig.PublicEndpoint
+	removedCount := 0
+
+	// Remove hooks that match our webhook URL
+	for _, hook := range hooks {
+		if hook.URL == webhookURL {
+			resp, err := w.makeGitLabRequest("DELETE", fmt.Sprintf("/api/v4/projects/%d/hooks/%d", projectID, hook.ID), nil, baseURL, pat)
+			if err != nil {
+				log.Printf("Failed to delete webhook #%d: %v", hook.ID, err)
+				continue
+			}
+			resp.Body.Close()
+
+			if resp.StatusCode == http.StatusNoContent {
+				log.Printf("Deleted webhook #%d for project %d", hook.ID, projectID)
+				removedCount++
+			} else {
+				log.Printf("Failed to delete webhook #%d (status %d)", hook.ID, resp.StatusCode)
+			}
+		}
+	}
+
+	if removedCount == 0 {
+		log.Printf("No LiveReview webhooks found for project %d", projectID)
+	} else {
+		log.Printf("Removed %d webhooks for project %d", removedCount, projectID)
+	}
+
+	return nil
+}
+
+// updateWebhookRegistryForRemoval updates the webhook registry to mark project as unconnected
+func (w *WebhookRemovalWorker) updateWebhookRegistryForRemoval(ctx context.Context, args WebhookRemovalJobArgs, projectID int) error {
+	// Check if entry exists in webhook registry
+	checkQuery := `
+		SELECT id FROM webhook_registry 
+		WHERE integration_token_id = $1 AND project_full_name = $2
+	`
+
+	var existingID int
+	err := w.pool.QueryRow(ctx, checkQuery, args.ConnectorID, args.ProjectPath).Scan(&existingID)
+
+	now := time.Now()
+
+	// Extract project name from full path (last part after /)
+	projectName := args.ProjectPath
+	if lastSlash := len(args.ProjectPath) - 1; lastSlash >= 0 {
+		for i := lastSlash; i >= 0; i-- {
+			if args.ProjectPath[i] == '/' {
+				projectName = args.ProjectPath[i+1:]
+				break
+			}
+		}
+	}
+
+	// Prepare webhook details for removal
+	webhookID := ""
+	webhookURL := w.config.WebhookConfig.PublicEndpoint
+	webhookName := "LiveReview Webhook"
+	events := "merge_requests,notes"
+	status := "unconnected" // Mark as unconnected
+
+	if err == pgx.ErrNoRows {
+		// No existing record, create a new one marked as unconnected
+		insertQuery := `
+			INSERT INTO webhook_registry (
+				provider,
+				provider_project_id,
+				project_name,
+				project_full_name,
+				webhook_id,
+				webhook_url,
+				webhook_secret,
+				webhook_name,
+				events,
+				status,
+				last_verified_at,
+				integration_token_id,
+				created_at,
+				updated_at
+			) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
+		`
+
+		_, err = w.pool.Exec(ctx, insertQuery,
+			args.Provider,
+			fmt.Sprintf("%d", projectID),
+			projectName,
+			args.ProjectPath,
+			webhookID,
+			webhookURL,
+			w.config.WebhookConfig.Secret,
+			webhookName,
+			events,
+			status,
+			now,
+			args.ConnectorID,
+			now,
+			now,
+		)
+
+		if err != nil {
+			return fmt.Errorf("failed to create webhook registry entry: %w", err)
+		}
+
+		log.Printf("Created webhook_registry entry for project %s with status '%s'", args.ProjectPath, status)
+	} else if err != nil {
+		return fmt.Errorf("failed to check existing webhook registry entry: %w", err)
+	} else {
+		// Update existing record
+		updateQuery := `
+			UPDATE webhook_registry 
+			SET 
+				webhook_id = $1,
+				webhook_url = $2,
+				webhook_secret = $3,
+				status = $4,
+				last_verified_at = $5,
+				updated_at = $6
+			WHERE id = $7
+		`
+
+		_, err = w.pool.Exec(ctx, updateQuery,
+			webhookID,
+			webhookURL,
+			w.config.WebhookConfig.Secret,
+			status,
+			now,
+			now,
+			existingID,
+		)
+
+		if err != nil {
+			return fmt.Errorf("failed to update webhook registry: %w", err)
+		}
+
+		log.Printf("Updated webhook_registry entry for project %s with status '%s'", args.ProjectPath, status)
+	}
+
+	return nil
+}
+
 // JobQueue manages the River job queue
 type JobQueue struct {
 	client *river.Client[pgx.Tx]
@@ -428,6 +703,7 @@ func NewJobQueue(databaseURL string) (*JobQueue, error) {
 	// Create River client
 	workers := river.NewWorkers()
 	river.AddWorker(workers, &WebhookInstallWorker{pool: pool, config: config})
+	river.AddWorker(workers, &WebhookRemovalWorker{pool: pool, config: config})
 
 	client, err := river.NewClient(riverpgxv5.New(pool), &river.Config{
 		Queues:  config.RiverQueueConfig(),
@@ -467,6 +743,24 @@ func (jq *JobQueue) QueueWebhookInstallJob(ctx context.Context, connectorID int,
 	_, err := jq.client.Insert(ctx, args, nil)
 	if err != nil {
 		return fmt.Errorf("failed to queue webhook install job: %w", err)
+	}
+
+	return nil
+}
+
+// QueueWebhookRemovalJob queues a webhook removal job
+func (jq *JobQueue) QueueWebhookRemovalJob(ctx context.Context, connectorID int, projectPath, provider, baseURL, pat string) error {
+	args := WebhookRemovalJobArgs{
+		ConnectorID: connectorID,
+		ProjectPath: projectPath,
+		Provider:    provider,
+		BaseURL:     baseURL,
+		PAT:         pat,
+	}
+
+	_, err := jq.client.Insert(ctx, args, nil)
+	if err != nil {
+		return fmt.Errorf("failed to queue webhook removal job: %w", err)
 	}
 
 	return nil

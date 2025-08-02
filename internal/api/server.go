@@ -113,6 +113,7 @@ func (s *Server) setupRoutes() {
 	v1.DELETE("/connectors/:id", s.DeleteConnector)
 	v1.GET("/connectors/:connectorId/repository-access", s.GetRepositoryAccess)
 	v1.POST("/connectors/:connectorId/enable-manual-trigger", s.EnableManualTriggerForAllProjects)
+	v1.POST("/connectors/:connectorId/disable-manual-trigger", s.DisableManualTriggerForAllProjects)
 
 	// GitLab profile validation endpoint
 	v1.POST("/gitlab/validate-profile", s.ValidateGitLabProfile)
@@ -331,6 +332,75 @@ func (s *Server) EnableManualTriggerForAllProjects(c echo.Context) error {
 		"total_projects": len(repositoryData.Projects),
 		"jobs_queued":    jobsQueued,
 		"trigger_state":  "manual_pending",
+	}
+
+	if len(queueErrors) > 0 {
+		response["errors"] = queueErrors
+		response["status"] = "partial_success"
+	}
+
+	return c.JSON(http.StatusOK, response)
+}
+
+// DisableManualTriggerForAllProjects handles disabling manual trigger for all projects for a connector
+func (s *Server) DisableManualTriggerForAllProjects(c echo.Context) error {
+	connectorIdStr := c.Param("connectorId")
+	connectorId, err := strconv.Atoi(connectorIdStr)
+	if err != nil {
+		return c.JSON(http.StatusBadRequest, map[string]string{
+			"error": "Invalid connector ID",
+		})
+	}
+
+	// Get repository access data for this connector
+	repositoryData, err := s.fetchAndCacheRepositoryData(connectorId, false, false)
+	if err != nil {
+		return c.JSON(http.StatusInternalServerError, map[string]string{
+			"error": fmt.Sprintf("Failed to fetch repository data: %v", err),
+		})
+	}
+
+	if repositoryData.Error != "" {
+		return c.JSON(http.StatusBadRequest, map[string]string{
+			"error": fmt.Sprintf("Repository access error: %s", repositoryData.Error),
+		})
+	}
+
+	// Get connector details to pass to job queue
+	var provider, providerURL, patToken string
+	query := `
+		SELECT provider, provider_url, pat_token
+		FROM integration_tokens
+		WHERE id = $1
+	`
+	err = s.db.QueryRow(query, connectorId).Scan(&provider, &providerURL, &patToken)
+	if err != nil {
+		return c.JSON(http.StatusInternalServerError, map[string]string{
+			"error": fmt.Sprintf("Failed to fetch connector details: %v", err),
+		})
+	}
+
+	// Queue webhook removal jobs for each project
+	ctx := context.Background()
+	jobsQueued := 0
+	var queueErrors []string
+
+	for _, projectPath := range repositoryData.Projects {
+		err := s.jobQueue.QueueWebhookRemovalJob(ctx, connectorId, projectPath, provider, providerURL, patToken)
+		if err != nil {
+			queueErrors = append(queueErrors, fmt.Sprintf("Failed to queue removal job for %s: %v", projectPath, err))
+		} else {
+			jobsQueued++
+		}
+	}
+
+	response := map[string]interface{}{
+		"message":        "Manual trigger removal started",
+		"connector_id":   connectorId,
+		"status":         "success",
+		"total_projects": len(repositoryData.Projects),
+		"jobs_queued":    jobsQueued,
+		"trigger_state":  "disconnected_pending",
 	}
 
 	if len(queueErrors) > 0 {

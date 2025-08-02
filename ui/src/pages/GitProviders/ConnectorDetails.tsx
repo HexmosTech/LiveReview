@@ -14,7 +14,7 @@ import {
     Input
 } from '../../components/UIPrimitives';
 import { Connector } from '../../store/Connector/reducer';
-import { deleteConnector, getRepositoryAccess, enableManualTriggerForAllProjects, ProjectWithStatus, getConnector } from '../../api/connectors';
+import { deleteConnector, getRepositoryAccess, enableManualTriggerForAllProjects, disableManualTriggerForAllProjects, ProjectWithStatus, getConnector } from '../../api/connectors';
 import type { RepositoryAccess } from '../../api/connectors';
 
 // Extended interface to support both old and new API response formats
@@ -214,6 +214,7 @@ const ConnectorDetails: React.FC = () => {
     const [isLoadingRepos, setIsLoadingRepos] = useState(false);
     const [isRefreshing, setIsRefreshing] = useState(false);
     const [isEnablingManualTrigger, setIsEnablingManualTrigger] = useState(false);
+    const [isDisablingManualTrigger, setIsDisablingManualTrigger] = useState(false);
     
     // Simple notification state
     const [notification, setNotification] = useState<{
@@ -237,6 +238,21 @@ const ConnectorDetails: React.FC = () => {
     // Repository filtering and grouping state
     const [searchTerm, setSearchTerm] = useState('');
     const [viewMode, setViewMode] = useState<'tree' | 'list'>('tree'); // Default to tree view
+
+    // Compute overall connector status based on projects
+    const connectorStatus = useMemo(() => {
+        if (!repositoryAccess?.projects_with_status || repositoryAccess.projects_with_status.length === 0) {
+            return 'unconnected';
+        }
+        
+        const statuses = repositoryAccess.projects_with_status.map(p => p.webhook_status);
+        const hasAutomatic = statuses.some(s => s === 'automatic');
+        const hasManual = statuses.some(s => s === 'manual');
+        
+        if (hasAutomatic) return 'automatic';
+        if (hasManual) return 'manual';
+        return 'unconnected';
+    }, [repositoryAccess?.projects_with_status]);
 
     // Helper function to parse simple markdown bold (**text**)
     const parseMarkdownBold = (text: string) => {
@@ -459,6 +475,45 @@ const ConnectorDetails: React.FC = () => {
                 confirmText: 'Yes, Refresh',
                 cancelText: 'Cancel',
                 type: 'warning'
+            }
+        );
+    };
+
+    const handleDisableManualTrigger = async () => {
+        if (!connectorId) return;
+        
+        const modalMessage = "This will remove webhook access for all projects in this connector, disabling the ability to trigger AI reviews using \"@liveapibot\" mentions or via the web UI. **This process may take several minutes to complete.** Continue?";
+        
+        showConfirmModal(
+            "Disable Manual Trigger for All Projects",
+            modalMessage,
+            async () => {
+                setIsDisablingManualTrigger(true);
+                try {
+                    const result = await disableManualTriggerForAllProjects(connectorId);
+                    // Reset loading state immediately after successful API call
+                    setIsDisablingManualTrigger(false);
+                    
+                    showNotification(
+                        'success', 
+                        `✅ Webhook removal has been queued for ${result.jobs_queued || result.total_projects || 'all'} projects. **It may take several minutes for all webhook statuses to update.** Manual trigger functionality has been disabled for this connector.`,
+                        true // Make it persistent
+                    );
+                    
+                    // Refresh repository access to show updated status after a short delay
+                    setTimeout(() => {
+                        fetchRepositoryAccess(connectorId, true);
+                    }, 2000);
+                } catch (err) {
+                    console.error('Error disabling manual trigger:', err);
+                    setIsDisablingManualTrigger(false);
+                    showNotification('error', 'An error occurred while disabling manual trigger. Please try again or contact support if the problem persists.');
+                }
+            },
+            {
+                confirmText: 'Yes, Disable',
+                cancelText: 'Cancel',
+                type: 'danger'
             }
         );
     };
@@ -901,22 +956,62 @@ const ConnectorDetails: React.FC = () => {
                                     <div className="flex items-center justify-between pt-3 border-t border-slate-600">
                                         <div>
                                             <p className="text-sm text-slate-300 font-medium">
-                                                Current Status: <span className="text-yellow-400">Not Connected</span>
+                                                Current Status: <span className={
+                                                    connectorStatus === 'automatic' ? 'text-green-400' :
+                                                    connectorStatus === 'manual' ? 'text-blue-400' : 'text-yellow-400'
+                                                }>
+                                                    {connectorStatus === 'automatic' ? 'Automatic' :
+                                                     connectorStatus === 'manual' ? 'Manual' : 'Not Connected'}
+                                                </span>
                                             </p>
                                             <p className="text-xs text-slate-400 mt-1">
-                                                Enable manual trigger to start using AI reviews with this connector
+                                                {connectorStatus === 'unconnected' 
+                                                    ? 'Enable manual trigger to start using AI reviews with this connector'
+                                                    : connectorStatus === 'manual' 
+                                                        ? 'Projects are configured for manual AI review triggers'
+                                                        : 'Projects are configured for automatic AI review triggers'
+                                                }
                                             </p>
                                         </div>
-                                        <Button
-                                            variant="primary"
-                                            size="sm"
-                                            onClick={handleEnableManualTrigger}
-                                            disabled={isEnablingManualTrigger}
-                                            icon={isEnablingManualTrigger ? <Spinner size="sm" /> : <Icons.Settings />}
-                                            iconPosition="left"
-                                        >
-                                            {isEnablingManualTrigger ? 'Enabling...' : 'Enable Manual Trigger for All Projects'}
-                                        </Button>
+                                        <div className="flex items-center space-x-2">
+                                            {connectorStatus === 'unconnected' ? (
+                                                <Button
+                                                    variant="primary"
+                                                    size="sm"
+                                                    onClick={handleEnableManualTrigger}
+                                                    disabled={isEnablingManualTrigger}
+                                                    icon={isEnablingManualTrigger ? <Spinner size="sm" /> : <Icons.Settings />}
+                                                    iconPosition="left"
+                                                >
+                                                    {isEnablingManualTrigger ? 'Enabling...' : 'Enable Manual Trigger for All Projects'}
+                                                </Button>
+                                            ) : (
+                                                <>
+                                                    <Button
+                                                        variant="outline"
+                                                        size="sm"
+                                                        onClick={handleEnableManualTrigger}
+                                                        disabled={isEnablingManualTrigger || connectorStatus === 'manual'}
+                                                        icon={isEnablingManualTrigger ? <Spinner size="sm" /> : <Icons.Settings />}
+                                                        iconPosition="left"
+                                                        className="text-xs"
+                                                    >
+                                                        {isEnablingManualTrigger ? 'Enabling...' : 'Re-enable Manual Trigger'}
+                                                    </Button>
+                                                    <Button
+                                                        variant="outline" 
+                                                        size="sm"
+                                                        onClick={handleDisableManualTrigger}
+                                                        disabled={isDisablingManualTrigger}
+                                                        icon={isDisablingManualTrigger ? <Spinner size="sm" /> : <Icons.Warning />}
+                                                        iconPosition="left"
+                                                        className="text-xs !text-red-400 hover:!text-red-300 hover:!border-red-400"
+                                                    >
+                                                        {isDisablingManualTrigger ? 'Disabling...' : 'Disable Manual Trigger for All Projects'}
+                                                    </Button>
+                                                </>
+                                            )}
+                                        </div>
                                     </div>
                                 </div>
 
