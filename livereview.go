@@ -1,6 +1,7 @@
 package main
 
 import (
+	"embed"
 	"fmt"
 	"os"
 
@@ -8,6 +9,9 @@ import (
 
 	"github.com/livereview/cmd"
 )
+
+//go:embed ui/dist/*
+var uiAssets embed.FS
 
 const (
 	version = "0.1.0"
@@ -30,6 +34,7 @@ func main() {
 			cmd.ReviewCommand(),
 			cmd.ConfigCommand(),
 			cmd.APICommand(),
+			cmd.UICommand(uiAssets),
 		},
 	}
 
