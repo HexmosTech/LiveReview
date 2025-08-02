@@ -254,6 +254,23 @@ const ConnectorDetails: React.FC = () => {
         return 'unconnected';
     }, [repositoryAccess?.projects_with_status]);
 
+    // Compute status counts for projects
+    const statusCounts = useMemo(() => {
+        if (!repositoryAccess?.projects_with_status || repositoryAccess.projects_with_status.length === 0) {
+            return { unconnected: 0, manual: 0, automatic: 0, total: 0 };
+        }
+        
+        const statuses = repositoryAccess.projects_with_status.map(p => p.webhook_status);
+        const counts = {
+            unconnected: statuses.filter(s => s === 'unconnected').length,
+            manual: statuses.filter(s => s === 'manual').length,
+            automatic: statuses.filter(s => s === 'automatic').length, // Currently 0 since not implemented
+            total: statuses.length
+        };
+        
+        return counts;
+    }, [repositoryAccess?.projects_with_status]);
+
     // Helper function to parse simple markdown bold (**text**)
     const parseMarkdownBold = (text: string) => {
         const parts = text.split(/(\*\*[^*]+\*\*)/);
@@ -954,63 +971,66 @@ const ConnectorDetails: React.FC = () => {
                                     </div>
                                     
                                     <div className="flex items-center justify-between pt-3 border-t border-slate-600">
-                                        <div>
-                                            <p className="text-sm text-slate-300 font-medium">
-                                                Current Status: <span className={
-                                                    connectorStatus === 'automatic' ? 'text-green-400' :
-                                                    connectorStatus === 'manual' ? 'text-blue-400' : 'text-yellow-400'
-                                                }>
-                                                    {connectorStatus === 'automatic' ? 'Automatic' :
-                                                     connectorStatus === 'manual' ? 'Manual' : 'Not Connected'}
-                                                </span>
+                                        <div className="flex-1">
+                                            <p className="text-sm text-slate-300 font-medium mb-3">
+                                                Project Webhook Status
                                             </p>
-                                            <p className="text-xs text-slate-400 mt-1">
-                                                {connectorStatus === 'unconnected' 
-                                                    ? 'Enable manual trigger to start using AI reviews with this connector'
-                                                    : connectorStatus === 'manual' 
-                                                        ? 'Projects are configured for manual AI review triggers'
-                                                        : 'Projects are configured for automatic AI review triggers'
-                                                }
-                                            </p>
+                                            <div className="grid grid-cols-3 gap-4">
+                                                <div className="text-center">
+                                                    <div className="flex items-center justify-center space-x-1 mb-1">
+                                                        <Icons.Error />
+                                                        <span className="text-lg font-semibold text-red-400">
+                                                            {statusCounts.unconnected}
+                                                        </span>
+                                                    </div>
+                                                    <p className="text-xs text-slate-400">Not Connected</p>
+                                                </div>
+                                                <div className="text-center">
+                                                    <div className="flex items-center justify-center space-x-1 mb-1">
+                                                        <Icons.Clock />
+                                                        <span className="text-lg font-semibold text-blue-400">
+                                                            {statusCounts.manual}
+                                                        </span>
+                                                    </div>
+                                                    <p className="text-xs text-slate-400">Manual Trigger</p>
+                                                </div>
+                                                <div className="text-center">
+                                                    <div className="flex items-center justify-center space-x-1 mb-1">
+                                                        <Icons.Success />
+                                                        <span className="text-lg font-semibold text-green-400">
+                                                            {statusCounts.automatic}
+                                                        </span>
+                                                    </div>
+                                                    <p className="text-xs text-slate-400">Automatic</p>
+                                                    <p className="text-xs text-slate-500">(Coming Soon)</p>
+                                                </div>
+                                            </div>
                                         </div>
-                                        <div className="flex items-center space-x-2">
-                                            {connectorStatus === 'unconnected' ? (
-                                                <Button
-                                                    variant="primary"
-                                                    size="sm"
-                                                    onClick={handleEnableManualTrigger}
-                                                    disabled={isEnablingManualTrigger}
-                                                    icon={isEnablingManualTrigger ? <Spinner size="sm" /> : <Icons.Settings />}
-                                                    iconPosition="left"
-                                                >
-                                                    {isEnablingManualTrigger ? 'Enabling...' : 'Enable Manual Trigger for All Projects'}
-                                                </Button>
-                                            ) : (
-                                                <>
-                                                    <Button
-                                                        variant="outline"
-                                                        size="sm"
-                                                        onClick={handleEnableManualTrigger}
-                                                        disabled={isEnablingManualTrigger || connectorStatus === 'manual'}
-                                                        icon={isEnablingManualTrigger ? <Spinner size="sm" /> : <Icons.Settings />}
-                                                        iconPosition="left"
-                                                        className="text-xs"
-                                                    >
-                                                        {isEnablingManualTrigger ? 'Enabling...' : 'Re-enable Manual Trigger'}
-                                                    </Button>
-                                                    <Button
-                                                        variant="outline" 
-                                                        size="sm"
-                                                        onClick={handleDisableManualTrigger}
-                                                        disabled={isDisablingManualTrigger}
-                                                        icon={isDisablingManualTrigger ? <Spinner size="sm" /> : <Icons.Warning />}
-                                                        iconPosition="left"
-                                                        className="text-xs !text-red-400 hover:!text-red-300 hover:!border-red-400"
-                                                    >
-                                                        {isDisablingManualTrigger ? 'Disabling...' : 'Disable Manual Trigger for All Projects'}
-                                                    </Button>
-                                                </>
-                                            )}
+                                        <div className="flex items-center space-x-2 ml-6">
+                                            <Button
+                                                variant={connectorStatus === 'unconnected' ? 'primary' : 'outline'}
+                                                size="sm"
+                                                onClick={handleEnableManualTrigger}
+                                                disabled={isEnablingManualTrigger || connectorStatus === 'manual'}
+                                                icon={isEnablingManualTrigger ? <Spinner size="sm" /> : <Icons.Settings />}
+                                                iconPosition="left"
+                                                className={connectorStatus === 'unconnected' ? '' : 'text-xs'}
+                                            >
+                                                {isEnablingManualTrigger ? 'Enabling...' : 
+                                                 connectorStatus === 'unconnected' ? 'Enable Manual Trigger for All Projects' : 'Re-enable Manual Trigger'}
+                                            </Button>
+                                            
+                                            <Button
+                                                variant="outline" 
+                                                size="sm"
+                                                onClick={handleDisableManualTrigger}
+                                                disabled={isDisablingManualTrigger || (statusCounts.manual + statusCounts.automatic) === 0}
+                                                icon={isDisablingManualTrigger ? <Spinner size="sm" /> : <Icons.Warning />}
+                                                iconPosition="left"
+                                                className="text-xs !text-red-400 hover:!text-red-300 hover:!border-red-400"
+                                            >
+                                                {isDisablingManualTrigger ? 'Disabling...' : 'Disable Manual Trigger for All Projects'}
+                                            </Button>
                                         </div>
                                     </div>
                                 </div>
