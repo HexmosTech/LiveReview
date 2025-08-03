@@ -121,15 +121,20 @@ const ConnectorsList: React.FC<ConnectorsListProps> = ({
                     </Button>
                 </div>
             ) : sortedConnectors.length === 0 ? (
-                <EmptyState
-                    icon={<Icons.EmptyState />}
-                    title={selectedProvider === 'all' 
-                        ? "No AI connectors yet" 
-                        : `No ${getProviderDetails(selectedProvider).name} connectors yet`}
-                    description={selectedProvider === 'all'
-                        ? "Add your first AI connector to start using AI services"
-                        : `Add your first ${getProviderDetails(selectedProvider).name} connector to start using this AI service`}
-                />
+                <div className="text-center py-8">
+                    <EmptyState
+                        icon={<Icons.EmptyState />}
+                        title={selectedProvider === 'all' 
+                            ? "No AI connectors configured" 
+                            : `No ${getProviderDetails(selectedProvider).name} connectors configured`}
+                        description={selectedProvider === 'all'
+                            ? "Add your first AI connector to start using AI-powered code reviews"
+                            : `Add your first ${getProviderDetails(selectedProvider).name} connector to start using this AI service`}
+                    />
+                    <div className="mt-4 text-sm text-slate-400">
+                        Click "Add Connector" above to get started
+                    </div>
+                </div>
             ) : (
                 <ul className="space-y-4">
                     {sortedConnectors.map((connector, index) => (

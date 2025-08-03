@@ -1,72 +1,47 @@
 import { AIConnector, ValidationResult } from '../types';
+import { getAIConnectors as fetchAIConnectorsAPI, validateAIProviderKey as validateAPIKey, createAIConnector as createConnectorAPI } from '../../../api/connectors';
 
 /**
  * Fetch all AI connectors from the API
  */
 export const fetchAIConnectors = async (): Promise<AIConnector[]> => {
     try {
-        // Try to get AI connectors from the new endpoint
-        try {
-            const aiConnectorsData = await getAIConnectors();
-            console.log('AI Connectors data:', aiConnectorsData);
-            
-            if (aiConnectorsData && Array.isArray(aiConnectorsData) && aiConnectorsData.length > 0) {
-                // Map the new format to the component's format
-                const aiConnectors = aiConnectorsData.map(connector => ({
-                    id: connector.id.toString(),
-                    name: connector.connector_name,
-                    providerName: connector.provider_name,
-                    apiKey: connector.api_key_preview || '',
-                    displayOrder: connector.display_order || 0,
-                    createdAt: new Date(connector.created_at),
-                    lastUsed: undefined as Date | undefined,
-                    usageStats: {
-                        totalCalls: 0,
-                        successfulCalls: 0,
-                        failedCalls: 0,
-                        averageLatency: 0
-                    },
-                    models: [] as string[],
-                    selectedModel: '',
-                    isActive: true
-                }));
-                
-                return aiConnectors;
-            }
-        } catch (aiErr) {
-            console.warn('Error fetching from AI connectors endpoint:', aiErr);
-            // Fall back to legacy method
+        console.log('Fetching AI connectors...');
+        const aiConnectorsData = await fetchAIConnectorsAPI();
+        console.log('AI Connectors data received:', aiConnectorsData);
+        
+        // Always return an array, even if empty
+        if (!aiConnectorsData || !Array.isArray(aiConnectorsData)) {
+            console.log('No AI connectors data or invalid format, returning empty array');
+            return [];
         }
         
-        // Fallback to original method
-        const data = await getConnectors();
+        // Map the API response to the component's format
+        const aiConnectors = aiConnectorsData.map(connector => ({
+            id: connector.id?.toString() || Math.random().toString(36).substring(2, 9),
+            name: connector.connector_name || connector.provider_name || 'Unnamed Connector',
+            providerName: connector.provider_name || '',
+            apiKey: connector.api_key_preview || '',
+            displayOrder: connector.display_order || 0,
+            createdAt: connector.created_at ? new Date(connector.created_at) : new Date(),
+            lastUsed: connector.last_used ? new Date(connector.last_used) : undefined,
+            usageStats: {
+                totalCalls: connector.total_calls || 0,
+                successfulCalls: connector.successful_calls || 0,
+                failedCalls: connector.failed_calls || 0,
+                averageLatency: connector.average_latency || 0
+            },
+            models: connector.models || [],
+            selectedModel: connector.selected_model || '',
+            isActive: connector.is_active !== false // Default to true if not specified
+        }));
         
-        // Filter for AI connectors (assuming they have a provider name matching our list)
-        const aiConnectors = data
-            .filter(c => popularAIProviders.map(p => p.id).includes(c.provider))
-            .map(connector => ({
-                id: connector.id.toString(),
-                name: connector.connection_name || connector.provider,
-                providerName: connector.provider,
-                apiKey: connector.provider_app_id || '',
-                displayOrder: connector.metadata?.display_order || 0,
-                createdAt: new Date(connector.created_at),
-                lastUsed: connector.metadata?.last_used ? new Date(connector.metadata.last_used) : undefined as Date | undefined,
-                usageStats: connector.metadata?.usage_stats || {
-                    totalCalls: 0,
-                    successfulCalls: 0,
-                    failedCalls: 0,
-                    averageLatency: 0
-                },
-                models: connector.metadata?.models || [] as string[],
-                selectedModel: connector.metadata?.selected_model,
-                isActive: connector.metadata?.is_active !== false // Default to true if not specified
-            }));
-            
+        console.log('Transformed AI connectors:', aiConnectors);
         return aiConnectors;
     } catch (err) {
-        console.error('Error fetching connectors:', err);
-        throw new Error('Failed to load AI connectors. Please try again.');
+        console.error('Error fetching AI connectors:', err);
+        // Don't throw error, return empty array to show empty state instead of error
+        return [];
     }
 };
 
@@ -77,22 +52,11 @@ export const validateAIProviderKey = async (
     providerId: string, 
     apiKey: string
 ): Promise<ValidationResult> => {
-    // This function would interact with your API to validate the key
-    // For now, we'll assume it returns a Promise with validation result
     try {
-        const response = await fetch('/api/ai/validate-key', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({
-                provider: providerId,
-                apiKey
-            }),
-        });
-        
-        const data = await response.json();
-        return data;
+        console.log(`Validating API key for provider: ${providerId}`);
+        const result = await validateAPIKey(providerId, apiKey);
+        console.log('Validation result:', result);
+        return result;
     } catch (error) {
         console.error('Error validating API key:', error);
         return { valid: false, message: 'Failed to validate API key' };
@@ -108,34 +72,15 @@ export const createAIConnector = async (
     name: string,
     displayOrder: number
 ) => {
-    // This function would interact with your API to create a connector
-    // For now, we'll assume it returns a Promise with the created connector
     try {
-        const response = await fetch('/api/ai/connectors', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({
-                provider_name: providerId,
-                api_key: apiKey,
-                connector_name: name,
-                display_order: displayOrder
-            }),
-        });
-        
-        const data = await response.json();
-        return data;
+        console.log(`Creating AI connector: ${name} for provider: ${providerId}`);
+        const result = await createConnectorAPI(providerId, apiKey, name, displayOrder);
+        console.log('Connector created successfully:', result);
+        return result;
     } catch (error) {
         console.error('Error creating AI connector:', error);
-        throw new Error('Failed to create AI connector');
+        throw error; // Re-throw to let the caller handle it
     }
 };
 
-// These functions would be imported from your existing API modules
-// For now, we'll just declare them as placeholders
-declare function getAIConnectors(): Promise<any[]>;
-declare function getConnectors(): Promise<any[]>;
 
-// This would be imported from your constants or context
-declare const popularAIProviders: any[];
