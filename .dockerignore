@@ -27,6 +27,7 @@ ui/.eslintcache
 
 # Database data
 livereview_pgdata/
+lrdata/
 *.sql
 *.db
 
