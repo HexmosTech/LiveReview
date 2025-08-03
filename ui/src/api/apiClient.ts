@@ -3,9 +3,27 @@
  */
 
 // Base URL for all API requests
-// Dynamically determine the base URL - use the current origin for API calls
-// This ensures API calls work correctly in development and production
-const BASE_URL = window.location.origin;
+// Use environment variable if available, otherwise detect based on current location
+const getBaseUrl = (): string => {
+  // Check for build-time environment variable
+  if (process.env.REACT_APP_API_URL) {
+    return process.env.REACT_APP_API_URL;
+  }
+  
+  // In development with webpack dev server, use current origin (proxy handles routing)
+  // In production, determine API URL based on current location
+  const currentOrigin = window.location.origin;
+  
+  // If running on port 8081 (UI port), API is likely on port 8888
+  if (currentOrigin.includes(':8081')) {
+    return currentOrigin.replace(':8081', ':8888');
+  }
+  
+  // Otherwise use current origin (for cases where API and UI are on same port)
+  return currentOrigin;
+};
+
+const BASE_URL = getBaseUrl();
 
 // Default request options
 const defaultOptions: RequestInit = {
