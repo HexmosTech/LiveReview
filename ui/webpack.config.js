@@ -143,7 +143,7 @@ module.exports =  (env, options)=> {
                 }
             }),
             // !devMode ? new CleanWebpackPlugin() : false,
-            !devMode ? new BundleAnalyzerPlugin() : false
+            !devMode && process.env.ANALYZE_BUNDLE && !process.env.CI ? new BundleAnalyzerPlugin() : false
         ].filter(Boolean),
         optimization: {
             // splitChunks: {
