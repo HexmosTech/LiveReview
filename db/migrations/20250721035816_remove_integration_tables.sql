@@ -7,22 +7,27 @@ ALTER TABLE integration_tokens
   ALTER COLUMN provider_url SET NOT NULL,
   ALTER COLUMN connection_name SET NOT NULL;
 
--- Update any missing gitlab_url values from integration_tables
-UPDATE integration_tokens t
-SET provider_url = (
-  SELECT i.metadata->>'gitlab_url'
-  FROM integration_tables i
-  WHERE i.provider = t.provider AND i.provider_app_id = t.provider_app_id
-)
-WHERE t.provider = 'gitlab' AND (t.provider_url IS NULL OR t.provider_url = '');
+-- Update any missing gitlab_url values from integration_tables (only if the table exists)
+DO $$
+BEGIN
+  IF EXISTS (SELECT FROM information_schema.tables WHERE table_name = 'integration_tables') THEN
+    UPDATE integration_tokens t
+    SET provider_url = (
+      SELECT i.metadata->>'gitlab_url'
+      FROM integration_tables i
+      WHERE i.provider = t.provider AND i.provider_app_id = t.provider_app_id
+    )
+    WHERE t.provider = 'gitlab' AND (t.provider_url IS NULL OR t.provider_url = '');
+  END IF;
+END $$;
 
--- Drop constraints and sequence
-ALTER TABLE integration_tables DROP CONSTRAINT IF EXISTS integration_tables_pkey;
+-- Drop constraints and sequence (only if they exist)
+ALTER TABLE IF EXISTS integration_tables DROP CONSTRAINT IF EXISTS integration_tables_pkey;
 
--- Drop the integration_tables table
+-- Drop the integration_tables table (only if it exists)
 DROP TABLE IF EXISTS integration_tables;
 
--- Drop the sequence
+-- Drop the sequence (only if it exists)
 DROP SEQUENCE IF EXISTS integration_tables_id_seq;
 
 -- migrate:down
