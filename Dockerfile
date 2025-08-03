@@ -12,6 +12,8 @@ RUN echo "📦 Installing UI dependencies..." && \
 
 # Copy UI source and build production assets
 COPY ui/ ./
+# Set API URL for production build - API runs on port 8888
+ENV REACT_APP_API_URL=http://localhost:8888
 RUN echo "🔨 Building UI production assets..." && \
     CI=true NODE_ENV=production npm run build && \
     echo "✅ Webpack build completed successfully"

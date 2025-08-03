@@ -98,6 +98,10 @@ module.exports =  (env, options)=> {
         plugins: [
             // need to use ForkTsCheckerWebpackPlugin because Babel loader ignores the compilation errors for Typescript
             new ForkTsCheckerWebpackPlugin(),
+            // Define plugin to inject environment variables
+            new webpack.DefinePlugin({
+                'process.env.REACT_APP_API_URL': JSON.stringify(process.env.REACT_APP_API_URL),
+            }),
             new MiniCssExtractPlugin({
                 // Options similar to the same options in webpackOptions.output
                 // both options are optional
