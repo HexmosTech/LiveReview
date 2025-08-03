@@ -15,12 +15,10 @@ services:
       livereview-db:
         condition: service_healthy
     volumes:
-      # Mount config file as read-only
-      - ./livereview.toml:/app/livereview.toml:ro
       # Mount .env file as read-only
       - ./.env:/app/.env:ro
-      # Mount data directory for any local data
-      - ./data:/app/data
+      # Mount entire lrdata directory for persistence
+      - ./lrdata:/app/lrdata
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8888/api/health"]
@@ -37,7 +35,7 @@ services:
       - POSTGRES_PASSWORD=${DB_PASSWORD}
       - POSTGRES_DB=livereview
     volumes:
-      - livereview_data:/var/lib/postgresql/data
+      - ./lrdata/postgres:/var/lib/postgresql/data
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U livereview -d livereview"]
       interval: 10s
@@ -47,6 +45,4 @@ services:
     restart: unless-stopped
     # Don't expose database port to host for security
 
-volumes:
-  livereview_data:
-    name: livereview_data
+# No volumes section needed since we're using bind mounts

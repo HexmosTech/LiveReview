@@ -27,7 +27,7 @@ func main() {
 				Name:    "config",
 				Aliases: []string{"c"},
 				Usage:   "Load configuration from `FILE`",
-				Value:   "livereview.toml",
+				Value:   "lrdata/livereview.toml",
 			},
 		},
 		Commands: []*cli.Command{

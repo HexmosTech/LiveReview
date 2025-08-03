@@ -40,8 +40,8 @@ func LoadConfig(configPath string) (*Config, error) {
 			return nil, fmt.Errorf("error loading config: %w", err)
 		}
 	} else {
-		// Try to load from default locations
-		defaultPaths := []string{"./livereview.toml", "$HOME/.livereview.toml"}
+		// Try to load from default locations - prioritize lrdata directory for containerized environments
+		defaultPaths := []string{"./lrdata/livereview.toml", "./livereview.toml", "$HOME/.livereview.toml"}
 		for _, path := range defaultPaths {
 			path = os.ExpandEnv(path)
 			if _, err := os.Stat(path); err == nil {
