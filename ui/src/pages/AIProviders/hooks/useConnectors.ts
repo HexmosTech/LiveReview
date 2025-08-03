@@ -1,11 +1,13 @@
 import { useState, useEffect, useCallback } from 'react';
 import { AIConnector } from '../types';
 import { 
-    getAIConnectors, 
     createAIConnector, 
-    validateAIProviderKey,
     deleteAIConnector
 } from '../../../api/connectors';
+import { 
+    fetchAIConnectors,
+    validateAIProviderKey
+} from '../utils/apiUtils';
 
 interface UseConnectorsResult {
     connectors: AIConnector[];
@@ -29,33 +31,17 @@ export const useConnectors = (): UseConnectorsResult => {
     
     const fetchConnectors = useCallback(async () => {
         setIsLoading(true);
+        setError(null);
         try {
-            const data = await getAIConnectors();
-            
-            // Transform the API response to match our AIConnector type
-            const transformedConnectors: AIConnector[] = data.map(connector => ({
-                id: connector.id?.toString() || Math.random().toString(36).substring(2, 9),
-                name: connector.connector_name || connector.provider_name || 'Unnamed Connector',
-                providerName: connector.provider_name || '',
-                apiKey: connector.api_key_preview || '',
-                displayOrder: connector.display_order || 0,
-                createdAt: connector.created_at ? new Date(connector.created_at) : new Date(),
-                lastUsed: connector.last_used ? new Date(connector.last_used) : undefined,
-                usageStats: {
-                    totalCalls: connector.total_calls || 0,
-                    successfulCalls: connector.successful_calls || 0,
-                    failedCalls: connector.failed_calls || 0,
-                    averageLatency: connector.average_latency || 0
-                },
-                models: connector.models || [],
-                selectedModel: connector.selected_model || '',
-                isActive: connector.is_active !== false // Default to true if not specified
-            }));
-            
+            console.log('useConnectors: Starting to fetch connectors');
+            const transformedConnectors = await fetchAIConnectors();
+            console.log('useConnectors: Received transformed connectors:', transformedConnectors);
             setConnectors(transformedConnectors);
         } catch (error) {
-            console.error('Error fetching AI connectors:', error);
+            console.error('useConnectors: Error fetching AI connectors:', error);
             setError('Failed to load AI connectors');
+            // Set empty array to show empty state instead of error state
+            setConnectors([]);
         } finally {
             setIsLoading(false);
         }
