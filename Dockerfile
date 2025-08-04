@@ -37,6 +37,12 @@ RUN echo "📊 Installing dbmate for database migrations..." && \
     chmod +x /usr/local/bin/dbmate && \
     echo "dbmate installed successfully"
 
+# Install River CLI and UI tools
+RUN echo "🌊 Installing River CLI and UI tools..." && \
+    go install github.com/riverqueue/river/cmd/river@latest && \
+    go install riverqueue.com/riverui/cmd/riverui@latest && \
+    echo "River tools installed successfully"
+
 # Copy Go module files and download dependencies
 COPY go.mod go.sum ./
 RUN echo "📦 Downloading Go dependencies..." && \
@@ -60,9 +66,13 @@ RUN echo "🔨 Building Go binary with version: ${VERSION}" && \
     -v -o livereview . && \
     echo "Go binary built successfully"
 
-# Verify binary was built
-RUN echo "✅ Verifying Go binary..." && \
-    ls -la livereview && ./livereview --version
+# Verify binary installations
+RUN echo "✅ Verifying installed tools..." && \
+    ls -la /usr/local/bin/dbmate && \
+    ls -la /go/bin/river && \
+    ls -la /go/bin/riverui && \
+    ls -la livereview && ./livereview --version && \
+    echo "All tools installed successfully"
 
 # Stage 3: Create minimal runtime container
 FROM alpine:3.18
@@ -93,24 +103,31 @@ RUN echo "📁 Creating application directories..." && \
 
 # Copy binaries and config from build stages
 COPY --from=go-builder /usr/local/bin/dbmate /usr/local/bin/dbmate
+COPY --from=go-builder /go/bin/river /usr/local/bin/river
+COPY --from=go-builder /go/bin/riverui /usr/local/bin/riverui
 COPY --from=go-builder /app/livereview /app/livereview
 COPY --from=go-builder /app/livereview.toml /app/livereview.toml
 COPY --from=go-builder /app/db/migrations/ /app/db/migrations/
 
 # Copy the startup script
 COPY docker-entrypoint.sh /app/docker-entrypoint.sh
-RUN chmod +x /app/docker-entrypoint.sh
+RUN chmod +x /app/docker-entrypoint.sh && \
+    chmod +x /usr/local/bin/dbmate && \
+    chmod +x /usr/local/bin/river && \
+    chmod +x /usr/local/bin/riverui
 
 RUN echo "📋 Final image contents:" && \
     ls -la /app/ && \
+    echo "📦 Installed binaries:" && \
+    ls -la /usr/local/bin/ && \
     echo "✅ LiveReview container build completed successfully!"
 
 # Switch to non-root user
 USER livereview
 WORKDIR /app
 
-# Expose ports for backend API (8888) and frontend (8081)
-EXPOSE 8888 8081
+# Expose ports for backend API (8888), frontend (8081), and River UI (8080)
+EXPOSE 8888 8081 8080
 
 # Health check
 HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \

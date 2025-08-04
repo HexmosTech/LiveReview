@@ -2,12 +2,42 @@
 
 set -euo pipefail
 
+# Load environment variables from .env file
+if [ -f .env ]; then
+    export $(grep -v '^#' .env | xargs)
+fi
+
+# Parse DATABASE_URL to extract connection details
+# DATABASE_URL format: postgres://user:password@host:port/database?sslmode=disable
+if [ -z "${DATABASE_URL:-}" ]; then
+    echo "ERROR: DATABASE_URL not found in .env file"
+    exit 1
+fi
+
+# Extract components from DATABASE_URL
+# Remove the postgres:// prefix
+DB_URL_WITHOUT_SCHEME="${DATABASE_URL#postgres://}"
+# Extract user:password@host:port/database?params
+USER_PASS_HOST_PORT_DB="${DB_URL_WITHOUT_SCHEME%\?*}"
+# Extract user:password part
+USER_PASS="${USER_PASS_HOST_PORT_DB%@*}"
+# Extract host:port/database part
+HOST_PORT_DB="${USER_PASS_HOST_PORT_DB#*@}"
+# Extract user and password
+PG_USER="${USER_PASS%:*}"
+PG_PASSWORD="${USER_PASS#*:}"
+# Extract host:port and database
+HOST_PORT="${HOST_PORT_DB%/*}"
+PG_DB="${HOST_PORT_DB#*/}"
+# Extract port (default to 5432 if not specified)
+if [[ "$HOST_PORT" == *:* ]]; then
+    PG_PORT="${HOST_PORT#*:}"
+else
+    PG_PORT="5432"
+fi
+
 # Config for the "livereview" app
 PG_CONTAINER_NAME="livereview_pg"
-PG_PORT=5432
-PG_USER="livereview"
-PG_PASSWORD="Qw7!vRu#9eLt3pZ"  # strong password
-PG_DB="livereview"
 PG_VERSION="15"
 PG_DATA_DIR="./livereview_pgdata"
 
@@ -77,28 +107,9 @@ setup_migrations() {
 }
 
 print_conn_string() {
-  # URL encode special characters in password
-  local encoded_password="${PG_PASSWORD//!/%21}"
-  encoded_password="${encoded_password//#/%23}"
-  encoded_password="${encoded_password//\$/%24}"
-  encoded_password="${encoded_password//&/%26}"
-  encoded_password="${encoded_password//\'/%27}"
-  encoded_password="${encoded_password//\(/%28}"
-  encoded_password="${encoded_password//\)/%29}"
-  encoded_password="${encoded_password//\*/%2A}"
-  encoded_password="${encoded_password//+/%2B}"
-  encoded_password="${encoded_password//,/%2C}"
-  encoded_password="${encoded_password//\//%2F}"
-  encoded_password="${encoded_password//\:/%3A}"
-  encoded_password="${encoded_password//\;/%3B}"
-  encoded_password="${encoded_password//\=/%3D}"
-  encoded_password="${encoded_password//\?/%3F}"
-  encoded_password="${encoded_password//\@/%40}"
-  encoded_password="${encoded_password//\[/%5B}"
-  encoded_password="${encoded_password//\]/%5D}"
-  
-  local conn_string="postgres://${PG_USER}:${encoded_password}@127.0.0.1:${PG_PORT}/${PG_DB}?sslmode=disable"
-  echo "DATABASE_URL=\"$conn_string\""
+  # Use the DATABASE_URL from .env but replace the host with localhost for local connections
+  local local_conn_string="${DATABASE_URL//livereview-db/127.0.0.1}"
+  echo "DATABASE_URL=\"$local_conn_string\""
 }
 
 # Main
