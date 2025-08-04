@@ -11,6 +11,8 @@ services:
       # Override DATABASE_URL to use internal container hostname
       - DATABASE_URL=postgres://livereview:${DB_PASSWORD}@livereview-db:5432/livereview?sslmode=disable
       - LIVEREVIEW_VERSION=${LIVEREVIEW_VERSION:-production}
+      # API URL for frontend configuration (defaults to localhost if not set)
+      - LIVEREVIEW_API_URL=${LIVEREVIEW_API_URL:-http://localhost:8888}
     depends_on:
       livereview-db:
         condition: service_healthy
