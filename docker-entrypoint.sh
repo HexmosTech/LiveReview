@@ -40,9 +40,14 @@ start_servers() {
     echo "  - UI server will start on port 8081"
     echo "  - API server will start on port 8888"
     
-    # Start UI server in background
+    # Determine API URL for UI configuration
+    # Use environment variable if set, otherwise default to localhost
+    API_URL="${LIVEREVIEW_API_URL:-http://localhost:8888}"
+    echo "  - UI will be configured to use API at: $API_URL"
+    
+    # Start UI server in background with API URL configuration
     echo "🎨 Starting UI server..."
-    ./livereview ui --port 8081 &
+    ./livereview ui --port 8081 --api-url "$API_URL" &
     UI_PID=$!
     
     # Give UI server a moment to start

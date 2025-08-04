@@ -2,10 +2,24 @@
  * Simple API client with base URL and authentication support
  */
 
+// Extend window interface to include our configuration
+declare global {
+  interface Window {
+    LIVEREVIEW_CONFIG?: {
+      apiUrl: string;
+    };
+  }
+}
+
 // Base URL for all API requests
-// Use environment variable if available, otherwise detect based on current location
+// Priority: 1) Runtime injected config, 2) Build-time env var, 3) Auto-detect
 const getBaseUrl = (): string => {
-  // Check for build-time environment variable
+  // Check for runtime injected configuration (highest priority)
+  if (window.LIVEREVIEW_CONFIG?.apiUrl) {
+    return window.LIVEREVIEW_CONFIG.apiUrl;
+  }
+  
+  // Check for build-time environment variable (fallback)
   if (process.env.REACT_APP_API_URL) {
     return process.env.REACT_APP_API_URL;
   }
