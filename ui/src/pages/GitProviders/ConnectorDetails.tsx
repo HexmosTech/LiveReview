@@ -882,7 +882,12 @@ const ConnectorDetails: React.FC = () => {
                         {isLoadingRepos ? (
                             <div className="flex items-center justify-center py-8">
                                 <Spinner size="md" color="text-blue-400" />
-                                <span className="ml-3 text-slate-300">Loading repository access...</span>
+                                <div className="ml-3 text-slate-300">
+                                    <div className="font-medium">Syncing repository data...</div>
+                                    <div className="text-sm text-slate-400 mt-1">
+                                        This may take a while as we fetch all visible projects from your Git provider
+                                    </div>
+                                </div>
                             </div>
                         ) : repositoryAccess?.error ? (
                             <div className="text-center py-8">
