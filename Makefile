@@ -55,3 +55,20 @@ river-ui:
 
 # 🚀 ONE COMMAND TO DO IT ALL - Install River dependencies, CLI tool, UI tool, and run migrations
 river-setup: river-deps river-install river-ui-install river-migrate
+
+# Database URL switcher - flips between localhost and livereview-db
+db-flip:
+	@echo "Current DATABASE_URL in .env:"
+	@grep "DATABASE_URL=" .env
+	@if grep -q "@localhost:" .env; then \
+		echo "Switching from localhost to livereview-db..."; \
+		sed -i 's/@localhost:/@livereview-db:/g' .env; \
+	elif grep -q "@livereview-db:" .env; then \
+		echo "Switching from livereview-db to localhost..."; \
+		sed -i 's/@livereview-db:/@localhost:/g' .env; \
+	else \
+		echo "No recognized database host found in .env file"; \
+		exit 1; \
+	fi
+	@echo "New DATABASE_URL in .env:"
+	@grep "DATABASE_URL=" .env
