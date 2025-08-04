@@ -1,6 +1,6 @@
 services:
   livereview-app:
-    build: .
+    image: git.apps.hexmos.com:5050/hexmos/livereview
     container_name: livereview-app
     ports:
       - "8888:8888"  # Backend API
@@ -10,9 +10,7 @@ services:
     environment:
       # Override DATABASE_URL to use internal container hostname
       - DATABASE_URL=postgres://livereview:${DB_PASSWORD}@livereview-db:5432/livereview?sslmode=disable
-      - LIVEREVIEW_VERSION=${LIVEREVIEW_VERSION:-test}
-      # API URL for frontend configuration (defaults to localhost if not set)
-      - LIVEREVIEW_API_URL=${LIVEREVIEW_API_URL:-http://localhost:8888}
+      - LIVEREVIEW_VERSION=${LIVEREVIEW_VERSION:-production}
     depends_on:
       livereview-db:
         condition: service_healthy
