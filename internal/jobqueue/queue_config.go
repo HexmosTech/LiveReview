@@ -134,9 +134,9 @@ func DefaultQueueConfig() *QueueConfig {
 
 		// Webhook configuration
 		WebhookConfig: WebhookConfig{
-			Secret:         "super-secret-string",                                             // TODO: Make this dynamic/configurable
-			PublicEndpoint: "https://talented-manually-turkey.ngrok-free.app/api/gitlab-hook", // TODO: Make this dynamic
-			EnableSSL:      true,                                                              // Always verify SSL in production
+			Secret:         "super-secret-string",                                                // TODO: Make this dynamic/configurable
+			PublicEndpoint: "https://talented-manually-turkey.ngrok-free.app/api/v1/gitlab-hook", // TODO: Make this dynamic
+			EnableSSL:      true,                                                                 // Always verify SSL in production
 
 			// Event configuration - only subscribe to events we need
 			Events: WebhookEvents{
