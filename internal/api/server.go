@@ -130,6 +130,9 @@ func (s *Server) setupRoutes() {
 	// Review trigger endpoints
 	v1.POST("/trigger-review", s.TriggerReviewV2)
 
+	// GitLab webhook handler
+	v1.POST("/gitlab-hook", s.GitLabWebhookHandler)
+
 	// AI Connector endpoints
 	v1.POST("/aiconnectors/validate-key", s.ValidateAIConnectorKey)
 	v1.POST("/aiconnectors", s.CreateAIConnector)
