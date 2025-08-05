@@ -18,10 +18,11 @@ import (
 
 // Server represents the API server
 type Server struct {
-	echo     *echo.Echo
-	port     int
-	db       *sql.DB
-	jobQueue *jobqueue.JobQueue
+	echo             *echo.Echo
+	port             int
+	db               *sql.DB
+	jobQueue         *jobqueue.JobQueue
+	dashboardManager *DashboardManager
 }
 
 // NewServer creates a new API server
@@ -56,6 +57,9 @@ func NewServer(port int) (*Server, error) {
 		return nil, fmt.Errorf("failed to initialize job queue: %v", err)
 	}
 
+	// Initialize dashboard manager
+	dashboardManager := NewDashboardManager(db)
+
 	e := echo.New()
 
 	// Middleware
@@ -64,10 +68,11 @@ func NewServer(port int) (*Server, error) {
 	e.Use(middleware.CORS())
 
 	server := &Server{
-		echo:     e,
-		port:     port,
-		db:       db,
-		jobQueue: jq,
+		echo:             e,
+		port:             port,
+		db:               db,
+		jobQueue:         jq,
+		dashboardManager: dashboardManager,
 	}
 
 	// Setup routes
@@ -138,6 +143,9 @@ func (s *Server) setupRoutes() {
 	v1.POST("/aiconnectors", s.CreateAIConnector)
 	v1.GET("/aiconnectors", s.GetAIConnectors)
 	v1.DELETE("/aiconnectors/:id", s.DeleteAIConnector)
+
+	// Dashboard endpoint
+	v1.GET("/dashboard", s.GetDashboardData)
 }
 
 // Handler for creating PAT integration token, delegates to pat_token.go
@@ -221,6 +229,10 @@ func (s *Server) Start() error {
 	}()
 	fmt.Println("Job queue workers started")
 
+	// Start dashboard manager
+	s.dashboardManager.Start()
+	fmt.Println("Dashboard manager started")
+
 	// Start server in a goroutine
 	go func() {
 		if err := s.echo.Start(fmt.Sprintf(":%d", s.port)); err != nil && err != http.ErrServerClosed {
@@ -245,6 +257,12 @@ func (s *Server) Start() error {
 		} else {
 			fmt.Println("Job queue workers stopped")
 		}
+	}
+
+	// Stop dashboard manager
+	if s.dashboardManager != nil {
+		s.dashboardManager.Stop()
+		fmt.Println("Dashboard manager stopped")
 	}
 
 	// Close database connection
