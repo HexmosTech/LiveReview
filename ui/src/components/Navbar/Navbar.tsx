@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { Link } from 'react-router-dom';
+import classNames from 'classnames';
 import { Button, Icons } from '../UIPrimitives';
 
 export type NavbarProps = {
@@ -25,17 +26,17 @@ export const Navbar: React.FC<NavbarProps> = ({ title, activePage = 'dashboard',
     };
 
     return (
-        <nav className="bg-slate-900 shadow-md border-b border-slate-700 sticky top-0 z-10 navbar-dark">
-            <div className="container mx-auto px-4 py-4 flex justify-between items-center">
+        <nav className="bg-slate-900/95 backdrop-blur-sm shadow-lg border-b border-slate-700/60 sticky top-0 z-50">
+            <div className="container mx-auto px-4 py-3 flex justify-between items-center">
                 <div className="flex items-center">
                     <Link 
                         to="/"
                         onClick={() => handleNavClick('dashboard')}
-                        className="cursor-pointer"
+                        className="cursor-pointer transition-transform hover:scale-105"
                         role="button"
                         aria-label="Go to home"
                     >
-                        <img src="assets/logo-horizontal.svg" alt="LiveReview Logo" className="h-12 w-auto mr-3" />
+                        <img src="assets/logo-horizontal.svg" alt="LiveReview Logo" className="h-10 w-auto mr-3" />
                     </Link>
                 </div>
                 
@@ -45,6 +46,7 @@ export const Navbar: React.FC<NavbarProps> = ({ title, activePage = 'dashboard',
                         variant="ghost"
                         onClick={() => setIsOpen(!isOpen)}
                         aria-label="Toggle menu"
+                        className="text-slate-300"
                         icon={isOpen ? (
                             <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
                                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
@@ -58,14 +60,19 @@ export const Navbar: React.FC<NavbarProps> = ({ title, activePage = 'dashboard',
                 </div>
                 
                 {/* Desktop menu */}
-                <div className="hidden md:flex items-center space-x-1">
+                <div className="hidden md:flex items-center space-x-2">
                     {navLinks.map(link => (
                         <Button
                             key={link.key}
                             variant={activePage === link.key ? 'primary' : 'ghost'}
                             onClick={() => handleNavClick(link.key)}
                             icon={link.icon}
-                            className={activePage === link.key ? '' : 'text-slate-300'}
+                            className={classNames(
+                                'text-sm font-medium transition-all duration-200',
+                                activePage === link.key 
+                                    ? 'bg-blue-600 text-white shadow-lg' 
+                                    : 'text-slate-300 hover:text-white hover:bg-slate-700/60'
+                            )}
                             as={Link}
                             to={`/${link.key}`}
                         >
@@ -78,8 +85,8 @@ export const Navbar: React.FC<NavbarProps> = ({ title, activePage = 'dashboard',
                         <Button
                             variant="ghost"
                             onClick={onLogout}
-                            className="ml-4 text-slate-300"
-                            icon={<svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                            className="ml-3 text-slate-300 hover:text-red-300 hover:bg-red-900/20 transition-colors"
+                            icon={<svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
                                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
                             </svg>}
                         >
@@ -91,14 +98,19 @@ export const Navbar: React.FC<NavbarProps> = ({ title, activePage = 'dashboard',
             
             {/* Mobile menu dropdown */}
             {isOpen && (
-                <div className="md:hidden px-4 py-3 space-y-2 bg-slate-800 border-t border-slate-700 shadow-lg">
+                <div className="md:hidden px-4 py-3 space-y-2 bg-slate-800/95 border-t border-slate-700/60 backdrop-blur-sm">
                     {navLinks.map(link => (
                         <Button
                             key={link.key}
                             variant={activePage === link.key ? 'primary' : 'ghost'}
                             onClick={() => handleNavClick(link.key)}
                             icon={link.icon}
-                            className="w-full justify-start text-slate-100"
+                            className={classNames(
+                                'w-full justify-start text-sm font-medium',
+                                activePage === link.key 
+                                    ? 'bg-blue-600 text-white' 
+                                    : 'text-slate-300 hover:text-white hover:bg-slate-700/60'
+                            )}
                             iconPosition="left"
                             as={Link}
                             to={`/${link.key}`}
@@ -112,9 +124,9 @@ export const Navbar: React.FC<NavbarProps> = ({ title, activePage = 'dashboard',
                         <Button
                             variant="ghost"
                             onClick={onLogout}
-                            className="w-full justify-start text-slate-100"
+                            className="w-full justify-start text-slate-300 hover:text-red-300 hover:bg-red-900/20"
                             iconPosition="left"
-                            icon={<svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                            icon={<svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
                                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
                             </svg>}
                         >

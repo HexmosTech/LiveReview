@@ -1,4 +1,4 @@
-import React, { ButtonHTMLAttributes, InputHTMLAttributes, ReactNode, SelectHTMLAttributes, ElementType, ComponentPropsWithRef } from 'react';
+import React, { ButtonHTMLAttributes, InputHTMLAttributes, ReactNode, SelectHTMLAttributes, ElementType, ComponentPropsWithRef, useState } from 'react';
 import classNames from 'classnames';
 
 // ===== BUTTON COMPONENTS =====
@@ -141,23 +141,27 @@ export const Card: React.FC<CardProps> = ({
   badgeColor = 'bg-blue-100 text-blue-800',
 }) => {
   return (
-    <div className={classNames('bg-slate-800 rounded-xl shadow-md border border-slate-700 card-dark', className)}>
+    <div className={classNames(
+      'bg-slate-800/90 rounded-lg shadow-sm border border-slate-700/80 backdrop-blur-sm', 
+      'hover:shadow-md hover:border-slate-600/80 transition-all duration-200',
+      className
+    )}>
       {(title || subtitle || badge) && (
-        <div className="flex justify-between items-center p-5 border-b border-slate-700">
+        <div className="flex justify-between items-center px-4 py-3 border-b border-slate-700/60">
           <div>
-            {title && <h3 className="text-lg font-semibold text-slate-100">{title}</h3>}
-            {subtitle && <p className="text-sm text-slate-300 mt-1">{subtitle}</p>}
+            {title && <h3 className="text-base font-semibold text-slate-100">{title}</h3>}
+            {subtitle && <p className="text-sm text-slate-400 mt-0.5">{subtitle}</p>}
           </div>
           {badge && (
-            <span className={`text-xs font-medium px-2.5 py-1 rounded-full ${badgeColor}`}>
+            <span className={`text-xs font-medium px-2 py-1 rounded-full ${badgeColor}`}>
               {badge}
             </span>
           )}
         </div>
       )}
-      <div className="p-5">{children}</div>
+      <div className="p-4">{children}</div>
       {footer && (
-        <div className="border-t border-slate-700 p-5 bg-slate-900 rounded-b-xl">
+        <div className="border-t border-slate-700/60 px-4 py-3 bg-slate-900/50 rounded-b-lg">
           {footer}
         </div>
       )}
@@ -432,20 +436,15 @@ export const StatCard: React.FC<StatCardProps> = ({
 }) => {
   if (variant === 'primary') {
     return (
-      <Card className={classNames('flex flex-col border-blue-500', className)}>
-        <div className="flex items-start">
-          {icon && (
-            <div className="mr-4 p-3 bg-blue-600 rounded-lg">
-              <div className="text-white text-lg">{icon}</div>
-            </div>
-          )}
+      <Card className={classNames('flex flex-col border-l-4 border-l-blue-500 bg-slate-800/80 hover:bg-slate-800 transition-colors', className)}>
+        <div className="flex items-center justify-between">
           <div className="flex-grow">
-            <p className="text-lg font-medium text-blue-300 mb-1">{title}</p>
+            <p className="text-sm font-medium text-blue-300 mb-1">{title}</p>
             <div className="flex items-baseline">
-              <p className="text-3xl font-bold text-white">{value}</p>
+              <p className="text-2xl font-bold text-white">{value}</p>
               {trend && (
                 <div className={classNames(
-                  'ml-2 flex items-center text-sm font-medium',
+                  'ml-2 flex items-center text-xs font-medium',
                   trend.isPositive ? 'text-green-400' : 'text-red-400'
                 )}>
                   <span>{trend.isPositive ? '↑' : '↓'} {Math.abs(trend.value)}%</span>
@@ -453,21 +452,26 @@ export const StatCard: React.FC<StatCardProps> = ({
                 </div>
               )}
             </div>
-            {description && <p className="mt-2 text-sm text-slate-300">{description}</p>}
+            {description && <p className="mt-1 text-xs text-slate-400">{description}</p>}
           </div>
+          {icon && (
+            <div className="ml-3 p-2 bg-blue-600/20 rounded-lg">
+              <div className="text-blue-400 text-lg">{icon}</div>
+            </div>
+          )}
         </div>
       </Card>
     );
   }
   
   return (
-    <Card className={classNames('flex flex-col', className)}>
-      <div className="flex justify-between items-start mb-2">
+    <Card className={classNames('flex flex-col bg-slate-800/60 hover:bg-slate-800/80 transition-colors', className)}>
+      <div className="flex items-center justify-between mb-2">
         <p className="text-sm font-medium text-slate-300">{title}</p>
-        {icon && <div className="text-slate-200">{icon}</div>}
+        {icon && <div className="text-slate-400 text-sm">{icon}</div>}
       </div>
       <div className="flex items-baseline">
-        <p className="text-2xl font-bold text-white">{value}</p>
+        <p className="text-xl font-bold text-white">{value}</p>
         {trend && (
           <div className={classNames(
             'ml-2 flex items-center text-xs font-medium',
@@ -840,6 +844,56 @@ export const Spinner: React.FC<SpinnerProps> = ({
           d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
         ></path>
       </svg>
+    </div>
+  );
+};
+
+// ===== TOOLTIP COMPONENT =====
+interface TooltipProps {
+  children: ReactNode;
+  content: string;
+  position?: 'top' | 'bottom' | 'left' | 'right';
+  className?: string;
+}
+
+export const Tooltip: React.FC<TooltipProps> = ({
+  children,
+  content,
+  position = 'top',
+  className,
+}) => {
+  const [isVisible, setIsVisible] = useState(false);
+  
+  const positionClasses = {
+    top: 'bottom-full left-1/2 transform -translate-x-1/2 mb-2',
+    bottom: 'top-full left-1/2 transform -translate-x-1/2 mt-2',
+    left: 'right-full top-1/2 transform -translate-y-1/2 mr-2',
+    right: 'left-full top-1/2 transform -translate-y-1/2 ml-2',
+  };
+  
+  return (
+    <div 
+      className="relative inline-block"
+      onMouseEnter={() => setIsVisible(true)}
+      onMouseLeave={() => setIsVisible(false)}
+    >
+      {children}
+      {isVisible && (
+        <div className={classNames(
+          'absolute z-50 px-2 py-1 text-xs font-medium text-white bg-gray-900 rounded shadow-lg whitespace-nowrap',
+          positionClasses[position],
+          className
+        )}>
+          {content}
+          <div className={classNames(
+            'absolute w-0 h-0',
+            position === 'top' && 'top-full left-1/2 transform -translate-x-1/2 border-l-4 border-r-4 border-t-4 border-transparent border-t-gray-900',
+            position === 'bottom' && 'bottom-full left-1/2 transform -translate-x-1/2 border-l-4 border-r-4 border-b-4 border-transparent border-b-gray-900',
+            position === 'left' && 'left-full top-1/2 transform -translate-y-1/2 border-t-4 border-b-4 border-l-4 border-transparent border-l-gray-900',
+            position === 'right' && 'right-full top-1/2 transform -translate-y-1/2 border-t-4 border-b-4 border-r-4 border-transparent border-r-gray-900'
+          )} />
+        </div>
+      )}
     </div>
   );
 };
