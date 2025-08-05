@@ -1,6 +1,7 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAppDispatch, useAppSelector } from '../../store/configureStore';
+import { getDashboardData, DashboardData } from '../../api/dashboard';
 import { 
     StatCard, 
     Section, 
@@ -17,21 +18,47 @@ export const Dashboard: React.FC = () => {
     const navigate = useNavigate();
     const connectors = useAppSelector((state) => state.Connector.connectors);
     
-    // Placeholder stats
-    const aiComments = 0;
-    const codeReviews = 0;
+    // Dashboard data state
+    const [dashboardData, setDashboardData] = useState<DashboardData | null>(null);
+    const [isLoading, setIsLoading] = useState(true);
+    const [error, setError] = useState<string | null>(null);
+
+    // Load dashboard data
+    useEffect(() => {
+        const loadDashboardData = async () => {
+            try {
+                setIsLoading(true);
+                const data = await getDashboardData();
+                setDashboardData(data);
+                setError(null);
+            } catch (err) {
+                console.error('Error loading dashboard data:', err);
+                setError('Failed to load dashboard data');
+            } finally {
+                setIsLoading(false);
+            }
+        };
+
+        loadDashboardData();
+        
+        // Refresh data every 5 minutes
+        const interval = setInterval(loadDashboardData, 5 * 60 * 1000);
+        return () => clearInterval(interval);
+    }, []);
+
+    // Use real data if available, fallback to defaults
+    const aiComments = dashboardData?.total_comments || 0;
+    const codeReviews = dashboardData?.total_reviews || 0;
+    const connectedProviders = dashboardData?.connected_providers || connectors.length;
+    const aiConnectors = dashboardData?.active_ai_connectors || 1;
+    const recentActivity = dashboardData?.recent_activity || [];
+    
+    // Mock service info (could be moved to dashboard data later)
     const aiService = 'Gemini';
     const apiKey = 'sk-xxxxxxx';
 
-    // Mock recent activity
-    const recentActivity = [
-        { id: 1, action: 'Code review', repo: 'frontend/main', date: '2h ago' },
-        { id: 2, action: 'Comment added', repo: 'api/feature-branch', date: '5h ago' },
-        { id: 3, action: 'Connected', repo: 'GitLab', date: '1d ago' }
-    ];
-
     // Check if this is an empty state (no connections and no activity)
-    const isEmpty = connectors.length === 0 && codeReviews === 0 && aiComments === 0;
+    const isEmpty = connectedProviders === 0 && codeReviews === 0 && aiComments === 0;
 
     return (
         <div className="min-h-screen">
@@ -40,7 +67,14 @@ export const Dashboard: React.FC = () => {
                 <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-6">
                     <div className="mb-4 sm:mb-0">
                         <h1 className="text-2xl font-bold text-white">Dashboard</h1>
-                        <p className="mt-1 text-base text-slate-300">Monitor your code review activity and connected services</p>
+                        <p className="mt-1 text-base text-slate-300">
+                            Monitor your code review activity and connected services
+                            {dashboardData && (
+                                <span className="text-xs text-slate-400 ml-2">
+                                    Last updated: {new Date(dashboardData.last_updated).toLocaleTimeString()}
+                                </span>
+                            )}
+                        </p>
                     </div>
                     <div className="flex gap-3">
                         <Button 
@@ -63,6 +97,29 @@ export const Dashboard: React.FC = () => {
                         )}
                     </div>
                 </div>
+
+                {/* Error state */}
+                {error && (
+                    <div className="mb-6 bg-red-900/40 rounded-xl p-4 border border-red-800/30">
+                        <div className="flex items-center">
+                            <Icons.Info />
+                            <div className="ml-3">
+                                <h3 className="text-lg font-medium text-red-300">Error Loading Dashboard</h3>
+                                <p className="mt-1 text-red-200">{error}</p>
+                            </div>
+                        </div>
+                    </div>
+                )}
+
+                {/* Loading state */}
+                {isLoading && !dashboardData && (
+                    <div className="mb-6 bg-slate-800/40 rounded-xl p-6 border border-slate-700/30">
+                        <div className="flex items-center justify-center">
+                            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-400"></div>
+                            <span className="ml-3 text-slate-300">Loading dashboard data...</span>
+                        </div>
+                    </div>
+                )}
 
                 {/* Floating Action Button for mobile */}
                 <Button 
@@ -131,13 +188,13 @@ export const Dashboard: React.FC = () => {
                     />
                     <StatCard 
                         title="Git Providers" 
-                        value={connectors.length} 
+                        value={connectedProviders} 
                         icon={<Icons.Git />}
                         description="Connected services"
                     />
                     <StatCard 
                         title={aiService} 
-                        value="Active" 
+                        value={aiConnectors > 0 ? "Active" : "Inactive"} 
                         icon={<Icons.AI />}
                         description="AI service status"
                     />
@@ -160,10 +217,10 @@ export const Dashboard: React.FC = () => {
                                                 <div className="w-2 h-2 bg-blue-400 rounded-full"></div>
                                                 <div>
                                                     <p className="text-sm font-medium text-slate-100">{item.action}</p>
-                                                    <p className="text-xs text-slate-400">{item.repo}</p>
+                                                    <p className="text-xs text-slate-400">{item.repository}</p>
                                                 </div>
                                             </div>
-                                            <Badge variant="default" size="sm" className="bg-slate-600 text-slate-300">{item.date}</Badge>
+                                            <Badge variant="default" size="sm" className="bg-slate-600 text-slate-300">{item.time_ago}</Badge>
                                         </div>
                                     ))}
                                     <div className="pt-2 border-t border-slate-700">
@@ -267,15 +324,19 @@ export const Dashboard: React.FC = () => {
                             <div className="space-y-3">
                                 <div className="flex justify-between items-center">
                                     <span className="text-sm text-slate-300">Reviews Generated</span>
-                                    <span className="text-sm font-medium text-white">{codeReviews}</span>
+                                    <span className="text-sm font-medium text-white">{dashboardData?.performance_metrics?.reviews_this_week || 0}</span>
                                 </div>
                                 <div className="flex justify-between items-center">
                                     <span className="text-sm text-slate-300">Comments Made</span>
-                                    <span className="text-sm font-medium text-white">{aiComments}</span>
+                                    <span className="text-sm font-medium text-white">{dashboardData?.performance_metrics?.comments_this_week || 0}</span>
                                 </div>
                                 <div className="flex justify-between items-center">
                                     <span className="text-sm text-slate-300">Avg. Response Time</span>
-                                    <span className="text-sm font-medium text-white">2.3s</span>
+                                    <span className="text-sm font-medium text-white">{dashboardData?.performance_metrics?.avg_response_time_seconds?.toFixed(1) || '2.3'}s</span>
+                                </div>
+                                <div className="flex justify-between items-center">
+                                    <span className="text-sm text-slate-300">Success Rate</span>
+                                    <span className="text-sm font-medium text-white">{dashboardData?.performance_metrics?.success_rate_percentage?.toFixed(1) || '100'}%</span>
                                 </div>
                                 <div className="pt-2 border-t border-slate-700">
                                     <Button 

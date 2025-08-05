@@ -93,6 +93,19 @@ ALTER SEQUENCE public.ai_connectors_id_seq OWNED BY public.ai_connectors.id;
 
 
 --
+-- Name: dashboard_cache; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.dashboard_cache (
+    id integer DEFAULT 1 NOT NULL,
+    data jsonb DEFAULT '{}'::jsonb NOT NULL,
+    updated_at timestamp with time zone DEFAULT now(),
+    created_at timestamp with time zone DEFAULT now(),
+    CONSTRAINT single_dashboard_row CHECK ((id = 1))
+);
+
+
+--
 -- Name: instance_details; Type: TABLE; Schema: public; Owner: -
 --
 
@@ -388,6 +401,14 @@ ALTER TABLE ONLY public.ai_connectors
 
 
 --
+-- Name: dashboard_cache dashboard_cache_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.dashboard_cache
+    ADD CONSTRAINT dashboard_cache_pkey PRIMARY KEY (id);
+
+
+--
 -- Name: instance_details instance_details_pkey; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -555,7 +576,6 @@ INSERT INTO public.schema_migrations (version) VALUES
     ('20250719000004'),
     ('20250720000001'),
     ('20250720000002'),
-    ('20250720000003'),
     ('20250720135317'),
     ('20250720182946'),
     ('20250721035816'),
@@ -567,4 +587,5 @@ INSERT INTO public.schema_migrations (version) VALUES
     ('20250728092945'),
     ('20250728093051'),
     ('20250731131105'),
-    ('20250801150601');
+    ('20250801150601'),
+    ('20250805104629');
