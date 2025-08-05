@@ -388,12 +388,12 @@ func (s *Server) getFirstAIConnector() (*AIConnector, error) {
 func (s *Server) getModelForProvider(providerName string) string {
 	switch strings.ToLower(providerName) {
 	case "gemini":
-		return "gemini-1.5-flash"
+		return "gemini-2.5-flash"
 	case "openai":
 		return "gpt-4"
 	case "anthropic":
 		return "claude-3-sonnet-20240229"
 	default:
-		return "gemini-1.5-flash" // Default fallback
+		return "gemini-2.5-flash" // Default fallback
 	}
 }
