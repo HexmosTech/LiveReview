@@ -144,8 +144,9 @@ func (s *Server) setupRoutes() {
 	v1.GET("/aiconnectors", s.GetAIConnectors)
 	v1.DELETE("/aiconnectors/:id", s.DeleteAIConnector)
 
-	// Dashboard endpoint
+	// Dashboard endpoints
 	v1.GET("/dashboard", s.GetDashboardData)
+	v1.POST("/dashboard/refresh", s.RefreshDashboardData)
 }
 
 // Handler for creating PAT integration token, delegates to pat_token.go

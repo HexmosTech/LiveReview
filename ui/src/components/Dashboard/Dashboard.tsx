@@ -1,6 +1,5 @@
 import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { useAppDispatch, useAppSelector } from '../../store/configureStore';
 import { getDashboardData, DashboardData } from '../../api/dashboard';
 import { 
     StatCard, 
@@ -14,9 +13,7 @@ import {
 } from '../UIPrimitives';
 
 export const Dashboard: React.FC = () => {
-    const dispatch = useAppDispatch();
     const navigate = useNavigate();
-    const connectors = useAppSelector((state) => state.Connector.connectors);
     
     // Dashboard data state
     const [dashboardData, setDashboardData] = useState<DashboardData | null>(null);
@@ -46,16 +43,12 @@ export const Dashboard: React.FC = () => {
         return () => clearInterval(interval);
     }, []);
 
-    // Use real data if available, fallback to defaults
+    // Use dashboard API data exclusively - no fallbacks to Redux store
     const aiComments = dashboardData?.total_comments || 0;
     const codeReviews = dashboardData?.total_reviews || 0;
-    const connectedProviders = dashboardData?.connected_providers || connectors.length;
-    const aiConnectors = dashboardData?.active_ai_connectors || 1;
+    const connectedProviders = dashboardData?.connected_providers || 0;
+    const aiConnectors = dashboardData?.active_ai_connectors || 0;
     const recentActivity = dashboardData?.recent_activity || [];
-    
-    // Mock service info (could be moved to dashboard data later)
-    const aiService = 'Gemini';
-    const apiKey = 'sk-xxxxxxx';
 
     // Check if this is an empty state (no connections and no activity)
     const isEmpty = connectedProviders === 0 && codeReviews === 0 && aiComments === 0;
