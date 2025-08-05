@@ -193,10 +193,10 @@ export const Dashboard: React.FC = () => {
                         description="Connected services"
                     />
                     <StatCard 
-                        title={aiService} 
-                        value={aiConnectors > 0 ? "Active" : "Inactive"} 
+                        title="AI Providers" 
+                        value={aiConnectors} 
                         icon={<Icons.AI />}
-                        description="AI service status"
+                        description="Connected AI backends"
                     />
                 </div>
 
@@ -291,28 +291,6 @@ export const Dashboard: React.FC = () => {
                                     Review Settings
                                 </Button>
                             </div>
-                        </Card>
-
-                        <Card 
-                            title="AI Service Status" 
-                            className="h-fit"
-                        >
-                            <div className="flex items-center mb-4">
-                                <div className="flex-shrink-0 mr-3">
-                                    <div className="h-8 w-8 rounded-full bg-blue-600 text-white flex items-center justify-center">
-                                        <Icons.AI />
-                                    </div>
-                                </div>
-                                <div className="min-w-0 flex-1">
-                                    <h4 className="font-medium text-white truncate">{aiService}</h4>
-                                    <p className="text-xs text-slate-400 truncate">
-                                        API Key: {apiKey.substring(0, 3)}...{apiKey.substring(apiKey.length - 4)}
-                                    </p>
-                                </div>
-                            </div>
-                            <Badge variant="success" className="w-full justify-center py-1">
-                                ● Active
-                            </Badge>
                         </Card>
 
                         {/* Performance Summary */}
