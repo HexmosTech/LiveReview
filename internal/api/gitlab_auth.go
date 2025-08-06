@@ -281,6 +281,11 @@ func (s *Server) GitLabHandleCodeExchange(c echo.Context) error {
 		})
 	}
 
+	// Trigger automatic webhook installation in background
+	if s.autoWebhookInstaller != nil {
+		s.autoWebhookInstaller.TriggerAutoInstallation(int(integrationTokenID))
+	}
+
 	// Prepare the response
 	username := ""
 	if userInfo != nil {

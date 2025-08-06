@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/signal"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/labstack/echo/v4"
@@ -18,11 +19,12 @@ import (
 
 // Server represents the API server
 type Server struct {
-	echo             *echo.Echo
-	port             int
-	db               *sql.DB
-	jobQueue         *jobqueue.JobQueue
-	dashboardManager *DashboardManager
+	echo                 *echo.Echo
+	port                 int
+	db                   *sql.DB
+	jobQueue             *jobqueue.JobQueue
+	dashboardManager     *DashboardManager
+	autoWebhookInstaller *AutoWebhookInstaller
 }
 
 // NewServer creates a new API server
@@ -60,6 +62,9 @@ func NewServer(port int) (*Server, error) {
 	// Initialize dashboard manager
 	dashboardManager := NewDashboardManager(db)
 
+	// Initialize auto webhook installer
+	autoWebhookInstaller := NewAutoWebhookInstaller(db, nil, jq) // server will be set later
+
 	e := echo.New()
 
 	// Middleware
@@ -68,12 +73,16 @@ func NewServer(port int) (*Server, error) {
 	e.Use(middleware.CORS())
 
 	server := &Server{
-		echo:             e,
-		port:             port,
-		db:               db,
-		jobQueue:         jq,
-		dashboardManager: dashboardManager,
+		echo:                 e,
+		port:                 port,
+		db:                   db,
+		jobQueue:             jq,
+		dashboardManager:     dashboardManager,
+		autoWebhookInstaller: autoWebhookInstaller,
 	}
+
+	// Set the server reference in auto webhook installer (circular dependency)
+	autoWebhookInstaller.server = server
 
 	// Setup routes
 	server.setupRoutes()
@@ -151,7 +160,29 @@ func (s *Server) setupRoutes() {
 
 // Handler for creating PAT integration token, delegates to pat_token.go
 func (s *Server) HandleCreatePATIntegrationToken(c echo.Context) error {
-	return HandleCreatePATIntegrationToken(s.db, c)
+	// Create the PAT connector and get the ID
+	connectorID, err := CreatePATIntegrationToken(s.db, c)
+	if err != nil {
+		// Handle specific error types
+		if strings.Contains(err.Error(), "invalid request body") {
+			return c.JSON(http.StatusBadRequest, map[string]string{"error": "Invalid request body"})
+		}
+		if strings.Contains(err.Error(), "invalid metadata format") {
+			return c.JSON(http.StatusBadRequest, map[string]string{"error": "Invalid metadata format"})
+		}
+		// Default to internal server error
+		return c.JSON(http.StatusInternalServerError, map[string]string{"error": err.Error()})
+	}
+
+	// Send success response immediately (non-blocking)
+	response := c.JSON(http.StatusOK, map[string]interface{}{"id": connectorID})
+
+	// Trigger automatic webhook installation in background (non-blocking)
+	if s.autoWebhookInstaller != nil {
+		s.autoWebhookInstaller.TriggerAutoInstallation(int(connectorID))
+	}
+
+	return response
 }
 
 // ValidateGitLabProfile validates GitLab PAT and base URL by fetching user profile
