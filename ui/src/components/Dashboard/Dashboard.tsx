@@ -11,6 +11,7 @@ import {
     Button, 
     Icons 
 } from '../UIPrimitives';
+import { HumanizedTimestamp } from '../HumanizedTimestamp';
 
 export const Dashboard: React.FC = () => {
     const navigate = useNavigate();
@@ -64,7 +65,10 @@ export const Dashboard: React.FC = () => {
                             Monitor your code review activity and connected services
                             {dashboardData && (
                                 <span className="text-xs text-slate-400 ml-2">
-                                    Last updated: {new Date(dashboardData.last_updated).toLocaleTimeString()}
+                                    Last updated: <HumanizedTimestamp 
+                                        timestamp={dashboardData.last_updated} 
+                                        className="text-slate-400"
+                                    />
                                 </span>
                             )}
                         </p>
@@ -213,7 +217,12 @@ export const Dashboard: React.FC = () => {
                                                     <p className="text-xs text-slate-400">{item.repository}</p>
                                                 </div>
                                             </div>
-                                            <Badge variant="default" size="sm" className="bg-slate-600 text-slate-300">{item.time_ago}</Badge>
+                                            <Badge variant="default" size="sm" className="bg-slate-600 text-slate-300">
+                                                <HumanizedTimestamp 
+                                                    timestamp={item.timestamp} 
+                                                    className="text-slate-300"
+                                                />
+                                            </Badge>
                                         </div>
                                     ))}
                                     <div className="pt-2 border-t border-slate-700">
