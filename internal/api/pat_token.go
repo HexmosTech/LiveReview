@@ -3,6 +3,7 @@ package api
 import (
 	"database/sql"
 	"encoding/json"
+	"fmt"
 	"net/http"
 
 	"github.com/labstack/echo/v4"
@@ -10,6 +11,15 @@ import (
 
 // Handler for creating PAT integration token
 func HandleCreatePATIntegrationToken(db *sql.DB, c echo.Context) error {
+	connectorID, err := CreatePATIntegrationToken(db, c)
+	if err != nil {
+		return err
+	}
+	return c.JSON(http.StatusOK, map[string]interface{}{"id": connectorID})
+}
+
+// CreatePATIntegrationToken creates a PAT integration token and returns the ID
+func CreatePATIntegrationToken(db *sql.DB, c echo.Context) (int64, error) {
 	type reqBody struct {
 		Name     string                 `json:"name"` // connector_name
 		Type     string                 `json:"type"` // provider
@@ -19,7 +29,7 @@ func HandleCreatePATIntegrationToken(db *sql.DB, c echo.Context) error {
 	}
 	var body reqBody
 	if err := c.Bind(&body); err != nil {
-		return c.JSON(http.StatusBadRequest, map[string]string{"error": "Invalid request body"})
+		return 0, fmt.Errorf("invalid request body: %w", err)
 	}
 
 	// Remove username from metadata if present (should be connector_name)
@@ -33,7 +43,7 @@ func HandleCreatePATIntegrationToken(db *sql.DB, c echo.Context) error {
 	if body.Metadata != nil {
 		metadataJSON, err = json.Marshal(body.Metadata)
 		if err != nil {
-			return c.JSON(http.StatusBadRequest, map[string]string{"error": "Invalid metadata format"})
+			return 0, fmt.Errorf("invalid metadata format: %w", err)
 		}
 	} else {
 		metadataJSON = []byte("{}")
@@ -55,7 +65,7 @@ func HandleCreatePATIntegrationToken(db *sql.DB, c echo.Context) error {
 		nil,           // expires_at
 	).Scan(&id)
 	if err != nil {
-		return c.JSON(http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return 0, fmt.Errorf("database error: %w", err)
 	}
-	return c.JSON(http.StatusOK, map[string]interface{}{"id": id})
+	return id, nil
 }
