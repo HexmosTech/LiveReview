@@ -72,3 +72,8 @@ db-flip:
 	fi
 	@echo "New DATABASE_URL in .env:"
 	@grep "DATABASE_URL=" .env
+
+build-push:
+	cd ui && npm install && npm run build
+	docker build -t livereview .
+	docker push git.apps.hexmos.com:5050/hexmos/livereview
