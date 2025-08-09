@@ -3,9 +3,15 @@
 ## API Keys
 
 ```
-GitHub
+shrsv/GitHub
 
 REDACTED_GITHUB_PAT_4
+```
+
+```
+LiveReviewBot/Github
+
+REDACTED_GITHUB_PAT_5
 ```
 
 AI-powered code review tool for GitLab, GitHub, and BitBucket.

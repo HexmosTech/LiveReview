@@ -147,6 +147,9 @@ func (s *Server) setupRoutes() {
 	// GitLab webhook handler
 	v1.POST("/gitlab-hook", s.GitLabWebhookHandler)
 
+	// GitHub webhook handler
+	v1.POST("/github-hook", s.GitHubWebhookHandler)
+
 	// AI Connector endpoints
 	v1.POST("/aiconnectors/validate-key", s.ValidateAIConnectorKey)
 	v1.POST("/aiconnectors", s.CreateAIConnector)
