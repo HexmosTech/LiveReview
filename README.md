@@ -1,5 +1,13 @@
 # LiveReview
 
+## API Keys
+
+```
+GitHub
+
+REDACTED_GITHUB_PAT_4
+```
+
 AI-powered code review tool for GitLab, GitHub, and BitBucket.
 
 ## Overview
