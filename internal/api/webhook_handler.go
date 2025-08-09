@@ -397,3 +397,337 @@ func (s *Server) getModelForProvider(providerName string) string {
 		return "gemini-2.5-flash" // Default fallback
 	}
 }
+
+// GitHub webhook payload structures
+
+// GitHubWebhookPayload represents the structure of GitHub webhook payloads
+type GitHubWebhookPayload struct {
+	Action      string            `json:"action"`
+	Number      int               `json:"number"`
+	PullRequest GitHubPullRequest `json:"pull_request"`
+	Repository  GitHubRepository  `json:"repository"`
+	Sender      GitHubUser        `json:"sender"`
+	// For review_requested/review_request_removed actions
+	RequestedReviewer GitHubUser `json:"requested_reviewer,omitempty"`
+	RequestedTeam     GitHubTeam `json:"requested_team,omitempty"`
+}
+
+// GitHubPullRequest represents a GitHub pull request
+type GitHubPullRequest struct {
+	ID                 int          `json:"id"`
+	Number             int          `json:"number"`
+	Title              string       `json:"title"`
+	Body               string       `json:"body"`
+	State              string       `json:"state"`
+	HTMLURL            string       `json:"html_url"`
+	CreatedAt          string       `json:"created_at"`
+	UpdatedAt          string       `json:"updated_at"`
+	Head               GitHubBranch `json:"head"`
+	Base               GitHubBranch `json:"base"`
+	User               GitHubUser   `json:"user"`
+	RequestedReviewers []GitHubUser `json:"requested_reviewers"`
+	RequestedTeams     []GitHubTeam `json:"requested_teams"`
+	Assignees          []GitHubUser `json:"assignees"`
+}
+
+// GitHubRepository represents a GitHub repository
+type GitHubRepository struct {
+	ID       int        `json:"id"`
+	Name     string     `json:"name"`
+	FullName string     `json:"full_name"`
+	HTMLURL  string     `json:"html_url"`
+	Owner    GitHubUser `json:"owner"`
+	Private  bool       `json:"private"`
+}
+
+// GitHubUser represents a GitHub user
+type GitHubUser struct {
+	ID        int    `json:"id"`
+	Login     string `json:"login"`
+	HTMLURL   string `json:"html_url"`
+	AvatarURL string `json:"avatar_url"`
+	Type      string `json:"type"`
+}
+
+// GitHubTeam represents a GitHub team
+type GitHubTeam struct {
+	ID   int    `json:"id"`
+	Name string `json:"name"`
+	Slug string `json:"slug"`
+}
+
+// GitHubBranch represents a GitHub branch
+type GitHubBranch struct {
+	Ref  string           `json:"ref"`
+	SHA  string           `json:"sha"`
+	Repo GitHubRepository `json:"repo"`
+}
+
+// GitHubReviewerChangeInfo represents processed GitHub reviewer change information
+type GitHubReviewerChangeInfo struct {
+	EventType           string              `json:"event_type"`
+	Action              string              `json:"action"`
+	UpdatedAt           string              `json:"updated_at"`
+	BotUsers            []GitHubBotUserInfo `json:"bot_users"`
+	CurrentBotReviewers []GitHubUser        `json:"current_bot_reviewers"`
+	IsBotAssigned       bool                `json:"is_bot_assigned"`
+	IsBotRemoved        bool                `json:"is_bot_removed"`
+	RequestedReviewer   GitHubUser          `json:"requested_reviewer"`
+	ChangedBy           GitHubUser          `json:"changed_by"`
+	PullRequest         GitHubPullRequest   `json:"pull_request"`
+	Repository          GitHubRepository    `json:"repository"`
+}
+
+// GitHubBotUserInfo represents information about a bot user in GitHub reviewer changes
+type GitHubBotUserInfo struct {
+	Type string     `json:"type"` // "requested" or "removed"
+	User GitHubUser `json:"user"`
+}
+
+// GitHubWebhookHandler handles incoming GitHub webhook events
+func (s *Server) GitHubWebhookHandler(c echo.Context) error {
+	// Parse the webhook payload
+	var payload GitHubWebhookPayload
+	if err := c.Bind(&payload); err != nil {
+		log.Printf("[ERROR] Failed to parse GitHub webhook payload: %v", err)
+		return c.JSON(http.StatusBadRequest, map[string]string{
+			"error": "Invalid webhook payload",
+		})
+	}
+
+	// Get the event type from headers
+	eventType := c.Request().Header.Get("X-GitHub-Event")
+	log.Printf("[INFO] Received GitHub webhook: event_type=%s, action=%s", eventType, payload.Action)
+
+	// Process reviewer change events for pull requests
+	if strings.ToLower(eventType) == "pull_request" &&
+		(payload.Action == "review_requested" || payload.Action == "review_request_removed") {
+
+		reviewerChangeInfo := s.processGitHubReviewerChange(payload, eventType)
+		if reviewerChangeInfo != nil {
+			log.Printf("[INFO] Detected livereview reviewer change in GitHub PR #%d", reviewerChangeInfo.PullRequest.Number)
+
+			// If livereview users are assigned as reviewers, trigger a review
+			if reviewerChangeInfo.IsBotAssigned && len(reviewerChangeInfo.CurrentBotReviewers) > 0 {
+				go s.triggerReviewForGitHubPR(reviewerChangeInfo)
+			}
+		}
+	}
+
+	return c.JSON(http.StatusOK, map[string]string{
+		"status": "received",
+	})
+}
+
+// processGitHubReviewerChange detects reviewer changes involving "livereview" users
+func (s *Server) processGitHubReviewerChange(payload GitHubWebhookPayload, eventType string) *GitHubReviewerChangeInfo {
+	log.Printf("[DEBUG] Processing GitHub reviewer change detection...")
+	log.Printf("[DEBUG] Event type: '%s'", eventType)
+	log.Printf("[DEBUG] Action: '%s'", payload.Action)
+
+	if strings.ToLower(eventType) != "pull_request" {
+		log.Printf("[DEBUG] Event type mismatch, skipping")
+		return nil
+	}
+
+	if payload.Action != "review_requested" && payload.Action != "review_request_removed" {
+		log.Printf("[DEBUG] Action mismatch, skipping")
+		return nil
+	}
+
+	botNameLower := "livereview"
+	log.Printf("[DEBUG] Checking for '%s' usernames...", botNameLower)
+
+	// Check if the reviewer change involves a livereview user
+	var botUsers []GitHubBotUserInfo
+	var currentBotReviewers []GitHubUser
+	isBotAssigned := false
+	isBotRemoved := false
+
+	// Check the specific reviewer that was added/removed
+	if payload.RequestedReviewer.Login != "" {
+		username := strings.ToLower(payload.RequestedReviewer.Login)
+		log.Printf("[DEBUG] Reviewer in action: '%s'", payload.RequestedReviewer.Login)
+
+		if strings.Contains(username, botNameLower) {
+			log.Printf("[DEBUG] Found '%s' in username: '%s'", botNameLower, payload.RequestedReviewer.Login)
+
+			if payload.Action == "review_requested" {
+				botUsers = append(botUsers, GitHubBotUserInfo{Type: "requested", User: payload.RequestedReviewer})
+				isBotAssigned = true
+				log.Printf("[DEBUG] Livereview user assigned as reviewer - THIS WILL TRIGGER ACTIONS!")
+			} else if payload.Action == "review_request_removed" {
+				botUsers = append(botUsers, GitHubBotUserInfo{Type: "removed", User: payload.RequestedReviewer})
+				isBotRemoved = true
+				log.Printf("[DEBUG] Livereview user removed as reviewer")
+			}
+		}
+	}
+
+	// Also check current reviewers list to get full context
+	for i, reviewer := range payload.PullRequest.RequestedReviewers {
+		username := strings.ToLower(reviewer.Login)
+		log.Printf("[DEBUG] Current reviewer %d: '%s'", i+1, reviewer.Login)
+		if strings.Contains(username, botNameLower) {
+			log.Printf("[DEBUG] Found '%s' in current reviewers: '%s'", botNameLower, reviewer.Login)
+			currentBotReviewers = append(currentBotReviewers, reviewer)
+		}
+	}
+
+	// If no livereview users are involved, skip
+	if len(botUsers) == 0 {
+		log.Printf("[DEBUG] No '%s' users found in reviewer changes, skipping", botNameLower)
+		return nil
+	}
+
+	// For review_requested, we need current bot reviewers to trigger action
+	if payload.Action == "review_requested" && len(currentBotReviewers) == 0 {
+		// The bot was requested but not in current reviewers list yet - add it
+		if strings.Contains(strings.ToLower(payload.RequestedReviewer.Login), botNameLower) {
+			currentBotReviewers = append(currentBotReviewers, payload.RequestedReviewer)
+		}
+	}
+
+	log.Printf("[DEBUG] Found %d '%s' users in reviewer changes!", len(botUsers), botNameLower)
+	log.Printf("[DEBUG] Current livereview reviewers (will trigger actions): %d", len(currentBotReviewers))
+	log.Printf("[DEBUG] Livereview assigned as reviewer: %t", isBotAssigned)
+	log.Printf("[DEBUG] Livereview removed as reviewer: %t", isBotRemoved)
+
+	// Build the reviewer change info
+	reviewerChangeInfo := &GitHubReviewerChangeInfo{
+		EventType:           "reviewer_change",
+		Action:              payload.Action,
+		UpdatedAt:           payload.PullRequest.UpdatedAt,
+		BotUsers:            botUsers,
+		CurrentBotReviewers: currentBotReviewers,
+		IsBotAssigned:       isBotAssigned,
+		IsBotRemoved:        isBotRemoved,
+		RequestedReviewer:   payload.RequestedReviewer,
+		ChangedBy:           payload.Sender,
+		PullRequest:         payload.PullRequest,
+		Repository:          payload.Repository,
+	}
+
+	log.Printf("[DEBUG] GitHub reviewer change processing completed successfully!")
+	return reviewerChangeInfo
+}
+
+// triggerReviewForGitHubPR triggers a code review for the GitHub pull request
+func (s *Server) triggerReviewForGitHubPR(changeInfo *GitHubReviewerChangeInfo) {
+	log.Printf("[INFO] Triggering review for GitHub PR: %s", changeInfo.PullRequest.HTMLURL)
+	log.Printf("[INFO] PR Title: %s", changeInfo.PullRequest.Title)
+	log.Printf("[INFO] Changed by: %s (@%s)", changeInfo.ChangedBy.Login, changeInfo.ChangedBy.Login)
+
+	for _, reviewer := range changeInfo.CurrentBotReviewers {
+		log.Printf("[INFO] Livereview reviewer assigned: @%s", reviewer.Login)
+	}
+
+	// Generate a unique review ID
+	reviewID := fmt.Sprintf("github-webhook-review-%d", time.Now().Unix())
+
+	ctx := context.Background()
+
+	// Load integration token for this repository
+	integrationToken, err := s.findIntegrationTokenForGitHubRepo(changeInfo.Repository.FullName)
+	if err != nil {
+		log.Printf("[ERROR] Failed to find integration token for GitHub repository %s: %v", changeInfo.Repository.FullName, err)
+		return
+	}
+	log.Printf("[DEBUG] Found integration token: provider=%s, url=%s", integrationToken.Provider, integrationToken.ProviderURL)
+
+	// Load AI connector (use the first available one)
+	aiConnector, err := s.getFirstAIConnector()
+	if err != nil {
+		log.Printf("[ERROR] Failed to get AI connector: %v", err)
+		return
+	}
+	log.Printf("[DEBUG] Found AI connector: provider=%s", aiConnector.ProviderName)
+
+	// Create the review request with proper configuration
+	request := review.ReviewRequest{
+		URL:      changeInfo.PullRequest.HTMLURL,
+		ReviewID: reviewID,
+		Provider: review.ProviderConfig{
+			Type:  integrationToken.Provider,
+			URL:   integrationToken.ProviderURL,
+			Token: integrationToken.PatToken,
+			Config: map[string]interface{}{
+				"pat_token": integrationToken.PatToken,
+			},
+		},
+		AI: review.AIConfig{
+			Type:        aiConnector.ProviderName,
+			APIKey:      aiConnector.APIKey,
+			Model:       s.getModelForProvider(aiConnector.ProviderName),
+			Temperature: 0.1,
+			Config:      make(map[string]interface{}),
+		},
+	}
+
+	// Create the review service with factories
+	providerFactory := review.NewStandardProviderFactory()
+	aiFactory := review.NewStandardAIProviderFactory()
+
+	serviceConfig := review.Config{
+		ReviewTimeout: 10 * time.Minute,
+		DefaultAI:     aiConnector.ProviderName,
+		DefaultModel:  s.getModelForProvider(aiConnector.ProviderName),
+		Temperature:   0.1,
+	}
+
+	reviewService := review.NewService(providerFactory, aiFactory, serviceConfig)
+
+	log.Printf("[DEBUG] Starting GitHub review with config: URL=%s, Provider=%s, AI=%s",
+		request.URL, request.Provider.Type, request.AI.Type)
+
+	// Process the review asynchronously
+	reviewService.ProcessReviewAsync(ctx, request, func(result *review.ReviewResult) {
+		if result.Success {
+			log.Printf("[INFO] Review completed successfully for GitHub PR #%d (ReviewID: %s)",
+				changeInfo.PullRequest.Number, result.ReviewID)
+			log.Printf("[INFO] Posted %d comments", result.CommentsCount)
+		} else {
+			log.Printf("[ERROR] Review failed for GitHub PR #%d (ReviewID: %s): %v",
+				changeInfo.PullRequest.Number, result.ReviewID, result.Error)
+		}
+	})
+
+	log.Printf("[INFO] Review process started asynchronously for GitHub PR #%d (ReviewID: %s)",
+		changeInfo.PullRequest.Number, reviewID)
+}
+
+// findIntegrationTokenForGitHubRepo finds the integration token for a GitHub repository
+func (s *Server) findIntegrationTokenForGitHubRepo(repoFullName string) (*IntegrationToken, error) {
+	// Look up the webhook registry to find which integration token is associated with this repository
+	query := `
+		SELECT it.id, it.provider, it.provider_url, it.pat_token
+		FROM integration_tokens it
+		JOIN webhook_registry wr ON wr.integration_token_id = it.id
+		WHERE wr.project_full_name = $1
+		LIMIT 1
+	`
+
+	var token IntegrationToken
+	err := s.db.QueryRow(query, repoFullName).Scan(
+		&token.ID, &token.Provider, &token.ProviderURL, &token.PatToken,
+	)
+	if err != nil {
+		// If no specific webhook registry entry, try to find any integration token for GitHub
+		// This is a fallback for cases where webhook might not be properly registered yet
+		query = `
+			SELECT id, provider, provider_url, pat_token
+			FROM integration_tokens
+			WHERE provider LIKE 'github%'
+			ORDER BY created_at DESC
+			LIMIT 1
+		`
+		err = s.db.QueryRow(query).Scan(
+			&token.ID, &token.Provider, &token.ProviderURL, &token.PatToken,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("no integration token found for GitHub repository %s: %w", repoFullName, err)
+		}
+	}
+
+	return &token, nil
+}

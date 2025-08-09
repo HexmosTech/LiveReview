@@ -140,7 +140,43 @@ type WebhookRemovalWorker struct {
 	config *QueueConfig
 }
 
-// GitLab API client methods
+// getWebhookEndpointForProvider returns the correct webhook endpoint based on the provider
+func (w *WebhookInstallWorker) getWebhookEndpointForProvider(provider string) string {
+	baseURL := w.config.WebhookConfig.PublicEndpoint
+
+	// Remove any trailing slash
+	baseURL = strings.TrimSuffix(baseURL, "/")
+
+	// Replace provider-specific endpoint
+	switch provider {
+	case "gitlab", "gitlab-com", "gitlab-enterprise":
+		// Replace any existing endpoint with gitlab-hook
+		if strings.HasSuffix(baseURL, "/github-hook") {
+			baseURL = strings.TrimSuffix(baseURL, "/github-hook")
+		} else if strings.HasSuffix(baseURL, "/gitlab-hook") {
+			// Already correct
+			return baseURL
+		}
+		return baseURL + "/gitlab-hook"
+	case "github", "github-com", "github-enterprise":
+		// Replace any existing endpoint with github-hook
+		if strings.HasSuffix(baseURL, "/gitlab-hook") {
+			baseURL = strings.TrimSuffix(baseURL, "/gitlab-hook")
+		} else if strings.HasSuffix(baseURL, "/github-hook") {
+			// Already correct
+			return baseURL
+		}
+		return baseURL + "/github-hook"
+	default:
+		// For unknown providers, try to strip known endpoints and return base
+		if strings.HasSuffix(baseURL, "/gitlab-hook") {
+			baseURL = strings.TrimSuffix(baseURL, "/gitlab-hook")
+		} else if strings.HasSuffix(baseURL, "/github-hook") {
+			baseURL = strings.TrimSuffix(baseURL, "/github-hook")
+		}
+		return baseURL
+	}
+} // GitLab API client methods
 func (w *WebhookInstallWorker) makeGitLabRequest(method, endpoint string, payload interface{}, baseURL, pat string) (*http.Response, error) {
 	var body io.Reader
 	if payload != nil {
@@ -251,14 +287,17 @@ func (w *WebhookInstallWorker) webhookExists(projectID int, webhookURL, baseURL,
 }
 
 func (w *WebhookInstallWorker) installGitLabWebhook(projectID int, baseURL, pat string) (*GitLabHook, error) {
+	// Get provider-specific webhook endpoint
+	webhookURL := w.getWebhookEndpointForProvider("gitlab")
+
 	// Check if webhook already exists
-	existingHook, err := w.webhookExists(projectID, w.config.WebhookConfig.PublicEndpoint, baseURL, pat)
+	existingHook, err := w.webhookExists(projectID, webhookURL, baseURL, pat)
 	if err != nil {
 		return nil, fmt.Errorf("failed to check existing webhooks: %w", err)
 	}
 
 	payload := WebhookPayload{
-		URL:                   w.config.WebhookConfig.PublicEndpoint,
+		URL:                   webhookURL,
 		Token:                 w.config.WebhookConfig.Secret,
 		PushEvents:            w.config.WebhookConfig.Events.PushEvents,
 		IssuesEvents:          w.config.WebhookConfig.Events.IssuesEvents,
@@ -419,7 +458,7 @@ func (w *WebhookInstallWorker) updateWebhookRegistryGitLab(ctx context.Context, 
 
 	// Prepare webhook details
 	webhookID := ""
-	webhookURL := w.config.WebhookConfig.PublicEndpoint
+	webhookURL := w.getWebhookEndpointForProvider("gitlab")
 	webhookName := "LiveReview Webhook"
 	events := "merge_requests,notes"
 	status := "automatic" // Changed from "manual" since we actually installed a webhook
@@ -590,7 +629,8 @@ func (w *WebhookInstallWorker) gitHubWebhookExists(owner, repo, webhookURL, base
 
 // installGitHubWebhook installs a webhook in GitHub repository
 func (w *WebhookInstallWorker) installGitHubWebhook(owner, repo, baseURL, pat string) (*GitHubHook, error) {
-	webhookURL := w.config.WebhookConfig.PublicEndpoint
+	// Get provider-specific webhook endpoint
+	webhookURL := w.getWebhookEndpointForProvider("github")
 
 	// Check if webhook already exists
 	existingHook, err := w.gitHubWebhookExists(owner, repo, webhookURL, baseURL, pat)
@@ -694,7 +734,7 @@ func (w *WebhookInstallWorker) updateWebhookRegistryGitHub(ctx context.Context, 
 
 	// Prepare webhook details
 	webhookID := ""
-	webhookURL := w.config.WebhookConfig.PublicEndpoint
+	webhookURL := w.getWebhookEndpointForProvider("github")
 	webhookName := "LiveReview Webhook"
 	events := "pull_request,issue_comment"
 	status := "manual" // GitHub webhooks enable manual trigger
@@ -891,6 +931,44 @@ func (w *WebhookRemovalWorker) getProjectID(projectPath, baseURL, pat string) (i
 	return project.ID, nil
 }
 
+// getWebhookEndpointForProvider returns the correct webhook endpoint based on the provider for removal worker
+func (w *WebhookRemovalWorker) getWebhookEndpointForProvider(provider string) string {
+	baseURL := w.config.WebhookConfig.PublicEndpoint
+
+	// Remove any trailing slash
+	baseURL = strings.TrimSuffix(baseURL, "/")
+
+	// Replace provider-specific endpoint
+	switch provider {
+	case "gitlab", "gitlab-com", "gitlab-enterprise":
+		// Replace any existing endpoint with gitlab-hook
+		if strings.HasSuffix(baseURL, "/github-hook") {
+			baseURL = strings.TrimSuffix(baseURL, "/github-hook")
+		} else if strings.HasSuffix(baseURL, "/gitlab-hook") {
+			// Already correct
+			return baseURL
+		}
+		return baseURL + "/gitlab-hook"
+	case "github", "github-com", "github-enterprise":
+		// Replace any existing endpoint with github-hook
+		if strings.HasSuffix(baseURL, "/gitlab-hook") {
+			baseURL = strings.TrimSuffix(baseURL, "/gitlab-hook")
+		} else if strings.HasSuffix(baseURL, "/github-hook") {
+			// Already correct
+			return baseURL
+		}
+		return baseURL + "/github-hook"
+	default:
+		// For unknown providers, try to strip known endpoints and return base
+		if strings.HasSuffix(baseURL, "/gitlab-hook") {
+			baseURL = strings.TrimSuffix(baseURL, "/gitlab-hook")
+		} else if strings.HasSuffix(baseURL, "/github-hook") {
+			baseURL = strings.TrimSuffix(baseURL, "/github-hook")
+		}
+		return baseURL
+	}
+}
+
 // makeGitLabRequest makes a request to the GitLab API
 func (w *WebhookRemovalWorker) makeGitLabRequest(method, endpoint string, payload interface{}, baseURL, pat string) (*http.Response, error) {
 	var body io.Reader
@@ -941,7 +1019,7 @@ func (w *WebhookRemovalWorker) removeWebhooks(projectID int, baseURL, pat string
 		return fmt.Errorf("failed to decode hooks response: %w", err)
 	}
 
-	webhookURL := w.config.WebhookConfig.PublicEndpoint
+	webhookURL := w.getWebhookEndpointForProvider("gitlab")
 	removedCount := 0
 
 	// Remove hooks that match our webhook URL
@@ -998,7 +1076,7 @@ func (w *WebhookRemovalWorker) updateWebhookRegistryForRemoval(ctx context.Conte
 
 	// Prepare webhook details for removal
 	webhookID := ""
-	webhookURL := w.config.WebhookConfig.PublicEndpoint
+	webhookURL := w.getWebhookEndpointForProvider("gitlab")
 	webhookName := "LiveReview Webhook"
 	events := "merge_requests,notes"
 	status := "unconnected" // Mark as unconnected
@@ -1144,7 +1222,7 @@ func (w *WebhookRemovalWorker) removeGitHubWebhooks(owner, repo, baseURL, pat st
 		return fmt.Errorf("failed to decode hooks response: %w", err)
 	}
 
-	webhookURL := w.config.WebhookConfig.PublicEndpoint
+	webhookURL := w.getWebhookEndpointForProvider("github")
 	removedCount := 0
 
 	// Remove hooks that match our webhook URL
@@ -1197,7 +1275,7 @@ func (w *WebhookRemovalWorker) updateWebhookRegistryForGitHubRemoval(ctx context
 
 	// Prepare webhook details for removal
 	webhookID := ""
-	webhookURL := w.config.WebhookConfig.PublicEndpoint
+	webhookURL := w.getWebhookEndpointForProvider("github")
 	webhookName := "LiveReview Webhook"
 	events := "pull_request,issue_comment"
 	status := "unconnected" // Mark as unconnected
