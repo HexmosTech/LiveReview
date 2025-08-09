@@ -16,6 +16,7 @@ import (
 	"net/http"
 	"net/url"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -57,6 +58,44 @@ type WebhookPayload struct {
 	JobEvents             bool   `json:"job_events"`
 	PipelineEvents        bool   `json:"pipeline_events"`
 	EnableSSLVerification bool   `json:"enable_ssl_verification"`
+}
+
+// GitHub API response structures
+type GitHubRepository struct {
+	ID       int    `json:"id"`
+	Name     string `json:"name"`
+	FullName string `json:"full_name"`
+	Owner    struct {
+		Login string `json:"login"`
+	} `json:"owner"`
+	Private bool `json:"private"`
+}
+
+type GitHubHook struct {
+	ID     int      `json:"id"`
+	Name   string   `json:"name"`
+	Active bool     `json:"active"`
+	Events []string `json:"events"`
+	Config struct {
+		URL         string `json:"url"`
+		ContentType string `json:"content_type"`
+		Secret      string `json:"secret,omitempty"`
+		InsecureSSL string `json:"insecure_ssl"`
+	} `json:"config"`
+	CreatedAt time.Time `json:"created_at"`
+	UpdatedAt time.Time `json:"updated_at"`
+}
+
+type GitHubWebhookPayload struct {
+	Name   string   `json:"name"`
+	Active bool     `json:"active"`
+	Events []string `json:"events"`
+	Config struct {
+		URL         string `json:"url"`
+		ContentType string `json:"content_type"`
+		Secret      string `json:"secret,omitempty"`
+		InsecureSSL string `json:"insecure_ssl"`
+	} `json:"config"`
 }
 
 // WebhookInstallJobArgs represents the arguments for a webhook installation job
@@ -211,7 +250,7 @@ func (w *WebhookInstallWorker) webhookExists(projectID int, webhookURL, baseURL,
 	return nil, nil // Not found
 }
 
-func (w *WebhookInstallWorker) installWebhook(projectID int, baseURL, pat string) (*GitLabHook, error) {
+func (w *WebhookInstallWorker) installGitLabWebhook(projectID int, baseURL, pat string) (*GitLabHook, error) {
 	// Check if webhook already exists
 	existingHook, err := w.webhookExists(projectID, w.config.WebhookConfig.PublicEndpoint, baseURL, pat)
 	if err != nil {
@@ -278,9 +317,21 @@ func (w *WebhookInstallWorker) installWebhook(projectID int, baseURL, pat string
 func (w *WebhookInstallWorker) Work(ctx context.Context, job *river.Job[WebhookInstallJobArgs]) error {
 	args := job.Args
 
-	log.Printf("Processing webhook installation for project: %s (connector: %d)",
-		args.ProjectPath, args.ConnectorID)
+	log.Printf("Processing webhook installation for project: %s (connector: %d, provider: %s)",
+		args.ProjectPath, args.ConnectorID, args.Provider)
 
+	// Handle different providers
+	if strings.HasPrefix(args.Provider, "gitlab") {
+		return w.handleGitLabWebhookInstall(ctx, args)
+	} else if strings.HasPrefix(args.Provider, "github") {
+		return w.handleGitHubWebhookInstall(ctx, args)
+	} else {
+		return fmt.Errorf("unsupported provider: %s", args.Provider)
+	}
+}
+
+// handleGitLabWebhookInstall handles GitLab webhook installation
+func (w *WebhookInstallWorker) handleGitLabWebhookInstall(ctx context.Context, args WebhookInstallJobArgs) error {
 	// Get the numeric project ID from GitLab
 	projectID, err := w.getProjectID(args.ProjectPath, args.BaseURL, args.PAT)
 	if err != nil {
@@ -291,28 +342,60 @@ func (w *WebhookInstallWorker) Work(ctx context.Context, job *river.Job[WebhookI
 	log.Printf("Resolved project %s to ID: %d", args.ProjectPath, projectID)
 
 	// Install the webhook in GitLab
-	webhook, err := w.installWebhook(projectID, args.BaseURL, args.PAT)
+	webhook, err := w.installGitLabWebhook(projectID, args.BaseURL, args.PAT)
 	if err != nil {
 		log.Printf("Failed to install webhook for project %s (ID: %d): %v", args.ProjectPath, projectID, err)
 		return fmt.Errorf("failed to install webhook: %w", err)
 	}
 
-	log.Printf("Successfully installed webhook #%d for project %s", webhook.ID, args.ProjectPath)
+	log.Printf("Successfully installed GitLab webhook #%d for project %s", webhook.ID, args.ProjectPath)
 
 	// Update the webhook_registry with the actual webhook details
-	err = w.updateWebhookRegistry(ctx, args, webhook)
+	err = w.updateWebhookRegistryGitLab(ctx, args, webhook)
 	if err != nil {
 		log.Printf("Failed to update webhook registry for project %s: %v", args.ProjectPath, err)
 		// Don't return error here since webhook was successfully installed
 		// Just log the issue
 	}
 
-	log.Printf("Webhook installation completed for project: %s", args.ProjectPath)
+	log.Printf("GitLab webhook installation completed for project: %s", args.ProjectPath)
+	return nil
+}
+
+// handleGitHubWebhookInstall handles GitHub webhook installation
+func (w *WebhookInstallWorker) handleGitHubWebhookInstall(ctx context.Context, args WebhookInstallJobArgs) error {
+	// Parse GitHub repository from project path (format: owner/repo)
+	parts := strings.SplitN(args.ProjectPath, "/", 2)
+	if len(parts) != 2 {
+		return fmt.Errorf("invalid GitHub repository format: %s (expected: owner/repo)", args.ProjectPath)
+	}
+	owner, repo := parts[0], parts[1]
+
+	log.Printf("Installing GitHub webhook for repository: %s/%s", owner, repo)
+
+	// Install the webhook in GitHub
+	webhook, err := w.installGitHubWebhook(owner, repo, args.BaseURL, args.PAT)
+	if err != nil {
+		log.Printf("Failed to install webhook for GitHub repository %s/%s: %v", owner, repo, err)
+		return fmt.Errorf("failed to install webhook: %w", err)
+	}
+
+	log.Printf("Successfully installed GitHub webhook #%d for repository %s/%s", webhook.ID, owner, repo)
+
+	// Update the webhook_registry with the actual webhook details
+	err = w.updateWebhookRegistryGitHub(ctx, args, webhook)
+	if err != nil {
+		log.Printf("Failed to update webhook registry for GitHub repository %s/%s: %v", owner, repo, err)
+		// Don't return error here since webhook was successfully installed
+		// Just log the issue
+	}
+
+	log.Printf("GitHub webhook installation completed for repository: %s/%s", owner, repo)
 	return nil
 }
 
 // updateWebhookRegistry creates or updates the webhook registry entry for a project
-func (w *WebhookInstallWorker) updateWebhookRegistry(ctx context.Context, args WebhookInstallJobArgs, webhook *GitLabHook) error {
+func (w *WebhookInstallWorker) updateWebhookRegistryGitLab(ctx context.Context, args WebhookInstallJobArgs, webhook *GitLabHook) error {
 	// First check if a record already exists
 	var existingID int
 	checkQuery := `
@@ -428,15 +511,302 @@ func (w *WebhookInstallWorker) updateWebhookRegistry(ctx context.Context, args W
 	return nil
 }
 
+// GitHub webhook installation methods
+
+// makeGitHubRequest makes a request to the GitHub API
+func (w *WebhookInstallWorker) makeGitHubRequest(method, endpoint string, payload interface{}, baseURL, pat string) (*http.Response, error) {
+	var body io.Reader
+	if payload != nil {
+		jsonData, err := json.Marshal(payload)
+		if err != nil {
+			return nil, fmt.Errorf("failed to marshal payload: %w", err)
+		}
+		body = bytes.NewBuffer(jsonData)
+		log.Printf("DEBUG: GitHub request payload: %s", string(jsonData))
+	}
+
+	// Determine API base URL
+	apiBaseURL := "https://api.github.com"
+	if baseURL != "" && baseURL != "https://github.com" {
+		// For GitHub Enterprise, the API is typically at /api/v3
+		apiBaseURL = strings.TrimSuffix(baseURL, "/") + "/api/v3"
+	}
+
+	fullURL := apiBaseURL + endpoint
+	log.Printf("DEBUG: Making %s request to: %s", method, fullURL)
+
+	req, err := http.NewRequest(method, fullURL, body)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create request: %w", err)
+	}
+
+	req.Header.Set("Authorization", "token "+pat)
+	req.Header.Set("Accept", "application/vnd.github.v3+json")
+	req.Header.Set("User-Agent", "LiveReview/1.0")
+	if payload != nil {
+		req.Header.Set("Content-Type", "application/json")
+	}
+
+	log.Printf("DEBUG: Request headers: %v", req.Header)
+
+	client := &http.Client{Timeout: 30 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		log.Printf("ERROR: HTTP request failed: %v", err)
+		return nil, fmt.Errorf("HTTP request failed: %w", err)
+	}
+
+	log.Printf("DEBUG: HTTP response status: %d", resp.StatusCode)
+	return resp, nil
+}
+
+// gitHubWebhookExists checks if a webhook already exists for the repository
+func (w *WebhookInstallWorker) gitHubWebhookExists(owner, repo, webhookURL, baseURL, pat string) (*GitHubHook, error) {
+	endpoint := fmt.Sprintf("/repos/%s/%s/hooks", owner, repo)
+	resp, err := w.makeGitHubRequest("GET", endpoint, nil, baseURL, pat)
+	if err != nil {
+		return nil, fmt.Errorf("failed to list webhooks: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("GitHub API error (status %d): %s", resp.StatusCode, string(body))
+	}
+
+	var hooks []GitHubHook
+	if err := json.NewDecoder(resp.Body).Decode(&hooks); err != nil {
+		return nil, fmt.Errorf("failed to decode hooks response: %w", err)
+	}
+
+	for _, hook := range hooks {
+		if hook.Config.URL == webhookURL {
+			return &hook, nil
+		}
+	}
+
+	return nil, nil // Not found
+}
+
+// installGitHubWebhook installs a webhook in GitHub repository
+func (w *WebhookInstallWorker) installGitHubWebhook(owner, repo, baseURL, pat string) (*GitHubHook, error) {
+	webhookURL := w.config.WebhookConfig.PublicEndpoint
+
+	// Check if webhook already exists
+	existingHook, err := w.gitHubWebhookExists(owner, repo, webhookURL, baseURL, pat)
+	if err != nil {
+		return nil, fmt.Errorf("failed to check existing webhooks: %w", err)
+	}
+
+	// Define GitHub events we want to subscribe to
+	events := []string{
+		"pull_request",
+		"pull_request_review",
+		"pull_request_review_comment",
+		"issue_comment",
+	}
+
+	payload := GitHubWebhookPayload{
+		Name:   "web",
+		Active: true,
+		Events: events,
+		Config: struct {
+			URL         string `json:"url"`
+			ContentType string `json:"content_type"`
+			Secret      string `json:"secret,omitempty"`
+			InsecureSSL string `json:"insecure_ssl"`
+		}{
+			URL:         webhookURL,
+			ContentType: "json",
+			Secret:      w.config.WebhookConfig.Secret,
+			InsecureSSL: func() string {
+				if w.config.WebhookConfig.EnableSSL {
+					return "0"
+				}
+				return "1"
+			}(),
+		},
+	}
+
+	endpoint := fmt.Sprintf("/repos/%s/%s/hooks", owner, repo)
+
+	if existingHook != nil {
+		// Update existing webhook
+		endpoint = fmt.Sprintf("/repos/%s/%s/hooks/%d", owner, repo, existingHook.ID)
+		resp, err := w.makeGitHubRequest("PATCH", endpoint, payload, baseURL, pat)
+		if err != nil {
+			return nil, fmt.Errorf("failed to update webhook: %w", err)
+		}
+		defer resp.Body.Close()
+
+		if resp.StatusCode != http.StatusOK {
+			body, _ := io.ReadAll(resp.Body)
+			return nil, fmt.Errorf("GitHub API error updating webhook (status %d): %s", resp.StatusCode, string(body))
+		}
+
+		var updatedHook GitHubHook
+		if err := json.NewDecoder(resp.Body).Decode(&updatedHook); err != nil {
+			return nil, fmt.Errorf("failed to decode updated webhook response: %w", err)
+		}
+
+		log.Printf("Updated existing GitHub webhook #%d for repository %s/%s", updatedHook.ID, owner, repo)
+		return &updatedHook, nil
+	} else {
+		// Create new webhook
+		resp, err := w.makeGitHubRequest("POST", endpoint, payload, baseURL, pat)
+		if err != nil {
+			return nil, fmt.Errorf("failed to create webhook: %w", err)
+		}
+		defer resp.Body.Close()
+
+		if resp.StatusCode != http.StatusCreated {
+			body, _ := io.ReadAll(resp.Body)
+			return nil, fmt.Errorf("GitHub API error creating webhook (status %d): %s", resp.StatusCode, string(body))
+		}
+
+		var newHook GitHubHook
+		if err := json.NewDecoder(resp.Body).Decode(&newHook); err != nil {
+			return nil, fmt.Errorf("failed to decode new webhook response: %w", err)
+		}
+
+		log.Printf("Created new GitHub webhook #%d for repository %s/%s", newHook.ID, owner, repo)
+		return &newHook, nil
+	}
+}
+
+// updateWebhookRegistryGitHub creates or updates the webhook registry entry for a GitHub repository
+func (w *WebhookInstallWorker) updateWebhookRegistryGitHub(ctx context.Context, args WebhookInstallJobArgs, webhook *GitHubHook) error {
+	// First check if a record already exists
+	var existingID int
+	checkQuery := `
+		SELECT id FROM webhook_registry 
+		WHERE integration_token_id = $1 AND project_full_name = $2
+	`
+	err := w.pool.QueryRow(ctx, checkQuery, args.ConnectorID, args.ProjectPath).Scan(&existingID)
+
+	now := time.Now()
+
+	// Extract project name from full path (last part after /)
+	projectName := args.ProjectPath
+	if lastSlash := strings.LastIndex(args.ProjectPath, "/"); lastSlash >= 0 {
+		projectName = args.ProjectPath[lastSlash+1:]
+	}
+
+	// Prepare webhook details
+	webhookID := ""
+	webhookURL := w.config.WebhookConfig.PublicEndpoint
+	webhookName := "LiveReview Webhook"
+	events := "pull_request,issue_comment"
+	status := "manual" // GitHub webhooks enable manual trigger
+
+	if webhook != nil {
+		webhookID = fmt.Sprintf("%d", webhook.ID)
+	}
+
+	if err == pgx.ErrNoRows {
+		// No existing record, create a new one
+		insertQuery := `
+			INSERT INTO webhook_registry (
+				provider,
+				provider_project_id,
+				project_name,
+				project_full_name,
+				webhook_id,
+				webhook_url,
+				webhook_secret,
+				webhook_name,
+				events,
+				status,
+				last_verified_at,
+				created_at,
+				updated_at,
+				integration_token_id
+			) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
+		`
+
+		_, err = w.pool.Exec(ctx, insertQuery,
+			args.Provider,                 // provider
+			args.ProjectPath,              // provider_project_id (using project path as ID)
+			projectName,                   // project_name
+			args.ProjectPath,              // project_full_name
+			webhookID,                     // webhook_id
+			webhookURL,                    // webhook_url
+			w.config.WebhookConfig.Secret, // webhook_secret
+			webhookName,                   // webhook_name
+			events,                        // events
+			status,                        // status
+			now,                           // last_verified_at
+			now,                           // created_at
+			now,                           // updated_at
+			args.ConnectorID,              // integration_token_id
+		)
+
+		if err != nil {
+			return fmt.Errorf("failed to insert webhook registry: %w", err)
+		}
+
+		log.Printf("Created webhook_registry entry for GitHub repository %s with status '%s' and webhook ID %s", args.ProjectPath, status, webhookID)
+	} else if err != nil {
+		// Some other error occurred
+		return fmt.Errorf("failed to check existing webhook registry: %w", err)
+	} else {
+		// Record exists, update it
+		updateQuery := `
+			UPDATE webhook_registry 
+			SET status = $1, 
+			    updated_at = $2,
+			    last_verified_at = $3,
+			    webhook_name = $4,
+			    events = $5,
+			    webhook_id = $6,
+			    webhook_url = $7,
+			    webhook_secret = $8
+			WHERE id = $9
+		`
+
+		_, err = w.pool.Exec(ctx, updateQuery,
+			status,                        // status
+			now,                           // updated_at
+			now,                           // last_verified_at
+			webhookName,                   // webhook_name
+			events,                        // events
+			webhookID,                     // webhook_id
+			webhookURL,                    // webhook_url
+			w.config.WebhookConfig.Secret, // webhook_secret
+			existingID,                    // id
+		)
+
+		if err != nil {
+			return fmt.Errorf("failed to update webhook registry: %w", err)
+		}
+
+		log.Printf("Updated webhook_registry entry for GitHub repository %s with status '%s' and webhook ID %s", args.ProjectPath, status, webhookID)
+	}
+
+	return nil
+}
+
 // WebhookRemovalWorker methods
 
 // Work processes a webhook removal job
 func (w *WebhookRemovalWorker) Work(ctx context.Context, job *river.Job[WebhookRemovalJobArgs]) error {
 	args := job.Args
 
-	log.Printf("Processing webhook removal for project: %s (connector: %d)",
-		args.ProjectPath, args.ConnectorID)
+	log.Printf("Processing webhook removal for project: %s (connector: %d, provider: %s)",
+		args.ProjectPath, args.ConnectorID, args.Provider)
 
+	// Handle different providers
+	if strings.HasPrefix(args.Provider, "gitlab") {
+		return w.handleGitLabWebhookRemoval(ctx, args)
+	} else if strings.HasPrefix(args.Provider, "github") {
+		return w.handleGitHubWebhookRemoval(ctx, args)
+	} else {
+		return fmt.Errorf("unsupported provider: %s", args.Provider)
+	}
+}
+
+// handleGitLabWebhookRemoval handles GitLab webhook removal
+func (w *WebhookRemovalWorker) handleGitLabWebhookRemoval(ctx context.Context, args WebhookRemovalJobArgs) error {
 	// Get the numeric project ID from GitLab
 	projectID, err := w.getProjectID(args.ProjectPath, args.BaseURL, args.PAT)
 	if err != nil {
@@ -459,6 +829,36 @@ func (w *WebhookRemovalWorker) Work(ctx context.Context, job *river.Job[WebhookR
 	err = w.updateWebhookRegistryForRemoval(ctx, args, projectID)
 	if err != nil {
 		log.Printf("Failed to update webhook registry for project %s: %v", args.ProjectPath, err)
+		return fmt.Errorf("failed to update webhook registry: %w", err)
+	}
+
+	return nil
+}
+
+// handleGitHubWebhookRemoval handles GitHub webhook removal
+func (w *WebhookRemovalWorker) handleGitHubWebhookRemoval(ctx context.Context, args WebhookRemovalJobArgs) error {
+	// Parse GitHub repository from project path (format: owner/repo)
+	parts := strings.SplitN(args.ProjectPath, "/", 2)
+	if len(parts) != 2 {
+		return fmt.Errorf("invalid GitHub repository format: %s (expected: owner/repo)", args.ProjectPath)
+	}
+	owner, repo := parts[0], parts[1]
+
+	log.Printf("Removing GitHub webhooks for repository: %s/%s", owner, repo)
+
+	// Remove webhooks from GitHub
+	err := w.removeGitHubWebhooks(owner, repo, args.BaseURL, args.PAT)
+	if err != nil {
+		log.Printf("Failed to remove webhooks for GitHub repository %s/%s: %v", owner, repo, err)
+		return fmt.Errorf("failed to remove webhooks: %w", err)
+	}
+
+	log.Printf("Successfully removed webhooks for GitHub repository %s/%s", owner, repo)
+
+	// Update the webhook registry to mark as unconnected
+	err = w.updateWebhookRegistryForGitHubRemoval(ctx, args)
+	if err != nil {
+		log.Printf("Failed to update webhook registry for GitHub repository %s/%s: %v", owner, repo, err)
 		return fmt.Errorf("failed to update webhook registry: %w", err)
 	}
 
@@ -677,6 +1077,205 @@ func (w *WebhookRemovalWorker) updateWebhookRegistryForRemoval(ctx context.Conte
 		}
 
 		log.Printf("Updated webhook_registry entry for project %s with status '%s'", args.ProjectPath, status)
+	}
+
+	return nil
+}
+
+// GitHub webhook removal methods
+
+// makeGitHubRequestForRemoval makes a request to the GitHub API for webhook removal
+func (w *WebhookRemovalWorker) makeGitHubRequestForRemoval(method, endpoint string, payload interface{}, baseURL, pat string) (*http.Response, error) {
+	var body io.Reader
+	if payload != nil {
+		jsonData, err := json.Marshal(payload)
+		if err != nil {
+			return nil, fmt.Errorf("failed to marshal request payload: %w", err)
+		}
+		body = bytes.NewBuffer(jsonData)
+		log.Printf("GitHub API %s %s with payload: %s", method, endpoint, string(jsonData))
+	} else {
+		log.Printf("GitHub API %s %s", method, endpoint)
+	}
+
+	// Determine API base URL
+	apiBaseURL := "https://api.github.com"
+	if baseURL != "" && baseURL != "https://github.com" {
+		// For GitHub Enterprise, the API is typically at /api/v3
+		apiBaseURL = strings.TrimSuffix(baseURL, "/") + "/api/v3"
+	}
+
+	req, err := http.NewRequest(method, apiBaseURL+endpoint, body)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create request: %w", err)
+	}
+
+	req.Header.Set("Authorization", "token "+pat)
+	req.Header.Set("Accept", "application/vnd.github.v3+json")
+	req.Header.Set("User-Agent", "LiveReview/1.0")
+	req.Header.Set("Content-Type", "application/json")
+
+	client := &http.Client{Timeout: 30 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("request failed: %w", err)
+	}
+
+	return resp, nil
+}
+
+// removeGitHubWebhooks removes all LiveReview webhooks from a GitHub repository
+func (w *WebhookRemovalWorker) removeGitHubWebhooks(owner, repo, baseURL, pat string) error {
+	// Get existing hooks
+	endpoint := fmt.Sprintf("/repos/%s/%s/hooks", owner, repo)
+	resp, err := w.makeGitHubRequestForRemoval("GET", endpoint, nil, baseURL, pat)
+	if err != nil {
+		return fmt.Errorf("failed to fetch existing hooks: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("GitHub API error fetching hooks (status %d): %s", resp.StatusCode, string(body))
+	}
+
+	var hooks []GitHubHook
+	if err := json.NewDecoder(resp.Body).Decode(&hooks); err != nil {
+		return fmt.Errorf("failed to decode hooks response: %w", err)
+	}
+
+	webhookURL := w.config.WebhookConfig.PublicEndpoint
+	removedCount := 0
+
+	// Remove hooks that match our webhook URL
+	for _, hook := range hooks {
+		if hook.Config.URL == webhookURL {
+			deleteEndpoint := fmt.Sprintf("/repos/%s/%s/hooks/%d", owner, repo, hook.ID)
+			resp, err := w.makeGitHubRequestForRemoval("DELETE", deleteEndpoint, nil, baseURL, pat)
+			if err != nil {
+				log.Printf("Failed to delete webhook #%d: %v", hook.ID, err)
+				continue
+			}
+			resp.Body.Close()
+
+			if resp.StatusCode == http.StatusNoContent {
+				log.Printf("Deleted webhook #%d for repository %s/%s", hook.ID, owner, repo)
+				removedCount++
+			} else {
+				log.Printf("Failed to delete webhook #%d (status %d)", hook.ID, resp.StatusCode)
+			}
+		}
+	}
+
+	if removedCount == 0 {
+		log.Printf("No LiveReview webhooks found for repository %s/%s", owner, repo)
+	} else {
+		log.Printf("Removed %d webhooks for repository %s/%s", removedCount, owner, repo)
+	}
+
+	return nil
+}
+
+// updateWebhookRegistryForGitHubRemoval updates the webhook registry to mark GitHub repository as unconnected
+func (w *WebhookRemovalWorker) updateWebhookRegistryForGitHubRemoval(ctx context.Context, args WebhookRemovalJobArgs) error {
+	// Check if entry exists in webhook registry
+	checkQuery := `
+		SELECT id FROM webhook_registry 
+		WHERE integration_token_id = $1 AND project_full_name = $2
+	`
+
+	var existingID int
+	err := w.pool.QueryRow(ctx, checkQuery, args.ConnectorID, args.ProjectPath).Scan(&existingID)
+
+	now := time.Now()
+
+	// Extract project name from full path (last part after /)
+	projectName := args.ProjectPath
+	if lastSlash := strings.LastIndex(args.ProjectPath, "/"); lastSlash >= 0 {
+		projectName = args.ProjectPath[lastSlash+1:]
+	}
+
+	// Prepare webhook details for removal
+	webhookID := ""
+	webhookURL := w.config.WebhookConfig.PublicEndpoint
+	webhookName := "LiveReview Webhook"
+	events := "pull_request,issue_comment"
+	status := "unconnected" // Mark as unconnected
+
+	if err == pgx.ErrNoRows {
+		// No existing record, create a new one marked as unconnected
+		insertQuery := `
+			INSERT INTO webhook_registry (
+				provider,
+				provider_project_id,
+				project_name,
+				project_full_name,
+				webhook_id,
+				webhook_url,
+				webhook_secret,
+				webhook_name,
+				events,
+				status,
+				last_verified_at,
+				integration_token_id,
+				created_at,
+				updated_at
+			) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
+		`
+
+		_, err = w.pool.Exec(ctx, insertQuery,
+			args.Provider,
+			args.ProjectPath, // Use full project path as ID for GitHub
+			projectName,
+			args.ProjectPath,
+			webhookID,
+			webhookURL,
+			w.config.WebhookConfig.Secret,
+			webhookName,
+			events,
+			status,
+			now,
+			args.ConnectorID,
+			now,
+			now,
+		)
+
+		if err != nil {
+			return fmt.Errorf("failed to create webhook registry entry: %w", err)
+		}
+
+		log.Printf("Created webhook_registry entry for GitHub repository %s with status '%s'", args.ProjectPath, status)
+	} else if err != nil {
+		return fmt.Errorf("failed to check existing webhook registry entry: %w", err)
+	} else {
+		// Update existing record
+		updateQuery := `
+			UPDATE webhook_registry 
+			SET 
+				webhook_id = $1,
+				webhook_url = $2,
+				webhook_secret = $3,
+				status = $4,
+				last_verified_at = $5,
+				updated_at = $6
+			WHERE id = $7
+		`
+
+		_, err = w.pool.Exec(ctx, updateQuery,
+			webhookID,
+			webhookURL,
+			w.config.WebhookConfig.Secret,
+			status,
+			now,
+			now,
+			existingID,
+		)
+
+		if err != nil {
+			return fmt.Errorf("failed to update webhook registry: %w", err)
+		}
+
+		log.Printf("Updated webhook_registry entry for GitHub repository %s with status '%s'", args.ProjectPath, status)
 	}
 
 	return nil

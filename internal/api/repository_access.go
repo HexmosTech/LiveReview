@@ -6,10 +6,12 @@ import (
 	"fmt"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/labstack/echo/v4"
 
+	"github.com/livereview/internal/providers/github"
 	"github.com/livereview/internal/providers/gitlab"
 )
 
@@ -119,8 +121,9 @@ func (s *Server) fetchAndCacheRepositoryData(connectorID int, forceRefresh bool,
 		// If unmarshaling fails, continue with fresh fetch
 	}
 
-	// Only process GitLab providers for now
-	if provider != "gitlab" && provider != "gitlab-com" && provider != "gitlab-self-hosted" {
+	// Support both GitLab and GitHub providers
+	if provider != "gitlab" && provider != "gitlab-com" && provider != "gitlab-self-hosted" &&
+		provider != "github" && provider != "github-com" && provider != "github-enterprise" {
 		response.Error = fmt.Sprintf("Repository discovery not yet implemented for provider: %s", provider)
 		if shouldCache {
 			s.updateProjectsCache(connectorID, response)
@@ -137,8 +140,23 @@ func (s *Server) fetchAndCacheRepositoryData(connectorID int, forceRefresh bool,
 		return response, nil
 	}
 
-	// Use the GitLab project discovery function
-	projects, err := gitlab.DiscoverProjectsGitlab(providerURL, patToken)
+	var projects []string
+
+	// Use the appropriate project discovery function based on provider
+	if strings.HasPrefix(provider, "gitlab") {
+		// Use the GitLab project discovery function
+		projects, err = gitlab.DiscoverProjectsGitlab(providerURL, patToken)
+	} else if strings.HasPrefix(provider, "github") {
+		// Use the GitHub project discovery function
+		projects, err = github.DiscoverProjectsGitHub(providerURL, patToken)
+	} else {
+		response.Error = fmt.Sprintf("Unsupported provider: %s", provider)
+		if shouldCache {
+			s.updateProjectsCache(connectorID, response)
+		}
+		return response, nil
+	}
+
 	if err != nil {
 		response.Error = fmt.Sprintf("Failed to discover projects: %s", err.Error())
 		if shouldCache {

@@ -5,8 +5,10 @@ import (
 	"database/sql"
 	"fmt"
 	"log"
+	"strings"
 	"time"
 
+	"github.com/livereview/internal/providers/github"
 	"github.com/livereview/internal/providers/gitlab"
 )
 
@@ -124,10 +126,16 @@ func (awi *AutoWebhookInstaller) getConnectorDetails(connectorID int) (*Connecto
 
 // shouldAutoInstall determines if a connector should have automatic webhook installation
 func (awi *AutoWebhookInstaller) shouldAutoInstall(connector *ConnectorDetails) bool {
-	// Only auto-install for GitLab providers
-	if connector.Provider != "gitlab" &&
-		connector.Provider != "gitlab-com" &&
-		connector.Provider != "gitlab-self-hosted" {
+	// Auto-install for both GitLab and GitHub providers
+	isGitLab := connector.Provider == "gitlab" ||
+		connector.Provider == "gitlab-com" ||
+		connector.Provider == "gitlab-self-hosted"
+
+	isGitHub := connector.Provider == "github" ||
+		connector.Provider == "github-com" ||
+		connector.Provider == "github-enterprise"
+
+	if !isGitLab && !isGitHub {
 		return false
 	}
 
@@ -144,10 +152,22 @@ func (awi *AutoWebhookInstaller) shouldAutoInstall(connector *ConnectorDetails) 
 func (awi *AutoWebhookInstaller) discoverAndCacheProjects(connectorID int, connector *ConnectorDetails) ([]string, error) {
 	log.Printf("Starting project discovery for connector %d", connectorID)
 
-	// Use the existing GitLab project discovery function
-	projects, err := gitlab.DiscoverProjectsGitlab(connector.ProviderURL, connector.PATToken)
+	var projects []string
+	var err error
+
+	// Use the appropriate project discovery function based on provider
+	if strings.HasPrefix(connector.Provider, "gitlab") {
+		// Use the existing GitLab project discovery function
+		projects, err = gitlab.DiscoverProjectsGitlab(connector.ProviderURL, connector.PATToken)
+	} else if strings.HasPrefix(connector.Provider, "github") {
+		// Use the GitHub project discovery function
+		projects, err = github.DiscoverProjectsGitHub(connector.ProviderURL, connector.PATToken)
+	} else {
+		return nil, fmt.Errorf("unsupported provider: %s", connector.Provider)
+	}
+
 	if err != nil {
-		return nil, fmt.Errorf("GitLab project discovery failed: %w", err)
+		return nil, fmt.Errorf("project discovery failed for %s: %w", connector.Provider, err)
 	}
 
 	log.Printf("Discovered %d projects for connector %d", len(projects), connectorID)
