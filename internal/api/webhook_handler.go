@@ -261,9 +261,6 @@ func (s *Server) triggerReviewForMR(changeInfo *ReviewerChangeInfo) {
 		log.Printf("[INFO] Livereview reviewer assigned: %s (@%s)", reviewer.Name, reviewer.Username)
 	}
 
-	// Generate a unique review ID
-	reviewID := fmt.Sprintf("webhook-review-%d", time.Now().Unix())
-
 	ctx := context.Background()
 
 	// Load integration token for this project
@@ -282,8 +279,7 @@ func (s *Server) triggerReviewForMR(changeInfo *ReviewerChangeInfo) {
 
 	// Create the review request with proper configuration
 	request := review.ReviewRequest{
-		URL:      changeInfo.MergeRequest.URL,
-		ReviewID: reviewID,
+		URL: changeInfo.MergeRequest.URL,
 		Provider: review.ProviderConfig{
 			Type:   integrationToken.Provider,
 			URL:    integrationToken.ProviderURL,
@@ -299,6 +295,16 @@ func (s *Server) triggerReviewForMR(changeInfo *ReviewerChangeInfo) {
 		},
 	}
 
+	// Track the review in database (use webhook as trigger type)
+	reviewID, err := TrackReviewTriggered(s.db, changeInfo.Project.PathWithNamespace, "", "", "webhook", integrationToken.Provider, &integrationToken.ID, "webhook", changeInfo.MergeRequest.URL)
+	if err != nil {
+		log.Printf("[ERROR] Failed to track review: %v", err)
+		return
+	}
+
+	// Set the review ID from the database
+	request.ReviewID = fmt.Sprintf("%d", reviewID)
+
 	// Create the review service with factories
 	providerFactory := review.NewStandardProviderFactory()
 	aiFactory := review.NewStandardAIProviderFactory()
@@ -312,20 +318,39 @@ func (s *Server) triggerReviewForMR(changeInfo *ReviewerChangeInfo) {
 
 	reviewService := review.NewService(providerFactory, aiFactory, serviceConfig)
 
-	// Process the review asynchronously
+	// Process the review asynchronously with completion callback that tracks AI comments
 	reviewService.ProcessReviewAsync(ctx, request, func(result *review.ReviewResult) {
 		if result.Success {
 			log.Printf("[INFO] Review completed successfully for MR %d (ReviewID: %s)",
 				changeInfo.MergeRequest.ID, result.ReviewID)
 			log.Printf("[INFO] Posted %d comments", result.CommentsCount)
+
+			// Update review status to completed using ReviewManager
+			reviewManager := NewReviewManager(s.db)
+			reviewManager.UpdateReviewStatus(reviewID, "completed")
+
+			// Track AI comments - if comments were posted, track them
+			if result.CommentsCount > 0 {
+				// Use a simple tracking approach since we don't have individual comment details
+				commentContent := map[string]interface{}{
+					"summary": result.Summary,
+					"count":   result.CommentsCount,
+					"type":    "webhook_review",
+				}
+				TrackAICommentFromURL(s.db, changeInfo.MergeRequest.URL, "review_summary", commentContent, nil, nil)
+			}
 		} else {
 			log.Printf("[ERROR] Review failed for MR %d (ReviewID: %s): %v",
 				changeInfo.MergeRequest.ID, result.ReviewID, result.Error)
+
+			// Update review status to failed using ReviewManager
+			reviewManager := NewReviewManager(s.db)
+			reviewManager.UpdateReviewStatus(reviewID, "failed")
 		}
 	})
 
 	log.Printf("[INFO] Review process started asynchronously for MR %d (ReviewID: %s)",
-		changeInfo.MergeRequest.ID, reviewID)
+		changeInfo.MergeRequest.ID, request.ReviewID)
 }
 
 // findIntegrationTokenForProject finds the integration token for a project namespace
@@ -622,9 +647,6 @@ func (s *Server) triggerReviewForGitHubPR(changeInfo *GitHubReviewerChangeInfo) 
 		log.Printf("[INFO] Livereview reviewer assigned: @%s", reviewer.Login)
 	}
 
-	// Generate a unique review ID
-	reviewID := fmt.Sprintf("github-webhook-review-%d", time.Now().Unix())
-
 	ctx := context.Background()
 
 	// Load integration token for this repository
@@ -643,10 +665,17 @@ func (s *Server) triggerReviewForGitHubPR(changeInfo *GitHubReviewerChangeInfo) 
 	}
 	log.Printf("[DEBUG] Found AI connector: provider=%s", aiConnector.ProviderName)
 
+	// Track the review in database (use webhook as trigger type)
+	reviewID, err := TrackReviewTriggered(s.db, changeInfo.Repository.FullName, "", "", "webhook", integrationToken.Provider, &integrationToken.ID, "webhook", changeInfo.PullRequest.HTMLURL)
+	if err != nil {
+		log.Printf("[ERROR] Failed to track review: %v", err)
+		return
+	}
+
 	// Create the review request with proper configuration
 	request := review.ReviewRequest{
 		URL:      changeInfo.PullRequest.HTMLURL,
-		ReviewID: reviewID,
+		ReviewID: fmt.Sprintf("%d", reviewID),
 		Provider: review.ProviderConfig{
 			Type:  integrationToken.Provider,
 			URL:   integrationToken.ProviderURL,
@@ -680,20 +709,39 @@ func (s *Server) triggerReviewForGitHubPR(changeInfo *GitHubReviewerChangeInfo) 
 	log.Printf("[DEBUG] Starting GitHub review with config: URL=%s, Provider=%s, AI=%s",
 		request.URL, request.Provider.Type, request.AI.Type)
 
-	// Process the review asynchronously
+	// Process the review asynchronously with completion callback that tracks AI comments
 	reviewService.ProcessReviewAsync(ctx, request, func(result *review.ReviewResult) {
 		if result.Success {
 			log.Printf("[INFO] Review completed successfully for GitHub PR #%d (ReviewID: %s)",
 				changeInfo.PullRequest.Number, result.ReviewID)
 			log.Printf("[INFO] Posted %d comments", result.CommentsCount)
+
+			// Update review status to completed using ReviewManager
+			reviewManager := NewReviewManager(s.db)
+			reviewManager.UpdateReviewStatus(reviewID, "completed")
+
+			// Track AI comments - if comments were posted, track them
+			if result.CommentsCount > 0 {
+				// Use a simple tracking approach since we don't have individual comment details
+				commentContent := map[string]interface{}{
+					"summary": result.Summary,
+					"count":   result.CommentsCount,
+					"type":    "webhook_review",
+				}
+				TrackAICommentFromURL(s.db, changeInfo.PullRequest.HTMLURL, "review_summary", commentContent, nil, nil)
+			}
 		} else {
 			log.Printf("[ERROR] Review failed for GitHub PR #%d (ReviewID: %s): %v",
 				changeInfo.PullRequest.Number, result.ReviewID, result.Error)
+
+			// Update review status to failed using ReviewManager
+			reviewManager := NewReviewManager(s.db)
+			reviewManager.UpdateReviewStatus(reviewID, "failed")
 		}
 	})
 
 	log.Printf("[INFO] Review process started asynchronously for GitHub PR #%d (ReviewID: %s)",
-		changeInfo.PullRequest.Number, reviewID)
+		changeInfo.PullRequest.Number, fmt.Sprintf("%d", reviewID))
 }
 
 // findIntegrationTokenForGitHubRepo finds the integration token for a GitHub repository
@@ -1006,9 +1054,6 @@ func (s *Server) triggerReviewForBitbucketPR(changeInfo *BitbucketReviewerChange
 		log.Printf("[INFO] Livereview reviewer assigned: %s (@%s)", reviewer.User.DisplayName, reviewer.User.Username)
 	}
 
-	// Generate a unique review ID
-	reviewID := fmt.Sprintf("bitbucket-webhook-review-%d", time.Now().Unix())
-
 	ctx := context.Background()
 
 	// Load integration token for this repository
@@ -1027,10 +1072,17 @@ func (s *Server) triggerReviewForBitbucketPR(changeInfo *BitbucketReviewerChange
 	}
 	log.Printf("[DEBUG] Found AI connector: provider=%s", aiConnector.ProviderName)
 
+	// Track the review in database (use webhook as trigger type)
+	reviewID, err := TrackReviewTriggered(s.db, changeInfo.Repository.FullName, "", "", "webhook", integrationToken.Provider, &integrationToken.ID, "webhook", changeInfo.PullRequest.Links.HTML.Href)
+	if err != nil {
+		log.Printf("[ERROR] Failed to track review: %v", err)
+		return
+	}
+
 	// Create the review request with proper configuration
 	request := review.ReviewRequest{
 		URL:      changeInfo.PullRequest.Links.HTML.Href,
-		ReviewID: reviewID,
+		ReviewID: fmt.Sprintf("%d", reviewID),
 		Provider: review.ProviderConfig{
 			Type:  integrationToken.Provider,
 			URL:   integrationToken.ProviderURL,
@@ -1061,19 +1113,38 @@ func (s *Server) triggerReviewForBitbucketPR(changeInfo *BitbucketReviewerChange
 
 	reviewService := review.NewService(providerFactory, aiFactory, serviceConfig)
 
-	// Process the review asynchronously
+	// Process the review asynchronously with completion callback that tracks AI comments
 	reviewService.ProcessReviewAsync(ctx, request, func(result *review.ReviewResult) {
 		if result.Success {
 			log.Printf("[INFO] Review completed successfully for Bitbucket PR %d (ReviewID: %s)",
 				changeInfo.PullRequest.ID, result.ReviewID)
 			log.Printf("[INFO] Posted %d comments", result.CommentsCount)
+
+			// Update review status to completed using ReviewManager
+			reviewManager := NewReviewManager(s.db)
+			reviewManager.UpdateReviewStatus(reviewID, "completed")
+
+			// Track AI comments - if comments were posted, track them
+			if result.CommentsCount > 0 {
+				// Use a simple tracking approach since we don't have individual comment details
+				commentContent := map[string]interface{}{
+					"summary": result.Summary,
+					"count":   result.CommentsCount,
+					"type":    "webhook_review",
+				}
+				TrackAICommentFromURL(s.db, changeInfo.PullRequest.Links.HTML.Href, "review_summary", commentContent, nil, nil)
+			}
 		} else {
 			log.Printf("[ERROR] Review failed for Bitbucket PR %d (ReviewID: %s): %v",
 				changeInfo.PullRequest.ID, result.ReviewID, result.Error)
+
+			// Update review status to failed using ReviewManager
+			reviewManager := NewReviewManager(s.db)
+			reviewManager.UpdateReviewStatus(reviewID, "failed")
 		}
 	})
 
-	log.Printf("[INFO] Review trigger initiated for Bitbucket PR #%d with review ID: %s", changeInfo.PullRequest.ID, reviewID)
+	log.Printf("[INFO] Review trigger initiated for Bitbucket PR #%d with review ID: %s", changeInfo.PullRequest.ID, fmt.Sprintf("%d", reviewID))
 }
 
 // findIntegrationTokenForBitbucketRepo finds the integration token associated with a Bitbucket repository

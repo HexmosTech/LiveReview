@@ -34,16 +34,21 @@ func NewActivityTracker(db *sql.DB) *ActivityTracker {
 
 // TrackActivity records a new activity in the database
 func (at *ActivityTracker) TrackActivity(activityType string, eventData map[string]interface{}) error {
+	return at.TrackActivityWithReview(activityType, eventData, nil)
+}
+
+// TrackActivityWithReview records a new activity in the database with optional review reference
+func (at *ActivityTracker) TrackActivityWithReview(activityType string, eventData map[string]interface{}, reviewID *int64) error {
 	eventDataJSON, err := json.Marshal(eventData)
 	if err != nil {
 		return fmt.Errorf("failed to marshal event data: %w", err)
 	}
 
 	query := `
-		INSERT INTO recent_activity (activity_type, event_data)
-		VALUES ($1, $2)
+		INSERT INTO recent_activity (activity_type, event_data, review_id)
+		VALUES ($1, $2, $3)
 	`
-	_, err = at.db.Exec(query, activityType, eventDataJSON)
+	_, err = at.db.Exec(query, activityType, eventDataJSON, reviewID)
 	if err != nil {
 		return fmt.Errorf("failed to insert activity: %w", err)
 	}
@@ -155,28 +160,42 @@ func (s *Server) GetRecentActivities(c echo.Context) error {
 }
 
 // TrackReviewTriggered is a helper function to track review triggered activities
-func TrackReviewTriggered(db *sql.DB, repository, branch, commitHash, triggerType, provider string, connectorID *int64, userEmail, originalURL string) {
-	tracker := NewActivityTracker(db)
+func TrackReviewTriggered(db *sql.DB, repository, branch, commitHash, triggerType, provider string, connectorID *int64, userEmail, originalURL string) (int64, error) {
+	// First, create a review record
+	reviewManager := NewReviewManager(db)
+	metadata := map[string]interface{}{
+		"original_url": originalURL,
+	}
 
+	review, err := reviewManager.CreateReview(repository, branch, commitHash, originalURL, triggerType, userEmail, provider, connectorID, metadata)
+	if err != nil {
+		return 0, fmt.Errorf("failed to create review record: %w", err)
+	}
+
+	// Then track the activity with review_id
+	tracker := NewActivityTracker(db)
 	eventData := map[string]interface{}{
 		"repository":   repository,
 		"branch":       branch,
 		"commit_hash":  commitHash,
 		"trigger_type": triggerType,
-		"provider":     provider, // Include the actual provider from integration_tokens
+		"provider":     provider,
 		"user_email":   userEmail,
 		"original_url": originalURL,
+		"review_id":    review.ID,
 	}
 
 	if connectorID != nil {
 		eventData["connector_id"] = *connectorID
 	}
 
-	err := tracker.TrackActivity("review_triggered", eventData)
+	err = tracker.TrackActivityWithReview("review_triggered", eventData, &review.ID)
 	if err != nil {
 		// Log error but don't fail the main operation
 		fmt.Printf("Failed to track review triggered activity: %v\n", err)
 	}
+
+	return review.ID, nil
 }
 
 // URL extraction helper functions
