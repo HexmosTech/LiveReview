@@ -4,6 +4,9 @@
 ![](./images/bb03.png)
 ![](./images/bb04.png)
 ![](./images/bb05.png)
+
+The following images are representative. For the latest thorough list of permissions needed, check the textual list below.
+
 ![](./images/bb0601.png)
 ![](./images/bb0602.png)
 ![](./images/bb0603.png)

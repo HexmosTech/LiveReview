@@ -364,6 +364,8 @@ func (w *WebhookInstallWorker) Work(ctx context.Context, job *river.Job[WebhookI
 		return w.handleGitLabWebhookInstall(ctx, args)
 	} else if strings.HasPrefix(args.Provider, "github") {
 		return w.handleGitHubWebhookInstall(ctx, args)
+	} else if strings.HasPrefix(args.Provider, "bitbucket") {
+		return w.handleBitbucketWebhookInstall(ctx, args)
 	} else {
 		return fmt.Errorf("unsupported provider: %s", args.Provider)
 	}
@@ -821,6 +823,332 @@ func (w *WebhookInstallWorker) updateWebhookRegistryGitHub(ctx context.Context, 
 		}
 
 		log.Printf("Updated webhook_registry entry for GitHub repository %s with status '%s' and webhook ID %s", args.ProjectPath, status, webhookID)
+	}
+
+	return nil
+}
+
+// Bitbucket webhook installation methods
+
+// BitbucketHook represents a Bitbucket webhook
+type BitbucketHook struct {
+	UUID        string   `json:"uuid"`
+	URL         string   `json:"url"`
+	Description string   `json:"description"`
+	Active      bool     `json:"active"`
+	Events      []string `json:"events"`
+}
+
+// BitbucketWebhookPayload represents the payload for creating/updating Bitbucket webhooks
+type BitbucketWebhookPayload struct {
+	URL         string   `json:"url"`
+	Description string   `json:"description"`
+	Active      bool     `json:"active"`
+	Events      []string `json:"events"`
+}
+
+// handleBitbucketWebhookInstall handles Bitbucket webhook installation
+func (w *WebhookInstallWorker) handleBitbucketWebhookInstall(ctx context.Context, args WebhookInstallJobArgs) error {
+	// Parse Bitbucket repository from project path (format: workspace/repo)
+	parts := strings.SplitN(args.ProjectPath, "/", 2)
+	if len(parts) != 2 {
+		return fmt.Errorf("invalid Bitbucket repository format: %s (expected: workspace/repo)", args.ProjectPath)
+	}
+	workspace, repo := parts[0], parts[1]
+
+	log.Printf("Installing Bitbucket webhook for repository: %s/%s", workspace, repo)
+
+	// Get email from connector metadata (needed for Bitbucket authentication)
+	email, err := w.getBitbucketEmailFromConnector(args.ConnectorID)
+	if err != nil {
+		return fmt.Errorf("failed to get Bitbucket email for connector %d: %w", args.ConnectorID, err)
+	}
+
+	// Install the webhook in Bitbucket
+	webhook, err := w.installBitbucketWebhook(workspace, repo, email, args.PAT)
+	if err != nil {
+		log.Printf("Failed to install webhook for Bitbucket repository %s/%s: %v", workspace, repo, err)
+		return fmt.Errorf("failed to install webhook: %w", err)
+	}
+
+	log.Printf("Successfully installed Bitbucket webhook %s for repository %s/%s", webhook.UUID, workspace, repo)
+
+	// Update the webhook_registry with the actual webhook details
+	err = w.updateWebhookRegistryBitbucket(ctx, args, webhook)
+	if err != nil {
+		log.Printf("Failed to update webhook registry for Bitbucket repository %s/%s: %v", workspace, repo, err)
+		// Don't return error here since webhook was successfully installed
+		// Just log the issue
+	}
+
+	log.Printf("Bitbucket webhook installation completed for repository: %s/%s", workspace, repo)
+	return nil
+}
+
+// getBitbucketEmailFromConnector retrieves the email from connector metadata
+func (w *WebhookInstallWorker) getBitbucketEmailFromConnector(connectorID int) (string, error) {
+	var metadataBytes []byte
+	query := `SELECT COALESCE(metadata, '{}') FROM integration_tokens WHERE id = $1`
+
+	err := w.pool.QueryRow(context.Background(), query, connectorID).Scan(&metadataBytes)
+	if err != nil {
+		return "", fmt.Errorf("failed to get connector metadata: %w", err)
+	}
+
+	var metadata map[string]interface{}
+	if len(metadataBytes) > 0 {
+		if err := json.Unmarshal(metadataBytes, &metadata); err != nil {
+			return "", fmt.Errorf("failed to parse metadata: %w", err)
+		}
+	}
+
+	email, ok := metadata["email"].(string)
+	if !ok || email == "" {
+		return "", fmt.Errorf("email not found in connector metadata")
+	}
+
+	return email, nil
+}
+
+// makeBitbucketRequest makes a request to the Bitbucket API
+func (w *WebhookInstallWorker) makeBitbucketRequest(method, endpoint string, payload interface{}, email, apiToken string) (*http.Response, error) {
+	var reqBody io.Reader
+	if payload != nil {
+		jsonData, err := json.Marshal(payload)
+		if err != nil {
+			return nil, fmt.Errorf("failed to marshal payload: %w", err)
+		}
+		reqBody = bytes.NewBuffer(jsonData)
+	}
+
+	// Always use Bitbucket Cloud API
+	url := "https://api.bitbucket.org/2.0" + endpoint
+	req, err := http.NewRequest(method, url, reqBody)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create request: %w", err)
+	}
+
+	// Set Basic Auth with email and API token
+	req.SetBasicAuth(email, apiToken)
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Accept", "application/json")
+	req.Header.Set("User-Agent", "LiveReview/1.0")
+
+	client := &http.Client{Timeout: 30 * time.Second}
+	return client.Do(req)
+}
+
+// bitbucketWebhookExists checks if a webhook already exists for the repository
+func (w *WebhookInstallWorker) bitbucketWebhookExists(workspace, repo, webhookURL, email, apiToken string) (*BitbucketHook, error) {
+	endpoint := fmt.Sprintf("/repositories/%s/%s/hooks", workspace, repo)
+	resp, err := w.makeBitbucketRequest("GET", endpoint, nil, email, apiToken)
+	if err != nil {
+		return nil, fmt.Errorf("failed to fetch webhooks: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("Bitbucket API error (status %d): %s", resp.StatusCode, string(body))
+	}
+
+	var response struct {
+		Values []BitbucketHook `json:"values"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&response); err != nil {
+		return nil, fmt.Errorf("failed to decode webhook list: %w", err)
+	}
+
+	// Look for existing LiveReview webhook
+	for _, hook := range response.Values {
+		if hook.URL == webhookURL && strings.Contains(hook.Description, "LiveReview") {
+			return &hook, nil
+		}
+	}
+
+	return nil, nil
+}
+
+// installBitbucketWebhook installs a webhook in Bitbucket repository
+func (w *WebhookInstallWorker) installBitbucketWebhook(workspace, repo, email, apiToken string) (*BitbucketHook, error) {
+	// Get provider-specific webhook endpoint
+	webhookURL := w.getWebhookEndpointForProvider("bitbucket")
+
+	// Check if webhook already exists
+	existingHook, err := w.bitbucketWebhookExists(workspace, repo, webhookURL, email, apiToken)
+	if err != nil {
+		return nil, fmt.Errorf("failed to check existing webhooks: %w", err)
+	}
+
+	// Define Bitbucket events we want to subscribe to
+	events := []string{
+		"pullrequest:created",
+		"pullrequest:updated",
+		"pullrequest:approved",
+		"pullrequest:unapproved",
+		"pullrequest:comment_created",
+		"pullrequest:comment_updated",
+	}
+
+	payload := BitbucketWebhookPayload{
+		URL:         webhookURL,
+		Description: "LiveReview Webhook - Automated code review",
+		Active:      true,
+		Events:      events,
+	}
+
+	if existingHook != nil {
+		// Update existing webhook
+		endpoint := fmt.Sprintf("/repositories/%s/%s/hooks/%s", workspace, repo, existingHook.UUID)
+		resp, err := w.makeBitbucketRequest("PUT", endpoint, payload, email, apiToken)
+		if err != nil {
+			return nil, fmt.Errorf("failed to update webhook: %w", err)
+		}
+		defer resp.Body.Close()
+
+		if resp.StatusCode != http.StatusOK {
+			body, _ := io.ReadAll(resp.Body)
+			return nil, fmt.Errorf("Bitbucket API error updating webhook (status %d): %s", resp.StatusCode, string(body))
+		}
+
+		var updatedHook BitbucketHook
+		if err := json.NewDecoder(resp.Body).Decode(&updatedHook); err != nil {
+			return nil, fmt.Errorf("failed to decode updated webhook response: %w", err)
+		}
+
+		log.Printf("Updated existing Bitbucket webhook %s for repository %s/%s", updatedHook.UUID, workspace, repo)
+		return &updatedHook, nil
+	} else {
+		// Create new webhook
+		endpoint := fmt.Sprintf("/repositories/%s/%s/hooks", workspace, repo)
+		resp, err := w.makeBitbucketRequest("POST", endpoint, payload, email, apiToken)
+		if err != nil {
+			return nil, fmt.Errorf("failed to create webhook: %w", err)
+		}
+		defer resp.Body.Close()
+
+		if resp.StatusCode != http.StatusCreated {
+			body, _ := io.ReadAll(resp.Body)
+			return nil, fmt.Errorf("Bitbucket API error creating webhook (status %d): %s", resp.StatusCode, string(body))
+		}
+
+		var newHook BitbucketHook
+		if err := json.NewDecoder(resp.Body).Decode(&newHook); err != nil {
+			return nil, fmt.Errorf("failed to decode new webhook response: %w", err)
+		}
+
+		log.Printf("Created new Bitbucket webhook %s for repository %s/%s", newHook.UUID, workspace, repo)
+		return &newHook, nil
+	}
+}
+
+// updateWebhookRegistryBitbucket creates or updates the webhook registry entry for a Bitbucket repository
+func (w *WebhookInstallWorker) updateWebhookRegistryBitbucket(ctx context.Context, args WebhookInstallJobArgs, webhook *BitbucketHook) error {
+	// First check if a record already exists
+	var existingID int
+	checkQuery := `
+		SELECT id FROM webhook_registry 
+		WHERE integration_token_id = $1 AND project_full_name = $2
+	`
+	err := w.pool.QueryRow(ctx, checkQuery, args.ConnectorID, args.ProjectPath).Scan(&existingID)
+
+	now := time.Now()
+
+	// Extract project name from full path (last part after /)
+	projectName := args.ProjectPath
+	if lastSlash := strings.LastIndex(args.ProjectPath, "/"); lastSlash >= 0 {
+		projectName = args.ProjectPath[lastSlash+1:]
+	}
+
+	// Prepare webhook details
+	webhookID := ""
+	webhookURL := w.getWebhookEndpointForProvider("bitbucket")
+	webhookName := "LiveReview Webhook"
+	events := "pullrequest:created,pullrequest:updated,pullrequest:comment_created"
+	status := "manual" // Bitbucket webhooks enable manual trigger
+
+	if webhook != nil {
+		webhookID = webhook.UUID
+	}
+
+	if err == pgx.ErrNoRows {
+		// No existing record, create a new one
+		insertQuery := `
+			INSERT INTO webhook_registry (
+				provider,
+				provider_project_id,
+				project_name,
+				project_full_name,
+				webhook_id,
+				webhook_url,
+				webhook_secret,
+				webhook_name,
+				events,
+				status,
+				last_verified_at,
+				created_at,
+				updated_at,
+				integration_token_id
+			) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
+		`
+
+		_, err = w.pool.Exec(ctx, insertQuery,
+			args.Provider,                 // provider
+			args.ProjectPath,              // provider_project_id (using project path as ID)
+			projectName,                   // project_name
+			args.ProjectPath,              // project_full_name
+			webhookID,                     // webhook_id
+			webhookURL,                    // webhook_url
+			w.config.WebhookConfig.Secret, // webhook_secret
+			webhookName,                   // webhook_name
+			events,                        // events
+			status,                        // status
+			now,                           // last_verified_at
+			now,                           // created_at
+			now,                           // updated_at
+			args.ConnectorID,              // integration_token_id
+		)
+
+		if err != nil {
+			return fmt.Errorf("failed to insert webhook registry: %w", err)
+		}
+
+		log.Printf("Created webhook_registry entry for Bitbucket repository %s with status '%s' and webhook ID %s", args.ProjectPath, status, webhookID)
+	} else if err != nil {
+		// Some other error occurred
+		return fmt.Errorf("failed to check existing webhook registry: %w", err)
+	} else {
+		// Record exists, update it
+		updateQuery := `
+			UPDATE webhook_registry 
+			SET status = $1, 
+			    updated_at = $2,
+			    last_verified_at = $3,
+			    webhook_name = $4,
+			    events = $5,
+			    webhook_id = $6,
+			    webhook_url = $7,
+			    webhook_secret = $8
+			WHERE id = $9
+		`
+
+		_, err = w.pool.Exec(ctx, updateQuery,
+			status,                        // status
+			now,                           // updated_at
+			now,                           // last_verified_at
+			webhookName,                   // webhook_name
+			events,                        // events
+			webhookID,                     // webhook_id
+			webhookURL,                    // webhook_url
+			w.config.WebhookConfig.Secret, // webhook_secret
+			existingID,                    // id
+		)
+
+		if err != nil {
+			return fmt.Errorf("failed to update webhook registry: %w", err)
+		}
+
+		log.Printf("Updated webhook_registry entry for Bitbucket repository %s with status '%s' and webhook ID %s", args.ProjectPath, status, webhookID)
 	}
 
 	return nil
