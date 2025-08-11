@@ -210,6 +210,24 @@ func (s *Service) ProcessReview(ctx context.Context, request ReviewRequest) *Rev
 				log.Printf("[DEBUG] GitHub: Using posting ID '%s' for comments", postingID)
 			}
 		}
+	} else if reviewData.MRDetails.ProviderType == "bitbucket" {
+		if logger != nil {
+			logger.Log("Converting Bitbucket MR ID for comment posting...")
+		}
+		u, err := neturl.Parse(reviewData.MRDetails.URL)
+		if err == nil {
+			parts := strings.Split(u.Path, "/")
+			if len(parts) >= 5 && parts[3] == "pull-requests" {
+				workspace := parts[1]
+				repo := parts[2]
+				number := parts[4]
+				postingID = workspace + "/" + repo + "/" + number
+				if logger != nil {
+					logger.Log("✓ Bitbucket posting ID: %s", postingID)
+				}
+				log.Printf("[DEBUG] Bitbucket: Using posting ID '%s' for comments", postingID)
+			}
+		}
 	}
 	err = s.postReviewResults(reviewCtx, provider, postingID, reviewData.Result)
 	if err != nil {
@@ -314,6 +332,36 @@ func (s *Service) executeReviewWorkflow(
 			}
 			log.Printf("[DEBUG] GitHub: Failed to parse URL: %v", err)
 		}
+	} else if mrDetails.ProviderType == "bitbucket" {
+		if logger != nil {
+			logger.Log("Converting Bitbucket URL for changes API...")
+		}
+		// Robustly parse workspace, repo, number from MR URL
+		// Example: https://bitbucket.org/workspace/repository/pull-requests/123
+		u, err := neturl.Parse(mrDetails.URL)
+		if err == nil {
+			parts := strings.Split(u.Path, "/")
+			if len(parts) >= 5 && parts[3] == "pull-requests" {
+				workspace := parts[1]
+				repo := parts[2]
+				number := parts[4]
+				prID = workspace + "/" + repo + "/" + number
+				if logger != nil {
+					logger.Log("✓ Bitbucket PR ID: %s", prID)
+				}
+				log.Printf("[DEBUG] Bitbucket: Converted MR ID from '%s' to '%s'", mrDetails.ID, prID)
+			} else {
+				if logger != nil {
+					logger.Log("⚠ Failed to parse Bitbucket URL parts (len=%d)", len(parts))
+				}
+				log.Printf("[DEBUG] Bitbucket: Failed to parse URL parts, len=%d, parts=%v", len(parts), parts)
+			}
+		} else {
+			if logger != nil {
+				logger.LogError("Failed to parse Bitbucket URL", err)
+			}
+			log.Printf("[DEBUG] Bitbucket: Failed to parse URL: %v", err)
+		}
 	}
 	if logger != nil {
 		logger.Log("Using PR ID for changes API: %s", prID)
@@ -338,6 +386,24 @@ func (s *Service) executeReviewWorkflow(
 		}
 	}
 	log.Printf("[DEBUG] Retrieved %d changed files", len(changes))
+
+	// Check if there are no changes to review
+	if len(changes) == 0 {
+		if logger != nil {
+			logger.Log("⚠ No changes found - skipping AI review")
+		}
+		log.Printf("[DEBUG] No changes found, returning early")
+
+		// Return a simple success result for empty changes
+		return &ReviewWorkflowResult{
+			MRDetails: mrDetails,
+			Result: &models.ReviewResult{
+				Summary:          "# No Changes Detected (LiveReview)\n\nNo changes were found in this pull request.",
+				Comments:         []*models.ReviewComment{},
+				InternalComments: []*models.ReviewComment{},
+			},
+		}, nil
+	}
 
 	// Review code using batching, structured output, and retry
 	if logger != nil {

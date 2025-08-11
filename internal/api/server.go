@@ -150,6 +150,9 @@ func (s *Server) setupRoutes() {
 	// GitHub webhook handler
 	v1.POST("/github-hook", s.GitHubWebhookHandler)
 
+	// Bitbucket webhook handler
+	v1.POST("/bitbucket-hook", s.BitbucketWebhookHandler)
+
 	// AI Connector endpoints
 	v1.POST("/aiconnectors/validate-key", s.ValidateAIConnectorKey)
 	v1.POST("/aiconnectors", s.CreateAIConnector)

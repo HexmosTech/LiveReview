@@ -9,6 +9,7 @@ import (
 	"github.com/livereview/internal/ai"
 	"github.com/livereview/internal/ai/langchain"
 	"github.com/livereview/internal/providers"
+	"github.com/livereview/internal/providers/bitbucket"
 	"github.com/livereview/internal/providers/github"
 	"github.com/livereview/internal/providers/gitlab"
 )
@@ -44,6 +45,19 @@ func (f *StandardProviderFactory) CreateProvider(ctx context.Context, config Pro
 		return provider, nil
 	}
 
+	// Handle Bitbucket variants
+	if strings.HasPrefix(config.Type, "bitbucket") {
+		log.Printf("[DEBUG] Creating Bitbucket provider")
+		apiToken, _ := config.Config["pat_token"].(string)
+		email, _ := config.Config["email"].(string)
+		log.Printf("[DEBUG] Bitbucket token exists: %v, email: %s", len(apiToken) > 0, email)
+		provider := bitbucket.NewBitbucketProvider(apiToken, email)
+		if err := provider.Configure(config.Config); err != nil {
+			return nil, err
+		}
+		return provider, nil
+	}
+
 	return nil, fmt.Errorf("unsupported provider type: %s", config.Type)
 }
 
@@ -55,6 +69,10 @@ func (f *StandardProviderFactory) SupportsProvider(providerType string) bool {
 	}
 	// Support GitHub variants
 	if strings.HasPrefix(providerType, "github") {
+		return true
+	}
+	// Support Bitbucket variants
+	if strings.HasPrefix(providerType, "bitbucket") {
 		return true
 	}
 	return false
