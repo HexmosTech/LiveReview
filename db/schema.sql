@@ -183,6 +183,38 @@ ALTER SEQUENCE public.integration_tokens_id_seq OWNED BY public.integration_toke
 
 
 --
+-- Name: recent_activity; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.recent_activity (
+    id integer NOT NULL,
+    activity_type character varying(50) NOT NULL,
+    event_data jsonb DEFAULT '{}'::jsonb NOT NULL,
+    created_at timestamp with time zone DEFAULT now()
+);
+
+
+--
+-- Name: recent_activity_id_seq; Type: SEQUENCE; Schema: public; Owner: -
+--
+
+CREATE SEQUENCE public.recent_activity_id_seq
+    AS integer
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+
+--
+-- Name: recent_activity_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: -
+--
+
+ALTER SEQUENCE public.recent_activity_id_seq OWNED BY public.recent_activity.id;
+
+
+--
 -- Name: river_client; Type: TABLE; Schema: public; Owner: -
 --
 
@@ -379,6 +411,13 @@ ALTER TABLE ONLY public.integration_tokens ALTER COLUMN id SET DEFAULT nextval('
 
 
 --
+-- Name: recent_activity id; Type: DEFAULT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.recent_activity ALTER COLUMN id SET DEFAULT nextval('public.recent_activity_id_seq'::regclass);
+
+
+--
 -- Name: river_job id; Type: DEFAULT; Schema: public; Owner: -
 --
 
@@ -422,6 +461,14 @@ ALTER TABLE ONLY public.instance_details
 
 ALTER TABLE ONLY public.integration_tokens
     ADD CONSTRAINT integration_tokens_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: recent_activity recent_activity_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.recent_activity
+    ADD CONSTRAINT recent_activity_pkey PRIMARY KEY (id);
 
 
 --
@@ -486,6 +533,27 @@ ALTER TABLE ONLY public.schema_migrations
 
 ALTER TABLE ONLY public.webhook_registry
     ADD CONSTRAINT webhook_registry_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: idx_recent_activity_created_at; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_recent_activity_created_at ON public.recent_activity USING btree (created_at DESC);
+
+
+--
+-- Name: idx_recent_activity_dashboard; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_recent_activity_dashboard ON public.recent_activity USING btree (created_at DESC, activity_type);
+
+
+--
+-- Name: idx_recent_activity_type; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_recent_activity_type ON public.recent_activity USING btree (activity_type);
 
 
 --
@@ -588,4 +656,5 @@ INSERT INTO public.schema_migrations (version) VALUES
     ('20250728093051'),
     ('20250731131105'),
     ('20250801150601'),
-    ('20250805104629');
+    ('20250805104629'),
+    ('20250811091248');
