@@ -1,4 +1,6 @@
 import apiClient from './apiClient';
+import { Icons } from '../components/UIPrimitives';
+import React from 'react';
 
 export interface ActivityEntry {
   id: number;
@@ -32,7 +34,7 @@ export async function fetchRecentActivities(
 export function formatActivity(activity: ActivityEntry): {
   title: string;
   description: string;
-  icon: string;
+  icon: React.ReactElement;
   color: string;
   actionUrl?: string;
 } {
@@ -89,7 +91,7 @@ export function formatActivity(activity: ActivityEntry): {
       return {
         title: webhookRepo,
         description: `${capitalizeProvider(webhookProvider)} webhook ${success ? 'installed' : 'installation failed'}`,
-        icon: success ? '✅' : '❌',
+        icon: success ? React.createElement(Icons.Success) : React.createElement(Icons.Error),
         color: success ? 'text-green-400' : 'text-red-400',
       };
 
@@ -97,7 +99,7 @@ export function formatActivity(activity: ActivityEntry): {
       return {
         title: activity_type.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase()),
         description: 'Activity completed',
-        icon: '📝',
+        icon: React.createElement(Icons.Git),
         color: 'text-gray-400',
       };
   }
@@ -126,19 +128,19 @@ function getProviderFromRepository(repository: string): string {
 /**
  * Helper function to get provider-specific icons
  */
-function getProviderIcon(provider: string): string {
+function getProviderIcon(provider: string): React.ReactElement {
   const providerLower = provider.toLowerCase();
   
   switch (providerLower) {
     case 'gitlab':
-      return '🦊'; // GitLab fox
+      return React.createElement(Icons.GitLab);
     case 'github':
-      return '🐱'; // GitHub cat
+      return React.createElement(Icons.GitHub);
     case 'bitbucket':
-      return '🪣'; // Bucket icon for Bitbucket (most recognizable)
+      return React.createElement(Icons.Bitbucket);
     case 'git':
     default:
-      return '📁'; // Folder icon for generic git
+      return React.createElement(Icons.Git);
   }
 }
 
