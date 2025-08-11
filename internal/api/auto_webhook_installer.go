@@ -3,11 +3,13 @@ package api
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"fmt"
 	"log"
 	"strings"
 	"time"
 
+	"github.com/livereview/internal/providers/bitbucket"
 	"github.com/livereview/internal/providers/github"
 	"github.com/livereview/internal/providers/gitlab"
 )
@@ -95,14 +97,16 @@ type ConnectorDetails struct {
 	Provider    string
 	ProviderURL string
 	PATToken    string
+	Metadata    map[string]interface{}
 }
 
 // getConnectorDetails retrieves the necessary connector information
 func (awi *AutoWebhookInstaller) getConnectorDetails(connectorID int) (*ConnectorDetails, error) {
 	var connector ConnectorDetails
+	var metadataBytes []byte
 
 	query := `
-		SELECT id, provider, provider_url, pat_token
+		SELECT id, provider, provider_url, pat_token, COALESCE(metadata, '{}')
 		FROM integration_tokens
 		WHERE id = $1
 	`
@@ -112,6 +116,7 @@ func (awi *AutoWebhookInstaller) getConnectorDetails(connectorID int) (*Connecto
 		&connector.Provider,
 		&connector.ProviderURL,
 		&connector.PATToken,
+		&metadataBytes,
 	)
 
 	if err != nil {
@@ -119,6 +124,19 @@ func (awi *AutoWebhookInstaller) getConnectorDetails(connectorID int) (*Connecto
 			return nil, fmt.Errorf("connector %d not found", connectorID)
 		}
 		return nil, fmt.Errorf("database error: %w", err)
+	}
+
+	// Parse metadata JSON
+	if len(metadataBytes) > 0 {
+		var metadata map[string]interface{}
+		if err := json.Unmarshal(metadataBytes, &metadata); err != nil {
+			log.Printf("Warning: failed to parse metadata for connector %d: %v", connectorID, err)
+			connector.Metadata = make(map[string]interface{})
+		} else {
+			connector.Metadata = metadata
+		}
+	} else {
+		connector.Metadata = make(map[string]interface{})
 	}
 
 	return &connector, nil
@@ -162,6 +180,14 @@ func (awi *AutoWebhookInstaller) discoverAndCacheProjects(connectorID int, conne
 	} else if strings.HasPrefix(connector.Provider, "github") {
 		// Use the GitHub project discovery function
 		projects, err = github.DiscoverProjectsGitHub(connector.ProviderURL, connector.PATToken)
+	} else if strings.HasPrefix(connector.Provider, "bitbucket") {
+		// Use the Bitbucket project discovery function
+		// For Bitbucket, we need email from metadata
+		email, ok := connector.Metadata["email"].(string)
+		if !ok || email == "" {
+			return nil, fmt.Errorf("bitbucket connector missing email in metadata")
+		}
+		projects, err = bitbucket.DiscoverProjectsBitbucket(connector.ProviderURL, email, connector.PATToken)
 	} else {
 		return nil, fmt.Errorf("unsupported provider: %s", connector.Provider)
 	}

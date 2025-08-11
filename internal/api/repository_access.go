@@ -11,6 +11,7 @@ import (
 
 	"github.com/labstack/echo/v4"
 
+	"github.com/livereview/internal/providers/bitbucket"
 	"github.com/livereview/internal/providers/github"
 	"github.com/livereview/internal/providers/gitlab"
 )
@@ -57,20 +58,31 @@ func (s *Server) fetchAndCacheRepositoryData(connectorID int, forceRefresh bool,
 	// Query the database for the connector information
 	var provider, providerURL, patToken string
 	var cachedDataJSON sql.NullString
+	var metadataBytes []byte
 
 	query := `
-		SELECT provider, provider_url, pat_token, projects_cache
+		SELECT provider, provider_url, pat_token, projects_cache, COALESCE(metadata, '{}')
 		FROM integration_tokens
 		WHERE id = $1
 	`
 
-	err := s.db.QueryRow(query, connectorID).Scan(&provider, &providerURL, &patToken, &cachedDataJSON)
+	err := s.db.QueryRow(query, connectorID).Scan(&provider, &providerURL, &patToken, &cachedDataJSON, &metadataBytes)
 
 	if err != nil {
 		if err == sql.ErrNoRows {
 			return nil, fmt.Errorf("connector not found")
 		}
 		return nil, fmt.Errorf("database error: %w", err)
+	}
+
+	// Parse metadata JSON
+	var metadata map[string]interface{}
+	if len(metadataBytes) > 0 {
+		if err := json.Unmarshal(metadataBytes, &metadata); err != nil {
+			metadata = make(map[string]interface{})
+		}
+	} else {
+		metadata = make(map[string]interface{})
 	}
 
 	// Initialize response
@@ -121,9 +133,10 @@ func (s *Server) fetchAndCacheRepositoryData(connectorID int, forceRefresh bool,
 		// If unmarshaling fails, continue with fresh fetch
 	}
 
-	// Support both GitLab and GitHub providers
+	// Support GitLab, GitHub, and Bitbucket providers
 	if provider != "gitlab" && provider != "gitlab-com" && provider != "gitlab-self-hosted" &&
-		provider != "github" && provider != "github-com" && provider != "github-enterprise" {
+		provider != "github" && provider != "github-com" && provider != "github-enterprise" &&
+		provider != "bitbucket" {
 		response.Error = fmt.Sprintf("Repository discovery not yet implemented for provider: %s", provider)
 		if shouldCache {
 			s.updateProjectsCache(connectorID, response)
@@ -149,6 +162,18 @@ func (s *Server) fetchAndCacheRepositoryData(connectorID int, forceRefresh bool,
 	} else if strings.HasPrefix(provider, "github") {
 		// Use the GitHub project discovery function
 		projects, err = github.DiscoverProjectsGitHub(providerURL, patToken)
+	} else if strings.HasPrefix(provider, "bitbucket") {
+		// Use the Bitbucket project discovery function
+		// For Bitbucket, we need email from metadata
+		email, ok := metadata["email"].(string)
+		if !ok || email == "" {
+			response.Error = "Bitbucket connector missing email in metadata"
+			if shouldCache {
+				s.updateProjectsCache(connectorID, response)
+			}
+			return response, nil
+		}
+		projects, err = bitbucket.DiscoverProjectsBitbucket(providerURL, email, patToken)
 	} else {
 		response.Error = fmt.Sprintf("Unsupported provider: %s", provider)
 		if shouldCache {
