@@ -162,6 +162,9 @@ func (s *Server) setupRoutes() {
 	// Dashboard endpoints
 	v1.GET("/dashboard", s.GetDashboardData)
 	v1.POST("/dashboard/refresh", s.RefreshDashboardData)
+
+	// Activity endpoints
+	v1.GET("/activities", s.GetRecentActivities)
 }
 
 // Handler for creating PAT integration token, delegates to pat_token.go
@@ -182,6 +185,17 @@ func (s *Server) HandleCreatePATIntegrationToken(c echo.Context) error {
 
 	// Send success response immediately (non-blocking)
 	response := c.JSON(http.StatusOK, map[string]interface{}{"id": connectorID})
+
+	// Track connector creation activity in background
+	go func() {
+		// Get connector details from database to track them properly
+		var provider, providerURL string
+		query := `SELECT provider, provider_url FROM integration_tokens WHERE id = $1`
+		err := s.db.QueryRow(query, connectorID).Scan(&provider, &providerURL)
+		if err == nil {
+			TrackConnectorCreated(s.db, provider, providerURL, int(connectorID), 0) // repository count will be updated later
+		}
+	}()
 
 	// Trigger automatic webhook installation in background (non-blocking)
 	if s.autoWebhookInstaller != nil {
