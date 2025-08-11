@@ -155,7 +155,7 @@ func (s *Server) GetRecentActivities(c echo.Context) error {
 }
 
 // TrackReviewTriggered is a helper function to track review triggered activities
-func TrackReviewTriggered(db *sql.DB, repository, branch, commitHash, triggerType string, connectorID *int64, userEmail, originalURL string) {
+func TrackReviewTriggered(db *sql.DB, repository, branch, commitHash, triggerType, provider string, connectorID *int64, userEmail, originalURL string) {
 	tracker := NewActivityTracker(db)
 
 	eventData := map[string]interface{}{
@@ -163,6 +163,7 @@ func TrackReviewTriggered(db *sql.DB, repository, branch, commitHash, triggerTyp
 		"branch":       branch,
 		"commit_hash":  commitHash,
 		"trigger_type": triggerType,
+		"provider":     provider, // Include the actual provider from integration_tokens
 		"user_email":   userEmail,
 		"original_url": originalURL,
 	}

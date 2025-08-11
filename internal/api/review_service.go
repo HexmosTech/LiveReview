@@ -234,7 +234,7 @@ func (s *Server) TriggerReviewV2(c echo.Context) error {
 		repository := extractRepositoryFromURL(req.URL)
 		branch := extractBranchFromURL(req.URL)
 		commitHash := extractCommitFromURL(req.URL)
-		TrackReviewTriggered(s.db, repository, branch, commitHash, "manual", &token.ID, "admin", req.URL)
+		TrackReviewTriggered(s.db, repository, branch, commitHash, "manual", token.Provider, &token.ID, "admin", req.URL)
 	}()
 
 	// Set up completion callback
