@@ -229,6 +229,14 @@ func (s *Server) TriggerReviewV2(c echo.Context) error {
 		logger.Log("  Request details: Provider=%s, URL=%s", token.Provider, req.URL)
 	}
 
+	// Track the review trigger activity
+	go func() {
+		repository := extractRepositoryFromURL(req.URL)
+		branch := extractBranchFromURL(req.URL)
+		commitHash := extractCommitFromURL(req.URL)
+		TrackReviewTriggered(s.db, repository, branch, commitHash, "manual", &token.ID, "admin", req.URL)
+	}()
+
 	// Set up completion callback
 	completionCallback := func(result *review.ReviewResult) {
 		if logger != nil {

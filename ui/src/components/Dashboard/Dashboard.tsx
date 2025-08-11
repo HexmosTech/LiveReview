@@ -12,6 +12,7 @@ import {
     Icons 
 } from '../UIPrimitives';
 import { HumanizedTimestamp } from '../HumanizedTimestamp';
+import RecentActivity from './RecentActivity';
 
 export const Dashboard: React.FC = () => {
     const navigate = useNavigate();
@@ -49,7 +50,6 @@ export const Dashboard: React.FC = () => {
     const codeReviews = dashboardData?.total_reviews || 0;
     const connectedProviders = dashboardData?.connected_providers || 0;
     const aiConnectors = dashboardData?.active_ai_connectors || 0;
-    const recentActivity = dashboardData?.recent_activity || [];
 
     // Check if this is an empty state (no connections and no activity)
     const isEmpty = connectedProviders === 0 && codeReviews === 0 && aiComments === 0;
@@ -200,62 +200,7 @@ export const Dashboard: React.FC = () => {
                 {/* Main Content Grid */}
                 <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
                     <div className="lg:col-span-2">
-                        <Card 
-                            title="Recent Activity" 
-                            badge={recentActivity.length > 0 ? `${recentActivity.length}` : undefined}
-                            badgeColor="bg-blue-100 text-blue-800"
-                            className="h-fit"
-                        >
-                            {!isEmpty && recentActivity.length > 0 ? (
-                                <div className="space-y-3">
-                                    {recentActivity.map((item) => (
-                                        <div key={item.id} className="flex items-center justify-between p-3 rounded-lg bg-slate-700/50">
-                                            <div className="flex items-center space-x-3">
-                                                <div className="w-2 h-2 bg-blue-400 rounded-full"></div>
-                                                <div>
-                                                    <p className="text-sm font-medium text-slate-100">{item.action}</p>
-                                                    <p className="text-xs text-slate-400">{item.repository}</p>
-                                                </div>
-                                            </div>
-                                            <Badge variant="default" size="sm" className="bg-slate-600 text-slate-300">
-                                                <HumanizedTimestamp 
-                                                    timestamp={item.timestamp} 
-                                                    className="text-slate-300"
-                                                />
-                                            </Badge>
-                                        </div>
-                                    ))}
-                                    <div className="pt-2 border-t border-slate-700">
-                                        <Button 
-                                            variant="ghost" 
-                                            size="sm"
-                                            className="w-full text-blue-300 hover:text-blue-200"
-                                        >
-                                            View All Activity
-                                        </Button>
-                                    </div>
-                                </div>
-                            ) : (
-                                <EmptyState
-                                    icon={<Icons.EmptyState />}
-                                    title={isEmpty ? "Ready to start reviewing" : "No recent activity"}
-                                    description={isEmpty 
-                                        ? "Connect your repositories to see review activity here" 
-                                        : "Your recent code review activity will appear here"
-                                    }
-                                    action={isEmpty ? (
-                                        <Button 
-                                            variant="primary" 
-                                            size="sm"
-                                            icon={<Icons.Git />}
-                                            onClick={() => navigate('/git')}
-                                        >
-                                            Connect Repository
-                                        </Button>
-                                    ) : undefined}
-                                />
-                            )}
-                        </Card>
+                        <RecentActivity className="h-fit" />
                     </div>
 
                     <div className="space-y-6">
