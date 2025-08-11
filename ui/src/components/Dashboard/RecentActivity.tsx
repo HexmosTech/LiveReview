@@ -45,9 +45,9 @@ export const RecentActivity: React.FC<RecentActivityProps> = ({ className }) => 
     const renderActivityItem = (activity: ActivityEntry) => {
         const formattedActivity = formatActivity(activity);
         
-        const activityContent = (
-            <div className="flex items-center justify-between p-3 rounded-lg bg-slate-700/50 hover:bg-slate-700/70 transition-colors">
-                <div className="flex items-center space-x-3">
+        return (
+            <div key={activity.id} className="flex items-center justify-between p-3 rounded-lg bg-slate-700/50 hover:bg-slate-700/70 transition-colors">
+                <div className="flex items-center space-x-3 flex-1">
                     <div className="text-lg">{formattedActivity.icon}</div>
                     <div className="flex-1">
                         <p className={`text-sm font-medium ${formattedActivity.color}`}>
@@ -58,33 +58,28 @@ export const RecentActivity: React.FC<RecentActivityProps> = ({ className }) => 
                         </p>
                     </div>
                 </div>
-                <Badge variant="default" size="sm" className="bg-slate-600 text-slate-300">
-                    <HumanizedTimestamp 
-                        timestamp={activity.created_at}
-                        className="text-slate-300"
-                    />
-                </Badge>
-            </div>
-        );
-
-        // If there's an action URL, make it clickable
-        if (formattedActivity.actionUrl) {
-            return (
-                <a 
-                    key={activity.id}
-                    href={formattedActivity.actionUrl}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="block hover:transform hover:scale-[1.02] transition-transform cursor-pointer"
-                >
-                    {activityContent}
-                </a>
-            );
-        }
-
-        return (
-            <div key={activity.id}>
-                {activityContent}
+                <div className="flex items-center space-x-2">
+                    {/* External link button if URL is available */}
+                    {formattedActivity.actionUrl && (
+                        <a
+                            href={formattedActivity.actionUrl}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="p-1.5 rounded-md bg-slate-600 hover:bg-slate-500 transition-colors text-slate-300 hover:text-white"
+                            title="Open in new tab"
+                        >
+                            <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+                            </svg>
+                        </a>
+                    )}
+                    <Badge variant="default" size="sm" className="bg-slate-600 text-slate-300">
+                        <HumanizedTimestamp 
+                            timestamp={activity.created_at}
+                            className="text-slate-300"
+                        />
+                    </Badge>
+                </div>
             </div>
         );
     };

@@ -41,16 +41,17 @@ export function formatActivity(activity: ActivityEntry): {
   switch (activity_type) {
     case 'review_triggered':
       const repository = event_data.repository || 'repository';
-      const provider = getProviderFromRepository(repository);
+      // Use stored provider first, fallback to detection from repository name
+      const provider = event_data.provider || getProviderFromRepository(repository);
       const branch = event_data.branch;
       const triggerType = event_data.trigger_type || 'manual';
-      const originalUrl = event_data.original_url; // We'll need to pass this from backend
+      const originalUrl = event_data.original_url;
       
       // Put the specific repository in the title (main emphasis)
       const title = repository;
       
       // Action and context in description
-      let description = `${provider} review ${triggerType === 'manual' ? 'triggered' : 'auto-triggered'}`;
+      let description = `${capitalizeProvider(provider)} review ${triggerType === 'manual' ? 'triggered' : 'auto-triggered'}`;
       
       // Add branch info if meaningful and available
       if (branch && branch.trim() !== '' && branch !== 'unknown' && branch !== 'latest') {
@@ -82,12 +83,12 @@ export function formatActivity(activity: ActivityEntry): {
 
     case 'webhook_installed':
       const webhookRepo = event_data.repository || 'repository';
-      const webhookProvider = getProviderFromRepository(webhookRepo);
+      const webhookProvider = event_data.provider || getProviderFromRepository(webhookRepo);
       const success = event_data.success;
       
       return {
         title: webhookRepo,
-        description: `${webhookProvider} webhook ${success ? 'installed' : 'installation failed'}`,
+        description: `${capitalizeProvider(webhookProvider)} webhook ${success ? 'installed' : 'installation failed'}`,
         icon: success ? '✅' : '❌',
         color: success ? 'text-green-400' : 'text-red-400',
       };
@@ -109,23 +110,17 @@ function getProviderFromRepository(repository: string): string {
   const repoLower = repository.toLowerCase();
   
   if (repoLower.includes('gitlab') || repoLower.includes('gl-')) {
-    return 'GitLab';
+    return 'gitlab';
   }
   if (repoLower.includes('github') || repoLower.includes('gh-')) {
-    return 'GitHub';
+    return 'github';
   }
   if (repoLower.includes('bitbucket') || repoLower.includes('bb-')) {
-    return 'Bitbucket';
+    return 'bitbucket';
   }
   
-  // If no specific provider detected, try to infer from repository structure
-  // Most GitLab instances have organization/project structure
-  if (repository.includes('/') && !repository.includes('.')) {
-    return 'Git';
-  }
-  
-  // Default to Git for generic repositories
-  return 'Git';
+  // Default to git for generic repositories
+  return 'git';
 }
 
 /**
@@ -138,12 +133,12 @@ function getProviderIcon(provider: string): string {
     case 'gitlab':
       return '🦊'; // GitLab fox
     case 'github':
-      return '�'; // GitHub cat (more recognizable than octopus)
+      return '🐱'; // GitHub cat
     case 'bitbucket':
-      return '🔷'; // Blue diamond for Bitbucket
+      return '🪣'; // Bucket icon for Bitbucket (most recognizable)
     case 'git':
     default:
-      return '�'; // Folder icon for generic git
+      return '📁'; // Folder icon for generic git
   }
 }
 
