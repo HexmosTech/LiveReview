@@ -169,16 +169,25 @@ func (dm *DashboardManager) collectStatistics(data *DashboardData) error {
 		log.Printf("Found %d AI reviews from activity tracking", data.TotalReviews)
 	}
 
-	// Count total comments (approximation based on completed jobs)
+	// Count total comments from ai_comments table
 	err = dm.db.QueryRow(`
-		SELECT COUNT(*) FROM job_queue 
-		WHERE job_type IN ('review', 'comment') AND status = 'completed'
+		SELECT COUNT(*) FROM ai_comments
 	`).Scan(&data.TotalComments)
 	if err != nil {
-		log.Printf("Error counting comments: %v", err)
-		data.TotalComments = 0
+		log.Printf("Error counting AI comments from ai_comments table: %v", err)
+		// Fallback to job_queue method for backwards compatibility
+		fallbackErr := dm.db.QueryRow(`
+			SELECT COUNT(*) FROM job_queue 
+			WHERE job_type IN ('review', 'comment') AND status = 'completed'
+		`).Scan(&data.TotalComments)
+		if fallbackErr != nil {
+			log.Printf("Error counting comments from job_queue fallback: %v", fallbackErr)
+			data.TotalComments = 0
+		} else {
+			log.Printf("Found %d completed comments/reviews (fallback method)", data.TotalComments)
+		}
 	} else {
-		log.Printf("Found %d completed comments/reviews", data.TotalComments)
+		log.Printf("Found %d AI comments from comments table", data.TotalComments)
 	}
 
 	// Count connected Git providers correctly

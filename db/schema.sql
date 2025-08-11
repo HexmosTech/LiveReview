@@ -51,6 +51,41 @@ SET default_tablespace = '';
 SET default_table_access_method = heap;
 
 --
+-- Name: ai_comments; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.ai_comments (
+    id bigint NOT NULL,
+    review_id bigint NOT NULL,
+    comment_type character varying(50) NOT NULL,
+    content jsonb NOT NULL,
+    file_path text,
+    line_number integer,
+    created_at timestamp with time zone DEFAULT now(),
+    CONSTRAINT ai_comments_type_check CHECK (((comment_type)::text = ANY ((ARRAY['summary'::character varying, 'line_comment'::character varying, 'suggestion'::character varying, 'general'::character varying, 'file_comment'::character varying])::text[])))
+);
+
+
+--
+-- Name: ai_comments_id_seq; Type: SEQUENCE; Schema: public; Owner: -
+--
+
+CREATE SEQUENCE public.ai_comments_id_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+
+--
+-- Name: ai_comments_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: -
+--
+
+ALTER SEQUENCE public.ai_comments_id_seq OWNED BY public.ai_comments.id;
+
+
+--
 -- Name: ai_connectors; Type: TABLE; Schema: public; Owner: -
 --
 
@@ -190,7 +225,8 @@ CREATE TABLE public.recent_activity (
     id integer NOT NULL,
     activity_type character varying(50) NOT NULL,
     event_data jsonb DEFAULT '{}'::jsonb NOT NULL,
-    created_at timestamp with time zone DEFAULT now()
+    created_at timestamp with time zone DEFAULT now(),
+    review_id bigint
 );
 
 
@@ -212,6 +248,48 @@ CREATE SEQUENCE public.recent_activity_id_seq
 --
 
 ALTER SEQUENCE public.recent_activity_id_seq OWNED BY public.recent_activity.id;
+
+
+--
+-- Name: reviews; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.reviews (
+    id bigint NOT NULL,
+    repository character varying(255) NOT NULL,
+    branch character varying(255),
+    commit_hash character varying(255),
+    pr_mr_url text,
+    connector_id bigint,
+    status character varying(50) DEFAULT 'created'::character varying NOT NULL,
+    trigger_type character varying(50) DEFAULT 'manual'::character varying NOT NULL,
+    user_email character varying(255),
+    provider character varying(100),
+    created_at timestamp with time zone DEFAULT now(),
+    started_at timestamp with time zone,
+    completed_at timestamp with time zone,
+    metadata jsonb DEFAULT '{}'::jsonb,
+    CONSTRAINT reviews_status_check CHECK (((status)::text = ANY ((ARRAY['created'::character varying, 'in_progress'::character varying, 'completed'::character varying, 'failed'::character varying])::text[])))
+);
+
+
+--
+-- Name: reviews_id_seq; Type: SEQUENCE; Schema: public; Owner: -
+--
+
+CREATE SEQUENCE public.reviews_id_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+
+--
+-- Name: reviews_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: -
+--
+
+ALTER SEQUENCE public.reviews_id_seq OWNED BY public.reviews.id;
 
 
 --
@@ -390,6 +468,13 @@ ALTER SEQUENCE public.webhook_registry_id_seq OWNED BY public.webhook_registry.i
 
 
 --
+-- Name: ai_comments id; Type: DEFAULT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.ai_comments ALTER COLUMN id SET DEFAULT nextval('public.ai_comments_id_seq'::regclass);
+
+
+--
 -- Name: ai_connectors id; Type: DEFAULT; Schema: public; Owner: -
 --
 
@@ -418,6 +503,13 @@ ALTER TABLE ONLY public.recent_activity ALTER COLUMN id SET DEFAULT nextval('pub
 
 
 --
+-- Name: reviews id; Type: DEFAULT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.reviews ALTER COLUMN id SET DEFAULT nextval('public.reviews_id_seq'::regclass);
+
+
+--
 -- Name: river_job id; Type: DEFAULT; Schema: public; Owner: -
 --
 
@@ -429,6 +521,14 @@ ALTER TABLE ONLY public.river_job ALTER COLUMN id SET DEFAULT nextval('public.ri
 --
 
 ALTER TABLE ONLY public.webhook_registry ALTER COLUMN id SET DEFAULT nextval('public.webhook_registry_id_seq'::regclass);
+
+
+--
+-- Name: ai_comments ai_comments_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.ai_comments
+    ADD CONSTRAINT ai_comments_pkey PRIMARY KEY (id);
 
 
 --
@@ -469,6 +569,14 @@ ALTER TABLE ONLY public.integration_tokens
 
 ALTER TABLE ONLY public.recent_activity
     ADD CONSTRAINT recent_activity_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: reviews reviews_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.reviews
+    ADD CONSTRAINT reviews_pkey PRIMARY KEY (id);
 
 
 --
@@ -536,6 +644,34 @@ ALTER TABLE ONLY public.webhook_registry
 
 
 --
+-- Name: idx_ai_comments_created_at; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_ai_comments_created_at ON public.ai_comments USING btree (created_at DESC);
+
+
+--
+-- Name: idx_ai_comments_file_path; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_ai_comments_file_path ON public.ai_comments USING btree (file_path) WHERE (file_path IS NOT NULL);
+
+
+--
+-- Name: idx_ai_comments_review_id; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_ai_comments_review_id ON public.ai_comments USING btree (review_id);
+
+
+--
+-- Name: idx_ai_comments_type; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_ai_comments_type ON public.ai_comments USING btree (comment_type);
+
+
+--
 -- Name: idx_recent_activity_created_at; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -550,10 +686,52 @@ CREATE INDEX idx_recent_activity_dashboard ON public.recent_activity USING btree
 
 
 --
+-- Name: idx_recent_activity_review_id; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_recent_activity_review_id ON public.recent_activity USING btree (review_id);
+
+
+--
 -- Name: idx_recent_activity_type; Type: INDEX; Schema: public; Owner: -
 --
 
 CREATE INDEX idx_recent_activity_type ON public.recent_activity USING btree (activity_type);
+
+
+--
+-- Name: idx_reviews_connector_id; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_reviews_connector_id ON public.reviews USING btree (connector_id);
+
+
+--
+-- Name: idx_reviews_created_at; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_reviews_created_at ON public.reviews USING btree (created_at DESC);
+
+
+--
+-- Name: idx_reviews_provider; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_reviews_provider ON public.reviews USING btree (provider);
+
+
+--
+-- Name: idx_reviews_repository; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_reviews_repository ON public.reviews USING btree (repository);
+
+
+--
+-- Name: idx_reviews_status; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_reviews_status ON public.reviews USING btree (status);
 
 
 --
@@ -613,11 +791,27 @@ CREATE UNIQUE INDEX river_job_unique_idx ON public.river_job USING btree (unique
 
 
 --
+-- Name: ai_comments ai_comments_review_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.ai_comments
+    ADD CONSTRAINT ai_comments_review_id_fkey FOREIGN KEY (review_id) REFERENCES public.reviews(id) ON DELETE CASCADE;
+
+
+--
 -- Name: webhook_registry fk_webhook_registry_integration_token; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
 ALTER TABLE ONLY public.webhook_registry
     ADD CONSTRAINT fk_webhook_registry_integration_token FOREIGN KEY (integration_token_id) REFERENCES public.integration_tokens(id) ON DELETE CASCADE;
+
+
+--
+-- Name: recent_activity recent_activity_review_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.recent_activity
+    ADD CONSTRAINT recent_activity_review_id_fkey FOREIGN KEY (review_id) REFERENCES public.reviews(id) ON DELETE SET NULL;
 
 
 --
@@ -657,4 +851,6 @@ INSERT INTO public.schema_migrations (version) VALUES
     ('20250731131105'),
     ('20250801150601'),
     ('20250805104629'),
-    ('20250811091248');
+    ('20250811091248'),
+    ('20250811145541'),
+    ('20250811145851');

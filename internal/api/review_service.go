@@ -229,12 +229,17 @@ func (s *Server) TriggerReviewV2(c echo.Context) error {
 		logger.Log("  Request details: Provider=%s, URL=%s", token.Provider, req.URL)
 	}
 
-	// Track the review trigger activity
+	// Track the review trigger activity and create review record
 	go func() {
 		repository := extractRepositoryFromURL(req.URL)
 		branch := extractBranchFromURL(req.URL)
 		commitHash := extractCommitFromURL(req.URL)
-		TrackReviewTriggered(s.db, repository, branch, commitHash, "manual", token.Provider, &token.ID, "admin", req.URL)
+		reviewID, err := TrackReviewTriggered(s.db, repository, branch, commitHash, "manual", token.Provider, &token.ID, "admin", req.URL)
+		if err != nil {
+			fmt.Printf("Failed to track review triggered: %v\n", err)
+		} else {
+			fmt.Printf("Created review record with ID: %d\n", reviewID)
+		}
 	}()
 
 	// Set up completion callback
@@ -251,6 +256,42 @@ func (s *Server) TriggerReviewV2(c echo.Context) error {
 			log.Printf("[INFO] TriggerReviewV2: Review %s completed successfully: %s (%d comments, took %v)",
 				result.ReviewID, truncateString(result.Summary, 50),
 				result.CommentsCount, result.Duration)
+
+			// Track AI comments in the database
+			go func() {
+				// Track summary comment
+				summaryContent := map[string]interface{}{
+					"content": result.Summary,
+					"type":    "summary",
+				}
+				err := TrackAICommentFromURL(s.db, req.URL, "summary", summaryContent, nil, nil)
+				if err != nil {
+					fmt.Printf("Failed to track summary AI comment: %v\n", err)
+				}
+
+				// Track individual comments count (we'll improve this to track actual comments later)
+				if result.CommentsCount > 0 {
+					for i := 0; i < result.CommentsCount; i++ {
+						commentContent := map[string]interface{}{
+							"content":   fmt.Sprintf("AI comment %d", i+1),
+							"review_id": result.ReviewID,
+						}
+						err := TrackAICommentFromURL(s.db, req.URL, "line_comment", commentContent, nil, nil)
+						if err != nil {
+							fmt.Printf("Failed to track AI line comment %d: %v\n", i+1, err)
+						}
+					}
+				}
+
+				// Update review status to completed
+				reviewManager := NewReviewManager(s.db)
+				query := `SELECT id FROM reviews WHERE pr_mr_url = $1 ORDER BY created_at DESC LIMIT 1`
+				var dbReviewID int64
+				err = s.db.QueryRow(query, req.URL).Scan(&dbReviewID)
+				if err == nil {
+					reviewManager.UpdateReviewStatus(dbReviewID, "completed")
+				}
+			}()
 		} else {
 			if logger != nil {
 				logger.LogError("Review failed", result.Error)
@@ -259,6 +300,17 @@ func (s *Server) TriggerReviewV2(c echo.Context) error {
 			}
 			log.Printf("[ERROR] TriggerReviewV2: Review %s failed: %v (took %v)",
 				result.ReviewID, result.Error, result.Duration)
+
+			// Update review status to failed
+			go func() {
+				reviewManager := NewReviewManager(s.db)
+				query := `SELECT id FROM reviews WHERE pr_mr_url = $1 ORDER BY created_at DESC LIMIT 1`
+				var dbReviewID int64
+				err := s.db.QueryRow(query, req.URL).Scan(&dbReviewID)
+				if err == nil {
+					reviewManager.UpdateReviewStatus(dbReviewID, "failed")
+				}
+			}()
 		}
 	}
 
