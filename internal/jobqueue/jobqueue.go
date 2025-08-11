@@ -949,7 +949,7 @@ func (w *WebhookInstallWorker) bitbucketWebhookExists(workspace, repo, webhookUR
 
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(resp.Body)
-		return nil, fmt.Errorf("Bitbucket API error (status %d): %s", resp.StatusCode, string(body))
+		return nil, fmt.Errorf("bitbucket API error (status %d): %s", resp.StatusCode, string(body))
 	}
 
 	var response struct {
@@ -1008,7 +1008,7 @@ func (w *WebhookInstallWorker) installBitbucketWebhook(workspace, repo, email, a
 
 		if resp.StatusCode != http.StatusOK {
 			body, _ := io.ReadAll(resp.Body)
-			return nil, fmt.Errorf("Bitbucket API error updating webhook (status %d): %s", resp.StatusCode, string(body))
+			return nil, fmt.Errorf("bitbucket API error updating webhook (status %d): %s", resp.StatusCode, string(body))
 		}
 
 		var updatedHook BitbucketHook
@@ -1029,7 +1029,7 @@ func (w *WebhookInstallWorker) installBitbucketWebhook(workspace, repo, email, a
 
 		if resp.StatusCode != http.StatusCreated {
 			body, _ := io.ReadAll(resp.Body)
-			return nil, fmt.Errorf("Bitbucket API error creating webhook (status %d): %s", resp.StatusCode, string(body))
+			return nil, fmt.Errorf("bitbucket API error creating webhook (status %d): %s", resp.StatusCode, string(body))
 		}
 
 		var newHook BitbucketHook
@@ -1168,6 +1168,8 @@ func (w *WebhookRemovalWorker) Work(ctx context.Context, job *river.Job[WebhookR
 		return w.handleGitLabWebhookRemoval(ctx, args)
 	} else if strings.HasPrefix(args.Provider, "github") {
 		return w.handleGitHubWebhookRemoval(ctx, args)
+	} else if strings.HasPrefix(args.Provider, "bitbucket") {
+		return w.handleBitbucketWebhookRemoval(ctx, args)
 	} else {
 		return fmt.Errorf("unsupported provider: %s", args.Provider)
 	}
@@ -1682,6 +1684,270 @@ func (w *WebhookRemovalWorker) updateWebhookRegistryForGitHubRemoval(ctx context
 		}
 
 		log.Printf("Updated webhook_registry entry for GitHub repository %s with status '%s'", args.ProjectPath, status)
+	}
+
+	return nil
+}
+
+// Bitbucket webhook removal methods
+
+// handleBitbucketWebhookRemoval handles Bitbucket webhook removal
+func (w *WebhookRemovalWorker) handleBitbucketWebhookRemoval(ctx context.Context, args WebhookRemovalJobArgs) error {
+	// Parse Bitbucket repository from project path (format: workspace/repo)
+	parts := strings.SplitN(args.ProjectPath, "/", 2)
+	if len(parts) != 2 {
+		return fmt.Errorf("invalid Bitbucket repository format: %s (expected: workspace/repo)", args.ProjectPath)
+	}
+	workspace, repo := parts[0], parts[1]
+
+	log.Printf("Removing Bitbucket webhooks for repository: %s/%s", workspace, repo)
+
+	// Get email from connector metadata (needed for Bitbucket authentication)
+	email, err := w.getBitbucketEmailFromConnectorForRemoval(args.ConnectorID)
+	if err != nil {
+		return fmt.Errorf("failed to get Bitbucket email for connector %d: %w", args.ConnectorID, err)
+	}
+
+	// Remove webhooks from Bitbucket
+	err = w.removeBitbucketWebhooks(workspace, repo, email, args.PAT)
+	if err != nil {
+		log.Printf("Failed to remove webhooks from Bitbucket repository %s/%s: %v", workspace, repo, err)
+		// Don't return error here - we still want to update the registry
+	}
+
+	// Update the webhook_registry to mark as removed
+	err = w.updateWebhookRegistryForBitbucketRemoval(ctx, args)
+	if err != nil {
+		return fmt.Errorf("failed to update webhook registry: %w", err)
+	}
+
+	log.Printf("Bitbucket webhook removal completed for repository: %s/%s", workspace, repo)
+	return nil
+}
+
+// getBitbucketEmailFromConnectorForRemoval retrieves the email from connector metadata for removal operations
+func (w *WebhookRemovalWorker) getBitbucketEmailFromConnectorForRemoval(connectorID int) (string, error) {
+	var metadataBytes []byte
+	query := `SELECT COALESCE(metadata, '{}') FROM integration_tokens WHERE id = $1`
+
+	err := w.pool.QueryRow(context.Background(), query, connectorID).Scan(&metadataBytes)
+	if err != nil {
+		return "", fmt.Errorf("failed to get connector metadata: %w", err)
+	}
+
+	var metadata map[string]interface{}
+	if len(metadataBytes) > 0 {
+		if err := json.Unmarshal(metadataBytes, &metadata); err != nil {
+			return "", fmt.Errorf("failed to parse metadata: %w", err)
+		}
+	}
+
+	email, ok := metadata["email"].(string)
+	if !ok || email == "" {
+		return "", fmt.Errorf("email not found in connector metadata")
+	}
+
+	return email, nil
+}
+
+// makeBitbucketRequestForRemoval makes a request to the Bitbucket API for removal operations
+func (w *WebhookRemovalWorker) makeBitbucketRequestForRemoval(method, endpoint string, payload interface{}, email, apiToken string) (*http.Response, error) {
+	var reqBody io.Reader
+	if payload != nil {
+		jsonData, err := json.Marshal(payload)
+		if err != nil {
+			return nil, fmt.Errorf("failed to marshal payload: %w", err)
+		}
+		reqBody = bytes.NewBuffer(jsonData)
+	}
+
+	// Always use Bitbucket Cloud API
+	url := "https://api.bitbucket.org/2.0" + endpoint
+	req, err := http.NewRequest(method, url, reqBody)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create request: %w", err)
+	}
+
+	// Set Basic Auth with email and API token
+	req.SetBasicAuth(email, apiToken)
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Accept", "application/json")
+	req.Header.Set("User-Agent", "LiveReview/1.0")
+
+	client := &http.Client{Timeout: 30 * time.Second}
+	return client.Do(req)
+}
+
+// removeBitbucketWebhooks removes all LiveReview webhooks from a Bitbucket repository
+func (w *WebhookRemovalWorker) removeBitbucketWebhooks(workspace, repo, email, apiToken string) error {
+	// Get webhook endpoint URL to identify our webhooks
+	webhookURL := w.getWebhookEndpointForProviderRemoval("bitbucket")
+
+	// Get list of existing webhooks
+	endpoint := fmt.Sprintf("/repositories/%s/%s/hooks", workspace, repo)
+	resp, err := w.makeBitbucketRequestForRemoval("GET", endpoint, nil, email, apiToken)
+	if err != nil {
+		return fmt.Errorf("failed to fetch webhooks: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode == http.StatusNotFound {
+		log.Printf("Repository %s/%s not found or no access", workspace, repo)
+		return nil
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("bitbucket API error fetching webhooks (status %d): %s", resp.StatusCode, string(body))
+	}
+
+	var response struct {
+		Values []BitbucketHook `json:"values"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&response); err != nil {
+		return fmt.Errorf("failed to decode webhook list: %w", err)
+	}
+
+	// Remove webhooks that match our URL or contain "LiveReview"
+	removedCount := 0
+	for _, hook := range response.Values {
+		if hook.URL == webhookURL || strings.Contains(hook.Description, "LiveReview") {
+			deleteEndpoint := fmt.Sprintf("/repositories/%s/%s/hooks/%s", workspace, repo, hook.UUID)
+			deleteResp, err := w.makeBitbucketRequestForRemoval("DELETE", deleteEndpoint, nil, email, apiToken)
+			if err != nil {
+				log.Printf("Failed to delete webhook %s: %v", hook.UUID, err)
+				continue
+			}
+			deleteResp.Body.Close()
+
+			if deleteResp.StatusCode == http.StatusNoContent || deleteResp.StatusCode == http.StatusNotFound {
+				log.Printf("Removed Bitbucket webhook %s from repository %s/%s", hook.UUID, workspace, repo)
+				removedCount++
+			} else {
+				log.Printf("Failed to delete webhook %s (status %d)", hook.UUID, deleteResp.StatusCode)
+			}
+		}
+	}
+
+	if removedCount == 0 {
+		log.Printf("No LiveReview webhooks found for repository %s/%s", workspace, repo)
+	} else {
+		log.Printf("Removed %d webhooks for repository %s/%s", removedCount, workspace, repo)
+	}
+
+	return nil
+}
+
+// getWebhookEndpointForProviderRemoval gets the webhook endpoint URL for a specific provider (for removal operations)
+func (w *WebhookRemovalWorker) getWebhookEndpointForProviderRemoval(provider string) string {
+	// Use the same base URL as the install worker
+	baseURL := w.config.WebhookConfig.PublicEndpoint
+	if baseURL == "" {
+		baseURL = "https://your-domain.com" // fallback
+	}
+	return fmt.Sprintf("%s/webhooks/%s", baseURL, provider)
+}
+
+// updateWebhookRegistryForBitbucketRemoval updates the webhook registry to mark Bitbucket repository as unconnected
+func (w *WebhookRemovalWorker) updateWebhookRegistryForBitbucketRemoval(ctx context.Context, args WebhookRemovalJobArgs) error {
+	// Check if entry exists in webhook registry
+	checkQuery := `
+		SELECT id FROM webhook_registry 
+		WHERE integration_token_id = $1 AND project_full_name = $2
+	`
+
+	var existingID int
+	err := w.pool.QueryRow(ctx, checkQuery, args.ConnectorID, args.ProjectPath).Scan(&existingID)
+
+	now := time.Now()
+
+	// Extract project name from full path (last part after /)
+	projectName := args.ProjectPath
+	if lastSlash := strings.LastIndex(args.ProjectPath, "/"); lastSlash >= 0 {
+		projectName = args.ProjectPath[lastSlash+1:]
+	}
+
+	// Status should be "none" to indicate no webhook is installed
+	status := "none"
+	webhookID := ""
+	webhookURL := w.getWebhookEndpointForProviderRemoval("bitbucket")
+	webhookName := ""
+	events := ""
+
+	if err == pgx.ErrNoRows {
+		// No existing record, create a new one with "none" status
+		insertQuery := `
+			INSERT INTO webhook_registry (
+				provider,
+				provider_project_id,
+				project_name,
+				project_full_name,
+				webhook_id,
+				webhook_url,
+				webhook_secret,
+				webhook_name,
+				events,
+				status,
+				last_verified_at,
+				integration_token_id,
+				created_at,
+				updated_at
+			) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
+		`
+
+		_, err = w.pool.Exec(ctx, insertQuery,
+			args.Provider,
+			args.ProjectPath, // Use full project path as ID for Bitbucket
+			projectName,
+			args.ProjectPath,
+			webhookID,
+			webhookURL,
+			w.config.WebhookConfig.Secret,
+			webhookName,
+			events,
+			status,
+			now,
+			args.ConnectorID,
+			now,
+			now,
+		)
+
+		if err != nil {
+			return fmt.Errorf("failed to create webhook registry entry: %w", err)
+		}
+
+		log.Printf("Created webhook_registry entry for Bitbucket repository %s with status '%s'", args.ProjectPath, status)
+	} else if err != nil {
+		return fmt.Errorf("failed to check existing webhook registry entry: %w", err)
+	} else {
+		// Update existing record
+		updateQuery := `
+			UPDATE webhook_registry 
+			SET 
+				webhook_id = $1,
+				webhook_url = $2,
+				webhook_secret = $3,
+				status = $4,
+				last_verified_at = $5,
+				updated_at = $6
+			WHERE id = $7
+		`
+
+		_, err = w.pool.Exec(ctx, updateQuery,
+			webhookID,
+			webhookURL,
+			w.config.WebhookConfig.Secret,
+			status,
+			now,
+			now,
+			existingID,
+		)
+
+		if err != nil {
+			return fmt.Errorf("failed to update webhook registry: %w", err)
+		}
+
+		log.Printf("Updated webhook_registry entry for Bitbucket repository %s with status '%s'", args.ProjectPath, status)
 	}
 
 	return nil
