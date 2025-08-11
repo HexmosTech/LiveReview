@@ -147,16 +147,26 @@ func (dm *DashboardManager) updateDashboardData() error {
 func (dm *DashboardManager) collectStatistics(data *DashboardData) error {
 	log.Println("Starting statistics collection...")
 
-	// Count total reviews from job_queue
+	// Count total AI reviews from recent_activity table
 	err := dm.db.QueryRow(`
-		SELECT COUNT(*) FROM job_queue 
-		WHERE job_type = 'review' AND status = 'completed'
+		SELECT COUNT(*) FROM recent_activity 
+		WHERE activity_type = 'review_triggered'
 	`).Scan(&data.TotalReviews)
 	if err != nil {
-		log.Printf("Error counting reviews: %v", err)
-		data.TotalReviews = 0
+		log.Printf("Error counting AI reviews from recent_activity: %v", err)
+		// Fallback to job_queue method for backwards compatibility
+		fallbackErr := dm.db.QueryRow(`
+			SELECT COUNT(*) FROM job_queue 
+			WHERE job_type = 'review' AND status = 'completed'
+		`).Scan(&data.TotalReviews)
+		if fallbackErr != nil {
+			log.Printf("Error counting reviews from job_queue fallback: %v", fallbackErr)
+			data.TotalReviews = 0
+		} else {
+			log.Printf("Found %d completed reviews (fallback method)", data.TotalReviews)
+		}
 	} else {
-		log.Printf("Found %d completed reviews", data.TotalReviews)
+		log.Printf("Found %d AI reviews from activity tracking", data.TotalReviews)
 	}
 
 	// Count total comments (approximation based on completed jobs)
@@ -298,18 +308,29 @@ func (dm *DashboardManager) collectRecentActivity(data *DashboardData) error {
 func (dm *DashboardManager) collectPerformanceMetrics(data *DashboardData) error {
 	log.Println("Starting performance metrics collection...")
 
-	// Calculate reviews this week
+	// Calculate reviews this week from recent_activity table
 	err := dm.db.QueryRow(`
-		SELECT COUNT(*) FROM job_queue 
-		WHERE job_type = 'review' 
-		AND status = 'completed'
+		SELECT COUNT(*) FROM recent_activity 
+		WHERE activity_type = 'review_triggered'
 		AND created_at >= DATE_TRUNC('week', NOW())
 	`).Scan(&data.PerformanceMetrics.ReviewsThisWeek)
 	if err != nil {
-		log.Printf("Error counting weekly reviews: %v", err)
-		data.PerformanceMetrics.ReviewsThisWeek = 0
+		log.Printf("Error counting weekly reviews from recent_activity: %v", err)
+		// Fallback to job_queue method for backwards compatibility
+		fallbackErr := dm.db.QueryRow(`
+			SELECT COUNT(*) FROM job_queue 
+			WHERE job_type = 'review' 
+			AND status = 'completed'
+			AND created_at >= DATE_TRUNC('week', NOW())
+		`).Scan(&data.PerformanceMetrics.ReviewsThisWeek)
+		if fallbackErr != nil {
+			log.Printf("Error counting weekly reviews from job_queue fallback: %v", fallbackErr)
+			data.PerformanceMetrics.ReviewsThisWeek = 0
+		} else {
+			log.Printf("Found %d reviews this week (fallback method)", data.PerformanceMetrics.ReviewsThisWeek)
+		}
 	} else {
-		log.Printf("Found %d reviews this week", data.PerformanceMetrics.ReviewsThisWeek)
+		log.Printf("Found %d AI reviews this week from activity tracking", data.PerformanceMetrics.ReviewsThisWeek)
 	}
 
 	// Calculate comments this week (approximation)
