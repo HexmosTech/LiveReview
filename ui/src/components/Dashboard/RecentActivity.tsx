@@ -7,7 +7,7 @@ import {
     Icons 
 } from '../UIPrimitives';
 import { HumanizedTimestamp } from '../HumanizedTimestamp';
-import { fetchRecentActivities, ActivityEntry, formatActivity } from '../../api/activities';
+import { fetchRecentActivities, ActivityEntry, formatActivity, ActivitiesResponse } from '../../api/activities';
 
 interface RecentActivityProps {
     className?: string;
@@ -15,30 +15,77 @@ interface RecentActivityProps {
 
 export const RecentActivity: React.FC<RecentActivityProps> = ({ className }) => {
     const [activities, setActivities] = useState<ActivityEntry[]>([]);
+    const [pagination, setPagination] = useState({
+        currentPage: 0,
+        pageSize: 10,
+        totalCount: 0,
+        hasMore: false
+    });
     const [isLoading, setIsLoading] = useState(true);
+    const [isLoadingMore, setIsLoadingMore] = useState(false);
     const [error, setError] = useState<string | null>(null);
 
-    // Load recent activities
-    useEffect(() => {
-        const loadActivities = async () => {
-            try {
+    // Load activities for a specific page
+    const loadActivities = async (page: number = 0, append: boolean = false) => {
+        try {
+            if (!append) {
                 setIsLoading(true);
-                const response = await fetchRecentActivities(10, 0); // Fetch 10 most recent
-                setActivities(response.activities || []); // Ensure we always have an array
-                setError(null);
-            } catch (err) {
-                console.error('Error loading activities:', err);
-                setError('Failed to load activities');
-                setActivities([]); // Set empty array on error
-            } finally {
-                setIsLoading(false);
+            } else {
+                setIsLoadingMore(true);
             }
-        };
+            
+            const offset = page * pagination.pageSize;
+            const response: ActivitiesResponse = await fetchRecentActivities(pagination.pageSize, offset);
+            
+            if (append) {
+                // Append to existing activities (load more)
+                setActivities(prev => [...prev, ...(response.activities || [])]);
+            } else {
+                // Replace activities (initial load or refresh)
+                setActivities(response.activities || []);
+            }
+            
+            setPagination(prev => ({
+                ...prev,
+                currentPage: page,
+                totalCount: response.total_count || 0,
+                hasMore: response.has_more || false
+            }));
+            
+            setError(null);
+        } catch (err) {
+            console.error('Error loading activities:', err);
+            setError('Failed to load activities');
+            if (!append) {
+                setActivities([]);
+            }
+        } finally {
+            setIsLoading(false);
+            setIsLoadingMore(false);
+        }
+    };
 
-        loadActivities();
+    // Load more activities (next page)
+    const loadMoreActivities = () => {
+        if (!isLoadingMore && pagination.hasMore) {
+            loadActivities(pagination.currentPage + 1, true);
+        }
+    };
+
+    // Refresh activities (reload from beginning)
+    const refreshActivities = () => {
+        loadActivities(0, false);
+    };
+
+    // Initial load and periodic refresh
+    useEffect(() => {
+        loadActivities(0, false);
         
-        // Refresh activities every 30 seconds
-        const interval = setInterval(loadActivities, 30 * 1000);
+        // Refresh activities every 30 seconds (only first page)
+        const interval = setInterval(() => {
+            loadActivities(0, false);
+        }, 30 * 1000);
+        
         return () => clearInterval(interval);
     }, []);
 
@@ -87,7 +134,7 @@ export const RecentActivity: React.FC<RecentActivityProps> = ({ className }) => 
     return (
         <Card 
             title="Recent Activity" 
-            badge={(activities && activities.length > 0) ? `${activities.length}` : undefined}
+            badge={(activities && activities.length > 0) ? `${activities.length}${pagination.totalCount > activities.length ? `/${pagination.totalCount}` : ''}` : undefined}
             badgeColor="bg-blue-100 text-blue-800"
             className={className}
         >
@@ -98,22 +145,78 @@ export const RecentActivity: React.FC<RecentActivityProps> = ({ className }) => 
                 </div>
             ) : error ? (
                 <div className="p-4 bg-red-900/40 rounded-lg border border-red-800/30">
-                    <p className="text-sm text-red-300">{error}</p>
+                    <div className="flex items-center justify-between">
+                        <p className="text-sm text-red-300">{error}</p>
+                        <Button 
+                            variant="ghost" 
+                            size="sm"
+                            onClick={refreshActivities}
+                            className="text-red-300 hover:text-red-200"
+                        >
+                            <div className="w-4 h-4">
+                                <Icons.Refresh />
+                            </div>
+                        </Button>
+                    </div>
                 </div>
             ) : (activities && activities.length > 0) ? (
                 <div className="space-y-3">
                     {activities.map(renderActivityItem)}
-                    {activities.length >= 10 && (
-                        <div className="pt-2 border-t border-slate-700">
-                            <Button 
-                                variant="ghost" 
-                                size="sm"
-                                className="w-full text-blue-300 hover:text-blue-200"
-                            >
-                                View All Activity
-                            </Button>
+                    
+                    {/* Pagination Controls - Always show for consistency */}
+                    <div className="pt-3 border-t border-slate-700">
+                        <div className="flex items-center justify-between">
+                            {(pagination.hasMore || pagination.currentPage > 0 || pagination.totalCount > 1) ? (
+                                <div className="text-xs text-slate-400">
+                                    Showing {activities.length} of {pagination.totalCount} activities
+                                </div>
+                            ) : (
+                                <div className="text-xs text-slate-400">
+                                    {pagination.totalCount === 1 ? '1 activity' : 'No activities'}
+                                </div>
+                            )}
+                            <div className="flex items-center space-x-2">
+                                {/* Refresh button - always show */}
+                                <Button 
+                                    variant="ghost" 
+                                    size="sm"
+                                    onClick={refreshActivities}
+                                    disabled={isLoading}
+                                    className="text-slate-400 hover:text-slate-300"
+                                    title="Refresh activities"
+                                >
+                                    <div className={`w-4 h-4 ${isLoading ? 'animate-spin' : ''}`}>
+                                        <Icons.Refresh />
+                                    </div>
+                                </Button>
+                                
+                                {/* Load more button - only show when there's more data */}
+                                {pagination.hasMore && (
+                                    <Button 
+                                        variant="ghost" 
+                                        size="sm"
+                                        onClick={loadMoreActivities}
+                                        disabled={isLoadingMore}
+                                        className="text-blue-300 hover:text-blue-200"
+                                    >
+                                        {isLoadingMore ? (
+                                            <>
+                                                <div className="animate-spin rounded-full h-3 w-3 border-b border-current mr-2"></div>
+                                                Loading...
+                                            </>
+                                        ) : (
+                                            <>
+                                                Load More
+                                                <div className="w-3 h-3 ml-1">
+                                                    <Icons.ChevronDown />
+                                                </div>
+                                            </>
+                                        )}
+                                    </Button>
+                                )}
+                            </div>
                         </div>
-                    )}
+                    </div>
                 </div>
             ) : (
                 <EmptyState
