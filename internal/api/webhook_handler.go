@@ -329,13 +329,35 @@ func (s *Server) triggerReviewForMR(changeInfo *ReviewerChangeInfo) {
 			reviewManager := NewReviewManager(s.db)
 			reviewManager.UpdateReviewStatus(reviewID, "completed")
 
-			// Track AI comments - if comments were posted, track them
-			if result.CommentsCount > 0 {
-				// Use a simple tracking approach since we don't have individual comment details
+			// Track AI comments with actual details if available
+			if len(result.Comments) > 0 {
+				for i, comment := range result.Comments {
+					commentContent := map[string]interface{}{
+						"content":         comment.Content,
+						"file_path":       comment.FilePath,
+						"line":            comment.Line,
+						"severity":        string(comment.Severity),
+						"confidence":      comment.Confidence,
+						"category":        comment.Category,
+						"suggestions":     comment.Suggestions,
+						"is_deleted_line": comment.IsDeletedLine,
+						"is_internal":     comment.IsInternal,
+						"review_id":       result.ReviewID,
+						"comment_index":   i + 1,
+						"type":            "webhook_review",
+					}
+
+					// Use file path and line number for proper tracking
+					linePtr := &comment.Line
+					filePtr := &comment.FilePath
+					TrackAICommentFromURL(s.db, changeInfo.MergeRequest.URL, "line_comment", commentContent, filePtr, linePtr)
+				}
+			} else if result.CommentsCount > 0 {
+				// Fallback for when Comments array is not available
 				commentContent := map[string]interface{}{
 					"summary": result.Summary,
 					"count":   result.CommentsCount,
-					"type":    "webhook_review",
+					"type":    "webhook_review_summary",
 				}
 				TrackAICommentFromURL(s.db, changeInfo.MergeRequest.URL, "review_summary", commentContent, nil, nil)
 			}
@@ -350,7 +372,7 @@ func (s *Server) triggerReviewForMR(changeInfo *ReviewerChangeInfo) {
 	})
 
 	log.Printf("[INFO] Review process started asynchronously for MR %d (ReviewID: %s)",
-		changeInfo.MergeRequest.ID, request.ReviewID)
+		changeInfo.MergeRequest.ID, fmt.Sprintf("%d", reviewID))
 }
 
 // findIntegrationTokenForProject finds the integration token for a project namespace
@@ -720,13 +742,35 @@ func (s *Server) triggerReviewForGitHubPR(changeInfo *GitHubReviewerChangeInfo) 
 			reviewManager := NewReviewManager(s.db)
 			reviewManager.UpdateReviewStatus(reviewID, "completed")
 
-			// Track AI comments - if comments were posted, track them
-			if result.CommentsCount > 0 {
-				// Use a simple tracking approach since we don't have individual comment details
+			// Track AI comments with actual details if available
+			if len(result.Comments) > 0 {
+				for i, comment := range result.Comments {
+					commentContent := map[string]interface{}{
+						"content":         comment.Content,
+						"file_path":       comment.FilePath,
+						"line":            comment.Line,
+						"severity":        string(comment.Severity),
+						"confidence":      comment.Confidence,
+						"category":        comment.Category,
+						"suggestions":     comment.Suggestions,
+						"is_deleted_line": comment.IsDeletedLine,
+						"is_internal":     comment.IsInternal,
+						"review_id":       result.ReviewID,
+						"comment_index":   i + 1,
+						"type":            "webhook_review",
+					}
+
+					// Use file path and line number for proper tracking
+					linePtr := &comment.Line
+					filePtr := &comment.FilePath
+					TrackAICommentFromURL(s.db, changeInfo.PullRequest.HTMLURL, "line_comment", commentContent, filePtr, linePtr)
+				}
+			} else if result.CommentsCount > 0 {
+				// Fallback for when Comments array is not available
 				commentContent := map[string]interface{}{
 					"summary": result.Summary,
 					"count":   result.CommentsCount,
-					"type":    "webhook_review",
+					"type":    "webhook_review_summary",
 				}
 				TrackAICommentFromURL(s.db, changeInfo.PullRequest.HTMLURL, "review_summary", commentContent, nil, nil)
 			}
@@ -1124,13 +1168,35 @@ func (s *Server) triggerReviewForBitbucketPR(changeInfo *BitbucketReviewerChange
 			reviewManager := NewReviewManager(s.db)
 			reviewManager.UpdateReviewStatus(reviewID, "completed")
 
-			// Track AI comments - if comments were posted, track them
-			if result.CommentsCount > 0 {
-				// Use a simple tracking approach since we don't have individual comment details
+			// Track AI comments with actual details if available
+			if len(result.Comments) > 0 {
+				for i, comment := range result.Comments {
+					commentContent := map[string]interface{}{
+						"content":         comment.Content,
+						"file_path":       comment.FilePath,
+						"line":            comment.Line,
+						"severity":        string(comment.Severity),
+						"confidence":      comment.Confidence,
+						"category":        comment.Category,
+						"suggestions":     comment.Suggestions,
+						"is_deleted_line": comment.IsDeletedLine,
+						"is_internal":     comment.IsInternal,
+						"review_id":       result.ReviewID,
+						"comment_index":   i + 1,
+						"type":            "webhook_review",
+					}
+
+					// Use file path and line number for proper tracking
+					linePtr := &comment.Line
+					filePtr := &comment.FilePath
+					TrackAICommentFromURL(s.db, changeInfo.PullRequest.Links.HTML.Href, "line_comment", commentContent, filePtr, linePtr)
+				}
+			} else if result.CommentsCount > 0 {
+				// Fallback for when Comments array is not available
 				commentContent := map[string]interface{}{
 					"summary": result.Summary,
 					"count":   result.CommentsCount,
-					"type":    "webhook_review",
+					"type":    "webhook_review_summary",
 				}
 				TrackAICommentFromURL(s.db, changeInfo.PullRequest.Links.HTML.Href, "review_summary", commentContent, nil, nil)
 			}
