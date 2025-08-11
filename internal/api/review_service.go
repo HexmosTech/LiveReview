@@ -269,14 +269,27 @@ func (s *Server) TriggerReviewV2(c echo.Context) error {
 					fmt.Printf("Failed to track summary AI comment: %v\n", err)
 				}
 
-				// Track individual comments count (we'll improve this to track actual comments later)
-				if result.CommentsCount > 0 {
-					for i := 0; i < result.CommentsCount; i++ {
+				// Track individual comments with actual details
+				if len(result.Comments) > 0 {
+					for i, comment := range result.Comments {
 						commentContent := map[string]interface{}{
-							"content":   fmt.Sprintf("AI comment %d", i+1),
-							"review_id": result.ReviewID,
+							"content":         comment.Content,
+							"file_path":       comment.FilePath,
+							"line":            comment.Line,
+							"severity":        string(comment.Severity),
+							"confidence":      comment.Confidence,
+							"category":        comment.Category,
+							"suggestions":     comment.Suggestions,
+							"is_deleted_line": comment.IsDeletedLine,
+							"is_internal":     comment.IsInternal,
+							"review_id":       result.ReviewID,
+							"comment_index":   i + 1,
 						}
-						err := TrackAICommentFromURL(s.db, req.URL, "line_comment", commentContent, nil, nil)
+
+						// Use file path and line number for proper tracking
+						linePtr := &comment.Line
+						filePtr := &comment.FilePath
+						err := TrackAICommentFromURL(s.db, req.URL, "line_comment", commentContent, filePtr, linePtr)
 						if err != nil {
 							fmt.Printf("Failed to track AI line comment %d: %v\n", i+1, err)
 						}

@@ -71,6 +71,7 @@ type ReviewResult struct {
 	Error         error
 	Summary       string
 	CommentsCount int
+	Comments      []*models.ReviewComment // Added to track actual comment details
 	Duration      time.Duration
 }
 
@@ -246,6 +247,7 @@ func (s *Service) ProcessReview(ctx context.Context, request ReviewRequest) *Rev
 	result.Success = true
 	result.Summary = reviewData.Result.Summary
 	result.CommentsCount = len(reviewData.Result.Comments)
+	result.Comments = reviewData.Result.Comments // Include actual comment details
 	result.Duration = time.Since(start)
 
 	if logger != nil {
