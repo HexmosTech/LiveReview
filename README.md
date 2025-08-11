@@ -16,7 +16,8 @@ REDACTED_GITHUB_PAT_5
 
 ```
 bitbucket - contortedexpression@gmail.com
-REDACTED_BITBUCKET_TOKEN_6
+
+REDACTED_BITBUCKET_TOKEN_2
 ```
 
 AI-powered code review tool for GitLab, GitHub, and BitBucket.
