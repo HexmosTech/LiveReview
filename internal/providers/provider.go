@@ -17,5 +17,5 @@ type StandardProviderFactory struct{}
 // Implementation now in factories.go
 
 func (f *StandardProviderFactory) SupportsProvider(providerType string) bool {
-	return providerType == "gitlab" || providerType == "github"
+	return providerType == "gitlab" || providerType == "github" || strings.HasPrefix(providerType, "bitbucket")
 }

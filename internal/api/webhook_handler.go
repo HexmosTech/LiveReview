@@ -731,3 +731,383 @@ func (s *Server) findIntegrationTokenForGitHubRepo(repoFullName string) (*Integr
 
 	return &token, nil
 }
+
+// Bitbucket webhook structures and handlers
+
+// BitbucketWebhookPayload represents the structure of Bitbucket webhook payloads
+type BitbucketWebhookPayload struct {
+	EventKey    string               `json:"eventKey"`
+	Date        string               `json:"date"`
+	Actor       BitbucketUser        `json:"actor"`
+	Repository  BitbucketRepository  `json:"repository"`
+	Changes     BitbucketChanges     `json:"changes,omitempty"`
+	PullRequest BitbucketPullRequest `json:"pullrequest,omitempty"`
+}
+
+// BitbucketUser represents a Bitbucket user
+type BitbucketUser struct {
+	UUID        string `json:"uuid"`
+	Username    string `json:"username"`
+	DisplayName string `json:"display_name"`
+	AccountID   string `json:"account_id"`
+	Type        string `json:"type"`
+}
+
+// BitbucketRepository represents a Bitbucket repository
+type BitbucketRepository struct {
+	UUID     string           `json:"uuid"`
+	Name     string           `json:"name"`
+	FullName string           `json:"full_name"`
+	Links    BitbucketLinks   `json:"links"`
+	Project  BitbucketProject `json:"project,omitempty"`
+	Owner    BitbucketUser    `json:"owner"`
+	Type     string           `json:"type"`
+}
+
+// BitbucketProject represents a Bitbucket project
+type BitbucketProject struct {
+	UUID string `json:"uuid"`
+	Name string `json:"name"`
+	Key  string `json:"key"`
+	Type string `json:"type"`
+}
+
+// BitbucketLinks represents Bitbucket links
+type BitbucketLinks struct {
+	HTML struct {
+		Href string `json:"href"`
+	} `json:"html"`
+}
+
+// BitbucketPullRequest represents a Bitbucket pull request
+type BitbucketPullRequest struct {
+	ID           int                    `json:"id"`
+	Title        string                 `json:"title"`
+	Description  string                 `json:"description,omitempty"`
+	State        string                 `json:"state"`
+	Source       BitbucketBranch        `json:"source"`
+	Destination  BitbucketBranch        `json:"destination"`
+	Author       BitbucketUser          `json:"author"`
+	Reviewers    []BitbucketReviewer    `json:"reviewers"`
+	Participants []BitbucketParticipant `json:"participants"`
+	Links        BitbucketLinks         `json:"links"`
+	CreatedOn    string                 `json:"created_on"`
+	UpdatedOn    string                 `json:"updated_on"`
+}
+
+// BitbucketBranch represents a Bitbucket branch
+type BitbucketBranch struct {
+	Branch     BitbucketBranchInfo `json:"branch"`
+	Repository BitbucketRepository `json:"repository"`
+}
+
+// BitbucketBranchInfo represents branch information
+type BitbucketBranchInfo struct {
+	Name string `json:"name"`
+	Type string `json:"type"`
+}
+
+// BitbucketReviewer represents a Bitbucket reviewer
+type BitbucketReviewer struct {
+	User     BitbucketUser `json:"user"`
+	Role     string        `json:"role"`
+	Approved bool          `json:"approved"`
+	State    string        `json:"state,omitempty"`
+	Type     string        `json:"type"`
+}
+
+// BitbucketParticipant represents a Bitbucket participant
+type BitbucketParticipant struct {
+	User     BitbucketUser `json:"user"`
+	Role     string        `json:"role"`
+	Approved bool          `json:"approved"`
+	State    string        `json:"state,omitempty"`
+	Type     string        `json:"type"`
+}
+
+// BitbucketChanges represents changes in Bitbucket webhook
+type BitbucketChanges struct {
+	Reviewers BitbucketReviewerChanges `json:"reviewers,omitempty"`
+}
+
+// BitbucketReviewerChanges represents reviewer changes
+type BitbucketReviewerChanges struct {
+	Old []BitbucketReviewer `json:"old"`
+	New []BitbucketReviewer `json:"new"`
+}
+
+// BitbucketReviewerChangeInfo represents processed reviewer change information for Bitbucket
+type BitbucketReviewerChangeInfo struct {
+	EventType            string                   `json:"event_type"`
+	EventKey             string                   `json:"event_key"`
+	UpdatedAt            string                   `json:"updated_at"`
+	BotUsers             []BitbucketBotUserInfo   `json:"bot_users"`
+	CurrentBotReviewers  []BitbucketReviewer      `json:"current_bot_reviewers"`
+	PreviousBotReviewers []BitbucketReviewer      `json:"previous_bot_reviewers"`
+	IsBotAssigned        bool                     `json:"is_bot_assigned"`
+	IsBotRemoved         bool                     `json:"is_bot_removed"`
+	ReviewerChanges      BitbucketReviewerChanges `json:"reviewer_changes"`
+	ChangedBy            BitbucketUser            `json:"changed_by"`
+	PullRequest          BitbucketPullRequest     `json:"pull_request"`
+	Repository           BitbucketRepository      `json:"repository"`
+}
+
+// BitbucketBotUserInfo represents information about a bot user in Bitbucket reviewer changes
+type BitbucketBotUserInfo struct {
+	Type string            `json:"type"` // "added" or "removed"
+	User BitbucketReviewer `json:"user"`
+}
+
+// BitbucketWebhookHandler handles incoming Bitbucket webhook events
+func (s *Server) BitbucketWebhookHandler(c echo.Context) error {
+	// Parse the webhook payload
+	var payload BitbucketWebhookPayload
+	if err := c.Bind(&payload); err != nil {
+		log.Printf("[ERROR] Failed to parse Bitbucket webhook payload: %v", err)
+		return c.JSON(http.StatusBadRequest, map[string]string{
+			"error": "Invalid webhook payload",
+		})
+	}
+
+	// Get the event type from headers or payload
+	eventType := c.Request().Header.Get("X-Event-Key")
+	if eventType == "" {
+		eventType = payload.EventKey
+	}
+	log.Printf("[INFO] Received Bitbucket webhook: event_key=%s", eventType)
+
+	// Process reviewer change events for pull requests
+	if strings.HasPrefix(eventType, "pullrequest:") &&
+		(strings.HasSuffix(eventType, ":updated") || strings.HasSuffix(eventType, ":created")) {
+
+		reviewerChangeInfo := s.processBitbucketReviewerChange(payload, eventType)
+		if reviewerChangeInfo != nil {
+			log.Printf("[INFO] Detected livereview reviewer change in Bitbucket PR #%d", reviewerChangeInfo.PullRequest.ID)
+
+			// If livereview users are assigned as reviewers, trigger a review
+			if reviewerChangeInfo.IsBotAssigned && len(reviewerChangeInfo.CurrentBotReviewers) > 0 {
+				go s.triggerReviewForBitbucketPR(reviewerChangeInfo)
+			}
+		}
+	}
+
+	return c.JSON(http.StatusOK, map[string]string{
+		"status": "received",
+	})
+}
+
+// processBitbucketReviewerChange detects reviewer changes involving "livereview" users
+func (s *Server) processBitbucketReviewerChange(payload BitbucketWebhookPayload, eventKey string) *BitbucketReviewerChangeInfo {
+	log.Printf("[DEBUG] Processing Bitbucket reviewer change detection...")
+	log.Printf("[DEBUG] Event key: '%s'", eventKey)
+
+	// Only process pullrequest events
+	if !strings.HasPrefix(eventKey, "pullrequest:") {
+		log.Printf("[DEBUG] Event key mismatch, skipping")
+		return nil
+	}
+
+	// Check for reviewer changes in the payload
+	currentReviewers := payload.PullRequest.Reviewers
+	var previousReviewers []BitbucketReviewer
+
+	// For updated events, check if we have changes
+	if strings.HasSuffix(eventKey, ":updated") && payload.Changes.Reviewers.Old != nil {
+		previousReviewers = payload.Changes.Reviewers.Old
+		currentReviewers = payload.Changes.Reviewers.New
+	} else if strings.HasSuffix(eventKey, ":created") {
+		// For created events, current reviewers are new, previous is empty
+		previousReviewers = []BitbucketReviewer{}
+	} else {
+		log.Printf("[DEBUG] No relevant reviewer changes found, skipping")
+		return nil
+	}
+
+	log.Printf("[DEBUG] Current reviewers: %d, Previous reviewers: %d", len(currentReviewers), len(previousReviewers))
+
+	// Check for "livereview" users in both current and previous reviewers
+	botFound := false
+	var botUsers []BitbucketBotUserInfo
+	var currentBotReviewers []BitbucketReviewer
+	var previousBotReviewers []BitbucketReviewer
+
+	botNameLower := "livereview"
+	log.Printf("[DEBUG] Checking for '%s' usernames...", botNameLower)
+
+	// Check previous reviewers
+	for i, reviewer := range previousReviewers {
+		username := strings.ToLower(reviewer.User.Username)
+		log.Printf("[DEBUG] Previous reviewer %d: '%s'", i+1, reviewer.User.Username)
+		if strings.Contains(username, botNameLower) {
+			log.Printf("[DEBUG] Found '%s' in username: '%s'", botNameLower, reviewer.User.Username)
+			botFound = true
+			botUsers = append(botUsers, BitbucketBotUserInfo{Type: "removed", User: reviewer})
+			previousBotReviewers = append(previousBotReviewers, reviewer)
+		}
+	}
+
+	// Check current reviewers - THIS IS MOST IMPORTANT for triggering actions
+	for i, reviewer := range currentReviewers {
+		username := strings.ToLower(reviewer.User.Username)
+		log.Printf("[DEBUG] Current reviewer %d: '%s'", i+1, reviewer.User.Username)
+		if strings.Contains(username, botNameLower) {
+			log.Printf("[DEBUG] Found '%s' in username: '%s' - THIS WILL TRIGGER ACTIONS!", botNameLower, reviewer.User.Username)
+			botFound = true
+			botUsers = append(botUsers, BitbucketBotUserInfo{Type: "added", User: reviewer})
+			currentBotReviewers = append(currentBotReviewers, reviewer)
+		}
+	}
+
+	if !botFound {
+		log.Printf("[DEBUG] No '%s' users found in reviewer changes, skipping", botNameLower)
+		return nil
+	}
+
+	// Determine if this is a bot assignment or removal
+	isBotAssigned := len(currentBotReviewers) > 0
+	isBotRemoved := len(previousBotReviewers) > 0 && len(currentBotReviewers) == 0
+
+	log.Printf("[DEBUG] Found %d '%s' users in reviewer changes!", len(botUsers), botNameLower)
+	log.Printf("[DEBUG] Current livereview reviewers (will trigger actions): %d", len(currentBotReviewers))
+	log.Printf("[DEBUG] Previous livereview reviewers: %d", len(previousBotReviewers))
+	log.Printf("[DEBUG] Livereview assigned as reviewer: %t", isBotAssigned)
+	log.Printf("[DEBUG] Livereview removed as reviewer: %t", isBotRemoved)
+
+	// Build the reviewer change info
+	reviewerChangeInfo := &BitbucketReviewerChangeInfo{
+		EventType:            "reviewer_change",
+		EventKey:             eventKey,
+		UpdatedAt:            payload.PullRequest.UpdatedOn,
+		BotUsers:             botUsers,
+		CurrentBotReviewers:  currentBotReviewers,
+		PreviousBotReviewers: previousBotReviewers,
+		IsBotAssigned:        isBotAssigned,
+		IsBotRemoved:         isBotRemoved,
+		ReviewerChanges: BitbucketReviewerChanges{
+			Old: previousReviewers,
+			New: currentReviewers,
+		},
+		ChangedBy:   payload.Actor,
+		PullRequest: payload.PullRequest,
+		Repository:  payload.Repository,
+	}
+
+	log.Printf("[DEBUG] Built reviewer change info for Bitbucket PR #%d", payload.PullRequest.ID)
+	return reviewerChangeInfo
+}
+
+// triggerReviewForBitbucketPR triggers a code review for the Bitbucket pull request
+func (s *Server) triggerReviewForBitbucketPR(changeInfo *BitbucketReviewerChangeInfo) {
+	log.Printf("[INFO] Triggering review for Bitbucket PR: %s", changeInfo.PullRequest.Links.HTML.Href)
+	log.Printf("[INFO] PR Title: %s", changeInfo.PullRequest.Title)
+	log.Printf("[INFO] Changed by: %s (@%s)", changeInfo.ChangedBy.DisplayName, changeInfo.ChangedBy.Username)
+
+	for _, reviewer := range changeInfo.CurrentBotReviewers {
+		log.Printf("[INFO] Livereview reviewer assigned: %s (@%s)", reviewer.User.DisplayName, reviewer.User.Username)
+	}
+
+	// Generate a unique review ID
+	reviewID := fmt.Sprintf("bitbucket-webhook-review-%d", time.Now().Unix())
+
+	ctx := context.Background()
+
+	// Load integration token for this repository
+	integrationToken, err := s.findIntegrationTokenForBitbucketRepo(changeInfo.Repository.FullName)
+	if err != nil {
+		log.Printf("[ERROR] Failed to find integration token for Bitbucket repository %s: %v", changeInfo.Repository.FullName, err)
+		return
+	}
+	log.Printf("[DEBUG] Found integration token: provider=%s, url=%s", integrationToken.Provider, integrationToken.ProviderURL)
+
+	// Load AI connector (use the first available one)
+	aiConnector, err := s.getFirstAIConnector()
+	if err != nil {
+		log.Printf("[ERROR] Failed to get AI connector: %v", err)
+		return
+	}
+	log.Printf("[DEBUG] Found AI connector: provider=%s", aiConnector.ProviderName)
+
+	// Create the review request with proper configuration
+	request := review.ReviewRequest{
+		URL:      changeInfo.PullRequest.Links.HTML.Href,
+		ReviewID: reviewID,
+		Provider: review.ProviderConfig{
+			Type:  integrationToken.Provider,
+			URL:   integrationToken.ProviderURL,
+			Token: integrationToken.PatToken,
+			Config: map[string]interface{}{
+				"pat_token": integrationToken.PatToken,
+			},
+		},
+		AI: review.AIConfig{
+			Type:        aiConnector.ProviderName,
+			APIKey:      aiConnector.APIKey,
+			Model:       s.getModelForProvider(aiConnector.ProviderName),
+			Temperature: 0.1,
+			Config:      make(map[string]interface{}),
+		},
+	}
+
+	// Create the review service with factories
+	providerFactory := review.NewStandardProviderFactory()
+	aiFactory := review.NewStandardAIProviderFactory()
+
+	serviceConfig := review.Config{
+		ReviewTimeout: 10 * time.Minute,
+		DefaultAI:     aiConnector.ProviderName,
+		DefaultModel:  s.getModelForProvider(aiConnector.ProviderName),
+		Temperature:   0.1,
+	}
+
+	reviewService := review.NewService(providerFactory, aiFactory, serviceConfig)
+
+	// Process the review asynchronously
+	reviewService.ProcessReviewAsync(ctx, request, func(result *review.ReviewResult) {
+		if result.Success {
+			log.Printf("[INFO] Review completed successfully for Bitbucket PR %d (ReviewID: %s)",
+				changeInfo.PullRequest.ID, result.ReviewID)
+			log.Printf("[INFO] Posted %d comments", result.CommentsCount)
+		} else {
+			log.Printf("[ERROR] Review failed for Bitbucket PR %d (ReviewID: %s): %v",
+				changeInfo.PullRequest.ID, result.ReviewID, result.Error)
+		}
+	})
+
+	log.Printf("[INFO] Review trigger initiated for Bitbucket PR #%d with review ID: %s", changeInfo.PullRequest.ID, reviewID)
+}
+
+// findIntegrationTokenForBitbucketRepo finds the integration token associated with a Bitbucket repository
+func (s *Server) findIntegrationTokenForBitbucketRepo(repoFullName string) (*IntegrationToken, error) {
+	// Look up the webhook registry to find which integration token is associated with this repository
+	query := `
+		SELECT it.id, it.provider, it.provider_url, it.pat_token
+		FROM integration_tokens it
+		JOIN webhook_registry wr ON wr.integration_token_id = it.id
+		WHERE wr.project_full_name = $1
+		LIMIT 1
+	`
+
+	var token IntegrationToken
+	err := s.db.QueryRow(query, repoFullName).Scan(
+		&token.ID, &token.Provider, &token.ProviderURL, &token.PatToken,
+	)
+	if err != nil {
+		// If no specific webhook registry entry, try to find any integration token for Bitbucket
+		// This is a fallback for cases where webhook might not be properly registered yet
+		query = `
+			SELECT id, provider, provider_url, pat_token
+			FROM integration_tokens
+			WHERE provider LIKE 'bitbucket%'
+			ORDER BY created_at DESC
+			LIMIT 1
+		`
+		err = s.db.QueryRow(query).Scan(
+			&token.ID, &token.Provider, &token.ProviderURL, &token.PatToken,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("no integration token found for Bitbucket repository %s: %w", repoFullName, err)
+		}
+	}
+
+	return &token, nil
+}

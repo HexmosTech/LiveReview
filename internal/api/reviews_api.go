@@ -3,6 +3,7 @@ package api
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"fmt"
 	"log"
 	"net/url"
@@ -61,6 +62,7 @@ type IntegrationToken struct {
 	ProviderURL  string
 	TokenType    string
 	PatToken     string
+	Metadata     map[string]interface{}
 }
 
 // maskToken safely masks a token for logging
@@ -79,7 +81,7 @@ func (s *Server) findIntegrationToken(baseURL string) (*IntegrationToken, error)
 	log.Printf("[DEBUG] findIntegrationToken: Looking for integration token with base URL: %s", baseURL)
 
 	sqlQuery := `
-		SELECT id, provider, access_token, refresh_token, expires_at, provider_app_id, client_secret, provider_url, token_type, pat_token
+		SELECT id, provider, access_token, refresh_token, expires_at, provider_app_id, client_secret, provider_url, token_type, pat_token, COALESCE(metadata, '{}')
 		FROM integration_tokens
 		WHERE provider_url LIKE $1
 		ORDER BY created_at DESC
@@ -89,10 +91,11 @@ func (s *Server) findIntegrationToken(baseURL string) (*IntegrationToken, error)
 	log.Printf("[DEBUG] findIntegrationToken: Query pattern: %s", queryPattern)
 
 	token := &IntegrationToken{}
+	var metadataJSON string
 	err := s.db.QueryRow(sqlQuery, queryPattern).Scan(
 		&token.ID, &token.Provider, &token.AccessToken, &token.RefreshToken,
 		&token.ExpiresAt, &token.ClientID, &token.ClientSecret, &token.ProviderURL,
-		&token.TokenType, &token.PatToken,
+		&token.TokenType, &token.PatToken, &metadataJSON,
 	)
 
 	if err == sql.ErrNoRows {
@@ -102,6 +105,15 @@ func (s *Server) findIntegrationToken(baseURL string) (*IntegrationToken, error)
 	} else if err != nil {
 		log.Printf("[DEBUG] findIntegrationToken: Database error: %v", err)
 		return nil, fmt.Errorf("database error: %v", err)
+	}
+
+	// Parse metadata JSON
+	token.Metadata = make(map[string]interface{})
+	if metadataJSON != "" && metadataJSON != "{}" {
+		if err := json.Unmarshal([]byte(metadataJSON), &token.Metadata); err != nil {
+			log.Printf("[DEBUG] findIntegrationToken: Failed to parse metadata: %v", err)
+			// Continue with empty metadata rather than failing
+		}
 	}
 
 	log.Printf("[DEBUG] findIntegrationToken: Found integration token. ID: %d, Provider: %s, Provider URL: %s",
@@ -196,10 +208,10 @@ func (s *Server) refreshTokenIfNeeded(token *IntegrationToken, forceRefresh bool
 
 // validateProvider checks if the provider is supported
 func validateProvider(provider string) error {
-	// Support GitLab variants (gitlab, gitlab-self-hosted, etc.) and GitHub variants
-	if !strings.HasPrefix(provider, "gitlab") && !strings.HasPrefix(provider, "github") {
+	// Support GitLab variants (gitlab, gitlab-self-hosted, etc.), GitHub variants, and Bitbucket variants
+	if !strings.HasPrefix(provider, "gitlab") && !strings.HasPrefix(provider, "github") && !strings.HasPrefix(provider, "bitbucket") {
 		log.Printf("[DEBUG] validateProvider: Unsupported provider: %s", provider)
-		return fmt.Errorf("unsupported provider type: %s. Currently, only GitLab and GitHub variants are supported", provider)
+		return fmt.Errorf("unsupported provider type: %s. Currently, only GitLab, GitHub, and Bitbucket variants are supported", provider)
 	}
 	log.Printf("[DEBUG] validateProvider: Provider is supported: %s", provider)
 	return nil
@@ -236,6 +248,20 @@ func ensureValidToken(token *IntegrationToken) string {
 				}
 			}
 		}
+		return accessToken
+	}
+
+	// Handle Bitbucket variants
+	if strings.HasPrefix(token.Provider, "bitbucket") {
+		// Prefer PAT token if available
+		if token.TokenType == "PAT" && token.PatToken != "" {
+			log.Printf("[DEBUG] ensureValidToken: Using Bitbucket PAT from database: %s", maskToken(token.PatToken))
+			return token.PatToken
+		}
+
+		// Fall back to access token
+		accessToken := token.AccessToken
+		log.Printf("[DEBUG] ensureValidToken: Using Bitbucket access token: %s", maskToken(accessToken))
 		return accessToken
 	}
 
@@ -336,6 +362,15 @@ func (s *Server) buildReviewRequest(
 		} else if strings.HasPrefix(token.Provider, "gitlab") {
 			providerToken = token.PatToken
 			providerConfigMap["pat_token"] = token.PatToken
+		} else if strings.HasPrefix(token.Provider, "bitbucket") {
+			providerToken = token.PatToken
+			providerConfigMap["pat_token"] = token.PatToken
+			// For Bitbucket, also need email from metadata if available
+			if token.Metadata != nil {
+				if email, ok := token.Metadata["email"].(string); ok {
+					providerConfigMap["email"] = email
+				}
+			}
 		}
 	}
 

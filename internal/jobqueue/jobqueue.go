@@ -167,12 +167,25 @@ func (w *WebhookInstallWorker) getWebhookEndpointForProvider(provider string) st
 			return baseURL
 		}
 		return baseURL + "/github-hook"
+	case "bitbucket", "bitbucket-cloud":
+		// Replace any existing endpoint with bitbucket-hook
+		if strings.HasSuffix(baseURL, "/gitlab-hook") {
+			baseURL = strings.TrimSuffix(baseURL, "/gitlab-hook")
+		} else if strings.HasSuffix(baseURL, "/github-hook") {
+			baseURL = strings.TrimSuffix(baseURL, "/github-hook")
+		} else if strings.HasSuffix(baseURL, "/bitbucket-hook") {
+			// Already correct
+			return baseURL
+		}
+		return baseURL + "/bitbucket-hook"
 	default:
 		// For unknown providers, try to strip known endpoints and return base
 		if strings.HasSuffix(baseURL, "/gitlab-hook") {
 			baseURL = strings.TrimSuffix(baseURL, "/gitlab-hook")
 		} else if strings.HasSuffix(baseURL, "/github-hook") {
 			baseURL = strings.TrimSuffix(baseURL, "/github-hook")
+		} else if strings.HasSuffix(baseURL, "/bitbucket-hook") {
+			baseURL = strings.TrimSuffix(baseURL, "/bitbucket-hook")
 		}
 		return baseURL
 	}
@@ -1288,12 +1301,25 @@ func (w *WebhookRemovalWorker) getWebhookEndpointForProvider(provider string) st
 			return baseURL
 		}
 		return baseURL + "/github-hook"
+	case "bitbucket", "bitbucket-cloud":
+		// Replace any existing endpoint with bitbucket-hook
+		if strings.HasSuffix(baseURL, "/gitlab-hook") {
+			baseURL = strings.TrimSuffix(baseURL, "/gitlab-hook")
+		} else if strings.HasSuffix(baseURL, "/github-hook") {
+			baseURL = strings.TrimSuffix(baseURL, "/github-hook")
+		} else if strings.HasSuffix(baseURL, "/bitbucket-hook") {
+			// Already correct
+			return baseURL
+		}
+		return baseURL + "/bitbucket-hook"
 	default:
 		// For unknown providers, try to strip known endpoints and return base
 		if strings.HasSuffix(baseURL, "/gitlab-hook") {
 			baseURL = strings.TrimSuffix(baseURL, "/gitlab-hook")
 		} else if strings.HasSuffix(baseURL, "/github-hook") {
 			baseURL = strings.TrimSuffix(baseURL, "/github-hook")
+		} else if strings.HasSuffix(baseURL, "/bitbucket-hook") {
+			baseURL = strings.TrimSuffix(baseURL, "/bitbucket-hook")
 		}
 		return baseURL
 	}
@@ -1845,7 +1871,17 @@ func (w *WebhookRemovalWorker) getWebhookEndpointForProviderRemoval(provider str
 	if baseURL == "" {
 		baseURL = "https://your-domain.com" // fallback
 	}
-	return fmt.Sprintf("%s/webhooks/%s", baseURL, provider)
+
+	// Remove any trailing slash
+	baseURL = strings.TrimSuffix(baseURL, "/")
+
+	// Return the provider-specific hook endpoint (consistent with install worker)
+	switch provider {
+	case "bitbucket", "bitbucket-cloud":
+		return baseURL + "/bitbucket-hook"
+	default:
+		return fmt.Sprintf("%s/%s-hook", baseURL, provider)
+	}
 }
 
 // updateWebhookRegistryForBitbucketRemoval updates the webhook registry to mark Bitbucket repository as unconnected
