@@ -248,7 +248,6 @@ func (p *BitbucketProvider) PostComment(ctx context.Context, prID string, commen
 	repo := parts[1]
 	prNumber := parts[2]
 
-	// For now, post as a general PR comment
 	// Bitbucket API v2.0 endpoint for pull request comments
 	apiURL := fmt.Sprintf("https://api.bitbucket.org/2.0/repositories/%s/%s/pullrequests/%s/comments", workspace, repo, prNumber)
 
@@ -256,6 +255,31 @@ func (p *BitbucketProvider) PostComment(ctx context.Context, prID string, commen
 		"content": map[string]string{
 			"raw": comment.Content,
 		},
+	}
+
+	// If we have file path and line number, create an inline comment
+	if comment.FilePath != "" && comment.Line > 0 {
+		log.Printf("[DEBUG] BitbucketProvider: Creating inline comment for %s:%d (IsDeletedLine: %v)", comment.FilePath, comment.Line, comment.IsDeletedLine)
+
+		inline := map[string]interface{}{
+			"path": comment.FilePath,
+		}
+
+		// Set line positioning based on whether it's a deleted line or not
+		if comment.IsDeletedLine {
+			// For deleted lines, comment on the old version only
+			inline["from"] = comment.Line
+			// Note: Don't set "to" for deleted lines as they don't exist in new version
+		} else {
+			// For added/context lines, comment on the new version
+			inline["to"] = comment.Line
+			// Note: For context lines, we could set both, but for added lines only "to" makes sense
+		}
+
+		payload["inline"] = inline
+		log.Printf("[DEBUG] BitbucketProvider: Added inline positioning: %+v", inline)
+	} else {
+		log.Printf("[DEBUG] BitbucketProvider: Creating general PR comment (no file/line specified)")
 	}
 
 	data, err := json.Marshal(payload)
