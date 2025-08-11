@@ -11,13 +11,20 @@ import sys
 from urllib.parse import urlparse
 
 # Configuration - hardcoded values as requested
-# For account API tokens, we need username and token
-USERNAME = "contorted"  # Your Bitbucket username
+# For Bitbucket account API tokens, Basic Auth requires email (preferred) or username + token
+EMAIL = "contortedexpression@gmail.com"  # e.g. "you@example.com". If empty, USERNAME will be used
+USERNAME = "contorted"  # Fallback if EMAIL is empty
 API_TOKEN = "REDACTED_BITBUCKET_TOKEN_2"
 PULL_REQUEST_URL = "https://bitbucket.org/contorted/fb_backends/pull-requests/1"
 
 # Bitbucket API base URL
 BITBUCKET_API_BASE = "https://api.bitbucket.org/2.0"
+
+
+def get_basic_auth_credentials():
+    """Return (username_or_email, token) for Basic Auth matching Go client behavior."""
+    username_or_email = EMAIL if EMAIL else USERNAME
+    return username_or_email, API_TOKEN
 
 def extract_repo_and_pr_id(pr_url):
     """
@@ -58,19 +65,20 @@ def get_pull_request_comments(workspace, repo_name, pr_id):
         list: List of comment objects
     """
     url = f"{BITBUCKET_API_BASE}/repositories/{workspace}/{repo_name}/pullrequests/{pr_id}/comments"
-    
-    # Use Basic Authentication for account API tokens
-    auth = (USERNAME, API_TOKEN)
+
+    # Match Go client: Basic Auth, Accept JSON, UA header
+    auth = get_basic_auth_credentials()
     headers = {
-        "Content-Type": "application/json"
+        "Content-Type": "application/json",
+        "Accept": "application/json",
+        "User-Agent": "LiveReview/1.0",
     }
-    
+
     all_comments = []
-    page = 1
-    
-    while True:
-        params = {"page": page}
-        response = requests.get(url, auth=auth, headers=headers, params=params)
+    next_url = url
+
+    while next_url:
+        response = requests.get(next_url, auth=auth, headers=headers, params={"pagelen": 50})
         
         if response.status_code != 200:
             print(f"Error fetching comments: {response.status_code} - {response.text}")
@@ -79,16 +87,11 @@ def get_pull_request_comments(workspace, repo_name, pr_id):
         data = response.json()
         comments = data.get("values", [])
         
-        if not comments:
-            break
-            
-        all_comments.extend(comments)
-        
-        # Check if there are more pages
-        if not data.get("next"):
-            break
-            
-        page += 1
+        if comments:
+            all_comments.extend(comments)
+
+        # Follow server-provided pagination URL
+        next_url = data.get("next")
     
     return all_comments
 
@@ -106,13 +109,15 @@ def delete_comment(workspace, repo_name, pr_id, comment_id):
         bool: True if successful, False otherwise
     """
     url = f"{BITBUCKET_API_BASE}/repositories/{workspace}/{repo_name}/pullrequests/{pr_id}/comments/{comment_id}"
-    
-    # Use Basic Authentication for account API tokens
-    auth = (USERNAME, API_TOKEN)
+
+    # Match Go client headers and auth
+    auth = get_basic_auth_credentials()
     headers = {
-        "Content-Type": "application/json"
+        "Content-Type": "application/json",
+        "Accept": "application/json",
+        "User-Agent": "LiveReview/1.0",
     }
-    
+
     response = requests.delete(url, auth=auth, headers=headers)
     
     if response.status_code == 204:
