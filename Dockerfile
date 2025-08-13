@@ -66,13 +66,16 @@ RUN echo "🔨 Building Go binary with version: ${VERSION}" && \
     -v -o livereview . && \
     echo "Go binary built successfully"
 
-# Verify binary installations
+# Verify binary installations and migrations
 RUN echo "✅ Verifying installed tools..." && \
     ls -la /usr/local/bin/dbmate && \
     ls -la /go/bin/river && \
     ls -la /go/bin/riverui && \
     ls -la livereview && ./livereview --version && \
-    echo "All tools installed successfully"
+    echo "📊 Verifying database migrations..." && \
+    ls -la db/migrations/ && \
+    echo "Migration count: $(ls db/migrations/*.sql | wc -l)" && \
+    echo "All tools and migrations verified successfully"
 
 # Stage 3: Create minimal runtime container
 FROM alpine:3.18
@@ -120,6 +123,9 @@ RUN echo "📋 Final image contents:" && \
     ls -la /app/ && \
     echo "📦 Installed binaries:" && \
     ls -la /usr/local/bin/ && \
+    echo "📊 Database migrations:" && \
+    ls -la /app/db/migrations/ && \
+    echo "Migration count: $(ls /app/db/migrations/*.sql | wc -l)" && \
     echo "✅ LiveReview container build completed successfully!"
 
 # Switch to non-root user

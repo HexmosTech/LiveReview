@@ -75,5 +75,6 @@ db-flip:
 
 build-push:
 	cd ui && npm install && npm run build
-	docker build -t livereview .
+	docker build -t git.apps.hexmos.com:5050/hexmos/livereview:latest2 . --no-cache --progress=plain
 	docker push git.apps.hexmos.com:5050/hexmos/livereview
+	docker push git.apps.hexmos.com:5050/hexmos/livereview:latest2
