@@ -166,7 +166,7 @@ func (s *Storage) GetAllConnectors(ctx context.Context) ([]*ConnectorRecord, err
 	SELECT id, provider_name, api_key, connector_name, base_url, selected_model, display_order, 
 	       created_at, updated_at
 	FROM ai_connectors
-	ORDER BY provider_name, display_order ASC
+	ORDER BY display_order ASC
 	`
 
 	rows, err := s.db.QueryContext(ctx, query)

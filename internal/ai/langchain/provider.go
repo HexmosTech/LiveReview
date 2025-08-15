@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net/http"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -12,7 +13,10 @@ import (
 	"time"
 
 	"github.com/tmc/langchaingo/llms"
+	"github.com/tmc/langchaingo/llms/anthropic"
 	"github.com/tmc/langchaingo/llms/googleai"
+	"github.com/tmc/langchaingo/llms/ollama"
+	"github.com/tmc/langchaingo/llms/openai"
 
 	"github.com/livereview/internal/batch"
 	"github.com/livereview/internal/logging"
@@ -21,10 +25,12 @@ import (
 
 // LangchainProvider implements the AI Provider interface using langchain abstractions
 type LangchainProvider struct {
-	llm       llms.Model
-	apiKey    string
-	modelName string
-	maxTokens int
+	llm          llms.Model
+	apiKey       string
+	modelName    string
+	maxTokens    int
+	providerType string // NEW: Provider type (gemini, ollama, openai, etc.)
+	baseURL      string // NEW: Base URL for custom endpoints
 }
 
 // minInt returns the minimum of two integers
@@ -224,27 +230,46 @@ func (p *LangchainProvider) formatSingleHunk(lines []string, oldStart, newStart 
 
 // Config for the langchain provider
 type Config struct {
-	APIKey    string `json:"api_key"`
-	ModelName string `json:"model_name"`
-	MaxTokens int    `json:"max_tokens"`
+	APIKey       string `json:"api_key"`
+	ModelName    string `json:"model_name"`
+	MaxTokens    int    `json:"max_tokens"`
+	ProviderType string `json:"provider_type"` // NEW: "gemini", "ollama", "openai", etc.
+	BaseURL      string `json:"base_url"`      // NEW: For custom endpoints like Ollama
 }
 
 // New creates a new langchain-based AI provider
 func New(config Config) *LangchainProvider {
 	return &LangchainProvider{
-		apiKey:    config.APIKey,
-		modelName: config.ModelName,
-		maxTokens: config.MaxTokens,
+		apiKey:       config.APIKey,
+		modelName:    config.ModelName,
+		maxTokens:    config.MaxTokens,
+		providerType: config.ProviderType, // NEW
+		baseURL:      config.BaseURL,      // NEW
 	}
 }
 
 func (p *LangchainProvider) Name() string {
+	if p.providerType != "" {
+		return p.providerType
+	}
 	return "langchain"
 }
 
 func (p *LangchainProvider) MaxTokensPerBatch() int {
 	if p.maxTokens <= 0 {
-		return 30000 // Default safe limit
+		// Provider-specific defaults if not configured
+		switch strings.ToLower(p.providerType) {
+		case "ollama":
+			return 8000 // Conservative limit for Ollama models
+		case "gemini", "googleai":
+			return 30000 // Gemini can handle larger batches
+		case "openai":
+			return 16000 // OpenAI models like GPT-3.5/4
+		case "anthropic":
+			return 20000 // Claude models
+		default:
+			return 8000 // Conservative default for unknown providers
+		}
 	}
 	return p.maxTokens
 }
@@ -265,8 +290,100 @@ func (p *LangchainProvider) Configure(config map[string]interface{}) error {
 }
 
 func (p *LangchainProvider) initializeLLM() error {
+	switch strings.ToLower(p.providerType) {
+	case "ollama":
+		return p.initializeOllamaLLM()
+	case "google", "googleai", "gemini":
+		return p.initializeGeminiLLM()
+	case "openai":
+		return p.initializeOpenAILLM()
+	case "anthropic":
+		return p.initializeAnthropicLLM()
+	default:
+		logger := logging.GetCurrentLogger()
+		logger.Log("WARNING: Unknown provider type '%s', falling back to Gemini", p.providerType)
+		return p.initializeGeminiLLM()
+	}
+}
+
+func (p *LangchainProvider) initializeOllamaLLM() error {
+	options := []ollama.Option{
+		ollama.WithModel(p.getModelName()),
+	}
+
+	if p.baseURL != "" {
+		// Clean up base URL - remove trailing /api/ if present for Ollama
+		cleanURL := strings.TrimSuffix(p.baseURL, "/api/")
+		cleanURL = strings.TrimSuffix(cleanURL, "/api")
+		cleanURL = strings.TrimSuffix(cleanURL, "/")
+
+		fmt.Printf("[OLLAMA INIT] Original base URL: %s\n", p.baseURL)
+		fmt.Printf("[OLLAMA INIT] Cleaned base URL: %s\n", cleanURL)
+
+		options = append(options, ollama.WithServerURL(cleanURL))
+	}
+
+	// If API key is provided, it might be a JWT token for authentication
+	// We need to add it as an Authorization header
+	if p.apiKey != "" {
+		fmt.Printf("[OLLAMA INIT] API key provided (length: %d), adding as Authorization header\n", len(p.apiKey))
+
+		// Create a custom HTTP client with Authorization header
+		client := &http.Client{}
+
+		// Create a custom transport that adds the Authorization header
+		transport := &http.Transport{}
+		client.Transport = &authTransport{
+			Transport: transport,
+			token:     p.apiKey,
+		}
+
+		options = append(options, ollama.WithHTTPClient(client))
+	}
+
+	fmt.Printf("[LANGCHAIN INIT] Initializing Ollama LLM with model: %s\n", p.getModelName())
+
+	llm, err := ollama.New(options...)
+	if err != nil {
+		return fmt.Errorf("failed to create Ollama LLM: %w", err)
+	}
+
+	p.llm = llm
+	return nil
+}
+
+// authTransport is a custom HTTP transport that adds Authorization header
+type authTransport struct {
+	Transport http.RoundTripper
+	token     string
+}
+
+func (t *authTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	// Add Authorization header
+	req.Header.Set("Authorization", "Bearer "+t.token)
+
+	// Debug logging
+	fmt.Printf("[HTTP DEBUG] Request URL: %s\n", req.URL.String())
+	fmt.Printf("[HTTP DEBUG] Request Method: %s\n", req.Method)
+	fmt.Printf("[HTTP DEBUG] Authorization header set with token length: %d\n", len(t.token))
+
+	// Make the request
+	resp, err := t.Transport.RoundTrip(req)
+
+	// Debug response
+	if err != nil {
+		fmt.Printf("[HTTP DEBUG] Request failed: %v\n", err)
+	} else {
+		fmt.Printf("[HTTP DEBUG] Response status: %s\n", resp.Status)
+		fmt.Printf("[HTTP DEBUG] Response content-type: %s\n", resp.Header.Get("Content-Type"))
+	}
+
+	return resp, err
+}
+
+func (p *LangchainProvider) initializeGeminiLLM() error {
 	if p.apiKey == "" {
-		return fmt.Errorf("API key is required")
+		return fmt.Errorf("API key is required for Gemini")
 	}
 
 	// Configure options for the LLM
@@ -282,13 +399,57 @@ func (p *LangchainProvider) initializeLLM() error {
 	}
 	opts = append(opts, googleai.WithDefaultMaxTokens(maxTokens))
 
-	fmt.Printf("[LANGCHAIN INIT] Initializing LLM with model: %s, max tokens: %d\n", p.getModelName(), maxTokens)
+	fmt.Printf("[LANGCHAIN INIT] Initializing Gemini LLM with model: %s, max tokens: %d\n", p.getModelName(), maxTokens)
 
-	// For now, default to Google AI (Gemini) via langchain
-	// In the future, this could be configurable to support other providers
 	llm, err := googleai.New(context.Background(), opts...)
 	if err != nil {
-		return fmt.Errorf("failed to initialize LLM: %w", err)
+		return fmt.Errorf("failed to initialize Gemini LLM: %w", err)
+	}
+
+	p.llm = llm
+	return nil
+}
+
+func (p *LangchainProvider) initializeOpenAILLM() error {
+	if p.apiKey == "" {
+		return fmt.Errorf("API key is required for OpenAI")
+	}
+
+	options := []openai.Option{
+		openai.WithToken(p.apiKey),
+		openai.WithModel(p.getModelName()),
+	}
+
+	if p.baseURL != "" {
+		options = append(options, openai.WithBaseURL(p.baseURL))
+	}
+
+	fmt.Printf("[LANGCHAIN INIT] Initializing OpenAI LLM with model: %s, base URL: %s\n", p.getModelName(), p.baseURL)
+
+	llm, err := openai.New(options...)
+	if err != nil {
+		return fmt.Errorf("failed to create OpenAI LLM: %w", err)
+	}
+
+	p.llm = llm
+	return nil
+}
+
+func (p *LangchainProvider) initializeAnthropicLLM() error {
+	if p.apiKey == "" {
+		return fmt.Errorf("API key is required for Anthropic")
+	}
+
+	options := []anthropic.Option{
+		anthropic.WithToken(p.apiKey),
+		anthropic.WithModel(p.getModelName()),
+	}
+
+	fmt.Printf("[LANGCHAIN INIT] Initializing Anthropic LLM with model: %s\n", p.getModelName())
+
+	llm, err := anthropic.New(options...)
+	if err != nil {
+		return fmt.Errorf("failed to create Anthropic LLM: %w", err)
 	}
 
 	p.llm = llm
@@ -384,18 +545,91 @@ func (p *LangchainProvider) reviewCodeBatchFormatted(ctx context.Context, diffs 
 		logger.Log("Processing batch %s with %d diffs", batchId, len(diffs))
 	}
 
-	// Call the LLM
-	fmt.Printf("[LANGCHAIN REQUEST] Calling LLM for batch %s...\n", batchId)
-	response, err := llms.GenerateFromSinglePrompt(ctx, p.llm, prompt)
+	// Call the LLM with streaming
+	fmt.Printf("[LANGCHAIN REQUEST] Calling LLM for batch %s with streaming...\n", batchId)
+	fmt.Printf("[LANGCHAIN DEBUG] Provider type: %s, Model: %s, Base URL: %s\n",
+		p.providerType, p.modelName, p.baseURL)
+
+	// Create a timeout context (5 minutes for Ollama)
+	timeoutCtx, cancel := context.WithTimeout(ctx, 5*time.Minute)
+	defer cancel()
+
+	// Variables to collect the streaming response
+	var responseBuilder strings.Builder
+	var lastActivity time.Time = time.Now()
+	var totalChunks int = 0
+
+	// Create streaming function that prints chunks as they arrive
+	streamingFunc := func(ctx context.Context, chunk []byte) error {
+		chunkStr := string(chunk)
+		totalChunks++
+		lastActivity = time.Now()
+
+		// Print the chunk in real-time
+		fmt.Printf("[STREAM] %s", chunkStr)
+
+		// Also log to the review logger
+		if logger != nil && len(chunkStr) > 0 {
+			// Only log non-empty chunks to avoid spam
+			if strings.TrimSpace(chunkStr) != "" {
+				logger.Log("Streaming chunk %d: %q", totalChunks, chunkStr)
+			}
+		}
+
+		// Add to response builder
+		responseBuilder.WriteString(chunkStr)
+
+		return nil
+	}
+
+	// Start activity monitor in a separate goroutine
+	activityDone := make(chan bool)
+	go func() {
+		ticker := time.NewTicker(15 * time.Second)
+		defer ticker.Stop()
+
+		for {
+			select {
+			case <-activityDone:
+				return
+			case <-ticker.C:
+				timeSinceActivity := time.Since(lastActivity)
+				if timeSinceActivity > 30*time.Second {
+					fmt.Printf("\n[STREAM MONITOR] No activity for %v (chunks received: %d)\n", timeSinceActivity, totalChunks)
+				}
+			}
+		}
+	}()
+
+	// Call the LLM with streaming
+	startTime := time.Now()
+	fmt.Printf("[STREAM START] Beginning streaming response...\n")
+
+	_, err := llms.GenerateFromSinglePrompt(
+		timeoutCtx,
+		p.llm,
+		prompt,
+		llms.WithStreamingFunc(streamingFunc),
+	)
+
+	// Stop activity monitor
+	close(activityDone)
+
+	// Get the complete response
+	response := responseBuilder.String()
+
 	if err != nil {
 		if logger != nil {
 			logger.LogError(fmt.Sprintf("LLM call batch %s", batchId), err)
 		}
-		fmt.Printf("[LANGCHAIN ERROR] LLM call failed for batch %s: %v\n", batchId, err)
+		fmt.Printf("\n[LANGCHAIN ERROR] LLM call failed for batch %s: %v\n", batchId, err)
+		fmt.Printf("[LANGCHAIN ERROR] Provider: %s, Model: %s, Base URL: %s\n",
+			p.providerType, p.modelName, p.baseURL)
 		return nil, fmt.Errorf("LLM call failed: %w", err)
 	}
 
-	// Log response to global logger
+	fmt.Printf("\n[STREAM COMPLETE] Full response received after %v (%d chunks, %d chars)\n",
+		time.Since(startTime), totalChunks, len(response)) // Log response to global logger
 	if logger != nil {
 		logger.LogResponse(batchId, response)
 	}

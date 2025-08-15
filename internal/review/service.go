@@ -116,7 +116,15 @@ func (s *Service) ProcessReview(ctx context.Context, request ReviewRequest) *Rev
 		logger.Log("Starting review process for URL: %s", request.URL)
 		logger.Log("Review ID: %s", request.ReviewID)
 		logger.Log("Provider: %s", request.Provider.Type)
-		logger.Log("AI Provider: %s", request.AI.Type)
+
+		// Log the actual AI connector being used, not just "langchain"
+		aiConnectorName := "unknown"
+		if providerName, ok := request.AI.Config["provider_name"].(string); ok && providerName != "" {
+			aiConnectorName = providerName
+		} else {
+			aiConnectorName = request.AI.Type
+		}
+		logger.Log("AI Provider: %s (model: %s)", aiConnectorName, request.AI.Model)
 		logger.Log("Start time: %s", start.Format("2006-01-02 15:04:05.000"))
 	}
 

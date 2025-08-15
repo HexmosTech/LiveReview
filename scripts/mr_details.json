@@ -6,12 +6,12 @@
   "description": "Fixing the Ui alligment issue in webview in copilot\n![WEBVIEW](/uploads/30fb81e88b945c75e1a0d74d6a93a23a/WEBVIEW.png)",
   "state": "merged",
   "created_at": "2025-07-20T05:35:49.308Z",
-  "updated_at": "2025-08-05T07:38:44.927Z",
+  "updated_at": "2025-08-15T14:54:34.325Z",
   "merged_by": {
     "id": 68,
     "username": "swagath",
     "name": "swagath",
-    "state": "active",
+    "state": "banned",
     "locked": false,
     "avatar_url": "https://secure.gravatar.com/avatar/34e0b837169c9ebf7551bb8eb4df93c03e701491eab1874a08d7d5ae7c09dbd6?s=80&d=identicon",
     "web_url": "https://git.apps.hexmos.com/swagath"
@@ -20,7 +20,7 @@
     "id": 68,
     "username": "swagath",
     "name": "swagath",
-    "state": "active",
+    "state": "banned",
     "locked": false,
     "avatar_url": "https://secure.gravatar.com/avatar/34e0b837169c9ebf7551bb8eb4df93c03e701491eab1874a08d7d5ae7c09dbd6?s=80&d=identicon",
     "web_url": "https://git.apps.hexmos.com/swagath"
@@ -30,14 +30,14 @@
   "closed_at": null,
   "target_branch": "main",
   "source_branch": "swagath/meile-key-change",
-  "user_notes_count": 1,
+  "user_notes_count": 8,
   "upvotes": 0,
   "downvotes": 0,
   "author": {
     "id": 68,
     "username": "swagath",
     "name": "swagath",
-    "state": "active",
+    "state": "banned",
     "locked": false,
     "avatar_url": "https://secure.gravatar.com/avatar/34e0b837169c9ebf7551bb8eb4df93c03e701491eab1874a08d7d5ae7c09dbd6?s=80&d=identicon",
     "web_url": "https://git.apps.hexmos.com/swagath"
@@ -47,7 +47,7 @@
       "id": 68,
       "username": "swagath",
       "name": "swagath",
-      "state": "active",
+      "state": "banned",
       "locked": false,
       "avatar_url": "https://secure.gravatar.com/avatar/34e0b837169c9ebf7551bb8eb4df93c03e701491eab1874a08d7d5ae7c09dbd6?s=80&d=identicon",
       "web_url": "https://git.apps.hexmos.com/swagath"
@@ -57,7 +57,7 @@
     "id": 68,
     "username": "swagath",
     "name": "swagath",
-    "state": "active",
+    "state": "banned",
     "locked": false,
     "avatar_url": "https://secure.gravatar.com/avatar/34e0b837169c9ebf7551bb8eb4df93c03e701491eab1874a08d7d5ae7c09dbd6?s=80&d=identicon",
     "web_url": "https://git.apps.hexmos.com/swagath"
@@ -137,7 +137,7 @@
       "id": 68,
       "username": "swagath",
       "name": "swagath",
-      "state": "active",
+      "state": "banned",
       "locked": false,
       "avatar_url": "https://secure.gravatar.com/avatar/34e0b837169c9ebf7551bb8eb4df93c03e701491eab1874a08d7d5ae7c09dbd6?s=80&d=identicon",
       "web_url": "https://git.apps.hexmos.com/swagath"
