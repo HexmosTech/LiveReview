@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"strconv"
 	"time"
+
+	"github.com/rs/zerolog/log"
 )
 
 // ConnectorRecord represents a connector record in the database
@@ -50,6 +52,13 @@ func (s *Storage) CreateConnector(ctx context.Context, connector *ConnectorRecor
 		NOW(), NOW()
 	) RETURNING id, created_at, updated_at
 	`
+
+	// Debug logging to see what display_order is being inserted
+	log.Debug().
+		Str("provider_name", connector.ProviderName).
+		Str("connector_name", connector.ConnectorName).
+		Int("display_order", connector.DisplayOrder).
+		Msg("Inserting connector with display_order")
 
 	// Convert string values to sql.NullString for database insertion
 	var baseURL, selectedModel interface{}
@@ -328,6 +337,14 @@ func (s *Storage) GetMaxDisplayOrder(ctx context.Context) (int, error) {
 	err := s.db.QueryRowContext(ctx, query).Scan(&maxOrder)
 	if err != nil {
 		return 0, fmt.Errorf("failed to get max display order: %w", err)
+	}
+
+	if maxOrder == 0 {
+		log.Debug().Msg("No existing connectors found, max display order is 0 (first connector will get order 1)")
+	} else {
+		log.Debug().
+			Int("max_order", maxOrder).
+			Msg("Retrieved max display order from database")
 	}
 
 	return maxOrder, nil

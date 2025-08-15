@@ -71,6 +71,8 @@ const ConnectorsList: React.FC<ConnectorsListProps> = ({
         if (success) {
             setIsReorderMode(false);
             setTempOrder([]);
+            // Refresh the connectors from server to ensure we have the latest state
+            onRetry();
         }
     };
 
