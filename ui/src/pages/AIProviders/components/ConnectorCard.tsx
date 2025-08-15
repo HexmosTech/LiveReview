@@ -12,13 +12,15 @@ interface ConnectorCardProps {
     onEdit: () => void;
     isFirst: boolean;
     isLast: boolean;
+    isReorderMode?: boolean;
 }
 
 const ConnectorCard: React.FC<ConnectorCardProps> = ({ 
     connector, 
     onEdit,
     isFirst,
-    isLast
+    isLast,
+    isReorderMode = false
 }) => {
     return (
         <li 
@@ -35,9 +37,11 @@ const ConnectorCard: React.FC<ConnectorCardProps> = ({
                                     connector.name.charAt(0).toUpperCase() : 
                                     (connector.providerName ? connector.providerName.charAt(0).toUpperCase() : 'A')}
                             />
-                            <span className="absolute -top-1 -right-1 bg-blue-500 text-white text-xs rounded-full w-5 h-5 flex items-center justify-center">
-                                {connector.displayOrder + 1}
-                            </span>
+                            {!isReorderMode && (
+                                <span className="absolute -top-1 -right-1 bg-blue-500 text-white text-xs rounded-full w-5 h-5 flex items-center justify-center">
+                                    {connector.displayOrder}
+                                </span>
+                            )}
                         </div>
                         <div>
                             <div className="flex items-center">

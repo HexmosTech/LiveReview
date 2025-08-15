@@ -253,6 +253,7 @@ const ConnectorsList: React.FC<ConnectorsListProps> = ({
                                 onEdit={() => onEditConnector(connector)}
                                 isFirst={index === 0}
                                 isLast={index === connectorsToDisplay.length - 1}
+                                isReorderMode={isReorderMode}
                             />
                         </div>
                     ))}
