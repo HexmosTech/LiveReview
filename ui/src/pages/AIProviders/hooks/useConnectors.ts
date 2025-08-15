@@ -168,8 +168,14 @@ export const useConnectors = (): UseConnectorsResult => {
             // Call API to update display orders
             await reorderAIConnectors(updates);
             
-            // Update local state immediately for better UX
-            setConnectors(newOrder);
+            // Update the connectors with their new display orders
+            const updatedConnectors = newOrder.map((connector, index) => ({
+                ...connector,
+                displayOrder: index + 1
+            }));
+            
+            // Update local state with the corrected display orders
+            setConnectors(updatedConnectors);
             
             return true;
         } catch (error) {

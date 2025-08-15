@@ -155,6 +155,13 @@ func (s *Server) CreateAIConnector(c echo.Context) error {
 		})
 	}
 
+	nextOrder := maxOrder + 1
+	log.Debug().
+		Int("max_order", maxOrder).
+		Int("next_order", nextOrder).
+		Int("req_display_order", req.DisplayOrder).
+		Msg("Auto-incrementing display order for new connector")
+
 	// Create a connector record
 	connector := &aiconnectors.ConnectorRecord{
 		ProviderName:  req.ProviderName,
@@ -162,7 +169,7 @@ func (s *Server) CreateAIConnector(c echo.Context) error {
 		ConnectorName: req.ConnectorName,
 		BaseURL:       sql.NullString{String: req.BaseURL, Valid: req.BaseURL != ""},
 		SelectedModel: sql.NullString{String: req.SelectedModel, Valid: req.SelectedModel != ""},
-		DisplayOrder:  maxOrder + 1, // Auto-assign next order
+		DisplayOrder:  nextOrder, // Auto-assign next order
 	}
 
 	// Save the connector to the database
