@@ -125,8 +125,8 @@ func ValidateAPIKey(ctx context.Context, provider Provider, apiKey string, baseU
 	case ProviderOpenAI:
 		options.ModelConfig.Model = "gpt-3.5-turbo"
 	case ProviderGemini:
-		options.ModelConfig.Model = "gemini-2.5-flash"
-		log.Debug().Msg("Using Gemini Pro model for validation")
+		options.ModelConfig.Model = "gemini-2.0-flash"
+		log.Debug().Msg("Using Gemini 2.0 Flash model for validation")
 	case ProviderClaude:
 		options.ModelConfig.Model = "claude-3-sonnet-20240229"
 	case ProviderCohere:
@@ -164,10 +164,20 @@ func ValidateAPIKey(ctx context.Context, provider Provider, apiKey string, baseU
 	promptText := "test"
 	log.Debug().
 		Str("prompt", promptText).
-		Int("max_tokens", 1).
+		Str("model", options.ModelConfig.Model).
+		Int("max_tokens", 10).
 		Msg("Making validation API call with simple prompt")
 
-	_, err = llms.GenerateFromSinglePrompt(ctx, connector.llm, promptText, llms.WithMaxTokens(1))
+	var generateOptions []llms.CallOption
+	generateOptions = append(generateOptions, llms.WithMaxTokens(10))
+
+	// For Gemini, explicitly specify the model in the call
+	if provider == ProviderGemini {
+		generateOptions = append(generateOptions, llms.WithModel(options.ModelConfig.Model))
+		log.Debug().Str("model", options.ModelConfig.Model).Msg("Explicitly setting model for Gemini call")
+	}
+
+	_, err = llms.GenerateFromSinglePrompt(ctx, connector.llm, promptText, generateOptions...)
 	if err != nil {
 		log.Error().Err(err).
 			Str("provider", string(provider)).
@@ -212,33 +222,15 @@ func createGeminiModel(ctx context.Context, options ConnectorOptions) (llms.Mode
 		Str("model", options.ModelConfig.Model).
 		Msg("Creating Gemini model with options")
 
+	// Start with minimal options to avoid potential parameter conflicts
 	opts := []googleai.Option{
 		googleai.WithAPIKey(options.APIKey),
-		googleai.WithDefaultModel(options.ModelConfig.Model),
 	}
 
-	// Add options for the model
-	if options.ModelConfig.Temperature > 0 {
-		opts = append(opts, googleai.WithDefaultTemperature(options.ModelConfig.Temperature))
-		log.Debug().Float64("temperature", options.ModelConfig.Temperature).Msg("Setting temperature for Gemini model")
-	}
+	// Try without setting default model to see if that's causing the issue
+	// opts = append(opts, googleai.WithDefaultModel(options.ModelConfig.Model))
 
-	if options.ModelConfig.MaxTokens > 0 {
-		opts = append(opts, googleai.WithDefaultMaxTokens(options.ModelConfig.MaxTokens))
-		log.Debug().Int("max_tokens", options.ModelConfig.MaxTokens).Msg("Setting max tokens for Gemini model")
-	}
-
-	if options.ModelConfig.TopP > 0 {
-		opts = append(opts, googleai.WithDefaultTopP(options.ModelConfig.TopP))
-		log.Debug().Float64("top_p", options.ModelConfig.TopP).Msg("Setting top_p for Gemini model")
-	}
-
-	if options.ModelConfig.TopK > 0 {
-		opts = append(opts, googleai.WithDefaultTopK(int(options.ModelConfig.TopK)))
-		log.Debug().Float64("top_k", options.ModelConfig.TopK).Msg("Setting top_k for Gemini model")
-	}
-
-	log.Debug().Msg("Calling googleai.New to create client")
+	log.Debug().Msg("Calling googleai.New to create client with minimal options")
 	model, err := googleai.New(ctx, opts...)
 	if err != nil {
 		log.Error().Err(err).
