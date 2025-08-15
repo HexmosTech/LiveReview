@@ -90,18 +90,62 @@ func NewStandardAIProviderFactory() *StandardAIProviderFactory {
 func (f *StandardAIProviderFactory) CreateAIProvider(ctx context.Context, config AIConfig) (ai.Provider, error) {
 	switch config.Type {
 	case "langchain":
+		// Extract provider information from config
+		providerName, _ := config.Config["provider_name"].(string)
+		baseURL, _ := config.Config["base_url"].(string)
+
+		// Set provider-specific token limits
+		maxTokens := f.getProviderMaxTokens(providerName)
+
+		log.Printf("[AI FACTORY] Creating %s provider with model: %s, max tokens: %d", providerName, config.Model, maxTokens)
+		if baseURL != "" {
+			log.Printf("[AI FACTORY] Using base URL: %s", baseURL)
+		}
+
 		return langchain.New(langchain.Config{
-			APIKey:    config.APIKey,
-			ModelName: config.Model,
-			MaxTokens: 30000, // Default max tokens
+			APIKey:       config.APIKey,
+			ModelName:    config.Model,
+			MaxTokens:    maxTokens,
+			ProviderType: providerName,
+			BaseURL:      baseURL,
 		}), nil
 	default:
 		// Default to langchain for any unrecognized type
+		// Extract provider information from config
+		providerName, _ := config.Config["provider_name"].(string)
+		baseURL, _ := config.Config["base_url"].(string)
+
+		// Set provider-specific token limits
+		maxTokens := f.getProviderMaxTokens(providerName)
+
+		log.Printf("[AI FACTORY] Creating %s provider (fallback) with model: %s, max tokens: %d", providerName, config.Model, maxTokens)
+		if baseURL != "" {
+			log.Printf("[AI FACTORY] Using base URL: %s", baseURL)
+		}
+
 		return langchain.New(langchain.Config{
-			APIKey:    config.APIKey,
-			ModelName: config.Model,
-			MaxTokens: 30000,
+			APIKey:       config.APIKey,
+			ModelName:    config.Model,
+			MaxTokens:    maxTokens,
+			ProviderType: providerName,
+			BaseURL:      baseURL,
 		}), nil
+	}
+}
+
+// getProviderMaxTokens returns appropriate token limits based on provider type
+func (f *StandardAIProviderFactory) getProviderMaxTokens(providerName string) int {
+	switch strings.ToLower(providerName) {
+	case "ollama":
+		return 8000 // Conservative limit for Ollama models
+	case "gemini", "googleai":
+		return 30000 // Gemini can handle larger batches
+	case "openai":
+		return 16000 // OpenAI models like GPT-3.5/4 can handle decent batches
+	case "anthropic":
+		return 20000 // Claude models can handle large batches
+	default:
+		return 8000 // Conservative default for unknown providers
 	}
 }
 

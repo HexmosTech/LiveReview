@@ -315,29 +315,64 @@ func (s *Server) getAIConfigFromDatabase(ctx context.Context) (review.AIConfig, 
 	// Use the first connector (lowest display_order)
 	connector := connectors[0]
 
+	// Debug logging to see which connector is selected
+	fmt.Printf("[AI CONFIG] Selected connector: %s (%s) with display_order: %d\n",
+		connector.ConnectorName, connector.ProviderName, connector.DisplayOrder)
+
+	// Log all available connectors for debugging
+	fmt.Printf("[AI CONFIG] Available connectors:\n")
+	for i, c := range connectors {
+		fmt.Printf("  %d. %s (%s) - display_order: %d\n",
+			i+1, c.ConnectorName, c.ProviderName, c.DisplayOrder)
+	}
+
 	// Map provider_name to AI type for langchain
 	aiType := "langchain" // We always use langchain as the AI type
 
-	// Determine model based on provider_name
+	// Determine model - use selectedModel if available, otherwise default
 	var model string
-	switch connector.ProviderName {
-	case "gemini":
-		model = "gemini-2.0-flash-exp" // Default Gemini model
-	default:
-		// For other providers, we can extend this
-		model = "gemini-2.0-flash-exp" // Default fallback
+	if connector.SelectedModel.Valid && connector.SelectedModel.String != "" {
+		model = connector.SelectedModel.String
+	} else {
+		// Default models based on provider
+		switch connector.ProviderName {
+		case "ollama":
+			model = "llama3.2:latest" // Default Ollama model
+		case "gemini":
+			model = "gemini-2.0-flash-exp" // Default Gemini model
+		case "openai":
+			model = "gpt-3.5-turbo" // Default OpenAI model
+		case "anthropic":
+			model = "claude-3-haiku-20240307" // Default Anthropic model
+		default:
+			model = "gemini-2.0-flash-exp" // Default fallback
+		}
 	}
+
+	// Prepare configuration map with provider details
+	configMap := map[string]interface{}{
+		"provider_name":  connector.ProviderName,
+		"connector_name": connector.ConnectorName,
+		"display_order":  connector.DisplayOrder,
+	}
+
+	// Add base URL if available
+	if connector.BaseURL.Valid && connector.BaseURL.String != "" {
+		configMap["base_url"] = connector.BaseURL.String
+		fmt.Printf("[AI CONFIG] Using base URL: %s\n", connector.BaseURL.String)
+	} else {
+		fmt.Printf("[AI CONFIG] No base URL configured\n")
+	}
+
+	fmt.Printf("[AI CONFIG] Final model: %s\n", model)
+	fmt.Printf("[AI CONFIG] API Key length: %d\n", len(connector.ApiKey))
 
 	return review.AIConfig{
 		Type:        aiType,
 		APIKey:      connector.ApiKey,
 		Model:       model,
 		Temperature: 0.4, // Default temperature
-		Config: map[string]interface{}{
-			"provider_name":  connector.ProviderName,
-			"connector_name": connector.ConnectorName,
-			"display_order":  connector.DisplayOrder,
-		},
+		Config:      configMap,
 	}, nil
 }
 
