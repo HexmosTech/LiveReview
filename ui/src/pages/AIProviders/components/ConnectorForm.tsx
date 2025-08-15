@@ -45,6 +45,25 @@ const ConnectorForm: React.FC<ConnectorFormProps> = ({
         return providers.find(p => p.id === providerId) || providers[0];
     };
 
+    // Check if current provider requires API key
+    const currentProvider = selectedProvider === 'all' ? formData.providerType : selectedProvider;
+    const providerDetails = currentProvider ? getProviderDetails(currentProvider) : null;
+    const isOllama = providerDetails?.id === 'ollama';
+    
+    // Validation rules
+    const isValidForm = () => {
+        if (!formData.name) return false;
+        if (selectedProvider === 'all' && !formData.providerType) return false;
+        
+        // For Ollama, require baseURL but make API key optional
+        if (isOllama) {
+            return !!formData.baseURL;
+        }
+        
+        // For other providers, require API key
+        return !!formData.apiKey;
+    };
+
     return (
         <Card title={
             isEditing 
@@ -131,7 +150,7 @@ const ConnectorForm: React.FC<ConnectorFormProps> = ({
                 </div>
                 
                 <Input
-                    label="API Key"
+                    label={isOllama ? "API Key (Optional)" : "API Key"}
                     name="apiKey"
                     type="password"
                     value={formData.apiKey}
@@ -143,8 +162,27 @@ const ConnectorForm: React.FC<ConnectorFormProps> = ({
                                 ? getProviderDetails(selectedProvider).apiKeyPlaceholder
                                 : 'Enter API key'
                     }
-                    helperText="Your API key will be stored securely"
+                    helperText={isOllama ? "Optional JWT token for Ollama authentication" : "Your API key will be stored securely"}
                 />
+
+                {/* Base URL field for providers that support it (like Ollama) */}
+                {((selectedProvider !== 'all' && getProviderDetails(selectedProvider).requiresBaseURL) || 
+                  (selectedProvider === 'all' && formData.providerType && getProviderDetails(formData.providerType).requiresBaseURL)) && (
+                    <Input
+                        label="Base URL"
+                        name="baseURL"
+                        value={formData.baseURL || ''}
+                        onChange={onInputChange}
+                        placeholder={
+                            selectedProvider === 'all' && formData.providerType
+                                ? getProviderDetails(formData.providerType).baseURLPlaceholder
+                                : selectedProvider !== 'all'
+                                    ? getProviderDetails(selectedProvider).baseURLPlaceholder
+                                    : 'Enter base URL'
+                        }
+                        helperText="The full API endpoint for your Ollama server (e.g., http://localhost:11434/ollama/api)"
+                    />
+                )}
                 
                 <div className="flex space-x-3">
                     <Button

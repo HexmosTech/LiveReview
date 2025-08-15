@@ -95,6 +95,20 @@ func ValidateAPIKey(ctx context.Context, provider Provider, apiKey string, baseU
 		Str("base_url", baseURL).
 		Msg("Starting API key validation")
 
+	// For Ollama, validate by trying to fetch models instead of text generation
+	if provider == ProviderOllama {
+		log.Debug().Msg("Validating Ollama by fetching models")
+		_, err := FetchOllamaModels(ctx, baseURL, apiKey)
+		if err != nil {
+			log.Error().Err(err).
+				Str("base_url", baseURL).
+				Msg("Ollama validation failed - could not fetch models")
+			return false, nil // Invalid credentials, but not a system error
+		}
+		log.Debug().Msg("Ollama validation successful - models fetched")
+		return true, nil
+	}
+
 	// Create temporary options with minimum configuration
 	options := ConnectorOptions{
 		Provider: provider,

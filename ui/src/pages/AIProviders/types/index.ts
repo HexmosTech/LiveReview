@@ -10,6 +10,8 @@ export interface AIProvider {
     apiKeyPlaceholder: string;
     models?: string[]; // Available models for this provider
     defaultModel?: string; // Default model to use
+    baseURLPlaceholder?: string; // Placeholder for base URL field (for providers like Ollama)
+    requiresBaseURL?: boolean; // Whether this provider requires a base URL
 }
 
 // AI Connector structure (mapped from API)
@@ -37,6 +39,8 @@ export interface ConnectorFormData {
     name: string;
     apiKey: string;
     providerType: string;
+    baseURL?: string; // Base URL for providers like Ollama
+    selectedModel?: string; // Selected model for the connector
 }
 
 export interface ValidationResult {

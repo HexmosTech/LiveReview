@@ -9,17 +9,18 @@ import (
 
 // ConnectorRecord represents a connector record in the database
 type ConnectorRecord struct {
-	ID            int64     `json:"id"`
-	ProviderName  string    `json:"provider_name"` // Maps to provider_name in DB
-	Provider      Provider  `json:"provider"`      // For internal use, derived from ProviderName
-	ApiKey        string    `json:"api_key"`
-	ConnectorName string    `json:"connector_name"` // Maps to connector_name in DB
-	DisplayOrder  int       `json:"display_order"`
-	CreatedAt     time.Time `json:"created_at"`
-	UpdatedAt     time.Time `json:"updated_at"`
+	ID            int64          `json:"id"`
+	ProviderName  string         `json:"provider_name"` // Maps to provider_name in DB
+	Provider      Provider       `json:"provider"`      // For internal use, derived from ProviderName
+	ApiKey        string         `json:"api_key"`
+	ConnectorName string         `json:"connector_name"` // Maps to connector_name in DB
+	BaseURL       sql.NullString `json:"base_url"`       // Base URL for providers like Ollama
+	SelectedModel sql.NullString `json:"selected_model"` // Selected model for the connector
+	DisplayOrder  int            `json:"display_order"`
+	CreatedAt     time.Time      `json:"created_at"`
+	UpdatedAt     time.Time      `json:"updated_at"`
 
-	// Additional fields stored in metadata JSON (not in the table directly)
-	BaseURL       string `json:"-"`
+	// Additional fields for internal use (not stored in the table directly)
 	Model         string `json:"-"`
 	Configuration string `json:"-"`
 	IsActive      bool   `json:"-"`
@@ -41,17 +42,32 @@ func NewStorage(db *sql.DB) *Storage {
 func (s *Storage) CreateConnector(ctx context.Context, connector *ConnectorRecord) error {
 	query := `
 	INSERT INTO ai_connectors (
-		provider_name, api_key, connector_name, display_order,
+		provider_name, api_key, connector_name, base_url, selected_model, display_order,
 		created_at, updated_at
 	) VALUES (
-		$1, $2, $3, $4, 
+		$1, $2, $3, $4, $5, $6, 
 		NOW(), NOW()
 	) RETURNING id, created_at, updated_at
 	`
 
+	// Convert string values to sql.NullString for database insertion
+	var baseURL, selectedModel interface{}
+	if connector.BaseURL.Valid && connector.BaseURL.String != "" {
+		baseURL = connector.BaseURL.String
+	} else {
+		baseURL = nil
+	}
+
+	if connector.SelectedModel.Valid && connector.SelectedModel.String != "" {
+		selectedModel = connector.SelectedModel.String
+	} else {
+		selectedModel = nil
+	}
+
 	err := s.db.QueryRowContext(
 		ctx, query,
-		connector.ProviderName, connector.ApiKey, connector.ConnectorName, connector.DisplayOrder,
+		connector.ProviderName, connector.ApiKey, connector.ConnectorName,
+		baseURL, selectedModel, connector.DisplayOrder,
 	).Scan(&connector.ID, &connector.CreatedAt, &connector.UpdatedAt)
 
 	if err != nil {
@@ -67,7 +83,7 @@ func (s *Storage) CreateConnector(ctx context.Context, connector *ConnectorRecor
 // GetConnectorByID retrieves a connector by ID
 func (s *Storage) GetConnectorByID(ctx context.Context, id int64) (*ConnectorRecord, error) {
 	query := `
-	SELECT id, provider_name, api_key, connector_name, display_order, 
+	SELECT id, provider_name, api_key, connector_name, base_url, selected_model, display_order, 
 	       created_at, updated_at
 	FROM ai_connectors
 	WHERE id = $1
@@ -76,7 +92,8 @@ func (s *Storage) GetConnectorByID(ctx context.Context, id int64) (*ConnectorRec
 	var connector ConnectorRecord
 	err := s.db.QueryRowContext(ctx, query, id).Scan(
 		&connector.ID, &connector.ProviderName, &connector.ApiKey, &connector.ConnectorName,
-		&connector.DisplayOrder, &connector.CreatedAt, &connector.UpdatedAt,
+		&connector.BaseURL, &connector.SelectedModel, &connector.DisplayOrder,
+		&connector.CreatedAt, &connector.UpdatedAt,
 	)
 
 	if err != nil {
@@ -95,7 +112,7 @@ func (s *Storage) GetConnectorByID(ctx context.Context, id int64) (*ConnectorRec
 // GetConnectorsByProvider retrieves all connectors for a specific provider
 func (s *Storage) GetConnectorsByProvider(ctx context.Context, provider Provider) ([]*ConnectorRecord, error) {
 	query := `
-	SELECT id, provider_name, api_key, connector_name, display_order, 
+	SELECT id, provider_name, api_key, connector_name, base_url, selected_model, display_order, 
 	       created_at, updated_at
 	FROM ai_connectors
 	WHERE provider_name = $1
@@ -113,7 +130,8 @@ func (s *Storage) GetConnectorsByProvider(ctx context.Context, provider Provider
 		var connector ConnectorRecord
 		err := rows.Scan(
 			&connector.ID, &connector.ProviderName, &connector.ApiKey, &connector.ConnectorName,
-			&connector.DisplayOrder, &connector.CreatedAt, &connector.UpdatedAt,
+			&connector.BaseURL, &connector.SelectedModel, &connector.DisplayOrder,
+			&connector.CreatedAt, &connector.UpdatedAt,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("failed to scan connector: %w", err)
@@ -135,7 +153,7 @@ func (s *Storage) GetConnectorsByProvider(ctx context.Context, provider Provider
 // GetAllConnectors retrieves all connectors
 func (s *Storage) GetAllConnectors(ctx context.Context) ([]*ConnectorRecord, error) {
 	query := `
-	SELECT id, provider_name, api_key, connector_name, display_order, 
+	SELECT id, provider_name, api_key, connector_name, base_url, selected_model, display_order, 
 	       created_at, updated_at
 	FROM ai_connectors
 	ORDER BY provider_name, display_order ASC
@@ -152,7 +170,8 @@ func (s *Storage) GetAllConnectors(ctx context.Context) ([]*ConnectorRecord, err
 		var connector ConnectorRecord
 		err := rows.Scan(
 			&connector.ID, &connector.ProviderName, &connector.ApiKey, &connector.ConnectorName,
-			&connector.DisplayOrder, &connector.CreatedAt, &connector.UpdatedAt,
+			&connector.BaseURL, &connector.SelectedModel, &connector.DisplayOrder,
+			&connector.CreatedAt, &connector.UpdatedAt,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("failed to scan connector: %w", err)
@@ -175,15 +194,30 @@ func (s *Storage) GetAllConnectors(ctx context.Context) ([]*ConnectorRecord, err
 func (s *Storage) UpdateConnector(ctx context.Context, connector *ConnectorRecord) error {
 	query := `
 	UPDATE ai_connectors
-	SET provider_name = $1, api_key = $2, connector_name = $3, display_order = $4,
+	SET provider_name = $1, api_key = $2, connector_name = $3, base_url = $4, selected_model = $5, display_order = $6,
 	    updated_at = NOW()
-	WHERE id = $5
+	WHERE id = $7
 	RETURNING updated_at
 	`
 
+	// Convert string values to interface{} for database update
+	var baseURL, selectedModel interface{}
+	if connector.BaseURL.Valid && connector.BaseURL.String != "" {
+		baseURL = connector.BaseURL.String
+	} else {
+		baseURL = nil
+	}
+
+	if connector.SelectedModel.Valid && connector.SelectedModel.String != "" {
+		selectedModel = connector.SelectedModel.String
+	} else {
+		selectedModel = nil
+	}
+
 	err := s.db.QueryRowContext(
 		ctx, query,
-		connector.ProviderName, connector.ApiKey, connector.ConnectorName, connector.DisplayOrder,
+		connector.ProviderName, connector.ApiKey, connector.ConnectorName,
+		baseURL, selectedModel, connector.DisplayOrder,
 		connector.ID,
 	).Scan(&connector.UpdatedAt)
 
@@ -223,9 +257,9 @@ func (r *ConnectorRecord) GetConnectorOptions() ConnectorOptions {
 	options := ConnectorOptions{
 		Provider: r.Provider,
 		APIKey:   r.ApiKey,
-		BaseURL:  r.BaseURL,
+		BaseURL:  r.BaseURL.String, // Extract string from sql.NullString
 		ModelConfig: ModelConfig{
-			Model: r.Model,
+			Model: r.GetSelectedModel(), // Use helper method
 		},
 	}
 
@@ -238,11 +272,23 @@ func (r *ConnectorRecord) GetConnectorOptions() ConnectorOptions {
 	if options.ModelConfig.Temperature == 0 {
 		options.ModelConfig.Temperature = 0.7
 	}
-	if options.ModelConfig.MaxTokens == 0 {
-		options.ModelConfig.MaxTokens = 2048
-	}
 
 	return options
+}
+
+// Helper methods to get string values from sql.NullString fields
+func (r *ConnectorRecord) GetBaseURL() string {
+	if r.BaseURL.Valid {
+		return r.BaseURL.String
+	}
+	return ""
+}
+
+func (r *ConnectorRecord) GetSelectedModel() string {
+	if r.SelectedModel.Valid {
+		return r.SelectedModel.String
+	}
+	return ""
 }
 
 // We don't need the CreateConnectorTable and CreateConnectorIndexes methods since the table

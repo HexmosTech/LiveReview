@@ -6,7 +6,7 @@ interface UseFormStateResult {
     formData: ConnectorFormData;
     selectedConnector: AIConnector | null;
     setSelectedConnector: (connector: AIConnector | null) => void;
-    handleInputChange: (e: React.ChangeEvent<HTMLInputElement>) => void;
+    handleInputChange: (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => void;
     handleProviderTypeChange: (providerType: string, providers: any[]) => void;
     resetForm: () => void;
     setFormData: (data: ConnectorFormData) => void;
@@ -19,7 +19,7 @@ export const useFormState = (
     const [formData, setFormData] = useState<ConnectorFormData>(initialFormData);
     const [selectedConnector, setSelectedConnector] = useState<AIConnector | null>(null);
 
-    const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const handleInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
         const { name, value } = e.target;
         setFormData({
             ...formData,
@@ -31,7 +31,11 @@ export const useFormState = (
         setFormData({
             ...formData,
             providerType,
-            name: formData.name || generateFriendlyNameForProvider(providerType, providers)
+            name: formData.name || generateFriendlyNameForProvider(providerType, providers),
+            // Reset model selection when provider changes
+            selectedModel: '',
+            // Reset base URL when provider changes to non-Ollama
+            baseURL: providerType === 'ollama' ? formData.baseURL : ''
         });
     };
 
@@ -39,7 +43,9 @@ export const useFormState = (
         setFormData({
             name: '',
             apiKey: '',
-            providerType: ''
+            providerType: '',
+            baseURL: '',
+            selectedModel: ''
         });
         setSelectedConnector(null);
     };

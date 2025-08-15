@@ -28,6 +28,7 @@ import {
     ConnectorsList,
     UsageTips
 } from './components';
+import OllamaConnectorForm from './components/OllamaConnectorForm';
 
 // Utils
 import { generateFriendlyNameForProvider, getProviderDetails } from './utils/nameUtils';
@@ -73,6 +74,18 @@ const popularAIProviders: AIProvider[] = [
         apiKeyPlaceholder: 'cohere-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx',
         models: ['command', 'command-light', 'command-r', 'command-r-plus'],
         defaultModel: 'command-r'
+    },
+    { 
+        id: 'ollama',
+        name: 'Ollama', 
+        url: 'https://ollama.ai/', 
+        description: 'Run large language models locally with Ollama',
+        icon: <Icons.Ollama />,
+        apiKeyPlaceholder: 'Optional JWT token for authentication',
+        models: ['llama3', 'llama3.1', 'codellama', 'mistral', 'gemma'],
+        defaultModel: 'llama3',
+        baseURLPlaceholder: 'http://localhost:11434/ollama/api',
+        requiresBaseURL: true
     },
 ];
 
@@ -212,7 +225,9 @@ const AIProviders: React.FC = () => {
                 providerToUse,
                 formData.apiKey,
                 formData.name,
-                selectedConnector
+                selectedConnector,
+                formData.baseURL,
+                formData.selectedModel
             );
             
             if (success) {
@@ -228,6 +243,34 @@ const AIProviders: React.FC = () => {
             }
         } catch (error) {
             console.error('Error in handleSaveConnector:', error);
+        }
+    };
+    
+    // Handle Ollama-specific save
+    const handleSaveOllamaConnector = async (baseURL: string, jwtToken: string, selectedModel: string, name: string) => {
+        try {
+            const success = await saveConnector(
+                'ollama',
+                jwtToken, // Use JWT token as the "API key" for Ollama
+                name,
+                selectedConnector,
+                baseURL,
+                selectedModel
+            );
+            
+            if (success) {
+                // Show success message
+                setIsSaved(true);
+                setTimeout(() => setIsSaved(false), 3000);
+                
+                // Reset form
+                resetForm();
+                
+                // Update URL to show the provider without any specific action
+                updateUrlFragment('ollama');
+            }
+        } catch (error) {
+            console.error('Error in handleSaveOllamaConnector:', error);
         }
     };
     
@@ -304,22 +347,37 @@ const AIProviders: React.FC = () => {
                     <div className="grid grid-cols-1 gap-6">
                         {/* Connector Form - Only show when actively adding/editing */}
                         {(formData.name || formData.apiKey || isEditing) && (
-                            <ConnectorForm
-                                providers={popularAIProviders}
-                                selectedProvider={selectedProvider}
-                                formData={formData}
-                                isEditing={isEditing}
-                                isLoading={isLoading}
-                                isSaved={isSaved}
-                                error={error}
-                                onInputChange={handleInputChange}
-                                onProviderTypeChange={handleProviderChange}
-                                onGenerateName={handleGenerateName}
-                                onSave={handleSaveConnector}
-                                onCancel={resetForm}
-                                onDelete={isEditing ? handleDeleteConnector : undefined}
-                                setError={setError}
-                            />
+                            <>
+                                {/* Special form for Ollama */}
+                                {((selectedProvider === 'ollama') || (selectedProvider === 'all' && formData.providerType === 'ollama')) && !isEditing ? (
+                                    <OllamaConnectorForm
+                                        provider={popularAIProviders.find(p => p.id === 'ollama')!}
+                                        onSave={handleSaveOllamaConnector}
+                                        onCancel={resetForm}
+                                        isLoading={isLoading}
+                                        error={error}
+                                        setError={setError}
+                                    />
+                                ) : (
+                                    /* Regular form for other providers */
+                                    <ConnectorForm
+                                        providers={popularAIProviders}
+                                        selectedProvider={selectedProvider}
+                                        formData={formData}
+                                        isEditing={isEditing}
+                                        isLoading={isLoading}
+                                        isSaved={isSaved}
+                                        error={error}
+                                        onInputChange={handleInputChange}
+                                        onProviderTypeChange={handleProviderChange}
+                                        onGenerateName={handleGenerateName}
+                                        onSave={handleSaveConnector}
+                                        onCancel={resetForm}
+                                        onDelete={isEditing ? handleDeleteConnector : undefined}
+                                        setError={setError}
+                                    />
+                                )}
+                            </>
                         )}
                         
                         {/* Connectors List */}
