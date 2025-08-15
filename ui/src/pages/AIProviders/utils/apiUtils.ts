@@ -22,6 +22,8 @@ export const fetchAIConnectors = async (): Promise<AIConnector[]> => {
             name: connector.connector_name || connector.provider_name || 'Unnamed Connector',
             providerName: connector.provider_name || '',
             apiKey: connector.api_key_preview || '',
+            fullApiKey: connector.api_key || '', // Store full API key for editing
+            baseURL: connector.base_url || '',
             displayOrder: connector.display_order || 0,
             createdAt: connector.created_at ? new Date(connector.created_at) : new Date(),
             lastUsed: connector.last_used ? new Date(connector.last_used) : undefined,
