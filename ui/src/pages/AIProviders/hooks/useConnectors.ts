@@ -18,7 +18,9 @@ interface UseConnectorsResult {
         providerId: string,
         apiKey: string,
         name: string,
-        existingConnector?: AIConnector | null
+        existingConnector?: AIConnector | null,
+        baseURL?: string,
+        selectedModel?: string
     ) => Promise<boolean>;
     deleteConnector: (connectorId: string) => Promise<boolean>;
     setError: (error: string | null) => void;
@@ -55,23 +57,28 @@ export const useConnectors = (): UseConnectorsResult => {
         providerId: string,
         apiKey: string,
         name: string,
-        existingConnector?: AIConnector | null
+        existingConnector?: AIConnector | null,
+        baseURL?: string,
+        selectedModel?: string
     ): Promise<boolean> => {
         try {
             setIsLoading(true);
             
-            // First validate the API key
-            try {
-                const validationResult = await validateAIProviderKey(providerId, apiKey);
-                
-                if (!validationResult.valid) {
-                    setError(`API key validation failed: ${validationResult.message}`);
+            // For Ollama, skip validation since we've already validated by fetching models
+            if (providerId !== 'ollama') {
+                // First validate the API key for non-Ollama providers
+                try {
+                    const validationResult = await validateAIProviderKey(providerId, apiKey);
+                    
+                    if (!validationResult.valid) {
+                        setError(`API key validation failed: ${validationResult.message}`);
+                        return false;
+                    }
+                } catch (validationError) {
+                    console.error('Error validating API key:', validationError);
+                    setError('Failed to validate API key. Please try again.');
                     return false;
                 }
-            } catch (validationError) {
-                console.error('Error validating API key:', validationError);
-                setError('Failed to validate API key. Please try again.');
-                return false;
             }
             
             // Now save the connector to the database
@@ -92,15 +99,15 @@ export const useConnectors = (): UseConnectorsResult => {
                     );
                     setConnectors(updatedConnectors);
                 } else {
-                    // Create new connector in the backend
-                    const result = await createAIConnector(
-                        providerId,
-                        apiKey,
-                        name,
-                        displayOrder
-                    );
-                    
-                    console.log('Connector created:', result);
+                // Create new connector in the backend
+                const result = await createAIConnector(
+                    providerId,
+                    apiKey,
+                    name,
+                    displayOrder,
+                    baseURL,
+                    selectedModel
+                );                    console.log('Connector created:', result);
                     
                     // After creating, refresh the connector list
                     await fetchConnectors();

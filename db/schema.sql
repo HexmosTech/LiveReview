@@ -96,7 +96,9 @@ CREATE TABLE public.ai_connectors (
     display_order integer DEFAULT 0 NOT NULL,
     created_at timestamp with time zone DEFAULT CURRENT_TIMESTAMP,
     updated_at timestamp with time zone DEFAULT CURRENT_TIMESTAMP,
-    connector_name character varying(128)
+    connector_name character varying(128),
+    base_url text,
+    selected_model text
 );
 
 
@@ -672,6 +674,13 @@ CREATE INDEX idx_ai_comments_type ON public.ai_comments USING btree (comment_typ
 
 
 --
+-- Name: idx_ai_connectors_provider_name; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_ai_connectors_provider_name ON public.ai_connectors USING btree (provider_name);
+
+
+--
 -- Name: idx_recent_activity_created_at; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -853,4 +862,5 @@ INSERT INTO public.schema_migrations (version) VALUES
     ('20250805104629'),
     ('20250811091248'),
     ('20250811145541'),
-    ('20250811145851');
+    ('20250811145851'),
+    ('20250815000001');

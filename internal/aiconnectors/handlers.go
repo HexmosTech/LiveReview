@@ -30,6 +30,7 @@ type CreateConnectorRequest struct {
 	APIKey        string `json:"api_key"`
 	ConnectorName string `json:"connector_name"`
 	BaseURL       string `json:"base_url,omitempty"`
+	SelectedModel string `json:"selected_model,omitempty"`
 	DisplayOrder  int    `json:"display_order"`
 }
 
@@ -45,13 +46,9 @@ type CreateConnectorResponse struct {
 
 // RegisterHandlers registers all aiconnectors API handlers to the given router
 func RegisterHandlers(e *echo.Echo) {
-	apiGroup := e.Group("/api/v1")
-
-	// API key validation endpoint
-	apiGroup.POST("/aiconnectors/validate-key", validateAPIKeyHandler)
-
-	// Create connector endpoint
-	apiGroup.POST("/aiconnectors", createConnectorHandler)
+	e.POST("/api/v1/aiconnectors/validate-key", validateAPIKeyHandler)
+	e.POST("/api/v1/aiconnectors", createConnectorHandler)
+	e.POST("/api/v1/aiconnectors/ollama/models", fetchOllamaModelsHandler)
 }
 
 // ValidateAPIKeyHandler handles requests to validate an API key
@@ -107,41 +104,29 @@ func validateAPIKeyHandler(c echo.Context) error {
 
 // createConnectorHandler handles requests to create a new AI connector
 func createConnectorHandler(c echo.Context) error {
-	var req CreateConnectorRequest
-	if err := c.Bind(&req); err != nil {
-		return c.JSON(http.StatusBadRequest, map[string]string{
-			"error": "Invalid request body",
-		})
-	}
-
-	// Validate required fields
-	if req.ProviderName == "" {
-		return c.JSON(http.StatusBadRequest, map[string]string{
-			"error": "Provider name is required",
-		})
-	}
-
-	if req.APIKey == "" {
-		return c.JSON(http.StatusBadRequest, map[string]string{
-			"error": "API key is required",
-		})
-	}
-
-	if req.ConnectorName == "" {
-		return c.JSON(http.StatusBadRequest, map[string]string{
-			"error": "Connector name is required",
-		})
-	}
-
-	// Get the database connection from context
 	db := c.Get("db").(*sql.DB)
 	if db == nil {
+		log.Error().Msg("Database connection not available")
 		return c.JSON(http.StatusInternalServerError, map[string]string{
 			"error": "Database connection not available",
 		})
 	}
 
-	// Create a storage instance
+	var req CreateConnectorRequest
+	if err := c.Bind(&req); err != nil {
+		log.Error().Err(err).Msg("Failed to bind create connector request")
+		return c.JSON(http.StatusBadRequest, map[string]string{
+			"error": "Invalid request format",
+		})
+	}
+
+	log.Info().
+		Str("provider_name", req.ProviderName).
+		Str("connector_name", req.ConnectorName).
+		Str("base_url", req.BaseURL).
+		Str("selected_model", req.SelectedModel).
+		Msg("Creating AI connector")
+
 	storage := NewStorage(db)
 
 	// Create a connector record
@@ -149,8 +134,9 @@ func createConnectorHandler(c echo.Context) error {
 		ProviderName:  req.ProviderName,
 		ApiKey:        req.APIKey,
 		ConnectorName: req.ConnectorName,
+		BaseURL:       sql.NullString{String: req.BaseURL, Valid: req.BaseURL != ""},
+		SelectedModel: sql.NullString{String: req.SelectedModel, Valid: req.SelectedModel != ""},
 		DisplayOrder:  req.DisplayOrder,
-		BaseURL:       req.BaseURL,
 	}
 
 	// Save the connector to the database
@@ -169,6 +155,64 @@ func createConnectorHandler(c echo.Context) error {
 		DisplayOrder:  connector.DisplayOrder,
 		CreatedAt:     connector.CreatedAt,
 		UpdatedAt:     connector.UpdatedAt,
+	})
+}
+
+// FetchOllamaModelsRequest represents the request for fetching Ollama models
+type FetchOllamaModelsRequest struct {
+	BaseURL  string `json:"base_url"`
+	JWTToken string `json:"jwt_token,omitempty"`
+}
+
+// fetchOllamaModelsHandler handles requests to fetch models from an Ollama instance
+func fetchOllamaModelsHandler(c echo.Context) error {
+	var req FetchOllamaModelsRequest
+	if err := c.Bind(&req); err != nil {
+		log.Error().Err(err).Msg("Failed to bind fetch Ollama models request")
+		return c.JSON(http.StatusBadRequest, map[string]string{
+			"error": "Invalid request format",
+		})
+	}
+
+	// Validate required fields
+	if req.BaseURL == "" {
+		return c.JSON(http.StatusBadRequest, map[string]string{
+			"error": "Base URL is required",
+		})
+	}
+
+	log.Info().
+		Str("base_url", req.BaseURL).
+		Msg("Fetching models from Ollama instance")
+
+	// Fetch models from Ollama
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	models, err := FetchOllamaModels(ctx, req.BaseURL, req.JWTToken)
+	if err != nil {
+		log.Error().Err(err).
+			Str("base_url", req.BaseURL).
+			Msg("Failed to fetch models from Ollama")
+		return c.JSON(http.StatusBadRequest, map[string]string{
+			"error": fmt.Sprintf("Failed to fetch models: %v", err),
+		})
+	}
+
+	// Transform models for frontend response
+	var modelNames []string
+	for _, model := range models {
+		modelNames = append(modelNames, model.Name)
+	}
+
+	log.Info().
+		Str("base_url", req.BaseURL).
+		Int("model_count", len(modelNames)).
+		Msg("Successfully fetched Ollama models")
+
+	return c.JSON(http.StatusOK, map[string]interface{}{
+		"models": modelNames,
+		"count":  len(modelNames),
 	})
 }
 

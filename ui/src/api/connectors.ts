@@ -136,6 +136,7 @@ export const validateAIProviderKey = async (
  * @param connectorName A user-friendly name for this connector
  * @param displayOrder Order to display in the UI (lower numbers first)
  * @param baseURL Optional base URL for the API (for custom endpoints)
+ * @param selectedModel Optional selected model for the connector
  * @returns Promise with the created connector
  */
 export const createAIConnector = async (
@@ -143,7 +144,8 @@ export const createAIConnector = async (
   apiKey: string,
   connectorName: string,
   displayOrder: number = 0,
-  baseURL?: string
+  baseURL?: string,
+  selectedModel?: string
 ): Promise<any> => {
   try {
     const response = await apiClient.post(
@@ -154,6 +156,7 @@ export const createAIConnector = async (
         connector_name: connectorName,
         display_order: displayOrder,
         base_url: baseURL,
+        selected_model: selectedModel,
       }
     );
     return response;
@@ -174,6 +177,31 @@ export const deleteAIConnector = async (connectorId: string): Promise<any> => {
     return response;
   } catch (error) {
     console.error('Error deleting AI connector:', error);
+    throw error;
+  }
+};
+
+/**
+ * Fetch available models from an Ollama instance
+ * @param baseURL The base URL of the Ollama instance (e.g., 'http://localhost:11434')
+ * @param jwtToken Optional JWT token for authentication
+ * @returns Promise with the list of available models
+ */
+export const fetchOllamaModels = async (
+  baseURL: string,
+  jwtToken?: string
+): Promise<{ models: string[]; count: number }> => {
+  try {
+    const response = await apiClient.post<{ models: string[]; count: number }>(
+      '/api/v1/aiconnectors/ollama/models',
+      {
+        base_url: baseURL,
+        jwt_token: jwtToken,
+      }
+    );
+    return response;
+  } catch (error) {
+    console.error('Error fetching Ollama models:', error);
     throw error;
   }
 };

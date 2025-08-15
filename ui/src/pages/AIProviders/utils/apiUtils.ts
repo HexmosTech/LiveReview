@@ -70,11 +70,13 @@ export const createAIConnector = async (
     providerId: string,
     apiKey: string,
     name: string,
-    displayOrder: number
+    displayOrder: number,
+    baseURL?: string,
+    selectedModel?: string
 ) => {
     try {
         console.log(`Creating AI connector: ${name} for provider: ${providerId}`);
-        const result = await createConnectorAPI(providerId, apiKey, name, displayOrder);
+        const result = await createConnectorAPI(providerId, apiKey, name, displayOrder, baseURL, selectedModel);
         console.log('Connector created successfully:', result);
         return result;
     } catch (error) {
