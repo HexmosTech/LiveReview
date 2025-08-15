@@ -2,6 +2,7 @@ package api
 
 import (
 	"context"
+	"database/sql"
 	"net/http"
 	"strconv"
 	"time"
@@ -96,6 +97,7 @@ type AIConnectorCreateRequest struct {
 	APIKey        string `json:"api_key"`
 	ConnectorName string `json:"connector_name"`
 	BaseURL       string `json:"base_url,omitempty"`
+	SelectedModel string `json:"selected_model,omitempty"`
 	DisplayOrder  int    `json:"display_order"`
 }
 
@@ -149,6 +151,8 @@ func (s *Server) CreateAIConnector(c echo.Context) error {
 		ProviderName:  req.ProviderName,
 		ApiKey:        req.APIKey,
 		ConnectorName: req.ConnectorName,
+		BaseURL:       sql.NullString{String: req.BaseURL, Valid: req.BaseURL != ""},
+		SelectedModel: sql.NullString{String: req.SelectedModel, Valid: req.SelectedModel != ""},
 		DisplayOrder:  req.DisplayOrder,
 	}
 
@@ -204,6 +208,99 @@ func (s *Server) GetAIConnectors(c echo.Context) error {
 	}
 
 	return c.JSON(http.StatusOK, response)
+}
+
+// UpdateAIConnector handles requests to update an existing AI connector
+func (s *Server) UpdateAIConnector(c echo.Context) error {
+	// Get connector ID from URL parameter
+	id := c.Param("id")
+	if id == "" {
+		return c.JSON(http.StatusBadRequest, map[string]string{
+			"error": "Connector ID is required",
+		})
+	}
+
+	// Parse connector ID
+	connectorID, err := strconv.ParseInt(id, 10, 64)
+	if err != nil {
+		return c.JSON(http.StatusBadRequest, map[string]string{
+			"error": "Invalid connector ID",
+		})
+	}
+
+	// Parse request body
+	var req AIConnectorCreateRequest
+	if err := c.Bind(&req); err != nil {
+		return c.JSON(http.StatusBadRequest, map[string]string{
+			"error": "Invalid request body",
+		})
+	}
+
+	// Validate required fields
+	if req.ProviderName == "" {
+		return c.JSON(http.StatusBadRequest, map[string]string{
+			"error": "Provider name is required",
+		})
+	}
+
+	if req.APIKey == "" {
+		return c.JSON(http.StatusBadRequest, map[string]string{
+			"error": "API key is required",
+		})
+	}
+
+	if req.ConnectorName == "" {
+		return c.JSON(http.StatusBadRequest, map[string]string{
+			"error": "Connector name is required",
+		})
+	}
+
+	// Create a storage instance
+	storage := aiconnectors.NewStorage(s.db)
+
+	// Get existing connector to update
+	existingConnector, err := storage.GetConnectorByID(context.Background(), connectorID)
+	if err != nil {
+		return c.JSON(http.StatusNotFound, map[string]string{
+			"error": "Connector not found",
+		})
+	}
+
+	// Update connector fields
+	existingConnector.ProviderName = req.ProviderName
+	existingConnector.ApiKey = req.APIKey
+	existingConnector.ConnectorName = req.ConnectorName
+	existingConnector.DisplayOrder = req.DisplayOrder
+
+	// Update Ollama-specific fields if provided
+	if req.BaseURL != "" {
+		existingConnector.BaseURL = sql.NullString{String: req.BaseURL, Valid: true}
+	}
+	if req.SelectedModel != "" {
+		existingConnector.SelectedModel = sql.NullString{String: req.SelectedModel, Valid: true}
+	}
+
+	// Save updated connector
+	if err := storage.UpdateConnector(context.Background(), existingConnector); err != nil {
+		log.Error().Err(err).Msg("Failed to update connector")
+		return c.JSON(http.StatusInternalServerError, map[string]string{
+			"error": "Failed to update connector: " + err.Error(),
+		})
+	}
+
+	// Return success response
+	return c.JSON(http.StatusOK, AIConnectorResponse{
+		ID:            existingConnector.ID,
+		ProviderName:  existingConnector.ProviderName,
+		ConnectorName: existingConnector.ConnectorName,
+		DisplayOrder:  existingConnector.DisplayOrder,
+		CreatedAt:     existingConnector.CreatedAt.Format(time.RFC3339),
+		UpdatedAt:     existingConnector.UpdatedAt.Format(time.RFC3339),
+		APIKeyPreview: getMaskedKey(existingConnector.ApiKey),
+		BaseURL:       existingConnector.GetBaseURL(),
+		SelectedModel: existingConnector.GetSelectedModel(),
+		APIKey:        existingConnector.ApiKey,
+	})
 }
 
 // DeleteAIConnector handles requests to delete an AI connector by ID

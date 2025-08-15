@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { AIConnector } from '../types';
 import { 
     createAIConnector, 
+    updateAIConnector,
     deleteAIConnector
 } from '../../../api/connectors';
 import { 
@@ -86,18 +87,20 @@ export const useConnectors = (): UseConnectorsResult => {
                 const displayOrder = connectors.filter(c => c.providerName === providerId).length;
                 
                 if (existingConnector) {
-                    // Update existing connector (not implemented yet in the backend)
-                    // For now, just update the UI
-                    const updatedConnectors = connectors.map(c => 
-                        c.id === existingConnector.id 
-                            ? { 
-                                ...c, 
-                                name: name || c.name,
-                                apiKey: apiKey || c.apiKey 
-                            } 
-                            : c
+                    // Update existing connector
+                    const result = await updateAIConnector(
+                        existingConnector.id,
+                        providerId,
+                        apiKey,
+                        name,
+                        existingConnector.displayOrder,
+                        baseURL,
+                        selectedModel
                     );
-                    setConnectors(updatedConnectors);
+                    console.log('Connector updated:', result);
+                    
+                    // After updating, refresh the connector list
+                    await fetchConnectors();
                 } else {
                 // Create new connector in the backend
                 const result = await createAIConnector(

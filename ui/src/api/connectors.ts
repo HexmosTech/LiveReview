@@ -167,6 +167,45 @@ export const createAIConnector = async (
 };
 
 /**
+ * Update an existing AI connector
+ * @param connectorId The ID of the connector to update
+ * @param providerName The provider name (e.g., 'openai', 'gemini', 'claude')
+ * @param apiKey The API key for the connector
+ * @param connectorName A user-friendly name for this connector
+ * @param displayOrder Order to display in the UI (lower numbers first)
+ * @param baseURL Optional base URL for the API (for custom endpoints)
+ * @param selectedModel Optional selected model for the connector
+ * @returns Promise with the updated connector
+ */
+export const updateAIConnector = async (
+  connectorId: string,
+  providerName: string,
+  apiKey: string,
+  connectorName: string,
+  displayOrder: number = 0,
+  baseURL?: string,
+  selectedModel?: string
+): Promise<any> => {
+  try {
+    const response = await apiClient.put(
+      `/api/v1/aiconnectors/${connectorId}`,
+      {
+        provider_name: providerName,
+        api_key: apiKey,
+        connector_name: connectorName,
+        display_order: displayOrder,
+        base_url: baseURL,
+        selected_model: selectedModel,
+      }
+    );
+    return response;
+  } catch (error) {
+    console.error('Error updating AI connector:', error);
+    throw error;
+  }
+};
+
+/**
  * Delete an AI connector
  * @param connectorId The ID of the connector to delete
  * @returns Promise with the deletion result
