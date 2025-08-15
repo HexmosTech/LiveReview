@@ -221,6 +221,23 @@ export const deleteAIConnector = async (connectorId: string): Promise<any> => {
 };
 
 /**
+ * Update display order for multiple AI connectors
+ * @param updates Array of connector ID and display order pairs
+ * @returns Promise with the reorder result
+ */
+export const reorderAIConnectors = async (
+  updates: Array<{ id: string; display_order: number }>
+): Promise<any> => {
+  try {
+    const response = await apiClient.put('/api/v1/aiconnectors/reorder', updates);
+    return response;
+  } catch (error) {
+    console.error('Error reordering AI connectors:', error);
+    throw error;
+  }
+};
+
+/**
  * Fetch available models from an Ollama instance
  * @param baseURL The base URL of the Ollama instance (e.g., 'http://localhost:11434')
  * @param jwtToken Optional JWT token for authentication

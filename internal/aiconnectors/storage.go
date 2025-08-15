@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"strconv"
 	"time"
 )
 
@@ -317,4 +318,53 @@ func maskAPIKey(apiKey string) string {
 		return "****"
 	}
 	return apiKey[:4] + "..." + apiKey[len(apiKey)-4:]
+}
+
+// GetMaxDisplayOrder returns the maximum display_order value in the database
+func (s *Storage) GetMaxDisplayOrder(ctx context.Context) (int, error) {
+	query := `SELECT COALESCE(MAX(display_order), 0) FROM ai_connectors`
+
+	var maxOrder int
+	err := s.db.QueryRowContext(ctx, query).Scan(&maxOrder)
+	if err != nil {
+		return 0, fmt.Errorf("failed to get max display order: %w", err)
+	}
+
+	return maxOrder, nil
+}
+
+// UpdateDisplayOrders updates the display order for multiple connectors
+func (s *Storage) UpdateDisplayOrders(ctx context.Context, updates []DisplayOrderUpdate) error {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("failed to begin transaction: %w", err)
+	}
+	defer tx.Rollback()
+
+	query := `UPDATE ai_connectors SET display_order = $1, updated_at = NOW() WHERE id = $2`
+
+	for _, update := range updates {
+		// Convert string ID to int64
+		connectorID, err := strconv.ParseInt(update.ID, 10, 64)
+		if err != nil {
+			return fmt.Errorf("invalid connector ID %s: %w", update.ID, err)
+		}
+
+		_, err = tx.ExecContext(ctx, query, update.DisplayOrder, connectorID)
+		if err != nil {
+			return fmt.Errorf("failed to update display order for connector %s: %w", update.ID, err)
+		}
+	}
+
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("failed to commit transaction: %w", err)
+	}
+
+	return nil
+}
+
+// DisplayOrderUpdate represents a display order update for a connector
+type DisplayOrderUpdate struct {
+	ID           string `json:"id"`
+	DisplayOrder int    `json:"display_order"`
 }

@@ -106,6 +106,7 @@ const AIProviders: React.FC = () => {
         fetchConnectors,
         saveConnector,
         deleteConnector,
+        reorderConnectors,
         setError
     } = useConnectors();
     
@@ -403,6 +404,7 @@ const AIProviders: React.FC = () => {
                             onToggleDropdown={() => setShowDropdown(!showDropdown)}
                             onSelectProviderToAdd={handleSelectProviderToAdd}
                             dropdownRef={dropdownRef}
+                            reorderConnectors={reorderConnectors}
                         />
                     </div>
                 </div>
