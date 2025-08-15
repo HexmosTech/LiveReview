@@ -306,6 +306,8 @@ func (r *ConnectorRecord) ToAPIResponse() map[string]interface{} {
 		"api_key_preview": maskAPIKey(r.ApiKey),
 		"model":           r.Model,
 		"is_active":       r.IsActive,
+		"base_url":        r.GetBaseURL(),
+		"selected_model":  r.GetSelectedModel(),
 	}
 }
 

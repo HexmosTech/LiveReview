@@ -17,6 +17,12 @@ interface OllamaConnectorFormProps {
     isLoading?: boolean;
     error?: string | null;
     setError: (error: string | null) => void;
+    editingConnector?: {
+        name: string;
+        baseURL: string;
+        jwtToken: string;
+        selectedModel: string;
+    } | null;
 }
 
 const OllamaConnectorForm: React.FC<OllamaConnectorFormProps> = ({
@@ -25,13 +31,14 @@ const OllamaConnectorForm: React.FC<OllamaConnectorFormProps> = ({
     onCancel,
     isLoading = false,
     error,
-    setError
+    setError,
+    editingConnector = null
 }) => {
     const [formState, setFormState] = useState({
-        name: `Ollama-${Date.now()}`,
-        baseURL: 'http://localhost:11434/ollama/api',
-        jwtToken: '',
-        selectedModel: ''
+        name: editingConnector?.name || `Ollama-${Date.now()}`,
+        baseURL: editingConnector?.baseURL || 'http://localhost:11434/ollama/api',
+        jwtToken: editingConnector?.jwtToken || '',
+        selectedModel: editingConnector?.selectedModel || ''
     });
     
     const [availableModels, setAvailableModels] = useState<string[]>([]);
@@ -104,7 +111,7 @@ const OllamaConnectorForm: React.FC<OllamaConnectorFormProps> = ({
     const canSave = formState.name.trim() && formState.baseURL.trim() && formState.selectedModel && !isLoading;
 
     return (
-        <Card title="Add Ollama Connector">
+        <Card title={editingConnector ? "Edit Ollama Connector" : "Add Ollama Connector"}>
             {error && (
                 <Alert 
                     variant="error" 
@@ -176,6 +183,15 @@ const OllamaConnectorForm: React.FC<OllamaConnectorFormProps> = ({
                         </Button>
                     </div>
                     
+                    {/* Show currently selected model from database when editing */}
+                    {editingConnector && editingConnector.selectedModel && !modelsFetched && (
+                        <div className="text-sm text-blue-400 p-3 bg-blue-900/20 rounded-md border border-blue-700">
+                            Currently selected: <strong>{editingConnector.selectedModel}</strong>
+                            <br />
+                            <span className="text-slate-400">Click "Fetch Models" to see all available models and change selection</span>
+                        </div>
+                    )}
+                    
                     {!modelsFetched && (
                         <div className="text-sm text-slate-400 p-3 bg-slate-800 rounded-md">
                             Click "Fetch Models" to load available models from your Ollama instance
@@ -209,7 +225,7 @@ const OllamaConnectorForm: React.FC<OllamaConnectorFormProps> = ({
                         onClick={handleSave}
                         disabled={!canSave}
                     >
-                        {isLoading ? 'Saving...' : 'Save Connector'}
+                        {isLoading ? 'Saving...' : (editingConnector ? 'Update Connector' : 'Save Connector')}
                     </Button>
                     <Button
                         variant="outline"

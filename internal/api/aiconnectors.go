@@ -108,6 +108,9 @@ type AIConnectorResponse struct {
 	CreatedAt     string `json:"created_at"`
 	UpdatedAt     string `json:"updated_at"`
 	APIKeyPreview string `json:"api_key_preview"`
+	BaseURL       string `json:"base_url,omitempty"`
+	SelectedModel string `json:"selected_model,omitempty"`
+	APIKey        string `json:"api_key,omitempty"` // Full API key for editing (only when requested)
 }
 
 // CreateAIConnector handles requests to create a new AI connector
@@ -194,6 +197,9 @@ func (s *Server) GetAIConnectors(c echo.Context) error {
 			CreatedAt:     connector.CreatedAt.Format(time.RFC3339),
 			UpdatedAt:     connector.UpdatedAt.Format(time.RFC3339),
 			APIKeyPreview: getMaskedKey(connector.ApiKey),
+			BaseURL:       connector.GetBaseURL(),
+			SelectedModel: connector.GetSelectedModel(),
+			APIKey:        connector.ApiKey, // Include full API key for editing
 		})
 	}
 

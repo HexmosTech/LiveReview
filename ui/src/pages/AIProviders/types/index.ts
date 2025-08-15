@@ -19,7 +19,9 @@ export interface AIConnector {
     id: string;
     name: string;
     providerName: string;
-    apiKey: string;
+    apiKey: string; // Masked API key for display
+    fullApiKey?: string; // Full API key for editing
+    baseURL?: string; // Base URL for providers like Ollama
     displayOrder: number;
     createdAt: Date;
     lastUsed?: Date;
@@ -33,6 +35,9 @@ export interface AIConnector {
     models?: string[]; // Available models for this connector
     selectedModel?: string; // Currently selected model
     isActive: boolean; // Whether this connector is active or disabled
+    // Legacy field names for backward compatibility
+    base_url?: string; 
+    selected_model?: string;
 }
 
 export interface ConnectorFormData {

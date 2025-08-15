@@ -349,7 +349,7 @@ const AIProviders: React.FC = () => {
                         {(formData.name || formData.apiKey || isEditing) && (
                             <>
                                 {/* Special form for Ollama */}
-                                {((selectedProvider === 'ollama') || (selectedProvider === 'all' && formData.providerType === 'ollama')) && !isEditing ? (
+                                {((selectedProvider === 'ollama') || (selectedProvider === 'all' && formData.providerType === 'ollama')) ? (
                                     <OllamaConnectorForm
                                         provider={popularAIProviders.find(p => p.id === 'ollama')!}
                                         onSave={handleSaveOllamaConnector}
@@ -357,6 +357,15 @@ const AIProviders: React.FC = () => {
                                         isLoading={isLoading}
                                         error={error}
                                         setError={setError}
+                                        editingConnector={isEditing && selectedConnector ? (() => {
+                                            console.log('Debug: selectedConnector data:', selectedConnector);
+                                            return {
+                                                name: selectedConnector.name,
+                                                baseURL: selectedConnector.baseURL || '',
+                                                jwtToken: selectedConnector.fullApiKey || '',
+                                                selectedModel: selectedConnector.selectedModel || ''
+                                            };
+                                        })() : null}
                                     />
                                 ) : (
                                     /* Regular form for other providers */
