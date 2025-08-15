@@ -3,7 +3,8 @@ import { AIConnector } from '../types';
 import { 
     createAIConnector, 
     updateAIConnector,
-    deleteAIConnector
+    deleteAIConnector,
+    reorderAIConnectors
 } from '../../../api/connectors';
 import { 
     fetchAIConnectors,
@@ -24,6 +25,7 @@ interface UseConnectorsResult {
         selectedModel?: string
     ) => Promise<boolean>;
     deleteConnector: (connectorId: string) => Promise<boolean>;
+    reorderConnectors: (newOrder: AIConnector[]) => Promise<boolean>;
     setError: (error: string | null) => void;
 }
 
@@ -152,6 +154,34 @@ export const useConnectors = (): UseConnectorsResult => {
             setIsLoading(false);
         }
     };
+
+    const reorderConnectors = async (newOrder: AIConnector[]): Promise<boolean> => {
+        try {
+            setIsLoading(true);
+            
+            // Create updates array with new display orders
+            const updates = newOrder.map((connector, index) => ({
+                id: connector.id,
+                display_order: index + 1 // 1-based ordering
+            }));
+            
+            // Call API to update display orders
+            await reorderAIConnectors(updates);
+            
+            // Update local state immediately for better UX
+            setConnectors(newOrder);
+            
+            return true;
+        } catch (error) {
+            console.error('Error reordering connectors:', error);
+            setError('Failed to reorder connectors. Please try again.');
+            // Refresh to get the correct order from server
+            await fetchConnectors();
+            return false;
+        } finally {
+            setIsLoading(false);
+        }
+    };
     
     return {
         connectors,
@@ -160,6 +190,7 @@ export const useConnectors = (): UseConnectorsResult => {
         fetchConnectors,
         saveConnector,
         deleteConnector,
+        reorderConnectors,
         setError
     };
 };

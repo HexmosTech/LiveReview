@@ -146,6 +146,15 @@ func (s *Server) CreateAIConnector(c echo.Context) error {
 	// Create a storage instance
 	storage := aiconnectors.NewStorage(s.db)
 
+	// Get the current max display order and increment it
+	maxOrder, err := storage.GetMaxDisplayOrder(context.Background())
+	if err != nil {
+		log.Error().Err(err).Msg("Failed to get max display order")
+		return c.JSON(http.StatusInternalServerError, map[string]string{
+			"error": "Failed to get max display order: " + err.Error(),
+		})
+	}
+
 	// Create a connector record
 	connector := &aiconnectors.ConnectorRecord{
 		ProviderName:  req.ProviderName,
@@ -153,7 +162,7 @@ func (s *Server) CreateAIConnector(c echo.Context) error {
 		ConnectorName: req.ConnectorName,
 		BaseURL:       sql.NullString{String: req.BaseURL, Valid: req.BaseURL != ""},
 		SelectedModel: sql.NullString{String: req.SelectedModel, Valid: req.SelectedModel != ""},
-		DisplayOrder:  req.DisplayOrder,
+		DisplayOrder:  maxOrder + 1, // Auto-assign next order
 	}
 
 	// Save the connector to the database
@@ -300,6 +309,38 @@ func (s *Server) UpdateAIConnector(c echo.Context) error {
 		BaseURL:       existingConnector.GetBaseURL(),
 		SelectedModel: existingConnector.GetSelectedModel(),
 		APIKey:        existingConnector.ApiKey,
+	})
+}
+
+// ReorderAIConnectors handles requests to reorder AI connectors
+func (s *Server) ReorderAIConnectors(c echo.Context) error {
+	// Parse request body
+	var updates []aiconnectors.DisplayOrderUpdate
+	if err := c.Bind(&updates); err != nil {
+		return c.JSON(http.StatusBadRequest, map[string]string{
+			"error": "Invalid request body",
+		})
+	}
+
+	if len(updates) == 0 {
+		return c.JSON(http.StatusBadRequest, map[string]string{
+			"error": "No updates provided",
+		})
+	}
+
+	// Create a storage instance
+	storage := aiconnectors.NewStorage(s.db)
+
+	// Update display orders
+	if err := storage.UpdateDisplayOrders(context.Background(), updates); err != nil {
+		log.Error().Err(err).Msg("Failed to update display orders")
+		return c.JSON(http.StatusInternalServerError, map[string]string{
+			"error": "Failed to update display orders: " + err.Error(),
+		})
+	}
+
+	return c.JSON(http.StatusOK, map[string]string{
+		"message": "Display orders updated successfully",
 	})
 }
 
