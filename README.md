@@ -1,2 +1,3 @@
 # LiveReview
-Self-Hosted and Secure AI Code Reviewer (Bring your own AI Key)
+
+AI Code Reviews, Secure and Self-Hosted
