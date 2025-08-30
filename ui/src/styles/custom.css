@@ -1,0 +1,168 @@
+/* LiveReview Brand Colors */
+:root {
+  --primary-blue: #3B82F6;
+  --light-blue: #60A5FA;
+  --dark-blue: #1E40AF;
+  --blue-glow: #93C5FD;
+  
+  --bg-dark: #0F172A;
+  --bg-medium: #1E293B;
+  --bg-light: #334155;
+  --bg-card: #1E293B;
+  
+  --success-green: #10B981;
+  --border-subtle: #475569;
+}
+
+/* Dark Mode Styles */
+.dark-mode {
+  background-color: var(--bg-dark);
+  color: white;
+}
+
+.dark-mode .card {
+  background-color: var(--bg-card);
+  border-color: var(--border-subtle);
+}
+
+/* Improved Button Styles */
+.btn-brand {
+  background: linear-gradient(135deg, var(--primary-blue) 0%, var(--dark-blue) 100%);
+  color: white;
+  transition: all 0.3s ease;
+  box-shadow: 0 4px 14px 0 rgba(59, 130, 246, 0.25);
+}
+
+.btn-brand:hover {
+  background: linear-gradient(135deg, var(--light-blue) 0%, var(--primary-blue) 100%);
+  box-shadow: 0 8px 25px 0 rgba(59, 130, 246, 0.4);
+  transform: translateY(-2px);
+}
+
+/* Logo Animation */
+.logo-animation {
+  transition: transform 0.3s ease;
+}
+
+.logo-animation:hover {
+  transform: scale(1.05);
+}
+
+/* Enhanced Card Styles */
+.card-brand {
+  transition: all 0.3s ease;
+  background: rgba(30, 41, 59, 0.9);
+  backdrop-filter: blur(12px);
+  border: 1px solid rgba(71, 85, 105, 0.6);
+}
+
+.card-brand:hover {
+  transform: translateY(-3px);
+  box-shadow: 0 12px 30px -8px rgba(59, 130, 246, 0.15), 
+              0 6px 20px -5px rgba(0, 0, 0, 0.3);
+  border-color: rgba(59, 130, 246, 0.3);
+}
+
+/* Floating Action Button */
+.floating-action-btn {
+  position: fixed;
+  bottom: 24px;
+  right: 24px;
+  width: 56px;
+  height: 56px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, var(--primary-blue) 0%, var(--dark-blue) 100%);
+  box-shadow: 0 8px 25px rgba(59, 130, 246, 0.4), 0 4px 12px rgba(0, 0, 0, 0.3);
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  z-index: 40;
+}
+
+.floating-action-btn:hover {
+  transform: scale(1.1) translateY(-2px);
+  box-shadow: 0 12px 35px rgba(59, 130, 246, 0.5), 0 6px 20px rgba(0, 0, 0, 0.4);
+}
+
+/* Branded Gradient Background */
+.brand-gradient {
+  background: linear-gradient(135deg, var(--bg-dark) 0%, var(--bg-medium) 50%, var(--bg-light) 100%);
+}
+
+/* Enhanced Status Colors */
+.status-success {
+  color: var(--success-green);
+}
+
+.status-warning {
+  color: #F59E0B;
+}
+
+.status-error {
+  color: #EF4444;
+}
+
+/* Improved Focus States */
+.focus-brand:focus {
+  outline: none;
+  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.5);
+}
+
+/* Custom Scrollbar with Brand Colors */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: var(--bg-medium);
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb {
+  background: linear-gradient(135deg, var(--primary-blue) 0%, var(--dark-blue) 100%);
+  border-radius: 4px;
+  transition: background 0.3s ease;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: linear-gradient(135deg, var(--light-blue) 0%, var(--primary-blue) 100%);
+}
+
+/* Badge Enhancements */
+.badge-brand {
+  background: linear-gradient(135deg, rgba(59, 130, 246, 0.15) 0%, rgba(30, 64, 175, 0.15) 100%);
+  color: var(--light-blue);
+  border: 1px solid rgba(59, 130, 246, 0.3);
+  backdrop-filter: blur(8px);
+}
+
+/* Animation Classes */
+.fade-in {
+  animation: fadeIn 0.5s ease-in-out;
+}
+
+.slide-up {
+  animation: slideUp 0.6s ease-out;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes slideUp {
+  from { 
+    opacity: 0; 
+    transform: translateY(20px); 
+  }
+  to { 
+    opacity: 1; 
+    transform: translateY(0); 
+  }
+}
+
+/* Enhanced Empty State */
+.empty-state-card {
+  background: linear-gradient(135deg, rgba(59, 130, 246, 0.05) 0%, rgba(30, 41, 59, 0.8) 100%);
+  border: 2px dashed rgba(59, 130, 246, 0.3);
+  backdrop-filter: blur(12px);
+}

@@ -1,0 +1,96 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg width="800" height="800" viewBox="0 0 800 800" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <!-- Background -->
+  <rect width="800" height="800" fill="#0F172A" />
+  
+  <!-- Title -->
+  <text x="400" y="60" font-family="Inter, Arial, sans-serif" font-size="24" fill="white" text-anchor="middle" font-weight="bold">LiveReview Logo Usage Guidelines</text>
+  
+  <!-- Correct Usage Section -->
+  <text x="400" y="120" font-family="Inter, Arial, sans-serif" font-size="20" fill="#10B981" text-anchor="middle">Correct Usage</text>
+  
+  <!-- Dark Background (Preferred) -->
+  <rect x="100" y="150" width="280" height="150" rx="8" fill="#030712" />
+  <circle cx="240" cy="225" r="30" fill="#3B82F6" />
+  <circle cx="240" cy="225" r="15" fill="#030712" />
+  <!-- Rays -->
+  <line x1="240" y1="185" x2="240" y2="200" stroke="#3B82F6" stroke-width="2" />
+  <line x1="240" y1="250" x2="240" y2="265" stroke="#3B82F6" stroke-width="2" />
+  <line x1="200" y1="225" x2="215" y2="225" stroke="#3B82F6" stroke-width="2" />
+  <line x1="265" y1="225" x2="280" y2="225" stroke="#3B82F6" stroke-width="2" />
+  <!-- Diagonal Rays -->
+  <line x1="211" y1="196" x2="222" y2="207" stroke="#3B82F6" stroke-width="2" />
+  <line x1="258" y1="243" x2="269" y2="254" stroke="#3B82F6" stroke-width="2" />
+  <line x1="211" y1="254" x2="222" y2="243" stroke="#3B82F6" stroke-width="2" />
+  <line x1="258" y1="207" x2="269" y2="196" stroke="#3B82F6" stroke-width="2" />
+  <text x="240" y="320" font-family="Inter, Arial, sans-serif" font-size="14" fill="white" text-anchor="middle">On Dark Background (Preferred)</text>
+  
+  <!-- Clear Space Example -->
+  <rect x="420" y="150" width="280" height="150" rx="8" fill="#111827" />
+  <rect x="490" y="175" width="140" height="100" rx="4" stroke="#60A5FA" stroke-width="1" stroke-dasharray="4 2" fill="none" />
+  <circle cx="560" cy="225" r="30" fill="#3B82F6" />
+  <circle cx="560" cy="225" r="15" fill="#111827" />
+  <!-- Rays -->
+  <line x1="560" y1="185" x2="560" y2="200" stroke="#3B82F6" stroke-width="2" />
+  <line x1="560" y1="250" x2="560" y2="265" stroke="#3B82F6" stroke-width="2" />
+  <line x1="520" y1="225" x2="535" y2="225" stroke="#3B82F6" stroke-width="2" />
+  <line x1="585" y1="225" x2="600" y2="225" stroke="#3B82F6" stroke-width="2" />
+  <!-- Diagonal Rays -->
+  <line x1="531" y1="196" x2="542" y2="207" stroke="#3B82F6" stroke-width="2" />
+  <line x1="578" y1="243" x2="589" y2="254" stroke="#3B82F6" stroke-width="2" />
+  <line x1="531" y1="254" x2="542" y2="243" stroke="#3B82F6" stroke-width="2" />
+  <line x1="578" y1="207" x2="589" y2="196" stroke="#3B82F6" stroke-width="2" />
+  <text x="560" y="320" font-family="Inter, Arial, sans-serif" font-size="14" fill="white" text-anchor="middle">Maintain Clear Space</text>
+  
+  <!-- Incorrect Usage Section -->
+  <text x="400" y="380" font-family="Inter, Arial, sans-serif" font-size="20" fill="#EF4444" text-anchor="middle">Incorrect Usage</text>
+  
+  <!-- Distorted -->
+  <rect x="100" y="410" width="280" height="150" rx="8" fill="#030712" />
+  <ellipse cx="240" cy="485" rx="40" ry="20" fill="#3B82F6" />
+  <ellipse cx="240" cy="485" rx="20" ry="10" fill="#030712" />
+  <!-- Rays -->
+  <line x1="240" y1="455" x2="240" y2="470" stroke="#3B82F6" stroke-width="2" />
+  <line x1="240" y1="500" x2="240" y2="515" stroke="#3B82F6" stroke-width="2" />
+  <line x1="200" y1="485" x2="215" y2="485" stroke="#3B82F6" stroke-width="2" />
+  <line x1="265" y1="485" x2="280" y2="485" stroke="#3B82F6" stroke-width="2" />
+  <text x="240" y="580" font-family="Inter, Arial, sans-serif" font-size="14" fill="#EF4444" text-anchor="middle">Do Not Distort</text>
+  
+  <!-- Color Change -->
+  <rect x="420" y="410" width="280" height="150" rx="8" fill="#030712" />
+  <circle cx="560" cy="485" r="30" fill="#EF4444" />
+  <circle cx="560" cy="485" r="15" fill="#030712" />
+  <!-- Rays -->
+  <line x1="560" y1="445" x2="560" y2="460" stroke="#EF4444" stroke-width="2" />
+  <line x1="560" y1="510" x2="560" y2="525" stroke="#EF4444" stroke-width="2" />
+  <line x1="520" y1="485" x2="535" y2="485" stroke="#EF4444" stroke-width="2" />
+  <line x1="585" y1="485" x2="600" y2="485" stroke="#EF4444" stroke-width="2" />
+  <!-- Diagonal Rays -->
+  <line x1="531" y1="456" x2="542" y2="467" stroke="#EF4444" stroke-width="2" />
+  <line x1="578" y1="503" x2="589" y2="514" stroke="#EF4444" stroke-width="2" />
+  <line x1="531" y1="514" x2="542" y2="503" stroke="#EF4444" stroke-width="2" />
+  <line x1="578" y1="467" x2="589" y2="456" stroke="#EF4444" stroke-width="2" />
+  <text x="560" y="580" font-family="Inter, Arial, sans-serif" font-size="14" fill="#EF4444" text-anchor="middle">Do Not Change Colors</text>
+  
+  <!-- Light Background -->
+  <rect x="100" y="630" width="280" height="150" rx="8" fill="#FFFFFF" />
+  <circle cx="240" cy="705" r="30" fill="#3B82F6" />
+  <circle cx="240" cy="705" r="15" fill="#FFFFFF" />
+  <!-- Rays -->
+  <line x1="240" y1="665" x2="240" y2="680" stroke="#3B82F6" stroke-width="2" />
+  <line x1="240" y1="730" x2="240" y2="745" stroke="#3B82F6" stroke-width="2" />
+  <line x1="200" y1="705" x2="215" y2="705" stroke="#3B82F6" stroke-width="2" />
+  <line x1="265" y1="705" x2="280" y2="705" stroke="#3B82F6" stroke-width="2" />
+  <!-- Diagonal Rays -->
+  <line x1="211" y1="676" x2="222" y2="687" stroke="#3B82F6" stroke-width="2" />
+  <line x1="258" y1="723" x2="269" y2="734" stroke="#3B82F6" stroke-width="2" />
+  <line x1="211" y1="734" x2="222" y2="723" stroke="#3B82F6" stroke-width="2" />
+  <line x1="258" y1="687" x2="269" y2="676" stroke="#3B82F6" stroke-width="2" />
+  <text x="240" y="770" font-family="Inter, Arial, sans-serif" font-size="14" fill="#111827" text-anchor="middle">Avoid Light Backgrounds</text>
+  
+  <!-- Elements Removed -->
+  <rect x="420" y="630" width="280" height="150" rx="8" fill="#030712" />
+  <circle cx="560" cy="705" r="30" fill="#3B82F6" />
+  <circle cx="560" cy="705" r="15" fill="#030712" />
+  <text x="560" y="770" font-family="Inter, Arial, sans-serif" font-size="14" fill="#EF4444" text-anchor="middle">Do Not Remove Elements</text>
+</svg>

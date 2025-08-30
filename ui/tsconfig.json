@@ -1,0 +1,38 @@
+{
+    "compilerOptions": {
+        "allowSyntheticDefaultImports": true,
+        "allowJs": false,
+        "jsx": "react",
+        "module": "commonjs",
+        "noImplicitAny": true,
+        "preserveConstEnums": true,
+        "removeComments": true,
+        "sourceMap": false,
+        "target": "es5",
+        "resolveJsonModule": true,
+        "esModuleInterop": true ,
+        // "suppressImplicitAnyIndexErrors": true,
+        "typeRoots": [  
+            "./src/types", 
+            "./node_modules/@types"
+        ],
+        "lib": [ "es2015", "dom" ],
+        "paths": {
+            "@components/*": ["./src/components/*"],
+            "@constants/*": ["./src/constants/*"],
+            "@hooks/*": ["./src/hooks/*"],
+            "@services/*": ["./src/services/*"],
+            "@store/*": ["./src/store/*"],
+            "@styles/*": ["./src/styles/*"],
+            "@typing/*": ["./src/types/*"],
+            "@utils/*": ["./src/utils/*"],
+        }
+    },
+    "exclude": [
+        "**/node_modules", 
+        "**/.*/"
+    ],
+    "include": [
+        "./src/**/**/*"
+    ]
+}

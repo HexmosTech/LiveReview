@@ -1,0 +1,50 @@
+services:
+  livereview-app:
+    image: git.apps.hexmos.com:5050/hexmos/livereview
+    container_name: livereview-app
+    ports:
+      - "8888:8888"  # Backend API
+      - "8081:8081"  # Frontend UI
+    env_file:
+      - .env
+    environment:
+      # Override DATABASE_URL to use internal container hostname
+      - DATABASE_URL=postgres://livereview:${DB_PASSWORD}@livereview-db:5432/livereview?sslmode=disable
+      - LIVEREVIEW_VERSION=${LIVEREVIEW_VERSION:-production}
+      # API URL for frontend configuration (defaults to localhost if not set)
+      - LIVEREVIEW_API_URL=${LIVEREVIEW_API_URL:-http://localhost:8888}
+    depends_on:
+      livereview-db:
+        condition: service_healthy
+    volumes:
+      # Mount .env file as read-only
+      - ./.env:/app/.env:ro
+      # Mount entire lrdata directory for persistence
+      - ./lrdata:/app/lrdata
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8888/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+
+  livereview-db:
+    image: postgres:15-alpine
+    container_name: livereview-db
+    environment:
+      - POSTGRES_USER=livereview
+      - POSTGRES_PASSWORD=${DB_PASSWORD}
+      - POSTGRES_DB=livereview
+    volumes:
+      - ./lrdata/postgres:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U livereview -d livereview"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    restart: unless-stopped
+    # Don't expose database port to host for security
+
+# No volumes section needed since we're using bind mounts

@@ -1,0 +1,9 @@
+livereview
+hunk_format_logs
+air.log
+
+# Log files
+*.log
+logs/
+*.log.*
+log/
