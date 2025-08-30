@@ -1,0 +1,87 @@
+/* Dark Mode Theme */
+body {
+  background-color: #0f172a; /* dark bg-slate-900 */
+  color: #f8fafc; /* text-slate-50 */
+}
+
+/* Dark navbar */
+.navbar-dark {
+  background-color: #1e293b; /* bg-slate-800 */
+  border-color: #334155; /* border-slate-700 */
+}
+
+/* Dark card */
+.card-dark {
+  background-color: #1e293b; /* bg-slate-800 */
+  border-color: #334155; /* border-slate-700 */
+  box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.2), 0 2px 4px -2px rgb(0 0 0 / 0.2);
+}
+
+/* Stats */
+.stats-dark {
+  background-color: #1e293b; /* bg-slate-800 */
+  color: #f8fafc; /* text-slate-50 */
+}
+
+/* Typography adjustments */
+h1, h2, h3, h4, h5, h6 {
+  color: #f8fafc; /* text-slate-50 */
+}
+
+/* Text colors */
+.text-dark-primary {
+  color: #f1f5f9; /* text-slate-100 */
+}
+
+.text-dark-secondary {
+  color: #cbd5e1; /* text-slate-300 */
+}
+
+/* Border adjustments */
+.border-dark {
+  border-color: #374151; /* border-gray-700 */
+}
+
+/* Button adjustments for dark mode */
+.dark-button-primary {
+  background-color: #3b82f6; /* bg-blue-500 */
+  color: #ffffff;
+}
+
+.dark-button-secondary {
+  background-color: #4b5563; /* bg-gray-600 */
+  color: #ffffff;
+}
+
+.dark-button-outline {
+  border-color: #6b7280; /* border-gray-500 */
+  color: #e5e7eb; /* text-gray-200 */
+}
+
+/* Input adjustments */
+.dark-input {
+  background-color: #374151; /* bg-gray-700 */
+  border-color: #4b5563; /* border-gray-600 */
+  color: #f3f4f6; /* text-gray-100 */
+}
+
+.dark-input::placeholder {
+  color: #9ca3af; /* text-gray-400 */
+}
+
+/* Form elements */
+select.dark-select, 
+input.dark-input {
+  background-color: #374151; /* bg-gray-700 */
+  border-color: #4b5563; /* border-gray-600 */
+  color: #f3f4f6; /* text-gray-100 */
+}
+
+/* Links in dark mode */
+a.dark-link {
+  color: #60a5fa; /* text-blue-400 */
+}
+
+a.dark-link:hover {
+  color: #93c5fd; /* text-blue-300 */
+}

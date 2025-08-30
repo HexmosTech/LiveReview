@@ -1,0 +1,72 @@
+# Git and version control
+.git
+.gitignore
+
+# Build artifacts and caches
+livereview
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+.pytest_cache/
+
+# Node.js
+ui/node_modules/
+ui/.npm
+ui/.eslintcache
+
+# Development and local files
+.env
+.env.local
+.env.development
+.env.test
+.env.production
+.air.toml
+.vscode/
+
+# Database data
+livereview_pgdata/
+lrdata/
+*.sql
+*.db
+
+# Logs and temporary files
+review_logs/
+*.log
+*.tmp
+*.temp
+
+# OS generated files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# IDE files
+*.swp
+*.swo
+*~
+
+# Test files and documentation
+tests/
+docs/
+examples/
+README.md
+*.md
+
+# Scripts and tools (but keep docker-entrypoint.sh)
+scripts/
+pgctl.sh
+setup_local_dev.sh
+Makefile*
+
+# Keep docker-entrypoint.sh
+!docker-entrypoint.sh
+
+# Development containers
+docker-compose.yml
+docker-compose.*.yml

@@ -1,0 +1,10 @@
+-- migrate:up
+CREATE TABLE instance_details (
+  id SERIAL PRIMARY KEY,
+  domain_name TEXT NOT NULL,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP NOT NULL,
+  updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP NOT NULL
+);
+
+-- migrate:down
+DROP TABLE IF EXISTS instance_details;
