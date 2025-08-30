@@ -5,6 +5,7 @@
 import { AppStore } from '../store/configureStore';
 import { logout, setTokens } from '../store/Auth/reducer';
 import { refreshToken } from './auth';
+import { tokenManager } from '../utils/tokenManager';
 
 // Extend window interface to include our configuration
 declare global {
@@ -115,6 +116,7 @@ let store: AppStore;
 
 export const injectStore = (_store: AppStore) => {
   store = _store;
+  tokenManager.injectStore(_store);
 };
 
 /**
@@ -178,6 +180,7 @@ async function apiRequest<T>(
       }
       const newTokens = await refreshToken(currentRefreshToken);
       store.dispatch(setTokens(newTokens));
+      tokenManager.onTokenUpdate(); // Reschedule proactive refresh
 
       // Retry the original request with the new token
       const newHeaders = { ...headers };
@@ -186,6 +189,7 @@ async function apiRequest<T>(
       response = await fetch(url, newConfig);
     } catch (error) {
       // Refresh token failed or was unavailable, logout the user
+      tokenManager.onLogout(); // Clear timers
       store.dispatch(logout());
       // Redirect to login page or show a message
       // Use replace to prevent the user from navigating back to the broken page
