@@ -43,8 +43,8 @@ func NewTokenService(db *sql.DB, secretKey string) *TokenService {
 	return &TokenService{
 		db:                   db,
 		secretKey:            []byte(secretKey),
-		AccessTokenDuration:  15 * time.Minute,    // Short-lived access tokens
-		RefreshTokenDuration: 30 * 24 * time.Hour, // 30 days for refresh tokens
+		AccessTokenDuration:  8 * time.Hour,       // 8 hours - good balance of security and UX
+		RefreshTokenDuration: 30 * 24 * time.Hour, // Default: 30 days
 	}
 }
 

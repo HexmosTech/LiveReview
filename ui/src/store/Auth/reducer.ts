@@ -114,6 +114,11 @@ const authSlice = createSlice({
       state.isAuthenticated = true;
       localStorage.setItem('accessToken', action.payload.access_token);
       localStorage.setItem('refreshToken', action.payload.refresh_token);
+      
+      // Notify token manager of token update (for proactive refresh scheduling)
+      if (typeof window !== 'undefined' && (window as any).tokenManager) {
+        (window as any).tokenManager.onTokenUpdate();
+      }
     },
   },
   extraReducers: (builder) => {
