@@ -7,3 +7,6 @@ air.log
 logs/
 *.log.*
 log/
+
+livereview_pgdata/
+lrdata/postgres/
