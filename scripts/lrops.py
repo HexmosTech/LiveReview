@@ -86,6 +86,38 @@ class LiveReviewOps:
                     print(f"Stderr: {e.stderr}")
             raise GitError(f"Command failed: {' '.join(cmd)}: {e.stderr}")
     
+    def _run_command_with_retries(self, cmd, max_retries=3, capture_output=True, check=True, cwd=None):
+        """Run a shell command with retry logic for network operations"""
+        import time
+        
+        cmd_str = ' '.join(cmd)
+        
+        for attempt in range(max_retries + 1):
+            try:
+                if attempt > 0:
+                    wait_time = 2 ** attempt  # Exponential backoff
+                    print(f"🔄 Retry attempt {attempt}/{max_retries} after {wait_time}s...")
+                    time.sleep(wait_time)
+                
+                result = self._run_command(cmd, cwd=cwd, capture_output=capture_output, check=check)
+                return result
+                
+            except GitError as e:
+                if attempt == max_retries:
+                    print(f"\n❌ COMMAND FAILED AFTER {max_retries} RETRIES!")
+                    print(f"💡 You can try running this command manually:")
+                    print(f"   cd {cwd or self.repo_root}")
+                    print(f"   {cmd_str}")
+                    print(f"\n🔍 Common solutions for push timeouts:")
+                    print(f"   1. Check network connectivity to registry")
+                    print(f"   2. Try pushing individual architectures separately")
+                    print(f"   3. Increase Docker daemon timeout settings")
+                    print(f"   4. Use a faster network connection")
+                    raise e
+                else:
+                    print(f"⚠️  Attempt {attempt + 1} failed: {e}")
+                    continue
+    
     def _display_build_plan(self, build_type, version, docker_version, architectures=None, multiarch=False, push=False, make_latest=False, registry=None, image_name=None, git_commit=None, build_time=None):
         """Display comprehensive build plan before execution"""
         print(f"\n{'🚀 BUILD EXECUTION PLAN':=^100}")
@@ -812,7 +844,11 @@ class LiveReviewOps:
             '.'
         ]
         
-        self._run_command(cmd, capture_output=False)
+        # Run with retries for push operations (network can be flaky)
+        if push:
+            self._run_command_with_retries(cmd, max_retries=3, capture_output=False)
+        else:
+            self._run_command(cmd, capture_output=False)
         print(f"✅ Successfully built multi-architecture image with platforms: {platforms}")
         
         # Step 3: Create and push manifest list for latest tag if requested
@@ -854,7 +890,7 @@ class LiveReviewOps:
             
             # Push manifest list
             print(f"Pushing manifest list: {manifest_tag}")
-            self._run_command(['docker', '--context', 'gitlab', 'manifest', 'push', manifest_tag], capture_output=False)
+            self._run_command_with_retries(['docker', '--context', 'gitlab', 'manifest', 'push', manifest_tag], max_retries=3, capture_output=False)
             
         except GitError as e:
             print(f"Warning: Failed to create/push manifest list for {manifest_tag}: {e}")
