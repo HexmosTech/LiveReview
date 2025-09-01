@@ -173,6 +173,15 @@ docker-multiarch-push:
 docker-multiarch-dry:
 	@python scripts/lrops.py build --docker --multiarch --dry-run $(ARGS)
 
+# Cross-compilation Docker build targets (faster ARM builds)
+docker-multiarch-cross:
+	@echo "🚀 Building multi-arch images using cross-compilation for faster ARM builds"
+	@python scripts/lrops.py build --docker --multiarch $(ARGS)
+
+docker-multiarch-cross-push:
+	@echo "🚀 Building and pushing multi-arch images using cross-compilation"
+	@python scripts/lrops.py build --docker --multiarch --push $(ARGS)
+
 # Interactive multi-architecture Docker build
 docker-interactive-multiarch:
 	@python scripts/lrops.py docker --multiarch
