@@ -132,12 +132,6 @@ class LiveReviewOps:
                         '--build-arg', f'VERSION={version}',
                         '--build-arg', f'BUILD_TIME={build_time or "$(date -u +%Y-%m-%dT%H:%M:%SZ)"}',
                         '--build-arg', f'GIT_COMMIT={git_commit or "$(git rev-parse --short HEAD)"}',
-                        '--build-arg', 'UI_PLATFORM=linux/amd64',
-                        '--build-arg', 'GO_BUILDER_PLATFORM=linux/amd64',
-                        '--build-arg', f'TARGETPLATFORM=linux/{arch}',
-                        '--build-arg', f'TARGETARCH={target_arch}',
-                        '--build-arg', f'TARGETOS=linux',
-                        *(['--build-arg', f'GOARM={goarm}'] if goarm else []),
                         '-f', 'Dockerfile.crosscompile',
                         '-t', arch_tag,
                         '--push' if push else '--load',
@@ -756,11 +750,6 @@ class LiveReviewOps:
             '--build-arg', f'VERSION={version}',
             '--build-arg', f'BUILD_TIME={build_time}',
             '--build-arg', f'GIT_COMMIT={git_commit}',
-            '--build-arg', 'UI_PLATFORM=linux/amd64',
-            '--build-arg', 'GO_BUILDER_PLATFORM=linux/amd64',
-            '--build-arg', 'TARGETPLATFORM=linux/amd64',
-            '--build-arg', 'TARGETARCH=amd64',
-            '--build-arg', 'TARGETOS=linux',
             '-f', 'Dockerfile.crosscompile',
             '-t', version_tag,
             '--load',
@@ -793,51 +782,43 @@ class LiveReviewOps:
         print(f"Building multi-architecture Docker image for architectures: {', '.join(architectures)}")
         print("🚀 Using cross-compilation approach for faster ARM builds!")
 
-        # Step 1: Ensure we're using the multiplatform-builder
-        print("Using multiplatform-builder buildx builder...")
-        self._run_command(['docker', 'buildx', 'use', 'multiplatform-builder'], capture_output=False)
-        
-        # Step 2: Build individual architecture images using cross-compilation
+        # Build multi-architecture image in a single command
+        # Create platform list and tags
+        platforms = ','.join([f'linux/{arch}' for arch in architectures])
         arch_tags = []
+        tags_args = []
+        
         for arch in architectures:
             suffix = arch.replace('/', '')  # arm/v7 -> armv7
             arch_tag = f"{full_image}:{docker_version}-{suffix}"
             arch_tags.append(arch_tag)
-            
-            print(f"Cross-compiling and building {arch} image: {arch_tag}")
-            
-            target_arch = 'arm' if arch == 'arm/v7' else arch
-            goarm = '7' if arch == 'arm/v7' else None
-            cmd = [
-                'docker', '--context', 'gitlab', 'buildx', 'build',
-                '--platform', f'linux/{arch}',
-                '--build-arg', f'VERSION={version}',
-                '--build-arg', f'BUILD_TIME={build_time}',
-                '--build-arg', f'GIT_COMMIT={git_commit}',
-                '--build-arg', 'UI_PLATFORM=linux/amd64',
-                '--build-arg', 'GO_BUILDER_PLATFORM=linux/amd64',
-                '--build-arg', f'TARGETPLATFORM=linux/{arch}',
-                '--build-arg', f'TARGETARCH={target_arch}',
-                '--build-arg', f'TARGETOS=linux',
-                *(['--build-arg', f'GOARM={goarm}'] if goarm else []),
-                '-f', 'Dockerfile.crosscompile',  # Use cross-compilation Dockerfile
-                '-t', arch_tag,
-                '--push' if push else '--load',
-                '.'
-            ]
-            
-            self._run_command(cmd, capture_output=False)
-            print(f"✅ Successfully cross-compiled and built {arch} image: {arch_tag}")
+            tags_args.extend(['-t', arch_tag])
         
-        # Step 3: Create and push manifest list for main version tag
-        if push:
-            print(f"Creating manifest list for: {version_tag}")
-            self._create_and_push_manifest(version_tag, arch_tags)
-            
-            # Step 4: Create and push manifest list for latest tag if requested
-            if make_latest:
-                print(f"Creating manifest list for: {latest_tag}")
-                self._create_and_push_manifest(latest_tag, arch_tags)
+        # Also tag with the main version tag
+        tags_args.extend(['-t', version_tag])
+        
+        print(f"Building multi-architecture image for platforms: {platforms}")
+        
+        cmd = [
+            'docker', '--context', 'gitlab', 'buildx', 'build',
+            '--builder', 'gitlab-multiarch',
+            '--platform', platforms,
+            '--build-arg', f'VERSION={version}',
+            '--build-arg', f'BUILD_TIME={build_time}',
+            '--build-arg', f'GIT_COMMIT={git_commit}',
+            '-f', 'Dockerfile.crosscompile',
+        ] + tags_args + [
+            '--push' if push else '--load',
+            '.'
+        ]
+        
+        self._run_command(cmd, capture_output=False)
+        print(f"✅ Successfully built multi-architecture image with platforms: {platforms}")
+        
+        # Step 3: Create and push manifest list for latest tag if requested
+        if push and make_latest:
+            print(f"Creating manifest list for: {latest_tag}")
+            self._create_and_push_manifest(latest_tag, arch_tags)
         
         print(f"🎉 Successfully built multi-architecture image using cross-compilation: {version_tag}")
         if make_latest:

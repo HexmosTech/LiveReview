@@ -2,21 +2,8 @@
 # Cross-compilation optimized Multi-stage Dockerfile for LiveReview
 # Fully Dockerized: builds UI and Go binaries in Docker, then assembles runtime image.
 
-# Expose platform args. Also allow overriding builder-stage platforms explicitly.
-ARG TARGETPLATFORM
-ARG TARGETOS
-ARG TARGETARCH
-ARG TARGETVARIANT
-ARG BUILDPLATFORM
-ARG BUILDOS
-ARG BUILDARCH
-ARG BUILDVARIANT
-ARG UI_PLATFORM=linux/amd64
-ARG GO_BUILDER_PLATFORM=linux/amd64
-
-# Stage 1: Build React UI inside Docker (architecture-agnostic)
-# Pin to builder platform (configurable) so UI builds once and is reused for all target arches
-FROM --platform=$UI_PLATFORM node:18-alpine AS ui-builder
+# Stage 1: Build React UI once (architecture-agnostic)
+FROM --platform=$BUILDPLATFORM node:18-alpine AS ui-builder
 WORKDIR /app/ui
 
 # Copy package files and install dependencies
@@ -29,45 +16,13 @@ RUN echo "🔨 Building UI production assets..." && \
     CI=true NODE_ENV=production npm run build && \
     echo "✅ UI build completed successfully"
 
-# Stage 2: Build River tools once on build platform (architecture-agnostic)
-FROM --platform=$GO_BUILDER_PLATFORM golang:1.24-alpine AS river-tools-builder
+# Stage 2: Cross-compile all binaries for all architectures in one stage
+FROM --platform=$BUILDPLATFORM golang:1.24-alpine AS builder
 
-WORKDIR /app
-
-# Install build dependencies
-RUN echo "🔧 Installing Go build dependencies for River tools..." && \
-    apk add --no-cache curl git ca-certificates
-
-# Build River tools for multiple architectures in one go
-RUN echo "🌊 Building River CLI and UI tools for all architectures..." && \
-    mkdir -p /river-tools/amd64 /river-tools/arm64 /river-tools/arm && \
-    echo "Building river and riverui for amd64..." && \
-    GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go install github.com/riverqueue/river/cmd/river@latest && \
-    GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go install riverqueue.com/riverui/cmd/riverui@latest && \
-    mv $(go env GOPATH)/bin/river /river-tools/amd64/ && \
-    mv $(go env GOPATH)/bin/riverui /river-tools/amd64/ && \
-    echo "Building river and riverui for arm64..." && \
-    GOOS=linux GOARCH=arm64 CGO_ENABLED=0 go install github.com/riverqueue/river/cmd/river@latest && \
-    GOOS=linux GOARCH=arm64 CGO_ENABLED=0 go install riverqueue.com/riverui/cmd/riverui@latest && \
-    mv $(go env GOPATH)/bin/linux_arm64/river /river-tools/arm64/ && \
-    mv $(go env GOPATH)/bin/linux_arm64/riverui /river-tools/arm64/ && \
-    echo "Building river and riverui for arm/v7..." && \
-    GOOS=linux GOARCH=arm GOARM=7 CGO_ENABLED=0 go install github.com/riverqueue/river/cmd/river@latest && \
-    GOOS=linux GOARCH=arm GOARM=7 CGO_ENABLED=0 go install riverqueue.com/riverui/cmd/riverui@latest && \
-    mv $(go env GOPATH)/bin/linux_arm/river /river-tools/arm/ && \
-    mv $(go env GOPATH)/bin/linux_arm/riverui /river-tools/arm/ && \
-    ls -la /river-tools/*/ && \
-    echo "✅ River tools built for all architectures"
-
-# Stage 3: Cross-compile Go binaries and tools
-# Pin to builder platform (configurable) to avoid QEMU while producing TARGET* binaries
-FROM --platform=$GO_BUILDER_PLATFORM golang:1.24-alpine AS go-cross-compiler
-
-# Platform arguments for multi-arch builds
-ARG TARGETPLATFORM
-ARG TARGETARCH
+# Accept target platform args (injected by buildx)
 ARG TARGETOS
-ARG GOARM
+ARG TARGETARCH
+ARG TARGETVARIANT
 
 WORKDIR /app
 
@@ -87,71 +42,58 @@ COPY . .
 # Copy UI assets from UI builder stage
 COPY --from=ui-builder /app/ui/dist ./ui/dist
 
-# Copy River tools from river-tools-builder stage
-COPY --from=river-tools-builder /river-tools /river-tools
-
 # Build arguments for version injection (will be set by lrops.py)
 ARG VERSION=development
 ARG BUILD_TIME=unknown
 ARG GIT_COMMIT=unknown
 
-# Prepare artifacts output directory per-arch
-RUN mkdir -p /artifacts/${TARGETARCH}
-
-# Cross-compile Go binary for target architecture
-RUN echo "🔨 Cross-compiling Go binary for ${TARGETOS}/${TARGETARCH}${GOARM:+ (GOARM=${GOARM})} with version: ${VERSION}" && \
-    CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} GOARM=${GOARM:-} go build \
+# Cross-compile main Go binary for target architecture
+RUN echo "🔨 Cross-compiling LiveReview binary for ${TARGETOS}/${TARGETARCH}${TARGETVARIANT:+/${TARGETVARIANT}} with version: ${VERSION}" && \
+    CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} \
+    $([ "$TARGETARCH" = "arm" ] && [ "$TARGETVARIANT" = "v7" ] && echo "GOARM=7" || echo "") \
+    go build \
     -ldflags="-w -s -X main.version=${VERSION} -X main.buildTime=${BUILD_TIME} -X main.gitCommit=${GIT_COMMIT}" \
-    -v -o /artifacts/${TARGETARCH}/livereview . && \
-    echo "Go binary cross-compiled successfully for ${TARGETARCH}"
+    -v -o /out/livereview . && \
+    echo "LiveReview binary cross-compiled successfully for ${TARGETARCH}"
 
-# Cross-compile/download dbmate for target architecture
-RUN echo "📊 Installing dbmate for ${TARGETARCH}..." && \
+# Cross-compile River CLI and UI tools for target architecture
+RUN echo "🌊 Cross-compiling River CLI and UI tools for ${TARGETARCH}..." && \
+    # Create temporary directory for building tools
+    mkdir -p /tmp/tools && \
+    cd /tmp/tools && \
+    # Initialize a temporary module
+    go mod init temp && \
+    # Add the dependencies
+    go get github.com/riverqueue/river/cmd/river@latest && \
+    go get riverqueue.com/riverui/cmd/riverui@latest && \
+    # Cross-compile River CLI
+    CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} \
+    $([ "$TARGETARCH" = "arm" ] && [ "$TARGETVARIANT" = "v7" ] && echo "GOARM=7" || echo "") \
+    go build -o /out/river github.com/riverqueue/river/cmd/river && \
+    # Cross-compile River UI
+    CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} \
+    $([ "$TARGETARCH" = "arm" ] && [ "$TARGETVARIANT" = "v7" ] && echo "GOARM=7" || echo "") \
+    go build -o /out/riverui riverqueue.com/riverui/cmd/riverui && \
+    cd /app && rm -rf /tmp/tools && \
+    echo "River tools cross-compiled successfully for ${TARGETARCH}"
+
+# Download dbmate for target architecture
+RUN echo "� Installing dbmate for ${TARGETARCH}..." && \
     DBMATE_ARCH=$(case ${TARGETARCH} in \
         "amd64") echo "amd64" ;; \
         "arm64") echo "arm64" ;; \
         "arm") echo "arm" ;; \
         *) echo "amd64" ;; \
     esac) && \
-    curl -fsSL -o /artifacts/${TARGETARCH}/dbmate \
+    curl -fsSL -o /out/dbmate \
     https://github.com/amacneil/dbmate/releases/latest/download/dbmate-linux-${DBMATE_ARCH} && \
-    chmod +x /artifacts/${TARGETARCH}/dbmate && \
+    chmod +x /out/dbmate && \
     echo "dbmate installed successfully for ${TARGETARCH}"
 
-# Copy pre-built River tools for target architecture
-RUN echo "📦 Copying pre-built River tools for ${TARGETARCH}..." && \
-    RIVER_ARCH_DIR=$(case ${TARGETARCH} in \
-        "amd64") echo "amd64" ;; \
-        "arm64") echo "arm64" ;; \
-        "arm") echo "arm" ;; \
-        *) echo "amd64" ;; \
-    esac) && \
-    cp /river-tools/${RIVER_ARCH_DIR}/river /artifacts/${TARGETARCH}/river && \
-    cp /river-tools/${RIVER_ARCH_DIR}/riverui /artifacts/${TARGETARCH}/riverui && \
-    chmod +x /artifacts/${TARGETARCH}/river && \
-    chmod +x /artifacts/${TARGETARCH}/riverui && \
-    echo "River tools copied successfully for ${TARGETARCH}"
-
-# Verify cross-compiled binaries
-RUN echo "✅ Verifying cross-compiled binaries for ${TARGETARCH}..." && \
-    ls -la /artifacts/${TARGETARCH}/dbmate && \
-    ls -la /artifacts/${TARGETARCH}/river && \
-    ls -la /artifacts/${TARGETARCH}/riverui && \
-    ls -la /artifacts/${TARGETARCH}/livereview && \
-    echo "📊 Verifying database migrations..." && \
-    ls -la db/migrations/ && \
-    echo "Migration count: $(ls db/migrations/*.sql | wc -l)" && \
-    echo "All cross-compiled tools and migrations verified successfully for ${TARGETARCH}"
-
-# Stage 4: Create minimal runtime container for target architecture
-# Pin to TARGETPLATFORM so the base image matches the target arch
-FROM --platform=$TARGETPLATFORM alpine:3.18
+# Stage 3: Create minimal runtime container for target architecture
+FROM alpine:3.18
 LABEL maintainer="LiveReview Team"
 LABEL description="LiveReview - AI-powered code review tool (cross-compiled)"
-
-# Platform arguments for runtime stage
-ARG TARGETPLATFORM
-ARG TARGETARCH
 
 # Install runtime dependencies
 RUN echo "🔧 Installing runtime dependencies..." && \
@@ -175,13 +117,13 @@ RUN echo "📁 Creating application directories..." && \
     chown -R livereview:livereview /app && \
     echo "Directories created and permissions set"
 
-# Copy architecture-specific binaries from cross-compiler stage
-COPY --from=go-cross-compiler /artifacts/${TARGETARCH}/dbmate /usr/local/bin/dbmate
-COPY --from=go-cross-compiler /artifacts/${TARGETARCH}/river /usr/local/bin/river
-COPY --from=go-cross-compiler /artifacts/${TARGETARCH}/riverui /usr/local/bin/riverui
-COPY --from=go-cross-compiler /artifacts/${TARGETARCH}/livereview /app/livereview
-COPY --from=go-cross-compiler /app/livereview.toml /app/livereview.toml
-COPY --from=go-cross-compiler /app/db/migrations/ /app/db/migrations/
+# Copy architecture-specific binaries from builder stage
+COPY --from=builder /out/dbmate /usr/local/bin/dbmate
+COPY --from=builder /out/river /usr/local/bin/river
+COPY --from=builder /out/riverui /usr/local/bin/riverui
+COPY --from=builder /out/livereview /app/livereview
+COPY --from=builder /app/livereview.toml /app/livereview.toml
+COPY --from=builder /app/db/migrations/ /app/db/migrations/
 
 # Copy the startup script
 COPY docker-entrypoint.sh /app/docker-entrypoint.sh
