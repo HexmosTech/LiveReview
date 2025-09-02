@@ -54,39 +54,38 @@ lrops.sh --version                   # Should work from PATH           [x]
 ## Phase 2: Version Management & GitHub Integration
 
 ### 2.1 GitHub API Integration
-- [ ] Implement GitHub releases API client
-  - [ ] Query `/repos/hexmostech/livereview/releases/latest`
-  - [ ] Parse release data and extract tag names
-  - [ ] Filter for semantic version tags only (exclude dev-*, etc.)
-- [ ] Version validation
-  - [ ] Validate semantic version format (`v1.2.3`)
-  - [ ] Verify specified versions exist in GitHub releases
-- [ ] Error handling for network failures and API rate limits
+- [x] Implement GitHub Container Registry API client
+  - [x] Query GitHub Container Registry for available tags
+  - [x] Parse tag data and extract semantic versions
+  - [x] Filter for semantic version tags only (exclude dev-*, etc.)
+- [x] Version validation
+  - [x] Validate semantic version format (`v1.2.3`)
+  - [x] Verify specified versions exist in GHCR
+- [x] Error handling for network failures and API rate limits
 
 ### 2.2 Version Resolution Logic
-- [ ] Implement `latest` version resolution
-  - [ ] Query GitHub API for latest release
-  - [ ] Extract highest semantic version tag
-  - [ ] Convert to Docker image tag format (remove 'v' prefix)
-- [ ] Implement pinned version handling
-  - [ ] Validate user-specified version exists
-  - [ ] Convert to proper Docker image tag
-- [ ] Version comparison and sorting utilities
+- [x] Implement `latest` version resolution
+  - [x] Query GHCR API for all available tags
+  - [x] Extract highest semantic version tag
+  - [x] Convert to Docker image tag format (remove 'v' prefix)
+- [x] Implement pinned version handling
+  - [x] Validate user-specified version exists
+  - [x] Convert to proper Docker image tag
+- [x] Version comparison and sorting utilities
 
 ### Phase 2 Validation Commands
 ```bash
 # Test GitHub API integration
-./lrops.sh --test-github-api          # Should show latest release info
-./lrops.sh --version=v1.0.0 --dry-run # Should validate version exists
-./lrops.sh --version=v999.999.999 --dry-run # Should fail with clear error
+./lrops.sh --test-github-api          # Should show latest release info [x]
+./lrops.sh --version=v1.0.0 --dry-run # Should validate version exists  [x]
+./lrops.sh --version=v999.999.999 --dry-run # Should fail with clear error [x]
 
 # Test version resolution
-curl -s https://api.github.com/repos/hexmostech/livereview/releases/latest | jq '.tag_name'
-./lrops.sh --show-latest-version      # Should match GitHub API result
+./lrops.sh --show-latest-version      # Should show resolved latest version [x]
+./lrops.sh --version=latest --dry-run # Should resolve to specific version [x]
 
 # Test semantic version filtering
-./lrops.sh --list-versions            # Should show only semantic versions (no dev-*)
-./lrops.sh --version=latest --dry-run # Should resolve to specific version
+./lrops.sh --list-versions            # Should show only semantic versions (no dev-*) [x]
 ```
 
 ## Phase 3: Embedded Data System
