@@ -1411,7 +1411,679 @@ deploy_with_docker() {
     log_success "Docker deployment completed successfully"
 }
 
+# =============================================================================
+# MANAGEMENT COMMANDS (PHASE 6)
+# =============================================================================
+
+# Show installation status and container health
+show_status() {
+    section_header "LIVEREVIEW STATUS"
+    
+    # Check if installation exists
+    if [[ ! -d "$LIVEREVIEW_INSTALL_DIR" ]]; then
+        log_error "LiveReview is not installed"
+        log_info "Run 'lrops.sh --express' to install"
+        return 1
+    fi
+    
+    log_info "Installation directory: $LIVEREVIEW_INSTALL_DIR"
+    
+    # Check if docker-compose.yml exists
+    if [[ ! -f "$LIVEREVIEW_INSTALL_DIR/docker-compose.yml" ]]; then
+        log_error "Docker Compose configuration not found"
+        return 1
+    fi
+    
+    cd "$LIVEREVIEW_INSTALL_DIR" || {
+        log_error "Cannot access installation directory"
+        return 1
+    }
+    
+    # Show container status
+    log_info "Container Status:"
+    if docker-compose ps 2>/dev/null | grep -q "livereview"; then
+        docker-compose ps
+        echo
+        
+        # Check if containers are healthy
+        local app_status=$(docker-compose ps -q livereview-app | xargs docker inspect --format='{{.State.Health.Status}}' 2>/dev/null)
+        local db_status=$(docker-compose ps -q livereview-db | xargs docker inspect --format='{{.State.Health.Status}}' 2>/dev/null)
+        
+        if [[ "$app_status" == "healthy" && "$db_status" == "healthy" ]]; then
+            log_success "✅ All services are healthy"
+        elif [[ "$app_status" == "starting" || "$db_status" == "starting" ]]; then
+            log_info "🔄 Services are starting up..."
+        else
+            log_warning "⚠️ Some services may have issues"
+        fi
+    else
+        log_warning "No containers are running"
+        log_info "Run 'lrops.sh start' to start services"
+    fi
+    
+    # Show version information
+    echo
+    log_info "Version Information:"
+    if [[ -f ".env" ]]; then
+        local lr_version=$(grep "LIVEREVIEW_VERSION=" .env | cut -d'=' -f2)
+        log_info "  LiveReview: ${lr_version:-unknown}"
+    fi
+    log_info "  Script: $SCRIPT_VERSION"
+    
+    # Show access URLs if running
+    if docker-compose ps 2>/dev/null | grep -q "Up.*8888"; then
+        echo
+        log_info "🌐 Access URLs:"
+        local api_port=$(docker-compose ps livereview-app | grep -o "0.0.0.0:[0-9]*->8888" | cut -d':' -f2 | cut -d'-' -f1)
+        local ui_port=$(docker-compose ps livereview-app | grep -o "0.0.0.0:[0-9]*->8081" | cut -d':' -f2 | cut -d'-' -f1)
+        log_info "  - Web UI: http://localhost:${ui_port:-8081}/"
+        log_info "  - API: http://localhost:${api_port:-8888}/api"
+    fi
+}
+
+# Show installation information and file locations
+show_info() {
+    section_header "LIVEREVIEW INSTALLATION INFO"
+    
+    if [[ ! -d "$LIVEREVIEW_INSTALL_DIR" ]]; then
+        log_error "LiveReview is not installed"
+        return 1
+    fi
+    
+    log_info "📁 Installation Directory: $LIVEREVIEW_INSTALL_DIR"
+    echo
+    log_info "📋 Important Files:"
+    log_info "  - Docker Compose: $LIVEREVIEW_INSTALL_DIR/docker-compose.yml"
+    log_info "  - Environment: $LIVEREVIEW_INSTALL_DIR/.env"
+    log_info "  - Installation Summary: $LIVEREVIEW_INSTALL_DIR/installation-summary.txt"
+    echo
+    log_info "📂 Configuration Templates:"
+    log_info "  - Nginx: $LIVEREVIEW_INSTALL_DIR/config/nginx.conf.example"
+    log_info "  - Caddy: $LIVEREVIEW_INSTALL_DIR/config/caddy.conf.example"
+    log_info "  - Apache: $LIVEREVIEW_INSTALL_DIR/config/apache.conf.example"
+    echo
+    log_info "🔧 Helper Scripts:"
+    log_info "  - Backup: $LIVEREVIEW_INSTALL_DIR/scripts/backup.sh"
+    log_info "  - Restore: $LIVEREVIEW_INSTALL_DIR/scripts/restore.sh"
+    log_info "  - Cron Example: $LIVEREVIEW_INSTALL_DIR/config/backup-cron.example"
+    echo
+    log_info "💾 Data Directory: $LIVEREVIEW_INSTALL_DIR/lrdata/"
+    log_info "  - PostgreSQL Data: $LIVEREVIEW_INSTALL_DIR/lrdata/postgres/"
+    echo
+    log_info "📖 Management Commands:"
+    log_info "  - Status: lrops.sh status"
+    log_info "  - Start: lrops.sh start"
+    log_info "  - Stop: lrops.sh stop"
+    log_info "  - Restart: lrops.sh restart"
+    log_info "  - Logs: lrops.sh logs [service]"
+    echo
+    log_info "🆘 Help Commands:"
+    log_info "  - SSL Setup: lrops.sh help ssl"
+    log_info "  - Backup Guide: lrops.sh help backup"
+    log_info "  - Nginx Config: lrops.sh help nginx"
+    log_info "  - Caddy Config: lrops.sh help caddy"
+    log_info "  - Apache Config: lrops.sh help apache"
+}
+
+# Start LiveReview containers
+start_containers_cmd() {
+    section_header "STARTING LIVEREVIEW"
+    
+    if [[ ! -d "$LIVEREVIEW_INSTALL_DIR" ]]; then
+        log_error "LiveReview is not installed"
+        log_info "Run 'lrops.sh --express' to install"
+        return 1
+    fi
+    
+    cd "$LIVEREVIEW_INSTALL_DIR" || {
+        log_error "Cannot access installation directory: $LIVEREVIEW_INSTALL_DIR"
+        return 1
+    }
+    
+    if [[ ! -f "docker-compose.yml" ]]; then
+        log_error "Docker Compose configuration not found"
+        return 1
+    fi
+    
+    log_info "Starting LiveReview containers..."
+    
+    if docker-compose up -d; then
+        log_success "Containers started successfully"
+        
+        # Wait a moment for health checks
+        log_info "Waiting for services to be ready..."
+        sleep 5
+        
+        # Show status
+        docker-compose ps
+        log_info "Run 'lrops.sh status' to check service health"
+    else
+        log_error "Failed to start containers"
+        return 1
+    fi
+}
+
+# Stop LiveReview containers
+stop_containers_cmd() {
+    section_header "STOPPING LIVEREVIEW"
+    
+    if [[ ! -d "$LIVEREVIEW_INSTALL_DIR" ]]; then
+        log_error "LiveReview is not installed"
+        return 1
+    fi
+    
+    cd "$LIVEREVIEW_INSTALL_DIR" || {
+        log_error "Cannot access installation directory: $LIVEREVIEW_INSTALL_DIR"
+        return 1
+    }
+    
+    log_info "Stopping LiveReview containers..."
+    
+    if docker-compose down; then
+        log_success "Containers stopped successfully"
+    else
+        log_warning "Some containers may not have stopped cleanly"
+        return 1
+    fi
+}
+
+# Restart LiveReview containers
+restart_containers_cmd() {
+    section_header "RESTARTING LIVEREVIEW"
+    
+    if [[ ! -d "$LIVEREVIEW_INSTALL_DIR" ]]; then
+        log_error "LiveReview is not installed"
+        return 1
+    fi
+    
+    cd "$LIVEREVIEW_INSTALL_DIR" || {
+        log_error "Cannot access installation directory: $LIVEREVIEW_INSTALL_DIR"
+        return 1
+    }
+    
+    log_info "Restarting LiveReview containers..."
+    
+    if docker-compose restart; then
+        log_success "Containers restarted successfully"
+        
+        # Wait a moment for health checks
+        log_info "Waiting for services to be ready..."
+        sleep 5
+        
+        # Show status
+        docker-compose ps
+        log_info "Run 'lrops.sh status' to check service health"
+    else
+        log_error "Failed to restart containers"
+        return 1
+    fi
+}
+
+# Show container logs
+show_logs() {
+    local service="$1"
+    local follow_flag="$2"
+    
+    section_header "LIVEREVIEW LOGS"
+    
+    if [[ ! -d "$LIVEREVIEW_INSTALL_DIR" ]]; then
+        log_error "LiveReview is not installed"
+        return 1
+    fi
+    
+    cd "$LIVEREVIEW_INSTALL_DIR" || {
+        log_error "Cannot access installation directory: $LIVEREVIEW_INSTALL_DIR"
+        return 1
+    }
+    
+    if [[ -n "$service" ]]; then
+        log_info "Showing logs for service: $service"
+        if [[ "$follow_flag" == "--follow" || "$follow_flag" == "-f" ]]; then
+            docker-compose logs -f --tail=50 "$service"
+        else
+            docker-compose logs --tail=100 "$service"
+        fi
+    else
+        log_info "Showing logs for all services"
+        if [[ "$follow_flag" == "--follow" || "$follow_flag" == "-f" ]]; then
+            docker-compose logs -f --tail=50
+        else
+            docker-compose logs --tail=100
+        fi
+    fi
+}
+
+# =============================================================================
+# HELP SYSTEM COMMANDS (PHASE 6)
+# =============================================================================
+
+# Show SSL/TLS setup guidance
+show_ssl_help() {
+    section_header "SSL/TLS SETUP GUIDE"
+    
+    cat << 'EOF'
+🔒 SSL/TLS Configuration for LiveReview
+
+OPTION 1: Automatic SSL with Caddy (Recommended)
+============================================
+1. Use the Caddy reverse proxy template:
+   cp /opt/livereview/config/caddy.conf.example /opt/livereview/caddy.conf
+
+2. Edit the domain name in caddy.conf:
+   sed -i 's/your-domain.com/yourdomain.com/g' /opt/livereview/caddy.conf
+
+3. Install and run Caddy:
+   sudo apt install caddy
+   sudo systemctl enable caddy
+   sudo cp /opt/livereview/caddy.conf /etc/caddy/Caddyfile
+   sudo systemctl restart caddy
+
+OPTION 2: Manual SSL with Nginx + Certbot
+=========================================
+1. Install Nginx and Certbot:
+   sudo apt update
+   sudo apt install nginx certbot python3-certbot-nginx
+
+2. Copy and configure Nginx template:
+   sudo cp /opt/livereview/config/nginx.conf.example /etc/nginx/sites-available/livereview
+   sudo sed -i 's/your-domain.com/yourdomain.com/g' /etc/nginx/sites-available/livereview
+   sudo ln -s /etc/nginx/sites-available/livereview /etc/nginx/sites-enabled/
+   sudo nginx -t && sudo systemctl reload nginx
+
+3. Obtain SSL certificate:
+   sudo certbot --nginx -d yourdomain.com
+
+4. Set up automatic renewal:
+   sudo crontab -e
+   # Add: 0 12 * * * /usr/bin/certbot renew --quiet
+
+OPTION 3: Manual SSL with Apache
+================================
+1. Install Apache and Certbot:
+   sudo apt update
+   sudo apt install apache2 certbot python3-certbot-apache
+
+2. Copy and configure Apache template:
+   sudo cp /opt/livereview/config/apache.conf.example /etc/apache2/sites-available/livereview.conf
+   sudo sed -i 's/your-domain.com/yourdomain.com/g' /etc/apache2/sites-available/livereview.conf
+   sudo a2ensite livereview.conf
+   sudo a2enmod proxy proxy_http
+   sudo systemctl reload apache2
+
+3. Obtain SSL certificate:
+   sudo certbot --apache -d yourdomain.com
+
+IMPORTANT SECURITY NOTES:
+- Always use HTTPS in production
+- Keep certificates renewed automatically
+- Configure proper firewall rules
+- Regular security updates
+
+For more help: https://github.com/HexmosTech/LiveReview/docs/ssl-setup
+EOF
+}
+
+# Show backup strategies and script usage
+show_backup_help() {
+    section_header "BACKUP & RESTORE GUIDE"
+    
+    cat << 'EOF'
+💾 LiveReview Backup & Restore Guide
+
+QUICK BACKUP
+============
+Run the included backup script:
+  cd /opt/livereview
+  ./scripts/backup.sh
+
+This creates a timestamped backup in /opt/livereview/backups/
+
+MANUAL BACKUP PROCESS
+====================
+1. Stop LiveReview (optional, for consistency):
+   lrops.sh stop
+
+2. Backup database:
+   docker run --rm -v livereview_postgres_data:/backup-source \
+   -v /opt/livereview/backups:/backup-dest \
+   postgres:15-alpine tar czf /backup-dest/db-$(date +%Y%m%d_%H%M%S).tar.gz /backup-source
+
+3. Backup configuration:
+   tar czf /opt/livereview/backups/config-$(date +%Y%m%d_%H%M%S).tar.gz \
+   /opt/livereview/.env /opt/livereview/docker-compose.yml /opt/livereview/config/
+
+4. Restart LiveReview:
+   lrops.sh start
+
+RESTORE PROCESS
+===============
+1. Stop LiveReview:
+   lrops.sh stop
+
+2. Restore database:
+   ./scripts/restore.sh /path/to/backup.tar.gz
+
+3. Restore configuration (if needed):
+   tar xzf config-backup.tar.gz -C /
+
+4. Restart LiveReview:
+   lrops.sh start
+
+AUTOMATED BACKUP WITH CRON
+===========================
+1. Copy the cron example:
+   sudo cp /opt/livereview/config/backup-cron.example /etc/cron.d/livereview-backup
+
+2. Edit the cron file to set your schedule:
+   sudo nano /etc/cron.d/livereview-backup
+
+CLOUD BACKUP WITH RCLONE (Optional)
+===================================
+1. Install rclone:
+   sudo apt install rclone
+
+2. Configure cloud storage:
+   rclone config
+
+3. Add cloud sync to backup script:
+   rclone sync /opt/livereview/backups/ mycloud:livereview-backups/
+
+BACKUP BEST PRACTICES:
+- Run backups daily
+- Keep multiple backup copies
+- Test restore procedures regularly
+- Store backups off-site
+- Monitor backup success
+
+For more help: https://github.com/HexmosTech/LiveReview/docs/backup-guide
+EOF
+}
+
+# Show Nginx reverse proxy configuration
+show_nginx_help() {
+    section_header "NGINX REVERSE PROXY GUIDE"
+    
+    cat << 'EOF'
+🌐 Nginx Reverse Proxy Configuration for LiveReview
+
+INSTALLATION
+============
+1. Install Nginx:
+   sudo apt update && sudo apt install nginx
+
+2. Copy the LiveReview Nginx template:
+   sudo cp /opt/livereview/config/nginx.conf.example /etc/nginx/sites-available/livereview
+
+3. Edit the domain name:
+   sudo sed -i 's/your-domain.com/yourdomain.com/g' /etc/nginx/sites-available/livereview
+
+4. Enable the site:
+   sudo ln -s /etc/nginx/sites-available/livereview /etc/nginx/sites-enabled/
+   sudo nginx -t
+   sudo systemctl reload nginx
+
+TEMPLATE FEATURES
+================
+- API proxy to port 8888 (/api/* routes)
+- UI proxy to port 8081 (all other routes)
+- WebSocket support for real-time features
+- Proper headers for security
+- Gzip compression
+- SSL/TLS configuration ready
+
+CUSTOMIZATION
+=============
+Edit /etc/nginx/sites-available/livereview to:
+- Change domain names
+- Adjust proxy settings
+- Add custom headers
+- Configure rate limiting
+- Set up IP restrictions
+
+TESTING
+=======
+1. Test configuration:
+   sudo nginx -t
+
+2. Check if proxy is working:
+   curl -H "Host: yourdomain.com" http://localhost/
+
+3. View logs:
+   sudo tail -f /var/log/nginx/access.log
+   sudo tail -f /var/log/nginx/error.log
+
+TROUBLESHOOTING
+===============
+- Check Nginx status: sudo systemctl status nginx
+- Verify LiveReview is running: lrops.sh status
+- Check firewall: sudo ufw status
+- Test DNS resolution: nslookup yourdomain.com
+
+For SSL setup: lrops.sh help ssl
+For more help: https://github.com/HexmosTech/LiveReview/docs/nginx-guide
+EOF
+}
+
+# Show Caddy reverse proxy configuration
+show_caddy_help() {
+    section_header "CADDY REVERSE PROXY GUIDE"
+    
+    cat << 'EOF'
+⚡ Caddy Reverse Proxy Configuration for LiveReview
+
+WHY CADDY?
+==========
+- Automatic HTTPS with Let's Encrypt
+- Simple configuration
+- Built-in security features
+- No manual certificate management
+
+INSTALLATION
+============
+1. Install Caddy:
+   sudo apt update
+   sudo apt install -y debian-keyring debian-archive-keyring apt-transport-https
+   curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/gpg.key' | sudo gpg --dearmor -o /usr/share/keyrings/caddy-stable-archive-keyring.gpg
+   curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/debian.deb.txt' | sudo tee /etc/apt/sources.list.d/caddy-stable.list
+   sudo apt update
+   sudo apt install caddy
+
+2. Copy and configure the template:
+   sudo cp /opt/livereview/config/caddy.conf.example /etc/caddy/Caddyfile
+   sudo sed -i 's/your-domain.com/yourdomain.com/g' /etc/caddy/Caddyfile
+
+3. Start Caddy:
+   sudo systemctl enable caddy
+   sudo systemctl start caddy
+
+TEMPLATE FEATURES
+================
+- Automatic HTTPS for your domain
+- API proxy to port 8888 (/api/* routes)
+- UI proxy to port 8081 (all other routes)
+- Security headers included
+- Gzip compression enabled
+
+CONFIGURATION
+=============
+The Caddy configuration is in /etc/caddy/Caddyfile:
+
+yourdomain.com {
+    # Proxy API requests
+    handle /api/* {
+        reverse_proxy localhost:8888
+    }
+    
+    # Proxy UI requests
+    handle {
+        reverse_proxy localhost:8081
+    }
+}
+
+TESTING
+=======
+1. Check Caddy status:
+   sudo systemctl status caddy
+
+2. View logs:
+   sudo journalctl -u caddy -f
+
+3. Test the proxy:
+   curl https://yourdomain.com/
+
+TROUBLESHOOTING
+===============
+- Verify domain DNS points to your server
+- Check if ports 80/443 are open
+- Ensure LiveReview is running: lrops.sh status
+- Check Caddy logs for errors
+
+AUTOMATIC HTTPS NOTES
+=====================
+- Caddy automatically obtains SSL certificates
+- Certificates are renewed automatically
+- No manual intervention required
+- Certificates stored in /var/lib/caddy/
+
+For more help: https://github.com/HexmosTech/LiveReview/docs/caddy-guide
+EOF
+}
+
+# Show Apache reverse proxy configuration
+show_apache_help() {
+    section_header "APACHE REVERSE PROXY GUIDE"
+    
+    cat << 'EOF'
+🔧 Apache Reverse Proxy Configuration for LiveReview
+
+INSTALLATION
+============
+1. Install Apache:
+   sudo apt update && sudo apt install apache2
+
+2. Enable required modules:
+   sudo a2enmod proxy proxy_http proxy_balancer lbmethod_byrequests
+   sudo a2enmod ssl rewrite headers
+
+3. Copy and configure the template:
+   sudo cp /opt/livereview/config/apache.conf.example /etc/apache2/sites-available/livereview.conf
+   sudo sed -i 's/your-domain.com/yourdomain.com/g' /etc/apache2/sites-available/livereview.conf
+
+4. Enable the site:
+   sudo a2ensite livereview.conf
+   sudo systemctl reload apache2
+
+TEMPLATE FEATURES
+================
+- Virtual host configuration
+- API proxy to port 8888 (/api/* routes)
+- UI proxy to port 8081 (all other routes)
+- SSL configuration ready
+- Security headers
+- Error and access logging
+
+CUSTOMIZATION
+=============
+Edit /etc/apache2/sites-available/livereview.conf to:
+- Adjust ProxyPass directives
+- Configure SSL settings
+- Add custom headers
+- Set up access controls
+
+TESTING
+=======
+1. Test configuration:
+   sudo apache2ctl configtest
+
+2. Check if proxy is working:
+   curl -H "Host: yourdomain.com" http://localhost/
+
+3. View logs:
+   sudo tail -f /var/log/apache2/access.log
+   sudo tail -f /var/log/apache2/error.log
+
+SSL CONFIGURATION
+=================
+After obtaining SSL certificates (see: lrops.sh help ssl):
+
+1. Update your virtual host with SSL:
+   <VirtualHost *:443>
+       ServerName yourdomain.com
+       SSLEngine on
+       SSLCertificateFile /path/to/cert.pem
+       SSLCertificateKeyFile /path/to/private.key
+       # ... proxy configuration
+   </VirtualHost>
+
+TROUBLESHOOTING
+===============
+- Check Apache status: sudo systemctl status apache2
+- Verify modules loaded: apache2ctl -M | grep proxy
+- Test configuration: sudo apache2ctl configtest
+- Check LiveReview status: lrops.sh status
+
+For SSL setup: lrops.sh help ssl
+For more help: https://github.com/HexmosTech/LiveReview/docs/apache-guide
+EOF
+}
+
 main() {
+    # Check for management commands first (before parsing complex arguments)
+    case "${1:-}" in
+        status)
+            show_status
+            exit $?
+            ;;
+        info)
+            show_info
+            exit $?
+            ;;
+        start)
+            start_containers_cmd
+            exit $?
+            ;;
+        stop)
+            stop_containers_cmd
+            exit $?
+            ;;
+        restart)
+            restart_containers_cmd
+            exit $?
+            ;;
+        logs)
+            show_logs "${2:-}" "${3:-}"
+            exit $?
+            ;;
+        help)
+            case "${2:-}" in
+                ssl)
+                    show_ssl_help
+                    exit 0
+                    ;;
+                backup)
+                    show_backup_help
+                    exit 0
+                    ;;
+                nginx)
+                    show_nginx_help
+                    exit 0
+                    ;;
+                caddy)
+                    show_caddy_help
+                    exit 0
+                    ;;
+                apache)
+                    show_apache_help
+                    exit 0
+                    ;;
+                *)
+                    show_help
+                    exit 0
+                    ;;
+            esac
+            ;;
+    esac
+    
     # Parse command line arguments
     parse_arguments "$@"
     
