@@ -35,9 +35,57 @@ LiveReview helps automate code reviews using AI across different code hosting pl
 - Support for dry-run mode to preview reviews without posting comments
 - Detailed review summaries with file-specific suggestions
 
+## Quick Start
+
+Get LiveReview running in production with one command:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/HexmosTech/LiveReview/main/lrops.sh | bash -s -- --express
+```
+
+This will:
+1. Install LiveReview with Docker and PostgreSQL
+2. Set up secure defaults and auto-generated passwords
+3. Deploy to `/opt/livereview/` with persistent data storage
+4. Provide access URLs: http://localhost:8081 (UI) and http://localhost:8888 (API)
+
+After installation, configure your GitLab and AI providers, then start reviewing code!
+
 ## Installation
 
-### Option 1: Build from Source
+### Option 1: One-Line Production Installer (Recommended)
+
+Get LiveReview up and running in under 5 minutes with our automated installer:
+
+```bash
+# Quick start with secure defaults
+curl -fsSL https://raw.githubusercontent.com/HexmosTech/LiveReview/main/lrops.sh | bash -s -- --express
+
+# Interactive installation (guided setup)  
+curl -fsSL https://raw.githubusercontent.com/HexmosTech/LiveReview/main/lrops.sh | bash
+
+# Install specific version
+curl -fsSL https://raw.githubusercontent.com/HexmosTech/LiveReview/main/lrops.sh | bash -s -- --version=v1.2.3 --express
+```
+
+The installer will:
+- ✅ Check system prerequisites (Docker, Docker Compose)
+- ✅ Deploy LiveReview with PostgreSQL database
+- ✅ Generate secure configuration with strong defaults
+- ✅ Install management script (`lrops.sh`) for ongoing operations
+- ✅ Provide access URLs and next steps
+
+**After installation**, manage LiveReview with:
+```bash
+lrops.sh status          # Check installation status
+lrops.sh start           # Start services  
+lrops.sh stop            # Stop services
+lrops.sh logs            # View container logs
+lrops.sh help ssl        # SSL setup guidance
+lrops.sh help backup     # Backup strategies
+```
+
+### Option 2: Build from Source
 
 ```bash
 # Clone the repository
@@ -51,7 +99,7 @@ go build
 ./livereview --help
 ```
 
-### Option 2: Docker
+### Option 3: Docker
 
 LiveReview is available as a Docker image with support for multiple architectures (amd64, arm64).
 
