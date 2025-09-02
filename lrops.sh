@@ -12,7 +12,7 @@ set -euo pipefail  # Exit on error, undefined vars, pipe failures
 
 SCRIPT_VERSION="1.0.0"
 SCRIPT_NAME="lrops.sh"
-LIVEREVIEW_INSTALL_DIR="/opt/livereview"
+LIVEREVIEW_INSTALL_DIR="${LIVEREVIEW_INSTALL_DIR:-/opt/livereview}"
 LIVEREVIEW_SCRIPT_PATH="/usr/local/bin/lrops.sh"
 GITHUB_REPO="HexmosTech/LiveReview"
 GITHUB_API_BASE="https://api.github.com/repos/${GITHUB_REPO}"
@@ -106,6 +106,7 @@ LIST_EMBEDDED_DATA=false
 SHOW_LATEST_VERSION=false
 LIST_VERSIONS=false
 GENERATE_CONFIG_ONLY=false
+INSTALL_TEMPLATES_ONLY=false
 OUTPUT_DIR=""
 INSTALL_SELF=false
 DIAGNOSE=false
@@ -174,6 +175,10 @@ parse_arguments() {
                 ;;
             --generate-config-only)
                 GENERATE_CONFIG_ONLY=true
+                shift
+                ;;
+            --install-templates-only)
+                INSTALL_TEMPLATES_ONLY=true
                 shift
                 ;;
             --output-dir)
@@ -795,8 +800,392 @@ extract_all_templates() {
 }
 
 # =============================================================================
-# MAIN EXECUTION LOGIC
+# CONFIGURATION AND PASSWORD GENERATION (PHASE 4)
 # =============================================================================
+
+# Generate secure random password
+generate_password() {
+    local length=${1:-32}
+    
+    # Try different methods in order of preference
+    if command -v openssl >/dev/null 2>&1; then
+        openssl rand -base64 $((length * 3 / 4)) | tr -d "=+/" | cut -c1-${length}
+    elif command -v /dev/urandom >/dev/null 2>&1; then
+        LC_ALL=C tr -dc 'A-Za-z0-9!@#$%^&*()_+-=' < /dev/urandom | head -c ${length}
+    else
+        # Fallback to date-based generation (less secure)
+        local timestamp=$(date +%s%N)
+        echo "${timestamp}" | sha256sum | cut -c1-${length}
+    fi
+}
+
+# Generate JWT secret (longer, alphanumeric only for better compatibility)
+generate_jwt_secret() {
+    local length=64
+    
+    if command -v openssl >/dev/null 2>&1; then
+        openssl rand -hex ${length} | head -c ${length}
+    elif command -v /dev/urandom >/dev/null 2>&1; then
+        LC_ALL=C tr -dc 'A-Za-z0-9' < /dev/urandom | head -c ${length}
+    else
+        # Fallback method
+        local timestamp=$(date +%s%N)
+        echo "${timestamp}$(hostname)" | sha256sum | cut -c1-${length}
+    fi
+}
+
+# Interactive configuration prompts
+gather_configuration() {
+    local config_file="/tmp/lrops_config_$$"
+    
+    section_header "CONFIGURATION"
+    
+    if [[ "$EXPRESS_MODE" == "true" ]]; then
+        log_info "Express mode: Using secure defaults"
+        
+        # Generate secure defaults
+        local db_password
+        db_password=$(generate_password 32)
+        local jwt_secret
+        jwt_secret=$(generate_jwt_secret)
+        
+        # Set configuration values
+        cat > "$config_file" << EOF
+DB_PASSWORD=$db_password
+JWT_SECRET=$jwt_secret
+API_PORT=8888
+UI_PORT=8081
+DOMAIN=localhost
+LIVEREVIEW_VERSION=$1
+EOF
+    else
+        log_info "Interactive configuration mode"
+        log_info "Press Enter to use defaults shown in [brackets]"
+        echo
+        
+        # Database password
+        local db_password
+        db_password=$(generate_password 32)
+        echo -n "Database password [auto-generated secure password]: "
+        read -r user_input
+        if [[ -n "$user_input" ]]; then
+            db_password="$user_input"
+        fi
+        
+        # JWT Secret
+        local jwt_secret
+        jwt_secret=$(generate_jwt_secret)
+        echo -n "JWT secret key [auto-generated secure key]: "
+        read -r user_input
+        if [[ -n "$user_input" ]]; then
+            jwt_secret="$user_input"
+        fi
+        
+        # API Port
+        local api_port=8888
+        echo -n "API port [8888]: "
+        read -r user_input
+        if [[ -n "$user_input" ]]; then
+            api_port="$user_input"
+        fi
+        
+        # UI Port
+        local ui_port=8081
+        echo -n "UI port [8081]: "
+        read -r user_input
+        if [[ -n "$user_input" ]]; then
+            ui_port="$user_input"
+        fi
+        
+        # Domain
+        local domain="localhost"
+        echo -n "Domain/hostname [localhost]: "
+        read -r user_input
+        if [[ -n "$user_input" ]]; then
+            domain="$user_input"
+        fi
+        
+        # Save configuration
+        cat > "$config_file" << EOF
+DB_PASSWORD=$db_password
+JWT_SECRET=$jwt_secret
+API_PORT=$api_port
+UI_PORT=$ui_port
+DOMAIN=$domain
+LIVEREVIEW_VERSION=$1
+EOF
+    fi
+    
+    echo "$config_file"
+}
+
+# Validate configuration values
+validate_configuration() {
+    local config_file="$1"
+    
+    log_info "Validating configuration..."
+    
+    # Source the config
+    source "$config_file"
+    
+    # Validate ports
+    if ! [[ "$API_PORT" =~ ^[0-9]+$ ]] || [[ "$API_PORT" -lt 1024 ]] || [[ "$API_PORT" -gt 65535 ]]; then
+        log_error "Invalid API port: $API_PORT (must be 1024-65535)"
+        return 1
+    fi
+    
+    if ! [[ "$UI_PORT" =~ ^[0-9]+$ ]] || [[ "$UI_PORT" -lt 1024 ]] || [[ "$UI_PORT" -gt 65535 ]]; then
+        log_error "Invalid UI port: $UI_PORT (must be 1024-65535)"
+        return 1
+    fi
+    
+    if [[ "$API_PORT" == "$UI_PORT" ]]; then
+        log_error "API and UI ports cannot be the same"
+        return 1
+    fi
+    
+    # Check if ports are available
+    if command -v netstat >/dev/null 2>&1; then
+        if netstat -tln | grep -q ":${API_PORT} "; then
+            log_warning "Port $API_PORT appears to be in use"
+        fi
+        if netstat -tln | grep -q ":${UI_PORT} "; then
+            log_warning "Port $UI_PORT appears to be in use"
+        fi
+    fi
+    
+    # Validate password strength
+    if [[ ${#DB_PASSWORD} -lt 12 ]]; then
+        log_warning "Database password is shorter than 12 characters"
+    fi
+    
+    if [[ ${#JWT_SECRET} -lt 32 ]]; then
+        log_warning "JWT secret is shorter than 32 characters"
+    fi
+    
+    log_success "Configuration validation completed"
+    return 0
+}
+
+# =============================================================================
+# DIRECTORY STRUCTURE CREATION (PHASE 4)
+# =============================================================================
+
+# Create LiveReview directory structure
+create_directory_structure() {
+    section_header "CREATING DIRECTORY STRUCTURE"
+    
+    log_info "Creating LiveReview installation directory: $LIVEREVIEW_INSTALL_DIR"
+    
+    # Create main directory
+    if ! mkdir -p "$LIVEREVIEW_INSTALL_DIR"; then
+        error_exit "Failed to create installation directory: $LIVEREVIEW_INSTALL_DIR"
+    fi
+    
+    # Create subdirectories
+    local directories=(
+        "$LIVEREVIEW_INSTALL_DIR/lrdata"
+        "$LIVEREVIEW_INSTALL_DIR/lrdata/postgres"
+        "$LIVEREVIEW_INSTALL_DIR/config"
+        "$LIVEREVIEW_INSTALL_DIR/scripts"
+    )
+    
+    for dir in "${directories[@]}"; do
+        log_info "Creating directory: $dir"
+        if ! mkdir -p "$dir"; then
+            error_exit "Failed to create directory: $dir"
+        fi
+    done
+    
+    # Set proper permissions
+    log_info "Setting directory permissions..."
+    
+    # Main directory should be accessible by current user
+    if ! chmod 755 "$LIVEREVIEW_INSTALL_DIR"; then
+        log_warning "Could not set permissions on $LIVEREVIEW_INSTALL_DIR"
+    fi
+    
+    # Data directory needs to be writable for Docker containers
+    if ! chmod 755 "$LIVEREVIEW_INSTALL_DIR/lrdata"; then
+        log_warning "Could not set permissions on lrdata directory"
+    fi
+    
+    # PostgreSQL data directory needs specific permissions
+    if ! chmod 700 "$LIVEREVIEW_INSTALL_DIR/lrdata/postgres"; then
+        log_warning "Could not set permissions on postgres directory"
+    fi
+    
+    # Config and scripts directories
+    chmod 755 "$LIVEREVIEW_INSTALL_DIR/config" 2>/dev/null || true
+    chmod 755 "$LIVEREVIEW_INSTALL_DIR/scripts" 2>/dev/null || true
+    
+    log_success "Directory structure created successfully"
+}
+
+# Handle existing directory conflicts
+handle_existing_directories() {
+    if [[ -d "$LIVEREVIEW_INSTALL_DIR" ]]; then
+        if [[ "$FORCE_INSTALL" != "true" ]]; then
+            log_error "Installation directory already exists: $LIVEREVIEW_INSTALL_DIR"
+            log_info "Use --force to overwrite existing installation"
+            return 1
+        else
+            log_warning "Force mode: Backing up existing installation"
+            local backup_dir="${LIVEREVIEW_INSTALL_DIR}.backup.$(date +%Y%m%d_%H%M%S)"
+            if mv "$LIVEREVIEW_INSTALL_DIR" "$backup_dir"; then
+                log_info "Existing installation backed up to: $backup_dir"
+            else
+                log_error "Could not backup existing installation"
+                return 1
+            fi
+        fi
+    fi
+    return 0
+}
+
+# =============================================================================
+# FILE GENERATION FROM TEMPLATES (PHASE 4)
+# =============================================================================
+
+# Generate .env file from template with user configuration
+generate_env_file() {
+    local config_file="$1"
+    local output_file="$LIVEREVIEW_INSTALL_DIR/.env"
+    
+    log_info "Generating .env file..."
+    
+    # Source configuration
+    source "$config_file"
+    
+    # Extract .env template and substitute variables
+    if ! extract_data ".env" "$output_file"; then
+        error_exit "Failed to extract .env template"
+    fi
+    
+    # Substitute variables in the .env file
+    sed -i "s/\${DB_PASSWORD}/$DB_PASSWORD/g" "$output_file"
+    sed -i "s/\${JWT_SECRET}/$JWT_SECRET/g" "$output_file"
+    sed -i "s/\${LIVEREVIEW_VERSION}/$LIVEREVIEW_VERSION/g" "$output_file"
+    
+    # Add additional configuration
+    cat >> "$output_file" << EOF
+
+# Port configuration (auto-configured)
+API_PORT=$API_PORT
+UI_PORT=$UI_PORT
+
+# Domain configuration
+DOMAIN=$DOMAIN
+LIVEREVIEW_API_URL=http://$DOMAIN:$API_PORT
+EOF
+    
+    # Set secure permissions on .env file
+    chmod 600 "$output_file"
+    
+    log_success "Generated .env file with secure permissions"
+}
+
+# Generate docker-compose.yml from template with user configuration
+generate_docker_compose() {
+    local config_file="$1"
+    local output_file="$LIVEREVIEW_INSTALL_DIR/docker-compose.yml"
+    
+    log_info "Generating docker-compose.yml..."
+    
+    # Source configuration
+    source "$config_file"
+    
+    # Extract docker-compose template
+    if ! extract_data "docker-compose.yml" "$output_file"; then
+        error_exit "Failed to extract docker-compose.yml template"
+    fi
+    
+    # Substitute variables in the docker-compose file
+    sed -i "s/\${LIVEREVIEW_VERSION}/$LIVEREVIEW_VERSION/g" "$output_file"
+    sed -i "s/\${DB_PASSWORD}/\${DB_PASSWORD}/g" "$output_file"  # Keep as variable reference
+    
+    # Update port mappings if not using defaults
+    if [[ "$API_PORT" != "8888" ]] || [[ "$UI_PORT" != "8081" ]]; then
+        log_info "Updating port mappings: API=$API_PORT, UI=$UI_PORT"
+        sed -i "s/\"8888:8888\"/\"$API_PORT:8888\"/g" "$output_file"
+        sed -i "s/\"8081:8081\"/\"$UI_PORT:8081\"/g" "$output_file"
+    fi
+    
+    log_success "Generated docker-compose.yml with custom configuration"
+}
+
+# Extract configuration templates and helper scripts
+extract_templates_and_scripts() {
+    section_header "EXTRACTING CONFIGURATION TEMPLATES"
+    
+    # Extract reverse proxy templates to config/
+    log_info "Extracting reverse proxy configuration templates..."
+    extract_data "nginx.conf.example" "$LIVEREVIEW_INSTALL_DIR/config/nginx.conf.example"
+    extract_data "caddy.conf.example" "$LIVEREVIEW_INSTALL_DIR/config/caddy.conf.example"
+    extract_data "apache.conf.example" "$LIVEREVIEW_INSTALL_DIR/config/apache.conf.example"
+    
+    # Extract backup and maintenance scripts to scripts/
+    log_info "Extracting backup and maintenance scripts..."
+    extract_data "backup.sh" "$LIVEREVIEW_INSTALL_DIR/scripts/backup.sh"
+    extract_data "restore.sh" "$LIVEREVIEW_INSTALL_DIR/scripts/restore.sh"
+    
+    # Extract cron example to config/
+    extract_data "backup-cron.example" "$LIVEREVIEW_INSTALL_DIR/config/backup-cron.example"
+    
+    # Set executable permissions on scripts
+    chmod +x "$LIVEREVIEW_INSTALL_DIR/scripts/"*.sh 2>/dev/null || true
+    
+    log_success "Configuration templates and scripts extracted"
+}
+
+# Generate installation summary file
+generate_installation_summary() {
+    local config_file="$1"
+    local summary_file="$LIVEREVIEW_INSTALL_DIR/installation-summary.txt"
+    
+    # Source configuration
+    source "$config_file"
+    
+    cat > "$summary_file" << EOF
+LiveReview Installation Summary
+===============================
+Installation Date: $(date)
+Script Version: $SCRIPT_VERSION
+LiveReview Version: $LIVEREVIEW_VERSION
+
+Configuration:
+- Installation Directory: $LIVEREVIEW_INSTALL_DIR
+- API Port: $API_PORT
+- UI Port: $UI_PORT
+- Domain: $DOMAIN
+
+Access URLs:
+- API: http://$DOMAIN:$API_PORT/api
+- Web UI: http://$DOMAIN:$UI_PORT
+
+Important Files:
+- Docker Compose: $LIVEREVIEW_INSTALL_DIR/docker-compose.yml
+- Environment: $LIVEREVIEW_INSTALL_DIR/.env
+- Configuration Templates: $LIVEREVIEW_INSTALL_DIR/config/
+- Helper Scripts: $LIVEREVIEW_INSTALL_DIR/scripts/
+
+Management Commands:
+- Start: lrops.sh start
+- Stop: lrops.sh stop
+- Status: lrops.sh status
+- Logs: lrops.sh logs
+
+Configuration Help:
+- SSL Setup: lrops.sh help ssl
+- Backup Setup: lrops.sh help backup
+- Nginx Config: lrops.sh help nginx
+- Caddy Config: lrops.sh help caddy
+
+For support, visit: https://github.com/HexmosTech/LiveReview
+EOF
+
+    log_info "Installation summary saved to: $summary_file"
+}
 
 main() {
     # Parse command line arguments
@@ -897,22 +1286,136 @@ main() {
         exit 0
     fi
     
-    # Show current implementation status
-    section_header "IMPLEMENTATION STATUS"
-    log_success "✅ Phase 1: Script foundation implemented"
+    # Handle config-only generation
+    if [[ "$GENERATE_CONFIG_ONLY" == "true" ]]; then
+        local output_dir="${OUTPUT_DIR:-/tmp/lr-config-$(date +%s)}"
+        section_header "GENERATING CONFIGURATION ONLY"
+        log_info "Output directory: $output_dir"
+        
+        # Gather configuration
+        local config_file
+        config_file=$(gather_configuration "$resolved_version")
+        
+        # Validate configuration
+        if ! validate_configuration "$config_file"; then
+            error_exit "Configuration validation failed"
+        fi
+        
+        # Create output directory
+        mkdir -p "$output_dir"
+        
+        # Generate files in output directory
+        LIVEREVIEW_INSTALL_DIR="$output_dir"
+        generate_env_file "$config_file"
+        generate_docker_compose "$config_file"
+        
+        # Extract templates
+        mkdir -p "$output_dir"/{config,scripts}
+        extract_data "nginx.conf.example" "$output_dir/config/nginx.conf.example"
+        extract_data "caddy.conf.example" "$output_dir/config/caddy.conf.example"
+        extract_data "apache.conf.example" "$output_dir/config/apache.conf.example"
+        extract_data "backup.sh" "$output_dir/scripts/backup.sh"
+        extract_data "restore.sh" "$output_dir/scripts/restore.sh"
+        extract_data "backup-cron.example" "$output_dir/config/backup-cron.example"
+        
+        chmod +x "$output_dir/scripts/"*.sh 2>/dev/null || true
+        
+        log_success "Configuration generated in: $output_dir"
+        
+        # Cleanup
+        rm -f "$config_file"
+        exit 0
+    fi
+    
+    # Handle templates-only installation
+    if [[ "$INSTALL_TEMPLATES_ONLY" == "true" ]]; then
+        local output_dir="${OUTPUT_DIR:-/tmp/lr-templates-$(date +%s)}"
+        section_header "INSTALLING TEMPLATES ONLY"
+        log_info "Output directory: $output_dir"
+        
+        # Create output directory structure
+        LIVEREVIEW_INSTALL_DIR="$output_dir"
+        create_directory_structure
+        
+        # Extract all templates and scripts
+        extract_templates_and_scripts
+        
+        log_success "Templates extracted to: $output_dir"
+        log_info "Templates available:"
+        log_info "   - nginx.conf.example"
+        log_info "   - caddy.conf.example"
+        log_info "   - apache.conf.example"
+        log_info "   - backup.sh"
+        log_info "   - restore.sh"
+        log_info "   - backup-cron.example"
+        
+        exit 0
+    fi
+    
+    # =============================================================================
+    # PHASE 4: INSTALLATION CORE LOGIC
+    # =============================================================================
+    
+    section_header "LIVEREVIEW INSTALLATION"
+    log_info "Starting LiveReview installation process..."
+    log_info "Version: $resolved_version"
+    log_info "Installation directory: $LIVEREVIEW_INSTALL_DIR"
+    
+    # Step 1: Handle existing directories
+    if ! handle_existing_directories; then
+        error_exit "Cannot proceed with existing installation"
+    fi
+    
+    # Step 2: Gather configuration
+    local config_file
+    config_file=$(gather_configuration "$resolved_version")
+    
+    # Step 3: Validate configuration
+    if ! validate_configuration "$config_file"; then
+        rm -f "$config_file"
+        error_exit "Configuration validation failed"
+    fi
+    
+    # Step 4: Create directory structure
+    create_directory_structure
+    
+    # Step 5: Generate configuration files
+    section_header "GENERATING CONFIGURATION FILES"
+    generate_env_file "$config_file"
+    generate_docker_compose "$config_file"
+    
+    # Step 6: Extract templates and scripts
+    extract_templates_and_scripts
+    
+    # Step 7: Generate installation summary
+    generate_installation_summary "$config_file"
+    
+    # Step 8: Installation complete (Phase 5 will add Docker deployment)
+    section_header "INSTALLATION COMPLETE (Phase 4)"
+    log_success "✅ Phase 1: Script foundation"
     log_success "✅ Phase 2: Version Management & GitHub Integration"
-    log_info "   - GitHub Container Registry API integration"
-    log_info "   - Semantic version filtering and validation"
-    log_info "   - Latest version resolution"
-    log_info "   - Version pinning capabilities"
+    log_success "✅ Phase 3: Embedded Templates & Configuration Files"
+    log_success "✅ Phase 4: Installation Core Logic"
+    log_info "   - Interactive/Express configuration ✓"
+    log_info "   - Directory structure creation ✓"
+    log_info "   - Configuration file generation ✓"
+    log_info "   - Template and script extraction ✓"
     echo
-    log_info "🚧 Next phases to implement:"
-    log_info "   - Phase 3: Embedded Data System"
-    log_info "   - Phase 4: Installation Core Logic"
+    log_info "🚧 Next phase to implement:"
     log_info "   - Phase 5: Docker Deployment"
     echo
-    log_info "Run with --dry-run to see installation plan"
-    log_info "Run with --help to see all options"
+    log_info "Files created:"
+    log_info "   - $LIVEREVIEW_INSTALL_DIR/.env"
+    log_info "   - $LIVEREVIEW_INSTALL_DIR/docker-compose.yml"
+    log_info "   - $LIVEREVIEW_INSTALL_DIR/config/ (templates)"
+    log_info "   - $LIVEREVIEW_INSTALL_DIR/scripts/ (backup/restore)"
+    log_info "   - $LIVEREVIEW_INSTALL_DIR/installation-summary.txt"
+    echo
+    log_info "To start LiveReview manually:"
+    log_info "   cd $LIVEREVIEW_INSTALL_DIR && docker-compose up -d"
+    
+    # Cleanup
+    rm -f "$config_file"
 }
 
 # =============================================================================
