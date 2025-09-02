@@ -92,7 +92,7 @@ docker-interactive:
 	@python scripts/lrops.py docker
 
 docker-interactive-push:
-	@python scripts/lrops.py docker --push
+	@python scripts/lrops.py docker --push $(ARGS)
 
 # Dry-run Docker targets
 docker-build-dry:

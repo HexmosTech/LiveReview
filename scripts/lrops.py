@@ -926,9 +926,9 @@ class LiveReviewOps:
                     image_name=args.image_name,
                     push=args.push,
                     dry_run=args.dry_run,
-                    make_latest=args.latest if hasattr(args, 'latest') else None,
-                    architectures=args.architectures if hasattr(args, 'architectures') else None,
-                    multiarch=args.multiarch if hasattr(args, 'multiarch') else False
+                    make_latest=args.latest,
+                    architectures=args.architectures,
+                    multiarch=args.multiarch
                 )
                 if not args.dry_run:
                     print(f"Docker build completed: {image_tag}")
@@ -1106,11 +1106,14 @@ def main():
                              help='Show what would be done without making changes')
     build_parser.add_argument('--latest', action='store_true',
                              help='Tag as latest (for --docker builds)')
+    build_parser.add_argument('--no-latest', dest='latest', action='store_false',
+                             help='Do not tag as latest (for --docker builds)')
     build_parser.add_argument('--multiarch', action='store_true',
                              help='Build multi-architecture image (amd64 + arm64)')
     build_parser.add_argument('--architectures', nargs='+', 
                              choices=['amd64', 'arm64', 'arm/v7'],
                              help='Specific architectures to build (default: amd64 arm64)')
+    build_parser.set_defaults(latest=None)  # Allow None to trigger auto-detection
     
     # Docker command (interactive tag selection)
     docker_parser = subparsers.add_parser('docker', help='Build and push Docker images with interactive tag selection')
