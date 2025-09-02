@@ -919,13 +919,13 @@ main() {
 # SCRIPT ENTRY POINT
 # =============================================================================
 
-# Only run main if script is executed directly (not sourced)
-if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
-    main "$@"
-fi
-
-# Script execution ends here - everything below is embedded data
-exit 0
+# =============================================================================
+# EMBEDDED TEMPLATES AND CONFIGURATION FILES
+# =============================================================================
+# These templates are extracted during installation to /opt/livereview/
+# Extract with: extract_data "<template_name>" "<output_file>"
+# List all templates: list_embedded_templates
+# =============================================================================
 
 # === DATA:docker-compose.yml ===
 services:
@@ -1655,3 +1655,128 @@ log_info "Check status with: lrops.sh status"
 # 30 2 * * * rclone sync /opt/livereview-backups/ livereview-s3:backups/livereview/ --log-file=/var/log/livereview-s3-sync.log
 # 0 5 * * * find /opt/livereview-backups -name "daily_*" -type f -mtime +7 -delete
 # === END:backup-cron.example ===
+
+# Only run main if script is executed directly (not sourced)
+if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
+    main "$@"
+fi
+
+# Script execution ends here - everything below is embedded data
+exit 0
+
+# =============================================================================
+# EMBEDDED TEMPLATES AND CONFIGURATION FILES
+# =============================================================================
+extract_data() {
+    local template_name="$1"
+    local output_file="$2"
+    
+    if [[ -z "$template_name" || -z "$output_file" ]]; then
+        log_error "Usage: extract_data <template_name> <output_file>"
+        return 1
+    fi
+    
+    # Create output directory if it doesn't exist
+    local output_dir
+    output_dir=$(dirname "$output_file")
+    [[ ! -d "$output_dir" ]] && mkdir -p "$output_dir"
+    
+    # Extract data between markers, excluding the marker lines themselves
+    if sed -n "/^# === DATA:${template_name} ===/,/^# === END:${template_name} ===/p" "$0" \
+        | grep -v "^# === " > "$output_file"; then
+        
+        # Set appropriate permissions for script files
+        case "$template_name" in
+            *.sh)
+                chmod +x "$output_file"
+                ;;
+        esac
+        
+        log_debug "Extracted template '$template_name' to '$output_file'"
+        return 0
+    else
+        log_error "Failed to extract template '$template_name'"
+        return 1
+    fi
+}
+
+# List all available embedded templates
+list_embedded_templates() {
+    log_info "Available embedded templates:"
+    grep "^# === DATA:" "$0" | sed 's/^# === DATA:\(.*\) ===$/  - \1/' | sort
+}
+
+# Test template extraction to temporary files
+test_template_extraction() {
+    local template_name="$1"
+    local temp_dir="/tmp/lrops-test-$$"
+    
+    if [[ -z "$template_name" ]]; then
+        log_error "Usage: test_template_extraction <template_name>"
+        return 1
+    fi
+    
+    mkdir -p "$temp_dir"
+    
+    if extract_data "$template_name" "$temp_dir/$template_name"; then
+        log_success "Template '$template_name' extracted successfully to '$temp_dir/$template_name'"
+        log_info "Content preview:"
+        echo "----------------------------------------"
+        head -20 "$temp_dir/$template_name"
+        echo "----------------------------------------"
+        
+        # Cleanup
+        rm -rf "$temp_dir"
+        return 0
+    else
+        rm -rf "$temp_dir"
+        return 1
+    fi
+}
+
+# Extract all templates to a specified directory
+extract_all_templates() {
+    local base_dir="$1"
+    
+    if [[ -z "$base_dir" ]]; then
+        log_error "Usage: extract_all_templates <base_directory>"
+        return 1
+    fi
+    
+    log_info "Extracting all templates to '$base_dir'"
+    
+    # Create directory structure
+    mkdir -p "$base_dir"/{config,scripts}
+    
+    local templates
+    templates=$(grep "^# === DATA:" "$0" | sed 's/^# === DATA:\(.*\) ===$/\1/')
+    
+    local extracted_count=0
+    local failed_count=0
+    
+    for template in $templates; do
+        local output_file
+        case "$template" in
+            *.example | *.conf | backup-cron.example)
+                output_file="$base_dir/config/$template"
+                ;;
+            *.sh)
+                output_file="$base_dir/scripts/$template"
+                ;;
+            *)
+                output_file="$base_dir/$template"
+                ;;
+        esac
+        
+        if extract_data "$template" "$output_file"; then
+            ((extracted_count++))
+            log_success "✓ $template"
+        else
+            ((failed_count++))
+            log_error "✗ $template"
+        fi
+    done
+    
+    log_info "Template extraction complete: $extracted_count succeeded, $failed_count failed"
+    return $failed_count
+}

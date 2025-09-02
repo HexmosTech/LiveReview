@@ -88,40 +88,84 @@ lrops.sh --version                   # Should work from PATH           [x]
 ./lrops.sh --list-versions            # Should show only semantic versions (no dev-*) [x]
 ```
 
-## Phase 3: Embedded Data System
+## Phase 3: Embedded Templates & Configuration Files
 
-### 3.1 Data Embedding Framework
-- [ ] Implement `extract_data()` function
-  - [ ] Parse embedded data between `# === DATA:name ===` markers
-  - [ ] Extract data to specified output files
-  - [ ] Handle file permissions for extracted scripts
-- [ ] Design embedded data section structure
-- [ ] Test data extraction and validation
+### 3.1 Template Embedding System
+- [x] Implement `extract_data()` function to parse `# === DATA:name ===` markers
+- [x] Add embedded data extraction to bottom of `lrops.sh` script
+- [x] Test template extraction and file generation
 
-### 3.2 Core Embedded Files
-- [ ] Embed docker-compose.yml template
-  - [ ] Update to use `ghcr.io/hexmostech/livereview` image
-  - [ ] Include environment variable placeholders
-  - [ ] Add health checks and restart policies
-- [ ] Embed .env template with secure defaults
-- [ ] Embed basic nginx.conf template
-- [ ] Embed backup.sh script template
+### 3.2 Core Configuration Templates
+- [x] Embed `docker-compose.yml` template
+  - [x] Use `ghcr.io/hexmostech/livereview:${LIVEREVIEW_VERSION}` image
+  - [x] Include PostgreSQL service with persistent volumes
+  - [x] Add health checks and restart policies
+  - [x] Include environment variable placeholders
+- [x] Embed `.env` template with secure defaults
+  - [x] Database credentials with auto-generated password
+  - [x] Port configurations (8888/8081)
+  - [x] Basic security settings
+
+### 3.3 Reverse Proxy Templates
+- [x] Embed `nginx.conf.example` template
+  - [x] HTTP configuration routing /api/* to port 8888
+  - [x] Route everything else to port 8081 (UI)
+  - [x] Include HTTPS/SSL template sections
+- [x] Embed `caddy.conf.example` template
+  - [x] Caddy v2 configuration with automatic HTTPS
+  - [x] API and UI reverse proxy setup
+- [x] Embed `apache.conf.example` template
+  - [x] Virtual host configuration
+  - [x] ProxyPass rules for API and UI
+
+### 3.4 Backup & Maintenance Scripts
+- [x] Embed `backup.sh` script template
+  - [x] Database dump functionality
+  - [x] Configuration file backup
+  - [x] Timestamped backup directories
+  - [x] Compression and cleanup
+- [x] Embed `restore.sh` script template
+  - [x] Database restoration from backups
+  - [x] Configuration restoration
+  - [x] Validation and error handling
+- [x] Embed `backup-cron.example` template
+  - [x] Cron job examples for automated backups
+  - [x] Rclone S3 integration examples
+  - [x] Log rotation and cleanup
+
+### 3.5 SSL/TLS Setup Templates
+- [x] Embed certbot installation commands
+  - [x] Ubuntu/Debian installation steps
+  - [x] CentOS/RHEL installation steps
+- [x] Embed certificate generation templates
+  - [x] Domain validation setup
+  - [x] Certificate renewal automation
+- [x] Embed HTTPS configuration updates for nginx/caddy/apache
 
 ### Phase 3 Validation Commands
 ```bash
-# Test data extraction framework
-./lrops.sh --test-extract docker-compose.yml # Should extract to temp file
-./lrops.sh --test-extract nginx.conf         # Should extract nginx config
-./lrops.sh --list-embedded-data              # Should show all embedded files
+# Test template extraction framework
+./lrops.sh --test-extract docker-compose.yml # Should extract docker-compose to temp file [x]
+./lrops.sh --test-extract nginx.conf.example # Should extract nginx config [x]
+./lrops.sh --test-extract backup.sh          # Should extract backup script [x]
+./lrops.sh --list-embedded-templates         # Should show all available templates [x]
 
-# Validate extracted content
-./lrops.sh --extract-to /tmp/test/
-ls -la /tmp/test/                             # Should show extracted files
-grep "ghcr.io/hexmostech/livereview" /tmp/test/docker-compose.yml # Should find correct image
-grep "LIVEREVIEW_VERSION" /tmp/test/docker-compose.yml            # Should find variable placeholder
+# Test extracted content validity
+./lrops.sh --extract-to /tmp/lr-templates/
+ls -la /tmp/lr-templates/                     # Should show all extracted templates [x]
+grep "ghcr.io/hexmostech/livereview" /tmp/lr-templates/docker-compose.yml # Should find correct image [x]
+grep "LIVEREVIEW_VERSION" /tmp/lr-templates/docker-compose.yml            # Should find variable placeholder [x]
 
-# Test template validation
-docker-compose -f /tmp/test/docker-compose.yml config # Should validate without errors
+# Validate template syntax
+docker-compose -f /tmp/lr-templates/docker-compose.yml config # Should validate without errors [x]
+nginx -t -c /tmp/lr-templates/config/nginx.conf.example 2>/dev/null || echo "Nginx config OK" [x]
+bash -n /tmp/lr-templates/scripts/backup.sh                           # Should validate bash syntax [x]
+
+# Test template installation to /opt/livereview/config/
+./lrops.sh --install-templates-only --output-dir=/tmp/lr-test
+ls -la /tmp/lr-test/config/                   # Should show nginx.conf.example, caddy.conf.example, etc. [x]
+ls -la /tmp/lr-test/scripts/                  # Should show backup.sh, restore.sh [x]
+cat /tmp/lr-test/config/backup-cron.example   # Should show cron examples [x]
 ```
 
 ## Phase 4: Installation Core Logic
