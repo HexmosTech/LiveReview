@@ -640,7 +640,7 @@ class LiveReviewOps:
         
         # Default values
         if not registry:
-            registry = "git.apps.hexmos.com:5050/hexmos"
+            registry = "ghcr.io/hexmostech"
         if not image_name:
             image_name = "livereview"
         
@@ -707,6 +707,8 @@ class LiveReviewOps:
         # UI is built inside Docker (ui-builder stage); no local npm needed
 
         if multiarch:
+            # Ensure buildx builder is set up for multi-arch builds
+            self._ensure_buildx_builder()
             return self._build_multiarch_image(
                 version, docker_version, git_commit, build_time,
                 full_image, version_tag, latest_tag, architectures,
@@ -756,33 +758,32 @@ class LiveReviewOps:
     def _build_multiarch_image(self, version, docker_version, git_commit, build_time,
                               full_image, version_tag, latest_tag, architectures,
                               make_latest, push):
-        """Build multi-architecture Docker images using cross-compilation for faster builds"""
+        """Build multi-architecture Docker images using buildx for GitHub Container Registry"""
         print(f"Building multi-architecture Docker image for architectures: {', '.join(architectures)}")
-        print("🚀 Using cross-compilation approach for faster ARM builds!")
+        print("🚀 Using buildx multi-platform build for GitHub Container Registry!")
 
         # Build multi-architecture image using standard buildx 
-        # This should be GitLab compatible while maintaining performance
         platforms = ','.join([f'linux/{arch}' for arch in architectures])
         
         print(f"Building multi-architecture image for platforms: {platforms}")
         print(f"Target tag: {version_tag}")
         
-        # Standard buildx multi-platform build directly to final tag
-        # Following the proven GitLab-compatible pattern:
-        # - provenance=false is crucial for GitLab registry compatibility
-        # - Single tag (not per-arch tags) 
-        # - Multi-platform in one command for cross-compilation efficiency
+        # GitHub Container Registry compatible buildx multi-platform build
+        # Build for multiple platforms and push directly (required for multi-arch)
+        tags = ['-t', version_tag]
+        if make_latest:
+            tags.extend(['-t', latest_tag])
+        
         cmd = [
             'docker', '--context', 'gitlab', 'buildx', 'build',
             '--builder', 'gitlab-multiarch',
-            '--provenance=false',
-            '-t', version_tag,
-            '-f', 'Dockerfile.crosscompile',
             '--platform', platforms,
-            '--push' if push else '--load',
+            '-f', 'Dockerfile.crosscompile',
             '--build-arg', f'VERSION={version}',
             '--build-arg', f'BUILD_TIME={build_time}',
             '--build-arg', f'GIT_COMMIT={git_commit}',
+            *tags,
+            '--push' if push else '--load',
             '.'
         ]
         
@@ -793,22 +794,51 @@ class LiveReviewOps:
             self._run_command(cmd, capture_output=False)
         
         print(f"✅ Successfully built multi-architecture image with platforms: {platforms}")
+        if make_latest and push:
+            print(f"✅ Also tagged as latest: {latest_tag}")
         
-        # Create latest tag if requested
-        if push and make_latest:
-            print(f"Creating latest tag: {latest_tag}")
-            latest_cmd = [
-                'docker', '--context', 'gitlab', 'buildx', 'imagetools', 'create',
-                '--tag', latest_tag,
-                version_tag
-            ]
-            self._run_command_with_retries(latest_cmd, max_retries=3, capture_output=False)
-        
-        print(f"🎉 Successfully built multi-architecture image using cross-compilation: {version_tag}")
-        if make_latest:
-            print(f"Also tagged as latest: {latest_tag}")
+        print(f"🎉 Successfully built multi-architecture image: {version_tag}")
         
         return version_tag
+    
+    def _ensure_buildx_builder(self):
+        """Ensure buildx builder is available for multi-arch builds"""
+        try:
+            # Check if the gitlab-multiarch builder is available
+            result = self._run_command(['docker', 'buildx', 'ls'], capture_output=True)
+            
+            if 'gitlab-multiarch' in result.stdout:
+                # Switch to the existing gitlab-multiarch builder
+                self._run_command(['docker', 'buildx', 'use', 'gitlab-multiarch'], capture_output=False)
+                print("✅ Switched to existing 'gitlab-multiarch' buildx builder")
+            elif 'multiarch' in result.stdout:
+                # Fallback to multiarch if available
+                self._run_command(['docker', 'buildx', 'use', 'multiarch'], capture_output=False)
+                print("✅ Switched to existing 'multiarch' buildx builder")
+            else:
+                print("🔧 Setting up buildx builder for multi-architecture builds...")
+                # Create and use a new builder with docker-container driver
+                self._run_command([
+                    'docker', 'buildx', 'create', 
+                    '--driver', 'docker-container',
+                    '--use', 
+                    '--name', 'gitlab-multiarch'
+                ], capture_output=False)
+                print("✅ Buildx builder 'gitlab-multiarch' created with docker-container driver")
+            
+            # Bootstrap the builder to ensure it's ready
+            print("🚀 Bootstrapping buildx builder...")
+            self._run_command([
+                'docker', 'buildx', 'inspect', 
+                '--bootstrap'
+            ], capture_output=False)
+            print("✅ Buildx builder is ready for multi-platform builds")
+            
+        except GitError as e:
+            print(f"Warning: Could not set up buildx builder: {e}")
+            print("You may need to manually run:")
+            print("  docker buildx use gitlab-multiarch")
+            print("  docker buildx inspect --bootstrap")
     
     def _create_and_push_manifest(self, manifest_tag, arch_tags):
         """Create and push a Docker manifest list with GitLab registry compatibility"""
@@ -1046,7 +1076,7 @@ def main():
     build_parser.add_argument('--push', action='store_true',
                              help='Push Docker image to registry (requires --docker)')
     build_parser.add_argument('--registry', type=str,
-                             help='Docker registry URL (default: git.apps.hexmos.com:5050/hexmos)')
+                             help='Docker registry URL (default: ghcr.io/hexmostech)')
     build_parser.add_argument('--image-name', type=str,
                              help='Docker image name (default: livereview)')
     build_parser.add_argument('--dry-run', action='store_true',
@@ -1070,7 +1100,7 @@ def main():
     docker_parser.add_argument('--push', action='store_true',
                               help='Push Docker image to registry')
     docker_parser.add_argument('--registry', type=str,
-                              help='Docker registry URL (default: git.apps.hexmos.com:5050/hexmos)')
+                              help='Docker registry URL (default: ghcr.io/hexmostech)')
     docker_parser.add_argument('--image-name', type=str,
                               help='Docker image name (default: livereview)')
     docker_parser.add_argument('--dry-run', action='store_true',
