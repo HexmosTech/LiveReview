@@ -724,6 +724,17 @@ class LiveReviewOps:
                                 version_tag, latest_tag, make_latest, push):
         """Build single architecture Docker image via cross-compilation Dockerfile"""
         # Use buildx with the cross-compilation Dockerfile for consistency and UI reuse
+        
+        # Add GitHub repository association labels
+        labels = [
+            '--label', 'org.opencontainers.image.source=https://github.com/HexmosTech/LiveReview',
+            '--label', 'org.opencontainers.image.description=LiveReview - Code Review Platform',
+            '--label', 'org.opencontainers.image.licenses=MIT',
+            '--label', f'org.opencontainers.image.version={version}',
+            '--label', f'org.opencontainers.image.revision={git_commit}',
+            '--label', f'org.opencontainers.image.created={build_time}',
+        ]
+        
         cmd = [
             'docker', '--context', 'gitlab', 'buildx', 'build',
             '--platform', 'linux/amd64',
@@ -731,6 +742,7 @@ class LiveReviewOps:
             '--build-arg', f'BUILD_TIME={build_time}',
             '--build-arg', f'GIT_COMMIT={git_commit}',
             '-f', 'Dockerfile.crosscompile',
+            *labels,
             '-t', version_tag,
             '--load',
             '.'
@@ -774,6 +786,16 @@ class LiveReviewOps:
         if make_latest:
             tags.extend(['-t', latest_tag])
         
+        # Add GitHub repository association labels
+        labels = [
+            '--label', 'org.opencontainers.image.source=https://github.com/HexmosTech/LiveReview',
+            '--label', 'org.opencontainers.image.description=LiveReview - Code Review Platform',
+            '--label', 'org.opencontainers.image.licenses=MIT',
+            '--label', f'org.opencontainers.image.version={version}',
+            '--label', f'org.opencontainers.image.revision={git_commit}',
+            '--label', f'org.opencontainers.image.created={build_time}',
+        ]
+        
         cmd = [
             'docker', '--context', 'gitlab', 'buildx', 'build',
             '--builder', 'gitlab-multiarch',
@@ -782,6 +804,7 @@ class LiveReviewOps:
             '--build-arg', f'VERSION={version}',
             '--build-arg', f'BUILD_TIME={build_time}',
             '--build-arg', f'GIT_COMMIT={git_commit}',
+            *labels,
             *tags,
             '--push' if push else '--load',
             '.'
