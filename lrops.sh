@@ -1133,6 +1133,8 @@ extract_templates_and_scripts() {
     
     # Extract cron example to config/
     extract_data "backup-cron.example" "$LIVEREVIEW_INSTALL_DIR/config/backup-cron.example"
+    extract_data "setup-ssl.sh" "$LIVEREVIEW_INSTALL_DIR/scripts/setup-ssl.sh"
+    extract_data "renew-ssl.sh" "$LIVEREVIEW_INSTALL_DIR/scripts/renew-ssl.sh"
     
     # Set executable permissions on scripts
     chmod +x "$LIVEREVIEW_INSTALL_DIR/scripts/"*.sh 2>/dev/null || true
@@ -1507,6 +1509,8 @@ show_info() {
     log_info "🔧 Helper Scripts:"
     log_info "  - Backup: $LIVEREVIEW_INSTALL_DIR/scripts/backup.sh"
     log_info "  - Restore: $LIVEREVIEW_INSTALL_DIR/scripts/restore.sh"
+    log_info "  - SSL Setup: $LIVEREVIEW_INSTALL_DIR/scripts/setup-ssl.sh"
+    log_info "  - SSL Renewal: $LIVEREVIEW_INSTALL_DIR/scripts/renew-ssl.sh"
     log_info "  - Cron Example: $LIVEREVIEW_INSTALL_DIR/config/backup-cron.example"
     echo
     log_info "💾 Data Directory: $LIVEREVIEW_INSTALL_DIR/lrdata/"
@@ -1666,7 +1670,20 @@ show_ssl_help() {
     cat << 'EOF'
 🔒 SSL/TLS Configuration for LiveReview
 
-OPTION 1: Automatic SSL with Caddy (Recommended)
+OPTION 1: Automated SSL Setup Script (NEW!)
+==========================================
+Use the included SSL setup script for automatic configuration:
+
+   cd /opt/livereview/scripts
+   sudo ./setup-ssl.sh yourdomain.com admin@yourdomain.com
+
+This script will:
+- Install certbot automatically
+- Generate Let's Encrypt certificates
+- Configure your existing reverse proxy
+- Set up automatic renewal
+
+OPTION 2: Automatic SSL with Caddy (Recommended)
 ============================================
 1. Use the Caddy reverse proxy template:
    cp /opt/livereview/config/caddy.conf.example /opt/livereview/caddy.conf
@@ -1680,7 +1697,7 @@ OPTION 1: Automatic SSL with Caddy (Recommended)
    sudo cp /opt/livereview/caddy.conf /etc/caddy/Caddyfile
    sudo systemctl restart caddy
 
-OPTION 2: Manual SSL with Nginx + Certbot
+OPTION 3: Manual SSL with Nginx + Certbot
 =========================================
 1. Install Nginx and Certbot:
    sudo apt update
@@ -1699,7 +1716,7 @@ OPTION 2: Manual SSL with Nginx + Certbot
    sudo crontab -e
    # Add: 0 12 * * * /usr/bin/certbot renew --quiet
 
-OPTION 3: Manual SSL with Apache
+OPTION 4: Manual SSL with Apache
 ================================
 1. Install Apache and Certbot:
    sudo apt update
@@ -1709,8 +1726,34 @@ OPTION 3: Manual SSL with Apache
    sudo cp /opt/livereview/config/apache.conf.example /etc/apache2/sites-available/livereview.conf
    sudo sed -i 's/your-domain.com/yourdomain.com/g' /etc/apache2/sites-available/livereview.conf
    sudo a2ensite livereview.conf
-   sudo a2enmod proxy proxy_http
+   sudo a2enmod proxy proxy_http ssl
    sudo systemctl reload apache2
+
+3. Obtain SSL certificate:
+   sudo certbot --apache -d yourdomain.com
+
+SSL MAINTENANCE
+==============
+- Test certificate renewal: sudo certbot renew --dry-run
+- Manual renewal: cd /opt/livereview/scripts && sudo ./renew-ssl.sh
+- Check certificate expiry: sudo certbot certificates
+- View certificate details: openssl x509 -in /etc/letsencrypt/live/yourdomain.com/cert.pem -text -noout
+
+SECURITY BEST PRACTICES
+======================
+✓ Use strong SSL/TLS protocols (TLS 1.2+)
+✓ Configure HSTS headers for security
+✓ Set up certificate monitoring/alerts
+✓ Regularly test SSL configuration: https://www.ssllabs.com/ssltest/
+✓ Keep certbot and reverse proxy updated
+✓ Monitor certificate expiry (auto-renewal should handle this)
+
+TROUBLESHOOTING
+==============
+- Domain not pointing to server: Check DNS records
+- Port 80/443 blocked: Check firewall and security groups
+- Certificate generation fails: Ensure domain resolves correctly
+- Configuration errors: Check reverse proxy logs
 
 3. Obtain SSL certificate:
    sudo certbot --apache -d yourdomain.com
@@ -2203,6 +2246,8 @@ HELPER SCRIPTS
 ==============
 Backup: $LIVEREVIEW_INSTALL_DIR/scripts/backup.sh
 Restore: $LIVEREVIEW_INSTALL_DIR/scripts/restore.sh
+SSL Setup: $LIVEREVIEW_INSTALL_DIR/scripts/setup-ssl.sh
+SSL Renewal: $LIVEREVIEW_INSTALL_DIR/scripts/renew-ssl.sh
 Cron Example: $LIVEREVIEW_INSTALL_DIR/config/backup-cron.example
 
 MANAGEMENT COMMANDS
@@ -2535,6 +2580,8 @@ main() {
         extract_data "apache.conf.example" "$output_dir/config/apache.conf.example"
         extract_data "backup.sh" "$output_dir/scripts/backup.sh"
         extract_data "restore.sh" "$output_dir/scripts/restore.sh"
+        extract_data "setup-ssl.sh" "$output_dir/scripts/setup-ssl.sh"
+        extract_data "renew-ssl.sh" "$output_dir/scripts/renew-ssl.sh"
         extract_data "backup-cron.example" "$output_dir/config/backup-cron.example"
         
         chmod +x "$output_dir/scripts/"*.sh 2>/dev/null || true
@@ -3367,3 +3414,310 @@ log_info "Check status with: lrops.sh status"
 # 30 2 * * * rclone sync /opt/livereview-backups/ livereview-s3:backups/livereview/ --log-file=/var/log/livereview-s3-sync.log
 # 0 5 * * * find /opt/livereview-backups -name "daily_*" -type f -mtime +7 -delete
 # === END:backup-cron.example ===
+
+# === DATA:setup-ssl.sh ===
+#!/bin/bash
+# LiveReview SSL/TLS Certificate Setup Script
+# Generated by lrops.sh installer
+# Usage: ./setup-ssl.sh <domain> [email]
+
+set -euo pipefail
+
+# Configuration
+DOMAIN="${1:-}"
+EMAIL="${2:-}"
+LIVEREVIEW_DIR="/opt/livereview"
+
+# Colors for output
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+BLUE='\033[0;34m'
+NC='\033[0m'
+
+log_info() {
+    echo -e "${BLUE}ℹ️  INFO:${NC} $*"
+}
+
+log_success() {
+    echo -e "${GREEN}✅ SUCCESS:${NC} $*"
+}
+
+log_warning() {
+    echo -e "${YELLOW}⚠️  WARNING:${NC} $*"
+}
+
+log_error() {
+    echo -e "${RED}❌ ERROR:${NC} $*"
+}
+
+show_usage() {
+    echo "Usage: $0 <domain> [email]"
+    echo "Example: $0 livereview.example.com admin@example.com"
+    echo ""
+    echo "This script will:"
+    echo "  1. Install certbot if not available"
+    echo "  2. Generate SSL certificates using Let's Encrypt"
+    echo "  3. Configure automatic renewal"
+    echo "  4. Update reverse proxy configuration"
+    echo ""
+    echo "Prerequisites:"
+    echo "  - Domain must point to this server"
+    echo "  - Ports 80 and 443 must be open"
+    echo "  - LiveReview must be running"
+    exit 1
+}
+
+# Validate inputs
+if [[ -z "$DOMAIN" ]]; then
+    log_error "Domain is required"
+    show_usage
+fi
+
+if [[ -z "$EMAIL" ]]; then
+    log_warning "Email not provided, will prompt for agreement"
+fi
+
+log_info "Setting up SSL certificates for domain: $DOMAIN"
+
+# Check if domain resolves to this server
+log_info "Checking domain resolution..."
+DOMAIN_IP=$(dig +short "$DOMAIN" 2>/dev/null || echo "")
+SERVER_IP=$(curl -s ifconfig.me 2>/dev/null || curl -s ipinfo.io/ip 2>/dev/null || echo "")
+
+if [[ -n "$DOMAIN_IP" && -n "$SERVER_IP" ]]; then
+    if [[ "$DOMAIN_IP" == "$SERVER_IP" ]]; then
+        log_success "✓ Domain resolves to this server"
+    else
+        log_warning "Domain resolves to $DOMAIN_IP, but server IP is $SERVER_IP"
+        log_warning "SSL certificate generation may fail"
+    fi
+else
+    log_warning "Could not verify domain resolution"
+fi
+
+# Install certbot if not available
+if ! command -v certbot >/dev/null 2>&1; then
+    log_info "Installing certbot..."
+    
+    # Detect OS and install certbot
+    if command -v apt >/dev/null 2>&1; then
+        sudo apt update
+        sudo apt install -y certbot python3-certbot-nginx
+    elif command -v yum >/dev/null 2>&1; then
+        sudo yum install -y certbot python3-certbot-nginx
+    elif command -v dnf >/dev/null 2>&1; then
+        sudo dnf install -y certbot python3-certbot-nginx
+    elif command -v snap >/dev/null 2>&1; then
+        sudo snap install --classic certbot
+        sudo ln -sf /snap/bin/certbot /usr/bin/certbot
+    else
+        log_error "Could not install certbot automatically"
+        log_info "Please install certbot manually:"
+        log_info "  Ubuntu/Debian: sudo apt install certbot python3-certbot-nginx"
+        log_info "  CentOS/RHEL: sudo yum install certbot python3-certbot-nginx"
+        log_info "  Snap: sudo snap install --classic certbot"
+        exit 1
+    fi
+    
+    log_success "✓ Certbot installed"
+else
+    log_success "✓ Certbot is already available"
+fi
+
+# Check if LiveReview is running
+if ! docker ps | grep -q livereview; then
+    log_error "LiveReview containers are not running"
+    log_info "Start LiveReview first: lrops.sh start"
+    exit 1
+fi
+
+# Prepare for certificate generation
+log_info "Preparing for certificate generation..."
+
+# Stop nginx/apache if running on ports 80/443
+for service in nginx apache2 httpd; do
+    if systemctl is-active --quiet "$service" 2>/dev/null; then
+        log_info "Stopping $service temporarily..."
+        sudo systemctl stop "$service"
+    fi
+done
+
+# Generate certificate using standalone mode
+log_info "Generating SSL certificate..."
+if [[ -n "$EMAIL" ]]; then
+    CERT_CMD="sudo certbot certonly --standalone --non-interactive --agree-tos --email $EMAIL -d $DOMAIN"
+else
+    CERT_CMD="sudo certbot certonly --standalone --agree-tos -d $DOMAIN"
+fi
+
+if $CERT_CMD; then
+    log_success "✓ SSL certificate generated successfully"
+else
+    log_error "Certificate generation failed"
+    exit 1
+fi
+
+# Set up automatic renewal
+log_info "Setting up automatic renewal..."
+sudo crontab -l 2>/dev/null | grep -v "certbot renew" | sudo crontab - 2>/dev/null || true
+(sudo crontab -l 2>/dev/null; echo "0 12 * * * /usr/bin/certbot renew --quiet") | sudo crontab -
+
+log_success "✓ Automatic renewal configured"
+
+# Update reverse proxy configuration
+log_info "Updating reverse proxy configuration..."
+
+# Check which reverse proxy configuration exists
+if [[ -f "/etc/nginx/sites-available/livereview" ]] || [[ -f "/etc/nginx/conf.d/livereview.conf" ]]; then
+    log_info "Updating nginx configuration..."
+    # Create SSL-enabled nginx config
+    sudo cp "$LIVEREVIEW_DIR/config/nginx.conf.example" "/tmp/livereview-ssl.conf"
+    sudo sed -i "s/your-domain.com/$DOMAIN/g" "/tmp/livereview-ssl.conf"
+    
+    # Uncomment HTTPS section
+    sudo sed -i '/# HTTPS configuration/,/# Redirect HTTP to HTTPS/s/^# //' "/tmp/livereview-ssl.conf"
+    sudo sed -i '/# Redirect HTTP to HTTPS/,/# }/s/^# //' "/tmp/livereview-ssl.conf"
+    
+    # Install the configuration
+    sudo cp "/tmp/livereview-ssl.conf" "/etc/nginx/sites-available/livereview"
+    sudo ln -sf "/etc/nginx/sites-available/livereview" "/etc/nginx/sites-enabled/livereview"
+    
+    # Test and reload nginx
+    if sudo nginx -t; then
+        sudo systemctl reload nginx
+        log_success "✓ Nginx configuration updated"
+    else
+        log_error "Nginx configuration test failed"
+    fi
+    
+elif [[ -f "/etc/caddy/Caddyfile" ]]; then
+    log_info "Updating Caddy configuration..."
+    sudo cp "$LIVEREVIEW_DIR/config/caddy.conf.example" "/etc/caddy/Caddyfile"
+    sudo sed -i "s/your-domain.com/$DOMAIN/g" "/etc/caddy/Caddyfile"
+    sudo systemctl reload caddy
+    log_success "✓ Caddy configuration updated (automatic HTTPS)"
+    
+elif [[ -f "/etc/apache2/sites-available/livereview.conf" ]]; then
+    log_info "Updating Apache configuration..."
+    sudo cp "$LIVEREVIEW_DIR/config/apache.conf.example" "/tmp/livereview-ssl.conf"
+    sudo sed -i "s/your-domain.com/$DOMAIN/g" "/tmp/livereview-ssl.conf"
+    
+    # Uncomment HTTPS section
+    sudo sed -i '/# HTTPS virtual host/,/# <\/VirtualHost>/s/^# //' "/tmp/livereview-ssl.conf"
+    sudo sed -i '/# Redirect HTTP to HTTPS/,/# <\/VirtualHost>/s/^# //' "/tmp/livereview-ssl.conf"
+    
+    sudo cp "/tmp/livereview-ssl.conf" "/etc/apache2/sites-available/livereview.conf"
+    
+    # Enable SSL module and site
+    sudo a2enmod ssl
+    sudo a2ensite livereview
+    
+    if sudo apache2ctl configtest; then
+        sudo systemctl reload apache2
+        log_success "✓ Apache configuration updated"
+    else
+        log_error "Apache configuration test failed"
+    fi
+else
+    log_warning "No reverse proxy configuration found"
+    log_info "Please configure your reverse proxy manually"
+    log_info "Certificate files:"
+    log_info "  - Certificate: /etc/letsencrypt/live/$DOMAIN/fullchain.pem"
+    log_info "  - Private Key: /etc/letsencrypt/live/$DOMAIN/privkey.pem"
+fi
+
+# Verify SSL certificate
+log_info "Verifying SSL certificate..."
+sleep 5  # Give time for configuration to reload
+
+if curl -s "https://$DOMAIN" >/dev/null 2>&1; then
+    log_success "✅ SSL certificate is working!"
+    log_success "✅ LiveReview is now accessible at: https://$DOMAIN"
+else
+    log_warning "SSL verification failed, but certificate was generated"
+    log_info "You may need to configure your reverse proxy manually"
+fi
+
+log_success "SSL setup completed!"
+log_info "Certificate location: /etc/letsencrypt/live/$DOMAIN/"
+log_info "Renewal: Automatic (cron job configured)"
+log_info "Test renewal: sudo certbot renew --dry-run"
+
+exit 0
+# === END:setup-ssl.sh ===
+
+# === DATA:renew-ssl.sh ===
+#!/bin/bash
+# LiveReview SSL Certificate Renewal Script
+# Generated by lrops.sh installer
+# Usage: ./renew-ssl.sh
+
+set -euo pipefail
+
+# Colors for output
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+BLUE='\033[0;34m'
+NC='\033[0m'
+
+log_info() {
+    echo -e "${BLUE}ℹ️  INFO:${NC} $*"
+}
+
+log_success() {
+    echo -e "${GREEN}✅ SUCCESS:${NC} $*"
+}
+
+log_warning() {
+    echo -e "${YELLOW}⚠️  WARNING:${NC} $*"
+}
+
+log_error() {
+    echo -e "${RED}❌ ERROR:${NC} $*"
+}
+
+log_info "Checking SSL certificate renewal..."
+
+# Check if certbot is available
+if ! command -v certbot >/dev/null 2>&1; then
+    log_error "Certbot is not installed"
+    exit 1
+fi
+
+# List certificates and their expiry dates
+log_info "Current certificates:"
+sudo certbot certificates
+
+# Check for renewal (dry run)
+log_info "Testing certificate renewal..."
+if sudo certbot renew --dry-run; then
+    log_success "✓ Renewal test passed"
+else
+    log_error "Renewal test failed"
+    exit 1
+fi
+
+# Perform actual renewal
+log_info "Renewing certificates..."
+if sudo certbot renew; then
+    log_success "✓ Certificate renewal completed"
+    
+    # Reload reverse proxy services
+    for service in nginx apache2 httpd caddy; do
+        if systemctl is-active --quiet "$service" 2>/dev/null; then
+            log_info "Reloading $service..."
+            sudo systemctl reload "$service"
+        fi
+    done
+    
+    log_success "✓ Reverse proxy services reloaded"
+else
+    log_warning "No certificates needed renewal"
+fi
+
+log_success "Certificate renewal check completed"
+
+exit 0
+# === END:renew-ssl.sh ===
