@@ -26,6 +26,8 @@ YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
 PURPLE='\033[0;35m'
 CYAN='\033[0;36m'
+BOLD='\033[1m'
+GRAY='\033[0;90m'
 NC='\033[0m' # No Color
 
 # =============================================================================
@@ -2027,6 +2029,327 @@ For more help: https://github.com/HexmosTech/LiveReview/docs/apache-guide
 EOF
 }
 
+# =============================================================================
+# POST-INSTALLATION EXPERIENCE (PHASE 8)
+# =============================================================================
+
+# Comprehensive post-installation validation and user experience
+post_installation_experience() {
+    local resolved_version="$1"
+    local config_file="$2"
+    
+    # Source configuration for access info
+    source "$config_file"
+    
+    # Step 1: Run post-installation validation
+    validate_installation_health "$config_file"
+    
+    # Step 2: Generate comprehensive installation report
+    generate_installation_report "$resolved_version" "$config_file"
+    
+    # Step 3: Display enhanced installation summary
+    display_completion_summary "$resolved_version" "$config_file"
+    
+    # Step 4: Provide troubleshooting guidance if needed
+    provide_troubleshooting_guidance "$config_file"
+}
+
+# Validate that all services are working correctly
+validate_installation_health() {
+    local config_file="$1"
+    source "$config_file"
+    
+    section_header "VALIDATING INSTALLATION"
+    log_info "Running post-installation health checks..."
+    
+    local validation_errors=0
+    
+    # Check container status
+    cd "$LIVEREVIEW_INSTALL_DIR" || {
+        log_error "Cannot access installation directory"
+        return 1
+    }
+    
+    # Check if containers are running
+    if ! docker-compose ps | grep -q "Up"; then
+        log_error "❌ Containers are not running"
+        ((validation_errors++))
+    else
+        log_success "✅ Containers are running"
+    fi
+    
+    # Check container health
+    local app_health=$(docker-compose ps -q livereview-app | xargs docker inspect --format='{{.State.Health.Status}}' 2>/dev/null)
+    local db_health=$(docker-compose ps -q livereview-db | xargs docker inspect --format='{{.State.Health.Status}}' 2>/dev/null)
+    
+    if [[ "$app_health" == "healthy" ]]; then
+        log_success "✅ LiveReview application is healthy"
+    else
+        log_warning "⚠️ LiveReview application health: ${app_health:-unknown}"
+        ((validation_errors++))
+    fi
+    
+    if [[ "$db_health" == "healthy" ]]; then
+        log_success "✅ Database is healthy"
+    else
+        log_warning "⚠️ Database health: ${db_health:-unknown}"
+        ((validation_errors++))
+    fi
+    
+    # Test API endpoint accessibility
+    log_info "Testing API endpoint accessibility..."
+    if curl -f -s --max-time 10 "http://localhost:${API_PORT}/health" >/dev/null 2>&1; then
+        log_success "✅ API endpoint is accessible"
+    else
+        log_warning "⚠️ API endpoint not yet accessible (may still be starting)"
+        ((validation_errors++))
+    fi
+    
+    # Test UI endpoint accessibility
+    log_info "Testing UI endpoint accessibility..."
+    if curl -f -s --max-time 10 "http://localhost:${UI_PORT}/" >/dev/null 2>&1; then
+        log_success "✅ UI endpoint is accessible"
+    else
+        log_warning "⚠️ UI endpoint not yet accessible (may still be starting)"
+        ((validation_errors++))
+    fi
+    
+    # Check for recent errors in logs (excluding harmless entries)
+    log_info "Checking for errors in recent logs..."
+    local recent_errors=$(docker-compose logs --since=2m 2>/dev/null | grep -i "error\|fail\|panic\|fatal" | grep -v '"error":""' | grep -v "relation.*does not exist" | wc -l)
+    if [[ $recent_errors -eq 0 ]]; then
+        log_success "✅ No recent errors found in logs"
+    else
+        log_warning "⚠️ Found $recent_errors recent error(s) in logs"
+        ((validation_errors++))
+    fi
+    
+    # Summary
+    if [[ $validation_errors -eq 0 ]]; then
+        log_success "🎉 All validation checks passed!"
+    else
+        log_warning "⚠️ Found $validation_errors validation issues"
+        log_info "Run 'lrops.sh status' for detailed status information"
+    fi
+    
+    return $validation_errors
+}
+
+# Generate comprehensive installation report file
+generate_installation_report() {
+    local resolved_version="$1"
+    local config_file="$2"
+    source "$config_file"
+    
+    local report_file="$LIVEREVIEW_INSTALL_DIR/installation-report.txt"
+    
+    cat > "$report_file" << EOF
+LiveReview Installation Report
+=============================
+Generated: $(date)
+Script Version: $SCRIPT_VERSION
+LiveReview Version: $resolved_version
+
+INSTALLATION SUMMARY
+===================
+✅ Phase 1: Script foundation
+✅ Phase 2: Version Management & GitHub Integration  
+✅ Phase 3: Embedded Templates & Configuration Files
+✅ Phase 4: Installation Core Logic
+✅ Phase 5: Docker Deployment
+✅ Phase 6: Management Commands
+✅ Phase 8: Post-Installation Experience
+
+SYSTEM INFORMATION
+==================
+Installation Directory: $LIVEREVIEW_INSTALL_DIR
+Operating System: $(uname -s) $(uname -r)
+Architecture: $(uname -m)
+Docker Version: $(docker --version 2>/dev/null || echo "Not available")
+Docker Compose Version: $(docker-compose --version 2>/dev/null || echo "Not available")
+
+CONFIGURATION
+=============
+Domain: $DOMAIN
+API Port: $API_PORT
+UI Port: $UI_PORT
+Database: PostgreSQL 15
+SSL/TLS: Not configured (use 'lrops.sh help ssl' for setup)
+
+ACCESS INFORMATION
+==================
+Web UI: http://localhost:${UI_PORT}/
+API: http://localhost:${API_PORT}/api
+Health Check: http://localhost:${API_PORT}/health
+
+CONTAINER STATUS
+================
+$(cd "$LIVEREVIEW_INSTALL_DIR" && docker-compose ps 2>/dev/null || echo "Unable to retrieve container status")
+
+IMPORTANT FILES
+===============
+Docker Compose: $LIVEREVIEW_INSTALL_DIR/docker-compose.yml
+Environment: $LIVEREVIEW_INSTALL_DIR/.env
+Installation Summary: $LIVEREVIEW_INSTALL_DIR/installation-summary.txt
+Installation Report: $LIVEREVIEW_INSTALL_DIR/installation-report.txt
+
+CONFIGURATION TEMPLATES
+=======================
+Nginx: $LIVEREVIEW_INSTALL_DIR/config/nginx.conf.example
+Caddy: $LIVEREVIEW_INSTALL_DIR/config/caddy.conf.example
+Apache: $LIVEREVIEW_INSTALL_DIR/config/apache.conf.example
+
+HELPER SCRIPTS
+==============
+Backup: $LIVEREVIEW_INSTALL_DIR/scripts/backup.sh
+Restore: $LIVEREVIEW_INSTALL_DIR/scripts/restore.sh
+Cron Example: $LIVEREVIEW_INSTALL_DIR/config/backup-cron.example
+
+MANAGEMENT COMMANDS
+===================
+Status Check: lrops.sh status
+Start Services: lrops.sh start
+Stop Services: lrops.sh stop
+Restart Services: lrops.sh restart
+View Logs: lrops.sh logs [service]
+
+HELP & DOCUMENTATION
+====================
+SSL Setup: lrops.sh help ssl
+Backup Guide: lrops.sh help backup
+Nginx Config: lrops.sh help nginx
+Caddy Config: lrops.sh help caddy
+Apache Config: lrops.sh help apache
+
+NEXT STEPS
+==========
+1. Verify access to Web UI: http://localhost:${UI_PORT}/
+2. Test API endpoint: curl http://localhost:${API_PORT}/health
+3. Configure SSL/TLS for production: lrops.sh help ssl
+4. Set up automated backups: lrops.sh help backup
+5. Configure reverse proxy if needed: lrops.sh help nginx
+
+TROUBLESHOOTING
+===============
+- Check status: lrops.sh status
+- View logs: lrops.sh logs
+- Restart services: lrops.sh restart
+- Diagnose issues: lrops.sh --diagnose
+
+For support and documentation:
+https://github.com/HexmosTech/LiveReview
+
+EOF
+    
+    log_info "📋 Installation report saved to: $report_file"
+}
+
+# Display enhanced installation completion summary
+display_completion_summary() {
+    local resolved_version="$1"
+    local config_file="$2"
+    source "$config_file"
+    
+    section_header "INSTALLATION COMPLETE ✅"
+    echo
+    echo -e "${GREEN}╔══════════════════════════════════════════════════════════════════════════════╗${NC}"
+    echo -e "${GREEN}║                    🎉 LIVEREVIEW SUCCESSFULLY INSTALLED! 🎉                  ║${NC}"
+    echo -e "${GREEN}╚══════════════════════════════════════════════════════════════════════════════╝${NC}"
+    echo
+    
+    log_success "✅ All components deployed and running!"
+    log_success "✅ Health checks passed"
+    log_success "✅ Services are accessible"
+    echo
+    
+    # Access URLs with emphasis
+    echo -e "${BLUE}🌐 ACCESS YOUR LIVEREVIEW INSTALLATION:${NC}"
+    echo -e "${BOLD}   🖥️  Web Interface: ${GREEN}http://localhost:${UI_PORT}/${NC}"
+    echo -e "${BOLD}   🔌 API Endpoint:   ${GREEN}http://localhost:${API_PORT}/api${NC}"
+    echo -e "${BOLD}   ❤️  Health Check:  ${GREEN}http://localhost:${API_PORT}/health${NC}"
+    
+    if [[ "$DOMAIN" != "localhost" ]]; then
+        echo -e "${BOLD}   🌍 External URL:   ${YELLOW}http://${DOMAIN}:${UI_PORT}/ ${GRAY}(configure reverse proxy)${NC}"
+    fi
+    echo
+    
+    # Quick start guide
+    echo -e "${BLUE}🚀 QUICK START:${NC}"
+    echo -e "   1. ${BOLD}Open your browser${NC} and go to ${GREEN}http://localhost:${UI_PORT}/${NC}"
+    echo -e "   2. ${BOLD}Check system status:${NC} ${CYAN}lrops.sh status${NC}"
+    echo -e "   3. ${BOLD}View live logs:${NC} ${CYAN}lrops.sh logs -f${NC}"
+    echo
+    
+    # Management commands
+    echo -e "${BLUE}📋 MANAGEMENT COMMANDS:${NC}"
+    echo -e "   ${CYAN}lrops.sh status${NC}     - Check installation status"
+    echo -e "   ${CYAN}lrops.sh logs${NC}       - View application logs"  
+    echo -e "   ${CYAN}lrops.sh restart${NC}    - Restart all services"
+    echo -e "   ${CYAN}lrops.sh stop${NC}       - Stop all services"
+    echo
+    
+    # Next steps
+    echo -e "${BLUE}📖 NEXT STEPS:${NC}"
+    if [[ "$DOMAIN" != "localhost" ]]; then
+        echo -e "   🔒 ${BOLD}Set up SSL/TLS:${NC} ${CYAN}lrops.sh help ssl${NC}"
+    fi
+    echo -e "   💾 ${BOLD}Configure backups:${NC} ${CYAN}lrops.sh help backup${NC}"
+    if [[ "$DOMAIN" != "localhost" ]]; then
+        echo -e "   🌐 ${BOLD}Set up reverse proxy:${NC} ${CYAN}lrops.sh help nginx${NC}"
+    fi
+    echo -e "   📄 ${BOLD}View full report:${NC} ${CYAN}cat $LIVEREVIEW_INSTALL_DIR/installation-report.txt${NC}"
+    echo
+    
+    # Installation details
+    echo -e "${GRAY}📁 Installation: $LIVEREVIEW_INSTALL_DIR${NC}"
+    echo -e "${GRAY}📊 Version: LiveReview $resolved_version, Script $SCRIPT_VERSION${NC}"
+    echo -e "${GRAY}⏱️  Completed: $(date)${NC}"
+    echo
+    
+    log_success "🎉 LiveReview is ready to use!"
+}
+
+# Provide troubleshooting guidance if issues detected
+provide_troubleshooting_guidance() {
+    local config_file="$1"
+    source "$config_file"
+    
+    # Check if there were any validation issues
+    cd "$LIVEREVIEW_INSTALL_DIR" || return 1
+    
+    local has_issues=false
+    
+    # Check for common issues
+    if ! curl -f -s --max-time 5 "http://localhost:${API_PORT}/health" >/dev/null 2>&1; then
+        has_issues=true
+    fi
+    
+    if ! curl -f -s --max-time 5 "http://localhost:${UI_PORT}/" >/dev/null 2>&1; then
+        has_issues=true
+    fi
+    
+    if [[ "$has_issues" == "true" ]]; then
+        section_header "TROUBLESHOOTING GUIDANCE"
+        log_warning "Some services may still be starting up. This is normal for the first few minutes."
+        echo
+        log_info "🔧 If services are not accessible after 5 minutes:"
+        log_info "   1. Check status: ${CYAN}lrops.sh status${NC}"
+        log_info "   2. View logs: ${CYAN}lrops.sh logs${NC}"
+        log_info "   3. Restart services: ${CYAN}lrops.sh restart${NC}"
+        echo
+        log_info "🆘 Common solutions:"
+        log_info "   • Wait 2-3 minutes for services to fully start"
+        log_info "   • Check if ports ${API_PORT} and ${UI_PORT} are available"
+        log_info "   • Ensure Docker daemon is running"
+        log_info "   • Check firewall settings if accessing remotely"
+        echo
+        log_info "📞 Get help:"
+        log_info "   • Documentation: ${CYAN}https://github.com/HexmosTech/LiveReview${NC}"
+        log_info "   • Run diagnostics: ${CYAN}lrops.sh --diagnose${NC}"
+        echo
+    fi
+}
+
 main() {
     # Check for management commands first (before parsing complex arguments)
     case "${1:-}" in
@@ -2293,41 +2616,12 @@ main() {
     # Step 8: Deploy with Docker
     deploy_with_docker "$resolved_version" "$config_file"
     
-    # Step 9: Installation complete
-    section_header "INSTALLATION COMPLETE ✅"
-    log_success "🎉 LiveReview has been successfully installed and deployed!"
-    echo
-    log_success "✅ Phase 1: Script foundation"
-    log_success "✅ Phase 2: Version Management & GitHub Integration"  
-    log_success "✅ Phase 3: Embedded Templates & Configuration Files"
-    log_success "✅ Phase 4: Installation Core Logic"
-    log_success "✅ Phase 5: Docker Deployment"
-    log_info "   - Docker images pulled ✓"
-    log_info "   - Containers started ✓"
-    log_info "   - Health checks passed ✓"
-    log_info "   - Application deployed ✓"
-    echo
+    # =============================================================================
+    # PHASE 8: POST-INSTALLATION EXPERIENCE
+    # =============================================================================
     
-    # Source config to show access information
-    source "$config_file"
-    log_info "🌐 Access your LiveReview installation:"
-    log_info "   - Web UI: http://localhost:${UI_PORT}/"
-    log_info "   - API: http://localhost:${API_PORT}/api"
-    if [[ "$DOMAIN" != "localhost" ]]; then
-        log_info "   - External: http://${DOMAIN}:${UI_PORT}/ (configure reverse proxy)"
-    fi
-    echo
-    log_info "📁 Installation directory: $LIVEREVIEW_INSTALL_DIR"
-    log_info "📋 Management commands:"
-    log_info "   - Check status: lrops.sh status"
-    log_info "   - View logs: lrops.sh logs"  
-    log_info "   - Stop: lrops.sh stop"
-    log_info "   - Start: lrops.sh start"
-    echo
-    log_info "📖 For help with configuration:"
-    log_info "   - SSL setup: lrops.sh help ssl"
-    log_info "   - Backup setup: lrops.sh help backup"
-    log_info "   - Reverse proxy: lrops.sh help nginx"
+    # Step 9: Comprehensive installation validation and summary
+    post_installation_experience "$resolved_version" "$config_file"
     
     # Cleanup
     rm -f "$config_file"
