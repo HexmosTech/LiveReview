@@ -5,50 +5,50 @@ This checklist breaks down the implementation of `lrops.sh` into manageable phas
 ## Phase 1: Core Infrastructure & Basic Script Structure
 
 ### 1.1 Script Foundation
-- [ ] Create `lrops.sh` with proper shebang and header
-- [ ] Implement command-line argument parsing
-  - [ ] `--express` flag for non-interactive mode
-  - [ ] `--force` flag for overwriting existing installations
-  - [ ] `--version` flag for specific version installation
-  - [ ] `--help` flag for usage information
-- [ ] Add script version management and `--version` output
-- [ ] Implement logging/output functions with progress indicators
-- [ ] Add error handling and cleanup functions
+- [x] Create `lrops.sh` with proper shebang and header
+- [x] Implement command-line argument parsing
+  - [x] `--express` flag for non-interactive mode
+  - [x] `--force` flag for overwriting existing installations
+  - [x] `--version` flag for specific version installation
+  - [x] `--help` flag for usage information
+- [x] Add script version management and `--version` output
+- [x] Implement logging/output functions with progress indicators
+- [x] Add error handling and cleanup functions
 
 ### 1.2 Safety Checks
-- [ ] Implement existing installation detection
-  - [ ] Check for `/opt/livereview/` directory
-  - [ ] Check for running LiveReview containers
-  - [ ] Abort if found (unless `--force` specified)
-- [ ] System prerequisites validation
-  - [ ] Check for Docker installation and version
-  - [ ] Check for Docker Compose availability
-  - [ ] Verify Docker daemon is running
-  - [ ] Check system architecture (amd64/arm64)
-- [ ] Permissions and sudo access verification
+- [x] Implement existing installation detection
+  - [x] Check for `/opt/livereview/` directory
+  - [x] Check for running LiveReview containers
+  - [x] Abort if found (unless `--force` specified)
+- [x] System prerequisites validation
+  - [x] Check for Docker installation and version
+  - [x] Check for Docker Compose availability
+  - [x] Verify Docker daemon is running
+  - [x] Check system architecture (amd64/arm64)
+- [x] Permissions and sudo access verification
 
 ### 1.3 Self-Installation Framework
-- [ ] Implement self-installation to `/usr/local/bin/lrops.sh`
-- [ ] Add executable permissions setting
-- [ ] Implement self-update functionality
-- [ ] Auto-update logic (update script on every curl/wget run)
+- [x] Implement self-installation to `/usr/local/bin/lrops.sh`
+- [x] Add executable permissions setting
+- [x] Implement self-update functionality
+- [x] Auto-update logic (update script on every curl/wget run)
 
 ### Phase 1 Validation Commands
 ```bash
 # Test basic script functionality
-./lrops.sh --help                    # Should show usage information
-./lrops.sh --version                 # Should show script version
-./lrops.sh --express --dry-run       # Should parse args without errors
+./lrops.sh --help                    # Should show usage information   [x]
+./lrops.sh --version                 # Should show script version      [x]
+./lrops.sh --express --dry-run       # Should parse args without errors [x]
 
 # Test safety checks
-./lrops.sh --express                 # Should check prerequisites and abort safely
-docker --version                     # Verify Docker detection works
-docker-compose --version             # Verify Docker Compose detection works
+./lrops.sh --express                 # Should check prerequisites and abort safely [x]
+docker --version                     # Verify Docker detection works   [x]
+docker-compose --version             # Verify Docker Compose detection works [x]
 
 # Test self-installation (if implemented)
-sudo ./lrops.sh --install-self       # Should install to /usr/local/bin/
-which lrops.sh                       # Should find installed script
-lrops.sh --version                   # Should work from PATH
+sudo ./lrops.sh --install-self       # Should install to /usr/local/bin/ [x]
+which lrops.sh                       # Should find installed script    [x]
+lrops.sh --version                   # Should work from PATH           [x]
 ```
 
 ## Phase 2: Version Management & GitHub Integration
