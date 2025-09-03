@@ -4,7 +4,7 @@
 
 Self-hosted AI code reviewer that keeps your code private, adapts to your setup, and won’t blow your budget.
 
-<img src="assets/screenshots/home.png" />
+<img src="./assets/screenshots/home.png" />
 
 > [!NOTE]
 >
