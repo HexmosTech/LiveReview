@@ -1,4 +1,8 @@
-<img src="./assets/gfx/png/logo-with-text.png" height=80>
+<img src="./assets/gf2. **🔧 Maximum Flexibility** 
+   - **Multi-Platform**: Integrates with GitHub, GitLab, and Bitbucket
+   - **AI Choice Freedom**: Choose Gemini, OpenAI, or self-hosted Ollama for maximum privacy
+   - **Workflow Adaptation**: Adapts to your process instead of forcing change
+   - **Custom Support**: Unusual setup? We'll work with you—[open an issue](https://github.com/HexmosTech/LiveReview/issues?utm_source=chatgpt.com)/png/logo-with-text.png" height=80>
 
 # Secure, Flexible & Affordable AI Code Reviewer
 
@@ -14,19 +18,42 @@
 
 ## Our Approach
 
-1. **Security:** LiveReview runs entirely on your infrastructure—on-prem or private cloud. **Your source code and credentials never leave your environment unless you choose.** Recent breaches of cloud-hosted reviewers show how even small misconfigurations can expose entire repositories. With LiveReview, those risks are eliminated by design.**Security:** LiveReview runs on your servers, on your premises. Your code may never leave your server, without your say-so. Recent incidents around competitors show how in Cloud Based setups tiny mistakes can keep your IP/code exposed to the world
+1. **🔒 Security-First Design**
+   - **Zero Cloud Dependency**: Runs entirely on your infrastructure (on-prem or private cloud) - except for update checks and license checking. 
+   - **Complete Code Privacy**: Your source code and credentials never leave your environment
+   - **Risk Elimination**: Recent breaches of cloud-hosted reviewers show how misconfigurations expose repositories—LiveReview eliminates this by design
+   - **Full Control**: Your code stays on your servers, period
 2. **Flexibility:** LiveReview adapts to your workflow instead of locking you in. **It integrates with GitHub, GitLab, and Bitbucket,** and lets you choose the AI backend that fits your needs—**Gemini, OpenAI, or self-hosted Ollama** for maximum privacy. If your setup is unusual, open an [issue](https://github.com/HexmosTech/LiveReview/issues?utm_source=chatgpt.com) and we’ll work with you—because good code reviews shouldn’t depend on rigid tooling.
-3. **Affordability:** LiveReview is paid software, built for long-term sustainability. **Our pricing is straightforward and significantly lower than comparable hosted tools**, while still funding a strong engineering team focused on R&D. We invest in product improvements, not marketing hype -- so customers get maximum value for every dollar.
+3. **💰 Transparent Affordability**
+   - **Straightforward Pricing**: Significantly lower than comparable hosted tools
+   - **Sustainable Model**: Paid software built for long-term reliability
+   - **R&D Focus**: Investment goes to product improvements, not marketing hype
+   - **Maximum Value**: Every dollar funds engineering excellence
 
 ## How is this better than...
 
-1. **GitHub Copilot:** Copilot only works on GitHub, with one cloud-hosted AI model. LiveReview runs across GitHub, GitLab, and Bitbucket, is self-hosted for stronger security, and lets you choose your own AI backend—so you stay in control of both costs and quality.
-2. **CodeRabbit:** LiveReview is more affordable than CodeRabbit and keeps your code under your control by running self-hosted. Cloud-hosted reviewers, including CodeRabbit, have recently been compromised—allowing attackers to execute code and gain access to private repositories. LiveReview avoids this entire risk by design.
-3. **Why not build our own?** Building a reliable AI code reviewer is deceptively complex. Even experienced teams quickly run into integration headaches—code host APIs, MR/PR handling, prompt tuning, webhooks, dashboards, and user management all require constant maintenance. LiveReview delivers high-quality AI reviews out of the box, with a secure, self-hosted setup—so your team stays focused on product, not infrastructure.
+### 🆚 **vs GitHub Copilot**
+- **✅ Multi-Platform Support**: Works with GitHub, GitLab, AND Bitbucket (not just GitHub)
+- **✅ Self-Hosted Security**: Your code stays private vs cloud-hosted risk
+- **✅ AI Choice Freedom**: Pick your AI backend vs locked into one model
+- **✅ Cost Control**: You control both costs and quality
+
+### 🆚 **vs CodeRabbit**  
+- **✅ More Affordable**: Significantly lower pricing than CodeRabbit
+- **✅ Zero Cloud Risk**: Self-hosted vs recent security breaches in cloud platforms
+- **✅ Complete Control**: Your code never leaves your infrastructure
+- **✅ Attack Prevention**: Eliminates entire class of cloud-based vulnerabilities
+
+### 🆚 **vs Building Your Own**
+- **⚡ Ready Out-of-Box**: Skip months of development time
+- **🔧 Complex Integration**: Code host APIs, webhooks, dashboards all handled
+- **🧠 AI Expertise**: Advanced prompt engineering and review logic included  
+- **🔄 Continuous Maintenance**: No need for ongoing MR/PR handling, user management
+- **🎯 Focus on Product**: Your team builds features, not infrastructure
 
 ## Features
 
-- Integrated Dashboard - See usage statistics, impact analysis, user activity and overall impact
+- Integrated Dashboard - See usage statistics, impact analysis, user activity
 - Git Provider - Connect as many git providers as you want - Github, Gitlab, Bitbucket supported already.
 - AI Connector - Connect your Gemini, OpenAI or Self-Hosted Ollama Keys
 - Demo and Production modes - Try it out in 5 minutes, and make it production grade quickly with built-in help
