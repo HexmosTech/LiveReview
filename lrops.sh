@@ -119,8 +119,14 @@ docker_compose() {
         fi
     fi
     
-    log_debug "Executing: $DOCKER_COMPOSE_CMD $*"
-    $DOCKER_COMPOSE_CMD "$@"
+    # If we have an install directory and docker-compose.yml exists there, use it explicitly
+    local compose_file=""
+    if [[ -n "$LIVEREVIEW_INSTALL_DIR" && -f "$LIVEREVIEW_INSTALL_DIR/docker-compose.yml" ]]; then
+        compose_file="-f $LIVEREVIEW_INSTALL_DIR/docker-compose.yml"
+    fi
+    
+    log_debug "Executing: $DOCKER_COMPOSE_CMD $compose_file $*"
+    $DOCKER_COMPOSE_CMD $compose_file "$@"
 }
 
 # =============================================================================
@@ -132,6 +138,7 @@ EXPRESS_MODE=false
 FORCE_INSTALL=false
 DRY_RUN=false
 VERBOSE=false
+DEBUG_MODE=false
 LIVEREVIEW_VERSION=""
 SHOW_HELP=false
 SHOW_VERSION=false
@@ -165,6 +172,11 @@ parse_arguments() {
                 shift
                 ;;
             --verbose|-v)
+                VERBOSE=true
+                shift
+                ;;
+            --debug)
+                DEBUG_MODE=true
                 VERBOSE=true
                 shift
                 ;;
@@ -293,6 +305,7 @@ INSTALLATION OPTIONS:
     --version=v1.2.3                  Install specific version (default: latest)
     --dry-run                         Show what would be done without installing
     --verbose, -v                     Enable verbose output
+    --debug                           Enable bash debug tracing (set -x, also enables verbose output)
 
 MANAGEMENT OPTIONS:
     --help, -h                        Show this help message
@@ -1462,15 +1475,30 @@ start_containers() {
     section_header "STARTING CONTAINERS"
     log_info "Starting LiveReview containers..."
     
+    # Verify docker-compose.yml exists
+    if [[ ! -f "$LIVEREVIEW_INSTALL_DIR/docker-compose.yml" ]]; then
+        log_error "docker-compose.yml not found in $LIVEREVIEW_INSTALL_DIR"
+        log_info "Directory contents: $(ls -la "$LIVEREVIEW_INSTALL_DIR" 2>/dev/null || echo "Directory does not exist")"
+        return 1
+    fi
+    
     cd "$LIVEREVIEW_INSTALL_DIR" || {
         log_error "Could not change to installation directory: $LIVEREVIEW_INSTALL_DIR"
         return 1
     }
     
+    # Verify we're in the right directory and files exist
+    if [[ ! -f "docker-compose.yml" ]]; then
+        log_error "docker-compose.yml not found in current directory: $(pwd)"
+        return 1
+    fi
+    
     # Start containers in detached mode
     log_info "Running: $DOCKER_COMPOSE_CMD up -d"
     if ! docker_compose up -d; then
         log_error "Failed to start containers with docker compose"
+        log_info "Current directory: $(pwd)"
+        log_info "Files in directory: $(ls -la)"
         return 1
     fi
     
@@ -1739,6 +1767,7 @@ show_info() {
     log_info "  - Docker Compose: $LIVEREVIEW_INSTALL_DIR/docker-compose.yml"
     log_info "  - Environment: $LIVEREVIEW_INSTALL_DIR/.env"
     log_info "  - Installation Summary: $LIVEREVIEW_INSTALL_DIR/installation-summary.txt"
+    log_info "  - Installation Report: $LIVEREVIEW_INSTALL_DIR/installation-report.txt"
     echo
     log_info "📂 Configuration Templates:"
     log_info "  - Nginx: $LIVEREVIEW_INSTALL_DIR/config/nginx.conf.example"
@@ -2246,15 +2275,14 @@ INSTALLATION
    sudo apt update && sudo apt install apache2
 
 2. Enable required modules:
-   sudo a2enmod proxy proxy_http proxy_balancer lbmethod_byrequests
-   sudo a2enmod ssl rewrite headers
-
+   sudo a2enmod proxy proxy_http proxy_balancer lbmethod_byrequests headers rewrite ssl
+    
 3. Copy and configure the template:
    sudo cp /opt/livereview/config/apache.conf.example /etc/apache2/sites-available/livereview.conf
    sudo sed -i 's/your-domain.com/yourdomain.com/g' /etc/apache2/sites-available/livereview.conf
 
 4. Enable the site:
-   sudo a2ensite livereview.conf
+   sudo a2ensite livereview
    sudo systemctl reload apache2
 
 TEMPLATE FEATURES
@@ -2495,10 +2523,10 @@ Status Check: lrops.sh status
 Start Services: lrops.sh start
 Stop Services: lrops.sh stop
 Restart Services: lrops.sh restart
-View Logs: lrops.sh logs [service]
+View Logs: lrops.sh logs
 
-HELP & DOCUMENTATION
-====================
+CONFIGURATION HELP
+==================
 SSL Setup: lrops.sh help ssl
 Backup Guide: lrops.sh help backup
 Nginx Config: lrops.sh help nginx
@@ -2726,6 +2754,12 @@ main() {
     
     # Parse command line arguments
     parse_arguments "$@"
+    
+    # Enable debug mode if requested (must be done after argument parsing)
+    if [[ "$DEBUG_MODE" == "true" ]]; then
+        set -x  # Enable bash tracing
+        log_info "Debug mode enabled - bash tracing is now active"
+    fi
     
     # Handle version and help first
     if [[ "$SHOW_VERSION" == "true" ]]; then
@@ -3063,12 +3097,6 @@ REFRESH_TOKEN_DURATION_DAYS=30
 
 # For mode switching and configuration help:
 # lrops.sh help ssl     # SSL/TLS setup
-# lrops.sh help nginx   # Nginx reverse proxy
-# lrops.sh help caddy   # Caddy reverse proxy
-# === END:.env ===
-
-# === DATA:nginx.conf.example ===
-# Nginx configuration for LiveReview reverse proxy
 # Copy to /etc/nginx/sites-available/livereview and enable
 
 server {
