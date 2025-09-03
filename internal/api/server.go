@@ -772,14 +772,31 @@ func (s *Server) DisableManualTriggerForAllProjects(c echo.Context) error {
 func (s *Server) getSystemInfo(c echo.Context) error {
 	deploymentConfig := s.deploymentConfig
 
+	// Derive webhook URL based on deployment mode
+	var webhookURL string
+	if deploymentConfig.ReverseProxy {
+		// Production: derive from current request
+		scheme := "https"
+		if c.Scheme() == "http" {
+			scheme = "http"
+		}
+		host := c.Request().Host
+		webhookURL = fmt.Sprintf("%s://%s/api/v1/gitlab-hook", scheme, host)
+	} else {
+		// Demo: localhost for display only
+		webhookURL = fmt.Sprintf("http://localhost:%d/api/v1/gitlab-hook", deploymentConfig.BackendPort)
+	}
+
 	info := map[string]interface{}{
 		"deployment_mode": deploymentConfig.Mode,
 		"api_url":         fmt.Sprintf("http://localhost:%d", deploymentConfig.BackendPort),
+		"webhook_url":     webhookURL,
 		"capabilities": map[string]interface{}{
 			"webhooks_enabled":     deploymentConfig.WebhooksEnabled,
 			"manual_triggers_only": !deploymentConfig.WebhooksEnabled,
 			"external_access":      deploymentConfig.Mode == "production",
 			"proxy_mode":           deploymentConfig.ReverseProxy,
+			"git_provider_setup":   true,
 		},
 		"version": map[string]interface{}{
 			"version":   s.versionInfo.Version,
