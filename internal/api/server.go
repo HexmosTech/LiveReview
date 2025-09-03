@@ -787,10 +787,22 @@ func (s *Server) getSystemInfo(c echo.Context) error {
 		webhookURL = fmt.Sprintf("http://localhost:%d/api/v1/gitlab-hook", deploymentConfig.BackendPort)
 	}
 
+	// Get the current browser URL for auto-population hints
+	currentURL := ""
+	if deploymentConfig.ReverseProxy {
+		scheme := "https"
+		if c.Scheme() == "http" {
+			scheme = "http"
+		}
+		host := c.Request().Host
+		currentURL = fmt.Sprintf("%s://%s", scheme, host)
+	}
+
 	info := map[string]interface{}{
 		"deployment_mode": deploymentConfig.Mode,
 		"api_url":         fmt.Sprintf("http://localhost:%d", deploymentConfig.BackendPort),
 		"webhook_url":     webhookURL,
+		"current_url":     currentURL, // For frontend auto-population
 		"capabilities": map[string]interface{}{
 			"webhooks_enabled":     deploymentConfig.WebhooksEnabled,
 			"manual_triggers_only": !deploymentConfig.WebhooksEnabled,
