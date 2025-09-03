@@ -188,3 +188,6 @@ docker-interactive-multiarch:
 
 docker-interactive-multiarch-push:
 	@python scripts/lrops.py docker --multiarch --push
+
+cplrops:
+    cp lrops.sh ../gh/LiveReview/

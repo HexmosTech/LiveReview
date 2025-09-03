@@ -2845,7 +2845,8 @@ main() {
 # =============================================================================
 
 # Only run main if script is executed directly (not sourced)
-if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
+# Handle case where BASH_SOURCE might not be set (e.g., when piped through bash)
+if [[ "${BASH_SOURCE[0]:-}" == "${0}" ]] || [[ -z "${BASH_SOURCE[0]:-}" ]]; then
     main "$@"
 fi
 
