@@ -1,4 +1,4 @@
-<img src="./assets/gfx/png/logo-with-text.png height=80 />
+<img src="./assets/gfx/png/logo-with-text.png" height=80 />
 # Secure, Flexible & Affordable AI Code Reviewer
 
 *LiveReview* is a self-hosted AI code reviewer that keeps your code private, adapts to your setup, and won’t blow your budget.
