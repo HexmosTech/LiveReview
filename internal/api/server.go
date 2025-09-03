@@ -30,6 +30,54 @@ type VersionInfo struct {
 	Dirty     bool
 }
 
+// DeploymentConfig holds deployment mode configuration
+type DeploymentConfig struct {
+	BackendPort     int
+	FrontendPort    int
+	ReverseProxy    bool
+	Mode            string // derived: "demo" or "production"
+	WebhooksEnabled bool   // derived: based on mode
+}
+
+// getEnvInt retrieves an integer environment variable with a default value
+func getEnvInt(key string, defaultValue int) int {
+	if valueStr := os.Getenv(key); valueStr != "" {
+		if value, err := strconv.Atoi(valueStr); err == nil {
+			return value
+		}
+	}
+	return defaultValue
+}
+
+// getEnvBool retrieves a boolean environment variable with a default value
+func getEnvBool(key string, defaultValue bool) bool {
+	valueStr := os.Getenv(key)
+	if valueStr == "" {
+		return defaultValue
+	}
+	return valueStr == "true" || valueStr == "1"
+}
+
+// getDeploymentConfig reads deployment configuration from environment variables
+func getDeploymentConfig() *DeploymentConfig {
+	config := &DeploymentConfig{
+		BackendPort:  getEnvInt("LIVEREVIEW_BACKEND_PORT", 8888),
+		FrontendPort: getEnvInt("LIVEREVIEW_FRONTEND_PORT", 8081),
+		ReverseProxy: getEnvBool("LIVEREVIEW_REVERSE_PROXY", false),
+	}
+
+	// Auto-configure derived values
+	if config.ReverseProxy {
+		config.Mode = "production"
+		config.WebhooksEnabled = true
+	} else {
+		config.Mode = "demo"
+		config.WebhooksEnabled = false
+	}
+
+	return config
+}
+
 // Server represents the API server
 type Server struct {
 	echo                 *echo.Echo
@@ -39,6 +87,7 @@ type Server struct {
 	dashboardManager     *DashboardManager
 	autoWebhookInstaller *AutoWebhookInstaller
 	versionInfo          *VersionInfo
+	deploymentConfig     *DeploymentConfig
 	authHandlers         *auth.AuthHandlers
 	tokenService         *auth.TokenService
 	userHandlers         *users.UserHandlers
@@ -52,6 +101,14 @@ type Server struct {
 
 // NewServer creates a new API server
 func NewServer(port int, versionInfo *VersionInfo) (*Server, error) {
+	// Get deployment configuration from environment variables
+	deploymentConfig := getDeploymentConfig()
+
+	// Override port from deployment config if provided
+	if deploymentConfig.BackendPort != 8888 {
+		port = deploymentConfig.BackendPort
+	}
+
 	// Load environment variables from .env file
 	env, err := loadEnvFile(".env")
 	if err != nil {
@@ -146,6 +203,7 @@ func NewServer(port int, versionInfo *VersionInfo) (*Server, error) {
 		dashboardManager:     dashboardManager,
 		autoWebhookInstaller: autoWebhookInstaller,
 		versionInfo:          versionInfo,
+		deploymentConfig:     deploymentConfig,
 		authHandlers:         authHandlers,
 		tokenService:         tokenService,
 		userHandlers:         userHandlers,
@@ -459,8 +517,22 @@ func (s *Server) ValidateBitbucketProfile(c echo.Context) error {
 
 // Start begins the API server
 func (s *Server) Start() error {
-	// Print server starting message
+	// Determine bind address based on deployment mode
+	var bindAddress string
+	if s.deploymentConfig.Mode == "demo" {
+		bindAddress = fmt.Sprintf("127.0.0.1:%d", s.port)
+	} else {
+		bindAddress = fmt.Sprintf("127.0.0.1:%d", s.port)
+	}
+
+	// Print server starting message with deployment mode info
+	fmt.Printf("API server starting in %s mode\n", s.deploymentConfig.Mode)
 	fmt.Printf("API server is running at http://localhost:%d\n", s.port)
+	if s.deploymentConfig.Mode == "demo" {
+		fmt.Println("Demo Mode: Webhooks disabled, localhost access only")
+	} else {
+		fmt.Println("Production Mode: Webhooks enabled, configured for reverse proxy")
+	}
 	fmt.Println("Press Ctrl+C to stop the server")
 
 	// Start job queue workers
@@ -478,7 +550,7 @@ func (s *Server) Start() error {
 
 	// Start server in a goroutine
 	go func() {
-		if err := s.echo.Start(fmt.Sprintf(":%d", s.port)); err != nil && err != http.ErrServerClosed {
+		if err := s.echo.Start(bindAddress); err != nil && err != http.ErrServerClosed {
 			s.echo.Logger.Errorf("Error starting server: %v", err)
 		}
 	}()
@@ -698,8 +770,25 @@ func (s *Server) DisableManualTriggerForAllProjects(c echo.Context) error {
 
 // getSystemInfo returns system configuration information
 func (s *Server) getSystemInfo(c echo.Context) error {
-	return c.JSON(http.StatusOK, map[string]interface{}{
+	deploymentConfig := s.deploymentConfig
+
+	info := map[string]interface{}{
+		"deployment_mode": deploymentConfig.Mode,
+		"api_url":         fmt.Sprintf("http://localhost:%d", deploymentConfig.BackendPort),
+		"capabilities": map[string]interface{}{
+			"webhooks_enabled":     deploymentConfig.WebhooksEnabled,
+			"manual_triggers_only": !deploymentConfig.WebhooksEnabled,
+			"external_access":      deploymentConfig.Mode == "production",
+			"proxy_mode":           deploymentConfig.ReverseProxy,
+		},
+		"version": map[string]interface{}{
+			"version":   s.versionInfo.Version,
+			"gitCommit": s.versionInfo.GitCommit,
+			"buildTime": s.versionInfo.BuildTime,
+			"dirty":     s.versionInfo.Dirty,
+		},
 		"dev_mode": s.devMode,
-		"version":  s.versionInfo,
-	})
+	}
+
+	return c.JSON(http.StatusOK, info)
 }

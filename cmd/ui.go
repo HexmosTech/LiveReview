@@ -6,6 +6,7 @@ import (
 	"io/fs"
 	"net/http"
 	"os"
+	"strconv"
 	"strings"
 	"sync"
 
@@ -41,15 +42,24 @@ func UICommand(uiAssets embed.FS) *cli.Command {
 			port := c.Int("port")
 			apiURL := c.String("api-url")
 
+			// Check for environment variable overrides
+			if envPort := os.Getenv("LIVEREVIEW_FRONTEND_PORT"); envPort != "" {
+				if parsedPort, err := strconv.Atoi(envPort); err == nil {
+					port = parsedPort
+					fmt.Printf("Using frontend port from LIVEREVIEW_FRONTEND_PORT: %d\n", port)
+				}
+			}
+
 			// If no API URL provided, try to auto-detect based on port
 			if apiURL == "" {
-				// Default assumption: if UI is on 8081, API is on 8888
-				if port == 8081 {
-					apiURL = "http://localhost:8888"
-				} else {
-					// Otherwise assume API is on same host, different port
-					apiURL = "http://localhost:8888"
+				// Check for backend port environment variable
+				backendPort := 8888
+				if envBackendPort := os.Getenv("LIVEREVIEW_BACKEND_PORT"); envBackendPort != "" {
+					if parsedPort, err := strconv.Atoi(envBackendPort); err == nil {
+						backendPort = parsedPort
+					}
 				}
+				apiURL = fmt.Sprintf("http://localhost:%d", backendPort)
 			}
 
 			fmt.Printf("Starting LiveReview UI server on port %d...\n", port)
@@ -101,7 +111,7 @@ func prepareIndexHTML(distFS fs.FS, apiURL string) string {
 	}
 
 	htmlStr := string(indexContent)
-	
+
 	// Create the configuration script to inject
 	configScript := fmt.Sprintf(`<script>
 		// LiveReview runtime configuration

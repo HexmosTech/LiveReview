@@ -3,6 +3,7 @@ package cmd
 import (
 	"fmt"
 	"os"
+	"strconv"
 
 	"github.com/livereview/internal/api"
 	"github.com/urfave/cli/v2"
@@ -69,6 +70,14 @@ func APICommand() *cli.Command {
 		},
 		Action: func(c *cli.Context) error {
 			port := c.Int("port")
+
+			// Check for environment variable override
+			if envPort := os.Getenv("LIVEREVIEW_BACKEND_PORT"); envPort != "" {
+				if parsedPort, err := strconv.Atoi(envPort); err == nil {
+					port = parsedPort
+					fmt.Printf("Using backend port from LIVEREVIEW_BACKEND_PORT: %d\n", port)
+				}
+			}
 
 			// Create version info from global variables
 			versionInfo := &api.VersionInfo{
