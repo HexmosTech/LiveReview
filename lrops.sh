@@ -88,6 +88,42 @@ error_exit() {
 }
 
 # =============================================================================
+# DOCKER COMPOSE COMPATIBILITY
+# =============================================================================
+
+# Global variable to store the correct docker compose command
+DOCKER_COMPOSE_CMD=""
+
+# Detect and set the correct docker compose command
+detect_docker_compose_cmd() {
+    if command -v docker-compose >/dev/null 2>&1; then
+        # Legacy docker-compose is available
+        DOCKER_COMPOSE_CMD="docker-compose"
+        log_debug "Using legacy docker-compose command"
+    elif docker compose version >/dev/null 2>&1; then
+        # Modern docker compose plugin is available
+        DOCKER_COMPOSE_CMD="docker compose"
+        log_debug "Using modern docker compose plugin"
+    else
+        log_error "Neither docker-compose nor docker compose is available"
+        return 1
+    fi
+    return 0
+}
+
+# Wrapper function to execute docker compose commands
+docker_compose() {
+    if [[ -z "$DOCKER_COMPOSE_CMD" ]]; then
+        if ! detect_docker_compose_cmd; then
+            return 1
+        fi
+    fi
+    
+    log_debug "Executing: $DOCKER_COMPOSE_CMD $*"
+    $DOCKER_COMPOSE_CMD "$@"
+}
+
+# =============================================================================
 # ARGUMENT PARSING
 # =============================================================================
 
@@ -321,7 +357,7 @@ check_system_prerequisites() {
     fi
     
     # Check for required commands
-    local required_commands=("curl" "docker" "docker-compose" "jq")
+    local required_commands=("curl" "docker" "jq")
     for cmd in "${required_commands[@]}"; do
         if ! command -v "$cmd" &> /dev/null; then
             log_error "$cmd is required but not installed"
@@ -343,10 +379,20 @@ check_system_prerequisites() {
         fi
     fi
     
-    # Check Docker Compose
-    if command -v docker-compose &> /dev/null; then
-        local compose_version=$(docker-compose --version | cut -d' ' -f3 | sed 's/,//')
-        log_success "Docker Compose is available (version: $compose_version)"
+    # Check Docker Compose (both legacy and modern)
+    if detect_docker_compose_cmd; then
+        local compose_version
+        if [[ "$DOCKER_COMPOSE_CMD" == "docker-compose" ]]; then
+            compose_version=$(docker-compose --version | cut -d' ' -f3 | sed 's/,//')
+            log_success "Docker Compose is available (legacy docker-compose, version: $compose_version)"
+        else
+            compose_version=$(docker compose version --short 2>/dev/null || docker compose version | grep -o '[0-9][0-9.]*' | head -1)
+            log_success "Docker Compose is available (modern docker compose plugin, version: $compose_version)"
+        fi
+    else
+        log_error "Docker Compose is not available (neither docker-compose nor docker compose plugin)"
+        log_info "Install docker-compose or use Docker Desktop with the compose plugin"
+        ((errors++))
     fi
     
     # Check system architecture
@@ -1148,7 +1194,7 @@ EOF
 # 
 # To upgrade to production mode:
 # 1. Set LIVEREVIEW_REVERSE_PROXY=true
-# 2. Restart services: docker-compose restart
+# 2. Restart services: docker compose restart
 # 3. Configure reverse proxy (see: lrops.sh help nginx)
 EOF
     else
@@ -1263,7 +1309,7 @@ Demo Mode Configuration:
 
 Upgrade to Production Mode:
 1. Edit .env file: Set LIVEREVIEW_REVERSE_PROXY=true
-2. Restart services: docker-compose restart
+2. Restart services: docker compose restart
 3. Configure reverse proxy (see help guides below)
 4. Set up SSL/TLS for security
 
@@ -1351,7 +1397,7 @@ pull_docker_images() {
     log_success "All required Docker images pulled successfully"
 }
 
-# Start containers with docker-compose
+# Start containers with docker compose
 start_containers() {
     section_header "STARTING CONTAINERS"
     log_info "Starting LiveReview containers..."
@@ -1362,9 +1408,9 @@ start_containers() {
     }
     
     # Start containers in detached mode
-    log_info "Running: docker-compose up -d"
-    if ! docker-compose up -d; then
-        log_error "Failed to start containers with docker-compose"
+    log_info "Running: $DOCKER_COMPOSE_CMD up -d"
+    if ! docker_compose up -d; then
+        log_error "Failed to start containers with docker compose"
         return 1
     fi
     
@@ -1391,12 +1437,12 @@ wait_for_containers() {
         
         # Check if all containers are running
         local containers_running
-        containers_running=$(docker-compose ps -q | wc -l)
+        containers_running=$(docker_compose ps -q | wc -l)
         local containers_healthy=0
         
         if [[ $containers_running -gt 0 ]]; then
             # Check PostgreSQL container health
-            if docker-compose exec -T livereview-db pg_isready -U livereview >/dev/null 2>&1; then
+            if docker_compose exec -T livereview-db pg_isready -U livereview >/dev/null 2>&1; then
                 log_info "✓ PostgreSQL container is healthy"
                 ((containers_healthy++))
             else
@@ -1404,7 +1450,7 @@ wait_for_containers() {
             fi
             
             # Check LiveReview app container (simple ping)
-            if docker-compose ps livereview-app | grep -q "Up"; then
+            if docker_compose ps livereview-app | grep -q "Up"; then
                 log_info "✓ LiveReview app container is running"
                 ((containers_healthy++))
             else
@@ -1424,9 +1470,9 @@ wait_for_containers() {
     
     log_error "Containers did not become healthy within ${max_wait} seconds"
     log_info "Container status:"
-    docker-compose ps
+    docker_compose ps
     log_info "Recent logs:"
-    docker-compose logs --tail=10
+    docker_compose logs --tail=10
     return 1
 }
 
@@ -1485,7 +1531,7 @@ verify_deployment() {
     log_info "Verifying database connectivity..."
     cd "$LIVEREVIEW_INSTALL_DIR" || return 1
     
-    if docker-compose exec -T livereview-db pg_isready -U livereview >/dev/null 2>&1; then
+    if docker_compose exec -T livereview-db pg_isready -U livereview >/dev/null 2>&1; then
         log_success "✓ Database is accessible and ready"
     else
         log_warning "Database connectivity check failed"
@@ -1509,8 +1555,8 @@ verify_deployment() {
         fi
     else
         log_info "🔄 LiveReview containers are running but services may still be starting up"
-        log_info "   - Check status with: docker-compose -f $LIVEREVIEW_INSTALL_DIR/docker-compose.yml ps"
-        log_info "   - View logs with: docker-compose -f $LIVEREVIEW_INSTALL_DIR/docker-compose.yml logs"
+        log_info "   - Check status with: $DOCKER_COMPOSE_CMD -f $LIVEREVIEW_INSTALL_DIR/docker-compose.yml ps"
+        log_info "   - View logs with: $DOCKER_COMPOSE_CMD -f $LIVEREVIEW_INSTALL_DIR/docker-compose.yml logs"
     fi
     
     return 0
@@ -1535,7 +1581,7 @@ deploy_with_docker() {
     if ! wait_for_containers; then
         log_error "Container health check failed"
         log_info "Attempting to show container status and logs for debugging..."
-        cd "$LIVEREVIEW_INSTALL_DIR" && docker-compose ps && docker-compose logs --tail=20
+        cd "$LIVEREVIEW_INSTALL_DIR" && docker_compose ps && docker_compose logs --tail=20
         error_exit "Deployment failed - containers not healthy"
     fi
     
@@ -1578,13 +1624,13 @@ show_status() {
     
     # Show container status
     log_info "Container Status:"
-    if docker-compose ps 2>/dev/null | grep -q "livereview"; then
-        docker-compose ps
+    if docker_compose ps 2>/dev/null | grep -q "livereview"; then
+        docker_compose ps
         echo
         
         # Check if containers are healthy
-        local app_status=$(docker-compose ps -q livereview-app | xargs docker inspect --format='{{.State.Health.Status}}' 2>/dev/null)
-        local db_status=$(docker-compose ps -q livereview-db | xargs docker inspect --format='{{.State.Health.Status}}' 2>/dev/null)
+        local app_status=$(docker_compose ps -q livereview-app | xargs docker inspect --format='{{.State.Health.Status}}' 2>/dev/null)
+        local db_status=$(docker_compose ps -q livereview-db | xargs docker inspect --format='{{.State.Health.Status}}' 2>/dev/null)
         
         if [[ "$app_status" == "healthy" && "$db_status" == "healthy" ]]; then
             log_success "✅ All services are healthy"
@@ -1608,11 +1654,11 @@ show_status() {
     log_info "  Script: $SCRIPT_VERSION"
     
     # Show access URLs if running
-    if docker-compose ps 2>/dev/null | grep -q "Up.*8888"; then
+    if docker_compose ps 2>/dev/null | grep -q "Up.*8888"; then
         echo
         log_info "🌐 Access URLs:"
-        local api_port=$(docker-compose ps livereview-app | grep -o "0.0.0.0:[0-9]*->8888" | cut -d':' -f2 | cut -d'-' -f1)
-        local ui_port=$(docker-compose ps livereview-app | grep -o "0.0.0.0:[0-9]*->8081" | cut -d':' -f2 | cut -d'-' -f1)
+        local api_port=$(docker_compose ps livereview-app | grep -o "0.0.0.0:[0-9]*->8888" | cut -d':' -f2 | cut -d'-' -f1)
+        local ui_port=$(docker_compose ps livereview-app | grep -o "0.0.0.0:[0-9]*->8081" | cut -d':' -f2 | cut -d'-' -f1)
         log_info "  - Web UI: http://localhost:${ui_port:-8081}/"
         log_info "  - API: http://localhost:${api_port:-8888}/api"
     fi
@@ -1686,7 +1732,7 @@ start_containers_cmd() {
     
     log_info "Starting LiveReview containers..."
     
-    if docker-compose up -d; then
+    if docker_compose up -d; then
         log_success "Containers started successfully"
         
         # Wait a moment for health checks
@@ -1694,7 +1740,7 @@ start_containers_cmd() {
         sleep 5
         
         # Show status
-        docker-compose ps
+        docker_compose ps
         log_info "Run 'lrops.sh status' to check service health"
     else
         log_error "Failed to start containers"
@@ -1718,7 +1764,7 @@ stop_containers_cmd() {
     
     log_info "Stopping LiveReview containers..."
     
-    if docker-compose down; then
+    if docker_compose down; then
         log_success "Containers stopped successfully"
     else
         log_warning "Some containers may not have stopped cleanly"
@@ -1742,7 +1788,7 @@ restart_containers_cmd() {
     
     log_info "Restarting LiveReview containers..."
     
-    if docker-compose restart; then
+    if docker_compose restart; then
         log_success "Containers restarted successfully"
         
         # Wait a moment for health checks
@@ -1750,7 +1796,7 @@ restart_containers_cmd() {
         sleep 5
         
         # Show status
-        docker-compose ps
+        docker_compose ps
         log_info "Run 'lrops.sh status' to check service health"
     else
         log_error "Failed to restart containers"
@@ -1778,16 +1824,16 @@ show_logs() {
     if [[ -n "$service" ]]; then
         log_info "Showing logs for service: $service"
         if [[ "$follow_flag" == "--follow" || "$follow_flag" == "-f" ]]; then
-            docker-compose logs -f --tail=50 "$service"
+            docker_compose logs -f --tail=50 "$service"
         else
-            docker-compose logs --tail=100 "$service"
+            docker_compose logs --tail=100 "$service"
         fi
     else
         log_info "Showing logs for all services"
         if [[ "$follow_flag" == "--follow" || "$follow_flag" == "-f" ]]; then
-            docker-compose logs -f --tail=50
+            docker_compose logs -f --tail=50
         else
-            docker-compose logs --tail=100
+            docker_compose logs --tail=100
         fi
     fi
 }
@@ -2691,6 +2737,12 @@ main() {
     # Run system checks
     check_system_prerequisites
     check_existing_installation
+    
+    # Detect and set docker compose command early
+    if ! detect_docker_compose_cmd; then
+        error_exit "Docker Compose detection failed"
+    fi
+    log_debug "Docker Compose command detected: $DOCKER_COMPOSE_CMD"
     
     # Resolve version
     section_header "VERSION RESOLUTION"
