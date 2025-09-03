@@ -7,6 +7,7 @@ import (
 	"regexp"
 	"strings"
 
+	"github.com/livereview/internal/prompts"
 	"github.com/livereview/pkg/models"
 	"github.com/tmc/langchaingo/llms"
 )
@@ -405,7 +406,14 @@ func (p *BatchProcessor) AggregateAndCombineOutputs(ctx context.Context, llm llm
 	// Synthesize general summary from all file summaries and ALL comments (internal + external)
 	// Use LLM abstraction for synthesis
 	allCommentsForSynthesis := append(append([]*models.ReviewComment{}, internalComments...), externalComments...)
-	generalSummary := synthesizeGeneralSummary(ctx, llm, fileSummaries, allCommentsForSynthesis)
+	// Use centralized prompt building for summary synthesis
+	promptBuilder := prompts.NewPromptBuilder()
+	promptText := promptBuilder.BuildSummaryPrompt(fileSummaries, allCommentsForSynthesis)
+
+	generalSummary, err := llms.GenerateFromSinglePrompt(ctx, llm, promptText)
+	if err != nil {
+		generalSummary = "Error generating summary: " + err.Error()
+	}
 
 	p.Logger.Info("Aggregation complete: %d total comments (%d external, %d internal), %d file summaries",
 		totalComments, len(externalComments), len(internalComments), len(fileSummaries))
@@ -416,47 +424,6 @@ func (p *BatchProcessor) AggregateAndCombineOutputs(ctx context.Context, llm llm
 		Comments:         externalComments,
 		InternalComments: internalComments,
 	}, nil
-}
-
-// synthesizeGeneralSummary calls the LLM abstraction to generate a high-level summary from file summaries and comments
-
-func synthesizeGeneralSummary(ctx context.Context, llm llms.Model, fileSummaries []string, comments []*models.ReviewComment) string {
-	var prompt strings.Builder
-	prompt.WriteString("You are an expert code reviewer. Given the following file-level summaries and line comments, synthesize a single, high-level summary of the overall change using proper markdown formatting.\n\n")
-	prompt.WriteString("REQUIREMENTS:\n")
-	prompt.WriteString("1. Use markdown formatting with clear structure: # headings, ## subheadings, **bold**, bullet points\n")
-	prompt.WriteString("2. Focus on the big picture, impact, and intent - NOT individual file details\n")
-	prompt.WriteString("3. Make it scannable and easy to understand quickly\n")
-	prompt.WriteString("4. Start with a clear main title using # heading\n")
-	prompt.WriteString("5. Use bullet points for key changes and impacts\n")
-	prompt.WriteString("6. Keep it concise but informative\n\n")
-
-	prompt.WriteString("File-level summaries:\n")
-	for _, fs := range fileSummaries {
-		prompt.WriteString("- " + fs + "\n")
-	}
-	prompt.WriteString("\nLine comments:\n")
-	for _, c := range comments {
-		prompt.WriteString(fmt.Sprintf("- [%s:%d] %s\n", c.FilePath, c.Line, c.Content))
-	}
-
-	prompt.WriteString("\nGenerate a well-formatted markdown summary following this structure:\n")
-	prompt.WriteString("# [Clear main title of what changed]\n\n")
-	prompt.WriteString("## Overview\n")
-	prompt.WriteString("Brief description of the change intent and scope.\n\n")
-	prompt.WriteString("## Key Changes\n")
-	prompt.WriteString("- **Area 1**: Description\n")
-	prompt.WriteString("- **Area 2**: Description\n\n")
-	prompt.WriteString("## Impact\n")
-	prompt.WriteString("- **Functionality**: How this affects functionality\n")
-	prompt.WriteString("- **Risk**: Any notable risks or considerations\n")
-
-	summary, err := llms.GenerateFromSinglePrompt(ctx, llm, prompt.String())
-	if err != nil {
-		return "Error generating summary: " + err.Error()
-	}
-	return summary
-	// ...existing code...
 }
 
 // deduplicateComments removes duplicate comments based on file path and line number

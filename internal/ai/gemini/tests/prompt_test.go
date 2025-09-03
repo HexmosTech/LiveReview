@@ -49,19 +49,18 @@ func TestConstructPrompt(t *testing.T) {
 	assert.NoError(t, err)
 
 	// Verify the prompt contains important sections
-	assert.Contains(t, prompt, "You are an expert code reviewer")
-	assert.Contains(t, prompt, "Format your response as a valid JSON object")
-	assert.Contains(t, prompt, "\"summary\"")
-	assert.Contains(t, prompt, "\"filesChanged\"")
-	assert.Contains(t, prompt, "\"comments\"")
+	assert.Contains(t, prompt, "Code Review Request")
+	assert.Contains(t, prompt, "Review the following code changes thoroughly")
+	assert.Contains(t, prompt, "Format your response as JSON")
+	assert.Contains(t, prompt, "fileSummary")
+	assert.Contains(t, prompt, "comments")
 
 	// Verify it contains file information
 	assert.Contains(t, prompt, "test/file1.go")
 	assert.Contains(t, prompt, "test/file2.go")
-	assert.Contains(t, prompt, "[NEW FILE]")
+	assert.Contains(t, prompt, "(New file)")
 
 	// Verify it contains diff hunks
-	assert.Contains(t, prompt, "@@ -L1,3 +L1,4 @@")
 	assert.Contains(t, prompt, "// New comment")
 	assert.Contains(t, prompt, "func NewFunction()")
 }
