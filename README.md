@@ -65,10 +65,10 @@ Perfect for development, testing, and evaluation - no configuration required!
 
 ```bash
 # Quick demo setup (localhost only, no webhooks)
-curl -fsSL https://raw.githubusercontent.com/HexmosTech/LiveReview/main/lrops.sh | bash -s -- setup-demo
+curl -fsSL https://raw.githubusercontent.com/HexmosTech/LiveReview/main/lrops.sh | sudo bash -s -- setup-demo
 
 # Or use the express flag (same as demo mode)
-curl -fsSL https://raw.githubusercontent.com/HexmosTech/LiveReview/main/lrops.sh | bash -s -- --express
+curl -fsSL https://raw.githubusercontent.com/HexmosTech/LiveReview/main/lrops.sh | sudo bash -s -- --express
 ```
 
 **Demo Mode Features:**
