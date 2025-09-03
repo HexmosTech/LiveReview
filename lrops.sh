@@ -1511,14 +1511,18 @@ wait_for_containers() {
     section_header "WAITING FOR CONTAINER HEALTH"
     log_info "Waiting for containers to become healthy..."
     
-    local max_wait=120  # Maximum wait time in seconds
+    local max_wait=180  # Increased from 120 to 180 seconds (3 minutes)
     local wait_time=0
-    local check_interval=5
+    local check_interval=10  # Increased from 5 to 10 seconds between checks
     
     cd "$LIVEREVIEW_INSTALL_DIR" || {
         log_error "Could not change to installation directory: $LIVEREVIEW_INSTALL_DIR"
         return 1
     }
+    
+    # Give containers initial time to start
+    log_info "Giving containers initial startup time..."
+    sleep 15
     
     while [[ $wait_time -lt $max_wait ]]; do
         log_info "Checking container status... (${wait_time}/${max_wait}s)"
@@ -1529,21 +1533,37 @@ wait_for_containers() {
         local containers_healthy=0
         
         if [[ $containers_running -gt 0 ]]; then
-            # Check PostgreSQL container health
-            if docker_compose exec -T livereview-db pg_isready -U livereview >/dev/null 2>&1; then
+            # Check PostgreSQL container health with more retries
+            local db_ready=false
+            for i in {1..3}; do
+                if docker_compose exec -T livereview-db pg_isready -U livereview >/dev/null 2>&1; then
+                    db_ready=true
+                    break
+                fi
+                sleep 2
+            done
+            
+            if [[ "$db_ready" == "true" ]]; then
                 log_info "✓ PostgreSQL container is healthy"
                 ((containers_healthy++))
             else
                 log_info "○ PostgreSQL container not ready yet..."
             fi
             
-            # Check LiveReview app container (simple ping)
-            if docker_compose ps livereview-app | grep -q "Up"; then
-                log_info "✓ LiveReview app container is running"
-                ((containers_healthy++))
+            # Check LiveReview app container (more thorough check)
+            if docker_compose ps livereview-app | grep -q "Up" && ! docker_compose ps livereview-app | grep -q "Restarting"; then
+                # Additional check - try to connect to the app
+                if curl -f -s --max-time 5 "http://localhost:${LIVEREVIEW_BACKEND_PORT:-8888}/health" >/dev/null 2>&1; then
+                    log_info "✓ LiveReview app container is healthy and responding"
+                    ((containers_healthy++))
+                else
+                    log_info "○ LiveReview app container running but not responding yet..."
+                fi
             else
                 log_info "○ LiveReview app container not ready yet..."
             fi
+        else
+            log_info "○ No containers running yet..."
         fi
         
         # If both containers are healthy, we're done
@@ -2372,6 +2392,10 @@ validate_installation_health() {
     section_header "VALIDATING INSTALLATION"
     log_info "Running post-installation health checks..."
     
+    # Give containers additional time to stabilize after startup
+    log_info "Allowing containers to stabilize..."
+    sleep 10
+    
     local validation_errors=0
     
     # Check container status
@@ -2381,52 +2405,95 @@ validate_installation_health() {
     }
     
     # Check if containers are running
-    if ! docker-compose ps | grep -q "Up"; then
+    if ! docker_compose ps | grep -q "Up"; then
         log_error "❌ Containers are not running"
         ((validation_errors++))
     else
         log_success "✅ Containers are running"
     fi
     
-    # Check container health
-    local app_health=$(docker-compose ps -q livereview-app | xargs docker inspect --format='{{.State.Health.Status}}' 2>/dev/null)
-    local db_health=$(docker-compose ps -q livereview-db | xargs docker inspect --format='{{.State.Health.Status}}' 2>/dev/null)
+    # Check container health with retry logic
+    local app_health=""
+    local db_health=""
+    
+    # Retry health checks multiple times
+    for i in {1..5}; do
+        app_health=$(docker_compose ps -q livereview-app | xargs docker inspect --format='{{.State.Health.Status}}' 2>/dev/null || echo "unknown")
+        db_health=$(docker_compose ps -q livereview-db | xargs docker inspect --format='{{.State.Health.Status}}' 2>/dev/null || echo "unknown")
+        
+        if [[ "$app_health" == "healthy" && "$db_health" == "healthy" ]]; then
+            break
+        fi
+        
+        if [[ $i -lt 5 ]]; then
+            log_info "Health check attempt $i/5 - waiting for containers to become healthy..."
+            sleep 15
+        fi
+    done
     
     if [[ "$app_health" == "healthy" ]]; then
         log_success "✅ LiveReview application is healthy"
     else
         log_warning "⚠️ LiveReview application health: ${app_health:-unknown}"
-        ((validation_errors++))
+        if [[ "$app_health" != "healthy" ]]; then
+            ((validation_errors++))
+        fi
     fi
     
     if [[ "$db_health" == "healthy" ]]; then
         log_success "✅ Database is healthy"
     else
         log_warning "⚠️ Database health: ${db_health:-unknown}"
-        ((validation_errors++))
+        if [[ "$db_health" != "healthy" ]]; then
+            ((validation_errors++))
+        fi
     fi
     
-    # Test API endpoint accessibility
+    # Test API endpoint accessibility with retries
     log_info "Testing API endpoint accessibility..."
-    if curl -f -s --max-time 10 "http://localhost:${API_PORT}/health" >/dev/null 2>&1; then
+    local api_accessible=false
+    for i in {1..6}; do
+        if curl -f -s --max-time 10 "http://localhost:${API_PORT}/health" >/dev/null 2>&1; then
+            api_accessible=true
+            break
+        fi
+        if [[ $i -lt 6 ]]; then
+            log_info "API endpoint not ready, retrying in 10 seconds... ($i/6)"
+            sleep 10
+        fi
+    done
+    
+    if [[ "$api_accessible" == "true" ]]; then
         log_success "✅ API endpoint is accessible"
     else
-        log_warning "⚠️ API endpoint not yet accessible (may still be starting)"
+        log_warning "⚠️ API endpoint not accessible after 60 seconds (may still be starting)"
         ((validation_errors++))
     fi
     
-    # Test UI endpoint accessibility
+    # Test UI endpoint accessibility with retries
     log_info "Testing UI endpoint accessibility..."
-    if curl -f -s --max-time 10 "http://localhost:${UI_PORT}/" >/dev/null 2>&1; then
+    local ui_accessible=false
+    for i in {1..6}; do
+        if curl -f -s --max-time 10 "http://localhost:${UI_PORT}/" >/dev/null 2>&1; then
+            ui_accessible=true
+            break
+        fi
+        if [[ $i -lt 6 ]]; then
+            log_info "UI endpoint not ready, retrying in 10 seconds... ($i/6)"
+            sleep 10
+        fi
+    done
+    
+    if [[ "$ui_accessible" == "true" ]]; then
         log_success "✅ UI endpoint is accessible"
     else
-        log_warning "⚠️ UI endpoint not yet accessible (may still be starting)"
+        log_warning "⚠️ UI endpoint not accessible after 60 seconds (may still be starting)"
         ((validation_errors++))
     fi
     
     # Check for recent errors in logs (excluding harmless entries)
     log_info "Checking for errors in recent logs..."
-    local recent_errors=$(docker-compose logs --since=2m 2>/dev/null | grep -i "error\|fail\|panic\|fatal" | grep -v '"error":""' | grep -v "relation.*does not exist" | wc -l)
+    local recent_errors=$(docker_compose logs --since=2m 2>/dev/null | grep -i "error\|fail\|panic\|fatal" | grep -v '"error":""' | grep -v "relation.*does not exist" | wc -l)
     if [[ $recent_errors -eq 0 ]]; then
         log_success "✅ No recent errors found in logs"
     else
@@ -2437,8 +2504,13 @@ validate_installation_health() {
     # Summary
     if [[ $validation_errors -eq 0 ]]; then
         log_success "🎉 All validation checks passed!"
+        log_success "✅ LiveReview is fully operational!"
+    elif [[ $validation_errors -le 2 ]]; then
+        log_warning "⚠️ Found $validation_errors minor validation issues"
+        log_info "LiveReview may still be starting up. Wait a few more minutes and check status again."
+        log_info "Run 'lrops.sh status' for detailed status information"
     else
-        log_warning "⚠️ Found $validation_errors validation issues"
+        log_error "❌ Found $validation_errors validation issues"
         log_info "Run 'lrops.sh status' for detailed status information"
     fi
     
