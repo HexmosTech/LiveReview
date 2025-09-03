@@ -6,11 +6,6 @@
 
 <img src="./assets/screenshots/home.png" />
 
-> [!NOTE]
->
-> LiveReview is a proprietary developer tool by Hexmos, built to streamline code review and help teams ship faster.
->
-> Guides, documentation, roadmaps, and community discussions are fully open, making it easy to get started, provide feedback, and stay informed about product evolution.
 
 ## Our Approach
 
@@ -19,7 +14,7 @@
    - **Complete Code Privacy**: Your source code and credentials never leave your environment
    - **Risk Elimination**: Recent breaches of cloud-hosted reviewers show how misconfigurations expose repositories—LiveReview eliminates this by design
    - **Full Control**: Your code stays on your servers, period
-2. **� Maximum Flexibility** 
+2. **🔧 Maximum Flexibility** 
    - **Multi-Platform**: Integrates with GitHub, GitLab, and Bitbucket
    - **AI Choice Freedom**: Choose Gemini, OpenAI, or self-hosted Ollama for maximum privacy
    - **Workflow Adaptation**: Adapts to your process instead of forcing change
@@ -462,4 +457,8 @@ The current implementation includes:
 
 ## License
 
-[MIT License](LICENSE)
+> [!NOTE]
+>
+> LiveReview is a proprietary developer tool by Hexmos, built to streamline code review and help teams ship faster.
+>
+> Guides, documentation, roadmaps, and community discussions are fully open, making it easy to get started, provide feedback, and stay informed about product evolution.
