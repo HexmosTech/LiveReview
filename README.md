@@ -11,7 +11,7 @@
 >
 > Guides, documentation, roadmaps, and community discussions are fully open, making it easy to get started, provide feedback, and stay informed about product evolution.
 
-
+## Our Approach
 
 1. **🔒 Security-First Design**
    - **Zero Cloud Dependency**: Runs entirely on your infrastructure (on-prem or private cloud) - except for update checks and license checking. 
