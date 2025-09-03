@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
-import { PageHeader, Card, Button, Icons, Input, Alert } from '../../components/UIPrimitives';
+import { PageHeader, Card, Button, Icons, Input, Alert, Badge } from '../../components/UIPrimitives';
 import { UserManagement } from '../../components/UserManagement';
 import { useOrgContext } from '../../hooks/useOrgContext';
 import { useAppDispatch, useAppSelector } from '../../store/configureStore';
@@ -63,6 +63,188 @@ const ErrorAlert: React.FC<AlertProps> = ({ children, onClose }) => (
     </div>
 );
 
+// Deployment Settings Component
+interface DeploymentSettingsProps {
+    systemInfo: any;
+    isLoading: boolean;
+    onRefresh: () => void;
+}
+
+const DeploymentSettings: React.FC<DeploymentSettingsProps> = ({ systemInfo, isLoading, onRefresh }) => {
+    useEffect(() => {
+        onRefresh();
+    }, [onRefresh]);
+
+    if (isLoading && !systemInfo) {
+        return (
+            <div className="flex items-center justify-center py-8">
+                <div className="text-center">
+                    <div className="w-8 h-8 border-2 border-blue-500 border-t-transparent rounded-full animate-spin mx-auto mb-2"></div>
+                    <p className="text-slate-400">Loading deployment information...</p>
+                </div>
+            </div>
+        );
+    }
+
+    if (!systemInfo) {
+        return (
+            <div className="text-center py-8">
+                <div className="text-red-400 mb-2">
+                    <Icons.Error />
+                </div>
+                <p className="text-slate-400 mb-4">Failed to load deployment information</p>
+                <Button onClick={onRefresh} variant="outline" size="sm">
+                    <Icons.Refresh />
+                    Retry
+                </Button>
+            </div>
+        );
+    }
+
+    const { deployment_mode, capabilities, version, api_url } = systemInfo;
+    const isDemoMode = deployment_mode === 'demo';
+
+    return (
+        <div className="space-y-6">
+            {/* Deployment Mode Status */}
+            <div>
+                <h4 className="text-sm font-medium text-slate-300 mb-3">Deployment Mode</h4>
+                <div className="flex items-center space-x-3">
+                    <Badge 
+                        variant={isDemoMode ? 'warning' : 'success'}
+                        className="text-sm"
+                    >
+                        {isDemoMode ? '🚧 Demo Mode' : '🚀 Production Mode'}
+                    </Badge>
+                    <span className="text-slate-400 text-sm">
+                        {isDemoMode ? 'Demo Environment' : 'Production Environment'}
+                    </span>
+                </div>
+            </div>
+
+            {/* API Configuration */}
+            <div>
+                <h4 className="text-sm font-medium text-slate-300 mb-3">API Configuration</h4>
+                <div className="bg-slate-800 rounded-lg p-4 space-y-2">
+                    <div className="flex justify-between">
+                        <span className="text-slate-400">API Endpoint:</span>
+                        <span className="text-white font-mono text-sm">{api_url}</span>
+                    </div>
+                    <div className="flex justify-between">
+                        <span className="text-slate-400">Reverse Proxy:</span>
+                        <span className={capabilities.proxy_mode ? 'text-green-400' : 'text-slate-400'}>
+                            {capabilities.proxy_mode ? 'Enabled' : 'Disabled'}
+                        </span>
+                    </div>
+                </div>
+            </div>
+
+            {/* Capabilities */}
+            <div>
+                <h4 className="text-sm font-medium text-slate-300 mb-3">System Capabilities</h4>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div className="flex items-center justify-between p-3 bg-slate-800 rounded-lg">
+                        <span className="text-slate-300">Webhooks</span>
+                        <div className="flex items-center space-x-2">
+                            {capabilities.webhooks_enabled ? (
+                                <>
+                                    <div className="w-2 h-2 bg-green-400 rounded-full"></div>
+                                    <span className="text-green-400 text-sm">Enabled</span>
+                                </>
+                            ) : (
+                                <>
+                                    <div className="w-2 h-2 bg-red-400 rounded-full"></div>
+                                    <span className="text-red-400 text-sm">Disabled</span>
+                                </>
+                            )}
+                        </div>
+                    </div>
+                    <div className="flex items-center justify-between p-3 bg-slate-800 rounded-lg">
+                        <span className="text-slate-300">External Access</span>
+                        <div className="flex items-center space-x-2">
+                            {capabilities.external_access ? (
+                                <>
+                                    <div className="w-2 h-2 bg-green-400 rounded-full"></div>
+                                    <span className="text-green-400 text-sm">Available</span>
+                                </>
+                            ) : (
+                                <>
+                                    <div className="w-2 h-2 bg-amber-400 rounded-full"></div>
+                                    <span className="text-amber-400 text-sm">Localhost Only</span>
+                                </>
+                            )}
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            {/* Demo Mode Upgrade Instructions */}
+            {isDemoMode && (
+                <div className="bg-amber-900 bg-opacity-50 border border-amber-600 rounded-lg p-4">
+                    <div className="flex items-start space-x-3">
+                        <div className="text-amber-400 flex-shrink-0 mt-1">
+                            <Icons.Warning />
+                        </div>
+                        <div>
+                            <h5 className="text-amber-200 font-medium mb-2">Upgrade to Production Mode</h5>
+                            <p className="text-amber-100 text-sm mb-3">
+                                To enable webhooks and external access, upgrade to production mode by setting up a reverse proxy.
+                            </p>
+                            <div className="text-sm text-amber-100">
+                                <p className="mb-2">Steps to upgrade:</p>
+                                <ol className="list-decimal list-inside space-y-1 text-xs">
+                                    <li>Set up nginx, caddy, or apache as reverse proxy</li>
+                                    <li>Add <code className="bg-amber-800 px-1 rounded">LIVEREVIEW_REVERSE_PROXY=true</code> to .env</li>
+                                    <li>Restart LiveReview services</li>
+                                    <li>Configure your domain to point to the proxy</li>
+                                </ol>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* Version Information */}
+            {version && (
+                <div>
+                    <h4 className="text-sm font-medium text-slate-300 mb-3">Version Information</h4>
+                    <div className="bg-slate-800 rounded-lg p-4 space-y-2">
+                        <div className="flex justify-between">
+                            <span className="text-slate-400">Version:</span>
+                            <span className="text-white font-mono text-sm">{version.version || 'Unknown'}</span>
+                        </div>
+                        {version.gitCommit && (
+                            <div className="flex justify-between">
+                                <span className="text-slate-400">Git Commit:</span>
+                                <span className="text-white font-mono text-sm">{version.gitCommit.substring(0, 8)}</span>
+                            </div>
+                        )}
+                        {version.buildTime && (
+                            <div className="flex justify-between">
+                                <span className="text-slate-400">Build Time:</span>
+                                <span className="text-white text-sm">{new Date(version.buildTime).toLocaleString()}</span>
+                            </div>
+                        )}
+                    </div>
+                </div>
+            )}
+
+            {/* Refresh Button */}
+            <div className="flex justify-end">
+                <Button 
+                    onClick={onRefresh} 
+                    variant="outline" 
+                    size="sm"
+                    isLoading={isLoading}
+                >
+                    <Icons.Refresh />
+                    Refresh
+                </Button>
+            </div>
+        </div>
+    );
+};
+
 interface ProductionURLResponse {
     url: string;
     success: boolean;
@@ -81,6 +263,10 @@ const Settings = () => {
     const [showSaved, setShowSaved] = useState(false);
     const [error, setError] = useState('');
     const [isLoading, setIsLoading] = useState(false);
+    
+    // Deployment tab state
+    const [systemInfo, setSystemInfo] = useState<any>(null);
+    const [deploymentLoading, setDeploymentLoading] = useState(false);
 
     useEffect(() => {
         if (!location.hash) {
@@ -93,6 +279,15 @@ const Settings = () => {
     // Available tabs based on permissions
     const tabs = [
         ...(isSuperAdmin ? [{ id: 'instance', name: 'Instance', icon: <Icons.Settings /> }] : []),
+        ...(isSuperAdmin ? [{ 
+            id: 'deployment', 
+            name: 'Deployment', 
+            icon: (
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 3v2m6-2v2M9 19v2m6-2v2M5 9H3m2 6H3m18-6h-2m2 6h-2M7 19h10a2 2 0 002-2V7a2 2 0 00-2-2H7a2 2 0 00-2 2v10a2 2 0 002 2zM9 9h6v6H9V9z" />
+                </svg>
+            )
+        }] : []),
         { id: 'ai', name: 'AI Configuration', icon: <Icons.AI /> },
         { id: 'ui', name: 'UI Preferences', icon: <Icons.Dashboard /> },
         ...(canManageCurrentOrg ? [{ 
@@ -142,6 +337,17 @@ const Settings = () => {
         // Clear any previous error messages
         if (error) {
             setError('');
+        }
+    };
+
+    // Fetch system info for deployment tab
+    const fetchSystemInfo = async () => {
+        try {
+            const info = await apiClient.get('/system/info');
+            setSystemInfo(info);
+        } catch (error) {
+            console.error('Failed to fetch system info:', error);
+            setSystemInfo(null);
         }
     };
 
@@ -312,6 +518,31 @@ const Settings = () => {
                                     </div>
                                 </div>
                             </div>
+                        </Card>
+                    )}
+
+                    {activeTab === 'deployment' && isSuperAdmin && (
+                        <Card>
+                            <div className="flex items-center mb-6">
+                                <div className="text-blue-400 mr-3">
+                                    <svg className="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 3v2m6-2v2M9 19v2m6-2v2M5 9H3m2 6H3m18-6h-2m2 6h-2M7 19h10a2 2 0 002-2V7a2 2 0 00-2-2H7a2 2 0 00-2 2v10a2 2 0 002 2zM9 9h6v6H9V9z" />
+                                    </svg>
+                                </div>
+                                <div>
+                                    <h3 className="font-medium text-white">Deployment Information</h3>
+                                    <p className="text-sm text-slate-300">Current deployment mode and configuration</p>
+                                </div>
+                            </div>
+
+                            <DeploymentSettings 
+                                systemInfo={systemInfo}
+                                isLoading={deploymentLoading}
+                                onRefresh={() => {
+                                    setDeploymentLoading(true);
+                                    fetchSystemInfo().finally(() => setDeploymentLoading(false));
+                                }}
+                            />
                         </Card>
                     )}
 
