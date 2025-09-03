@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { HashRouter as Router, Routes, Route, Navigate, useNavigate, useLocation, Link } from 'react-router-dom';
 import { Navbar } from './components/Navbar/Navbar';
 import { Dashboard } from './components/Dashboard/Dashboard';
+import { DemoModeBanner } from './components/DemoModeBanner';
 import GitProviders from './pages/GitProviders/GitProviders';
 import AIProviders from './pages/AIProviders/AIProviders';
 import Settings from './pages/Settings/Settings';
@@ -127,6 +128,7 @@ const AppContent: React.FC = () => {
                 onNavigate={handleNavigate}
                 onLogout={handleLogout}
             />
+            <DemoModeBanner />
             <div className="flex-grow">
                 <Routes>
                     <Route path="/" element={<HomeWithOAuthCheck />} />

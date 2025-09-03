@@ -18,7 +18,7 @@ declare global {
 }
 
 // Base URL for all API requests
-// Priority: 1) Runtime injected config, 2) Build-time env var, 3) Auto-detect
+// Priority: 1) Runtime injected config, 2) Build-time env var, 3) Auto-detect based on deployment mode
 const getBaseUrl = (): string => {
   // Check for runtime injected configuration (highest priority)
   if (window.LIVEREVIEW_CONFIG?.apiUrl) {
@@ -30,17 +30,21 @@ const getBaseUrl = (): string => {
     return process.env.REACT_APP_API_URL;
   }
   
-  // In development with webpack dev server, use current origin (proxy handles routing)
-  // In production, determine API URL based on current location
-  const currentOrigin = window.location.origin;
+  // Auto-detect based on deployment mode
+  const hostname = window.location.hostname;
+  const port = window.location.port;
+  const protocol = window.location.protocol;
   
-  // If running on port 8081 (UI port), API is likely on port 8888
-  if (currentOrigin.includes(':8081')) {
-    return currentOrigin.replace(':8081', ':8888');
+  // Demo mode detection: localhost or 127.0.0.1 → direct API connection
+  if (hostname === 'localhost' || hostname === '127.0.0.1') {
+    // In demo mode, API runs on port 8888, UI on port 8081
+    const apiPort = port === '8081' ? '8888' : port;
+    return `${protocol}//${hostname}:${apiPort}`;
   }
   
-  // Otherwise use current origin (for cases where API and UI are on same port)
-  return currentOrigin;
+  // Production mode: everything else → use current origin with /api prefix
+  // This assumes reverse proxy setup routing /api/* to backend
+  return `${window.location.origin}/api`;
 };
 
 const BASE_URL = getBaseUrl();
