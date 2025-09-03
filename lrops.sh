@@ -3210,6 +3210,11 @@ REFRESH_TOKEN_DURATION_DAYS=30
 
 # For mode switching and configuration help:
 # lrops.sh help ssl     # SSL/TLS setup
+#
+# End of .env template
+# === END:.env ===
+
+# === DATA:nginx.conf.example ===
 # Copy to /etc/nginx/sites-available/livereview and enable
 
 server {
