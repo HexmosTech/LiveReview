@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { PageHeader, Card, Button, Icons, Input, Alert, Badge } from '../../components/UIPrimitives';
 import { UserManagement } from '../../components/UserManagement';
@@ -71,10 +71,9 @@ interface DeploymentSettingsProps {
 }
 
 const DeploymentSettings: React.FC<DeploymentSettingsProps> = ({ systemInfo, isLoading, onRefresh }) => {
-    useEffect(() => {
-        onRefresh();
-    }, [onRefresh]);
-
+    // Don't auto-fetch on mount to avoid infinite loops
+    // Users can manually refresh using the refresh button
+    
     if (isLoading && !systemInfo) {
         return (
             <div className="flex items-center justify-center py-8">
@@ -193,7 +192,7 @@ const DeploymentSettings: React.FC<DeploymentSettingsProps> = ({ systemInfo, isL
                             <div className="text-sm text-amber-100">
                                 <p className="mb-2">Steps to upgrade:</p>
                                 <ol className="list-decimal list-inside space-y-1 text-xs">
-                                    <li>Set up nginx, caddy, or apache as reverse proxy</li>
+                                    <li>Set up nginx, caddy, or apache as reverse proxy (run <code className="bg-amber-800 px-1 rounded">./lrops.sh help</code> for guidance)</li>
                                     <li>Add <code className="bg-amber-800 px-1 rounded">LIVEREVIEW_REVERSE_PROXY=true</code> to .env</li>
                                     <li>Restart LiveReview services</li>
                                     <li>Configure your domain to point to the proxy</li>
@@ -340,8 +339,8 @@ const Settings = () => {
         }
     };
 
-    // Fetch system info for deployment tab
-    const fetchSystemInfo = async () => {
+    // Fetch system info for deployment tab (memoized to prevent infinite loops)
+    const fetchSystemInfo = useCallback(async () => {
         try {
             const info = await apiClient.get('/system/info');
             setSystemInfo(info);
@@ -349,7 +348,20 @@ const Settings = () => {
             console.error('Failed to fetch system info:', error);
             setSystemInfo(null);
         }
-    };
+    }, []);
+
+    // Memoized refresh function to prevent infinite re-renders
+    const handleRefreshSystemInfo = useCallback(() => {
+        setDeploymentLoading(true);
+        fetchSystemInfo().finally(() => setDeploymentLoading(false));
+    }, [fetchSystemInfo]);
+
+    // Fetch system info when deployment tab is first accessed
+    useEffect(() => {
+        if (activeTab === 'deployment' && !systemInfo && !deploymentLoading) {
+            handleRefreshSystemInfo();
+        }
+    }, [activeTab, systemInfo, deploymentLoading, handleRefreshSystemInfo]);
 
     // Get the production URL on component mount
     useEffect(() => {
@@ -538,10 +550,7 @@ const Settings = () => {
                             <DeploymentSettings 
                                 systemInfo={systemInfo}
                                 isLoading={deploymentLoading}
-                                onRefresh={() => {
-                                    setDeploymentLoading(true);
-                                    fetchSystemInfo().finally(() => setDeploymentLoading(false));
-                                }}
+                                onRefresh={handleRefreshSystemInfo}
                             />
                         </Card>
                     )}

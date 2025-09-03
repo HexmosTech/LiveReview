@@ -22,6 +22,9 @@ This checklist implements the simplified two-mode deployment architecture from `
 
 ### Phases 3-6: 🔄 PENDING
 - Phase 3: Docker & Environment Integration
+  - Phase 3.1: Docker Configuration Updates
+  - Phase 3.2: Production Mode Testing  
+  - **Phase 3.3: Git Provider Auto-Configuration** ⭐ NEW
 - Phase 4: lrops.sh Integration
 - Phase 5: Integration Testing & Validation
 - Phase 6: Final Validation & Polish
@@ -468,6 +471,194 @@ echo "3. System info shows production mode"
 echo "✓ Reverse proxy integration documented"
 ```
 
+### Phase 3.3: Git Provider Auto-Configuration
+
+#### Task 3.3.1: Research Git Provider Setup Logic
+- **Purpose**: Understand current git provider configuration to implement auto-URL derivation
+- **Research Focus**:
+  - How are GitLab/GitHub connectors currently added?
+  - Where are webhook URLs configured in the current system?
+  - What files handle git provider setup and webhook registration?
+
+**Research**:
+```bash
+# Find git provider configuration files
+find . -name "*.go" -o -name "*.tsx" | xargs grep -l "gitlab\|github\|webhook.*url\|provider.*config" | head -10
+grep -r "webhook.*url\|GitLab.*URL\|GitHub.*URL" internal/ ui/ --include="*.go" --include="*.tsx" | head -5
+# Understand current git provider setup flow
+echo "✓ Git provider configuration system understood"
+```
+
+#### Task 3.3.2: Update Git Provider Setup Logic
+- **Files**: 
+  - `internal/providers/` (research existing git provider setup)
+  - `internal/api/` (webhook URL generation logic)
+- **Purpose**: Auto-derive webhook URLs based on deployment mode
+- **Changes**:
+  - Create webhook URL auto-derivation from system info
+  - Disable actual webhook registration in demo mode
+  - Enable conditional webhook registration in production mode
+  - Ensure git providers can be added without pre-configured URLs
+
+```go
+// Add to git provider setup logic
+func (p *GitProviderConfig) AutoConfigureWebhooks(deploymentConfig *DeploymentConfig) error {
+    if deploymentConfig.Mode == "demo" {
+        p.WebhookURL = "http://localhost:8888/api/v1/gitlab-hook" // display only
+        p.WebhooksEnabled = false
+        p.StatusMessage = "Webhooks disabled in demo mode - manual triggers only"
+        return nil
+    }
+    
+    // Production mode: auto-derive from current request
+    p.WebhookURL = fmt.Sprintf("%s/api/v1/gitlab-hook", deploymentConfig.PublicURL)
+    p.WebhooksEnabled = true
+    p.StatusMessage = "Webhooks active - automatic triggers enabled"
+    
+    // Register webhook with git provider
+    return p.registerWebhook()
+}
+```
+
+**Test**:
+```bash
+# Test git provider setup in demo mode
+# Navigate to Settings → Git Providers → Add GitLab
+# Should show webhook URL field as read-only with localhost URL
+# Should show warning: "Webhooks disabled in demo mode"
+# Should allow saving provider without actual webhook registration
+echo "✓ Git provider setup works in demo mode without webhooks"
+
+# Test git provider setup in production mode
+export LIVEREVIEW_REVERSE_PROXY=true
+# Navigate to Settings → Git Providers → Add GitLab
+# Should auto-populate webhook URL field with current domain
+# Should show success: "Webhooks will be registered automatically"
+echo "✓ Git provider setup auto-derives URLs in production mode"
+```
+
+#### Task 3.3.3: Update Git Provider Frontend Forms
+- **Files**: 
+  - `ui/src/pages/Settings/` (research git provider setup pages)
+  - `ui/src/components/` (git provider form components)
+- **Purpose**: Remove manual URL configuration, show auto-derived URLs
+- **Changes**:
+  - Remove manual webhook URL input fields
+  - Add read-only webhook URL display (auto-populated)
+  - Show deployment mode-aware warnings/confirmations
+  - Add conditional webhook status indicators
+
+```typescript
+// Update git provider form component
+interface GitProviderFormProps {
+  systemInfo: SystemInfo;
+  onSave: (config: GitProviderConfig) => void;
+}
+
+const GitProviderForm: React.FC<GitProviderFormProps> = ({ systemInfo, onSave }) => {
+  const [config, setConfig] = useState<GitProviderConfig>({
+    webhookUrl: systemInfo.webhook_url, // auto-derived
+    webhooksEnabled: systemInfo.capabilities.webhooks_enabled,
+  });
+
+  return (
+    <form>
+      {/* Existing git provider fields */}
+      
+      {/* Auto-derived webhook URL display */}
+      <div className="webhook-url-section">
+        <label>Webhook URL (Auto-configured)</label>
+        <input 
+          type="text" 
+          value={config.webhookUrl} 
+          readOnly 
+          className="read-only-field"
+        />
+        
+        {/* Mode-aware status indicator */}
+        {systemInfo.deployment_mode === 'demo' && (
+          <div className="warning-message">
+            ⚠️ Webhooks disabled in demo mode - manual triggers only
+          </div>
+        )}
+        
+        {systemInfo.deployment_mode === 'production' && (
+          <div className="success-message">
+            ✅ Webhooks will be registered automatically
+          </div>
+        )}
+      </div>
+    </form>
+  );
+};
+```
+
+**Test**:
+```bash
+# Test frontend git provider form
+# Demo mode: Shows localhost webhook URL (read-only) with warning
+# Production mode: Shows domain webhook URL (read-only) with success message
+echo "✓ Git provider forms show deployment-aware webhook configuration"
+```
+
+#### Task 3.3.4: Integration with System Info Endpoint
+- **File**: `internal/api/server.go` (update existing getSystemInfo handler)
+- **Purpose**: Include webhook URL and git provider capabilities in system info
+- **Changes**:
+  - Add webhook URL to system info response
+  - Add git provider capabilities to system info
+  - Ensure frontend can access webhook URL for git provider setup
+
+```go
+// Update existing getSystemInfo handler
+func (s *Server) getSystemInfo(c echo.Context) error {
+    deploymentConfig := getDeploymentConfig()
+    deploymentConfig.AutoConfigure()
+    
+    // Derive webhook URL based on deployment mode
+    var webhookURL string
+    if deploymentConfig.ReverseProxy {
+        // Production: derive from request
+        scheme := "https"
+        if c.Scheme() == "http" {
+            scheme = "http"
+        }
+        host := c.Request().Host
+        webhookURL = fmt.Sprintf("%s://%s/api/v1/gitlab-hook", scheme, host)
+    } else {
+        // Demo: localhost for display
+        webhookURL = fmt.Sprintf("http://localhost:%d/api/v1/gitlab-hook", deploymentConfig.BackendPort)
+    }
+    
+    info := SystemInfo{
+        DeploymentMode:    deploymentConfig.Mode,
+        Version:          s.versionInfo.Version,
+        APIUrl:           fmt.Sprintf("http://localhost:%d/api", deploymentConfig.BackendPort),
+        WebhookURL:       webhookURL,  // Add webhook URL
+        Capabilities: SystemCapabilities{
+            WebhooksEnabled:      deploymentConfig.WebhooksEnabled,
+            ManualTriggersOnly:   !deploymentConfig.WebhooksEnabled,
+            ExternalAccessReady:  deploymentConfig.ReverseProxy,
+            GitProviderSetup:     true,  // Always available
+        },
+    }
+    
+    return c.JSON(http.StatusOK, info)
+}
+```
+
+**Test**:
+```bash
+# Test webhook URL in system info
+curl http://localhost:8888/api/v1/system/info | jq '.webhook_url'
+# Demo mode: Should return "http://localhost:8888/api/v1/gitlab-hook"
+
+export LIVEREVIEW_REVERSE_PROXY=true
+curl http://127.0.0.1:8888/api/v1/system/info | jq '.webhook_url'
+# Production mode: Should return derived webhook URL
+echo "✓ System info provides webhook URL for git provider setup"
+```
+
 ---
 
 ## Phase 4: lrops.sh Integration (Week 4-5)
@@ -747,6 +938,16 @@ echo "✓ Cross-platform testing completed"
 - [ ] Upgrade path from demo to production is smooth
 - [ ] **TOML configuration completely untouched and working**
 - [ ] Existing AI/Git provider configs continue to work
+
+### Git Provider Auto-Configuration Validation
+- [ ] Git providers can be added without pre-configuring URLs in settings
+- [ ] Demo mode: Git provider forms show localhost webhook URL (read-only) with "webhooks disabled" warning
+- [ ] Production mode: Git provider forms show domain webhook URL (read-only) with "webhooks enabled" success
+- [ ] System info endpoint provides webhook URL for git provider auto-configuration
+- [ ] Demo mode: Git providers save successfully but webhooks are not registered with external services
+- [ ] Production mode: Git providers save successfully and webhooks are registered with external services
+- [ ] Webhook URL auto-derivation works correctly in both deployment modes
+- [ ] Git provider setup process is deployment-mode aware and shows appropriate UI feedback
 
 ---
 

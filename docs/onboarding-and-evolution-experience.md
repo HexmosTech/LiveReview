@@ -368,6 +368,10 @@ EOFEOF
 
 10. **No TOML interference**: All deployment concerns handled via .env only
 
+11. **Git provider auto-configuration**: Webhook URLs auto-derived, no manual URL setup required
+
+12. **Demo mode git testing**: Can add git providers in demo mode for evaluation without webhook complications
+
 ## Technical Implementation Plan
 
 ## Technical Implementation Plan
@@ -2069,3 +2073,65 @@ func (c *GitLabConnectorConfig) ResolveWebhookURL(systemConfig *config.Config, r
 - Documentation updates
 
 This specification addresses the core onboarding friction while maintaining backward compatibility and providing a clear path for users to evolve their deployments as their needs grow.
+
+
+---
+
+## Git Provider Auto-Configuration Addendum
+
+### Problem Addressed
+The original onboarding specification mentioned "Git provider settings require specific URL configuration that's deployment-dependent" as a key friction point. This addendum details the solution.
+
+### Solution: Auto-Derived Webhook URLs
+
+#### Backend Implementation
+```go
+// Webhook URL auto-derivation in system info endpoint
+func (s *Server) getSystemInfo(c echo.Context) error {
+    deploymentConfig := getDeploymentConfig()
+    
+    var webhookURL string
+    if deploymentConfig.ReverseProxy {
+        // Production: derive from current request
+        scheme := "https"
+        if c.Scheme() == "http" { scheme = "http" }
+        host := c.Request().Host
+        webhookURL = fmt.Sprintf("%s://%s/api/v1/gitlab-hook", scheme, host)
+    } else {
+        // Demo: localhost for display only
+        webhookURL = fmt.Sprintf("http://localhost:%d/api/v1/gitlab-hook", deploymentConfig.BackendPort)
+    }
+    
+    return c.JSON(http.StatusOK, SystemInfo{
+        WebhookURL: webhookURL,
+        WebhooksEnabled: deploymentConfig.ReverseProxy,
+    })
+}
+```
+
+#### Frontend Implementation
+```typescript
+// Git provider forms auto-populate webhook URL
+const GitProviderForm: React.FC = () => {
+    const [systemInfo] = useSystemInfo();
+    
+    return (
+        <form>
+            <input name="webhookUrl" 
+                   value={systemInfo.webhook_url} 
+                   readOnly 
+                   className="auto-configured" />
+            
+            {systemInfo.deployment_mode === 'demo' && (
+                <Warning>Webhooks disabled in demo mode</Warning>
+            )}
+        </form>
+    );
+};
+```
+
+### Key Benefits
+1. **Zero URL Configuration**: Git providers can be added without pre-configuring URLs
+2. **Demo Mode Testing**: Users can add git providers for evaluation without webhook complications  
+3. **Production Auto-Registration**: Webhooks automatically registered when in production mode
+4. **Deployment Mode Awareness**: UI clearly indicates webhook capabilities based on deployment mode
