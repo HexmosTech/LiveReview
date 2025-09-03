@@ -363,6 +363,43 @@ const Settings = () => {
         }
     }, [activeTab, systemInfo, deploymentLoading, handleRefreshSystemInfo]);
 
+    // Auto-populate production URL from browser if empty
+    const getCurrentBrowserUrl = () => {
+        const protocol = window.location.protocol;
+        const hostname = window.location.hostname;
+        const port = window.location.port;
+        
+        // Don't include port for standard ports (80, 443) or localhost
+        if (port && port !== '80' && port !== '443' && hostname !== 'localhost') {
+            return `${protocol}//${hostname}:${port}`;
+        }
+        return `${protocol}//${hostname}`;
+    };
+
+    const shouldShowAutoPopulateWarning = () => {
+        const currentUrl = getCurrentBrowserUrl();
+        const isLocalhost = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
+        
+        // Show warning if production URL is empty and we're not on localhost
+        return !productionUrl && !isLocalhost && systemInfo?.deployment_mode === 'production';
+    };
+
+    const shouldShowDiscrepancyWarning = () => {
+        const currentUrl = getCurrentBrowserUrl();
+        const isLocalhost = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
+        
+        // Show warning if production URL doesn't match current URL
+        // This should show in both demo and production modes when there's a mismatch
+        return productionUrl && 
+               !isLocalhost && 
+               !productionUrl.includes(window.location.hostname);
+    };
+
+    const handleAutoPopulate = () => {
+        const currentUrl = getCurrentBrowserUrl();
+        setProductionUrl(currentUrl);
+    };
+
     // Get the production URL on component mount
     useEffect(() => {
         const fetchProductionUrl = async () => {
@@ -375,6 +412,13 @@ const Settings = () => {
                     const trimmedUrl = response.url.replace(/\/+$/, '');
                     setProductionUrl(trimmedUrl);
                     dispatch(updateDomain(trimmedUrl)); // Update Redux state
+                } else {
+                    // Auto-populate if empty and not localhost
+                    const isLocalhost = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
+                    if (!isLocalhost) {
+                        const currentUrl = getCurrentBrowserUrl();
+                        setProductionUrl(currentUrl);
+                    }
                 }
             } catch (error) {
                 console.error('Failed to fetch production URL:', error);
@@ -382,7 +426,12 @@ const Settings = () => {
                 if ((error as any)?.status === 404) {
                     console.warn('API endpoint not found. The server may not be running or the endpoint may be incorrect.');
                 }
-                // Don't show error to user on initial load, just use empty string
+                // Auto-populate if fetch failed and not localhost
+                const isLocalhost = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
+                if (!isLocalhost) {
+                    const currentUrl = getCurrentBrowserUrl();
+                    setProductionUrl(currentUrl);
+                }
             } finally {
                 setIsLoading(false);
             }
@@ -501,6 +550,58 @@ const Settings = () => {
                                     <p className="text-xs text-slate-400 mb-4">
                                         API Endpoint: /api/v1/production-url
                                     </p>
+                                    
+                                    {shouldShowAutoPopulateWarning() && (
+                                        <div className="mb-4 p-4 bg-yellow-900/50 border border-yellow-600 rounded-lg">
+                                            <div className="flex items-start space-x-3">
+                                                <div className="text-yellow-400 mt-0.5">
+                                                    <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
+                                                        <path fillRule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
+                                                    </svg>
+                                                </div>
+                                                <div className="flex-1">
+                                                    <p className="text-yellow-400 font-medium text-sm">Production URL Required</p>
+                                                    <p className="text-yellow-300 text-sm mt-1">
+                                                        You're running in production mode but no production URL is configured. 
+                                                        This is required for OAuth integrations to work properly.
+                                                    </p>
+                                                    <button
+                                                        onClick={handleAutoPopulate}
+                                                        className="mt-2 text-xs text-yellow-400 hover:text-yellow-300 underline"
+                                                    >
+                                                        Auto-fill with current URL ({getCurrentBrowserUrl()})
+                                                    </button>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    )}
+
+                                    {shouldShowDiscrepancyWarning() && (
+                                        <div className="mb-4 p-4 bg-orange-900/50 border border-orange-600 rounded-lg">
+                                            <div className="flex items-start space-x-3">
+                                                <div className="text-orange-400 mt-0.5">
+                                                    <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
+                                                        <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clipRule="evenodd" />
+                                                    </svg>
+                                                </div>
+                                                <div className="flex-1">
+                                                    <p className="text-orange-400 font-medium text-sm">URL Mismatch Warning</p>
+                                                    <p className="text-orange-300 text-sm mt-1">
+                                                        Your production URL ({new URL(productionUrl).hostname}) doesn't match your current domain ({window.location.hostname}). 
+                                                        {systemInfo?.deployment_mode === 'production' 
+                                                            ? 'This may cause OAuth redirects to fail.' 
+                                                            : 'You should update this when switching to production mode.'}
+                                                    </p>
+                                                    <button
+                                                        onClick={handleAutoPopulate}
+                                                        className="mt-2 text-xs text-orange-400 hover:text-orange-300 underline"
+                                                    >
+                                                        Update to current URL ({getCurrentBrowserUrl()})
+                                                    </button>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    )}
                                     
                                     {error && (
                                         <ErrorAlert onClose={() => setError('')}>

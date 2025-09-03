@@ -3,6 +3,7 @@ import { HashRouter as Router, Routes, Route, Navigate, useNavigate, useLocation
 import { Navbar } from './components/Navbar/Navbar';
 import { Dashboard } from './components/Dashboard/Dashboard';
 import { DemoModeBanner } from './components/DemoModeBanner';
+import { URLMismatchBanner } from './components/URLMismatchBanner';
 import GitProviders from './pages/GitProviders/GitProviders';
 import AIProviders from './pages/AIProviders/AIProviders';
 import Settings from './pages/Settings/Settings';
@@ -129,6 +130,7 @@ const AppContent: React.FC = () => {
                 onLogout={handleLogout}
             />
             <DemoModeBanner />
+            <URLMismatchBanner />
             <div className="flex-grow">
                 <Routes>
                     <Route path="/" element={<HomeWithOAuthCheck />} />
