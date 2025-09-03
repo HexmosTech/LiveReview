@@ -42,10 +42,29 @@ Modify these values to tune performance, reliability, and behavior according to 
 package jobqueue
 
 import (
+	"os"
 	"time"
 
 	"github.com/riverqueue/river"
 )
+
+// getWebhookPublicEndpoint returns the webhook endpoint URL based on deployment mode
+func getWebhookPublicEndpoint() string {
+	reverseProxy := os.Getenv("LIVEREVIEW_REVERSE_PROXY") == "true"
+
+	if reverseProxy {
+		// Production mode: Use default production URL format
+		// Note: This will be overridden by actual request-derived URLs in the system info endpoint
+		return "https://your-domain.com/api/v1/gitlab-hook"
+	} else {
+		// Demo mode: Use localhost with backend port
+		backendPort := os.Getenv("LIVEREVIEW_BACKEND_PORT")
+		if backendPort == "" {
+			backendPort = "8888"
+		}
+		return "http://localhost:" + backendPort + "/api/v1/gitlab-hook"
+	}
+}
 
 // QueueConfig holds all configurable parameters for the job queue
 type QueueConfig struct {
@@ -134,9 +153,9 @@ func DefaultQueueConfig() *QueueConfig {
 
 		// Webhook configuration
 		WebhookConfig: WebhookConfig{
-			Secret:         "super-secret-string",                                                // TODO: Make this dynamic/configurable
-			PublicEndpoint: "https://talented-manually-turkey.ngrok-free.app/api/v1/gitlab-hook", // TODO: Make this dynamic
-			EnableSSL:      true,                                                                 // Always verify SSL in production
+			Secret:         "super-secret-string",      // TODO: Make this dynamic/configurable
+			PublicEndpoint: getWebhookPublicEndpoint(), // Dynamic based on deployment mode
+			EnableSSL:      true,                       // Always verify SSL in production
 
 			// Event configuration - only subscribe to events we need
 			Events: WebhookEvents{

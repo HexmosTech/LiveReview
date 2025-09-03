@@ -46,8 +46,16 @@ run_migrations() {
 # Function to start all services (UI, API, and optionally River UI)
 start_servers() {
     echo "🚀 Starting LiveReview servers..."
-    echo "  - UI server will start on port 8081"
-    echo "  - API server will start on port 8888"
+    
+    # Read port configuration from environment variables
+    BACKEND_PORT="${LIVEREVIEW_BACKEND_PORT:-8888}"
+    FRONTEND_PORT="${LIVEREVIEW_FRONTEND_PORT:-8081}"
+    REVERSE_PROXY="${LIVEREVIEW_REVERSE_PROXY:-false}"
+    
+    echo "📊 Configuration detected:"
+    echo "  - Backend port: $BACKEND_PORT"
+    echo "  - Frontend port: $FRONTEND_PORT"  
+    echo "  - Reverse proxy mode: $REVERSE_PROXY"
     
     # Check if River UI should be started (based on environment variable)
     if [ "$ENABLE_RIVER_UI" = "true" ]; then
@@ -55,13 +63,13 @@ start_servers() {
     fi
     
     # Determine API URL for UI configuration
-    # Use environment variable if set, otherwise default to localhost
-    API_URL="${LIVEREVIEW_API_URL:-http://localhost:8888}"
+    # Use environment variable if set, otherwise default based on backend port
+    API_URL="${LIVEREVIEW_API_URL:-http://localhost:$BACKEND_PORT}"
     echo "  - UI will be configured to use API at: $API_URL"
     
     # Start UI server in background with API URL configuration
     echo "🎨 Starting UI server..."
-    ./livereview ui --port 8081 --api-url "$API_URL" &
+    ./livereview ui --port "$FRONTEND_PORT" --api-url "$API_URL" &
     UI_PID=$!
     
     # Give UI server a moment to start
@@ -69,7 +77,7 @@ start_servers() {
     
     # Start API server in background
     echo "⚙️  Starting API server..."
-    ./livereview api --port 8888 &
+    ./livereview api --port "$BACKEND_PORT" &
     API_PID=$!
     
     # Optionally start River UI
@@ -97,8 +105,8 @@ start_servers() {
     trap cleanup TERM INT
     
     echo "✅ Servers are starting up..."
-    echo "🌐 UI available at: http://localhost:8081"
-    echo "🔌 API available at: http://localhost:8888"
+    echo "🌐 UI available at: http://localhost:$FRONTEND_PORT"
+    echo "🔌 API available at: http://localhost:$BACKEND_PORT"
     
     if [ "$ENABLE_RIVER_UI" = "true" ]; then
         echo "🌊 River UI available at: http://localhost:8080"
