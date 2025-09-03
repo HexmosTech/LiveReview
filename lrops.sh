@@ -2417,6 +2417,10 @@ validate_installation_health() {
     local config_file="$1"
     source "$config_file"
     
+    # Derive ports from two-mode configuration with safe defaults
+    local API_PORT="${LIVEREVIEW_BACKEND_PORT:-8888}"
+    local UI_PORT="${LIVEREVIEW_FRONTEND_PORT:-8081}"
+    
     section_header "VALIDATING INSTALLATION"
     log_info "Running post-installation health checks..."
     
@@ -2553,6 +2557,11 @@ generate_installation_report() {
     
     local report_file="$LIVEREVIEW_INSTALL_DIR/installation-report.txt"
     
+    # Derive report fields from two-mode configuration with safe defaults
+    local API_PORT="${LIVEREVIEW_BACKEND_PORT:-8888}"
+    local UI_PORT="${LIVEREVIEW_FRONTEND_PORT:-8081}"
+    local DOMAIN_DEFAULTED="${DOMAIN:-localhost}"
+    
     cat > "$report_file" << EOF
 LiveReview Installation Report
 =============================
@@ -2580,7 +2589,7 @@ Docker Compose Version: $(docker-compose --version 2>/dev/null || echo "Not avai
 
 CONFIGURATION
 =============
-Domain: $DOMAIN
+Domain: $DOMAIN_DEFAULTED
 API Port: $API_PORT
 UI Port: $UI_PORT
 Database: PostgreSQL 15
@@ -2751,6 +2760,10 @@ provide_troubleshooting_guidance() {
     cd "$LIVEREVIEW_INSTALL_DIR" || return 1
     
     local has_issues=false
+    
+    # Derive ports with safe defaults to avoid unbound variable errors
+    local API_PORT="${LIVEREVIEW_BACKEND_PORT:-8888}"
+    local UI_PORT="${LIVEREVIEW_FRONTEND_PORT:-8081}"
     
     # Check for common issues
     if ! curl -f -s --max-time 5 "http://localhost:${API_PORT}/health" >/dev/null 2>&1; then
