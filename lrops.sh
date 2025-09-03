@@ -755,26 +755,6 @@ install_self() {
 # TEMPLATE EXTRACTION FUNCTIONS (PHASE 3)
 # =============================================================================
 
-# Check if script is being executed via pipe
-is_piped_execution() {
-    [[ "$0" == "bash" || "$0" == "-bash" || "$0" =~ /bash$ ]]
-}
-
-# Download script for template extraction when piped
-download_script_for_templates() {
-    local temp_script="/tmp/lrops_template_source_$$.sh"
-    
-    log_debug "Script is piped - downloading for template extraction..."
-    
-    if curl -fsSL "https://raw.githubusercontent.com/HexmosTech/LiveReview/main/lrops.sh" -o "$temp_script" 2>/dev/null; then
-        echo "$temp_script"
-        return 0
-    else
-        log_error "Failed to download script for template extraction"
-        return 1
-    fi
-}
-
 # Extract embedded template data to files
 extract_data() {
     local template_name="$1"
@@ -791,15 +771,18 @@ extract_data() {
     [[ ! -d "$output_dir" ]] && mkdir -p "$output_dir"
     
     local script_source="$0"
-    local temp_script=""
     
-    # If script is being piped, download it for template extraction
-    if is_piped_execution; then
-        if ! temp_script=$(download_script_for_templates); then
+    # If script is being piped (bash is $0), download it to extract templates
+    if [[ "$0" == "bash" || "$0" == "-bash" || "$0" =~ /bash$ ]]; then
+        log_debug "Script is piped - downloading to extract templates..."
+        script_source="/tmp/lrops_extract_$$.sh"
+        
+        if ! curl -fsSL "https://raw.githubusercontent.com/HexmosTech/LiveReview/main/lrops.sh" -o "$script_source"; then
+            log_error "Failed to download script for template extraction"
             return 1
         fi
-        script_source="$temp_script"
-        log_debug "Using downloaded script for template extraction: $script_source"
+        
+        log_debug "Downloaded script to $script_source for template extraction"
     fi
     
     # Extract data between markers, excluding the marker lines themselves
@@ -815,14 +798,20 @@ extract_data() {
         
         log_debug "Extracted template '$template_name' to '$output_file'"
         
-        # Cleanup temp script if we downloaded it
-        [[ -n "$temp_script" && -f "$temp_script" ]] && rm -f "$temp_script"
+        # Clean up downloaded script if we created it
+        if [[ "$script_source" != "$0" && -f "$script_source" ]]; then
+            rm -f "$script_source"
+        fi
+        
         return 0
     else
         log_error "Failed to extract template '$template_name'"
         
-        # Cleanup temp script if we downloaded it
-        [[ -n "$temp_script" && -f "$temp_script" ]] && rm -f "$temp_script"
+        # Clean up downloaded script if we created it
+        if [[ "$script_source" != "$0" && -f "$script_source" ]]; then
+            rm -f "$script_source"
+        fi
+        
         return 1
     fi
 }
@@ -830,7 +819,24 @@ extract_data() {
 # List all available embedded templates
 list_embedded_templates() {
     log_info "Available embedded templates:"
-    grep "^# === DATA:" "$0" | sed 's/^# === DATA:\(.*\) ===$/  - \1/' | sort
+    
+    local script_source="$0"
+    
+    # Handle piped execution
+    if [[ "$0" == "bash" || "$0" == "-bash" || "$0" =~ /bash$ ]]; then
+        script_source="/tmp/lrops_list_$$.sh"
+        if ! curl -fsSL "https://raw.githubusercontent.com/HexmosTech/LiveReview/main/lrops.sh" -o "$script_source"; then
+            log_error "Failed to download script to list templates"
+            return 1
+        fi
+    fi
+    
+    grep "^# === DATA:" "$script_source" | sed 's/^# === DATA:\(.*\) ===$/  - \1/' | sort
+    
+    # Clean up if we downloaded the script
+    if [[ "$script_source" != "$0" && -f "$script_source" ]]; then
+        rm -f "$script_source"
+    fi
 }
 
 # Test template extraction to temporary files
@@ -875,8 +881,19 @@ extract_all_templates() {
     # Create directory structure
     mkdir -p "$base_dir"/{config,scripts}
     
+    local script_source="$0"
+    
+    # Handle piped execution
+    if [[ "$0" == "bash" || "$0" == "-bash" || "$0" =~ /bash$ ]]; then
+        script_source="/tmp/lrops_extract_all_$$.sh"
+        if ! curl -fsSL "https://raw.githubusercontent.com/HexmosTech/LiveReview/main/lrops.sh" -o "$script_source"; then
+            log_error "Failed to download script to extract templates"
+            return 1
+        fi
+    fi
+    
     local templates
-    templates=$(grep "^# === DATA:" "$0" | sed 's/^# === DATA:\(.*\) ===$/\1/')
+    templates=$(grep "^# === DATA:" "$script_source" | sed 's/^# === DATA:\(.*\) ===$/\1/')
     
     local extracted_count=0
     local failed_count=0
@@ -903,6 +920,11 @@ extract_all_templates() {
             log_error "✗ $template"
         fi
     done
+    
+    # Clean up if we downloaded the script
+    if [[ "$script_source" != "$0" && -f "$script_source" ]]; then
+        rm -f "$script_source"
+    fi
     
     log_info "Template extraction complete: $extracted_count succeeded, $failed_count failed"
     return $failed_count
