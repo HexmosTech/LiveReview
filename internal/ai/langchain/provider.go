@@ -20,6 +20,7 @@ import (
 
 	"github.com/livereview/internal/batch"
 	"github.com/livereview/internal/logging"
+	"github.com/livereview/internal/prompts"
 	"github.com/livereview/pkg/models"
 )
 
@@ -537,7 +538,16 @@ func (p *LangchainProvider) reviewCodeBatchFormatted(ctx context.Context, diffs 
 	logger := logging.GetCurrentLogger()
 
 	// Generate the review prompt (diffs already have line numbers)
-	prompt := p.createReviewPrompt(diffs)
+	// Use centralized prompt building
+	promptBuilder := prompts.NewPromptBuilder()
+
+	// Convert []models.CodeDiff to []*models.CodeDiff for the prompt builder
+	diffPointers := make([]*models.CodeDiff, len(diffs))
+	for i := range diffs {
+		diffPointers[i] = &diffs[i]
+	}
+
+	prompt := promptBuilder.BuildCodeReviewPrompt(diffPointers)
 
 	// Log request to global logger
 	if logger != nil {
@@ -756,86 +766,6 @@ func (p *LangchainProvider) ReviewCodeWithBatching(ctx context.Context, diffs []
 
 	// Aggregate results using the batch processor's aggregation logic
 	return batchProcessor.AggregateAndCombineOutputs(ctx, p.llm, batchResults)
-}
-
-// createReviewPrompt generates the prompt for code review
-func (p *LangchainProvider) createReviewPrompt(diffs []models.CodeDiff) string {
-	var prompt strings.Builder
-
-	prompt.WriteString("You are an expert code reviewer. Analyze the following code changes and provide feedback.\n\n")
-	prompt.WriteString("For each file, provide:\n")
-	prompt.WriteString("- A brief file-level summary if the changes are complex (omit for simple changes)\n")
-	prompt.WriteString("- Specific line comments with:\n")
-	prompt.WriteString("  * Line number\n")
-	prompt.WriteString("  * Issue description\n")
-	prompt.WriteString("  * Severity (info, warning, critical)\n")
-	prompt.WriteString("  * Clear suggestions for improvement\n")
-	prompt.WriteString("  * Whether the comment is for internal analysis only or should be posted to the user\n\n")
-
-	prompt.WriteString("Focus on correctness, security, maintainability, and performance.\n\n")
-
-	prompt.WriteString("Format your response as JSON with the following structure:\n")
-	prompt.WriteString("```json\n")
-	prompt.WriteString("{\n")
-	prompt.WriteString("  \"fileSummary\": \"Optional: Brief summary of complex file changes (omit if file is simple)\",\n")
-	prompt.WriteString("  \"comments\": [\n")
-	prompt.WriteString("    {\n")
-	prompt.WriteString("      \"filePath\": \"path/to/file.ext\",\n")
-	prompt.WriteString("      \"lineNumber\": 42,\n")
-	prompt.WriteString("      \"content\": \"Description of the issue\",\n")
-	prompt.WriteString("      \"severity\": \"info|warning|critical\",\n")
-	prompt.WriteString("      \"suggestions\": [\"Specific improvement suggestion 1\", \"Specific improvement suggestion 2\"],\n")
-	prompt.WriteString("      \"isInternal\": false\n")
-	prompt.WriteString("    }\n")
-	prompt.WriteString("  ]\n")
-	prompt.WriteString("}\n")
-	prompt.WriteString("```\n\n")
-
-	prompt.WriteString("COMMENT CLASSIFICATION:\n")
-	prompt.WriteString("- Set \"isInternal\": true for comments that are:\n")
-	prompt.WriteString("  * Obvious/trivial observations (\"variable renamed\", \"method added\")\n")
-	prompt.WriteString("  * Purely informational with no actionable insight\n")
-	prompt.WriteString("  * Low-value praise (\"good practice\", \"nice naming\")\n")
-	prompt.WriteString("  * Detailed technical analysis better suited for synthesis\n")
-	prompt.WriteString("- Set \"isInternal\": false for comments that are:\n")
-	prompt.WriteString("  * Security vulnerabilities or bugs\n")
-	prompt.WriteString("  * Performance issues\n")
-	prompt.WriteString("  * Maintainability concerns with clear suggestions\n")
-	prompt.WriteString("  * Important architectural decisions that need visibility\n")
-	prompt.WriteString("Only post comments that add real value to the developer!\n\n")
-
-	prompt.WriteString("CRITICAL: LINE NUMBER REFERENCES!\n")
-	prompt.WriteString("- Each diff hunk is formatted as a table with columns: OLD | NEW | CONTENT\n")
-	prompt.WriteString("- The OLD column shows line numbers in the original file\n")
-	prompt.WriteString("- The NEW column shows line numbers in the modified file\n")
-	prompt.WriteString("- For added lines (+ prefix), use the NEW line number for comments\n")
-	prompt.WriteString("- For deleted lines (- prefix), use the OLD line number for comments\n")
-	prompt.WriteString("- For modified lines, comment on the NEW version (+ line) with NEW line number\n")
-	prompt.WriteString("- You can ONLY comment on lines with + or - prefixes (changed lines)\n")
-	prompt.WriteString("- Do NOT comment on context lines (space prefix) or lines outside the diff\n\n")
-
-	// Add the diffs to the prompt
-	prompt.WriteString("# Code Changes\n\n")
-
-	for _, diff := range diffs {
-		prompt.WriteString(fmt.Sprintf("## File: %s\n", diff.FilePath))
-		if diff.IsNew {
-			prompt.WriteString("(New file)\n")
-		} else if diff.IsDeleted {
-			prompt.WriteString("(Deleted file)\n")
-		} else if diff.IsRenamed {
-			prompt.WriteString(fmt.Sprintf("(Renamed from: %s)\n", diff.OldFilePath))
-		}
-		prompt.WriteString("\n")
-
-		for _, hunk := range diff.Hunks {
-			prompt.WriteString("```diff\n")
-			prompt.WriteString(hunk.Content)
-			prompt.WriteString("\n```\n\n")
-		}
-	}
-
-	return prompt.String()
 }
 
 // parseResponse parses the LLM response into a structured result

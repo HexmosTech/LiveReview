@@ -13,6 +13,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/livereview/internal/prompts"
 	"github.com/livereview/pkg/models"
 	"github.com/tmc/langchaingo/llms"
 )
@@ -150,7 +151,9 @@ func (p *GeminiProvider) ReviewCode(ctx context.Context, diffs []*models.CodeDif
 	}
 
 	// Create a prompt for the AI to review the code
-	prompt := createReviewPrompt(diffs)
+	// Use centralized prompt building
+	promptBuilder := prompts.NewPromptBuilder()
+	prompt := promptBuilder.BuildCodeReviewPrompt(diffs)
 
 	// Call the Gemini API
 	response, err := p.callGeminiAPI(ctx, prompt)
@@ -165,90 +168,6 @@ func (p *GeminiProvider) ReviewCode(ctx context.Context, diffs []*models.CodeDif
 	}
 
 	return result, nil
-}
-
-// createReviewPrompt generates a prompt for the AI to review the code
-func createReviewPrompt(diffs []*models.CodeDiff) string {
-	var prompt strings.Builder
-
-	// Instructions for the AI
-	prompt.WriteString("# Code Review Request\n\n")
-	prompt.WriteString("Review the following code changes thoroughly and provide:\n")
-	prompt.WriteString("1. Specific actionable line comments highlighting issues, improvements, and best practices\n")
-	prompt.WriteString("2. File-level summaries ONLY for complex files that warrant explanation (not for every file)\n")
-	prompt.WriteString("3. DO NOT provide a general summary here - that will be synthesized separately\n\n")
-	prompt.WriteString("IMPORTANT REVIEW GUIDELINES:\n")
-	prompt.WriteString("- Focus on finding bugs, security issues, and improvement opportunities\n")
-	prompt.WriteString("- Highlight unclear code and readability issues\n")
-	prompt.WriteString("- Keep comments concise and use active voice\n")
-	prompt.WriteString("- Avoid unnecessary praise or filler comments\n")
-	prompt.WriteString("- Avoid commenting on simplistic or obvious things (imports, blank space changes, etc.)\n")
-	prompt.WriteString("- File summaries should only be provided for complex changes that need explanation\n\n")
-	prompt.WriteString("For each line comment, include:\n")
-	prompt.WriteString("- File path\n")
-	prompt.WriteString("- Line number\n")
-	prompt.WriteString("- Severity (info, warning, critical)\n")
-	prompt.WriteString("- Clear suggestions for improvement\n\n")
-	prompt.WriteString("Focus on correctness, security, maintainability, and performance.\n\n")
-	prompt.WriteString("Format your response as JSON with the following structure:\n")
-	prompt.WriteString("```json\n")
-	prompt.WriteString("{\n")
-	prompt.WriteString("  \"fileSummary\": \"Optional: Brief summary of complex file changes (omit if file is simple)\",\n")
-	prompt.WriteString("  \"comments\": [\n")
-	prompt.WriteString("    {\n")
-	prompt.WriteString("      \"filePath\": \"path/to/file.ext\",\n")
-	prompt.WriteString("      \"lineNumber\": 42,\n")
-	prompt.WriteString("      \"content\": \"Description of the issue\",\n")
-	prompt.WriteString("      \"severity\": \"info|warning|critical\",\n")
-	prompt.WriteString("      \"suggestions\": [\"Specific improvement suggestion 1\", \"Specific improvement suggestion 2\"],\n")
-	prompt.WriteString("      \"isInternal\": false\n")
-	prompt.WriteString("    }\n")
-	prompt.WriteString("  ]\n")
-	prompt.WriteString("}\n")
-	prompt.WriteString("```\n\n")
-
-	prompt.WriteString("COMMENT CLASSIFICATION:\n")
-	prompt.WriteString("- Set \"isInternal\": true for comments that are:\n")
-	prompt.WriteString("  * Obvious/trivial observations (\"variable renamed\", \"method added\")\n")
-	prompt.WriteString("  * Purely informational with no actionable insight\n")
-	prompt.WriteString("  * Low-value praise (\"good practice\", \"nice naming\")\n")
-	prompt.WriteString("  * Detailed technical analysis better suited for synthesis\n")
-	prompt.WriteString("- Set \"isInternal\": false for comments that are:\n")
-	prompt.WriteString("  * Security vulnerabilities or bugs\n")
-	prompt.WriteString("  * Performance issues\n")
-	prompt.WriteString("  * Maintainability concerns with clear suggestions\n")
-	prompt.WriteString("  * Important architectural decisions that need visibility\n")
-	prompt.WriteString("Only post comments that add real value to the developer!\n\n")
-
-	// Instructions for line number interpretation
-	prompt.WriteString("Line numbers are formatted as:\n")
-	prompt.WriteString("OLD | NEW | CONTENT\n")
-	prompt.WriteString("For comments on added lines (prefixed with +), use the NEW line number.\n")
-	prompt.WriteString("For comments on deleted lines (prefixed with -), use the OLD line number.\n")
-	prompt.WriteString("For comments on context lines, use either line number.\n\n")
-
-	// Add the diffs to the prompt
-	prompt.WriteString("# Code Changes\n\n")
-
-	for _, diff := range diffs {
-		prompt.WriteString(fmt.Sprintf("## File: %s\n", diff.FilePath))
-		if diff.IsNew {
-			prompt.WriteString("(New file)\n")
-		} else if diff.IsDeleted {
-			prompt.WriteString("(Deleted file)\n")
-		} else if diff.IsRenamed {
-			prompt.WriteString(fmt.Sprintf("(Renamed from: %s)\n", diff.OldFilePath))
-		}
-		prompt.WriteString("\n")
-
-		for _, hunk := range diff.Hunks {
-			prompt.WriteString("```diff\n")
-			prompt.WriteString(hunk.Content)
-			prompt.WriteString("\n```\n\n")
-		}
-	}
-
-	return prompt.String()
 }
 
 // callGeminiAPI makes a call to the Gemini API
@@ -377,7 +296,7 @@ func (p *GeminiProvider) parseResponse(response string, diffs []*models.CodeDiff
 	isJSON := strings.HasPrefix(trimmedResponse, "{") && strings.HasSuffix(trimmedResponse, "}")
 
 	// If it looks like JSON or has JSON structure hints, try JSON parsing first
-	if isJSON || strings.Contains(response, "\"summary\"") || strings.Contains(response, "\"comments\"") {
+	if isJSON || strings.Contains(response, "\"fileSummary\"") || strings.Contains(response, "\"comments\"") {
 		fmt.Println("Response appears to be JSON-formatted, attempting JSON parsing...")
 
 		// Try to extract JSON - first check if the whole response is JSON
@@ -393,11 +312,11 @@ func (p *GeminiProvider) parseResponse(response string, diffs []*models.CodeDiff
 			} else {
 				// No JSON code block found, maybe JSON is embedded elsewhere
 				// Try to find any {...} pattern that looks like JSON
-				jsonPattern := regexp.MustCompile("(\\{[\\s\\S]*?\"summary\"[\\s\\S]*?\"comments\"[\\s\\S]*?\\})")
+				jsonPattern := regexp.MustCompile("(\\{[\\s\\S]*?\"fileSummary\"[\\s\\S]*?\"comments\"[\\s\\S]*?\\})")
 				if matches := jsonPattern.FindStringSubmatch(response); len(matches) > 1 {
 					potentialJSON := matches[1]
 					// Verify this looks like our expected JSON structure
-					if strings.Contains(potentialJSON, "\"summary\"") && strings.Contains(potentialJSON, "\"comments\"") {
+					if strings.Contains(potentialJSON, "\"fileSummary\"") && strings.Contains(potentialJSON, "\"comments\"") {
 						jsonStr = potentialJSON
 						fmt.Println("Found embedded JSON in response")
 					}

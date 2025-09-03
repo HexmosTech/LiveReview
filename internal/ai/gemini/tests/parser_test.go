@@ -51,8 +51,7 @@ func TestParseResponse(t *testing.T) {
 		{
 			name: "Valid JSON Response",
 			response: `{
-				"summary": "This is a test summary",
-				"filesChanged": ["test/file1.go", "test/file2.go"],
+				"fileSummary": "This is a test file summary",
 				"comments": [
 					{
 						"filePath": "test/file1.go",
@@ -64,7 +63,7 @@ func TestParseResponse(t *testing.T) {
 				]
 			}`,
 			expectedResult: &models.ReviewResult{
-				Summary: "This is a test summary",
+				Summary: "This is a test file summary",
 				Comments: []*models.ReviewComment{
 					{
 						FilePath:    "test/file1.go",
@@ -83,7 +82,7 @@ func TestParseResponse(t *testing.T) {
 			response: `I'll analyze the code changes.
 
 			{
-				"summary": "This is a partial JSON response",
+				"fileSummary": "This is a partial JSON response",
 				"comments": [
 					{
 						"filePath": "test/file1.go",
@@ -124,7 +123,7 @@ FILE: test/file2.go, Line: 11
 This is a comment about file2.
 Severity: info`,
 			expectedResult: &models.ReviewResult{
-				Summary: "# AI Review Summary\n\nThis is a text-formatted summary.",
+				Summary: "# This is a text-formatted summary. (LiveReview)\n\nThis is a text-formatted summary.",
 				Comments: []*models.ReviewComment{
 					{
 						FilePath: "test/file1.go",

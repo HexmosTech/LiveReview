@@ -6,6 +6,7 @@ import (
 	"fmt"
 
 	"github.com/livereview/internal/aiconnectors"
+	"github.com/livereview/internal/prompts"
 	"github.com/livereview/pkg/models"
 	"github.com/rs/zerolog/log"
 )
@@ -58,7 +59,9 @@ func (a *AIConnectorsAdapter) ReviewCode(ctx context.Context, diffs []*models.Co
 	}
 
 	// Create a prompt for the AI to review the code
-	prompt := createReviewPrompt(diffs)
+	// Use centralized prompt building
+	promptBuilder := prompts.NewPromptBuilder()
+	prompt := promptBuilder.BuildCodeReviewPrompt(diffs)
 
 	// Call the AI provider
 	log.Info().
@@ -79,14 +82,6 @@ func (a *AIConnectorsAdapter) ReviewCode(ctx context.Context, diffs []*models.Co
 	}
 
 	return result, nil
-}
-
-// createReviewPrompt generates a prompt for the AI to review the code
-// This reuses the existing createReviewPrompt function from the gemini provider
-func createReviewPrompt(diffs []*models.CodeDiff) string {
-	// TODO: Reimplement this function from the gemini provider
-	// For now, we'll use a simplified version
-	return "" // Placeholder
 }
 
 // parseResponse parses the response from the AI provider into a ReviewResult
