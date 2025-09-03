@@ -145,6 +145,11 @@ parse_arguments() {
                 SHOW_HELP=true
                 shift
                 ;;
+            # Skip new commands as they're handled in main()
+            setup-demo|setup-production)
+                # These are handled in main() case statement, skip here
+                shift
+                ;;
             # Test and development flags
             --test-github-api)
                 TEST_GITHUB_API=true
@@ -227,6 +232,10 @@ USAGE:
     # Quick installation (recommended)
     curl -fsSL https://raw.githubusercontent.com/HexmosTech/LiveReview/main/lrops.sh | bash -s -- --express
 
+    # Two-mode setup commands (new!)
+    lrops.sh setup-demo                # Quick demo mode setup (localhost only)
+    lrops.sh setup-production          # Production mode setup (with reverse proxy)
+
     # Interactive installation
     curl -fsSL https://raw.githubusercontent.com/HexmosTech/LiveReview/main/lrops.sh | bash
 
@@ -243,7 +252,7 @@ USAGE:
     lrops.sh help backup               # Backup strategies
 
 INSTALLATION OPTIONS:
-    --express                          Use secure defaults, no prompts
+    --express                          Use secure defaults, no prompts (demo mode)
     --force                           Overwrite existing installation
     --version=v1.2.3                  Install specific version (default: latest)
     --dry-run                         Show what would be done without installing
@@ -253,6 +262,17 @@ MANAGEMENT OPTIONS:
     --help, -h                        Show this help message
     --version                         Show script version
     --diagnose                        Run diagnostic checks
+
+TWO-MODE DEPLOYMENT SYSTEM:
+    Demo Mode (default):              Perfect for localhost development and testing
+    - Access: http://localhost:8081/  
+    - Webhooks: Disabled (manual triggers only)
+    - No external access required
+    
+    Production Mode:                  Ready for external access with reverse proxy
+    - Requires reverse proxy setup
+    - Webhooks enabled for automatic triggers
+    - SSL/TLS recommended
 
 TEMPLATE & CONFIGURATION OPTIONS:
     --list-embedded-data              List all available embedded templates
@@ -270,8 +290,11 @@ SAFETY:
     Express mode requires no user input and completes in under 5 minutes.
 
 EXAMPLES:
-    # Quick start
-    lrops.sh --express
+    # Quick demo setup (recommended for first time)
+    lrops.sh setup-demo
+
+    # Production setup with reverse proxy
+    lrops.sh setup-production
 
     # Force reinstall with specific version
     lrops.sh --force --version=v1.2.3 --express
@@ -836,14 +859,14 @@ generate_jwt_secret() {
     fi
 }
 
-# Interactive configuration prompts
+# Interactive configuration prompts for simplified two-mode system
 gather_configuration() {
     local config_file="/tmp/lrops_config_$$"
     
     section_header "CONFIGURATION"
     
     if [[ "$EXPRESS_MODE" == "true" ]]; then
-        log_info "Express mode: Using secure defaults"
+        log_info "Express mode: Using secure defaults for demo mode"
         
         # Generate secure defaults
         local db_password
@@ -851,19 +874,40 @@ gather_configuration() {
         local jwt_secret
         jwt_secret=$(generate_jwt_secret)
         
-        # Set configuration values
+        # Demo mode defaults (localhost-only)
         cat > "$config_file" << EOF
 DB_PASSWORD=$db_password
 JWT_SECRET=$jwt_secret
-API_PORT=8888
-UI_PORT=8081
-DOMAIN=localhost
+LIVEREVIEW_BACKEND_PORT=8888
+LIVEREVIEW_FRONTEND_PORT=8081
+LIVEREVIEW_REVERSE_PROXY=false
+DEPLOYMENT_MODE=demo
 LIVEREVIEW_VERSION=$1
 EOF
+        log_success "✅ Demo mode configuration (localhost-only, no webhooks)"
+        log_info "   To upgrade to production mode later, set LIVEREVIEW_REVERSE_PROXY=true"
     else
         log_info "Interactive configuration mode"
-        log_info "Press Enter to use defaults shown in [brackets]"
+        log_info "Choose your deployment mode:"
         echo
+        echo "1) Demo Mode (localhost only, no webhooks, quickstart)"
+        echo "2) Production Mode (with reverse proxy, webhooks enabled)"
+        echo
+        echo -n "Select deployment mode [1]: "
+        read -r mode_choice
+        
+        local deployment_mode="demo"
+        local reverse_proxy="false"
+        
+        if [[ "$mode_choice" == "2" ]]; then
+            deployment_mode="production"
+            reverse_proxy="true"
+            log_info "Production mode selected - requires reverse proxy setup"
+        else
+            deployment_mode="demo"
+            reverse_proxy="false"
+            log_info "Demo mode selected - localhost only, no configuration needed"
+        fi
         
         # Database password
         local db_password
@@ -883,37 +927,25 @@ EOF
             jwt_secret="$user_input"
         fi
         
-        # API Port
-        local api_port=8888
-        echo -n "API port [8888]: "
-        read -r user_input
-        if [[ -n "$user_input" ]]; then
-            api_port="$user_input"
-        fi
+        # Use standard ports (no custom port configuration for simplicity)
+        local backend_port=8888
+        local frontend_port=8081
         
-        # UI Port
-        local ui_port=8081
-        echo -n "UI port [8081]: "
-        read -r user_input
-        if [[ -n "$user_input" ]]; then
-            ui_port="$user_input"
-        fi
-        
-        # Domain
-        local domain="localhost"
-        echo -n "Domain/hostname [localhost]: "
-        read -r user_input
-        if [[ -n "$user_input" ]]; then
-            domain="$user_input"
+        if [[ "$deployment_mode" == "production" ]]; then
+            echo "Production mode will use standard ports (8888 backend, 8081 frontend)"
+            echo "Configure your reverse proxy to route:"
+            echo "  /api/* → http://127.0.0.1:8888"
+            echo "  /* → http://127.0.0.1:8081"
         fi
         
         # Save configuration
         cat > "$config_file" << EOF
 DB_PASSWORD=$db_password
 JWT_SECRET=$jwt_secret
-API_PORT=$api_port
-UI_PORT=$ui_port
-DOMAIN=$domain
+LIVEREVIEW_BACKEND_PORT=$backend_port
+LIVEREVIEW_FRONTEND_PORT=$frontend_port
+LIVEREVIEW_REVERSE_PROXY=$reverse_proxy
+DEPLOYMENT_MODE=$deployment_mode
 LIVEREVIEW_VERSION=$1
 EOF
     fi
@@ -921,7 +953,7 @@ EOF
     echo "$config_file"
 }
 
-# Validate configuration values
+# Validate configuration values for two-mode system
 validate_configuration() {
     local config_file="$1"
     
@@ -930,29 +962,30 @@ validate_configuration() {
     # Source the config
     source "$config_file"
     
-    # Validate ports
-    if ! [[ "$API_PORT" =~ ^[0-9]+$ ]] || [[ "$API_PORT" -lt 1024 ]] || [[ "$API_PORT" -gt 65535 ]]; then
-        log_error "Invalid API port: $API_PORT (must be 1024-65535)"
+    # Validate backend port
+    if ! [[ "$LIVEREVIEW_BACKEND_PORT" =~ ^[0-9]+$ ]] || [[ "$LIVEREVIEW_BACKEND_PORT" -lt 1024 ]] || [[ "$LIVEREVIEW_BACKEND_PORT" -gt 65535 ]]; then
+        log_error "Invalid backend port: $LIVEREVIEW_BACKEND_PORT (must be 1024-65535)"
         return 1
     fi
     
-    if ! [[ "$UI_PORT" =~ ^[0-9]+$ ]] || [[ "$UI_PORT" -lt 1024 ]] || [[ "$UI_PORT" -gt 65535 ]]; then
-        log_error "Invalid UI port: $UI_PORT (must be 1024-65535)"
+    # Validate frontend port
+    if ! [[ "$LIVEREVIEW_FRONTEND_PORT" =~ ^[0-9]+$ ]] || [[ "$LIVEREVIEW_FRONTEND_PORT" -lt 1024 ]] || [[ "$LIVEREVIEW_FRONTEND_PORT" -gt 65535 ]]; then
+        log_error "Invalid frontend port: $LIVEREVIEW_FRONTEND_PORT (must be 1024-65535)"
         return 1
     fi
     
-    if [[ "$API_PORT" == "$UI_PORT" ]]; then
-        log_error "API and UI ports cannot be the same"
+    if [[ "$LIVEREVIEW_BACKEND_PORT" == "$LIVEREVIEW_FRONTEND_PORT" ]]; then
+        log_error "Backend and frontend ports cannot be the same"
         return 1
     fi
     
     # Check if ports are available
     if command -v netstat >/dev/null 2>&1; then
-        if netstat -tln | grep -q ":${API_PORT} "; then
-            log_warning "Port $API_PORT appears to be in use"
+        if netstat -tln | grep -q ":${LIVEREVIEW_BACKEND_PORT} "; then
+            log_warning "Port $LIVEREVIEW_BACKEND_PORT appears to be in use"
         fi
-        if netstat -tln | grep -q ":${UI_PORT} "; then
-            log_warning "Port $UI_PORT appears to be in use"
+        if netstat -tln | grep -q ":${LIVEREVIEW_FRONTEND_PORT} "; then
+            log_warning "Port $LIVEREVIEW_FRONTEND_PORT appears to be in use"
         fi
     fi
     
@@ -963,6 +996,27 @@ validate_configuration() {
     
     if [[ ${#JWT_SECRET} -lt 32 ]]; then
         log_warning "JWT secret is shorter than 32 characters"
+    fi
+    
+    # Validate deployment mode configuration
+    if [[ "$LIVEREVIEW_REVERSE_PROXY" != "true" && "$LIVEREVIEW_REVERSE_PROXY" != "false" ]]; then
+        log_error "Invalid LIVEREVIEW_REVERSE_PROXY value: must be 'true' or 'false'"
+        return 1
+    fi
+    
+    # Show configuration summary
+    log_info "Configuration summary:"
+    log_info "  - Deployment mode: $DEPLOYMENT_MODE"
+    log_info "  - Backend port: $LIVEREVIEW_BACKEND_PORT"
+    log_info "  - Frontend port: $LIVEREVIEW_FRONTEND_PORT"
+    log_info "  - Reverse proxy: $LIVEREVIEW_REVERSE_PROXY"
+    
+    if [[ "$DEPLOYMENT_MODE" == "demo" ]]; then
+        log_info "  - Access URL: http://localhost:$LIVEREVIEW_FRONTEND_PORT"
+        log_info "  - Webhooks: Disabled (manual triggers only)"
+    else
+        log_info "  - Requires reverse proxy configuration"
+        log_info "  - Webhooks: Enabled (automatic triggers)"
     fi
     
     log_success "Configuration validation completed"
@@ -1049,7 +1103,7 @@ handle_existing_directories() {
 # FILE GENERATION FROM TEMPLATES (PHASE 4)
 # =============================================================================
 
-# Generate .env file from template with user configuration
+# Generate .env file from template with simplified two-mode configuration
 generate_env_file() {
     local config_file="$1"
     local output_file="$LIVEREVIEW_INSTALL_DIR/.env"
@@ -1069,25 +1123,59 @@ generate_env_file() {
     sed -i "s/\${JWT_SECRET}/$JWT_SECRET/g" "$output_file"
     sed -i "s/\${LIVEREVIEW_VERSION}/$LIVEREVIEW_VERSION/g" "$output_file"
     
-    # Add additional configuration
+    # Add deployment mode configuration
     cat >> "$output_file" << EOF
 
-# Port configuration (auto-configured)
-API_PORT=$API_PORT
-UI_PORT=$UI_PORT
+# Two-Mode Deployment Configuration (auto-configured)
+LIVEREVIEW_BACKEND_PORT=$LIVEREVIEW_BACKEND_PORT
+LIVEREVIEW_FRONTEND_PORT=$LIVEREVIEW_FRONTEND_PORT
+LIVEREVIEW_REVERSE_PROXY=$LIVEREVIEW_REVERSE_PROXY
 
-# Domain configuration
-DOMAIN=$DOMAIN
-LIVEREVIEW_API_URL=http://$DOMAIN:$API_PORT
+# Deployment mode: $DEPLOYMENT_MODE
+# Demo mode: localhost-only, no webhooks, manual triggers only
+# Production mode: reverse proxy, webhooks enabled, external access
 EOF
+
+    # Add deployment mode-specific comments and guidance
+    if [[ "$DEPLOYMENT_MODE" == "demo" ]]; then
+        cat >> "$output_file" << EOF
+
+# DEMO MODE CONFIGURATION
+# - Access: http://localhost:$LIVEREVIEW_FRONTEND_PORT
+# - API: http://localhost:$LIVEREVIEW_BACKEND_PORT
+# - Webhooks: Disabled (manual triggers only)
+# - External access: Not configured
+# 
+# To upgrade to production mode:
+# 1. Set LIVEREVIEW_REVERSE_PROXY=true
+# 2. Restart services: docker-compose restart
+# 3. Configure reverse proxy (see: lrops.sh help nginx)
+EOF
+    else
+        cat >> "$output_file" << EOF
+
+# PRODUCTION MODE CONFIGURATION  
+# - Reverse proxy required for external access
+# - Webhooks enabled for automatic triggers
+# - External access ready (configure DNS and reverse proxy)
+#
+# Configure your reverse proxy to route:
+# - /api/* → http://127.0.0.1:$LIVEREVIEW_BACKEND_PORT
+# - /* → http://127.0.0.1:$LIVEREVIEW_FRONTEND_PORT
+#
+# For SSL setup: lrops.sh help ssl
+# For nginx config: lrops.sh help nginx
+# For caddy config: lrops.sh help caddy
+EOF
+    fi
     
     # Set secure permissions on .env file (readable by Docker containers)
     chmod 644 "$output_file"
     
-    log_success "Generated .env file with secure permissions"
+    log_success "Generated .env file with $DEPLOYMENT_MODE mode configuration"
 }
 
-# Generate docker-compose.yml from template with user configuration
+# Generate docker-compose.yml from template with two-mode configuration
 generate_docker_compose() {
     local config_file="$1"
     local output_file="$LIVEREVIEW_INSTALL_DIR/docker-compose.yml"
@@ -1106,14 +1194,12 @@ generate_docker_compose() {
     sed -i "s/\${LIVEREVIEW_VERSION}/$LIVEREVIEW_VERSION/g" "$output_file"
     sed -i "s/\${DB_PASSWORD}/\${DB_PASSWORD}/g" "$output_file"  # Keep as variable reference
     
-    # Update port mappings if not using defaults
-    if [[ "$API_PORT" != "8888" ]] || [[ "$UI_PORT" != "8081" ]]; then
-        log_info "Updating port mappings: API=$API_PORT, UI=$UI_PORT"
-        sed -i "s/\"8888:8888\"/\"$API_PORT:8888\"/g" "$output_file"
-        sed -i "s/\"8081:8081\"/\"$UI_PORT:8081\"/g" "$output_file"
-    fi
+    # Update port mappings to use the actual configured ports
+    sed -i "s/\${LIVEREVIEW_FRONTEND_PORT:-8081}/$LIVEREVIEW_FRONTEND_PORT/g" "$output_file"
+    sed -i "s/\${LIVEREVIEW_BACKEND_PORT:-8888}/$LIVEREVIEW_BACKEND_PORT/g" "$output_file"
     
-    log_success "Generated docker-compose.yml with custom configuration"
+    log_success "Generated docker-compose.yml with $DEPLOYMENT_MODE mode configuration"
+    log_info "Port mappings: Frontend=$LIVEREVIEW_FRONTEND_PORT, Backend=$LIVEREVIEW_BACKEND_PORT"
 }
 
 # Extract configuration templates and helper scripts
@@ -1142,7 +1228,7 @@ extract_templates_and_scripts() {
     log_success "Configuration templates and scripts extracted"
 }
 
-# Generate installation summary file
+# Generate installation summary file for two-mode system
 generate_installation_summary() {
     local config_file="$1"
     local summary_file="$LIVEREVIEW_INSTALL_DIR/installation-summary.txt"
@@ -1157,15 +1243,48 @@ Installation Date: $(date)
 Script Version: $SCRIPT_VERSION
 LiveReview Version: $LIVEREVIEW_VERSION
 
-Configuration:
+Deployment Configuration:
 - Installation Directory: $LIVEREVIEW_INSTALL_DIR
-- API Port: $API_PORT
-- UI Port: $UI_PORT
-- Domain: $DOMAIN
+- Deployment Mode: $DEPLOYMENT_MODE
+- Backend Port: $LIVEREVIEW_BACKEND_PORT
+- Frontend Port: $LIVEREVIEW_FRONTEND_PORT
+- Reverse Proxy: $LIVEREVIEW_REVERSE_PROXY
 
-Access URLs:
-- API: http://$DOMAIN:$API_PORT/api
-- Web UI: http://$DOMAIN:$UI_PORT
+EOF
+
+if [[ "$DEPLOYMENT_MODE" == "demo" ]]; then
+    cat >> "$summary_file" << EOF
+Demo Mode Configuration:
+- Access URL: http://localhost:$LIVEREVIEW_FRONTEND_PORT/
+- API URL: http://localhost:$LIVEREVIEW_BACKEND_PORT/api
+- Webhooks: Disabled (manual triggers only)
+- External Access: Not configured (localhost only)
+- Perfect for: Development, testing, evaluation
+
+Upgrade to Production Mode:
+1. Edit .env file: Set LIVEREVIEW_REVERSE_PROXY=true
+2. Restart services: docker-compose restart
+3. Configure reverse proxy (see help guides below)
+4. Set up SSL/TLS for security
+
+EOF
+else
+    cat >> "$summary_file" << EOF
+Production Mode Configuration:
+- Backend: http://127.0.0.1:$LIVEREVIEW_BACKEND_PORT/api
+- Frontend: http://127.0.0.1:$LIVEREVIEW_FRONTEND_PORT/
+- Webhooks: Enabled (automatic triggers)
+- External Access: Via reverse proxy (requires configuration)
+- SSL/TLS: Required for production use
+
+Reverse Proxy Setup Required:
+Route /api/* → http://127.0.0.1:$LIVEREVIEW_BACKEND_PORT
+Route /* → http://127.0.0.1:$LIVEREVIEW_FRONTEND_PORT
+
+EOF
+fi
+
+    cat >> "$summary_file" << EOF
 
 Important Files:
 - Docker Compose: $LIVEREVIEW_INSTALL_DIR/docker-compose.yml
@@ -1174,16 +1293,22 @@ Important Files:
 - Helper Scripts: $LIVEREVIEW_INSTALL_DIR/scripts/
 
 Management Commands:
-- Start: lrops.sh start
-- Stop: lrops.sh stop
-- Status: lrops.sh status
-- Logs: lrops.sh logs
+- Status Check: lrops.sh status
+- Start Services: lrops.sh start
+- Stop Services: lrops.sh stop
+- Restart Services: lrops.sh restart
+- View Logs: lrops.sh logs
 
 Configuration Help:
 - SSL Setup: lrops.sh help ssl
 - Backup Setup: lrops.sh help backup
 - Nginx Config: lrops.sh help nginx
 - Caddy Config: lrops.sh help caddy
+
+Two-Mode Deployment System:
+This installation uses a simplified two-mode deployment system:
+- Demo Mode: Perfect for localhost development and testing
+- Production Mode: Ready for external access with reverse proxy
 
 For support, visit: https://github.com/HexmosTech/LiveReview
 EOF
@@ -1305,7 +1430,7 @@ wait_for_containers() {
     return 1
 }
 
-# Verify application health and accessibility
+# Verify application health and accessibility for two-mode system
 verify_deployment() {
     local config_file="$1"
     
@@ -1322,8 +1447,8 @@ verify_deployment() {
     
     for i in {1..12}; do  # Try for 60 seconds (12 * 5 second intervals)
         for endpoint in "${endpoints[@]}"; do
-            if curl -f -s --max-time 5 "http://localhost:${API_PORT}${endpoint}" >/dev/null 2>&1; then
-                log_success "✓ API endpoint is accessible at: http://localhost:${API_PORT}${endpoint}"
+            if curl -f -s --max-time 5 "http://localhost:${LIVEREVIEW_BACKEND_PORT}${endpoint}" >/dev/null 2>&1; then
+                log_success "✓ API endpoint is accessible at: http://localhost:${LIVEREVIEW_BACKEND_PORT}${endpoint}"
                 api_ready=true
                 break 2
             fi
@@ -1338,10 +1463,10 @@ verify_deployment() {
     fi
     
     # Check UI endpoint
-    log_info "Checking UI endpoint at http://localhost:${UI_PORT}/"
+    log_info "Checking UI endpoint at http://localhost:${LIVEREVIEW_FRONTEND_PORT}/"
     local ui_ready=false
     for i in {1..6}; do  # Try for 30 seconds (6 * 5 second intervals)
-        if curl -f -s --max-time 5 "http://localhost:${UI_PORT}/" >/dev/null 2>&1; then
+        if curl -f -s --max-time 5 "http://localhost:${LIVEREVIEW_FRONTEND_PORT}/" >/dev/null 2>&1; then
             log_success "✓ UI endpoint is accessible"
             ui_ready=true
             break
@@ -1372,8 +1497,16 @@ verify_deployment() {
     
     if [[ "$api_ready" == "true" && "$ui_ready" == "true" ]]; then
         log_success "🎉 LiveReview is fully operational!"
-        log_info "   - API: http://localhost:${API_PORT}/api"
-        log_info "   - Web UI: http://localhost:${UI_PORT}/"
+        if [[ "$DEPLOYMENT_MODE" == "demo" ]]; then
+            log_info "   - Demo Mode: http://localhost:${LIVEREVIEW_FRONTEND_PORT}/"
+            log_info "   - API: http://localhost:${LIVEREVIEW_BACKEND_PORT}/api"
+            log_info "   - Webhooks: Disabled (manual triggers only)"
+        else
+            log_info "   - Production Mode: Configure reverse proxy"
+            log_info "   - Backend: http://127.0.0.1:${LIVEREVIEW_BACKEND_PORT}/api"
+            log_info "   - Frontend: http://127.0.0.1:${LIVEREVIEW_FRONTEND_PORT}/"
+            log_info "   - Webhooks: Enabled (automatic triggers)"
+        fi
     else
         log_info "🔄 LiveReview containers are running but services may still be starting up"
         log_info "   - Check status with: docker-compose -f $LIVEREVIEW_INSTALL_DIR/docker-compose.yml ps"
@@ -2289,7 +2422,7 @@ EOF
     log_info "📋 Installation report saved to: $report_file"
 }
 
-# Display enhanced installation completion summary
+# Display enhanced installation completion summary for two-mode system
 display_completion_summary() {
     local resolved_version="$1"
     local config_file="$2"
@@ -2307,23 +2440,39 @@ display_completion_summary() {
     log_success "✅ Services are accessible"
     echo
     
-    # Access URLs with emphasis
-    echo -e "${BLUE}🌐 ACCESS YOUR LIVEREVIEW INSTALLATION:${NC}"
-    echo -e "${BOLD}   🖥️  Web Interface: ${GREEN}http://localhost:${UI_PORT}/${NC}"
-    echo -e "${BOLD}   🔌 API Endpoint:   ${GREEN}http://localhost:${API_PORT}/api${NC}"
-    echo -e "${BOLD}   ❤️  Health Check:  ${GREEN}http://localhost:${API_PORT}/health${NC}"
-    
-    if [[ "$DOMAIN" != "localhost" ]]; then
-        echo -e "${BOLD}   🌍 External URL:   ${YELLOW}http://${DOMAIN}:${UI_PORT}/ ${GRAY}(configure reverse proxy)${NC}"
+    # Access URLs with emphasis - different for demo vs production
+    if [[ "$DEPLOYMENT_MODE" == "demo" ]]; then
+        echo -e "${BLUE}🌐 DEMO MODE - LOCAL ACCESS ONLY:${NC}"
+        echo -e "${BOLD}   🖥️  Web Interface: ${GREEN}http://localhost:${LIVEREVIEW_FRONTEND_PORT}/${NC}"
+        echo -e "${BOLD}   🔌 API Endpoint:   ${GREEN}http://localhost:${LIVEREVIEW_BACKEND_PORT}/api${NC}"
+        echo -e "${BOLD}   ❤️  Health Check:  ${GREEN}http://localhost:${LIVEREVIEW_BACKEND_PORT}/health${NC}"
+        echo -e "${BOLD}   🔧 Webhooks:       ${YELLOW}Disabled (manual triggers only)${NC}"
+        echo
+        echo -e "${BLUE}🚀 QUICK START (DEMO MODE):${NC}"
+        echo -e "   1. ${BOLD}Open your browser${NC} and go to ${GREEN}http://localhost:${LIVEREVIEW_FRONTEND_PORT}/${NC}"
+        echo -e "   2. ${BOLD}Check system status:${NC} ${CYAN}lrops.sh status${NC}"
+        echo -e "   3. ${BOLD}View live logs:${NC} ${CYAN}lrops.sh logs -f${NC}"
+        echo
+        echo -e "${BLUE}📈 UPGRADE TO PRODUCTION:${NC}"
+        echo -e "   1. ${BOLD}Edit .env file:${NC} Set ${CYAN}LIVEREVIEW_REVERSE_PROXY=true${NC}"
+        echo -e "   2. ${BOLD}Restart services:${NC} ${CYAN}lrops.sh restart${NC}"
+        echo -e "   3. ${BOLD}Configure reverse proxy:${NC} ${CYAN}lrops.sh help nginx${NC}"
+        echo -e "   4. ${BOLD}Set up SSL/TLS:${NC} ${CYAN}lrops.sh help ssl${NC}"
+    else
+        echo -e "${BLUE}🌐 PRODUCTION MODE - REVERSE PROXY REQUIRED:${NC}"
+        echo -e "${BOLD}   🔧 Backend:        ${GREEN}http://127.0.0.1:${LIVEREVIEW_BACKEND_PORT}/api${NC}"
+        echo -e "${BOLD}   🖥️  Frontend:       ${GREEN}http://127.0.0.1:${LIVEREVIEW_FRONTEND_PORT}/${NC}"
+        echo -e "${BOLD}   ❤️  Health Check:  ${GREEN}http://127.0.0.1:${LIVEREVIEW_BACKEND_PORT}/health${NC}"
+        echo -e "${BOLD}   🔗 Webhooks:       ${GREEN}Enabled (automatic triggers)${NC}"
+        echo
+        echo -e "${BLUE}🚀 NEXT STEPS (PRODUCTION MODE):${NC}"
+        echo -e "   1. ${BOLD}Configure reverse proxy:${NC} ${CYAN}lrops.sh help nginx${NC}"
+        echo -e "   2. ${BOLD}Set up SSL/TLS:${NC} ${CYAN}lrops.sh help ssl${NC}"
+        echo -e "   3. ${BOLD}Configure DNS:${NC} Point your domain to this server"
+        echo -e "   4. ${BOLD}Test external access:${NC} Access via your domain"
+        echo
+        echo -e "${YELLOW}⚠️  IMPORTANT: Configure reverse proxy before external access!${NC}"
     fi
-    echo
-    
-    # Quick start guide
-    echo -e "${BLUE}🚀 QUICK START:${NC}"
-    echo -e "   1. ${BOLD}Open your browser${NC} and go to ${GREEN}http://localhost:${UI_PORT}/${NC}"
-    echo -e "   2. ${BOLD}Check system status:${NC} ${CYAN}lrops.sh status${NC}"
-    echo -e "   3. ${BOLD}View live logs:${NC} ${CYAN}lrops.sh logs -f${NC}"
-    echo
     
     # Management commands
     echo -e "${BLUE}📋 MANAGEMENT COMMANDS:${NC}"
@@ -2334,12 +2483,10 @@ display_completion_summary() {
     echo
     
     # Next steps
-    echo -e "${BLUE}📖 NEXT STEPS:${NC}"
-    if [[ "$DOMAIN" != "localhost" ]]; then
-        echo -e "   🔒 ${BOLD}Set up SSL/TLS:${NC} ${CYAN}lrops.sh help ssl${NC}"
-    fi
-    echo -e "   💾 ${BOLD}Configure backups:${NC} ${CYAN}lrops.sh help backup${NC}"
-    if [[ "$DOMAIN" != "localhost" ]]; then
+    echo -e "${BLUE}📖 CONFIGURATION HELP:${NC}"
+    echo -e "   � ${BOLD}Configure backups:${NC} ${CYAN}lrops.sh help backup${NC}"
+    if [[ "$DEPLOYMENT_MODE" == "production" ]]; then
+        echo -e "   � ${BOLD}Set up SSL/TLS:${NC} ${CYAN}lrops.sh help ssl${NC}"
         echo -e "   🌐 ${BOLD}Set up reverse proxy:${NC} ${CYAN}lrops.sh help nginx${NC}"
     fi
     echo -e "   📄 ${BOLD}View full report:${NC} ${CYAN}cat $LIVEREVIEW_INSTALL_DIR/installation-report.txt${NC}"
@@ -2348,10 +2495,17 @@ display_completion_summary() {
     # Installation details
     echo -e "${GRAY}📁 Installation: $LIVEREVIEW_INSTALL_DIR${NC}"
     echo -e "${GRAY}📊 Version: LiveReview $resolved_version, Script $SCRIPT_VERSION${NC}"
+    echo -e "${GRAY}🏗️  Mode: $DEPLOYMENT_MODE mode${NC}"
     echo -e "${GRAY}⏱️  Completed: $(date)${NC}"
     echo
     
-    log_success "🎉 LiveReview is ready to use!"
+    if [[ "$DEPLOYMENT_MODE" == "demo" ]]; then
+        log_success "🎉 LiveReview demo mode is ready to use!"
+        log_info "💡 This is perfect for development, testing, and evaluation"
+    else
+        log_success "🎉 LiveReview production mode is installed!"
+        log_info "⚡ Configure reverse proxy and SSL for external access"
+    fi
 }
 
 # Provide troubleshooting guidance if issues detected
@@ -2421,6 +2575,18 @@ main() {
         logs)
             show_logs "${2:-}" "${3:-}"
             exit $?
+            ;;
+        setup-demo)
+            # Quick demo mode setup
+            EXPRESS_MODE=true
+            FORCE_INSTALL=false
+            ;;
+        setup-production)
+            # Quick production mode setup - interactive for safety
+            EXPRESS_MODE=false
+            FORCE_INSTALL=false
+            log_info "Setting up LiveReview in production mode"
+            log_warning "This requires reverse proxy configuration"
             ;;
         help)
             case "${2:-}" in
@@ -2692,16 +2858,18 @@ services:
     image: ghcr.io/hexmostech/livereview:${LIVEREVIEW_VERSION}
     container_name: livereview-app
     ports:
-      - "8888:8888"  # Backend API
-      - "8081:8081"  # Frontend UI
+      - "${LIVEREVIEW_FRONTEND_PORT:-8081}:8081"  # Frontend UI
+      - "${LIVEREVIEW_BACKEND_PORT:-8888}:8888"   # Backend API
     env_file:
       - .env
     environment:
       # Override DATABASE_URL to use internal container hostname
       - DATABASE_URL=postgres://livereview:${DB_PASSWORD}@livereview-db:5432/livereview?sslmode=disable
       - LIVEREVIEW_VERSION=${LIVEREVIEW_VERSION}
-      # API URL for frontend configuration (defaults to localhost if not set)
-      - LIVEREVIEW_API_URL=${LIVEREVIEW_API_URL:-http://localhost:8888}
+      # Two-mode deployment configuration
+      - LIVEREVIEW_BACKEND_PORT=${LIVEREVIEW_BACKEND_PORT:-8888}
+      - LIVEREVIEW_FRONTEND_PORT=${LIVEREVIEW_FRONTEND_PORT:-8081}
+      - LIVEREVIEW_REVERSE_PROXY=${LIVEREVIEW_REVERSE_PROXY:-false}
     depends_on:
       livereview-db:
         condition: service_healthy
@@ -2739,33 +2907,51 @@ services:
 
 # === DATA:.env ===
 # LiveReview Environment Configuration
-# Generated by lrops.sh installer
+# Generated by lrops.sh installer with two-mode deployment system
 
-# Database password (auto-generated secure password)
+# Database Configuration
 DB_PASSWORD=${DB_PASSWORD}
-
-# Database connection string (auto-configured for Docker)
 DATABASE_URL=postgres://livereview:${DB_PASSWORD}@livereview-db:5432/livereview?sslmode=disable
 
-# JWT Secret Key (auto-generated secure key)
+# Security Configuration
 JWT_SECRET=${JWT_SECRET}
 
-# LiveReview version
+# Application Configuration
 LIVEREVIEW_VERSION=${LIVEREVIEW_VERSION}
-
-# Log level
 LOG_LEVEL=info
 
-# Optional: Session token durations
+# Session Configuration (optional)
 ACCESS_TOKEN_DURATION_HOURS=8
 REFRESH_TOKEN_DURATION_DAYS=30
 
-# Optional: API configuration (uncomment and set if needed)
+# AI Integration (optional - configure as needed)
 # OPENAI_API_KEY=your_openai_api_key
 # GOOGLE_AI_API_KEY=your_google_ai_api_key
 
-# API URL for frontend (auto-configured for localhost)
-LIVEREVIEW_API_URL=http://localhost:8888
+# Two-Mode Deployment Configuration
+# These variables control demo vs production mode behavior
+# Set via lrops.sh during installation - do not modify manually
+
+# LIVEREVIEW_BACKEND_PORT=8888
+# LIVEREVIEW_FRONTEND_PORT=8081
+# LIVEREVIEW_REVERSE_PROXY=false
+
+# Demo Mode (LIVEREVIEW_REVERSE_PROXY=false):
+# - Binds to localhost only (secure local development)
+# - Webhooks disabled (manual triggers only)
+# - No external access
+# - Perfect for testing and development
+
+# Production Mode (LIVEREVIEW_REVERSE_PROXY=true):
+# - Binds to 127.0.0.1 (behind reverse proxy)
+# - Webhooks enabled (automatic triggers)
+# - External access via reverse proxy
+# - Requires SSL/TLS setup for security
+
+# For mode switching and configuration help:
+# lrops.sh help ssl     # SSL/TLS setup
+# lrops.sh help nginx   # Nginx reverse proxy
+# lrops.sh help caddy   # Caddy reverse proxy
 # === END:.env ===
 
 # === DATA:nginx.conf.example ===
@@ -2869,8 +3055,6 @@ server {
 #         proxy_set_header Upgrade $http_upgrade;
 #         proxy_set_header Connection "upgrade";
 #     }
-# }
-
 # Redirect HTTP to HTTPS (uncomment after setting up SSL)
 # server {
 #     listen 80;
