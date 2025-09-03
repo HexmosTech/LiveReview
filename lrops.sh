@@ -119,8 +119,14 @@ docker_compose() {
         fi
     fi
     
-    log_debug "Executing: $DOCKER_COMPOSE_CMD $*"
-    $DOCKER_COMPOSE_CMD "$@"
+    # If we have an install directory and docker-compose.yml exists there, use it explicitly
+    local compose_file=""
+    if [[ -n "$LIVEREVIEW_INSTALL_DIR" && -f "$LIVEREVIEW_INSTALL_DIR/docker-compose.yml" ]]; then
+        compose_file="-f $LIVEREVIEW_INSTALL_DIR/docker-compose.yml"
+    fi
+    
+    log_debug "Executing: $DOCKER_COMPOSE_CMD $compose_file $*"
+    $DOCKER_COMPOSE_CMD $compose_file "$@"
 }
 
 # =============================================================================
@@ -132,6 +138,7 @@ EXPRESS_MODE=false
 FORCE_INSTALL=false
 DRY_RUN=false
 VERBOSE=false
+DEBUG_MODE=false
 LIVEREVIEW_VERSION=""
 SHOW_HELP=false
 SHOW_VERSION=false
@@ -165,6 +172,11 @@ parse_arguments() {
                 shift
                 ;;
             --verbose|-v)
+                VERBOSE=true
+                shift
+                ;;
+            --debug)
+                DEBUG_MODE=true
                 VERBOSE=true
                 shift
                 ;;
@@ -293,6 +305,7 @@ INSTALLATION OPTIONS:
     --version=v1.2.3                  Install specific version (default: latest)
     --dry-run                         Show what would be done without installing
     --verbose, -v                     Enable verbose output
+    --debug                           Enable bash debug tracing (set -x, also enables verbose output)
 
 MANAGEMENT OPTIONS:
     --help, -h                        Show this help message
@@ -1237,6 +1250,32 @@ LIVEREVIEW_BACKEND_PORT=$LIVEREVIEW_BACKEND_PORT
 LIVEREVIEW_FRONTEND_PORT=$LIVEREVIEW_FRONTEND_PORT
 LIVEREVIEW_REVERSE_PROXY=$LIVEREVIEW_REVERSE_PROXY
 
+# API URL Configuration for Frontend
+# In demo mode: frontend connects directly to backend port
+# In production mode: frontend connects via reverse proxy
+EOF
+
+    # Configure API URL based on deployment mode
+    if [[ "$LIVEREVIEW_REVERSE_PROXY" == "true" ]]; then
+        # Production mode: API calls go through reverse proxy
+        cat >> "$output_file" << EOF
+LIVEREVIEW_API_URL=http://localhost/api
+VITE_API_URL=http://localhost/api
+REACT_APP_API_URL=http://localhost/api
+NEXT_PUBLIC_API_URL=http://localhost/api
+EOF
+    else
+        # Demo mode: API calls go directly to backend port
+        cat >> "$output_file" << EOF
+LIVEREVIEW_API_URL=http://localhost:$LIVEREVIEW_BACKEND_PORT
+VITE_API_URL=http://localhost:$LIVEREVIEW_BACKEND_PORT
+REACT_APP_API_URL=http://localhost:$LIVEREVIEW_BACKEND_PORT
+NEXT_PUBLIC_API_URL=http://localhost:$LIVEREVIEW_BACKEND_PORT
+EOF
+    fi
+
+    cat >> "$output_file" << EOF
+
 # Deployment mode: $DEPLOYMENT_MODE
 # Demo mode: localhost-only, no webhooks, manual triggers only
 # Production mode: reverse proxy, webhooks enabled, external access
@@ -1462,15 +1501,30 @@ start_containers() {
     section_header "STARTING CONTAINERS"
     log_info "Starting LiveReview containers..."
     
+    # Verify docker-compose.yml exists
+    if [[ ! -f "$LIVEREVIEW_INSTALL_DIR/docker-compose.yml" ]]; then
+        log_error "docker-compose.yml not found in $LIVEREVIEW_INSTALL_DIR"
+        log_info "Directory contents: $(ls -la "$LIVEREVIEW_INSTALL_DIR" 2>/dev/null || echo "Directory does not exist")"
+        return 1
+    fi
+    
     cd "$LIVEREVIEW_INSTALL_DIR" || {
         log_error "Could not change to installation directory: $LIVEREVIEW_INSTALL_DIR"
         return 1
     }
     
+    # Verify we're in the right directory and files exist
+    if [[ ! -f "docker-compose.yml" ]]; then
+        log_error "docker-compose.yml not found in current directory: $(pwd)"
+        return 1
+    fi
+    
     # Start containers in detached mode
     log_info "Running: $DOCKER_COMPOSE_CMD up -d"
     if ! docker_compose up -d; then
         log_error "Failed to start containers with docker compose"
+        log_info "Current directory: $(pwd)"
+        log_info "Files in directory: $(ls -la)"
         return 1
     fi
     
@@ -1483,14 +1537,18 @@ wait_for_containers() {
     section_header "WAITING FOR CONTAINER HEALTH"
     log_info "Waiting for containers to become healthy..."
     
-    local max_wait=120  # Maximum wait time in seconds
+    local max_wait=180  # Increased from 120 to 180 seconds (3 minutes)
     local wait_time=0
-    local check_interval=5
+    local check_interval=10  # Increased from 5 to 10 seconds between checks
     
     cd "$LIVEREVIEW_INSTALL_DIR" || {
         log_error "Could not change to installation directory: $LIVEREVIEW_INSTALL_DIR"
         return 1
     }
+    
+    # Give containers initial time to start
+    log_info "Giving containers initial startup time..."
+    sleep 15
     
     while [[ $wait_time -lt $max_wait ]]; do
         log_info "Checking container status... (${wait_time}/${max_wait}s)"
@@ -1501,21 +1559,37 @@ wait_for_containers() {
         local containers_healthy=0
         
         if [[ $containers_running -gt 0 ]]; then
-            # Check PostgreSQL container health
-            if docker_compose exec -T livereview-db pg_isready -U livereview >/dev/null 2>&1; then
+            # Check PostgreSQL container health with more retries
+            local db_ready=false
+            for i in {1..3}; do
+                if docker_compose exec -T livereview-db pg_isready -U livereview >/dev/null 2>&1; then
+                    db_ready=true
+                    break
+                fi
+                sleep 2
+            done
+            
+            if [[ "$db_ready" == "true" ]]; then
                 log_info "✓ PostgreSQL container is healthy"
                 ((containers_healthy++))
             else
                 log_info "○ PostgreSQL container not ready yet..."
             fi
             
-            # Check LiveReview app container (simple ping)
-            if docker_compose ps livereview-app | grep -q "Up"; then
-                log_info "✓ LiveReview app container is running"
-                ((containers_healthy++))
+            # Check LiveReview app container (more thorough check)
+            if docker_compose ps livereview-app | grep -q "Up" && ! docker_compose ps livereview-app | grep -q "Restarting"; then
+                # Additional check - try to connect to the app
+                if curl -f -s --max-time 5 "http://localhost:${LIVEREVIEW_BACKEND_PORT:-8888}/health" >/dev/null 2>&1; then
+                    log_info "✓ LiveReview app container is healthy and responding"
+                    ((containers_healthy++))
+                else
+                    log_info "○ LiveReview app container running but not responding yet..."
+                fi
             else
                 log_info "○ LiveReview app container not ready yet..."
             fi
+        else
+            log_info "○ No containers running yet..."
         fi
         
         # If both containers are healthy, we're done
@@ -1607,11 +1681,13 @@ verify_deployment() {
             log_info "   - Demo Mode: http://localhost:${LIVEREVIEW_FRONTEND_PORT}/"
             log_info "   - API: http://localhost:${LIVEREVIEW_BACKEND_PORT}/api"
             log_info "   - Webhooks: Disabled (manual triggers only)"
+            log_info "   📝 Note: Frontend automatically configured to use API port ${LIVEREVIEW_BACKEND_PORT}"
         else
             log_info "   - Production Mode: Configure reverse proxy"
             log_info "   - Backend: http://127.0.0.1:${LIVEREVIEW_BACKEND_PORT}/api"
             log_info "   - Frontend: http://127.0.0.1:${LIVEREVIEW_FRONTEND_PORT}/"
             log_info "   - Webhooks: Enabled (automatic triggers)"
+            log_info "   📝 Note: Frontend configured to use reverse proxy for API calls"
         fi
     else
         log_info "🔄 LiveReview containers are running but services may still be starting up"
@@ -1739,6 +1815,7 @@ show_info() {
     log_info "  - Docker Compose: $LIVEREVIEW_INSTALL_DIR/docker-compose.yml"
     log_info "  - Environment: $LIVEREVIEW_INSTALL_DIR/.env"
     log_info "  - Installation Summary: $LIVEREVIEW_INSTALL_DIR/installation-summary.txt"
+    log_info "  - Installation Report: $LIVEREVIEW_INSTALL_DIR/installation-report.txt"
     echo
     log_info "📂 Configuration Templates:"
     log_info "  - Nginx: $LIVEREVIEW_INSTALL_DIR/config/nginx.conf.example"
@@ -2246,15 +2323,14 @@ INSTALLATION
    sudo apt update && sudo apt install apache2
 
 2. Enable required modules:
-   sudo a2enmod proxy proxy_http proxy_balancer lbmethod_byrequests
-   sudo a2enmod ssl rewrite headers
-
+   sudo a2enmod proxy proxy_http proxy_balancer lbmethod_byrequests headers rewrite ssl
+    
 3. Copy and configure the template:
    sudo cp /opt/livereview/config/apache.conf.example /etc/apache2/sites-available/livereview.conf
    sudo sed -i 's/your-domain.com/yourdomain.com/g' /etc/apache2/sites-available/livereview.conf
 
 4. Enable the site:
-   sudo a2ensite livereview.conf
+   sudo a2ensite livereview
    sudo systemctl reload apache2
 
 TEMPLATE FEATURES
@@ -2344,6 +2420,10 @@ validate_installation_health() {
     section_header "VALIDATING INSTALLATION"
     log_info "Running post-installation health checks..."
     
+    # Give containers additional time to stabilize after startup
+    log_info "Allowing containers to stabilize..."
+    sleep 10
+    
     local validation_errors=0
     
     # Check container status
@@ -2353,52 +2433,95 @@ validate_installation_health() {
     }
     
     # Check if containers are running
-    if ! docker-compose ps | grep -q "Up"; then
+    if ! docker_compose ps | grep -q "Up"; then
         log_error "❌ Containers are not running"
         ((validation_errors++))
     else
         log_success "✅ Containers are running"
     fi
     
-    # Check container health
-    local app_health=$(docker-compose ps -q livereview-app | xargs docker inspect --format='{{.State.Health.Status}}' 2>/dev/null)
-    local db_health=$(docker-compose ps -q livereview-db | xargs docker inspect --format='{{.State.Health.Status}}' 2>/dev/null)
+    # Check container health with retry logic
+    local app_health=""
+    local db_health=""
+    
+    # Retry health checks multiple times
+    for i in {1..5}; do
+        app_health=$(docker_compose ps -q livereview-app | xargs docker inspect --format='{{.State.Health.Status}}' 2>/dev/null || echo "unknown")
+        db_health=$(docker_compose ps -q livereview-db | xargs docker inspect --format='{{.State.Health.Status}}' 2>/dev/null || echo "unknown")
+        
+        if [[ "$app_health" == "healthy" && "$db_health" == "healthy" ]]; then
+            break
+        fi
+        
+        if [[ $i -lt 5 ]]; then
+            log_info "Health check attempt $i/5 - waiting for containers to become healthy..."
+            sleep 15
+        fi
+    done
     
     if [[ "$app_health" == "healthy" ]]; then
         log_success "✅ LiveReview application is healthy"
     else
         log_warning "⚠️ LiveReview application health: ${app_health:-unknown}"
-        ((validation_errors++))
+        if [[ "$app_health" != "healthy" ]]; then
+            ((validation_errors++))
+        fi
     fi
     
     if [[ "$db_health" == "healthy" ]]; then
         log_success "✅ Database is healthy"
     else
         log_warning "⚠️ Database health: ${db_health:-unknown}"
-        ((validation_errors++))
+        if [[ "$db_health" != "healthy" ]]; then
+            ((validation_errors++))
+        fi
     fi
     
-    # Test API endpoint accessibility
+    # Test API endpoint accessibility with retries
     log_info "Testing API endpoint accessibility..."
-    if curl -f -s --max-time 10 "http://localhost:${API_PORT}/health" >/dev/null 2>&1; then
+    local api_accessible=false
+    for i in {1..6}; do
+        if curl -f -s --max-time 10 "http://localhost:${API_PORT}/health" >/dev/null 2>&1; then
+            api_accessible=true
+            break
+        fi
+        if [[ $i -lt 6 ]]; then
+            log_info "API endpoint not ready, retrying in 10 seconds... ($i/6)"
+            sleep 10
+        fi
+    done
+    
+    if [[ "$api_accessible" == "true" ]]; then
         log_success "✅ API endpoint is accessible"
     else
-        log_warning "⚠️ API endpoint not yet accessible (may still be starting)"
+        log_warning "⚠️ API endpoint not accessible after 60 seconds (may still be starting)"
         ((validation_errors++))
     fi
     
-    # Test UI endpoint accessibility
+    # Test UI endpoint accessibility with retries
     log_info "Testing UI endpoint accessibility..."
-    if curl -f -s --max-time 10 "http://localhost:${UI_PORT}/" >/dev/null 2>&1; then
+    local ui_accessible=false
+    for i in {1..6}; do
+        if curl -f -s --max-time 10 "http://localhost:${UI_PORT}/" >/dev/null 2>&1; then
+            ui_accessible=true
+            break
+        fi
+        if [[ $i -lt 6 ]]; then
+            log_info "UI endpoint not ready, retrying in 10 seconds... ($i/6)"
+            sleep 10
+        fi
+    done
+    
+    if [[ "$ui_accessible" == "true" ]]; then
         log_success "✅ UI endpoint is accessible"
     else
-        log_warning "⚠️ UI endpoint not yet accessible (may still be starting)"
+        log_warning "⚠️ UI endpoint not accessible after 60 seconds (may still be starting)"
         ((validation_errors++))
     fi
     
     # Check for recent errors in logs (excluding harmless entries)
     log_info "Checking for errors in recent logs..."
-    local recent_errors=$(docker-compose logs --since=2m 2>/dev/null | grep -i "error\|fail\|panic\|fatal" | grep -v '"error":""' | grep -v "relation.*does not exist" | wc -l)
+    local recent_errors=$(docker_compose logs --since=2m 2>/dev/null | grep -i "error\|fail\|panic\|fatal" | grep -v '"error":""' | grep -v "relation.*does not exist" | wc -l)
     if [[ $recent_errors -eq 0 ]]; then
         log_success "✅ No recent errors found in logs"
     else
@@ -2409,8 +2532,13 @@ validate_installation_health() {
     # Summary
     if [[ $validation_errors -eq 0 ]]; then
         log_success "🎉 All validation checks passed!"
+        log_success "✅ LiveReview is fully operational!"
+    elif [[ $validation_errors -le 2 ]]; then
+        log_warning "⚠️ Found $validation_errors minor validation issues"
+        log_info "LiveReview may still be starting up. Wait a few more minutes and check status again."
+        log_info "Run 'lrops.sh status' for detailed status information"
     else
-        log_warning "⚠️ Found $validation_errors validation issues"
+        log_error "❌ Found $validation_errors validation issues"
         log_info "Run 'lrops.sh status' for detailed status information"
     fi
     
@@ -2495,10 +2623,10 @@ Status Check: lrops.sh status
 Start Services: lrops.sh start
 Stop Services: lrops.sh stop
 Restart Services: lrops.sh restart
-View Logs: lrops.sh logs [service]
+View Logs: lrops.sh logs
 
-HELP & DOCUMENTATION
-====================
+CONFIGURATION HELP
+==================
 SSL Setup: lrops.sh help ssl
 Backup Guide: lrops.sh help backup
 Nginx Config: lrops.sh help nginx
@@ -2726,6 +2854,12 @@ main() {
     
     # Parse command line arguments
     parse_arguments "$@"
+    
+    # Enable debug mode if requested (must be done after argument parsing)
+    if [[ "$DEBUG_MODE" == "true" ]]; then
+        set -x  # Enable bash tracing
+        log_info "Debug mode enabled - bash tracing is now active"
+    fi
     
     # Handle version and help first
     if [[ "$SHOW_VERSION" == "true" ]]; then
@@ -2983,6 +3117,11 @@ services:
       - LIVEREVIEW_BACKEND_PORT=${LIVEREVIEW_BACKEND_PORT:-8888}
       - LIVEREVIEW_FRONTEND_PORT=${LIVEREVIEW_FRONTEND_PORT:-8081}
       - LIVEREVIEW_REVERSE_PROXY=${LIVEREVIEW_REVERSE_PROXY:-false}
+      # API URL configuration for frontend
+      - LIVEREVIEW_API_URL=${LIVEREVIEW_API_URL}
+      - VITE_API_URL=${VITE_API_URL}
+      - REACT_APP_API_URL=${REACT_APP_API_URL}
+      - NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL}
     depends_on:
       livereview-db:
         condition: service_healthy
@@ -3033,6 +3172,14 @@ JWT_SECRET=${JWT_SECRET}
 LIVEREVIEW_VERSION=${LIVEREVIEW_VERSION}
 LOG_LEVEL=info
 
+# Frontend API Configuration
+# These variables tell the frontend where to find the backend API
+# Set automatically by lrops.sh based on deployment mode
+# LIVEREVIEW_API_URL=http://localhost:8888 (demo) or http://localhost/api (production)
+# VITE_API_URL=http://localhost:8888 (demo) or http://localhost/api (production)
+# REACT_APP_API_URL=http://localhost:8888 (demo) or http://localhost/api (production)
+# NEXT_PUBLIC_API_URL=http://localhost:8888 (demo) or http://localhost/api (production)
+
 # Session Configuration (optional)
 ACCESS_TOKEN_DURATION_HOURS=8
 REFRESH_TOKEN_DURATION_DAYS=30
@@ -3063,12 +3210,6 @@ REFRESH_TOKEN_DURATION_DAYS=30
 
 # For mode switching and configuration help:
 # lrops.sh help ssl     # SSL/TLS setup
-# lrops.sh help nginx   # Nginx reverse proxy
-# lrops.sh help caddy   # Caddy reverse proxy
-# === END:.env ===
-
-# === DATA:nginx.conf.example ===
-# Nginx configuration for LiveReview reverse proxy
 # Copy to /etc/nginx/sites-available/livereview and enable
 
 server {
