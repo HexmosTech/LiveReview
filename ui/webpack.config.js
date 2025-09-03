@@ -6,6 +6,7 @@ const CssMinimizerPlugin = require('css-minimizer-webpack-plugin');
 const CopyPlugin = require('copy-webpack-plugin');
 const ForkTsCheckerWebpackPlugin = require('fork-ts-checker-webpack-plugin');
 const BundleAnalyzerPlugin = require('webpack-bundle-analyzer').BundleAnalyzerPlugin;
+const WebpackObfuscator = require('webpack-obfuscator');
 const webpack = require('webpack');
 const metaConfig = require('./meta.config.js');
 
@@ -24,7 +25,7 @@ module.exports =  (env, options)=> {
             chunkFilename: '[name].[contenthash].js',
             clean: true
         },
-        devtool: 'source-map',
+        devtool: devMode ? 'source-map' : false,
         devServer: {
             port: 8081,
             hot: true,
@@ -147,7 +148,28 @@ module.exports =  (env, options)=> {
                 }
             }),
             // !devMode ? new CleanWebpackPlugin() : false,
-            !devMode && process.env.ANALYZE_BUNDLE && !process.env.CI ? new BundleAnalyzerPlugin() : false
+            !devMode && process.env.ANALYZE_BUNDLE && !process.env.CI ? new BundleAnalyzerPlugin() : false,
+            // Optional JavaScript obfuscation for production builds (enable with OBFUSCATE=true)
+            !devMode && process.env.OBFUSCATE ? new WebpackObfuscator({
+                compact: true,
+                controlFlowFlattening: false,
+                deadCodeInjection: false,
+                debugProtection: false,
+                disableConsoleOutput: true,
+                identifierNamesGenerator: 'mangled',
+                log: false,
+                renameGlobals: false,
+                rotateStringArray: true,
+                selfDefending: false,
+                shuffleStringArray: true,
+                splitStrings: false,
+                stringArray: true,
+                stringArrayThreshold: 0.75,
+                transformObjectKeys: false,
+                unicodeEscapeSequence: false,
+                // Exclude libraries from obfuscation to prevent breaking them
+                exclude: /node_modules/
+            }) : false
         ].filter(Boolean),
         optimization: {
             // splitChunks: {
@@ -164,10 +186,38 @@ module.exports =  (env, options)=> {
             // },
             minimizer: [
                 new TerserPlugin({
-                    extractComments: true,
+                    extractComments: false, // Don't extract comments to separate file
                     terserOptions: {
                         compress: {
                             drop_console: true,
+                            drop_debugger: true,
+                            pure_funcs: ['console.log', 'console.info', 'console.debug', 'console.warn'],
+                            passes: 2, // Multiple compression passes
+                            dead_code: true,
+                            drop_debugger: true,
+                            conditionals: true,
+                            evaluate: true,
+                            booleans: true,
+                            loops: true,
+                            unused: true,
+                            hoist_funs: true,
+                            keep_fargs: false,
+                            hoist_vars: true,
+                            if_return: true,
+                            join_vars: true,
+                            side_effects: false
+                        },
+                        mangle: {
+                            toplevel: true,
+                            eval: true,
+                            keep_fnames: false,
+                            properties: {
+                                regex: /^_/ // Mangle properties starting with underscore
+                            }
+                        },
+                        format: {
+                            comments: false,
+                            beautify: false
                         }
                     }
                 }), 

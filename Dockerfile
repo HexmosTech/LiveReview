@@ -14,7 +14,7 @@ RUN echo "📦 Installing UI dependencies..." && \
 COPY ui/ ./
 # Note: API URL is now configured at runtime, not build time
 RUN echo "🔨 Building UI production assets..." && \
-    CI=true NODE_ENV=production npm run build && \
+    CI=true NODE_ENV=production npm run build:obfuscated && \
     echo "✅ Webpack build completed successfully"
 
 # Verify build output
