@@ -1,4 +1,5 @@
 <img src="./assets/gfx/png/logo-with-text.png" height=80 />
+
 # Secure, Flexible & Affordable AI Code Reviewer
 
 *LiveReview* is a self-hosted AI code reviewer that keeps your code private, adapts to your setup, and won’t blow your budget.
@@ -23,33 +24,6 @@
    - **AI Choice Freedom**: Choose Gemini, OpenAI, or self-hosted Ollama for maximum privacy
    - **Workflow Adaptation**: Adapts to your process instead of forcing change
    - **Custom Support**: Unusual setup? We'll work with you—[open an issue](https://github.com/HexmosTech/LiveReview/issues?utm_source=chatgpt.com)
-
-3. **💰 Transparent Affordability**🔧 Maximum Flexibility** 
-   - **Multi-Platform**: Integrates with GitHub, GitLab, and Bitbucket
-   - **AI Choice Freedom**: Choose Gemini, OpenAI, or self-hosted Ollama for maximum privacy
-   - **Workflow Adaptation**: Adapts to your process instead of forcing change
-   - **Custom Support**: Unusual setup? We'll work with you—[open an issue](https://github.com/HexmosTech/LiveReview/issues?utm_source=chatgpt.com)/png/logo-with-text.png" height=80>
-
-# Secure, Flexible & Affordable AI Code Reviewer
-
-*LiveReview* is a self-hosted AI code reviewer that keeps your code private, adapts to your setup, and won’t blow your budget.
-
-<img src="./assets/screenshots/home.png" />
-
-> [!NOTE]
->
-> LiveReview is a proprietary developer tool by Hexmos, built to streamline code review and help teams ship faster.
->
-> Guides, documentation, roadmaps, and community discussions are fully open, making it easy to get started, provide feedback, and stay informed about product evolution.
-
-## Our Approach
-
-1. **🔒 Security-First Design**
-   - **Zero Cloud Dependency**: Runs entirely on your infrastructure (on-prem or private cloud) - except for update checks and license checking. 
-   - **Complete Code Privacy**: Your source code and credentials never leave your environment
-   - **Risk Elimination**: Recent breaches of cloud-hosted reviewers show how misconfigurations expose repositories—LiveReview eliminates this by design
-   - **Full Control**: Your code stays on your servers, period
-2. **Flexibility:** LiveReview adapts to your workflow instead of locking you in. **It integrates with GitHub, GitLab, and Bitbucket,** and lets you choose the AI backend that fits your needs—**Gemini, OpenAI, or self-hosted Ollama** for maximum privacy. If your setup is unusual, open an [issue](https://github.com/HexmosTech/LiveReview/issues?utm_source=chatgpt.com) and we’ll work with you—because good code reviews shouldn’t depend on rigid tooling.
 3. **💰 Transparent Affordability**
    - **Straightforward Pricing**: Significantly lower than comparable hosted tools
    - **Sustainable Model**: Paid software built for long-term reliability
