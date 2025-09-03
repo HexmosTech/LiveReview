@@ -1250,6 +1250,32 @@ LIVEREVIEW_BACKEND_PORT=$LIVEREVIEW_BACKEND_PORT
 LIVEREVIEW_FRONTEND_PORT=$LIVEREVIEW_FRONTEND_PORT
 LIVEREVIEW_REVERSE_PROXY=$LIVEREVIEW_REVERSE_PROXY
 
+# API URL Configuration for Frontend
+# In demo mode: frontend connects directly to backend port
+# In production mode: frontend connects via reverse proxy
+EOF
+
+    # Configure API URL based on deployment mode
+    if [[ "$LIVEREVIEW_REVERSE_PROXY" == "true" ]]; then
+        # Production mode: API calls go through reverse proxy
+        cat >> "$output_file" << EOF
+LIVEREVIEW_API_URL=http://localhost/api
+VITE_API_URL=http://localhost/api
+REACT_APP_API_URL=http://localhost/api
+NEXT_PUBLIC_API_URL=http://localhost/api
+EOF
+    else
+        # Demo mode: API calls go directly to backend port
+        cat >> "$output_file" << EOF
+LIVEREVIEW_API_URL=http://localhost:$LIVEREVIEW_BACKEND_PORT
+VITE_API_URL=http://localhost:$LIVEREVIEW_BACKEND_PORT
+REACT_APP_API_URL=http://localhost:$LIVEREVIEW_BACKEND_PORT
+NEXT_PUBLIC_API_URL=http://localhost:$LIVEREVIEW_BACKEND_PORT
+EOF
+    fi
+
+    cat >> "$output_file" << EOF
+
 # Deployment mode: $DEPLOYMENT_MODE
 # Demo mode: localhost-only, no webhooks, manual triggers only
 # Production mode: reverse proxy, webhooks enabled, external access
@@ -1655,11 +1681,13 @@ verify_deployment() {
             log_info "   - Demo Mode: http://localhost:${LIVEREVIEW_FRONTEND_PORT}/"
             log_info "   - API: http://localhost:${LIVEREVIEW_BACKEND_PORT}/api"
             log_info "   - Webhooks: Disabled (manual triggers only)"
+            log_info "   📝 Note: Frontend automatically configured to use API port ${LIVEREVIEW_BACKEND_PORT}"
         else
             log_info "   - Production Mode: Configure reverse proxy"
             log_info "   - Backend: http://127.0.0.1:${LIVEREVIEW_BACKEND_PORT}/api"
             log_info "   - Frontend: http://127.0.0.1:${LIVEREVIEW_FRONTEND_PORT}/"
             log_info "   - Webhooks: Enabled (automatic triggers)"
+            log_info "   📝 Note: Frontend configured to use reverse proxy for API calls"
         fi
     else
         log_info "🔄 LiveReview containers are running but services may still be starting up"
@@ -3089,6 +3117,11 @@ services:
       - LIVEREVIEW_BACKEND_PORT=${LIVEREVIEW_BACKEND_PORT:-8888}
       - LIVEREVIEW_FRONTEND_PORT=${LIVEREVIEW_FRONTEND_PORT:-8081}
       - LIVEREVIEW_REVERSE_PROXY=${LIVEREVIEW_REVERSE_PROXY:-false}
+      # API URL configuration for frontend
+      - LIVEREVIEW_API_URL=${LIVEREVIEW_API_URL}
+      - VITE_API_URL=${VITE_API_URL}
+      - REACT_APP_API_URL=${REACT_APP_API_URL}
+      - NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL}
     depends_on:
       livereview-db:
         condition: service_healthy
@@ -3138,6 +3171,14 @@ JWT_SECRET=${JWT_SECRET}
 # Application Configuration
 LIVEREVIEW_VERSION=${LIVEREVIEW_VERSION}
 LOG_LEVEL=info
+
+# Frontend API Configuration
+# These variables tell the frontend where to find the backend API
+# Set automatically by lrops.sh based on deployment mode
+# LIVEREVIEW_API_URL=http://localhost:8888 (demo) or http://localhost/api (production)
+# VITE_API_URL=http://localhost:8888 (demo) or http://localhost/api (production)
+# REACT_APP_API_URL=http://localhost:8888 (demo) or http://localhost/api (production)
+# NEXT_PUBLIC_API_URL=http://localhost:8888 (demo) or http://localhost/api (production)
 
 # Session Configuration (optional)
 ACCESS_TOKEN_DURATION_HOURS=8
