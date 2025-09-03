@@ -7,7 +7,8 @@
     "test": "jest --passWithNoTests",
     "start": "webpack serve --mode development --open",
     "dev": "webpack --mode development",
-    "build": "webpack --mode production"
+    "build": "webpack --mode production",
+    "build:obfuscated": "OBFUSCATE=true webpack --mode production"
   },
   "lint-staged": {
     "src/**/*.{ts,tsx,json}": [
@@ -75,7 +76,8 @@
     "webpack": "^5.93.0",
     "webpack-bundle-analyzer": "^4.4.2",
     "webpack-cli": "^5.1.4",
-    "webpack-dev-server": "^5.0.4"
+    "webpack-dev-server": "^5.0.4",
+    "webpack-obfuscator": "^3.5.1"
   },
   "dependencies": {
     "@hookform/resolvers": "^5.2.1",
