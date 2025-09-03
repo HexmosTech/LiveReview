@@ -519,15 +519,12 @@ func (s *Server) ValidateBitbucketProfile(c echo.Context) error {
 func (s *Server) Start() error {
 	// Determine bind address based on deployment mode
 	var bindAddress string
-	if s.deploymentConfig.Mode == "demo" {
-		bindAddress = fmt.Sprintf("127.0.0.1:%d", s.port)
-	} else {
-		bindAddress = fmt.Sprintf("127.0.0.1:%d", s.port)
-	}
+	// Always listen on 0.0.0.0 to be accessible inside containers and hosts
+	bindAddress = fmt.Sprintf("0.0.0.0:%d", s.port)
 
 	// Print server starting message with deployment mode info
 	fmt.Printf("API server starting in %s mode\n", s.deploymentConfig.Mode)
-	fmt.Printf("API server is running at http://localhost:%d\n", s.port)
+	fmt.Printf("API server is running at http://localhost:%d (bound to 0.0.0.0)\n", s.port)
 	if s.deploymentConfig.Mode == "demo" {
 		fmt.Println("Demo Mode: Webhooks disabled, localhost access only")
 	} else {

@@ -150,7 +150,12 @@ EXPOSE 8888 8081 8080
 
 # Health check
 HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
-    CMD curl -f http://localhost:8888/api/health || exit 1
+    CMD curl -fsS http://localhost:8888/health || exit 1
+
+# Ensure Go programs flush logs promptly and without buffering
+ENV GIN_MODE=release \
+    GODEBUG=madvdontneed=1 \
+    STDOUT_LINE_BUFFERED=true
 
 # Default command - runs the startup script that handles the full initialization sequence
 CMD ["/app/docker-entrypoint.sh"]

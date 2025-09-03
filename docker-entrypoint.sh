@@ -69,7 +69,9 @@ start_servers() {
     
     # Start UI server in background with API URL configuration
     echo "🎨 Starting UI server..."
-    ./livereview ui --port "$FRONTEND_PORT" --api-url "$API_URL" &
+    # Forward child process output explicitly to container stdout/stderr for docker logs
+    ./livereview ui --port "$FRONTEND_PORT" --api-url "$API_URL" \
+        >> /proc/1/fd/1 2>> /proc/1/fd/2 &
     UI_PID=$!
     
     # Give UI server a moment to start
@@ -77,14 +79,15 @@ start_servers() {
     
     # Start API server in background
     echo "⚙️  Starting API server..."
-    ./livereview api --port "$BACKEND_PORT" &
+    ./livereview api --port "$BACKEND_PORT" \
+        >> /proc/1/fd/1 2>> /proc/1/fd/2 &
     API_PID=$!
     
     # Optionally start River UI
     RIVER_PID=""
     if [ "$ENABLE_RIVER_UI" = "true" ]; then
-        echo "🌊 Starting River UI..."
-        riverui &
+    echo "🌊 Starting River UI..."
+    riverui >> /proc/1/fd/1 2>> /proc/1/fd/2 &
         RIVER_PID=$!
     fi
     
