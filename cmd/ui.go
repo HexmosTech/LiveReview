@@ -120,9 +120,13 @@ func prepareIndexHTML(distFS fs.FS, apiURL string) string {
 		};
 	</script>`, apiURL)
 
-	// Insert the config script before the closing </head> tag
-	// If </head> is not found, insert before </body>
-	if strings.Contains(htmlStr, "</head>") {
+	// Insert the config script BEFORE any other scripts to ensure it loads first
+	// Look for the first <script tag (case insensitive) and insert before it
+	htmlLower := strings.ToLower(htmlStr)
+	scriptIndex := strings.Index(htmlLower, "<script")
+	if scriptIndex != -1 {
+		htmlStr = htmlStr[:scriptIndex] + configScript + "\n" + htmlStr[scriptIndex:]
+	} else if strings.Contains(htmlStr, "</head>") {
 		htmlStr = strings.Replace(htmlStr, "</head>", configScript+"\n</head>", 1)
 	} else if strings.Contains(htmlStr, "</body>") {
 		htmlStr = strings.Replace(htmlStr, "</body>", configScript+"\n</body>", 1)
