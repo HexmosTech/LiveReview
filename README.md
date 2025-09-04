@@ -4,10 +4,21 @@
 
 *LiveReview* is a self-hosted AI code reviewer that keeps your code private, adapts to your setup, and won’t blow your budget.
 
-<img src="./assets/screenshots/home.png" />
+<br />
+<p align="center">
+   <img src="./assets/screenshots/home.png" alt="LiveReview dashboard screenshot" width="85%" />
+  
+</p>
+<br />
 
-
-[Philosophy](#our-approach) | [Comparisons](#how-is-this-better-than) | [Features](#features) | [Quick Start](#quick-start) | [Installation](#installation)
+<p align="center">
+   <a href="#our-approach">Philosophy</a> |
+   <a href="#comparisons">Comparisons</a> |
+   <a href="#features">Features</a> |
+   <a href="#quick-start">Quick Start</a> |
+   <a href="#installation">Installation</a>
+  
+</p>
 
 
 ## Our Approach
@@ -28,6 +39,7 @@
    - **R&D Focus**: Investment goes to product improvements, not marketing hype
    - **Maximum Value**: Every dollar funds engineering excellence
 
+<a id="comparisons"></a>
 ## How is this better than... 🆚
 
 ### **vs GitHub Copilot**
