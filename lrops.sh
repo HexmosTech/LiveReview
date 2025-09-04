@@ -1692,6 +1692,17 @@ generate_docker_compose() {
     
     # Source configuration
     source "$config_file"
+
+    # Derive deployment mode and ports safely from simplified config
+    local reverse_proxy="${LIVEREVIEW_REVERSE_PROXY:-false}"
+    local backend_port="${BACKEND_PORT:-${LIVEREVIEW_BACKEND_PORT:-8888}}"
+    local frontend_port="${FRONTEND_PORT:-${LIVEREVIEW_FRONTEND_PORT:-8081}}"
+    local deployment_mode
+    if [[ "$reverse_proxy" == "true" ]]; then
+        deployment_mode="production"
+    else
+        deployment_mode="demo"
+    fi
     
     # Extract docker-compose template
     if ! extract_data "docker-compose.yml" "$output_file"; then
@@ -1703,8 +1714,8 @@ generate_docker_compose() {
     sed -i "s/\${DB_PASSWORD}/\${DB_PASSWORD}/g" "$output_file"  # Keep as variable reference
     # Ports are parameterized; no hard substitution required beyond defaults
     
-    log_success "Generated docker-compose.yml with $DEPLOYMENT_MODE mode configuration"
-    log_info "Port mappings: Frontend=$LIVEREVIEW_FRONTEND_PORT, Backend=$LIVEREVIEW_BACKEND_PORT"
+    log_success "Generated docker-compose.yml with $deployment_mode mode configuration"
+    log_info "Port mappings: Frontend=$frontend_port, Backend=$backend_port"
 }
 
 # Extract configuration templates and helper scripts
@@ -1740,6 +1751,17 @@ generate_installation_summary() {
     
     # Source configuration
     source "$config_file"
+
+    # Derive deployment mode and ports for summary
+    local reverse_proxy="${LIVEREVIEW_REVERSE_PROXY:-false}"
+    local backend_port="${BACKEND_PORT:-${LIVEREVIEW_BACKEND_PORT:-8888}}"
+    local frontend_port="${FRONTEND_PORT:-${LIVEREVIEW_FRONTEND_PORT:-8081}}"
+    local deployment_mode
+    if [[ "$reverse_proxy" == "true" ]]; then
+        deployment_mode="production"
+    else
+        deployment_mode="demo"
+    fi
     
     cat > "$summary_file" << EOF
 LiveReview Installation Summary
@@ -1750,18 +1772,18 @@ LiveReview Version: $LIVEREVIEW_VERSION
 
 Deployment Configuration:
 - Installation Directory: $LIVEREVIEW_INSTALL_DIR
-- Deployment Mode: $DEPLOYMENT_MODE
-- Backend Port: $LIVEREVIEW_BACKEND_PORT
-- Frontend Port: $LIVEREVIEW_FRONTEND_PORT
+- Deployment Mode: $deployment_mode
+- Backend Port: $backend_port
+- Frontend Port: $frontend_port
 - Reverse Proxy: $LIVEREVIEW_REVERSE_PROXY
 
 EOF
 
-if [[ "$DEPLOYMENT_MODE" == "demo" ]]; then
+if [[ "$deployment_mode" == "demo" ]]; then
     cat >> "$summary_file" << EOF
 Demo Mode Configuration:
-- Access URL: http://localhost:$LIVEREVIEW_FRONTEND_PORT/
-- API URL: http://localhost:$LIVEREVIEW_BACKEND_PORT/api
+- Access URL: http://localhost:$frontend_port/
+- API URL: http://localhost:$backend_port/api
 - Webhooks: Disabled (manual triggers only)
 - External Access: Not configured (localhost only)
 - Perfect for: Development, testing, evaluation
@@ -1776,15 +1798,15 @@ EOF
 else
     cat >> "$summary_file" << EOF
 Production Mode Configuration:
-- Backend: http://127.0.0.1:$LIVEREVIEW_BACKEND_PORT/api
-- Frontend: http://127.0.0.1:$LIVEREVIEW_FRONTEND_PORT/
+- Backend: http://127.0.0.1:$backend_port/api
+- Frontend: http://127.0.0.1:$frontend_port/
 - Webhooks: Enabled (automatic triggers)
 - External Access: Via reverse proxy (requires configuration)
 - SSL/TLS: Required for production use
 
 Reverse Proxy Setup Required:
-Route /api/* → http://127.0.0.1:$LIVEREVIEW_BACKEND_PORT
-Route /* → http://127.0.0.1:$LIVEREVIEW_FRONTEND_PORT
+Route /api/* → http://127.0.0.1:$backend_port
+Route /* → http://127.0.0.1:$frontend_port
 
 EOF
 fi
@@ -2032,6 +2054,14 @@ verify_deployment() {
     
     # Source configuration to get ports
     source "$config_file"
+    # Derive deployment mode from simplified flag
+    local reverse_proxy="${LIVEREVIEW_REVERSE_PROXY:-false}"
+    local deployment_mode
+    if [[ "$reverse_proxy" == "true" ]]; then
+        deployment_mode="production"
+    else
+        deployment_mode="demo"
+    fi
     
     # Check API endpoint (with timeout) - try multiple possible endpoints
     log_info "Checking API endpoint accessibility..."
@@ -2090,7 +2120,7 @@ verify_deployment() {
     
     if [[ "$api_ready" == "true" && "$ui_ready" == "true" ]]; then
         log_success "🎉 LiveReview is fully operational!"
-        if [[ "$DEPLOYMENT_MODE" == "demo" ]]; then
+        if [[ "$deployment_mode" == "demo" ]]; then
             log_info "   - Demo Mode: http://localhost:${LIVEREVIEW_FRONTEND_PORT}/"
             log_info "   - API: http://localhost:${LIVEREVIEW_BACKEND_PORT}/api"
             log_info "   - Webhooks: Disabled (manual triggers only)"
@@ -3058,6 +3088,14 @@ display_completion_summary() {
     local resolved_version="$1"
     local config_file="$2"
     source "$config_file"
+    # Derive deployment mode from simplified flag
+    local reverse_proxy="${LIVEREVIEW_REVERSE_PROXY:-false}"
+    local deployment_mode
+    if [[ "$reverse_proxy" == "true" ]]; then
+        deployment_mode="production"
+    else
+        deployment_mode="demo"
+    fi
     
     section_header "INSTALLATION COMPLETE ✅"
     echo
@@ -3072,7 +3110,7 @@ display_completion_summary() {
     echo
     
     # Access URLs with emphasis - different for demo vs production
-    if [[ "$DEPLOYMENT_MODE" == "demo" ]]; then
+    if [[ "$deployment_mode" == "demo" ]]; then
         echo -e "${BLUE}🌐 DEMO MODE - LOCAL ACCESS ONLY:${NC}"
         echo -e "${BOLD}   🖥️  Web Interface: ${GREEN}http://localhost:${LIVEREVIEW_FRONTEND_PORT}/${NC}"
         echo -e "${BOLD}   🔌 API Endpoint:   ${GREEN}http://localhost:${LIVEREVIEW_BACKEND_PORT}/api${NC}"
@@ -3116,7 +3154,7 @@ display_completion_summary() {
     # Next steps
     echo -e "${BLUE}📖 CONFIGURATION HELP:${NC}"
     echo -e "   � ${BOLD}Configure backups:${NC} ${CYAN}lrops.sh help backup${NC}"
-    if [[ "$DEPLOYMENT_MODE" == "production" ]]; then
+    if [[ "$deployment_mode" == "production" ]]; then
         echo -e "   � ${BOLD}Set up SSL/TLS:${NC} ${CYAN}lrops.sh help ssl${NC}"
         echo -e "   🌐 ${BOLD}Set up reverse proxy:${NC} ${CYAN}lrops.sh help nginx${NC}"
     fi
@@ -3126,11 +3164,11 @@ display_completion_summary() {
     # Installation details
     echo -e "${GRAY}📁 Installation: $LIVEREVIEW_INSTALL_DIR${NC}"
     echo -e "${GRAY}📊 Version: LiveReview $resolved_version, Script $SCRIPT_VERSION${NC}"
-    echo -e "${GRAY}🏗️  Mode: $DEPLOYMENT_MODE mode${NC}"
+    echo -e "${GRAY}🏗️  Mode: $deployment_mode mode${NC}"
     echo -e "${GRAY}⏱️  Completed: $(date)${NC}"
     echo
     
-    if [[ "$DEPLOYMENT_MODE" == "demo" ]]; then
+    if [[ "$deployment_mode" == "demo" ]]; then
         log_success "🎉 LiveReview demo mode is ready to use!"
         log_info "💡 This is perfect for development, testing, and evaluation"
     else
