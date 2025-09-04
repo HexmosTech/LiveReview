@@ -177,13 +177,40 @@ async function apiRequest<T>(
   let response = await fetch(url, config);
 
   if (response.status === 401 && !url.endsWith('/auth/refresh')) {
-    // Access token might be expired, try to refresh it
+    // Do NOT trigger refresh/logout for auth endpoints like login/setup.
+    const isAuthInitiationRequest =
+      path.includes('/auth/login') ||
+      path.includes('/auth/setup') ||
+      path.includes('/auth/setup-status') ||
+      path.includes('/auth/logout');
+
+    if (isAuthInitiationRequest) {
+      // Surface the 401 to the caller so the UI can show the error message.
+      const errorData = await response.json().catch(() => ({}));
+      const err: any = new Error(
+        errorData?.message || errorData?.error || 'Unauthorized'
+      );
+      err.status = response.status;
+      err.url = url;
+      err.data = errorData;
+      throw err;
+    }
+
+    // If the user isn't authenticated (no refresh token), don't try to refresh or logout.
+    const { refreshToken: currentRefreshToken } = store.getState().Auth;
+    if (!currentRefreshToken) {
+      const errorData = await response.json().catch(() => ({}));
+      const err: any = new Error(
+        errorData?.message || errorData?.error || 'Unauthorized'
+      );
+      err.status = response.status;
+      err.url = url;
+      err.data = errorData;
+      throw err;
+    }
+
+    // Otherwise, access token might be expired, try to refresh it
     try {
-      const { refreshToken: currentRefreshToken } = store.getState().Auth;
-      if (!currentRefreshToken) {
-        // If there's no refresh token, we can't refresh, so logout.
-        throw new Error('No refresh token available.');
-      }
       const newTokens = await refreshToken(currentRefreshToken);
       store.dispatch(setTokens(newTokens));
       tokenManager.onTokenUpdate(); // Reschedule proactive refresh
