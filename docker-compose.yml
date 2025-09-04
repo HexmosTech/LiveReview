@@ -3,19 +3,21 @@ services:
     build: .
     container_name: livereview-app
     ports:
-      # Support both new simplified and legacy variable names
-      - "${BACKEND_PORT:-${LIVEREVIEW_BACKEND_PORT:-8888}}:${BACKEND_PORT:-${LIVEREVIEW_BACKEND_PORT:-8888}}"   # Backend API
-      - "${FRONTEND_PORT:-${LIVEREVIEW_FRONTEND_PORT:-8081}}:${FRONTEND_PORT:-${LIVEREVIEW_FRONTEND_PORT:-8081}}" # Frontend UI
+      # Use simplified LIVEREVIEW_* port variables
+      - "${LIVEREVIEW_BACKEND_PORT:-8888}:${LIVEREVIEW_BACKEND_PORT:-8888}"   # Backend API
+      - "${LIVEREVIEW_FRONTEND_PORT:-8081}:${LIVEREVIEW_FRONTEND_PORT:-8081}" # Frontend UI
     env_file:
       - .env
     environment:
-      # Override DATABASE_URL to use internal container hostname
-      - DATABASE_URL=postgres://livereview:${DB_PASSWORD}@livereview-db:5432/livereview?sslmode=disable
       - LIVEREVIEW_VERSION=${LIVEREVIEW_VERSION:-test}
-      # API URL for frontend configuration - prefer unified API_URL, fallback to legacy
-      - API_URL=${API_URL:-${LIVEREVIEW_API_URL:-http://localhost:${BACKEND_PORT:-${LIVEREVIEW_BACKEND_PORT:-8888}}}}
-      # Legacy support
-      - LIVEREVIEW_API_URL=${API_URL:-${LIVEREVIEW_API_URL:-http://localhost:${BACKEND_PORT:-${LIVEREVIEW_BACKEND_PORT:-8888}}}}
+      - DATABASE_URL=${DATABASE_URL:-postgres://livereview:${DB_PASSWORD}@livereview-db:5432/livereview?sslmode=disable}
+      
+      # Pass simplified user configuration to container
+      - LIVEREVIEW_BACKEND_PORT=${LIVEREVIEW_BACKEND_PORT:-8888}
+      - LIVEREVIEW_FRONTEND_PORT=${LIVEREVIEW_FRONTEND_PORT:-8081}
+      - LIVEREVIEW_REVERSE_PROXY=${LIVEREVIEW_REVERSE_PROXY:-false}
+      
+      # Framework-specific variables will be auto-generated in entrypoint script
     depends_on:
       livereview-db:
         condition: service_healthy
@@ -26,7 +28,7 @@ services:
       - ./lrdata:/app/lrdata
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "curl", "-fsS", "http://localhost:${BACKEND_PORT:-${LIVEREVIEW_BACKEND_PORT:-8888}}/health"]
+      test: ["CMD", "curl", "-fsS", "http://localhost:${LIVEREVIEW_BACKEND_PORT:-8888}/health"]
       interval: 30s
       timeout: 10s
       retries: 3
