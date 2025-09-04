@@ -163,7 +163,7 @@ After installation, configure your GitLab/GitHub providers, and start reviewing 
 
 ### Option 1: Simplified Two-Mode Installer (Recommended)
 
-LiveReview now features a revolutionary two-mode deployment system that adapts to your needs:
+LiveReview now features a two-mode deployment system that adapts to your needs:
 
 #### Quick Demo Setup (Perfect for First Time)
 
