@@ -19,35 +19,36 @@ declare global {
 
 // Base URL for all API requests
 // Priority: 1) Runtime injected config, 2) Build-time env var, 3) Auto-detect based on deployment mode
-const getBaseUrl = (): string => {
-  // Check for runtime injected configuration (highest priority)
+function getBaseUrl(): string {
+  console.log('🔍 getBaseUrl() called');
+  console.log('🔍 window.LIVEREVIEW_CONFIG:', window.LIVEREVIEW_CONFIG);
+  
+  // First try runtime config injected by Go server
   if (window.LIVEREVIEW_CONFIG?.apiUrl) {
+    console.log('✅ Using runtime config apiUrl:', window.LIVEREVIEW_CONFIG.apiUrl);
     return window.LIVEREVIEW_CONFIG.apiUrl;
   }
   
-  // Check for build-time environment variable (fallback)
-  if (process.env.REACT_APP_API_URL) {
-    return process.env.REACT_APP_API_URL;
-  }
+  console.log('⚠️ No runtime config found, using auto-detection');
   
-  // Auto-detect based on deployment mode
-  const hostname = window.location.hostname;
-  const port = window.location.port;
-  const protocol = window.location.protocol;
+  // Fallback to auto-detection based on current port
+  const currentUrl = new URL(window.location.href);
+  const port = currentUrl.port;
   
-  // Demo mode detection: localhost or 127.0.0.1 → direct API connection
-  if (hostname === 'localhost' || hostname === '127.0.0.1') {
-    // In demo mode, API runs on port 8888, UI on port 8081
-    const apiPort = port === '8081' ? '8888' : port;
-    return `${protocol}//${hostname}:${apiPort}`;
-  }
+  console.log('🔍 Current URL port:', port);
   
-  // Production mode: everything else → use current origin with /api prefix
-  // This assumes reverse proxy setup routing /api/* to backend
-  return `${window.location.origin}/api`;
-};
+  // In demo mode, API runs on port 8888, UI on port 8081
+  const apiPort = port === '8081' ? '8888' : port;
+  const detectedUrl = `${currentUrl.protocol}//${currentUrl.hostname}:${apiPort}`;
+  
+  console.log('🔍 Auto-detected API URL:', detectedUrl);
+  
+  return detectedUrl;
+}
 
 const BASE_URL = getBaseUrl();
+console.log('🚀 API Client initialized with BASE_URL:', BASE_URL);
+console.log('Final BASE_URL configured as:', BASE_URL);
 
 // Default request options
 const defaultOptions: RequestInit = {
@@ -171,7 +172,8 @@ async function apiRequest<T>(
     body: options.body ? (isFormData ? options.body : JSON.stringify(options.body)) : undefined,
   };
 
-  const url = path.startsWith('/api/v1') ? path : `/api/v1${path}`;
+  const url = path.startsWith('/api/v1') ? `${BASE_URL}${path}` : `${BASE_URL}/api/v1${path}`;
+  console.log('API Request:', { path, BASE_URL, finalUrl: url });
   let response = await fetch(url, config);
 
   if (response.status === 401 && !url.endsWith('/auth/refresh')) {
