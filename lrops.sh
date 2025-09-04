@@ -88,6 +88,115 @@ error_exit() {
 }
 
 # =============================================================================
+# LIVEREVIEW INSTALLATION DETECTION
+# =============================================================================
+
+# Detect LiveReview installation directory automatically
+detect_livereview_installation() {
+    local detected_dir=""
+    
+    # Method 1: Check default location
+    if [[ -f "/opt/livereview/docker-compose.yml" && -f "/opt/livereview/.env" ]]; then
+        detected_dir="/opt/livereview"
+        log_debug "Found LiveReview installation at default location: $detected_dir"
+    fi
+    
+    # Method 2: Check environment variable override
+    if [[ -n "${LIVEREVIEW_INSTALL_DIR:-}" && "$LIVEREVIEW_INSTALL_DIR" != "/opt/livereview" ]]; then
+        if [[ -f "$LIVEREVIEW_INSTALL_DIR/docker-compose.yml" && -f "$LIVEREVIEW_INSTALL_DIR/.env" ]]; then
+            detected_dir="$LIVEREVIEW_INSTALL_DIR"
+            log_debug "Found LiveReview installation at specified location: $detected_dir"
+        fi
+    fi
+    
+    # Method 3: Check other common locations
+    if [[ -z "$detected_dir" ]]; then
+        local common_locations=(
+            "/var/lib/livereview"
+            "/usr/local/livereview"
+            "/home/$(whoami)/livereview"
+            "./livereview"
+            "."
+        )
+        
+        for location in "${common_locations[@]}"; do
+            if [[ -f "$location/docker-compose.yml" && -f "$location/.env" ]]; then
+                # Verify it's actually a LiveReview installation by checking for specific content
+                if grep -q "livereview-app\|livereview-db" "$location/docker-compose.yml" 2>/dev/null; then
+                    detected_dir="$(realpath "$location")"
+                    log_debug "Found LiveReview installation at: $detected_dir"
+                    break
+                fi
+            fi
+        done
+    fi
+    
+    # Method 4: Try to detect from running Docker containers
+    if [[ -z "$detected_dir" ]] && command -v docker >/dev/null 2>&1; then
+        log_debug "Attempting to detect installation from running containers..."
+        
+        # Look for LiveReview containers and try to find their compose file
+        local container_id
+        container_id=$(docker ps --filter "name=livereview" --format "{{.ID}}" | head -1)
+        
+        if [[ -n "$container_id" ]]; then
+            # Try to get the working directory or volume mounts
+            local inspect_result
+            inspect_result=$(docker inspect "$container_id" 2>/dev/null || echo "")
+            
+            if [[ -n "$inspect_result" ]]; then
+                # Look for volume mounts that might indicate the installation directory
+                local possible_dirs
+                possible_dirs=$(echo "$inspect_result" | grep -oE '"/[^"]*livereview[^"]*"' | tr -d '"' | grep -v '/var/lib/docker' | head -5)
+                
+                for dir in $possible_dirs; do
+                    # Try parent directories
+                    local parent_dir
+                    parent_dir="$(dirname "$dir")"
+                    if [[ -f "$parent_dir/docker-compose.yml" && -f "$parent_dir/.env" ]]; then
+                        detected_dir="$parent_dir"
+                        log_debug "Detected installation from container volume mount: $detected_dir"
+                        break
+                    fi
+                done
+            fi
+        fi
+    fi
+    
+    # Method 5: Search filesystem (last resort, limited scope)
+    if [[ -z "$detected_dir" ]]; then
+        log_debug "Searching filesystem for LiveReview installation..."
+        local search_paths=("/opt" "/var/lib" "/usr/local" "/home/$(whoami)")
+        
+        for search_path in "${search_paths[@]}"; do
+            if [[ -d "$search_path" ]]; then
+                local found_path
+                found_path=$(find "$search_path" -maxdepth 2 -name "docker-compose.yml" -path "*/livereview/*" 2>/dev/null | head -1)
+                if [[ -n "$found_path" ]]; then
+                    local candidate_dir
+                    candidate_dir="$(dirname "$found_path")"
+                    if [[ -f "$candidate_dir/.env" ]] && grep -q "livereview-app\|livereview-db" "$found_path" 2>/dev/null; then
+                        detected_dir="$candidate_dir"
+                        log_debug "Found LiveReview installation via filesystem search: $detected_dir"
+                        break
+                    fi
+                fi
+            fi
+        done
+    fi
+    
+    # Update the global variable if we found an installation
+    if [[ -n "$detected_dir" ]]; then
+        LIVEREVIEW_INSTALL_DIR="$detected_dir"
+        log_debug "LiveReview installation detected at: $LIVEREVIEW_INSTALL_DIR"
+        return 0
+    else
+        log_debug "No existing LiveReview installation detected, using default: $LIVEREVIEW_INSTALL_DIR"
+        return 1
+    fi
+}
+
+# =============================================================================
 # DOCKER COMPOSE COMPATIBILITY
 # =============================================================================
 
@@ -292,6 +401,7 @@ USAGE:
 
     # Management commands (after installation)
     lrops.sh status                    # Show installation status
+    lrops.sh info                      # Show installation details and file locations
     lrops.sh start                     # Start LiveReview services
     lrops.sh stop                      # Stop LiveReview services
     lrops.sh restart                   # Restart LiveReview services
@@ -1883,7 +1993,7 @@ show_status() {
     # Check if installation exists
     if [[ ! -d "$LIVEREVIEW_INSTALL_DIR" ]]; then
         log_error "LiveReview is not installed"
-        log_info "Run 'lrops.sh --express' to install"
+        log_info "Run 'lrops.sh setup-demo' to install"
         return 1
     fi
     
@@ -1895,12 +2005,7 @@ show_status() {
         return 1
     fi
     
-    cd "$LIVEREVIEW_INSTALL_DIR" || {
-        log_error "Cannot access installation directory"
-        return 1
-    }
-    
-    # Show container status
+    # Show container status (using docker_compose function which handles paths correctly)
     log_info "Container Status:"
     if docker_compose ps 2>/dev/null | grep -q "livereview"; then
         docker_compose ps
@@ -1922,11 +2027,11 @@ show_status() {
         log_info "Run 'lrops.sh start' to start services"
     fi
     
-    # Show version information
+    # Show version information (using absolute path)
     echo
     log_info "Version Information:"
-    if [[ -f ".env" ]]; then
-        local lr_version=$(grep "LIVEREVIEW_VERSION=" .env | cut -d'=' -f2)
+    if [[ -f "$LIVEREVIEW_INSTALL_DIR/.env" ]]; then
+        local lr_version=$(grep "LIVEREVIEW_VERSION=" "$LIVEREVIEW_INSTALL_DIR/.env" | cut -d'=' -f2)
         log_info "  LiveReview: ${lr_version:-unknown}"
     fi
     log_info "  Script: $SCRIPT_VERSION"
@@ -1995,17 +2100,12 @@ start_containers_cmd() {
     
     if [[ ! -d "$LIVEREVIEW_INSTALL_DIR" ]]; then
         log_error "LiveReview is not installed"
-        log_info "Run 'lrops.sh --express' to install"
+        log_info "Run 'lrops.sh setup-demo' to install"
         return 1
     fi
     
-    cd "$LIVEREVIEW_INSTALL_DIR" || {
-        log_error "Cannot access installation directory: $LIVEREVIEW_INSTALL_DIR"
-        return 1
-    }
-    
-    if [[ ! -f "docker-compose.yml" ]]; then
-        log_error "Docker Compose configuration not found"
+    if [[ ! -f "$LIVEREVIEW_INSTALL_DIR/docker-compose.yml" ]]; then
+        log_error "Docker Compose configuration not found at: $LIVEREVIEW_INSTALL_DIR/docker-compose.yml"
         return 1
     fi
     
@@ -2036,11 +2136,6 @@ stop_containers_cmd() {
         return 1
     fi
     
-    cd "$LIVEREVIEW_INSTALL_DIR" || {
-        log_error "Cannot access installation directory: $LIVEREVIEW_INSTALL_DIR"
-        return 1
-    }
-    
     log_info "Stopping LiveReview containers..."
     
     if docker_compose down; then
@@ -2059,11 +2154,6 @@ restart_containers_cmd() {
         log_error "LiveReview is not installed"
         return 1
     fi
-    
-    cd "$LIVEREVIEW_INSTALL_DIR" || {
-        log_error "Cannot access installation directory: $LIVEREVIEW_INSTALL_DIR"
-        return 1
-    }
     
     log_info "Restarting LiveReview containers..."
     
@@ -2094,11 +2184,6 @@ show_logs() {
         log_error "LiveReview is not installed"
         return 1
     fi
-    
-    cd "$LIVEREVIEW_INSTALL_DIR" || {
-        log_error "Cannot access installation directory: $LIVEREVIEW_INSTALL_DIR"
-        return 1
-    }
     
     if [[ -n "$service" ]]; then
         log_info "Showing logs for service: $service"
@@ -2938,7 +3023,195 @@ provide_troubleshooting_guidance() {
     fi
 }
 
+# =============================================================================
+# DIAGNOSTIC FUNCTIONS
+# =============================================================================
+
+# Run comprehensive diagnostics
+run_diagnostics() {
+    section_header "LIVEREVIEW DIAGNOSTICS"
+    
+    log_info "Running comprehensive LiveReview diagnostics..."
+    echo
+    
+    # Basic system information
+    log_info "🖥️  System Information:"
+    log_info "  - OS: $(uname -s) $(uname -r)"
+    log_info "  - Architecture: $(uname -m)"
+    log_info "  - User: $(whoami)"
+    log_info "  - Working Directory: $(pwd)"
+    echo
+    
+    # Check for LiveReview installation
+    log_info "📁 Installation Detection:"
+    if detect_livereview_installation; then
+        log_success "  ✅ LiveReview installation found: $LIVEREVIEW_INSTALL_DIR"
+        
+        # Check installation files
+        if [[ -f "$LIVEREVIEW_INSTALL_DIR/docker-compose.yml" ]]; then
+            log_success "  ✅ docker-compose.yml exists"
+        else
+            log_error "  ❌ docker-compose.yml missing"
+        fi
+        
+        if [[ -f "$LIVEREVIEW_INSTALL_DIR/.env" ]]; then
+            log_success "  ✅ .env file exists"
+        else
+            log_error "  ❌ .env file missing"
+        fi
+        
+        if [[ -d "$LIVEREVIEW_INSTALL_DIR/lrdata" ]]; then
+            log_success "  ✅ Data directory exists"
+        else
+            log_warning "  ⚠️  Data directory missing"
+        fi
+    else
+        log_error "  ❌ No LiveReview installation detected"
+        log_info "  💡 Run 'lrops.sh setup-demo' to install"
+    fi
+    echo
+    
+    # Check Docker
+    log_info "🐳 Docker Environment:"
+    if command -v docker >/dev/null 2>&1; then
+        log_success "  ✅ Docker command available"
+        
+        if docker info >/dev/null 2>&1; then
+            log_success "  ✅ Docker daemon running"
+            local docker_version=$(docker --version | cut -d' ' -f3 | sed 's/,//')
+            log_info "  📊 Docker version: $docker_version"
+        else
+            log_error "  ❌ Docker daemon not accessible"
+            log_info "  💡 Try: sudo systemctl start docker"
+        fi
+    else
+        log_error "  ❌ Docker not installed"
+    fi
+    
+    if detect_docker_compose_cmd; then
+        log_success "  ✅ Docker Compose available: $DOCKER_COMPOSE_CMD"
+    else
+        log_error "  ❌ Docker Compose not available"
+    fi
+    echo
+    
+    # Check containers (if installation exists)
+    if [[ -d "$LIVEREVIEW_INSTALL_DIR" ]]; then
+        log_info "📦 Container Status:"
+        
+        local containers_found=false
+        if docker ps -a --filter "name=livereview" --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}" | grep -q livereview; then
+            containers_found=true
+            log_success "  ✅ LiveReview containers found:"
+            docker ps -a --filter "name=livereview" --format "  {{.Names}}: {{.Status}}" | sed 's/^/    /'
+            
+            # Check if containers are healthy
+            local running_containers=$(docker ps --filter "name=livereview" --format "{{.Names}}" | wc -l)
+            if [[ $running_containers -gt 0 ]]; then
+                log_success "  ✅ $running_containers container(s) running"
+            else
+                log_warning "  ⚠️  No containers currently running"
+            fi
+        else
+            log_warning "  ⚠️  No LiveReview containers found"
+        fi
+        echo
+        
+        # Check ports if containers are running
+        if [[ "$containers_found" == "true" ]]; then
+            log_info "🌐 Network Connectivity:"
+            
+            # Check if ports are accessible
+            local api_port="8888"
+            local ui_port="8081"
+            
+            if curl -f -s --max-time 5 "http://localhost:$api_port/health" >/dev/null 2>&1; then
+                log_success "  ✅ API endpoint accessible (port $api_port)"
+            else
+                log_warning "  ⚠️  API endpoint not accessible (port $api_port)"
+            fi
+            
+            if curl -f -s --max-time 5 "http://localhost:$ui_port/" >/dev/null 2>&1; then
+                log_success "  ✅ UI endpoint accessible (port $ui_port)"
+            else
+                log_warning "  ⚠️  UI endpoint not accessible (port $ui_port)"
+            fi
+            echo
+        fi
+    fi
+    
+    # Check system resources
+    log_info "💾 System Resources:"
+    if command -v df >/dev/null 2>&1; then
+        local disk_usage=$(df /opt 2>/dev/null | awk 'NR==2 {print $5}' || echo "N/A")
+        log_info "  📊 Disk usage (/opt): $disk_usage"
+    fi
+    
+    if command -v free >/dev/null 2>&1; then
+        local memory_usage=$(free -h | awk 'NR==2{printf "%.1f%", $3*100/$2}' || echo "N/A")
+        log_info "  📊 Memory usage: $memory_usage"
+    fi
+    echo
+    
+    # Check recent logs for errors
+    if [[ -d "$LIVEREVIEW_INSTALL_DIR" ]] && docker ps --filter "name=livereview" --format "{{.Names}}" | grep -q livereview; then
+        log_info "📋 Recent Issues:"
+        local recent_errors=$(docker_compose logs --since=1h 2>/dev/null | grep -i "error\|fail\|panic\|fatal" | grep -v '"error":""' | wc -l)
+        
+        if [[ $recent_errors -eq 0 ]]; then
+            log_success "  ✅ No recent errors in logs"
+        else
+            log_warning "  ⚠️  Found $recent_errors recent error(s) in logs"
+            log_info "  💡 Run 'lrops.sh logs' to view detailed logs"
+        fi
+        echo
+    fi
+    
+    # Summary and recommendations
+    log_info "💡 Recommendations:"
+    if [[ ! -d "$LIVEREVIEW_INSTALL_DIR" ]]; then
+        log_info "  • Install LiveReview: lrops.sh setup-demo"
+    elif ! docker ps --filter "name=livereview" --format "{{.Names}}" | grep -q livereview; then
+        log_info "  • Start LiveReview: lrops.sh start"
+    else
+        log_info "  • Check detailed status: lrops.sh status"
+        log_info "  • View logs: lrops.sh logs"
+    fi
+    
+    log_success "Diagnostics completed!"
+}
+
 main() {
+    # Detect existing LiveReview installation for management commands
+    # This will update LIVEREVIEW_INSTALL_DIR if an installation is found
+    local is_management_command=false
+    
+    case "${1:-}" in
+        status|info|start|stop|restart|logs|help)
+            is_management_command=true
+            ;;
+        setup-demo|setup-production)
+            is_management_command=false  # These are installation commands
+            ;;
+    esac
+    
+    # Only auto-detect for management commands, not installation commands
+    if [[ "$is_management_command" == "true" ]]; then
+        detect_livereview_installation || {
+            # If no installation found for management commands, show helpful error
+            case "${1:-}" in
+                status|info|start|stop|restart|logs)
+                    log_error "No LiveReview installation found"
+                    log_info "LiveReview may not be installed, or installed in a non-standard location."
+                    log_info "Standard installation location: /opt/livereview"
+                    log_info "To install LiveReview, run: lrops.sh setup-demo"
+                    log_info "To specify custom location, set: export LIVEREVIEW_INSTALL_DIR=/path/to/livereview"
+                    exit 1
+                    ;;
+            esac
+        }
+    fi
+    
     # Check for management commands first (before parsing complex arguments)
     case "${1:-}" in
         status)
@@ -3071,7 +3344,7 @@ main() {
     fi
     
     if [[ "$DIAGNOSE" == "true" ]]; then
-        log_info "Diagnostic functionality not yet implemented"
+        run_diagnostics
         exit 0
     fi
     
