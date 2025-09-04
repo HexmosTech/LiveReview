@@ -3749,56 +3749,56 @@ exit 0
 
 # === DATA:docker-compose.yml ===
 services:
-  livereview-app:
-    image: ghcr.io/hexmostech/livereview:${LIVEREVIEW_VERSION}
-    container_name: livereview-app
-    ports:
-      - "${LIVEREVIEW_FRONTEND_PORT:-8081}:8081"  # Frontend UI
-      - "${LIVEREVIEW_BACKEND_PORT:-8888}:8888"   # Backend API
+    livereview-app:
+        image: ghcr.io/hexmostech/livereview:${LIVEREVIEW_VERSION}
+        container_name: livereview-app
         env_file:
             - .env
-    environment:
+        environment:
             # Respect user-provided DATABASE_URL; fallback to internal hostname
-            - DATABASE_URL=${DATABASE_URL:-postgres://livereview:${DB_PASSWORD}@livereview-db:5432/livereview?sslmode=disable}
-      - LIVEREVIEW_VERSION=${LIVEREVIEW_VERSION}
-      # Two-mode deployment configuration
-      - LIVEREVIEW_BACKEND_PORT=${LIVEREVIEW_BACKEND_PORT:-8888}
-      - LIVEREVIEW_FRONTEND_PORT=${LIVEREVIEW_FRONTEND_PORT:-8081}
-      - LIVEREVIEW_REVERSE_PROXY=${LIVEREVIEW_REVERSE_PROXY:-false}
-        # Framework-specific API vars are derived at runtime in entrypoint
-    depends_on:
-      livereview-db:
-        condition: service_healthy
-    volumes:
-      # Mount .env file as read-only
-      - ./.env:/app/.env:ro
-      # Mount entire lrdata directory for persistence
-      - ./lrdata:/app/lrdata
-    restart: unless-stopped
-    healthcheck:
-      test: ["CMD-SHELL", "curl -f http://localhost:8888/health || curl -f http://localhost:8888/api/health || curl -f http://localhost:8888/ || exit 1"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 30s
+            DATABASE_URL: ${DATABASE_URL:-postgres://livereview:${DB_PASSWORD}@livereview-db:5432/livereview?sslmode=disable}
+            LIVEREVIEW_VERSION: ${LIVEREVIEW_VERSION}
+            # Two-mode deployment configuration
+            LIVEREVIEW_BACKEND_PORT: ${LIVEREVIEW_BACKEND_PORT:-8888}
+            LIVEREVIEW_FRONTEND_PORT: ${LIVEREVIEW_FRONTEND_PORT:-8081}
+            LIVEREVIEW_REVERSE_PROXY: ${LIVEREVIEW_REVERSE_PROXY:-false}
+            # Framework-specific API vars are derived at runtime in entrypoint
+        ports:
+            - "${LIVEREVIEW_FRONTEND_PORT:-8081}:8081"  # Frontend UI
+            - "${LIVEREVIEW_BACKEND_PORT:-8888}:8888"   # Backend API
+        depends_on:
+            livereview-db:
+                condition: service_healthy
+        volumes:
+            # Mount .env file as read-only
+            - ./.env:/app/.env:ro
+            # Mount entire lrdata directory for persistence
+            - ./lrdata:/app/lrdata
+        restart: unless-stopped
+        healthcheck:
+            test: ["CMD-SHELL", "curl -f http://localhost:8888/health || curl -f http://localhost:8888/api/health || curl -f http://localhost:8888/ || exit 1"]
+            interval: 30s
+            timeout: 10s
+            retries: 3
+            start_period: 30s
 
-  livereview-db:
-    image: postgres:15-alpine
-    container_name: livereview-db
-    environment:
-      - POSTGRES_USER=livereview
-      - POSTGRES_PASSWORD=${DB_PASSWORD}
-      - POSTGRES_DB=livereview
-    volumes:
-      - ./lrdata/postgres:/var/lib/postgresql/data
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U livereview -d livereview"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-      start_period: 10s
-    restart: unless-stopped
-    # Don't expose database port to host for security
+    livereview-db:
+        image: postgres:15-alpine
+        container_name: livereview-db
+        environment:
+            POSTGRES_USER: livereview
+            POSTGRES_PASSWORD: ${DB_PASSWORD}
+            POSTGRES_DB: livereview
+        volumes:
+            - ./lrdata/postgres:/var/lib/postgresql/data
+        healthcheck:
+            test: ["CMD-SHELL", "pg_isready -U livereview -d livereview"]
+            interval: 10s
+            timeout: 5s
+            retries: 5
+            start_period: 10s
+        restart: unless-stopped
+        # Don't expose database port to host for security
 # === END:docker-compose.yml ===
 
 # === DATA:.env ===
