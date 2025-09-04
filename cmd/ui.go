@@ -42,24 +42,39 @@ func UICommand(uiAssets embed.FS) *cli.Command {
 			port := c.Int("port")
 			apiURL := c.String("api-url")
 
-			// Check for environment variable overrides
-			if envPort := os.Getenv("LIVEREVIEW_FRONTEND_PORT"); envPort != "" {
+			// Check for environment variable overrides - support both new and legacy names
+			if envPort := os.Getenv("FRONTEND_PORT"); envPort != "" {
 				if parsedPort, err := strconv.Atoi(envPort); err == nil {
 					port = parsedPort
-					fmt.Printf("Using frontend port from LIVEREVIEW_FRONTEND_PORT: %d\n", port)
+					fmt.Printf("Using frontend port from FRONTEND_PORT: %d\n", port)
+				}
+			} else if envPort := os.Getenv("LIVEREVIEW_FRONTEND_PORT"); envPort != "" {
+				if parsedPort, err := strconv.Atoi(envPort); err == nil {
+					port = parsedPort
+					fmt.Printf("Using frontend port from LIVEREVIEW_FRONTEND_PORT (legacy): %d\n", port)
 				}
 			}
 
 			// If no API URL provided, try to auto-detect based on port
 			if apiURL == "" {
-				// Check for backend port environment variable
+				// Check for backend port environment variable - support both new and legacy names
 				backendPort := 8888
-				if envBackendPort := os.Getenv("LIVEREVIEW_BACKEND_PORT"); envBackendPort != "" {
+				if envBackendPort := os.Getenv("BACKEND_PORT"); envBackendPort != "" {
+					if parsedPort, err := strconv.Atoi(envBackendPort); err == nil {
+						backendPort = parsedPort
+					}
+				} else if envBackendPort := os.Getenv("LIVEREVIEW_BACKEND_PORT"); envBackendPort != "" {
 					if parsedPort, err := strconv.Atoi(envBackendPort); err == nil {
 						backendPort = parsedPort
 					}
 				}
-				apiURL = fmt.Sprintf("http://localhost:%d", backendPort)
+
+				// Check for unified API_URL first, then fallback to auto-detection
+				if unifiedAPI := os.Getenv("API_URL"); unifiedAPI != "" {
+					apiURL = unifiedAPI
+				} else {
+					apiURL = fmt.Sprintf("http://localhost:%d", backendPort)
+				}
 			}
 
 			fmt.Printf("Starting LiveReview UI server on port %d...\n", port)

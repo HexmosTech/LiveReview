@@ -101,7 +101,9 @@ module.exports =  (env, options)=> {
             new ForkTsCheckerWebpackPlugin(),
             // Define plugin to inject environment variables
             new webpack.DefinePlugin({
-                'process.env.REACT_APP_API_URL': JSON.stringify(process.env.REACT_APP_API_URL),
+                // Support unified API_URL with fallback to framework-specific variable
+                'process.env.API_URL': JSON.stringify(process.env.API_URL || process.env.REACT_APP_API_URL),
+                'process.env.REACT_APP_API_URL': JSON.stringify(process.env.API_URL || process.env.REACT_APP_API_URL),
             }),
             new MiniCssExtractPlugin({
                 // Options similar to the same options in webpackOptions.output
