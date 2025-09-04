@@ -9,7 +9,7 @@
 
 ## Our Approach
 
-1. **Security-First Design**
+1. **Security-First Design 🔒**
    - **Zero Cloud Dependency**: Runs entirely on your infrastructure (on-prem or private cloud) - except for update checks and license checking. 
    - **Complete Code Privacy**: Your source code and credentials never leave your environment
    - **Risk Elimination**: Recent breaches of cloud-hosted reviewers show how misconfigurations expose repositories—LiveReview eliminates this by design
@@ -25,7 +25,7 @@
    - **R&D Focus**: Investment goes to product improvements, not marketing hype
    - **Maximum Value**: Every dollar funds engineering excellence
 
-## How is this better than...
+## How is this better than... 🆚
 
 ### **vs GitHub Copilot**
 - **Multi-Platform Support**: Works with GitHub, GitLab, AND Bitbucket (not just GitHub)
@@ -49,17 +49,17 @@
 ## Features
 
 - Integrated Dashboard - See usage statistics, impact analysis, user activity
-- Git Provider - Connect as many git providers as you want - Github, Gitlab, Bitbucket supported already.
+- Git Provider - Connect as many git providers as you want - GitHub, GitLab, Bitbucket supported already.
 - AI Connector - Connect your Gemini, OpenAI or Self-Hosted Ollama Keys
 - Demo and Production modes - Try it out in 5 minutes, and make it production grade quickly with built-in help
-- High Quality MR Summary - which goes through all the changes in its full context and produces short and medium ize summaries of reviews
+- High-quality MR Summary - goes through all the changes in its full context and produces short and medium-size summaries of reviews
 - Find a large number of technical issues in areas such as: unused variables, security vulnerabilities, performance issues, missing error handling, duplicated code detection, null pointer detection, data structure fit to problem, etc. Find a full list of both technical and business benefits in the [landing page](https://hexmos.com/livereview)
 
 ## Quick Start
 
 Get LiveReview running in under 5 minutes with our simplified two-mode deployment system:
 
-### Demo Mode (Recommended for First Time)
+### Demo Mode (Recommended for First Time) 🚀
 
 Perfect for development, testing, and evaluation - no configuration required!
 
@@ -84,7 +84,7 @@ curl -fsSL https://raw.githubusercontent.com/HexmosTech/LiveReview/main/lrops.sh
 - Web UI: http://localhost:8081/
 - API: http://localhost:8888/api
 
-### Production Mode (External Access Ready)
+### Production Mode (External Access Ready) 🌐
 
 For teams and production deployments with reverse proxy and webhooks:
 
