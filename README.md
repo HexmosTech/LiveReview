@@ -7,6 +7,9 @@
 <img src="./assets/screenshots/home.png" />
 
 
+[Philosophy](#our-approach) | [Comparisons](#how-is-this-better-than) | [Features](#features) | [Quick Start](#quick-start) | [Installation](#installation)
+
+
 ## Our Approach
 
 1. **Security-First Design 🔒**
