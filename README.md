@@ -9,17 +9,17 @@
 
 ## Our Approach
 
-1. **🔒 Security-First Design**
+1. **Security-First Design**
    - **Zero Cloud Dependency**: Runs entirely on your infrastructure (on-prem or private cloud) - except for update checks and license checking. 
    - **Complete Code Privacy**: Your source code and credentials never leave your environment
    - **Risk Elimination**: Recent breaches of cloud-hosted reviewers show how misconfigurations expose repositories—LiveReview eliminates this by design
    - **Full Control**: Your code stays on your servers, period
-2. **🔧 Maximum Flexibility** 
+2. **Maximum Flexibility** 
    - **Multi-Platform**: Integrates with GitHub, GitLab, and Bitbucket
    - **AI Choice Freedom**: Choose Gemini, OpenAI, or self-hosted Ollama for maximum privacy
    - **Workflow Adaptation**: Adapts to your process instead of forcing change
    - **Custom Support**: Unusual setup? We'll work with you—[open an issue](https://github.com/HexmosTech/LiveReview/issues)
-3. **💰 Transparent Affordability**
+3. **Transparent Affordability**
    - **Straightforward Pricing**: Significantly lower than comparable hosted tools
    - **Sustainable Model**: Paid software built for long-term reliability
    - **R&D Focus**: Investment goes to product improvements, not marketing hype
@@ -27,24 +27,24 @@
 
 ## How is this better than...
 
-### 🆚 **vs GitHub Copilot**
-- **✅ Multi-Platform Support**: Works with GitHub, GitLab, AND Bitbucket (not just GitHub)
-- **✅ Self-Hosted Security**: Your code stays private vs cloud-hosted risk
-- **✅ AI Choice Freedom**: Pick your AI backend vs locked into one model
-- **✅ Cost Control**: You control both costs and quality
+### **vs GitHub Copilot**
+- **Multi-Platform Support**: Works with GitHub, GitLab, AND Bitbucket (not just GitHub)
+- **Self-Hosted Security**: Your code stays private vs cloud-hosted risk
+- **AI Choice Freedom**: Pick your AI backend vs locked into one model
+- **Cost Control**: You control both costs and quality
 
-### 🆚 **vs CodeRabbit**  
-- **✅ More Affordable**: Significantly lower pricing than CodeRabbit
-- **✅ Zero Cloud Risk**: Self-hosted vs recent security breaches in cloud platforms
-- **✅ Complete Control**: Your code never leaves your infrastructure
-- **✅ Attack Prevention**: Eliminates entire class of cloud-based vulnerabilities
+### **vs CodeRabbit**  
+- **More Affordable**: Significantly lower pricing than CodeRabbit
+- **Zero Cloud Risk**: Self-hosted vs recent security breaches in cloud platforms
+- **Complete Control**: Your code never leaves your infrastructure
+- **Attack Prevention**: Eliminates entire class of cloud-based vulnerabilities
 
-### 🆚 **vs Building Your Own**
-- **⚡ Ready Out-of-Box**: Skip months of development time
-- **🔧 Complex Integration**: Code host APIs, webhooks, dashboards all handled
-- **🧠 AI Expertise**: Advanced prompt engineering and review logic included  
-- **🔄 Continuous Maintenance**: No need for ongoing MR/PR handling, user management
-- **🎯 Focus on Product**: Your team builds features, not infrastructure
+### **vs Building Your Own**
+- **Ready Out-of-Box**: Skip months of development time
+- **Complex Integration Covered**: Code host APIs, webhooks, dashboards all handled
+- **AI Expertise Included**: Advanced prompt engineering and review logic included  
+- **Ongoing Maintenance**: No need for ongoing MR/PR handling, user management
+- **Focus on Product**: Your team builds features, not infrastructure
 
 ## Features
 
@@ -73,11 +73,11 @@ curl -fsSL https://raw.githubusercontent.com/HexmosTech/LiveReview/main/lrops.sh
 
 **Demo Mode Features:**
 
-- 🚀 **Zero configuration** - just run and go
-- 🏠 **Localhost only** - secure local development
-- 🔧 **Manual triggers** - webhooks disabled for simplicity
-- 📱 **Perfect for testing** - try LiveReview without any setup
-- 💡 **Easy upgrade path** - switch to production mode anytime
+- **Zero configuration** - just run and go
+- **Localhost only** - secure local development
+- **Manual triggers** - webhooks disabled for simplicity
+- **Perfect for testing** - try LiveReview without any setup
+- **Easy upgrade path** - switch to production mode anytime
 
 **Access your demo installation:**
 
@@ -95,10 +95,10 @@ curl -fsSL https://raw.githubusercontent.com/HexmosTech/LiveReview/main/lrops.sh
 
 **Production Mode Features:**
 
-- 🌐 **External access** - ready for reverse proxy setup
-- 🔗 **Webhooks enabled** - automatic code review triggers
-- 🔒 **SSL/TLS ready** - secure for production use
-- ⚡ **Auto-configuration** - webhook URLs derived automatically
+- **External access** - ready for reverse proxy setup
+- **Webhooks enabled** - automatic code review triggers
+- **SSL/TLS ready** - secure for production use
+- **Auto-configuration** - webhook URLs derived automatically
 
 **After production installation:**
 
@@ -147,12 +147,12 @@ lrops.sh restart
 
 This will:
 
-1. ✅ Install LiveReview with Docker and PostgreSQL
-2. ✅ Auto-detect deployment mode (demo/production)
-3. ✅ Set up secure defaults and auto-generated passwords
-4. ✅ Deploy to `/opt/livereview/` with persistent data storage
-5. ✅ Configure environment-aware webhook URLs
-6. ✅ Provide access URLs and mode-specific guidance
+1. Install LiveReview with Docker and PostgreSQL
+2. Auto-detect deployment mode (demo/production)
+3. Set up secure defaults and auto-generated passwords
+4. Deploy to `/opt/livereview/` with persistent data storage
+5. Configure environment-aware webhook URLs
+6. Provide access URLs and mode-specific guidance
 
 After installation, configure your GitLab/GitHub providers, and start reviewing code!
 
@@ -201,14 +201,14 @@ curl -fsSL https://raw.githubusercontent.com/HexmosTech/LiveReview/main/lrops.sh
 
 #### What the installer does:
 
-- ✅ **Intelligent mode detection** - automatically configures demo vs production
-- ✅ **System prerequisites check** (Docker, Docker Compose)
-- ✅ **Smart environment configuration** - uses LIVEREVIEW_* environment variables
-- ✅ **Secure password generation** - strong defaults for database and JWT
-- ✅ **Docker deployment** - PostgreSQL database included
-- ✅ **Webhook auto-configuration** - URLs derived based on deployment mode
-- ✅ **Management script installation** (`lrops.sh`) for ongoing operations
-- ✅ **Mode-specific guidance** - next steps tailored to your deployment
+- **Intelligent mode detection** - automatically configures demo vs production
+- **System prerequisites check** (Docker, Docker Compose)
+- **Smart environment configuration** - uses LIVEREVIEW_* environment variables
+- **Secure password generation** - strong defaults for database and JWT
+- **Docker deployment** - PostgreSQL database included
+- **Webhook auto-configuration** - URLs derived based on deployment mode
+- **Management script installation** (`lrops.sh`) for ongoing operations
+- **Mode-specific guidance** - next steps tailored to your deployment
 
 **After installation**, manage LiveReview with:
 
