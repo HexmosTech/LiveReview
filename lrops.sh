@@ -93,6 +93,10 @@ cleanup() {
         log_error "Script failed with exit code $exit_code"
         log_info "For troubleshooting help, run: $0 --help"
     fi
+    # Stop sudo keepalive process if running
+    if [[ -n "${SUDO_REFRESH_PID:-}" ]]; then
+        kill "${SUDO_REFRESH_PID}" 2>/dev/null || true
+    fi
     exit $exit_code
 }
 
@@ -101,6 +105,59 @@ trap cleanup EXIT
 error_exit() {
     log_error "$1"
     exit "${2:-1}"
+}
+
+# =============================================================================
+# SUDO SESSION AND DOCKER PRIVILEGES
+# =============================================================================
+
+# Keep sudo alive during script run to avoid repeated prompts
+ensure_sudo_session() {
+    # Only if not already root and sudo is available
+    if [[ $EUID -ne 0 ]] && command -v sudo >/dev/null 2>&1; then
+        log_info "Requesting sudo access upfront (to avoid repeated prompts)..."
+        if sudo -v; then
+            # Refresh sudo timestamp in background
+            (
+                while true; do
+                    sleep 60
+                    sudo -n true 2>/dev/null || true
+                done
+            ) &
+            SUDO_REFRESH_PID=$!
+            log_debug "Sudo keepalive process started (PID: $SUDO_REFRESH_PID)"
+        else
+            log_warning "Could not obtain sudo credentials now; you may be prompted later."
+        fi
+    fi
+}
+
+# If Docker requires sudo, transparently wrap docker/docker-compose commands
+maybe_enable_sudo_for_docker() {
+    # If docker CLI not present, nothing to do here
+    command -v docker >/dev/null 2>&1 || return 0
+
+    if docker info >/dev/null 2>&1; then
+        return 0  # No sudo needed
+    fi
+
+    # Try with sudo non-interactively first
+    if command -v sudo >/dev/null 2>&1 && sudo -n docker info >/dev/null 2>&1; then
+        :
+    else
+        # Fall back to interactive sudo attempt (may prompt once)
+        if command -v sudo >/dev/null 2>&1 && sudo docker info >/dev/null 2>&1; then
+            :
+        else
+            return 0  # Cannot use sudo either; let the regular checks report errors
+        fi
+    fi
+
+    # At this point docker works with sudo, set wrappers
+    log_info "Docker requires sudo; enabling automatic sudo for Docker commands"
+    USE_SUDO_DOCKER=true
+    # Define shell function for docker (covers 'docker compose' plugin)
+    docker() { command sudo docker "$@"; }
 }
 
 # =============================================================================
@@ -222,10 +279,15 @@ DOCKER_COMPOSE_CMD=""
 detect_docker_compose_cmd() {
     if command -v docker-compose >/dev/null 2>&1; then
         # Legacy docker-compose is available
-        DOCKER_COMPOSE_CMD="docker-compose"
+        if [[ "${USE_SUDO_DOCKER:-false}" == "true" ]]; then
+            DOCKER_COMPOSE_CMD="sudo docker-compose"
+        else
+            DOCKER_COMPOSE_CMD="docker-compose"
+        fi
         log_debug "Using legacy docker-compose command"
     elif docker compose version >/dev/null 2>&1; then
         # Modern docker compose plugin is available
+        # 'docker' may already be wrapped to sudo by maybe_enable_sudo_for_docker
         DOCKER_COMPOSE_CMD="docker compose"
         log_debug "Using modern docker compose plugin"
     else
@@ -2916,7 +2978,7 @@ Health Check: http://localhost:${API_PORT}/health
 
 CONTAINER STATUS
 ================
-$(cd "$LIVEREVIEW_INSTALL_DIR" && docker-compose ps 2>/dev/null || echo "Unable to retrieve container status")
+$(cd "$LIVEREVIEW_INSTALL_DIR" && $DOCKER_COMPOSE_CMD ps 2>/dev/null || echo "Unable to retrieve container status")
 
 IMPORTANT FILES
 ===============
@@ -3296,8 +3358,8 @@ main() {
             case "${1:-}" in
                 status|info|start|stop|restart|logs)
                     log_error "No LiveReview installation found"
-                    log_info "LiveReview may not be installed, or installed in a non-standard location."
-                    log_info "Standard installation location: /opt/livereview"
+            log_info "LiveReview may not be installed, or installed in a non-standard location."
+            log_info "Standard installation location: ${DEFAULT_HOME_DIR}/livereview"
                     log_info "To install LiveReview, run: lrops.sh setup-demo"
                     log_info "To specify custom location, set: export LIVEREVIEW_INSTALL_DIR=/path/to/livereview"
                     exit 1
@@ -3460,12 +3522,16 @@ main() {
     echo
     
     # Run system checks
+    # Obtain sudo early (for installing script path, docker on root-only setups)
+    ensure_sudo_session
+    # Enable sudo for Docker if necessary (systems where only 'sudo docker' works)
+    maybe_enable_sudo_for_docker
     check_system_prerequisites
     
     # No snap-specific handling needed; install under user home avoids snap homedirs issues
     check_existing_installation
     
-    # Detect and set docker compose command early
+    # Detect and set docker compose command early (after potential sudo-wrapper)
     if ! detect_docker_compose_cmd; then
         error_exit "Docker Compose detection failed"
     fi
