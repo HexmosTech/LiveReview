@@ -874,6 +874,61 @@ install_self() {
     fi
 }
 
+# Install script to system path during main installation
+install_script_to_system_path() {
+    section_header "INSTALLING SCRIPT TO SYSTEM PATH"
+    
+    # Check if we're being run via curl (piped execution)
+    local script_source="$0"
+    local is_piped=false
+    
+    if [[ "$0" == "bash" || "$0" == "-bash" || "$0" =~ /bash$ ]]; then
+        is_piped=true
+        log_info "Script executed via pipe, downloading for installation..."
+        
+        # Download the script to a temporary location
+        script_source="/tmp/lrops_install_$$.sh"
+        if ! curl -fsSL "https://raw.githubusercontent.com/HexmosTech/LiveReview/main/lrops.sh" -o "$script_source"; then
+            log_error "Failed to download script for installation"
+            return 1
+        fi
+        chmod +x "$script_source"
+        log_debug "Downloaded script to $script_source for installation"
+    fi
+    
+    if [[ "$DRY_RUN" == "true" ]]; then
+        log_info "[DRY RUN] Would install $script_source to $LIVEREVIEW_SCRIPT_PATH"
+        if [[ "$is_piped" == "true" ]]; then
+            rm -f "$script_source"
+        fi
+        return 0
+    fi
+    
+    log_info "Installing lrops.sh to system path for global access..."
+    
+    # Install to system location
+    if sudo cp "$script_source" "$LIVEREVIEW_SCRIPT_PATH"; then
+        sudo chmod +x "$LIVEREVIEW_SCRIPT_PATH"
+        log_success "✅ Installed lrops.sh to $LIVEREVIEW_SCRIPT_PATH"
+        log_info "   You can now run 'lrops.sh' from any directory"
+        
+        # Check if /usr/local/bin is in PATH
+        if ! echo "$PATH" | grep -q "/usr/local/bin"; then
+            log_warning "⚠️  /usr/local/bin not in PATH"
+            log_info "   Add to your shell profile: export PATH=\"/usr/local/bin:\$PATH\""
+        fi
+    else
+        log_warning "⚠️  Could not install lrops.sh to system path"
+        log_info "   You can install manually: sudo cp $script_source $LIVEREVIEW_SCRIPT_PATH"
+        log_info "   Or run manually: sudo chmod +x $LIVEREVIEW_SCRIPT_PATH"
+    fi
+    
+    # Clean up temporary file if we downloaded it
+    if [[ "$is_piped" == "true" ]]; then
+        rm -f "$script_source"
+    fi
+}
+
 # =============================================================================
 # TEMPLATE EXTRACTION FUNCTIONS (PHASE 3)
 # =============================================================================
@@ -3504,10 +3559,17 @@ main() {
     deploy_with_docker "$resolved_version" "$config_file"
     
     # =============================================================================
+    # PHASE 7: SCRIPT INSTALLATION
+    # =============================================================================
+    
+    # Step 9: Install script to system path for global access
+    install_script_to_system_path
+    
+    # =============================================================================
     # PHASE 8: POST-INSTALLATION EXPERIENCE
     # =============================================================================
     
-    # Step 9: Comprehensive installation validation and summary
+    # Step 10: Comprehensive installation validation and summary
     post_installation_experience "$resolved_version" "$config_file"
     
     # Cleanup
