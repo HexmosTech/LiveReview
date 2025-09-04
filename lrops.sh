@@ -88,6 +88,115 @@ error_exit() {
 }
 
 # =============================================================================
+# LIVEREVIEW INSTALLATION DETECTION
+# =============================================================================
+
+# Detect LiveReview installation directory automatically
+detect_livereview_installation() {
+    local detected_dir=""
+    
+    # Method 1: Check default location
+    if [[ -f "/opt/livereview/docker-compose.yml" && -f "/opt/livereview/.env" ]]; then
+        detected_dir="/opt/livereview"
+        log_debug "Found LiveReview installation at default location: $detected_dir"
+    fi
+    
+    # Method 2: Check environment variable override
+    if [[ -n "${LIVEREVIEW_INSTALL_DIR:-}" && "$LIVEREVIEW_INSTALL_DIR" != "/opt/livereview" ]]; then
+        if [[ -f "$LIVEREVIEW_INSTALL_DIR/docker-compose.yml" && -f "$LIVEREVIEW_INSTALL_DIR/.env" ]]; then
+            detected_dir="$LIVEREVIEW_INSTALL_DIR"
+            log_debug "Found LiveReview installation at specified location: $detected_dir"
+        fi
+    fi
+    
+    # Method 3: Check other common locations
+    if [[ -z "$detected_dir" ]]; then
+        local common_locations=(
+            "/var/lib/livereview"
+            "/usr/local/livereview"
+            "/home/$(whoami)/livereview"
+            "./livereview"
+            "."
+        )
+        
+        for location in "${common_locations[@]}"; do
+            if [[ -f "$location/docker-compose.yml" && -f "$location/.env" ]]; then
+                # Verify it's actually a LiveReview installation by checking for specific content
+                if grep -q "livereview-app\|livereview-db" "$location/docker-compose.yml" 2>/dev/null; then
+                    detected_dir="$(realpath "$location")"
+                    log_debug "Found LiveReview installation at: $detected_dir"
+                    break
+                fi
+            fi
+        done
+    fi
+    
+    # Method 4: Try to detect from running Docker containers
+    if [[ -z "$detected_dir" ]] && command -v docker >/dev/null 2>&1; then
+        log_debug "Attempting to detect installation from running containers..."
+        
+        # Look for LiveReview containers and try to find their compose file
+        local container_id
+        container_id=$(docker ps --filter "name=livereview" --format "{{.ID}}" | head -1)
+        
+        if [[ -n "$container_id" ]]; then
+            # Try to get the working directory or volume mounts
+            local inspect_result
+            inspect_result=$(docker inspect "$container_id" 2>/dev/null || echo "")
+            
+            if [[ -n "$inspect_result" ]]; then
+                # Look for volume mounts that might indicate the installation directory
+                local possible_dirs
+                possible_dirs=$(echo "$inspect_result" | grep -oE '"/[^"]*livereview[^"]*"' | tr -d '"' | grep -v '/var/lib/docker' | head -5)
+                
+                for dir in $possible_dirs; do
+                    # Try parent directories
+                    local parent_dir
+                    parent_dir="$(dirname "$dir")"
+                    if [[ -f "$parent_dir/docker-compose.yml" && -f "$parent_dir/.env" ]]; then
+                        detected_dir="$parent_dir"
+                        log_debug "Detected installation from container volume mount: $detected_dir"
+                        break
+                    fi
+                done
+            fi
+        fi
+    fi
+    
+    # Method 5: Search filesystem (last resort, limited scope)
+    if [[ -z "$detected_dir" ]]; then
+        log_debug "Searching filesystem for LiveReview installation..."
+        local search_paths=("/opt" "/var/lib" "/usr/local" "/home/$(whoami)")
+        
+        for search_path in "${search_paths[@]}"; do
+            if [[ -d "$search_path" ]]; then
+                local found_path
+                found_path=$(find "$search_path" -maxdepth 2 -name "docker-compose.yml" -path "*/livereview/*" 2>/dev/null | head -1)
+                if [[ -n "$found_path" ]]; then
+                    local candidate_dir
+                    candidate_dir="$(dirname "$found_path")"
+                    if [[ -f "$candidate_dir/.env" ]] && grep -q "livereview-app\|livereview-db" "$found_path" 2>/dev/null; then
+                        detected_dir="$candidate_dir"
+                        log_debug "Found LiveReview installation via filesystem search: $detected_dir"
+                        break
+                    fi
+                fi
+            fi
+        done
+    fi
+    
+    # Update the global variable if we found an installation
+    if [[ -n "$detected_dir" ]]; then
+        LIVEREVIEW_INSTALL_DIR="$detected_dir"
+        log_debug "LiveReview installation detected at: $LIVEREVIEW_INSTALL_DIR"
+        return 0
+    else
+        log_debug "No existing LiveReview installation detected, using default: $LIVEREVIEW_INSTALL_DIR"
+        return 1
+    fi
+}
+
+# =============================================================================
 # DOCKER COMPOSE COMPATIBILITY
 # =============================================================================
 
@@ -292,6 +401,7 @@ USAGE:
 
     # Management commands (after installation)
     lrops.sh status                    # Show installation status
+    lrops.sh info                      # Show installation details and file locations
     lrops.sh start                     # Start LiveReview services
     lrops.sh stop                      # Stop LiveReview services
     lrops.sh restart                   # Restart LiveReview services
@@ -978,6 +1088,33 @@ generate_jwt_secret() {
     fi
 }
 
+# Auto-configure deployment variables based on mode
+configure_deployment_mode() {
+    local mode="$1"
+    local backend_port="${2:-8888}"
+    local frontend_port="${3:-8081}"
+    
+    if [[ "$mode" == "production" ]]; then
+        # Production mode: behind reverse proxy
+        API_URL="http://localhost/api"
+        REVERSE_PROXY="true"
+        BIND_ADDRESS="127.0.0.1"
+        WEBHOOKS_ENABLED="true"
+    else
+        # Demo mode: direct access
+        API_URL="http://localhost:${backend_port}"
+        REVERSE_PROXY="false"
+        BIND_ADDRESS="localhost"
+        WEBHOOKS_ENABLED="false"
+    fi
+    
+    # Set all framework-specific variables automatically
+    VITE_API_URL="$API_URL"
+    REACT_APP_API_URL="$API_URL"
+    NEXT_PUBLIC_API_URL="$API_URL"
+    LIVEREVIEW_API_URL="$API_URL"  # Legacy support
+}
+
 # Interactive configuration prompts for simplified two-mode system
 gather_configuration() {
     local config_file="/tmp/lrops_config_$$"
@@ -993,18 +1130,59 @@ gather_configuration() {
         local jwt_secret
         jwt_secret=$(generate_jwt_secret)
         
+        # Configure deployment variables
+        configure_deployment_mode "demo" 8888 8081
+        
         # Demo mode defaults (localhost-only)
         cat > "$config_file" << EOF
+# LiveReview Configuration - Demo Mode
+# Version: $1
+
+#==============================================================================
+# DEPLOYMENT MODE (Required)
+#==============================================================================
+DEPLOYMENT_MODE=demo
+
+#==============================================================================
+# CORE CONFIGURATION (Required)
+#==============================================================================
+# Database
+DATABASE_URL=postgres://livereview:$db_password@livereview-db:5432/livereview?sslmode=disable
 DB_PASSWORD=$db_password
+
+# Security
 JWT_SECRET=$jwt_secret
+
+#==============================================================================
+# OPTIONAL CONFIGURATION
+#==============================================================================
+# Application
+LIVEREVIEW_VERSION=$1
+LOG_LEVEL=info
+ACCESS_TOKEN_DURATION_HOURS=8
+REFRESH_TOKEN_DURATION_DAYS=30
+
+#==============================================================================
+# ADVANCED CONFIGURATION (Auto-managed - modify only if needed)
+#==============================================================================
+# Ports
+BACKEND_PORT=8888
+FRONTEND_PORT=8081
+
+# API Endpoint (auto-set based on DEPLOYMENT_MODE)
+API_URL=$API_URL
+
+# Legacy variable support (auto-generated)
 LIVEREVIEW_BACKEND_PORT=8888
 LIVEREVIEW_FRONTEND_PORT=8081
 LIVEREVIEW_REVERSE_PROXY=false
-DEPLOYMENT_MODE=demo
-LIVEREVIEW_VERSION=$1
+LIVEREVIEW_API_URL=$API_URL
+VITE_API_URL=$API_URL
+REACT_APP_API_URL=$API_URL
+NEXT_PUBLIC_API_URL=$API_URL
 EOF
         log_success "✅ Demo mode configuration (localhost-only, no webhooks)"
-        log_info "   To upgrade to production mode later, set LIVEREVIEW_REVERSE_PROXY=true"
+        log_info "   To upgrade to production mode, change DEPLOYMENT_MODE=production"
     else
         log_info "Interactive configuration mode"
         log_info "Choose your deployment mode:"
@@ -1016,19 +1194,16 @@ EOF
         read -r mode_choice
         
         local deployment_mode="demo"
-        local reverse_proxy="false"
         
         if [[ "$mode_choice" == "2" ]]; then
             deployment_mode="production"
-            reverse_proxy="true"
             log_info "Production mode selected - requires reverse proxy setup"
         else
             deployment_mode="demo"
-            reverse_proxy="false"
             log_info "Demo mode selected - localhost only, no configuration needed"
         fi
         
-        # Database password
+        # Generate database password
         local db_password
         db_password=$(generate_password 32)
         echo -n "Database password [auto-generated secure password]: "
@@ -1037,7 +1212,7 @@ EOF
             db_password="$user_input"
         fi
         
-        # JWT Secret
+        # Generate JWT Secret
         local jwt_secret
         jwt_secret=$(generate_jwt_secret)
         echo -n "JWT secret key [auto-generated secure key]: "
@@ -1050,6 +1225,9 @@ EOF
         local backend_port=8888
         local frontend_port=8081
         
+        # Configure deployment variables based on selected mode
+        configure_deployment_mode "$deployment_mode" "$backend_port" "$frontend_port"
+        
         if [[ "$deployment_mode" == "production" ]]; then
             echo "Production mode will use standard ports (8888 backend, 8081 frontend)"
             echo "Configure your reverse proxy to route:"
@@ -1057,22 +1235,60 @@ EOF
             echo "  /* → http://127.0.0.1:8081"
         fi
         
-        # Save configuration
+        # Save configuration with new simplified format
         cat > "$config_file" << EOF
+# LiveReview Configuration - ${deployment_mode^} Mode
+# Version: $1
+
+#==============================================================================
+# DEPLOYMENT MODE (Required)
+#==============================================================================
+DEPLOYMENT_MODE=$deployment_mode
+
+#==============================================================================
+# CORE CONFIGURATION (Required)
+#==============================================================================
+# Database
+DATABASE_URL=postgres://livereview:$db_password@livereview-db:5432/livereview?sslmode=disable
 DB_PASSWORD=$db_password
+
+# Security
 JWT_SECRET=$jwt_secret
+
+#==============================================================================
+# OPTIONAL CONFIGURATION
+#==============================================================================
+# Application
+LIVEREVIEW_VERSION=$1
+LOG_LEVEL=info
+ACCESS_TOKEN_DURATION_HOURS=8
+REFRESH_TOKEN_DURATION_DAYS=30
+
+#==============================================================================
+# ADVANCED CONFIGURATION (Auto-managed - modify only if needed)
+#==============================================================================
+# Ports
+BACKEND_PORT=$backend_port
+FRONTEND_PORT=$frontend_port
+
+# API Endpoint (auto-set based on DEPLOYMENT_MODE)
+API_URL=$API_URL
+
+# Legacy variable support (auto-generated)
 LIVEREVIEW_BACKEND_PORT=$backend_port
 LIVEREVIEW_FRONTEND_PORT=$frontend_port
-LIVEREVIEW_REVERSE_PROXY=$reverse_proxy
-DEPLOYMENT_MODE=$deployment_mode
-LIVEREVIEW_VERSION=$1
+LIVEREVIEW_REVERSE_PROXY=$REVERSE_PROXY
+LIVEREVIEW_API_URL=$API_URL
+VITE_API_URL=$API_URL
+REACT_APP_API_URL=$API_URL
+NEXT_PUBLIC_API_URL=$API_URL
 EOF
     fi
     
     echo "$config_file"
 }
 
-# Validate configuration values for two-mode system
+# Validate configuration values for simplified configuration system
 validate_configuration() {
     local config_file="$1"
     
@@ -1081,30 +1297,41 @@ validate_configuration() {
     # Source the config
     source "$config_file"
     
+    # Support both new and legacy variable names
+    local backend_port="${BACKEND_PORT:-$LIVEREVIEW_BACKEND_PORT}"
+    local frontend_port="${FRONTEND_PORT:-$LIVEREVIEW_FRONTEND_PORT}"
+    local deployment_mode="${DEPLOYMENT_MODE:-demo}"
+    
+    # Validate deployment mode
+    if [[ "$deployment_mode" != "demo" && "$deployment_mode" != "production" ]]; then
+        log_error "Invalid DEPLOYMENT_MODE: must be 'demo' or 'production'"
+        return 1
+    fi
+    
     # Validate backend port
-    if ! [[ "$LIVEREVIEW_BACKEND_PORT" =~ ^[0-9]+$ ]] || [[ "$LIVEREVIEW_BACKEND_PORT" -lt 1024 ]] || [[ "$LIVEREVIEW_BACKEND_PORT" -gt 65535 ]]; then
-        log_error "Invalid backend port: $LIVEREVIEW_BACKEND_PORT (must be 1024-65535)"
+    if ! [[ "$backend_port" =~ ^[0-9]+$ ]] || [[ "$backend_port" -lt 1024 ]] || [[ "$backend_port" -gt 65535 ]]; then
+        log_error "Invalid backend port: $backend_port (must be 1024-65535)"
         return 1
     fi
     
     # Validate frontend port
-    if ! [[ "$LIVEREVIEW_FRONTEND_PORT" =~ ^[0-9]+$ ]] || [[ "$LIVEREVIEW_FRONTEND_PORT" -lt 1024 ]] || [[ "$LIVEREVIEW_FRONTEND_PORT" -gt 65535 ]]; then
-        log_error "Invalid frontend port: $LIVEREVIEW_FRONTEND_PORT (must be 1024-65535)"
+    if ! [[ "$frontend_port" =~ ^[0-9]+$ ]] || [[ "$frontend_port" -lt 1024 ]] || [[ "$frontend_port" -gt 65535 ]]; then
+        log_error "Invalid frontend port: $frontend_port (must be 1024-65535)"
         return 1
     fi
     
-    if [[ "$LIVEREVIEW_BACKEND_PORT" == "$LIVEREVIEW_FRONTEND_PORT" ]]; then
+    if [[ "$backend_port" == "$frontend_port" ]]; then
         log_error "Backend and frontend ports cannot be the same"
         return 1
     fi
     
     # Check if ports are available
     if command -v netstat >/dev/null 2>&1; then
-        if netstat -tln | grep -q ":${LIVEREVIEW_BACKEND_PORT} "; then
-            log_warning "Port $LIVEREVIEW_BACKEND_PORT appears to be in use"
+        if netstat -tln | grep -q ":${backend_port} "; then
+            log_warning "Port $backend_port appears to be in use"
         fi
-        if netstat -tln | grep -q ":${LIVEREVIEW_FRONTEND_PORT} "; then
-            log_warning "Port $LIVEREVIEW_FRONTEND_PORT appears to be in use"
+        if netstat -tln | grep -q ":${frontend_port} "; then
+            log_warning "Port $frontend_port appears to be in use"
         fi
     fi
     
@@ -1117,25 +1344,27 @@ validate_configuration() {
         log_warning "JWT secret is shorter than 32 characters"
     fi
     
-    # Validate deployment mode configuration
-    if [[ "$LIVEREVIEW_REVERSE_PROXY" != "true" && "$LIVEREVIEW_REVERSE_PROXY" != "false" ]]; then
-        log_error "Invalid LIVEREVIEW_REVERSE_PROXY value: must be 'true' or 'false'"
+    # Validate API URL is set
+    if [[ -z "$API_URL" && -z "$LIVEREVIEW_API_URL" ]]; then
+        log_error "API_URL not set - configuration may be incomplete"
         return 1
     fi
     
     # Show configuration summary
     log_info "Configuration summary:"
-    log_info "  - Deployment mode: $DEPLOYMENT_MODE"
-    log_info "  - Backend port: $LIVEREVIEW_BACKEND_PORT"
-    log_info "  - Frontend port: $LIVEREVIEW_FRONTEND_PORT"
-    log_info "  - Reverse proxy: $LIVEREVIEW_REVERSE_PROXY"
+    log_info "  - Deployment mode: $deployment_mode"
+    log_info "  - Backend port: $backend_port"
+    log_info "  - Frontend port: $frontend_port"
+    log_info "  - API URL: ${API_URL:-$LIVEREVIEW_API_URL}"
     
-    if [[ "$DEPLOYMENT_MODE" == "demo" ]]; then
-        log_info "  - Access URL: http://localhost:$LIVEREVIEW_FRONTEND_PORT"
+    if [[ "$deployment_mode" == "demo" ]]; then
+        log_info "  - Access URL: http://localhost:$frontend_port"
         log_info "  - Webhooks: Disabled (manual triggers only)"
+        log_info "  - Binding: localhost only (secure local development)"
     else
         log_info "  - Requires reverse proxy configuration"
         log_info "  - Webhooks: Enabled (automatic triggers)"
+        log_info "  - Binding: 127.0.0.1 (behind reverse proxy)"
     fi
     
     log_success "Configuration validation completed"
@@ -1222,102 +1451,125 @@ handle_existing_directories() {
 # FILE GENERATION FROM TEMPLATES (PHASE 4)
 # =============================================================================
 
-# Generate .env file from template with simplified two-mode configuration
+# Generate .env file with simplified configuration approach
 generate_env_file() {
     local config_file="$1"
     local output_file="$LIVEREVIEW_INSTALL_DIR/.env"
     
-    log_info "Generating .env file..."
+    log_info "Generating .env file with simplified configuration..."
     
     # Source configuration
     source "$config_file"
     
-    # Extract .env template and substitute variables
-    if ! extract_data ".env" "$output_file"; then
-        error_exit "Failed to extract .env template"
-    fi
+    # Use new variables with fallback to legacy ones
+    local deployment_mode="${DEPLOYMENT_MODE:-demo}"
+    local backend_port="${BACKEND_PORT:-$LIVEREVIEW_BACKEND_PORT}"
+    local frontend_port="${FRONTEND_PORT:-$LIVEREVIEW_FRONTEND_PORT}"
     
-    # Substitute variables in the .env file
-    sed -i "s/\${DB_PASSWORD}/$DB_PASSWORD/g" "$output_file"
-    sed -i "s/\${JWT_SECRET}/$JWT_SECRET/g" "$output_file"
-    sed -i "s/\${LIVEREVIEW_VERSION}/$LIVEREVIEW_VERSION/g" "$output_file"
+    # Configure deployment variables based on mode
+    configure_deployment_mode "$deployment_mode" "$backend_port" "$frontend_port"
     
-    # Add deployment mode configuration
-    cat >> "$output_file" << EOF
+    # Generate the complete .env file
+    cat > "$output_file" << EOF
+# LiveReview Environment Configuration
+# Generated by lrops.sh installer with simplified configuration system
+# Version: ${LIVEREVIEW_VERSION:-latest}
 
-# Two-Mode Deployment Configuration (auto-configured)
-LIVEREVIEW_BACKEND_PORT=$LIVEREVIEW_BACKEND_PORT
-LIVEREVIEW_FRONTEND_PORT=$LIVEREVIEW_FRONTEND_PORT
-LIVEREVIEW_REVERSE_PROXY=$LIVEREVIEW_REVERSE_PROXY
+#==============================================================================
+# DEPLOYMENT MODE (Required - Change this to switch modes)
+#==============================================================================
+DEPLOYMENT_MODE=$deployment_mode
 
-# API URL Configuration for Frontend
-# In demo mode: frontend connects directly to backend port
-# In production mode: frontend connects via reverse proxy
-EOF
+#==============================================================================
+# CORE CONFIGURATION (Required)
+#==============================================================================
+# Database Configuration
+DB_PASSWORD=$DB_PASSWORD
+DATABASE_URL=postgres://livereview:$DB_PASSWORD@livereview-db:5432/livereview?sslmode=disable
 
-    # Configure API URL based on deployment mode
-    if [[ "$LIVEREVIEW_REVERSE_PROXY" == "true" ]]; then
-        # Production mode: API calls go through reverse proxy
-        cat >> "$output_file" << EOF
-LIVEREVIEW_API_URL=http://localhost/api
-VITE_API_URL=http://localhost/api
-REACT_APP_API_URL=http://localhost/api
-NEXT_PUBLIC_API_URL=http://localhost/api
-EOF
-    else
-        # Demo mode: API calls go directly to backend port
-        cat >> "$output_file" << EOF
-LIVEREVIEW_API_URL=http://localhost:$LIVEREVIEW_BACKEND_PORT
-VITE_API_URL=http://localhost:$LIVEREVIEW_BACKEND_PORT
-REACT_APP_API_URL=http://localhost:$LIVEREVIEW_BACKEND_PORT
-NEXT_PUBLIC_API_URL=http://localhost:$LIVEREVIEW_BACKEND_PORT
-EOF
-    fi
+# Security Configuration
+JWT_SECRET=$JWT_SECRET
 
-    cat >> "$output_file" << EOF
+#==============================================================================
+# OPTIONAL CONFIGURATION
+#==============================================================================
+# Application Configuration
+LIVEREVIEW_VERSION=${LIVEREVIEW_VERSION:-latest}
+LOG_LEVEL=info
 
-# Deployment mode: $DEPLOYMENT_MODE
-# Demo mode: localhost-only, no webhooks, manual triggers only
-# Production mode: reverse proxy, webhooks enabled, external access
+# API Endpoint (auto-set based on DEPLOYMENT_MODE)
+# $deployment_mode mode: $API_URL
+API_URL=$API_URL
+
+# Session Configuration (optional)
+ACCESS_TOKEN_DURATION_HOURS=8
+REFRESH_TOKEN_DURATION_DAYS=30
+
+# AI Integration (optional - configure as needed)
+# OPENAI_API_KEY=your_openai_api_key
+# GOOGLE_AI_API_KEY=your_google_ai_api_key
+
+#==============================================================================
+# ADVANCED CONFIGURATION (Auto-managed - modify only if needed)
+#==============================================================================
+# Ports (${deployment_mode} mode defaults)
+BACKEND_PORT=$backend_port
+FRONTEND_PORT=$frontend_port
+
+# Framework-specific API URL variables (auto-generated from API_URL)
+VITE_API_URL=$API_URL
+REACT_APP_API_URL=$API_URL
+NEXT_PUBLIC_API_URL=$API_URL
+
+# Legacy variable support (auto-generated for backward compatibility)
+LIVEREVIEW_BACKEND_PORT=$backend_port
+LIVEREVIEW_FRONTEND_PORT=$frontend_port
+LIVEREVIEW_REVERSE_PROXY=$REVERSE_PROXY
+LIVEREVIEW_API_URL=$API_URL
+
 EOF
 
     # Add deployment mode-specific comments and guidance
-    if [[ "$DEPLOYMENT_MODE" == "demo" ]]; then
+    if [[ "$deployment_mode" == "demo" ]]; then
         cat >> "$output_file" << EOF
-
+# ============================================================================
 # DEMO MODE CONFIGURATION
-# - Access: http://localhost:$LIVEREVIEW_FRONTEND_PORT
-# - API: http://localhost:$LIVEREVIEW_BACKEND_PORT
+# ============================================================================
+# - Access: http://localhost:$frontend_port
+# - API: http://localhost:$backend_port
 # - Webhooks: Disabled (manual triggers only)
 # - External access: Not configured
-# 
+# - Binding: localhost only (secure local development)
+#
 # To upgrade to production mode:
-# 1. Set LIVEREVIEW_REVERSE_PROXY=true
-# 2. Restart services: docker compose restart
+# 1. Change DEPLOYMENT_MODE=production
+# 2. Restart services: cd $LIVEREVIEW_INSTALL_DIR && docker compose restart
 # 3. Configure reverse proxy (see: lrops.sh help nginx)
+
 EOF
     else
         cat >> "$output_file" << EOF
-
+# ============================================================================
 # PRODUCTION MODE CONFIGURATION  
-# - Reverse proxy required for external access
-# - Webhooks enabled for automatic triggers
-# - External access ready (configure DNS and reverse proxy)
+# ============================================================================
+# - Access: Via reverse proxy (port 80/443)
+# - API: http://localhost/api (via reverse proxy)
+# - Webhooks: Enabled (automatic triggers)
+# - External access: Configured
+# - Binding: 127.0.0.1 (behind reverse proxy)
 #
-# Configure your reverse proxy to route:
-# - /api/* → http://127.0.0.1:$LIVEREVIEW_BACKEND_PORT
-# - /* → http://127.0.0.1:$LIVEREVIEW_FRONTEND_PORT
-#
-# For SSL setup: lrops.sh help ssl
-# For nginx config: lrops.sh help nginx
-# For caddy config: lrops.sh help caddy
+# Reverse proxy configuration required:
+# - Route /api/* → http://127.0.0.1:$backend_port
+# - Route /* → http://127.0.0.1:$frontend_port
+# - See: lrops.sh help nginx
+
 EOF
     fi
     
     # Set secure permissions on .env file (readable by Docker containers)
     chmod 644 "$output_file"
     
-    log_success "Generated .env file with $DEPLOYMENT_MODE mode configuration"
+    log_success "Generated .env file with $deployment_mode mode configuration"
 }
 
 # Generate docker-compose.yml from template with two-mode configuration
@@ -1741,7 +1993,7 @@ show_status() {
     # Check if installation exists
     if [[ ! -d "$LIVEREVIEW_INSTALL_DIR" ]]; then
         log_error "LiveReview is not installed"
-        log_info "Run 'lrops.sh --express' to install"
+        log_info "Run 'lrops.sh setup-demo' to install"
         return 1
     fi
     
@@ -1753,12 +2005,7 @@ show_status() {
         return 1
     fi
     
-    cd "$LIVEREVIEW_INSTALL_DIR" || {
-        log_error "Cannot access installation directory"
-        return 1
-    }
-    
-    # Show container status
+    # Show container status (using docker_compose function which handles paths correctly)
     log_info "Container Status:"
     if docker_compose ps 2>/dev/null | grep -q "livereview"; then
         docker_compose ps
@@ -1780,11 +2027,11 @@ show_status() {
         log_info "Run 'lrops.sh start' to start services"
     fi
     
-    # Show version information
+    # Show version information (using absolute path)
     echo
     log_info "Version Information:"
-    if [[ -f ".env" ]]; then
-        local lr_version=$(grep "LIVEREVIEW_VERSION=" .env | cut -d'=' -f2)
+    if [[ -f "$LIVEREVIEW_INSTALL_DIR/.env" ]]; then
+        local lr_version=$(grep "LIVEREVIEW_VERSION=" "$LIVEREVIEW_INSTALL_DIR/.env" | cut -d'=' -f2)
         log_info "  LiveReview: ${lr_version:-unknown}"
     fi
     log_info "  Script: $SCRIPT_VERSION"
@@ -1853,17 +2100,12 @@ start_containers_cmd() {
     
     if [[ ! -d "$LIVEREVIEW_INSTALL_DIR" ]]; then
         log_error "LiveReview is not installed"
-        log_info "Run 'lrops.sh --express' to install"
+        log_info "Run 'lrops.sh setup-demo' to install"
         return 1
     fi
     
-    cd "$LIVEREVIEW_INSTALL_DIR" || {
-        log_error "Cannot access installation directory: $LIVEREVIEW_INSTALL_DIR"
-        return 1
-    }
-    
-    if [[ ! -f "docker-compose.yml" ]]; then
-        log_error "Docker Compose configuration not found"
+    if [[ ! -f "$LIVEREVIEW_INSTALL_DIR/docker-compose.yml" ]]; then
+        log_error "Docker Compose configuration not found at: $LIVEREVIEW_INSTALL_DIR/docker-compose.yml"
         return 1
     fi
     
@@ -1894,11 +2136,6 @@ stop_containers_cmd() {
         return 1
     fi
     
-    cd "$LIVEREVIEW_INSTALL_DIR" || {
-        log_error "Cannot access installation directory: $LIVEREVIEW_INSTALL_DIR"
-        return 1
-    }
-    
     log_info "Stopping LiveReview containers..."
     
     if docker_compose down; then
@@ -1917,11 +2154,6 @@ restart_containers_cmd() {
         log_error "LiveReview is not installed"
         return 1
     fi
-    
-    cd "$LIVEREVIEW_INSTALL_DIR" || {
-        log_error "Cannot access installation directory: $LIVEREVIEW_INSTALL_DIR"
-        return 1
-    }
     
     log_info "Restarting LiveReview containers..."
     
@@ -1952,11 +2184,6 @@ show_logs() {
         log_error "LiveReview is not installed"
         return 1
     fi
-    
-    cd "$LIVEREVIEW_INSTALL_DIR" || {
-        log_error "Cannot access installation directory: $LIVEREVIEW_INSTALL_DIR"
-        return 1
-    }
     
     if [[ -n "$service" ]]; then
         log_info "Showing logs for service: $service"
@@ -2796,7 +3023,195 @@ provide_troubleshooting_guidance() {
     fi
 }
 
+# =============================================================================
+# DIAGNOSTIC FUNCTIONS
+# =============================================================================
+
+# Run comprehensive diagnostics
+run_diagnostics() {
+    section_header "LIVEREVIEW DIAGNOSTICS"
+    
+    log_info "Running comprehensive LiveReview diagnostics..."
+    echo
+    
+    # Basic system information
+    log_info "🖥️  System Information:"
+    log_info "  - OS: $(uname -s) $(uname -r)"
+    log_info "  - Architecture: $(uname -m)"
+    log_info "  - User: $(whoami)"
+    log_info "  - Working Directory: $(pwd)"
+    echo
+    
+    # Check for LiveReview installation
+    log_info "📁 Installation Detection:"
+    if detect_livereview_installation; then
+        log_success "  ✅ LiveReview installation found: $LIVEREVIEW_INSTALL_DIR"
+        
+        # Check installation files
+        if [[ -f "$LIVEREVIEW_INSTALL_DIR/docker-compose.yml" ]]; then
+            log_success "  ✅ docker-compose.yml exists"
+        else
+            log_error "  ❌ docker-compose.yml missing"
+        fi
+        
+        if [[ -f "$LIVEREVIEW_INSTALL_DIR/.env" ]]; then
+            log_success "  ✅ .env file exists"
+        else
+            log_error "  ❌ .env file missing"
+        fi
+        
+        if [[ -d "$LIVEREVIEW_INSTALL_DIR/lrdata" ]]; then
+            log_success "  ✅ Data directory exists"
+        else
+            log_warning "  ⚠️  Data directory missing"
+        fi
+    else
+        log_error "  ❌ No LiveReview installation detected"
+        log_info "  💡 Run 'lrops.sh setup-demo' to install"
+    fi
+    echo
+    
+    # Check Docker
+    log_info "🐳 Docker Environment:"
+    if command -v docker >/dev/null 2>&1; then
+        log_success "  ✅ Docker command available"
+        
+        if docker info >/dev/null 2>&1; then
+            log_success "  ✅ Docker daemon running"
+            local docker_version=$(docker --version | cut -d' ' -f3 | sed 's/,//')
+            log_info "  📊 Docker version: $docker_version"
+        else
+            log_error "  ❌ Docker daemon not accessible"
+            log_info "  💡 Try: sudo systemctl start docker"
+        fi
+    else
+        log_error "  ❌ Docker not installed"
+    fi
+    
+    if detect_docker_compose_cmd; then
+        log_success "  ✅ Docker Compose available: $DOCKER_COMPOSE_CMD"
+    else
+        log_error "  ❌ Docker Compose not available"
+    fi
+    echo
+    
+    # Check containers (if installation exists)
+    if [[ -d "$LIVEREVIEW_INSTALL_DIR" ]]; then
+        log_info "📦 Container Status:"
+        
+        local containers_found=false
+        if docker ps -a --filter "name=livereview" --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}" | grep -q livereview; then
+            containers_found=true
+            log_success "  ✅ LiveReview containers found:"
+            docker ps -a --filter "name=livereview" --format "  {{.Names}}: {{.Status}}" | sed 's/^/    /'
+            
+            # Check if containers are healthy
+            local running_containers=$(docker ps --filter "name=livereview" --format "{{.Names}}" | wc -l)
+            if [[ $running_containers -gt 0 ]]; then
+                log_success "  ✅ $running_containers container(s) running"
+            else
+                log_warning "  ⚠️  No containers currently running"
+            fi
+        else
+            log_warning "  ⚠️  No LiveReview containers found"
+        fi
+        echo
+        
+        # Check ports if containers are running
+        if [[ "$containers_found" == "true" ]]; then
+            log_info "🌐 Network Connectivity:"
+            
+            # Check if ports are accessible
+            local api_port="8888"
+            local ui_port="8081"
+            
+            if curl -f -s --max-time 5 "http://localhost:$api_port/health" >/dev/null 2>&1; then
+                log_success "  ✅ API endpoint accessible (port $api_port)"
+            else
+                log_warning "  ⚠️  API endpoint not accessible (port $api_port)"
+            fi
+            
+            if curl -f -s --max-time 5 "http://localhost:$ui_port/" >/dev/null 2>&1; then
+                log_success "  ✅ UI endpoint accessible (port $ui_port)"
+            else
+                log_warning "  ⚠️  UI endpoint not accessible (port $ui_port)"
+            fi
+            echo
+        fi
+    fi
+    
+    # Check system resources
+    log_info "💾 System Resources:"
+    if command -v df >/dev/null 2>&1; then
+        local disk_usage=$(df /opt 2>/dev/null | awk 'NR==2 {print $5}' || echo "N/A")
+        log_info "  📊 Disk usage (/opt): $disk_usage"
+    fi
+    
+    if command -v free >/dev/null 2>&1; then
+        local memory_usage=$(free -h | awk 'NR==2{printf "%.1f%", $3*100/$2}' || echo "N/A")
+        log_info "  📊 Memory usage: $memory_usage"
+    fi
+    echo
+    
+    # Check recent logs for errors
+    if [[ -d "$LIVEREVIEW_INSTALL_DIR" ]] && docker ps --filter "name=livereview" --format "{{.Names}}" | grep -q livereview; then
+        log_info "📋 Recent Issues:"
+        local recent_errors=$(docker_compose logs --since=1h 2>/dev/null | grep -i "error\|fail\|panic\|fatal" | grep -v '"error":""' | wc -l)
+        
+        if [[ $recent_errors -eq 0 ]]; then
+            log_success "  ✅ No recent errors in logs"
+        else
+            log_warning "  ⚠️  Found $recent_errors recent error(s) in logs"
+            log_info "  💡 Run 'lrops.sh logs' to view detailed logs"
+        fi
+        echo
+    fi
+    
+    # Summary and recommendations
+    log_info "💡 Recommendations:"
+    if [[ ! -d "$LIVEREVIEW_INSTALL_DIR" ]]; then
+        log_info "  • Install LiveReview: lrops.sh setup-demo"
+    elif ! docker ps --filter "name=livereview" --format "{{.Names}}" | grep -q livereview; then
+        log_info "  • Start LiveReview: lrops.sh start"
+    else
+        log_info "  • Check detailed status: lrops.sh status"
+        log_info "  • View logs: lrops.sh logs"
+    fi
+    
+    log_success "Diagnostics completed!"
+}
+
 main() {
+    # Detect existing LiveReview installation for management commands
+    # This will update LIVEREVIEW_INSTALL_DIR if an installation is found
+    local is_management_command=false
+    
+    case "${1:-}" in
+        status|info|start|stop|restart|logs|help)
+            is_management_command=true
+            ;;
+        setup-demo|setup-production)
+            is_management_command=false  # These are installation commands
+            ;;
+    esac
+    
+    # Only auto-detect for management commands, not installation commands
+    if [[ "$is_management_command" == "true" ]]; then
+        detect_livereview_installation || {
+            # If no installation found for management commands, show helpful error
+            case "${1:-}" in
+                status|info|start|stop|restart|logs)
+                    log_error "No LiveReview installation found"
+                    log_info "LiveReview may not be installed, or installed in a non-standard location."
+                    log_info "Standard installation location: /opt/livereview"
+                    log_info "To install LiveReview, run: lrops.sh setup-demo"
+                    log_info "To specify custom location, set: export LIVEREVIEW_INSTALL_DIR=/path/to/livereview"
+                    exit 1
+                    ;;
+            esac
+        }
+    fi
+    
     # Check for management commands first (before parsing complex arguments)
     case "${1:-}" in
         status)
@@ -2929,7 +3344,7 @@ main() {
     fi
     
     if [[ "$DIAGNOSE" == "true" ]]; then
-        log_info "Diagnostic functionality not yet implemented"
+        run_diagnostics
         exit 0
     fi
     
