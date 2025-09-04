@@ -12,7 +12,23 @@ set -euo pipefail  # Exit on error, undefined vars, pipe failures
 
 SCRIPT_VERSION="1.0.0"
 SCRIPT_NAME="lrops.sh"
-LIVEREVIEW_INSTALL_DIR="${LIVEREVIEW_INSTALL_DIR:-/opt/livereview}"
+# Resolve invoking user and home directory robustly (works with sudo)
+# Priority: SUDO_UID/SUDO_USER -> tilde expansion -> current $HOME
+INVOKING_USER="${SUDO_USER:-${USER:-$(id -un 2>/dev/null || echo "")}}"
+if [[ -n "${SUDO_UID:-}" ]]; then
+    INVOKING_HOME="$(getent passwd "${SUDO_UID}" 2>/dev/null | awk -F: '{print $6}')"
+fi
+if [[ -z "${INVOKING_HOME:-}" || ! -d "$INVOKING_HOME" ]]; then
+    if [[ -n "${SUDO_USER:-}" ]]; then
+        INVOKING_HOME="$(eval echo ~"${SUDO_USER}")"
+    fi
+fi
+if [[ -z "${INVOKING_HOME:-}" || ! -d "$INVOKING_HOME" ]]; then
+    INVOKING_HOME="${HOME}"
+fi
+# Default install dir: invoking user's home (never root's HOME when run via sudo)
+DEFAULT_HOME_DIR="${INVOKING_HOME}"
+LIVEREVIEW_INSTALL_DIR="${LIVEREVIEW_INSTALL_DIR:-${DEFAULT_HOME_DIR}/livereview}"
 LIVEREVIEW_SCRIPT_PATH="/usr/local/bin/lrops.sh"
 GITHUB_REPO="HexmosTech/LiveReview"
 GITHUB_API_BASE="https://api.github.com/repos/${GITHUB_REPO}"
@@ -77,6 +93,10 @@ cleanup() {
         log_error "Script failed with exit code $exit_code"
         log_info "For troubleshooting help, run: $0 --help"
     fi
+    # Stop sudo keepalive process if running
+    if [[ -n "${SUDO_REFRESH_PID:-}" ]]; then
+        kill "${SUDO_REFRESH_PID}" 2>/dev/null || true
+    fi
     exit $exit_code
 }
 
@@ -88,6 +108,59 @@ error_exit() {
 }
 
 # =============================================================================
+# SUDO SESSION AND DOCKER PRIVILEGES
+# =============================================================================
+
+# Keep sudo alive during script run to avoid repeated prompts
+ensure_sudo_session() {
+    # Only if not already root and sudo is available
+    if [[ $EUID -ne 0 ]] && command -v sudo >/dev/null 2>&1; then
+        log_info "Requesting sudo access upfront (to avoid repeated prompts)..."
+        if sudo -v; then
+            # Refresh sudo timestamp in background
+            (
+                while true; do
+                    sleep 60
+                    sudo -n true 2>/dev/null || true
+                done
+            ) &
+            SUDO_REFRESH_PID=$!
+            log_debug "Sudo keepalive process started (PID: $SUDO_REFRESH_PID)"
+        else
+            log_warning "Could not obtain sudo credentials now; you may be prompted later."
+        fi
+    fi
+}
+
+# If Docker requires sudo, transparently wrap docker/docker-compose commands
+maybe_enable_sudo_for_docker() {
+    # If docker CLI not present, nothing to do here
+    command -v docker >/dev/null 2>&1 || return 0
+
+    if docker info >/dev/null 2>&1; then
+        return 0  # No sudo needed
+    fi
+
+    # Try with sudo non-interactively first
+    if command -v sudo >/dev/null 2>&1 && sudo -n docker info >/dev/null 2>&1; then
+        :
+    else
+        # Fall back to interactive sudo attempt (may prompt once)
+        if command -v sudo >/dev/null 2>&1 && sudo docker info >/dev/null 2>&1; then
+            :
+        else
+            return 0  # Cannot use sudo either; let the regular checks report errors
+        fi
+    fi
+
+    # At this point docker works with sudo, set wrappers
+    log_info "Docker requires sudo; enabling automatic sudo for Docker commands"
+    USE_SUDO_DOCKER=true
+    # Define shell function for docker (covers 'docker compose' plugin)
+    docker() { command sudo docker "$@"; }
+}
+
+# =============================================================================
 # LIVEREVIEW INSTALLATION DETECTION
 # =============================================================================
 
@@ -96,13 +169,14 @@ detect_livereview_installation() {
     local detected_dir=""
     
     # Method 1: Check default location
-    if [[ -f "/opt/livereview/docker-compose.yml" && -f "/opt/livereview/.env" ]]; then
-        detected_dir="/opt/livereview"
+    local default_dir="${DEFAULT_HOME_DIR}/livereview"
+    if [[ -f "$default_dir/docker-compose.yml" && -f "$default_dir/.env" ]]; then
+        detected_dir="$default_dir"
         log_debug "Found LiveReview installation at default location: $detected_dir"
     fi
     
     # Method 2: Check environment variable override
-    if [[ -n "${LIVEREVIEW_INSTALL_DIR:-}" && "$LIVEREVIEW_INSTALL_DIR" != "/opt/livereview" ]]; then
+    if [[ -n "${LIVEREVIEW_INSTALL_DIR:-}" && "$LIVEREVIEW_INSTALL_DIR" != "$default_dir" ]]; then
         if [[ -f "$LIVEREVIEW_INSTALL_DIR/docker-compose.yml" && -f "$LIVEREVIEW_INSTALL_DIR/.env" ]]; then
             detected_dir="$LIVEREVIEW_INSTALL_DIR"
             log_debug "Found LiveReview installation at specified location: $detected_dir"
@@ -112,9 +186,7 @@ detect_livereview_installation() {
     # Method 3: Check other common locations
     if [[ -z "$detected_dir" ]]; then
         local common_locations=(
-            "/var/lib/livereview"
-            "/usr/local/livereview"
-            "/home/$(whoami)/livereview"
+            "$default_dir"
             "./livereview"
             "."
         )
@@ -165,8 +237,8 @@ detect_livereview_installation() {
     
     # Method 5: Search filesystem (last resort, limited scope)
     if [[ -z "$detected_dir" ]]; then
-        log_debug "Searching filesystem for LiveReview installation..."
-        local search_paths=("/opt" "/var/lib" "/usr/local" "/home/$(whoami)")
+    log_debug "Searching filesystem for LiveReview installation..."
+    local search_paths=("${DEFAULT_HOME_DIR}" ".")
         
         for search_path in "${search_paths[@]}"; do
             if [[ -d "$search_path" ]]; then
@@ -207,10 +279,15 @@ DOCKER_COMPOSE_CMD=""
 detect_docker_compose_cmd() {
     if command -v docker-compose >/dev/null 2>&1; then
         # Legacy docker-compose is available
-        DOCKER_COMPOSE_CMD="docker-compose"
+        if [[ "${USE_SUDO_DOCKER:-false}" == "true" ]]; then
+            DOCKER_COMPOSE_CMD="sudo docker-compose"
+        else
+            DOCKER_COMPOSE_CMD="docker-compose"
+        fi
         log_debug "Using legacy docker-compose command"
     elif docker compose version >/dev/null 2>&1; then
         # Modern docker compose plugin is available
+        # 'docker' may already be wrapped to sudo by maybe_enable_sudo_for_docker
         DOCKER_COMPOSE_CMD="docker compose"
         log_debug "Using modern docker compose plugin"
     else
@@ -220,152 +297,6 @@ detect_docker_compose_cmd() {
     return 0
 }
 
-# =============================================================================
-# SNAP-BASED DOCKER COMPATIBILITY (HOMEDIRS)
-# =============================================================================
-
-# Determine if docker is installed via snap
-is_snap_docker() {
-    # Requires both snap and a docker binary linked from /snap or listed by snap
-    if ! command -v docker >/dev/null 2>&1; then
-        return 1
-    fi
-    if command -v snap >/dev/null 2>&1; then
-        # Check via snap list and binary path
-        if snap list docker >/dev/null 2>&1; then
-            return 0
-        fi
-        local docker_path
-        docker_path=$(readlink -f "$(command -v docker)" 2>/dev/null || true)
-        if [[ "$docker_path" == /snap/* ]]; then
-            return 0
-        fi
-    fi
-    return 1
-}
-
-# Get snapd version string (e.g., 2.61.1) or empty on failure
-get_snapd_version() {
-    if ! command -v snap >/dev/null 2>&1; then
-        echo ""
-        return 1
-    fi
-    # Prefer: snap version | awk '/^snap[[:space:]]+/ {print $2}'
-    local v
-    v=$(snap version 2>/dev/null | awk '/^snap[[:space:]]+/ {print $2; exit}')
-    if [[ -z "$v" ]]; then
-        v=$(snap --version 2>/dev/null | awk '/^snap[[:space:]]+/ {print $2; exit}')
-    fi
-    echo "$v"
-}
-
-# Compare versions: returns 0 if $1 >= $2
-version_ge() {
-    # Handles semantic-like numeric dot-separated versions using sort -V
-    # Usage: version_ge "2.60" "2.59"
-    local a="$1" b="$2"
-    [[ "$(printf '%s\n%s\n' "$b" "$a" | sort -V | head -n1)" == "$b" ]]
-}
-
-# Ensure snap is configured to allow managing LIVEREVIEW_INSTALL_DIR with snap-docker
-ensure_snap_docker_homedirs() {
-    # Only relevant if docker is from snap and install dir is outside user's home
-    if ! is_snap_docker; then
-        log_debug "Docker is not a snap installation; no snap homedirs action needed"
-        return 0
-    fi
-
-    # If installing under $HOME, snap limitation typically doesn't apply
-    local home_dir="${HOME:-}"
-    if [[ -n "$home_dir" && "$LIVEREVIEW_INSTALL_DIR" == "$home_dir"* ]]; then
-        log_debug "Installation under HOME; snap homedirs change not required"
-        return 0
-    fi
-
-    # Require snapd >= 2.59
-    local snap_ver
-    snap_ver=$(get_snapd_version)
-    if [[ -z "$snap_ver" ]]; then
-        log_error "Docker is from snap, but snapd version could not be determined."
-        log_info "Please ensure snapd is installed and accessible, or install Docker via apt."
-        return 1
-    fi
-    if ! version_ge "$snap_ver" "2.59"; then
-        log_error "snapd $snap_ver detected. snapd < 2.59 is not supported for /opt installs with snap Docker."
-        log_info "Options:"
-        log_info "  • Upgrade snapd to >= 2.59 and re-run this script"
-        log_info "  • Or uninstall snap Docker and install Docker via apt (recommended) and try again"
-        return 1
-    fi
-
-    # Read current homedirs value
-    local current_homedirs=""
-    current_homedirs=$(snap get system homedirs 2>/dev/null | awk -F': ' '{print $2}' | tr -d '\n' || true)
-
-    # If already includes the install dir, nothing to do
-    if [[ -n "$current_homedirs" && "$current_homedirs" == *"$LIVEREVIEW_INSTALL_DIR"* ]]; then
-        log_success "snapd homedirs already includes $LIVEREVIEW_INSTALL_DIR"
-        return 0
-    fi
-
-    # Compute new setting value (append if existing)
-    local new_homedirs
-    if [[ -z "$current_homedirs" || "$current_homedirs" == "null" ]]; then
-        new_homedirs="$LIVEREVIEW_INSTALL_DIR"
-    else
-        # Avoid duplicate separators
-        if [[ "$current_homedirs" == *":" ]]; then
-            new_homedirs="${current_homedirs}$LIVEREVIEW_INSTALL_DIR"
-        else
-            new_homedirs="${current_homedirs}:$LIVEREVIEW_INSTALL_DIR"
-        fi
-    fi
-
-    # Respect dry-run and express/interactive modes
-    if [[ "$DRY_RUN" == "true" ]]; then
-        log_info "[DRY RUN] Would configure snapd to allow /opt/livereview:"
-        log_info "          sudo snap set system homedirs=\"$new_homedirs\""
-        log_info "[DRY RUN] Would restart snapd to apply changes"
-        return 0
-    fi
-
-    if [[ "$EXPRESS_MODE" != "true" ]]; then
-        echo
-    log_warning "Docker is installed via snap. To manage containers in $LIVEREVIEW_INSTALL_DIR,"
-        log_warning "we need to configure snapd homedirs and restart snapd."
-        echo "This will run:"
-        echo "  sudo snap set system homedirs=\"$new_homedirs\""
-        echo "  sudo systemctl restart snapd   (fallback: sudo snap restart snapd)"
-        read -r -p "Proceed with snapd configuration now? [Y/n]: " REPLY
-        if [[ ! "$REPLY" =~ ^([Yy]|)$ ]]; then
-            error_exit "Aborting per user choice. snapd not configured; install under HOME or use apt-installed Docker."
-        fi
-    else
-        log_info "Express mode: configuring snapd homedirs automatically for /opt/livereview"
-    fi
-
-    # Apply configuration
-    if sudo snap set system homedirs="$new_homedirs"; then
-        log_success "Configured snapd homedirs: $new_homedirs"
-    else
-        error_exit "Failed to configure snapd homedirs. Try running the command manually as root."
-    fi
-
-    # Restart snapd to apply
-    if sudo systemctl restart snapd 2>/dev/null; then
-        log_success "snapd restarted to apply homedirs changes"
-    else
-        if sudo snap restart snapd 2>/dev/null; then
-            log_success "snapd restarted via 'snap restart'"
-        else
-            log_warning "Could not restart snapd automatically. Please restart snapd or reboot to apply changes."
-        fi
-    fi
-
-    # Brief pause to allow snapd to reinitialize
-    sleep 2
-    return 0
-}
 
 # Wrapper function to execute docker compose commands
 docker_compose() {
@@ -680,10 +611,14 @@ check_system_prerequisites() {
             ;;
     esac
     
-    # Check available disk space
-    local available_space=$(df /opt 2>/dev/null | awk 'NR==2 {print $4}' || echo "0")
-    if [[ $available_space -lt 2097152 ]]; then  # 2GB in KB
-        log_warning "Low disk space in /opt. At least 2GB recommended."
+    # Check available disk space on target filesystem
+    local target_fs
+    target_fs="${LIVEREVIEW_INSTALL_DIR:-${DEFAULT_HOME_DIR}/livereview}"
+    mkdir -p "$target_fs" 2>/dev/null || true
+    local available_space
+    available_space=$(df -P "$target_fs" 2>/dev/null | awk 'NR==2 {print $4}' || echo "0")
+    if [[ ${available_space:-0} -lt 2097152 ]]; then  # 2GB in KB
+        log_warning "Low disk space for $target_fs. At least 2GB recommended."
     else
         log_success "Sufficient disk space available"
     fi
@@ -1579,6 +1514,11 @@ create_directory_structure() {
         fi
     done
     
+    # Ensure ownership by invoking user (when running with sudo)
+    if [[ -n "${SUDO_UID:-}" && -n "${SUDO_GID:-}" ]]; then
+        chown -R "${SUDO_UID}:${SUDO_GID}" "$LIVEREVIEW_INSTALL_DIR" 2>/dev/null || true
+    fi
+
     # Set proper permissions
     log_info "Setting directory permissions..."
     
@@ -1679,6 +1619,10 @@ EOF
     
     # Set secure permissions on .env file (readable by Docker containers)
     chmod 644 "$output_file"
+    # Ensure ownership by invoking user
+    if [[ -n "${SUDO_UID:-}" && -n "${SUDO_GID:-}" ]]; then
+        chown "${SUDO_UID}:${SUDO_GID}" "$output_file" 2>/dev/null || true
+    fi
     
     log_success "Generated .env file with $deployment_mode mode configuration"
 }
@@ -1713,6 +1657,10 @@ generate_docker_compose() {
     sed -i "s/\${LIVEREVIEW_VERSION}/$LIVEREVIEW_VERSION/g" "$output_file"
     sed -i "s/\${DB_PASSWORD}/\${DB_PASSWORD}/g" "$output_file"  # Keep as variable reference
     # Ports are parameterized; no hard substitution required beyond defaults
+    # Ensure ownership by invoking user
+    if [[ -n "${SUDO_UID:-}" && -n "${SUDO_GID:-}" ]]; then
+        chown "${SUDO_UID}:${SUDO_GID}" "$output_file" 2>/dev/null || true
+    fi
     
     log_success "Generated docker-compose.yml with $deployment_mode mode configuration"
     log_info "Port mappings: Frontend=$frontend_port, Backend=$backend_port"
@@ -1740,6 +1688,10 @@ extract_templates_and_scripts() {
     
     # Set executable permissions on scripts
     chmod +x "$LIVEREVIEW_INSTALL_DIR/scripts/"*.sh 2>/dev/null || true
+    # Ensure ownership by invoking user
+    if [[ -n "${SUDO_UID:-}" && -n "${SUDO_GID:-}" ]]; then
+        chown -R "${SUDO_UID}:${SUDO_GID}" "$LIVEREVIEW_INSTALL_DIR/config" "$LIVEREVIEW_INSTALL_DIR/scripts" 2>/dev/null || true
+    fi
     
     log_success "Configuration templates and scripts extracted"
 }
@@ -1839,6 +1791,11 @@ This installation uses a simplified two-mode deployment system:
 
 For support, visit: https://github.com/HexmosTech/LiveReview
 EOF
+
+    # Ensure ownership by invoking user
+    if [[ -n "${SUDO_UID:-}" && -n "${SUDO_GID:-}" ]]; then
+        chown "${SUDO_UID}:${SUDO_GID}" "$summary_file" 2>/dev/null || true
+    fi
 
     log_info "Installation summary saved to: $summary_file"
 }
@@ -2408,7 +2365,7 @@ OPTION 1: Automated SSL Setup Script (NEW!)
 ==========================================
 Use the included SSL setup script for automatic configuration:
 
-   cd /opt/livereview/scripts
+    cd "$LIVEREVIEW_INSTALL_DIR/scripts"
    sudo ./setup-ssl.sh yourdomain.com admin@yourdomain.com
 
 This script will:
@@ -2420,15 +2377,15 @@ This script will:
 OPTION 2: Automatic SSL with Caddy (Recommended)
 ============================================
 1. Use the Caddy reverse proxy template:
-   cp /opt/livereview/config/caddy.conf.example /opt/livereview/caddy.conf
+    cp "$LIVEREVIEW_INSTALL_DIR/config/caddy.conf.example" "$LIVEREVIEW_INSTALL_DIR/caddy.conf"
 
 2. Edit the domain name in caddy.conf:
-   sed -i 's/your-domain.com/yourdomain.com/g' /opt/livereview/caddy.conf
+    sed -i 's/your-domain.com/yourdomain.com/g' "$LIVEREVIEW_INSTALL_DIR/caddy.conf"
 
 3. Install and run Caddy:
    sudo apt install caddy
    sudo systemctl enable caddy
-   sudo cp /opt/livereview/caddy.conf /etc/caddy/Caddyfile
+    sudo cp "$LIVEREVIEW_INSTALL_DIR/caddy.conf" /etc/caddy/Caddyfile
    sudo systemctl restart caddy
 
 OPTION 3: Manual SSL with Nginx + Certbot
@@ -2438,7 +2395,7 @@ OPTION 3: Manual SSL with Nginx + Certbot
    sudo apt install nginx certbot python3-certbot-nginx
 
 2. Copy and configure Nginx template:
-   sudo cp /opt/livereview/config/nginx.conf.example /etc/nginx/sites-available/livereview
+    sudo cp "$LIVEREVIEW_INSTALL_DIR/config/nginx.conf.example" /etc/nginx/sites-available/livereview
    sudo sed -i 's/your-domain.com/yourdomain.com/g' /etc/nginx/sites-available/livereview
    sudo ln -s /etc/nginx/sites-available/livereview /etc/nginx/sites-enabled/
    sudo nginx -t && sudo systemctl reload nginx
@@ -2457,7 +2414,7 @@ OPTION 4: Manual SSL with Apache
    sudo apt install apache2 certbot python3-certbot-apache
 
 2. Copy and configure Apache template:
-   sudo cp /opt/livereview/config/apache.conf.example /etc/apache2/sites-available/livereview.conf
+    sudo cp "$LIVEREVIEW_INSTALL_DIR/config/apache.conf.example" /etc/apache2/sites-available/livereview.conf
    sudo sed -i 's/your-domain.com/yourdomain.com/g' /etc/apache2/sites-available/livereview.conf
    sudo a2ensite livereview.conf
    sudo a2enmod proxy proxy_http ssl
@@ -2469,7 +2426,7 @@ OPTION 4: Manual SSL with Apache
 SSL MAINTENANCE
 ==============
 - Test certificate renewal: sudo certbot renew --dry-run
-- Manual renewal: cd /opt/livereview/scripts && sudo ./renew-ssl.sh
+- Manual renewal: cd "$LIVEREVIEW_INSTALL_DIR/scripts" && sudo ./renew-ssl.sh
 - Check certificate expiry: sudo certbot certificates
 - View certificate details: openssl x509 -in /etc/letsencrypt/live/yourdomain.com/cert.pem -text -noout
 
@@ -2512,10 +2469,10 @@ show_backup_help() {
 QUICK BACKUP
 ============
 Run the included backup script:
-  cd /opt/livereview
+    cd "$LIVEREVIEW_INSTALL_DIR"
   ./scripts/backup.sh
 
-This creates a timestamped backup in /opt/livereview/backups/
+This creates a timestamped backup in $LIVEREVIEW_INSTALL_DIR/backups/
 
 MANUAL BACKUP PROCESS
 ====================
@@ -2523,13 +2480,13 @@ MANUAL BACKUP PROCESS
    lrops.sh stop
 
 2. Backup database:
-   docker run --rm -v livereview_postgres_data:/backup-source \
-   -v /opt/livereview/backups:/backup-dest \
+    docker run --rm -v livereview_postgres_data:/backup-source \
+    -v "$LIVEREVIEW_INSTALL_DIR/backups":/backup-dest \
    postgres:15-alpine tar czf /backup-dest/db-$(date +%Y%m%d_%H%M%S).tar.gz /backup-source
 
 3. Backup configuration:
-   tar czf /opt/livereview/backups/config-$(date +%Y%m%d_%H%M%S).tar.gz \
-   /opt/livereview/.env /opt/livereview/docker-compose.yml /opt/livereview/config/
+    tar czf "$LIVEREVIEW_INSTALL_DIR/backups/config-$(date +%Y%m%d_%H%M%S).tar.gz" \
+    "$LIVEREVIEW_INSTALL_DIR/.env" "$LIVEREVIEW_INSTALL_DIR/docker-compose.yml" "$LIVEREVIEW_INSTALL_DIR/config/"
 
 4. Restart LiveReview:
    lrops.sh start
@@ -2551,7 +2508,7 @@ RESTORE PROCESS
 AUTOMATED BACKUP WITH CRON
 ===========================
 1. Copy the cron example:
-   sudo cp /opt/livereview/config/backup-cron.example /etc/cron.d/livereview-backup
+    sudo cp "$LIVEREVIEW_INSTALL_DIR/config/backup-cron.example" /etc/cron.d/livereview-backup
 
 2. Edit the cron file to set your schedule:
    sudo nano /etc/cron.d/livereview-backup
@@ -2565,7 +2522,7 @@ CLOUD BACKUP WITH RCLONE (Optional)
    rclone config
 
 3. Add cloud sync to backup script:
-   rclone sync /opt/livereview/backups/ mycloud:livereview-backups/
+    rclone sync "$LIVEREVIEW_INSTALL_DIR/backups/" mycloud:livereview-backups/
 
 BACKUP BEST PRACTICES:
 - Run backups daily
@@ -3021,7 +2978,7 @@ Health Check: http://localhost:${API_PORT}/health
 
 CONTAINER STATUS
 ================
-$(cd "$LIVEREVIEW_INSTALL_DIR" && docker-compose ps 2>/dev/null || echo "Unable to retrieve container status")
+$(cd "$LIVEREVIEW_INSTALL_DIR" && $DOCKER_COMPOSE_CMD ps 2>/dev/null || echo "Unable to retrieve container status")
 
 IMPORTANT FILES
 ===============
@@ -3342,8 +3299,8 @@ run_diagnostics() {
     # Check system resources
     log_info "💾 System Resources:"
     if command -v df >/dev/null 2>&1; then
-        local disk_usage=$(df /opt 2>/dev/null | awk 'NR==2 {print $5}' || echo "N/A")
-        log_info "  📊 Disk usage (/opt): $disk_usage"
+        local disk_usage=$(df "$LIVEREVIEW_INSTALL_DIR" 2>/dev/null | awk 'NR==2 {print $5}' || echo "N/A")
+        log_info "  📊 Disk usage ($LIVEREVIEW_INSTALL_DIR): $disk_usage"
     fi
     
     if command -v free >/dev/null 2>&1; then
@@ -3401,8 +3358,8 @@ main() {
             case "${1:-}" in
                 status|info|start|stop|restart|logs)
                     log_error "No LiveReview installation found"
-                    log_info "LiveReview may not be installed, or installed in a non-standard location."
-                    log_info "Standard installation location: /opt/livereview"
+            log_info "LiveReview may not be installed, or installed in a non-standard location."
+            log_info "Standard installation location: ${DEFAULT_HOME_DIR}/livereview"
                     log_info "To install LiveReview, run: lrops.sh setup-demo"
                     log_info "To specify custom location, set: export LIVEREVIEW_INSTALL_DIR=/path/to/livereview"
                     exit 1
@@ -3565,15 +3522,16 @@ main() {
     echo
     
     # Run system checks
+    # Obtain sudo early (for installing script path, docker on root-only setups)
+    ensure_sudo_session
+    # Enable sudo for Docker if necessary (systems where only 'sudo docker' works)
+    maybe_enable_sudo_for_docker
     check_system_prerequisites
     
-    # Enforce snap-docker compatibility for /opt installs (fail fast if unsupported)
-    if ! ensure_snap_docker_homedirs; then
-        error_exit "Snap-based Docker detected but not compatible or not configured. See messages above."
-    fi
+    # No snap-specific handling needed; install under user home avoids snap homedirs issues
     check_existing_installation
     
-    # Detect and set docker compose command early
+    # Detect and set docker compose command early (after potential sudo-wrapper)
     if ! detect_docker_compose_cmd; then
         error_exit "Docker Compose detection failed"
     fi
