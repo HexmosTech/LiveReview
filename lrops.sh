@@ -220,6 +220,153 @@ detect_docker_compose_cmd() {
     return 0
 }
 
+# =============================================================================
+# SNAP-BASED DOCKER COMPATIBILITY (HOMEDIRS)
+# =============================================================================
+
+# Determine if docker is installed via snap
+is_snap_docker() {
+    # Requires both snap and a docker binary linked from /snap or listed by snap
+    if ! command -v docker >/dev/null 2>&1; then
+        return 1
+    fi
+    if command -v snap >/dev/null 2>&1; then
+        # Check via snap list and binary path
+        if snap list docker >/dev/null 2>&1; then
+            return 0
+        fi
+        local docker_path
+        docker_path=$(readlink -f "$(command -v docker)" 2>/dev/null || true)
+        if [[ "$docker_path" == /snap/* ]]; then
+            return 0
+        fi
+    fi
+    return 1
+}
+
+# Get snapd version string (e.g., 2.61.1) or empty on failure
+get_snapd_version() {
+    if ! command -v snap >/dev/null 2>&1; then
+        echo ""
+        return 1
+    fi
+    # Prefer: snap version | awk '/^snap[[:space:]]+/ {print $2}'
+    local v
+    v=$(snap version 2>/dev/null | awk '/^snap[[:space:]]+/ {print $2; exit}')
+    if [[ -z "$v" ]]; then
+        v=$(snap --version 2>/dev/null | awk '/^snap[[:space:]]+/ {print $2; exit}')
+    fi
+    echo "$v"
+}
+
+# Compare versions: returns 0 if $1 >= $2
+version_ge() {
+    # Handles semantic-like numeric dot-separated versions using sort -V
+    # Usage: version_ge "2.60" "2.59"
+    local a="$1" b="$2"
+    [[ "$(printf '%s\n%s\n' "$b" "$a" | sort -V | head -n1)" == "$b" ]]
+}
+
+# Ensure snap is configured to allow managing LIVEREVIEW_INSTALL_DIR with snap-docker
+ensure_snap_docker_homedirs() {
+    # Only relevant if docker is from snap and install dir is outside user's home
+    if ! is_snap_docker; then
+        log_debug "Docker is not a snap installation; no snap homedirs action needed"
+        return 0
+    fi
+
+    # If installing under $HOME, snap limitation typically doesn't apply
+    local home_dir="${HOME:-}"
+    if [[ -n "$home_dir" && "$LIVEREVIEW_INSTALL_DIR" == "$home_dir"* ]]; then
+        log_debug "Installation under HOME; snap homedirs change not required"
+        return 0
+    fi
+
+    # Require snapd >= 2.59
+    local snap_ver
+    snap_ver=$(get_snapd_version)
+    if [[ -z "$snap_ver" ]]; then
+        log_error "Docker is from snap, but snapd version could not be determined."
+        log_info "Please ensure snapd is installed and accessible, or install Docker via apt."
+        return 1
+    fi
+    if ! version_ge "$snap_ver" "2.59"; then
+        log_error "snapd $snap_ver detected. snapd < 2.59 is not supported for /opt installs with snap Docker."
+        log_info "Options:"
+        log_info "  • Upgrade snapd to >= 2.59 and re-run this script"
+        log_info "  • Or uninstall snap Docker and install Docker via apt (recommended) and try again"
+        return 1
+    fi
+
+    # Read current homedirs value
+    local current_homedirs=""
+    current_homedirs=$(snap get system homedirs 2>/dev/null | awk -F': ' '{print $2}' | tr -d '\n' || true)
+
+    # If already includes the install dir, nothing to do
+    if [[ -n "$current_homedirs" && "$current_homedirs" == *"$LIVEREVIEW_INSTALL_DIR"* ]]; then
+        log_success "snapd homedirs already includes $LIVEREVIEW_INSTALL_DIR"
+        return 0
+    fi
+
+    # Compute new setting value (append if existing)
+    local new_homedirs
+    if [[ -z "$current_homedirs" || "$current_homedirs" == "null" ]]; then
+        new_homedirs="$LIVEREVIEW_INSTALL_DIR"
+    else
+        # Avoid duplicate separators
+        if [[ "$current_homedirs" == *":" ]]; then
+            new_homedirs="${current_homedirs}$LIVEREVIEW_INSTALL_DIR"
+        else
+            new_homedirs="${current_homedirs}:$LIVEREVIEW_INSTALL_DIR"
+        fi
+    fi
+
+    # Respect dry-run and express/interactive modes
+    if [[ "$DRY_RUN" == "true" ]]; then
+        log_info "[DRY RUN] Would configure snapd to allow /opt/livereview:"
+        log_info "          sudo snap set system homedirs=\"$new_homedirs\""
+        log_info "[DRY RUN] Would restart snapd to apply changes"
+        return 0
+    fi
+
+    if [[ "$EXPRESS_MODE" != "true" ]]; then
+        echo
+    log_warning "Docker is installed via snap. To manage containers in $LIVEREVIEW_INSTALL_DIR,"
+        log_warning "we need to configure snapd homedirs and restart snapd."
+        echo "This will run:"
+        echo "  sudo snap set system homedirs=\"$new_homedirs\""
+        echo "  sudo systemctl restart snapd   (fallback: sudo snap restart snapd)"
+        read -r -p "Proceed with snapd configuration now? [Y/n]: " REPLY
+        if [[ ! "$REPLY" =~ ^([Yy]|)$ ]]; then
+            error_exit "Aborting per user choice. snapd not configured; install under HOME or use apt-installed Docker."
+        fi
+    else
+        log_info "Express mode: configuring snapd homedirs automatically for /opt/livereview"
+    fi
+
+    # Apply configuration
+    if sudo snap set system homedirs="$new_homedirs"; then
+        log_success "Configured snapd homedirs: $new_homedirs"
+    else
+        error_exit "Failed to configure snapd homedirs. Try running the command manually as root."
+    fi
+
+    # Restart snapd to apply
+    if sudo systemctl restart snapd 2>/dev/null; then
+        log_success "snapd restarted to apply homedirs changes"
+    else
+        if sudo snap restart snapd 2>/dev/null; then
+            log_success "snapd restarted via 'snap restart'"
+        else
+            log_warning "Could not restart snapd automatically. Please restart snapd or reboot to apply changes."
+        fi
+    fi
+
+    # Brief pause to allow snapd to reinitialize
+    sleep 2
+    return 0
+}
+
 # Wrapper function to execute docker compose commands
 docker_compose() {
     if [[ -z "$DOCKER_COMPOSE_CMD" ]]; then
@@ -3381,6 +3528,11 @@ main() {
     
     # Run system checks
     check_system_prerequisites
+    
+    # Enforce snap-docker compatibility for /opt installs (fail fast if unsupported)
+    if ! ensure_snap_docker_homedirs; then
+        error_exit "Snap-based Docker detected but not compatible or not configured. See messages above."
+    fi
     check_existing_installation
     
     # Detect and set docker compose command early
