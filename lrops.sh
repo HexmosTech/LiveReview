@@ -978,6 +978,33 @@ generate_jwt_secret() {
     fi
 }
 
+# Auto-configure deployment variables based on mode
+configure_deployment_mode() {
+    local mode="$1"
+    local backend_port="${2:-8888}"
+    local frontend_port="${3:-8081}"
+    
+    if [[ "$mode" == "production" ]]; then
+        # Production mode: behind reverse proxy
+        API_URL="http://localhost/api"
+        REVERSE_PROXY="true"
+        BIND_ADDRESS="127.0.0.1"
+        WEBHOOKS_ENABLED="true"
+    else
+        # Demo mode: direct access
+        API_URL="http://localhost:${backend_port}"
+        REVERSE_PROXY="false"
+        BIND_ADDRESS="localhost"
+        WEBHOOKS_ENABLED="false"
+    fi
+    
+    # Set all framework-specific variables automatically
+    VITE_API_URL="$API_URL"
+    REACT_APP_API_URL="$API_URL"
+    NEXT_PUBLIC_API_URL="$API_URL"
+    LIVEREVIEW_API_URL="$API_URL"  # Legacy support
+}
+
 # Interactive configuration prompts for simplified two-mode system
 gather_configuration() {
     local config_file="/tmp/lrops_config_$$"
@@ -993,18 +1020,59 @@ gather_configuration() {
         local jwt_secret
         jwt_secret=$(generate_jwt_secret)
         
+        # Configure deployment variables
+        configure_deployment_mode "demo" 8888 8081
+        
         # Demo mode defaults (localhost-only)
         cat > "$config_file" << EOF
+# LiveReview Configuration - Demo Mode
+# Version: $1
+
+#==============================================================================
+# DEPLOYMENT MODE (Required)
+#==============================================================================
+DEPLOYMENT_MODE=demo
+
+#==============================================================================
+# CORE CONFIGURATION (Required)
+#==============================================================================
+# Database
+DATABASE_URL=postgres://livereview:$db_password@livereview-db:5432/livereview?sslmode=disable
 DB_PASSWORD=$db_password
+
+# Security
 JWT_SECRET=$jwt_secret
+
+#==============================================================================
+# OPTIONAL CONFIGURATION
+#==============================================================================
+# Application
+LIVEREVIEW_VERSION=$1
+LOG_LEVEL=info
+ACCESS_TOKEN_DURATION_HOURS=8
+REFRESH_TOKEN_DURATION_DAYS=30
+
+#==============================================================================
+# ADVANCED CONFIGURATION (Auto-managed - modify only if needed)
+#==============================================================================
+# Ports
+BACKEND_PORT=8888
+FRONTEND_PORT=8081
+
+# API Endpoint (auto-set based on DEPLOYMENT_MODE)
+API_URL=$API_URL
+
+# Legacy variable support (auto-generated)
 LIVEREVIEW_BACKEND_PORT=8888
 LIVEREVIEW_FRONTEND_PORT=8081
 LIVEREVIEW_REVERSE_PROXY=false
-DEPLOYMENT_MODE=demo
-LIVEREVIEW_VERSION=$1
+LIVEREVIEW_API_URL=$API_URL
+VITE_API_URL=$API_URL
+REACT_APP_API_URL=$API_URL
+NEXT_PUBLIC_API_URL=$API_URL
 EOF
         log_success "✅ Demo mode configuration (localhost-only, no webhooks)"
-        log_info "   To upgrade to production mode later, set LIVEREVIEW_REVERSE_PROXY=true"
+        log_info "   To upgrade to production mode, change DEPLOYMENT_MODE=production"
     else
         log_info "Interactive configuration mode"
         log_info "Choose your deployment mode:"
@@ -1016,19 +1084,16 @@ EOF
         read -r mode_choice
         
         local deployment_mode="demo"
-        local reverse_proxy="false"
         
         if [[ "$mode_choice" == "2" ]]; then
             deployment_mode="production"
-            reverse_proxy="true"
             log_info "Production mode selected - requires reverse proxy setup"
         else
             deployment_mode="demo"
-            reverse_proxy="false"
             log_info "Demo mode selected - localhost only, no configuration needed"
         fi
         
-        # Database password
+        # Generate database password
         local db_password
         db_password=$(generate_password 32)
         echo -n "Database password [auto-generated secure password]: "
@@ -1037,7 +1102,7 @@ EOF
             db_password="$user_input"
         fi
         
-        # JWT Secret
+        # Generate JWT Secret
         local jwt_secret
         jwt_secret=$(generate_jwt_secret)
         echo -n "JWT secret key [auto-generated secure key]: "
@@ -1050,6 +1115,9 @@ EOF
         local backend_port=8888
         local frontend_port=8081
         
+        # Configure deployment variables based on selected mode
+        configure_deployment_mode "$deployment_mode" "$backend_port" "$frontend_port"
+        
         if [[ "$deployment_mode" == "production" ]]; then
             echo "Production mode will use standard ports (8888 backend, 8081 frontend)"
             echo "Configure your reverse proxy to route:"
@@ -1057,22 +1125,60 @@ EOF
             echo "  /* → http://127.0.0.1:8081"
         fi
         
-        # Save configuration
+        # Save configuration with new simplified format
         cat > "$config_file" << EOF
+# LiveReview Configuration - ${deployment_mode^} Mode
+# Version: $1
+
+#==============================================================================
+# DEPLOYMENT MODE (Required)
+#==============================================================================
+DEPLOYMENT_MODE=$deployment_mode
+
+#==============================================================================
+# CORE CONFIGURATION (Required)
+#==============================================================================
+# Database
+DATABASE_URL=postgres://livereview:$db_password@livereview-db:5432/livereview?sslmode=disable
 DB_PASSWORD=$db_password
+
+# Security
 JWT_SECRET=$jwt_secret
+
+#==============================================================================
+# OPTIONAL CONFIGURATION
+#==============================================================================
+# Application
+LIVEREVIEW_VERSION=$1
+LOG_LEVEL=info
+ACCESS_TOKEN_DURATION_HOURS=8
+REFRESH_TOKEN_DURATION_DAYS=30
+
+#==============================================================================
+# ADVANCED CONFIGURATION (Auto-managed - modify only if needed)
+#==============================================================================
+# Ports
+BACKEND_PORT=$backend_port
+FRONTEND_PORT=$frontend_port
+
+# API Endpoint (auto-set based on DEPLOYMENT_MODE)
+API_URL=$API_URL
+
+# Legacy variable support (auto-generated)
 LIVEREVIEW_BACKEND_PORT=$backend_port
 LIVEREVIEW_FRONTEND_PORT=$frontend_port
-LIVEREVIEW_REVERSE_PROXY=$reverse_proxy
-DEPLOYMENT_MODE=$deployment_mode
-LIVEREVIEW_VERSION=$1
+LIVEREVIEW_REVERSE_PROXY=$REVERSE_PROXY
+LIVEREVIEW_API_URL=$API_URL
+VITE_API_URL=$API_URL
+REACT_APP_API_URL=$API_URL
+NEXT_PUBLIC_API_URL=$API_URL
 EOF
     fi
     
     echo "$config_file"
 }
 
-# Validate configuration values for two-mode system
+# Validate configuration values for simplified configuration system
 validate_configuration() {
     local config_file="$1"
     
@@ -1081,30 +1187,41 @@ validate_configuration() {
     # Source the config
     source "$config_file"
     
+    # Support both new and legacy variable names
+    local backend_port="${BACKEND_PORT:-$LIVEREVIEW_BACKEND_PORT}"
+    local frontend_port="${FRONTEND_PORT:-$LIVEREVIEW_FRONTEND_PORT}"
+    local deployment_mode="${DEPLOYMENT_MODE:-demo}"
+    
+    # Validate deployment mode
+    if [[ "$deployment_mode" != "demo" && "$deployment_mode" != "production" ]]; then
+        log_error "Invalid DEPLOYMENT_MODE: must be 'demo' or 'production'"
+        return 1
+    fi
+    
     # Validate backend port
-    if ! [[ "$LIVEREVIEW_BACKEND_PORT" =~ ^[0-9]+$ ]] || [[ "$LIVEREVIEW_BACKEND_PORT" -lt 1024 ]] || [[ "$LIVEREVIEW_BACKEND_PORT" -gt 65535 ]]; then
-        log_error "Invalid backend port: $LIVEREVIEW_BACKEND_PORT (must be 1024-65535)"
+    if ! [[ "$backend_port" =~ ^[0-9]+$ ]] || [[ "$backend_port" -lt 1024 ]] || [[ "$backend_port" -gt 65535 ]]; then
+        log_error "Invalid backend port: $backend_port (must be 1024-65535)"
         return 1
     fi
     
     # Validate frontend port
-    if ! [[ "$LIVEREVIEW_FRONTEND_PORT" =~ ^[0-9]+$ ]] || [[ "$LIVEREVIEW_FRONTEND_PORT" -lt 1024 ]] || [[ "$LIVEREVIEW_FRONTEND_PORT" -gt 65535 ]]; then
-        log_error "Invalid frontend port: $LIVEREVIEW_FRONTEND_PORT (must be 1024-65535)"
+    if ! [[ "$frontend_port" =~ ^[0-9]+$ ]] || [[ "$frontend_port" -lt 1024 ]] || [[ "$frontend_port" -gt 65535 ]]; then
+        log_error "Invalid frontend port: $frontend_port (must be 1024-65535)"
         return 1
     fi
     
-    if [[ "$LIVEREVIEW_BACKEND_PORT" == "$LIVEREVIEW_FRONTEND_PORT" ]]; then
+    if [[ "$backend_port" == "$frontend_port" ]]; then
         log_error "Backend and frontend ports cannot be the same"
         return 1
     fi
     
     # Check if ports are available
     if command -v netstat >/dev/null 2>&1; then
-        if netstat -tln | grep -q ":${LIVEREVIEW_BACKEND_PORT} "; then
-            log_warning "Port $LIVEREVIEW_BACKEND_PORT appears to be in use"
+        if netstat -tln | grep -q ":${backend_port} "; then
+            log_warning "Port $backend_port appears to be in use"
         fi
-        if netstat -tln | grep -q ":${LIVEREVIEW_FRONTEND_PORT} "; then
-            log_warning "Port $LIVEREVIEW_FRONTEND_PORT appears to be in use"
+        if netstat -tln | grep -q ":${frontend_port} "; then
+            log_warning "Port $frontend_port appears to be in use"
         fi
     fi
     
@@ -1117,25 +1234,27 @@ validate_configuration() {
         log_warning "JWT secret is shorter than 32 characters"
     fi
     
-    # Validate deployment mode configuration
-    if [[ "$LIVEREVIEW_REVERSE_PROXY" != "true" && "$LIVEREVIEW_REVERSE_PROXY" != "false" ]]; then
-        log_error "Invalid LIVEREVIEW_REVERSE_PROXY value: must be 'true' or 'false'"
+    # Validate API URL is set
+    if [[ -z "$API_URL" && -z "$LIVEREVIEW_API_URL" ]]; then
+        log_error "API_URL not set - configuration may be incomplete"
         return 1
     fi
     
     # Show configuration summary
     log_info "Configuration summary:"
-    log_info "  - Deployment mode: $DEPLOYMENT_MODE"
-    log_info "  - Backend port: $LIVEREVIEW_BACKEND_PORT"
-    log_info "  - Frontend port: $LIVEREVIEW_FRONTEND_PORT"
-    log_info "  - Reverse proxy: $LIVEREVIEW_REVERSE_PROXY"
+    log_info "  - Deployment mode: $deployment_mode"
+    log_info "  - Backend port: $backend_port"
+    log_info "  - Frontend port: $frontend_port"
+    log_info "  - API URL: ${API_URL:-$LIVEREVIEW_API_URL}"
     
-    if [[ "$DEPLOYMENT_MODE" == "demo" ]]; then
-        log_info "  - Access URL: http://localhost:$LIVEREVIEW_FRONTEND_PORT"
+    if [[ "$deployment_mode" == "demo" ]]; then
+        log_info "  - Access URL: http://localhost:$frontend_port"
         log_info "  - Webhooks: Disabled (manual triggers only)"
+        log_info "  - Binding: localhost only (secure local development)"
     else
         log_info "  - Requires reverse proxy configuration"
         log_info "  - Webhooks: Enabled (automatic triggers)"
+        log_info "  - Binding: 127.0.0.1 (behind reverse proxy)"
     fi
     
     log_success "Configuration validation completed"
@@ -1222,102 +1341,125 @@ handle_existing_directories() {
 # FILE GENERATION FROM TEMPLATES (PHASE 4)
 # =============================================================================
 
-# Generate .env file from template with simplified two-mode configuration
+# Generate .env file with simplified configuration approach
 generate_env_file() {
     local config_file="$1"
     local output_file="$LIVEREVIEW_INSTALL_DIR/.env"
     
-    log_info "Generating .env file..."
+    log_info "Generating .env file with simplified configuration..."
     
     # Source configuration
     source "$config_file"
     
-    # Extract .env template and substitute variables
-    if ! extract_data ".env" "$output_file"; then
-        error_exit "Failed to extract .env template"
-    fi
+    # Use new variables with fallback to legacy ones
+    local deployment_mode="${DEPLOYMENT_MODE:-demo}"
+    local backend_port="${BACKEND_PORT:-$LIVEREVIEW_BACKEND_PORT}"
+    local frontend_port="${FRONTEND_PORT:-$LIVEREVIEW_FRONTEND_PORT}"
     
-    # Substitute variables in the .env file
-    sed -i "s/\${DB_PASSWORD}/$DB_PASSWORD/g" "$output_file"
-    sed -i "s/\${JWT_SECRET}/$JWT_SECRET/g" "$output_file"
-    sed -i "s/\${LIVEREVIEW_VERSION}/$LIVEREVIEW_VERSION/g" "$output_file"
+    # Configure deployment variables based on mode
+    configure_deployment_mode "$deployment_mode" "$backend_port" "$frontend_port"
     
-    # Add deployment mode configuration
-    cat >> "$output_file" << EOF
+    # Generate the complete .env file
+    cat > "$output_file" << EOF
+# LiveReview Environment Configuration
+# Generated by lrops.sh installer with simplified configuration system
+# Version: ${LIVEREVIEW_VERSION:-latest}
 
-# Two-Mode Deployment Configuration (auto-configured)
-LIVEREVIEW_BACKEND_PORT=$LIVEREVIEW_BACKEND_PORT
-LIVEREVIEW_FRONTEND_PORT=$LIVEREVIEW_FRONTEND_PORT
-LIVEREVIEW_REVERSE_PROXY=$LIVEREVIEW_REVERSE_PROXY
+#==============================================================================
+# DEPLOYMENT MODE (Required - Change this to switch modes)
+#==============================================================================
+DEPLOYMENT_MODE=$deployment_mode
 
-# API URL Configuration for Frontend
-# In demo mode: frontend connects directly to backend port
-# In production mode: frontend connects via reverse proxy
-EOF
+#==============================================================================
+# CORE CONFIGURATION (Required)
+#==============================================================================
+# Database Configuration
+DB_PASSWORD=$DB_PASSWORD
+DATABASE_URL=postgres://livereview:$DB_PASSWORD@livereview-db:5432/livereview?sslmode=disable
 
-    # Configure API URL based on deployment mode
-    if [[ "$LIVEREVIEW_REVERSE_PROXY" == "true" ]]; then
-        # Production mode: API calls go through reverse proxy
-        cat >> "$output_file" << EOF
-LIVEREVIEW_API_URL=http://localhost/api
-VITE_API_URL=http://localhost/api
-REACT_APP_API_URL=http://localhost/api
-NEXT_PUBLIC_API_URL=http://localhost/api
-EOF
-    else
-        # Demo mode: API calls go directly to backend port
-        cat >> "$output_file" << EOF
-LIVEREVIEW_API_URL=http://localhost:$LIVEREVIEW_BACKEND_PORT
-VITE_API_URL=http://localhost:$LIVEREVIEW_BACKEND_PORT
-REACT_APP_API_URL=http://localhost:$LIVEREVIEW_BACKEND_PORT
-NEXT_PUBLIC_API_URL=http://localhost:$LIVEREVIEW_BACKEND_PORT
-EOF
-    fi
+# Security Configuration
+JWT_SECRET=$JWT_SECRET
 
-    cat >> "$output_file" << EOF
+#==============================================================================
+# OPTIONAL CONFIGURATION
+#==============================================================================
+# Application Configuration
+LIVEREVIEW_VERSION=${LIVEREVIEW_VERSION:-latest}
+LOG_LEVEL=info
 
-# Deployment mode: $DEPLOYMENT_MODE
-# Demo mode: localhost-only, no webhooks, manual triggers only
-# Production mode: reverse proxy, webhooks enabled, external access
+# API Endpoint (auto-set based on DEPLOYMENT_MODE)
+# $deployment_mode mode: $API_URL
+API_URL=$API_URL
+
+# Session Configuration (optional)
+ACCESS_TOKEN_DURATION_HOURS=8
+REFRESH_TOKEN_DURATION_DAYS=30
+
+# AI Integration (optional - configure as needed)
+# OPENAI_API_KEY=your_openai_api_key
+# GOOGLE_AI_API_KEY=your_google_ai_api_key
+
+#==============================================================================
+# ADVANCED CONFIGURATION (Auto-managed - modify only if needed)
+#==============================================================================
+# Ports (${deployment_mode} mode defaults)
+BACKEND_PORT=$backend_port
+FRONTEND_PORT=$frontend_port
+
+# Framework-specific API URL variables (auto-generated from API_URL)
+VITE_API_URL=$API_URL
+REACT_APP_API_URL=$API_URL
+NEXT_PUBLIC_API_URL=$API_URL
+
+# Legacy variable support (auto-generated for backward compatibility)
+LIVEREVIEW_BACKEND_PORT=$backend_port
+LIVEREVIEW_FRONTEND_PORT=$frontend_port
+LIVEREVIEW_REVERSE_PROXY=$REVERSE_PROXY
+LIVEREVIEW_API_URL=$API_URL
+
 EOF
 
     # Add deployment mode-specific comments and guidance
-    if [[ "$DEPLOYMENT_MODE" == "demo" ]]; then
+    if [[ "$deployment_mode" == "demo" ]]; then
         cat >> "$output_file" << EOF
-
+# ============================================================================
 # DEMO MODE CONFIGURATION
-# - Access: http://localhost:$LIVEREVIEW_FRONTEND_PORT
-# - API: http://localhost:$LIVEREVIEW_BACKEND_PORT
+# ============================================================================
+# - Access: http://localhost:$frontend_port
+# - API: http://localhost:$backend_port
 # - Webhooks: Disabled (manual triggers only)
 # - External access: Not configured
-# 
+# - Binding: localhost only (secure local development)
+#
 # To upgrade to production mode:
-# 1. Set LIVEREVIEW_REVERSE_PROXY=true
-# 2. Restart services: docker compose restart
+# 1. Change DEPLOYMENT_MODE=production
+# 2. Restart services: cd $LIVEREVIEW_INSTALL_DIR && docker compose restart
 # 3. Configure reverse proxy (see: lrops.sh help nginx)
+
 EOF
     else
         cat >> "$output_file" << EOF
-
+# ============================================================================
 # PRODUCTION MODE CONFIGURATION  
-# - Reverse proxy required for external access
-# - Webhooks enabled for automatic triggers
-# - External access ready (configure DNS and reverse proxy)
+# ============================================================================
+# - Access: Via reverse proxy (port 80/443)
+# - API: http://localhost/api (via reverse proxy)
+# - Webhooks: Enabled (automatic triggers)
+# - External access: Configured
+# - Binding: 127.0.0.1 (behind reverse proxy)
 #
-# Configure your reverse proxy to route:
-# - /api/* → http://127.0.0.1:$LIVEREVIEW_BACKEND_PORT
-# - /* → http://127.0.0.1:$LIVEREVIEW_FRONTEND_PORT
-#
-# For SSL setup: lrops.sh help ssl
-# For nginx config: lrops.sh help nginx
-# For caddy config: lrops.sh help caddy
+# Reverse proxy configuration required:
+# - Route /api/* → http://127.0.0.1:$backend_port
+# - Route /* → http://127.0.0.1:$frontend_port
+# - See: lrops.sh help nginx
+
 EOF
     fi
     
     # Set secure permissions on .env file (readable by Docker containers)
     chmod 644 "$output_file"
     
-    log_success "Generated .env file with $DEPLOYMENT_MODE mode configuration"
+    log_success "Generated .env file with $deployment_mode mode configuration"
 }
 
 # Generate docker-compose.yml from template with two-mode configuration
