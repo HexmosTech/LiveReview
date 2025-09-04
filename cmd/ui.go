@@ -42,28 +42,30 @@ func UICommand(uiAssets embed.FS) *cli.Command {
 			port := c.Int("port")
 			apiURL := c.String("api-url")
 
-			// Check for environment variable overrides - support both new and legacy names
-			if envPort := os.Getenv("FRONTEND_PORT"); envPort != "" {
+			// Check for environment variable overrides
+			if envPort := os.Getenv("LIVEREVIEW_FRONTEND_PORT"); envPort != "" {
 				if parsedPort, err := strconv.Atoi(envPort); err == nil {
 					port = parsedPort
-					fmt.Printf("Using frontend port from FRONTEND_PORT: %d\n", port)
+					fmt.Printf("Using frontend port from LIVEREVIEW_FRONTEND_PORT: %d\n", port)
 				}
-			} else if envPort := os.Getenv("LIVEREVIEW_FRONTEND_PORT"); envPort != "" {
+			} else if envPort := os.Getenv("FRONTEND_PORT"); envPort != "" {
+				// Legacy support for existing deployments
 				if parsedPort, err := strconv.Atoi(envPort); err == nil {
 					port = parsedPort
-					fmt.Printf("Using frontend port from LIVEREVIEW_FRONTEND_PORT (legacy): %d\n", port)
+					fmt.Printf("Using frontend port from FRONTEND_PORT (legacy): %d\n", port)
 				}
 			}
 
 			// If no API URL provided, try to auto-detect based on port
 			if apiURL == "" {
-				// Check for backend port environment variable - support both new and legacy names
+				// Check for backend port environment variable
 				backendPort := 8888
-				if envBackendPort := os.Getenv("BACKEND_PORT"); envBackendPort != "" {
+				if envBackendPort := os.Getenv("LIVEREVIEW_BACKEND_PORT"); envBackendPort != "" {
 					if parsedPort, err := strconv.Atoi(envBackendPort); err == nil {
 						backendPort = parsedPort
 					}
-				} else if envBackendPort := os.Getenv("LIVEREVIEW_BACKEND_PORT"); envBackendPort != "" {
+				} else if envBackendPort := os.Getenv("BACKEND_PORT"); envBackendPort != "" {
+					// Legacy support for existing deployments
 					if parsedPort, err := strconv.Atoi(envBackendPort); err == nil {
 						backendPort = parsedPort
 					}

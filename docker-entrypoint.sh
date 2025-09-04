@@ -19,11 +19,16 @@ wait_for_postgres() {
 run_migrations() {
     echo "🔄 Running database migrations..."
     
-    # Set the DATABASE_URL for dbmate if not already set
+    # Build DATABASE_URL from parts if not provided
     if [ -z "$DATABASE_URL" ]; then
-        echo "❌ DATABASE_URL environment variable is not set"
-        exit 1
+        if [ -z "$DB_PASSWORD" ]; then
+            echo "❌ DB_PASSWORD not provided; cannot construct DATABASE_URL"
+            exit 1
+        fi
+        DATABASE_URL="postgres://livereview:${DB_PASSWORD}@livereview-db:5432/livereview?sslmode=disable"
+        export DATABASE_URL
     fi
+    echo "🗄  Using DATABASE_URL host=$(echo "$DATABASE_URL" | sed 's#.*@##' | cut -d'?' -f1)"
     
     # Run dbmate migrations first
     if dbmate up; then
@@ -62,10 +67,29 @@ start_servers() {
         echo "  - River UI will start on port 8080"
     fi
     
-    # Determine API URL for UI configuration
-    # Use environment variable if set, otherwise default based on backend port
-    API_URL="${LIVEREVIEW_API_URL:-http://localhost:$BACKEND_PORT}"
+    # Auto-generate API URL based on reverse proxy setting
+    if [ "$REVERSE_PROXY" = "true" ]; then
+        API_URL="http://localhost/api"
+        echo "  - Production mode: API behind reverse proxy at /api"
+    else
+        API_URL="http://localhost:$BACKEND_PORT"
+        echo "  - Demo mode: Direct API access"
+    fi
     echo "  - UI will be configured to use API at: $API_URL"
+    
+    # Auto-generate framework-specific environment variables for the UI build process
+    # Note: We keep .env minimal for customers and derive these at runtime here.
+    export API_URL="$API_URL"
+    export VITE_API_URL="$API_URL"
+    export REACT_APP_API_URL="$API_URL"
+    export NEXT_PUBLIC_API_URL="$API_URL"
+    export LIVEREVIEW_API_URL="$API_URL"  # Legacy support
+    
+    # Also export the standard port variables for legacy compatibility
+    export BACKEND_PORT="$BACKEND_PORT"
+    export FRONTEND_PORT="$FRONTEND_PORT"
+    export LIVEREVIEW_BACKEND_PORT="$BACKEND_PORT"
+    export LIVEREVIEW_FRONTEND_PORT="$FRONTEND_PORT"
     
     # Start UI server in background with API URL configuration
     echo "🎨 Starting UI server..."

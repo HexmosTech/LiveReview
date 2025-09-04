@@ -406,6 +406,7 @@ USAGE:
     lrops.sh stop                      # Stop LiveReview services
     lrops.sh restart                   # Restart LiveReview services
     lrops.sh logs [service]            # Show container logs
+    lrops.sh env validate              # Validate .env and suggest fixes
     lrops.sh help ssl                  # SSL/TLS setup guidance
     lrops.sh help backup               # Backup strategies
 
@@ -1190,13 +1191,8 @@ gather_configuration() {
         
         # Demo mode defaults (localhost-only)
         cat > "$config_file" << EOF
-# LiveReview Configuration - Demo Mode
-# Version: $1
-
-#==============================================================================
-# DEPLOYMENT MODE (Required)
-#==============================================================================
-DEPLOYMENT_MODE=demo
+# LiveReview Configuration
+# Simple setup - only specify what you need to change
 
 #==============================================================================
 # CORE CONFIGURATION (Required)
@@ -1209,43 +1205,34 @@ DB_PASSWORD=$db_password
 JWT_SECRET=$jwt_secret
 
 #==============================================================================
+# USER CONFIGURATION (Customize as needed)
+#==============================================================================
+# Ports (change if you have conflicts)
+LIVEREVIEW_BACKEND_PORT=8888
+LIVEREVIEW_FRONTEND_PORT=8081
+
+# Reverse proxy setup (only change if using nginx/apache in front)
+LIVEREVIEW_REVERSE_PROXY=false
+
+#==============================================================================
 # OPTIONAL CONFIGURATION
 #==============================================================================
-# Application
+# Application settings
 LIVEREVIEW_VERSION=$1
 LOG_LEVEL=info
 ACCESS_TOKEN_DURATION_HOURS=8
 REFRESH_TOKEN_DURATION_DAYS=30
-
-#==============================================================================
-# ADVANCED CONFIGURATION (Auto-managed - modify only if needed)
-#==============================================================================
-# Ports
-BACKEND_PORT=8888
-FRONTEND_PORT=8081
-
-# API Endpoint (auto-set based on DEPLOYMENT_MODE)
-API_URL=$API_URL
-
-# Legacy variable support (auto-generated)
-LIVEREVIEW_BACKEND_PORT=8888
-LIVEREVIEW_FRONTEND_PORT=8081
-LIVEREVIEW_REVERSE_PROXY=false
-LIVEREVIEW_API_URL=$API_URL
-VITE_API_URL=$API_URL
-REACT_APP_API_URL=$API_URL
-NEXT_PUBLIC_API_URL=$API_URL
 EOF
-        log_success "✅ Demo mode configuration (localhost-only, no webhooks)"
-        log_info "   To upgrade to production mode, change DEPLOYMENT_MODE=production"
+    log_success "✅ Demo mode configuration (localhost-only, no webhooks)"
+    log_info "   To upgrade to production mode, set LIVEREVIEW_REVERSE_PROXY=true and configure your reverse proxy"
     else
         log_info "Interactive configuration mode"
-        log_info "Choose your deployment mode:"
+    log_info "Choose your deployment mode:"
         echo
         echo "1) Demo Mode (localhost only, no webhooks, quickstart)"
         echo "2) Production Mode (with reverse proxy, webhooks enabled)"
         echo
-        echo -n "Select deployment mode [1]: "
+    echo -n "Select deployment mode [1]: "
         read -r mode_choice
         
         local deployment_mode="demo"
@@ -1280,8 +1267,8 @@ EOF
         local backend_port=8888
         local frontend_port=8081
         
-        # Configure deployment variables based on selected mode
-        configure_deployment_mode "$deployment_mode" "$backend_port" "$frontend_port"
+    # Configure variables for summary; actual mode derives from reverse proxy flag in .env
+    configure_deployment_mode "$deployment_mode" "$backend_port" "$frontend_port"
         
         if [[ "$deployment_mode" == "production" ]]; then
             echo "Production mode will use standard ports (8888 backend, 8081 frontend)"
@@ -1290,15 +1277,10 @@ EOF
             echo "  /* → http://127.0.0.1:8081"
         fi
         
-        # Save configuration with new simplified format
+    # Save configuration with simplified user-facing format
         cat > "$config_file" << EOF
-# LiveReview Configuration - ${deployment_mode^} Mode
-# Version: $1
-
-#==============================================================================
-# DEPLOYMENT MODE (Required)
-#==============================================================================
-DEPLOYMENT_MODE=$deployment_mode
+# LiveReview Configuration
+# Simple setup - only specify what you need to change
 
 #==============================================================================
 # CORE CONFIGURATION (Required)
@@ -1311,32 +1293,23 @@ DB_PASSWORD=$db_password
 JWT_SECRET=$jwt_secret
 
 #==============================================================================
+# USER CONFIGURATION (Customize as needed)
+#==============================================================================
+# Ports (change if you have conflicts)
+LIVEREVIEW_BACKEND_PORT=$backend_port
+LIVEREVIEW_FRONTEND_PORT=$frontend_port
+
+# Reverse proxy setup (only change if using nginx/apache in front)
+LIVEREVIEW_REVERSE_PROXY=$REVERSE_PROXY
+
+#==============================================================================
 # OPTIONAL CONFIGURATION
 #==============================================================================
-# Application
+# Application settings
 LIVEREVIEW_VERSION=$1
 LOG_LEVEL=info
 ACCESS_TOKEN_DURATION_HOURS=8
 REFRESH_TOKEN_DURATION_DAYS=30
-
-#==============================================================================
-# ADVANCED CONFIGURATION (Auto-managed - modify only if needed)
-#==============================================================================
-# Ports
-BACKEND_PORT=$backend_port
-FRONTEND_PORT=$frontend_port
-
-# API Endpoint (auto-set based on DEPLOYMENT_MODE)
-API_URL=$API_URL
-
-# Legacy variable support (auto-generated)
-LIVEREVIEW_BACKEND_PORT=$backend_port
-LIVEREVIEW_FRONTEND_PORT=$frontend_port
-LIVEREVIEW_REVERSE_PROXY=$REVERSE_PROXY
-LIVEREVIEW_API_URL=$API_URL
-VITE_API_URL=$API_URL
-REACT_APP_API_URL=$API_URL
-NEXT_PUBLIC_API_URL=$API_URL
 EOF
     fi
     
@@ -1355,11 +1328,17 @@ validate_configuration() {
     # Support both new and legacy variable names
     local backend_port="${BACKEND_PORT:-$LIVEREVIEW_BACKEND_PORT}"
     local frontend_port="${FRONTEND_PORT:-$LIVEREVIEW_FRONTEND_PORT}"
-    local deployment_mode="${DEPLOYMENT_MODE:-demo}"
+    local reverse_proxy="${LIVEREVIEW_REVERSE_PROXY:-false}"
+    local deployment_mode
+    if [[ "$reverse_proxy" == "true" ]]; then
+        deployment_mode="production"
+    else
+        deployment_mode="demo"
+    fi
     
-    # Validate deployment mode
-    if [[ "$deployment_mode" != "demo" && "$deployment_mode" != "production" ]]; then
-        log_error "Invalid DEPLOYMENT_MODE: must be 'demo' or 'production'"
+    # Validate reverse proxy flag
+    if [[ "$reverse_proxy" != "true" && "$reverse_proxy" != "false" ]]; then
+        log_error "Invalid LIVEREVIEW_REVERSE_PROXY: must be 'true' or 'false'"
         return 1
     fi
     
@@ -1399,18 +1378,15 @@ validate_configuration() {
         log_warning "JWT secret is shorter than 32 characters"
     fi
     
-    # Validate API URL is set
-    if [[ -z "$API_URL" && -z "$LIVEREVIEW_API_URL" ]]; then
-        log_error "API_URL not set - configuration may be incomplete"
-        return 1
-    fi
+    # Derive API URL from deployment mode and ports for summary purposes
+    configure_deployment_mode "$deployment_mode" "$backend_port" "$frontend_port"
     
     # Show configuration summary
     log_info "Configuration summary:"
-    log_info "  - Deployment mode: $deployment_mode"
+    log_info "  - Deployment mode: $deployment_mode (derived from LIVEREVIEW_REVERSE_PROXY=$reverse_proxy)"
     log_info "  - Backend port: $backend_port"
     log_info "  - Frontend port: $frontend_port"
-    log_info "  - API URL: ${API_URL:-$LIVEREVIEW_API_URL}"
+    log_info "  - API URL: ${API_URL}"
     
     if [[ "$deployment_mode" == "demo" ]]; then
         log_info "  - Access URL: http://localhost:$frontend_port"
@@ -1524,64 +1500,32 @@ generate_env_file() {
     # Configure deployment variables based on mode
     configure_deployment_mode "$deployment_mode" "$backend_port" "$frontend_port"
     
-    # Generate the complete .env file
+    # Generate a minimal, customer-facing .env
     cat > "$output_file" << EOF
-# LiveReview Environment Configuration
-# Generated by lrops.sh installer with simplified configuration system
-# Version: ${LIVEREVIEW_VERSION:-latest}
+# LiveReview .env (minimal)
+# Generated by lrops.sh
+# Keep this simple. Only edit the 3 lines below unless instructed.
 
-#==============================================================================
-# DEPLOYMENT MODE (Required - Change this to switch modes)
-#==============================================================================
-DEPLOYMENT_MODE=$deployment_mode
+# Required ports (change only if these are taken on your machine)
+LIVEREVIEW_BACKEND_PORT=$backend_port
+LIVEREVIEW_FRONTEND_PORT=$frontend_port
 
-#==============================================================================
-# CORE CONFIGURATION (Required)
-#==============================================================================
-# Database Configuration
+# If running behind nginx/caddy/apache set this to true and follow docs
+LIVEREVIEW_REVERSE_PROXY=$REVERSE_PROXY
+
+# --- Managed secrets (auto-generated; you rarely need to touch these) ---
 DB_PASSWORD=$DB_PASSWORD
 DATABASE_URL=postgres://livereview:$DB_PASSWORD@livereview-db:5432/livereview?sslmode=disable
-
-# Security Configuration
 JWT_SECRET=$JWT_SECRET
 
-#==============================================================================
-# OPTIONAL CONFIGURATION
-#==============================================================================
-# Application Configuration
+# Misc
 LIVEREVIEW_VERSION=${LIVEREVIEW_VERSION:-latest}
 LOG_LEVEL=info
-
-# API Endpoint (auto-set based on DEPLOYMENT_MODE)
-# $deployment_mode mode: $API_URL
-API_URL=$API_URL
-
-# Session Configuration (optional)
 ACCESS_TOKEN_DURATION_HOURS=8
 REFRESH_TOKEN_DURATION_DAYS=30
 
-# AI Integration (optional - configure as needed)
-# OPENAI_API_KEY=your_openai_api_key
-# GOOGLE_AI_API_KEY=your_google_ai_api_key
-
-#==============================================================================
-# ADVANCED CONFIGURATION (Auto-managed - modify only if needed)
-#==============================================================================
-# Ports (${deployment_mode} mode defaults)
-BACKEND_PORT=$backend_port
-FRONTEND_PORT=$frontend_port
-
-# Framework-specific API URL variables (auto-generated from API_URL)
-VITE_API_URL=$API_URL
-REACT_APP_API_URL=$API_URL
-NEXT_PUBLIC_API_URL=$API_URL
-
-# Legacy variable support (auto-generated for backward compatibility)
-LIVEREVIEW_BACKEND_PORT=$backend_port
-LIVEREVIEW_FRONTEND_PORT=$frontend_port
-LIVEREVIEW_REVERSE_PROXY=$REVERSE_PROXY
-LIVEREVIEW_API_URL=$API_URL
-
+# Do not set framework-specific API variables here; they are derived at runtime.
+# The UI is automatically pointed to the right API URL based on LIVEREVIEW_REVERSE_PROXY.
 EOF
 
     # Add deployment mode-specific comments and guidance
@@ -1597,9 +1541,9 @@ EOF
 # - Binding: localhost only (secure local development)
 #
 # To upgrade to production mode:
-# 1. Change DEPLOYMENT_MODE=production
-# 2. Restart services: cd $LIVEREVIEW_INSTALL_DIR && docker compose restart
-# 3. Configure reverse proxy (see: lrops.sh help nginx)
+# 1. Set LIVEREVIEW_REVERSE_PROXY=true
+# 2. Configure reverse proxy (see: lrops.sh help nginx)
+# 3. Restart services: cd $LIVEREVIEW_INSTALL_DIR && docker compose restart
 
 EOF
     else
@@ -1645,10 +1589,7 @@ generate_docker_compose() {
     # Substitute variables in the docker-compose file
     sed -i "s/\${LIVEREVIEW_VERSION}/$LIVEREVIEW_VERSION/g" "$output_file"
     sed -i "s/\${DB_PASSWORD}/\${DB_PASSWORD}/g" "$output_file"  # Keep as variable reference
-    
-    # Update port mappings to use the actual configured ports
-    sed -i "s/\${LIVEREVIEW_FRONTEND_PORT:-8081}/$LIVEREVIEW_FRONTEND_PORT/g" "$output_file"
-    sed -i "s/\${LIVEREVIEW_BACKEND_PORT:-8888}/$LIVEREVIEW_BACKEND_PORT/g" "$output_file"
+    # Ports are parameterized; no hard substitution required beyond defaults
     
     log_success "Generated docker-compose.yml with $DEPLOYMENT_MODE mode configuration"
     log_info "Port mappings: Frontend=$LIVEREVIEW_FRONTEND_PORT, Backend=$LIVEREVIEW_BACKEND_PORT"
@@ -1771,6 +1712,59 @@ EOF
 # =============================================================================
 # DOCKER DEPLOYMENT FUNCTIONS (PHASE 5)
 # =============================================================================
+
+# Validate an existing .env in-place and optionally auto-fix common issues
+env_validate_cmd() {
+    section_header "VALIDATING .env"
+    
+    if [[ -z "$LIVEREVIEW_INSTALL_DIR" ]] || [[ ! -d "$LIVEREVIEW_INSTALL_DIR" ]]; then
+        detect_livereview_installation || true
+    fi
+    local env_path="${LIVEREVIEW_INSTALL_DIR:-.}/.env"
+    if [[ ! -f "$env_path" ]]; then
+        log_error ".env not found at: $env_path"
+        log_info "Generate one with: lrops.sh setup-demo"
+        return 1
+    fi
+    
+    # Copy to temp for safe sourcing
+    local tmp_cfg="/tmp/lrops_env_validate_$$.env"
+    cp "$env_path" "$tmp_cfg"
+    
+    if validate_configuration "$tmp_cfg"; then
+        log_success ".env looks good: $env_path"
+        rm -f "$tmp_cfg"
+        return 0
+    else
+        log_warning "Validation found issues. Attempting targeted fixes..."
+        # Auto-fix: normalize boolean
+        if grep -q '^LIVEREVIEW_REVERSE_PROXY=' "$tmp_cfg"; then
+            sed -i 's/^LIVEREVIEW_REVERSE_PROXY=.*/LIVEREVIEW_REVERSE_PROXY=false/' "$tmp_cfg"
+        fi
+        # Auto-fix: ensure different ports
+        local bport=$(grep '^LIVEREVIEW_BACKEND_PORT=' "$tmp_cfg" | cut -d'=' -f2)
+        local fport=$(grep '^LIVEREVIEW_FRONTEND_PORT=' "$tmp_cfg" | cut -d'=' -f2)
+        if [[ -n "$bport" && "$bport" == "$fport" ]]; then
+            sed -i 's/^LIVEREVIEW_FRONTEND_PORT=.*/LIVEREVIEW_FRONTEND_PORT=8081/' "$tmp_cfg"
+        fi
+        # Auto-fix: generate secrets if missing
+        if ! grep -q '^DB_PASSWORD=' "$tmp_cfg"; then
+            echo "DB_PASSWORD=$(generate_password 32)" >> "$tmp_cfg"
+        fi
+        if ! grep -q '^JWT_SECRET=' "$tmp_cfg"; then
+            echo "JWT_SECRET=$(generate_jwt_secret)" >> "$tmp_cfg"
+        fi
+        # Re-validate
+        if validate_configuration "$tmp_cfg"; then
+            log_success "Auto-fixes applied. Updating $env_path"
+            mv "$tmp_cfg" "$env_path"
+            return 0
+        else
+            log_error "Validation still failing. Review $tmp_cfg for hints"
+            return 1
+        fi
+    fi
+}
 
 # Pull required Docker images
 pull_docker_images() {
@@ -3273,6 +3267,15 @@ main() {
             show_status
             exit $?
             ;;
+        env)
+            if [[ "${2:-}" == "validate" ]]; then
+                env_validate_cmd
+                exit $?
+            fi
+            log_error "Unknown env subcommand: ${2:-}"
+            log_info "Usage: lrops.sh env validate"
+            exit 1
+            ;;
         info)
             show_info
             exit $?
@@ -3598,7 +3601,7 @@ services:
       - "${LIVEREVIEW_FRONTEND_PORT:-8081}:8081"  # Frontend UI
       - "${LIVEREVIEW_BACKEND_PORT:-8888}:8888"   # Backend API
     env_file:
-      - .env
+            - .env
     environment:
       # Override DATABASE_URL to use internal container hostname
       - DATABASE_URL=postgres://livereview:${DB_PASSWORD}@livereview-db:5432/livereview?sslmode=disable
@@ -3607,11 +3610,7 @@ services:
       - LIVEREVIEW_BACKEND_PORT=${LIVEREVIEW_BACKEND_PORT:-8888}
       - LIVEREVIEW_FRONTEND_PORT=${LIVEREVIEW_FRONTEND_PORT:-8081}
       - LIVEREVIEW_REVERSE_PROXY=${LIVEREVIEW_REVERSE_PROXY:-false}
-      # API URL configuration for frontend
-      - LIVEREVIEW_API_URL=${LIVEREVIEW_API_URL}
-      - VITE_API_URL=${VITE_API_URL}
-      - REACT_APP_API_URL=${REACT_APP_API_URL}
-      - NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL}
+        # Framework-specific API vars are derived at runtime in entrypoint
     depends_on:
       livereview-db:
         condition: service_healthy
@@ -3648,60 +3647,23 @@ services:
 # === END:docker-compose.yml ===
 
 # === DATA:.env ===
-# LiveReview Environment Configuration
-# Generated by lrops.sh installer with two-mode deployment system
+# Minimal .env example (generated by lrops.sh)
 
-# Database Configuration
+# Only edit these 3 values unless instructed:
+LIVEREVIEW_BACKEND_PORT=8888
+LIVEREVIEW_FRONTEND_PORT=8081
+LIVEREVIEW_REVERSE_PROXY=false
+
+# Secrets are auto-generated during install and added below by lrops.sh
 DB_PASSWORD=${DB_PASSWORD}
 DATABASE_URL=postgres://livereview:${DB_PASSWORD}@livereview-db:5432/livereview?sslmode=disable
-
-# Security Configuration
 JWT_SECRET=${JWT_SECRET}
-
-# Application Configuration
 LIVEREVIEW_VERSION=${LIVEREVIEW_VERSION}
 LOG_LEVEL=info
-
-# Frontend API Configuration
-# These variables tell the frontend where to find the backend API
-# Set automatically by lrops.sh based on deployment mode
-# LIVEREVIEW_API_URL=http://localhost:8888 (demo) or http://localhost/api (production)
-# VITE_API_URL=http://localhost:8888 (demo) or http://localhost/api (production)
-# REACT_APP_API_URL=http://localhost:8888 (demo) or http://localhost/api (production)
-# NEXT_PUBLIC_API_URL=http://localhost:8888 (demo) or http://localhost/api (production)
-
-# Session Configuration (optional)
 ACCESS_TOKEN_DURATION_HOURS=8
 REFRESH_TOKEN_DURATION_DAYS=30
 
-# AI Integration (optional - configure as needed)
-# OPENAI_API_KEY=your_openai_api_key
-# GOOGLE_AI_API_KEY=your_google_ai_api_key
-
-# Two-Mode Deployment Configuration
-# These variables control demo vs production mode behavior
-# Set via lrops.sh during installation - do not modify manually
-
-# LIVEREVIEW_BACKEND_PORT=8888
-# LIVEREVIEW_FRONTEND_PORT=8081
-# LIVEREVIEW_REVERSE_PROXY=false
-
-# Demo Mode (LIVEREVIEW_REVERSE_PROXY=false):
-# - Binds to localhost only (secure local development)
-# - Webhooks disabled (manual triggers only)
-# - No external access
-# - Perfect for testing and development
-
-# Production Mode (LIVEREVIEW_REVERSE_PROXY=true):
-# - Binds to 127.0.0.1 (behind reverse proxy)
-# - Webhooks enabled (automatic triggers)
-# - External access via reverse proxy
-# - Requires SSL/TLS setup for security
-
-# For mode switching and configuration help:
-# lrops.sh help ssl     # SSL/TLS setup
-#
-# End of .env template
+# Framework-specific API variables are derived at runtime; don't add them here.
 # === END:.env ===
 
 # === DATA:nginx.conf.example ===
