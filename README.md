@@ -6,7 +6,7 @@
 
 <br />
 <p align="center">
-   <img src="./assets/screenshots/home.png" alt="LiveReview dashboard screenshot" width="85%" />
+   <img src="./assets/screenshots/home.png" alt="LiveReview dashboard screenshot" width="85%" height="85%"/>
   
 </p>
 <br />
