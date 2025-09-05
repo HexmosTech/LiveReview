@@ -47,6 +47,16 @@ For multi-line comments, provide `position[line_range]` with both `start` and `e
    - '-' → deleted line: set old_line to that old counter value; omit new_line.
    - ' ' → context line: set both old_line and new_line to their respective counters for that line.
 
+### File path resolution (imprecise inputs → MR paths)
+GitLab requires `old_path` and `new_path` to match repo-relative paths present in the MR’s change list. Inputs coming from UIs or LLMs often omit intermediate folders (for example, `liveapi-backend/subPrompt.go` when the diff path is `liveapi-backend/prompt/subPrompt.go`). Before constructing the `position` payload, resolve the input path to the exact MR change path using this strategy:
+
+1. Exact match: if the input equals any `changes[].new_path` or `changes[].old_path`, use it.
+2. Longest-suffix match: if no exact match, choose the MR path that ends with the input (or `"/" + input`) and prefer the longest matching suffix. This recovers omitted directories.
+3. Unique basename match: if still unresolved, and exactly one changed file shares the same basename, use that MR path.
+4. Ambiguity guard: if multiple candidates remain (same basename in different dirs), do not guess—leave the original path and log the ambiguity.
+
+Rationale: This mapping makes comments land in the Changes tab even when upstream text is imprecise, while the ambiguity guard prevents mis-anchoring to the wrong file.
+
 ### File state cases
 - New file (added):
   - old_path and new_path are the same path;
@@ -142,6 +152,7 @@ For multi-line comments, provide `position[line_range]` with both `start` and `e
 - For single-line comments, omit `line_code`. For multi-line, provide `line_code` for start and end inside `line_range`.
 - For deleted lines, ensure you set only old_line (not new_line). For added lines, only new_line.
 - On context lines, old_line and new_line can differ due to previous edits.
+- Ensure `old_path/new_path` are the exact MR paths after resolution. When inputs are imprecise, apply the resolver above; when multiple candidates share the same basename, do not guess—surface a log and fall back conservatively.
 
 ### Nuances and precedence (production-proven)
 - Single-line comments must not include `position[line_code]`. Sending it can cause 400 errors or mis-anchoring when GitLab’s internal line code doesn’t match your calculation.
@@ -161,6 +172,7 @@ For multi-line comments, provide `position[line_range]` with both `start` and `e
 - Payload sanity check before POST:
   - single-line: ensure exactly one of `old_line`/`new_line` (or both for context) is present; no `line_code`.
   - SHAs must come from the latest MR version.
+ - Path sanity: resolve the incoming file path against the MR change set (exact → longest-suffix → unique basename). Only use a resolved path for `old_path/new_path` if the match is unambiguous.
 
 ### Image and file position types (for completeness)
 - position_type = "image": use width, height, x, y.
@@ -171,3 +183,5 @@ For multi-line comments, provide `position[line_range]` with both `start` and `e
 - Derive old_line/new_line strictly from hunk state; do not guess from display numbers.
 - Handle renames by carrying both old_path and new_path from the MR changes payload.
 - Prefer JSON bodies; form-encoded works too but JSON is clearer and consistent.
+ - Implement a path resolver used at two points: (a) when converting upstream/LLM output into internal comments, and (b) immediately before constructing the GitLab `position` object. Strategy: exact match → longest-suffix → unique basename; otherwise, do not guess and log for observability.
+ - Logging: emit a short mapping line when resolution occurs, e.g., `PATH MAP: 'liveapi-backend/subPrompt.go' -> 'liveapi-backend/prompt/subPrompt.go'`, and include the final `position` JSON (with secrets redacted) to speed up troubleshooting.

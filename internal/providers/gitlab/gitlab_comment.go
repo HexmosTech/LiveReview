@@ -6,6 +6,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"path"
 	"strings"
 )
 
@@ -163,11 +164,21 @@ func (c *GitLabHTTPClient) CreateMRLineComment(projectID string, mrIID int, file
 	isOnDeletedLine := false
 	var classifiedKind string
 	var classifiedOld, classifiedNew int
-	if changes, err := c.GetMergeRequestChanges(projectID, mrIID); err == nil && changes != nil {
-		// normalize path for matching
+
+	// Fetch changes once and also use them to resolve potentially inexact file paths
+	changes, changesErr := c.GetMergeRequestChanges(projectID, mrIID)
+	if changesErr == nil && changes != nil {
+		// normalize and resolve to the best matching path in MR changes
 		norm := strings.TrimPrefix(filePath, "/")
+		if resolved := resolvePathAgainstChanges(norm, changes); resolved != "" && resolved != norm {
+			fmt.Printf("LINE COMMENT PATH MAP: '%s' -> '%s' (MR change path)\n", norm, resolved)
+			filePath = resolved
+		} else {
+			filePath = norm
+		}
+
 		for _, ch := range changes.Changes {
-			if ch.NewPath == norm || ch.OldPath == norm {
+			if ch.NewPath == filePath || ch.OldPath == filePath {
 				// If that exact old-side line exists as a deletion, force deleted
 				if HasDeletedOldLineAt(ch.Diff, lineNum) {
 					classifiedKind = "deleted"
@@ -186,6 +197,9 @@ func (c *GitLabHTTPClient) CreateMRLineComment(projectID string, mrIID int, file
 				break
 			}
 		}
+	} else {
+		// Still normalize if we couldn't fetch changes
+		filePath = strings.TrimPrefix(filePath, "/")
 	}
 	// If classification wasn't decisive, honor the optional flag
 	if classifiedKind == "" && len(isDeletedLine) > 0 && isDeletedLine[0] {
@@ -231,8 +245,7 @@ func (c *GitLabHTTPClient) CreateMRLineComment(projectID string, mrIID int, file
 		return fmt.Errorf("failed to get MR version: %w", err)
 	}
 
-	// Normalize file path (remove leading slash)
-	filePath = strings.TrimPrefix(filePath, "/")
+	// filePath is normalized and potentially resolved above
 
 	// Create the request URL for discussions endpoint
 	requestURL := fmt.Sprintf("%s/projects/%s/merge_requests/%d/discussions",
@@ -343,6 +356,66 @@ func (c *GitLabHTTPClient) CreateMRLineComment(projectID string, mrIID int, file
 	fmt.Printf("LINE COMMENT GITLAB API [%s:%d]: Response: %s\n",
 		filePath, lineNum, responsePreview)
 	return nil
+}
+
+// resolvePathAgainstChanges tries to map an imprecise file path (from AI text) to an
+// exact path present in the MR changes by using suffix and basename matching.
+// Returns empty string if no good candidate found.
+func resolvePathAgainstChanges(input string, changes *GitLabMergeRequestChanges) string {
+	if input == "" || changes == nil {
+		return ""
+	}
+	in := strings.TrimPrefix(input, "/")
+
+	// 1) Exact match on new_path or old_path
+	for _, ch := range changes.Changes {
+		if ch.NewPath == in || ch.OldPath == in {
+			return ch.NewPath
+		}
+	}
+
+	// 2) Longest-suffix match (handles missing intermediate directories)
+	best := ""
+	bestLen := 0
+	for _, ch := range changes.Changes {
+		candidates := []string{ch.NewPath, ch.OldPath}
+		for _, cand := range candidates {
+			if cand == "" {
+				continue
+			}
+			if strings.HasSuffix(cand, "/"+in) || strings.HasSuffix(cand, in) {
+				// choose the longest matching candidate
+				l := len(in)
+				if strings.HasSuffix(cand, "/"+in) {
+					l = len(in) + 1
+				}
+				if l > bestLen {
+					bestLen = l
+					best = cand
+				}
+			}
+		}
+	}
+	if best != "" {
+		return best
+	}
+
+	// 3) Basename match if unique
+	base := path.Base(in)
+	var baseCandidates []string
+	for _, ch := range changes.Changes {
+		if path.Base(ch.NewPath) == base {
+			baseCandidates = append(baseCandidates, ch.NewPath)
+		} else if path.Base(ch.OldPath) == base {
+			baseCandidates = append(baseCandidates, ch.NewPath)
+		}
+	}
+	if len(baseCandidates) == 1 {
+		return baseCandidates[0]
+	}
+
+	// 4) No good match
+	return ""
 }
 
 // tryFormBasedLineComment tries to create a line comment using form URL encoding
