@@ -10,3 +10,9 @@ log/
 
 livereview_pgdata/
 lrdata/postgres/
+
+# Vendor prompts local artifacts (never commit)
+internal/prompts/vendor/keyring_gen.go
+internal/prompts/vendor/templates/*.enc
+internal/prompts/vendor/templates/manifest.json
+livereview_vendor

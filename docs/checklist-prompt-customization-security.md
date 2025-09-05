@@ -75,12 +75,12 @@ Spot checks
 Objective: Implement SQL accessors for `prompt_application_context` resolution and chunk CRUD with ordering.
 
 Tasks
-- [ ] Create `internal/prompts/store.go` — DB queries for:
-	- [ ] `ResolveApplicationContext` implementing precedence: repo > group > ai+git > ai only > git only > org.
-	- [ ] `ListChunks(orgID, applicationContextID, promptKey, variableName)` ordered by `sequence_index ASC, created_at ASC`.
-	- [ ] `Create/Update/Delete/Reorder` chunk operations with unique constraint handling.
+- [x] Create `internal/prompts/store.go` — DB queries for:
+	- [x] `ResolveApplicationContext` implementing precedence: repo > group > ai+git > ai only > git only > org.
+	- [x] `ListChunks(orgID, applicationContextID, promptKey, variableName)` ordered by `sequence_index ASC, created_at ASC`.
+	- [x] `Create/Update/Delete/Reorder` chunk operations with unique constraint handling.
 - [ ] Create `internal/prompts/store_sql.go` or `internal/prompts/sql/` — keep SQL texts readable and unit-testable.
-- [ ] Add small helper: `providerFromAIConnector(id)` — maps `ai_connectors.id` → provider name (cached) for template selection.
+- [x] Add small helper: `providerFromAIConnector(id)` — maps `ai_connectors.id` → provider name (cached) for template selection.
 
 Spot checks
 - [ ] Manual DB insert of a few chunks shows expected ordering from the store list call.
@@ -92,19 +92,20 @@ Spot checks
 
 Objective: Provide a stub vendor pack for default builds and a real pack path for CI releases (encrypted blobs + keyring).
 
-- [ ] Create `internal/prompts/vendor/pack.go` — define `VendorPack` interface used by `Manager` to fetch descriptors and encrypted blobs.
-- [ ] Create `internal/prompts/vendor/pack_stub.go` — `//go:build !vendor_prompts` — implements `VendorPack` with safe stub strings; registers default descriptors (no sensitive content).
-- [ ] Create `internal/prompts/vendor/pack_real.go` — `//go:build vendor_prompts` — uses `//go:embed internal/prompts/vendor/templates/*.enc` and a generated `keyring_gen.go`; fails fast if artifacts are missing.
-- [ ] Expose registry of plaintext templates for tooling — edit `internal/prompts/templates.go` or add `internal/prompts/registry.go` to export `PlaintextTemplates()` (or equivalent) returning a list/map of `{prompt_key, provider(optional), body}`.
-- [ ] Create CLI tool `internal/prompts/vendor/cmd/prompts-encrypt/main.go` — encrypt plaintext templates into `internal/prompts/vendor/templates/*.enc` and write `keyring_gen.go` with `{key_id -> BEK}` and `build_id`.
+ - [x] Create `internal/prompts/vendor/pack.go` — define `VendorPack` interface used by `Manager` to fetch descriptors and encrypted blobs.
+ - [x] Create `internal/prompts/vendor/pack_stub.go` — `//go:build !vendor_prompts` — implements `VendorPack` with safe stub strings; registers default descriptors (no sensitive content).
+ - [x] Create `internal/prompts/vendor/pack_real.go` — `//go:build vendor_prompts` — uses `//go:embed internal/prompts/vendor/templates/*.enc` and a generated `keyring_gen.go`; fails fast if artifacts are missing.
+ - [x] Expose registry of plaintext templates for tooling — edit `internal/prompts/templates.go` or add `internal/prompts/registry.go` to export `PlaintextTemplates()` (or equivalent) returning a list/map of `{prompt_key, provider(optional), body}`.
+ - [x] Create CLI tool `internal/prompts/vendor/cmd/prompts-encrypt/main.go` — encrypt plaintext templates into `internal/prompts/vendor/templates/*.enc` and write `keyring_gen.go` with `{key_id -> BEK}` and `build_id`.
 	- Source defaults to `internal/prompts/templates.go` via the exported registry; optionally support a plaintext folder via `$VENDOR_PROMPT_SRC`.
-- [ ] Update `.gitignore` — ensure `internal/prompts/vendor/keyring_gen.go` and `internal/prompts/vendor/templates/*.enc` are ignored.
+ - [x] Update `.gitignore` — ensure `internal/prompts/vendor/keyring_gen.go` and `internal/prompts/vendor/templates/*.enc` are ignored.
 
-Spot checks
-- [ ] `go build` (no tag) succeeds and the app reports “stub vendor pack active” at init (log line).
-- [ ] `go build -tags vendor_prompts` fails with a clear message if no `.enc`/keyring present (intentional until CI path is wired).
+- Spot checks
+- [x] `go build` (no tag) succeeds and the app reports “stub vendor pack active” at init (log line).
+- [x] `go build -tags vendor_prompts` fails with a clear message if no `.enc`/keyring present (intentional until CI path is wired).
+- [x] Vendor build (with assets) succeeds locally; encrypted blobs and manifest embedded.
 - [ ] Verify a vendor-tagged release build artifact does not contain any Go source files (e.g., `internal/prompts/*.go`).
-- [ ] Early static scan (vendor build): build a local binary with `-tags vendor_prompts` (can be a simple `go build` path) and run a static strings check to ensure no plaintext vendor templates are visible.
+- [x] Early static scan (vendor build): built a local binary with `-tags vendor_prompts` and spot-checked strings; no plaintext vendor templates found.
 	- Example checks: `strings -a ./livereview | grep -E "(\{\{VAR:|some_known_vendor_snippet)"` should return no plaintext vendor body lines.
 
 ---
