@@ -1,9 +1,11 @@
 package prompts
 
 import (
+	"context"
 	"fmt"
 	"strings"
 
+	vendorpack "github.com/livereview/internal/prompts/vendor"
 	"github.com/livereview/pkg/models"
 )
 
@@ -18,69 +20,21 @@ func NewPromptBuilder() *PromptBuilder {
 // BuildCodeReviewPrompt generates a comprehensive code review prompt
 // This is the main prompt used by the trigger-review endpoint
 func (pb *PromptBuilder) BuildCodeReviewPrompt(diffs []*models.CodeDiff) string {
-	var prompt strings.Builder
-
-	// System role and instructions
-	prompt.WriteString("# Code Review Request\n\n")
-	prompt.WriteString(CodeReviewInstructions)
-	prompt.WriteString("\n\n")
-
-	// Review guidelines
-	prompt.WriteString(ReviewGuidelines)
-	prompt.WriteString("\n\n")
-
-	// Output format requirements
-	prompt.WriteString(CommentRequirements)
-	prompt.WriteString("\n\n")
-
-	// JSON structure specification
-	prompt.WriteString(JSONStructureExample)
-	prompt.WriteString("\n\n")
-
-	// Comment classification guidelines
-	prompt.WriteString(CommentClassification)
-	prompt.WriteString("\n\n")
-
-	// Line number interpretation instructions
-	prompt.WriteString(LineNumberInstructions)
-	prompt.WriteString("\n\n")
-
-	// Code changes section
-	prompt.WriteString(CodeChangesHeader)
-	prompt.WriteString("\n\n")
-	pb.addCodeDiffs(&prompt, diffs)
-
-	return prompt.String()
+	// Delegate to Manager.Render("code_review") to avoid legacy assembly
+	base, err := NewManager(nil, vendorpack.New()).Render(context.Background(), Context{OrgID: 0}, "code_review", nil)
+	if err != nil {
+		return ""
+	}
+	return base + "\n\n" + BuildCodeChangesSection(diffs)
 }
 
 // BuildSummaryPrompt generates a prompt for synthesizing high-level summaries
 func (pb *PromptBuilder) BuildSummaryPrompt(fileSummaries []string, comments []*models.ReviewComment) string {
-	var prompt strings.Builder
-
-	prompt.WriteString(SummaryWriterRole)
-	prompt.WriteString(" using proper markdown formatting.\n\n")
-
-	// Requirements
-	prompt.WriteString(SummaryRequirements)
-	prompt.WriteString("\n\n")
-
-	// Add file summaries
-	prompt.WriteString("File-level summaries:\n")
-	for _, fs := range fileSummaries {
-		prompt.WriteString("- " + fs + "\n")
+	base, err := NewManager(nil, vendorpack.New()).Render(context.Background(), Context{OrgID: 0}, "summary", nil)
+	if err != nil {
+		return ""
 	}
-
-	// Add line comments
-	prompt.WriteString("\nLine comments:\n")
-	for _, c := range comments {
-		prompt.WriteString(fmt.Sprintf("- [%s:%d] %s\n", c.FilePath, c.Line, c.Content))
-	}
-
-	// Expected output structure
-	prompt.WriteString("\n")
-	prompt.WriteString(SummaryStructure)
-
-	return prompt.String()
+	return base + "\n\n" + BuildSummarySection(fileSummaries, comments) + "\n\n" + SummaryStructure
 }
 
 // addCodeDiffs adds the actual code changes to the prompt

@@ -7,6 +7,7 @@ import (
 
 	"github.com/livereview/internal/aiconnectors"
 	"github.com/livereview/internal/prompts"
+	vendorpack "github.com/livereview/internal/prompts/vendor"
 	"github.com/livereview/pkg/models"
 	"github.com/rs/zerolog/log"
 )
@@ -58,10 +59,16 @@ func (a *AIConnectorsAdapter) ReviewCode(ctx context.Context, diffs []*models.Co
 		return nil, fmt.Errorf("failed to create connector: %w", err)
 	}
 
-	// Create a prompt for the AI to review the code
-	// Use centralized prompt building
-	promptBuilder := prompts.NewPromptBuilder()
-	prompt := promptBuilder.BuildCodeReviewPrompt(diffs)
+	// Build prompt via new Manager.Render + code changes section (no DB dependency yet)
+	mgr := prompts.NewManager(nil, vendorpack.New())
+	base, err := mgr.Render(ctx, prompts.Context{OrgID: 0}, "code_review", map[string]string{
+		"style_guide":         "",
+		"security_guidelines": "",
+	})
+	if err != nil {
+		return nil, fmt.Errorf("build prompt failed: %w", err)
+	}
+	prompt := base + "\n\n" + prompts.BuildCodeChangesSection(diffs)
 
 	// Call the AI provider
 	log.Info().

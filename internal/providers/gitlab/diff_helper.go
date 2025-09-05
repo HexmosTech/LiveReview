@@ -94,7 +94,9 @@ func parseDiffForLinePosition(diff string, targetLine int) (map[string]string, e
 // GenerateLineCode creates a valid line_code for GitLab line comments
 // The line_code format has changed in different GitLab versions, so we're using the
 // most reliable approach here based on the API documentation and empirical testing.
-func GenerateLineCode(startSHA, headSHA, filePath string, lineNum int) string {
+// GenerateLineCode creates a valid line_code for GitLab line comments.
+// side should be "right" for new lines and "left" for deleted (old) lines.
+func GenerateLineCode(startSHA, headSHA, filePath string, lineNum int, side string) string {
 	// Take first 8 characters of each SHA as GitLab does
 	shortStartSHA := startSHA
 	if len(shortStartSHA) > 8 {
@@ -121,11 +123,16 @@ func GenerateLineCode(startSHA, headSHA, filePath string, lineNum int) string {
 
 	// For older GitLab versions, the format includes the SHAs:
 	// <start_sha>_<head_sha>_<normalized_path>_<side>_<line>
+	// Side impacts whether the position refers to the old (left) or new (right) side of the diff
+	if side != "left" && side != "right" {
+		side = "right"
+	}
+
 	oldStyleLineCode := fmt.Sprintf("%s_%s_%s_%s_%d",
 		shortStartSHA,
 		shortHeadSHA,
 		normalizedPath,
-		"right", // For comments on the new version of the file
+		side,
 		lineNum)
 
 	// Return the new style line code which is preferred in newer GitLab versions
@@ -176,7 +183,11 @@ func (c *GitLabHTTPClient) CreateLineCommentViaDiscussions(projectID string, mrI
 	filePath = strings.TrimPrefix(filePath, "/")
 
 	// Generate a valid line_code - this now includes both new and old style formats
-	lineCode := GenerateLineCode(latestVersion.StartCommitSHA, latestVersion.HeadCommitSHA, filePath, lineNum)
+	side := "right"
+	if isOnDeletedLine {
+		side = "left"
+	}
+	lineCode := GenerateLineCode(latestVersion.StartCommitSHA, latestVersion.HeadCommitSHA, filePath, lineNum, side)
 	parts := strings.Split(lineCode, ":")
 	newStyleCode := parts[0]
 

@@ -36,7 +36,7 @@ func (m *manager) GetTemplateDescriptor(promptKey string, provider string) (Temp
 func (m *manager) Render(ctx context.Context, c Context, promptKey string, vars map[string]string) (string, error) {
 	// Resolve provider from AIConnector when present
 	provider := "default"
-	if c.AIConnectorID != nil {
+	if m.store != nil && c.AIConnectorID != nil {
 		p, err := m.store.providerFromAIConnector(ctx, *c.AIConnectorID)
 		if err == nil && p != "" {
 			provider = p
@@ -78,6 +78,11 @@ func (m *manager) Render(ctx context.Context, c Context, promptKey string, vars 
 		}
 		if v, ok := resolved[name]; ok {
 			return v, nil
+		}
+		// If no store is configured, we cannot resolve DB chunks; return default or empty.
+		if m.store == nil {
+			resolved[name] = def
+			return def, nil
 		}
 		// Resolve application context on first need
 		var err error
