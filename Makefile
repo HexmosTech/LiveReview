@@ -1,4 +1,4 @@
-.PHONY: build run-review run-review-verbose test clean develop develop-reflex river-deps river-install river-migrate river-setup river-ui-install river-ui db-flip version version-bump version-patch version-minor version-major version-bump-dirty version-patch-dirty version-minor-dirty version-major-dirty version-bump-dry version-patch-dry version-minor-dry version-major-dry build-versioned docker-build docker-build-push docker-build-dry docker-interactive docker-interactive-push docker-interactive-dry docker-build docker-build-push docker-build-versioned docker-build-push-versioned docker-build-dry docker-build-push-dry docker-multiarch docker-multiarch-push docker-multiarch-dry docker-interactive-multiarch docker-interactive-multiarch-push cplrops
+.PHONY: build run-review run-review-verbose test clean develop develop-reflex river-deps river-install river-migrate river-setup river-ui-install river-ui db-flip version version-bump version-patch version-minor version-major version-bump-dirty version-patch-dirty version-minor-dirty version-major-dirty version-bump-dry version-patch-dry version-minor-dry version-major-dry build-versioned docker-build docker-build-push docker-build-dry docker-interactive docker-interactive-push docker-interactive-dry docker-build docker-build-push docker-build-versioned docker-build-push-versioned docker-build-dry docker-build-push-dry docker-multiarch docker-multiarch-push docker-multiarch-dry docker-interactive-multiarch docker-interactive-multiarch-push cplrops vendor-prompts-encrypt vendor-prompts-build vendor-prompts-rebuild
 
 # Go parameters
 GOCMD=go
@@ -13,6 +13,21 @@ export
 
 build:
 	$(GOBUILD) -o $(BINARY_NAME)
+
+# Vendor prompts: encrypt plaintext templates and generate embedded assets
+# Usage examples:
+#   make vendor-prompts-encrypt                       # default output dir
+#   make vendor-prompts-encrypt ARGS="--build-id 20250101010101"
+#   make vendor-prompts-encrypt ARGS="--key-hex <64-hex> --key-id mykey"
+vendor-prompts-encrypt:
+	$(GOCMD) run ./internal/prompts/vendor/cmd/prompts-encrypt --out internal/prompts/vendor/templates $(ARGS)
+
+# Build binary with vendor prompts embedded (requires assets from vendor-prompts-encrypt)
+vendor-prompts-build:
+	$(GOBUILD) -tags vendor_prompts -o $(BINARY_NAME)_vendor ./livereview.go
+
+# Convenience: regenerate assets and build vendor binary in one step
+vendor-prompts-rebuild: vendor-prompts-encrypt vendor-prompts-build
 
 # Version management targets
 version:
