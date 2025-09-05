@@ -1,6 +1,7 @@
 package prompts
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"sort"
@@ -69,9 +70,6 @@ func (m *manager) Render(ctx context.Context, c Context, promptKey string, vars 
 		}
 	}()
 
-	// Parse placeholders with options
-	placeholders := ParsePlaceholders(string(tplBody))
-
 	// Cache resolved var values by name
 	resolved := map[string]string{}
 	getVar := func(name string, joinSep string, def string) (string, error) {
@@ -123,24 +121,62 @@ func (m *manager) Render(ctx context.Context, c Context, promptKey string, vars 
 		return joined, nil
 	}
 
-	// Substitute in order of appearance to honor per-occurrence options
-	out := string(tplBody)
-	for _, ph := range placeholders {
+	// Streaming substitution over tplBody to avoid keeping raw markers in memory.
+	// Use regex indices directly on []byte to minimize copying of the decrypted template.
+	matches := varPattern.FindAllSubmatchIndex(tplBody, -1)
+	var buf bytes.Buffer
+	last := 0
+	for _, m := range matches {
+		// m indices layout: [fullStart, fullEnd, nameStart, nameEnd, optsStart, optsEnd]
+		fullStart, fullEnd := m[0], m[1]
+		nameStart, nameEnd := m[2], m[3]
+		optsStart, optsEnd := -1, -1
+		if len(m) >= 6 {
+			optsStart, optsEnd = m[4], m[5]
+		}
+
+		// Write bytes before this placeholder
+		if fullStart > last {
+			buf.Write(tplBody[last:fullStart])
+		}
+
+		// Extract name and options
+		name := string(tplBody[nameStart:nameEnd])
 		joinSep := "\n\n"
-		if j, ok := ph.Options["join"]; ok {
-			joinSep = j
-		}
 		def := ""
-		if d, ok := ph.Options["default"]; ok {
-			def = d
+		if optsStart != -1 && optsEnd != -1 && optsEnd > optsStart {
+			optsRaw := tplBody[optsStart:optsEnd]
+			sub := optPattern.FindAllSubmatch(optsRaw, -1)
+			for _, seg := range sub {
+				// seg[1] = key, seg[2] = value
+				key := strings.TrimSpace(string(seg[1]))
+				val := strings.TrimSpace(string(seg[2]))
+				if len(val) >= 2 && ((val[0] == '"' && val[len(val)-1] == '"') || (val[0] == '\'' && val[len(val)-1] == '\'')) {
+					val = val[1 : len(val)-1]
+				}
+				val = decodeEscapes(val)
+				switch strings.ToLower(key) {
+				case "join":
+					joinSep = val
+				case "default":
+					def = val
+				}
+			}
 		}
-		val, err := getVar(ph.Name, joinSep, def)
+
+		// Resolve value and write it
+		val, err := getVar(name, joinSep, def)
 		if err != nil {
 			return "", err
 		}
-		out = strings.ReplaceAll(out, ph.Raw, val)
+		buf.WriteString(val)
+		last = fullEnd
 	}
-	return out, nil
+	// Write remaining tail
+	if last < len(tplBody) {
+		buf.Write(tplBody[last:])
+	}
+	return buf.String(), nil
 }
 
 func (m *manager) ResolveApplicationContext(ctx context.Context, c Context) (int64, error) {

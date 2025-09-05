@@ -206,3 +206,23 @@ docker-interactive-multiarch-push:
 
 cplrops:
 	@cp lrops.sh ../gh/LiveReview/
+
+.PHONY: vendor-memdump-check
+vendor-memdump-check: ## Build vendor binary, run render smoke, gcore, and grep for raw template markers
+	@echo "[memdump] Building render-smoke with vendor_prompts..."
+	$(GOBUILD) -tags vendor_prompts -o render-smoke ./cmd/render-smoke
+	@echo "[memdump] Starting render-smoke (short run)..."
+	LOOPS=200 ./render-smoke & echo $$! > .render_smoke.pid
+	sleep 1
+	@echo "[memdump] Capturing core dump via gcore (requires gdb)..."
+	-@pkill -0 `cat .render_smoke.pid` >/dev/null 2>&1 && gcore -o core_render_smoke `cat .render_smoke.pid` >/dev/null 2>&1 || true
+	@echo "[memdump] Stopping render-smoke..."
+	-@kill `cat .render_smoke.pid` >/dev/null 2>&1 || true
+	rm -f .render_smoke.pid
+	@echo "[memdump] Grepping dump for raw template markers ({{VAR:) ..."
+	-@if ls core_render_smoke.* >/dev/null 2>&1; then \
+		strings core_render_smoke.* | grep -n "{{VAR:" || true; \
+	else \
+		echo "No core via gcore; trying SIGSEGV fallback..."; \
+		bash scripts/memdump_check.sh; \
+	fi

@@ -127,7 +127,7 @@ Tasks
 Spot checks
 - [x] With stub pack active, a minimal call to `Manager.Render` returns a prompt containing joined chunk text for a variable (verified via dev fallback path and DB list logic).
  - [x] Add `internal/prompts/render_test.go` tests for happy path and option parsing. Note: run scoped tests `go test ./internal/prompts` to avoid unrelated package failures.
-- [ ] Early runtime memory-dump sanity check (after render path exists): run a local vendor-tagged binary, trigger a render repeatedly, capture a core dump (e.g., via gcore or gdb), and search for raw vendor template markers like `{{VAR:`. Expect minimal/zero occurrences of raw template bodies; final composed prompts may appear (acceptable).
+ - [x] Early runtime memory-dump sanity check (after render path exists): used `make vendor-memdump-check` to capture cores (e.g., `core_render_smoke.42152`, `core_render_smoke.43749`, `core_render_smoke.44180`) and grep for `{{VAR:` and specific placeholders (`style_guide`, `security_guidelines`). No raw vendor template placeholders found; one generic `{{VAR:` hit corresponds to the in-binary regex pattern (acceptable false-positive). See `docs/memory_dump_check.md`.
 
 ---
 

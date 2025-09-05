@@ -44,11 +44,23 @@ func main() {
 	ctx := context.Background()
 	ac := prompts.Context{OrgID: orgID}
 
-	// Render in a loop.
+	// Determine prompt key and build a dummy vars map by parsing placeholders
 	key := envOr("PROMPT_KEY", "code_review")
+	provider := envOr("PROVIDER", "default")
+	vars := map[string]string{}
+	if pt, err := pack.GetPlaintext(key, provider); err == nil {
+		for _, ph := range prompts.ParsePlaceholders(string(pt)) {
+			// Supply a benign value so Render won't need DB or defaults
+			if _, ok := vars[ph.Name]; !ok {
+				vars[ph.Name] = ""
+			}
+		}
+	}
+
+	// Render in a loop.
 	loops := envInt("LOOPS", 50)
 	for i := 0; i < loops; i++ {
-		_, err := mgr.Render(ctx, ac, key, map[string]string{})
+		_, err := mgr.Render(ctx, ac, key, vars)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "render error: %v\n", err)
 		}
