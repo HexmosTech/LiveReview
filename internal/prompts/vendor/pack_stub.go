@@ -17,4 +17,7 @@ func (p *stubPack) List() []TemplateInfo { return []TemplateInfo{} }
 func (p *stubPack) GetCipher(promptKey, provider string) ([]byte, error) {
 	return nil, ErrNotFound
 }
+func (p *stubPack) GetPlaintext(promptKey, provider string) ([]byte, error) {
+	return nil, ErrNotFound
+}
 func (p *stubPack) ActiveBuildID() string { return "dev" }
