@@ -291,3 +291,66 @@ func TestLineCommentSpecifics(t *testing.T) {
 	// Verify that MR versions endpoint was called
 	assert.True(t, mrVersionsCalled, "MR versions endpoint should be called")
 }
+
+// TestDeletedLineComment ensures that comments targeting deleted lines use old_line
+// and succeed via the discussions endpoint (not falling back to a general note)
+func TestDeletedLineComment(t *testing.T) {
+	mrVersionsCalled := false
+	discussionsCalled := false
+
+	mockServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		path := r.URL.Path
+		if strings.HasSuffix(path, "/versions") {
+			mrVersionsCalled = true
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusOK)
+			w.Write([]byte(`[
+				{
+					"id": 1,
+					"head_commit_sha": "headsha123456",
+					"base_commit_sha": "basesha123456",
+					"start_commit_sha": "startsha123456",
+					"created_at": "2025-07-11T00:00:00Z",
+					"merge_request_id": 123,
+					"state": "collected",
+					"real_size": "2"
+				}
+			]`))
+			return
+		}
+		if strings.HasSuffix(path, "/discussions") {
+			var requestBody map[string]interface{}
+			body, _ := io.ReadAll(r.Body)
+			json.Unmarshal(body, &requestBody)
+
+			// Validate we sent old_line for deleted line
+			if position, ok := requestBody["position"].(map[string]interface{}); ok {
+				if position["position_type"] == "text" &&
+					position["base_sha"] == "basesha123456" &&
+					position["head_sha"] == "headsha123456" &&
+					position["start_sha"] == "startsha123456" &&
+					position["old_line"] != nil &&
+					position["new_line"] == nil {
+					discussionsCalled = true
+					w.Header().Set("Content-Type", "application/json")
+					w.WriteHeader(http.StatusCreated)
+					w.Write([]byte(`{"id": "discussion-deleted-line"}`))
+					return
+				}
+			}
+			w.WriteHeader(http.StatusBadRequest)
+			w.Write([]byte(`{"error": "Invalid position for deleted line"}`))
+			return
+		}
+		w.WriteHeader(http.StatusNotFound)
+	}))
+	defer mockServer.Close()
+
+	client := gitlab.NewHTTPClient(mockServer.URL, "test-token")
+
+	// Call the enhanced API directly to be able to pass the deleted flag
+	err := client.CreateMRLineComment("testproject", 123, "src/main.go", 58, "Deleted line comment", true)
+	assert.NoError(t, err)
+	assert.True(t, mrVersionsCalled, "MR versions endpoint should be called")
+	assert.True(t, discussionsCalled, "Discussions endpoint should be used with old_line for deleted line")
+}

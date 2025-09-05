@@ -6,7 +6,14 @@ package prompts
 // This file is excluded from vendor builds by build tag.
 func PlaintextTemplates() []PlaintextTemplate {
 	return []PlaintextTemplate{
-		{PromptKey: "code_review", Provider: "", Body: CodeReviewerRole + "\n\n" + CodeReviewInstructions + "\n\n{{VAR:style_guide}}\n\n{{VAR:security_guidelines}}\n\n" + JSONStructureExample},
+		{PromptKey: "code_review", Provider: "", Body: "# Code Review Request\n\n" +
+			CodeReviewInstructions + "\n\n" +
+			ReviewGuidelines + "\n\n" +
+			CommentRequirements + "\n\n" +
+			JSONStructureExample + "\n\n" +
+			CommentClassification + "\n\n" +
+			LineNumberInstructions + "\n\n" +
+			"{{VAR:style_guide}}\n\n{{VAR:security_guidelines}}"},
 		{PromptKey: "summary", Provider: "", Body: SummaryWriterRole + "\n\n" + SummaryRequirements + "\n\n" + SummaryStructure},
 	}
 }

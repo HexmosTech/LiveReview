@@ -352,7 +352,8 @@ func (c *GitLabHTTPClient) createDirectLineComment(projectID string, mrIID int, 
 	filePath = strings.TrimPrefix(filePath, "/")
 
 	// Generate a valid line_code which is crucial for proper positioning
-	lineCode := GenerateLineCode(latestVersion.StartCommitSHA, latestVersion.HeadCommitSHA, filePath, lineNum)
+	// Direct method assumes new lines (right side) – callers decide deleted handling before reaching here
+	lineCode := GenerateLineCode(latestVersion.StartCommitSHA, latestVersion.HeadCommitSHA, filePath, lineNum, "right")
 	parts := strings.Split(lineCode, ":")
 	newStyleCode := parts[0]
 

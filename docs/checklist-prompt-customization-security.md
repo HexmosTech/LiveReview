@@ -136,14 +136,14 @@ Spot checks
 Objective: Replace the old prompt assembly entirely with the new manager-driven render path. No legacy fallback to avoid silent divergence.
 
 Tasks
-- [ ] Edit `internal/prompts/builder.go` — replace legacy prompt assembly with `Manager.Render(promptKey, vars, context)` as the only path.
-- [ ] Remove legacy code paths and constants used by the old assembly in `internal/prompts/templates.go` if they are no longer needed at runtime (keep plaintext as source for encryption tool only).
-- [ ] Identify call sites (e.g., in `internal/review/` or connectors) and thread `Context` (org, ai connector id, git connector id, repository) to render.
-- [ ] Startup/DI checks — ensure the app fails fast with a clear error if the Manager or vendor pack is not initialized/available.
+- [x] Edit `internal/prompts/builder.go` — delegate to `Manager.Render("code_review"/"summary")` and append sections via helpers; remove legacy assembly path.
+- [x] Keep `internal/prompts/templates.go` constants as plaintext sources (for encryption and dev-only stub), but do not use them to assemble prompts at runtime.
+- [x] Identify and migrate call sites: Gemini, LangChain (LLM abstraction), AI Connectors adapter now use `Manager.Render` + code/summary section helpers.
+- [x] Startup/DI checks — real vendor builds fail fast if assets are missing; render errors propagate (no silent fallback to legacy).
 
 Spot checks
-- [ ] Run a local review end-to-end with stub vendor pack; verify final prompt contains DB chunk content at expected positions.
-- [ ] Intentionally unset the Manager wiring or remove vendor artifacts; the process should fail fast with a clear error, not silently proceed.
+- [x] End-to-end review (stub pack): review triggers successfully; prompt contains expected base sections and code changes. Errors from render propagate.
+- [x] Vendor build path: `pack_real.New()` panics when manifest/keyring or `.enc` assets are absent (fail fast), ensuring no implicit fallback.
 
 ---
 

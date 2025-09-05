@@ -211,7 +211,12 @@ func (c *GitLabHTTPClient) CreateMRLineComment(projectID string, mrIID int, file
 		c.baseURL, url.PathEscape(projectID), mrIID)
 
 	// Generate a valid line_code - this now includes both new and old style formats
-	lineCode := GenerateLineCode(version.StartCommitSHA, version.HeadCommitSHA, filePath, lineNum)
+	// Choose side based on deleted/new
+	side := "right"
+	if isOnDeletedLine {
+		side = "left"
+	}
+	lineCode := GenerateLineCode(version.StartCommitSHA, version.HeadCommitSHA, filePath, lineNum, side)
 	parts := strings.Split(lineCode, ":")
 	newStyleCode := parts[0]
 	oldStyleCode := ""
@@ -385,7 +390,11 @@ func (c *GitLabHTTPClient) tryFormBasedLineComment(projectID string, mrIID int, 
 		c.baseURL, url.PathEscape(projectID), mrIID)
 
 	// Generate both line code styles
-	lineCode := GenerateLineCode(version.StartCommitSHA, version.HeadCommitSHA, filePath, lineNum)
+	side2 := "right"
+	if isOnDeletedLine {
+		side2 = "left"
+	}
+	lineCode := GenerateLineCode(version.StartCommitSHA, version.HeadCommitSHA, filePath, lineNum, side2)
 	parts := strings.Split(lineCode, ":")
 	newStyleCode := parts[0]
 

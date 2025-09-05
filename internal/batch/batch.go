@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/livereview/internal/prompts"
+	vendorpack "github.com/livereview/internal/prompts/vendor"
 	"github.com/livereview/pkg/models"
 	"github.com/tmc/langchaingo/llms"
 )
@@ -404,11 +405,19 @@ func (p *BatchProcessor) AggregateAndCombineOutputs(ctx context.Context, llm llm
 	}
 
 	// Synthesize general summary from all file summaries and ALL comments (internal + external)
-	// Use LLM abstraction for synthesis
 	allCommentsForSynthesis := append(append([]*models.ReviewComment{}, internalComments...), externalComments...)
-	// Use centralized prompt building for summary synthesis
-	promptBuilder := prompts.NewPromptBuilder()
-	promptText := promptBuilder.BuildSummaryPrompt(fileSummaries, allCommentsForSynthesis)
+	// New path: Manager.Render("summary") + summary section
+	base := ""
+	{
+		// No DB store for v0.1; org-global defaults suffice
+		mgr := prompts.NewManager(nil, vendorpack.New())
+		var err error
+		base, err = mgr.Render(ctx, prompts.Context{OrgID: 0}, "summary", nil)
+		if err != nil {
+			return nil, fmt.Errorf("build summary prompt failed: %w", err)
+		}
+	}
+	promptText := base + "\n\n" + prompts.BuildSummarySection(fileSummaries, allCommentsForSynthesis) + "\n\n" + prompts.SummaryStructure
 
 	generalSummary, err := llms.GenerateFromSinglePrompt(ctx, llm, promptText)
 	if err != nil {

@@ -14,6 +14,7 @@ import (
 	"strings"
 
 	"github.com/livereview/internal/prompts"
+	vendorpack "github.com/livereview/internal/prompts/vendor"
 	"github.com/livereview/pkg/models"
 	"github.com/tmc/langchaingo/llms"
 )
@@ -150,10 +151,20 @@ func (p *GeminiProvider) ReviewCode(ctx context.Context, diffs []*models.CodeDif
 		}
 	}
 
-	// Create a prompt for the AI to review the code
-	// Use centralized prompt building
-	promptBuilder := prompts.NewPromptBuilder()
-	prompt := promptBuilder.BuildCodeReviewPrompt(diffs)
+	// Build prompt using the new prompts.Manager render path + code changes section
+	// Manager requires a Store (DB) only when variables need DB chunks.
+	// For this path we rely on org-global defaults (no DB usage yet), so pass nil store.
+	var store *prompts.Store = nil
+	pack := vendorpack.New()
+	mgr := prompts.NewManager(store, pack)
+
+	// Minimal context for v0.1 (org-only). OrgID is 0 here; vendor template still renders.
+	ctxInfo := prompts.Context{OrgID: 0}
+	base, err := mgr.Render(ctx, ctxInfo, "code_review", nil)
+	if err != nil {
+		return nil, fmt.Errorf("build prompt failed: %w", err)
+	}
+	prompt := base + "\n\n" + prompts.BuildCodeChangesSection(diffs)
 
 	// Call the Gemini API
 	response, err := p.callGeminiAPI(ctx, prompt)

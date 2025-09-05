@@ -21,6 +21,7 @@ import (
 	"github.com/livereview/internal/batch"
 	"github.com/livereview/internal/logging"
 	"github.com/livereview/internal/prompts"
+	vendorpack "github.com/livereview/internal/prompts/vendor"
 	"github.com/livereview/pkg/models"
 )
 
@@ -537,17 +538,20 @@ func (p *LangchainProvider) ReviewCodeBatch(ctx context.Context, diffs []models.
 func (p *LangchainProvider) reviewCodeBatchFormatted(ctx context.Context, diffs []models.CodeDiff, batchId string) (*batch.BatchResult, error) {
 	logger := logging.GetCurrentLogger()
 
-	// Generate the review prompt (diffs already have line numbers)
-	// Use centralized prompt building
-	promptBuilder := prompts.NewPromptBuilder()
-
-	// Convert []models.CodeDiff to []*models.CodeDiff for the prompt builder
+	// Generate the review prompt using Manager.Render + code changes section
+	// Build manager with stub/real vendor pack (no DB store required for org-global defaults)
+	basePack := vendorpack.New()
+	mgr := prompts.NewManager(nil, basePack)
+	base, err := mgr.Render(ctx, prompts.Context{OrgID: 0}, "code_review", nil)
+	if err != nil {
+		return nil, fmt.Errorf("build prompt failed: %w", err)
+	}
+	// Convert diffs slice to pointer slice for helper if needed
 	diffPointers := make([]*models.CodeDiff, len(diffs))
 	for i := range diffs {
 		diffPointers[i] = &diffs[i]
 	}
-
-	prompt := promptBuilder.BuildCodeReviewPrompt(diffPointers)
+	prompt := base + "\n\n" + prompts.BuildCodeChangesSection(diffPointers)
 
 	// Log request to global logger
 	if logger != nil {
@@ -615,7 +619,7 @@ func (p *LangchainProvider) reviewCodeBatchFormatted(ctx context.Context, diffs 
 	startTime := time.Now()
 	fmt.Printf("[STREAM START] Beginning streaming response...\n")
 
-	_, err := llms.GenerateFromSinglePrompt(
+	_, err = llms.GenerateFromSinglePrompt(
 		timeoutCtx,
 		p.llm,
 		prompt,
