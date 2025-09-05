@@ -196,35 +196,41 @@ Spot checks
 Objective: Provide a working admin UI to manage chunks and preview prompts. This must ship.
 
 Tasks
-- [ ] Minimal MVP (customer-supplied sections): surface two simple editors for optional sections.
+- [x] Minimal MVP (customer-supplied sections): surface two simple editors for optional sections.
 	- Sections: "Style guide" → variable `style_guide`; "Security guidelines" → variable `security_guidelines`.
 	- Behavior: if user saves content, create/update a single user chunk per section for the selected `prompt_key` and resolved context; if empty/not saved, the section doesn’t exist (no chunk created).
 	- Files to edit: incorporate into `ui/src/pages/Prompts/index.tsx` as two cards with a textarea and Save button (use existing API client).
-- [ ] Navigation: add a "Settings → Prompts" link in the app nav.
+    - Implemented: `ui/src/pages/Prompts/index.tsx` with two editors and preview; uses backend endpoints.
+- [x] Navigation: add a "Settings → Prompts" link in the app nav.
 	- Files to edit: `ui/src/App.tsx` (or router), `ui/src/components/*Nav*` if present — add route `/settings/prompts` and nav item.
-- [ ] API client: create typed client for prompts endpoints.
+    - Implemented as a Settings tab: `/#/settings#prompts` renders the Prompts page inside Settings. No separate top-level route required for MVP.
+- [x] API client: create typed client for prompts endpoints.
 	- New file: `ui/src/services/prompts.ts` — functions: `getCatalog()`, `getVariables(key, ctx)`, `createChunk(...)`, `reorderChunks(...)`, `renderPreview(key, ctx)`.
 	- New file: `ui/src/types/prompts.ts` — TS types for descriptors, variables, chunks, context.
 - [ ] State management: add a small store slice or React context.
 	- New file: `ui/src/store/prompts.slice.ts` (if Redux), or `ui/src/contexts/promptsContext.ts` (if Context API) — holds selected prompt, variables, chunks, loading state.
+    - Deferred for now; the MVP uses local component state. Keep this for follow-up if we add reordering and multi-chunk editing.
 - [ ] Pages and components:
 	- New file: `ui/src/pages/Prompts/index.tsx` — top-level page with prompt selector and preview pane.
 	- New file: `ui/src/pages/Prompts/VariableEditor.tsx` — list chunks for a variable with add/edit/delete and enable toggle.
 	- New file: `ui/src/components/SortableList.tsx` — simple drag-handle reorder (use HTML5 drag & drop or an existing lib in repo; fallback to up/down controls if no lib).
 	- New file: `ui/src/components/PromptContextSelector.tsx` — pick AI connector, Git connector, repo.
-- [ ] Config: ensure API base URL is set (same origin or proxy).
+    - Implemented now: `ui/src/pages/Prompts/index.tsx` and `ui/src/components/PromptContextSelector.tsx`.
+- [x] Config: ensure API base URL is set (same origin or proxy).
 	- Files to edit: `ui/src/constants/index.ts` (or similar) — set `API_BASE`.
 	- If needed: dev proxy in `ui/server.js` or webpack devServer to `/api`.
+    - Implemented via `ui/src/api/apiClient.ts` auto-detection and runtime config; no extra config required for demo/prod.
 - [ ] AuthZ integration: reuse existing auth guards to gate access to admin-only actions (system-chunk ops) vs project/repo admins.
 	- Files to edit: `ui/src/contexts/auth` or route guards.
+    - Deferred for now; UI only exposes user-chunk creation. Backend enforces permissions for system chunks.
 - [ ] Tests: add a minimal jest smoke test for the page (optional for first working build).
 
 Spot checks
-- [ ] Run UI dev server; navigate to Settings → Prompts. Catalog loads and variables list appears for a chosen prompt.
-- [ ] Create a user chunk, reorder chunks, and see the order reflected immediately and after refresh.
-- [ ] Render Preview shows joined chunk text for the selected context (with stub vendor pack in dev).
+- [x] Run UI dev server; navigate to Settings → Prompts. Catalog loads and variables list appears for a chosen prompt.
+- [ ] Create a user chunk, reorder chunks, and see the order reflected immediately and after refresh. (Reorder UI deferred; creation verified.)
+- [x] Render Preview shows joined chunk text for the selected context (with stub vendor pack in dev).
 - [ ] AuthZ: non-admin accounts cannot perform system-chunk operations; user-chunk operations respect scope.
-- [ ] Minimal sections behavior: with no content saved, the preview does not include style/security sections; after adding content to either section, the preview includes its text in the appropriate place (assuming the template references `{{VAR:style_guide}}` / `{{VAR:security_guidelines}}`).
+- [x] Minimal sections behavior: with no content saved, the preview does not include style/security sections; after adding content to either section, the preview includes its text in the appropriate place (assuming the template references `{{VAR:style_guide}}` / `{{VAR:security_guidelines}}`).
 
 ---
 

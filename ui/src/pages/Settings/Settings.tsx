@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { PageHeader, Card, Button, Icons, Input, Alert, Badge } from '../../components/UIPrimitives';
+import PromptsPage from '../Prompts';
 import { UserManagement } from '../../components/UserManagement';
 import { useOrgContext } from '../../hooks/useOrgContext';
 import { useAppDispatch, useAppSelector } from '../../store/configureStore';
@@ -288,7 +289,8 @@ const Settings = () => {
             )
         }] : []),
         { id: 'ai', name: 'AI Configuration', icon: <Icons.AI /> },
-        { id: 'ui', name: 'UI Preferences', icon: <Icons.Dashboard /> },
+    { id: 'ui', name: 'UI Preferences', icon: <Icons.Dashboard /> },
+    { id: 'prompts', name: 'Prompts', icon: <Icons.AI /> },
         ...(canManageCurrentOrg ? [{ 
             id: 'users', 
             name: 'User Management', 
@@ -524,6 +526,11 @@ const Settings = () => {
                 </div>
                 
                 <div className="md:col-span-3">
+                    {activeTab === 'prompts' && (
+                        <Card>
+                            <PromptsPage />
+                        </Card>
+                    )}
                     {activeTab === 'instance' && isSuperAdmin && (
                         <Card>
                             <div className="flex items-center mb-6">
