@@ -388,6 +388,20 @@ func (s *Server) setupRoutes() {
 	patGroup.Use(authMiddleware.BuildPermissionContext())
 	patGroup.POST("/pat", s.HandleCreatePATIntegrationToken)
 
+	// Prompts management endpoints (Phase 7)
+	promptsGroup := v1.Group("/prompts")
+	promptsGroup.Use(authMiddleware.RequireAuth())
+	promptsGroup.Use(authMiddleware.BuildOrgContextFromHeader())
+	promptsGroup.Use(authMiddleware.ValidateOrgAccess())
+	promptsGroup.Use(authMiddleware.BuildPermissionContext())
+	// Catalog and variable listing available to org members
+	promptsGroup.GET("/catalog", s.GetPromptsCatalog)
+	promptsGroup.GET("/:key/render", s.RenderPromptPreview)
+	promptsGroup.GET("/:key/variables", s.GetPromptVariables)
+	// Mutations
+	promptsGroup.POST("/:key/variables/:var/chunks", s.CreatePromptChunk)
+	promptsGroup.POST("/:key/variables/:var/reorder", s.ReorderPromptChunks)
+
 	// GitLab webhook handler
 	v1.POST("/gitlab-hook", s.GitLabWebhookHandler)
 
@@ -518,9 +532,8 @@ func (s *Server) ValidateBitbucketProfile(c echo.Context) error {
 // Start begins the API server
 func (s *Server) Start() error {
 	// Determine bind address based on deployment mode
-	var bindAddress string
 	// Always listen on 0.0.0.0 to be accessible inside containers and hosts
-	bindAddress = fmt.Sprintf("0.0.0.0:%d", s.port)
+	bindAddress := fmt.Sprintf("0.0.0.0:%d", s.port)
 
 	// Print server starting message with deployment mode info
 	fmt.Printf("API server starting in %s mode\n", s.deploymentConfig.Mode)
