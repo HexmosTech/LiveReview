@@ -351,12 +351,6 @@ func (c *GitLabHTTPClient) createDirectLineComment(projectID string, mrIID int, 
 	// Normalize file path - ensure no leading slash
 	filePath = strings.TrimPrefix(filePath, "/")
 
-	// Generate a valid line_code which is crucial for proper positioning
-	// Direct method assumes new lines (right side) – callers decide deleted handling before reaching here
-	lineCode := GenerateLineCode(latestVersion.StartCommitSHA, latestVersion.HeadCommitSHA, filePath, lineNum, "right")
-	parts := strings.Split(lineCode, ":")
-	newStyleCode := parts[0]
-
 	// Create the form data with all required parameters
 	form := url.Values{}
 
@@ -375,12 +369,10 @@ func (c *GitLabHTTPClient) createDirectLineComment(projectID string, mrIID int, 
 	form.Add("position[new_path]", filePath)
 	form.Add("position[new_line]", fmt.Sprintf("%d", lineNum))
 
-	// Add the line_code which is crucial for proper positioning
-	form.Add("position[line_code]", newStyleCode)
+	// Intentionally omit position[line_code] for single-line comments
 
-	// Include old path and line for context (helps GitLab position the comment correctly)
+	// Include old path for completeness; old_line only when targeting deleted lines (handled upstream)
 	form.Add("position[old_path]", filePath)
-	form.Add("position[old_line]", fmt.Sprintf("%d", lineNum))
 
 	fmt.Printf("DEBUG: Form values for direct line comment:\n")
 	for k, v := range form {
@@ -409,44 +401,6 @@ func (c *GitLabHTTPClient) createDirectLineComment(projectID string, mrIID int, 
 	if resp.StatusCode != http.StatusCreated && resp.StatusCode != http.StatusOK {
 		fmt.Printf("DEBUG: Direct line comment failed with status %d\n", resp.StatusCode)
 		fmt.Printf("DEBUG: Response body: %s\n", string(body))
-
-		// If there are more than one line code format, try the old style
-		if len(parts) > 1 {
-			oldStyleCode := parts[1]
-			fmt.Printf("DEBUG: Trying old style line code: %s\n", oldStyleCode)
-
-			// Update the line_code
-			form.Set("position[line_code]", oldStyleCode)
-
-			// Create a new request
-			req, err = http.NewRequest("POST", requestURL, strings.NewReader(form.Encode()))
-			if err != nil {
-				return fmt.Errorf("failed to create request with old style line code: %w", err)
-			}
-
-			// Add headers
-			req.Header.Add("PRIVATE-TOKEN", c.token)
-			req.Header.Add("Content-Type", "application/x-www-form-urlencoded")
-
-			// Execute the request
-			resp, err = c.client.Do(req)
-			if err != nil {
-				return fmt.Errorf("failed to execute request with old style line code: %w", err)
-			}
-			defer resp.Body.Close()
-
-			// Check for errors
-			body, _ = io.ReadAll(resp.Body)
-			if resp.StatusCode == http.StatusCreated || resp.StatusCode == http.StatusOK {
-				fmt.Printf("DEBUG: Direct line comment succeeded with old style line code\n")
-				fmt.Printf("DEBUG: Response body: %s\n", getCommentBeginning(string(body), 100))
-				return nil
-			}
-
-			fmt.Printf("DEBUG: Old style line code also failed with status %d\n", resp.StatusCode)
-			fmt.Printf("DEBUG: Response body: %s\n", string(body))
-		}
-
 		return fmt.Errorf("API request failed with status %d: %s", resp.StatusCode, string(body))
 	}
 

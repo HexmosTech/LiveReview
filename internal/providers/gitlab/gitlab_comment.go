@@ -159,10 +159,38 @@ func (c *GitLabHTTPClient) CreateMRGeneralComment(projectID string, mrIID int, c
 // Enhanced implementation of CreateMRLineComment that uses the GitLab API documentation approach
 // This overrides the implementation in http_client.go
 func (c *GitLabHTTPClient) CreateMRLineComment(projectID string, mrIID int, filePath string, lineNum int, comment string, isDeletedLine ...bool) error {
-	// Check if we're commenting on a deleted line
+	// Determine whether this targets an added vs deleted vs context line by inspecting MR changes
 	isOnDeletedLine := false
-	if len(isDeletedLine) > 0 && isDeletedLine[0] {
+	var classifiedKind string
+	var classifiedOld, classifiedNew int
+	if changes, err := c.GetMergeRequestChanges(projectID, mrIID); err == nil && changes != nil {
+		// normalize path for matching
+		norm := strings.TrimPrefix(filePath, "/")
+		for _, ch := range changes.Changes {
+			if ch.NewPath == norm || ch.OldPath == norm {
+				// If that exact old-side line exists as a deletion, force deleted
+				if HasDeletedOldLineAt(ch.Diff, lineNum) {
+					classifiedKind = "deleted"
+					classifiedOld = lineNum
+					isOnDeletedLine = true
+					break
+				}
+				if kind, oldN, newN, found := ClassifyLineInDiff(ch.Diff, lineNum); found {
+					classifiedKind = kind
+					classifiedOld = oldN
+					classifiedNew = newN
+					if kind == "deleted" {
+						isOnDeletedLine = true
+					}
+				}
+				break
+			}
+		}
+	}
+	// If classification wasn't decisive, honor the optional flag
+	if classifiedKind == "" && len(isDeletedLine) > 0 && isDeletedLine[0] {
 		isOnDeletedLine = true
+		classifiedKind = "deleted"
 	}
 
 	// Special handling for known problematic files and lines
@@ -210,20 +238,6 @@ func (c *GitLabHTTPClient) CreateMRLineComment(projectID string, mrIID int, file
 	requestURL := fmt.Sprintf("%s/projects/%s/merge_requests/%d/discussions",
 		c.baseURL, url.PathEscape(projectID), mrIID)
 
-	// Generate a valid line_code - this now includes both new and old style formats
-	// Choose side based on deleted/new
-	side := "right"
-	if isOnDeletedLine {
-		side = "left"
-	}
-	lineCode := GenerateLineCode(version.StartCommitSHA, version.HeadCommitSHA, filePath, lineNum, side)
-	parts := strings.Split(lineCode, ":")
-	newStyleCode := parts[0]
-	oldStyleCode := ""
-	if len(parts) > 1 {
-		oldStyleCode = parts[1]
-	}
-
 	// Prepare the request data according to GitLab API documentation
 	// Include all possible parameters that GitLab might expect
 	requestData := map[string]interface{}{
@@ -235,19 +249,34 @@ func (c *GitLabHTTPClient) CreateMRLineComment(projectID string, mrIID int, file
 			"start_sha":     version.StartCommitSHA,
 			"new_path":      filePath,
 			"old_path":      filePath,
-			"line_code":     newStyleCode, // Try the new style line code first
 		},
 	}
 
-	// Set either new_line or old_line based on whether it's a deleted line
-	if isOnDeletedLine {
+	// Set line fields with priority: explicit deleted intent > exact classified deleted/add > context > default new
+	if len(isDeletedLine) > 0 && isDeletedLine[0] {
+		// Caller explicitly wants the old (deleted) side; force exact old_line to requested line
 		requestData["position"].(map[string]interface{})["old_line"] = lineNum
-		fmt.Printf("LINE COMMENT GITLAB API [%s:%d]: Setting old_line=%d in request\n", filePath, lineNum, lineNum)
+		// Ensure we don't include new_line for deleted-only anchors
+		delete(requestData["position"].(map[string]interface{}), "new_line")
+		fmt.Printf("LINE COMMENT GITLAB API [%s:%d]: Forcing old_line=%d (caller intent)\n", filePath, lineNum, lineNum)
+	} else if classifiedKind == "deleted" {
+		requestData["position"].(map[string]interface{})["old_line"] = classifiedOld
+		fmt.Printf("LINE COMMENT GITLAB API [%s:%d]: Setting old_line=%d in request (classified)\n", filePath, lineNum, classifiedOld)
+	} else if classifiedKind == "added" {
+		requestData["position"].(map[string]interface{})["new_line"] = classifiedNew
+		fmt.Printf("LINE COMMENT GITLAB API [%s:%d]: Setting new_line=%d in request (classified)\n", filePath, lineNum, classifiedNew)
+	} else if classifiedKind == "context" {
+		requestData["position"].(map[string]interface{})["old_line"] = classifiedOld
+		requestData["position"].(map[string]interface{})["new_line"] = classifiedNew
+		fmt.Printf("LINE COMMENT GITLAB API [%s:%d]: Setting context old_line=%d new_line=%d in request (classified)\n", filePath, lineNum, classifiedOld, classifiedNew)
 	} else {
+		// Default: assume new side
 		requestData["position"].(map[string]interface{})["new_line"] = lineNum
-		fmt.Printf("LINE COMMENT GITLAB API [%s:%d]: Setting new_line=%d in request\n", filePath, lineNum, lineNum)
+		fmt.Printf("LINE COMMENT GITLAB API [%s:%d]: Setting new_line=%d in request (default)\n", filePath, lineNum, lineNum)
 	}
 
+	// NOTE: Do not include position[line_code] for single-line comments.
+	// GitLab will accept old_line/new_line with SHAs; incorrect line_code causes 400.
 	// Convert request data to JSON
 	requestBody, err := json.Marshal(requestData)
 	if err != nil {
@@ -278,53 +307,6 @@ func (c *GitLabHTTPClient) CreateMRLineComment(projectID string, mrIID int, file
 	// Check for errors
 	body, _ := io.ReadAll(resp.Body)
 	if resp.StatusCode != http.StatusCreated && resp.StatusCode != http.StatusOK {
-		// If the new style line code failed, try with the old style line code
-		if oldStyleCode != "" && strings.Contains(string(body), "line_code") {
-			fmt.Printf("LINE COMMENT GITLAB API [%s:%d]: New style line code failed (status %d), trying old style: %s\n",
-				filePath, lineNum, resp.StatusCode, oldStyleCode)
-			fmt.Printf("LINE COMMENT GITLAB API [%s:%d]: Response body: %s\n",
-				filePath, lineNum, string(body))
-
-			// Update the line_code to use the old style format
-			requestData["position"].(map[string]interface{})["line_code"] = oldStyleCode
-
-			// Make sure we're using the right line field (old_line vs new_line)
-			if isOnDeletedLine {
-				delete(requestData["position"].(map[string]interface{}), "new_line")
-				requestData["position"].(map[string]interface{})["old_line"] = lineNum
-			}
-
-			// Convert updated request data to JSON
-			requestBody, err = json.Marshal(requestData)
-			if err != nil {
-				return fmt.Errorf("failed to marshal request body: %w", err)
-			}
-
-			// Create a new request with the old style line code
-			req, err = http.NewRequest("POST", requestURL, strings.NewReader(string(requestBody)))
-			if err != nil {
-				return fmt.Errorf("failed to create request: %w", err)
-			}
-
-			// Add headers
-			req.Header.Add("PRIVATE-TOKEN", c.token)
-			req.Header.Add("Content-Type", "application/json")
-
-			// Execute the request
-			resp, err = c.client.Do(req)
-			if err != nil {
-				return fmt.Errorf("failed to execute request: %w", err)
-			}
-			defer resp.Body.Close()
-
-			// Check for errors again
-			body, _ = io.ReadAll(resp.Body)
-			if resp.StatusCode == http.StatusCreated || resp.StatusCode == http.StatusOK {
-				fmt.Println("Successfully created line comment with old style line code")
-				return nil
-			}
-		}
-
 		// If both line code styles failed, log the error and try the fallback method
 		fmt.Printf("LINE COMMENT GITLAB API [%s:%d]: API request failed with status %d: %s\n",
 			filePath, lineNum, resp.StatusCode, string(body))
@@ -389,15 +371,6 @@ func (c *GitLabHTTPClient) tryFormBasedLineComment(projectID string, mrIID int, 
 	requestURL := fmt.Sprintf("%s/projects/%s/merge_requests/%d/discussions",
 		c.baseURL, url.PathEscape(projectID), mrIID)
 
-	// Generate both line code styles
-	side2 := "right"
-	if isOnDeletedLine {
-		side2 = "left"
-	}
-	lineCode := GenerateLineCode(version.StartCommitSHA, version.HeadCommitSHA, filePath, lineNum, side2)
-	parts := strings.Split(lineCode, ":")
-	newStyleCode := parts[0]
-
 	// Create form data with all possible parameters
 	form := url.Values{}
 	form.Add("body", comment)
@@ -407,7 +380,6 @@ func (c *GitLabHTTPClient) tryFormBasedLineComment(projectID string, mrIID int, 
 	form.Add("position[head_sha]", version.HeadCommitSHA)
 	form.Add("position[new_path]", filePath)
 	form.Add("position[old_path]", filePath)
-	form.Add("position[line_code]", newStyleCode)
 
 	// Set either new_line or old_line based on whether it's a deleted line
 	if isOnDeletedLine {
