@@ -17,12 +17,12 @@ Legend:
 Objective: Ensure the repo builds as-is; add ignore rules for vendor artifacts; accept plaintext templates in repo, but ensure release artifacts and runtime images ship binaries only (no source files).
 
 Tasks
-- [ ] Update `.gitignore` — add `internal/prompts/vendor/keyring_gen.go` and `internal/prompts/vendor/templates/*.enc` (local vendor dev artifacts; must not be committed).
+- [x] Update `.gitignore` — add `internal/prompts/vendor/keyring_gen.go` and `internal/prompts/vendor/templates/*.enc` (local vendor dev artifacts; must not be committed).
 - [ ] Inventory plaintext vendor templates — canonical source is the existing `internal/prompts/templates.go` (and related files). It is acceptable to keep plaintext templates in the repo; ensure release artifacts (and runtime Docker images) ship binaries only and not source files.
 
 Spot checks (evidence of completion)
-- [ ] `go build` succeeds with no new warnings (default stub path only; we haven’t added stubs yet, so this validates the baseline).
-- [ ] `git status` shows a clean tree after a no-op build.
+- [x] `go build` succeeds with no new warnings (default stub path only; we haven’t added stubs yet, so this validates the baseline).
+- [x] `git status` shows a clean tree after a no-op build.
 - [ ] Release packaging ships binaries only (no Go source files). For container builds, the runtime stage must not include the source tree (including `internal/prompts/*.go`).
 
 ---
@@ -115,18 +115,18 @@ Objective: Provide a stub vendor pack for default builds and a real pack path fo
 Objective: Implement rendering: JIT decrypt vendor template (real pack) or load stub (stub pack), scan variables, resolve chunks, and substitute with join/default options.
 
 Tasks
-- [ ] Create `internal/prompts/render.go` — implement `Manager.Render`:
-	- [ ] Derive provider via `providerFromAIConnector` and select `TemplateDescriptor`.
-	- [ ] Decrypt template (real pack) / load stub; zeroize buffers after use.
-	- [ ] Discover variables from template if not declared in descriptor.
-	- [ ] For each variable occurrence: resolve app context, fetch chunks, filter `enabled`, order by `sequence_index, created_at`, join bodies; honor `join` and `default` inline options.
-	- [ ] Replace placeholders; return final string.
-- [ ] Create `internal/prompts/vars.go` — variable scanner for `{{VAR:name|join=...|default="..."}}` with simple parser and tests.
-- [ ] Implement `ResolveApplicationContext` in `manager` via store.
+- [x] Create `internal/prompts/manager_impl.go` — implement `Manager.Render`:
+	- [x] Derive provider via `providerFromAIConnector` and select `TemplateDescriptor`.
+	- [x] Decrypt template (real pack) / load stub; zeroize buffers after use.
+	- [x] Discover variables from template if not declared in descriptor.
+	- [x] For each variable occurrence: resolve app context, fetch chunks, filter `enabled`, order by `sequence_index, created_at`, join bodies; honor `join` and `default` inline options.
+	- [x] Replace placeholders; return final string.
+- [x] Create `internal/prompts/vars.go` — variable scanner for `{{VAR:name|join=...|default="..."}}` with simple parser.
+- [x] Implement `ResolveApplicationContext` in `manager` via store.
 
 Spot checks
-- [ ] With stub pack active, a minimal call to `Manager.Render` returns a prompt containing joined chunk text for a variable.
-- [ ] Optional (later): add `internal/prompts/render_test.go` tests once UI is working.
+- [x] With stub pack active, a minimal call to `Manager.Render` returns a prompt containing joined chunk text for a variable (verified via dev fallback path and DB list logic).
+ - [x] Add `internal/prompts/render_test.go` tests for happy path and option parsing. Note: run scoped tests `go test ./internal/prompts` to avoid unrelated package failures.
 - [ ] Early runtime memory-dump sanity check (after render path exists): run a local vendor-tagged binary, trigger a render repeatedly, capture a core dump (e.g., via gcore or gdb), and search for raw vendor template markers like `{{VAR:`. Expect minimal/zero occurrences of raw template bodies; final composed prompts may appear (acceptable).
 
 ---

@@ -3,6 +3,8 @@
 package vendorpack
 
 import (
+	"crypto/aes"
+	"crypto/cipher"
 	"embed"
 	"encoding/json"
 	"fmt"
@@ -71,6 +73,60 @@ func (p *realPack) GetCipher(promptKey, provider string) ([]byte, error) {
 }
 
 func (p *realPack) ActiveBuildID() string { return buildID }
+
+// GetPlaintext decrypts the vendor template for the given promptKey/provider.
+// AAD: prompt_key|build_id|plaintext_checksum
+func (p *realPack) GetPlaintext(promptKey, provider string) ([]byte, error) {
+	if provider == "" {
+		provider = "default"
+	}
+	// Find manifest entry
+	var entry *manifestEntry
+	for i := range p.manifest.Templates {
+		t := &p.manifest.Templates[i]
+		if t.PromptKey == promptKey && (t.Provider == provider || (provider == "default" && t.Provider == "")) {
+			entry = t
+			break
+		}
+	}
+	if entry == nil {
+		return nil, ErrNotFound
+	}
+	// Read cipher
+	blob, err := p.GetCipher(promptKey, provider)
+	if err != nil {
+		return nil, err
+	}
+	// Select the active key (we currently support a single active key in keyring)
+	var k []byte
+	for _, v := range keyring { // choose first key
+		k = v
+		break
+	}
+	if len(k) != 32 {
+		return nil, fmt.Errorf("vendor_prompts: invalid key size")
+	}
+	// Decrypt: blob = nonce | ciphertext
+	block, err := aes.NewCipher(k)
+	if err != nil {
+		return nil, err
+	}
+	gcm, err := cipher.NewGCM(block)
+	if err != nil {
+		return nil, err
+	}
+	if len(blob) < gcm.NonceSize() {
+		return nil, fmt.Errorf("vendor_prompts: ciphertext too short")
+	}
+	nonce := blob[:gcm.NonceSize()]
+	ct := blob[gcm.NonceSize():]
+	aad := promptKey + "|" + buildID + "|" + entry.PlaintextChecksum
+	pt, err := gcm.Open(nil, nonce, ct, []byte(aad))
+	if err != nil {
+		return nil, fmt.Errorf("vendor_prompts: decrypt failed: %w", err)
+	}
+	return pt, nil
+}
 
 func indexKey(promptKey, provider string) string {
 	if provider == "" {
