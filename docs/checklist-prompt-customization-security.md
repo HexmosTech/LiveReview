@@ -185,9 +185,9 @@ Tasks
 - [x] Add AuthZ checks: org owner/super-admin for system chunks; owners/members for user chunks (maps to current org roles).
 
 Spot checks
-- [ ] `curl` GET catalog returns entries even with stub pack.
-- [ ] Create a user chunk via POST, then GET variables shows it in ordered list.
-- [ ] Minimal variables sanity: create chunks for variables `style_guide` and `security_guidelines` under a chosen `prompt_key`; confirm they appear in the variables list and render preview (Phase 8) reflects them.
+- [x] `curl` GET catalog returns entries even with stub pack.
+- [x] Create a user chunk via POST, then GET variables shows it in ordered list.
+- [x] Minimal variables sanity: create chunks for variables `style_guide` and `security_guidelines` under a chosen `prompt_key`; confirm they appear in the variables list and render preview (Phase 8) reflects them.
 
 ---
 
