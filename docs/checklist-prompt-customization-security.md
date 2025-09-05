@@ -32,22 +32,22 @@ Spot checks (evidence of completion)
 Objective: Create tables for application context and prompt chunks as per the spec; indexes and constraints included. Use dbmate for migrations, and include seed data in the migration itself.
 
 Tasks
-- [ ] Ensure dbmate is available
+- [x] Ensure dbmate is available
 	- Use `./pgctl.sh migrations` (installs dbmate) if not already installed.
-- [ ] Create migration via dbmate
+- [x] Create migration via dbmate
 	- Run: `dbmate new create_prompt_context_and_chunks` (this creates timestamped `.up.sql` and `.down.sql` files under `db/migrations/`).
 	- Edit the generated `.up.sql` to:
-		- [ ] CREATE TABLE `prompt_application_context` and indexes (`idx_pac_org`, `idx_pac_targeting`).
-		- [ ] CREATE TABLE `prompt_chunks` and indexes (`idx_chunks_prompt_var`, `idx_chunks_appctx`) and the UNIQUE constraint.
-		- [ ] Seed default context per existing org: `INSERT INTO prompt_application_context (org_id) SELECT id FROM public.orgs;` (ensure idempotency with `ON CONFLICT DO NOTHING` if you add a unique key later).
+		- [x] CREATE TABLE `prompt_application_context` and indexes (`idx_pac_org`, `idx_pac_targeting`).
+		- [x] CREATE TABLE `prompt_chunks` and indexes (`idx_chunks_prompt_var`, `idx_chunks_appctx`) and the UNIQUE constraint.
+		- [x] Seed default context per existing org: `INSERT INTO prompt_application_context (org_id) SELECT id FROM public.orgs;` (ensure idempotency with `ON CONFLICT DO NOTHING` if you add a unique key later).
 	- Edit the generated `.down.sql` to drop in reverse order: indexes, `prompt_chunks`, `prompt_application_context`.
-- [ ] Apply migration
+- [x] Apply migration
 	- Run: `dbmate up` (or `./pgctl.sh reset` which also applies migrations, if you want a clean reset).
 
 Spot checks
-- [ ] Verify seeded rows exist:
+- [x] Verify seeded rows exist:
 	- Using `./pgctl.sh shell -c "SELECT count(*) FROM prompt_application_context;"` returns ≥ number of rows in `public.orgs`.
-- [ ] Verify indexes exist:
+- [x] Verify indexes exist:
 	- `./pgctl.sh shell -c "\di+ public.idx_pac_org"`
 	- `./pgctl.sh shell -c "\di+ public.idx_pac_targeting"`
 	- `./pgctl.sh shell -c "\di+ public.idx_chunks_prompt_var"`
