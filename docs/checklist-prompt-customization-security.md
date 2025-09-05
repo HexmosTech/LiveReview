@@ -166,7 +166,7 @@ Tasks
 Spot checks
 - [x] End-to-end review (stub pack): review triggers successfully; prompt contains expected base sections and code changes. Errors from render propagate.
 - [x] Vendor build path: `pack_real.New()` panics when manifest/keyring or `.enc` assets are absent (fail fast), ensuring no implicit fallback.
-- [ ] Vendor E2E (this phase): With `./livereview_vendor api` running, triggering a review from the frontend completes successfully; backend logs indicate real vendor pack active and no plaintext vendor templates appear in logs.
+- [x ] Vendor E2E (this phase): With `./livereview_vendor api` running, triggering a review from the frontend completes successfully; backend logs indicate real vendor pack active and no plaintext vendor templates appear in logs.
 
 ---
 
@@ -175,14 +175,14 @@ Spot checks
 Objective: Expose endpoints to manage chunks and preview renders. The UI in Phase 8 consumes these APIs.
 
 Tasks
-- [ ] Create `internal/api/handlers/prompts.go` — handlers for:
-	- [ ] `GET /api/prompts/catalog` — list descriptors (prompt_key, build_id, variables, provider info if applicable).
-	- [ ] `GET /api/prompts/{key}/render` — preview for provided context params (redacted output in logs).
-	- [ ] `GET /api/prompts/{key}/variables` — list variables and chunks.
-	- [ ] `POST /api/prompts/{key}/variables/{var}/chunks` — create.
-	- [ ] `POST /api/prompts/{key}/variables/{var}/reorder` — reorder by IDs.
-- [ ] Wire routes in the API router (e.g., `cmd/api.go` or `internal/api/router.go`).
-- [ ] Add AuthZ checks: org admin for system chunks; project/repo admin for user chunks.
+- [x] Create `internal/api/prompts.go` — handlers for:
+	- [x] `GET /api/v1/prompts/catalog` — list descriptors (prompt_key, build_id, variables, provider info if applicable).
+	- [x] `GET /api/v1/prompts/{key}/render` — preview for provided context params (redacted output in logs).
+	- [x] `GET /api/v1/prompts/{key}/variables` — list variables and chunks.
+	- [x] `POST /api/v1/prompts/{key}/variables/{var}/chunks` — create.
+	- [x] `POST /api/v1/prompts/{key}/variables/{var}/reorder` — reorder by IDs.
+- [x] Wire routes in the API router (registered in `internal/api/server.go`).
+- [x] Add AuthZ checks: org owner/super-admin for system chunks; owners/members for user chunks (maps to current org roles).
 
 Spot checks
 - [ ] `curl` GET catalog returns entries even with stub pack.
