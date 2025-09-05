@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"path"
 	"path/filepath"
 	"regexp"
 	"strconv"
@@ -462,7 +463,7 @@ func (p *GeminiProvider) parseResponse(response string, diffs []*models.CodeDiff
 
 					// Create the review comment
 					reviewComment := &models.ReviewComment{
-						FilePath:      comment.FilePath,
+						FilePath:      resolvePathAgainstDiffs(strings.TrimPrefix(comment.FilePath, "/"), diffs),
 						Line:          comment.LineNumber,
 						Content:       comment.Content,
 						Severity:      severity,
@@ -1234,6 +1235,54 @@ func (p *GeminiProvider) fileExists(filePath string, diffs []*models.CodeDiff) b
 		}
 	}
 	return false
+}
+
+// resolvePathAgainstDiffs maps an imprecise path (from AI text) to an exact file path present in diffs.
+// Strategy: exact match -> longest suffix match -> unique basename match -> return input as-is.
+func resolvePathAgainstDiffs(input string, diffs []*models.CodeDiff) string {
+	if input == "" {
+		return input
+	}
+	in := strings.TrimPrefix(input, "/")
+
+	// 1) Exact match
+	for _, d := range diffs {
+		if d.FilePath == in {
+			return d.FilePath
+		}
+	}
+
+	// 2) Longest suffix match
+	best := ""
+	bestLen := 0
+	for _, d := range diffs {
+		if strings.HasSuffix(d.FilePath, "/"+in) || strings.HasSuffix(d.FilePath, in) {
+			l := len(in)
+			if strings.HasSuffix(d.FilePath, "/"+in) {
+				l = len(in) + 1
+			}
+			if l > bestLen {
+				bestLen = l
+				best = d.FilePath
+			}
+		}
+	}
+	if best != "" {
+		return best
+	}
+
+	// 3) Unique basename match
+	base := path.Base(in)
+	var cands []string
+	for _, d := range diffs {
+		if path.Base(d.FilePath) == base {
+			cands = append(cands, d.FilePath)
+		}
+	}
+	if len(cands) == 1 {
+		return cands[0]
+	}
+	return in
 }
 
 // extractHumanReadableSummary processes the summary from the AI to ensure it's human-readable
