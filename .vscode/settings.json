@@ -3,5 +3,18 @@
         "activityBar.background": "#402908",
         "titleBar.activeBackground": "#59390B",
         "titleBar.activeForeground": "#FDF9F3"
-    }
+    },
+    "folder-color.pathColors": [
+        {
+            "folderPath": "LiveReview/\"/",
+            "badge": "😀"
+        },
+        {
+            "folderPath": "LiveReview/\"/tmp/"
+        },
+        {
+            "folderPath": "LiveReview/__pycache__/",
+            "badge": "😀"
+        }
+    ]
 }
