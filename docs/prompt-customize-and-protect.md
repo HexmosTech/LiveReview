@@ -9,8 +9,10 @@ This spec defines how LiveReview will protect vendor-supplied prompt templates b
 	- System-generated chunks (managed by LiveReview)
 	- User-generated chunks (editable via UI/API)
 - Chunks can be targeted by “application context” (ai connector, git connector, repo, etc.) with wildcard default “*”, and an explicit order.
-- Vendor templates are shipped encrypted with the application (not stored in DB). Registration happens in Go code; variables used by templates are declared in code or discovered at runtime. Git history serves as the source of truth for template evolution.
-- Provide a small Go API and optional REST endpoints to manage chunks and to compose final prompts.
+- Vendor templates are shipped encrypted with the application (not stored in DB). Registration happens in Go code; variables used by templates are declared in code or discovered at runtime. Plaintext templates may exist in-source for development tooling, but releases ship binaries only. Git history serves as the source of truth for template evolution.
+- Provide a small Go API and REST endpoints (required) to manage chunks and to compose final prompts. A minimal admin UI (required) will ship with editors for `style_guide` and `security_guidelines`.
+- Database migrations are created via dbmate and must include seeding of a default `prompt_application_context` row per org.
+- No legacy fallback path; all rendering goes through the new manager/renderer.
 
 ---
 
@@ -100,7 +102,7 @@ When a review is triggered:
 4) Build the variable environment (system vars + request vars). Resolve one application context row for this request using the precedence order above. Fetch chunks for that context and each variable.
 5) Render:
 	 - Substitute `{{VAR:...}}` placeholders using the variable environment.
-	- Replace each `{{VAR:name}}` with the joined chunk bodies (after variable substitution within chunks), using ordering and context rules.
+	- Replace each `{{VAR:name}}` with the joined chunk bodies (no expansion of variables inside chunk bodies in v0.1), using ordering and context rules.
 6) Return the final prompt string to the AI connector.
 7) Zeroize decrypted buffers; avoid logging any plaintext template content. Respect redaction rules for logs.
 
@@ -159,9 +161,13 @@ CREATE INDEX IF NOT EXISTS idx_chunks_appctx ON prompt_chunks (application_conte
 
 Notes:
 - No template content or catalog is stored in DB.
-- A default `prompt_application_context` row should be created per org (org-only, other fields NULL) and used for iteration 1.
+- Seed: create a default `prompt_application_context` row per existing org (org-only, other fields NULL) within the initial dbmate migration itself, e.g., `INSERT INTO prompt_application_context (org_id) SELECT id FROM public.orgs;` (idempotent if a future unique constraint is added).
 - Multiple rows per variable are allowed because order matters; order is defined by `sequence_index` within a specific application context.
 - If later we support per-chunk encryption, add fields `ciphertext, nonce, aad_hash, content_hash` and migrate select chunks.
+
+Migrations and verification:
+- Use dbmate to create timestamped migrations under `db/migrations/` and include seeding inside the `.up.sql`.
+- Apply with `dbmate up` (locally via `./pgctl.sh` helpers as needed) and verify with `./pgctl.sh shell` spot queries.
 
 ---
 
@@ -249,11 +255,11 @@ for each varName in varNames:
 return tpl
 ```
 
-Backwards compatibility: if `Manager` isn’t configured, fall back to current static prompt assembly.
+Backwards compatibility: None. The legacy static prompt assembly is removed; all rendering goes through `Manager.Render`. If the manager/vendor pack isn’t initialized, startup must fail fast with a clear error.
 
 ---
 
-## REST endpoints (optional)
+## REST endpoints (required)
 
 - GET /api/prompts/catalog -> list descriptors (prompt_key, build_id, variables)
 - GET /api/prompts/{key}/render?org=...&ai=...&git=...&repo=... -> preview final prompt (with redaction)
@@ -272,6 +278,10 @@ AuthZ:
 - Vendor templates: AES-256-GCM encryption; content never stored in DB; JIT decryption; zeroization; strict log redaction. Use a minimal in-binary keyring with key_id-based rotation; key-sharding is optional for added friction. Obfuscation can be added later if required.
 - Chunks: plaintext by default; application-level validation; optional per-chunk encryption in future. Redact-on-log flag respected.
 - Variables: assembled per-request in memory; do not persist rendered final prompt. If persisted for audit, store with redactions.
+
+Early checks:
+- Static strings scan after producing a vendor-tagged binary to ensure no plaintext vendor templates are present.
+- Runtime sanity check: after render is implemented, trigger renders and inspect a memory/core dump for accidental plaintext template retention; decrypted buffers should be short-lived and zeroized.
 
 Hardening notes:
 - Do not reuse BEK for any database encryption should that be added later; DB encryption (if needed) must use a different key source (env/KMS) and rotation policy.
@@ -293,13 +303,17 @@ Pinning:
 
 ## UI outline (MVP)
 
-- Settings -> Prompts
-	- Select prompt (e.g., Code Review).
-	- Show variables with preview of resolved content.
-	- For each variable: list chunks (system first, then user), with context chips and order drag-handle.
-	- Add/Edit/Delete user chunks; set context (ai connector, git connector, repo), order, enable/disable.
-	- Preview final prompt for a given context (org, ai connector, git connector, repo).
-	- Warnings for orphaned chunks when variables are removed/renamed across builds.
+- Settings -> Prompts (required for first release)
+		- Minimal sections (must-have):
+				- "Style guide" → variable `style_guide`
+				- "Security guidelines" → variable `security_guidelines`
+			Behavior: if not provided, these sections simply do not exist (no chunk created). If provided, create/update one user chunk per section for the selected prompt/context.
+		- Select prompt (e.g., Code Review).
+		- Show variables with preview of resolved content.
+		- For each variable: list chunks (system first, then user), with context chips and order drag-handle.
+		- Add/Edit/Delete user chunks; set context (ai connector, git connector, repo), order, enable/disable.
+		- Preview final prompt for a given context (org, ai connector, git connector, repo).
+		- Warnings for orphaned chunks when variables are removed/renamed across builds.
 
 ---
 
@@ -318,10 +332,14 @@ Goals:
 - Make release/CI builds automatically encrypt and embed vendor templates with a per-build key.
 - Allow authorized developers to locally test with real vendor templates when needed, without committing secrets.
 
+Plaintext templates in source:
+- It is acceptable to keep plaintext vendor templates in the repo for development tooling and clarity (e.g., `internal/prompts/templates.go`).
+- Released artifacts and runtime container images must ship binaries only; no Go source files or plaintext templates are included.
+
 Key ideas:
 - Build tags select the vendor pack implementation:
 	- Default (no tag): StubVendorPack is compiled. Templates render with safe, non-proprietary placeholders; chunk logic is fully exercised.
-	- `-tags vendor_prompts`: RealVendorPack is compiled, which embeds encrypted blobs and the keyring.
+	- `-tags vendor_prompts`: RealVendorPack is compiled, which embeds encrypted blobs and the keyring. If required artifacts are missing (`keyring_gen.go` or `templates/*.enc`), initialization must fail fast with a clear error.
 - Encrypted blobs (`internal/prompts/vendor/*.enc`) and the generated keyring file (`internal/prompts/vendor/keyring_gen.go`) are not required for default builds.
 
 File layout (example):
@@ -350,14 +368,15 @@ CI / release builds:
 	2) Generate a per-build 256-bit BEK and key_id.
 	3) Encrypt vendor templates to `internal/prompts/vendor/templates/*.enc`.
 	4) Emit `keyring_gen.go` with a small in-memory keyring map `{key_id -> BEK}` and embed build_id.
-	5) `go build -tags vendor_prompts` (or build via Docker). Artifacts include only encrypted blobs; BEK bytes are inside the binary.
+	5) `go build -tags vendor_prompts -ldflags "-s -w"` (or build via Docker). Artifacts include only encrypted blobs; BEK bytes are inside the binary. Stripping symbols (`-s -w`) reduces static disclosure surface. The multi-arch Docker path (Makefile → `scripts/lrops.py` → `Dockerfile.crosscompile`) must run the encrypt step and pass `GO_BUILD_TAGS=vendor_prompts` as a build-arg.
 	6) Clean up generated sources post-build (if building in a shared workspace).
 
-Makefile integration (suggested):
+Makefile/Docker integration (required):
 - keep: `make build` -> plain `go build` (stub vendor pack, no secrets required).
 - add: `make prompts-encrypt` -> runs a small Go tool to encrypt plaintext templates into vendor/*.enc (using a provided BEK).
 - add: `make prompts-keyring` -> generates vendor/keyring_gen.go with BEK/key_id/build_id.
 - add: `make build-with-vendor` -> depends on prompts-encrypt + prompts-keyring, then `go build -tags vendor_prompts`.
+- Dockerfile.crosscompile must accept `ARG GO_BUILD_TAGS` and pass `-tags "$GO_BUILD_TAGS"` to `go build` so CI can inject `vendor_prompts` via scripts.
 - existing: `make build-versioned` and Docker workflows can call the above steps automatically in CI.
 
 Failure modes and fallbacks:
