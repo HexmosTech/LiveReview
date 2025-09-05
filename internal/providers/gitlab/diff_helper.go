@@ -91,6 +91,126 @@ func parseDiffForLinePosition(diff string, targetLine int) (map[string]string, e
 	return position, nil
 }
 
+// ClassifyLineInDiff determines whether targetLine in the new (right) view corresponds to
+// an added line (new), a deleted line (old), or an unchanged context line. It returns
+// kind ("added"|"deleted"|"context"), the current old and new line counters at that position,
+// and a boolean found flag. This parses a unified diff hunk-by-hunk.
+func ClassifyLineInDiff(diff string, targetLine int) (kind string, oldLine int, newLine int, found bool) {
+	if diff == "" {
+		return "", 0, 0, false
+	}
+	lines := strings.Split(diff, "\n")
+	var oldLn, newLn *int
+	// @@ -old_start,old_count +new_start,new_count @@
+	for _, l := range lines {
+		if strings.HasPrefix(l, "@@ ") {
+			// parse hunk header
+			// keep light regex-free parsing for speed
+			// Find " -<old>" and " +<new>"
+			// Example: @@ -255,9 +257,9 @@
+			parts := strings.Split(l, " ")
+			// parts: ["@@", "-255,9", "+257,9", "@@..."]
+			if len(parts) >= 3 {
+				if strings.HasPrefix(parts[1], "-") && strings.HasPrefix(parts[2], "+") {
+					// old start
+					o := strings.TrimPrefix(parts[1], "-")
+					n := strings.TrimPrefix(parts[2], "+")
+					// strip optional ,count
+					if idx := strings.IndexByte(o, ','); idx >= 0 {
+						o = o[:idx]
+					}
+					if idx := strings.IndexByte(n, ','); idx >= 0 {
+						n = n[:idx]
+					}
+					// parse ints
+					// fallback to 0 on error
+					var oval, nval int
+					fmt.Sscanf(o, "%d", &oval)
+					fmt.Sscanf(n, "%d", &nval)
+					oldLn = new(int)
+					newLn = new(int)
+					*oldLn = oval
+					*newLn = nval
+					continue
+				}
+			}
+			oldLn = nil
+			newLn = nil
+			continue
+		}
+		if oldLn == nil || newLn == nil || len(l) == 0 {
+			continue
+		}
+		switch l[0] {
+		case ' ':
+			if targetLine == *newLn || targetLine == *oldLn {
+				return "context", *oldLn, *newLn, true
+			}
+			*oldLn++
+			*newLn++
+		case '+':
+			if targetLine == *newLn {
+				return "added", *oldLn, *newLn, true
+			}
+			*newLn++
+		case '-':
+			if targetLine == *oldLn {
+				return "deleted", *oldLn, *newLn, true
+			}
+			*oldLn++
+		default:
+			continue
+		}
+	}
+	return "", 0, 0, false
+}
+
+// HasDeletedOldLineAt returns true if the unified diff contains a '-' (deleted) row
+// whose old-side line number equals targetOld.
+func HasDeletedOldLineAt(diff string, targetOld int) bool {
+	if diff == "" {
+		return false
+	}
+	lines := strings.Split(diff, "\n")
+	var oldLn, newLn *int
+	for _, l := range lines {
+		if strings.HasPrefix(l, "@@ ") {
+			parts := strings.Split(l, " ")
+			if len(parts) >= 3 && strings.HasPrefix(parts[1], "-") && strings.HasPrefix(parts[2], "+") {
+				o := strings.TrimPrefix(parts[1], "-")
+				if idx := strings.IndexByte(o, ','); idx >= 0 {
+					o = o[:idx]
+				}
+				var oval int
+				fmt.Sscanf(o, "%d", &oval)
+				oldLn = new(int)
+				newLn = new(int)
+				*oldLn = oval
+				*newLn = 0 // newLn value not used here
+				continue
+			}
+			oldLn = nil
+			newLn = nil
+			continue
+		}
+		if oldLn == nil || len(l) == 0 {
+			continue
+		}
+		switch l[0] {
+		case ' ':
+			*oldLn++
+		case '+':
+			// added; no old side increment
+		case '-':
+			if *oldLn == targetOld {
+				return true
+			}
+			*oldLn++
+		}
+	}
+	return false
+}
+
 // GenerateLineCode creates a valid line_code for GitLab line comments
 // The line_code format has changed in different GitLab versions, so we're using the
 // most reliable approach here based on the API documentation and empirical testing.
@@ -182,15 +302,6 @@ func (c *GitLabHTTPClient) CreateLineCommentViaDiscussions(projectID string, mrI
 	// Normalize file path - ensure no leading slash
 	filePath = strings.TrimPrefix(filePath, "/")
 
-	// Generate a valid line_code - this now includes both new and old style formats
-	side := "right"
-	if isOnDeletedLine {
-		side = "left"
-	}
-	lineCode := GenerateLineCode(latestVersion.StartCommitSHA, latestVersion.HeadCommitSHA, filePath, lineNum, side)
-	parts := strings.Split(lineCode, ":")
-	newStyleCode := parts[0]
-
 	// Set up the discussions endpoint URL
 	requestURL := fmt.Sprintf("%s/projects/%s/merge_requests/%d/discussions",
 		c.baseURL, url.PathEscape(projectID), mrIID)
@@ -204,7 +315,7 @@ func (c *GitLabHTTPClient) CreateLineCommentViaDiscussions(projectID string, mrI
 	form.Add("position[head_sha]", latestVersion.HeadCommitSHA)
 	form.Add("position[new_path]", filePath)
 	form.Add("position[old_path]", filePath)
-	form.Add("position[line_code]", newStyleCode)
+	// Do not include position[line_code] for single-line comments; SHAs + old/new_line are sufficient
 
 	// Set either new_line or old_line based on whether it's a deleted line
 	if isOnDeletedLine {
@@ -233,40 +344,7 @@ func (c *GitLabHTTPClient) CreateLineCommentViaDiscussions(projectID string, mrI
 	// Check the response
 	body, _ := io.ReadAll(resp.Body)
 	if resp.StatusCode != http.StatusCreated && resp.StatusCode != http.StatusOK {
-		// If the new style line code fails, try with the old style
-		if len(parts) > 1 {
-			oldStyleCode := parts[1]
-			fmt.Printf("New style line code failed, trying old style: %s\n", oldStyleCode)
-
-			// Update form with old style line code
-			form.Set("position[line_code]", oldStyleCode)
-
-			// Create a new request
-			req, err = http.NewRequest("POST", requestURL, strings.NewReader(form.Encode()))
-			if err != nil {
-				return fmt.Errorf("failed to create request with old style line code: %w", err)
-			}
-
-			// Add headers
-			req.Header.Add("PRIVATE-TOKEN", c.token)
-			req.Header.Add("Content-Type", "application/x-www-form-urlencoded")
-
-			// Execute the request
-			resp, err = c.client.Do(req)
-			if err != nil {
-				return fmt.Errorf("failed to execute request with old style line code: %w", err)
-			}
-			defer resp.Body.Close()
-
-			// Check response
-			body, _ = io.ReadAll(resp.Body)
-			if resp.StatusCode == http.StatusCreated || resp.StatusCode == http.StatusOK {
-				fmt.Println("Successfully created line comment with old style line code")
-				return nil
-			}
-		}
-
-		// Both line code styles failed
+		// Error without line_code; return detailed message
 		return fmt.Errorf("API request failed with status %d: %s", resp.StatusCode, string(body))
 	}
 

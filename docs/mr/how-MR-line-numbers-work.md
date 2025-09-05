@@ -143,6 +143,25 @@ For multi-line comments, provide `position[line_range]` with both `start` and `e
 - For deleted lines, ensure you set only old_line (not new_line). For added lines, only new_line.
 - On context lines, old_line and new_line can differ due to previous edits.
 
+### Nuances and precedence (production-proven)
+- Single-line comments must not include `position[line_code]`. Sending it can cause 400 errors or mis-anchoring when GitLab’s internal line code doesn’t match your calculation.
+- Deleted line precedence:
+  1. If the unified diff for the file contains a `-` row whose old-side number equals the requested line, force `position[old_line] = <requested>` and do NOT include `new_line`.
+  2. Otherwise classify the target display line within the hunk:
+     - `+` → set `new_line` only
+     - `-` → set `old_line` only
+     - ` ` (space, context) → set both `old_line` and `new_line`
+- Avoid context overshadow: If a context row maps (old X, new Y) and the user selects Y intending a deleted line nearby, do not choose that context mapping when the `- old_line` exists at the requested old coordinate. Prefer the exact deleted row.
+- Renames: When a file is renamed, set both `old_path` and `new_path` correctly; choose `old_line` vs `new_line` as above.
+- Multi-line (ranges): Only `line_range[start|end][line_code]` are required (plus SHAs). Do not add top-level `position[line_code]`.
+
+### UI/backend integration notes
+- The backend should fetch the MR changes and parse the unified diff to make the side decision. The UI only needs to provide file path and the intended line number; side flags are optional.
+- If the UI knows a line is deleted, it may send a hint, but the backend should still auto-detect and enforce `old_line` only for exact deleted lines.
+- Payload sanity check before POST:
+  - single-line: ensure exactly one of `old_line`/`new_line` (or both for context) is present; no `line_code`.
+  - SHAs must come from the latest MR version.
+
 ### Image and file position types (for completeness)
 - position_type = "image": use width, height, x, y.
 - position_type = "file" (>= 16.4): used for file-level positions; refer to GitLab docs for exact semantics.
