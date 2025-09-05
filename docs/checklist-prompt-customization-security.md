@@ -60,12 +60,12 @@ Spot checks
 Objective: Introduce core types and a Manager interface with a no-op/stub implementation so the app compiles and can be wired later.
 
 Tasks
-- [ ] Create `internal/prompts/models.go` — define `TemplateDescriptor`, `Context`, and `Chunk` structs per spec (no DB or rendering logic yet).
-- [ ] Create `internal/prompts/manager.go` — define `Manager` interface with methods: `GetTemplateDescriptor`, `Render`, `ResolveApplicationContext`, `ListChunks`, `CreateChunk`, `UpdateChunk`, `DeleteChunk`, `ReorderChunks`.
-- [ ] Create `internal/prompts/manager_stub.go` — a stub `Manager` implementation returning unimplemented errors (or minimal happy-path for listing empty chunks) to keep `go build` green.
+- [x] Create `internal/prompts/models.go` — define `TemplateDescriptor`, `Context`, and `Chunk` structs per spec (no DB or rendering logic yet).
+- [x] Create `internal/prompts/manager.go` — define `Manager` interface with methods: `GetTemplateDescriptor`, `Render`, `ResolveApplicationContext`, `ListChunks`, `CreateChunk`, `UpdateChunk`, `DeleteChunk`, `ReorderChunks`.
+- [x] Create `internal/prompts/manager_stub.go` — a stub `Manager` implementation returning unimplemented errors (or minimal happy-path for listing empty chunks) to keep `go build` green.
 
 Spot checks
-- [ ] `go build` still succeeds; no runtime changes.
+- [x] `go build` still succeeds; no runtime changes.
 - [ ] `go vet`/linters (if configured) pass for new files.
 
 ---
