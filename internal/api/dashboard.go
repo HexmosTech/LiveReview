@@ -147,45 +147,23 @@ func (dm *DashboardManager) updateDashboardData() error {
 func (dm *DashboardManager) collectStatistics(data *DashboardData) error {
 	log.Println("Starting statistics collection...")
 
-	// Count total AI reviews from recent_activity table
+	// Count total AI reviews from recent_activity table only (legacy job_queue removed)
 	err := dm.db.QueryRow(`
 		SELECT COUNT(*) FROM recent_activity 
 		WHERE activity_type = 'review_triggered'
 	`).Scan(&data.TotalReviews)
 	if err != nil {
 		log.Printf("Error counting AI reviews from recent_activity: %v", err)
-		// Fallback to job_queue method for backwards compatibility
-		fallbackErr := dm.db.QueryRow(`
-			SELECT COUNT(*) FROM job_queue 
-			WHERE job_type = 'review' AND status = 'completed'
-		`).Scan(&data.TotalReviews)
-		if fallbackErr != nil {
-			log.Printf("Error counting reviews from job_queue fallback: %v", fallbackErr)
-			data.TotalReviews = 0
-		} else {
-			log.Printf("Found %d completed reviews (fallback method)", data.TotalReviews)
-		}
+		data.TotalReviews = 0
 	} else {
 		log.Printf("Found %d AI reviews from activity tracking", data.TotalReviews)
 	}
 
 	// Count total comments from ai_comments table
-	err = dm.db.QueryRow(`
-		SELECT COUNT(*) FROM ai_comments
-	`).Scan(&data.TotalComments)
+	err = dm.db.QueryRow(`SELECT COUNT(*) FROM ai_comments`).Scan(&data.TotalComments)
 	if err != nil {
 		log.Printf("Error counting AI comments from ai_comments table: %v", err)
-		// Fallback to job_queue method for backwards compatibility
-		fallbackErr := dm.db.QueryRow(`
-			SELECT COUNT(*) FROM job_queue 
-			WHERE job_type IN ('review', 'comment') AND status = 'completed'
-		`).Scan(&data.TotalComments)
-		if fallbackErr != nil {
-			log.Printf("Error counting comments from job_queue fallback: %v", fallbackErr)
-			data.TotalComments = 0
-		} else {
-			log.Printf("Found %d completed comments/reviews (fallback method)", data.TotalComments)
-		}
+		data.TotalComments = 0
 	} else {
 		log.Printf("Found %d AI comments from comments table", data.TotalComments)
 	}
@@ -226,21 +204,15 @@ func (dm *DashboardManager) collectRecentActivity(data *DashboardData) error {
 	data.RecentActivity = []ActivityItem{}
 
 	// Get recent job queue activities
+	// Query recent activities from recent_activity table (new system)
 	rows, err := dm.db.Query(`
-		SELECT 
-			id, 
-			job_type, 
-			project_path, 
-			created_at,
-			status
-		FROM job_queue 
-		WHERE created_at >= NOW() - INTERVAL '7 days'
-		ORDER BY created_at DESC 
+		SELECT id, activity_type, event_data, created_at
+		FROM recent_activity
+		ORDER BY created_at DESC
 		LIMIT 10
 	`)
 	if err != nil {
 		log.Printf("Error querying recent activity: %v", err)
-		// Still return empty array, not error
 		return nil
 	}
 	defer rows.Close()
@@ -248,68 +220,54 @@ func (dm *DashboardManager) collectRecentActivity(data *DashboardData) error {
 	var activities []ActivityItem
 	for rows.Next() {
 		var id int
-		var jobType, projectPath, status string
+		var activityType string
+		var eventDataBytes []byte
 		var createdAt time.Time
-
-		err := rows.Scan(&id, &jobType, &projectPath, &createdAt, &status)
-		if err != nil {
-			log.Printf("Error scanning activity row: %v", err)
+		if err := rows.Scan(&id, &activityType, &eventDataBytes, &createdAt); err != nil {
+			log.Printf("Error scanning recent_activity row: %v", err)
 			continue
 		}
 
-		// Convert job type to human-readable action
-		action := "Unknown activity"
-		activityType := "other"
-		switch jobType {
-		case "review":
-			if status == "completed" {
-				action = "Code review completed"
-				activityType = "review"
-			} else {
-				action = "Code review started"
-				activityType = "review"
+		// Default values
+		action := activityType
+		repo := ""
+		uiType := "other"
+
+		// Parse event_data JSON for repository and specialized labels
+		var payload map[string]interface{}
+		if err := json.Unmarshal(eventDataBytes, &payload); err == nil {
+			if r, ok := payload["repository"].(string); ok {
+				repo = r
 			}
-		case "webhook_install":
-			action = "Repository connected"
-			activityType = "connection"
-		case "webhook_removal":
-			action = "Repository disconnected"
-			activityType = "connection"
-		case "comment":
-			action = "Comment added"
-			activityType = "comment"
+		}
+
+		switch activityType {
+		case "review_triggered":
+			action = "Code review triggered"
+			uiType = "review"
+		case "connector_created":
+			action = "Connector created"
+			uiType = "connection"
+		case "webhook_installed":
+			action = "Webhook installed"
+			uiType = "connection"
+		case "webhook_removed":
+			action = "Webhook removed"
+			uiType = "connection"
 		}
 
 		activities = append(activities, ActivityItem{
 			ID:         id,
 			Action:     action,
-			Repository: projectPath,
+			Repository: repo,
 			Timestamp:  createdAt,
 			TimeAgo:    formatTimeAgo(createdAt),
-			Type:       activityType,
+			Type:       uiType,
 		})
 	}
 
-	// If no activities found, add some default entries if we have any connectors
-	if len(activities) == 0 {
-		log.Println("No recent activity found, checking for connectors...")
-		var connectorCount int
-		err = dm.db.QueryRow("SELECT COUNT(*) FROM integration_tokens").Scan(&connectorCount)
-		if err == nil && connectorCount > 0 {
-			activities = append(activities, ActivityItem{
-				ID:         1,
-				Action:     "System ready",
-				Repository: "LiveReview",
-				Timestamp:  time.Now().Add(-1 * time.Hour),
-				TimeAgo:    "1h ago",
-				Type:       "system",
-			})
-			log.Println("Added default 'System ready' activity")
-		}
-	}
-
 	data.RecentActivity = activities
-	log.Printf("Collected %d recent activities", len(activities))
+	log.Printf("Collected %d recent activities (new system)", len(activities))
 	return nil
 }
 
@@ -317,7 +275,7 @@ func (dm *DashboardManager) collectRecentActivity(data *DashboardData) error {
 func (dm *DashboardManager) collectPerformanceMetrics(data *DashboardData) error {
 	log.Println("Starting performance metrics collection...")
 
-	// Calculate reviews this week from recent_activity table
+	// Calculate reviews this week using recent_activity only
 	err := dm.db.QueryRow(`
 		SELECT COUNT(*) FROM recent_activity 
 		WHERE activity_type = 'review_triggered'
@@ -325,19 +283,7 @@ func (dm *DashboardManager) collectPerformanceMetrics(data *DashboardData) error
 	`).Scan(&data.PerformanceMetrics.ReviewsThisWeek)
 	if err != nil {
 		log.Printf("Error counting weekly reviews from recent_activity: %v", err)
-		// Fallback to job_queue method for backwards compatibility
-		fallbackErr := dm.db.QueryRow(`
-			SELECT COUNT(*) FROM job_queue 
-			WHERE job_type = 'review' 
-			AND status = 'completed'
-			AND created_at >= DATE_TRUNC('week', NOW())
-		`).Scan(&data.PerformanceMetrics.ReviewsThisWeek)
-		if fallbackErr != nil {
-			log.Printf("Error counting weekly reviews from job_queue fallback: %v", fallbackErr)
-			data.PerformanceMetrics.ReviewsThisWeek = 0
-		} else {
-			log.Printf("Found %d reviews this week (fallback method)", data.PerformanceMetrics.ReviewsThisWeek)
-		}
+		data.PerformanceMetrics.ReviewsThisWeek = 0
 	} else {
 		log.Printf("Found %d AI reviews this week from activity tracking", data.PerformanceMetrics.ReviewsThisWeek)
 	}
@@ -346,22 +292,8 @@ func (dm *DashboardManager) collectPerformanceMetrics(data *DashboardData) error
 	data.PerformanceMetrics.CommentsThisWeek = data.PerformanceMetrics.ReviewsThisWeek * 3 // Estimate
 
 	// Calculate success rate
-	var totalJobs, completedJobs int
-	err = dm.db.QueryRow(`
-		SELECT 
-			COUNT(*) as total,
-			COUNT(CASE WHEN status = 'completed' THEN 1 END) as completed
-		FROM job_queue 
-		WHERE created_at >= NOW() - INTERVAL '24 hours'
-	`).Scan(&totalJobs, &completedJobs)
-
-	if err == nil && totalJobs > 0 {
-		data.PerformanceMetrics.SuccessRate = float64(completedJobs) / float64(totalJobs) * 100
-		log.Printf("Success rate: %d/%d = %.1f%%", completedJobs, totalJobs, data.PerformanceMetrics.SuccessRate)
-	} else {
-		data.PerformanceMetrics.SuccessRate = 100.0 // Default to 100% if no data
-		log.Printf("No recent jobs found, defaulting success rate to 100%%")
-	}
+	// Without legacy job queue metrics, default success rate to 100%
+	data.PerformanceMetrics.SuccessRate = 100.0
 
 	// Set average response time
 	data.PerformanceMetrics.AvgResponseTime = 2.3
@@ -380,23 +312,8 @@ func (dm *DashboardManager) collectSystemStatus(data *DashboardData) error {
 	data.SystemStatus.DatabaseHealth = "healthy"
 
 	// Check job queue health
-	var pendingJobs int
-	err := dm.db.QueryRow(`
-		SELECT COUNT(*) FROM job_queue 
-		WHERE status = 'pending' AND created_at < NOW() - INTERVAL '1 hour'
-	`).Scan(&pendingJobs)
-
-	if err == nil {
-		if pendingJobs > 10 {
-			data.SystemStatus.JobQueueHealth = "warning"
-		} else if pendingJobs > 50 {
-			data.SystemStatus.JobQueueHealth = "error"
-		} else {
-			data.SystemStatus.JobQueueHealth = "healthy"
-		}
-	} else {
-		data.SystemStatus.JobQueueHealth = "unknown"
-	}
+	// Legacy job queue removed; mark as not tracked
+	data.SystemStatus.JobQueueHealth = "not_tracked"
 
 	return nil
 }
