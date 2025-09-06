@@ -256,7 +256,8 @@ const Settings = () => {
     const location = useLocation();
     const navigate = useNavigate();
     const { domain } = useAppSelector((state) => state.Settings);
-    const { isSuperAdmin, canManageCurrentOrg } = useOrgContext();
+    const { isSuperAdmin, canManageCurrentOrg, currentOrg } = useOrgContext();
+    const canAccessPrompts = isSuperAdmin || currentOrg?.role === 'owner';
     
     const activeTab = location.hash.substring(1) || 'general';
     const [productionUrl, setProductionUrl] = useState('');
@@ -290,7 +291,7 @@ const Settings = () => {
         }] : []),
         { id: 'ai', name: 'AI Configuration', icon: <Icons.AI /> },
     { id: 'ui', name: 'UI Preferences', icon: <Icons.Dashboard /> },
-    { id: 'prompts', name: 'Prompts', icon: <Icons.AI /> },
+        ...(canAccessPrompts ? [{ id: 'prompts', name: 'Prompts', icon: <Icons.AI /> }] : []),
         ...(canManageCurrentOrg ? [{ 
             id: 'users', 
             name: 'User Management', 
@@ -310,6 +311,14 @@ const Settings = () => {
             )
         }] : []),
     ];
+
+    // Redirect away from prompts tab if user loses permission or navigates manually
+    useEffect(() => {
+        if (activeTab === 'prompts' && !canAccessPrompts) {
+            const fallback = isSuperAdmin ? 'instance' : 'ai';
+            navigate(`#${fallback}`, { replace: true });
+        }
+    }, [activeTab, canAccessPrompts, isSuperAdmin, navigate]);
 
     // URL validation - must be http/https and not localhost
     const validateUrl = (url: string): boolean => {
@@ -526,9 +535,14 @@ const Settings = () => {
                 </div>
                 
                 <div className="md:col-span-3">
-                    {activeTab === 'prompts' && (
+                    {activeTab === 'prompts' && canAccessPrompts && (
                         <Card>
                             <PromptsPage />
+                        </Card>
+                    )}
+                    {activeTab === 'prompts' && !canAccessPrompts && (
+                        <Card>
+                            <div className="p-4 text-sm text-red-300">You do not have access to Prompts. Only organization owners and super administrators can view this section.</div>
                         </Card>
                     )}
                     {activeTab === 'instance' && isSuperAdmin && (
