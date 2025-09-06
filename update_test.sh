@@ -22,8 +22,8 @@
 
 set -euo pipefail
 
-OLD_VERSION="${1:-${OLD_VERSION:-0.0.6}}"
-NEW_VERSION="${2:-${NEW_VERSION:-0.0.7}}"
+OLD_VERSION="${1:-${OLD_VERSION:-0.0.7}}"
+NEW_VERSION="${2:-${NEW_VERSION:-0.0.8}}"
 INSTALL_DIR="${INSTALL_DIR:-$HOME/livereview}"
 LROPS="${LROPS_PATH:-./lrops.sh}"
 FORCE="${FORCE:-1}"
@@ -124,6 +124,44 @@ perform_update() {
 	ok "Update command completed"
 }
 
+# Pause to allow manual DB / filesystem changes before proceeding with update.
+# Controlled by ENV: AUTO_CONTINUE=1 to skip; or PASS --no-pause via arg (future expansion).
+pause_before_update() {
+	if [[ "${AUTO_CONTINUE:-0}" == "1" ]]; then
+		info "AUTO_CONTINUE=1 set – skipping manual pause before update"
+		return 0
+	fi
+	echo
+	info "=== MANUAL PAUSE BEFORE UPDATE ==="
+	cat <<'EOT'
+You can now make manual changes (schema/data) against the OLD version before the update.
+
+Common helper commands:
+  # Open psql shell
+  docker exec -it livereview-db psql -U livereview -d livereview
+
+  # List tables / check migrations
+  docker exec -it livereview-db psql -U livereview -d livereview -c "\\dt"
+  docker exec -it livereview-db psql -U livereview -d livereview -c "SELECT version FROM schema_migrations ORDER BY version;"
+
+  # Example: add dummy row / create temp table (for experimentation)
+  docker exec -it livereview-db psql -U livereview -d livereview -c "CREATE TABLE IF NOT EXISTS manual_test(id serial primary key, note text, created_at timestamptz default now());"
+
+When finished with your manual edits, type 'y' (or press Enter) to continue with the update,
+or 'q' to abort the script.
+EOT
+	local ans=""
+	while true; do
+		read -r -p "Proceed with update? [Y/n/q]: " ans || ans="q"
+		case "${ans,,}" in
+			""|y|yes) info "Continuing to update step..."; break ;;
+			n|no) warn "You chose 'no' – waiting. Type 'y' when ready." ;;
+			q|quit) die "Aborted by user before update." ;;
+			*) warn "Unrecognized input: $ans" ;;
+		esac
+	done
+}
+
 show_manual_spot_check() {
 	cat <<EOF
 
@@ -148,6 +186,7 @@ main() {
 	install_old_version
 	wait_for_health || die "Old version did not become healthy"
 	verify_version "$OLD_VERSION" || warn "Could not confirm old version (continuing)"
+	pause_before_update
 	perform_update
 	wait_for_health || die "New version did not become healthy"
 	info "[4/5] Verifying new version after update"
