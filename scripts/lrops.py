@@ -135,6 +135,12 @@ class LiveReviewOps:
             print(f"   • Registry: {registry}")
             print(f"   • Image Name: {image_name}")
             print(f"   • Full Image: {registry}/{image_name}")
+        if build_type == 'docker':
+            vendor = os.environ.get('LIVEREVIEW_VENDOR_PROMPTS') == '1'
+            if vendor:
+                print(f"   • Vendor Prompts: Enabled (GO_BUILD_TAGS=vendor_prompts)")
+            else:
+                print(f"   • Vendor Prompts: Disabled (stub pack)")
         
         print(f"\n📝 EXECUTION PHASES:")
         
@@ -628,7 +634,12 @@ class LiveReviewOps:
         return 0
     
     def build_docker_image(self, version=None, registry=None, image_name=None, push=False, dry_run=False, make_latest=None, architectures=None, multiarch=False):
-        """Build Docker image with version information and multi-architecture support"""
+        """Build Docker image with version information and multi-architecture support.
+
+        Phase 9 enhancement: optionally embed encrypted vendor prompts by:
+          1. Running the encryption CLI to (re)generate .enc blobs + keyring_gen.go (if LIVEREVIEW_VENDOR_PROMPTS=1)
+          2. Passing GO_BUILD_TAGS=vendor_prompts to Docker build so pack_real.go is selected.
+        """
         if not version:
             version_info = self.get_current_version_info()
             version = version_info['version']
@@ -668,7 +679,18 @@ class LiveReviewOps:
         version_tag = f"{full_image}:{docker_version}"
         latest_tag = f"{full_image}:latest"
         
-        # Display build plan
+        # Determine vendor mode (default ON for docker builds unless explicitly disabled)
+        env_vendor = os.environ.get('LIVEREVIEW_VENDOR_PROMPTS')
+        if env_vendor is None:
+            # Default to enabled
+            vendor = True
+        else:
+            vendor = env_vendor != '0'
+        go_build_tags = []
+        if vendor:
+            go_build_tags.append('vendor_prompts')
+
+        # Display build plan (augment output with build tags & vendor status)
         if not self._display_build_plan(
             build_type="docker",
             version=version,
@@ -690,6 +712,9 @@ class LiveReviewOps:
             print(f"  Git Commit: {git_commit}")
             print(f"  Build Time: {build_time}")
             print(f"  Multi-arch: {multiarch}")
+            print(f"  Vendor Prompts: {vendor}")
+            if go_build_tags:
+                print(f"  GO_BUILD_TAGS: {' '.join(go_build_tags)}")
             if multiarch:
                 print(f"  Architectures: {', '.join(architectures)}")
                 for arch in architectures:
@@ -703,7 +728,20 @@ class LiveReviewOps:
                 print(f"  Would push to registry")
             return version_tag
 
-        print(f"Building Docker image with version {version}...")
+        # If vendor build requested, run encryption pre-step before Docker build
+        if vendor:
+            print("🔐 Vendor prompts build requested: running encryption step...")
+            # Build ID: prefer tag/version if release, else timestamp + commit short
+            build_id = version if ('-dev+' not in version and 'modified' not in version) else datetime.now(timezone.utc).strftime('%Y%m%d%H%M%S')
+            encrypt_cmd = [
+                'go', 'run', './internal/prompts/vendor/cmd/prompts-encrypt',
+                '--out', 'internal/prompts/vendor/templates',
+                '--build-id', build_id,
+            ]
+            self._run_command(encrypt_cmd, capture_output=False)
+            print("✅ Encryption step complete.")
+
+        print(f"Building Docker image with version {version} (vendor={vendor}) ...")
         # UI is built inside Docker (ui-builder stage); no local npm needed
 
         if multiarch:
@@ -724,7 +762,11 @@ class LiveReviewOps:
                                 version_tag, latest_tag, make_latest, push):
         """Build single architecture Docker image via cross-compilation Dockerfile"""
         # Use buildx with the cross-compilation Dockerfile for consistency and UI reuse
-        
+        env_vendor = os.environ.get('LIVEREVIEW_VENDOR_PROMPTS')
+        vendor = True if env_vendor is None else env_vendor != '0'
+        go_tags = []
+        if vendor:
+            go_tags.append('vendor_prompts')
         # Add GitHub repository association labels
         labels = [
             '--label', 'org.opencontainers.image.source=https://github.com/HexmosTech/LiveReview',
@@ -741,6 +783,10 @@ class LiveReviewOps:
             '--build-arg', f'VERSION={version}',
             '--build-arg', f'BUILD_TIME={build_time}',
             '--build-arg', f'GIT_COMMIT={git_commit}',
+        ]
+        if go_tags:
+            cmd += ['--build-arg', f'GO_BUILD_TAGS={" ".join(go_tags)}']
+        cmd += [
             '-f', 'Dockerfile.crosscompile',
             *labels,
             '-t', version_tag,
@@ -796,6 +842,11 @@ class LiveReviewOps:
             '--label', f'org.opencontainers.image.created={build_time}',
         ]
         
+        env_vendor = os.environ.get('LIVEREVIEW_VENDOR_PROMPTS')
+        vendor = True if env_vendor is None else env_vendor != '0'
+        go_tags = []
+        if vendor:
+            go_tags.append('vendor_prompts')
         cmd = [
             'docker', '--context', 'gitlab', 'buildx', 'build',
             '--builder', 'gitlab-multiarch',
@@ -804,6 +855,10 @@ class LiveReviewOps:
             '--build-arg', f'VERSION={version}',
             '--build-arg', f'BUILD_TIME={build_time}',
             '--build-arg', f'GIT_COMMIT={git_commit}',
+        ]
+        if go_tags:
+            cmd += ['--build-arg', f'GO_BUILD_TAGS={" ".join(go_tags)}']
+        cmd += [
             *labels,
             *tags,
             '--push' if push else '--load',
@@ -919,7 +974,9 @@ class LiveReviewOps:
         """Handle 'build' command"""
         try:
             if args.docker:
-                # Build Docker image
+                # Build Docker image (vendor prompts default ON unless disabled)
+                if getattr(args, 'no_vendor_prompts', False):
+                    os.environ['LIVEREVIEW_VENDOR_PROMPTS'] = '0'
                 image_tag = self.build_docker_image(
                     version=args.version,
                     registry=args.registry,
@@ -1031,6 +1088,8 @@ class LiveReviewOps:
                         return 1
             
             # Build and optionally push
+            if getattr(args, 'no_vendor_prompts', False):
+                os.environ['LIVEREVIEW_VENDOR_PROMPTS'] = '0'
             image_tag = self.build_docker_image(
                 version=selected_tag,
                 registry=args.registry,
@@ -1113,6 +1172,8 @@ def main():
     build_parser.add_argument('--architectures', nargs='+', 
                              choices=['amd64', 'arm64', 'arm/v7'],
                              help='Specific architectures to build (default: amd64 arm64)')
+    build_parser.add_argument('--no-vendor-prompts', action='store_true',
+                             help='Disable encrypted vendor prompts (default is enabled)')
     build_parser.set_defaults(latest=None)  # Allow None to trigger auto-detection
     
     # Docker command (interactive tag selection)
@@ -1138,6 +1199,8 @@ def main():
     docker_parser.add_argument('--architectures', nargs='+',
                               choices=['amd64', 'arm64', 'arm/v7'],
                               help='Specific architectures to build (default: amd64 arm64)')
+    docker_parser.add_argument('--no-vendor-prompts', action='store_true',
+                              help='Disable encrypted vendor prompts (default is enabled)')
     docker_parser.set_defaults(latest=None, multiarch=None)  # Allow None to trigger interactive mode
     
     args = parser.parse_args()
