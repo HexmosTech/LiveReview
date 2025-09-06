@@ -483,6 +483,7 @@ USAGE:
     lrops.sh start                     # Start LiveReview services
     lrops.sh stop                      # Stop LiveReview services
     lrops.sh restart                   # Restart LiveReview services
+    lrops.sh update [version]          # Pull newer image (or specific version) and restart
     lrops.sh logs [service]            # Show container logs
     lrops.sh env validate              # Validate .env and suggest fixes
     lrops.sh help ssl                  # SSL/TLS setup guidance
@@ -2321,6 +2322,119 @@ restart_containers_cmd() {
     fi
 }
 
+# Update LiveReview containers (pull newer image, update version, restart)
+update_containers_cmd() {
+    section_header "UPDATING LIVEREVIEW"
+
+    local requested_version="$1"
+
+    if [[ ! -d "$LIVEREVIEW_INSTALL_DIR" ]]; then
+        log_error "LiveReview is not installed"
+        log_info "Run 'lrops.sh setup-demo' to install"
+        return 1
+    fi
+
+    if [[ ! -f "$LIVEREVIEW_INSTALL_DIR/docker-compose.yml" ]]; then
+        log_error "Docker Compose configuration not found at: $LIVEREVIEW_INSTALL_DIR/docker-compose.yml"
+        return 1
+    fi
+
+    # Determine target version (strict semantic only)
+    local target_version=""
+    if [[ -n "$requested_version" ]]; then
+        if ! is_semantic_version "$requested_version"; then
+            log_error "Requested version '$requested_version' is not a valid semantic version (expected MAJOR.MINOR.PATCH optionally prefixed with v)"
+            log_info "Example: lrops.sh update v1.4.2"
+            return 1
+        fi
+        target_version="$requested_version"
+        log_info "Requested semantic version for update: $target_version"
+    else
+        log_info "No version specified - resolving latest semantic version (ignoring non-semantic tags)..."
+        if ! target_version=$(get_latest_version "hexmostech/livereview"); then
+            log_error "Could not determine a semantic version tag from registry. Aborting update."
+            log_info "Ensure a release tag like v1.2.3 exists in the registry."
+            return 1
+        fi
+        log_success "Latest semantic version resolved: $target_version"
+    fi
+
+    # Normalize (strip leading v for docker tag usage)
+    target_version=$(echo "$target_version" | sed 's/^v//')
+
+    local app_image="${DOCKER_REGISTRY}/${DOCKER_IMAGE}:${target_version}"
+    log_info "Updating to image: $app_image"
+
+    # Optional quick backup of .env before modifying
+    if [[ -f "$LIVEREVIEW_INSTALL_DIR/.env" ]]; then
+        local env_backup="$LIVEREVIEW_INSTALL_DIR/.env.bak.$(date +%Y%m%d_%H%M%S)"
+        cp "$LIVEREVIEW_INSTALL_DIR/.env" "$env_backup" || true
+        log_info "Backed up current .env to $env_backup"
+    fi
+
+    # Update LIVEREVIEW_VERSION in .env (add if missing)
+    if [[ -f "$LIVEREVIEW_INSTALL_DIR/.env" ]]; then
+        if grep -q '^LIVEREVIEW_VERSION=' "$LIVEREVIEW_INSTALL_DIR/.env"; then
+            sed -i "s/^LIVEREVIEW_VERSION=.*/LIVEREVIEW_VERSION=${target_version}/" "$LIVEREVIEW_INSTALL_DIR/.env"
+        else
+            echo "LIVEREVIEW_VERSION=${target_version}" >> "$LIVEREVIEW_INSTALL_DIR/.env"
+        fi
+        log_success "Updated .env LIVEREVIEW_VERSION=${target_version}"
+    else
+        log_warning ".env not found; proceeding without updating version variable"
+    fi
+
+    # Pull new image
+    log_info "Pulling new LiveReview image..."
+    if ! docker pull "$app_image"; then
+        log_error "Failed to pull image: $app_image"
+        return 1
+    fi
+    log_success "Image pulled successfully"
+
+    # Restart container using new image (compose will pick updated env var for tag substitution already baked in file)
+    # For safety, force recreate only the app container
+    pushd "$LIVEREVIEW_INSTALL_DIR" >/dev/null || true
+    log_info "Recreating application container with new image..."
+    if ! docker_compose up -d --no-deps --force-recreate livereview-app; then
+        log_error "Container recreation failed"
+        popd >/dev/null || true
+        return 1
+    fi
+
+    # Wait for health
+    log_info "Waiting for updated container health..."
+    local max_wait=120
+    local waited=0
+    local app_cid
+    while [[ $waited -lt $max_wait ]]; do
+        app_cid=$(docker_compose ps -q livereview-app || true)
+        if [[ -n "$app_cid" ]]; then
+            local health
+            health=$(docker inspect --format='{{.State.Health.Status}}' "$app_cid" 2>/dev/null || echo "")
+            if [[ "$health" == "healthy" ]]; then
+                log_success "Application container is healthy"
+                break
+            fi
+        fi
+        sleep 5
+        waited=$((waited+5))
+        log_info "  ... still waiting ("$waited"s)"
+    done
+    popd >/dev/null || true
+
+    if [[ $waited -ge $max_wait ]]; then
+        log_warning "Health check timeout after ${max_wait}s"
+        log_info "Run 'lrops.sh status' or 'lrops.sh logs livereview-app' for details"
+        return 1
+    fi
+
+    # Post-update status
+    log_info "Performing post-update status check..."
+    show_status || true
+    log_success "LiveReview updated to version ${target_version}"
+}
+
 # Show container logs
 show_logs() {
     local service="$1"
@@ -3343,7 +3457,7 @@ main() {
     local is_management_command=false
     
     case "${1:-}" in
-        status|info|start|stop|restart|logs|help)
+        status|info|start|stop|restart|update|logs|help)
             is_management_command=true
             ;;
         setup-demo|setup-production)
@@ -3397,6 +3511,11 @@ main() {
             ;;
         restart)
             restart_containers_cmd
+            exit $?
+            ;;
+        update)
+            # Optional version parameter: lrops.sh update [version]
+            update_containers_cmd "${2:-}"
             exit $?
             ;;
         logs)
