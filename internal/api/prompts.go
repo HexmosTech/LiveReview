@@ -279,23 +279,41 @@ func (s *Server) CreatePromptChunk(c echo.Context) error {
 		return c.JSON(http.StatusInternalServerError, map[string]string{"error": err.Error()})
 	}
 
+	// Enforce single-value semantics: if a chunk already exists for this (org, context, prompt_key, variable), update it in-place.
+	existing, err := mgr.ListChunks(c.Request().Context(), pc.OrgID, appCtxID, key, variable)
+	if err != nil {
+		return c.JSON(http.StatusInternalServerError, map[string]string{"error": err.Error()})
+	}
+	createdBy := pc.GetUserID()
+	if len(existing) > 0 {
+		ch := existing[0]
+		// Update mutable fields
+		ch.Title = req.Title
+		ch.Body = req.Body
+		ch.UpdatedBy = ptrInt64(createdBy)
+		// Preserve sequence_index & flags (could be toggled later via dedicated UI)
+		if err := mgr.UpdateChunk(c.Request().Context(), ch); err != nil {
+			return c.JSON(http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		}
+		return c.JSON(http.StatusOK, map[string]any{"chunk": chunkDTO{
+			ID:            ch.ID,
+			Type:          ch.Type,
+			Title:         ch.Title,
+			Body:          ch.Body,
+			SequenceIndex: ch.SequenceIndex,
+			Enabled:       ch.Enabled,
+			AllowMarkdown: ch.AllowMarkdown,
+			RedactOnLog:   ch.RedactOnLog,
+			CreatedBy:     ch.CreatedBy,
+			UpdatedBy:     ch.UpdatedBy,
+		}})
+	}
+
+	// No existing chunk — create a new base entry (sequence index fixed at 1000 unless provided)
 	seq := 1000
 	if req.SequenceIndex != nil {
 		seq = *req.SequenceIndex
-	} else {
-		existing, err := mgr.ListChunks(c.Request().Context(), pc.OrgID, appCtxID, key, variable)
-		if err == nil && len(existing) > 0 {
-			maxSeq := existing[0].SequenceIndex
-			for _, ch := range existing {
-				if ch.SequenceIndex > maxSeq {
-					maxSeq = ch.SequenceIndex
-				}
-			}
-			seq = maxSeq + 10
-		}
 	}
-
-	createdBy := pc.GetUserID()
 	ch := prompts.Chunk{
 		OrgID:                pc.OrgID,
 		ApplicationContextID: appCtxID,
@@ -316,7 +334,6 @@ func (s *Server) CreatePromptChunk(c echo.Context) error {
 		return c.JSON(http.StatusInternalServerError, map[string]string{"error": err.Error()})
 	}
 	ch.ID = id
-
 	return c.JSON(http.StatusOK, map[string]any{"chunk": chunkDTO{
 		ID:            ch.ID,
 		Type:          ch.Type,

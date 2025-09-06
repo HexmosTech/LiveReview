@@ -125,9 +125,21 @@ ORDER BY sequence_index ASC, created_at ASC`
 }
 
 func (s *Store) CreateChunk(ctx context.Context, ch Chunk) (int64, error) {
+	// With unique index (org_id, application_context_id, prompt_key, variable_name)
+	// perform an upsert so callers can always call CreateChunk for single-value semantics.
 	const q = `
 INSERT INTO prompt_chunks (org_id, application_context_id, prompt_key, variable_name, chunk_type, title, body, sequence_index, enabled, allow_markdown, redact_on_log, created_by, updated_by)
 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
+ON CONFLICT (org_id, application_context_id, prompt_key, variable_name)
+DO UPDATE SET
+	title = EXCLUDED.title,
+	body = EXCLUDED.body,
+	sequence_index = EXCLUDED.sequence_index,
+	enabled = EXCLUDED.enabled,
+	allow_markdown = EXCLUDED.allow_markdown,
+	redact_on_log = EXCLUDED.redact_on_log,
+	updated_by = EXCLUDED.updated_by,
+	updated_at = now()
 RETURNING id`
 	var id int64
 	err := s.db.QueryRowContext(ctx, q, ch.OrgID, ch.ApplicationContextID, ch.PromptKey, ch.VariableName, ch.Type, nullIfEmpty(ch.Title), ch.Body, ch.SequenceIndex, ch.Enabled, ch.AllowMarkdown, ch.RedactOnLog, ch.CreatedBy, ch.UpdatedBy).Scan(&id)
