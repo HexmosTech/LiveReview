@@ -34,6 +34,7 @@ GITHUB_REPO="HexmosTech/LiveReview"
 GITHUB_API_BASE="https://api.github.com/repos/${GITHUB_REPO}"
 DOCKER_REGISTRY="ghcr.io/hexmostech"
 DOCKER_IMAGE="livereview"
+BACKUP_RETENTION_COUNT="10"   # Number of pre-update backups to keep (oldest pruned)
 
 # Colors for output
 RED='\033[0;31m'
@@ -484,6 +485,9 @@ USAGE:
     lrops.sh stop                      # Stop LiveReview services
     lrops.sh restart                   # Restart LiveReview services
     lrops.sh update [version]          # Pull newer image (or specific version) and restart
+    lrops.sh list-backups              # List pre-update backups
+    lrops.sh restore <id|latest>       # Restore a previous pre-update backup
+    lrops.sh uninstall                 # Safely uninstall (moves directory, keeps backups)
     lrops.sh logs [service]            # Show container logs
     lrops.sh env validate              # Validate .env and suggest fixes
     lrops.sh help ssl                  # SSL/TLS setup guidance
@@ -2322,6 +2326,49 @@ restart_containers_cmd() {
     fi
 }
 
+# Uninstall LiveReview (preserves a final full backup, skips external standalone DB containers)
+uninstall_cmd() {
+    section_header "UNINSTALLING LIVEREVIEW"
+
+    if [[ ! -d "$LIVEREVIEW_INSTALL_DIR" ]]; then
+        log_error "Installation directory not found: $LIVEREVIEW_INSTALL_DIR"
+        return 1
+    fi
+
+    # Final backup snapshot (tagged uninstall)
+    log_info "Creating final backup snapshot before removal"
+    create_pre_update_backup "uninstall" || log_warning "Final backup failed; proceeding with uninstall"
+
+    # Stop only managed containers (avoid touching standalone 'livereview_pg')
+    log_info "Stopping managed containers (livereview-app, livereview-db)"
+    docker rm -f livereview-app livereview-db >/dev/null 2>&1 || true
+
+    # Move installation directory to timestamped backup instead of outright deleting (user-owned)
+    local ts=$(_now_ts)
+    local archive_dir="${LIVEREVIEW_INSTALL_DIR}.removed.${ts}"
+    if mv "$LIVEREVIEW_INSTALL_DIR" "$archive_dir" 2>/dev/null; then
+        log_success "Installation moved to: $archive_dir"
+    else
+        # Retry with sudo but preserve ownership info
+        if command -v sudo >/dev/null 2>&1; then
+            if sudo mv "$LIVEREVIEW_INSTALL_DIR" "$archive_dir"; then
+                # Give ownership back to invoking user if possible
+                sudo chown -R "${SUDO_UID:-$(id -u)}:${SUDO_GID:-$(id -g)}" "$archive_dir" 2>/dev/null || true
+                log_success "Installation moved (sudo) to: $archive_dir"
+            else
+                log_error "Failed to move installation directory (even with sudo)"
+                return 1
+            fi
+        else
+            log_error "Permission denied moving installation directory and sudo not available"
+            return 1
+        fi
+    fi
+
+    log_success "Uninstall complete. You can reinstall with: lrops.sh setup-demo"
+    log_info "Backups remain in: ${archive_dir}/backups (and earlier pre-update backups)"
+}
+
 # Update LiveReview containers (pull newer image, update version, restart)
 update_containers_cmd() {
     section_header "UPDATING LIVEREVIEW"
@@ -2338,6 +2385,12 @@ update_containers_cmd() {
         log_error "Docker Compose configuration not found at: $LIVEREVIEW_INSTALL_DIR/docker-compose.yml"
         return 1
     fi
+
+    # Create pre-update backup (config + logical DB dump) before any changes
+    create_pre_update_backup "${requested_version}" || {
+        log_error "Pre-update backup failed; aborting update for safety"
+        return 1
+    }
 
     # Determine target version (strict semantic only)
     local target_version=""
@@ -2392,6 +2445,34 @@ update_containers_cmd() {
     fi
     log_success "Image pulled successfully"
 
+    # Robustly update docker-compose.yml image tag (ignore whitespace, verify after)
+    local compose_file="$LIVEREVIEW_INSTALL_DIR/docker-compose.yml"
+    if [[ -f "$compose_file" ]]; then
+        local old_tag_line new_tag_line
+        old_tag_line=$(grep -E '^\s*image:\s*ghcr\.io/hexmostech/livereview:' "$compose_file" | head -1)
+        if [[ -n "$old_tag_line" ]]; then
+            # Use awk to preserve indentation and replace only the tag
+            awk -v tgt="$target_version" '
+                /^\s*image:\s*ghcr\.io\/hexmostech\/livereview:/ {
+                    sub(/ghcr\.io\/hexmostech\/livereview:[^ ]+/, "ghcr.io/hexmostech/livereview:" tgt)
+                }
+                { print }
+            ' "$compose_file" > "$compose_file.tmp" && mv "$compose_file.tmp" "$compose_file"
+            new_tag_line=$(grep -E '^\s*image:\s*ghcr\.io/hexmostech/livereview:' "$compose_file" | head -1)
+            if [[ "$new_tag_line" == *":$target_version" ]]; then
+                log_success "Updated docker-compose.yml image tag to ${target_version}"
+            else
+                log_error "Failed to update docker-compose.yml image tag to ${target_version} (found: $new_tag_line)"
+                log_error "Aborting update to prevent version mismatch. Please check file permissions."
+                return 1
+            fi
+        else
+            log_warning "Could not find image line in docker-compose.yml to update"
+        fi
+    else
+        log_warning "docker-compose.yml not found when attempting to update image tag"
+    fi
+
     # Restart container using new image (compose will pick updated env var for tag substitution already baked in file)
     # For safety, force recreate only the app container
     pushd "$LIVEREVIEW_INSTALL_DIR" >/dev/null || true
@@ -2426,6 +2507,7 @@ update_containers_cmd() {
     if [[ $waited -ge $max_wait ]]; then
         log_warning "Health check timeout after ${max_wait}s"
         log_info "Run 'lrops.sh status' or 'lrops.sh logs livereview-app' for details"
+        log_info "You can rollback using: lrops.sh restore latest"
         return 1
     fi
 
@@ -2433,6 +2515,240 @@ update_containers_cmd() {
     log_info "Performing post-update status check..."
     show_status || true
     log_success "LiveReview updated to version ${target_version}"
+}
+
+# -----------------------------------------------------------------------------
+# BACKUP & RESTORE UTILITIES
+# -----------------------------------------------------------------------------
+
+# Create a timestamped directory name
+_now_ts() { date +%Y%m%d_%H%M%S; }
+
+# Detect active DB container name (supports legacy naming differences)
+detect_db_container() {
+    local name
+    name=$(docker ps --format '{{.Names}}' | grep -E '^livereview-db$|^livereview_pg$' | head -1 || true)
+    if [[ -z "$name" ]]; then
+        # Try compose-defined service
+        name=$(docker ps --format '{{.Names}}' | grep -E 'livereview.*db' | head -1 || true)
+    fi
+    [[ -n "$name" ]] && echo "$name"
+}
+
+# Create a pre-update backup snapshot (config + DB dump)
+create_pre_update_backup() {
+    local target="$1"  # may be empty if user did not specify
+    if [[ ! -d "$LIVEREVIEW_INSTALL_DIR" ]]; then
+        log_error "Installation directory not found for backup"
+        return 1
+    fi
+    local ts=$(_now_ts)
+    local current_version="unknown"
+    [[ -f "$LIVEREVIEW_INSTALL_DIR/.env" ]] && current_version=$(grep -E '^LIVEREVIEW_VERSION=' "$LIVEREVIEW_INSTALL_DIR/.env" | cut -d'=' -f2 | tr -d '\r' || echo "unknown")
+    local backup_root="$LIVEREVIEW_INSTALL_DIR/backups"
+    mkdir -p "$backup_root"
+    local dir_name="preupdate-${ts}-from-${current_version}"
+    [[ -n "$target" ]] && dir_name+="-to-${target}"
+    local backup_dir="$backup_root/$dir_name"
+    mkdir -p "$backup_dir"
+    log_info "Creating pre-update backup: $backup_dir"
+    # Copy config files
+    for f in .env docker-compose.yml; do
+        if [[ -f "$LIVEREVIEW_INSTALL_DIR/$f" ]]; then
+            cp "$LIVEREVIEW_INSTALL_DIR/$f" "$backup_dir/$f" || true
+        fi
+    done
+    # Attempt physical snapshot (compressed) of lrdata/postgres using sudo if needed
+    local data_dir="$LIVEREVIEW_INSTALL_DIR/lrdata/postgres"
+    local physical_snapshot=false
+    if [[ -d "$data_dir" ]]; then
+        log_info "Creating compressed physical data snapshot (postgres directory)"
+        local tar_target="$backup_dir/postgres-data.tgz"
+        if tar -czf "$tar_target" -C "$LIVEREVIEW_INSTALL_DIR/lrdata" postgres 2>/dev/null; then
+            physical_snapshot=true
+            log_success "Physical snapshot created (without sudo)"
+        else
+            # Retry with sudo
+            if command -v sudo >/dev/null 2>&1; then
+                log_info "Retrying physical snapshot with sudo due to permission issues"
+                if sudo tar -czf "$tar_target" -C "$LIVEREVIEW_INSTALL_DIR/lrdata" postgres; then
+                    physical_snapshot=true
+                    # Adjust ownership so invoking user can manipulate backup
+                    sudo chown "${SUDO_UID:-$(id -u)}:${SUDO_GID:-$(id -g)}" "$tar_target" 2>/dev/null || true
+                    log_success "Physical snapshot created with sudo"
+                else
+                    log_warning "Failed to create physical snapshot even with sudo; continuing"
+                fi
+            else
+                log_warning "sudo not available; skipping physical data snapshot"
+            fi
+        fi
+    else
+        log_info "No postgres data directory found (skipping physical snapshot)"
+    fi
+    # Capture image + container metadata
+    docker ps --no-trunc > "$backup_dir/docker-ps.txt" 2>/dev/null || true
+    docker images --no-trunc | grep livereview > "$backup_dir/docker-images.txt" 2>/dev/null || true
+    # Logical DB dump
+    local db_container
+    db_container=$(detect_db_container || true)
+    if [[ -n "$db_container" ]]; then
+        # Extract DB password from env
+        local db_pass
+        db_pass=$(grep -E '^DB_PASSWORD=' "$LIVEREVIEW_INSTALL_DIR/.env" | cut -d'=' -f2 | tr -d '\r' || true)
+        if [[ -n "$db_pass" ]]; then
+            log_info "Creating logical database dump from container $db_container"
+            if docker exec -e PGPASSWORD="$db_pass" "$db_container" pg_dump -U livereview -d livereview > "$backup_dir/db.sql" 2>"$backup_dir/db_dump.stderr"; then
+                log_success "Database dump created"
+            else
+                log_warning "Database dump failed (see db_dump.stderr); continuing with config backup"
+                rm -f "$backup_dir/db.sql" || true
+            fi
+        else
+            log_warning "DB_PASSWORD not found in .env; skipping DB dump"
+        fi
+    else
+        log_warning "Could not detect running DB container; skipping DB dump"
+    fi
+    # Metadata JSON
+    cat > "$backup_dir/metadata.json" <<EOF
+{
+  "type": "pre-update",
+  "timestamp": "${ts}",
+  "current_version": "${current_version}",
+  "target_version": "${target}",
+  "has_physical_snapshot": ${physical_snapshot},
+  "has_logical_dump": $( [[ -f "$backup_dir/db.sql" ]] && echo true || echo false ),
+  "script_version": "${SCRIPT_VERSION}"
+}
+EOF
+    log_success "Pre-update backup complete"
+    prune_old_backups
+}
+
+prune_old_backups() {
+    local backup_root="$LIVEREVIEW_INSTALL_DIR/backups"
+    [[ ! -d "$backup_root" ]] && return 0
+    local count
+    count=$(find "$backup_root" -maxdepth 1 -type d -name 'preupdate-*' | wc -l | tr -d ' ')
+    if (( count > BACKUP_RETENTION_COUNT )); then
+        local remove=$((count - BACKUP_RETENTION_COUNT))
+        log_info "Pruning $remove old backup(s) (retention=$BACKUP_RETENTION_COUNT)"
+        find "$backup_root" -maxdepth 1 -type d -name 'preupdate-*' | sort | head -n "$remove" | xargs -r rm -rf
+    fi
+}
+
+list_backups_cmd() {
+    section_header "AVAILABLE BACKUPS"
+    local backup_root="$LIVEREVIEW_INSTALL_DIR/backups"
+    if [[ ! -d "$backup_root" ]]; then
+        log_warning "No backups directory present"
+        return 0
+    fi
+    local entries
+    entries=$(find "$backup_root" -maxdepth 1 -type d -name 'preupdate-*' | sort -r)
+    if [[ -z "$entries" ]]; then
+        log_info "No pre-update backups found"
+        return 0
+    fi
+    echo "$entries" | sed "s#^$backup_root/##" | sed 's/^/  - /'
+}
+
+restore_backup_cmd() {
+    local which="$1"
+    section_header "RESTORING BACKUP"
+    if [[ -z "$which" ]]; then
+        log_error "Usage: lrops.sh restore <backup_id|latest>"
+        return 1
+    fi
+    local backup_root="$LIVEREVIEW_INSTALL_DIR/backups"
+    if [[ ! -d "$backup_root" ]]; then
+        log_error "No backups directory at $backup_root"
+        return 1
+    fi
+    local target_dir
+    if [[ "$which" == "latest" ]]; then
+        target_dir=$(find "$backup_root" -maxdepth 1 -type d -name 'preupdate-*' | sort -r | head -1 || true)
+    else
+        target_dir="$backup_root/$which"
+    fi
+    if [[ -z "$target_dir" || ! -d "$target_dir" ]]; then
+        log_error "Backup '$which' not found"
+        list_backups_cmd
+        return 1
+    fi
+    log_info "Restoring from: $target_dir"
+    # Stop app container (keep DB up for restore)
+    docker_compose stop livereview-app || true
+    # Restore config files
+    for f in .env docker-compose.yml; do
+        if [[ -f "$target_dir/$f" ]]; then
+            cp "$target_dir/$f" "$LIVEREVIEW_INSTALL_DIR/$f"
+        fi
+    done
+    local physical_archive="$target_dir/postgres-data.tgz"
+    if [[ -f "$physical_archive" ]]; then
+        log_info "Restoring physical postgres data snapshot"
+        # Stop DB container fully for physical restore
+        docker_compose stop livereview-db >/dev/null 2>&1 || true
+        local pgdir="$LIVEREVIEW_INSTALL_DIR/lrdata/postgres"
+        if [[ -d "$pgdir" ]]; then
+            local pg_backup="${pgdir}.pre-restore.$(_now_ts)"
+            log_info "Moving existing postgres dir to $pg_backup"
+            if mv "$pgdir" "$pg_backup" 2>/dev/null; then
+                log_success "Existing postgres dir moved"
+            else
+                if command -v sudo >/dev/null 2>&1; then
+                    sudo mv "$pgdir" "$pg_backup" && log_success "Existing postgres dir moved with sudo" || log_warning "Could not move existing postgres dir"
+                else
+                    log_warning "Permission issue moving postgres dir and sudo not available; aborting physical restore"
+                    physical_archive=""  # skip extraction
+                fi
+            fi
+        fi
+        if [[ -n "$physical_archive" ]]; then
+            mkdir -p "$LIVEREVIEW_INSTALL_DIR/lrdata"
+            if tar -xzf "$physical_archive" -C "$LIVEREVIEW_INSTALL_DIR/lrdata" 2>/dev/null; then
+                log_success "Extracted physical snapshot"
+            else
+                if command -v sudo >/dev/null 2>&1; then
+                    sudo tar -xzf "$physical_archive" -C "$LIVEREVIEW_INSTALL_DIR/lrdata" && log_success "Extracted physical snapshot with sudo" || log_warning "Failed to extract physical snapshot"
+                else
+                    log_warning "Failed to extract physical snapshot (permissions)"
+                fi
+            fi
+        fi
+        # Start DB container again
+        docker_compose up -d livereview-db || true
+        sleep 5
+    elif [[ -f "$target_dir/db.sql" ]]; then
+        # Logical restore path (only if no physical archive present)
+        log_info "Restoring database from logical dump"
+        local db_container
+        db_container=$(detect_db_container || true)
+        if [[ -z "$db_container" ]]; then
+            log_info "Starting database container for restore"
+            docker_compose up -d livereview-db || true
+            sleep 5
+            db_container=$(detect_db_container || true)
+        fi
+        local db_pass
+        db_pass=$(grep -E '^DB_PASSWORD=' "$LIVEREVIEW_INSTALL_DIR/.env" | cut -d'=' -f2 | tr -d '\r' || true)
+        if [[ -n "$db_container" && -n "$db_pass" ]]; then
+            if cat "$target_dir/db.sql" | docker exec -i -e PGPASSWORD="$db_pass" "$db_container" psql -U livereview -d livereview >/dev/null 2>&1; then
+                log_success "Database restore (logical) completed"
+            else
+                log_warning "Database logical restore encountered errors"
+            fi
+        else
+            log_warning "Skipping logical DB restore (container or password missing)"
+        fi
+    else
+        log_info "No database artifacts found in backup (physical or logical); skipping DB restore"
+    fi
+    # Start / recreate app
+    docker_compose up -d --force-recreate livereview-app || true
+    log_success "Restore process initiated. Check status with: lrops.sh status"
 }
 
 # Show container logs
@@ -3457,7 +3773,7 @@ main() {
     local is_management_command=false
     
     case "${1:-}" in
-        status|info|start|stop|restart|update|logs|help)
+        status|info|start|stop|restart|update|list-backups|restore|uninstall|logs|help)
             is_management_command=true
             ;;
         setup-demo|setup-production)
@@ -3511,6 +3827,18 @@ main() {
             ;;
         restart)
             restart_containers_cmd
+            exit $?
+            ;;
+        list-backups)
+            list_backups_cmd
+            exit $?
+            ;;
+        restore)
+            restore_backup_cmd "${2:-}"
+            exit $?
+            ;;
+        uninstall)
+            uninstall_cmd
             exit $?
             ;;
         update)
