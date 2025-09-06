@@ -269,13 +269,7 @@ const Settings = () => {
     const [systemInfo, setSystemInfo] = useState<any>(null);
     const [deploymentLoading, setDeploymentLoading] = useState(false);
 
-    useEffect(() => {
-        if (!location.hash) {
-            // Default to first available tab based on permissions
-            const defaultTab = isSuperAdmin ? 'instance' : 'ai';
-            navigate(`#${defaultTab}`, { replace: true });
-        }
-    }, [location.hash, navigate, isSuperAdmin]);
+    // Tabs are defined below; we derive default tab after tabs array creation
 
     // Available tabs based on permissions
     const tabs = [
@@ -289,8 +283,6 @@ const Settings = () => {
                 </svg>
             )
         }] : []),
-        { id: 'ai', name: 'AI Configuration', icon: <Icons.AI /> },
-    { id: 'ui', name: 'UI Preferences', icon: <Icons.Dashboard /> },
         ...(canAccessPrompts ? [{ id: 'prompts', name: 'Prompts', icon: <Icons.AI /> }] : []),
         ...(canManageCurrentOrg ? [{ 
             id: 'users', 
@@ -301,16 +293,24 @@ const Settings = () => {
                 </svg>
             )
         }] : []),
-        ...(isSuperAdmin ? [{ 
-            id: 'admin', 
-            name: 'Global Admin', 
-            icon: (
-                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
-                </svg>
-            )
-        }] : []),
     ];
+
+    const tabIds = tabs.map(t => t.id);
+    const firstTab = tabIds[0];
+
+    // Ensure a valid default tab if hash missing or removed
+    useEffect(() => {
+        if (!location.hash && firstTab) {
+            navigate(`#${firstTab}`, { replace: true });
+        }
+    }, [location.hash, firstTab, navigate]);
+
+    // Redirect if current hash points to a hidden/removed tab
+    useEffect(() => {
+        if (activeTab && !tabIds.includes(activeTab) && firstTab) {
+            navigate(`#${firstTab}`, { replace: true });
+        }
+    }, [activeTab, tabIds.join(':'), firstTab, navigate]);
 
     // Redirect away from prompts tab if user loses permission or navigates manually
     useEffect(() => {
@@ -677,19 +677,7 @@ const Settings = () => {
                         </Card>
                     )}
 
-                    {activeTab === 'ai' && (
-                        <Card>
-                            <h3 className="text-lg font-medium text-white mb-4">AI Configuration</h3>
-                            <p className="text-slate-400">AI configuration options will be available here.</p>
-                        </Card>
-                    )}
-
-                    {activeTab === 'ui' && (
-                        <Card>
-                            <h3 className="text-lg font-medium text-white mb-4">UI Preferences</h3>
-                            <p className="text-slate-400">UI preference options will be available here.</p>
-                        </Card>
-                    )}
+                    {/* AI Configuration, UI Preferences, Global Admin temporarily hidden */}
 
                     {activeTab === 'users' && canManageCurrentOrg && (
                         <Card>
@@ -697,9 +685,9 @@ const Settings = () => {
                         </Card>
                     )}
 
-                    {activeTab === 'admin' && isSuperAdmin && (
+                    {tabs.length === 0 && (
                         <Card>
-                            <UserManagement isSuperAdminView={true} />
+                            <div className="text-slate-300 text-sm p-4">No settings available for your role right now.</div>
                         </Card>
                     )}
                 </div>
