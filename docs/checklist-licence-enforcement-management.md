@@ -11,32 +11,26 @@ Legend:
 | Goal | Ensure workspace, env vars, and baseline build are healthy |
 
 Tasks:
-1. (M) `livereview.toml` – Add `[license]` section (if not already):
-	```toml
-	[license]
-	api_base = "${LIVEREVIEW_LICENSE_API_BASE}"
-	timeout = "30s"
-	grace_days = 3
-	validation_interval = "24h"
-	include_hardware_id = true
-	skip_validation = false
-	```
-2. (M) `go.mod` – Add required dependencies (will be used in Phase 2):
-	- `github.com/golang-jwt/jwt/v5`
-	- `github.com/denisbrodbeck/machineid`
-	- `github.com/shirou/gopsutil/v3`
-3. (M) Deployment manifests / Dockerfile(s) – ensure env var passthrough:
-	- `LIVEREVIEW_LICENSE_API_BASE=https://parse.apps.hexmos.com/parse`
-	- `LIVEREVIEW_LICENSE_GRACE_DAYS=3`
-	- `LIVEREVIEW_LICENSE_VALIDATION_INTERVAL=24h`
-	- `LIVEREVIEW_LICENSE_INCLUDE_HARDWARE_ID=true`
-4. Confirm fw-parse instance reachable: `curl -sS https://parse.apps.hexmos.com/parse/jwtLicence/publicKey | jq` (expect `data.kid`).
-5. Create feature flag env for staged rollout: `LIVEREVIEW_LICENSE_ENFORCEMENT=soft` (values: `off|soft|strict`).
+1. (M) `go.mod` – (DONE) added / confirmed deps (appear as indirect currently):
+	- github.com/golang-jwt/jwt/v5
+	- github.com/denisbrodbeck/machineid
+	- github.com/shirou/gopsutil/v3
+2. Public key endpoint reachable (DONE): curl https://parse.apps.hexmos.com/jwtLicence/publicKey returned JSON with kid=v1.
+3. (N) `internal/license/config.go` – (DONE) hard-coded constants:
+	- api_base = https://parse.apps.hexmos.com
+	- timeout = 60s
+	- grace_days = 3
+	- validation_interval = 24h
+	- include_hardware_id = true
+	- enforcement = soft
+4. Optional enforcement toggling (DEFERRED) – remains hard-coded.
+
+Note: Licence subsystem intentionally non-configurable at runtime; changes require code edit + rebuild.
 
 Verification Gate:
-- `go build ./...` succeeds.
-- Public key endpoint returns JSON.
-- No uncommitted accidental changes (git clean).
+- Build command (go build livereview.go) succeeded.
+- Public key endpoint returned JSON (kid=v1).
+- Workspace clean of unintended changes (only deliberate edits tracked).
 
 ---
 ## Phase 1 – Database Schema & Storage Skeleton
