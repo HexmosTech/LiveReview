@@ -136,6 +136,10 @@ run-review-verbose:
 test:
 	$(GOTEST) -v ./...
 
+.PHONY: license-test
+license-test:
+	$(GOTEST) -v ./internal/license -count=1
+
 clean:
 	$(GOCLEAN)
 	rm -f $(BINARY_NAME)
