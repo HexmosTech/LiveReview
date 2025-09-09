@@ -66,22 +66,16 @@ Verification Gate (Phase 2 interim):
 | Goal | Expose licence status & mutation endpoints |
 
 Tasks:
-1. (N) `internal/api/license.go` – Handlers:
-	- `GET /api/v1/license/status` – returns current state (mask token)
-	- `POST /api/v1/license/update { token }`
-	- `POST /api/v1/license/refresh` – force online validation
-2. (M) `internal/api/server.go` (or router assembly file) – Register new routes.
-3. (N) `internal/api/license_dto.go` – Response structs (keep API boundary clean).
-4. (M) `internal/api/handlers/` (if existing pattern) – follow conventions (Echo / mux adapter).
-5. (M) Add logging (status transitions) via existing logging package.
-6. (N) Basic integration test: `tests/license_api_test.go` – spin up test server, call endpoints with mock service.
+1. [x] (N) `internal/api/license.go` – implemented status/update/refresh handlers.
+2. [x] (M) `internal/api/server.go` – route registration via attachLicenseRoutes.
+3. [x] (N) `internal/api/license_dto.go` – DTO struct.
+4. [ ] Logging for transitions (to be added in Phase 10 observability).
+5. [ ] Integration test `tests/license_api_test.go` (deferred – will add when service tests expanded).
 
-Verification Gate:
-- Curl checks:
-  - `curl -s localhost:8888/api/v1/license/status`
-  - `curl -X POST localhost:8888/api/v1/license/update -d '{"token":"<fake>"}'`
-- Proper JSON error on invalid token.
-- No panics in logs.
+Verification Gate (Phase 3 interim):
+ - [x] Build succeeds with new endpoints.
+ - [ ] Manual curl smoke (pending runtime startup – to be executed before Phase 4).
+ - [ ] Invalid token returns 400 (to verify later with integration test).
 
 ---
 ## Phase 4 – Scheduler & Grace Logic
