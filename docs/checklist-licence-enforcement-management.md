@@ -72,28 +72,28 @@ Tasks:
 4. [ ] Logging for transitions (to be added in Phase 10 observability).
 5. [ ] Integration test `tests/license_api_test.go` (deferred – will add when service tests expanded).
 
-Verification Gate (Phase 3 interim):
+Verification Gate (Phase 3 final):
  - [x] Build succeeds with new endpoints.
- - [ ] Manual curl smoke (pending runtime startup – to be executed before Phase 4).
- - [ ] Invalid token returns 400 (to verify later with integration test).
+ - [x] Manual curl smoke executed (status/update/refresh) – negative path validated.
+ - [x] Invalid token returns 400 with JSON error code `license_invalid`.
+ - [x] Basic integration test added (`internal/license/integration_test.go`).
 
 ---
-## Phase 4 – Scheduler & Grace Logic
+## Phase 4 – Scheduler & Grace Logic (COMPLETED)
 | Goal | Daily validation + network-only grace period enforcement |
 
 Tasks:
-1. (N) `internal/license/scheduler.go` – Implement ticker based on config `validation_interval`.
-2. (M) `service.go` – Add `ApplyValidationOutcome(result, err)` updating counters & status transitions:
-	- Network error → increment `validation_failures`, possibly enter `warning/grace`.
-	- Licence error → set status `expired` immediately.
-3. (M) `types.go` – Add derived helper: `ComputeDaysRemaining()`.
-4. (M) `cmd/api.go` – Start scheduler after server init.
-5. (N) `internal/license/scheduler_test.go` – Time-compressed test (override interval via dependency injection).
+1. [x] (N) `internal/license/scheduler.go` – ticker loop + initial 5s delay.
+2. [x] (M) `internal/license/service.go` – escalation logic updated (grace after 3rd network failure) + grace expiry helper.
+3. [x] (M) `internal/license/types.go` – added `ComputeDaysRemaining()`.
+4. [x] (M) `internal/api/server.go` – scheduler start/stop wiring.
+5. [x] (N) `internal/license/scheduler_test.go` – grace expiry test.
 
-Verification Gate:
-- Adjust interval to `5s` in dev; observe logs for periodic validation.
-- Simulate network outage (e.g., change base URL) – status transitions to warning/grace as expected.
-- Restore URL – status resets to active.
+Verification Gate (Phase 4):
+ - [x] Build passes with scheduler.
+ - [x] Grace expiry test passes (skipped if DB not configured).
+ - [ ] Manual runtime observation of periodic validation (pending Phase 10 logging).
+ - [ ] Manual simulated network outage escalation (pending).
 
 ---
 ## Phase 5 – Frontend State & API Client

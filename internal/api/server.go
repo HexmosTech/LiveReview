@@ -19,6 +19,7 @@ import (
 	"github.com/livereview/internal/api/organizations"
 	"github.com/livereview/internal/api/users"
 	"github.com/livereview/internal/jobqueue"
+	"github.com/livereview/internal/license"
 	// Import FetchGitLabProfile
 )
 
@@ -98,6 +99,7 @@ type Server struct {
 	testHandlers         *TestHandlers
 	devMode              bool
 	_licenseSvc          interface{} // holds *license.Service lazily (typed in license.go)
+	licenseScheduler     *license.Scheduler
 }
 
 // NewServer creates a new API server
@@ -569,6 +571,15 @@ func (s *Server) Start() error {
 		}
 	}()
 
+	// License scheduler start
+	if s.licenseScheduler == nil {
+		licSvc := s.licenseService() // returns *license.Service already
+		if licSvc != nil {
+			s.licenseScheduler = license.NewScheduler(licSvc)
+			s.licenseScheduler.Start()
+		}
+	}
+
 	// Wait for interrupt signal to gracefully shut down the server
 	quit := make(chan os.Signal, 1)
 	signal.Notify(quit, os.Interrupt)
@@ -598,6 +609,11 @@ func (s *Server) Start() error {
 	if s.db != nil {
 		s.db.Close()
 		fmt.Println("Database connection closed")
+	}
+
+	if s.licenseScheduler != nil {
+		s.licenseScheduler.Stop()
+		fmt.Println("License scheduler stopped")
 	}
 
 	return s.echo.Shutdown(ctx)
