@@ -148,18 +148,21 @@ Verification Gate:
 - [ ] Manual simulation of warning/grace/expired (pending ability to force statuses easily; will add helper in Phase 10 debug endpoint or test harness).
 
 ---
-## Phase 8 – Settings Licence Tab
-| Goal | Detail view & manual refresh / re-entry |
+## Phase 8 – Settings Licence Tab (IN PROGRESS)
+| Goal | Detail view & manual refresh / re-entry (restricted to super_admin & owner) |
 
 Tasks:
-1. (N) `ui/src/pages/Settings/LicenseTab.tsx` – Display full metadata.
-2. (M) `ui/src/pages/Settings/Settings.tsx` – Add tab descriptor `{ id:'license', name:'License' }`.
-3. (M) Add actions: manual refresh, replace token.
-4. (N) `ui/src/__tests__/LicenseTab.test.tsx` – Render & mock API interactions.
+1. [x] (N) `ui/src/pages/Settings/LicenseTab.tsx` – Metadata (status, subject, seats, expiry, validation info) + refresh & replace buttons.
+2. [x] (M) `ui/src/pages/Settings/Settings.tsx` – Conditional tab injection only if role ∈ {super_admin, owner}.
+3. [ ] (M) Replace token UX: reuse central modal instead of window.prompt (deferred – will lift modal control to slice or context).
+4. [x] (N) `ui/src/pages/Settings/LicenseTab.test.tsx` – Role-based visibility tests (member denied, owner allowed).
+5. [ ] (OPT) Add super_admin visibility test + refresh action dispatch assertion.
+6. [ ] (OPT) Display days remaining & color-coded status badges consistent with StatusBar.
 
 Verification Gate:
-- Tab only visible to authorized users (decide scope – likely all logged-in?).
-- Manual refresh triggers backend call (inspect network panel).
+- [x] Tab hidden for non-privileged roles (member) & visible for owner.
+- [ ] Manual refresh network call observed (pending manual test / mock dispatch assertion addition).
+- [ ] Replace token via improved modal flow (pending Task 3).
 
 ---
 ## Phase 9 – Blocking Overlay & Hard Enforcement

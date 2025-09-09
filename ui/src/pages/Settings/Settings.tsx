@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { PageHeader, Card, Button, Icons, Input, Alert, Badge } from '../../components/UIPrimitives';
 import PromptsPage from '../Prompts';
+import LicenseTab from './LicenseTab';
 import { UserManagement } from '../../components/UserManagement';
 import { useOrgContext } from '../../hooks/useOrgContext';
 import { useAppDispatch, useAppSelector } from '../../store/configureStore';
@@ -283,6 +284,12 @@ const Settings = () => {
                 </svg>
             )
         }] : []),
+        // License tab visible only to super_admin or org owner
+        ...((isSuperAdmin || currentOrg?.role === 'owner') ? [{ id: 'license', name: 'License', icon: (
+            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 7a4 4 0 10-4 4v1a1 1 0 001 1h1v1a1 1 0 001 1h1l3 3 3-3-3-3v-2a4 4 0 00-4-4z" />
+            </svg>
+        ) }] : []),
         ...(canAccessPrompts ? [{ id: 'prompts', name: 'Prompts', icon: <Icons.AI /> }] : []),
         ...(canManageCurrentOrg ? [{ 
             id: 'users', 
@@ -674,6 +681,12 @@ const Settings = () => {
                                 isLoading={deploymentLoading}
                                 onRefresh={handleRefreshSystemInfo}
                             />
+                        </Card>
+                    )}
+
+                    {activeTab === 'license' && (isSuperAdmin || currentOrg?.role === 'owner') && (
+                        <Card>
+                            <LicenseTab />
                         </Card>
                     )}
 
