@@ -32,24 +32,16 @@ Verification Gate (Phase 0):
 | Goal | Persist licence state (single row) |
 
 Tasks:
-1. (N) `internal/license/migrations/001_create_license_state.sql` – Create table per spec (include indices):
-	```sql
-	CREATE TABLE IF NOT EXISTS license_state (...spec columns...);
-	CREATE UNIQUE INDEX IF NOT EXISTS ux_license_state_singleton ON license_state(id);
-	CREATE INDEX IF NOT EXISTS idx_license_state_expires_at ON license_state(expires_at);
-	```
-2. (M) `internal/api/database.go` (or equivalent DB init) – Ensure migration runner loads new SQL file(s). If no migration system exists, add minimal loader to execute SQL at startup.
-3. (N) `internal/license/storage.go` – Functions:
-	- `GetLicenseState() (*LicenseState, error)` (return singleton row or nil)
-	- `UpsertLicenseState(state *LicenseState) error`
-	- `UpdateValidationResult(success bool, errCode *string)`
-4. (N) `internal/license/types.go` – Define `LicenseState`, `ValidationFailure`, enumerated statuses.
-5. (M) `go.mod` – If DB driver not present (SQLite / Postgres), confirm imports (already in project; reuse existing).
+1. [x] (N) Migration added `db/migrations/20250909120000_create_license_state.sql` (singleton table + indexes + trigger).
+2. [x] Migration applied (dbmate up executed successfully; table confirmed by test).
+3. [x] (N) `internal/license/storage.go` with GetLicenseState / UpsertLicenseState / UpdateValidationResult.
+4. [x] (N) `internal/license/types.go` with LicenseState + status constants.
+5. [x] DB driver already present (`github.com/lib/pq`).
 
-Verification Gate:
-- Run migration locally (manual `sqlite3` / `psql` or start app) – table exists.
-- `go test ./internal/license -run TestStorage` (write a minimal test if none exists).
-- Inserting and retrieving dummy row works (add temporary test code or REPL test).
+Verification Gate (Phase 1):
+ - [x] Migration applied (dbmate up) & table exists.
+ - [x] Storage CRUD smoke test (TestStorage) passed.
+ - [x] Build succeeds after adding storage/types.
 
 ---
 ## Phase 2 – Core Licence Service & Offline Validation
