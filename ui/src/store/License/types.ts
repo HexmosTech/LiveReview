@@ -4,6 +4,7 @@ export interface LicenseStateSlice {
   loading: boolean;
   updating: boolean;
   refreshing: boolean;
+  modalOpen?: boolean; // central UI control for license modal
   lastError?: string;
   status: LicenseStatus;
   subject?: string;
@@ -23,4 +24,5 @@ export const initialLicenseState: LicenseStateSlice = {
   status: 'missing',
   unlimited: false,
   loadedOnce: false,
+  modalOpen: false,
 };

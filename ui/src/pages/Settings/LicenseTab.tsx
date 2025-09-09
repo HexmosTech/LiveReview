@@ -1,6 +1,6 @@
 import React from 'react';
 import { useAppSelector, useAppDispatch } from '../../store/configureStore';
-import { triggerLicenseRefresh, submitLicenseToken } from '../../store/License/slice';
+import { triggerLicenseRefresh, openModal as openLicenseModal } from '../../store/License/slice';
 
 const roleCanView = (role?: string) => role === 'super_admin' || role === 'owner';
 
@@ -21,9 +21,7 @@ const LicenseTab: React.FC = () => {
 
   const handleRefresh = () => dispatch(triggerLicenseRefresh());
   const handleReplace = () => {
-    // naive prompt for now; full UI handled by modal in app
-    const token = window.prompt('Paste new license token');
-    if (token) dispatch(submitLicenseToken(token));
+    dispatch(openLicenseModal());
   };
 
   return (
@@ -73,10 +71,10 @@ const LicenseTab: React.FC = () => {
           onClick={handleReplace}
           className="px-4 py-2 text-sm rounded bg-blue-600 hover:bg-blue-500 text-white"
         >
-          Replace Token
+          Replace Licence
         </button>
       </div>
-      <p className="text-xs text-slate-500">Token replacement opens a prompt for now; future enhancement may reuse the main modal contextually.</p>
+  <p className="text-xs text-slate-500">Replacement opens the central licence modal for a consistent experience.</p>
     </div>
   );
 };

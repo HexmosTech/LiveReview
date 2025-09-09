@@ -16,7 +16,7 @@ import HomeWithOAuthCheck from './pages/Home/HomeWithOAuthCheck';
 import { MiddlewareTestPage } from './pages/MiddlewareTestPage';
 import { useAppDispatch, useAppSelector } from './store/configureStore';
 import { logout, checkSetupStatus, fetchUser } from './store/Auth/reducer';
-import { fetchLicenseStatus } from './store/License/slice';
+import { fetchLicenseStatus, openModal as openLicenseModal, closeModal as closeLicenseModal } from './store/License/slice';
 import LicenseModal from './components/License/LicenseModal';
 import LicenseStatusBar from './components/License/LicenseStatusBar';
 import { Toaster } from 'react-hot-toast';
@@ -44,7 +44,7 @@ const AppContent: React.FC = () => {
     const location = useLocation();
     const { isAuthenticated, isSetupRequired, isLoading, accessToken } = useAppSelector((state) => state.Auth);
     const licenseStatus = useAppSelector(s => s.License.status);
-    const [licenseOpen, setLicenseOpen] = useState(false);
+    const licenseOpen = useAppSelector(s => s.License.modalOpen);
     
     // Extract the current page from the path
     const getCurrentPage = (): string => {
@@ -108,14 +108,14 @@ const AppContent: React.FC = () => {
     useEffect(() => {
         if (isAuthenticated) {
             if (['missing','invalid','expired'].includes(licenseStatus)) {
-                setLicenseOpen(true);
+                dispatch(openLicenseModal());
             } else if (licenseStatus === 'active') {
-                setLicenseOpen(false);
+                dispatch(closeLicenseModal());
             }
         } else {
-            setLicenseOpen(false);
+            dispatch(closeLicenseModal());
         }
-    }, [isAuthenticated, licenseStatus]);
+    }, [isAuthenticated, licenseStatus, dispatch]);
 
     // (Removed old keyboard shortcut & placeholder strict effect to prevent events firing after unmount)
 
@@ -148,7 +148,7 @@ const AppContent: React.FC = () => {
                 />
                 <DemoModeBanner />
                 <URLMismatchBanner />
-                <LicenseStatusBar onOpenModal={() => setLicenseOpen(true)} />
+                <LicenseStatusBar onOpenModal={() => dispatch(openLicenseModal())} />
                 <div className="flex-grow">
                     <Routes>
                         <Route path="/" element={<HomeWithOAuthCheck />} />
@@ -168,7 +168,7 @@ const AppContent: React.FC = () => {
                     </Routes>
                 </div>
                 <Footer />
-                <LicenseModal open={licenseOpen} onClose={() => setLicenseOpen(false)} strictMode={['missing','invalid','expired'].includes(licenseStatus)} />
+                <LicenseModal open={licenseOpen} onClose={() => dispatch(closeLicenseModal())} strictMode={['missing','invalid','expired'].includes(licenseStatus)} />
             </div>
         );
     }
