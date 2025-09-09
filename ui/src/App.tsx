@@ -16,6 +16,7 @@ import HomeWithOAuthCheck from './pages/Home/HomeWithOAuthCheck';
 import { MiddlewareTestPage } from './pages/MiddlewareTestPage';
 import { useAppDispatch, useAppSelector } from './store/configureStore';
 import { logout, checkSetupStatus, fetchUser } from './store/Auth/reducer';
+import { fetchLicenseStatus } from './store/License/slice';
 import { Toaster } from 'react-hot-toast';
 import UserForm from './components/UserManagement/UserForm';
 
@@ -68,6 +69,14 @@ const AppContent: React.FC = () => {
             dispatch(checkSetupStatus());
         }
     }, [dispatch, accessToken]);
+
+    // Kick off initial license status load (non-blocking UI)
+    useEffect(() => {
+        // Only attempt after authentication established to avoid 401 noise
+        if (isAuthenticated) {
+            dispatch(fetchLicenseStatus());
+        }
+    }, [dispatch, isAuthenticated]);
     
     // Debug listener for Auth state changes
     useEffect(() => {
