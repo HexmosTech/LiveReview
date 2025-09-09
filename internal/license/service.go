@@ -113,10 +113,10 @@ func (s *Service) PerformOnlineValidation(ctx context.Context, force bool) (*Lic
 			switch {
 			case st.Status == StatusMissing:
 				newStatus = StatusMissing
-			case fails >= 2 && st.Status == StatusWarning:
+			case fails >= 3 && st.Status == StatusWarning: // escalate to grace on 3rd consecutive failure total
 				newStatus = StatusGrace
 				graceStart = sql.NullTime{Time: time.Now(), Valid: true}
-			case fails >= 1 && (st.Status == StatusActive):
+			case fails >= 1 && st.Status == StatusActive:
 				newStatus = StatusWarning
 			}
 			_ = s.store.UpdateValidationResult(ctx, false, nil, newStatus, nil, fails, &graceStart)
@@ -150,4 +150,20 @@ func (s *Service) ensurePublicKey(ctx context.Context) (*ParsedPublicKey, error)
 	}
 	s.pubKey = fetched
 	return fetched, nil
+}
+
+// expireIfGraceExceeded transitions GRACE -> EXPIRED if grace days elapsed.
+func (s *Service) expireIfGraceExceeded(ctx context.Context) error {
+	st, err := s.store.GetLicenseState(ctx)
+	if err != nil || st == nil {
+		return err
+	}
+	if st.Status != StatusGrace || st.GraceStartedAt == nil {
+		return nil
+	}
+	deadline := st.GraceStartedAt.Add(time.Duration(s.cfg.GraceDays) * 24 * time.Hour)
+	if time.Now().After(deadline) {
+		return s.store.UpdateValidationResult(ctx, false, nil, StatusExpired, nil, st.ValidationFailures, &sql.NullTime{Valid: false})
+	}
+	return nil
 }

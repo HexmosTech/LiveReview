@@ -38,3 +38,17 @@ func (l *LicenseState) IsTerminal() bool {
 }
 
 func (l *LicenseState) IsMissing() bool { return l.Status == StatusMissing }
+
+// ComputeDaysRemaining returns pointer to whole days remaining (ceiling). 0 if expired, nil if no expiry.
+func (l *LicenseState) ComputeDaysRemaining(now time.Time) *int {
+	if l == nil || l.ExpiresAt == nil {
+		return nil
+	}
+	if now.After(*l.ExpiresAt) {
+		zero := 0
+		return &zero
+	}
+	diff := l.ExpiresAt.Sub(now)
+	days := int((diff + (24*time.Hour - 1)) / (24 * time.Hour))
+	return &days
+}
