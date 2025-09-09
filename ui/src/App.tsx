@@ -18,6 +18,7 @@ import { useAppDispatch, useAppSelector } from './store/configureStore';
 import { logout, checkSetupStatus, fetchUser } from './store/Auth/reducer';
 import { fetchLicenseStatus } from './store/License/slice';
 import LicenseModal from './components/License/LicenseModal';
+import LicenseStatusBar from './components/License/LicenseStatusBar';
 import { Toaster } from 'react-hot-toast';
 import UserForm from './components/UserManagement/UserForm';
 
@@ -147,15 +148,7 @@ const AppContent: React.FC = () => {
                 />
                 <DemoModeBanner />
                 <URLMismatchBanner />
-                <div className="px-4 py-1 text-xs text-slate-400 flex gap-3 bg-slate-900 border-b border-slate-800">
-                    <span>License status: <strong className="text-slate-200">{licenseStatus}</strong></span>
-                    {licenseStatus === 'active' && (
-                        <button onClick={() => setLicenseOpen(true)} className="underline hover:text-slate-200">Update License</button>
-                    )}
-                    {['missing','invalid','expired'].includes(licenseStatus) && (
-                        <span className="text-amber-400">License required</span>
-                    )}
-                </div>
+                <LicenseStatusBar onOpenModal={() => setLicenseOpen(true)} />
                 <div className="flex-grow">
                     <Routes>
                         <Route path="/" element={<HomeWithOAuthCheck />} />
