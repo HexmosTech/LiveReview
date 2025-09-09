@@ -7,30 +7,25 @@ Legend:
 - (M) modify existing file
 - (OPT) optional / future
 
-## Phase 0 – Preparation & Baseline
+## Phase 0 – Preparation & Baseline (COMPLETED)
 | Goal | Ensure workspace, env vars, and baseline build are healthy |
 
 Tasks:
-1. (M) `go.mod` – (DONE) added / confirmed deps (appear as indirect currently):
+1. [x] (M) `go.mod` – added / confirmed deps (currently indirect):
 	- github.com/golang-jwt/jwt/v5
 	- github.com/denisbrodbeck/machineid
 	- github.com/shirou/gopsutil/v3
-2. Public key endpoint reachable (DONE): curl https://parse.apps.hexmos.com/jwtLicence/publicKey returned JSON with kid=v1.
-3. (N) `internal/license/config.go` – (DONE) hard-coded constants:
-	- api_base = https://parse.apps.hexmos.com
-	- timeout = 60s
-	- grace_days = 3
-	- validation_interval = 24h
-	- include_hardware_id = true
-	- enforcement = soft
-4. Optional enforcement toggling (DEFERRED) – remains hard-coded.
+2. [x] Public key endpoint reachable: curl https://parse.apps.hexmos.com/jwtLicence/publicKey → JSON (kid=v1)
+3. [x] (N) `internal/license/config.go` – hard-coded constants:
+	- api_base=https://parse.apps.hexmos.com timeout=60s grace_days=3 validation_interval=24h include_hardware_id=true enforcement=soft
+4. [ ] Optional enforcement toggling (DEFERRED) – intentionally not implemented.
 
 Note: Licence subsystem intentionally non-configurable at runtime; changes require code edit + rebuild.
 
-Verification Gate:
-- Build command (go build livereview.go) succeeded.
-- Public key endpoint returned JSON (kid=v1).
-- Workspace clean of unintended changes (only deliberate edits tracked).
+Verification Gate (Phase 0):
+ - [x] Build command (go build livereview.go) succeeded.
+ - [x] Public key endpoint returned JSON (kid=v1).
+ - [x] Workspace clean of unintended changes.
 
 ---
 ## Phase 1 – Database Schema & Storage Skeleton
