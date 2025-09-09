@@ -32,7 +32,10 @@ function applyStatus(state: LicenseStateSlice, payload: LicenseStatusResponse) {
 const slice = createSlice({
   name: 'License',
   initialState: initialLicenseState,
-  reducers: {},
+  reducers: {
+    openModal: state => { state.modalOpen = true; },
+    closeModal: state => { state.modalOpen = false; },
+  },
   extraReducers: builder => {
     builder
       .addCase(fetchLicenseStatus.pending, state => {
@@ -65,4 +68,5 @@ const slice = createSlice({
   }
 });
 
+export const { openModal, closeModal } = slice.actions;
 export default slice.reducer;

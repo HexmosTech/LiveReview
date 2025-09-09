@@ -119,7 +119,7 @@ Verification Gate (Phase 5):
 Tasks:
 1. [x] (N) `ui/src/components/License/LicenseModal.tsx` – Controlled component with strict blocking (no close in required states).
 2. [x] (M) `ui/src/App.tsx` – Enforced auto-open & blocking for `missing|invalid|expired` (currently always enforced; config-based soft/strict toggle still TODO Phase 9).
-3. [ ] (M) Slice – (Deferred) central modal visibility actions `openModal` / `closeModal` (local component state used instead for now). 
+3. [x] (M) Slice – Added central modal visibility actions `openModal` / `closeModal`.
 4. [x] (N) `ui/src/components/License/LicenseModal.test.tsx` – Basic interaction test (dispatch on save) added.
 5. [ ] (OPT) Accessibility: focus trap, aria-modal, escape handling (to add when polishing UI phases 7–9).
 
@@ -154,7 +154,7 @@ Verification Gate:
 Tasks:
 1. [x] (N) `ui/src/pages/Settings/LicenseTab.tsx` – Metadata (status, subject, seats, expiry, validation info) + refresh & replace buttons.
 2. [x] (M) `ui/src/pages/Settings/Settings.tsx` – Conditional tab injection only if role ∈ {super_admin, owner}.
-3. [ ] (M) Replace token UX: reuse central modal instead of window.prompt (deferred – will lift modal control to slice or context).
+3. [x] (M) Replace token UX: now triggers central modal (removed window.prompt).
 4. [x] (N) `ui/src/pages/Settings/LicenseTab.test.tsx` – Role-based visibility tests (member denied, owner allowed).
 5. [ ] (OPT) Add super_admin visibility test + refresh action dispatch assertion.
 6. [ ] (OPT) Display days remaining & color-coded status badges consistent with StatusBar.
