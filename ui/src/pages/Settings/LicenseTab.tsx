@@ -74,7 +74,6 @@ const LicenseTab: React.FC = () => {
           Replace Licence
         </button>
       </div>
-  <p className="text-xs text-slate-500">Replacement opens the central licence modal for a consistent experience.</p>
     </div>
   );
 };
