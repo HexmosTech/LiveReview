@@ -96,20 +96,21 @@ Verification Gate (Phase 4):
  - [ ] Manual simulated network outage escalation (pending).
 
 ---
-## Phase 5 – Frontend State & API Client
+## Phase 5 – Frontend State & API Client (COMPLETED)
 | Goal | Frontend can read/display licence status & update token |
 
 Tasks:
-1. (N) `ui/src/api/license.ts` – Functions: `getStatus()`, `updateLicense(token)`, `refreshLicense()`.
-2. (N) `ui/src/store/license/slice.ts` – Redux slice with async thunks.
-3. (M) `ui/src/store/index.ts` – Register licence slice.
-4. (M) `ui/src/App.tsx` – On mount: dispatch `license/initLoad` (do not block UI yet if mode = soft).
-5. (N) `ui/src/types/license.ts` – Shared TypeScript interfaces (align with backend DTO).
-6. (N) `ui/src/__tests__/licenseSlice.test.ts` – Basic store tests (mock fetch).
+1. [x] (N) `ui/src/api/license.ts` – Functions: `getLicenseStatus()`, `updateLicense()`, `refreshLicense()`.
+2. [x] (N) `ui/src/store/License/slice.ts` – Redux slice with async thunks.
+3. [x] (M) `ui/src/store/rootReducer.ts` – Register licence slice.
+4. [x] (M) `ui/src/App.tsx` – Dispatch initial `fetchLicenseStatus` on mount.
+5. [x] (N) `ui/src/store/License/types.ts` – Type definitions & initial state.
+6. [x] (N) `ui/src/__tests__/licenseSlice.test.ts` – Reducer state transition tests.
 
-Verification Gate:
-- `npm test -- licenseSlice` passes.
-- Devtools shows populated licence state after startup call.
+Verification Gate (Phase 5):
+ - [x] Unit tests for slice pass.
+ - [x] App triggers initial load (dispatch added in App.tsx).
+ - [ ] Manual devtools inspection (pending manual runtime check).
 
 ---
 ## Phase 6 – Licence Entry Modal (Blocking Mode)
