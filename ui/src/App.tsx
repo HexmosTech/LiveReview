@@ -17,6 +17,7 @@ import { MiddlewareTestPage } from './pages/MiddlewareTestPage';
 import { useAppDispatch, useAppSelector } from './store/configureStore';
 import { logout, checkSetupStatus, fetchUser } from './store/Auth/reducer';
 import { fetchLicenseStatus } from './store/License/slice';
+import LicenseModal from './components/License/LicenseModal';
 import { Toaster } from 'react-hot-toast';
 import UserForm from './components/UserManagement/UserForm';
 
@@ -41,6 +42,8 @@ const AppContent: React.FC = () => {
     const navigate = useNavigate();
     const location = useLocation();
     const { isAuthenticated, isSetupRequired, isLoading, accessToken } = useAppSelector((state) => state.Auth);
+    const licenseStatus = useAppSelector(s => s.License.status);
+    const [licenseOpen, setLicenseOpen] = useState(false);
     
     // Extract the current page from the path
     const getCurrentPage = (): string => {
@@ -100,10 +103,25 @@ const AppContent: React.FC = () => {
         dispatch(checkSetupStatus());
     };
 
-    // Show loading state while checking setup status or fetching user data
+    // Enforce license: open when status requires token, close automatically when active
+    useEffect(() => {
+        if (isAuthenticated) {
+            if (['missing','invalid','expired'].includes(licenseStatus)) {
+                setLicenseOpen(true);
+            } else if (licenseStatus === 'active') {
+                setLicenseOpen(false);
+            }
+        } else {
+            setLicenseOpen(false);
+        }
+    }, [isAuthenticated, licenseStatus]);
+
+    // (Removed old keyboard shortcut & placeholder strict effect to prevent events firing after unmount)
+
+    // Decide what to render based on auth/setup states AFTER all hooks declared (avoid hook order issues)
+    let body: React.ReactNode;
     if (isLoading) {
-        console.log('App.tsx - Rendering loading state');
-        return (
+        body = (
             <div className="min-h-screen flex items-center justify-center">
                 <div className="text-center">
                     <svg className="w-12 h-12 mx-auto mb-4 text-blue-500 animate-spin" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
@@ -114,53 +132,55 @@ const AppContent: React.FC = () => {
                 </div>
             </div>
         );
-    }
-
-    // If setup is required, show setup page
-    if (isSetupRequired) {
-        console.log('App.tsx - Showing Setup page - isAuthenticated:', isAuthenticated, 'isSetupRequired:', isSetupRequired);
-        return <Setup />;
-    }
-
-    // If not authenticated, show login page
-    if (!isAuthenticated) {
-        console.log('App.tsx - Showing Login page - isAuthenticated:', isAuthenticated, 'isSetupRequired:', isSetupRequired);
-        return <Login />;
-    }
-    
-    console.log('App.tsx - Showing main application - isAuthenticated:', isAuthenticated, 'isSetupRequired:', isSetupRequired);
-
-    return (
-        <div className="min-h-screen flex flex-col">
-            <Navbar
-                title="LiveReview"
-                activePage={activePage}
-                onNavigate={handleNavigate}
-                onLogout={handleLogout}
-            />
-            <DemoModeBanner />
-            <URLMismatchBanner />
-            <div className="flex-grow">
-                <Routes>
-                    <Route path="/" element={<HomeWithOAuthCheck />} />
-                    <Route path="/dashboard" element={<Dashboard />} />
-                    <Route path="/git/*" element={<GitProviders />} />
-                    <Route path="/ai" element={<AIProviders />} />
-                    <Route path="/ai/:provider" element={<AIProviders />} />
-                    <Route path="/ai/:provider/:action" element={<AIProviders />} />
-                    <Route path="/ai/:provider/:action/:connectorId" element={<AIProviders />} />
-                    <Route path="/settings/*" element={<Settings />} />
-                    <Route path="/settings/users/add" element={<UserForm />} />
-                    <Route path="/settings/users/edit/:userId" element={<UserForm />} />
-                    <Route path="/reviews/new" element={<NewReview />} />
-                    <Route path="/test-middleware" element={<MiddlewareTestPage />} />
-                    <Route path="/oauth-callback" element={<OAuthCallbackHandler />} />
-                    <Route path="*" element={<Navigate to="/" replace />} />
-                </Routes>
+    } else if (isSetupRequired) {
+        body = <Setup />;
+    } else if (!isAuthenticated) {
+        body = <Login />;
+    } else {
+        body = (
+            <div className="min-h-screen flex flex-col">
+                <Navbar
+                    title="LiveReview"
+                    activePage={activePage}
+                    onNavigate={handleNavigate}
+                    onLogout={handleLogout}
+                />
+                <DemoModeBanner />
+                <URLMismatchBanner />
+                <div className="px-4 py-1 text-xs text-slate-400 flex gap-3 bg-slate-900 border-b border-slate-800">
+                    <span>License status: <strong className="text-slate-200">{licenseStatus}</strong></span>
+                    {licenseStatus === 'active' && (
+                        <button onClick={() => setLicenseOpen(true)} className="underline hover:text-slate-200">Update License</button>
+                    )}
+                    {['missing','invalid','expired'].includes(licenseStatus) && (
+                        <span className="text-amber-400">License required</span>
+                    )}
+                </div>
+                <div className="flex-grow">
+                    <Routes>
+                        <Route path="/" element={<HomeWithOAuthCheck />} />
+                        <Route path="/dashboard" element={<Dashboard />} />
+                        <Route path="/git/*" element={<GitProviders />} />
+                        <Route path="/ai" element={<AIProviders />} />
+                        <Route path="/ai/:provider" element={<AIProviders />} />
+                        <Route path="/ai/:provider/:action" element={<AIProviders />} />
+                        <Route path="/ai/:provider/:action/:connectorId" element={<AIProviders />} />
+                        <Route path="/settings/*" element={<Settings />} />
+                        <Route path="/settings/users/add" element={<UserForm />} />
+                        <Route path="/settings/users/edit/:userId" element={<UserForm />} />
+                        <Route path="/reviews/new" element={<NewReview />} />
+                        <Route path="/test-middleware" element={<MiddlewareTestPage />} />
+                        <Route path="/oauth-callback" element={<OAuthCallbackHandler />} />
+                        <Route path="*" element={<Navigate to="/" replace />} />
+                    </Routes>
+                </div>
+                <Footer />
+                <LicenseModal open={licenseOpen} onClose={() => setLicenseOpen(false)} strictMode={['missing','invalid','expired'].includes(licenseStatus)} />
             </div>
-            <Footer />
-        </div>
-    );
+        );
+    }
+
+    return <>{body}</>;
 };
 
 // Main App component with Router
