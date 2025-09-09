@@ -97,6 +97,7 @@ type Server struct {
 	orgService           *organizations.OrganizationService
 	testHandlers         *TestHandlers
 	devMode              bool
+	_licenseSvc          interface{} // holds *license.Service lazily (typed in license.go)
 }
 
 // NewServer creates a new API server
@@ -428,6 +429,9 @@ func (s *Server) setupRoutes() {
 
 	// Activity endpoints
 	v1.GET("/activities", s.GetRecentActivities)
+
+	// License endpoints (Phase 3)
+	s.attachLicenseRoutes(v1)
 }
 
 // Handler for creating PAT integration token, delegates to pat_token.go
