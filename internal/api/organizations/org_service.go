@@ -72,6 +72,17 @@ func (s *OrganizationService) CreateOrganization(createdByUserID int64, name, de
 		return nil, fmt.Errorf("failed to assign creator as owner: %w", err)
 	}
 
+	// Create default prompt application context for the new organization
+	promptContextQuery := `
+		INSERT INTO prompt_application_context (org_id, created_at, updated_at)
+		VALUES ($1, NOW(), NOW())
+	`
+	_, err = tx.Exec(promptContextQuery, org.ID)
+	if err != nil {
+		s.logger.Printf("Error creating prompt application context: %v", err)
+		return nil, fmt.Errorf("failed to create prompt application context: %w", err)
+	}
+
 	// Commit the transaction
 	err = tx.Commit()
 	if err != nil {
