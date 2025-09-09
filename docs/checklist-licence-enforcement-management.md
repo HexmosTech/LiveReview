@@ -114,32 +114,38 @@ Verification Gate (Phase 5):
 
 ---
 ## Phase 6 – Licence Entry Modal (Blocking Mode)
-| Goal | Collect initial token when missing; allow enforcement gating |
+| Goal | Collect initial token when missing; allow enforcement / gating |
 
 Tasks:
-1. (N) `ui/src/components/LicenseModal.tsx` – Controlled component.
-2. (M) `App.tsx` – Conditional render: if `enforcement=strict && status===missing|invalid|expired` show modal overlay.
-3. (M) Slice – Add actions: `openModal`, `closeModal`, `submitToken`.
-4. (N) `ui/src/__tests__/LicenseModal.test.tsx` – Interaction tests (enter token dispatches update thunk).
+1. [x] (N) `ui/src/components/License/LicenseModal.tsx` – Controlled component with strict blocking (no close in required states).
+2. [x] (M) `ui/src/App.tsx` – Enforced auto-open & blocking for `missing|invalid|expired` (currently always enforced; config-based soft/strict toggle still TODO Phase 9).
+3. [ ] (M) Slice – (Deferred) central modal visibility actions `openModal` / `closeModal` (local component state used instead for now). 
+4. [x] (N) `ui/src/components/License/LicenseModal.test.tsx` – Basic interaction test (dispatch on save) added.
+5. [ ] (OPT) Accessibility: focus trap, aria-modal, escape handling (to add when polishing UI phases 7–9).
 
 Verification Gate:
-- Remove db row (or reset state) → modal appears.
-- Enter invalid token → inline error.
-- Enter valid token → modal closes & status bar updates.
+- [x] Remove/reset licence state → modal appears automatically (blocking) until valid token saved.
+- [ ] Enter invalid token → inline error displayed (manual confirmation pending; component logic present via `lastError`).
+- [x] Enter valid token → modal closes & status bar reflects new status.
+
+Notes:
+- Current implementation enforces blocking regardless of an external "enforcement=soft" flag; introduction of a runtime/build-time toggle remains scheduled for Phase 9.
+- Modal state lives in `App.tsx`; migrate to slice only if multiple disparate triggers required.
 
 ---
-## Phase 7 – Status Bar Component
+## Phase 7 – Status Bar Component (COMPLETED)
 | Goal | Persistent unobtrusive visual indicator |
 
 Tasks:
-1. (N) `ui/src/components/LicenseStatusBar.tsx` – Map status → color + text.
-2. (M) `App.tsx` (layout wrapper) – Insert `<LicenseStatusBar />` above global notifications.
-3. (M) Tailwind / CSS additions if required.
-4. (N) `ui/src/__tests__/LicenseStatusBar.test.tsx` – Snapshot & state mapping tests.
+1. [x] (N) `ui/src/components/License/LicenseStatusBar.tsx` – Maps status→color/label; shows days remaining & actions.
+2. [x] (M) `App.tsx` – Integrated `<LicenseStatusBar />` replacing ad-hoc bar.
+3. [x] Styling leveraged existing Tailwind palette (no extra config needed).
+4. [x] (N) `ui/src/components/License/LicenseStatusBar.test.tsx` – Basic interaction tests (open modal + refresh dispatch).
+5. [ ] (OPT) Add warning/grace color simulation test & snapshot (deferred to Phase 11 hardening).
 
 Verification Gate:
-- Status bar visible in all main routes.
-- Status changes (simulate warning/grace) reflect color/text updates.
+- [x] Bar visible across authenticated routes.
+- [ ] Manual simulation of warning/grace/expired (pending ability to force statuses easily; will add helper in Phase 10 debug endpoint or test harness).
 
 ---
 ## Phase 8 – Settings Licence Tab
