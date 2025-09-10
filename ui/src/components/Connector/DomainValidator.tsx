@@ -16,7 +16,9 @@ const DomainValidator: React.FC<DomainValidatorProps> = ({ children }) => {
     isLoading: true,
     isConfigured: false,
     error: '',
-    url: ''
+    url: '',
+    isDemo: false,
+    reverseProxy: false,
   });
 
   // Check if we're running in development mode
@@ -25,26 +27,42 @@ const DomainValidator: React.FC<DomainValidatorProps> = ({ children }) => {
                        window.location.hostname.includes('localhost');
 
   useEffect(() => {
-    const checkDomain = async () => {
+    const check = async () => {
       try {
-        const response = await apiClient.get<{url: string, success: boolean, message: string}>('/api/v1/production-url');
+        // Fetch domain config and system info in parallel
+        const [domainResp, sysInfo] = await Promise.all([
+          apiClient.get<{ url: string; success: boolean; message: string }>('/api/v1/production-url'),
+          apiClient
+            .get<{ deployment_mode?: 'demo' | 'production'; capabilities?: { proxy_mode?: boolean } }>('/system/info')
+            .catch((): { deployment_mode?: 'demo' | 'production' } => ({ deployment_mode: undefined })),
+        ]);
+
+        // Normalize values from possibly partial system info
+        const deploymentMode = (sysInfo as any)?.deployment_mode as 'demo' | 'production' | undefined;
+        const proxyMode = Boolean((sysInfo as any)?.capabilities?.proxy_mode);
+
         setState({
           isLoading: false,
-          isConfigured: !!response.url && response.success,
+          isConfigured: !!domainResp.url && domainResp.success,
           error: '',
-          url: response.url || ''
+          url: domainResp.url || '',
+          isDemo: deploymentMode === 'demo',
+          reverseProxy: proxyMode,
         });
       } catch (error) {
-        setState({
+        // Even if domain check fails, still try to infer demo based on localhost
+        setState((prev) => ({
+          ...prev,
           isLoading: false,
           isConfigured: false,
           error: error instanceof Error ? error.message : 'Unknown error occurred',
-          url: ''
-        });
+          url: '',
+          // In error case, we don't know the deployment mode; keep false and rely on isDevelopment fallback below
+        }));
       }
     };
 
-    checkDomain();
+    check();
   }, []);
 
   if (state.isLoading) {
@@ -93,9 +111,39 @@ const DomainValidator: React.FC<DomainValidatorProps> = ({ children }) => {
   }
 
   // Allow access in development mode even if domain is not configured
-  if (!state.isConfigured && isDevelopment) {
-    console.log('DomainValidator: Allowing access in development mode');
-    return <>{children}</>;
+  if (!state.isConfigured) {
+    // In Demo mode without reverse proxy: do not show any domain notice, just allow
+    if (state.isDemo && !state.reverseProxy) {
+      return <>{children}</>;
+    }
+
+    // In pure development (localhost) without reverse proxy: allow with a light optional hint
+    if (isDevelopment && !state.reverseProxy) {
+      return (
+        <>
+          <Card className="p-4 mb-4">
+            <Alert variant="warning" icon={<Icons.Warning />}>
+              <div>
+                <p className="font-medium">Domain not configured</p>
+                <p className="text-sm">
+                  You're running in Development mode. Configuring a production domain is optional here. OAuth callback URLs are only required in production deployments.
+                </p>
+              </div>
+            </Alert>
+            <div className="text-right">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => (window.location.hash = 'settings')}
+              >
+                Configure Domain (optional)
+              </Button>
+            </div>
+          </Card>
+          {children}
+        </>
+      );
+    }
   }
 
   if (!state.isConfigured) {
