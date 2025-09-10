@@ -146,7 +146,8 @@ const AppContent: React.FC = () => {
                     onNavigate={handleNavigate}
                     onLogout={handleLogout}
                 />
-                <DemoModeBanner />
+                {/* DemoModeBanner kept for compatibility; now mostly replaced by status bar badge */}
+                {/* <DemoModeBanner /> */}
                 <URLMismatchBanner />
                 <LicenseStatusBar onOpenModal={() => dispatch(openLicenseModal())} />
                 <div className="flex-grow">
