@@ -39,3 +39,8 @@ export const getDashboardData = async (): Promise<DashboardData> => {
     const response = await apiClient.get<DashboardData>('/api/v1/dashboard');
     return response;
 };
+
+// Force-refresh the dashboard cache on the server so counts update immediately
+export const refreshDashboardData = async (): Promise<void> => {
+    await apiClient.post('/api/v1/dashboard/refresh', {});
+};
