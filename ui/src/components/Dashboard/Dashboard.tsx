@@ -9,10 +9,12 @@ import {
     Badge, 
     EmptyState, 
     Button, 
-    Icons 
+    Icons,
+    Tooltip,
 } from '../UIPrimitives';
 import { HumanizedTimestamp } from '../HumanizedTimestamp';
 import RecentActivity from './RecentActivity';
+import { OnboardingStepper } from './OnboardingStepper';
 
 export const Dashboard: React.FC = () => {
     const navigate = useNavigate();
@@ -21,12 +23,17 @@ export const Dashboard: React.FC = () => {
     const [dashboardData, setDashboardData] = useState<DashboardData | null>(null);
     const [isLoading, setIsLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
+    const [isSyncing, setIsSyncing] = useState(false);
+    const [hideStepper, setHideStepper] = useState<boolean>(() => {
+        try { return localStorage.getItem('lr_hide_get_started') === '1'; } catch { return false; }
+    });
 
     // Load dashboard data
     useEffect(() => {
         const loadDashboardData = async () => {
             try {
                 setIsLoading(true);
+                setIsSyncing(true);
                 const data = await getDashboardData();
                 setDashboardData(data);
                 setError(null);
@@ -35,6 +42,7 @@ export const Dashboard: React.FC = () => {
                 setError('Failed to load dashboard data');
             } finally {
                 setIsLoading(false);
+                setIsSyncing(false);
             }
         };
 
@@ -60,7 +68,16 @@ export const Dashboard: React.FC = () => {
                 {/* Header with aligned content and prominent CTA */}
                 <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-6">
                     <div className="mb-4 sm:mb-0">
-                        <h1 className="text-2xl font-bold text-white">Dashboard</h1>
+                        <div className="flex items-center gap-2">
+                            <h1 className="text-2xl font-bold text-white">Dashboard</h1>
+                            <span className={
+                                `inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-full ` +
+                                (isSyncing ? 'bg-blue-900/40 text-blue-300' : 'bg-emerald-900/40 text-emerald-300')
+                            }>
+                                <span className="inline-block w-2 h-2 rounded-full animate-pulse" style={{backgroundColor: isSyncing ? '#60A5FA' : '#34D399'}} />
+                                {isSyncing ? 'Syncing...' : 'Live'}
+                            </span>
+                        </div>
                         <p className="mt-1 text-base text-slate-300">
                             Monitor your code review activity and connected services
                             {dashboardData && (
@@ -127,36 +144,17 @@ export const Dashboard: React.FC = () => {
                     aria-label="New Review"
                 />
 
-                {/* Empty State Banner */}
-                {isEmpty && (
-                    <div className="mb-6 bg-gradient-to-r from-blue-900/40 to-slate-800/40 rounded-xl p-6 border border-blue-800/30">
-                        <div className="flex items-center">
-                            <Icons.Info />
-                            <div className="ml-3">
-                                <h3 className="text-lg font-medium text-blue-300">Welcome to LiveReview!</h3>
-                                <p className="mt-1 text-slate-300">Connect a Git provider and configure AI settings to get started with automated code reviews.</p>
-                                <div className="mt-3 flex gap-3">
-                                    <Button 
-                                        variant="primary" 
-                                        size="sm"
-                                        icon={<Icons.Git />}
-                                        onClick={() => navigate('/git')}
-                                    >
-                                        Connect Git Provider
-                                    </Button>
-                                    <Button 
-                                        variant="outline" 
-                                        size="sm"
-                                        icon={<Icons.AI />}
-                                        onClick={() => navigate('/ai')}
-                                        className="border-blue-400 text-blue-300"
-                                    >
-                                        Configure AI
-                                    </Button>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
+                {/* Guided stepper for empty state */}
+                {isEmpty && !hideStepper && (
+                    <OnboardingStepper
+                        hasGitProvider={connectedProviders > 0}
+                        hasAIProvider={aiConnectors > 0}
+                        onConnectGit={() => navigate('/git')}
+                        onConfigureAI={() => navigate('/ai')}
+                        onNewReview={() => navigate('/reviews/new')}
+                        onDismiss={() => { setHideStepper(true); try { localStorage.setItem('lr_hide_get_started','1'); } catch {} }}
+                        className="mb-6"
+                    />
                 )}
 
                 {/* Main Statistics Grid - Improved density and alignment */}
@@ -183,18 +181,32 @@ export const Dashboard: React.FC = () => {
                         }
                         description="Comments generated"
                     />
-                    <StatCard 
-                        title="Git Providers" 
-                        value={connectedProviders} 
-                        icon={<Icons.Git />}
-                        description="Connected services"
-                    />
-                    <StatCard 
-                        title="AI Providers" 
-                        value={aiConnectors} 
-                        icon={<Icons.AI />}
-                        description="Connected AI backends"
-                    />
+                    <div className="relative group">
+                        <StatCard 
+                            title="Git Providers" 
+                            value={connectedProviders} 
+                            icon={<Icons.Git />}
+                            description="Connected services"
+                        />
+                        <div className="absolute top-2 right-3">
+                            <Tooltip content="GitHub, GitLab or Bitbucket accounts connected to LiveReview.">
+                                <span className="text-slate-400">i</span>
+                            </Tooltip>
+                        </div>
+                    </div>
+                    <div className="relative group">
+                        <StatCard 
+                            title="AI Providers" 
+                            value={aiConnectors} 
+                            icon={<Icons.AI />}
+                            description="Connected AI backends"
+                        />
+                        <div className="absolute top-2 right-3">
+                            <Tooltip content="LLM backends like OpenAI or local models used to generate review comments.">
+                                <span className="text-slate-400">i</span>
+                            </Tooltip>
+                        </div>
+                    </div>
                 </div>
 
                 {/* Main Content Grid */}
@@ -274,6 +286,22 @@ export const Dashboard: React.FC = () => {
                                 </div>
                             </div>
                         </Card>
+
+                        {/* Improved empty state for metrics */}
+                        {isEmpty && (
+                            <Card className="h-fit" title="No data yet" subtitle="Run your first review to see stats here.">
+                                <EmptyState
+                                    icon={<Icons.EmptyState />}
+                                    title="Nothing to show yet"
+                                    description="Once you trigger a review, you'll see activity, comments and trends here."
+                                    action={
+                                        <Button variant="primary" icon={<Icons.Add />} onClick={() => navigate('/reviews/new')}>
+                                            New Review
+                                        </Button>
+                                    }
+                                />
+                            </Card>
+                        )}
                     </div>
                 </div>
             </main>
