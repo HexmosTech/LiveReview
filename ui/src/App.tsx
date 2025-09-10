@@ -45,6 +45,7 @@ const AppContent: React.FC = () => {
     const { isAuthenticated, isSetupRequired, isLoading, accessToken } = useAppSelector((state) => state.Auth);
     const licenseStatus = useAppSelector(s => s.License.status);
     const licenseOpen = useAppSelector(s => s.License.modalOpen);
+    const licenseLoadedOnce = useAppSelector(s => s.License.loadedOnce);
     
     // Extract the current page from the path
     const getCurrentPage = (): string => {
@@ -104,18 +105,22 @@ const AppContent: React.FC = () => {
         dispatch(checkSetupStatus());
     };
 
-    // Enforce license: open when status requires token, close automatically when active
+    // Enforce license: open when status requires token, but ONLY after initial load to avoid flash
     useEffect(() => {
-        if (isAuthenticated) {
-            if (['missing','invalid','expired'].includes(licenseStatus)) {
-                dispatch(openLicenseModal());
-            } else if (licenseStatus === 'active') {
-                dispatch(closeLicenseModal());
-            }
+        if (!isAuthenticated) {
+            dispatch(closeLicenseModal());
+            return;
+        }
+        if (!licenseLoadedOnce) {
+            // Avoid opening modal until we know the real status
+            return;
+        }
+        if (['missing','invalid','expired'].includes(licenseStatus)) {
+            dispatch(openLicenseModal());
         } else {
             dispatch(closeLicenseModal());
         }
-    }, [isAuthenticated, licenseStatus, dispatch]);
+    }, [isAuthenticated, licenseStatus, licenseLoadedOnce, dispatch]);
 
     // (Removed old keyboard shortcut & placeholder strict effect to prevent events firing after unmount)
 
@@ -138,8 +143,14 @@ const AppContent: React.FC = () => {
     } else if (!isAuthenticated) {
         body = <Login />;
     } else {
+        // Subtle fade-in for main content to make initial paint feel smoother
+        const [uiReady, setUiReady] = useState(false);
+        useEffect(() => {
+            const id = requestAnimationFrame(() => setUiReady(true));
+            return () => cancelAnimationFrame(id);
+        }, []);
         body = (
-            <div className="min-h-screen flex flex-col">
+            <div className={`min-h-screen flex flex-col transition-opacity duration-200 ${uiReady ? 'opacity-100' : 'opacity-0'}`}> 
                 <Navbar
                     title="LiveReview"
                     activePage={activePage}
