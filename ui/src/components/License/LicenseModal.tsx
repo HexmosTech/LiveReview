@@ -15,9 +15,20 @@ export const LicenseModal: React.FC<Props> = ({ open, onClose, strictMode }) => 
   const { status, updating, lastError } = useAppSelector(s => s.License);
   const [token, setToken] = useState('');
   const [submitted, setSubmitted] = useState(false);
+  const [mounted, setMounted] = useState(false);
 
   useEffect(() => {
     if (!open) { setToken(''); setSubmitted(false); }
+  }, [open]);
+
+  // Smooth mount for fade-in
+  useEffect(() => {
+    if (open) {
+      const id = requestAnimationFrame(() => setMounted(true));
+      return () => { cancelAnimationFrame(id); setMounted(false); };
+    } else {
+      setMounted(false);
+    }
   }, [open]);
 
   if (!open) return null;
@@ -38,8 +49,8 @@ export const LicenseModal: React.FC<Props> = ({ open, onClose, strictMode }) => 
   };
 
   return (
-    <div className="fixed inset-0 z-40 flex items-center justify-center bg-slate-900/70">
-      <div className="bg-slate-800 rounded-md shadow-xl w-full max-w-lg border border-slate-700">
+    <div className={`fixed inset-0 z-40 flex items-center justify-center bg-slate-900/70 transition-opacity duration-200 ${mounted ? 'opacity-100' : 'opacity-0'}`}>
+      <div className={`bg-slate-800 rounded-md shadow-xl w-full max-w-lg border border-slate-700 transform transition-all duration-200 ${mounted ? 'opacity-100 translate-y-0' : 'opacity-0 -translate-y-1'}`}>
         <div className="px-5 py-4 border-b border-slate-700 flex items-center justify-between">
           <h2 className="text-lg font-semibold text-white">Enter License Token</h2>
           {!needsBlocking && (
@@ -56,6 +67,21 @@ export const LicenseModal: React.FC<Props> = ({ open, onClose, strictMode }) => 
               placeholder="Paste license JWT here"
               required
             />
+            {/* Always-visible helper: where to get a licence */}
+            {!needsBlocking && (
+              <p className="mt-2 text-md text-slate-400">
+                Don't have a Licence?{' '}
+                <a
+                  href="https://hexmos.com/livereview/access-livereview"
+                  target="_blank"
+                  rel="noreferrer"
+                  className="underline text-blue-300 hover:text-blue-200"
+                >
+                  Get a Licence
+                </a>
+                .
+              </p>
+            )}
           </div>
           {lastError && submitted && (
             <div className="text-sm text-red-400">{lastError}</div>
@@ -80,7 +106,16 @@ export const LicenseModal: React.FC<Props> = ({ open, onClose, strictMode }) => 
           </div>
           {needsBlocking && status !== 'active' && (
             <div className="text-xs text-amber-300 mt-2">
-              This application requires a valid license token to proceed. <a href="https://hexmos.com/livereview/access-livereview/" className="underline">Get a Licence here.</a>.
+              This application requires a valid license token to proceed.{' '}
+              <a
+                href="https://hexmos.com/livereview/access-livereview"
+                target="_blank"
+                rel="noreferrer"
+                className="underline"
+              >
+                Get a Licence here
+              </a>
+              .
             </div>
           )}
         </form>
