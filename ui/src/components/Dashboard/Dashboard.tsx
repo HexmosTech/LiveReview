@@ -99,16 +99,6 @@ export const Dashboard: React.FC = () => {
                         >
                             New Review
                         </Button>
-                        {isEmpty && (
-                            <Button 
-                                variant="outline" 
-                                icon={<Icons.Settings />}
-                                onClick={() => navigate('/git')}
-                                className="border-blue-400 text-blue-300 hover:bg-blue-900/30"
-                            >
-                                Get Started
-                            </Button>
-                        )}
                     </div>
                 </div>
 
