@@ -423,6 +423,10 @@ interface StatCardProps {
   className?: string;
   variant?: 'default' | 'primary';
   description?: string;
+  // Optional mini-CTA shown when value is 0
+  emptyCtaLabel?: string;
+  onEmptyCta?: () => void;
+  emptyNote?: string;
 }
 
 export const StatCard: React.FC<StatCardProps> = ({
@@ -433,7 +437,11 @@ export const StatCard: React.FC<StatCardProps> = ({
   className,
   variant = 'default',
   description,
+  emptyCtaLabel,
+  onEmptyCta,
+  emptyNote,
 }) => {
+  const isZero = Number(value) === 0;
   if (variant === 'primary') {
     return (
       <Card className={classNames('flex flex-col border-l-4 border-l-blue-500 bg-slate-800/80 hover:bg-slate-800 transition-colors', className)}>
@@ -453,6 +461,20 @@ export const StatCard: React.FC<StatCardProps> = ({
               )}
             </div>
             {description && <p className="mt-1 text-xs text-slate-400">{description}</p>}
+            {isZero && (emptyCtaLabel || emptyNote) && (
+              <div className="mt-2 text-xs text-slate-400 flex items-center gap-2">
+                {emptyNote && <span>{emptyNote}</span>}
+                {onEmptyCta && (
+                  <button
+                    type="button"
+                    onClick={onEmptyCta}
+                    className="text-blue-300 hover:text-blue-200 underline"
+                  >
+                    {emptyCtaLabel || 'Learn more'}
+                  </button>
+                )}
+              </div>
+            )}
           </div>
           {icon && (
             <div className="ml-3 p-2 bg-blue-600/20 rounded-lg">
@@ -483,6 +505,20 @@ export const StatCard: React.FC<StatCardProps> = ({
         )}
       </div>
       {description && <p className="mt-1 text-xs text-slate-400">{description}</p>}
+      {isZero && (emptyCtaLabel || emptyNote) && (
+        <div className="mt-2 text-xs text-slate-400 flex items-center gap-2">
+          {emptyNote && <span>{emptyNote}</span>}
+          {onEmptyCta && (
+            <button
+              type="button"
+              onClick={onEmptyCta}
+              className="text-blue-300 hover:text-blue-200 underline"
+            >
+              {emptyCtaLabel || 'Learn more'}
+            </button>
+          )}
+        </div>
+      )}
     </Card>
   );
 };

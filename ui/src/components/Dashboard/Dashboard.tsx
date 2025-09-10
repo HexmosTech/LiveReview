@@ -6,7 +6,6 @@ import {
     Section, 
     PageHeader, 
     Card, 
-    Badge, 
     EmptyState, 
     Button, 
     Icons,
@@ -70,13 +69,6 @@ export const Dashboard: React.FC = () => {
                     <div className="mb-4 sm:mb-0">
                         <div className="flex items-center gap-2">
                             <h1 className="text-2xl font-bold text-white">Dashboard</h1>
-                            <span className={
-                                `inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-full ` +
-                                (isSyncing ? 'bg-blue-900/40 text-blue-300' : 'bg-emerald-900/40 text-emerald-300')
-                            }>
-                                <span className="inline-block w-2 h-2 rounded-full animate-pulse" style={{backgroundColor: isSyncing ? '#60A5FA' : '#34D399'}} />
-                                {isSyncing ? 'Syncing...' : 'Live'}
-                            </span>
                         </div>
                         <p className="mt-1 text-base text-slate-300">
                             Monitor your code review activity and connected services
@@ -159,6 +151,9 @@ export const Dashboard: React.FC = () => {
                             </svg>
                         }
                         description="AI reviews triggered"
+                        emptyNote="No reviews yet."
+                        emptyCtaLabel="Create one now"
+                        onEmptyCta={() => navigate('/reviews/new')}
                     />
                     <StatCard 
                         variant="primary"
@@ -170,6 +165,9 @@ export const Dashboard: React.FC = () => {
                             </svg>
                         }
                         description="Comments generated"
+                        emptyNote="No comments yet."
+                        emptyCtaLabel="Run a review"
+                        onEmptyCta={() => navigate('/reviews/new')}
                     />
                     <div className="relative group">
                         <StatCard 
@@ -177,6 +175,9 @@ export const Dashboard: React.FC = () => {
                             value={connectedProviders} 
                             icon={<Icons.Git />}
                             description="Connected services"
+                            emptyNote="No Git providers connected."
+                            emptyCtaLabel="Connect now"
+                            onEmptyCta={() => navigate('/git')}
                         />
                         <div className="absolute top-2 right-3">
                             <Tooltip content="GitHub, GitLab or Bitbucket accounts connected to LiveReview.">
@@ -190,6 +191,9 @@ export const Dashboard: React.FC = () => {
                             value={aiConnectors} 
                             icon={<Icons.AI />}
                             description="Connected AI backends"
+                            emptyNote="No AI providers configured."
+                            emptyCtaLabel="Configure now"
+                            onEmptyCta={() => navigate('/ai')}
                         />
                         <div className="absolute top-2 right-3">
                             <Tooltip content="LLM backends like OpenAI or local models used to generate review comments.">
@@ -200,47 +204,27 @@ export const Dashboard: React.FC = () => {
                 </div>
 
                 {/* Main Content Grid */}
-                <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                                <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
                     <div className="lg:col-span-2">
                         <RecentActivity className="h-fit" />
                     </div>
 
                     <div className="space-y-6">
-                        <Card 
-                            title="Quick Actions" 
-                            subtitle="Common tasks and shortcuts"
-                            className="h-fit"
-                        >
-                            <div className="space-y-2">
-                                <Button 
-                                    variant="outline" 
-                                    fullWidth 
-                                    className="justify-start text-sm" 
-                                    icon={<Icons.Git />}
-                                    onClick={() => navigate('/git')}
-                                >
-                                    Connect Git Provider
-                                </Button>
-                                <Button 
-                                    variant="outline" 
-                                    fullWidth 
-                                    className="justify-start text-sm" 
-                                    icon={<Icons.AI />}
-                                    onClick={() => navigate('/ai')}
-                                >
-                                    Configure AI Service
-                                </Button>
-                                <Button 
-                                    variant="outline" 
-                                    fullWidth 
-                                    className="justify-start text-sm" 
-                                    icon={<Icons.Settings />}
-                                    onClick={() => navigate('/settings')}
-                                >
-                                    Review Settings
-                                </Button>
-                            </div>
-                        </Card>
+                                                {isEmpty && (
+                                                    <Card title="Get Started" subtitle="Connect a provider or configure AI to begin">
+                                                        <div className="space-y-2">
+                                                            <Button variant="outline" icon={<Icons.Git />} onClick={() => navigate('/git')}>
+                                                                Connect Git Provider
+                                                            </Button>
+                                                            <Button variant="outline" icon={<Icons.AI />} onClick={() => navigate('/ai')}>
+                                                                Configure AI Service
+                                                            </Button>
+                                                            <Button variant="outline" icon={<Icons.Settings />} onClick={() => navigate('/settings')}>
+                                                                Review Settings
+                                                            </Button>
+                                                        </div>
+                                                    </Card>
+                                                )}
 
                         {/* Performance Summary */}
                         <Card 
@@ -277,21 +261,21 @@ export const Dashboard: React.FC = () => {
                             </div>
                         </Card>
 
-                        {/* Improved empty state for metrics */}
-                        {isEmpty && (
-                            <Card className="h-fit" title="No data yet" subtitle="Run your first review to see stats here.">
-                                <EmptyState
-                                    icon={<Icons.EmptyState />}
-                                    title="Nothing to show yet"
-                                    description="Once you trigger a review, you'll see activity, comments and trends here."
-                                    action={
-                                        <Button variant="primary" icon={<Icons.Add />} onClick={() => navigate('/reviews/new')}>
-                                            New Review
-                                        </Button>
-                                    }
-                                />
-                            </Card>
-                        )}
+                                                {/* Improved empty state for metrics */}
+                                                {isEmpty && (
+                                                    <Card className="h-fit" title="No data yet" subtitle="Run your first review to see stats here.">
+                                                        <EmptyState
+                                                            icon={<Icons.EmptyState />}
+                                                            title="Nothing to show yet"
+                                                            description="Once you trigger a review, you'll see activity, comments and trends here."
+                                                            action={
+                                                                <Button variant="primary" icon={<Icons.Add />} onClick={() => navigate('/reviews/new')}>
+                                                                    New Review
+                                                                </Button>
+                                                            }
+                                                        />
+                                                    </Card>
+                                                )}
                     </div>
                 </div>
             </main>

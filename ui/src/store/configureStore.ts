@@ -1,4 +1,4 @@
-import { configureStore } from '@reduxjs/toolkit';
+import { configureStore, Middleware } from '@reduxjs/toolkit';
 
 import rootReducer from './rootReducer';
 
@@ -10,11 +10,18 @@ export type RootState = ReturnType<typeof rootReducer>;
 export type PartialRootState = Partial<RootState>;
 
 const configureAppStore = (preloadedState: PartialRootState = {}) => {
+    // Simple thunk middleware to avoid importing redux-thunk (prevents ENOENT in some envs)
+    const simpleThunk: Middleware = ({ dispatch, getState }) => (next) => (action) => {
+        if (typeof action === 'function') {
+            return (action as any)(dispatch, getState, undefined);
+        }
+        return next(action);
+    };
+
     const store = configureStore({
         reducer: rootReducer,
         preloadedState,
-        // Use RTK defaults (includes thunk) for correct dispatch typing and unwrap()
-        middleware: (getDefault) => getDefault(),
+        middleware: (getDefault) => getDefault({ thunk: false }).concat(simpleThunk),
     });
 
     return store;
@@ -22,7 +29,8 @@ const configureAppStore = (preloadedState: PartialRootState = {}) => {
 
 export type AppStore = ReturnType<typeof configureAppStore>;
 
-export type StoreDispatch = ReturnType<typeof configureAppStore>['dispatch'];
+// Dispatch type widened to accept both plain actions and thunk functions.
+export type StoreDispatch = (action: any) => any;
 
 export type StoreGetState = ReturnType<typeof configureAppStore>['getState'];
 
