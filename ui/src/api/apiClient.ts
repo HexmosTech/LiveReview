@@ -2,7 +2,7 @@
  * Simple API client with base URL and authentication support
  */
 
-import { AppStore } from '../store/configureStore';
+import { AppStore, StoreDispatch } from '../store/configureStore';
 import { logout, setTokens } from '../store/Auth/reducer';
 import { refreshToken } from './auth';
 import { tokenManager } from '../utils/tokenManager';
@@ -223,7 +223,7 @@ async function apiRequest<T>(
     } catch (error) {
       // Refresh token failed or was unavailable, logout the user
       tokenManager.onLogout(); // Clear timers
-      store.dispatch(logout());
+  (store.dispatch as StoreDispatch)(logout());
       // Redirect to login page or show a message
       // Use replace to prevent the user from navigating back to the broken page
       window.location.replace('/login');
