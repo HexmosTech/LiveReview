@@ -5,6 +5,7 @@ import { Button, Icons, Tooltip } from '../UIPrimitives';
 interface OnboardingStepperProps {
   hasGitProvider: boolean;
   hasAIProvider: boolean;
+  hasRunReview?: boolean;
   onConnectGit: () => void;
   onConfigureAI: () => void;
   onNewReview: () => void;
@@ -45,6 +46,7 @@ const Step: React.FC<{
 export const OnboardingStepper: React.FC<OnboardingStepperProps> = ({
   hasGitProvider,
   hasAIProvider,
+  hasRunReview = false,
   onConnectGit,
   onConfigureAI,
   onNewReview,
@@ -72,7 +74,7 @@ export const OnboardingStepper: React.FC<OnboardingStepperProps> = ({
           <p className="text-sm text-slate-300">Follow these steps to run your first AI-powered review.</p>
         </div>
         <div className="flex items-center gap-3 flex-wrap">
-          {allSet && (
+          {allSet && collapsed && (
             <Button variant="primary" size="sm" icon={<Icons.Add />} onClick={onNewReview}>
               New Review
             </Button>
@@ -139,7 +141,7 @@ export const OnboardingStepper: React.FC<OnboardingStepperProps> = ({
               ? 'Everything is connected. Create your first review to see insights here.'
               : 'Once steps 1 and 2 are complete, you can run your first review.'
           }
-          done={false}
+          done={hasRunReview}
           isLast
           action={
             allSet ? (

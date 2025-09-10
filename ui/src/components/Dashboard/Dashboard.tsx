@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { getDashboardData, DashboardData } from '../../api/dashboard';
+import { getDashboardData, DashboardData, refreshDashboardData } from '../../api/dashboard';
 import { 
     StatCard, 
     Section, 
@@ -33,6 +33,8 @@ export const Dashboard: React.FC = () => {
             try {
                 setIsLoading(true);
                 setIsSyncing(true);
+                // Ensure backend cache reflects latest connectors/changes
+                try { await refreshDashboardData(); } catch { /* best-effort */ }
                 const data = await getDashboardData();
                 setDashboardData(data);
                 setError(null);
@@ -49,7 +51,18 @@ export const Dashboard: React.FC = () => {
         
         // Refresh data every 5 minutes
         const interval = setInterval(loadDashboardData, 5 * 60 * 1000);
-        return () => clearInterval(interval);
+        
+        // Also refresh when the tab regains focus or becomes visible (handy after New Review)
+        const onFocus = () => { loadDashboardData(); };
+        const onVisibility = () => { if (document.visibilityState === 'visible') loadDashboardData(); };
+        window.addEventListener('focus', onFocus);
+        document.addEventListener('visibilitychange', onVisibility);
+
+        return () => {
+            clearInterval(interval);
+            window.removeEventListener('focus', onFocus);
+            document.removeEventListener('visibilitychange', onVisibility);
+        };
     }, []);
 
     // Use dashboard API data exclusively - no fallbacks to Redux store
@@ -57,6 +70,33 @@ export const Dashboard: React.FC = () => {
     const codeReviews = dashboardData?.total_reviews || 0;
     const connectedProviders = dashboardData?.connected_providers || 0;
     const aiConnectors = dashboardData?.active_ai_connectors || 0;
+
+    // Derive onboarding state
+    const hasGitProvider = connectedProviders > 0;
+    const hasAIProvider = aiConnectors > 0;
+    const allSet = hasGitProvider && hasAIProvider;
+    // Auto-hide thresholds: disappear when the user clearly moved past onboarding
+    const autoHideStepper = connectedProviders > 1 && aiConnectors > 1 && codeReviews > 1;
+    const hasRunReview = codeReviews > 0;
+
+    // After the user has completed all steps and seen the panel once,
+    // auto-hide it and persist the dismissal so it doesn't reappear.
+    useEffect(() => {
+        if (!hideStepper && allSet && hasRunReview) {
+            let wasAutoHidden = false;
+            try { wasAutoHidden = localStorage.getItem('lr_get_started_auto_hidden') === '1'; } catch {}
+            if (!wasAutoHidden) {
+                const timer = setTimeout(() => {
+                    setHideStepper(true);
+                    try {
+                        localStorage.setItem('lr_hide_get_started', '1');
+                        localStorage.setItem('lr_get_started_auto_hidden', '1');
+                    } catch {}
+                }, 3500); // give a moment to notice completion, then hide
+                return () => clearTimeout(timer);
+            }
+        }
+    }, [hideStepper, allSet, hasRunReview]);
 
     // Check if this is an empty state (no connections and no activity)
     const isEmpty = connectedProviders === 0 && codeReviews === 0 && aiComments === 0;
@@ -126,11 +166,12 @@ export const Dashboard: React.FC = () => {
                     aria-label="New Review"
                 />
 
-                {/* Guided stepper for empty state */}
-                {isEmpty && !hideStepper && (
+                {/* Get Started stepper – stays visible until the user dismisses it, unless thresholds auto-hide it */}
+                {!hideStepper && !autoHideStepper && (
                     <OnboardingStepper
-                        hasGitProvider={connectedProviders > 0}
-                        hasAIProvider={aiConnectors > 0}
+                        hasGitProvider={hasGitProvider}
+                        hasAIProvider={hasAIProvider}
+                        hasRunReview={hasRunReview}
                         onConnectGit={() => navigate('/git')}
                         onConfigureAI={() => navigate('/ai')}
                         onNewReview={() => navigate('/reviews/new')}
