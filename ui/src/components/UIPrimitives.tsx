@@ -1,4 +1,5 @@
-import React, { ButtonHTMLAttributes, InputHTMLAttributes, ReactNode, SelectHTMLAttributes, ElementType, ComponentPropsWithRef, useState } from 'react';
+import React, { ButtonHTMLAttributes, InputHTMLAttributes, ReactNode, SelectHTMLAttributes, ElementType, ComponentPropsWithRef, useState, useRef, useLayoutEffect } from 'react';
+import { createPortal } from 'react-dom';
 import classNames from 'classnames';
 
 // ===== BUTTON COMPONENTS =====
@@ -427,6 +428,9 @@ interface StatCardProps {
   emptyCtaLabel?: string;
   onEmptyCta?: () => void;
   emptyNote?: string;
+  // Optional tooltip content to show an Info icon in the header
+  headerInfo?: string;
+  headerInfoPosition?: 'top' | 'bottom' | 'left' | 'right' | 'top-left' | 'top-right' | 'bottom-left' | 'bottom-right' | 'auto';
 }
 
 export const StatCard: React.FC<StatCardProps> = ({
@@ -440,6 +444,8 @@ export const StatCard: React.FC<StatCardProps> = ({
   emptyCtaLabel,
   onEmptyCta,
   emptyNote,
+  headerInfo,
+  headerInfoPosition = 'auto',
 }) => {
   const isZero = Number(value) === 0;
   if (variant === 'primary') {
@@ -476,9 +482,18 @@ export const StatCard: React.FC<StatCardProps> = ({
               </div>
             )}
           </div>
-          {icon && (
-            <div className="ml-3 p-2 bg-blue-600/20 rounded-lg">
-              <div className="text-blue-400 text-lg">{icon}</div>
+          {(icon || headerInfo) && (
+            <div className="ml-3 flex items-center gap-2">
+              {headerInfo && (
+                <Tooltip content={headerInfo} position={headerInfoPosition}>
+                  <span className="inline-flex items-center text-slate-300"><Icons.Info /></span>
+                </Tooltip>
+              )}
+              {icon && (
+                <div className="p-2 bg-blue-600/20 rounded-lg">
+                  <div className="text-blue-400 text-lg">{icon}</div>
+                </div>
+              )}
             </div>
           )}
         </div>
@@ -490,7 +505,16 @@ export const StatCard: React.FC<StatCardProps> = ({
     <Card className={classNames('flex flex-col bg-slate-800/60 hover:bg-slate-800/80 transition-colors', className)}>
       <div className="flex items-center justify-between mb-2">
         <p className="text-sm font-medium text-slate-300">{title}</p>
-        {icon && <div className="text-slate-400 text-sm">{icon}</div>}
+        {(icon || headerInfo) && (
+          <div className="flex items-center gap-2">
+            {headerInfo && (
+              <Tooltip content={headerInfo} position={headerInfoPosition}>
+                <span className="inline-flex items-center text-slate-400"><Icons.Info /></span>
+              </Tooltip>
+            )}
+            {icon && <div className="text-slate-400 text-sm">{icon}</div>}
+          </div>
+        )}
       </div>
       <div className="flex items-baseline">
         <p className="text-xl font-bold text-white">{value}</p>
@@ -893,47 +917,116 @@ export const Spinner: React.FC<SpinnerProps> = ({
 interface TooltipProps {
   children: ReactNode;
   content: string;
-  position?: 'top' | 'bottom' | 'left' | 'right';
+  position?: 'top' | 'bottom' | 'left' | 'right' | 'top-left' | 'top-right' | 'bottom-left' | 'bottom-right' | 'auto';
   className?: string;
 }
 
 export const Tooltip: React.FC<TooltipProps> = ({
   children,
   content,
-  position = 'top',
+  position = 'auto',
   className,
 }) => {
   const [isVisible, setIsVisible] = useState(false);
-  
-  const positionClasses = {
-    top: 'bottom-full left-1/2 transform -translate-x-1/2 mb-2',
-    bottom: 'top-full left-1/2 transform -translate-x-1/2 mt-2',
-    left: 'right-full top-1/2 transform -translate-y-1/2 mr-2',
-    right: 'left-full top-1/2 transform -translate-y-1/2 ml-2',
+  const [resolvedPosition, setResolvedPosition] = useState<TooltipProps['position']>('top');
+  const [coords, setCoords] = useState<{top:number; left:number; arrowLeft?: number}>({ top: 0, left: 0, arrowLeft: undefined });
+  const wrapperRef = useRef<HTMLDivElement>(null);
+  const tipRef = useRef<HTMLDivElement>(null);
+
+  const clamp = (val: number, min: number, max: number) => Math.max(min, Math.min(max, val));
+
+  const choosePlacement = () => {
+    if (!wrapperRef.current) return 'top' as TooltipProps['position'];
+    if (position && position !== 'auto') return position;
+    const rect = wrapperRef.current.getBoundingClientRect();
+    const edge = 12;
+    const preferTop = rect.top > window.innerHeight * 0.33; // if not near very top
+    // try to keep inside horizontally too
+    if (preferTop) return 'top';
+    return 'bottom';
   };
-  
+
+  const positionTooltip = (placement: TooltipProps['position']) => {
+    if (!wrapperRef.current) return;
+    const rect = wrapperRef.current.getBoundingClientRect();
+    const estWidth = tipRef.current?.offsetWidth || 240;
+    const estHeight = tipRef.current?.offsetHeight || 40;
+    const margin = 8;
+    let top = 0;
+    let left = 0;
+    let arrowLeft: number | undefined;
+    const centerX = rect.left + rect.width / 2;
+    if (placement.startsWith('bottom')) {
+      top = rect.bottom + margin;
+    } else if (placement.startsWith('top')) {
+      top = rect.top - estHeight - margin;
+    } else if (placement === 'left') {
+      top = rect.top + rect.height / 2 - estHeight / 2;
+      left = rect.left - estWidth - margin;
+    } else if (placement === 'right') {
+      top = rect.top + rect.height / 2 - estHeight / 2;
+      left = rect.right + margin;
+    }
+    if (placement.endsWith('left')) {
+      left = rect.left;
+      arrowLeft = clamp((centerX - left), 8, estWidth - 8);
+    } else if (placement.endsWith('right')) {
+      left = rect.right - estWidth;
+      arrowLeft = clamp((centerX - left), 8, estWidth - 8);
+    } else if (placement === 'top' || placement === 'bottom') {
+      left = centerX - estWidth / 2;
+      arrowLeft = estWidth / 2;
+    }
+    // viewport clamp
+    const clampedLeft = clamp(left, 8, window.innerWidth - estWidth - 8);
+    // adjust arrow when we clamp horizontally
+    if (arrowLeft !== undefined) {
+      arrowLeft = clamp(arrowLeft + (left - clampedLeft), 8, estWidth - 8);
+    }
+    setCoords({ top: Math.max(8, top), left: clampedLeft, arrowLeft });
+  };
+
+  const onEnter = () => {
+    const p = choosePlacement();
+    setResolvedPosition(p);
+    setIsVisible(true);
+  };
+  const onLeave = () => setIsVisible(false);
+
+  useLayoutEffect(() => {
+    if (!isVisible) return;
+    positionTooltip(resolvedPosition);
+  }, [isVisible, resolvedPosition, content]);
+
   return (
-    <div 
-      className="relative inline-block"
-      onMouseEnter={() => setIsVisible(true)}
-      onMouseLeave={() => setIsVisible(false)}
-    >
+    <div ref={wrapperRef} className="relative inline-block" onMouseEnter={onEnter} onMouseLeave={onLeave}>
       {children}
-      {isVisible && (
-        <div className={classNames(
-          'absolute z-50 px-2 py-1 text-xs font-medium text-white bg-gray-900 rounded shadow-lg whitespace-nowrap',
-          positionClasses[position],
-          className
-        )}>
+      {isVisible && createPortal(
+        <div
+          ref={tipRef}
+          className={classNames(
+            'fixed z-[9999] px-2 py-1 text-xs font-medium text-white bg-gray-900 rounded shadow-lg whitespace-normal break-words w-max max-w-[min(80vw,24rem)] pointer-events-none',
+            className
+          )}
+          style={{ top: coords.top, left: coords.left }}
+        >
           {content}
-          <div className={classNames(
-            'absolute w-0 h-0',
-            position === 'top' && 'top-full left-1/2 transform -translate-x-1/2 border-l-4 border-r-4 border-t-4 border-transparent border-t-gray-900',
-            position === 'bottom' && 'bottom-full left-1/2 transform -translate-x-1/2 border-l-4 border-r-4 border-b-4 border-transparent border-b-gray-900',
-            position === 'left' && 'left-full top-1/2 transform -translate-y-1/2 border-t-4 border-b-4 border-l-4 border-transparent border-l-gray-900',
-            position === 'right' && 'right-full top-1/2 transform -translate-y-1/2 border-t-4 border-b-4 border-r-4 border-transparent border-r-gray-900'
-          )} />
-        </div>
+          {/* arrow */}
+          <div
+            className="absolute w-0 h-0"
+            style={{
+              left: coords.arrowLeft !== undefined ? coords.arrowLeft : undefined,
+              right: coords.arrowLeft === undefined ? 8 : undefined,
+              top: resolvedPosition.startsWith('bottom') ? -6 : undefined,
+              bottom: resolvedPosition.startsWith('top') ? -6 : undefined,
+              borderLeft: '6px solid transparent',
+              borderRight: '6px solid transparent',
+              borderTop: resolvedPosition.startsWith('bottom') ? '6px solid #111827' : undefined,
+              borderBottom: resolvedPosition.startsWith('top') ? '6px solid #111827' : undefined,
+            }}
+          />
+        </div>,
+        document.body
       )}
     </div>
   );

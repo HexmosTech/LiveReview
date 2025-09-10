@@ -178,12 +178,9 @@ export const Dashboard: React.FC = () => {
                             emptyNote="No Git providers connected."
                             emptyCtaLabel="Connect now"
                             onEmptyCta={() => navigate('/git')}
+                            headerInfo="GitHub, GitLab or Bitbucket accounts connected to LiveReview."
+                            headerInfoPosition="bottom"
                         />
-                        <div className="absolute top-2 right-3">
-                            <Tooltip content="GitHub, GitLab or Bitbucket accounts connected to LiveReview.">
-                                <span className="text-slate-400">i</span>
-                            </Tooltip>
-                        </div>
                     </div>
                     <div className="relative group">
                         <StatCard 
@@ -194,12 +191,9 @@ export const Dashboard: React.FC = () => {
                             emptyNote="No AI providers configured."
                             emptyCtaLabel="Configure now"
                             onEmptyCta={() => navigate('/ai')}
+                            headerInfo="LLM backends like OpenAI or local models used to generate review comments."
+                            headerInfoPosition="bottom"
                         />
-                        <div className="absolute top-2 right-3">
-                            <Tooltip content="LLM backends like OpenAI or local models used to generate review comments.">
-                                <span className="text-slate-400">i</span>
-                            </Tooltip>
-                        </div>
                     </div>
                 </div>
 
