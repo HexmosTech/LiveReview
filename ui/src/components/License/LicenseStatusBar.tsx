@@ -31,6 +31,7 @@ const formatDaysLeft = (expiresAt?: string) => {
 const LicenseStatusBar: React.FC<LicenseStatusBarProps> = ({ onOpenModal }) => {
   const dispatch = useAppDispatch();
   const license = useAppSelector(s => s.License);
+  const isLoading = !license.loadedOnce || license.loading;
   const style = STATUS_STYLES[license.status] || STATUS_STYLES['missing'];
   const [deploymentMode, setDeploymentMode] = useState<'demo' | 'production' | 'unknown'>('unknown');
   const [showDemoInfo, setShowDemoInfo] = useState(false);
@@ -39,7 +40,7 @@ const LicenseStatusBar: React.FC<LicenseStatusBarProps> = ({ onOpenModal }) => {
   });
 
   const daysLeft = useMemo(() => formatDaysLeft(license.expiresAt), [license.expiresAt]);
-  const needsAction = ['missing','invalid','expired'].includes(license.status);
+  const needsAction = !isLoading && ['missing','invalid','expired'].includes(license.status);
 
   const handleRefresh = () => {
     if (!license.refreshing) dispatch(triggerLicenseRefresh());
@@ -59,6 +60,21 @@ const LicenseStatusBar: React.FC<LicenseStatusBarProps> = ({ onOpenModal }) => {
     }).catch(() => setDeploymentMode('unknown'));
     return () => { mounted = false; };
   }, []);
+
+  // Loading state: avoid showing 'Missing' before the first real status arrives
+  if (isLoading) {
+    return (
+      <div className="w-full border-b border-slate-800 bg-slate-800/40" data-testid="license-status-bar">
+        <div className="container mx-auto px-4 text-xs py-1 flex items-center justify-between">
+          <div className="flex items-center gap-2 text-slate-300">
+            <span className="h-2 w-2 rounded-full bg-slate-400 animate-pulse" />
+            Loading license…
+          </div>
+          <div />
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className={`w-full border-b border-slate-800 ${style.bg}`} data-testid="license-status-bar">

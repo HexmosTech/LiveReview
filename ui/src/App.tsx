@@ -46,6 +46,12 @@ const AppContent: React.FC = () => {
     const licenseStatus = useAppSelector(s => s.License.status);
     const licenseOpen = useAppSelector(s => s.License.modalOpen);
     const licenseLoadedOnce = useAppSelector(s => s.License.loadedOnce);
+    // Subtle fade-in for main content to make initial paint feel smoother
+    const [uiReady, setUiReady] = useState(false);
+    useEffect(() => {
+        const id = requestAnimationFrame(() => setUiReady(true));
+        return () => cancelAnimationFrame(id);
+    }, []);
     
     // Extract the current page from the path
     const getCurrentPage = (): string => {
@@ -143,12 +149,6 @@ const AppContent: React.FC = () => {
     } else if (!isAuthenticated) {
         body = <Login />;
     } else {
-        // Subtle fade-in for main content to make initial paint feel smoother
-        const [uiReady, setUiReady] = useState(false);
-        useEffect(() => {
-            const id = requestAnimationFrame(() => setUiReady(true));
-            return () => cancelAnimationFrame(id);
-        }, []);
         body = (
             <div className={`min-h-screen flex flex-col transition-opacity duration-200 ${uiReady ? 'opacity-100' : 'opacity-0'}`}> 
                 <Navbar

@@ -5,6 +5,10 @@ import { Provider } from 'react-redux';
 import configureStore from 'redux-mock-store';
 import LicenseStatusBar from './LicenseStatusBar';
 
+jest.mock('../../api/system', () => ({
+  getSystemInfo: jest.fn(() => Promise.resolve({ deployment_mode: 'production' }))
+}));
+
 const mockStore = configureStore([]);
 
 function setup(stateOverrides: any = {}) {
@@ -39,5 +43,10 @@ describe('LicenseStatusBar', () => {
     fireEvent.click(refreshBtn);
     const actions = store.getActions().map(a => a.type);
     expect(actions.some(a => a.includes('license/refresh'))).toBeTruthy();
+  });
+
+  it('shows loading state before first status load', () => {
+    setup({ loadedOnce: false, loading: true });
+    expect(screen.getByText(/Loading license/i)).toBeInTheDocument();
   });
 });

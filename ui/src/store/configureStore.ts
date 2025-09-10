@@ -13,6 +13,8 @@ const configureAppStore = (preloadedState: PartialRootState = {}) => {
     const store = configureStore({
         reducer: rootReducer,
         preloadedState,
+        // Use RTK defaults (includes thunk) for correct dispatch typing and unwrap()
+        middleware: (getDefault) => getDefault(),
     });
 
     return store;
