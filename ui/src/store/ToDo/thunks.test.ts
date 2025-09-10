@@ -1,5 +1,5 @@
 import reducer, { initialToDoState, taskAdded } from './reducer';
-import configureAppStore, { AppStore } from '../configureStore';
+import configureAppStore, { AppStore, StoreDispatch } from '../configureStore';
 import { toggleTaskStatus } from './thunks';
 import { selectAllTasks } from './selectors';
 
@@ -17,9 +17,9 @@ describe('test toggleTaskStatus thunk function', () => {
             completed: false,
         };
 
-        await store.dispatch(taskAdded(newTask));
+    await (store.dispatch as StoreDispatch)(taskAdded(newTask));
 
-        await store.dispatch(toggleTaskStatus(newTask.id));
+    await (store.dispatch as StoreDispatch)(toggleTaskStatus(newTask.id));
 
         const allTasks = selectAllTasks(store.getState());
 
