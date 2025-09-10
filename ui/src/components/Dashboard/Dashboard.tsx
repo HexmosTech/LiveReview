@@ -207,13 +207,13 @@ export const Dashboard: React.FC = () => {
                                                 {isEmpty && (
                                                     <Card title="Get Started" subtitle="Connect a provider or configure AI to begin">
                                                         <div className="space-y-2">
-                                                            <Button variant="outline" icon={<Icons.Git />} onClick={() => navigate('/git')}>
+                                                            <Button variant="outline" icon={<Icons.Git />} onClick={() => navigate('/git')} className='mr-2'>
                                                                 Connect Git Provider
                                                             </Button>
-                                                            <Button variant="outline" icon={<Icons.AI />} onClick={() => navigate('/ai')}>
+                                                            <Button variant="outline" icon={<Icons.AI />} onClick={() => navigate('/ai')} className='mr-2'>
                                                                 Configure AI Service
                                                             </Button>
-                                                            <Button variant="outline" icon={<Icons.Settings />} onClick={() => navigate('/settings')}>
+                                                            <Button variant="outline" icon={<Icons.Settings />} onClick={() => navigate('/settings')} className='mr-2'>
                                                                 Review Settings
                                                             </Button>
                                                         </div>
