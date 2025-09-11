@@ -24,14 +24,27 @@ import UserForm from './components/UserManagement/UserForm';
 
 const Footer = () => (
     <footer className="bg-slate-900 border-t border-slate-700 py-8 mt-auto">
-        <div className="container mx-auto px-4 flex flex-col md:flex-row justify-between items-center">
-            <div className="flex items-center py-2">
-                <Link to="/" className="cursor-pointer" aria-label="Go to home">
-                    <img src="assets/logo-horizontal.svg" alt="LiveReview Logo" className="h-10 w-auto" />
-                </Link>
-            </div>
-            <div className="text-right mt-4 md:mt-0">
-                <p className="text-sm text-slate-200">© {new Date().getFullYear()} LiveReview. All rights reserved.</p>
+        <div className="container mx-auto px-4">
+            <div className="flex flex-col md:flex-row justify-between items-center space-y-4 md:space-y-0">
+                <div className="flex items-center">
+                    <Link to="/" className="cursor-pointer" aria-label="Go to home">
+                        <img src="assets/logo-horizontal.svg" alt="LiveReview Logo" className="h-10 w-auto" />
+                    </Link>
+                </div>
+                <div className="flex flex-col items-end space-y-2">
+                    <a
+                        href="https://github.com/HexmosTech/LiveReview/wiki"
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="flex items-center space-x-2 bg-blue-600 hover:bg-blue-500 text-white px-4 py-2 rounded-lg transition-colors font-medium text-sm"
+                    >
+                        <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
+                            <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clipRule="evenodd" />
+                        </svg>
+                        <span>📚 Documentation</span>
+                    </a>
+                    <p className="text-sm text-slate-200">© {new Date().getFullYear()} LiveReview. All rights reserved.</p>
+                </div>
             </div>
         </div>
     </footer>
