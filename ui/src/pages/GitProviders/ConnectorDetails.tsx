@@ -36,19 +36,24 @@ interface TreeNodeData {
 }
 
 // Helper function to get webhook status for a project
-const getProjectWebhookStatus = (projectsWithStatus: ProjectWithStatus[] | undefined, projectName: string): { status: string; icon: React.ReactNode; className: string } => {
+// NOTE: Backend currently labels projects that have manual trigger webhooks as 'automatic'.
+// Until true automatic review mode (review every new MR version) ships, we remap 'automatic' -> 'manual'
+// for UI display & counting to avoid confusing users (so Manual shows the real count, Automatic stays 0).
+const getProjectWebhookStatus = (
+    projectsWithStatus: ProjectWithStatus[] | undefined,
+    projectName: string
+): { status: string; icon: React.ReactNode; className: string } => {
     if (!projectsWithStatus) {
         return { status: 'Not Ready', icon: <Icons.NotReady />, className: 'text-yellow-500' };
     }
-    
+
     const project = projectsWithStatus.find(p => p.project_path === projectName);
     if (!project) {
         return { status: 'Not Ready', icon: <Icons.NotReady />, className: 'text-yellow-500' };
     }
-    
+
     switch (project.webhook_status) {
-        case 'automatic':
-            return { status: 'Connected', icon: <Icons.Ready />, className: 'text-green-500' };
+        case 'automatic': // temporary remap to Manual
         case 'manual':
             return { status: 'Manual', icon: <Icons.Clock />, className: 'text-blue-500' };
         case 'unconnected':
@@ -244,13 +249,15 @@ const ConnectorDetails: React.FC = () => {
         if (!repositoryAccess?.projects_with_status || repositoryAccess.projects_with_status.length === 0) {
             return 'unconnected';
         }
-        
+
         const statuses = repositoryAccess.projects_with_status.map(p => p.webhook_status);
-        const hasAutomatic = statuses.some(s => s === 'automatic');
         const hasManual = statuses.some(s => s === 'manual');
-        
-        if (hasAutomatic) return 'automatic';
+        const hasAutomatic = statuses.some(s => s === 'automatic');
+
+        // Normalization shim: treat 'automatic' (legacy mislabel) as manual if no explicit manual present
+        if (!hasManual && hasAutomatic) return 'manual';
         if (hasManual) return 'manual';
+        if (hasAutomatic) return 'automatic'; // future real automatic mode
         return 'unconnected';
     }, [repositoryAccess?.projects_with_status]);
 
@@ -259,16 +266,26 @@ const ConnectorDetails: React.FC = () => {
         if (!repositoryAccess?.projects_with_status || repositoryAccess.projects_with_status.length === 0) {
             return { unconnected: 0, manual: 0, automatic: 0, total: 0 };
         }
-        
+
         const statuses = repositoryAccess.projects_with_status.map(p => p.webhook_status);
-        const counts = {
+        const raw = {
             unconnected: statuses.filter(s => s === 'unconnected').length,
             manual: statuses.filter(s => s === 'manual').length,
-            automatic: statuses.filter(s => s === 'automatic').length, // Currently 0 since not implemented
+            automatic: statuses.filter(s => s === 'automatic').length,
             total: statuses.length
         };
-        
-        return counts;
+
+        // Normalization shim: if backend only returns 'automatic' (legacy) but no 'manual', treat those as manual.
+        if (raw.manual === 0 && raw.automatic > 0) {
+            return {
+                unconnected: raw.unconnected,
+                manual: raw.automatic,
+                automatic: 0,
+                total: raw.total
+            };
+        }
+
+        return raw;
     }, [repositoryAccess?.projects_with_status]);
 
     // Helper function to parse simple markdown bold (**text**)
