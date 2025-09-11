@@ -34,58 +34,64 @@ import OllamaConnectorForm from './components/OllamaConnectorForm';
 import { generateFriendlyNameForProvider, getProviderDetails } from './utils/nameUtils';
 
 // Constant data
+// Order: recommended providers (Gemini, Ollama) first, then experimental ones.
 const popularAIProviders: AIProvider[] = [
-    { 
-        id: 'openai',
-        name: 'OpenAI', 
-        url: 'https://platform.openai.com/', 
-        description: 'Access GPT models for code understanding and generation',
-        icon: <Icons.OpenAI />,
-        apiKeyPlaceholder: 'sk-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx',
-        models: ['gpt-3.5-turbo', 'gpt-4', 'gpt-4-turbo', 'gpt-4o'],
-        defaultModel: 'gpt-4'
-    },
     { 
         id: 'gemini',
         name: 'Google Gemini', 
         url: 'https://ai.google.dev/', 
-        description: 'Google\'s multimodal AI for code and natural language tasks',
+        description: 'High quality, multimodal reasoning. Recommended for balanced cost + performance.',
         icon: <Icons.Google />,
         apiKeyPlaceholder: 'gemini-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx',
         models: ['gemini-pro', 'gemini-pro-vision', 'gemini-ultra'],
-        defaultModel: 'gemini-pro'
-    },
-    { 
-        id: 'claude',
-        name: 'Anthropic Claude', 
-        url: 'https://www.anthropic.com/', 
-        description: 'Constitutional AI focused on helpful, harmless responses',
-        icon: <Icons.AI />,
-        apiKeyPlaceholder: 'claude-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx',
-        models: ['claude-3-opus', 'claude-3-sonnet', 'claude-3-haiku'],
-        defaultModel: 'claude-3-sonnet'
-    },
-    { 
-        id: 'cohere',
-        name: 'Cohere', 
-        url: 'https://cohere.com/', 
-        description: 'Specialized in understanding and generating human language',
-        icon: <Icons.AI />,
-        apiKeyPlaceholder: 'cohere-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx',
-        models: ['command', 'command-light', 'command-r', 'command-r-plus'],
-        defaultModel: 'command-r'
+        defaultModel: 'gemini-pro',
+        supportLevel: 'recommended'
     },
     { 
         id: 'ollama',
         name: 'Ollama', 
         url: 'https://ollama.ai/', 
-        description: 'Run large language models locally with Ollama',
+        description: 'Run models locally. Great for privacy & air‑gapped workflows.',
         icon: <Icons.Ollama />,
         apiKeyPlaceholder: 'Optional JWT token for authentication',
         models: ['llama3', 'llama3.1', 'codellama', 'mistral', 'gemma'],
         defaultModel: 'llama3',
         baseURLPlaceholder: 'http://localhost:11434/ollama/api',
-        requiresBaseURL: true
+        requiresBaseURL: true,
+        supportLevel: 'recommended'
+    },
+    { 
+        id: 'openai',
+        name: 'OpenAI', 
+        url: 'https://platform.openai.com/', 
+        description: 'Powerful GPT models; full first‑class support coming soon.',
+        icon: <Icons.OpenAI />,
+        apiKeyPlaceholder: 'sk-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx',
+        models: ['gpt-3.5-turbo', 'gpt-4', 'gpt-4-turbo', 'gpt-4o'],
+        defaultModel: 'gpt-4',
+        supportLevel: 'experimental'
+    },
+    { 
+        id: 'claude',
+        name: 'Anthropic Claude', 
+        url: 'https://www.anthropic.com/', 
+        description: 'Advanced reasoning & long context. Vote to prioritize deeper integration.',
+        icon: <Icons.AI />,
+        apiKeyPlaceholder: 'claude-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx',
+        models: ['claude-3-opus', 'claude-3-sonnet', 'claude-3-haiku'],
+        defaultModel: 'claude-3-sonnet',
+        supportLevel: 'experimental'
+    },
+    { 
+        id: 'cohere',
+        name: 'Cohere', 
+        url: 'https://cohere.com/', 
+        description: 'Language focused LLMs. Community votes help unlock full support sooner.',
+        icon: <Icons.AI />,
+        apiKeyPlaceholder: 'cohere-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx',
+        models: ['command', 'command-light', 'command-r', 'command-r-plus'],
+        defaultModel: 'command-r',
+        supportLevel: 'experimental'
     },
 ];
 
@@ -316,8 +322,39 @@ const AIProviders: React.FC = () => {
         <div className="container mx-auto px-4 py-8">
             <PageHeader 
                 title="AI Providers" 
-                description="Configure and manage AI services for code review"
+                description={
+                    "Configure and manage AI services for code review. Gemini & Ollama are recommended today. Other providers are experimental—help prioritize full support by voting in the community discussion."
+                }
+                actions={<a href="https://github.com/HexmosTech/LiveReview/discussions/9" target="_blank" rel="noopener noreferrer"><Button variant="outline" size="sm">Vote / Request Provider</Button></a>}
             />
+
+            {/* High-visibility banner for experimental provider selection */}
+            {selectedProvider !== 'all' && (() => {
+                const meta = popularAIProviders.find(p => p.id === selectedProvider);
+                if (!meta || meta.supportLevel !== 'experimental') return null;
+                return (
+                    <div className="mb-6">
+                        <Alert variant="warning" icon={<Icons.Warning />}> 
+                            <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+                                <div className="text-sm md:pr-4">
+                                    <strong>{meta.name}</strong> is currently <strong>Experimental</strong>. Vote to accelerate full support (advanced settings, performance tuning, model coverage).
+                                </div>
+                                <a
+                                    href="https://github.com/HexmosTech/LiveReview/discussions/9"
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="inline-flex"
+                                >
+                                    <Button variant="primary" size="sm" className="whitespace-nowrap">
+                                        <Icons.AI />
+                                        <span className="ml-1">Add Your Vote</span>
+                                    </Button>
+                                </a>
+                            </div>
+                        </Alert>
+                    </div>
+                );
+            })()}
 
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
                 {/* Left panel for selecting providers */}

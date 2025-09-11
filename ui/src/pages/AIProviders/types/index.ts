@@ -12,6 +12,11 @@ export interface AIProvider {
     defaultModel?: string; // Default model to use
     baseURLPlaceholder?: string; // Placeholder for base URL field (for providers like Ollama)
     requiresBaseURL?: boolean; // Whether this provider requires a base URL
+    /**
+     * Support level shown in UI. 'recommended' are first-class, well-tested connectors.
+     * 'experimental' are available but may change or have limited test coverage.
+     */
+    supportLevel?: 'recommended' | 'experimental';
 }
 
 // AI Connector structure (mapped from API)
