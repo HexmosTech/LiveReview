@@ -22,6 +22,15 @@ const ConnectorCard: React.FC<ConnectorCardProps> = ({
     isLast,
     isReorderMode = false
 }) => {
+    // Lightweight mapping; keep in sync with popularAIProviders order/flags
+    const supportMap: Record<string, 'recommended' | 'experimental' | undefined> = {
+        gemini: 'recommended',
+        ollama: 'recommended',
+        openai: 'experimental',
+        claude: 'experimental',
+        cohere: 'experimental'
+    };
+
     return (
         <li 
             className="border border-slate-600 rounded-lg bg-slate-700 hover:bg-slate-600 transition-colors cursor-pointer"
@@ -46,13 +55,15 @@ const ConnectorCard: React.FC<ConnectorCardProps> = ({
                         <div>
                             <div className="flex items-center">
                                 <h3 className="font-medium text-white">{connector.name || `${connector.providerName || 'AI'} Connector`}</h3>
-                                <Badge 
-                                    variant="primary" 
-                                    size="sm"
-                                    className="ml-2"
-                                >
+                                <Badge variant="primary" size="sm" className="ml-2">
                                     {connector.providerName || 'Unknown'}
                                 </Badge>
+                                {supportMap[connector.providerName] === 'recommended' && (
+                                    <span className="ml-2 text-[10px] px-2 py-0.5 rounded-full bg-yellow-100 text-yellow-800 font-medium border border-yellow-200 tracking-wide">Recommended</span>
+                                )}
+                                {supportMap[connector.providerName] === 'experimental' && (
+                                    <Badge variant="warning" size="sm" className="ml-2">Experimental</Badge>
+                                )}
                             </div>
                             <p className="text-sm text-slate-300">
                                 API Key: {connector.apiKey && connector.apiKey.length > 4 

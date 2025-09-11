@@ -179,13 +179,18 @@ const ConnectorsList: React.FC<ConnectorsListProps> = ({
                                         {providers.map(provider => (
                                             <button
                                                 key={provider.id}
-                                                className="w-full text-left px-4 py-2 text-sm text-white hover:bg-slate-700 flex items-center"
+                                                className="w-full text-left px-4 py-2 text-sm text-white hover:bg-slate-700 flex items-center justify-between"
                                                 onClick={() => onSelectProviderToAdd(provider.id)}
                                             >
-                                                <span className="w-8 h-8 flex-shrink-0 rounded-full bg-indigo-600 flex items-center justify-center mr-3">
-                                                    {provider.icon}
+                                                <span className="flex items-center">
+                                                    <span className="w-8 h-8 flex-shrink-0 rounded-full bg-indigo-600 flex items-center justify-center mr-3">
+                                                        {provider.icon}
+                                                    </span>
+                                                    {provider.name}
                                                 </span>
-                                                {provider.name}
+                                                <span className="text-xs text-slate-400 ml-2">
+                                                    {provider.supportLevel === 'recommended' ? 'Recommended' : provider.supportLevel === 'experimental' ? 'Experimental' : ''}
+                                                </span>
                                             </button>
                                         ))}
                                     </div>
