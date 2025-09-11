@@ -869,6 +869,89 @@ export const Container: React.FC<ContainerProps> = ({
   );
 };
 
+// ===== SIMPLE POPOVER COMPONENT (moved below to avoid interfering with other declarations) =====
+interface PopoverProps {
+  trigger: ReactNode;
+  children: ReactNode;
+  align?: 'left' | 'right' | 'center';
+  className?: string;
+  hover?: boolean; // open on hover instead of click
+  delay?: number; // closing delay for hover
+}
+
+export const Popover: React.FC<PopoverProps> = ({ trigger, children, align = 'left', className, hover = false, delay = 180 }) => {
+  const [open, setOpen] = useState(false);
+  const triggerRef = useRef<HTMLDivElement | null>(null);
+  const popoverRef = useRef<HTMLDivElement | null>(null);
+  const closeTimer = useRef<number | null>(null);
+  const [position, setPosition] = useState<{ top: number; left: number }>({ top: 0, left: 0 });
+
+  const computePosition = () => {
+    if (triggerRef.current) {
+      const rect = triggerRef.current.getBoundingClientRect();
+      let left = rect.left;
+      if (align === 'center') left = rect.left + rect.width / 2;
+      if (align === 'right') left = rect.right;
+      setPosition({ top: rect.bottom + window.scrollY + 6, left: left + window.scrollX });
+    }
+  };
+
+  useLayoutEffect(() => { if (open) computePosition(); }, [open, align]);
+  React.useEffect(() => { const onResize = () => open && computePosition(); window.addEventListener('resize', onResize); return () => window.removeEventListener('resize', onResize); }, [open]);
+
+  React.useEffect(() => {
+    if (hover) return; // click mode listeners only
+    const onClickOutside = (e: MouseEvent) => {
+      if (!open) return;
+      if (popoverRef.current && !popoverRef.current.contains(e.target as Node) && triggerRef.current && !triggerRef.current.contains(e.target as Node)) {
+        setOpen(false);
+      }
+    };
+    const onEsc = (e: KeyboardEvent) => { if (e.key === 'Escape') setOpen(false); };
+    document.addEventListener('mousedown', onClickOutside);
+    document.addEventListener('keydown', onEsc);
+    return () => { document.removeEventListener('mousedown', onClickOutside); document.removeEventListener('keydown', onEsc); };
+  }, [open, hover]);
+
+  const clearTimer = () => { if (closeTimer.current) { window.clearTimeout(closeTimer.current); closeTimer.current = null; } };
+  const scheduleClose = () => { clearTimer(); closeTimer.current = window.setTimeout(() => setOpen(false), delay); };
+
+  const triggerProps = hover ? {
+    onMouseEnter: () => { clearTimer(); setOpen(true); },
+    onMouseLeave: () => scheduleClose(),
+    onFocus: () => setOpen(true),
+    onBlur: () => scheduleClose(),
+  } : {
+    onClick: () => setOpen(o => !o)
+  };
+
+  const content = open ? (
+    <div
+      ref={popoverRef}
+      className={classNames(
+        'z-50 absolute w-80 rounded-md shadow-lg border border-slate-600 bg-slate-800 text-slate-200 text-sm p-4 animate-fadeIn',
+        className
+      )}
+      style={{ top: position.top, left: align === 'center' ? position.left - 160 : align === 'right' ? position.left - 320 : position.left }}
+      role="dialog"
+      aria-modal="false"
+      onMouseEnter={hover ? clearTimer : undefined}
+      onMouseLeave={hover ? scheduleClose : undefined}
+    >
+      {children}
+    </div>
+  ) : null;
+
+  return (
+    <>
+      <div ref={triggerRef} className="inline-flex" {...triggerProps}>
+        {trigger}
+      </div>
+      {createPortal(content, document.body)}
+    </>
+  );
+};
+
 // ===== SPINNER COMPONENT =====
 interface SpinnerProps {
   size?: 'sm' | 'md' | 'lg';

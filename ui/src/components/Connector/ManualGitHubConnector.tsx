@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Card, Input, Button, Avatar } from '../UIPrimitives';
+import { Card, Input, Button, Avatar, Popover, Icons } from '../UIPrimitives';
 import { validateGitHubProfile } from '../../api/githubProfile';
 import { createPATConnector } from '../../api/patConnector';
 import { getConnectors } from '../../api/connectors';
@@ -59,6 +59,7 @@ const ManualGitHubConnector: React.FC = () => {
             <div className="mb-4 rounded-md bg-yellow-900 text-yellow-200 px-4 py-3 border border-yellow-400 text-base font-semibold">
                 <span className="font-bold">Recommended:</span> For best practice, create a dedicated GitHub user such as <span className="font-bold text-yellow-100">LiveReviewBot</span> and grant it access to all repositories where you want AI code reviews.
             </div>
+
             {!profile && (
                 <form className="space-y-4" onSubmit={async e => {
                     e.preventDefault();
@@ -81,15 +82,52 @@ const ManualGitHubConnector: React.FC = () => {
                         required
                         helperText="Tip: Give this connector a descriptive name for your reference."
                     />
-                    <Input
-                        id="manual-pat"
-                        label="Personal Access Token (PAT)"
-                        type="password"
-                        value={pat}
-                        onChange={e => setPat(e.target.value)}
-                        required
-                        helperText="Ensure this token has sufficient repository access for all repositories where you want AI code reviews."
-                    />
+                    <div>
+                        <div className="flex items-center space-x-3 mb-2">
+                            <label className="block text-sm font-medium text-slate-300">Personal Access Token (PAT)</label>
+                            <div className="flex items-center space-x-2 bg-blue-600 hover:bg-blue-500 px-3 py-1.5 rounded-lg transition-colors cursor-pointer">
+                                <Icons.Info />
+                                <Popover
+                                    hover
+                                    trigger={
+                                        <span className="text-white font-semibold text-sm">
+                                            📋 Setup Guide
+                                        </span>
+                                    }
+                                >
+                                    <div className="space-y-2">
+                                        <p className="text-slate-200 font-medium text-sm">GitHub PAT Setup</p>
+                                        <p className="text-xs text-slate-400 leading-relaxed">
+                                            Create a Personal Access Token with the correct scopes for LiveReview.
+                                        </p>
+                                        <ul className="text-xs text-slate-300 list-disc pl-4 space-y-1">
+                                            <li>Classic PAT with: <code className="text-green-400 bg-slate-700 px-1 rounded">repo</code>, <code className="text-green-400 bg-slate-700 px-1 rounded">read:org</code></li>
+                                            <li>Use a dedicated service user (recommended)</li>
+                                            <li>Grant access to all target repositories</li>
+                                        </ul>
+                                        <div className="pt-1">
+                                            <a
+                                                href="https://github.com/HexmosTech/LiveReview/wiki/Github"
+                                                target="_blank"
+                                                rel="noopener noreferrer"
+                                                className="text-blue-400 hover:text-blue-300 underline text-xs font-medium"
+                                            >
+                                                Open full guide ↗
+                                            </a>
+                                        </div>
+                                    </div>
+                                </Popover>
+                            </div>
+                        </div>
+                        <Input
+                            id="manual-pat"
+                            type="password"
+                            value={pat}
+                            onChange={e => setPat(e.target.value)}
+                            required
+                            helperText="Ensure this token has sufficient repository access for all repositories where you want AI code reviews."
+                        />
+                    </div>
                     {profileError && (
                         <div className="rounded-md bg-red-900 border border-red-700 px-4 py-3">
                             <div className="flex items-start">

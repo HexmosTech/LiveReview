@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Card, Input, Button, Avatar } from '../UIPrimitives';
+import { Card, Input, Button, Avatar, Popover, Icons } from '../UIPrimitives';
 import { validateBitbucketProfile } from '../../api/bitbucketProfile';
 import { createPATConnector } from '../../api/patConnector';
 import { getConnectors } from '../../api/connectors';
@@ -58,12 +58,18 @@ const ManualBitbucketConnector: React.FC = () => {
 
     return (
         <Card title="Manual Bitbucket Connector">
-            <div className="mb-4 rounded-md bg-blue-900 text-blue-200 px-4 py-3 border border-blue-400 text-base font-semibold">
-                <span className="font-bold">Note:</span> Atlassian is transitioning from App Passwords to API Tokens. Use API Tokens from <span className="font-bold text-blue-100">https://id.atlassian.com/manage-profile/security/api-tokens</span> for future-proof authentication.
+            <div className="mb-4 rounded-md bg-blue-900 text-blue-200 px-4 py-3 border border-blue-400 text-sm">
+                <span className="font-semibold">Note:</span> Atlassian is transitioning from App Passwords to API Tokens. For best practice, create a dedicated user (e.g., LiveReviewBot) with repository access. Generate tokens at{' '}
+                <a 
+                    href="https://id.atlassian.com/manage-profile/security/api-tokens" 
+                    target="_blank" 
+                    rel="noopener noreferrer"
+                    className="text-blue-100 hover:text-white underline font-medium"
+                >
+                    id.atlassian.com
+                </a>.
             </div>
-            <div className="mb-4 rounded-md bg-yellow-900 text-yellow-200 px-4 py-3 border border-yellow-400 text-base font-semibold">
-                <span className="font-bold">Recommended:</span> For best practice, create a dedicated Bitbucket user such as <span className="font-bold text-yellow-100">LiveReviewBot</span> and grant it access to all repositories where you want AI code reviews.
-            </div>
+
             {!profile && (
                                 <form className="space-y-4" onSubmit={async e => {
                     e.preventDefault();
@@ -95,15 +101,52 @@ const ManualBitbucketConnector: React.FC = () => {
                         required
                         helperText="Your Atlassian account email address (e.g., john@example.com)."
                     />
-                    <Input
-                        id="manual-api-token"
-                        label="Atlassian API Token"
-                        type="password"
-                        value={apiToken}
-                        onChange={e => setApiToken(e.target.value)}
-                        required
-                        helperText="Create an API Token at https://id.atlassian.com/manage-profile/security/api-tokens (replaces App Passwords after Sept 2025)"
-                    />
+                    <div>
+                        <div className="flex items-center space-x-3 mb-2">
+                            <label className="block text-sm font-medium text-slate-300">Atlassian API Token</label>
+                            <div className="flex items-center space-x-2 bg-blue-600 hover:bg-blue-500 px-3 py-1.5 rounded-lg transition-colors cursor-pointer">
+                                <Icons.Info />
+                                <Popover
+                                    hover
+                                    trigger={
+                                        <span className="text-white font-semibold text-sm">
+                                            📋 Setup Guide
+                                        </span>
+                                    }
+                                >
+                                    <div className="space-y-2">
+                                        <p className="text-slate-200 font-medium text-sm">Bitbucket API Token Setup</p>
+                                        <p className="text-xs text-slate-400 leading-relaxed">
+                                            Generate an API Token from your Atlassian account (replaces App Passwords).
+                                        </p>
+                                        <ul className="text-xs text-slate-300 list-disc pl-4 space-y-1">
+                                            <li>Generate at: <code className="text-green-400 bg-slate-700 px-1 rounded text-xs">id.atlassian.com</code></li>
+                                            <li>Grant repo read + pull request read permissions</li>
+                                            <li>Use a dedicated service user (recommended)</li>
+                                        </ul>
+                                        <div className="pt-1">
+                                            <a
+                                                href="https://github.com/HexmosTech/LiveReview/wiki/BitBucket"
+                                                target="_blank"
+                                                rel="noopener noreferrer"
+                                                className="text-blue-400 hover:text-blue-300 underline text-xs font-medium"
+                                            >
+                                                Open full guide ↗
+                                            </a>
+                                        </div>
+                                    </div>
+                                </Popover>
+                            </div>
+                        </div>
+                        <Input
+                            id="manual-api-token"
+                            type="password"
+                            value={apiToken}
+                            onChange={e => setApiToken(e.target.value)}
+                            required
+                            helperText="Generate an API Token at https://id.atlassian.com/manage-profile/security/api-tokens"
+                        />
+                    </div>
                     {profileError && (
                         <div className="rounded-md bg-red-900 border border-red-700 px-4 py-3">
                             <div className="flex items-start">

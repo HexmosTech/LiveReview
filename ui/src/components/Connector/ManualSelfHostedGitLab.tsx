@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Input, Button, Avatar } from '../UIPrimitives';
+import { Input, Button, Avatar, Popover, Icons } from '../UIPrimitives';
 import { validateGitLabProfile } from '../../api/gitlabProfile';
 import { createPATConnector } from '../../api/patConnector';
 import { getConnectors } from '../../api/connectors';
@@ -60,6 +60,7 @@ const ManualSelfHostedGitLab: React.FC = () => {
             <div className="mb-4 rounded-md bg-yellow-900 text-yellow-200 px-4 py-3 border border-yellow-400 text-base font-semibold">
                 <span className="font-bold">Recommended:</span> For best practice, create a dedicated GitLab user such as <span className="font-bold text-yellow-100">LiveReviewBot</span> and grant it access to all projects/groups where you want AI code reviews. This helps with security, auditability, and permission management.
             </div>
+
             {!profile && (
                 <form className="space-y-4" onSubmit={async e => {
                     e.preventDefault();
@@ -82,15 +83,51 @@ const ManualSelfHostedGitLab: React.FC = () => {
                         required
                         helperText="Tip: Give this connector a descriptive name for your reference."
                     />
-                    <Input
-                        id="manual-pat"
-                        label="Personal Access Token (PAT)"
-                        type="password"
-                        value={pat}
-                        onChange={e => setPat(e.target.value)}
-                        required
-                        helperText="Ensure this user has sufficient project/group access for all repositories where you want AI code reviews."
-                    />
+                    <div>
+                        <div className="flex items-center space-x-3 mb-2">
+                            <label className="block text-sm font-medium text-slate-300">Personal Access Token (PAT)</label>
+                            <div className="flex items-center space-x-2 bg-blue-600 hover:bg-blue-500 px-3 py-1.5 rounded-lg transition-colors cursor-pointer">
+                                <Icons.Info />
+                                <Popover
+                                    hover
+                                    trigger={
+                                        <span className="text-white font-semibold text-sm">
+                                            📋 Setup Guide
+                                        </span>
+                                    }
+                                >
+                                    <div className="space-y-2">
+                                        <p className="text-slate-200 font-medium text-sm">Self-Hosted GitLab PAT Setup</p>
+                                        <p className="text-xs text-slate-400 leading-relaxed">
+                                            Create a Personal Access Token on your GitLab instance with the correct scopes.
+                                        </p>
+                                        <ul className="text-xs text-slate-300 list-disc pl-4 space-y-1">
+                                            <li>Use a dedicated bot user (recommended)</li>
+                                            <li>Grant access to all target groups/projects</li>
+                                        </ul>
+                                        <div className="pt-1">
+                                            <a
+                                                href="https://github.com/HexmosTech/LiveReview/wiki/Self%E2%80%90Hosted-GitLab"
+                                                target="_blank"
+                                                rel="noopener noreferrer"
+                                                className="text-blue-400 hover:text-blue-300 underline text-xs font-medium"
+                                            >
+                                                Open full guide ↗
+                                            </a>
+                                        </div>
+                                    </div>
+                                </Popover>
+                            </div>
+                        </div>
+                        <Input
+                            id="manual-pat"
+                            type="password"
+                            value={pat}
+                            onChange={e => setPat(e.target.value)}
+                            required
+                            helperText="Ensure this user has sufficient project/group access for all repositories where you want AI code reviews."
+                        />
+                    </div>
                     <Input
                         id="manual-url"
                         label="Instance URL"

@@ -11,7 +11,8 @@ import {
     Avatar,
     Spinner,
     Alert,
-    Input
+    Input,
+    Popover
 } from '../../components/UIPrimitives';
 import { Connector } from '../../store/Connector/reducer';
 import { deleteConnector, getRepositoryAccess, enableManualTriggerForAllProjects, disableManualTriggerForAllProjects, ProjectWithStatus, getConnector } from '../../api/connectors';
@@ -779,6 +780,76 @@ const ConnectorDetails: React.FC = () => {
                                             'Not available'
                                         }
                                     </span>
+                                </div>
+
+                                {/* Provider Documentation (Popover Trigger) */}
+                                <div className="md:col-span-2 flex items-center space-x-3 bg-slate-800/40 border border-slate-700 rounded-md px-3 py-2">
+                                    <div className="flex items-center text-blue-300">
+                                        <Icons.Info />
+                                    </div>
+                                    <div className="text-xs sm:text-sm text-slate-300 flex-1">
+                                        Need help with tokens / OAuth setup?
+                                    </div>
+                                    <Popover
+                                        hover
+                                        trigger={
+                                            <Button variant="primary" size="sm" className="!text-xs">
+                                                Guide
+                                            </Button>
+                                        }
+                                    >
+                                        <div className="space-y-2">
+                                            <p className="text-slate-200 font-medium text-sm mb-1">{formatConnectorType(connector.type)} Setup</p>
+                                            <p className="text-xs text-slate-400 leading-relaxed">
+                                                Follow the official guide to create the required token / application with correct scopes.
+                                            </p>
+                                            <ul className="text-xs text-slate-300 list-disc pl-4 space-y-1">
+                                                {connector.type.startsWith('gitlab') && (
+                                                    <>
+                                                        <li>Scope: <code className="text-green-400">api</code></li>
+                                                        <li>Dedicated bot user recommended</li>
+                                                        <li>Grant access to all target groups/projects</li>
+                                                    </>
+                                                )}
+                                                {connector.type === 'github' && (
+                                                    <>
+                                                        <li>Classic PAT with: <code className="text-green-400">repo</code>, <code className="text-green-400">read:org</code></li>
+                                                        <li>Use a dedicated service user</li>
+                                                    </>
+                                                )}
+                                                {connector.type === 'bitbucket' && (
+                                                    <>
+                                                        <li>Generate API Token (replaces App Password)</li>
+                                                        <li>Grant repo read + pull request read</li>
+                                                    </>
+                                                )}
+                                            </ul>
+                                            <div className="pt-1">
+                                                <a
+                                                    href={(() => {
+                                                        switch (connector.type) {
+                                                            case 'gitlab-self-hosted':
+                                                                return 'https://github.com/HexmosTech/LiveReview/wiki/Self%E2%80%90Hosted-GitLab';
+                                                            case 'gitlab-com':
+                                                            case 'gitlab':
+                                                                return 'https://github.com/HexmosTech/LiveReview/wiki/Gitlab';
+                                                            case 'github':
+                                                                return 'https://github.com/HexmosTech/LiveReview/wiki/Github';
+                                                            case 'bitbucket':
+                                                                return 'https://github.com/HexmosTech/LiveReview/wiki/BitBucket';
+                                                            default:
+                                                                return '#';
+                                                        }
+                                                    })()}
+                                                    target="_blank"
+                                                    rel="noopener noreferrer"
+                                                    className="text-blue-400 hover:text-blue-300 underline text-xs font-medium"
+                                                >
+                                                    Open full guide ↗
+                                                </a>
+                                            </div>
+                                        </div>
+                                    </Popover>
                                 </div>
                             </div>
 
