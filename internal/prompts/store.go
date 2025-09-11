@@ -89,6 +89,18 @@ func (s *Store) ResolveApplicationContext(ctx context.Context, c Context) (int64
 		`SELECT id FROM prompt_application_context WHERE org_id = $1 AND ai_connector_id IS NULL AND integration_token_id IS NULL AND group_identifier IS NULL AND repository IS NULL ORDER BY id LIMIT 1`,
 		c.OrgID,
 	).Scan(&id)
+	if err == nil {
+		return id, nil
+	}
+	if err != sql.ErrNoRows {
+		return 0, err
+	}
+
+	// 7) Create default org-level context if none exists
+	err = s.db.QueryRowContext(ctx,
+		`INSERT INTO prompt_application_context (org_id) VALUES ($1) RETURNING id`,
+		c.OrgID,
+	).Scan(&id)
 	if err != nil {
 		return 0, err
 	}
