@@ -38,18 +38,6 @@ const BitbucketConnector: React.FC = () => {
                 </Button>
             </div>
             
-            {/* Info about Bitbucket connection */}
-            <div className="mb-4 rounded-md bg-blue-900 border border-blue-700 px-4 py-3">
-                <div className="flex items-start">
-                    <div className="ml-3 flex-1">
-                        <h3 className="text-sm font-medium text-blue-200">Bitbucket Connection</h3>
-                        <div className="mt-1 text-sm text-blue-300">
-                            Currently only manual Atlassian API Token connection is supported for Bitbucket. 
-                            OAuth support will be added in a future update.
-                        </div>
-                    </div>
-                </div>
-            </div>
 
             <Routes>
                 <Route index element={<Navigate to="manual" replace />} />
