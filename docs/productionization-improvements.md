@@ -283,15 +283,31 @@ Route /* → http://127.0.0.1:8081
 - **Environment Flexibility**: Guidance must work across different hosting environments (cloud, VPS, bare metal)
 - **Safety**: Avoid making assumptions about existing infrastructure or configurations
 
+## Additional Issue Found and Fixed
+
+### 5. **Hardcoded Install Paths Issue**
+
+**Problem**: Help sections showed `/opt/livereview` hardcoded paths, but actual install location is `~/livereview`.
+
+**Impact**: Users would copy commands that reference wrong directories.
+
+**Solution**: Changed all help examples to use `~/livereview` instead of variables or hardcoded `/opt/livereview`.
+
+**Fixed Examples**:
+- `sudo cp ~/livereview/config/nginx.conf.example /etc/nginx/sites-available/livereview`
+- `sudo cp ~/livereview/config/caddy.conf.example /etc/caddy/Caddyfile`
+- `sudo cp ~/livereview/config/apache.conf.example /etc/apache2/sites-available/livereview.conf`
+
 ## Implementation Priority
 
 **HIGH PRIORITY (Fix Immediately)**:
-1. Main help display update (discoverability issue)
-2. Fix broken documentation links (customer frustration)
+1. Main help display update (discoverability issue) ✅
+2. Fix broken documentation links (customer frustration) ✅
 
 **MEDIUM PRIORITY (Fix Next)**:  
-3. Add DNS prerequisites (prevents wasted time)
-4. Simplify SSL/proxy guidance (reduces support burden)
+3. Add DNS prerequisites (prevents wasted time) ✅
+4. Simplify SSL/proxy guidance (reduces support burden) ✅
+5. Fix hardcoded install paths (prevents copy-paste errors) ✅
 
 **VALIDATION PRIORITY**:
-5. Test complete productionization flow end-to-end
+6. Test complete productionization flow end-to-end
