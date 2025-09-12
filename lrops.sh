@@ -5179,6 +5179,9 @@ server {
     # Increase client max body size for file uploads
     client_max_body_size 100M;
     
+    # Prevent proxy temp file issues
+    proxy_max_temp_file_size 0;
+    
     # Route API requests to backend (port 8888)
     location ^~ /api/ {
         proxy_pass http://127.0.0.1:8888;
@@ -5239,6 +5242,9 @@ server {
 #     # Same location blocks as HTTP version
 #     client_max_body_size 100M;
 #     
+#     # Prevent proxy temp file issues
+#     proxy_max_temp_file_size 0;
+#     
 #     location ^~ /api/ {
 #         proxy_pass http://127.0.0.1:8888;
 #         proxy_set_header Host $host;
@@ -5263,6 +5269,7 @@ server {
 #         proxy_set_header Upgrade $http_upgrade;
 #         proxy_set_header Connection "upgrade";
 #     }
+# }
 # Redirect HTTP to HTTPS (uncomment after setting up SSL)
 # server {
 #     listen 80;
