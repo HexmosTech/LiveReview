@@ -81,6 +81,9 @@ console.log('🔍 Current window.location details:', {
   pathname: window.location.pathname
 });
 
+// DEBUGGING: Force alert to ensure new code is loading
+alert('🚨 NEW DEBUG CODE LOADED! Check console for logs. BASE_URL: ' + BASE_URL);
+
 // Default request options
 const defaultOptions: RequestInit = {
   headers: {
