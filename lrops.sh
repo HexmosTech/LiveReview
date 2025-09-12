@@ -499,7 +499,7 @@ USAGE:
     lrops.sh stop                      # Stop LiveReview services
     lrops.sh restart                   # Restart LiveReview services
     lrops.sh update [version]          # Pull newer image (or specific version) and restart
-    lrops.sh backup [name]             # Create manual backup with optional custom name
+    lrops.sh backup [--backup-dir <path>] [name]  # Create manual backup (see detailed options below)
     lrops.sh quick-backup              # Create quick timestamped backup
     lrops.sh list-backups              # List all available backups
     lrops.sh backup-info <name>        # Show detailed information about a backup
@@ -509,7 +509,7 @@ USAGE:
     lrops.sh show-mode                 # Show current deployment mode and configuration
     
     # Backup options:
-    --backup-dir <path>                # Specify custom backup directory (default: $LIVEREVIEW_INSTALL_DIR/backups)
+    (Use --backup-dir as backup subcommand option - see BACKUP OPTIONS below)
     lrops.sh uninstall                 # Safely uninstall (moves directory, keeps backups)
     lrops.sh logs [service]            # Show container logs
     lrops.sh env validate              # Validate .env and suggest fixes
@@ -558,6 +558,20 @@ SAFETY:
     All configuration prompts have secure defaults.
     Express mode requires no user input and completes in under 5 minutes.
 
+BACKUP OPTIONS:
+    1. Default backup (to installation directory):
+       lrops.sh backup                     # Auto-named: manual-YYYYMMDD_HHMMSS
+       
+    2. Named backup (to installation directory):
+       lrops.sh backup my-backup-name      # Custom name: my-backup-name-YYYYMMDD_HHMMSS
+       
+    3. Backup to custom directory:
+       lrops.sh backup --backup-dir /path/to/backups
+       lrops.sh backup --backup-dir /path/to/backups custom-name
+       
+    4. Quick timestamped backup:
+       lrops.sh quick-backup               # Creates: quickbackup-YYYYMMDD_HHMMSS
+
 EXAMPLES:
     # Quick demo setup (recommended for first time)
     lrops.sh setup-demo
@@ -570,6 +584,12 @@ EXAMPLES:
 
     # Preview installation plan
     lrops.sh --dry-run --verbose
+    
+    # Backup examples
+    lrops.sh backup                                    # Default backup
+    lrops.sh backup before-upgrade                     # Named backup
+    lrops.sh backup --backup-dir ~/my-backups          # Custom directory
+    lrops.sh backup --backup-dir ~/my-backups my-name  # Custom directory + name
 
 For more information, visit: https://github.com/HexmosTech/LiveReview
 EOF
@@ -2857,15 +2877,33 @@ create_backup_cmd() {
     # Generate backup name if not provided
     if [[ -z "$backup_name" ]]; then
         backup_name="manual-$(date +%Y%m%d_%H%M%S)"
+        log_info "💡 No backup name provided - using default naming"
+        log_info "   To use custom names: lrops.sh backup your-backup-name"
+        log_info "   For help: lrops.sh backup --help"
+        echo
     fi
     
     # Validate backup name (no special characters that could cause issues)
     if [[ ! "$backup_name" =~ ^[a-zA-Z0-9_-]+$ ]]; then
-        log_error "Invalid backup name. Use only letters, numbers, hyphens, and underscores"
+        log_error "Invalid backup name: '$backup_name'"
+        log_error "Backup names can only contain:"
+        log_error "  • Letters (A-Z, a-z)"
+        log_error "  • Numbers (0-9)" 
+        log_error "  • Hyphens (-)"
+        log_error "  • Underscores (_)"
+        log_info ""
+        log_info "Valid examples:"
+        log_info "  lrops.sh backup before-upgrade"
+        log_info "  lrops.sh backup weekly_backup"
+        log_info "  lrops.sh backup backup-2024-12"
         return 1
     fi
     
-    log_info "Creating backup: $backup_name"
+    # Determine backup type and provide clear user feedback
+    local backup_type="Default"
+    if [[ -n "$backup_name" && "$backup_name" != "manual-"* ]]; then
+        backup_type="Named"
+    fi
     
     # Determine backup directory (custom or default)
     local backup_root
@@ -2873,15 +2911,24 @@ create_backup_cmd() {
         # Validate and create custom backup directory
         if [[ ! "$BACKUP_TARGET_DIR" =~ ^/.*$ ]] && [[ ! "$BACKUP_TARGET_DIR" =~ ^[~].*$ ]]; then
             log_error "Backup directory must be an absolute path or start with ~"
+            log_info "Examples:"
+            log_info "  lrops.sh --backup-dir /mnt/external backup"
+            log_info "  lrops.sh --backup-dir ~/my-backups backup"
+            log_info "  lrops.sh --backup-dir /backup/livereview backup"
             return 1
         fi
         # Expand tilde if present
         backup_root=$(eval echo "$BACKUP_TARGET_DIR")
-        log_info "Using custom backup directory: $backup_root"
+        backup_type="${backup_type} (Custom Directory)"
+        log_info "📁 Backup Type: $backup_type"
+        log_info "📍 Target Directory: $backup_root"
     else
         backup_root="$LIVEREVIEW_INSTALL_DIR/backups"
-        log_info "Using default backup directory: $backup_root"
+        log_info "📁 Backup Type: $backup_type Backup"
+        log_info "📍 Target Directory: $backup_root (default location)"
     fi
+    
+    log_info "🏷️  Backup Name: $backup_name"
     
     # Create backup root directory
     if ! mkdir -p "$backup_root"; then
@@ -2985,11 +3032,22 @@ EOF
     local backup_size
     backup_size=$(du -sh "$backup_dir" | cut -f1)
     
-    log_success "Manual backup completed successfully!"
-    log_info "Backup name: $dir_name"
-    log_info "Backup location: $backup_dir"
-    log_info "Backup size: $backup_size"
-    log_info "To restore: lrops.sh restore $dir_name"
+    log_success "✅ Backup completed successfully!"
+    echo
+    log_info "📦 Backup Details:"
+    log_info "   Name: $dir_name"
+    log_info "   Location: $backup_dir"
+    log_info "   Size: $backup_size"
+    log_info "   Contains: Database, configuration, settings"
+    echo
+    log_info "🔄 Restore Options:"
+    log_info "   Restore this backup: lrops.sh restore $dir_name"
+    log_info "   Restore latest backup: lrops.sh restore latest"
+    echo
+    log_info "📋 Management Commands:"
+    log_info "   List all backups: lrops.sh list-backups"
+    log_info "   View backup info: lrops.sh backup-info $dir_name"
+    log_info "   Delete this backup: lrops.sh delete-backup $dir_name"
     
     # Don't prune old backups for manual backups - let user manage them
 }
@@ -3533,6 +3591,32 @@ For more help: https://github.com/HexmosTech/LiveReview/wiki/Productionize-LiveR
 EOF
 }
 
+# Show quick backup options (concise version)
+show_backup_options_help() {
+    section_header "BACKUP COMMAND OPTIONS"
+    
+    cat << 'EOF'
+💾 Quick Backup Guide
+
+BASIC COMMANDS:
+   lrops.sh backup                     # Default backup (auto-named)
+   lrops.sh backup my-backup-name      # Named backup  
+   lrops.sh quick-backup               # Quick timestamped backup
+
+CUSTOM DIRECTORY:
+   lrops.sh backup --backup-dir /path  # Backup to custom location
+   lrops.sh backup --backup-dir ~/backups custom-name
+
+MANAGEMENT:
+   lrops.sh list-backups               # Show all backups
+   lrops.sh backup-info <name>         # Backup details
+   lrops.sh restore <name>             # Restore backup
+   lrops.sh delete-backup <name>       # Delete backup
+
+For complete guide: lrops.sh help backup
+EOF
+}
+
 # Show backup strategies and script usage
 show_backup_help() {
     section_header "BACKUP & RESTORE GUIDE"
@@ -3540,70 +3624,145 @@ show_backup_help() {
     cat << 'EOF'
 💾 LiveReview Backup & Restore Guide
 
-QUICK BACKUP
-============
-Run the included backup script:
-    cd "$LIVEREVIEW_INSTALL_DIR"
-  ./scripts/backup.sh
+═══════════════════════════════════════════════════════════════════════════════
+📋 BACKUP COMMAND OPTIONS - Simple and User-Friendly
+═══════════════════════════════════════════════════════════════════════════════
 
-This creates a timestamped backup in $LIVEREVIEW_INSTALL_DIR/backups/
+1. DEFAULT BACKUP (Recommended for most users)
+   ============================================
+   
+   Command: lrops.sh backup
+   
+   • Creates backup with auto-generated name: manual-YYYYMMDD_HHMMSS
+   • Stores in: $LIVEREVIEW_INSTALL_DIR/backups/
+   • Includes: Database, configuration files, and settings
+   • Example: manual-20241212_143022-version-v1.2.3
+   
+   ✅ Use this when: You want a quick backup before updates or changes
 
-MANUAL BACKUP PROCESS
-====================
-1. Stop LiveReview (optional, for consistency):
-   lrops.sh stop
+2. NAMED BACKUP (Custom backup names)
+   ===================================
+   
+   Command: lrops.sh backup <custom-name>
+   
+   • Creates backup with your custom name: <custom-name>-YYYYMMDD_HHMMSS
+   • Stores in: $LIVEREVIEW_INSTALL_DIR/backups/
+   • Examples:
+     - lrops.sh backup before-upgrade
+     - lrops.sh backup weekly-backup
+     - lrops.sh backup pre-maintenance
+   
+   ✅ Use this when: You want meaningful backup names for organization
 
-2. Backup database:
-    docker run --rm -v livereview_postgres_data:/backup-source \
-    -v "$LIVEREVIEW_INSTALL_DIR/backups":/backup-dest \
-   postgres:15-alpine tar czf /backup-dest/db-$(date +%Y%m%d_%H%M%S).tar.gz /backup-source
+3. BACKUP TO CUSTOM DIRECTORY (For external storage)
+   =================================================
+   
+   Command: lrops.sh backup --backup-dir /path/to/directory [name]
+   
+   • Stores backup in your specified directory instead of default location
+   • Can be combined with custom names
+   • Useful for external drives, network storage, etc.
+   • Examples:
+     - lrops.sh backup --backup-dir /mnt/external-drive
+     - lrops.sh backup --backup-dir ~/my-backups important
+     - lrops.sh backup --backup-dir /backup/livereview monthly-backup
+   
+   ✅ Use this when: You want backups on external storage or different location
 
-3. Backup configuration:
-    tar czf "$LIVEREVIEW_INSTALL_DIR/backups/config-$(date +%Y%m%d_%H%M%S).tar.gz" \
-    "$LIVEREVIEW_INSTALL_DIR/.env" "$LIVEREVIEW_INSTALL_DIR/docker-compose.yml" "$LIVEREVIEW_INSTALL_DIR/config/"
+4. QUICK BACKUP (One-command timestamped backup)
+   =============================================
+   
+   Command: lrops.sh quick-backup
+   
+   • Creates: quickbackup-YYYYMMDD_HHMMSS
+   • Equivalent to: lrops.sh backup (but with "quickbackup" prefix)
+   
+   ✅ Use this when: You need a fast backup with timestamp naming
 
-4. Restart LiveReview:
-   lrops.sh start
+═══════════════════════════════════════════════════════════════════════════════
+📁 BACKUP MANAGEMENT COMMANDS
+═══════════════════════════════════════════════════════════════════════════════
 
-RESTORE PROCESS
-===============
+View backups:        lrops.sh list-backups
+Backup details:      lrops.sh backup-info <backup-name>
+Delete backup:       lrops.sh delete-backup <backup-name>
+Restore backup:      lrops.sh restore <backup-name>
+Restore latest:      lrops.sh restore latest
+
+═══════════════════════════════════════════════════════════════════════════════
+🔄 RESTORE PROCESS
+═══════════════════════════════════════════════════════════════════════════════
+
 1. Stop LiveReview:
    lrops.sh stop
 
-2. Restore database:
-   ./scripts/restore.sh /path/to/backup.tar.gz
+2. Restore from backup:
+   lrops.sh restore <backup-name>
+   # OR restore latest backup:
+   lrops.sh restore latest
 
-3. Restore configuration (if needed):
-   tar xzf config-backup.tar.gz -C /
-
-4. Restart LiveReview:
+3. Restart LiveReview:
    lrops.sh start
 
-AUTOMATED BACKUP WITH CRON
-===========================
-1. Copy the cron example:
-    sudo cp "$LIVEREVIEW_INSTALL_DIR/config/backup-cron.example" /etc/cron.d/livereview-backup
+═══════════════════════════════════════════════════════════════════════════════
+⚙️  AUTOMATED BACKUPS
+═══════════════════════════════════════════════════════════════════════════════
 
-2. Edit the cron file to set your schedule:
+Set up daily automated backups:
+
+1. Copy cron template:
+   sudo cp "$LIVEREVIEW_INSTALL_DIR/config/backup-cron.example" /etc/cron.d/livereview-backup
+
+2. Edit the schedule:
    sudo nano /etc/cron.d/livereview-backup
 
-CLOUD BACKUP WITH RCLONE (Optional)
-===================================
-1. Install rclone:
-   sudo apt install rclone
+3. Example cron entries:
+   # Daily backup at 2 AM
+   0 2 * * * lrops.sh backup daily-$(date +\%Y\%m\%d)
+   
+   # Weekly backup on Sundays at 3 AM to external drive  
+   0 3 * * 0 lrops.sh backup --backup-dir /mnt/backup weekly-$(date +\%Y\%U)
 
-2. Configure cloud storage:
-   rclone config
+═══════════════════════════════════════════════════════════════════════════════
+☁️  CLOUD/EXTERNAL STORAGE
+═══════════════════════════════════════════════════════════════════════════════
 
-3. Add cloud sync to backup script:
-    rclone sync "$LIVEREVIEW_INSTALL_DIR/backups/" mycloud:livereview-backups/
+Backup to external locations:
 
-BACKUP BEST PRACTICES:
-- Run backups daily
-- Keep multiple backup copies
-- Test restore procedures regularly
-- Store backups off-site
-- Monitor backup success
+1. Network drives:
+   lrops.sh backup --backup-dir /mnt/nas/livereview
+
+2. Cloud sync with rclone:
+   # Install rclone: sudo apt install rclone
+   # Configure: rclone config
+   # Auto-sync: rclone sync "$LIVEREVIEW_INSTALL_DIR/backups/" mycloud:livereview-backups/
+
+3. USB/External drives:
+   lrops.sh backup --backup-dir /media/usb-drive/backups
+
+═══════════════════════════════════════════════════════════════════════════════
+📊 WHAT'S INCLUDED IN BACKUPS
+═══════════════════════════════════════════════════════════════════════════════
+
+Each backup contains:
+✅ Database dump (PostgreSQL data)
+✅ Configuration files (.env, docker-compose.yml)
+✅ Application settings and customizations
+✅ Container metadata and version information
+✅ Compressed data directory (physical backup)
+✅ Backup metadata and creation timestamp
+
+═══════════════════════════════════════════════════════════════════════════════
+💡 BACKUP BEST PRACTICES
+═══════════════════════════════════════════════════════════════════════════════
+
+• Backup BEFORE any updates or changes
+• Test restore procedures regularly
+• Keep multiple backup copies (3-2-1 rule)
+• Store backups in different locations
+• Use meaningful names for important backups
+• Monitor backup success and disk space
+• Clean up old backups periodically
 
 For more help: https://github.com/HexmosTech/LiveReview/wiki/Productionize-LiveReview
 EOF
@@ -4684,7 +4843,7 @@ main() {
     local is_management_command=false
     
     case "${1:-}" in
-        status|info|start|stop|restart|update|list-backups|restore|uninstall|logs|help)
+        status|info|start|stop|restart|update|list-backups|backup|quick-backup|backup-info|delete-backup|restore|uninstall|logs|help)
             is_management_command=true
             ;;
         setup-demo|setup-production)
@@ -4745,8 +4904,51 @@ main() {
             exit $?
             ;;
         backup)
-            # Create backup with optional custom name: lrops.sh backup [name]
-            create_backup_cmd "${2:-}"
+            # Parse backup-specific arguments: lrops.sh backup [--backup-dir <path>] [name]
+            shift  # Remove 'backup' from arguments
+            local backup_name=""
+            local custom_backup_dir=""
+            
+            # Parse backup arguments
+            while [[ $# -gt 0 ]]; do
+                case $1 in
+                    --backup-dir)
+                        custom_backup_dir="$2"
+                        shift 2
+                        ;;
+                    --backup-dir=*)
+                        custom_backup_dir="${1#*=}"
+                        shift
+                        ;;
+                    --help|-h)
+                        show_backup_options_help
+                        exit 0
+                        ;;
+                    --*)
+                        log_error "Unknown backup option: $1"
+                        log_info "Usage: lrops.sh backup [--backup-dir <path>] [name]"
+                        show_backup_options_help
+                        exit 1
+                        ;;
+                    *)
+                        if [[ -z "$backup_name" ]]; then
+                            backup_name="$1"
+                        else
+                            log_error "Multiple backup names specified: '$backup_name' and '$1'"
+                            log_info "Usage: lrops.sh backup [--backup-dir <path>] [name]"
+                            exit 1
+                        fi
+                        shift
+                        ;;
+                esac
+            done
+            
+            # Set the custom backup directory if provided
+            if [[ -n "$custom_backup_dir" ]]; then
+                BACKUP_TARGET_DIR="$custom_backup_dir"
+            fi
+            
+            create_backup_cmd "$backup_name"
             exit $?
             ;;
         quick-backup)
