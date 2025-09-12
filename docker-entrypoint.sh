@@ -69,17 +69,15 @@ start_servers() {
     
     # Auto-generate API URL based on reverse proxy setting
     if [ "$REVERSE_PROXY" = "true" ]; then
-        API_URL="http://localhost/api"
-        echo "  - Production mode: API behind reverse proxy at /api"
+        # In production mode with reverse proxy, do NOT set API_URL
+        # Let the Go server auto-detect from the frontend URL
+        echo "  - Production mode: API behind reverse proxy (auto-detect from frontend URL)"
+        unset API_URL  # Ensure no API_URL is set
     else
         API_URL="http://localhost:$BACKEND_PORT"
-        echo "  - Demo mode: Direct API access"
+        echo "  - Demo mode: Direct API access at $API_URL"
+        export API_URL="$API_URL"
     fi
-    echo "  - UI will be configured to use API at: $API_URL"
-    
-    # Auto-generate framework-specific environment variables for the UI build process
-    # Note: We keep .env minimal for customers and derive these at runtime here.
-    export API_URL="$API_URL"
     export VITE_API_URL="$API_URL"
     export REACT_APP_API_URL="$API_URL"
     export NEXT_PUBLIC_API_URL="$API_URL"
