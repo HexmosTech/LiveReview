@@ -633,7 +633,7 @@ class LiveReviewOps:
         
         return 0
     
-    def build_docker_image(self, version=None, registry=None, image_name=None, push=False, dry_run=False, make_latest=None, architectures=None, multiarch=False):
+    def build_docker_image(self, version=None, registry=None, image_name=None, push=False, dry_run=False, make_latest=None, architectures=None, multiarch=False, no_cache=False):
         """Build Docker image with version information and multi-architecture support.
 
         Phase 9 enhancement: optionally embed encrypted vendor prompts by:
@@ -750,16 +750,16 @@ class LiveReviewOps:
             return self._build_multiarch_image(
                 version, docker_version, git_commit, build_time,
                 full_image, version_tag, latest_tag, architectures,
-                make_latest, push
+                make_latest, push, no_cache
             )
         else:
             return self._build_single_arch_image(
                 version, docker_version, git_commit, build_time,
-                version_tag, latest_tag, make_latest, push
+                version_tag, latest_tag, make_latest, push, no_cache
             )
     
     def _build_single_arch_image(self, version, docker_version, git_commit, build_time,
-                                version_tag, latest_tag, make_latest, push):
+                                version_tag, latest_tag, make_latest, push, no_cache=False):
         """Build single architecture Docker image via cross-compilation Dockerfile"""
         # Use buildx with the cross-compilation Dockerfile for consistency and UI reuse
         env_vendor = os.environ.get('LIVEREVIEW_VENDOR_PROMPTS')
@@ -784,6 +784,8 @@ class LiveReviewOps:
             '--build-arg', f'BUILD_TIME={build_time}',
             '--build-arg', f'GIT_COMMIT={git_commit}',
         ]
+        if no_cache:
+            cmd += ['--no-cache']
         if go_tags:
             cmd += ['--build-arg', f'GO_BUILD_TAGS={" ".join(go_tags)}']
         cmd += [
@@ -815,7 +817,7 @@ class LiveReviewOps:
     
     def _build_multiarch_image(self, version, docker_version, git_commit, build_time,
                               full_image, version_tag, latest_tag, architectures,
-                              make_latest, push):
+                              make_latest, push, no_cache=False):
         """Build multi-architecture Docker images using buildx for GitHub Container Registry"""
         print(f"Building multi-architecture Docker image for architectures: {', '.join(architectures)}")
         print("🚀 Using buildx multi-platform build for GitHub Container Registry!")
@@ -856,6 +858,8 @@ class LiveReviewOps:
             '--build-arg', f'BUILD_TIME={build_time}',
             '--build-arg', f'GIT_COMMIT={git_commit}',
         ]
+        if no_cache:
+            cmd += ['--no-cache']
         if go_tags:
             cmd += ['--build-arg', f'GO_BUILD_TAGS={" ".join(go_tags)}']
         cmd += [
@@ -985,7 +989,8 @@ class LiveReviewOps:
                     dry_run=args.dry_run,
                     make_latest=args.latest,
                     architectures=args.architectures,
-                    multiarch=args.multiarch
+                    multiarch=args.multiarch,
+                    no_cache=args.no_cache
                 )
                 if not args.dry_run:
                     print(f"Docker build completed: {image_tag}")
@@ -1098,7 +1103,8 @@ class LiveReviewOps:
                 push=args.push,
                 dry_run=args.dry_run,
                 multiarch=multiarch,
-                architectures=args.architectures if hasattr(args, 'architectures') else None
+                architectures=args.architectures if hasattr(args, 'architectures') else None,
+                no_cache=args.no_cache
             )
             
             if not args.dry_run:
@@ -1174,6 +1180,8 @@ def main():
                              help='Specific architectures to build (default: amd64 arm64)')
     build_parser.add_argument('--no-vendor-prompts', action='store_true',
                              help='Disable encrypted vendor prompts (default is enabled)')
+    build_parser.add_argument('--no-cache', action='store_true',
+                             help='Build Docker image without using cache')
     build_parser.set_defaults(latest=None)  # Allow None to trigger auto-detection
     
     # Docker command (interactive tag selection)
@@ -1201,6 +1209,8 @@ def main():
                               help='Specific architectures to build (default: amd64 arm64)')
     docker_parser.add_argument('--no-vendor-prompts', action='store_true',
                               help='Disable encrypted vendor prompts (default is enabled)')
+    docker_parser.add_argument('--no-cache', action='store_true',
+                              help='Build Docker image without using cache')
     docker_parser.set_defaults(latest=None, multiarch=None)  # Allow None to trigger interactive mode
     
     args = parser.parse_args()
