@@ -515,6 +515,9 @@ USAGE:
     lrops.sh env validate              # Validate .env and suggest fixes
     lrops.sh help ssl                  # SSL/TLS setup guidance
     lrops.sh help backup               # Backup strategies
+    lrops.sh help nginx                # Nginx reverse proxy setup
+    lrops.sh help caddy                # Caddy reverse proxy setup
+    lrops.sh help apache               # Apache reverse proxy setup
 
 INSTALLATION OPTIONS:
     --express                          Use secure defaults, no prompts (demo mode)
@@ -3399,101 +3402,134 @@ show_ssl_help() {
     cat << 'EOF'
 🔒 SSL/TLS Configuration for LiveReview
 
-OPTION 1: Automated SSL Setup Script (NEW!)
-==========================================
-Use the included SSL setup script for automatic configuration:
+PREREQUISITES - DNS SETUP & VERIFICATION
+========================================
+Before configuring SSL or reverse proxy, ensure:
 
-    cd "$LIVEREVIEW_INSTALL_DIR/scripts"
-   sudo ./setup-ssl.sh yourdomain.com admin@yourdomain.com
+1. VERIFY YOUR DOMAIN POINTS TO THIS SERVER
+   ----------------------------------------
+   
+   a) Get your server's public IP address:
+      curl -s ifconfig.me
+      # OR: curl -s ipinfo.io/ip
+   
+   b) Check DNS resolution locally:
+      dig yourdomain.com
+      nslookup yourdomain.com
+   
+   c) Verify DNS propagation globally (CRITICAL):
+      • Visit: https://www.whatsmydns.net/
+      • Enter your domain name
+      • Select "A" record type
+      • Confirm ALL locations show your server's IP
+      
+   d) Alternative DNS propagation check:
+      • Visit: https://dnschecker.org/
+      • Enter your domain and verify worldwide propagation
+   
+   e) Command-line verification from different locations:
+      # Use different DNS servers to check consistency
+      dig @8.8.8.8 yourdomain.com        # Google DNS
+      dig @1.1.1.1 yourdomain.com        # Cloudflare DNS  
+      dig @208.67.222.222 yourdomain.com # OpenDNS
+   
+   ⚠️  COMMON MISTAKES TO AVOID:
+   • Don't proceed if DNS shows different IPs in different locations
+   • Wait for full global propagation (can take up to 48 hours)
+   • Ensure you're checking the RIGHT domain (not www. vs non-www)
+   • Verify both A record AND any CNAME records point correctly
 
-This script will:
-- Install certbot automatically
-- Generate Let's Encrypt certificates
-- Configure your existing reverse proxy
-- Set up automatic renewal
+2. VERIFY NETWORK CONNECTIVITY
+   ----------------------------
+   
+   a) Check ports 80 and 443 are accessible from internet:
+      # From another machine/location, test:
+      telnet yourdomain.com 80
+      telnet yourdomain.com 443
+   
+   b) Check firewall rules:
+      sudo ufw status
+      # Ensure ports 80 and 443 are allowed
+   
+   c) Check cloud security groups (AWS/GCP/Azure/DigitalOcean):
+      # Verify inbound rules allow TCP ports 80 and 443 from 0.0.0.0/0
+   
+   d) Test with online port checker:
+      • Visit: https://www.yougetsignal.com/tools/open-ports/
+      • Enter your domain and test ports 80, 443
 
-OPTION 2: Automatic SSL with Caddy (Recommended)
-============================================
-1. Use the Caddy reverse proxy template:
-    cp "$LIVEREVIEW_INSTALL_DIR/config/caddy.conf.example" "$LIVEREVIEW_INSTALL_DIR/caddy.conf"
+3. VERIFY NO PORT CONFLICTS
+   -------------------------
+   
+   a) Check nothing else is using ports 80/443:
+      sudo ss -tlnp | grep ':80\|:443'
+      sudo netstat -tlnp | grep ':80\|:443'
+   
+   b) If Apache/nginx already running, you'll need to:
+      • Stop them temporarily, OR
+      • Configure them as the reverse proxy (recommended)
 
-2. Edit the domain name in caddy.conf:
-    sed -i 's/your-domain.com/yourdomain.com/g' "$LIVEREVIEW_INSTALL_DIR/caddy.conf"
+4. FINAL VERIFICATION CHECKLIST
+   ------------------------------
+   
+   ✅ Domain resolves to correct IP globally (whatsmydns.net shows green)
+   ✅ Ports 80 and 443 are open from internet (telnet/port checker works)  
+   ✅ No services currently using ports 80/443 (ss/netstat shows clear)
+   ✅ LiveReview is running and accessible on ports 8888/8081 locally
+   
+   Test LiveReview accessibility:
+   curl http://localhost:8888/health    # Should return OK
+   curl http://localhost:8081/          # Should return HTML
 
-3. Install and run Caddy:
-   sudo apt install caddy
-   sudo systemctl enable caddy
-    sudo cp "$LIVEREVIEW_INSTALL_DIR/caddy.conf" /etc/caddy/Caddyfile
-   sudo systemctl restart caddy
+⚠️  CRITICAL: Without proper DNS pointing to your server, SSL certificates 
+    CANNOT be obtained! Let's Encrypt and other CAs verify domain ownership
+    by checking that your domain resolves to the requesting server.
 
-OPTION 3: Manual SSL with Nginx + Certbot
-=========================================
-1. Install Nginx and Certbot:
-   sudo apt update
-   sudo apt install nginx certbot python3-certbot-nginx
+💡 TROUBLESHOOTING DNS ISSUES:
+   • If DNS propagation is incomplete, WAIT - don't proceed
+   • If different regions show different IPs, contact your DNS provider
+   • If using Cloudflare, ensure proxy is disabled (gray cloud) for SSL setup
+   • Check TTL settings - lower TTL (300-900 seconds) speeds up changes
 
-2. Copy and configure Nginx template:
-    sudo cp "$LIVEREVIEW_INSTALL_DIR/config/nginx.conf.example" /etc/nginx/sites-available/livereview
-   sudo sed -i 's/your-domain.com/yourdomain.com/g' /etc/nginx/sites-available/livereview
-   sudo ln -s /etc/nginx/sites-available/livereview /etc/nginx/sites-enabled/
-   sudo nginx -t && sudo systemctl reload nginx
+SSL/TLS SETUP APPROACHES
+=======================
 
-3. Obtain SSL certificate:
-   sudo certbot --nginx -d yourdomain.com
+OPTION 1: Automatic SSL with Caddy (Recommended for new setups)
+- Handles certificates automatically
+- Zero manual certificate management
+- See: lrops.sh help caddy
 
-4. Set up automatic renewal:
-   sudo crontab -e
-   # Add: 0 12 * * * /usr/bin/certbot renew --quiet
+OPTION 2: Manual SSL with existing reverse proxy
+- Use your existing nginx/apache setup
+- Obtain certificates with certbot or your preferred method
+- Configure your reverse proxy to use certificates
 
-OPTION 4: Manual SSL with Apache
-================================
-1. Install Apache and Certbot:
-   sudo apt update
-   sudo apt install apache2 certbot python3-certbot-apache
+OPTION 3: Cloud/managed SSL
+- Use CloudFlare, AWS ALB, or similar services
+- Terminate SSL at the load balancer/CDN level
+- Point to your LiveReview ports (8888/8081)
 
-2. Copy and configure Apache template:
-    sudo cp "$LIVEREVIEW_INSTALL_DIR/config/apache.conf.example" /etc/apache2/sites-available/livereview.conf
-   sudo sed -i 's/your-domain.com/yourdomain.com/g' /etc/apache2/sites-available/livereview.conf
-   sudo a2ensite livereview.conf
-   sudo a2enmod proxy proxy_http ssl
-   sudo systemctl reload apache2
+REQUIREMENTS FOR ALL APPROACHES:
+- Domain pointing to your server (DNS setup)
+- Ports 80 and 443 accessible  
+- LiveReview running on ports 8888 (API) and 8081 (UI)
 
-3. Obtain SSL certificate:
-   sudo certbot --apache -d yourdomain.com
+REVERSE PROXY ROUTING:
+Route /api/* → http://127.0.0.1:8888
+Route /* → http://127.0.0.1:8081
 
-SSL MAINTENANCE
-==============
-- Test certificate renewal: sudo certbot renew --dry-run
-- Manual renewal: cd "$LIVEREVIEW_INSTALL_DIR/scripts" && sudo ./renew-ssl.sh
-- Check certificate expiry: sudo certbot certificates
-- View certificate details: openssl x509 -in /etc/letsencrypt/live/yourdomain.com/cert.pem -text -noout
+GENERAL SSL GUIDANCE:
+- Let's Encrypt is free and widely supported
+- Use certbot for most manual SSL setups
+- Configure automatic certificate renewal
+- Test your SSL setup: https://www.ssllabs.com/ssltest/
 
-SECURITY BEST PRACTICES
-======================
-✓ Use strong SSL/TLS protocols (TLS 1.2+)
-✓ Configure HSTS headers for security
-✓ Set up certificate monitoring/alerts
-✓ Regularly test SSL configuration: https://www.ssllabs.com/ssltest/
-✓ Keep certbot and reverse proxy updated
-✓ Monitor certificate expiry (auto-renewal should handle this)
+TROUBLESHOOTING COMMON ISSUES:
+- Certificate failures: Verify DNS propagation first
+- Port access issues: Check firewall/security groups
+- Proxy errors: Verify LiveReview is running on 8888/8081
 
-TROUBLESHOOTING
-==============
-- Domain not pointing to server: Check DNS records
-- Port 80/443 blocked: Check firewall and security groups
-- Certificate generation fails: Ensure domain resolves correctly
-- Configuration errors: Check reverse proxy logs
-
-3. Obtain SSL certificate:
-   sudo certbot --apache -d yourdomain.com
-
-IMPORTANT SECURITY NOTES:
-- Always use HTTPS in production
-- Keep certificates renewed automatically
-- Configure proper firewall rules
-- Regular security updates
-
-For more help: https://github.com/HexmosTech/LiveReview/docs/ssl-setup
+For more help: https://github.com/HexmosTech/LiveReview/wiki/Productionize-LiveReview
 EOF
 }
 
@@ -3569,7 +3605,7 @@ BACKUP BEST PRACTICES:
 - Store backups off-site
 - Monitor backup success
 
-For more help: https://github.com/HexmosTech/LiveReview/docs/backup-guide
+For more help: https://github.com/HexmosTech/LiveReview/wiki/Productionize-LiveReview
 EOF
 }
 
@@ -3579,6 +3615,95 @@ show_nginx_help() {
     
     cat << 'EOF'
 🌐 Nginx Reverse Proxy Configuration for LiveReview
+
+PREREQUISITES - DNS SETUP & VERIFICATION
+========================================
+Before configuring SSL or reverse proxy, ensure:
+
+1. VERIFY YOUR DOMAIN POINTS TO THIS SERVER
+   ----------------------------------------
+   
+   a) Get your server's public IP address:
+      curl -s ifconfig.me
+      # OR: curl -s ipinfo.io/ip
+   
+   b) Check DNS resolution locally:
+      dig yourdomain.com
+      nslookup yourdomain.com
+   
+   c) Verify DNS propagation globally (CRITICAL):
+      • Visit: https://www.whatsmydns.net/
+      • Enter your domain name
+      • Select "A" record type
+      • Confirm ALL locations show your server's IP
+      
+   d) Alternative DNS propagation check:
+      • Visit: https://dnschecker.org/
+      • Enter your domain and verify worldwide propagation
+   
+   e) Command-line verification from different locations:
+      # Use different DNS servers to check consistency
+      dig @8.8.8.8 yourdomain.com        # Google DNS
+      dig @1.1.1.1 yourdomain.com        # Cloudflare DNS  
+      dig @208.67.222.222 yourdomain.com # OpenDNS
+   
+   ⚠️  COMMON MISTAKES TO AVOID:
+   • Don't proceed if DNS shows different IPs in different locations
+   • Wait for full global propagation (can take up to 48 hours)
+   • Ensure you're checking the RIGHT domain (not www. vs non-www)
+   • Verify both A record AND any CNAME records point correctly
+
+2. VERIFY NETWORK CONNECTIVITY
+   ----------------------------
+   
+   a) Check ports 80 and 443 are accessible from internet:
+      # From another machine/location, test:
+      telnet yourdomain.com 80
+      telnet yourdomain.com 443
+   
+   b) Check firewall rules:
+      sudo ufw status
+      # Ensure ports 80 and 443 are allowed
+   
+   c) Check cloud security groups (AWS/GCP/Azure/DigitalOcean):
+      # Verify inbound rules allow TCP ports 80 and 443 from 0.0.0.0/0
+   
+   d) Test with online port checker:
+      • Visit: https://www.yougetsignal.com/tools/open-ports/
+      • Enter your domain and test ports 80, 443
+
+3. VERIFY NO PORT CONFLICTS
+   -------------------------
+   
+   a) Check nothing else is using ports 80/443:
+      sudo ss -tlnp | grep ':80\|:443'
+      sudo netstat -tlnp | grep ':80\|:443'
+   
+   b) If Apache/nginx already running, you'll need to:
+      • Stop them temporarily, OR
+      • Configure them as the reverse proxy (recommended)
+
+4. FINAL VERIFICATION CHECKLIST
+   ------------------------------
+   
+   ✅ Domain resolves to correct IP globally (whatsmydns.net shows green)
+   ✅ Ports 80 and 443 are open from internet (telnet/port checker works)  
+   ✅ No services currently using ports 80/443 (ss/netstat shows clear)
+   ✅ LiveReview is running and accessible on ports 8888/8081 locally
+   
+   Test LiveReview accessibility:
+   curl http://localhost:8888/health    # Should return OK
+   curl http://localhost:8081/          # Should return HTML
+
+⚠️  CRITICAL: Without proper DNS pointing to your server, SSL certificates 
+    CANNOT be obtained! Let's Encrypt and other CAs verify domain ownership
+    by checking that your domain resolves to the requesting server.
+
+💡 TROUBLESHOOTING DNS ISSUES:
+   • If DNS propagation is incomplete, WAIT - don't proceed
+   • If different regions show different IPs, contact your DNS provider
+   • If using Cloudflare, ensure proxy is disabled (gray cloud) for SSL setup
+   • Check TTL settings - lower TTL (300-900 seconds) speeds up changes
 
 INSTALLATION
 ============
@@ -3634,7 +3759,7 @@ TROUBLESHOOTING
 - Test DNS resolution: nslookup yourdomain.com
 
 For SSL setup: lrops.sh help ssl
-For more help: https://github.com/HexmosTech/LiveReview/docs/nginx-guide
+For more help: https://github.com/HexmosTech/LiveReview/wiki/Productionize-LiveReview
 EOF
 }
 
@@ -3644,6 +3769,95 @@ show_caddy_help() {
     
     cat << 'EOF'
 ⚡ Caddy Reverse Proxy Configuration for LiveReview
+
+PREREQUISITES - DNS SETUP & VERIFICATION
+========================================
+Before configuring SSL or reverse proxy, ensure:
+
+1. VERIFY YOUR DOMAIN POINTS TO THIS SERVER
+   ----------------------------------------
+   
+   a) Get your server's public IP address:
+      curl -s ifconfig.me
+      # OR: curl -s ipinfo.io/ip
+   
+   b) Check DNS resolution locally:
+      dig yourdomain.com
+      nslookup yourdomain.com
+   
+   c) Verify DNS propagation globally (CRITICAL):
+      • Visit: https://www.whatsmydns.net/
+      • Enter your domain name
+      • Select "A" record type
+      • Confirm ALL locations show your server's IP
+      
+   d) Alternative DNS propagation check:
+      • Visit: https://dnschecker.org/
+      • Enter your domain and verify worldwide propagation
+   
+   e) Command-line verification from different locations:
+      # Use different DNS servers to check consistency
+      dig @8.8.8.8 yourdomain.com        # Google DNS
+      dig @1.1.1.1 yourdomain.com        # Cloudflare DNS  
+      dig @208.67.222.222 yourdomain.com # OpenDNS
+   
+   ⚠️  COMMON MISTAKES TO AVOID:
+   • Don't proceed if DNS shows different IPs in different locations
+   • Wait for full global propagation (can take up to 48 hours)
+   • Ensure you're checking the RIGHT domain (not www. vs non-www)
+   • Verify both A record AND any CNAME records point correctly
+
+2. VERIFY NETWORK CONNECTIVITY
+   ----------------------------
+   
+   a) Check ports 80 and 443 are accessible from internet:
+      # From another machine/location, test:
+      telnet yourdomain.com 80
+      telnet yourdomain.com 443
+   
+   b) Check firewall rules:
+      sudo ufw status
+      # Ensure ports 80 and 443 are allowed
+   
+   c) Check cloud security groups (AWS/GCP/Azure/DigitalOcean):
+      # Verify inbound rules allow TCP ports 80 and 443 from 0.0.0.0/0
+   
+   d) Test with online port checker:
+      • Visit: https://www.yougetsignal.com/tools/open-ports/
+      • Enter your domain and test ports 80, 443
+
+3. VERIFY NO PORT CONFLICTS
+   -------------------------
+   
+   a) Check nothing else is using ports 80/443:
+      sudo ss -tlnp | grep ':80\|:443'
+      sudo netstat -tlnp | grep ':80\|:443'
+   
+   b) If Apache/nginx already running, you'll need to:
+      • Stop them temporarily, OR
+      • Configure them as the reverse proxy (recommended)
+
+4. FINAL VERIFICATION CHECKLIST
+   ------------------------------
+   
+   ✅ Domain resolves to correct IP globally (whatsmydns.net shows green)
+   ✅ Ports 80 and 443 are open from internet (telnet/port checker works)  
+   ✅ No services currently using ports 80/443 (ss/netstat shows clear)
+   ✅ LiveReview is running and accessible on ports 8888/8081 locally
+   
+   Test LiveReview accessibility:
+   curl http://localhost:8888/health    # Should return OK
+   curl http://localhost:8081/          # Should return HTML
+
+⚠️  CRITICAL: Without proper DNS pointing to your server, SSL certificates 
+    CANNOT be obtained! Let's Encrypt and other CAs verify domain ownership
+    by checking that your domain resolves to the requesting server.
+
+💡 TROUBLESHOOTING DNS ISSUES:
+   • If DNS propagation is incomplete, WAIT - don't proceed
+   • If different regions show different IPs, contact your DNS provider
+   • If using Cloudflare, ensure proxy is disabled (gray cloud) for SSL setup
+   • Check TTL settings - lower TTL (300-900 seconds) speeds up changes
 
 WHY CADDY?
 ==========
@@ -3719,7 +3933,7 @@ AUTOMATIC HTTPS NOTES
 - No manual intervention required
 - Certificates stored in /var/lib/caddy/
 
-For more help: https://github.com/HexmosTech/LiveReview/docs/caddy-guide
+For more help: https://github.com/HexmosTech/LiveReview/wiki/Productionize-LiveReview
 EOF
 }
 
@@ -3729,6 +3943,95 @@ show_apache_help() {
     
     cat << 'EOF'
 🔧 Apache Reverse Proxy Configuration for LiveReview
+
+PREREQUISITES - DNS SETUP & VERIFICATION
+========================================
+Before configuring SSL or reverse proxy, ensure:
+
+1. VERIFY YOUR DOMAIN POINTS TO THIS SERVER
+   ----------------------------------------
+   
+   a) Get your server's public IP address:
+      curl -s ifconfig.me
+      # OR: curl -s ipinfo.io/ip
+   
+   b) Check DNS resolution locally:
+      dig yourdomain.com
+      nslookup yourdomain.com
+   
+   c) Verify DNS propagation globally (CRITICAL):
+      • Visit: https://www.whatsmydns.net/
+      • Enter your domain name
+      • Select "A" record type
+      • Confirm ALL locations show your server's IP
+      
+   d) Alternative DNS propagation check:
+      • Visit: https://dnschecker.org/
+      • Enter your domain and verify worldwide propagation
+   
+   e) Command-line verification from different locations:
+      # Use different DNS servers to check consistency
+      dig @8.8.8.8 yourdomain.com        # Google DNS
+      dig @1.1.1.1 yourdomain.com        # Cloudflare DNS  
+      dig @208.67.222.222 yourdomain.com # OpenDNS
+   
+   ⚠️  COMMON MISTAKES TO AVOID:
+   • Don't proceed if DNS shows different IPs in different locations
+   • Wait for full global propagation (can take up to 48 hours)
+   • Ensure you're checking the RIGHT domain (not www. vs non-www)
+   • Verify both A record AND any CNAME records point correctly
+
+2. VERIFY NETWORK CONNECTIVITY
+   ----------------------------
+   
+   a) Check ports 80 and 443 are accessible from internet:
+      # From another machine/location, test:
+      telnet yourdomain.com 80
+      telnet yourdomain.com 443
+   
+   b) Check firewall rules:
+      sudo ufw status
+      # Ensure ports 80 and 443 are allowed
+   
+   c) Check cloud security groups (AWS/GCP/Azure/DigitalOcean):
+      # Verify inbound rules allow TCP ports 80 and 443 from 0.0.0.0/0
+   
+   d) Test with online port checker:
+      • Visit: https://www.yougetsignal.com/tools/open-ports/
+      • Enter your domain and test ports 80, 443
+
+3. VERIFY NO PORT CONFLICTS
+   -------------------------
+   
+   a) Check nothing else is using ports 80/443:
+      sudo ss -tlnp | grep ':80\|:443'
+      sudo netstat -tlnp | grep ':80\|:443'
+   
+   b) If Apache/nginx already running, you'll need to:
+      • Stop them temporarily, OR
+      • Configure them as the reverse proxy (recommended)
+
+4. FINAL VERIFICATION CHECKLIST
+   ------------------------------
+   
+   ✅ Domain resolves to correct IP globally (whatsmydns.net shows green)
+   ✅ Ports 80 and 443 are open from internet (telnet/port checker works)  
+   ✅ No services currently using ports 80/443 (ss/netstat shows clear)
+   ✅ LiveReview is running and accessible on ports 8888/8081 locally
+   
+   Test LiveReview accessibility:
+   curl http://localhost:8888/health    # Should return OK
+   curl http://localhost:8081/          # Should return HTML
+
+⚠️  CRITICAL: Without proper DNS pointing to your server, SSL certificates 
+    CANNOT be obtained! Let's Encrypt and other CAs verify domain ownership
+    by checking that your domain resolves to the requesting server.
+
+💡 TROUBLESHOOTING DNS ISSUES:
+   • If DNS propagation is incomplete, WAIT - don't proceed
+   • If different regions show different IPs, contact your DNS provider
+   • If using Cloudflare, ensure proxy is disabled (gray cloud) for SSL setup
+   • Check TTL settings - lower TTL (300-900 seconds) speeds up changes
 
 INSTALLATION
 ============
@@ -3796,7 +4099,7 @@ TROUBLESHOOTING
 - Check LiveReview status: lrops.sh status
 
 For SSL setup: lrops.sh help ssl
-For more help: https://github.com/HexmosTech/LiveReview/docs/apache-guide
+For more help: https://github.com/HexmosTech/LiveReview/wiki/Productionize-LiveReview
 EOF
 }
 
