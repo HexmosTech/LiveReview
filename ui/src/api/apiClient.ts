@@ -64,6 +64,13 @@ function getBaseUrl(): string {
 const BASE_URL = getBaseUrl();
 console.log('🚀 API Client initialized with BASE_URL:', BASE_URL);
 console.log('Final BASE_URL configured as:', BASE_URL);
+console.log('🔍 Current window location:', window.location.href);
+console.log('🔍 Current window.location details:', {
+  protocol: window.location.protocol,
+  hostname: window.location.hostname,
+  port: window.location.port,
+  pathname: window.location.pathname
+});
 
 // Default request options
 const defaultOptions: RequestInit = {
