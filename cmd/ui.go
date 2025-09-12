@@ -56,26 +56,34 @@ func UICommand(uiAssets embed.FS) *cli.Command {
 				}
 			}
 
-			// If no API URL provided, try to auto-detect based on port
+			// If no API URL provided, try to auto-detect based on deployment mode
 			if apiURL == "" {
-				// Check for backend port environment variable
-				backendPort := 8888
-				if envBackendPort := os.Getenv("LIVEREVIEW_BACKEND_PORT"); envBackendPort != "" {
-					if parsedPort, err := strconv.Atoi(envBackendPort); err == nil {
-						backendPort = parsedPort
-					}
-				} else if envBackendPort := os.Getenv("BACKEND_PORT"); envBackendPort != "" {
-					// Legacy support for existing deployments
-					if parsedPort, err := strconv.Atoi(envBackendPort); err == nil {
-						backendPort = parsedPort
-					}
-				}
-
-				// Check for unified API_URL first, then fallback to auto-detection
+				// Check for unified API_URL first
 				if unifiedAPI := os.Getenv("API_URL"); unifiedAPI != "" {
 					apiURL = unifiedAPI
 				} else {
-					apiURL = fmt.Sprintf("http://localhost:%d", backendPort)
+					// Auto-detect based on reverse proxy setting
+					isReverseProxy := os.Getenv("LIVEREVIEW_REVERSE_PROXY") == "true"
+
+					if isReverseProxy {
+						// In production mode with reverse proxy, API URL should be relative
+						// The frontend will construct the full URL based on current domain
+						apiURL = "" // Empty means frontend will auto-detect from current URL
+					} else {
+						// In demo mode, use localhost with backend port
+						backendPort := 8888
+						if envBackendPort := os.Getenv("LIVEREVIEW_BACKEND_PORT"); envBackendPort != "" {
+							if parsedPort, err := strconv.Atoi(envBackendPort); err == nil {
+								backendPort = parsedPort
+							}
+						} else if envBackendPort := os.Getenv("BACKEND_PORT"); envBackendPort != "" {
+							// Legacy support for existing deployments
+							if parsedPort, err := strconv.Atoi(envBackendPort); err == nil {
+								backendPort = parsedPort
+							}
+						}
+						apiURL = fmt.Sprintf("http://localhost:%d", backendPort)
+					}
 				}
 			}
 
@@ -130,12 +138,24 @@ func prepareIndexHTML(distFS fs.FS, apiURL string) string {
 	htmlStr := string(indexContent)
 
 	// Create the configuration script to inject
-	configScript := fmt.Sprintf(`<script>
+	var configScript string
+	if apiURL != "" {
+		// Explicit API URL provided
+		configScript = fmt.Sprintf(`<script>
 		// LiveReview runtime configuration
 		window.LIVEREVIEW_CONFIG = {
 			apiUrl: "%s"
 		};
 	</script>`, apiURL)
+	} else {
+		// No API URL - let frontend auto-detect from current domain
+		configScript = `<script>
+		// LiveReview runtime configuration - frontend will auto-detect API URL
+		window.LIVEREVIEW_CONFIG = {
+			apiUrl: null
+		};
+	</script>`
+	}
 
 	// Insert the config script BEFORE any other scripts to ensure it loads first
 	// Look for the first <script tag (case insensitive) and insert before it
