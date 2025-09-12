@@ -133,6 +133,36 @@ ensure_sudo_session() {
     fi
 }
 
+# Start sudo keepalive process for self-update operations
+start_sudo_keepalive() {
+    # Only if not already root and sudo is available
+    if [[ $EUID -ne 0 ]] && command -v sudo >/dev/null 2>&1; then
+        if sudo -v; then
+            # Refresh sudo timestamp in background
+            (
+                while true; do
+                    sleep 60
+                    sudo -n true 2>/dev/null || true
+                done
+            ) &
+            SUDO_REFRESH_PID=$!
+            log_debug "Sudo keepalive process started (PID: $SUDO_REFRESH_PID)"
+        else
+            log_warning "Could not obtain sudo credentials for self-update"
+            return 1
+        fi
+    fi
+}
+
+# Stop sudo keepalive process
+stop_sudo_keepalive() {
+    if [[ -n "${SUDO_REFRESH_PID:-}" ]]; then
+        kill "${SUDO_REFRESH_PID}" 2>/dev/null || true
+        unset SUDO_REFRESH_PID
+        log_debug "Sudo keepalive process stopped"
+    fi
+}
+
 # If Docker requires sudo, transparently wrap docker/docker-compose commands
 maybe_enable_sudo_for_docker() {
     # If docker CLI not present, nothing to do here
