@@ -20,16 +20,24 @@ declare global {
 // Base URL for all API requests
 // Priority: 1) Runtime injected config, 2) Auto-detect based on deployment mode
 function getBaseUrl(): string {
-  console.log('🔍 getBaseUrl() called');
-  console.log('🔍 window.LIVEREVIEW_CONFIG:', window.LIVEREVIEW_CONFIG);
+  console.log('�🚨🚨 === API CLIENT DEBUG START === 🚨🚨🚨');
+  console.log('�🔍 getBaseUrl() called at:', new Date().toISOString());
+  console.log('🔍 window.LIVEREVIEW_CONFIG:', JSON.stringify(window.LIVEREVIEW_CONFIG, null, 2));
+  console.log('🔍 typeof window.LIVEREVIEW_CONFIG:', typeof window.LIVEREVIEW_CONFIG);
   
   // First try runtime config injected by Go server
+  console.log('🔍 Checking runtime config...');
+  console.log('🔍 window.LIVEREVIEW_CONFIG exists:', !!window.LIVEREVIEW_CONFIG);
+  console.log('🔍 window.LIVEREVIEW_CONFIG.apiUrl:', window.LIVEREVIEW_CONFIG?.apiUrl);
+  console.log('🔍 apiUrl is not null:', window.LIVEREVIEW_CONFIG?.apiUrl !== null);
+  
   if (window.LIVEREVIEW_CONFIG?.apiUrl && window.LIVEREVIEW_CONFIG.apiUrl !== null) {
-    console.log('✅ Using runtime config apiUrl:', window.LIVEREVIEW_CONFIG.apiUrl);
+    console.log('✅✅✅ Using runtime config apiUrl:', window.LIVEREVIEW_CONFIG.apiUrl);
+    console.log('🚨🚨🚨 === API CLIENT DEBUG END === 🚨🚨🚨');
     return window.LIVEREVIEW_CONFIG.apiUrl;
   }
   
-  console.log('⚠️ No runtime config found, using auto-detection');
+  console.log('⚠️⚠️⚠️ No runtime config found, using auto-detection');
   
   // Auto-detection based on current URL and deployment mode
   const currentUrl = new URL(window.location.href);
@@ -196,20 +204,34 @@ async function apiRequest<T>(
   };
 
   // Construct the full URL - handle cases where BASE_URL already includes /api
+  console.log('🚨🚨🚨 === URL CONSTRUCTION DEBUG === 🚨🚨🚨');
+  console.log('🔍 URL Construction Inputs:', {
+    path,
+    BASE_URL,
+    pathStartsWithApiV1: path.startsWith('/api/v1'),
+    baseUrlEndsWithApi: BASE_URL.endsWith('/api'),
+    timestamp: new Date().toISOString()
+  });
+  
   let url: string;
   if (path.startsWith('/api/v1')) {
     // Path already includes /api/v1, just append to base URL
     url = `${BASE_URL}${path}`;
+    console.log('🔍 Path starts with /api/v1, direct append:', url);
   } else {
     // Need to add /api/v1 prefix, but check if BASE_URL already ends with /api
     const baseUrlEndsWithApi = BASE_URL.endsWith('/api');
+    console.log('🔍 BASE_URL ends with /api:', baseUrlEndsWithApi);
     if (baseUrlEndsWithApi) {
       url = `${BASE_URL}/v1${path}`;
+      console.log('🔍 BASE_URL ends with /api, constructed:', url);
     } else {
       url = `${BASE_URL}/api/v1${path}`;
+      console.log('🔍 BASE_URL does not end with /api, constructed:', url);
     }
   }
-  console.log('API Request:', { path, BASE_URL, finalUrl: url });
+  console.log('🚨🚨🚨 FINAL API REQUEST URL:', url);
+  console.log('🚨🚨🚨 === URL CONSTRUCTION DEBUG END === 🚨🚨🚨');
   let response = await fetch(url, config);
 
   if (response.status === 401 && !url.endsWith('/auth/refresh')) {

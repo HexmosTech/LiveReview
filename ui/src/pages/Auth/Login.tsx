@@ -10,6 +10,20 @@ const Login: React.FC = () => {
   const [password, setPassword] = useState('');
   const { isLoading, error } = useAppSelector((state) => state.Auth);
 
+  // Debug logging for login component
+  console.log('🚨🚨🚨 === LOGIN COMPONENT DEBUG === 🚨🚨🚨');
+  console.log('🔍 Login component rendered at:', new Date().toISOString());
+  console.log('🔍 Current URL:', window.location.href);
+  console.log('🔍 Is localhost?:', window.location.hostname === 'localhost');
+  console.log('🔍 LIVEREVIEW_CONFIG at render:', JSON.stringify(window.LIVEREVIEW_CONFIG, null, 2));
+
+  // Debug logging for login component
+  console.log('🚨🚨🚨 === LOGIN COMPONENT DEBUG === 🚨🚨🚨');
+  console.log('🔍 Login component rendered at:', new Date().toISOString());
+  console.log('🔍 Current URL:', window.location.href);
+  console.log('🔍 Is localhost?:', window.location.hostname === 'localhost');
+  console.log('🔍 LIVEREVIEW_CONFIG at render:', JSON.stringify(window.LIVEREVIEW_CONFIG, null, 2));
+
   // Check if we're in production mode and accessing via localhost
   const isProductionModeOnLocalhost = () => {
     // Check if we're on localhost but in production mode (reverse proxy enabled)
