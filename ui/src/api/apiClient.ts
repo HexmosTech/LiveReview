@@ -18,32 +18,47 @@ declare global {
 }
 
 // Base URL for all API requests
-// Priority: 1) Runtime injected config, 2) Build-time env var, 3) Auto-detect based on deployment mode
+// Priority: 1) Runtime injected config, 2) Auto-detect based on deployment mode
 function getBaseUrl(): string {
   console.log('🔍 getBaseUrl() called');
   console.log('🔍 window.LIVEREVIEW_CONFIG:', window.LIVEREVIEW_CONFIG);
   
   // First try runtime config injected by Go server
-  if (window.LIVEREVIEW_CONFIG?.apiUrl) {
+  if (window.LIVEREVIEW_CONFIG?.apiUrl && window.LIVEREVIEW_CONFIG.apiUrl !== null) {
     console.log('✅ Using runtime config apiUrl:', window.LIVEREVIEW_CONFIG.apiUrl);
     return window.LIVEREVIEW_CONFIG.apiUrl;
   }
   
   console.log('⚠️ No runtime config found, using auto-detection');
   
-  // Fallback to auto-detection based on current port
+  // Auto-detection based on current URL and deployment mode
   const currentUrl = new URL(window.location.href);
   const port = currentUrl.port;
   
+  console.log('🔍 Current URL:', currentUrl.href);
   console.log('🔍 Current URL port:', port);
+  console.log('🔍 Current URL hostname:', currentUrl.hostname);
   
-  // In demo mode, API runs on port 8888, UI on port 8081
-  const apiPort = port === '8081' ? '8888' : port;
-  const detectedUrl = `${currentUrl.protocol}//${currentUrl.hostname}:${apiPort}`;
+  // If we're on localhost with port 8081, we're in demo mode (API on port 8888)
+  if (currentUrl.hostname === 'localhost' && port === '8081') {
+    const detectedUrl = `${currentUrl.protocol}//localhost:8888`;
+    console.log('🔍 Demo mode detected, using localhost:8888');
+    return detectedUrl;
+  }
   
-  console.log('🔍 Auto-detected API URL:', detectedUrl);
+  // If we're on localhost with a different port, use the same port for API
+  if (currentUrl.hostname === 'localhost' && port) {
+    const detectedUrl = `${currentUrl.protocol}//${currentUrl.hostname}:${port}`;
+    console.log('🔍 Localhost with port detected:', detectedUrl);
+    return detectedUrl;
+  }
   
-  return detectedUrl;
+  // For production (reverse proxy), construct API URL from current URL
+  // Remove port if present and use same protocol/hostname
+  const baseUrl = `${currentUrl.protocol}//${currentUrl.hostname}`;
+  console.log('🔍 Production mode detected, using current URL base:', baseUrl);
+  
+  return baseUrl;
 }
 
 const BASE_URL = getBaseUrl();
