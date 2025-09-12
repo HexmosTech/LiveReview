@@ -2331,22 +2331,62 @@ restart_containers_cmd() {
         return 1
     fi
     
-    log_info "Restarting LiveReview containers..."
-    
-    if docker_compose restart; then
-        log_success "Containers restarted successfully"
-        
-        # Wait a moment for health checks
-        log_info "Waiting for services to be ready..."
-        sleep 5
-        
-        # Show status
-        docker_compose ps
-        log_info "Run 'lrops.sh status' to check service health"
-    else
-        log_error "Failed to restart containers"
+    # Change to installation directory for docker compose
+    pushd "$LIVEREVIEW_INSTALL_DIR" >/dev/null || {
+        log_error "Could not change to installation directory: $LIVEREVIEW_INSTALL_DIR"
         return 1
+    }
+    
+    # Check if we should use 'restart' or 'up -d' based on recent .env changes
+    local use_recreate=false
+    if [[ -f ".env" ]]; then
+        # Check if .env was modified in the last 5 minutes (300 seconds)
+        local env_age
+        if command -v stat >/dev/null 2>&1; then
+            env_age=$(stat -c %Y .env 2>/dev/null || echo "0")
+            local current_time=$(date +%s)
+            local age_diff=$((current_time - env_age))
+            if [[ $age_diff -lt 300 ]]; then
+                use_recreate=true
+                log_info "Detected recent .env changes - using container recreation instead of restart"
+            fi
+        fi
     fi
+    
+    if [[ "$use_recreate" == "true" ]]; then
+        log_info "Recreating LiveReview containers with updated configuration..."
+        if docker_compose up -d; then
+            log_success "Containers recreated successfully"
+        else
+            log_error "Failed to recreate containers"
+            popd >/dev/null || true
+            return 1
+        fi
+    else
+        log_info "Restarting LiveReview containers..."
+        if docker_compose restart; then
+            log_success "Containers restarted successfully"
+        else
+            log_warning "Standard restart failed, trying recreation..."
+            if docker_compose up -d; then
+                log_success "Containers recreated successfully"
+            else
+                log_error "Both restart and recreation failed"
+                popd >/dev/null || true
+                return 1
+            fi
+        fi
+    fi
+    
+    # Wait a moment for services to be ready
+    log_info "Waiting for services to be ready..."
+    sleep 5
+    
+    # Show status
+    docker_compose ps
+    log_info "Run 'lrops.sh status' to check service health"
+    
+    popd >/dev/null || true
 }
 
 # Uninstall LiveReview (preserves a final full backup, skips external standalone DB containers)
@@ -3208,10 +3248,35 @@ set_mode_cmd() {
     read -p "Restart LiveReview services now to apply changes? [y/N]: " -n 1 -r
     echo
     if [[ $REPLY =~ ^[Yy]$ ]]; then
-        log_info "Restarting LiveReview services..."
-        restart_containers_cmd
+        log_info "Recreating LiveReview services with updated configuration..."
+        
+        # Change to installation directory for docker compose
+        pushd "$LIVEREVIEW_INSTALL_DIR" >/dev/null || {
+            log_error "Could not change to installation directory: $LIVEREVIEW_INSTALL_DIR"
+            return 1
+        }
+        
+        # Use docker compose up -d instead of restart to handle .env changes properly
+        # This recreates containers with fresh bind mounts to the updated .env file
+        if docker_compose up -d; then
+            log_success "Services recreated successfully with new configuration"
+            
+            # Wait a moment for containers to start
+            sleep 3
+            
+            # Show status
+            log_info "Checking service status..."
+            docker_compose ps
+        else
+            log_error "Failed to recreate services with new configuration"
+            log_info "You can try manually: cd $LIVEREVIEW_INSTALL_DIR && docker compose up -d"
+        fi
+        
+        popd >/dev/null || true
     else
-        log_info "Remember to restart when ready: lrops.sh restart"
+        log_info "Remember to recreate services when ready:"
+        log_info "  cd $LIVEREVIEW_INSTALL_DIR && docker compose up -d"
+        log_info "  (or use: lrops.sh restart)"
     fi
 }
 
