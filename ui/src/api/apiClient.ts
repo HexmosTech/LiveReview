@@ -57,6 +57,7 @@ function getBaseUrl(): string {
   // Remove port if present and use same protocol/hostname
   const baseUrl = `${currentUrl.protocol}//${currentUrl.hostname}`;
   console.log('🔍 Production mode detected, using current URL base:', baseUrl);
+  console.log('🔍 This will be used for API calls - no /api suffix needed as it will be added by URL construction');
   
   return baseUrl;
 }
@@ -194,7 +195,20 @@ async function apiRequest<T>(
     body: options.body ? (isFormData ? options.body : JSON.stringify(options.body)) : undefined,
   };
 
-  const url = path.startsWith('/api/v1') ? `${BASE_URL}${path}` : `${BASE_URL}/api/v1${path}`;
+  // Construct the full URL - handle cases where BASE_URL already includes /api
+  let url: string;
+  if (path.startsWith('/api/v1')) {
+    // Path already includes /api/v1, just append to base URL
+    url = `${BASE_URL}${path}`;
+  } else {
+    // Need to add /api/v1 prefix, but check if BASE_URL already ends with /api
+    const baseUrlEndsWithApi = BASE_URL.endsWith('/api');
+    if (baseUrlEndsWithApi) {
+      url = `${BASE_URL}/v1${path}`;
+    } else {
+      url = `${BASE_URL}/api/v1${path}`;
+    }
+  }
   console.log('API Request:', { path, BASE_URL, finalUrl: url });
   let response = await fetch(url, config);
 
