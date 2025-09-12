@@ -88,7 +88,9 @@ func UICommand(uiAssets embed.FS) *cli.Command {
 			}
 
 			fmt.Printf("Starting LiveReview UI server on port %d...\n", port)
-			fmt.Printf("API URL configured as: %s\n", apiURL)
+			fmt.Printf("🐛 DEBUG: LIVEREVIEW_REVERSE_PROXY=%s\n", os.Getenv("LIVEREVIEW_REVERSE_PROXY"))
+			fmt.Printf("🐛 DEBUG: API_URL env var=%s\n", os.Getenv("API_URL"))
+			fmt.Printf("🐛 DEBUG: Final apiURL configured as: '%s'\n", apiURL)
 			fmt.Printf("Open your browser to: http://localhost:%d\n", port)
 
 			// Get the embedded filesystem for the ui/dist directory
@@ -139,8 +141,10 @@ func prepareIndexHTML(distFS fs.FS, apiURL string) string {
 
 	// Create the configuration script to inject
 	var configScript string
+	fmt.Printf("🐛 DEBUG prepareIndexHTML: apiURL='%s'\n", apiURL)
 	if apiURL != "" {
 		// Explicit API URL provided
+		fmt.Printf("🐛 DEBUG: Using explicit API URL: %s\n", apiURL)
 		configScript = fmt.Sprintf(`<script>
 		// LiveReview runtime configuration
 		window.LIVEREVIEW_CONFIG = {
@@ -149,6 +153,7 @@ func prepareIndexHTML(distFS fs.FS, apiURL string) string {
 	</script>`, apiURL)
 	} else {
 		// No API URL - let frontend auto-detect from current domain
+		fmt.Printf("🐛 DEBUG: Using null API URL for auto-detection\n")
 		configScript = `<script>
 		// LiveReview runtime configuration - frontend will auto-detect API URL
 		window.LIVEREVIEW_CONFIG = {
