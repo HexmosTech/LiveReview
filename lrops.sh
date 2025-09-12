@@ -507,6 +507,7 @@ USAGE:
     lrops.sh restore <id|latest>       # Restore a previous backup
     lrops.sh set-mode <demo|production> # Switch between demo and production modes
     lrops.sh show-mode                 # Show current deployment mode and configuration
+    lrops.sh self-update               # Update this script to the latest version from GitHub
     
     # Backup options:
     (Use --backup-dir as backup subcommand option - see BACKUP OPTIONS below)
@@ -1004,6 +1005,125 @@ install_self() {
         fi
     else
         log_error "Failed to install lrops.sh to system path"
+        return 1
+    fi
+}
+
+# Self-update: download latest script and replace current one
+self_update_cmd() {
+    section_header "UPDATING LROPS.SH SCRIPT"
+    
+    local current_script="$0"
+    local script_url="https://raw.githubusercontent.com/HexmosTech/LiveReview/main/lrops.sh"
+    
+    # Check if script is being run via pipe/source
+    if [[ "$current_script" == "bash" || "$current_script" == "-bash" || "$current_script" =~ /bash$ ]]; then
+        log_error "Cannot self-update when script is piped or sourced"
+        log_info "Download the script first:"
+        log_info "  curl -fsSL $script_url -o lrops.sh"
+        log_info "  chmod +x lrops.sh"
+        log_info "  ./lrops.sh self-update"
+        return 1
+    fi
+    
+    # Get absolute path of current script
+    local script_path
+    if [[ "$current_script" =~ ^/ ]]; then
+        script_path="$current_script"
+    else
+        script_path="$(cd "$(dirname "$current_script")" && pwd)/$(basename "$current_script")"
+    fi
+    
+    # Check if we need sudo (system installation)
+    local needs_sudo=false
+    if [[ "$script_path" =~ ^/usr/(local/)?bin/ ]] || [[ "$script_path" =~ ^/opt/ ]]; then
+        needs_sudo=true
+        log_info "System installation detected: $script_path"
+        log_info "Requesting sudo access for system script update..."
+        
+        # Test sudo access
+        if ! sudo -v; then
+            log_error "Sudo access required but not available"
+            return 1
+        fi
+        
+        # Keep sudo alive during the update
+        start_sudo_keepalive
+    fi
+    
+    log_info "Current script: $script_path"
+    log_info "Downloading latest version from GitHub..."
+    
+    # Download to temporary file
+    local temp_script="/tmp/lrops_update_$$.sh"
+    if ! curl -fsSL "$script_url" -o "$temp_script"; then
+        log_error "Failed to download latest script"
+        return 1
+    fi
+    
+    chmod +x "$temp_script"
+    
+    # Basic validation - check if it looks like the right script
+    if ! grep -q "LiveReview Operations Script" "$temp_script"; then
+        log_error "Downloaded file doesn't appear to be lrops.sh"
+        rm -f "$temp_script"
+        return 1
+    fi
+    
+    # Create backup of current script in /tmp (avoid polluting system directories)
+    local backup_script="/tmp/lrops.sh.backup.$(date +%Y%m%d_%H%M%S)"
+    log_info "Creating backup: $backup_script"
+    
+    local cp_cmd="cp"
+    if [[ "$needs_sudo" == "true" ]]; then
+        cp_cmd="sudo cp"
+    fi
+    
+    if ! $cp_cmd "$script_path" "$backup_script"; then
+        log_error "Failed to create backup"
+        rm -f "$temp_script"
+        return 1
+    fi
+    
+    # Replace script atomically
+    local mv_cmd="mv"
+    if [[ "$needs_sudo" == "true" ]]; then
+        mv_cmd="sudo mv"
+    fi
+    
+    if $mv_cmd "$temp_script" "$script_path"; then
+        # Set proper permissions for system installations
+        if [[ "$needs_sudo" == "true" ]]; then
+            sudo chmod 755 "$script_path"
+            sudo chown root:root "$script_path" 2>/dev/null || true
+        fi
+        
+        log_success "✅ Script updated successfully!"
+        log_info "Previous version backed up to: $backup_script"
+        log_info "Script location: $script_path"
+        
+        if [[ "$needs_sudo" == "true" ]]; then
+            log_info "💡 System script updated with proper permissions"
+        else
+            log_info "💡 Local script updated to the latest version"
+        fi
+        
+        # Stop sudo keepalive
+        if [[ "$needs_sudo" == "true" ]]; then
+            stop_sudo_keepalive
+        fi
+        
+        return 0
+    else
+        log_error "Failed to replace script - restoring backup"
+        $mv_cmd "$backup_script" "$script_path" 2>/dev/null || true
+        rm -f "$temp_script"
+        
+        # Stop sudo keepalive on error
+        if [[ "$needs_sudo" == "true" ]]; then
+            stop_sudo_keepalive
+        fi
+        
         return 1
     fi
 }
@@ -4982,6 +5102,10 @@ main() {
             ;;
         uninstall)
             uninstall_cmd
+            exit $?
+            ;;
+        self-update|update-self)
+            self_update_cmd
             exit $?
             ;;
         update)
