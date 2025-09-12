@@ -3711,10 +3711,10 @@ INSTALLATION
    sudo apt update && sudo apt install nginx
 
 2. Copy the LiveReview Nginx template:
-   sudo cp /opt/livereview/config/nginx.conf.example /etc/nginx/sites-available/livereview
+   sudo cp ~/livereview/config/nginx.conf.example /etc/nginx/sites-available/livereview
 
 3. Edit the domain name:
-   sudo sed -i 's/your-domain.com/yourdomain.com/g' /etc/nginx/sites-available/livereview
+   sudo sed -i 's/your-domain.com/your-actual-domain.org/g' /etc/nginx/sites-available/livereview
 
 4. Enable the site:
    sudo ln -s /etc/nginx/sites-available/livereview /etc/nginx/sites-enabled/
@@ -3877,8 +3877,8 @@ INSTALLATION
    sudo apt install caddy
 
 2. Copy and configure the template:
-   sudo cp /opt/livereview/config/caddy.conf.example /etc/caddy/Caddyfile
-   sudo sed -i 's/your-domain.com/yourdomain.com/g' /etc/caddy/Caddyfile
+   sudo cp ~/livereview/config/caddy.conf.example /etc/caddy/Caddyfile
+   sudo sed -i 's/your-domain.com/your-actual-domain.org/g' /etc/caddy/Caddyfile
 
 3. Start Caddy:
    sudo systemctl enable caddy
@@ -4042,8 +4042,8 @@ INSTALLATION
    sudo a2enmod proxy proxy_http proxy_balancer lbmethod_byrequests headers rewrite ssl
     
 3. Copy and configure the template:
-   sudo cp /opt/livereview/config/apache.conf.example /etc/apache2/sites-available/livereview.conf
-   sudo sed -i 's/your-domain.com/yourdomain.com/g' /etc/apache2/sites-available/livereview.conf
+   sudo cp ~/livereview/config/apache.conf.example /etc/apache2/sites-available/livereview.conf
+   sudo sed -i 's/your-domain.com/your-actual-domain.org/g' /etc/apache2/sites-available/livereview.conf
 
 4. Enable the site:
    sudo a2ensite livereview
@@ -5454,8 +5454,8 @@ your-domain.com {
 set -euo pipefail
 
 # Configuration
-LIVEREVIEW_DIR="/opt/livereview"
-BACKUP_BASE_DIR="/opt/livereview-backups"
+LIVEREVIEW_DIR=~/livereview
+BACKUP_BASE_DIR=~/livereview/backups
 TIMESTAMP=$(date +"%Y%m%d_%H%M%S")
 BACKUP_NAME="${1:-livereview_backup_${TIMESTAMP}}"
 BACKUP_DIR="${BACKUP_BASE_DIR}/${BACKUP_NAME}"
@@ -5600,8 +5600,8 @@ log_info "To restore: ./restore.sh $BACKUP_NAME"
 set -euo pipefail
 
 # Configuration
-LIVEREVIEW_DIR="/opt/livereview"
-BACKUP_BASE_DIR="/opt/livereview-backups"
+LIVEREVIEW_DIR=~/livereview
+BACKUP_BASE_DIR=~/livereview/backups
 
 # Colors for output
 RED='\033[0;31m'
@@ -5775,36 +5775,36 @@ log_info "Check status with: lrops.sh status"
 # Add these to your crontab with: crontab -e
 
 # Daily backup at 2 AM
-0 2 * * * cd /opt/livereview/scripts && ./backup.sh daily_$(date +\%Y\%m\%d) >> /var/log/livereview-backup.log 2>&1
+0 2 * * * cd "$LIVEREVIEW_INSTALL_DIR/scripts" && ./backup.sh daily_$(date +\%Y\%m\%d) >> /var/log/livereview-backup.log 2>&1
 
 # Weekly backup on Sundays at 3 AM
-0 3 * * 0 cd /opt/livereview/scripts && ./backup.sh weekly_$(date +\%Y_week\%U) >> /var/log/livereview-backup.log 2>&1
+0 3 * * 0 cd "$LIVEREVIEW_INSTALL_DIR/scripts" && ./backup.sh weekly_$(date +\%Y_week\%U) >> /var/log/livereview-backup.log 2>&1
 
 # Monthly backup on the 1st at 4 AM
-0 4 1 * * cd /opt/livereview/scripts && ./backup.sh monthly_$(date +\%Y\%m) >> /var/log/livereview-backup.log 2>&1
+0 4 1 * * cd "$LIVEREVIEW_INSTALL_DIR/scripts" && ./backup.sh monthly_$(date +\%Y\%m) >> /var/log/livereview-backup.log 2>&1
 
 # === Example with rclone S3 sync ===
 # Install rclone first: curl https://rclone.org/install.sh | sudo bash
 # Configure S3: rclone config (create remote named 'livereview-s3')
 
 # Daily backup + S3 sync at 2:30 AM
-30 2 * * * cd /opt/livereview/scripts && ./backup.sh daily_$(date +\%Y\%m\%d) && rclone sync /opt/livereview-backups/ livereview-s3:backups/livereview/ --log-file=/var/log/livereview-s3-sync.log
+30 2 * * * cd "$LIVEREVIEW_INSTALL_DIR/scripts" && ./backup.sh daily_$(date +\%Y\%m\%d) && rclone sync "$LIVEREVIEW_INSTALL_DIR/backups/" livereview-s3:backups/livereview/ --log-file=/var/log/livereview-s3-sync.log
 
 # === Backup retention (cleanup old backups) ===
 # Keep only last 7 daily backups (run at 5 AM)
 0 5 * * * find /opt/livereview-backups -name "daily_*" -type f -mtime +7 -delete
 
 # Keep only last 4 weekly backups
-0 5 * * 1 find /opt/livereview-backups -name "weekly_*" -type f -mtime +28 -delete
+0 5 * * 1 find "$LIVEREVIEW_INSTALL_DIR/backups" -name "weekly_*" -type f -mtime +28 -delete
 
 # Keep only last 12 monthly backups
-0 5 1 * * find /opt/livereview-backups -name "monthly_*" -type f -mtime +365 -delete
+0 5 1 * * find "$LIVEREVIEW_INSTALL_DIR/backups" -name "monthly_*" -type f -mtime +365 -delete
 
 # === Complete example crontab entry ===
 # # LiveReview automated backups
-# 0 2 * * * cd /opt/livereview/scripts && ./backup.sh daily_$(date +\%Y\%m\%d) >> /var/log/livereview-backup.log 2>&1
-# 30 2 * * * rclone sync /opt/livereview-backups/ livereview-s3:backups/livereview/ --log-file=/var/log/livereview-s3-sync.log
-# 0 5 * * * find /opt/livereview-backups -name "daily_*" -type f -mtime +7 -delete
+# 0 2 * * * cd "$LIVEREVIEW_INSTALL_DIR/scripts" && ./backup.sh daily_$(date +\%Y\%m\%d) >> /var/log/livereview-backup.log 2>&1
+# 30 2 * * * rclone sync "$LIVEREVIEW_INSTALL_DIR/backups/" livereview-s3:backups/livereview/ --log-file=/var/log/livereview-s3-sync.log
+# 0 5 * * * find "$LIVEREVIEW_INSTALL_DIR/backups" -name "daily_*" -type f -mtime +7 -delete
 # === END:backup-cron.example ===
 
 # === DATA:setup-ssl.sh ===
@@ -5818,7 +5818,7 @@ set -euo pipefail
 # Configuration
 DOMAIN="${1:-}"
 EMAIL="${2:-}"
-LIVEREVIEW_DIR="/opt/livereview"
+LIVEREVIEW_DIR=~/livereview
 
 # Colors for output
 RED='\033[0;31m'
