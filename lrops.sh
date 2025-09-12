@@ -343,6 +343,7 @@ INSTALL_TEMPLATES_ONLY=false
 OUTPUT_DIR=""
 INSTALL_SELF=false
 DIAGNOSE=false
+BACKUP_TARGET_DIR=""
 
 parse_arguments() {
     while [[ $# -gt 0 ]]; do
@@ -436,15 +437,28 @@ parse_arguments() {
                 DIAGNOSE=true
                 shift
                 ;;
+            --backup-dir=*)
+                BACKUP_TARGET_DIR="${1#*=}"
+                shift
+                ;;
+            --backup-dir)
+                BACKUP_TARGET_DIR="$2"
+                shift 2
+                ;;
             --show-plan)
                 DRY_RUN=true
                 VERBOSE=true
                 shift
                 ;;
-            *)
+            --*)
                 log_error "Unknown option: $1"
                 show_help
                 exit 1
+                ;;
+            *)
+                # Not an option (doesn't start with --), so stop parsing
+                # This allows commands like 'show-mode' to be handled by main()
+                break
                 ;;
         esac
     done
@@ -485,8 +499,17 @@ USAGE:
     lrops.sh stop                      # Stop LiveReview services
     lrops.sh restart                   # Restart LiveReview services
     lrops.sh update [version]          # Pull newer image (or specific version) and restart
-    lrops.sh list-backups              # List pre-update backups
-    lrops.sh restore <id|latest>       # Restore a previous pre-update backup
+    lrops.sh backup [name]             # Create manual backup with optional custom name
+    lrops.sh quick-backup              # Create quick timestamped backup
+    lrops.sh list-backups              # List all available backups
+    lrops.sh backup-info <name>        # Show detailed information about a backup
+    lrops.sh delete-backup <name>      # Delete a specific backup
+    lrops.sh restore <id|latest>       # Restore a previous backup
+    lrops.sh set-mode <demo|production> # Switch between demo and production modes
+    lrops.sh show-mode                 # Show current deployment mode and configuration
+    
+    # Backup options:
+    --backup-dir <path>                # Specify custom backup directory (default: $LIVEREVIEW_INSTALL_DIR/backups)
     lrops.sh uninstall                 # Safely uninstall (moves directory, keeps backups)
     lrops.sh logs [service]            # Show container logs
     lrops.sh env validate              # Validate .env and suggest fixes
@@ -2640,17 +2663,31 @@ prune_old_backups() {
 
 list_backups_cmd() {
     section_header "AVAILABLE BACKUPS"
-    local backup_root="$LIVEREVIEW_INSTALL_DIR/backups"
+    
+    # Determine which backup directory to list
+    local backup_root
+    if [[ -n "$BACKUP_TARGET_DIR" ]]; then
+        backup_root=$(eval echo "$BACKUP_TARGET_DIR")
+        log_info "Listing backups in custom directory: $backup_root"
+    else
+        backup_root="$LIVEREVIEW_INSTALL_DIR/backups"
+        log_info "Listing backups in default directory: $backup_root"
+    fi
+    
     if [[ ! -d "$backup_root" ]]; then
-        log_warning "No backups directory present"
+        log_warning "No backups directory present at: $backup_root"
         return 0
     fi
+    
     local entries
-    entries=$(find "$backup_root" -maxdepth 1 -type d -name 'preupdate-*' | sort -r)
+    # List both preupdate and manual backups
+    entries=$(find "$backup_root" -maxdepth 1 -type d \( -name 'preupdate-*' -o -name 'manual-*' -o -name 'quickbackup-*' \) | sort -r)
     if [[ -z "$entries" ]]; then
-        log_info "No pre-update backups found"
+        log_info "No backups found"
         return 0
     fi
+    
+    log_info "Found $(echo "$entries" | wc -l) backup(s):"
     echo "$entries" | sed "s#^$backup_root/##" | sed 's/^/  - /'
 }
 
@@ -2661,14 +2698,26 @@ restore_backup_cmd() {
         log_error "Usage: lrops.sh restore <backup_id|latest>"
         return 1
     fi
-    local backup_root="$LIVEREVIEW_INSTALL_DIR/backups"
+    
+    # Determine backup directory
+    local backup_root
+    if [[ -n "$BACKUP_TARGET_DIR" ]]; then
+        backup_root=$(eval echo "$BACKUP_TARGET_DIR")
+        log_info "Looking for backups in custom directory: $backup_root"
+    else
+        backup_root="$LIVEREVIEW_INSTALL_DIR/backups"
+    fi
     if [[ ! -d "$backup_root" ]]; then
         log_error "No backups directory at $backup_root"
         return 1
     fi
     local target_dir
     if [[ "$which" == "latest" ]]; then
-        target_dir=$(find "$backup_root" -maxdepth 1 -type d -name 'preupdate-*' | sort -r | head -1 || true)
+        # Find latest backup of any type (preupdate, manual, quickbackup)
+        target_dir=$(find "$backup_root" -maxdepth 1 -type d \( -name 'preupdate-*' -o -name 'manual-*' -o -name 'quickbackup-*' \) | sort -r | head -1 || true)
+        if [[ -n "$target_dir" ]]; then
+            log_info "Latest backup found: $(basename "$target_dir")"
+        fi
     else
         target_dir="$backup_root/$which"
     fi
@@ -2749,6 +2798,500 @@ restore_backup_cmd() {
     # Start / recreate app
     docker_compose up -d --force-recreate livereview-app || true
     log_success "Restore process initiated. Check status with: lrops.sh status"
+}
+
+# Create on-demand backup with custom name
+create_backup_cmd() {
+    local backup_name="$1"
+    section_header "CREATING BACKUP"
+    
+    if [[ ! -d "$LIVEREVIEW_INSTALL_DIR" ]]; then
+        log_error "LiveReview is not installed"
+        log_info "Run 'lrops.sh setup-demo' to install"
+        return 1
+    fi
+    
+    # Generate backup name if not provided
+    if [[ -z "$backup_name" ]]; then
+        backup_name="manual-$(date +%Y%m%d_%H%M%S)"
+    fi
+    
+    # Validate backup name (no special characters that could cause issues)
+    if [[ ! "$backup_name" =~ ^[a-zA-Z0-9_-]+$ ]]; then
+        log_error "Invalid backup name. Use only letters, numbers, hyphens, and underscores"
+        return 1
+    fi
+    
+    log_info "Creating backup: $backup_name"
+    
+    # Determine backup directory (custom or default)
+    local backup_root
+    if [[ -n "$BACKUP_TARGET_DIR" ]]; then
+        # Validate and create custom backup directory
+        if [[ ! "$BACKUP_TARGET_DIR" =~ ^/.*$ ]] && [[ ! "$BACKUP_TARGET_DIR" =~ ^[~].*$ ]]; then
+            log_error "Backup directory must be an absolute path or start with ~"
+            return 1
+        fi
+        # Expand tilde if present
+        backup_root=$(eval echo "$BACKUP_TARGET_DIR")
+        log_info "Using custom backup directory: $backup_root"
+    else
+        backup_root="$LIVEREVIEW_INSTALL_DIR/backups"
+        log_info "Using default backup directory: $backup_root"
+    fi
+    
+    # Create backup root directory
+    if ! mkdir -p "$backup_root"; then
+        log_error "Failed to create backup directory: $backup_root"
+        return 1
+    fi
+    
+    # Use existing backup infrastructure but with custom name and location
+    local ts=$(date +%Y%m%d_%H%M%S)
+    local current_version="unknown"
+    [[ -f "$LIVEREVIEW_INSTALL_DIR/.env" ]] && current_version=$(grep -E '^LIVEREVIEW_VERSION=' "$LIVEREVIEW_INSTALL_DIR/.env" | cut -d'=' -f2 | tr -d '\r' || echo "unknown")
+    local dir_name="${backup_name}-${ts}-version-${current_version}"
+    local backup_dir="$backup_root/$dir_name"
+    mkdir -p "$backup_dir"
+    
+    log_info "Creating backup in: $backup_dir"
+    
+    # Copy config files
+    for f in .env docker-compose.yml; do
+        if [[ -f "$LIVEREVIEW_INSTALL_DIR/$f" ]]; then
+            cp "$LIVEREVIEW_INSTALL_DIR/$f" "$backup_dir/$f" || true
+        fi
+    done
+    
+    # Copy config and scripts directories if they exist
+    for d in config scripts; do
+        if [[ -d "$LIVEREVIEW_INSTALL_DIR/$d" ]]; then
+            cp -r "$LIVEREVIEW_INSTALL_DIR/$d" "$backup_dir/" || true
+        fi
+    done
+    
+    # Attempt physical snapshot (compressed) of lrdata/postgres using sudo if needed
+    local data_dir="$LIVEREVIEW_INSTALL_DIR/lrdata/postgres"
+    local physical_snapshot=false
+    if [[ -d "$data_dir" ]]; then
+        log_info "Creating compressed physical data snapshot (postgres directory)"
+        local tar_target="$backup_dir/postgres-data.tgz"
+        if tar -czf "$tar_target" -C "$LIVEREVIEW_INSTALL_DIR/lrdata" postgres 2>/dev/null; then
+            physical_snapshot=true
+            log_success "Physical snapshot created (without sudo)"
+        else
+            # Retry with sudo
+            if command -v sudo >/dev/null 2>&1; then
+                log_info "Retrying physical snapshot with sudo due to permission issues"
+                if sudo tar -czf "$tar_target" -C "$LIVEREVIEW_INSTALL_DIR/lrdata" postgres; then
+                    physical_snapshot=true
+                    # Adjust ownership so invoking user can manipulate backup
+                    sudo chown "${SUDO_UID:-$(id -u)}:${SUDO_GID:-$(id -g)}" "$tar_target" 2>/dev/null || true
+                    log_success "Physical snapshot created with sudo"
+                else
+                    log_warning "Failed to create physical snapshot even with sudo; continuing"
+                fi
+            else
+                log_warning "sudo not available; skipping physical data snapshot"
+            fi
+        fi
+    else
+        log_info "No postgres data directory found (skipping physical snapshot)"
+    fi
+    
+    # Capture image + container metadata
+    docker ps --no-trunc > "$backup_dir/docker-ps.txt" 2>/dev/null || true
+    docker images --no-trunc | grep livereview > "$backup_dir/docker-images.txt" 2>/dev/null || true
+    
+    # Logical DB dump
+    local db_container
+    db_container=$(detect_db_container || true)
+    if [[ -n "$db_container" ]]; then
+        # Extract DB password from env
+        local db_pass
+        db_pass=$(grep -E '^DB_PASSWORD=' "$LIVEREVIEW_INSTALL_DIR/.env" | cut -d'=' -f2 | tr -d '\r' || true)
+        if [[ -n "$db_pass" ]]; then
+            log_info "Creating logical database dump from container $db_container"
+            if docker exec -e PGPASSWORD="$db_pass" "$db_container" pg_dump -U livereview -d livereview > "$backup_dir/db.sql" 2>"$backup_dir/db_dump.stderr"; then
+                log_success "Database dump created"
+            else
+                log_warning "Database dump failed (see db_dump.stderr); continuing with config backup"
+                rm -f "$backup_dir/db.sql" || true
+            fi
+        else
+            log_warning "DB_PASSWORD not found in .env; skipping DB dump"
+        fi
+    else
+        log_warning "Could not detect running DB container; skipping DB dump"
+    fi
+    
+    # Metadata JSON
+    cat > "$backup_dir/metadata.json" <<EOF
+{
+  "type": "manual",
+  "name": "${backup_name}",
+  "timestamp": "${ts}",
+  "current_version": "${current_version}",
+  "has_physical_snapshot": ${physical_snapshot},
+  "has_logical_dump": $( [[ -f "$backup_dir/db.sql" ]] && echo true || echo false ),
+  "script_version": "${SCRIPT_VERSION}"
+}
+EOF
+    
+    # Calculate backup size
+    local backup_size
+    backup_size=$(du -sh "$backup_dir" | cut -f1)
+    
+    log_success "Manual backup completed successfully!"
+    log_info "Backup name: $dir_name"
+    log_info "Backup location: $backup_dir"
+    log_info "Backup size: $backup_size"
+    log_info "To restore: lrops.sh restore $dir_name"
+    
+    # Don't prune old backups for manual backups - let user manage them
+}
+
+# Create quick backup with timestamp-based name
+quick_backup_cmd() {
+    section_header "CREATING QUICK BACKUP"
+    local timestamp_name="quickbackup-$(date +%Y%m%d_%H%M%S)"
+    create_backup_cmd "$timestamp_name"
+}
+
+# Delete a specific backup
+delete_backup_cmd() {
+    local backup_name="$1"
+    section_header "DELETING BACKUP"
+    
+    if [[ -z "$backup_name" ]]; then
+        log_error "Usage: lrops.sh delete-backup <backup_name>"
+        log_info "Available backups:"
+        list_backups_cmd
+        return 1
+    fi
+    
+    # Determine backup directory
+    local backup_root
+    if [[ -n "$BACKUP_TARGET_DIR" ]]; then
+        backup_root=$(eval echo "$BACKUP_TARGET_DIR")
+    else
+        backup_root="$LIVEREVIEW_INSTALL_DIR/backups"
+    fi
+    if [[ ! -d "$backup_root" ]]; then
+        log_error "No backups directory at $backup_root"
+        return 1
+    fi
+    
+    local backup_dir="$backup_root/$backup_name"
+    if [[ ! -d "$backup_dir" ]]; then
+        log_error "Backup '$backup_name' not found"
+        list_backups_cmd
+        return 1
+    fi
+    
+    # Confirmation prompt
+    log_warning "This will permanently delete backup: $backup_name"
+    log_warning "Location: $backup_dir"
+    read -p "Are you sure you want to delete this backup? [y/N]: " -n 1 -r
+    echo
+    if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+        log_info "Backup deletion cancelled"
+        return 0
+    fi
+    
+    # Delete the backup
+    if rm -rf "$backup_dir"; then
+        log_success "Backup '$backup_name' deleted successfully"
+    else
+        log_error "Failed to delete backup '$backup_name'"
+        return 1
+    fi
+}
+
+# Show detailed backup information
+show_backup_info_cmd() {
+    local backup_name="$1"
+    section_header "BACKUP INFORMATION"
+    
+    if [[ -z "$backup_name" ]]; then
+        log_error "Usage: lrops.sh backup-info <backup_name>"
+        log_info "Available backups:"
+        list_backups_cmd
+        return 1
+    fi
+    
+    # Determine backup directory
+    local backup_root
+    if [[ -n "$BACKUP_TARGET_DIR" ]]; then
+        backup_root=$(eval echo "$BACKUP_TARGET_DIR")
+    else
+        backup_root="$LIVEREVIEW_INSTALL_DIR/backups"
+    fi
+    local backup_dir="$backup_root/$backup_name"
+    
+    if [[ ! -d "$backup_dir" ]]; then
+        log_error "Backup '$backup_name' not found"
+        list_backups_cmd
+        return 1
+    fi
+    
+    log_info "Backup: $backup_name"
+    log_info "Location: $backup_dir"
+    
+    # Show backup size
+    local backup_size
+    backup_size=$(du -sh "$backup_dir" | cut -f1)
+    log_info "Size: $backup_size"
+    
+    # Show creation date from directory timestamp
+    local creation_date
+    creation_date=$(stat -c %y "$backup_dir" 2>/dev/null || stat -f %Sm "$backup_dir" 2>/dev/null || echo "Unknown")
+    log_info "Created: $creation_date"
+    
+    # Show metadata if available
+    if [[ -f "$backup_dir/metadata.json" ]]; then
+        echo
+        log_info "Metadata:"
+        if command -v jq >/dev/null 2>&1; then
+            jq . "$backup_dir/metadata.json" 2>/dev/null || cat "$backup_dir/metadata.json"
+        else
+            cat "$backup_dir/metadata.json"
+        fi
+    fi
+    
+    echo
+    log_info "Contents:"
+    ls -la "$backup_dir/" | tail -n +2 | while read -r line; do
+        echo "  $line"
+    done
+    
+    echo
+    log_info "To restore: lrops.sh restore $backup_name"
+    log_info "To delete: lrops.sh delete-backup $backup_name"
+}
+
+# Set LiveReview deployment mode (demo/production)
+set_mode_cmd() {
+    local mode="$1"
+    section_header "SETTING DEPLOYMENT MODE"
+    
+    if [[ ! -d "$LIVEREVIEW_INSTALL_DIR" ]]; then
+        log_error "LiveReview is not installed"
+        log_info "Run 'lrops.sh setup-demo' to install"
+        return 1
+    fi
+    
+    if [[ ! -f "$LIVEREVIEW_INSTALL_DIR/.env" ]]; then
+        log_error ".env file not found at: $LIVEREVIEW_INSTALL_DIR/.env"
+        return 1
+    fi
+    
+    # Validate mode parameter
+    case "$mode" in
+        demo|development|dev)
+            local target_value="false"
+            local mode_name="Demo Mode"
+            local description="Localhost only, no webhooks, development/testing"
+            ;;
+        production|prod|server)
+            local target_value="true"
+            local mode_name="Production Mode"
+            local description="External access via reverse proxy, webhooks enabled"
+            ;;
+        "")
+            log_error "Usage: lrops.sh set-mode <demo|production>"
+            log_info "Modes:"
+            log_info "  demo       - Demo mode (LIVEREVIEW_REVERSE_PROXY=false)"
+            log_info "  production - Production mode (LIVEREVIEW_REVERSE_PROXY=true)"
+            return 1
+            ;;
+        *)
+            log_error "Invalid mode: $mode"
+            log_error "Valid modes: demo, production"
+            return 1
+            ;;
+    esac
+    
+    local env_file="$LIVEREVIEW_INSTALL_DIR/.env"
+    
+    # Check current value
+    local current_value=""
+    if grep -q '^LIVEREVIEW_REVERSE_PROXY=' "$env_file" 2>/dev/null; then
+        current_value=$(grep '^LIVEREVIEW_REVERSE_PROXY=' "$env_file" | cut -d'=' -f2 | tr -d '\r' || echo "")
+        log_info "Current LIVEREVIEW_REVERSE_PROXY=$current_value"
+    else
+        log_info "LIVEREVIEW_REVERSE_PROXY not found in .env file"
+    fi
+    
+    # Check if change is needed
+    if [[ "$current_value" == "$target_value" ]]; then
+        log_success "Already in $mode_name (LIVEREVIEW_REVERSE_PROXY=$target_value)"
+        log_info "Description: $description"
+        return 0
+    fi
+    
+    # Create backup of current .env
+    local backup_file="${env_file}.bak.$(date +%Y%m%d_%H%M%S)"
+    if cp "$env_file" "$backup_file"; then
+        log_info "Created backup: $backup_file"
+    else
+        log_warning "Could not create backup of .env file"
+    fi
+    
+    # Update or add LIVEREVIEW_REVERSE_PROXY setting
+    if grep -q '^LIVEREVIEW_REVERSE_PROXY=' "$env_file"; then
+        # Update existing value
+        if sed -i "s/^LIVEREVIEW_REVERSE_PROXY=.*/LIVEREVIEW_REVERSE_PROXY=$target_value/" "$env_file"; then
+            log_success "Updated LIVEREVIEW_REVERSE_PROXY=$target_value"
+        else
+            log_error "Failed to update LIVEREVIEW_REVERSE_PROXY in .env file"
+            return 1
+        fi
+    else
+        # Add new value
+        if echo "LIVEREVIEW_REVERSE_PROXY=$target_value" >> "$env_file"; then
+            log_success "Added LIVEREVIEW_REVERSE_PROXY=$target_value to .env file"
+        else
+            log_error "Failed to add LIVEREVIEW_REVERSE_PROXY to .env file"
+            return 1
+        fi
+    fi
+    
+    # Verify the change
+    local new_value
+    new_value=$(grep '^LIVEREVIEW_REVERSE_PROXY=' "$env_file" | cut -d'=' -f2 | tr -d '\r' || echo "")
+    if [[ "$new_value" != "$target_value" ]]; then
+        log_error "Verification failed: Expected $target_value, got $new_value"
+        return 1
+    fi
+    
+    log_success "Successfully switched to $mode_name"
+    log_info "Description: $description"
+    log_info "LIVEREVIEW_REVERSE_PROXY=$target_value"
+    
+    # Provide guidance based on mode
+    echo
+    if [[ "$mode" =~ ^(demo|development|dev)$ ]]; then
+        log_info "Demo Mode Configuration:"
+        log_info "✅ Access: http://localhost:8081/"
+        log_info "✅ API: http://localhost:8888/api"
+        log_info "✅ Webhooks: Disabled (manual triggers only)"
+        log_info "✅ External Access: Not configured (localhost only)"
+        log_info "✅ Perfect for: Development, testing, evaluation"
+        echo
+        log_info "To upgrade to production later:"
+        log_info "  lrops.sh set-mode production"
+    else
+        log_info "Production Mode Configuration:"
+        log_info "🔧 Backend: http://127.0.0.1:8888/api"
+        log_info "🔧 Frontend: http://127.0.0.1:8081/"
+        log_info "✅ Webhooks: Enabled (automatic triggers)"
+        log_info "🔧 External Access: Via reverse proxy (requires setup)"
+        log_info "🔧 SSL/TLS: Recommended for production use"
+        echo
+        log_warning "REVERSE PROXY SETUP REQUIRED:"
+        log_info "Route /api/* → http://127.0.0.1:8888"
+        log_info "Route /* → http://127.0.0.1:8081"
+        echo
+        log_info "Configuration Help:"
+        log_info "  lrops.sh help nginx   # Nginx configuration"
+        log_info "  lrops.sh help caddy   # Caddy configuration"
+        log_info "  lrops.sh help apache  # Apache configuration"
+        log_info "  lrops.sh help ssl     # SSL/TLS setup"
+    fi
+    
+    echo
+    log_info "Restart LiveReview to apply changes:"
+    log_info "  lrops.sh restart"
+    
+    # Ask if user wants to restart now
+    read -p "Restart LiveReview services now to apply changes? [y/N]: " -n 1 -r
+    echo
+    if [[ $REPLY =~ ^[Yy]$ ]]; then
+        log_info "Restarting LiveReview services..."
+        restart_containers_cmd
+    else
+        log_info "Remember to restart when ready: lrops.sh restart"
+    fi
+}
+
+# Show current deployment mode
+show_mode_cmd() {
+    section_header "CURRENT DEPLOYMENT MODE"
+    
+    if [[ ! -d "$LIVEREVIEW_INSTALL_DIR" ]]; then
+        log_error "LiveReview is not installed"
+        log_info "Run 'lrops.sh setup-demo' to install"
+        return 1
+    fi
+    
+    if [[ ! -f "$LIVEREVIEW_INSTALL_DIR/.env" ]]; then
+        log_error ".env file not found at: $LIVEREVIEW_INSTALL_DIR/.env"
+        return 1
+    fi
+    
+    local env_file="$LIVEREVIEW_INSTALL_DIR/.env"
+    local reverse_proxy_value=""
+    
+    # Get current LIVEREVIEW_REVERSE_PROXY value
+    if grep -q '^LIVEREVIEW_REVERSE_PROXY=' "$env_file" 2>/dev/null; then
+        reverse_proxy_value=$(grep '^LIVEREVIEW_REVERSE_PROXY=' "$env_file" | cut -d'=' -f2 | tr -d '\r' || echo "")
+    fi
+    
+    # Determine mode
+    local current_mode
+    local mode_description
+    case "$reverse_proxy_value" in
+        "true")
+            current_mode="Production Mode"
+            mode_description="External access via reverse proxy, webhooks enabled"
+            ;;
+        "false"|"")
+            current_mode="Demo Mode"
+            mode_description="Localhost only, no webhooks, development/testing"
+            ;;
+        *)
+            current_mode="Unknown Mode"
+            mode_description="Unexpected LIVEREVIEW_REVERSE_PROXY value: $reverse_proxy_value"
+            ;;
+    esac
+    
+    log_info "Current Mode: $current_mode"
+    log_info "Description: $mode_description"
+    log_info "LIVEREVIEW_REVERSE_PROXY=${reverse_proxy_value:-"not set (defaults to false)"}"
+    
+    # Show relevant configuration
+    echo
+    if [[ "$reverse_proxy_value" == "true" ]]; then
+        log_info "Production Mode Details:"
+        log_info "🔧 Backend: http://127.0.0.1:8888/api"
+        log_info "🔧 Frontend: http://127.0.0.1:8081/"
+        log_info "✅ Webhooks: Enabled"
+        log_info "🔧 External Access: Via reverse proxy"
+        echo
+        log_info "Switch to demo mode: lrops.sh set-mode demo"
+    else
+        log_info "Demo Mode Details:"
+        log_info "✅ Access: http://localhost:8081/"
+        log_info "✅ API: http://localhost:8888/api"
+        log_info "✅ Webhooks: Disabled"
+        log_info "✅ External Access: Localhost only"
+        echo
+        log_info "Switch to production mode: lrops.sh set-mode production"
+    fi
+    
+    # Show other relevant settings
+    echo
+    log_info "Other Configuration:"
+    local backend_port frontend_port
+    backend_port=$(grep '^LIVEREVIEW_BACKEND_PORT=' "$env_file" | cut -d'=' -f2 | tr -d '\r' || echo "8888")
+    frontend_port=$(grep '^LIVEREVIEW_FRONTEND_PORT=' "$env_file" | cut -d'=' -f2 | tr -d '\r' || echo "8081")
+    log_info "Backend Port: $backend_port"
+    log_info "Frontend Port: $frontend_port"
+    
+    local version
+    version=$(grep '^LIVEREVIEW_VERSION=' "$env_file" | cut -d'=' -f2 | tr -d '\r' || echo "not set")
+    log_info "Version: $version"
 }
 
 # Show container logs
@@ -3831,6 +4374,36 @@ main() {
             ;;
         list-backups)
             list_backups_cmd
+            exit $?
+            ;;
+        backup)
+            # Create backup with optional custom name: lrops.sh backup [name]
+            create_backup_cmd "${2:-}"
+            exit $?
+            ;;
+        quick-backup)
+            # Create quick timestamped backup: lrops.sh quick-backup
+            quick_backup_cmd
+            exit $?
+            ;;
+        backup-info)
+            # Show detailed backup information: lrops.sh backup-info <backup_name>
+            show_backup_info_cmd "${2:-}"
+            exit $?
+            ;;
+        delete-backup)
+            # Delete a specific backup: lrops.sh delete-backup <backup_name>
+            delete_backup_cmd "${2:-}"
+            exit $?
+            ;;
+        set-mode)
+            # Set deployment mode: lrops.sh set-mode <demo|production>
+            set_mode_cmd "${2:-}"
+            exit $?
+            ;;
+        show-mode|mode)
+            # Show current deployment mode: lrops.sh show-mode
+            show_mode_cmd
             exit $?
             ;;
         restore)
