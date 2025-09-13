@@ -55,12 +55,13 @@ const GitLabComConnector: React.FC = () => {
                 >
                     Manual
                 </Button>
-                <Button
+                {/* Automated tab hidden for now */}
+                {/* <Button
                     variant={isAutomated ? 'primary' : 'outline'}
                     onClick={() => navigate('/git/gitlab-com/automated')}
                 >
                     Automated
-                </Button>
+                </Button> */}
             </div>
 
             <Routes>
