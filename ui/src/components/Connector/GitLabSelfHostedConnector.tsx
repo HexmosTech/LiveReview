@@ -55,12 +55,13 @@ const GitLabSelfHostedConnector: React.FC = () => {
                 >
                     Manual
                 </Button>
-                <Button
+                {/* Automated tab hidden for now */}
+                {/* <Button
                     variant={isAutomated ? 'primary' : 'outline'}
                     onClick={() => navigate('/git/gitlab-self-hosted/automated')}
                 >
                     Automated
-                </Button>
+                </Button> */}
             </div>
 
             <Routes>
