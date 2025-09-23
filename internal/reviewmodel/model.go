@@ -89,26 +89,28 @@ type Participant struct {
 
 // ExportTimelineItem refers to a participant via AuthorRef and embeds the core event payload.
 type ExportTimelineItem struct {
-	Kind      string           `json:"kind"`
-	ID        string           `json:"id"`
-	CreatedAt time.Time        `json:"created_at"`
-	AuthorRef string           `json:"author_ref,omitempty"`
-	Commit    *TimelineCommit  `json:"commit,omitempty"`
-	Comment   *TimelineComment `json:"comment,omitempty"`
+	Kind          string           `json:"kind"`
+	ID            string           `json:"id"`
+	CreatedAt     time.Time        `json:"created_at"`
+	AuthorRef     string           `json:"author_ref,omitempty"`
+	PrevCommitSHA string           `json:"prev_commit_sha,omitempty"`
+	Commit        *TimelineCommit  `json:"commit,omitempty"`
+	Comment       *TimelineComment `json:"comment,omitempty"`
 }
 
 // ExportCommentNode mirrors CommentNode but replaces Author with AuthorRef
 type ExportCommentNode struct {
-	ID           string               `json:"id"`
-	DiscussionID string               `json:"discussion_id,omitempty"`
-	ParentID     string               `json:"parent_id,omitempty"`
-	AuthorRef    string               `json:"author_ref,omitempty"`
-	Body         string               `json:"body"`
-	CreatedAt    time.Time            `json:"created_at"`
-	FilePath     string               `json:"file_path,omitempty"`
-	LineOld      int                  `json:"line_old,omitempty"`
-	LineNew      int                  `json:"line_new,omitempty"`
-	Children     []*ExportCommentNode `json:"children,omitempty"`
+	ID            string               `json:"id"`
+	DiscussionID  string               `json:"discussion_id,omitempty"`
+	ParentID      string               `json:"parent_id,omitempty"`
+	AuthorRef     string               `json:"author_ref,omitempty"`
+	PrevCommitSHA string               `json:"prev_commit_sha,omitempty"`
+	Body          string               `json:"body"`
+	CreatedAt     time.Time            `json:"created_at"`
+	FilePath      string               `json:"file_path,omitempty"`
+	LineOld       int                  `json:"line_old,omitempty"`
+	LineNew       int                  `json:"line_new,omitempty"`
+	Children      []*ExportCommentNode `json:"children,omitempty"`
 }
 
 // ExportCommentTree aggregates participants and root nodes.
