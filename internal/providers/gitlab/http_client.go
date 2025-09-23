@@ -837,6 +837,94 @@ func (c *GitLabHTTPClient) TestCreateCommentWithPositionType(projectID string, m
 	return nil
 }
 
+// GetFileRawAtRef fetches the raw content of a file at a specific ref (commit SHA or branch).
+// API: GET /projects/:id/repository/files/:file_path/raw?ref=<ref>
+func (c *GitLabHTTPClient) GetFileRawAtRef(projectID string, filePath string, ref string) (string, error) {
+	if filePath == "" || ref == "" {
+		return "", fmt.Errorf("file path and ref are required")
+	}
+	// GitLab expects URL-encoded file path in the URL segment
+	requestURL := fmt.Sprintf("%s/projects/%s/repository/files/%s/raw?ref=%s",
+		c.baseURL, url.PathEscape(projectID), url.PathEscape(filePath), url.QueryEscape(ref))
+
+	req, err := http.NewRequest("GET", requestURL, nil)
+	if err != nil {
+		return "", fmt.Errorf("failed to create request: %w", err)
+	}
+	req.Header.Add("PRIVATE-TOKEN", c.token)
+
+	resp, err := c.client.Do(req)
+	if err != nil {
+		return "", fmt.Errorf("failed to execute request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return "", fmt.Errorf("get file raw failed with status %d: %s", resp.StatusCode, string(body))
+	}
+	data, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return "", fmt.Errorf("failed to read response: %w", err)
+	}
+	return string(data), nil
+}
+
+// CompareCommitsRaw fetches a raw compare diff between base and head SHAs for a project.
+// API: GET /projects/:id/repository/compare?from=base&to=head&straight=true
+// Returns a list of CodeDiffs with a single hunk containing the raw diff text per file.
+func (c *GitLabHTTPClient) CompareCommitsRaw(projectID string, fromSHA, toSHA string) ([]*models.CodeDiff, error) {
+	requestURL := fmt.Sprintf("%s/projects/%s/repository/compare?from=%s&to=%s&straight=true",
+		c.baseURL, url.PathEscape(projectID), url.QueryEscape(fromSHA), url.QueryEscape(toSHA))
+
+	req, err := http.NewRequest("GET", requestURL, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create request: %w", err)
+	}
+	req.Header.Add("PRIVATE-TOKEN", c.token)
+
+	resp, err := c.client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("failed to execute request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("compare API failed with status %d: %s", resp.StatusCode, string(body))
+	}
+
+	// The compare API returns a structured JSON with diffs including new_path/old_path/diff
+	var payload struct {
+		Diffs []struct {
+			OldPath     string `json:"old_path"`
+			NewPath     string `json:"new_path"`
+			Diff        string `json:"diff"`
+			NewFile     bool   `json:"new_file"`
+			RenamedFile bool   `json:"renamed_file"`
+			DeletedFile bool   `json:"deleted_file"`
+		} `json:"diffs"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&payload); err != nil {
+		return nil, fmt.Errorf("failed to decode compare response: %w", err)
+	}
+
+	diffs := make([]*models.CodeDiff, 0, len(payload.Diffs))
+	for _, d := range payload.Diffs {
+		diffs = append(diffs, &models.CodeDiff{
+			FilePath:    d.NewPath,
+			OldFilePath: d.OldPath,
+			IsNew:       d.NewFile,
+			IsDeleted:   d.DeletedFile,
+			IsRenamed:   d.RenamedFile,
+			Hunks: []models.DiffHunk{{
+				Content: d.Diff,
+			}},
+		})
+	}
+	return diffs, nil
+}
+
 // AwardEmojiOnMRNote awards an emoji (e.g., "eyes") on a specific MR note
 // API: POST /projects/:id/merge_requests/:merge_request_iid/notes/:note_id/award_emoji
 func (c *GitLabHTTPClient) AwardEmojiOnMRNote(projectID string, mrIID int, noteID int, emojiName string) error {
