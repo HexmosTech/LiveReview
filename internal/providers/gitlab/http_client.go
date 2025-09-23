@@ -836,3 +836,59 @@ func (c *GitLabHTTPClient) TestCreateCommentWithPositionType(projectID string, m
 	fmt.Printf("DEBUG: Response body: %s\n", getCommentBeginning(string(body), 100))
 	return nil
 }
+
+// AwardEmojiOnMRNote awards an emoji (e.g., "eyes") on a specific MR note
+// API: POST /projects/:id/merge_requests/:merge_request_iid/notes/:note_id/award_emoji
+func (c *GitLabHTTPClient) AwardEmojiOnMRNote(projectID string, mrIID int, noteID int, emojiName string) error {
+	requestURL := fmt.Sprintf("%s/projects/%s/merge_requests/%d/notes/%d/award_emoji",
+		c.baseURL, url.PathEscape(projectID), mrIID, noteID)
+
+	form := url.Values{}
+	form.Add("name", emojiName)
+
+	req, err := http.NewRequest("POST", requestURL, strings.NewReader(form.Encode()))
+	if err != nil {
+		return fmt.Errorf("failed to create request: %w", err)
+	}
+	req.Header.Add("PRIVATE-TOKEN", c.token)
+	req.Header.Add("Content-Type", "application/x-www-form-urlencoded")
+
+	resp, err := c.client.Do(req)
+	if err != nil {
+		return fmt.Errorf("failed to execute request: %w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusCreated && resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("award emoji failed with status %d: %s", resp.StatusCode, string(body))
+	}
+	return nil
+}
+
+// ReplyToDiscussionNote posts a reply to a discussion thread in an MR
+// API: POST /projects/:id/merge_requests/:merge_request_iid/discussions/:discussion_id/notes
+func (c *GitLabHTTPClient) ReplyToDiscussionNote(projectID string, mrIID int, discussionID string, body string) error {
+	requestURL := fmt.Sprintf("%s/projects/%s/merge_requests/%d/discussions/%s/notes",
+		c.baseURL, url.PathEscape(projectID), mrIID, url.PathEscape(discussionID))
+
+	form := url.Values{}
+	form.Add("body", body)
+
+	req, err := http.NewRequest("POST", requestURL, strings.NewReader(form.Encode()))
+	if err != nil {
+		return fmt.Errorf("failed to create request: %w", err)
+	}
+	req.Header.Add("PRIVATE-TOKEN", c.token)
+	req.Header.Add("Content-Type", "application/x-www-form-urlencoded")
+
+	resp, err := c.client.Do(req)
+	if err != nil {
+		return fmt.Errorf("failed to execute request: %w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusCreated && resp.StatusCode != http.StatusOK {
+		bodyB, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("reply to discussion failed with status %d: %s", resp.StatusCode, string(bodyB))
+	}
+	return nil
+}
