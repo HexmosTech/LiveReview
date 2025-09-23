@@ -13,7 +13,7 @@ LiveReview today runs a one-shot review: fetch MR/PR, send to AI, post comments.
 - Maintain a consistent internal representation of the MR timeline: commits, iterations, comments, threads, and actors.
 - Allow the AI to “ack” a human comment quickly (reaction/emoji) and reply when ready, handling latency gracefully.
 - Capture durable “lessons learned” when humans disagree and provide valid counter-arguments, and let the AI refine future behavior.
-- Keep the representation model provider-agnostic; use adapters for host-specific APIs and thread/reaction mechanics.
+- Keep the representation model provider-agnostic; implement host-specific APIs (threads/replies/reactions) inside each Provider.
 
 ## Concepts and responsibilities (minimal and clear)
 
@@ -68,7 +68,7 @@ We’ll align on the smallest set of concepts, each with What/Why/Responsibiliti
 		- Config: `livereview.toml` per-provider identity override (e.g., reply.identity.gitlab_username)
 		- Discovery: via provider API (e.g., GitLab /user when using PAT; GitHub /user; Bitbucket /user)
 		- Storage: persist in DB (e.g., table `provider_identities`) keyed by provider + org/repo; cache in-memory.
-		- Usage: webhook handler and Conversation Service determine if parent actor != AI and if thread contains AI messages.
+	- Usage: webhook handler and the Reply workflow determine if parent actor != AI and if thread contains AI messages.
 
 ## Scope and phases
 
@@ -100,7 +100,7 @@ We’ll align on the smallest set of concepts, each with What/Why/Responsibiliti
 
 ## Cross-host requirements
 
-We must normalize differences across hosts with adapters:
+We must normalize differences across hosts within Provider implementations:
 
 - Threads/discussions
 	- GitLab: Discussions and notes; “in_reply_to_id” or discussion_id.
@@ -145,7 +145,7 @@ Core concepts we keep in an internal store independent of Git host:
 - Memory (lessons)
 	- key (principle), value (short, actionable rule), source (message_id/link), created_by, created_at, status (active|archived)
 
-Why GitInteractionAdapter vs. Git Host: Git Host is an external system; GitInteractionAdapter is our code abstraction that isolates host-specific side effects. They’re different layers: one is outside the app; the other is LiveReview’s gateway to it. We keep only the adapter as a code concept.
+ 
 
 ### Concept hierarchy (tl;dr)
 
@@ -175,11 +175,11 @@ Minimal capabilities each provider (or a thin shim) should expose (some may no-o
 	- AddReaction(hostMessageID, reaction) (new)
 	- MarkResolved(threadHostID) (optional if host supports)
 
-Note: Current providers support PostComment/PostComments. We’ll extend them with small optional capabilities for replies/reactions. If desired, a tiny shim (like `internal/providers/interact`) can wrap providers without introducing a mandatory new layer.
+Note: Current providers support PostComment/PostComments. We’ll extend them with small optional capabilities for replies/reactions/listing. No separate adapter layer is required.
 
 Concrete extension points in this repo for Phase 1:
 - Provider additions (preferred path)
-	- Add optional methods directly to providers (behind capability checks) or add a tiny, internal shim that delegates to providers:
+	- Add optional methods directly to providers (behind capability checks):
 		- ListCommits(mrID) ([]Commit, error)
 		- ListThreads(mrID) ([]ThreadSummary, error)
 		- ListMessages(threadHostID) ([]HostMessage, error)
@@ -198,7 +198,7 @@ Testing and fixtures (GitLab-first):
 ## Event ingestion and decisioning
 
 - Webhooks: receive comment created/edited, reaction added, PR updated, review requested, discussion resolved/reopened.
-- The Conversation Service normalizes to a DomainEvent and appends it to the MR timeline.
+- The Reply workflow normalizes to a DomainEvent and appends it to the ReviewModel timeline.
 - Trigger responder when:
 	- @livereview is mentioned.
 	- A human replies to an AI message.
@@ -209,10 +209,10 @@ GitLab-first webhook scope:
 - Mention detection: parse `@livereview` (configurable) in note body; normalize to DomainEvent.
 - Store host IDs (discussion_id, note_id) and MR URL; enqueue a ReplyJob or run inline for MVP.
 
-## Conversation workflow (within Conversation Service)
+## Reply workflow (near ReviewModel)
 
 1) Acknowledge fast
-	 - Adapter adds a “read” reaction (eyes) or short ack comment.
+	- Provider adds a “read” reaction (eyes) or short ack comment.
 
 2) Build context
 	 - Thread history (messages ± N), MR summary, changed files around anchor, current iteration commits, relevant previous AI statements, linked KnowledgeRefs, and Memory items (lessons).
@@ -298,23 +298,23 @@ Migration approach: additive tables + backfill lazily as threads are touched.
 ## Backwards compatibility
 
 - Keep existing review flow untouched for initial posting.
-- Introduce a new interaction surface for replies; add a small Adapter interface built on current providers, implemented gradually per host (backward-compatible for existing review flow).
+- Introduce reply capability via Provider extensions (reply/reactions/list APIs) implemented gradually per host (backward-compatible with existing review flow).
 
 ## Code changes — outline (kept minimal)
 
 Packages to add
 
-- internal/conversation
-	- service.go (Conversation Service: ack, build context, call AI, post reply, learning)
+- internal/reviewmodel
 	- store.go (DB access for threads/messages/reactions + knowledge/memory)
 	- timeline.go (DomainEvent normalization, append/read)
+	- reply.go (Reply workflow: ack, build context, call AI, post reply, learning)
 
 - internal/ai/reply (thin layer over existing AI providers)
 	- builder.go (prompt construction from conversation graph)
 	- responder.go (call existing AI provider; unify outputs)
 	- learning.go (memory extraction, dedupe)
 
-Adapter updates
+Provider extensions
 
 - internal/providers/shared.go
 	- Add optional threading capability methods behind capability checks (non-breaking additions).
@@ -330,7 +330,7 @@ Server/webhooks
 - internal/api/webhook_handler.go
 	- Extend to ingest comment_created/comment_edited/reaction_added across providers.
 	- Detect @livereview mentions and reply triggers.
-	- Persist to Conversation Store and enqueue a ReplyJob (or call Conversation Service inline for MVP).
+	- Persist to ReviewModel Store and enqueue a ReplyJob (or invoke Reply workflow inline for MVP).
 
 - internal/jobqueue
 	- Add ReplyJob with retries and idempotency keys (host_message_id + normalized prompt hash).
@@ -338,11 +338,11 @@ Server/webhooks
 Persistence
 
 - internal/api/database.go (or new migration files)
-	- Create tables listed above; provide simple DAO in internal/conversation/store.go
+	- Create tables listed above; provide simple DAO in internal/reviewmodel/store.go
 
 Orchestration
 
-- internal/conversation/orchestrator.go
+- internal/reviewmodel/reply.go
 	- On event: add reaction (ack), build context, ask AI, post reply, store mapping.
 	- Policy hooks for “defend vs. learn,” attach KnowledgeRefs.
 
@@ -382,7 +382,7 @@ Success criteria
 - Unit
 	- Mention detection parser, idempotency keys, Memory extraction heuristics.
 
-- Adapter integration per host
+- Provider integration per host
 	- Post/Reply/Reactions happy path + common errors (404, 403, 429).
 	- Identity discovery: verify the adapter or provider can fetch current user; assert username persists and is used to classify AI vs human messages.
 
@@ -393,7 +393,7 @@ Success criteria
 
 ## Rollout plan
 
-1) Ship adapters with ack-only reaction and reply in existing AI threads.
+1) Ship provider extensions with ack-only reaction and reply in existing AI threads.
 2) Enable @livereview mention triggers.
 3) Add Memory persistence and simple admin listing.
 4) Expand to cross-thread Q&A and better iteration tracking.
@@ -419,20 +419,20 @@ flowchart LR
 
 	subgraph LiveReview
 		API[/internal/api (webhook endpoints)/]
-		CSvc[/conversation/service/]
-		Store[(Conversation Store: threads, messages, reactions, knowledge, memory)]
+		ReplyWF[/reply workflow (near ReviewModel)/]
+		RMStore[(ReviewModel Store: threads, messages, reactions, knowledge, memory)]
 		AI[internal/ai providers + reply]
 		JobQ[[Background Worker (optional)]]
-	Providers[internal/providers (GitLab/GitHub/Bitbucket)]
+		Providers[internal/providers (GitLab/GitHub/Bitbucket)]
 		ReviewSvc[internal/review/service (existing review)]
 	end
 
 	MR <-->|post comments, replies, reactions| Providers
-	Webhooks --> API --> CSvc
-	CSvc <--> Store
-	CSvc --> AI
-	CSvc --> Providers
-	CSvc --> JobQ
+	Webhooks --> API --> ReplyWF
+	ReplyWF <--> RMStore
+	ReplyWF --> AI
+	ReplyWF --> Providers
+	ReplyWF --> JobQ
 	MR <-->|initial review comments| ReviewSvc
 ```
 
@@ -443,23 +443,23 @@ sequenceDiagram
   autonumber
   participant GH as Git Host
   participant API as LiveReview API
-  participant CS as Conversation Service
-  participant S as Conversation Store
-	participant P as Adapter
+	participant RW as Reply workflow
+	participant RM as ReviewModel Store
+	participant P as Providers
   participant Q as JobQueue
   participant A as AI Provider
 
   GH->>API: webhook: comment_created (@livereview)
-  API->>CS: normalize + event
-  CS->>S: persist message/thread (timeline)
-  CS->>P: add reaction (eyes)
-  CS->>Q: enqueue ReplyJob (or proceed inline)
-  Q->>CS: start job (async)
-  CS->>S: load context (history, diffs, lessons)
-  CS->>A: build prompt + ask
-  A-->>CS: reply text (+citations)
-  CS->>P: reply to parent message
-  CS->>S: persist posted IDs, knowledge refs, memory update
+	API->>RW: normalize + DomainEvent
+	RW->>RM: persist message/thread (timeline)
+	RW->>P: add reaction (eyes)
+	RW->>Q: enqueue ReplyJob (or proceed inline)
+	Q-->>RW: start job (async)
+	RW->>RM: load context (history, diffs, lessons)
+	RW->>A: build prompt + ask
+	A-->>RW: reply text (+citations)
+	RW->>P: reply to parent message
+	RW->>RM: persist posted IDs, knowledge refs, memory update
 ```
 
 ### Persistence (ER) overview
@@ -546,29 +546,30 @@ erDiagram
 	}
 ```
 
-### Adapter capability mapping
+### Provider extensions (minimal)
 
 ```mermaid
 classDiagram
-	class InteractionAdapter {
-		+ListCommits(mrID) []Commit
-		+ListThreads(mrID) []ThreadSummary
-		+ListMessages(threadHostID) []HostMessage
-		+ReplyToMessage(mrID, inReplyToHostMessageID, body) PostedMessage
-		+AddReaction(hostMessageID, reaction) error
-		+MarkResolved(threadHostID) error
-	}
+	classDiagram
+		class Provider {
+			+GetMergeRequestDetails(url) MergeRequestDetails
+			+PostComment(...)
+			+PostComments(...)
+			+PostLineComment(...)
+			+ReplyToMessage(mrID, parentHostMessageID, body) PostedMessage
+			+AddReaction(hostMessageID, reaction) error
+			+ListThreads(mrID) []ThreadSummary
+			+ListMessages(threadHostID) []HostMessage
+		}
 
-	class GitLabAdapter
-	class GitHubAdapter
-	class BitbucketAdapter
+		class GitLabProvider
+		class GitHubProvider
+		class BitbucketProvider
 
-	InteractionAdapter <|.. GitLabAdapter
-	InteractionAdapter <|.. GitHubAdapter
-	InteractionAdapter <|.. BitbucketAdapter
+		Provider <|.. GitLabProvider
+		Provider <|.. GitHubProvider
+		Provider <|.. BitbucketProvider
 
-	note for GitLabAdapter "Uses: Discussions/Notes API, Award Emojis"
-	note for GitHubAdapter "Uses: Issue/Review Comments, Reactions API"
-	note for BitbucketAdapter "Uses: PR Comments/Replies; fallback ack if no reactions"
+		note for GitLabProvider "Uses: Discussions/Notes API, Award Emojis\nhelpers: internal/providers/gitlab/gitlab_comment.go"
 ```
 

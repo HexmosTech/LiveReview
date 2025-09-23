@@ -77,6 +77,63 @@ type GitLabMergeRequestChanges struct {
 	} `json:"changes"`
 }
 
+// GitLabCommit represents a commit returned by the MR commits API
+type GitLabCommit struct {
+	ID            string   `json:"id"`
+	ShortID       string   `json:"short_id"`
+	Title         string   `json:"title"`
+	Message       string   `json:"message"`
+	AuthorName    string   `json:"author_name"`
+	AuthorEmail   string   `json:"author_email"`
+	AuthoredDate  string   `json:"authored_date"`
+	CommitterName string   `json:"committer_name"`
+	CommittedDate string   `json:"committed_date"`
+	WebURL        string   `json:"web_url"`
+	ParentIDs     []string `json:"parent_ids"`
+}
+
+// GitLabDiscussion represents a discussion thread in an MR
+type GitLabDiscussion struct {
+	ID             string       `json:"id"`
+	IndividualNote bool         `json:"individual_note"`
+	Notes          []GitLabNote `json:"notes"`
+}
+
+// GitLabNote represents an individual note (comment) within a discussion
+type GitLabNote struct {
+	ID         int             `json:"id"`
+	Type       string          `json:"type"`
+	Body       string          `json:"body"`
+	Author     GitLabUser      `json:"author"`
+	CreatedAt  string          `json:"created_at"`
+	UpdatedAt  string          `json:"updated_at"`
+	System     bool            `json:"system"`
+	Resolvable bool            `json:"resolvable"`
+	Resolved   bool            `json:"resolved"`
+	ResolvedBy *GitLabUser     `json:"resolved_by"`
+	ResolvedAt string          `json:"resolved_at"`
+	Position   *GitLabPosition `json:"position"`
+}
+
+// GitLabUser is a minimal user representation
+type GitLabUser struct {
+	ID       int    `json:"id"`
+	Username string `json:"username"`
+	Name     string `json:"name"`
+}
+
+// GitLabPosition captures diff position for a diff note
+type GitLabPosition struct {
+	BaseSHA      string `json:"base_sha"`
+	StartSHA     string `json:"start_sha"`
+	HeadSHA      string `json:"head_sha"`
+	OldPath      string `json:"old_path"`
+	NewPath      string `json:"new_path"`
+	PositionType string `json:"position_type"`
+	OldLine      int    `json:"old_line"`
+	NewLine      int    `json:"new_line"`
+}
+
 // GetMergeRequest gets a merge request by project ID and MR IID
 func (c *GitLabHTTPClient) GetMergeRequest(projectID string, mrIID int) (*GitLabMergeRequest, error) {
 	// Create the correct URL with plural 'merge_requests'
@@ -187,6 +244,73 @@ func (c *GitLabHTTPClient) GetMergeRequestChanges(projectID string, mrIID int) (
 	}
 
 	return &changes, nil
+}
+
+// GetMergeRequestCommits lists commits for a merge request
+func (c *GitLabHTTPClient) GetMergeRequestCommits(projectID string, mrIID int) ([]GitLabCommit, error) {
+	requestURL := fmt.Sprintf("%s/projects/%s/merge_requests/%d/commits",
+		c.baseURL, url.PathEscape(projectID), mrIID)
+
+	req, err := http.NewRequest("GET", requestURL, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create request: %w", err)
+	}
+
+	if strings.HasPrefix(c.token, "glpat-") {
+		req.Header.Add("PRIVATE-TOKEN", c.token)
+	} else {
+		req.Header.Add("Authorization", "Bearer "+c.token)
+	}
+
+	resp, err := c.client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("failed to execute request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("API request failed with status %d: %s", resp.StatusCode, string(body))
+	}
+
+	var commits []GitLabCommit
+	if err := json.NewDecoder(resp.Body).Decode(&commits); err != nil {
+		return nil, fmt.Errorf("failed to decode response: %w", err)
+	}
+	return commits, nil
+}
+
+// GetMergeRequestDiscussions lists discussions and their notes for a merge request
+func (c *GitLabHTTPClient) GetMergeRequestDiscussions(projectID string, mrIID int) ([]GitLabDiscussion, error) {
+	requestURL := fmt.Sprintf("%s/projects/%s/merge_requests/%d/discussions",
+		c.baseURL, url.PathEscape(projectID), mrIID)
+
+	req, err := http.NewRequest("GET", requestURL, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create request: %w", err)
+	}
+	if strings.HasPrefix(c.token, "glpat-") {
+		req.Header.Add("PRIVATE-TOKEN", c.token)
+	} else {
+		req.Header.Add("Authorization", "Bearer "+c.token)
+	}
+
+	resp, err := c.client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("failed to execute request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("API request failed with status %d: %s", resp.StatusCode, string(body))
+	}
+
+	var discussions []GitLabDiscussion
+	if err := json.NewDecoder(resp.Body).Decode(&discussions); err != nil {
+		return nil, fmt.Errorf("failed to decode response: %w", err)
+	}
+	return discussions, nil
 }
 
 // ListMergeRequests lists merge requests for a project
