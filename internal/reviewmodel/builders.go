@@ -20,7 +20,10 @@ func BuildTimeline(commits []gl.GitLabCommit, discussions []gl.GitLabDiscussion)
 			Kind:      "commit",
 			ID:        c.ID,
 			CreatedAt: t,
-			Author:    firstNonEmpty(c.CommitterName, c.AuthorName),
+			Author: AuthorInfo{
+				Name:  firstNonEmpty(c.CommitterName, c.AuthorName),
+				Email: firstNonEmpty(c.CommitterEmail, c.AuthorEmail),
+			},
 			Commit: &TimelineCommit{
 				SHA:     c.ID,
 				Title:   c.Title,
@@ -46,7 +49,7 @@ func BuildTimeline(commits []gl.GitLabCommit, discussions []gl.GitLabDiscussion)
 				Kind:      "comment",
 				ID:        toID(n.ID),
 				CreatedAt: t,
-				Author:    n.Author.Name,
+				Author:    AuthorInfo{ID: n.Author.ID, Username: n.Author.Username, Name: n.Author.Name},
 				Comment: &TimelineComment{
 					NoteID:       toID(n.ID),
 					Discussion:   d.ID,
@@ -85,7 +88,7 @@ func BuildCommentTree(discussions []gl.GitLabDiscussion) CommentTree {
 			node := &CommentNode{
 				ID:           toID(n.ID),
 				DiscussionID: d.ID,
-				Author:       n.Author.Name,
+				Author:       AuthorInfo{ID: n.Author.ID, Username: n.Author.Username, Name: n.Author.Name},
 				Body:         n.Body,
 				CreatedAt:    t,
 				FilePath:     fp,
@@ -138,4 +141,123 @@ func fmtInt(i int) string {
 	// small helper to avoid pulling strconv all over
 	// use simple conversion
 	return fmt.Sprintf("%d", i)
+}
+
+// Export helpers: deduplicate authors and produce compact JSON payloads
+
+// BuildExportTimeline converts TimelineItem slice to ExportTimeline with participants.
+func BuildExportTimeline(items []TimelineItem) ExportTimeline {
+	// Collect participants map
+	m := map[string]Participant{}
+	getRef := func(a AuthorInfo) string {
+		if a.ID != 0 {
+			return fmt.Sprintf("u:gitlab:%d", a.ID)
+		}
+		if a.Username != "" {
+			return "u:" + a.Username
+		}
+		if a.Email != "" {
+			return "e:" + a.Email
+		}
+		if a.Name != "" {
+			return "n:" + a.Name
+		}
+		return "u:unknown"
+	}
+
+	out := make([]ExportTimelineItem, 0, len(items))
+	for _, it := range items {
+		ref := getRef(it.Author)
+		if _, ok := m[ref]; !ok {
+			m[ref] = Participant{
+				Ref:       ref,
+				ID:        it.Author.ID,
+				Username:  it.Author.Username,
+				Name:      it.Author.Name,
+				Email:     it.Author.Email,
+				AvatarURL: it.Author.AvatarURL,
+				WebURL:    it.Author.WebURL,
+			}
+		}
+		out = append(out, ExportTimelineItem{
+			Kind:      it.Kind,
+			ID:        it.ID,
+			CreatedAt: it.CreatedAt,
+			AuthorRef: ref,
+			Commit:    it.Commit,
+			Comment:   it.Comment,
+		})
+	}
+	// Flatten participants
+	parts := make([]Participant, 0, len(m))
+	for _, p := range m {
+		parts = append(parts, p)
+	}
+	// Stable order is optional; skip sorting for now
+	return ExportTimeline{Participants: parts, Items: out}
+}
+
+// BuildExportCommentTree converts CommentTree to ExportCommentTree with participants and author_refs.
+func BuildExportCommentTree(tree CommentTree) ExportCommentTree {
+	m := map[string]Participant{}
+	getRef := func(a AuthorInfo) string {
+		if a.ID != 0 {
+			return fmt.Sprintf("u:gitlab:%d", a.ID)
+		}
+		if a.Username != "" {
+			return "u:" + a.Username
+		}
+		if a.Email != "" {
+			return "e:" + a.Email
+		}
+		if a.Name != "" {
+			return "n:" + a.Name
+		}
+		return "u:unknown"
+	}
+
+	var convert func(n *CommentNode) *ExportCommentNode
+	convert = func(n *CommentNode) *ExportCommentNode {
+		ref := getRef(n.Author)
+		if _, ok := m[ref]; !ok {
+			m[ref] = Participant{
+				Ref:       ref,
+				ID:        n.Author.ID,
+				Username:  n.Author.Username,
+				Name:      n.Author.Name,
+				Email:     n.Author.Email,
+				AvatarURL: n.Author.AvatarURL,
+				WebURL:    n.Author.WebURL,
+			}
+		}
+		out := &ExportCommentNode{
+			ID:           n.ID,
+			DiscussionID: n.DiscussionID,
+			ParentID:     n.ParentID,
+			AuthorRef:    ref,
+			Body:         n.Body,
+			CreatedAt:    n.CreatedAt,
+			FilePath:     n.FilePath,
+			LineOld:      n.LineOld,
+			LineNew:      n.LineNew,
+		}
+		if len(n.Children) > 0 {
+			out.Children = make([]*ExportCommentNode, 0, len(n.Children))
+			for _, ch := range n.Children {
+				out.Children = append(out.Children, convert(ch))
+			}
+		}
+		return out
+	}
+
+	roots := make([]*ExportCommentNode, 0, len(tree.Roots))
+	for _, r := range tree.Roots {
+		roots = append(roots, convert(r))
+	}
+
+	parts := make([]Participant, 0, len(m))
+	for _, p := range m {
+		parts = append(parts, p)
+	}
+	return ExportCommentTree{Participants: parts, Roots: roots}
 }

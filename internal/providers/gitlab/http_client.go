@@ -79,17 +79,18 @@ type GitLabMergeRequestChanges struct {
 
 // GitLabCommit represents a commit returned by the MR commits API
 type GitLabCommit struct {
-	ID            string   `json:"id"`
-	ShortID       string   `json:"short_id"`
-	Title         string   `json:"title"`
-	Message       string   `json:"message"`
-	AuthorName    string   `json:"author_name"`
-	AuthorEmail   string   `json:"author_email"`
-	AuthoredDate  string   `json:"authored_date"`
-	CommitterName string   `json:"committer_name"`
-	CommittedDate string   `json:"committed_date"`
-	WebURL        string   `json:"web_url"`
-	ParentIDs     []string `json:"parent_ids"`
+	ID             string   `json:"id"`
+	ShortID        string   `json:"short_id"`
+	Title          string   `json:"title"`
+	Message        string   `json:"message"`
+	AuthorName     string   `json:"author_name"`
+	AuthorEmail    string   `json:"author_email"`
+	AuthoredDate   string   `json:"authored_date"`
+	CommitterName  string   `json:"committer_name"`
+	CommitterEmail string   `json:"committer_email"`
+	CommittedDate  string   `json:"committed_date"`
+	WebURL         string   `json:"web_url"`
+	ParentIDs      []string `json:"parent_ids"`
 }
 
 // GitLabDiscussion represents a discussion thread in an MR
@@ -117,9 +118,11 @@ type GitLabNote struct {
 
 // GitLabUser is a minimal user representation
 type GitLabUser struct {
-	ID       int    `json:"id"`
-	Username string `json:"username"`
-	Name     string `json:"name"`
+	ID        int    `json:"id"`
+	Username  string `json:"username"`
+	Name      string `json:"name"`
+	AvatarURL string `json:"avatar_url"`
+	WebURL    string `json:"web_url"`
 }
 
 // GitLabPosition captures diff position for a diff note
