@@ -16,3 +16,7 @@ internal/prompts/vendor/keyring_gen.go
 internal/prompts/vendor/templates/*.enc
 internal/prompts/vendor/templates/manifest.json
 livereview_vendor
+
+mrmodel
+comment_tree.json
+timeline.json
