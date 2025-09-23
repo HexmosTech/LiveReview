@@ -8,6 +8,10 @@ import (
 	gl "github.com/livereview/internal/providers/gitlab"
 )
 
+// prevIndexForComments stores commentID -> prev commit SHA captured when building the export timeline.
+// This allows BuildExportCommentTree to enrich nodes without changing the CLI flow/signature.
+var prevIndexForComments map[string]string
+
 // BuildTimeline merges commits and discussions into a single chronological sequence.
 // Inputs are raw GitLab API structs; output is provider-agnostic TimelineItem slice.
 func BuildTimeline(commits []gl.GitLabCommit, discussions []gl.GitLabDiscussion) []TimelineItem {
@@ -67,6 +71,23 @@ func BuildTimeline(commits []gl.GitLabCommit, discussions []gl.GitLabDiscussion)
 
 	sort.Slice(items, func(i, j int) bool { return items[i].CreatedAt.Before(items[j].CreatedAt) })
 	return items
+}
+
+// BuildPrevCommitIndex walks an already time-sorted timeline and returns a map
+// from comment ID -> immediate previous commit SHA at the time the comment was posted.
+func BuildPrevCommitIndex(items []TimelineItem) map[string]string {
+	prev := map[string]string{}
+	lastCommit := ""
+	for _, it := range items {
+		if it.Kind == "commit" && it.Commit != nil {
+			lastCommit = it.Commit.SHA
+			continue
+		}
+		if it.Kind == "comment" && it.Comment != nil && it.ID != "" {
+			prev[it.ID] = lastCommit
+		}
+	}
+	return prev
 }
 
 // BuildCommentTree constructs a nested thread tree from discussions/notes.
@@ -166,6 +187,10 @@ func BuildExportTimeline(items []TimelineItem) ExportTimeline {
 	}
 
 	out := make([]ExportTimelineItem, 0, len(items))
+	// Track immediate previous commit while walking in order
+	lastCommit := ""
+	// Reset and prepare package-scoped index for subsequent comment tree export
+	prevIndexForComments = map[string]string{}
 	for _, it := range items {
 		ref := getRef(it.Author)
 		if _, ok := m[ref]; !ok {
@@ -179,14 +204,23 @@ func BuildExportTimeline(items []TimelineItem) ExportTimeline {
 				WebURL:    it.Author.WebURL,
 			}
 		}
-		out = append(out, ExportTimelineItem{
+		exp := ExportTimelineItem{
 			Kind:      it.Kind,
 			ID:        it.ID,
 			CreatedAt: it.CreatedAt,
 			AuthorRef: ref,
 			Commit:    it.Commit,
 			Comment:   it.Comment,
-		})
+		}
+		if it.Kind == "commit" && it.Commit != nil {
+			lastCommit = it.Commit.SHA
+		} else if it.Kind == "comment" && it.Comment != nil {
+			exp.PrevCommitSHA = lastCommit
+			if it.ID != "" {
+				prevIndexForComments[it.ID] = lastCommit
+			}
+		}
+		out = append(out, exp)
 	}
 	// Flatten participants
 	parts := make([]Participant, 0, len(m))
@@ -198,7 +232,9 @@ func BuildExportTimeline(items []TimelineItem) ExportTimeline {
 }
 
 // BuildExportCommentTree converts CommentTree to ExportCommentTree with participants and author_refs.
-func BuildExportCommentTree(tree CommentTree) ExportCommentTree {
+// If prevCommitIndex is provided, it will populate PrevCommitSHA for each node using the mapping
+// from comment (note) ID -> previous commit SHA from the timeline.
+func BuildExportCommentTreeWithPrev(tree CommentTree, prevCommitIndex map[string]string) ExportCommentTree {
 	m := map[string]Participant{}
 	getRef := func(a AuthorInfo) string {
 		if a.ID != 0 {
@@ -241,6 +277,11 @@ func BuildExportCommentTree(tree CommentTree) ExportCommentTree {
 			LineOld:      n.LineOld,
 			LineNew:      n.LineNew,
 		}
+		if prevCommitIndex != nil && n.ID != "" {
+			if sha, ok := prevCommitIndex[n.ID]; ok {
+				out.PrevCommitSHA = sha
+			}
+		}
 		if len(n.Children) > 0 {
 			out.Children = make([]*ExportCommentNode, 0, len(n.Children))
 			for _, ch := range n.Children {
@@ -260,4 +301,9 @@ func BuildExportCommentTree(tree CommentTree) ExportCommentTree {
 		parts = append(parts, p)
 	}
 	return ExportCommentTree{Participants: parts, Roots: roots}
+}
+
+// Backwards-compatible helper that omits PrevCommitSHA population when no index is provided.
+func BuildExportCommentTree(tree CommentTree) ExportCommentTree {
+	return BuildExportCommentTreeWithPrev(tree, prevIndexForComments)
 }
