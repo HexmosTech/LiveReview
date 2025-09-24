@@ -434,6 +434,21 @@ func (s *Server) setupRoutes() {
 
 	// License endpoints (Phase 3)
 	s.attachLicenseRoutes(v1)
+
+	// Review events endpoints (Phase 3) - Review Progress UI
+	reviewsGroup := v1.Group("/reviews")
+	reviewsGroup.Use(authMiddleware.RequireAuth())
+	reviewsGroup.Use(authMiddleware.BuildOrgContextFromHeader())
+	reviewsGroup.Use(authMiddleware.ValidateOrgAccess())
+	reviewsGroup.Use(authMiddleware.BuildPermissionContext())
+
+	// Initialize review events handler
+	reviewEventsHandler := NewReviewEventsHandler(s.db)
+
+	// Review events endpoints
+	reviewsGroup.GET("/:id/events", reviewEventsHandler.GetReviewEvents)
+	reviewsGroup.GET("/:id/events/:type", reviewEventsHandler.GetReviewEventsByType)
+	reviewsGroup.GET("/:id/summary", reviewEventsHandler.GetReviewSummary)
 }
 
 // Handler for creating PAT integration token, delegates to pat_token.go
