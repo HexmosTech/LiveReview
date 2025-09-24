@@ -16,7 +16,7 @@
    <a href="#comparisons">Comparisons</a> |
    <a href="#features">Features</a> |
    <a href="#quick-start">Quick Start</a> |
-   <a href="#installation">Installation</a>
+   <a href="#full-documentation">Full Documentation</a>
   
 </p>
 
