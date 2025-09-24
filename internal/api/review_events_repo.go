@@ -133,7 +133,8 @@ func (r *ReviewEventsRepo) ListEvents(ctx context.Context, reviewID, orgID int64
 	}
 	defer rows.Close()
 
-	var events []*ReviewEvent
+	// Initialize as empty slice so JSON encodes to [] rather than null
+	events := make([]*ReviewEvent, 0)
 	for rows.Next() {
 		event := &ReviewEvent{}
 		err := rows.Scan(
@@ -179,7 +180,8 @@ func (r *ReviewEventsRepo) GetEventsByType(ctx context.Context, reviewID, orgID 
 	}
 	defer rows.Close()
 
-	var events []*ReviewEvent
+	// Initialize as empty slice so JSON encodes to [] rather than null
+	events := make([]*ReviewEvent, 0)
 	for rows.Next() {
 		event := &ReviewEvent{}
 		err := rows.Scan(

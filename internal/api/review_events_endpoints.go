@@ -30,8 +30,11 @@ func (h *ReviewEventsHandler) GetReviewEvents(c echo.Context) error {
 		return echo.NewHTTPError(http.StatusBadRequest, "Invalid review ID")
 	}
 
-	// TODO: Extract orgID from JWT/auth context (for now use default)
-	orgID := int64(1)
+	// Extract org context from middleware
+	orgID, ok := c.Get("org_id").(int64)
+	if !ok {
+		return echo.NewHTTPError(http.StatusBadRequest, "Missing organization context")
+	}
 
 	// Parse query parameters for cursor-based pagination
 	var since *time.Time
@@ -52,6 +55,11 @@ func (h *ReviewEventsHandler) GetReviewEvents(c echo.Context) error {
 	events, err := h.service.GetRecentEvents(c.Request().Context(), reviewID, orgID, since, limit)
 	if err != nil {
 		return echo.NewHTTPError(http.StatusInternalServerError, "Failed to retrieve events")
+	}
+
+	// Ensure events is a non-nil slice so JSON encodes to []
+	if events == nil {
+		events = make([]*ReviewEvent, 0)
 	}
 
 	// Return events in the standard envelope format
@@ -85,8 +93,11 @@ func (h *ReviewEventsHandler) GetReviewEventsByType(c echo.Context) error {
 		return echo.NewHTTPError(http.StatusBadRequest, "Event type is required")
 	}
 
-	// TODO: Extract orgID from JWT/auth context
-	orgID := int64(1)
+	// Extract org context from middleware
+	orgID, ok := c.Get("org_id").(int64)
+	if !ok {
+		return echo.NewHTTPError(http.StatusBadRequest, "Missing organization context")
+	}
 
 	limit := 20 // default for filtered queries
 	if limitStr := c.QueryParam("limit"); limitStr != "" {
@@ -99,6 +110,10 @@ func (h *ReviewEventsHandler) GetReviewEventsByType(c echo.Context) error {
 	events, err := h.service.GetEventsByType(c.Request().Context(), reviewID, orgID, eventType, limit)
 	if err != nil {
 		return echo.NewHTTPError(http.StatusInternalServerError, "Failed to retrieve events")
+	}
+
+	if events == nil {
+		events = make([]*ReviewEvent, 0)
 	}
 
 	response := map[string]interface{}{
@@ -123,8 +138,11 @@ func (h *ReviewEventsHandler) GetReviewSummary(c echo.Context) error {
 		return echo.NewHTTPError(http.StatusBadRequest, "Invalid review ID")
 	}
 
-	// TODO: Extract orgID from JWT/auth context
-	orgID := int64(1)
+	// Extract org context from middleware
+	orgID, ok := c.Get("org_id").(int64)
+	if !ok {
+		return echo.NewHTTPError(http.StatusBadRequest, "Missing organization context")
+	}
 
 	// Get review summary
 	summary, err := h.service.GetReviewSummary(c.Request().Context(), reviewID, orgID)

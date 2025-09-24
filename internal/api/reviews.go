@@ -88,6 +88,47 @@ func (rm *ReviewManager) CreateReview(repository, branch, commitHash, prMrURL, t
 	return &review, nil
 }
 
+// CreateReviewWithOrg creates a new review record with explicit org scoping
+func (rm *ReviewManager) CreateReviewWithOrg(repository, branch, commitHash, prMrURL, triggerType, userEmail, provider string, connectorID *int64, metadata map[string]interface{}, orgID int64) (*Review, error) {
+	var metadataJSON []byte
+	var err error
+
+	if metadata != nil {
+		metadataJSON, err = json.Marshal(metadata)
+		if err != nil {
+			return nil, fmt.Errorf("failed to marshal metadata: %w", err)
+		}
+	} else {
+		metadataJSON = []byte("{}")
+	}
+
+	query := `
+		INSERT INTO reviews (repository, branch, commit_hash, pr_mr_url, connector_id, trigger_type, user_email, provider, metadata, org_id)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+		RETURNING id, created_at
+	`
+
+	var review Review
+	err = rm.db.QueryRow(query, repository, branch, commitHash, prMrURL, connectorID, triggerType, userEmail, provider, metadataJSON, orgID).Scan(&review.ID, &review.CreatedAt)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create review: %w", err)
+	}
+
+	// Fill in the rest of the review data
+	review.Repository = repository
+	review.Branch = branch
+	review.CommitHash = commitHash
+	review.PrMrURL = prMrURL
+	review.ConnectorID = connectorID
+	review.Status = "created"
+	review.TriggerType = triggerType
+	review.UserEmail = userEmail
+	review.Provider = provider
+	review.Metadata = metadataJSON
+
+	return &review, nil
+}
+
 // UpdateReviewStatus updates the status of a review
 func (rm *ReviewManager) UpdateReviewStatus(reviewID int64, status string) error {
 	var query string
