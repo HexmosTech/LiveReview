@@ -102,6 +102,16 @@ const Reviews: React.FC = () => {
         fetchReviews();
     }, []);
 
+    // Light auto-refresh while any review is non-terminal (created/in_progress)
+    useEffect(() => {
+        const hasActive = reviews.some(r => r.status === 'created' || r.status === 'in_progress');
+        if (!hasActive) return;
+        const id = setInterval(() => {
+            fetchReviews();
+        }, 15000); // 15s cadence to avoid hammering
+        return () => clearInterval(id);
+    }, [reviews, fetchReviews]);
+
     // Handle search
     const handleSearch = useCallback(() => {
         updateFilters({ search: searchQuery || undefined });
@@ -318,24 +328,23 @@ const Reviews: React.FC = () => {
                                     <tr key={review.id} className="hover:bg-slate-700/50 transition-colors">
                                         <td className="px-6 py-4">
                                             <div>
-                                                <div className="text-white font-medium">
+                                                <div className="text-white font-medium flex items-center gap-2">
                                                     {review.repository.split('/').pop() || review.repository}
-                                                </div>
-                                                <div className="text-slate-400 text-sm">
-                                                    {review.branch && `${review.branch}`}
                                                     {review.prMrUrl && (
-                                                        <span className="ml-2">
-                                                            <a 
-                                                                href={review.prMrUrl} 
-                                                                target="_blank" 
-                                                                rel="noopener noreferrer"
-                                                                className="text-blue-400 hover:text-blue-300"
-                                                            >
-                                                                View PR/MR
-                                                            </a>
-                                                        </span>
+                                                        <a
+                                                            href={review.prMrUrl}
+                                                            target="_blank"
+                                                            rel="noopener noreferrer"
+                                                            title="Open PR/MR"
+                                                            className="text-blue-400 hover:text-blue-300 text-xs underline underline-offset-2"
+                                                        >
+                                                            View PR/MR
+                                                        </a>
                                                     )}
                                                 </div>
+                                                {review.branch && (
+                                                    <div className="text-slate-500 text-xs mt-1">{review.branch}</div>
+                                                )}
                                             </div>
                                         </td>
                                         <td className="px-6 py-4">
