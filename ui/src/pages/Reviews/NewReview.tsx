@@ -10,7 +10,7 @@ import {
   Spinner,
   EmptyState
 } from '../../components/UIPrimitives';
-import { triggerReview } from '../../api/reviews';
+import { triggerReview, TriggerReviewRequest } from '../../api/reviews';
 import { getConnectors, ConnectorResponse } from '../../api/connectors';
 import { ErrorBoundary } from '../../components/ErrorBoundary';
 
@@ -93,11 +93,17 @@ const NewReview: React.FC = () => {
     setLoading(true);
 
     try {
-      const response = await triggerReview({ url });
-      setSuccess('Review successfully triggered!');
+      const request: TriggerReviewRequest = { url };
+      const response = await triggerReview(request);
+      
+      setSuccess(`Review successfully triggered! Review ID: ${response.reviewId}`);
       setUrl('');
-      // Could navigate to a review details page in the future
-      // navigate(`/reviews/${response.reviewId}`);
+      
+      // Navigate to reviews list after a brief delay to see the triggered review
+      setTimeout(() => {
+        navigate('/reviews');
+      }, 2000);
+      
     } catch (err: any) {
       console.error('Error triggering review:', err);
       setError(err.message || 'Failed to trigger review. Please try again later.');
@@ -165,7 +171,10 @@ const NewReview: React.FC = () => {
                   className="mb-4"
                   icon={<Icons.Success />}
                 >
-                  {success}
+                  <div>
+                    <div>{success}</div>
+                    <div className="text-sm mt-1">Redirecting to reviews list...</div>
+                  </div>
                 </Alert>
               )}
               
@@ -183,11 +192,29 @@ const NewReview: React.FC = () => {
                 />
               </div>
               
-              <div className="flex justify-end">
+              {/* URL Examples */}
+              <div className="mb-6 p-4 bg-slate-700 rounded-lg">
+                <h4 className="text-sm font-medium text-white mb-2">Supported URL Examples:</h4>
+                <div className="space-y-1 text-xs text-slate-300">
+                  <div>• GitLab: https://gitlab.com/group/project/-/merge_requests/123</div>
+                  <div>• GitHub: https://github.com/owner/repo/pull/123</div>
+                  <div>• Bitbucket: https://bitbucket.org/workspace/repo/pull-requests/123</div>
+                </div>
+              </div>
+              
+              <div className="flex justify-end space-x-3">
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => navigate('/reviews')}
+                  disabled={loading}
+                >
+                  Cancel
+                </Button>
                 <Button
                   type="submit"
                   variant="primary"
-                  disabled={loading}
+                  disabled={loading || !url.trim()}
                   isLoading={loading}
                 >
                   Trigger Review

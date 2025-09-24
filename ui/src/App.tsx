@@ -7,7 +7,7 @@ import { URLMismatchBanner } from './components/URLMismatchBanner';
 import GitProviders from './pages/GitProviders/GitProviders';
 import AIProviders from './pages/AIProviders/AIProviders';
 import Settings from './pages/Settings/Settings';
-import NewReview from './pages/Reviews/NewReview';
+import ReviewsRoutes from './pages/Reviews/ReviewsRoutes';
 import Login from './pages/Auth/Login';
 import Setup from './pages/Setup/Setup';
 import CodeHostCallback from './pages/Auth/CodeHostCallback';
@@ -94,6 +94,7 @@ const AppContent: React.FC = () => {
     const getCurrentPage = (): string => {
         const path = location.pathname;
         if (path.startsWith('/dashboard')) return 'dashboard';
+        if (path.startsWith('/reviews')) return 'reviews';
         if (path.startsWith('/git')) return 'git';
         if (path.startsWith('/ai')) return 'ai';
         if (path.startsWith('/settings')) return 'settings';
@@ -202,6 +203,7 @@ const AppContent: React.FC = () => {
                     <Routes>
                         <Route path="/" element={<HomeWithOAuthCheck />} />
                         <Route path="/dashboard" element={<Dashboard />} />
+                        <Route path="/reviews/*" element={<ReviewsRoutes />} />
                         <Route path="/git/*" element={<GitProviders />} />
                         <Route path="/ai" element={<AIProviders />} />
                         <Route path="/ai/:provider" element={<AIProviders />} />
@@ -210,7 +212,6 @@ const AppContent: React.FC = () => {
                         <Route path="/settings/*" element={<Settings />} />
                         <Route path="/settings/users/add" element={<UserForm />} />
                         <Route path="/settings/users/edit/:userId" element={<UserForm />} />
-                        <Route path="/reviews/new" element={<NewReview />} />
                         <Route path="/test-middleware" element={<MiddlewareTestPage />} />
                         <Route path="/oauth-callback" element={<OAuthCallbackHandler />} />
                         <Route path="*" element={<Navigate to="/" replace />} />

@@ -3,6 +3,7 @@ package api
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"fmt"
 	"log"
 	"net/http"
@@ -339,10 +340,8 @@ func (s *Server) setupRoutes() {
 		adminGroup.GET("/test", s.testHandlers.SuperAdminTest)
 	}
 
-	// Reviews endpoints (protected)
-	protected.GET("/reviews", s.getReviews)
-	protected.POST("/reviews", s.createReview)
-	protected.GET("/reviews/:id", s.getReviewByID)
+	// Reviews endpoints (organization-scoped)
+	// These endpoints are moved to the reviewsGroup below for proper org scoping
 
 	// Legacy password management endpoints (DEPRECATED - will be removed)
 	// These are kept temporarily for backward compatibility during transition
@@ -441,6 +440,11 @@ func (s *Server) setupRoutes() {
 	reviewsGroup.Use(authMiddleware.BuildOrgContextFromHeader())
 	reviewsGroup.Use(authMiddleware.ValidateOrgAccess())
 	reviewsGroup.Use(authMiddleware.BuildPermissionContext())
+
+	// Main reviews endpoints (with org scoping)
+	reviewsGroup.GET("", s.getReviews)
+	reviewsGroup.POST("", s.createReview)
+	reviewsGroup.GET("/:id", s.getReviewByID)
 
 	// Initialize review events handler
 	reviewEventsHandler := NewReviewEventsHandler(s.db)
@@ -634,24 +638,251 @@ func (s *Server) Start() error {
 	return s.echo.Shutdown(ctx)
 }
 
-// Sample handler implementations
+// Review data structures for API responses
+type ReviewResponse struct {
+	ID          int64                  `json:"id"`
+	Repository  string                 `json:"repository"`
+	Branch      *string                `json:"branch,omitempty"`
+	CommitHash  *string                `json:"commitHash,omitempty"`
+	PrMrUrl     *string                `json:"prMrUrl,omitempty"`
+	ConnectorID *int64                 `json:"connectorId,omitempty"`
+	Status      string                 `json:"status"`
+	TriggerType string                 `json:"triggerType"`
+	UserEmail   *string                `json:"userEmail,omitempty"`
+	Provider    *string                `json:"provider,omitempty"`
+	CreatedAt   time.Time              `json:"createdAt"`
+	StartedAt   *time.Time             `json:"startedAt,omitempty"`
+	CompletedAt *time.Time             `json:"completedAt,omitempty"`
+	Metadata    map[string]interface{} `json:"metadata,omitempty"`
+	OrgID       int64                  `json:"orgId"`
+}
+
+type ReviewsListResponse struct {
+	Reviews     []ReviewResponse `json:"reviews"`
+	Total       int              `json:"total"`
+	Page        int              `json:"page"`
+	PerPage     int              `json:"perPage"`
+	TotalPages  int              `json:"totalPages"`
+	HasNext     bool             `json:"hasNext"`
+	HasPrevious bool             `json:"hasPrevious"`
+}
+
+// getReviews handles GET /api/v1/reviews with filtering and pagination
 func (s *Server) getReviews(c echo.Context) error {
-	return c.JSON(http.StatusOK, map[string]string{
-		"message": "Get all reviews - to be implemented",
-	})
+	// Extract org context from middleware
+	orgID, ok := c.Get("org_id").(int64)
+	if !ok {
+		return echo.NewHTTPError(http.StatusBadRequest, "Missing organization context")
+	}
+
+	// Parse query parameters
+	page := 1
+	if pageStr := c.QueryParam("page"); pageStr != "" {
+		if p, err := strconv.Atoi(pageStr); err == nil && p > 0 {
+			page = p
+		}
+	}
+
+	perPage := 20
+	if perPageStr := c.QueryParam("per_page"); perPageStr != "" {
+		if pp, err := strconv.Atoi(perPageStr); err == nil && pp > 0 && pp <= 100 {
+			perPage = pp
+		}
+	}
+
+	// Build base query
+	baseQuery := `
+		SELECT id, repository, branch, commit_hash, pr_mr_url, connector_id, 
+		       status, trigger_type, user_email, provider, created_at, 
+		       started_at, completed_at, metadata, org_id
+		FROM public.reviews 
+		WHERE org_id = $1
+	`
+	countQuery := `SELECT COUNT(*) FROM public.reviews WHERE org_id = $1`
+
+	args := []interface{}{orgID}
+	argIndex := 2
+
+	// Add filters
+	status := c.QueryParam("status")
+	if status != "" {
+		baseQuery += fmt.Sprintf(" AND status = $%d", argIndex)
+		countQuery += fmt.Sprintf(" AND status = $%d", argIndex)
+		args = append(args, status)
+		argIndex++
+	}
+
+	provider := c.QueryParam("provider")
+	if provider != "" {
+		baseQuery += fmt.Sprintf(" AND provider = $%d", argIndex)
+		countQuery += fmt.Sprintf(" AND provider = $%d", argIndex)
+		args = append(args, provider)
+		argIndex++
+	}
+
+	// Add search functionality
+	search := c.QueryParam("search")
+	if search != "" {
+		searchPattern := "%" + search + "%"
+		baseQuery += fmt.Sprintf(" AND (repository ILIKE $%d OR pr_mr_url ILIKE $%d)", argIndex, argIndex)
+		countQuery += fmt.Sprintf(" AND (repository ILIKE $%d OR pr_mr_url ILIKE $%d)", argIndex, argIndex)
+		args = append(args, searchPattern)
+		argIndex++
+	}
+
+	// Get total count
+	var total int
+	err := s.db.QueryRow(countQuery, args[:len(args)]...).Scan(&total)
+	if err != nil {
+		return echo.NewHTTPError(http.StatusInternalServerError, "Failed to count reviews")
+	}
+
+	// Add ordering and pagination
+	baseQuery += " ORDER BY created_at DESC"
+	offset := (page - 1) * perPage
+	baseQuery += fmt.Sprintf(" LIMIT $%d OFFSET $%d", argIndex, argIndex+1)
+	args = append(args, perPage, offset)
+
+	// Execute query
+	rows, err := s.db.Query(baseQuery, args...)
+	if err != nil {
+		return echo.NewHTTPError(http.StatusInternalServerError, "Failed to fetch reviews")
+	}
+	defer rows.Close()
+
+	// Initialize as empty slice instead of nil to ensure JSON marshals to [] not null
+	reviews := make([]ReviewResponse, 0)
+	for rows.Next() {
+		var review ReviewResponse
+		var metadataJSON sql.NullString
+
+		err := rows.Scan(
+			&review.ID,
+			&review.Repository,
+			&review.Branch,
+			&review.CommitHash,
+			&review.PrMrUrl,
+			&review.ConnectorID,
+			&review.Status,
+			&review.TriggerType,
+			&review.UserEmail,
+			&review.Provider,
+			&review.CreatedAt,
+			&review.StartedAt,
+			&review.CompletedAt,
+			&metadataJSON,
+			&review.OrgID,
+		)
+		if err != nil {
+			return echo.NewHTTPError(http.StatusInternalServerError, "Failed to scan review")
+		}
+
+		// Parse metadata JSON
+		if metadataJSON.Valid && metadataJSON.String != "" {
+			review.Metadata = make(map[string]interface{})
+			if err := json.Unmarshal([]byte(metadataJSON.String), &review.Metadata); err != nil {
+				// Log error but continue with empty metadata
+				fmt.Printf("Failed to parse metadata for review %d: %v\n", review.ID, err)
+			}
+		}
+
+		reviews = append(reviews, review)
+	}
+
+	if err = rows.Err(); err != nil {
+		return echo.NewHTTPError(http.StatusInternalServerError, "Error iterating reviews")
+	}
+
+	// Calculate pagination metadata
+	totalPages := (total + perPage - 1) / perPage
+	hasNext := page < totalPages
+	hasPrevious := page > 1
+
+	response := ReviewsListResponse{
+		Reviews:     reviews,
+		Total:       total,
+		Page:        page,
+		PerPage:     perPage,
+		TotalPages:  totalPages,
+		HasNext:     hasNext,
+		HasPrevious: hasPrevious,
+	}
+
+	return c.JSON(http.StatusOK, response)
 }
 
+// createReview handles POST /api/v1/reviews (trigger review creation)
 func (s *Server) createReview(c echo.Context) error {
+	// This should delegate to the existing TriggerReviewV2 functionality
+	// For now, return a placeholder that explains how to trigger reviews
 	return c.JSON(http.StatusOK, map[string]string{
-		"message": "Create review - to be implemented",
+		"message": "Use POST /api/v1/connectors/trigger-review to create reviews",
+		"note":    "Direct review creation will be implemented in a future update",
 	})
 }
 
+// getReviewByID handles GET /api/v1/reviews/:id
 func (s *Server) getReviewByID(c echo.Context) error {
-	id := c.Param("id")
-	return c.JSON(http.StatusOK, map[string]string{
-		"message": fmt.Sprintf("Get review with ID: %s - to be implemented", id),
-	})
+	// Extract org context from middleware
+	orgID, ok := c.Get("org_id").(int64)
+	if !ok {
+		return echo.NewHTTPError(http.StatusBadRequest, "Missing organization context")
+	}
+
+	// Parse review ID
+	reviewIDStr := c.Param("id")
+	reviewID, err := strconv.ParseInt(reviewIDStr, 10, 64)
+	if err != nil {
+		return echo.NewHTTPError(http.StatusBadRequest, "Invalid review ID")
+	}
+
+	// Query review by ID with org scoping
+	query := `
+		SELECT id, repository, branch, commit_hash, pr_mr_url, connector_id, 
+		       status, trigger_type, user_email, provider, created_at, 
+		       started_at, completed_at, metadata, org_id
+		FROM public.reviews 
+		WHERE id = $1 AND org_id = $2
+	`
+
+	var review ReviewResponse
+	var metadataJSON sql.NullString
+
+	err = s.db.QueryRow(query, reviewID, orgID).Scan(
+		&review.ID,
+		&review.Repository,
+		&review.Branch,
+		&review.CommitHash,
+		&review.PrMrUrl,
+		&review.ConnectorID,
+		&review.Status,
+		&review.TriggerType,
+		&review.UserEmail,
+		&review.Provider,
+		&review.CreatedAt,
+		&review.StartedAt,
+		&review.CompletedAt,
+		&metadataJSON,
+		&review.OrgID,
+	)
+
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return echo.NewHTTPError(http.StatusNotFound, "Review not found")
+		}
+		return echo.NewHTTPError(http.StatusInternalServerError, "Failed to fetch review")
+	}
+
+	// Parse metadata JSON
+	if metadataJSON.Valid && metadataJSON.String != "" {
+		review.Metadata = make(map[string]interface{})
+		if err := json.Unmarshal([]byte(metadataJSON.String), &review.Metadata); err != nil {
+			// Log error but continue with empty metadata
+			fmt.Printf("Failed to parse metadata for review %d: %v\n", review.ID, err)
+		}
+	}
+
+	return c.JSON(http.StatusOK, review)
 }
 
 // getVersion returns version information about the LiveReview API

@@ -14,6 +14,7 @@ export type NavbarProps = {
 
 const baseNavLinks = [
     { name: 'Dashboard', key: 'dashboard', icon: <Icons.Dashboard /> },
+    { name: 'Reviews', key: 'reviews', icon: <Icons.Reviews /> },
     { name: 'Git Providers', key: 'git', icon: <Icons.Git /> },
     { name: 'AI Providers', key: 'ai', icon: <Icons.AI /> },
     { name: 'Settings', key: 'settings', icon: <Icons.Settings /> },
