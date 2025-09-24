@@ -417,6 +417,41 @@ ALTER SEQUENCE public.recent_activity_id_seq OWNED BY public.recent_activity.id;
 
 
 --
+-- Name: review_events; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.review_events (
+    id bigint NOT NULL,
+    review_id bigint NOT NULL,
+    org_id bigint NOT NULL,
+    ts timestamp with time zone DEFAULT now() NOT NULL,
+    event_type text NOT NULL,
+    level text,
+    batch_id text,
+    data jsonb NOT NULL
+);
+
+
+--
+-- Name: review_events_id_seq; Type: SEQUENCE; Schema: public; Owner: -
+--
+
+CREATE SEQUENCE public.review_events_id_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+
+--
+-- Name: review_events_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: -
+--
+
+ALTER SEQUENCE public.review_events_id_seq OWNED BY public.review_events.id;
+
+
+--
 -- Name: reviews; Type: TABLE; Schema: public; Owner: -
 --
 
@@ -729,6 +764,13 @@ ALTER TABLE ONLY public.recent_activity ALTER COLUMN id SET DEFAULT nextval('pub
 
 
 --
+-- Name: review_events id; Type: DEFAULT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.review_events ALTER COLUMN id SET DEFAULT nextval('public.review_events_id_seq'::regclass);
+
+
+--
 -- Name: reviews id; Type: DEFAULT; Schema: public; Owner: -
 --
 
@@ -864,6 +906,14 @@ ALTER TABLE ONLY public.prompt_chunks
 
 ALTER TABLE ONLY public.recent_activity
     ADD CONSTRAINT recent_activity_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: review_events review_events_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.review_events
+    ADD CONSTRAINT review_events_pkey PRIMARY KEY (id);
 
 
 --
@@ -1241,6 +1291,27 @@ CREATE INDEX idx_recent_activity_type ON public.recent_activity USING btree (act
 
 
 --
+-- Name: idx_review_events_org_ts; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_review_events_org_ts ON public.review_events USING btree (org_id, ts);
+
+
+--
+-- Name: idx_review_events_review_ts; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_review_events_review_ts ON public.review_events USING btree (review_id, ts);
+
+
+--
+-- Name: idx_review_events_type; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_review_events_type ON public.review_events USING btree (review_id, event_type, ts DESC);
+
+
+--
 -- Name: idx_reviews_connector_id; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -1550,6 +1621,14 @@ ALTER TABLE ONLY public.recent_activity
 
 
 --
+-- Name: review_events review_events_review_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.review_events
+    ADD CONSTRAINT review_events_review_id_fkey FOREIGN KEY (review_id) REFERENCES public.reviews(id) ON DELETE CASCADE;
+
+
+--
 -- Name: reviews reviews_org_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -1710,4 +1789,5 @@ INSERT INTO public.schema_migrations (version) VALUES
     ('20250828112941'),
     ('20250828113024'),
     ('20250905120000'),
-    ('20250909120000');
+    ('20250909120000'),
+    ('20250924122125');
