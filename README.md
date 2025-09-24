@@ -32,7 +32,7 @@
    - **Multi-Platform**: Integrates with GitHub, GitLab, and Bitbucket
    - **AI Choice Freedom**: Choose Gemini, OpenAI, or self-hosted Ollama for maximum privacy
    - **Workflow Adaptation**: Adapts to your process instead of forcing change
-   - **Custom Support**: Unusual setup? We'll work with you--:w
+   - **Custom Support**: Unusual setup? We'll work with you--
    [open an issue](https://github.com/HexmosTech/LiveReview/issues)
 3. **Transparent Affordability**
    - **Straightforward Pricing**: Significantly lower than comparable hosted tools
