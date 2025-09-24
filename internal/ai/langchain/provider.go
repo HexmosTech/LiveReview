@@ -4,9 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"os"
-	"path/filepath"
 	"regexp"
 	"strconv"
 	"strings"
@@ -330,16 +330,23 @@ func (p *LangchainProvider) initializeOllamaLLM() error {
 	if p.apiKey != "" {
 		fmt.Printf("[OLLAMA INIT] API key provided (length: %d), adding as Authorization header\n", len(p.apiKey))
 
-		// Create a custom HTTP client with Authorization header
-		client := &http.Client{}
+		// Create a custom HTTP client with Authorization header and generous timeouts for Ollama
+		client := &http.Client{
+			Timeout: 10 * time.Minute, // Overall request timeout - very generous for large models
+		}
 
-		// Create a custom transport that adds the Authorization header
-		transport := &http.Transport{}
+		// Create a custom transport that adds the Authorization header with generous connection timeouts
+		transport := &http.Transport{
+			TLSHandshakeTimeout:   30 * time.Second, // TLS timeout
+			ResponseHeaderTimeout: 4 * time.Minute,  // Time to wait for response headers - MUCH more generous
+			ExpectContinueTimeout: 10 * time.Second, // Expect 100-continue timeout
+		}
 		client.Transport = &authTransport{
 			Transport: transport,
 			token:     p.apiKey,
 		}
 
+		fmt.Printf("[OLLAMA INIT] Custom HTTP client configured with timeouts\n")
 		options = append(options, ollama.WithHTTPClient(client))
 	}
 
@@ -364,10 +371,24 @@ func (t *authTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 	// Add Authorization header
 	req.Header.Set("Authorization", "Bearer "+t.token)
 
-	// Debug logging
+	// Debug logging - show full request details including body
 	fmt.Printf("[HTTP DEBUG] Request URL: %s\n", req.URL.String())
 	fmt.Printf("[HTTP DEBUG] Request Method: %s\n", req.Method)
 	fmt.Printf("[HTTP DEBUG] Authorization header set with token length: %d\n", len(t.token))
+	fmt.Printf("[HTTP DEBUG] All Headers:\n")
+	for k, v := range req.Header {
+		fmt.Printf("  %s: %v\n", k, v)
+	}
+
+	// Log request body for debugging
+	if req.Body != nil {
+		bodyBytes, err := io.ReadAll(req.Body)
+		if err == nil {
+			fmt.Printf("[HTTP DEBUG] Request Body: %s\n", string(bodyBytes))
+			// Restore the body for actual use
+			req.Body = io.NopCloser(strings.NewReader(string(bodyBytes)))
+		}
+	}
 
 	// Make the request
 	resp, err := t.Transport.RoundTrip(req)
@@ -378,6 +399,10 @@ func (t *authTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 	} else {
 		fmt.Printf("[HTTP DEBUG] Response status: %s\n", resp.Status)
 		fmt.Printf("[HTTP DEBUG] Response content-type: %s\n", resp.Header.Get("Content-Type"))
+		fmt.Printf("[HTTP DEBUG] Response headers:\n")
+		for k, v := range resp.Header {
+			fmt.Printf("  %s: %v\n", k, v)
+		}
 	}
 
 	return resp, err
@@ -559,25 +584,88 @@ func (p *LangchainProvider) reviewCodeBatchFormatted(ctx context.Context, diffs 
 		logger.Log("Processing batch %s with %d diffs", batchId, len(diffs))
 	}
 
+	// Extra defensive logging to help diagnose empty prompts in some environments
+	// Only print a safe preview (head/tail) to avoid flooding logs
+	safeHead := truncateString(prompt, 1200)
+	safeTail := getLastChars(prompt, 600)
+	fmt.Printf("[LLM PROMPT] Batch %s | length=%d chars\n", batchId, len(prompt))
+	if len(prompt) == 0 {
+		fmt.Printf("[LLM PROMPT] WARNING: Prompt is EMPTY — aborting early to avoid a no-op call.\n")
+		return nil, fmt.Errorf("empty prompt produced; aborting")
+	}
+	fmt.Printf("[LLM PROMPT PREVIEW - HEAD]\n%s\n", safeHead)
+	if len(prompt) > len(safeHead) {
+		fmt.Printf("[LLM PROMPT PREVIEW - TAIL]\n%s\n", safeTail)
+	}
+
 	// Call the LLM with streaming
 	fmt.Printf("[LANGCHAIN REQUEST] Calling LLM for batch %s with streaming...\n", batchId)
 	fmt.Printf("[LANGCHAIN DEBUG] Provider type: %s, Model: %s, Base URL: %s\n",
 		p.providerType, p.modelName, p.baseURL)
 
-	// Create a timeout context (5 minutes for Ollama)
-	timeoutCtx, cancel := context.WithTimeout(ctx, 5*time.Minute)
+	// Create a timeout context
+	// For Ollama, some setups (reverse proxies) buffer SSE and models can be slow to start.
+	// Use a longer, configurable timeout to avoid premature context deadlines.
+	streamTimeout := 5 * time.Minute
+	if strings.EqualFold(p.providerType, "ollama") {
+		// Default: 8 minutes for streaming - very generous for large models with slow startup
+		streamTimeout = 8 * time.Minute
+		// Allow override via env var LIVEREVIEW_OLLAMA_STREAM_TIMEOUT_SECONDS
+		if v := os.Getenv("LIVEREVIEW_OLLAMA_STREAM_TIMEOUT_SECONDS"); v != "" {
+			if secs, err := strconv.Atoi(v); err == nil && secs > 0 {
+				streamTimeout = time.Duration(secs) * time.Second
+			}
+		}
+	}
+	timeoutCtx, cancel := context.WithTimeout(ctx, streamTimeout)
 	defer cancel()
 
 	// Variables to collect the streaming response
 	var responseBuilder strings.Builder
 	var lastActivity time.Time = time.Now()
 	var totalChunks int = 0
+	var lastChunkPreview string
 
 	// Create streaming function that prints chunks as they arrive
 	streamingFunc := func(ctx context.Context, chunk []byte) error {
 		chunkStr := string(chunk)
 		totalChunks++
 		lastActivity = time.Now()
+
+		// Debug: Log raw chunk info to diagnose streaming issues
+		fmt.Printf("[STREAM DEBUG] Received chunk %d: length=%d, content=%q\n", totalChunks, len(chunk), chunkStr)
+
+		// For Ollama /api/chat endpoint, we might receive JSON chunks that need parsing
+		if strings.EqualFold(p.providerType, "ollama") && strings.Contains(chunkStr, `"message"`) {
+			// Try to parse as Ollama chat response
+			var ollamaResp struct {
+				Message struct {
+					Content string `json:"content"`
+				} `json:"message"`
+				Done bool `json:"done"`
+			}
+			if err := json.Unmarshal(chunk, &ollamaResp); err == nil {
+				// Successfully parsed - extract just the content
+				content := ollamaResp.Message.Content
+				if len(content) > 0 {
+					lastChunkPreview = content
+					fmt.Printf("[STREAM OLLAMA] Extracted content: %q\n", content)
+					// Add the extracted content to response builder
+					responseBuilder.WriteString(content)
+
+					// Log to review logger
+					if logger != nil {
+						logger.Log("Streaming chunk %d (parsed): %q", totalChunks, content)
+					}
+					return nil
+				}
+			}
+		}
+
+		// Fallback: treat as plain text
+		if len(chunkStr) > 0 {
+			lastChunkPreview = chunkStr
+		}
 
 		// Print the chunk in real-time
 		fmt.Printf("[STREAM] %s", chunkStr)
@@ -599,38 +687,127 @@ func (p *LangchainProvider) reviewCodeBatchFormatted(ctx context.Context, diffs 
 	// Start activity monitor in a separate goroutine
 	activityDone := make(chan bool)
 	go func() {
-		ticker := time.NewTicker(15 * time.Second)
+		ticker := time.NewTicker(10 * time.Second)
 		defer ticker.Stop()
-
+		start := time.Now()
 		for {
 			select {
 			case <-activityDone:
 				return
 			case <-ticker.C:
+				elapsed := time.Since(start)
 				timeSinceActivity := time.Since(lastActivity)
+				chunkPreview := lastChunkPreview
+				if len(chunkPreview) > 40 {
+					chunkPreview = chunkPreview[:40] + "..."
+				}
+				fmt.Printf("\n[STREAM PROGRESS] Elapsed: %v | Chunks: %d | Last activity: %v ago | Last chunk: %q\n", elapsed.Truncate(time.Second), totalChunks, timeSinceActivity.Truncate(time.Second), chunkPreview)
 				if timeSinceActivity > 30*time.Second {
-					fmt.Printf("\n[STREAM MONITOR] No activity for %v (chunks received: %d)\n", timeSinceActivity, totalChunks)
+					fmt.Printf("[STREAM MONITOR] No activity for %v (chunks received: %d)\n", timeSinceActivity, totalChunks)
 				}
 			}
 		}
 	}()
 
-	// Call the LLM with streaming
-	startTime := time.Now()
-	fmt.Printf("[STREAM START] Beginning streaming response...\n")
+	// Determine if we should force non-streaming mode for Ollama (useful behind proxies)
+	forceNonStreaming := strings.EqualFold(p.providerType, "ollama") && strings.EqualFold(os.Getenv("LIVEREVIEW_OLLAMA_FORCE_NON_STREAMING"), "true")
 
-	_, err = llms.GenerateFromSinglePrompt(
-		timeoutCtx,
-		p.llm,
-		prompt,
-		llms.WithStreamingFunc(streamingFunc),
-	)
+	startTime := time.Now()
+	if forceNonStreaming {
+		fmt.Printf("[STREAM DISABLED] Forcing non-streaming mode for Ollama due to env override.\n")
+		// Run a single non-streaming request under the same timeout
+		// Progress ticker to show waiting updates while the request is in flight
+		waitingDone := make(chan struct{})
+		go func() {
+			ticker := time.NewTicker(10 * time.Second)
+			defer ticker.Stop()
+			for {
+				select {
+				case <-waitingDone:
+					return
+				case <-ticker.C:
+					waited := time.Since(startTime)
+					fmt.Printf("[WAIT] Still waiting for Ollama response... elapsed=%v\n", waited)
+					if logger != nil {
+						logger.Log("Waiting for Ollama response... elapsed=%v (non-streaming)", waited)
+					}
+				}
+			}
+		}()
+		out, callErr := llms.GenerateFromSinglePrompt(
+			timeoutCtx,
+			p.llm,
+			prompt,
+		)
+		close(waitingDone)
+		if callErr != nil {
+			err = callErr
+		} else {
+			responseBuilder.WriteString(out)
+			// simulate chunk count for logging
+			totalChunks = 1
+		}
+	} else {
+		// DEBUGGING: Save the exact prompt to a file for curl testing
+		promptFile := fmt.Sprintf("/tmp/livereview_prompt_%s.txt", batchId)
+		if err := os.WriteFile(promptFile, []byte(prompt), 0644); err == nil {
+			fmt.Printf("[DEBUG] Saved prompt to: %s\n", promptFile)
+		}
+
+		// DEBUGGING: Create the exact curl command that would replicate this request
+		curlBody := map[string]interface{}{
+			"model": p.getModelName(),
+			"messages": []map[string]string{
+				{"role": "user", "content": prompt},
+			},
+			"stream": true,
+			"format": "",
+			"options": map[string]interface{}{
+				"temperature": 0,
+			},
+		}
+		curlBodyJSON, _ := json.MarshalIndent(curlBody, "", "  ")
+		curlFile := fmt.Sprintf("/tmp/livereview_curl_%s.json", batchId)
+		if err := os.WriteFile(curlFile, curlBodyJSON, 0644); err == nil {
+			fmt.Printf("[DEBUG] Saved curl request body to: %s\n", curlFile)
+
+			// Generate the exact curl command to test
+			curlCmd := fmt.Sprintf(`curl -N -X POST "http://139.59.48.31/ollama/api/chat" \
+  -H "Authorization: Bearer %s" \
+  -H "Content-Type: application/json" \
+  -H "Accept: application/x-ndjson" \
+  -d @%s \
+  --max-time 300`, p.apiKey, curlFile)
+
+			curlCmdFile := fmt.Sprintf("/tmp/livereview_curl_cmd_%s.sh", batchId)
+			if err := os.WriteFile(curlCmdFile, []byte(curlCmd), 0755); err == nil {
+				fmt.Printf("[DEBUG] Saved curl command to: %s\n", curlCmdFile)
+				fmt.Printf("[DEBUG] Run this to test: bash %s\n", curlCmdFile)
+			}
+		}
+
+		// Call the LLM with streaming
+		fmt.Printf("[STREAM START] Beginning streaming response...\n")
+		fmt.Printf("[STREAM DEBUG] Calling GenerateFromSinglePrompt with streaming function\n")
+		_, err = llms.GenerateFromSinglePrompt(
+			timeoutCtx,
+			p.llm,
+			prompt,
+			llms.WithStreamingFunc(streamingFunc),
+		)
+		fmt.Printf("[STREAM DEBUG] GenerateFromSinglePrompt returned, err=%v\n", err)
+	}
 
 	// Stop activity monitor
 	close(activityDone)
 
 	// Get the complete response
 	response := responseBuilder.String()
+
+	// If streaming produced no chunks, treat as an error so we can fallback (common when proxies buffer SSE)
+	if err == nil && totalChunks == 0 && strings.EqualFold(p.providerType, "ollama") {
+		err = fmt.Errorf("no streaming chunks received from Ollama within %v", time.Since(startTime))
+	}
 
 	if err != nil {
 		if logger != nil {
@@ -639,7 +816,63 @@ func (p *LangchainProvider) reviewCodeBatchFormatted(ctx context.Context, diffs 
 		fmt.Printf("\n[LANGCHAIN ERROR] LLM call failed for batch %s: %v\n", batchId, err)
 		fmt.Printf("[LANGCHAIN ERROR] Provider: %s, Model: %s, Base URL: %s\n",
 			p.providerType, p.modelName, p.baseURL)
-		return nil, fmt.Errorf("LLM call failed: %w", err)
+
+		// Fallback for Ollama: retry once without streaming (some reverse proxies buffer/block streams)
+		if strings.EqualFold(p.providerType, "ollama") {
+			fmt.Printf("[LANGCHAIN FALLBACK] Retrying Ollama request without streaming...\n")
+			// Use a very generous, configurable non-streaming timeout
+			fbTimeout := 8 * time.Minute
+			if v := os.Getenv("LIVEREVIEW_OLLAMA_REQUEST_TIMEOUT_SECONDS"); v != "" {
+				if secs, err := strconv.Atoi(v); err == nil && secs > 0 {
+					fbTimeout = time.Duration(secs) * time.Second
+				}
+			}
+			fbCtx, fbCancel := context.WithTimeout(ctx, fbTimeout)
+			defer fbCancel()
+
+			// Non-streaming retry
+			startFB := time.Now()
+			waitingDone := make(chan struct{})
+			go func() {
+				ticker := time.NewTicker(10 * time.Second)
+				defer ticker.Stop()
+				for {
+					select {
+					case <-waitingDone:
+						return
+					case <-ticker.C:
+						waited := time.Since(startFB)
+						fmt.Printf("[WAIT] Fallback request in progress... elapsed=%v\n", waited)
+						if logger != nil {
+							logger.Log("Fallback Ollama request in progress... elapsed=%v", waited)
+						}
+					}
+				}
+			}()
+			out, fbErr := llms.GenerateFromSinglePrompt(
+				fbCtx,
+				p.llm,
+				prompt,
+			)
+			close(waitingDone)
+
+			if fbErr != nil {
+				if logger != nil {
+					logger.LogError(fmt.Sprintf("LLM non-streaming fallback batch %s", batchId), fbErr)
+				}
+				fmt.Printf("[LANGCHAIN FALLBACK ERROR] Non-streaming attempt failed after %v: %v\n", time.Since(startFB), fbErr)
+				return nil, fmt.Errorf("LLM call failed (streaming + fallback): %w | fallback: %v", err, fbErr)
+			}
+
+			// Use the fallback output (non-streaming returns a single string)
+			response = out
+			fmt.Printf("\n[STREAM COMPLETE - FALLBACK] Received non-streamed response after %v (%d chars)\n", time.Since(startFB), len(response))
+			if logger != nil {
+				logger.LogResponse(batchId+"-fallback", response)
+			}
+		} else {
+			return nil, fmt.Errorf("LLM call failed: %w", err)
+		}
 	}
 
 	fmt.Printf("\n[STREAM COMPLETE] Full response received after %v (%d chunks, %d chars)\n",
@@ -774,6 +1007,7 @@ func (p *LangchainProvider) ReviewCodeWithBatching(ctx context.Context, diffs []
 
 // parseResponse parses the LLM response into a structured result
 func (p *LangchainProvider) parseResponse(response string, diffs []models.CodeDiff) (*ParsedResult, error) {
+	logger := logging.GetCurrentLogger()
 	// Define JSON structures for response
 	type Comment struct {
 		FilePath    string   `json:"filePath"`
@@ -792,7 +1026,10 @@ func (p *LangchainProvider) parseResponse(response string, diffs []models.CodeDi
 	// Try to extract JSON from the response
 	jsonStr := p.extractJSONFromResponse(response)
 	if jsonStr == "" {
-		return nil, fmt.Errorf("no valid JSON found in response")
+		if logger != nil {
+			logger.Log("No JSON detected in model response; using graceful fallback with raw excerpt")
+		}
+		return p.fallbackParsedResult(response, diffs, "no JSON detected"), nil
 	}
 
 	// Check if the JSON appears to be truncated
@@ -804,17 +1041,20 @@ func (p *LangchainProvider) parseResponse(response string, diffs []models.CodeDi
 			fmt.Printf("[LANGCHAIN REPAIR] Original length: %d, Repaired length: %d\n", len(jsonStr), len(repairedJSON))
 			jsonStr = repairedJSON
 		} else {
-			return nil, fmt.Errorf("JSON response appears to be truncated (doesn't end with '}') - possible token limit exceeded. Response length: %d chars", len(response))
+			if logger != nil {
+				logger.Log("JSON appears truncated and could not be repaired; falling back to raw excerpt")
+			}
+			return p.fallbackParsedResult(response, diffs, "truncated JSON unrecoverable"), nil
 		}
 	}
 
 	var resp Response
 	if err := json.Unmarshal([]byte(jsonStr), &resp); err != nil {
-		// Try to provide more helpful error messages
-		if strings.Contains(err.Error(), "unexpected end of JSON input") {
-			return nil, fmt.Errorf("JSON response is incomplete/truncated - likely hit token limit. Original response length: %d chars, JSON length: %d chars. Error: %w", len(response), len(jsonStr), err)
+		// Try to provide more helpful error messages, but do not fail hard — return graceful fallback instead
+		if logger != nil {
+			logger.Log("Failed to parse JSON: %v; falling back to raw excerpt (resp=%d chars, json=%d chars)", err, len(response), len(jsonStr))
 		}
-		return nil, fmt.Errorf("failed to parse JSON response: %w", err)
+		return p.fallbackParsedResult(response, diffs, "json unmarshal error: "+err.Error()), nil
 	}
 
 	// Convert to our models
@@ -858,6 +1098,27 @@ func (p *LangchainProvider) parseResponse(response string, diffs []models.CodeDi
 type ParsedResult struct {
 	FileSummary string
 	Comments    []*models.ReviewComment
+}
+
+// fallbackParsedResult builds a minimal, user-visible result when the model response is empty/invalid
+// so the user doesn't see a "nothing happened" outcome.
+func (p *LangchainProvider) fallbackParsedResult(response string, diffs []models.CodeDiff, cause string) *ParsedResult {
+	// Prefer to show a concise excerpt that helps the user understand what happened
+	trimmed := strings.TrimSpace(response)
+	if trimmed == "" {
+		trimmed = "(empty response)"
+	}
+	const maxPreview = 1500
+	if len(trimmed) > maxPreview {
+		trimmed = trimmed[:maxPreview] + "\n… (truncated)"
+	}
+
+	summary := fmt.Sprintf("AI returned an unstructured/invalid response (%s). Showing raw excerpt below for visibility.\n\n%s", cause, trimmed)
+
+	return &ParsedResult{
+		FileSummary: summary,
+		Comments:    []*models.ReviewComment{},
+	}
 }
 
 // extractJSONFromResponse extracts JSON from the LLM response
@@ -984,21 +1245,7 @@ func getLastChars(s string, maxLen int) string {
 	return s[len(s)-maxLen:]
 }
 
-// writeLogFile writes content to a log file, creating directories if needed
-func (p *LangchainProvider) writeLogFile(filename, content string) error {
-	// Ensure the directory exists
-	dir := filepath.Dir(filename)
-	if err := os.MkdirAll(dir, 0755); err != nil {
-		return fmt.Errorf("failed to create log directory: %w", err)
-	}
-
-	// Write the file
-	if err := os.WriteFile(filename, []byte(content), 0644); err != nil {
-		return fmt.Errorf("failed to write log file: %w", err)
-	}
-
-	return nil
-}
+// (removed unused writeLogFile helper)
 
 // attemptJSONRepair tries to repair truncated JSON by closing incomplete structures
 func (p *LangchainProvider) attemptJSONRepair(jsonStr string) string {
