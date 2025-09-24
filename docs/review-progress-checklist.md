@@ -8,7 +8,7 @@ Legend
 
 ## Phase 1 — DB Foundation (dbmate)
 
-- [ ] Create review_events table migration (append-only JSON events)
+- [x] Create review_events table migration (append-only JSON events)
 	- Run (from `LiveReview/db`):
 		```bash
 		dbmate new review_events
@@ -45,8 +45,8 @@ Legend
 		DROP TABLE IF EXISTS public.review_events;
 		```
 	- Verify:
-		- [A] `dbmate up` succeeds; `dbmate down && dbmate up` round-trips
-		- [A] `
+		- [x] `dbmate up` succeeds; `dbmate down && dbmate up` round-trips
+		- [x] `
 			-- check
 			SELECT to_regclass('public.review_events');
 			SELECT indexname FROM pg_indexes WHERE tablename='review_events';
@@ -54,17 +54,17 @@ Legend
 
 ## Phase 2 — Backend Event Pipeline
 
-- [ ] Event model + writer (persist to DB)
+- [x] Event model + writer (persist to DB)
 	- Add: `LiveReview/internal/api/review_events_repo.go`
 		- Functions: InsertEvent(ctx, db, evt), ListEvents(ctx, db, reviewID, since/cursor)
 		- Event struct: ReviewID, OrgID, TS, EventType, Level, BatchID, Data (json.RawMessage)
-	- Verify: [A] Unit tests for insert/list (can be table-driven)
+	- Verify: [x] Unit tests for insert/list (can be table-driven)
 
-- [ ] SSE hub
-	- Add: `LiveReview/internal/api/sse_hub.go`
-		- In-memory hub with Subscribe(reviewID, orgID), Broadcast(evt)
-		- Heartbeat ticker (e.g., 15–30s) to keep connections alive
-	- Verify: [M] Connect two subscribers, broadcast test event, both receive
+- [x] Polling Event Service (replaces SSE hub)
+	- Add: `LiveReview/internal/api/polling_event_service.go`
+		- Simple polling-based event storage and retrieval
+		- Helper methods for creating different event types
+	- Verify: [x] Unit tests for event creation and retrieval
 
 - [ ] Wire ReviewLogger to events
 	- Change: `LiveReview/internal/logging/review_logger.go`
@@ -90,9 +90,9 @@ Legend
 		- Handler returns recent events (since/cursor), org scoping
 	- Verify: [M] Poll endpoint and see new events arrive
 
-- [ ] GET /api/v1/reviews/{id}/stream (SSE)
-	- Add in same `review_events_endpoints.go` or `handlers/` file
-	- Verify: [M] curl -N connects and prints events live
+- [ ] ~~GET /api/v1/reviews/{id}/stream (SSE)~~ (skipped - using polling only)
+	- ~~Add in same `review_events_endpoints.go` or `handlers/` file~~
+	- ~~Verify: [M] curl -N connects and prints events live~~
 
 - [ ] POST /api/v1/reviews/{id}/retry
 	- Change/Add: `LiveReview/internal/api/reviews.go` or `reviews_api.go`
@@ -112,7 +112,7 @@ Legend
 - [ ] Review Detail page (live)
 	- Add: `hexmoshomepage/pages/livereview/reviews/[id].tsx` (page)
 	- Add: `hexmoshomepage/components/reviews/ReviewDetail.tsx` (timeline, logs w/ level filters, previews, batches, summary)
-	- Add: `hexmoshomepage/hooks/useEventStream.ts` (SSE with polling fallback)
+	- Add: `hexmoshomepage/hooks/usePolling.ts` (polling-based updates)
 	- Verify: [M] Live run shows updates; filters and previews render correctly
 
 - [ ] Permissions and privacy
@@ -126,15 +126,15 @@ Legend
 	- Verify: [M] Open UI and observe full path to completion
 
 - [ ] Performance checks
-	- Output: events query uses proper indexes; SSE heartbeat in place
-	- Verify: [A] Explain analyze for /events; [M] Observe UI responsiveness with large logs
+	- Output: events query uses proper indexes; polling efficiency optimized
+	- Verify: [A] Explain analyze for /events; [M] Observe UI responsiveness with polling
 
 - [ ] Docs and runbooks
-	- Output: `docs/review-progress.md` updated with SSE fallback, tips, and troubleshooting
+	- Output: `docs/review-progress.md` updated with polling approach, tips, and troubleshooting
 	- Verify: [M] Read-through for clarity
 
 - [ ] Release toggle
-	- Output: feature flag (env or config) to enable UI/streaming per environment
+	- Output: feature flag (env or config) to enable UI/polling per environment
 	- Verify: [M] Toggle on/off behaves as expected
 
 ---

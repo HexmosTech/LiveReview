@@ -137,8 +137,3 @@ func TestReviewEventsRepo(t *testing.T) {
 		_, _ = db.ExecContext(ctx, "DELETE FROM public.reviews WHERE id = $1", reviewID)
 	})
 }
-
-// Helper function to create string pointers
-func stringPtr(s string) *string {
-	return &s
-}
