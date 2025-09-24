@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
 import { Button, Icons } from '../../components/UIPrimitives';
 import { 
@@ -30,18 +30,10 @@ const ReviewDetail: React.FC = () => {
     const [typeFilter, setTypeFilter] = useState<ReviewEventType | ''>('');
     const [lastEventTime, setLastEventTime] = useState<string | null>(null);
     const pollingIntervalRef = useRef<NodeJS.Timeout | null>(null);
+        const timelineRef = useRef<HTMLDivElement | null>(null);
+        const scrollStateRef = useRef({ prevScrollTop: 0, prevScrollHeight: 0, atBottom: true });
 
-    // Status colors
-    const getStatusColor = (status: string) => {
-        switch (status) {
-            case 'pending': return 'bg-yellow-500';
-            case 'in_progress': return 'bg-blue-500';
-            case 'completed': return 'bg-green-500';
-            case 'failed': return 'bg-red-500';
-            case 'cancelled': return 'bg-gray-500';
-            default: return 'bg-gray-500';
-        }
-    };
+    // Status colors are imported via getStatusColor from ../../api/reviews
 
     const getEventIcon = (type: string, level?: string) => {
         switch (type) {
@@ -85,7 +77,6 @@ const ReviewDetail: React.FC = () => {
     // Fetch review details
     const fetchReviewDetails = useCallback(async (isPolling = false) => {
         if (!id) return;
-        
         try {
             if (!isPolling) {
                 setLoading(true);
@@ -108,7 +99,15 @@ const ReviewDetail: React.FC = () => {
             setReview(reviewData);
             setSummary(summaryData);
             
-            // Handle events update
+                        // Handle events update
+                        // Capture scroll state BEFORE updating the list so we can restore after DOM updates
+                        const container = timelineRef.current;
+                        const prevScrollTop = container?.scrollTop ?? 0;
+                        const prevScrollHeight = container?.scrollHeight ?? 0;
+                        const atBottom = container
+                            ? prevScrollHeight - prevScrollTop - (container.clientHeight ?? 0) < 24
+                            : true;
+                        scrollStateRef.current = { prevScrollTop, prevScrollHeight, atBottom };
             const newEvents = (eventsData?.events as ReviewEvent[] | undefined) || [];
             if (isPolling && lastEventTime) {
                 // Append new events to existing ones
@@ -136,11 +135,37 @@ const ReviewDetail: React.FC = () => {
         }
     }, [id, lastEventTime]);
 
+    // After events update, restore scroll position or stick to bottom if user was at bottom
+    useEffect(() => {
+        const container = timelineRef.current;
+        if (!container) return;
+        const { prevScrollTop, prevScrollHeight, atBottom } = scrollStateRef.current;
+        if (atBottom) {
+            container.scrollTop = container.scrollHeight; // stick to bottom
+        } else {
+            const delta = container.scrollHeight - prevScrollHeight;
+            container.scrollTop = Math.max(0, prevScrollTop + delta);
+        }
+    }, [events]);
+
     // Reset event cursor and list when navigating to a different review
     useEffect(() => {
         setEvents([]);
         setLastEventTime(null);
     }, [id]);
+
+    // Derive available filter values from current events
+    const presentTypes = useMemo(() => {
+        const s = new Set<string>();
+        events.forEach(e => s.add(e.type));
+        return s;
+    }, [events]);
+
+    const presentLevels = useMemo(() => {
+        const s = new Set<string>();
+        events.forEach(e => { if (e.level) s.add(e.level); });
+        return s;
+    }, [events]);
 
     // Initial load
     useEffect(() => {
@@ -327,11 +352,11 @@ const ReviewDetail: React.FC = () => {
                                     className="px-3 py-1 bg-slate-700 border border-slate-600 rounded text-sm text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
                                 >
                                     <option value="">All Types</option>
-                                    <option value="status">Status</option>
-                                    <option value="log">Logs</option>
-                                    <option value="batch">Batches</option>
-                                    <option value="artifact">Artifacts</option>
-                                    <option value="completion">Completion</option>
+                                    {presentTypes.has('status') && <option value="status">Status</option>}
+                                    {presentTypes.has('log') && <option value="log">Logs</option>}
+                                    {presentTypes.has('batch') && <option value="batch">Batches</option>}
+                                    {presentTypes.has('artifact') && <option value="artifact">Artifacts</option>}
+                                    {presentTypes.has('completion') && <option value="completion">Completion</option>}
                                 </select>
                                 
                                 {/* Event level filter */}
@@ -341,10 +366,10 @@ const ReviewDetail: React.FC = () => {
                                     className="px-3 py-1 bg-slate-700 border border-slate-600 rounded text-sm text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
                                 >
                                     <option value="">All Levels</option>
-                                    <option value="info">Info</option>
-                                    <option value="warn">Warning</option>
-                                    <option value="error">Error</option>
-                                    <option value="debug">Debug</option>
+                                    {presentLevels.has('info') && <option value="info">Info</option>}
+                                    {presentLevels.has('warn') && <option value="warn">Warning</option>}
+                                    {presentLevels.has('error') && <option value="error">Error</option>}
+                                    {presentLevels.has('debug') && <option value="debug">Debug</option>}
                                 </select>
                             </div>
                         </div>
@@ -358,7 +383,7 @@ const ReviewDetail: React.FC = () => {
                                 )}
                             </div>
                         ) : (
-                            <div className="space-y-3 max-h-96 overflow-y-auto">
+                            <div className="space-y-3 max-h-96 overflow-y-auto" ref={timelineRef}>
                                 {events
                                     .filter(event => {
                                         if (typeFilter && event.type !== typeFilter) return false;

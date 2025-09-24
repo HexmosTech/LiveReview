@@ -157,6 +157,12 @@ func (s *Server) TriggerReviewV2(c echo.Context) error {
 		}
 	}
 
+	// Immediately mark review as in progress (sets started_at)
+	go func() {
+		rm := NewReviewManager(s.db)
+		_ = rm.UpdateReviewStatus(review.ID, "in_progress")
+	}()
+
 	// Validate and parse URL
 	if logger != nil {
 		logger.LogSection("URL VALIDATION")
@@ -336,6 +342,13 @@ func (s *Server) TriggerReviewV2(c echo.Context) error {
 			logger.Log("ProcessReview returned, calling completion callback...")
 		}
 		completionCallback(result)
+		// Update review status based on result
+		rm := NewReviewManager(s.db)
+		if result != nil && result.Success {
+			_ = rm.UpdateReviewStatus(review.ID, "completed")
+		} else {
+			_ = rm.UpdateReviewStatus(review.ID, "failed")
+		}
 		if logger != nil {
 			logger.Log("=== Background processing completed ===")
 			// Close the logger now that all processing is done
