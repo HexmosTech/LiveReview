@@ -146,7 +146,89 @@ Legend
 	- Change: only show previews by default; wire “View Full” to artifact URL
 	- Verify: [M] Manual confirm (based on current auth model)
 
-## Phase 5 — QA, Ops, and Rollout
+## Phase 5 — Hardcore Resiliency & Error Recovery
+
+- [ ] JSON Response Repair Infrastructure
+	- Add: `LiveReview/internal/llm/json_repair.go`
+		- Implement: `go get github.com/RealAlexandreAI/json-repair` or similar library
+		- Functions: RepairJSON(raw string) (repaired string, stats JsonRepairStats, error)
+		- JsonRepairStats: OriginalBytes, RepairedBytes, CommentsLost, FieldsRecovered, ErrorsFixed
+	- Add: `LiveReview/internal/llm/response_processor.go`
+		- ProcessLLMResponse(raw string) (parsed interface{}, repair JsonRepairStats, error)
+		- Clear before/after logging with repair statistics
+	- Verify: [A] Unit tests with malformed JSON samples; repair stats accurate
+
+- [ ] Retry & Exponential Backoff Infrastructure  
+	- Add: `LiveReview/internal/retry/backoff.go`
+		- RetryConfig: MaxRetries (default 3), BaseDelay (default 1s), MaxDelay (default 30s), Multiplier (default 2.0)
+		- RetryWithBackoff(ctx, config, operation func() error) (attempts int, totalDuration time.Duration, error)
+	- Add: `LiveReview/internal/llm/resilient_client.go`
+		- Wrapper around LLM client with retry logic, timeout handling, circuit breaker patterns
+		- Detailed logging for each retry attempt with timing and reason
+	- Verify: [A] Unit tests simulate failures; exponential backoff timing correct
+
+- [ ] Enhanced Event Types for Resiliency
+	- Add to event types: "retry", "json_repair", "timeout", "circuit_breaker", "batch_stats"
+	- Extend JSON contract:
+		```json
+		"retry": { "attempt": 2, "reason": "timeout", "delay": "2.1s", "nextAttempt": "2025-09-24T11:46:00Z" }
+		"json_repair": { "originalSize": 1024, "repairedSize": 987, "commentsLost": 3, "fieldsRecovered": 1, "repairTime": "45ms" }
+		"timeout": { "operation": "llm_request", "configuredTimeout": "30s", "actualDuration": "31.2s" }
+		"batch_stats": { "batchId": "batch-1", "totalRequests": 10, "successful": 7, "retries": 8, "jsonRepairs": 2, "avgResponseTime": "2.4s" }
+		```
+	- Update: `LiveReview/internal/api/review_events_repo.go` to handle new event types
+	- Verify: [A] New event types persist and query correctly
+
+## Phase 6 — Advanced Log UI & Timeline Design
+
+- [ ] Intelligent Log Grouping & Statistics
+	- Add: `LiveReview/ui/src/components/reviews/LogAnalytics.tsx`
+		- Summary cards: Total batches, Success rate, Avg response time, JSON repairs needed
+		- Quick stats: Retries required, Timeouts encountered, Circuit breaker trips
+		- Visual indicators for batch completion progress with color coding
+	- Add: `LiveReview/ui/src/components/reviews/BatchSummary.tsx`
+		- Collapsible batch sections with timing information
+		- Batch-level statistics: success/retry/repair counts
+		- Visual timeline showing batch overlap and dependencies
+	- Verify: [M] Analytics provide quick overview; batch grouping reduces clutter
+
+- [ ] Modern Timeline UI with Smart Whitespace
+	- Redesign: `LiveReview/ui/src/components/reviews/ReviewTimeline.tsx`
+		- Remove excessive boxes; use subtle backgrounds and borders
+		- Group related events (retry sequences, JSON repair cycles) with visual indentation
+		- Smart whitespace between logical sections (batch boundaries, phase transitions)
+		- Eliminate redundant "Log" labels; use event type icons and color coding
+	- Add visual hierarchy:
+		- Major milestones: Bold timestamps, larger text, accent colors
+		- Batch sections: Subtle background, grouped events, collapsible details
+		- Individual events: Minimal styling, focus on message content
+		- Error/retry sequences: Warning colors, clear progression indicators
+	- Verify: [M] Timeline is visually clean; information hierarchy clear
+
+- [ ] Enhanced Timing & Progress Visualization
+	- Add: `LiveReview/ui/src/components/reviews/TimingChart.tsx`
+		- Horizontal timeline showing batch durations and overlaps
+		- Retry attempt visualizations with backoff timing
+		- JSON repair time indicators with before/after comparisons
+		- Interactive hover details for precise timing information
+	- Add: `LiveReview/ui/src/components/reviews/ProgressIndicators.tsx`
+		- Overall review progress bar with phase indicators
+		- Per-batch progress with success/retry/error breakdown
+		- Real-time updates with smooth animations
+	- Verify: [M] Timing information easily understandable; progress clear
+
+- [ ] Smart Event Filtering & Search
+	- Enhance: Event filtering beyond basic level filtering
+		- Filter by: Event type, Batch ID, Success/retry/error status, Time range
+		- Search: Full-text search in log messages, JSON repair details
+		- Presets: "Show only errors and retries", "Batch summary view", "Timing details"
+	- Add: `LiveReview/ui/src/components/reviews/EventFilters.tsx`
+		- Advanced filter controls with clear visual state
+		- Saved filter preferences per user
+		- Quick filter buttons for common views
+	- Verify: [M] Filtering helps users find relevant information quickly
+
+## Phase 7 — QA, Ops, and Rollout
 
 - [x] System Integration Testing
 	- Backend builds successfully with all new components
@@ -169,12 +251,38 @@ Legend
 	- API endpoints follow RESTful patterns with organization scoping
 	- Verify: [x] Database migration tested, API endpoints follow security patterns, polling efficient
 
+- [ ] Resiliency Integration Testing
+	- Test JSON repair with actual malformed LLM responses
+	- Verify retry logic with simulated network failures and timeouts
+	- Validate settings page saves and applies configuration correctly
+	- Test new event types persist and display properly in UI
+	- Verify: [A] Automated tests for resiliency features; manual testing with failure injection
+
+- [ ] UI/UX Validation
+	- Verify modern timeline UI reduces visual clutter and improves readability
+	- Test analytics components provide useful insights without overwhelming details
+	- Validate timing charts and progress indicators update smoothly
+	- Ensure filtering and search help users navigate complex logs efficiently
+	- Verify: [M] User testing confirms improved log experience; visual hierarchy effective
+
+- [ ] Settings Page for Timeout Configuration
+	- Add: `LiveReview/ui/src/pages/Settings/ResiliencySettings.tsx`
+		- Form controls: LLM request timeout, retry count, base delay, max delay
+		- Real-time validation with recommended ranges
+		- Save to user preferences or organization settings
+	- Add: `LiveReview/internal/api/settings_endpoints.go`
+		- GET/PUT /api/v1/settings/resiliency with org scoping
+		- Default values: RequestTimeout=30s, MaxRetries=3, BaseDelay=1s, MaxDelay=30s
+	- Add: Navigation integration in settings menu
+	- Verify: [M] Settings save/load correctly; values applied to retry logic
+
 - [ ] End-to-End Testing (Pending Deployment)
 	- Create test review and simulate events to verify full pipeline
 	- Verify UI responsiveness with polling updates and proper error handling
 	- Test create review functionality with actual API integration
 	- Validate authentication and organization scoping in live environment
-	- Verify: [M] Deploy and test complete user workflow from creation to completion
+	- Test resiliency features under realistic failure conditions
+	- Verify: [M] Deploy and test complete user workflow from creation to completion with error scenarios
 
 ---
 
