@@ -11,6 +11,9 @@ export interface Review {
   triggerType: string;
   userEmail?: string;
   provider?: string;
+  mrTitle?: string;
+  authorName?: string;
+  authorUsername?: string;
   createdAt: string;
   startedAt?: string;
   completedAt?: string;

@@ -4,25 +4,29 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"time"
 )
 
 // Review represents a code review record
 type Review struct {
-	ID          int64           `json:"id"`
-	Repository  string          `json:"repository"`
-	Branch      string          `json:"branch"`
-	CommitHash  string          `json:"commit_hash"`
-	PrMrURL     string          `json:"pr_mr_url"`
-	ConnectorID *int64          `json:"connector_id"`
-	Status      string          `json:"status"`
-	TriggerType string          `json:"trigger_type"`
-	UserEmail   string          `json:"user_email"`
-	Provider    string          `json:"provider"`
-	CreatedAt   time.Time       `json:"created_at"`
-	StartedAt   *time.Time      `json:"started_at"`
-	CompletedAt *time.Time      `json:"completed_at"`
-	Metadata    json.RawMessage `json:"metadata"`
+	ID             int64           `json:"id"`
+	Repository     string          `json:"repository"`
+	Branch         string          `json:"branch"`
+	CommitHash     string          `json:"commit_hash"`
+	PrMrURL        string          `json:"pr_mr_url"`
+	ConnectorID    *int64          `json:"connector_id"`
+	Status         string          `json:"status"`
+	TriggerType    string          `json:"trigger_type"`
+	UserEmail      string          `json:"user_email"`
+	Provider       string          `json:"provider"`
+	MRTitle        *string         `json:"mr_title"`
+	AuthorName     *string         `json:"author_name"`
+	AuthorUsername *string         `json:"author_username"`
+	CreatedAt      time.Time       `json:"created_at"`
+	StartedAt      *time.Time      `json:"started_at"`
+	CompletedAt    *time.Time      `json:"completed_at"`
+	Metadata       json.RawMessage `json:"metadata"`
 }
 
 // AIComment represents an AI-generated comment
@@ -157,12 +161,15 @@ func (rm *ReviewManager) UpdateReviewStatus(reviewID int64, status string) error
 // GetReview retrieves a review by ID
 func (rm *ReviewManager) GetReview(reviewID int64) (*Review, error) {
 	query := `
-		SELECT id, repository, branch, commit_hash, pr_mr_url, connector_id, status, trigger_type, user_email, provider, created_at, started_at, completed_at, metadata
+		SELECT id, repository, branch, commit_hash, pr_mr_url, connector_id,
+		       status, trigger_type, user_email, provider, mr_title, author_name, author_username,
+		       created_at, started_at, completed_at, metadata
 		FROM reviews
 		WHERE id = $1
 	`
 
 	var review Review
+	var mrTitle, authorName, authorUsername sql.NullString
 	err := rm.db.QueryRow(query, reviewID).Scan(
 		&review.ID,
 		&review.Repository,
@@ -174,6 +181,9 @@ func (rm *ReviewManager) GetReview(reviewID int64) (*Review, error) {
 		&review.TriggerType,
 		&review.UserEmail,
 		&review.Provider,
+		&mrTitle,
+		&authorName,
+		&authorUsername,
 		&review.CreatedAt,
 		&review.StartedAt,
 		&review.CompletedAt,
@@ -183,7 +193,78 @@ func (rm *ReviewManager) GetReview(reviewID int64) (*Review, error) {
 		return nil, fmt.Errorf("failed to get review: %w", err)
 	}
 
+	if mrTitle.Valid {
+		review.MRTitle = &mrTitle.String
+	}
+	if authorName.Valid {
+		review.AuthorName = &authorName.String
+	}
+	if authorUsername.Valid {
+		review.AuthorUsername = &authorUsername.String
+	}
+
 	return &review, nil
+}
+
+// ReviewMetadataUpdate describes optional fields that can be updated on a review record.
+type ReviewMetadataUpdate struct {
+	Repository     *string
+	Branch         *string
+	Provider       *string
+	MRTitle        *string
+	AuthorName     *string
+	AuthorUsername *string
+}
+
+// UpdateReviewMetadata applies partial metadata updates to a review record.
+func (rm *ReviewManager) UpdateReviewMetadata(reviewID int64, update ReviewMetadataUpdate) error {
+	setClauses := make([]string, 0, 6)
+	args := make([]interface{}, 0, 6)
+	idx := 1
+
+	if update.Repository != nil {
+		setClauses = append(setClauses, fmt.Sprintf("repository = $%d", idx))
+		args = append(args, *update.Repository)
+		idx++
+	}
+	if update.Branch != nil {
+		setClauses = append(setClauses, fmt.Sprintf("branch = $%d", idx))
+		args = append(args, *update.Branch)
+		idx++
+	}
+	if update.Provider != nil {
+		setClauses = append(setClauses, fmt.Sprintf("provider = $%d", idx))
+		args = append(args, *update.Provider)
+		idx++
+	}
+	if update.MRTitle != nil {
+		setClauses = append(setClauses, fmt.Sprintf("mr_title = $%d", idx))
+		args = append(args, *update.MRTitle)
+		idx++
+	}
+	if update.AuthorName != nil {
+		setClauses = append(setClauses, fmt.Sprintf("author_name = $%d", idx))
+		args = append(args, *update.AuthorName)
+		idx++
+	}
+	if update.AuthorUsername != nil {
+		setClauses = append(setClauses, fmt.Sprintf("author_username = $%d", idx))
+		args = append(args, *update.AuthorUsername)
+		idx++
+	}
+
+	if len(setClauses) == 0 {
+		return nil
+	}
+
+	query := fmt.Sprintf("UPDATE reviews SET %s WHERE id = $%d", strings.Join(setClauses, ", "), idx)
+	args = append(args, reviewID)
+
+	if _, err := rm.db.Exec(query, args...); err != nil {
+		return fmt.Errorf("failed to update review metadata: %w", err)
+	}
+
+	return nil
 }
 
 // AddAIComment adds an AI comment to a review

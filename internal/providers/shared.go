@@ -18,21 +18,25 @@ type Provider interface {
 
 // MergeRequestDetails contains information about a merge request
 type MergeRequestDetails struct {
-	ID            string
-	ProjectID     string
-	Title         string
-	Description   string
-	SourceBranch  string
-	TargetBranch  string
-	Author        string
-	CreatedAt     string
-	URL           string
-	State         string
-	MergeStatus   string
-	DiffRefs      DiffRefs
-	WebURL        string
-	ProviderType  string
-	RepositoryURL string
+	ID             string
+	ProjectID      string
+	Title          string
+	Description    string
+	SourceBranch   string
+	TargetBranch   string
+	Author         string
+	AuthorName     string
+	AuthorUsername string
+	AuthorEmail    string
+	AuthorAvatar   string
+	CreatedAt      string
+	URL            string
+	State          string
+	MergeStatus    string
+	DiffRefs       DiffRefs
+	WebURL         string
+	ProviderType   string
+	RepositoryURL  string
 }
 
 // DiffRefs contains references to the diff endpoints

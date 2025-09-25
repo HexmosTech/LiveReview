@@ -640,21 +640,24 @@ func (s *Server) Start() error {
 
 // Review data structures for API responses
 type ReviewResponse struct {
-	ID          int64                  `json:"id"`
-	Repository  string                 `json:"repository"`
-	Branch      *string                `json:"branch,omitempty"`
-	CommitHash  *string                `json:"commitHash,omitempty"`
-	PrMrUrl     *string                `json:"prMrUrl,omitempty"`
-	ConnectorID *int64                 `json:"connectorId,omitempty"`
-	Status      string                 `json:"status"`
-	TriggerType string                 `json:"triggerType"`
-	UserEmail   *string                `json:"userEmail,omitempty"`
-	Provider    *string                `json:"provider,omitempty"`
-	CreatedAt   time.Time              `json:"createdAt"`
-	StartedAt   *time.Time             `json:"startedAt,omitempty"`
-	CompletedAt *time.Time             `json:"completedAt,omitempty"`
-	Metadata    map[string]interface{} `json:"metadata,omitempty"`
-	OrgID       int64                  `json:"orgId"`
+	ID             int64                  `json:"id"`
+	Repository     string                 `json:"repository"`
+	Branch         *string                `json:"branch,omitempty"`
+	CommitHash     *string                `json:"commitHash,omitempty"`
+	PrMrUrl        *string                `json:"prMrUrl,omitempty"`
+	ConnectorID    *int64                 `json:"connectorId,omitempty"`
+	Status         string                 `json:"status"`
+	TriggerType    string                 `json:"triggerType"`
+	UserEmail      *string                `json:"userEmail,omitempty"`
+	Provider       *string                `json:"provider,omitempty"`
+	MRTitle        *string                `json:"mrTitle,omitempty"`
+	AuthorName     *string                `json:"authorName,omitempty"`
+	AuthorUsername *string                `json:"authorUsername,omitempty"`
+	CreatedAt      time.Time              `json:"createdAt"`
+	StartedAt      *time.Time             `json:"startedAt,omitempty"`
+	CompletedAt    *time.Time             `json:"completedAt,omitempty"`
+	Metadata       map[string]interface{} `json:"metadata,omitempty"`
+	OrgID          int64                  `json:"orgId"`
 }
 
 type ReviewsListResponse struct {
@@ -692,9 +695,9 @@ func (s *Server) getReviews(c echo.Context) error {
 
 	// Build base query
 	baseQuery := `
-		SELECT id, repository, branch, commit_hash, pr_mr_url, connector_id, 
-		       status, trigger_type, user_email, provider, created_at, 
-		       started_at, completed_at, metadata, org_id
+		SELECT id, repository, branch, commit_hash, pr_mr_url, connector_id,
+		       status, trigger_type, user_email, provider, mr_title, author_name, author_username,
+		       created_at, started_at, completed_at, metadata, org_id
 		FROM public.reviews 
 		WHERE org_id = $1
 	`
@@ -724,8 +727,8 @@ func (s *Server) getReviews(c echo.Context) error {
 	search := c.QueryParam("search")
 	if search != "" {
 		searchPattern := "%" + search + "%"
-		baseQuery += fmt.Sprintf(" AND (repository ILIKE $%d OR pr_mr_url ILIKE $%d)", argIndex, argIndex)
-		countQuery += fmt.Sprintf(" AND (repository ILIKE $%d OR pr_mr_url ILIKE $%d)", argIndex, argIndex)
+		baseQuery += fmt.Sprintf(" AND (repository ILIKE $%d OR pr_mr_url ILIKE $%d OR mr_title ILIKE $%d OR author_name ILIKE $%d OR author_username ILIKE $%d)", argIndex, argIndex, argIndex, argIndex, argIndex)
+		countQuery += fmt.Sprintf(" AND (repository ILIKE $%d OR pr_mr_url ILIKE $%d OR mr_title ILIKE $%d OR author_name ILIKE $%d OR author_username ILIKE $%d)", argIndex, argIndex, argIndex, argIndex, argIndex)
 		args = append(args, searchPattern)
 		argIndex++
 	}
@@ -755,6 +758,7 @@ func (s *Server) getReviews(c echo.Context) error {
 	for rows.Next() {
 		var review ReviewResponse
 		var metadataJSON sql.NullString
+		var mrTitleNS, authorNameNS, authorUsernameNS sql.NullString
 
 		err := rows.Scan(
 			&review.ID,
@@ -767,6 +771,9 @@ func (s *Server) getReviews(c echo.Context) error {
 			&review.TriggerType,
 			&review.UserEmail,
 			&review.Provider,
+			&mrTitleNS,
+			&authorNameNS,
+			&authorUsernameNS,
 			&review.CreatedAt,
 			&review.StartedAt,
 			&review.CompletedAt,
@@ -784,6 +791,16 @@ func (s *Server) getReviews(c echo.Context) error {
 				// Log error but continue with empty metadata
 				fmt.Printf("Failed to parse metadata for review %d: %v\n", review.ID, err)
 			}
+		}
+
+		if mrTitleNS.Valid {
+			review.MRTitle = &mrTitleNS.String
+		}
+		if authorNameNS.Valid {
+			review.AuthorName = &authorNameNS.String
+		}
+		if authorUsernameNS.Valid {
+			review.AuthorUsername = &authorUsernameNS.String
 		}
 
 		reviews = append(reviews, review)
@@ -838,15 +855,16 @@ func (s *Server) getReviewByID(c echo.Context) error {
 
 	// Query review by ID with org scoping
 	query := `
-		SELECT id, repository, branch, commit_hash, pr_mr_url, connector_id, 
-		       status, trigger_type, user_email, provider, created_at, 
-		       started_at, completed_at, metadata, org_id
+		SELECT id, repository, branch, commit_hash, pr_mr_url, connector_id,
+		       status, trigger_type, user_email, provider, mr_title, author_name, author_username,
+		       created_at, started_at, completed_at, metadata, org_id
 		FROM public.reviews 
 		WHERE id = $1 AND org_id = $2
 	`
 
 	var review ReviewResponse
 	var metadataJSON sql.NullString
+	var mrTitleNS, authorNameNS, authorUsernameNS sql.NullString
 
 	err = s.db.QueryRow(query, reviewID, orgID).Scan(
 		&review.ID,
@@ -859,6 +877,9 @@ func (s *Server) getReviewByID(c echo.Context) error {
 		&review.TriggerType,
 		&review.UserEmail,
 		&review.Provider,
+		&mrTitleNS,
+		&authorNameNS,
+		&authorUsernameNS,
 		&review.CreatedAt,
 		&review.StartedAt,
 		&review.CompletedAt,
@@ -880,6 +901,16 @@ func (s *Server) getReviewByID(c echo.Context) error {
 			// Log error but continue with empty metadata
 			fmt.Printf("Failed to parse metadata for review %d: %v\n", review.ID, err)
 		}
+	}
+
+	if mrTitleNS.Valid {
+		review.MRTitle = &mrTitleNS.String
+	}
+	if authorNameNS.Valid {
+		review.AuthorName = &authorNameNS.String
+	}
+	if authorUsernameNS.Valid {
+		review.AuthorUsername = &authorUsernameNS.String
 	}
 
 	if review.Provider == nil || strings.TrimSpace(*review.Provider) == "" || strings.EqualFold(*review.Provider, "unknown") {
