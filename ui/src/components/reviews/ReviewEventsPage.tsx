@@ -120,7 +120,10 @@ export default function ReviewEventsPage({
           event.type,
         message: event.data?.message || '',
         severity: event.level || 'info',
-        details: event.data
+        details: {
+          ...event.data,
+          batchId: event.batchId || event.batch_id  // Include batch ID from database
+        }
       }));
       
       console.log('[ReviewEventsPage] Received events:', {

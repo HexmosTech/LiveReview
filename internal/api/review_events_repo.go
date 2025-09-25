@@ -309,6 +309,23 @@ func (r *ReviewEventsRepo) CountEventsByReview(ctx context.Context, reviewID, or
 	return counts, nil
 }
 
+// CountDistinctBatchIDs returns the number of unique batch IDs for a review
+func (r *ReviewEventsRepo) CountDistinctBatchIDs(ctx context.Context, reviewID, orgID int64) (int, error) {
+	query := `
+		SELECT COUNT(DISTINCT batch_id)
+		FROM public.review_events
+		WHERE review_id = $1 AND org_id = $2 AND batch_id IS NOT NULL AND batch_id <> ''
+	`
+
+	var count int
+	err := r.db.QueryRowContext(ctx, query, reviewID, orgID).Scan(&count)
+	if err != nil {
+		return 0, fmt.Errorf("failed to count distinct batch IDs: %w", err)
+	}
+
+	return count, nil
+}
+
 // Helper functions for creating resiliency-specific events
 
 // CreateRetryEvent creates a retry event for a review
