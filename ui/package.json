@@ -5,7 +5,7 @@
   "main": "index.js",
   "scripts": {
     "test": "jest --passWithNoTests",
-    "start": "webpack serve --mode development --open",
+    "start": "webpack serve --mode development --open --allowed-hosts all",
     "dev": "webpack --mode development",
     "build": "webpack --mode production",
     "build:obfuscated": "OBFUSCATE=true webpack --mode production"

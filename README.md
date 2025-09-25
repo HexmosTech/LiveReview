@@ -414,6 +414,12 @@ The current implementation includes:
    - Implement a background service that monitors for new MRs/PRs
    - Automatically trigger reviews based on configurable rules
 
+## Get Serveo Ngrok Alternative
+
+```
+ssh -R manual-talent:80:localhost:8081 serveo.net
+```
+
 ## License
 
 [MIT License](LICENSE)
