@@ -203,7 +203,9 @@ func (p *GitHubProvider) GetMergeRequestDetails(ctx context.Context, mrURL strin
 		Body   string `json:"body"`
 		State  string `json:"state"`
 		User   struct {
-			Login string `json:"login"`
+			Login     string `json:"login"`
+			Name      string `json:"name"`
+			AvatarURL string `json:"avatar_url"`
 		} `json:"user"`
 		Head struct {
 			SHA  string `json:"sha"`
@@ -225,17 +227,25 @@ func (p *GitHubProvider) GetMergeRequestDetails(ctx context.Context, mrURL strin
 	if err := json.NewDecoder(resp.Body).Decode(&pr); err != nil {
 		return nil, err
 	}
+	authorName := pr.User.Name
+	if authorName == "" {
+		authorName = pr.User.Login
+	}
+
 	return &providers.MergeRequestDetails{
-		ID:           fmt.Sprintf("%d", pr.Number),
-		Title:        pr.Title,
-		Description:  pr.Body,
-		Author:       pr.User.Login,
-		CreatedAt:    pr.CreatedAt,
-		URL:          mrURL,
-		State:        pr.State,
-		WebURL:       pr.HTMLURL,
-		SourceBranch: pr.Head.Ref,
-		TargetBranch: pr.Base.Ref,
+		ID:             fmt.Sprintf("%d", pr.Number),
+		Title:          pr.Title,
+		Description:    pr.Body,
+		Author:         pr.User.Login,
+		AuthorName:     authorName,
+		AuthorUsername: pr.User.Login,
+		AuthorAvatar:   pr.User.AvatarURL,
+		CreatedAt:      pr.CreatedAt,
+		URL:            mrURL,
+		State:          pr.State,
+		WebURL:         pr.HTMLURL,
+		SourceBranch:   pr.Head.Ref,
+		TargetBranch:   pr.Base.Ref,
 		DiffRefs: providers.DiffRefs{
 			BaseSHA: pr.Base.SHA,
 			HeadSHA: pr.Head.SHA,

@@ -54,9 +54,10 @@ type GitLabMergeRequest struct {
 	TargetBranch string `json:"target_branch"`
 	WebURL       string `json:"web_url"`
 	Author       struct {
-		ID       int    `json:"id"`
-		Username string `json:"username"`
-		Name     string `json:"name"`
+		ID        int    `json:"id"`
+		Username  string `json:"username"`
+		Name      string `json:"name"`
+		AvatarURL string `json:"avatar_url"`
 	} `json:"author"`
 }
 
@@ -678,18 +679,27 @@ func (c *GitLabHTTPClient) createDiscussionLineComment(projectID string, mrIID i
 
 // ConvertToMergeRequestDetails converts a GitLab MR to our internal model
 func ConvertToMergeRequestDetails(mr *GitLabMergeRequest, projectID string) *providers.MergeRequestDetails {
+	repoURL := mr.WebURL
+	if idx := strings.Index(repoURL, "/-/merge_requests/"); idx >= 0 {
+		repoURL = repoURL[:idx]
+	}
+
 	return &providers.MergeRequestDetails{
-		ID:           fmt.Sprintf("%d", mr.IID),
-		ProjectID:    projectID,
-		Title:        mr.Title,
-		Description:  mr.Description,
-		SourceBranch: mr.SourceBranch,
-		TargetBranch: mr.TargetBranch,
-		Author:       mr.Author.Username,
-		State:        mr.State,
-		URL:          mr.WebURL,
-		ProviderType: "gitlab",
-		MergeStatus:  "unknown", // Not available in this API response
+		ID:             fmt.Sprintf("%d", mr.IID),
+		ProjectID:      projectID,
+		Title:          mr.Title,
+		Description:    mr.Description,
+		SourceBranch:   mr.SourceBranch,
+		TargetBranch:   mr.TargetBranch,
+		Author:         mr.Author.Username,
+		AuthorName:     mr.Author.Name,
+		AuthorUsername: mr.Author.Username,
+		AuthorAvatar:   mr.Author.AvatarURL,
+		State:          mr.State,
+		URL:            mr.WebURL,
+		ProviderType:   "gitlab",
+		MergeStatus:    "unknown", // Not available in this API response
+		RepositoryURL:  repoURL,
 	}
 }
 

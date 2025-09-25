@@ -35,6 +35,8 @@ const Reviews: React.FC = () => {
         return null;
     };
     
+    const toTitleCase = (value: string): string => value.replace(/\b\w/g, char => char.toUpperCase());
+
     // Helper function to extract MR/PR info from URL
     const extractMRInfo = (url: string): string => {
         try {
@@ -71,6 +73,7 @@ const Reviews: React.FC = () => {
     const [total, setTotal] = useState(0);
     const [currentPage, setCurrentPage] = useState(1);
     const [totalPages, setTotalPages] = useState(1);
+    const perPageOptions = [20, 50, 100];
     
     // Filter states
     const [filters, setFilters] = useState<ReviewsFilters>({
@@ -176,6 +179,10 @@ const Reviews: React.FC = () => {
         updateFilters({ provider: provider || undefined });
     }, [updateFilters]);
 
+    const handlePerPageChange = useCallback((perPageValue: number) => {
+        updateFilters({ perPage: perPageValue });
+    }, [updateFilters]);
+
     // Handle pagination
     const handlePageChange = useCallback((page: number) => {
         updateFilters({ page });
@@ -232,7 +239,7 @@ const Reviews: React.FC = () => {
 
             {/* Filters */}
             <div className="bg-slate-800 rounded-lg p-6 mb-6 border border-slate-700">
-                <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+                <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
                     {/* Search */}
                     <div className="md:col-span-2">
                         <div className="flex">
@@ -280,6 +287,21 @@ const Reviews: React.FC = () => {
                             <option value="gitlab">GitLab</option>
                             <option value="github">GitHub</option>
                             <option value="bitbucket">Bitbucket</option>
+                        </select>
+                    </div>
+
+                    {/* Per Page */}
+                    <div>
+                        <select
+                            value={filters.perPage || 20}
+                            onChange={(e) => handlePerPageChange(parseInt(e.target.value, 10))}
+                            className="w-full px-3 py-2 bg-slate-700 border border-slate-600 rounded-md text-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                        >
+                            {perPageOptions.map(option => (
+                                <option key={option} value={option}>
+                                    {option} per page
+                                </option>
+                            ))}
                         </select>
                     </div>
                 </div>
@@ -355,7 +377,7 @@ const Reviews: React.FC = () => {
                             <thead className="bg-slate-700">
                                 <tr>
                                     <th className="px-6 py-4 text-left text-sm font-semibold text-slate-200 uppercase tracking-wider">
-                                        Repository
+                                        Review
                                     </th>
                                     <th className="px-6 py-4 text-left text-sm font-semibold text-slate-200 uppercase tracking-wider">
                                         Status
@@ -367,65 +389,111 @@ const Reviews: React.FC = () => {
                                         Last Activity
                                     </th>
                                     <th className="px-6 py-4 text-left text-sm font-semibold text-slate-200 uppercase tracking-wider">
-                                        Actions
+                                        Details
                                     </th>
                                 </tr>
                             </thead>
                             <tbody className="divide-y divide-slate-700">
-                                {reviews.map((review) => (
-                                    <tr key={review.id} className="hover:bg-slate-700/50 transition-colors">
-                                        <td className="px-6 py-4">
-                                            <div>
-                                                <div className="text-white font-medium flex items-center gap-2">
-                                                    {review.repository.split('/').pop() || review.repository}
-                                                    {review.prMrUrl && (
-                                                        <a
-                                                            href={review.prMrUrl}
-                                                            target="_blank"
-                                                            rel="noopener noreferrer"
-                                                            title="Open PR/MR"
-                                                            className="text-blue-400 hover:text-blue-300 text-xs underline underline-offset-2"
-                                                        >
-                                                            View PR/MR
-                                                        </a>
+                                {reviews.map((review) => {
+                                    const rawMrDescriptor = review.prMrUrl ? extractMRInfo(review.prMrUrl) : '';
+                                    const mrDescriptor = rawMrDescriptor && rawMrDescriptor !== 'MR/PR' ? rawMrDescriptor : '';
+                                    const cleanedRepository = review.repository ? review.repository.replace(/^https?:\/\//, '').replace(/\/$/, '') : '';
+                                    const repoSegments = cleanedRepository.split('/').filter(Boolean);
+                                    const repoShort = repoSegments.length ? repoSegments[repoSegments.length - 1] : '';
+                                    const primaryTitleCandidate = review.mrTitle?.trim();
+                                    const primaryTitle = primaryTitleCandidate && primaryTitleCandidate.length > 0 ? primaryTitleCandidate : (mrDescriptor || repoShort || 'Code Review');
+                                    const displayProviderRaw = review.provider ? review.provider.replace(/[-_]/g, ' ') : '';
+                                    const displayProvider = displayProviderRaw ? toTitleCase(displayProviderRaw) : '';
+                                    const fallbackAuthorFromUrl = review.prMrUrl ? extractAuthorFromUrl(review.prMrUrl) : null;
+                                    const potentialAuthors = [
+                                        review.authorName?.trim(),
+                                        review.authorUsername?.trim(),
+                                        review.userEmail?.trim(),
+                                        fallbackAuthorFromUrl ? fallbackAuthorFromUrl.trim() : undefined,
+                                        displayProvider,
+                                    ].filter((val): val is string => Boolean(val && val.length > 0));
+                                    const authorPrimary = potentialAuthors[0] || 'System';
+                                    const authorSecondary = potentialAuthors.find(candidate => candidate !== authorPrimary);
+                                    const branchLabel = review.branch?.trim();
+                                    const metaChips = [
+                                        cleanedRepository,
+                                        branchLabel ? `Branch: ${branchLabel}` : '',
+                                        mrDescriptor,
+                                        displayProvider,
+                                    ].filter((val): val is string => Boolean(val && val.length > 0));
+
+                                    return (
+                                        <tr
+                                            key={review.id}
+                                            className="group hover:bg-slate-700/50 transition-colors cursor-pointer focus-within:bg-slate-700/50"
+                                            onClick={() => handleViewReview(review.id)}
+                                            onKeyDown={(e) => {
+                                                if (e.key === 'Enter' || e.key === ' ') {
+                                                    e.preventDefault();
+                                                    handleViewReview(review.id);
+                                                }
+                                            }}
+                                            tabIndex={0}
+                                        >
+                                            <td className="px-6 py-4">
+                                                <div className="flex flex-col gap-1">
+                                                    <div className="flex items-center gap-2">
+                                                        <span className="text-white font-semibold">{primaryTitle}</span>
+                                                        {review.prMrUrl && (
+                                                            <a
+                                                                href={review.prMrUrl}
+                                                                target="_blank"
+                                                                rel="noopener noreferrer"
+                                                                onClick={(e) => e.stopPropagation()}
+                                                                className="text-blue-400 hover:text-blue-300 text-xs font-medium underline underline-offset-2"
+                                                            >
+                                                                Open PR/MR
+                                                            </a>
+                                                        )}
+                                                    </div>
+                                                    {metaChips.length > 0 && (
+                                                        <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-slate-400">
+                                                            {metaChips.map((chip, idx) => (
+                                                                <span key={`${chip}-${idx}`} className="flex items-center gap-1">
+                                                                    {chip}
+                                                                </span>
+                                                            ))}
+                                                        </div>
                                                     )}
                                                 </div>
-                                                {review.branch && (
-                                                    <div className="text-slate-500 text-xs mt-1">{review.branch}</div>
-                                                )}
-                                                {review.prMrUrl && (
-                                                    <div className="text-slate-500 text-xs mt-1">
-                                                        {extractMRInfo(review.prMrUrl)}
+                                            </td>
+                                            <td className="px-6 py-4">
+                                                <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium text-white ${getStatusColor(review.status)}`}>
+                                                    {getStatusText(review.status)}
+                                                </span>
+                                            </td>
+                                            <td className="px-6 py-4 text-slate-300">
+                                                <div className="font-medium text-white">{authorPrimary}</div>
+                                                {authorSecondary && (
+                                                    <div className="text-xs text-slate-400 mt-1">
+                                                        {authorSecondary}
                                                     </div>
                                                 )}
-                                            </div>
-                                        </td>
-                                        <td className="px-6 py-4">
-                                            <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium text-white ${getStatusColor(review.status)}`}>
-                                                {getStatusText(review.status)}
-                                            </span>
-                                        </td>
-                                        <td className="px-6 py-4 text-slate-300">
-                                            {review.userEmail || 
-                                             (review.prMrUrl ? extractAuthorFromUrl(review.prMrUrl) : null) || 
-                                             review.provider || 
-                                             'System'}
-                                        </td>
-                                        <td className="px-6 py-4 text-slate-300">
-                                            {formatRelativeTime(review.completedAt || review.startedAt || review.createdAt)}
-                                        </td>
-                                        <td className="px-6 py-4">
-                                            <Button
-                                                variant="outline"
-                                                size="sm"
-                                                onClick={() => handleViewReview(review.id)}
-                                                className="border-slate-600 text-slate-300 hover:text-white hover:border-slate-500"
-                                            >
-                                                View Details
-                                            </Button>
-                                        </td>
-                                    </tr>
-                                ))}
+                                            </td>
+                                            <td className="px-6 py-4 text-slate-300">
+                                                {formatRelativeTime(review.completedAt || review.startedAt || review.createdAt)}
+                                            </td>
+                                            <td className="px-6 py-4">
+                                                <Button
+                                                    variant="outline"
+                                                    size="sm"
+                                                    onClick={(e) => {
+                                                        e.stopPropagation();
+                                                        handleViewReview(review.id);
+                                                    }}
+                                                    className="border-slate-600 text-slate-300 hover:text-white hover:border-slate-500"
+                                                >
+                                                    View Details
+                                                </Button>
+                                            </td>
+                                        </tr>
+                                    );
+                                })}
                             </tbody>
                         </table>
                     </div>

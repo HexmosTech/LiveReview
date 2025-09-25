@@ -153,16 +153,18 @@ func (p *BitbucketProvider) GetMergeRequestDetails(ctx context.Context, prURL st
 	}
 
 	return &providers.MergeRequestDetails{
-		ID:           fmt.Sprintf("%d", pr.ID),
-		Title:        pr.Title,
-		Description:  pr.Description,
-		Author:       pr.Author.Username,
-		CreatedAt:    pr.CreatedOn,
-		URL:          prURL,
-		State:        pr.State,
-		WebURL:       pr.Links.HTML.Href,
-		SourceBranch: pr.Source.Branch.Name,
-		TargetBranch: pr.Destination.Branch.Name,
+		ID:             fmt.Sprintf("%d", pr.ID),
+		Title:          pr.Title,
+		Description:    pr.Description,
+		Author:         pr.Author.Username,
+		AuthorName:     pr.Author.DisplayName,
+		AuthorUsername: pr.Author.Username,
+		CreatedAt:      pr.CreatedOn,
+		URL:            prURL,
+		State:          pr.State,
+		WebURL:         pr.Links.HTML.Href,
+		SourceBranch:   pr.Source.Branch.Name,
+		TargetBranch:   pr.Destination.Branch.Name,
 		DiffRefs: providers.DiffRefs{
 			BaseSHA: pr.Destination.Commit.Hash,
 			HeadSHA: pr.Source.Commit.Hash,

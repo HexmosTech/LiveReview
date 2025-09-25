@@ -471,6 +471,9 @@ CREATE TABLE public.reviews (
     completed_at timestamp with time zone,
     metadata jsonb DEFAULT '{}'::jsonb,
     org_id bigint DEFAULT 1 NOT NULL,
+    mr_title text,
+    author_name text,
+    author_username text,
     CONSTRAINT reviews_status_check CHECK (((status)::text = ANY ((ARRAY['created'::character varying, 'in_progress'::character varying, 'completed'::character varying, 'failed'::character varying])::text[])))
 );
 
@@ -1790,4 +1793,5 @@ INSERT INTO public.schema_migrations (version) VALUES
     ('20250828113024'),
     ('20250905120000'),
     ('20250909120000'),
-    ('20250924122125');
+    ('20250924122125'),
+    ('20250925120001');

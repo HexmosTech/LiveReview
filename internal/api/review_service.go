@@ -5,38 +5,39 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/labstack/echo/v4"
 	"github.com/livereview/internal/config"
 	"github.com/livereview/internal/logging"
-	"github.com/livereview/internal/review"
+	reviewpkg "github.com/livereview/internal/review"
 )
 
 // ReviewService encapsulates the review orchestration logic
 type ReviewService struct {
-	reviewService   *review.Service
-	configService   *review.ConfigurationService
-	resultCallbacks map[string]func(*review.ReviewResult)
+	reviewService   *reviewpkg.Service
+	configService   *reviewpkg.ConfigurationService
+	resultCallbacks map[string]func(*reviewpkg.ReviewResult)
 }
 
 // NewReviewService creates a new review service
 func NewReviewService(cfg *config.Config) *ReviewService {
 	// Create factories
-	providerFactory := review.NewStandardProviderFactory()
-	aiProviderFactory := review.NewStandardAIProviderFactory()
+	providerFactory := reviewpkg.NewStandardProviderFactory()
+	aiProviderFactory := reviewpkg.NewStandardAIProviderFactory()
 
 	// Create configuration service
-	configService := review.NewConfigurationService(cfg)
+	configService := reviewpkg.NewConfigurationService(cfg)
 
 	// Create review service with default config
-	reviewConfig := review.DefaultReviewConfig()
-	reviewSvc := review.NewService(providerFactory, aiProviderFactory, reviewConfig)
+	reviewConfig := reviewpkg.DefaultReviewConfig()
+	reviewSvc := reviewpkg.NewService(providerFactory, aiProviderFactory, reviewConfig)
 
 	return &ReviewService{
 		reviewService:   reviewSvc,
 		configService:   configService,
-		resultCallbacks: make(map[string]func(*review.ReviewResult)),
+		resultCallbacks: make(map[string]func(*reviewpkg.ReviewResult)),
 	}
 }
 
@@ -293,6 +294,101 @@ func (s *Server) TriggerReviewV2(c echo.Context) error {
 		logger.Log("  Request details: Provider=%s, URL=%s", token.Provider, req.URL)
 	}
 
+	// Prefetch merge request metadata so the review list has rich fields immediately
+	providerUpdated := false
+	if logger != nil {
+		logger.LogSection("METADATA ENRICHMENT")
+		logger.Log("Fetching merge request metadata for listing...")
+	}
+
+	metadataCtx, cancelMetadata := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancelMetadata()
+
+	providerFactory := reviewpkg.NewStandardProviderFactory()
+	providerInstance, providerErr := providerFactory.CreateProvider(metadataCtx, reviewRequest.Provider)
+	if providerErr != nil {
+		log.Printf("[WARN] TriggerReviewV2: Failed to create provider for metadata prefetch: %v", providerErr)
+		if logger != nil {
+			logger.Log("⚠ Unable to create provider for metadata prefetch: %v", providerErr)
+		}
+	} else {
+		if details, err := providerInstance.GetMergeRequestDetails(metadataCtx, req.URL); err != nil {
+			log.Printf("[WARN] TriggerReviewV2: Failed to fetch MR details for metadata: %v", err)
+			if logger != nil {
+				logger.Log("⚠ Unable to fetch MR details for metadata enrichment: %v", err)
+			}
+		} else if details != nil {
+			if logger != nil {
+				logger.Log("✓ Merge request metadata fetched")
+				logger.Log("  MR Title: %s", details.Title)
+				if details.AuthorName != "" {
+					logger.Log("  Author: %s", details.AuthorName)
+				} else if details.Author != "" {
+					logger.Log("  Author: %s", details.Author)
+				}
+			}
+
+			repo := details.RepositoryURL
+			if strings.TrimSpace(repo) == "" {
+				repo = extractRepositoryFromURL(req.URL)
+			}
+
+			providerValue := details.ProviderType
+			if providerValue == "" {
+				providerValue = normalizeProviderValue(token.Provider)
+			}
+
+			update := ReviewMetadataUpdate{}
+			if ptr := optionalString(repo); ptr != nil {
+				update.Repository = ptr
+			}
+			if ptr := optionalString(details.SourceBranch); ptr != nil {
+				update.Branch = ptr
+			}
+			if ptr := optionalString(providerValue); ptr != nil {
+				update.Provider = ptr
+				providerUpdated = true
+			}
+			if ptr := optionalString(details.Title); ptr != nil {
+				update.MRTitle = ptr
+			}
+			authorName := details.AuthorName
+			if strings.TrimSpace(authorName) == "" {
+				authorName = details.Author
+			}
+			if ptr := optionalString(authorName); ptr != nil {
+				update.AuthorName = ptr
+			}
+			authorUsername := details.AuthorUsername
+			if strings.TrimSpace(authorUsername) == "" {
+				authorUsername = details.Author
+			}
+			if ptr := optionalString(authorUsername); ptr != nil {
+				update.AuthorUsername = ptr
+			}
+
+			rm := NewReviewManager(s.db)
+			if err := rm.UpdateReviewMetadata(review.ID, update); err != nil {
+				log.Printf("[WARN] TriggerReviewV2: Failed to update review metadata: %v", err)
+				if logger != nil {
+					logger.Log("⚠ Failed to enrich review metadata: %v", err)
+				}
+			}
+		}
+	}
+
+	if !providerUpdated {
+		if ptr := optionalString(normalizeProviderValue(token.Provider)); ptr != nil {
+			rm := NewReviewManager(s.db)
+			if err := rm.UpdateReviewMetadata(review.ID, ReviewMetadataUpdate{Provider: ptr}); err != nil {
+				log.Printf("[WARN] TriggerReviewV2: Failed to persist provider metadata: %v", err)
+				if logger != nil {
+					logger.Log("⚠ Failed to persist provider metadata: %v", err)
+				}
+			}
+		}
+	}
+
 	// Track the review trigger activity (reference existing review ID)
 	go func() {
 		repository := extractRepositoryFromURL(req.URL)
@@ -370,4 +466,12 @@ func (s *Server) TriggerReviewV2(c echo.Context) error {
 		URL:      req.URL,
 		ReviewID: fmt.Sprintf("%d", review.ID), // Return the database ID as string for frontend compatibility
 	})
+}
+
+func optionalString(value string) *string {
+	v := strings.TrimSpace(value)
+	if v == "" {
+		return nil
+	}
+	return &v
 }
