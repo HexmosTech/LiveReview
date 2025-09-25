@@ -883,7 +883,7 @@ func (p *LangchainProvider) reviewCodeBatchFormatted(ctx context.Context, diffs 
 
 	// Parse the response with enhanced JSON repair
 	fmt.Printf("[LANGCHAIN PARSE] Starting to parse response for batch %s with JSON repair...\n", batchId)
-	result, err := p.parseResponseWithRepair(response, diffs, 0, 0, batchId) // TODO: Pass actual reviewID and orgID
+	result, err := p.parseResponseWithRepair(response, diffs, 0, 0, batchId, logger)
 	if err != nil {
 		if logger != nil {
 			logger.LogError(fmt.Sprintf("JSON parsing batch %s", batchId), err)
@@ -1050,11 +1050,11 @@ func (p *LangchainProvider) parseResponse(response string, diffs []models.CodeDi
 
 	var resp Response
 	if err := json.Unmarshal([]byte(jsonStr), &resp); err != nil {
-		// Try to provide more helpful error messages, but do not fail hard — return graceful fallback instead
+		// Return the error instead of falling back - this will trigger the repair logic
 		if logger != nil {
-			logger.Log("Failed to parse JSON: %v; falling back to raw excerpt (resp=%d chars, json=%d chars)", err, len(response), len(jsonStr))
+			logger.Log("Failed to parse JSON: %v; will attempt repair (resp=%d chars, json=%d chars)", err, len(response), len(jsonStr))
 		}
-		return p.fallbackParsedResult(response, diffs, "json unmarshal error: "+err.Error()), nil
+		return nil, fmt.Errorf("json unmarshal error: %w", err)
 	}
 
 	// Convert to our models

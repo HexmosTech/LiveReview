@@ -5,11 +5,12 @@ import (
 	"strings"
 
 	"github.com/livereview/internal/llm"
+	"github.com/livereview/internal/logging"
 	"github.com/livereview/pkg/models"
 )
 
 // Enhanced parseResponse that integrates with our JSON repair system
-func (p *LangchainProvider) parseResponseWithRepair(response string, diffs []models.CodeDiff, reviewID, orgID int64, batchID string) (*ParsedResult, error) {
+func (p *LangchainProvider) parseResponseWithRepair(response string, diffs []models.CodeDiff, reviewID, orgID int64, batchID string, logger *logging.ReviewLogger) (*ParsedResult, error) {
 	// First try the original parsing
 	originalResult, originalErr := p.parseResponse(response, diffs)
 
@@ -19,6 +20,9 @@ func (p *LangchainProvider) parseResponseWithRepair(response string, diffs []mod
 	}
 
 	// Original parsing failed - try our JSON repair system
+	if logger != nil {
+		logger.Log("Original parsing failed: %v. Attempting JSON repair...", originalErr)
+	}
 	fmt.Printf("[LANGCHAIN] Original parsing failed: %v. Attempting JSON repair...\n", originalErr)
 
 	// Try our resilient JSON processing
@@ -27,18 +31,29 @@ func (p *LangchainProvider) parseResponseWithRepair(response string, diffs []mod
 
 	// Log JSON repair event if repair was performed
 	if processorResult.RepairStats.WasRepaired {
-		fmt.Printf("[LANGCHAIN JSON REPAIR] Review %d Batch %s: %d strategies used, %d errors fixed, %v repair time\n",
+		repairMsg := fmt.Sprintf("Review %d Batch %s: %d strategies used, %d errors fixed, %v repair time",
 			reviewID, batchID, len(processorResult.RepairStats.RepairStrategies),
 			processorResult.RepairStats.ErrorsFixed, processorResult.RepairStats.RepairTime)
+		if logger != nil {
+			logger.Log("JSON REPAIR: %s", repairMsg)
+		}
+		fmt.Printf("[LANGCHAIN JSON REPAIR] %s\n", repairMsg)
 
 		// Log the strategies used
 		if len(processorResult.RepairStats.RepairStrategies) > 0 {
-			fmt.Printf("[LANGCHAIN JSON REPAIR] Strategies: %s\n", strings.Join(processorResult.RepairStats.RepairStrategies, ", "))
+			strategyMsg := fmt.Sprintf("Strategies: %s", strings.Join(processorResult.RepairStats.RepairStrategies, ", "))
+			if logger != nil {
+				logger.Log("JSON REPAIR: %s", strategyMsg)
+			}
+			fmt.Printf("[LANGCHAIN JSON REPAIR] %s\n", strategyMsg)
 		}
 	}
 
 	if err != nil {
 		// Even JSON repair failed - return the original fallback
+		if logger != nil {
+			logger.Log("JSON repair also failed: %v. Using graceful fallback.", err)
+		}
 		fmt.Printf("[LANGCHAIN FALLBACK] JSON repair also failed: %v. Using graceful fallback.\n", err)
 		return p.fallbackParsedResult(response, diffs, "both original and repair parsing failed: "+err.Error()), nil
 	}
@@ -48,12 +63,19 @@ func (p *LangchainProvider) parseResponseWithRepair(response string, diffs []mod
 
 	if repairedErr != nil {
 		// Even with repaired JSON, parsing failed
+		if logger != nil {
+			logger.Log("Repaired JSON still failed to parse: %v. Using graceful fallback.", repairedErr)
+		}
 		fmt.Printf("[LANGCHAIN FALLBACK] Repaired JSON still failed to parse: %v. Using graceful fallback.\n", repairedErr)
 		return p.fallbackParsedResult(response, diffs, "repaired JSON parse failed: "+repairedErr.Error()), nil
 	}
 
 	// Success! Repaired JSON parsed correctly
-	fmt.Printf("[LANGCHAIN SUCCESS] JSON repair successful - parsed response with %d comments\n", len(repairedResult.Comments))
+	successMsg := fmt.Sprintf("JSON repair successful - parsed response with %d comments", len(repairedResult.Comments))
+	if logger != nil {
+		logger.Log("SUCCESS: %s", successMsg)
+	}
+	fmt.Printf("[LANGCHAIN SUCCESS] %s\n", successMsg)
 	return repairedResult, nil
 }
 
