@@ -46,6 +46,32 @@ type EventData struct {
 	ResultSummary *string `json:"resultSummary,omitempty"`
 	CommentCount  *int    `json:"commentCount,omitempty"`
 	ErrorSummary  *string `json:"errorSummary,omitempty"`
+
+	// For "retry" events
+	Attempt     *int    `json:"attempt,omitempty"`
+	Reason      *string `json:"reason,omitempty"`
+	Delay       *string `json:"delay,omitempty"`
+	NextAttempt *string `json:"nextAttempt,omitempty"`
+
+	// For "json_repair" events
+	OriginalSize     *int      `json:"originalSize,omitempty"`
+	RepairedSize     *int      `json:"repairedSize,omitempty"`
+	CommentsLost     *int      `json:"commentsLost,omitempty"`
+	FieldsRecovered  *int      `json:"fieldsRecovered,omitempty"`
+	RepairTime       *string   `json:"repairTime,omitempty"`
+	RepairStrategies *[]string `json:"repairStrategies,omitempty"`
+
+	// For "timeout" events
+	Operation         *string `json:"operation,omitempty"`
+	ConfiguredTimeout *string `json:"configuredTimeout,omitempty"`
+	ActualDuration    *string `json:"actualDuration,omitempty"`
+
+	// For "batch_stats" events
+	TotalRequests   *int    `json:"totalRequests,omitempty"`
+	Successful      *int    `json:"successful,omitempty"`
+	Retries         *int    `json:"retries,omitempty"`
+	JsonRepairs     *int    `json:"jsonRepairs,omitempty"`
+	AvgResponseTime *string `json:"avgResponseTime,omitempty"`
 }
 
 // ReviewEventsRepo handles database operations for review events
@@ -281,4 +307,82 @@ func (r *ReviewEventsRepo) CountEventsByReview(ctx context.Context, reviewID, or
 	}
 
 	return counts, nil
+}
+
+// Helper functions for creating resiliency-specific events
+
+// CreateRetryEvent creates a retry event for a review
+func (r *ReviewEventsRepo) CreateRetryEvent(ctx context.Context, reviewID, orgID int64, batchID *string, attempt int, reason, delay, nextAttempt string) error {
+	data := EventData{
+		Attempt:     &attempt,
+		Reason:      &reason,
+		Delay:       &delay,
+		NextAttempt: &nextAttempt,
+	}
+
+	return r.createTypedEvent(ctx, reviewID, orgID, "retry", "warn", batchID, data)
+}
+
+// CreateJSONRepairEvent creates a JSON repair event for a review
+func (r *ReviewEventsRepo) CreateJSONRepairEvent(ctx context.Context, reviewID, orgID int64, batchID *string,
+	originalSize, repairedSize, commentsLost, fieldsRecovered int, repairTime string, strategies []string) error {
+
+	data := EventData{
+		OriginalSize:     &originalSize,
+		RepairedSize:     &repairedSize,
+		CommentsLost:     &commentsLost,
+		FieldsRecovered:  &fieldsRecovered,
+		RepairTime:       &repairTime,
+		RepairStrategies: &strategies,
+	}
+
+	return r.createTypedEvent(ctx, reviewID, orgID, "json_repair", "info", batchID, data)
+}
+
+// CreateTimeoutEvent creates a timeout event for a review
+func (r *ReviewEventsRepo) CreateTimeoutEvent(ctx context.Context, reviewID, orgID int64, batchID *string,
+	operation, configuredTimeout, actualDuration string) error {
+
+	data := EventData{
+		Operation:         &operation,
+		ConfiguredTimeout: &configuredTimeout,
+		ActualDuration:    &actualDuration,
+	}
+
+	return r.createTypedEvent(ctx, reviewID, orgID, "timeout", "error", batchID, data)
+}
+
+// CreateBatchStatsEvent creates a batch statistics event for a review
+func (r *ReviewEventsRepo) CreateBatchStatsEvent(ctx context.Context, reviewID, orgID int64, batchID string,
+	totalRequests, successful, retries, jsonRepairs int, avgResponseTime string) error {
+
+	data := EventData{
+		TotalRequests:   &totalRequests,
+		Successful:      &successful,
+		Retries:         &retries,
+		JsonRepairs:     &jsonRepairs,
+		AvgResponseTime: &avgResponseTime,
+	}
+
+	return r.createTypedEvent(ctx, reviewID, orgID, "batch_stats", "info", &batchID, data)
+}
+
+// createTypedEvent is a helper function to create events with proper JSON marshaling
+func (r *ReviewEventsRepo) createTypedEvent(ctx context.Context, reviewID, orgID int64, eventType, level string, batchID *string, data EventData) error {
+	dataJSON, err := json.Marshal(data)
+	if err != nil {
+		return fmt.Errorf("failed to marshal event data: %w", err)
+	}
+
+	event := ReviewEvent{
+		ReviewID:  reviewID,
+		OrgID:     orgID,
+		Timestamp: time.Now(),
+		EventType: eventType,
+		Level:     &level,
+		BatchID:   batchID,
+		Data:      dataJSON,
+	}
+
+	return r.InsertEvent(ctx, &event)
 }
