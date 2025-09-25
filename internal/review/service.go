@@ -113,6 +113,7 @@ func (s *Service) ProcessReview(ctx context.Context, request ReviewRequest) *Rev
 	logger := logging.GetCurrentLogger()
 	if logger != nil {
 		logger.LogSection("REVIEW PROCESS ORCHESTRATION")
+		logger.EmitStageStarted("Preparation")
 		logger.Log("Starting review process for URL: %s", request.URL)
 		logger.Log("Review ID: %s", request.ReviewID)
 		logger.Log("Provider: %s", request.Provider.Type)
@@ -143,6 +144,7 @@ func (s *Service) ProcessReview(ctx context.Context, request ReviewRequest) *Rev
 	if err != nil {
 		if logger != nil {
 			logger.LogError("Provider creation failed", err)
+			logger.EmitStageError("Preparation", err)
 		}
 		result.Error = fmt.Errorf("failed to create provider: %w", err)
 		result.Duration = time.Since(start)
@@ -161,6 +163,7 @@ func (s *Service) ProcessReview(ctx context.Context, request ReviewRequest) *Rev
 	if err != nil {
 		if logger != nil {
 			logger.LogError("AI provider creation failed", err)
+			logger.EmitStageError("Preparation", err)
 		}
 		result.Error = fmt.Errorf("failed to create AI provider: %w", err)
 		result.Duration = time.Since(start)
@@ -168,17 +171,20 @@ func (s *Service) ProcessReview(ctx context.Context, request ReviewRequest) *Rev
 	}
 	if logger != nil {
 		logger.Log("✓ %s AI provider created successfully", request.AI.Type)
+		logger.EmitStageCompleted("Preparation", "Providers initialized and configured")
 	}
 
 	// Step 3: Execute review workflow
 	if logger != nil {
 		logger.LogSection("REVIEW WORKFLOW EXECUTION")
+		logger.EmitStageStarted("Analysis")
 		logger.Log("Executing review workflow...")
 	}
 	reviewData, err := s.executeReviewWorkflow(reviewCtx, provider, aiProvider, request.URL)
 	if err != nil {
 		if logger != nil {
 			logger.LogError("Review workflow execution failed", err)
+			logger.EmitStageError("Analysis", err)
 		}
 		result.Error = err
 		result.Duration = time.Since(start)
@@ -188,11 +194,13 @@ func (s *Service) ProcessReview(ctx context.Context, request ReviewRequest) *Rev
 		logger.Log("✓ Review workflow executed successfully")
 		logger.Log("  Generated %d comments", len(reviewData.Result.Comments))
 		logger.Log("  Summary length: %d characters", len(reviewData.Result.Summary))
+		logger.EmitStageStarted("Completion")
 	}
 
 	// Step 4: Post results
 	if logger != nil {
 		logger.LogSection("RESULTS POSTING")
+		logger.EmitStageStarted("Completion")
 		logger.Log("Posting review results...")
 		logger.Log("  MR ID: %s", reviewData.MRDetails.ID)
 		logger.Log("  MR Title: %s", reviewData.MRDetails.Title)
@@ -242,6 +250,7 @@ func (s *Service) ProcessReview(ctx context.Context, request ReviewRequest) *Rev
 	if err != nil {
 		if logger != nil {
 			logger.LogError("Failed to post results", err)
+			logger.EmitStageError("Completion", err)
 		}
 		result.Error = fmt.Errorf("failed to post results: %w", err)
 		result.Duration = time.Since(start)
@@ -249,6 +258,7 @@ func (s *Service) ProcessReview(ctx context.Context, request ReviewRequest) *Rev
 	}
 	if logger != nil {
 		logger.Log("✓ Results posted successfully")
+		logger.EmitStageCompleted("Completion", "Review process completed successfully")
 	}
 
 	// Success
@@ -381,6 +391,7 @@ func (s *Service) executeReviewWorkflow(
 	if err != nil {
 		if logger != nil {
 			logger.LogError("Failed to get code changes", err)
+			logger.EmitStageError("Analysis", err)
 		}
 		return nil, fmt.Errorf("failed to get code changes: %w", err)
 	}
@@ -396,6 +407,9 @@ func (s *Service) executeReviewWorkflow(
 		}
 	}
 	log.Printf("[DEBUG] Retrieved %d changed files", len(changes))
+	if logger != nil {
+		logger.EmitStageCompleted("Analysis", fmt.Sprintf("Retrieved %d changed files from merge request", len(changes)))
+	}
 
 	// Check if there are no changes to review
 	if len(changes) == 0 {
@@ -418,6 +432,7 @@ func (s *Service) executeReviewWorkflow(
 	// Review code using batching, structured output, and retry
 	if logger != nil {
 		logger.LogSection("AI CODE REVIEW")
+		logger.EmitStageStarted("Review")
 		logger.Log("Sending code to AI for review (batching enabled)")
 		logger.Log("  Total files: %d", len(changes))
 	}
@@ -427,6 +442,7 @@ func (s *Service) executeReviewWorkflow(
 	if err != nil {
 		if logger != nil {
 			logger.LogError("AI review failed", err)
+			logger.EmitStageError("Review", err)
 		}
 		return nil, fmt.Errorf("failed to review code (batching): %w", err)
 	}
@@ -435,6 +451,7 @@ func (s *Service) executeReviewWorkflow(
 		logger.Log("  Generated %d comments", len(result.Comments))
 		logger.Log("  Internal comments: %d", len(result.InternalComments))
 		logger.Log("  Summary length: %d characters", len(result.Summary))
+		logger.EmitStageCompleted("Review", fmt.Sprintf("Generated %d comments and summary", len(result.Comments)))
 	}
 	log.Printf("[DEBUG] AI Review (batching) completed successfully with %d comments", len(result.Comments))
 
@@ -466,6 +483,7 @@ func (s *Service) postReviewResults(
 
 	if logger != nil {
 		logger.LogSection("COMMENTS POSTING")
+		logger.EmitStageStarted("Artifact Generation")
 		logger.Log("Posting review results to MR ID: %s", mrID)
 		logger.Log("  Summary length: %d characters", len(result.Summary))
 		logger.Log("  Individual comments: %d", len(result.Comments))
@@ -527,6 +545,7 @@ func (s *Service) postReviewResults(
 		}
 		if logger != nil {
 			logger.Log("✓ All %d individual comments posted successfully", len(result.Comments))
+			logger.EmitStageCompleted("Artifact Generation", fmt.Sprintf("Posted %d comments to merge request", len(result.Comments)))
 		}
 		log.Printf("[DEBUG] Successfully posted all %d comments", len(result.Comments))
 	}

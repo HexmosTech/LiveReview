@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
 import { Button, Icons } from '../../components/UIPrimitives';
+import { ReviewEventsPage } from '../../components/reviews';
 import { 
   getReview, 
   getReviewEvents, 
@@ -20,6 +21,29 @@ import {
 const ReviewDetail: React.FC = () => {
     const { id } = useParams<{ id: string }>();
     const navigate = useNavigate();
+    const reviewId = parseInt(id || '0', 10);
+
+    // Helper functions to map event data to new format
+    const mapEventType = (type: ReviewEventType) => {
+        switch (type) {
+            case 'status': return 'started';
+            case 'log': return 'progress';
+            case 'batch': return 'batch_complete';
+            case 'artifact': return 'completed';
+            case 'completion': return 'completed';
+            default: return 'progress';
+        }
+    };
+
+    const mapEventLevel = (level: ReviewEventLevel) => {
+        switch (level) {
+            case 'error': return 'error';
+            case 'warn': return 'warning';
+            case 'debug': return 'info';
+            case 'info': return 'info';
+            default: return 'info';
+        }
+    };
     const [review, setReview] = useState<Review | null>(null);
     const [events, setEvents] = useState<ReviewEvent[]>([]);
     const [summary, setSummary] = useState<ReviewSummary | null>(null);
@@ -30,8 +54,6 @@ const ReviewDetail: React.FC = () => {
     const [typeFilter, setTypeFilter] = useState<ReviewEventType | ''>('');
     const [lastEventTime, setLastEventTime] = useState<string | null>(null);
     const pollingIntervalRef = useRef<NodeJS.Timeout | null>(null);
-        const timelineRef = useRef<HTMLDivElement | null>(null);
-        const scrollStateRef = useRef({ prevScrollTop: 0, prevScrollHeight: 0, atBottom: true });
 
     // Status colors are imported via getStatusColor from ../../api/reviews
 
@@ -75,13 +97,11 @@ const ReviewDetail: React.FC = () => {
     };
 
     // Fetch review details
-    const fetchReviewDetails = useCallback(async (isPolling = false) => {
+    const fetchReviewDetails = useCallback(async () => {
         if (!id) return;
         try {
-            if (!isPolling) {
-                setLoading(true);
-                setError(null);
-            }
+            setLoading(true);
+            setError(null);
             
             const reviewId = parseInt(id, 10);
             if (isNaN(reviewId)) {
@@ -91,31 +111,15 @@ const ReviewDetail: React.FC = () => {
             // Fetch review info, events, and summary in parallel
             const [reviewData, eventsData, summaryData] = await Promise.all([
                 getReview(reviewId),
-                // Only use the since cursor when we are polling; full refresh otherwise
-                getReviewEvents(reviewId, isPolling ? (lastEventTime || undefined) : undefined),
+                getReviewEvents(reviewId, undefined, 1000), // Get all events
                 getReviewSummary(reviewId)
             ]);
 
             setReview(reviewData);
             setSummary(summaryData);
             
-                        // Handle events update
-                        // Capture scroll state BEFORE updating the list so we can restore after DOM updates
-                        const container = timelineRef.current;
-                        const prevScrollTop = container?.scrollTop ?? 0;
-                        const prevScrollHeight = container?.scrollHeight ?? 0;
-                        const atBottom = container
-                            ? prevScrollHeight - prevScrollTop - (container.clientHeight ?? 0) < 24
-                            : true;
-                        scrollStateRef.current = { prevScrollTop, prevScrollHeight, atBottom };
             const newEvents = (eventsData?.events as ReviewEvent[] | undefined) || [];
-            if (isPolling && lastEventTime) {
-                // Append new events to existing ones
-                setEvents(prev => [...prev, ...newEvents]);
-            } else {
-                // Replace all events on initial/non-poll refresh
-                setEvents(newEvents);
-            }
+            setEvents(newEvents);
             
             // Update last event time for next polling
             if (newEvents.length > 0) {
@@ -125,28 +129,13 @@ const ReviewDetail: React.FC = () => {
 
         } catch (err) {
             console.error('Error fetching review details:', err);
-            if (!isPolling) {
-                setError(err instanceof Error ? err.message : 'Failed to fetch review details');
-            }
+            setError(err instanceof Error ? err.message : 'Failed to fetch review details');
         } finally {
-            if (!isPolling) {
-                setLoading(false);
-            }
+            setLoading(false);
         }
-    }, [id, lastEventTime]);
+    }, [id]);
 
-    // After events update, restore scroll position or stick to bottom if user was at bottom
-    useEffect(() => {
-        const container = timelineRef.current;
-        if (!container) return;
-        const { prevScrollTop, prevScrollHeight, atBottom } = scrollStateRef.current;
-        if (atBottom) {
-            container.scrollTop = container.scrollHeight; // stick to bottom
-        } else {
-            const delta = container.scrollHeight - prevScrollHeight;
-            container.scrollTop = Math.max(0, prevScrollTop + delta);
-        }
-    }, [events]);
+
 
     // Reset event cursor and list when navigating to a different review
     useEffect(() => {
@@ -169,30 +158,9 @@ const ReviewDetail: React.FC = () => {
 
     // Initial load
     useEffect(() => {
-        fetchReviewDetails(false);
+        fetchReviewDetails();
     }, [fetchReviewDetails]);
     
-    // Setup polling for active reviews
-    useEffect(() => {
-        if (pollingIntervalRef.current) {
-            clearInterval(pollingIntervalRef.current);
-            pollingIntervalRef.current = null;
-        }
-        
-        if (pollingEnabled && review && ['created', 'in_progress'].includes(review.status)) {
-            pollingIntervalRef.current = setInterval(() => {
-                fetchReviewDetails(true);
-            }, 10000); // Poll every 10 seconds (reduce load on tunnels)
-        }
-
-        return () => {
-            if (pollingIntervalRef.current) {
-                clearInterval(pollingIntervalRef.current);
-                pollingIntervalRef.current = null;
-            }
-        };
-    }, [pollingEnabled, review?.status, fetchReviewDetails]);
-
     if (loading) {
         return (
             <div className="container mx-auto px-4 py-8">
@@ -224,7 +192,7 @@ const ReviewDetail: React.FC = () => {
                             Back to Reviews
                         </Button>
                         <Button
-                            onClick={() => fetchReviewDetails(false)}
+                            onClick={fetchReviewDetails}
                             variant="primary"
                         >
                             Retry
@@ -273,199 +241,75 @@ const ReviewDetail: React.FC = () => {
                     <span className={`inline-flex items-center px-3 py-1 rounded-full text-sm font-medium text-white ${getStatusColor(review.status)}`}>
                         {review.status.replace('_', ' ').toUpperCase()}
                     </span>
-                    <Button
-                        variant="outline"
-                        onClick={() => setPollingEnabled(!pollingEnabled)}
-                        className={pollingEnabled ? 'border-green-500 text-green-400' : 'border-slate-600 text-slate-300'}
-                    >
-                        {pollingEnabled ? 'Polling On' : 'Polling Off'}
-                    </Button>
+                    {/* Polling control moved to ReviewEventsPage for consistency */}
                 </div>
             </div>
 
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-                {/* Review Info */}
-                <div className="lg:col-span-1">
-                    <div className="bg-slate-800 rounded-lg p-6 border border-slate-700">
-                        <h3 className="text-lg font-semibold text-white mb-4">Review Information</h3>
-                        <div className="space-y-3">
-                            <div>
-                                <span className="text-slate-400 text-sm">Repository:</span>
-                                <div className="text-white font-mono text-sm break-all">{review.repository}</div>
-                            </div>
-                            {review.userEmail && (
-                                <div>
-                                    <span className="text-slate-400 text-sm">User:</span>
-                                    <div className="text-white">{review.userEmail}</div>
-                                </div>
-                            )}
-                            {review.commitHash && (
-                                <div>
-                                    <span className="text-slate-400 text-sm">Commit:</span>
-                                    <div className="text-white font-mono text-sm">{review.commitHash.substring(0, 8)}</div>
-                                </div>
-                            )}
-                            {review.provider && (
-                                <div>
-                                    <span className="text-slate-400 text-sm">Provider:</span>
-                                    <div className="text-white capitalize">{review.provider}</div>
-                                </div>
-                            )}
-                            <div>
-                                <span className="text-slate-400 text-sm">Created:</span>
-                                <div className="text-white">{new Date(review.createdAt).toLocaleString()}</div>
-                            </div>
-                            <div>
-                                <span className="text-slate-400 text-sm">Last Activity:</span>
-                                <div className="text-white">{new Date(review.completedAt || review.startedAt || review.createdAt).toLocaleString()}</div>
-                            </div>
-                        </div>
-
-                                {summary && (
-                            <div className="mt-6 pt-6 border-t border-slate-700">
-                                <h4 className="text-sm font-semibold text-white mb-3">Summary</h4>
-                                <div className="space-y-2">
-                                    <div className="flex justify-between">
-                                        <span className="text-slate-400 text-sm">Total Events:</span>
-                                                <span className="text-white text-sm">{Object.values(summary.eventCounts || {}).reduce((a: number, b: number) => a + b, 0)}</span>
-                                    </div>
-                                    <div className="flex justify-between">
-                                        <span className="text-slate-400 text-sm">Batches:</span>
-                                        <span className="text-white text-sm">{summary.batchCount}</span>
-                                    </div>
-                                </div>
-                            </div>
-                        )}
+            {/* Review Info Panel - Compact */}
+            <div className="bg-slate-800 rounded-lg p-3 border border-slate-700 mb-6">
+                <div className="flex flex-wrap items-center gap-x-6 gap-y-2 text-sm">
+                    <div className="flex items-center gap-2">
+                        <span className="text-slate-400">Repository:</span>
+                        <span className="text-white font-mono text-xs break-all">{review.repository}</span>
                     </div>
-                </div>
-
-                {/* Events Timeline */}
-                <div className="lg:col-span-2">
-                    <div className="bg-slate-800 rounded-lg p-6 border border-slate-700">
-                        <div className="flex items-center justify-between mb-4">
-                            <h3 className="text-lg font-semibold text-white">Event Timeline</h3>
-                            <div className="flex items-center space-x-2">
-                                {/* Event type filter */}
-                                <select
-                                    value={typeFilter}
-                                    onChange={(e) => setTypeFilter(e.target.value as ReviewEventType | '')}
-                                    className="px-3 py-1 bg-slate-700 border border-slate-600 rounded text-sm text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
-                                >
-                                    <option value="">All Types</option>
-                                    {presentTypes.has('status') && <option value="status">Status</option>}
-                                    {presentTypes.has('log') && <option value="log">Logs</option>}
-                                    {presentTypes.has('batch') && <option value="batch">Batches</option>}
-                                    {presentTypes.has('artifact') && <option value="artifact">Artifacts</option>}
-                                    {presentTypes.has('completion') && <option value="completion">Completion</option>}
-                                </select>
-                                
-                                {/* Event level filter */}
-                                <select
-                                    value={levelFilter}
-                                    onChange={(e) => setLevelFilter(e.target.value as ReviewEventLevel | '')}
-                                    className="px-3 py-1 bg-slate-700 border border-slate-600 rounded text-sm text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
-                                >
-                                    <option value="">All Levels</option>
-                                    {presentLevels.has('info') && <option value="info">Info</option>}
-                                    {presentLevels.has('warn') && <option value="warn">Warning</option>}
-                                    {presentLevels.has('error') && <option value="error">Error</option>}
-                                    {presentLevels.has('debug') && <option value="debug">Debug</option>}
-                                </select>
-                            </div>
+                    {review.provider && (
+                        <div className="flex items-center gap-2">
+                            <span className="text-slate-400">Provider:</span>
+                            <span className="text-white capitalize">{review.provider}</span>
                         </div>
-                        
-                        {events.length === 0 ? (
-                            <div className="text-center py-8">
-                                <Icons.Info />
-                                <p className="text-slate-400 mt-2">No events yet</p>
-                                {pollingEnabled && review?.status === 'in_progress' && (
-                                    <p className="text-slate-500 text-sm mt-1">Events will appear here as the review progresses...</p>
-                                )}
-                            </div>
-                        ) : (
-                            <div className="space-y-3 max-h-96 overflow-y-auto" ref={timelineRef}>
-                                {events
-                                    .filter(event => {
-                                        if (typeFilter && event.type !== typeFilter) return false;
-                                        if (levelFilter && event.level !== levelFilter) return false;
-                                        return true;
-                                    })
-                                    .slice()
-                                    .reverse()
-                                    .map((event) => (
-                                        <div key={event.id} className="flex items-start space-x-3 p-3 bg-slate-700/50 rounded-lg hover:bg-slate-700/70 transition-colors">
-                                            <div className="flex-shrink-0 mt-1">
-                                                {getEventIcon(event.type, event.level)}
-                                            </div>
-                                            <div className="flex-grow min-w-0">
-                                                <div className="flex items-center justify-between">
-                                                    <div className="flex items-center space-x-2">
-                                                        <span className="text-white font-medium capitalize">{event.type}</span>
-                                                        {event.batchId && (
-                                                            <span className="text-xs px-2 py-1 rounded bg-blue-600 text-white">
-                                                                {event.batchId}
-                                                            </span>
-                                                        )}
-                                                        {event.level && (
-                                                            <span className={`text-xs px-2 py-1 rounded ${
-                                                                event.level === 'error' ? 'bg-red-600 text-white' :
-                                                                event.level === 'warn' ? 'bg-yellow-600 text-white' :
-                                                                event.level === 'debug' ? 'bg-purple-600 text-white' :
-                                                                'bg-slate-600 text-slate-300'
-                                                            }`}>
-                                                                {event.level.toUpperCase()}
-                                                            </span>
-                                                        )}
-                                                    </div>
-                                                    <div className="flex items-center space-x-2">
-                                                        <span className="text-slate-400 text-xs">
-                                                            {formatRelativeTime(event.time)}
-                                                        </span>
-                                                        <span className="text-slate-500 text-xs">
-                                                            {new Date(event.time).toLocaleTimeString()}
-                                                        </span>
-                                                    </div>
-                                                </div>
-                                                <div className="text-slate-300 text-sm mt-1">
-                                                    {formatEventData(event)}
-                                                </div>
-                                                
-                                                {/* Show artifact previews if available */}
-                                                {event.type === 'artifact' && (event.data.previewHead || event.data.previewTail) && (
-                                                    <div className="mt-2 p-2 bg-slate-800 rounded text-xs">
-                                                        {event.data.previewHead && (
-                                                            <div className="text-slate-400 mb-1">
-                                                                <span className="font-medium">Preview:</span>
-                                                                <pre className="mt-1 text-slate-300 whitespace-pre-wrap">{event.data.previewHead}</pre>
-                                                            </div>
-                                                        )}
-                                                        {event.data.previewTail && event.data.previewHead !== event.data.previewTail && (
-                                                            <div className="text-slate-400">
-                                                                <span className="font-medium">...</span>
-                                                                <pre className="mt-1 text-slate-300 whitespace-pre-wrap">{event.data.previewTail}</pre>
-                                                            </div>
-                                                        )}
-                                                        {event.data.url && (
-                                                            <div className="mt-2">
-                                                                <a 
-                                                                    href={event.data.url} 
-                                                                    target="_blank" 
-                                                                    rel="noopener noreferrer"
-                                                                    className="text-blue-400 hover:text-blue-300 text-xs"
-                                                                >
-                                                                    View Full {event.data.kind || 'Artifact'}
-                                                                </a>
-                                                            </div>
-                                                        )}
-                                                    </div>
-                                                )}
-                                            </div>
-                                        </div>
-                                    ))}
-                            </div>
-                        )}
+                    )}
+                    {review.userEmail && (
+                        <div className="flex items-center gap-2">
+                            <span className="text-slate-400">User:</span>
+                            <span className="text-white">{review.userEmail}</span>
+                        </div>
+                    )}
+                    {review.commitHash && (
+                        <div className="flex items-center gap-2">
+                            <span className="text-slate-400">Commit:</span>
+                            <span className="text-white font-mono text-xs">{review.commitHash.substring(0, 8)}</span>
+                        </div>
+                    )}
+                    <div className="flex items-center gap-2">
+                        <span className="text-slate-400">Created:</span>
+                        <span className="text-white text-xs">{new Date(review.createdAt).toLocaleString()}</span>
                     </div>
+                    <div className="flex items-center gap-2">
+                        <span className="text-slate-400">Last Activity:</span>
+                        <span className="text-white text-xs">{new Date(review.completedAt || review.startedAt || review.createdAt).toLocaleString()}</span>
+                    </div>
+                    {summary && (
+                        <>
+                            <div className="flex items-center gap-2">
+                                <span className="text-slate-400">Events:</span>
+                                <span className="text-white text-xs">{Object.values(summary.eventCounts || {}).reduce((a: number, b: number) => a + b, 0)}</span>
+                            </div>
+                            <div className="flex items-center gap-2">
+                                <span className="text-slate-400">Batches:</span>
+                                <span className="text-white text-xs">{summary.batchCount}</span>
+                            </div>
+                        </>
+                    )}
                 </div>
+            </div>
+
+            {/* Events Timeline - Full Width */}
+            <div>
+                    <ReviewEventsPage
+                        reviewId={reviewId}
+                        initialEvents={events.map(event => ({
+                            id: event.id.toString(),
+                            timestamp: event.time,
+                            eventType: mapEventType(event.type) as 'started' | 'progress' | 'batch_complete' | 'retry' | 'json_repair' | 'timeout' | 'error' | 'completed',
+                            message: formatEventData(event),
+                            details: {
+                                batchId: event.batchId,
+                                ...event.data
+                            },
+                            severity: mapEventLevel(event.level) as 'info' | 'success' | 'warning' | 'error'
+                        }))}
+                        isLive={review?.status === 'in_progress'}
+                    />
             </div>
         </div>
     );

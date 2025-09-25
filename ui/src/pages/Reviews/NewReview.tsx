@@ -99,10 +99,10 @@ const NewReview: React.FC = () => {
       setSuccess(`Review successfully triggered! Review ID: ${response.reviewId}`);
       setUrl('');
       
-      // Navigate to reviews list after a brief delay to see the triggered review
+      // Navigate directly to the new review's detail page
       setTimeout(() => {
-        navigate('/reviews');
-      }, 2000);
+        navigate(`/reviews/${response.reviewId}`);
+      }, 1500);
       
     } catch (err: any) {
       console.error('Error triggering review:', err);

@@ -245,6 +245,39 @@ Legend
 		- Expandable/collapsible filter panel
 	- Verify: [M] Filtering helps users find relevant information quickly
 
+## Phase 6.5 — Enhanced Progress Experience
+
+- [x] Progressive Review Interface
+	- Add: `LiveReview/ui/src/components/reviews/ReviewEventsPage.tsx` ✅
+		- Tabbed interface with "Progress" (default) and "Raw Events" views
+		- Smooth live polling without jarring page refreshes or scroll position loss
+		- Auto-scroll to bottom when user is already at bottom (Raw view only)
+		- Single "Live Updates On/Off" control (defaults to ON)
+	- Add: `LiveReview/ui/src/components/reviews/ReviewProgressView.tsx` ✅
+		- 5-stage review hierarchy: Fetching MR → Building Context → Constructing Batches → Processing Batches → Summary/Posting
+		- Visual progress timeline with expandable stages and substages
+		- Batch-level substages with individual progress tracking and file counts
+		- Clear resiliency event indicators (retries, JSON repairs, timeouts) with resolution status
+		- Improved batch ID extraction (uses details.batchId first, falls back to "general")
+	- Verify: [M] Users get clear sense of progression; resiliency events show system sophistication
+
+## Phase 6.6 — UX Refinements
+
+- [x] Layout & Text Improvements
+	- Restructure: `LiveReview/ui/src/pages/Reviews/ReviewDetail.tsx` ✅
+		- Changed from 2-column to single-column layout with info panel at top
+		- Review information displayed in responsive grid at top of page
+		- Events section now uses full width for better log readability
+	- Enhance: Text wrapping and readability ✅
+		- Added `break-words` class to event messages and error messages
+		- Prevented timestamp squeezing with proper flex layout
+		- Improved responsive design for review information grid
+	- Simplify: Remove confusing sub-tabs ✅ 
+		- Removed "All Events" vs "Progress" filtering from Raw Events view
+		- Raw Events now shows all logs without confusing subdivisions
+		- Streamlined event display with clear visual hierarchy
+	- Verify: [M] Layout supports wide logs; single clear interface without confusion
+
 ## Phase 7 — QA, Ops, and Rollout
 
 - [x] System Integration Testing
