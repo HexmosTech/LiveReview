@@ -137,3 +137,143 @@ func TestReviewEventsRepo(t *testing.T) {
 		_, _ = db.ExecContext(ctx, "DELETE FROM public.reviews WHERE id = $1", reviewID)
 	})
 }
+
+func TestResiliencyEventDataMarshaling(t *testing.T) {
+	// Test data marshaling for retry event
+	t.Run("RetryEvent", func(t *testing.T) {
+		data := EventData{
+			Attempt:     intPtr(2),
+			Reason:      strPtr("timeout"),
+			Delay:       strPtr("2.1s"),
+			NextAttempt: strPtr("2025-09-24T11:46:00Z"),
+		}
+
+		dataJSON, err := json.Marshal(data)
+		if err != nil {
+			t.Fatalf("Failed to marshal retry event data: %v", err)
+		}
+
+		// Verify JSON structure
+		var parsed map[string]interface{}
+		if err := json.Unmarshal(dataJSON, &parsed); err != nil {
+			t.Fatalf("Failed to unmarshal retry event data: %v", err)
+		}
+
+		if parsed["attempt"] != float64(2) {
+			t.Errorf("Expected attempt=2, got %v", parsed["attempt"])
+		}
+
+		if parsed["reason"] != "timeout" {
+			t.Errorf("Expected reason='timeout', got %v", parsed["reason"])
+		}
+	})
+
+	// Test data marshaling for JSON repair event
+	t.Run("JSONRepairEvent", func(t *testing.T) {
+		data := EventData{
+			OriginalSize:     intPtr(1024),
+			RepairedSize:     intPtr(987),
+			CommentsLost:     intPtr(3),
+			FieldsRecovered:  intPtr(1),
+			RepairTime:       strPtr("45ms"),
+			RepairStrategies: &[]string{"trailing_commas", "unescaped_quotes"},
+		}
+
+		dataJSON, err := json.Marshal(data)
+		if err != nil {
+			t.Fatalf("Failed to marshal JSON repair event data: %v", err)
+		}
+
+		// Verify JSON structure
+		var parsed map[string]interface{}
+		if err := json.Unmarshal(dataJSON, &parsed); err != nil {
+			t.Fatalf("Failed to unmarshal JSON repair event data: %v", err)
+		}
+
+		if parsed["originalSize"] != float64(1024) {
+			t.Errorf("Expected originalSize=1024, got %v", parsed["originalSize"])
+		}
+
+		if parsed["commentsLost"] != float64(3) {
+			t.Errorf("Expected commentsLost=3, got %v", parsed["commentsLost"])
+		}
+
+		strategies, ok := parsed["repairStrategies"].([]interface{})
+		if !ok {
+			t.Errorf("Expected repairStrategies to be array, got %T", parsed["repairStrategies"])
+		} else if len(strategies) != 2 {
+			t.Errorf("Expected 2 repair strategies, got %d", len(strategies))
+		}
+	})
+
+	// Test data marshaling for timeout event
+	t.Run("TimeoutEvent", func(t *testing.T) {
+		data := EventData{
+			Operation:         strPtr("llm_request"),
+			ConfiguredTimeout: strPtr("30s"),
+			ActualDuration:    strPtr("31.2s"),
+		}
+
+		dataJSON, err := json.Marshal(data)
+		if err != nil {
+			t.Fatalf("Failed to marshal timeout event data: %v", err)
+		}
+
+		// Verify JSON structure
+		var parsed map[string]interface{}
+		if err := json.Unmarshal(dataJSON, &parsed); err != nil {
+			t.Fatalf("Failed to unmarshal timeout event data: %v", err)
+		}
+
+		if parsed["operation"] != "llm_request" {
+			t.Errorf("Expected operation='llm_request', got %v", parsed["operation"])
+		}
+
+		if parsed["configuredTimeout"] != "30s" {
+			t.Errorf("Expected configuredTimeout='30s', got %v", parsed["configuredTimeout"])
+		}
+	})
+
+	// Test data marshaling for batch stats event
+	t.Run("BatchStatsEvent", func(t *testing.T) {
+		data := EventData{
+			TotalRequests:   intPtr(10),
+			Successful:      intPtr(7),
+			Retries:         intPtr(8),
+			JsonRepairs:     intPtr(2),
+			AvgResponseTime: strPtr("2.4s"),
+		}
+
+		dataJSON, err := json.Marshal(data)
+		if err != nil {
+			t.Fatalf("Failed to marshal batch stats event data: %v", err)
+		}
+
+		// Verify JSON structure
+		var parsed map[string]interface{}
+		if err := json.Unmarshal(dataJSON, &parsed); err != nil {
+			t.Fatalf("Failed to unmarshal batch stats event data: %v", err)
+		}
+
+		if parsed["totalRequests"] != float64(10) {
+			t.Errorf("Expected totalRequests=10, got %v", parsed["totalRequests"])
+		}
+
+		if parsed["successful"] != float64(7) {
+			t.Errorf("Expected successful=7, got %v", parsed["successful"])
+		}
+
+		if parsed["retries"] != float64(8) {
+			t.Errorf("Expected retries=8, got %v", parsed["retries"])
+		}
+	})
+}
+
+// Helper functions for tests
+func strPtr(s string) *string {
+	return &s
+}
+
+func intPtr(i int) *int {
+	return &i
+}

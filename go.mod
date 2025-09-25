@@ -1,6 +1,6 @@
 module github.com/livereview
 
-go 1.24
+go 1.24.7
 
 require (
 	github.com/knadh/koanf/parsers/toml v0.1.0
@@ -23,7 +23,7 @@ require (
 	github.com/riverqueue/river v0.23.1
 	github.com/riverqueue/river/riverdriver/riverpgxv5 v0.23.1
 	github.com/rs/zerolog v1.34.0
-	github.com/stretchr/testify v1.10.0
+	github.com/stretchr/testify v1.11.1
 	github.com/tmc/langchaingo v0.1.14-pre.4
 	golang.org/x/crypto v0.41.0
 )
@@ -58,6 +58,7 @@ require (
 	github.com/jackc/pgpassfile v1.0.0 // indirect
 	github.com/jackc/pgservicefile v0.0.0-20240606120523-5a60cdf6a761 // indirect
 	github.com/jackc/puddle/v2 v2.2.2 // indirect
+	github.com/kaptinlin/jsonrepair v0.2.3 // indirect
 	github.com/knadh/koanf/maps v0.1.1 // indirect
 	github.com/labstack/gommon v0.4.2 // indirect
 	github.com/mattn/go-colorable v0.1.14 // indirect
