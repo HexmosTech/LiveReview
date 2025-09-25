@@ -17,6 +17,54 @@ const Reviews: React.FC = () => {
     const navigate = useNavigate();
     const [searchParams, setSearchParams] = useSearchParams();
     
+    // Helper function to extract author from PR/MR URL
+    const extractAuthorFromUrl = (url: string): string | null => {
+        try {
+            const urlObj = new URL(url);
+            const pathParts = urlObj.pathname.split('/').filter(Boolean);
+            
+            // GitHub: /owner/repo/pull/123 -> owner
+            // GitLab: /owner/repo/-/merge_requests/123 -> owner  
+            // Bitbucket: /workspace/repo/pull-requests/123 -> workspace
+            if (pathParts.length >= 2) {
+                return pathParts[0]; // First part is usually the owner/workspace
+            }
+        } catch (e) {
+            console.warn('Failed to parse URL for author:', url);
+        }
+        return null;
+    };
+    
+    // Helper function to extract MR/PR info from URL
+    const extractMRInfo = (url: string): string => {
+        try {
+            const urlObj = new URL(url);
+            const pathParts = urlObj.pathname.split('/').filter(Boolean);
+            
+            // GitHub: /owner/repo/pull/123
+            if (pathParts.includes('pull') && pathParts.length >= 4) {
+                const prNumber = pathParts[pathParts.indexOf('pull') + 1];
+                return `PR #${prNumber}`;
+            }
+            
+            // GitLab: /owner/repo/-/merge_requests/123
+            if (pathParts.includes('merge_requests') && pathParts.length >= 4) {
+                const mrNumber = pathParts[pathParts.indexOf('merge_requests') + 1];
+                return `MR !${mrNumber}`;
+            }
+            
+            // Bitbucket: /workspace/repo/pull-requests/123
+            if (pathParts.includes('pull-requests') && pathParts.length >= 4) {
+                const prNumber = pathParts[pathParts.indexOf('pull-requests') + 1];
+                return `PR #${prNumber}`;
+            }
+            
+            return 'MR/PR';
+        } catch (e) {
+            return 'MR/PR';
+        }
+    };
+    
     const [reviews, setReviews] = useState<Review[]>([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
@@ -345,6 +393,11 @@ const Reviews: React.FC = () => {
                                                 {review.branch && (
                                                     <div className="text-slate-500 text-xs mt-1">{review.branch}</div>
                                                 )}
+                                                {review.prMrUrl && (
+                                                    <div className="text-slate-500 text-xs mt-1">
+                                                        {extractMRInfo(review.prMrUrl)}
+                                                    </div>
+                                                )}
                                             </div>
                                         </td>
                                         <td className="px-6 py-4">
@@ -353,7 +406,10 @@ const Reviews: React.FC = () => {
                                             </span>
                                         </td>
                                         <td className="px-6 py-4 text-slate-300">
-                                            {review.userEmail || review.provider || 'Unknown'}
+                                            {review.userEmail || 
+                                             (review.prMrUrl ? extractAuthorFromUrl(review.prMrUrl) : null) || 
+                                             review.provider || 
+                                             'System'}
                                         </td>
                                         <td className="px-6 py-4 text-slate-300">
                                             {formatRelativeTime(review.completedAt || review.startedAt || review.createdAt)}

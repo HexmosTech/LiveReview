@@ -32,17 +32,7 @@ interface ReviewEvent {
 }
 
 export default function ReviewTimeline({ reviewId, events, isLive = false, className }: ReviewTimelineProps) {
-  const [filteredEvents, setFilteredEvents] = useState<ReviewEvent[]>(events);
-  const [filterType, setFilterType] = useState<string>('all');
   const [isAutoScrollEnabled, setIsAutoScrollEnabled] = useState(true);
-
-  useEffect(() => {
-    if (filterType === 'all') {
-      setFilteredEvents(events);
-    } else {
-      setFilteredEvents(events.filter(event => event.eventType === filterType));
-    }
-  }, [events, filterType]);
 
   useEffect(() => {
     if (isLive && isAutoScrollEnabled && events.length > 0) {
@@ -115,13 +105,7 @@ export default function ReviewTimeline({ reviewId, events, isLive = false, class
     return eventTime.toLocaleDateString();
   };
 
-  const eventTypes = [
-    { value: 'all', label: 'All Events', count: events.length },
-    { value: 'progress', label: 'Progress', count: events.filter(e => e.eventType === 'progress').length },
-    { value: 'retry', label: 'Retries', count: events.filter(e => e.eventType === 'retry').length },
-    { value: 'json_repair', label: 'JSON Repairs', count: events.filter(e => e.eventType === 'json_repair').length },
-    { value: 'error', label: 'Errors', count: events.filter(e => e.eventType === 'error').length },
-  ].filter(type => type.value === 'all' || type.count > 0);
+
 
   return (
     <div className={`space-y-4 ${className}`}>
@@ -130,7 +114,7 @@ export default function ReviewTimeline({ reviewId, events, isLive = false, class
         <div>
           <h3 className="text-lg font-semibold text-white">Review Timeline</h3>
           <p className="text-sm text-slate-400">
-            {isLive ? 'Live updates enabled' : `${filteredEvents.length} events`}
+            {isLive ? 'Live updates enabled' : `${events.length} events`}
           </p>
         </div>
         
@@ -150,30 +134,14 @@ export default function ReviewTimeline({ reviewId, events, isLive = false, class
         </div>
       </div>
 
-      {/* Event type filters */}
-      <div className="flex flex-wrap gap-2">
-        {eventTypes.map(type => (
-          <button
-            key={type.value}
-            onClick={() => setFilterType(type.value)}
-            className={`px-3 py-1 text-sm rounded-full border transition-colors ${
-              filterType === type.value
-                ? 'bg-blue-600 text-white border-blue-600'
-                : 'bg-transparent text-slate-300 border-slate-600 hover:border-slate-500 hover:text-white'
-            }`}
-          >
-            {type.label} {type.count > 0 && `(${type.count})`}
-          </button>
-        ))}
-      </div>
+
 
       {/* Timeline */}
       <Card className="p-0 overflow-hidden">
         <div 
           id={`timeline-${reviewId}`}
-          className="max-h-96 overflow-y-auto scrollbar-thin scrollbar-thumb-slate-600 scrollbar-track-slate-800"
         >
-          {filteredEvents.length === 0 ? (
+          {events.length === 0 ? (
             <div className="p-8 text-center text-slate-400">
               <Icons.EmptyState />
               <p className="mt-2">No events to display</p>
@@ -183,7 +151,7 @@ export default function ReviewTimeline({ reviewId, events, isLive = false, class
               {/* Timeline line */}
               <div className="absolute left-8 top-0 bottom-0 w-0.5 bg-slate-700"></div>
               
-              {filteredEvents.map((event, index) => (
+              {events.map((event, index) => (
                 <div key={event.id} className="relative flex items-start gap-4 p-4 hover:bg-slate-800/30 transition-colors">
                   {/* Timeline dot */}
                   <div className={`
@@ -197,8 +165,8 @@ export default function ReviewTimeline({ reviewId, events, isLive = false, class
                   {/* Event content */}
                   <div className="flex-1 min-w-0">
                     <div className="flex items-start justify-between gap-2 mb-1">
-                      <div className="flex items-center gap-2">
-                        <span className="text-sm font-medium text-white">
+                      <div className="flex items-center gap-2 min-w-0 flex-1">
+                        <span className="text-sm font-medium text-white break-words">
                           {event.message}
                         </span>
                         {event.details?.batchId && (
@@ -249,7 +217,7 @@ export default function ReviewTimeline({ reviewId, events, isLive = false, class
                         )}
                         
                         {event.details.errorMessage && (
-                          <div className="bg-red-900/20 border border-red-700/30 p-2 rounded text-xs text-red-300">
+                          <div className="bg-red-900/20 border border-red-700/30 p-2 rounded text-xs text-red-300 break-words">
                             {event.details.errorMessage}
                           </div>
                         )}

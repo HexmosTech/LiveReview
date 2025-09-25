@@ -322,7 +322,7 @@ export default function EventFilters({
                 <label className="block text-sm font-medium text-slate-300 mb-3">
                   Batches ({availableBatches.length} available)
                 </label>
-                <div className="max-h-32 overflow-y-auto">
+                <div>
                   <div className="grid grid-cols-3 md:grid-cols-6 gap-2">
                     {availableBatches.map(batchId => (
                       <button

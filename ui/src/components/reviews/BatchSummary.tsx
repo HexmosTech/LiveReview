@@ -232,7 +232,7 @@ export default function BatchSummary({ batches, className }: BatchSummaryProps) 
                         {/* File list */}
                         <div className="p-4">
                           <h4 className="text-sm font-medium text-slate-300 mb-3">Files ({batch.files.length})</h4>
-                          <div className="space-y-2 max-h-48 overflow-y-auto">
+                          <div className="space-y-2">
                             {batch.files.map((file, fileIndex) => (
                               <div 
                                 key={fileIndex}

@@ -732,7 +732,7 @@ func (s *Server) getReviews(c echo.Context) error {
 
 	// Get total count
 	var total int
-	err := s.db.QueryRow(countQuery, args[:len(args)]...).Scan(&total)
+	err := s.db.QueryRow(countQuery, args...).Scan(&total)
 	if err != nil {
 		return echo.NewHTTPError(http.StatusInternalServerError, "Failed to count reviews")
 	}

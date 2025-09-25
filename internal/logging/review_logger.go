@@ -106,6 +106,43 @@ func (r *ReviewLogger) SetEventSink(sink EventSink) {
 	}
 }
 
+// Stage milestone events for 5-stage progression tracking
+// EmitStageStarted emits an event when a review stage begins
+func (r *ReviewLogger) EmitStageStarted(stageName string) {
+	if r == nil || r.eventSink == nil {
+		return
+	}
+
+	ctx := context.Background()
+	message := fmt.Sprintf("Stage started: %s", stageName)
+	r.Log("📋 %s", message)
+	_ = r.eventSink.EmitLogEvent(ctx, r.reviewIDInt, r.orgID, "info", message, "")
+}
+
+// EmitStageCompleted emits an event when a review stage completes successfully
+func (r *ReviewLogger) EmitStageCompleted(stageName string, details string) {
+	if r == nil || r.eventSink == nil {
+		return
+	}
+
+	ctx := context.Background()
+	message := fmt.Sprintf("Stage completed successfully: %s - %s", stageName, details)
+	r.Log("✅ %s", message)
+	_ = r.eventSink.EmitLogEvent(ctx, r.reviewIDInt, r.orgID, "success", message, "")
+}
+
+// EmitStageError emits an event when a review stage encounters an error
+func (r *ReviewLogger) EmitStageError(stageName string, err error) {
+	if r == nil || r.eventSink == nil {
+		return
+	}
+
+	ctx := context.Background()
+	message := fmt.Sprintf("Stage error: %s - %v", stageName, err)
+	r.Log("❌ %s", message)
+	_ = r.eventSink.EmitLogEvent(ctx, r.reviewIDInt, r.orgID, "error", message, "")
+}
+
 // Log writes a message to the review log
 func (r *ReviewLogger) Log(format string, args ...interface{}) {
 	if r == nil {
@@ -142,9 +179,9 @@ func (r *ReviewLogger) LogSection(title string) {
 	}
 
 	separator := repeatString("=", 80)
-	r.Log(separator)
+	r.Log("%s", separator)
 	r.Log("= %s", title)
-	r.Log(separator)
+	r.Log("%s", separator)
 }
 
 // LogDiff logs diff information
