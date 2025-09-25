@@ -882,7 +882,106 @@ func (s *Server) getReviewByID(c echo.Context) error {
 		}
 	}
 
+	if review.Provider == nil || strings.TrimSpace(*review.Provider) == "" || strings.EqualFold(*review.Provider, "unknown") {
+		if provider, err := s.lookupProviderFromEvents(c.Request().Context(), review.ID, review.OrgID); err == nil && provider != "" {
+			providerCopy := provider
+			review.Provider = &providerCopy
+		} else if err != nil {
+			log.Printf("Failed to resolve provider for review %d: %v", review.ID, err)
+		}
+	}
+
 	return c.JSON(http.StatusOK, review)
+}
+
+func (s *Server) lookupProviderFromEvents(ctx context.Context, reviewID, orgID int64) (string, error) {
+	const query = `
+		SELECT data->>'message'
+		FROM public.review_events
+		WHERE review_id = $1
+		  AND org_id = $2
+		  AND data->>'message' ILIKE '%provider%'
+		ORDER BY ts DESC
+		LIMIT 50
+	`
+
+	rows, err := s.db.QueryContext(ctx, query, reviewID, orgID)
+	if err != nil {
+		return "", fmt.Errorf("failed to query provider events: %w", err)
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var message sql.NullString
+		if err := rows.Scan(&message); err != nil {
+			return "", fmt.Errorf("failed to scan provider message: %w", err)
+		}
+		if !message.Valid {
+			continue
+		}
+		if provider := extractProviderFromMessage(message.String); provider != "" {
+			return provider, nil
+		}
+	}
+
+	if err := rows.Err(); err != nil {
+		return "", fmt.Errorf("error iterating provider events: %w", err)
+	}
+
+	return "", nil
+}
+
+func extractProviderFromMessage(message string) string {
+	text := strings.TrimSpace(message)
+	lower := strings.ToLower(text)
+
+	if strings.Contains(lower, "ai provider") {
+		return ""
+	}
+
+	patterns := []string{"provider type:", "provider:", "provider=", "provider is"}
+	for _, pattern := range patterns {
+		if idx := strings.Index(lower, pattern); idx >= 0 {
+			value := strings.TrimSpace(text[idx+len(pattern):])
+			value = strings.Trim(value, " .,:;")
+			if i := strings.IndexAny(value, ",;|\n"); i >= 0 {
+				value = value[:i]
+			}
+			if i := strings.Index(value, " "); i >= 0 {
+				value = value[:i]
+			}
+			return normalizeProviderValue(value)
+		}
+	}
+
+	switch {
+	case strings.Contains(lower, "gitlab"):
+		return "gitlab"
+	case strings.Contains(lower, "github"):
+		return "github"
+	case strings.Contains(lower, "bitbucket"):
+		return "bitbucket"
+	default:
+		return ""
+	}
+}
+
+func normalizeProviderValue(value string) string {
+	v := strings.TrimSpace(value)
+	if v == "" {
+		return ""
+	}
+	lower := strings.ToLower(v)
+	switch {
+	case strings.Contains(lower, "gitlab"):
+		return "gitlab"
+	case strings.Contains(lower, "github"):
+		return "github"
+	case strings.Contains(lower, "bitbucket"):
+		return "bitbucket"
+	default:
+		return v
+	}
 }
 
 // getVersion returns version information about the LiveReview API

@@ -224,17 +224,15 @@ func (s *PollingEventService) GetReviewSummary(ctx context.Context, reviewID, or
 		return nil, fmt.Errorf("failed to get event counts: %w", err)
 	}
 
-	// Get recent batch events to show progress
-	batches, err := s.GetEventsByType(ctx, reviewID, orgID, "batch", 10)
+	batchCount, err := s.repo.CountDistinctBatchIDs(ctx, reviewID, orgID)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get batch events: %w", err)
+		return nil, fmt.Errorf("failed to count batch IDs: %w", err)
 	}
-
 	summary := &ReviewSummary{
 		ReviewID:     reviewID,
 		LastActivity: time.Now(), // Will be updated with actual latest event
 		EventCounts:  counts,
-		BatchCount:   len(batches),
+		BatchCount:   batchCount,
 	}
 
 	// Parse latest status if available
