@@ -881,9 +881,9 @@ func (p *LangchainProvider) reviewCodeBatchFormatted(ctx context.Context, diffs 
 		logger.LogResponse(batchId, response)
 	}
 
-	// Parse the response
-	fmt.Printf("[LANGCHAIN PARSE] Starting to parse response for batch %s...\n", batchId)
-	result, err := p.parseResponse(response, diffs)
+	// Parse the response with enhanced JSON repair
+	fmt.Printf("[LANGCHAIN PARSE] Starting to parse response for batch %s with JSON repair...\n", batchId)
+	result, err := p.parseResponseWithRepair(response, diffs, 0, 0, batchId) // TODO: Pass actual reviewID and orgID
 	if err != nil {
 		if logger != nil {
 			logger.LogError(fmt.Sprintf("JSON parsing batch %s", batchId), err)
