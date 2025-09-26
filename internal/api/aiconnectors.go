@@ -43,7 +43,8 @@ func (s *Server) ValidateAIConnectorKey(c echo.Context) error {
 		})
 	}
 
-	if req.APIKey == "" {
+	// API key is optional for Ollama, required for other providers
+	if req.APIKey == "" && req.Provider != "ollama" {
 		return c.JSON(http.StatusBadRequest, AIConnectorKeyValidationResponse{
 			Valid:   false,
 			Message: "API key is required",
@@ -131,7 +132,8 @@ func (s *Server) CreateAIConnector(c echo.Context) error {
 		})
 	}
 
-	if req.APIKey == "" {
+	// API key is optional for Ollama, required for other providers
+	if req.APIKey == "" && req.ProviderName != "ollama" {
 		return c.JSON(http.StatusBadRequest, map[string]string{
 			"error": "API key is required",
 		})
@@ -259,7 +261,8 @@ func (s *Server) UpdateAIConnector(c echo.Context) error {
 		})
 	}
 
-	if req.APIKey == "" {
+	// API key is optional for Ollama, required for other providers
+	if req.APIKey == "" && req.ProviderName != "ollama" {
 		return c.JSON(http.StatusBadRequest, map[string]string{
 			"error": "API key is required",
 		})
