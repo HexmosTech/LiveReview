@@ -30,7 +30,7 @@ type RepositoryAccessResponse struct {
 	ConnectorID        int                 `json:"connector_id"`
 	Provider           string              `json:"provider"`
 	BaseURL            string              `json:"base_url"`
-	Projects           []string            `json:"projects"` // Keep for backward compatibility
+	Projects           []string            `json:"projects"` // Keep for backward compatibility, can be null
 	ProjectsWithStatus []ProjectWithStatus `json:"projects_with_status"`
 	ProjectCount       int                 `json:"project_count"`
 	Error              string              `json:"error,omitempty"`
@@ -90,8 +90,8 @@ func (s *Server) fetchAndCacheRepositoryData(connectorID int, forceRefresh bool,
 		ConnectorID:        connectorID,
 		Provider:           provider,
 		BaseURL:            providerURL,
-		Projects:           []string{},
-		ProjectsWithStatus: []ProjectWithStatus{},
+		Projects:           []string{},            // Initialize as empty array
+		ProjectsWithStatus: []ProjectWithStatus{}, // Initialize as empty array
 		ProjectCount:       0,
 		UpdatedAt:          time.Now(),
 	}
