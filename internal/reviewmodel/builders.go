@@ -12,10 +12,10 @@ import (
 // This allows BuildExportCommentTree to enrich nodes without changing the CLI flow/signature.
 var prevIndexForComments map[string]string
 
-// BuildTimeline merges commits and discussions into a single chronological sequence.
+// BuildTimeline merges commits, discussions, and standalone notes into a single chronological sequence.
 // Inputs are raw GitLab API structs; output is provider-agnostic TimelineItem slice.
-func BuildTimeline(commits []gl.GitLabCommit, discussions []gl.GitLabDiscussion) []TimelineItem {
-	items := make([]TimelineItem, 0, len(commits)+len(discussions)*2)
+func BuildTimeline(commits []gl.GitLabCommit, discussions []gl.GitLabDiscussion, standaloneNotes []gl.GitLabNote) []TimelineItem {
+	items := make([]TimelineItem, 0, len(commits)+len(discussions)*2+len(standaloneNotes))
 
 	// Map commits
 	for _, c := range commits {
@@ -69,6 +69,36 @@ func BuildTimeline(commits []gl.GitLabCommit, discussions []gl.GitLabDiscussion)
 		}
 	}
 
+	// Map standalone notes (general MR comments not part of discussions)
+	for _, n := range standaloneNotes {
+		t := parseTimeOrZero(n.CreatedAt, n.UpdatedAt)
+		// Optional file context
+		var fp string
+		var oldL, newL int
+		if n.Position != nil {
+			fp = firstNonEmpty(n.Position.NewPath, n.Position.OldPath)
+			oldL = n.Position.OldLine
+			newL = n.Position.NewLine
+		}
+		items = append(items, TimelineItem{
+			Kind:      "comment",
+			ID:        toID(n.ID),
+			CreatedAt: t,
+			Author:    AuthorInfo{ID: n.Author.ID, Username: n.Author.Username, Name: n.Author.Name},
+			Comment: &TimelineComment{
+				NoteID:       toID(n.ID),
+				Discussion:   "", // Standalone notes don't belong to discussions
+				Body:         n.Body,
+				IsSystem:     n.System,
+				IsResolvable: n.Resolvable,
+				Resolved:     n.Resolved,
+				FilePath:     fp,
+				LineOld:      oldL,
+				LineNew:      newL,
+			},
+		})
+	}
+
 	sort.Slice(items, func(i, j int) bool { return items[i].CreatedAt.Before(items[j].CreatedAt) })
 	return items
 }
@@ -90,10 +120,11 @@ func BuildPrevCommitIndex(items []TimelineItem) map[string]string {
 	return prev
 }
 
-// BuildCommentTree constructs a nested thread tree from discussions/notes.
+// BuildCommentTree constructs a nested thread tree from discussions and standalone notes.
 // GitLab discussions provide ordered notes; we create a root per discussion and chain replies.
-func BuildCommentTree(discussions []gl.GitLabDiscussion) CommentTree {
-	roots := make([]*CommentNode, 0, len(discussions))
+// Standalone notes are added as individual root nodes.
+func BuildCommentTree(discussions []gl.GitLabDiscussion, standaloneNotes []gl.GitLabNote) CommentTree {
+	roots := make([]*CommentNode, 0, len(discussions)+len(standaloneNotes))
 	for _, d := range discussions {
 		var root *CommentNode
 		var last *CommentNode
@@ -129,6 +160,30 @@ func BuildCommentTree(discussions []gl.GitLabDiscussion) CommentTree {
 			roots = append(roots, root)
 		}
 	}
+
+	// Add standalone notes as individual root nodes
+	for _, n := range standaloneNotes {
+		t := parseTimeOrZero(n.CreatedAt, n.UpdatedAt)
+		var fp string
+		var oldL, newL int
+		if n.Position != nil {
+			fp = firstNonEmpty(n.Position.NewPath, n.Position.OldPath)
+			oldL = n.Position.OldLine
+			newL = n.Position.NewLine
+		}
+		node := &CommentNode{
+			ID:           toID(n.ID),
+			DiscussionID: "", // Standalone notes don't belong to discussions
+			Author:       AuthorInfo{ID: n.Author.ID, Username: n.Author.Username, Name: n.Author.Name},
+			Body:         n.Body,
+			CreatedAt:    t,
+			FilePath:     fp,
+			LineOld:      oldL,
+			LineNew:      newL,
+		}
+		roots = append(roots, node)
+	}
+
 	return CommentTree{Roots: roots}
 }
 

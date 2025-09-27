@@ -317,6 +317,40 @@ func (c *GitLabHTTPClient) GetMergeRequestDiscussions(projectID string, mrIID in
 	return discussions, nil
 }
 
+// GetMergeRequestNotes lists all notes (including standalone comments) for a merge request
+func (c *GitLabHTTPClient) GetMergeRequestNotes(projectID string, mrIID int) ([]GitLabNote, error) {
+	requestURL := fmt.Sprintf("%s/projects/%s/merge_requests/%d/notes",
+		c.baseURL, url.PathEscape(projectID), mrIID)
+
+	req, err := http.NewRequest("GET", requestURL, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create request: %w", err)
+	}
+
+	if strings.HasPrefix(c.token, "glpat-") {
+		req.Header.Add("PRIVATE-TOKEN", c.token)
+	} else {
+		req.Header.Add("Authorization", "Bearer "+c.token)
+	}
+
+	resp, err := c.client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("failed to execute request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("API request failed with status %d: %s", resp.StatusCode, string(body))
+	}
+
+	var notes []GitLabNote
+	if err := json.NewDecoder(resp.Body).Decode(&notes); err != nil {
+		return nil, fmt.Errorf("failed to decode response: %w", err)
+	}
+	return notes, nil
+}
+
 // ListMergeRequests lists merge requests for a project
 func (c *GitLabHTTPClient) ListMergeRequests(projectID string) ([]GitLabMergeRequest, error) {
 	// Create the correct URL with plural 'merge_requests'
