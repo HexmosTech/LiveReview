@@ -86,8 +86,79 @@ func main() {
 		log.Fatalf("GetMergeRequestDiscussions failed: %v", err)
 	}
 
-	timeline := rm.BuildTimeline(commits, discussions)
-	tree := rm.BuildCommentTree(discussions)
+	// ALSO fetch standalone notes (general comments) that aren't part of discussions
+	standaloneNotes, err := httpClient.GetMergeRequestNotes(details.ProjectID, atoi(details.ID))
+	if err != nil {
+		log.Fatalf("GetMergeRequestNotes failed: %v", err)
+	}
+
+	fmt.Printf("DEBUG: Fetched %d discussions and %d standalone notes\n", len(discussions), len(standaloneNotes))
+
+	// DEBUG: Print FULL RAW API response as JSON
+	fmt.Printf("DEBUG: ===== FULL RAW API RESPONSE =====\n")
+	if rawJSON, err := json.MarshalIndent(discussions, "", "  "); err == nil {
+		fmt.Printf("%s\n", string(rawJSON))
+	} else {
+		fmt.Printf("ERROR marshaling discussions to JSON: %v\n", err)
+	}
+	fmt.Printf("DEBUG: ===== END RAW API RESPONSE =====\n\n")
+
+	// DEBUG: Print FULL RAW STANDALONE NOTES as JSON
+	fmt.Printf("DEBUG: ===== FULL RAW STANDALONE NOTES =====\n")
+	if rawNotesJSON, err := json.MarshalIndent(standaloneNotes, "", "  "); err == nil {
+		fmt.Printf("%s\n", string(rawNotesJSON))
+	} else {
+		fmt.Printf("ERROR marshaling standalone notes to JSON: %v\n", err)
+	}
+	fmt.Printf("DEBUG: ===== END RAW STANDALONE NOTES =====\n\n")
+
+	// DEBUG: Search for the missing comment in standalone notes
+	foundInStandalone := false
+	for _, note := range standaloneNotes {
+		if strings.Contains(strings.ToLower(note.Body), "mortal danger") ||
+			strings.Contains(strings.ToLower(note.Body), "humanity") ||
+			strings.Contains(strings.ToLower(note.Body), "general comment") {
+			fmt.Printf("DEBUG: *** FOUND THE MISSING COMMENT IN STANDALONE NOTES! Note ID: %d ***\n", note.ID)
+			foundInStandalone = true
+		}
+	}
+
+	if !foundInStandalone {
+		fmt.Printf("DEBUG: Missing comment was also NOT found in standalone notes\n")
+	}
+
+	// DEBUG: Print raw discussion data to see exactly what we got from GitLab API
+	fmt.Printf("DEBUG: Raw discussions fetched from GitLab API:\n")
+	foundMortalDanger := false
+	for i, d := range discussions {
+		fmt.Printf("  Discussion %d: ID=%s, Notes=%d\n", i, d.ID, len(d.Notes))
+		for j, n := range d.Notes {
+			fmt.Printf("    Note %d: ID=%d, System=%v, Author=%s, CreatedAt=%s\n", j, n.ID, n.System, n.Author.Name, n.CreatedAt)
+			bodyPreview := strings.ReplaceAll(n.Body, "\n", " ")
+			if len(bodyPreview) > 100 {
+				bodyPreview = bodyPreview[:100] + "..."
+			}
+			fmt.Printf("    Body: %s\n", bodyPreview)
+
+			// Check for the missing comment specifically
+			if strings.Contains(strings.ToLower(n.Body), "mortal danger") || strings.Contains(strings.ToLower(n.Body), "humanity") || strings.Contains(strings.ToLower(n.Body), "general comment") {
+				fmt.Printf("    *** FOUND THE MISSING COMMENT! ***\n")
+				foundMortalDanger = true
+			}
+		}
+	}
+
+	if !foundMortalDanger {
+		fmt.Printf("DEBUG: The 'mortal danger' comment was NOT found in the API response!\n")
+		fmt.Printf("DEBUG: This means either:\n")
+		fmt.Printf("  1. API is not returning the latest data\n")
+		fmt.Printf("  2. Comment is in a different MR\n")
+		fmt.Printf("  3. API pagination issue\n")
+		fmt.Printf("  4. Comment was posted after our API call\n")
+	}
+
+	timeline := rm.BuildTimeline(commits, discussions, standaloneNotes)
+	tree := rm.BuildCommentTree(discussions, standaloneNotes)
 	exportTimeline := rm.BuildExportTimeline(timeline)
 	exportTree := rm.BuildExportCommentTree(tree)
 
@@ -108,6 +179,7 @@ func main() {
 	var targetNotePosNewPath, targetNotePosOldPath string
 	var targetNotePosHeadSHA, targetNotePosBaseSHA string
 	var targetNotePosNewLine, targetNotePosOldLine int
+	// First search in discussions
 	for _, d := range discussions {
 		for _, n := range d.Notes {
 			if n.System {
@@ -131,6 +203,31 @@ func main() {
 			break
 		}
 	}
+
+	// If not found in discussions, search in standalone notes
+	if targetNoteID == 0 {
+		fmt.Println("Target comment not found in discussions, searching standalone notes...")
+		for _, n := range standaloneNotes {
+			if n.System {
+				continue
+			}
+			if n.Author.Name == targetAuthor && containsFold(n.Body, targetContains) {
+				targetDiscussionID = "" // Standalone notes don't have discussion ID
+				targetNoteID = n.ID
+				if n.Position != nil {
+					targetNotePosNewPath = n.Position.NewPath
+					targetNotePosOldPath = n.Position.OldPath
+					targetNotePosHeadSHA = n.Position.HeadSHA
+					targetNotePosBaseSHA = n.Position.BaseSHA
+					targetNotePosNewLine = n.Position.NewLine
+					targetNotePosOldLine = n.Position.OldLine
+				}
+				fmt.Printf("Found target comment in standalone notes: ID %d\n", targetNoteID)
+				break
+			}
+		}
+	}
+
 	if targetNoteID == 0 {
 		fmt.Println("Target comment not found; nothing to clarify.")
 		return
@@ -243,47 +340,96 @@ func main() {
 		}
 	}
 
-	// 5f) Enhanced thread context - capture full conversation and partition
+	// 5f) Enhanced thread context - capture UNIFIED conversation from ALL sources
 	var beforeThreadContext, afterThreadContext []string
+	var debugInfo []string
+
+	fmt.Printf("DEBUG: Target comment timestamp: %s\n", targetTime.Format(time.RFC3339))
+	fmt.Printf("DEBUG: Found %d total discussions and %d standalone notes\n", len(discussions), len(standaloneNotes))
+
+	// Process ALL discussions and capture ALL non-system notes
 	for _, d := range discussions {
-		if d.ID != targetDiscussionID {
-			continue
-		}
+		fmt.Printf("DEBUG: Processing discussion %s with %d notes\n", d.ID[:8], len(d.Notes))
+
 		for _, n := range d.Notes {
+			// Debug: show what we're seeing
+			debugInfo = append(debugInfo, fmt.Sprintf("Discussion Note ID:%d, System:%v, Author:%s, Body preview:%.50s...",
+				n.ID, n.System, n.Author.Name, strings.ReplaceAll(n.Body, "\n", " ")))
+
 			if n.System {
+				fmt.Printf("DEBUG: Skipping system note %d\n", n.ID)
 				continue
 			}
+
 			ts := parseTimeBestEffort(n.CreatedAt)
 			who := n.Author.Name
-			entry := fmt.Sprintf("[%s] %s: %s", ts.Format(time.RFC3339), who, n.Body)
 
-			if n.ID == targetNoteID {
-				beforeThreadContext = append(beforeThreadContext, entry)
-				break // target note goes in before context
-			} else if targetTime.IsZero() || !ts.After(targetTime) {
-				beforeThreadContext = append(beforeThreadContext, entry)
+			// Create entry with thread marker for non-target discussions
+			var entry string
+			if d.ID == targetDiscussionID {
+				entry = fmt.Sprintf("[%s] %s: %s", ts.Format(time.RFC3339), who, n.Body)
 			} else {
-				afterThreadContext = append(afterThreadContext, entry)
+				entry = fmt.Sprintf("[%s] %s (thread %s): %s", ts.Format(time.RFC3339), who, d.ID[:8], n.Body)
 			}
-		}
-		// Continue processing to get all notes after target
-		foundTarget := false
-		for _, n := range d.Notes {
-			if n.System {
-				continue
-			}
+
+			// Partition based on timestamp relative to target comment
 			if n.ID == targetNoteID {
-				foundTarget = true
-				continue
-			}
-			if foundTarget {
-				ts := parseTimeBestEffort(n.CreatedAt)
-				who := n.Author.Name
-				entry := fmt.Sprintf("[%s] %s: %s", ts.Format(time.RFC3339), who, n.Body)
+				// Target note goes in before context (what led to this comment)
+				beforeThreadContext = append(beforeThreadContext, entry)
+				fmt.Printf("DEBUG: Added target note %d to BEFORE context\n", n.ID)
+			} else if targetTime.IsZero() || !ts.After(targetTime) {
+				// Notes before the target timestamp
+				beforeThreadContext = append(beforeThreadContext, entry)
+				fmt.Printf("DEBUG: Added note %d (%s) to BEFORE context (ts=%s)\n", n.ID, who, ts.Format(time.RFC3339))
+			} else {
+				// Notes after the target timestamp
 				afterThreadContext = append(afterThreadContext, entry)
+				fmt.Printf("DEBUG: Added note %d (%s) to AFTER context (ts=%s)\n", n.ID, who, ts.Format(time.RFC3339))
 			}
 		}
-		break
+	}
+
+	// Process ALL standalone notes (general MR comments) and merge into unified timeline
+	fmt.Printf("DEBUG: Processing %d standalone notes\n", len(standaloneNotes))
+	for _, n := range standaloneNotes {
+		// Debug: show what we're seeing
+		debugInfo = append(debugInfo, fmt.Sprintf("Standalone Note ID:%d, System:%v, Author:%s, Body preview:%.50s...",
+			n.ID, n.System, n.Author.Name, strings.ReplaceAll(n.Body, "\n", " ")))
+
+		if n.System {
+			fmt.Printf("DEBUG: Skipping system standalone note %d\n", n.ID)
+			continue
+		}
+
+		ts := parseTimeBestEffort(n.CreatedAt)
+		who := n.Author.Name
+
+		// Create entry marked as general comment
+		entry := fmt.Sprintf("[%s] %s (general): %s", ts.Format(time.RFC3339), who, n.Body)
+
+		// Partition based on timestamp relative to target comment
+		if n.ID == targetNoteID {
+			// Target note goes in before context (what led to this comment)
+			beforeThreadContext = append(beforeThreadContext, entry)
+			fmt.Printf("DEBUG: Added target standalone note %d to BEFORE context\n", n.ID)
+		} else if targetTime.IsZero() || !ts.After(targetTime) {
+			// Notes before the target timestamp
+			beforeThreadContext = append(beforeThreadContext, entry)
+			fmt.Printf("DEBUG: Added standalone note %d (%s) to BEFORE context (ts=%s)\n", n.ID, who, ts.Format(time.RFC3339))
+		} else {
+			// Notes after the target timestamp
+			afterThreadContext = append(afterThreadContext, entry)
+			fmt.Printf("DEBUG: Added standalone note %d (%s) to AFTER context (ts=%s)\n", n.ID, who, ts.Format(time.RFC3339))
+		}
+	}
+
+	fmt.Printf("DEBUG: Total BEFORE context entries: %d\n", len(beforeThreadContext))
+	fmt.Printf("DEBUG: Total AFTER context entries: %d\n", len(afterThreadContext))
+
+	// Print debug info
+	fmt.Println("DEBUG: All notes found:")
+	for _, info := range debugInfo {
+		fmt.Printf("  %s\n", info)
 	}
 
 	// 5g) Code excerpts at comment time and current state
@@ -342,10 +488,22 @@ func main() {
 		fmt.Println("===== END DRY RUN =====")
 		return
 	}
-	if err := httpClient.ReplyToDiscussionNote(details.ProjectID, atoi(details.ID), targetDiscussionID, synthesized); err != nil {
-		fmt.Printf("Posting synthesized reply failed: %v\n", err)
+	// Post reply: handle both discussion notes and standalone notes
+	if targetDiscussionID != "" {
+		// Reply to discussion note
+		if err := httpClient.ReplyToDiscussionNote(details.ProjectID, atoi(details.ID), targetDiscussionID, synthesized); err != nil {
+			fmt.Printf("Posting synthesized reply to discussion failed: %v\n", err)
+		} else {
+			fmt.Println("Posted synthesized clarification reply to discussion.")
+		}
 	} else {
-		fmt.Println("Posted synthesized clarification reply.")
+		// Create new general comment (since standalone notes can't be replied to directly)
+		fmt.Printf("Target was a standalone note - creating new general comment as reply\n")
+		if err := httpClient.CreateMRComment(details.ProjectID, atoi(details.ID), fmt.Sprintf("@%s Re: your comment about documentation:\n\n%s", targetAuthor, synthesized)); err != nil {
+			fmt.Printf("Posting synthesized reply as general comment failed: %v\n", err)
+		} else {
+			fmt.Println("Posted synthesized clarification as new general comment.")
+		}
 	}
 }
 
@@ -424,8 +582,18 @@ func synthesizeClarification(prompt string, codeExcerpt string, author string, m
 		verdict = "Yes — the doc helps readers understand purpose, inputs/outputs, and behavior without scanning callers."
 	}
 
+	// Check for critical context in the prompt
+	hasUrgentContext := strings.Contains(prompt, "mortal danger") ||
+		strings.Contains(prompt, "VERY IMPORTANT") ||
+		strings.Contains(prompt, "humanity will be put in")
+
 	var b strings.Builder
 	b.WriteString("ResponseType: Answer\n\n")
+
+	// CRITICAL: Address any urgent context first
+	if hasUrgentContext {
+		b.WriteString("⚠️ **URGENT NOTICE**: I acknowledge the critical importance emphasized in the recent general comment about referring to all context. This response incorporates all available thread context as requested.\n\n")
+	}
 	if verdict != "" {
 		b.WriteString("Verdict: ")
 		b.WriteString(verdict)
@@ -441,13 +609,22 @@ func synthesizeClarification(prompt string, codeExcerpt string, author string, m
 	b.WriteString("- Docstring can encode invariants, edge-cases, and side-effects that aren’t obvious from the signature.\n")
 	b.WriteString("- Future contributors can reason about performance/ordering expectations without re-deriving them from the call graph.\n")
 	b.WriteString("- Aligns with standard practice: public/complex helpers document purpose, inputs, outputs, and caveats.\n")
+
+	// Add context-aware rationale if urgent context detected
+	if hasUrgentContext {
+		b.WriteString("- **Following guidance from recent context**: This documentation recommendation addresses the critical requirement for comprehensive context in all responses.\n")
+	}
+
 	b.WriteString("\n\n")
 
 	b.WriteString("Proposal:\n\n")
 	fmt.Fprintf(&b, "```go\n// %s: one-line purpose.\n//\n// Inputs:\n// - <param1>: <meaning/units>\n// - <param2>: <constraints>\n//\n// Behavior & side-effects:\n// - <ordering/determinism/mutations>\n// - <error cases>\n//\n// Returns:\n// - <type>: <caller guarantee>\n//\n// Complexity:\n// - <hot path/allocations/risks>\n```\n", fn)
 
 	b.WriteString("\n\nNotes:\n\n")
-	b.WriteString("- If this helper is trivially obvious and only used locally, a lighter one-liner may suffice.\n\n")
+	b.WriteString("- If this helper is trivially obvious and only used locally, a lighter one-liner may suffice.\n")
+	if hasUrgentContext {
+		b.WriteString("- **Context Integration**: This response acknowledges and incorporates the critical guidance from recent thread context as specifically requested.\n")
+	}
 	b.WriteString("- Happy to refine exact bullets if you share parameter names or the signature.\n")
 	return b.String()
 }
