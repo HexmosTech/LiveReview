@@ -17,6 +17,15 @@ internal/prompts/vendor/templates/*.enc
 internal/prompts/vendor/templates/manifest.json
 livereview_vendor
 
+# MR Model binaries - ignore all mrmodel* executables but keep source
+mrmodel_test
 mrmodel
+mrmodel_*
+/mrmodel
+/mrmodel_*
+# But always include the source file
+!cmd/mrmodel/main.go
+!cmd/mrmodel/
+
 comment_tree.json
 timeline.json
