@@ -156,6 +156,187 @@ Validation
 
 ---
 
+## Contextual Prompt Enhancement — Before/After Comment Demarcation
+
+### Problem Statement
+
+Current prompt building in `cmd/mrmodel/main.go` only considers timeline events (commits, comments) up to the target comment's timestamp. This creates a limited view that excludes:
+- Commits that happened after the comment was made
+- Subsequent discussion in the same thread or related threads
+- Resolution or evolution of the issue being discussed
+- Current state of the code that may have changed since the comment
+
+### Proposed Solution
+
+Enhance the prompt structure to include **Before Comment** and **After Comment** sections, each containing the same types of contextual information but clearly demarcated by temporal relationship to the target comment.
+
+#### Enhanced Prompt Structure (XML Format)
+
+```xml
+#### Enhanced Prompt Structure (Hybrid: Plain Text + XML Context)
+
+```
+ROLE: You are a senior/principal engineer doing a contextual MR review.
+
+GOAL: Provide a specific, correct, and helpful reply to the latest message in the thread, grounded in the actual code and diff.
+
+PRINCIPLES: Be concrete, cite evidence (file/line, diff), keep it concise yet comprehensive. Prefer examples and exact snippets over abstract advice.
+
+You MUST:
+- Output valid Markdown. Separate paragraphs with two blank lines; use fenced code blocks for code.
+- Use the focused diff and code excerpt to anchor your reasoning (mention file/line when helpful).
+- Stay consistent with the codebase's style and patterns visible in the excerpt.
+- Consider readability, correctness, performance, security, cost, and best practices when relevant.
+- If the thread asks a direct question (e.g., 'does it warrant documentation?'), explicitly answer Yes/No with rationale.
+- Choose the appropriate response type and label it: Defend | Correct | Clarify | Answer | Other.
+- Pay special attention to the BEFORE/AFTER comment context to understand if issues were already resolved.
+- If prior AI guidance was correct, defend with specifics; if wrong, correct it with reasoning.
+- If context is insufficient to be certain, state the assumption and provide the best actionable recommendation.
+- Avoid formalities like 'Acknowledged'; be direct, kind, and constructive.
+
+OUTPUT FORMAT:
+1) ResponseType: <Defend|Correct|Clarify|Answer|Other>
+2) Verdict (only if a direct question is present): <Yes/No + 1‑2 lines rationale>
+3) Rationale: 3‑6 concise bullets referencing code/diff lines when applicable
+4) Proposal: concrete snippet(s) or steps (e.g., docstring, code change), fenced code if applicable
+5) Notes: optional risks/trade‑offs, alternatives, or references
+
+---
+
+CONTEXT DATA:
+
+<mr_context>
+  <target_comment>
+    <author>Shrijith</author>
+    <message>Does this function warrant documentation?</message>
+    <location file="handler.go" new_line="441" old_line="438" sha="abc12345"/>
+    <timestamp>2025-09-26T14:30:00Z</timestamp>
+  </target_comment>
+  
+  <before_comment label="Historical Context - What led to this comment">
+    <commits>
+      <commit sha="def67890" author="Alice" timestamp="2025-09-26T10:00:00Z">
+        Fix validation logic
+      </commit>
+      <commit sha="ghi78901" author="Bob" timestamp="2025-09-26T12:15:00Z">
+        Add error handling
+      </commit>
+    </commits>
+    
+    <thread_context>
+      <message timestamp="2025-09-26T13:45:00Z" author="Bob" note_id="123">
+        This function looks complex, should we document it?
+      </message>
+      <message timestamp="2025-09-26T14:30:00Z" author="Shrijith" note_id="124">
+        Does this function warrant documentation?
+      </message>
+    </thread_context>
+    
+    <code_state_at_comment_time>
+      <focused_diff>
+        <![CDATA[
+--- a/handler.go
++++ b/handler.go
+@@ -438,6 +441,10 @@
+ func ProcessRequest(req *Request) error {
++    if req == nil {
++        return errors.New("request cannot be nil")
++    }
+     // existing logic...
+        ]]>
+      </focused_diff>
+      <code_excerpt>
+        <![CDATA[
+  438 | func ProcessRequest(req *Request) error {
+  439 |     if req == nil {
+  440 |         return errors.New("request cannot be nil")
+  441 |     }
+  442 |     // existing logic...
+        ]]>
+      </code_excerpt>
+    </code_state_at_comment_time>
+  </before_comment>
+  
+  <after_comment label="Evolution & Resolution - What happened since the comment">
+    <commits>
+      <commit sha="jkl90123" author="Alice" timestamp="2025-09-27T09:00:00Z">
+        Add inline documentation per review feedback
+      </commit>
+    </commits>
+    
+    <thread_evolution>
+      <message timestamp="2025-09-27T09:30:00Z" author="Alice" note_id="125">
+        I added some inline comments based on the discussion
+      </message>
+    </thread_evolution>
+    
+    <related_discussions>
+      <thread id="456" file="handler.go" lines="450-460">
+        Discussion about error handling patterns
+      </thread>
+    </related_discussions>
+    
+    <current_code_state>
+      <evolution_diff from_comment_time="abc12345" to_current="jkl90123">
+        <![CDATA[
+--- comment-time (abc12345)
++++ current HEAD (jkl90123)
+@@ -441,6 +441,8 @@
+ func ProcessRequest(req *Request) error {
++    // ProcessRequest validates and processes incoming requests.
++    // Returns error if request is nil or validation fails.
+     if req == nil {
+         return errors.New("request cannot be nil")
+     }
+        ]]>
+      </evolution_diff>
+      <current_excerpt>
+        <![CDATA[
+  439 | // ProcessRequest validates and processes incoming requests.
+  440 | // Returns error if request is nil or validation fails.
+  441 | func ProcessRequest(req *Request) error {
+  442 |     if req == nil {
+  443 |         return errors.New("request cannot be nil")
+        ]]>
+      </current_excerpt>
+    </current_code_state>
+    
+    <resolution_indicators>
+      <thread_resolved>false</thread_resolved>
+      <emoji_reactions>
+        <reaction emoji="eyes" count="1" users="LiveReview-AI"/>
+        <reaction emoji="thumbs_up" count="2" users="Alice,Bob"/>
+      </emoji_reactions>
+    </resolution_indicators>
+  </after_comment>
+</mr_context>
+```
+```
+
+#### Implementation Changes Required
+
+1. **Timeline Partitioning**: Split timeline events into before/after based on target comment timestamp
+2. **Thread Evolution Tracking**: Capture full thread including messages after target comment
+3. **Code Evolution Diff**: Generate diff from comment-time SHA to current HEAD for the same file/lines
+4. **Cross-Thread References**: Identify related discussions that reference the same code areas
+5. **Resolution Status**: Include thread resolution, reactions, and follow-up activity
+
+#### Benefits
+
+- **Historical Understanding**: AI sees what led to the comment (current behavior)
+- **Evolution Awareness**: AI understands how the issue has progressed since the comment
+- **Resolution Context**: AI can see if the issue was already addressed or is still pending
+- **Current Relevance**: AI can determine if the comment is still applicable to current code state
+- **Comprehensive Response**: AI can reference both historical context and current state
+
+#### Implementation Priority
+
+- **Phase 1**: Extend timeline partitioning to include after-comment commits and thread messages
+- **Phase 2**: Add current code state and evolution diffs
+- **Phase 3**: Add cross-thread references and resolution indicators
+
+---
+
 ## Next steps after modeling
 
 - Plug the model into the Reply workflow for context building.
