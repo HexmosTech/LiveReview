@@ -150,7 +150,7 @@ func NewServer(port int, versionInfo *VersionInfo) (*Server, error) {
 	}
 
 	// Initialize job queue
-	jq, err := jobqueue.NewJobQueue(dbURL)
+	jq, err := jobqueue.NewJobQueue(dbURL, db)
 	if err != nil {
 		return nil, fmt.Errorf("failed to initialize job queue: %v", err)
 	}
