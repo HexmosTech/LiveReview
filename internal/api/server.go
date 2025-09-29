@@ -407,6 +407,9 @@ func (s *Server) setupRoutes() {
 	// GitLab webhook handler
 	v1.POST("/gitlab-hook", s.GitLabWebhookHandler)
 
+	// GitLab comment webhook handler (for conversational AI)
+	v1.POST("/webhooks/gitlab/comments", s.GitLabCommentWebhookHandler)
+
 	// GitHub webhook handler
 	v1.POST("/github-hook", s.GitHubWebhookHandler)
 

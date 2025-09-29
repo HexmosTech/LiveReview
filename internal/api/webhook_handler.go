@@ -30,6 +30,92 @@ type GitLabWebhookPayload struct {
 	MergeRequest     GitLabMergeRequest     `json:"merge_request,omitempty"`
 }
 
+// GitLabNoteWebhookPayload represents GitLab Note Hook webhook payload structure
+type GitLabNoteWebhookPayload struct {
+	ObjectKind       string                     `json:"object_kind"` // "note"
+	EventType        string                     `json:"event_type"`  // "note"
+	User             GitLabUser                 `json:"user"`        // Comment author
+	ProjectID        int                        `json:"project_id"`
+	Project          GitLabProject              `json:"project"`
+	Repository       GitLabRepository           `json:"repository"`
+	ObjectAttributes GitLabNoteObjectAttributes `json:"object_attributes"`       // Note details
+	MergeRequest     *GitLabMergeRequest        `json:"merge_request,omitempty"` // Present if comment on MR
+	Issue            *GitLabIssue               `json:"issue,omitempty"`         // Present if comment on issue
+	Commit           *GitLabCommit              `json:"commit,omitempty"`        // Present if comment on commit
+	Snippet          *GitLabSnippet             `json:"snippet,omitempty"`       // Present if comment on snippet
+}
+
+// GitLabNoteObjectAttributes represents the object_attributes field in GitLab Note Hook payload
+type GitLabNoteObjectAttributes struct {
+	ID           int    `json:"id"`            // Note ID
+	Note         string `json:"note"`          // Comment body/content
+	NoteableType string `json:"noteable_type"` // "MergeRequest", "Issue", "Commit", "Snippet"
+	AuthorID     int    `json:"author_id"`     // Comment author ID
+	CreatedAt    string `json:"created_at"`    // When comment was created
+	UpdatedAt    string `json:"updated_at"`    // When comment was last updated
+	ProjectID    int    `json:"project_id"`    // Project ID
+	Attachment   string `json:"attachment"`    // File attachment, if any
+	LineCode     string `json:"line_code"`     // Code line reference (for code comments)
+	CommitID     string `json:"commit_id"`     // Commit SHA (for commit comments)
+	NoteableID   int    `json:"noteable_id"`   // ID of the item being commented on
+	System       bool   `json:"system"`        // Whether this is a system comment
+	StDiff       string `json:"st_diff"`       // Diff information for code comments
+	Action       string `json:"action"`        // "create" or "update"
+	URL          string `json:"url"`           // Direct URL to the comment
+	DiscussionID string `json:"discussion_id"` // Discussion thread ID (for threaded comments)
+}
+
+// GitLabRepository represents repository information in Note Hook payload
+type GitLabRepository struct {
+	Name        string `json:"name"`
+	URL         string `json:"url"`
+	Description string `json:"description"`
+	Homepage    string `json:"homepage"`
+}
+
+// GitLabIssue represents issue information when comment is on an issue
+type GitLabIssue struct {
+	ID          int    `json:"id"`
+	IID         int    `json:"iid"`
+	Title       string `json:"title"`
+	Description string `json:"description"`
+	State       string `json:"state"`
+	CreatedAt   string `json:"created_at"`
+	UpdatedAt   string `json:"updated_at"`
+	ProjectID   int    `json:"project_id"`
+	AuthorID    int    `json:"author_id"`
+	URL         string `json:"url"`
+}
+
+// GitLabCommit represents commit information when comment is on a commit
+type GitLabCommit struct {
+	ID        string       `json:"id"`
+	Message   string       `json:"message"`
+	Timestamp string       `json:"timestamp"`
+	URL       string       `json:"url"`
+	Author    GitLabAuthor `json:"author"`
+}
+
+// GitLabAuthor represents commit author information
+type GitLabAuthor struct {
+	Name  string `json:"name"`
+	Email string `json:"email"`
+}
+
+// GitLabSnippet represents snippet information when comment is on a snippet
+type GitLabSnippet struct {
+	ID          int    `json:"id"`
+	Title       string `json:"title"`
+	Description string `json:"description"`
+	Content     string `json:"content"`
+	AuthorID    int    `json:"author_id"`
+	ProjectID   int    `json:"project_id"`
+	CreatedAt   string `json:"created_at"`
+	UpdatedAt   string `json:"updated_at"`
+	FileName    string `json:"file_name"`
+	URL         string `json:"url"`
+}
+
 // GitLabUser represents a GitLab user
 type GitLabUser struct {
 	ID       int    `json:"id"`
@@ -1247,4 +1333,312 @@ func (s *Server) findIntegrationTokenForBitbucketRepo(repoFullName string) (*Int
 	}
 
 	return &token, nil
+}
+
+// GitLabCommentWebhookHandler handles incoming GitLab Note Hook events for comments
+func (s *Server) GitLabCommentWebhookHandler(c echo.Context) error {
+	// Parse the Note Hook webhook payload
+	var payload GitLabNoteWebhookPayload
+	if err := c.Bind(&payload); err != nil {
+		log.Printf("[ERROR] Failed to parse GitLab Note Hook webhook payload: %v", err)
+		return c.JSON(http.StatusBadRequest, map[string]string{
+			"error": "Invalid Note Hook webhook payload",
+		})
+	}
+
+	// Get the event kind from headers
+	eventKind := c.Request().Header.Get("X-Gitlab-Event")
+	log.Printf("[INFO] Received GitLab Note Hook webhook: event_kind=%s, object_kind=%s, noteable_type=%s",
+		eventKind, payload.ObjectKind, payload.ObjectAttributes.NoteableType)
+
+	// Only process Note Hook events
+	if strings.ToLower(eventKind) != "note hook" {
+		log.Printf("[DEBUG] Event kind mismatch: expected 'note hook', got '%s', skipping", eventKind)
+		return c.JSON(http.StatusOK, map[string]string{
+			"status": "ignored - not a note hook",
+		})
+	}
+
+	// Only process comments (not system comments)
+	if payload.ObjectAttributes.System {
+		log.Printf("[DEBUG] System comment detected, skipping")
+		return c.JSON(http.StatusOK, map[string]string{
+			"status": "ignored - system comment",
+		})
+	}
+
+	// Only process comments on merge requests for now
+	if payload.ObjectAttributes.NoteableType != "MergeRequest" {
+		log.Printf("[DEBUG] Comment not on MergeRequest (type: %s), skipping for now", payload.ObjectAttributes.NoteableType)
+		return c.JSON(http.StatusOK, map[string]string{
+			"status": "ignored - not MR comment",
+		})
+	}
+
+	// Extract GitLab instance URL from project web_url
+	gitlabInstanceURL := extractGitLabInstanceURL(payload.Project.WebURL)
+	log.Printf("[DEBUG] GitLab instance URL: %s", gitlabInstanceURL)
+
+	// Check if AI response is warranted
+	warrantsResponse, scenario := s.checkAIResponseWarrant(payload, gitlabInstanceURL)
+	if !warrantsResponse {
+		log.Printf("[DEBUG] Comment does not warrant AI response, skipping")
+		return c.JSON(http.StatusOK, map[string]string{
+			"status": "ignored - no response warrant",
+		})
+	}
+
+	log.Printf("[INFO] AI response warranted for comment: trigger=%s, content_type=%s, response_type=%s, confidence=%.2f",
+		scenario.TriggerType, scenario.ContentType, scenario.ResponseType, scenario.Confidence)
+
+	// TODO: Phase 2 - Build MR context and generate AI response
+	// For now, just log that we would respond
+	log.Printf("[INFO] Would generate AI response for MR comment:")
+	log.Printf("  - MR: %s", payload.MergeRequest.URL)
+	log.Printf("  - Comment: %s", payload.ObjectAttributes.Note)
+	log.Printf("  - Author: %s", payload.User.Username)
+	log.Printf("  - Discussion ID: %s", payload.ObjectAttributes.DiscussionID)
+
+	return c.JSON(http.StatusOK, map[string]string{
+		"status":       "processed",
+		"trigger_type": scenario.TriggerType,
+		"will_respond": "true",
+	})
+}
+
+// extractGitLabInstanceURL extracts the base GitLab instance URL from a project web URL
+// e.g., "https://gitlab.com/group/project" -> "https://gitlab.com"
+// e.g., "https://git.company.com/group/project" -> "https://git.company.com"
+func extractGitLabInstanceURL(projectWebURL string) string {
+	if projectWebURL == "" {
+		return ""
+	}
+
+	// Parse the URL to extract scheme and host
+	if strings.HasPrefix(projectWebURL, "http://") || strings.HasPrefix(projectWebURL, "https://") {
+		parts := strings.Split(projectWebURL, "/")
+		if len(parts) >= 3 {
+			return parts[0] + "//" + parts[2] // scheme + "//" + host
+		}
+	}
+
+	return projectWebURL
+}
+
+// ResponseScenario represents the analysis of whether and how to respond to a comment
+type ResponseScenario struct {
+	TriggerType  string  `json:"trigger_type"`  // "direct_mention", "thread_reply"
+	ContentType  string  `json:"content_type"`  // "appreciation", "clarification", "debate", "question", "complaint"
+	ResponseType string  `json:"response_type"` // "emoji_only", "brief_acknowledgment", "detailed_response", "escalate"
+	Confidence   float64 `json:"confidence"`    // 0.0-1.0 confidence in classification
+}
+
+// checkAIResponseWarrant determines if a comment warrants an AI response and how to respond
+func (s *Server) checkAIResponseWarrant(payload GitLabNoteWebhookPayload, gitlabInstanceURL string) (bool, ResponseScenario) {
+	log.Printf("[DEBUG] Checking AI response warrant for comment by %s", payload.User.Username)
+
+	// Get bot users for this GitLab instance
+	botUsers, err := s.getBotUsersForGitLabInstance(gitlabInstanceURL)
+	if err != nil {
+		log.Printf("[ERROR] Failed to get bot users for GitLab instance %s: %v", gitlabInstanceURL, err)
+		return false, ResponseScenario{}
+	}
+
+	log.Printf("[DEBUG] Found %d bot users for GitLab instance %s", len(botUsers), gitlabInstanceURL)
+
+	// 1. Anti-loop protection: Never respond to bot accounts
+	for _, botUser := range botUsers {
+		if payload.User.Username == botUser.Username {
+			log.Printf("[DEBUG] Comment author %s is a bot user, skipping (anti-loop protection)", payload.User.Username)
+			return false, ResponseScenario{}
+		}
+	}
+
+	// 2. Direct mention detection (highest priority)
+	if isDirectMention(payload.ObjectAttributes.Note, botUsers) {
+		log.Printf("[DEBUG] Direct bot mention detected in comment")
+		return true, ResponseScenario{
+			TriggerType:  "direct_mention",
+			ContentType:  classifyContentType(payload.ObjectAttributes.Note),
+			ResponseType: determineResponseType(payload.ObjectAttributes.Note),
+			Confidence:   0.95,
+		}
+	}
+
+	// 3. Thread participation analysis (if comment has discussion_id, it's part of a thread)
+	if payload.ObjectAttributes.DiscussionID != "" {
+		log.Printf("[DEBUG] Comment is part of discussion thread: %s", payload.ObjectAttributes.DiscussionID)
+
+		// TODO: Check if parent comment was authored by a bot
+		// For now, we'll implement a simplified version
+		isReplyToBotComment := s.checkIfReplyToBotComment(payload, botUsers)
+		if isReplyToBotComment {
+			log.Printf("[DEBUG] Comment is reply to bot comment")
+			return true, ResponseScenario{
+				TriggerType:  "thread_reply",
+				ContentType:  classifyReplyContentType(payload.ObjectAttributes.Note),
+				ResponseType: determineReplyResponseType(payload.ObjectAttributes.Note),
+				Confidence:   0.80,
+			}
+		}
+	}
+
+	log.Printf("[DEBUG] No response warrant detected")
+	return false, ResponseScenario{}
+}
+
+// GitLabBotUserInfo represents a bot user from the database for GitLab instances
+type GitLabBotUserInfo struct {
+	Username string `json:"username"`
+	ID       int    `json:"id"`
+	Name     string `json:"name"`
+}
+
+// getBotUsersForGitLabInstance retrieves bot users for a specific GitLab instance
+func (s *Server) getBotUsersForGitLabInstance(gitlabInstanceURL string) ([]GitLabBotUserInfo, error) {
+	query := `
+		SELECT metadata->>'gitlabProfile'->>'username' as username,
+		       (metadata->>'gitlabProfile'->>'id')::int as id,
+		       metadata->>'gitlabProfile'->>'name' as name
+		FROM integration_tokens 
+		WHERE provider IN ('gitlab', 'gitlab-com', 'gitlab-self-hosted') 
+		AND provider_url = $1
+		AND metadata->>'gitlabProfile'->>'username' IS NOT NULL
+	`
+
+	rows, err := s.db.Query(query, gitlabInstanceURL)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query bot users: %w", err)
+	}
+	defer rows.Close()
+
+	var botUsers []GitLabBotUserInfo
+	for rows.Next() {
+		var botUser GitLabBotUserInfo
+		err := rows.Scan(&botUser.Username, &botUser.ID, &botUser.Name)
+		if err != nil {
+			log.Printf("[ERROR] Failed to scan bot user row: %v", err)
+			continue
+		}
+		botUsers = append(botUsers, botUser)
+	}
+
+	return botUsers, nil
+}
+
+// isDirectMention checks if the comment contains a direct @mention of any bot user
+func isDirectMention(commentBody string, botUsers []GitLabBotUserInfo) bool {
+	commentLower := strings.ToLower(commentBody)
+	for _, botUser := range botUsers {
+		mentionPattern := "@" + strings.ToLower(botUser.Username)
+		if strings.Contains(commentLower, mentionPattern) {
+			log.Printf("[DEBUG] Direct mention found: %s mentioned in comment", botUser.Username)
+			return true
+		}
+	}
+	return false
+}
+
+// checkIfReplyToBotComment checks if this comment is a reply to a comment authored by a bot
+func (s *Server) checkIfReplyToBotComment(payload GitLabNoteWebhookPayload, botUsers []GitLabBotUserInfo) bool {
+	// TODO: Implement proper thread analysis by querying GitLab API for discussion thread
+	// For now, return false as a placeholder
+	// This would require:
+	// 1. Query GitLab API to get full discussion thread using discussion_id
+	// 2. Find parent comment in the thread
+	// 3. Check if parent comment author is in botUsers list
+	log.Printf("[DEBUG] Thread analysis not yet implemented - assuming not a reply to bot comment")
+	return false
+}
+
+// classifyContentType analyzes comment content to determine the type of interaction
+func classifyContentType(commentBody string) string {
+	bodyLower := strings.ToLower(commentBody)
+
+	// Question patterns
+	questionWords := []string{"?", "why", "how", "what", "when", "where", "should", "could", "would", "can you", "do you"}
+	for _, word := range questionWords {
+		if strings.Contains(bodyLower, word) {
+			return "question"
+		}
+	}
+
+	// Help requests
+	helpWords := []string{"help", "explain", "clarify", "please review"}
+	for _, word := range helpWords {
+		if strings.Contains(bodyLower, word) {
+			return "help_request"
+		}
+	}
+
+	// Complaints/issues
+	complaintWords := []string{"wrong", "error", "problem", "issue", "bug", "broken", "doesn't work"}
+	for _, word := range complaintWords {
+		if strings.Contains(bodyLower, word) {
+			return "complaint"
+		}
+	}
+
+	return "general"
+}
+
+// classifyReplyContentType analyzes reply content to determine interaction type
+func classifyReplyContentType(commentBody string) string {
+	bodyLower := strings.ToLower(commentBody)
+
+	// Appreciation
+	appreciationWords := []string{"thanks", "thank you", "great", "awesome", "perfect", "excellent", "good job"}
+	for _, word := range appreciationWords {
+		if strings.Contains(bodyLower, word) {
+			return "appreciation"
+		}
+	}
+
+	// Clarification requests
+	clarificationWords := []string{"why", "how", "what", "can you explain", "could you", "clarify"}
+	for _, word := range clarificationWords {
+		if strings.Contains(bodyLower, word) {
+			return "clarification"
+		}
+	}
+
+	// Disagreement/debate
+	disagreementWords := []string{"disagree", "not sure", "i think", "actually", "however", "but"}
+	for _, word := range disagreementWords {
+		if strings.Contains(bodyLower, word) {
+			return "debate"
+		}
+	}
+
+	return "general"
+}
+
+// determineResponseType determines how to respond based on comment content
+func determineResponseType(commentBody string) string {
+	contentType := classifyContentType(commentBody)
+
+	switch contentType {
+	case "question", "help_request":
+		return "detailed_response"
+	case "complaint":
+		return "detailed_response" // Investigate and provide helpful response
+	default:
+		return "brief_acknowledgment"
+	}
+}
+
+// determineReplyResponseType determines how to respond to a reply based on content
+func determineReplyResponseType(commentBody string) string {
+	contentType := classifyReplyContentType(commentBody)
+
+	switch contentType {
+	case "appreciation":
+		return "emoji_only" // Just react with 👍 or ❤️
+	case "clarification":
+		return "detailed_response" // Provide technical explanation
+	case "debate":
+		return "diplomatic_response" // Clarify reasoning diplomatically
+	default:
+		return "brief_acknowledgment" // Brief helpful response
+	}
 }
