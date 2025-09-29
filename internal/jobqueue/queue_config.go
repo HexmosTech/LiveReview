@@ -42,27 +42,41 @@ Modify these values to tune performance, reliability, and behavior according to 
 package jobqueue
 
 import (
+	"database/sql"
+	"fmt"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/riverqueue/river"
 )
 
-// getWebhookPublicEndpoint returns the webhook endpoint URL based on deployment mode
-func getWebhookPublicEndpoint() string {
+// getWebhookPublicEndpoint returns the webhook endpoint URL based on deployment mode.
+// In production mode, it queries the database for livereview_prod_url and returns an error if not set.
+func getWebhookPublicEndpoint(db *sql.DB) (string, error) {
 	reverseProxy := os.Getenv("LIVEREVIEW_REVERSE_PROXY") == "true"
 
 	if reverseProxy {
-		// Production mode: Use default production URL format
-		// Note: This will be overridden by actual request-derived URLs in the system info endpoint
-		return "https://your-domain.com/api/v1/gitlab-hook"
+		// Production mode: Query DB for livereview_prod_url
+		var prodURL sql.NullString
+		err := db.QueryRow(`SELECT livereview_prod_url FROM instance_details ORDER BY id DESC LIMIT 1`).Scan(&prodURL)
+		if err != nil {
+			if err == sql.ErrNoRows {
+				return "", fmt.Errorf("Production URL not set: please configure livereview_prod_url in settings.")
+			}
+			return "", fmt.Errorf("Error querying production URL: %v", err)
+		}
+		if !prodURL.Valid || strings.TrimSpace(prodURL.String) == "" {
+			return "", fmt.Errorf("Production URL is empty: please configure livereview_prod_url in settings.")
+		}
+		return strings.TrimSuffix(strings.TrimSpace(prodURL.String), "/") + "/api/v1/gitlab-hook", nil
 	} else {
 		// Demo mode: Use localhost with backend port
 		backendPort := os.Getenv("LIVEREVIEW_BACKEND_PORT")
 		if backendPort == "" {
 			backendPort = "8888"
 		}
-		return "http://localhost:" + backendPort + "/api/v1/gitlab-hook"
+		return "http://localhost:" + backendPort + "/api/v1/gitlab-hook", nil
 	}
 }
 
@@ -127,6 +141,7 @@ type WebhookEvents struct {
 }
 
 // DefaultQueueConfig returns the default configuration
+// For production webhook URL, use DefaultQueueConfigWithDB instead
 func DefaultQueueConfig() *QueueConfig {
 	return &QueueConfig{
 		// Worker settings - tune based on your server capacity and GitLab API rate limits
@@ -153,10 +168,9 @@ func DefaultQueueConfig() *QueueConfig {
 
 		// Webhook configuration
 		WebhookConfig: WebhookConfig{
-			Secret:         "super-secret-string",      // TODO: Make this dynamic/configurable
-			PublicEndpoint: getWebhookPublicEndpoint(), // Dynamic based on deployment mode
-			EnableSSL:      true,                       // Always verify SSL in production
-
+			Secret:         "super-secret-string", // TODO: Make this dynamic/configurable
+			PublicEndpoint: "",                    // Queried directly from DB during webhook install
+			EnableSSL:      true,                  // Always verify SSL in production
 			// Event configuration - only subscribe to events we need
 			Events: WebhookEvents{
 				PushEvents:          false, // Not needed for code review triggers
@@ -194,6 +208,21 @@ func DevelopmentQueueConfig() *QueueConfig {
 	config.JobTimeout = 2 * time.Minute               // Shorter timeout for faster feedback
 
 	return config
+}
+
+// GetQueueConfigWithDB returns the appropriate configuration based on environment,
+// with the PublicEndpoint populated from the database
+func GetQueueConfigWithDB(db *sql.DB) (*QueueConfig, error) {
+	config := DefaultQueueConfig()
+
+	// Set the public endpoint from database
+	endpoint, err := getWebhookPublicEndpoint(db)
+	if err != nil {
+		return nil, err
+	}
+	config.WebhookConfig.PublicEndpoint = endpoint
+
+	return config, nil
 }
 
 // GetQueueConfig returns the appropriate configuration based on environment

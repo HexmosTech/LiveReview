@@ -9,6 +9,7 @@ package jobqueue
 import (
 	"bytes"
 	"context"
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -1997,9 +1998,12 @@ type JobQueue struct {
 }
 
 // NewJobQueue creates a new job queue instance
-func NewJobQueue(databaseURL string) (*JobQueue, error) {
-	// Get configuration
-	config := GetQueueConfig()
+func NewJobQueue(databaseURL string, db *sql.DB) (*JobQueue, error) {
+	// Get configuration with database-sourced webhook endpoint
+	config, err := GetQueueConfigWithDB(db)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get queue configuration: %w", err)
+	}
 
 	// Create a pgx connection pool
 	pool, err := pgxpool.New(context.Background(), databaseURL)
