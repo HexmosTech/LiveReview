@@ -301,6 +301,11 @@ func (w *WebhookInstallWorker) webhookExists(projectID int, webhookURL, baseURL,
 }
 
 func (w *WebhookInstallWorker) installGitLabWebhook(projectID int, baseURL, pat string) (*GitLabHook, error) {
+	// Validate that the webhook endpoint is configured
+	if w.config.WebhookConfig.PublicEndpoint == "" {
+		return nil, fmt.Errorf("webhook endpoint not configured: please set livereview_prod_url in settings before installing webhooks")
+	}
+
 	// Get provider-specific webhook endpoint
 	webhookURL := w.getWebhookEndpointForProvider("gitlab")
 
@@ -645,6 +650,11 @@ func (w *WebhookInstallWorker) gitHubWebhookExists(owner, repo, webhookURL, base
 
 // installGitHubWebhook installs a webhook in GitHub repository
 func (w *WebhookInstallWorker) installGitHubWebhook(owner, repo, baseURL, pat string) (*GitHubHook, error) {
+	// Validate that the webhook endpoint is configured
+	if w.config.WebhookConfig.PublicEndpoint == "" {
+		return nil, fmt.Errorf("webhook endpoint not configured: please set livereview_prod_url in settings before installing webhooks")
+	}
+
 	// Get provider-specific webhook endpoint
 	webhookURL := w.getWebhookEndpointForProvider("github")
 
@@ -985,6 +995,11 @@ func (w *WebhookInstallWorker) bitbucketWebhookExists(workspace, repo, webhookUR
 
 // installBitbucketWebhook installs a webhook in Bitbucket repository
 func (w *WebhookInstallWorker) installBitbucketWebhook(workspace, repo, email, apiToken string) (*BitbucketHook, error) {
+	// Validate that the webhook endpoint is configured
+	if w.config.WebhookConfig.PublicEndpoint == "" {
+		return nil, fmt.Errorf("webhook endpoint not configured: please set livereview_prod_url in settings before installing webhooks")
+	}
+
 	// Get provider-specific webhook endpoint
 	webhookURL := w.getWebhookEndpointForProvider("bitbucket")
 
