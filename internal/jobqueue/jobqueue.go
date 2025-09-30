@@ -190,7 +190,45 @@ func (w *WebhookInstallWorker) getWebhookEndpointForProvider(provider string) st
 		}
 		return baseURL
 	}
-} // GitLab API client methods
+}
+
+// getWebhookEndpointForProviderWithCustomEndpoint builds provider-specific endpoint with custom base URL
+func (w *WebhookInstallWorker) getWebhookEndpointForProviderWithCustomEndpoint(provider, customEndpoint string) string {
+	// Remove any trailing slash
+	baseURL := strings.TrimSuffix(customEndpoint, "/")
+
+	// The customEndpoint should already include the correct path (e.g., /api/v1/gitlab-hook)
+	// But let's ensure it has the right provider-specific endpoint
+	switch provider {
+	case "gitlab", "gitlab-com", "gitlab-enterprise":
+		if strings.HasSuffix(baseURL, "/api/v1/gitlab-hook") {
+			return baseURL
+		}
+		// If it ends with a different hook, replace it
+		if strings.HasSuffix(baseURL, "/api/v1/github-hook") {
+			return strings.TrimSuffix(baseURL, "/api/v1/github-hook") + "/api/v1/gitlab-hook"
+		}
+		if strings.HasSuffix(baseURL, "/api/v1/bitbucket-hook") {
+			return strings.TrimSuffix(baseURL, "/api/v1/bitbucket-hook") + "/api/v1/gitlab-hook"
+		}
+		// If no specific hook endpoint, it should already be correct from getWebhookPublicEndpoint
+		return baseURL
+	case "github", "github-com", "github-enterprise":
+		if strings.HasSuffix(baseURL, "/api/v1/github-hook") {
+			return baseURL
+		}
+		return strings.TrimSuffix(baseURL, "/api/v1/gitlab-hook") + "/api/v1/github-hook"
+	case "bitbucket", "bitbucket-cloud":
+		if strings.HasSuffix(baseURL, "/api/v1/bitbucket-hook") {
+			return baseURL
+		}
+		return strings.TrimSuffix(baseURL, "/api/v1/gitlab-hook") + "/api/v1/bitbucket-hook"
+	default:
+		return baseURL
+	}
+}
+
+// GitLab API client methods
 func (w *WebhookInstallWorker) makeGitLabRequest(method, endpoint string, payload interface{}, baseURL, pat string) (*http.Response, error) {
 	var body io.Reader
 	if payload != nil {
@@ -301,13 +339,23 @@ func (w *WebhookInstallWorker) webhookExists(projectID int, webhookURL, baseURL,
 }
 
 func (w *WebhookInstallWorker) installGitLabWebhook(projectID int, baseURL, pat string) (*GitLabHook, error) {
-	// Validate that the webhook endpoint is configured
-	if w.config.WebhookConfig.PublicEndpoint == "" {
+	// Get the current production URL from database (don't use cached config)
+	db, err := sql.Open("postgres", w.pool.Config().ConnString())
+	if err != nil {
+		return nil, fmt.Errorf("failed to connect to database: %w", err)
+	}
+	defer db.Close()
+
+	currentEndpoint, err := getWebhookPublicEndpoint(db)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get current webhook endpoint: %w", err)
+	}
+	if currentEndpoint == "" {
 		return nil, fmt.Errorf("webhook endpoint not configured: please set livereview_prod_url in settings before installing webhooks")
 	}
 
-	// Get provider-specific webhook endpoint
-	webhookURL := w.getWebhookEndpointForProvider("gitlab")
+	// Get provider-specific webhook endpoint using current configuration
+	webhookURL := w.getWebhookEndpointForProviderWithCustomEndpoint("gitlab", currentEndpoint)
 
 	// Check if webhook already exists
 	existingHook, err := w.webhookExists(projectID, webhookURL, baseURL, pat)
@@ -650,13 +698,23 @@ func (w *WebhookInstallWorker) gitHubWebhookExists(owner, repo, webhookURL, base
 
 // installGitHubWebhook installs a webhook in GitHub repository
 func (w *WebhookInstallWorker) installGitHubWebhook(owner, repo, baseURL, pat string) (*GitHubHook, error) {
-	// Validate that the webhook endpoint is configured
-	if w.config.WebhookConfig.PublicEndpoint == "" {
+	// Get the current production URL from database (don't use cached config)
+	db, err := sql.Open("postgres", w.pool.Config().ConnString())
+	if err != nil {
+		return nil, fmt.Errorf("failed to connect to database: %w", err)
+	}
+	defer db.Close()
+
+	currentEndpoint, err := getWebhookPublicEndpoint(db)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get current webhook endpoint: %w", err)
+	}
+	if currentEndpoint == "" {
 		return nil, fmt.Errorf("webhook endpoint not configured: please set livereview_prod_url in settings before installing webhooks")
 	}
 
-	// Get provider-specific webhook endpoint
-	webhookURL := w.getWebhookEndpointForProvider("github")
+	// Get provider-specific webhook endpoint using current configuration
+	webhookURL := w.getWebhookEndpointForProviderWithCustomEndpoint("github", currentEndpoint)
 
 	// Check if webhook already exists
 	existingHook, err := w.gitHubWebhookExists(owner, repo, webhookURL, baseURL, pat)
@@ -995,13 +1053,23 @@ func (w *WebhookInstallWorker) bitbucketWebhookExists(workspace, repo, webhookUR
 
 // installBitbucketWebhook installs a webhook in Bitbucket repository
 func (w *WebhookInstallWorker) installBitbucketWebhook(workspace, repo, email, apiToken string) (*BitbucketHook, error) {
-	// Validate that the webhook endpoint is configured
-	if w.config.WebhookConfig.PublicEndpoint == "" {
+	// Get the current production URL from database (don't use cached config)
+	db, err := sql.Open("postgres", w.pool.Config().ConnString())
+	if err != nil {
+		return nil, fmt.Errorf("failed to connect to database: %w", err)
+	}
+	defer db.Close()
+
+	currentEndpoint, err := getWebhookPublicEndpoint(db)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get current webhook endpoint: %w", err)
+	}
+	if currentEndpoint == "" {
 		return nil, fmt.Errorf("webhook endpoint not configured: please set livereview_prod_url in settings before installing webhooks")
 	}
 
-	// Get provider-specific webhook endpoint
-	webhookURL := w.getWebhookEndpointForProvider("bitbucket")
+	// Get provider-specific webhook endpoint using current configuration
+	webhookURL := w.getWebhookEndpointForProviderWithCustomEndpoint("bitbucket", currentEndpoint)
 
 	// Check if webhook already exists
 	existingHook, err := w.bitbucketWebhookExists(workspace, repo, webhookURL, email, apiToken)
