@@ -52,7 +52,8 @@ import (
 )
 
 // getWebhookPublicEndpoint returns the webhook endpoint URL based on deployment mode.
-// In production mode, it queries the database for livereview_prod_url and returns an error if not set.
+// In production mode, it queries the database for livereview_prod_url.
+// If not set, returns empty string (will be validated when actually installing webhooks).
 func getWebhookPublicEndpoint(db *sql.DB) (string, error) {
 	reverseProxy := os.Getenv("LIVEREVIEW_REVERSE_PROXY") == "true"
 
@@ -62,12 +63,14 @@ func getWebhookPublicEndpoint(db *sql.DB) (string, error) {
 		err := db.QueryRow(`SELECT livereview_prod_url FROM instance_details ORDER BY id DESC LIMIT 1`).Scan(&prodURL)
 		if err != nil {
 			if err == sql.ErrNoRows {
-				return "", fmt.Errorf("Production URL not set: please configure livereview_prod_url in settings.")
+				// No production URL set - return empty string (will be validated during webhook installation)
+				return "", nil
 			}
 			return "", fmt.Errorf("Error querying production URL: %v", err)
 		}
 		if !prodURL.Valid || strings.TrimSpace(prodURL.String) == "" {
-			return "", fmt.Errorf("Production URL is empty: please configure livereview_prod_url in settings.")
+			// Production URL is empty - return empty string (will be validated during webhook installation)
+			return "", nil
 		}
 		return strings.TrimSuffix(strings.TrimSpace(prodURL.String), "/") + "/api/v1/gitlab-hook", nil
 	} else {
@@ -215,7 +218,7 @@ func DevelopmentQueueConfig() *QueueConfig {
 func GetQueueConfigWithDB(db *sql.DB) (*QueueConfig, error) {
 	config := DefaultQueueConfig()
 
-	// Set the public endpoint from database
+	// Set the public endpoint from database (may be empty if not configured yet)
 	endpoint, err := getWebhookPublicEndpoint(db)
 	if err != nil {
 		return nil, err
@@ -223,6 +226,34 @@ func GetQueueConfigWithDB(db *sql.DB) (*QueueConfig, error) {
 	config.WebhookConfig.PublicEndpoint = endpoint
 
 	return config, nil
+}
+
+// ValidateWebhookEndpoint checks if the production URL is properly configured for webhook installation
+// This should be called before attempting to install webhooks, not during queue initialization
+func ValidateWebhookEndpoint(db *sql.DB) error {
+	reverseProxy := os.Getenv("LIVEREVIEW_REVERSE_PROXY") == "true"
+
+	if reverseProxy {
+		// Production mode: Require livereview_prod_url to be set
+		var prodURL sql.NullString
+		err := db.QueryRow(`SELECT livereview_prod_url FROM instance_details ORDER BY id DESC LIMIT 1`).Scan(&prodURL)
+		if err != nil {
+			if err == sql.ErrNoRows {
+				return fmt.Errorf("Production URL not set: please configure livereview_prod_url in settings before installing webhooks")
+			}
+			return fmt.Errorf("Error querying production URL: %v", err)
+		}
+		if !prodURL.Valid || strings.TrimSpace(prodURL.String) == "" {
+			return fmt.Errorf("Production URL is empty: please configure livereview_prod_url in settings before installing webhooks")
+		}
+		// Validate URL format
+		url := strings.TrimSpace(prodURL.String)
+		if !strings.HasPrefix(url, "http://") && !strings.HasPrefix(url, "https://") {
+			return fmt.Errorf("Production URL must start with http:// or https://")
+		}
+	}
+
+	return nil
 }
 
 // GetQueueConfig returns the appropriate configuration based on environment
