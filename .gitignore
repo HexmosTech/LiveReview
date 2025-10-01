@@ -31,3 +31,5 @@ comment_tree.json
 timeline.json
 
 *.pyc
+
+node_modules
