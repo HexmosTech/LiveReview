@@ -11,5 +11,10 @@
     "python.testing.pytestPath": "/home/shrsv/bin/LiveReview/scripts/.venv/bin/pytest",
     "python.testing.autoTestDiscoverOnSaveEnabled": true,
     "playwright.reuseBrowser": true,
-    "playwright.showTrace": true
+    "playwright.showTrace": false,
+    "workbench.colorCustomizations": {
+        "activityBar.background": "#23285C",
+        "titleBar.activeBackground": "#313880",
+        "titleBar.activeForeground": "#FCFDFE"
+    }
 }
