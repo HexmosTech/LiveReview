@@ -1,0 +1,13 @@
+{
+    "python.pythonPath": "/home/shrsv/bin/LiveReview/scripts/.venv/bin/python",
+    "python.defaultInterpreterPath": "/home/shrsv/bin/LiveReview/scripts/.venv/bin/python",
+    "python.testing.pytestEnabled": true,
+    "python.testing.unittestEnabled": false,
+    "python.testing.pytestArgs": [
+        "./tests",
+        "-v"
+    ],
+    "python.testing.cwd": "/home/shrsv/bin/LiveReview/scripts/integration",
+    "python.testing.pytestPath": "/home/shrsv/bin/LiveReview/scripts/.venv/bin/pytest",
+    "python.testing.autoTestDiscoverOnSaveEnabled": true
+}
