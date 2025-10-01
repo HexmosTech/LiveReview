@@ -1,90 +1,54 @@
 #!/usr/bin/env python3
 """
 LiveReview Login Automation Script
-Connects to Windows-side Playwright server from WSL to perform login automation
+Uses Microsoft Edge within WSL with WSLg for visible browser automation
 """
 
 import asyncio
+import os
 from playwright.async_api import async_playwright
 
-def get_windows_host_ip():
-    """Get the Windows host IP from WSL's resolv.conf and route table"""
-    # First try resolv.conf
-    try:
-        with open("/etc/resolv.conf") as f:
-            for line in f:
-                if line.startswith("nameserver"):
-                    return line.split()[1]
-    except FileNotFoundError:
-        pass
-    return "127.0.0.1"  # fallback
-
-def get_wsl_gateway_ip():
-    """Get the WSL gateway IP (Windows host) from route table"""
-    import subprocess
-    try:
-        # Get the default gateway from ip route
-        result = subprocess.run(['ip', 'route', 'show'], 
-                              capture_output=True, text=True, check=True)
-        for line in result.stdout.split('\n'):
-            if line.startswith('default via'):
-                # Extract gateway IP from "default via 192.168.128.1 dev eth0"
-                parts = line.split()
-                if len(parts) >= 3:
-                    return parts[2]
-    except (subprocess.CalledProcessError, FileNotFoundError, IndexError):
-        pass
+def find_edge_executable():
+    """Find Microsoft Edge executable path in WSL"""
+    possible_paths = [
+        "/usr/bin/microsoft-edge-dev",
+        "/usr/bin/microsoft-edge",
+        "/usr/bin/microsoft-edge-stable",
+        "/usr/bin/microsoft-edge-beta",
+        "/opt/microsoft/msedge/msedge",
+        "/opt/microsoft/msedge-dev/msedge",
+    ]
+    
+    for path in possible_paths:
+        if os.path.exists(path):
+            return path
+    
     return None
 
 async def login_to_livereview():
     """Login to LiveReview using Playwright connecting to Windows server"""
     
-    # Get Windows host IP
-    host_ip = get_windows_host_ip()
-    gateway_ip = get_wsl_gateway_ip()
+    # Find Edge executable
+    edge_path = find_edge_executable()
+    if not edge_path:
+        raise Exception("Microsoft Edge not found in WSL. Please install Microsoft Edge.")
     
-    # Try multiple connection endpoints
-    endpoints_to_try = []
-    
-    # Add gateway IP if found (most reliable for WSL)
-    if gateway_ip:
-        endpoints_to_try.append(f"ws://{gateway_ip}:9223/")
-    
-    # Add other potential endpoints
-    endpoints_to_try.extend([
-        f"ws://{host_ip}:9223/",
-        "ws://localhost:9223/",
-        "ws://127.0.0.1:9223/"
-    ])
+    print(f"Using Microsoft Edge at: {edge_path}")
     
     async with async_playwright() as p:
         browser = None
-        connection_error = None
-        
-        for ws_endpoint in endpoints_to_try:
-            try:
-                print(f"Trying to connect to Playwright server at: {ws_endpoint}")
-                # Connect to the Windows-side Playwright server using WebSocket endpoint
-                browser = await p.chromium.connect(ws_endpoint=ws_endpoint)
-                print(f"Successfully connected to: {ws_endpoint}")
-                break
-            except Exception as e:
-                print(f"Failed to connect to {ws_endpoint}: {e}")
-                connection_error = e
-                continue
-        
-        if not browser:
-            raise Exception(f"Could not connect to any Playwright server. Last error: {connection_error}")
         
         try:
-            # Create a new context with headed mode (visible browser)
-            context = await browser.new_context(
-                # Force headed mode (visible browser)
-                ignore_https_errors=True
+            # Launch Microsoft Edge in headed mode (visible browser)
+            browser = await p.chromium.launch(
+                executable_path=edge_path,
+                headless=False  # This ensures the browser window is visible
             )
             
+            print("Microsoft Edge launched successfully!")
+            
             # Create a new page
-            page = await context.new_page()
+            page = await browser.new_page()
             
             print("Navigating to LiveReview login page...")
             await page.goto("https://livereview.hexmos.site/")
@@ -112,9 +76,32 @@ async def login_to_livereview():
             current_url = page.url
             print(f"Current URL after login: {current_url}")
             
-            # Take a screenshot for verification
-            await page.screenshot(path="login_result.png")
-            print("Screenshot saved as login_result.png")
+            print("Waiting for 'Recent Activity' section to become visible...")
+            
+            try:
+                # Wait for the "Recent Activity" heading to become visible (timeout after 15 seconds)
+                await page.wait_for_selector('h3:has-text("Recent Activity")', timeout=15000)
+                print("'Recent Activity' section detected in DOM...")
+                
+                # Wait a bit more for the content to fully load after the heading appears
+                await asyncio.sleep(2)
+                
+                # Also wait for any loading indicators to disappear
+                try:
+                    await page.wait_for_selector('[data-testid="loading"], .loading, .spinner', state='hidden', timeout=5000)
+                    print("Loading indicators hidden.")
+                except:
+                    print("No loading indicators found or they didn't hide, continuing...")
+                
+                # Take a screenshot after Recent Activity appears and content loads
+                await page.screenshot(path="login_result.png")
+                print("Screenshot saved as 'login_result.png'")
+                
+            except Exception as e:
+                print(f"'Recent Activity' section did not appear within timeout: {e}")
+                # Take a screenshot anyway to see what's on the page
+                await page.screenshot(path="login_result.png")
+                print("Screenshot saved as 'login_result.png' (with timeout)")
             
             # Get page title
             title = await page.title()
@@ -124,8 +111,6 @@ async def login_to_livereview():
             await asyncio.sleep(2)
             
             print("Login automation completed successfully!")
-            print("The automation ran in headless mode on the Windows side.")
-            print("Check the screenshot 'login_result.png' to verify the result.")
             
         except Exception as e:
             print(f"Error during login automation: {e}")
