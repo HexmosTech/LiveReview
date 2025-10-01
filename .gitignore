@@ -29,3 +29,5 @@ mrmodel_*
 
 comment_tree.json
 timeline.json
+
+*.pyc

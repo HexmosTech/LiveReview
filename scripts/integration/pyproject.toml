@@ -1,0 +1,19 @@
+[project]
+name = "livereview-integration-tests"
+version = "0.1.0"
+dependencies = []
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+addopts = [
+    "-v",
+    "-s",
+    "--browser=chromium",
+    "--headed"
+]
+filterwarnings = [
+    "ignore::DeprecationWarning"
+]
