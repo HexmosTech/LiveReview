@@ -3,7 +3,8 @@ import { test, expect } from '@playwright/test';
 // Configuration constants - edit these as needed
 const CONFIG = {
   // Site URL
-  BASE_URL: 'https://livereview.hexmos.site/',
+  // BASE_URL: 'https://livereview.hexmos.site/',
+  BASE_URL: 'https://manual-talent.apps.hexmos.com/',
   
   // Organization setup
   ORGANIZATION_NAME: 'Hexmos01',
