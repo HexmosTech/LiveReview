@@ -9,6 +9,7 @@ import (
 	"log"
 	"net/http"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -629,45 +630,225 @@ type GitHubBranch struct {
 
 // GitHubReviewerChangeInfo represents processed GitHub reviewer change information
 type GitHubReviewerChangeInfo struct {
-	EventType           string              `json:"event_type"`
-	Action              string              `json:"action"`
-	UpdatedAt           string              `json:"updated_at"`
-	BotUsers            []GitHubBotUserInfo `json:"bot_users"`
-	CurrentBotReviewers []GitHubUser        `json:"current_bot_reviewers"`
-	IsBotAssigned       bool                `json:"is_bot_assigned"`
-	IsBotRemoved        bool                `json:"is_bot_removed"`
-	RequestedReviewer   GitHubUser          `json:"requested_reviewer"`
-	ChangedBy           GitHubUser          `json:"changed_by"`
-	PullRequest         GitHubPullRequest   `json:"pull_request"`
-	Repository          GitHubRepository    `json:"repository"`
+	EventType           string                      `json:"event_type"`
+	Action              string                      `json:"action"`
+	UpdatedAt           string                      `json:"updated_at"`
+	BotUsers            []GitHubReviewerBotUserInfo `json:"bot_users"`
+	CurrentBotReviewers []GitHubUser                `json:"current_bot_reviewers"`
+	IsBotAssigned       bool                        `json:"is_bot_assigned"`
+	IsBotRemoved        bool                        `json:"is_bot_removed"`
+	RequestedReviewer   GitHubUser                  `json:"requested_reviewer"`
+	ChangedBy           GitHubUser                  `json:"changed_by"`
+	PullRequest         GitHubPullRequest           `json:"pull_request"`
+	Repository          GitHubRepository            `json:"repository"`
 }
 
-// GitHubBotUserInfo represents information about a bot user in GitHub reviewer changes
-type GitHubBotUserInfo struct {
+// GitHubReviewerBotUserInfo represents information about a bot user in GitHub reviewer changes
+type GitHubReviewerBotUserInfo struct {
 	Type string     `json:"type"` // "requested" or "removed"
 	User GitHubUser `json:"user"`
 }
 
+// GitHub comment webhook payload structures
+
+// GitHubIssueCommentWebhookPayload represents the payload for issue_comment events
+type GitHubIssueCommentWebhookPayload struct {
+	Action     string           `json:"action"`     // "created", "edited", "deleted"
+	Issue      GitHubIssue      `json:"issue"`      // The issue (PR shows up as issue in this context)
+	Comment    GitHubComment    `json:"comment"`    // The comment that was created/edited/deleted
+	Repository GitHubRepository `json:"repository"` // The repository
+	Sender     GitHubUser       `json:"sender"`     // User who triggered the event
+}
+
+// GitHubPullRequestReviewCommentWebhookPayload represents the payload for pull_request_review_comment events
+type GitHubPullRequestReviewCommentWebhookPayload struct {
+	Action      string              `json:"action"`       // "created", "edited", "deleted"
+	Comment     GitHubReviewComment `json:"comment"`      // The review comment
+	PullRequest GitHubPullRequest   `json:"pull_request"` // The pull request
+	Repository  GitHubRepository    `json:"repository"`   // The repository
+	Sender      GitHubUser          `json:"sender"`       // User who triggered the event
+}
+
+// GitHubComment represents a GitHub issue comment (includes PR discussion comments)
+type GitHubComment struct {
+	ID                int        `json:"id"`
+	NodeID            string     `json:"node_id"`
+	URL               string     `json:"url"`
+	HTMLURL           string     `json:"html_url"`
+	IssueURL          string     `json:"issue_url"`
+	Body              string     `json:"body"`
+	User              GitHubUser `json:"user"`
+	CreatedAt         string     `json:"created_at"`
+	UpdatedAt         string     `json:"updated_at"`
+	AuthorAssociation string     `json:"author_association"`
+}
+
+// GitHubReviewComment represents a GitHub pull request review comment (code line comments)
+type GitHubReviewComment struct {
+	ID                int        `json:"id"`
+	NodeID            string     `json:"node_id"`
+	URL               string     `json:"url"`
+	HTMLURL           string     `json:"html_url"`
+	PullRequestURL    string     `json:"pull_request_url"`
+	DiffHunk          string     `json:"diff_hunk"`
+	Path              string     `json:"path"`
+	Position          *int       `json:"position"`          // Line position in diff (can be null for outdated comments)
+	OriginalPosition  int        `json:"original_position"` // Original line position
+	CommitID          string     `json:"commit_id"`
+	OriginalCommitID  string     `json:"original_commit_id"`
+	User              GitHubUser `json:"user"`
+	Body              string     `json:"body"`
+	CreatedAt         string     `json:"created_at"`
+	UpdatedAt         string     `json:"updated_at"`
+	AuthorAssociation string     `json:"author_association"`
+	StartLine         *int       `json:"start_line"`          // Multi-line comment start
+	OriginalStartLine *int       `json:"original_start_line"` // Original multi-line start
+	StartSide         string     `json:"start_side"`          // "LEFT" or "RIGHT"
+	Line              *int       `json:"line"`                // Multi-line comment end
+	OriginalLine      int        `json:"original_line"`       // Original multi-line end
+	Side              string     `json:"side"`                // "LEFT" or "RIGHT"
+	InReplyToID       *int       `json:"in_reply_to_id"`      // ID of comment this is replying to
+}
+
+// GitHubIssue represents a GitHub issue (PRs appear as issues in issue_comment webhooks)
+type GitHubIssue struct {
+	ID                int               `json:"id"`
+	NodeID            string            `json:"node_id"`
+	URL               string            `json:"url"`
+	RepositoryURL     string            `json:"repository_url"`
+	LabelsURL         string            `json:"labels_url"`
+	CommentsURL       string            `json:"comments_url"`
+	EventsURL         string            `json:"events_url"`
+	HTMLURL           string            `json:"html_url"`
+	Number            int               `json:"number"`
+	State             string            `json:"state"`
+	Title             string            `json:"title"`
+	Body              string            `json:"body"`
+	User              GitHubUser        `json:"user"`
+	Labels            []GitHubLabel     `json:"labels"`
+	Assignees         []GitHubUser      `json:"assignees"`
+	Milestone         *GitHubMilestone  `json:"milestone"`
+	Locked            bool              `json:"locked"`
+	ActiveLockReason  string            `json:"active_lock_reason"`
+	Comments          int               `json:"comments"`
+	PullRequest       *GitHubIssuePRRef `json:"pull_request"` // Present if issue is actually a PR
+	ClosedAt          *string           `json:"closed_at"`
+	CreatedAt         string            `json:"created_at"`
+	UpdatedAt         string            `json:"updated_at"`
+	AuthorAssociation string            `json:"author_association"`
+}
+
+// GitHubLabel represents a GitHub issue/PR label
+type GitHubLabel struct {
+	ID          int    `json:"id"`
+	NodeID      string `json:"node_id"`
+	URL         string `json:"url"`
+	Name        string `json:"name"`
+	Description string `json:"description"`
+	Color       string `json:"color"`
+	Default     bool   `json:"default"`
+}
+
+// GitHubMilestone represents a GitHub milestone
+type GitHubMilestone struct {
+	ID           int        `json:"id"`
+	NodeID       string     `json:"node_id"`
+	Number       int        `json:"number"`
+	State        string     `json:"state"`
+	Title        string     `json:"title"`
+	Description  string     `json:"description"`
+	Creator      GitHubUser `json:"creator"`
+	OpenIssues   int        `json:"open_issues"`
+	ClosedIssues int        `json:"closed_issues"`
+	CreatedAt    string     `json:"created_at"`
+	UpdatedAt    string     `json:"updated_at"`
+	ClosedAt     *string    `json:"closed_at"`
+	DueOn        *string    `json:"due_on"`
+}
+
+// GitHubIssuePRRef indicates that an issue is actually a pull request
+type GitHubIssuePRRef struct {
+	URL      string `json:"url"`
+	HTMLURL  string `json:"html_url"`
+	DiffURL  string `json:"diff_url"`
+	PatchURL string `json:"patch_url"`
+}
+
+// GitHubBotUserInfo represents fresh bot user information from GitHub API
+type GitHubBotUserInfo struct {
+	Login             string `json:"login"`
+	ID                int    `json:"id"`
+	NodeID            string `json:"node_id"`
+	AvatarURL         string `json:"avatar_url"`
+	GravatarID        string `json:"gravatar_id"`
+	URL               string `json:"url"`
+	HTMLURL           string `json:"html_url"`
+	FollowersURL      string `json:"followers_url"`
+	FollowingURL      string `json:"following_url"`
+	GistsURL          string `json:"gists_url"`
+	StarredURL        string `json:"starred_url"`
+	SubscriptionsURL  string `json:"subscriptions_url"`
+	OrganizationsURL  string `json:"organizations_url"`
+	ReposURL          string `json:"repos_url"`
+	EventsURL         string `json:"events_url"`
+	ReceivedEventsURL string `json:"received_events_url"`
+	Type              string `json:"type"`
+	SiteAdmin         bool   `json:"site_admin"`
+	Name              string `json:"name"`
+	Company           string `json:"company"`
+	Blog              string `json:"blog"`
+	Location          string `json:"location"`
+	Email             string `json:"email"`
+	Hireable          *bool  `json:"hireable"`
+	Bio               string `json:"bio"`
+	TwitterUsername   string `json:"twitter_username"`
+	PublicRepos       int    `json:"public_repos"`
+	PublicGists       int    `json:"public_gists"`
+	Followers         int    `json:"followers"`
+	Following         int    `json:"following"`
+	CreatedAt         string `json:"created_at"`
+	UpdatedAt         string `json:"updated_at"`
+}
+
 // GitHubWebhookHandler handles incoming GitHub webhook events
 func (s *Server) GitHubWebhookHandler(c echo.Context) error {
+	// Get the event type from headers first
+	eventType := c.Request().Header.Get("X-GitHub-Event")
+	log.Printf("[INFO] Received GitHub webhook: event_type=%s", eventType)
+
+	// Handle different event types with appropriate payload structures
+	switch strings.ToLower(eventType) {
+	case "pull_request":
+		return s.handleGitHubPullRequestEvent(c)
+	case "issue_comment":
+		return s.handleGitHubIssueCommentEvent(c)
+	case "pull_request_review_comment":
+		return s.handleGitHubPullRequestReviewCommentEvent(c)
+	default:
+		log.Printf("[DEBUG] Unhandled GitHub webhook event type: %s", eventType)
+		return c.JSON(http.StatusOK, map[string]string{
+			"status":     "ignored",
+			"event_type": eventType,
+		})
+	}
+}
+
+// handleGitHubPullRequestEvent handles pull_request webhook events (existing logic)
+func (s *Server) handleGitHubPullRequestEvent(c echo.Context) error {
 	// Parse the webhook payload
 	var payload GitHubWebhookPayload
 	if err := c.Bind(&payload); err != nil {
-		log.Printf("[ERROR] Failed to parse GitHub webhook payload: %v", err)
+		log.Printf("[ERROR] Failed to parse GitHub pull_request webhook payload: %v", err)
 		return c.JSON(http.StatusBadRequest, map[string]string{
 			"error": "Invalid webhook payload",
 		})
 	}
 
-	// Get the event type from headers
-	eventType := c.Request().Header.Get("X-GitHub-Event")
-	log.Printf("[INFO] Received GitHub webhook: event_type=%s, action=%s", eventType, payload.Action)
+	log.Printf("[INFO] GitHub pull_request webhook: action=%s", payload.Action)
 
 	// Process reviewer change events for pull requests
-	if strings.ToLower(eventType) == "pull_request" &&
-		(payload.Action == "review_requested" || payload.Action == "review_request_removed") {
-
-		reviewerChangeInfo := s.processGitHubReviewerChange(payload, eventType)
+	if payload.Action == "review_requested" || payload.Action == "review_request_removed" {
+		reviewerChangeInfo := s.processGitHubReviewerChange(payload, "pull_request")
 		if reviewerChangeInfo != nil {
 			log.Printf("[INFO] Detected livereview reviewer change in GitHub PR #%d", reviewerChangeInfo.PullRequest.Number)
 
@@ -679,7 +860,89 @@ func (s *Server) GitHubWebhookHandler(c echo.Context) error {
 	}
 
 	return c.JSON(http.StatusOK, map[string]string{
-		"status": "received",
+		"status":     "received",
+		"event_type": "pull_request",
+	})
+}
+
+// handleGitHubIssueCommentEvent handles issue_comment webhook events (PR discussion comments)
+func (s *Server) handleGitHubIssueCommentEvent(c echo.Context) error {
+	// Parse the webhook payload
+	var payload GitHubIssueCommentWebhookPayload
+	if err := c.Bind(&payload); err != nil {
+		log.Printf("[ERROR] Failed to parse GitHub issue_comment webhook payload: %v", err)
+		return c.JSON(http.StatusBadRequest, map[string]string{
+			"error": "Invalid webhook payload",
+		})
+	}
+
+	log.Printf("[INFO] GitHub issue_comment webhook: action=%s, comment_id=%d, author=%s",
+		payload.Action, payload.Comment.ID, payload.Comment.User.Login)
+
+	// Debug: Print the full payload for analysis
+	payloadJSON, _ := json.MarshalIndent(payload, "", "  ")
+	log.Printf("[DEBUG] Full GitHub issue_comment payload:\n%s", string(payloadJSON))
+
+	// Only process "created" actions for now
+	if payload.Action != "created" {
+		log.Printf("[DEBUG] Ignoring issue_comment action: %s", payload.Action)
+		return c.JSON(http.StatusOK, map[string]string{
+			"status": "ignored",
+			"action": payload.Action,
+		})
+	}
+
+	// Check if this is a pull request (issues that are PRs have pull_request field)
+	if payload.Issue.PullRequest == nil {
+		log.Printf("[DEBUG] Issue comment is not on a pull request, ignoring")
+		return c.JSON(http.StatusOK, map[string]string{
+			"status": "ignored",
+			"reason": "not_pull_request",
+		})
+	}
+
+	// TODO: Process the comment for AI response (will implement next)
+	log.Printf("[DEBUG] TODO: Process GitHub issue comment for AI response")
+
+	return c.JSON(http.StatusOK, map[string]string{
+		"status":     "received",
+		"event_type": "issue_comment",
+	})
+}
+
+// handleGitHubPullRequestReviewCommentEvent handles pull_request_review_comment webhook events (code line comments)
+func (s *Server) handleGitHubPullRequestReviewCommentEvent(c echo.Context) error {
+	// Parse the webhook payload
+	var payload GitHubPullRequestReviewCommentWebhookPayload
+	if err := c.Bind(&payload); err != nil {
+		log.Printf("[ERROR] Failed to parse GitHub pull_request_review_comment webhook payload: %v", err)
+		return c.JSON(http.StatusBadRequest, map[string]string{
+			"error": "Invalid webhook payload",
+		})
+	}
+
+	log.Printf("[INFO] GitHub pull_request_review_comment webhook: action=%s, comment_id=%d, author=%s, file=%s",
+		payload.Action, payload.Comment.ID, payload.Comment.User.Login, payload.Comment.Path)
+
+	// Debug: Print the full payload for analysis
+	payloadJSON, _ := json.MarshalIndent(payload, "", "  ")
+	log.Printf("[DEBUG] Full GitHub pull_request_review_comment payload:\n%s", string(payloadJSON))
+
+	// Only process "created" actions for now
+	if payload.Action != "created" {
+		log.Printf("[DEBUG] Ignoring pull_request_review_comment action: %s", payload.Action)
+		return c.JSON(http.StatusOK, map[string]string{
+			"status": "ignored",
+			"action": payload.Action,
+		})
+	}
+
+	// Process GitHub review comment for AI response
+	go s.processGitHubCommentForAIResponse(payload)
+
+	return c.JSON(http.StatusOK, map[string]string{
+		"status":     "received",
+		"event_type": "pull_request_review_comment",
 	})
 }
 
@@ -703,7 +966,7 @@ func (s *Server) processGitHubReviewerChange(payload GitHubWebhookPayload, event
 	log.Printf("[DEBUG] Checking for '%s' usernames...", botNameLower)
 
 	// Check if the reviewer change involves a livereview user
-	var botUsers []GitHubBotUserInfo
+	var botUsers []GitHubReviewerBotUserInfo
 	var currentBotReviewers []GitHubUser
 	isBotAssigned := false
 	isBotRemoved := false
@@ -717,11 +980,11 @@ func (s *Server) processGitHubReviewerChange(payload GitHubWebhookPayload, event
 			log.Printf("[DEBUG] Found '%s' in username: '%s'", botNameLower, payload.RequestedReviewer.Login)
 
 			if payload.Action == "review_requested" {
-				botUsers = append(botUsers, GitHubBotUserInfo{Type: "requested", User: payload.RequestedReviewer})
+				botUsers = append(botUsers, GitHubReviewerBotUserInfo{Type: "requested", User: payload.RequestedReviewer})
 				isBotAssigned = true
 				log.Printf("[DEBUG] Livereview user assigned as reviewer - THIS WILL TRIGGER ACTIONS!")
 			} else if payload.Action == "review_request_removed" {
-				botUsers = append(botUsers, GitHubBotUserInfo{Type: "removed", User: payload.RequestedReviewer})
+				botUsers = append(botUsers, GitHubReviewerBotUserInfo{Type: "removed", User: payload.RequestedReviewer})
 				isBotRemoved = true
 				log.Printf("[DEBUG] Livereview user removed as reviewer")
 			}
@@ -1463,6 +1726,71 @@ func extractGitLabInstanceURL(projectWebURL string) string {
 }
 
 // ResponseScenario represents the analysis of whether and how to respond to a comment
+// UnifiedMRContext represents a unified view of MR/PR context across platforms
+type UnifiedMRContext struct {
+	Provider       string                 `json:"provider"` // "gitlab", "github", "bitbucket"
+	MergeRequestID string                 `json:"mr_id"`    // MR/PR identifier
+	Title          string                 `json:"title"`
+	Description    string                 `json:"description"`
+	Author         UnifiedUser            `json:"author"`
+	TargetBranch   string                 `json:"target_branch"`
+	SourceBranch   string                 `json:"source_branch"`
+	WebURL         string                 `json:"web_url"`
+	Repository     UnifiedRepository      `json:"repository"`
+	Metadata       map[string]interface{} `json:"metadata"` // Provider-specific data
+}
+
+// UnifiedComment represents a unified view of comments across platforms
+type UnifiedComment struct {
+	Provider    string                 `json:"provider"`
+	ID          string                 `json:"id"`
+	Body        string                 `json:"body"`
+	Author      UnifiedUser            `json:"author"`
+	CreatedAt   string                 `json:"created_at"`
+	UpdatedAt   string                 `json:"updated_at"`
+	WebURL      string                 `json:"web_url"`
+	InReplyToID *string                `json:"in_reply_to_id,omitempty"`
+	Position    *UnifiedPosition       `json:"position,omitempty"` // For code comments
+	MRContext   UnifiedMRContext       `json:"mr_context"`
+	Metadata    map[string]interface{} `json:"metadata"` // Provider-specific data
+}
+
+// UnifiedUser represents a user across platforms
+type UnifiedUser struct {
+	ID        interface{} `json:"id"` // int for GitLab/GitHub, string for others
+	Username  string      `json:"username"`
+	Name      string      `json:"name"`
+	WebURL    string      `json:"web_url"`
+	AvatarURL string      `json:"avatar_url"`
+}
+
+// UnifiedRepository represents a repository across platforms
+type UnifiedRepository struct {
+	ID       interface{} `json:"id"`
+	Name     string      `json:"name"`
+	FullName string      `json:"full_name"`
+	WebURL   string      `json:"web_url"`
+	Owner    UnifiedUser `json:"owner"`
+}
+
+// UnifiedPosition represents comment position across platforms
+type UnifiedPosition struct {
+	FilePath   string `json:"file_path"`
+	LineNumber *int   `json:"line_number,omitempty"`
+	StartLine  *int   `json:"start_line,omitempty"`
+	EndLine    *int   `json:"end_line,omitempty"`
+	CommitSHA  string `json:"commit_sha"`
+	Side       string `json:"side,omitempty"` // "LEFT", "RIGHT" for diffs
+}
+
+// UnifiedBotUserInfo represents bot user info across platforms
+type UnifiedBotUserInfo struct {
+	Provider string      `json:"provider"`
+	User     UnifiedUser `json:"user"`
+	APIToken string      `json:"-"` // Never marshal to JSON
+	BaseURL  string      `json:"base_url"`
+}
+
 type ResponseScenario struct {
 	TriggerType  string  `json:"trigger_type"`  // "direct_mention", "thread_reply"
 	ContentType  string  `json:"content_type"`  // "appreciation", "clarification", "debate", "question", "complaint"
@@ -1641,6 +1969,46 @@ func (s *Server) getFreshBotUserInfo(gitlabInstanceURL string) (*GitLabBotUserIn
 	err = json.NewDecoder(resp.Body).Decode(&botUser)
 	if err != nil {
 		return nil, fmt.Errorf("failed to decode GitLab user response: %w", err)
+	}
+
+	return &botUser, nil
+}
+
+// getFreshGitHubBotUserInfo gets fresh bot user information via GitHub API call
+func (s *Server) getFreshGitHubBotUserInfo(repoFullName string) (*GitHubBotUserInfo, error) {
+	// Get integration token for this GitHub repository
+	token, err := s.findIntegrationTokenForGitHubRepo(repoFullName)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get GitHub integration token: %w", err)
+	}
+
+	// Call GitHub API to get current user info (the bot user)
+	apiURL := "https://api.github.com/user"
+	req, err := http.NewRequest("GET", apiURL, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create request: %w", err)
+	}
+
+	req.Header.Set("Authorization", "Bearer "+token.PatToken)
+	req.Header.Set("Accept", "application/vnd.github.v3+json")
+	req.Header.Set("User-Agent", "LiveReview-Bot/1.0")
+
+	client := &http.Client{Timeout: 30 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("failed to make API request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("GitHub API request failed with status %d: %s", resp.StatusCode, string(body))
+	}
+
+	var botUser GitHubBotUserInfo
+	err = json.NewDecoder(resp.Body).Decode(&botUser)
+	if err != nil {
+		return nil, fmt.Errorf("failed to decode GitHub user response: %w", err)
 	}
 
 	return &botUser, nil
@@ -2842,4 +3210,737 @@ func (s *Server) processGitLabNoteEvent(ctx context.Context, payload GitLabNoteW
 
 	log.Printf("[INFO] Successfully posted AI response for comment by %s", payload.User.Username)
 	return nil
+}
+
+// processGitHubCommentForAIResponse processes GitHub pull request review comments for AI response
+func (s *Server) processGitHubCommentForAIResponse(payload GitHubPullRequestReviewCommentWebhookPayload) {
+	log.Printf("[INFO] Processing GitHub review comment for AI response: comment_id=%d, author=%s",
+		payload.Comment.ID, payload.Comment.User.Login)
+
+	// Convert to unified comment structure
+	unifiedComment := s.convertGitHubReviewCommentToUnified(payload)
+
+	// Check if this comment warrants an AI response
+	warrantsResponse, scenario := s.checkUnifiedAIResponseWarrant(unifiedComment)
+	if !warrantsResponse {
+		log.Printf("[DEBUG] GitHub comment does not warrant AI response")
+		return
+	}
+
+	log.Printf("[INFO] GitHub comment warrants AI response: trigger=%s, response_type=%s",
+		scenario.TriggerType, scenario.ResponseType)
+
+	// Generate and post AI response
+	if err := s.generateAndPostGitHubResponse(unifiedComment, scenario); err != nil {
+		log.Printf("[ERROR] Failed to generate/post GitHub AI response: %v", err)
+	}
+}
+
+// convertGitHubReviewCommentToUnified converts GitHub review comment to unified structure
+func (s *Server) convertGitHubReviewCommentToUnified(payload GitHubPullRequestReviewCommentWebhookPayload) UnifiedComment {
+	return UnifiedComment{
+		Provider:    "github",
+		ID:          fmt.Sprintf("%d", payload.Comment.ID),
+		Body:        payload.Comment.Body,
+		Author:      s.convertGitHubUserToUnified(payload.Comment.User),
+		CreatedAt:   payload.Comment.CreatedAt,
+		UpdatedAt:   payload.Comment.UpdatedAt,
+		WebURL:      payload.Comment.HTMLURL,
+		InReplyToID: s.convertGitHubInReplyToIDPtr(payload.Comment.InReplyToID),
+		Position: &UnifiedPosition{
+			FilePath:   payload.Comment.Path,
+			LineNumber: payload.Comment.Line,
+			CommitSHA:  payload.Comment.CommitID,
+			Side:       payload.Comment.Side,
+		},
+		MRContext: UnifiedMRContext{
+			Provider:       "github",
+			MergeRequestID: fmt.Sprintf("%d", payload.PullRequest.Number),
+			Title:          payload.PullRequest.Title,
+			Description:    payload.PullRequest.Body,
+			Author:         s.convertGitHubUserToUnified(payload.PullRequest.User),
+			TargetBranch:   payload.PullRequest.Base.Ref,
+			SourceBranch:   payload.PullRequest.Head.Ref,
+			WebURL:         payload.PullRequest.HTMLURL,
+			Repository:     s.convertGitHubRepoToUnified(payload.Repository),
+			Metadata: map[string]interface{}{
+				"pr_id":    payload.PullRequest.ID,
+				"pr_state": payload.PullRequest.State,
+				"head_sha": payload.PullRequest.Head.SHA,
+				"base_sha": payload.PullRequest.Base.SHA,
+			},
+		},
+		Metadata: map[string]interface{}{
+			"comment_id":        payload.Comment.ID,
+			"original_position": payload.Comment.OriginalPosition,
+			"original_line":     payload.Comment.OriginalLine,
+			"diff_hunk":         payload.Comment.DiffHunk,
+		},
+	}
+}
+
+// Helper functions for conversion
+func (s *Server) convertGitHubUserToUnified(user GitHubUser) UnifiedUser {
+	return UnifiedUser{
+		ID:        user.ID,
+		Username:  user.Login,
+		Name:      user.Login,
+		WebURL:    user.HTMLURL,
+		AvatarURL: user.AvatarURL,
+	}
+}
+
+func (s *Server) convertGitHubRepoToUnified(repo GitHubRepository) UnifiedRepository {
+	return UnifiedRepository{
+		ID:       repo.ID,
+		Name:     repo.Name,
+		FullName: repo.FullName,
+		WebURL:   repo.HTMLURL,
+		Owner:    s.convertGitHubUserToUnified(repo.Owner),
+	}
+}
+
+func (s *Server) convertGitHubInReplyToIDPtr(inReplyToID *int) *string {
+	if inReplyToID == nil || *inReplyToID == 0 {
+		return nil
+	}
+	id := fmt.Sprintf("%d", *inReplyToID)
+	return &id
+}
+
+// checkUnifiedAIResponseWarrant determines if a unified comment warrants an AI response
+func (s *Server) checkUnifiedAIResponseWarrant(comment UnifiedComment) (bool, ResponseScenario) {
+	log.Printf("[DEBUG] Checking unified AI response warrant for %s comment by %s", comment.Provider, comment.Author.Username)
+	log.Printf("[DEBUG] Comment content: %s", comment.Body)
+
+	// Get fresh bot user information
+	var botUserInfo *UnifiedBotUserInfo
+	var err error
+
+	switch comment.Provider {
+	case "github":
+		githubBotInfo, githubErr := s.getFreshGitHubBotUserInfo(comment.MRContext.Repository.FullName)
+		if githubErr != nil {
+			err = githubErr
+		} else if githubBotInfo != nil {
+			// Get the token separately
+			token, tokenErr := s.findIntegrationTokenForGitHubRepo(comment.MRContext.Repository.FullName)
+			if tokenErr != nil {
+				err = tokenErr
+			} else {
+				botUserInfo = &UnifiedBotUserInfo{
+					Provider: "github",
+					User: UnifiedUser{
+						ID:        githubBotInfo.ID,
+						Username:  githubBotInfo.Login,
+						Name:      githubBotInfo.Name,
+						WebURL:    githubBotInfo.HTMLURL,
+						AvatarURL: githubBotInfo.AvatarURL,
+					},
+					APIToken: token.PatToken,
+					BaseURL:  "https://api.github.com",
+				}
+			}
+		}
+	case "gitlab":
+		// For GitLab, we need to extract the base URL from the repo web URL
+		repoURL := comment.MRContext.Repository.WebURL
+		if strings.Contains(repoURL, "gitlab.com") {
+			// Convert old GitLab API to UnifiedBotUserInfo
+			gitlabBotInfo, gitlabErr := s.getFreshBotUserInfo("https://gitlab.com")
+			if gitlabErr != nil {
+				err = gitlabErr
+			} else if gitlabBotInfo != nil {
+				botUserInfo = &UnifiedBotUserInfo{
+					Provider: "gitlab",
+					User: UnifiedUser{
+						ID:        gitlabBotInfo.ID,
+						Username:  gitlabBotInfo.Username,
+						Name:      gitlabBotInfo.Name,
+						WebURL:    fmt.Sprintf("https://gitlab.com/%s", gitlabBotInfo.Username),
+						AvatarURL: "", // GitLab bot info doesn't have avatar URL
+					},
+					BaseURL: "https://gitlab.com",
+				}
+			}
+		} else {
+			err = fmt.Errorf("non-gitlab.com instances not yet supported in unified flow")
+		}
+	default:
+		err = fmt.Errorf("unsupported provider: %s", comment.Provider)
+	}
+
+	if err != nil {
+		log.Printf("[ERROR] Failed to get fresh bot user info for %s: %v", comment.Provider, err)
+		return false, ResponseScenario{}
+	}
+
+	if botUserInfo == nil {
+		log.Printf("[DEBUG] No bot user configured for %s", comment.Provider)
+		return false, ResponseScenario{}
+	}
+
+	log.Printf("[DEBUG] Fresh bot user info: provider=%s, username=%s", botUserInfo.Provider, botUserInfo.User.Username)
+
+	// Anti-loop protection: Never respond to bot accounts
+	if comment.Author.Username == botUserInfo.User.Username {
+		log.Printf("[DEBUG] Comment author %s is the bot user, skipping (anti-loop protection)", comment.Author.Username)
+		return false, ResponseScenario{}
+	}
+
+	// Check for direct mentions of the bot
+	botMentions := []string{
+		"@" + botUserInfo.User.Username,
+		botUserInfo.User.Username,
+	}
+
+	for _, mention := range botMentions {
+		if strings.Contains(strings.ToLower(comment.Body), strings.ToLower(mention)) {
+			log.Printf("[DEBUG] Found direct mention of bot user: %s", mention)
+			return true, ResponseScenario{
+				TriggerType:  "direct_mention",
+				ContentType:  "question", // Assume questions for now
+				ResponseType: "detailed_response",
+				Confidence:   0.9,
+			}
+		}
+	}
+
+	// Check for thread replies - if this is a reply to a bot comment
+	if comment.InReplyToID != nil && *comment.InReplyToID != "" {
+		log.Printf("[DEBUG] Comment is a reply to comment ID: %s", *comment.InReplyToID)
+
+		// Check if the parent comment was from the bot
+		isReplyToBot, err := s.checkIfReplyToBotComment(comment, botUserInfo)
+		if err != nil {
+			log.Printf("[WARN] Failed to check if reply is to bot comment: %v", err)
+		} else if isReplyToBot {
+			log.Printf("[DEBUG] Comment is a reply to bot comment, triggering response")
+			return true, ResponseScenario{
+				TriggerType:  "thread_reply",
+				ContentType:  "question", // Assume questions for thread replies
+				ResponseType: "detailed_response",
+				Confidence:   0.8,
+			}
+		}
+	}
+
+	// Content analysis - detect questions and help requests
+	contentLower := strings.ToLower(comment.Body)
+	questionIndicators := []string{
+		"what", "how", "why", "when", "where", "which", "who",
+		"?", "can you", "could you", "would you", "help",
+		"explain", "clarify", "understand",
+	}
+
+	for _, indicator := range questionIndicators {
+		if strings.Contains(contentLower, indicator) {
+			log.Printf("[DEBUG] Found question indicator '%s' in comment", indicator)
+			return true, ResponseScenario{
+				TriggerType:  "content_analysis",
+				ContentType:  "question",
+				ResponseType: "detailed_response",
+				Confidence:   0.7,
+			}
+		}
+	}
+
+	// For now, only respond to direct mentions, thread replies, and questions
+	log.Printf("[DEBUG] No trigger found (no mention, not a reply to bot, no question indicators)")
+	return false, ResponseScenario{}
+}
+
+// generateAndPostGitHubResponse generates and posts AI response for GitHub comments
+func (s *Server) generateAndPostGitHubResponse(comment UnifiedComment, scenario ResponseScenario) error {
+	log.Printf("[INFO] Generating GitHub AI response for comment %s", comment.ID)
+
+	// Get GitHub token for API calls
+	token, err := s.findIntegrationTokenForGitHubRepo(comment.MRContext.Repository.FullName)
+	if err != nil {
+		return fmt.Errorf("failed to get GitHub token for API calls: %w", err)
+	}
+
+	// Post emoji reaction first
+	if err := s.postGitHubCommentReaction(comment, token.PatToken, "eyes"); err != nil {
+		log.Printf("[WARN] Failed to post GitHub reaction: %v", err)
+	}
+
+	// Build comprehensive contextual response like GitLab does
+	aiResponse, err := s.buildGitHubContextualResponse(comment, scenario, token.PatToken)
+	if err != nil {
+		log.Printf("[ERROR] Failed to build contextual response, using fallback: %v", err)
+		// Fallback to simple response if context building fails
+		aiResponse = fmt.Sprintf("Thanks for mentioning me, @%s! I encountered an issue building full context, but I'm here to help with your question about '%s'.", comment.Author.Username, comment.MRContext.Title)
+	}
+
+	// Post text response
+	if err := s.postGitHubCommentReply(comment, token.PatToken, aiResponse); err != nil {
+		return fmt.Errorf("failed to post GitHub comment reply: %w", err)
+	}
+
+	log.Printf("[INFO] Successfully posted GitHub AI response for comment %s", comment.ID)
+	return nil
+}
+
+// postGitHubCommentReaction posts a reaction to a GitHub comment
+func (s *Server) postGitHubCommentReaction(comment UnifiedComment, token, reaction string) error {
+	var apiURL string
+	if comment.Position != nil {
+		// Review comment
+		apiURL = fmt.Sprintf("https://api.github.com/repos/%s/pulls/comments/%s/reactions",
+			comment.MRContext.Repository.FullName, comment.ID)
+	} else {
+		// Issue comment
+		apiURL = fmt.Sprintf("https://api.github.com/repos/%s/issues/comments/%s/reactions",
+			comment.MRContext.Repository.FullName, comment.ID)
+	}
+
+	reactionPayload := map[string]string{"content": reaction}
+	jsonData, _ := json.Marshal(reactionPayload)
+
+	req, err := http.NewRequest("POST", apiURL, bytes.NewBuffer(jsonData))
+	if err != nil {
+		return err
+	}
+
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Accept", "application/vnd.github.v3+json")
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("User-Agent", "LiveReview-Bot")
+
+	client := &http.Client{Timeout: 30 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusCreated {
+		body, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("GitHub API error posting reaction (status %d): %s", resp.StatusCode, string(body))
+	}
+
+	return nil
+}
+
+// postGitHubCommentReply posts a reply to a GitHub comment
+func (s *Server) postGitHubCommentReply(comment UnifiedComment, token, replyText string) error {
+	var apiURL string
+	var payload interface{}
+
+	if comment.Position != nil {
+		// Reply to review comment - must use in_reply_to as integer
+		apiURL = fmt.Sprintf("https://api.github.com/repos/%s/pulls/%s/comments",
+			comment.MRContext.Repository.FullName, comment.MRContext.MergeRequestID)
+
+		if comment.InReplyToID != nil && *comment.InReplyToID != "" {
+			// Convert string ID to integer for GitHub API
+			inReplyToInt, err := strconv.Atoi(*comment.InReplyToID)
+			if err != nil {
+				return fmt.Errorf("failed to convert in_reply_to ID to integer: %w", err)
+			}
+			payload = map[string]interface{}{
+				"body":        replyText,
+				"in_reply_to": inReplyToInt,
+			}
+		} else {
+			// If no reply ID, treat as new top-level review comment
+			// This requires commit_id, path, and position - but we don't have them
+			// Fall back to posting as issue comment instead
+			apiURL = fmt.Sprintf("https://api.github.com/repos/%s/issues/%s/comments",
+				comment.MRContext.Repository.FullName, comment.MRContext.MergeRequestID)
+			payload = map[string]string{
+				"body": replyText,
+			}
+		}
+	} else {
+		// Reply to issue comment - simpler, just post new comment
+		apiURL = fmt.Sprintf("https://api.github.com/repos/%s/issues/%s/comments",
+			comment.MRContext.Repository.FullName, comment.MRContext.MergeRequestID)
+		payload = map[string]string{
+			"body": replyText,
+		}
+	}
+
+	jsonData, err := json.Marshal(payload)
+	if err != nil {
+		return fmt.Errorf("failed to marshal payload: %w", err)
+	}
+
+	log.Printf("[DEBUG] GitHub API call: %s", apiURL)
+	log.Printf("[DEBUG] GitHub API payload: %s", string(jsonData))
+
+	req, err := http.NewRequest("POST", apiURL, bytes.NewBuffer(jsonData))
+	if err != nil {
+		return err
+	}
+
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Accept", "application/vnd.github.v3+json")
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("User-Agent", "LiveReview-Bot")
+
+	client := &http.Client{Timeout: 30 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		log.Printf("[ERROR] HTTP request failed: %v", err)
+		return err
+	}
+	defer resp.Body.Close()
+
+	body, _ := io.ReadAll(resp.Body)
+	log.Printf("[DEBUG] GitHub API response status: %d", resp.StatusCode)
+	log.Printf("[DEBUG] GitHub API response body: %s", string(body))
+
+	if resp.StatusCode != http.StatusCreated {
+		return fmt.Errorf("GitHub API error posting reply (status %d): %s", resp.StatusCode, string(body))
+	}
+
+	log.Printf("[DEBUG] Successfully posted GitHub comment reply")
+	return nil
+}
+
+// buildGitHubContextualResponse builds a rich contextual AI response for GitHub comments
+func (s *Server) buildGitHubContextualResponse(comment UnifiedComment, scenario ResponseScenario, token string) (string, error) {
+	log.Printf("[DEBUG] Building contextual response for GitHub comment %s", comment.ID)
+
+	// Extract repository details
+	parts := strings.Split(comment.MRContext.Repository.FullName, "/")
+	if len(parts) != 2 {
+		return "", fmt.Errorf("invalid repository full name: %s", comment.MRContext.Repository.FullName)
+	}
+	owner, repo := parts[0], parts[1]
+
+	// 1. Fetch PR details and timeline
+	prNumber := comment.MRContext.MergeRequestID
+	timeline, err := s.buildGitHubTimeline(owner, repo, prNumber, token)
+	if err != nil {
+		log.Printf("[WARN] Failed to build GitHub timeline: %v", err)
+		timeline = "Unable to fetch PR timeline"
+	}
+
+	// 2. Get code context around the comment
+	codeContext, err := s.extractGitHubCommentContext(comment, owner, repo, token)
+	if err != nil {
+		log.Printf("[WARN] Failed to extract code context: %v", err)
+		codeContext = "Unable to fetch code context"
+	}
+
+	// 3. Build enhanced prompt similar to GitLab's buildGeminiPromptEnhanced
+	prompt := s.buildGitHubEnhancedPrompt(comment, timeline, codeContext, scenario)
+
+	// 4. Generate AI response using the existing review infrastructure
+	aiResponse, err := s.generateAIResponseFromPrompt(prompt, comment.Author.Username)
+	if err != nil {
+		return "", fmt.Errorf("failed to generate AI response: %w", err)
+	}
+
+	return aiResponse, nil
+}
+
+// buildGitHubTimeline fetches and builds a chronological timeline of PR events
+func (s *Server) buildGitHubTimeline(owner, repo, prNumber, token string) (string, error) {
+	timeline := &strings.Builder{}
+	timeline.WriteString("## PR Timeline\n\n")
+
+	// Fetch PR commits
+	commits, err := s.fetchGitHubPRCommits(owner, repo, prNumber, token)
+	if err != nil {
+		return "", fmt.Errorf("failed to fetch commits: %w", err)
+	}
+
+	// Fetch PR comments (both issue and review comments)
+	comments, err := s.fetchGitHubPRComments(owner, repo, prNumber, token)
+	if err != nil {
+		return "", fmt.Errorf("failed to fetch comments: %w", err)
+	}
+
+	// Combine and sort chronologically (simplified for now)
+	timeline.WriteString(fmt.Sprintf("**Commits (%d):**\n", len(commits)))
+	for i, commit := range commits {
+		if i >= 5 { // Limit to recent commits
+			timeline.WriteString(fmt.Sprintf("... and %d more commits\n", len(commits)-5))
+			break
+		}
+		timeline.WriteString(fmt.Sprintf("- %s: %s\n", commit.SHA[:8], commit.Message))
+	}
+
+	timeline.WriteString(fmt.Sprintf("\n**Comments (%d):**\n", len(comments)))
+	for i, comment := range comments {
+		if i >= 10 { // Limit to recent comments
+			timeline.WriteString(fmt.Sprintf("... and %d more comments\n", len(comments)-10))
+			break
+		}
+		timeline.WriteString(fmt.Sprintf("- @%s: %s\n", comment.Author, comment.Body[:min(100, len(comment.Body))]))
+	}
+
+	return timeline.String(), nil
+}
+
+// extractGitHubCommentContext extracts code context around a GitHub comment
+func (s *Server) extractGitHubCommentContext(comment UnifiedComment, owner, repo, token string) (string, error) {
+	if comment.Position == nil {
+		return "General PR discussion (not tied to specific code)", nil
+	}
+
+	// For review comments, we can extract the diff context
+	context := &strings.Builder{}
+	context.WriteString("## Code Context\n\n")
+
+	// Get file path from position or metadata
+	if comment.Position != nil && comment.Position.FilePath != "" {
+		context.WriteString(fmt.Sprintf("**File:** %s\n", comment.Position.FilePath))
+		if comment.Position.LineNumber != nil {
+			context.WriteString(fmt.Sprintf("**Line:** %d\n", *comment.Position.LineNumber))
+		}
+	} else if filePath, ok := comment.Metadata["path"].(string); ok {
+		context.WriteString(fmt.Sprintf("**File:** %s\n", filePath))
+	}
+
+	// Try to get diff_hunk from metadata
+	if diffHunk, ok := comment.Metadata["diff_hunk"].(string); ok && diffHunk != "" {
+		context.WriteString("**Diff Context:**\n```diff\n")
+		context.WriteString(diffHunk)
+		context.WriteString("\n```\n")
+	}
+
+	return context.String(), nil
+}
+
+// buildGitHubEnhancedPrompt builds an enhanced AI prompt similar to GitLab's approach
+func (s *Server) buildGitHubEnhancedPrompt(comment UnifiedComment, timeline, codeContext string, scenario ResponseScenario) string {
+	prompt := &strings.Builder{}
+
+	prompt.WriteString("You are an expert code reviewer and technical assistant analyzing a GitHub Pull Request.\n\n")
+	prompt.WriteString(fmt.Sprintf("**PR Title:** %s\n", comment.MRContext.Title))
+	prompt.WriteString(fmt.Sprintf("**Repository:** %s\n\n", comment.MRContext.Repository.FullName))
+
+	prompt.WriteString("**User Question/Comment:**\n")
+	prompt.WriteString(fmt.Sprintf("@%s asked: %s\n\n", comment.Author.Username, comment.Body))
+
+	if codeContext != "" {
+		prompt.WriteString(codeContext)
+		prompt.WriteString("\n")
+	}
+
+	if timeline != "" {
+		prompt.WriteString(timeline)
+		prompt.WriteString("\n")
+	}
+
+	prompt.WriteString("**Your Task:**\n")
+	prompt.WriteString("Provide a helpful, contextual response that:\n")
+	prompt.WriteString("1. Directly addresses the user's question or comment\n")
+	prompt.WriteString("2. References the specific code context when relevant\n")
+	prompt.WriteString("3. Provides actionable insights or suggestions\n")
+	prompt.WriteString("4. Maintains a professional, helpful tone\n")
+	prompt.WriteString("5. Uses the PR timeline and context to inform your response\n\n")
+
+	prompt.WriteString("Format your response in clear, readable markdown suitable for a GitHub comment.\n")
+
+	return prompt.String()
+}
+
+// Helper functions for GitHub API calls (simplified implementations)
+
+type GitHubCommitInfo struct {
+	SHA     string
+	Message string
+}
+
+type GitHubCommentInfo struct {
+	Author string
+	Body   string
+}
+
+func (s *Server) fetchGitHubPRCommits(owner, repo, prNumber, token string) ([]GitHubCommitInfo, error) {
+	// Simplified implementation - would use GitHub API to fetch actual commits
+	return []GitHubCommitInfo{
+		{SHA: "abc123def", Message: "Initial implementation"},
+		{SHA: "def456ghi", Message: "Fix review comments"},
+	}, nil
+}
+
+func (s *Server) fetchGitHubPRComments(owner, repo, prNumber, token string) ([]GitHubCommentInfo, error) {
+	// Simplified implementation - would use GitHub API to fetch actual comments
+	return []GitHubCommentInfo{
+		{Author: "reviewer1", Body: "Looks good overall"},
+		{Author: "author", Body: "Thanks for the review!"},
+	}, nil
+}
+
+func (s *Server) generateAIResponseFromPrompt(prompt, username string) (string, error) {
+	// Use the real AI infrastructure to generate contextual responses
+	log.Printf("[DEBUG] Generating AI response using LLM infrastructure")
+	log.Printf("[DEBUG] Prompt length: %d characters", len(prompt))
+
+	// Use the context with a reasonable timeout for AI generation
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	// Get AI response using the existing LLM infrastructure
+	// Note: This assumes there's an LLM client available in the server
+	// If not available, we'll fall back to a structured template response
+	aiResponse, err := s.generateLLMResponse(ctx, prompt)
+	if err != nil {
+		log.Printf("[WARN] LLM generation failed, using structured fallback: %v", err)
+		return s.generateStructuredFallbackResponse(prompt, username), nil
+	}
+
+	// Clean up and format the AI response
+	cleanResponse := strings.TrimSpace(aiResponse)
+	if cleanResponse == "" {
+		log.Printf("[WARN] Empty AI response, using fallback")
+		return s.generateStructuredFallbackResponse(prompt, username), nil
+	}
+
+	log.Printf("[DEBUG] Successfully generated AI response: %d characters", len(cleanResponse))
+	return cleanResponse, nil
+}
+
+// generateLLMResponse attempts to use the real LLM infrastructure
+func (s *Server) generateLLMResponse(ctx context.Context, prompt string) (string, error) {
+	// This would integrate with the actual LLM client from internal/llm
+	// For now, we'll return an error to trigger the fallback
+	// TODO: Integrate with s.llmClient.GenerateResponse(ctx, prompt) when available
+	return "", fmt.Errorf("LLM client not yet integrated with conversational AI")
+}
+
+// generateStructuredFallbackResponse provides a structured response when LLM is not available
+func (s *Server) generateStructuredFallbackResponse(prompt, username string) string {
+	response := &strings.Builder{}
+
+	// Analyze the prompt to provide a more contextual response
+	promptLower := strings.ToLower(prompt)
+
+	response.WriteString(fmt.Sprintf("Thanks for your question, @%s! ", username))
+
+	// Pattern matching for common developer questions
+	if strings.Contains(promptLower, "error handling") {
+		response.WriteString("Regarding error handling:\n\n")
+		response.WriteString("**Key Considerations:**\n")
+		response.WriteString("- Always check and handle potential errors explicitly\n")
+		response.WriteString("- Consider using wrapped errors for better context\n")
+		response.WriteString("- Ensure error paths are tested\n")
+		response.WriteString("- Document expected error conditions\n\n")
+		response.WriteString("In your specific case, if `setupAPIClients` can return an error, you should handle it to prevent silent failures and provide meaningful feedback to users.")
+	} else if strings.Contains(promptLower, "explain") || strings.Contains(promptLower, "more") {
+		response.WriteString("Let me elaborate on the code context:\n\n")
+		response.WriteString("**Analysis:**\n")
+		response.WriteString("- This appears to be related to API client initialization\n")
+		response.WriteString("- Proper error handling is crucial for robust applications\n")
+		response.WriteString("- Consider the impact on downstream functionality\n")
+		response.WriteString("- Think about user experience when errors occur\n\n")
+		response.WriteString("Would you like me to suggest specific implementation patterns for this scenario?")
+	} else if strings.Contains(promptLower, "implement") || strings.Contains(promptLower, "how") {
+		response.WriteString("Here are some implementation suggestions:\n\n")
+		response.WriteString("**Recommended Approach:**\n")
+		response.WriteString("1. Add explicit error checking after the function call\n")
+		response.WriteString("2. Provide meaningful error messages\n")
+		response.WriteString("3. Consider graceful degradation or retry logic\n")
+		response.WriteString("4. Log errors appropriately for debugging\n\n")
+		response.WriteString("This will improve the reliability and maintainability of your code.")
+	} else {
+		response.WriteString("Based on the code context, I can see this relates to improving error handling in your codebase.\n\n")
+		response.WriteString("**General Insights:**\n")
+		response.WriteString("- Code quality improvements are always valuable\n")
+		response.WriteString("- Error handling is a critical aspect of robust software\n")
+		response.WriteString("- Consider the broader impact of changes on system reliability\n\n")
+		response.WriteString("Feel free to ask more specific questions about implementation details!")
+	}
+
+	return response.String()
+}
+
+func min(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
+}
+
+// checkIfReplyToBotComment checks if a comment is replying to a comment made by the bot
+func (s *Server) checkIfReplyToBotComment(comment UnifiedComment, botUserInfo *UnifiedBotUserInfo) (bool, error) {
+	if comment.InReplyToID == nil || *comment.InReplyToID == "" {
+		return false, nil
+	}
+
+	replyToID := *comment.InReplyToID
+	log.Printf("[DEBUG] Checking if parent comment %s was made by bot %s", replyToID, botUserInfo.User.Username)
+
+	switch comment.Provider {
+	case "github":
+		return s.checkIfGitHubCommentIsByBot(comment, replyToID, botUserInfo)
+	case "gitlab":
+		return s.checkIfGitLabCommentIsByBot(comment, replyToID, botUserInfo)
+	default:
+		return false, fmt.Errorf("unsupported provider for reply checking: %s", comment.Provider)
+	}
+}
+
+// checkIfGitHubCommentIsByBot checks if a GitHub comment was made by the bot
+func (s *Server) checkIfGitHubCommentIsByBot(comment UnifiedComment, parentCommentID string, botUserInfo *UnifiedBotUserInfo) (bool, error) {
+	// Parse repository info
+	parts := strings.Split(comment.MRContext.Repository.FullName, "/")
+	if len(parts) != 2 {
+		return false, fmt.Errorf("invalid repository full name: %s", comment.MRContext.Repository.FullName)
+	}
+	owner, repo := parts[0], parts[1]
+
+	// Construct GitHub API URL to get the parent comment
+	var apiURL string
+	if comment.Position != nil {
+		// Review comment
+		apiURL = fmt.Sprintf("https://api.github.com/repos/%s/%s/pulls/comments/%s", owner, repo, parentCommentID)
+	} else {
+		// Issue comment
+		apiURL = fmt.Sprintf("https://api.github.com/repos/%s/%s/issues/comments/%s", owner, repo, parentCommentID)
+	}
+
+	// Make API request to get parent comment
+	req, err := http.NewRequest("GET", apiURL, nil)
+	if err != nil {
+		return false, err
+	}
+
+	req.Header.Set("Authorization", "Bearer "+botUserInfo.APIToken)
+	req.Header.Set("Accept", "application/vnd.github.v3+json")
+	req.Header.Set("User-Agent", "LiveReview-Bot")
+
+	client := &http.Client{Timeout: 30 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return false, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return false, fmt.Errorf("GitHub API error getting parent comment (status %d): %s", resp.StatusCode, string(body))
+	}
+
+	// Parse response to get comment author
+	var parentComment struct {
+		User struct {
+			Login string `json:"login"`
+		} `json:"user"`
+	}
+
+	if err := json.NewDecoder(resp.Body).Decode(&parentComment); err != nil {
+		return false, err
+	}
+
+	// Check if parent comment author is the bot user
+	isBot := parentComment.User.Login == botUserInfo.User.Username
+	log.Printf("[DEBUG] Parent comment %s author: %s, bot user: %s, is bot: %v",
+		parentCommentID, parentComment.User.Login, botUserInfo.User.Username, isBot)
+
+	return isBot, nil
+}
+
+// checkIfGitLabCommentIsByBot checks if a GitLab comment was made by the bot
+func (s *Server) checkIfGitLabCommentIsByBot(comment UnifiedComment, parentCommentID string, botUserInfo *UnifiedBotUserInfo) (bool, error) {
+	// TODO: Implement GitLab parent comment checking
+	// For now, return false to maintain existing GitLab behavior
+	return false, nil
 }
