@@ -19,3 +19,10 @@ export const GITHUB_CONFIG = {
   GITHUB_USERNAME: 'hexmos', // GitHub username if required
   GITHUB_TOKEN: 'REDACTED_GITHUB_PAT_3'
 };
+
+// Bitbucket connector specific config
+export const BITBUCKET_CONFIG = {
+  CONNECTOR_NAME: 'BB1533',
+  BITBUCKET_EMAIL: 'livereviewbot@gmail.com',
+  BITBUCKET_API_TOKEN: 'REDACTED_BITBUCKET_TOKEN_1'
+};
