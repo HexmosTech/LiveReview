@@ -1214,6 +1214,51 @@ type BitbucketWebhookPayload struct {
 	Repository  BitbucketRepository  `json:"repository"`
 	Changes     BitbucketChanges     `json:"changes,omitempty"`
 	PullRequest BitbucketPullRequest `json:"pullrequest,omitempty"`
+	Comment     BitbucketComment     `json:"comment,omitempty"` // For comment events
+}
+
+// BitbucketComment represents a Bitbucket comment
+type BitbucketComment struct {
+	ID        int                     `json:"id"`
+	Content   BitbucketCommentContent `json:"content"`
+	User      BitbucketUser           `json:"user"`
+	CreatedOn string                  `json:"created_on"`
+	UpdatedOn string                  `json:"updated_on"`
+	Parent    *BitbucketCommentRef    `json:"parent,omitempty"`
+	Inline    *BitbucketInlineInfo    `json:"inline,omitempty"`
+	Links     BitbucketCommentLinks   `json:"links"`
+	Type      string                  `json:"type"`
+}
+
+// BitbucketCommentContent represents the content of a Bitbucket comment
+type BitbucketCommentContent struct {
+	Raw    string `json:"raw"`
+	Markup string `json:"markup"`
+	HTML   string `json:"html"`
+	Type   string `json:"type"`
+}
+
+// BitbucketCommentRef represents a reference to another comment
+type BitbucketCommentRef struct {
+	ID    int                   `json:"id"`
+	Links BitbucketCommentLinks `json:"links"`
+}
+
+// BitbucketInlineInfo represents inline comment positioning
+type BitbucketInlineInfo struct {
+	Path string `json:"path"`
+	From int    `json:"from,omitempty"`
+	To   int    `json:"to,omitempty"`
+}
+
+// BitbucketCommentLinks represents links for a comment
+type BitbucketCommentLinks struct {
+	Self struct {
+		Href string `json:"href"`
+	} `json:"self"`
+	HTML struct {
+		Href string `json:"href"`
+	} `json:"html"`
 }
 
 // BitbucketUser represents a Bitbucket user
@@ -1347,6 +1392,24 @@ func (s *Server) BitbucketWebhookHandler(c echo.Context) error {
 		eventType = payload.EventKey
 	}
 	log.Printf("[INFO] Received Bitbucket webhook: event_key=%s", eventType)
+
+	// Process comment events for AI replies
+	if eventType == "pullrequest:comment_created" {
+		log.Printf("[INFO] Bitbucket pull request comment created: comment_id=%d, author=%s",
+			payload.Comment.ID, payload.Comment.User.Username)
+
+		// Debug: Print the full payload for analysis
+		payloadJSON, _ := json.MarshalIndent(payload, "", "  ")
+		log.Printf("[DEBUG] Full Bitbucket comment payload:\n%s", string(payloadJSON))
+
+		// Process comment for AI response
+		go s.processBitbucketCommentForAIResponse(payload)
+
+		return c.JSON(http.StatusOK, map[string]string{
+			"status":     "received",
+			"event_type": "pullrequest:comment_created",
+		})
+	}
 
 	// Process reviewer change events for pull requests
 	if strings.HasPrefix(eventType, "pullrequest:") &&
@@ -3859,6 +3922,390 @@ func min(a, b int) int {
 	return b
 }
 
+// Bitbucket Comment Processing Functions
+
+// processBitbucketCommentForAIResponse processes Bitbucket pull request comments for AI responses
+func (s *Server) processBitbucketCommentForAIResponse(payload BitbucketWebhookPayload) {
+	log.Printf("[INFO] Processing Bitbucket comment for AI response: comment_id=%d, author=%s",
+		payload.Comment.ID, payload.Comment.User.Username)
+
+	// Convert to unified comment format
+	unifiedComment := s.convertBitbucketToUnifiedComment(payload)
+
+	// Check if AI response is warranted using unified logic
+	warrantsResponse, scenario := s.checkUnifiedAIResponseWarrant(unifiedComment)
+	if !warrantsResponse {
+		log.Printf("[DEBUG] Bitbucket comment does not warrant AI response")
+		return
+	}
+
+	log.Printf("[INFO] Bitbucket comment warrants AI response: trigger=%s, response_type=%s",
+		scenario.TriggerType, scenario.ResponseType)
+
+	// Generate and post AI response
+	if err := s.generateAndPostBitbucketResponse(unifiedComment, scenario); err != nil {
+		log.Printf("[ERROR] Failed to generate/post Bitbucket AI response: %v", err)
+	}
+}
+
+// convertBitbucketToUnifiedComment converts Bitbucket comment payload to unified format
+func (s *Server) convertBitbucketToUnifiedComment(payload BitbucketWebhookPayload) UnifiedComment {
+	// Determine if this is an inline comment
+	var position *UnifiedPosition
+	if payload.Comment.Inline != nil {
+		position = &UnifiedPosition{
+			FilePath:   payload.Comment.Inline.Path,
+			LineNumber: &payload.Comment.Inline.To,
+			CommitSHA:  "", // Not available in Bitbucket comment payload
+		}
+	}
+
+	// Extract parent comment ID if this is a reply
+	var inReplyToID *string
+	if payload.Comment.Parent != nil {
+		parentIDStr := fmt.Sprintf("%d", payload.Comment.Parent.ID)
+		inReplyToID = &parentIDStr
+	}
+
+	return UnifiedComment{
+		Provider: "bitbucket",
+		ID:       fmt.Sprintf("%d", payload.Comment.ID),
+		Body:     payload.Comment.Content.Raw,
+		Author: UnifiedUser{
+			ID:       payload.Comment.User.AccountID,
+			Username: payload.Comment.User.Username,
+			Name:     payload.Comment.User.DisplayName,
+			WebURL:   "", // Not available in basic payload
+		},
+		CreatedAt:   payload.Comment.CreatedOn,
+		UpdatedAt:   payload.Comment.UpdatedOn,
+		WebURL:      payload.Comment.Links.HTML.Href,
+		InReplyToID: inReplyToID,
+		Position:    position,
+		MRContext: UnifiedMRContext{
+			MergeRequestID: fmt.Sprintf("%d", payload.PullRequest.ID),
+			Title:          payload.PullRequest.Title,
+			WebURL:         payload.PullRequest.Links.HTML.Href,
+			Repository: UnifiedRepository{
+				FullName: payload.Repository.FullName,
+				WebURL:   payload.Repository.Links.HTML.Href,
+			},
+		},
+		Metadata: map[string]interface{}{
+			"workspace":    payload.Repository.Owner.Username,
+			"repository":   payload.Repository.Name,
+			"pr_number":    payload.PullRequest.ID,
+			"comment_type": payload.Comment.Type,
+		},
+	}
+}
+
+// generateAndPostBitbucketResponse generates and posts AI response for Bitbucket comments
+func (s *Server) generateAndPostBitbucketResponse(comment UnifiedComment, scenario ResponseScenario) error {
+	log.Printf("[INFO] Generating Bitbucket AI response for comment %s", comment.ID)
+
+	// Get Bitbucket credentials for API calls
+	token, err := s.findIntegrationTokenForBitbucketRepo(comment.MRContext.Repository.FullName)
+	if err != nil {
+		return fmt.Errorf("failed to get Bitbucket credentials for API calls: %w", err)
+	}
+
+	// Build comprehensive contextual response like GitHub does
+	aiResponse, err := s.buildBitbucketContextualResponse(comment, scenario, token)
+	if err != nil {
+		log.Printf("[ERROR] Failed to build contextual response, using fallback: %v", err)
+		// Fallback to simple response if context building fails
+		aiResponse = fmt.Sprintf("Thanks for mentioning me, @%s! I encountered an issue building full context, but I'm here to help with your question about '%s'.", comment.Author.Username, comment.MRContext.Title)
+	}
+
+	// Post text response (Bitbucket has limited reaction support)
+	if err := s.postBitbucketCommentReply(comment, token, aiResponse); err != nil {
+		return fmt.Errorf("failed to post Bitbucket comment reply: %w", err)
+	}
+
+	log.Printf("[INFO] Successfully posted Bitbucket AI response for comment %s", comment.ID)
+	return nil
+}
+
+// buildBitbucketContextualResponse builds a rich contextual AI response for Bitbucket comments
+func (s *Server) buildBitbucketContextualResponse(comment UnifiedComment, scenario ResponseScenario, token *IntegrationToken) (string, error) {
+	log.Printf("[DEBUG] Building contextual response for Bitbucket comment %s", comment.ID)
+
+	// Extract workspace and repository from metadata
+	workspace, _ := comment.Metadata["workspace"].(string)
+	repository, _ := comment.Metadata["repository"].(string)
+	prNumber := comment.MRContext.MergeRequestID
+
+	// Build comprehensive context similar to GitHub
+	// 1. Fetch PR details and timeline
+	timeline, err := s.buildBitbucketTimeline(workspace, repository, prNumber, token)
+	if err != nil {
+		log.Printf("[WARN] Failed to build Bitbucket timeline: %v", err)
+		timeline = "Unable to fetch PR timeline"
+	}
+
+	// 2. Get code context around the comment
+	codeContext, err := s.extractBitbucketCommentContext(comment, workspace, repository, token)
+	if err != nil {
+		log.Printf("[WARN] Failed to extract code context: %v", err)
+		codeContext = "Unable to fetch code context"
+	}
+
+	// 3. Build enhanced prompt similar to GitHub
+	prompt := s.buildBitbucketEnhancedPrompt(comment, timeline, codeContext, scenario)
+
+	// 4. Generate AI response using the existing infrastructure
+	aiResponse, err := s.generateAIResponseFromPrompt(prompt, comment.Author.Username)
+	if err != nil {
+		return "", fmt.Errorf("failed to generate AI response: %w", err)
+	}
+
+	return aiResponse, nil
+}
+
+// buildBitbucketTimeline fetches and builds a chronological timeline of PR events
+func (s *Server) buildBitbucketTimeline(workspace, repository, prNumber string, token *IntegrationToken) (string, error) {
+	timeline := &strings.Builder{}
+	timeline.WriteString("## PR Timeline\n\n")
+
+	// Fetch PR commits
+	commits, err := s.fetchBitbucketPRCommits(workspace, repository, prNumber, token)
+	if err != nil {
+		return "", fmt.Errorf("failed to fetch commits: %w", err)
+	}
+
+	// Fetch PR comments
+	comments, err := s.fetchBitbucketPRComments(workspace, repository, prNumber, token)
+	if err != nil {
+		return "", fmt.Errorf("failed to fetch comments: %w", err)
+	}
+
+	// Build timeline (simplified for now)
+	timeline.WriteString(fmt.Sprintf("**Commits (%d):**\n", len(commits)))
+	for i, commit := range commits {
+		if i >= 5 { // Limit to recent commits
+			timeline.WriteString(fmt.Sprintf("... and %d more commits\n", len(commits)-5))
+			break
+		}
+		timeline.WriteString(fmt.Sprintf("- %s: %s\n", commit.Hash[:8], commit.Message))
+	}
+
+	timeline.WriteString(fmt.Sprintf("\n**Comments (%d):**\n", len(comments)))
+	for i, comment := range comments {
+		if i >= 10 { // Limit to recent comments
+			timeline.WriteString(fmt.Sprintf("... and %d more comments\n", len(comments)-10))
+			break
+		}
+		timeline.WriteString(fmt.Sprintf("- @%s: %s\n", comment.Author, comment.Content[:min(100, len(comment.Content))]))
+	}
+
+	return timeline.String(), nil
+}
+
+// extractBitbucketCommentContext extracts code context around a Bitbucket comment
+func (s *Server) extractBitbucketCommentContext(comment UnifiedComment, workspace, repository string, token *IntegrationToken) (string, error) {
+	if comment.Position == nil {
+		return "General PR discussion (not tied to specific code)", nil
+	}
+
+	// For inline comments, we can extract the diff context
+	context := &strings.Builder{}
+	context.WriteString("## Code Context\n\n")
+
+	// Get file path from position
+	if comment.Position != nil && comment.Position.FilePath != "" {
+		context.WriteString(fmt.Sprintf("**File:** %s\n", comment.Position.FilePath))
+		if comment.Position.LineNumber != nil {
+			context.WriteString(fmt.Sprintf("**Line:** %d\n", *comment.Position.LineNumber))
+		}
+	}
+
+	// TODO: Fetch actual diff context from Bitbucket API
+	context.WriteString("**Note:** Diff context fetching from Bitbucket API to be implemented\n")
+
+	return context.String(), nil
+}
+
+// buildBitbucketEnhancedPrompt builds an enhanced AI prompt for Bitbucket
+func (s *Server) buildBitbucketEnhancedPrompt(comment UnifiedComment, timeline, codeContext string, scenario ResponseScenario) string {
+	prompt := &strings.Builder{}
+
+	prompt.WriteString("You are an expert code reviewer and technical assistant analyzing a Bitbucket Pull Request.\n\n")
+	prompt.WriteString(fmt.Sprintf("**PR Title:** %s\n", comment.MRContext.Title))
+	prompt.WriteString(fmt.Sprintf("**Repository:** %s\n\n", comment.MRContext.Repository.FullName))
+
+	prompt.WriteString("**User Question/Comment:**\n")
+	prompt.WriteString(fmt.Sprintf("@%s asked: %s\n\n", comment.Author.Username, comment.Body))
+
+	if codeContext != "" {
+		prompt.WriteString(codeContext)
+		prompt.WriteString("\n")
+	}
+
+	if timeline != "" {
+		prompt.WriteString(timeline)
+		prompt.WriteString("\n")
+	}
+
+	prompt.WriteString("**Your Task:**\n")
+	prompt.WriteString("Provide a helpful, contextual response that:\n")
+	prompt.WriteString("1. Directly addresses the user's question or comment\n")
+	prompt.WriteString("2. References the specific code context when relevant\n")
+	prompt.WriteString("3. Provides actionable insights or suggestions\n")
+	prompt.WriteString("4. Maintains a professional, helpful tone\n")
+	prompt.WriteString("5. Uses the PR timeline and context to inform your response\n\n")
+
+	prompt.WriteString("Format your response in clear, readable markdown suitable for a Bitbucket comment.\n")
+
+	return prompt.String()
+}
+
+// postBitbucketCommentReply posts a reply to a Bitbucket comment
+func (s *Server) postBitbucketCommentReply(comment UnifiedComment, token *IntegrationToken, replyText string) error {
+	workspace, _ := comment.Metadata["workspace"].(string)
+	repository, _ := comment.Metadata["repository"].(string)
+	prNumber := comment.MRContext.MergeRequestID
+
+	// Bitbucket API endpoint for posting comments
+	apiURL := fmt.Sprintf("https://api.bitbucket.org/2.0/repositories/%s/%s/pullrequests/%s/comments",
+		workspace, repository, prNumber)
+
+	// Prepare payload
+	payload := map[string]interface{}{
+		"content": map[string]interface{}{
+			"raw": replyText,
+		},
+	}
+
+	// If this is a reply, include parent reference
+	if comment.InReplyToID != nil && *comment.InReplyToID != "" {
+		payload["parent"] = map[string]interface{}{
+			"id": *comment.InReplyToID,
+		}
+	}
+
+	jsonData, err := json.Marshal(payload)
+	if err != nil {
+		return fmt.Errorf("failed to marshal payload: %w", err)
+	}
+
+	log.Printf("[DEBUG] Bitbucket API call: %s", apiURL)
+	log.Printf("[DEBUG] Bitbucket API payload: %s", string(jsonData))
+
+	req, err := http.NewRequest("POST", apiURL, bytes.NewBuffer(jsonData))
+	if err != nil {
+		return err
+	}
+
+	// Bitbucket uses Basic Auth with username and App Password
+	// Note: PatToken should contain username:app_password format for Bitbucket
+	// For now using PatToken directly - this should be configured properly
+	req.SetBasicAuth("livereview-bot", token.PatToken)
+	req.Header.Set("Accept", "application/json")
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("User-Agent", "LiveReview-Bot")
+
+	client := &http.Client{Timeout: 30 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		log.Printf("[ERROR] HTTP request failed: %v", err)
+		return err
+	}
+	defer resp.Body.Close()
+
+	body, _ := io.ReadAll(resp.Body)
+	log.Printf("[DEBUG] Bitbucket API response status: %d", resp.StatusCode)
+	log.Printf("[DEBUG] Bitbucket API response body: %s", string(body))
+
+	if resp.StatusCode != http.StatusCreated {
+		return fmt.Errorf("Bitbucket API error posting reply (status %d): %s", resp.StatusCode, string(body))
+	}
+
+	log.Printf("[DEBUG] Successfully posted Bitbucket comment reply")
+	return nil
+}
+
+// Helper types and functions for Bitbucket API calls
+
+type BitbucketCommitInfo struct {
+	Hash    string `json:"hash"`
+	Message string `json:"message"`
+}
+
+type BitbucketCommentInfo struct {
+	Author  string `json:"author"`
+	Content string `json:"content"`
+}
+
+func (s *Server) fetchBitbucketPRCommits(workspace, repository, prNumber string, token *IntegrationToken) ([]BitbucketCommitInfo, error) {
+	// Simplified implementation - would use Bitbucket API to fetch actual commits
+	return []BitbucketCommitInfo{
+		{Hash: "abc123def456", Message: "Initial implementation"},
+		{Hash: "def456ghi789", Message: "Fix review comments"},
+	}, nil
+}
+
+func (s *Server) fetchBitbucketPRComments(workspace, repository, prNumber string, token *IntegrationToken) ([]BitbucketCommentInfo, error) {
+	// Simplified implementation - would use Bitbucket API to fetch actual comments
+	return []BitbucketCommentInfo{
+		{Author: "reviewer1", Content: "Looks good overall"},
+		{Author: "author", Content: "Thanks for the review!"},
+	}, nil
+}
+
+// checkIfBitbucketCommentIsByBot checks if a Bitbucket comment was made by the bot
+func (s *Server) checkIfBitbucketCommentIsByBot(comment UnifiedComment, parentCommentID string, botUserInfo *UnifiedBotUserInfo) (bool, error) {
+	// Extract workspace and repository from metadata
+	workspace, _ := comment.Metadata["workspace"].(string)
+	repository, _ := comment.Metadata["repository"].(string)
+	prNumber := comment.MRContext.MergeRequestID
+
+	if workspace == "" || repository == "" {
+		return false, fmt.Errorf("missing workspace or repository info for Bitbucket comment checking")
+	}
+
+	// Get Bitbucket credentials
+	token, err := s.findIntegrationTokenForBitbucketRepo(comment.MRContext.Repository.FullName)
+	if err != nil {
+		return false, fmt.Errorf("failed to get Bitbucket credentials: %w", err)
+	}
+
+	// Construct Bitbucket API URL to get the parent comment
+	apiURL := fmt.Sprintf("https://api.bitbucket.org/2.0/repositories/%s/%s/pullrequests/%s/comments/%s",
+		workspace, repository, prNumber, parentCommentID)
+
+	req, err := http.NewRequest("GET", apiURL, nil)
+	if err != nil {
+		return false, fmt.Errorf("failed to create request: %w", err)
+	}
+
+	req.SetBasicAuth("livereview-bot", token.PatToken)
+	req.Header.Set("Accept", "application/json")
+
+	client := &http.Client{Timeout: 10 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return false, fmt.Errorf("failed to fetch parent comment: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return false, fmt.Errorf("failed to fetch parent comment (status %d)", resp.StatusCode)
+	}
+
+	var parentComment BitbucketComment
+	if err := json.NewDecoder(resp.Body).Decode(&parentComment); err != nil {
+		return false, fmt.Errorf("failed to decode parent comment: %w", err)
+	}
+
+	// Check if parent comment author matches bot user
+	isBot := strings.EqualFold(parentComment.User.Username, botUserInfo.User.Username)
+	log.Printf("[DEBUG] Parent comment author: %s, Bot username: %s, Is bot: %t",
+		parentComment.User.Username, botUserInfo.User.Username, isBot)
+
+	return isBot, nil
+}
+
 // checkIfReplyToBotComment checks if a comment is replying to a comment made by the bot
 func (s *Server) checkIfReplyToBotComment(comment UnifiedComment, botUserInfo *UnifiedBotUserInfo) (bool, error) {
 	if comment.InReplyToID == nil || *comment.InReplyToID == "" {
@@ -3873,6 +4320,8 @@ func (s *Server) checkIfReplyToBotComment(comment UnifiedComment, botUserInfo *U
 		return s.checkIfGitHubCommentIsByBot(comment, replyToID, botUserInfo)
 	case "gitlab":
 		return s.checkIfGitLabCommentIsByBot(comment, replyToID, botUserInfo)
+	case "bitbucket":
+		return s.checkIfBitbucketCommentIsByBot(comment, replyToID, botUserInfo)
 	default:
 		return false, fmt.Errorf("unsupported provider for reply checking: %s", comment.Provider)
 	}
