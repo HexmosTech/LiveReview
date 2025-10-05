@@ -1,0 +1,181 @@
+# Page snapshot
+
+```yaml
+- generic [ref=e3]:
+  - navigation [ref=e4]:
+    - generic [ref=e5]:
+      - button "Go to home" [ref=e7] [cursor=pointer]:
+        - img "LiveReview Logo" [ref=e8] [cursor=pointer]
+      - generic [ref=e9]:
+        - button "Hexmos01" [ref=e11] [cursor=pointer]:
+          - img [ref=e13] [cursor=pointer]
+          - generic [ref=e15] [cursor=pointer]: Hexmos01
+          - img [ref=e16] [cursor=pointer]
+        - link "Dashboard" [ref=e18] [cursor=pointer]:
+          - /url: "#/dashboard"
+          - img [ref=e20] [cursor=pointer]
+          - text: Dashboard
+        - link "Reviews" [ref=e22] [cursor=pointer]:
+          - /url: "#/reviews"
+          - img [ref=e24] [cursor=pointer]
+          - text: Reviews
+        - link "Git Providers" [ref=e26] [cursor=pointer]:
+          - /url: "#/git"
+          - img [ref=e28] [cursor=pointer]
+          - text: Git Providers
+        - link "AI Providers" [ref=e30] [cursor=pointer]:
+          - /url: "#/ai"
+          - img [ref=e32] [cursor=pointer]
+          - text: AI Providers
+        - link "Settings" [ref=e34] [cursor=pointer]:
+          - /url: "#/settings"
+          - img [ref=e36] [cursor=pointer]
+          - text: Settings
+        - button "Logout" [ref=e39] [cursor=pointer]:
+          - img [ref=e41] [cursor=pointer]
+          - text: Logout
+  - generic [ref=e44]:
+    - generic [ref=e45]:
+      - generic [ref=e46]: Active
+      - generic [ref=e48]: License valid
+      - generic [ref=e49]: 1 day left
+      - generic [ref=e50]:
+        - button "Refresh license" [ref=e51] [cursor=pointer]: Refresh
+        - button "Update License" [ref=e52] [cursor=pointer]
+    - button "Production" [ref=e55] [cursor=pointer]: Production
+  - generic [ref=e58]:
+    - generic [ref=e61]:
+      - heading "Git Providers" [level=1] [ref=e62]
+      - paragraph [ref=e63]: Connect and manage your Git repositories
+    - generic [ref=e64]:
+      - generic [ref=e65]:
+        - generic [ref=e66]:
+          - heading "Select Git Provider" [level=3] [ref=e67]
+          - paragraph [ref=e68]: Choose a Git provider to connect with LiveReview
+          - generic [ref=e69]:
+            - button "GitLab.com" [ref=e70] [cursor=pointer]:
+              - img [ref=e72] [cursor=pointer]
+              - generic [ref=e74] [cursor=pointer]: GitLab.com
+            - button "Self-Hosted GitLab" [ref=e75] [cursor=pointer]:
+              - img [ref=e77] [cursor=pointer]
+              - generic [ref=e79] [cursor=pointer]: Self-Hosted GitLab
+            - button "GitHub" [ref=e80] [cursor=pointer]:
+              - img [ref=e82] [cursor=pointer]
+              - generic [ref=e84] [cursor=pointer]: GitHub
+            - button "Bitbucket" [ref=e85] [cursor=pointer]:
+              - img [ref=e87] [cursor=pointer]
+              - generic [ref=e89] [cursor=pointer]: Bitbucket
+        - generic [ref=e90]:
+          - heading "Why Connect Git Providers?" [level=3] [ref=e91]
+          - generic [ref=e92]:
+            - img "LiveReview Eye" [ref=e93]
+            - paragraph [ref=e94]: LiveReview connects to your repositories to provide real-time AI-powered code reviews, helping your team ship better code faster.
+      - generic [ref=e95]:
+        - generic [ref=e96]:
+          - generic [ref=e97]:
+            - heading "Your Connectors" [level=3] [ref=e99]
+            - generic [ref=e100]: "5"
+          - list [ref=e102]:
+            - listitem [ref=e103] [cursor=pointer]:
+              - generic [ref=e105] [cursor=pointer]:
+                - generic [ref=e106] [cursor=pointer]:
+                  - generic [ref=e108] [cursor=pointer]: B
+                  - generic [ref=e109] [cursor=pointer]:
+                    - generic [ref=e110] [cursor=pointer]:
+                      - heading "BB1533" [level=3] [ref=e111] [cursor=pointer]
+                      - generic [ref=e112] [cursor=pointer]: Bitbucket
+                    - paragraph [ref=e113] [cursor=pointer]: https://bitbucket.org
+                - generic [ref=e114] [cursor=pointer]:
+                  - generic "Oct 5, 2025, 8:45:47 PM" [ref=e115]: less than a minute ago
+                  - button "Connector details" [ref=e116] [cursor=pointer]:
+                    - img [ref=e117] [cursor=pointer]
+                  - button "Delete connector" [ref=e120] [cursor=pointer]:
+                    - img [ref=e121] [cursor=pointer]
+            - listitem [ref=e123] [cursor=pointer]:
+              - generic [ref=e125] [cursor=pointer]:
+                - generic [ref=e126] [cursor=pointer]:
+                  - generic [ref=e128] [cursor=pointer]: B
+                  - generic [ref=e129] [cursor=pointer]:
+                    - generic [ref=e130] [cursor=pointer]:
+                      - heading "BB1533" [level=3] [ref=e131] [cursor=pointer]
+                      - generic [ref=e132] [cursor=pointer]: Bitbucket
+                    - paragraph [ref=e133] [cursor=pointer]: https://bitbucket.org
+                - generic [ref=e134] [cursor=pointer]:
+                  - generic "Oct 5, 2025, 8:42:07 PM" [ref=e135]: 4 minutes ago
+                  - button "Connector details" [ref=e136] [cursor=pointer]:
+                    - img [ref=e137] [cursor=pointer]
+                  - button "Delete connector" [ref=e140] [cursor=pointer]:
+                    - img [ref=e141] [cursor=pointer]
+            - listitem [ref=e143] [cursor=pointer]:
+              - generic [ref=e145] [cursor=pointer]:
+                - generic [ref=e146] [cursor=pointer]:
+                  - generic [ref=e148] [cursor=pointer]: H
+                  - generic [ref=e149] [cursor=pointer]:
+                    - generic [ref=e150] [cursor=pointer]:
+                      - heading "hexmos" [level=3] [ref=e151] [cursor=pointer]
+                      - generic [ref=e152] [cursor=pointer]: GitHub
+                    - paragraph [ref=e153] [cursor=pointer]: https://github.com
+                - generic [ref=e154] [cursor=pointer]:
+                  - generic "Oct 4, 2025, 8:57:19 PM" [ref=e155]: about 24 hours ago
+                  - button "Connector details" [ref=e156] [cursor=pointer]:
+                    - img [ref=e157] [cursor=pointer]
+                  - button "Delete connector" [ref=e160] [cursor=pointer]:
+                    - img [ref=e161] [cursor=pointer]
+            - listitem [ref=e163] [cursor=pointer]:
+              - generic [ref=e165] [cursor=pointer]:
+                - generic [ref=e166] [cursor=pointer]:
+                  - generic [ref=e168] [cursor=pointer]: G
+                  - generic [ref=e169] [cursor=pointer]:
+                    - generic [ref=e170] [cursor=pointer]:
+                      - heading "GH1946" [level=3] [ref=e171] [cursor=pointer]
+                      - generic [ref=e172] [cursor=pointer]: GitHub
+                    - paragraph [ref=e173] [cursor=pointer]: https://github.com
+                - generic [ref=e174] [cursor=pointer]:
+                  - generic "Oct 3, 2025, 7:47:17 PM" [ref=e175]: 2 days ago
+                  - button "Connector details" [ref=e176] [cursor=pointer]:
+                    - img [ref=e177] [cursor=pointer]
+                  - button "Delete connector" [ref=e180] [cursor=pointer]:
+                    - img [ref=e181] [cursor=pointer]
+            - listitem [ref=e183] [cursor=pointer]:
+              - generic [ref=e185] [cursor=pointer]:
+                - generic [ref=e186] [cursor=pointer]:
+                  - generic [ref=e188] [cursor=pointer]: G
+                  - generic [ref=e189] [cursor=pointer]:
+                    - generic [ref=e190] [cursor=pointer]:
+                      - heading "GL1413" [level=3] [ref=e191] [cursor=pointer]
+                      - generic [ref=e192] [cursor=pointer]: Self-Hosted GitLab
+                    - paragraph [ref=e193] [cursor=pointer]: https://git.apps.hexmos.com/
+                - generic [ref=e194] [cursor=pointer]:
+                  - generic "Sep 30, 2025, 2:13:28 PM" [ref=e195]: 5 days ago
+                  - button "Connector details" [ref=e196] [cursor=pointer]:
+                    - img [ref=e197] [cursor=pointer]
+                  - button "Delete connector" [ref=e200] [cursor=pointer]:
+                    - img [ref=e201] [cursor=pointer]
+        - generic [ref=e203]:
+          - heading "Connection Status" [level=3] [ref=e206]
+          - generic [ref=e208]:
+            - paragraph [ref=e213]: All connectors working properly
+            - button "View Details" [ref=e214] [cursor=pointer]:
+              - img [ref=e216] [cursor=pointer]
+              - text: View Details
+  - contentinfo [ref=e218]:
+    - generic [ref=e220]:
+      - link "Go to home" [ref=e222] [cursor=pointer]:
+        - /url: "#/"
+        - img "LiveReview Logo" [ref=e223] [cursor=pointer]
+      - generic [ref=e224]:
+        - generic [ref=e225]:
+          - link "📚 Documentation" [ref=e226] [cursor=pointer]:
+            - /url: https://github.com/HexmosTech/LiveReview/wiki
+            - img [ref=e227] [cursor=pointer]
+            - generic [ref=e229] [cursor=pointer]: 📚 Documentation
+          - link "🐛 Report Issue" [ref=e230] [cursor=pointer]:
+            - /url: https://github.com/HexmosTech/LiveReview/issues
+            - img [ref=e231] [cursor=pointer]
+            - generic [ref=e233] [cursor=pointer]: 🐛 Report Issue
+          - link "💡 Suggest Improvement" [ref=e234] [cursor=pointer]:
+            - /url: https://github.com/HexmosTech/LiveReview/discussions
+            - img [ref=e235] [cursor=pointer]
+            - generic [ref=e237] [cursor=pointer]: 💡 Suggest Improvement
+        - paragraph [ref=e238]: © 2025 LiveReview. All rights reserved.
+```
