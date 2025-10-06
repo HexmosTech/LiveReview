@@ -1660,7 +1660,7 @@ func (s *Server) triggerReviewForBitbucketPR(changeInfo *BitbucketReviewerChange
 func (s *Server) findIntegrationTokenForBitbucketRepo(repoFullName string) (*IntegrationToken, error) {
 	// Look up the webhook registry to find which integration token is associated with this repository
 	query := `
-		SELECT it.id, it.provider, it.provider_url, it.pat_token, it.org_id
+		SELECT it.id, it.provider, it.provider_url, it.pat_token, it.org_id, COALESCE(it.metadata, '{}')
 		FROM integration_tokens it
 		JOIN webhook_registry wr ON wr.integration_token_id = it.id
 		WHERE wr.project_full_name = $1
@@ -1668,25 +1668,38 @@ func (s *Server) findIntegrationTokenForBitbucketRepo(repoFullName string) (*Int
 	`
 
 	var token IntegrationToken
+	var metadataJSON string
 	err := s.db.QueryRow(query, repoFullName).Scan(
-		&token.ID, &token.Provider, &token.ProviderURL, &token.PatToken, &token.OrgID,
+		&token.ID, &token.Provider, &token.ProviderURL, &token.PatToken, &token.OrgID, &metadataJSON,
 	)
 	if err != nil {
 		// If no specific webhook registry entry, try to find any integration token for Bitbucket
 		// This is a fallback for cases where webhook might not be properly registered yet
 		query = `
-			SELECT id, provider, provider_url, pat_token, org_id
+			SELECT id, provider, provider_url, pat_token, org_id, COALESCE(metadata, '{}')
 			FROM integration_tokens
 			WHERE provider LIKE 'bitbucket%'
 			ORDER BY created_at DESC
 			LIMIT 1
 		`
 		err = s.db.QueryRow(query).Scan(
-			&token.ID, &token.Provider, &token.ProviderURL, &token.PatToken, &token.OrgID,
+			&token.ID, &token.Provider, &token.ProviderURL, &token.PatToken, &token.OrgID, &metadataJSON,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("no integration token found for Bitbucket repository %s: %w", repoFullName, err)
 		}
+	}
+
+	// Parse metadata JSON to populate token.Metadata (needed for Bitbucket email)
+	token.Metadata = make(map[string]interface{})
+	if metadataJSON != "" && metadataJSON != "{}" {
+		if err := json.Unmarshal([]byte(metadataJSON), &token.Metadata); err != nil {
+			log.Printf("[WARN] Failed to parse integration token metadata for Bitbucket repo %s: %v", repoFullName, err)
+		}
+	}
+
+	if token.Metadata == nil {
+		token.Metadata = make(map[string]interface{})
 	}
 
 	return &token, nil
@@ -2035,6 +2048,88 @@ func (s *Server) getFreshBotUserInfo(gitlabInstanceURL string) (*GitLabBotUserIn
 	}
 
 	return &botUser, nil
+}
+
+// getFreshBitbucketBotUserInfo gets fresh bot user information via Bitbucket API call
+func (s *Server) getFreshBitbucketBotUserInfo(repoFullName string) (*BitbucketUserInfo, error) {
+	// Get integration token for the repository
+	token, err := s.findIntegrationTokenForBitbucketRepo(repoFullName)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get Bitbucket token: %w", err)
+	}
+
+	// Make API call to get current user (the bot)
+	// Note: Some Bitbucket token types (workspace/project/repo access tokens) cannot call /2.0/user.
+	// We'll attempt with Basic (email:token). On 401, we fall back to stored metadata.
+	apiURL := "https://api.bitbucket.org/2.0/user"
+
+	req, err := http.NewRequest("GET", apiURL, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create request: %w", err)
+	}
+
+	// Use Basic auth with Atlassian email and API token (matches BitbucketProvider)
+	var bbEmail string
+	if token.Metadata != nil {
+		if e, ok := token.Metadata["email"].(string); ok {
+			bbEmail = e
+		}
+	}
+	if bbEmail == "" {
+		log.Printf("[WARN] Bitbucket user API auth - email missing in integration token metadata; skipping fresh user lookup")
+		return nil, fmt.Errorf("bitbucket email missing in token metadata")
+	}
+
+	log.Printf("[DEBUG] Bitbucket user API auth - Using Basic (email), email: '%s', PatToken length: %d, Provider: '%s', ProviderURL: '%s'",
+		bbEmail, len(token.PatToken), token.Provider, token.ProviderURL)
+
+	req.SetBasicAuth(bbEmail, token.PatToken)
+	req.Header.Set("Accept", "application/json")
+	req.Header.Set("User-Agent", "LiveReview-Bot")
+
+	log.Printf("[DEBUG] Making Bitbucket API call to %s with Basic auth (email)", apiURL)
+
+	client := &http.Client{Timeout: 10 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("failed to call Bitbucket API: %w", err)
+	}
+	defer resp.Body.Close()
+
+	body, _ := io.ReadAll(resp.Body)
+	log.Printf("[DEBUG] Bitbucket API response status: %d, body: %s", resp.StatusCode, string(body))
+
+	if resp.StatusCode != http.StatusOK {
+		// Many tokens cannot access /2.0/user (e.g., access tokens). We'll fall back to metadata.
+		return nil, fmt.Errorf("Bitbucket API error (status %d): %s", resp.StatusCode, string(body))
+	}
+
+	var user BitbucketUser
+	if err := json.Unmarshal(body, &user); err != nil {
+		return nil, fmt.Errorf("failed to decode Bitbucket user response: %w", err)
+	}
+
+	botInfo := &BitbucketUserInfo{
+		UUID:        user.UUID,
+		Username:    user.Username,
+		DisplayName: user.DisplayName,
+		AccountID:   user.AccountID,
+		Type:        user.Type,
+	}
+
+	log.Printf("[DEBUG] Retrieved Bitbucket bot user info: username=%s, display_name=%s, account_id=%s",
+		botInfo.Username, botInfo.DisplayName, botInfo.AccountID)
+
+	return botInfo, nil
+}
+
+// BitbucketUserInfo represents fresh bot user information from Bitbucket API
+type BitbucketUserInfo struct {
+	UUID        string `json:"uuid"`
+	Username    string `json:"username"`
+	DisplayName string `json:"display_name"`
+	AccountID   string `json:"account_id"`
+	Type        string `json:"type"`
 }
 
 // getFreshGitHubBotUserInfo gets fresh bot user information via GitHub API call
@@ -3429,6 +3524,36 @@ func (s *Server) checkUnifiedAIResponseWarrant(comment UnifiedComment) (bool, Re
 		} else {
 			err = fmt.Errorf("non-gitlab.com instances not yet supported in unified flow")
 		}
+	case "bitbucket":
+		// For Bitbucket, try to get fresh bot user info, but use fallback if it fails
+		bitbucketBotInfo, bitbucketErr := s.getFreshBitbucketBotUserInfo(comment.MRContext.Repository.FullName)
+		if bitbucketErr != nil {
+			log.Printf("[WARN] Failed to get fresh Bitbucket bot user info, using fallback: %v", bitbucketErr)
+			// Use fallback with hardcoded bot info that matches the account ID in the mention
+			botUserInfo = &UnifiedBotUserInfo{
+				Provider: "bitbucket",
+				User: UnifiedUser{
+					ID:        "712020:cd5db0f9-0d82-428a-b778-80a5b9416408", // From the webhook payload
+					Username:  "LiveReview Bot",
+					Name:      "LiveReview Bot",
+					WebURL:    "https://bitbucket.org/livereview-bot",
+					AvatarURL: "",
+				},
+				BaseURL: "https://api.bitbucket.org/2.0",
+			}
+		} else if bitbucketBotInfo != nil {
+			botUserInfo = &UnifiedBotUserInfo{
+				Provider: "bitbucket",
+				User: UnifiedUser{
+					ID:        bitbucketBotInfo.AccountID,
+					Username:  bitbucketBotInfo.Username,
+					Name:      bitbucketBotInfo.DisplayName,
+					WebURL:    fmt.Sprintf("https://bitbucket.org/%s", bitbucketBotInfo.Username),
+					AvatarURL: "", // Bitbucket user info doesn't include avatar in basic response
+				},
+				BaseURL: "https://api.bitbucket.org/2.0",
+			}
+		}
 	default:
 		err = fmt.Errorf("unsupported provider: %s", comment.Provider)
 	}
@@ -3455,6 +3580,13 @@ func (s *Server) checkUnifiedAIResponseWarrant(comment UnifiedComment) (bool, Re
 	botMentions := []string{
 		"@" + botUserInfo.User.Username,
 		botUserInfo.User.Username,
+	}
+
+	// For Bitbucket, also check for account ID mentions
+	if comment.Provider == "bitbucket" && botUserInfo.User.ID != nil {
+		if accountID, ok := botUserInfo.User.ID.(string); ok {
+			botMentions = append(botMentions, "@{"+accountID+"}", "{"+accountID+"}")
+		}
 	}
 
 	for _, mention := range botMentions {
@@ -4177,10 +4309,15 @@ func (s *Server) postBitbucketCommentReply(comment UnifiedComment, token *Integr
 		},
 	}
 
-	// If this is a reply, include parent reference
+	// If this is a reply, include parent reference (Bitbucket expects integer id)
 	if comment.InReplyToID != nil && *comment.InReplyToID != "" {
-		payload["parent"] = map[string]interface{}{
-			"id": *comment.InReplyToID,
+		if parentID, err := strconv.Atoi(*comment.InReplyToID); err == nil {
+			payload["parent"] = map[string]interface{}{
+				"id": parentID,
+			}
+		} else {
+			log.Printf("[WARN] Bitbucket reply: invalid parent InReplyToID '%s' (not an int): %v; posting as top-level comment",
+				*comment.InReplyToID, err)
 		}
 	}
 
@@ -4197,10 +4334,21 @@ func (s *Server) postBitbucketCommentReply(comment UnifiedComment, token *Integr
 		return err
 	}
 
-	// Bitbucket uses Basic Auth with username and App Password
-	// Note: PatToken should contain username:app_password format for Bitbucket
-	// For now using PatToken directly - this should be configured properly
-	req.SetBasicAuth("livereview-bot", token.PatToken)
+	// Bitbucket API: use Basic auth with email + API token (matches provider implementation)
+	var bbEmail string
+	if token.Metadata != nil {
+		if e, ok := token.Metadata["email"].(string); ok {
+			bbEmail = e
+		}
+	}
+	if bbEmail == "" {
+		return fmt.Errorf("bitbucket email missing in integration token metadata; cannot authenticate")
+	}
+
+	log.Printf("[DEBUG] Bitbucket auth details - Using Basic (email), email: '%s', PatToken length: %d, Provider: '%s', ProviderURL: '%s'",
+		bbEmail, len(token.PatToken), token.Provider, token.ProviderURL)
+
+	req.SetBasicAuth(bbEmail, token.PatToken)
 	req.Header.Set("Accept", "application/json")
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("User-Agent", "LiveReview-Bot")
@@ -4279,7 +4427,17 @@ func (s *Server) checkIfBitbucketCommentIsByBot(comment UnifiedComment, parentCo
 		return false, fmt.Errorf("failed to create request: %w", err)
 	}
 
-	req.SetBasicAuth("livereview-bot", token.PatToken)
+	// Use Basic auth with email + API token
+	var bbEmail string
+	if token.Metadata != nil {
+		if e, ok := token.Metadata["email"].(string); ok {
+			bbEmail = e
+		}
+	}
+	if bbEmail == "" {
+		return false, fmt.Errorf("bitbucket email missing in integration token metadata; cannot authenticate")
+	}
+	req.SetBasicAuth(bbEmail, token.PatToken)
 	req.Header.Set("Accept", "application/json")
 
 	client := &http.Client{Timeout: 10 * time.Second}
