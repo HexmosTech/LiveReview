@@ -3,6 +3,7 @@ import { useLocation, useNavigate } from 'react-router-dom';
 import { PageHeader, Card, Button, Icons, Input, Alert, Badge } from '../../components/UIPrimitives';
 import PromptsPage from '../Prompts';
 import LicenseTab from './LicenseTab';
+import LearningsTab from './LearningsTab';
 import { UserManagement } from '../../components/UserManagement';
 import { useOrgContext } from '../../hooks/useOrgContext';
 import { useAppDispatch, useAppSelector } from '../../store/configureStore';
@@ -291,6 +292,8 @@ const Settings = () => {
             </svg>
         ) }] : []),
         ...(canAccessPrompts ? [{ id: 'prompts', name: 'Prompts', icon: <Icons.AI /> }] : []),
+        // Learnings tab visible to org managers and above
+        ...(canManageCurrentOrg ? [{ id: 'learnings', name: 'Learnings', icon: <Icons.List /> }] : []),
         ...(canManageCurrentOrg ? [{ 
             id: 'users', 
             name: 'User Management', 
@@ -687,6 +690,12 @@ const Settings = () => {
                     {activeTab === 'license' && (isSuperAdmin || currentOrg?.role === 'owner') && (
                         <Card>
                             <LicenseTab />
+                        </Card>
+                    )}
+
+                    {activeTab === 'learnings' && canManageCurrentOrg && (
+                        <Card>
+                            <LearningsTab />
                         </Card>
                     )}
 

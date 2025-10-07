@@ -326,6 +326,20 @@ func (s *Server) setupRoutes() {
 	adminGroup.POST("/organizations", s.orgHandlers.CreateOrganization)
 	adminGroup.DELETE("/organizations/:org_id", s.orgHandlers.DeactivateOrganization)
 
+	// Learnings endpoints (organization-scoped, MVP)
+	learningsHandler := NewLearningsHandler(s.db)
+	learningsGroup := v1.Group("/learnings")
+	learningsGroup.Use(authMiddleware.RequireAuth())
+	learningsGroup.Use(authMiddleware.BuildOrgContextFromHeader())
+	learningsGroup.Use(authMiddleware.ValidateOrgAccess())
+	learningsGroup.Use(authMiddleware.BuildPermissionContext())
+	learningsGroup.GET("", learningsHandler.List)
+	learningsGroup.GET("/:id", learningsHandler.Get)
+	learningsGroup.POST("", learningsHandler.Upsert)
+	learningsGroup.PUT("/:id", learningsHandler.Update)
+	learningsGroup.DELETE("/:id", learningsHandler.Delete)
+	learningsGroup.POST("/apply-action-from-reply", learningsHandler.ApplyActionFromReply)
+
 	// Development mode: Org-scoped and Admin test endpoints
 	if s.devMode {
 		// TEST: Org-scoped test endpoint

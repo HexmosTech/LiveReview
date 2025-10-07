@@ -2513,13 +2513,20 @@ func (s *Server) postGitLabTextResponse(ctx context.Context, payload GitLabNoteW
 		responseContent = s.generateBriefAcknowledgment(scenario.ContentType)
 	}
 
+	// LEARNING EXTRACTION: Augment response with learning metadata detection
+	augmentedResponse, learningAck := s.augmentResponseWithLearningMetadata(ctx, responseContent, payload)
+	finalResponse := augmentedResponse
+	if learningAck != "" {
+		finalResponse = augmentedResponse + "\n\n" + learningAck
+	}
+
 	// Post the response to GitLab
 	if payload.ObjectAttributes.DiscussionID != "" {
 		// Reply to discussion thread - pass the MR IID
-		return s.postReplyToGitLabDiscussion(ctx, accessToken, payload.Project.ID, payload.MergeRequest.IID, payload.ObjectAttributes.DiscussionID, responseContent, gitlabInstanceURL)
+		return s.postReplyToGitLabDiscussion(ctx, accessToken, payload.Project.ID, payload.MergeRequest.IID, payload.ObjectAttributes.DiscussionID, finalResponse, gitlabInstanceURL)
 	} else {
 		// Create new general comment mentioning the user
-		mentionedResponse := fmt.Sprintf("@%s %s", payload.User.Username, responseContent)
+		mentionedResponse := fmt.Sprintf("@%s %s", payload.User.Username, finalResponse)
 		return s.postGeneralCommentToGitLabMR(ctx, accessToken, payload.Project.ID, payload.MergeRequest.IID, mentionedResponse, gitlabInstanceURL)
 	}
 }
@@ -3280,7 +3287,160 @@ func (s *Server) generateContextualAnalysis(commentBody string, targetComment *G
 	response.WriteString("Feel free to ask specific questions about implementation details, testing strategies, or design decisions. I'm here to help provide detailed technical analysis based on the code context.")
 
 	return response.String()
-} // Helper functions adapted from main.go
+}
+
+// augmentResponseWithLearningMetadata augments AI response with learning metadata detection
+func (s *Server) augmentResponseWithLearningMetadata(ctx context.Context, responseContent string, payload GitLabNoteWebhookPayload) (string, string) {
+	// Simple learning detection patterns - when users ask about documentation, patterns, etc.
+	originalComment := strings.ToLower(payload.ObjectAttributes.Note)
+
+	// Detect learning opportunities from the comment and response
+	var learningMetadata *LearningMetadata
+
+	// Pattern 1: Documentation questions
+	if strings.Contains(originalComment, "document") || strings.Contains(originalComment, "warrant") {
+		learningMetadata = &LearningMetadata{
+			Action:    "add",
+			Title:     "Documentation Best Practices",
+			Body:      "Always document public functions and complex logic. Include purpose, inputs, outputs, and caveats for maintainability.",
+			ScopeKind: "org",
+			Tags:      []string{"documentation", "best-practices", "maintainability"},
+		}
+	}
+
+	// Pattern 2: Performance questions
+	if strings.Contains(originalComment, "performance") || strings.Contains(originalComment, "slow") || strings.Contains(originalComment, "optimize") {
+		learningMetadata = &LearningMetadata{
+			Action:    "add",
+			Title:     "Performance Optimization Guidelines",
+			Body:      "Profile before optimizing. Focus on algorithmic improvements first, then micro-optimizations. Document performance-critical sections.",
+			ScopeKind: "org",
+			Tags:      []string{"performance", "optimization", "profiling"},
+		}
+	}
+
+	// Pattern 3: Security concerns
+	if strings.Contains(originalComment, "security") || strings.Contains(originalComment, "vulnerable") || strings.Contains(originalComment, "safe") {
+		learningMetadata = &LearningMetadata{
+			Action:    "add",
+			Title:     "Security Review Checklist",
+			Body:      "Always validate inputs, use parameterized queries, apply principle of least privilege, and review for injection vulnerabilities.",
+			ScopeKind: "org",
+			Tags:      []string{"security", "validation", "best-practices"},
+		}
+	}
+
+	// Pattern 4: Error handling questions
+	if strings.Contains(originalComment, "error") || strings.Contains(originalComment, "exception") || strings.Contains(originalComment, "handle") {
+		learningMetadata = &LearningMetadata{
+			Action:    "add",
+			Title:     "Error Handling Patterns",
+			Body:      "Use proper error handling, fail fast, provide meaningful error messages, and log appropriately for debugging.",
+			ScopeKind: "org",
+			Tags:      []string{"error-handling", "debugging", "logging"},
+		}
+	}
+
+	if learningMetadata == nil {
+		return responseContent, ""
+	}
+
+	// Try to apply the learning
+	shortID, err := s.applyLearningFromReply(ctx, payload, learningMetadata)
+	if err != nil {
+		log.Printf("[WARN] Failed to apply learning from reply: %v", err)
+		return responseContent, ""
+	}
+
+	// Return acknowledgment if learning was created
+	ack := fmt.Sprintf("💡 *Learning captured: [%s](#%s)*", learningMetadata.Title, shortID)
+	return responseContent, ack
+}
+
+// LearningMetadata represents the structure expected by the learning API
+type LearningMetadata struct {
+	Action    string   `json:"action"`
+	ShortID   string   `json:"short_id,omitempty"`
+	Title     string   `json:"title"`
+	Body      string   `json:"body"`
+	ScopeKind string   `json:"scope_kind"`
+	RepoID    string   `json:"repo_id,omitempty"`
+	Tags      []string `json:"tags"`
+}
+
+// applyLearningFromReply calls the learnings API to create/update a learning
+func (s *Server) applyLearningFromReply(ctx context.Context, payload GitLabNoteWebhookPayload, metadata *LearningMetadata) (string, error) {
+	// Find the organization ID for this GitLab instance
+	orgID, err := s.findOrgIDForGitLabInstance(extractGitLabInstanceURL(payload.Project.WebURL))
+	if err != nil {
+		return "", fmt.Errorf("failed to find org ID: %w", err)
+	}
+
+	// Build request payload
+	requestPayload := map[string]interface{}{
+		"metadata": metadata,
+	}
+
+	// Make internal API call to apply learning
+	jsonBody, err := json.Marshal(requestPayload)
+	if err != nil {
+		return "", fmt.Errorf("failed to marshal learning request: %w", err)
+	}
+
+	// Create internal HTTP request to learnings endpoint
+	req, err := http.NewRequestWithContext(ctx, "POST", "http://localhost:8888/api/v1/learnings/apply-action-from-reply", bytes.NewBuffer(jsonBody))
+	if err != nil {
+		return "", fmt.Errorf("failed to create learning request: %w", err)
+	}
+
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Org-Context", fmt.Sprintf("%d", orgID))
+
+	client := &http.Client{Timeout: 10 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return "", fmt.Errorf("failed to call learning API: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return "", fmt.Errorf("learning API returned status %d: %s", resp.StatusCode, string(body))
+	}
+
+	// Parse response to get short_id
+	var result struct {
+		ShortID string `json:"short_id"`
+		Action  string `json:"action"`
+	}
+
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return "", fmt.Errorf("failed to decode learning API response: %w", err)
+	}
+
+	log.Printf("[INFO] Learning %s: %s (LR-%s)", result.Action, metadata.Title, result.ShortID)
+	return result.ShortID, nil
+}
+
+// findOrgIDForGitLabInstance finds the organization ID associated with a GitLab instance
+func (s *Server) findOrgIDForGitLabInstance(gitlabInstanceURL string) (int64, error) {
+	query := `
+		SELECT org_id FROM integration_tokens 
+		WHERE provider IN ('gitlab', 'gitlab-com', 'gitlab-self-hosted') 
+		AND RTRIM(provider_url, '/') = RTRIM($1, '/')
+		LIMIT 1
+	`
+
+	var orgID int64
+	err := s.db.QueryRow(query, gitlabInstanceURL).Scan(&orgID)
+	if err != nil {
+		return 0, fmt.Errorf("no organization found for GitLab instance %s: %w", gitlabInstanceURL, err)
+	}
+
+	return orgID, nil
+}
+
+// Helper functions adapted from main.go
 
 // parseTimeBestEffort tries common GitLab timestamp layouts
 func parseTimeBestEffort(s string) time.Time {
