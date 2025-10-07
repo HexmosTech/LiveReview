@@ -187,3 +187,9 @@ In-thread NL edits/deletes (reply-driven):
 - Storage: later extend scope_kind with 'path' and add `path_glob` text; index with trigram; match via doublestar.
 - Ranking: if any changed file matches, boost above repo/org.
 - Risks: setup burden, pattern brittleness, added complexity; not needed for MVP.
+
+## MVP implementation status (repo)
+- DB migrations (applied): `db/migrations/20251007_000001_add_learnings.sql` → tables `learnings`, `learning_events`, enums, indexes.
+- Internal module added: `internal/learnings/`
+	- `types.go`, `simhash.go`, `shortid.go`, `store.go` (in-memory), `service.go` (upsert/update/delete/fetchRelevant).
+- Next wiring (later): prompt augmentation + metadata parse in `internal/api/webhook_handler.go`; Go API handlers; UI page `/learnings`.
