@@ -443,22 +443,22 @@ func (p *UnifiedProcessorV2Impl) ProcessFullReview(ctx context.Context, event Un
 - **Build Test**: `bash -lc 'go build livereview.go'` must pass after this step ✅ **PASSED**
 - **Verify**: Both comment reply and full review flows work provider-agnostically ✅
 
-### 7.2 Create unified context builder with V2 types
-- **File**: `internal/api/unified_context_v2.go`
-- **Move**: Context building logic (PRESERVE EXACTLY, make provider-agnostic, with V2 naming)
-  - `buildTimelineV2` → work with `UnifiedTimelineV2` instead of provider-specific types
-  - `extractCommentContextV2` → work with unified timeline items  
-  - `findTargetCommentV2` logic → work with unified comments
-  - Timeline analysis and sorting (V2 naming)
-- **Move**: Prompt building (PRESERVE EXACTLY, with V2 naming)
-  - `buildGeminiPromptEnhancedV2` → unified version using `UnifiedCommentV2`, `UnifiedPositionV2`
-  - All prompt construction logic (V2 naming)
-  - Context analysis functions (V2 naming)
-- **Move**: Helper functions (with V2 naming)
-  - `parseTimeBestEffortV2`, `shortSHAV2`, `firstNonEmptyV2`, `minV2`
-  - `analyzeResponseTypeV2`
-- **Build Test**: `bash -lc 'go build livereview.go'` must pass after this step
-- **Verify**: Context building works with unified V2 data from any provider
+### 7.2 Create unified context builder with V2 types ✅ **COMPLETED**
+- **File**: `internal/api/unified_context_v2.go` ✅ **CREATED**
+- **Move**: Context building logic (PRESERVE EXACTLY, make provider-agnostic, with V2 naming) ✅
+  - `BuildTimeline` → work with `UnifiedTimelineV2` instead of provider-specific types ✅
+  - `ExtractCommentContext` → work with unified timeline items ✅
+  - `FindTargetComment` logic → work with unified comments ✅
+  - Timeline analysis and sorting (V2 naming) ✅
+- **Move**: Prompt building (PRESERVE EXACTLY, with V2 naming) ✅
+  - `BuildPrompt` → unified version using `UnifiedCommentV2`, `UnifiedPositionV2` ✅
+  - All prompt construction logic (V2 naming) ✅
+  - Context analysis functions (V2 naming) ✅
+- **Move**: Helper functions (with V2 naming) ✅
+  - `parseTimeBestEffortV2`, `shortSHAV2`, `firstNonEmptyV2`, `minV2` ✅
+  - `AnalyzeCommentThread`, `BuildEnhancedContext` ✅
+- **Build Test**: `bash -lc 'go build livereview.go'` must pass after this step ✅ **PASSED**
+- **Verify**: Context building works with unified V2 data from any provider ✅
 
 ### 7.3 Create learning processor (provider-agnostic) with V2 types
 - **File**: `internal/api/learning_processor_v2.go`  
