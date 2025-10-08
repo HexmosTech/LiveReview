@@ -101,6 +101,10 @@ type Server struct {
 	devMode              bool
 	_licenseSvc          interface{} // holds *license.Service lazily (typed in license.go)
 	licenseScheduler     *license.Scheduler
+
+	// V2 Webhook Providers
+	gitlabProviderV2 *GitLabV2Provider
+	githubProviderV2 *GitHubV2Provider
 }
 
 // NewServer creates a new API server
@@ -218,6 +222,10 @@ func NewServer(port int, versionInfo *VersionInfo) (*Server, error) {
 		testHandlers:         testHandlers,
 		devMode:              devMode,
 	}
+
+	// Initialize V2 webhook providers
+	server.gitlabProviderV2 = NewGitLabV2Provider(server)
+	server.githubProviderV2 = NewGitHubV2Provider(server)
 
 	// Set the server reference in auto webhook installer (circular dependency)
 	autoWebhookInstaller.server = server
