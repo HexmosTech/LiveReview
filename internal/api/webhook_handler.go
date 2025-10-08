@@ -204,9 +204,86 @@ type BotUserInfo struct {
 
 // GitLabWebhookHandler handles incoming GitLab webhook events
 func (s *Server) GitLabWebhookHandler(c echo.Context) error {
+	// Try V2 provider first
+	if s.gitlabProviderV2 != nil {
+		return s.GitLabWebhookHandlerV2(c)
+	}
+
+	// Fallback to original implementation
+	return s.GitLabWebhookHandlerV1(c)
+}
+
+// GitLabWebhookHandlerV2 handles GitLab webhooks using the V2 provider
+func (s *Server) GitLabWebhookHandlerV2(c echo.Context) error {
+	// Read request body
+	body, err := io.ReadAll(c.Request().Body)
+	if err != nil {
+		log.Printf("[ERROR] Failed to read GitLab webhook body: %v", err)
+		return c.JSON(http.StatusBadRequest, map[string]string{
+			"error": "Failed to read request body",
+		})
+	}
+
+	// Get headers
+	headers := make(map[string]string)
+	for key, values := range c.Request().Header {
+		if len(values) > 0 {
+			headers[key] = values[0]
+		}
+	}
+
+	eventKind := c.Request().Header.Get("X-Gitlab-Event")
+	log.Printf("[INFO] Received GitLab webhook (V2): event_kind=%s", eventKind)
+
+	// Check if V2 provider can handle this webhook
+	if !s.gitlabProviderV2.CanHandleWebhook(headers, body) {
+		log.Printf("[WARN] GitLab V2 provider cannot handle this webhook, falling back to V1")
+		return s.GitLabWebhookHandlerV1(c)
+	}
+
+	// Handle different event types using V2 provider
+	switch strings.ToLower(eventKind) {
+	case "merge request hook":
+		// Handle reviewer assignment events
+		if event, err := s.gitlabProviderV2.ConvertReviewerEvent(headers, body); err == nil {
+			log.Printf("[INFO] GitLab V2 reviewer event processed for MR !%d", event.MergeRequest.Number)
+			return c.JSON(http.StatusOK, map[string]string{
+				"status":     "processed",
+				"event_type": "reviewer_assignment",
+				"provider":   "gitlab_v2",
+			})
+		}
+
+	case "note hook":
+		// Handle comment events
+		if event, err := s.gitlabProviderV2.ConvertCommentEvent(headers, body); err == nil {
+			log.Printf("[INFO] GitLab V2 comment event processed: %s", event.EventType)
+
+			// Process the comment if it's a bot mention
+			if s.isBotMentioned(event) {
+				if err := s.processCommentEventV2(event); err != nil {
+					log.Printf("[ERROR] Failed to process GitLab V2 comment: %v", err)
+				}
+			}
+
+			return c.JSON(http.StatusOK, map[string]string{
+				"status":     "processed",
+				"event_type": event.EventType,
+				"provider":   "gitlab_v2",
+			})
+		}
+	}
+
+	// If V2 provider couldn't handle it, fall back to V1
+	log.Printf("[DEBUG] GitLab V2 provider couldn't handle event kind: %s, falling back to V1", eventKind)
+	return s.GitLabWebhookHandlerV1(c)
+}
+
+// GitLabWebhookHandlerV1 is the original GitLab webhook handler (for backward compatibility)
+func (s *Server) GitLabWebhookHandlerV1(c echo.Context) error {
 	// Get the event kind from headers first to determine payload type
 	eventKind := c.Request().Header.Get("X-Gitlab-Event")
-	log.Printf("[INFO] Received GitLab webhook: event_kind=%s", eventKind)
+	log.Printf("[INFO] Received GitLab webhook (V1): event_kind=%s", eventKind)
 
 	// Handle different event types with appropriate payload structures
 	switch strings.ToLower(eventKind) {
@@ -812,9 +889,86 @@ type GitHubBotUserInfo struct {
 
 // GitHubWebhookHandler handles incoming GitHub webhook events
 func (s *Server) GitHubWebhookHandler(c echo.Context) error {
+	// Try V2 provider first
+	if s.githubProviderV2 != nil {
+		return s.GitHubWebhookHandlerV2(c)
+	}
+
+	// Fallback to original implementation
+	return s.GitHubWebhookHandlerV1(c)
+}
+
+// GitHubWebhookHandlerV2 handles GitHub webhooks using the V2 provider
+func (s *Server) GitHubWebhookHandlerV2(c echo.Context) error {
+	// Read request body
+	body, err := io.ReadAll(c.Request().Body)
+	if err != nil {
+		log.Printf("[ERROR] Failed to read GitHub webhook body: %v", err)
+		return c.JSON(http.StatusBadRequest, map[string]string{
+			"error": "Failed to read request body",
+		})
+	}
+
+	// Get headers
+	headers := make(map[string]string)
+	for key, values := range c.Request().Header {
+		if len(values) > 0 {
+			headers[key] = values[0]
+		}
+	}
+
+	eventType := c.Request().Header.Get("X-GitHub-Event")
+	log.Printf("[INFO] Received GitHub webhook (V2): event_type=%s", eventType)
+
+	// Check if V2 provider can handle this webhook
+	if !s.githubProviderV2.CanHandleWebhook(headers, body) {
+		log.Printf("[WARN] GitHub V2 provider cannot handle this webhook, falling back to V1")
+		return s.GitHubWebhookHandlerV1(c)
+	}
+
+	// Handle different event types using V2 provider
+	switch strings.ToLower(eventType) {
+	case "pull_request":
+		// Handle reviewer assignment events
+		if event, err := s.githubProviderV2.ConvertReviewerEvent(headers, body); err == nil {
+			log.Printf("[INFO] GitHub V2 reviewer event processed for PR #%d", event.MergeRequest.Number)
+			return c.JSON(http.StatusOK, map[string]string{
+				"status":     "processed",
+				"event_type": "reviewer_assignment",
+				"provider":   "github_v2",
+			})
+		}
+
+	case "issue_comment", "pull_request_review_comment":
+		// Handle comment events
+		if event, err := s.githubProviderV2.ConvertCommentEvent(headers, body); err == nil {
+			log.Printf("[INFO] GitHub V2 comment event processed: %s", event.EventType)
+
+			// Process the comment if it's a bot mention
+			if s.isBotMentioned(event) {
+				if err := s.processCommentEventV2(event); err != nil {
+					log.Printf("[ERROR] Failed to process GitHub V2 comment: %v", err)
+				}
+			}
+
+			return c.JSON(http.StatusOK, map[string]string{
+				"status":     "processed",
+				"event_type": event.EventType,
+				"provider":   "github_v2",
+			})
+		}
+	}
+
+	// If V2 provider couldn't handle it, fall back to V1
+	log.Printf("[DEBUG] GitHub V2 provider couldn't handle event type: %s, falling back to V1", eventType)
+	return s.GitHubWebhookHandlerV1(c)
+}
+
+// GitHubWebhookHandlerV1 is the original GitHub webhook handler (for backward compatibility)
+func (s *Server) GitHubWebhookHandlerV1(c echo.Context) error {
 	// Get the event type from headers first
 	eventType := c.Request().Header.Get("X-GitHub-Event")
-	log.Printf("[INFO] Received GitHub webhook: event_type=%s", eventType)
+	log.Printf("[INFO] Received GitHub webhook (V1): event_type=%s", eventType)
 
 	// Handle different event types with appropriate payload structures
 	switch strings.ToLower(eventType) {
@@ -4710,4 +4864,106 @@ func (s *Server) checkIfGitLabCommentIsByBot(comment UnifiedComment, parentComme
 	// TODO: Implement GitLab parent comment checking
 	// For now, return false to maintain existing GitLab behavior
 	return false, nil
+}
+
+// V2 Helper Methods for Webhook Processing
+
+// isBotMentioned checks if the bot is mentioned in a V2 unified webhook event
+func (s *Server) isBotMentioned(event *UnifiedWebhookEventV2) bool {
+	if event.Comment == nil {
+		return false
+	}
+
+	// Get bot user info based on provider
+	var botUsername string
+
+	switch event.Provider {
+	case "github":
+		if botInfo, err := s.githubProviderV2.getFreshGitHubBotUserInfoV2(event.Repository.FullName); err == nil {
+			botUsername = botInfo.Login
+		}
+	case "gitlab":
+		// For GitLab, we need to extract the instance URL from the repository URL
+		if botInfo, err := s.getFreshBotUserInfoV2("https://gitlab.com"); err == nil {
+			botUsername = botInfo.Username
+		}
+	}
+
+	if botUsername == "" {
+		log.Printf("[WARN] Could not get bot username for provider %s", event.Provider)
+		return false
+	}
+
+	return s.checkDirectBotMentionV2(event.Comment.Body, botUsername)
+}
+
+// checkDirectBotMentionV2 checks if bot is directly mentioned in comment body
+func (s *Server) checkDirectBotMentionV2(commentBody, botUsername string) bool {
+	commentLower := strings.ToLower(commentBody)
+	log.Printf("[DEBUG] Checking for direct mentions in comment: '%s'", commentBody)
+
+	// Check for exact bot username mention
+	mentionPattern := "@" + strings.ToLower(botUsername)
+	log.Printf("[DEBUG] Looking for mention pattern: '%s' in comment", mentionPattern)
+	if strings.Contains(commentLower, mentionPattern) {
+		log.Printf("[DEBUG] Direct mention found: %s mentioned in comment", botUsername)
+		return true
+	}
+
+	// Check for common bot names as fallback
+	commonBotNames := []string{"livereviewbot", "livereview", "ai-bot", "codebot", "reviewbot"}
+	for _, botName := range commonBotNames {
+		fallbackPattern := "@" + botName
+		log.Printf("[DEBUG] Looking for fallback mention pattern: '%s' in comment", fallbackPattern)
+		if strings.Contains(commentLower, fallbackPattern) {
+			log.Printf("[DEBUG] Direct mention found (fallback): %s mentioned in comment", botName)
+			return true
+		}
+	}
+
+	log.Printf("[DEBUG] No direct mentions found")
+	return false
+}
+
+// processCommentEventV2 processes a V2 unified comment event
+func (s *Server) processCommentEventV2(event *UnifiedWebhookEventV2) error {
+	log.Printf("[INFO] Processing V2 comment event: %s from %s", event.EventType, event.Provider)
+
+	if event.Comment == nil {
+		return fmt.Errorf("no comment in event")
+	}
+
+	// Basic validation
+	if event.Comment.Body == "" {
+		log.Printf("[DEBUG] Empty comment body, skipping processing")
+		return nil
+	}
+
+	// For now, just post a simple acknowledgment reaction
+	switch event.Provider {
+	case "github":
+		if err := s.githubProviderV2.PostEmojiReaction(event, "eyes"); err != nil {
+			log.Printf("[WARN] Failed to post GitHub reaction: %v", err)
+		}
+
+		// Post a simple reply
+		replyText := "👋 Hello! I've seen your comment. AI review functionality is being integrated."
+		if err := s.githubProviderV2.PostCommentReply(event, replyText); err != nil {
+			log.Printf("[WARN] Failed to post GitHub reply: %v", err)
+		}
+
+	case "gitlab":
+		if err := s.gitlabProviderV2.PostEmojiReaction(event, "eyes"); err != nil {
+			log.Printf("[WARN] Failed to post GitLab reaction: %v", err)
+		}
+
+		// Post a simple reply
+		replyText := "👋 Hello! I've seen your comment. AI review functionality is being integrated."
+		if err := s.gitlabProviderV2.PostCommentReply(event, replyText); err != nil {
+			log.Printf("[WARN] Failed to post GitLab reply: %v", err)
+		}
+	}
+
+	log.Printf("[INFO] Successfully processed V2 comment event")
+	return nil
 }
