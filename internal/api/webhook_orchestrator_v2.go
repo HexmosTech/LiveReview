@@ -55,7 +55,7 @@ func (wo *WebhookOrchestratorV2) ProcessWebhookEvent(c echo.Context) error {
 
 	// Read and buffer the body
 	body, err := c.Request().GetBody()
-	if err != nil {
+	if err != nil || body == nil {
 		log.Printf("[ERROR] Failed to read webhook body: %v", err)
 		return c.JSON(http.StatusBadRequest, map[string]string{
 			"error": "Failed to read request body",
@@ -116,7 +116,7 @@ func (wo *WebhookOrchestratorV2) ProcessWebhookEvent(c echo.Context) error {
 
 	warrantsResponse, scenario := wo.unifiedProcessor.CheckResponseWarrant(*event, botInfo)
 	if !warrantsResponse {
-		log.Printf("[DEBUG] Event does not warrant response: %s", scenario)
+		log.Printf("[DEBUG] Event does not warrant response: %s", scenario.Type)
 		return c.JSON(http.StatusOK, map[string]string{
 			"status":   "ignored",
 			"provider": providerName,
@@ -125,7 +125,7 @@ func (wo *WebhookOrchestratorV2) ProcessWebhookEvent(c echo.Context) error {
 		})
 	}
 
-	log.Printf("[INFO] Response warranted: scenario=%s", scenario)
+	log.Printf("[INFO] Response warranted: scenario=%s", scenario.Type)
 
 	// Phase 4: Asynchronous Processing (return response quickly)
 	go wo.processEventAsync(context.Background(), event, provider, scenario, startTime)
