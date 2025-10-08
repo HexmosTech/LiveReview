@@ -868,3 +868,167 @@ func (p *GitHubV2Provider) fetchGitHubPRCommentsV2(owner, repo, prNumber, token 
 	err = json.NewDecoder(resp.Body).Decode(&comments)
 	return comments, err
 }
+
+// Missing WebhookProviderV2 Interface Methods
+
+// FetchMRTimeline fetches timeline data for a merge request
+func (p *GitHubV2Provider) FetchMRTimeline(mr UnifiedMergeRequestV2) (*UnifiedTimelineV2, error) {
+	// Get integration token for the repository
+	token, err := p.findIntegrationTokenForGitHubRepoV2(mr.Metadata["repository_full_name"].(string))
+	if err != nil {
+		return nil, fmt.Errorf("failed to get GitHub token: %w", err)
+	}
+
+	// Extract owner, repo, and PR number from metadata
+	repoFullName := mr.Metadata["repository_full_name"].(string)
+	parts := strings.Split(repoFullName, "/")
+	if len(parts) != 2 {
+		return nil, fmt.Errorf("invalid repository full name: %s", repoFullName)
+	}
+	owner, repo := parts[0], parts[1]
+	prNumber := fmt.Sprintf("%d", mr.Number)
+
+	// Fetch commits and comments in parallel
+	commits, err := p.fetchGitHubPRCommitsV2(owner, repo, prNumber, token.PatToken)
+	if err != nil {
+		return nil, fmt.Errorf("failed to fetch commits: %w", err)
+	}
+
+	comments, err := p.fetchGitHubPRCommentsV2(owner, repo, prNumber, token.PatToken)
+	if err != nil {
+		return nil, fmt.Errorf("failed to fetch comments: %w", err)
+	}
+
+	// Build unified timeline
+	timeline := &UnifiedTimelineV2{
+		Items: []UnifiedTimelineItemV2{},
+	}
+
+	// Add commits to timeline
+	for _, commit := range commits {
+		timeline.Items = append(timeline.Items, UnifiedTimelineItemV2{
+			Type:      "commit",
+			Timestamp: commit.Author.Date,
+			Commit: &UnifiedCommitV2{
+				SHA:     commit.SHA,
+				Message: commit.Message,
+				Author: UnifiedCommitAuthorV2{
+					Name:  commit.Author.Name,
+					Email: commit.Author.Email,
+				},
+				Timestamp: commit.Author.Date,
+				WebURL:    commit.URL,
+			},
+		})
+	}
+
+	// Add comments to timeline
+	for _, comment := range comments {
+		timeline.Items = append(timeline.Items, UnifiedTimelineItemV2{
+			Type:      "comment",
+			Timestamp: comment.CreatedAt,
+			Comment: &UnifiedCommentV2{
+				ID:        fmt.Sprintf("%d", comment.ID),
+				Body:      comment.Body,
+				CreatedAt: comment.CreatedAt,
+				UpdatedAt: comment.UpdatedAt,
+				Author: UnifiedUserV2{
+					ID:       fmt.Sprintf("%d", comment.User.ID),
+					Username: comment.User.Login,
+					Name:     comment.User.Name,
+					WebURL:   comment.User.HTMLURL,
+				},
+			},
+		})
+	}
+
+	return timeline, nil
+}
+
+// FetchCodeContext fetches code context (diff hunks, file content) for a comment
+func (p *GitHubV2Provider) FetchCodeContext(comment UnifiedCommentV2) (string, error) {
+	// For GitHub, if the comment has position info, we can get the diff context
+	if comment.Position == nil {
+		return "", nil // No code context for general comments
+	}
+
+	// This is a simplified implementation - in a full implementation,
+	// you would fetch the actual diff hunks from the GitHub API
+	context := fmt.Sprintf("File: %s\nLine: %d",
+		comment.Position.FilePath,
+		comment.Position.LineNumber)
+
+	if comment.Position.StartLine != nil {
+		context += fmt.Sprintf("\nLines: %d-%d",
+			*comment.Position.StartLine,
+			comment.Position.LineNumber)
+	}
+
+	return context, nil
+}
+
+// GetBotUserInfo gets bot user information for warrant checking
+func (p *GitHubV2Provider) GetBotUserInfo(repository UnifiedRepositoryV2) (*UnifiedBotUserInfoV2, error) {
+	// Get fresh bot user info from GitHub API
+	botInfo, err := p.getFreshGitHubBotUserInfoV2(repository.FullName)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get GitHub bot user info: %w", err)
+	}
+
+	// Convert to unified format
+	return &UnifiedBotUserInfoV2{
+		UserID:   fmt.Sprintf("%d", botInfo.ID),
+		Username: botInfo.Login,
+		Name:     botInfo.Name,
+		IsBot:    botInfo.Type == "Bot",
+		Metadata: map[string]interface{}{
+			"html_url":   botInfo.HTMLURL,
+			"avatar_url": botInfo.AvatarURL,
+			"provider":   "github",
+			"user_type":  botInfo.Type,
+		},
+	}, nil
+}
+
+// PostReviewComments posts multiple review comments to a GitHub PR
+func (p *GitHubV2Provider) PostReviewComments(mr UnifiedMergeRequestV2, comments []UnifiedReviewCommentV2) error {
+	if len(comments) == 0 {
+		return nil
+	}
+
+	// Get integration token
+	repoFullName := mr.Metadata["repository_full_name"].(string)
+	token, err := p.findIntegrationTokenForGitHubRepoV2(repoFullName)
+	if err != nil {
+		return fmt.Errorf("failed to get GitHub token: %w", err)
+	}
+
+	// Extract owner and repo
+	parts := strings.Split(repoFullName, "/")
+	if len(parts) != 2 {
+		return fmt.Errorf("invalid repository full name: %s", repoFullName)
+	}
+	owner, repo := parts[0], parts[1]
+
+	// Post each comment
+	for _, comment := range comments {
+		// For GitHub, we need to post as individual PR review comments
+		apiURL := fmt.Sprintf("https://api.github.com/repos/%s/%s/pulls/%d/comments",
+			owner, repo, mr.Number)
+
+		requestBody := map[string]interface{}{
+			"body": fmt.Sprintf("**%s** (%s)\n\n%s",
+				comment.Severity, comment.Category, comment.Content),
+			"path":      comment.FilePath,
+			"line":      comment.LineNumber,
+			"side":      "RIGHT",
+			"commit_id": mr.Metadata["head_sha"], // Would need the actual commit SHA
+		}
+
+		if err := p.postToGitHubAPIV2(apiURL, token.PatToken, requestBody); err != nil {
+			return fmt.Errorf("failed to post review comment: %w", err)
+		}
+	}
+
+	return nil
+}
