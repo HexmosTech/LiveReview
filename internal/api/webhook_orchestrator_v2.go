@@ -3,6 +3,7 @@ package api
 import (
 	"context"
 	"fmt"
+	"io"
 	"log"
 	"net/http"
 	"strings"
@@ -26,12 +27,43 @@ type WebhookOrchestratorV2 struct {
 
 // NewWebhookOrchestratorV2 creates a new webhook orchestrator instance
 func NewWebhookOrchestratorV2(server *Server) *WebhookOrchestratorV2 {
+	log.Printf("[DEBUG] Creating webhook orchestrator V2...")
+
+	if server == nil {
+		log.Printf("[ERROR] Server is nil in NewWebhookOrchestratorV2")
+		return nil
+	}
+
+	providerRegistry := NewWebhookProviderRegistry(server)
+	if providerRegistry == nil {
+		log.Printf("[ERROR] Failed to create provider registry")
+		return nil
+	}
+
+	unifiedProcessor := NewUnifiedProcessorV2(server)
+	if unifiedProcessor == nil {
+		log.Printf("[ERROR] Failed to create unified processor")
+		return nil
+	}
+
+	contextBuilder := NewUnifiedContextBuilderV2(server)
+	if contextBuilder == nil {
+		log.Printf("[ERROR] Failed to create context builder")
+		return nil
+	}
+
+	learningProcessor := NewLearningProcessorV2(server)
+	if learningProcessor == nil {
+		log.Printf("[ERROR] Failed to create learning processor")
+		return nil
+	}
+
 	orchestrator := &WebhookOrchestratorV2{
 		server:               server,
-		providerRegistry:     NewWebhookProviderRegistry(server),
-		unifiedProcessor:     NewUnifiedProcessorV2(server),
-		contextBuilder:       NewUnifiedContextBuilderV2(server),
-		learningProcessor:    NewLearningProcessorV2(server),
+		providerRegistry:     providerRegistry,
+		unifiedProcessor:     unifiedProcessor,
+		contextBuilder:       contextBuilder,
+		learningProcessor:    learningProcessor,
 		processingTimeoutSec: 30, // 30 second timeout for AI processing
 	}
 
@@ -53,32 +85,26 @@ func (wo *WebhookOrchestratorV2) ProcessWebhookEvent(c echo.Context) error {
 		}
 	}
 
-	// Read and buffer the body
-	body, err := c.Request().GetBody()
-	if err != nil || body == nil {
+	// Read and buffer the body using Echo's body reader
+	bodyBytes, err := io.ReadAll(c.Request().Body)
+	if err != nil {
 		log.Printf("[ERROR] Failed to read webhook body: %v", err)
 		return c.JSON(http.StatusBadRequest, map[string]string{
 			"error": "Failed to read request body",
 		})
-	}
-	defer body.Close()
-
-	bodyBytes := make([]byte, 0, 1024*1024) // 1MB buffer
-	buf := make([]byte, 1024)
-	for {
-		n, err := body.Read(buf)
-		if n > 0 {
-			bodyBytes = append(bodyBytes, buf[:n]...)
-		}
-		if err != nil {
-			break
-		}
 	}
 
 	log.Printf("[INFO] Processing webhook: %d bytes, headers: %v",
 		len(bodyBytes), getRelevantHeaders(headers))
 
 	// Phase 1: Provider Detection and Event Conversion
+	if wo.providerRegistry == nil {
+		log.Printf("[ERROR] Provider registry is nil")
+		return c.JSON(http.StatusInternalServerError, map[string]string{
+			"error": "Webhook orchestrator not properly initialized",
+		})
+	}
+
 	providerName, provider := wo.providerRegistry.DetectProvider(headers, bodyBytes)
 	if provider == nil {
 		return wo.handleUnknownWebhook(c, headers)
@@ -112,6 +138,13 @@ func (wo *WebhookOrchestratorV2) ProcessWebhookEvent(c echo.Context) error {
 	if err != nil {
 		log.Printf("[WARN] Failed to get bot user info: %v", err)
 		// Continue without bot info - some checks may not work but processing can continue
+	}
+
+	if wo.unifiedProcessor == nil {
+		log.Printf("[ERROR] Unified processor is nil")
+		return c.JSON(http.StatusInternalServerError, map[string]string{
+			"error": "Unified processor not properly initialized",
+		})
 	}
 
 	warrantsResponse, scenario := wo.unifiedProcessor.CheckResponseWarrant(*event, botInfo)
@@ -177,6 +210,19 @@ func (wo *WebhookOrchestratorV2) processEventAsync(ctx context.Context, event *U
 		wo.handleFullReviewFlow(processingCtx, event, provider, timeline)
 	case "emoji_only":
 		wo.handleEmojiOnlyFlow(processingCtx, event, provider)
+	// Map the actual scenario types from unified processor to comment reply flow
+	case "bot_reply", "reply_to_bot":
+		log.Printf("[INFO] Bot reply scenario - handling as comment reply")
+		wo.handleCommentReplyFlow(processingCtx, event, provider, timeline)
+	case "direct_mention":
+		log.Printf("[INFO] Direct mention scenario - handling as comment reply")
+		wo.handleCommentReplyFlow(processingCtx, event, provider, timeline)
+	case "discussion_reply":
+		log.Printf("[INFO] Discussion reply scenario - handling as comment reply")
+		wo.handleCommentReplyFlow(processingCtx, event, provider, timeline)
+	case "content_trigger":
+		log.Printf("[INFO] Content trigger scenario - handling as comment reply")
+		wo.handleCommentReplyFlow(processingCtx, event, provider, timeline)
 	default:
 		log.Printf("[WARN] Unknown response scenario: %s", scenario.Type)
 		wo.postErrorResponse(provider, event, "Unknown response scenario")
