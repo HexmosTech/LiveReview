@@ -41,7 +41,7 @@ type Learning struct {
 	Tags          []string       `json:"tags"`
 	Status        Status         `json:"status"`
 	Confidence    int            `json:"confidence"`
-	Simhash       uint64         `json:"simhash"`
+	Simhash       int64          `json:"simhash"`
 	Embedding     []byte         `json:"embedding,omitempty"`
 	SourceURLs    []string       `json:"source_urls"`
 	SourceContext *SourceContext `json:"source_context,omitempty"`

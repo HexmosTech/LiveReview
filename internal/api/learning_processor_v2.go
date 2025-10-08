@@ -1,15 +1,17 @@
 package api
 
 import (
-	"bytes"
 	"context"
+	"database/sql"
 	"encoding/json"
 	"fmt"
-	"io"
+	"hash/fnv"
 	"log"
-	"net/http"
+	"math/rand"
 	"strings"
 	"time"
+
+	"github.com/lib/pq"
 )
 
 // Phase 7.3: Learning processor for provider-agnostic learning extraction and application
@@ -120,78 +122,131 @@ func (lp *LearningProcessorV2Impl) ExtractLearning(response string, context Comm
 	return learning, nil
 }
 
-// ApplyLearning applies learning metadata to the learning system (provider-agnostic)
-// Extracted from applyLearningFromReply
+// ApplyLearning stores learning directly in the database (provider-agnostic)
+// Direct database storage instead of API calls for better reliability
 func (lp *LearningProcessorV2Impl) ApplyLearning(learning *LearningMetadataV2) error {
 	if learning == nil {
 		return nil // No learning to apply
 	}
 
-	log.Printf("[INFO] Applying learning: %s", learning.Type)
-
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-
-	// Build request payload for the learning API
-	requestPayload := map[string]interface{}{
-		"action":     "add",
-		"title":      learning.Metadata["title"],
-		"body":       learning.Content,
-		"scope_kind": learning.Metadata["scope_kind"],
-		"tags":       learning.Tags,
-		"metadata":   learning.Metadata,
-		"confidence": learning.Confidence,
+	// TODO: WEBHOOK ORG CONTEXT ISSUE
+	// GitLab webhooks don't include X-Org-Context header, so we default to orgID=1.
+	// Better long-term solutions:
+	// 1. Include org context in webhook URL: /api/v1/gitlab-hook/{orgId}
+	// 2. Store org mapping per GitLab instance/project in integration_tokens table
+	// 3. Use repository ownership to determine org context
+	// For now, use highest org ID as fallback when orgID is 1 (likely default)
+	effectiveOrgID := learning.OrgID
+	if learning.OrgID <= 1 {
+		// Query for highest org ID as fallback
+		var maxOrgID sql.NullInt64
+		err := lp.server.db.QueryRow("SELECT MAX(id) FROM orgs").Scan(&maxOrgID)
+		if err != nil || !maxOrgID.Valid {
+			log.Printf("[WARN] Failed to get max org ID, using default: %v", err)
+			effectiveOrgID = 1
+		} else {
+			effectiveOrgID = maxOrgID.Int64
+			log.Printf("[INFO] Using highest org ID %d for learning storage (webhook fallback)", effectiveOrgID)
+		}
 	}
 
-	// Add repository ID if available
-	if repoID, ok := learning.Metadata["repo_id"].(string); ok && repoID != "" {
-		requestPayload["repo_id"] = repoID
+	log.Printf("[INFO] Storing learning in database: %s (OrgID=%d)", learning.Type, effectiveOrgID)
+
+	// Generate a short ID for the learning
+	shortID := lp.generateShortID()
+
+	// Determine scope - default to org
+	scopeKind := "org"
+	var repoID *string = nil
+	if repo, ok := learning.Metadata["repository"].(string); ok && repo != "" {
+		scopeKind = "repo"
+		repoID = &repo
 	}
 
-	// Marshal request
-	jsonBody, err := json.Marshal(requestPayload)
+	// Extract title from content if needed
+	title := learning.Content
+	if len(title) > 100 {
+		// Take first sentence or 100 chars as title
+		sentences := strings.Split(title, ".")
+		if len(sentences) > 0 && len(sentences[0]) < 100 {
+			title = sentences[0]
+		} else {
+			title = title[:97] + "..."
+		}
+	}
+
+	// Calculate simhash for deduplication (simple version)
+	simhash := lp.calculateSimpleHash(learning.Content)
+
+	// Serialize metadata as JSON
+	metadataJSON, err := json.Marshal(learning.Metadata)
 	if err != nil {
-		return fmt.Errorf("failed to marshal learning request: %w", err)
+		log.Printf("[WARN] Failed to marshal metadata: %v", err)
+		metadataJSON = []byte("{}")
 	}
 
-	// Create HTTP request to learning API
-	req, err := http.NewRequestWithContext(ctx, "POST", "http://localhost:8888/api/v1/learnings/apply-action-from-reply", bytes.NewBuffer(jsonBody))
+	// Insert into learnings table
+	query := `
+		INSERT INTO learnings (
+			short_id, org_id, scope_kind, repo_id, title, body, tags, 
+			confidence, simhash, source_context, created_by, updated_by
+		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+		ON CONFLICT (short_id) DO UPDATE SET
+			body = EXCLUDED.body,
+			tags = EXCLUDED.tags,
+			confidence = EXCLUDED.confidence,
+			updated_at = now(),
+			updated_by = EXCLUDED.updated_by
+		RETURNING id`
+
+	var learningID string
+	err = lp.server.db.QueryRow(
+		query,
+		shortID,                  // $1
+		effectiveOrgID,           // $2 - use effective org ID (may be fallback)
+		scopeKind,                // $3
+		repoID,                   // $4
+		title,                    // $5
+		learning.Content,         // $6
+		pq.Array(learning.Tags),  // $7
+		int(learning.Confidence), // $8
+		simhash,                  // $9
+		metadataJSON,             // $10
+		1,                        // $11 - created_by (default user)
+		1,                        // $12 - updated_by (default user)
+	).Scan(&learningID)
+
 	if err != nil {
-		return fmt.Errorf("failed to create learning request: %w", err)
+		return fmt.Errorf("failed to store learning in database: %w", err)
 	}
 
-	req.Header.Set("Content-Type", "application/json")
-	// Note: Organization context would be set by the caller
+	log.Printf("[INFO] Learning stored successfully: ID=%s, Short ID=LR-%s", learningID, shortID)
 
-	// Execute request
-	client := &http.Client{Timeout: 10 * time.Second}
-	resp, err := client.Do(req)
-	if err != nil {
-		return fmt.Errorf("failed to call learning API: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(resp.Body)
-		return fmt.Errorf("learning API returned status %d: %s", resp.StatusCode, string(body))
-	}
-
-	// Parse response to get learning ID
-	var result struct {
-		ShortID string `json:"short_id"`
-		Action  string `json:"action"`
-	}
-
-	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		return fmt.Errorf("failed to decode learning API response: %w", err)
-	}
-
-	log.Printf("[INFO] Learning %s: %s (LR-%s)", result.Action, learning.Metadata["title"], result.ShortID)
-
-	// Store the short ID back in metadata for reference
-	learning.Metadata["short_id"] = result.ShortID
+	// Store the learning ID and org back in metadata for reference
+	learning.Metadata["learning_id"] = learningID
+	learning.Metadata["short_id"] = shortID
+	learning.Metadata["org_id"] = effectiveOrgID
 
 	return nil
+}
+
+// generateShortID generates a short ID for learnings
+func (lp *LearningProcessorV2Impl) generateShortID() string {
+	// Generate a random 6-character ID
+	const charset = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
+	seededRand := rand.New(rand.NewSource(time.Now().UnixNano()))
+	id := make([]byte, 6)
+	for i := range id {
+		id[i] = charset[seededRand.Intn(len(charset))]
+	}
+	return string(id)
+}
+
+// calculateSimpleHash calculates a simple hash for content deduplication
+func (lp *LearningProcessorV2Impl) calculateSimpleHash(content string) int64 {
+	h := fnv.New64a()
+	h.Write([]byte(strings.ToLower(strings.TrimSpace(content))))
+	return int64(h.Sum64())
 }
 
 // FindOrgIDForRepository finds the organization ID for a repository (provider-agnostic)
