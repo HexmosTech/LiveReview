@@ -438,22 +438,22 @@ func (s *Server) setupRoutes() {
 	promptsGroup.POST("/:key/variables/:var/chunks", s.CreatePromptChunk)
 	promptsGroup.POST("/:key/variables/:var/reorder", s.ReorderPromptChunks)
 
-	// GitLab webhook handler
-	v1.POST("/gitlab-hook", s.GitLabWebhookHandler)
+	// GitLab webhook handler (V2 Orchestrator)
+	v1.POST("/gitlab-hook", s.WebhookOrchestratorV2Handler)
 
-	// GitLab comment webhook handler (for conversational AI)
-	v1.POST("/webhooks/gitlab/comments", s.GitLabCommentWebhookHandler)
+	// GitLab comment webhook handler (V2 Orchestrator)
+	v1.POST("/webhooks/gitlab/comments", s.WebhookOrchestratorV2Handler)
 
-	// GitHub webhook handler
-	v1.POST("/github-hook", s.GitHubWebhookHandler)
+	// GitHub webhook handler (V2 Orchestrator)
+	v1.POST("/github-hook", s.WebhookOrchestratorV2Handler)
 
-	// Bitbucket webhook handler
-	v1.POST("/bitbucket-hook", s.BitbucketWebhookHandler)
+	// Bitbucket webhook handler (V2 Orchestrator)
+	v1.POST("/bitbucket-hook", s.WebhookOrchestratorV2Handler)
 
-	// Generic webhook handler (V2 Registry)
-	v1.POST("/webhook", s.GenericWebhookHandler)
+	// Generic webhook handler (V2 Orchestrator)
+	v1.POST("/webhook", s.WebhookOrchestratorV2Handler)
 
-	// Orchestrated webhook handler (V2 Orchestrator - Full Processing)
+	// Legacy V2 endpoint (for backward compatibility)
 	v1.POST("/webhook/v2", s.WebhookOrchestratorV2Handler)
 
 	// AI Connector endpoints
