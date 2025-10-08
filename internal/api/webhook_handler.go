@@ -203,6 +203,8 @@ type BotUserInfo struct {
 }
 
 // GitLabWebhookHandler handles incoming GitLab webhook events
+// DEPRECATED: This handler is deprecated. All routes now use WebhookOrchestratorV2Handler
+// for the complete V2 processing pipeline. This handler remains for internal routing only.
 func (s *Server) GitLabWebhookHandler(c echo.Context) error {
 	// Use provider registry for dynamic routing
 	if s.webhookRegistryV2 != nil {
@@ -896,6 +898,8 @@ type GitHubBotUserInfo struct {
 }
 
 // GitHubWebhookHandler handles incoming GitHub webhook events
+// DEPRECATED: This handler is deprecated. All routes now use WebhookOrchestratorV2Handler
+// for the complete V2 processing pipeline. This handler remains for internal routing only.
 func (s *Server) GitHubWebhookHandler(c echo.Context) error {
 	// Use provider registry for dynamic routing
 	if s.webhookRegistryV2 != nil {
@@ -1546,6 +1550,8 @@ type BitbucketBotUserInfo struct {
 }
 
 // BitbucketWebhookHandler handles incoming Bitbucket webhook events
+// DEPRECATED: This handler is deprecated. All routes now use WebhookOrchestratorV2Handler
+// for the complete V2 processing pipeline. This handler remains for internal routing only.
 func (s *Server) BitbucketWebhookHandler(c echo.Context) error {
 	// Parse the webhook payload
 	var payload BitbucketWebhookPayload
@@ -1876,6 +1882,8 @@ func (s *Server) findIntegrationTokenForBitbucketRepo(repoFullName string) (*Int
 }
 
 // GitLabCommentWebhookHandler handles incoming GitLab Note Hook events for comments
+// DEPRECATED: This handler is deprecated. All routes now use WebhookOrchestratorV2Handler
+// for the complete V2 processing pipeline. This handler remains for internal routing only.
 func (s *Server) GitLabCommentWebhookHandler(c echo.Context) error {
 	// Parse the Note Hook webhook payload
 	var payload GitLabNoteWebhookPayload
