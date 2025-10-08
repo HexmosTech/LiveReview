@@ -24,6 +24,7 @@ func NewWebhookProviderRegistry(server *Server) *WebhookProviderRegistry {
 	// Initialize all V2 providers
 	registry.providers["gitlab"] = NewGitLabV2Provider(server)
 	registry.providers["github"] = NewGitHubV2Provider(server)
+	registry.providers["bitbucket"] = NewBitbucketV2Provider(server)
 
 	log.Printf("[INFO] Webhook provider registry initialized with providers: %v",
 		registry.getProviderNames())
@@ -117,6 +118,8 @@ func (r *WebhookProviderRegistry) RouteWebhook(c echo.Context) error {
 		return r.server.GitHubWebhookHandlerV2(c)
 	case "gitlab":
 		return r.server.GitLabWebhookHandlerV2(c)
+	case "bitbucket":
+		return r.server.BitbucketWebhookHandler(c)
 	default:
 		return fmt.Errorf("provider %s detected but no handler available", providerName)
 	}
@@ -140,6 +143,12 @@ func (r *WebhookProviderRegistry) handleUnknownProvider(c echo.Context, headers 
 		if strings.Contains(userAgentLower, "gitlab") {
 			log.Printf("[INFO] Fallback to GitLab based on User-Agent: %s", userAgent)
 			return r.server.GitLabWebhookHandlerV1(c)
+		}
+
+		// Bitbucket fallback
+		if strings.Contains(userAgentLower, "bitbucket") {
+			log.Printf("[INFO] Fallback to Bitbucket based on User-Agent: %s", userAgent)
+			return r.server.BitbucketWebhookHandler(c)
 		}
 	}
 
