@@ -25,7 +25,7 @@ func normalizeText(s string) string {
 func (s *Service) UpsertFromMetadata(ctx context.Context, orgID int64, draft Draft, mrCtx *MRContext) (id, shortID string, action string, err error) {
 	title := normalizeText(draft.Title)
 	body := normalizeText(draft.Body)
-	sim := Simhash64(title + " | " + body)
+	sim := int64(Simhash64(title + " | " + body))
 
 	// find candidate near-duplicates
 	items, errList := s.store.ListByOrg(ctx, orgID)
@@ -42,7 +42,7 @@ func (s *Service) UpsertFromMetadata(ctx context.Context, orgID int64, draft Dra
 		if draft.Scope == ScopeRepo && it.RepoID != draft.RepoID {
 			continue
 		}
-		h := Hamming(sim, it.Simhash)
+		h := Hamming(uint64(sim), uint64(it.Simhash))
 		if h < bestHam {
 			best = it
 			bestHam = h
@@ -148,7 +148,7 @@ func (s *Service) UpdateFromMetadata(ctx context.Context, orgID int64, shortID s
 		changed = true
 	}
 	if changed {
-		l.Simhash = Simhash64(l.Title + " | " + l.Body)
+		l.Simhash = int64(Simhash64(l.Title + " | " + l.Body))
 		if err := s.store.Update(ctx, l); err != nil {
 			return "", "", err
 		}

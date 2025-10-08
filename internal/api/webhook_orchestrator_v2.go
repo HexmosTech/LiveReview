@@ -2,10 +2,12 @@ package api
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
 	"io"
 	"log"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -160,8 +162,32 @@ func (wo *WebhookOrchestratorV2) ProcessWebhookEvent(c echo.Context) error {
 
 	log.Printf("[INFO] Response warranted: scenario=%s", scenario.Type)
 
+	// Extract org ID from headers before async processing
+	// TODO: For proper org scoping, consider:
+	// 1. Adding org_id to webhook URLs (e.g., /api/v1/gitlab-hook/:org_id)
+	// 2. Storing org mapping in webhook tokens/secrets
+	// 3. Deriving org from repository/project metadata
+	var orgID int64 = 1 // Fallback default
+	if orgIDStr := c.Request().Header.Get("X-Org-Context"); orgIDStr != "" {
+		if parsedOrgID, err := strconv.ParseInt(orgIDStr, 10, 64); err == nil {
+			orgID = parsedOrgID
+		}
+	} else {
+		// Webhook doesn't have org context - use MAX(org_id) as temporary workaround
+		if wo.server != nil && wo.server.db != nil {
+			var maxOrgID sql.NullInt64
+			err := wo.server.db.QueryRow("SELECT MAX(id) FROM orgs").Scan(&maxOrgID)
+			if err == nil && maxOrgID.Valid {
+				orgID = maxOrgID.Int64
+				log.Printf("[DEBUG] Using MAX org_id=%d for webhook (no org context available)", orgID)
+			} else {
+				log.Printf("[WARN] Failed to get MAX org_id, using default=1: %v", err)
+			}
+		}
+	}
+
 	// Phase 4: Asynchronous Processing (return response quickly)
-	go wo.processEventAsync(context.Background(), event, provider, scenario, startTime)
+	go wo.processEventAsync(context.Background(), event, provider, scenario, startTime, orgID)
 
 	// Return success immediately - processing continues asynchronously
 	return c.JSON(http.StatusOK, map[string]string{
@@ -176,7 +202,7 @@ func (wo *WebhookOrchestratorV2) ProcessWebhookEvent(c echo.Context) error {
 }
 
 // processEventAsync handles the complete event processing pipeline asynchronously
-func (wo *WebhookOrchestratorV2) processEventAsync(ctx context.Context, event *UnifiedWebhookEventV2, provider WebhookProviderV2, scenario ResponseScenarioV2, startTime time.Time) {
+func (wo *WebhookOrchestratorV2) processEventAsync(ctx context.Context, event *UnifiedWebhookEventV2, provider WebhookProviderV2, scenario ResponseScenarioV2, startTime time.Time, orgID int64) {
 	processingCtx, cancel := context.WithTimeout(ctx, time.Duration(wo.processingTimeoutSec)*time.Second)
 	defer cancel()
 
@@ -205,7 +231,7 @@ func (wo *WebhookOrchestratorV2) processEventAsync(ctx context.Context, event *U
 	// Phase 7: Process Response Based on Scenario
 	switch scenario.Type {
 	case "comment_reply":
-		wo.handleCommentReplyFlow(processingCtx, event, provider, timeline)
+		wo.handleCommentReplyFlow(processingCtx, event, provider, timeline, orgID)
 	case "full_review":
 		wo.handleFullReviewFlow(processingCtx, event, provider, timeline)
 	case "emoji_only":
@@ -213,16 +239,16 @@ func (wo *WebhookOrchestratorV2) processEventAsync(ctx context.Context, event *U
 	// Map the actual scenario types from unified processor to comment reply flow
 	case "bot_reply", "reply_to_bot":
 		log.Printf("[INFO] Bot reply scenario - handling as comment reply")
-		wo.handleCommentReplyFlow(processingCtx, event, provider, timeline)
+		wo.handleCommentReplyFlow(processingCtx, event, provider, timeline, orgID)
 	case "direct_mention":
 		log.Printf("[INFO] Direct mention scenario - handling as comment reply")
-		wo.handleCommentReplyFlow(processingCtx, event, provider, timeline)
+		wo.handleCommentReplyFlow(processingCtx, event, provider, timeline, orgID)
 	case "discussion_reply":
 		log.Printf("[INFO] Discussion reply scenario - handling as comment reply")
-		wo.handleCommentReplyFlow(processingCtx, event, provider, timeline)
+		wo.handleCommentReplyFlow(processingCtx, event, provider, timeline, orgID)
 	case "content_trigger":
 		log.Printf("[INFO] Content trigger scenario - handling as comment reply")
-		wo.handleCommentReplyFlow(processingCtx, event, provider, timeline)
+		wo.handleCommentReplyFlow(processingCtx, event, provider, timeline, orgID)
 	default:
 		log.Printf("[WARN] Unknown response scenario: %s", scenario.Type)
 		wo.postErrorResponse(provider, event, "Unknown response scenario")
@@ -234,11 +260,11 @@ func (wo *WebhookOrchestratorV2) processEventAsync(ctx context.Context, event *U
 }
 
 // handleCommentReplyFlow handles comment reply processing
-func (wo *WebhookOrchestratorV2) handleCommentReplyFlow(ctx context.Context, event *UnifiedWebhookEventV2, provider WebhookProviderV2, timeline *UnifiedTimelineV2) {
+func (wo *WebhookOrchestratorV2) handleCommentReplyFlow(ctx context.Context, event *UnifiedWebhookEventV2, provider WebhookProviderV2, timeline *UnifiedTimelineV2, orgID int64) {
 	log.Printf("[INFO] Processing comment reply flow for event %s/%s", event.EventType, event.Provider)
 
 	// Generate AI response
-	response, learning, err := wo.unifiedProcessor.ProcessCommentReply(ctx, *event, timeline)
+	response, learning, err := wo.unifiedProcessor.ProcessCommentReply(ctx, *event, timeline, orgID)
 	if err != nil {
 		log.Printf("[ERROR] Failed to process comment reply: %v", err)
 		wo.postErrorResponse(provider, event, "Failed to generate AI response")
@@ -247,6 +273,11 @@ func (wo *WebhookOrchestratorV2) handleCommentReplyFlow(ctx context.Context, eve
 
 	// Apply learning if extracted
 	if learning != nil {
+		// Ensure the learning is recorded under the org that owns this webhook context.
+		// The unified processor may set an OrgID, but prefer the org from the incoming request
+		// (X-Org-Context) which was propagated into this async pipeline.
+		learning.OrgID = orgID
+		log.Printf("[DEBUG] Applying learning with OrgID=%d (overriding if needed)", learning.OrgID)
 		if err := wo.learningProcessor.ApplyLearning(learning); err != nil {
 			log.Printf("[WARN] Failed to apply learning: %v", err)
 		}

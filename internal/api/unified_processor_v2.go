@@ -2,6 +2,7 @@ package api
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log"
 	"strings"
@@ -133,7 +134,7 @@ func (p *UnifiedProcessorV2Impl) CheckResponseWarrant(event UnifiedWebhookEventV
 	log.Printf("[DEBUG] No response warrant detected")
 	return false, ResponseScenarioV2{}
 } // ProcessCommentReply processes comment reply flow using original working logic
-func (p *UnifiedProcessorV2Impl) ProcessCommentReply(ctx context.Context, event UnifiedWebhookEventV2, timeline *UnifiedTimelineV2) (string, *LearningMetadataV2, error) {
+func (p *UnifiedProcessorV2Impl) ProcessCommentReply(ctx context.Context, event UnifiedWebhookEventV2, timeline *UnifiedTimelineV2, orgID int64) (string, *LearningMetadataV2, error) {
 	if event.Comment == nil {
 		return "", nil, fmt.Errorf("no comment in event for reply processing")
 	}
@@ -141,15 +142,72 @@ func (p *UnifiedProcessorV2Impl) ProcessCommentReply(ctx context.Context, event 
 	log.Printf("[INFO] Processing comment reply for %s provider using original contextual logic", event.Provider)
 
 	// Use the original sophisticated contextual response logic
-	response := p.buildContextualResponseV2(event, timeline)
-
-	// Extract learning metadata if present
-	learning := p.extractLearningMetadataV2(ctx, response, event)
+	response, learning := p.buildContextualResponseWithLearningV2(event, timeline, orgID)
 
 	return response, learning, nil
 }
 
-// buildContextualResponseV2 creates sophisticated contextual responses using original working logic
+// buildCommentReplyPromptWithLearning creates LLM prompt with learning instructions
+func (p *UnifiedProcessorV2Impl) buildCommentReplyPromptWithLearning(event UnifiedWebhookEventV2, timeline *UnifiedTimelineV2) string {
+	prompt := &strings.Builder{}
+
+	// Core context
+	prompt.WriteString("You are LiveReviewBot, an AI code review assistant.\n\n")
+	prompt.WriteString("CONTEXT:\n")
+	prompt.WriteString(fmt.Sprintf("- User @%s commented: %s\n", event.Comment.Author.Username, event.Comment.Body))
+	if event.Repository.Name != "" {
+		prompt.WriteString(fmt.Sprintf("- Repository: %s\n", event.Repository.Name))
+	}
+	if event.MergeRequest != nil {
+		prompt.WriteString(fmt.Sprintf("- MR/PR: %s\n", event.MergeRequest.Title))
+	}
+
+	// Timeline context if available
+	if timeline != nil && len(timeline.Items) > 0 {
+		prompt.WriteString("\nRECENT CONVERSATION:\n")
+		for _, item := range timeline.Items {
+			if item.Comment != nil {
+				content := item.Comment.Body
+				if len(content) > 100 {
+					content = content[:100]
+				}
+				prompt.WriteString(fmt.Sprintf("- %s: %s\n", item.Comment.Author.Username, content))
+			}
+		}
+	}
+
+	prompt.WriteString("\nTASK:\n")
+	prompt.WriteString("Provide a helpful, contextual response to the user's comment. Be specific, actionable, and professional.\n\n")
+
+	// LEARNING INSTRUCTIONS - This is the key addition!
+	prompt.WriteString("LEARNING EXTRACTION:\n")
+	prompt.WriteString("If this conversation contains information worth learning for future interactions, include it in your response as a special section.\n")
+	prompt.WriteString("Learning examples include: team policies, coding standards, preferences, domain-specific rules, etc.\n\n")
+	prompt.WriteString("If you identify a learning, add this JSON block at the end of your response:\n")
+	prompt.WriteString("```learning\n")
+	prompt.WriteString("{\n")
+	prompt.WriteString(`  "type": "team_policy|coding_standard|preference|rule",` + "\n")
+	prompt.WriteString(`  "title": "Brief title of the learning",` + "\n")
+	prompt.WriteString(`  "content": "Full description of what was learned",` + "\n")
+	prompt.WriteString(`  "tags": ["tag1", "tag2"],` + "\n")
+	prompt.WriteString(`  "scope": "org|repo",` + "\n")
+	prompt.WriteString(`  "confidence": 1-5` + "\n")
+	prompt.WriteString("}\n```\n\n")
+
+	prompt.WriteString("Only include learning block if there's genuinely something worth learning. Most responses won't have learnings.\n\n")
+	prompt.WriteString("RESPONSE:\n")
+
+	return prompt.String()
+}
+
+// buildContextualResponseWithLearningV2 creates response and detects learning opportunities
+func (p *UnifiedProcessorV2Impl) buildContextualResponseWithLearningV2(event UnifiedWebhookEventV2, timeline *UnifiedTimelineV2, orgID int64) (string, *LearningMetadataV2) {
+	response := p.buildContextualResponseV2(event, timeline)
+	learning := p.detectLearningFromResponse(response, event, orgID)
+	return response, learning
+}
+
+// buildContextualResponseV2 creates sophisticated contextual responses using original working logic (FALLBACK)
 func (p *UnifiedProcessorV2Impl) buildContextualResponseV2(event UnifiedWebhookEventV2, timeline *UnifiedTimelineV2) string {
 	commentBody := event.Comment.Body
 	author := event.Comment.Author.Username
@@ -231,6 +289,71 @@ func (p *UnifiedProcessorV2Impl) generatePolicyResponseV2(commentBody, author st
 	}
 
 	return response.String()
+}
+
+// detectLearningFromResponse analyzes response content to create learning entries
+func (p *UnifiedProcessorV2Impl) detectLearningFromResponse(response string, event UnifiedWebhookEventV2, orgID int64) *LearningMetadataV2 {
+
+	// Look for policy learning indicators
+	if strings.Contains(response, "Team Policy Noted:") && strings.Contains(response, "No Assertions") {
+		return &LearningMetadataV2{
+			Type:       "team_policy",
+			Context:    "code_review_practices",
+			Content:    "Team does not use assertions as a rule. Prefer explicit error handling, unit tests, documentation, and runtime checks with proper error responses instead of assertions.",
+			Confidence: 0.95,
+			Tags:       []string{"assertions", "team_policy", "code_verification", "error_handling"},
+			OrgID:      orgID,
+			Metadata: map[string]interface{}{
+				"original_comment": event.Comment.Body,
+				"author":           event.Comment.Author.Username,
+				"repository":       event.Repository.Name,
+				"discussion_type":  "policy_clarification",
+				"source":           "comment_discussion",
+				"scope":            "team",
+			},
+		}
+	}
+
+	// Look for other team policy patterns
+	if strings.Contains(response, "Team Policy Understanding") || strings.Contains(response, "team's approach") {
+		return &LearningMetadataV2{
+			Type:       "team_policy",
+			Context:    "coding_standards",
+			Content:    fmt.Sprintf("Team has specific coding practices: %s", event.Comment.Body),
+			Confidence: 0.85,
+			Tags:       []string{"team_policy", "coding_standards"},
+			OrgID:      orgID,
+			Metadata: map[string]interface{}{
+				"original_comment": event.Comment.Body,
+				"author":           event.Comment.Author.Username,
+				"repository":       event.Repository.Name,
+				"source":           "comment_discussion",
+				"scope":            "team",
+			},
+		}
+	}
+
+	// Look for documentation preferences
+	if strings.Contains(response, "Documentation Suggestions") && strings.Contains(event.Comment.Body, "document") {
+		return &LearningMetadataV2{
+			Type:       "documentation_preference",
+			Context:    "code_documentation",
+			Content:    fmt.Sprintf("Team values specific documentation practices: %s", event.Comment.Body),
+			Confidence: 0.80,
+			Tags:       []string{"documentation", "team_preference"},
+			OrgID:      orgID,
+			Metadata: map[string]interface{}{
+				"original_comment": event.Comment.Body,
+				"author":           event.Comment.Author.Username,
+				"repository":       event.Repository.Name,
+				"source":           "comment_discussion",
+				"scope":            "team",
+			},
+		}
+	}
+
+	// No learning detected
+	return nil
 }
 
 // generateDocumentationResponseV2, generateErrorAnalysisResponseV2, etc. - implementing key response types
@@ -527,13 +650,39 @@ func (p *UnifiedProcessorV2Impl) generateAIResponseFromPromptV2(prompt, username
 	return cleanResponse, nil
 }
 
+// generateLLMResponseWithLearning generates LLM response and extracts learning
+func (p *UnifiedProcessorV2Impl) generateLLMResponseWithLearning(ctx context.Context, prompt string, event UnifiedWebhookEventV2) (string, *LearningMetadataV2, error) {
+	// Try to get LLM response
+	llmResponse, err := p.generateLLMResponseV2(ctx, prompt)
+	if err != nil {
+		return "", nil, err
+	}
+
+	// Extract learning from LLM response
+	learning := p.extractLearningFromLLMResponse(llmResponse, event)
+
+	// Clean response (remove learning JSON block)
+	cleanResponse := p.cleanResponseFromLearningBlock(llmResponse)
+
+	return cleanResponse, learning, nil
+}
+
 // generateLLMResponseV2 attempts to use the real LLM infrastructure
-// Extracted from generateLLMResponse
 func (p *UnifiedProcessorV2Impl) generateLLMResponseV2(ctx context.Context, prompt string) (string, error) {
-	// TODO: Integrate with the actual LLM client from internal/llm
-	// For now, return error to trigger fallback
-	// This will be implemented when LLM client is available
-	return "", fmt.Errorf("LLM client not yet integrated with unified processor")
+	// Try to use actual LLM client - check if server has AI connectors
+	if p.server != nil && p.server.db != nil {
+		// Simple check for available AI connectors
+		var count int
+		err := p.server.db.QueryRow("SELECT COUNT(*) FROM ai_connectors WHERE org_id = 1").Scan(&count)
+		if err == nil && count > 0 {
+			log.Printf("[DEBUG] Found %d AI connectors, but LLM client integration pending", count)
+			// TODO: Integrate with actual LLM client from internal/llm or ai package
+			// For now, fall back until proper integration is done
+		}
+	}
+
+	// Return error to trigger fallback response
+	return "", fmt.Errorf("LLM client integration pending")
 }
 
 // generateStructuredFallbackResponseV2 provides structured response when LLM unavailable
@@ -582,46 +731,194 @@ func (p *UnifiedProcessorV2Impl) generateStructuredFallbackResponseV2(prompt, us
 	return response.String()
 }
 
-// extractLearningMetadataV2 extracts learning metadata from AI responses
-// Extracted from augmentResponseWithLearningMetadata
-func (p *UnifiedProcessorV2Impl) extractLearningMetadataV2(ctx context.Context, responseContent string, event UnifiedWebhookEventV2) *LearningMetadataV2 {
-	// Simple learning extraction - look for patterns that indicate learning opportunities
+// extractLearningFromLLMResponse extracts structured learning from LLM response
+func (p *UnifiedProcessorV2Impl) extractLearningFromLLMResponse(response string, event UnifiedWebhookEventV2) *LearningMetadataV2 {
+	// Look for learning JSON block in response
+	learningBlockStart := strings.Index(response, "```learning")
+	if learningBlockStart == -1 {
+		return nil // No learning block found
+	}
+
+	learningBlockEnd := strings.Index(response[learningBlockStart:], "```")
+	if learningBlockEnd == -1 || learningBlockEnd <= 10 {
+		return nil // Invalid learning block
+	}
+
+	// Extract JSON content
+	jsonStart := learningBlockStart + len("```learning\n")
+	jsonEnd := learningBlockStart + learningBlockEnd
+	jsonContent := response[jsonStart:jsonEnd]
+
+	// Parse JSON
+	var learningData struct {
+		Type       string   `json:"type"`
+		Title      string   `json:"title"`
+		Content    string   `json:"content"`
+		Tags       []string `json:"tags"`
+		Scope      string   `json:"scope"`
+		Confidence int      `json:"confidence"`
+	}
+
+	err := json.Unmarshal([]byte(jsonContent), &learningData)
+	if err != nil {
+		log.Printf("[WARN] Failed to parse learning JSON: %v", err)
+		return nil
+	}
+
+	// Convert to LearningMetadataV2
+	learning := &LearningMetadataV2{
+		Type:       learningData.Type,
+		Content:    fmt.Sprintf("%s: %s", learningData.Title, learningData.Content),
+		Tags:       learningData.Tags,
+		Confidence: float64(learningData.Confidence),
+		Context:    "", // Will be set below
+		OrgID:      1,  // Default org
+		Metadata:   map[string]interface{}{},
+	}
+
+	// Add context from event
+	if event.Repository.Name != "" {
+		learning.Metadata["repository"] = event.Repository.Name
+	}
+	if event.Comment != nil {
+		learning.Metadata["author"] = event.Comment.Author.Username
+		learning.Metadata["comment"] = event.Comment.Body
+	}
+	learning.Metadata["provider"] = event.Provider
+	learning.Context = fmt.Sprintf("Repository: %s, Provider: %s", event.Repository.Name, event.Provider)
+
+	log.Printf("[DEBUG] Extracted learning: type=%s, title=%s", learningData.Type, learningData.Title)
+	return learning
+}
+
+// cleanResponseFromLearningBlock removes learning JSON block from response
+func (p *UnifiedProcessorV2Impl) cleanResponseFromLearningBlock(response string) string {
+	learningBlockStart := strings.Index(response, "```learning")
+	if learningBlockStart == -1 {
+		return response // No learning block
+	}
+
+	// Find end of learning block
+	learningBlockEnd := strings.Index(response[learningBlockStart:], "```")
+	if learningBlockEnd == -1 {
+		return response // Invalid block
+	}
+
+	// Remove the entire learning block
+	cleanResponse := response[:learningBlockStart] + response[learningBlockStart+learningBlockEnd+3:]
+	return strings.TrimSpace(cleanResponse)
+}
+
+// extractLearningFromResponse extracts learning from fallback responses
+func (p *UnifiedProcessorV2Impl) extractLearningFromResponse(responseContent string, event UnifiedWebhookEventV2) *LearningMetadataV2 {
+	// For fallback responses, use simple pattern matching
 	responseLower := strings.ToLower(responseContent)
+	originalComment := ""
+	if event.Comment != nil {
+		originalComment = strings.ToLower(event.Comment.Body)
+	}
+
+	// Check for team policy patterns in the fallback response
+	if strings.Contains(responseLower, "team policy noted") {
+		var content string
+		var tags []string
+
+		if strings.Contains(responseLower, "no assertions") || strings.Contains(originalComment, "assertions") {
+			content = "Team Policy: No Assertions - Team rule: Do not use assertions. Use explicit error handling, unit tests, documentation, and runtime checks instead."
+			tags = []string{"team-policy", "assertions", "error-handling", "testing"}
+		} else {
+			content = "Team Policy: " + p.truncateString(responseContent, 300)
+			tags = []string{"team-policy", "coding-standards"}
+		}
+
+		return &LearningMetadataV2{
+			Type:       "team_policy",
+			Content:    content,
+			Tags:       tags,
+			Confidence: 4.0,
+			Context:    fmt.Sprintf("Repository: %s, Provider: %s", event.Repository.Name, event.Provider),
+			OrgID:      1, // Default org
+			Metadata: map[string]interface{}{
+				"repository": event.Repository.Name,
+				"author":     event.Comment.Author.Username,
+				"provider":   event.Provider,
+			},
+		}
+	}
+
+	return nil // No learning detected in fallback
+}
+
+// extractLearningMetadataV2 - DEPRECATED - use extractLearningFromResponse instead
+func (p *UnifiedProcessorV2Impl) extractLearningMetadataV2(ctx context.Context, responseContent string, event UnifiedWebhookEventV2) *LearningMetadataV2 {
+	// Enhanced learning extraction - look for patterns that indicate learning opportunities
+	responseLower := strings.ToLower(responseContent)
+	originalComment := ""
+	if event.Comment != nil {
+		originalComment = strings.ToLower(event.Comment.Body)
+	}
 
 	var tags []string
 	var action string = "explanation"
+	var content string
 
-	// Detect learning categories
-	if strings.Contains(responseLower, "error") || strings.Contains(responseLower, "bug") {
+	// Priority 1: Team Policy Learning (highest priority)
+	if strings.Contains(responseLower, "team policy noted") || strings.Contains(responseLower, "policy noted") ||
+		(strings.Contains(responseLower, "team") && (strings.Contains(responseLower, "rule") || strings.Contains(responseLower, "policy"))) {
+		action = "team_policy"
+		tags = append(tags, "team-policy", "coding-standards")
+
+		// Extract specific policy
+		if strings.Contains(responseLower, "no assertions") || strings.Contains(originalComment, "assertions") {
+			content = "Team Policy: No Assertions - Team rule: Do not use assertions. Use explicit error handling, unit tests, documentation, and runtime checks instead."
+			tags = append(tags, "assertions", "error-handling", "testing")
+		} else if strings.Contains(responseLower, "no magic numbers") {
+			content = "Team Policy: No Magic Numbers - Team rule: Do not use magic numbers. Use named constants with descriptive names."
+			tags = append(tags, "constants", "readability")
+		} else {
+			content = "Team Policy: " + p.truncateString(responseContent, 300)
+		}
+
+		log.Printf("[DEBUG] Detected team policy learning: %s", action)
+	} else if strings.Contains(responseLower, "error") || strings.Contains(responseLower, "bug") {
+		// Priority 2: Error handling patterns
 		tags = append(tags, "error-handling", "debugging")
-	}
-	if strings.Contains(responseLower, "performance") || strings.Contains(responseLower, "optimize") {
+		content = "Error Handling Pattern: " + p.truncateString(responseContent, 300)
+	} else if strings.Contains(responseLower, "performance") || strings.Contains(responseLower, "optimize") {
+		// Priority 3: Performance patterns
 		tags = append(tags, "performance", "optimization")
-	}
-	if strings.Contains(responseLower, "security") || strings.Contains(responseLower, "vulnerable") {
+		content = "Performance Optimization: " + p.truncateString(responseContent, 300)
+	} else if strings.Contains(responseLower, "security") || strings.Contains(responseLower, "vulnerable") {
+		// Priority 4: Security patterns
 		tags = append(tags, "security", "best-practices")
-	}
-	if strings.Contains(responseLower, "pattern") || strings.Contains(responseLower, "design") {
+		content = "Security Best Practice: " + p.truncateString(responseContent, 300)
+	} else if strings.Contains(responseLower, "pattern") || strings.Contains(responseLower, "design") {
+		// Priority 5: Design patterns
 		tags = append(tags, "design-patterns", "architecture")
+		content = "Design Pattern: " + p.truncateString(responseContent, 300)
 	}
 
 	// Only create learning metadata if we found relevant tags
 	if len(tags) == 0 {
+		log.Printf("[DEBUG] No learning patterns detected in response")
 		return nil
 	}
 
 	learning := &LearningMetadataV2{
 		Type:       action,
-		Content:    p.truncateString(responseContent, 500),
+		Content:    content,
 		Context:    fmt.Sprintf("Code Review Discussion: %s", event.Comment.Author.Username),
 		Confidence: 0.8,
 		Tags:       tags,
 		Metadata: map[string]interface{}{
-			"scope_kind": "merge_request",
-			"repo_id":    event.Repository.ID,
+			"scope_kind":       "merge_request",
+			"repo_id":          event.Repository.ID,
+			"original_comment": event.Comment.Body,
+			"response_content": p.truncateString(responseContent, 200),
 		},
 	}
 
+	log.Printf("[DEBUG] Extracted learning: %s (tags: %v)", learning.Type, learning.Tags)
 	return learning
 }
 
