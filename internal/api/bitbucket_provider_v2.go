@@ -1,9 +1,15 @@
 package api
 
 import (
+	"bytes"
+	"encoding/json"
 	"fmt"
+	"io"
 	"log"
+	"net/http"
+	"strconv"
 	"strings"
+	"time"
 )
 
 // Bitbucket V2 Types - All Bitbucket-specific types with V2 naming to avoid conflicts
@@ -169,23 +175,6 @@ type BitbucketV2ReviewerChangeInfo struct {
 	IntegrationTokenPtr *IntegrationToken      `json:"-"` // Internal use only
 }
 
-// BitbucketV2BotUserInfo represents bot user information for Bitbucket
-type BitbucketV2BotUserInfo struct {
-	Provider string      `json:"provider"`
-	User     UnifiedUser `json:"user"`
-	APIToken string      `json:"-"` // Never marshal to JSON
-	BaseURL  string      `json:"base_url"`
-}
-
-// BitbucketV2UserInfo represents user information from Bitbucket API
-type BitbucketV2UserInfo struct {
-	UUID        string `json:"uuid"`
-	Username    string `json:"username"`
-	DisplayName string `json:"display_name"`
-	AccountID   string `json:"account_id"`
-	Type        string `json:"type"`
-}
-
 // BitbucketV2CommitInfo represents commit information from Bitbucket API
 type BitbucketV2CommitInfo struct {
 	Hash    string `json:"hash"`
@@ -264,88 +253,450 @@ func (p *BitbucketV2Provider) CanHandleWebhook(headers map[string]string, body [
 
 // ConvertCommentEvent converts a Bitbucket comment event to unified format
 func (p *BitbucketV2Provider) ConvertCommentEvent(headers map[string]string, body []byte) (*UnifiedWebhookEventV2, error) {
-	// TODO: Implement conversion from BitbucketV2WebhookPayload to UnifiedWebhookEventV2
 	log.Printf("[DEBUG] BitbucketV2Provider.ConvertCommentEvent called")
-	return nil, fmt.Errorf("ConvertCommentEvent not yet implemented for Bitbucket V2 provider")
+
+	// Parse the Bitbucket webhook payload
+	var payload BitbucketV2WebhookPayload
+	if err := json.Unmarshal(body, &payload); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal Bitbucket webhook payload: %w", err)
+	}
+
+	// Convert to unified format
+	unifiedComment := p.convertBitbucketToUnifiedCommentV2(payload)
+
+	// Create unified webhook event
+	event := &UnifiedWebhookEventV2{
+		Provider:   "bitbucket",
+		EventType:  "comment_created",
+		Comment:    &unifiedComment,
+		Repository: p.convertRepositoryV2(payload.Repository),
+		Actor:      p.convertUserV2(payload.Actor),
+		Timestamp:  payload.Date,
+	}
+
+	log.Printf("[DEBUG] Converted Bitbucket comment event: ID=%s, Author=%s", event.Comment.ID, event.Comment.Author.Username)
+	return event, nil
 }
 
 // ConvertReviewerEvent converts a Bitbucket reviewer event to unified format
 func (p *BitbucketV2Provider) ConvertReviewerEvent(headers map[string]string, body []byte) (*UnifiedWebhookEventV2, error) {
-	// TODO: Implement conversion from BitbucketV2WebhookPayload to UnifiedWebhookEventV2
 	log.Printf("[DEBUG] BitbucketV2Provider.ConvertReviewerEvent called")
-	return nil, fmt.Errorf("ConvertReviewerEvent not yet implemented for Bitbucket V2 provider")
+
+	// Parse the Bitbucket webhook payload
+	var payload BitbucketV2WebhookPayload
+	if err := json.Unmarshal(body, &payload); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal Bitbucket webhook payload: %w", err)
+	}
+
+	// Create unified webhook event for reviewer changes
+	event := &UnifiedWebhookEventV2{
+		Provider:     "bitbucket",
+		EventType:    "reviewer_assigned",
+		MergeRequest: p.convertPullRequestV2(payload.PullRequest),
+		Repository:   p.convertRepositoryV2(payload.Repository),
+		Actor:        p.convertUserV2(payload.Actor),
+		Timestamp:    payload.Date,
+	}
+
+	// Add reviewer change information if available
+	if payload.Changes.Reviewers != nil {
+		event.ReviewerChange = p.convertReviewerChangeV2(*payload.Changes.Reviewers)
+	}
+
+	log.Printf("[DEBUG] Converted Bitbucket reviewer event: PR=%d", payload.PullRequest.ID)
+	return event, nil
 }
 
 // FetchMergeRequestData fetches additional data for the merge request
 func (p *BitbucketV2Provider) FetchMergeRequestData(event *UnifiedWebhookEventV2) error {
-	// TODO: Implement fetching Bitbucket PR data
 	log.Printf("[DEBUG] BitbucketV2Provider.FetchMergeRequestData called")
-	return fmt.Errorf("FetchMergeRequestData not yet implemented for Bitbucket V2 provider")
+
+	// Extract information from event
+	var workspace, repository, prNumber string
+
+	if event.Comment != nil {
+		workspace, _ = event.Comment.Metadata["workspace"].(string)
+		repository, _ = event.Comment.Metadata["repository"].(string)
+		if prNum, ok := event.Comment.Metadata["pr_number"].(int); ok {
+			prNumber = fmt.Sprintf("%d", prNum)
+		}
+	} else if event.MergeRequest != nil {
+		// Extract from repository full name if available
+		parts := strings.Split(event.Repository.FullName, "/")
+		if len(parts) == 2 {
+			workspace = parts[0]
+			repository = parts[1]
+		}
+		prNumber = event.MergeRequest.ID
+	}
+
+	if workspace == "" || repository == "" || prNumber == "" {
+		return fmt.Errorf("insufficient data to fetch PR information")
+	}
+
+	// Find integration token
+	token, err := p.findIntegrationTokenForBitbucketRepoV2(fmt.Sprintf("%s/%s", workspace, repository))
+	if err != nil {
+		return fmt.Errorf("failed to find integration token: %w", err)
+	}
+
+	// Fetch PR timeline data (commits and comments)
+	commits, err := p.fetchBitbucketPRCommitsV2(workspace, repository, prNumber, token)
+	if err != nil {
+		log.Printf("[WARN] Failed to fetch Bitbucket PR commits: %v", err)
+	}
+
+	comments, err := p.fetchBitbucketPRCommentsV2(workspace, repository, prNumber, token)
+	if err != nil {
+		log.Printf("[WARN] Failed to fetch Bitbucket PR comments: %v", err)
+	}
+
+	// Store the fetched data in metadata for later use
+	if event.Comment != nil {
+		if event.Comment.Metadata == nil {
+			event.Comment.Metadata = make(map[string]interface{})
+		}
+		event.Comment.Metadata["commits"] = commits
+		event.Comment.Metadata["pr_comments"] = comments
+	}
+
+	log.Printf("[DEBUG] Fetched %d commits and %d comments for Bitbucket PR %s", len(commits), len(comments), prNumber)
+	return nil
 }
 
 // PostCommentReply posts a reply to a comment
 func (p *BitbucketV2Provider) PostCommentReply(event *UnifiedWebhookEventV2, content string) error {
-	// TODO: Implement posting Bitbucket comment reply
 	log.Printf("[DEBUG] BitbucketV2Provider.PostCommentReply called")
-	return fmt.Errorf("PostCommentReply not yet implemented for Bitbucket V2 provider")
+
+	if event.Comment == nil {
+		return fmt.Errorf("comment event is nil")
+	}
+
+	// Extract metadata for API call
+	workspace, _ := event.Comment.Metadata["workspace"].(string)
+	repository, _ := event.Comment.Metadata["repository"].(string)
+	prNumber, _ := event.Comment.Metadata["pr_number"].(int)
+
+	if workspace == "" || repository == "" || prNumber == 0 {
+		return fmt.Errorf("missing required metadata: workspace=%s, repository=%s, pr_number=%d", workspace, repository, prNumber)
+	}
+
+	// Find integration token
+	token, err := p.findIntegrationTokenForBitbucketRepoV2(fmt.Sprintf("%s/%s", workspace, repository))
+	if err != nil {
+		return fmt.Errorf("failed to find integration token: %w", err)
+	}
+
+	return p.postBitbucketCommentReplyV2(workspace, repository, fmt.Sprintf("%d", prNumber), event.Comment.InReplyToID, content, token)
 }
 
 // PostEmojiReaction posts an emoji reaction
 func (p *BitbucketV2Provider) PostEmojiReaction(event *UnifiedWebhookEventV2, emoji string) error {
-	// TODO: Implement posting Bitbucket emoji reaction
 	log.Printf("[DEBUG] BitbucketV2Provider.PostEmojiReaction called with emoji: %s", emoji)
-	return fmt.Errorf("PostEmojiReaction not yet implemented for Bitbucket V2 provider")
+	// Bitbucket doesn't have direct emoji reactions like GitHub, so we'll post a short comment
+	return p.PostCommentReply(event, emoji)
 }
 
 // PostFullReview posts a full review
 func (p *BitbucketV2Provider) PostFullReview(event *UnifiedWebhookEventV2, overallComment string) error {
-	// TODO: Implement posting Bitbucket full review
 	log.Printf("[DEBUG] BitbucketV2Provider.PostFullReview called")
-	return fmt.Errorf("PostFullReview not yet implemented for Bitbucket V2 provider")
+	// For Bitbucket, we'll post the review as a top-level comment
+	// TODO: In future, this could create multiple inline comments if event contains detailed review data
+	return p.PostCommentReply(event, overallComment)
 }
 
-// ProcessWebhookEvent processes a webhook event (main entry point)
-func (p *BitbucketV2Provider) ProcessWebhookEvent(payload interface{}) error {
-	// TODO: Implement main webhook processing logic
-	log.Printf("[DEBUG] BitbucketV2Provider.ProcessWebhookEvent called")
-	return fmt.Errorf("ProcessWebhookEvent not yet implemented for Bitbucket V2 provider")
+// Helper methods for V2 conversions
+
+// convertUserV2 converts Bitbucket user to unified format
+func (p *BitbucketV2Provider) convertUserV2(user BitbucketV2User) UnifiedUserV2 {
+	return UnifiedUserV2{
+		ID:       user.AccountID,
+		Username: user.Username,
+		Name:     user.DisplayName,
+		WebURL:   "", // Not available in basic payload
+		Metadata: map[string]interface{}{
+			"uuid": user.UUID,
+			"type": user.Type,
+		},
+	}
 }
 
-// Helper methods that mirror the existing monolithic functions
+// convertRepositoryV2 converts Bitbucket repository to unified format
+func (p *BitbucketV2Provider) convertRepositoryV2(repo BitbucketV2Repository) UnifiedRepositoryV2 {
+	return UnifiedRepositoryV2{
+		ID:       repo.UUID,
+		Name:     repo.Name,
+		FullName: repo.FullName,
+		WebURL:   repo.Links.HTML.Href,
+		Owner:    p.convertUserV2(repo.Owner),
+		Metadata: map[string]interface{}{
+			"type": repo.Type,
+		},
+	}
+}
 
-// processBitbucketReviewerChangeV2 processes reviewer change events
-func (p *BitbucketV2Provider) processBitbucketReviewerChangeV2(payload BitbucketV2WebhookPayload, eventKey string) *BitbucketV2ReviewerChangeInfo {
-	// TODO: Port processBitbucketReviewerChange logic
-	log.Printf("[DEBUG] processBitbucketReviewerChangeV2 called with eventKey: %s", eventKey)
-	return nil
+// convertPullRequestV2 converts Bitbucket PR to unified format
+func (p *BitbucketV2Provider) convertPullRequestV2(pr BitbucketV2PullRequest) *UnifiedMergeRequestV2 {
+	reviewers := make([]UnifiedUserV2, len(pr.Reviewers))
+	for i, reviewer := range pr.Reviewers {
+		reviewers[i] = UnifiedUserV2{
+			ID:       reviewer.AccountID,
+			Username: reviewer.Username,
+			Name:     reviewer.DisplayName,
+			Metadata: map[string]interface{}{
+				"approved": reviewer.Approved,
+			},
+		}
+	}
+
+	return &UnifiedMergeRequestV2{
+		ID:           fmt.Sprintf("%d", pr.ID),
+		Number:       pr.ID,
+		Title:        pr.Title,
+		Description:  pr.Description,
+		State:        pr.State,
+		Author:       p.convertUserV2(pr.Author),
+		SourceBranch: pr.Source.Name,
+		TargetBranch: pr.Destination.Name,
+		WebURL:       pr.Links.HTML.Href,
+		CreatedAt:    pr.CreatedOn,
+		UpdatedAt:    pr.UpdatedOn,
+		Reviewers:    reviewers,
+		Metadata: map[string]interface{}{
+			"source_commit": pr.Source.Commit.Hash,
+			"dest_commit":   pr.Destination.Commit.Hash,
+		},
+	}
+}
+
+// convertReviewerChangeV2 converts Bitbucket reviewer changes to unified format
+func (p *BitbucketV2Provider) convertReviewerChangeV2(changes BitbucketV2ReviewerChanges) *UnifiedReviewerChangeV2 {
+	added := make([]UnifiedUserV2, len(changes.Added))
+	for i, reviewer := range changes.Added {
+		added[i] = UnifiedUserV2{
+			ID:       reviewer.AccountID,
+			Username: reviewer.Username,
+			Name:     reviewer.DisplayName,
+		}
+	}
+
+	removed := make([]UnifiedUserV2, len(changes.Removed))
+	for i, reviewer := range changes.Removed {
+		removed[i] = UnifiedUserV2{
+			ID:       reviewer.AccountID,
+			Username: reviewer.Username,
+			Name:     reviewer.DisplayName,
+		}
+	}
+
+	return &UnifiedReviewerChangeV2{
+		Action:            "modified",
+		CurrentReviewers:  added,
+		PreviousReviewers: removed,
+		ChangedBy:         UnifiedUserV2{}, // Will be filled by caller
+	}
 }
 
 // convertBitbucketToUnifiedCommentV2 converts Bitbucket comment to unified format
 func (p *BitbucketV2Provider) convertBitbucketToUnifiedCommentV2(payload BitbucketV2WebhookPayload) UnifiedCommentV2 {
-	// TODO: Port convertBitbucketToUnifiedComment logic
-	// This will be implemented when UnifiedCommentV2 type is available
 	log.Printf("[DEBUG] convertBitbucketToUnifiedCommentV2 called")
-	return UnifiedCommentV2{} // TODO: Replace with actual implementation
+
+	// Determine if this is an inline comment
+	var position *UnifiedPositionV2
+	if payload.Comment.Inline != nil {
+		position = &UnifiedPositionV2{
+			FilePath:   payload.Comment.Inline.Path,
+			LineNumber: payload.Comment.Inline.To,
+			LineType:   "new", // Default for Bitbucket inline comments
+		}
+	}
+
+	// Extract parent comment ID if this is a reply
+	var inReplyToID *string
+	if payload.Comment.Parent != nil {
+		parentIDStr := fmt.Sprintf("%d", payload.Comment.Parent.ID)
+		inReplyToID = &parentIDStr
+	}
+
+	return UnifiedCommentV2{
+		ID:          fmt.Sprintf("%d", payload.Comment.ID),
+		Body:        payload.Comment.Content.Raw,
+		Author:      p.convertUserV2(payload.Comment.User),
+		CreatedAt:   payload.Comment.CreatedOn,
+		UpdatedAt:   payload.Comment.UpdatedOn,
+		WebURL:      payload.Comment.Links.HTML.Href,
+		InReplyToID: inReplyToID,
+		Position:    position,
+		Metadata: map[string]interface{}{
+			"provider":     "bitbucket",
+			"workspace":    payload.Repository.Owner.Username,
+			"repository":   payload.Repository.Name,
+			"pr_number":    payload.PullRequest.ID,
+			"comment_type": payload.Comment.Type,
+			"pr_title":     payload.PullRequest.Title,
+			"pr_url":       payload.PullRequest.Links.HTML.Href,
+		},
+	}
+}
+
+// findIntegrationTokenForBitbucketRepoV2 finds the integration token for a Bitbucket repository
+func (p *BitbucketV2Provider) findIntegrationTokenForBitbucketRepoV2(repoFullName string) (*IntegrationToken, error) {
+	log.Printf("[DEBUG] Looking for integration token for Bitbucket repo: %s", repoFullName)
+
+	// Use the server's existing method for finding integration tokens
+	token, err := p.server.findIntegrationTokenForBitbucketRepo(repoFullName)
+	if err != nil {
+		return nil, fmt.Errorf("failed to find integration token for repo %s: %w", repoFullName, err)
+	}
+
+	return token, nil
+}
+
+// postBitbucketCommentReplyV2 posts a comment reply via Bitbucket API
+func (p *BitbucketV2Provider) postBitbucketCommentReplyV2(workspace, repository, prNumber string, inReplyToID *string, replyText string, token *IntegrationToken) error {
+	log.Printf("[DEBUG] postBitbucketCommentReplyV2 called for %s/%s PR %s", workspace, repository, prNumber)
+
+	// Bitbucket API endpoint for posting comments
+	apiURL := fmt.Sprintf("https://api.bitbucket.org/2.0/repositories/%s/%s/pullrequests/%s/comments",
+		workspace, repository, prNumber)
+
+	// Prepare payload
+	payload := map[string]interface{}{
+		"content": map[string]interface{}{
+			"raw": replyText,
+		},
+	}
+
+	// If this is a reply, include parent reference
+	if inReplyToID != nil && *inReplyToID != "" {
+		if parentID, err := strconv.Atoi(*inReplyToID); err == nil {
+			payload["parent"] = map[string]interface{}{
+				"id": parentID,
+			}
+		} else {
+			log.Printf("[WARN] Bitbucket reply: invalid parent InReplyToID '%s' (not an int): %v; posting as top-level comment",
+				*inReplyToID, err)
+		}
+	}
+
+	jsonData, err := json.Marshal(payload)
+	if err != nil {
+		return fmt.Errorf("failed to marshal payload: %w", err)
+	}
+
+	log.Printf("[DEBUG] Bitbucket API call: %s", apiURL)
+	log.Printf("[DEBUG] Bitbucket API payload: %s", string(jsonData))
+
+	req, err := http.NewRequest("POST", apiURL, bytes.NewBuffer(jsonData))
+	if err != nil {
+		return err
+	}
+
+	// Bitbucket API: use Basic auth with email + API token
+	var bbEmail string
+	if token.Metadata != nil {
+		if e, ok := token.Metadata["email"].(string); ok {
+			bbEmail = e
+		}
+	}
+	if bbEmail == "" {
+		return fmt.Errorf("bitbucket email missing in integration token metadata; cannot authenticate")
+	}
+
+	log.Printf("[DEBUG] Bitbucket auth details - Using Basic (email), email: '%s', PatToken length: %d",
+		bbEmail, len(token.PatToken))
+
+	req.SetBasicAuth(bbEmail, token.PatToken)
+	req.Header.Set("Accept", "application/json")
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("User-Agent", "LiveReview-Bot")
+
+	client := &http.Client{Timeout: 30 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return fmt.Errorf("bitbucket API request failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	respBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return fmt.Errorf("failed to read response body: %w", err)
+	}
+
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return fmt.Errorf("bitbucket API error (status %d): %s", resp.StatusCode, string(respBody))
+	}
+
+	log.Printf("[INFO] Successfully posted Bitbucket comment reply")
+	return nil
 }
 
 // fetchBitbucketPRCommitsV2 fetches PR commits from Bitbucket API
 func (p *BitbucketV2Provider) fetchBitbucketPRCommitsV2(workspace, repository, prNumber string, token *IntegrationToken) ([]BitbucketV2CommitInfo, error) {
-	// TODO: Port fetchBitbucketPRCommits logic
 	log.Printf("[DEBUG] fetchBitbucketPRCommitsV2 called for %s/%s PR %s", workspace, repository, prNumber)
-	return nil, fmt.Errorf("fetchBitbucketPRCommitsV2 not yet implemented")
+
+	// Use the server's existing method
+	commits, err := p.server.fetchBitbucketPRCommits(workspace, repository, prNumber, token)
+	if err != nil {
+		return nil, err
+	}
+
+	// Convert to V2 format
+	v2Commits := make([]BitbucketV2CommitInfo, len(commits))
+	for i, commit := range commits {
+		v2Commits[i] = BitbucketV2CommitInfo{
+			Hash:    commit.Hash,
+			Message: commit.Message,
+			Date:    "", // Not available in simplified BitbucketCommitInfo
+			Author: struct {
+				User BitbucketV2User `json:"user"`
+			}{
+				User: BitbucketV2User{
+					Username:    "unknown", // Not available in simplified structure
+					DisplayName: "unknown",
+					AccountID:   "unknown",
+					UUID:        "unknown",
+					Type:        "user",
+				},
+			},
+		}
+	}
+
+	return v2Commits, nil
 }
 
 // fetchBitbucketPRCommentsV2 fetches PR comments from Bitbucket API
 func (p *BitbucketV2Provider) fetchBitbucketPRCommentsV2(workspace, repository, prNumber string, token *IntegrationToken) ([]BitbucketV2CommentInfo, error) {
-	// TODO: Port fetchBitbucketPRComments logic
 	log.Printf("[DEBUG] fetchBitbucketPRCommentsV2 called for %s/%s PR %s", workspace, repository, prNumber)
-	return nil, fmt.Errorf("fetchBitbucketPRCommentsV2 not yet implemented")
-}
 
-// postBitbucketCommentReplyV2 posts a comment reply via Bitbucket API
-func (p *BitbucketV2Provider) postBitbucketCommentReplyV2(comment UnifiedCommentV2, token *IntegrationToken, replyText string) error {
-	// TODO: Port postBitbucketCommentReply logic
-	// This will be implemented when UnifiedCommentV2 type is available
-	log.Printf("[DEBUG] postBitbucketCommentReplyV2 called")
-	return fmt.Errorf("postBitbucketCommentReplyV2 not yet implemented")
+	// Use the server's existing method
+	comments, err := p.server.fetchBitbucketPRComments(workspace, repository, prNumber, token)
+	if err != nil {
+		return nil, err
+	}
+
+	// Convert to V2 format
+	v2Comments := make([]BitbucketV2CommentInfo, len(comments))
+	for i, comment := range comments {
+		v2Comments[i] = BitbucketV2CommentInfo{
+			ID: 0, // Not available in simplified BitbucketCommentInfo
+			Content: BitbucketV2CommentContent{
+				Raw:    comment.Content, // Content is a string in simplified structure
+				Markup: "",
+				HTML:   "",
+				Type:   "text/plain",
+			},
+			User: BitbucketV2User{
+				Username:    comment.Author, // Author is a string in simplified structure
+				DisplayName: comment.Author,
+				AccountID:   "unknown",
+				UUID:        "unknown",
+				Type:        "user",
+			},
+			CreatedOn: "", // Not available in simplified structure
+			UpdatedOn: "",
+		}
+	}
+
+	return v2Comments, nil
 }
