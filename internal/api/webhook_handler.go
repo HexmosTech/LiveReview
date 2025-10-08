@@ -204,12 +204,20 @@ type BotUserInfo struct {
 
 // GitLabWebhookHandler handles incoming GitLab webhook events
 func (s *Server) GitLabWebhookHandler(c echo.Context) error {
-	// Try V2 provider first
+	// Use provider registry for dynamic routing
+	if s.webhookRegistryV2 != nil {
+		log.Printf("[INFO] Routing GitLab webhook through provider registry")
+		return s.webhookRegistryV2.ProcessWebhookEvent(c)
+	}
+
+	// Fallback to V2 provider if registry not available
 	if s.gitlabProviderV2 != nil {
+		log.Printf("[INFO] Using GitLab V2 provider directly (registry not available)")
 		return s.GitLabWebhookHandlerV2(c)
 	}
 
-	// Fallback to original implementation
+	// Final fallback to original implementation
+	log.Printf("[INFO] Using GitLab V1 handler (V2 system not available)")
 	return s.GitLabWebhookHandlerV1(c)
 }
 
@@ -889,12 +897,20 @@ type GitHubBotUserInfo struct {
 
 // GitHubWebhookHandler handles incoming GitHub webhook events
 func (s *Server) GitHubWebhookHandler(c echo.Context) error {
-	// Try V2 provider first
+	// Use provider registry for dynamic routing
+	if s.webhookRegistryV2 != nil {
+		log.Printf("[INFO] Routing GitHub webhook through provider registry")
+		return s.webhookRegistryV2.ProcessWebhookEvent(c)
+	}
+
+	// Fallback to V2 provider if registry not available
 	if s.githubProviderV2 != nil {
+		log.Printf("[INFO] Using GitHub V2 provider directly (registry not available)")
 		return s.GitHubWebhookHandlerV2(c)
 	}
 
-	// Fallback to original implementation
+	// Final fallback to original implementation
+	log.Printf("[INFO] Using GitHub V1 handler (V2 system not available)")
 	return s.GitHubWebhookHandlerV1(c)
 }
 
