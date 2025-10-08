@@ -2,8 +2,6 @@ package api
 
 import (
 	"context"
-
-	"github.com/labstack/echo/v4"
 )
 
 // Phase 1.3: Interfaces with V2 naming for conflict-free migration
@@ -11,23 +9,21 @@ import (
 
 // WebhookProviderV2 - Main provider interface for platform-specific operations
 type WebhookProviderV2 interface {
-	// Main webhook entry point
-	HandleWebhook(c echo.Context) error
+	// Provider identification
+	ProviderName() string
+	CanHandleWebhook(headers map[string]string, body []byte) bool
 
 	// Convert provider payload to unified structure
-	ConvertCommentEvent(payload interface{}) (*UnifiedWebhookEventV2, error)
-	ConvertReviewerEvent(payload interface{}) (*UnifiedWebhookEventV2, error)
+	ConvertCommentEvent(headers map[string]string, body []byte) (*UnifiedWebhookEventV2, error)
+	ConvertReviewerEvent(headers map[string]string, body []byte) (*UnifiedWebhookEventV2, error)
 
 	// Fetch additional context data (commits, discussions, etc.)
-	FetchMRTimeline(mr UnifiedMergeRequestV2) (*UnifiedTimelineV2, error)
-	FetchCodeContext(comment UnifiedCommentV2) (string, error) // Diff hunks, file content
-
-	// Get bot user info for warrant checking
-	GetBotUserInfo(repository UnifiedRepositoryV2) (*UnifiedBotUserInfoV2, error)
+	FetchMergeRequestData(event *UnifiedWebhookEventV2) error
 
 	// Post responses back to platform
-	PostCommentReply(mr UnifiedMergeRequestV2, parentComment *UnifiedCommentV2, response string) error
-	PostReviewComments(mr UnifiedMergeRequestV2, comments []UnifiedReviewCommentV2) error
+	PostCommentReply(event *UnifiedWebhookEventV2, content string) error
+	PostEmojiReaction(event *UnifiedWebhookEventV2, emoji string) error
+	PostFullReview(event *UnifiedWebhookEventV2, overallComment string) error
 }
 
 // UnifiedProcessorV2 - Main unified processing interface (provider-agnostic)
