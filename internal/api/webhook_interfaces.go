@@ -1,0 +1,85 @@
+package api
+
+import (
+	"context"
+
+	"github.com/labstack/echo/v4"
+)
+
+// Phase 1.3: Interfaces with V2 naming for conflict-free migration
+// All interfaces use V2 suffix to prevent conflicts during migration
+
+// WebhookProviderV2 - Main provider interface for platform-specific operations
+type WebhookProviderV2 interface {
+	// Main webhook entry point
+	HandleWebhook(c echo.Context) error
+
+	// Convert provider payload to unified structure
+	ConvertCommentEvent(payload interface{}) (*UnifiedWebhookEventV2, error)
+	ConvertReviewerEvent(payload interface{}) (*UnifiedWebhookEventV2, error)
+
+	// Fetch additional context data (commits, discussions, etc.)
+	FetchMRTimeline(mr UnifiedMergeRequestV2) (*UnifiedTimelineV2, error)
+	FetchCodeContext(comment UnifiedCommentV2) (string, error) // Diff hunks, file content
+
+	// Get bot user info for warrant checking
+	GetBotUserInfo(repository UnifiedRepositoryV2) (*UnifiedBotUserInfoV2, error)
+
+	// Post responses back to platform
+	PostCommentReply(mr UnifiedMergeRequestV2, parentComment *UnifiedCommentV2, response string) error
+	PostReviewComments(mr UnifiedMergeRequestV2, comments []UnifiedReviewCommentV2) error
+}
+
+// UnifiedProcessorV2 - Main unified processing interface (provider-agnostic)
+type UnifiedProcessorV2 interface {
+	// Check if event warrants a response
+	CheckResponseWarrant(event UnifiedWebhookEventV2, botInfo *UnifiedBotUserInfoV2) (bool, ResponseScenarioV2)
+
+	// Process comment reply flow
+	ProcessCommentReply(ctx context.Context, event UnifiedWebhookEventV2, timeline *UnifiedTimelineV2) (string, *LearningMetadataV2, error)
+
+	// Process full review flow
+	ProcessFullReview(ctx context.Context, event UnifiedWebhookEventV2, timeline *UnifiedTimelineV2) ([]UnifiedReviewCommentV2, *LearningMetadataV2, error)
+}
+
+// LearningProcessorV2 - Learning extraction and application interface
+type LearningProcessorV2 interface {
+	// Extract learning metadata from responses
+	ExtractLearning(response string, context CommentContextV2) (*LearningMetadataV2, error)
+
+	// Apply learning from extracted metadata
+	ApplyLearning(learning *LearningMetadataV2) error
+
+	// Find organization ID for repository (provider-agnostic)
+	FindOrgIDForRepository(repo UnifiedRepositoryV2) (int64, error)
+}
+
+// ContextBuilderV2 - Context building interface for unified processing
+type ContextBuilderV2 interface {
+	// Build timeline from unified data
+	BuildTimeline(mr UnifiedMergeRequestV2, provider string) (*UnifiedTimelineV2, error)
+
+	// Extract comment context for processing
+	ExtractCommentContext(comment UnifiedCommentV2, timeline UnifiedTimelineV2) (*CommentContextV2, error)
+
+	// Find target comment in timeline
+	FindTargetComment(timeline UnifiedTimelineV2, commentID string) (*UnifiedCommentV2, error)
+
+	// Build enhanced prompts using unified data
+	BuildPrompt(context CommentContextV2, scenario ResponseScenarioV2) (string, error)
+}
+
+// WebhookOrchestratorV2 - Main orchestrator interface for coordinating flows
+type WebhookOrchestratorV2Interface interface {
+	// Process comment-based events
+	ProcessCommentEvent(provider string, payload interface{}) error
+
+	// Process reviewer assignment events
+	ProcessReviewerEvent(provider string, payload interface{}) error
+
+	// Get provider by name
+	GetProvider(name string) (WebhookProviderV2, error)
+
+	// Initialize all providers
+	InitializeProviders() error
+}
