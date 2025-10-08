@@ -298,9 +298,41 @@ func (g *GitHubV2Provider) GetBotUserInfo(repository UnifiedRepositoryV2) (*Unif
 - **Build Test**: `bash -lc 'go build livereview.go'` must pass after this step ✅ **PASSED**
 - **Verify**: GitHub provider can fetch all data and post responses ✅
 
-## Phase 4: Extract Bitbucket Provider
+## Phase 4: Create Provider Registry System ✅ **COMPLETED**
 
-### 4.1 Create Bitbucket provider file with V2 naming
+### 4.1 Create provider registry with dynamic webhook routing ✅ **COMPLETED**
+- **File**: `internal/api/webhook_registry_v2.go` ✅ **CREATED**
+- **Naming Strategy**: Use `V2` suffix for all registry types to avoid conflicts ✅
+- **Registry System**: WebhookProviderRegistry for managing multiple V2 providers ✅
+  - Dynamic provider detection based on webhook headers and content
+  - Intelligent routing to appropriate provider (GitLab V2, GitHub V2)
+  - Graceful fallback handling for unknown webhook formats
+- **Provider Detection**: CanHandleWebhook() method for each provider ✅
+- **Unified Endpoint**: `/api/v1/webhook` for provider-agnostic webhook handling ✅
+- **Build Test**: `bash -lc 'go build livereview.go'` passes after registry creation ✅ **PASSED**
+- **Verify**: Registry successfully detects and routes webhooks to correct providers ✅
+
+### 4.2 Update WebhookProviderV2 interface for registry compatibility ✅ **COMPLETED**
+- **Enhanced Interface**: Added provider identification methods ✅
+  - `ProviderName() string` - returns provider identifier ("gitlab", "github")
+  - `CanHandleWebhook(*http.Request) bool` - determines if provider can handle webhook
+- **Streamlined Methods**: Simplified interface method signatures for registry use ✅
+- **Registry Integration**: All V2 providers implement enhanced interface ✅
+- **Build Test**: `bash -lc 'go build livereview.go'` passes after interface updates ✅ **PASSED**
+- **Verify**: Both GitLab V2 and GitHub V2 providers compatible with registry ✅
+
+### 4.3 Integrate provider registry into server architecture ✅ **COMPLETED**
+- **Server Integration**: Added webhookRegistryV2 field to Server struct ✅
+- **Registry Initialization**: NewWebhookProviderRegistry() creates and configures registry ✅
+- **Route Registration**: Added `/api/v1/webhook` route for unified webhook handling ✅
+- **Provider Management**: Registry manages GitLab V2 and GitHub V2 provider instances ✅
+- **Generic Handler**: GenericWebhookHandler method for registry-based routing ✅
+- **Build Test**: `bash -lc 'go build livereview.go'` passes after server integration ✅ **PASSED**
+- **Verify**: Unified webhook endpoint functional with dynamic provider detection ✅
+
+## Phase 5: Extract Bitbucket Provider
+
+### 5.1 Create Bitbucket provider file with V2 naming
 - **File**: `internal/api/bitbucket_provider_v2.go`
 - **Naming Strategy**: Use `BitbucketV2` prefix for all extracted types to avoid conflicts
   - `BitbucketV2WebhookPayload` instead of `BitbucketWebhookPayload`
@@ -354,9 +386,35 @@ func (b *BitbucketV2Provider) PostReviewComments(mr UnifiedMergeRequestV2, comme
 - **Build Test**: `bash -lc 'go build livereview.go'` must pass after this step
 - **Verify**: Bitbucket provider can fetch all data and post responses
 
-## Phase 5: Create Unified Processing Core
+## Phase 5: Implement Provider-Agnostic Webhook Routing
 
-### 5.1 Create unified processor (provider-agnostic) with V2 types
+### 5.1 Update main webhook handling logic to use provider registry
+- **Replace**: Provider-specific webhook handlers with unified registry-based routing
+- **Update**: Main webhook endpoints to route through provider registry system
+- **Preserve**: All existing functionality while using dynamic provider detection
+- **Unified Flow**: All webhooks processed through `/api/v1/webhook` with automatic provider detection
+- **Build Test**: `bash -lc 'go build livereview.go'` must pass after routing updates
+- **Verify**: Dynamic routing works for all supported providers (GitLab, GitHub)
+
+### 5.2 Implement provider-agnostic webhook processing
+- **Registry Integration**: All webhook processing uses WebhookProviderRegistry
+- **Dynamic Detection**: Automatic provider identification based on webhook headers and content
+- **Fallback Handling**: Graceful handling of unknown or malformed webhook requests
+- **Logging Enhancement**: Comprehensive logging for registry-based routing decisions
+- **Build Test**: `bash -lc 'go build livereview.go'` must pass after processing updates
+- **Verify**: All webhook types (comment events, reviewer assignments) work through registry
+
+### 5.3 Validate unified webhook system
+- **End-to-End Testing**: Verify GitLab and GitHub webhooks work identically through unified system
+- **Performance Validation**: Ensure no regression in webhook processing performance
+- **Error Handling**: Confirm robust error handling for all webhook scenarios
+- **Database Operations**: Verify all database operations work through unified processing
+- **Build Test**: `bash -lc 'go build livereview.go'` must pass for complete system
+- **Verify**: Unified webhook system provides identical functionality to original handlers
+
+## Phase 6: Create Unified Processing Core
+
+### 6.1 Create unified processor (provider-agnostic) with V2 types
 - **File**: `internal/api/unified_processor_v2.go`
 - **Naming Strategy**: Use `V2` suffix for all processor types and functions
 - **Move**: Response warrant checking (PRESERVE EXACTLY, with V2 naming)
@@ -375,7 +433,7 @@ func (p *UnifiedProcessorV2) ProcessFullReview(ctx context.Context, event Unifie
 - **Build Test**: `bash -lc 'go build livereview.go'` must pass after this step
 - **Verify**: Both comment reply and full review flows work provider-agnostically
 
-### 5.2 Create unified context builder with V2 types
+### 6.2 Create unified context builder with V2 types
 - **File**: `internal/api/unified_context_v2.go`
 - **Move**: Context building logic (PRESERVE EXACTLY, make provider-agnostic, with V2 naming)
   - `buildTimelineV2` → work with `UnifiedTimelineV2` instead of provider-specific types
@@ -392,7 +450,7 @@ func (p *UnifiedProcessorV2) ProcessFullReview(ctx context.Context, event Unifie
 - **Build Test**: `bash -lc 'go build livereview.go'` must pass after this step
 - **Verify**: Context building works with unified V2 data from any provider
 
-### 5.3 Create learning processor (provider-agnostic) with V2 types
+### 6.3 Create learning processor (provider-agnostic) with V2 types
 - **File**: `internal/api/learning_processor_v2.go`  
 - **Move**: Learning detection (PRESERVE EXACTLY, with V2 naming)
   - `augmentResponseWithLearningMetadataV2`
@@ -409,9 +467,9 @@ func (l *LearningProcessorV2) FindOrgIDForRepository(repo UnifiedRepositoryV2) (
 - **Build Test**: `bash -lc 'go build livereview.go'` must pass after this step
 - **Verify**: Learning extraction works with unified V2 data from any provider
 
-## Phase 6: Create Orchestrator & Refactor Main Handler
+## Phase 7: Create Orchestrator & Refactor Main Handler
 
-### 6.1 Create webhook orchestrator with V2 types
+### 7.1 Create webhook orchestrator with V2 types
 - **File**: `internal/api/webhook_orchestrator_v2.go`
 - **Create**: Main orchestrator handling both flows with V2 types:
 ```go
@@ -451,7 +509,7 @@ func (o *WebhookOrchestratorV2) ProcessReviewerEvent(provider string, payload in
 - **Build Test**: `bash -lc 'go build livereview.go'` must pass after this step
 - **Verify**: Same async processing, error handling, logging as current implementation
 
-### 6.2 Create new V2 webhook handlers alongside existing ones
+### 7.2 Create new V2 webhook handlers alongside existing ones
 - **Keep**: Main `Server` struct and database operations (UNCHANGED)
 - **Keep**: Exact same webhook endpoints (`/api/v1/gitlab/webhook`, etc.) - UNCHANGED
 - **Add**: New V2 handler implementations alongside existing ones:
@@ -465,7 +523,7 @@ func (s *Server) GitLabWebhookHandlerV2(c echo.Context) error {
 - **Build Test**: `bash -lc 'go build livereview.go'` must pass after this step
 - **Verify**: Original handlers unchanged, V2 handlers ready for testing
 
-### 6.3 Provider initialization & integration with V2 types
+### 7.3 Provider initialization & integration with V2 types
 - **Add**: Server initialization to create V2 orchestrator alongside existing:
 ```go
 func NewServer(db *sql.DB) *Server {
@@ -488,9 +546,9 @@ func NewServer(db *sql.DB) *Server {
 - **Build Test**: `bash -lc 'go build livereview.go'` must pass after this step
 - **Verify**: All V2 providers can access needed data and post responses
 
-## Phase 7: V2 System Testing & Validation
+## Phase 8: V2 System Testing & Validation
 
-### 7.1 V2 system testing (both V1 and V2 coexist)
+### 8.1 V2 system testing (both V1 and V2 coexist)
 - **Preserve**: Original webhook_handler.go completely unchanged
 - **Testing**: V2 system runs alongside V1 system for comparison
 - **Build Validation**: `bash -lc 'go build livereview.go'` must pass continuously
@@ -498,7 +556,7 @@ func NewServer(db *sql.DB) *Server {
 - **Async patterns**: V2 maintains same `go func()` patterns for review processing
 - **Error handling**: V2 keeps same error logging and response patterns
 
-### 7.2 V2 validation per phase (parallel testing)
+### 8.2 V2 validation per phase (parallel testing)
 **Phase 1-2**: GitLabV2 provider
 - **Test**: GitLabV2 webhooks (reviewer assignment, comment replies) work identically to V1
 - **Verify**: Same database entries, same API calls, same responses as V1 system
@@ -531,7 +589,7 @@ func NewServer(db *sql.DB) *Server {
 - **Validate**: V2 error scenarios handle gracefully like V1
 - **Build**: `bash -lc 'go build livereview.go'` passes with both systems
 
-### 7.3 V2 success validation criteria
+### 8.3 V2 success validation criteria
 - **Functional**: V2 webhook endpoints respond identically to V1 endpoints
 - **Data**: V2 produces same database entries, API calls, file operations as V1
 - **Performance**: V2 has no regression in response times or memory usage vs V1
@@ -540,9 +598,9 @@ func NewServer(db *sql.DB) *Server {
 - **Review comments**: V2 full review flow produces same review comments as V1
 - **Build**: `bash -lc 'go build livereview.go'` passes throughout all phases
 
-## Phase 8: V2 to V1 Transition (Remove V2 Suffixes)
+## Phase 9: V2 to V1 Transition (Remove V2 Suffixes)
 
-### 8.1 Replace V1 system with V2 system (breaking change phase)
+### 9.1 Replace V1 system with V2 system (breaking change phase)
 - **Backup**: Create complete backup of V1 system before replacement
 - **Replace**: Switch webhook endpoints to use V2 handlers:
   - `GitLabWebhookHandler` → call `GitLabWebhookHandlerV2` implementation
@@ -552,7 +610,7 @@ func NewServer(db *sql.DB) *Server {
 - **Migration Check**: Verify V1 handlers now delegate to V2 implementations
 - **Verify**: All webhook URLs work identically, same response codes, same behavior
 
-### 8.2 Remove V2 suffixes and clean up (rename phase)
+### 9.2 Remove V2 suffixes and clean up (rename phase)
 - **Rename**: All V2 types back to V1 names
   - `UnifiedWebhookEventV2` → `UnifiedWebhookEvent`
   - `UnifiedCommentV2` → `UnifiedComment`
@@ -568,7 +626,7 @@ func NewServer(db *sql.DB) *Server {
 - **V2 Suffix Check**: `grep -r "V2" internal/api/ | grep -v "_test.go"` should return NO results
 - **Migration Progress**: V2 naming completely eliminated from codebase
 
-### 8.3 Remove old V1 system (cleanup phase)
+### 9.3 Remove old V1 system (cleanup phase)
 - **Delete**: All old V1 type definitions from webhook_handler.go
 - **Delete**: All old V1 function implementations from webhook_handler.go
 - **Keep**: Only database operations, server struct, and orchestrator calls in webhook_handler.go
@@ -581,7 +639,7 @@ func NewServer(db *sql.DB) *Server {
   - `grep -n "func.*getFreshBotUserInfo" internal/api/webhook_handler.go` should return NO results
 - **Final Validation**: All tests pass, all webhook endpoints work identically to original
 
-### 8.4 Complete Migration Validation (final cleanup verification)
+### 9.4 Complete Migration Validation (final cleanup verification)
 - **Zero V2 Suffixes**: `find internal/api/ -name "*.go" -exec grep -l "V2" {} \;` should return NO files
 - **Zero Old Monolithic Code**: Verify complete removal of original implementations:
   - `grep -r "GitLabWebhookPayload" internal/api/webhook_handler.go` should return NO results

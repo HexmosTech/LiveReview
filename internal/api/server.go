@@ -105,6 +105,9 @@ type Server struct {
 	// V2 Webhook Providers
 	gitlabProviderV2 *GitLabV2Provider
 	githubProviderV2 *GitHubV2Provider
+
+	// V2 Webhook Registry
+	webhookRegistryV2 *WebhookProviderRegistry
 }
 
 // NewServer creates a new API server
@@ -226,6 +229,9 @@ func NewServer(port int, versionInfo *VersionInfo) (*Server, error) {
 	// Initialize V2 webhook providers
 	server.gitlabProviderV2 = NewGitLabV2Provider(server)
 	server.githubProviderV2 = NewGitHubV2Provider(server)
+
+	// Initialize V2 webhook registry
+	server.webhookRegistryV2 = NewWebhookProviderRegistry(server)
 
 	// Set the server reference in auto webhook installer (circular dependency)
 	autoWebhookInstaller.server = server
@@ -437,6 +443,9 @@ func (s *Server) setupRoutes() {
 
 	// Bitbucket webhook handler
 	v1.POST("/bitbucket-hook", s.BitbucketWebhookHandler)
+
+	// Generic webhook handler (V2 Registry)
+	v1.POST("/webhook", s.GenericWebhookHandler)
 
 	// AI Connector endpoints
 	v1.POST("/aiconnectors/validate-key", s.ValidateAIConnectorKey)

@@ -4967,3 +4967,17 @@ func (s *Server) processCommentEventV2(event *UnifiedWebhookEventV2) error {
 	log.Printf("[INFO] Successfully processed V2 comment event")
 	return nil
 }
+
+// GenericWebhookHandler handles webhooks using the V2 provider registry
+func (s *Server) GenericWebhookHandler(c echo.Context) error {
+	log.Printf("[INFO] Generic webhook handler processing request from: %s", c.Request().RemoteAddr)
+
+	if s.webhookRegistryV2 == nil {
+		log.Printf("[ERROR] Webhook registry V2 not initialized")
+		return c.JSON(500, map[string]string{
+			"error": "Webhook registry not available",
+		})
+	}
+
+	return s.webhookRegistryV2.ProcessWebhookEvent(c)
+}
