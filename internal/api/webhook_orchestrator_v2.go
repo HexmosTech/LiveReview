@@ -1,0 +1,460 @@
+package api
+
+import (
+	"context"
+	"fmt"
+	"log"
+	"net/http"
+	"strings"
+	"time"
+
+	"github.com/labstack/echo/v4"
+)
+
+// Phase 8: Webhook Orchestrator for coordinating provider and processing layers
+// This orchestrator ties together the provider layer (Phases 1-6) with the unified processing core (Phase 7)
+
+// WebhookOrchestratorV2 coordinates webhook processing across all providers and processing components
+type WebhookOrchestratorV2 struct {
+	server               *Server
+	providerRegistry     *WebhookProviderRegistry
+	unifiedProcessor     UnifiedProcessorV2
+	contextBuilder       ContextBuilderV2
+	learningProcessor    LearningProcessorV2
+	processingTimeoutSec int
+}
+
+// NewWebhookOrchestratorV2 creates a new webhook orchestrator instance
+func NewWebhookOrchestratorV2(server *Server) *WebhookOrchestratorV2 {
+	orchestrator := &WebhookOrchestratorV2{
+		server:               server,
+		providerRegistry:     NewWebhookProviderRegistry(server),
+		unifiedProcessor:     NewUnifiedProcessorV2(server),
+		contextBuilder:       NewUnifiedContextBuilderV2(server),
+		learningProcessor:    NewLearningProcessorV2(server),
+		processingTimeoutSec: 30, // 30 second timeout for AI processing
+	}
+
+	log.Printf("[INFO] Webhook orchestrator V2 initialized with %d providers",
+		len(orchestrator.providerRegistry.providers))
+
+	return orchestrator
+}
+
+// ProcessWebhookEvent is the main entry point for webhook processing (replaces individual handlers)
+func (wo *WebhookOrchestratorV2) ProcessWebhookEvent(c echo.Context) error {
+	startTime := time.Now()
+
+	// Read headers for provider detection
+	headers := make(map[string]string)
+	for key, values := range c.Request().Header {
+		if len(values) > 0 {
+			headers[key] = values[0]
+		}
+	}
+
+	// Read and buffer the body
+	body, err := c.Request().GetBody()
+	if err != nil {
+		log.Printf("[ERROR] Failed to read webhook body: %v", err)
+		return c.JSON(http.StatusBadRequest, map[string]string{
+			"error": "Failed to read request body",
+		})
+	}
+	defer body.Close()
+
+	bodyBytes := make([]byte, 0, 1024*1024) // 1MB buffer
+	buf := make([]byte, 1024)
+	for {
+		n, err := body.Read(buf)
+		if n > 0 {
+			bodyBytes = append(bodyBytes, buf[:n]...)
+		}
+		if err != nil {
+			break
+		}
+	}
+
+	log.Printf("[INFO] Processing webhook: %d bytes, headers: %v",
+		len(bodyBytes), getRelevantHeaders(headers))
+
+	// Phase 1: Provider Detection and Event Conversion
+	providerName, provider := wo.providerRegistry.DetectProvider(headers, bodyBytes)
+	if provider == nil {
+		return wo.handleUnknownWebhook(c, headers)
+	}
+
+	log.Printf("[INFO] Detected provider: %s", providerName)
+
+	// Phase 2: Convert to Unified Event Structure
+	event, err := wo.convertToUnifiedEvent(provider, headers, bodyBytes)
+	if err != nil {
+		log.Printf("[ERROR] Failed to convert webhook to unified event: %v", err)
+		return c.JSON(http.StatusBadRequest, map[string]string{
+			"error":    "Failed to process webhook",
+			"provider": providerName,
+		})
+	}
+
+	if event == nil {
+		log.Printf("[DEBUG] Event filtered out during conversion")
+		return c.JSON(http.StatusOK, map[string]string{
+			"status":   "ignored",
+			"provider": providerName,
+			"reason":   "filtered_during_conversion",
+		})
+	}
+
+	log.Printf("[INFO] Unified event created: type=%s, provider=%s", event.EventType, event.Provider)
+
+	// Phase 3: Response Warrant Check
+	botInfo, err := wo.getBotUserInfo(event)
+	if err != nil {
+		log.Printf("[WARN] Failed to get bot user info: %v", err)
+		// Continue without bot info - some checks may not work but processing can continue
+	}
+
+	warrantsResponse, scenario := wo.unifiedProcessor.CheckResponseWarrant(*event, botInfo)
+	if !warrantsResponse {
+		log.Printf("[DEBUG] Event does not warrant response: %s", scenario)
+		return c.JSON(http.StatusOK, map[string]string{
+			"status":   "ignored",
+			"provider": providerName,
+			"reason":   "no_response_warrant",
+			"scenario": scenario.Type,
+		})
+	}
+
+	log.Printf("[INFO] Response warranted: scenario=%s", scenario)
+
+	// Phase 4: Asynchronous Processing (return response quickly)
+	go wo.processEventAsync(context.Background(), event, provider, scenario, startTime)
+
+	// Return success immediately - processing continues asynchronously
+	return c.JSON(http.StatusOK, map[string]string{
+		"status":        "accepted",
+		"provider":      providerName,
+		"event_type":    event.EventType,
+		"event_ts":      event.Timestamp,
+		"scenario":      scenario.Type,
+		"processing":    "async",
+		"response_time": fmt.Sprintf("%.2fms", float64(time.Since(startTime).Nanoseconds())/1e6),
+	})
+}
+
+// processEventAsync handles the complete event processing pipeline asynchronously
+func (wo *WebhookOrchestratorV2) processEventAsync(ctx context.Context, event *UnifiedWebhookEventV2, provider WebhookProviderV2, scenario ResponseScenarioV2, startTime time.Time) {
+	processingCtx, cancel := context.WithTimeout(ctx, time.Duration(wo.processingTimeoutSec)*time.Second)
+	defer cancel()
+
+	log.Printf("[INFO] Starting async processing for event %s/%s", event.EventType, event.Provider)
+
+	// Phase 5: Fetch Additional Context Data
+	if err := provider.FetchMergeRequestData(event); err != nil {
+		log.Printf("[WARN] Failed to fetch MR data, continuing with available data: %v", err)
+	}
+
+	// Phase 6: Build Timeline and Context
+	var timeline *UnifiedTimelineV2
+	var err error
+	if event.MergeRequest != nil {
+		timeline, err = wo.contextBuilder.BuildTimeline(*event.MergeRequest, event.Provider)
+		if err != nil {
+			log.Printf("[ERROR] Failed to build timeline: %v", err)
+			wo.postErrorResponse(provider, event, "Failed to build context timeline")
+			return
+		}
+	} else {
+		log.Printf("[WARN] No MR data available, creating empty timeline")
+		timeline = &UnifiedTimelineV2{}
+	}
+
+	// Phase 7: Process Response Based on Scenario
+	switch scenario.Type {
+	case "comment_reply":
+		wo.handleCommentReplyFlow(processingCtx, event, provider, timeline)
+	case "full_review":
+		wo.handleFullReviewFlow(processingCtx, event, provider, timeline)
+	case "emoji_only":
+		wo.handleEmojiOnlyFlow(processingCtx, event, provider)
+	default:
+		log.Printf("[WARN] Unknown response scenario: %s", scenario.Type)
+		wo.postErrorResponse(provider, event, "Unknown response scenario")
+	}
+
+	processingTime := time.Since(startTime)
+	log.Printf("[INFO] Async processing completed for event %s/%s in %.2fs",
+		event.EventType, event.Provider, processingTime.Seconds())
+}
+
+// handleCommentReplyFlow handles comment reply processing
+func (wo *WebhookOrchestratorV2) handleCommentReplyFlow(ctx context.Context, event *UnifiedWebhookEventV2, provider WebhookProviderV2, timeline *UnifiedTimelineV2) {
+	log.Printf("[INFO] Processing comment reply flow for event %s/%s", event.EventType, event.Provider)
+
+	// Generate AI response
+	response, learning, err := wo.unifiedProcessor.ProcessCommentReply(ctx, *event, timeline)
+	if err != nil {
+		log.Printf("[ERROR] Failed to process comment reply: %v", err)
+		wo.postErrorResponse(provider, event, "Failed to generate AI response")
+		return
+	}
+
+	// Apply learning if extracted
+	if learning != nil {
+		if err := wo.learningProcessor.ApplyLearning(learning); err != nil {
+			log.Printf("[WARN] Failed to apply learning: %v", err)
+		}
+	}
+
+	// Post the response
+	if err := provider.PostCommentReply(event, response); err != nil {
+		log.Printf("[ERROR] Failed to post comment reply: %v", err)
+		return
+	}
+
+	log.Printf("[INFO] Comment reply posted successfully for event %s/%s", event.EventType, event.Provider)
+}
+
+// handleFullReviewFlow handles full review processing
+func (wo *WebhookOrchestratorV2) handleFullReviewFlow(ctx context.Context, event *UnifiedWebhookEventV2, provider WebhookProviderV2, timeline *UnifiedTimelineV2) {
+	log.Printf("[INFO] Processing full review flow for event %s/%s", event.EventType, event.Provider)
+
+	// Generate full review
+	reviewComments, learning, err := wo.unifiedProcessor.ProcessFullReview(ctx, *event, timeline)
+	if err != nil {
+		log.Printf("[ERROR] Failed to process full review: %v", err)
+		wo.postErrorResponse(provider, event, "Failed to generate code review")
+		return
+	}
+
+	// Apply learning if extracted
+	if learning != nil {
+		if err := wo.learningProcessor.ApplyLearning(learning); err != nil {
+			log.Printf("[WARN] Failed to apply learning: %v", err)
+		}
+	}
+
+	// Convert review comments to overall comment
+	overallComment := wo.formatReviewComments(reviewComments)
+
+	// Post the full review
+	if err := provider.PostFullReview(event, overallComment); err != nil {
+		log.Printf("[ERROR] Failed to post full review: %v", err)
+		return
+	}
+
+	log.Printf("[INFO] Full review posted successfully for event %s/%s with %d comments",
+		event.EventType, event.Provider, len(reviewComments))
+}
+
+// handleEmojiOnlyFlow handles emoji-only responses
+func (wo *WebhookOrchestratorV2) handleEmojiOnlyFlow(ctx context.Context, event *UnifiedWebhookEventV2, provider WebhookProviderV2) {
+	log.Printf("[INFO] Processing emoji-only flow for event %s/%s", event.EventType, event.Provider)
+
+	// Choose appropriate emoji based on comment content
+	emoji := wo.selectAppropriateEmoji(event.Comment.Body)
+
+	// Post emoji reaction
+	if err := provider.PostEmojiReaction(event, emoji); err != nil {
+		log.Printf("[ERROR] Failed to post emoji reaction: %v", err)
+		return
+	}
+
+	log.Printf("[INFO] Emoji reaction (%s) posted successfully for event %s/%s", emoji, event.EventType, event.Provider)
+}
+
+// Helper methods
+
+// convertToUnifiedEvent attempts to convert webhook to unified event using different event types
+func (wo *WebhookOrchestratorV2) convertToUnifiedEvent(provider WebhookProviderV2, headers map[string]string, body []byte) (*UnifiedWebhookEventV2, error) {
+	// Try comment event conversion first
+	if event, err := provider.ConvertCommentEvent(headers, body); err == nil {
+		return event, nil
+	}
+
+	// Try reviewer event conversion
+	if event, err := provider.ConvertReviewerEvent(headers, body); err == nil {
+		return event, nil
+	}
+
+	// If neither worked, return error
+	return nil, fmt.Errorf("unable to convert webhook to any unified event type")
+}
+
+// getBotUserInfo retrieves bot user information for the event's provider
+func (wo *WebhookOrchestratorV2) getBotUserInfo(event *UnifiedWebhookEventV2) (*UnifiedBotUserInfoV2, error) {
+	switch event.Provider {
+	case "gitlab":
+		// Extract GitLab instance URL from repository URL
+		gitlabURL := wo.extractGitLabInstanceURL(event.Repository.WebURL)
+		botInfo, err := wo.server.getFreshBotUserInfo(gitlabURL)
+		if err != nil {
+			return nil, err
+		}
+		return &UnifiedBotUserInfoV2{
+			UserID:   fmt.Sprintf("%d", botInfo.ID),
+			Username: botInfo.Username,
+			Name:     botInfo.Name,
+		}, nil
+
+	case "github":
+		botInfo, err := wo.server.getFreshGitHubBotUserInfo(event.Repository.FullName)
+		if err != nil {
+			return nil, err
+		}
+		return &UnifiedBotUserInfoV2{
+			UserID:   fmt.Sprintf("%d", botInfo.ID),
+			Username: botInfo.Login,
+			Name:     botInfo.Name,
+		}, nil
+
+	case "bitbucket":
+		botInfo, err := wo.server.getFreshBitbucketBotUserInfo(event.Repository.FullName)
+		if err != nil {
+			return nil, err
+		}
+		return &UnifiedBotUserInfoV2{
+			UserID:   botInfo.UUID,
+			Username: botInfo.Username,
+			Name:     botInfo.DisplayName,
+		}, nil
+
+	default:
+		return nil, fmt.Errorf("unknown provider: %s", event.Provider)
+	}
+}
+
+// extractGitLabInstanceURL extracts base GitLab instance URL
+func (wo *WebhookOrchestratorV2) extractGitLabInstanceURL(projectWebURL string) string {
+	// This logic is extracted from the existing extractGitLabInstanceURL function
+	// Implementation would be the same as in webhook_handler.go
+	if projectWebURL == "" {
+		return "https://gitlab.com"
+	}
+
+	// Find the project path separator
+	if idx := strings.Index(projectWebURL, "/-/"); idx != -1 {
+		return projectWebURL[:idx]
+	}
+
+	// For standard GitLab URLs like https://gitlab.com/group/project
+	parts := strings.Split(projectWebURL, "/")
+	if len(parts) >= 3 {
+		return fmt.Sprintf("%s//%s", parts[0], parts[2])
+	}
+
+	return "https://gitlab.com"
+}
+
+// selectAppropriateEmoji selects emoji based on comment content
+func (wo *WebhookOrchestratorV2) selectAppropriateEmoji(commentBody string) string {
+	commentLower := strings.ToLower(commentBody)
+
+	// Thanks/appreciation
+	if strings.Contains(commentLower, "thank") || strings.Contains(commentLower, "appreciate") {
+		return "heart"
+	}
+
+	// Questions
+	if strings.Contains(commentLower, "?") || strings.Contains(commentLower, "how") ||
+		strings.Contains(commentLower, "why") || strings.Contains(commentLower, "what") {
+		return "point_up"
+	}
+
+	// Positive feedback
+	if strings.Contains(commentLower, "good") || strings.Contains(commentLower, "great") ||
+		strings.Contains(commentLower, "nice") || strings.Contains(commentLower, "excellent") {
+		return "thumbsup"
+	}
+
+	// Issues/problems
+	if strings.Contains(commentLower, "issue") || strings.Contains(commentLower, "problem") ||
+		strings.Contains(commentLower, "bug") || strings.Contains(commentLower, "error") {
+		return "eyes"
+	}
+
+	// Default
+	return "thumbsup"
+}
+
+// formatReviewComments formats review comments into a single overall comment
+func (wo *WebhookOrchestratorV2) formatReviewComments(comments []UnifiedReviewCommentV2) string {
+	if len(comments) == 0 {
+		return "✅ Code review completed - no issues found."
+	}
+
+	result := fmt.Sprintf("🔍 **Code Review Summary** (%d comments)\n\n", len(comments))
+
+	for i, comment := range comments {
+		result += fmt.Sprintf("**%d. %s**\n", i+1, comment.FilePath)
+		if comment.LineNumber > 0 {
+			result += fmt.Sprintf("   Line %d: ", comment.LineNumber)
+		}
+		result += comment.Content + "\n\n"
+	}
+
+	result += "---\n*Generated by LiveReview AI*"
+	return result
+}
+
+// postErrorResponse posts a standardized error response
+func (wo *WebhookOrchestratorV2) postErrorResponse(provider WebhookProviderV2, event *UnifiedWebhookEventV2, errorMsg string) {
+	errorResponse := fmt.Sprintf("⚠️ %s\n\n*This issue has been logged and will be investigated.*", errorMsg)
+
+	if err := provider.PostCommentReply(event, errorResponse); err != nil {
+		log.Printf("[ERROR] Failed to post error response: %v", err)
+	}
+}
+
+// handleUnknownWebhook handles webhooks that couldn't be routed to any provider
+func (wo *WebhookOrchestratorV2) handleUnknownWebhook(c echo.Context, headers map[string]string) error {
+	log.Printf("[WARN] Unknown webhook provider, headers: %v", getRelevantHeaders(headers))
+
+	// Try provider fallback based on User-Agent or other hints
+	if userAgent, exists := headers["User-Agent"]; exists {
+		userAgentLower := strings.ToLower(userAgent)
+
+		// Direct fallback to existing V1 handlers if available
+		if strings.Contains(userAgentLower, "github") {
+			log.Printf("[INFO] Fallback to GitHub V1 handler based on User-Agent")
+			return wo.server.GitHubWebhookHandlerV1(c)
+		}
+
+		if strings.Contains(userAgentLower, "gitlab") {
+			log.Printf("[INFO] Fallback to GitLab V1 handler based on User-Agent")
+			return wo.server.GitLabWebhookHandlerV1(c)
+		}
+
+		if strings.Contains(userAgentLower, "bitbucket") {
+			log.Printf("[INFO] Fallback to Bitbucket handler based on User-Agent")
+			return wo.server.BitbucketWebhookHandler(c)
+		}
+	}
+
+	// No fallback available
+	return c.JSON(http.StatusBadRequest, map[string]string{
+		"error":   "Unknown webhook provider",
+		"headers": fmt.Sprintf("%v", getRelevantHeaders(headers)),
+	})
+}
+
+// GetProcessingStats returns processing statistics
+func (wo *WebhookOrchestratorV2) GetProcessingStats() map[string]interface{} {
+	return map[string]interface{}{
+		"providers_registered":   len(wo.providerRegistry.providers),
+		"provider_names":         wo.providerRegistry.getProviderNames(),
+		"processing_timeout_sec": wo.processingTimeoutSec,
+		"components": map[string]bool{
+			"unified_processor":  wo.unifiedProcessor != nil,
+			"context_builder":    wo.contextBuilder != nil,
+			"learning_processor": wo.learningProcessor != nil,
+			"provider_registry":  wo.providerRegistry != nil,
+		},
+	}
+}
+
+// UpdateProcessingTimeout updates the processing timeout
+func (wo *WebhookOrchestratorV2) UpdateProcessingTimeout(timeoutSec int) {
+	wo.processingTimeoutSec = timeoutSec
+	log.Printf("[INFO] Processing timeout updated to %d seconds", timeoutSec)
+}
