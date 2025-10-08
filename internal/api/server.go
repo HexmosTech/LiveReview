@@ -108,6 +108,9 @@ type Server struct {
 
 	// V2 Webhook Registry
 	webhookRegistryV2 *WebhookProviderRegistry
+
+	// V2 Webhook Orchestrator
+	webhookOrchestratorV2 *WebhookOrchestratorV2
 }
 
 // NewServer creates a new API server
@@ -232,6 +235,9 @@ func NewServer(port int, versionInfo *VersionInfo) (*Server, error) {
 
 	// Initialize V2 webhook registry
 	server.webhookRegistryV2 = NewWebhookProviderRegistry(server)
+
+	// Initialize V2 webhook orchestrator
+	server.webhookOrchestratorV2 = NewWebhookOrchestratorV2(server)
 
 	// Set the server reference in auto webhook installer (circular dependency)
 	autoWebhookInstaller.server = server
@@ -446,6 +452,9 @@ func (s *Server) setupRoutes() {
 
 	// Generic webhook handler (V2 Registry)
 	v1.POST("/webhook", s.GenericWebhookHandler)
+
+	// Orchestrated webhook handler (V2 Orchestrator - Full Processing)
+	v1.POST("/webhook/v2", s.WebhookOrchestratorV2Handler)
 
 	// AI Connector endpoints
 	v1.POST("/aiconnectors/validate-key", s.ValidateAIConnectorKey)
@@ -1260,4 +1269,16 @@ func (s *Server) getSystemInfo(c echo.Context) error {
 	}
 
 	return c.JSON(http.StatusOK, info)
+}
+
+// WebhookOrchestratorV2Handler handles webhooks using the V2 orchestrator (full processing pipeline)
+func (s *Server) WebhookOrchestratorV2Handler(c echo.Context) error {
+	if s.webhookOrchestratorV2 == nil {
+		log.Printf("[ERROR] Webhook orchestrator V2 not initialized")
+		return c.JSON(http.StatusInternalServerError, map[string]string{
+			"error": "Orchestrator not available",
+		})
+	}
+
+	return s.webhookOrchestratorV2.ProcessWebhookEvent(c)
 }
