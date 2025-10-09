@@ -182,6 +182,7 @@ func (p *UnifiedProcessorV2Impl) buildCommentReplyPromptWithLearning(event Unifi
 	// LEARNING INSTRUCTIONS - This is the key addition!
 	prompt.WriteString("LEARNING EXTRACTION:\n")
 	prompt.WriteString("If this conversation contains information worth learning for future interactions, include it in your response as a special section.\n")
+	prompt.WriteString("You can find a learning opportunity when the user explicitly mentions either preferences or the way they or their team does things. Or they instruct you to remember some rule as is. Or they disagree with you, and you deem they're right, and there is a principle that must be recorded for future use.\n")
 	prompt.WriteString("Learning examples include: team policies, coding standards, preferences, domain-specific rules, etc.\n\n")
 	prompt.WriteString("If you identify a learning, add this JSON block at the end of your response:\n")
 	prompt.WriteString("```learning\n")

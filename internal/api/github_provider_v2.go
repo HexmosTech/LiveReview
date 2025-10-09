@@ -296,15 +296,30 @@ func (p *GitHubV2Provider) CanHandleWebhook(headers map[string]string, body []by
 
 // ConvertCommentEvent converts GitHub comment webhook to unified format
 func (p *GitHubV2Provider) ConvertCommentEvent(headers map[string]string, body []byte) (*UnifiedWebhookEventV2, error) {
+	// GitHub uses X-GitHub-Event header, try different case variations
 	eventType := headers["X-GitHub-Event"]
+	if eventType == "" {
+		eventType = headers["X-Github-Event"]
+	}
+	if eventType == "" {
+		eventType = headers["x-github-event"]
+	}
+	log.Printf("[DEBUG] GitHub webhook event type: '%s'", eventType)
+	log.Printf("[DEBUG] Available headers: %v", headers)
 
 	switch eventType {
 	case "issue_comment":
+		log.Printf("[DEBUG] Processing GitHub issue_comment event")
 		return p.convertIssueCommentEventV2(body)
 	case "pull_request_review_comment":
+		log.Printf("[DEBUG] Processing GitHub pull_request_review_comment event")
 		return p.convertPullRequestReviewCommentEventV2(body)
+	case "pull_request_review":
+		log.Printf("[DEBUG] Processing GitHub pull_request_review event")
+		return p.convertPullRequestReviewEventV2(body)
 	default:
-		return nil, fmt.Errorf("unsupported GitHub comment event type: %s", eventType)
+		log.Printf("[WARN] Unsupported GitHub comment event type: '%s' (supported: issue_comment, pull_request_review_comment, pull_request_review)", eventType)
+		return nil, fmt.Errorf("unsupported GitHub comment event type: '%s'", eventType)
 	}
 }
 
@@ -468,16 +483,107 @@ func (p *GitHubV2Provider) convertPullRequestReviewCommentEventV2(body []byte) (
 	return unifiedEvent, nil
 }
 
+// convertPullRequestReviewEventV2 converts GitHub pull request review webhook to unified format
+func (p *GitHubV2Provider) convertPullRequestReviewEventV2(body []byte) (*UnifiedWebhookEventV2, error) {
+	// For now, treat pull_request_review as a comment event if it has a comment body
+	// This is a simplified approach - full implementation would need proper review handling
+	var payload struct {
+		Action string `json:"action"`
+		Review struct {
+			ID   int          `json:"id"`
+			Body string       `json:"body"`
+			User GitHubV2User `json:"user"`
+		} `json:"review"`
+		PullRequest GitHubV2PullRequest `json:"pull_request"`
+		Repository  GitHubV2Repository  `json:"repository"`
+	}
+
+	if err := json.Unmarshal(body, &payload); err != nil {
+		return nil, fmt.Errorf("failed to parse GitHub pull_request_review webhook: %w", err)
+	}
+
+	// Only handle reviews with actual comment text
+	if payload.Action != "submitted" || payload.Review.Body == "" {
+		log.Printf("[DEBUG] Ignoring pull_request_review: action=%s, has_body=%t", payload.Action, payload.Review.Body != "")
+		return nil, fmt.Errorf("pull_request_review event ignored (action=%s, no comment body)", payload.Action)
+	}
+
+	// Convert to unified event (similar to issue comment)
+	unifiedEvent := &UnifiedWebhookEventV2{
+		EventType: "comment_created",
+		Provider:  "github",
+		Timestamp: time.Now().Format(time.RFC3339),
+		Comment: &UnifiedCommentV2{
+			ID:        fmt.Sprintf("%d", payload.Review.ID),
+			Body:      payload.Review.Body,
+			CreatedAt: time.Now().Format(time.RFC3339),
+			WebURL:    payload.PullRequest.HTMLURL,
+			Author: UnifiedUserV2{
+				ID:       fmt.Sprintf("%d", payload.Review.User.ID),
+				Username: payload.Review.User.Login,
+				Name:     payload.Review.User.Login,
+				WebURL:   payload.Review.User.HTMLURL,
+			},
+		},
+		MergeRequest: &UnifiedMergeRequestV2{
+			ID:           fmt.Sprintf("%d", payload.PullRequest.ID),
+			Number:       payload.PullRequest.Number,
+			Title:        payload.PullRequest.Title,
+			Description:  payload.PullRequest.Body,
+			State:        payload.PullRequest.State,
+			WebURL:       payload.PullRequest.HTMLURL,
+			TargetBranch: payload.PullRequest.Base.Ref,
+			SourceBranch: payload.PullRequest.Head.Ref,
+			Author: UnifiedUserV2{
+				ID:       fmt.Sprintf("%d", payload.PullRequest.User.ID),
+				Username: payload.PullRequest.User.Login,
+				Name:     payload.PullRequest.User.Login,
+				WebURL:   payload.PullRequest.User.HTMLURL,
+			},
+		},
+		Repository: UnifiedRepositoryV2{
+			ID:       fmt.Sprintf("%d", payload.Repository.ID),
+			Name:     payload.Repository.Name,
+			FullName: payload.Repository.FullName,
+			WebURL:   payload.Repository.HTMLURL,
+			Owner: UnifiedUserV2{
+				Username: payload.Repository.Owner.Login,
+			},
+		},
+		Actor: UnifiedUserV2{
+			ID:       fmt.Sprintf("%d", payload.Review.User.ID),
+			Username: payload.Review.User.Login,
+			Name:     payload.Review.User.Login,
+			WebURL:   payload.Review.User.HTMLURL,
+		},
+	}
+
+	return unifiedEvent, nil
+}
+
 // ConvertReviewerEvent converts GitHub reviewer assignment webhook to unified format
 func (p *GitHubV2Provider) ConvertReviewerEvent(headers map[string]string, body []byte) (*UnifiedWebhookEventV2, error) {
+	// GitHub uses X-GitHub-Event header, try different case variations
+	eventType := headers["X-GitHub-Event"]
+	if eventType == "" {
+		eventType = headers["X-Github-Event"]
+	}
+	if eventType == "" {
+		eventType = headers["x-github-event"]
+	}
+	log.Printf("[DEBUG] GitHub reviewer event type: '%s'", eventType)
+	log.Printf("[DEBUG] Available headers: %v", headers)
+
 	var payload GitHubV2WebhookPayload
 	if err := json.Unmarshal(body, &payload); err != nil {
 		return nil, fmt.Errorf("failed to parse GitHub webhook: %w", err)
 	}
 
+	log.Printf("[DEBUG] GitHub webhook action: %s", payload.Action)
+
 	// Check if this is a reviewer assignment event
 	if payload.Action != "review_requested" && payload.Action != "review_request_removed" {
-		return nil, fmt.Errorf("not a reviewer assignment event")
+		return nil, fmt.Errorf("not a reviewer assignment event: action=%s", payload.Action)
 	}
 
 	// Convert to unified format
@@ -744,32 +850,39 @@ func (p *GitHubV2Provider) postGitHubCommentReplyV2(event *UnifiedWebhookEventV2
 	var apiURL string
 	var requestBody map[string]interface{}
 
-	if event.Comment.Position != nil {
-		// Review comment reply
+	// Based on V1 working implementation - handle replies properly
+	if event.Comment.Position != nil && event.Comment.InReplyToID != nil && *event.Comment.InReplyToID != "" {
+		// Reply to review comment - use review comments API with in_reply_to
 		apiURL = fmt.Sprintf("https://api.github.com/repos/%s/pulls/%d/comments",
 			event.Repository.FullName, event.MergeRequest.Number)
 
-		requestBody = map[string]interface{}{
-			"body":      replyText,
-			"commit_id": event.Comment.Position.FilePath, // This would need proper commit SHA
-			"path":      event.Comment.Position.FilePath,
-			"line":      event.Comment.Position.LineNumber,
-			"side":      "RIGHT",
-		}
-
-		if event.Comment.InReplyToID != nil {
-			inReplyToID, _ := strconv.Atoi(*event.Comment.InReplyToID)
-			requestBody["in_reply_to"] = inReplyToID
+		// Convert string ID to integer for GitHub API (like V1)
+		inReplyToInt, err := strconv.Atoi(*event.Comment.InReplyToID)
+		if err != nil {
+			log.Printf("[WARN] Failed to convert in_reply_to ID to integer: %v, falling back to issue comment", err)
+			// Fall back to issue comment
+			apiURL = fmt.Sprintf("https://api.github.com/repos/%s/issues/%d/comments",
+				event.Repository.FullName, event.MergeRequest.Number)
+			requestBody = map[string]interface{}{
+				"body": replyText,
+			}
+		} else {
+			requestBody = map[string]interface{}{
+				"body":        replyText,
+				"in_reply_to": inReplyToInt,
+			}
 		}
 	} else {
-		// Issue comment
+		// General PR comment or no reply context - use issue comment API
 		apiURL = fmt.Sprintf("https://api.github.com/repos/%s/issues/%d/comments",
 			event.Repository.FullName, event.MergeRequest.Number)
-
 		requestBody = map[string]interface{}{
 			"body": replyText,
 		}
 	}
+
+	log.Printf("[DEBUG] GitHub API call: %s", apiURL)
+	log.Printf("[DEBUG] GitHub API payload: %+v", requestBody)
 
 	return p.postToGitHubAPIV2(apiURL, token, requestBody)
 }
