@@ -330,6 +330,12 @@ func (p *GitHubV2Provider) convertIssueCommentEventV2(body []byte) (*UnifiedWebh
 		return nil, fmt.Errorf("failed to parse GitHub issue comment webhook: %w", err)
 	}
 
+	// Only process "created" actions - ignore deleted, edited, etc.
+	if payload.Action != "created" {
+		log.Printf("[DEBUG] Ignoring GitHub issue_comment action: %s", payload.Action)
+		return nil, fmt.Errorf("issue_comment event ignored (action=%s)", payload.Action)
+	}
+
 	// Convert to unified format
 	unifiedEvent := &UnifiedWebhookEventV2{
 		EventType: "comment_created",
@@ -400,6 +406,12 @@ func (p *GitHubV2Provider) convertPullRequestReviewCommentEventV2(body []byte) (
 	var payload GitHubV2PullRequestReviewCommentWebhookPayload
 	if err := json.Unmarshal(body, &payload); err != nil {
 		return nil, fmt.Errorf("failed to parse GitHub PR review comment webhook: %w", err)
+	}
+
+	// Only process "created" actions - ignore deleted, edited, etc.
+	if payload.Action != "created" {
+		log.Printf("[DEBUG] Ignoring GitHub pull_request_review_comment action: %s", payload.Action)
+		return nil, fmt.Errorf("pull_request_review_comment event ignored (action=%s)", payload.Action)
 	}
 
 	// Convert to unified format
