@@ -32,7 +32,7 @@ func (s *PostgresStore) Create(ctx context.Context, l *Learning) error {
         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)
         RETURNING id, created_at, updated_at
     `,
-		l.ShortID, l.OrgID, string(l.Scope), nullIfEmpty(l.RepoID), l.Title, l.Body, pq.Array(l.Tags), string(l.Status), l.Confidence, l.Simhash, l.Embedding, pq.Array(l.SourceURLs), scJSON, nullIfZero(l.CreatedBy()), nullIfZero(l.UpdatedBy()),
+		l.ShortID, l.OrgID, string(l.Scope), nullIfEmpty(l.RepoID), l.Title, l.Body, pq.Array(ensureSliceNotNil(l.Tags)), string(l.Status), l.Confidence, l.Simhash, l.Embedding, pq.Array(ensureSliceNotNil(l.SourceURLs)), scJSON, nullIfZero(l.CreatedBy()), nullIfZero(l.UpdatedBy()),
 	).Scan(&id, &createdAt, &updatedAt)
 	if err != nil {
 		return err
@@ -61,7 +61,7 @@ func (s *PostgresStore) Update(ctx context.Context, l *Learning) error {
         SET title=$1, body=$2, tags=$3, status=$4, confidence=$5, simhash=$6, embedding=$7, source_urls=$8, source_context=$9, scope_kind=$10, repo_id=$11, updated_at=now()
         WHERE id=$12
         RETURNING updated_at
-    `, l.Title, l.Body, pq.Array(l.Tags), string(l.Status), l.Confidence, l.Simhash, l.Embedding, pq.Array(l.SourceURLs), scJSON, string(l.Scope), nullIfEmpty(l.RepoID), l.ID)
+    `, l.Title, l.Body, pq.Array(ensureSliceNotNil(l.Tags)), string(l.Status), l.Confidence, l.Simhash, l.Embedding, pq.Array(ensureSliceNotNil(l.SourceURLs)), scJSON, string(l.Scope), nullIfEmpty(l.RepoID), l.ID)
 	if err := res.Scan(&updatedAt); err != nil {
 		return err
 	}
@@ -174,3 +174,11 @@ func nullIfZero(v int64) interface{} {
 	return v
 }
 func nullIfZero64(v int64) interface{} { return nullIfZero(v) }
+
+// ensureSliceNotNil ensures a string slice is never nil to avoid NOT NULL constraint violations
+func ensureSliceNotNil(slice []string) []string {
+	if slice == nil {
+		return []string{}
+	}
+	return slice
+}

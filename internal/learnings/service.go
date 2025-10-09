@@ -166,7 +166,28 @@ func (s *Service) DeleteByShortID(ctx context.Context, orgID int64, shortID stri
 	if err := s.store.Update(ctx, l); err != nil {
 		return err
 	}
-	_ = s.store.CreateEvent(ctx, &LearningEvent{LearningID: l.ID, OrgID: orgID, Action: EventDelete, Provider: mrCtx.Provider, ThreadID: mrCtx.ThreadID, CommentID: mrCtx.CommentID, Repository: mrCtx.Repository, CommitSHA: mrCtx.CommitSHA, FilePath: mrCtx.FilePath, LineStart: mrCtx.LineStart, LineEnd: mrCtx.LineEnd, Reason: "nl-delete", Classifier: "nl"})
+	// Create event with safe access to mrCtx fields
+	event := &LearningEvent{
+		LearningID: l.ID,
+		OrgID:      orgID,
+		Action:     EventDelete,
+		Reason:     "nl-delete",
+		Classifier: "nl",
+	}
+
+	// Only set mrCtx fields if mrCtx is not nil
+	if mrCtx != nil {
+		event.Provider = mrCtx.Provider
+		event.ThreadID = mrCtx.ThreadID
+		event.CommentID = mrCtx.CommentID
+		event.Repository = mrCtx.Repository
+		event.CommitSHA = mrCtx.CommitSHA
+		event.FilePath = mrCtx.FilePath
+		event.LineStart = mrCtx.LineStart
+		event.LineEnd = mrCtx.LineEnd
+	}
+
+	_ = s.store.CreateEvent(ctx, event)
 	return nil
 }
 
