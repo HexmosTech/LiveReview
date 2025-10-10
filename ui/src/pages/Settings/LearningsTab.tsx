@@ -496,7 +496,7 @@ const LearningsTab: React.FC = () => {
                             <div>
                               <span className="text-slate-400 text-xs uppercase tracking-wide">Source Links</span>
                               <div className="mt-2 space-y-1">
-                                {[...new Set(learning.source_urls)].map((url: string, index: number) => {
+                                {Array.from(new Set(learning.source_urls)).map((url: string, index: number) => {
                                   let linkLabel = 'View Source';
                                   
                                   if (url.includes('#note_') || url.includes('#issuecomment-') || url.includes('#discussion_r')) {
