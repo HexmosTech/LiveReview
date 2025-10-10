@@ -76,6 +76,20 @@ const LearningsTab: React.FC = () => {
   const [editing, setEditing] = useState<EditState | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
 
+  // Handle ESC key to close edit dialog
+  useEffect(() => {
+    const handleEscKey = (event: KeyboardEvent) => {
+      if (event.key === 'Escape' && editing) {
+        setEditing(null);
+      }
+    };
+
+    document.addEventListener('keydown', handleEscKey);
+    return () => {
+      document.removeEventListener('keydown', handleEscKey);
+    };
+  }, [editing]);
+
   const fetchItems = async (page: number = 1, searchQuery?: string) => {
     setLoading(true);
     setError(null);
@@ -244,10 +258,10 @@ const LearningsTab: React.FC = () => {
               <tr>
                 <th className="px-3 py-3 text-left text-xs font-medium text-slate-300 uppercase tracking-wider">ID</th>
                 <th className="px-3 py-3 text-left text-xs font-medium text-slate-300 uppercase tracking-wider">Title</th>
+                <th className="px-3 py-3 text-left text-xs font-medium text-slate-300 uppercase tracking-wider">Updated</th>
+                <th className="px-3 py-3 text-left text-xs font-medium text-slate-300 uppercase tracking-wider">Status</th>
                 <th className="px-3 py-3 text-left text-xs font-medium text-slate-300 uppercase tracking-wider">Scope</th>
                 <th className="px-3 py-3 text-left text-xs font-medium text-slate-300 uppercase tracking-wider">Tags</th>
-                <th className="px-3 py-3 text-left text-xs font-medium text-slate-300 uppercase tracking-wider">Status</th>
-                <th className="px-3 py-3 text-left text-xs font-medium text-slate-300 uppercase tracking-wider">Updated</th>
                 <th className="px-3 py-3 text-right text-xs font-medium text-slate-300 uppercase tracking-wider">Actions</th>
               </tr>
             </thead>
@@ -258,28 +272,32 @@ const LearningsTab: React.FC = () => {
                     <span className="text-slate-300 font-mono text-sm">#{it.short_id}</span>
                   </td>
                   <td className="px-3 py-3">
-                    <div className="max-w-sm">
-                      <div className="text-white font-medium text-sm line-clamp-1 mb-1">{it.title}</div>
-                      <div className="text-slate-400 text-xs line-clamp-2 leading-relaxed">{it.body}</div>
+                    <div className="max-w-sm cursor-pointer" onClick={() => beginEdit(it)} title={`${it.title}\n\n${it.body}`}>
+                      <div className="text-white font-medium text-sm line-clamp-1 mb-1 hover:text-blue-300 transition-colors">
+                        {it.title}
+                      </div>
+                      <div className="text-slate-400 text-xs line-clamp-2 leading-relaxed hover:text-slate-300 transition-colors">
+                        {it.body}
+                      </div>
                     </div>
                   </td>
                   <td className="px-3 py-3 whitespace-nowrap">
-                    <ScopeBadge scope={it.scope} />
-                  </td>
-                  <td className="px-3 py-3">
-                    <div className="max-w-48">
-                      <CompactTags tags={it.tags || []} maxVisible={3} />
-                    </div>
+                    <HumanizedTimestamp timestamp={it.updated_at} className="text-slate-400 text-sm" />
                   </td>
                   <td className="px-3 py-3 whitespace-nowrap">
                     <StatusBadge status={it.status} />
                   </td>
                   <td className="px-3 py-3 whitespace-nowrap">
-                    <HumanizedTimestamp timestamp={it.updated_at} className="text-slate-400 text-sm" />
+                    <ScopeBadge scope={it.scope} />
+                  </td>
+                  <td className="px-3 py-3">
+                    <div className="max-w-32">
+                      <CompactTags tags={it.tags || []} maxVisible={2} />
+                    </div>
                   </td>
                   <td className="px-3 py-3 whitespace-nowrap text-right">
                     <div className="flex items-center justify-end space-x-1">
-                      <Button size="sm" variant="ghost" onClick={() => beginEdit(it)}>
+                      <Button size="sm" variant="ghost" onClick={() => beginEdit(it)} className="opacity-70 hover:opacity-100">
                         <Icons.Edit />
                       </Button>
                       <Button 
@@ -287,6 +305,7 @@ const LearningsTab: React.FC = () => {
                         variant="danger" 
                         onClick={() => deleteLearning(it.id)} 
                         isLoading={deletingId === it.id}
+                        className="opacity-70 hover:opacity-100"
                       >
                         <Icons.Delete />
                       </Button>
@@ -372,25 +391,33 @@ const LearningsTab: React.FC = () => {
 
       {/* Edit Modal */}
       {editing && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50">
-          <Card className="w-full max-w-2xl max-h-[90vh] overflow-hidden">
-            <div className="p-6 space-y-4">
-              <div className="flex items-center justify-between">
+        <>
+          <div className="fixed inset-0 bg-black/50 z-40" onClick={() => setEditing(null)} />
+          <div className="fixed inset-0 flex items-center justify-center p-4 z-50 pointer-events-none">
+            <div className="w-full max-w-2xl pointer-events-auto">
+              <Card className="w-full">
+              {/* Fixed Header */}
+              <div className="flex items-center justify-between p-4 border-b border-slate-700">
                 <div>
                   <h4 className="text-white font-medium">Edit Learning #{items.find(x => x.id === editing.id)?.short_id}</h4>
                   <p className="text-slate-400 text-sm">Update the content and tags. Changes are saved for this organization.</p>
                 </div>
-                <Button variant="ghost" onClick={() => setEditing(null)} disabled={editing.saving}>
-                  <Icons.Delete />
+                <Button variant="ghost" onClick={() => setEditing(null)} disabled={editing.saving} className="text-slate-400 hover:text-white">
+                  ×
                 </Button>
               </div>
               
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <Input
-                  label="Title"
-                  value={editing.title}
-                  onChange={(e) => setEditing({ ...editing, title: e.target.value })}
-                />
+              {/* Content */}
+              <div className="p-4 space-y-4">
+                <div>
+                  <label className="block text-sm text-slate-300 mb-2">Title</label>
+                  <textarea
+                    className="w-full bg-slate-800 text-slate-100 border border-slate-600 rounded-md px-3 py-2 h-16 resize-none"
+                    value={editing.title}
+                    onChange={(e) => setEditing({ ...editing, title: e.target.value })}
+                  />
+                </div>
+                
                 <div>
                   <label className="block text-sm text-slate-300 mb-2">Scope</label>
                   <select
@@ -402,35 +429,57 @@ const LearningsTab: React.FC = () => {
                     <option value="repo">Repository</option>
                   </select>
                 </div>
+                
+                <div>
+                  <label className="block text-sm text-slate-300 mb-2">Content</label>
+                  <textarea
+                    className="w-full bg-slate-800 text-slate-100 border border-slate-600 rounded-md px-3 py-2 h-24 resize-none"
+                    value={editing.body}
+                    onChange={(e) => setEditing({ ...editing, body: e.target.value })}
+                  />
+                </div>
+                
+                <div>
+                  <label className="block text-sm text-slate-300 mb-2">Tags (comma separated)</label>
+                  <input
+                    type="text"
+                    className="w-full bg-slate-800 text-slate-100 border border-slate-600 rounded-md px-3 py-2"
+                    value={editing.tagsCsv}
+                    onChange={(e) => setEditing({ ...editing, tagsCsv: e.target.value })}
+                    placeholder="assertions, team_policy, error_handling"
+                  />
+                </div>
               </div>
               
-              <div>
-                <label className="block text-sm text-slate-300 mb-2">Content</label>
-                <textarea
-                  className="w-full bg-slate-800 text-slate-100 border border-slate-600 rounded-md px-3 py-2 h-32 resize-none"
-                  value={editing.body}
-                  onChange={(e) => setEditing({ ...editing, body: e.target.value })}
-                />
-              </div>
-              
-              <Input
-                label="Tags (comma separated)"
-                value={editing.tagsCsv}
-                onChange={(e) => setEditing({ ...editing, tagsCsv: e.target.value })}
-                placeholder="assertions, team_policy, error_handling"
-              />
-              
-              <div className="flex items-center justify-end space-x-3 pt-4 border-t border-slate-700">
-                <Button variant="ghost" onClick={() => setEditing(null)} disabled={editing.saving}>
-                  Cancel
+              {/* Fixed Footer */}
+              <div className="flex items-center justify-between p-4 border-t border-slate-700">
+                <Button 
+                  variant="danger" 
+                  onClick={() => {
+                    if (confirm('Are you sure you want to delete this learning? This action cannot be undone.')) {
+                      deleteLearning(editing.id);
+                      setEditing(null);
+                    }
+                  }} 
+                  disabled={editing.saving}
+                  className="text-red-400 hover:text-red-300 hover:bg-red-900/20"
+                >
+                  <Icons.Delete />
+                  Delete
                 </Button>
-                <Button variant="primary" onClick={saveEdit} isLoading={editing.saving}>
-                  Save Changes
-                </Button>
+                <div className="flex items-center space-x-3">
+                  <Button variant="ghost" onClick={() => setEditing(null)} disabled={editing.saving}>
+                    Cancel
+                  </Button>
+                  <Button variant="primary" onClick={saveEdit} isLoading={editing.saving}>
+                    Save Changes
+                  </Button>
+                </div>
               </div>
-            </div>
-          </Card>
+            </Card>
+          </div>
         </div>
+        </>
       )}
     </div>
   );

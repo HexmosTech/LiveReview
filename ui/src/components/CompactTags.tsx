@@ -13,7 +13,7 @@ const CompactTags: React.FC<CompactTagsProps> = ({
   className = "" 
 }) => {
   if (!tags || tags.length === 0) {
-    return <span className="text-slate-500 text-xs">no tags</span>;
+    return <span className="text-slate-500 text-xs opacity-60">no tags</span>;
   }
 
   const visibleTags = tags.slice(0, maxVisible);
@@ -25,7 +25,7 @@ const CompactTags: React.FC<CompactTagsProps> = ({
         <Badge 
           key={`${tag}-${index}`} 
           variant="default" 
-          className="text-xs px-2 py-0.5 leading-tight"
+          className="text-xs px-1.5 py-0.5 leading-tight opacity-75 bg-slate-700/50 text-slate-300 border-slate-600"
         >
           {tag}
         </Badge>
@@ -34,7 +34,7 @@ const CompactTags: React.FC<CompactTagsProps> = ({
         <div title={`+${hiddenCount} more tags: ${tags.slice(maxVisible).join(', ')}`}>
           <Badge 
             variant="info" 
-            className="text-xs px-2 py-0.5 leading-tight text-slate-400"
+            className="text-xs px-1.5 py-0.5 leading-tight opacity-60 bg-slate-700/30 text-slate-400 border-slate-600"
           >
             +{hiddenCount}
           </Badge>
