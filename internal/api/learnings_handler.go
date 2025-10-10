@@ -3,6 +3,8 @@ package api
 import (
 	"database/sql"
 	"net/http"
+	"strconv"
+	"strings"
 
 	"github.com/labstack/echo/v4"
 	"github.com/livereview/internal/learnings"
@@ -24,11 +26,52 @@ func (h *LearningsHandler) List(c echo.Context) error {
 	if !ok {
 		return echo.NewHTTPError(http.StatusBadRequest, "Missing organization context")
 	}
-	items, err := h.store.ListByOrg(c.Request().Context(), orgID)
+
+	// Parse query parameters
+	page := 1
+	if p := c.QueryParam("page"); p != "" {
+		if parsed, err := strconv.Atoi(p); err == nil && parsed > 0 {
+			page = parsed
+		}
+	}
+
+	limit := 20
+	if l := c.QueryParam("limit"); l != "" {
+		if parsed, err := strconv.Atoi(l); err == nil && parsed > 0 && parsed <= 100 {
+			limit = parsed
+		}
+	}
+
+	search := strings.TrimSpace(c.QueryParam("search"))
+	includeArchived := c.QueryParam("include_archived") == "true"
+
+	offset := (page - 1) * limit
+
+	items, err := h.store.ListByOrgWithPagination(c.Request().Context(), orgID, offset, limit, search, includeArchived)
 	if err != nil {
 		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
 	}
-	return c.JSON(http.StatusOK, items)
+
+	total, err := h.store.CountByOrg(c.Request().Context(), orgID, search, includeArchived)
+	if err != nil {
+		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
+	}
+
+	totalPages := (total + limit - 1) / limit
+
+	response := map[string]interface{}{
+		"items": items,
+		"pagination": map[string]interface{}{
+			"page":        page,
+			"limit":       limit,
+			"total":       total,
+			"total_pages": totalPages,
+			"has_next":    page < totalPages,
+			"has_prev":    page > 1,
+		},
+	}
+
+	return c.JSON(http.StatusOK, response)
 }
 
 func (h *LearningsHandler) Get(c echo.Context) error {

@@ -1,0 +1,409 @@
+import React, { useEffect, useState, useCallback } from 'react';
+import apiClient from '../../api/apiClient';
+import { Badge, Button, Icons, Input, Card } from '../../components/UIPrimitives';
+import HumanizedTimestamp from '../../components/HumanizedTimestamp';
+import CompactTags from '../../components/CompactTags';
+
+type ScopeKind = 'org' | 'repo';
+type Status = 'active' | 'archived';
+
+export interface Learning {
+  id: string;
+  short_id: string;
+  org_id: number;
+  scope: ScopeKind;
+  repo_id?: string;
+  title: string;
+  body: string;
+  tags: string[];
+  status: Status;
+  confidence: number;
+  source_urls?: string[];
+  created_at: string;
+  updated_at: string;
+}
+
+interface PaginationInfo {
+  page: number;
+  limit: number;
+  total: number;
+  total_pages: number;
+  has_next: boolean;
+  has_prev: boolean;
+}
+
+interface EditState {
+  id: string;
+  title: string;
+  body: string;
+  tagsCsv: string;
+  scope: ScopeKind;
+  saving: boolean;
+}
+
+const ScopeBadge: React.FC<{ scope: ScopeKind }> = ({ scope }) => (
+  <Badge variant={scope === 'org' ? 'info' : 'primary'} className="text-xs">
+    {scope}
+  </Badge>
+);
+
+const StatusBadge: React.FC<{ status: Status }> = ({ status }) => (
+  <Badge 
+    variant={status === 'active' ? 'success' : 'warning'} 
+    className="text-xs"
+  >
+    {status}
+  </Badge>
+);
+
+const LearningsTab: React.FC = () => {
+  const [items, setItems] = useState<Learning[]>([]);
+  const [pagination, setPagination] = useState<PaginationInfo>({
+    page: 1,
+    limit: 20,
+    total: 0,
+    total_pages: 0,
+    has_next: false,
+    has_prev: false,
+  });
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [search, setSearch] = useState('');
+  const [hideArchived, setHideArchived] = useState(true);
+  const [editing, setEditing] = useState<EditState | null>(null);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
+
+  const fetchItems = useCallback(async (page = 1, searchQuery = search, includeArchived = !hideArchived) => {
+    setLoading(true);
+    setError(null);
+    try {
+      const params = new URLSearchParams({
+        page: page.toString(),
+        limit: '20',
+        search: searchQuery,
+        include_archived: includeArchived.toString(),
+      });
+      
+      const response = await apiClient.get<{
+        items: Learning[];
+        pagination: PaginationInfo;
+      }>(`/api/v1/learnings?${params}`);
+      
+      setItems(response.items || []);
+      setPagination(response.pagination);
+    } catch (e: any) {
+      setError(e?.message || 'Failed to load learnings');
+      setItems([]);
+    } finally {
+      setLoading(false);
+    }
+  }, [search, hideArchived]);
+
+  useEffect(() => {
+    fetchItems(1);
+  }, [fetchItems]);
+
+  const handleSearch = useCallback((searchValue: string) => {
+    setSearch(searchValue);
+    fetchItems(1, searchValue, !hideArchived);
+  }, [hideArchived, fetchItems]);
+
+  const handleToggleArchived = useCallback(() => {
+    const newHideArchived = !hideArchived;
+    setHideArchived(newHideArchived);
+    fetchItems(1, search, !newHideArchived);
+  }, [hideArchived, search, fetchItems]);
+
+  const handlePageChange = useCallback((newPage: number) => {
+    fetchItems(newPage, search, !hideArchived);
+  }, [search, hideArchived, fetchItems]);
+
+  const beginEdit = (it: Learning) => {
+    setEditing({
+      id: it.id,
+      title: it.title,
+      body: it.body,
+      tagsCsv: (it.tags || []).join(', '),
+      scope: it.scope,
+      saving: false,
+    });
+  };
+
+  const saveEdit = async () => {
+    if (!editing) return;
+    setEditing({ ...editing, saving: true });
+    const tags = editing.tagsCsv
+      .split(',')
+      .map(t => t.trim())
+      .filter(Boolean);
+    try {
+      const payload: any = {
+        title: editing.title,
+        body: editing.body,
+        tags: tags,
+        scope_kind: editing.scope,
+      };
+      const updated = await apiClient.put<Learning>(`/api/v1/learnings/${editing.id}`, payload);
+      
+      // Update the item in current page
+      setItems(prev => prev.map(p => (p.id === updated.id ? updated : p)));
+      setEditing(null);
+    } catch (e: any) {
+      setError(e?.message || 'Failed to save');
+      setEditing({ ...editing, saving: false });
+    }
+  };
+
+  const deleteLearning = async (id: string) => {
+    setDeletingId(id);
+    try {
+      await apiClient.delete(`/api/v1/learnings/${id}`);
+      // Refresh current page to get updated data
+      fetchItems(pagination.page);
+    } catch (e: any) {
+      setError(e?.message || 'Failed to delete');
+    } finally {
+      setDeletingId(null);
+    }
+  };
+
+  return (
+    <div className="p-4 space-y-3">
+      {/* Header */}
+      <div className="flex items-center justify-between">
+        <div>
+          <h3 className="text-white text-lg font-medium">Learnings</h3>
+          <p className="text-slate-300 text-sm">Org and repo-scoped learnings captured from MR threads.</p>
+        </div>
+        <div className="flex items-center space-x-2">
+          <Button variant="outline" onClick={() => fetchItems(pagination.page)} isLoading={loading} size="sm">
+            <Icons.Refresh />
+            Refresh
+          </Button>
+        </div>
+      </div>
+
+      {/* Controls */}
+      <div className="flex flex-col sm:flex-row gap-3 items-start sm:items-end">
+        <div className="flex-1 max-w-md">
+          <Input
+            label="Search"
+            placeholder="Search by title, tags, body, or ID"
+            value={search}
+            onChange={(e) => handleSearch(e.target.value)}
+            className="text-sm"
+          />
+        </div>
+        <div className="flex items-center space-x-3">
+          <label className="flex items-center space-x-2 text-sm text-slate-300">
+            <input
+              type="checkbox"
+              checked={hideArchived}
+              onChange={handleToggleArchived}
+              className="rounded border-slate-600 bg-slate-800"
+            />
+            <span>Hide archived</span>
+          </label>
+          <div className="text-xs text-slate-400">
+            {pagination.total} total
+          </div>
+        </div>
+      </div>
+
+      {error && (
+        <Card>
+          <div className="p-3 text-sm text-red-300 flex items-center space-x-2">
+            <Icons.Error />
+            <span>{error}</span>
+            <Button variant="ghost" size="sm" onClick={() => setError(null)} className="ml-auto">
+              ×
+            </Button>
+          </div>
+        </Card>
+      )}
+
+      {/* Compact Table */}
+      <div className="bg-slate-800/30 rounded-lg border border-slate-700">
+        <table className="w-full divide-y divide-slate-700">
+          <thead className="bg-slate-800/50">
+            <tr className="text-xs">
+              <th className="px-3 py-2 text-left font-medium text-slate-300 w-20">ID</th>
+              <th className="px-3 py-2 text-left font-medium text-slate-300 min-w-[200px]">Title</th>
+              <th className="px-3 py-2 text-left font-medium text-slate-300 w-16">Scope</th>
+              <th className="px-3 py-2 text-left font-medium text-slate-300 w-32">Tags</th>
+              <th className="px-3 py-2 text-left font-medium text-slate-300 w-20">Status</th>
+              <th className="px-3 py-2 text-left font-medium text-slate-300 w-24">Updated</th>
+              <th className="px-3 py-2 text-right font-medium text-slate-300 w-24">Actions</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-slate-800">
+            {items.map((it) => (
+              <tr key={it.id} className="hover:bg-slate-800/40 transition-colors">
+                <td className="px-3 py-2 text-slate-300 font-mono text-xs">
+                  #{it.short_id}
+                </td>
+                <td className="px-3 py-2">
+                  <div className="text-white text-sm font-medium leading-tight line-clamp-1">
+                    {it.title}
+                  </div>
+                  <div className="text-slate-400 text-xs leading-tight line-clamp-1 mt-0.5">
+                    {it.body}
+                  </div>
+                </td>
+                <td className="px-3 py-2">
+                  <ScopeBadge scope={it.scope} />
+                </td>
+                <td className="px-3 py-2">
+                  <CompactTags tags={it.tags} maxVisible={2} />
+                </td>
+                <td className="px-3 py-2">
+                  <StatusBadge status={it.status} />
+                </td>
+                <td className="px-3 py-2">
+                  <HumanizedTimestamp timestamp={it.updated_at} className="text-slate-400 text-xs" />
+                </td>
+                <td className="px-3 py-2">
+                  <div className="flex items-center justify-end space-x-1">
+                    <Button 
+                      size="sm" 
+                      variant="ghost" 
+                      onClick={() => beginEdit(it)}
+                      className="text-xs px-2 py-1"
+                    >
+                      <Icons.Edit />
+                    </Button>
+                    <Button 
+                      size="sm" 
+                      variant="danger" 
+                      onClick={() => deleteLearning(it.id)} 
+                      isLoading={deletingId === it.id}
+                      className="text-xs px-2 py-1"
+                    >
+                      <Icons.Delete />
+                    </Button>
+                  </div>
+                </td>
+              </tr>
+            ))}
+            {items.length === 0 && !loading && (
+              <tr>
+                <td className="px-3 py-8 text-center text-slate-400 text-sm" colSpan={7}>
+                  {search || !hideArchived ? 'No learnings found' : 'No active learnings found'}
+                </td>
+              </tr>
+            )}
+            {loading && (
+              <tr>
+                <td className="px-3 py-8 text-center text-slate-400 text-sm" colSpan={7}>
+                  Loading…
+                </td>
+              </tr>
+            )}
+          </tbody>
+        </table>
+      </div>
+
+      {/* Pagination */}
+      {pagination.total_pages > 1 && (
+        <div className="flex items-center justify-between">
+          <div className="text-sm text-slate-400">
+            Page {pagination.page} of {pagination.total_pages} 
+            ({pagination.total} total items)
+          </div>
+          <div className="flex items-center space-x-2">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => handlePageChange(pagination.page - 1)}
+              disabled={!pagination.has_prev}
+            >
+              Previous
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => handlePageChange(pagination.page + 1)}
+              disabled={!pagination.has_next}
+            >
+              Next
+            </Button>
+          </div>
+        </div>
+      )}
+
+      {/* Edit Modal - Fixed positioning and visibility */}
+      {editing && (
+        <div className="fixed inset-0 bg-black/50 flex items-start justify-center p-4 z-50 overflow-y-auto">
+          <Card className="w-full max-w-2xl mt-8 mb-8">
+            <div className="p-4 space-y-3">
+              <div className="flex items-center justify-between border-b border-slate-700 pb-3">
+                <div>
+                  <h4 className="text-white font-medium">
+                    Edit Learning #{items.find(x => x.id === editing.id)?.short_id}
+                  </h4>
+                  <p className="text-slate-400 text-xs">
+                    Update the content and tags. Changes are saved for this organization.
+                  </p>
+                </div>
+                <div className="flex items-center space-x-2">
+                  <Button 
+                    variant="ghost" 
+                    onClick={() => setEditing(null)} 
+                    disabled={editing.saving}
+                    size="sm"
+                  >
+                    Cancel
+                  </Button>
+                  <Button 
+                    variant="primary" 
+                    onClick={saveEdit} 
+                    isLoading={editing.saving}
+                    size="sm"
+                  >
+                    Save
+                  </Button>
+                </div>
+              </div>
+              
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                <Input
+                  label="Title"
+                  value={editing.title}
+                  onChange={(e) => setEditing({ ...editing, title: e.target.value })}
+                />
+                <div>
+                  <label className="block text-sm text-slate-300 mb-1">Scope</label>
+                  <select
+                    className="w-full bg-slate-800 text-slate-100 border border-slate-600 rounded px-3 py-2 text-sm"
+                    value={editing.scope}
+                    onChange={(e) => setEditing({ ...editing, scope: e.target.value as ScopeKind })}
+                  >
+                    <option value="org">org</option>
+                    <option value="repo">repo</option>
+                  </select>
+                </div>
+              </div>
+              
+              <div>
+                <label className="block text-sm text-slate-300 mb-1">Body</label>
+                <textarea
+                  className="w-full bg-slate-800 text-slate-100 border border-slate-600 rounded px-3 py-2 h-24 text-sm"
+                  value={editing.body}
+                  onChange={(e) => setEditing({ ...editing, body: e.target.value })}
+                />
+              </div>
+              
+              <Input
+                label="Tags (comma separated)"
+                value={editing.tagsCsv}
+                onChange={(e) => setEditing({ ...editing, tagsCsv: e.target.value })}
+              />
+            </div>
+          </Card>
+        </div>
+      )}
+    </div>
+  );
+};
+
+export default LearningsTab;

@@ -6,7 +6,7 @@ import {
     Button, 
     Icons 
 } from '../UIPrimitives';
-import { HumanizedTimestamp } from '../HumanizedTimestamp';
+import { HumanizedTimestamp } from '../HumanizedTimestamp/HumanizedTimestamp';
 import { fetchRecentActivities, ActivityEntry, formatActivity, ActivitiesResponse } from '../../api/activities';
 
 interface RecentActivityProps {

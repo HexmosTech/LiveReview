@@ -1,6 +1,8 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import apiClient from '../../api/apiClient';
 import { Badge, Button, Icons, Input, Card } from '../../components/UIPrimitives';
+import { HumanizedTimestamp } from '../../components/HumanizedTimestamp/HumanizedTimestamp';
+import CompactTags from '../../components/CompactTags';
 
 type ScopeKind = 'org' | 'repo';
 type Status = 'active' | 'archived';
@@ -30,35 +32,89 @@ interface EditState {
   saving: boolean;
 }
 
-const ScopeBadge: React.FC<{ scope: ScopeKind }>
-  = ({ scope }) => (
-    <Badge variant={scope === 'org' ? 'info' : 'primary'}>{scope}</Badge>
-  );
+interface PaginationInfo {
+  page: number;
+  limit: number;
+  total: number;
+  total_pages: number;
+  has_next: boolean;
+  has_prev: boolean;
+}
 
-const StatusBadge: React.FC<{ status: Status }>
-  = ({ status }) => (
-    <Badge variant={status === 'active' ? 'success' : 'warning'}>{status}</Badge>
-  );
+interface LearningsResponse {
+  items: Learning[];
+  pagination: PaginationInfo;
+}
+
+const ScopeBadge: React.FC<{ scope: ScopeKind }> = ({ scope }) => (
+  <Badge variant={scope === 'org' ? 'info' : 'primary'} className="text-xs">{scope}</Badge>
+);
+
+const StatusBadge: React.FC<{ status: Status }> = ({ status }) => (
+  <Badge 
+    variant={status === 'active' ? 'success' : 'warning'} 
+    className="text-xs"
+  >
+    {status}
+  </Badge>
+);
 
 const LearningsTab: React.FC = () => {
   const [items, setItems] = useState<Learning[]>([]);
+  const [pagination, setPagination] = useState<PaginationInfo>({
+    page: 1,
+    limit: 20,
+    total: 0,
+    total_pages: 0,
+    has_next: false,
+    has_prev: false,
+  });
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [search, setSearch] = useState('');
+  const [hideArchived, setHideArchived] = useState(true); // Default to hiding archived
   const [editing, setEditing] = useState<EditState | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
 
-  const fetchItems = async () => {
+  const fetchItems = async (page: number = 1, searchQuery?: string) => {
     setLoading(true);
     setError(null);
     try {
-      const data = await apiClient.get<Learning[] | null>('/api/v1/learnings');
-      const safe = Array.isArray(data) ? data : [];
-      // Sort by updated_at desc
-      safe.sort((a, b) => new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime());
-      setItems(safe);
+      const params = new URLSearchParams({
+        page: page.toString(),
+        limit: pagination.limit.toString(),
+        include_archived: (!hideArchived).toString(),
+      });
+      
+      if (searchQuery !== undefined) {
+        if (searchQuery.trim()) {
+          params.set('search', searchQuery.trim());
+        }
+      } else if (search.trim()) {
+        params.set('search', search.trim());
+      }
+
+      const data = await apiClient.get<LearningsResponse>(`/api/v1/learnings?${params}`);
+      
+      if (data && data.items && data.pagination) {
+        setItems(data.items);
+        setPagination(data.pagination);
+      } else {
+        // Fallback for old API format
+        const items: Learning[] = Array.isArray(data) ? data : [];
+        setItems(items);
+        setPagination({
+          page: 1,
+          limit: 20,
+          total: items.length,
+          total_pages: 1,
+          has_next: false,
+          has_prev: false,
+        });
+      }
     } catch (e: any) {
       setError(e?.message || 'Failed to load learnings');
+      setItems([]);
     } finally {
       setLoading(false);
     }
@@ -66,18 +122,15 @@ const LearningsTab: React.FC = () => {
 
   useEffect(() => {
     fetchItems();
-  }, []);
+  }, [hideArchived]);
 
-  const filtered = useMemo(() => {
-    const q = search.trim().toLowerCase();
-    if (!q) return items;
-    return items.filter(it =>
-      it.title.toLowerCase().includes(q) ||
-      it.body.toLowerCase().includes(q) ||
-      (it.tags || []).some(t => t.toLowerCase().includes(q)) ||
-      it.short_id.toLowerCase().includes(q)
-    );
-  }, [items, search]);
+  // Debounced search
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      fetchItems(1, search);
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [search]);
 
   const beginEdit = (it: Learning) => {
     setEditing({
@@ -98,7 +151,6 @@ const LearningsTab: React.FC = () => {
       .map(t => t.trim())
       .filter(Boolean);
     try {
-      // PUT expects optional fields; we'll send those we edit
       const payload: any = {
         title: editing.title,
         body: editing.body,
@@ -118,8 +170,9 @@ const LearningsTab: React.FC = () => {
     setDeletingId(id);
     try {
       await apiClient.delete(`/api/v1/learnings/${id}`);
-      // Optimistic remove or mark archived if server returns updated entity
       setItems(prev => prev.filter(p => p.id !== id));
+      // Update pagination total
+      setPagination(prev => ({ ...prev, total: prev.total - 1 }));
     } catch (e: any) {
       setError(e?.message || 'Failed to delete');
     } finally {
@@ -127,148 +180,257 @@ const LearningsTab: React.FC = () => {
     }
   };
 
+  const handlePageChange = (newPage: number) => {
+    fetchItems(newPage);
+  };
+
   return (
-    <div className="p-4 space-y-4">
+    <div className="space-y-6">
+      {/* Header */}
       <div className="flex items-center justify-between">
         <div>
           <h3 className="text-white text-lg font-medium">Learnings</h3>
           <p className="text-slate-300 text-sm">Org and repo-scoped learnings captured from MR threads.</p>
         </div>
-        <div className="flex items-center space-x-2">
-          <Button variant="outline" onClick={fetchItems} isLoading={loading}>
+        <div className="flex items-center space-x-3">
+          <Button variant="outline" onClick={() => fetchItems(pagination.page)} isLoading={loading} size="sm">
             <Icons.Refresh />
             Refresh
           </Button>
         </div>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-        <Input
-          label="Search"
-          placeholder="Search by title, tags, body, or ID"
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-        />
+      {/* Filters */}
+      <div className="flex flex-col sm:flex-row gap-3">
+        <div className="flex-1">
+          <Input
+            placeholder="Search by title, tags, body, or ID"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            className="w-full"
+          />
+        </div>
+        <div className="flex items-center space-x-2">
+          <label className="flex items-center space-x-2 text-sm text-slate-300 whitespace-nowrap">
+            <input
+              type="checkbox"
+              checked={hideArchived}
+              onChange={(e) => setHideArchived(e.target.checked)}
+              className="rounded border-slate-600 bg-slate-800 text-blue-500 focus:ring-blue-500 focus:ring-2"
+            />
+            <span>Hide archived</span>
+          </label>
+        </div>
       </div>
 
+      {/* Error Display */}
       {error && (
         <Card>
           <div className="p-3 text-sm text-red-300 flex items-center space-x-2">
             <Icons.Error />
             <span>{error}</span>
+            <Button size="sm" variant="ghost" onClick={() => setError(null)}>
+              <Icons.Delete />
+            </Button>
           </div>
         </Card>
       )}
 
-      <div className="overflow-auto rounded-lg border border-slate-700">
-        <table className="min-w-full divide-y divide-slate-700">
-          <thead className="bg-slate-800/50">
-            <tr>
-              <th className="px-4 py-2 text-left text-xs font-medium text-slate-300">ID</th>
-              <th className="px-4 py-2 text-left text-xs font-medium text-slate-300">Title</th>
-              <th className="px-4 py-2 text-left text-xs font-medium text-slate-300">Scope</th>
-              <th className="px-4 py-2 text-left text-xs font-medium text-slate-300">Tags</th>
-              <th className="px-4 py-2 text-left text-xs font-medium text-slate-300">Status</th>
-              <th className="px-4 py-2 text-left text-xs font-medium text-slate-300">Updated</th>
-              <th className="px-4 py-2 text-right text-xs font-medium text-slate-300">Actions</th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-slate-800">
-            {filtered.map((it) => (
-              <tr key={it.id} className="hover:bg-slate-800/30">
-                <td className="px-4 py-2 whitespace-nowrap text-slate-300 font-mono">#{it.short_id}</td>
-                <td className="px-4 py-2">
-                  <div className="text-white font-medium line-clamp-2">{it.title}</div>
-                  <div className="text-slate-400 text-xs line-clamp-1">{it.body}</div>
-                </td>
-                <td className="px-4 py-2"><ScopeBadge scope={it.scope} /></td>
-                <td className="px-4 py-2">
-                  <div className="flex flex-wrap gap-1">
-                    {(it.tags || []).map(t => (
-                      <Badge key={t} variant="default">{t}</Badge>
-                    ))}
-                  </div>
-                </td>
-                <td className="px-4 py-2"><StatusBadge status={it.status} /></td>
-                <td className="px-4 py-2 text-slate-400 text-sm whitespace-nowrap">{new Date(it.updated_at).toLocaleString()}</td>
-                <td className="px-4 py-2">
-                  <div className="flex items-center justify-end space-x-2">
-                    <Button size="sm" variant="ghost" onClick={() => beginEdit(it)}>
-                      <Icons.Edit />
-                      Edit
-                    </Button>
-                    <Button size="sm" variant="danger" onClick={() => deleteLearning(it.id)} isLoading={deletingId === it.id}>
-                      <Icons.Delete />
-                      Delete
-                    </Button>
-                  </div>
-                </td>
-              </tr>
-            ))}
-            {filtered.length === 0 && !loading && (
+      {/* Table */}
+      <div className="bg-slate-900 rounded-lg border border-slate-700 overflow-hidden">
+        <div className="overflow-x-auto">
+          <table className="w-full divide-y divide-slate-700">
+            <thead className="bg-slate-800/50">
               <tr>
-                <td className="px-4 py-6 text-center text-slate-400 text-sm" colSpan={7}>No learnings found</td>
+                <th className="px-3 py-3 text-left text-xs font-medium text-slate-300 uppercase tracking-wider">ID</th>
+                <th className="px-3 py-3 text-left text-xs font-medium text-slate-300 uppercase tracking-wider">Title</th>
+                <th className="px-3 py-3 text-left text-xs font-medium text-slate-300 uppercase tracking-wider">Scope</th>
+                <th className="px-3 py-3 text-left text-xs font-medium text-slate-300 uppercase tracking-wider">Tags</th>
+                <th className="px-3 py-3 text-left text-xs font-medium text-slate-300 uppercase tracking-wider">Status</th>
+                <th className="px-3 py-3 text-left text-xs font-medium text-slate-300 uppercase tracking-wider">Updated</th>
+                <th className="px-3 py-3 text-right text-xs font-medium text-slate-300 uppercase tracking-wider">Actions</th>
               </tr>
-            )}
-            {loading && (
-              <tr>
-                <td className="px-4 py-6 text-center text-slate-400 text-sm" colSpan={7}>Loading…</td>
-              </tr>
-            )}
-          </tbody>
-        </table>
-      </div>
+            </thead>
+            <tbody className="divide-y divide-slate-800">
+              {items.map((it) => (
+                <tr key={it.id} className="hover:bg-slate-800/30 transition-colors">
+                  <td className="px-3 py-3 whitespace-nowrap">
+                    <span className="text-slate-300 font-mono text-sm">#{it.short_id}</span>
+                  </td>
+                  <td className="px-3 py-3">
+                    <div className="max-w-sm">
+                      <div className="text-white font-medium text-sm line-clamp-1 mb-1">{it.title}</div>
+                      <div className="text-slate-400 text-xs line-clamp-2 leading-relaxed">{it.body}</div>
+                    </div>
+                  </td>
+                  <td className="px-3 py-3 whitespace-nowrap">
+                    <ScopeBadge scope={it.scope} />
+                  </td>
+                  <td className="px-3 py-3">
+                    <div className="max-w-48">
+                      <CompactTags tags={it.tags || []} maxVisible={3} />
+                    </div>
+                  </td>
+                  <td className="px-3 py-3 whitespace-nowrap">
+                    <StatusBadge status={it.status} />
+                  </td>
+                  <td className="px-3 py-3 whitespace-nowrap">
+                    <HumanizedTimestamp timestamp={it.updated_at} className="text-slate-400 text-sm" />
+                  </td>
+                  <td className="px-3 py-3 whitespace-nowrap text-right">
+                    <div className="flex items-center justify-end space-x-1">
+                      <Button size="sm" variant="ghost" onClick={() => beginEdit(it)}>
+                        <Icons.Edit />
+                      </Button>
+                      <Button 
+                        size="sm" 
+                        variant="danger" 
+                        onClick={() => deleteLearning(it.id)} 
+                        isLoading={deletingId === it.id}
+                      >
+                        <Icons.Delete />
+                      </Button>
+                    </div>
+                  </td>
+                </tr>
+              ))}
+              
+              {/* Empty/Loading states */}
+              {items.length === 0 && !loading && (
+                <tr>
+                  <td className="px-3 py-8 text-center text-slate-400 text-sm" colSpan={7}>
+                    {search || !hideArchived ? 'No learnings found' : 'No active learnings found'}
+                  </td>
+                </tr>
+              )}
+              {loading && (
+                <tr>
+                  <td className="px-3 py-8 text-center text-slate-400 text-sm" colSpan={7}>
+                    <div className="flex items-center justify-center space-x-2">
+                      <Icons.Refresh />
+                      <span>Loading…</span>
+                    </div>
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
 
-      {editing && (
-        <Card>
-          <div className="p-4 space-y-3">
+        {/* Pagination */}
+        {pagination.total_pages > 1 && (
+          <div className="bg-slate-800/30 px-4 py-3 border-t border-slate-700">
             <div className="flex items-center justify-between">
-              <div>
-                <h4 className="text-white font-medium">Edit Learning #{items.find(x => x.id === editing.id)?.short_id}</h4>
-                <p className="text-slate-400 text-xs">Update the content and tags. Changes are saved for this organization.</p>
+              <div className="text-sm text-slate-400">
+                Showing {items.length} of {pagination.total} learnings
               </div>
               <div className="flex items-center space-x-2">
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  onClick={() => handlePageChange(pagination.page - 1)}
+                  disabled={!pagination.has_prev}
+                >
+                  <span>←</span>
+                  Previous
+                </Button>
+                
+                <div className="flex items-center space-x-1">
+                  {/* Show page numbers */}
+                  {Array.from({ length: Math.min(5, pagination.total_pages) }, (_, i) => {
+                    const pageNum = Math.max(1, pagination.page - 2) + i;
+                    if (pageNum > pagination.total_pages) return null;
+                    
+                    return (
+                      <Button
+                        key={pageNum}
+                        size="sm"
+                        variant={pageNum === pagination.page ? "primary" : "ghost"}
+                        onClick={() => handlePageChange(pageNum)}
+                        className="w-8 h-8 p-0"
+                      >
+                        {pageNum}
+                      </Button>
+                    );
+                  })}
+                </div>
+
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  onClick={() => handlePageChange(pagination.page + 1)}
+                  disabled={!pagination.has_next}
+                >
+                  Next
+                  <span>→</span>
+                </Button>
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* Edit Modal */}
+      {editing && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50">
+          <Card className="w-full max-w-2xl max-h-[90vh] overflow-hidden">
+            <div className="p-6 space-y-4">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h4 className="text-white font-medium">Edit Learning #{items.find(x => x.id === editing.id)?.short_id}</h4>
+                  <p className="text-slate-400 text-sm">Update the content and tags. Changes are saved for this organization.</p>
+                </div>
+                <Button variant="ghost" onClick={() => setEditing(null)} disabled={editing.saving}>
+                  <Icons.Delete />
+                </Button>
+              </div>
+              
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <Input
+                  label="Title"
+                  value={editing.title}
+                  onChange={(e) => setEditing({ ...editing, title: e.target.value })}
+                />
+                <div>
+                  <label className="block text-sm text-slate-300 mb-2">Scope</label>
+                  <select
+                    className="w-full bg-slate-800 text-slate-100 border border-slate-600 rounded-md px-3 py-2"
+                    value={editing.scope}
+                    onChange={(e) => setEditing({ ...editing, scope: e.target.value as ScopeKind })}
+                  >
+                    <option value="org">Organization</option>
+                    <option value="repo">Repository</option>
+                  </select>
+                </div>
+              </div>
+              
+              <div>
+                <label className="block text-sm text-slate-300 mb-2">Content</label>
+                <textarea
+                  className="w-full bg-slate-800 text-slate-100 border border-slate-600 rounded-md px-3 py-2 h-32 resize-none"
+                  value={editing.body}
+                  onChange={(e) => setEditing({ ...editing, body: e.target.value })}
+                />
+              </div>
+              
+              <Input
+                label="Tags (comma separated)"
+                value={editing.tagsCsv}
+                onChange={(e) => setEditing({ ...editing, tagsCsv: e.target.value })}
+                placeholder="assertions, team_policy, error_handling"
+              />
+              
+              <div className="flex items-center justify-end space-x-3 pt-4 border-t border-slate-700">
                 <Button variant="ghost" onClick={() => setEditing(null)} disabled={editing.saving}>
                   Cancel
                 </Button>
                 <Button variant="primary" onClick={saveEdit} isLoading={editing.saving}>
-                  Save
+                  Save Changes
                 </Button>
               </div>
             </div>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-              <Input
-                label="Title"
-                value={editing.title}
-                onChange={(e) => setEditing({ ...editing, title: e.target.value })}
-              />
-              <div>
-                <label className="block text-sm text-slate-300 mb-1">Scope</label>
-                <select
-                  className="w-full bg-slate-800 text-slate-100 border border-slate-600 rounded px-3 py-2"
-                  value={editing.scope}
-                  onChange={(e) => setEditing({ ...editing, scope: e.target.value as ScopeKind })}
-                >
-                  <option value="org">org</option>
-                  <option value="repo">repo</option>
-                </select>
-              </div>
-            </div>
-            <div>
-              <label className="block text-sm text-slate-300 mb-1">Body</label>
-              <textarea
-                className="w-full bg-slate-800 text-slate-100 border border-slate-600 rounded px-3 py-2 h-28"
-                value={editing.body}
-                onChange={(e) => setEditing({ ...editing, body: e.target.value })}
-              />
-            </div>
-            <Input
-              label="Tags (comma separated)"
-              value={editing.tagsCsv}
-              onChange={(e) => setEditing({ ...editing, tagsCsv: e.target.value })}
-            />
-          </div>
-        </Card>
+          </Card>
+        </div>
       )}
     </div>
   );

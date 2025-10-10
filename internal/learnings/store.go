@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 )
@@ -16,6 +17,8 @@ type Store interface {
 	GetByID(ctx context.Context, id string) (*Learning, error)
 	GetByShortID(ctx context.Context, orgID int64, shortID string) (*Learning, error)
 	ListByOrg(ctx context.Context, orgID int64) ([]*Learning, error)
+	ListByOrgWithPagination(ctx context.Context, orgID int64, offset, limit int, search string, includeArchived bool) ([]*Learning, error)
+	CountByOrg(ctx context.Context, orgID int64, search string, includeArchived bool) (int, error)
 	CreateEvent(ctx context.Context, ev *LearningEvent) error
 }
 
@@ -102,15 +105,79 @@ func (s *InMemoryStore) GetByShortID(ctx context.Context, orgID int64, shortID s
 }
 
 func (s *InMemoryStore) ListByOrg(ctx context.Context, orgID int64) ([]*Learning, error) {
+	return s.ListByOrgWithPagination(ctx, orgID, 0, 100, "", true)
+}
+
+func (s *InMemoryStore) ListByOrgWithPagination(ctx context.Context, orgID int64, offset, limit int, search string, includeArchived bool) ([]*Learning, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	arr := s.byOrg[orgID]
 	out := make([]*Learning, 0, len(arr))
+
+	// Filter and search
 	for _, v := range arr {
+		// Filter archived
+		if !includeArchived && v.Status == StatusArchived {
+			continue
+		}
+
+		// Search filter
+		if search != "" {
+			searchLower := strings.ToLower(search)
+			if !strings.Contains(strings.ToLower(v.Title), searchLower) &&
+				!strings.Contains(strings.ToLower(v.Body), searchLower) &&
+				!strings.Contains(strings.ToLower(v.ShortID), searchLower) &&
+				!containsAny(v.Tags, searchLower) {
+				continue
+			}
+		}
+
 		out = append(out, cloneLearning(v))
 	}
+
+	// Sort by updated_at desc
 	sort.Slice(out, func(i, j int) bool { return out[i].UpdatedAt.After(out[j].UpdatedAt) })
-	return out, nil
+
+	// Apply pagination
+	if offset >= len(out) {
+		return []*Learning{}, nil
+	}
+
+	end := offset + limit
+	if limit <= 0 || end > len(out) {
+		end = len(out)
+	}
+
+	return out[offset:end], nil
+}
+
+func (s *InMemoryStore) CountByOrg(ctx context.Context, orgID int64, search string, includeArchived bool) (int, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	arr := s.byOrg[orgID]
+	count := 0
+
+	for _, v := range arr {
+		// Filter archived
+		if !includeArchived && v.Status == StatusArchived {
+			continue
+		}
+
+		// Search filter
+		if search != "" {
+			searchLower := strings.ToLower(search)
+			if !strings.Contains(strings.ToLower(v.Title), searchLower) &&
+				!strings.Contains(strings.ToLower(v.Body), searchLower) &&
+				!strings.Contains(strings.ToLower(v.ShortID), searchLower) &&
+				!containsAny(v.Tags, searchLower) {
+				continue
+			}
+		}
+
+		count++
+	}
+
+	return count, nil
 }
 
 func (s *InMemoryStore) CreateEvent(ctx context.Context, ev *LearningEvent) error {
@@ -119,6 +186,15 @@ func (s *InMemoryStore) CreateEvent(ctx context.Context, ev *LearningEvent) erro
 	ev.CreatedAt = s.now()
 	s.events = append(s.events, ev)
 	return nil
+}
+
+func containsAny(tags []string, search string) bool {
+	for _, tag := range tags {
+		if strings.Contains(strings.ToLower(tag), search) {
+			return true
+		}
+	}
+	return false
 }
 
 func cloneLearning(l *Learning) *Learning {
