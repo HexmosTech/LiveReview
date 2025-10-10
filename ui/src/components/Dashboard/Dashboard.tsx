@@ -11,7 +11,7 @@ import {
     Icons,
     Tooltip,
 } from '../UIPrimitives';
-import { HumanizedTimestamp } from '../HumanizedTimestamp';
+import { HumanizedTimestamp } from '../HumanizedTimestamp/HumanizedTimestamp';
 import RecentActivity from './RecentActivity';
 import { OnboardingStepper } from './OnboardingStepper';
 

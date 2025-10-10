@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"time"
 
 	"github.com/lib/pq"
@@ -86,10 +87,43 @@ func (s *PostgresStore) GetByShortID(ctx context.Context, orgID int64, shortID s
 }
 
 func (s *PostgresStore) ListByOrg(ctx context.Context, orgID int64) ([]*Learning, error) {
-	rows, err := s.db.QueryContext(ctx, `
+	return s.ListByOrgWithPagination(ctx, orgID, 0, 100, "", true)
+}
+
+func (s *PostgresStore) ListByOrgWithPagination(ctx context.Context, orgID int64, offset, limit int, search string, includeArchived bool) ([]*Learning, error) {
+	query := `
         SELECT id, short_id, org_id, scope_kind, coalesce(repo_id,''), title, body, tags, status, confidence, simhash, embedding, source_urls, source_context, created_at, updated_at
-        FROM learnings WHERE org_id=$1 ORDER BY updated_at DESC
-    `, orgID)
+        FROM learnings WHERE org_id=$1`
+
+	args := []interface{}{orgID}
+	argIndex := 2
+
+	// Add search filter
+	if search != "" {
+		query += ` AND (title ILIKE $` + fmt.Sprintf("%d", argIndex) + ` OR body ILIKE $` + fmt.Sprintf("%d", argIndex) + ` OR $` + fmt.Sprintf("%d", argIndex) + ` = ANY(tags) OR short_id ILIKE $` + fmt.Sprintf("%d", argIndex) + `)`
+		args = append(args, "%"+search+"%")
+		argIndex++
+	}
+
+	// Add status filter
+	if !includeArchived {
+		query += ` AND status != 'archived'`
+	}
+
+	query += ` ORDER BY updated_at DESC`
+
+	// Add pagination
+	if limit > 0 {
+		query += ` LIMIT $` + fmt.Sprintf("%d", argIndex)
+		args = append(args, limit)
+		argIndex++
+	}
+	if offset > 0 {
+		query += ` OFFSET $` + fmt.Sprintf("%d", argIndex)
+		args = append(args, offset)
+	}
+
+	rows, err := s.db.QueryContext(ctx, query, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -104,6 +138,28 @@ func (s *PostgresStore) ListByOrg(ctx context.Context, orgID int64) ([]*Learning
 		out = append(out, l)
 	}
 	return out, rows.Err()
+}
+
+func (s *PostgresStore) CountByOrg(ctx context.Context, orgID int64, search string, includeArchived bool) (int, error) {
+	query := `SELECT COUNT(*) FROM learnings WHERE org_id=$1`
+	args := []interface{}{orgID}
+	argIndex := 2
+
+	// Add search filter
+	if search != "" {
+		query += ` AND (title ILIKE $` + fmt.Sprintf("%d", argIndex) + ` OR body ILIKE $` + fmt.Sprintf("%d", argIndex) + ` OR $` + fmt.Sprintf("%d", argIndex) + ` = ANY(tags) OR short_id ILIKE $` + fmt.Sprintf("%d", argIndex) + `)`
+		args = append(args, "%"+search+"%")
+		argIndex++
+	}
+
+	// Add status filter
+	if !includeArchived {
+		query += ` AND status != 'archived'`
+	}
+
+	var count int
+	err := s.db.QueryRowContext(ctx, query, args...).Scan(&count)
+	return count, err
 }
 
 func (s *PostgresStore) CreateEvent(ctx context.Context, ev *LearningEvent) error {
