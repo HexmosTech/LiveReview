@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
+import { createPortal } from 'react-dom';
 import apiClient from '../../api/apiClient';
 import { Badge, Button, Icons, Input, Card } from '../../components/UIPrimitives';
 import { HumanizedTimestamp } from '../../components/HumanizedTimestamp/HumanizedTimestamp';
@@ -11,14 +12,36 @@ export interface Learning {
   id: string;
   short_id: string;
   org_id: number;
-  scope: ScopeKind;
+  scope: 'org' | 'repo';
   repo_id?: string;
   title: string;
   body: string;
   tags: string[];
-  status: Status;
+  status: 'active' | 'archived';
   confidence: number;
-  source_urls?: string[];
+  simhash: number;
+  embedding?: number[];
+  source_urls: string[];
+  source_context?: {
+    provider?: string;
+    repository?: string;
+    repository_url?: string;
+    repository_full_name?: string;
+    mr_number?: number;
+    mr_title?: string;
+    mr_id?: string;
+    mr_author?: string;
+    source_branch?: string;
+    target_branch?: string;
+    comment_id?: string;
+    comment_author?: string;
+    discussion_id?: string;
+    file_path?: string;
+    line_number?: number;
+    line_type?: string;
+    line_start?: number;
+    line_end?: number;
+  };
   created_at: string;
   updated_at: string;
 }
@@ -389,26 +412,137 @@ const LearningsTab: React.FC = () => {
         )}
       </div>
 
-      {/* Edit Modal */}
-      {editing && (
-        <>
-          <div className="fixed inset-0 bg-black/50 z-40" onClick={() => setEditing(null)} />
-          <div className="fixed inset-0 flex items-center justify-center p-4 z-50 pointer-events-none">
-            <div className="w-full max-w-2xl pointer-events-auto">
-              <Card className="w-full">
-              {/* Fixed Header */}
-              <div className="flex items-center justify-between p-4 border-b border-slate-700">
-                <div>
-                  <h4 className="text-white font-medium">Edit Learning #{items.find(x => x.id === editing.id)?.short_id}</h4>
-                  <p className="text-slate-400 text-sm">Update the content and tags. Changes are saved for this organization.</p>
-                </div>
-                <Button variant="ghost" onClick={() => setEditing(null)} disabled={editing.saving} className="text-slate-400 hover:text-white">
-                  ×
-                </Button>
+      {/* Edit Modal - Portal to body */}
+      {editing && createPortal(
+        <div className="fixed inset-0 z-[9999] flex items-start justify-center p-4 pt-8 overflow-y-auto">
+          <div className="absolute inset-0 bg-black/70" onClick={() => setEditing(null)} />
+          <div className="relative w-full max-w-4xl max-h-[85vh] bg-slate-900 rounded-lg border border-slate-700 shadow-2xl flex flex-col my-4">
+            {/* Fixed Header */}
+            <div className="flex items-center justify-between p-4 border-b border-slate-700 flex-shrink-0">
+              <div>
+                <h4 className="text-white font-medium">Edit Learning #{items.find(x => x.id === editing.id)?.short_id}</h4>
+                <p className="text-slate-400 text-sm">Update the content and tags. Changes are saved for this organization.</p>
               </div>
-              
-              {/* Content */}
-              <div className="p-4 space-y-4">
+              <button
+                onClick={() => setEditing(null)}
+                disabled={editing.saving}
+                className="text-slate-400 hover:text-white p-2 rounded-md hover:bg-slate-800 transition-colors text-xl"
+              >
+                ×
+              </button>
+            </div>
+            
+            {/* Scrollable Content */}
+                          
+              {/* Scrollable Content */}
+              <div className="flex-1 overflow-y-auto p-6 space-y-6">
+                {/* Learning Context/Origin */}
+                {(() => {
+                  const learning = items.find(x => x.id === editing.id);
+                  if (learning) {
+                    const sourceCtx = learning.source_context;
+                    return (
+                      <div className="bg-slate-800/30 rounded-md p-3 border border-slate-700">
+                        <label className="block text-xs font-medium text-slate-400 uppercase tracking-wider mb-2">
+                          Learning Origin
+                        </label>
+                        <div className="space-y-2 text-sm">
+                          {/* Repository & Provider */}
+                          {(sourceCtx?.repository || sourceCtx?.provider) && (
+                            <div>
+                              <span className="text-slate-400">Repository: </span>
+                              <span className="text-slate-300 font-mono">{sourceCtx?.repository}</span>
+                              {sourceCtx?.provider && (
+                                <span className="text-slate-500 ml-2">({sourceCtx.provider})</span>
+                              )}
+                            </div>
+                          )}
+                          
+                          {/* Merge Request */}
+                          {sourceCtx?.mr_number && (
+                            <div>
+                              <span className="text-slate-400">Merge Request: </span>
+                              <span className="text-slate-300">#{sourceCtx.mr_number}</span>
+                              {sourceCtx?.mr_title && (
+                                <span className="text-slate-500 ml-2 italic truncate">{sourceCtx.mr_title}</span>
+                              )}
+                            </div>
+                          )}
+                          
+                          {/* File & Line Numbers */}
+                          {sourceCtx?.file_path && (
+                            <div>
+                              <span className="text-slate-400">File: </span>
+                              <span className="text-slate-300 font-mono">{sourceCtx.file_path}</span>
+                              {sourceCtx?.line_number && (
+                                <span className="text-slate-500 ml-2">line {sourceCtx.line_number}</span>
+                              )}
+                              {(sourceCtx?.line_start && sourceCtx?.line_end) && (
+                                <span className="text-slate-500 ml-2">(lines {sourceCtx.line_start}-{sourceCtx.line_end})</span>
+                              )}
+                            </div>
+                          )}
+                          
+                          {/* Comment Author */}
+                          {sourceCtx?.comment_author && (
+                            <div>
+                              <span className="text-slate-400">Author: </span>
+                              <span className="text-slate-300">@{sourceCtx.comment_author}</span>
+                            </div>
+                          )}
+                          
+                          {/* Source Links */}
+                          {learning.source_urls && learning.source_urls.length > 0 && (
+                            <div>
+                              <span className="text-slate-400 text-xs uppercase tracking-wide">Source Links</span>
+                              <div className="mt-2 space-y-1">
+                                {[...new Set(learning.source_urls)].map((url: string, index: number) => {
+                                  let linkLabel = 'View Source';
+                                  
+                                  if (url.includes('#note_') || url.includes('#issuecomment-') || url.includes('#discussion_r')) {
+                                    linkLabel = 'Original Comment';
+                                  } else if (url.includes('/merge_requests/') || url.includes('/pull/')) {
+                                    linkLabel = 'MR Discussion';
+                                  }
+                                  
+                                  return (
+                                    <a 
+                                      key={index}
+                                      href={url} 
+                                      target="_blank" 
+                                      rel="noopener noreferrer"
+                                      className="text-blue-400 hover:text-blue-300 text-sm hover:underline flex items-center gap-1"
+                                    >
+                                      <span className="text-slate-400">→</span>
+                                      {linkLabel}
+                                    </a>
+                                  );
+                                })}
+                              </div>
+                            </div>
+                          )}
+                          
+                          {/* Timestamp & Confidence */}
+                          <div className="flex items-center justify-between pt-2 border-t border-slate-700/50">
+                            <div>
+                              <span className="text-slate-400">Captured: </span>
+                              <HumanizedTimestamp 
+                                timestamp={learning.created_at} 
+                                className="text-slate-300 text-sm"
+                              />
+                            </div>
+                            <div>
+                              <span className="text-slate-400">Confidence: </span>
+                              <span className="text-slate-300">{learning.confidence}/5</span>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  }
+                  return null;
+                })()}
+                
                 <div>
                   <label className="block text-sm text-slate-300 mb-2">Title</label>
                   <textarea
@@ -476,10 +610,9 @@ const LearningsTab: React.FC = () => {
                   </Button>
                 </div>
               </div>
-            </Card>
           </div>
-        </div>
-        </>
+        </div>,
+        document.body
       )}
     </div>
   );
