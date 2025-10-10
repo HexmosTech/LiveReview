@@ -553,15 +553,66 @@ func (p *UnifiedProcessorV2Impl) extractLearningFromLLMResponse(response string,
 		Metadata:   map[string]interface{}{},
 	}
 
-	// Add context from event
-	if event.Repository.Name != "" {
-		learning.Metadata["repository"] = event.Repository.Name
+	// Create comprehensive source context from webhook event
+	sourceContext := map[string]interface{}{
+		"provider":   event.Provider,
+		"repository": event.Repository.Name,
 	}
+
+	// Add repository details
+	if event.Repository.WebURL != "" {
+		sourceContext["repository_url"] = event.Repository.WebURL
+	}
+	if event.Repository.FullName != "" {
+		sourceContext["repository_full_name"] = event.Repository.FullName
+	}
+
+	// Collect source URLs
+	var sourceURLs []string
+
+	// Add MR-specific context
+	if event.MergeRequest != nil {
+		sourceContext["mr_number"] = event.MergeRequest.Number
+		sourceContext["mr_title"] = event.MergeRequest.Title
+		sourceContext["mr_id"] = event.MergeRequest.ID
+		sourceContext["source_branch"] = event.MergeRequest.SourceBranch
+		sourceContext["target_branch"] = event.MergeRequest.TargetBranch
+		if event.MergeRequest.Author.Username != "" {
+			sourceContext["mr_author"] = event.MergeRequest.Author.Username
+		}
+		if event.MergeRequest.WebURL != "" {
+			sourceURLs = append(sourceURLs, event.MergeRequest.WebURL)
+		}
+	}
+
+	// Add comment-specific context
 	if event.Comment != nil {
-		learning.Metadata["author"] = event.Comment.Author.Username
-		learning.Metadata["comment"] = event.Comment.Body
+		sourceContext["comment_id"] = event.Comment.ID
+		sourceContext["comment_author"] = event.Comment.Author.Username
+		if event.Comment.DiscussionID != nil {
+			sourceContext["discussion_id"] = *event.Comment.DiscussionID
+		}
+		if event.Comment.WebURL != "" {
+			sourceURLs = append(sourceURLs, event.Comment.WebURL)
+		}
+
+		// Add file position details if available
+		if event.Comment.Position != nil {
+			sourceContext["file_path"] = event.Comment.Position.FilePath
+			sourceContext["line_number"] = event.Comment.Position.LineNumber
+			sourceContext["line_type"] = event.Comment.Position.LineType
+			if event.Comment.Position.StartLine != nil {
+				sourceContext["line_start"] = *event.Comment.Position.StartLine
+			}
+			if event.Comment.Position.EndLine != nil {
+				sourceContext["line_end"] = *event.Comment.Position.EndLine
+			}
+		}
 	}
-	learning.Metadata["provider"] = event.Provider
+
+	// Store in learning metadata
+	learning.Metadata["source_context"] = sourceContext
+	learning.Metadata["source_urls"] = sourceURLs
 	learning.Context = fmt.Sprintf("Repository: %s, Provider: %s", event.Repository.Name, event.Provider)
 
 	log.Printf("[DEBUG] Extracted learning: type=%s, title=%s", learningData.Type, learningData.Title)

@@ -178,19 +178,42 @@ func (lp *LearningProcessorV2Impl) ApplyLearning(learning *LearningMetadataV2) e
 	// Calculate simhash for deduplication (simple version)
 	simhash := lp.calculateSimpleHash(learning.Content)
 
-	// Serialize metadata as JSON
-	metadataJSON, err := json.Marshal(learning.Metadata)
-	if err != nil {
-		log.Printf("[WARN] Failed to marshal metadata: %v", err)
-		metadataJSON = []byte("{}")
+	// Extract source URLs from metadata
+	var sourceURLs []string
+	if urls, ok := learning.Metadata["source_urls"].([]string); ok {
+		sourceURLs = urls
+	} else if urlsInterface, ok := learning.Metadata["source_urls"].([]interface{}); ok {
+		// Handle interface{} slice conversion
+		for _, url := range urlsInterface {
+			if urlStr, ok := url.(string); ok {
+				sourceURLs = append(sourceURLs, urlStr)
+			}
+		}
 	}
 
-	// Insert into learnings table
+	// Create proper source context JSON
+	var sourceContextJSON []byte
+	if sourceCtx, ok := learning.Metadata["source_context"]; ok {
+		if data, err := json.Marshal(sourceCtx); err == nil {
+			sourceContextJSON = data
+			log.Printf("[DEBUG] Storing source context: %s", string(data))
+		} else {
+			log.Printf("[WARN] Failed to marshal source context: %v", err)
+			sourceContextJSON = []byte("{}")
+		}
+	} else {
+		log.Printf("[DEBUG] No source context found in metadata")
+		sourceContextJSON = []byte("{}")
+	}
+
+	log.Printf("[DEBUG] Storing learning with %d source URLs: %v", len(sourceURLs), sourceURLs)
+
+	// Insert into learnings table with proper source_urls and source_context
 	query := `
 		INSERT INTO learnings (
 			short_id, org_id, scope_kind, repo_id, title, body, tags, 
-			confidence, simhash, source_context, created_by, updated_by
-		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+			confidence, simhash, source_urls, source_context, created_by, updated_by
+		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
 		ON CONFLICT (short_id) DO UPDATE SET
 			body = EXCLUDED.body,
 			tags = EXCLUDED.tags,
@@ -200,7 +223,7 @@ func (lp *LearningProcessorV2Impl) ApplyLearning(learning *LearningMetadataV2) e
 		RETURNING id`
 
 	var learningID string
-	err = lp.server.db.QueryRow(
+	err := lp.server.db.QueryRow(
 		query,
 		shortID,                  // $1
 		effectiveOrgID,           // $2 - use effective org ID (may be fallback)
@@ -211,9 +234,10 @@ func (lp *LearningProcessorV2Impl) ApplyLearning(learning *LearningMetadataV2) e
 		pq.Array(learning.Tags),  // $7
 		int(learning.Confidence), // $8
 		simhash,                  // $9
-		metadataJSON,             // $10
-		1,                        // $11 - created_by (default user)
-		1,                        // $12 - updated_by (default user)
+		pq.Array(sourceURLs),     // $10 - source_urls array
+		sourceContextJSON,        // $11 - source_context JSONB
+		1,                        // $12 - created_by (default user)
+		1,                        // $13 - updated_by (default user)
 	).Scan(&learningID)
 
 	if err != nil {
