@@ -17,7 +17,7 @@ var (
 
 // defaultEnabled controls whether capture is active when the process starts.
 // Flip this to true (or call Enable) whenever you want to record fixtures.
-const defaultEnabled = true
+const defaultEnabled = false
 
 var captureEnabled atomic.Bool
 
