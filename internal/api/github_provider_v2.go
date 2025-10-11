@@ -3,11 +3,8 @@ package api
 import (
 	"encoding/json"
 	"fmt"
-	"io"
 	"log"
-	"net/http"
 	"strings"
-	"time"
 
 	githubinput "github.com/livereview/internal/provider_input/github"
 )
@@ -133,8 +130,7 @@ func (p *GitHubV2Provider) FetchMergeRequestData(event *UnifiedWebhookEventV2) e
 		return fmt.Errorf("no merge request in event")
 	}
 
-	// Get GitHub token
-	token, err := p.findIntegrationTokenForGitHubRepoV2(event.Repository.FullName)
+	token, err := githubinput.FindIntegrationTokenForGitHubRepo(p.server.db, event.Repository.FullName)
 	if err != nil {
 		return fmt.Errorf("failed to get GitHub token: %w", err)
 	}
@@ -168,8 +164,7 @@ func (p *GitHubV2Provider) PostCommentReply(event *UnifiedWebhookEventV2, conten
 		return fmt.Errorf("invalid event for comment reply")
 	}
 
-	// Get GitHub token
-	token, err := p.findIntegrationTokenForGitHubRepoV2(event.Repository.FullName)
+	token, err := githubinput.FindIntegrationTokenForGitHubRepo(p.server.db, event.Repository.FullName)
 	if err != nil {
 		return fmt.Errorf("failed to get GitHub token: %w", err)
 	}
@@ -183,8 +178,7 @@ func (p *GitHubV2Provider) PostEmojiReaction(event *UnifiedWebhookEventV2, emoji
 		return fmt.Errorf("no comment in event for emoji reaction")
 	}
 
-	// Get GitHub token
-	token, err := p.findIntegrationTokenForGitHubRepoV2(event.Repository.FullName)
+	token, err := githubinput.FindIntegrationTokenForGitHubRepo(p.server.db, event.Repository.FullName)
 	if err != nil {
 		return fmt.Errorf("failed to get GitHub token: %w", err)
 	}
@@ -198,8 +192,7 @@ func (p *GitHubV2Provider) PostFullReview(event *UnifiedWebhookEventV2, overallC
 		return fmt.Errorf("no merge request in event for full review")
 	}
 
-	// Get GitHub token
-	token, err := p.findIntegrationTokenForGitHubRepoV2(event.Repository.FullName)
+	token, err := githubinput.FindIntegrationTokenForGitHubRepo(p.server.db, event.Repository.FullName)
 	if err != nil {
 		return fmt.Errorf("failed to get GitHub token: %w", err)
 	}
@@ -214,84 +207,11 @@ func (p *GitHubV2Provider) PostFullReview(event *UnifiedWebhookEventV2, overallC
 	return nil
 }
 
-// GitHub V2 API Methods - Updated versions of existing GitHub API methods
-
-// findIntegrationTokenForGitHubRepoV2 finds integration token for GitHub repository
-func (p *GitHubV2Provider) findIntegrationTokenForGitHubRepoV2(repoFullName string) (*IntegrationToken, error) {
-	// Query database for GitHub token
-	query := `
-		SELECT id, provider, provider_url, pat_token, metadata
-		FROM integration_tokens 
-		WHERE provider = 'github' 
-		AND (provider_url = 'https://github.com' OR provider_url = 'https://api.github.com')
-		LIMIT 1
-	`
-
-	var token IntegrationToken
-	var metadataJSON []byte
-
-	err := p.server.db.QueryRow(query).Scan(
-		&token.ID, &token.Provider, &token.ProviderURL,
-		&token.PatToken, &metadataJSON)
-	if err != nil {
-		return nil, fmt.Errorf("no GitHub integration token found: %w", err)
-	}
-
-	// Parse metadata if present
-	if len(metadataJSON) > 0 {
-		if err := json.Unmarshal(metadataJSON, &token.Metadata); err != nil {
-			log.Printf("[WARN] Failed to parse token metadata: %v", err)
-		}
-	}
-
-	return &token, nil
-}
-
-// getFreshGitHubBotUserInfoV2 gets fresh bot user information via GitHub API
-func (p *GitHubV2Provider) getFreshGitHubBotUserInfoV2(repoFullName string) (*GitHubV2BotUserInfo, error) {
-	// Get integration token for the repository
-	token, err := p.findIntegrationTokenForGitHubRepoV2(repoFullName)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get GitHub token: %w", err)
-	}
-
-	// Make API call to get current user (the bot)
-	apiURL := "https://api.github.com/user"
-	req, err := http.NewRequest("GET", apiURL, nil)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create request: %w", err)
-	}
-
-	req.Header.Set("Authorization", "token "+token.PatToken)
-	req.Header.Set("Accept", "application/vnd.github.v3+json")
-	req.Header.Set("User-Agent", "LiveReview-Bot")
-
-	client := &http.Client{Timeout: 10 * time.Second}
-	resp, err := client.Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("failed to call GitHub API: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(resp.Body)
-		return nil, fmt.Errorf("GitHub API error (status %d): %s", resp.StatusCode, string(body))
-	}
-
-	var user GitHubV2BotUserInfo
-	if err := json.NewDecoder(resp.Body).Decode(&user); err != nil {
-		return nil, fmt.Errorf("failed to decode GitHub user response: %w", err)
-	}
-
-	return &user, nil
-}
-
 // Missing WebhookProviderV2 Interface Methods
 
 // FetchMRTimeline fetches timeline data for a merge request
 func (p *GitHubV2Provider) FetchMRTimeline(mr UnifiedMergeRequestV2) (*UnifiedTimelineV2, error) {
-	// Get integration token for the repository
-	token, err := p.findIntegrationTokenForGitHubRepoV2(mr.Metadata["repository_full_name"].(string))
+	token, err := githubinput.FindIntegrationTokenForGitHubRepo(p.server.db, mr.Metadata["repository_full_name"].(string))
 	if err != nil {
 		return nil, fmt.Errorf("failed to get GitHub token: %w", err)
 	}
@@ -386,8 +306,12 @@ func (p *GitHubV2Provider) FetchCodeContext(comment UnifiedCommentV2) (string, e
 
 // GetBotUserInfo gets bot user information for warrant checking
 func (p *GitHubV2Provider) GetBotUserInfo(repository UnifiedRepositoryV2) (*UnifiedBotUserInfoV2, error) {
-	// Get fresh bot user info from GitHub API
-	botInfo, err := p.getFreshGitHubBotUserInfoV2(repository.FullName)
+	token, err := githubinput.FindIntegrationTokenForGitHubRepo(p.server.db, repository.FullName)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get GitHub token: %w", err)
+	}
+
+	botInfo, err := githubinput.FetchGitHubBotUserInfo(token.PatToken)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get GitHub bot user info: %w", err)
 	}
@@ -415,7 +339,7 @@ func (p *GitHubV2Provider) PostReviewComments(mr UnifiedMergeRequestV2, comments
 
 	// Get integration token
 	repoFullName := mr.Metadata["repository_full_name"].(string)
-	token, err := p.findIntegrationTokenForGitHubRepoV2(repoFullName)
+	token, err := githubinput.FindIntegrationTokenForGitHubRepo(p.server.db, repoFullName)
 	if err != nil {
 		return fmt.Errorf("failed to get GitHub token: %w", err)
 	}
