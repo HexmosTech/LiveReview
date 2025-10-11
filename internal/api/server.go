@@ -106,7 +106,7 @@ type Server struct {
 
 	// V2 Webhook Providers
 	gitlabProviderV2 *GitLabV2Provider
-	githubProviderV2 *GitHubV2Provider
+	githubProviderV2 *githubprovider.GitHubV2Provider
 
 	// V2 Webhook Registry
 	webhookRegistryV2 *WebhookProviderRegistry
@@ -233,7 +233,7 @@ func NewServer(port int, versionInfo *VersionInfo) (*Server, error) {
 
 	// Initialize V2 webhook providers
 	server.gitlabProviderV2 = NewGitLabV2Provider(server)
-	server.githubProviderV2 = NewGitHubV2Provider(server)
+	server.githubProviderV2 = githubprovider.NewGitHubV2Provider(db)
 
 	// Initialize V2 webhook registry
 	server.webhookRegistryV2 = NewWebhookProviderRegistry(server)
