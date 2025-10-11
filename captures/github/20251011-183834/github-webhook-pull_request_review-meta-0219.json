@@ -1,0 +1,19 @@
+{
+  "error": "pull_request_review event ignored (action=submitted, no comment body)",
+  "event_type": "pull_request_review",
+  "headers": {
+    "Accept": "*/*",
+    "Connection": "close",
+    "Content-Length": "24228",
+    "Content-Type": "application/json",
+    "User-Agent": "GitHub-Hookshot/c8f7262",
+    "X-Forwarded-For": "140.82.115.163",
+    "X-Forwarded-Proto": "https",
+    "X-Github-Delivery": "ef949cc4-a6a4-11f0-9c4d-93cd9c9e0a50",
+    "X-Github-Event": "pull_request_review",
+    "X-Github-Hook-Id": "573176165",
+    "X-Github-Hook-Installation-Target-Id": "1025461473",
+    "X-Github-Hook-Installation-Target-Type": "repository",
+    "X-Real-Ip": "140.82.115.163"
+  }
+}

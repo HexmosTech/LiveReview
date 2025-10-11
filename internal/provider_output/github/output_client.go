@@ -20,6 +20,15 @@ type (
 	UnifiedReviewCommentV2 = coreprocessor.UnifiedReviewCommentV2
 )
 
+type apiError struct {
+	StatusCode int
+	Body       string
+}
+
+func (e *apiError) Error() string {
+	return fmt.Sprintf("GitHub API request failed with status %d: %s", e.StatusCode, e.Body)
+}
+
 // APIClient posts outbound GitHub content on behalf of the provider.
 type APIClient struct {
 	httpClient *http.Client
@@ -112,6 +121,10 @@ func (c *APIClient) PostReviewComments(mr UnifiedMergeRequestV2, token string, c
 		}
 
 		if err := c.postToGitHubAPI(apiURL, token, requestBody); err != nil {
+			if apiErr, ok := err.(*apiError); ok && apiErr.StatusCode == http.StatusUnprocessableEntity {
+				log.Printf("[WARN] Skipping GitHub review comment due to 422 response (path=%s line=%d): %s", comment.FilePath, comment.LineNumber, apiErr.Body)
+				continue
+			}
 			return fmt.Errorf("failed to post review comment: %w", err)
 		}
 	}
@@ -151,7 +164,7 @@ func (c *APIClient) postToGitHubAPI(apiURL, token string, requestBody interface{
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		body, _ := io.ReadAll(resp.Body)
-		return fmt.Errorf("GitHub API request failed with status %d: %s", resp.StatusCode, string(body))
+		return &apiError{StatusCode: resp.StatusCode, Body: string(body)}
 	}
 
 	log.Printf("[INFO] Successfully posted to GitHub API: %s", apiURL)

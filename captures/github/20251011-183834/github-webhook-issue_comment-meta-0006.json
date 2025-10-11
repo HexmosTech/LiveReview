@@ -1,0 +1,18 @@
+{
+  "event_type": "issue_comment",
+  "headers": {
+    "Accept": "*/*",
+    "Connection": "close",
+    "Content-Length": "13234",
+    "Content-Type": "application/json",
+    "User-Agent": "GitHub-Hookshot/c8f7262",
+    "X-Forwarded-For": "140.82.115.7",
+    "X-Forwarded-Proto": "https",
+    "X-Github-Delivery": "d731ae10-a6a4-11f0-82bf-95b2f849c75d",
+    "X-Github-Event": "issue_comment",
+    "X-Github-Hook-Id": "573176165",
+    "X-Github-Hook-Installation-Target-Id": "1025461473",
+    "X-Github-Hook-Installation-Target-Type": "repository",
+    "X-Real-Ip": "140.82.115.7"
+  }
+}

@@ -152,6 +152,46 @@ There are 9 external packages importing `internal/api`, mainly inside the same m
 
 ---
 
+## GitHub Integration Verification Harness (BLOCKER)
+**Goal**: Capture a single GitHub PR run end-to-end, persist every payload required to replay it, and build targeted tests that exercise each pipeline stage until the exact line-mapping defect is identified and fixed. No further provider moves until this passes.  
+**Risk**: 🟠 **MEDIUM** – requires new tooling and fixtures but unlocks deterministic debugging.  
+**Verification**: Dedicated regression tests replaying the captured payloads produce identical comment targets as the live GitHub API expects.
+
+### Step G1: One-Time Live Capture
+- Trigger one GitHub review manually (single PR) after confirming credentials.  
+- Capture helpers now emit artifacts into `captures/github/<timestamp>/` by default (override with `LIVEREVIEW_GITHUB_CAPTURE_DIR` if needed).  
+- Ensure sensitive data (tokens, secrets) are redacted before promoting fixtures into `testdata/github/live_capture/`.
+- Capture artifacts fall into predictable families (all JSON):
+    - `github-pr-details-*.json`: normalized output of `GetMergeRequestDetails` calls; includes owner/repo/pr metadata and diff refs.
+    - `github-pr-files-*.json`: raw `/pulls/:number/files` responses listing filenames, status, and patches.
+    - `github-pr-diffs-*.json`: parsed `models.CodeDiff` slices produced by our converter immediately after `github-pr-files` ingestion.
+    - `github-webhook-<type>-body-*.json`: exact webhook payload bodies as received from GitHub for each event type (`issue_comment`, `pull_request_review`, `pull_request_review_comment`, `reviewer`).
+    - `github-webhook-<type>-meta-*.json`: sanitized headers plus minimal metadata (event type, capture error string when conversion fails).
+    - `github-webhook-<type>-unified-*.json`: unified structs returned by the converter stage (when conversion succeeds). Use these as golden inputs for replay tests.
+
+### Step G2: Fixture Normalization
+- Write a small sanitizer that strips volatile fields (timestamps, etags) and normalizes ordering to make the fixtures deterministic.  
+- Store the cleaned payloads in `internal/provider_input/github/testdata/` with README notes describing origin and redaction steps.  
+- Add a checksum or metadata file documenting the PR URL, commit SHA, and capture date.
+
+### Step G3: Stage-by-Stage Replay Tests
+- Build table-driven tests that load the fixtures and feed them into each conversion step:
+    1. Provider input translation → unified change set
+    2. Core processor batching/grouping → suggested comments
+    3. Provider output mapping → GitHub API request structs
+- At each step assert file paths, hunks, and line numbers match the captured GitHub diff (add expectations alongside fixtures).  
+- Fail the test if any comment targets a line absent from the diff hunks.
+
+### Step G4: Bug Isolation and Fix
+- Use the replay tests to pinpoint whether the discrepancy comes from diff parsing, hunk stitching, or AI comment attribution.  
+- Fix the offending logic (likely in the diff-to-unified mapping) and expand expectations to cover the previous failure cases.  
+- Re-run tests to verify the corrected line mappings produce valid API requests.
+
+### Step G5: Regression Gate
+- Add a CI job (or Makefile target) `make github-fixture-test` that runs the replay suite.  
+- Block further provider migrations until this job passes locally.  
+- Document the harness in `processor_design.md`, including instructions for refreshing fixtures when needed.
+
 ## Step Group 4: Provider Input (Fetch) Extraction
 **Goal**: Relocate provider detection + fetch code into independent packages without yet touching posting logic.  
 **Risk**: 🟡 **LOW** – large files but mechanical moves.  
