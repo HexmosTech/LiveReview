@@ -1,4 +1,4 @@
-package api
+package github
 
 import (
 	"encoding/json"
@@ -6,7 +6,7 @@ import (
 	"net/http"
 )
 
-// GitHubProfile represents the user profile info fetched from GitHub
+// GitHubProfile represents the user profile info fetched from GitHub.
 type GitHubProfile struct {
 	ID        int    `json:"id"`
 	Login     string `json:"login"`
@@ -17,7 +17,7 @@ type GitHubProfile struct {
 	Location  string `json:"location"`
 }
 
-// FetchGitHubProfile fetches the user profile from GitHub using PAT
+// FetchGitHubProfile fetches the user profile from GitHub using PAT.
 func FetchGitHubProfile(pat string) (*GitHubProfile, error) {
 	url := "https://api.github.com/user"
 	client := &http.Client{}
@@ -34,13 +34,13 @@ func FetchGitHubProfile(pat string) (*GitHubProfile, error) {
 	}
 	defer resp.Body.Close()
 
-	if resp.StatusCode != 200 {
+	if resp.StatusCode != http.StatusOK {
 		switch resp.StatusCode {
-		case 401:
+		case http.StatusUnauthorized:
 			return nil, fmt.Errorf("invalid Personal Access Token - please verify your PAT is correct and has the required scopes")
-		case 403:
+		case http.StatusForbidden:
 			return nil, fmt.Errorf("access forbidden - your PAT may not have sufficient permissions or rate limit exceeded")
-		case 404:
+		case http.StatusNotFound:
 			return nil, fmt.Errorf("GitHub API endpoint not found - please check your token configuration")
 		default:
 			return nil, fmt.Errorf("GitHub connection failed (HTTP %d) - please verify your PAT is correct", resp.StatusCode)
