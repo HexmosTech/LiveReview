@@ -8,6 +8,20 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+type stubGitHubOutput struct{}
+
+func (stubGitHubOutput) PostCommentReply(_ *githubprovider.UnifiedWebhookEventV2, _, _ string) error {
+	return nil
+}
+
+func (stubGitHubOutput) PostEmojiReaction(_ *githubprovider.UnifiedWebhookEventV2, _, _ string) error {
+	return nil
+}
+
+func (stubGitHubOutput) PostReviewComments(_ githubprovider.UnifiedMergeRequestV2, _ string, _ []githubprovider.UnifiedReviewCommentV2) error {
+	return nil
+}
+
 // Phase 9: Provider V2 Integration Tests
 // Tests the individual V2 providers and their integration with the unified system
 
@@ -71,7 +85,7 @@ func TestGitLabV2Provider(t *testing.T) {
 }
 
 func TestGitHubV2Provider(t *testing.T) {
-	provider := githubprovider.NewGitHubV2Provider(nil)
+	provider := githubprovider.NewGitHubV2Provider(nil, stubGitHubOutput{})
 
 	assert.Equal(t, "github", provider.ProviderName())
 
@@ -248,7 +262,7 @@ func TestUnifiedEventConversion(t *testing.T) {
 	})
 
 	t.Run("GitHub Comment Event Conversion", func(t *testing.T) {
-		provider := githubprovider.NewGitHubV2Provider(nil)
+		provider := githubprovider.NewGitHubV2Provider(nil, stubGitHubOutput{})
 
 		headers := map[string]string{
 			"X-GitHub-Event":    "issue_comment",

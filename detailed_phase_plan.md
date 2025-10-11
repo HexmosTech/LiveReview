@@ -14,10 +14,11 @@ Every change must end with a successful `make build` from the repo root. If a st
 - ✅ `internal/core_processor/` contains the relocated unified types, context builder and processor (moved from `internal/api`)
 - ✅ `internal/api/` exposes a small alias/bridge file (`internal/api/unified_types_alias.go`) to smooth the migration
 - ✅ `internal/provider_input/` subfolders exist and already contain profile helpers for GitHub and GitLab
-- ✅ `internal/api/server.go` has been updated to call the new `provider_input` profile helpers
+- ✅ GitHub provider logic now lives in `internal/provider_input/github`
+- ✅ `internal/api/server.go` has been updated to call the new `provider_input` helpers and instantiate the GitHub provider from there
 - ✅ `make build` currently succeeds from the repo root
-- ❌ Some provider code (notably `github_provider_v2.go` and other full provider wiring) still lives in `internal/api/` and needs incremental relocation
-- ❌ The provider registry still references providers in `internal/api` and requires updating once providers are moved
+- ❌ GitLab and Bitbucket providers still live in `internal/api/`
+- ❌ GitHub “post” helpers are still bundled with the provider input package; `internal/provider_output/github` is empty
 - ⚠️ Tests were updated in earlier steps, but full `make test` validation should be run after remaining provider moves
 
 ## Phase 1 Target Architecture
@@ -164,13 +165,13 @@ There are 9 external packages importing `internal/api`, mainly inside the same m
 
 > STATUS: IN PROGRESS
 
-- ✅ `github_profile.go` moved into `internal/provider_input/github` (profile helper only)
-- ✅ `gitlab_profile.go` moved into `internal/provider_input/gitlab` (profile helper only)
+- ✅ `github_profile.go` moved into `internal/provider_input/github`
+- ✅ `gitlab_profile.go` moved into `internal/provider_input/gitlab`
 - ✅ `internal/api/server.go` now calls the new profile helpers
-- ❌ `github_provider_v2.go` (full webhook handling + fetch orchestration) still resides in `internal/api` and should be moved next in small steps
-- ❌ `webhook_registry_v2.go` and registry wiring still need to import the new provider packages and be updated once providers are moved
+- ✅ `github_provider_v2.go` relocated into `internal/provider_input/github`; registry/server wiring updated
+- ❌ GitLab and Bitbucket provider files still reside in `internal/api`
 
-Immediate next step: incrementally move `github_provider_v2.go` into `internal/provider_input/github` by extracting small, self-contained helper functions first (so `make build` stays green), then update `webhook_registry_v2.go` to import the new package and rewire the registration. Run `make build` after each micro-step.
+Immediate next step: repeat the relocation for GitLab, then Bitbucket, each in small, compiling steps with `make build` after every move.
 
 ### Step 4.2: Update registry wiring after each provider move
 - Update `internal/api/webhook_registry_v2.go` (and other orchestrators) to import the new packages.  
@@ -180,14 +181,23 @@ Immediate next step: incrementally move `github_provider_v2.go` into `internal/p
 ---
 
 ## Step Group 5: Provider Output Separation (Post)
-**Goal**: Extract the posting logic into `internal/provider_output/<provider>` packages.  
+**Goal**: Extract the posting logic into `internal/provider_output/<provider>` packages and validate full review flows.  
 **Risk**: 🟡 **LOW** – but watch for shared helpers.  
 **Verification**: `make build` per provider.
 
-- For each provider, move functions that perform HTTP POSTs/API calls into a new `provider_output` package.  
-- Wire the provider input package to depend on provider output via interfaces (defined in `internal/api/webhook_interfaces.go` or a new shared location) to avoid import cycles.  
-- Update orchestrator/registry to construct both input + output components.  
+### Step 5.1: GitHub Output (End-to-End Validation)
+- Create `internal/provider_output/github` with concrete poster/reaction helpers moved from the input package.
+- Define lightweight interfaces consumed by the GitHub provider so `provider_input/github` depends only on abstractions.
+- Update `internal/api/server.go` (and registry/orchestrator wiring) to construct both the input provider and the output implementation.
+- Adjust tests with stubs for the new interfaces.
 - `make build`
+- **Quality gate**: trigger a GitHub review end-to-end (webhook → reply → learning capture) to verify behavior before moving on.
+
+### Step 5.2: GitLab Output
+- Mirror the GitHub pattern: move POST helpers into `internal/provider_output/gitlab`, expose interfaces, update wiring, run `make build`.
+
+### Step 5.3: Bitbucket Output
+- Repeat the same extraction and verification for Bitbucket.
 
 ---
 

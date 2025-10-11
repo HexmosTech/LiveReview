@@ -23,6 +23,7 @@ import (
 	"github.com/livereview/internal/license"
 	githubprovider "github.com/livereview/internal/provider_input/github"
 	gitlabprovider "github.com/livereview/internal/provider_input/gitlab"
+	githuboutput "github.com/livereview/internal/provider_output/github"
 	// Import FetchGitLabProfile
 )
 
@@ -233,7 +234,7 @@ func NewServer(port int, versionInfo *VersionInfo) (*Server, error) {
 
 	// Initialize V2 webhook providers
 	server.gitlabProviderV2 = NewGitLabV2Provider(server)
-	server.githubProviderV2 = githubprovider.NewGitHubV2Provider(db)
+	server.githubProviderV2 = githubprovider.NewGitHubV2Provider(db, githuboutput.NewAPIClient())
 
 	// Initialize V2 webhook registry
 	server.webhookRegistryV2 = NewWebhookProviderRegistry(server)

@@ -718,7 +718,7 @@ Examples:
     delete_parser.add_argument(
         '--token',
         help='GitHub personal access token (or set GITHUB_TOKEN env var)',
-        default='REDACTED_GITHUB_PAT_2'  # Default token from original file
+        default='REDACTED_GITHUB_PAT_3'
     )
     
     # Create subcommand
