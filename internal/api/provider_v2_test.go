@@ -3,6 +3,7 @@ package api
 import (
 	"testing"
 
+	githubprovider "github.com/livereview/internal/provider_input/github"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -70,8 +71,7 @@ func TestGitLabV2Provider(t *testing.T) {
 }
 
 func TestGitHubV2Provider(t *testing.T) {
-	server := &Server{}
-	provider := NewGitHubV2Provider(server)
+	provider := githubprovider.NewGitHubV2Provider(nil)
 
 	assert.Equal(t, "github", provider.ProviderName())
 
@@ -248,7 +248,7 @@ func TestUnifiedEventConversion(t *testing.T) {
 	})
 
 	t.Run("GitHub Comment Event Conversion", func(t *testing.T) {
-		provider := NewGitHubV2Provider(server)
+		provider := githubprovider.NewGitHubV2Provider(nil)
 
 		headers := map[string]string{
 			"X-GitHub-Event":    "issue_comment",

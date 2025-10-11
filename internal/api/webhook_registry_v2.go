@@ -23,7 +23,7 @@ func NewWebhookProviderRegistry(server *Server) *WebhookProviderRegistry {
 
 	// Initialize all V2 providers
 	registry.providers["gitlab"] = NewGitLabV2Provider(server)
-	registry.providers["github"] = NewGitHubV2Provider(server)
+	registry.providers["github"] = server.githubProviderV2
 	registry.providers["bitbucket"] = NewBitbucketV2Provider(server)
 
 	log.Printf("[INFO] Webhook provider registry initialized with providers: %v",
