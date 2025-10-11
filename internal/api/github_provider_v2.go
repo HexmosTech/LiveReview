@@ -1,13 +1,11 @@
 package api
 
 import (
-	"bytes"
 	"encoding/json"
 	"fmt"
 	"io"
 	"log"
 	"net/http"
-	"strconv"
 	"strings"
 	"time"
 
@@ -150,12 +148,12 @@ func (p *GitHubV2Provider) FetchMergeRequestData(event *UnifiedWebhookEventV2) e
 	prNumber := fmt.Sprintf("%d", event.MergeRequest.Number)
 
 	// Fetch commits and comments for future use
-	_, err = p.fetchGitHubPRCommitsV2(owner, repo, prNumber, token.PatToken)
+	_, err = githubinput.FetchGitHubPRCommitsV2(owner, repo, prNumber, token.PatToken)
 	if err != nil {
 		return fmt.Errorf("failed to get commits: %w", err)
 	}
 
-	_, err = p.fetchGitHubPRCommentsV2(owner, repo, prNumber, token.PatToken)
+	_, err = githubinput.FetchGitHubPRCommentsV2(owner, repo, prNumber, token.PatToken)
 	if err != nil {
 		return fmt.Errorf("failed to get comments: %w", err)
 	}
@@ -176,7 +174,7 @@ func (p *GitHubV2Provider) PostCommentReply(event *UnifiedWebhookEventV2, conten
 		return fmt.Errorf("failed to get GitHub token: %w", err)
 	}
 
-	return p.postGitHubCommentReplyV2(event, token.PatToken, content)
+	return githubinput.PostGitHubCommentReplyV2(event, token.PatToken, content)
 }
 
 // PostEmojiReaction posts an emoji reaction to a GitHub comment
@@ -191,7 +189,7 @@ func (p *GitHubV2Provider) PostEmojiReaction(event *UnifiedWebhookEventV2, emoji
 		return fmt.Errorf("failed to get GitHub token: %w", err)
 	}
 
-	return p.postGitHubCommentReactionV2(event, token.PatToken, emoji)
+	return githubinput.PostGitHubCommentReactionV2(event, token.PatToken, emoji)
 }
 
 // PostFullReview posts a comprehensive review to a GitHub PR - simplified version
@@ -208,7 +206,7 @@ func (p *GitHubV2Provider) PostFullReview(event *UnifiedWebhookEventV2, overallC
 
 	// Post overall review comment
 	if overallComment != "" {
-		if err := p.postGitHubCommentReplyV2(event, token.PatToken, overallComment); err != nil {
+		if err := githubinput.PostGitHubCommentReplyV2(event, token.PatToken, overallComment); err != nil {
 			return fmt.Errorf("failed to post overall review comment: %w", err)
 		}
 	}
@@ -288,165 +286,6 @@ func (p *GitHubV2Provider) getFreshGitHubBotUserInfoV2(repoFullName string) (*Gi
 	return &user, nil
 }
 
-// GitHub V2 Posting Methods
-
-// postGitHubCommentReactionV2 posts a reaction to a GitHub comment
-func (p *GitHubV2Provider) postGitHubCommentReactionV2(event *UnifiedWebhookEventV2, token, reaction string) error {
-	var apiURL string
-	if event.Comment.Position != nil {
-		// Review comment
-		apiURL = fmt.Sprintf("https://api.github.com/repos/%s/pulls/comments/%s/reactions",
-			event.Repository.FullName, event.Comment.ID)
-	} else {
-		// Issue comment
-		apiURL = fmt.Sprintf("https://api.github.com/repos/%s/issues/comments/%s/reactions",
-			event.Repository.FullName, event.Comment.ID)
-	}
-
-	requestBody := map[string]string{
-		"content": reaction,
-	}
-
-	return p.postToGitHubAPIV2(apiURL, token, requestBody)
-}
-
-// postGitHubCommentReplyV2 posts a reply to a GitHub comment
-func (p *GitHubV2Provider) postGitHubCommentReplyV2(event *UnifiedWebhookEventV2, token, replyText string) error {
-	var apiURL string
-	var requestBody map[string]interface{}
-
-	// Based on V1 working implementation - handle replies properly
-	if event.Comment.Position != nil && event.Comment.InReplyToID != nil && *event.Comment.InReplyToID != "" {
-		// Reply to review comment - use review comments API with in_reply_to
-		apiURL = fmt.Sprintf("https://api.github.com/repos/%s/pulls/%d/comments",
-			event.Repository.FullName, event.MergeRequest.Number)
-
-		// Convert string ID to integer for GitHub API (like V1)
-		inReplyToInt, err := strconv.Atoi(*event.Comment.InReplyToID)
-		if err != nil {
-			log.Printf("[WARN] Failed to convert in_reply_to ID to integer: %v, falling back to issue comment", err)
-			// Fall back to issue comment
-			apiURL = fmt.Sprintf("https://api.github.com/repos/%s/issues/%d/comments",
-				event.Repository.FullName, event.MergeRequest.Number)
-			requestBody = map[string]interface{}{
-				"body": replyText,
-			}
-		} else {
-			requestBody = map[string]interface{}{
-				"body":        replyText,
-				"in_reply_to": inReplyToInt,
-			}
-		}
-	} else {
-		// General PR comment or no reply context - use issue comment API
-		apiURL = fmt.Sprintf("https://api.github.com/repos/%s/issues/%d/comments",
-			event.Repository.FullName, event.MergeRequest.Number)
-		requestBody = map[string]interface{}{
-			"body": replyText,
-		}
-	}
-
-	log.Printf("[DEBUG] GitHub API call: %s", apiURL)
-	log.Printf("[DEBUG] GitHub API payload: %+v", requestBody)
-
-	return p.postToGitHubAPIV2(apiURL, token, requestBody)
-}
-
-// postToGitHubAPIV2 makes a POST request to GitHub API
-func (p *GitHubV2Provider) postToGitHubAPIV2(apiURL, token string, requestBody interface{}) error {
-	jsonBody, err := json.Marshal(requestBody)
-	if err != nil {
-		return fmt.Errorf("failed to marshal request body: %w", err)
-	}
-
-	req, err := http.NewRequest("POST", apiURL, bytes.NewBuffer(jsonBody))
-	if err != nil {
-		return fmt.Errorf("failed to create HTTP request: %w", err)
-	}
-
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Authorization", "token "+token)
-	req.Header.Set("Accept", "application/vnd.github.v3+json")
-	req.Header.Set("User-Agent", "LiveReview-Bot")
-
-	log.Printf("[DEBUG] Making GitHub API request to: %s", apiURL)
-	client := &http.Client{Timeout: 30 * time.Second}
-	resp, err := client.Do(req)
-	if err != nil {
-		log.Printf("[ERROR] GitHub API request failed: %v", err)
-		return fmt.Errorf("failed to make HTTP request: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		body, _ := io.ReadAll(resp.Body)
-		return fmt.Errorf("GitHub API request failed with status %d: %s", resp.StatusCode, string(body))
-	}
-
-	log.Printf("[INFO] Successfully posted to GitHub API: %s", apiURL)
-	return nil
-}
-
-// GitHub V2 Data Fetching Methods
-
-// fetchGitHubPRCommitsV2 fetches commits for a GitHub PR
-func (p *GitHubV2Provider) fetchGitHubPRCommitsV2(owner, repo, prNumber, token string) ([]GitHubV2CommitInfo, error) {
-	apiURL := fmt.Sprintf("https://api.github.com/repos/%s/%s/pulls/%s/commits", owner, repo, prNumber)
-
-	req, err := http.NewRequest("GET", apiURL, nil)
-	if err != nil {
-		return nil, err
-	}
-
-	req.Header.Set("Authorization", "token "+token)
-	req.Header.Set("Accept", "application/vnd.github.v3+json")
-	req.Header.Set("User-Agent", "LiveReview-Bot")
-
-	client := &http.Client{Timeout: 30 * time.Second}
-	resp, err := client.Do(req)
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("GitHub API request failed with status %d", resp.StatusCode)
-	}
-
-	var commits []GitHubV2CommitInfo
-	err = json.NewDecoder(resp.Body).Decode(&commits)
-	return commits, err
-}
-
-// fetchGitHubPRCommentsV2 fetches comments for a GitHub PR
-func (p *GitHubV2Provider) fetchGitHubPRCommentsV2(owner, repo, prNumber, token string) ([]GitHubV2CommentInfo, error) {
-	apiURL := fmt.Sprintf("https://api.github.com/repos/%s/%s/issues/%s/comments", owner, repo, prNumber)
-
-	req, err := http.NewRequest("GET", apiURL, nil)
-	if err != nil {
-		return nil, err
-	}
-
-	req.Header.Set("Authorization", "token "+token)
-	req.Header.Set("Accept", "application/vnd.github.v3+json")
-	req.Header.Set("User-Agent", "LiveReview-Bot")
-
-	client := &http.Client{Timeout: 30 * time.Second}
-	resp, err := client.Do(req)
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("GitHub API request failed with status %d", resp.StatusCode)
-	}
-
-	var comments []GitHubV2CommentInfo
-	err = json.NewDecoder(resp.Body).Decode(&comments)
-	return comments, err
-}
-
 // Missing WebhookProviderV2 Interface Methods
 
 // FetchMRTimeline fetches timeline data for a merge request
@@ -467,12 +306,12 @@ func (p *GitHubV2Provider) FetchMRTimeline(mr UnifiedMergeRequestV2) (*UnifiedTi
 	prNumber := fmt.Sprintf("%d", mr.Number)
 
 	// Fetch commits and comments in parallel
-	commits, err := p.fetchGitHubPRCommitsV2(owner, repo, prNumber, token.PatToken)
+	commits, err := githubinput.FetchGitHubPRCommitsV2(owner, repo, prNumber, token.PatToken)
 	if err != nil {
 		return nil, fmt.Errorf("failed to fetch commits: %w", err)
 	}
 
-	comments, err := p.fetchGitHubPRCommentsV2(owner, repo, prNumber, token.PatToken)
+	comments, err := githubinput.FetchGitHubPRCommentsV2(owner, repo, prNumber, token.PatToken)
 	if err != nil {
 		return nil, fmt.Errorf("failed to fetch comments: %w", err)
 	}
@@ -603,7 +442,7 @@ func (p *GitHubV2Provider) PostReviewComments(mr UnifiedMergeRequestV2, comments
 			"commit_id": mr.Metadata["head_sha"], // Would need the actual commit SHA
 		}
 
-		if err := p.postToGitHubAPIV2(apiURL, token.PatToken, requestBody); err != nil {
+		if err := githubinput.PostToGitHubAPIV2(apiURL, token.PatToken, requestBody); err != nil {
 			return fmt.Errorf("failed to post review comment: %w", err)
 		}
 	}
