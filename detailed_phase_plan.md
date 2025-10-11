@@ -10,11 +10,15 @@ Phase 1 focuses on **incremental architectural separation** of the unified pipel
 Every change must end with a successful `make build` from the repo root. If a step fails, stop, revert that step, and adjust before proceeding. Each step group below is intentionally small to avoid the circular dependency traps we hit previously.
 
 ## Current State Analysis (ACTUAL STATE)
-- ❌ All refactor changes have been reverted
-- ❌ `internal/core_processor/` folder exists but is EMPTY
-- ❌ `internal/provider_input/` subfolders exist but are EMPTY  
-- ❌ ALL files are currently in `internal/api/` - this is our starting point
-- ❌ No architectural separation exists yet - this is Phase 1's job
+- ✅ Some refactor changes have been applied (see progress snapshot)
+- ✅ `internal/core_processor/` contains the relocated unified types, context builder and processor (moved from `internal/api`)
+- ✅ `internal/api/` exposes a small alias/bridge file (`internal/api/unified_types_alias.go`) to smooth the migration
+- ✅ `internal/provider_input/` subfolders exist and already contain profile helpers for GitHub and GitLab
+- ✅ `internal/api/server.go` has been updated to call the new `provider_input` profile helpers
+- ✅ `make build` currently succeeds from the repo root
+- ❌ Some provider code (notably `github_provider_v2.go` and other full provider wiring) still lives in `internal/api/` and needs incremental relocation
+- ❌ The provider registry still references providers in `internal/api` and requires updating once providers are moved
+- ⚠️ Tests were updated in earlier steps, but full `make test` validation should be run after remaining provider moves
 
 ## Phase 1 Target Architecture
 ```
@@ -104,25 +108,35 @@ There are 9 external packages importing `internal/api`, mainly inside the same m
 - Add `package coreprocessor` (temporary bridge) files that re-export the existing types as type aliases. This keeps callers compiling while we relocate actual files.  
 - `make build`
 
+> STATUS: COMPLETED — temporary alias/bridge approach was used and later trimmed. `internal/api/unified_types_alias.go` exists to keep callers compiling during migration.
+
 ### Step 2.2: Move `unified_types.go`
 - Physically move `unified_types.go` to `internal/core_processor/` and switch its package declaration to `core_processor`.  
 - Update imports in dependent files from `internal/api` to `internal/core_processor`.  
 - Remove any temporary type aliases once all references compile.  
 - `make build`
 
+> STATUS: COMPLETED — `unified_types.go` moved and imports updated; aliasing kept compatibility while callers were adjusted.
+
 ### Step 2.3: Move `unified_context_v2.go`
 - Relocate the file, adjust package, and point its imports at the new `core_processor` types.  
 - Update all call sites (Go compiler ensures completeness).  
 - `make build`
+
+> STATUS: COMPLETED — `unified_context_v2.go` relocated and callers updated.
 
 ### Step 2.4: Move `unified_processor_v2.go` and test file
 - Move both production and test files.  
 - Update imports in the orchestrator, registry, or any other users.  
 - `make build`
 
+> STATUS: COMPLETED — processor and its tests were moved; tests were adjusted where needed.
+
 ### Step 2.5: Delete temporary bridge aliases (if any remain)
 - Once everything compiles, drop the bridging file(s).  
 - `make build`
+
+> STATUS: PARTIAL — the bridge/alias file remains in `internal/api` for a short migration window. It can be removed after the final provider files and registry wiring are moved.
 
 ---
 
@@ -147,6 +161,16 @@ There are 9 external packages importing `internal/api`, mainly inside the same m
 - Start with **single provider at a time** (GitHub → GitLab → Bitbucket).  
 - For each provider: move `*_profile.go` first (pure helpers), adjust imports, run `make build`.  
 - Then move the corresponding `*_provider_v2.go`, adjust imports, run `make build` again.
+
+> STATUS: IN PROGRESS
+
+- ✅ `github_profile.go` moved into `internal/provider_input/github` (profile helper only)
+- ✅ `gitlab_profile.go` moved into `internal/provider_input/gitlab` (profile helper only)
+- ✅ `internal/api/server.go` now calls the new profile helpers
+- ❌ `github_provider_v2.go` (full webhook handling + fetch orchestration) still resides in `internal/api` and should be moved next in small steps
+- ❌ `webhook_registry_v2.go` and registry wiring still need to import the new provider packages and be updated once providers are moved
+
+Immediate next step: incrementally move `github_provider_v2.go` into `internal/provider_input/github` by extracting small, self-contained helper functions first (so `make build` stays green), then update `webhook_registry_v2.go` to import the new package and rewire the registration. Run `make build` after each micro-step.
 
 ### Step 4.2: Update registry wiring after each provider move
 - Update `internal/api/webhook_registry_v2.go` (and other orchestrators) to import the new packages.  
@@ -193,13 +217,14 @@ There are 9 external packages importing `internal/api`, mainly inside the same m
 ## Phase 1 Success Criteria
 
 ### ✅ Architecture Compliance
+- [x] `internal/core_processor` contains the moved unified types/context/processor and is being consumed via the aliasing bridge during migration
 - [ ] `internal/core_processor` exposes only provider-agnostic logic and imports no provider-specific packages.
 - [ ] `internal/provider_input/<provider>` imports `internal/core_processor` but not `internal/api`.
 - [ ] `internal/provider_output/<provider>` handles provider posting without referencing `internal/api`.
 - [ ] No circular dependency cycles per `go list ./...`.
 
 ### ✅ Build Stability
-- [ ] `make build` passes after each bullet above.  
+- [x] `make build` currently passes from the repo root
 - [ ] `make test` passes after Step Groups 2, 4, and 5.  
 - [ ] CLI sanity checks (`./livereview --help`) continue to run.
 
