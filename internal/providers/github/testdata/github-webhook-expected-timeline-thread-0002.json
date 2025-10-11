@@ -1,0 +1,44 @@
+{
+  "Items": [
+    {
+      "Type": "comment",
+      "Timestamp": "2025-10-11T15:50:45Z",
+      "Comment": {
+        "ID": "2422974593",
+        "Body": "@livereviewbot  Why are they mutually exclusive?",
+        "Author": {
+          "Username": "shrsv",
+          "AvatarURL": "https://avatars.githubusercontent.com/u/796107?v=4"
+        },
+        "CreatedAt": "2025-10-11T15:50:45Z",
+        "UpdatedAt": "2025-10-11T15:50:45Z",
+        "WebURL": "https://github.com/livereviewbot/glabmig/pull/2#discussion_r2422974593",
+        "InReplyToID": "2422970333",
+        "Position": {
+          "FilePath": "main.go",
+          "LineNumber": 183
+        }
+      }
+    },
+    {
+      "Type": "comment",
+      "Timestamp": "2025-10-11T15:50:50Z",
+      "Comment": {
+        "ID": "2422974811",
+        "Body": "Without more context, it's hard to know exactly what \"they\" refers to. Could you please clarify which elements you're asking about when you say \"Why are they mutually exclusive?\" Providing the specific lines of code or the concepts you're referring to will help me give you a more accurate and helpful explanation.\n",
+        "Author": {
+          "Username": "livereviewbot",
+          "AvatarURL": "https://avatars.githubusercontent.com/u/222574465?v=4"
+        },
+        "CreatedAt": "2025-10-11T15:50:50Z",
+        "UpdatedAt": "2025-10-11T15:50:50Z",
+        "WebURL": "https://github.com/livereviewbot/glabmig/pull/2#discussion_r2422974811",
+        "InReplyToID": "2422970333",
+        "Position": {
+          "FilePath": "main.go",
+          "LineNumber": 183
+        }
+      }
+    }
+  ]
+}

@@ -1,0 +1,22 @@
+{
+  "commits": [
+    {
+      "sha": "7911538c2d6262fea6ada0070babd216a30d2fc6",
+      "message": "",
+      "author": {
+        "name": "",
+        "email": "",
+        "date": ""
+      },
+      "committer": {
+        "name": "",
+        "email": "",
+        "date": ""
+      },
+      "url": "https://api.github.com/repos/livereviewbot/glabmig/commits/7911538c2d6262fea6ada0070babd216a30d2fc6"
+    }
+  ],
+  "number": "2",
+  "owner": "livereviewbot",
+  "repo": "glabmig"
+}
