@@ -12,6 +12,8 @@ import (
 	"time"
 
 	"github.com/labstack/echo/v4"
+
+	coreprocessor "github.com/livereview/internal/core_processor"
 )
 
 // Phase 8: Webhook Orchestrator for coordinating provider and processing layers
@@ -48,7 +50,7 @@ func NewWebhookOrchestratorV2(server *Server) *WebhookOrchestratorV2 {
 		return nil
 	}
 
-	contextBuilder := NewUnifiedContextBuilderV2(server)
+	contextBuilder := coreprocessor.NewUnifiedContextBuilderV2()
 	if contextBuilder == nil {
 		log.Printf("[ERROR] Failed to create context builder")
 		return nil

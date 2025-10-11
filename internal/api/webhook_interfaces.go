@@ -50,21 +50,6 @@ type LearningProcessorV2 interface {
 	FindOrgIDForRepository(repo UnifiedRepositoryV2) (int64, error)
 }
 
-// ContextBuilderV2 - Context building interface for unified processing
-type ContextBuilderV2 interface {
-	// Build timeline from unified data
-	BuildTimeline(mr UnifiedMergeRequestV2, provider string) (*UnifiedTimelineV2, error)
-
-	// Extract comment context for processing
-	ExtractCommentContext(comment UnifiedCommentV2, timeline UnifiedTimelineV2) (*CommentContextV2, error)
-
-	// Find target comment in timeline
-	FindTargetComment(timeline UnifiedTimelineV2, commentID string) (*UnifiedCommentV2, error)
-
-	// Build enhanced prompts using unified data
-	BuildPrompt(context CommentContextV2, scenario ResponseScenarioV2) (string, error)
-}
-
 // WebhookOrchestratorV2 - Main orchestrator interface for coordinating flows
 type WebhookOrchestratorV2Interface interface {
 	// Process comment-based events

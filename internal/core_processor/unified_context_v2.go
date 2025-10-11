@@ -1,4 +1,4 @@
-package api
+package core_processor
 
 import (
 	"fmt"
@@ -8,45 +8,39 @@ import (
 	"time"
 )
 
-// Phase 7.2: Unified context builder for provider-agnostic context processing
-// Extracted from webhook_handler.go and provider-specific files
-
-// UnifiedContextBuilderV2 implements the ContextBuilderV2 interface
-type UnifiedContextBuilderV2 struct {
-	server *Server // For accessing database operations and helper functions
+// ContextBuilderV2 defines the contract for building unified context
+// components that are provider agnostic.
+type ContextBuilderV2 interface {
+	BuildTimeline(mr UnifiedMergeRequestV2, provider string) (*UnifiedTimelineV2, error)
+	ExtractCommentContext(comment UnifiedCommentV2, timeline UnifiedTimelineV2) (*CommentContextV2, error)
+	FindTargetComment(timeline UnifiedTimelineV2, commentID string) (*UnifiedCommentV2, error)
+	BuildPrompt(context CommentContextV2, scenario ResponseScenarioV2) (string, error)
 }
 
-// NewUnifiedContextBuilderV2 creates a new unified context builder instance
-func NewUnifiedContextBuilderV2(server *Server) ContextBuilderV2 {
-	return &UnifiedContextBuilderV2{
-		server: server,
-	}
+// UnifiedContextBuilderV2 implements the ContextBuilderV2 interface.
+type UnifiedContextBuilderV2 struct{}
+
+// NewUnifiedContextBuilderV2 creates a new unified context builder instance.
+func NewUnifiedContextBuilderV2() ContextBuilderV2 {
+	return &UnifiedContextBuilderV2{}
 }
 
-// BuildTimeline builds a unified timeline from MR data (provider-agnostic)
-// Extracted from buildTimeline, buildTimelineV2, buildGitHubTimeline, buildBitbucketTimeline
+// BuildTimeline builds a unified timeline from MR data (provider-agnostic).
 func (cb *UnifiedContextBuilderV2) BuildTimeline(mr UnifiedMergeRequestV2, provider string) (*UnifiedTimelineV2, error) {
 	log.Printf("[DEBUG] Building unified timeline for %s MR %s", provider, mr.ID)
 
-	// The actual implementation depends on fetching data from providers
-	// For now, we'll create a basic timeline structure that can be populated by providers
 	timeline := &UnifiedTimelineV2{
 		Items: []UnifiedTimelineItemV2{},
 	}
-
-	// This method should be called by providers after they fetch their specific data
-	// The providers will populate the timeline and then call this to unify the format
 
 	log.Printf("[DEBUG] Created empty timeline structure for population by %s provider", provider)
 	return timeline, nil
 }
 
-// BuildTimelineFromData builds a unified timeline from provided commits and comments
-// This is a helper method that providers can use to build timeline after fetching their data
+// BuildTimelineFromData builds a unified timeline from provided commits and comments.
 func (cb *UnifiedContextBuilderV2) BuildTimelineFromData(commits []UnifiedCommitV2, comments []UnifiedCommentV2) *UnifiedTimelineV2 {
 	var items []UnifiedTimelineItemV2
 
-	// Add commits to timeline
 	for _, commit := range commits {
 		createdAt := cb.parseTimeBestEffortV2(commit.Timestamp)
 		items = append(items, UnifiedTimelineItemV2{
@@ -56,9 +50,7 @@ func (cb *UnifiedContextBuilderV2) BuildTimelineFromData(commits []UnifiedCommit
 		})
 	}
 
-	// Add comments to timeline
 	for _, comment := range comments {
-		// Skip system comments
 		if comment.System {
 			continue
 		}
@@ -70,7 +62,6 @@ func (cb *UnifiedContextBuilderV2) BuildTimelineFromData(commits []UnifiedCommit
 		})
 	}
 
-	// Sort timeline by creation time
 	sort.Slice(items, func(i, j int) bool {
 		timeI := cb.parseTimeBestEffortV2(items[i].Timestamp)
 		timeJ := cb.parseTimeBestEffortV2(items[j].Timestamp)
@@ -82,8 +73,7 @@ func (cb *UnifiedContextBuilderV2) BuildTimelineFromData(commits []UnifiedCommit
 	}
 }
 
-// ExtractCommentContext extracts context around a target comment
-// Extracted from extractCommentContext, extractCommentContextV2
+// ExtractCommentContext extracts context around a target comment.
 func (cb *UnifiedContextBuilderV2) ExtractCommentContext(comment UnifiedCommentV2, timeline UnifiedTimelineV2) (*CommentContextV2, error) {
 	log.Printf("[DEBUG] Extracting context for comment %s", comment.ID)
 
@@ -98,7 +88,6 @@ func (cb *UnifiedContextBuilderV2) ExtractCommentContext(comment UnifiedCommentV
 	afterTimeline := []UnifiedTimelineItemV2{}
 	relatedComments := []UnifiedCommentV2{}
 
-	// Process timeline items to separate before/after context
 	for _, item := range timeline.Items {
 		itemTime := cb.parseTimeBestEffortV2(item.Timestamp)
 
@@ -121,7 +110,6 @@ func (cb *UnifiedContextBuilderV2) ExtractCommentContext(comment UnifiedCommentV
 				cb.truncateStringV2(item.Comment.Body, 100))
 
 			if item.Comment.ID == comment.ID {
-				// This is the target comment itself
 				beforeComments = append(beforeComments, commentLine)
 			} else if targetTime.IsZero() || !itemTime.After(targetTime) {
 				beforeComments = append(beforeComments, commentLine)
@@ -135,12 +123,10 @@ func (cb *UnifiedContextBuilderV2) ExtractCommentContext(comment UnifiedCommentV
 		}
 	}
 
-	// Limit before commits to last 8 entries (like original implementation)
 	if len(beforeCommits) > 8 {
 		beforeCommits = beforeCommits[len(beforeCommits)-8:]
 	}
 
-	// Create the context structure using the actual V2 types
 	context := &CommentContextV2{
 		MRContext: UnifiedMRContextV2{
 			Metadata: map[string]interface{}{
@@ -151,7 +137,7 @@ func (cb *UnifiedContextBuilderV2) ExtractCommentContext(comment UnifiedCommentV
 			},
 		},
 		Timeline: UnifiedTimelineV2{
-			Items: beforeTimeline, // Primary timeline with before context
+			Items: beforeTimeline,
 		},
 		RelatedComments: relatedComments,
 		Metadata: map[string]interface{}{
@@ -161,8 +147,9 @@ func (cb *UnifiedContextBuilderV2) ExtractCommentContext(comment UnifiedCommentV
 	}
 
 	return context, nil
-} // FindTargetComment locates a target comment in the timeline
-// Extracted from findTargetComment, findTargetCommentV2
+}
+
+// FindTargetComment locates a target comment in the timeline.
 func (cb *UnifiedContextBuilderV2) FindTargetComment(timeline UnifiedTimelineV2, commentID string) (*UnifiedCommentV2, error) {
 	log.Printf("[DEBUG] Finding target comment %s in timeline", commentID)
 
@@ -178,15 +165,12 @@ func (cb *UnifiedContextBuilderV2) FindTargetComment(timeline UnifiedTimelineV2,
 	return nil, fmt.Errorf("target comment %s not found in timeline", commentID)
 }
 
-// BuildPrompt builds an enhanced prompt using unified context data
-// Extracted from buildGeminiPromptEnhanced, buildGitHubEnhancedPrompt, buildBitbucketEnhancedPrompt
+// BuildPrompt builds an enhanced prompt using unified context data.
 func (cb *UnifiedContextBuilderV2) BuildPrompt(context CommentContextV2, scenario ResponseScenarioV2) (string, error) {
 	var prompt strings.Builder
 
-	// Context header
 	prompt.WriteString("You are an AI code review assistant analyzing a development discussion.\n\n")
 
-	// MR Context from metadata
 	if beforeCommits, ok := context.MRContext.Metadata["before_commits"].([]string); ok && len(beforeCommits) > 0 {
 		prompt.WriteString("**Recent Commits:**\n")
 		for _, commit := range beforeCommits {
@@ -195,7 +179,6 @@ func (cb *UnifiedContextBuilderV2) BuildPrompt(context CommentContextV2, scenari
 		prompt.WriteString("\n")
 	}
 
-	// Discussion Context from metadata
 	if beforeComments, ok := context.MRContext.Metadata["before_comments"].([]string); ok && len(beforeComments) > 0 {
 		prompt.WriteString("**Thread Context:**\n")
 		for _, comment := range beforeComments {
@@ -204,14 +187,12 @@ func (cb *UnifiedContextBuilderV2) BuildPrompt(context CommentContextV2, scenari
 		prompt.WriteString("\n")
 	}
 
-	// Code Context if available
 	if context.CodeContext != "" {
 		prompt.WriteString("**Code Context:**\n")
 		prompt.WriteString(context.CodeContext)
 		prompt.WriteString("\n\n")
 	}
 
-	// Future commits/comments for additional context
 	if afterCommits, ok := context.MRContext.Metadata["after_commits"].([]string); ok && len(afterCommits) > 0 {
 		prompt.WriteString("**Subsequent Changes:**\n")
 		for _, commit := range afterCommits {
@@ -220,7 +201,6 @@ func (cb *UnifiedContextBuilderV2) BuildPrompt(context CommentContextV2, scenari
 		prompt.WriteString("\n")
 	}
 
-	// Response guidance based on scenario
 	prompt.WriteString("**Response Guidelines:**\n")
 	switch scenario.Type {
 	case "bot_reply":
@@ -243,16 +223,14 @@ func (cb *UnifiedContextBuilderV2) BuildPrompt(context CommentContextV2, scenari
 	return prompt.String(), nil
 }
 
-// ExtractCodeContext extracts code-specific context for positioned comments
-// This is a provider-agnostic wrapper that delegates to provider-specific implementations
+// ExtractCodeContext extracts code-specific context for positioned comments.
 func (cb *UnifiedContextBuilderV2) ExtractCodeContext(comment UnifiedCommentV2, provider string) (string, error) {
 	if comment.Position == nil {
-		return "", nil // No code position, no code context
+		return "", nil
 	}
 
 	var context strings.Builder
 
-	// Basic code context information
 	context.WriteString("**Code Location:**\n")
 	context.WriteString(fmt.Sprintf("- File: %s\n", comment.Position.FilePath))
 
@@ -264,7 +242,6 @@ func (cb *UnifiedContextBuilderV2) ExtractCodeContext(comment UnifiedCommentV2, 
 		context.WriteString(fmt.Sprintf("- Type: %s\n", comment.Position.LineType))
 	}
 
-	// Additional context from metadata if available
 	if metadata := comment.Metadata; metadata != nil {
 		if diffHunk, ok := metadata["diff_hunk"].(string); ok && diffHunk != "" {
 			context.WriteString("\n**Diff Context:**\n```diff\n")
@@ -274,7 +251,6 @@ func (cb *UnifiedContextBuilderV2) ExtractCodeContext(comment UnifiedCommentV2, 
 
 		if fileContent, ok := metadata["file_content"].(string); ok && fileContent != "" {
 			context.WriteString("\n**File Content:**\n```\n")
-			// Limit file content to reasonable size
 			if len(fileContent) > 1000 {
 				context.WriteString(fileContent[:1000])
 				context.WriteString("\n... (content truncated)\n")
@@ -288,16 +264,11 @@ func (cb *UnifiedContextBuilderV2) ExtractCodeContext(comment UnifiedCommentV2, 
 	return context.String(), nil
 }
 
-// Helper methods (extracted from various files)
-
-// parseTimeBestEffortV2 parses timestamp with best effort approach
-// Extracted from parseTimeBestEffort, parseTimeBestEffortV2
 func (cb *UnifiedContextBuilderV2) parseTimeBestEffortV2(timestamp string) time.Time {
 	if timestamp == "" {
 		return time.Time{}
 	}
 
-	// Try different timestamp formats
 	formats := []string{
 		time.RFC3339,
 		time.RFC3339Nano,
@@ -317,8 +288,6 @@ func (cb *UnifiedContextBuilderV2) parseTimeBestEffortV2(timestamp string) time.
 	return time.Now()
 }
 
-// shortSHAV2 returns a short version of a commit SHA
-// Extracted from shortSHA, shortSHAV2
 func (cb *UnifiedContextBuilderV2) shortSHAV2(sha string) string {
 	if len(sha) >= 8 {
 		return sha[:8]
@@ -326,7 +295,6 @@ func (cb *UnifiedContextBuilderV2) shortSHAV2(sha string) string {
 	return sha
 }
 
-// truncateStringV2 truncates a string to maxLength with ellipsis
 func (cb *UnifiedContextBuilderV2) truncateStringV2(s string, maxLength int) string {
 	if len(s) <= maxLength {
 		return s
@@ -334,8 +302,6 @@ func (cb *UnifiedContextBuilderV2) truncateStringV2(s string, maxLength int) str
 	return s[:maxLength-3] + "..."
 }
 
-// firstNonEmptyV2 returns the first non-empty string from the provided strings
-// Extracted from firstNonEmpty, firstNonEmptyV2
 func (cb *UnifiedContextBuilderV2) firstNonEmptyV2(strings ...string) string {
 	for _, s := range strings {
 		if s != "" {
@@ -345,7 +311,6 @@ func (cb *UnifiedContextBuilderV2) firstNonEmptyV2(strings ...string) string {
 	return ""
 }
 
-// minV2 returns the minimum of two integers
 func (cb *UnifiedContextBuilderV2) minV2(a, b int) int {
 	if a < b {
 		return a
@@ -353,17 +318,13 @@ func (cb *UnifiedContextBuilderV2) minV2(a, b int) int {
 	return b
 }
 
-// Advanced context analysis methods
-
-// AnalyzeCommentThread analyzes the context of a comment thread for better understanding
+// AnalyzeCommentThread analyzes the context of a comment thread for better understanding.
 func (cb *UnifiedContextBuilderV2) AnalyzeCommentThread(comment UnifiedCommentV2, relatedComments []UnifiedCommentV2) map[string]interface{} {
 	analysis := make(map[string]interface{})
 
-	// Thread statistics
-	analysis["thread_length"] = len(relatedComments) + 1 // +1 for the target comment
+	analysis["thread_length"] = len(relatedComments) + 1
 	analysis["is_continuation"] = len(relatedComments) > 0
 
-	// Participant analysis
 	participants := make(map[string]bool)
 	participants[comment.Author.Username] = true
 
@@ -374,7 +335,6 @@ func (cb *UnifiedContextBuilderV2) AnalyzeCommentThread(comment UnifiedCommentV2
 	analysis["participant_count"] = len(participants)
 	analysis["is_multi_participant"] = len(participants) > 2
 
-	// Content analysis
 	hasQuestions := strings.Contains(strings.ToLower(comment.Body), "?")
 	for _, related := range relatedComments {
 		if strings.Contains(strings.ToLower(related.Body), "?") {
@@ -384,7 +344,6 @@ func (cb *UnifiedContextBuilderV2) AnalyzeCommentThread(comment UnifiedCommentV2
 	}
 	analysis["has_questions"] = hasQuestions
 
-	// Urgency indicators
 	urgentKeywords := []string{"urgent", "asap", "immediately", "critical", "blocking"}
 	hasUrgency := false
 
@@ -400,28 +359,15 @@ func (cb *UnifiedContextBuilderV2) AnalyzeCommentThread(comment UnifiedCommentV2
 	return analysis
 }
 
-// BuildEnhancedContext builds enhanced context with timeline analysis
+// BuildEnhancedContext provides additional context analysis for advanced prompts.
 func (cb *UnifiedContextBuilderV2) BuildEnhancedContext(comment UnifiedCommentV2, timeline UnifiedTimelineV2) (*CommentContextV2, error) {
-	// First get basic context
-	basicContext, err := cb.ExtractCommentContext(comment, timeline)
+	context, err := cb.ExtractCommentContext(comment, timeline)
 	if err != nil {
 		return nil, err
 	}
 
-	// Enhance with code context
-	codeContext, err := cb.ExtractCodeContext(comment, "unified")
-	if err != nil {
-		log.Printf("[WARN] Failed to extract code context: %v", err)
-		codeContext = ""
-	}
-	basicContext.CodeContext = codeContext
+	analysis := cb.AnalyzeCommentThread(comment, context.RelatedComments)
+	context.Metadata["analysis"] = analysis
 
-	// Add thread analysis
-	threadAnalysis := cb.AnalyzeCommentThread(comment, basicContext.RelatedComments)
-	if basicContext.MRContext.Metadata == nil {
-		basicContext.MRContext.Metadata = make(map[string]interface{})
-	}
-	basicContext.MRContext.Metadata["thread_analysis"] = threadAnalysis
-
-	return basicContext, nil
+	return context, nil
 }

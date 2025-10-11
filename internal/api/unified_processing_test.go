@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	coreprocessor "github.com/livereview/internal/core_processor"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -136,7 +137,7 @@ func TestUnifiedProcessorV2(t *testing.T) {
 		}
 
 		// This will test the processing pipeline (might need mock AI service)
-		response, learning, err := processor.ProcessCommentReply(ctx, event, timeline)
+		response, learning, err := processor.ProcessCommentReply(ctx, event, timeline, 0)
 
 		// Should not error even if AI service unavailable (fallback response)
 		assert.NoError(t, err)
@@ -150,8 +151,7 @@ func TestUnifiedProcessorV2(t *testing.T) {
 }
 
 func TestUnifiedContextBuilderV2(t *testing.T) {
-	server := &Server{}
-	builder := NewUnifiedContextBuilderV2(server)
+	builder := coreprocessor.NewUnifiedContextBuilderV2()
 	require.NotNil(t, builder)
 
 	t.Run("BuildTimeline", func(t *testing.T) {
@@ -367,7 +367,7 @@ func TestProcessingPipeline(t *testing.T) {
 
 	// Initialize all components
 	processor := NewUnifiedProcessorV2(server)
-	contextBuilder := NewUnifiedContextBuilderV2(server)
+	contextBuilder := coreprocessor.NewUnifiedContextBuilderV2()
 	learningProcessor := NewLearningProcessorV2(server)
 
 	require.NotNil(t, processor)
@@ -413,7 +413,7 @@ func TestProcessingPipeline(t *testing.T) {
 			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 			defer cancel()
 
-			response, learning, err := processor.ProcessCommentReply(ctx, event, timeline)
+			response, learning, err := processor.ProcessCommentReply(ctx, event, timeline, 0)
 			assert.NoError(t, err)
 			assert.NotEmpty(t, response)
 
@@ -440,7 +440,7 @@ func TestErrorHandling(t *testing.T) {
 	})
 
 	t.Run("ContextBuilderWithEmptyData", func(t *testing.T) {
-		builder := NewUnifiedContextBuilderV2(server)
+		builder := coreprocessor.NewUnifiedContextBuilderV2()
 
 		// Test with minimal MR data
 		mr := UnifiedMergeRequestV2{

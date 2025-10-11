@@ -1,7 +1,13 @@
 # LiveReview Phase 1: Detailed Step-by-Step Implementation Plan
 
 ## Overview
-Phase 1 focuses on **Architectural Folder Restructuring** to achieve clean separation of concerns and avoid circular imports. Each step group ensures `make build` continues to work, providing an incremental, safe refactoring path.
+Phase 1 focuses on **incremental architectural separation** of the unified pipeline into three packages:
+
+1. `internal/provider_input` – everything required to detect provider webhooks and fetch additional platform data ("fetch/input")
+2. `internal/core_processor` – provider-agnostic processing logic ("process")
+3. `internal/provider_output` – anything that posts data back to providers ("post/output")
+
+Every change must end with a successful `make build` from the repo root. If a step fails, stop, revert that step, and adjust before proceeding. Each step group below is intentionally small to avoid the circular dependency traps we hit previously.
 
 ## Current State Analysis (ACTUAL STATE)
 - ❌ All refactor changes have been reverted
@@ -45,404 +51,168 @@ internal/
 
 ---
 
-## Step Group 1: Current State Analysis and Build Verification
-**Goal**: Understand what files need to be moved and verify current build state  
-**Risk**: 🟢 **ZERO** - Read-only analysis  
-**Verification**: `make build` (should work unchanged)
+## Step Group 1: Current State and Guardrails
+**Goal**: Capture baseline state and reaffirm guardrails**  
+**Risk**: 🟢 **ZERO** – Read-only analysis  
+**Verification**: `make build`
 
-### Step 1.1: Verify Current Build State
+### Step 1.1: Baseline Build
 ```bash
 make build
-# Should succeed - this is our baseline
+# Must succeed before making any structural change
 ```
 
-### Step 1.2: Analyze Files That Need to Move (ACTUAL ANALYSIS)
-**Current files confirmed to exist in `internal/api/`**:
+### Step 1.2: Snapshot of Files to Rehome (ACTUAL STATE)
+All files listed below currently live in `internal/api/`:
 
-**Core Processing Files (→ internal/core_processor/)**:
-- ✅ `unified_processor_v2.go` (26,686 bytes) - Main unified processing logic  
-- ✅ `unified_context_v2.go` (14,159 bytes) - Context building for processing
-- ✅ `unified_types.go` (5,729 bytes) - Unified data types
-- ✅ `unified_processing_test.go` (13,074 bytes) - Core processing tests
+**Core processor candidates (→ `internal/core_processor/`):**
+- `unified_types.go`
+- `unified_context_v2.go`
+- `unified_processor_v2.go`
+- `unified_processing_test.go`
 
-**Provider Files (→ internal/provider_input/)**:
-- ✅ `github_provider_v2.go` (41,050 bytes) → `internal/provider_input/github/`
-- ✅ `gitlab_provider_v2.go` (65,833 bytes) → `internal/provider_input/gitlab/`  
-- ✅ `bitbucket_provider_v2.go` (24,286 bytes) → `internal/provider_input/bitbucket/`
-- ✅ `github_profile.go` (1,828 bytes) → `internal/provider_input/github/`
-- ✅ `gitlab_profile.go` (1,742 bytes) → `internal/provider_input/gitlab/`
-- ✅ `gitlab_auth.go` (16,634 bytes) → `internal/provider_input/gitlab/`
-- ✅ `bitbucket_profile.go` (4,034 bytes) → `internal/provider_input/bitbucket/`
+**Provider input candidates (→ `internal/provider_input/<provider>/`):**
+- `github_provider_v2.go`
+- `gitlab_provider_v2.go`
+- `bitbucket_provider_v2.go`
+- `github_profile.go`
+- `gitlab_profile.go`
+- `gitlab_auth.go`
+- `bitbucket_profile.go`
 
-**Additional Core Files That Should Stay in API**:
-- `webhook_interfaces.go` - Interface definitions for orchestration
-- `learning_processor_v2.go` - Learning extraction (stays in API layer)
-- `webhook_orchestrator_v2.go` - Flow orchestration (stays in API layer)  
-- `webhook_registry_v2.go` - Provider registry (stays in API layer)
+**Provider output candidates (→ `internal/provider_output/<provider>/`):**
+- Posting helpers currently embedded in each `*_provider_v2.go` file (will be split out later in the phase)
 
-### Step 1.3: Identify Import Dependencies (ACTUAL RESULTS)
-**Current internal/api imports found: 9 total imports in 7 files**
+**Stay in `internal/api/`:**
+- `webhook_interfaces.go`
+- `webhook_handler.go`
+- `webhook_orchestrator_v2.go`
+- `webhook_registry_v2.go`
+- `learning_processor_v2.go`
 
-**Files that currently import from internal/api**:
-- `internal/api/users/handlers.go`
-- `internal/api/users/profile_handlers.go`  
-- `internal/api/prompts.go`
-- `internal/api/organizations/org_handlers.go`
-- `internal/api/tests/connectors_test.go`
-- `internal/api/server.go`
-- `internal/api/handlers/prompts.go`
-
-**Risk Assessment**: Only 7 files have internal/api imports, making this refactor low-risk since most dependencies are contained within the api package itself.
+### Step 1.3: Import Inventory (ACTUAL RESULTS)
+There are 9 external packages importing `internal/api`, mainly inside the same module (`internal/api/users/...`, `internal/api/server.go`, etc.). This keeps the blast radius small but we must avoid introducing `internal/api` → `core_processor` → `internal/api` cycles while moving code.
 
 ---
 
-## Step Group 2: Move Core Processing Files 
-**Goal**: Move unified processing files to core_processor package  
-**Risk**: � **LOW** - File movement with package/import updates  
-**Verification**: `make build` after each file move
+## Step Group 2: Carve Out Core Types and Processor
+**Goal**: Move the truly provider-agnostic pieces first so that providers can depend on them without pulling in `internal/api`.  
+**Risk**: 🟡 **LOW** – compile-time enforced.  
+**Verification**: `make build` after every bullet.
 
-### Step 2.1: Move Unified Types (Foundation)
-Move types first since everything depends on them:
-```bash
-# Move the file
-mv internal/api/unified_types.go internal/core_processor/
+### Step 2.1: Create the `core_processor` package boundary
+- Add `package coreprocessor` (temporary bridge) files that re-export the existing types as type aliases. This keeps callers compiling while we relocate actual files.  
+- `make build`
 
-# Update package declaration
-sed -i 's/^package api$/package core_processor/' internal/core_processor/unified_types.go
-```
+### Step 2.2: Move `unified_types.go`
+- Physically move `unified_types.go` to `internal/core_processor/` and switch its package declaration to `core_processor`.  
+- Update imports in dependent files from `internal/api` to `internal/core_processor`.  
+- Remove any temporary type aliases once all references compile.  
+- `make build`
 
-**Update imports in moved file**:
-- Remove any `github.com/livereview/internal/api` self-imports
-- Keep external imports unchanged
+### Step 2.3: Move `unified_context_v2.go`
+- Relocate the file, adjust package, and point its imports at the new `core_processor` types.  
+- Update all call sites (Go compiler ensures completeness).  
+- `make build`
 
-**Verification**:
-```bash
-make build
-# May fail due to other files still importing from api - that's expected
-```
+### Step 2.4: Move `unified_processor_v2.go` and test file
+- Move both production and test files.  
+- Update imports in the orchestrator, registry, or any other users.  
+- `make build`
 
-### Step 2.2: Move Unified Context Builder
-```bash
-mv internal/api/unified_context_v2.go internal/core_processor/
-sed -i 's/^package api$/package core_processor/' internal/core_processor/unified_context_v2.go
-```
-
-**Update imports in moved file**:
-- Change `"github.com/livereview/internal/api"` to `"github.com/livereview/internal/core_processor"` if needed
-
-### Step 2.3: Move Unified Processor
-```bash
-mv internal/api/unified_processor_v2.go internal/core_processor/
-sed -i 's/^package api$/package core_processor/' internal/core_processor/unified_processor_v2.go
-```
-
-### Step 2.4: Move Core Processing Tests
-```bash
-mv internal/api/unified_processing_test.go internal/core_processor/
-sed -i 's/^package api$/package core_processor/' internal/core_processor/unified_processing_test.go
-```
-
-**Verification**:
-```bash
-make build
-# Will likely fail - need to update imports next
-```
+### Step 2.5: Delete temporary bridge aliases (if any remain)
+- Once everything compiles, drop the bridging file(s).  
+- `make build`
 
 ---
 
-## Step Group 3: Update Imports for Core Processor Files
-**Goal**: Fix all import statements to use core_processor package  
-**Risk**: 🟡 **LOW** - Compile-time safety catches all issues  
-**Verification**: `make build` succeeds
+## Step Group 3: Stabilize `api` → `core_processor` Dependencies
+**Goal**: Ensure all references point from `api` to `core_processor` with no cycles.  
+**Risk**: 🟡 **LOW** – compiler guarantees catch missing changes.  
+**Verification**: `make build`
 
-### Step 3.1: Update Files That Import Core Processing Types
-Find and update all files that import core processing components:
-```bash
-# Find files that need import updates
-grep -r "github.com/livereview/internal/api" internal/ --include="*.go" -l
-```
-
-**For each file found, update imports**:
-```go
-// OLD import (remove or update):
-"github.com/livereview/internal/api"
-
-// NEW import (add if needed):
-"github.com/livereview/internal/core_processor"
-```
-
-**Key files that will need updates**:
-- `internal/api/webhook_orchestrator_v2.go`
-- `internal/api/learning_processor_v2.go`
-- `internal/api/webhook_registry_v2.go`
-- `internal/api/server.go`
-- Any other files using `UnifiedWebhookEventV2`, `UnifiedProcessorV2`, etc.
-
-### Step 3.2: Update Type References
-For each file updated in 3.1, change type references:
-```go
-// OLD type references:
-api.UnifiedWebhookEventV2
-api.UnifiedProcessorV2
-api.UnifiedContextBuilderV2
-
-// NEW type references:
-core_processor.UnifiedWebhookEventV2
-core_processor.UnifiedProcessorV2
-core_processor.UnifiedContextBuilderV2
-```
-
-**Verification**:
-```bash
-make build
-# Should succeed with core_processor files properly imported
-```
+- Use `go list -deps` or `go list ./...` to confirm there is no reverse import from `core_processor` back into `internal/api`.  
+- Update any lingering helper references (e.g., logging wrappers) so `core_processor` depends only on standard library + `internal` packages that do **not** pull `api` back in.  
+- `make build`
 
 ---
 
-## Step Group 4: Move Provider Files to provider_input
-**Goal**: Move provider-specific files to their own packages  
-**Risk**: 🟡 **LOW** - File movement with package/import updates  
-**Verification**: `make build` after each provider
+## Step Group 4: Provider Input (Fetch) Extraction
+**Goal**: Relocate provider detection + fetch code into independent packages without yet touching posting logic.  
+**Risk**: 🟡 **LOW** – large files but mechanical moves.  
+**Verification**: `make build` after **each provider**.
 
-### Step 4.1: Move GitHub Provider Files
-```bash
-# Move GitHub provider files
-mv internal/api/github_provider_v2.go internal/provider_input/github/
-mv internal/api/github_profile.go internal/provider_input/github/
+### Step 4.1: Introduce provider-specific packages
+- Create `internal/provider_input/github`, `.../gitlab`, `.../bitbucket` packages with new package names.  
+- Start with **single provider at a time** (GitHub → GitLab → Bitbucket).  
+- For each provider: move `*_profile.go` first (pure helpers), adjust imports, run `make build`.  
+- Then move the corresponding `*_provider_v2.go`, adjust imports, run `make build` again.
 
-# Update package declarations
-sed -i 's/^package api$/package github/' internal/provider_input/github/github_provider_v2.go
-sed -i 's/^package api$/package github/' internal/provider_input/github/github_profile.go
-```
-
-**Update imports in moved files**:
-- Change `"github.com/livereview/internal/api"` to `"github.com/livereview/internal/core_processor"` for core types
-- Keep other imports unchanged
-
-### Step 4.2: Move GitLab Provider Files  
-```bash
-# Move GitLab provider files
-mv internal/api/gitlab_provider_v2.go internal/provider_input/gitlab/
-mv internal/api/gitlab_profile.go internal/provider_input/gitlab/
-mv internal/api/gitlab_auth.go internal/provider_input/gitlab/
-
-# Update package declarations
-sed -i 's/^package api$/package gitlab/' internal/provider_input/gitlab/gitlab_provider_v2.go
-sed -i 's/^package api$/package gitlab/' internal/provider_input/gitlab/gitlab_profile.go
-sed -i 's/^package api$/package gitlab/' internal/provider_input/gitlab/gitlab_auth.go
-```
-
-### Step 4.3: Move Bitbucket Provider Files
-```bash
-# Move Bitbucket provider files
-mv internal/api/bitbucket_provider_v2.go internal/provider_input/bitbucket/
-mv internal/api/bitbucket_profile.go internal/provider_input/bitbucket/
-
-# Update package declarations  
-sed -i 's/^package api$/package bitbucket/' internal/provider_input/bitbucket/bitbucket_provider_v2.go
-sed -i 's/^package api$/package bitbucket/' internal/provider_input/bitbucket/bitbucket_profile.go
-```
-
-**Verification**:
-```bash
-make build
-# Will likely fail - need to update imports next
-```
+### Step 4.2: Update registry wiring after each provider move
+- Update `internal/api/webhook_registry_v2.go` (and other orchestrators) to import the new packages.  
+- Ensure the new packages depend only on `core_processor` (and shared utilities), not `internal/api`.  
+- `make build`
 
 ---
 
-## Step Group 5: Update Imports for Provider Files
-**Goal**: Fix all import statements to use new provider packages  
-**Risk**: 🟡 **LOW** - Compile-time safety catches all issues  
-**Verification**: `make build` succeeds
+## Step Group 5: Provider Output Separation (Post)
+**Goal**: Extract the posting logic into `internal/provider_output/<provider>` packages.  
+**Risk**: 🟡 **LOW** – but watch for shared helpers.  
+**Verification**: `make build` per provider.
 
-### Step 5.1: Update API Files That Import Providers
-Find and update files that import provider components:
-
-**Files to update**:
-- `internal/api/webhook_registry_v2.go`
-- `internal/api/webhook_orchestrator_v2.go`
-- `internal/api/server.go`
-
-**For each file, update imports**:
-```go
-// OLD imports (remove these):
-// No specific provider imports from api package
-
-// NEW imports (add these):
-"github.com/livereview/internal/provider_input/github"
-"github.com/livereview/internal/provider_input/gitlab"
-"github.com/livereview/internal/provider_input/bitbucket"
-```
-
-### Step 5.2: Update Provider Constructor Calls
-In files like `webhook_registry_v2.go`, update provider instantiation:
-```go
-// OLD constructor calls:
-NewGitHubV2Provider(server)
-NewGitLabV2Provider(server)  
-NewBitbucketV2Provider(server)
-
-// NEW constructor calls:
-github.NewGitHubV2Provider(server)
-gitlab.NewGitLabV2Provider(server)
-bitbucket.NewBitbucketV2Provider(server)
-```
-
-### Step 5.3: Update Type References
-Update any direct references to provider types:
-```go
-// OLD type references:
-*GitHubV2Provider
-*GitLabV2Provider
-*BitbucketV2Provider
-
-// NEW type references:
-*github.GitHubV2Provider
-*gitlab.GitLabV2Provider  
-*bitbucket.BitbucketV2Provider
-```
-
-**Verification**:
-```bash
-make build
-# Should succeed with all provider files properly imported
-```
+- For each provider, move functions that perform HTTP POSTs/API calls into a new `provider_output` package.  
+- Wire the provider input package to depend on provider output via interfaces (defined in `internal/api/webhook_interfaces.go` or a new shared location) to avoid import cycles.  
+- Update orchestrator/registry to construct both input + output components.  
+- `make build`
 
 ---
 
-## Step Group 6: Final Integration and Testing
-**Goal**: Ensure everything works together and no circular imports exist  
-**Risk**: 🟡 **LOW** - Final integration testing  
-**Verification**: `make build` + `make test` + functionality verification
+## Step Group 6: Integration Hardening
+**Goal**: Confirm the new package boundaries are stable and all consumers are updated.  
+**Risk**: � **LOW**  
+**Verification**: `make build`, `make test`.
 
-### Step 6.1: Update Remaining Import References
-Search for any remaining references to old import paths:
-```bash
-# Find any remaining api imports for moved files
-grep -r "github.com/livereview/internal/api" internal/ --include="*.go" | grep -E "(Unified|GitHub|GitLab|Bitbucket)" || echo "No remaining imports found"
-```
-
-Fix any found imports following the patterns from previous steps.
-
-### Step 6.2: Verify No Circular Imports
-```bash
-# Check for circular import issues
-go list -f '{{.ImportPath}} -> {{join .Imports " "}}' ./internal/... | grep -E "(core_processor|provider_input)" || echo "No circular imports found"
-```
-
-### Step 6.3: Run Full Build and Test Suite
-```bash
-make build
-# Should succeed with new architecture
-
-make test
-# Should pass all tests
-```
-
-### Step 6.4: Test Key Functionality
-```bash
-# Test that the binary runs
-./livereview --help
-
-# Test basic API functionality (if possible)
-./livereview api --help
-```
+- Search for lingering `internal/api` imports that reference moved symbols and update the import path.  
+- Run `go list ./...` to catch any new circular dependency warnings.  
+- Execute `make build` and `make test` after each batch of import fixes.  
+- Verify `./livereview --help` still works.
 
 ---
 
-## Step Group 7: Documentation and Verification
-**Goal**: Document new structure and verify everything works  
-**Risk**: 🟢 **ZERO** - Documentation and verification only  
-**Verification**: Complete Phase 1 success criteria
+## Step Group 7: Documentation + Final Checks
+**Goal**: Capture the new structure and ensure the workspace reflects it.  
+**Risk**: 🟢 **ZERO**  
+**Verification**: `make build`
 
-### Step 7.1: Verify Final File Structure
-Confirm the target architecture is achieved:
-```bash
-# Check that files are in correct locations
-ls internal/core_processor/
-ls internal/provider_input/github/
-ls internal/provider_input/gitlab/
-ls internal/provider_input/bitbucket/
-```
-
-Expected output:
-```
-internal/core_processor/:
-unified_processor_v2.go
-unified_context_v2.go  
-unified_types.go
-unified_processing_test.go
-
-internal/provider_input/github/:
-github_provider_v2.go
-github_profile.go
-
-internal/provider_input/gitlab/:
-gitlab_provider_v2.go
-gitlab_profile.go
-gitlab_auth.go
-
-internal/provider_input/bitbucket/:
-bitbucket_provider_v2.go
-bitbucket_profile.go
-```
-
-### Step 7.2: Update Documentation
-Update `internal/api/README.md` to reflect new structure:
-```markdown
-# API Package Structure
-
-This package contains the HTTP API layer for LiveReview. It orchestrates
-requests between the core processing engine and provider input layer.
-
-## Dependencies:
-- `internal/core_processor/` - Core processing logic (zero platform awareness)
-- `internal/provider_input/` - Provider-specific input handling
-- External HTTP framework (echo)
-
-## Responsibilities:
-- HTTP endpoint definitions
-- Request/response serialization  
-- Flow orchestration between layers
-- Authentication and authorization
-```
-
-### Step 7.3: Final Build and Functionality Verification
-```bash
-make build
-./livereview --version
-# Should build and run successfully with new architecture
-```
+- Document the new boundaries in `internal/api/README.md` (and/or `processor_design.md`).  
+- Snapshot final tree (`tree -L 2 internal/core_processor internal/provider_input internal/provider_output`).  
+- `make build`
 
 ---
 
 ## Phase 1 Success Criteria
 
 ### ✅ Architecture Compliance
-- [ ] Core processing has zero platform-specific imports
-- [ ] Provider logic is contained within provider folders
-- [ ] No circular imports exist between packages
-- [ ] Clear separation of concerns maintained
+- [ ] `internal/core_processor` exposes only provider-agnostic logic and imports no provider-specific packages.
+- [ ] `internal/provider_input/<provider>` imports `internal/core_processor` but not `internal/api`.
+- [ ] `internal/provider_output/<provider>` handles provider posting without referencing `internal/api`.
+- [ ] No circular dependency cycles per `go list ./...`.
 
 ### ✅ Build Stability
-- [ ] `make build` succeeds at every step
-- [ ] No compile-time errors or warnings
-- [ ] All tests pass with new structure
-- [ ] Integration tests work with restructured code
+- [ ] `make build` passes after each bullet above.  
+- [ ] `make test` passes after Step Groups 2, 4, and 5.  
+- [ ] CLI sanity checks (`./livereview --help`) continue to run.
 
 ### ✅ Functionality Preservation  
-- [ ] All webhook processing continues to work
-- [ ] Provider detection and routing functions correctly
-- [ ] Core processing generates responses as before
-- [ ] Profile management APIs remain functional
+- [ ] Webhook detection + conversion remains unchanged (verified via tests or manual payloads).  
+- [ ] Unified processor behavior matches baseline responses.  
+- [ ] Posting flows still reach GitHub/GitLab/Bitbucket APIs via provider output packages.
 
 ### ✅ Maintainability Improvements
-- [ ] Clear folder structure makes adding new providers easy
-- [ ] Interface boundaries are well-defined and documented
-- [ ] Dependencies flow in one direction (no cycles)
-- [ ] Code is easier to understand and modify
+- [ ] Folder layout reflects fetch/process/post separation.  
+- [ ] Interfaces document responsibilities between packages.  
+- [ ] Adding a new provider follows the same three-package blueprint.  
+- [ ] No fallback logic introduced.
 
 ---
 
