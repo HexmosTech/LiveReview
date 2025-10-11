@@ -19,14 +19,25 @@ type (
 	UnifiedReviewCommentV2 = coreprocessor.UnifiedReviewCommentV2
 )
 
+// GitHubOutputClient captures the outbound capabilities required by the provider.
+type GitHubOutputClient interface {
+	PostCommentReply(event *UnifiedWebhookEventV2, token, content string) error
+	PostEmojiReaction(event *UnifiedWebhookEventV2, token, emoji string) error
+	PostReviewComments(mr UnifiedMergeRequestV2, token string, comments []UnifiedReviewCommentV2) error
+}
+
 // GitHubV2Provider implements webhook provider behaviour for GitHub.
 type GitHubV2Provider struct {
-	db *sql.DB
+	db     *sql.DB
+	output GitHubOutputClient
 }
 
 // NewGitHubV2Provider creates a GitHub provider with the required dependencies.
-func NewGitHubV2Provider(db *sql.DB) *GitHubV2Provider {
-	return &GitHubV2Provider{db: db}
+func NewGitHubV2Provider(db *sql.DB, output GitHubOutputClient) *GitHubV2Provider {
+	if output == nil {
+		panic("github output client is required")
+	}
+	return &GitHubV2Provider{db: db, output: output}
 }
 
 // ProviderName returns the provider name.
@@ -133,7 +144,7 @@ func (p *GitHubV2Provider) PostCommentReply(event *UnifiedWebhookEventV2, conten
 		return fmt.Errorf("failed to get GitHub token: %w", err)
 	}
 
-	return PostGitHubCommentReplyV2(event, token.PatToken, content)
+	return p.output.PostCommentReply(event, token.PatToken, content)
 }
 
 // PostEmojiReaction posts an emoji reaction to a GitHub comment.
@@ -147,7 +158,7 @@ func (p *GitHubV2Provider) PostEmojiReaction(event *UnifiedWebhookEventV2, emoji
 		return fmt.Errorf("failed to get GitHub token: %w", err)
 	}
 
-	return PostGitHubCommentReactionV2(event, token.PatToken, emoji)
+	return p.output.PostEmojiReaction(event, token.PatToken, emoji)
 }
 
 // PostFullReview posts a comprehensive review to a GitHub PR.
@@ -162,7 +173,7 @@ func (p *GitHubV2Provider) PostFullReview(event *UnifiedWebhookEventV2, overallC
 	}
 
 	if overallComment != "" {
-		if err := PostGitHubCommentReplyV2(event, token.PatToken, overallComment); err != nil {
+		if err := p.output.PostCommentReply(event, token.PatToken, overallComment); err != nil {
 			return fmt.Errorf("failed to post overall review comment: %w", err)
 		}
 	}
@@ -293,29 +304,5 @@ func (p *GitHubV2Provider) PostReviewComments(mr UnifiedMergeRequestV2, comments
 		return fmt.Errorf("failed to get GitHub token: %w", err)
 	}
 
-	parts := strings.Split(repoFullName, "/")
-	if len(parts) != 2 {
-		return fmt.Errorf("invalid repository full name: %s", repoFullName)
-	}
-	owner, repo := parts[0], parts[1]
-
-	for _, comment := range comments {
-		apiURL := fmt.Sprintf("https://api.github.com/repos/%s/%s/pulls/%d/comments",
-			owner, repo, mr.Number)
-
-		requestBody := map[string]interface{}{
-			"body": fmt.Sprintf("**%s** (%s)\n\n%s",
-				comment.Severity, comment.Category, comment.Content),
-			"path":      comment.FilePath,
-			"line":      comment.LineNumber,
-			"side":      "RIGHT",
-			"commit_id": mr.Metadata["head_sha"],
-		}
-
-		if err := PostToGitHubAPIV2(apiURL, token.PatToken, requestBody); err != nil {
-			return fmt.Errorf("failed to post review comment: %w", err)
-		}
-	}
-
-	return nil
+	return p.output.PostReviewComments(mr, token.PatToken, comments)
 }

@@ -5,6 +5,7 @@ description = "Add your description here"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
+    "flask>=3.1.2",
     "playwright>=1.55.0",
     "pytest-playwright>=0.7.1",
     "pytest>=8.4.2",
