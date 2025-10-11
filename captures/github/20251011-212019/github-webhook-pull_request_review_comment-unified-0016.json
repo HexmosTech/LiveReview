@@ -1,0 +1,86 @@
+{
+  "EventType": "comment_created",
+  "Provider": "github",
+  "Timestamp": "2025-10-11T15:50:50Z",
+  "Repository": {
+    "ID": "1025461473",
+    "Name": "glabmig",
+    "FullName": "livereviewbot/glabmig",
+    "WebURL": "https://github.com/livereviewbot/glabmig",
+    "CloneURL": "",
+    "DefaultBranch": "",
+    "Owner": {
+      "ID": "222574465",
+      "Username": "livereviewbot",
+      "Name": "",
+      "Email": "",
+      "AvatarURL": "https://avatars.githubusercontent.com/u/222574465?v=4",
+      "WebURL": "https://github.com/livereviewbot",
+      "Metadata": null
+    },
+    "Metadata": null
+  },
+  "MergeRequest": {
+    "ID": "2732497780",
+    "Number": 2,
+    "Title": "attempt to find a suitable base commit from which to branch when scaf…",
+    "Description": "…folding a PR branch, should now handle merge commits",
+    "State": "open",
+    "Author": {
+      "ID": "796107",
+      "Username": "shrsv",
+      "Name": "",
+      "Email": "",
+      "AvatarURL": "https://avatars.githubusercontent.com/u/796107?v=4",
+      "WebURL": "https://github.com/shrsv",
+      "Metadata": null
+    },
+    "SourceBranch": "somethingnew",
+    "TargetBranch": "main",
+    "WebURL": "https://github.com/livereviewbot/glabmig/pull/2",
+    "CreatedAt": "2025-08-09T09:09:01Z",
+    "UpdatedAt": "2025-10-11T15:50:50Z",
+    "Reviewers": null,
+    "Assignees": null,
+    "Labels": null,
+    "Metadata": null
+  },
+  "Comment": {
+    "ID": "2422974811",
+    "Body": "Without more context, it's hard to know exactly what \"they\" refers to. Could you please clarify which elements you're asking about when you say \"Why are they mutually exclusive?\" Providing the specific lines of code or the concepts you're referring to will help me give you a more accurate and helpful explanation.\n",
+    "Author": {
+      "ID": "222574465",
+      "Username": "livereviewbot",
+      "Name": "",
+      "Email": "",
+      "AvatarURL": "https://avatars.githubusercontent.com/u/222574465?v=4",
+      "WebURL": "https://github.com/livereviewbot",
+      "Metadata": null
+    },
+    "CreatedAt": "2025-10-11T15:50:50Z",
+    "UpdatedAt": "2025-10-11T15:50:50Z",
+    "WebURL": "https://github.com/livereviewbot/glabmig/pull/2#discussion_r2422974811",
+    "InReplyToID": "2422970333",
+    "Position": {
+      "FilePath": "main.go",
+      "LineNumber": 183,
+      "LineType": "",
+      "StartLine": null,
+      "EndLine": null,
+      "Metadata": null
+    },
+    "DiscussionID": null,
+    "System": false,
+    "Metadata": null
+  },
+  "ReviewerChange": null,
+  "Actor": {
+    "ID": "222574465",
+    "Username": "livereviewbot",
+    "Name": "",
+    "Email": "",
+    "AvatarURL": "https://avatars.githubusercontent.com/u/222574465?v=4",
+    "WebURL": "https://github.com/livereviewbot",
+    "Metadata": null
+  }
+}

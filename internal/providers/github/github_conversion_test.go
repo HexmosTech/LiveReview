@@ -59,6 +59,34 @@ func TestGitHubUnifiedTimelineReplayMatchesGolden(t *testing.T) {
 	require.Equal(t, expected, *timeline)
 }
 
+func TestGitHubUnifiedTimelineIncludesReplyThread(t *testing.T) {
+	t.Parallel()
+
+	events := readUnifiedEventsFixture(t, "github-webhook-unified-events-thread-0002.json")
+	require.Len(t, events.Events, 2)
+
+	var comments []coreprocessor.UnifiedCommentV2
+	for idx, event := range events.Events {
+		require.NotNilf(t, event.Comment, "event %d missing comment", idx)
+		require.NotNilf(t, event.Comment.InReplyToID, "event %d missing InReplyTo pointer", idx)
+		comments = append(comments, *event.Comment)
+	}
+
+	builder := coreprocessor.UnifiedContextBuilderV2{}
+	timeline := builder.BuildTimelineFromData(nil, comments)
+	require.NotNil(t, timeline)
+	require.Len(t, timeline.Items, 2)
+
+	expected := readExpectedTimeline(t, "github-webhook-expected-timeline-thread-0002.json")
+	require.Equal(t, expected, *timeline)
+
+	for idx, item := range timeline.Items {
+		require.NotNilf(t, item.Comment, "timeline item %d missing comment", idx)
+		require.NotNilf(t, item.Comment.InReplyToID, "timeline item %d missing InReplyTo pointer", idx)
+		require.Equal(t, "2422970333", *item.Comment.InReplyToID)
+	}
+}
+
 func TestGitHubPatchConversionMatchesFixture(t *testing.T) {
 	t.Parallel()
 
