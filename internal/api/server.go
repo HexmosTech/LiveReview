@@ -21,6 +21,8 @@ import (
 	"github.com/livereview/internal/api/users"
 	"github.com/livereview/internal/jobqueue"
 	"github.com/livereview/internal/license"
+	githubprovider "github.com/livereview/internal/provider_input/github"
+	gitlabprovider "github.com/livereview/internal/provider_input/gitlab"
 	// Import FetchGitLabProfile
 )
 
@@ -549,7 +551,7 @@ func (s *Server) ValidateGitLabProfile(c echo.Context) error {
 	if body.BaseURL == "" || body.PAT == "" {
 		return c.JSON(http.StatusBadRequest, map[string]string{"error": "base_url and pat are required"})
 	}
-	profile, err := FetchGitLabProfile(body.BaseURL, body.PAT)
+	profile, err := gitlabprovider.FetchGitLabProfile(body.BaseURL, body.PAT)
 	if err != nil {
 		return c.JSON(http.StatusBadRequest, map[string]string{"error": err.Error()})
 	}
@@ -568,7 +570,7 @@ func (s *Server) ValidateGitHubProfile(c echo.Context) error {
 	if body.PAT == "" {
 		return c.JSON(http.StatusBadRequest, map[string]string{"error": "pat is required"})
 	}
-	profile, err := FetchGitHubProfile(body.PAT)
+	profile, err := githubprovider.FetchGitHubProfile(body.PAT)
 	if err != nil {
 		return c.JSON(http.StatusBadRequest, map[string]string{"error": err.Error()})
 	}
