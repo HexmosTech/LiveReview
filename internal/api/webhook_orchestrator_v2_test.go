@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/labstack/echo/v4"
+	coreprocessor "github.com/livereview/internal/core_processor"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -368,7 +369,7 @@ func TestUnifiedProcessorComponents(t *testing.T) {
 	assert.NotNil(t, processor)
 
 	// Test UnifiedContextBuilderV2
-	contextBuilder := NewUnifiedContextBuilderV2(server)
+	contextBuilder := coreprocessor.NewUnifiedContextBuilderV2()
 	assert.NotNil(t, contextBuilder)
 
 	// Test LearningProcessorV2

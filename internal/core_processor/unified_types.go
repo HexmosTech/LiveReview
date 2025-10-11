@@ -1,4 +1,4 @@
-package api
+package core_processor
 
 // Phase 1.2: Comprehensive unified types with V2 naming to avoid conflicts
 // All types use V2 suffix to prevent redeclaration errors with existing webhook_handler.go
