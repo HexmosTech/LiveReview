@@ -43,10 +43,11 @@ func (cb *UnifiedContextBuilderV2) BuildTimelineFromData(commits []UnifiedCommit
 
 	for _, commit := range commits {
 		createdAt := cb.parseTimeBestEffortV2(commit.Timestamp)
+		commitCopy := commit
 		items = append(items, UnifiedTimelineItemV2{
 			Type:      "commit",
 			Timestamp: createdAt.Format(time.RFC3339),
-			Commit:    &commit,
+			Commit:    &commitCopy,
 		})
 	}
 
@@ -55,10 +56,11 @@ func (cb *UnifiedContextBuilderV2) BuildTimelineFromData(commits []UnifiedCommit
 			continue
 		}
 		createdAt := cb.parseTimeBestEffortV2(comment.CreatedAt)
+		commentCopy := comment
 		items = append(items, UnifiedTimelineItemV2{
 			Type:      "comment",
 			Timestamp: createdAt.Format(time.RFC3339),
-			Comment:   &comment,
+			Comment:   &commentCopy,
 		})
 	}
 
