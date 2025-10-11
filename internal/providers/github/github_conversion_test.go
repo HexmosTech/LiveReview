@@ -8,6 +8,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
+	coreprocessor "github.com/livereview/internal/core_processor"
 	"github.com/livereview/pkg/models"
 )
 
@@ -31,6 +32,30 @@ type captureFixtures struct {
 
 type expectedDiffs struct {
 	Diffs []*models.CodeDiff `json:"diffs"`
+}
+
+type unifiedEventsFixture struct {
+	Events []coreprocessor.UnifiedWebhookEventV2 `json:"events"`
+}
+
+func TestGitHubUnifiedTimelineReplayMatchesGolden(t *testing.T) {
+	t.Parallel()
+
+	events := readUnifiedEventsFixture(t, "github-webhook-unified-events-0001.json")
+	expected := readExpectedTimeline(t, "github-webhook-expected-timeline-0001.json")
+
+	var comments []coreprocessor.UnifiedCommentV2
+	for idx, event := range events.Events {
+		require.NotNilf(t, event.Comment, "event %d missing comment", idx)
+		comments = append(comments, *event.Comment)
+	}
+
+	builder := coreprocessor.UnifiedContextBuilderV2{}
+	timeline := builder.BuildTimelineFromData(nil, comments)
+
+	require.NotNil(t, timeline)
+	require.Len(t, timeline.Items, len(expected.Items))
+	require.Equal(t, expected, *timeline)
 }
 
 func TestGitHubPatchConversionMatchesFixture(t *testing.T) {
@@ -81,6 +106,26 @@ func readExpectedDiffs(t *testing.T, name string) expectedDiffs {
 	var diff expectedDiffs
 	require.NoError(t, json.Unmarshal(bytes, &diff))
 	return diff
+}
+
+func readUnifiedEventsFixture(t *testing.T, name string) unifiedEventsFixture {
+	t.Helper()
+
+	bytes := readFixture(t, name)
+
+	var fixture unifiedEventsFixture
+	require.NoError(t, json.Unmarshal(bytes, &fixture))
+	return fixture
+}
+
+func readExpectedTimeline(t *testing.T, name string) coreprocessor.UnifiedTimelineV2 {
+	t.Helper()
+
+	bytes := readFixture(t, name)
+
+	var timeline coreprocessor.UnifiedTimelineV2
+	require.NoError(t, json.Unmarshal(bytes, &timeline))
+	return timeline
 }
 
 func readFixture(t *testing.T, name string) []byte {

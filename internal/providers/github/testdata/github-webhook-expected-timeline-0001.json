@@ -1,0 +1,61 @@
+{
+  "Items": [
+    {
+      "Type": "comment",
+      "Timestamp": "2025-10-11T13:18:59Z",
+      "Comment": {
+        "ID": "2422833948",
+        "Body": "Return an error instead of exiting directly. This allows the caller to handle the error gracefully.",
+        "Author": {
+          "Username": "livereviewbot",
+          "AvatarURL": "https://avatars.githubusercontent.com/u/222574465?v=4"
+        },
+        "CreatedAt": "2025-10-11T13:18:59Z",
+        "UpdatedAt": "2025-10-11T13:18:59Z",
+        "WebURL": "https://github.com/livereviewbot/glabmig/pull/2#discussion_r2422833948",
+        "Position": {
+          "FilePath": "main.go",
+          "LineNumber": 183
+        }
+      }
+    },
+    {
+      "Type": "comment",
+      "Timestamp": "2025-10-11T13:19:02Z",
+      "Comment": {
+        "ID": "2422833965",
+        "Body": "Check the length of `s` to prevent potential `panic` if the header value is empty.",
+        "Author": {
+          "Username": "livereviewbot",
+          "AvatarURL": "https://avatars.githubusercontent.com/u/222574465?v=4"
+        },
+        "CreatedAt": "2025-10-11T13:19:02Z",
+        "UpdatedAt": "2025-10-11T13:19:02Z",
+        "WebURL": "https://github.com/livereviewbot/glabmig/pull/2#discussion_r2422833965",
+        "Position": {
+          "FilePath": "main.go",
+          "LineNumber": 236
+        }
+      }
+    },
+    {
+      "Type": "comment",
+      "Timestamp": "2025-10-11T13:19:04Z",
+      "Comment": {
+        "ID": "2422833985",
+        "Body": "Check the length of `w` to prevent potential `panic` if the header value is empty.",
+        "Author": {
+          "Username": "livereviewbot",
+          "AvatarURL": "https://avatars.githubusercontent.com/u/222574465?v=4"
+        },
+        "CreatedAt": "2025-10-11T13:19:04Z",
+        "UpdatedAt": "2025-10-11T13:19:04Z",
+        "WebURL": "https://github.com/livereviewbot/glabmig/pull/2#discussion_r2422833985",
+        "Position": {
+          "FilePath": "main.go",
+          "LineNumber": 249
+        }
+      }
+    }
+  ]
+}

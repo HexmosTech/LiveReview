@@ -182,6 +182,12 @@ There are 9 external packages importing `internal/api`, mainly inside the same m
 - At each step assert file paths, hunks, and line numbers match the captured GitHub diff (add expectations alongside fixtures).  
 - Fail the test if any comment targets a line absent from the diff hunks.
 
+#### Step G3A: Current Work Plan (2025-10-11)
+1. Promote the sanitized MR-context capture from `captures/github/20251011-183834/` into `internal/providers/github/testdata/`, documenting any manual redactions.
+2. Add a short README fragment beside the fixtures summarizing their origin and the sanitization steps.
+3. Implement an MR context regression test that replays the unified webhook fixture through the GitHub context builder and asserts grouped timeline output matches the golden file.
+4. Run `go test ./internal/providers/github` to confirm the new regression harness passes before proceeding to additional providers.
+
 ### Step G4: Bug Isolation and Fix
 - Use the replay tests to pinpoint whether the discrepancy comes from diff parsing, hunk stitching, or AI comment attribution.  
 - Fix the offending logic (likely in the diff-to-unified mapping) and expand expectations to cover the previous failure cases.  
