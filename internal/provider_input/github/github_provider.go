@@ -7,6 +7,7 @@ import (
 	"log"
 	"strings"
 
+	"github.com/livereview/internal/capture"
 	coreprocessor "github.com/livereview/internal/core_processor"
 )
 
@@ -82,25 +83,44 @@ func (p *GitHubV2Provider) ConvertCommentEvent(headers map[string]string, body [
 	log.Printf("[DEBUG] GitHub webhook event type: '%s'", eventType)
 	log.Printf("[DEBUG] Available headers: %v", headers)
 
+	canonicalType := canonicalGitHubEventType(eventType)
+	var (
+		event *UnifiedWebhookEventV2
+		err   error
+	)
+
 	switch eventType {
 	case "issue_comment":
 		log.Printf("[DEBUG] Processing GitHub issue_comment event")
-		return ConvertIssueCommentEvent(body)
+		event, err = ConvertIssueCommentEvent(body)
 	case "pull_request_review_comment":
 		log.Printf("[DEBUG] Processing GitHub pull_request_review_comment event")
-		return ConvertPullRequestReviewCommentEvent(body)
+		event, err = ConvertPullRequestReviewCommentEvent(body)
 	case "pull_request_review":
 		log.Printf("[DEBUG] Processing GitHub pull_request_review event")
-		return ConvertPullRequestReviewEvent(body)
+		event, err = ConvertPullRequestReviewEvent(body)
 	default:
 		log.Printf("[WARN] Unsupported GitHub comment event type: '%s' (supported: issue_comment, pull_request_review_comment, pull_request_review)", eventType)
-		return nil, fmt.Errorf("unsupported GitHub comment event type: '%s'", eventType)
+		err = fmt.Errorf("unsupported GitHub comment event type: '%s'", eventType)
 	}
+
+	if capture.Enabled() {
+		recordGitHubWebhook(canonicalType, headers, body, event, err)
+	}
+
+	if err != nil {
+		return nil, err
+	}
+	return event, nil
 }
 
 // ConvertReviewerEvent converts GitHub reviewer assignment webhook to unified format.
 func (p *GitHubV2Provider) ConvertReviewerEvent(headers map[string]string, body []byte) (*UnifiedWebhookEventV2, error) {
-	return ConvertReviewerEvent(headers, body)
+	event, err := ConvertReviewerEvent(headers, body)
+	if capture.Enabled() {
+		recordGitHubWebhook("reviewer", headers, body, event, err)
+	}
+	return event, err
 }
 
 // FetchMergeRequestData fetches additional MR data from GitHub API.
@@ -131,6 +151,57 @@ func (p *GitHubV2Provider) FetchMergeRequestData(event *UnifiedWebhookEventV2) e
 
 	log.Printf("[INFO] Successfully fetched PR data for GitHub PR %s", prNumber)
 	return nil
+}
+
+func recordGitHubWebhook(eventType string, headers map[string]string, body []byte, unified *UnifiedWebhookEventV2, err error) {
+	if eventType == "" {
+		eventType = "unknown"
+	}
+
+	if len(body) > 0 {
+		capture.WriteBlob(fmt.Sprintf("github-webhook-%s-body", eventType), "json", body)
+	}
+
+	sanitized := sanitizeHeaders(headers)
+	meta := map[string]interface{}{
+		"event_type": eventType,
+		"headers":    sanitized,
+	}
+	if err != nil {
+		meta["error"] = err.Error()
+	}
+	capture.WriteJSON(fmt.Sprintf("github-webhook-%s-meta", eventType), meta)
+
+	if unified != nil && err == nil {
+		capture.WriteJSON(fmt.Sprintf("github-webhook-%s-unified", eventType), unified)
+	}
+}
+
+func sanitizeHeaders(headers map[string]string) map[string]string {
+	if len(headers) == 0 {
+		return nil
+	}
+	sanitized := make(map[string]string, len(headers))
+	for k, v := range headers {
+		if strings.EqualFold(k, "authorization") {
+			continue
+		}
+		if strings.EqualFold(k, "x-hub-signature") {
+			continue
+		}
+		if strings.EqualFold(k, "x-hub-signature-256") {
+			continue
+		}
+		sanitized[k] = v
+	}
+	return sanitized
+}
+
+func canonicalGitHubEventType(eventType string) string {
+	if eventType == "" {
+		return "unknown"
+	}
+	return strings.ToLower(eventType)
 }
 
 // PostCommentReply posts a reply to a GitHub comment.

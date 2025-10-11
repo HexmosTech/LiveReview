@@ -1,0 +1,19 @@
+{
+  "error": "not a reviewer assignment event: action=submitted",
+  "event_type": "reviewer",
+  "headers": {
+    "Accept": "*/*",
+    "Connection": "close",
+    "Content-Length": "24228",
+    "Content-Type": "application/json",
+    "User-Agent": "GitHub-Hookshot/c8f7262",
+    "X-Forwarded-For": "140.82.115.250",
+    "X-Forwarded-Proto": "https",
+    "X-Github-Delivery": "ee41c0ea-a6a4-11f0-8c35-22ca99a1e31a",
+    "X-Github-Event": "pull_request_review",
+    "X-Github-Hook-Id": "573176165",
+    "X-Github-Hook-Installation-Target-Id": "1025461473",
+    "X-Github-Hook-Installation-Target-Type": "repository",
+    "X-Real-Ip": "140.82.115.250"
+  }
+}

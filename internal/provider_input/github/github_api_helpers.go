@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"net/http"
 	"time"
+
+	"github.com/livereview/internal/capture"
 )
 
 // FetchGitHubPRCommitsV2 fetches commits for a GitHub PR.
@@ -32,8 +34,21 @@ func FetchGitHubPRCommitsV2(owner, repo, prNumber, token string) ([]GitHubV2Comm
 	}
 
 	var commits []GitHubV2CommitInfo
-	err = json.NewDecoder(resp.Body).Decode(&commits)
-	return commits, err
+	if err = json.NewDecoder(resp.Body).Decode(&commits); err != nil {
+		return nil, err
+	}
+
+	if capture.Enabled() {
+		payload := map[string]interface{}{
+			"owner":   owner,
+			"repo":    repo,
+			"number":  prNumber,
+			"commits": commits,
+		}
+		capture.WriteJSON("github-pr-commits", payload)
+	}
+
+	return commits, nil
 }
 
 // FetchGitHubPRCommentsV2 fetches comments for a GitHub PR.
@@ -61,6 +76,19 @@ func FetchGitHubPRCommentsV2(owner, repo, prNumber, token string) ([]GitHubV2Com
 	}
 
 	var comments []GitHubV2CommentInfo
-	err = json.NewDecoder(resp.Body).Decode(&comments)
-	return comments, err
+	if err = json.NewDecoder(resp.Body).Decode(&comments); err != nil {
+		return nil, err
+	}
+
+	if capture.Enabled() {
+		payload := map[string]interface{}{
+			"owner":    owner,
+			"repo":     repo,
+			"number":   prNumber,
+			"comments": comments,
+		}
+		capture.WriteJSON("github-pr-comments", payload)
+	}
+
+	return comments, nil
 }

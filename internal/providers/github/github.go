@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"net/url"
 	"regexp"
@@ -13,6 +14,7 @@ import (
 
 	"log"
 
+	"github.com/livereview/internal/capture"
 	"github.com/livereview/internal/providers"
 	"github.com/livereview/pkg/models"
 )
@@ -148,11 +150,13 @@ func (p *GitHubProvider) postLineComment(ctx context.Context, owner, repo, numbe
 	}
 	defer resp.Body.Close()
 
-	if resp.StatusCode != 201 {
-		// Read response body for debugging
-		var responseBody bytes.Buffer
-		responseBody.ReadFrom(resp.Body)
-		log.Printf("[DEBUG] Line comment failed. Status: %s, Response: %s", resp.Status, responseBody.String())
+	if resp.StatusCode != http.StatusCreated {
+		body, _ := io.ReadAll(resp.Body)
+		if resp.StatusCode == http.StatusUnprocessableEntity {
+			log.Printf("[WARN] Skipping GitHub line comment due to 422 response. Payload path=%s line=%d, body=%s", comment.FilePath, comment.Line, string(body))
+			return nil
+		}
+		log.Printf("[DEBUG] Line comment failed. Status: %s, Response: %s", resp.Status, string(body))
 		return fmt.Errorf("GitHub line comment failed: %s", resp.Status)
 	}
 
@@ -232,7 +236,7 @@ func (p *GitHubProvider) GetMergeRequestDetails(ctx context.Context, mrURL strin
 		authorName = pr.User.Login
 	}
 
-	return &providers.MergeRequestDetails{
+	details := &providers.MergeRequestDetails{
 		ID:             fmt.Sprintf("%d", pr.Number),
 		Title:          pr.Title,
 		Description:    pr.Body,
@@ -252,7 +256,20 @@ func (p *GitHubProvider) GetMergeRequestDetails(ctx context.Context, mrURL strin
 		},
 		ProviderType:  "github",
 		RepositoryURL: fmt.Sprintf("https://github.com/%s/%s", owner, repo),
-	}, nil
+	}
+
+	if capture.Enabled() {
+		payload := map[string]interface{}{
+			"owner":   owner,
+			"repo":    repo,
+			"number":  number,
+			"api_url": apiURL,
+			"details": details,
+		}
+		capture.WriteJSON("github-pr-details", payload)
+	}
+
+	return details, nil
 }
 
 func (p *GitHubProvider) GetMergeRequestChanges(ctx context.Context, mrID string) ([]*models.CodeDiff, error) {
@@ -295,6 +312,16 @@ func (p *GitHubProvider) GetMergeRequestChanges(ctx context.Context, mrID string
 		return nil, err
 	}
 
+	if capture.Enabled() {
+		payload := map[string]interface{}{
+			"owner":  owner,
+			"repo":   repo,
+			"number": number,
+			"files":  files,
+		}
+		capture.WriteJSON("github-pr-files", payload)
+	}
+
 	log.Printf("[DEBUG] GitHub API returned %d files", len(files))
 
 	var diffs []*models.CodeDiff
@@ -319,6 +346,17 @@ func (p *GitHubProvider) GetMergeRequestChanges(ctx context.Context, mrID string
 	}
 
 	log.Printf("[DEBUG] Returning %d diffs with actual content", len(diffs))
+
+	if capture.Enabled() {
+		payload := map[string]interface{}{
+			"owner":  owner,
+			"repo":   repo,
+			"number": number,
+			"diffs":  diffs,
+		}
+		capture.WriteJSON("github-pr-diffs", payload)
+	}
+
 	return diffs, nil
 }
 

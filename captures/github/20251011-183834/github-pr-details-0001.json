@@ -1,0 +1,31 @@
+{
+  "api_url": "https://api.github.com/repos/livereviewbot/glabmig/pulls/2",
+  "details": {
+    "ID": "2",
+    "ProjectID": "",
+    "Title": "attempt to find a suitable base commit from which to branch when scaf…",
+    "Description": "…folding a PR branch, should now handle merge commits",
+    "SourceBranch": "somethingnew",
+    "TargetBranch": "main",
+    "Author": "shrsv",
+    "AuthorName": "shrsv",
+    "AuthorUsername": "shrsv",
+    "AuthorEmail": "",
+    "AuthorAvatar": "https://avatars.githubusercontent.com/u/796107?v=4",
+    "CreatedAt": "2025-08-09T09:09:01Z",
+    "URL": "https://github.com/livereviewbot/glabmig/pull/2",
+    "State": "open",
+    "MergeStatus": "",
+    "DiffRefs": {
+      "BaseSHA": "a4421cfc5390e4ab69605d70fa2a455d72ca3dda",
+      "HeadSHA": "7911538c2d6262fea6ada0070babd216a30d2fc6",
+      "StartSHA": ""
+    },
+    "WebURL": "https://github.com/livereviewbot/glabmig/pull/2",
+    "ProviderType": "github",
+    "RepositoryURL": "https://github.com/livereviewbot/glabmig"
+  },
+  "number": "2",
+  "owner": "livereviewbot",
+  "repo": "glabmig"
+}
