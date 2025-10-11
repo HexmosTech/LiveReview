@@ -55,6 +55,7 @@ func TestGitHubUnifiedTimelineReplayMatchesGolden(t *testing.T) {
 
 	require.NotNil(t, timeline)
 	require.Len(t, timeline.Items, len(expected.Items))
+	require.Nil(t, timeline.Items[0].Comment.Position, "issue comment should not record a file position")
 	require.Equal(t, expected, *timeline)
 }
 
