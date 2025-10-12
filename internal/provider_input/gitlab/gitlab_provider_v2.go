@@ -13,6 +13,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/livereview/internal/capture"
 	coreprocessor "github.com/livereview/internal/core_processor"
 )
 
@@ -429,9 +430,18 @@ func (p *GitLabV2Provider) CanHandleWebhook(headers map[string]string, body []by
 
 // ConvertCommentEvent converts GitLab comment webhook to unified format
 func (p *GitLabV2Provider) ConvertCommentEvent(headers map[string]string, body []byte) (*UnifiedWebhookEventV2, error) {
+	eventType := canonicalGitLabEventType(headers["X-Gitlab-Event"])
+
 	var payload GitLabV2NoteWebhookPayload
 	if err := json.Unmarshal(body, &payload); err != nil {
+		if capture.Enabled() {
+			recordGitLabWebhook(eventType, headers, body, nil, err)
+		}
 		return nil, fmt.Errorf("failed to parse GitLab note webhook: %w", err)
+	}
+
+	if eventType == "unknown" && payload.ObjectKind != "" {
+		eventType = canonicalGitLabEventType(payload.ObjectKind)
 	}
 
 	// Convert to unified format
@@ -504,19 +514,31 @@ func (p *GitLabV2Provider) ConvertCommentEvent(headers map[string]string, body [
 		unifiedEvent.Comment.DiscussionID = &payload.ObjectAttributes.DiscussionID
 	}
 
+	if capture.Enabled() {
+		recordGitLabWebhook(eventType, headers, body, unifiedEvent, nil)
+	}
+
 	return unifiedEvent, nil
 }
 
 // ConvertReviewerEvent converts GitLab reviewer assignment webhook to unified format
 func (p *GitLabV2Provider) ConvertReviewerEvent(headers map[string]string, body []byte) (*UnifiedWebhookEventV2, error) {
+	eventType := canonicalGitLabEventType(headers["X-Gitlab-Event"])
 	var payload GitLabV2WebhookPayload
 	if err := json.Unmarshal(body, &payload); err != nil {
+		if capture.Enabled() {
+			recordGitLabWebhook(eventType, headers, body, nil, err)
+		}
 		return nil, fmt.Errorf("failed to parse GitLab webhook: %w", err)
 	}
 
 	// Check if this is a reviewer assignment event
 	if payload.ObjectKind != "merge_request" {
 		return nil, fmt.Errorf("not a merge request event")
+	}
+
+	if eventType == "unknown" && payload.ObjectKind != "" {
+		eventType = canonicalGitLabEventType(payload.ObjectKind)
 	}
 
 	// Convert to unified format
@@ -570,6 +592,10 @@ func (p *GitLabV2Provider) ConvertReviewerEvent(headers map[string]string, body 
 		}
 	}
 
+	if capture.Enabled() {
+		recordGitLabWebhook(eventType, headers, body, unifiedEvent, nil)
+	}
+
 	return unifiedEvent, nil
 }
 
@@ -584,6 +610,55 @@ func convertGitLabUsersToUnifiedV2(userIDs []int, payload GitLabV2WebhookPayload
 		})
 	}
 	return users
+}
+
+func canonicalGitLabEventType(eventType string) string {
+	if eventType == "" {
+		return "unknown"
+	}
+	canonical := strings.ToLower(eventType)
+	canonical = strings.ReplaceAll(canonical, " ", "_")
+	canonical = strings.ReplaceAll(canonical, "-", "_")
+	if strings.HasSuffix(canonical, "_hook") {
+		canonical = strings.TrimSuffix(canonical, "_hook")
+	}
+	return canonical
+}
+
+func sanitizeGitLabHeaders(headers map[string]string) map[string]string {
+	if len(headers) == 0 {
+		return nil
+	}
+	sanitized := make(map[string]string, len(headers))
+	for k, v := range headers {
+		lower := strings.ToLower(k)
+		switch lower {
+		case "authorization", "x-gitlab-token":
+			continue
+		}
+		sanitized[k] = v
+	}
+	return sanitized
+}
+
+func recordGitLabWebhook(eventType string, headers map[string]string, body []byte, unified *UnifiedWebhookEventV2, err error) {
+	if eventType == "" {
+		eventType = "unknown"
+	}
+	if len(body) > 0 {
+		capture.WriteBlob(fmt.Sprintf("gitlab-webhook-%s-body", eventType), "json", body)
+	}
+	meta := map[string]interface{}{
+		"event_type": eventType,
+		"headers":    sanitizeGitLabHeaders(headers),
+	}
+	if err != nil {
+		meta["error"] = err.Error()
+	}
+	capture.WriteJSON(fmt.Sprintf("gitlab-webhook-%s-meta", eventType), meta)
+	if unified != nil && err == nil {
+		capture.WriteJSON(fmt.Sprintf("gitlab-webhook-%s-unified", eventType), unified)
+	}
 }
 
 // FetchMergeRequestData fetches additional MR data from GitLab API - simplified version
@@ -803,7 +878,14 @@ func (c *GitLabV2HTTPClient) GetMergeRequestCommitsV2(projectID, mrIID int) ([]G
 
 	var commits []GitLabV2Commit
 	err = json.NewDecoder(resp.Body).Decode(&commits)
-	return commits, err
+	if err != nil {
+		return nil, err
+	}
+	if capture.Enabled() {
+		category := fmt.Sprintf("gitlab-mr-%d-%d-commits", projectID, mrIID)
+		capture.WriteJSON(category, commits)
+	}
+	return commits, nil
 }
 
 // GetMergeRequestDiscussionsV2 fetches discussions for a merge request
@@ -827,7 +909,14 @@ func (c *GitLabV2HTTPClient) GetMergeRequestDiscussionsV2(projectID, mrIID int) 
 
 	var discussions []GitLabV2Discussion
 	err = json.NewDecoder(resp.Body).Decode(&discussions)
-	return discussions, err
+	if err != nil {
+		return nil, err
+	}
+	if capture.Enabled() {
+		category := fmt.Sprintf("gitlab-mr-%d-%d-discussions", projectID, mrIID)
+		capture.WriteJSON(category, discussions)
+	}
+	return discussions, nil
 }
 
 // GetMergeRequestNotesV2 fetches standalone notes for a merge request
@@ -851,7 +940,14 @@ func (c *GitLabV2HTTPClient) GetMergeRequestNotesV2(projectID, mrIID int) ([]Git
 
 	var notes []GitLabV2Note
 	err = json.NewDecoder(resp.Body).Decode(&notes)
-	return notes, err
+	if err != nil {
+		return nil, err
+	}
+	if capture.Enabled() {
+		category := fmt.Sprintf("gitlab-mr-%d-%d-notes", projectID, mrIID)
+		capture.WriteJSON(category, notes)
+	}
+	return notes, nil
 }
 
 // GitLab V2 Helper Methods
