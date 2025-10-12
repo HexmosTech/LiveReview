@@ -1,7 +1,6 @@
 package gitlab
 
 import (
-	"bytes"
 	"context"
 	"database/sql"
 	"encoding/json"
@@ -33,6 +32,13 @@ type (
 	UnifiedReviewerChangeV2 = coreprocessor.UnifiedReviewerChangeV2
 	ResponseScenarioV2      = coreprocessor.ResponseScenarioV2
 )
+
+// GitLabOutputClient captures the outbound actions required by the provider.
+type GitLabOutputClient interface {
+	PostCommentReply(event *UnifiedWebhookEventV2, accessToken, gitlabInstanceURL, content string) error
+	PostEmojiReaction(event *UnifiedWebhookEventV2, accessToken, gitlabInstanceURL, emoji string) error
+	PostFullReview(event *UnifiedWebhookEventV2, accessToken, gitlabInstanceURL, overallComment string) error
+}
 
 // GitLab V2 Types - All GitLab-specific types with V2 naming to avoid conflicts
 
@@ -377,15 +383,19 @@ type GitLabV2CommentContext struct {
 
 // GitLabV2Provider implements WebhookProviderV2 interface for GitLab.
 type GitLabV2Provider struct {
-	db *sql.DB
+	db     *sql.DB
+	output GitLabOutputClient
 }
 
 // NewGitLabV2Provider creates a new GitLab V2 provider.
-func NewGitLabV2Provider(db *sql.DB) *GitLabV2Provider {
+func NewGitLabV2Provider(db *sql.DB, output GitLabOutputClient) *GitLabV2Provider {
 	if db == nil {
 		panic("gitlab provider requires database handle")
 	}
-	return &GitLabV2Provider{db: db}
+	if output == nil {
+		panic("gitlab provider requires output client")
+	}
+	return &GitLabV2Provider{db: db, output: output}
 }
 
 // ProviderName returns the provider name
@@ -619,7 +629,9 @@ func (p *GitLabV2Provider) FetchMergeRequestData(event *UnifiedWebhookEventV2) e
 
 	log.Printf("[INFO] Successfully fetched MR data for GitLab MR %d", mrIID)
 	return nil
-} // PostCommentReply posts a reply to a GitLab comment
+}
+
+// PostCommentReply posts a reply to a GitLab comment
 func (p *GitLabV2Provider) PostCommentReply(event *UnifiedWebhookEventV2, content string) error {
 	if event.Comment == nil || event.MergeRequest == nil {
 		return fmt.Errorf("invalid event for comment reply")
@@ -631,16 +643,7 @@ func (p *GitLabV2Provider) PostCommentReply(event *UnifiedWebhookEventV2, conten
 		return fmt.Errorf("failed to get GitLab access token: %w", err)
 	}
 
-	projectID, _ := strconv.Atoi(event.Repository.ID)
-	mrIID := event.MergeRequest.Number
-
-	if event.Comment.DiscussionID != nil && *event.Comment.DiscussionID != "" {
-		// Reply to discussion thread
-		return p.postReplyToGitLabDiscussionV2(context.Background(), accessToken, projectID, mrIID, *event.Comment.DiscussionID, content, gitlabInstanceURL)
-	} else {
-		// Create new general comment
-		return p.postGeneralCommentToGitLabMRV2(context.Background(), accessToken, projectID, mrIID, content, gitlabInstanceURL)
-	}
+	return p.output.PostCommentReply(event, accessToken, gitlabInstanceURL, content)
 }
 
 // PostEmojiReaction posts an emoji reaction to a GitLab comment
@@ -655,10 +658,7 @@ func (p *GitLabV2Provider) PostEmojiReaction(event *UnifiedWebhookEventV2, emoji
 		return fmt.Errorf("failed to get GitLab access token: %w", err)
 	}
 
-	projectID, _ := strconv.Atoi(event.Repository.ID)
-	noteID, _ := strconv.Atoi(event.Comment.ID)
-
-	return p.postEmojiToGitLabNoteV2(context.Background(), accessToken, projectID, noteID, emoji, gitlabInstanceURL)
+	return p.output.PostEmojiReaction(event, accessToken, gitlabInstanceURL, emoji)
 }
 
 // PostFullReview posts a comprehensive review to a GitLab MR - simplified version
@@ -673,18 +673,10 @@ func (p *GitLabV2Provider) PostFullReview(event *UnifiedWebhookEventV2, overallC
 		return fmt.Errorf("failed to get GitLab access token: %w", err)
 	}
 
-	projectID, _ := strconv.Atoi(event.Repository.ID)
-	mrIID := event.MergeRequest.Number
+	return p.output.PostFullReview(event, accessToken, gitlabInstanceURL, overallComment)
+}
 
-	// Post overall review comment
-	if overallComment != "" {
-		if err := p.postGeneralCommentToGitLabMRV2(context.Background(), accessToken, projectID, mrIID, overallComment, gitlabInstanceURL); err != nil {
-			return fmt.Errorf("failed to post overall review comment: %w", err)
-		}
-	}
-
-	return nil
-} // GitLab V2 API Methods - Updated versions of existing GitLab API methods
+// GitLab V2 API Methods - Updated versions of existing GitLab API methods
 
 // getGitLabAccessTokenV2 gets access token for GitLab instance
 func (p *GitLabV2Provider) getGitLabAccessTokenV2(gitlabInstanceURL string) (string, error) {
@@ -860,80 +852,6 @@ func (c *GitLabV2HTTPClient) GetMergeRequestNotesV2(projectID, mrIID int) ([]Git
 	var notes []GitLabV2Note
 	err = json.NewDecoder(resp.Body).Decode(&notes)
 	return notes, err
-}
-
-// GitLab V2 Posting Methods
-
-// postReplyToGitLabDiscussionV2 posts a reply to a GitLab discussion
-func (p *GitLabV2Provider) postReplyToGitLabDiscussionV2(ctx context.Context, accessToken string, projectID, mrIID int, discussionID, content, gitlabInstanceURL string) error {
-	apiURL := fmt.Sprintf("%s/api/v4/projects/%d/merge_requests/%d/discussions/%s/notes",
-		gitlabInstanceURL, projectID, mrIID, discussionID)
-
-	requestBody := map[string]string{
-		"body": content,
-	}
-
-	log.Printf("[DEBUG] Posting reply to GitLab discussion: %s", apiURL)
-	return p.postToGitLabAPIV2(ctx, apiURL, accessToken, requestBody)
-}
-
-// postGeneralCommentToGitLabMRV2 posts a general comment to a GitLab MR
-func (p *GitLabV2Provider) postGeneralCommentToGitLabMRV2(ctx context.Context, accessToken string, projectID, mrIID int, content, gitlabInstanceURL string) error {
-	apiURL := fmt.Sprintf("%s/api/v4/projects/%d/merge_requests/%d/notes", gitlabInstanceURL, projectID, mrIID)
-
-	requestBody := map[string]string{
-		"body": content,
-	}
-
-	return p.postToGitLabAPIV2(ctx, apiURL, accessToken, requestBody)
-}
-
-// postEmojiToGitLabNoteV2 posts an emoji reaction to a GitLab note
-func (p *GitLabV2Provider) postEmojiToGitLabNoteV2(ctx context.Context, accessToken string, projectID, noteID int, emoji, gitlabInstanceURL string) error {
-	apiURL := fmt.Sprintf("%s/api/v4/projects/%d/notes/%d/award_emoji", gitlabInstanceURL, projectID, noteID)
-
-	requestBody := map[string]string{
-		"name": emoji,
-	}
-
-	return p.postToGitLabAPIV2(ctx, apiURL, accessToken, requestBody)
-}
-
-// postToGitLabAPIV2 makes a POST request to GitLab API
-func (p *GitLabV2Provider) postToGitLabAPIV2(ctx context.Context, apiURL, accessToken string, requestBody interface{}) error {
-	jsonBody, err := json.Marshal(requestBody)
-	if err != nil {
-		return fmt.Errorf("failed to marshal request body: %w", err)
-	}
-
-	// Create a fresh context with timeout to avoid cancellation issues
-	requestCtx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
-	defer cancel()
-
-	req, err := http.NewRequestWithContext(requestCtx, "POST", apiURL, bytes.NewBuffer(jsonBody))
-	if err != nil {
-		return fmt.Errorf("failed to create HTTP request: %w", err)
-	}
-
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Authorization", "Bearer "+accessToken)
-
-	log.Printf("[DEBUG] Making GitLab API request to: %s", apiURL)
-	client := &http.Client{Timeout: 60 * time.Second}
-	resp, err := client.Do(req)
-	if err != nil {
-		log.Printf("[ERROR] GitLab API request failed: %v", err)
-		return fmt.Errorf("failed to make HTTP request: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		body, _ := io.ReadAll(resp.Body)
-		return fmt.Errorf("GitLab API request failed with status %d: %s", resp.StatusCode, string(body))
-	}
-
-	log.Printf("[INFO] Successfully posted to GitLab API: %s", apiURL)
-	return nil
 }
 
 // GitLab V2 Helper Methods
@@ -1667,9 +1585,7 @@ func (p *GitLabV2Provider) postGitLabEmojiReactionV2(ctx context.Context, event 
 	}
 
 	// Post emoji reaction using GitLab API
-	projectID, _ := strconv.Atoi(event.Repository.ID)
-	noteID, _ := strconv.Atoi(event.Comment.ID)
-	return p.postEmojiToGitLabNoteV2(ctx, accessToken, projectID, noteID, emoji, gitlabInstanceURL)
+	return p.output.PostEmojiReaction(event, accessToken, gitlabInstanceURL, emoji)
 }
 
 // postGitLabTextResponseV2 generates and posts a text response to GitLab
@@ -1712,17 +1628,12 @@ func (p *GitLabV2Provider) postGitLabTextResponseV2(ctx context.Context, event *
 	}
 
 	// Post the response to GitLab
-	projectID, _ := strconv.Atoi(event.Repository.ID)
-	mrIID := event.MergeRequest.Number
-
 	if event.Comment.DiscussionID != nil && *event.Comment.DiscussionID != "" {
-		// Reply to discussion thread
-		return p.postReplyToGitLabDiscussionV2(ctx, accessToken, projectID, mrIID, *event.Comment.DiscussionID, finalResponse, gitlabInstanceURL)
-	} else {
-		// Create new general comment mentioning the user
-		mentionedResponse := fmt.Sprintf("@%s %s", event.Comment.Author.Username, finalResponse)
-		return p.postGeneralCommentToGitLabMRV2(ctx, accessToken, projectID, mrIID, mentionedResponse, gitlabInstanceURL)
+		return p.output.PostCommentReply(event, accessToken, gitlabInstanceURL, finalResponse)
 	}
+
+	mentionedResponse := fmt.Sprintf("@%s %s", event.Comment.Author.Username, finalResponse)
+	return p.output.PostCommentReply(event, accessToken, gitlabInstanceURL, mentionedResponse)
 }
 
 // Response generation helper methods
