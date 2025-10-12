@@ -182,11 +182,11 @@ There are 9 external packages importing `internal/api`, mainly inside the same m
 - At each step assert file paths, hunks, and line numbers match the captured GitHub diff (add expectations alongside fixtures).  
 - Fail the test if any comment targets a line absent from the diff hunks.
 
-#### Step G3A: Current Work Plan (2025-10-11)
-1. Promote the sanitized MR-context capture from `captures/github/20251011-183834/` into `internal/providers/github/testdata/`, documenting any manual redactions.
-2. Add a short README fragment beside the fixtures summarizing their origin and the sanitization steps.
-3. Implement an MR context regression test that replays the unified webhook fixture through the GitHub context builder and asserts grouped timeline output matches the golden file.
-4. Run `go test ./internal/providers/github` to confirm the new regression harness passes before proceeding to additional providers.
+#### Step G3A: GitHub Replay Harness (Completed 2025-10-11)
+1. ✅ Promoted the sanitized MR-context capture from `captures/github/20251011-183834/` into `internal/providers/github/testdata/`, documenting any manual redactions.
+2. ✅ Added README notes describing fixture origin and sanitization steps.
+3. ✅ Implemented MR context regression tests (including threaded reply coverage) that replay unified webhook fixtures through the GitHub context builder and compare against golden timelines.
+4. ✅ Ran `go test ./internal/providers/github` to confirm the regression harness passes prior to moving on to other providers.
 
 ### Step G4: Bug Isolation and Fix
 - Use the replay tests to pinpoint whether the discrepancy comes from diff parsing, hunk stitching, or AI comment attribution.  
@@ -204,8 +204,8 @@ There are 9 external packages importing `internal/api`, mainly inside the same m
 **Verification**: `make build` after **each provider**.
 
 ### Step 4.1: Introduce provider-specific packages
-- Create `internal/provider_input/github`, `.../gitlab`, `.../bitbucket` packages with new package names.  
-- Start with **single provider at a time** (GitHub → GitLab → Bitbucket).  
+- Create `internal/provider_input/github` and `.../gitlab` packages with new package names (Bitbucket will be handled in the next phase).  
+- Work one provider at a time to preserve linear progress.  
 - For each provider: move `*_profile.go` first (pure helpers), adjust imports, run `make build`.  
 - Then move the corresponding `*_provider_v2.go`, adjust imports, run `make build` again.
 
@@ -215,9 +215,17 @@ There are 9 external packages importing `internal/api`, mainly inside the same m
 - ✅ `gitlab_profile.go` moved into `internal/provider_input/gitlab`
 - ✅ `internal/api/server.go` now calls the new profile helpers
 - ✅ `github_provider_v2.go` relocated into `internal/provider_input/github`; registry/server wiring updated
-- ❌ GitLab and Bitbucket provider files still reside in `internal/api`
+- 🚧 GitLab provider files still reside in `internal/api` (current focus)
+- ⏳ Bitbucket provider files deferred to Phase 2 after GitHub + GitLab parity
 
-Immediate next step: repeat the relocation for GitLab, then Bitbucket, each in small, compiling steps with `make build` after every move.
+Immediate next step: finish the GitLab refactor end-to-end (input package, processing touchpoints, and output integration) before tackling Bitbucket in the subsequent phase.
+
+#### Step 4.1A: GitLab extraction game plan (NEXT)
+1. Input: Move `internal/api/gitlab_provider_v2.go` (and any helpers such as `gitlab_auth.go`) into `internal/provider_input/gitlab`, updating package declarations, imports, and registry wiring. Run `make build` after each move.
+2. Processing: Audit `internal/core_processor` usage for GitLab-specific shims; ensure any remaining references to `internal/api` are replaced with the new `provider_input/gitlab` package or shared abstractions. Re-run targeted tests that exercise GitLab conversion/context building.
+3. Output: Create `internal/provider_output/gitlab`, migrate posting/reply/learning helpers from the old provider file, and update the orchestrator so UI-triggered reviews, replies, and learning calls route through the new package. Provide lightweight fakes for tests.
+4. End-to-end validation: Trigger a GitLab review from the UI (manual or scripted), confirm comment posting, threaded replies, and learning capture all succeed. Document any gaps uncovered for follow-up work.
+5. Leave Bitbucket untouched for now; schedule its migration for the next phase once GitLab mirrors the completed GitHub structure.
 
 ### Step 4.2: Update registry wiring after each provider move
 - Update `internal/api/webhook_registry_v2.go` (and other orchestrators) to import the new packages.  
@@ -239,11 +247,13 @@ Immediate next step: repeat the relocation for GitLab, then Bitbucket, each in s
 - `make build`
 - **Quality gate**: trigger a GitHub review end-to-end (webhook → reply → learning capture) to verify behavior before moving on.
 
-### Step 5.2: GitLab Output
-- Mirror the GitHub pattern: move POST helpers into `internal/provider_output/gitlab`, expose interfaces, update wiring, run `make build`.
+### Step 5.2: GitLab Output & Learning Hooks
+- Mirror the GitHub pattern immediately for GitLab: move POST/reply/learning helpers into `internal/provider_output/gitlab`, expose interfaces, and update wiring so UI-triggered reviews, replies, and learning captures pass through the new package.
+- Update shared abstractions so both GitHub and GitLab providers use the same contracts where possible.
+- Validate with automated tests plus a manual GitLab UI run.
 
-### Step 5.3: Bitbucket Output
-- Repeat the same extraction and verification for Bitbucket.
+### Step 5.3: Bitbucket Output (Deferred)
+- Repeat the same extraction and verification for Bitbucket in Phase 2 once GitHub and GitLab are stable.
 
 ---
 
