@@ -218,42 +218,31 @@ There are 9 external packages importing `internal/api`, mainly inside the same m
 - 🚧 GitLab provider files still reside in `internal/api` (current focus)
 - ⏳ Bitbucket provider files deferred to Phase 2 after GitHub + GitLab parity
 
-Immediate next step: finish the GitLab refactor end-to-end (input package, processing touchpoints, and output integration) before tackling Bitbucket in the subsequent phase.
+Immediate next step: finish the GitLab refactor end-to-end in three passes—input, processing, then output—running `make build` after each pass before touching anything else.
 
-#### Step 4.1A: GitLab extraction game plan (NEXT)
-1. Input: Move `internal/api/gitlab_provider_v2.go` (and any helpers such as `gitlab_auth.go`) into `internal/provider_input/gitlab`, updating package declarations, imports, and registry wiring. Run `make build` after each move.
-2. Processing: Audit `internal/core_processor` usage for GitLab-specific shims; ensure any remaining references to `internal/api` are replaced with the new `provider_input/gitlab` package or shared abstractions. Re-run targeted tests that exercise GitLab conversion/context building.
-3. Output: Create `internal/provider_output/gitlab`, migrate posting/reply/learning helpers from the old provider file, and update the orchestrator so UI-triggered reviews, replies, and learning calls route through the new package. Provide lightweight fakes for tests.
-4. End-to-end validation: Trigger a GitLab review from the UI (manual or scripted), confirm comment posting, threaded replies, and learning capture all succeed. Document any gaps uncovered for follow-up work.
-5. Leave Bitbucket untouched for now; schedule its migration for the next phase once GitLab mirrors the completed GitHub structure.
+#### Step 4.1A: GitLab refactor execution order (NEXT)
+1. **Input move first**: Relocate `internal/api/gitlab_provider_v2.go`, `gitlab_auth.go`, and any other fetch/detection helpers into `internal/provider_input/gitlab`. Update package declarations, fix imports, and keep `internal/api` limited to orchestration. Run `make build` after this stage before proceeding.
+2. **Processing wiring second**: Audit the core processor usage and update orchestrator/registry/server wiring so everything imports the new GitLab input package without reaching back into `internal/api`. Run `make build` again to confirm the processing layer compiles cleanly.
+3. **Output relocation third**: Create `internal/provider_output/gitlab`, move the posting/reaction/learning helpers there, and update the orchestrator wiring to call through the new output package. Run `make build` immediately after closing this stage.
+4. Leave Bitbucket untouched for now; schedule its migration after GitLab mirrors the completed GitHub structure.
 
-### Step 4.2: Update registry wiring after each provider move
-- Update `internal/api/webhook_registry_v2.go` (and other orchestrators) to import the new packages.  
-- Ensure the new packages depend only on `core_processor` (and shared utilities), not `internal/api`.  
-- `make build`
+### Step 4.2: Update registry wiring after each stage
+- Keep `internal/api/webhook_registry_v2.go` (and other orchestrators) aligned with the new packages as each stage lands.  
+- Ensure the new packages depend only on `internal/core_processor` and shared utilities, never `internal/api`.  
+- Run `make build` at the end of each stage to guard the incremental moves.
 
 ---
 
 ## Step Group 5: Provider Output Separation (Post)
-**Goal**: Extract the posting logic into `internal/provider_output/<provider>` packages and validate full review flows.  
+**Goal**: Relocate all posting logic into `internal/provider_output/<provider>` once input and processing are in place, using the same per-stage `make build` guardrail.  
 **Risk**: 🟡 **LOW** – but watch for shared helpers.  
 **Verification**: `make build` per provider.
 
 ### Step 5.1: GitHub Output (End-to-End Validation)
-- Create `internal/provider_output/github` with concrete poster/reaction helpers moved from the input package.
-- Define lightweight interfaces consumed by the GitHub provider so `provider_input/github` depends only on abstractions.
-- Update `internal/api/server.go` (and registry/orchestrator wiring) to construct both the input provider and the output implementation.
-- Adjust tests with stubs for the new interfaces.
-- `make build`
-- **Quality gate**: trigger a GitHub review end-to-end (webhook → reply → learning capture) to verify behavior before moving on.
+- Mirror the GitLab agenda: move GitHub posting helpers into `internal/provider_output/github`, wire the orchestrator to the new package, and run `make build` to confirm the separation holds.
 
-### Step 5.2: GitLab Output & Learning Hooks
-- Mirror the GitHub pattern immediately for GitLab: move POST/reply/learning helpers into `internal/provider_output/gitlab`, expose interfaces, and update wiring so UI-triggered reviews, replies, and learning captures pass through the new package.
-- Update shared abstractions so both GitHub and GitLab providers use the same contracts where possible.
-- Validate with automated tests plus a manual GitLab UI run.
-
-### Step 5.3: Bitbucket Output (Deferred)
-- Repeat the same extraction and verification for Bitbucket in Phase 2 once GitHub and GitLab are stable.
+### Step 5.2: Bitbucket Output (Deferred)
+- Repeat the extraction and wiring pattern once GitHub and GitLab output layers are complete and stable.
 
 ---
 

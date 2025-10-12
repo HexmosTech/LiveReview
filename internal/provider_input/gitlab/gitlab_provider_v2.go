@@ -1,8 +1,9 @@
-package api
+package gitlab
 
 import (
 	"bytes"
 	"context"
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -12,6 +13,25 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	coreprocessor "github.com/livereview/internal/core_processor"
+)
+
+type (
+	UnifiedWebhookEventV2   = coreprocessor.UnifiedWebhookEventV2
+	UnifiedMergeRequestV2   = coreprocessor.UnifiedMergeRequestV2
+	UnifiedCommentV2        = coreprocessor.UnifiedCommentV2
+	UnifiedUserV2           = coreprocessor.UnifiedUserV2
+	UnifiedRepositoryV2     = coreprocessor.UnifiedRepositoryV2
+	UnifiedPositionV2       = coreprocessor.UnifiedPositionV2
+	UnifiedTimelineV2       = coreprocessor.UnifiedTimelineV2
+	UnifiedTimelineItemV2   = coreprocessor.UnifiedTimelineItemV2
+	UnifiedCommitV2         = coreprocessor.UnifiedCommitV2
+	UnifiedCommitAuthorV2   = coreprocessor.UnifiedCommitAuthorV2
+	UnifiedBotUserInfoV2    = coreprocessor.UnifiedBotUserInfoV2
+	UnifiedReviewCommentV2  = coreprocessor.UnifiedReviewCommentV2
+	UnifiedReviewerChangeV2 = coreprocessor.UnifiedReviewerChangeV2
+	ResponseScenarioV2      = coreprocessor.ResponseScenarioV2
 )
 
 // GitLab V2 Types - All GitLab-specific types with V2 naming to avoid conflicts
@@ -355,14 +375,17 @@ type GitLabV2CommentContext struct {
 	AfterComments  []string `json:"after_comments"`
 }
 
-// GitLabV2Provider implements WebhookProviderV2 interface for GitLab
+// GitLabV2Provider implements WebhookProviderV2 interface for GitLab.
 type GitLabV2Provider struct {
-	server *Server
+	db *sql.DB
 }
 
-// NewGitLabV2Provider creates a new GitLab V2 provider
-func NewGitLabV2Provider(server *Server) *GitLabV2Provider {
-	return &GitLabV2Provider{server: server}
+// NewGitLabV2Provider creates a new GitLab V2 provider.
+func NewGitLabV2Provider(db *sql.DB) *GitLabV2Provider {
+	if db == nil {
+		panic("gitlab provider requires database handle")
+	}
+	return &GitLabV2Provider{db: db}
 }
 
 // ProviderName returns the provider name
@@ -563,7 +586,7 @@ func (p *GitLabV2Provider) FetchMergeRequestData(event *UnifiedWebhookEventV2) e
 	gitlabInstanceURL := extractGitLabInstanceURLV2(event.Repository.WebURL)
 
 	// Get access token
-	accessToken, err := p.server.getGitLabAccessTokenV2(gitlabInstanceURL)
+	accessToken, err := p.getGitLabAccessTokenV2(gitlabInstanceURL)
 	if err != nil {
 		return fmt.Errorf("failed to get GitLab access token: %w", err)
 	}
@@ -603,7 +626,7 @@ func (p *GitLabV2Provider) PostCommentReply(event *UnifiedWebhookEventV2, conten
 	}
 
 	gitlabInstanceURL := extractGitLabInstanceURLV2(event.Repository.WebURL)
-	accessToken, err := p.server.getGitLabAccessTokenV2(gitlabInstanceURL)
+	accessToken, err := p.getGitLabAccessTokenV2(gitlabInstanceURL)
 	if err != nil {
 		return fmt.Errorf("failed to get GitLab access token: %w", err)
 	}
@@ -627,7 +650,7 @@ func (p *GitLabV2Provider) PostEmojiReaction(event *UnifiedWebhookEventV2, emoji
 	}
 
 	gitlabInstanceURL := extractGitLabInstanceURLV2(event.Repository.WebURL)
-	accessToken, err := p.server.getGitLabAccessTokenV2(gitlabInstanceURL)
+	accessToken, err := p.getGitLabAccessTokenV2(gitlabInstanceURL)
 	if err != nil {
 		return fmt.Errorf("failed to get GitLab access token: %w", err)
 	}
@@ -645,7 +668,7 @@ func (p *GitLabV2Provider) PostFullReview(event *UnifiedWebhookEventV2, overallC
 	}
 
 	gitlabInstanceURL := extractGitLabInstanceURLV2(event.Repository.WebURL)
-	accessToken, err := p.server.getGitLabAccessTokenV2(gitlabInstanceURL)
+	accessToken, err := p.getGitLabAccessTokenV2(gitlabInstanceURL)
 	if err != nil {
 		return fmt.Errorf("failed to get GitLab access token: %w", err)
 	}
@@ -664,7 +687,7 @@ func (p *GitLabV2Provider) PostFullReview(event *UnifiedWebhookEventV2, overallC
 } // GitLab V2 API Methods - Updated versions of existing GitLab API methods
 
 // getGitLabAccessTokenV2 gets access token for GitLab instance
-func (s *Server) getGitLabAccessTokenV2(gitlabInstanceURL string) (string, error) {
+func (p *GitLabV2Provider) getGitLabAccessTokenV2(gitlabInstanceURL string) (string, error) {
 	// Use SQL to normalize URLs by trimming trailing slashes for flexible matching
 	query := `
 		SELECT pat_token FROM integration_tokens 
@@ -674,7 +697,7 @@ func (s *Server) getGitLabAccessTokenV2(gitlabInstanceURL string) (string, error
 	`
 
 	var token string
-	err := s.db.QueryRow(query, gitlabInstanceURL).Scan(&token)
+	err := p.db.QueryRow(query, gitlabInstanceURL).Scan(&token)
 	if err != nil {
 		// If the SQL approach fails, try the manual approach as fallback
 		normalizedURL := normalizeGitLabURLV2(gitlabInstanceURL)
@@ -685,7 +708,7 @@ func (s *Server) getGitLabAccessTokenV2(gitlabInstanceURL string) (string, error
 			LIMIT 1
 		`
 
-		err = s.db.QueryRow(fallbackQuery, normalizedURL, normalizedURL+"/", gitlabInstanceURL).Scan(&token)
+		err = p.db.QueryRow(fallbackQuery, normalizedURL, normalizedURL+"/", gitlabInstanceURL).Scan(&token)
 		if err != nil {
 			return "", fmt.Errorf("no access token found for GitLab instance %s (tried flexible URL matching): %w", gitlabInstanceURL, err)
 		}
@@ -722,9 +745,9 @@ func matchesGitLabURLV2(url1, url2 string) bool {
 }
 
 // getFreshBotUserInfoV2 gets fresh bot user information via GitLab API
-func (s *Server) getFreshBotUserInfoV2(gitlabInstanceURL string) (*GitLabV2BotUserInfo, error) {
+func (p *GitLabV2Provider) getFreshBotUserInfoV2(gitlabInstanceURL string) (*GitLabV2BotUserInfo, error) {
 	// Get access token for this GitLab instance
-	accessToken, err := s.getGitLabAccessTokenV2(gitlabInstanceURL)
+	accessToken, err := p.getGitLabAccessTokenV2(gitlabInstanceURL)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get GitLab access token: %w", err)
 	}
@@ -758,6 +781,11 @@ func (s *Server) getFreshBotUserInfoV2(gitlabInstanceURL string) (*GitLabV2BotUs
 	}
 
 	return &botUser, nil
+}
+
+// GetFreshBotUserInfo fetches the bot account metadata for the specified GitLab instance.
+func (p *GitLabV2Provider) GetFreshBotUserInfo(gitlabInstanceURL string) (*GitLabV2BotUserInfo, error) {
+	return p.getFreshBotUserInfoV2(gitlabInstanceURL)
 }
 
 // GitLabHTTPClient V2 Methods
@@ -1156,7 +1184,7 @@ func (p *GitLabV2Provider) buildContextualAIResponseV2(ctx context.Context, even
 
 	// Get GitLab access token
 	gitlabInstanceURL := extractGitLabInstanceURLV2(event.Repository.WebURL)
-	accessToken, err := p.server.getGitLabAccessTokenV2(gitlabInstanceURL)
+	accessToken, err := p.getGitLabAccessTokenV2(gitlabInstanceURL)
 	if err != nil {
 		return "", fmt.Errorf("failed to get GitLab access token: %w", err)
 	}
@@ -1420,7 +1448,7 @@ func (p *GitLabV2Provider) checkAIResponseWarrantV2(event *UnifiedWebhookEventV2
 	}
 
 	// Get fresh bot user information via GitLab API
-	botUserInfo, err := p.server.getFreshBotUserInfoV2(gitlabInstanceURL)
+	botUserInfo, err := p.getFreshBotUserInfoV2(gitlabInstanceURL)
 	if err != nil {
 		log.Printf("[ERROR] Failed to get fresh bot user info for GitLab instance %s: %v", gitlabInstanceURL, err)
 		return false, ResponseScenarioV2{}
@@ -1510,7 +1538,7 @@ func (p *GitLabV2Provider) checkIfReplyingToBotCommentV2(event *UnifiedWebhookEv
 	log.Printf("[DEBUG] Checking if comment is reply to bot in discussion: %s", *event.Comment.DiscussionID)
 
 	// Get access token for GitLab API calls
-	accessToken, err := p.server.getGitLabAccessTokenV2(gitlabInstanceURL)
+	accessToken, err := p.getGitLabAccessTokenV2(gitlabInstanceURL)
 	if err != nil {
 		return false, fmt.Errorf("failed to get GitLab access token: %w", err)
 	}
@@ -1625,7 +1653,7 @@ func (p *GitLabV2Provider) postGitLabEmojiReactionV2(ctx context.Context, event 
 	log.Printf("[INFO] Posting emoji reaction for %s content", scenario.Type)
 
 	// Get the access token for this GitLab instance
-	accessToken, err := p.server.getGitLabAccessTokenV2(gitlabInstanceURL)
+	accessToken, err := p.getGitLabAccessTokenV2(gitlabInstanceURL)
 	if err != nil {
 		return fmt.Errorf("failed to get GitLab access token: %w", err)
 	}
@@ -1649,7 +1677,7 @@ func (p *GitLabV2Provider) postGitLabTextResponseV2(ctx context.Context, event *
 	log.Printf("[INFO] Generating text response for %s content type", scenario.Type)
 
 	// Get the access token for this GitLab instance
-	accessToken, err := p.server.getGitLabAccessTokenV2(gitlabInstanceURL)
+	accessToken, err := p.getGitLabAccessTokenV2(gitlabInstanceURL)
 	if err != nil {
 		return fmt.Errorf("failed to get GitLab access token: %w", err)
 	}

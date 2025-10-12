@@ -4908,8 +4908,10 @@ func (s *Server) isBotMentioned(event *UnifiedWebhookEventV2) bool {
 		}
 	case "gitlab":
 		// For GitLab, we need to extract the instance URL from the repository URL
-		if botInfo, err := s.getFreshBotUserInfoV2("https://gitlab.com"); err == nil {
-			botUsername = botInfo.Username
+		if s.gitlabProviderV2 != nil {
+			if botInfo, err := s.gitlabProviderV2.GetFreshBotUserInfo("https://gitlab.com"); err == nil {
+				botUsername = botInfo.Username
+			}
 		}
 	}
 
