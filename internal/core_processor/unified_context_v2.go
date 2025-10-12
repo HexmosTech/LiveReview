@@ -276,6 +276,9 @@ func (cb *UnifiedContextBuilderV2) parseTimeBestEffortV2(timestamp string) time.
 		time.RFC3339Nano,
 		"2006-01-02T15:04:05Z",
 		"2006-01-02T15:04:05.000Z",
+		"2006-01-02 15:04:05 MST",
+		"2006-01-02 15:04:05 UTC",
+		"2006-01-02 15:04:05 -0700",
 		"2006-01-02 15:04:05",
 		"2006-01-02T15:04:05",
 	}

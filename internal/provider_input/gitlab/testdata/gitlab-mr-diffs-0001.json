@@ -1,0 +1,36 @@
+{
+  "diffs": [
+    {
+      "FilePath": "liveapi-backend/qmanager/repodag.go",
+      "OldContent": "",
+      "NewContent": "",
+      "Hunks": [
+        {
+          "Content": "@@ -66,7 +66,11 @@ func (d *RepoDag) walk(\n-\tif err := ctx.Err(); err != nil {\n-\t\treturn err\n-\t}\n+\tif err := ctx.Err(); err != nil {\n+\t\treturn err\n+\t}\n+\n+\tif len(children) == 0 {\n+\t\treturn nil\n+\t}\n "
+        }
+      ],
+      "CommitID": "",
+      "FileType": "",
+      "IsDeleted": false,
+      "IsNew": false,
+      "IsRenamed": false,
+      "OldFilePath": "liveapi-backend/qmanager/repodag.go"
+    },
+    {
+      "FilePath": "liveapi-backend/prompt/subPrompt.go",
+      "OldContent": "",
+      "NewContent": "",
+      "Hunks": [
+        {
+          "Content": "@@ -12,6 +12,7 @@ type subPrompt struct {\n \tName string\n \tArgs []string\n }\n+\n func newSubPrompt(name string, args []string) subPrompt {\n \treturn subPrompt{Name: name, Args: args}\n }\n"
+        }
+      ],
+      "CommitID": "",
+      "FileType": "",
+      "IsDeleted": false,
+      "IsNew": false,
+      "IsRenamed": false,
+      "OldFilePath": "liveapi-backend/prompt/subPrompt.go"
+    }
+  ]
+}
