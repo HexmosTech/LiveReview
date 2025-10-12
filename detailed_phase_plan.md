@@ -221,6 +221,13 @@ There are 9 external packages importing `internal/api`, mainly inside the same m
 
 Immediate next step: finish the GitLab refactor end-to-end in three passes—input, processing, then output—running `make build` after each pass before touching anything else.
 
+#### Step 4.1B: GitLab fixture harness (NEXT)
+- Promote the recorded GitLab fixtures from `captures/github/20251012-201104/` into `internal/provider_input/gitlab/testdata/` mirroring `internal/providers/github/testdata/`. Document redactions plus filename intent (webhook body/meta/unified, MR commits/discussions/notes).
+- Study `internal/providers/github/github_conversion_test.go`: it replays unified webhook fixtures and verifies (1) `TestGitHubUnifiedTimelineReplayMatchesGolden` using `github-webhook-unified-events-0001.json` and its `*_expected_timeline` golden, (2) `TestGitHubUnifiedTimelineIncludesReplyThread` to assert threaded replies retain their `InReplyToID`, and (3) `TestGitHubPatchConversionMatchesFixture` to assert diff parsing matches `github-pr-files-0003.json` → `github-pr-diffs-0004.json`. The fixtures live in `internal/providers/github/testdata/README.md` with commentary on capture provenance.
+- Use that structure to add GitLab tests that cover note → unified conversion, reviewer events, timeline aggregation, diff snapshots, and the three-level thread containing “In this team we prefer having shorter variable names if possible.” Run `go test ./internal/provider_input/gitlab` after each suite.
+- Extend capture regression coverage if needed so replaying fixtures remains stable.
+- Fix the capture directory routing bug so GitLab artifacts land under `captures/gitlab/` (while GitHub remains in `captures/github/`); update the capture utility/provider hooks and rerun `make build`.
+
 #### Step 4.1A: GitLab refactor execution order (NEXT)
 1. **Input move first**: ✅ `gitlab_provider_v2.go` and `gitlab_auth.go` now live in `internal/provider_input/gitlab` with API wrappers bridging existing constructors. Run `make build` after any remaining helper adjustments before proceeding.
 2. **Processing wiring second**: ✅ Server and registry now import `internal/provider_input/gitlab` directly (adapter removed) and reuse the shared provider instance. Build remains green after the wiring change.

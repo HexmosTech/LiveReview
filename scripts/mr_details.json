@@ -6,7 +6,7 @@
   "description": "## MR for Fixing Recall issues for JAVA Project \n\nPrevious Repodag fixed Recall issues of this project but not consistent in recall which were varied from 89% -100%.\n\nRCA For Recall not stable and consistent was \n\n1. Batches had random inheritance files. Which lead made very unstable recall pattern.\n2. Non Inheritance File was added in batching\nex: If the class do not have inheritance feature it was added to gruop batch. hence, Creating issues with Recall\n3. Prompt was too specific with nestjs project.\n\n\nThis version Fixes\n1. Made sorted batching (to make batching always same not random)\n2. Fixed a bug in group batching  which was adding non inheritance files.\n3. Removal of API example example in prompt.\n4. Made Java framework separate prompt.",
   "state": "opened",
   "created_at": "2025-08-21T16:16:05.634Z",
-  "updated_at": "2025-09-05T13:46:56.776Z",
+  "updated_at": "2025-10-08T16:19:56.658Z",
   "merged_by": null,
   "merge_user": null,
   "merged_at": null,
@@ -14,7 +14,7 @@
   "closed_at": null,
   "target_branch": "main",
   "source_branch": "ganesh/repodag-v2",
-  "user_notes_count": 6,
+  "user_notes_count": 0,
   "upvotes": 0,
   "downvotes": 0,
   "author": {

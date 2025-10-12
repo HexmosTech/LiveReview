@@ -1,0 +1,79 @@
+{
+  "EventType": "comment_created",
+  "Provider": "gitlab",
+  "Timestamp": "2025-10-12 14:42:57 UTC",
+  "Repository": {
+    "ID": "170",
+    "Name": "LiveAPI",
+    "FullName": "hexmos/liveapi",
+    "WebURL": "https://git.apps.hexmos.com/hexmos/liveapi",
+    "CloneURL": "",
+    "DefaultBranch": "",
+    "Owner": {
+      "ID": "",
+      "Username": "hexmos",
+      "Name": "",
+      "Email": "",
+      "AvatarURL": "",
+      "WebURL": "",
+      "Metadata": null
+    },
+    "Metadata": null
+  },
+  "MergeRequest": {
+    "ID": "1825",
+    "Number": 426,
+    "Title": "Ganesh/repodag v2",
+    "Description": "## MR for Fixing Recall issues for JAVA Project \n\nPrevious Repodag fixed Recall issues of this project but not consistent in recall which were varied from 89% -100%.\n\nRCA For Recall not stable and consistent was \n\n1. Batches had random inheritance files. Which lead made very unstable recall pattern.\n2. Non Inheritance File was added in batching\nex: If the class do not have inheritance feature it was added to gruop batch. hence, Creating issues with Recall\n3. Prompt was too specific with nestjs project.\n\n\nThis version Fixes\n1. Made sorted batching (to make batching always same not random)\n2. Fixed a bug in group batching  which was adding non inheritance files.\n3. Removal of API example example in prompt.\n4. Made Java framework separate prompt.",
+    "State": "opened",
+    "Author": {
+      "ID": "0",
+      "Username": "",
+      "Name": "",
+      "Email": "",
+      "AvatarURL": "",
+      "WebURL": "",
+      "Metadata": null
+    },
+    "SourceBranch": "ganesh/repodag-v2",
+    "TargetBranch": "main",
+    "WebURL": "",
+    "CreatedAt": "2025-08-21 16:16:05 UTC",
+    "UpdatedAt": "2025-10-12 14:42:57 UTC",
+    "Reviewers": null,
+    "Assignees": null,
+    "Labels": null,
+    "Metadata": null
+  },
+  "Comment": {
+    "ID": "24380",
+    "Body": "**Severity: info**\n\n# Code Review: Minor Improvements and Bug Fixes\n\n## Overview\nThis change focuses on addressing minor issues identified during code review, including typos, grammatical errors, unused variable, unclear logging, and outdated comments. The scope is limited to improving code quality and readability without introducing new functionality.\n\n## Key Changes\n- **`prompt` package**: Corrected typos of \"inheritence\" to \"inheritance\" in `prompt.go` and `subPrompt.go`, and grammatical error \"API decalred\" to \"API declared\" in `subPrompt.go`.\n- **`qmanager/repodag.go`**:\n    - Removed an unused variable declaration.\n    - Improved logging by suggesting a more descriptive message when file content is missing.\n    - Enhanced code readability by renaming the variable `cerr` to `chainErr`.\n    - Identified and flagged outdated comments requiring update or removal.\n\n## Impact\n- **Functionality**: No functional changes are expected. The changes primarily improve code quality, readability, and maintainability.\n- **Risk**: The risk associated with these changes is minimal, as they are primarily cosmetic or address minor code quality issues. However, care should be taken when updating or removing comments to ensure that the code's intent remains clear.",
+    "Author": {
+      "ID": "83",
+      "Username": "LiveReviewBot",
+      "Name": "LiveReviewBot",
+      "Email": "",
+      "AvatarURL": "https://secure.gravatar.com/avatar/3839222089da191e4efe35a7bb35703b9e5c309b4d093410862678833b4d420f?s=80\u0026d=identicon",
+      "WebURL": "",
+      "Metadata": null
+    },
+    "CreatedAt": "2025-10-12 14:42:57 UTC",
+    "UpdatedAt": "2025-10-12 14:42:57 UTC",
+    "WebURL": "https://git.apps.hexmos.com/hexmos/liveapi/-/merge_requests/426#note_24380",
+    "InReplyToID": null,
+    "Position": null,
+    "DiscussionID": "f0b91cf82e78636ddbd511383ec3ab904c5a48b3",
+    "System": false,
+    "Metadata": null
+  },
+  "ReviewerChange": null,
+  "Actor": {
+    "ID": "83",
+    "Username": "LiveReviewBot",
+    "Name": "LiveReviewBot",
+    "Email": "",
+    "AvatarURL": "https://secure.gravatar.com/avatar/3839222089da191e4efe35a7bb35703b9e5c309b4d093410862678833b4d420f?s=80\u0026d=identicon",
+    "WebURL": "",
+    "Metadata": null
+  }
+}
