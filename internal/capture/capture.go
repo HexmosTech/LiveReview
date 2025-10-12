@@ -26,10 +26,13 @@ func init() {
 }
 
 // envCaptureDir is the environment variable that controls capture output.
-const envCaptureDir = "LIVEREVIEW_GITHUB_CAPTURE_DIR"
+const envCaptureDir = "LIVEREVIEW_CAPTURE_DIR"
 
 // defaultCaptureDir is the fallback location when the environment variable is unset.
-const defaultCaptureDir = "captures/github"
+const (
+	defaultCaptureDir       = "captures/github"
+	gitlabDefaultCaptureDir = "captures/gitlab"
+)
 
 // Enabled reports whether capture is currently active.
 func Enabled() bool {

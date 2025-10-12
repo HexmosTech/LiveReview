@@ -1,0 +1,19 @@
+{
+  "event_type": "note",
+  "headers": {
+    "Accept": "*/*",
+    "Accept-Encoding": "gzip;q=1.0,deflate;q=0.6,identity;q=0.3",
+    "Connection": "close",
+    "Content-Length": "6323",
+    "Content-Type": "application/json",
+    "Idempotency-Key": "33775647-7934-40ee-85ee-3a4b2e76c4a4",
+    "User-Agent": "GitLab/18.3.0",
+    "X-Forwarded-For": "51.195.45.200",
+    "X-Forwarded-Proto": "https",
+    "X-Gitlab-Event": "Note Hook",
+    "X-Gitlab-Event-Uuid": "9db02339-d49d-4cfd-87e7-9a03a5fd3860",
+    "X-Gitlab-Instance": "https://git.apps.hexmos.com",
+    "X-Gitlab-Webhook-Uuid": "afd83de0-30d2-465b-9091-4929c053297f",
+    "X-Real-Ip": "51.195.45.200"
+  }
+}

@@ -1,0 +1,802 @@
+[
+  {
+    "id": "e9c39eeb436686ccef21bb871072f703a905134c",
+    "notes": [
+      {
+        "id": 23778,
+        "type": "",
+        "body": "added 12 commits\n\n\u003cul\u003e\u003cli\u003e4d931c7b...4ccc5630 - 7 commits from branch \u003ccode\u003emain\u003c/code\u003e\u003c/li\u003e\u003cli\u003ed751ac7a - Merge branch \u0026#39;main\u0026#39; of git.apps.hexmos.com:hexmos/liveapi into ganesh/repodag-v2\u003c/li\u003e\u003cli\u003eac332385 - reverted-changes-adding-system-prompt\u003c/li\u003e\u003cli\u003ef104dad6 - made-half-java-code-example\u003c/li\u003e\u003cli\u003ea0c2082b - removed-example\u003c/li\u003e\u003cli\u003e8e214e02 - reverted-with-small-changes\u003c/li\u003e\u003c/ul\u003e\n\n[Compare with previous version](/hexmos/liveapi/-/merge_requests/426/diffs?diff_id=13968\u0026start_sha=4d931c7b634314f05081a11df5a75ebad3d9e62f)",
+        "author": {
+          "id": 48,
+          "name": "Ganesh Kumar",
+          "username": "Ganesh",
+          "state": "active",
+          "avatar_url": "https://git.apps.hexmos.com/uploads/-/system/user/avatar/48/avatar.png",
+          "web_url": "https://git.apps.hexmos.com/Ganesh",
+          "email": ""
+        },
+        "created_at": "2025-08-22T14:48:29.269Z",
+        "updated_at": "2025-08-22T14:48:29.280Z",
+        "system": true,
+        "noteable_id": 1825,
+        "noteable_type": "MergeRequest",
+        "position": null,
+        "resolvable": false,
+        "resolved": false,
+        "resolved_by": {
+          "id": 0,
+          "name": "",
+          "username": "",
+          "state": "",
+          "avatar_url": "",
+          "web_url": "",
+          "email": ""
+        }
+      }
+    ]
+  },
+  {
+    "id": "3062d1a4778d37501f5a05cf2749ce091fed6955",
+    "notes": [
+      {
+        "id": 23782,
+        "type": "",
+        "body": "added 2 commits\n\n\u003cul\u003e\u003cli\u003e7926e27f - eddi-stable-with-this-prompt\u003c/li\u003e\u003cli\u003e3f4f7f1f - reverted-all-changes\u003c/li\u003e\u003c/ul\u003e\n\n[Compare with previous version](/hexmos/liveapi/-/merge_requests/426/diffs?diff_id=13977\u0026start_sha=8e214e02649b3fd33abaeaf16feaee1acfc7b459)",
+        "author": {
+          "id": 48,
+          "name": "Ganesh Kumar",
+          "username": "Ganesh",
+          "state": "active",
+          "avatar_url": "https://git.apps.hexmos.com/uploads/-/system/user/avatar/48/avatar.png",
+          "web_url": "https://git.apps.hexmos.com/Ganesh",
+          "email": ""
+        },
+        "created_at": "2025-08-22T16:45:47.514Z",
+        "updated_at": "2025-08-22T16:45:47.559Z",
+        "system": true,
+        "noteable_id": 1825,
+        "noteable_type": "MergeRequest",
+        "position": null,
+        "resolvable": false,
+        "resolved": false,
+        "resolved_by": {
+          "id": 0,
+          "name": "",
+          "username": "",
+          "state": "",
+          "avatar_url": "",
+          "web_url": "",
+          "email": ""
+        }
+      }
+    ]
+  },
+  {
+    "id": "2a59f0656f4c0259186aba90c95134435985e8f9",
+    "notes": [
+      {
+        "id": 23787,
+        "type": "",
+        "body": "added 3 commits\n\n\u003cul\u003e\u003cli\u003ef7198f01 - removed-low-qaulity-prompt\u003c/li\u003e\u003cli\u003e362e6640 - made-sorted-bathes\u003c/li\u003e\u003cli\u003ef8faf426 - go-fumpt\u003c/li\u003e\u003c/ul\u003e\n\n[Compare with previous version](/hexmos/liveapi/-/merge_requests/426/diffs?diff_id=13984\u0026start_sha=3f4f7f1f2138a177cf1ea5b7edb192340e9dacd7)",
+        "author": {
+          "id": 48,
+          "name": "Ganesh Kumar",
+          "username": "Ganesh",
+          "state": "active",
+          "avatar_url": "https://git.apps.hexmos.com/uploads/-/system/user/avatar/48/avatar.png",
+          "web_url": "https://git.apps.hexmos.com/Ganesh",
+          "email": ""
+        },
+        "created_at": "2025-08-23T14:52:03.636Z",
+        "updated_at": "2025-08-23T14:52:03.683Z",
+        "system": true,
+        "noteable_id": 1825,
+        "noteable_type": "MergeRequest",
+        "position": null,
+        "resolvable": false,
+        "resolved": false,
+        "resolved_by": {
+          "id": 0,
+          "name": "",
+          "username": "",
+          "state": "",
+          "avatar_url": "",
+          "web_url": "",
+          "email": ""
+        }
+      }
+    ]
+  },
+  {
+    "id": "0719931e2ff3c4b9315625df7d08d50de003d014",
+    "notes": [
+      {
+        "id": 23792,
+        "type": "",
+        "body": "added 5 commits\n\n\u003cul\u003e\u003cli\u003e10b9e32d - stable-highest-recall\u003c/li\u003e\u003cli\u003e910e7a0c - fixed-issues-wit-api-misses\u003c/li\u003e\u003cli\u003e9baf8a43 - made-seperate-java-ts\u003c/li\u003e\u003cli\u003e4f6bd541 - stable-recal-under-repodag-v2\u003c/li\u003e\u003cli\u003e9d47273c - go-fumpt\u003c/li\u003e\u003c/ul\u003e\n\n[Compare with previous version](/hexmos/liveapi/-/merge_requests/426/diffs?diff_id=13990\u0026start_sha=f8faf426c1a1055ec5eeb1d76419339b06e58941)",
+        "author": {
+          "id": 48,
+          "name": "Ganesh Kumar",
+          "username": "Ganesh",
+          "state": "active",
+          "avatar_url": "https://git.apps.hexmos.com/uploads/-/system/user/avatar/48/avatar.png",
+          "web_url": "https://git.apps.hexmos.com/Ganesh",
+          "email": ""
+        },
+        "created_at": "2025-08-24T17:43:34.504Z",
+        "updated_at": "2025-08-24T17:43:34.659Z",
+        "system": true,
+        "noteable_id": 1825,
+        "noteable_type": "MergeRequest",
+        "position": null,
+        "resolvable": false,
+        "resolved": false,
+        "resolved_by": {
+          "id": 0,
+          "name": "",
+          "username": "",
+          "state": "",
+          "avatar_url": "",
+          "web_url": "",
+          "email": ""
+        }
+      }
+    ]
+  },
+  {
+    "id": "b3e7f2461010772461fbecce5913bf632b714bb4",
+    "notes": [
+      {
+        "id": 23793,
+        "type": "",
+        "body": "added 6 commits\n\n\u003cul\u003e\u003cli\u003e9d47273c...0c2639dd - 5 commits from branch \u003ccode\u003emain\u003c/code\u003e\u003c/li\u003e\u003cli\u003e7f6b232f - Merge branch \u0026#39;main\u0026#39; of git.apps.hexmos.com:hexmos/liveapi into ganesh/repodag-v2\u003c/li\u003e\u003c/ul\u003e\n\n[Compare with previous version](/hexmos/liveapi/-/merge_requests/426/diffs?diff_id=13991\u0026start_sha=9d47273c1058f7f78e6a061c13df73a5e5e87dd1)",
+        "author": {
+          "id": 48,
+          "name": "Ganesh Kumar",
+          "username": "Ganesh",
+          "state": "active",
+          "avatar_url": "https://git.apps.hexmos.com/uploads/-/system/user/avatar/48/avatar.png",
+          "web_url": "https://git.apps.hexmos.com/Ganesh",
+          "email": ""
+        },
+        "created_at": "2025-08-24T17:43:58.946Z",
+        "updated_at": "2025-08-24T17:43:58.970Z",
+        "system": true,
+        "noteable_id": 1825,
+        "noteable_type": "MergeRequest",
+        "position": null,
+        "resolvable": false,
+        "resolved": false,
+        "resolved_by": {
+          "id": 0,
+          "name": "",
+          "username": "",
+          "state": "",
+          "avatar_url": "",
+          "web_url": "",
+          "email": ""
+        }
+      }
+    ]
+  },
+  {
+    "id": "1cf72417c387bfc9818df2e10b61ea28a1112200",
+    "notes": [
+      {
+        "id": 23817,
+        "type": "",
+        "body": "added 2 commits\n\n\u003cul\u003e\u003cli\u003effa9df0c - added-correct-ctag\u003c/li\u003e\u003cli\u003e4f9c7246 - removeing-logs-rename-varaibles\u003c/li\u003e\u003c/ul\u003e\n\n[Compare with previous version](/hexmos/liveapi/-/merge_requests/426/diffs?diff_id=14004\u0026start_sha=7f6b232f26ffc4b99d733acd94c36f7a54cf200c)",
+        "author": {
+          "id": 48,
+          "name": "Ganesh Kumar",
+          "username": "Ganesh",
+          "state": "active",
+          "avatar_url": "https://git.apps.hexmos.com/uploads/-/system/user/avatar/48/avatar.png",
+          "web_url": "https://git.apps.hexmos.com/Ganesh",
+          "email": ""
+        },
+        "created_at": "2025-08-26T13:49:25.129Z",
+        "updated_at": "2025-08-26T13:49:25.929Z",
+        "system": true,
+        "noteable_id": 1825,
+        "noteable_type": "MergeRequest",
+        "position": null,
+        "resolvable": false,
+        "resolved": false,
+        "resolved_by": {
+          "id": 0,
+          "name": "",
+          "username": "",
+          "state": "",
+          "avatar_url": "",
+          "web_url": "",
+          "email": ""
+        }
+      }
+    ]
+  },
+  {
+    "id": "537bbdb35f59a1c7533e3412bdbf5088b990a820",
+    "notes": [
+      {
+        "id": 23818,
+        "type": "",
+        "body": "changed the description",
+        "author": {
+          "id": 48,
+          "name": "Ganesh Kumar",
+          "username": "Ganesh",
+          "state": "active",
+          "avatar_url": "https://git.apps.hexmos.com/uploads/-/system/user/avatar/48/avatar.png",
+          "web_url": "https://git.apps.hexmos.com/Ganesh",
+          "email": ""
+        },
+        "created_at": "2025-08-26T14:04:24.617Z",
+        "updated_at": "2025-08-26T14:04:24.627Z",
+        "system": true,
+        "noteable_id": 1825,
+        "noteable_type": "MergeRequest",
+        "position": null,
+        "resolvable": false,
+        "resolved": false,
+        "resolved_by": {
+          "id": 0,
+          "name": "",
+          "username": "",
+          "state": "",
+          "avatar_url": "",
+          "web_url": "",
+          "email": ""
+        }
+      }
+    ]
+  },
+  {
+    "id": "1f6a64e14c90fdcbd720f74c21523412bfe2b364",
+    "notes": [
+      {
+        "id": 23834,
+        "type": "DiffNote",
+        "body": "changed this line in [version 7 of the diff](/hexmos/liveapi/-/merge_requests/426/diffs?diff_id=14008\u0026start_sha=4f9c7246b96b7849e61b69ee7066dfd381b84183#6d245f34450a909ae19e572b58b132017e7271ec_535_534)",
+        "author": {
+          "id": 48,
+          "name": "Ganesh Kumar",
+          "username": "Ganesh",
+          "state": "active",
+          "avatar_url": "https://git.apps.hexmos.com/uploads/-/system/user/avatar/48/avatar.png",
+          "web_url": "https://git.apps.hexmos.com/Ganesh",
+          "email": ""
+        },
+        "created_at": "2025-08-26T14:52:37.569Z",
+        "updated_at": "2025-08-26T14:52:37.569Z",
+        "system": true,
+        "noteable_id": 1825,
+        "noteable_type": "MergeRequest",
+        "position": {
+          "base_sha": "0c2639dd809450c950339d35de2ab40a525306db",
+          "start_sha": "0c2639dd809450c950339d35de2ab40a525306db",
+          "head_sha": "4f9c7246b96b7849e61b69ee7066dfd381b84183",
+          "old_path": "liveapi-backend/prompt/prompt.go",
+          "new_path": "liveapi-backend/prompt/prompt.go",
+          "position_type": "text",
+          "old_line": null,
+          "new_line": 535,
+          "line_range": null
+        },
+        "resolvable": false,
+        "resolved": false,
+        "resolved_by": {
+          "id": 0,
+          "name": "",
+          "username": "",
+          "state": "",
+          "avatar_url": "",
+          "web_url": "",
+          "email": ""
+        }
+      }
+    ]
+  },
+  {
+    "id": "32b703213de10de1c17ae1548186a89741dea01d",
+    "notes": [
+      {
+        "id": 23835,
+        "type": "DiffNote",
+        "body": "changed this line in [version 7 of the diff](/hexmos/liveapi/-/merge_requests/426/diffs?diff_id=14008\u0026start_sha=4f9c7246b96b7849e61b69ee7066dfd381b84183#98aff874ccf5b8d340bf569886726f1c20a8a2d9_390_390)",
+        "author": {
+          "id": 48,
+          "name": "Ganesh Kumar",
+          "username": "Ganesh",
+          "state": "active",
+          "avatar_url": "https://git.apps.hexmos.com/uploads/-/system/user/avatar/48/avatar.png",
+          "web_url": "https://git.apps.hexmos.com/Ganesh",
+          "email": ""
+        },
+        "created_at": "2025-08-26T14:52:37.921Z",
+        "updated_at": "2025-08-26T14:52:37.921Z",
+        "system": true,
+        "noteable_id": 1825,
+        "noteable_type": "MergeRequest",
+        "position": {
+          "base_sha": "0c2639dd809450c950339d35de2ab40a525306db",
+          "start_sha": "0c2639dd809450c950339d35de2ab40a525306db",
+          "head_sha": "4f9c7246b96b7849e61b69ee7066dfd381b84183",
+          "old_path": "liveapi-backend/prompt/subPrompt.go",
+          "new_path": "liveapi-backend/prompt/subPrompt.go",
+          "position_type": "text",
+          "old_line": null,
+          "new_line": 390,
+          "line_range": null
+        },
+        "resolvable": false,
+        "resolved": false,
+        "resolved_by": {
+          "id": 0,
+          "name": "",
+          "username": "",
+          "state": "",
+          "avatar_url": "",
+          "web_url": "",
+          "email": ""
+        }
+      }
+    ]
+  },
+  {
+    "id": "af08a08782dba88f227924c0e137cacbff583ad4",
+    "notes": [
+      {
+        "id": 23836,
+        "type": "DiffNote",
+        "body": "changed this line in [version 7 of the diff](/hexmos/liveapi/-/merge_requests/426/diffs?diff_id=14008\u0026start_sha=4f9c7246b96b7849e61b69ee7066dfd381b84183#98aff874ccf5b8d340bf569886726f1c20a8a2d9_485_485)",
+        "author": {
+          "id": 48,
+          "name": "Ganesh Kumar",
+          "username": "Ganesh",
+          "state": "active",
+          "avatar_url": "https://git.apps.hexmos.com/uploads/-/system/user/avatar/48/avatar.png",
+          "web_url": "https://git.apps.hexmos.com/Ganesh",
+          "email": ""
+        },
+        "created_at": "2025-08-26T14:52:38.388Z",
+        "updated_at": "2025-08-26T14:52:38.388Z",
+        "system": true,
+        "noteable_id": 1825,
+        "noteable_type": "MergeRequest",
+        "position": {
+          "base_sha": "0c2639dd809450c950339d35de2ab40a525306db",
+          "start_sha": "0c2639dd809450c950339d35de2ab40a525306db",
+          "head_sha": "4f9c7246b96b7849e61b69ee7066dfd381b84183",
+          "old_path": "liveapi-backend/prompt/subPrompt.go",
+          "new_path": "liveapi-backend/prompt/subPrompt.go",
+          "position_type": "text",
+          "old_line": null,
+          "new_line": 485,
+          "line_range": null
+        },
+        "resolvable": false,
+        "resolved": false,
+        "resolved_by": {
+          "id": 0,
+          "name": "",
+          "username": "",
+          "state": "",
+          "avatar_url": "",
+          "web_url": "",
+          "email": ""
+        }
+      }
+    ]
+  },
+  {
+    "id": "d68c161699ae8118cf5cbeebca037bfad36a6190",
+    "notes": [
+      {
+        "id": 23837,
+        "type": "DiffNote",
+        "body": "changed this line in [version 7 of the diff](/hexmos/liveapi/-/merge_requests/426/diffs?diff_id=14008\u0026start_sha=4f9c7246b96b7849e61b69ee7066dfd381b84183#98aff874ccf5b8d340bf569886726f1c20a8a2d9_486_485)",
+        "author": {
+          "id": 48,
+          "name": "Ganesh Kumar",
+          "username": "Ganesh",
+          "state": "active",
+          "avatar_url": "https://git.apps.hexmos.com/uploads/-/system/user/avatar/48/avatar.png",
+          "web_url": "https://git.apps.hexmos.com/Ganesh",
+          "email": ""
+        },
+        "created_at": "2025-08-26T14:52:38.605Z",
+        "updated_at": "2025-08-26T14:52:38.605Z",
+        "system": true,
+        "noteable_id": 1825,
+        "noteable_type": "MergeRequest",
+        "position": {
+          "base_sha": "0c2639dd809450c950339d35de2ab40a525306db",
+          "start_sha": "0c2639dd809450c950339d35de2ab40a525306db",
+          "head_sha": "4f9c7246b96b7849e61b69ee7066dfd381b84183",
+          "old_path": "liveapi-backend/prompt/subPrompt.go",
+          "new_path": "liveapi-backend/prompt/subPrompt.go",
+          "position_type": "text",
+          "old_line": null,
+          "new_line": 486,
+          "line_range": null
+        },
+        "resolvable": false,
+        "resolved": false,
+        "resolved_by": {
+          "id": 0,
+          "name": "",
+          "username": "",
+          "state": "",
+          "avatar_url": "",
+          "web_url": "",
+          "email": ""
+        }
+      }
+    ]
+  },
+  {
+    "id": "bb66e6131a0c93e41413588790f65a30bdec49a9",
+    "notes": [
+      {
+        "id": 23838,
+        "type": "DiffNote",
+        "body": "changed this line in [version 7 of the diff](/hexmos/liveapi/-/merge_requests/426/diffs?diff_id=14008\u0026start_sha=4f9c7246b96b7849e61b69ee7066dfd381b84183#216b47d213dc08dbbd9f450419357e06bd681764_259_260)",
+        "author": {
+          "id": 48,
+          "name": "Ganesh Kumar",
+          "username": "Ganesh",
+          "state": "active",
+          "avatar_url": "https://git.apps.hexmos.com/uploads/-/system/user/avatar/48/avatar.png",
+          "web_url": "https://git.apps.hexmos.com/Ganesh",
+          "email": ""
+        },
+        "created_at": "2025-08-26T14:52:39.808Z",
+        "updated_at": "2025-08-26T14:52:39.808Z",
+        "system": true,
+        "noteable_id": 1825,
+        "noteable_type": "MergeRequest",
+        "position": {
+          "base_sha": "0c2639dd809450c950339d35de2ab40a525306db",
+          "start_sha": "0c2639dd809450c950339d35de2ab40a525306db",
+          "head_sha": "4f9c7246b96b7849e61b69ee7066dfd381b84183",
+          "old_path": "liveapi-backend/qmanager/repodag.go",
+          "new_path": "liveapi-backend/qmanager/repodag.go",
+          "position_type": "text",
+          "old_line": null,
+          "new_line": 259,
+          "line_range": null
+        },
+        "resolvable": false,
+        "resolved": false,
+        "resolved_by": {
+          "id": 0,
+          "name": "",
+          "username": "",
+          "state": "",
+          "avatar_url": "",
+          "web_url": "",
+          "email": ""
+        }
+      }
+    ]
+  },
+  {
+    "id": "489713d8a6253a15111a0a920d41e3c00f068905",
+    "notes": [
+      {
+        "id": 23839,
+        "type": "",
+        "body": "added 1 commit\n\n\u003cul\u003e\u003cli\u003ec07a322a - addresed-major-lr-comments\u003c/li\u003e\u003c/ul\u003e\n\n[Compare with previous version](/hexmos/liveapi/-/merge_requests/426/diffs?diff_id=14008\u0026start_sha=4f9c7246b96b7849e61b69ee7066dfd381b84183)",
+        "author": {
+          "id": 48,
+          "name": "Ganesh Kumar",
+          "username": "Ganesh",
+          "state": "active",
+          "avatar_url": "https://git.apps.hexmos.com/uploads/-/system/user/avatar/48/avatar.png",
+          "web_url": "https://git.apps.hexmos.com/Ganesh",
+          "email": ""
+        },
+        "created_at": "2025-08-26T14:52:40.330Z",
+        "updated_at": "2025-08-26T14:52:40.337Z",
+        "system": true,
+        "noteable_id": 1825,
+        "noteable_type": "MergeRequest",
+        "position": null,
+        "resolvable": false,
+        "resolved": false,
+        "resolved_by": {
+          "id": 0,
+          "name": "",
+          "username": "",
+          "state": "",
+          "avatar_url": "",
+          "web_url": "",
+          "email": ""
+        }
+      }
+    ]
+  },
+  {
+    "id": "c484e5e798615180d70613ddcc637ecb41b4b11d",
+    "notes": [
+      {
+        "id": 23864,
+        "type": "",
+        "body": "added 5 commits\n\n\u003cul\u003e\u003cli\u003ec07a322a...2a8b27f5 - 4 commits from branch \u003ccode\u003emain\u003c/code\u003e\u003c/li\u003e\u003cli\u003e9e3fda7a - Merge branch \u0026#39;main\u0026#39; of git.apps.hexmos.com:hexmos/liveapi into ganesh/repodag-v2\u003c/li\u003e\u003c/ul\u003e\n\n[Compare with previous version](/hexmos/liveapi/-/merge_requests/426/diffs?diff_id=14021\u0026start_sha=c07a322a1003da71168dc72345201b81bdecdc40)",
+        "author": {
+          "id": 48,
+          "name": "Ganesh Kumar",
+          "username": "Ganesh",
+          "state": "active",
+          "avatar_url": "https://git.apps.hexmos.com/uploads/-/system/user/avatar/48/avatar.png",
+          "web_url": "https://git.apps.hexmos.com/Ganesh",
+          "email": ""
+        },
+        "created_at": "2025-08-26T16:19:59.348Z",
+        "updated_at": "2025-08-26T16:19:59.355Z",
+        "system": true,
+        "noteable_id": 1825,
+        "noteable_type": "MergeRequest",
+        "position": null,
+        "resolvable": false,
+        "resolved": false,
+        "resolved_by": {
+          "id": 0,
+          "name": "",
+          "username": "",
+          "state": "",
+          "avatar_url": "",
+          "web_url": "",
+          "email": ""
+        }
+      }
+    ]
+  },
+  {
+    "id": "630531027c742d272bd186b4921355ef4632dceb",
+    "notes": [
+      {
+        "id": 23897,
+        "type": "",
+        "body": "restored source branch `ganesh/repodag-v2`",
+        "author": {
+          "id": 48,
+          "name": "Ganesh Kumar",
+          "username": "Ganesh",
+          "state": "active",
+          "avatar_url": "https://git.apps.hexmos.com/uploads/-/system/user/avatar/48/avatar.png",
+          "web_url": "https://git.apps.hexmos.com/Ganesh",
+          "email": ""
+        },
+        "created_at": "2025-08-30T16:11:19.382Z",
+        "updated_at": "2025-08-30T16:11:19.389Z",
+        "system": true,
+        "noteable_id": 1825,
+        "noteable_type": "MergeRequest",
+        "position": null,
+        "resolvable": false,
+        "resolved": false,
+        "resolved_by": {
+          "id": 0,
+          "name": "",
+          "username": "",
+          "state": "",
+          "avatar_url": "",
+          "web_url": "",
+          "email": ""
+        }
+      }
+    ]
+  },
+  {
+    "id": "92a0c015294e0eab72974c70b03c9ecc0214ee1d",
+    "notes": [
+      {
+        "id": 23898,
+        "type": "",
+        "body": "added 2 commits\n\n\u003cul\u003e\u003cli\u003edb0e5527 - 1 commit from branch \u003ccode\u003emain\u003c/code\u003e\u003c/li\u003e\u003cli\u003e0d239c1b - Merge branch \u0026#39;main\u0026#39; of git.apps.hexmos.com:hexmos/liveapi into ganesh/repodag-v2\u003c/li\u003e\u003c/ul\u003e\n\n[Compare with previous version](/hexmos/liveapi/-/merge_requests/426/diffs?diff_id=14059\u0026start_sha=0000000000000000000000000000000000000000)",
+        "author": {
+          "id": 48,
+          "name": "Ganesh Kumar",
+          "username": "Ganesh",
+          "state": "active",
+          "avatar_url": "https://git.apps.hexmos.com/uploads/-/system/user/avatar/48/avatar.png",
+          "web_url": "https://git.apps.hexmos.com/Ganesh",
+          "email": ""
+        },
+        "created_at": "2025-08-30T16:11:19.434Z",
+        "updated_at": "2025-08-30T16:11:19.437Z",
+        "system": true,
+        "noteable_id": 1825,
+        "noteable_type": "MergeRequest",
+        "position": null,
+        "resolvable": false,
+        "resolved": false,
+        "resolved_by": {
+          "id": 0,
+          "name": "",
+          "username": "",
+          "state": "",
+          "avatar_url": "",
+          "web_url": "",
+          "email": ""
+        }
+      }
+    ]
+  },
+  {
+    "id": "f0b91cf82e78636ddbd511383ec3ab904c5a48b3",
+    "notes": [
+      {
+        "id": 24380,
+        "type": "DiscussionNote",
+        "body": "**Severity: info**\n\n# Code Review: Minor Improvements and Bug Fixes\n\n## Overview\nThis change focuses on addressing minor issues identified during code review, including typos, grammatical errors, unused variable, unclear logging, and outdated comments. The scope is limited to improving code quality and readability without introducing new functionality.\n\n## Key Changes\n- **`prompt` package**: Corrected typos of \"inheritence\" to \"inheritance\" in `prompt.go` and `subPrompt.go`, and grammatical error \"API decalred\" to \"API declared\" in `subPrompt.go`.\n- **`qmanager/repodag.go`**:\n    - Removed an unused variable declaration.\n    - Improved logging by suggesting a more descriptive message when file content is missing.\n    - Enhanced code readability by renaming the variable `cerr` to `chainErr`.\n    - Identified and flagged outdated comments requiring update or removal.\n\n## Impact\n- **Functionality**: No functional changes are expected. The changes primarily improve code quality, readability, and maintainability.\n- **Risk**: The risk associated with these changes is minimal, as they are primarily cosmetic or address minor code quality issues. However, care should be taken when updating or removing comments to ensure that the code's intent remains clear.",
+        "author": {
+          "id": 83,
+          "name": "LiveReviewBot",
+          "username": "LiveReviewBot",
+          "state": "active",
+          "avatar_url": "https://secure.gravatar.com/avatar/3839222089da191e4efe35a7bb35703b9e5c309b4d093410862678833b4d420f?s=80\u0026d=identicon",
+          "web_url": "https://git.apps.hexmos.com/LiveReviewBot",
+          "email": ""
+        },
+        "created_at": "2025-10-12T14:42:57.776Z",
+        "updated_at": "2025-10-12T14:42:57.776Z",
+        "system": false,
+        "noteable_id": 1825,
+        "noteable_type": "MergeRequest",
+        "position": null,
+        "resolvable": true,
+        "resolved": false,
+        "resolved_by": {
+          "id": 0,
+          "name": "",
+          "username": "",
+          "state": "",
+          "avatar_url": "",
+          "web_url": "",
+          "email": ""
+        }
+      }
+    ]
+  },
+  {
+    "id": "d986c5ae700db4c84a2aad7a23ed2db8b7a23a51",
+    "notes": [
+      {
+        "id": 24381,
+        "type": "DiffNote",
+        "body": "**Severity: warning**\n\nTypo: 'inheritence' should be 'inheritance'\n\n**Suggestions:**\n1. Correct the spelling to 'inheritance'",
+        "author": {
+          "id": 83,
+          "name": "LiveReviewBot",
+          "username": "LiveReviewBot",
+          "state": "active",
+          "avatar_url": "https://secure.gravatar.com/avatar/3839222089da191e4efe35a7bb35703b9e5c309b4d093410862678833b4d420f?s=80\u0026d=identicon",
+          "web_url": "https://git.apps.hexmos.com/LiveReviewBot",
+          "email": ""
+        },
+        "created_at": "2025-10-12T14:42:58.906Z",
+        "updated_at": "2025-10-12T14:42:58.906Z",
+        "system": false,
+        "noteable_id": 1825,
+        "noteable_type": "MergeRequest",
+        "position": {
+          "base_sha": "db0e55273af6274d01ae4c35652e98161ecc9c56",
+          "start_sha": "926a52c884754497c5bce010906dc37ac5cda558",
+          "head_sha": "0d239c1ba1efd69a93e263eaf2b519b2210c19dc",
+          "old_path": "liveapi-backend/prompt/prompt.go",
+          "new_path": "liveapi-backend/prompt/prompt.go",
+          "position_type": "text",
+          "old_line": 534,
+          "new_line": null,
+          "line_range": null
+        },
+        "resolvable": true,
+        "resolved": false,
+        "resolved_by": {
+          "id": 0,
+          "name": "",
+          "username": "",
+          "state": "",
+          "avatar_url": "",
+          "web_url": "",
+          "email": ""
+        }
+      }
+    ]
+  },
+  {
+    "id": "25884fb0fd457221bce81a4edfde2b7de9450183",
+    "notes": [
+      {
+        "id": 24382,
+        "type": "DiffNote",
+        "body": "**Severity: warning**\n\nGrammar: 'API decalred' should be 'API declared'\n\n**Suggestions:**\n1. Correct the grammar to 'API declared'",
+        "author": {
+          "id": 83,
+          "name": "LiveReviewBot",
+          "username": "LiveReviewBot",
+          "state": "active",
+          "avatar_url": "https://secure.gravatar.com/avatar/3839222089da191e4efe35a7bb35703b9e5c309b4d093410862678833b4d420f?s=80\u0026d=identicon",
+          "web_url": "https://git.apps.hexmos.com/LiveReviewBot",
+          "email": ""
+        },
+        "created_at": "2025-10-12T14:43:00.187Z",
+        "updated_at": "2025-10-12T14:43:00.187Z",
+        "system": false,
+        "noteable_id": 1825,
+        "noteable_type": "MergeRequest",
+        "position": {
+          "base_sha": "db0e55273af6274d01ae4c35652e98161ecc9c56",
+          "start_sha": "926a52c884754497c5bce010906dc37ac5cda558",
+          "head_sha": "0d239c1ba1efd69a93e263eaf2b519b2210c19dc",
+          "old_path": "liveapi-backend/prompt/subPrompt.go",
+          "new_path": "liveapi-backend/prompt/subPrompt.go",
+          "position_type": "text",
+          "old_line": null,
+          "new_line": 461,
+          "line_range": null
+        },
+        "resolvable": true,
+        "resolved": false,
+        "resolved_by": {
+          "id": 0,
+          "name": "",
+          "username": "",
+          "state": "",
+          "avatar_url": "",
+          "web_url": "",
+          "email": ""
+        }
+      }
+    ]
+  },
+  {
+    "id": "e429d89be41a943891defa2f8f0ff5779010caa4",
+    "notes": [
+      {
+        "id": 24383,
+        "type": "DiffNote",
+        "body": "**Severity: warning**\n\nTypo: 'inheritence' should be 'inheritance'\n\n**Suggestions:**\n1. Correct the spelling to 'inheritance'",
+        "author": {
+          "id": 83,
+          "name": "LiveReviewBot",
+          "username": "LiveReviewBot",
+          "state": "active",
+          "avatar_url": "https://secure.gravatar.com/avatar/3839222089da191e4efe35a7bb35703b9e5c309b4d093410862678833b4d420f?s=80\u0026d=identicon",
+          "web_url": "https://git.apps.hexmos.com/LiveReviewBot",
+          "email": ""
+        },
+        "created_at": "2025-10-12T14:43:01.941Z",
+        "updated_at": "2025-10-12T14:43:01.941Z",
+        "system": false,
+        "noteable_id": 1825,
+        "noteable_type": "MergeRequest",
+        "position": {
+          "base_sha": "db0e55273af6274d01ae4c35652e98161ecc9c56",
+          "start_sha": "926a52c884754497c5bce010906dc37ac5cda558",
+          "head_sha": "0d239c1ba1efd69a93e263eaf2b519b2210c19dc",
+          "old_path": "liveapi-backend/prompt/subPrompt.go",
+          "new_path": "liveapi-backend/prompt/subPrompt.go",
+          "position_type": "text",
+          "old_line": null,
+          "new_line": 525,
+          "line_range": null
+        },
+        "resolvable": true,
+        "resolved": false,
+        "resolved_by": {
+          "id": 0,
+          "name": "",
+          "username": "",
+          "state": "",
+          "avatar_url": "",
+          "web_url": "",
+          "email": ""
+        }
+      }
+    ]
+  }
+]
