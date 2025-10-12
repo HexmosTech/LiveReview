@@ -24,6 +24,7 @@ import (
 	githubprovider "github.com/livereview/internal/provider_input/github"
 	gitlabprovider "github.com/livereview/internal/provider_input/gitlab"
 	githuboutput "github.com/livereview/internal/provider_output/github"
+	gitlaboutput "github.com/livereview/internal/provider_output/gitlab"
 	// Import FetchGitLabProfile
 )
 
@@ -106,8 +107,10 @@ type Server struct {
 	licenseScheduler     *license.Scheduler
 
 	// V2 Webhook Providers
-	gitlabProviderV2 *GitLabV2Provider
+	gitlabProviderV2 *gitlabprovider.GitLabV2Provider
 	githubProviderV2 *githubprovider.GitHubV2Provider
+
+	gitlabAuthService *gitlabprovider.AuthService
 
 	// V2 Webhook Registry
 	webhookRegistryV2 *WebhookProviderRegistry
@@ -212,6 +215,12 @@ func NewServer(port int, versionInfo *VersionInfo) (*Server, error) {
 		}
 	})
 
+	triggerAutoInstall := func(integrationID int) {
+		if autoWebhookInstaller != nil {
+			autoWebhookInstaller.TriggerAutoInstallation(integrationID)
+		}
+	}
+
 	server := &Server{
 		echo:                 e,
 		port:                 port,
@@ -230,10 +239,11 @@ func NewServer(port int, versionInfo *VersionInfo) (*Server, error) {
 		orgService:           orgService,
 		testHandlers:         testHandlers,
 		devMode:              devMode,
+		gitlabAuthService:    gitlabprovider.NewAuthService(db, triggerAutoInstall),
 	}
 
 	// Initialize V2 webhook providers
-	server.gitlabProviderV2 = NewGitLabV2Provider(server)
+	server.gitlabProviderV2 = gitlabprovider.NewGitLabV2Provider(db, gitlaboutput.NewAPIClient())
 	server.githubProviderV2 = githubprovider.NewGitHubV2Provider(db, githuboutput.NewAPIClient())
 
 	// Initialize V2 webhook registry

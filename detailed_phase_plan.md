@@ -215,15 +215,16 @@ There are 9 external packages importing `internal/api`, mainly inside the same m
 - ✅ `gitlab_profile.go` moved into `internal/provider_input/gitlab`
 - ✅ `internal/api/server.go` now calls the new profile helpers
 - ✅ `github_provider_v2.go` relocated into `internal/provider_input/github`; registry/server wiring updated
-- 🚧 GitLab provider files still reside in `internal/api` (current focus)
+- ✅ `gitlab_provider_v2.go` relocated into `internal/provider_input/gitlab`; temporary adapter in `internal/api` keeps server wiring intact while processing/output steps follow
+- ✅ GitLab auth helpers now live in `internal/provider_input/gitlab`; API handlers delegate to the new service
 - ⏳ Bitbucket provider files deferred to Phase 2 after GitHub + GitLab parity
 
 Immediate next step: finish the GitLab refactor end-to-end in three passes—input, processing, then output—running `make build` after each pass before touching anything else.
 
 #### Step 4.1A: GitLab refactor execution order (NEXT)
-1. **Input move first**: Relocate `internal/api/gitlab_provider_v2.go`, `gitlab_auth.go`, and any other fetch/detection helpers into `internal/provider_input/gitlab`. Update package declarations, fix imports, and keep `internal/api` limited to orchestration. Run `make build` after this stage before proceeding.
-2. **Processing wiring second**: Audit the core processor usage and update orchestrator/registry/server wiring so everything imports the new GitLab input package without reaching back into `internal/api`. Run `make build` again to confirm the processing layer compiles cleanly.
-3. **Output relocation third**: Create `internal/provider_output/gitlab`, move the posting/reaction/learning helpers there, and update the orchestrator wiring to call through the new output package. Run `make build` immediately after closing this stage.
+1. **Input move first**: ✅ `gitlab_provider_v2.go` and `gitlab_auth.go` now live in `internal/provider_input/gitlab` with API wrappers bridging existing constructors. Run `make build` after any remaining helper adjustments before proceeding.
+2. **Processing wiring second**: ✅ Server and registry now import `internal/provider_input/gitlab` directly (adapter removed) and reuse the shared provider instance. Build remains green after the wiring change.
+3. **Output relocation third**: ✅ `internal/provider_output/gitlab` now owns the posting helpers; the provider delegates via a new output client and `make build` stays green after the split.
 4. Leave Bitbucket untouched for now; schedule its migration after GitLab mirrors the completed GitHub structure.
 
 ### Step 4.2: Update registry wiring after each stage

@@ -1,9 +1,12 @@
 package api
 
 import (
+	"database/sql"
 	"testing"
 
+	_ "github.com/lib/pq"
 	githubprovider "github.com/livereview/internal/provider_input/github"
+	gitlabprovider "github.com/livereview/internal/provider_input/gitlab"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -22,12 +25,35 @@ func (stubGitHubOutput) PostReviewComments(_ githubprovider.UnifiedMergeRequestV
 	return nil
 }
 
+type stubGitLabOutput struct{}
+
+func (stubGitLabOutput) PostCommentReply(_ *gitlabprovider.UnifiedWebhookEventV2, _, _, _ string) error {
+	return nil
+}
+
+func (stubGitLabOutput) PostEmojiReaction(_ *gitlabprovider.UnifiedWebhookEventV2, _, _, _ string) error {
+	return nil
+}
+
+func (stubGitLabOutput) PostFullReview(_ *gitlabprovider.UnifiedWebhookEventV2, _, _, _ string) error {
+	return nil
+}
+
+func newTestGitLabProvider(t *testing.T) *gitlabprovider.GitLabV2Provider {
+	t.Helper()
+	db, err := sql.Open("postgres", "postgres://test:test@localhost:5432/test?sslmode=disable")
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		db.Close()
+	})
+	return gitlabprovider.NewGitLabV2Provider(db, stubGitLabOutput{})
+}
+
 // Phase 9: Provider V2 Integration Tests
 // Tests the individual V2 providers and their integration with the unified system
 
 func TestGitLabV2Provider(t *testing.T) {
-	server := &Server{}
-	provider := NewGitLabV2Provider(server)
+	provider := newTestGitLabProvider(t)
 
 	// Test provider identification
 	assert.Equal(t, "gitlab", provider.ProviderName())
@@ -186,10 +212,8 @@ func TestBitbucketV2Provider(t *testing.T) {
 }
 
 func TestUnifiedEventConversion(t *testing.T) {
-	server := &Server{}
-
 	t.Run("GitLab Comment Event Conversion", func(t *testing.T) {
-		provider := NewGitLabV2Provider(server)
+		provider := newTestGitLabProvider(t)
 
 		headers := map[string]string{
 			"X-Gitlab-Event": "Note Hook",
