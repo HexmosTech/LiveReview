@@ -1,0 +1,25 @@
+{
+  "id": 1825,
+  "iid": 426,
+  "project_id": 170,
+  "title": "Ganesh/repodag v2",
+  "state": "opened",
+  "changes": [
+    {
+      "old_path": "liveapi-backend/qmanager/repodag.go",
+      "new_path": "liveapi-backend/qmanager/repodag.go",
+      "diff": "@@ -66,7 +66,11 @@ func (d *RepoDag) walk(\n-\tif err := ctx.Err(); err != nil {\n-\t\treturn err\n-\t}\n+\tif err := ctx.Err(); err != nil {\n+\t\treturn err\n+\t}\n+\n+\tif len(children) == 0 {\n+\t\treturn nil\n+\t}\n ",
+      "new_file": false,
+      "renamed_file": false,
+      "deleted_file": false
+    },
+    {
+      "old_path": "liveapi-backend/prompt/subPrompt.go",
+      "new_path": "liveapi-backend/prompt/subPrompt.go",
+      "diff": "@@ -12,6 +12,7 @@ type subPrompt struct {\n \tName string\n \tArgs []string\n }\n+\n func newSubPrompt(name string, args []string) subPrompt {\n \treturn subPrompt{Name: name, Args: args}\n }\n",
+      "new_file": false,
+      "renamed_file": false,
+      "deleted_file": false
+    }
+  ]
+}

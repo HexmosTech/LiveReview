@@ -1,0 +1,106 @@
+{
+  "events": [
+    {
+      "EventType": "comment_created",
+      "Provider": "gitlab",
+      "Timestamp": "2025-10-12 14:43:03 UTC",
+      "Repository": {
+        "FullName": "hexmos/liveapi"
+      },
+      "MergeRequest": {
+        "ID": "1825",
+        "Number": 426,
+        "Title": "Ganesh/repodag v2",
+        "WebURL": "https://git.apps.hexmos.com/hexmos/liveapi/-/merge_requests/426",
+        "CreatedAt": "2025-08-21 16:16:05 UTC",
+        "UpdatedAt": "2025-10-12 14:42:57 UTC"
+      },
+      "Comment": {
+        "ID": "24384",
+        "Body": "**Severity: info**\n\nThis looks like an unneeded variable declaration. It's initialized but never used before being overwritten.\n\n**Suggestions:**\n1. Remove the initial declaration `var edges []Edge`.",
+        "Author": {
+          "Username": "LiveReviewBot",
+          "AvatarURL": "https://secure.gravatar.com/avatar/3839222089da191e4efe35a7bb35703b9e5c309b4d093410862678833b4d420f?s=80&d=identicon"
+        },
+        "CreatedAt": "2025-10-12 14:43:03 UTC",
+        "UpdatedAt": "2025-10-12 14:43:03 UTC",
+        "WebURL": "https://git.apps.hexmos.com/hexmos/liveapi/-/merge_requests/426#note_24384",
+        "DiscussionID": "95f766e92b1c7f2d2a3d135be9312ca7549800a0",
+        "Position": {
+          "FilePath": "liveapi-backend/qmanager/repodag.go"
+        }
+      },
+      "Actor": {
+        "Username": "LiveReviewBot"
+      }
+    },
+    {
+      "EventType": "comment_created",
+      "Provider": "gitlab",
+      "Timestamp": "2025-10-12 14:43:05 UTC",
+      "Repository": {
+        "FullName": "hexmos/liveapi"
+      },
+      "MergeRequest": {
+        "ID": "1825",
+        "Number": 426,
+        "Title": "Ganesh/repodag v2",
+        "WebURL": "https://git.apps.hexmos.com/hexmos/liveapi/-/merge_requests/426",
+        "CreatedAt": "2025-08-21 16:16:05 UTC",
+        "UpdatedAt": "2025-10-12 14:42:57 UTC"
+      },
+      "Comment": {
+        "ID": "24385",
+        "Body": "**Severity: info**\n\nConsider using a more descriptive log message indicating why the file content is missing.  Is it expected or an error condition?\n\n**Suggestions:**\n1. Update the log message to clarify the reason for skipping the file.",
+        "Author": {
+          "Username": "LiveReviewBot",
+          "AvatarURL": "https://secure.gravatar.com/avatar/3839222089da191e4efe35a7bb35703b9e5c309b4d093410862678833b4d420f?s=80&d=identicon"
+        },
+        "CreatedAt": "2025-10-12 14:43:05 UTC",
+        "UpdatedAt": "2025-10-12 14:43:05 UTC",
+        "WebURL": "https://git.apps.hexmos.com/hexmos/liveapi/-/merge_requests/426#note_24385",
+        "DiscussionID": "2ba73cbb3a171d6b26598e67ffe739506edd00a9",
+        "Position": {
+          "FilePath": "liveapi-backend/qmanager/repodag.go"
+        }
+      },
+      "Actor": {
+        "Username": "LiveReviewBot"
+      }
+    },
+    {
+      "EventType": "comment_created",
+      "Provider": "gitlab",
+      "Timestamp": "2025-10-12 14:43:09 UTC",
+      "Repository": {
+        "FullName": "hexmos/liveapi"
+      },
+      "MergeRequest": {
+        "ID": "1825",
+        "Number": 426,
+        "Title": "Ganesh/repodag v2",
+        "WebURL": "https://git.apps.hexmos.com/hexmos/liveapi/-/merge_requests/426",
+        "CreatedAt": "2025-08-21 16:16:05 UTC",
+        "UpdatedAt": "2025-10-12 14:42:57 UTC"
+      },
+      "Comment": {
+        "ID": "24387",
+        "Body": "**Severity: info**\n\nThe comments are outdated and no longer accurately describe the function's purpose. Update or remove them.\n\n**Suggestions:**\n1. Update the comments to reflect the current functionality of the function.\n2. Alternatively, remove the comments if the function's name and parameters are self-explanatory.",
+        "Author": {
+          "Username": "LiveReviewBot",
+          "AvatarURL": "https://secure.gravatar.com/avatar/3839222089da191e4efe35a7bb35703b9e5c309b4d093410862678833b4d420f?s=80&d=identicon"
+        },
+        "CreatedAt": "2025-10-12 14:43:09 UTC",
+        "UpdatedAt": "2025-10-12 14:43:09 UTC",
+        "WebURL": "https://git.apps.hexmos.com/hexmos/liveapi/-/merge_requests/426#note_24387",
+        "DiscussionID": "48f03b152cbd46210e5bfd708729470de009e0c5",
+        "Position": {
+          "FilePath": "liveapi-backend/qmanager/repodag.go"
+        }
+      },
+      "Actor": {
+        "Username": "LiveReviewBot"
+      }
+    }
+  ]
+}

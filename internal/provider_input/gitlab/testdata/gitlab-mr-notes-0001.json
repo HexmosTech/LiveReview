@@ -1,0 +1,176 @@
+[
+  {
+    "id": 24384,
+    "type": "DiffNote",
+    "body": "**Severity: info**\n\nThis looks like an unneeded variable declaration. It's initialized but never used before being overwritten.\n\n**Suggestions:**\n1. Remove the initial declaration `var edges []Edge`.",
+    "author": {
+      "id": 83,
+      "name": "LiveReviewBot",
+      "username": "LiveReviewBot",
+      "avatar_url": "https://secure.gravatar.com/avatar/3839222089da191e4efe35a7bb35703b9e5c309b4d093410862678833b4d420f?s=80&d=identicon",
+      "web_url": "https://git.apps.hexmos.com/LiveReviewBot",
+      "email": ""
+    },
+    "created_at": "2025-10-12T14:43:03.814Z",
+    "updated_at": "2025-10-12T14:43:03.814Z",
+    "system": false,
+    "noteable_id": 1825,
+    "noteable_type": "MergeRequest",
+    "discussion_id": "95f766e92b1c7f2d2a3d135be9312ca7549800a0",
+    "position": {
+      "base_sha": "db0e55273af6274d01ae4c35652e98161ecc9c56",
+      "start_sha": "926a52c884754497c5bce010906dc37ac5cda558",
+      "head_sha": "0d239c1ba1efd69a93e263eaf2b519b2210c19dc",
+      "old_path": "liveapi-backend/qmanager/repodag.go",
+      "new_path": "liveapi-backend/qmanager/repodag.go",
+      "position_type": "text",
+      "old_line": 97,
+      "new_line": null
+    }
+  },
+  {
+    "id": 24385,
+    "type": "DiffNote",
+    "body": "**Severity: info**\n\nConsider using a more descriptive log message indicating why the file content is missing.  Is it expected or an error condition?\n\n**Suggestions:**\n1. Update the log message to clarify the reason for skipping the file.",
+    "author": {
+      "id": 83,
+      "name": "LiveReviewBot",
+      "username": "LiveReviewBot",
+      "avatar_url": "https://secure.gravatar.com/avatar/3839222089da191e4efe35a7bb35703b9e5c309b4d093410862678833b4d420f?s=80&d=identicon",
+      "web_url": "https://git.apps.hexmos.com/LiveReviewBot",
+      "email": ""
+    },
+    "created_at": "2025-10-12T14:43:05.130Z",
+    "updated_at": "2025-10-12T14:43:05.130Z",
+    "system": false,
+    "noteable_id": 1825,
+    "noteable_type": "MergeRequest",
+    "discussion_id": "2ba73cbb3a171d6b26598e67ffe739506edd00a9",
+    "position": {
+      "base_sha": "db0e55273af6274d01ae4c35652e98161ecc9c56",
+      "start_sha": "926a52c884754497c5bce010906dc37ac5cda558",
+      "head_sha": "0d239c1ba1efd69a93e263eaf2b519b2210c19dc",
+      "old_path": "liveapi-backend/qmanager/repodag.go",
+      "new_path": "liveapi-backend/qmanager/repodag.go",
+      "position_type": "text",
+      "old_line": 145,
+      "new_line": null
+    }
+  },
+  {
+    "id": 24386,
+    "type": "DiffNote",
+    "body": "**Severity: info**\n\nThe variable name `cerr` is too short. Use `chainErr` for better readability.\n\n**Suggestions:**\n1. Rename `cerr` to `chainErr`.",
+    "author": {
+      "id": 83,
+      "name": "LiveReviewBot",
+      "username": "LiveReviewBot",
+      "avatar_url": "https://secure.gravatar.com/avatar/3839222089da191e4efe35a7bb35703b9e5c309b4d093410862678833b4d420f?s=80&d=identicon",
+      "web_url": "https://git.apps.hexmos.com/LiveReviewBot",
+      "email": ""
+    },
+    "created_at": "2025-10-12T14:43:07.144Z",
+    "updated_at": "2025-10-12T14:43:07.144Z",
+    "system": false,
+    "noteable_id": 1825,
+    "noteable_type": "MergeRequest",
+    "discussion_id": "9a6fe655f27a6768e63b32799d0899f1a32a5cb9",
+    "position": {
+      "base_sha": "db0e55273af6274d01ae4c35652e98161ecc9c56",
+      "start_sha": "926a52c884754497c5bce010906dc37ac5cda558",
+      "head_sha": "0d239c1ba1efd69a93e263eaf2b519b2210c19dc",
+      "old_path": "liveapi-backend/qmanager/repodag.go",
+      "new_path": "liveapi-backend/qmanager/repodag.go",
+      "position_type": "text",
+      "old_line": 258,
+      "new_line": null
+    }
+  },
+  {
+    "id": 24387,
+    "type": "DiffNote",
+    "body": "**Severity: info**\n\nThe comments are outdated and no longer accurately describe the function's purpose. Update or remove them.\n\n**Suggestions:**\n1. Update the comments to reflect the current functionality of the function.\n2. Alternatively, remove the comments if the function's name and parameters are self-explanatory.",
+    "author": {
+      "id": 83,
+      "name": "LiveReviewBot",
+      "username": "LiveReviewBot",
+      "avatar_url": "https://secure.gravatar.com/avatar/3839222089da191e4efe35a7bb35703b9e5c309b4d093410862678833b4d420f?s=80&d=identicon",
+      "web_url": "https://git.apps.hexmos.com/LiveReviewBot",
+      "email": ""
+    },
+    "created_at": "2025-10-12T14:43:09.567Z",
+    "updated_at": "2025-10-12T14:43:09.567Z",
+    "system": false,
+    "noteable_id": 1825,
+    "noteable_type": "MergeRequest",
+    "discussion_id": "48f03b152cbd46210e5bfd708729470de009e0c5",
+    "position": {
+      "base_sha": "db0e55273af6274d01ae4c35652e98161ecc9c56",
+      "start_sha": "926a52c884754497c5bce010906dc37ac5cda558",
+      "head_sha": "0d239c1ba1efd69a93e263eaf2b519b2210c19dc",
+      "old_path": "liveapi-backend/qmanager/repodag.go",
+      "new_path": "liveapi-backend/qmanager/repodag.go",
+      "position_type": "text",
+      "old_line": 436,
+      "new_line": null
+    }
+  },
+  {
+    "id": 24388,
+    "type": "DiffNote",
+    "body": "@LiveReviewBot - In this team we prefer having shorter variable names if possible",
+    "author": {
+      "id": 3,
+      "name": "Shrijith",
+      "username": "shrijith",
+      "avatar_url": "https://secure.gravatar.com/avatar/315382e7b250a15a9858e6e2735e316e1c32ee2807191d0596fc2e0a6f7d723f?s=80&d=identicon",
+      "web_url": "https://git.apps.hexmos.com/shrijith",
+      "email": ""
+    },
+    "created_at": "2025-10-12T14:44:06.986Z",
+    "updated_at": "2025-10-12T14:44:06.986Z",
+    "system": false,
+    "noteable_id": 1825,
+    "noteable_type": "MergeRequest",
+    "discussion_id": "9a6fe655f27a6768e63b32799d0899f1a32a5cb9",
+    "position": {
+      "base_sha": "db0e55273af6274d01ae4c35652e98161ecc9c56",
+      "start_sha": "926a52c884754497c5bce010906dc37ac5cda558",
+      "head_sha": "0d239c1ba1efd69a93e263eaf2b519b2210c19dc",
+      "old_path": "liveapi-backend/qmanager/repodag.go",
+      "new_path": "liveapi-backend/qmanager/repodag.go",
+      "position_type": "text",
+      "old_line": 258,
+      "new_line": null
+    }
+  },
+  {
+    "id": 24389,
+    "type": "DiffNote",
+    "body": "Okay, I will keep that in mind. In future reviews for this repository, I will suggest shorter variable names where possible.",
+    "author": {
+      "id": 83,
+      "name": "LiveReviewBot",
+      "username": "LiveReviewBot",
+      "avatar_url": "https://secure.gravatar.com/avatar/3839222089da191e4efe35a7bb35703b9e5c309b4d093410862678833b4d420f?s=80&d=identicon",
+      "web_url": "https://git.apps.hexmos.com/LiveReviewBot",
+      "email": ""
+    },
+    "created_at": "2025-10-12T14:44:14.128Z",
+    "updated_at": "2025-10-12T14:44:14.128Z",
+    "system": false,
+    "noteable_id": 1825,
+    "noteable_type": "MergeRequest",
+    "discussion_id": "9a6fe655f27a6768e63b32799d0899f1a32a5cb9",
+    "position": {
+      "base_sha": "db0e55273af6274d01ae4c35652e98161ecc9c56",
+      "start_sha": "926a52c884754497c5bce010906dc37ac5cda558",
+      "head_sha": "0d239c1ba1efd69a93e263eaf2b519b2210c19dc",
+      "old_path": "liveapi-backend/qmanager/repodag.go",
+      "new_path": "liveapi-backend/qmanager/repodag.go",
+      "position_type": "text",
+      "old_line": 258,
+      "new_line": null
+    }
+  }
+]

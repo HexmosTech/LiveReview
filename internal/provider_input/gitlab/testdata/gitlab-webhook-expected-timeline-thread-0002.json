@@ -1,0 +1,61 @@
+{
+  "Items": [
+    {
+      "Type": "comment",
+      "Timestamp": "2025-10-12T14:43:07Z",
+      "Comment": {
+        "ID": "24386",
+        "Body": "**Severity: info**\n\nThe variable name `cerr` is too short. Use `chainErr` for better readability.\n\n**Suggestions:**\n1. Rename `cerr` to `chainErr`.",
+        "Author": {
+          "Username": "LiveReviewBot",
+          "AvatarURL": "https://secure.gravatar.com/avatar/3839222089da191e4efe35a7bb35703b9e5c309b4d093410862678833b4d420f?s=80&d=identicon"
+        },
+        "CreatedAt": "2025-10-12 14:43:07 UTC",
+        "UpdatedAt": "2025-10-12 14:43:07 UTC",
+        "WebURL": "https://git.apps.hexmos.com/hexmos/liveapi/-/merge_requests/426#note_24386",
+        "DiscussionID": "9a6fe655f27a6768e63b32799d0899f1a32a5cb9",
+        "Position": {
+          "FilePath": "liveapi-backend/qmanager/repodag.go"
+        }
+      }
+    },
+    {
+      "Type": "comment",
+      "Timestamp": "2025-10-12T14:44:06Z",
+      "Comment": {
+        "ID": "24388",
+        "Body": "@LiveReviewBot - In this team we prefer having shorter variable names if possible",
+        "Author": {
+          "Username": "shrijith",
+          "AvatarURL": "https://secure.gravatar.com/avatar/315382e7b250a15a9858e6e2735e316e1c32ee2807191d0596fc2e0a6f7d723f?s=80&d=identicon"
+        },
+        "CreatedAt": "2025-10-12 14:44:06 UTC",
+        "UpdatedAt": "2025-10-12 14:44:06 UTC",
+        "WebURL": "https://git.apps.hexmos.com/hexmos/liveapi/-/merge_requests/426#note_24388",
+        "DiscussionID": "9a6fe655f27a6768e63b32799d0899f1a32a5cb9",
+        "Position": {
+          "FilePath": "liveapi-backend/qmanager/repodag.go"
+        }
+      }
+    },
+    {
+      "Type": "comment",
+      "Timestamp": "2025-10-12T14:44:14Z",
+      "Comment": {
+        "ID": "24389",
+        "Body": "Okay, I will keep that in mind. In future reviews for this repository, I will suggest shorter variable names where possible.",
+        "Author": {
+          "Username": "LiveReviewBot",
+          "AvatarURL": "https://secure.gravatar.com/avatar/3839222089da191e4efe35a7bb35703b9e5c309b4d093410862678833b4d420f?s=80&d=identicon"
+        },
+        "CreatedAt": "2025-10-12 14:44:14 UTC",
+        "UpdatedAt": "2025-10-12 14:44:14 UTC",
+        "WebURL": "https://git.apps.hexmos.com/hexmos/liveapi/-/merge_requests/426#note_24389",
+        "DiscussionID": "9a6fe655f27a6768e63b32799d0899f1a32a5cb9",
+        "Position": {
+          "FilePath": "liveapi-backend/qmanager/repodag.go"
+        }
+      }
+    }
+  ]
+}
