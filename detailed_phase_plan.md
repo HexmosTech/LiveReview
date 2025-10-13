@@ -217,6 +217,7 @@ There are 9 external packages importing `internal/api`, mainly inside the same m
 - ✅ `github_provider_v2.go` relocated into `internal/provider_input/github`; registry/server wiring updated
 - ✅ `gitlab_provider_v2.go` relocated into `internal/provider_input/gitlab`; temporary adapter in `internal/api` keeps server wiring intact while processing/output steps follow
 - ✅ GitLab auth helpers now live in `internal/provider_input/gitlab`; API handlers delegate to the new service
+- ✅ GitLab provider implementation completed with full test coverage and diff conversion regression tests
 - ⏳ Bitbucket provider files deferred to Phase 2 after GitHub + GitLab parity
 
 Immediate next step: finish the GitLab refactor end-to-end in three passes—input, processing, then output—running `make build` after each pass before touching anything else.
@@ -228,11 +229,13 @@ Immediate next step: finish the GitLab refactor end-to-end in three passes—inp
 - Extend capture regression coverage if needed so replaying fixtures remains stable.
 - Fix the capture directory routing bug so GitLab artifacts land under `captures/gitlab/` (while GitHub remains in `captures/github/`); update the capture utility/provider hooks and rerun `make build`.
 
-#### Step 4.1A: GitLab refactor execution order (NEXT)
-1. **Input move first**: ✅ `gitlab_provider_v2.go` and `gitlab_auth.go` now live in `internal/provider_input/gitlab` with API wrappers bridging existing constructors. Run `make build` after any remaining helper adjustments before proceeding.
-2. **Processing wiring second**: ✅ Server and registry now import `internal/provider_input/gitlab` directly (adapter removed) and reuse the shared provider instance. Build remains green after the wiring change.
-3. **Output relocation third**: ✅ `internal/provider_output/gitlab` now owns the posting helpers; the provider delegates via a new output client and `make build` stays green after the split.
-4. Leave Bitbucket untouched for now; schedule its migration after GitLab mirrors the completed GitHub structure.
+#### Step 4.1A: GitLab refactor execution order (COMPLETED)
+1. ✅ **Input move**: `gitlab_provider_v2.go` and `gitlab_auth.go` now live in `internal/provider_input/gitlab` with API wrappers bridging existing constructors.
+2. ✅ **Processing wiring**: Server and registry now import `internal/provider_input/gitlab` directly with shared provider instance.
+3. ✅ **Output relocation**: `internal/provider_output/gitlab` now owns the posting helpers; provider delegates via output client.
+4. ✅ **Testing complete**: Full regression test suite implemented and passing.
+5. ✅ **Build stability**: `make build` remains green throughout GitLab provider implementation.
+6. 📋 **Next**: Begin Bitbucket provider implementation following the established GitHub/GitLab pattern.
 
 ### Step 4.2: Update registry wiring after each stage
 - Keep `internal/api/webhook_registry_v2.go` (and other orchestrators) aligned with the new packages as each stage lands.  
@@ -281,10 +284,11 @@ Immediate next step: finish the GitLab refactor end-to-end in three passes—inp
 
 ### ✅ Architecture Compliance
 - [x] `internal/core_processor` contains the moved unified types/context/processor and is being consumed via the aliasing bridge during migration
-- [ ] `internal/core_processor` exposes only provider-agnostic logic and imports no provider-specific packages.
-- [ ] `internal/provider_input/<provider>` imports `internal/core_processor` but not `internal/api`.
-- [ ] `internal/provider_output/<provider>` handles provider posting without referencing `internal/api`.
-- [ ] No circular dependency cycles per `go list ./...`.
+- [x] `internal/core_processor` exposes only provider-agnostic logic and imports no provider-specific packages.
+- [x] `internal/provider_input/<provider>` imports `internal/core_processor` but not `internal/api` (GitHub ✅, GitLab ✅)
+- [x] `internal/provider_output/<provider>` handles provider posting without referencing `internal/api` (GitHub ✅, GitLab ✅)
+- [x] No circular dependency cycles per `go list ./...`
+- [ ] Bitbucket provider follows same architecture patterns as GitHub/GitLab
 
 ### ✅ Build Stability
 - [x] `make build` currently passes from the repo root
@@ -323,11 +327,125 @@ Immediate next step: finish the GitLab refactor end-to-end in three passes—inp
 - **Test confirmation**: Run relevant tests after each step group
 - **Documentation**: Keep detailed notes on changes made
 
+---
+
+## Phase 2: Bitbucket Provider Implementation
+
+**Status: READY TO START**
+
+### Step 1: Move Bitbucket Provider Input Logic
+**Goal**: Relocate `bitbucket_provider_v2.go` from `internal/api/` to its own dedicated input package  
+**Verification**: `make build`
+
+#### 1.1 Create provider input structure
+- [ ] Create `internal/provider_input/bitbucket/` directory
+- [ ] Move `internal/api/bitbucket_provider_v2.go` to `internal/provider_input/bitbucket/bitbucket_provider_v2.go`
+- [ ] Update package declaration from `package api` to `package bitbucket`
+- [ ] Update imports in moved file to reference `internal/core_processor` instead of local types
+- [ ] Run `make build` to verify compilation
+
+#### 1.2 Update import references
+- [ ] Update `internal/api/webhook_registry_v2.go` to import from new location
+- [ ] Update any other files referencing the bitbucket provider
+- [ ] Run `make build` to verify all references are updated correctly
+
+---
+
+### Step 2: Modify Middle Layer for Bitbucket Support
+**Goal**: Update core processor and registry to handle Bitbucket-specific webhook payloads  
+**Verification**: `make build`
+
+#### 2.1 Update unified context builder (if needed)
+- [ ] Check if `internal/core_processor/unified_context_v2.go` needs updates for moved Bitbucket provider
+- [ ] Ensure existing Bitbucket comment threading logic works with new structure
+- [ ] Verify `convertBitbucketCommentsToUnifiedV2` function still works after move
+- [ ] Run `make build` to verify changes
+
+#### 2.2 Update webhook registry
+- [ ] Update `internal/api/webhook_registry_v2.go` to import Bitbucket provider from new location
+- [ ] Ensure existing provider detection logic still works
+- [ ] Verify existing `/webhook/bitbucket` endpoint routing continues to work
+- [ ] Run `make build` to verify registry changes
+
+---
+
+### Step 3: Move Bitbucket Provider Output Logic  
+**Goal**: Extract comment posting logic into dedicated output package  
+**Verification**: `make build`
+
+#### 3.1 Create provider output structure
+- [ ] Create `internal/provider_output/bitbucket/` directory  
+- [ ] Create `bitbucket_output.go` with `BitbucketOutputClient` struct
+- [ ] Move existing `PostComment`, `PostLineComment` methods from current bitbucket provider
+- [ ] Extract existing posting logic without changing functionality
+- [ ] Run `make build` to verify output package compiles
+
+#### 3.2 Update provider to use output client
+- [ ] Modify bitbucket provider to delegate to new output client for posting
+- [ ] Remove posting code from provider input layer (moved to output)
+- [ ] Update existing dependency injection/initialization code
+- [ ] Run `make build` to verify separation is complete
+
+---
+
+### Step 4: Setup Bitbucket Webhook Capturing
+**Goal**: Configure webhook capture infrastructure for test data collection  
+**Verification**: Webhook events successfully captured to `captures/bitbucket/`
+
+#### 4.1 Verify webhook endpoint
+- [ ] Confirm existing `/webhook/bitbucket` route works with moved provider
+- [ ] Verify existing Bitbucket webhook signature verification still works
+- [ ] Ensure existing logging and capture logic works with new structure
+- [ ] Test webhook endpoint responds correctly
+
+#### 4.2 Setup test repository and capture
+- [ ] Create test Bitbucket repository  
+- [ ] Configure webhook pointing to LiveReview instance using existing webhook infrastructure
+- [ ] Use existing webhook event configuration
+- [ ] Trigger sample PR events and verify capture in `captures/bitbucket/<timestamp>/` using existing capture mechanisms
+- [ ] Collect representative payloads for testing
+
+---
+
+### Step 5: Write Bitbucket Test Cases
+**Goal**: Create regression tests that convert captured webhook data to unified structures  
+**Verification**: `go test ./internal/provider_input/bitbucket` passes
+
+#### 5.1 Create test fixtures
+- [ ] Create `internal/provider_input/bitbucket/testdata/` directory
+- [ ] Sanitize and promote captured payloads to test fixtures:
+    - `bitbucket-webhook-events-0001.json`: sample PR webhook events
+    - `bitbucket-expected-timeline-0001.json`: expected unified timeline output
+- [ ] Document fixtures in `testdata/README.md`
+
+#### 5.2 Implement conversion tests  
+- [ ] Create `internal/provider_input/bitbucket/bitbucket_conversion_test.go`
+- [ ] Implement `TestBitbucketWebhookToUnifiedConversion`: reads webhook payloads, converts to `UnifiedCommentV2`
+- [ ] Implement `TestBitbucketTimelineReplay`: verifies timeline building from converted events
+- [ ] Add helper functions: `readWebhookFixture`, `readExpectedTimeline`
+- [ ] Run `go test ./internal/provider_input/bitbucket` to verify tests pass
+
+### Implementation Notes
+
+**No New Functionality:**
+This is purely structural reorganization of existing Bitbucket provider code. All API interactions, webhook handling, and comment posting logic already exists and works - we're just moving it to the new package structure.
+
+**Build Verification:**
+Each step must end with successful `make build` from repository root before proceeding to next step.
+
+---
+
 ## Next Phase Preparation
 
-After Phase 1 completion, the codebase will be ready for:
-- **Phase 2**: Clean up provider interfaces and remove platform-specific code from core processing
-- **Phase 3**: Implement clean provider input/output boundaries  
-- **Future phases**: Add new providers easily using established patterns
+After Phase 2 completion, the codebase will have:
+- **Complete provider parity**: GitHub, GitLab, and Bitbucket fully implemented
+- **Robust test coverage**: Regression tests for all three providers
+- **Clean architecture**: Established provider input/output boundaries
+- **Future readiness**: Pattern for adding additional providers easily
 
-The Phase 1 restructuring provides the foundation for all subsequent architectural improvements while maintaining complete functionality throughout the process.
+Subsequent phases can focus on:
+- **Phase 3**: Advanced features and performance optimizations
+- **Phase 4**: Enhanced comment handling across all providers  
+- **Future phases**: Additional providers (Azure DevOps, Gerrit, etc.)
+
+The Phase 1-2 restructuring provides the foundation for all subsequent architectural improvements while maintaining complete functionality throughout the process.
