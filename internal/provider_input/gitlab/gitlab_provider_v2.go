@@ -646,7 +646,7 @@ func recordGitLabWebhook(eventType string, headers map[string]string, body []byt
 		eventType = "unknown"
 	}
 	if len(body) > 0 {
-		capture.WriteBlob(fmt.Sprintf("gitlab-webhook-%s-body", eventType), "json", body)
+		capture.WriteBlobForNamespace("gitlab", fmt.Sprintf("gitlab-webhook-%s-body", eventType), "json", body)
 	}
 	meta := map[string]interface{}{
 		"event_type": eventType,
@@ -655,9 +655,9 @@ func recordGitLabWebhook(eventType string, headers map[string]string, body []byt
 	if err != nil {
 		meta["error"] = err.Error()
 	}
-	capture.WriteJSON(fmt.Sprintf("gitlab-webhook-%s-meta", eventType), meta)
+	capture.WriteJSONForNamespace("gitlab", fmt.Sprintf("gitlab-webhook-%s-meta", eventType), meta)
 	if unified != nil && err == nil {
-		capture.WriteJSON(fmt.Sprintf("gitlab-webhook-%s-unified", eventType), unified)
+		capture.WriteJSONForNamespace("gitlab", fmt.Sprintf("gitlab-webhook-%s-unified", eventType), unified)
 	}
 }
 
@@ -883,7 +883,7 @@ func (c *GitLabV2HTTPClient) GetMergeRequestCommitsV2(projectID, mrIID int) ([]G
 	}
 	if capture.Enabled() {
 		category := fmt.Sprintf("gitlab-mr-%d-%d-commits", projectID, mrIID)
-		capture.WriteJSON(category, commits)
+		capture.WriteJSONForNamespace("gitlab", category, commits)
 	}
 	return commits, nil
 }
@@ -914,7 +914,7 @@ func (c *GitLabV2HTTPClient) GetMergeRequestDiscussionsV2(projectID, mrIID int) 
 	}
 	if capture.Enabled() {
 		category := fmt.Sprintf("gitlab-mr-%d-%d-discussions", projectID, mrIID)
-		capture.WriteJSON(category, discussions)
+		capture.WriteJSONForNamespace("gitlab", category, discussions)
 	}
 	return discussions, nil
 }
@@ -945,7 +945,7 @@ func (c *GitLabV2HTTPClient) GetMergeRequestNotesV2(projectID, mrIID int) ([]Git
 	}
 	if capture.Enabled() {
 		category := fmt.Sprintf("gitlab-mr-%d-%d-notes", projectID, mrIID)
-		capture.WriteJSON(category, notes)
+		capture.WriteJSONForNamespace("gitlab", category, notes)
 	}
 	return notes, nil
 }

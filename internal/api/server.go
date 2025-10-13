@@ -21,8 +21,10 @@ import (
 	"github.com/livereview/internal/api/users"
 	"github.com/livereview/internal/jobqueue"
 	"github.com/livereview/internal/license"
+	bitbucketprovider "github.com/livereview/internal/provider_input/bitbucket"
 	githubprovider "github.com/livereview/internal/provider_input/github"
 	gitlabprovider "github.com/livereview/internal/provider_input/gitlab"
+	bitbucketoutput "github.com/livereview/internal/provider_output/bitbucket"
 	githuboutput "github.com/livereview/internal/provider_output/github"
 	gitlaboutput "github.com/livereview/internal/provider_output/gitlab"
 	// Import FetchGitLabProfile
@@ -107,8 +109,9 @@ type Server struct {
 	licenseScheduler     *license.Scheduler
 
 	// V2 Webhook Providers
-	gitlabProviderV2 *gitlabprovider.GitLabV2Provider
-	githubProviderV2 *githubprovider.GitHubV2Provider
+	gitlabProviderV2    *gitlabprovider.GitLabV2Provider
+	githubProviderV2    *githubprovider.GitHubV2Provider
+	bitbucketProviderV2 *bitbucketprovider.BitbucketV2Provider
 
 	gitlabAuthService *gitlabprovider.AuthService
 
@@ -245,6 +248,7 @@ func NewServer(port int, versionInfo *VersionInfo) (*Server, error) {
 	// Initialize V2 webhook providers
 	server.gitlabProviderV2 = gitlabprovider.NewGitLabV2Provider(db, gitlaboutput.NewAPIClient())
 	server.githubProviderV2 = githubprovider.NewGitHubV2Provider(db, githuboutput.NewAPIClient())
+	server.bitbucketProviderV2 = bitbucketprovider.NewBitbucketV2Provider(db, bitbucketoutput.NewAPIClient())
 
 	// Initialize V2 webhook registry
 	server.webhookRegistryV2 = NewWebhookProviderRegistry(server)
