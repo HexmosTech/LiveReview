@@ -346,8 +346,14 @@ Immediate next step: finish the GitLab refactor end-to-end in three passes—inp
 
 #### 1.2 Update import references
 - [ ] Update `internal/api/webhook_registry_v2.go` to import from new location
-- [ ] Update any other files referencing the bitbucket provider
+- [ ] Update `internal/api/server.go` (or factory helpers) to instantiate the Bitbucket provider from the new package
+- [ ] Update any other files referencing the bitbucket provider (search for `bitbucket_provider_v2`)
 - [ ] Run `make build` to verify all references are updated correctly
+
+#### 1.3 Format moved files
+- [ ] Run `gofmt -w internal/provider_input/bitbucket/bitbucket_provider_v2.go`
+- [ ] Ensure no unintended whitespace changes were introduced
+- [ ] Run `make build` once more to double-check
 
 ---
 
@@ -385,6 +391,7 @@ Immediate next step: finish the GitLab refactor end-to-end in three passes—inp
 - [ ] Remove posting code from provider input layer (moved to output)
 - [ ] Update existing dependency injection/initialization code
 - [ ] Run `make build` to verify separation is complete
+- [ ] Run `gofmt -w internal/provider_input/bitbucket/bitbucket_provider_v2.go internal/provider_output/bitbucket/bitbucket_output.go`
 
 ---
 

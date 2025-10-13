@@ -30,8 +30,7 @@ const envCaptureDir = "LIVEREVIEW_CAPTURE_DIR"
 
 // defaultCaptureDir is the fallback location when the environment variable is unset.
 const (
-	defaultCaptureDir       = "captures/github"
-	gitlabDefaultCaptureDir = "captures/gitlab"
+	defaultCaptureDir = "captures/github"
 )
 
 // Enabled reports whether capture is currently active.
@@ -39,7 +38,7 @@ func Enabled() bool {
 	if !captureEnabled.Load() {
 		return false
 	}
-	return captureDir() != ""
+	return captureDir("") != ""
 }
 
 // Enable globally turns on capture for the running process.
@@ -54,15 +53,18 @@ func Disable() {
 
 // writeFile writes the provided bytes to the capture directory under the given
 // category and extension. It creates any missing directories and logs failures.
-func captureDir() string {
+func captureDir(namespace string) string {
 	if dir := os.Getenv(envCaptureDir); dir != "" {
 		return dir
+	}
+	if namespace != "" {
+		return filepath.Join("captures", namespace)
 	}
 	return defaultCaptureDir
 }
 
-func writeFile(category, ext string, data []byte) {
-	dir := captureDir()
+func writeFile(namespace, category, ext string, data []byte) {
+	dir := captureDir(namespace)
 	if dir == "" {
 		return
 	}
@@ -97,7 +99,7 @@ func WriteJSON(category string, payload interface{}) {
 		return
 	}
 
-	writeFile(category, "json", data)
+	writeFile("", category, "json", data)
 }
 
 // WriteBlob stores arbitrary bytes using the provided extension.
@@ -105,5 +107,28 @@ func WriteBlob(category, ext string, data []byte) {
 	if !Enabled() {
 		return
 	}
-	writeFile(category, ext, data)
+	writeFile("", category, ext, data)
+}
+
+// WriteJSONForNamespace stores JSON payloads under captures/<namespace>/.
+func WriteJSONForNamespace(namespace, category string, payload interface{}) {
+	if !Enabled() {
+		return
+	}
+
+	data, err := json.MarshalIndent(payload, "", "  ")
+	if err != nil {
+		log.Printf("[WARN] capture: failed to marshal %s payload: %v", category, err)
+		return
+	}
+
+	writeFile(namespace, category, "json", data)
+}
+
+// WriteBlobForNamespace stores arbitrary bytes under captures/<namespace>/.
+func WriteBlobForNamespace(namespace, category, ext string, data []byte) {
+	if !Enabled() {
+		return
+	}
+	writeFile(namespace, category, ext, data)
 }

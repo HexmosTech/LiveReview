@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	_ "github.com/lib/pq"
+	bitbucketprovider "github.com/livereview/internal/provider_input/bitbucket"
 	githubprovider "github.com/livereview/internal/provider_input/github"
 	gitlabprovider "github.com/livereview/internal/provider_input/gitlab"
 	"github.com/stretchr/testify/assert"
@@ -39,6 +40,12 @@ func (stubGitLabOutput) PostFullReview(_ *gitlabprovider.UnifiedWebhookEventV2, 
 	return nil
 }
 
+type stubBitbucketOutput struct{}
+
+func (stubBitbucketOutput) PostCommentReply(_, _, _ string, _ *string, _, _, _ string) error {
+	return nil
+}
+
 func newTestGitLabProvider(t *testing.T) *gitlabprovider.GitLabV2Provider {
 	t.Helper()
 	db, err := sql.Open("postgres", "postgres://test:test@localhost:5432/test?sslmode=disable")
@@ -47,6 +54,16 @@ func newTestGitLabProvider(t *testing.T) *gitlabprovider.GitLabV2Provider {
 		db.Close()
 	})
 	return gitlabprovider.NewGitLabV2Provider(db, stubGitLabOutput{})
+}
+
+func newTestBitbucketProvider(t *testing.T) *bitbucketprovider.BitbucketV2Provider {
+	t.Helper()
+	db, err := sql.Open("postgres", "postgres://test:test@localhost:5432/test?sslmode=disable")
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		db.Close()
+	})
+	return bitbucketprovider.NewBitbucketV2Provider(db, stubBitbucketOutput{})
 }
 
 // Phase 9: Provider V2 Integration Tests
@@ -161,8 +178,7 @@ func TestGitHubV2Provider(t *testing.T) {
 }
 
 func TestBitbucketV2Provider(t *testing.T) {
-	server := &Server{}
-	provider := NewBitbucketV2Provider(server)
+	provider := newTestBitbucketProvider(t)
 
 	assert.Equal(t, "bitbucket", provider.ProviderName())
 
