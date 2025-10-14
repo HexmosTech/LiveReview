@@ -1,0 +1,86 @@
+{
+  "EventType": "comment_created",
+  "Provider": "bitbucket",
+  "Timestamp": "",
+  "Repository": {
+    "ID": "{352533c2-42e6-4035-9beb-57035eeedd12}",
+    "Name": "fb_backends",
+    "FullName": "contorted/fb_backends",
+    "WebURL": "https://bitbucket.org/contorted/fb_backends",
+    "CloneURL": "",
+    "DefaultBranch": "",
+    "Owner": {
+      "ID": "",
+      "Username": "contorted",
+      "Name": "contorted",
+      "Email": "",
+      "AvatarURL": "",
+      "WebURL": "",
+      "Metadata": {
+        "account_id": "",
+        "type": "team",
+        "uuid": "{40dafde9-4408-4e0b-af0a-335aec19f860}"
+      }
+    },
+    "Metadata": {
+      "type": "repository"
+    }
+  },
+  "MergeRequest": null,
+  "Comment": {
+    "ID": "699722320",
+    "Body": "Reraising the exception here will cause the monitoring loop to terminate. Consider logging the error and continuing the loop, or implementing a retry mechanism.",
+    "Author": {
+      "ID": "712020:cd5db0f9-0d82-428a-b778-80a5b9416408",
+      "Username": "",
+      "Name": "LiveReview Bot",
+      "Email": "",
+      "AvatarURL": "",
+      "WebURL": "",
+      "Metadata": {
+        "account_id": "712020:cd5db0f9-0d82-428a-b778-80a5b9416408",
+        "type": "user",
+        "uuid": "{268007d3-10bd-4edb-93d1-7056116ad08c}"
+      }
+    },
+    "CreatedAt": "2025-10-14T14:14:44.701189+00:00",
+    "UpdatedAt": "2025-10-14T14:14:44.706253+00:00",
+    "WebURL": "https://bitbucket.org/contorted/fb_backends/pull-requests/1/_/diff#comment-699722320",
+    "InReplyToID": null,
+    "Position": {
+      "FilePath": "activepm2.py",
+      "LineNumber": 87,
+      "LineType": "new",
+      "StartLine": null,
+      "EndLine": null,
+      "Metadata": null
+    },
+    "DiscussionID": null,
+    "System": false,
+    "Metadata": {
+      "account_id": "712020:cd5db0f9-0d82-428a-b778-80a5b9416408",
+      "comment_type": "pullrequest_comment",
+      "pr_number": 1,
+      "pr_title": "p1 test",
+      "pr_url": "https://bitbucket.org/contorted/fb_backends/pull-requests/1",
+      "provider": "bitbucket",
+      "repository": "fb_backends",
+      "user_uuid": "{268007d3-10bd-4edb-93d1-7056116ad08c}",
+      "workspace": "contorted"
+    }
+  },
+  "ReviewerChange": null,
+  "Actor": {
+    "ID": "712020:cd5db0f9-0d82-428a-b778-80a5b9416408",
+    "Username": "",
+    "Name": "LiveReview Bot",
+    "Email": "",
+    "AvatarURL": "",
+    "WebURL": "",
+    "Metadata": {
+      "account_id": "712020:cd5db0f9-0d82-428a-b778-80a5b9416408",
+      "type": "user",
+      "uuid": "{268007d3-10bd-4edb-93d1-7056116ad08c}"
+    }
+  }
+}

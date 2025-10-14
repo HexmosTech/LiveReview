@@ -1,0 +1,40 @@
+[
+  {
+    "id": 0,
+    "content": {
+      "raw": "Looks good overall",
+      "markup": "",
+      "html": "",
+      "type": "text/plain"
+    },
+    "user": {
+      "uuid": "unknown",
+      "username": "reviewer1",
+      "display_name": "reviewer1",
+      "account_id": "unknown",
+      "type": "user"
+    },
+    "created_on": "",
+    "updated_on": "",
+    "deleted": false
+  },
+  {
+    "id": 0,
+    "content": {
+      "raw": "Thanks for the review!",
+      "markup": "",
+      "html": "",
+      "type": "text/plain"
+    },
+    "user": {
+      "uuid": "unknown",
+      "username": "author",
+      "display_name": "author",
+      "account_id": "unknown",
+      "type": "user"
+    },
+    "created_on": "",
+    "updated_on": "",
+    "deleted": false
+  }
+]
