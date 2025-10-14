@@ -1,0 +1,35 @@
+{
+			"action": "created",
+			"issue": {
+				"number": 1,
+				"title": "Test Issue",
+				"body": "Test issue body",
+				"state": "open",
+				"pull_request": {
+					"url": "https://api.github.com/repos/owner/repo/pulls/1"
+				}
+			},
+			"comment": {
+				"id": 123456,
+				"body": "@livereview please review this PR",
+				"created_at": "2025-10-08T10:00:00Z",
+				"updated_at": "2025-10-08T10:00:00Z",
+				"user": {
+					"id": 789,
+					"login": "testuser",
+					"type": "User"
+				}
+			},
+			"repository": {
+				"id": 456,
+				"name": "test-repo",
+				"full_name": "owner/test-repo",
+				"html_url": "https://github.com/owner/test-repo",
+				"private": false
+			},
+			"sender": {
+				"id": 789,
+				"login": "testuser",
+				"type": "User"
+			}
+		}

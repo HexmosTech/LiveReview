@@ -1,0 +1,79 @@
+{
+  "EventType": "comment_created",
+  "Provider": "gitlab",
+  "Timestamp": "2025-10-08T10:00:00Z",
+  "Repository": {
+    "ID": "1",
+    "Name": "test-project",
+    "FullName": "group/test-project",
+    "WebURL": "https://gitlab.example.com/group/test-project",
+    "CloneURL": "",
+    "DefaultBranch": "",
+    "Owner": {
+      "ID": "",
+      "Username": "group",
+      "Name": "",
+      "Email": "",
+      "AvatarURL": "",
+      "WebURL": "",
+      "Metadata": null
+    },
+    "Metadata": null
+  },
+  "MergeRequest": {
+    "ID": "789",
+    "Number": 1,
+    "Title": "Test MR",
+    "Description": "Test merge request",
+    "State": "opened",
+    "Author": {
+      "ID": "0",
+      "Username": "",
+      "Name": "",
+      "Email": "",
+      "AvatarURL": "",
+      "WebURL": "",
+      "Metadata": null
+    },
+    "SourceBranch": "feature-branch",
+    "TargetBranch": "main",
+    "WebURL": "",
+    "CreatedAt": "",
+    "UpdatedAt": "",
+    "Reviewers": null,
+    "Assignees": null,
+    "Labels": null,
+    "Metadata": null
+  },
+  "Comment": {
+    "ID": "456",
+    "Body": "@livereview please review this code",
+    "Author": {
+      "ID": "123",
+      "Username": "testuser",
+      "Name": "Test User",
+      "Email": "",
+      "AvatarURL": "",
+      "WebURL": "",
+      "Metadata": null
+    },
+    "CreatedAt": "2025-10-08T10:00:00Z",
+    "UpdatedAt": "2025-10-08T10:00:00Z",
+    "WebURL": "",
+    "InReplyToID": null,
+    "Position": null,
+    "DiscussionID": null,
+    "System": false,
+    "Metadata": null
+  },
+  "ReviewerChange": null,
+  "Actor": {
+    "ID": "123",
+    "Username": "testuser",
+    "Name": "Test User",
+    "Email": "",
+    "AvatarURL": "",
+    "WebURL": "",
+    "Metadata": null
+  }
+}

@@ -1,0 +1,23 @@
+{
+  "event_type": "pullrequest_comment_created",
+  "headers": {
+    "Accept": "*/*",
+    "Connection": "close",
+    "Content-Length": "9781",
+    "Content-Type": "application/json",
+    "Traceparent": "00-68ee32278cfefcd4732cdc2633df3c7e-7379c3dac4ec68c4-00",
+    "User-Agent": "Bitbucket-Webhooks/2.0",
+    "X-Attempt-Number": "1",
+    "X-B3-Parentspanid": "732cdc2633df3c7e",
+    "X-B3-Sampled": "0",
+    "X-B3-Spanid": "7379c3dac4ec68c4",
+    "X-B3-Traceid": "68ee32278cfefcd4732cdc2633df3c7e",
+    "X-Event-Key": "pullrequest:comment_created",
+    "X-Event-Time": "Tue, 14 Oct 2025 11:21:10 GMT",
+    "X-Forwarded-For": "104.192.140.245",
+    "X-Forwarded-Proto": "https",
+    "X-Hook-Uuid": "e28bc98a-4801-4736-b2b4-aad9e6d09a40",
+    "X-Real-Ip": "104.192.140.245",
+    "X-Request-Uuid": "8387f6fe-a16d-4967-a5fe-1c7bbf7f05cf"
+  }
+}

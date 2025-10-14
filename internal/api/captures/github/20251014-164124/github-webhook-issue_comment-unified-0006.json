@@ -1,0 +1,79 @@
+{
+  "EventType": "comment_created",
+  "Provider": "github",
+  "Timestamp": "2025-10-08T10:00:00Z",
+  "Repository": {
+    "ID": "456",
+    "Name": "test-repo",
+    "FullName": "owner/test-repo",
+    "WebURL": "https://github.com/owner/test-repo",
+    "CloneURL": "",
+    "DefaultBranch": "",
+    "Owner": {
+      "ID": "0",
+      "Username": "",
+      "Name": "",
+      "Email": "",
+      "AvatarURL": "",
+      "WebURL": "",
+      "Metadata": null
+    },
+    "Metadata": null
+  },
+  "MergeRequest": {
+    "ID": "0",
+    "Number": 1,
+    "Title": "Test Issue",
+    "Description": "Test issue body",
+    "State": "open",
+    "Author": {
+      "ID": "0",
+      "Username": "",
+      "Name": "",
+      "Email": "",
+      "AvatarURL": "",
+      "WebURL": "",
+      "Metadata": null
+    },
+    "SourceBranch": "",
+    "TargetBranch": "",
+    "WebURL": "",
+    "CreatedAt": "",
+    "UpdatedAt": "",
+    "Reviewers": null,
+    "Assignees": null,
+    "Labels": null,
+    "Metadata": null
+  },
+  "Comment": {
+    "ID": "123456",
+    "Body": "@livereview please review this PR",
+    "Author": {
+      "ID": "789",
+      "Username": "testuser",
+      "Name": "",
+      "Email": "",
+      "AvatarURL": "",
+      "WebURL": "",
+      "Metadata": null
+    },
+    "CreatedAt": "2025-10-08T10:00:00Z",
+    "UpdatedAt": "2025-10-08T10:00:00Z",
+    "WebURL": "",
+    "InReplyToID": null,
+    "Position": null,
+    "DiscussionID": null,
+    "System": false,
+    "Metadata": null
+  },
+  "ReviewerChange": null,
+  "Actor": {
+    "ID": "789",
+    "Username": "testuser",
+    "Name": "",
+    "Email": "",
+    "AvatarURL": "",
+    "WebURL": "",
+    "Metadata": null
+  }
+}
