@@ -1,0 +1,52 @@
+{
+  "events": [
+    {
+      "EventType": "comment_created",
+      "Provider": "bitbucket",
+      "Timestamp": "2025-10-14T14:15:37.100550+00:00",
+      "Comment": {
+        "ID": "699722842",
+        "Body": "@{712020:cd5db0f9-0d82-428a-b778-80a5b9416408} What is the difference between is_file and exists()",
+        "Author": {
+          "Username": "Contorted Expression",
+          "Metadata": {
+            "account_id": "712020:a02bc964-a339-4d21-baa3-71da9c43382e"
+          }
+        },
+        "CreatedAt": "2025-10-14T14:15:37.091407+00:00",
+        "UpdatedAt": "2025-10-14T14:15:37.100550+00:00",
+        "WebURL": "https://bitbucket.org/contorted/fb_backends/pull-requests/1/_/diff#comment-699722842",
+        "InReplyToID": "699722325",
+        "Position": {
+          "FilePath": "activepm2.py",
+          "LineNumber": 120,
+          "LineType": "new"
+        }
+      }
+    },
+    {
+      "EventType": "comment_created",
+      "Provider": "bitbucket",
+      "Timestamp": "2025-10-14T14:15:42.076088+00:00",
+      "Comment": {
+        "ID": "699722901",
+        "Body": "@712020:cd5db0f9-0d82-428a-b778-80a5b9416408 Good question!\n\n`os.path.exists()` checks if a path exists, regardless of whether it's a file, directory, link, or any other type of filesystem object. It returns `True` if the path exists and `False` otherwise.\n\n`os.path.isfile()` specifically checks if a path exists *and* is a regular file. It returns `True` only if the path exists and is a file; otherwise (if it's a directory, a link, or doesn't exist), it returns `False`.\n\nIn summary: use `exists()` if you only care if *something* is at the given path, and use `isfile()` if you need to confirm that the path points to a regular file.\n",
+        "Author": {
+          "Username": "LiveReview Bot",
+          "Metadata": {
+            "account_id": "712020:cd5db0f9-0d82-428a-b778-80a5b9416408"
+          }
+        },
+        "CreatedAt": "2025-10-14T14:15:42.066940+00:00",
+        "UpdatedAt": "2025-10-14T14:15:42.076088+00:00",
+        "WebURL": "https://bitbucket.org/contorted/fb_backends/pull-requests/1/_/diff#comment-699722901",
+        "InReplyToID": "699722325",
+        "Position": {
+          "FilePath": "activepm2.py",
+          "LineNumber": 120,
+          "LineType": "new"
+        }
+      }
+    }
+  ]
+}

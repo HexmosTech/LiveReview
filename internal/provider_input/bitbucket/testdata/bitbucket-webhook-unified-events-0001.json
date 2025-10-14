@@ -1,0 +1,33 @@
+{
+  "events": [
+    {
+      "EventType": "comment_created",
+      "Provider": "bitbucket",
+      "Timestamp": "2025-10-14T14:14:45.279393+00:00",
+      "Repository": {
+        "Name": "fb_backends",
+        "FullName": "contorted/fb_backends",
+        "WebURL": "https://bitbucket.org/contorted/fb_backends"
+      },
+      "Comment": {
+        "ID": "699722325",
+        "Body": "Consider using `Path.is_file()` instead of `Path.exists()` to ensure it's a file and not a directory or other special file.",
+        "Author": {
+          "Username": "LiveReview Bot",
+          "Metadata": {
+            "account_id": "712020:cd5db0f9-0d82-428a-b778-80a5b9416408"
+          }
+        },
+        "CreatedAt": "2025-10-14T14:14:45.272324+00:00",
+        "UpdatedAt": "2025-10-14T14:14:45.279393+00:00",
+        "WebURL": "https://bitbucket.org/contorted/fb_backends/pull-requests/1/_/diff#comment-699722325",
+        "InReplyToID": null,
+        "Position": {
+          "FilePath": "activepm2.py",
+          "LineNumber": 120,
+          "LineType": "new"
+        }
+      }
+    }
+  ]
+}
