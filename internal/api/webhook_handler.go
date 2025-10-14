@@ -2061,17 +2061,16 @@ func (s *Server) checkAIResponseWarrant(payload GitLabNoteWebhookPayload, gitlab
 	log.Printf("[DEBUG] Checking AI response warrant for comment by %s", payload.User.Username)
 	log.Printf("[DEBUG] Comment content: %s", payload.ObjectAttributes.Note)
 
-	// Early anti-loop protection: Check for common bot usernames before API calls
-	commonBotUsernames := []string{"livereviewbot", "LiveReviewBot", "ai-bot", "codebot", "reviewbot"}
-	for _, botUsername := range commonBotUsernames {
-		if strings.EqualFold(payload.User.Username, botUsername) {
-			log.Printf("[DEBUG] Comment author %s appears to be a bot user (early detection), skipping (anti-loop protection)", payload.User.Username)
+	// Get fresh bot user information for anti-loop protection
+	botUserInfo, err := s.getFreshBotUserInfo(gitlabInstanceURL)
+	if err == nil && botUserInfo != nil {
+		// Anti-loop protection: Check if comment is by the registered bot
+		if strings.EqualFold(payload.User.Username, botUserInfo.Username) {
+			log.Printf("[DEBUG] Comment by registered bot user %s, skipping (anti-loop protection)", payload.User.Username)
 			return false, ResponseScenario{}
 		}
 	}
 
-	// Get fresh bot user information via GitLab API
-	botUserInfo, err := s.getFreshBotUserInfo(gitlabInstanceURL)
 	if err != nil {
 		log.Printf("[ERROR] Failed to get fresh bot user info for GitLab instance %s: %v", gitlabInstanceURL, err)
 		return false, ResponseScenario{}
@@ -2512,17 +2511,6 @@ func (s *Server) checkDirectBotMention(commentBody string, botUserInfo *GitLabBo
 	if strings.Contains(commentLower, mentionPattern) {
 		log.Printf("[DEBUG] Direct mention found: %s mentioned in comment", botUserInfo.Username)
 		return true
-	}
-
-	// Check for common bot names as fallback (in case bot username differs from display name)
-	commonBotNames := []string{"livereviewbot", "livereview", "ai-bot", "codebot", "reviewbot"}
-	for _, botName := range commonBotNames {
-		fallbackPattern := "@" + botName
-		log.Printf("[DEBUG] Looking for fallback mention pattern: '%s' in comment", fallbackPattern)
-		if strings.Contains(commentLower, fallbackPattern) {
-			log.Printf("[DEBUG] Direct mention found (fallback): %s mentioned in comment", botName)
-			return true
-		}
 	}
 
 	log.Printf("[DEBUG] No direct mentions found")
@@ -4934,17 +4922,6 @@ func (s *Server) checkDirectBotMentionV2(commentBody, botUsername string) bool {
 	if strings.Contains(commentLower, mentionPattern) {
 		log.Printf("[DEBUG] Direct mention found: %s mentioned in comment", botUsername)
 		return true
-	}
-
-	// Check for common bot names as fallback
-	commonBotNames := []string{"livereviewbot", "livereview", "ai-bot", "codebot", "reviewbot"}
-	for _, botName := range commonBotNames {
-		fallbackPattern := "@" + botName
-		log.Printf("[DEBUG] Looking for fallback mention pattern: '%s' in comment", fallbackPattern)
-		if strings.Contains(commentLower, fallbackPattern) {
-			log.Printf("[DEBUG] Direct mention found (fallback): %s mentioned in comment", botName)
-			return true
-		}
 	}
 
 	log.Printf("[DEBUG] No direct mentions found")

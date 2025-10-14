@@ -1452,14 +1452,7 @@ func (p *GitLabV2Provider) checkAIResponseWarrantV2(event *UnifiedWebhookEventV2
 	log.Printf("[DEBUG] Checking AI response warrant for comment by %s", event.Comment.Author.Username)
 	log.Printf("[DEBUG] Comment content: %s", event.Comment.Body)
 
-	// Early anti-loop protection: Check for common bot usernames before API calls
-	commonBotUsernames := []string{"livereviewbot", "LiveReviewBot", "ai-bot", "codebot", "reviewbot"}
-	for _, botUsername := range commonBotUsernames {
-		if strings.EqualFold(event.Comment.Author.Username, botUsername) {
-			log.Printf("[DEBUG] Comment author %s appears to be a bot user (early detection), skipping (anti-loop protection)", event.Comment.Author.Username)
-			return false, ResponseScenarioV2{}
-		}
-	}
+	// We'll check for bot user after getting fresh bot info below
 
 	// Get fresh bot user information via GitLab API
 	botUserInfo, err := p.getFreshBotUserInfoV2(gitlabInstanceURL)
