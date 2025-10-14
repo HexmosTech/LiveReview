@@ -364,6 +364,111 @@ func TestUnifiedEventConversion(t *testing.T) {
 		assert.Equal(t, "@livereview please review this PR", event.Comment.Body)
 		assert.Equal(t, "testuser", event.Comment.Author.Username)
 	})
+
+	t.Run("Bitbucket Comment Event Conversion", func(t *testing.T) {
+		provider := newTestBitbucketProvider(t)
+
+		headers := map[string]string{
+			"X-Event-Key":  "pullrequest:comment_created",
+			"Content-Type": "application/json",
+		}
+
+		body := []byte(`{
+			"eventKey": "pullrequest:comment_created",
+			"date": "2025-10-14T14:15:42.076088+00:00",
+			"actor": {
+				"username": "livereview",
+				"display_name": "LiveReview Bot",
+				"account_id": "712020:cd5db0f9-0d82-428a-b778-80a5b9416408",
+				"uuid": "{268007d3-10bd-4edb-93d1-7056116ad08c}",
+				"type": "user"
+			},
+			"repository": {
+				"name": "fb_backends",
+				"full_name": "contorted/fb_backends",
+				"links": {
+					"html": {"href": "https://bitbucket.org/contorted/fb_backends"}
+				},
+				"owner": {
+					"username": "contorted",
+					"display_name": "Contorted Team",
+					"account_id": "team-account",
+					"uuid": "{40dafde9-4408-4e0b-af0a-335aec19f860}",
+					"type": "team"
+				}
+			},
+			"pullrequest": {
+				"id": 1,
+				"title": "p1 test",
+				"state": "OPEN",
+				"links": {
+					"html": {"href": "https://bitbucket.org/contorted/fb_backends/pull-requests/1"}
+				},
+				"source": {"branch": {"name": "feature"}},
+				"destination": {"branch": {"name": "main"}}
+			},
+			"comment": {
+				"id": 699722901,
+				"created_on": "2025-10-14T14:15:42.066940+00:00",
+				"updated_on": "2025-10-14T14:15:42.076088+00:00",
+				"content": {
+					"raw": "@712020:cd5db0f9-0d82-428a-b778-80a5b9416408 Good question!",
+					"type": "markdown",
+					"markup": "markdown",
+					"html": "<p>Rendered reply</p>"
+				},
+				"user": {
+					"username": "livereview",
+					"display_name": "LiveReview Bot",
+					"account_id": "712020:cd5db0f9-0d82-428a-b778-80a5b9416408",
+					"uuid": "{268007d3-10bd-4edb-93d1-7056116ad08c}",
+					"type": "user"
+				},
+				"parent": {
+					"id": 699722325,
+					"links": {
+						"html": {"href": "https://bitbucket.org/contorted/fb_backends/pull-requests/1/_/diff#comment-699722325"}
+					}
+				},
+				"inline": {
+					"path": "activepm2.py",
+					"to": 120
+				},
+				"links": {
+					"self": {"href": "https://api.bitbucket.org/2.0/repositories/contorted/fb_backends/pullrequests/1/comments/699722901"},
+					"html": {"href": "https://bitbucket.org/contorted/fb_backends/pull-requests/1/_/diff#comment-699722901"}
+				},
+				"type": "pullrequest_comment",
+				"deleted": false
+			}
+		}`)
+
+		event, err := provider.ConvertCommentEvent(headers, body)
+
+		require.NoError(t, err)
+		require.NotNil(t, event)
+
+		assert.Equal(t, "comment_created", event.EventType)
+		assert.Equal(t, "bitbucket", event.Provider)
+
+		require.NotNil(t, event.Comment)
+		assert.Equal(t, "699722901", event.Comment.ID)
+		assert.Equal(t, "@712020:cd5db0f9-0d82-428a-b778-80a5b9416408 Good question!", event.Comment.Body)
+		require.NotNil(t, event.Comment.InReplyToID)
+		assert.Equal(t, "699722325", *event.Comment.InReplyToID)
+		require.NotNil(t, event.Comment.Position)
+		assert.Equal(t, "activepm2.py", event.Comment.Position.FilePath)
+		assert.Equal(t, 120, event.Comment.Position.LineNumber)
+
+		require.NotNil(t, event.Comment.Metadata)
+		assert.Equal(t, "contorted", event.Comment.Metadata["workspace"])
+		assert.Equal(t, "fb_backends", event.Comment.Metadata["repository"])
+		assert.Equal(t, 1, event.Comment.Metadata["pr_number"])
+
+		assert.Equal(t, "contorted/fb_backends", event.Repository.FullName)
+		require.NotNil(t, event.Actor)
+		assert.Equal(t, "livereview", event.Actor.Username)
+	})
 }
 
 func TestProviderRegistry(t *testing.T) {
