@@ -1,0 +1,6 @@
+{
+  "event_type": "pullrequest_comment_created",
+  "headers": {
+    "X-Event-Key": "pullrequest:comment_created"
+  }
+}

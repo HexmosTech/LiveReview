@@ -1,0 +1,79 @@
+{
+  "EventType": "comment_created",
+  "Provider": "bitbucket",
+  "Timestamp": "",
+  "Repository": {
+    "ID": "{352533c2-42e6-4035-9beb-57035eeedd12}",
+    "Name": "fb_backends",
+    "FullName": "contorted/fb_backends",
+    "WebURL": "https://bitbucket.org/contorted/fb_backends",
+    "CloneURL": "",
+    "DefaultBranch": "",
+    "Owner": {
+      "ID": "",
+      "Username": "contorted",
+      "Name": "contorted",
+      "Email": "",
+      "AvatarURL": "",
+      "WebURL": "",
+      "Metadata": {
+        "account_id": "",
+        "type": "team",
+        "uuid": "{40dafde9-4408-4e0b-af0a-335aec19f860}"
+      }
+    },
+    "Metadata": {
+      "type": "repository"
+    }
+  },
+  "MergeRequest": null,
+  "Comment": {
+    "ID": "699722293",
+    "Body": "# Refactor Active PM2 Monitoring Script to Class-Based Structure\n\n## Overview\nThis change refactors the original procedural script into a `PM2Monitor` class. This improves code organization, readability, and testability by encapsulating the PM2 monitoring logic, logging configuration, and the main monitoring loop within a single class.\n\n## Key Changes\n- **Class Structure**: Introduced a `PM2Monitor` class to encapsulate the PM2 monitoring logic, including checking and restarting processes.\n- **Logging**: Logging configuration is now handled within the `PM2Monitor` class.\n- **Main Loop**: The main monitoring loop is now part of the `PM2Monitor` class, improving structure and readability.\n\n## Impact\n- **Functionality**: Improved code organization and maintainability. The core functionality of monitoring and restarting PM2 processes remains the same.\n- **Risk**:\n    - Potential for errors introduced during the refactoring process.\n    - The current implementation may terminate the monitoring loop upon encountering an exception.\n    - Hardcoded values are present and should be externalized via environment variables.\n    - The script does not explicitly handle file encodings, which could lead to issues.\n    - Subprocess calls lack timeouts, potentially leading to indefinite hanging.\n",
+    "Author": {
+      "ID": "712020:cd5db0f9-0d82-428a-b778-80a5b9416408",
+      "Username": "",
+      "Name": "LiveReview Bot",
+      "Email": "",
+      "AvatarURL": "",
+      "WebURL": "",
+      "Metadata": {
+        "account_id": "712020:cd5db0f9-0d82-428a-b778-80a5b9416408",
+        "type": "user",
+        "uuid": "{268007d3-10bd-4edb-93d1-7056116ad08c}"
+      }
+    },
+    "CreatedAt": "2025-10-14T14:14:42.764801+00:00",
+    "UpdatedAt": "2025-10-14T14:14:42.771582+00:00",
+    "WebURL": "https://bitbucket.org/contorted/fb_backends/pull-requests/1/_/diff#comment-699722293",
+    "InReplyToID": null,
+    "Position": null,
+    "DiscussionID": null,
+    "System": false,
+    "Metadata": {
+      "account_id": "712020:cd5db0f9-0d82-428a-b778-80a5b9416408",
+      "comment_type": "pullrequest_comment",
+      "pr_number": 1,
+      "pr_title": "p1 test",
+      "pr_url": "https://bitbucket.org/contorted/fb_backends/pull-requests/1",
+      "provider": "bitbucket",
+      "repository": "fb_backends",
+      "user_uuid": "{268007d3-10bd-4edb-93d1-7056116ad08c}",
+      "workspace": "contorted"
+    }
+  },
+  "ReviewerChange": null,
+  "Actor": {
+    "ID": "712020:cd5db0f9-0d82-428a-b778-80a5b9416408",
+    "Username": "",
+    "Name": "LiveReview Bot",
+    "Email": "",
+    "AvatarURL": "",
+    "WebURL": "",
+    "Metadata": {
+      "account_id": "712020:cd5db0f9-0d82-428a-b778-80a5b9416408",
+      "type": "user",
+      "uuid": "{268007d3-10bd-4edb-93d1-7056116ad08c}"
+    }
+  }
+}

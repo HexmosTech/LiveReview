@@ -265,6 +265,16 @@ func NewServer(port int, versionInfo *VersionInfo) (*Server, error) {
 	return server, nil
 }
 
+// DB exposes the underlying database handle (primarily for tests)
+func (s *Server) DB() *sql.DB {
+	return s.db
+}
+
+// BitbucketProviderV2 returns the initialized Bitbucket V2 provider
+func (s *Server) BitbucketProviderV2() *bitbucketprovider.BitbucketV2Provider {
+	return s.bitbucketProviderV2
+}
+
 // setupRoutes configures all API endpoints
 func (s *Server) setupRoutes() {
 	// Health check endpoint

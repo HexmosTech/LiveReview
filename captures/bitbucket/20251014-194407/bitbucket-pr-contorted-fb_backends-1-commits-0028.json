@@ -1,0 +1,30 @@
+[
+  {
+    "hash": "abc123def456",
+    "message": "Initial implementation",
+    "date": "",
+    "author": {
+      "user": {
+        "uuid": "unknown",
+        "username": "unknown",
+        "display_name": "unknown",
+        "account_id": "unknown",
+        "type": "user"
+      }
+    }
+  },
+  {
+    "hash": "def456ghi789",
+    "message": "Fix review comments",
+    "date": "",
+    "author": {
+      "user": {
+        "uuid": "unknown",
+        "username": "unknown",
+        "display_name": "unknown",
+        "account_id": "unknown",
+        "type": "user"
+      }
+    }
+  }
+]
