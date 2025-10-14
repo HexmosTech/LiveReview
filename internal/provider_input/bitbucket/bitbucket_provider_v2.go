@@ -60,6 +60,7 @@ type BitbucketV2Comment struct {
 	Inline    *BitbucketV2InlineInfo    `json:"inline,omitempty"`
 	Links     BitbucketV2CommentLinks   `json:"links"`
 	Type      string                    `json:"type"`
+	Deleted   bool                      `json:"deleted"`
 }
 
 // BitbucketV2CommentContent represents the content of a Bitbucket comment
@@ -216,6 +217,7 @@ type BitbucketV2CommentInfo struct {
 	User      BitbucketV2User           `json:"user"`
 	CreatedOn string                    `json:"created_on"`
 	UpdatedOn string                    `json:"updated_on"`
+	Deleted   bool                      `json:"deleted"`
 }
 
 // BitbucketV2Provider implements the WebhookProviderV2 interface for Bitbucket.
@@ -247,7 +249,7 @@ func (p *BitbucketV2Provider) CanHandleWebhook(headers map[string]string, body [
 	if eventKey, exists := headers["X-Event-Key"]; exists {
 		// Common Bitbucket event keys
 		bitbucketEvents := []string{
-			"pullrequest:comment_created", "pullrequest:comment_updated", "pullrequest:comment_deleted",
+			"pullrequest:comment_created", "pullrequest:comment_updated",
 			"pullrequest:approved", "pullrequest:unapproved", "pullrequest:rejected",
 			"pullrequest:created", "pullrequest:updated", "pullrequest:fulfilled", "pullrequest:rejected",
 			"repo:push", "repo:commit_comment_created",
@@ -294,6 +296,15 @@ func (p *BitbucketV2Provider) ConvertCommentEvent(headers map[string]string, bod
 			recordBitbucketWebhook(eventType, headers, body, nil, err)
 		}
 		return nil, fmt.Errorf("failed to unmarshal Bitbucket webhook payload: %w", err)
+	}
+
+	// Filter out deleted comments - do not process them
+	if payload.Comment.Deleted {
+		log.Printf("[DEBUG] Ignoring deleted Bitbucket comment ID=%d", payload.Comment.ID)
+		if capture.Enabled() {
+			recordBitbucketWebhook(eventType, headers, body, nil, fmt.Errorf("comment is deleted"))
+		}
+		return nil, fmt.Errorf("comment is deleted, skipping processing")
 	}
 
 	// Convert to unified format
@@ -483,8 +494,9 @@ func (p *BitbucketV2Provider) convertUserV2(user BitbucketV2User) UnifiedUserV2 
 		Name:     user.DisplayName,
 		WebURL:   "", // Not available in basic payload
 		Metadata: map[string]interface{}{
-			"uuid": user.UUID,
-			"type": user.Type,
+			"uuid":       user.UUID,
+			"account_id": user.AccountID,
+			"type":       user.Type,
 		},
 	}
 }
@@ -603,6 +615,8 @@ func (p *BitbucketV2Provider) convertBitbucketToUnifiedCommentV2(payload Bitbuck
 			"comment_type": payload.Comment.Type,
 			"pr_title":     payload.PullRequest.Title,
 			"pr_url":       payload.PullRequest.Links.HTML.Href,
+			"account_id":   payload.Comment.User.AccountID,
+			"user_uuid":    payload.Comment.User.UUID,
 		},
 	}
 }
@@ -753,9 +767,9 @@ func (p *BitbucketV2Provider) fetchBitbucketPRCommentsV2(workspace, repository, 
 		{Author: "author", Content: "Thanks for the review!"},
 	}
 
-	v2Comments := make([]BitbucketV2CommentInfo, len(comments))
-	for i, comment := range comments {
-		v2Comments[i] = BitbucketV2CommentInfo{
+	v2Comments := make([]BitbucketV2CommentInfo, 0)
+	for _, comment := range comments {
+		commentInfo := BitbucketV2CommentInfo{
 			ID: 0,
 			Content: BitbucketV2CommentContent{
 				Raw:    comment.Content,
@@ -772,6 +786,15 @@ func (p *BitbucketV2Provider) fetchBitbucketPRCommentsV2(workspace, repository, 
 			},
 			CreatedOn: "",
 			UpdatedOn: "",
+			Deleted:   false, // Stub data is not deleted
+		}
+
+		// Filter out deleted comments - IMPORTANT: When implementing real API calls,
+		// check the actual 'deleted' field from Bitbucket API response
+		if !commentInfo.Deleted {
+			v2Comments = append(v2Comments, commentInfo)
+		} else {
+			log.Printf("[DEBUG] Filtering out deleted Bitbucket comment ID=%d", commentInfo.ID)
 		}
 	}
 

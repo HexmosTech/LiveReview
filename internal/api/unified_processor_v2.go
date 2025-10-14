@@ -25,6 +25,15 @@ func NewUnifiedProcessorV2(server *Server) UnifiedProcessorV2 {
 	}
 }
 
+func normalizeIdentifier(value string) string {
+	if value == "" {
+		return ""
+	}
+	trimmed := strings.TrimSpace(value)
+	trimmed = strings.Trim(trimmed, "{}")
+	return strings.ToLower(trimmed)
+}
+
 // CheckResponseWarrant determines if an event warrants an AI response (provider-agnostic)
 // Extracted from checkAIResponseWarrant, checkUnifiedAIResponseWarrant
 func (p *UnifiedProcessorV2Impl) CheckResponseWarrant(event UnifiedWebhookEventV2, botInfo *UnifiedBotUserInfoV2) (bool, ResponseScenarioV2) {
@@ -50,11 +59,55 @@ func (p *UnifiedProcessorV2Impl) CheckResponseWarrant(event UnifiedWebhookEventV
 		log.Printf("[DEBUG] Comment is not a reply (InReplyToID is nil)")
 	}
 
-	// Early anti-loop protection: Check for common bot usernames
-	commonBotUsernames := []string{"livereviewbot", "LiveReviewBot", "ai-bot", "codebot", "reviewbot"}
-	for _, botUsername := range commonBotUsernames {
-		if strings.EqualFold(event.Comment.Author.Username, botUsername) {
-			log.Printf("[DEBUG] Comment by bot user %s, skipping", event.Comment.Author.Username)
+	// Early anti-loop protection: Check if comment is by the registered bot
+	if botInfo != nil {
+		botIdentifiers := map[string]string{}
+		if botInfo.UserID != "" {
+			botIdentifiers[normalizeIdentifier(botInfo.UserID)] = botInfo.UserID
+		}
+		if botInfo.Metadata != nil {
+			if accountID, ok := botInfo.Metadata["account_id"].(string); ok && accountID != "" {
+				botIdentifiers[normalizeIdentifier(accountID)] = accountID
+			}
+			if uuid, ok := botInfo.Metadata["uuid"].(string); ok && uuid != "" {
+				botIdentifiers[normalizeIdentifier(uuid)] = uuid
+			}
+		}
+
+		authorIdentifiers := map[string]string{}
+		if event.Comment.Author.ID != "" {
+			authorIdentifiers[normalizeIdentifier(event.Comment.Author.ID)] = event.Comment.Author.ID
+		}
+		if event.Comment.Author.Metadata != nil {
+			if accountID, ok := event.Comment.Author.Metadata["account_id"].(string); ok && accountID != "" {
+				authorIdentifiers[normalizeIdentifier(accountID)] = accountID
+			}
+			if uuid, ok := event.Comment.Author.Metadata["uuid"].(string); ok && uuid != "" {
+				authorIdentifiers[normalizeIdentifier(uuid)] = uuid
+			}
+		}
+		if event.Comment.Metadata != nil {
+			if accountID, ok := event.Comment.Metadata["account_id"].(string); ok && accountID != "" {
+				authorIdentifiers[normalizeIdentifier(accountID)] = accountID
+			}
+			if uuid, ok := event.Comment.Metadata["user_uuid"].(string); ok && uuid != "" {
+				authorIdentifiers[normalizeIdentifier(uuid)] = uuid
+			}
+		}
+
+		for normalizedAuthor, rawAuthor := range authorIdentifiers {
+			if normalizedAuthor == "" {
+				continue
+			}
+			if rawBot, found := botIdentifiers[normalizedAuthor]; found {
+				log.Printf("[DEBUG] Comment by registered bot user (identifier match: author=%s, bot=%s), skipping", rawAuthor, rawBot)
+				return false, ResponseScenarioV2{}
+			}
+		}
+
+		// Fallback check by username
+		if botInfo.Username != "" && strings.EqualFold(event.Comment.Author.Username, botInfo.Username) {
+			log.Printf("[DEBUG] Comment by registered bot user (username: %s), skipping", event.Comment.Author.Username)
 			return false, ResponseScenarioV2{}
 		}
 	}
@@ -296,13 +349,12 @@ func (p *UnifiedProcessorV2Impl) checkDirectBotMentionV2(commentBody string, bot
 		return true
 	}
 
-	// Check for common bot names as fallback (ORIGINAL LOGIC)
-	commonBotNames := []string{"livereviewbot", "livereview", "ai-bot", "codebot", "reviewbot"}
-	for _, botName := range commonBotNames {
-		fallbackPattern := "@" + botName
-		log.Printf("[DEBUG] Looking for fallback mention pattern: '%s' in comment", fallbackPattern)
-		if strings.Contains(commentLower, fallbackPattern) {
-			log.Printf("[DEBUG] Direct mention found (fallback): %s mentioned in comment", botName)
+	// Check for Bitbucket account ID mention format @{account-id}
+	if botInfo.UserID != "" {
+		accountIDPattern := "@{" + strings.ToLower(botInfo.UserID) + "}"
+		log.Printf("[DEBUG] Looking for account ID mention pattern: '%s' in comment", accountIDPattern)
+		if strings.Contains(commentLower, accountIDPattern) {
+			log.Printf("[DEBUG] Direct mention found via account ID: %s mentioned in comment", botInfo.UserID)
 			return true
 		}
 	}
