@@ -47,6 +47,52 @@ func TestUnifiedProcessorV2(t *testing.T) {
 		assert.Greater(t, scenario.Confidence, 0.5)
 	})
 
+	t.Run("CheckResponseWarrant_BitbucketAccountIDMentionWithEmbeddedBraces", func(t *testing.T) {
+		accountID := "{268052f4-1234-5678-90ab-cdef12345678}"
+		event := UnifiedWebhookEventV2{
+			EventType: "comment_created",
+			Provider:  "bitbucket",
+			Comment: &UnifiedCommentV2{
+				Body:   "Hey @{{268052f4-1234-5678-90ab-cdef12345678}} can you take a look?",
+				Author: UnifiedUserV2{Username: "team_member"},
+			},
+		}
+
+		botInfo := &UnifiedBotUserInfoV2{
+			UserID:   accountID,
+			Username: "livereview",
+			Metadata: map[string]interface{}{"account_id": accountID},
+		}
+
+		warrantsResponse, scenario := processor.CheckResponseWarrant(event, botInfo)
+
+		assert.True(t, warrantsResponse)
+		assert.Equal(t, "direct_mention", scenario.Type)
+	})
+
+	t.Run("CheckResponseWarrant_BitbucketAccountIDMentionWithoutEmbeddedBraces", func(t *testing.T) {
+		accountID := "{268052f4-1234-5678-90ab-cdef12345678}"
+		event := UnifiedWebhookEventV2{
+			EventType: "comment_created",
+			Provider:  "bitbucket",
+			Comment: &UnifiedCommentV2{
+				Body:   "Follow up @{268052f4-1234-5678-90ab-cdef12345678} please",
+				Author: UnifiedUserV2{Username: "team_member"},
+			},
+		}
+
+		botInfo := &UnifiedBotUserInfoV2{
+			UserID:   accountID,
+			Username: "livereview",
+			Metadata: map[string]interface{}{"account_id": accountID},
+		}
+
+		warrantsResponse, scenario := processor.CheckResponseWarrant(event, botInfo)
+
+		assert.True(t, warrantsResponse)
+		assert.Equal(t, "direct_mention", scenario.Type)
+	})
+
 	t.Run("CheckResponseWarrant_NoMention", func(t *testing.T) {
 		event := UnifiedWebhookEventV2{
 			EventType: "comment_created",

@@ -1,0 +1,7 @@
+{
+  "event_type": "note",
+  "headers": {
+    "Content-Type": "application/json",
+    "X-Gitlab-Event": "Note Hook"
+  }
+}

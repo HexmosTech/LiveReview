@@ -1,0 +1,8 @@
+{
+  "event_type": "issue_comment",
+  "headers": {
+    "Content-Type": "application/json",
+    "X-GitHub-Delivery": "test-delivery-id",
+    "X-GitHub-Event": "issue_comment"
+  }
+}

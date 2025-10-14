@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log"
 	"strings"
+	"unicode"
 
 	"github.com/livereview/internal/aiconnectors"
 )
@@ -47,7 +48,7 @@ func (p *UnifiedProcessorV2Impl) CheckResponseWarrant(event UnifiedWebhookEventV
 
 	// Debug bot info
 	if botInfo != nil {
-		log.Printf("[DEBUG] Bot info available: Username=%s, UserID=%s, Name=%s", botInfo.Username, botInfo.UserID, botInfo.Name)
+		log.Printf("[DEBUG] Bot info available: Username=%s, UserID=%s, Name=%s, Metadata=%v", botInfo.Username, botInfo.UserID, botInfo.Name, botInfo.Metadata)
 	} else {
 		log.Printf("[DEBUG] No bot info available")
 	}
@@ -349,18 +350,108 @@ func (p *UnifiedProcessorV2Impl) checkDirectBotMentionV2(commentBody string, bot
 		return true
 	}
 
-	// Check for Bitbucket account ID mention format @{account-id}
-	if botInfo.UserID != "" {
-		accountIDPattern := "@{" + strings.ToLower(botInfo.UserID) + "}"
-		log.Printf("[DEBUG] Looking for account ID mention pattern: '%s' in comment", accountIDPattern)
-		if strings.Contains(commentLower, accountIDPattern) {
-			log.Printf("[DEBUG] Direct mention found via account ID: %s mentioned in comment", botInfo.UserID)
-			return true
+	// Check for Bitbucket identifiers (account ID / UUID) by extracting mention tokens
+	normalizedIdentifiers := map[string]string{}
+	if normalized := normalizeIdentifier(botInfo.UserID); normalized != "" {
+		normalizedIdentifiers[normalized] = botInfo.UserID
+	}
+	if botInfo.Metadata != nil {
+		if accountIDRaw, ok := botInfo.Metadata["account_id"].(string); ok {
+			if normalized := normalizeIdentifier(accountIDRaw); normalized != "" {
+				normalizedIdentifiers[normalized] = accountIDRaw
+			}
+		}
+		if uuidRaw, ok := botInfo.Metadata["uuid"].(string); ok {
+			if normalized := normalizeIdentifier(uuidRaw); normalized != "" {
+				normalizedIdentifiers[normalized] = uuidRaw
+			}
+		}
+	}
+
+	if len(normalizedIdentifiers) > 0 {
+		log.Printf("[DEBUG] Bot identifier set for direct mention matching: %v", normalizedIdentifiers)
+		mentions := extractNormalizedMentions(commentBody)
+		log.Printf("[DEBUG] Extracted %d mention identifier(s) from comment: %v", len(mentions), mentions)
+		for _, mention := range mentions {
+			if mention == "" {
+				continue
+			}
+			if rawIdentifier, ok := normalizedIdentifiers[mention]; ok {
+				log.Printf("[DEBUG] Direct mention found via provider identifier: %s mentioned in comment", rawIdentifier)
+				return true
+			}
+		}
+	}
+
+	// Bitbucket mention fallback: raw account ID without normalization
+	if botInfo.Metadata != nil {
+		if accountIDRaw, ok := botInfo.Metadata["account_id"].(string); ok && accountIDRaw != "" {
+			accountIDPattern := strings.ToLower("@{" + strings.Trim(accountIDRaw, "{}") + "}")
+			log.Printf("[DEBUG] Falling back to raw account ID mention pattern: %s", accountIDPattern)
+			if strings.Contains(commentLower, accountIDPattern) {
+				log.Printf("[DEBUG] Direct mention found via raw account ID fallback: %s", accountIDRaw)
+				return true
+			}
 		}
 	}
 
 	log.Printf("[DEBUG] No direct mentions found")
 	return false
+}
+
+// extractNormalizedMentions pulls potential @mention targets and normalizes them for comparison
+func extractNormalizedMentions(commentBody string) []string {
+	runes := []rune(commentBody)
+	length := len(runes)
+	mentions := make([]string, 0)
+	seen := make(map[string]struct{})
+
+	isIdentifierRune := func(r rune) bool {
+		return unicode.IsLetter(r) || unicode.IsDigit(r) || r == '-' || r == '_' || r == ':' || r == '.'
+	}
+
+	for i := 0; i < length; i++ {
+		if runes[i] != '@' {
+			continue
+		}
+
+		if i+1 >= length {
+			continue
+		}
+
+		var identifier string
+		if runes[i+1] == '{' {
+			start := i + 2
+			j := start
+			for j < length && runes[j] != '}' {
+				j++
+			}
+			identifier = string(runes[start:j])
+			i = j
+		} else {
+			start := i + 1
+			j := start
+			for j < length && isIdentifierRune(runes[j]) {
+				j++
+			}
+			identifier = string(runes[start:j])
+			i = j - 1
+		}
+
+		normalized := normalizeIdentifier(identifier)
+		if normalized == "" {
+			continue
+		}
+
+		if _, exists := seen[normalized]; exists {
+			continue
+		}
+
+		seen[normalized] = struct{}{}
+		mentions = append(mentions, normalized)
+	}
+
+	return mentions
 }
 
 // classifyContentTypeV2 classifies the type of content in a comment
