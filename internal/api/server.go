@@ -20,6 +20,7 @@ import (
 	"github.com/livereview/internal/api/organizations"
 	"github.com/livereview/internal/api/users"
 	"github.com/livereview/internal/jobqueue"
+	"github.com/livereview/internal/learnings"
 	"github.com/livereview/internal/license"
 	bitbucketprovider "github.com/livereview/internal/provider_input/bitbucket"
 	githubprovider "github.com/livereview/internal/provider_input/github"
@@ -120,6 +121,8 @@ type Server struct {
 
 	// V2 Webhook Orchestrator
 	webhookOrchestratorV2 *WebhookOrchestratorV2
+
+	learningsService *learnings.Service
 }
 
 // NewServer creates a new API server
@@ -224,6 +227,8 @@ func NewServer(port int, versionInfo *VersionInfo) (*Server, error) {
 		}
 	}
 
+	learningsSvc := learnings.NewService(learnings.NewPostgresStore(db))
+
 	server := &Server{
 		echo:                 e,
 		port:                 port,
@@ -243,6 +248,7 @@ func NewServer(port int, versionInfo *VersionInfo) (*Server, error) {
 		testHandlers:         testHandlers,
 		devMode:              devMode,
 		gitlabAuthService:    gitlabprovider.NewAuthService(db, triggerAutoInstall),
+		learningsService:     learningsSvc,
 	}
 
 	// Initialize V2 webhook providers

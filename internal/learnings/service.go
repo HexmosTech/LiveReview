@@ -13,6 +13,31 @@ type Service struct {
 
 func NewService(store Store) *Service { return &Service{store: store} }
 
+// ListActiveByOrg returns all active learnings for the given org without scoping filters.
+func (s *Service) ListActiveByOrg(ctx context.Context, orgID int64) ([]*Learning, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	items, err := s.store.ListByOrg(ctx, orgID)
+	if err != nil {
+		return nil, err
+	}
+	if len(items) == 0 {
+		return nil, nil
+	}
+	result := make([]*Learning, 0, len(items))
+	for _, item := range items {
+		if item == nil {
+			continue
+		}
+		if item.Status != StatusActive {
+			continue
+		}
+		result = append(result, item)
+	}
+	return result, nil
+}
+
 // normalize input for hashing
 func normalizeText(s string) string {
 	s = strings.ReplaceAll(s, "\n", " ")
