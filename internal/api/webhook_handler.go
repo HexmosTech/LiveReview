@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/labstack/echo/v4"
+	"github.com/livereview/internal/learnings"
 	"github.com/livereview/internal/review"
 )
 
@@ -2870,6 +2871,17 @@ func (s *Server) buildContextualAIResponse(ctx context.Context, payload GitLabNo
 		client:      &http.Client{Timeout: 60 * time.Second},
 	}
 
+	orgID := s.resolveGitLabOrgID(payload.Project.PathWithNamespace, gitlabInstanceURL)
+	repoID := payload.Project.PathWithNamespace
+	var relevantLearnings []*learnings.Learning
+	if orgID != 0 {
+		if fetched, fetchErr := s.fetchRelevantLearnings(ctx, orgID, repoID, nil, payload.MergeRequest.Title, payload.MergeRequest.Description); fetchErr != nil {
+			log.Printf("[WARN] Failed to fetch learnings for org %d repo %s: %v", orgID, repoID, fetchErr)
+		} else {
+			relevantLearnings = fetched
+		}
+	}
+
 	projectID := payload.Project.ID
 	mrIID := payload.MergeRequest.IID
 	targetNoteID := payload.ObjectAttributes.ID
@@ -2923,6 +2935,7 @@ func (s *Server) buildContextualAIResponse(ctx context.Context, payload GitLabNo
 		codeExcerpt,
 		focusedDiff,
 	)
+	prompt = s.appendLearningsToPrompt(prompt, relevantLearnings)
 
 	// For now, use a sophisticated fallback response based on context
 	// TODO: Integrate actual AI provider (Gemini) in Phase 3
@@ -3661,6 +3674,92 @@ func (s *Server) generateDiplomaticResponse(contentType string, originalComment 
 	}
 }
 
+func (s *Server) resolveGitLabOrgID(projectPath, gitlabInstanceURL string) int64 {
+	if token, err := s.findIntegrationTokenForProject(projectPath); err == nil && token != nil && token.OrgID != 0 {
+		return token.OrgID
+	}
+	if orgID, err := s.findOrgIDForGitLabInstance(gitlabInstanceURL); err == nil {
+		return orgID
+	}
+	return 0
+}
+
+func (s *Server) resolveGitHubOrgID(repoFullName string) int64 {
+	token, err := s.findIntegrationTokenForGitHubRepo(repoFullName)
+	if err != nil || token == nil {
+		return 0
+	}
+	return token.OrgID
+}
+
+func (s *Server) resolveBitbucketOrgID(repoFullName string) int64 {
+	token, err := s.findIntegrationTokenForBitbucketRepo(repoFullName)
+	if err != nil || token == nil {
+		return 0
+	}
+	return token.OrgID
+}
+
+func (s *Server) fetchRelevantLearnings(ctx context.Context, orgID int64, repoID string, changedFiles []string, title, description string) ([]*learnings.Learning, error) {
+	if s.learningsService == nil || orgID == 0 {
+		return nil, nil
+	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	return s.learningsService.ListActiveByOrg(ctx, orgID)
+}
+
+func (s *Server) appendLearningsToPrompt(prompt string, items []*learnings.Learning) string {
+	section := formatLearningsSection(items)
+	if section == "" {
+		return prompt
+	}
+	if !strings.HasSuffix(prompt, "\n") {
+		prompt += "\n"
+	}
+	return prompt + section
+}
+
+func formatLearningsSection(items []*learnings.Learning) string {
+	if len(items) == 0 {
+		return ""
+	}
+	var b strings.Builder
+	b.WriteString("=== Org learnings ===\n")
+	b.WriteString("Incorporate the following established org guidance when drafting your reply:\n")
+	for _, item := range items {
+		b.WriteString(fmt.Sprintf("- [%s] %s\n", item.ShortID, item.Title))
+		if body := truncateLearningBody(item.Body, 260); body != "" {
+			b.WriteString("  ")
+			b.WriteString(body)
+			b.WriteString("\n")
+		}
+		if len(item.Tags) > 0 {
+			b.WriteString("  Tags: ")
+			b.WriteString(strings.Join(item.Tags, ", "))
+			b.WriteString("\n")
+		}
+	}
+	b.WriteString("\n")
+	return b.String()
+}
+
+func truncateLearningBody(body string, limit int) string {
+	body = strings.TrimSpace(body)
+	if body == "" {
+		return ""
+	}
+	if limit > 0 && len(body) > limit {
+		body = body[:limit]
+		if idx := strings.LastIndex(body, " "); idx > limit-40 {
+			body = body[:idx]
+		}
+		body = strings.TrimSpace(body) + "..."
+	}
+	return body
+}
+
 // processGitLabNoteEvent processes GitLab Note Hook events for conversational AI
 func (s *Server) processGitLabNoteEvent(ctx context.Context, payload GitLabNoteWebhookPayload) error {
 	log.Printf("[INFO] Processing GitLab Note Hook event: note_id=%d, author=%s",
@@ -4132,6 +4231,16 @@ func (s *Server) buildGitHubContextualResponse(comment UnifiedComment, scenario 
 	}
 	owner, repo := parts[0], parts[1]
 
+	orgID := s.resolveGitHubOrgID(comment.MRContext.Repository.FullName)
+	var relevantLearnings []*learnings.Learning
+	if orgID != 0 {
+		if fetched, err := s.fetchRelevantLearnings(context.Background(), orgID, comment.MRContext.Repository.FullName, nil, comment.MRContext.Title, ""); err != nil {
+			log.Printf("[WARN] Failed to fetch learnings for GitHub repo %s: %v", comment.MRContext.Repository.FullName, err)
+		} else {
+			relevantLearnings = fetched
+		}
+	}
+
 	// 1. Fetch PR details and timeline
 	prNumber := comment.MRContext.MergeRequestID
 	timeline, err := s.buildGitHubTimeline(owner, repo, prNumber, token)
@@ -4149,6 +4258,7 @@ func (s *Server) buildGitHubContextualResponse(comment UnifiedComment, scenario 
 
 	// 3. Build enhanced prompt similar to GitLab's buildGeminiPromptEnhanced
 	prompt := s.buildGitHubEnhancedPrompt(comment, timeline, codeContext, scenario)
+	prompt = s.appendLearningsToPrompt(prompt, relevantLearnings)
 
 	// 4. Generate AI response using the existing review infrastructure
 	aiResponse, err := s.generateAIResponseFromPrompt(prompt, comment.Author.Username)
@@ -4494,6 +4604,16 @@ func (s *Server) buildBitbucketContextualResponse(comment UnifiedComment, scenar
 	repository, _ := comment.Metadata["repository"].(string)
 	prNumber := comment.MRContext.MergeRequestID
 
+	orgID := s.resolveBitbucketOrgID(comment.MRContext.Repository.FullName)
+	var relevantLearnings []*learnings.Learning
+	if orgID != 0 {
+		if fetched, err := s.fetchRelevantLearnings(context.Background(), orgID, comment.MRContext.Repository.FullName, nil, comment.MRContext.Title, ""); err != nil {
+			log.Printf("[WARN] Failed to fetch learnings for Bitbucket repo %s: %v", comment.MRContext.Repository.FullName, err)
+		} else {
+			relevantLearnings = fetched
+		}
+	}
+
 	// Build comprehensive context similar to GitHub
 	// 1. Fetch PR details and timeline
 	timeline, err := s.buildBitbucketTimeline(workspace, repository, prNumber, token)
@@ -4511,6 +4631,7 @@ func (s *Server) buildBitbucketContextualResponse(comment UnifiedComment, scenar
 
 	// 3. Build enhanced prompt similar to GitHub
 	prompt := s.buildBitbucketEnhancedPrompt(comment, timeline, codeContext, scenario)
+	prompt = s.appendLearningsToPrompt(prompt, relevantLearnings)
 
 	// 4. Generate AI response using the existing infrastructure
 	aiResponse, err := s.generateAIResponseFromPrompt(prompt, comment.Author.Username)
