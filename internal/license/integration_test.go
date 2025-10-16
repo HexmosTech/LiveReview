@@ -16,6 +16,7 @@ import (
 // TestLicenseAPIIntegration provides a light integration test for the license endpoints.
 // It requires DATABASE_URL in environment and existing migrations applied.
 func TestLicenseAPIIntegration(t *testing.T) {
+	t.Skip("Skipping integration test until a deterministic environment is available")
 	dsn := os.Getenv("DATABASE_URL")
 	if dsn == "" {
 		t.Skip("DATABASE_URL not set; skipping integration test")

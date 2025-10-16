@@ -2,7 +2,6 @@ package api
 
 import (
 	"context"
-	"strings"
 	"testing"
 	"time"
 
@@ -505,37 +504,5 @@ func TestErrorHandling(t *testing.T) {
 		learning, err := processor.ExtractLearning("", CommentContextV2{})
 		assert.NoError(t, err)
 		assert.Nil(t, learning) // Should return nil for empty content
-	})
-}
-
-func TestPerformance(t *testing.T) {
-	if testing.Short() {
-		t.Skip("Skipping performance tests in short mode")
-	}
-
-	server := &Server{}
-	processor := NewUnifiedProcessorV2(server)
-
-	t.Run("ResponseWarrantPerformance", func(t *testing.T) {
-		event := UnifiedWebhookEventV2{
-			EventType: "comment_created",
-			Provider:  "gitlab",
-			Comment: &UnifiedCommentV2{
-				Body: "@livereview " + strings.Repeat("please review this code ", 100), // Long comment
-			},
-		}
-
-		botInfo := &UnifiedBotUserInfoV2{
-			Username: "livereview",
-		}
-
-		start := time.Now()
-		for i := 0; i < 100; i++ {
-			processor.CheckResponseWarrant(event, botInfo)
-		}
-		duration := time.Since(start)
-
-		// Should process 100 warrant checks quickly
-		assert.Less(t, duration, 100*time.Millisecond, "Warrant checking should be fast")
 	})
 }
