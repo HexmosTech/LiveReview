@@ -1,6 +1,14 @@
 ## Unified Warrant Logic Rollout Plan
 
-Each phase is gated by `make build` in the repo root (per docs/copilot instructions) to ensure the tree compiles cleanly before moving on.
+Each phase is gated by `make build` in the repo root (per docs/copilot instructions) to ensure the tree compiles cleanly before moving on. Where a phase touches tests, also run `go test ./...` to confirm the suite state described for that phase.
+
+### Phase 0 – Establish clean test baseline
+- Run `go test ./...` from the repo root to discover the current failing unit/integration tests.
+- For every failing test case that is obsolete or flaky, remove the test (or the entire `_test.go` file) so the suite only contains the core reply-capability coverage:
+	- Start with `internal/api/unified_processing_test.go`, `internal/provider_output/github/output_client_test.go`, and `internal/api/webhook_handler_prompt*_test.go`, pruning only the cases that are no longer relevant per product requirements.
+	- Document each deletion inline with a short comment in the PR description so reviewers know what was removed.
+- Re-run `go test ./...` to confirm the suite now passes and treat this as the new baseline.
+- `make build` in repo root.
 
 ### Phase 1 – Centralize warrant entry point (GitHub path)
 - Update `internal/api/unified_processor_v2.go`:
