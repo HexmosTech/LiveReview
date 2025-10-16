@@ -1,0 +1,40 @@
+## Unified Warrant Logic Rollout Plan
+
+Each phase is gated by `make build` in the repo root (per docs/copilot instructions) to ensure the tree compiles cleanly before moving on.
+
+### Phase 1 – Centralize warrant entry point (GitHub path)
+- Update `internal/api/unified_processor_v2.go`:
+	- Move the mature warrant rules from `Server.checkUnifiedAIResponseWarrant` into `UnifiedProcessorV2Impl.CheckResponseWarrant` (preserve the strict “top-level requires mention” rule).
+	- Port `appendLearningsToPrompt`/`fetchRelevantLearnings` dependencies used during warrant evaluation or prompt prep into the V2 struct so all logic now lives together.
+- Adjust `internal/api/webhook_orchestrator_v2.go` to call `CheckResponseWarrant` and short-circuit legacy fallbacks for GitHub comment events.
+- Delete or inline any GitHub-specific warrant helper still invoked from `internal/api/webhook_handler.go` for comment replies.
+- Run `make build` (repo root) before committing.
+
+### Phase 2 – Normalize provider event data
+- Ensure `UnifiedWebhookEventV2` instances carry `InReplyToID` and `DiscussionID` consistently across adapters:
+	- `internal/providers/github/webhook_adapter.go` (GitHub): set `InReplyToID` for reply comments and leave empty for lone comments.
+	- `internal/providers/gitlab/webhook_adapter.go` (GitLab): populate `DiscussionID` and map parent comment IDs.
+	- `internal/providers/bitbucket/webhook_adapter.go` (Bitbucket): expose thread identifiers and raw mention metadata.
+- Extend `internal/api/unified_processing_test.go` with table-driven cases covering lone vs threaded comments for all three providers.
+- `make build` in repo root.
+
+### Phase 3 – Tighten shared mention detection
+- In `UnifiedProcessorV2Impl.checkDirectBotMentionV2`, add provider-aware mention parsing helpers housed in:
+	- `internal/providers/github/mentions.go`
+	- `internal/providers/gitlab/mentions.go`
+	- `internal/providers/bitbucket/mentions.go`
+- Replace ad-hoc parsing from legacy code with shared helpers in Phase 1’s moved logic.
+- Expand `internal/api/unified_processing_test.go` to assert mention detection correctness (with provider fixtures).
+- `make build` in repo root.
+
+### Phase 4 – Remove legacy warrant path
+- Strip the now-unused `Server.checkUnifiedAIResponseWarrant` and related prompt glue from `internal/api/webhook_handler.go`.
+- Update legacy handlers (`GitLabWebhookHandlerV1`, Bitbucket equivalents) to rely on V2 orchestrator flow; if V2 cannot process an event, fail fast instead of silently succeeding.
+- Delete obsolete helpers/tests that only exercised the legacy warrant path.
+- `make build` in repo root.
+
+### Phase 5 – Final verification & guardrails
+- Audit error paths in `UnifiedProcessorV2Impl.CheckResponseWarrant` to log and return hard failures when required data is missing, rather than falling back to permissive defaults.
+- Add regression tests under `internal/api/unified_processing_test.go` and provider-specific suites to cover failure handling.
+- Verify docs (`docs/unify_warrant_logic.md`) reflect that no legacy warrant logic remains; note that failures surface loudly.
+- `make build` in repo root.
