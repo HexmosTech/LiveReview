@@ -144,6 +144,13 @@ run-review-verbose:
 test:
 	$(GOTEST) -v ./...
 
+# Run unit tests across all Go packages while avoiding restricted directories
+TEST_PACKAGES=./ ./cmd/... ./debug/... ./examples/... ./internal/... ./pkg/...
+
+.PHONY: testall
+testall:
+	$(GOTEST) -count=1 $(TEST_PACKAGES)
+
 .PHONY: license-test
 license-test:
 	$(GOTEST) -v ./internal/license -count=1

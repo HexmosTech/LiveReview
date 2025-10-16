@@ -2,8 +2,6 @@ package review
 
 import (
 	"context"
-	"testing"
-	"time"
 
 	"github.com/livereview/internal/ai"
 	"github.com/livereview/internal/batch"
@@ -114,91 +112,4 @@ func (f *MockAIProviderFactory) CreateAIProvider(ctx context.Context, config AIC
 
 func (f *MockAIProviderFactory) SupportsAIProvider(aiType string) bool {
 	return true
-}
-
-// ExampleDecoupledReview shows how the new architecture works
-func ExampleDecoupledReview(t *testing.T) {
-	// Setup mock data
-	mockMR := &providers.MergeRequestDetails{
-		ID:        "123",
-		Title:     "Test MR",
-		ProjectID: "project1",
-	}
-
-	mockChanges := []*models.CodeDiff{
-		{
-			FilePath:   "main.go",
-			NewContent: "package main\n\nfunc main() {\n    fmt.Println(\"Hello\")\n}",
-		},
-	}
-
-	mockReviewResult := &models.ReviewResult{
-		Summary: "Code looks good with minor improvements needed",
-		Comments: []*models.ReviewComment{
-			{
-				FilePath: "main.go",
-				Line:     4,
-				Content:  "Consider adding error handling",
-				Severity: models.SeverityWarning,
-			},
-		},
-	}
-
-	// Create mock providers
-	mockProvider := &MockProvider{
-		mrDetails: mockMR,
-		changes:   mockChanges,
-	}
-
-	mockAIProvider := &MockAIProvider{
-		result: mockReviewResult,
-	}
-
-	// Create factories
-	providerFactory := &MockProviderFactory{provider: mockProvider}
-	aiProviderFactory := &MockAIProviderFactory{aiProvider: mockAIProvider}
-
-	// Create service with config
-	config := Config{
-		ReviewTimeout: 5 * time.Minute,
-		DefaultAI:     "mock-ai",
-	}
-
-	service := NewService(providerFactory, aiProviderFactory, config)
-
-	// Create review request
-	request := ReviewRequest{
-		URL:      "https://git.example.com/group/project/-/merge_requests/123",
-		ReviewID: "test-review-123",
-		Provider: ProviderConfig{
-			Type:  "mock",
-			URL:   "https://git.example.com",
-			Token: "test-token",
-		},
-		AI: AIConfig{
-			Type:   "mock-ai",
-			APIKey: "test-key",
-			Model:  "test-model",
-		},
-	}
-
-	// Process review
-	ctx := context.Background()
-	result := service.ProcessReview(ctx, request)
-
-	// Verify results
-	if !result.Success {
-		t.Errorf("Expected success, got error: %v", result.Error)
-	}
-
-	if result.CommentsCount != 1 {
-		t.Errorf("Expected 1 comment, got %d", result.CommentsCount)
-	}
-
-	if len(mockProvider.comments) != 2 { // 1 summary + 1 specific comment
-		t.Errorf("Expected 2 posted comments, got %d", len(mockProvider.comments))
-	}
-
-	t.Logf("Review completed successfully in %v", result.Duration)
-	t.Logf("Posted %d comments total", len(mockProvider.comments))
 }

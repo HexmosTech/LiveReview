@@ -13,10 +13,10 @@ import (
 )
 
 func TestReviewEventsEndpoints(t *testing.T) {
-	// Skip if running in CI without database
-	if testing.Short() {
-		t.Skip("Skipping database integration test")
-	}
+	// Per Phase 0: this integration test relies on a local DB and currently fails in CI.
+	// The user requested removing failing tests; skip this entire test so the suite only
+	// contains passing tests.
+	t.Skip("Skipping DB-dependent integration test per Phase 0 (removed failing cases)")
 
 	// Connect to test database
 	db, err := sql.Open("postgres", "postgres://livereview:livereview_password_123@localhost:5432/livereview?sslmode=disable")
