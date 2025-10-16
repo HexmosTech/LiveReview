@@ -51,15 +51,29 @@ func (c *APIClient) PostCommentReply(event *UnifiedWebhookEventV2, token, replyT
 		"body": replyText,
 	}
 
-	if event.Comment.Position != nil && event.Comment.InReplyToID != nil && *event.Comment.InReplyToID != "" {
-		apiURL = fmt.Sprintf("https://api.github.com/repos/%s/pulls/%d/comments",
-			event.Repository.FullName, event.MergeRequest.Number)
+	if event.Comment.Position != nil {
+		replyTarget := event.Comment.ID
+		if event.Comment.InReplyToID != nil && *event.Comment.InReplyToID != "" {
+			replyTarget = *event.Comment.InReplyToID
+		}
 
+		if replyTarget != "" {
+			inReplyToInt, err := strconv.Atoi(replyTarget)
+			if err != nil {
+				log.Printf("[WARN] Failed to convert reply target ID to integer: %v, falling back to issue comment", err)
+			} else {
+				apiURL = fmt.Sprintf("https://api.github.com/repos/%s/pulls/%d/comments",
+					event.Repository.FullName, event.MergeRequest.Number)
+				requestBody = map[string]interface{}{
+					"body":        replyText,
+					"in_reply_to": inReplyToInt,
+				}
+			}
+		}
+	} else if event.Comment.InReplyToID != nil && *event.Comment.InReplyToID != "" {
 		inReplyToInt, err := strconv.Atoi(*event.Comment.InReplyToID)
 		if err != nil {
-			log.Printf("[WARN] Failed to convert in_reply_to ID to integer: %v, falling back to issue comment", err)
-			apiURL = fmt.Sprintf("https://api.github.com/repos/%s/issues/%d/comments",
-				event.Repository.FullName, event.MergeRequest.Number)
+			log.Printf("[WARN] Failed to convert in_reply_to ID to integer: %v, using issue comment endpoint without thread linkage", err)
 		} else {
 			requestBody = map[string]interface{}{
 				"body":        replyText,

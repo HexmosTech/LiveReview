@@ -12,3 +12,5 @@ by default starts in port 8888. But beofore you do that start postgresql (ensure
 To do db queries you can see the source of "pgctl.sh". Usually, you can do "./pgctl.sh shell -c '<sql command>'" to get results.
 
 When doing refactors or improvements - don't do fallback implementations unless explicitly asked for. Having fallbacks creates very confusing program behavior. Instead of failing, etc  - it leads to highly brittle and annoying program behavior.
+
+When you want to run a test - always run the most specific test you want to run. Don't run all or other irrelevant tests, because there could be failing tests, etc and it makes it hard to see the results of the test you want to run.
