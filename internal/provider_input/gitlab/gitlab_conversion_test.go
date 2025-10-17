@@ -70,6 +70,81 @@ func TestGitLabUnifiedTimelinePreservesDiscussionSequences(t *testing.T) {
 	}
 }
 
+func TestGitLabConvertCommentEventPopulatesThreadMetadata(t *testing.T) {
+	t.Parallel()
+
+	provider := &GitLabV2Provider{}
+	headers := map[string]string{"X-Gitlab-Event": "Note Hook"}
+	body := []byte(`{
+		"object_kind": "note",
+		"user": {
+			"id": 11,
+			"username": "reviewer",
+			"name": "Reviewer",
+			"web_url": "https://gitlab.example.com/reviewer",
+			"avatar_url": "https://gitlab.example.com/uploads/avatar.png"
+		},
+		"project": {
+			"id": 22,
+			"name": "sample",
+			"path_with_namespace": "org/sample",
+			"web_url": "https://gitlab.example.com/org/sample"
+		},
+		"repository": {
+			"name": "sample",
+			"url": "https://gitlab.example.com/org/sample.git"
+		},
+		"merge_request": {
+			"id": 33,
+			"iid": 7,
+			"title": "Add feature",
+			"description": "",
+			"state": "opened",
+			"created_at": "2025-10-17T09:00:00Z",
+			"updated_at": "2025-10-17T09:05:00Z",
+			"web_url": "https://gitlab.example.com/org/sample/-/merge_requests/7",
+			"target_branch": "main",
+			"source_branch": "feature",
+			"author": {
+				"id": 44,
+				"username": "author",
+				"name": "Author",
+				"web_url": "https://gitlab.example.com/author",
+				"avatar_url": "https://gitlab.example.com/uploads/author.png"
+			}
+		},
+		"object_attributes": {
+			"id": 55,
+			"note": "Thanks @bot for the insight",
+			"noteable_type": "MergeRequest",
+			"author_id": 11,
+			"created_at": "2025-10-17T09:01:00Z",
+			"updated_at": "2025-10-17T09:02:00Z",
+			"project_id": 22,
+			"noteable_id": 33,
+			"system": false,
+			"url": "https://gitlab.example.com/org/sample/-/merge_requests/7#note_55",
+			"discussion_id": "abc123",
+			"type": "DiscussionNote",
+			"in_reply_to_id": 54
+		}
+	}`)
+
+	event, err := provider.ConvertCommentEvent(headers, body)
+	require.NoError(t, err)
+	require.NotNil(t, event)
+	require.NotNil(t, event.Comment)
+
+	require.NotNil(t, event.Comment.InReplyToID)
+	require.Equal(t, "54", *event.Comment.InReplyToID)
+	require.NotNil(t, event.Comment.DiscussionID)
+	require.Equal(t, "abc123", *event.Comment.DiscussionID)
+	require.NotNil(t, event.Comment.Metadata)
+	require.Equal(t, "DiscussionNote", event.Comment.Metadata["comment_type"])
+	require.Equal(t, "MergeRequest", event.Comment.Metadata["noteable_type"])
+	require.Equal(t, "abc123", event.Comment.Metadata["discussion_id"])
+}
+
 func TestGitLabDiscussionConversionIncludesPositions(t *testing.T) {
 	t.Parallel()
 

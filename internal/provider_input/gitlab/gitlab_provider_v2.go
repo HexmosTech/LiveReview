@@ -85,6 +85,7 @@ type GitLabV2NoteObjectAttributes struct {
 	URL          string                `json:"url"`
 	DiscussionID string                `json:"discussion_id"`
 	Type         string                `json:"type"`
+	InReplyToID  *int                  `json:"in_reply_to_id"`
 	Position     *GitLabV2NotePosition `json:"position"`
 }
 
@@ -512,6 +513,25 @@ func (p *GitLabV2Provider) ConvertCommentEvent(headers map[string]string, body [
 	} // Add discussion/thread information
 	if payload.ObjectAttributes.DiscussionID != "" {
 		unifiedEvent.Comment.DiscussionID = &payload.ObjectAttributes.DiscussionID
+	}
+
+	if payload.ObjectAttributes.InReplyToID != nil {
+		parentID := fmt.Sprintf("%d", *payload.ObjectAttributes.InReplyToID)
+		unifiedEvent.Comment.InReplyToID = &parentID
+	}
+
+	if payload.ObjectAttributes.Type != "" || payload.ObjectAttributes.NoteableType != "" || payload.ObjectAttributes.DiscussionID != "" {
+		metadata := map[string]interface{}{}
+		if payload.ObjectAttributes.Type != "" {
+			metadata["comment_type"] = payload.ObjectAttributes.Type
+		}
+		if payload.ObjectAttributes.NoteableType != "" {
+			metadata["noteable_type"] = payload.ObjectAttributes.NoteableType
+		}
+		if payload.ObjectAttributes.DiscussionID != "" {
+			metadata["discussion_id"] = payload.ObjectAttributes.DiscussionID
+		}
+		unifiedEvent.Comment.Metadata = metadata
 	}
 
 	if capture.Enabled() {

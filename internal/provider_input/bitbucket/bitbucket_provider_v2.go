@@ -593,20 +593,26 @@ func (p *BitbucketV2Provider) convertBitbucketToUnifiedCommentV2(payload Bitbuck
 
 	// Extract parent comment ID if this is a reply
 	var inReplyToID *string
+	var discussionID *string
 	if payload.Comment.Parent != nil {
 		parentIDStr := fmt.Sprintf("%d", payload.Comment.Parent.ID)
 		inReplyToID = &parentIDStr
+		discussionID = &parentIDStr
+	} else {
+		threadID := fmt.Sprintf("%d", payload.Comment.ID)
+		discussionID = &threadID
 	}
 
 	return UnifiedCommentV2{
-		ID:          fmt.Sprintf("%d", payload.Comment.ID),
-		Body:        payload.Comment.Content.Raw,
-		Author:      p.convertUserV2(payload.Comment.User),
-		CreatedAt:   payload.Comment.CreatedOn,
-		UpdatedAt:   payload.Comment.UpdatedOn,
-		WebURL:      payload.Comment.Links.HTML.Href,
-		InReplyToID: inReplyToID,
-		Position:    position,
+		ID:           fmt.Sprintf("%d", payload.Comment.ID),
+		Body:         payload.Comment.Content.Raw,
+		Author:       p.convertUserV2(payload.Comment.User),
+		CreatedAt:    payload.Comment.CreatedOn,
+		UpdatedAt:    payload.Comment.UpdatedOn,
+		WebURL:       payload.Comment.Links.HTML.Href,
+		InReplyToID:  inReplyToID,
+		DiscussionID: discussionID,
+		Position:     position,
 		Metadata: map[string]interface{}{
 			"provider":     "bitbucket",
 			"workspace":    payload.Repository.Owner.Username,
@@ -617,6 +623,7 @@ func (p *BitbucketV2Provider) convertBitbucketToUnifiedCommentV2(payload Bitbuck
 			"pr_url":       payload.PullRequest.Links.HTML.Href,
 			"account_id":   payload.Comment.User.AccountID,
 			"user_uuid":    payload.Comment.User.UUID,
+			"thread_id":    *discussionID,
 		},
 	}
 }

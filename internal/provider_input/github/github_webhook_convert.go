@@ -48,6 +48,9 @@ func ConvertIssueCommentEvent(body []byte) (*UnifiedWebhookEventV2, error) {
 				WebURL:    payload.Comment.User.HTMLURL,
 				AvatarURL: payload.Comment.User.AvatarURL,
 			},
+			Metadata: map[string]interface{}{
+				"comment_type": "issue_comment",
+			},
 		},
 		Repository: UnifiedRepositoryV2{
 			ID:       fmt.Sprintf("%d", payload.Repository.ID),
@@ -123,6 +126,10 @@ func ConvertPullRequestReviewCommentEvent(body []byte) (*UnifiedWebhookEventV2, 
 				WebURL:    payload.Comment.User.HTMLURL,
 				AvatarURL: payload.Comment.User.AvatarURL,
 			},
+			Metadata: map[string]interface{}{
+				"comment_type":           "review_comment",
+				"pull_request_review_id": payload.Comment.PullRequestReviewID,
+			},
 		},
 		MergeRequest: &UnifiedMergeRequestV2{
 			ID:           fmt.Sprintf("%d", payload.PullRequest.ID),
@@ -179,6 +186,23 @@ func ConvertPullRequestReviewCommentEvent(body []byte) (*UnifiedWebhookEventV2, 
 	if payload.Comment.InReplyToID != nil {
 		inReplyToStr := fmt.Sprintf("%d", *payload.Comment.InReplyToID)
 		event.Comment.InReplyToID = &inReplyToStr
+		discussionID := inReplyToStr
+		event.Comment.DiscussionID = &discussionID
+		if event.Comment.Metadata == nil {
+			event.Comment.Metadata = map[string]interface{}{}
+		}
+		event.Comment.Metadata["parent_id"] = inReplyToStr
+	} else if payload.Comment.PullRequestReviewID != 0 {
+		discussionID := fmt.Sprintf("review-%d", payload.Comment.PullRequestReviewID)
+		event.Comment.DiscussionID = &discussionID
+	}
+
+	if event.Comment.Metadata == nil {
+		event.Comment.Metadata = map[string]interface{}{}
+	}
+	if payload.Comment.PullRequestReviewID != 0 {
+		event.Comment.Metadata["pull_request_review_id"] = payload.Comment.PullRequestReviewID
+		event.Comment.Metadata["thread_id"] = fmt.Sprintf("%d", payload.Comment.PullRequestReviewID)
 	}
 
 	return event, nil
