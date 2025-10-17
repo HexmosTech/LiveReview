@@ -34,10 +34,10 @@ Each phase is gated by `make build` in the repo root (per docs/copilot instructi
 - [x] Expand `internal/api/unified_processing_test.go` to assert mention detection correctness (with provider fixtures), run `make testall`, then `make build` in repo root.
 
 ### Phase 4 – Remove legacy warrant path
-- Strip the now-unused `Server.checkUnifiedAIResponseWarrant` and related prompt glue from `internal/api/webhook_handler.go`.
-- Update legacy handlers (`GitLabWebhookHandlerV1`, Bitbucket equivalents) to rely on V2 orchestrator flow; if V2 cannot process an event, fail fast instead of silently succeeding.
-- Delete obsolete helpers/tests that only exercised the legacy warrant path.
-- Ensure regression tests remain green (update or add coverage as needed), run `make testall`, then `make build` in repo root.
+- [ ] Strip the now-unused `Server.checkUnifiedAIResponseWarrant` and related prompt glue from `internal/api/webhook_handler.go`.
+- [x] Update legacy handlers (`GitLabWebhookHandlerV1`, Bitbucket equivalents) to rely on V2 orchestrator flow; if V2 cannot process an event, fail fast instead of silently succeeding.
+- [ ] Delete obsolete helpers/tests that only exercised the legacy warrant path.
+- [x] Ensure regression tests remain green (update or add coverage as needed), run `make testall`, then `make build` in repo root.
 
 ### Phase 5 – Final verification & guardrails
 - Audit error paths in `UnifiedProcessorV2Impl.CheckResponseWarrant` to log and return hard failures when required data is missing, rather than falling back to permissive defaults.

@@ -323,23 +323,33 @@ func (s *Server) GitLabWebhookHandlerV1(c echo.Context) error {
 		}
 
 	case "note hook":
-		// Parse as note payload (Phase 1 conversational AI)
+		bodyBytes, err := io.ReadAll(c.Request().Body)
+		if err != nil {
+			log.Printf("[ERROR] Failed to read GitLab Note Hook payload: %v", err)
+			return c.JSON(http.StatusBadRequest, map[string]string{
+				"error": "Failed to read request body",
+			})
+		}
+
+		if s.webhookOrchestratorV2 == nil {
+			log.Printf("[ERROR] Webhook orchestrator V2 unavailable; cannot process GitLab Note Hook")
+			return c.JSON(http.StatusInternalServerError, map[string]string{
+				"error": "Webhook orchestrator unavailable",
+			})
+		}
+
 		var notePayload GitLabNoteWebhookPayload
-		if err := c.Bind(&notePayload); err != nil {
+		if err := json.Unmarshal(bodyBytes, &notePayload); err != nil {
 			log.Printf("[ERROR] Failed to parse GitLab Note Hook payload: %v", err)
 			return c.JSON(http.StatusBadRequest, map[string]string{
 				"error": "Invalid Note Hook payload",
 			})
 		}
 
-		log.Printf("[INFO] Processing Note Hook: event_type=%s", notePayload.EventType)
+		log.Printf("[INFO] Delegating GitLab Note Hook to orchestrator: event_type=%s", notePayload.EventType)
 
-		// Process the note event asynchronously to avoid blocking the webhook
-		go func() {
-			if err := s.processGitLabNoteEvent(c.Request().Context(), notePayload); err != nil {
-				log.Printf("[ERROR] Failed to process GitLab note event: %v", err)
-			}
-		}()
+		c.Request().Body = io.NopCloser(bytes.NewReader(bodyBytes))
+		return s.WebhookOrchestratorV2Handler(c)
 
 	default:
 		log.Printf("[INFO] Unhandled GitLab webhook event kind: %s", eventKind)
@@ -1467,8 +1477,16 @@ type BitbucketBotUserInfo struct {
 // for the complete V2 processing pipeline. This handler remains for internal routing only.
 func (s *Server) BitbucketWebhookHandler(c echo.Context) error {
 	// Parse the webhook payload
+	bodyBytes, err := io.ReadAll(c.Request().Body)
+	if err != nil {
+		log.Printf("[ERROR] Failed to read Bitbucket webhook body: %v", err)
+		return c.JSON(http.StatusBadRequest, map[string]string{
+			"error": "Failed to read request body",
+		})
+	}
+
 	var payload BitbucketWebhookPayload
-	if err := c.Bind(&payload); err != nil {
+	if err := json.Unmarshal(bodyBytes, &payload); err != nil {
 		log.Printf("[ERROR] Failed to parse Bitbucket webhook payload: %v", err)
 		return c.JSON(http.StatusBadRequest, map[string]string{
 			"error": "Invalid webhook payload",
@@ -1482,22 +1500,23 @@ func (s *Server) BitbucketWebhookHandler(c echo.Context) error {
 	}
 	log.Printf("[INFO] Received Bitbucket webhook: event_key=%s", eventType)
 
-	// Process comment events for AI replies
+	// Process comment events through the orchestrator
 	if eventType == "pullrequest:comment_created" {
+		if s.webhookOrchestratorV2 == nil {
+			log.Printf("[ERROR] Webhook orchestrator V2 unavailable; cannot process Bitbucket comment event")
+			return c.JSON(http.StatusInternalServerError, map[string]string{
+				"error": "Webhook orchestrator unavailable",
+			})
+		}
+
 		log.Printf("[INFO] Bitbucket pull request comment created: comment_id=%d, author=%s",
 			payload.Comment.ID, payload.Comment.User.Username)
 
-		// Debug: Print the full payload for analysis
 		payloadJSON, _ := json.MarshalIndent(payload, "", "  ")
 		log.Printf("[DEBUG] Full Bitbucket comment payload:\n%s", string(payloadJSON))
 
-		// Process comment for AI response
-		go s.processBitbucketCommentForAIResponse(payload)
-
-		return c.JSON(http.StatusOK, map[string]string{
-			"status":     "received",
-			"event_type": "pullrequest:comment_created",
-		})
+		c.Request().Body = io.NopCloser(bytes.NewReader(bodyBytes))
+		return s.WebhookOrchestratorV2Handler(c)
 	}
 
 	// Process reviewer change events for pull requests
@@ -1792,85 +1811,6 @@ func (s *Server) findIntegrationTokenForBitbucketRepo(repoFullName string) (*Int
 	}
 
 	return &token, nil
-}
-
-// GitLabCommentWebhookHandler handles incoming GitLab Note Hook events for comments
-// DEPRECATED: This handler is deprecated. All routes now use WebhookOrchestratorV2Handler
-// for the complete V2 processing pipeline. This handler remains for internal routing only.
-func (s *Server) GitLabCommentWebhookHandler(c echo.Context) error {
-	// Parse the Note Hook webhook payload
-	var payload GitLabNoteWebhookPayload
-	if err := c.Bind(&payload); err != nil {
-		log.Printf("[ERROR] Failed to parse GitLab Note Hook webhook payload: %v", err)
-		return c.JSON(http.StatusBadRequest, map[string]string{
-			"error": "Invalid Note Hook webhook payload",
-		})
-	}
-
-	// Get the event kind from headers
-	eventKind := c.Request().Header.Get("X-Gitlab-Event")
-	log.Printf("[INFO] Received GitLab Note Hook webhook: event_kind=%s, object_kind=%s, noteable_type=%s",
-		eventKind, payload.ObjectKind, payload.ObjectAttributes.NoteableType)
-
-	// Only process Note Hook events
-	if strings.ToLower(eventKind) != "note hook" {
-		log.Printf("[DEBUG] Event kind mismatch: expected 'note hook', got '%s', skipping", eventKind)
-		return c.JSON(http.StatusOK, map[string]string{
-			"status": "ignored - not a note hook",
-		})
-	}
-
-	// Only process comments (not system comments)
-	if payload.ObjectAttributes.System {
-		log.Printf("[DEBUG] System comment detected, skipping")
-		return c.JSON(http.StatusOK, map[string]string{
-			"status": "ignored - system comment",
-		})
-	}
-
-	// Only process comments on merge requests for now
-	if payload.ObjectAttributes.NoteableType != "MergeRequest" {
-		log.Printf("[DEBUG] Comment not on MergeRequest (type: %s), skipping for now", payload.ObjectAttributes.NoteableType)
-		return c.JSON(http.StatusOK, map[string]string{
-			"status": "ignored - not MR comment",
-		})
-	}
-
-	// Extract GitLab instance URL from project web_url
-	gitlabInstanceURL := extractGitLabInstanceURL(payload.Project.WebURL)
-	log.Printf("[DEBUG] GitLab instance URL: %s", gitlabInstanceURL)
-
-	// Check if AI response is warranted
-	warrantsResponse, scenario := s.checkAIResponseWarrant(payload, gitlabInstanceURL)
-	if !warrantsResponse {
-		log.Printf("[DEBUG] Comment does not warrant AI response, skipping")
-		return c.JSON(http.StatusOK, map[string]string{
-			"status": "ignored - no response warrant",
-		})
-	}
-
-	log.Printf("[INFO] AI response warranted for comment: trigger=%s, content_type=%s, response_type=%s, confidence=%.2f",
-		scenario.TriggerType, scenario.ContentType, scenario.ResponseType, scenario.Confidence)
-
-	// Generate and post AI response asynchronously using background context
-	// We use background context because the webhook response needs to be sent quickly,
-	// but the AI response generation may take longer
-	go func() {
-		bgCtx := context.Background()
-		err := s.generateAndPostGitLabResponse(bgCtx, payload, scenario, gitlabInstanceURL)
-		if err != nil {
-			log.Printf("[ERROR] Failed to generate and post GitLab response: %v", err)
-		} else {
-			log.Printf("[INFO] Successfully posted AI response for comment by %s", payload.User.Username)
-		}
-	}()
-
-	// Return success immediately - the response will be posted asynchronously
-	return c.JSON(http.StatusOK, map[string]string{
-		"status":       "success",
-		"trigger_type": scenario.TriggerType,
-		"responded":    "async",
-	})
 }
 
 // extractGitLabInstanceURL extracts the base GitLab instance URL from a project web URL
