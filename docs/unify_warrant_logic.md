@@ -11,12 +11,12 @@ Each phase is gated by `make build` in the repo root (per docs/copilot instructi
 - `make testall` to ensure the curated suite passes, then `make build` in the repo root.
 
 ### Phase 1 – Centralize warrant entry point (GitHub path)
-- Update `internal/api/unified_processor_v2.go`:
-	- Move the mature warrant rules from `Server.checkUnifiedAIResponseWarrant` into `UnifiedProcessorV2Impl.CheckResponseWarrant` (preserve the strict “top-level requires mention” rule).
-	- Port `appendLearningsToPrompt`/`fetchRelevantLearnings` dependencies used during warrant evaluation or prompt prep into the V2 struct so all logic now lives together.
-- Adjust `internal/api/webhook_orchestrator_v2.go` to call `CheckResponseWarrant` and short-circuit legacy fallbacks for GitHub comment events.
-- Delete or inline any GitHub-specific warrant helper still invoked from `internal/api/webhook_handler.go` for comment replies.
-- Add focused unit tests (e.g., new cases in `internal/api/unified_processing_test.go`) covering the migrated V2 warrant checks, then run `make testall` followed by `make build` before committing.
+- [x] Update `internal/api/unified_processor_v2.go`:
+	- [x] Move the mature warrant rules from `Server.checkUnifiedAIResponseWarrant` into `UnifiedProcessorV2Impl.CheckResponseWarrant` (preserve the strict “top-level requires mention” rule).
+	- [x] Port `appendLearningsToPrompt`/`fetchRelevantLearnings` dependencies used during warrant evaluation or prompt prep into the V2 struct so all logic now lives together.
+- [x] Adjust `internal/api/webhook_orchestrator_v2.go` to call `CheckResponseWarrant` and short-circuit legacy fallbacks for GitHub comment events.
+- [x] Delete or inline any GitHub-specific warrant helper still invoked from `internal/api/webhook_handler.go` for comment replies.
+- [x] Add focused unit tests (e.g., new cases in `internal/api/unified_processing_test.go`) covering the migrated V2 warrant checks, then run `make testall` followed by `make build` before committing.
 
 ### Phase 2 – Normalize provider event data
 - Ensure `UnifiedWebhookEventV2` instances carry `InReplyToID` and `DiscussionID` consistently across adapters:
