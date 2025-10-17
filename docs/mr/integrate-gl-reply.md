@@ -143,7 +143,7 @@ Extend webhook handling to detect and filter MR comment events that warrant AI r
    - Implement payload validation and parsing using discovered structure
 
 3. **Implement GitLab comment event handler** (new handler, existing ones unchanged):
-   - `GitLabCommentWebhookHandler()` - handle `Note Hook` events from **any GitLab instance**
+    - GitLab Note Hook events now flow through `WebhookOrchestratorV2Handler`
    - **GitLab Note vs Discussion Clarification** (based on actual webhook payload investigation):
      - **Note**: Any comment in GitLab (general comments, code line comments, thread replies)
      - **Discussion**: A thread of related notes grouped together (often attached to specific code lines)

@@ -7,7 +7,7 @@ Based on analysis of the existing GitLab reply implementation in `webhook_handle
 ## Current State Analysis
 
 ### GitLab Implementation (Completed)
-- **Webhook Handler**: `GitLabCommentWebhookHandler` processes Note Hook events
+- **Webhook Handler**: Note Hook events now route through `WebhookOrchestratorV2Handler`
 - **Response Logic**: `checkAIResponseWarrant` determines when to respond
 - **AI Analysis**: Rich contextual analysis with timeline, diffs, and code excerpts
 - **Reply Posting**: Emoji reactions and text responses via GitLab API
