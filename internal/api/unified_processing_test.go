@@ -97,7 +97,7 @@ func TestUnifiedProcessorV2(t *testing.T) {
 			EventType: "comment_created",
 			Provider:  "gitlab",
 			Comment: &UnifiedCommentV2{
-				Body: "Just a regular comment without bot mention",
+				Body: "Can you review this change?",
 				Author: UnifiedUserV2{
 					Username: "testuser",
 				},

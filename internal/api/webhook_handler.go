@@ -921,7 +921,16 @@ func (s *Server) GitHubWebhookHandler(c echo.Context) error {
 
 // GitHubWebhookHandlerV2 handles GitHub webhooks using the V2 provider
 func (s *Server) GitHubWebhookHandlerV2(c echo.Context) error {
-	// Read request body
+	rawEventType := c.Request().Header.Get("X-GitHub-Event")
+	eventType := strings.ToLower(rawEventType)
+
+	if eventType == "issue_comment" || eventType == "pull_request_review_comment" {
+		if deliveryID := c.Request().Header.Get("X-GitHub-Delivery"); deliveryID != "" {
+			log.Printf("[INFO] Acknowledging GitHub delivery %s for %s via orchestrator", deliveryID, eventType)
+		}
+		return s.WebhookOrchestratorV2Handler(c)
+	}
+
 	body, err := io.ReadAll(c.Request().Body)
 	if err != nil {
 		log.Printf("[ERROR] Failed to read GitHub webhook body: %v", err)
@@ -930,7 +939,6 @@ func (s *Server) GitHubWebhookHandlerV2(c echo.Context) error {
 		})
 	}
 
-	// Get headers
 	headers := make(map[string]string)
 	for key, values := range c.Request().Header {
 		if len(values) > 0 {
@@ -938,17 +946,17 @@ func (s *Server) GitHubWebhookHandlerV2(c echo.Context) error {
 		}
 	}
 
-	eventType := c.Request().Header.Get("X-GitHub-Event")
-	log.Printf("[INFO] Received GitHub webhook (V2): event_type=%s", eventType)
+	log.Printf("[INFO] Received GitHub webhook (V2): event_type=%s", rawEventType)
 
 	// Check if V2 provider can handle this webhook
 	if !s.githubProviderV2.CanHandleWebhook(headers, body) {
 		log.Printf("[WARN] GitHub V2 provider cannot handle this webhook, falling back to V1")
+		c.Request().Body = io.NopCloser(bytes.NewReader(body))
 		return s.GitHubWebhookHandlerV1(c)
 	}
 
 	// Handle different event types using V2 provider
-	switch strings.ToLower(eventType) {
+	switch eventType {
 	case "pull_request":
 		// Handle reviewer assignment events
 		if event, err := s.githubProviderV2.ConvertReviewerEvent(headers, body); err == nil {
@@ -960,50 +968,35 @@ func (s *Server) GitHubWebhookHandlerV2(c echo.Context) error {
 			})
 		}
 
-	case "issue_comment", "pull_request_review_comment":
-		// Handle comment events
-		if event, err := s.githubProviderV2.ConvertCommentEvent(headers, body); err == nil {
-			log.Printf("[INFO] GitHub V2 comment event processed: %s", event.EventType)
-
-			// Process the comment if it's a bot mention
-			if s.isBotMentioned(event) {
-				if err := s.processCommentEventV2(event); err != nil {
-					log.Printf("[ERROR] Failed to process GitHub V2 comment: %v", err)
-				}
-			}
-
-			return c.JSON(http.StatusOK, map[string]string{
-				"status":     "processed",
-				"event_type": event.EventType,
-				"provider":   "github_v2",
-			})
-		}
 	}
 
 	// If V2 provider couldn't handle it, fall back to V1
-	log.Printf("[DEBUG] GitHub V2 provider couldn't handle event type: %s, falling back to V1", eventType)
+	c.Request().Body = io.NopCloser(bytes.NewReader(body))
+	log.Printf("[DEBUG] GitHub V2 provider couldn't handle event type: %s, falling back to V1", rawEventType)
 	return s.GitHubWebhookHandlerV1(c)
 }
 
 // GitHubWebhookHandlerV1 is the original GitHub webhook handler (for backward compatibility)
 func (s *Server) GitHubWebhookHandlerV1(c echo.Context) error {
 	// Get the event type from headers first
-	eventType := c.Request().Header.Get("X-GitHub-Event")
-	log.Printf("[INFO] Received GitHub webhook (V1): event_type=%s", eventType)
+	rawEventType := c.Request().Header.Get("X-GitHub-Event")
+	eventType := strings.ToLower(rawEventType)
+	log.Printf("[INFO] Received GitHub webhook (V1): event_type=%s", rawEventType)
 
 	// Handle different event types with appropriate payload structures
-	switch strings.ToLower(eventType) {
+	switch eventType {
 	case "pull_request":
 		return s.handleGitHubPullRequestEvent(c)
-	case "issue_comment":
-		return s.handleGitHubIssueCommentEvent(c)
-	case "pull_request_review_comment":
-		return s.handleGitHubPullRequestReviewCommentEvent(c)
+	case "issue_comment", "pull_request_review_comment":
+		if deliveryID := c.Request().Header.Get("X-GitHub-Delivery"); deliveryID != "" {
+			log.Printf("[INFO] Acknowledging GitHub delivery %s for %s via orchestrator", deliveryID, eventType)
+		}
+		return s.WebhookOrchestratorV2Handler(c)
 	default:
-		log.Printf("[DEBUG] Unhandled GitHub webhook event type: %s", eventType)
+		log.Printf("[DEBUG] Unhandled GitHub webhook event type: %s", rawEventType)
 		return c.JSON(http.StatusOK, map[string]string{
 			"status":     "ignored",
-			"event_type": eventType,
+			"event_type": rawEventType,
 		})
 	}
 }
@@ -1037,87 +1030,6 @@ func (s *Server) handleGitHubPullRequestEvent(c echo.Context) error {
 	return c.JSON(http.StatusOK, map[string]string{
 		"status":     "received",
 		"event_type": "pull_request",
-	})
-}
-
-// handleGitHubIssueCommentEvent handles issue_comment webhook events (PR discussion comments)
-func (s *Server) handleGitHubIssueCommentEvent(c echo.Context) error {
-	// Parse the webhook payload
-	var payload GitHubIssueCommentWebhookPayload
-	if err := c.Bind(&payload); err != nil {
-		log.Printf("[ERROR] Failed to parse GitHub issue_comment webhook payload: %v", err)
-		return c.JSON(http.StatusBadRequest, map[string]string{
-			"error": "Invalid webhook payload",
-		})
-	}
-
-	log.Printf("[INFO] GitHub issue_comment webhook: action=%s, comment_id=%d, author=%s",
-		payload.Action, payload.Comment.ID, payload.Comment.User.Login)
-
-	// Debug: Print the full payload for analysis
-	payloadJSON, _ := json.MarshalIndent(payload, "", "  ")
-	log.Printf("[DEBUG] Full GitHub issue_comment payload:\n%s", string(payloadJSON))
-
-	// Only process "created" actions for now
-	if payload.Action != "created" {
-		log.Printf("[DEBUG] Ignoring issue_comment action: %s", payload.Action)
-		return c.JSON(http.StatusOK, map[string]string{
-			"status": "ignored",
-			"action": payload.Action,
-		})
-	}
-
-	// Check if this is a pull request (issues that are PRs have pull_request field)
-	if payload.Issue.PullRequest == nil {
-		log.Printf("[DEBUG] Issue comment is not on a pull request, ignoring")
-		return c.JSON(http.StatusOK, map[string]string{
-			"status": "ignored",
-			"reason": "not_pull_request",
-		})
-	}
-
-	// TODO: Process the comment for AI response (will implement next)
-	log.Printf("[DEBUG] TODO: Process GitHub issue comment for AI response")
-
-	return c.JSON(http.StatusOK, map[string]string{
-		"status":     "received",
-		"event_type": "issue_comment",
-	})
-}
-
-// handleGitHubPullRequestReviewCommentEvent handles pull_request_review_comment webhook events (code line comments)
-func (s *Server) handleGitHubPullRequestReviewCommentEvent(c echo.Context) error {
-	// Parse the webhook payload
-	var payload GitHubPullRequestReviewCommentWebhookPayload
-	if err := c.Bind(&payload); err != nil {
-		log.Printf("[ERROR] Failed to parse GitHub pull_request_review_comment webhook payload: %v", err)
-		return c.JSON(http.StatusBadRequest, map[string]string{
-			"error": "Invalid webhook payload",
-		})
-	}
-
-	log.Printf("[INFO] GitHub pull_request_review_comment webhook: action=%s, comment_id=%d, author=%s, file=%s",
-		payload.Action, payload.Comment.ID, payload.Comment.User.Login, payload.Comment.Path)
-
-	// Debug: Print the full payload for analysis
-	payloadJSON, _ := json.MarshalIndent(payload, "", "  ")
-	log.Printf("[DEBUG] Full GitHub pull_request_review_comment payload:\n%s", string(payloadJSON))
-
-	// Only process "created" actions for now
-	if payload.Action != "created" {
-		log.Printf("[DEBUG] Ignoring pull_request_review_comment action: %s", payload.Action)
-		return c.JSON(http.StatusOK, map[string]string{
-			"status": "ignored",
-			"action": payload.Action,
-		})
-	}
-
-	// Process GitHub review comment for AI response
-	go s.processGitHubCommentForAIResponse(payload)
-
-	return c.JSON(http.StatusOK, map[string]string{
-		"status":     "received",
-		"event_type": "pull_request_review_comment",
 	})
 }
 
@@ -3795,102 +3707,6 @@ func (s *Server) processGitLabNoteEvent(ctx context.Context, payload GitLabNoteW
 	return nil
 }
 
-// processGitHubCommentForAIResponse processes GitHub pull request review comments for AI response
-func (s *Server) processGitHubCommentForAIResponse(payload GitHubPullRequestReviewCommentWebhookPayload) {
-	log.Printf("[INFO] Processing GitHub review comment for AI response: comment_id=%d, author=%s",
-		payload.Comment.ID, payload.Comment.User.Login)
-
-	// Convert to unified comment structure
-	unifiedComment := s.convertGitHubReviewCommentToUnified(payload)
-
-	// Check if this comment warrants an AI response
-	warrantsResponse, scenario := s.checkUnifiedAIResponseWarrant(unifiedComment)
-	if !warrantsResponse {
-		log.Printf("[DEBUG] GitHub comment does not warrant AI response")
-		return
-	}
-
-	log.Printf("[INFO] GitHub comment warrants AI response: trigger=%s, response_type=%s",
-		scenario.TriggerType, scenario.ResponseType)
-
-	// Generate and post AI response
-	if err := s.generateAndPostGitHubResponse(unifiedComment, scenario); err != nil {
-		log.Printf("[ERROR] Failed to generate/post GitHub AI response: %v", err)
-	}
-}
-
-// convertGitHubReviewCommentToUnified converts GitHub review comment to unified structure
-func (s *Server) convertGitHubReviewCommentToUnified(payload GitHubPullRequestReviewCommentWebhookPayload) UnifiedComment {
-	return UnifiedComment{
-		Provider:    "github",
-		ID:          fmt.Sprintf("%d", payload.Comment.ID),
-		Body:        payload.Comment.Body,
-		Author:      s.convertGitHubUserToUnified(payload.Comment.User),
-		CreatedAt:   payload.Comment.CreatedAt,
-		UpdatedAt:   payload.Comment.UpdatedAt,
-		WebURL:      payload.Comment.HTMLURL,
-		InReplyToID: s.convertGitHubInReplyToIDPtr(payload.Comment.InReplyToID),
-		Position: &UnifiedPosition{
-			FilePath:   payload.Comment.Path,
-			LineNumber: payload.Comment.Line,
-			CommitSHA:  payload.Comment.CommitID,
-			Side:       payload.Comment.Side,
-		},
-		MRContext: UnifiedMRContext{
-			Provider:       "github",
-			MergeRequestID: fmt.Sprintf("%d", payload.PullRequest.Number),
-			Title:          payload.PullRequest.Title,
-			Description:    payload.PullRequest.Body,
-			Author:         s.convertGitHubUserToUnified(payload.PullRequest.User),
-			TargetBranch:   payload.PullRequest.Base.Ref,
-			SourceBranch:   payload.PullRequest.Head.Ref,
-			WebURL:         payload.PullRequest.HTMLURL,
-			Repository:     s.convertGitHubRepoToUnified(payload.Repository),
-			Metadata: map[string]interface{}{
-				"pr_id":    payload.PullRequest.ID,
-				"pr_state": payload.PullRequest.State,
-				"head_sha": payload.PullRequest.Head.SHA,
-				"base_sha": payload.PullRequest.Base.SHA,
-			},
-		},
-		Metadata: map[string]interface{}{
-			"comment_id":        payload.Comment.ID,
-			"original_position": payload.Comment.OriginalPosition,
-			"original_line":     payload.Comment.OriginalLine,
-			"diff_hunk":         payload.Comment.DiffHunk,
-		},
-	}
-}
-
-// Helper functions for conversion
-func (s *Server) convertGitHubUserToUnified(user GitHubUser) UnifiedUser {
-	return UnifiedUser{
-		ID:        user.ID,
-		Username:  user.Login,
-		Name:      user.Login,
-		WebURL:    user.HTMLURL,
-		AvatarURL: user.AvatarURL,
-	}
-}
-
-func (s *Server) convertGitHubRepoToUnified(repo GitHubRepository) UnifiedRepository {
-	return UnifiedRepository{
-		ID:       repo.ID,
-		Name:     repo.Name,
-		FullName: repo.FullName,
-		WebURL:   repo.HTMLURL,
-		Owner:    s.convertGitHubUserToUnified(repo.Owner),
-	}
-}
-
-func (s *Server) convertGitHubInReplyToIDPtr(inReplyToID *int) *string {
-	if inReplyToID == nil || *inReplyToID == 0 {
-		return nil
-	}
-	id := fmt.Sprintf("%d", *inReplyToID)
-	return &id
-}
-
 // checkUnifiedAIResponseWarrant determines if a unified comment warrants an AI response
 func (s *Server) checkUnifiedAIResponseWarrant(comment UnifiedComment) (bool, ResponseScenario) {
 	log.Printf("[DEBUG] Checking unified AI response warrant for %s comment by %s", comment.Provider, comment.Author.Username)
@@ -4068,336 +3884,6 @@ func (s *Server) checkUnifiedAIResponseWarrant(comment UnifiedComment) (bool, Re
 	// For now, only respond to direct mentions, thread replies, and questions
 	log.Printf("[DEBUG] No trigger found (no mention, not a reply to bot, no question indicators)")
 	return false, ResponseScenario{}
-}
-
-// generateAndPostGitHubResponse generates and posts AI response for GitHub comments
-func (s *Server) generateAndPostGitHubResponse(comment UnifiedComment, scenario ResponseScenario) error {
-	log.Printf("[INFO] Generating GitHub AI response for comment %s", comment.ID)
-
-	// Get GitHub token for API calls
-	token, err := s.findIntegrationTokenForGitHubRepo(comment.MRContext.Repository.FullName)
-	if err != nil {
-		return fmt.Errorf("failed to get GitHub token for API calls: %w", err)
-	}
-
-	// Post emoji reaction first
-	if err := s.postGitHubCommentReaction(comment, token.PatToken, "eyes"); err != nil {
-		log.Printf("[WARN] Failed to post GitHub reaction: %v", err)
-	}
-
-	// Build comprehensive contextual response like GitLab does
-	aiResponse, err := s.buildGitHubContextualResponse(comment, scenario, token.PatToken)
-	if err != nil {
-		log.Printf("[ERROR] Failed to build contextual response, using fallback: %v", err)
-		// Fallback to simple response if context building fails
-		aiResponse = fmt.Sprintf("Thanks for mentioning me, @%s! I encountered an issue building full context, but I'm here to help with your question about '%s'.", comment.Author.Username, comment.MRContext.Title)
-	}
-
-	// Post text response
-	if err := s.postGitHubCommentReply(comment, token.PatToken, aiResponse); err != nil {
-		return fmt.Errorf("failed to post GitHub comment reply: %w", err)
-	}
-
-	log.Printf("[INFO] Successfully posted GitHub AI response for comment %s", comment.ID)
-	return nil
-}
-
-// postGitHubCommentReaction posts a reaction to a GitHub comment
-func (s *Server) postGitHubCommentReaction(comment UnifiedComment, token, reaction string) error {
-	var apiURL string
-	if comment.Position != nil {
-		// Review comment
-		apiURL = fmt.Sprintf("https://api.github.com/repos/%s/pulls/comments/%s/reactions",
-			comment.MRContext.Repository.FullName, comment.ID)
-	} else {
-		// Issue comment
-		apiURL = fmt.Sprintf("https://api.github.com/repos/%s/issues/comments/%s/reactions",
-			comment.MRContext.Repository.FullName, comment.ID)
-	}
-
-	reactionPayload := map[string]string{"content": reaction}
-	jsonData, _ := json.Marshal(reactionPayload)
-
-	req, err := http.NewRequest("POST", apiURL, bytes.NewBuffer(jsonData))
-	if err != nil {
-		return err
-	}
-
-	req.Header.Set("Authorization", "Bearer "+token)
-	req.Header.Set("Accept", "application/vnd.github.v3+json")
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("User-Agent", "LiveReview-Bot")
-
-	client := &http.Client{Timeout: 30 * time.Second}
-	resp, err := client.Do(req)
-	if err != nil {
-		return err
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusCreated {
-		body, _ := io.ReadAll(resp.Body)
-		return fmt.Errorf("GitHub API error posting reaction (status %d): %s", resp.StatusCode, string(body))
-	}
-
-	return nil
-}
-
-// postGitHubCommentReply posts a reply to a GitHub comment
-func (s *Server) postGitHubCommentReply(comment UnifiedComment, token, replyText string) error {
-	var apiURL string
-	var payload interface{}
-
-	if comment.Position != nil {
-		// Reply to review comment - must use in_reply_to as integer
-		apiURL = fmt.Sprintf("https://api.github.com/repos/%s/pulls/%s/comments",
-			comment.MRContext.Repository.FullName, comment.MRContext.MergeRequestID)
-
-		if comment.InReplyToID != nil && *comment.InReplyToID != "" {
-			// Convert string ID to integer for GitHub API
-			inReplyToInt, err := strconv.Atoi(*comment.InReplyToID)
-			if err != nil {
-				return fmt.Errorf("failed to convert in_reply_to ID to integer: %w", err)
-			}
-			payload = map[string]interface{}{
-				"body":        replyText,
-				"in_reply_to": inReplyToInt,
-			}
-		} else {
-			// If no reply ID, treat as new top-level review comment
-			// This requires commit_id, path, and position - but we don't have them
-			// Fall back to posting as issue comment instead
-			apiURL = fmt.Sprintf("https://api.github.com/repos/%s/issues/%s/comments",
-				comment.MRContext.Repository.FullName, comment.MRContext.MergeRequestID)
-			payload = map[string]string{
-				"body": replyText,
-			}
-		}
-	} else {
-		// Reply to issue comment - simpler, just post new comment
-		apiURL = fmt.Sprintf("https://api.github.com/repos/%s/issues/%s/comments",
-			comment.MRContext.Repository.FullName, comment.MRContext.MergeRequestID)
-		payload = map[string]string{
-			"body": replyText,
-		}
-	}
-
-	jsonData, err := json.Marshal(payload)
-	if err != nil {
-		return fmt.Errorf("failed to marshal payload: %w", err)
-	}
-
-	log.Printf("[DEBUG] GitHub API call: %s", apiURL)
-	log.Printf("[DEBUG] GitHub API payload: %s", string(jsonData))
-
-	req, err := http.NewRequest("POST", apiURL, bytes.NewBuffer(jsonData))
-	if err != nil {
-		return err
-	}
-
-	req.Header.Set("Authorization", "Bearer "+token)
-	req.Header.Set("Accept", "application/vnd.github.v3+json")
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("User-Agent", "LiveReview-Bot")
-
-	client := &http.Client{Timeout: 30 * time.Second}
-	resp, err := client.Do(req)
-	if err != nil {
-		log.Printf("[ERROR] HTTP request failed: %v", err)
-		return err
-	}
-	defer resp.Body.Close()
-
-	body, _ := io.ReadAll(resp.Body)
-	log.Printf("[DEBUG] GitHub API response status: %d", resp.StatusCode)
-	log.Printf("[DEBUG] GitHub API response body: %s", string(body))
-
-	if resp.StatusCode != http.StatusCreated {
-		return fmt.Errorf("GitHub API error posting reply (status %d): %s", resp.StatusCode, string(body))
-	}
-
-	log.Printf("[DEBUG] Successfully posted GitHub comment reply")
-	return nil
-}
-
-// buildGitHubContextualResponse builds a rich contextual AI response for GitHub comments
-func (s *Server) buildGitHubContextualResponse(comment UnifiedComment, scenario ResponseScenario, token string) (string, error) {
-	log.Printf("[DEBUG] Building contextual response for GitHub comment %s", comment.ID)
-
-	// Extract repository details
-	parts := strings.Split(comment.MRContext.Repository.FullName, "/")
-	if len(parts) != 2 {
-		return "", fmt.Errorf("invalid repository full name: %s", comment.MRContext.Repository.FullName)
-	}
-	owner, repo := parts[0], parts[1]
-
-	orgID := s.resolveGitHubOrgID(comment.MRContext.Repository.FullName)
-	var relevantLearnings []*learnings.Learning
-	if orgID != 0 {
-		if fetched, err := s.fetchRelevantLearnings(context.Background(), orgID, comment.MRContext.Repository.FullName, nil, comment.MRContext.Title, ""); err != nil {
-			log.Printf("[WARN] Failed to fetch learnings for GitHub repo %s: %v", comment.MRContext.Repository.FullName, err)
-		} else {
-			relevantLearnings = fetched
-		}
-	}
-
-	// 1. Fetch PR details and timeline
-	prNumber := comment.MRContext.MergeRequestID
-	timeline, err := s.buildGitHubTimeline(owner, repo, prNumber, token)
-	if err != nil {
-		log.Printf("[WARN] Failed to build GitHub timeline: %v", err)
-		timeline = "Unable to fetch PR timeline"
-	}
-
-	// 2. Get code context around the comment
-	codeContext, err := s.extractGitHubCommentContext(comment, owner, repo, token)
-	if err != nil {
-		log.Printf("[WARN] Failed to extract code context: %v", err)
-		codeContext = "Unable to fetch code context"
-	}
-
-	// 3. Build enhanced prompt similar to GitLab's buildGeminiPromptEnhanced
-	prompt := s.buildGitHubEnhancedPrompt(comment, timeline, codeContext, scenario)
-	prompt = s.appendLearningsToPrompt(prompt, relevantLearnings)
-
-	// 4. Generate AI response using the existing review infrastructure
-	aiResponse, err := s.generateAIResponseFromPrompt(prompt, comment.Author.Username)
-	if err != nil {
-		return "", fmt.Errorf("failed to generate AI response: %w", err)
-	}
-
-	return aiResponse, nil
-}
-
-// buildGitHubTimeline fetches and builds a chronological timeline of PR events
-func (s *Server) buildGitHubTimeline(owner, repo, prNumber, token string) (string, error) {
-	timeline := &strings.Builder{}
-	timeline.WriteString("## PR Timeline\n\n")
-
-	// Fetch PR commits
-	commits, err := s.fetchGitHubPRCommits(owner, repo, prNumber, token)
-	if err != nil {
-		return "", fmt.Errorf("failed to fetch commits: %w", err)
-	}
-
-	// Fetch PR comments (both issue and review comments)
-	comments, err := s.fetchGitHubPRComments(owner, repo, prNumber, token)
-	if err != nil {
-		return "", fmt.Errorf("failed to fetch comments: %w", err)
-	}
-
-	// Combine and sort chronologically (simplified for now)
-	timeline.WriteString(fmt.Sprintf("**Commits (%d):**\n", len(commits)))
-	for i, commit := range commits {
-		if i >= 5 { // Limit to recent commits
-			timeline.WriteString(fmt.Sprintf("... and %d more commits\n", len(commits)-5))
-			break
-		}
-		timeline.WriteString(fmt.Sprintf("- %s: %s\n", commit.SHA[:8], commit.Message))
-	}
-
-	timeline.WriteString(fmt.Sprintf("\n**Comments (%d):**\n", len(comments)))
-	for i, comment := range comments {
-		if i >= 10 { // Limit to recent comments
-			timeline.WriteString(fmt.Sprintf("... and %d more comments\n", len(comments)-10))
-			break
-		}
-		timeline.WriteString(fmt.Sprintf("- @%s: %s\n", comment.Author, comment.Body[:min(100, len(comment.Body))]))
-	}
-
-	return timeline.String(), nil
-}
-
-// extractGitHubCommentContext extracts code context around a GitHub comment
-func (s *Server) extractGitHubCommentContext(comment UnifiedComment, owner, repo, token string) (string, error) {
-	if comment.Position == nil {
-		return "General PR discussion (not tied to specific code)", nil
-	}
-
-	// For review comments, we can extract the diff context
-	context := &strings.Builder{}
-	context.WriteString("## Code Context\n\n")
-
-	// Get file path from position or metadata
-	if comment.Position != nil && comment.Position.FilePath != "" {
-		context.WriteString(fmt.Sprintf("**File:** %s\n", comment.Position.FilePath))
-		if comment.Position.LineNumber != nil {
-			context.WriteString(fmt.Sprintf("**Line:** %d\n", *comment.Position.LineNumber))
-		}
-	} else if filePath, ok := comment.Metadata["path"].(string); ok {
-		context.WriteString(fmt.Sprintf("**File:** %s\n", filePath))
-	}
-
-	// Try to get diff_hunk from metadata
-	if diffHunk, ok := comment.Metadata["diff_hunk"].(string); ok && diffHunk != "" {
-		context.WriteString("**Diff Context:**\n```diff\n")
-		context.WriteString(diffHunk)
-		context.WriteString("\n```\n")
-	}
-
-	return context.String(), nil
-}
-
-// buildGitHubEnhancedPrompt builds an enhanced AI prompt similar to GitLab's approach
-func (s *Server) buildGitHubEnhancedPrompt(comment UnifiedComment, timeline, codeContext string, scenario ResponseScenario) string {
-	prompt := &strings.Builder{}
-
-	prompt.WriteString("You are an expert code reviewer and technical assistant analyzing a GitHub Pull Request.\n\n")
-	prompt.WriteString(fmt.Sprintf("**PR Title:** %s\n", comment.MRContext.Title))
-	prompt.WriteString(fmt.Sprintf("**Repository:** %s\n\n", comment.MRContext.Repository.FullName))
-
-	prompt.WriteString("**User Question/Comment:**\n")
-	prompt.WriteString(fmt.Sprintf("@%s asked: %s\n\n", comment.Author.Username, comment.Body))
-
-	if codeContext != "" {
-		prompt.WriteString(codeContext)
-		prompt.WriteString("\n")
-	}
-
-	if timeline != "" {
-		prompt.WriteString(timeline)
-		prompt.WriteString("\n")
-	}
-
-	prompt.WriteString("**Your Task:**\n")
-	prompt.WriteString("Provide a helpful, contextual response that:\n")
-	prompt.WriteString("1. Directly addresses the user's question or comment\n")
-	prompt.WriteString("2. References the specific code context when relevant\n")
-	prompt.WriteString("3. Provides actionable insights or suggestions\n")
-	prompt.WriteString("4. Maintains a professional, helpful tone\n")
-	prompt.WriteString("5. Uses the PR timeline and context to inform your response\n\n")
-
-	prompt.WriteString("Format your response in clear, readable markdown suitable for a GitHub comment.\n")
-
-	return prompt.String()
-}
-
-// Helper functions for GitHub API calls (simplified implementations)
-
-type GitHubCommitInfo struct {
-	SHA     string
-	Message string
-}
-
-type GitHubCommentInfo struct {
-	Author string
-	Body   string
-}
-
-func (s *Server) fetchGitHubPRCommits(owner, repo, prNumber, token string) ([]GitHubCommitInfo, error) {
-	// Simplified implementation - would use GitHub API to fetch actual commits
-	return []GitHubCommitInfo{
-		{SHA: "abc123def", Message: "Initial implementation"},
-		{SHA: "def456ghi", Message: "Fix review comments"},
-	}, nil
-}
-
-func (s *Server) fetchGitHubPRComments(owner, repo, prNumber, token string) ([]GitHubCommentInfo, error) {
-	// Simplified implementation - would use GitHub API to fetch actual comments
-	return []GitHubCommentInfo{
-		{Author: "reviewer1", Body: "Looks good overall"},
-		{Author: "author", Body: "Thanks for the review!"},
-	}, nil
 }
 
 func (s *Server) generateAIResponseFromPrompt(prompt, username string) (string, error) {

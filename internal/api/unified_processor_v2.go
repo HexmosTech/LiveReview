@@ -4,11 +4,15 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log"
+	"net/http"
 	"strings"
+	"time"
 	"unicode"
 
 	"github.com/livereview/internal/aiconnectors"
+	"github.com/livereview/internal/learnings"
 )
 
 // Phase 7.1: Unified processor for provider-agnostic LLM processing
@@ -43,152 +47,184 @@ func (p *UnifiedProcessorV2Impl) CheckResponseWarrant(event UnifiedWebhookEventV
 		return false, ResponseScenarioV2{}
 	}
 
-	log.Printf("[DEBUG] Checking AI response warrant for comment by %s", event.Comment.Author.Username)
-	log.Printf("[DEBUG] Comment content: %s", event.Comment.Body)
-
-	// Debug bot info
-	if botInfo != nil {
-		log.Printf("[DEBUG] Bot info available: Username=%s, UserID=%s, Name=%s, Metadata=%v", botInfo.Username, botInfo.UserID, botInfo.Name, botInfo.Metadata)
-	} else {
-		log.Printf("[DEBUG] No bot info available")
+	commentBody := strings.TrimSpace(event.Comment.Body)
+	if commentBody == "" {
+		log.Printf("[DEBUG] Empty comment body, skipping warrant check")
+		return false, ResponseScenarioV2{}
 	}
 
-	// Debug reply info
+	log.Printf("[DEBUG] Checking AI response warrant for comment by %s", event.Comment.Author.Username)
+	log.Printf("[DEBUG] Comment content: %s", commentBody)
+
+	if botInfo == nil || (strings.TrimSpace(botInfo.Username) == "" && strings.TrimSpace(botInfo.UserID) == "") {
+		log.Printf("[DEBUG] Missing bot user info, cannot evaluate warrant")
+		return false, ResponseScenarioV2{}
+	}
+
+	log.Printf("[DEBUG] Bot info available: Username=%s, UserID=%s, Name=%s, Metadata=%v", botInfo.Username, botInfo.UserID, botInfo.Name, botInfo.Metadata)
+
 	if event.Comment.InReplyToID != nil {
 		log.Printf("[DEBUG] Comment is a reply, InReplyToID=%s", *event.Comment.InReplyToID)
 	} else {
 		log.Printf("[DEBUG] Comment is not a reply (InReplyToID is nil)")
 	}
 
-	// Early anti-loop protection: Check if comment is by the registered bot
-	if botInfo != nil {
-		botIdentifiers := map[string]string{}
-		if botInfo.UserID != "" {
-			botIdentifiers[normalizeIdentifier(botInfo.UserID)] = botInfo.UserID
-		}
-		if botInfo.Metadata != nil {
-			if accountID, ok := botInfo.Metadata["account_id"].(string); ok && accountID != "" {
-				botIdentifiers[normalizeIdentifier(accountID)] = accountID
-			}
-			if uuid, ok := botInfo.Metadata["uuid"].(string); ok && uuid != "" {
-				botIdentifiers[normalizeIdentifier(uuid)] = uuid
-			}
-		}
+	if event.Comment.DiscussionID != nil && *event.Comment.DiscussionID != "" {
+		log.Printf("[DEBUG] Comment discussion ID: %s", *event.Comment.DiscussionID)
+	}
 
-		authorIdentifiers := map[string]string{}
-		if event.Comment.Author.ID != "" {
-			authorIdentifiers[normalizeIdentifier(event.Comment.Author.ID)] = event.Comment.Author.ID
-		}
-		if event.Comment.Author.Metadata != nil {
-			if accountID, ok := event.Comment.Author.Metadata["account_id"].(string); ok && accountID != "" {
-				authorIdentifiers[normalizeIdentifier(accountID)] = accountID
-			}
-			if uuid, ok := event.Comment.Author.Metadata["uuid"].(string); ok && uuid != "" {
-				authorIdentifiers[normalizeIdentifier(uuid)] = uuid
-			}
-		}
-		if event.Comment.Metadata != nil {
-			if accountID, ok := event.Comment.Metadata["account_id"].(string); ok && accountID != "" {
-				authorIdentifiers[normalizeIdentifier(accountID)] = accountID
-			}
-			if uuid, ok := event.Comment.Metadata["user_uuid"].(string); ok && uuid != "" {
-				authorIdentifiers[normalizeIdentifier(uuid)] = uuid
-			}
-		}
+	if p.isCommentAuthoredByBot(event, botInfo) {
+		log.Printf("[DEBUG] Comment authored by registered bot user, skipping")
+		return false, ResponseScenarioV2{}
+	}
 
-		for normalizedAuthor, rawAuthor := range authorIdentifiers {
-			if normalizedAuthor == "" {
-				continue
-			}
-			if rawBot, found := botIdentifiers[normalizedAuthor]; found {
-				log.Printf("[DEBUG] Comment by registered bot user (identifier match: author=%s, bot=%s), skipping", rawAuthor, rawBot)
-				return false, ResponseScenarioV2{}
-			}
-		}
+	contentType := p.classifyContentTypeV2(commentBody)
+	responseType := p.determineResponseTypeV2(commentBody)
 
-		// Fallback check by username
-		if botInfo.Username != "" && strings.EqualFold(event.Comment.Author.Username, botInfo.Username) {
-			log.Printf("[DEBUG] Comment by registered bot user (username: %s), skipping", event.Comment.Author.Username)
-			return false, ResponseScenarioV2{}
+	makeMetadata := func() map[string]interface{} {
+		return map[string]interface{}{
+			"content_type":  contentType,
+			"response_type": responseType,
 		}
 	}
 
-	// PRIORITY 1: Check if replying to AI bot comment
-	if event.Comment.InReplyToID != nil {
-		// This indicates a reply to another comment
-		// Check if the parent comment was by the bot
-		if botInfo != nil && p.isReplyToBotComment(*event.Comment.InReplyToID, botInfo) {
+	// Replies take precedence to prevent missed follow-ups.
+	isReply := event.Comment.InReplyToID != nil && *event.Comment.InReplyToID != ""
+	if isReply {
+		replyToBot, err := p.isReplyToBotComment(event, botInfo)
+		if err != nil {
+			log.Printf("[WARN] Failed to verify reply parent for provider %s: %v", event.Provider, err)
+		}
+		if replyToBot {
+			metadata := makeMetadata()
+			if event.Comment.InReplyToID != nil {
+				metadata["in_reply_to"] = *event.Comment.InReplyToID
+			}
 			log.Printf("[DEBUG] Reply to AI bot comment detected")
 			return true, ResponseScenarioV2{
 				Type:       "bot_reply",
 				Reason:     fmt.Sprintf("Reply to bot comment by %s", event.Comment.Author.Username),
 				Confidence: 0.90,
-				Metadata: map[string]interface{}{
-					"content_type":  p.classifyContentTypeV2(event.Comment.Body),
-					"response_type": p.determineResponseTypeV2(event.Comment.Body),
-				},
+				Metadata:   metadata,
 			}
 		}
 	}
 
-	// PRIORITY 2: Check for direct @mentions of the bot
-	if botInfo != nil {
-		isDirectMention := p.checkDirectBotMentionV2(event.Comment.Body, botInfo)
-		if isDirectMention {
-			log.Printf("[DEBUG] Direct bot mention detected in comment")
-			return true, ResponseScenarioV2{
-				Type:       "direct_mention",
-				Reason:     fmt.Sprintf("Direct mention of bot by %s", event.Comment.Author.Username),
-				Confidence: 0.95,
-				Metadata: map[string]interface{}{
-					"content_type":  p.classifyContentTypeV2(event.Comment.Body),
-					"response_type": p.determineResponseTypeV2(event.Comment.Body),
-				},
-			}
+	isDirectMention := p.checkDirectBotMentionV2(commentBody, botInfo)
+	if isDirectMention {
+		log.Printf("[DEBUG] Direct bot mention detected in comment")
+		metadata := makeMetadata()
+		return true, ResponseScenarioV2{
+			Type:       "direct_mention",
+			Reason:     fmt.Sprintf("Direct mention of bot by %s", event.Comment.Author.Username),
+			Confidence: 0.95,
+			Metadata:   metadata,
 		}
 	}
 
-	// PRIORITY 3: Check for contextual replies (GitLab discussion context)
-	// If we have a discussion ID, this might be part of an ongoing conversation
-	if event.Comment.DiscussionID != nil && *event.Comment.DiscussionID != "" {
-		log.Printf("[DEBUG] Comment is part of discussion: %s", *event.Comment.DiscussionID)
-		// For now, treat discussion participation as warranting response
+	hasDiscussion := event.Comment.DiscussionID != nil && *event.Comment.DiscussionID != ""
+	if !isReply && !hasDiscussion {
+		log.Printf("[DEBUG] Top-level comment without direct mention, skipping per warrant policy")
+		return false, ResponseScenarioV2{}
+	}
+
+	if trigger := p.detectContentTrigger(commentBody); trigger != "" {
+		metadata := makeMetadata()
+		metadata["trigger"] = trigger
+		log.Printf("[DEBUG] Content trigger '%s' detected", trigger)
+		return true, ResponseScenarioV2{
+			Type:       "content_trigger",
+			Reason:     fmt.Sprintf("Content trigger '%s' detected", trigger),
+			Confidence: 0.70,
+			Metadata:   metadata,
+		}
+	}
+
+	if hasDiscussion {
+		metadata := makeMetadata()
+		metadata["discussion_id"] = *event.Comment.DiscussionID
+		log.Printf("[DEBUG] Discussion reply detected for discussion %s", *event.Comment.DiscussionID)
 		return true, ResponseScenarioV2{
 			Type:       "discussion_reply",
 			Reason:     fmt.Sprintf("Comment in discussion %s by %s", *event.Comment.DiscussionID, event.Comment.Author.Username),
 			Confidence: 0.85,
-			Metadata: map[string]interface{}{
-				"content_type":  p.classifyContentTypeV2(event.Comment.Body),
-				"response_type": p.determineResponseTypeV2(event.Comment.Body),
-				"discussion_id": *event.Comment.DiscussionID,
-			},
-		}
-	}
-
-	// PRIORITY 4: Content analysis for implicit response triggers
-	// Keep minimal to avoid false positives
-	contentTriggers := []string{"help", "question", "explain", "how", "why", "what", "use", "not", "do not", "rule", "team"}
-	commentLower := strings.ToLower(event.Comment.Body)
-
-	for _, trigger := range contentTriggers {
-		if strings.Contains(commentLower, trigger) {
-			log.Printf("[DEBUG] Content trigger '%s' detected", trigger)
-			return true, ResponseScenarioV2{
-				Type:       "content_trigger",
-				Reason:     fmt.Sprintf("Content trigger '%s' detected", trigger),
-				Confidence: 0.70,
-				Metadata: map[string]interface{}{
-					"content_type":  p.classifyContentTypeV2(event.Comment.Body),
-					"response_type": p.determineResponseTypeV2(event.Comment.Body),
-					"trigger":       trigger,
-				},
-			}
+			Metadata:   metadata,
 		}
 	}
 
 	log.Printf("[DEBUG] No response warrant detected")
 	return false, ResponseScenarioV2{}
-} // ProcessCommentReply processes comment reply flow using original working logic
+}
+
+func (p *UnifiedProcessorV2Impl) isCommentAuthoredByBot(event UnifiedWebhookEventV2, botInfo *UnifiedBotUserInfoV2) bool {
+	if botInfo == nil || event.Comment == nil {
+		return false
+	}
+
+	botIdentifiers := map[string]string{}
+	if botInfo.UserID != "" {
+		botIdentifiers[normalizeIdentifier(botInfo.UserID)] = botInfo.UserID
+	}
+	if botInfo.Metadata != nil {
+		if accountID, ok := botInfo.Metadata["account_id"].(string); ok && accountID != "" {
+			botIdentifiers[normalizeIdentifier(accountID)] = accountID
+		}
+		if uuid, ok := botInfo.Metadata["uuid"].(string); ok && uuid != "" {
+			botIdentifiers[normalizeIdentifier(uuid)] = uuid
+		}
+	}
+
+	authorIdentifiers := map[string]string{}
+	if event.Comment.Author.ID != "" {
+		authorIdentifiers[normalizeIdentifier(event.Comment.Author.ID)] = event.Comment.Author.ID
+	}
+	if event.Comment.Author.Metadata != nil {
+		if accountID, ok := event.Comment.Author.Metadata["account_id"].(string); ok && accountID != "" {
+			authorIdentifiers[normalizeIdentifier(accountID)] = accountID
+		}
+		if uuid, ok := event.Comment.Author.Metadata["uuid"].(string); ok && uuid != "" {
+			authorIdentifiers[normalizeIdentifier(uuid)] = uuid
+		}
+	}
+	if event.Comment.Metadata != nil {
+		if accountID, ok := event.Comment.Metadata["account_id"].(string); ok && accountID != "" {
+			authorIdentifiers[normalizeIdentifier(accountID)] = accountID
+		}
+		if uuid, ok := event.Comment.Metadata["user_uuid"].(string); ok && uuid != "" {
+			authorIdentifiers[normalizeIdentifier(uuid)] = uuid
+		}
+	}
+
+	for normalizedAuthor, rawAuthor := range authorIdentifiers {
+		if normalizedAuthor == "" {
+			continue
+		}
+		if rawBot, found := botIdentifiers[normalizedAuthor]; found {
+			log.Printf("[DEBUG] Author matches bot identifier (%s vs %s)", rawAuthor, rawBot)
+			return true
+		}
+	}
+
+	if botInfo.Username != "" && strings.EqualFold(event.Comment.Author.Username, botInfo.Username) {
+		log.Printf("[DEBUG] Author username %s matches bot username", event.Comment.Author.Username)
+		return true
+	}
+
+	return false
+}
+
+func (p *UnifiedProcessorV2Impl) detectContentTrigger(commentBody string) string {
+	commentLower := strings.ToLower(commentBody)
+	triggers := []string{"help", "question", "explain", "how", "why", "what", "use", "not", "do not", "rule", "team"}
+	for _, trigger := range triggers {
+		if strings.Contains(commentLower, trigger) {
+			return trigger
+		}
+	}
+	return ""
+}
+
+// ProcessCommentReply processes comment reply flow using original working logic
 func (p *UnifiedProcessorV2Impl) ProcessCommentReply(ctx context.Context, event UnifiedWebhookEventV2, timeline *UnifiedTimelineV2, orgID int64) (string, *LearningMetadataV2, error) {
 	if event.Comment == nil {
 		return "", nil, fmt.Errorf("no comment in event for reply processing")
@@ -197,7 +233,7 @@ func (p *UnifiedProcessorV2Impl) ProcessCommentReply(ctx context.Context, event 
 	log.Printf("[INFO] Processing comment reply for %s provider using original contextual logic", event.Provider)
 
 	// Use the original sophisticated contextual response logic
-	response, learning := p.buildContextualResponseWithLearningV2(event, timeline, orgID)
+	response, learning := p.buildContextualResponseWithLearningV2(ctx, event, timeline, orgID)
 
 	return response, learning, nil
 }
@@ -270,12 +306,37 @@ func (p *UnifiedProcessorV2Impl) buildCommentReplyPromptWithLearning(event Unifi
 }
 
 // buildContextualResponseWithLearningV2 creates response using LLM with learning instructions
-func (p *UnifiedProcessorV2Impl) buildContextualResponseWithLearningV2(event UnifiedWebhookEventV2, timeline *UnifiedTimelineV2, orgID int64) (string, *LearningMetadataV2) {
-	// Build LLM prompt with learning instructions
+func (p *UnifiedProcessorV2Impl) buildContextualResponseWithLearningV2(ctx context.Context, event UnifiedWebhookEventV2, timeline *UnifiedTimelineV2, orgID int64) (string, *LearningMetadataV2) {
 	prompt := p.buildCommentReplyPromptWithLearning(event, timeline)
 
-	// Try to generate LLM response
-	ctx := context.Background()
+	var relevantLearnings []*learnings.Learning
+	if orgID != 0 {
+		repoID := event.Repository.FullName
+		if repoID == "" {
+			repoID = event.Repository.Name
+		}
+
+		title := ""
+		description := ""
+		if event.MergeRequest != nil {
+			title = event.MergeRequest.Title
+			description = event.MergeRequest.Description
+		}
+
+		fetched, err := p.fetchRelevantLearnings(ctx, orgID, repoID, nil, title, description)
+		if err != nil {
+			log.Printf("[WARN] Failed to fetch relevant learnings: %v", err)
+		} else {
+			relevantLearnings = fetched
+		}
+	}
+
+	prompt = p.appendLearningsToPrompt(prompt, relevantLearnings)
+
+	if ctx == nil {
+		ctx = context.Background()
+	}
+
 	llmResponse, learning, err := p.generateLLMResponseWithLearning(ctx, prompt, event, orgID)
 	if err != nil {
 		log.Printf("[ERROR] LLM generation failed: %v - cannot provide response", err)
@@ -283,6 +344,77 @@ func (p *UnifiedProcessorV2Impl) buildContextualResponseWithLearningV2(event Uni
 	}
 
 	return llmResponse, learning
+}
+
+func (p *UnifiedProcessorV2Impl) fetchRelevantLearnings(ctx context.Context, orgID int64, repoID string, changedFiles []string, title, description string) ([]*learnings.Learning, error) {
+	if p.server == nil || p.server.learningsService == nil || orgID == 0 {
+		return nil, nil
+	}
+
+	if ctx == nil {
+		ctx = context.Background()
+	}
+
+	return p.server.learningsService.ListActiveByOrg(ctx, orgID)
+}
+
+func (p *UnifiedProcessorV2Impl) appendLearningsToPrompt(prompt string, items []*learnings.Learning) string {
+	if len(items) == 0 {
+		return prompt
+	}
+
+	section := p.formatLearningsSection(items)
+	if section == "" {
+		return prompt
+	}
+
+	if !strings.HasSuffix(prompt, "\n") {
+		prompt += "\n"
+	}
+
+	return prompt + section
+}
+
+func (p *UnifiedProcessorV2Impl) formatLearningsSection(items []*learnings.Learning) string {
+	if len(items) == 0 {
+		return ""
+	}
+
+	var b strings.Builder
+	b.WriteString("=== Org learnings ===\n")
+	b.WriteString("Incorporate the following established org guidance when drafting your reply:\n")
+	for _, item := range items {
+		b.WriteString(fmt.Sprintf("- [%s] %s\n", item.ShortID, item.Title))
+		if body := truncateLearningBodyV2(item.Body, 260); body != "" {
+			b.WriteString("  ")
+			b.WriteString(body)
+			b.WriteString("\n")
+		}
+		if len(item.Tags) > 0 {
+			b.WriteString("  Tags: ")
+			b.WriteString(strings.Join(item.Tags, ", "))
+			b.WriteString("\n")
+		}
+	}
+	b.WriteString("\n")
+	return b.String()
+}
+
+func truncateLearningBodyV2(body string, limit int) string {
+	body = strings.TrimSpace(body)
+	if body == "" {
+		return ""
+	}
+
+	if limit > 0 && len(body) > limit {
+		body = body[:limit]
+		if idx := strings.LastIndex(body, " "); idx > limit-40 {
+			body = body[:idx]
+		}
+		body = strings.TrimSpace(body) + "..."
+	}
+
+	return body
 }
 
 // ProcessFullReview processes full review flow when bot is assigned as reviewer
@@ -295,42 +427,200 @@ func (p *UnifiedProcessorV2Impl) ProcessFullReview(ctx context.Context, event Un
 
 // Helper methods (extracted from webhook_handler.go)
 
-// checkIfReplyingToBotCommentV2 checks if a comment is replying to a bot comment (ORIGINAL LOGIC ADAPTED)
-func (p *UnifiedProcessorV2Impl) checkIfReplyingToBotCommentV2(event UnifiedWebhookEventV2, botInfo *UnifiedBotUserInfoV2) (bool, error) {
-	// If this comment is not part of a discussion/thread, it can't be a reply
-	if event.Comment.DiscussionID == nil || *event.Comment.DiscussionID == "" {
-		log.Printf("[DEBUG] Comment has no discussion_id, not a thread reply")
+func (p *UnifiedProcessorV2Impl) isReplyToBotComment(event UnifiedWebhookEventV2, botInfo *UnifiedBotUserInfoV2) (bool, error) {
+	if event.Comment == nil || botInfo == nil {
 		return false, nil
 	}
 
-	log.Printf("[DEBUG] Checking if comment is reply to bot in discussion: %s", *event.Comment.DiscussionID)
-
-	// For GitLab provider, we need to check the discussion API
-	if event.Provider == "gitlab" {
-		return p.checkGitLabDiscussionForBotReply(event, botInfo)
+	if event.Comment.InReplyToID == nil || *event.Comment.InReplyToID == "" {
+		return false, nil
 	}
 
-	// For other providers, implement similar logic
-	log.Printf("[DEBUG] Provider %s not yet supported for reply checking", event.Provider)
+	replyToID := *event.Comment.InReplyToID
+	switch event.Provider {
+	case "github":
+		return p.checkGitHubParentCommentAuthor(event, replyToID, botInfo)
+	case "bitbucket":
+		return p.checkBitbucketParentCommentAuthor(event, replyToID, botInfo)
+	case "gitlab":
+		return p.checkGitLabDiscussionForBotReply(event, botInfo)
+	default:
+		return false, fmt.Errorf("reply detection not implemented for provider %s", event.Provider)
+	}
+}
+
+func (p *UnifiedProcessorV2Impl) checkGitHubParentCommentAuthor(event UnifiedWebhookEventV2, parentID string, botInfo *UnifiedBotUserInfoV2) (bool, error) {
+	if p.server == nil {
+		return false, fmt.Errorf("server unavailable for GitHub parent lookup")
+	}
+
+	repoFullName := event.Repository.FullName
+	if repoFullName == "" {
+		return false, fmt.Errorf("missing repository full name for GitHub reply detection")
+	}
+
+	token, err := p.server.findIntegrationTokenForGitHubRepo(repoFullName)
+	if err != nil || token == nil {
+		return false, fmt.Errorf("failed to find GitHub token: %w", err)
+	}
+
+	var apiURL string
+	if event.Comment.Position != nil && event.Comment.Position.FilePath != "" {
+		apiURL = fmt.Sprintf("https://api.github.com/repos/%s/pulls/comments/%s", repoFullName, parentID)
+	} else {
+		apiURL = fmt.Sprintf("https://api.github.com/repos/%s/issues/comments/%s", repoFullName, parentID)
+	}
+
+	req, err := http.NewRequest("GET", apiURL, nil)
+	if err != nil {
+		return false, err
+	}
+
+	req.Header.Set("Authorization", "Bearer "+token.PatToken)
+	req.Header.Set("Accept", "application/vnd.github.v3+json")
+	req.Header.Set("User-Agent", "LiveReview-Bot")
+
+	client := &http.Client{Timeout: 30 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return false, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return false, fmt.Errorf("GitHub API error getting parent comment (status %d): %s", resp.StatusCode, string(body))
+	}
+
+	var parent struct {
+		User struct {
+			Login string `json:"login"`
+			ID    int64  `json:"id"`
+		} `json:"user"`
+	}
+
+	if err := json.NewDecoder(resp.Body).Decode(&parent); err != nil {
+		return false, err
+	}
+
+	if parent.User.Login == "" {
+		return false, nil
+	}
+
+	if botInfo.Username != "" && strings.EqualFold(parent.User.Login, botInfo.Username) {
+		return true, nil
+	}
+
+	if botInfo.UserID != "" && fmt.Sprintf("%d", parent.User.ID) == botInfo.UserID {
+		return true, nil
+	}
+
 	return false, nil
 }
 
-// checkGitLabDiscussionForBotReply checks GitLab discussion for bot replies (ORIGINAL LOGIC)
+func (p *UnifiedProcessorV2Impl) checkBitbucketParentCommentAuthor(event UnifiedWebhookEventV2, parentID string, botInfo *UnifiedBotUserInfoV2) (bool, error) {
+	if p.server == nil {
+		return false, fmt.Errorf("server unavailable for Bitbucket parent lookup")
+	}
+
+	if event.Comment.Metadata == nil {
+		return false, fmt.Errorf("missing Bitbucket metadata for reply detection")
+	}
+
+	workspace, _ := event.Comment.Metadata["workspace"].(string)
+	repository, _ := event.Comment.Metadata["repository"].(string)
+
+	prNumber := ""
+	switch value := event.Comment.Metadata["pr_number"].(type) {
+	case string:
+		prNumber = value
+	case int:
+		prNumber = fmt.Sprintf("%d", value)
+	case float64:
+		prNumber = fmt.Sprintf("%d", int(value))
+	}
+	if prNumber == "" && event.MergeRequest != nil {
+		prNumber = event.MergeRequest.ID
+	}
+
+	if workspace == "" || repository == "" || prNumber == "" {
+		return false, fmt.Errorf("insufficient Bitbucket metadata for reply detection")
+	}
+
+	token, err := p.server.findIntegrationTokenForBitbucketRepo(event.Repository.FullName)
+	if err != nil || token == nil {
+		return false, fmt.Errorf("failed to find Bitbucket token: %w", err)
+	}
+
+	email := ""
+	if token.Metadata != nil {
+		if e, ok := token.Metadata["email"].(string); ok {
+			email = e
+		}
+	}
+	if email == "" {
+		return false, fmt.Errorf("bitbucket email missing in token metadata")
+	}
+
+	apiURL := fmt.Sprintf("https://api.bitbucket.org/2.0/repositories/%s/%s/pullrequests/%s/comments/%s", workspace, repository, prNumber, parentID)
+	req, err := http.NewRequest("GET", apiURL, nil)
+	if err != nil {
+		return false, err
+	}
+
+	req.SetBasicAuth(email, token.PatToken)
+	req.Header.Set("Accept", "application/json")
+
+	client := &http.Client{Timeout: 10 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return false, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return false, fmt.Errorf("Bitbucket API error getting parent comment (status %d): %s", resp.StatusCode, string(body))
+	}
+
+	var parent BitbucketComment
+	if err := json.NewDecoder(resp.Body).Decode(&parent); err != nil {
+		return false, err
+	}
+
+	if botInfo.Username != "" && strings.EqualFold(parent.User.Username, botInfo.Username) {
+		return true, nil
+	}
+
+	if botInfo.Metadata != nil {
+		if accountID, ok := botInfo.Metadata["account_id"].(string); ok && accountID != "" {
+			if normalizeIdentifier(parent.User.AccountID) == normalizeIdentifier(accountID) {
+				return true, nil
+			}
+		}
+		if uuid, ok := botInfo.Metadata["uuid"].(string); ok && uuid != "" {
+			if normalizeIdentifier(parent.User.UUID) == normalizeIdentifier(uuid) {
+				return true, nil
+			}
+		}
+	}
+
+	if botInfo.UserID != "" {
+		if normalizeIdentifier(parent.User.AccountID) == normalizeIdentifier(botInfo.UserID) {
+			return true, nil
+		}
+	}
+
+	return false, nil
+}
+
 func (p *UnifiedProcessorV2Impl) checkGitLabDiscussionForBotReply(event UnifiedWebhookEventV2, botInfo *UnifiedBotUserInfoV2) (bool, error) {
-	// This would require API access to GitLab to check the discussion
-	// For now, implement a simpler heuristic: if it's in a discussion, assume it might be a reply
-	log.Printf("[DEBUG] GitLab discussion reply checking - would need API access")
+	if event.Comment == nil || event.Comment.DiscussionID == nil || *event.Comment.DiscussionID == "" {
+		return false, nil
+	}
 
-	// TODO: Implement full GitLab API checking like the original
-	// For now, return false to be conservative
+	log.Printf("[DEBUG] GitLab discussion reply checking not yet implemented for discussion %s", *event.Comment.DiscussionID)
 	return false, nil
-}
-
-// isReplyToBotComment checks if a comment is replying to a bot comment (LEGACY METHOD)
-func (p *UnifiedProcessorV2Impl) isReplyToBotComment(replyToID string, botInfo *UnifiedBotUserInfoV2) bool {
-	// This is the old method signature - redirect to new method
-	log.Printf("[DEBUG] Legacy isReplyToBotComment called with replyToID: %s", replyToID)
-	return false // Conservative default
 }
 
 // checkDirectBotMentionV2 checks for direct @mentions of the bot (ORIGINAL WORKING LOGIC)
