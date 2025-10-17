@@ -120,6 +120,7 @@ type GitHubV2ReviewComment struct {
 	CommitID              string       `json:"commit_id"`
 	OriginalCommitID      string       `json:"original_commit_id"`
 	InReplyToID           *int         `json:"in_reply_to_id"`
+	PullRequestReviewID   int          `json:"pull_request_review_id"`
 	User                  GitHubV2User `json:"user"`
 	Body                  string       `json:"body"`
 	CreatedAt             string       `json:"created_at"`

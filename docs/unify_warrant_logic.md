@@ -20,10 +20,10 @@ Each phase is gated by `make build` in the repo root (per docs/copilot instructi
 
 ### Phase 2 – Normalize provider event data
 - Ensure `UnifiedWebhookEventV2` instances carry `InReplyToID` and `DiscussionID` consistently across adapters:
-	- `internal/providers/github/webhook_adapter.go` (GitHub): set `InReplyToID` for reply comments and leave empty for lone comments.
-	- `internal/providers/gitlab/webhook_adapter.go` (GitLab): populate `DiscussionID` and map parent comment IDs.
-	- `internal/providers/bitbucket/webhook_adapter.go` (Bitbucket): expose thread identifiers and raw mention metadata.
-- Extend `internal/api/unified_processing_test.go` with table-driven cases covering lone vs threaded comments for all three providers, run `make testall`, then `make build` in repo root.
+	- [x] `internal/provider_input/github/github_webhook_convert.go` (GitHub): set `InReplyToID`/`DiscussionID` for replies and leave them empty for lone comments while normalizing existing metadata.
+	- [x] `internal/provider_input/gitlab/gitlab_provider_v2.go` (GitLab): populate `DiscussionID`, `InReplyToID`, and existing comment metadata.
+	- [x] `internal/provider_input/bitbucket/bitbucket_provider_v2.go` (Bitbucket): expose thread identifiers and raw mention metadata across top-level and reply comments.
+- [x] Extend `internal/api/unified_processing_test.go` with table-driven cases covering lone vs threaded comments for all three providers, run `make testall`, then `make build` in repo root.
 
 ### Phase 3 – Tighten shared mention detection
 - In `UnifiedProcessorV2Impl.checkDirectBotMentionV2`, add provider-aware mention parsing helpers housed in:

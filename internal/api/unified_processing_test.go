@@ -196,7 +196,7 @@ func TestUnifiedProcessorV2(t *testing.T) {
 }
 
 func TestUnifiedContextBuilderV2(t *testing.T) {
-	builder := coreprocessor.NewUnifiedContextBuilderV2()
+	builder := &coreprocessor.UnifiedContextBuilderV2{}
 	require.NotNil(t, builder)
 
 	t.Run("BuildTimeline", func(t *testing.T) {
@@ -308,6 +308,135 @@ func TestUnifiedContextBuilderV2(t *testing.T) {
 		// Prompt should be a valid AI prompt (contains standard prompt text)
 		assert.Contains(t, prompt, "assistant")
 	})
+}
+
+func TestUnifiedContextBuilderV2ThreadMetadataAcrossProviders(t *testing.T) {
+	t.Parallel()
+
+	builder := &coreprocessor.UnifiedContextBuilderV2{}
+
+	ptr := func(val string) *string {
+		return &val
+	}
+
+	tests := []struct {
+		name      string
+		comments  []UnifiedCommentV2
+		provider  string
+		expecteds []struct {
+			discussionID *string
+			inReplyToID  *string
+		}
+	}{
+		{
+			name:     "github lone comment",
+			provider: "github",
+			comments: []UnifiedCommentV2{
+				{ID: "gh-1", Body: "Top-level", CreatedAt: "2025-10-17T11:00:00Z"},
+			},
+			expecteds: []struct {
+				discussionID *string
+				inReplyToID  *string
+			}{{discussionID: nil, inReplyToID: nil}},
+		},
+		{
+			name:     "github threaded review",
+			provider: "github",
+			comments: []UnifiedCommentV2{
+				{ID: "gh-10", Body: "Review root", CreatedAt: "2025-10-17T11:01:00Z", DiscussionID: ptr("review-77")},
+				{ID: "gh-11", Body: "Follow-up", CreatedAt: "2025-10-17T11:01:10Z", DiscussionID: ptr("review-77"), InReplyToID: ptr("gh-10")},
+			},
+			expecteds: []struct {
+				discussionID *string
+				inReplyToID  *string
+			}{
+				{discussionID: ptr("review-77"), inReplyToID: nil},
+				{discussionID: ptr("review-77"), inReplyToID: ptr("gh-10")},
+			},
+		},
+		{
+			name:     "gitlab discussion anchor",
+			provider: "gitlab",
+			comments: []UnifiedCommentV2{
+				{ID: "gl-1", Body: "Initial note", CreatedAt: "2025-10-17T11:02:00Z", DiscussionID: ptr("disc-1")},
+			},
+			expecteds: []struct {
+				discussionID *string
+				inReplyToID  *string
+			}{{discussionID: ptr("disc-1"), inReplyToID: nil}},
+		},
+		{
+			name:     "gitlab threaded discussion",
+			provider: "gitlab",
+			comments: []UnifiedCommentV2{
+				{ID: "gl-10", Body: "Bot suggestion", CreatedAt: "2025-10-17T11:02:30Z", DiscussionID: ptr("disc-42")},
+				{ID: "gl-11", Body: "Human reply", CreatedAt: "2025-10-17T11:02:40Z", DiscussionID: ptr("disc-42"), InReplyToID: ptr("54")},
+			},
+			expecteds: []struct {
+				discussionID *string
+				inReplyToID  *string
+			}{
+				{discussionID: ptr("disc-42"), inReplyToID: nil},
+				{discussionID: ptr("disc-42"), inReplyToID: ptr("54")},
+			},
+		},
+		{
+			name:     "bitbucket lone comment",
+			provider: "bitbucket",
+			comments: []UnifiedCommentV2{
+				{ID: "bb-1", Body: "Top-level", CreatedAt: "2025-10-17T11:03:00Z", DiscussionID: ptr("bb-1")},
+			},
+			expecteds: []struct {
+				discussionID *string
+				inReplyToID  *string
+			}{{discussionID: ptr("bb-1"), inReplyToID: nil}},
+		},
+		{
+			name:     "bitbucket threaded reply",
+			provider: "bitbucket",
+			comments: []UnifiedCommentV2{
+				{ID: "bb-10", Body: "Root", CreatedAt: "2025-10-17T11:03:30Z", DiscussionID: ptr("700")},
+				{ID: "bb-11", Body: "Reply", CreatedAt: "2025-10-17T11:03:40Z", DiscussionID: ptr("700"), InReplyToID: ptr("700")},
+			},
+			expecteds: []struct {
+				discussionID *string
+				inReplyToID  *string
+			}{
+				{discussionID: ptr("700"), inReplyToID: nil},
+				{discussionID: ptr("700"), inReplyToID: ptr("700")},
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			timeline := builder.BuildTimelineFromData(nil, tc.comments)
+			require.NotNil(t, timeline)
+			require.Len(t, timeline.Items, len(tc.expecteds))
+
+			for idx, expected := range tc.expecteds {
+				item := timeline.Items[idx]
+				require.NotNilf(t, item.Comment, "timeline item %d missing comment", idx)
+
+				if expected.discussionID == nil {
+					require.Nilf(t, item.Comment.DiscussionID, "timeline item %d expected nil discussion id", idx)
+				} else {
+					require.NotNilf(t, item.Comment.DiscussionID, "timeline item %d missing discussion id", idx)
+					require.Equal(t, *expected.discussionID, *item.Comment.DiscussionID)
+				}
+
+				if expected.inReplyToID == nil {
+					require.Nilf(t, item.Comment.InReplyToID, "timeline item %d expected nil reply id", idx)
+				} else {
+					require.NotNilf(t, item.Comment.InReplyToID, "timeline item %d missing reply id", idx)
+					require.Equal(t, *expected.inReplyToID, *item.Comment.InReplyToID)
+				}
+			}
+		})
+	}
 }
 
 func TestLearningProcessorV2(t *testing.T) {

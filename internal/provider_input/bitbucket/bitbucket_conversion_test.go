@@ -67,6 +67,84 @@ func TestBitbucketUnifiedTimelinePreservesReplyThread(t *testing.T) {
 	}
 }
 
+func TestBitbucketConvertCommentThreadMetadata(t *testing.T) {
+	t.Parallel()
+
+	provider := &BitbucketV2Provider{}
+
+	tests := []struct {
+		name             string
+		comment          BitbucketV2Comment
+		expectedReplyID  *string
+		expectedThreadID string
+	}{
+		{
+			name: "top-level comment seeds its own thread",
+			comment: BitbucketV2Comment{
+				ID:        101,
+				Content:   BitbucketV2CommentContent{Raw: "Looks good"},
+				User:      BitbucketV2User{Username: "reviewer", AccountID: "acct-1", UUID: "{uuid-1}"},
+				CreatedOn: "2025-10-17T10:00:00Z",
+				UpdatedOn: "2025-10-17T10:00:00Z",
+				Links: BitbucketV2CommentLinks{HTML: struct {
+					Href string `json:"href"`
+				}{Href: "https://bitbucket.org/ws/repo/pull-requests/1#comment-101"}},
+				Type: "pullrequest_comment",
+			},
+			expectedReplyID:  nil,
+			expectedThreadID: "101",
+		},
+		{
+			name: "reply comment binds to parent thread",
+			comment: BitbucketV2Comment{
+				ID:        202,
+				Content:   BitbucketV2CommentContent{Raw: "Please clarify"},
+				User:      BitbucketV2User{Username: "author", AccountID: "acct-2", UUID: "{uuid-2}"},
+				CreatedOn: "2025-10-17T10:05:00Z",
+				UpdatedOn: "2025-10-17T10:05:00Z",
+				Parent: &BitbucketV2CommentRef{ID: 101, Links: BitbucketV2CommentLinks{HTML: struct {
+					Href string `json:"href"`
+				}{Href: "https://bitbucket.org/ws/repo/pull-requests/1#comment-101"}}},
+				Links: BitbucketV2CommentLinks{HTML: struct {
+					Href string `json:"href"`
+				}{Href: "https://bitbucket.org/ws/repo/pull-requests/1#comment-202"}},
+				Type: "pullrequest_comment",
+			},
+			expectedReplyID:  func() *string { id := "101"; return &id }(),
+			expectedThreadID: "101",
+		},
+	}
+
+	for _, tt := range tests {
+		tc := tt
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			payload := BitbucketV2WebhookPayload{
+				Comment: tc.comment,
+				PullRequest: BitbucketV2PullRequest{ID: 1, Title: "Add feature", Links: BitbucketV2Links{HTML: struct {
+					Href string `json:"href"`
+				}{Href: "https://bitbucket.org/ws/repo/pull-requests/1"}}},
+				Repository: BitbucketV2Repository{Name: "repo", Owner: BitbucketV2User{Username: "ws"}},
+			}
+
+			comment := provider.convertBitbucketToUnifiedCommentV2(payload)
+
+			if tc.expectedReplyID == nil {
+				require.Nil(t, comment.InReplyToID)
+			} else {
+				require.NotNil(t, comment.InReplyToID)
+				require.Equal(t, *tc.expectedReplyID, *comment.InReplyToID)
+			}
+
+			require.NotNil(t, comment.DiscussionID)
+			require.Equal(t, tc.expectedThreadID, *comment.DiscussionID)
+			require.NotNil(t, comment.Metadata)
+			require.Equal(t, tc.expectedThreadID, comment.Metadata["thread_id"])
+		})
+	}
+}
+
 func readUnifiedEventsFixture(t *testing.T, name string) unifiedEventsFixture {
 	t.Helper()
 
