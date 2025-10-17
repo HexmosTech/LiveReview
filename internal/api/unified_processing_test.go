@@ -46,6 +46,25 @@ func TestUnifiedProcessorV2(t *testing.T) {
 		assert.Greater(t, scenario.Confidence, 0.5)
 	})
 
+	t.Run("CheckResponseWarrant_GitHubMention", func(t *testing.T) {
+		event := UnifiedWebhookEventV2{
+			EventType: "comment_created",
+			Provider:  "github",
+			Comment: &UnifiedCommentV2{
+				Body:   "@LiveReview can you take a look?",
+				Author: UnifiedUserV2{Username: "maintainer"},
+			},
+		}
+
+		botInfo := &UnifiedBotUserInfoV2{Username: "LiveReview"}
+
+		warrantsResponse, scenario := processor.CheckResponseWarrant(event, botInfo)
+
+		assert.True(t, warrantsResponse)
+		assert.Equal(t, "direct_mention", scenario.Type)
+		assert.Contains(t, scenario.Reason, "mention")
+	})
+
 	t.Run("CheckResponseWarrant_BitbucketAccountIDMentionWithEmbeddedBraces", func(t *testing.T) {
 		accountID := "{268052f4-1234-5678-90ab-cdef12345678}"
 		event := UnifiedWebhookEventV2{
@@ -435,6 +454,74 @@ func TestUnifiedContextBuilderV2ThreadMetadataAcrossProviders(t *testing.T) {
 					require.Equal(t, *expected.inReplyToID, *item.Comment.InReplyToID)
 				}
 			}
+		})
+	}
+}
+
+func TestCheckDirectBotMentionV2ProviderDelegation(t *testing.T) {
+	processor := &UnifiedProcessorV2Impl{}
+
+	tests := []struct {
+		name   string
+		event  UnifiedWebhookEventV2
+		bot    *UnifiedBotUserInfoV2
+		expect bool
+	}{
+		{
+			name: "github username mention",
+			event: UnifiedWebhookEventV2{
+				Provider: "github",
+				Comment:  &UnifiedCommentV2{Body: "@LiveReview ping"},
+			},
+			bot:    &UnifiedBotUserInfoV2{Username: "LiveReview"},
+			expect: true,
+		},
+		{
+			name: "gitlab username mention",
+			event: UnifiedWebhookEventV2{
+				Provider: "gitlab",
+				Comment:  &UnifiedCommentV2{Body: "Please help @livereview"},
+			},
+			bot:    &UnifiedBotUserInfoV2{Username: "LiveReview"},
+			expect: true,
+		},
+		{
+			name: "bitbucket account id mention",
+			event: UnifiedWebhookEventV2{
+				Provider: "bitbucket",
+				Comment:  &UnifiedCommentV2{Body: "@{268052f4-1234-5678-90ab-cdef12345678} please advise"},
+			},
+			bot: &UnifiedBotUserInfoV2{
+				Username: "LiveReview",
+				Metadata: map[string]interface{}{"account_id": "{268052f4-1234-5678-90ab-cdef12345678}"},
+			},
+			expect: true,
+		},
+		{
+			name: "unknown provider fallback",
+			event: UnifiedWebhookEventV2{
+				Provider: "custom",
+				Comment:  &UnifiedCommentV2{Body: "@livereview check this"},
+			},
+			bot:    &UnifiedBotUserInfoV2{Username: "LiveReview"},
+			expect: true,
+		},
+		{
+			name: "no mention",
+			event: UnifiedWebhookEventV2{
+				Provider: "github",
+				Comment:  &UnifiedCommentV2{Body: "Just a casual note"},
+			},
+			bot:    &UnifiedBotUserInfoV2{Username: "LiveReview"},
+			expect: false,
+		},
+	}
+
+	for _, tc := range tests {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			result := processor.checkDirectBotMentionV2(tc.event, tc.bot)
+			assert.Equal(t, tc.expect, result)
 		})
 	}
 }

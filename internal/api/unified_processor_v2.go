@@ -9,10 +9,12 @@ import (
 	"net/http"
 	"strings"
 	"time"
-	"unicode"
 
 	"github.com/livereview/internal/aiconnectors"
 	"github.com/livereview/internal/learnings"
+	bitbucketmentions "github.com/livereview/internal/providers/bitbucket"
+	githubmentions "github.com/livereview/internal/providers/github"
+	gitlabmentions "github.com/livereview/internal/providers/gitlab"
 )
 
 // Phase 7.1: Unified processor for provider-agnostic LLM processing
@@ -110,7 +112,7 @@ func (p *UnifiedProcessorV2Impl) CheckResponseWarrant(event UnifiedWebhookEventV
 		}
 	}
 
-	isDirectMention := p.checkDirectBotMentionV2(commentBody, botInfo)
+	isDirectMention := p.checkDirectBotMentionV2(event, botInfo)
 	if isDirectMention {
 		log.Printf("[DEBUG] Direct bot mention detected in comment")
 		metadata := makeMetadata()
@@ -623,125 +625,37 @@ func (p *UnifiedProcessorV2Impl) checkGitLabDiscussionForBotReply(event UnifiedW
 	return false, nil
 }
 
-// checkDirectBotMentionV2 checks for direct @mentions of the bot (ORIGINAL WORKING LOGIC)
-func (p *UnifiedProcessorV2Impl) checkDirectBotMentionV2(commentBody string, botInfo *UnifiedBotUserInfoV2) bool {
+// checkDirectBotMentionV2 checks for direct @mentions of the bot using provider-aware helpers.
+func (p *UnifiedProcessorV2Impl) checkDirectBotMentionV2(event UnifiedWebhookEventV2, botInfo *UnifiedBotUserInfoV2) bool {
+	if botInfo == nil || event.Comment == nil {
+		return false
+	}
+
+	body := event.Comment.Body
+	switch strings.ToLower(event.Provider) {
+	case "github":
+		return githubmentions.DetectDirectMention(body, botInfo)
+	case "gitlab":
+		return gitlabmentions.DetectDirectMention(body, botInfo)
+	case "bitbucket":
+		return bitbucketmentions.DetectDirectMention(body, botInfo)
+	default:
+		return fallbackUsernameMention(body, botInfo)
+	}
+}
+
+func fallbackUsernameMention(commentBody string, botInfo *UnifiedBotUserInfoV2) bool {
 	if botInfo == nil {
 		return false
 	}
 
-	commentLower := strings.ToLower(commentBody)
-	log.Printf("[DEBUG] Checking for direct mentions in comment: '%s'", commentBody)
-
-	// Check for exact bot username mention (ORIGINAL LOGIC)
-	mentionPattern := "@" + strings.ToLower(botInfo.Username)
-	log.Printf("[DEBUG] Looking for mention pattern: '%s' in comment", mentionPattern)
-	if strings.Contains(commentLower, mentionPattern) {
-		log.Printf("[DEBUG] Direct mention found: %s mentioned in comment", botInfo.Username)
-		return true
+	username := strings.TrimSpace(botInfo.Username)
+	if username == "" {
+		return false
 	}
 
-	// Check for Bitbucket identifiers (account ID / UUID) by extracting mention tokens
-	normalizedIdentifiers := map[string]string{}
-	if normalized := normalizeIdentifier(botInfo.UserID); normalized != "" {
-		normalizedIdentifiers[normalized] = botInfo.UserID
-	}
-	if botInfo.Metadata != nil {
-		if accountIDRaw, ok := botInfo.Metadata["account_id"].(string); ok {
-			if normalized := normalizeIdentifier(accountIDRaw); normalized != "" {
-				normalizedIdentifiers[normalized] = accountIDRaw
-			}
-		}
-		if uuidRaw, ok := botInfo.Metadata["uuid"].(string); ok {
-			if normalized := normalizeIdentifier(uuidRaw); normalized != "" {
-				normalizedIdentifiers[normalized] = uuidRaw
-			}
-		}
-	}
-
-	if len(normalizedIdentifiers) > 0 {
-		log.Printf("[DEBUG] Bot identifier set for direct mention matching: %v", normalizedIdentifiers)
-		mentions := extractNormalizedMentions(commentBody)
-		log.Printf("[DEBUG] Extracted %d mention identifier(s) from comment: %v", len(mentions), mentions)
-		for _, mention := range mentions {
-			if mention == "" {
-				continue
-			}
-			if rawIdentifier, ok := normalizedIdentifiers[mention]; ok {
-				log.Printf("[DEBUG] Direct mention found via provider identifier: %s mentioned in comment", rawIdentifier)
-				return true
-			}
-		}
-	}
-
-	// Bitbucket mention fallback: raw account ID without normalization
-	if botInfo.Metadata != nil {
-		if accountIDRaw, ok := botInfo.Metadata["account_id"].(string); ok && accountIDRaw != "" {
-			accountIDPattern := strings.ToLower("@{" + strings.Trim(accountIDRaw, "{}") + "}")
-			log.Printf("[DEBUG] Falling back to raw account ID mention pattern: %s", accountIDPattern)
-			if strings.Contains(commentLower, accountIDPattern) {
-				log.Printf("[DEBUG] Direct mention found via raw account ID fallback: %s", accountIDRaw)
-				return true
-			}
-		}
-	}
-
-	log.Printf("[DEBUG] No direct mentions found")
-	return false
-}
-
-// extractNormalizedMentions pulls potential @mention targets and normalizes them for comparison
-func extractNormalizedMentions(commentBody string) []string {
-	runes := []rune(commentBody)
-	length := len(runes)
-	mentions := make([]string, 0)
-	seen := make(map[string]struct{})
-
-	isIdentifierRune := func(r rune) bool {
-		return unicode.IsLetter(r) || unicode.IsDigit(r) || r == '-' || r == '_' || r == ':' || r == '.'
-	}
-
-	for i := 0; i < length; i++ {
-		if runes[i] != '@' {
-			continue
-		}
-
-		if i+1 >= length {
-			continue
-		}
-
-		var identifier string
-		if runes[i+1] == '{' {
-			start := i + 2
-			j := start
-			for j < length && runes[j] != '}' {
-				j++
-			}
-			identifier = string(runes[start:j])
-			i = j
-		} else {
-			start := i + 1
-			j := start
-			for j < length && isIdentifierRune(runes[j]) {
-				j++
-			}
-			identifier = string(runes[start:j])
-			i = j - 1
-		}
-
-		normalized := normalizeIdentifier(identifier)
-		if normalized == "" {
-			continue
-		}
-
-		if _, exists := seen[normalized]; exists {
-			continue
-		}
-
-		seen[normalized] = struct{}{}
-		mentions = append(mentions, normalized)
-	}
-
-	return mentions
+	mentionPattern := "@" + strings.ToLower(username)
+	return strings.Contains(strings.ToLower(commentBody), mentionPattern)
 }
 
 // classifyContentTypeV2 classifies the type of content in a comment
