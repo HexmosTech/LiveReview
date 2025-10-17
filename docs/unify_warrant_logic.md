@@ -27,11 +27,11 @@ Each phase is gated by `make build` in the repo root (per docs/copilot instructi
 
 ### Phase 3 – Tighten shared mention detection
 - In `UnifiedProcessorV2Impl.checkDirectBotMentionV2`, add provider-aware mention parsing helpers housed in:
-	- `internal/providers/github/mentions.go`
-	- `internal/providers/gitlab/mentions.go`
-	- `internal/providers/bitbucket/mentions.go`
-- Replace ad-hoc parsing from legacy code with shared helpers in Phase 1’s moved logic.
-- Expand `internal/api/unified_processing_test.go` to assert mention detection correctness (with provider fixtures), run `make testall`, then `make build` in repo root.
+	- [x] `internal/providers/github/mentions.go`
+	- [x] `internal/providers/gitlab/mentions.go`
+	- [x] `internal/providers/bitbucket/mentions.go`
+- [x] Replace ad-hoc parsing from legacy code with shared helpers in `internal/api/unified_processor_v2.go`.
+- [x] Expand `internal/api/unified_processing_test.go` to assert mention detection correctness (with provider fixtures), run `make testall`, then `make build` in repo root.
 
 ### Phase 4 – Remove legacy warrant path
 - Strip the now-unused `Server.checkUnifiedAIResponseWarrant` and related prompt glue from `internal/api/webhook_handler.go`.
