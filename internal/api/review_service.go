@@ -21,6 +21,19 @@ type ReviewService struct {
 	resultCallbacks map[string]func(*reviewpkg.ReviewResult)
 }
 
+// reviewSetupContext holds the state for setting up a review
+type reviewSetupContext struct {
+	orgID         int64
+	review        *Review
+	reviewID      string
+	logger        *logging.ReviewLogger
+	token         *IntegrationToken
+	accessToken   string
+	reviewService *reviewpkg.Service
+	request       *reviewpkg.ReviewRequest
+	requestURL    string
+}
+
 // NewReviewService creates a new review service
 func NewReviewService(cfg *config.Config) *ReviewService {
 	// Create factories
@@ -45,23 +58,72 @@ func NewReviewService(cfg *config.Config) *ReviewService {
 func (s *Server) TriggerReviewV2(c echo.Context) error {
 	log.Printf("[DEBUG] TriggerReviewV2: Starting review request handling")
 
-	// Early validation logging - just use standard log.Printf, no special logger yet
+	// Phase 1: Setup review context (org_id, parse request, create DB record, init logger)
+	ctx, err := s.setupReviewContext(c)
+	if err != nil {
+		return c.JSON(http.StatusBadRequest, ErrorResponse{Error: err.Error()})
+	}
+
+	// Phase 2: Prepare authentication (URL validation, token lookup, OAuth refresh)
+	if err := s.prepareAuthentication(ctx); err != nil {
+		return c.JSON(http.StatusBadRequest, ErrorResponse{Error: err.Error()})
+	}
+
+	// Phase 3: Create review request (build review service & request objects)
+	if err := s.createReviewRequest(ctx); err != nil {
+		return c.JSON(http.StatusInternalServerError, ErrorResponse{Error: err.Error()})
+	}
+
+	// Phase 4: Enrich metadata (fetch MR details, update DB)
+	s.enrichMetadata(ctx)
+
+	// Phase 5: Track activity (log the trigger event)
+	s.trackActivity(ctx)
+
+	// Phase 6: Launch background processing (goroutine with completion callback)
+	s.launchBackgroundProcessing(ctx)
+
+	// Return success response immediately
+	if ctx.logger != nil {
+		ctx.logger.LogSection("RESPONSE")
+		ctx.logger.Log("Returning success response to frontend")
+		ctx.logger.Log("  Review ID: %s", ctx.reviewID)
+		ctx.logger.Log("  Response: 200 OK")
+		ctx.logger.Log("=== Frontend request handling completed ===")
+	}
+	log.Printf("[DEBUG] TriggerReviewV2: Returning success response with reviewID: %s (DB ID: %d)", ctx.reviewID, ctx.review.ID)
+	return c.JSON(http.StatusOK, TriggerReviewResponse{
+		Message:  "Review triggered successfully using comprehensive logging architecture. Check review_logs/ for detailed progress.",
+		URL:      ctx.requestURL,
+		ReviewID: ctx.reviewID,
+	})
+}
+
+func optionalString(value string) *string {
+	v := strings.TrimSpace(value)
+	if v == "" {
+		return nil
+	}
+	return &v
+}
+
+// setupReviewContext extracts org_id, parses request, creates DB record, initializes logger
+func (s *Server) setupReviewContext(c echo.Context) (*reviewSetupContext, error) {
+	ctx := &reviewSetupContext{}
+
 	log.Printf("[DEBUG] FRONTEND TRIGGER-REVIEW STARTED")
 	log.Printf("[DEBUG] Request received at: %s", time.Now().Format("2006-01-02 15:04:05"))
 	log.Printf("[DEBUG] Remote Address: %s", c.RealIP())
 	log.Printf("[DEBUG] User Agent: %s", c.Request().UserAgent())
-
-	// JWT authentication is already handled by the RequireAuth() middleware
 	log.Printf("[DEBUG] AUTHENTICATION: JWT handled by middleware")
 
 	// Get org_id from context (set by BuildOrgContextFromHeader middleware)
 	orgID, ok := c.Get("org_id").(int64)
 	if !ok {
 		log.Printf("[ERROR] Organization context not found")
-		return c.JSON(http.StatusBadRequest, ErrorResponse{
-			Error: "Organization context required - missing X-Org-Context header",
-		})
+		return nil, fmt.Errorf("organization context required - missing X-Org-Context header")
 	}
+	ctx.orgID = orgID
 	log.Printf("[DEBUG] ✓ Organization ID: %d", orgID)
 
 	// Parse request body
@@ -69,10 +131,9 @@ func (s *Server) TriggerReviewV2(c echo.Context) error {
 	req, err := parseTriggerReviewRequest(c)
 	if err != nil {
 		log.Printf("[ERROR] Failed to parse request: %v", err)
-		return c.JSON(http.StatusBadRequest, ErrorResponse{
-			Error: "Invalid request format: " + err.Error(),
-		})
+		return nil, fmt.Errorf("invalid request format: %w", err)
 	}
+	ctx.requestURL = req.URL
 	log.Printf("[DEBUG] ✓ Request parsed successfully - MR/PR URL: %s", req.URL)
 
 	// Create database record first to get proper numeric ID
@@ -94,22 +155,19 @@ func (s *Server) TriggerReviewV2(c echo.Context) error {
 	)
 	if err != nil {
 		log.Printf("[ERROR] Failed to create database record: %v", err)
-		return c.JSON(http.StatusInternalServerError, ErrorResponse{
-			Error: fmt.Sprintf("Failed to create review record: %v", err),
-		})
+		return nil, fmt.Errorf("failed to create review record: %w", err)
 	}
-
-	// NOW initialize logger with real DB ID and event sink for customer-visible events
-	reviewID := fmt.Sprintf("%d", review.ID)
+	ctx.review = review
+	ctx.reviewID = fmt.Sprintf("%d", review.ID)
 	log.Printf("[DEBUG] ✓ Database record created - Review ID: %d", review.ID)
 
-	logger, err := logging.StartReviewLoggingWithIDs(reviewID, review.ID, orgID)
+	// Initialize logger with real DB ID and event sink for customer-visible events
+	logger, err := logging.StartReviewLoggingWithIDs(ctx.reviewID, review.ID, orgID)
 	if err != nil {
 		log.Printf("[ERROR] Failed to start comprehensive logging: %v", err)
 		// Continue without logger rather than fail the request
 	}
-
-	// DON'T close logger in defer - let the background goroutine manage it
+	ctx.logger = logger
 
 	if logger != nil {
 		// Attach event sink so logs go to review_events table for UI
@@ -127,298 +185,290 @@ func (s *Server) TriggerReviewV2(c echo.Context) error {
 		_ = rm.UpdateReviewStatus(review.ID, "in_progress")
 	}()
 
+	return ctx, nil
+}
+
+// prepareAuthentication validates URL, looks up token, validates provider, refreshes OAuth token
+func (s *Server) prepareAuthentication(ctx *reviewSetupContext) error {
 	// Validate and parse URL
-	if logger != nil {
-		logger.LogSection("URL VALIDATION")
-		logger.Log("Validating URL: %s", req.URL)
+	if ctx.logger != nil {
+		ctx.logger.LogSection("URL VALIDATION")
+		ctx.logger.Log("Validating URL: %s", ctx.requestURL)
 	}
-	_, baseURL, err := validateAndParseURL(req.URL)
+	_, baseURL, err := validateAndParseURL(ctx.requestURL)
 	if err != nil {
-		if logger != nil {
-			logger.LogError("Invalid URL", err)
+		if ctx.logger != nil {
+			ctx.logger.LogError("Invalid URL", err)
 		}
-		return c.JSON(http.StatusBadRequest, ErrorResponse{
-			Error: err.Error(),
-		})
+		return err
 	}
-	if logger != nil {
-		logger.Log("✓ URL validation passed - Base URL: %s", baseURL)
+	if ctx.logger != nil {
+		ctx.logger.Log("✓ URL validation passed - Base URL: %s", baseURL)
 	}
 
 	// Find and retrieve integration token from database
-	if logger != nil {
-		logger.LogSection("INTEGRATION TOKEN")
-		logger.Log("Finding integration token...")
+	if ctx.logger != nil {
+		ctx.logger.LogSection("INTEGRATION TOKEN")
+		ctx.logger.Log("Finding integration token...")
 	}
 	token, err := s.findIntegrationToken(baseURL)
 	if err != nil {
-		if logger != nil {
-			logger.LogError("Failed to find integration token", err)
+		if ctx.logger != nil {
+			ctx.logger.LogError("Failed to find integration token", err)
 		}
-		return c.JSON(http.StatusBadRequest, ErrorResponse{
-			Error: err.Error(),
-		})
+		return err
 	}
-	if logger != nil {
-		logger.Log("✓ Integration token found - Provider: %s", token.Provider)
+	ctx.token = token
+	if ctx.logger != nil {
+		ctx.logger.Log("✓ Integration token found - Provider: %s", token.Provider)
 	}
 
 	// Validate that the provider is supported
-	if logger != nil {
-		logger.Log("Validating provider: %s", token.Provider)
+	if ctx.logger != nil {
+		ctx.logger.Log("Validating provider: %s", token.Provider)
 	}
 	if err := validateProvider(token.Provider); err != nil {
-		if logger != nil {
-			logger.LogError("Unsupported provider", err)
+		if ctx.logger != nil {
+			ctx.logger.LogError("Unsupported provider", err)
 		}
-		return c.JSON(http.StatusBadRequest, ErrorResponse{
-			Error: err.Error(),
-		})
+		return err
 	}
-	if logger != nil {
-		logger.Log("✓ Provider validation passed")
+	if ctx.logger != nil {
+		ctx.logger.Log("✓ Provider validation passed")
 	}
 
 	// Check if token needs refresh and refresh if necessary
-	if logger != nil {
-		logger.Log("Checking if token needs refresh...")
+	if ctx.logger != nil {
+		ctx.logger.Log("Checking if token needs refresh...")
 	}
 	forceRefresh := false // Can be configured
 	if err := s.refreshTokenIfNeeded(token, forceRefresh); err != nil {
-		if logger != nil {
-			logger.Log("⚠ Token refresh failed, continuing with existing token: %v", err)
+		if ctx.logger != nil {
+			ctx.logger.Log("⚠ Token refresh failed, continuing with existing token: %v", err)
 		}
 	} else {
-		if logger != nil {
-			logger.Log("✓ Token refresh check completed")
+		if ctx.logger != nil {
+			ctx.logger.Log("✓ Token refresh check completed")
 		}
 	}
 
 	// Ensure we have a valid token (with config file fallback if needed)
-	accessToken := ensureValidToken(token)
-	if logger != nil {
-		logger.Log("✓ Valid token obtained (length: %d characters)", len(accessToken))
+	ctx.accessToken = ensureValidToken(token)
+	if ctx.logger != nil {
+		ctx.logger.Log("✓ Valid token obtained (length: %d characters)", len(ctx.accessToken))
 	}
 
-	// Update final review ID (keeping the same one from start)
-	finalReviewID := reviewID
-	log.Printf("[DEBUG] TriggerReviewV2: Generated review ID: %s", finalReviewID)
+	return nil
+}
+
+// createReviewRequest builds the review service and request objects
+func (s *Server) createReviewRequest(ctx *reviewSetupContext) error {
+	log.Printf("[DEBUG] TriggerReviewV2: Generated review ID: %s", ctx.reviewID)
 
 	// Create review service instance for this specific request
-	if logger != nil {
-		logger.LogSection("REVIEW SERVICE CREATION")
-		logger.Log("Creating review service...")
+	if ctx.logger != nil {
+		ctx.logger.LogSection("REVIEW SERVICE CREATION")
+		ctx.logger.Log("Creating review service...")
 	}
 	log.Printf("[DEBUG] TriggerReviewV2: Creating review service for request")
-	reviewService, err := s.createReviewService(token)
+	reviewService, err := s.createReviewService(ctx.token)
 	if err != nil {
-		if logger != nil {
-			logger.LogError("Failed to create review service", err)
+		if ctx.logger != nil {
+			ctx.logger.LogError("Failed to create review service", err)
 		}
-		return c.JSON(http.StatusInternalServerError, ErrorResponse{
-			Error: "Failed to create review service: " + err.Error(),
-		})
+		return fmt.Errorf("failed to create review service: %w", err)
 	}
-	if logger != nil {
-		logger.Log("✓ Review service created successfully")
+	ctx.reviewService = reviewService
+	if ctx.logger != nil {
+		ctx.logger.Log("✓ Review service created successfully")
 	}
 
 	// Build review request
-	if logger != nil {
-		logger.Log("Building review request...")
+	if ctx.logger != nil {
+		ctx.logger.Log("Building review request...")
 	}
 	log.Printf("[DEBUG] TriggerReviewV2: Building review request")
-	reviewRequest, err := s.buildReviewRequest(token, req.URL, finalReviewID, accessToken)
+	reviewRequest, err := s.buildReviewRequest(ctx.token, ctx.requestURL, ctx.reviewID, ctx.accessToken)
 	if err != nil {
-		if logger != nil {
-			logger.LogError("Failed to build review request", err)
+		if ctx.logger != nil {
+			ctx.logger.LogError("Failed to build review request", err)
 		}
-		return c.JSON(http.StatusBadRequest, ErrorResponse{
-			Error: "Failed to build review request: " + err.Error(),
-		})
+		return fmt.Errorf("failed to build review request: %w", err)
 	}
-	if logger != nil {
-		logger.Log("✓ Review request built - Provider=%s, URL=%s", token.Provider, req.URL)
+	ctx.request = reviewRequest
+	if ctx.logger != nil {
+		ctx.logger.Log("✓ Review request built - Provider=%s, URL=%s", ctx.token.Provider, ctx.requestURL)
 	}
 
-	// Prefetch merge request metadata so the review list has rich fields immediately
+	return nil
+}
+
+// enrichMetadata fetches MR details and updates DB with rich metadata
+func (s *Server) enrichMetadata(ctx *reviewSetupContext) {
 	providerUpdated := false
-	if logger != nil {
-		logger.LogSection("METADATA ENRICHMENT")
-		logger.Log("Fetching merge request metadata for listing...")
+	if ctx.logger != nil {
+		ctx.logger.LogSection("METADATA ENRICHMENT")
+		ctx.logger.Log("Fetching merge request metadata for listing...")
 	}
 
 	metadataCtx, cancelMetadata := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancelMetadata()
 
 	providerFactory := reviewpkg.NewStandardProviderFactory()
-	providerInstance, providerErr := providerFactory.CreateProvider(metadataCtx, reviewRequest.Provider)
+	providerInstance, providerErr := providerFactory.CreateProvider(metadataCtx, ctx.request.Provider)
 	if providerErr != nil {
 		log.Printf("[WARN] TriggerReviewV2: Failed to create provider for metadata prefetch: %v", providerErr)
-		if logger != nil {
-			logger.Log("⚠ Unable to create provider for metadata prefetch: %v", providerErr)
+		if ctx.logger != nil {
+			ctx.logger.Log("⚠ Unable to create provider for metadata prefetch: %v", providerErr)
 		}
-	} else {
-		if details, err := providerInstance.GetMergeRequestDetails(metadataCtx, req.URL); err != nil {
-			log.Printf("[WARN] TriggerReviewV2: Failed to fetch MR details for metadata: %v", err)
-			if logger != nil {
-				logger.Log("⚠ Unable to fetch MR details for metadata enrichment: %v", err)
-			}
-		} else if details != nil {
-			if logger != nil {
-				logger.Log("✓ Merge request metadata fetched")
-				logger.Log("  MR Title: %s", details.Title)
-				if details.AuthorName != "" {
-					logger.Log("  Author: %s", details.AuthorName)
-				} else if details.Author != "" {
-					logger.Log("  Author: %s", details.Author)
-				}
-			}
+		return
+	}
 
-			repo := details.RepositoryURL
-			if strings.TrimSpace(repo) == "" {
-				repo = extractRepositoryFromURL(req.URL)
-			}
+	details, err := providerInstance.GetMergeRequestDetails(metadataCtx, ctx.requestURL)
+	if err != nil {
+		log.Printf("[WARN] TriggerReviewV2: Failed to fetch MR details for metadata: %v", err)
+		if ctx.logger != nil {
+			ctx.logger.Log("⚠ Unable to fetch MR details for metadata enrichment: %v", err)
+		}
+		return
+	}
 
-			providerValue := details.ProviderType
-			if providerValue == "" {
-				providerValue = normalizeProviderValue(token.Provider)
-			}
+	if details == nil {
+		return
+	}
 
-			update := ReviewMetadataUpdate{}
-			if ptr := optionalString(repo); ptr != nil {
-				update.Repository = ptr
-			}
-			if ptr := optionalString(details.SourceBranch); ptr != nil {
-				update.Branch = ptr
-			}
-			if ptr := optionalString(providerValue); ptr != nil {
-				update.Provider = ptr
-				providerUpdated = true
-			}
-			if ptr := optionalString(details.Title); ptr != nil {
-				update.MRTitle = ptr
-			}
-			authorName := details.AuthorName
-			if strings.TrimSpace(authorName) == "" {
-				authorName = details.Author
-			}
-			if ptr := optionalString(authorName); ptr != nil {
-				update.AuthorName = ptr
-			}
-			authorUsername := details.AuthorUsername
-			if strings.TrimSpace(authorUsername) == "" {
-				authorUsername = details.Author
-			}
-			if ptr := optionalString(authorUsername); ptr != nil {
-				update.AuthorUsername = ptr
-			}
+	if ctx.logger != nil {
+		ctx.logger.Log("✓ Merge request metadata fetched")
+		ctx.logger.Log("  MR Title: %s", details.Title)
+		if details.AuthorName != "" {
+			ctx.logger.Log("  Author: %s", details.AuthorName)
+		} else if details.Author != "" {
+			ctx.logger.Log("  Author: %s", details.Author)
+		}
+	}
 
-			rm := NewReviewManager(s.db)
-			if err := rm.UpdateReviewMetadata(review.ID, update); err != nil {
-				log.Printf("[WARN] TriggerReviewV2: Failed to update review metadata: %v", err)
-				if logger != nil {
-					logger.Log("⚠ Failed to enrich review metadata: %v", err)
-				}
-			}
+	repo := details.RepositoryURL
+	if strings.TrimSpace(repo) == "" {
+		repo = extractRepositoryFromURL(ctx.requestURL)
+	}
+
+	providerValue := details.ProviderType
+	if providerValue == "" {
+		providerValue = normalizeProviderValue(ctx.token.Provider)
+	}
+
+	update := ReviewMetadataUpdate{}
+	if ptr := optionalString(repo); ptr != nil {
+		update.Repository = ptr
+	}
+	if ptr := optionalString(details.SourceBranch); ptr != nil {
+		update.Branch = ptr
+	}
+	if ptr := optionalString(providerValue); ptr != nil {
+		update.Provider = ptr
+		providerUpdated = true
+	}
+	if ptr := optionalString(details.Title); ptr != nil {
+		update.MRTitle = ptr
+	}
+	authorName := details.AuthorName
+	if strings.TrimSpace(authorName) == "" {
+		authorName = details.Author
+	}
+	if ptr := optionalString(authorName); ptr != nil {
+		update.AuthorName = ptr
+	}
+	authorUsername := details.AuthorUsername
+	if strings.TrimSpace(authorUsername) == "" {
+		authorUsername = details.Author
+	}
+	if ptr := optionalString(authorUsername); ptr != nil {
+		update.AuthorUsername = ptr
+	}
+
+	rm := NewReviewManager(s.db)
+	if err := rm.UpdateReviewMetadata(ctx.review.ID, update); err != nil {
+		log.Printf("[WARN] TriggerReviewV2: Failed to update review metadata: %v", err)
+		if ctx.logger != nil {
+			ctx.logger.Log("⚠ Failed to enrich review metadata: %v", err)
 		}
 	}
 
 	if !providerUpdated {
-		if ptr := optionalString(normalizeProviderValue(token.Provider)); ptr != nil {
-			rm := NewReviewManager(s.db)
-			if err := rm.UpdateReviewMetadata(review.ID, ReviewMetadataUpdate{Provider: ptr}); err != nil {
+		if ptr := optionalString(normalizeProviderValue(ctx.token.Provider)); ptr != nil {
+			if err := rm.UpdateReviewMetadata(ctx.review.ID, ReviewMetadataUpdate{Provider: ptr}); err != nil {
 				log.Printf("[WARN] TriggerReviewV2: Failed to persist provider metadata: %v", err)
-				if logger != nil {
-					logger.Log("⚠ Failed to persist provider metadata: %v", err)
+				if ctx.logger != nil {
+					ctx.logger.Log("⚠ Failed to persist provider metadata: %v", err)
 				}
 			}
 		}
 	}
+}
 
-	// Track the review trigger activity (reference existing review ID)
+// trackActivity logs the review trigger event
+func (s *Server) trackActivity(ctx *reviewSetupContext) {
 	go func() {
-		repository := extractRepositoryFromURL(req.URL)
-		branch := extractBranchFromURL(req.URL)
-		commitHash := extractCommitFromURL(req.URL)
+		repository := extractRepositoryFromURL(ctx.requestURL)
+		branch := extractBranchFromURL(ctx.requestURL)
+		commitHash := extractCommitFromURL(ctx.requestURL)
 		tracker := NewActivityTracker(s.db)
 		eventData := map[string]interface{}{
 			"repository":   repository,
 			"branch":       branch,
 			"commit_hash":  commitHash,
 			"trigger_type": "manual",
-			"provider":     token.Provider,
+			"provider":     ctx.token.Provider,
 			"user_email":   "admin",
-			"original_url": req.URL,
-			"review_id":    review.ID,
+			"original_url": ctx.requestURL,
+			"review_id":    ctx.review.ID,
 		}
-		if err := tracker.TrackActivityWithReview("review_triggered", eventData, &review.ID); err != nil {
+		if err := tracker.TrackActivityWithReview("review_triggered", eventData, &ctx.review.ID); err != nil {
 			fmt.Printf("Failed to track review triggered: %v\n", err)
 		}
 	}()
+}
 
-	// Set up completion callback (simplified to avoid type issues for now)
-	// TODO: Fix ReviewResult type resolution issue and restore full callback functionality
+// launchBackgroundProcessing starts the review goroutine with completion callback
+func (s *Server) launchBackgroundProcessing(ctx *reviewSetupContext) {
+	// Set up completion callback
 	completionCallback := func(result interface{}) {
-		if logger != nil {
-			logger.LogSection("REVIEW COMPLETION CALLBACK")
-			logger.Log("Review processing completed")
+		if ctx.logger != nil {
+			ctx.logger.LogSection("REVIEW COMPLETION CALLBACK")
+			ctx.logger.Log("Review processing completed")
 		}
-		log.Printf("[INFO] TriggerReviewV2: Review processing completed for %s", reviewID)
+		log.Printf("[INFO] TriggerReviewV2: Review processing completed for %s", ctx.reviewID)
 	}
 
 	// Process review asynchronously using a goroutine
-	if logger != nil {
-		logger.LogSection("BACKGROUND PROCESSING")
-		logger.Log("Starting review process in background goroutine...")
-		logger.Log("⚠ Note: Detailed review processing logs will continue in this file")
+	if ctx.logger != nil {
+		ctx.logger.LogSection("BACKGROUND PROCESSING")
+		ctx.logger.Log("Starting review process in background goroutine...")
+		ctx.logger.Log("⚠ Note: Detailed review processing logs will continue in this file")
 	}
 	log.Printf("[DEBUG] TriggerReviewV2: Starting review process in background")
 	go func() {
-		if logger != nil {
-			logger.LogSection("GOROUTINE EXECUTION")
-			logger.Log("=== Background processing started ===")
-			logger.Log("Calling reviewService.ProcessReview...")
+		if ctx.logger != nil {
+			ctx.logger.LogSection("GOROUTINE EXECUTION")
+			ctx.logger.Log("=== Background processing started ===")
+			ctx.logger.Log("Calling reviewService.ProcessReview...")
 		}
-		result := reviewService.ProcessReview(context.Background(), *reviewRequest)
-		if logger != nil {
-			logger.Log("ProcessReview returned, calling completion callback...")
+		result := ctx.reviewService.ProcessReview(context.Background(), *ctx.request)
+		if ctx.logger != nil {
+			ctx.logger.Log("ProcessReview returned, calling completion callback...")
 		}
 		completionCallback(result)
 		// Update review status based on result
 		rm := NewReviewManager(s.db)
 		if result != nil && result.Success {
-			_ = rm.UpdateReviewStatus(review.ID, "completed")
+			_ = rm.UpdateReviewStatus(ctx.review.ID, "completed")
 		} else {
-			_ = rm.UpdateReviewStatus(review.ID, "failed")
+			_ = rm.UpdateReviewStatus(ctx.review.ID, "failed")
 		}
-		if logger != nil {
-			logger.Log("=== Background processing completed ===")
+		if ctx.logger != nil {
+			ctx.logger.Log("=== Background processing completed ===")
 			// Close the logger now that all processing is done
-			logger.Close()
+			ctx.logger.Close()
 		}
 	}()
-
-	// Return success response immediately
-	if logger != nil {
-		logger.LogSection("RESPONSE")
-		logger.Log("Returning success response to frontend")
-		logger.Log("  Review ID: %s", finalReviewID)
-		logger.Log("  Response: 200 OK")
-		logger.Log("=== Frontend request handling completed ===")
-	}
-	log.Printf("[DEBUG] TriggerReviewV2: Returning success response with reviewID: %s (DB ID: %d)", finalReviewID, review.ID)
-	return c.JSON(http.StatusOK, TriggerReviewResponse{
-		Message:  "Review triggered successfully using comprehensive logging architecture. Check review_logs/ for detailed progress.",
-		URL:      req.URL,
-		ReviewID: fmt.Sprintf("%d", review.ID), // Return the database ID as string for frontend compatibility
-	})
-}
-
-func optionalString(value string) *string {
-	v := strings.TrimSpace(value)
-	if v == "" {
-		return nil
-	}
-	return &v
 }
