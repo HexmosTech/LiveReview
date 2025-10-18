@@ -196,13 +196,12 @@ func (s *Service) ProcessReview(ctx context.Context, request ReviewRequest) *Rev
 		s.logger.Log("✓ Review workflow executed successfully")
 		s.logger.Log("  Generated %d comments", len(reviewData.Result.Comments))
 		s.logger.Log("  Summary length: %d characters", len(reviewData.Result.Summary))
-		s.logger.EmitStageStarted("Completion")
 	}
 
-	// Step 4: Post results
+	// Step 4: Post results (Artifact Generation stage)
 	if s.logger != nil {
 		s.logger.LogSection("RESULTS POSTING")
-		s.logger.EmitStageStarted("Completion")
+		s.logger.EmitStageStarted("Artifact Generation")
 		s.logger.Log("Posting review results...")
 		s.logger.Log("  MR ID: %s", reviewData.MRDetails.ID)
 		s.logger.Log("  MR Title: %s", reviewData.MRDetails.Title)
@@ -252,7 +251,7 @@ func (s *Service) ProcessReview(ctx context.Context, request ReviewRequest) *Rev
 	if err != nil {
 		if s.logger != nil {
 			s.logger.LogError("Failed to post results", err)
-			s.logger.EmitStageError("Completion", err)
+			s.logger.EmitStageError("Artifact Generation", err)
 		}
 		result.Error = fmt.Errorf("failed to post results: %w", err)
 		result.Duration = time.Since(start)
@@ -260,7 +259,14 @@ func (s *Service) ProcessReview(ctx context.Context, request ReviewRequest) *Rev
 	}
 	if s.logger != nil {
 		s.logger.Log("✓ Results posted successfully")
-		s.logger.EmitStageCompleted("Completion", "Review process completed successfully")
+		s.logger.EmitStageCompleted("Artifact Generation", fmt.Sprintf("Posted %d comments to merge request", len(reviewData.Result.Comments)))
+	}
+
+	// Step 5: Finalization
+	if s.logger != nil {
+		s.logger.LogSection("REVIEW FINALIZATION")
+		s.logger.EmitStageStarted("Finalization")
+		s.logger.Log("Finalizing review process...")
 	}
 
 	// Success
@@ -271,11 +277,11 @@ func (s *Service) ProcessReview(ctx context.Context, request ReviewRequest) *Rev
 	result.Duration = time.Since(start)
 
 	if s.logger != nil {
-		s.logger.LogSection("REVIEW COMPLETION")
-		s.logger.Log("✓ Review completed successfully!")
+		s.logger.Log("✓ Review finalization complete")
 		s.logger.Log("  Total duration: %v", result.Duration)
 		s.logger.Log("  Comments posted: %d", result.CommentsCount)
 		s.logger.Log("  Summary: %s", result.Summary[:minInt(100, len(result.Summary))]+"...")
+		s.logger.EmitStageCompleted("Finalization", "Review process completed successfully")
 	}
 
 	log.Printf("[INFO] Review completed successfully for %s (ReviewID: %s) in %v",
@@ -481,8 +487,6 @@ func (s *Service) postReviewResults(
 ) error {
 
 	if s.logger != nil {
-		s.logger.LogSection("COMMENTS POSTING")
-		s.logger.EmitStageStarted("Artifact Generation")
 		s.logger.Log("Posting review results to MR ID: %s", mrID)
 		s.logger.Log("  Summary length: %d characters", len(result.Summary))
 		s.logger.Log("  Individual comments: %d", len(result.Comments))
@@ -544,7 +548,6 @@ func (s *Service) postReviewResults(
 		}
 		if s.logger != nil {
 			s.logger.Log("✓ All %d individual comments posted successfully", len(result.Comments))
-			s.logger.EmitStageCompleted("Artifact Generation", fmt.Sprintf("Posted %d comments to merge request", len(result.Comments)))
 		}
 		log.Printf("[DEBUG] Successfully posted all %d comments", len(result.Comments))
 	}
