@@ -443,9 +443,7 @@ export default function ReviewProgressView({ reviewId, events, isLive = false, c
           
           <div className="flex justify-between text-sm text-slate-400">
             <span>
-              {stages.filter(s => s.status === 'completed').length} completed, 
-              {stages.filter(s => s.status === 'in-progress').length} in progress, 
-              {stages.filter(s => s.status === 'pending').length} pending
+              Stage status: {stages.filter(s => s.status === 'completed').length} completed, {stages.filter(s => s.status === 'in-progress').length} in progress, {stages.filter(s => s.status === 'pending').length} pending
             </span>
             {isLive && <span className="text-green-400">● Live</span>}
           </div>
