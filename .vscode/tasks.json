@@ -1,0 +1,14 @@
+{
+    "version": "2.0.0",
+    "tasks": [
+        {
+            "label": "build-for-debug",
+            "type": "shell",
+            "command": "go build -gcflags='all=-N -l' -o livereview .",
+            "options": {
+                "cwd": "${workspaceFolder}/LiveReview"
+            },
+            "problemMatcher": ["$go"]
+        }
+    ]
+}
