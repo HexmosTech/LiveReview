@@ -31,8 +31,8 @@ type ReviewLogger struct {
 }
 
 var (
-	currentLogger *ReviewLogger
-	loggerMutex   sync.Mutex
+	loggers     = make(map[string]*ReviewLogger) // reviewID -> logger
+	loggerMutex sync.Mutex
 )
 
 // StartReviewLogging initializes logging for a new trigger-review invocation
@@ -47,9 +47,10 @@ func StartReviewLoggingWithIDs(reviewID string, reviewIDInt, orgID int64) (*Revi
 	loggerMutex.Lock()
 	defer loggerMutex.Unlock()
 
-	// Close previous logger if exists
-	if currentLogger != nil {
-		currentLogger.Close()
+	// Close previous logger for this reviewID if exists
+	if existingLogger, exists := loggers[reviewID]; exists {
+		existingLogger.Close()
+		delete(loggers, reviewID)
 	}
 
 	timestamp := time.Now().Format("20060102_150405")
@@ -75,7 +76,7 @@ func StartReviewLoggingWithIDs(reviewID string, reviewIDInt, orgID int64) (*Revi
 		startTime:   time.Now(),
 	}
 
-	currentLogger = logger
+	loggers[reviewID] = logger
 
 	// Write header
 	logger.writeHeader()
@@ -83,11 +84,30 @@ func StartReviewLoggingWithIDs(reviewID string, reviewIDInt, orgID int64) (*Revi
 	return logger, nil
 }
 
-// GetCurrentLogger returns the current active logger
+// GetCurrentLogger returns the logger for a specific reviewID
+// Deprecated: Pass logger explicitly instead of using global lookup
 func GetCurrentLogger() *ReviewLogger {
 	loggerMutex.Lock()
 	defer loggerMutex.Unlock()
-	return currentLogger
+
+	// Fallback: return the most recently created logger for backward compatibility
+	// This is unsafe for parallel reviews but maintains old behavior temporarily
+	var mostRecent *ReviewLogger
+	var latestTime time.Time
+	for _, logger := range loggers {
+		if logger.startTime.After(latestTime) {
+			latestTime = logger.startTime
+			mostRecent = logger
+		}
+	}
+	return mostRecent
+}
+
+// GetLoggerByReviewID returns the logger for a specific review
+func GetLoggerByReviewID(reviewID string) *ReviewLogger {
+	loggerMutex.Lock()
+	defer loggerMutex.Unlock()
+	return loggers[reviewID]
 }
 
 // SetEventSink sets the event sink for emitting structured events
@@ -297,6 +317,11 @@ func (r *ReviewLogger) Close() {
 
 		// Also log to console
 		fmt.Printf("[REVIEW LOG] %s", finalMessage)
+
+		// Remove from global map
+		loggerMutex.Lock()
+		delete(loggers, r.reviewID)
+		loggerMutex.Unlock()
 	}
 }
 

@@ -139,7 +139,7 @@ func runReview(c *cli.Context) error {
 		APIKey: cfg.AI[aiName]["api_key"].(string),
 		Model:  cfg.AI[aiName]["model"].(string),
 	}
-	aiProvider, err := aiFactory.CreateAIProvider(context.Background(), aiConfig)
+	aiProvider, err := aiFactory.CreateAIProvider(context.Background(), aiConfig, nil)
 	if err != nil {
 		return fmt.Errorf("failed to create AI provider: %w", err)
 	}

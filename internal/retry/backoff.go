@@ -54,7 +54,7 @@ func LLMRetryConfig() RetryConfig {
 }
 
 // RetryWithBackoff executes an operation with exponential backoff retry logic
-func RetryWithBackoff(ctx context.Context, config RetryConfig, operation func() error) RetryResult {
+func RetryWithBackoff(ctx context.Context, config RetryConfig, operation func() error, logger *logging.ReviewLogger) RetryResult {
 	return RetryWithBackoffAndReason(ctx, config, func() (error, string) {
 		err := operation()
 		reason := "unknown_error"
@@ -62,12 +62,11 @@ func RetryWithBackoff(ctx context.Context, config RetryConfig, operation func() 
 			reason = err.Error()
 		}
 		return err, reason
-	})
+	}, logger)
 }
 
 // RetryWithBackoffAndReason executes an operation with exponential backoff retry logic and custom reason tracking
-func RetryWithBackoffAndReason(ctx context.Context, config RetryConfig, operation func() (error, string)) RetryResult {
-	logger := logging.GetCurrentLogger()
+func RetryWithBackoffAndReason(ctx context.Context, config RetryConfig, operation func() (error, string), logger *logging.ReviewLogger) RetryResult {
 	startTime := time.Now()
 
 	result := RetryResult{

@@ -40,18 +40,18 @@ type BatchStats struct {
 }
 
 // NewResilientClient creates a new resilient LLM client wrapper
-func NewResilientClient(client LLMClient, config retry.RetryConfig, eventSink EventSink) *ResilientClient {
+func NewResilientClient(client LLMClient, config retry.RetryConfig, eventSink EventSink, logger *logging.ReviewLogger) *ResilientClient {
 	return &ResilientClient{
 		client:      client,
 		retryConfig: config,
 		eventSink:   eventSink,
-		logger:      logging.GetCurrentLogger(),
+		logger:      logger,
 	}
 }
 
 // NewResilientClientWithDefaults creates a resilient client with default retry configuration
-func NewResilientClientWithDefaults(client LLMClient, eventSink EventSink) *ResilientClient {
-	return NewResilientClient(client, retry.LLMRetryConfig(), eventSink)
+func NewResilientClientWithDefaults(client LLMClient, eventSink EventSink, logger *logging.ReviewLogger) *ResilientClient {
+	return NewResilientClient(client, retry.LLMRetryConfig(), eventSink, logger)
 }
 
 // ResilientRequest represents a request with resiliency context
@@ -108,7 +108,7 @@ func (rc *ResilientClient) GenerateResilientResponse(ctx context.Context, req Re
 		}
 
 		// Process response with JSON repair if needed
-		processResult, processErr := ProcessLLMResponse(rawResponse, &map[string]interface{}{})
+		processResult, processErr := ProcessLLMResponse(rawResponse, &map[string]interface{}{}, rc.logger)
 		if processErr != nil {
 			if rc.logger != nil {
 				rc.logger.Log("LLM response processing failed: %v", processErr)
@@ -125,7 +125,7 @@ func (rc *ResilientClient) GenerateResilientResponse(ctx context.Context, req Re
 
 		response.Response = processResult.RepairedJSON
 		return nil, "success"
-	})
+	}, rc.logger)
 
 	// Populate response details
 	response.Success = result.Success
@@ -201,7 +201,7 @@ func (rc *ResilientClient) GenerateStructuredResilientResponse(ctx context.Conte
 		}
 
 		return nil, "success"
-	})
+	}, rc.logger)
 
 	// Populate response details
 	response.Success = result.Success

@@ -8,6 +8,7 @@ import (
 
 	"github.com/livereview/internal/ai"
 	"github.com/livereview/internal/ai/langchain"
+	"github.com/livereview/internal/logging"
 	"github.com/livereview/internal/providers"
 	"github.com/livereview/internal/providers/bitbucket"
 	"github.com/livereview/internal/providers/github"
@@ -86,8 +87,8 @@ func NewStandardAIProviderFactory() *StandardAIProviderFactory {
 	return &StandardAIProviderFactory{}
 }
 
-// CreateAIProvider creates an AI provider instance based on configuration
-func (f *StandardAIProviderFactory) CreateAIProvider(ctx context.Context, config AIConfig) (ai.Provider, error) {
+// CreateAIProvider creates an AI provider based on the configuration
+func (f *StandardAIProviderFactory) CreateAIProvider(ctx context.Context, config AIConfig, logger *logging.ReviewLogger) (ai.Provider, error) {
 	switch config.Type {
 	case "langchain":
 		// Extract provider information from config
@@ -108,7 +109,7 @@ func (f *StandardAIProviderFactory) CreateAIProvider(ctx context.Context, config
 			MaxTokens:    maxTokens,
 			ProviderType: providerName,
 			BaseURL:      baseURL,
-		}), nil
+		}, logger), nil
 	default:
 		// Default to langchain for any unrecognized type
 		// Extract provider information from config
@@ -129,7 +130,7 @@ func (f *StandardAIProviderFactory) CreateAIProvider(ctx context.Context, config
 			MaxTokens:    maxTokens,
 			ProviderType: providerName,
 			BaseURL:      baseURL,
-		}), nil
+		}, logger), nil
 	}
 }
 
