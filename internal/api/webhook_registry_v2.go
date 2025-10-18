@@ -1,9 +1,8 @@
 package api
 
 import (
-	"fmt"
 	"log"
-	"strings"
+	"net/http"
 
 	"github.com/labstack/echo/v4"
 )
@@ -86,78 +85,14 @@ func getRelevantHeaders(headers map[string]string) map[string]string {
 
 // RouteWebhook routes a webhook to the appropriate provider
 func (r *WebhookProviderRegistry) RouteWebhook(c echo.Context) error {
-	// Read headers
-	headers := make(map[string]string)
-	for key, values := range c.Request().Header {
-		if len(values) > 0 {
-			headers[key] = values[0]
-		}
+	if r.server == nil || r.server.webhookOrchestratorV2 == nil {
+		return c.JSON(http.StatusInternalServerError, map[string]string{
+			"error": "Webhook orchestrator not available",
+		})
 	}
 
-	// Read body (we need to be careful not to consume it)
-	body := make([]byte, 0)
-	if c.Request().Body != nil {
-		// For provider detection, we'll use headers primarily
-		// and only read body if absolutely necessary
-		// TODO: In production, we might want to buffer the body
-	}
-
-	// Detect provider
-	providerName, provider := r.DetectProvider(headers, body)
-	if provider == nil {
-		return r.handleUnknownProvider(c, headers)
-	}
-
-	// Route to the detected provider
-	log.Printf("[INFO] Routing webhook to %s provider", providerName)
-
-	// For now, we'll route back to the existing handlers
-	// In the future, we can call provider methods directly
-	switch providerName {
-	case "github":
-		return r.server.GitHubWebhookHandlerV2(c)
-	case "gitlab":
-		return r.server.GitLabWebhookHandlerV2(c)
-	case "bitbucket":
-		return r.server.BitbucketWebhookHandler(c)
-	default:
-		return fmt.Errorf("provider %s detected but no handler available", providerName)
-	}
-}
-
-// handleUnknownProvider handles webhooks from unknown providers
-func (r *WebhookProviderRegistry) handleUnknownProvider(c echo.Context, headers map[string]string) error {
-	log.Printf("[WARN] Unknown webhook provider, headers: %v", getRelevantHeaders(headers))
-
-	// Try to determine provider from headers for fallback
-	if userAgent, exists := headers["User-Agent"]; exists {
-		userAgentLower := strings.ToLower(userAgent)
-
-		// GitHub fallback
-		if strings.Contains(userAgentLower, "github") {
-			log.Printf("[INFO] Fallback to GitHub based on User-Agent: %s", userAgent)
-			return r.server.GitHubWebhookHandlerV1(c)
-		}
-
-		// GitLab fallback
-		if strings.Contains(userAgentLower, "gitlab") {
-			log.Printf("[INFO] Fallback to GitLab based on User-Agent: %s", userAgent)
-			return r.server.GitLabWebhookHandlerV1(c)
-		}
-
-		// Bitbucket fallback
-		if strings.Contains(userAgentLower, "bitbucket") {
-			log.Printf("[INFO] Fallback to Bitbucket based on User-Agent: %s", userAgent)
-			return r.server.BitbucketWebhookHandler(c)
-		}
-	}
-
-	// Last resort: return error
-	return c.JSON(400, map[string]string{
-		"error":   "Unknown webhook provider",
-		"message": "Could not determine webhook provider from request headers",
-		"headers": fmt.Sprintf("%v", getRelevantHeaders(headers)),
-	})
+	log.Printf("[INFO] Routing webhook request through orchestrator")
+	return r.server.webhookOrchestratorV2.ProcessWebhookEvent(c)
 }
 
 // ProcessWebhookEvent processes a webhook event using the registry
