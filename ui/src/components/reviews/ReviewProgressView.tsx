@@ -113,8 +113,8 @@ export default function ReviewProgressView({ reviewId, events, isLive = false, c
       },
       {
         id: 'stage-5',
-        title: 'Completion',
-        description: 'Finalizing review and posting results',
+        title: 'Finalization',
+        description: 'Finalizing review and cleanup',
         status: 'pending'
       }
     ];
@@ -159,8 +159,8 @@ export default function ReviewProgressView({ reviewId, events, isLive = false, c
                message.includes('posted') && message.includes('comments')) {
         targetStage = 3;
       }
-      else if (message.includes('stage started') && message.includes('completion') || 
-               message.includes('stage completed') && message.includes('completion') ||
+      else if (message.includes('stage started') && message.includes('finalization') || 
+               message.includes('stage completed') && message.includes('finalization') ||
                message.includes('review process completed')) {
         targetStage = 4;
       }
@@ -192,11 +192,10 @@ export default function ReviewProgressView({ reviewId, events, isLive = false, c
                message.includes('merge request') && message.includes('comment')) {
         targetStage = 3;
       }
-      // Stage 5: Completion
+      // Stage 5: Finalization
       else if (event.eventType === 'completed' ||
-               message.includes('completion') || message.includes('complet') ||
-               message.includes('finaliz') || message.includes('cleanup') ||
-               message.includes('success') || message.includes('review process')) {
+               message.includes('finalization') || message.includes('finaliz') ||
+               message.includes('cleanup') || message.includes('review process completed')) {
         targetStage = 4;
       }
       // Default to review stage for unclear events
