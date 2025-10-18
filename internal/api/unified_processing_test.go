@@ -134,8 +134,48 @@ func TestUnifiedProcessorV2(t *testing.T) {
 
 		// Should not warrant response without mention
 		assert.False(t, warrantsResponse)
-		// Empty scenario type is acceptable for no response
-		assert.True(t, scenario.Type == "" || scenario.Type == "no_response")
+		assert.Equal(t, "no_response", scenario.Type)
+		assert.Equal(t, "top-level comment without reply or discussion context", scenario.Reason)
+	})
+
+	t.Run("CheckResponseWarrant_MissingBotInfoIsHardFailure", func(t *testing.T) {
+		event := UnifiedWebhookEventV2{
+			EventType: "comment_created",
+			Provider:  "gitlab",
+			Comment: &UnifiedCommentV2{
+				Body:   "@livereview ping",
+				Author: UnifiedUserV2{Username: "tester"},
+			},
+		}
+
+		warrantsResponse, scenario := processor.CheckResponseWarrant(event, nil)
+
+		assert.False(t, warrantsResponse)
+		assert.Equal(t, "hard_failure", scenario.Type)
+		assert.Contains(t, scenario.Reason, "bot user info")
+		if assert.NotNil(t, scenario.Metadata) {
+			assert.Equal(t, "bot_info", scenario.Metadata["missing"])
+		}
+	})
+
+	t.Run("CheckResponseWarrant_EmptyBodyHardFailure", func(t *testing.T) {
+		event := UnifiedWebhookEventV2{
+			EventType: "comment_created",
+			Provider:  "github",
+			Comment: &UnifiedCommentV2{
+				Body:   "   ",
+				Author: UnifiedUserV2{Username: "tester"},
+			},
+		}
+		botInfo := &UnifiedBotUserInfoV2{Username: "livereview"}
+
+		warrantsResponse, scenario := processor.CheckResponseWarrant(event, botInfo)
+
+		assert.False(t, warrantsResponse)
+		assert.Equal(t, "hard_failure", scenario.Type)
+		if assert.NotNil(t, scenario.Metadata) {
+			assert.Equal(t, "event.comment.body", scenario.Metadata["missing"])
+		}
 	})
 
 	t.Run("CheckResponseWarrant_BotComment", func(t *testing.T) {
@@ -696,8 +736,10 @@ func TestErrorHandling(t *testing.T) {
 
 		// Test handling of invalid/nil inputs
 		_, scenario5 := processor.CheckResponseWarrant(UnifiedWebhookEventV2{}, nil)
-		// Empty scenario type is acceptable for invalid inputs
-		assert.True(t, scenario5.Type == "" || scenario5.Type == "no_response")
+		assert.Equal(t, "hard_failure", scenario5.Type)
+		if assert.NotNil(t, scenario5.Metadata) {
+			assert.Equal(t, "event.comment", scenario5.Metadata["missing"])
+		}
 	})
 
 	t.Run("ContextBuilderWithEmptyData", func(t *testing.T) {
