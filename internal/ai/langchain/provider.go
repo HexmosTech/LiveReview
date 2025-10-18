@@ -580,10 +580,12 @@ func (p *LangchainProvider) reviewCodeBatchFormatted(ctx context.Context, diffs 
 	}
 	prompt := base + "\n\n" + prompts.BuildCodeChangesSection(diffPointers)
 
-	// Log request to global logger
+	// Log request to global logger and emit batch started event
 	if p.logger != nil {
 		p.logger.LogRequest(batchId, p.modelName, prompt)
 		p.logger.Log("Processing batch %s with %d diffs", batchId, len(diffs))
+		// Emit batch event so UI can show progress
+		p.logger.EmitBatchStart(batchId, len(diffs))
 	}
 
 	// Extra defensive logging to help diagnose empty prompts in some environments
@@ -894,10 +896,12 @@ func (p *LangchainProvider) reviewCodeBatchFormatted(ctx context.Context, diffs 
 		return nil, fmt.Errorf("failed to parse response: %w", err)
 	}
 
-	// Log parsed comments to global logger
+	// Log parsed comments to global logger and emit batch completion event
 	if p.logger != nil {
 		p.logger.LogComments(batchId, result.Comments)
 		p.logger.Log("Batch %s completed successfully with %d comments", batchId, len(result.Comments))
+		// Emit batch completion event so UI can update progress
+		p.logger.EmitBatchComplete(batchId, len(result.Comments))
 	}
 
 	fmt.Printf("[LANGCHAIN SUCCESS] Batch %s completed with %d comments\n", batchId, len(result.Comments))

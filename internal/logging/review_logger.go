@@ -163,6 +163,38 @@ func (r *ReviewLogger) EmitStageError(stageName string, err error) {
 	_ = r.eventSink.EmitLogEvent(ctx, r.reviewIDInt, r.orgID, "error", message, "")
 }
 
+// EmitBatchStart emits an event when a batch starts processing
+func (r *ReviewLogger) EmitBatchStart(batchID string, fileCount int) {
+	if r == nil || r.eventSink == nil {
+		return
+	}
+
+	ctx := context.Background()
+	// Emit batch event with "processing" status
+	_ = r.eventSink.EmitBatchEvent(ctx, r.reviewIDInt, r.orgID, batchID, "processing", 0, fileCount)
+
+	// Also emit a log event for visibility
+	message := fmt.Sprintf("Batch %s started: processing %d files", batchID, fileCount)
+	r.Log("🔄 %s", message)
+	_ = r.eventSink.EmitLogEvent(ctx, r.reviewIDInt, r.orgID, "info", message, batchID)
+}
+
+// EmitBatchComplete emits an event when a batch completes processing
+func (r *ReviewLogger) EmitBatchComplete(batchID string, commentCount int) {
+	if r == nil || r.eventSink == nil {
+		return
+	}
+
+	ctx := context.Background()
+	// Emit batch event with "completed" status
+	_ = r.eventSink.EmitBatchEvent(ctx, r.reviewIDInt, r.orgID, batchID, "completed", 0, commentCount)
+
+	// Also emit a log event for visibility
+	message := fmt.Sprintf("Batch %s completed: generated %d comments", batchID, commentCount)
+	r.Log("✅ %s", message)
+	_ = r.eventSink.EmitLogEvent(ctx, r.reviewIDInt, r.orgID, "success", message, batchID)
+}
+
 // Log writes a message to the review log
 func (r *ReviewLogger) Log(format string, args ...interface{}) {
 	if r == nil {
