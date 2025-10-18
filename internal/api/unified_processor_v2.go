@@ -460,8 +460,8 @@ func (p *UnifiedProcessorV2Impl) isReplyToBotComment(event UnifiedWebhookEventV2
 }
 
 func (p *UnifiedProcessorV2Impl) checkGitHubParentCommentAuthor(event UnifiedWebhookEventV2, parentID string, botInfo *UnifiedBotUserInfoV2) (bool, error) {
-	if p.server == nil {
-		return false, fmt.Errorf("server unavailable for GitHub parent lookup")
+	if p.server == nil || p.server.githubProviderV2 == nil {
+		return false, fmt.Errorf("github provider unavailable for parent lookup")
 	}
 
 	repoFullName := event.Repository.FullName
@@ -469,7 +469,7 @@ func (p *UnifiedProcessorV2Impl) checkGitHubParentCommentAuthor(event UnifiedWeb
 		return false, fmt.Errorf("missing repository full name for GitHub reply detection")
 	}
 
-	token, err := p.server.findIntegrationTokenForGitHubRepo(repoFullName)
+	token, err := p.server.githubProviderV2.FindIntegrationTokenForRepo(repoFullName)
 	if err != nil || token == nil {
 		return false, fmt.Errorf("failed to find GitHub token: %w", err)
 	}
@@ -529,8 +529,8 @@ func (p *UnifiedProcessorV2Impl) checkGitHubParentCommentAuthor(event UnifiedWeb
 }
 
 func (p *UnifiedProcessorV2Impl) checkBitbucketParentCommentAuthor(event UnifiedWebhookEventV2, parentID string, botInfo *UnifiedBotUserInfoV2) (bool, error) {
-	if p.server == nil {
-		return false, fmt.Errorf("server unavailable for Bitbucket parent lookup")
+	if p.server == nil || p.server.bitbucketProviderV2 == nil {
+		return false, fmt.Errorf("bitbucket provider unavailable for parent lookup")
 	}
 
 	if event.Comment.Metadata == nil {
@@ -557,7 +557,7 @@ func (p *UnifiedProcessorV2Impl) checkBitbucketParentCommentAuthor(event Unified
 		return false, fmt.Errorf("insufficient Bitbucket metadata for reply detection")
 	}
 
-	token, err := p.server.findIntegrationTokenForBitbucketRepo(event.Repository.FullName)
+	token, err := p.server.bitbucketProviderV2.FindIntegrationTokenForRepo(event.Repository.FullName)
 	if err != nil || token == nil {
 		return false, fmt.Errorf("failed to find Bitbucket token: %w", err)
 	}

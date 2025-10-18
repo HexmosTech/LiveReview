@@ -34,6 +34,14 @@ type (
 	ResponseScenarioV2      = coreprocessor.ResponseScenarioV2
 )
 
+// gitlabBotMetadata provides the subset of fields we surface with bot metadata.
+type gitlabBotMetadata struct {
+	ID        int    `json:"id"`
+	AvatarURL string `json:"avatar_url"`
+	WebURL    string `json:"web_url"`
+	State     string `json:"state"`
+}
+
 // GitLabOutputClient captures the outbound actions required by the provider.
 type GitLabOutputClient interface {
 	PostCommentReply(event *UnifiedWebhookEventV2, accessToken, gitlabInstanceURL, content string) error
@@ -873,6 +881,34 @@ func (p *GitLabV2Provider) getFreshBotUserInfoV2(gitlabInstanceURL string) (*Git
 // GetFreshBotUserInfo fetches the bot account metadata for the specified GitLab instance.
 func (p *GitLabV2Provider) GetFreshBotUserInfo(gitlabInstanceURL string) (*GitLabV2BotUserInfo, error) {
 	return p.getFreshBotUserInfoV2(gitlabInstanceURL)
+}
+
+// GetBotUserInfo returns the bot user info in unified format for orchestrator consumers.
+func (p *GitLabV2Provider) GetBotUserInfo(repository UnifiedRepositoryV2) (*UnifiedBotUserInfoV2, error) {
+	gitlabURL := extractGitLabInstanceURLV2(repository.WebURL)
+	if gitlabURL == "" {
+		gitlabURL = "https://gitlab.com"
+	}
+
+	info, err := p.GetFreshBotUserInfo(gitlabURL)
+	if err != nil {
+		return nil, fmt.Errorf("failed to fetch gitlab bot user: %w", err)
+	}
+
+	metadata := map[string]interface{}{
+		"id":         info.ID,
+		"avatar_url": info.AvatarURL,
+		"web_url":    info.WebURL,
+		"state":      info.State,
+	}
+
+	return &UnifiedBotUserInfoV2{
+		UserID:   fmt.Sprintf("%d", info.ID),
+		Username: info.Username,
+		Name:     info.Name,
+		Metadata: metadata,
+		IsBot:    strings.EqualFold(info.State, "active"),
+	}, nil
 }
 
 // GitLabHTTPClient V2 Methods

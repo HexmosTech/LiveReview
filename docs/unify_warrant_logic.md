@@ -39,6 +39,13 @@ Each phase is gated by `make build` in the repo root (per docs/copilot instructi
 - [x] Delete obsolete helpers/tests that only exercised the legacy warrant path.
 - [x] Ensure regression tests remain green (update or add coverage as needed), run `make testall`, then `make build` in repo root.
 
+### Phase 4.1 – Finalize provider wiring & CI follow-up
+- [x] Relocate GitHub/Bitbucket integration token + bot info helpers into their provider packages and update orchestrator/processor flows to consume provider interfaces (no `Server` helper dependency).
+- [x] Expose GitLab provider bot info through the same interface so the orchestrator no longer needs a fallback.
+- [x] Add focused unit coverage for the provider-side helper logic (token lookup fallbacks, metadata parsing, bot info retrieval error paths).
+	- New integration-style tests live under `internal/api/{github,gitlab,bitbucket}_bot_user_test.go`; they spin up a real `Server`, exercise the provider contracts against the live Postgres schema, and stub outbound HTTP via `stubHTTPTransport`.
+- [ ] Prepare a branch/PR and run the full CI pipeline once Phase 4.1 code changes land (`make build`, `make testall`, plus hosted CI run) to validate the refactor end-to-end.
+
 ### Phase 5 – Final verification & guardrails
 - Audit error paths in `UnifiedProcessorV2Impl.CheckResponseWarrant` to log and return hard failures when required data is missing, rather than falling back to permissive defaults.
 - Add regression tests under `internal/api/unified_processing_test.go` and provider-specific suites to cover failure handling.

@@ -153,6 +153,18 @@ func (p *GitHubV2Provider) FetchMergeRequestData(event *UnifiedWebhookEventV2) e
 	return nil
 }
 
+// FindIntegrationTokenForRepo returns the integration token associated with the given repository.
+func (p *GitHubV2Provider) FindIntegrationTokenForRepo(repoFullName string) (*IntegrationToken, error) {
+	if p == nil {
+		return nil, fmt.Errorf("github provider not initialised")
+	}
+	if p.db == nil {
+		return nil, fmt.Errorf("github provider missing database handle")
+	}
+
+	return FindIntegrationTokenForGitHubRepo(p.db, repoFullName)
+}
+
 func recordGitHubWebhook(eventType string, headers map[string]string, body []byte, unified *UnifiedWebhookEventV2, err error) {
 	if eventType == "" {
 		eventType = "unknown"
