@@ -33,6 +33,7 @@ func TestFetchRelevantLearningsAndPromptIntegration(t *testing.T) {
 	store := learnings.NewPostgresStore(db)
 	svc := learnings.NewService(store)
 	srv := &Server{learningsService: svc}
+	processor := &UnifiedProcessorV2Impl{server: srv}
 
 	uniqueToken := fmt.Sprintf("lrprompttest-%d", time.Now().UnixNano())
 	repoID := "integration/test-repo"
@@ -67,7 +68,7 @@ func TestFetchRelevantLearningsAndPromptIntegration(t *testing.T) {
 		}
 	})
 
-	relevant, err := srv.fetchRelevantLearnings(ctx, learning.OrgID, repoID, []string{"prompt_builder.go"}, fmt.Sprintf("Need guidance %s", uniqueToken), "")
+	relevant, err := processor.fetchRelevantLearnings(ctx, learning.OrgID, repoID, []string{"prompt_builder.go"}, fmt.Sprintf("Need guidance %s", uniqueToken), "")
 	require.NoError(t, err)
 	require.NotEmpty(t, relevant, "expected seeded learning to be returned")
 
@@ -81,7 +82,7 @@ func TestFetchRelevantLearningsAndPromptIntegration(t *testing.T) {
 	require.True(t, found, "seeded learning %s not present", learning.ShortID)
 
 	prompt := "Base prompt body"
-	combined := srv.appendLearningsToPrompt(prompt, relevant)
+	combined := processor.appendLearningsToPrompt(prompt, relevant)
 	require.Contains(t, combined, learning.ShortID)
 	require.Contains(t, combined, learning.Title)
 	require.Contains(t, combined, "=== Org learnings ===")

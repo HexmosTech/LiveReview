@@ -364,9 +364,12 @@ func (wo *WebhookOrchestratorV2) convertToUnifiedEvent(provider WebhookProviderV
 func (wo *WebhookOrchestratorV2) getBotUserInfo(event *UnifiedWebhookEventV2) (*UnifiedBotUserInfoV2, error) {
 	switch event.Provider {
 	case "gitlab":
-		// Extract GitLab instance URL from repository URL
+		if wo.server == nil || wo.server.gitlabProviderV2 == nil {
+			return nil, fmt.Errorf("gitlab provider not configured")
+		}
+
 		gitlabURL := wo.extractGitLabInstanceURL(event.Repository.WebURL)
-		botInfo, err := wo.server.getFreshBotUserInfo(gitlabURL)
+		botInfo, err := wo.server.gitlabProviderV2.GetFreshBotUserInfo(gitlabURL)
 		if err != nil {
 			return nil, err
 		}
@@ -489,28 +492,6 @@ func (wo *WebhookOrchestratorV2) postErrorResponse(provider WebhookProviderV2, e
 func (wo *WebhookOrchestratorV2) handleUnknownWebhook(c echo.Context, headers map[string]string) error {
 	log.Printf("[WARN] Unknown webhook provider, headers: %v", getRelevantHeaders(headers))
 
-	// Try provider fallback based on User-Agent or other hints
-	if userAgent, exists := headers["User-Agent"]; exists {
-		userAgentLower := strings.ToLower(userAgent)
-
-		// Direct fallback to existing V1 handlers if available
-		if strings.Contains(userAgentLower, "github") {
-			log.Printf("[INFO] Fallback to GitHub V1 handler based on User-Agent")
-			return wo.server.GitHubWebhookHandlerV1(c)
-		}
-
-		if strings.Contains(userAgentLower, "gitlab") {
-			log.Printf("[INFO] Fallback to GitLab V1 handler based on User-Agent")
-			return wo.server.GitLabWebhookHandlerV1(c)
-		}
-
-		if strings.Contains(userAgentLower, "bitbucket") {
-			log.Printf("[INFO] Fallback to Bitbucket handler based on User-Agent")
-			return wo.server.BitbucketWebhookHandler(c)
-		}
-	}
-
-	// No fallback available
 	return c.JSON(http.StatusBadRequest, map[string]string{
 		"error":   "Unknown webhook provider",
 		"headers": fmt.Sprintf("%v", getRelevantHeaders(headers)),

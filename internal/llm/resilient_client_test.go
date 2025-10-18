@@ -295,8 +295,9 @@ func TestBatchProcessor(t *testing.T) {
 
 func TestResilientClient_Timeout(t *testing.T) {
 	// Create a mock client that simulates a slow operation by sleeping
+	// Use a larger gap between operation delay and timeout to avoid flakiness
 	slowClient := &slowMockLLMClient{
-		delay: 100 * time.Millisecond,
+		delay: 200 * time.Millisecond,
 	}
 
 	eventSink := &mockEventSink{}
@@ -316,7 +317,7 @@ func TestResilientClient_Timeout(t *testing.T) {
 		ReviewID: 123,
 		OrgID:    456,
 		Prompt:   "test prompt",
-		Timeout:  10 * time.Millisecond, // Timeout before the slow operation completes
+		Timeout:  25 * time.Millisecond, // Timeout well before the slow operation completes
 	}
 
 	response := client.GenerateResilientResponse(context.Background(), req)

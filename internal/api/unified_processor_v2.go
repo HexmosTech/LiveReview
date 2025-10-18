@@ -25,6 +25,14 @@ type UnifiedProcessorV2Impl struct {
 	server *Server // For accessing database operations and AI infrastructure
 }
 
+type bitbucketParentComment struct {
+	User struct {
+		Username  string `json:"username"`
+		AccountID string `json:"account_id"`
+		UUID      string `json:"uuid"`
+	} `json:"user"`
+}
+
 // NewUnifiedProcessorV2 creates a new unified processor instance
 func NewUnifiedProcessorV2(server *Server) UnifiedProcessorV2 {
 	return &UnifiedProcessorV2Impl{
@@ -556,8 +564,13 @@ func (p *UnifiedProcessorV2Impl) checkBitbucketParentCommentAuthor(event Unified
 
 	email := ""
 	if token.Metadata != nil {
-		if e, ok := token.Metadata["email"].(string); ok {
-			email = e
+		if raw, ok := token.Metadata["email"]; ok {
+			switch v := raw.(type) {
+			case string:
+				email = v
+			case []byte:
+				email = string(v)
+			}
 		}
 	}
 	if email == "" {
@@ -585,7 +598,7 @@ func (p *UnifiedProcessorV2Impl) checkBitbucketParentCommentAuthor(event Unified
 		return false, fmt.Errorf("Bitbucket API error getting parent comment (status %d): %s", resp.StatusCode, string(body))
 	}
 
-	var parent BitbucketComment
+	var parent bitbucketParentComment
 	if err := json.NewDecoder(resp.Body).Decode(&parent); err != nil {
 		return false, err
 	}

@@ -12,7 +12,7 @@ import (
 func TestAppendLearningsToPromptAddsSection(t *testing.T) {
 	t.Helper()
 
-	server := &Server{}
+	processor := &UnifiedProcessorV2Impl{}
 	prompt := "Core prompt context"
 	learningsItems := []*learnings.Learning{
 		{
@@ -28,7 +28,7 @@ func TestAppendLearningsToPromptAddsSection(t *testing.T) {
 		},
 	}
 
-	updated := server.appendLearningsToPrompt(prompt, learningsItems)
+	updated := processor.appendLearningsToPrompt(prompt, learningsItems)
 
 	require.Contains(t, updated, "=== Org learnings ===")
 	require.Contains(t, updated, "LR-7")
@@ -41,10 +41,10 @@ func TestAppendLearningsToPromptAddsSection(t *testing.T) {
 func TestAppendLearningsToPromptNoItemsPreservesPrompt(t *testing.T) {
 	t.Helper()
 
-	server := &Server{}
+	processor := &UnifiedProcessorV2Impl{}
 	original := "No extra data"
 
-	updated := server.appendLearningsToPrompt(original, nil)
+	updated := processor.appendLearningsToPrompt(original, nil)
 
 	assert.Equal(t, original, updated)
 }
@@ -54,11 +54,11 @@ func TestTruncateLearningBody(t *testing.T) {
 
 	longBody := strings.Repeat("detail ", 120)
 
-	truncated := truncateLearningBody(longBody, 80)
+	truncated := truncateLearningBodyV2(longBody, 80)
 
 	require.True(t, len(truncated) <= 83)
 	assert.True(t, strings.HasSuffix(truncated, "..."))
 
-	empty := truncateLearningBody("   \n\t  ", 80)
+	empty := truncateLearningBodyV2("   \n\t  ", 80)
 	assert.Equal(t, "", empty)
 }
