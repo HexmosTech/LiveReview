@@ -108,7 +108,7 @@ export default function ReviewProgressView({ reviewId, events, isLive = false, c
       {
         id: 'stage-4',
         title: 'Artifact Generation',
-        description: 'Executing review batches and generating comments',
+        description: 'Posting review comments to merge request',
         status: 'pending'
       },
       {
@@ -219,9 +219,43 @@ export default function ReviewProgressView({ reviewId, events, isLive = false, c
       }
     });
 
-    // Create substages for batch processing
+    // Create substages for batch processing and update description
     if (processedStages[3].events.length > 0) {
       processedStages[3].substages = createBatchSubstages(processedStages[3].events);
+      
+      // Update description with batch progress
+      const totalBatches = processedStages[3].substages.length;
+      const completedBatches = processedStages[3].substages.filter(s => s.status === 'completed').length;
+      const inProgressBatches = processedStages[3].substages.filter(s => s.status === 'in-progress').length;
+      
+      // Count total comments from batch events
+      const commentEvents = processedStages[3].events.filter(e => 
+        e.message.toLowerCase().includes('comment') && 
+        (e.message.toLowerCase().includes('posted') || e.message.toLowerCase().includes('generated'))
+      );
+      
+      let statusText = '';
+      if (totalBatches > 0) {
+        statusText = `Processing ${totalBatches} batch${totalBatches !== 1 ? 'es' : ''}`;
+        if (completedBatches > 0) {
+          statusText += ` (${completedBatches}/${totalBatches} completed)`;
+        } else if (inProgressBatches > 0) {
+          statusText += ` (${inProgressBatches} in progress)`;
+        }
+      }
+      
+      if (commentEvents.length > 0) {
+        const lastCommentEvent = commentEvents[commentEvents.length - 1];
+        const commentMatch = lastCommentEvent.message.match(/(\d+)\s+comment/);
+        if (commentMatch) {
+          statusText += statusText ? ' • ' : '';
+          statusText += `Posted ${commentMatch[1]} comments`;
+        }
+      }
+      
+      if (statusText) {
+        processedStages[3].description = statusText;
+      }
     }
 
     // Update stage statuses based on events and progression logic
@@ -440,11 +474,14 @@ export default function ReviewProgressView({ reviewId, events, isLive = false, c
             ></div>
           </div>
           
-          <div className="flex justify-between text-sm text-slate-400">
-            <span>
-              Stage status: {stages.filter(s => s.status === 'completed').length} completed, {stages.filter(s => s.status === 'in-progress').length} in progress, {stages.filter(s => s.status === 'pending').length} pending
+          <div className="flex justify-between text-sm">
+            <span className="text-slate-300">
+              <span className="font-medium">Stage status:</span>{' '}
+              <span className="text-slate-400">
+                {stages.filter(s => s.status === 'completed').length} completed, {stages.filter(s => s.status === 'in-progress').length} in progress, {stages.filter(s => s.status === 'pending').length} pending
+              </span>
             </span>
-            {isLive && <span className="text-green-400">● Live</span>}
+            {isLive && <span className="text-green-400 font-medium">● Live</span>}
           </div>
         </div>
       </Card>
@@ -499,7 +536,9 @@ export default function ReviewProgressView({ reviewId, events, isLive = false, c
                     {/* Substages */}
                     {stage.substages.length > 0 && (
                       <div className="p-4">
-                        <h4 className="text-sm font-medium text-slate-300 mb-3">Batches</h4>
+                        <h4 className="text-sm font-medium text-slate-300 mb-3">
+                          Batches ({stage.substages.filter(s => s.status === 'completed').length}/{stage.substages.length} completed)
+                        </h4>
                         <div className="space-y-3">
                           {stage.substages.map(substage => (
                             <div key={substage.id} className="bg-slate-800/50 rounded-lg p-3">
@@ -512,9 +551,20 @@ export default function ReviewProgressView({ reviewId, events, isLive = false, c
                                       {substage.count.current}/{substage.count.total}
                                     </Badge>
                                   )}
+                                  <Badge 
+                                    variant={
+                                      substage.status === 'completed' ? 'success' :
+                                      substage.status === 'failed' ? 'danger' :
+                                      substage.status === 'in-progress' ? 'primary' :
+                                      'default'
+                                    }
+                                    size="sm"
+                                  >
+                                    {substage.status}
+                                  </Badge>
                                 </div>
                                 <div className="text-xs text-slate-400">
-                                  {formatDuration(substage.startTime, substage.endTime)}
+                                  {formatDuration(substage.startTime, substage.endTime) || 'Starting...'}
                                 </div>
                               </div>
                               
@@ -541,8 +591,30 @@ export default function ReviewProgressView({ reviewId, events, isLive = false, c
                                 </div>
                               )}
                               
-                              <div className="text-xs text-slate-400">
-                                {substage.events.length} events
+                              <div className="text-xs">
+                                {(() => {
+                                  // Extract comment count from batch events
+                                  const commentEvent = substage.events.find(e => 
+                                    e.message.toLowerCase().includes('completed') && 
+                                    e.message.toLowerCase().includes('comment')
+                                  );
+                                  const commentMatch = commentEvent?.message.match(/(\d+)\s+comment/);
+                                  const commentCount = commentMatch ? parseInt(commentMatch[1], 10) : null;
+                                  
+                                  if (substage.status === 'in-progress') {
+                                    return <span className="text-blue-400 font-medium">● Processing batch...</span>;
+                                  }
+                                  if (substage.status === 'completed' && commentCount !== null) {
+                                    return <span className="text-green-400">✓ Generated {commentCount} comment{commentCount !== 1 ? 's' : ''}</span>;
+                                  }
+                                  if (substage.status === 'completed') {
+                                    return <span className="text-green-400">✓ Completed</span>;
+                                  }
+                                  if (substage.status === 'failed') {
+                                    return <span className="text-red-400">✗ Failed</span>;
+                                  }
+                                  return <span className="text-slate-500">Waiting to start...</span>;
+                                })()}
                               </div>
                             </div>
                           ))}
@@ -575,7 +647,9 @@ export default function ReviewProgressView({ reviewId, events, isLive = false, c
                           )}
                         </div>
                         <div className="space-y-2 max-h-96 overflow-y-auto">
-                          {(expandedEvents.has(stage.id) ? stage.events : stage.events.slice(-5)).map(event => (
+                          {(expandedEvents.has(stage.id) ? stage.events : stage.events.slice(-5))
+                            .filter(event => event.message && event.message.trim().length > 0)
+                            .map(event => (
                             <div key={event.id} className="flex items-center gap-3 text-sm">
                               <div className={`w-2 h-2 rounded-full ${
                                 event.severity === 'error' ? 'bg-red-500' :
