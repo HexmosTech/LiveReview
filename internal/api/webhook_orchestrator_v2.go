@@ -362,44 +362,50 @@ func (wo *WebhookOrchestratorV2) convertToUnifiedEvent(provider WebhookProviderV
 
 // getBotUserInfo retrieves bot user information for the event's provider
 func (wo *WebhookOrchestratorV2) getBotUserInfo(event *UnifiedWebhookEventV2) (*UnifiedBotUserInfoV2, error) {
+	if event == nil {
+		return nil, fmt.Errorf("nil webhook event")
+	}
+	if wo.providerRegistry == nil {
+		return nil, fmt.Errorf("provider registry not initialized")
+	}
+
+	type botInfoProvider interface {
+		GetBotUserInfo(repository UnifiedRepositoryV2) (*UnifiedBotUserInfoV2, error)
+	}
+
 	switch event.Provider {
 	case "gitlab":
-		if wo.server == nil || wo.server.gitlabProviderV2 == nil {
+		provider, ok := wo.providerRegistry.providers["gitlab"]
+		if !ok {
+			return nil, fmt.Errorf("gitlab provider not registered")
+		}
+		botProvider, ok := provider.(botInfoProvider)
+		if !ok {
 			return nil, fmt.Errorf("gitlab provider not configured")
 		}
-
-		gitlabURL := wo.extractGitLabInstanceURL(event.Repository.WebURL)
-		botInfo, err := wo.server.gitlabProviderV2.GetFreshBotUserInfo(gitlabURL)
-		if err != nil {
-			return nil, err
-		}
-		return &UnifiedBotUserInfoV2{
-			UserID:   fmt.Sprintf("%d", botInfo.ID),
-			Username: botInfo.Username,
-			Name:     botInfo.Name,
-		}, nil
+		return botProvider.GetBotUserInfo(event.Repository)
 
 	case "github":
-		botInfo, err := wo.server.getFreshGitHubBotUserInfo(event.Repository.FullName)
-		if err != nil {
-			return nil, err
+		provider, ok := wo.providerRegistry.providers["github"]
+		if !ok {
+			return nil, fmt.Errorf("github provider not registered")
 		}
-		return &UnifiedBotUserInfoV2{
-			UserID:   fmt.Sprintf("%d", botInfo.ID),
-			Username: botInfo.Login,
-			Name:     botInfo.Name,
-		}, nil
+		botProvider, ok := provider.(botInfoProvider)
+		if !ok {
+			return nil, fmt.Errorf("github provider does not implement bot lookup")
+		}
+		return botProvider.GetBotUserInfo(event.Repository)
 
 	case "bitbucket":
-		botInfo, err := wo.server.getFreshBitbucketBotUserInfo(event.Repository.FullName)
-		if err != nil {
-			return nil, err
+		provider, ok := wo.providerRegistry.providers["bitbucket"]
+		if !ok {
+			return nil, fmt.Errorf("bitbucket provider not registered")
 		}
-		return &UnifiedBotUserInfoV2{
-			UserID:   botInfo.UUID,
-			Username: botInfo.Username,
-			Name:     botInfo.DisplayName,
-		}, nil
+		botProvider, ok := provider.(botInfoProvider)
+		if !ok {
+			return nil, fmt.Errorf("bitbucket provider does not implement bot lookup")
+		}
+		return botProvider.GetBotUserInfo(event.Repository)
 
 	default:
 		return nil, fmt.Errorf("unknown provider: %s", event.Provider)

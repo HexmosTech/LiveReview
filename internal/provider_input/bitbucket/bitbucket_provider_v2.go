@@ -4,8 +4,11 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log"
+	"net/http"
 	"strings"
+	"time"
 
 	"github.com/livereview/internal/capture"
 	coreprocessor "github.com/livereview/internal/core_processor"
@@ -19,7 +22,17 @@ type (
 	UnifiedRepositoryV2     = coreprocessor.UnifiedRepositoryV2
 	UnifiedPositionV2       = coreprocessor.UnifiedPositionV2
 	UnifiedReviewerChangeV2 = coreprocessor.UnifiedReviewerChangeV2
+	UnifiedBotUserInfoV2    = coreprocessor.UnifiedBotUserInfoV2
 )
+
+// bitbucketUserInfo captures the subset of fields returned by the Bitbucket user API needed for bot detection.
+type bitbucketUserInfo struct {
+	UUID        string `json:"uuid"`
+	Username    string `json:"username"`
+	DisplayName string `json:"display_name"`
+	AccountID   string `json:"account_id"`
+	Type        string `json:"type"`
+}
 
 // BitbucketOutputClient defines outbound Bitbucket actions invoked by the provider.
 type BitbucketOutputClient interface {
@@ -431,6 +444,81 @@ func (p *BitbucketV2Provider) FetchMergeRequestData(event *UnifiedWebhookEventV2
 
 	log.Printf("[DEBUG] Fetched %d commits and %d comments for Bitbucket PR %s", len(commits), len(comments), prNumber)
 	return nil
+}
+
+// FindIntegrationTokenForRepo returns the integration token associated with a repository.
+func (p *BitbucketV2Provider) FindIntegrationTokenForRepo(repoFullName string) (*IntegrationToken, error) {
+	if p == nil {
+		return nil, fmt.Errorf("bitbucket provider not initialised")
+	}
+	if p.db == nil {
+		return nil, fmt.Errorf("bitbucket provider missing database handle")
+	}
+
+	return p.findIntegrationTokenForBitbucketRepoV2(repoFullName)
+}
+
+// GetBotUserInfo retrieves the bot account metadata used for warrant checks.
+func (p *BitbucketV2Provider) GetBotUserInfo(repository UnifiedRepositoryV2) (*UnifiedBotUserInfoV2, error) {
+	token, err := p.FindIntegrationTokenForRepo(repository.FullName)
+	if err != nil {
+		return nil, fmt.Errorf("failed to locate Bitbucket integration token: %w", err)
+	}
+
+	email := ""
+	if token.Metadata != nil {
+		if raw, ok := token.Metadata["email"]; ok {
+			switch v := raw.(type) {
+			case string:
+				email = v
+			case []byte:
+				email = string(v)
+			}
+		}
+	}
+	if email == "" {
+		return nil, fmt.Errorf("bitbucket token metadata missing email")
+	}
+
+	req, err := http.NewRequest("GET", "https://api.bitbucket.org/2.0/user", nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to construct Bitbucket user request: %w", err)
+	}
+
+	req.SetBasicAuth(email, token.PatToken)
+	req.Header.Set("Accept", "application/json")
+	req.Header.Set("User-Agent", "LiveReview-Bot")
+
+	client := &http.Client{Timeout: 10 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("failed to call Bitbucket API: %w", err)
+	}
+	defer resp.Body.Close()
+
+	body, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("Bitbucket API error status %d: %s", resp.StatusCode, string(body))
+	}
+
+	var user bitbucketUserInfo
+	if err := json.Unmarshal(body, &user); err != nil {
+		return nil, fmt.Errorf("failed to decode Bitbucket bot user response: %w", err)
+	}
+
+	metadata := map[string]interface{}{
+		"account_id": user.AccountID,
+		"uuid":       user.UUID,
+		"type":       user.Type,
+	}
+
+	return &UnifiedBotUserInfoV2{
+		UserID:   user.AccountID,
+		Username: user.Username,
+		Name:     user.DisplayName,
+		IsBot:    strings.EqualFold(user.Type, "bot"),
+		Metadata: metadata,
+	}, nil
 }
 
 // PostCommentReply posts a reply to a comment

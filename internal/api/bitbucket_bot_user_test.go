@@ -1,63 +1,81 @@
 package api
 
 import (
-	"encoding/json"
-	"fmt"
-	"os"
-	"path/filepath"
+	"io"
+	"net/http"
+	"strings"
 	"testing"
+
+	coreprocessor "github.com/livereview/internal/core_processor"
 )
 
-func TestFetchBitbucketBotUser(t *testing.T) {
-	versionInfo := &VersionInfo{Version: "test"}
+func TestBitbucketProvider_GetBotUserInfo(t *testing.T) {
+	server := setupBotUserTestServer(t)
+	if server.bitbucketProviderV2 == nil {
+		t.Fatalf("bitbucket provider not initialized")
+	}
 
-	cwd, err := os.Getwd()
-	if err != nil {
-		t.Fatalf("failed to get working directory: %v", err)
-	}
-	repoRoot := filepath.Clean(filepath.Join(cwd, "..", ".."))
-	if err := os.Chdir(repoRoot); err != nil {
-		t.Fatalf("failed to change directory to repo root %s: %v", repoRoot, err)
-	}
-	t.Cleanup(func() {
-		_ = os.Chdir(cwd)
-	})
+	repoFullName := "workspace/repo"
+	tokenID := insertIntegrationToken(t, server.db, "bitbucket-cloud", "https://api.bitbucket.org", "pat-xyz", map[string]interface{}{"email": "bot@example.com"})
+	insertBitbucketWebhook(t, server.db, repoFullName, tokenID)
 
-	server, err := NewServer(8888, versionInfo)
-	if err != nil {
-		t.Fatalf("failed to create server: %v", err)
-	}
-	t.Cleanup(func() {
-		if server.db != nil {
-			server.db.Close()
+	stubHTTPTransport(t, func(req *http.Request) (*http.Response, error) {
+		if req.URL.Host != "api.bitbucket.org" || req.URL.Path != "/2.0/user" {
+			t.Fatalf("unexpected Bitbucket request: %s", req.URL.String())
 		}
+		user, pass, ok := req.BasicAuth()
+		if !ok || user != "bot@example.com" || pass != "pat-xyz" {
+			t.Fatalf("unexpected basic auth credentials")
+		}
+		body := `{"uuid":"{123}","username":"bot-user","display_name":"Bot User","account_id":"acc-1","type":"bot"}`
+		resp := &http.Response{
+			StatusCode: http.StatusOK,
+			Body:       io.NopCloser(strings.NewReader(body)),
+			Header:     make(http.Header),
+		}
+		return resp, nil
 	})
 
-	repoFullName := "contorted/fb_backends"
-
-	botInfo, err := server.getFreshBitbucketBotUserInfo(repoFullName)
+	repo := coreprocessor.UnifiedRepositoryV2{FullName: repoFullName}
+	botInfo, err := server.bitbucketProviderV2.GetBotUserInfo(repo)
 	if err != nil {
-		t.Fatalf("failed to fetch Bitbucket bot user info: %v", err)
+		t.Fatalf("expected bot info, got error: %v", err)
 	}
 
-	formatted, err := json.MarshalIndent(botInfo, "", "  ")
-	if err != nil {
-		t.Fatalf("failed to format bot info: %v", err)
+	if botInfo == nil {
+		t.Fatalf("bot info is nil")
+	}
+	if botInfo.Username != "bot-user" {
+		t.Fatalf("unexpected username: %s", botInfo.Username)
+	}
+	if !botInfo.IsBot {
+		t.Fatalf("expected IsBot true")
+	}
+	if uuid, ok := botInfo.Metadata["uuid"].(string); !ok || uuid != "{123}" {
+		t.Fatalf("unexpected uuid metadata: %v", botInfo.Metadata["uuid"])
+	}
+	if account, ok := botInfo.Metadata["account_id"].(string); !ok || account != "acc-1" {
+		t.Fatalf("unexpected account metadata: %v", botInfo.Metadata["account_id"])
+	}
+}
+
+func TestBitbucketProvider_GetBotUserInfo_MissingEmail(t *testing.T) {
+	server := setupBotUserTestServer(t)
+	if server.bitbucketProviderV2 == nil {
+		t.Fatalf("bitbucket provider not initialized")
 	}
 
-	fmt.Println("Bitbucket bot user info:\n" + string(formatted))
-	t.Logf("Bitbucket bot user info: %s", string(formatted))
+	repoFullName := "workspace/repo-no-email"
+	tokenID := insertIntegrationToken(t, server.db, "bitbucket-cloud", "https://api.bitbucket.org", "pat-missing", map[string]interface{}{"other": "value"})
+	insertBitbucketWebhook(t, server.db, repoFullName, tokenID)
 
-	if botInfo.Username == "" {
-		t.Fatalf("bot username is empty")
-	}
-	if botInfo.DisplayName == "" {
-		t.Fatalf("bot display name is empty")
-	}
-	if botInfo.AccountID == "" {
-		t.Fatalf("bot account ID is empty")
-	}
-	if botInfo.UUID == "" {
-		t.Fatalf("bot UUID is empty")
+	stubHTTPTransport(t, func(req *http.Request) (*http.Response, error) {
+		t.Fatalf("HTTP request should not be issued when email metadata is missing")
+		return nil, nil
+	})
+
+	repo := coreprocessor.UnifiedRepositoryV2{FullName: repoFullName}
+	if _, err := server.bitbucketProviderV2.GetBotUserInfo(repo); err == nil {
+		t.Fatalf("expected error when email metadata is missing")
 	}
 }
