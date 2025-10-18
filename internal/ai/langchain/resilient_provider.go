@@ -27,7 +27,7 @@ func NewResilientLangchainProvider(baseProvider *LangchainProvider, reviewID, or
 func (rp *ResilientLangchainProvider) RepairAndParseJSON(response string, diffs []models.CodeDiff, batchID string) (*ParsedResult, error) {
 	// Try our resilient JSON processing first
 	var target interface{}
-	processorResult, err := llm.ProcessLLMResponse(response, &target)
+	processorResult, err := llm.ProcessLLMResponse(response, &target, rp.LangchainProvider.logger)
 
 	// Log JSON repair event if repair was performed
 	if processorResult.RepairStats.WasRepaired {

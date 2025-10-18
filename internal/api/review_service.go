@@ -45,73 +45,38 @@ func NewReviewService(cfg *config.Config) *ReviewService {
 func (s *Server) TriggerReviewV2(c echo.Context) error {
 	log.Printf("[DEBUG] TriggerReviewV2: Starting review request handling")
 
-	// Generate unique review ID for comprehensive logging (we'll update this with DB ID later)
-	reviewID := fmt.Sprintf("frontend-review-%d", time.Now().Unix())
-
-	// Start comprehensive logging for frontend triggers
-	logger, err := logging.StartReviewLogging(reviewID)
-	if err != nil {
-		log.Printf("[ERROR] Failed to start comprehensive logging: %v", err)
-		// Continue without logging rather than fail the request
-	}
-
-	// DON'T close logger in defer - let the background goroutine manage it
-	// The logger will be closed when the review processing completes
-
-	if logger != nil {
-		logger.LogSection("FRONTEND TRIGGER-REVIEW STARTED")
-		logger.Log("Review ID: %s", reviewID)
-		logger.Log("Request received at: %s", time.Now().Format("2006-01-02 15:04:05"))
-		logger.Log("Remote Address: %s", c.RealIP())
-		logger.Log("User Agent: %s", c.Request().UserAgent())
-	}
+	// Early validation logging - just use standard log.Printf, no special logger yet
+	log.Printf("[DEBUG] FRONTEND TRIGGER-REVIEW STARTED")
+	log.Printf("[DEBUG] Request received at: %s", time.Now().Format("2006-01-02 15:04:05"))
+	log.Printf("[DEBUG] Remote Address: %s", c.RealIP())
+	log.Printf("[DEBUG] User Agent: %s", c.Request().UserAgent())
 
 	// JWT authentication is already handled by the RequireAuth() middleware
-	// No additional authentication checks needed
-	if logger != nil {
-		logger.LogSection("AUTHENTICATION")
-		logger.Log("✓ JWT authentication handled by middleware")
-	}
+	log.Printf("[DEBUG] AUTHENTICATION: JWT handled by middleware")
 
 	// Get org_id from context (set by BuildOrgContextFromHeader middleware)
 	orgID, ok := c.Get("org_id").(int64)
 	if !ok {
-		if logger != nil {
-			logger.LogError("Organization context not found", fmt.Errorf("no org_id in context"))
-		}
+		log.Printf("[ERROR] Organization context not found")
 		return c.JSON(http.StatusBadRequest, ErrorResponse{
 			Error: "Organization context required - missing X-Org-Context header",
 		})
 	}
-
-	if logger != nil {
-		logger.Log("✓ Organization ID: %d", orgID)
-	}
+	log.Printf("[DEBUG] ✓ Organization ID: %d", orgID)
 
 	// Parse request body
-	if logger != nil {
-		logger.LogSection("REQUEST PARSING")
-		logger.Log("Parsing request body...")
-	}
+	log.Printf("[DEBUG] REQUEST PARSING: Parsing request body...")
 	req, err := parseTriggerReviewRequest(c)
 	if err != nil {
-		if logger != nil {
-			logger.LogError("Failed to parse request", err)
-		}
+		log.Printf("[ERROR] Failed to parse request: %v", err)
 		return c.JSON(http.StatusBadRequest, ErrorResponse{
 			Error: "Invalid request format: " + err.Error(),
 		})
 	}
-	if logger != nil {
-		logger.Log("✓ Request parsed successfully")
-		logger.Log("  MR/PR URL: %s", req.URL)
-	}
+	log.Printf("[DEBUG] ✓ Request parsed successfully - MR/PR URL: %s", req.URL)
 
 	// Create database record first to get proper numeric ID
-	if logger != nil {
-		logger.LogSection("DATABASE RECORD CREATION")
-		logger.Log("Creating review record in database...")
-	}
+	log.Printf("[DEBUG] DATABASE RECORD CREATION: Creating review record...")
 	reviewManager := NewReviewManager(s.db)
 	review, err := reviewManager.CreateReviewWithOrg(
 		req.URL,   // repository (using URL as repository for now)
@@ -128,34 +93,32 @@ func (s *Server) TriggerReviewV2(c echo.Context) error {
 		orgID,
 	)
 	if err != nil {
-		if logger != nil {
-			logger.LogError("Failed to create database record", err)
-		}
+		log.Printf("[ERROR] Failed to create database record: %v", err)
 		return c.JSON(http.StatusInternalServerError, ErrorResponse{
 			Error: fmt.Sprintf("Failed to create review record: %v", err),
 		})
 	}
 
-	// Update review ID to use database ID for consistency and initialize event sink
-	reviewID = fmt.Sprintf("%d", review.ID)
-	if logger != nil {
-		logger.Log("✓ Database record created")
-		logger.Log("  Database ID: %d", review.ID)
-		logger.Log("  Review ID: %s", reviewID)
+	// NOW initialize logger with real DB ID and event sink for customer-visible events
+	reviewID := fmt.Sprintf("%d", review.ID)
+	log.Printf("[DEBUG] ✓ Database record created - Review ID: %d", review.ID)
 
-		// Reinitialize logger with numeric IDs for event emission and attach DB event sink
-		// Close the previous basic logger and start one with explicit IDs
-		logger.Close()
-		newLogger, err := logging.StartReviewLoggingWithIDs(reviewID, review.ID, orgID)
-		if err == nil && newLogger != nil {
-			eventSink := NewDatabaseEventSink(s.db)
-			newLogger.SetEventSink(eventSink)
-			logger = newLogger
-			logger.Log("✓ Event sink attached; events will be persisted to review_events")
-		} else {
-			// Fall back gracefully without event sink
-			logger = newLogger
-		}
+	logger, err := logging.StartReviewLoggingWithIDs(reviewID, review.ID, orgID)
+	if err != nil {
+		log.Printf("[ERROR] Failed to start comprehensive logging: %v", err)
+		// Continue without logger rather than fail the request
+	}
+
+	// DON'T close logger in defer - let the background goroutine manage it
+
+	if logger != nil {
+		// Attach event sink so logs go to review_events table for UI
+		eventSink := NewDatabaseEventSink(s.db)
+		logger.SetEventSink(eventSink)
+		logger.LogSection("REVIEW PROCESSING STARTED")
+		logger.Log("Review ID: %d", review.ID)
+		logger.Log("Organization ID: %d", orgID)
+		logger.Log("MR/PR URL: %s", req.URL)
 	}
 
 	// Immediately mark review as in progress (sets started_at)
@@ -179,8 +142,7 @@ func (s *Server) TriggerReviewV2(c echo.Context) error {
 		})
 	}
 	if logger != nil {
-		logger.Log("✓ URL validation passed")
-		logger.Log("  Base URL: %s", baseURL)
+		logger.Log("✓ URL validation passed - Base URL: %s", baseURL)
 	}
 
 	// Find and retrieve integration token from database
@@ -198,14 +160,11 @@ func (s *Server) TriggerReviewV2(c echo.Context) error {
 		})
 	}
 	if logger != nil {
-		logger.Log("✓ Integration token found")
-		logger.Log("  Provider: %s", token.Provider)
-		logger.Log("  Token exists: %v", token.AccessToken != "")
+		logger.Log("✓ Integration token found - Provider: %s", token.Provider)
 	}
 
 	// Validate that the provider is supported
 	if logger != nil {
-		logger.LogSection("PROVIDER VALIDATION")
 		logger.Log("Validating provider: %s", token.Provider)
 	}
 	if err := validateProvider(token.Provider); err != nil {
@@ -222,7 +181,6 @@ func (s *Server) TriggerReviewV2(c echo.Context) error {
 
 	// Check if token needs refresh and refresh if necessary
 	if logger != nil {
-		logger.LogSection("TOKEN REFRESH")
 		logger.Log("Checking if token needs refresh...")
 	}
 	forceRefresh := false // Can be configured
@@ -230,7 +188,6 @@ func (s *Server) TriggerReviewV2(c echo.Context) error {
 		if logger != nil {
 			logger.Log("⚠ Token refresh failed, continuing with existing token: %v", err)
 		}
-		log.Printf("[DEBUG] TriggerReviewV2: Token refresh failed, continuing with existing token: %v", err)
 	} else {
 		if logger != nil {
 			logger.Log("✓ Token refresh check completed")
@@ -238,26 +195,18 @@ func (s *Server) TriggerReviewV2(c echo.Context) error {
 	}
 
 	// Ensure we have a valid token (with config file fallback if needed)
-	if logger != nil {
-		logger.LogSection("TOKEN VALIDATION")
-		logger.Log("Ensuring valid token...")
-	}
 	accessToken := ensureValidToken(token)
 	if logger != nil {
-		logger.Log("✓ Valid token obtained")
-		logger.Log("  Token length: %d characters", len(accessToken))
+		logger.Log("✓ Valid token obtained (length: %d characters)", len(accessToken))
 	}
 
 	// Update final review ID (keeping the same one from start)
-	finalReviewID := reviewID // Use the same ID from the start
-	if logger != nil {
-		logger.LogSection("REVIEW SERVICE CREATION")
-		logger.Log("Final Review ID: %s", finalReviewID)
-	}
+	finalReviewID := reviewID
 	log.Printf("[DEBUG] TriggerReviewV2: Generated review ID: %s", finalReviewID)
 
 	// Create review service instance for this specific request
 	if logger != nil {
+		logger.LogSection("REVIEW SERVICE CREATION")
 		logger.Log("Creating review service...")
 	}
 	log.Printf("[DEBUG] TriggerReviewV2: Creating review service for request")
@@ -276,7 +225,6 @@ func (s *Server) TriggerReviewV2(c echo.Context) error {
 
 	// Build review request
 	if logger != nil {
-		logger.LogSection("REVIEW REQUEST BUILDING")
 		logger.Log("Building review request...")
 	}
 	log.Printf("[DEBUG] TriggerReviewV2: Building review request")
@@ -290,8 +238,7 @@ func (s *Server) TriggerReviewV2(c echo.Context) error {
 		})
 	}
 	if logger != nil {
-		logger.Log("✓ Review request built successfully")
-		logger.Log("  Request details: Provider=%s, URL=%s", token.Provider, req.URL)
+		logger.Log("✓ Review request built - Provider=%s, URL=%s", token.Provider, req.URL)
 	}
 
 	// Prefetch merge request metadata so the review list has rich fields immediately

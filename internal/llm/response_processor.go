@@ -19,8 +19,7 @@ type ProcessorResult struct {
 }
 
 // ProcessLLMResponse processes a raw LLM response, attempting repair if needed
-func ProcessLLMResponse(raw string, target interface{}) (ProcessorResult, error) {
-	logger := logging.GetCurrentLogger()
+func ProcessLLMResponse(raw string, target interface{}, logger *logging.ReviewLogger) (ProcessorResult, error) {
 
 	result := ProcessorResult{
 		OriginalJSON: raw,
@@ -165,8 +164,7 @@ func truncateForLog(text string, maxLen int) string {
 }
 
 // LogRepairStats logs detailed repair statistics
-func LogRepairStats(stats JsonRepairStats) {
-	logger := logging.GetCurrentLogger()
+func LogRepairStats(stats JsonRepairStats, logger *logging.ReviewLogger) {
 	if logger == nil {
 		return
 	}

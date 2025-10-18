@@ -31,8 +31,9 @@ type LangchainProvider struct {
 	apiKey       string
 	modelName    string
 	maxTokens    int
-	providerType string // NEW: Provider type (gemini, ollama, openai, etc.)
-	baseURL      string // NEW: Base URL for custom endpoints
+	providerType string                // NEW: Provider type (gemini, ollama, openai, etc.)
+	baseURL      string                // NEW: Base URL for custom endpoints
+	logger       *logging.ReviewLogger // Logger for this review
 }
 
 // minInt returns the minimum of two integers
@@ -46,14 +47,14 @@ func minInt(a, b int) int {
 // formatHunkWithLineNumbers processes a diff hunk to add line number annotations
 // This is CRITICAL for proper comment positioning - handles multiple hunks properly
 func (p *LangchainProvider) formatHunkWithLineNumbers(hunk models.DiffHunk) string {
-	logger := logging.GetCurrentLogger()
+	// Logger accessed via p.logger
 
 	// Extract the original hunk content
 	content := hunk.Content
 	lines := strings.Split(content, "\n")
 
-	if logger != nil {
-		logger.Log("Processing hunk with %d lines of content", len(lines))
+	if p.logger != nil {
+		p.logger.Log("Processing hunk with %d lines of content", len(lines))
 	}
 
 	// Find all hunk headers in the content to handle multiple hunks
@@ -64,16 +65,16 @@ func (p *LangchainProvider) formatHunkWithLineNumbers(hunk models.DiffHunk) stri
 	for i, line := range lines {
 		if re.MatchString(line) {
 			hunkBoundaries = append(hunkBoundaries, i)
-			if logger != nil {
-				logger.Log("Found hunk header at line %d: %s", i, line)
+			if p.logger != nil {
+				p.logger.Log("Found hunk header at line %d: %s", i, line)
 			}
 		}
 	}
 
 	// If we don't have any hunk headers, process as single hunk with metadata
 	if len(hunkBoundaries) == 0 {
-		if logger != nil {
-			logger.Log("No @@ headers found, using hunk metadata: old=%d+%d, new=%d+%d",
+		if p.logger != nil {
+			p.logger.Log("No @@ headers found, using hunk metadata: old=%d+%d, new=%d+%d",
 				hunk.OldStartLine, hunk.OldLineCount, hunk.NewStartLine, hunk.NewLineCount)
 		}
 		return p.formatSingleHunk(lines, hunk.OldStartLine, hunk.NewStartLine, "")
@@ -87,8 +88,8 @@ func (p *LangchainProvider) formatHunkWithLineNumbers(hunk models.DiffHunk) stri
 		// Extract line numbers from header
 		matches := re.FindStringSubmatch(headerLine)
 		if matches == nil {
-			if logger != nil {
-				logger.Log("Failed to parse header line: %s", headerLine)
+			if p.logger != nil {
+				p.logger.Log("Failed to parse header line: %s", headerLine)
 			}
 			return p.formatSingleHunk(lines, hunk.OldStartLine, hunk.NewStartLine, "")
 		}
@@ -96,16 +97,16 @@ func (p *LangchainProvider) formatHunkWithLineNumbers(hunk models.DiffHunk) stri
 		oldStart, _ := strconv.Atoi(matches[1])
 		newStart, _ := strconv.Atoi(matches[3])
 
-		if logger != nil {
-			logger.Log("Single hunk: oldStart=%d, newStart=%d", oldStart, newStart)
+		if p.logger != nil {
+			p.logger.Log("Single hunk: oldStart=%d, newStart=%d", oldStart, newStart)
 		}
 
 		return p.formatSingleHunk(lines[headerIdx+1:], oldStart, newStart, headerLine)
 	}
 
 	// Handle multiple hunks - process each separately
-	if logger != nil {
-		logger.Log("Found multiple hunks (%d), processing separately", len(hunkBoundaries))
+	if p.logger != nil {
+		p.logger.Log("Found multiple hunks (%d), processing separately", len(hunkBoundaries))
 	}
 
 	var result strings.Builder
@@ -118,8 +119,8 @@ func (p *LangchainProvider) formatHunkWithLineNumbers(hunk models.DiffHunk) stri
 		headerLine := lines[startIdx]
 		matches := re.FindStringSubmatch(headerLine)
 		if matches == nil {
-			if logger != nil {
-				logger.Log("Failed to parse header line in multi-hunk: %s", headerLine)
+			if p.logger != nil {
+				p.logger.Log("Failed to parse header line in multi-hunk: %s", headerLine)
 			}
 			continue
 		}
@@ -127,8 +128,8 @@ func (p *LangchainProvider) formatHunkWithLineNumbers(hunk models.DiffHunk) stri
 		oldStart, _ := strconv.Atoi(matches[1])
 		newStart, _ := strconv.Atoi(matches[3])
 
-		if logger != nil {
-			logger.Log("Processing sub-hunk %d (lines %d-%d): oldStart=%d, newStart=%d",
+		if p.logger != nil {
+			p.logger.Log("Processing sub-hunk %d (lines %d-%d): oldStart=%d, newStart=%d",
 				i+1, startIdx, endIdx-1, oldStart, newStart)
 		}
 
@@ -148,7 +149,7 @@ func (p *LangchainProvider) formatHunkWithLineNumbers(hunk models.DiffHunk) stri
 // formatSingleHunk formats a single hunk with line numbers
 // Returns content formatted as "OLD | NEW | CONTENT" table
 func (p *LangchainProvider) formatSingleHunk(lines []string, oldStart, newStart int, header string) string {
-	logger := logging.GetCurrentLogger()
+	// Logger accessed via p.logger
 
 	var result strings.Builder
 
@@ -201,16 +202,16 @@ func (p *LangchainProvider) formatSingleHunk(lines []string, oldStart, newStart 
 			// Handle special cases first
 			if strings.HasPrefix(line, "@@") {
 				// This is likely a stray hunk header that shouldn't be here
-				if logger != nil {
-					logger.Log("Encountered unexpected hunk header in content: %s", line)
+				if p.logger != nil {
+					p.logger.Log("Encountered unexpected hunk header in content: %s", line)
 				}
 				// Skip processing this line
 				continue
 			}
 
 			// Unknown prefix - treat as context but log it
-			if logger != nil && prefix != "" {
-				logger.Log("Unknown line prefix '%s' in hunk, treating as context: %s", prefix, line)
+			if p.logger != nil && prefix != "" {
+				p.logger.Log("Unknown line prefix '%s' in hunk, treating as context: %s", prefix, line)
 			}
 			oldNum = fmt.Sprintf("%3d", currentOldLine)
 			newNum = fmt.Sprintf("%3d", currentNewLine)
@@ -222,8 +223,8 @@ func (p *LangchainProvider) formatSingleHunk(lines []string, oldStart, newStart 
 		result.WriteString(fmt.Sprintf("%s | %s | %s%s\n", oldNum, newNum, prefix, content))
 	}
 
-	if logger != nil {
-		logger.Log("Formatted hunk: old lines %d-%d, new lines %d-%d",
+	if p.logger != nil {
+		p.logger.Log("Formatted hunk: old lines %d-%d, new lines %d-%d",
 			oldStart, currentOldLine-1, newStart, currentNewLine-1)
 	}
 
@@ -240,13 +241,14 @@ type Config struct {
 }
 
 // New creates a new langchain-based AI provider
-func New(config Config) *LangchainProvider {
+func New(config Config, logger *logging.ReviewLogger) *LangchainProvider {
 	return &LangchainProvider{
 		apiKey:       config.APIKey,
 		modelName:    config.ModelName,
 		maxTokens:    config.MaxTokens,
 		providerType: config.ProviderType, // NEW
 		baseURL:      config.BaseURL,      // NEW
+		logger:       logger,              // NEW: Thread logger through
 	}
 }
 
@@ -302,8 +304,8 @@ func (p *LangchainProvider) initializeLLM() error {
 	case "anthropic":
 		return p.initializeAnthropicLLM()
 	default:
-		logger := logging.GetCurrentLogger()
-		logger.Log("WARNING: Unknown provider type '%s', falling back to Gemini", p.providerType)
+		// Logger accessed via p.logger
+		p.logger.Log("WARNING: Unknown provider type '%s', falling back to Gemini", p.providerType)
 		return p.initializeGeminiLLM()
 	}
 }
@@ -508,19 +510,19 @@ func (p *LangchainProvider) ReviewCodeBatch(ctx context.Context, diffs []models.
 	batchId := fmt.Sprintf("batch_%s", timestamp)
 
 	// Get global logger
-	logger := logging.GetCurrentLogger()
+	// Logger accessed via p.logger
 
 	// CRITICAL: Add line numbers to hunks BEFORE creating prompt
 	// This is essential for proper comment positioning
-	if logger != nil {
-		logger.LogSection(fmt.Sprintf("LINE NUMBERING - Batch %s", batchId))
-		logger.Log("Adding line numbers to %d diffs before prompt creation", len(diffs))
+	if p.logger != nil {
+		p.logger.LogSection(fmt.Sprintf("LINE NUMBERING - Batch %s", batchId))
+		p.logger.Log("Adding line numbers to %d diffs before prompt creation", len(diffs))
 	}
 
 	// Process each diff to add line numbers (FIRST STEP - before batching/splitting)
 	for i, diff := range diffs {
-		if logger != nil {
-			logger.Log("Processing diff %d: %s (%d hunks)", i+1, diff.FilePath, len(diff.Hunks))
+		if p.logger != nil {
+			p.logger.Log("Processing diff %d: %s (%d hunks)", i+1, diff.FilePath, len(diff.Hunks))
 		}
 
 		var originalHunks []string
@@ -537,20 +539,20 @@ func (p *LangchainProvider) ReviewCodeBatch(ctx context.Context, diffs []models.
 			// Update the hunk content with the formatted version
 			diff.Hunks[j].Content = formattedContent
 
-			if logger != nil {
-				logger.Log("  Hunk %d: Added line numbers (old: %d-%d, new: %d-%d)",
+			if p.logger != nil {
+				p.logger.Log("  Hunk %d: Added line numbers (old: %d-%d, new: %d-%d)",
 					j+1, hunk.OldStartLine, hunk.OldStartLine+hunk.OldLineCount-1,
 					hunk.NewStartLine, hunk.NewStartLine+hunk.NewLineCount-1)
 			}
 		}
 
 		// Log the transformation for debugging
-		if logger != nil && len(originalHunks) > 0 {
-			logger.Log("Line numbering transformation for %s:", diff.FilePath)
-			logger.Log("--- ORIGINAL HUNK ---")
-			logger.LogDiff(diff.FilePath, originalHunks[0][:minInt(200, len(originalHunks[0]))]+"...")
-			logger.Log("--- FORMATTED HUNK ---")
-			logger.LogDiff(diff.FilePath, formattedHunks[0][:minInt(200, len(formattedHunks[0]))]+"...")
+		if p.logger != nil && len(originalHunks) > 0 {
+			p.logger.Log("Line numbering transformation for %s:", diff.FilePath)
+			p.logger.Log("--- ORIGINAL HUNK ---")
+			p.logger.LogDiff(diff.FilePath, originalHunks[0][:minInt(200, len(originalHunks[0]))]+"...")
+			p.logger.Log("--- FORMATTED HUNK ---")
+			p.logger.LogDiff(diff.FilePath, formattedHunks[0][:minInt(200, len(formattedHunks[0]))]+"...")
 		}
 	}
 
@@ -561,7 +563,7 @@ func (p *LangchainProvider) ReviewCodeBatch(ctx context.Context, diffs []models.
 // reviewCodeBatchFormatted processes diffs that already have line numbers formatted
 // This is used for recursive batch processing to avoid double line numbering
 func (p *LangchainProvider) reviewCodeBatchFormatted(ctx context.Context, diffs []models.CodeDiff, batchId string) (*batch.BatchResult, error) {
-	logger := logging.GetCurrentLogger()
+	// Logger accessed via p.logger
 
 	// Generate the review prompt using Manager.Render + code changes section
 	// Build manager with stub/real vendor pack (no DB store required for org-global defaults)
@@ -579,9 +581,9 @@ func (p *LangchainProvider) reviewCodeBatchFormatted(ctx context.Context, diffs 
 	prompt := base + "\n\n" + prompts.BuildCodeChangesSection(diffPointers)
 
 	// Log request to global logger
-	if logger != nil {
-		logger.LogRequest(batchId, p.modelName, prompt)
-		logger.Log("Processing batch %s with %d diffs", batchId, len(diffs))
+	if p.logger != nil {
+		p.logger.LogRequest(batchId, p.modelName, prompt)
+		p.logger.Log("Processing batch %s with %d diffs", batchId, len(diffs))
 	}
 
 	// Extra defensive logging to help diagnose empty prompts in some environments
@@ -654,8 +656,8 @@ func (p *LangchainProvider) reviewCodeBatchFormatted(ctx context.Context, diffs 
 					responseBuilder.WriteString(content)
 
 					// Log to review logger
-					if logger != nil {
-						logger.Log("Streaming chunk %d (parsed): %q", totalChunks, content)
+					if p.logger != nil {
+						p.logger.Log("Streaming chunk %d (parsed): %q", totalChunks, content)
 					}
 					return nil
 				}
@@ -671,10 +673,10 @@ func (p *LangchainProvider) reviewCodeBatchFormatted(ctx context.Context, diffs 
 		fmt.Printf("[STREAM] %s", chunkStr)
 
 		// Also log to the review logger
-		if logger != nil && len(chunkStr) > 0 {
+		if p.logger != nil && len(chunkStr) > 0 {
 			// Only log non-empty chunks to avoid spam
 			if strings.TrimSpace(chunkStr) != "" {
-				logger.Log("Streaming chunk %d: %q", totalChunks, chunkStr)
+				p.logger.Log("Streaming chunk %d: %q", totalChunks, chunkStr)
 			}
 		}
 
@@ -728,8 +730,8 @@ func (p *LangchainProvider) reviewCodeBatchFormatted(ctx context.Context, diffs 
 				case <-ticker.C:
 					waited := time.Since(startTime)
 					fmt.Printf("[WAIT] Still waiting for Ollama response... elapsed=%v\n", waited)
-					if logger != nil {
-						logger.Log("Waiting for Ollama response... elapsed=%v (non-streaming)", waited)
+					if p.logger != nil {
+						p.logger.Log("Waiting for Ollama response... elapsed=%v (non-streaming)", waited)
 					}
 				}
 			}
@@ -810,8 +812,8 @@ func (p *LangchainProvider) reviewCodeBatchFormatted(ctx context.Context, diffs 
 	}
 
 	if err != nil {
-		if logger != nil {
-			logger.LogError(fmt.Sprintf("LLM call batch %s", batchId), err)
+		if p.logger != nil {
+			p.logger.LogError(fmt.Sprintf("LLM call batch %s", batchId), err)
 		}
 		fmt.Printf("\n[LANGCHAIN ERROR] LLM call failed for batch %s: %v\n", batchId, err)
 		fmt.Printf("[LANGCHAIN ERROR] Provider: %s, Model: %s, Base URL: %s\n",
@@ -843,8 +845,8 @@ func (p *LangchainProvider) reviewCodeBatchFormatted(ctx context.Context, diffs 
 					case <-ticker.C:
 						waited := time.Since(startFB)
 						fmt.Printf("[WAIT] Fallback request in progress... elapsed=%v\n", waited)
-						if logger != nil {
-							logger.Log("Fallback Ollama request in progress... elapsed=%v", waited)
+						if p.logger != nil {
+							p.logger.Log("Fallback Ollama request in progress... elapsed=%v", waited)
 						}
 					}
 				}
@@ -857,8 +859,8 @@ func (p *LangchainProvider) reviewCodeBatchFormatted(ctx context.Context, diffs 
 			close(waitingDone)
 
 			if fbErr != nil {
-				if logger != nil {
-					logger.LogError(fmt.Sprintf("LLM non-streaming fallback batch %s", batchId), fbErr)
+				if p.logger != nil {
+					p.logger.LogError(fmt.Sprintf("LLM non-streaming fallback batch %s", batchId), fbErr)
 				}
 				fmt.Printf("[LANGCHAIN FALLBACK ERROR] Non-streaming attempt failed after %v: %v\n", time.Since(startFB), fbErr)
 				return nil, fmt.Errorf("LLM call failed (streaming + fallback): %w | fallback: %v", err, fbErr)
@@ -867,8 +869,8 @@ func (p *LangchainProvider) reviewCodeBatchFormatted(ctx context.Context, diffs 
 			// Use the fallback output (non-streaming returns a single string)
 			response = out
 			fmt.Printf("\n[STREAM COMPLETE - FALLBACK] Received non-streamed response after %v (%d chars)\n", time.Since(startFB), len(response))
-			if logger != nil {
-				logger.LogResponse(batchId+"-fallback", response)
+			if p.logger != nil {
+				p.logger.LogResponse(batchId+"-fallback", response)
 			}
 		} else {
 			return nil, fmt.Errorf("LLM call failed: %w", err)
@@ -877,25 +879,25 @@ func (p *LangchainProvider) reviewCodeBatchFormatted(ctx context.Context, diffs 
 
 	fmt.Printf("\n[STREAM COMPLETE] Full response received after %v (%d chunks, %d chars)\n",
 		time.Since(startTime), totalChunks, len(response)) // Log response to global logger
-	if logger != nil {
-		logger.LogResponse(batchId, response)
+	if p.logger != nil {
+		p.logger.LogResponse(batchId, response)
 	}
 
 	// Parse the response with enhanced JSON repair
 	fmt.Printf("[LANGCHAIN PARSE] Starting to parse response for batch %s with JSON repair...\n", batchId)
-	result, err := p.parseResponseWithRepair(response, diffs, 0, 0, batchId, logger)
+	result, err := p.parseResponseWithRepair(response, diffs, 0, 0, batchId, p.logger)
 	if err != nil {
-		if logger != nil {
-			logger.LogError(fmt.Sprintf("JSON parsing batch %s", batchId), err)
+		if p.logger != nil {
+			p.logger.LogError(fmt.Sprintf("JSON parsing batch %s", batchId), err)
 		}
 		fmt.Printf("[LANGCHAIN PARSE ERROR] Failed to parse response for batch %s: %v\n", batchId, err)
 		return nil, fmt.Errorf("failed to parse response: %w", err)
 	}
 
 	// Log parsed comments to global logger
-	if logger != nil {
-		logger.LogComments(batchId, result.Comments)
-		logger.Log("Batch %s completed successfully with %d comments", batchId, len(result.Comments))
+	if p.logger != nil {
+		p.logger.LogComments(batchId, result.Comments)
+		p.logger.Log("Batch %s completed successfully with %d comments", batchId, len(result.Comments))
 	}
 
 	fmt.Printf("[LANGCHAIN SUCCESS] Batch %s completed with %d comments\n", batchId, len(result.Comments))
@@ -923,16 +925,16 @@ func (p *LangchainProvider) ReviewCodeWithBatching(ctx context.Context, diffs []
 
 	// CRITICAL: Add line numbers to ALL diffs BEFORE batching
 	// This ensures line numbering happens only once, not per batch
-	logger := logging.GetCurrentLogger()
-	if logger != nil {
-		logger.LogSection("LINE NUMBERING - Pre-Batch Processing")
-		logger.Log("Adding line numbers to %d diffs before batching", len(input))
+	// Logger accessed via p.logger
+	if p.logger != nil {
+		p.logger.LogSection("LINE NUMBERING - Pre-Batch Processing")
+		p.logger.Log("Adding line numbers to %d diffs before batching", len(input))
 	}
 
 	// Process each diff to add line numbers (BEFORE batching/splitting)
 	for i, diff := range input {
-		if logger != nil {
-			logger.Log("Processing diff %d: %s (%d hunks)", i+1, diff.FilePath, len(diff.Hunks))
+		if p.logger != nil {
+			p.logger.Log("Processing diff %d: %s (%d hunks)", i+1, diff.FilePath, len(diff.Hunks))
 		}
 
 		for j, hunk := range diff.Hunks {
@@ -941,8 +943,8 @@ func (p *LangchainProvider) ReviewCodeWithBatching(ctx context.Context, diffs []
 			// Update the hunk content with the formatted version
 			diff.Hunks[j].Content = formattedContent
 
-			if logger != nil {
-				logger.Log("  Hunk %d: Added line numbers (old: %d-%d, new: %d-%d)",
+			if p.logger != nil {
+				p.logger.Log("  Hunk %d: Added line numbers (old: %d-%d, new: %d-%d)",
 					j+1, hunk.OldStartLine, hunk.OldStartLine+hunk.OldLineCount-1,
 					hunk.NewStartLine, hunk.NewStartLine+hunk.NewLineCount-1)
 			}
@@ -1007,7 +1009,7 @@ func (p *LangchainProvider) ReviewCodeWithBatching(ctx context.Context, diffs []
 
 // parseResponse parses the LLM response into a structured result
 func (p *LangchainProvider) parseResponse(response string, diffs []models.CodeDiff) (*ParsedResult, error) {
-	logger := logging.GetCurrentLogger()
+	// Logger accessed via p.logger
 	// Define JSON structures for response
 	type Comment struct {
 		FilePath    string   `json:"filePath"`
@@ -1026,8 +1028,8 @@ func (p *LangchainProvider) parseResponse(response string, diffs []models.CodeDi
 	// Try to extract JSON from the response
 	jsonStr := p.extractJSONFromResponse(response)
 	if jsonStr == "" {
-		if logger != nil {
-			logger.Log("No JSON detected in model response; using graceful fallback with raw excerpt")
+		if p.logger != nil {
+			p.logger.Log("No JSON detected in model response; using graceful fallback with raw excerpt")
 		}
 		return p.fallbackParsedResult(response, diffs, "no JSON detected"), nil
 	}
@@ -1041,8 +1043,8 @@ func (p *LangchainProvider) parseResponse(response string, diffs []models.CodeDi
 			fmt.Printf("[LANGCHAIN REPAIR] Original length: %d, Repaired length: %d\n", len(jsonStr), len(repairedJSON))
 			jsonStr = repairedJSON
 		} else {
-			if logger != nil {
-				logger.Log("JSON appears truncated and could not be repaired; falling back to raw excerpt")
+			if p.logger != nil {
+				p.logger.Log("JSON appears truncated and could not be repaired; falling back to raw excerpt")
 			}
 			return p.fallbackParsedResult(response, diffs, "truncated JSON unrecoverable"), nil
 		}
@@ -1051,8 +1053,8 @@ func (p *LangchainProvider) parseResponse(response string, diffs []models.CodeDi
 	var resp Response
 	if err := json.Unmarshal([]byte(jsonStr), &resp); err != nil {
 		// Return the error instead of falling back - this will trigger the repair logic
-		if logger != nil {
-			logger.Log("Failed to parse JSON: %v; will attempt repair (resp=%d chars, json=%d chars)", err, len(response), len(jsonStr))
+		if p.logger != nil {
+			p.logger.Log("Failed to parse JSON: %v; will attempt repair (resp=%d chars, json=%d chars)", err, len(response), len(jsonStr))
 		}
 		return nil, fmt.Errorf("json unmarshal error: %w", err)
 	}
