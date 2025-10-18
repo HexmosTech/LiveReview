@@ -52,25 +52,40 @@ func normalizeIdentifier(value string) string {
 // CheckResponseWarrant determines if an event warrants an AI response (provider-agnostic)
 // Extracted from checkAIResponseWarrant, checkUnifiedAIResponseWarrant
 func (p *UnifiedProcessorV2Impl) CheckResponseWarrant(event UnifiedWebhookEventV2, botInfo *UnifiedBotUserInfoV2) (bool, ResponseScenarioV2) {
+	hardFailure := func(reason, missing string) (bool, ResponseScenarioV2) {
+		metadata := map[string]interface{}{
+			"provider": event.Provider,
+		}
+		if missing != "" {
+			metadata["missing"] = missing
+		}
+		log.Printf("[ERROR] Response warrant precondition failed: %s", reason)
+		return false, ResponseScenarioV2{
+			Type:       "hard_failure",
+			Reason:     reason,
+			Confidence: 0.0,
+			Metadata:   metadata,
+		}
+	}
+
 	if event.Comment == nil {
-		log.Printf("[DEBUG] No comment in event, skipping warrant check")
-		return false, ResponseScenarioV2{}
+		return hardFailure("comment payload absent in webhook event", "event.comment")
 	}
 
 	commentBody := strings.TrimSpace(event.Comment.Body)
 	if commentBody == "" {
-		log.Printf("[DEBUG] Empty comment body, skipping warrant check")
-		return false, ResponseScenarioV2{}
+		return hardFailure("comment body empty; cannot evaluate warrant", "event.comment.body")
+	}
+
+	if botInfo == nil {
+		return hardFailure("bot user info unavailable for warrant evaluation", "bot_info")
+	}
+	if strings.TrimSpace(botInfo.Username) == "" && strings.TrimSpace(botInfo.UserID) == "" {
+		return hardFailure("bot user info missing identifiers", "bot_info.identifiers")
 	}
 
 	log.Printf("[DEBUG] Checking AI response warrant for comment by %s", event.Comment.Author.Username)
 	log.Printf("[DEBUG] Comment content: %s", commentBody)
-
-	if botInfo == nil || (strings.TrimSpace(botInfo.Username) == "" && strings.TrimSpace(botInfo.UserID) == "") {
-		log.Printf("[DEBUG] Missing bot user info, cannot evaluate warrant")
-		return false, ResponseScenarioV2{}
-	}
-
 	log.Printf("[DEBUG] Bot info available: Username=%s, UserID=%s, Name=%s, Metadata=%v", botInfo.Username, botInfo.UserID, botInfo.Name, botInfo.Metadata)
 
 	if event.Comment.InReplyToID != nil {
@@ -83,11 +98,6 @@ func (p *UnifiedProcessorV2Impl) CheckResponseWarrant(event UnifiedWebhookEventV
 		log.Printf("[DEBUG] Comment discussion ID: %s", *event.Comment.DiscussionID)
 	}
 
-	if p.isCommentAuthoredByBot(event, botInfo) {
-		log.Printf("[DEBUG] Comment authored by registered bot user, skipping")
-		return false, ResponseScenarioV2{}
-	}
-
 	contentType := p.classifyContentTypeV2(commentBody)
 	responseType := p.determineResponseTypeV2(commentBody)
 
@@ -95,6 +105,18 @@ func (p *UnifiedProcessorV2Impl) CheckResponseWarrant(event UnifiedWebhookEventV
 		return map[string]interface{}{
 			"content_type":  contentType,
 			"response_type": responseType,
+		}
+	}
+
+	if p.isCommentAuthoredByBot(event, botInfo) {
+		log.Printf("[DEBUG] Comment authored by registered bot user, skipping")
+		metadata := makeMetadata()
+		metadata["reason"] = "authored_by_bot"
+		return false, ResponseScenarioV2{
+			Type:       "no_response",
+			Reason:     "comment authored by bot",
+			Confidence: 0.0,
+			Metadata:   metadata,
 		}
 	}
 
@@ -135,7 +157,14 @@ func (p *UnifiedProcessorV2Impl) CheckResponseWarrant(event UnifiedWebhookEventV
 	hasDiscussion := event.Comment.DiscussionID != nil && *event.Comment.DiscussionID != ""
 	if !isReply && !hasDiscussion {
 		log.Printf("[DEBUG] Top-level comment without direct mention, skipping per warrant policy")
-		return false, ResponseScenarioV2{}
+		metadata := makeMetadata()
+		metadata["reason"] = "top_level_no_reply"
+		return false, ResponseScenarioV2{
+			Type:       "no_response",
+			Reason:     "top-level comment without reply or discussion context",
+			Confidence: 0.0,
+			Metadata:   metadata,
+		}
 	}
 
 	if trigger := p.detectContentTrigger(commentBody); trigger != "" {
@@ -162,8 +191,15 @@ func (p *UnifiedProcessorV2Impl) CheckResponseWarrant(event UnifiedWebhookEventV
 		}
 	}
 
+	metadata := makeMetadata()
+	metadata["reason"] = "top_level_no_trigger"
 	log.Printf("[DEBUG] No response warrant detected")
-	return false, ResponseScenarioV2{}
+	return false, ResponseScenarioV2{
+		Type:       "no_response",
+		Reason:     "top-level comment without mention or trigger",
+		Confidence: 0.0,
+		Metadata:   metadata,
+	}
 }
 
 func (p *UnifiedProcessorV2Impl) isCommentAuthoredByBot(event UnifiedWebhookEventV2, botInfo *UnifiedBotUserInfoV2) bool {

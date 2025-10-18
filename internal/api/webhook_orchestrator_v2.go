@@ -152,6 +152,18 @@ func (wo *WebhookOrchestratorV2) ProcessWebhookEvent(c echo.Context) error {
 	}
 
 	warrantsResponse, scenario := wo.unifiedProcessor.CheckResponseWarrant(*event, botInfo)
+	if scenario.Type == "hard_failure" {
+		log.Printf("[ERROR] Response warrant hard failure: %s", scenario.Reason)
+		response := map[string]interface{}{
+			"status":   "error",
+			"provider": providerName,
+			"reason":   scenario.Reason,
+		}
+		if len(scenario.Metadata) > 0 {
+			response["details"] = scenario.Metadata
+		}
+		return c.JSON(http.StatusUnprocessableEntity, response)
+	}
 	if !warrantsResponse {
 		log.Printf("[DEBUG] Event does not warrant response: %s", scenario.Type)
 		return c.JSON(http.StatusOK, map[string]string{

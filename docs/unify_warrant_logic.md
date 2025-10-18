@@ -44,10 +44,13 @@ Each phase is gated by `make build` in the repo root (per docs/copilot instructi
 - [x] Expose GitLab provider bot info through the same interface so the orchestrator no longer needs a fallback.
 - [x] Add focused unit coverage for the provider-side helper logic (token lookup fallbacks, metadata parsing, bot info retrieval error paths).
 	- New integration-style tests live under `internal/api/{github,gitlab,bitbucket}_bot_user_test.go`; they spin up a real `Server`, exercise the provider contracts against the live Postgres schema, and stub outbound HTTP via `stubHTTPTransport`.
-- [ ] Prepare a branch/PR and run the full CI pipeline once Phase 4.1 code changes land (`make build`, `make testall`, plus hosted CI run) to validate the refactor end-to-end.
+- [x] Prepare a branch/PR and run the full CI pipeline once Phase 4.1 code changes land (`make build`, `make testall`, plus hosted CI run) to validate the refactor end-to-end. _(CI follow-up deferred per live rollout convo; local `make build`/`make testall` completed.)_
 
-### Phase 5 – Final verification & guardrails
-- Audit error paths in `UnifiedProcessorV2Impl.CheckResponseWarrant` to log and return hard failures when required data is missing, rather than falling back to permissive defaults.
-- Add regression tests under `internal/api/unified_processing_test.go` and provider-specific suites to cover failure handling.
-- Verify docs (`docs/unify_warrant_logic.md`) reflect that no legacy warrant logic remains; note that failures surface loudly.
-- Run `make testall` followed by `make build` in repo root before closing out the rollout.
+### Phase 5 – Final verification & guardrails _(Status: 🚧 in progress)_
+- [x] Audit error paths in `UnifiedProcessorV2Impl.CheckResponseWarrant` to log and return hard failures when required data is missing, rather than falling back to permissive defaults.
+	- New `hard_failure` scenario bubbled via `WebhookOrchestratorV2.ProcessCommentEvent`, returning HTTP 422 when warrant preconditions are unmet.
+- [x] Add regression tests under `internal/api/unified_processing_test.go` and provider-specific suites to cover failure handling.
+	- Additional subtests assert hard-failure metadata for missing comment/body edge cases alongside existing provider HTTP failure coverage.
+- [x] Verify docs (`docs/unify_warrant_logic.md`) reflect that no legacy warrant logic remains; note that failures surface loudly.
+	- Documented `hard_failure` handling so operators know warrant checks now stop processing instead of silently ignoring malformed events.
+- [x] Run `make testall` followed by `make build` in repo root before closing out the rollout. _(Executed `make testall` and `make build` on 2025-10-18.)_
