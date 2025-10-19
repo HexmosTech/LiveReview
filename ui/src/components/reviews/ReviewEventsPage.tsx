@@ -3,6 +3,7 @@ import { Card, Badge, Icons } from '../UIPrimitives';
 import ReviewProgressView from './ReviewProgressView';
 import ReviewTimeline from './ReviewTimeline';
 import { getReviewEvents } from '../../api/reviews';
+import { ReviewEvent } from './types';
 
 interface ReviewEventsPageProps {
   reviewId: number;
@@ -10,29 +11,6 @@ interface ReviewEventsPageProps {
   isLive?: boolean;
   pollingInterval?: number;
   className?: string;
-}
-
-interface ReviewEvent {
-  id: string;
-  timestamp: string;
-  eventType: 'started' | 'progress' | 'batch_complete' | 'retry' | 'json_repair' | 'timeout' | 'error' | 'completed';
-  message: string;
-  details?: {
-    batchId?: string;
-    filename?: string;
-    attempt?: number;
-    delay?: string;
-    responseTime?: string;
-    errorMessage?: string;
-    repairStats?: {
-      originalSize: number;
-      repairedSize: number;
-      commentsLost: number;
-      fieldsRecovered: number;
-      repairTime: string;
-    };
-  };
-  severity: 'info' | 'success' | 'warning' | 'error';
 }
 
 type ViewMode = 'progress' | 'raw';
@@ -113,7 +91,7 @@ export default function ReviewEventsPage({
       // Transform backend events to frontend format  
       const backendEvents = data.events || [];
       const newEvents: ReviewEvent[] = backendEvents.map((event: any) => {
-        // Generate message based on event type and data
+        // Generate human-readable message for display (Raw Events tab)
         let message = '';
         const eventData = event.data || {};
         
@@ -123,12 +101,13 @@ export default function ReviewEventsPage({
             break;
           case 'batch':
             // Generate message for batch events based on status
+            // Note: fileCount is repurposed to carry commentCount when status='completed'
             if (eventData.status === 'processing') {
               const fileCount = eventData.fileCount || 0;
               message = `Batch ${event.batchId || 'unknown'} started: processing ${fileCount} file${fileCount !== 1 ? 's' : ''}`;
             } else if (eventData.status === 'completed') {
-              const fileCount = eventData.fileCount || 0;
-              message = `Batch ${event.batchId || 'unknown'} completed: generated ${fileCount} comment${fileCount !== 1 ? 's' : ''}`;
+              const commentCount = eventData.fileCount || 0; // fileCount contains commentCount for completed batches
+              message = `Batch ${event.batchId || 'unknown'} completed: generated ${commentCount} comment${commentCount !== 1 ? 's' : ''}`;
             } else {
               message = `Batch ${event.batchId || 'unknown'}: ${eventData.status || 'unknown status'}`;
             }
@@ -150,14 +129,12 @@ export default function ReviewEventsPage({
         return {
           id: event.id.toString(),
           timestamp: event.time,
-          eventType: event.type === 'log' ? 
-            (event.level === 'success' ? 'completed' : 'started') : 
-            event.type,
+          eventType: event.type,
           message: message,
           severity: event.level || 'info',
           details: {
             ...eventData,
-            batchId: event.batchId || event.batch_id  // Include batch ID from database
+            batchId: event.batchId  // Top-level batchId from backend
           }
         };
       });
