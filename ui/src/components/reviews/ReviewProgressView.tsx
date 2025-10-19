@@ -180,15 +180,18 @@ export default function ReviewProgressView({ reviewId, events, isLive = false, c
       }
       // Stage 3: Review
       else if (message.includes('ai') || message.includes('llm') ||
-               message.includes('generat') || message.includes('comment') ||
-               message.includes('batch') || message.includes('review') ||
-               event.eventType === 'batch_complete' || event.eventType === 'progress' ||
+               message.includes('generat') || 
+               message.includes('batch') && !message.includes('completed') && !message.includes('generated') ||
+               message.includes('review') ||
                event.eventType === 'retry' || event.eventType === 'json_repair') {
         targetStage = 2;
       }
-      // Stage 4: Artifact Generation
-      else if (message.includes('post') || message.includes('comment') ||
+      // Stage 4: Artifact Generation (batch completion and comment posting)
+      else if (message.includes('post') || 
+               message.includes('batch') && (message.includes('completed') || message.includes('generated')) ||
+               message.includes('comment') && (message.includes('post') || message.includes('generated')) ||
                message.includes('artifact') || message.includes('result') ||
+               event.eventType === 'batch_complete' || event.eventType === 'batch' ||
                message.includes('merge request') && message.includes('comment')) {
         targetStage = 3;
       }
@@ -219,43 +222,9 @@ export default function ReviewProgressView({ reviewId, events, isLive = false, c
       }
     });
 
-    // Create substages for batch processing and update description
+    // Create substages for batch processing
     if (processedStages[3].events.length > 0) {
       processedStages[3].substages = createBatchSubstages(processedStages[3].events);
-      
-      // Update description with batch progress
-      const totalBatches = processedStages[3].substages.length;
-      const completedBatches = processedStages[3].substages.filter(s => s.status === 'completed').length;
-      const inProgressBatches = processedStages[3].substages.filter(s => s.status === 'in-progress').length;
-      
-      // Count total comments from batch events
-      const commentEvents = processedStages[3].events.filter(e => 
-        e.message.toLowerCase().includes('comment') && 
-        (e.message.toLowerCase().includes('posted') || e.message.toLowerCase().includes('generated'))
-      );
-      
-      let statusText = '';
-      if (totalBatches > 0) {
-        statusText = `Processing ${totalBatches} batch${totalBatches !== 1 ? 'es' : ''}`;
-        if (completedBatches > 0) {
-          statusText += ` (${completedBatches}/${totalBatches} completed)`;
-        } else if (inProgressBatches > 0) {
-          statusText += ` (${inProgressBatches} in progress)`;
-        }
-      }
-      
-      if (commentEvents.length > 0) {
-        const lastCommentEvent = commentEvents[commentEvents.length - 1];
-        const commentMatch = lastCommentEvent.message.match(/(\d+)\s+comment/);
-        if (commentMatch) {
-          statusText += statusText ? ' • ' : '';
-          statusText += `Posted ${commentMatch[1]} comments`;
-        }
-      }
-      
-      if (statusText) {
-        processedStages[3].description = statusText;
-      }
     }
 
     // Update stage statuses based on events and progression logic
@@ -319,12 +288,27 @@ export default function ReviewProgressView({ reviewId, events, isLive = false, c
   const createBatchSubstages = (batchEvents: ReviewEvent[]): Substage[] => {
     const batchMap = new Map<string, Substage>();
     
+    // Debug logging
+    if (process.env.NODE_ENV === 'development') {
+      console.log('[createBatchSubstages] Processing events:', batchEvents.length, 
+        batchEvents.map(e => ({
+          message: e.message,
+          batchId: e.details?.batchId,
+          eventType: e.eventType
+        })));
+    }
+    
     batchEvents.forEach(event => {
       // Extract batch info from details first, then from message
       let batchId = event.details?.batchId;
       if (!batchId) {
-        const batchMatch = event.message.match(/batch[- ]?(\d+|[a-zA-Z0-9-]+)/i);
+        // Match patterns like "batch-1", "batch 1", or standalone batch ID
+        const batchMatch = event.message.match(/batch[-\s]([a-zA-Z0-9-]+)/i);
         batchId = batchMatch ? batchMatch[1] : 'general';
+      }
+      
+      if (process.env.NODE_ENV === 'development') {
+        console.log('[createBatchSubstages] Event:', event.message, '→ batchId:', batchId);
       }
       
       if (!batchMap.has(batchId)) {
@@ -442,6 +426,50 @@ export default function ReviewProgressView({ reviewId, events, isLive = false, c
     return `${seconds}s`;
   };
 
+  // Calculate dynamic description for stages (called at render time)
+  const getDynamicDescription = (stage: Stage): string => {
+    // For Artifact Generation stage (stage 4), calculate batch/comment progress
+    if (stage.id === 'stage-4' && stage.substages.length > 0) {
+      const totalBatches = stage.substages.length;
+      const completedBatches = stage.substages.filter(s => s.status === 'completed').length;
+      const inProgressBatches = stage.substages.filter(s => s.status === 'in-progress').length;
+      
+      // Count total comments from completed batches
+      let totalComments = 0;
+      stage.substages.forEach(substage => {
+        const commentEvent = substage.events.find(e => 
+          e.message.toLowerCase().includes('comment') && 
+          (e.message.toLowerCase().includes('completed') || e.message.toLowerCase().includes('generated'))
+        );
+        if (commentEvent) {
+          const match = commentEvent.message.match(/(\d+)\s+comment/);
+          if (match) {
+            totalComments += parseInt(match[1], 10);
+          }
+        }
+      });
+      
+      let statusText = '';
+      if (totalBatches > 0) {
+        statusText = `Processing ${totalBatches} batch${totalBatches !== 1 ? 'es' : ''}`;
+        if (completedBatches > 0) {
+          statusText += ` (${completedBatches}/${totalBatches} completed)`;
+        } else if (inProgressBatches > 0) {
+          statusText += ` (${inProgressBatches} in progress)`;
+        }
+      }
+      
+      if (totalComments > 0) {
+        statusText += statusText ? ' • ' : '';
+        statusText += `Posted ${totalComments} comment${totalComments !== 1 ? 's' : ''}`;
+      }
+      
+      return statusText || stage.description;
+    }
+    
+    return stage.description;
+  };
+
   // Simplified and accurate progress calculation
   const overallProgress = stages.reduce((total, stage) => {
     if (stage.status === 'completed') return total + 20; // Each stage is 20% (100% / 5 stages)
@@ -523,11 +551,11 @@ export default function ReviewProgressView({ reviewId, events, isLive = false, c
                     
                     <div className="flex items-center gap-4 text-sm text-slate-400">
                       {duration && <span>{duration}</span>}
-                      <span>{stage.events.length} events</span>
+                      <span>{stage.events.filter(e => e.message && e.message.trim().length > 0).length} events</span>
                     </div>
                   </div>
                   
-                  <p className="text-slate-400 text-sm mt-1">{stage.description}</p>
+                  <p className="text-slate-400 text-sm mt-1">{getDynamicDescription(stage)}</p>
                 </div>
                 
                 {/* Expanded content */}

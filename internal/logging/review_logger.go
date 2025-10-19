@@ -187,6 +187,7 @@ func (r *ReviewLogger) EmitBatchComplete(batchID string, commentCount int) {
 
 	ctx := context.Background()
 	// Emit batch event with "completed" status
+	// Note: fileCount parameter is repurposed to carry commentCount for completed batches
 	_ = r.eventSink.EmitBatchEvent(ctx, r.reviewIDInt, r.orgID, batchID, "completed", 0, commentCount)
 
 	// Also emit a log event for visibility
