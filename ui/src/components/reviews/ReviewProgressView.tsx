@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Card, Badge, Icons } from '../UIPrimitives';
+import { ReviewEvent } from './types';
 
 interface ReviewProgressViewProps {
   reviewId: number;
@@ -8,39 +9,60 @@ interface ReviewProgressViewProps {
   className?: string;
 }
 
-interface ReviewEvent {
+type StageStatus = 'pending' | 'in-progress' | 'completed' | 'failed';
+type StageKey = 'preparation' | 'analysis' | 'review' | 'artifact' | 'finalization';
+
+interface StageDefinition {
   id: string;
-  timestamp: string;
-  eventType: 'started' | 'progress' | 'batch_complete' | 'retry' | 'json_repair' | 'timeout' | 'error' | 'completed';
-  message: string;
-  details?: {
-    batchId?: string;
-    filename?: string;
-    attempt?: number;
-    delay?: string;
-    responseTime?: string;
-    errorMessage?: string;
-    repairStats?: {
-      originalSize: number;
-      repairedSize: number;
-      commentsLost: number;
-      fieldsRecovered: number;
-      repairTime: string;
-    };
-  };
-  severity: 'info' | 'success' | 'warning' | 'error';
+  key: StageKey;
+  title: string;
+  description: string;
 }
 
 interface Stage {
   id: string;
+  key: StageKey;
   title: string;
   description: string;
-  status: 'pending' | 'in-progress' | 'completed' | 'failed';
+  status: StageStatus;
   startTime?: string;
   endTime?: string;
   substages: Substage[];
   events: ReviewEvent[];
 }
+
+const STAGE_DEFINITIONS: StageDefinition[] = [
+  {
+    id: 'stage-1',
+    key: 'preparation',
+    title: 'Preparation',
+    description: 'Initializing providers and configuration'
+  },
+  {
+    id: 'stage-2',
+    key: 'analysis',
+    title: 'Analysis',
+    description: 'Fetching MR details and analyzing changed files'
+  },
+  {
+    id: 'stage-3',
+    key: 'review',
+    title: 'Review',
+    description: 'AI processing and generating review comments'
+  },
+  {
+    id: 'stage-4',
+    key: 'artifact',
+    title: 'Artifact Generation',
+    description: 'Posting review comments to merge request'
+  },
+  {
+    id: 'stage-5',
+    key: 'finalization',
+    title: 'Finalization',
+    description: 'Finalizing review and cleanup'
+  }
+];
 
 interface Substage {
   id: string;
@@ -85,282 +107,451 @@ export default function ReviewProgressView({ reviewId, events, isLive = false, c
   }, [events]);
 
   const processEventsIntoStages = (events: ReviewEvent[]): Stage[] => {
-    // Initialize the 5 main stages
-    const stageTemplates: Omit<Stage, 'events' | 'substages'>[] = [
-      {
-        id: 'stage-1',
-        title: 'Preparation',
-        description: 'Initializing providers and configuration',
-        status: 'pending'
-      },
-      {
-        id: 'stage-2', 
-        title: 'Analysis',
-        description: 'Fetching MR details and analyzing changed files',
-        status: 'pending'
-      },
-      {
-        id: 'stage-3',
-        title: 'Review',
-        description: 'AI processing and generating review comments',
-        status: 'pending'
-      },
-      {
-        id: 'stage-4',
-        title: 'Artifact Generation',
-        description: 'Posting review comments to merge request',
-        status: 'pending'
-      },
-      {
-        id: 'stage-5',
-        title: 'Finalization',
-        description: 'Finalizing review and cleanup',
-        status: 'pending'
-      }
-    ];
-
-    // Process events and map them to stages
-    const processedStages: Stage[] = stageTemplates.map(template => ({
-      ...template,
-      events: [] as ReviewEvent[],
-      substages: [] as Substage[]
-    }));
-
-    // Enhanced event mapping logic using eventType and message content
-    events.forEach((event, index) => {
-      const message = (event.message || '').toLowerCase();
-      let targetStage = -1;
-      
-      // Debug logging for stage mapping
-      if (process.env.NODE_ENV === 'development' && index < 5) {
-        console.log(`[Event ${index}] Mapping:`, {
-          message: event.message,
-          eventType: event.eventType,
-          severity: event.severity,
-          messageLC: message
-        });
-      }
-      
-            // Priority 1: Explicit stage events (most reliable)
-      if (message.includes('stage started') && message.includes('preparation') || 
-          message.includes('stage completed') && message.includes('preparation')) {
-        targetStage = 0;
-      }
-      else if (message.includes('stage started') && message.includes('analysis') || 
-               message.includes('stage completed') && message.includes('analysis')) {
-        targetStage = 1;
-      }
-      else if (message.includes('stage started') && message.includes('review') || 
-               message.includes('stage completed') && message.includes('review')) {
-        targetStage = 2;
-      }
-      else if (message.includes('stage started') && message.includes('artifact generation') || 
-               message.includes('stage completed') && message.includes('artifact generation') ||
-               message.includes('posted') && message.includes('comments')) {
-        targetStage = 3;
-      }
-      else if (message.includes('stage started') && message.includes('finalization') || 
-               message.includes('stage completed') && message.includes('finalization') ||
-               message.includes('review process completed')) {
-        targetStage = 4;
-      }
-      // Priority 2: Implicit stage mapping based on content
-      // Stage 1: Preparation
-      else if (event.eventType === 'started' || 
-          message.includes('preparation') || message.includes('provider') || 
-          message.includes('initializ') || message.includes('configuration')) {
-        targetStage = 0;
-      }
-      // Stage 2: Analysis  
-      else if (message.includes('analysis') || message.includes('fetch') ||
-               message.includes('mr details') || message.includes('merge request') ||
-               message.includes('chang') || message.includes('file') ||
-               message.includes('retriev')) {
-        targetStage = 1;
-      }
-      // Stage 3: Review
-      else if (message.includes('ai') || message.includes('llm') ||
-               message.includes('generat') || 
-               message.includes('batch') && !message.includes('completed') && !message.includes('generated') ||
-               message.includes('review') ||
-               event.eventType === 'retry' || event.eventType === 'json_repair') {
-        targetStage = 2;
-      }
-      // Stage 4: Artifact Generation (batch completion and comment posting)
-      else if (message.includes('post') || 
-               message.includes('batch') && (message.includes('completed') || message.includes('generated')) ||
-               message.includes('comment') && (message.includes('post') || message.includes('generated')) ||
-               message.includes('artifact') || message.includes('result') ||
-               event.eventType === 'batch_complete' || event.eventType === 'batch' ||
-               message.includes('merge request') && message.includes('comment')) {
-        targetStage = 3;
-      }
-      // Stage 5: Finalization
-      else if (event.eventType === 'completed' ||
-               message.includes('finalization') || message.includes('finaliz') ||
-               message.includes('cleanup') || message.includes('review process completed')) {
-        targetStage = 4;
-      }
-      // Default to review stage for unclear events
-      else {
-        targetStage = 2;
-      }
-      
-      if (targetStage >= 0) {
-        processedStages[targetStage].events.push(event);
-        if (processedStages[targetStage].status === 'pending') {
-          processedStages[targetStage].status = 'in-progress';
-          processedStages[targetStage].startTime = event.timestamp;
-        }
-        
-        // Debug logging for assignments  
-        if (process.env.NODE_ENV === 'development' && (targetStage === 3 || targetStage === 4)) {
-          console.log(`[Stage Assignment] Event "${event.message}" → Stage ${targetStage} (${processedStages[targetStage].title})`);
-        }
-      } else if (process.env.NODE_ENV === 'development') {
-        console.log(`[Stage Assignment] Event "${event.message}" → NO STAGE (defaulted to stage 2)`);
-      }
+    const stageMap = new Map<StageKey, Stage>();
+    STAGE_DEFINITIONS.forEach(def => {
+      stageMap.set(def.key, {
+        id: def.id,
+        key: def.key,
+        title: def.title,
+        description: def.description,
+        status: 'pending',
+        startTime: undefined,
+        endTime: undefined,
+        events: [],
+        substages: []
+      });
     });
 
-    // Create substages for batch processing
-    if (processedStages[3].events.length > 0) {
-      processedStages[3].substages = createBatchSubstages(processedStages[3].events);
-    }
+    const batchSubstages = new Map<string, Substage>();
+    const stageKeys: StageKey[] = STAGE_DEFINITIONS.map(def => def.key);
 
-    // Update stage statuses based on events and progression logic
-    processedStages.forEach((stage, index) => {
-      if (stage.events.length > 0) {
-        const hasErrors = stage.events.some(e => e.severity === 'error');
-        const hasSuccess = stage.events.some(e => e.severity === 'success');
-        const allMessages = stage.events.map(e => e.message.toLowerCase()).join(' ');
-        
-        // Check for explicit stage completion messages (most reliable)
-        const hasExplicitCompletion = allMessages.includes('stage completed successfully') ||
-                                     allMessages.includes('✅') ||
-                                     allMessages.includes('✓');
-        
-        // Check for implicit completion indicators
-        const hasCompletionKeywords = allMessages.includes('completed') || 
-                                     allMessages.includes('finished') || 
-                                     allMessages.includes('done') ||
-                                     allMessages.includes('success');
-        
-        // Check if next stage has started (indicates this stage completed)
-        const nextStageStarted = index < processedStages.length - 1 && 
-                                processedStages[index + 1].events.length > 0;
-        
-        if (hasErrors && !hasSuccess && !hasCompletionKeywords && !hasExplicitCompletion) {
-          stage.status = 'failed';
-        } else if (hasExplicitCompletion || hasSuccess || nextStageStarted) {
-          stage.status = 'completed';
-          stage.endTime = stage.events[stage.events.length - 1].timestamp;
-        } else if (hasCompletionKeywords) {
-          stage.status = 'completed';
-          stage.endTime = stage.events[stage.events.length - 1].timestamp;
+    const normalize = (value?: string) => (value || '').toLowerCase();
+
+    const stageStartKeywords: Record<StageKey, string[]> = {
+      preparation: ['stage started', 'preparation'],
+      analysis: ['stage started', 'analysis'],
+      review: ['stage started', 'review'],
+      artifact: ['stage started', 'artifact generation'],
+      finalization: ['stage started', 'finalization']
+    };
+
+    const stageCompletionKeywords: Record<StageKey, string[]> = {
+      preparation: ['stage completed', 'preparation'],
+      analysis: ['stage completed', 'analysis'],
+      review: ['stage completed', 'review'],
+      artifact: ['stage completed', 'artifact generation'],
+      finalization: ['stage completed', 'finalization']
+    };
+
+    const containsAll = (message: string, keywords: string[]) => keywords.every(keyword => message.includes(keyword));
+
+    const detectExplicitStageStart = (message: string): StageKey | null => {
+      for (const key of stageKeys) {
+        if (containsAll(message, stageStartKeywords[key])) {
+          return key;
         }
-        
-        // Special case: if this is the final stage (Completion) and it has any events, 
-        // it should be marked as completed since there's no next stage
-        if (index === 4 && stage.events.length > 0) {
-          stage.status = 'completed';
-          stage.endTime = stage.events[stage.events.length - 1].timestamp;
-        }
-        // If stage has events but no clear completion, it remains in-progress
       }
-    });
+      return null;
+    };
 
-    // Ensure logical progression - if a later stage is completed, earlier ones should be too
-    for (let i = processedStages.length - 1; i >= 0; i--) {
-      if (processedStages[i].status === 'completed') {
-        for (let j = 0; j < i; j++) {
-          if (processedStages[j].status === 'pending' && processedStages[j].events.length > 0) {
-            processedStages[j].status = 'completed';
-            processedStages[j].endTime = processedStages[j].events[processedStages[j].events.length - 1].timestamp;
-          }
+    const detectExplicitStageCompletion = (message: string): StageKey | null => {
+      for (const key of stageKeys) {
+        if (containsAll(message, stageCompletionKeywords[key])) {
+          return key;
         }
-        break; // Found the latest completed stage, earlier ones are now handled
       }
-    }
+      if (message.includes('review process completed') || message.includes('finalization complete')) {
+        return 'finalization';
+      }
+      if (message.includes('posted') && message.includes('comments')) {
+        return 'artifact';
+      }
+      return null;
+    };
 
-    return processedStages;
-  };
+    const inferStageKey = (event: ReviewEvent, message: string): StageKey | null => {
+      const details = event.details || {};
+      const eventType = event.eventType;
 
-  const createBatchSubstages = (batchEvents: ReviewEvent[]): Substage[] => {
-    const batchMap = new Map<string, Substage>();
-    
-    // Debug logging
-    if (process.env.NODE_ENV === 'development') {
-      console.log('[createBatchSubstages] Processing events:', batchEvents.length, 
-        batchEvents.map(e => ({
-          message: e.message,
-          batchId: e.details?.batchId,
-          eventType: e.eventType
-        })));
-    }
-    
-    batchEvents.forEach(event => {
-      // Extract batch info from details first, then from message
+      if (details.batchId || eventType === 'batch' || eventType === 'artifact') {
+        return 'artifact';
+      }
+
+      if (eventType === 'completion') {
+        return 'finalization';
+      }
+
+      if (eventType === 'completed') {
+        return 'finalization';
+      }
+
+      if (eventType === 'batch_complete') {
+        return 'artifact';
+      }
+
+      if (eventType === 'status') {
+        const statusValue = normalize(String(details.status || ''));
+        if (statusValue === 'completed') {
+          return 'finalization';
+        }
+      }
+
+      if (eventType === 'started') {
+        return 'preparation';
+      }
+
+      if (eventType === 'progress') {
+        return 'analysis';
+      }
+
+      if (message.includes('finaliz') || message.includes('cleanup') || message.includes('summary')) {
+        return 'finalization';
+      }
+
+      if (message.includes('artifact') || message.includes('posted') && message.includes('comment') || message.includes('batch')) {
+        return 'artifact';
+      }
+
+      if (eventType === 'retry' || eventType === 'json_repair' || eventType === 'timeout') {
+        if (details.batchId) {
+          return 'artifact';
+        }
+        return 'review';
+      }
+
+      if (eventType === 'error') {
+        if (details.batchId) {
+          return 'artifact';
+        }
+        return 'review';
+      }
+
+      if (message.includes('analysis') || message.includes('diff') || message.includes('fetch') || message.includes('file') || message.includes('merge request')) {
+        return 'analysis';
+      }
+
+      if (message.includes('preparation') || message.includes('provider') || message.includes('initializ')) {
+        return 'preparation';
+      }
+
+      if (message.includes('review') || message.includes('llm') || message.includes('model') || message.includes('generate')) {
+        return 'review';
+      }
+
+      return null;
+    };
+
+    const severityIsError = (severity?: ReviewEvent['severity']) => {
+      if (!severity) return false;
+      const normalized = severity.toLowerCase();
+      return normalized === 'error' || normalized === 'critical';
+    };
+
+    const updateBatchSubstage = (event: ReviewEvent) => {
       let batchId = event.details?.batchId;
       if (!batchId) {
-        // Match patterns like "batch-1", "batch 1", or standalone batch ID
-        const batchMatch = event.message.match(/batch[-\s]([a-zA-Z0-9-]+)/i);
-        batchId = batchMatch ? batchMatch[1] : 'general';
+        const match = event.message.match(/batch\s+([\w-]+)/i);
+        if (match) {
+          batchId = match[1];
+        }
       }
-      
-      if (process.env.NODE_ENV === 'development') {
-        console.log('[createBatchSubstages] Event:', event.message, '→ batchId:', batchId);
+      if (!batchId) {
+        return;
       }
-      
-      if (!batchMap.has(batchId)) {
-        batchMap.set(batchId, {
-          id: `batch-${batchId}`,
-          title: `Batch ${batchId}`,
+
+      const rawBatchId = batchId.toString();
+      const batchKey = rawBatchId.toLowerCase();
+      const displayName = (() => {
+        const match = rawBatchId.match(/^(?:batch[-_]?)(.+)$/i);
+        if (match && match[1]) {
+          return `Batch ${match[1]}`;
+        }
+        return rawBatchId.toLowerCase().startsWith('batch') ? rawBatchId : `Batch ${rawBatchId}`;
+      })();
+
+      if (!batchSubstages.has(batchKey)) {
+        batchSubstages.set(batchKey, {
+          id: `batch-${batchKey}`,
+          title: displayName,
           status: 'pending',
           events: [],
-          resiliencyEvents: []
+          resiliencyEvents: [],
+          count: undefined,
+          startTime: undefined,
+          endTime: undefined
         });
       }
 
-      const substage = batchMap.get(batchId)!;
+      const substage = batchSubstages.get(batchKey)!;
       substage.events.push(event);
-      
-      if (substage.status === 'pending') {
-        substage.status = 'in-progress';
-        substage.startTime = event.timestamp;
-      }
 
-      // Process resiliency events
-      if (event.eventType === 'retry') {
-        substage.resiliencyEvents.push({
-          type: 'retry',
-          attempt: event.details?.attempt || 1,
-          details: event.message,
-          resolved: event.severity !== 'error'
-        });
-      } else if (event.eventType === 'json_repair') {
-        substage.resiliencyEvents.push({
-          type: 'json_repair',
-          details: event.message,
-          resolved: true
-        });
-      } else if (event.eventType === 'timeout') {
-        substage.resiliencyEvents.push({
-          type: 'timeout',
-          details: event.message,
-          resolved: event.severity !== 'error'
-        });
-      }
+      const message = normalize(event.message);
 
-      // Update substage status
-      if (event.severity === 'success' || event.message.toLowerCase().includes('completed')) {
+      const ensureCount = (value?: number) => {
+        if (typeof value !== 'number' || Number.isNaN(value)) {
+          return;
+        }
+        const safeValue = Math.max(0, value);
+        if (!substage.count) {
+          substage.count = { current: safeValue, total: safeValue };
+        } else {
+          substage.count.current = safeValue;
+          substage.count.total = Math.max(substage.count.total, safeValue);
+        }
+      };
+
+      const parseCountFromMessage = (text: string) => {
+        const match = text.match(/(\d+)\s+comment/);
+        if (match) {
+          const parsed = parseInt(match[1], 10);
+          if (!Number.isNaN(parsed)) {
+            return parsed;
+          }
+        }
+        return undefined;
+      };
+
+      const markInProgress = () => {
+        if (substage.status === 'pending') {
+          substage.status = 'in-progress';
+          substage.startTime = substage.startTime ?? event.timestamp;
+        }
+      };
+
+      const markCompleted = (countHint?: number) => {
         substage.status = 'completed';
         substage.endTime = event.timestamp;
-      } else if (event.severity === 'error' && !event.message.toLowerCase().includes('retry')) {
+        ensureCount(countHint ?? parseCountFromMessage(event.message));
+        if (substage.resiliencyEvents.length > 0) {
+          substage.resiliencyEvents = substage.resiliencyEvents.map(resEvent => ({
+            ...resEvent,
+            resolved: true
+          }));
+        }
+      };
+
+      const markFailed = () => {
+        if (substage.status === 'completed') {
+          return;
+        }
         substage.status = 'failed';
+        substage.endTime = event.timestamp;
+      };
+
+      const countFromDetails = event.details?.commentCount ?? event.details?.fileCount;
+
+      if (event.eventType === 'batch' || event.eventType === 'status') {
+        const statusValue = normalize(String(event.details?.status || ''));
+        if (statusValue === 'processing') {
+          markInProgress();
+          ensureCount(countFromDetails);
+        } else if (statusValue === 'completed') {
+          markCompleted(countFromDetails);
+        } else if (statusValue === 'failed') {
+          markFailed();
+        }
+      }
+
+      if (event.eventType === 'batch_complete') {
+        markCompleted(countFromDetails);
+      }
+
+      if (event.eventType === 'artifact') {
+        if (message.includes('generated') || message.includes('posted')) {
+          markCompleted(countFromDetails);
+        }
+      }
+
+      if (event.eventType === 'log') {
+        if (message.includes('started') || message.includes('processing')) {
+          markInProgress();
+        }
+        if (message.includes('completed') || message.includes('generated') || message.includes('posted')) {
+          markCompleted(countFromDetails);
+        }
+        if (severityIsError(event.severity)) {
+          markFailed();
+        }
+      }
+
+      if (event.eventType === 'completion' || event.eventType === 'completed') {
+        if (message.includes(batchKey)) {
+          markCompleted(countFromDetails);
+        }
+      }
+
+      if (event.eventType === 'retry' || event.eventType === 'json_repair' || event.eventType === 'timeout') {
+        substage.resiliencyEvents.push({
+          type: event.eventType,
+          details: event.message,
+          attempt: event.details?.attempt,
+          resolved: !severityIsError(event.severity)
+        });
+        markInProgress();
+      }
+
+      if (event.eventType === 'error' || severityIsError(event.severity)) {
+        substage.resiliencyEvents.push({
+          type: 'circuit_breaker',
+          details: event.message,
+          attempt: event.details?.attempt,
+          resolved: false
+        });
+        markFailed();
+      }
+
+      // If we still do not have a count but have a hint in the message, capture it for UI feedback
+      if (!substage.count) {
+        ensureCount(parseCountFromMessage(event.message));
+      }
+    };
+
+    events.forEach(event => {
+      const message = normalize(event.message);
+
+      let stageKey: StageKey | null = detectExplicitStageStart(message);
+      if (!stageKey) {
+        stageKey = detectExplicitStageCompletion(message);
+      }
+      if (!stageKey) {
+        stageKey = inferStageKey(event, message);
+      }
+
+      if (!stageKey) {
+        return;
+      }
+
+      const stage = stageMap.get(stageKey);
+      if (!stage) {
+        return;
+      }
+
+      stage.events.push(event);
+
+      if (stage.status === 'pending') {
+        stage.status = 'in-progress';
+        stage.startTime = stage.startTime ?? event.timestamp;
+      }
+
+      const explicitStartKey = detectExplicitStageStart(message);
+      if (explicitStartKey === stageKey) {
+        stage.status = 'in-progress';
+        stage.startTime = stage.startTime ?? event.timestamp;
+      }
+
+      if (severityIsError(event.severity) && stage.status !== 'completed') {
+        stage.status = 'failed';
+        stage.endTime = event.timestamp;
+      }
+
+      const explicitCompletionKey = detectExplicitStageCompletion(message);
+      if (explicitCompletionKey === stageKey) {
+        stage.status = 'completed';
+        stage.endTime = event.timestamp;
+      }
+
+      if (stageKey === 'finalization' && event.eventType === 'completion') {
+        stage.status = 'completed';
+        stage.endTime = event.timestamp;
+      }
+
+      updateBatchSubstage(event);
+    });
+
+    // Finalize stage metadata
+    stageMap.forEach(stage => {
+      if (stage.events.length > 0 && !stage.startTime) {
+        stage.startTime = stage.events[0].timestamp;
+      }
+      if (stage.status === 'completed' && !stage.endTime) {
+        stage.endTime = stage.events[stage.events.length - 1].timestamp;
+      }
+      if (stage.status === 'pending' && stage.events.length > 0) {
+        stage.status = 'in-progress';
       }
     });
 
-    return Array.from(batchMap.values());
+    // Attach substages to artifact stage
+    const artifactStage = stageMap.get('artifact');
+    if (artifactStage) {
+      const substagesArray = Array.from(batchSubstages.values()).sort((a, b) => {
+        const aTime = a.startTime || (a.events[0]?.timestamp ?? '');
+        const bTime = b.startTime || (b.events[0]?.timestamp ?? '');
+        return aTime.localeCompare(bTime);
+      });
+
+      substagesArray.forEach(substage => {
+        if (substage.events.length > 0 && !substage.startTime) {
+          substage.startTime = substage.events[0].timestamp;
+        }
+        if (substage.status === 'completed' && !substage.endTime) {
+          substage.endTime = substage.events[substage.events.length - 1].timestamp;
+        }
+        if (substage.status === 'pending' && substage.events.length > 0) {
+          substage.status = 'in-progress';
+        }
+      });
+
+      artifactStage.substages = substagesArray;
+
+      // Update artifact stage summary counts if available
+      const totalComments = substagesArray.reduce((acc, substage) => acc + (substage.count?.current || 0), 0);
+      const hasFailures = substagesArray.some(substage => substage.status === 'failed');
+      const allCompleted = substagesArray.length > 0 && substagesArray.every(substage => substage.status === 'completed');
+      const anyInProgress = substagesArray.some(substage => substage.status === 'in-progress');
+
+      if (hasFailures) {
+        artifactStage.status = 'failed';
+        const failureEnd = substagesArray.find(substage => substage.status === 'failed')?.endTime;
+        artifactStage.endTime = failureEnd ?? artifactStage.endTime;
+      } else if (allCompleted) {
+        artifactStage.status = 'completed';
+        const latestEnd = substagesArray.reduce((latest, substage) => {
+          const candidate = substage.endTime || (substage.events[substage.events.length - 1]?.timestamp ?? '');
+          if (!candidate) {
+            return latest;
+          }
+          if (!latest) {
+            return candidate;
+          }
+          return latest.localeCompare(candidate) >= 0 ? latest : candidate;
+        }, artifactStage.endTime ?? '');
+        artifactStage.endTime = latestEnd || artifactStage.endTime;
+      } else if (anyInProgress && artifactStage.status === 'pending') {
+        artifactStage.status = 'in-progress';
+      }
+
+      if (artifactStage.startTime === undefined && substagesArray.length > 0) {
+        const firstStart = substagesArray[0].startTime || substagesArray[0].events[0]?.timestamp;
+        artifactStage.startTime = firstStart ?? artifactStage.startTime;
+      }
+
+      if (totalComments > 0) {
+        artifactStage.description = `Posting review comments to merge request • Posted ${totalComments} comment${totalComments !== 1 ? 's' : ''}`;
+      }
+    }
+
+    // Enforce stage order so later stages cannot complete before earlier ones
+    const orderedKeys = STAGE_DEFINITIONS.map(def => def.key);
+    orderedKeys.forEach((key, index) => {
+      if (index === 0) {
+        return;
+      }
+      const currentStage = stageMap.get(key)!;
+      const previousStage = stageMap.get(orderedKeys[index - 1])!;
+
+      if (previousStage.status !== 'completed') {
+        if (currentStage.status === 'completed') {
+          currentStage.status = currentStage.events.length > 0 ? 'in-progress' : 'pending';
+          currentStage.endTime = undefined;
+        }
+        if (currentStage.status === 'pending' && currentStage.events.length > 0) {
+          currentStage.status = 'in-progress';
+        }
+      }
+    });
+
+    return STAGE_DEFINITIONS.map(def => stageMap.get(def.key)!);
   };
 
   const getStageIcon = (status: Stage['status']) => {
@@ -433,38 +624,41 @@ export default function ReviewProgressView({ reviewId, events, isLive = false, c
       const totalBatches = stage.substages.length;
       const completedBatches = stage.substages.filter(s => s.status === 'completed').length;
       const inProgressBatches = stage.substages.filter(s => s.status === 'in-progress').length;
+      const pendingBatches = stage.substages.filter(s => s.status === 'pending').length;
+      const failedBatches = stage.substages.filter(s => s.status === 'failed').length;
       
-      // Count total comments from completed batches
-      let totalComments = 0;
-      stage.substages.forEach(substage => {
-        const commentEvent = substage.events.find(e => 
-          e.message.toLowerCase().includes('comment') && 
-          (e.message.toLowerCase().includes('completed') || e.message.toLowerCase().includes('generated'))
-        );
-        if (commentEvent) {
-          const match = commentEvent.message.match(/(\d+)\s+comment/);
-          if (match) {
-            totalComments += parseInt(match[1], 10);
-          }
-        }
-      });
+      // Count total comments from completed batches using structured data
+      const totalComments = stage.substages.reduce((acc, substage) => acc + (substage.count?.current ?? 0), 0);
       
-      let statusText = '';
-      if (totalBatches > 0) {
-        statusText = `Processing ${totalBatches} batch${totalBatches !== 1 ? 'es' : ''}`;
-        if (completedBatches > 0) {
-          statusText += ` (${completedBatches}/${totalBatches} completed)`;
-        } else if (inProgressBatches > 0) {
-          statusText += ` (${inProgressBatches} in progress)`;
-        }
+      const phaseSegments: string[] = [];
+      if (completedBatches > 0) {
+        phaseSegments.push(`${completedBatches} completed`);
       }
-      
+      if (inProgressBatches > 0) {
+        phaseSegments.push(`${inProgressBatches} in progress`);
+      }
+      if (pendingBatches > 0) {
+        phaseSegments.push(`${pendingBatches} waiting`);
+      }
+      if (failedBatches > 0) {
+        phaseSegments.push(`${failedBatches} failed`);
+      }
+
+      const statusPrefix = totalBatches > 0
+        ? `Processing ${totalBatches} batch${totalBatches !== 1 ? 'es' : ''}`
+        : '';
+
+      const statusText = phaseSegments.length > 0
+        ? `${statusPrefix}${statusPrefix ? ' ' : ''}(${phaseSegments.join(', ')})`
+        : statusPrefix;
+
+      let commentText = '';
       if (totalComments > 0) {
-        statusText += statusText ? ' • ' : '';
-        statusText += `Posted ${totalComments} comment${totalComments !== 1 ? 's' : ''}`;
+        const verb = completedBatches === totalBatches && totalBatches > 0 ? 'Posted' : 'Generated';
+        commentText = `${verb} ${totalComments} comment${totalComments !== 1 ? 's' : ''}`;
       }
-      
-      return statusText || stage.description;
+
+      return [statusText, commentText].filter(Boolean).join(' • ') || stage.description;
     }
     
     return stage.description;
@@ -576,7 +770,9 @@ export default function ReviewProgressView({ reviewId, events, isLive = false, c
                                   <span className="font-medium text-white">{substage.title}</span>
                                   {substage.count && (
                                     <Badge variant="info" size="sm">
-                                      {substage.count.current}/{substage.count.total}
+                                      {substage.status === 'completed' && substage.count.total !== undefined
+                                        ? `${substage.count.current}/${substage.count.total}`
+                                        : `${substage.count.current}`}
                                     </Badge>
                                   )}
                                   <Badge 
@@ -621,16 +817,15 @@ export default function ReviewProgressView({ reviewId, events, isLive = false, c
                               
                               <div className="text-xs">
                                 {(() => {
-                                  // Extract comment count from batch events
-                                  const commentEvent = substage.events.find(e => 
-                                    e.message.toLowerCase().includes('completed') && 
-                                    e.message.toLowerCase().includes('comment')
-                                  );
-                                  const commentMatch = commentEvent?.message.match(/(\d+)\s+comment/);
-                                  const commentCount = commentMatch ? parseInt(commentMatch[1], 10) : null;
+                                  // Use structured comment count from substage.count
+                                  const commentCount = substage.count?.current || null;
                                   
                                   if (substage.status === 'in-progress') {
-                                    return <span className="text-blue-400 font-medium">● Processing batch...</span>;
+                                    return (
+                                      <span className="text-blue-400 font-medium">
+                                        ● Processing batch{commentCount ? `... ${commentCount} comment${commentCount !== 1 ? 's' : ''} ready` : '...'}
+                                      </span>
+                                    );
                                   }
                                   if (substage.status === 'completed' && commentCount !== null) {
                                     return <span className="text-green-400">✓ Generated {commentCount} comment{commentCount !== 1 ? 's' : ''}</span>;
@@ -681,7 +876,7 @@ export default function ReviewProgressView({ reviewId, events, isLive = false, c
                             <div key={event.id} className="flex items-center gap-3 text-sm">
                               <div className={`w-2 h-2 rounded-full ${
                                 event.severity === 'error' ? 'bg-red-500' :
-                                event.severity === 'warning' ? 'bg-yellow-500' :
+                                event.severity === 'warning' || event.severity === 'warn' ? 'bg-yellow-500' :
                                 event.severity === 'success' ? 'bg-green-500' :
                                 'bg-blue-500'
                               }`}></div>

@@ -1,34 +1,12 @@
 import React, { useState, useEffect } from 'react';
 import { Card, Badge, Icons } from '../UIPrimitives';
+import { ReviewEvent } from './types';
 
 interface ReviewTimelineProps {
   reviewId: number;
   events: ReviewEvent[];
   isLive?: boolean;
   className?: string;
-}
-
-interface ReviewEvent {
-  id: string;
-  timestamp: string;
-  eventType: 'started' | 'progress' | 'batch_complete' | 'retry' | 'json_repair' | 'timeout' | 'error' | 'completed';
-  message: string;
-  details?: {
-    batchId?: string;
-    filename?: string;
-    attempt?: number;
-    delay?: string;
-    responseTime?: string;
-    errorMessage?: string;
-    repairStats?: {
-      originalSize: number;
-      repairedSize: number;
-      commentsLost: number;
-      fieldsRecovered: number;
-      repairTime: string;
-    };
-  };
-  severity: 'info' | 'success' | 'warning' | 'error';
 }
 
 export default function ReviewTimeline({ reviewId, events, isLive = false, className }: ReviewTimelineProps) {
@@ -46,6 +24,16 @@ export default function ReviewTimeline({ reviewId, events, isLive = false, class
 
   const getEventIcon = (eventType: ReviewEvent['eventType']) => {
     switch (eventType) {
+      case 'log':
+        return <Icons.Info />;
+      case 'status':
+        return <Icons.Dashboard />;
+      case 'batch':
+        return <Icons.Refresh />;
+      case 'artifact':
+        return <Icons.Reviews />;
+      case 'completion':
+        return <Icons.Success />;
       case 'started':
         return <Icons.Success />;
       case 'progress':
@@ -62,6 +50,12 @@ export default function ReviewTimeline({ reviewId, events, isLive = false, class
         return <Icons.Error />;
       case 'completed':
         return <Icons.Success />;
+      case 'retry':
+        return <Icons.Refresh />;
+      case 'json_repair':
+        return <span className="text-orange-400">⚡</span>;
+      case 'timeout':
+        return <Icons.Clock />;
       default:
         return <Icons.Info />;
     }
@@ -72,6 +66,7 @@ export default function ReviewTimeline({ reviewId, events, isLive = false, class
       case 'success':
         return 'text-green-400 border-green-600 bg-green-900/20';
       case 'warning':
+      case 'warn':
         return 'text-yellow-400 border-yellow-600 bg-yellow-900/20';
       case 'error':
         return 'text-red-400 border-red-600 bg-red-900/20';
