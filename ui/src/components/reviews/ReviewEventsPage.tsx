@@ -112,19 +112,55 @@ export default function ReviewEventsPage({
       const data = await getReviewEvents(reviewId, undefined, 1000);
       // Transform backend events to frontend format  
       const backendEvents = data.events || [];
-      const newEvents: ReviewEvent[] = backendEvents.map((event: any) => ({
-        id: event.id.toString(),
-        timestamp: event.time,
-        eventType: event.type === 'log' ? 
-          (event.level === 'success' ? 'completed' : 'started') : 
-          event.type,
-        message: event.data?.message || '',
-        severity: event.level || 'info',
-        details: {
-          ...event.data,
-          batchId: event.batchId || event.batch_id  // Include batch ID from database
+      const newEvents: ReviewEvent[] = backendEvents.map((event: any) => {
+        // Generate message based on event type and data
+        let message = '';
+        const eventData = event.data || {};
+        
+        switch (event.type) {
+          case 'log':
+            message = eventData.message || '';
+            break;
+          case 'batch':
+            // Generate message for batch events based on status
+            if (eventData.status === 'processing') {
+              const fileCount = eventData.fileCount || 0;
+              message = `Batch ${event.batchId || 'unknown'} started: processing ${fileCount} file${fileCount !== 1 ? 's' : ''}`;
+            } else if (eventData.status === 'completed') {
+              const fileCount = eventData.fileCount || 0;
+              message = `Batch ${event.batchId || 'unknown'} completed: generated ${fileCount} comment${fileCount !== 1 ? 's' : ''}`;
+            } else {
+              message = `Batch ${event.batchId || 'unknown'}: ${eventData.status || 'unknown status'}`;
+            }
+            break;
+          case 'status':
+            message = `Status: ${eventData.status || 'unknown'}`;
+            break;
+          case 'artifact':
+            message = eventData.url ? `Generated: ${eventData.kind || 'artifact'}` : `Artifact: ${eventData.kind || 'unknown'}`;
+            break;
+          case 'completion':
+            const commentCount = eventData.commentCount || 0;
+            message = eventData.resultSummary || `Process completed with ${commentCount} comment${commentCount !== 1 ? 's' : ''}`;
+            break;
+          default:
+            message = JSON.stringify(eventData);
         }
-      }));
+        
+        return {
+          id: event.id.toString(),
+          timestamp: event.time,
+          eventType: event.type === 'log' ? 
+            (event.level === 'success' ? 'completed' : 'started') : 
+            event.type,
+          message: message,
+          severity: event.level || 'info',
+          details: {
+            ...eventData,
+            batchId: event.batchId || event.batch_id  // Include batch ID from database
+          }
+        };
+      });
       
       console.log('[ReviewEventsPage] Received events:', {
         totalEvents: newEvents.length,
