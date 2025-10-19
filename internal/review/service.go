@@ -282,6 +282,7 @@ func (s *Service) ProcessReview(ctx context.Context, request ReviewRequest) *Rev
 		s.logger.Log("  Comments posted: %d", result.CommentsCount)
 		s.logger.Log("  Summary: %s", result.Summary[:minInt(100, len(result.Summary))]+"...")
 		s.logger.EmitStageCompleted("Finalization", "Review process completed successfully")
+		s.logger.EmitReviewCompletion(result.CommentsCount, fmt.Sprintf("Review finalized successfully • Posted %d comments", result.CommentsCount))
 	}
 
 	log.Printf("[INFO] Review completed successfully for %s (ReviewID: %s) in %v",

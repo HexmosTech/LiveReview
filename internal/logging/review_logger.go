@@ -163,6 +163,20 @@ func (r *ReviewLogger) EmitStageError(stageName string, err error) {
 	_ = r.eventSink.EmitLogEvent(ctx, r.reviewIDInt, r.orgID, "error", message, "")
 }
 
+// EmitReviewCompletion emits a single structured completion event for the entire review
+func (r *ReviewLogger) EmitReviewCompletion(commentCount int, summary string) {
+	if r == nil || r.eventSink == nil {
+		return
+	}
+
+	ctx := context.Background()
+	resultSummary := summary
+	if resultSummary == "" {
+		resultSummary = fmt.Sprintf("Review completed successfully with %d comments", commentCount)
+	}
+	_ = r.eventSink.EmitCompletionEvent(ctx, r.reviewIDInt, r.orgID, resultSummary, commentCount, "")
+}
+
 // EmitBatchStart emits an event when a batch starts processing
 func (r *ReviewLogger) EmitBatchStart(batchID string, fileCount int) {
 	if r == nil || r.eventSink == nil {
@@ -311,14 +325,6 @@ func (r *ReviewLogger) LogComments(batchID string, comments interface{}) {
 
 	r.LogSection(fmt.Sprintf("PARSED COMMENTS - Batch %s", batchID))
 	r.Log("Comments: %+v", comments)
-
-	// Emit completion event for this batch
-	if r.eventSink != nil {
-		ctx := context.Background()
-		commentCount := r.countComments(comments)
-		resultSummary := fmt.Sprintf("Batch %s completed with %d comments", batchID, commentCount)
-		_ = r.eventSink.EmitCompletionEvent(ctx, r.reviewIDInt, r.orgID, resultSummary, commentCount, "")
-	}
 }
 
 // Close finalizes the log file

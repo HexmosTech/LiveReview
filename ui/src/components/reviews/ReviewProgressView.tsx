@@ -29,7 +29,33 @@ interface Stage {
   endTime?: string;
   substages: Substage[];
   events: ReviewEvent[];
+  generatedComments?: number;
+  postedComments?: number;
 }
+
+const extractPostedCommentCount = (event: ReviewEvent): number | undefined => {
+  if (typeof event.details?.commentCount === 'number' && !Number.isNaN(event.details.commentCount)) {
+    return event.details.commentCount;
+  }
+
+  const postedMatch = event.message.match(/posted\s+(\d+)\s+(?:individual\s+)?comments/i);
+  if (postedMatch) {
+    const parsed = parseInt(postedMatch[1], 10);
+    if (!Number.isNaN(parsed)) {
+      return parsed;
+    }
+  }
+
+  const summaryMatch = event.message.match(/comments\s+posted:\s*(\d+)/i);
+  if (summaryMatch) {
+    const parsed = parseInt(summaryMatch[1], 10);
+    if (!Number.isNaN(parsed)) {
+      return parsed;
+    }
+  }
+
+  return undefined;
+};
 
 const STAGE_DEFINITIONS: StageDefinition[] = [
   {
@@ -118,7 +144,9 @@ export default function ReviewProgressView({ reviewId, events, isLive = false, c
         startTime: undefined,
         endTime: undefined,
         events: [],
-        substages: []
+        substages: [],
+        generatedComments: undefined,
+        postedComments: undefined
       });
     });
 
@@ -250,9 +278,14 @@ export default function ReviewProgressView({ reviewId, events, isLive = false, c
     const updateBatchSubstage = (event: ReviewEvent) => {
       let batchId = event.details?.batchId;
       if (!batchId) {
-        const match = event.message.match(/batch\s+([\w-]+)/i);
-        if (match) {
-          batchId = match[1];
+        const explicitIdMatch = event.message.match(/batch[-_]?([0-9]+)/i);
+        if (explicitIdMatch) {
+          batchId = explicitIdMatch[0];
+        } else {
+          const spacedMatch = event.message.match(/batch\s+([0-9]+)/i);
+          if (spacedMatch) {
+            batchId = `batch-${spacedMatch[1]}`;
+          }
         }
       }
       if (!batchId) {
@@ -496,6 +529,14 @@ export default function ReviewProgressView({ reviewId, events, isLive = false, c
 
       // Update artifact stage summary counts if available
       const totalComments = substagesArray.reduce((acc, substage) => acc + (substage.count?.current || 0), 0);
+      artifactStage.generatedComments = totalComments > 0 ? totalComments : undefined;
+
+      const postedCounts = artifactStage.events
+        .map(extractPostedCommentCount)
+        .filter((value): value is number => typeof value === 'number' && !Number.isNaN(value));
+      const postedComments = postedCounts.length > 0 ? Math.max(...postedCounts) : undefined;
+      artifactStage.postedComments = postedComments;
+
       const hasFailures = substagesArray.some(substage => substage.status === 'failed');
       const allCompleted = substagesArray.length > 0 && substagesArray.every(substage => substage.status === 'completed');
       const anyInProgress = substagesArray.some(substage => substage.status === 'in-progress');
@@ -526,8 +567,15 @@ export default function ReviewProgressView({ reviewId, events, isLive = false, c
         artifactStage.startTime = firstStart ?? artifactStage.startTime;
       }
 
-      if (totalComments > 0) {
-        artifactStage.description = `Posting review comments to merge request • Posted ${totalComments} comment${totalComments !== 1 ? 's' : ''}`;
+      if (totalComments > 0 || postedComments !== undefined) {
+        const parts: string[] = ['Posting review comments to merge request'];
+        if (totalComments > 0) {
+          parts.push(`Generated ${totalComments} comment${totalComments !== 1 ? 's' : ''}`);
+        }
+        if (postedComments !== undefined) {
+          parts.push(`Posted ${postedComments} comment${postedComments !== 1 ? 's' : ''}`);
+        }
+        artifactStage.description = parts.join(' • ');
       }
     }
 
