@@ -303,6 +303,8 @@ func (wo *WebhookOrchestratorV2) handleCommentReplyFlow(ctx context.Context, eve
 		return
 	}
 
+	var learningAck string
+
 	// Apply learning if extracted
 	if learning != nil {
 		// Ensure the learning is recorded under the org that owns this webhook context.
@@ -312,7 +314,13 @@ func (wo *WebhookOrchestratorV2) handleCommentReplyFlow(ctx context.Context, eve
 		log.Printf("[DEBUG] Applying learning with OrgID=%d (overriding if needed)", learning.OrgID)
 		if err := wo.learningProcessor.ApplyLearning(learning); err != nil {
 			log.Printf("[WARN] Failed to apply learning: %v", err)
+		} else {
+			learningAck = wo.learningProcessor.FormatLearningAcknowledgment(learning)
 		}
+	}
+
+	if learningAck != "" {
+		response = strings.TrimSpace(response) + "\n\n" + learningAck
 	}
 
 	// Post the response
@@ -336,15 +344,22 @@ func (wo *WebhookOrchestratorV2) handleFullReviewFlow(ctx context.Context, event
 		return
 	}
 
+	var learningAck string
+
 	// Apply learning if extracted
 	if learning != nil {
 		if err := wo.learningProcessor.ApplyLearning(learning); err != nil {
 			log.Printf("[WARN] Failed to apply learning: %v", err)
+		} else {
+			learningAck = wo.learningProcessor.FormatLearningAcknowledgment(learning)
 		}
 	}
 
 	// Convert review comments to overall comment
 	overallComment := wo.formatReviewComments(reviewComments)
+	if learningAck != "" {
+		overallComment = strings.TrimSpace(overallComment) + "\n\n" + learningAck
+	}
 
 	// Post the full review
 	if err := provider.PostFullReview(event, overallComment); err != nil {

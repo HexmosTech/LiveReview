@@ -12,6 +12,8 @@ import (
 	"time"
 
 	"github.com/lib/pq"
+
+	"github.com/livereview/internal/learnings/acknowledgment"
 )
 
 // Phase 7.3: Learning processor for provider-agnostic learning extraction and application
@@ -403,29 +405,11 @@ func (lp *LearningProcessorV2Impl) truncateContent(content string, maxLength int
 	return content[:maxLength-3] + "..."
 }
 
-// GenerateLearningAcknowledgment generates an acknowledgment message for applied learning
-func (lp *LearningProcessorV2Impl) GenerateLearningAcknowledgment(learning *LearningMetadataV2) string {
-	if learning == nil {
-		return ""
-	}
-
-	shortID := ""
-	if sid, ok := learning.Metadata["short_id"].(string); ok {
-		shortID = sid
-	}
-
-	title := ""
-	if t, ok := learning.Metadata["title"].(string); ok {
-		title = t
-	}
-
-	if shortID != "" && title != "" {
-		return fmt.Sprintf("💡 *Learning captured: [%s](#%s)*", title, shortID)
-	} else if title != "" {
-		return fmt.Sprintf("💡 *Learning captured: %s*", title)
-	}
-
-	return "💡 *Learning opportunity noted for future reference.*"
+// FormatLearningAcknowledgment builds a markdown-formatted acknowledgment for a captured learning.
+// When a learning has a persisted short ID we surface the key metadata inside a fenced block so
+// reviewers can see exactly what was stored.
+func (lp *LearningProcessorV2Impl) FormatLearningAcknowledgment(learning *LearningMetadataV2) string {
+	return acknowledgment.Format(learning)
 }
 
 // AugmentResponseWithLearning augments response with learning acknowledgment
@@ -460,7 +444,7 @@ func (lp *LearningProcessorV2Impl) AugmentResponseWithLearning(ctx context.Conte
 	}
 
 	// Generate acknowledgment
-	ack := lp.GenerateLearningAcknowledgment(learning)
+	ack := lp.FormatLearningAcknowledgment(learning)
 
 	// Combine response with acknowledgment
 	if ack != "" {

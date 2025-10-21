@@ -2,6 +2,7 @@ package api
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -148,6 +149,118 @@ func TestOrchestratorConfiguration(t *testing.T) {
 	orchestrator.UpdateProcessingTimeout(60)
 	stats = orchestrator.GetProcessingStats()
 	assert.Equal(t, 60, stats["processing_timeout_sec"])
+}
+
+type orchestratorUnifiedStub struct {
+	reply    string
+	learning *LearningMetadataV2
+}
+
+func (s *orchestratorUnifiedStub) CheckResponseWarrant(event UnifiedWebhookEventV2, botInfo *UnifiedBotUserInfoV2) (bool, ResponseScenarioV2) {
+	return true, ResponseScenarioV2{Type: "direct_mention"}
+}
+
+func (s *orchestratorUnifiedStub) ProcessCommentReply(ctx context.Context, event UnifiedWebhookEventV2, timeline *UnifiedTimelineV2, orgID int64) (string, *LearningMetadataV2, error) {
+	return s.reply, s.learning, nil
+}
+
+func (s *orchestratorUnifiedStub) ProcessFullReview(ctx context.Context, event UnifiedWebhookEventV2, timeline *UnifiedTimelineV2) ([]UnifiedReviewCommentV2, *LearningMetadataV2, error) {
+	return nil, nil, nil
+}
+
+type stubLearningProcessor struct {
+	impl        *LearningProcessorV2Impl
+	applyCalled bool
+}
+
+func newStubLearningProcessor() *stubLearningProcessor {
+	return &stubLearningProcessor{impl: &LearningProcessorV2Impl{}}
+}
+
+func (s *stubLearningProcessor) ExtractLearning(response string, context CommentContextV2) (*LearningMetadataV2, error) {
+	return nil, nil
+}
+
+func (s *stubLearningProcessor) ApplyLearning(learning *LearningMetadataV2) error {
+	s.applyCalled = true
+	if learning.Metadata == nil {
+		learning.Metadata = map[string]interface{}{}
+	}
+	if _, ok := learning.Metadata["short_id"]; !ok {
+		learning.Metadata["short_id"] = "ABC123"
+	}
+	if _, ok := learning.Metadata["title"]; !ok {
+		learning.Metadata["title"] = "Team Avoids Sleep"
+	}
+	return nil
+}
+
+func (s *stubLearningProcessor) FindOrgIDForRepository(repo UnifiedRepositoryV2) (int64, error) {
+	return 1, nil
+}
+
+func (s *stubLearningProcessor) FormatLearningAcknowledgment(learning *LearningMetadataV2) string {
+	return s.impl.FormatLearningAcknowledgment(learning)
+}
+
+type capturingProvider struct {
+	postedContent string
+}
+
+func (c *capturingProvider) ProviderName() string { return "stub" }
+func (c *capturingProvider) CanHandleWebhook(headers map[string]string, body []byte) bool {
+	return true
+}
+func (c *capturingProvider) ConvertCommentEvent(headers map[string]string, body []byte) (*UnifiedWebhookEventV2, error) {
+	return nil, nil
+}
+func (c *capturingProvider) ConvertReviewerEvent(headers map[string]string, body []byte) (*UnifiedWebhookEventV2, error) {
+	return nil, nil
+}
+func (c *capturingProvider) FetchMergeRequestData(event *UnifiedWebhookEventV2) error { return nil }
+func (c *capturingProvider) PostCommentReply(event *UnifiedWebhookEventV2, content string) error {
+	c.postedContent = content
+	return nil
+}
+func (c *capturingProvider) PostEmojiReaction(event *UnifiedWebhookEventV2, emoji string) error {
+	return nil
+}
+func (c *capturingProvider) PostFullReview(event *UnifiedWebhookEventV2, overallComment string) error {
+	return nil
+}
+
+func TestHandleCommentReplyFlowAppendsLearningBlock(t *testing.T) {
+	learning := &LearningMetadataV2{
+		Content:  "Avoid Sleep for sync",
+		Tags:     []string{"async", "policy"},
+		Metadata: map[string]interface{}{"title": "No Sleep for Sync Issues"},
+	}
+	processor := &orchestratorUnifiedStub{
+		reply:    "Base guidance",
+		learning: learning,
+	}
+	learningProcessor := newStubLearningProcessor()
+	provider := &capturingProvider{}
+	orchestrator := &WebhookOrchestratorV2{
+		unifiedProcessor:  processor,
+		learningProcessor: learningProcessor,
+	}
+
+	event := &UnifiedWebhookEventV2{
+		EventType: "comment_created",
+		Provider:  "stub",
+		Comment: &UnifiedCommentV2{
+			Body: "Our team rule",
+		},
+	}
+
+	orchestrator.handleCommentReplyFlow(context.Background(), event, provider, nil, 1)
+
+	assert.True(t, learningProcessor.applyCalled, "learning should be applied")
+	assert.NotEmpty(t, provider.postedContent)
+	assert.Contains(t, provider.postedContent, "Base guidance")
+	assert.Contains(t, provider.postedContent, "```markdown")
+	assert.Contains(t, provider.postedContent, "LR-ABC123")
 }
 
 func TestWebhookValidation(t *testing.T) {

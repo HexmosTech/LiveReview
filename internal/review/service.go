@@ -505,6 +505,7 @@ func (s *Service) postReviewResults(
 		Severity: models.SeverityInfo,
 		Category: "summary",
 	}
+	summaryComment.Content = appendLearningAcknowledgment(summaryComment.Content)
 
 	log.Printf("[DEBUG] Posting summary comment to MR ID: %s", mrID)
 	if err := provider.PostComment(ctx, mrID, summaryComment); err != nil {
@@ -519,6 +520,9 @@ func (s *Service) postReviewResults(
 
 	// Post specific comments
 	if len(result.Comments) > 0 {
+		for _, comment := range result.Comments {
+			comment.Content = appendLearningAcknowledgment(comment.Content)
+		}
 		if s.logger != nil {
 			s.logger.Log("Posting %d individual comments...", len(result.Comments))
 			// Log details of each comment being posted
