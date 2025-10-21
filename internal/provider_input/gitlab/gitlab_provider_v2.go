@@ -15,6 +15,8 @@ import (
 
 	"github.com/livereview/internal/capture"
 	coreprocessor "github.com/livereview/internal/core_processor"
+	gl "github.com/livereview/internal/providers/gitlab"
+	rm "github.com/livereview/internal/reviewmodel"
 )
 
 type (
@@ -397,6 +399,16 @@ type GitLabV2Provider struct {
 	output GitLabOutputClient
 }
 
+type gitLabReviewModelArtifacts struct {
+	Commits         []gl.GitLabCommit
+	Discussions     []gl.GitLabDiscussion
+	StandaloneNotes []gl.GitLabNote
+	ExportTimeline  rm.ExportTimeline
+	ExportTree      rm.ExportCommentTree
+	PrevCommitIndex map[string]string
+	NoteMap         map[string]*gl.GitLabNote
+}
+
 // NewGitLabV2Provider creates a new GitLab V2 provider.
 func NewGitLabV2Provider(db *sql.DB, output GitLabOutputClient) *GitLabV2Provider {
 	if db == nil {
@@ -406,6 +418,126 @@ func NewGitLabV2Provider(db *sql.DB, output GitLabOutputClient) *GitLabV2Provide
 		panic("gitlab provider requires output client")
 	}
 	return &GitLabV2Provider{db: db, output: output}
+}
+
+func buildReviewModelArtifacts(commits []GitLabV2Commit, discussions []GitLabV2Discussion, standalone []GitLabV2Note) *gitLabReviewModelArtifacts {
+	legacyCommits := convertV2CommitsToLegacy(commits)
+	legacyDiscussions, legacyStandalone, noteMap := convertV2NotesToLegacy(discussions, standalone)
+
+	timeline := rm.BuildTimeline(legacyCommits, legacyDiscussions, legacyStandalone)
+	prevIndex := rm.BuildPrevCommitIndex(timeline)
+	commentTree := rm.BuildCommentTree(legacyDiscussions, legacyStandalone)
+	exportTimeline := rm.BuildExportTimeline(timeline)
+	exportTree := rm.BuildExportCommentTreeWithPrev(commentTree, prevIndex)
+
+	return &gitLabReviewModelArtifacts{
+		Commits:         legacyCommits,
+		Discussions:     legacyDiscussions,
+		StandaloneNotes: legacyStandalone,
+		ExportTimeline:  exportTimeline,
+		ExportTree:      exportTree,
+		PrevCommitIndex: prevIndex,
+		NoteMap:         noteMap,
+	}
+}
+
+func convertV2CommitsToLegacy(commits []GitLabV2Commit) []gl.GitLabCommit {
+	out := make([]gl.GitLabCommit, 0, len(commits))
+	for _, c := range commits {
+		title := c.Message
+		if idx := strings.IndexByte(title, '\n'); idx >= 0 {
+			title = title[:idx]
+		}
+		out = append(out, gl.GitLabCommit{
+			ID:             c.ID,
+			ShortID:        shortSHAV2(c.ID),
+			Title:          title,
+			Message:        c.Message,
+			AuthorName:     c.Author.Name,
+			AuthorEmail:    c.Author.Email,
+			AuthoredDate:   c.Timestamp,
+			CommitterName:  c.Author.Name,
+			CommitterEmail: c.Author.Email,
+			CommittedDate:  c.Timestamp,
+			WebURL:         c.URL,
+		})
+	}
+	return out
+}
+
+func convertV2NotesToLegacy(discussions []GitLabV2Discussion, standalone []GitLabV2Note) ([]gl.GitLabDiscussion, []gl.GitLabNote, map[string]*gl.GitLabNote) {
+	legacyDiscussions := make([]gl.GitLabDiscussion, 0, len(discussions))
+	noteMap := make(map[string]*gl.GitLabNote)
+
+	for _, d := range discussions {
+		legacyNotes := make([]gl.GitLabNote, 0, len(d.Notes))
+		for _, note := range d.Notes {
+			converted := convertV2NoteToLegacy(note)
+			legacyNotes = append(legacyNotes, converted)
+			noteCopy := converted
+			noteMap[strconv.Itoa(note.ID)] = &noteCopy
+		}
+		legacyDiscussions = append(legacyDiscussions, gl.GitLabDiscussion{
+			ID:             d.ID,
+			IndividualNote: len(d.Notes) <= 1,
+			Notes:          legacyNotes,
+		})
+	}
+
+	legacyStandalone := make([]gl.GitLabNote, 0, len(standalone))
+	for _, note := range standalone {
+		converted := convertV2NoteToLegacy(note)
+		legacyStandalone = append(legacyStandalone, converted)
+		noteCopy := converted
+		noteMap[strconv.Itoa(note.ID)] = &noteCopy
+	}
+
+	return legacyDiscussions, legacyStandalone, noteMap
+}
+
+func convertV2NoteToLegacy(n GitLabV2Note) gl.GitLabNote {
+	legacy := gl.GitLabNote{
+		ID:         n.ID,
+		Type:       n.Type,
+		Body:       n.Body,
+		Author:     convertV2UserToLegacy(n.Author),
+		CreatedAt:  n.CreatedAt,
+		UpdatedAt:  n.UpdatedAt,
+		System:     n.System,
+		Resolvable: n.Resolvable,
+		Resolved:   n.Resolved,
+	}
+	if n.ResolvedBy.ID != 0 {
+		resolved := convertV2UserToLegacy(n.ResolvedBy)
+		legacy.ResolvedBy = &resolved
+	}
+	if n.Position != nil {
+		legacy.Position = &gl.GitLabPosition{
+			BaseSHA:      n.Position.BaseSHA,
+			StartSHA:     n.Position.StartSHA,
+			HeadSHA:      n.Position.HeadSHA,
+			OldPath:      n.Position.OldPath,
+			NewPath:      n.Position.NewPath,
+			PositionType: n.Position.PositionType,
+		}
+		if n.Position.OldLine != nil {
+			legacy.Position.OldLine = *n.Position.OldLine
+		}
+		if n.Position.NewLine != nil {
+			legacy.Position.NewLine = *n.Position.NewLine
+		}
+	}
+	return legacy
+}
+
+func convertV2UserToLegacy(u GitLabV2User) gl.GitLabUser {
+	return gl.GitLabUser{
+		ID:        u.ID,
+		Username:  u.Username,
+		Name:      u.Name,
+		AvatarURL: u.AvatarURL,
+		WebURL:    u.WebURL,
+	}
 }
 
 // ProviderName returns the provider name
@@ -715,22 +847,38 @@ func (p *GitLabV2Provider) FetchMergeRequestData(event *UnifiedWebhookEventV2) e
 	mrIID := event.MergeRequest.Number
 
 	// Fetch commits, discussions, and notes for future use
-	_, err = httpClient.GetMergeRequestCommitsV2(projectID, mrIID)
+	commits, err := httpClient.GetMergeRequestCommitsV2(projectID, mrIID)
 	if err != nil {
 		return fmt.Errorf("failed to get commits: %w", err)
 	}
 
-	_, err = httpClient.GetMergeRequestDiscussionsV2(projectID, mrIID)
+	discussions, err := httpClient.GetMergeRequestDiscussionsV2(projectID, mrIID)
 	if err != nil {
 		return fmt.Errorf("failed to get discussions: %w", err)
 	}
 
-	_, err = httpClient.GetMergeRequestNotesV2(projectID, mrIID)
+	standaloneNotes, err := httpClient.GetMergeRequestNotesV2(projectID, mrIID)
 	if err != nil {
 		return fmt.Errorf("failed to get standalone notes: %w", err)
 	}
 
-	log.Printf("[INFO] Successfully fetched MR data for GitLab MR %d", mrIID)
+	artifacts := buildReviewModelArtifacts(commits, discussions, standaloneNotes)
+
+	if event.MergeRequest.Metadata == nil {
+		event.MergeRequest.Metadata = map[string]interface{}{}
+	}
+
+	event.MergeRequest.Metadata["timeline_commits"] = convertGitLabCommitsToUnifiedV2(commits)
+	event.MergeRequest.Metadata["timeline_comments"] = convertGitLabCommentsToUnifiedV2(discussions, standaloneNotes)
+	event.MergeRequest.Metadata["rm_export_timeline"] = artifacts.ExportTimeline
+	event.MergeRequest.Metadata["rm_export_comment_tree"] = artifacts.ExportTree
+	event.MergeRequest.Metadata["rm_prev_commit_index"] = artifacts.PrevCommitIndex
+	event.MergeRequest.Metadata["rm_note_map"] = artifacts.NoteMap
+	event.MergeRequest.Metadata["gitlab_project_id"] = event.Repository.ID
+	event.MergeRequest.Metadata["gitlab_instance_url"] = gitlabInstanceURL
+	event.MergeRequest.Metadata["gitlab_mr_iid"] = mrIID
+
+	log.Printf("[INFO] Successfully fetched MR data for GitLab MR %d (commits=%d, discussions=%d, standalone=%d)", mrIID, len(commits), len(discussions), len(standaloneNotes))
 	return nil
 }
 

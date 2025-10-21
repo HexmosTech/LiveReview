@@ -67,7 +67,7 @@ func TestRetryWithBackoff_Success(t *testing.T) {
 
 	result := RetryWithBackoff(context.Background(), config, func() error {
 		return nil // Success on first attempt
-	})
+	}, nil)
 
 	if !result.Success {
 		t.Error("Expected success=true")
@@ -103,7 +103,7 @@ func TestRetryWithBackoff_EventualSuccess(t *testing.T) {
 			return errors.New("temporary failure")
 		}
 		return nil // Success on third attempt
-	})
+	}, nil)
 
 	if !result.Success {
 		t.Error("Expected success=true")
@@ -135,7 +135,7 @@ func TestRetryWithBackoff_AllAttemptsFailure(t *testing.T) {
 	expectedError := errors.New("persistent failure")
 	result := RetryWithBackoff(context.Background(), config, func() error {
 		return expectedError
-	})
+	}, nil)
 
 	if result.Success {
 		t.Error("Expected success=false")
@@ -169,7 +169,7 @@ func TestRetryWithBackoff_ContextCancellation(t *testing.T) {
 
 	result := RetryWithBackoff(ctx, config, func() error {
 		return errors.New("always fails")
-	})
+	}, nil)
 
 	if result.Success {
 		t.Error("Expected success=false due to context cancellation")
@@ -303,7 +303,7 @@ func TestRetryWithBackoffAndReason(t *testing.T) {
 		default:
 			return nil, "success"
 		}
-	})
+	}, nil)
 
 	if !result.Success {
 		t.Error("Expected success=true")

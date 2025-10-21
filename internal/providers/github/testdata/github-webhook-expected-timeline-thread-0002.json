@@ -17,6 +17,10 @@
         "Position": {
           "FilePath": "main.go",
           "LineNumber": 183
+        },
+        "Metadata": {
+          "prev_commit_sha": "",
+          "timeline_timestamp": "2025-10-11T15:50:45Z"
         }
       }
     },
@@ -37,6 +41,10 @@
         "Position": {
           "FilePath": "main.go",
           "LineNumber": 183
+        },
+        "Metadata": {
+          "prev_commit_sha": "",
+          "timeline_timestamp": "2025-10-11T15:50:50Z"
         }
       }
     }

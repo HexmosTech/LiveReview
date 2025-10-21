@@ -17,6 +17,8 @@ func TestUnifiedProcessorV2(t *testing.T) {
 	server := &Server{}
 	processor := NewUnifiedProcessorV2(server)
 	require.NotNil(t, processor)
+	processorImpl, ok := processor.(*UnifiedProcessorV2Impl)
+	require.True(t, ok)
 
 	t.Run("CheckResponseWarrant", func(t *testing.T) {
 		// Test bot mention detection
@@ -252,6 +254,70 @@ func TestUnifiedProcessorV2(t *testing.T) {
 			assert.NotEmpty(t, learning.Type)
 		}
 	})
+
+	t.Run("BuildCommentReplyPromptIncludesCodeContext", func(t *testing.T) {
+		event := UnifiedWebhookEventV2{
+			Provider: "github",
+			Comment: &UnifiedCommentV2{
+				Body:   "@livereviewbot What is this line about?",
+				Author: UnifiedUserV2{Username: "shrsv"},
+				Metadata: map[string]interface{}{
+					"diff_hunk": "@@ -38,0 +39,2 @@\n+    dateFormat := \"Mon, 2 Jan 2006\"\n",
+				},
+				Position: &UnifiedPositionV2{
+					FilePath:   "config/config.go",
+					LineNumber: 40,
+					LineType:   "new",
+				},
+			},
+			MergeRequest: &UnifiedMergeRequestV2{Title: "Test MR"},
+			Repository:   UnifiedRepositoryV2{Name: "hexmos/live-review"},
+		}
+
+		prompt := processorImpl.buildCommentReplyPromptWithLearning(event, nil)
+		assert.Contains(t, prompt, "CODE CONTEXT")
+		assert.Contains(t, prompt, "config/config.go")
+		assert.Contains(t, prompt, "@@ -38,0 +39,2 @@")
+		assert.Contains(t, prompt, "Target line code: `dateFormat := \"Mon, 2 Jan 2006\"`")
+	})
+}
+
+func TestBuildCommentReplyPromptIncludesTimelineContext(t *testing.T) {
+	processor := &UnifiedProcessorV2Impl{}
+
+	event := UnifiedWebhookEventV2{
+		EventType: "comment_created",
+		Provider:  "gitlab",
+		Comment: &UnifiedCommentV2{
+			Body:   "@livereview could you clarify the concurrency story here?",
+			Author: UnifiedUserV2{Username: "developer"},
+		},
+		MergeRequest: &UnifiedMergeRequestV2{ID: "123"},
+	}
+
+	timeline := &UnifiedTimelineV2{
+		Items: []UnifiedTimelineItemV2{
+			{
+				Type:      "comment",
+				Timestamp: "2025-10-18T10:01:00Z",
+				Comment: &UnifiedCommentV2{
+					Body:   "Previous guidance: please ensure the worker pool size stays configurable.",
+					Author: UnifiedUserV2{Username: "reviewer"},
+				},
+			},
+			{
+				Type:      "comment",
+				Timestamp: "2025-10-18T10:02:00Z",
+				Comment:   event.Comment,
+			},
+		},
+	}
+
+	prompt := processor.buildCommentReplyPromptWithLearning(event, timeline)
+
+	assert.Contains(t, prompt, "RECENT CONVERSATION:")
+	assert.Contains(t, prompt, "reviewer")
+	assert.Contains(t, prompt, "ensure the worker pool size stays configurable")
 }
 
 func TestUnifiedContextBuilderV2(t *testing.T) {

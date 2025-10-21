@@ -200,6 +200,9 @@ func ConvertPullRequestReviewCommentEvent(body []byte) (*UnifiedWebhookEventV2, 
 	if event.Comment.Metadata == nil {
 		event.Comment.Metadata = map[string]interface{}{}
 	}
+	if payload.Comment.DiffHunk != "" {
+		event.Comment.Metadata["diff_hunk"] = payload.Comment.DiffHunk
+	}
 	if payload.Comment.PullRequestReviewID != 0 {
 		event.Comment.Metadata["pull_request_review_id"] = payload.Comment.PullRequestReviewID
 		event.Comment.Metadata["thread_id"] = fmt.Sprintf("%d", payload.Comment.PullRequestReviewID)

@@ -141,15 +141,35 @@ func (p *GitHubV2Provider) FetchMergeRequestData(event *UnifiedWebhookEventV2) e
 	owner, repo := parts[0], parts[1]
 	prNumber := fmt.Sprintf("%d", event.MergeRequest.Number)
 
-	if _, err = FetchGitHubPRCommitsV2(owner, repo, prNumber, token.PatToken); err != nil {
+	commits, err := FetchGitHubPRCommitsV2(owner, repo, prNumber, token.PatToken)
+	if err != nil {
 		return fmt.Errorf("failed to get commits: %w", err)
 	}
 
-	if _, err = FetchGitHubPRCommentsV2(owner, repo, prNumber, token.PatToken); err != nil {
+	issueComments, err := FetchGitHubPRCommentsV2(owner, repo, prNumber, token.PatToken)
+	if err != nil {
 		return fmt.Errorf("failed to get comments: %w", err)
 	}
 
-	log.Printf("[INFO] Successfully fetched PR data for GitHub PR %s", prNumber)
+	reviewComments, err := FetchGitHubPRReviewCommentsV2(owner, repo, prNumber, token.PatToken)
+	if err != nil {
+		return fmt.Errorf("failed to get review comments: %w", err)
+	}
+
+	if event.MergeRequest.Metadata == nil {
+		event.MergeRequest.Metadata = map[string]interface{}{}
+	}
+
+	unifiedCommits := convertGitHubCommitsToUnified(commits)
+	unifiedComments := convertGitHubCommentsToUnified(issueComments, reviewComments)
+
+	event.MergeRequest.Metadata["timeline_commits"] = unifiedCommits
+	event.MergeRequest.Metadata["timeline_comments"] = unifiedComments
+	event.MergeRequest.Metadata["repository_full_name"] = event.Repository.FullName
+	event.MergeRequest.Metadata["pull_request_number"] = event.MergeRequest.Number
+
+	log.Printf("[INFO] Successfully fetched PR data for GitHub PR %s (commits=%d, comments=%d, review_comments=%d)",
+		prNumber, len(unifiedCommits), len(issueComments), len(reviewComments))
 	return nil
 }
 
@@ -266,12 +286,16 @@ func (p *GitHubV2Provider) PostFullReview(event *UnifiedWebhookEventV2, overallC
 
 // FetchMRTimeline fetches timeline data for a merge request.
 func (p *GitHubV2Provider) FetchMRTimeline(mr UnifiedMergeRequestV2) (*UnifiedTimelineV2, error) {
-	token, err := FindIntegrationTokenForGitHubRepo(p.db, mr.Metadata["repository_full_name"].(string))
+	repoFullName, err := extractRepoFullNameFromMetadata(mr.Metadata)
+	if err != nil {
+		return nil, err
+	}
+
+	token, err := FindIntegrationTokenForGitHubRepo(p.db, repoFullName)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get GitHub token: %w", err)
 	}
 
-	repoFullName := mr.Metadata["repository_full_name"].(string)
 	parts := strings.Split(repoFullName, "/")
 	if len(parts) != 2 {
 		return nil, fmt.Errorf("invalid repository full name: %s", repoFullName)
@@ -388,4 +412,144 @@ func (p *GitHubV2Provider) PostReviewComments(mr UnifiedMergeRequestV2, comments
 	}
 
 	return p.output.PostReviewComments(mr, token.PatToken, comments)
+}
+
+func convertGitHubCommitsToUnified(commits []GitHubV2CommitInfo) []UnifiedCommitV2 {
+	if len(commits) == 0 {
+		return nil
+	}
+
+	unified := make([]UnifiedCommitV2, 0, len(commits))
+	for _, commit := range commits {
+		unified = append(unified, UnifiedCommitV2{
+			SHA:     commit.SHA,
+			Message: commit.Message,
+			Author: UnifiedCommitAuthorV2{
+				Name:  commit.Author.Name,
+				Email: commit.Author.Email,
+			},
+			Timestamp: commit.Author.Date,
+			WebURL:    commit.URL,
+		})
+	}
+	return unified
+}
+
+func convertGitHubCommentsToUnified(issueComments []GitHubV2CommentInfo, reviewComments []GitHubV2ReviewComment) []UnifiedCommentV2 {
+	total := len(issueComments) + len(reviewComments)
+	if total == 0 {
+		return nil
+	}
+
+	unified := make([]UnifiedCommentV2, 0, total)
+
+	for _, comment := range issueComments {
+		unified = append(unified, UnifiedCommentV2{
+			ID:        fmt.Sprintf("%d", comment.ID),
+			Body:      comment.Body,
+			Author:    UnifiedUserV2{ID: fmt.Sprintf("%d", comment.User.ID), Username: comment.User.Login, Name: comment.User.Name, WebURL: comment.User.HTMLURL, AvatarURL: comment.User.AvatarURL},
+			CreatedAt: comment.CreatedAt,
+			UpdatedAt: comment.UpdatedAt,
+			Metadata: map[string]interface{}{
+				"comment_type": "issue_comment",
+			},
+		})
+	}
+
+	for _, comment := range reviewComments {
+		metadata := map[string]interface{}{
+			"comment_type": "review_comment",
+		}
+		if comment.DiffHunk != "" {
+			metadata["diff_hunk"] = comment.DiffHunk
+		}
+		if comment.CommitID != "" {
+			metadata["commit_id"] = comment.CommitID
+		}
+		if comment.OriginalCommitID != "" {
+			metadata["original_commit_id"] = comment.OriginalCommitID
+		}
+		if comment.PullRequestReviewID != 0 {
+			metadata["pull_request_review_id"] = comment.PullRequestReviewID
+			metadata["thread_id"] = fmt.Sprintf("%d", comment.PullRequestReviewID)
+		}
+		if comment.InReplyToID != nil {
+			metadata["parent_id"] = fmt.Sprintf("%d", *comment.InReplyToID)
+		}
+
+		var position *UnifiedPositionV2
+		if comment.Path != "" {
+			lineNumber := comment.Line
+			if lineNumber == 0 {
+				lineNumber = comment.OriginalLine
+			}
+
+			lineType := strings.ToLower(comment.Side)
+			switch lineType {
+			case "right":
+				lineType = "new"
+			case "left":
+				lineType = "old"
+			}
+
+			position = &UnifiedPositionV2{
+				FilePath:   comment.Path,
+				LineNumber: lineNumber,
+				LineType:   lineType,
+			}
+			if comment.StartLine != nil {
+				position.StartLine = comment.StartLine
+			}
+		}
+
+		unifiedComment := UnifiedCommentV2{
+			ID:   fmt.Sprintf("%d", comment.ID),
+			Body: comment.Body,
+			Author: UnifiedUserV2{
+				ID:        fmt.Sprintf("%d", comment.User.ID),
+				Username:  comment.User.Login,
+				Name:      comment.User.Name,
+				WebURL:    comment.User.HTMLURL,
+				AvatarURL: comment.User.AvatarURL,
+			},
+			CreatedAt: comment.CreatedAt,
+			UpdatedAt: comment.UpdatedAt,
+			Metadata:  metadata,
+			Position:  position,
+		}
+
+		if comment.InReplyToID != nil {
+			replyID := fmt.Sprintf("%d", *comment.InReplyToID)
+			unifiedComment.InReplyToID = &replyID
+		}
+		if comment.PullRequestReviewID != 0 {
+			discussionID := fmt.Sprintf("%d", comment.PullRequestReviewID)
+			unifiedComment.DiscussionID = &discussionID
+		}
+
+		unified = append(unified, unifiedComment)
+	}
+
+	return unified
+}
+
+func extractRepoFullNameFromMetadata(metadata map[string]interface{}) (string, error) {
+	if metadata == nil {
+		return "", fmt.Errorf("merge request metadata missing repository_full_name")
+	}
+
+	if value, ok := metadata["repository_full_name"]; ok {
+		switch typed := value.(type) {
+		case string:
+			if strings.TrimSpace(typed) != "" {
+				return typed, nil
+			}
+		case fmt.Stringer:
+			if s := strings.TrimSpace(typed.String()); s != "" {
+				return s, nil
+			}
+		}
+	}
+
+	return "", fmt.Errorf("repository_full_name missing from metadata")
 }

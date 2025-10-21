@@ -16,6 +16,10 @@
         "DiscussionID": "95f766e92b1c7f2d2a3d135be9312ca7549800a0",
         "Position": {
           "FilePath": "liveapi-backend/qmanager/repodag.go"
+        },
+        "Metadata": {
+          "prev_commit_sha": "",
+          "timeline_timestamp": "2025-10-12T14:43:03Z"
         }
       }
     },
@@ -35,6 +39,10 @@
         "DiscussionID": "2ba73cbb3a171d6b26598e67ffe739506edd00a9",
         "Position": {
           "FilePath": "liveapi-backend/qmanager/repodag.go"
+        },
+        "Metadata": {
+          "prev_commit_sha": "",
+          "timeline_timestamp": "2025-10-12T14:43:05Z"
         }
       }
     },
@@ -54,6 +62,10 @@
         "DiscussionID": "48f03b152cbd46210e5bfd708729470de009e0c5",
         "Position": {
           "FilePath": "liveapi-backend/qmanager/repodag.go"
+        },
+        "Metadata": {
+          "prev_commit_sha": "",
+          "timeline_timestamp": "2025-10-12T14:43:09Z"
         }
       }
     }

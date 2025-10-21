@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"log"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -29,11 +30,14 @@ func NewUnifiedContextBuilderV2() ContextBuilderV2 {
 func (cb *UnifiedContextBuilderV2) BuildTimeline(mr UnifiedMergeRequestV2, provider string) (*UnifiedTimelineV2, error) {
 	log.Printf("[DEBUG] Building unified timeline for %s MR %s", provider, mr.ID)
 
-	timeline := &UnifiedTimelineV2{
-		Items: []UnifiedTimelineItemV2{},
+	commits, comments := cb.extractTimelineDataFromMetadata(mr.Metadata)
+	if len(commits) == 0 && len(comments) == 0 {
+		log.Printf("[WARN] No timeline data available for %s MR %s; falling back to empty timeline", provider, mr.ID)
+		return &UnifiedTimelineV2{Items: []UnifiedTimelineItemV2{}}, nil
 	}
 
-	log.Printf("[DEBUG] Created empty timeline structure for population by %s provider", provider)
+	timeline := cb.BuildTimelineFromData(commits, comments)
+	log.Printf("[DEBUG] Timeline built with %d commits and %d comments", len(commits), len(comments))
 	return timeline, nil
 }
 
@@ -69,6 +73,24 @@ func (cb *UnifiedContextBuilderV2) BuildTimelineFromData(commits []UnifiedCommit
 		timeJ := cb.parseTimeBestEffortV2(items[j].Timestamp)
 		return timeI.Before(timeJ)
 	})
+
+	lastCommitSHA := ""
+	for idx := range items {
+		item := &items[idx]
+		if item.Type == "commit" && item.Commit != nil {
+			if item.Commit.SHA != "" {
+				lastCommitSHA = item.Commit.SHA
+			}
+			continue
+		}
+		if item.Type == "comment" && item.Comment != nil {
+			if item.Comment.Metadata == nil {
+				item.Comment.Metadata = map[string]interface{}{}
+			}
+			item.Comment.Metadata["prev_commit_sha"] = lastCommitSHA
+			item.Comment.Metadata["timeline_timestamp"] = item.Timestamp
+		}
+	}
 
 	return &UnifiedTimelineV2{
 		Items: items,
@@ -246,6 +268,14 @@ func (cb *UnifiedContextBuilderV2) ExtractCodeContext(comment UnifiedCommentV2, 
 
 	if metadata := comment.Metadata; metadata != nil {
 		if diffHunk, ok := metadata["diff_hunk"].(string); ok && diffHunk != "" {
+			if line := cb.extractTargetLineFromDiff(diffHunk, comment.Position); line != "" {
+				context.WriteString(fmt.Sprintf("- Target line code: `%s`\n", line))
+			}
+		}
+	}
+
+	if metadata := comment.Metadata; metadata != nil {
+		if diffHunk, ok := metadata["diff_hunk"].(string); ok && diffHunk != "" {
 			context.WriteString("\n**Diff Context:**\n```diff\n")
 			context.WriteString(diffHunk)
 			context.WriteString("\n```\n")
@@ -253,6 +283,7 @@ func (cb *UnifiedContextBuilderV2) ExtractCodeContext(comment UnifiedCommentV2, 
 
 		if fileContent, ok := metadata["file_content"].(string); ok && fileContent != "" {
 			context.WriteString("\n**File Content:**\n```\n")
+
 			if len(fileContent) > 1000 {
 				context.WriteString(fileContent[:1000])
 				context.WriteString("\n... (content truncated)\n")
@@ -264,6 +295,117 @@ func (cb *UnifiedContextBuilderV2) ExtractCodeContext(comment UnifiedCommentV2, 
 	}
 
 	return context.String(), nil
+}
+
+func (cb *UnifiedContextBuilderV2) extractTargetLineFromDiff(diffHunk string, position *UnifiedPositionV2) string {
+	if diffHunk == "" || position == nil || position.LineNumber == 0 {
+		return ""
+	}
+
+	lines := strings.Split(diffHunk, "\n")
+	var currentOld, currentNew int
+	var haveContext bool
+	targetType := strings.ToLower(position.LineType)
+	if targetType == "" {
+		targetType = "new"
+	}
+	bestLine := ""
+	bestDistance := int(^uint(0) >> 1)
+
+	for _, line := range lines {
+		if strings.HasPrefix(line, "@@") {
+			oldStart, newStart, ok := parseUnifiedDiffHeader(line)
+			if !ok {
+				haveContext = false
+				continue
+			}
+			currentOld = oldStart
+			currentNew = newStart
+			haveContext = true
+			continue
+		}
+
+		if !haveContext || line == "" {
+			continue
+		}
+
+		lineType := line[0]
+		lineContent := strings.TrimSpace(line[1:])
+		var lineNumber int
+		relevant := false
+
+		switch lineType {
+		case ' ':
+			lineNumber = currentNew
+			relevant = targetType != "old"
+			currentOld++
+			currentNew++
+		case '+':
+			lineNumber = currentNew
+			relevant = targetType != "old"
+			currentNew++
+		case '-':
+			lineNumber = currentOld
+			relevant = targetType == "old"
+			currentOld++
+		default:
+			continue
+		}
+
+		if !relevant {
+			continue
+		}
+
+		distance := position.LineNumber - lineNumber
+		if distance < 0 {
+			distance = -distance
+		}
+		if distance < bestDistance {
+			bestDistance = distance
+			bestLine = lineContent
+			if distance == 0 {
+				return bestLine
+			}
+		}
+	}
+
+	return bestLine
+}
+
+func parseUnifiedDiffHeader(header string) (oldStart int, newStart int, ok bool) {
+	header = strings.TrimSpace(header)
+	if !strings.HasPrefix(header, "@@") {
+		return 0, 0, false
+	}
+
+	parts := strings.Split(header, " ")
+	if len(parts) < 3 {
+		return 0, 0, false
+	}
+
+	oldStart = parseDiffSegment(parts[1])
+	newStart = parseDiffSegment(parts[2])
+	if oldStart == 0 && newStart == 0 {
+		return 0, 0, false
+	}
+	return oldStart, newStart, true
+}
+
+func parseDiffSegment(segment string) int {
+	if segment == "" {
+		return 0
+	}
+	if segment[0] == '-' || segment[0] == '+' {
+		segment = segment[1:]
+	}
+	if idx := strings.Index(segment, ","); idx != -1 {
+		segment = segment[:idx]
+	}
+	n, err := strconv.Atoi(segment)
+	if err != nil {
+		return 0
+	}
+	return n
 }
 
 func (cb *UnifiedContextBuilderV2) parseTimeBestEffortV2(timestamp string) time.Time {
@@ -305,6 +447,71 @@ func (cb *UnifiedContextBuilderV2) truncateStringV2(s string, maxLength int) str
 		return s
 	}
 	return s[:maxLength-3] + "..."
+}
+
+func (cb *UnifiedContextBuilderV2) extractTimelineDataFromMetadata(metadata map[string]interface{}) ([]UnifiedCommitV2, []UnifiedCommentV2) {
+	if metadata == nil {
+		return nil, nil
+	}
+
+	commits := cb.normalizeCommitSlice(metadata["timeline_commits"])
+	comments := cb.normalizeCommentSlice(metadata["timeline_comments"])
+
+	return commits, comments
+}
+
+func (cb *UnifiedContextBuilderV2) normalizeCommitSlice(value interface{}) []UnifiedCommitV2 {
+	switch typed := value.(type) {
+	case []UnifiedCommitV2:
+		return append([]UnifiedCommitV2(nil), typed...)
+	case []*UnifiedCommitV2:
+		result := make([]UnifiedCommitV2, 0, len(typed))
+		for _, item := range typed {
+			if item != nil {
+				result = append(result, *item)
+			}
+		}
+		return result
+	case []interface{}:
+		result := make([]UnifiedCommitV2, 0, len(typed))
+		for _, item := range typed {
+			if commit, ok := item.(UnifiedCommitV2); ok {
+				result = append(result, commit)
+			} else if commitPtr, ok := item.(*UnifiedCommitV2); ok && commitPtr != nil {
+				result = append(result, *commitPtr)
+			}
+		}
+		return result
+	default:
+		return nil
+	}
+}
+
+func (cb *UnifiedContextBuilderV2) normalizeCommentSlice(value interface{}) []UnifiedCommentV2 {
+	switch typed := value.(type) {
+	case []UnifiedCommentV2:
+		return append([]UnifiedCommentV2(nil), typed...)
+	case []*UnifiedCommentV2:
+		result := make([]UnifiedCommentV2, 0, len(typed))
+		for _, item := range typed {
+			if item != nil {
+				result = append(result, *item)
+			}
+		}
+		return result
+	case []interface{}:
+		result := make([]UnifiedCommentV2, 0, len(typed))
+		for _, item := range typed {
+			if comment, ok := item.(UnifiedCommentV2); ok {
+				result = append(result, comment)
+			} else if commentPtr, ok := item.(*UnifiedCommentV2); ok && commentPtr != nil {
+				result = append(result, *commentPtr)
+			}
+		}
+		return result
+	default:
+		return nil
+	}
 }
 
 func (cb *UnifiedContextBuilderV2) firstNonEmptyV2(strings ...string) string {
