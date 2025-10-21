@@ -48,6 +48,9 @@ type LearningProcessorV2 interface {
 
 	// Find organization ID for repository (provider-agnostic)
 	FindOrgIDForRepository(repo UnifiedRepositoryV2) (int64, error)
+
+	// FormatLearningAcknowledgment renders a markdown snippet describing the applied learning
+	FormatLearningAcknowledgment(learning *LearningMetadataV2) string
 }
 
 // WebhookOrchestratorV2 - Main orchestrator interface for coordinating flows

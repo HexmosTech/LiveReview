@@ -637,6 +637,34 @@ func TestLearningProcessorV2(t *testing.T) {
 	processor := NewLearningProcessorV2(server)
 	require.NotNil(t, processor)
 
+	impl, ok := processor.(*LearningProcessorV2Impl)
+	require.True(t, ok)
+
+	t.Run("GenerateLearningAcknowledgmentMarkdownBlock", func(t *testing.T) {
+		learning := &LearningMetadataV2{
+			Content:    "Use proper error handling, fail fast, provide meaningful error messages, and log appropriately for debugging.",
+			Confidence: 0.85,
+			Tags:       []string{"error-handling", "logging"},
+			Metadata: map[string]interface{}{
+				"title":             "Error Handling Patterns",
+				"short_id":          "ABC123",
+				"scope_kind":        "org",
+				"extraction_method": "pattern_matching",
+				"original_comment":  "We prefer explicit exits on errors.",
+			},
+		}
+
+		ack := impl.FormatLearningAcknowledgment(learning)
+		assert.Contains(t, ack, "```markdown")
+		assert.Contains(t, ack, "ID: LR-ABC123")
+		assert.Contains(t, ack, "Tags: error-handling, logging")
+		assert.Contains(t, ack, "Scope: Organization")
+		assert.Contains(t, ack, "Confidence: 0.85")
+		assert.Contains(t, ack, "Source: pattern_matching")
+		assert.Contains(t, ack, "Summary:")
+		assert.NotContains(t, ack, "Original Comment:")
+	})
+
 	t.Run("ExtractLearning_Documentation", func(t *testing.T) {
 		response := "You should always document your public functions with clear descriptions of their purpose, parameters, and return values. This improves code maintainability."
 

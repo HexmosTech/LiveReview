@@ -1,64 +1,38 @@
-## GitHub Review Regression – 2025-10-18
+# GitHub Learning Flow Fix Follow-Up
 
-### Core Problems
-1. **UI says 5 events, GitHub got 41+ comments** - massive event/comment mismatch
-2. **UI shows "100% complete" + "In Progress" simultaneously** - broken state logic
-3. **Batch spinner stuck forever** - polling never terminates
-4. **Comment quality collapsed** - bot explaining obvious code instead of finding issues
-5. **Suspect review trigger mixing with reply mechanism** - possible cross-contamination
+## Current Architecture Snapshot
+- **Unified pipeline (V2)** — `internal/api/webhook_orchestrator_v2.go` drives replies via `UnifiedProcessorV2` and `LearningProcessorV2`, adds acknowledgments, and posts through provider adapters.
+- **Legacy GitHub path** — `internal/providers/github/github.go` (and related review service code) still posts comments directly, bypassing the orchestrator abstractions; we only patched acknowledgments locally.
+- **Provider input split** — GitHub has `internal/provider_input/github/github_provider.go` for the newer webhook plumbing while older review triggers still lean on `internal/review/service.go` + legacy provider.
+- **Learning metadata sources** — `LearningProcessorV2` writes rich metadata (org, repo, source_context) but only V2 orchestrator consumed it end‑to‑end before the stopgap.
+- **Tests / fixtures** — Coverage is skewed toward V2; legacy flow relies on manual QA and integration tests that pre-date the learning block work.
 
-### Investigation Plan
+## Pain Points Identified
+- **Dual posting pipelines**: Reply flows and triggered reviews can hit different stacks (legacy provider vs. unified orchestrator), duplicating logic for formatting, retries, learning extraction, and error handling.
+- **Formatter forks**: Until now each flow hand‑rolled the learning block; other concerns (prompt hygiene, context trimming, citation handling) risk similar divergence.
+- **Mixed data plumbing**: Legacy path lacks canonical source_context metadata (e.g., repo URL) unless we keep shimming it in, making features like per-repo learnings harder.
+- **Hard to reason about warrants**: UnifiedProcessorV2 encodes warrant policy, but legacy review triggers dodge it entirely, so responding rules differ between auto replies and manual triggers.
+- **Testing gaps**: Unit tests assert the V2 acknowledgment, but no regression suite covers the legacy provider, meaning every fix is a bespoke patch.
+- **Operational confusion**: Engineers need to know which switches (e.g., Make targets, environment flags) route traffic through which path; documentation is thin.
 
-**Step 1: Find the comment flood source**
-- Check DB: `review_sessions` table for review 246 - how many batches created?
-- Check `review_comments` or equivalent - how many rows inserted?
-- Check logs for review 246 - grep for "posting comment" or similar
-- **Goal:** confirm if backend actually posted 41 times or if UI miscounted
+## Recommended Resolution Strategy
+1. **Collapse onto UnifiedPipeline for GitHub**
+	- Swap legacy review posting in `internal/review/service.go` to invoke the V2 orchestrator/provider adapter instead of `internal/providers/github` directly.
+	- Ensure `UnifiedProcessorV2` exposes a simple entrypoint for both webhook replies and manual review triggers (shared code for warrant checks, learning extraction).
+2. **Deprecate legacy `internal/providers/github`**
+	- After routing is unified, migrate remaining consumers (CLI tools, tests) and delete the file to prevent backslide.
+	- Retire duplicate config structs (`review.ProviderConfig` vs integration token plumbing) so GitHub setup lives in one place.
+3. **Centralize formatting & metadata helpers**
+	- Keep the new `internal/learnings/acknowledgment` package as the single markdown renderer.
+	- Add shared helpers for stripping learning JSON, context summarization, and prompt annotations to avoid future drift.
+4. **Strengthen tests across flows**
+	- Add end‑to‑end tests that simulate a GitHub webhook and a manual review trigger, confirming they run through the same code and emit identical acknowledgment blocks.
+	- Capture fixture differences (real vs stub payloads) in `internal/api/tests` so both paths share the same data.
+5. **Document the flow**
+	- Update developer docs describing the request journey (webhook → unified orchestrator → provider adapter) with callouts for learning persistence and acknowledgment.
+	- Include migration notes while the legacy provider is still around so ops knows which flags toggle the unified flow.
 
-**Step 2: Trace review trigger flow**
-- Review trigger endpoint - does it queue to job_queue or call orchestrator directly?
-- Does review flow go through webhook orchestrator or separate path?
-- Check if review comments use same posting mechanism as webhook replies
-- **Goal:** confirm review path is isolated from webhook reply path
-
-**Step 3: Find UI state bugs**
-- Dashboard status calc - where does "100% complete" come from?
-- Where does "In Progress" flag come from?
-- Check batch polling logic - when does spinner stop?
-- **Goal:** fix contradictory status display
-
-**Step 4: Find prompt regression**
-- Check review prompt vs webhook reply prompt - are they different?
-- Did Phase 5 changes affect review prompts?
-- Look for commented-out quality filters or validation
-- **Goal:** restore actionable comment quality
-
-### Files to Check (Priority Order)
-1. Review trigger handler (API endpoint that starts reviews)
-2. Review job processor (worker that executes review)
-3. Comment posting logic (GitHub output client)
-4. Dashboard status calculation
-5. Review prompt builder
-6. Batch status/polling endpoints
-
-### Quick Wins
-- Add logging to see exact flow when review triggered
-- Add comment counter per review session with hard cap (e.g., 20)
-- Separate review and webhook flows if currently mixed
-- Restore original review prompt if changed recently
-
----
-
-## TriggerReviewV2 Refactoring Plan (Parked)
-
-**Current State:** 400+ line monolithic function doing 7 distinct phases
-
-**Proposed Split:**
-1. `validateAndSetupReview()` - Lines 47-105: org_id extraction, request parsing, DB record creation, logger init
-2. `prepareIntegrationToken()` - Lines 107-167: URL validation, token lookup, provider validation, OAuth refresh
-3. `buildReviewRequest()` - Lines 169-206: review service creation, request object building
-4. `enrichReviewMetadata()` - Lines 208-308: MR metadata fetch, DB enrichment, provider normalization
-5. `launchReviewProcessing()` - Lines 310-365: activity tracking, goroutine launch, completion callback setup
-6. HTTP response return - Lines 367-380
-
-**Benefits:** Easier testing, clearer error boundaries, independent phase debugging
+## Suggested Next Steps (Incremental)
+- Draft an ADR clarifying that GitHub must use UnifiedProcessorV2 for all comment generation.
+- Build a feature flag (temporary) in review service to switch between legacy and unified posting; run controlled rollout to ensure no regression in comment placement.
+- Track cleanup tasks in a single ticket (or this doc) and close out once legacy provider files are deleted and docs/tests reflect the new single path.
