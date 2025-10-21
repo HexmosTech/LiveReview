@@ -209,7 +209,7 @@ func NewServer(port int, versionInfo *VersionInfo) (*Server, error) {
 	e := echo.New()
 
 	// Middleware
-	e.Use(middleware.Logger())
+	// e.Use(middleware.Logger()) // Disabled to reduce log noise
 	e.Use(middleware.Recover())
 	e.Use(middleware.CORS())
 

@@ -12,7 +12,11 @@
         },
         "CreatedAt": "2025-10-11T13:18:55Z",
         "UpdatedAt": "2025-10-11T13:18:55Z",
-        "WebURL": "https://github.com/livereviewbot/glabmig/pull/2#issuecomment-3393323646"
+        "WebURL": "https://github.com/livereviewbot/glabmig/pull/2#issuecomment-3393323646",
+        "Metadata": {
+          "prev_commit_sha": "",
+          "timeline_timestamp": "2025-10-11T13:18:55Z"
+        }
       }
     },
     {
@@ -31,6 +35,10 @@
         "Position": {
           "FilePath": "main.go",
           "LineNumber": 183
+        },
+        "Metadata": {
+          "prev_commit_sha": "",
+          "timeline_timestamp": "2025-10-11T13:18:59Z"
         }
       }
     },
@@ -50,6 +58,10 @@
         "Position": {
           "FilePath": "main.go",
           "LineNumber": 236
+        },
+        "Metadata": {
+          "prev_commit_sha": "",
+          "timeline_timestamp": "2025-10-11T13:19:02Z"
         }
       }
     },
@@ -69,6 +81,10 @@
         "Position": {
           "FilePath": "main.go",
           "LineNumber": 249
+        },
+        "Metadata": {
+          "prev_commit_sha": "",
+          "timeline_timestamp": "2025-10-11T13:19:04Z"
         }
       }
     }

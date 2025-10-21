@@ -92,3 +92,45 @@ func FetchGitHubPRCommentsV2(owner, repo, prNumber, token string) ([]GitHubV2Com
 
 	return comments, nil
 }
+
+// FetchGitHubPRReviewCommentsV2 fetches review (inline) comments for a GitHub PR.
+func FetchGitHubPRReviewCommentsV2(owner, repo, prNumber, token string) ([]GitHubV2ReviewComment, error) {
+	apiURL := fmt.Sprintf("https://api.github.com/repos/%s/%s/pulls/%s/comments", owner, repo, prNumber)
+
+	req, err := http.NewRequest("GET", apiURL, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Set("Authorization", "token "+token)
+	req.Header.Set("Accept", "application/vnd.github.v3+json")
+	req.Header.Set("User-Agent", "LiveReview-Bot")
+
+	client := &http.Client{Timeout: 30 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("GitHub API request failed with status %d", resp.StatusCode)
+	}
+
+	var comments []GitHubV2ReviewComment
+	if err = json.NewDecoder(resp.Body).Decode(&comments); err != nil {
+		return nil, err
+	}
+
+	if capture.Enabled() {
+		payload := map[string]interface{}{
+			"owner":    owner,
+			"repo":     repo,
+			"number":   prNumber,
+			"comments": comments,
+		}
+		capture.WriteJSON("github-pr-review-comments", payload)
+	}
+
+	return comments, nil
+}

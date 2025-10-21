@@ -29,6 +29,10 @@ type WebhookOrchestratorV2 struct {
 	processingTimeoutSec int
 }
 
+type timelineFetcher interface {
+	FetchMRTimeline(coreprocessor.UnifiedMergeRequestV2) (*coreprocessor.UnifiedTimelineV2, error)
+}
+
 // NewWebhookOrchestratorV2 creates a new webhook orchestrator instance
 func NewWebhookOrchestratorV2(server *Server) *WebhookOrchestratorV2 {
 	log.Printf("[DEBUG] Creating webhook orchestrator V2...")
@@ -231,11 +235,25 @@ func (wo *WebhookOrchestratorV2) processEventAsync(ctx context.Context, event *U
 	var timeline *UnifiedTimelineV2
 	var err error
 	if event.MergeRequest != nil {
-		timeline, err = wo.contextBuilder.BuildTimeline(*event.MergeRequest, event.Provider)
-		if err != nil {
-			log.Printf("[ERROR] Failed to build timeline: %v", err)
-			wo.postErrorResponse(provider, event, "Failed to build context timeline")
-			return
+		if fetcher, ok := provider.(timelineFetcher); ok {
+			timeline, err = fetcher.FetchMRTimeline(*event.MergeRequest)
+			if err != nil {
+				log.Printf("[ERROR] Provider timeline fetch failed: %v", err)
+				wo.postErrorResponse(provider, event, "Failed to fetch merge request timeline")
+				return
+			}
+			if timeline == nil {
+				log.Printf("[ERROR] Provider timeline fetch returned nil timeline")
+				wo.postErrorResponse(provider, event, "Merge request timeline unavailable")
+				return
+			}
+		} else {
+			timeline, err = wo.contextBuilder.BuildTimeline(*event.MergeRequest, event.Provider)
+			if err != nil {
+				log.Printf("[ERROR] Failed to build timeline: %v", err)
+				wo.postErrorResponse(provider, event, "Failed to build context timeline")
+				return
+			}
 		}
 	} else {
 		log.Printf("[WARN] No MR data available, creating empty timeline")

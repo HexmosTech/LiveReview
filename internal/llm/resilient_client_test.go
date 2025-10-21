@@ -133,7 +133,7 @@ func TestResilientClient_SuccessFirstAttempt(t *testing.T) {
 		LogRetries: false,
 	}
 
-	client := NewResilientClient(mockClient, config, eventSink)
+	client := NewResilientClient(mockClient, config, eventSink, nil)
 
 	req := ResilientRequest{
 		ReviewID: 123,
@@ -181,7 +181,7 @@ func TestResilientClient_RetryWithEventualSuccess(t *testing.T) {
 		LogRetries: false,
 	}
 
-	client := NewResilientClient(mockClient, config, eventSink)
+	client := NewResilientClient(mockClient, config, eventSink, nil)
 
 	req := ResilientRequest{
 		ReviewID: 123,
@@ -218,7 +218,7 @@ func TestResilientClient_JSONRepair(t *testing.T) {
 	config := retry.DefaultRetryConfig()
 	config.LogRetries = false
 
-	client := NewResilientClient(mockClient, config, eventSink)
+	client := NewResilientClient(mockClient, config, eventSink, nil)
 
 	req := ResilientRequest{
 		ReviewID: 123,
@@ -258,7 +258,7 @@ func TestBatchProcessor(t *testing.T) {
 	config := retry.DefaultRetryConfig()
 	config.LogRetries = false
 
-	resilientClient := NewResilientClient(mockClient, config, eventSink)
+	resilientClient := NewResilientClient(mockClient, config, eventSink, nil)
 	processor := NewBatchProcessor(resilientClient)
 
 	requests := []ResilientRequest{
@@ -311,7 +311,7 @@ func TestResilientClient_Timeout(t *testing.T) {
 		LogRetries: false,
 	}
 
-	client := NewResilientClient(slowClient, config, eventSink)
+	client := NewResilientClient(slowClient, config, eventSink, nil)
 
 	req := ResilientRequest{
 		ReviewID: 123,
@@ -337,7 +337,7 @@ func TestResilientClient_ConfigurationUpdate(t *testing.T) {
 	eventSink := &mockEventSink{}
 
 	initialConfig := retry.DefaultRetryConfig()
-	client := NewResilientClient(mockClient, initialConfig, eventSink)
+	client := NewResilientClient(mockClient, initialConfig, eventSink, nil)
 
 	// Verify initial config
 	currentConfig := client.GetRetryConfig()

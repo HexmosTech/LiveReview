@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/livereview/internal/aiconnectors"
+	coreprocessor "github.com/livereview/internal/core_processor"
 	"github.com/livereview/internal/learnings"
 	bitbucketmentions "github.com/livereview/internal/providers/bitbucket"
 	githubmentions "github.com/livereview/internal/providers/github"
@@ -310,6 +311,15 @@ func (p *UnifiedProcessorV2Impl) buildCommentReplyPromptWithLearning(event Unifi
 				}
 				prompt.WriteString(fmt.Sprintf("- %s: %s\n", item.Comment.Author.Username, content))
 			}
+		}
+	}
+
+	if event.Comment != nil {
+		builder := coreprocessor.UnifiedContextBuilderV2{}
+		if codeContext, err := builder.ExtractCodeContext(*event.Comment, event.Provider); err == nil && codeContext != "" {
+			prompt.WriteString("\nCODE CONTEXT:\n")
+			prompt.WriteString(codeContext)
+			prompt.WriteString("\n")
 		}
 	}
 

@@ -296,8 +296,8 @@ func main() {
 						h := cd.Hunks[0].Content
 						targetNew := targetNotePosNewLine
 						targetOld := targetNotePosOldLine
-						if hk := extractHunkForLine(h, targetOld, targetNew); hk != "" {
-							annotated := annotateUnifiedDiffHunk(hk)
+						if hk := rm.ExtractHunkForLine(h, targetOld, targetNew); hk != "" {
+							annotated := rm.AnnotateUnifiedDiffHunk(hk)
 							if annotated != "" {
 								b.WriteString(annotated)
 							} else {
@@ -443,14 +443,14 @@ func main() {
 	// Code excerpt at comment time
 	if commentTimeSHA != "" && focusPath != "" && focusLine > 0 {
 		if raw, err := httpClient.GetFileRawAtRef(details.ProjectID, focusPath, commentTimeSHA); err == nil {
-			commentTimeCodeExcerpt = renderCodeExcerptWithLineNumbers(raw, focusLine, 8)
+			commentTimeCodeExcerpt = rm.RenderCodeExcerptWithLineNumbers(raw, focusLine, 8)
 		}
 	}
 
 	// Code excerpt at current HEAD
 	if currentHeadSHA != "" && focusPath != "" && focusLine > 0 {
 		if raw, err := httpClient.GetFileRawAtRef(details.ProjectID, focusPath, currentHeadSHA); err == nil {
-			currentCodeExcerpt = renderCodeExcerptWithLineNumbers(raw, focusLine, 8)
+			currentCodeExcerpt = rm.RenderCodeExcerptWithLineNumbers(raw, focusLine, 8)
 		}
 	}
 
@@ -562,19 +562,13 @@ func parseTimeBestEffort(s string) time.Time {
 	return time.Time{}
 }
 
-// buildGeminiPrompt formats the context for Gemini
-func buildGeminiPrompt(commitLogs []string, diff string, thread []string) string {
-	// Kept for backward compatibility; route to rich prompt without code excerpt
-	return buildGeminiPromptRich("", "", "", 0, 0, "", diff, "", thread, commitLogs)
-}
-
 // synthesizeClarification is a placeholder. Replace with a Gemini API call when configured.
 func synthesizeClarification(prompt string, codeExcerpt string, author string, message string, filePath string, newLine int) string {
-	// Heuristic structured output aligned with the prompt’s OUTPUT FORMAT
 	fn := extractFunctionNameFromExcerpt(codeExcerpt)
 	if fn == "" {
 		fn = "the function"
 	}
+
 	// Detect direct question about warranting documentation
 	lower := strings.ToLower(message)
 	verdict := ""
@@ -600,6 +594,7 @@ func synthesizeClarification(prompt string, codeExcerpt string, author string, m
 		b.WriteString("\n\n")
 	}
 	b.WriteString("Rationale:\n\n")
+
 	// Provide 3-5 rationales leveraging available context hints
 	if filePath != "" && newLine > 0 {
 		fmt.Fprintf(&b, "- Context: %s:%d contains or introduces %s; clarifying intent aids future edits and reviews.\n", filePath, newLine, fn)
@@ -626,183 +621,6 @@ func synthesizeClarification(prompt string, codeExcerpt string, author string, m
 		b.WriteString("- **Context Integration**: This response acknowledges and incorporates the critical guidance from recent thread context as specifically requested.\n")
 	}
 	b.WriteString("- Happy to refine exact bullets if you share parameter names or the signature.\n")
-	return b.String()
-}
-
-// annotateUnifiedDiffHunk adds pseudo line numbers to a single unified diff hunk for readability.
-// It parses the @@ -a,b +c,d @@ header and then increments counts for context/added/removed lines.
-func annotateUnifiedDiffHunk(hunk string) string {
-	lines := strings.Split(hunk, "\n")
-	if len(lines) == 0 {
-		return hunk
-	}
-	var out []string
-	var oldN, newN int
-	headerParsed := false
-	for i, ln := range lines {
-		if i == 0 && strings.HasPrefix(ln, "@@ ") {
-			// parse header
-			// @@ -a,b +c,d @@
-			oldN, newN = 0, 0
-			// parse old
-			if ix := strings.Index(ln, "-"); ix >= 0 {
-				seg := ln[ix+1:]
-				if j := strings.Index(seg, " "); j >= 0 {
-					seg = seg[:j]
-				}
-				parts := strings.Split(seg, ",")
-				if len(parts) > 0 {
-					oldN = atoi(parts[0])
-				}
-			}
-			// parse new
-			if ix := strings.Index(ln, "+"); ix >= 0 {
-				seg := ln[ix+1:]
-				if j := strings.Index(seg, " "); j >= 0 {
-					seg = seg[:j]
-				}
-				parts := strings.Split(seg, ",")
-				if len(parts) > 0 {
-					newN = atoi(parts[0])
-				}
-			}
-			out = append(out, ln)
-			headerParsed = true
-			continue
-		}
-		if !headerParsed {
-			out = append(out, ln)
-			continue
-		}
-		if ln == "" {
-			out = append(out, ln)
-			continue
-		}
-		prefix := ln[0]
-		switch prefix {
-		case ' ':
-			out = append(out, fmt.Sprintf("%6d %6d | %s", oldN, newN, ln))
-			oldN++
-			newN++
-		case '+':
-			out = append(out, fmt.Sprintf("%6s %6d | %s", "-", newN, ln))
-			newN++
-		case '-':
-			out = append(out, fmt.Sprintf("%6d %6s | %s", oldN, "-", ln))
-			oldN++
-		default:
-			out = append(out, ln)
-		}
-	}
-	return strings.Join(out, "\n")
-}
-
-// extractHunkForLine selects the unified diff hunk containing the target old/new line.
-func extractHunkForLine(patch string, targetOld, targetNew int) string {
-	lines := strings.Split(patch, "\n")
-	var out []string
-	var cur []string
-	var newStart, newCount int
-	var oldStart, oldCount int
-	for _, ln := range lines {
-		if strings.HasPrefix(ln, "@@ ") && strings.Contains(ln, "@@") {
-			// flush previous hunk
-			if len(cur) > 0 {
-				if hunkContainsLine(oldStart, oldCount, targetOld) || hunkContainsLine(newStart, newCount, targetNew) {
-					out = append(out, cur...)
-				}
-				cur = nil
-			}
-			cur = []string{ln}
-			// parse header like: @@ -a,b +c,d @@
-			// crude parse
-			header := ln
-			// find segments
-			// default counts to 1 if missing
-			oldStart, oldCount = 0, 0
-			newStart, newCount = 0, 0
-			// find '-' segment
-			if i := strings.Index(header, "-"); i >= 0 {
-				seg := header[i+1:]
-				if j := strings.Index(seg, " "); j >= 0 {
-					seg = seg[:j]
-				}
-				parts := strings.Split(seg, ",")
-				if len(parts) > 0 {
-					oldStart = atoi(parts[0])
-				}
-				if len(parts) > 1 {
-					oldCount = atoi(parts[1])
-				} else {
-					oldCount = 1
-				}
-			}
-			if i := strings.Index(header, "+"); i >= 0 {
-				seg := header[i+1:]
-				if j := strings.Index(seg, " "); j >= 0 {
-					seg = seg[:j]
-				}
-				parts := strings.Split(seg, ",")
-				if len(parts) > 0 {
-					newStart = atoi(parts[0])
-				}
-				if len(parts) > 1 {
-					newCount = atoi(parts[1])
-				} else {
-					newCount = 1
-				}
-			}
-			continue
-		}
-		if cur != nil {
-			cur = append(cur, ln)
-		}
-	}
-	// flush last
-	if len(cur) > 0 {
-		if hunkContainsLine(oldStart, oldCount, targetOld) || hunkContainsLine(newStart, newCount, targetNew) {
-			out = append(out, cur...)
-		}
-	}
-	if len(out) == 0 {
-		return ""
-	}
-	return strings.Join(out, "\n")
-}
-
-func hunkContainsLine(start, count, target int) bool {
-	if start == 0 || target == 0 {
-		return false
-	}
-	end := start + count - 1
-	return target >= start && target <= end
-}
-
-// renderCodeExcerptWithLineNumbers renders a window of lines around focusLine with line numbers.
-func renderCodeExcerptWithLineNumbers(content string, focusLine, radius int) string {
-	if radius <= 0 {
-		radius = 6
-	}
-	lines := strings.Split(content, "\n")
-	n := len(lines)
-	if n == 0 || focusLine <= 0 {
-		return ""
-	}
-	start := focusLine - radius
-	if start < 1 {
-		start = 1
-	}
-	end := focusLine + radius
-	if end > n {
-		end = n
-	}
-	var b strings.Builder
-	b.WriteString("```\n")
-	for i := start; i <= end; i++ {
-		ln := lines[i-1]
-		fmt.Fprintf(&b, "%5d | %s\n", i, ln)
-	}
-	b.WriteString("```\n")
 	return b.String()
 }
 
