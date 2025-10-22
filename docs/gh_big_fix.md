@@ -1,11 +1,39 @@
 # GitHub Learning Flow Fix Follow-Up
 
-## Current Architecture Snapshot
-- **Unified pipeline (V2)** — `internal/api/webhook_orchestrator_v2.go` drives replies via `UnifiedProcessorV2` and `LearningProcessorV2`, adds acknowledgments, and posts through provider adapters.
-- **Legacy GitHub path** — `internal/providers/github/github.go` (and related review service code) still posts comments directly, bypassing the orchestrator abstractions; we only patched acknowledgments locally.
-- **Provider input split** — GitHub has `internal/provider_input/github/github_provider.go` for the newer webhook plumbing while older review triggers still lean on `internal/review/service.go` + legacy provider.
-- **Learning metadata sources** — `LearningProcessorV2` writes rich metadata (org, repo, source_context) but only V2 orchestrator consumed it end‑to‑end before the stopgap.
-- **Tests / fixtures** — Coverage is skewed toward V2; legacy flow relies on manual QA and integration tests that pre-date the learning block work.
+## Scope Clarification
+This note focuses **only on reply flow (flow #2)**—the path that handles GitHub webhooks (issue comments, review comments) and produces AI replies. The code that powers full review triggers (flow #1) lives under `internal/review` and is tracked separately.
+
+At its simplest the reply pipeline should be:
+
+```
+github_input → core_processor → github_output
+```
+
+- **github_input**: webhook ingestion + provider-specific parsing (`internal/provider_input/github`).
+- **core_processor**: warrant checks, prompt orchestration, learning application (`internal/api/webhook_orchestrator_v2.go`, `UnifiedProcessorV2`, `LearningProcessorV2`).
+- **github_output**: posting replies back to GitHub (`internal/provider_output/github`).
+	- The concrete poster is `internal/provider_output/github/output_client.go` (APIClient), which should be the only GitHub-specific HTTP surface we call from reply logic.
+
+Any path that deviates from this straight-through pipeline is legacy debt we need to retire.
+
+## Current Reply Architecture Snapshot
+- **Unified reply pipeline (production)** — `internal/api/webhook_orchestrator_v2.go` and the provider registry route every GitHub webhook reply through `UnifiedProcessorV2`, apply learnings with `LearningProcessorV2`, and post via `internal/provider_input/github/github_provider.go` + `internal/provider_output/github/output_client.go`.
+- **Legacy manual-review pipeline** — The review service in `internal/review/service.go` and CLI tooling still create comments by calling `internal/providers/github/github.go` directly, outside the unified orchestrator abstractions. Recent changes only added acknowledgment rendering here; warrant checks and posting remain bespoke.
+- **Learning metadata sources** — `LearningProcessorV2` produces rich metadata consumed by the unified reply flow; the manual-review path still needs shims to keep metadata aligned.
+- **Tests / fixtures** — Unified replies have focused tests; manual-review posting does not, so regressions land unnoticed unless we explicitly exercise that code.
+
+### Manual Review Trigger Path (legacy)
+1. Review workloads call directly into `internal/providers/github/github.go` to post summary and inline comments, formatting content locally.
+2. Learning acknowledgments are appended by helper code immediately before posting.
+3. This path predates `UnifiedProcessorV2`; it skips warrant logic, duplicate prompt handling, and the unified output client.
+
+### Unified Reply Path (active path)
+1. GitHub webhook hits the generic handler and is routed by `internal/api/webhook_orchestrator_v2.go` through the provider registry.
+2. The orchestrator invokes `UnifiedProcessorV2` for warrant checks, prompt construction, and reply generation.
+3. Learnings are applied through `LearningProcessorV2` and acknowledgments rendered via `internal/learnings/acknowledgment`.
+4. Replies are posted using the V2 provider adapter `internal/provider_input/github/github_provider.go`, which delegates to `internal/provider_output/github/output_client.go`.
+
+Today only the unified reply path handles GitHub webhook responses. The remaining operational complexity comes from the manual-review tooling still running on the legacy provider stack.
 
 ## Pain Points Identified
 - **Dual posting pipelines**: Reply flows and triggered reviews can hit different stacks (legacy provider vs. unified orchestrator), duplicating logic for formatting, retries, learning extraction, and error handling.
@@ -36,3 +64,10 @@
 - Draft an ADR clarifying that GitHub must use UnifiedProcessorV2 for all comment generation.
 - Build a feature flag (temporary) in review service to switch between legacy and unified posting; run controlled rollout to ensure no regression in comment placement.
 - Track cleanup tasks in a single ticket (or this doc) and close out once legacy provider files are deleted and docs/tests reflect the new single path.
+
+## Ideal End State (target flow)
+1. **All GitHub comment generation**—whether webhook driven or manual trigger—calls into `UnifiedProcessorV2` for warranting, prompting, and learning capture.
+2. `LearningProcessorV2` remains the single persistence layer, and `internal/learnings/acknowledgment` renders acknowledgments everywhere.
+3. Posting happens exclusively through the V2 provider adapter (`internal/provider_input/github/github_provider.go`), which understands threads, diffs, and auth tokens.
+4. Configuration lives in one place: integration tokens feed both orchestrated and manual flows without duplicate PAT handling code.
+5. Tests cover the unified path end-to-end, with fixtures shared across webhook + manual scenarios so regressions surface immediately.

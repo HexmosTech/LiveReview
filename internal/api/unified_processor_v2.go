@@ -162,7 +162,7 @@ func (p *UnifiedProcessorV2Impl) CheckResponseWarrant(event UnifiedWebhookEventV
 		metadata["reason"] = "top_level_no_reply"
 		return false, ResponseScenarioV2{
 			Type:       "no_response",
-			Reason:     "top-level comment without reply or discussion context",
+			Reason:     "comment not directed at bot",
 			Confidence: 0.0,
 			Metadata:   metadata,
 		}
@@ -292,17 +292,20 @@ func (p *UnifiedProcessorV2Impl) buildCommentReplyPromptWithLearning(event Unifi
 	// Core context
 	prompt.WriteString("You are LiveReviewBot, an AI code review assistant.\n\n")
 	prompt.WriteString("CONTEXT:\n")
-	prompt.WriteString(fmt.Sprintf("- User @%s commented: %s\n", event.Comment.Author.Username, event.Comment.Body))
-	if event.Repository.Name != "" {
-		prompt.WriteString(fmt.Sprintf("- Repository: %s\n", event.Repository.Name))
-	}
+	prompt.WriteString(fmt.Sprintf("- Repository: %s\n", event.Repository.Name))
 	if event.MergeRequest != nil {
-		prompt.WriteString(fmt.Sprintf("- MR/PR: %s\n", event.MergeRequest.Title))
+		prompt.WriteString(fmt.Sprintf("- MR/PR title: %s\n", event.MergeRequest.Title))
+	}
+
+	prompt.WriteString("\nCURRENT COMMENT (reply only to this message unless explicitly asked otherwise):\n")
+	prompt.WriteString(fmt.Sprintf("@%s wrote: %s\n", event.Comment.Author.Username, event.Comment.Body))
+	if event.Repository.Name != "" {
+		prompt.WriteString(fmt.Sprintf("Repository path: %s\n", event.Repository.FullName))
 	}
 
 	// Timeline context if available
 	if timeline != nil && len(timeline.Items) > 0 {
-		prompt.WriteString("\nRECENT CONVERSATION:\n")
+		prompt.WriteString("\nRECENT CONVERSATION ACROSS THREAD (for context only, do not respond to prior messages unless they are referenced in the current comment):\n")
 		for _, item := range timeline.Items {
 			if item.Comment != nil {
 				content := item.Comment.Body
@@ -324,7 +327,10 @@ func (p *UnifiedProcessorV2Impl) buildCommentReplyPromptWithLearning(event Unifi
 	}
 
 	prompt.WriteString("\nTASK:\n")
-	prompt.WriteString("Provide a helpful, contextual response to the user's comment. Be specific, actionable, and professional.\n\n")
+	prompt.WriteString("Answer the CURRENT COMMENT directly. Keep the reply focused on the exact question or concern that was raised. Reference surrounding code or prior discussion only when it improves the specific answer.\n")
+	prompt.WriteString("- Do not summarise unrelated feedback or earlier conversations unless the user explicitly asked for it.\n")
+	prompt.WriteString("- If the user asks \"what is this about?\" or similar, explain the referenced code fragment plainly and briefly.\n")
+	prompt.WriteString("- Stay concise, professional, and actionable.\n\n")
 
 	// LEARNING INSTRUCTIONS - Enhanced with specific examples and triggers
 	prompt.WriteString("LEARNING EXTRACTION:\n")
@@ -355,7 +361,7 @@ func (p *UnifiedProcessorV2Impl) buildCommentReplyPromptWithLearning(event Unifi
 	prompt.WriteString(`  "confidence": 1-5` + "\n")
 	prompt.WriteString("}\n```\n\n")
 
-	prompt.WriteString("Only include learning block if there's genuinely something worth learning. Most responses won't have learnings.\n\n")
+	prompt.WriteString("Only include learning block if there's genuinely something worth learning. Most responses won't have learnings. Never repeat a previously acknowledged learning unless this comment introduces new guidance.\n\n")
 	prompt.WriteString("RESPONSE:\n")
 
 	return prompt.String()
