@@ -137,7 +137,7 @@ func TestUnifiedProcessorV2(t *testing.T) {
 		// Should not warrant response without mention
 		assert.False(t, warrantsResponse)
 		assert.Equal(t, "no_response", scenario.Type)
-		assert.Equal(t, "top-level comment without reply or discussion context", scenario.Reason)
+		assert.Equal(t, "comment not directed at bot", scenario.Reason)
 	})
 
 	t.Run("CheckResponseWarrant_MissingBotInfoIsHardFailure", func(t *testing.T) {
@@ -315,7 +315,7 @@ func TestBuildCommentReplyPromptIncludesTimelineContext(t *testing.T) {
 
 	prompt := processor.buildCommentReplyPromptWithLearning(event, timeline)
 
-	assert.Contains(t, prompt, "RECENT CONVERSATION:")
+	assert.Contains(t, prompt, "RECENT CONVERSATION ACROSS THREAD (for context only, do not respond to prior messages unless they are referenced in the current comment):")
 	assert.Contains(t, prompt, "reviewer")
 	assert.Contains(t, prompt, "ensure the worker pool size stays configurable")
 }
