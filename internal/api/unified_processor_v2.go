@@ -155,11 +155,10 @@ func (p *UnifiedProcessorV2Impl) CheckResponseWarrant(event UnifiedWebhookEventV
 		}
 	}
 
-	hasDiscussion := event.Comment.DiscussionID != nil && *event.Comment.DiscussionID != ""
-	if !isReply && !hasDiscussion {
+	if !isReply {
 		log.Printf("[DEBUG] Top-level comment without direct mention, skipping per warrant policy")
 		metadata := makeMetadata()
-		metadata["reason"] = "top_level_no_reply"
+		metadata["reason"] = "top_level_not_addressed_to_bot"
 		return false, ResponseScenarioV2{
 			Type:       "no_response",
 			Reason:     "comment not directed at bot",
@@ -168,24 +167,12 @@ func (p *UnifiedProcessorV2Impl) CheckResponseWarrant(event UnifiedWebhookEventV
 		}
 	}
 
-	if hasDiscussion {
-		metadata := makeMetadata()
-		metadata["discussion_id"] = *event.Comment.DiscussionID
-		log.Printf("[DEBUG] Discussion reply detected for discussion %s", *event.Comment.DiscussionID)
-		return true, ResponseScenarioV2{
-			Type:       "discussion_reply",
-			Reason:     fmt.Sprintf("Comment in discussion %s by %s", *event.Comment.DiscussionID, event.Comment.Author.Username),
-			Confidence: 0.85,
-			Metadata:   metadata,
-		}
-	}
-
+	log.Printf("[DEBUG] Reply present but parent not bot and no direct mention; skipping")
 	metadata := makeMetadata()
-	metadata["reason"] = "top_level_no_trigger"
-	log.Printf("[DEBUG] No response warrant detected")
+	metadata["reason"] = "reply_not_directed_to_bot"
 	return false, ResponseScenarioV2{
 		Type:       "no_response",
-		Reason:     "top-level comment without mention or trigger",
+		Reason:     "comment not directed at bot",
 		Confidence: 0.0,
 		Metadata:   metadata,
 	}
