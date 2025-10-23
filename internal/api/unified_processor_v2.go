@@ -168,18 +168,6 @@ func (p *UnifiedProcessorV2Impl) CheckResponseWarrant(event UnifiedWebhookEventV
 		}
 	}
 
-	if trigger := p.detectContentTrigger(commentBody); trigger != "" {
-		metadata := makeMetadata()
-		metadata["trigger"] = trigger
-		log.Printf("[DEBUG] Content trigger '%s' detected", trigger)
-		return true, ResponseScenarioV2{
-			Type:       "content_trigger",
-			Reason:     fmt.Sprintf("Content trigger '%s' detected", trigger),
-			Confidence: 0.70,
-			Metadata:   metadata,
-		}
-	}
-
 	if hasDiscussion {
 		metadata := makeMetadata()
 		metadata["discussion_id"] = *event.Comment.DiscussionID
@@ -258,17 +246,6 @@ func (p *UnifiedProcessorV2Impl) isCommentAuthoredByBot(event UnifiedWebhookEven
 	}
 
 	return false
-}
-
-func (p *UnifiedProcessorV2Impl) detectContentTrigger(commentBody string) string {
-	commentLower := strings.ToLower(commentBody)
-	triggers := []string{"help", "question", "explain", "how", "why", "what", "use", "not", "do not", "rule", "team"}
-	for _, trigger := range triggers {
-		if strings.Contains(commentLower, trigger) {
-			return trigger
-		}
-	}
-	return ""
 }
 
 // ProcessCommentReply processes comment reply flow using original working logic
