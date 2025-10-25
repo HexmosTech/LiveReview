@@ -98,20 +98,60 @@ func runGitHub(args []string) error {
 	if err != nil {
 		return fmt.Errorf("fetch review comments: %w", err)
 	}
+	reviews, err := githubapi.FetchGitHubPRReviewsV2(owner, name, prID, pat)
+	if err != nil {
+		return fmt.Errorf("fetch reviews: %w", err)
+	}
 
-	timelineItems := buildGitHubTimeline(owner, name, commits, issueComments, reviewComments)
+	if err := os.MkdirAll(*outDir, 0o755); err != nil {
+		return fmt.Errorf("create output dir: %w", err)
+	}
+
+	if err := writeJSONPretty(filepath.Join(*outDir, "gh_raw_commits.json"), map[string]interface{}{
+		"owner":        owner,
+		"repo":         name,
+		"pull_request": prID,
+		"items":        commits,
+	}); err != nil {
+		return fmt.Errorf("write raw commits: %w", err)
+	}
+
+	if err := writeJSONPretty(filepath.Join(*outDir, "gh_raw_issue_comments.json"), map[string]interface{}{
+		"owner":        owner,
+		"repo":         name,
+		"pull_request": prID,
+		"items":        issueComments,
+	}); err != nil {
+		return fmt.Errorf("write raw issue comments: %w", err)
+	}
+
+	if err := writeJSONPretty(filepath.Join(*outDir, "gh_raw_review_comments.json"), map[string]interface{}{
+		"owner":        owner,
+		"repo":         name,
+		"pull_request": prID,
+		"items":        reviewComments,
+	}); err != nil {
+		return fmt.Errorf("write raw review comments: %w", err)
+	}
+
+	if err := writeJSONPretty(filepath.Join(*outDir, "gh_raw_reviews.json"), map[string]interface{}{
+		"owner":        owner,
+		"repo":         name,
+		"pull_request": prID,
+		"items":        reviews,
+	}); err != nil {
+		return fmt.Errorf("write raw reviews: %w", err)
+	}
+
+	timelineItems := buildGitHubTimeline(owner, name, commits, issueComments, reviewComments, reviews)
 	sort.Slice(timelineItems, func(i, j int) bool {
 		return timelineItems[i].CreatedAt.Before(timelineItems[j].CreatedAt)
 	})
 
 	prevIndex := reviewmodel.BuildPrevCommitIndex(timelineItems)
 	exportTimeline := reviewmodel.BuildExportTimeline(timelineItems)
-	commentTree := buildGitHubCommentTree(issueComments, reviewComments)
+	commentTree := buildGitHubCommentTree(issueComments, reviewComments, reviews)
 	exportTree := reviewmodel.BuildExportCommentTreeWithPrev(commentTree, prevIndex)
-
-	if err := os.MkdirAll(*outDir, 0o755); err != nil {
-		return fmt.Errorf("create output dir: %w", err)
-	}
 
 	timelinePath := filepath.Join(*outDir, "gh_timeline.json")
 	if err := writeJSONPretty(timelinePath, exportTimeline); err != nil {
@@ -125,7 +165,7 @@ func runGitHub(args []string) error {
 
 	fmt.Printf("Target PR: %s\n", prURL)
 	fmt.Printf("GitHub artifacts written to %s (gh_timeline.json, gh_comment_tree.json)\n", *outDir)
-	fmt.Printf("Summary: commits=%d issue_comments=%d review_comments=%d\n", len(commits), len(issueComments), len(reviewComments))
+	fmt.Printf("Summary: commits=%d issue_comments=%d review_comments=%d reviews=%d\n", len(commits), len(issueComments), len(reviewComments), len(reviews))
 	return nil
 }
 
@@ -197,28 +237,34 @@ func splitRepo(repo string) (string, string, error) {
 	return owner, name, nil
 }
 
-func buildGitHubTimeline(owner, repo string, commits []githubapi.GitHubV2CommitInfo, issueComments []githubapi.GitHubV2CommentInfo, reviewComments []githubapi.GitHubV2ReviewComment) []reviewmodel.TimelineItem {
-	items := make([]reviewmodel.TimelineItem, 0, len(commits)+len(issueComments)+len(reviewComments))
+func buildGitHubTimeline(owner, repo string, commits []githubapi.GitHubV2CommitInfo, issueComments []githubapi.GitHubV2CommentInfo, reviewComments []githubapi.GitHubV2ReviewComment, reviews []githubapi.GitHubV2ReviewInfo) []reviewmodel.TimelineItem {
+	items := make([]reviewmodel.TimelineItem, 0, len(commits)+len(issueComments)+len(reviewComments)+len(reviews))
 
 	for _, commit := range commits {
-		timestamp := parseGitHubTime(commit.Author.Date)
-		title := commit.Message
+		timestamp := selectCommitTimestamp(commit)
+		message := strings.TrimSpace(commit.Commit.Message)
+		title := message
 		if idx := strings.IndexRune(title, '\n'); idx >= 0 {
 			title = title[:idx]
 		}
+		if title == "" {
+			title = commit.SHA
+		}
+		webURL := commit.HTMLURL
+		if webURL == "" {
+			webURL = fmt.Sprintf("https://github.com/%s/%s/commit/%s", owner, repo, commit.SHA)
+		}
+		authorInfo := selectCommitAuthorInfo(commit)
 		items = append(items, reviewmodel.TimelineItem{
 			Kind:      "commit",
 			ID:        commit.SHA,
 			CreatedAt: timestamp,
-			Author: reviewmodel.AuthorInfo{
-				Name:  commit.Author.Name,
-				Email: commit.Author.Email,
-			},
+			Author:    authorInfo,
 			Commit: &reviewmodel.TimelineCommit{
 				SHA:     commit.SHA,
 				Title:   title,
-				Message: commit.Message,
-				WebURL:  fmt.Sprintf("https://github.com/%s/%s/commit/%s", owner, repo, commit.SHA),
+				Message: message,
+				WebURL:  webURL,
 			},
 		})
 	}
@@ -262,12 +308,31 @@ func buildGitHubTimeline(owner, repo string, commits []githubapi.GitHubV2CommitI
 		})
 	}
 
+	for _, review := range reviews {
+		body := strings.TrimSpace(review.Body)
+		if body == "" {
+			continue
+		}
+		id := fmt.Sprintf("review-%d", review.ID)
+		timestamp := parseGitHubTime(review.SubmittedAt)
+		items = append(items, reviewmodel.TimelineItem{
+			Kind:      "comment",
+			ID:        id,
+			CreatedAt: timestamp,
+			Author:    githubUserToAuthor(review.User),
+			Comment: &reviewmodel.TimelineComment{
+				NoteID: id,
+				Body:   body,
+			},
+		})
+	}
+
 	return items
 }
 
-func buildGitHubCommentTree(issueComments []githubapi.GitHubV2CommentInfo, reviewComments []githubapi.GitHubV2ReviewComment) reviewmodel.CommentTree {
+func buildGitHubCommentTree(issueComments []githubapi.GitHubV2CommentInfo, reviewComments []githubapi.GitHubV2ReviewComment, reviews []githubapi.GitHubV2ReviewInfo) reviewmodel.CommentTree {
 	nodes := make(map[string]*reviewmodel.CommentNode, len(reviewComments))
-	roots := make([]*reviewmodel.CommentNode, 0, len(issueComments)+len(reviewComments))
+	roots := make([]*reviewmodel.CommentNode, 0, len(issueComments)+len(reviewComments)+len(reviews))
 
 	for _, comment := range reviewComments {
 		id := strconv.Itoa(comment.ID)
@@ -317,6 +382,21 @@ func buildGitHubCommentTree(issueComments []githubapi.GitHubV2CommentInfo, revie
 		})
 	}
 
+	for _, review := range reviews {
+		body := strings.TrimSpace(review.Body)
+		if body == "" {
+			continue
+		}
+		id := fmt.Sprintf("review-%d", review.ID)
+		timestamp := parseGitHubTime(review.SubmittedAt)
+		roots = append(roots, &reviewmodel.CommentNode{
+			ID:        id,
+			Author:    githubUserToAuthor(review.User),
+			Body:      body,
+			CreatedAt: timestamp,
+		})
+	}
+
 	sort.Slice(roots, func(i, j int) bool {
 		return roots[i].CreatedAt.Before(roots[j].CreatedAt)
 	})
@@ -352,10 +432,15 @@ func deriveLineNumbers(comment githubapi.GitHubV2ReviewComment) (lineNew, lineOl
 }
 
 func githubUserToAuthor(user githubapi.GitHubV2User) reviewmodel.AuthorInfo {
+	displayName := strings.TrimSpace(user.Name)
+	if displayName == "" {
+		displayName = user.Login
+	}
 	return reviewmodel.AuthorInfo{
+		Provider:  "github",
 		ID:        user.ID,
 		Username:  user.Login,
-		Name:      user.Name,
+		Name:      displayName,
 		AvatarURL: user.AvatarURL,
 		WebURL:    user.HTMLURL,
 	}
@@ -384,4 +469,44 @@ func writeJSONPretty(path string, v interface{}) error {
 	encoder := json.NewEncoder(file)
 	encoder.SetIndent("", "  ")
 	return encoder.Encode(v)
+}
+
+func selectCommitTimestamp(commit githubapi.GitHubV2CommitInfo) time.Time {
+	if ts := parseGitHubTime(commit.Commit.Author.Date); !ts.IsZero() {
+		return ts
+	}
+	if ts := parseGitHubTime(commit.Commit.Committer.Date); !ts.IsZero() {
+		return ts
+	}
+	return time.Time{}
+}
+
+func selectCommitAuthorInfo(commit githubapi.GitHubV2CommitInfo) reviewmodel.AuthorInfo {
+	if commit.Author != nil {
+		name := strings.TrimSpace(commit.Author.Name)
+		if name == "" {
+			name = commit.Author.Login
+		}
+		return reviewmodel.AuthorInfo{
+			Provider:  "github",
+			ID:        commit.Author.ID,
+			Username:  commit.Author.Login,
+			Name:      name,
+			AvatarURL: commit.Author.AvatarURL,
+			WebURL:    commit.Author.HTMLURL,
+		}
+	}
+	payload := commit.Commit
+	name := firstNonEmptyString(payload.Author.Name, payload.Committer.Name)
+	email := firstNonEmptyString(payload.Author.Email, payload.Committer.Email)
+	return reviewmodel.AuthorInfo{Provider: "github", Name: name, Email: email}
+}
+
+func firstNonEmptyString(values ...string) string {
+	for _, v := range values {
+		if strings.TrimSpace(v) != "" {
+			return v
+		}
+	}
+	return ""
 }

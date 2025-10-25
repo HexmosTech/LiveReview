@@ -1,34 +1,65 @@
 {
   "participants": [
     {
-      "ref": "u:unknown"
-    },
-    {
-      "ref": "u:gitlab:222574465",
+      "ref": "u:github:222574465",
+      "provider": "github",
       "id": 222574465,
       "username": "livereviewbot",
+      "name": "livereviewbot",
       "avatar_url": "https://avatars.githubusercontent.com/u/222574465?v=4",
       "web_url": "https://github.com/livereviewbot"
+    },
+    {
+      "ref": "u:github:175728472",
+      "provider": "github",
+      "id": 175728472,
+      "username": "copilot-pull-request-reviewer[bot]",
+      "name": "copilot-pull-request-reviewer[bot]",
+      "avatar_url": "https://avatars.githubusercontent.com/in/946600?v=4",
+      "web_url": "https://github.com/apps/copilot-pull-request-reviewer"
+    },
+    {
+      "ref": "u:github:796107",
+      "provider": "github",
+      "id": 796107,
+      "username": "shrsv",
+      "name": "shrsv",
+      "avatar_url": "https://avatars.githubusercontent.com/u/796107?v=4",
+      "web_url": "https://github.com/shrsv"
     }
   ],
   "items": [
     {
       "kind": "commit",
       "id": "7911538c2d6262fea6ada0070babd216a30d2fc6",
-      "created_at": "0001-01-01T00:00:00Z",
-      "author_ref": "u:unknown",
+      "created_at": "2025-07-24T09:53:43Z",
+      "author_ref": "u:github:222574465",
       "commit": {
         "sha": "7911538c2d6262fea6ada0070babd216a30d2fc6",
-        "title": "",
-        "message": "",
+        "title": "attempt to find a suitable base commit from which to branch when scaffolding a PR branch, should now handle merge commits",
+        "message": "attempt to find a suitable base commit from which to branch when scaffolding a PR branch, should now handle merge commits",
         "web_url": "https://github.com/livereviewbot/glabmig/commit/7911538c2d6262fea6ada0070babd216a30d2fc6"
+      }
+    },
+    {
+      "kind": "comment",
+      "id": "review-3102868292",
+      "created_at": "2025-08-09T09:09:44Z",
+      "author_ref": "u:github:175728472",
+      "prev_commit_sha": "7911538c2d6262fea6ada0070babd216a30d2fc6",
+      "comment": {
+        "note_id": "review-3102868292",
+        "body": "## Pull Request Overview\n\nThis pull request refactors a GitLab-to-GitHub migration tool to handle merge commits and improve the process of finding a suitable base commit when scaffolding PR branches. The changes include significant code restructuring, better error handling, and enhanced concurrency management.\n\nKey changes:\n- Restructured code from global variables to a Config struct for better maintainability\n- Improved merge request migration logic with proper handling of missing source branches and merge commits\n- Enhanced concurrency management using errgroup instead of manual goroutines and channels\n\n\n\u003cdetails\u003e\n\u003csummary\u003eComments suppressed due to low confidence (1)\u003c/summary\u003e\n\n**main.go:86**\n* The import path `golang.org/x/sync/errgroup` should be verified as it may not exist. The correct import path is typically `golang.org/x/sync/errgroup` but this package has been moved to the standard library in recent Go versions as `context` and `sync/errgroup`.\n```\n\tgh       *github.Client\n```\n\u003c/details\u003e",
+        "is_system": false,
+        "is_resolvable": false,
+        "resolved": false
       }
     },
     {
       "kind": "comment",
       "id": "3419670837",
       "created_at": "2025-10-19T13:31:57Z",
-      "author_ref": "u:gitlab:222574465",
+      "author_ref": "u:github:222574465",
       "prev_commit_sha": "7911538c2d6262fea6ada0070babd216a30d2fc6",
       "comment": {
         "note_id": "3419670837",
@@ -42,7 +73,7 @@
       "kind": "comment",
       "id": "2443315406",
       "created_at": "2025-10-19T13:31:59Z",
-      "author_ref": "u:gitlab:222574465",
+      "author_ref": "u:github:222574465",
       "prev_commit_sha": "7911538c2d6262fea6ada0070babd216a30d2fc6",
       "comment": {
         "note_id": "2443315406",
@@ -60,7 +91,7 @@
       "kind": "comment",
       "id": "2443315416",
       "created_at": "2025-10-19T13:32:01Z",
-      "author_ref": "u:gitlab:222574465",
+      "author_ref": "u:github:222574465",
       "prev_commit_sha": "7911538c2d6262fea6ada0070babd216a30d2fc6",
       "comment": {
         "note_id": "2443315416",
@@ -78,7 +109,7 @@
       "kind": "comment",
       "id": "2443315421",
       "created_at": "2025-10-19T13:32:02Z",
-      "author_ref": "u:gitlab:222574465",
+      "author_ref": "u:github:222574465",
       "prev_commit_sha": "7911538c2d6262fea6ada0070babd216a30d2fc6",
       "comment": {
         "note_id": "2443315421",
@@ -96,7 +127,7 @@
       "kind": "comment",
       "id": "2443315429",
       "created_at": "2025-10-19T13:32:04Z",
-      "author_ref": "u:gitlab:222574465",
+      "author_ref": "u:github:222574465",
       "prev_commit_sha": "7911538c2d6262fea6ada0070babd216a30d2fc6",
       "comment": {
         "note_id": "2443315429",
@@ -114,7 +145,7 @@
       "kind": "comment",
       "id": "2443315441",
       "created_at": "2025-10-19T13:32:05Z",
-      "author_ref": "u:gitlab:222574465",
+      "author_ref": "u:github:222574465",
       "prev_commit_sha": "7911538c2d6262fea6ada0070babd216a30d2fc6",
       "comment": {
         "note_id": "2443315441",
@@ -132,7 +163,7 @@
       "kind": "comment",
       "id": "2443315446",
       "created_at": "2025-10-19T13:32:06Z",
-      "author_ref": "u:gitlab:222574465",
+      "author_ref": "u:github:222574465",
       "prev_commit_sha": "7911538c2d6262fea6ada0070babd216a30d2fc6",
       "comment": {
         "note_id": "2443315446",
@@ -150,7 +181,7 @@
       "kind": "comment",
       "id": "2443315452",
       "created_at": "2025-10-19T13:32:07Z",
-      "author_ref": "u:gitlab:222574465",
+      "author_ref": "u:github:222574465",
       "prev_commit_sha": "7911538c2d6262fea6ada0070babd216a30d2fc6",
       "comment": {
         "note_id": "2443315452",
@@ -168,7 +199,7 @@
       "kind": "comment",
       "id": "2443315459",
       "created_at": "2025-10-19T13:32:09Z",
-      "author_ref": "u:gitlab:222574465",
+      "author_ref": "u:github:222574465",
       "prev_commit_sha": "7911538c2d6262fea6ada0070babd216a30d2fc6",
       "comment": {
         "note_id": "2443315459",
@@ -186,7 +217,7 @@
       "kind": "comment",
       "id": "2443315468",
       "created_at": "2025-10-19T13:32:10Z",
-      "author_ref": "u:gitlab:222574465",
+      "author_ref": "u:github:222574465",
       "prev_commit_sha": "7911538c2d6262fea6ada0070babd216a30d2fc6",
       "comment": {
         "note_id": "2443315468",
@@ -204,7 +235,7 @@
       "kind": "comment",
       "id": "2443315480",
       "created_at": "2025-10-19T13:32:11Z",
-      "author_ref": "u:gitlab:222574465",
+      "author_ref": "u:github:222574465",
       "prev_commit_sha": "7911538c2d6262fea6ada0070babd216a30d2fc6",
       "comment": {
         "note_id": "2443315480",
@@ -222,7 +253,7 @@
       "kind": "comment",
       "id": "2443315486",
       "created_at": "2025-10-19T13:32:12Z",
-      "author_ref": "u:gitlab:222574465",
+      "author_ref": "u:github:222574465",
       "prev_commit_sha": "7911538c2d6262fea6ada0070babd216a30d2fc6",
       "comment": {
         "note_id": "2443315486",
@@ -240,7 +271,7 @@
       "kind": "comment",
       "id": "2443315496",
       "created_at": "2025-10-19T13:32:13Z",
-      "author_ref": "u:gitlab:222574465",
+      "author_ref": "u:github:222574465",
       "prev_commit_sha": "7911538c2d6262fea6ada0070babd216a30d2fc6",
       "comment": {
         "note_id": "2443315496",
@@ -258,7 +289,7 @@
       "kind": "comment",
       "id": "2443315503",
       "created_at": "2025-10-19T13:32:15Z",
-      "author_ref": "u:gitlab:222574465",
+      "author_ref": "u:github:222574465",
       "prev_commit_sha": "7911538c2d6262fea6ada0070babd216a30d2fc6",
       "comment": {
         "note_id": "2443315503",
@@ -276,7 +307,7 @@
       "kind": "comment",
       "id": "2443315508",
       "created_at": "2025-10-19T13:32:16Z",
-      "author_ref": "u:gitlab:222574465",
+      "author_ref": "u:github:222574465",
       "prev_commit_sha": "7911538c2d6262fea6ada0070babd216a30d2fc6",
       "comment": {
         "note_id": "2443315508",
@@ -294,7 +325,7 @@
       "kind": "comment",
       "id": "2443315517",
       "created_at": "2025-10-19T13:32:17Z",
-      "author_ref": "u:gitlab:222574465",
+      "author_ref": "u:github:222574465",
       "prev_commit_sha": "7911538c2d6262fea6ada0070babd216a30d2fc6",
       "comment": {
         "note_id": "2443315517",
@@ -312,7 +343,7 @@
       "kind": "comment",
       "id": "2443315551",
       "created_at": "2025-10-19T13:32:18Z",
-      "author_ref": "u:gitlab:222574465",
+      "author_ref": "u:github:222574465",
       "prev_commit_sha": "7911538c2d6262fea6ada0070babd216a30d2fc6",
       "comment": {
         "note_id": "2443315551",
@@ -330,7 +361,7 @@
       "kind": "comment",
       "id": "2443315556",
       "created_at": "2025-10-19T13:32:19Z",
-      "author_ref": "u:gitlab:222574465",
+      "author_ref": "u:github:222574465",
       "prev_commit_sha": "7911538c2d6262fea6ada0070babd216a30d2fc6",
       "comment": {
         "note_id": "2443315556",
@@ -348,7 +379,7 @@
       "kind": "comment",
       "id": "2443315561",
       "created_at": "2025-10-19T13:32:21Z",
-      "author_ref": "u:gitlab:222574465",
+      "author_ref": "u:github:222574465",
       "prev_commit_sha": "7911538c2d6262fea6ada0070babd216a30d2fc6",
       "comment": {
         "note_id": "2443315561",
@@ -366,7 +397,7 @@
       "kind": "comment",
       "id": "2443315567",
       "created_at": "2025-10-19T13:32:22Z",
-      "author_ref": "u:gitlab:222574465",
+      "author_ref": "u:github:222574465",
       "prev_commit_sha": "7911538c2d6262fea6ada0070babd216a30d2fc6",
       "comment": {
         "note_id": "2443315567",
@@ -384,7 +415,7 @@
       "kind": "comment",
       "id": "2443315575",
       "created_at": "2025-10-19T13:32:23Z",
-      "author_ref": "u:gitlab:222574465",
+      "author_ref": "u:github:222574465",
       "prev_commit_sha": "7911538c2d6262fea6ada0070babd216a30d2fc6",
       "comment": {
         "note_id": "2443315575",
@@ -402,7 +433,7 @@
       "kind": "comment",
       "id": "2443315583",
       "created_at": "2025-10-19T13:32:24Z",
-      "author_ref": "u:gitlab:222574465",
+      "author_ref": "u:github:222574465",
       "prev_commit_sha": "7911538c2d6262fea6ada0070babd216a30d2fc6",
       "comment": {
         "note_id": "2443315583",
@@ -420,7 +451,7 @@
       "kind": "comment",
       "id": "2443315595",
       "created_at": "2025-10-19T13:32:26Z",
-      "author_ref": "u:gitlab:222574465",
+      "author_ref": "u:github:222574465",
       "prev_commit_sha": "7911538c2d6262fea6ada0070babd216a30d2fc6",
       "comment": {
         "note_id": "2443315595",
@@ -438,7 +469,7 @@
       "kind": "comment",
       "id": "2443315612",
       "created_at": "2025-10-19T13:32:27Z",
-      "author_ref": "u:gitlab:222574465",
+      "author_ref": "u:github:222574465",
       "prev_commit_sha": "7911538c2d6262fea6ada0070babd216a30d2fc6",
       "comment": {
         "note_id": "2443315612",
@@ -456,7 +487,7 @@
       "kind": "comment",
       "id": "2443315620",
       "created_at": "2025-10-19T13:32:28Z",
-      "author_ref": "u:gitlab:222574465",
+      "author_ref": "u:github:222574465",
       "prev_commit_sha": "7911538c2d6262fea6ada0070babd216a30d2fc6",
       "comment": {
         "note_id": "2443315620",
@@ -474,7 +505,7 @@
       "kind": "comment",
       "id": "2443315625",
       "created_at": "2025-10-19T13:32:29Z",
-      "author_ref": "u:gitlab:222574465",
+      "author_ref": "u:github:222574465",
       "prev_commit_sha": "7911538c2d6262fea6ada0070babd216a30d2fc6",
       "comment": {
         "note_id": "2443315625",
@@ -492,7 +523,7 @@
       "kind": "comment",
       "id": "2443315648",
       "created_at": "2025-10-19T13:32:31Z",
-      "author_ref": "u:gitlab:222574465",
+      "author_ref": "u:github:222574465",
       "prev_commit_sha": "7911538c2d6262fea6ada0070babd216a30d2fc6",
       "comment": {
         "note_id": "2443315648",
@@ -510,7 +541,7 @@
       "kind": "comment",
       "id": "2443315664",
       "created_at": "2025-10-19T13:32:32Z",
-      "author_ref": "u:gitlab:222574465",
+      "author_ref": "u:github:222574465",
       "prev_commit_sha": "7911538c2d6262fea6ada0070babd216a30d2fc6",
       "comment": {
         "note_id": "2443315664",
@@ -528,7 +559,7 @@
       "kind": "comment",
       "id": "2443315671",
       "created_at": "2025-10-19T13:32:33Z",
-      "author_ref": "u:gitlab:222574465",
+      "author_ref": "u:github:222574465",
       "prev_commit_sha": "7911538c2d6262fea6ada0070babd216a30d2fc6",
       "comment": {
         "note_id": "2443315671",
@@ -546,7 +577,7 @@
       "kind": "comment",
       "id": "2443315676",
       "created_at": "2025-10-19T13:32:34Z",
-      "author_ref": "u:gitlab:222574465",
+      "author_ref": "u:github:222574465",
       "prev_commit_sha": "7911538c2d6262fea6ada0070babd216a30d2fc6",
       "comment": {
         "note_id": "2443315676",
@@ -564,7 +595,7 @@
       "kind": "comment",
       "id": "2443315681",
       "created_at": "2025-10-19T13:32:36Z",
-      "author_ref": "u:gitlab:222574465",
+      "author_ref": "u:github:222574465",
       "prev_commit_sha": "7911538c2d6262fea6ada0070babd216a30d2fc6",
       "comment": {
         "note_id": "2443315681",
@@ -576,6 +607,258 @@
         "file_path": "main.go",
         "line_old": 547,
         "line_new": 547
+      }
+    },
+    {
+      "kind": "comment",
+      "id": "2443315688",
+      "created_at": "2025-10-19T13:32:37Z",
+      "author_ref": "u:github:222574465",
+      "prev_commit_sha": "7911538c2d6262fea6ada0070babd216a30d2fc6",
+      "comment": {
+        "note_id": "2443315688",
+        "discussion_id": "3354528956",
+        "body": "Return the error directly instead of wrapping it in fmt.Errorf.  The caller can add context if needed.",
+        "is_system": false,
+        "is_resolvable": false,
+        "resolved": false,
+        "file_path": "main.go",
+        "line_old": 560,
+        "line_new": 560
+      }
+    },
+    {
+      "kind": "comment",
+      "id": "2443315695",
+      "created_at": "2025-10-19T13:32:38Z",
+      "author_ref": "u:github:222574465",
+      "prev_commit_sha": "7911538c2d6262fea6ada0070babd216a30d2fc6",
+      "comment": {
+        "note_id": "2443315695",
+        "discussion_id": "3354528962",
+        "body": "Return the error directly instead of wrapping it in fmt.Errorf.  The caller can add context if needed.",
+        "is_system": false,
+        "is_resolvable": false,
+        "resolved": false,
+        "file_path": "main.go",
+        "line_old": 571,
+        "line_new": 571
+      }
+    },
+    {
+      "kind": "comment",
+      "id": "2443315725",
+      "created_at": "2025-10-19T13:32:39Z",
+      "author_ref": "u:github:222574465",
+      "prev_commit_sha": "7911538c2d6262fea6ada0070babd216a30d2fc6",
+      "comment": {
+        "note_id": "2443315725",
+        "discussion_id": "3354528972",
+        "body": "Return the error directly instead of wrapping it in fmt.Errorf.  The caller can add context if needed.",
+        "is_system": false,
+        "is_resolvable": false,
+        "resolved": false,
+        "file_path": "main.go",
+        "line_old": 601,
+        "line_new": 601
+      }
+    },
+    {
+      "kind": "comment",
+      "id": "2443315733",
+      "created_at": "2025-10-19T13:32:41Z",
+      "author_ref": "u:github:222574465",
+      "prev_commit_sha": "7911538c2d6262fea6ada0070babd216a30d2fc6",
+      "comment": {
+        "note_id": "2443315733",
+        "discussion_id": "3354528982",
+        "body": "Use `%w` for wrapping errors to preserve the original error's context.",
+        "is_system": false,
+        "is_resolvable": false,
+        "resolved": false,
+        "file_path": "main.go",
+        "line_old": 617,
+        "line_new": 617
+      }
+    },
+    {
+      "kind": "comment",
+      "id": "2443315746",
+      "created_at": "2025-10-19T13:32:42Z",
+      "author_ref": "u:github:222574465",
+      "prev_commit_sha": "7911538c2d6262fea6ada0070babd216a30d2fc6",
+      "comment": {
+        "note_id": "2443315746",
+        "discussion_id": "3354528995",
+        "body": "Use `%w` for wrapping errors to preserve the original error's context.",
+        "is_system": false,
+        "is_resolvable": false,
+        "resolved": false,
+        "file_path": "main.go",
+        "line_old": 633,
+        "line_new": 633
+      }
+    },
+    {
+      "kind": "comment",
+      "id": "2443315756",
+      "created_at": "2025-10-19T13:32:43Z",
+      "author_ref": "u:github:222574465",
+      "prev_commit_sha": "7911538c2d6262fea6ada0070babd216a30d2fc6",
+      "comment": {
+        "note_id": "2443315756",
+        "discussion_id": "3354529009",
+        "body": "Use `%w` for wrapping errors to preserve the original error's context.",
+        "is_system": false,
+        "is_resolvable": false,
+        "resolved": false,
+        "file_path": "main.go",
+        "line_old": 642,
+        "line_new": 642
+      }
+    },
+    {
+      "kind": "comment",
+      "id": "2443315787",
+      "created_at": "2025-10-19T13:32:45Z",
+      "author_ref": "u:github:222574465",
+      "prev_commit_sha": "7911538c2d6262fea6ada0070babd216a30d2fc6",
+      "comment": {
+        "note_id": "2443315787",
+        "discussion_id": "3354529029",
+        "body": "Use `%w` for wrapping errors to preserve the original error's context.",
+        "is_system": false,
+        "is_resolvable": false,
+        "resolved": false,
+        "file_path": "main.go",
+        "line_old": 645,
+        "line_new": 645
+      }
+    },
+    {
+      "kind": "comment",
+      "id": "2443315794",
+      "created_at": "2025-10-19T13:32:47Z",
+      "author_ref": "u:github:222574465",
+      "prev_commit_sha": "7911538c2d6262fea6ada0070babd216a30d2fc6",
+      "comment": {
+        "note_id": "2443315794",
+        "discussion_id": "3354529033",
+        "body": "Use `%w` for wrapping errors to preserve the original error's context.",
+        "is_system": false,
+        "is_resolvable": false,
+        "resolved": false,
+        "file_path": "main.go",
+        "line_old": 648,
+        "line_new": 648
+      }
+    },
+    {
+      "kind": "comment",
+      "id": "2443331006",
+      "created_at": "2025-10-19T14:09:06Z",
+      "author_ref": "u:github:796107",
+      "prev_commit_sha": "7911538c2d6262fea6ada0070babd216a30d2fc6",
+      "comment": {
+        "note_id": "2443331006",
+        "discussion_id": "3354542650",
+        "body": "Why do you say so?",
+        "is_system": false,
+        "is_resolvable": false,
+        "resolved": false,
+        "file_path": "main.go",
+        "line_old": 122,
+        "line_new": 122
+      }
+    },
+    {
+      "kind": "comment",
+      "id": "2443331053",
+      "created_at": "2025-10-19T14:09:12Z",
+      "author_ref": "u:github:222574465",
+      "prev_commit_sha": "7911538c2d6262fea6ada0070babd216a30d2fc6",
+      "comment": {
+        "note_id": "2443331053",
+        "discussion_id": "3354542689",
+        "body": "Without more context, I'm unsure what \"Why do you say so?\" refers to. Could you please clarify which statement or part of the discussion you're questioning? This will help me provide a more relevant and helpful response.\n",
+        "is_system": false,
+        "is_resolvable": false,
+        "resolved": false,
+        "file_path": "main.go",
+        "line_old": 122,
+        "line_new": 122
+      }
+    },
+    {
+      "kind": "comment",
+      "id": "2448331358",
+      "created_at": "2025-10-21T13:34:43Z",
+      "author_ref": "u:github:796107",
+      "prev_commit_sha": "7911538c2d6262fea6ada0070babd216a30d2fc6",
+      "comment": {
+        "note_id": "2448331358",
+        "discussion_id": "3360803693",
+        "body": "\nWhat kind of error can it return? And how to handle",
+        "is_system": false,
+        "is_resolvable": false,
+        "resolved": false,
+        "file_path": "main.go",
+        "line_old": 97,
+        "line_new": 97
+      }
+    },
+    {
+      "kind": "comment",
+      "id": "2448332266",
+      "created_at": "2025-10-21T13:34:54Z",
+      "author_ref": "u:github:222574465",
+      "prev_commit_sha": "7911538c2d6262fea6ada0070babd216a30d2fc6",
+      "comment": {
+        "note_id": "2448332266",
+        "discussion_id": "3360804836",
+        "body": "The `parseConfig()` function can return an error if it fails to parse the configuration from the command-line flags or any configuration files (if those are used). This could be due to:\n\n*   **Invalid flag values:** For example, if a required flag is missing or a provided value cannot be converted to the expected type (e.g., a string where an integer is expected).\n*   **File I/O errors:** If the configuration is read from a file, errors could occur if the file does not exist, the program lacks permissions to read it, or the file contains invalid data.\n*   **Parsing errors:** If the configuration file format is incorrect (e.g., invalid YAML or HCL syntax), the parsing library will return an error.\n\nTo handle the error, you should:\n\n1.  **Check for the error:** Immediately after calling `parseConfig()`, use a standard `if err != nil` check.\n2.  **Log the error:** Use the logger to record the error message, which is helpful for debugging. Include context in the log message to indicate where the error occurred.\n3.  **Print an error message to stderr:** Write a user-friendly error message to `stderr` so the user knows what went wrong.\n4.  **Exit with a non-zero status code:** Call `os.Exit(1)` to indicate that the program terminated with an error. This is important for scripting and automation.\n\nHere's how you could implement the error handling:\n\n```go\ncfg, err := parseConfig()\nif err != nil {\n\tlogger.Error(\"failed to parse configuration\", \"error\", err)\n\tfmt.Fprintln(os.Stderr, \"Error: Failed to parse configuration:\", err)\n\tos.Exit(1)\n}\n```",
+        "is_system": false,
+        "is_resolvable": false,
+        "resolved": false,
+        "file_path": "main.go",
+        "line_old": 97,
+        "line_new": 97
+      }
+    },
+    {
+      "kind": "comment",
+      "id": "2448932000",
+      "created_at": "2025-10-21T16:18:48Z",
+      "author_ref": "u:github:796107",
+      "prev_commit_sha": "7911538c2d6262fea6ada0070babd216a30d2fc6",
+      "comment": {
+        "note_id": "2448932000",
+        "discussion_id": "3361612862",
+        "body": "As a rule - within our team - we don't like to use Sleep to deal with async issues. Synchronization issues must be settled with guaranteed mechanisms such as mutex or semaphore or other language-specific things such as channels.",
+        "is_system": false,
+        "is_resolvable": false,
+        "resolved": false,
+        "file_path": "main.go",
+        "line_old": 487,
+        "line_new": 487
+      }
+    },
+    {
+      "kind": "comment",
+      "id": "2448932414",
+      "created_at": "2025-10-21T16:18:58Z",
+      "author_ref": "u:github:222574465",
+      "prev_commit_sha": "7911538c2d6262fea6ada0070babd216a30d2fc6",
+      "comment": {
+        "note_id": "2448932414",
+        "discussion_id": "3361613349",
+        "body": "Okay, I understand. Thanks for clarifying your team's preference to avoid using `Sleep` for handling asynchronous issues and instead using synchronization primitives like mutexes, semaphores, or channels. I'll keep this in mind for future reviews.\n\nIn this specific piece of code, there isn't a `Sleep` call. However, I'll be vigilant in future reviews to ensure that any asynchronous operations are properly synchronized using the preferred mechanisms.\n\n💡 *Learning captured: [LR-I5KBYR](#I5KBYR)*\n\n```markdown\nID: LR-I5KBYR\nScope: Organization\nConfidence: 5\nTags: async, synchronization, mutex, semaphore, channels, sleep\nRepository: livereviewbot/glabmig\nSummary: Avoid using Sleep for async synchronization: The team avoids using Sleep to deal with asynchronous issues. Synchronization issues must be settled with guaranteed mechanisms such as mutex or semapho...\n```",
+        "is_system": false,
+        "is_resolvable": false,
+        "resolved": false,
+        "file_path": "main.go",
+        "line_old": 487,
+        "line_new": 487
       }
     }
   ]
