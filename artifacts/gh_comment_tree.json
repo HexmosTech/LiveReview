@@ -1,0 +1,350 @@
+{
+  "participants": [
+    {
+      "ref": "u:gitlab:222574465",
+      "id": 222574465,
+      "username": "livereviewbot",
+      "avatar_url": "https://avatars.githubusercontent.com/u/222574465?v=4",
+      "web_url": "https://github.com/livereviewbot"
+    }
+  ],
+  "roots": [
+    {
+      "id": "3419670837",
+      "author_ref": "u:gitlab:222574465",
+      "prev_commit_sha": "7911538c2d6262fea6ada0070babd216a30d2fc6",
+      "body": "# Introduction of GitLab/GitHub API Interaction Helpers and Migration Logic\n\n## Overview\n\nThis change introduces helper functions for interacting with the GitLab and GitHub APIs, along with the core migration logic. The code includes functions for finding GitLab projects, listing merge requests and commits, fetching GitHub user details, performing GitHub searches, and retrieving specific pull requests. It also includes utility functions for rounding durations and creating pointers, and a basic object cache implementation. The main goal is to facilitate the migration of data between GitLab and GitHub.\n\n## Key Changes\n\n- **API Interaction Helpers:** Implements functions for interacting with both GitLab and GitHub APIs, including project search, merge request listing, commit retrieval, user details fetching, and pull request retrieval.\n- **Migration Logic:** Introduces the core logic for migrating data (specifically pull requests) from GitLab to GitHub.\n- **Utility Functions:** Adds helper functions for rounding durations, creating pointers, and caching objects.\n- **Error Handling:** Includes basic error handling with room for improvement.\n- **Concurrency:** Utilizes `errgroup` for concurrent operations.\n- **Graceful Shutdown:** Implements a signal handler for graceful shutdown.\n\n## Impact\n\n- **Functionality**: Enables the migration of data from GitLab to GitHub by providing the necessary API interaction and processing logic.\n- **Risk**:\n    - Potential for unhandled errors to mask issues, especially within concurrent operations. The current error handling approach of logging and returning nil can lead to silent failures.\n    - Possible index out of range errors if header values are empty.\n    - Searching by project name might return multiple projects with the same name, leading to unexpected behavior.\n    - The sleep duration for rate limiting is not configurable.\n    - Regex recompilation on each call to `migratePullRequests` can impact performance.\n    - Inconsistent logging arguments.\n    - The code might not be robust enough to handle all possible scenarios, such as invalid project paths.\n",
+      "created_at": "2025-10-19T13:31:57Z"
+    },
+    {
+      "id": "2443315406",
+      "discussion_id": "3354528710",
+      "author_ref": "u:gitlab:222574465",
+      "prev_commit_sha": "7911538c2d6262fea6ada0070babd216a30d2fc6",
+      "body": "Consider adding a comment explaining why atomic is necessary (thread-safe error counting).",
+      "created_at": "2025-10-19T13:31:59Z",
+      "file_path": "main.go",
+      "line_old": 21,
+      "line_new": 21
+    },
+    {
+      "id": "2443315416",
+      "discussion_id": "3354528722",
+      "author_ref": "u:gitlab:222574465",
+      "prev_commit_sha": "7911538c2d6262fea6ada0070babd216a30d2fc6",
+      "body": "The `parseConfig` function can return an error. Handle it gracefully.",
+      "created_at": "2025-10-19T13:32:01Z",
+      "file_path": "main.go",
+      "line_old": 97,
+      "line_new": 97
+    },
+    {
+      "id": "2443315421",
+      "discussion_id": "3354528728",
+      "author_ref": "u:gitlab:222574465",
+      "prev_commit_sha": "7911538c2d6262fea6ada0070babd216a30d2fc6",
+      "body": "The `setupAPIClients` function can return an error. Handle it gracefully.",
+      "created_at": "2025-10-19T13:32:02Z",
+      "file_path": "main.go",
+      "line_old": 116,
+      "line_new": 116
+    },
+    {
+      "id": "2443315429",
+      "discussion_id": "3354528739",
+      "author_ref": "u:gitlab:222574465",
+      "prev_commit_sha": "7911538c2d6262fea6ada0070babd216a30d2fc6",
+      "body": "The `loadProjects` function can return an error. Handle it gracefully.",
+      "created_at": "2025-10-19T13:32:04Z",
+      "file_path": "main.go",
+      "line_old": 122,
+      "line_new": 122
+    },
+    {
+      "id": "2443315441",
+      "discussion_id": "3354528745",
+      "author_ref": "u:gitlab:222574465",
+      "prev_commit_sha": "7911538c2d6262fea6ada0070babd216a30d2fc6",
+      "body": "Consider returning an error from `performMigration` instead of relying on the global `errCount`. This would make error handling more explicit and easier to test.",
+      "created_at": "2025-10-19T13:32:05Z",
+      "file_path": "main.go",
+      "line_old": 134,
+      "line_new": 134
+    },
+    {
+      "id": "2443315446",
+      "discussion_id": "3354528753",
+      "author_ref": "u:gitlab:222574465",
+      "prev_commit_sha": "7911538c2d6262fea6ada0070babd216a30d2fc6",
+      "body": "Consider using `errors.Is` or `errors.As` for more robust error checking.",
+      "created_at": "2025-10-19T13:32:06Z",
+      "file_path": "main.go",
+      "line_old": 173,
+      "line_new": 173
+    },
+    {
+      "id": "2443315452",
+      "discussion_id": "3354528758",
+      "author_ref": "u:gitlab:222574465",
+      "prev_commit_sha": "7911538c2d6262fea6ada0070babd216a30d2fc6",
+      "body": "Check if `len(s) \u003e 0` to prevent potential index out of range errors when accessing `s[0]` if the header value is empty.",
+      "created_at": "2025-10-19T13:32:07Z",
+      "file_path": "main.go",
+      "line_old": 236,
+      "line_new": 236
+    },
+    {
+      "id": "2443315459",
+      "discussion_id": "3354528767",
+      "author_ref": "u:gitlab:222574465",
+      "prev_commit_sha": "7911538c2d6262fea6ada0070babd216a30d2fc6",
+      "body": "Check if `len(v) \u003e 0` to prevent potential index out of range errors when accessing `v[0]` if the header value is empty.",
+      "created_at": "2025-10-19T13:32:09Z",
+      "file_path": "main.go",
+      "line_old": 246,
+      "line_new": 246
+    },
+    {
+      "id": "2443315468",
+      "discussion_id": "3354528778",
+      "author_ref": "u:gitlab:222574465",
+      "prev_commit_sha": "7911538c2d6262fea6ada0070babd216a30d2fc6",
+      "body": "Check if `len(w) \u003e 0` to prevent potential index out of range errors when accessing `w[0]` if the header value is empty.",
+      "created_at": "2025-10-19T13:32:10Z",
+      "file_path": "main.go",
+      "line_old": 249,
+      "line_new": 249
+    },
+    {
+      "id": "2443315480",
+      "discussion_id": "3354528785",
+      "author_ref": "u:gitlab:222574465",
+      "prev_commit_sha": "7911538c2d6262fea6ada0070babd216a30d2fc6",
+      "body": "Consider adding a comment explaining why `StatusForbidden` is sometimes used for rate limits. This isn't standard and might confuse others.",
+      "created_at": "2025-10-19T13:32:11Z",
+      "file_path": "main.go",
+      "line_old": 285,
+      "line_new": 285
+    },
+    {
+      "id": "2443315486",
+      "discussion_id": "3354528793",
+      "author_ref": "u:gitlab:222574465",
+      "prev_commit_sha": "7911538c2d6262fea6ada0070babd216a30d2fc6",
+      "body": "Use consistent naming for variables (requestURL vs requestMethod).",
+      "created_at": "2025-10-19T13:32:12Z",
+      "file_path": "main.go",
+      "line_old": 306,
+      "line_new": 306
+    },
+    {
+      "id": "2443315496",
+      "discussion_id": "3354528801",
+      "author_ref": "u:gitlab:222574465",
+      "prev_commit_sha": "7911538c2d6262fea6ada0070babd216a30d2fc6",
+      "body": "Consider renaming httpClient to ghHttpClient to better reflect its usage",
+      "created_at": "2025-10-19T13:32:13Z",
+      "file_path": "main.go",
+      "line_old": 317,
+      "line_new": 317
+    },
+    {
+      "id": "2443315503",
+      "discussion_id": "3354528808",
+      "author_ref": "u:gitlab:222574465",
+      "prev_commit_sha": "7911538c2d6262fea6ada0070babd216a30d2fc6",
+      "body": "Return the error directly instead of wrapping it in fmt.Errorf.  The caller can add context if needed.",
+      "created_at": "2025-10-19T13:32:15Z",
+      "file_path": "main.go",
+      "line_old": 328,
+      "line_new": 328
+    },
+    {
+      "id": "2443315508",
+      "discussion_id": "3354528815",
+      "author_ref": "u:gitlab:222574465",
+      "prev_commit_sha": "7911538c2d6262fea6ada0070babd216a30d2fc6",
+      "body": "Return the error directly instead of wrapping it in fmt.Errorf.  The caller can add context if needed.",
+      "created_at": "2025-10-19T13:32:16Z",
+      "file_path": "main.go",
+      "line_old": 340,
+      "line_new": 340
+    },
+    {
+      "id": "2443315517",
+      "discussion_id": "3354528823",
+      "author_ref": "u:gitlab:222574465",
+      "prev_commit_sha": "7911538c2d6262fea6ada0070babd216a30d2fc6",
+      "body": "Return the error directly instead of wrapping it in fmt.Errorf.  The caller can add context if needed.",
+      "created_at": "2025-10-19T13:32:17Z",
+      "file_path": "main.go",
+      "line_old": 352,
+      "line_new": 352
+    },
+    {
+      "id": "2443315551",
+      "discussion_id": "3354528832",
+      "author_ref": "u:gitlab:222574465",
+      "prev_commit_sha": "7911538c2d6262fea6ada0070babd216a30d2fc6",
+      "body": "Return the error directly instead of wrapping it in fmt.Errorf.  The caller can add context if needed.",
+      "created_at": "2025-10-19T13:32:18Z",
+      "file_path": "main.go",
+      "line_old": 360,
+      "line_new": 360
+    },
+    {
+      "id": "2443315556",
+      "discussion_id": "3354528835",
+      "author_ref": "u:gitlab:222574465",
+      "prev_commit_sha": "7911538c2d6262fea6ada0070babd216a30d2fc6",
+      "body": "Return the error directly instead of wrapping it in fmt.Errorf.  The caller can add context if needed.",
+      "created_at": "2025-10-19T13:32:19Z",
+      "file_path": "main.go",
+      "line_old": 365,
+      "line_new": 365
+    },
+    {
+      "id": "2443315561",
+      "discussion_id": "3354528843",
+      "author_ref": "u:gitlab:222574465",
+      "prev_commit_sha": "7911538c2d6262fea6ada0070babd216a30d2fc6",
+      "body": "Consider using `sync.Pool` instead of a mutex to protect the `results` slice if performance is critical and the order of results isn't important.  This could reduce contention.",
+      "created_at": "2025-10-19T13:32:21Z",
+      "file_path": "main.go",
+      "line_old": 390,
+      "line_new": 390
+    },
+    {
+      "id": "2443315567",
+      "discussion_id": "3354528853",
+      "author_ref": "u:gitlab:222574465",
+      "prev_commit_sha": "7911538c2d6262fea6ada0070babd216a30d2fc6",
+      "body": "Returning nil here after logging an error might mask issues. Consider returning the error up to the errgroup and handling the logging at a higher level.",
+      "created_at": "2025-10-19T13:32:22Z",
+      "file_path": "main.go",
+      "line_old": 401,
+      "line_new": 401
+    },
+    {
+      "id": "2443315575",
+      "discussion_id": "3354528864",
+      "author_ref": "u:gitlab:222574465",
+      "prev_commit_sha": "7911538c2d6262fea6ada0070babd216a30d2fc6",
+      "body": "Return the error directly instead of wrapping it in fmt.Errorf.  The caller can add context if needed.",
+      "created_at": "2025-10-19T13:32:23Z",
+      "file_path": "main.go",
+      "line_old": 431,
+      "line_new": 431
+    },
+    {
+      "id": "2443315583",
+      "discussion_id": "3354528871",
+      "author_ref": "u:gitlab:222574465",
+      "prev_commit_sha": "7911538c2d6262fea6ada0070babd216a30d2fc6",
+      "body": "Return the error directly instead of wrapping it in fmt.Errorf.  The caller can add context if needed.",
+      "created_at": "2025-10-19T13:32:24Z",
+      "file_path": "main.go",
+      "line_old": 437,
+      "line_new": 437
+    },
+    {
+      "id": "2443315595",
+      "discussion_id": "3354528878",
+      "author_ref": "u:gitlab:222574465",
+      "prev_commit_sha": "7911538c2d6262fea6ada0070babd216a30d2fc6",
+      "body": "Return the error directly instead of wrapping it in fmt.Errorf.  The caller can add context if needed.",
+      "created_at": "2025-10-19T13:32:26Z",
+      "file_path": "main.go",
+      "line_old": 442,
+      "line_new": 442
+    },
+    {
+      "id": "2443315612",
+      "discussion_id": "3354528885",
+      "author_ref": "u:gitlab:222574465",
+      "prev_commit_sha": "7911538c2d6262fea6ada0070babd216a30d2fc6",
+      "body": "Returning nil here after logging an error might mask issues. Consider returning the error up to the errgroup and handling the logging at a higher level.",
+      "created_at": "2025-10-19T13:32:27Z",
+      "file_path": "main.go",
+      "line_old": 470,
+      "line_new": 470
+    },
+    {
+      "id": "2443315620",
+      "discussion_id": "3354528893",
+      "author_ref": "u:gitlab:222574465",
+      "prev_commit_sha": "7911538c2d6262fea6ada0070babd216a30d2fc6",
+      "body": "Consider adding a small jitter to the `time.Sleep` duration to avoid potential synchronization issues across multiple instances of the program.",
+      "created_at": "2025-10-19T13:32:28Z",
+      "file_path": "main.go",
+      "line_old": 487,
+      "line_new": 487
+    },
+    {
+      "id": "2443315625",
+      "discussion_id": "3354528901",
+      "author_ref": "u:gitlab:222574465",
+      "prev_commit_sha": "7911538c2d6262fea6ada0070babd216a30d2fc6",
+      "body": "The sleep duration should be configurable via a flag.",
+      "created_at": "2025-10-19T13:32:29Z",
+      "file_path": "main.go",
+      "line_old": 494,
+      "line_new": 494
+    },
+    {
+      "id": "2443315648",
+      "discussion_id": "3354528914",
+      "author_ref": "u:gitlab:222574465",
+      "prev_commit_sha": "7911538c2d6262fea6ada0070babd216a30d2fc6",
+      "body": "Return the error directly instead of wrapping it in fmt.Errorf.  The caller can add context if needed.",
+      "created_at": "2025-10-19T13:32:31Z",
+      "file_path": "main.go",
+      "line_old": 511,
+      "line_new": 511
+    },
+    {
+      "id": "2443315664",
+      "discussion_id": "3354528918",
+      "author_ref": "u:gitlab:222574465",
+      "prev_commit_sha": "7911538c2d6262fea6ada0070babd216a30d2fc6",
+      "body": "Return the error directly instead of wrapping it in fmt.Errorf.  The caller can add context if needed.",
+      "created_at": "2025-10-19T13:32:32Z",
+      "file_path": "main.go",
+      "line_old": 526,
+      "line_new": 526
+    },
+    {
+      "id": "2443315671",
+      "discussion_id": "3354528925",
+      "author_ref": "u:gitlab:222574465",
+      "prev_commit_sha": "7911538c2d6262fea6ada0070babd216a30d2fc6",
+      "body": "Return the error directly instead of wrapping it in fmt.Errorf.  The caller can add context if needed.",
+      "created_at": "2025-10-19T13:32:33Z",
+      "file_path": "main.go",
+      "line_old": 531,
+      "line_new": 531
+    },
+    {
+      "id": "2443315676",
+      "discussion_id": "3354528935",
+      "author_ref": "u:gitlab:222574465",
+      "prev_commit_sha": "7911538c2d6262fea6ada0070babd216a30d2fc6",
+      "body": "Return the error directly instead of wrapping it in fmt.Errorf.  The caller can add context if needed.",
+      "created_at": "2025-10-19T13:32:34Z",
+      "file_path": "main.go",
+      "line_old": 540,
+      "line_new": 540
+    },
+    {
+      "id": "2443315681",
+      "discussion_id": "3354528947",
+      "author_ref": "u:gitlab:222574465",
+      "prev_commit_sha": "7911538c2d6262fea6ada0070babd216a30d2fc6",
+      "body": "Return the error directly instead of wrapping it in fmt.Errorf.  The caller can add context if needed.",
+      "created_at": "2025-10-19T13:32:36Z",
+      "file_path": "main.go",
+      "line_old": 547,
+      "line_new": 547
+    }
+  ]
+}
