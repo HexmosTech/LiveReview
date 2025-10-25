@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/livereview/internal/capture"
@@ -11,31 +12,46 @@ import (
 
 // FetchGitHubPRCommitsV2 fetches commits for a GitHub PR.
 func FetchGitHubPRCommitsV2(owner, repo, prNumber, token string) ([]GitHubV2CommitInfo, error) {
-	apiURL := fmt.Sprintf("https://api.github.com/repos/%s/%s/pulls/%s/commits", owner, repo, prNumber)
-
-	req, err := http.NewRequest("GET", apiURL, nil)
-	if err != nil {
-		return nil, err
-	}
-
-	req.Header.Set("Authorization", "token "+token)
-	req.Header.Set("Accept", "application/vnd.github.v3+json")
-	req.Header.Set("User-Agent", "LiveReview-Bot")
-
+	baseURL := fmt.Sprintf("https://api.github.com/repos/%s/%s/pulls/%s/commits", owner, repo, prNumber)
 	client := &http.Client{Timeout: 30 * time.Second}
-	resp, err := client.Do(req)
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
 
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("GitHub API request failed with status %d", resp.StatusCode)
-	}
+	commits := make([]GitHubV2CommitInfo, 0, 64)
+	page := 1
+	const perPage = 100
 
-	var commits []GitHubV2CommitInfo
-	if err = json.NewDecoder(resp.Body).Decode(&commits); err != nil {
-		return nil, err
+	for {
+		apiURL := buildPaginatedURL(baseURL, page, perPage)
+		req, err := http.NewRequest("GET", apiURL, nil)
+		if err != nil {
+			return nil, err
+		}
+
+		setGitHubHeaders(req, token)
+
+		resp, err := client.Do(req)
+		if err != nil {
+			return nil, err
+		}
+
+		if resp.StatusCode != http.StatusOK {
+			resp.Body.Close()
+			return nil, fmt.Errorf("GitHub API request failed with status %d", resp.StatusCode)
+		}
+
+		var pageItems []GitHubV2CommitInfo
+		if err = json.NewDecoder(resp.Body).Decode(&pageItems); err != nil {
+			resp.Body.Close()
+			return nil, err
+		}
+		resp.Body.Close()
+
+		commits = append(commits, pageItems...)
+
+		if !hasNextPage(resp) {
+			break
+		}
+
+		page++
 	}
 
 	if capture.Enabled() {
@@ -53,31 +69,46 @@ func FetchGitHubPRCommitsV2(owner, repo, prNumber, token string) ([]GitHubV2Comm
 
 // FetchGitHubPRCommentsV2 fetches comments for a GitHub PR.
 func FetchGitHubPRCommentsV2(owner, repo, prNumber, token string) ([]GitHubV2CommentInfo, error) {
-	apiURL := fmt.Sprintf("https://api.github.com/repos/%s/%s/issues/%s/comments", owner, repo, prNumber)
-
-	req, err := http.NewRequest("GET", apiURL, nil)
-	if err != nil {
-		return nil, err
-	}
-
-	req.Header.Set("Authorization", "token "+token)
-	req.Header.Set("Accept", "application/vnd.github.v3+json")
-	req.Header.Set("User-Agent", "LiveReview-Bot")
-
+	baseURL := fmt.Sprintf("https://api.github.com/repos/%s/%s/issues/%s/comments", owner, repo, prNumber)
 	client := &http.Client{Timeout: 30 * time.Second}
-	resp, err := client.Do(req)
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
 
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("GitHub API request failed with status %d", resp.StatusCode)
-	}
+	comments := make([]GitHubV2CommentInfo, 0, 32)
+	page := 1
+	const perPage = 100
 
-	var comments []GitHubV2CommentInfo
-	if err = json.NewDecoder(resp.Body).Decode(&comments); err != nil {
-		return nil, err
+	for {
+		apiURL := buildPaginatedURL(baseURL, page, perPage)
+		req, err := http.NewRequest("GET", apiURL, nil)
+		if err != nil {
+			return nil, err
+		}
+
+		setGitHubHeaders(req, token)
+
+		resp, err := client.Do(req)
+		if err != nil {
+			return nil, err
+		}
+
+		if resp.StatusCode != http.StatusOK {
+			resp.Body.Close()
+			return nil, fmt.Errorf("GitHub API request failed with status %d", resp.StatusCode)
+		}
+
+		var pageItems []GitHubV2CommentInfo
+		if err = json.NewDecoder(resp.Body).Decode(&pageItems); err != nil {
+			resp.Body.Close()
+			return nil, err
+		}
+		resp.Body.Close()
+
+		comments = append(comments, pageItems...)
+
+		if !hasNextPage(resp) {
+			break
+		}
+
+		page++
 	}
 
 	if capture.Enabled() {
@@ -95,31 +126,46 @@ func FetchGitHubPRCommentsV2(owner, repo, prNumber, token string) ([]GitHubV2Com
 
 // FetchGitHubPRReviewCommentsV2 fetches review (inline) comments for a GitHub PR.
 func FetchGitHubPRReviewCommentsV2(owner, repo, prNumber, token string) ([]GitHubV2ReviewComment, error) {
-	apiURL := fmt.Sprintf("https://api.github.com/repos/%s/%s/pulls/%s/comments", owner, repo, prNumber)
-
-	req, err := http.NewRequest("GET", apiURL, nil)
-	if err != nil {
-		return nil, err
-	}
-
-	req.Header.Set("Authorization", "token "+token)
-	req.Header.Set("Accept", "application/vnd.github.v3+json")
-	req.Header.Set("User-Agent", "LiveReview-Bot")
-
+	baseURL := fmt.Sprintf("https://api.github.com/repos/%s/%s/pulls/%s/comments", owner, repo, prNumber)
 	client := &http.Client{Timeout: 30 * time.Second}
-	resp, err := client.Do(req)
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
 
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("GitHub API request failed with status %d", resp.StatusCode)
-	}
+	comments := make([]GitHubV2ReviewComment, 0, 64)
+	page := 1
+	const perPage = 100
 
-	var comments []GitHubV2ReviewComment
-	if err = json.NewDecoder(resp.Body).Decode(&comments); err != nil {
-		return nil, err
+	for {
+		apiURL := buildPaginatedURL(baseURL, page, perPage)
+		req, err := http.NewRequest("GET", apiURL, nil)
+		if err != nil {
+			return nil, err
+		}
+
+		setGitHubHeaders(req, token)
+
+		resp, err := client.Do(req)
+		if err != nil {
+			return nil, err
+		}
+
+		if resp.StatusCode != http.StatusOK {
+			resp.Body.Close()
+			return nil, fmt.Errorf("GitHub API request failed with status %d", resp.StatusCode)
+		}
+
+		var pageItems []GitHubV2ReviewComment
+		if err = json.NewDecoder(resp.Body).Decode(&pageItems); err != nil {
+			resp.Body.Close()
+			return nil, err
+		}
+		resp.Body.Close()
+
+		comments = append(comments, pageItems...)
+
+		if !hasNextPage(resp) {
+			break
+		}
+
+		page++
 	}
 
 	if capture.Enabled() {
@@ -133,4 +179,82 @@ func FetchGitHubPRReviewCommentsV2(owner, repo, prNumber, token string) ([]GitHu
 	}
 
 	return comments, nil
+}
+
+// FetchGitHubPRReviewsV2 fetches review submissions for a GitHub PR.
+func FetchGitHubPRReviewsV2(owner, repo, prNumber, token string) ([]GitHubV2ReviewInfo, error) {
+	baseURL := fmt.Sprintf("https://api.github.com/repos/%s/%s/pulls/%s/reviews", owner, repo, prNumber)
+	client := &http.Client{Timeout: 30 * time.Second}
+
+	reviews := make([]GitHubV2ReviewInfo, 0, 16)
+	page := 1
+	const perPage = 100
+
+	for {
+		apiURL := buildPaginatedURL(baseURL, page, perPage)
+		req, err := http.NewRequest("GET", apiURL, nil)
+		if err != nil {
+			return nil, err
+		}
+
+		setGitHubHeaders(req, token)
+
+		resp, err := client.Do(req)
+		if err != nil {
+			return nil, err
+		}
+
+		if resp.StatusCode != http.StatusOK {
+			resp.Body.Close()
+			return nil, fmt.Errorf("GitHub API request failed with status %d", resp.StatusCode)
+		}
+
+		var pageItems []GitHubV2ReviewInfo
+		if err = json.NewDecoder(resp.Body).Decode(&pageItems); err != nil {
+			resp.Body.Close()
+			return nil, err
+		}
+		resp.Body.Close()
+
+		reviews = append(reviews, pageItems...)
+
+		if !hasNextPage(resp) {
+			break
+		}
+
+		page++
+	}
+
+	if capture.Enabled() {
+		payload := map[string]interface{}{
+			"owner":   owner,
+			"repo":    repo,
+			"number":  prNumber,
+			"reviews": reviews,
+		}
+		capture.WriteJSON("github-pr-reviews", payload)
+	}
+
+	return reviews, nil
+}
+
+func setGitHubHeaders(req *http.Request, token string) {
+	if strings.TrimSpace(token) != "" {
+		req.Header.Set("Authorization", "token "+token)
+	}
+	req.Header.Set("Accept", "application/vnd.github.v3+json")
+	req.Header.Set("User-Agent", "LiveReview-Bot")
+}
+
+func buildPaginatedURL(base string, page, perPage int) string {
+	separator := "?"
+	if strings.Contains(base, "?") {
+		separator = "&"
+	}
+	return fmt.Sprintf("%s%vper_page=%d&page=%d", base, separator, perPage, page)
+}
+
+func hasNextPage(resp *http.Response) bool {
+	linkHeader := resp.Header.Get("Link")
+	return strings.Contains(linkHeader, "rel=\"next\"")
 }

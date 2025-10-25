@@ -215,14 +215,22 @@ type GitHubV2BotUserInfo struct {
 
 // GitHubV2CommitInfo represents GitHub commit information for timeline
 type GitHubV2CommitInfo struct {
-	SHA       string               `json:"sha"`
-	Message   string               `json:"message"`
-	Author    GitHubV2CommitAuthor `json:"author"`
-	Committer GitHubV2CommitAuthor `json:"committer"`
-	URL       string               `json:"url"`
+	SHA       string                `json:"sha"`
+	Commit    GitHubV2CommitPayload `json:"commit"`
+	Author    *GitHubV2User         `json:"author"`
+	Committer *GitHubV2User         `json:"committer"`
+	URL       string                `json:"url"`
+	HTMLURL   string                `json:"html_url"`
 }
 
-// GitHubV2CommitAuthor represents GitHub commit author
+// GitHubV2CommitPayload captures commit message metadata returned by the GitHub API
+type GitHubV2CommitPayload struct {
+	Author    GitHubV2CommitAuthor `json:"author"`
+	Committer GitHubV2CommitAuthor `json:"committer"`
+	Message   string               `json:"message"`
+}
+
+// GitHubV2CommitAuthor represents GitHub commit author metadata (name/email/date)
 type GitHubV2CommitAuthor struct {
 	Name  string `json:"name"`
 	Email string `json:"email"`
@@ -236,4 +244,17 @@ type GitHubV2CommentInfo struct {
 	User      GitHubV2User `json:"user"`
 	CreatedAt string       `json:"created_at"`
 	UpdatedAt string       `json:"updated_at"`
+}
+
+// GitHubV2ReviewInfo represents a pull request review (top-level review body metadata)
+type GitHubV2ReviewInfo struct {
+	ID                int          `json:"id"`
+	User              GitHubV2User `json:"user"`
+	Body              string       `json:"body"`
+	State             string       `json:"state"`
+	HTMLURL           string       `json:"html_url"`
+	PullRequestURL    string       `json:"pull_request_url"`
+	AuthorAssociation string       `json:"author_association"`
+	SubmittedAt       string       `json:"submitted_at"`
+	CommitID          string       `json:"commit_id"`
 }

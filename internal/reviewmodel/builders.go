@@ -3,6 +3,7 @@ package reviewmodel
 import (
 	"fmt"
 	"sort"
+	"strings"
 	"time"
 
 	gl "github.com/livereview/internal/providers/gitlab"
@@ -25,8 +26,9 @@ func BuildTimeline(commits []gl.GitLabCommit, discussions []gl.GitLabDiscussion,
 			ID:        c.ID,
 			CreatedAt: t,
 			Author: AuthorInfo{
-				Name:  firstNonEmpty(c.CommitterName, c.AuthorName),
-				Email: firstNonEmpty(c.CommitterEmail, c.AuthorEmail),
+				Provider: "gitlab",
+				Name:     firstNonEmpty(c.CommitterName, c.AuthorName),
+				Email:    firstNonEmpty(c.CommitterEmail, c.AuthorEmail),
 			},
 			Commit: &TimelineCommit{
 				SHA:     c.ID,
@@ -53,7 +55,7 @@ func BuildTimeline(commits []gl.GitLabCommit, discussions []gl.GitLabDiscussion,
 				Kind:      "comment",
 				ID:        toID(n.ID),
 				CreatedAt: t,
-				Author:    AuthorInfo{ID: n.Author.ID, Username: n.Author.Username, Name: n.Author.Name},
+				Author:    AuthorInfo{Provider: "gitlab", ID: n.Author.ID, Username: n.Author.Username, Name: n.Author.Name},
 				Comment: &TimelineComment{
 					NoteID:       toID(n.ID),
 					Discussion:   d.ID,
@@ -84,7 +86,7 @@ func BuildTimeline(commits []gl.GitLabCommit, discussions []gl.GitLabDiscussion,
 			Kind:      "comment",
 			ID:        toID(n.ID),
 			CreatedAt: t,
-			Author:    AuthorInfo{ID: n.Author.ID, Username: n.Author.Username, Name: n.Author.Name},
+			Author:    AuthorInfo{Provider: "gitlab", ID: n.Author.ID, Username: n.Author.Username, Name: n.Author.Name},
 			Comment: &TimelineComment{
 				NoteID:       toID(n.ID),
 				Discussion:   "", // Standalone notes don't belong to discussions
@@ -140,7 +142,7 @@ func BuildCommentTree(discussions []gl.GitLabDiscussion, standaloneNotes []gl.Gi
 			node := &CommentNode{
 				ID:           toID(n.ID),
 				DiscussionID: d.ID,
-				Author:       AuthorInfo{ID: n.Author.ID, Username: n.Author.Username, Name: n.Author.Name},
+				Author:       AuthorInfo{Provider: "gitlab", ID: n.Author.ID, Username: n.Author.Username, Name: n.Author.Name},
 				Body:         n.Body,
 				CreatedAt:    t,
 				FilePath:     fp,
@@ -174,7 +176,7 @@ func BuildCommentTree(discussions []gl.GitLabDiscussion, standaloneNotes []gl.Gi
 		node := &CommentNode{
 			ID:           toID(n.ID),
 			DiscussionID: "", // Standalone notes don't belong to discussions
-			Author:       AuthorInfo{ID: n.Author.ID, Username: n.Author.Username, Name: n.Author.Name},
+			Author:       AuthorInfo{Provider: "gitlab", ID: n.Author.ID, Username: n.Author.Username, Name: n.Author.Name},
 			Body:         n.Body,
 			CreatedAt:    t,
 			FilePath:     fp,
@@ -225,21 +227,6 @@ func fmtInt(i int) string {
 func BuildExportTimeline(items []TimelineItem) ExportTimeline {
 	// Collect participants map
 	m := map[string]Participant{}
-	getRef := func(a AuthorInfo) string {
-		if a.ID != 0 {
-			return fmt.Sprintf("u:gitlab:%d", a.ID)
-		}
-		if a.Username != "" {
-			return "u:" + a.Username
-		}
-		if a.Email != "" {
-			return "e:" + a.Email
-		}
-		if a.Name != "" {
-			return "n:" + a.Name
-		}
-		return "u:unknown"
-	}
 
 	out := make([]ExportTimelineItem, 0, len(items))
 	// Track immediate previous commit while walking in order
@@ -247,17 +234,11 @@ func BuildExportTimeline(items []TimelineItem) ExportTimeline {
 	// Reset and prepare package-scoped index for subsequent comment tree export
 	prevIndexForComments = map[string]string{}
 	for _, it := range items {
-		ref := getRef(it.Author)
-		if _, ok := m[ref]; !ok {
-			m[ref] = Participant{
-				Ref:       ref,
-				ID:        it.Author.ID,
-				Username:  it.Author.Username,
-				Name:      it.Author.Name,
-				Email:     it.Author.Email,
-				AvatarURL: it.Author.AvatarURL,
-				WebURL:    it.Author.WebURL,
-			}
+		ref, participant := authorToParticipant(it.Author)
+		if existing, ok := m[ref]; ok {
+			m[ref] = mergeParticipant(existing, participant)
+		} else {
+			m[ref] = participant
 		}
 		exp := ExportTimelineItem{
 			Kind:      it.Kind,
@@ -291,35 +272,14 @@ func BuildExportTimeline(items []TimelineItem) ExportTimeline {
 // from comment (note) ID -> previous commit SHA from the timeline.
 func BuildExportCommentTreeWithPrev(tree CommentTree, prevCommitIndex map[string]string) ExportCommentTree {
 	m := map[string]Participant{}
-	getRef := func(a AuthorInfo) string {
-		if a.ID != 0 {
-			return fmt.Sprintf("u:gitlab:%d", a.ID)
-		}
-		if a.Username != "" {
-			return "u:" + a.Username
-		}
-		if a.Email != "" {
-			return "e:" + a.Email
-		}
-		if a.Name != "" {
-			return "n:" + a.Name
-		}
-		return "u:unknown"
-	}
 
 	var convert func(n *CommentNode) *ExportCommentNode
 	convert = func(n *CommentNode) *ExportCommentNode {
-		ref := getRef(n.Author)
-		if _, ok := m[ref]; !ok {
-			m[ref] = Participant{
-				Ref:       ref,
-				ID:        n.Author.ID,
-				Username:  n.Author.Username,
-				Name:      n.Author.Name,
-				Email:     n.Author.Email,
-				AvatarURL: n.Author.AvatarURL,
-				WebURL:    n.Author.WebURL,
-			}
+		ref, participant := authorToParticipant(n.Author)
+		if existing, ok := m[ref]; ok {
+			m[ref] = mergeParticipant(existing, participant)
+		} else {
+			m[ref] = participant
 		}
 		out := &ExportCommentNode{
 			ID:           n.ID,
@@ -361,4 +321,72 @@ func BuildExportCommentTreeWithPrev(tree CommentTree, prevCommitIndex map[string
 // Backwards-compatible helper that omits PrevCommitSHA population when no index is provided.
 func BuildExportCommentTree(tree CommentTree) ExportCommentTree {
 	return BuildExportCommentTreeWithPrev(tree, prevIndexForComments)
+}
+
+func authorToParticipant(a AuthorInfo) (string, Participant) {
+	providerRaw := normalizeProvider(a.Provider)
+	providerForKey := providerRaw
+	if providerForKey == "" {
+		providerForKey = "gitlab"
+	}
+
+	var ref string
+	switch {
+	case a.ID != 0:
+		ref = fmt.Sprintf("u:%s:%d", providerForKey, a.ID)
+	case a.Username != "":
+		ref = fmt.Sprintf("u:%s:%s", providerForKey, a.Username)
+	case a.Email != "":
+		ref = "e:" + a.Email
+	case a.Name != "":
+		ref = "n:" + a.Name
+	default:
+		ref = "u:unknown"
+	}
+
+	participant := Participant{
+		Ref:       ref,
+		Provider:  providerRaw,
+		ID:        a.ID,
+		Username:  a.Username,
+		Name:      a.Name,
+		Email:     a.Email,
+		AvatarURL: a.AvatarURL,
+		WebURL:    a.WebURL,
+	}
+
+	return ref, participant
+}
+
+func normalizeProvider(p string) string {
+	p = strings.TrimSpace(p)
+	if p == "" {
+		return ""
+	}
+	return strings.ToLower(p)
+}
+
+func mergeParticipant(current, update Participant) Participant {
+	if current.Provider == "" {
+		current.Provider = update.Provider
+	}
+	if current.ID == 0 {
+		current.ID = update.ID
+	}
+	if current.Username == "" {
+		current.Username = update.Username
+	}
+	if current.Name == "" {
+		current.Name = update.Name
+	}
+	if current.Email == "" {
+		current.Email = update.Email
+	}
+	if current.AvatarURL == "" {
+		current.AvatarURL = update.AvatarURL
+	}
+	if current.WebURL == "" {
+		current.WebURL = update.WebURL
+	}
+	return current
 }

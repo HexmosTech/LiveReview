@@ -66,6 +66,7 @@ type CommentTree struct {
 // AuthorInfo captures identifying information for a user/author.
 // Prefer stable identifiers for matching (id/username); name is for display only.
 type AuthorInfo struct {
+	Provider  string `json:"provider,omitempty"`
 	ID        int    `json:"id,omitempty"`
 	Username  string `json:"username,omitempty"`
 	Name      string `json:"name,omitempty"`
@@ -79,6 +80,7 @@ type AuthorInfo struct {
 // Participant is a normalized unique user in the export payload.
 type Participant struct {
 	Ref       string `json:"ref"` // stable key used by references (e.g., "u:gitlab:48" or derived from username/email)
+	Provider  string `json:"provider,omitempty"`
 	ID        int    `json:"id,omitempty"`
 	Username  string `json:"username,omitempty"`
 	Name      string `json:"name,omitempty"`

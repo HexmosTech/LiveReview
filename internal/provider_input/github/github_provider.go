@@ -316,22 +316,40 @@ func (p *GitHubV2Provider) FetchMRTimeline(mr UnifiedMergeRequestV2) (*UnifiedTi
 	timeline := &UnifiedTimelineV2{Items: []UnifiedTimelineItemV2{}}
 
 	for _, commit := range commits {
+		payload := commit.Commit
+		authorName := payload.Author.Name
+		authorEmail := payload.Author.Email
+		timestamp := payload.Author.Date
+		if timestamp == "" {
+			timestamp = payload.Committer.Date
+		}
+		if commit.Author != nil {
+			if n := strings.TrimSpace(commit.Author.Name); n != "" {
+				authorName = n
+			} else if commit.Author.Login != "" {
+				authorName = commit.Author.Login
+			}
+		}
+		webURL := commit.HTMLURL
+		if webURL == "" {
+			webURL = commit.URL
+		}
+
 		timeline.Items = append(timeline.Items, UnifiedTimelineItemV2{
 			Type:      "commit",
-			Timestamp: commit.Author.Date,
+			Timestamp: timestamp,
 			Commit: &UnifiedCommitV2{
 				SHA:     commit.SHA,
-				Message: commit.Message,
+				Message: payload.Message,
 				Author: UnifiedCommitAuthorV2{
-					Name:  commit.Author.Name,
-					Email: commit.Author.Email,
+					Name:  authorName,
+					Email: authorEmail,
 				},
-				Timestamp: commit.Author.Date,
-				WebURL:    commit.URL,
+				Timestamp: timestamp,
+				WebURL:    webURL,
 			},
 		})
 	}
-
 	for _, comment := range comments {
 		timeline.Items = append(timeline.Items, UnifiedTimelineItemV2{
 			Type:      "comment",
@@ -421,15 +439,34 @@ func convertGitHubCommitsToUnified(commits []GitHubV2CommitInfo) []UnifiedCommit
 
 	unified := make([]UnifiedCommitV2, 0, len(commits))
 	for _, commit := range commits {
+		payload := commit.Commit
+		authorName := payload.Author.Name
+		authorEmail := payload.Author.Email
+		timestamp := payload.Author.Date
+		if timestamp == "" {
+			timestamp = payload.Committer.Date
+		}
+		if commit.Author != nil {
+			if n := strings.TrimSpace(commit.Author.Name); n != "" {
+				authorName = n
+			} else if commit.Author.Login != "" {
+				authorName = commit.Author.Login
+			}
+		}
+		webURL := commit.HTMLURL
+		if webURL == "" {
+			webURL = commit.URL
+		}
+
 		unified = append(unified, UnifiedCommitV2{
 			SHA:     commit.SHA,
-			Message: commit.Message,
+			Message: payload.Message,
 			Author: UnifiedCommitAuthorV2{
-				Name:  commit.Author.Name,
-				Email: commit.Author.Email,
+				Name:  authorName,
+				Email: authorEmail,
 			},
-			Timestamp: commit.Author.Date,
-			WebURL:    commit.URL,
+			Timestamp: timestamp,
+			WebURL:    webURL,
 		})
 	}
 	return unified
