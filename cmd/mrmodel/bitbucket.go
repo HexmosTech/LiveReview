@@ -686,9 +686,10 @@ func bitbucketCommitAuthor(commit bitbucketCommit) reviewmodel.AuthorInfo {
 		if display == "" {
 			display = user.Username
 		}
+		username := selectBitbucketUsername(user)
 		return reviewmodel.AuthorInfo{
 			Provider: "bitbucket",
-			Username: user.Username,
+			Username: username,
 			Name:     display,
 			WebURL:   strings.TrimSpace(user.Links.HTML.Href),
 		}
@@ -705,12 +706,32 @@ func bitbucketUserToAuthor(user *bitbucketUser) reviewmodel.AuthorInfo {
 	if display == "" {
 		display = user.Username
 	}
+	username := selectBitbucketUsername(user)
 	return reviewmodel.AuthorInfo{
 		Provider: "bitbucket",
-		Username: user.Username,
+		Username: username,
 		Name:     display,
 		WebURL:   strings.TrimSpace(user.Links.HTML.Href),
 	}
+}
+
+func selectBitbucketUsername(user *bitbucketUser) string {
+	if user == nil {
+		return ""
+	}
+	username := strings.TrimSpace(user.Username)
+	if username != "" {
+		return username
+	}
+	accountID := strings.TrimSpace(user.AccountID)
+	if accountID != "" {
+		return accountID
+	}
+	uuid := strings.TrimSpace(strings.Trim(user.UUID, "{}"))
+	if uuid != "" {
+		return uuid
+	}
+	return ""
 }
 
 func parseBitbucketAuthorRaw(raw string) (string, string) {
