@@ -22,6 +22,10 @@ func main() {
 		if err := runGitHub(os.Args[2:]); err != nil {
 			log.Fatalf("github command failed: %v", err)
 		}
+	case "bitbucket":
+		if err := runBitbucket(os.Args[2:]); err != nil {
+			log.Fatalf("bitbucket command failed: %v", err)
+		}
 	default:
 		printUsage()
 		os.Exit(1)
@@ -33,4 +37,5 @@ func printUsage() {
 	fmt.Println("Commands:")
 	fmt.Println("  dump-db             Dump integration_tokens as JSON")
 	fmt.Println("  github              Export GitHub PR timeline/comment tree (see --help)")
+	fmt.Println("  bitbucket           Export Bitbucket PR timeline/comment tree (see --help)")
 }
