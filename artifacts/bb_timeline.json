@@ -1,0 +1,204 @@
+{
+  "participants": [
+    {
+      "ref": "n:shrijith sv",
+      "provider": "bitbucket",
+      "name": "shrijith sv",
+      "web_url": "https://bitbucket.org/%7Bd156ef03-bf37-414f-a0ad-dc71b12807f5%7D/"
+    },
+    {
+      "ref": "n:LiveReview Bot",
+      "provider": "bitbucket",
+      "name": "LiveReview Bot",
+      "web_url": "https://bitbucket.org/%7B268007d3-10bd-4edb-93d1-7056116ad08c%7D/"
+    },
+    {
+      "ref": "n:Contorted Expression",
+      "provider": "bitbucket",
+      "name": "Contorted Expression",
+      "web_url": "https://bitbucket.org/%7B225d8b60-7756-4d30-ba43-f71d844bf97e%7D/"
+    }
+  ],
+  "items": [
+    {
+      "kind": "commit",
+      "id": "b04fda79825d5570ac9785624f4187428057165f",
+      "created_at": "2025-08-11T04:40:33Z",
+      "author_ref": "n:shrijith sv",
+      "commit": {
+        "sha": "b04fda79825d5570ac9785624f4187428057165f",
+        "title": "p1 test",
+        "message": "p1 test",
+        "web_url": "https://bitbucket.org/contorted/fb_backends/commits/b04fda79825d5570ac9785624f4187428057165f"
+      }
+    },
+    {
+      "kind": "comment",
+      "id": "699722293",
+      "created_at": "2025-10-14T14:14:42.764801Z",
+      "author_ref": "n:LiveReview Bot",
+      "prev_commit_sha": "b04fda79825d5570ac9785624f4187428057165f",
+      "comment": {
+        "note_id": "699722293",
+        "discussion_id": "699722293",
+        "body": "# Refactor Active PM2 Monitoring Script to Class-Based Structure\n\n## Overview\nThis change refactors the original procedural script into a `PM2Monitor` class. This improves code organization, readability, and testability by encapsulating the PM2 monitoring logic, logging configuration, and the main monitoring loop within a single class.\n\n## Key Changes\n- **Class Structure**: Introduced a `PM2Monitor` class to encapsulate the PM2 monitoring logic, including checking and restarting processes.\n- **Logging**: Logging configuration is now handled within the `PM2Monitor` class.\n- **Main Loop**: The main monitoring loop is now part of the `PM2Monitor` class, improving structure and readability.\n\n## Impact\n- **Functionality**: Improved code organization and maintainability. The core functionality of monitoring and restarting PM2 processes remains the same.\n- **Risk**:\n    - Potential for errors introduced during the refactoring process.\n    - The current implementation may terminate the monitoring loop upon encountering an exception.\n    - Hardcoded values are present and should be externalized via environment variables.\n    - The script does not explicitly handle file encodings, which could lead to issues.\n    - Subprocess calls lack timeouts, potentially leading to indefinite hanging.\n",
+        "is_system": false,
+        "is_resolvable": false,
+        "resolved": false
+      }
+    },
+    {
+      "kind": "comment",
+      "id": "699722299",
+      "created_at": "2025-10-14T14:14:43.425529Z",
+      "author_ref": "n:LiveReview Bot",
+      "prev_commit_sha": "b04fda79825d5570ac9785624f4187428057165f",
+      "comment": {
+        "note_id": "699722299",
+        "discussion_id": "699722299",
+        "body": "Consider using environment variables for configuration to avoid hardcoding values.",
+        "is_system": false,
+        "is_resolvable": false,
+        "resolved": false,
+        "file_path": "activepm2.py",
+        "line_new": 14
+      }
+    },
+    {
+      "kind": "comment",
+      "id": "699722309",
+      "created_at": "2025-10-14T14:14:44.037812Z",
+      "author_ref": "n:LiveReview Bot",
+      "prev_commit_sha": "b04fda79825d5570ac9785624f4187428057165f",
+      "comment": {
+        "note_id": "699722309",
+        "discussion_id": "699722309",
+        "body": "Consider adding a timeout to the subprocess calls to prevent indefinite hanging.  Also, the type hint `list` is too broad.  Specify the type of elements in the list.",
+        "is_system": false,
+        "is_resolvable": false,
+        "resolved": false,
+        "file_path": "activepm2.py",
+        "line_new": 64
+      }
+    },
+    {
+      "kind": "comment",
+      "id": "699722320",
+      "created_at": "2025-10-14T14:14:44.701189Z",
+      "author_ref": "n:LiveReview Bot",
+      "prev_commit_sha": "b04fda79825d5570ac9785624f4187428057165f",
+      "comment": {
+        "note_id": "699722320",
+        "discussion_id": "699722320",
+        "body": "Reraising the exception here will cause the monitoring loop to terminate. Consider logging the error and continuing the loop, or implementing a retry mechanism.",
+        "is_system": false,
+        "is_resolvable": false,
+        "resolved": false,
+        "file_path": "activepm2.py",
+        "line_new": 87
+      }
+    },
+    {
+      "kind": "comment",
+      "id": "699722325",
+      "created_at": "2025-10-14T14:14:45.272324Z",
+      "author_ref": "n:LiveReview Bot",
+      "prev_commit_sha": "b04fda79825d5570ac9785624f4187428057165f",
+      "comment": {
+        "note_id": "699722325",
+        "discussion_id": "699722325",
+        "body": "Consider using `Path.is_file()` instead of `Path.exists()` to ensure it's a file and not a directory or other special file.",
+        "is_system": false,
+        "is_resolvable": false,
+        "resolved": false,
+        "file_path": "activepm2.py",
+        "line_new": 120
+      }
+    },
+    {
+      "kind": "comment",
+      "id": "699722336",
+      "created_at": "2025-10-14T14:14:45.931953Z",
+      "author_ref": "n:LiveReview Bot",
+      "prev_commit_sha": "b04fda79825d5570ac9785624f4187428057165f",
+      "comment": {
+        "note_id": "699722336",
+        "discussion_id": "699722336",
+        "body": "It might be better to open the file with an encoding specified, e.g., `encoding='utf-8'`, to handle potential encoding issues.",
+        "is_system": false,
+        "is_resolvable": false,
+        "resolved": false,
+        "file_path": "activepm2.py",
+        "line_new": 125
+      }
+    },
+    {
+      "kind": "comment",
+      "id": "699722338",
+      "created_at": "2025-10-14T14:14:46.617207Z",
+      "author_ref": "n:LiveReview Bot",
+      "prev_commit_sha": "b04fda79825d5570ac9785624f4187428057165f",
+      "comment": {
+        "note_id": "699722338",
+        "discussion_id": "699722338",
+        "body": "The return value of `_get_pm2_status` is not used.  Consider removing the call or using the status information.",
+        "is_system": false,
+        "is_resolvable": false,
+        "resolved": false,
+        "file_path": "activepm2.py",
+        "line_new": 160
+      }
+    },
+    {
+      "kind": "comment",
+      "id": "699722348",
+      "created_at": "2025-10-14T14:14:47.276929Z",
+      "author_ref": "n:LiveReview Bot",
+      "prev_commit_sha": "b04fda79825d5570ac9785624f4187428057165f",
+      "comment": {
+        "note_id": "699722348",
+        "discussion_id": "699722348",
+        "body": "Checking for both `data is None` and `not data` is redundant. `not data` will evaluate to `True` if `data` is `None`.",
+        "is_system": false,
+        "is_resolvable": false,
+        "resolved": false,
+        "file_path": "activepm2.py",
+        "line_new": 168
+      }
+    },
+    {
+      "kind": "comment",
+      "id": "699722842",
+      "created_at": "2025-10-14T14:15:37.091407Z",
+      "author_ref": "n:Contorted Expression",
+      "prev_commit_sha": "b04fda79825d5570ac9785624f4187428057165f",
+      "comment": {
+        "note_id": "699722842",
+        "discussion_id": "699722325",
+        "body": "@{712020:cd5db0f9-0d82-428a-b778-80a5b9416408} What is the difference between is\\_file and exists\\(\\)",
+        "is_system": false,
+        "is_resolvable": false,
+        "resolved": false,
+        "file_path": "activepm2.py",
+        "line_new": 120
+      }
+    },
+    {
+      "kind": "comment",
+      "id": "699722901",
+      "created_at": "2025-10-14T14:15:42.06694Z",
+      "author_ref": "n:LiveReview Bot",
+      "prev_commit_sha": "b04fda79825d5570ac9785624f4187428057165f",
+      "comment": {
+        "note_id": "699722901",
+        "discussion_id": "699722325",
+        "body": "@712020:cd5db0f9-0d82-428a-b778-80a5b9416408 Good question!\n\n`os.path.exists()` checks if a path exists, regardless of whether it's a file, directory, link, or any other type of filesystem object. It returns `True` if the path exists and `False` otherwise.\n\n`os.path.isfile()` specifically checks if a path exists *and* is a regular file. It returns `True` only if the path exists and is a file; otherwise (if it's a directory, a link, or doesn't exist), it returns `False`.\n\nIn summary: use `exists()` if you only care if *something* is at the given path, and use `isfile()` if you need to confirm that the path points to a regular file.\n",
+        "is_system": false,
+        "is_resolvable": false,
+        "resolved": false,
+        "file_path": "activepm2.py",
+        "line_new": 120
+      }
+    }
+  ]
+}
