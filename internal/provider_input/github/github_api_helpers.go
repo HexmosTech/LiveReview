@@ -3,6 +3,7 @@ package github
 import (
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"strings"
 	"time"
@@ -236,6 +237,37 @@ func FetchGitHubPRReviewsV2(owner, repo, prNumber, token string) ([]GitHubV2Revi
 	}
 
 	return reviews, nil
+}
+
+// FetchGitHubPRDiff fetches the diff for a GitHub PR.
+func FetchGitHubPRDiff(owner, repo, prNumber, token string) (string, error) {
+	apiURL := fmt.Sprintf("https://api.github.com/repos/%s/%s/pulls/%s", owner, repo, prNumber)
+	client := &http.Client{Timeout: 30 * time.Second}
+
+	req, err := http.NewRequest("GET", apiURL, nil)
+	if err != nil {
+		return "", err
+	}
+
+	setGitHubHeaders(req, token)
+	req.Header.Set("Accept", "application/vnd.github.v3.diff")
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("GitHub API request for diff failed with status %d", resp.StatusCode)
+	}
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return "", err
+	}
+
+	return string(body), nil
 }
 
 func setGitHubHeaders(req *http.Request, token string) {

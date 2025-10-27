@@ -1,0 +1,185 @@
+package main
+
+import (
+	"fmt"
+	"regexp"
+	"strconv"
+	"strings"
+)
+
+// LocalDiffLine represents a single line in a diff hunk.
+type LocalDiffLine struct {
+	Content   string `json:"content"`
+	LineType  string `json:"line_type"` // 'added', 'deleted', 'context'
+	OldLineNo int    `json:"old_line_no"`
+	NewLineNo int    `json:"new_line_no"`
+}
+
+// LocalDiffHunk represents a hunk of changes in a diff.
+type LocalDiffHunk struct {
+	OldStartLine int             `json:"old_start_line"`
+	OldLineCount int             `json:"old_line_count"`
+	NewStartLine int             `json:"new_start_line"`
+	NewLineCount int             `json:"new_line_count"`
+	HeaderText   string          `json:"header_text"`
+	Lines        []LocalDiffLine `json:"lines"`
+}
+
+// LocalCodeDiff represents the parsed diff for a single file.
+type LocalCodeDiff struct {
+	OldPath string          `json:"old_path"`
+	NewPath string          `json:"new_path"`
+	Hunks   []LocalDiffHunk `json:"hunks"`
+}
+
+// LocalParser is a self-contained parser for unified diffs.
+type LocalParser struct{}
+
+// NewLocalParser creates a new LocalParser.
+func NewLocalParser() *LocalParser {
+	return &LocalParser{}
+}
+
+// Parse parses a unified diff string into a slice of LocalCodeDiffs.
+func (p *LocalParser) Parse(diffContent string) ([]LocalCodeDiff, error) {
+	var diffs []LocalCodeDiff
+	files := regexp.MustCompile(`(?m)^diff --git a/(.+) b/(.+)`).Split(diffContent, -1)
+	if len(files) == 0 {
+		return nil, nil
+	}
+
+	// The first element is usually empty, so skip it.
+	for _, fileContent := range files[1:] {
+		if strings.TrimSpace(fileContent) == "" {
+			continue
+		}
+
+		lines := strings.Split(fileContent, "\n")
+		if len(lines) < 1 {
+			continue
+		}
+
+		// The first line of fileContent is now the file paths.
+		// e.g., a/path/to/old/file.go b/path/to/new/file.go
+		// We need to reconstruct the full diff header to parse it.
+		headerLines := strings.Split(diffContent, "\n")
+		var fullFileHeader string
+		for _, hline := range headerLines {
+			if strings.HasPrefix(hline, "diff --git") && strings.Contains(hline, lines[0]) {
+				fullFileHeader = hline
+				break
+			}
+		}
+
+		oldPath, newPath := parseDiffGitHeader(fullFileHeader)
+		if oldPath == "" && newPath == "" {
+			// Fallback for cases where header parsing is tricky
+			pathParts := strings.Fields(lines[0])
+			if len(pathParts) >= 2 {
+				oldPath = strings.TrimPrefix(pathParts[0], "a/")
+				newPath = strings.TrimPrefix(pathParts[1], "b/")
+			}
+		}
+
+		hunks, err := p.extractHunks(lines)
+		if err != nil {
+			return nil, fmt.Errorf("extracting hunks for %s: %w", newPath, err)
+		}
+
+		diffs = append(diffs, LocalCodeDiff{
+			OldPath: oldPath,
+			NewPath: newPath,
+			Hunks:   hunks,
+		})
+	}
+
+	return diffs, nil
+}
+
+func parseDiffGitHeader(header string) (string, string) {
+	// A simple parser for "diff --git a/old/path b/new/path"
+	parts := strings.Fields(header)
+	if len(parts) == 4 {
+		return strings.TrimPrefix(parts[2], "a/"), strings.TrimPrefix(parts[3], "b/")
+	}
+	return "", ""
+}
+
+func (p *LocalParser) extractHunks(lines []string) ([]LocalDiffHunk, error) {
+	var hunks []LocalDiffHunk
+	hunkHeaderRegex := regexp.MustCompile(`^@@ -(\d+),(\d+) \+(\d+),(\d+) @@(.*)`)
+
+	for i := 0; i < len(lines); i++ {
+		line := lines[i]
+		if !strings.HasPrefix(line, "@@") {
+			continue
+		}
+
+		matches := hunkHeaderRegex.FindStringSubmatch(line)
+		if len(matches) < 6 {
+			continue
+		}
+
+		oldStart, _ := strconv.Atoi(matches[1])
+		oldLines, _ := strconv.Atoi(matches[2])
+		newStart, _ := strconv.Atoi(matches[3])
+		newLines, _ := strconv.Atoi(matches[4])
+		headerText := strings.TrimSpace(matches[5])
+
+		hunk := LocalDiffHunk{
+			OldStartLine: oldStart,
+			OldLineCount: oldLines,
+			NewStartLine: newStart,
+			NewLineCount: newLines,
+			HeaderText:   headerText,
+		}
+
+		// Process lines within the hunk
+		oldLineNo, newLineNo := oldStart, newStart
+		hunkLinesAdded, hunkLinesDeleted := 0, 0
+
+		// Start from the line after the hunk header
+		i++
+		for ; i < len(lines); i++ {
+			hunkLine := lines[i]
+			if strings.HasPrefix(hunkLine, "@@") {
+				// We've reached the next hunk, so go back one step for the outer loop
+				i--
+				break
+			}
+			if strings.HasPrefix(hunkLine, "diff --git") {
+				// Reached the start of a new file diff
+				i--
+				break
+			}
+
+			var dLine LocalDiffLine
+			switch {
+			case strings.HasPrefix(hunkLine, "+"):
+				dLine = LocalDiffLine{Content: hunkLine[1:], LineType: "added", OldLineNo: 0, NewLineNo: newLineNo}
+				newLineNo++
+				hunkLinesAdded++
+			case strings.HasPrefix(hunkLine, "-"):
+				dLine = LocalDiffLine{Content: hunkLine[1:], LineType: "deleted", OldLineNo: oldLineNo, NewLineNo: 0}
+				oldLineNo++
+				hunkLinesDeleted++
+			case strings.HasPrefix(hunkLine, " "):
+				dLine = LocalDiffLine{Content: hunkLine[1:], LineType: "context", OldLineNo: oldLineNo, NewLineNo: newLineNo}
+				oldLineNo++
+				newLineNo++
+			case hunkLine == `\ No newline at end of file`:
+				// This is metadata, not a line of code. Skip for now.
+				continue
+			default:
+				// Should be context line, but might not have a space if it's an empty line
+				dLine = LocalDiffLine{Content: hunkLine, LineType: "context", OldLineNo: oldLineNo, NewLineNo: newLineNo}
+				oldLineNo++
+				newLineNo++
+			}
+			hunk.Lines = append(hunk.Lines, dLine)
+		}
+		hunks = append(hunks, hunk)
+	}
+
+	return hunks, nil
+}

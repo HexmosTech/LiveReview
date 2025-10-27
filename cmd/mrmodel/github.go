@@ -103,8 +103,23 @@ func runGitHub(args []string) error {
 		return fmt.Errorf("fetch reviews: %w", err)
 	}
 
+	diffText, err := githubapi.FetchGitHubPRDiff(owner, name, prID, pat)
+	if err != nil {
+		return fmt.Errorf("fetch diff: %w", err)
+	}
+
 	if err := os.MkdirAll(*outDir, 0o755); err != nil {
 		return fmt.Errorf("create output dir: %w", err)
+	}
+
+	diffParser := NewLocalParser()
+	parsedDiffs, err := diffParser.Parse(diffText)
+	if err != nil {
+		return fmt.Errorf("parse diff: %w", err)
+	}
+
+	if err := writeJSONPretty(filepath.Join(*outDir, "gh_diffs.json"), parsedDiffs); err != nil {
+		return fmt.Errorf("write parsed diffs: %w", err)
 	}
 
 	if err := writeJSONPretty(filepath.Join(*outDir, "gh_raw_commits.json"), map[string]interface{}{
@@ -164,7 +179,7 @@ func runGitHub(args []string) error {
 	}
 
 	fmt.Printf("Target PR: %s\n", prURL)
-	fmt.Printf("GitHub artifacts written to %s (gh_timeline.json, gh_comment_tree.json)\n", *outDir)
+	fmt.Printf("GitHub artifacts written to %s (gh_timeline.json, gh_comment_tree.json, gh_diffs.json)\n", *outDir)
 	fmt.Printf("Summary: commits=%d issue_comments=%d review_comments=%d reviews=%d\n", len(commits), len(issueComments), len(reviewComments), len(reviews))
 	return nil
 }
