@@ -75,6 +75,7 @@ type GitLabMergeRequestChanges struct {
 		NewFile     bool   `json:"new_file"`
 		RenamedFile bool   `json:"renamed_file"`
 		DeletedFile bool   `json:"deleted_file"`
+		FileMode    string `json:"file_mode"` // Added field for file mode
 	} `json:"changes"`
 }
 
@@ -248,6 +249,42 @@ func (c *GitLabHTTPClient) GetMergeRequestChanges(projectID string, mrIID int) (
 	}
 
 	return &changes, nil
+}
+
+// GetMergeRequestChangesRaw gets the changes for a merge request and returns a raw diff string
+func (c *GitLabHTTPClient) GetMergeRequestChangesRaw(projectID string, mrIID int) (string, error) {
+	changes, err := c.GetMergeRequestChanges(projectID, mrIID)
+	if err != nil {
+		return "", err
+	}
+
+	var rawDiff strings.Builder
+	for _, change := range changes.Changes {
+		// Manually construct the diff header, as the 'Diff' field from GitLab API only contains the hunk.
+		header := fmt.Sprintf("diff --git a/%s b/%s\n", change.OldPath, change.NewPath)
+		if change.NewFile {
+			header += fmt.Sprintf("new file mode %s\n", change.FileMode)
+		} else if change.DeletedFile {
+			header += fmt.Sprintf("deleted file mode %s\n", change.FileMode)
+		}
+		if change.RenamedFile {
+			header += fmt.Sprintf("rename from %s\n", change.OldPath)
+			header += fmt.Sprintf("rename to %s\n", change.NewPath)
+		}
+
+		rawDiff.WriteString(header)
+		// The Index line is also needed for the parser to correctly identify the start of hunks.
+		rawDiff.WriteString(fmt.Sprintf("index 0000000..0000000 %s\n", change.FileMode))
+		rawDiff.WriteString(fmt.Sprintf("--- a/%s\n", change.OldPath))
+		rawDiff.WriteString(fmt.Sprintf("+++ b/%s\n", change.NewPath))
+		rawDiff.WriteString(change.Diff)
+		// Ensure there's a newline at the end of the diff for a file
+		if !strings.HasSuffix(change.Diff, "\n") {
+			rawDiff.WriteString("\n")
+		}
+	}
+
+	return rawDiff.String(), nil
 }
 
 // GetMergeRequestCommits lists commits for a merge request

@@ -109,6 +109,36 @@ func (p *GitLabProvider) GetMergeRequestChanges(ctx context.Context, mrID string
 	return ConvertToCodeDiffs(changes), nil
 }
 
+// GetMergeRequestChangesAsText retrieves the code changes in a merge request as a raw text diff
+func (p *GitLabProvider) GetMergeRequestChangesAsText(ctx context.Context, mrID string) (string, error) {
+	// Convert mrID to integer
+	mrIID, err := strconv.Atoi(mrID)
+	if err != nil {
+		return "", fmt.Errorf("invalid MR ID: %w", err)
+	}
+
+	// Use the stored project ID if available, otherwise try to extract from URL
+	projectID := p.projectID
+	if projectID == "" {
+		// Fallback to trying to extract from a URL (this might not work)
+		var extractErr error
+		projectID, _, extractErr = p.extractMRInfo(fmt.Sprintf("%s/-/merge_requests/%d", p.config.URL, mrIID))
+		if extractErr != nil {
+			return "", fmt.Errorf("failed to get project ID: %w", extractErr)
+		}
+	}
+
+	// Get merge request changes using our custom HTTP client
+	fmt.Printf("Fetching GitLab MR changes for project=%s, mrIID=%d using custom HTTP client\n", projectID, mrIID)
+
+	changes, err := p.httpClient.GetMergeRequestChangesRaw(projectID, mrIID)
+	if err != nil {
+		return "", fmt.Errorf("failed to fetch merge request changes: %w", err)
+	}
+
+	return changes, nil
+}
+
 // PostComment posts a comment on a merge request
 func (p *GitLabProvider) PostComment(ctx context.Context, mrID string, comment *models.ReviewComment) error {
 	// Convert mrID to integer
