@@ -27,7 +27,9 @@ func main() {
 			log.Fatalf("bitbucket command failed: %v", err)
 		}
 	case "gitlab":
-		runGitLab(os.Args[2:])
+		if err := runGitLab(os.Args[2:]); err != nil {
+			log.Fatalf("gitlab command failed: %v", err)
+		}
 	default:
 		printUsage()
 		os.Exit(1)
