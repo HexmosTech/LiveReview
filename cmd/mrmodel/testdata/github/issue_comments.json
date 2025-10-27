@@ -1,0 +1,16 @@
+[
+  {
+    "id": 3419670837,
+    "body": "# Introduction of GitLab/GitHub API Interaction Helpers and Migration Logic\n\n## Overview\n\nThis change introduces helper functions for interacting with the GitLab and GitHub APIs, along with the core migration logic. The code includes functions for finding GitLab projects, listing merge requests and commits, fetching GitHub user details, performing GitHub searches, and retrieving specific pull requests. It also includes utility functions for rounding durations and creating pointers, and a basic object cache implementation. The main goal is to facilitate the migration of data between GitLab and GitHub.\n\n## Key Changes\n\n- **API Interaction Helpers:** Implements functions for interacting with both GitLab and GitHub APIs, including project search, merge request listing, commit retrieval, user details fetching, and pull request retrieval.\n- **Migration Logic:** Introduces the core logic for migrating data (specifically pull requests) from GitLab to GitHub.\n- **Utility Functions:** Adds helper functions for rounding durations, creating pointers, and caching objects.\n- **Error Handling:** Includes basic error handling with room for improvement.\n- **Concurrency:** Utilizes `errgroup` for concurrent operations.\n- **Graceful Shutdown:** Implements a signal handler for graceful shutdown.\n\n## Impact\n\n- **Functionality**: Enables the migration of data from GitLab to GitHub by providing the necessary API interaction and processing logic.\n- **Risk**:\n    - Potential for unhandled errors to mask issues, especially within concurrent operations. The current error handling approach of logging and returning nil can lead to silent failures.\n    - Possible index out of range errors if header values are empty.\n    - Searching by project name might return multiple projects with the same name, leading to unexpected behavior.\n    - The sleep duration for rate limiting is not configurable.\n    - Regex recompilation on each call to `migratePullRequests` can impact performance.\n    - Inconsistent logging arguments.\n    - The code might not be robust enough to handle all possible scenarios, such as invalid project paths.\n",
+    "user": {
+      "id": 222574465,
+      "login": "livereviewbot",
+      "name": "",
+      "html_url": "https://github.com/livereviewbot",
+      "avatar_url": "https://avatars.githubusercontent.com/u/222574465?v=4",
+      "type": "User"
+    },
+    "created_at": "2025-10-19T13:31:57Z",
+    "updated_at": "2025-10-19T13:31:57Z"
+  }
+]
