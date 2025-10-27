@@ -23,10 +23,11 @@ const (
 	hardcodedPAT     = "REDACTED_GITLAB_PAT_4N286MQp1OjJiCA.01.0y0a9upua"
 )
 
-func runGitLab() {
+func runGitLab(args []string) {
 	// Flags: --dry-run prints prompt and synthesized output, skips posting
-	dryRun := flag.Bool("dry-run", false, "print prompt and result, do not post")
-	flag.Parse()
+	fs := flag.NewFlagSet("gitlab", flag.ContinueOnError)
+	dryRun := fs.Bool("dry-run", false, "print prompt and result, do not post")
+	fs.Parse(args)
 
 	baseURL := hardcodedBaseURL
 	token := hardcodedPAT
@@ -57,20 +58,9 @@ func runGitLab() {
 	fmt.Printf("DiffRefs   : base=%s head=%s start=%s\n", details.DiffRefs.BaseSHA, details.DiffRefs.HeadSHA, details.DiffRefs.StartSHA)
 
 	// 2) Fetch MR changes (sanity check: we can read diffs)
-	diffs, err := provider.GetMergeRequestChanges(ctx, details.ID)
+	diffs, err := provider.GetMergeRequestChangesAsText(ctx, details.ID)
 	if err != nil {
-		log.Fatalf("GetMergeRequestChanges failed: %v", err)
-	}
-
-	fmt.Println("\n== MR CHANGES SUMMARY ==")
-	fmt.Printf("Files changed: %d\n", len(diffs))
-	max := len(diffs)
-	if max > 5 {
-		max = 5
-	}
-	for i := 0; i < max; i++ {
-		d := diffs[i]
-		fmt.Printf("- %s (hunks=%d, new=%v, deleted=%v, renamed=%v)\n", d.FilePath, len(d.Hunks), d.IsNew, d.IsDeleted, d.IsRenamed)
+		log.Fatalf("failed to get MR changes: %v", err)
 	}
 
 	fmt.Println("\nConnection OK — fetched MR details and changes.")
@@ -169,7 +159,15 @@ func runGitLab() {
 	// Write deduped structures into canonical filenames
 	mustWriteJSON(filepath.Join(outDir, "timeline.json"), exportTimeline)
 	mustWriteJSON(filepath.Join(outDir, "comment_tree.json"), exportTree)
-	fmt.Printf("Artifacts written to %s (timeline.json, comment_tree.json)\n", outDir)
+
+	diffParser := NewLocalParser()
+	parsedDiffs, err := diffParser.Parse(diffs)
+	if err != nil {
+		log.Fatalf("failed to parse diffs: %v", err)
+	}
+	mustWriteJSON(filepath.Join(outDir, "gl_diffs.json"), parsedDiffs)
+
+	fmt.Printf("Artifacts written to %s (timeline.json, comment_tree.json, gl_diffs.json)\n", outDir)
 
 	// 4) Clarify a specific comment: by author and content match
 	targetAuthor := "Shrijith"

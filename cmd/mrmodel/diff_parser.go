@@ -49,35 +49,28 @@ func (p *LocalParser) Parse(diffContent string) ([]LocalCodeDiff, error) {
 	}
 
 	// The first element is usually empty, so skip it.
-	for _, fileContent := range files[1:] {
+	fileChunks := regexp.MustCompile(`(?m)^diff --git a/`).Split(diffContent, -1)
+
+	for _, fileContent := range fileChunks[1:] {
 		if strings.TrimSpace(fileContent) == "" {
 			continue
 		}
 
-		lines := strings.Split(fileContent, "\n")
+		// Re-add the "diff --git a/" prefix that was removed by the split
+		fullFileContent := "diff --git a/" + fileContent
+
+		lines := strings.Split(fullFileContent, "\n")
 		if len(lines) < 1 {
 			continue
 		}
 
-		// The first line of fileContent is now the file paths.
-		// e.g., a/path/to/old/file.go b/path/to/new/file.go
-		// We need to reconstruct the full diff header to parse it.
-		headerLines := strings.Split(diffContent, "\n")
-		var fullFileHeader string
-		for _, hline := range headerLines {
-			if strings.HasPrefix(hline, "diff --git") && strings.Contains(hline, lines[0]) {
-				fullFileHeader = hline
-				break
-			}
-		}
-
-		oldPath, newPath := parseDiffGitHeader(fullFileHeader)
+		oldPath, newPath := parseDiffGitHeader(lines[0])
 		if oldPath == "" && newPath == "" {
 			// Fallback for cases where header parsing is tricky
 			pathParts := strings.Fields(lines[0])
-			if len(pathParts) >= 2 {
-				oldPath = strings.TrimPrefix(pathParts[0], "a/")
-				newPath = strings.TrimPrefix(pathParts[1], "b/")
+			if len(pathParts) >= 4 {
+				oldPath = strings.TrimPrefix(pathParts[2], "a/")
+				newPath = strings.TrimPrefix(pathParts[3], "b/")
 			}
 		}
 
