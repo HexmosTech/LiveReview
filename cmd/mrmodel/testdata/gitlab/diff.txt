@@ -1,0 +1,419 @@
+diff --git a/liveapi-backend/prompt/prompt.go b/liveapi-backend/prompt/prompt.go
+index 0000000..0000000 
+--- a/liveapi-backend/prompt/prompt.go
++++ b/liveapi-backend/prompt/prompt.go
+@@ -531,7 +531,8 @@ The content of source files containing both route definitions and handlers is pr
+     
+       - Include version of the websocket endpoint in the path like '/v3/ws/event' if present in the path
+       - DO NOT create POST, PUT, DELETE methods etc.
+-` + inheritenceExtractionSection(detectedFramework, fileDependenciesDescription) + `
++` + NestjsInheritanceExtractionSection(detectedFramework, fileDependenciesDescription) + `
++` + JavaInheritanceExtractionSection(detectedFramework, fileDependenciesDescription) + `
+ 2. **Tag Normalization and Grouping:**
+     
+     - Apply a consistent tag naming convention to avoid duplicates and ensure logical grouping
+diff --git a/liveapi-backend/prompt/subPrompt.go b/liveapi-backend/prompt/subPrompt.go
+index 0000000..0000000 
+--- a/liveapi-backend/prompt/subPrompt.go
++++ b/liveapi-backend/prompt/subPrompt.go
+@@ -386,6 +386,126 @@ func flaskProjectBlueprintSection(detectedFramework string) string {
+ 	}
+ 	return ""
+ }
++
++func JavaInheritanceExtractionSection(detectedFramework string, fileDependenciesDescription string) string {
++	/*
++		Inheritance Extraction Section is a prompt section that provides instructions on how to handle inheritance in API endpoints.
++		It is specifically designed for frameworks like JavaScript/Nestjs and Java/quarkus,
++		where API endpoints can be inherited from base classes or parent controllers.
++		It guides to identify inherited endpoints and merge them correctly in the OpenAPI JSON output
++	*/
++	if fileDependenciesDescription == "" {
++		return ""
++	}
++	if detectedFramework == "Java/quarkus" || detectedFramework == "Java/jersey" {
++		return `
++1.2 **API Inheritance Handling**
++    
++    **How to identify API inherited endpoints:**
++    1.  **Understand Class Relation:** 
++
++      - **Look at the File Relation:**
++        - For Each Files File Relation is provided.
++			Example:
++				/lib/student/student.controller.java inherits APIs present in /lib/core/main/main.controller.java.
++        - In Example /lib/student/student.controller.java is child file and /lib/core/main/main.controller.java. is parent file.
++        
++	  - **Identify Relation**
++        - Identify any interfaces extend another class in the source file.
++        - Start by reading each source file and understanding the class definition:
++          Example1:
++		    FilePath: /lib/student/student.controller.java
++            18 @Path("student")
++            19 public interfaces StudentController extends MainController<CustomStudent> {
++		  Example2:
++		  	FilePath: /lib/student/student.controller.java
++		  	18 @Path("student")
++			19 public class StudentController extends MainController<CustomStudent> {
++        - In the both example, 'StudentController' extend 'MainController'.
++        - From these observations, the parent class/interface is 'MainController' and the child class/interface is 'StudentController'.
++
++	2. **Identify Base API Endpoint**
++      - From the child class/interface, identify the base API endpoint.
++        Example:
++        Child File:
++          18 @Path("student")
++          19 public class StudentController extends MainController<CustomStudent> {
++		- From the above example in /lib/student/student.controller.java, the base API endpoint 'student'.
++      	- Similarly, identify the base API endpoint for each child class/interface.
++
++    3. **Identified Endpoints under Parent Class/interface:**
++      - In the provided source files, look at the file content of the parent class/interface.
++        Example1:
++		  	FilePath: /lib/core/main/main.controller.java
++      	    19 export abstract class MainController<T extends BaseEntity> {
++            39      @GET
++            40      @Path("/count")   getCount(...) { ... } .....
++            ....
++            }
++		Example2:
++			FilePath: /lib/core/main/main.controller.java
++			19 public interface MainController<T extends BaseEntity> {
++			39      @GET
++			40      @Path("/count")   getCount(...) { ... } .....
++			....
++			}
++      	- In the example parent class/interface is 'MainController' present in file '/lib/core/main/main.controller.java'
++        - Inside the parent class/interface, look for methods decorated with HTTP method decorators (@GET, @POST, @PUT, @DELETE, @Path, etc.). 
++        - These decorators define the routes.
++        - Construct the full route by concatenating the extending parent class route prefix with the relative route path from the parent class API endpoint decorator.
++        - From Above example Route will be 'GET /student/count'....
++
++      **IMPORTANT INSTRUCTION**
++        - Include every HTTP endpoint defined with method decorators (@GET, @PUT, @POST, etc.) in the parent class in the output for the extending API endpoint.
++        - Unless the extending class/interface defines its own method with the **same HTTP method and route path**, which overrides the parent API endpoint.
++      	- If child class base API decalred in @Path('student').
++        - Base API endpoint '/student' and this extends parent api's.
++      
++      **Rules for Merging API Endpoints**
++        - Endpoints **only defined** in the extending class appear **only under that child class output**.
++            For example, "/student/school/:id" exists only in the 'StudentController' output because it is defined only there.
++        - When both parent and child classes define an endpoint with the same HTTP method and route path, **use only the child class API endpoint implementation** in the output, replacing the inherited API.
++        - Endpoints defined in the Parent class **must never appear standalone**; always show them merged and prefixed under each extending parent class.
++        - Apply this merging logic to **every extending parent class** in the project hierarchy.
++        - Collect metadata such as summary, description, tags, and source files from both base and extending controllers for each merged endpoint.
++        - Maintain distinct entries per HTTP method under endpoints, each with their appropriate route and merged metadata.
++		
++    4. **Example Output:**
++        - For the above example, the output for StudentController would include:
++        - After identifying and merging inherited endpoints with **File Relation:** and Source Files Example:
++    **Expected inherited 'api_endpoints':**
++    {
++      "api_endpoints": [
++        {
++          "api_path": "/student/count",
++          "methods": {
++            "get": {
++              "summary": "GET student count",
++              "description": "GET the total count of all student ........",
++              "tags": ["CustomStudent", "MainController"], /*Have both parent and child class tags.*/
++              "x-sourceFiles": [/* include both parent and child source-file objects with fileName, filePath, handlerName, lineNumber */ 
++                {         
++                  "fileName": "main.controller.java",
++                  "filePath": "/lib/core/main/main.controller.java",
++                  "handlerName": "getCount",
++                  "lineNumber": 40
++                },
++                {
++                  "fileName": "student.controller.java",
++                  "filePath": "/lib/student/student.controller.java",
++                  "handlerName": "StudentController",
++                  "lineNumber": 19
++                }
++              ]
++            } 
++          }
++        },
++      ]
++    }
++    `
++	}
++	return ""
++}
+ func fileDependenciesDescriptionStructure(fileDependenciesDescription string) string {
+ 	if fileDependenciesDescription == "" {
+ 		return ""
+@@ -402,7 +522,7 @@ Make sure to include the dependent file while identifying API endpoints.
+ `
+ }
+ 
+-func inheritenceExtractionSection(detectedFramework string, fileDependenciesDescription string) string {
++func NestjsInheritanceExtractionSection(detectedFramework string, fileDependenciesDescription string) string {
+ 	/*
+ 		Inheritance Extraction Section is a prompt section that provides instructions on how to handle inheritance in API endpoints.
+ 		It is specifically designed for frameworks like JavaScript/Nestjs and Java/quarkus,
+@@ -412,7 +532,7 @@ func inheritenceExtractionSection(detectedFramework string, fileDependenciesDesc
+ 	if fileDependenciesDescription == "" {
+ 		return ""
+ 	}
+-	if detectedFramework == "JavaScript/Nestjs" || detectedFramework == "Java/quarkus" || detectedFramework == "Java/jersey" {
++	if detectedFramework == "JavaScript/Nestjs" {
+ 		return `
+ 1.2 **API Endpoint Inheritance & Extension Handling**
+     
+@@ -601,11 +721,6 @@ func inheritenceExtractionSection(detectedFramework string, fileDependenciesDesc
+ 		},
+       ]
+     }
+-    Note:
+-    - The output must include all inherited endpoints from the base controller, merged under each extending parent class.
+-    - Each endpoint must have its own entry with the correct HTTP method, path, and metadata.
+-    - Ensure that the final output is a complete OpenAPI JSON specification, including all merged endpoints and their metadata.
+-    - Don't skip any child class API endpoints.
+     `
+ 	}
+ 	return ""
+diff --git a/liveapi-backend/qmanager/repodag.go b/liveapi-backend/qmanager/repodag.go
+index 0000000..0000000 
+--- a/liveapi-backend/qmanager/repodag.go
++++ b/liveapi-backend/qmanager/repodag.go
+@@ -94,7 +94,7 @@ func BuildCompleteMetadata(ctx context.Context, repoData *RepoData, jobID string
+ 	if repoData.PathToContent == nil {
+ 		return nil, nil, nil, errors.New("PathToContent cannot be nil")
+ 	}
+-
++	var edges []Edge
+ 	// Prepare gemini client once
+ 	model := gemini.InitGeminiClient(ctx)
+ 	geminiConfig, err := utils.Configuration()
+@@ -118,7 +118,7 @@ func BuildCompleteMetadata(ctx context.Context, repoData *RepoData, jobID string
+ 	idToNode := make(map[string]ClassNode)
+ 	fileParents := make(map[string]map[string]bool)
+ 	idToToken := make(map[string]int)
+-	var edges []Edge
++
+ 	nodeHasChildren := make(map[string]bool)
+ 	referencedNodeIDs := make(map[string]bool)
+ 
+@@ -142,7 +142,7 @@ func BuildCompleteMetadata(ctx context.Context, repoData *RepoData, jobID string
+ 
+ 		classEntry.Path = normalizePath(repoData.ProjectRoot, classEntry.Path)
+ 		if _, found := repoData.PathToContent[classEntry.Path]; !found {
+-			log.Debug().Str("jobID", jobID).Str("path", classEntry.Path).Msg("Skipping - file content not found")
++			//log.Debug().Str("jobID", jobID).Str("path", classEntry.Path).Msg("Skipping - file content not found")
+ 			continue
+ 		}
+ 
+@@ -187,6 +187,7 @@ func BuildCompleteMetadata(ctx context.Context, repoData *RepoData, jobID string
+ 				idToToken[fileID] = -1
+ 				log.Debug().Str("jobID", jobID).Str("file", classEntry.Path).Err(terr).Msg("CountTokens failed (recorded -1)")
+ 			} else {
++				log.Debug().Str("jobID", jobID).Str("file", classEntry.Path).Int("tokens", tokenCount).Msg("CountTokens succeeded")
+ 				idToToken[fileID] = tokenCount
+ 				metadata.TokenCountByFileID[fileID] = tokenCount
+ 			}
+@@ -199,7 +200,8 @@ func BuildCompleteMetadata(ctx context.Context, repoData *RepoData, jobID string
+ 		Int("skippedNotClass", skippedNotClass).
+ 		Int("totalLines", totalLines).
+ 		Msg("Parsed valid class/interface entries")
+-
++	// Found All Interfaces and Classes nodes
++	// Second pass: create edges based on parents
+ 	for fileID := range idToNode {
+ 		parentSet := fileParents[fileID]
+ 		if len(parentSet) == 0 {
+@@ -255,9 +257,9 @@ func BuildCompleteMetadata(ctx context.Context, repoData *RepoData, jobID string
+ 	}
+ 	log.Info().Str("jobID", jobID).Int("preparedFiles", len(metadata.FileIDByPath)).Msg("Metadata build complete")
+ 
+-	chainLeafMap, cerr := buildDependencyChains(batchBuilder, jobID)
+-	if cerr != nil {
+-		return nil, nil, nil, fmt.Errorf("failed to get dependency chains: %w", cerr)
++	chainLeafMap, chainErr := buildDependencyChains(batchBuilder, jobID)
++	if chainErr != nil {
++		return nil, nil, nil, fmt.Errorf("failed to get dependency chains: %w", chainErr)
+ 	}
+ 	log.Debug().Str("jobID", jobID).Int("leafCount", len(chainLeafMap)).Msg("Collected dependency chains")
+ 
+@@ -433,8 +435,23 @@ func collectUnbatched(batchBuilder *BatchBuilder, allRoutes []string, jobID stri
+ 	return unbatched
+ }
+ 
+-// processDependencyChains iterates through leaf nodes, builds dependency chains, and organizes them into batches
+-// while respecting token limits. It handles oversized chains by isolating them and manages batch transitions.
++// deterministicChainKey builds a stable string key for a dependency chain by joining
++// its file paths (falls back to the file ID if the path is missing). Use this key
++// to sort chains deterministically.
++func processDependencyChains(chain DependencyChain, idToPath map[string]string) string {
++	parts := make([]string, 0, len(chain.ChainIDs))
++	for _, id := range chain.ChainIDs {
++		if p, ok := idToPath[id]; ok && p != "" {
++			parts = append(parts, p)
++		} else {
++			parts = append(parts, id)
++		}
++	}
++	return strings.Join(parts, "|")
++}
++
++// ProcessDependencyChains iterates through leaf nodes in a deterministic, sorted order.
++// It sorts leaf IDs by their file path and sorts chains per-leaf deterministically too.
+ func ProcessDependencyChains(batchBuilder *BatchBuilder, maxTokens int, chainLeafMap map[string][]DependencyChain, jobID string) error {
+ 	if batchBuilder == nil {
+ 		return errors.New("builder cannot be nil")
+@@ -442,10 +459,31 @@ func ProcessDependencyChains(batchBuilder *BatchBuilder, maxTokens int, chainLea
+ 
+ 	log.Info().Str("jobID", jobID).Int("maxTokens", maxTokens).Msg("Processing dependency chains")
+ 
++	// Build a deterministic (sorted) order of leaf IDs using file paths.
++	leafIDs := make([]string, 0, len(chainLeafMap))
++	for leafID := range chainLeafMap {
++		leafIDs = append(leafIDs, leafID)
++	}
++	sort.Slice(leafIDs, func(leftLeafIndex, rightLeafIndex int) bool {
++		leftPath := batchBuilder.InlineGroupBatchMetadata.FilePathByID[leafIDs[leftLeafIndex]]
++		rightPath := batchBuilder.InlineGroupBatchMetadata.FilePathByID[leafIDs[rightLeafIndex]]
++		return leftPath < rightPath
++	})
++
+ 	currentBatch := RouteBatch{URLs: []URLInfo{}, FileDependencies: []FileDependencies{}}
+ 	currentTokens := 0
+ 
+-	for _, chains := range chainLeafMap {
++	// Iterate in deterministic order
++	for _, leafID := range leafIDs {
++		chains := chainLeafMap[leafID]
++
++		// Sort chains deterministically (by joined file-path key) so their ordering is stable.
++		sort.Slice(chains, func(leftIndex, rightIndex int) bool {
++			leftKey := processDependencyChains(chains[leftIndex], batchBuilder.InlineGroupBatchMetadata.FilePathByID)
++			rightKey := processDependencyChains(chains[rightIndex], batchBuilder.InlineGroupBatchMetadata.FilePathByID)
++			return leftKey < rightKey
++		})
++
+ 		for _, chain := range chains {
+ 			// If this chain alone exceeds the token limit, isolate it
+ 			if chain.TokenCount > maxTokens {
+@@ -504,25 +542,83 @@ func buildDependencyChains(builder *BatchBuilder, jobID string) (map[string][]De
+ 	}
+ 
+ 	log.Debug().Str("jobID", jobID).Msg("Building chains from leaf nodes")
++
++	// 1) Collect edges to determine which nodes actually participate in relationships.
++	edges, err := builder.graph.Edges()
++	if err != nil {
++		return nil, fmt.Errorf("failed to get graph edges: %w", err)
++	}
++
++	usedNodeIDs := make(map[string]bool)
++	for _, e := range edges {
++		usedNodeIDs[e.Source] = true
++		usedNodeIDs[e.Target] = true
++	}
++
++	// If there are no edges, there are no relations to build chains from.
++	if len(usedNodeIDs) == 0 {
++		log.Debug().Str("jobID", jobID).Msg("No edges present in graph; returning empty chain map")
++		return map[string][]DependencyChain{}, nil
++	}
++
++	// 2) Get leaf IDs (sorted by file path) then filter out any leaf that is isolated (not in usedNodeIDs).
+ 	leafIDs, err := getLeafFilePaths(builder)
+ 	if err != nil {
+ 		return nil, fmt.Errorf("failed to get leaf file paths: %w", err)
+ 	}
+ 	log.Debug().Str("jobID", jobID).Int("leafIDsFound", len(leafIDs)).Msg("Leaf IDs retrieved")
+ 
+-	// Use PredecessorMap to get reverse edges
++	filteredLeafIDs := make([]string, 0, len(leafIDs))
++	for _, id := range leafIDs {
++		if usedNodeIDs[id] {
++			filteredLeafIDs = append(filteredLeafIDs, id)
++		} else {
++			log.Debug().Str("jobID", jobID).Str("leafID", id).Msg("Skipping isolated leaf (no relations)")
++		}
++	}
++	log.Debug().Str("jobID", jobID).Int("filteredLeafCount", len(filteredLeafIDs)).Msg("Filtered leaves that participate in edges")
++
++	// 3) Build a pruned predecessor map that contains only nodes participating in edges.
+ 	reverseEdges, err := builder.graph.PredecessorMap()
+ 	if err != nil {
+ 		return nil, fmt.Errorf("failed to get predecessor map: %w", err)
+ 	}
++	prunedReverse := make(map[string]map[string]graph.Edge[string])
++	for nodeID, parents := range reverseEdges {
++		if !usedNodeIDs[nodeID] {
++			continue
++		}
++		for parentID, edge := range parents {
++			if !usedNodeIDs[parentID] {
++				continue
++			}
++			if _, ok := prunedReverse[nodeID]; !ok {
++				prunedReverse[nodeID] = make(map[string]graph.Edge[string])
++			}
++			prunedReverse[nodeID][parentID] = edge
++		}
++	}
++
++	// 4) Prune token map to only include nodes that are used (prevents lookups on totally isolated nodes).
++	prunedTokenCounts := make(map[string]int)
++	for id, t := range builder.InlineGroupBatchMetadata.TokenCountByFileID {
++		if usedNodeIDs[id] {
++			prunedTokenCounts[id] = t
++		}
++	}
+ 
++	// 5) Build chains from each filtered leaf using the pruned predecessor map and token counts.
+ 	result := make(map[string][]DependencyChain)
+-	for _, leafID := range leafIDs {
++	for _, leafID := range filteredLeafIDs {
+ 		chains := buildChainsFromLeaf(
+ 			leafID,
+-			builder.InlineGroupBatchMetadata.TokenCountByFileID,
+-			reverseEdges,
++			prunedTokenCounts,
++			prunedReverse,
+ 		)
++		if len(chains) == 0 {
++			log.Debug().Str("jobID", jobID).Str("leafID", leafID).Msg("No chains built for leaf after pruning")
++			continue
++		}
+ 		result[leafID] = chains
+ 		log.Debug().Str("jobID", jobID).Str("leafID", leafID).Int("chainsForLeaf", len(chains)).Msg("Built chains for leaf")
+ 	}
+diff --git a/liveapi-backend/tests/repodag_tests/data/group_batch/current_output/current_output1/batches.json b/liveapi-backend/tests/repodag_tests/data/group_batch/current_output/current_output1/batches.json
+index 0000000..0000000 
+--- a/liveapi-backend/tests/repodag_tests/data/group_batch/current_output/current_output1/batches.json
++++ b/liveapi-backend/tests/repodag_tests/data/group_batch/current_output/current_output1/batches.json
+
+diff --git a/liveapi-backend/tests/repodag_tests/data/group_batch/current_output/current_output1/graph.png b/liveapi-backend/tests/repodag_tests/data/group_batch/current_output/current_output1/graph.png
+index 0000000..0000000 
+--- a/liveapi-backend/tests/repodag_tests/data/group_batch/current_output/current_output1/graph.png
++++ b/liveapi-backend/tests/repodag_tests/data/group_batch/current_output/current_output1/graph.png
+Binary files a/liveapi-backend/tests/repodag_tests/data/group_batch/current_output/current_output1/graph.png and b/liveapi-backend/tests/repodag_tests/data/group_batch/current_output/current_output1/graph.png differ
+diff --git a/liveapi-backend/tests/repodag_tests/data/group_batch/current_output/current_output2/batches.json b/liveapi-backend/tests/repodag_tests/data/group_batch/current_output/current_output2/batches.json
+index 0000000..0000000 
+--- a/liveapi-backend/tests/repodag_tests/data/group_batch/current_output/current_output2/batches.json
++++ b/liveapi-backend/tests/repodag_tests/data/group_batch/current_output/current_output2/batches.json
+
+diff --git a/liveapi-backend/tests/repodag_tests/data/group_batch/current_output/current_output2/graph.png b/liveapi-backend/tests/repodag_tests/data/group_batch/current_output/current_output2/graph.png
+index 0000000..0000000 
+--- a/liveapi-backend/tests/repodag_tests/data/group_batch/current_output/current_output2/graph.png
++++ b/liveapi-backend/tests/repodag_tests/data/group_batch/current_output/current_output2/graph.png
+Binary files a/liveapi-backend/tests/repodag_tests/data/group_batch/current_output/current_output2/graph.png and b/liveapi-backend/tests/repodag_tests/data/group_batch/current_output/current_output2/graph.png differ
+diff --git a/liveapi-backend/tests/repodag_tests/data/group_batch/current_output/current_output3/batches.json b/liveapi-backend/tests/repodag_tests/data/group_batch/current_output/current_output3/batches.json
+index 0000000..0000000 
+--- a/liveapi-backend/tests/repodag_tests/data/group_batch/current_output/current_output3/batches.json
++++ b/liveapi-backend/tests/repodag_tests/data/group_batch/current_output/current_output3/batches.json
+
+diff --git a/liveapi-backend/tests/repodag_tests/data/group_batch/current_output/current_output3/graph.png b/liveapi-backend/tests/repodag_tests/data/group_batch/current_output/current_output3/graph.png
+index 0000000..0000000 
+--- a/liveapi-backend/tests/repodag_tests/data/group_batch/current_output/current_output3/graph.png
++++ b/liveapi-backend/tests/repodag_tests/data/group_batch/current_output/current_output3/graph.png
+Binary files a/liveapi-backend/tests/repodag_tests/data/group_batch/current_output/current_output3/graph.png and b/liveapi-backend/tests/repodag_tests/data/group_batch/current_output/current_output3/graph.png differ
+diff --git a/liveapi-backend/tests/repodag_tests/data/group_batch/input/input1/ctags.json b/liveapi-backend/tests/repodag_tests/data/group_batch/input/input1/ctags.json
+index 0000000..0000000 
+--- a/liveapi-backend/tests/repodag_tests/data/group_batch/input/input1/ctags.json
++++ b/liveapi-backend/tests/repodag_tests/data/group_batch/input/input1/ctags.json
+

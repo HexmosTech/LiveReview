@@ -1,0 +1,3958 @@
+{
+  "provider": "gitlab",
+  "timeline": [
+    {
+      "kind": "commit",
+      "id": "ac3323855ece2064f9d312a2b487ce80dfe94273",
+      "created_at": "2025-08-22T19:20:51+05:30",
+      "author": {
+        "provider": "gitlab",
+        "name": "Ganesh Kumar",
+        "email": "ganeshkumar6120@gmail.com"
+      },
+      "commit": {
+        "sha": "ac3323855ece2064f9d312a2b487ce80dfe94273",
+        "title": "reverted-changes-adding-system-prompt",
+        "message": "reverted-changes-adding-system-prompt\n",
+        "web_url": "https://git.apps.hexmos.com/hexmos/liveapi/-/commit/ac3323855ece2064f9d312a2b487ce80dfe94273"
+      }
+    },
+    {
+      "kind": "commit",
+      "id": "f104dad6d8eb278bb6fdb1d4c5caf524b0320280",
+      "created_at": "2025-08-22T19:37:23+05:30",
+      "author": {
+        "provider": "gitlab",
+        "name": "Ganesh Kumar",
+        "email": "ganeshkumar6120@gmail.com"
+      },
+      "commit": {
+        "sha": "f104dad6d8eb278bb6fdb1d4c5caf524b0320280",
+        "title": "made-half-java-code-example",
+        "message": "made-half-java-code-example\n",
+        "web_url": "https://git.apps.hexmos.com/hexmos/liveapi/-/commit/f104dad6d8eb278bb6fdb1d4c5caf524b0320280"
+      }
+    },
+    {
+      "kind": "commit",
+      "id": "a0c2082baeaed9a3e69792b20d2bdc6c5316ee8b",
+      "created_at": "2025-08-22T20:15:20+05:30",
+      "author": {
+        "provider": "gitlab",
+        "name": "Ganesh Kumar",
+        "email": "ganeshkumar6120@gmail.com"
+      },
+      "commit": {
+        "sha": "a0c2082baeaed9a3e69792b20d2bdc6c5316ee8b",
+        "title": "removed-example",
+        "message": "removed-example\n",
+        "web_url": "https://git.apps.hexmos.com/hexmos/liveapi/-/commit/a0c2082baeaed9a3e69792b20d2bdc6c5316ee8b"
+      }
+    },
+    {
+      "kind": "commit",
+      "id": "8e214e02649b3fd33abaeaf16feaee1acfc7b459",
+      "created_at": "2025-08-22T20:17:24+05:30",
+      "author": {
+        "provider": "gitlab",
+        "name": "Ganesh Kumar",
+        "email": "ganeshkumar6120@gmail.com"
+      },
+      "commit": {
+        "sha": "8e214e02649b3fd33abaeaf16feaee1acfc7b459",
+        "title": "reverted-with-small-changes",
+        "message": "reverted-with-small-changes\n",
+        "web_url": "https://git.apps.hexmos.com/hexmos/liveapi/-/commit/8e214e02649b3fd33abaeaf16feaee1acfc7b459"
+      }
+    },
+    {
+      "kind": "comment",
+      "id": "23778",
+      "created_at": "2025-08-22T14:48:29.269Z",
+      "author": {
+        "provider": "gitlab",
+        "id": 48,
+        "username": "Ganesh",
+        "name": "Ganesh Kumar"
+      },
+      "comment": {
+        "note_id": "23778",
+        "discussion_id": "e9c39eeb436686ccef21bb871072f703a905134c",
+        "body": "added 12 commits\n\n\u003cul\u003e\u003cli\u003e4d931c7b...4ccc5630 - 7 commits from branch \u003ccode\u003emain\u003c/code\u003e\u003c/li\u003e\u003cli\u003ed751ac7a - Merge branch \u0026#39;main\u0026#39; of git.apps.hexmos.com:hexmos/liveapi into ganesh/repodag-v2\u003c/li\u003e\u003cli\u003eac332385 - reverted-changes-adding-system-prompt\u003c/li\u003e\u003cli\u003ef104dad6 - made-half-java-code-example\u003c/li\u003e\u003cli\u003ea0c2082b - removed-example\u003c/li\u003e\u003cli\u003e8e214e02 - reverted-with-small-changes\u003c/li\u003e\u003c/ul\u003e\n\n[Compare with previous version](/hexmos/liveapi/-/merge_requests/426/diffs?diff_id=13968\u0026start_sha=4d931c7b634314f05081a11df5a75ebad3d9e62f)",
+        "is_system": true,
+        "is_resolvable": false,
+        "resolved": false
+      }
+    },
+    {
+      "kind": "commit",
+      "id": "7926e27f4695f5caa49af92ae25cf401e711adb6",
+      "created_at": "2025-08-22T22:14:39+05:30",
+      "author": {
+        "provider": "gitlab",
+        "name": "Ganesh Kumar",
+        "email": "ganeshkumar6120@gmail.com"
+      },
+      "commit": {
+        "sha": "7926e27f4695f5caa49af92ae25cf401e711adb6",
+        "title": "eddi-stable-with-this-prompt",
+        "message": "eddi-stable-with-this-prompt\n",
+        "web_url": "https://git.apps.hexmos.com/hexmos/liveapi/-/commit/7926e27f4695f5caa49af92ae25cf401e711adb6"
+      }
+    },
+    {
+      "kind": "commit",
+      "id": "3f4f7f1f2138a177cf1ea5b7edb192340e9dacd7",
+      "created_at": "2025-08-22T22:15:06+05:30",
+      "author": {
+        "provider": "gitlab",
+        "name": "Ganesh Kumar",
+        "email": "ganeshkumar6120@gmail.com"
+      },
+      "commit": {
+        "sha": "3f4f7f1f2138a177cf1ea5b7edb192340e9dacd7",
+        "title": "reverted-all-changes",
+        "message": "reverted-all-changes\n",
+        "web_url": "https://git.apps.hexmos.com/hexmos/liveapi/-/commit/3f4f7f1f2138a177cf1ea5b7edb192340e9dacd7"
+      }
+    },
+    {
+      "kind": "comment",
+      "id": "23782",
+      "created_at": "2025-08-22T16:45:47.514Z",
+      "author": {
+        "provider": "gitlab",
+        "id": 48,
+        "username": "Ganesh",
+        "name": "Ganesh Kumar"
+      },
+      "comment": {
+        "note_id": "23782",
+        "discussion_id": "3062d1a4778d37501f5a05cf2749ce091fed6955",
+        "body": "added 2 commits\n\n\u003cul\u003e\u003cli\u003e7926e27f - eddi-stable-with-this-prompt\u003c/li\u003e\u003cli\u003e3f4f7f1f - reverted-all-changes\u003c/li\u003e\u003c/ul\u003e\n\n[Compare with previous version](/hexmos/liveapi/-/merge_requests/426/diffs?diff_id=13977\u0026start_sha=8e214e02649b3fd33abaeaf16feaee1acfc7b459)",
+        "is_system": true,
+        "is_resolvable": false,
+        "resolved": false
+      }
+    },
+    {
+      "kind": "commit",
+      "id": "f7198f01612353026f19726d9c09b1e5062a416b",
+      "created_at": "2025-08-23T19:31:59+05:30",
+      "author": {
+        "provider": "gitlab",
+        "name": "Ganesh Kumar",
+        "email": "ganeshkumar6120@gmail.com"
+      },
+      "commit": {
+        "sha": "f7198f01612353026f19726d9c09b1e5062a416b",
+        "title": "removed-low-qaulity-prompt",
+        "message": "removed-low-qaulity-prompt\n",
+        "web_url": "https://git.apps.hexmos.com/hexmos/liveapi/-/commit/f7198f01612353026f19726d9c09b1e5062a416b"
+      }
+    },
+    {
+      "kind": "commit",
+      "id": "362e6640ab468431dec148831d82db22f74367b1",
+      "created_at": "2025-08-23T19:50:52+05:30",
+      "author": {
+        "provider": "gitlab",
+        "name": "Ganesh Kumar",
+        "email": "ganeshkumar6120@gmail.com"
+      },
+      "commit": {
+        "sha": "362e6640ab468431dec148831d82db22f74367b1",
+        "title": "made-sorted-bathes",
+        "message": "made-sorted-bathes\n",
+        "web_url": "https://git.apps.hexmos.com/hexmos/liveapi/-/commit/362e6640ab468431dec148831d82db22f74367b1"
+      }
+    },
+    {
+      "kind": "commit",
+      "id": "f8faf426c1a1055ec5eeb1d76419339b06e58941",
+      "created_at": "2025-08-23T20:21:25+05:30",
+      "author": {
+        "provider": "gitlab",
+        "name": "Ganesh Kumar",
+        "email": "ganeshkumar6120@gmail.com"
+      },
+      "commit": {
+        "sha": "f8faf426c1a1055ec5eeb1d76419339b06e58941",
+        "title": "go-fumpt",
+        "message": "go-fumpt\n",
+        "web_url": "https://git.apps.hexmos.com/hexmos/liveapi/-/commit/f8faf426c1a1055ec5eeb1d76419339b06e58941"
+      }
+    },
+    {
+      "kind": "comment",
+      "id": "23787",
+      "created_at": "2025-08-23T14:52:03.636Z",
+      "author": {
+        "provider": "gitlab",
+        "id": 48,
+        "username": "Ganesh",
+        "name": "Ganesh Kumar"
+      },
+      "comment": {
+        "note_id": "23787",
+        "discussion_id": "2a59f0656f4c0259186aba90c95134435985e8f9",
+        "body": "added 3 commits\n\n\u003cul\u003e\u003cli\u003ef7198f01 - removed-low-qaulity-prompt\u003c/li\u003e\u003cli\u003e362e6640 - made-sorted-bathes\u003c/li\u003e\u003cli\u003ef8faf426 - go-fumpt\u003c/li\u003e\u003c/ul\u003e\n\n[Compare with previous version](/hexmos/liveapi/-/merge_requests/426/diffs?diff_id=13984\u0026start_sha=3f4f7f1f2138a177cf1ea5b7edb192340e9dacd7)",
+        "is_system": true,
+        "is_resolvable": false,
+        "resolved": false
+      }
+    },
+    {
+      "kind": "commit",
+      "id": "10b9e32dd7575da8722fec7397e1d109b43ff548",
+      "created_at": "2025-08-24T15:41:35+05:30",
+      "author": {
+        "provider": "gitlab",
+        "name": "Ganesh Kumar",
+        "email": "ganeshkumar6120@gmail.com"
+      },
+      "commit": {
+        "sha": "10b9e32dd7575da8722fec7397e1d109b43ff548",
+        "title": "stable-highest-recall",
+        "message": "stable-highest-recall\n",
+        "web_url": "https://git.apps.hexmos.com/hexmos/liveapi/-/commit/10b9e32dd7575da8722fec7397e1d109b43ff548"
+      }
+    },
+    {
+      "kind": "commit",
+      "id": "910e7a0c8a1c771964079f13dbd690b4d898efef",
+      "created_at": "2025-08-24T16:24:11+05:30",
+      "author": {
+        "provider": "gitlab",
+        "name": "Ganesh Kumar",
+        "email": "ganeshkumar6120@gmail.com"
+      },
+      "commit": {
+        "sha": "910e7a0c8a1c771964079f13dbd690b4d898efef",
+        "title": "fixed-issues-wit-api-misses",
+        "message": "fixed-issues-wit-api-misses\n",
+        "web_url": "https://git.apps.hexmos.com/hexmos/liveapi/-/commit/910e7a0c8a1c771964079f13dbd690b4d898efef"
+      }
+    },
+    {
+      "kind": "commit",
+      "id": "9baf8a43d1f945f853a7ad04353b1b2be710c916",
+      "created_at": "2025-08-24T20:15:43+05:30",
+      "author": {
+        "provider": "gitlab",
+        "name": "Ganesh Kumar",
+        "email": "ganeshkumar6120@gmail.com"
+      },
+      "commit": {
+        "sha": "9baf8a43d1f945f853a7ad04353b1b2be710c916",
+        "title": "made-seperate-java-ts",
+        "message": "made-seperate-java-ts\n",
+        "web_url": "https://git.apps.hexmos.com/hexmos/liveapi/-/commit/9baf8a43d1f945f853a7ad04353b1b2be710c916"
+      }
+    },
+    {
+      "kind": "commit",
+      "id": "4f6bd541da654ed7e29347f6963461a9ef8b593b",
+      "created_at": "2025-08-24T23:12:18+05:30",
+      "author": {
+        "provider": "gitlab",
+        "name": "Ganesh Kumar",
+        "email": "ganeshkumar6120@gmail.com"
+      },
+      "commit": {
+        "sha": "4f6bd541da654ed7e29347f6963461a9ef8b593b",
+        "title": "stable-recal-under-repodag-v2",
+        "message": "stable-recal-under-repodag-v2\n",
+        "web_url": "https://git.apps.hexmos.com/hexmos/liveapi/-/commit/4f6bd541da654ed7e29347f6963461a9ef8b593b"
+      }
+    },
+    {
+      "kind": "commit",
+      "id": "9d47273c1058f7f78e6a061c13df73a5e5e87dd1",
+      "created_at": "2025-08-24T23:13:05+05:30",
+      "author": {
+        "provider": "gitlab",
+        "name": "Ganesh Kumar",
+        "email": "ganeshkumar6120@gmail.com"
+      },
+      "commit": {
+        "sha": "9d47273c1058f7f78e6a061c13df73a5e5e87dd1",
+        "title": "go-fumpt",
+        "message": "go-fumpt\n",
+        "web_url": "https://git.apps.hexmos.com/hexmos/liveapi/-/commit/9d47273c1058f7f78e6a061c13df73a5e5e87dd1"
+      }
+    },
+    {
+      "kind": "commit",
+      "id": "7f6b232f26ffc4b99d733acd94c36f7a54cf200c",
+      "created_at": "2025-08-24T23:13:21+05:30",
+      "author": {
+        "provider": "gitlab",
+        "name": "Ganesh Kumar",
+        "email": "ganeshkumar6120@gmail.com"
+      },
+      "commit": {
+        "sha": "7f6b232f26ffc4b99d733acd94c36f7a54cf200c",
+        "title": "Merge branch 'main' of git.apps.hexmos.com:hexmos/liveapi into ganesh/repodag-v2",
+        "message": "Merge branch 'main' of git.apps.hexmos.com:hexmos/liveapi into ganesh/repodag-v2\n",
+        "web_url": "https://git.apps.hexmos.com/hexmos/liveapi/-/commit/7f6b232f26ffc4b99d733acd94c36f7a54cf200c"
+      }
+    },
+    {
+      "kind": "comment",
+      "id": "23792",
+      "created_at": "2025-08-24T17:43:34.504Z",
+      "author": {
+        "provider": "gitlab",
+        "id": 48,
+        "username": "Ganesh",
+        "name": "Ganesh Kumar"
+      },
+      "comment": {
+        "note_id": "23792",
+        "discussion_id": "0719931e2ff3c4b9315625df7d08d50de003d014",
+        "body": "added 5 commits\n\n\u003cul\u003e\u003cli\u003e10b9e32d - stable-highest-recall\u003c/li\u003e\u003cli\u003e910e7a0c - fixed-issues-wit-api-misses\u003c/li\u003e\u003cli\u003e9baf8a43 - made-seperate-java-ts\u003c/li\u003e\u003cli\u003e4f6bd541 - stable-recal-under-repodag-v2\u003c/li\u003e\u003cli\u003e9d47273c - go-fumpt\u003c/li\u003e\u003c/ul\u003e\n\n[Compare with previous version](/hexmos/liveapi/-/merge_requests/426/diffs?diff_id=13990\u0026start_sha=f8faf426c1a1055ec5eeb1d76419339b06e58941)",
+        "is_system": true,
+        "is_resolvable": false,
+        "resolved": false
+      }
+    },
+    {
+      "kind": "comment",
+      "id": "23793",
+      "created_at": "2025-08-24T17:43:58.946Z",
+      "author": {
+        "provider": "gitlab",
+        "id": 48,
+        "username": "Ganesh",
+        "name": "Ganesh Kumar"
+      },
+      "comment": {
+        "note_id": "23793",
+        "discussion_id": "b3e7f2461010772461fbecce5913bf632b714bb4",
+        "body": "added 6 commits\n\n\u003cul\u003e\u003cli\u003e9d47273c...0c2639dd - 5 commits from branch \u003ccode\u003emain\u003c/code\u003e\u003c/li\u003e\u003cli\u003e7f6b232f - Merge branch \u0026#39;main\u0026#39; of git.apps.hexmos.com:hexmos/liveapi into ganesh/repodag-v2\u003c/li\u003e\u003c/ul\u003e\n\n[Compare with previous version](/hexmos/liveapi/-/merge_requests/426/diffs?diff_id=13991\u0026start_sha=9d47273c1058f7f78e6a061c13df73a5e5e87dd1)",
+        "is_system": true,
+        "is_resolvable": false,
+        "resolved": false
+      }
+    },
+    {
+      "kind": "commit",
+      "id": "ffa9df0c681c1add0f0c0796fc818c36f9f89ff0",
+      "created_at": "2025-08-25T18:53:05+05:30",
+      "author": {
+        "provider": "gitlab",
+        "name": "Ganesh Kumar",
+        "email": "ganeshkumar6120@gmail.com"
+      },
+      "commit": {
+        "sha": "ffa9df0c681c1add0f0c0796fc818c36f9f89ff0",
+        "title": "added-correct-ctag",
+        "message": "added-correct-ctag\n",
+        "web_url": "https://git.apps.hexmos.com/hexmos/liveapi/-/commit/ffa9df0c681c1add0f0c0796fc818c36f9f89ff0"
+      }
+    },
+    {
+      "kind": "commit",
+      "id": "4f9c7246b96b7849e61b69ee7066dfd381b84183",
+      "created_at": "2025-08-26T19:18:20+05:30",
+      "author": {
+        "provider": "gitlab",
+        "name": "Ganesh Kumar",
+        "email": "ganeshkumar6120@gmail.com"
+      },
+      "commit": {
+        "sha": "4f9c7246b96b7849e61b69ee7066dfd381b84183",
+        "title": "removeing-logs-rename-varaibles",
+        "message": "removeing-logs-rename-varaibles\n",
+        "web_url": "https://git.apps.hexmos.com/hexmos/liveapi/-/commit/4f9c7246b96b7849e61b69ee7066dfd381b84183"
+      }
+    },
+    {
+      "kind": "comment",
+      "id": "23817",
+      "created_at": "2025-08-26T13:49:25.129Z",
+      "author": {
+        "provider": "gitlab",
+        "id": 48,
+        "username": "Ganesh",
+        "name": "Ganesh Kumar"
+      },
+      "comment": {
+        "note_id": "23817",
+        "discussion_id": "1cf72417c387bfc9818df2e10b61ea28a1112200",
+        "body": "added 2 commits\n\n\u003cul\u003e\u003cli\u003effa9df0c - added-correct-ctag\u003c/li\u003e\u003cli\u003e4f9c7246 - removeing-logs-rename-varaibles\u003c/li\u003e\u003c/ul\u003e\n\n[Compare with previous version](/hexmos/liveapi/-/merge_requests/426/diffs?diff_id=14004\u0026start_sha=7f6b232f26ffc4b99d733acd94c36f7a54cf200c)",
+        "is_system": true,
+        "is_resolvable": false,
+        "resolved": false
+      }
+    },
+    {
+      "kind": "comment",
+      "id": "23818",
+      "created_at": "2025-08-26T14:04:24.617Z",
+      "author": {
+        "provider": "gitlab",
+        "id": 48,
+        "username": "Ganesh",
+        "name": "Ganesh Kumar"
+      },
+      "comment": {
+        "note_id": "23818",
+        "discussion_id": "537bbdb35f59a1c7533e3412bdbf5088b990a820",
+        "body": "changed the description",
+        "is_system": true,
+        "is_resolvable": false,
+        "resolved": false
+      }
+    },
+    {
+      "kind": "commit",
+      "id": "c07a322a1003da71168dc72345201b81bdecdc40",
+      "created_at": "2025-08-26T20:18:02+05:30",
+      "author": {
+        "provider": "gitlab",
+        "name": "Ganesh Kumar",
+        "email": "ganeshkumar6120@gmail.com"
+      },
+      "commit": {
+        "sha": "c07a322a1003da71168dc72345201b81bdecdc40",
+        "title": "addresed-major-lr-comments",
+        "message": "addresed-major-lr-comments\n",
+        "web_url": "https://git.apps.hexmos.com/hexmos/liveapi/-/commit/c07a322a1003da71168dc72345201b81bdecdc40"
+      }
+    },
+    {
+      "kind": "comment",
+      "id": "23834",
+      "created_at": "2025-08-26T14:52:37.569Z",
+      "author": {
+        "provider": "gitlab",
+        "id": 48,
+        "username": "Ganesh",
+        "name": "Ganesh Kumar"
+      },
+      "comment": {
+        "note_id": "23834",
+        "discussion_id": "1f6a64e14c90fdcbd720f74c21523412bfe2b364",
+        "body": "changed this line in [version 7 of the diff](/hexmos/liveapi/-/merge_requests/426/diffs?diff_id=14008\u0026start_sha=4f9c7246b96b7849e61b69ee7066dfd381b84183#6d245f34450a909ae19e572b58b132017e7271ec_535_534)",
+        "is_system": true,
+        "is_resolvable": false,
+        "resolved": false,
+        "file_path": "liveapi-backend/prompt/prompt.go",
+        "line_new": 535
+      }
+    },
+    {
+      "kind": "comment",
+      "id": "23835",
+      "created_at": "2025-08-26T14:52:37.921Z",
+      "author": {
+        "provider": "gitlab",
+        "id": 48,
+        "username": "Ganesh",
+        "name": "Ganesh Kumar"
+      },
+      "comment": {
+        "note_id": "23835",
+        "discussion_id": "32b703213de10de1c17ae1548186a89741dea01d",
+        "body": "changed this line in [version 7 of the diff](/hexmos/liveapi/-/merge_requests/426/diffs?diff_id=14008\u0026start_sha=4f9c7246b96b7849e61b69ee7066dfd381b84183#98aff874ccf5b8d340bf569886726f1c20a8a2d9_390_390)",
+        "is_system": true,
+        "is_resolvable": false,
+        "resolved": false,
+        "file_path": "liveapi-backend/prompt/subPrompt.go",
+        "line_new": 390
+      }
+    },
+    {
+      "kind": "comment",
+      "id": "23836",
+      "created_at": "2025-08-26T14:52:38.388Z",
+      "author": {
+        "provider": "gitlab",
+        "id": 48,
+        "username": "Ganesh",
+        "name": "Ganesh Kumar"
+      },
+      "comment": {
+        "note_id": "23836",
+        "discussion_id": "af08a08782dba88f227924c0e137cacbff583ad4",
+        "body": "changed this line in [version 7 of the diff](/hexmos/liveapi/-/merge_requests/426/diffs?diff_id=14008\u0026start_sha=4f9c7246b96b7849e61b69ee7066dfd381b84183#98aff874ccf5b8d340bf569886726f1c20a8a2d9_485_485)",
+        "is_system": true,
+        "is_resolvable": false,
+        "resolved": false,
+        "file_path": "liveapi-backend/prompt/subPrompt.go",
+        "line_new": 485
+      }
+    },
+    {
+      "kind": "comment",
+      "id": "23837",
+      "created_at": "2025-08-26T14:52:38.605Z",
+      "author": {
+        "provider": "gitlab",
+        "id": 48,
+        "username": "Ganesh",
+        "name": "Ganesh Kumar"
+      },
+      "comment": {
+        "note_id": "23837",
+        "discussion_id": "d68c161699ae8118cf5cbeebca037bfad36a6190",
+        "body": "changed this line in [version 7 of the diff](/hexmos/liveapi/-/merge_requests/426/diffs?diff_id=14008\u0026start_sha=4f9c7246b96b7849e61b69ee7066dfd381b84183#98aff874ccf5b8d340bf569886726f1c20a8a2d9_486_485)",
+        "is_system": true,
+        "is_resolvable": false,
+        "resolved": false,
+        "file_path": "liveapi-backend/prompt/subPrompt.go",
+        "line_new": 486
+      }
+    },
+    {
+      "kind": "comment",
+      "id": "23838",
+      "created_at": "2025-08-26T14:52:39.808Z",
+      "author": {
+        "provider": "gitlab",
+        "id": 48,
+        "username": "Ganesh",
+        "name": "Ganesh Kumar"
+      },
+      "comment": {
+        "note_id": "23838",
+        "discussion_id": "bb66e6131a0c93e41413588790f65a30bdec49a9",
+        "body": "changed this line in [version 7 of the diff](/hexmos/liveapi/-/merge_requests/426/diffs?diff_id=14008\u0026start_sha=4f9c7246b96b7849e61b69ee7066dfd381b84183#216b47d213dc08dbbd9f450419357e06bd681764_259_260)",
+        "is_system": true,
+        "is_resolvable": false,
+        "resolved": false,
+        "file_path": "liveapi-backend/qmanager/repodag.go",
+        "line_new": 259
+      }
+    },
+    {
+      "kind": "comment",
+      "id": "23839",
+      "created_at": "2025-08-26T14:52:40.33Z",
+      "author": {
+        "provider": "gitlab",
+        "id": 48,
+        "username": "Ganesh",
+        "name": "Ganesh Kumar"
+      },
+      "comment": {
+        "note_id": "23839",
+        "discussion_id": "489713d8a6253a15111a0a920d41e3c00f068905",
+        "body": "added 1 commit\n\n\u003cul\u003e\u003cli\u003ec07a322a - addresed-major-lr-comments\u003c/li\u003e\u003c/ul\u003e\n\n[Compare with previous version](/hexmos/liveapi/-/merge_requests/426/diffs?diff_id=14008\u0026start_sha=4f9c7246b96b7849e61b69ee7066dfd381b84183)",
+        "is_system": true,
+        "is_resolvable": false,
+        "resolved": false
+      }
+    },
+    {
+      "kind": "commit",
+      "id": "9e3fda7ae46d92ee93ff243ef989e67555b3d7a0",
+      "created_at": "2025-08-26T21:48:58+05:30",
+      "author": {
+        "provider": "gitlab",
+        "name": "Ganesh Kumar",
+        "email": "ganeshkumar6120@gmail.com"
+      },
+      "commit": {
+        "sha": "9e3fda7ae46d92ee93ff243ef989e67555b3d7a0",
+        "title": "Merge branch 'main' of git.apps.hexmos.com:hexmos/liveapi into ganesh/repodag-v2",
+        "message": "Merge branch 'main' of git.apps.hexmos.com:hexmos/liveapi into ganesh/repodag-v2\n",
+        "web_url": "https://git.apps.hexmos.com/hexmos/liveapi/-/commit/9e3fda7ae46d92ee93ff243ef989e67555b3d7a0"
+      }
+    },
+    {
+      "kind": "comment",
+      "id": "23864",
+      "created_at": "2025-08-26T16:19:59.348Z",
+      "author": {
+        "provider": "gitlab",
+        "id": 48,
+        "username": "Ganesh",
+        "name": "Ganesh Kumar"
+      },
+      "comment": {
+        "note_id": "23864",
+        "discussion_id": "c484e5e798615180d70613ddcc637ecb41b4b11d",
+        "body": "added 5 commits\n\n\u003cul\u003e\u003cli\u003ec07a322a...2a8b27f5 - 4 commits from branch \u003ccode\u003emain\u003c/code\u003e\u003c/li\u003e\u003cli\u003e9e3fda7a - Merge branch \u0026#39;main\u0026#39; of git.apps.hexmos.com:hexmos/liveapi into ganesh/repodag-v2\u003c/li\u003e\u003c/ul\u003e\n\n[Compare with previous version](/hexmos/liveapi/-/merge_requests/426/diffs?diff_id=14021\u0026start_sha=c07a322a1003da71168dc72345201b81bdecdc40)",
+        "is_system": true,
+        "is_resolvable": false,
+        "resolved": false
+      }
+    },
+    {
+      "kind": "commit",
+      "id": "0d239c1ba1efd69a93e263eaf2b519b2210c19dc",
+      "created_at": "2025-08-28T19:09:57+05:30",
+      "author": {
+        "provider": "gitlab",
+        "name": "Ganesh Kumar",
+        "email": "ganeshkumar6120@gmail.com"
+      },
+      "commit": {
+        "sha": "0d239c1ba1efd69a93e263eaf2b519b2210c19dc",
+        "title": "Merge branch 'main' of git.apps.hexmos.com:hexmos/liveapi into ganesh/repodag-v2",
+        "message": "Merge branch 'main' of git.apps.hexmos.com:hexmos/liveapi into ganesh/repodag-v2\n",
+        "web_url": "https://git.apps.hexmos.com/hexmos/liveapi/-/commit/0d239c1ba1efd69a93e263eaf2b519b2210c19dc"
+      }
+    },
+    {
+      "kind": "comment",
+      "id": "23897",
+      "created_at": "2025-08-30T16:11:19.382Z",
+      "author": {
+        "provider": "gitlab",
+        "id": 48,
+        "username": "Ganesh",
+        "name": "Ganesh Kumar"
+      },
+      "comment": {
+        "note_id": "23897",
+        "discussion_id": "630531027c742d272bd186b4921355ef4632dceb",
+        "body": "restored source branch `ganesh/repodag-v2`",
+        "is_system": true,
+        "is_resolvable": false,
+        "resolved": false
+      }
+    },
+    {
+      "kind": "comment",
+      "id": "23898",
+      "created_at": "2025-08-30T16:11:19.434Z",
+      "author": {
+        "provider": "gitlab",
+        "id": 48,
+        "username": "Ganesh",
+        "name": "Ganesh Kumar"
+      },
+      "comment": {
+        "note_id": "23898",
+        "discussion_id": "92a0c015294e0eab72974c70b03c9ecc0214ee1d",
+        "body": "added 2 commits\n\n\u003cul\u003e\u003cli\u003edb0e5527 - 1 commit from branch \u003ccode\u003emain\u003c/code\u003e\u003c/li\u003e\u003cli\u003e0d239c1b - Merge branch \u0026#39;main\u0026#39; of git.apps.hexmos.com:hexmos/liveapi into ganesh/repodag-v2\u003c/li\u003e\u003c/ul\u003e\n\n[Compare with previous version](/hexmos/liveapi/-/merge_requests/426/diffs?diff_id=14059\u0026start_sha=0000000000000000000000000000000000000000)",
+        "is_system": true,
+        "is_resolvable": false,
+        "resolved": false
+      }
+    },
+    {
+      "kind": "comment",
+      "id": "23898",
+      "created_at": "2025-08-30T16:11:19.434Z",
+      "author": {
+        "provider": "gitlab",
+        "id": 48,
+        "username": "Ganesh",
+        "name": "Ganesh Kumar"
+      },
+      "comment": {
+        "note_id": "23898",
+        "body": "added 2 commits\n\n\u003cul\u003e\u003cli\u003edb0e5527 - 1 commit from branch \u003ccode\u003emain\u003c/code\u003e\u003c/li\u003e\u003cli\u003e0d239c1b - Merge branch \u0026#39;main\u0026#39; of git.apps.hexmos.com:hexmos/liveapi into ganesh/repodag-v2\u003c/li\u003e\u003c/ul\u003e\n\n[Compare with previous version](/hexmos/liveapi/-/merge_requests/426/diffs?diff_id=14059\u0026start_sha=0000000000000000000000000000000000000000)",
+        "is_system": true,
+        "is_resolvable": false,
+        "resolved": false
+      }
+    },
+    {
+      "kind": "comment",
+      "id": "24393",
+      "created_at": "2025-10-22T15:21:28.481Z",
+      "author": {
+        "provider": "gitlab",
+        "id": 83,
+        "username": "LiveReviewBot",
+        "name": "LiveReviewBot"
+      },
+      "comment": {
+        "note_id": "24393",
+        "discussion_id": "ebc4b5cd57b1c01710c0b17d2b27aea113375bf1",
+        "body": "**Severity: info**\n\n# Code Improvements and Bug Fixes in `repodag` and `prompt` Packages\n\n## Overview\n\nThis change focuses on improving code quality and fixing minor issues within the `repodag` and `prompt` packages. The changes include removing unnecessary variable declarations, correcting typos and grammatical errors, updating outdated comments, and modifying a conditional statement.\n\n## Key Changes\n\n- **`repodag.go`**:\n    - Removed unnecessary variable declarations for `edges` in multiple functions.\n    - Renamed `cerr` to `chainErr` for naming consistency.\n    - Removed an outdated comment related to a function name change.\n    - Removed debug log, consider adding back or replacing with a more informative log.\n    - Consider using structured logging to include the reason why a leaf is isolated.\n- **`prompt` Package (`prompt.go` and `subPrompt.go`)**:\n    - Corrected typos: \"inheritence\" to \"inheritance\".\n    - Corrected grammatical errors in comments related to API endpoints.\n    - Modified conditional statement in `subPrompt.go` related to framework detection, potentially impacting Java framework handling.\n\n## Impact\n\n- **Functionality**:\n    - The removal of unnecessary variable declarations and the renaming of variables improves code readability and maintainability.\n    - The correction of typos and grammatical errors enhances the clarity of documentation.\n    - The change in the conditional statement in `subPrompt.go` *could* impact functionality if the Java frameworks `quarkus` and `jersey` are intended to be handled differently.\n- **Risk**:\n    - The change to the conditional statement in `subPrompt.go` presents a potential risk if the removal of the Java frameworks from the condition was unintentional. Thorough testing is recommended to ensure that the Java frameworks are still handled correctly.\n    - The removal of the debug log in `repodag.go` may make debugging more difficult. Consider adding a more informative log at a different level.",
+        "is_system": false,
+        "is_resolvable": true,
+        "resolved": false
+      }
+    },
+    {
+      "kind": "comment",
+      "id": "24393",
+      "created_at": "2025-10-22T15:21:28.481Z",
+      "author": {
+        "provider": "gitlab",
+        "id": 83,
+        "username": "LiveReviewBot",
+        "name": "LiveReviewBot"
+      },
+      "comment": {
+        "note_id": "24393",
+        "body": "**Severity: info**\n\n# Code Improvements and Bug Fixes in `repodag` and `prompt` Packages\n\n## Overview\n\nThis change focuses on improving code quality and fixing minor issues within the `repodag` and `prompt` packages. The changes include removing unnecessary variable declarations, correcting typos and grammatical errors, updating outdated comments, and modifying a conditional statement.\n\n## Key Changes\n\n- **`repodag.go`**:\n    - Removed unnecessary variable declarations for `edges` in multiple functions.\n    - Renamed `cerr` to `chainErr` for naming consistency.\n    - Removed an outdated comment related to a function name change.\n    - Removed debug log, consider adding back or replacing with a more informative log.\n    - Consider using structured logging to include the reason why a leaf is isolated.\n- **`prompt` Package (`prompt.go` and `subPrompt.go`)**:\n    - Corrected typos: \"inheritence\" to \"inheritance\".\n    - Corrected grammatical errors in comments related to API endpoints.\n    - Modified conditional statement in `subPrompt.go` related to framework detection, potentially impacting Java framework handling.\n\n## Impact\n\n- **Functionality**:\n    - The removal of unnecessary variable declarations and the renaming of variables improves code readability and maintainability.\n    - The correction of typos and grammatical errors enhances the clarity of documentation.\n    - The change in the conditional statement in `subPrompt.go` *could* impact functionality if the Java frameworks `quarkus` and `jersey` are intended to be handled differently.\n- **Risk**:\n    - The change to the conditional statement in `subPrompt.go` presents a potential risk if the removal of the Java frameworks from the condition was unintentional. Thorough testing is recommended to ensure that the Java frameworks are still handled correctly.\n    - The removal of the debug log in `repodag.go` may make debugging more difficult. Consider adding a more informative log at a different level.",
+        "is_system": false,
+        "is_resolvable": true,
+        "resolved": false
+      }
+    },
+    {
+      "kind": "comment",
+      "id": "24394",
+      "created_at": "2025-10-22T15:21:30.067Z",
+      "author": {
+        "provider": "gitlab",
+        "id": 83,
+        "username": "LiveReviewBot",
+        "name": "LiveReviewBot"
+      },
+      "comment": {
+        "note_id": "24394",
+        "discussion_id": "604de5960058a886ffa31a472ac8a229ebb0529c",
+        "body": "**Severity: warning**\n\nTypo: 'inheritence' should be 'inheritance'\n\n**Suggestions:**\n1. Correct the spelling to 'inheritance'.",
+        "is_system": false,
+        "is_resolvable": true,
+        "resolved": false,
+        "file_path": "liveapi-backend/prompt/prompt.go",
+        "line_old": 534
+      }
+    },
+    {
+      "kind": "comment",
+      "id": "24394",
+      "created_at": "2025-10-22T15:21:30.067Z",
+      "author": {
+        "provider": "gitlab",
+        "id": 83,
+        "username": "LiveReviewBot",
+        "name": "LiveReviewBot"
+      },
+      "comment": {
+        "note_id": "24394",
+        "body": "**Severity: warning**\n\nTypo: 'inheritence' should be 'inheritance'\n\n**Suggestions:**\n1. Correct the spelling to 'inheritance'.",
+        "is_system": false,
+        "is_resolvable": true,
+        "resolved": false,
+        "file_path": "liveapi-backend/prompt/prompt.go",
+        "line_old": 534
+      }
+    },
+    {
+      "kind": "comment",
+      "id": "24395",
+      "created_at": "2025-10-22T15:21:32.195Z",
+      "author": {
+        "provider": "gitlab",
+        "id": 83,
+        "username": "LiveReviewBot",
+        "name": "LiveReviewBot"
+      },
+      "comment": {
+        "note_id": "24395",
+        "discussion_id": "d014542865ca6262426d9773c8bb857d9526e367",
+        "body": "**Severity: warning**\n\nGrammar: 'child class base API decalred in @Path('student').' should be 'child class base API declared in @Path('student').'\n\n**Suggestions:**\n1. Correct the spelling to 'declared'.",
+        "is_system": false,
+        "is_resolvable": true,
+        "resolved": false,
+        "file_path": "liveapi-backend/prompt/subPrompt.go",
+        "line_new": 461
+      }
+    },
+    {
+      "kind": "comment",
+      "id": "24395",
+      "created_at": "2025-10-22T15:21:32.195Z",
+      "author": {
+        "provider": "gitlab",
+        "id": 83,
+        "username": "LiveReviewBot",
+        "name": "LiveReviewBot"
+      },
+      "comment": {
+        "note_id": "24395",
+        "body": "**Severity: warning**\n\nGrammar: 'child class base API decalred in @Path('student').' should be 'child class base API declared in @Path('student').'\n\n**Suggestions:**\n1. Correct the spelling to 'declared'.",
+        "is_system": false,
+        "is_resolvable": true,
+        "resolved": false,
+        "file_path": "liveapi-backend/prompt/subPrompt.go",
+        "line_new": 461
+      }
+    },
+    {
+      "kind": "comment",
+      "id": "24396",
+      "created_at": "2025-10-22T15:21:33.688Z",
+      "author": {
+        "provider": "gitlab",
+        "id": 83,
+        "username": "LiveReviewBot",
+        "name": "LiveReviewBot"
+      },
+      "comment": {
+        "note_id": "24396",
+        "discussion_id": "6b9302e9deb29325674dda271722c8fb5e4ea992",
+        "body": "**Severity: warning**\n\nGrammar: 'Base API endpoint '/student' and this extends parent api's.' should be 'Base API endpoint '/student' and this extends parent APIs.'\n\n**Suggestions:**\n1. Correct the grammar to 'APIs'.",
+        "is_system": false,
+        "is_resolvable": true,
+        "resolved": false,
+        "file_path": "liveapi-backend/prompt/subPrompt.go",
+        "line_new": 462
+      }
+    },
+    {
+      "kind": "comment",
+      "id": "24396",
+      "created_at": "2025-10-22T15:21:33.688Z",
+      "author": {
+        "provider": "gitlab",
+        "id": 83,
+        "username": "LiveReviewBot",
+        "name": "LiveReviewBot"
+      },
+      "comment": {
+        "note_id": "24396",
+        "body": "**Severity: warning**\n\nGrammar: 'Base API endpoint '/student' and this extends parent api's.' should be 'Base API endpoint '/student' and this extends parent APIs.'\n\n**Suggestions:**\n1. Correct the grammar to 'APIs'.",
+        "is_system": false,
+        "is_resolvable": true,
+        "resolved": false,
+        "file_path": "liveapi-backend/prompt/subPrompt.go",
+        "line_new": 462
+      }
+    },
+    {
+      "kind": "comment",
+      "id": "24397",
+      "created_at": "2025-10-22T15:21:35.231Z",
+      "author": {
+        "provider": "gitlab",
+        "id": 83,
+        "username": "LiveReviewBot",
+        "name": "LiveReviewBot"
+      },
+      "comment": {
+        "note_id": "24397",
+        "body": "**Severity: warning**\n\nTypo: 'inheritence' should be 'inheritance'\n\n**Suggestions:**\n1. Correct the spelling to 'inheritance'.",
+        "is_system": false,
+        "is_resolvable": true,
+        "resolved": false,
+        "file_path": "liveapi-backend/prompt/subPrompt.go",
+        "line_new": 525
+      }
+    },
+    {
+      "kind": "comment",
+      "id": "24398",
+      "created_at": "2025-10-22T15:21:37.589Z",
+      "author": {
+        "provider": "gitlab",
+        "id": 83,
+        "username": "LiveReviewBot",
+        "name": "LiveReviewBot"
+      },
+      "comment": {
+        "note_id": "24398",
+        "body": "**Severity: warning**\n\nThis condition was previously `detectedFramework == \"JavaScript/Nestjs\" || detectedFramework == \"Java/quarkus\" || detectedFramework == \"Java/jersey\"`. Now it's just `detectedFramework == \"JavaScript/Nestjs\"`.  Consider whether the Java frameworks should be handled differently, or if this is an error.\n\n**Suggestions:**\n1. Double-check if the Java frameworks should be included in this conditional or if they are now handled by `JavaInheritanceExtractionSection`.",
+        "is_system": false,
+        "is_resolvable": true,
+        "resolved": false,
+        "file_path": "liveapi-backend/prompt/subPrompt.go",
+        "line_new": 535
+      }
+    },
+    {
+      "kind": "comment",
+      "id": "24399",
+      "created_at": "2025-10-22T15:21:38.915Z",
+      "author": {
+        "provider": "gitlab",
+        "id": 83,
+        "username": "LiveReviewBot",
+        "name": "LiveReviewBot"
+      },
+      "comment": {
+        "note_id": "24399",
+        "body": "**Severity: info**\n\nConsider adding back the debug log or replacing it with a more informative log at a different level.\n\n**Suggestions:**\n1. Re-evaluate the need for this log statement. If the condition is common, consider a metric instead.",
+        "is_system": false,
+        "is_resolvable": true,
+        "resolved": false,
+        "file_path": "liveapi-backend/qmanager/repodag.go",
+        "line_old": 145
+      }
+    },
+    {
+      "kind": "comment",
+      "id": "24400",
+      "created_at": "2025-10-22T15:21:40.337Z",
+      "author": {
+        "provider": "gitlab",
+        "id": 83,
+        "username": "LiveReviewBot",
+        "name": "LiveReviewBot"
+      },
+      "comment": {
+        "note_id": "24400",
+        "body": "**Severity: info**\n\nConsider using a structured log to include the reason why the leaf is isolated for easier debugging\n\n**Suggestions:**\n1. Add more context to the log message to explain why the leaf is isolated.",
+        "is_system": false,
+        "is_resolvable": true,
+        "resolved": false,
+        "file_path": "liveapi-backend/qmanager/repodag.go",
+        "line_new": 576
+      }
+    },
+    {
+      "kind": "comment",
+      "id": "24401",
+      "created_at": "2025-10-22T15:23:29.047Z",
+      "author": {
+        "provider": "gitlab",
+        "id": 3,
+        "username": "shrijith",
+        "name": "Shrijith"
+      },
+      "comment": {
+        "note_id": "24401",
+        "body": "As a rule within our team - we prefer using plain text logging rather than structured logging.",
+        "is_system": false,
+        "is_resolvable": true,
+        "resolved": false,
+        "file_path": "liveapi-backend/qmanager/repodag.go",
+        "line_new": 576
+      }
+    },
+    {
+      "kind": "comment",
+      "id": "24402",
+      "created_at": "2025-10-22T15:23:37.255Z",
+      "author": {
+        "provider": "gitlab",
+        "id": 83,
+        "username": "LiveReviewBot",
+        "name": "LiveReviewBot"
+      },
+      "comment": {
+        "note_id": "24402",
+        "body": "Understood. I'll keep the logging as plain text. I'll make sure future suggestions respect this preference.\n\n💡 *Learning captured: [LR-LAPB27](#LAPB27)*\n\n```markdown\nID: LR-LAPB27\nScope: Organization\nConfidence: 5\nTags: logging, plain text, structured logging\nRepository: hexmos/liveapi\nSummary: Team prefers plain text logging over structured logging: The team prefers using plain text logging instead of structured logging.\n```",
+        "is_system": false,
+        "is_resolvable": true,
+        "resolved": false,
+        "file_path": "liveapi-backend/qmanager/repodag.go",
+        "line_new": 576
+      }
+    },
+    {
+      "kind": "comment",
+      "id": "24424",
+      "created_at": "2025-10-24T15:00:00.45Z",
+      "author": {
+        "provider": "gitlab",
+        "id": 3,
+        "username": "shrijith",
+        "name": "Shrijith"
+      },
+      "comment": {
+        "note_id": "24424",
+        "body": "@LiveReviewBot What is this about?",
+        "is_system": false,
+        "is_resolvable": true,
+        "resolved": false,
+        "file_path": "liveapi-backend/prompt/subPrompt.go",
+        "line_new": 398
+      }
+    },
+    {
+      "kind": "comment",
+      "id": "24425",
+      "created_at": "2025-10-24T15:00:14.93Z",
+      "author": {
+        "provider": "gitlab",
+        "id": 83,
+        "username": "LiveReviewBot",
+        "name": "LiveReviewBot"
+      },
+      "comment": {
+        "note_id": "24425",
+        "body": "This set of changes includes improvements and bug fixes in the `repodag` and `prompt` packages. Specifically, it addresses issues related to isolated leaf nodes in the repository dependency graph and aims to enhance the accuracy and reliability of prompt generation based on API specifications. The changes also include typo and grammar fixes in comments.",
+        "is_system": false,
+        "is_resolvable": true,
+        "resolved": false,
+        "file_path": "liveapi-backend/prompt/subPrompt.go",
+        "line_new": 398
+      }
+    },
+    {
+      "kind": "comment",
+      "id": "24426",
+      "created_at": "2025-10-25T05:50:45.211Z",
+      "author": {
+        "provider": "gitlab",
+        "id": 83,
+        "username": "LiveReviewBot",
+        "name": "LiveReviewBot"
+      },
+      "comment": {
+        "note_id": "24426",
+        "body": "@Shrijith Re: your comment about documentation:\n\nResponseType: Answer\n\nVerdict: Yes — the doc helps readers understand purpose, inputs/outputs, and behavior without scanning callers.\n\nRationale:\n\n- Clarifying intent of the function improves maintainability and reduces back-and-forth in reviews.\n- Docstring can encode invariants, edge-cases, and side-effects that aren’t obvious from the signature.\n- Future contributors can reason about performance/ordering expectations without re-deriving them from the call graph.\n- Aligns with standard practice: public/complex helpers document purpose, inputs, outputs, and caveats.\n\n\nProposal:\n\n```go\n// the function: one-line purpose.\n//\n// Inputs:\n// - \u003cparam1\u003e: \u003cmeaning/units\u003e\n// - \u003cparam2\u003e: \u003cconstraints\u003e\n//\n// Behavior \u0026 side-effects:\n// - \u003cordering/determinism/mutations\u003e\n// - \u003cerror cases\u003e\n//\n// Returns:\n// - \u003ctype\u003e: \u003ccaller guarantee\u003e\n//\n// Complexity:\n// - \u003chot path/allocations/risks\u003e\n```\n\n\nNotes:\n\n- If this helper is trivially obvious and only used locally, a lighter one-liner may suffice.\n- Happy to refine exact bullets if you share parameter names or the signature.",
+        "is_system": false,
+        "is_resolvable": true,
+        "resolved": false
+      }
+    },
+    {
+      "kind": "comment",
+      "id": "24427",
+      "created_at": "2025-10-27T12:21:13.789Z",
+      "author": {
+        "provider": "gitlab",
+        "id": 83,
+        "username": "LiveReviewBot",
+        "name": "LiveReviewBot"
+      },
+      "comment": {
+        "note_id": "24427",
+        "body": "@Shrijith Re: your comment about documentation:\n\nResponseType: Answer\n\nVerdict: Yes — the doc helps readers understand purpose, inputs/outputs, and behavior without scanning callers.\n\nRationale:\n\n- Clarifying intent of the function improves maintainability and reduces back-and-forth in reviews.\n- Docstring can encode invariants, edge-cases, and side-effects that aren’t obvious from the signature.\n- Future contributors can reason about performance/ordering expectations without re-deriving them from the call graph.\n- Aligns with standard practice: public/complex helpers document purpose, inputs, outputs, and caveats.\n\n\nProposal:\n\n```go\n// the function: one-line purpose.\n//\n// Inputs:\n// - \u003cparam1\u003e: \u003cmeaning/units\u003e\n// - \u003cparam2\u003e: \u003cconstraints\u003e\n//\n// Behavior \u0026 side-effects:\n// - \u003cordering/determinism/mutations\u003e\n// - \u003cerror cases\u003e\n//\n// Returns:\n// - \u003ctype\u003e: \u003ccaller guarantee\u003e\n//\n// Complexity:\n// - \u003chot path/allocations/risks\u003e\n```\n\n\nNotes:\n\n- If this helper is trivially obvious and only used locally, a lighter one-liner may suffice.\n- Happy to refine exact bullets if you share parameter names or the signature.",
+        "is_system": false,
+        "is_resolvable": true,
+        "resolved": false
+      }
+    },
+    {
+      "kind": "comment",
+      "id": "24428",
+      "created_at": "2025-10-27T12:26:42.329Z",
+      "author": {
+        "provider": "gitlab",
+        "id": 83,
+        "username": "LiveReviewBot",
+        "name": "LiveReviewBot"
+      },
+      "comment": {
+        "note_id": "24428",
+        "body": "@Shrijith Re: your comment about documentation:\n\nResponseType: Answer\n\nVerdict: Yes — the doc helps readers understand purpose, inputs/outputs, and behavior without scanning callers.\n\nRationale:\n\n- Clarifying intent of the function improves maintainability and reduces back-and-forth in reviews.\n- Docstring can encode invariants, edge-cases, and side-effects that aren’t obvious from the signature.\n- Future contributors can reason about performance/ordering expectations without re-deriving them from the call graph.\n- Aligns with standard practice: public/complex helpers document purpose, inputs, outputs, and caveats.\n\n\nProposal:\n\n```go\n// the function: one-line purpose.\n//\n// Inputs:\n// - \u003cparam1\u003e: \u003cmeaning/units\u003e\n// - \u003cparam2\u003e: \u003cconstraints\u003e\n//\n// Behavior \u0026 side-effects:\n// - \u003cordering/determinism/mutations\u003e\n// - \u003cerror cases\u003e\n//\n// Returns:\n// - \u003ctype\u003e: \u003ccaller guarantee\u003e\n//\n// Complexity:\n// - \u003chot path/allocations/risks\u003e\n```\n\n\nNotes:\n\n- If this helper is trivially obvious and only used locally, a lighter one-liner may suffice.\n- Happy to refine exact bullets if you share parameter names or the signature.",
+        "is_system": false,
+        "is_resolvable": true,
+        "resolved": false
+      }
+    },
+    {
+      "kind": "comment",
+      "id": "24429",
+      "created_at": "2025-10-27T12:30:53.681Z",
+      "author": {
+        "provider": "gitlab",
+        "id": 83,
+        "username": "LiveReviewBot",
+        "name": "LiveReviewBot"
+      },
+      "comment": {
+        "note_id": "24429",
+        "body": "@Shrijith Re: your comment about documentation:\n\nResponseType: Answer\n\nVerdict: Yes — the doc helps readers understand purpose, inputs/outputs, and behavior without scanning callers.\n\nRationale:\n\n- Clarifying intent of the function improves maintainability and reduces back-and-forth in reviews.\n- Docstring can encode invariants, edge-cases, and side-effects that aren’t obvious from the signature.\n- Future contributors can reason about performance/ordering expectations without re-deriving them from the call graph.\n- Aligns with standard practice: public/complex helpers document purpose, inputs, outputs, and caveats.\n\n\nProposal:\n\n```go\n// the function: one-line purpose.\n//\n// Inputs:\n// - \u003cparam1\u003e: \u003cmeaning/units\u003e\n// - \u003cparam2\u003e: \u003cconstraints\u003e\n//\n// Behavior \u0026 side-effects:\n// - \u003cordering/determinism/mutations\u003e\n// - \u003cerror cases\u003e\n//\n// Returns:\n// - \u003ctype\u003e: \u003ccaller guarantee\u003e\n//\n// Complexity:\n// - \u003chot path/allocations/risks\u003e\n```\n\n\nNotes:\n\n- If this helper is trivially obvious and only used locally, a lighter one-liner may suffice.\n- Happy to refine exact bullets if you share parameter names or the signature.",
+        "is_system": false,
+        "is_resolvable": true,
+        "resolved": false
+      }
+    },
+    {
+      "kind": "comment",
+      "id": "24430",
+      "created_at": "2025-10-27T12:31:10.994Z",
+      "author": {
+        "provider": "gitlab",
+        "id": 83,
+        "username": "LiveReviewBot",
+        "name": "LiveReviewBot"
+      },
+      "comment": {
+        "note_id": "24430",
+        "body": "@Shrijith Re: your comment about documentation:\n\nResponseType: Answer\n\nVerdict: Yes — the doc helps readers understand purpose, inputs/outputs, and behavior without scanning callers.\n\nRationale:\n\n- Clarifying intent of the function improves maintainability and reduces back-and-forth in reviews.\n- Docstring can encode invariants, edge-cases, and side-effects that aren’t obvious from the signature.\n- Future contributors can reason about performance/ordering expectations without re-deriving them from the call graph.\n- Aligns with standard practice: public/complex helpers document purpose, inputs, outputs, and caveats.\n\n\nProposal:\n\n```go\n// the function: one-line purpose.\n//\n// Inputs:\n// - \u003cparam1\u003e: \u003cmeaning/units\u003e\n// - \u003cparam2\u003e: \u003cconstraints\u003e\n//\n// Behavior \u0026 side-effects:\n// - \u003cordering/determinism/mutations\u003e\n// - \u003cerror cases\u003e\n//\n// Returns:\n// - \u003ctype\u003e: \u003ccaller guarantee\u003e\n//\n// Complexity:\n// - \u003chot path/allocations/risks\u003e\n```\n\n\nNotes:\n\n- If this helper is trivially obvious and only used locally, a lighter one-liner may suffice.\n- Happy to refine exact bullets if you share parameter names or the signature.",
+        "is_system": false,
+        "is_resolvable": true,
+        "resolved": false
+      }
+    },
+    {
+      "kind": "comment",
+      "id": "24431",
+      "created_at": "2025-10-27T12:31:59.315Z",
+      "author": {
+        "provider": "gitlab",
+        "id": 83,
+        "username": "LiveReviewBot",
+        "name": "LiveReviewBot"
+      },
+      "comment": {
+        "note_id": "24431",
+        "body": "@Shrijith Re: your comment about documentation:\n\nResponseType: Answer\n\nVerdict: Yes — the doc helps readers understand purpose, inputs/outputs, and behavior without scanning callers.\n\nRationale:\n\n- Clarifying intent of the function improves maintainability and reduces back-and-forth in reviews.\n- Docstring can encode invariants, edge-cases, and side-effects that aren’t obvious from the signature.\n- Future contributors can reason about performance/ordering expectations without re-deriving them from the call graph.\n- Aligns with standard practice: public/complex helpers document purpose, inputs, outputs, and caveats.\n\n\nProposal:\n\n```go\n// the function: one-line purpose.\n//\n// Inputs:\n// - \u003cparam1\u003e: \u003cmeaning/units\u003e\n// - \u003cparam2\u003e: \u003cconstraints\u003e\n//\n// Behavior \u0026 side-effects:\n// - \u003cordering/determinism/mutations\u003e\n// - \u003cerror cases\u003e\n//\n// Returns:\n// - \u003ctype\u003e: \u003ccaller guarantee\u003e\n//\n// Complexity:\n// - \u003chot path/allocations/risks\u003e\n```\n\n\nNotes:\n\n- If this helper is trivially obvious and only used locally, a lighter one-liner may suffice.\n- Happy to refine exact bullets if you share parameter names or the signature.",
+        "is_system": false,
+        "is_resolvable": true,
+        "resolved": false
+      }
+    },
+    {
+      "kind": "comment",
+      "id": "24432",
+      "created_at": "2025-10-27T14:21:37.205Z",
+      "author": {
+        "provider": "gitlab",
+        "id": 83,
+        "username": "LiveReviewBot",
+        "name": "LiveReviewBot"
+      },
+      "comment": {
+        "note_id": "24432",
+        "body": "@Shrijith Re: your comment about documentation:\n\nResponseType: Answer\n\nVerdict: Yes — the doc helps readers understand purpose, inputs/outputs, and behavior without scanning callers.\n\nRationale:\n\n- Clarifying intent of the function improves maintainability and reduces back-and-forth in reviews.\n- Docstring can encode invariants, edge-cases, and side-effects that aren’t obvious from the signature.\n- Future contributors can reason about performance/ordering expectations without re-deriving them from the call graph.\n- Aligns with standard practice: public/complex helpers document purpose, inputs, outputs, and caveats.\n\n\nProposal:\n\n```go\n// the function: one-line purpose.\n//\n// Inputs:\n// - \u003cparam1\u003e: \u003cmeaning/units\u003e\n// - \u003cparam2\u003e: \u003cconstraints\u003e\n//\n// Behavior \u0026 side-effects:\n// - \u003cordering/determinism/mutations\u003e\n// - \u003cerror cases\u003e\n//\n// Returns:\n// - \u003ctype\u003e: \u003ccaller guarantee\u003e\n//\n// Complexity:\n// - \u003chot path/allocations/risks\u003e\n```\n\n\nNotes:\n\n- If this helper is trivially obvious and only used locally, a lighter one-liner may suffice.\n- Happy to refine exact bullets if you share parameter names or the signature.",
+        "is_system": false,
+        "is_resolvable": true,
+        "resolved": false
+      }
+    }
+  ],
+  "comment_tree": {
+    "roots": [
+      {
+        "id": "23778",
+        "discussion_id": "e9c39eeb436686ccef21bb871072f703a905134c",
+        "author": {
+          "provider": "gitlab",
+          "id": 48,
+          "username": "Ganesh",
+          "name": "Ganesh Kumar"
+        },
+        "body": "added 12 commits\n\n\u003cul\u003e\u003cli\u003e4d931c7b...4ccc5630 - 7 commits from branch \u003ccode\u003emain\u003c/code\u003e\u003c/li\u003e\u003cli\u003ed751ac7a - Merge branch \u0026#39;main\u0026#39; of git.apps.hexmos.com:hexmos/liveapi into ganesh/repodag-v2\u003c/li\u003e\u003cli\u003eac332385 - reverted-changes-adding-system-prompt\u003c/li\u003e\u003cli\u003ef104dad6 - made-half-java-code-example\u003c/li\u003e\u003cli\u003ea0c2082b - removed-example\u003c/li\u003e\u003cli\u003e8e214e02 - reverted-with-small-changes\u003c/li\u003e\u003c/ul\u003e\n\n[Compare with previous version](/hexmos/liveapi/-/merge_requests/426/diffs?diff_id=13968\u0026start_sha=4d931c7b634314f05081a11df5a75ebad3d9e62f)",
+        "created_at": "2025-08-22T14:48:29.269Z"
+      },
+      {
+        "id": "23782",
+        "discussion_id": "3062d1a4778d37501f5a05cf2749ce091fed6955",
+        "author": {
+          "provider": "gitlab",
+          "id": 48,
+          "username": "Ganesh",
+          "name": "Ganesh Kumar"
+        },
+        "body": "added 2 commits\n\n\u003cul\u003e\u003cli\u003e7926e27f - eddi-stable-with-this-prompt\u003c/li\u003e\u003cli\u003e3f4f7f1f - reverted-all-changes\u003c/li\u003e\u003c/ul\u003e\n\n[Compare with previous version](/hexmos/liveapi/-/merge_requests/426/diffs?diff_id=13977\u0026start_sha=8e214e02649b3fd33abaeaf16feaee1acfc7b459)",
+        "created_at": "2025-08-22T16:45:47.514Z"
+      },
+      {
+        "id": "23787",
+        "discussion_id": "2a59f0656f4c0259186aba90c95134435985e8f9",
+        "author": {
+          "provider": "gitlab",
+          "id": 48,
+          "username": "Ganesh",
+          "name": "Ganesh Kumar"
+        },
+        "body": "added 3 commits\n\n\u003cul\u003e\u003cli\u003ef7198f01 - removed-low-qaulity-prompt\u003c/li\u003e\u003cli\u003e362e6640 - made-sorted-bathes\u003c/li\u003e\u003cli\u003ef8faf426 - go-fumpt\u003c/li\u003e\u003c/ul\u003e\n\n[Compare with previous version](/hexmos/liveapi/-/merge_requests/426/diffs?diff_id=13984\u0026start_sha=3f4f7f1f2138a177cf1ea5b7edb192340e9dacd7)",
+        "created_at": "2025-08-23T14:52:03.636Z"
+      },
+      {
+        "id": "23792",
+        "discussion_id": "0719931e2ff3c4b9315625df7d08d50de003d014",
+        "author": {
+          "provider": "gitlab",
+          "id": 48,
+          "username": "Ganesh",
+          "name": "Ganesh Kumar"
+        },
+        "body": "added 5 commits\n\n\u003cul\u003e\u003cli\u003e10b9e32d - stable-highest-recall\u003c/li\u003e\u003cli\u003e910e7a0c - fixed-issues-wit-api-misses\u003c/li\u003e\u003cli\u003e9baf8a43 - made-seperate-java-ts\u003c/li\u003e\u003cli\u003e4f6bd541 - stable-recal-under-repodag-v2\u003c/li\u003e\u003cli\u003e9d47273c - go-fumpt\u003c/li\u003e\u003c/ul\u003e\n\n[Compare with previous version](/hexmos/liveapi/-/merge_requests/426/diffs?diff_id=13990\u0026start_sha=f8faf426c1a1055ec5eeb1d76419339b06e58941)",
+        "created_at": "2025-08-24T17:43:34.504Z"
+      },
+      {
+        "id": "23793",
+        "discussion_id": "b3e7f2461010772461fbecce5913bf632b714bb4",
+        "author": {
+          "provider": "gitlab",
+          "id": 48,
+          "username": "Ganesh",
+          "name": "Ganesh Kumar"
+        },
+        "body": "added 6 commits\n\n\u003cul\u003e\u003cli\u003e9d47273c...0c2639dd - 5 commits from branch \u003ccode\u003emain\u003c/code\u003e\u003c/li\u003e\u003cli\u003e7f6b232f - Merge branch \u0026#39;main\u0026#39; of git.apps.hexmos.com:hexmos/liveapi into ganesh/repodag-v2\u003c/li\u003e\u003c/ul\u003e\n\n[Compare with previous version](/hexmos/liveapi/-/merge_requests/426/diffs?diff_id=13991\u0026start_sha=9d47273c1058f7f78e6a061c13df73a5e5e87dd1)",
+        "created_at": "2025-08-24T17:43:58.946Z"
+      },
+      {
+        "id": "23817",
+        "discussion_id": "1cf72417c387bfc9818df2e10b61ea28a1112200",
+        "author": {
+          "provider": "gitlab",
+          "id": 48,
+          "username": "Ganesh",
+          "name": "Ganesh Kumar"
+        },
+        "body": "added 2 commits\n\n\u003cul\u003e\u003cli\u003effa9df0c - added-correct-ctag\u003c/li\u003e\u003cli\u003e4f9c7246 - removeing-logs-rename-varaibles\u003c/li\u003e\u003c/ul\u003e\n\n[Compare with previous version](/hexmos/liveapi/-/merge_requests/426/diffs?diff_id=14004\u0026start_sha=7f6b232f26ffc4b99d733acd94c36f7a54cf200c)",
+        "created_at": "2025-08-26T13:49:25.129Z"
+      },
+      {
+        "id": "23818",
+        "discussion_id": "537bbdb35f59a1c7533e3412bdbf5088b990a820",
+        "author": {
+          "provider": "gitlab",
+          "id": 48,
+          "username": "Ganesh",
+          "name": "Ganesh Kumar"
+        },
+        "body": "changed the description",
+        "created_at": "2025-08-26T14:04:24.617Z"
+      },
+      {
+        "id": "23834",
+        "discussion_id": "1f6a64e14c90fdcbd720f74c21523412bfe2b364",
+        "author": {
+          "provider": "gitlab",
+          "id": 48,
+          "username": "Ganesh",
+          "name": "Ganesh Kumar"
+        },
+        "body": "changed this line in [version 7 of the diff](/hexmos/liveapi/-/merge_requests/426/diffs?diff_id=14008\u0026start_sha=4f9c7246b96b7849e61b69ee7066dfd381b84183#6d245f34450a909ae19e572b58b132017e7271ec_535_534)",
+        "created_at": "2025-08-26T14:52:37.569Z",
+        "file_path": "liveapi-backend/prompt/prompt.go",
+        "line_new": 535
+      },
+      {
+        "id": "23835",
+        "discussion_id": "32b703213de10de1c17ae1548186a89741dea01d",
+        "author": {
+          "provider": "gitlab",
+          "id": 48,
+          "username": "Ganesh",
+          "name": "Ganesh Kumar"
+        },
+        "body": "changed this line in [version 7 of the diff](/hexmos/liveapi/-/merge_requests/426/diffs?diff_id=14008\u0026start_sha=4f9c7246b96b7849e61b69ee7066dfd381b84183#98aff874ccf5b8d340bf569886726f1c20a8a2d9_390_390)",
+        "created_at": "2025-08-26T14:52:37.921Z",
+        "file_path": "liveapi-backend/prompt/subPrompt.go",
+        "line_new": 390
+      },
+      {
+        "id": "23836",
+        "discussion_id": "af08a08782dba88f227924c0e137cacbff583ad4",
+        "author": {
+          "provider": "gitlab",
+          "id": 48,
+          "username": "Ganesh",
+          "name": "Ganesh Kumar"
+        },
+        "body": "changed this line in [version 7 of the diff](/hexmos/liveapi/-/merge_requests/426/diffs?diff_id=14008\u0026start_sha=4f9c7246b96b7849e61b69ee7066dfd381b84183#98aff874ccf5b8d340bf569886726f1c20a8a2d9_485_485)",
+        "created_at": "2025-08-26T14:52:38.388Z",
+        "file_path": "liveapi-backend/prompt/subPrompt.go",
+        "line_new": 485
+      },
+      {
+        "id": "23837",
+        "discussion_id": "d68c161699ae8118cf5cbeebca037bfad36a6190",
+        "author": {
+          "provider": "gitlab",
+          "id": 48,
+          "username": "Ganesh",
+          "name": "Ganesh Kumar"
+        },
+        "body": "changed this line in [version 7 of the diff](/hexmos/liveapi/-/merge_requests/426/diffs?diff_id=14008\u0026start_sha=4f9c7246b96b7849e61b69ee7066dfd381b84183#98aff874ccf5b8d340bf569886726f1c20a8a2d9_486_485)",
+        "created_at": "2025-08-26T14:52:38.605Z",
+        "file_path": "liveapi-backend/prompt/subPrompt.go",
+        "line_new": 486
+      },
+      {
+        "id": "23838",
+        "discussion_id": "bb66e6131a0c93e41413588790f65a30bdec49a9",
+        "author": {
+          "provider": "gitlab",
+          "id": 48,
+          "username": "Ganesh",
+          "name": "Ganesh Kumar"
+        },
+        "body": "changed this line in [version 7 of the diff](/hexmos/liveapi/-/merge_requests/426/diffs?diff_id=14008\u0026start_sha=4f9c7246b96b7849e61b69ee7066dfd381b84183#216b47d213dc08dbbd9f450419357e06bd681764_259_260)",
+        "created_at": "2025-08-26T14:52:39.808Z",
+        "file_path": "liveapi-backend/qmanager/repodag.go",
+        "line_new": 259
+      },
+      {
+        "id": "23839",
+        "discussion_id": "489713d8a6253a15111a0a920d41e3c00f068905",
+        "author": {
+          "provider": "gitlab",
+          "id": 48,
+          "username": "Ganesh",
+          "name": "Ganesh Kumar"
+        },
+        "body": "added 1 commit\n\n\u003cul\u003e\u003cli\u003ec07a322a - addresed-major-lr-comments\u003c/li\u003e\u003c/ul\u003e\n\n[Compare with previous version](/hexmos/liveapi/-/merge_requests/426/diffs?diff_id=14008\u0026start_sha=4f9c7246b96b7849e61b69ee7066dfd381b84183)",
+        "created_at": "2025-08-26T14:52:40.33Z"
+      },
+      {
+        "id": "23864",
+        "discussion_id": "c484e5e798615180d70613ddcc637ecb41b4b11d",
+        "author": {
+          "provider": "gitlab",
+          "id": 48,
+          "username": "Ganesh",
+          "name": "Ganesh Kumar"
+        },
+        "body": "added 5 commits\n\n\u003cul\u003e\u003cli\u003ec07a322a...2a8b27f5 - 4 commits from branch \u003ccode\u003emain\u003c/code\u003e\u003c/li\u003e\u003cli\u003e9e3fda7a - Merge branch \u0026#39;main\u0026#39; of git.apps.hexmos.com:hexmos/liveapi into ganesh/repodag-v2\u003c/li\u003e\u003c/ul\u003e\n\n[Compare with previous version](/hexmos/liveapi/-/merge_requests/426/diffs?diff_id=14021\u0026start_sha=c07a322a1003da71168dc72345201b81bdecdc40)",
+        "created_at": "2025-08-26T16:19:59.348Z"
+      },
+      {
+        "id": "23897",
+        "discussion_id": "630531027c742d272bd186b4921355ef4632dceb",
+        "author": {
+          "provider": "gitlab",
+          "id": 48,
+          "username": "Ganesh",
+          "name": "Ganesh Kumar"
+        },
+        "body": "restored source branch `ganesh/repodag-v2`",
+        "created_at": "2025-08-30T16:11:19.382Z"
+      },
+      {
+        "id": "23898",
+        "discussion_id": "92a0c015294e0eab72974c70b03c9ecc0214ee1d",
+        "author": {
+          "provider": "gitlab",
+          "id": 48,
+          "username": "Ganesh",
+          "name": "Ganesh Kumar"
+        },
+        "body": "added 2 commits\n\n\u003cul\u003e\u003cli\u003edb0e5527 - 1 commit from branch \u003ccode\u003emain\u003c/code\u003e\u003c/li\u003e\u003cli\u003e0d239c1b - Merge branch \u0026#39;main\u0026#39; of git.apps.hexmos.com:hexmos/liveapi into ganesh/repodag-v2\u003c/li\u003e\u003c/ul\u003e\n\n[Compare with previous version](/hexmos/liveapi/-/merge_requests/426/diffs?diff_id=14059\u0026start_sha=0000000000000000000000000000000000000000)",
+        "created_at": "2025-08-30T16:11:19.434Z"
+      },
+      {
+        "id": "24393",
+        "discussion_id": "ebc4b5cd57b1c01710c0b17d2b27aea113375bf1",
+        "author": {
+          "provider": "gitlab",
+          "id": 83,
+          "username": "LiveReviewBot",
+          "name": "LiveReviewBot"
+        },
+        "body": "**Severity: info**\n\n# Code Improvements and Bug Fixes in `repodag` and `prompt` Packages\n\n## Overview\n\nThis change focuses on improving code quality and fixing minor issues within the `repodag` and `prompt` packages. The changes include removing unnecessary variable declarations, correcting typos and grammatical errors, updating outdated comments, and modifying a conditional statement.\n\n## Key Changes\n\n- **`repodag.go`**:\n    - Removed unnecessary variable declarations for `edges` in multiple functions.\n    - Renamed `cerr` to `chainErr` for naming consistency.\n    - Removed an outdated comment related to a function name change.\n    - Removed debug log, consider adding back or replacing with a more informative log.\n    - Consider using structured logging to include the reason why a leaf is isolated.\n- **`prompt` Package (`prompt.go` and `subPrompt.go`)**:\n    - Corrected typos: \"inheritence\" to \"inheritance\".\n    - Corrected grammatical errors in comments related to API endpoints.\n    - Modified conditional statement in `subPrompt.go` related to framework detection, potentially impacting Java framework handling.\n\n## Impact\n\n- **Functionality**:\n    - The removal of unnecessary variable declarations and the renaming of variables improves code readability and maintainability.\n    - The correction of typos and grammatical errors enhances the clarity of documentation.\n    - The change in the conditional statement in `subPrompt.go` *could* impact functionality if the Java frameworks `quarkus` and `jersey` are intended to be handled differently.\n- **Risk**:\n    - The change to the conditional statement in `subPrompt.go` presents a potential risk if the removal of the Java frameworks from the condition was unintentional. Thorough testing is recommended to ensure that the Java frameworks are still handled correctly.\n    - The removal of the debug log in `repodag.go` may make debugging more difficult. Consider adding a more informative log at a different level.",
+        "created_at": "2025-10-22T15:21:28.481Z"
+      },
+      {
+        "id": "24394",
+        "discussion_id": "604de5960058a886ffa31a472ac8a229ebb0529c",
+        "author": {
+          "provider": "gitlab",
+          "id": 83,
+          "username": "LiveReviewBot",
+          "name": "LiveReviewBot"
+        },
+        "body": "**Severity: warning**\n\nTypo: 'inheritence' should be 'inheritance'\n\n**Suggestions:**\n1. Correct the spelling to 'inheritance'.",
+        "created_at": "2025-10-22T15:21:30.067Z",
+        "file_path": "liveapi-backend/prompt/prompt.go",
+        "line_old": 534
+      },
+      {
+        "id": "24395",
+        "discussion_id": "d014542865ca6262426d9773c8bb857d9526e367",
+        "author": {
+          "provider": "gitlab",
+          "id": 83,
+          "username": "LiveReviewBot",
+          "name": "LiveReviewBot"
+        },
+        "body": "**Severity: warning**\n\nGrammar: 'child class base API decalred in @Path('student').' should be 'child class base API declared in @Path('student').'\n\n**Suggestions:**\n1. Correct the spelling to 'declared'.",
+        "created_at": "2025-10-22T15:21:32.195Z",
+        "file_path": "liveapi-backend/prompt/subPrompt.go",
+        "line_new": 461
+      },
+      {
+        "id": "24396",
+        "discussion_id": "6b9302e9deb29325674dda271722c8fb5e4ea992",
+        "author": {
+          "provider": "gitlab",
+          "id": 83,
+          "username": "LiveReviewBot",
+          "name": "LiveReviewBot"
+        },
+        "body": "**Severity: warning**\n\nGrammar: 'Base API endpoint '/student' and this extends parent api's.' should be 'Base API endpoint '/student' and this extends parent APIs.'\n\n**Suggestions:**\n1. Correct the grammar to 'APIs'.",
+        "created_at": "2025-10-22T15:21:33.688Z",
+        "file_path": "liveapi-backend/prompt/subPrompt.go",
+        "line_new": 462
+      },
+      {
+        "id": "24432",
+        "author": {
+          "provider": "gitlab",
+          "id": 83,
+          "username": "LiveReviewBot",
+          "name": "LiveReviewBot"
+        },
+        "body": "@Shrijith Re: your comment about documentation:\n\nResponseType: Answer\n\nVerdict: Yes — the doc helps readers understand purpose, inputs/outputs, and behavior without scanning callers.\n\nRationale:\n\n- Clarifying intent of the function improves maintainability and reduces back-and-forth in reviews.\n- Docstring can encode invariants, edge-cases, and side-effects that aren’t obvious from the signature.\n- Future contributors can reason about performance/ordering expectations without re-deriving them from the call graph.\n- Aligns with standard practice: public/complex helpers document purpose, inputs, outputs, and caveats.\n\n\nProposal:\n\n```go\n// the function: one-line purpose.\n//\n// Inputs:\n// - \u003cparam1\u003e: \u003cmeaning/units\u003e\n// - \u003cparam2\u003e: \u003cconstraints\u003e\n//\n// Behavior \u0026 side-effects:\n// - \u003cordering/determinism/mutations\u003e\n// - \u003cerror cases\u003e\n//\n// Returns:\n// - \u003ctype\u003e: \u003ccaller guarantee\u003e\n//\n// Complexity:\n// - \u003chot path/allocations/risks\u003e\n```\n\n\nNotes:\n\n- If this helper is trivially obvious and only used locally, a lighter one-liner may suffice.\n- Happy to refine exact bullets if you share parameter names or the signature.",
+        "created_at": "2025-10-27T14:21:37.205Z"
+      },
+      {
+        "id": "24431",
+        "author": {
+          "provider": "gitlab",
+          "id": 83,
+          "username": "LiveReviewBot",
+          "name": "LiveReviewBot"
+        },
+        "body": "@Shrijith Re: your comment about documentation:\n\nResponseType: Answer\n\nVerdict: Yes — the doc helps readers understand purpose, inputs/outputs, and behavior without scanning callers.\n\nRationale:\n\n- Clarifying intent of the function improves maintainability and reduces back-and-forth in reviews.\n- Docstring can encode invariants, edge-cases, and side-effects that aren’t obvious from the signature.\n- Future contributors can reason about performance/ordering expectations without re-deriving them from the call graph.\n- Aligns with standard practice: public/complex helpers document purpose, inputs, outputs, and caveats.\n\n\nProposal:\n\n```go\n// the function: one-line purpose.\n//\n// Inputs:\n// - \u003cparam1\u003e: \u003cmeaning/units\u003e\n// - \u003cparam2\u003e: \u003cconstraints\u003e\n//\n// Behavior \u0026 side-effects:\n// - \u003cordering/determinism/mutations\u003e\n// - \u003cerror cases\u003e\n//\n// Returns:\n// - \u003ctype\u003e: \u003ccaller guarantee\u003e\n//\n// Complexity:\n// - \u003chot path/allocations/risks\u003e\n```\n\n\nNotes:\n\n- If this helper is trivially obvious and only used locally, a lighter one-liner may suffice.\n- Happy to refine exact bullets if you share parameter names or the signature.",
+        "created_at": "2025-10-27T12:31:59.315Z"
+      },
+      {
+        "id": "24430",
+        "author": {
+          "provider": "gitlab",
+          "id": 83,
+          "username": "LiveReviewBot",
+          "name": "LiveReviewBot"
+        },
+        "body": "@Shrijith Re: your comment about documentation:\n\nResponseType: Answer\n\nVerdict: Yes — the doc helps readers understand purpose, inputs/outputs, and behavior without scanning callers.\n\nRationale:\n\n- Clarifying intent of the function improves maintainability and reduces back-and-forth in reviews.\n- Docstring can encode invariants, edge-cases, and side-effects that aren’t obvious from the signature.\n- Future contributors can reason about performance/ordering expectations without re-deriving them from the call graph.\n- Aligns with standard practice: public/complex helpers document purpose, inputs, outputs, and caveats.\n\n\nProposal:\n\n```go\n// the function: one-line purpose.\n//\n// Inputs:\n// - \u003cparam1\u003e: \u003cmeaning/units\u003e\n// - \u003cparam2\u003e: \u003cconstraints\u003e\n//\n// Behavior \u0026 side-effects:\n// - \u003cordering/determinism/mutations\u003e\n// - \u003cerror cases\u003e\n//\n// Returns:\n// - \u003ctype\u003e: \u003ccaller guarantee\u003e\n//\n// Complexity:\n// - \u003chot path/allocations/risks\u003e\n```\n\n\nNotes:\n\n- If this helper is trivially obvious and only used locally, a lighter one-liner may suffice.\n- Happy to refine exact bullets if you share parameter names or the signature.",
+        "created_at": "2025-10-27T12:31:10.994Z"
+      },
+      {
+        "id": "24429",
+        "author": {
+          "provider": "gitlab",
+          "id": 83,
+          "username": "LiveReviewBot",
+          "name": "LiveReviewBot"
+        },
+        "body": "@Shrijith Re: your comment about documentation:\n\nResponseType: Answer\n\nVerdict: Yes — the doc helps readers understand purpose, inputs/outputs, and behavior without scanning callers.\n\nRationale:\n\n- Clarifying intent of the function improves maintainability and reduces back-and-forth in reviews.\n- Docstring can encode invariants, edge-cases, and side-effects that aren’t obvious from the signature.\n- Future contributors can reason about performance/ordering expectations without re-deriving them from the call graph.\n- Aligns with standard practice: public/complex helpers document purpose, inputs, outputs, and caveats.\n\n\nProposal:\n\n```go\n// the function: one-line purpose.\n//\n// Inputs:\n// - \u003cparam1\u003e: \u003cmeaning/units\u003e\n// - \u003cparam2\u003e: \u003cconstraints\u003e\n//\n// Behavior \u0026 side-effects:\n// - \u003cordering/determinism/mutations\u003e\n// - \u003cerror cases\u003e\n//\n// Returns:\n// - \u003ctype\u003e: \u003ccaller guarantee\u003e\n//\n// Complexity:\n// - \u003chot path/allocations/risks\u003e\n```\n\n\nNotes:\n\n- If this helper is trivially obvious and only used locally, a lighter one-liner may suffice.\n- Happy to refine exact bullets if you share parameter names or the signature.",
+        "created_at": "2025-10-27T12:30:53.681Z"
+      },
+      {
+        "id": "24428",
+        "author": {
+          "provider": "gitlab",
+          "id": 83,
+          "username": "LiveReviewBot",
+          "name": "LiveReviewBot"
+        },
+        "body": "@Shrijith Re: your comment about documentation:\n\nResponseType: Answer\n\nVerdict: Yes — the doc helps readers understand purpose, inputs/outputs, and behavior without scanning callers.\n\nRationale:\n\n- Clarifying intent of the function improves maintainability and reduces back-and-forth in reviews.\n- Docstring can encode invariants, edge-cases, and side-effects that aren’t obvious from the signature.\n- Future contributors can reason about performance/ordering expectations without re-deriving them from the call graph.\n- Aligns with standard practice: public/complex helpers document purpose, inputs, outputs, and caveats.\n\n\nProposal:\n\n```go\n// the function: one-line purpose.\n//\n// Inputs:\n// - \u003cparam1\u003e: \u003cmeaning/units\u003e\n// - \u003cparam2\u003e: \u003cconstraints\u003e\n//\n// Behavior \u0026 side-effects:\n// - \u003cordering/determinism/mutations\u003e\n// - \u003cerror cases\u003e\n//\n// Returns:\n// - \u003ctype\u003e: \u003ccaller guarantee\u003e\n//\n// Complexity:\n// - \u003chot path/allocations/risks\u003e\n```\n\n\nNotes:\n\n- If this helper is trivially obvious and only used locally, a lighter one-liner may suffice.\n- Happy to refine exact bullets if you share parameter names or the signature.",
+        "created_at": "2025-10-27T12:26:42.329Z"
+      },
+      {
+        "id": "24427",
+        "author": {
+          "provider": "gitlab",
+          "id": 83,
+          "username": "LiveReviewBot",
+          "name": "LiveReviewBot"
+        },
+        "body": "@Shrijith Re: your comment about documentation:\n\nResponseType: Answer\n\nVerdict: Yes — the doc helps readers understand purpose, inputs/outputs, and behavior without scanning callers.\n\nRationale:\n\n- Clarifying intent of the function improves maintainability and reduces back-and-forth in reviews.\n- Docstring can encode invariants, edge-cases, and side-effects that aren’t obvious from the signature.\n- Future contributors can reason about performance/ordering expectations without re-deriving them from the call graph.\n- Aligns with standard practice: public/complex helpers document purpose, inputs, outputs, and caveats.\n\n\nProposal:\n\n```go\n// the function: one-line purpose.\n//\n// Inputs:\n// - \u003cparam1\u003e: \u003cmeaning/units\u003e\n// - \u003cparam2\u003e: \u003cconstraints\u003e\n//\n// Behavior \u0026 side-effects:\n// - \u003cordering/determinism/mutations\u003e\n// - \u003cerror cases\u003e\n//\n// Returns:\n// - \u003ctype\u003e: \u003ccaller guarantee\u003e\n//\n// Complexity:\n// - \u003chot path/allocations/risks\u003e\n```\n\n\nNotes:\n\n- If this helper is trivially obvious and only used locally, a lighter one-liner may suffice.\n- Happy to refine exact bullets if you share parameter names or the signature.",
+        "created_at": "2025-10-27T12:21:13.789Z"
+      },
+      {
+        "id": "24426",
+        "author": {
+          "provider": "gitlab",
+          "id": 83,
+          "username": "LiveReviewBot",
+          "name": "LiveReviewBot"
+        },
+        "body": "@Shrijith Re: your comment about documentation:\n\nResponseType: Answer\n\nVerdict: Yes — the doc helps readers understand purpose, inputs/outputs, and behavior without scanning callers.\n\nRationale:\n\n- Clarifying intent of the function improves maintainability and reduces back-and-forth in reviews.\n- Docstring can encode invariants, edge-cases, and side-effects that aren’t obvious from the signature.\n- Future contributors can reason about performance/ordering expectations without re-deriving them from the call graph.\n- Aligns with standard practice: public/complex helpers document purpose, inputs, outputs, and caveats.\n\n\nProposal:\n\n```go\n// the function: one-line purpose.\n//\n// Inputs:\n// - \u003cparam1\u003e: \u003cmeaning/units\u003e\n// - \u003cparam2\u003e: \u003cconstraints\u003e\n//\n// Behavior \u0026 side-effects:\n// - \u003cordering/determinism/mutations\u003e\n// - \u003cerror cases\u003e\n//\n// Returns:\n// - \u003ctype\u003e: \u003ccaller guarantee\u003e\n//\n// Complexity:\n// - \u003chot path/allocations/risks\u003e\n```\n\n\nNotes:\n\n- If this helper is trivially obvious and only used locally, a lighter one-liner may suffice.\n- Happy to refine exact bullets if you share parameter names or the signature.",
+        "created_at": "2025-10-25T05:50:45.211Z"
+      },
+      {
+        "id": "24425",
+        "author": {
+          "provider": "gitlab",
+          "id": 83,
+          "username": "LiveReviewBot",
+          "name": "LiveReviewBot"
+        },
+        "body": "This set of changes includes improvements and bug fixes in the `repodag` and `prompt` packages. Specifically, it addresses issues related to isolated leaf nodes in the repository dependency graph and aims to enhance the accuracy and reliability of prompt generation based on API specifications. The changes also include typo and grammar fixes in comments.",
+        "created_at": "2025-10-24T15:00:14.93Z",
+        "file_path": "liveapi-backend/prompt/subPrompt.go",
+        "line_new": 398
+      },
+      {
+        "id": "24424",
+        "author": {
+          "provider": "gitlab",
+          "id": 3,
+          "username": "shrijith",
+          "name": "Shrijith"
+        },
+        "body": "@LiveReviewBot What is this about?",
+        "created_at": "2025-10-24T15:00:00.45Z",
+        "file_path": "liveapi-backend/prompt/subPrompt.go",
+        "line_new": 398
+      },
+      {
+        "id": "24402",
+        "author": {
+          "provider": "gitlab",
+          "id": 83,
+          "username": "LiveReviewBot",
+          "name": "LiveReviewBot"
+        },
+        "body": "Understood. I'll keep the logging as plain text. I'll make sure future suggestions respect this preference.\n\n💡 *Learning captured: [LR-LAPB27](#LAPB27)*\n\n```markdown\nID: LR-LAPB27\nScope: Organization\nConfidence: 5\nTags: logging, plain text, structured logging\nRepository: hexmos/liveapi\nSummary: Team prefers plain text logging over structured logging: The team prefers using plain text logging instead of structured logging.\n```",
+        "created_at": "2025-10-22T15:23:37.255Z",
+        "file_path": "liveapi-backend/qmanager/repodag.go",
+        "line_new": 576
+      },
+      {
+        "id": "24401",
+        "author": {
+          "provider": "gitlab",
+          "id": 3,
+          "username": "shrijith",
+          "name": "Shrijith"
+        },
+        "body": "As a rule within our team - we prefer using plain text logging rather than structured logging.",
+        "created_at": "2025-10-22T15:23:29.047Z",
+        "file_path": "liveapi-backend/qmanager/repodag.go",
+        "line_new": 576
+      },
+      {
+        "id": "24400",
+        "author": {
+          "provider": "gitlab",
+          "id": 83,
+          "username": "LiveReviewBot",
+          "name": "LiveReviewBot"
+        },
+        "body": "**Severity: info**\n\nConsider using a structured log to include the reason why the leaf is isolated for easier debugging\n\n**Suggestions:**\n1. Add more context to the log message to explain why the leaf is isolated.",
+        "created_at": "2025-10-22T15:21:40.337Z",
+        "file_path": "liveapi-backend/qmanager/repodag.go",
+        "line_new": 576
+      },
+      {
+        "id": "24399",
+        "author": {
+          "provider": "gitlab",
+          "id": 83,
+          "username": "LiveReviewBot",
+          "name": "LiveReviewBot"
+        },
+        "body": "**Severity: info**\n\nConsider adding back the debug log or replacing it with a more informative log at a different level.\n\n**Suggestions:**\n1. Re-evaluate the need for this log statement. If the condition is common, consider a metric instead.",
+        "created_at": "2025-10-22T15:21:38.915Z",
+        "file_path": "liveapi-backend/qmanager/repodag.go",
+        "line_old": 145
+      },
+      {
+        "id": "24398",
+        "author": {
+          "provider": "gitlab",
+          "id": 83,
+          "username": "LiveReviewBot",
+          "name": "LiveReviewBot"
+        },
+        "body": "**Severity: warning**\n\nThis condition was previously `detectedFramework == \"JavaScript/Nestjs\" || detectedFramework == \"Java/quarkus\" || detectedFramework == \"Java/jersey\"`. Now it's just `detectedFramework == \"JavaScript/Nestjs\"`.  Consider whether the Java frameworks should be handled differently, or if this is an error.\n\n**Suggestions:**\n1. Double-check if the Java frameworks should be included in this conditional or if they are now handled by `JavaInheritanceExtractionSection`.",
+        "created_at": "2025-10-22T15:21:37.589Z",
+        "file_path": "liveapi-backend/prompt/subPrompt.go",
+        "line_new": 535
+      },
+      {
+        "id": "24397",
+        "author": {
+          "provider": "gitlab",
+          "id": 83,
+          "username": "LiveReviewBot",
+          "name": "LiveReviewBot"
+        },
+        "body": "**Severity: warning**\n\nTypo: 'inheritence' should be 'inheritance'\n\n**Suggestions:**\n1. Correct the spelling to 'inheritance'.",
+        "created_at": "2025-10-22T15:21:35.231Z",
+        "file_path": "liveapi-backend/prompt/subPrompt.go",
+        "line_new": 525
+      },
+      {
+        "id": "24396",
+        "author": {
+          "provider": "gitlab",
+          "id": 83,
+          "username": "LiveReviewBot",
+          "name": "LiveReviewBot"
+        },
+        "body": "**Severity: warning**\n\nGrammar: 'Base API endpoint '/student' and this extends parent api's.' should be 'Base API endpoint '/student' and this extends parent APIs.'\n\n**Suggestions:**\n1. Correct the grammar to 'APIs'.",
+        "created_at": "2025-10-22T15:21:33.688Z",
+        "file_path": "liveapi-backend/prompt/subPrompt.go",
+        "line_new": 462
+      },
+      {
+        "id": "24395",
+        "author": {
+          "provider": "gitlab",
+          "id": 83,
+          "username": "LiveReviewBot",
+          "name": "LiveReviewBot"
+        },
+        "body": "**Severity: warning**\n\nGrammar: 'child class base API decalred in @Path('student').' should be 'child class base API declared in @Path('student').'\n\n**Suggestions:**\n1. Correct the spelling to 'declared'.",
+        "created_at": "2025-10-22T15:21:32.195Z",
+        "file_path": "liveapi-backend/prompt/subPrompt.go",
+        "line_new": 461
+      },
+      {
+        "id": "24394",
+        "author": {
+          "provider": "gitlab",
+          "id": 83,
+          "username": "LiveReviewBot",
+          "name": "LiveReviewBot"
+        },
+        "body": "**Severity: warning**\n\nTypo: 'inheritence' should be 'inheritance'\n\n**Suggestions:**\n1. Correct the spelling to 'inheritance'.",
+        "created_at": "2025-10-22T15:21:30.067Z",
+        "file_path": "liveapi-backend/prompt/prompt.go",
+        "line_old": 534
+      },
+      {
+        "id": "24393",
+        "author": {
+          "provider": "gitlab",
+          "id": 83,
+          "username": "LiveReviewBot",
+          "name": "LiveReviewBot"
+        },
+        "body": "**Severity: info**\n\n# Code Improvements and Bug Fixes in `repodag` and `prompt` Packages\n\n## Overview\n\nThis change focuses on improving code quality and fixing minor issues within the `repodag` and `prompt` packages. The changes include removing unnecessary variable declarations, correcting typos and grammatical errors, updating outdated comments, and modifying a conditional statement.\n\n## Key Changes\n\n- **`repodag.go`**:\n    - Removed unnecessary variable declarations for `edges` in multiple functions.\n    - Renamed `cerr` to `chainErr` for naming consistency.\n    - Removed an outdated comment related to a function name change.\n    - Removed debug log, consider adding back or replacing with a more informative log.\n    - Consider using structured logging to include the reason why a leaf is isolated.\n- **`prompt` Package (`prompt.go` and `subPrompt.go`)**:\n    - Corrected typos: \"inheritence\" to \"inheritance\".\n    - Corrected grammatical errors in comments related to API endpoints.\n    - Modified conditional statement in `subPrompt.go` related to framework detection, potentially impacting Java framework handling.\n\n## Impact\n\n- **Functionality**:\n    - The removal of unnecessary variable declarations and the renaming of variables improves code readability and maintainability.\n    - The correction of typos and grammatical errors enhances the clarity of documentation.\n    - The change in the conditional statement in `subPrompt.go` *could* impact functionality if the Java frameworks `quarkus` and `jersey` are intended to be handled differently.\n- **Risk**:\n    - The change to the conditional statement in `subPrompt.go` presents a potential risk if the removal of the Java frameworks from the condition was unintentional. Thorough testing is recommended to ensure that the Java frameworks are still handled correctly.\n    - The removal of the debug log in `repodag.go` may make debugging more difficult. Consider adding a more informative log at a different level.",
+        "created_at": "2025-10-22T15:21:28.481Z"
+      },
+      {
+        "id": "23898",
+        "author": {
+          "provider": "gitlab",
+          "id": 48,
+          "username": "Ganesh",
+          "name": "Ganesh Kumar"
+        },
+        "body": "added 2 commits\n\n\u003cul\u003e\u003cli\u003edb0e5527 - 1 commit from branch \u003ccode\u003emain\u003c/code\u003e\u003c/li\u003e\u003cli\u003e0d239c1b - Merge branch \u0026#39;main\u0026#39; of git.apps.hexmos.com:hexmos/liveapi into ganesh/repodag-v2\u003c/li\u003e\u003c/ul\u003e\n\n[Compare with previous version](/hexmos/liveapi/-/merge_requests/426/diffs?diff_id=14059\u0026start_sha=0000000000000000000000000000000000000000)",
+        "created_at": "2025-08-30T16:11:19.434Z"
+      }
+    ]
+  },
+  "diffs": [
+    {
+      "old_path": "liveapi-backend/prompt/prompt.go",
+      "new_path": "liveapi-backend/prompt/prompt.go",
+      "hunks": [
+        {
+          "old_start_line": 531,
+          "old_line_count": 7,
+          "new_start_line": 531,
+          "new_line_count": 8,
+          "header_text": "The content of source files containing both route definitions and handlers is pr",
+          "lines": [
+            {
+              "content": "    ",
+              "line_type": "context",
+              "old_line_no": 531,
+              "new_line_no": 531
+            },
+            {
+              "content": "      - Include version of the websocket endpoint in the path like '/v3/ws/event' if present in the path",
+              "line_type": "context",
+              "old_line_no": 532,
+              "new_line_no": 532
+            },
+            {
+              "content": "      - DO NOT create POST, PUT, DELETE methods etc.",
+              "line_type": "context",
+              "old_line_no": 533,
+              "new_line_no": 533
+            },
+            {
+              "content": "` + inheritenceExtractionSection(detectedFramework, fileDependenciesDescription) + `",
+              "line_type": "deleted",
+              "old_line_no": 534,
+              "new_line_no": 0
+            },
+            {
+              "content": "` + NestjsInheritanceExtractionSection(detectedFramework, fileDependenciesDescription) + `",
+              "line_type": "added",
+              "old_line_no": 0,
+              "new_line_no": 534
+            },
+            {
+              "content": "` + JavaInheritanceExtractionSection(detectedFramework, fileDependenciesDescription) + `",
+              "line_type": "added",
+              "old_line_no": 0,
+              "new_line_no": 535
+            },
+            {
+              "content": "2. **Tag Normalization and Grouping:**",
+              "line_type": "context",
+              "old_line_no": 535,
+              "new_line_no": 536
+            },
+            {
+              "content": "    ",
+              "line_type": "context",
+              "old_line_no": 536,
+              "new_line_no": 537
+            },
+            {
+              "content": "    - Apply a consistent tag naming convention to avoid duplicates and ensure logical grouping",
+              "line_type": "context",
+              "old_line_no": 537,
+              "new_line_no": 538
+            },
+            {
+              "content": "",
+              "line_type": "context",
+              "old_line_no": 538,
+              "new_line_no": 539
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "old_path": "liveapi-backend/prompt/subPrompt.go",
+      "new_path": "liveapi-backend/prompt/subPrompt.go",
+      "hunks": [
+        {
+          "old_start_line": 386,
+          "old_line_count": 6,
+          "new_start_line": 386,
+          "new_line_count": 126,
+          "header_text": "func flaskProjectBlueprintSection(detectedFramework string) string {",
+          "lines": [
+            {
+              "content": "\t}",
+              "line_type": "context",
+              "old_line_no": 386,
+              "new_line_no": 386
+            },
+            {
+              "content": "\treturn \"\"",
+              "line_type": "context",
+              "old_line_no": 387,
+              "new_line_no": 387
+            },
+            {
+              "content": "}",
+              "line_type": "context",
+              "old_line_no": 388,
+              "new_line_no": 388
+            },
+            {
+              "content": "",
+              "line_type": "added",
+              "old_line_no": 0,
+              "new_line_no": 389
+            },
+            {
+              "content": "func JavaInheritanceExtractionSection(detectedFramework string, fileDependenciesDescription string) string {",
+              "line_type": "added",
+              "old_line_no": 0,
+              "new_line_no": 390
+            },
+            {
+              "content": "\t/*",
+              "line_type": "added",
+              "old_line_no": 0,
+              "new_line_no": 391
+            },
+            {
+              "content": "\t\tInheritance Extraction Section is a prompt section that provides instructions on how to handle inheritance in API endpoints.",
+              "line_type": "added",
+              "old_line_no": 0,
+              "new_line_no": 392
+            },
+            {
+              "content": "\t\tIt is specifically designed for frameworks like JavaScript/Nestjs and Java/quarkus,",
+              "line_type": "added",
+              "old_line_no": 0,
+              "new_line_no": 393
+            },
+            {
+              "content": "\t\twhere API endpoints can be inherited from base classes or parent controllers.",
+              "line_type": "added",
+              "old_line_no": 0,
+              "new_line_no": 394
+            },
+            {
+              "content": "\t\tIt guides to identify inherited endpoints and merge them correctly in the OpenAPI JSON output",
+              "line_type": "added",
+              "old_line_no": 0,
+              "new_line_no": 395
+            },
+            {
+              "content": "\t*/",
+              "line_type": "added",
+              "old_line_no": 0,
+              "new_line_no": 396
+            },
+            {
+              "content": "\tif fileDependenciesDescription == \"\" {",
+              "line_type": "added",
+              "old_line_no": 0,
+              "new_line_no": 397
+            },
+            {
+              "content": "\t\treturn \"\"",
+              "line_type": "added",
+              "old_line_no": 0,
+              "new_line_no": 398
+            },
+            {
+              "content": "\t}",
+              "line_type": "added",
+              "old_line_no": 0,
+              "new_line_no": 399
+            },
+            {
+              "content": "\tif detectedFramework == \"Java/quarkus\" || detectedFramework == \"Java/jersey\" {",
+              "line_type": "added",
+              "old_line_no": 0,
+              "new_line_no": 400
+            },
+            {
+              "content": "\t\treturn `",
+              "line_type": "added",
+              "old_line_no": 0,
+              "new_line_no": 401
+            },
+            {
+              "content": "1.2 **API Inheritance Handling**",
+              "line_type": "added",
+              "old_line_no": 0,
+              "new_line_no": 402
+            },
+            {
+              "content": "    ",
+              "line_type": "added",
+              "old_line_no": 0,
+              "new_line_no": 403
+            },
+            {
+              "content": "    **How to identify API inherited endpoints:**",
+              "line_type": "added",
+              "old_line_no": 0,
+              "new_line_no": 404
+            },
+            {
+              "content": "    1.  **Understand Class Relation:** ",
+              "line_type": "added",
+              "old_line_no": 0,
+              "new_line_no": 405
+            },
+            {
+              "content": "",
+              "line_type": "added",
+              "old_line_no": 0,
+              "new_line_no": 406
+            },
+            {
+              "content": "      - **Look at the File Relation:**",
+              "line_type": "added",
+              "old_line_no": 0,
+              "new_line_no": 407
+            },
+            {
+              "content": "        - For Each Files File Relation is provided.",
+              "line_type": "added",
+              "old_line_no": 0,
+              "new_line_no": 408
+            },
+            {
+              "content": "\t\t\tExample:",
+              "line_type": "added",
+              "old_line_no": 0,
+              "new_line_no": 409
+            },
+            {
+              "content": "\t\t\t\t/lib/student/student.controller.java inherits APIs present in /lib/core/main/main.controller.java.",
+              "line_type": "added",
+              "old_line_no": 0,
+              "new_line_no": 410
+            },
+            {
+              "content": "        - In Example /lib/student/student.controller.java is child file and /lib/core/main/main.controller.java. is parent file.",
+              "line_type": "added",
+              "old_line_no": 0,
+              "new_line_no": 411
+            },
+            {
+              "content": "        ",
+              "line_type": "added",
+              "old_line_no": 0,
+              "new_line_no": 412
+            },
+            {
+              "content": "\t  - **Identify Relation**",
+              "line_type": "added",
+              "old_line_no": 0,
+              "new_line_no": 413
+            },
+            {
+              "content": "        - Identify any interfaces extend another class in the source file.",
+              "line_type": "added",
+              "old_line_no": 0,
+              "new_line_no": 414
+            },
+            {
+              "content": "        - Start by reading each source file and understanding the class definition:",
+              "line_type": "added",
+              "old_line_no": 0,
+              "new_line_no": 415
+            },
+            {
+              "content": "          Example1:",
+              "line_type": "added",
+              "old_line_no": 0,
+              "new_line_no": 416
+            },
+            {
+              "content": "\t\t    FilePath: /lib/student/student.controller.java",
+              "line_type": "added",
+              "old_line_no": 0,
+              "new_line_no": 417
+            },
+            {
+              "content": "            18 @Path(\"student\")",
+              "line_type": "added",
+              "old_line_no": 0,
+              "new_line_no": 418
+            },
+            {
+              "content": "            19 public interfaces StudentController extends MainController\u003cCustomStudent\u003e {",
+              "line_type": "added",
+              "old_line_no": 0,
+              "new_line_no": 419
+            },
+            {
+              "content": "\t\t  Example2:",
+              "line_type": "added",
+              "old_line_no": 0,
+              "new_line_no": 420
+            },
+            {
+              "content": "\t\t  \tFilePath: /lib/student/student.controller.java",
+              "line_type": "added",
+              "old_line_no": 0,
+              "new_line_no": 421
+            },
+            {
+              "content": "\t\t  \t18 @Path(\"student\")",
+              "line_type": "added",
+              "old_line_no": 0,
+              "new_line_no": 422
+            },
+            {
+              "content": "\t\t\t19 public class StudentController extends MainController\u003cCustomStudent\u003e {",
+              "line_type": "added",
+              "old_line_no": 0,
+              "new_line_no": 423
+            },
+            {
+              "content": "        - In the both example, 'StudentController' extend 'MainController'.",
+              "line_type": "added",
+              "old_line_no": 0,
+              "new_line_no": 424
+            },
+            {
+              "content": "        - From these observations, the parent class/interface is 'MainController' and the child class/interface is 'StudentController'.",
+              "line_type": "added",
+              "old_line_no": 0,
+              "new_line_no": 425
+            },
+            {
+              "content": "",
+              "line_type": "added",
+              "old_line_no": 0,
+              "new_line_no": 426
+            },
+            {
+              "content": "\t2. **Identify Base API Endpoint**",
+              "line_type": "added",
+              "old_line_no": 0,
+              "new_line_no": 427
+            },
+            {
+              "content": "      - From the child class/interface, identify the base API endpoint.",
+              "line_type": "added",
+              "old_line_no": 0,
+              "new_line_no": 428
+            },
+            {
+              "content": "        Example:",
+              "line_type": "added",
+              "old_line_no": 0,
+              "new_line_no": 429
+            },
+            {
+              "content": "        Child File:",
+              "line_type": "added",
+              "old_line_no": 0,
+              "new_line_no": 430
+            },
+            {
+              "content": "          18 @Path(\"student\")",
+              "line_type": "added",
+              "old_line_no": 0,
+              "new_line_no": 431
+            },
+            {
+              "content": "          19 public class StudentController extends MainController\u003cCustomStudent\u003e {",
+              "line_type": "added",
+              "old_line_no": 0,
+              "new_line_no": 432
+            },
+            {
+              "content": "\t\t- From the above example in /lib/student/student.controller.java, the base API endpoint 'student'.",
+              "line_type": "added",
+              "old_line_no": 0,
+              "new_line_no": 433
+            },
+            {
+              "content": "      \t- Similarly, identify the base API endpoint for each child class/interface.",
+              "line_type": "added",
+              "old_line_no": 0,
+              "new_line_no": 434
+            },
+            {
+              "content": "",
+              "line_type": "added",
+              "old_line_no": 0,
+              "new_line_no": 435
+            },
+            {
+              "content": "    3. **Identified Endpoints under Parent Class/interface:**",
+              "line_type": "added",
+              "old_line_no": 0,
+              "new_line_no": 436
+            },
+            {
+              "content": "      - In the provided source files, look at the file content of the parent class/interface.",
+              "line_type": "added",
+              "old_line_no": 0,
+              "new_line_no": 437
+            },
+            {
+              "content": "        Example1:",
+              "line_type": "added",
+              "old_line_no": 0,
+              "new_line_no": 438
+            },
+            {
+              "content": "\t\t  \tFilePath: /lib/core/main/main.controller.java",
+              "line_type": "added",
+              "old_line_no": 0,
+              "new_line_no": 439
+            },
+            {
+              "content": "      \t    19 export abstract class MainController\u003cT extends BaseEntity\u003e {",
+              "line_type": "added",
+              "old_line_no": 0,
+              "new_line_no": 440
+            },
+            {
+              "content": "            39      @GET",
+              "line_type": "added",
+              "old_line_no": 0,
+              "new_line_no": 441
+            },
+            {
+              "content": "            40      @Path(\"/count\")   getCount(...) { ... } .....",
+              "line_type": "added",
+              "old_line_no": 0,
+              "new_line_no": 442
+            },
+            {
+              "content": "            ....",
+              "line_type": "added",
+              "old_line_no": 0,
+              "new_line_no": 443
+            },
+            {
+              "content": "            }",
+              "line_type": "added",
+              "old_line_no": 0,
+              "new_line_no": 444
+            },
+            {
+              "content": "\t\tExample2:",
+              "line_type": "added",
+              "old_line_no": 0,
+              "new_line_no": 445
+            },
+            {
+              "content": "\t\t\tFilePath: /lib/core/main/main.controller.java",
+              "line_type": "added",
+              "old_line_no": 0,
+              "new_line_no": 446
+            },
+            {
+              "content": "\t\t\t19 public interface MainController\u003cT extends BaseEntity\u003e {",
+              "line_type": "added",
+              "old_line_no": 0,
+              "new_line_no": 447
+            },
+            {
+              "content": "\t\t\t39      @GET",
+              "line_type": "added",
+              "old_line_no": 0,
+              "new_line_no": 448
+            },
+            {
+              "content": "\t\t\t40      @Path(\"/count\")   getCount(...) { ... } .....",
+              "line_type": "added",
+              "old_line_no": 0,
+              "new_line_no": 449
+            },
+            {
+              "content": "\t\t\t....",
+              "line_type": "added",
+              "old_line_no": 0,
+              "new_line_no": 450
+            },
+            {
+              "content": "\t\t\t}",
+              "line_type": "added",
+              "old_line_no": 0,
+              "new_line_no": 451
+            },
+            {
+              "content": "      \t- In the example parent class/interface is 'MainController' present in file '/lib/core/main/main.controller.java'",
+              "line_type": "added",
+              "old_line_no": 0,
+              "new_line_no": 452
+            },
+            {
+              "content": "        - Inside the parent class/interface, look for methods decorated with HTTP method decorators (@GET, @POST, @PUT, @DELETE, @Path, etc.). ",
+              "line_type": "added",
+              "old_line_no": 0,
+              "new_line_no": 453
+            },
+            {
+              "content": "        - These decorators define the routes.",
+              "line_type": "added",
+              "old_line_no": 0,
+              "new_line_no": 454
+            },
+            {
+              "content": "        - Construct the full route by concatenating the extending parent class route prefix with the relative route path from the parent class API endpoint decorator.",
+              "line_type": "added",
+              "old_line_no": 0,
+              "new_line_no": 455
+            },
+            {
+              "content": "        - From Above example Route will be 'GET /student/count'....",
+              "line_type": "added",
+              "old_line_no": 0,
+              "new_line_no": 456
+            },
+            {
+              "content": "",
+              "line_type": "added",
+              "old_line_no": 0,
+              "new_line_no": 457
+            },
+            {
+              "content": "      **IMPORTANT INSTRUCTION**",
+              "line_type": "added",
+              "old_line_no": 0,
+              "new_line_no": 458
+            },
+            {
+              "content": "        - Include every HTTP endpoint defined with method decorators (@GET, @PUT, @POST, etc.) in the parent class in the output for the extending API endpoint.",
+              "line_type": "added",
+              "old_line_no": 0,
+              "new_line_no": 459
+            },
+            {
+              "content": "        - Unless the extending class/interface defines its own method with the **same HTTP method and route path**, which overrides the parent API endpoint.",
+              "line_type": "added",
+              "old_line_no": 0,
+              "new_line_no": 460
+            },
+            {
+              "content": "      \t- If child class base API decalred in @Path('student').",
+              "line_type": "added",
+              "old_line_no": 0,
+              "new_line_no": 461
+            },
+            {
+              "content": "        - Base API endpoint '/student' and this extends parent api's.",
+              "line_type": "added",
+              "old_line_no": 0,
+              "new_line_no": 462
+            },
+            {
+              "content": "      ",
+              "line_type": "added",
+              "old_line_no": 0,
+              "new_line_no": 463
+            },
+            {
+              "content": "      **Rules for Merging API Endpoints**",
+              "line_type": "added",
+              "old_line_no": 0,
+              "new_line_no": 464
+            },
+            {
+              "content": "        - Endpoints **only defined** in the extending class appear **only under that child class output**.",
+              "line_type": "added",
+              "old_line_no": 0,
+              "new_line_no": 465
+            },
+            {
+              "content": "            For example, \"/student/school/:id\" exists only in the 'StudentController' output because it is defined only there.",
+              "line_type": "added",
+              "old_line_no": 0,
+              "new_line_no": 466
+            },
+            {
+              "content": "        - When both parent and child classes define an endpoint with the same HTTP method and route path, **use only the child class API endpoint implementation** in the output, replacing the inherited API.",
+              "line_type": "added",
+              "old_line_no": 0,
+              "new_line_no": 467
+            },
+            {
+              "content": "        - Endpoints defined in the Parent class **must never appear standalone**; always show them merged and prefixed under each extending parent class.",
+              "line_type": "added",
+              "old_line_no": 0,
+              "new_line_no": 468
+            },
+            {
+              "content": "        - Apply this merging logic to **every extending parent class** in the project hierarchy.",
+              "line_type": "added",
+              "old_line_no": 0,
+              "new_line_no": 469
+            },
+            {
+              "content": "        - Collect metadata such as summary, description, tags, and source files from both base and extending controllers for each merged endpoint.",
+              "line_type": "added",
+              "old_line_no": 0,
+              "new_line_no": 470
+            },
+            {
+              "content": "        - Maintain distinct entries per HTTP method under endpoints, each with their appropriate route and merged metadata.",
+              "line_type": "added",
+              "old_line_no": 0,
+              "new_line_no": 471
+            },
+            {
+              "content": "\t\t",
+              "line_type": "added",
+              "old_line_no": 0,
+              "new_line_no": 472
+            },
+            {
+              "content": "    4. **Example Output:**",
+              "line_type": "added",
+              "old_line_no": 0,
+              "new_line_no": 473
+            },
+            {
+              "content": "        - For the above example, the output for StudentController would include:",
+              "line_type": "added",
+              "old_line_no": 0,
+              "new_line_no": 474
+            },
+            {
+              "content": "        - After identifying and merging inherited endpoints with **File Relation:** and Source Files Example:",
+              "line_type": "added",
+              "old_line_no": 0,
+              "new_line_no": 475
+            },
+            {
+              "content": "    **Expected inherited 'api_endpoints':**",
+              "line_type": "added",
+              "old_line_no": 0,
+              "new_line_no": 476
+            },
+            {
+              "content": "    {",
+              "line_type": "added",
+              "old_line_no": 0,
+              "new_line_no": 477
+            },
+            {
+              "content": "      \"api_endpoints\": [",
+              "line_type": "added",
+              "old_line_no": 0,
+              "new_line_no": 478
+            },
+            {
+              "content": "        {",
+              "line_type": "added",
+              "old_line_no": 0,
+              "new_line_no": 479
+            },
+            {
+              "content": "          \"api_path\": \"/student/count\",",
+              "line_type": "added",
+              "old_line_no": 0,
+              "new_line_no": 480
+            },
+            {
+              "content": "          \"methods\": {",
+              "line_type": "added",
+              "old_line_no": 0,
+              "new_line_no": 481
+            },
+            {
+              "content": "            \"get\": {",
+              "line_type": "added",
+              "old_line_no": 0,
+              "new_line_no": 482
+            },
+            {
+              "content": "              \"summary\": \"GET student count\",",
+              "line_type": "added",
+              "old_line_no": 0,
+              "new_line_no": 483
+            },
+            {
+              "content": "              \"description\": \"GET the total count of all student ........\",",
+              "line_type": "added",
+              "old_line_no": 0,
+              "new_line_no": 484
+            },
+            {
+              "content": "              \"tags\": [\"CustomStudent\", \"MainController\"], /*Have both parent and child class tags.*/",
+              "line_type": "added",
+              "old_line_no": 0,
+              "new_line_no": 485
+            },
+            {
+              "content": "              \"x-sourceFiles\": [/* include both parent and child source-file objects with fileName, filePath, handlerName, lineNumber */ ",
+              "line_type": "added",
+              "old_line_no": 0,
+              "new_line_no": 486
+            },
+            {
+              "content": "                {         ",
+              "line_type": "added",
+              "old_line_no": 0,
+              "new_line_no": 487
+            },
+            {
+              "content": "                  \"fileName\": \"main.controller.java\",",
+              "line_type": "added",
+              "old_line_no": 0,
+              "new_line_no": 488
+            },
+            {
+              "content": "                  \"filePath\": \"/lib/core/main/main.controller.java\",",
+              "line_type": "added",
+              "old_line_no": 0,
+              "new_line_no": 489
+            },
+            {
+              "content": "                  \"handlerName\": \"getCount\",",
+              "line_type": "added",
+              "old_line_no": 0,
+              "new_line_no": 490
+            },
+            {
+              "content": "                  \"lineNumber\": 40",
+              "line_type": "added",
+              "old_line_no": 0,
+              "new_line_no": 491
+            },
+            {
+              "content": "                },",
+              "line_type": "added",
+              "old_line_no": 0,
+              "new_line_no": 492
+            },
+            {
+              "content": "                {",
+              "line_type": "added",
+              "old_line_no": 0,
+              "new_line_no": 493
+            },
+            {
+              "content": "                  \"fileName\": \"student.controller.java\",",
+              "line_type": "added",
+              "old_line_no": 0,
+              "new_line_no": 494
+            },
+            {
+              "content": "                  \"filePath\": \"/lib/student/student.controller.java\",",
+              "line_type": "added",
+              "old_line_no": 0,
+              "new_line_no": 495
+            },
+            {
+              "content": "                  \"handlerName\": \"StudentController\",",
+              "line_type": "added",
+              "old_line_no": 0,
+              "new_line_no": 496
+            },
+            {
+              "content": "                  \"lineNumber\": 19",
+              "line_type": "added",
+              "old_line_no": 0,
+              "new_line_no": 497
+            },
+            {
+              "content": "                }",
+              "line_type": "added",
+              "old_line_no": 0,
+              "new_line_no": 498
+            },
+            {
+              "content": "              ]",
+              "line_type": "added",
+              "old_line_no": 0,
+              "new_line_no": 499
+            },
+            {
+              "content": "            } ",
+              "line_type": "added",
+              "old_line_no": 0,
+              "new_line_no": 500
+            },
+            {
+              "content": "          }",
+              "line_type": "added",
+              "old_line_no": 0,
+              "new_line_no": 501
+            },
+            {
+              "content": "        },",
+              "line_type": "added",
+              "old_line_no": 0,
+              "new_line_no": 502
+            },
+            {
+              "content": "      ]",
+              "line_type": "added",
+              "old_line_no": 0,
+              "new_line_no": 503
+            },
+            {
+              "content": "    }",
+              "line_type": "added",
+              "old_line_no": 0,
+              "new_line_no": 504
+            },
+            {
+              "content": "    `",
+              "line_type": "added",
+              "old_line_no": 0,
+              "new_line_no": 505
+            },
+            {
+              "content": "\t}",
+              "line_type": "added",
+              "old_line_no": 0,
+              "new_line_no": 506
+            },
+            {
+              "content": "\treturn \"\"",
+              "line_type": "added",
+              "old_line_no": 0,
+              "new_line_no": 507
+            },
+            {
+              "content": "}",
+              "line_type": "added",
+              "old_line_no": 0,
+              "new_line_no": 508
+            },
+            {
+              "content": "func fileDependenciesDescriptionStructure(fileDependenciesDescription string) string {",
+              "line_type": "context",
+              "old_line_no": 389,
+              "new_line_no": 509
+            },
+            {
+              "content": "\tif fileDependenciesDescription == \"\" {",
+              "line_type": "context",
+              "old_line_no": 390,
+              "new_line_no": 510
+            },
+            {
+              "content": "\t\treturn \"\"",
+              "line_type": "context",
+              "old_line_no": 391,
+              "new_line_no": 511
+            }
+          ]
+        },
+        {
+          "old_start_line": 402,
+          "old_line_count": 7,
+          "new_start_line": 522,
+          "new_line_count": 7,
+          "header_text": "Make sure to include the dependent file while identifying API endpoints.",
+          "lines": [
+            {
+              "content": "`",
+              "line_type": "context",
+              "old_line_no": 402,
+              "new_line_no": 522
+            },
+            {
+              "content": "}",
+              "line_type": "context",
+              "old_line_no": 403,
+              "new_line_no": 523
+            },
+            {
+              "content": "",
+              "line_type": "context",
+              "old_line_no": 404,
+              "new_line_no": 524
+            },
+            {
+              "content": "func inheritenceExtractionSection(detectedFramework string, fileDependenciesDescription string) string {",
+              "line_type": "deleted",
+              "old_line_no": 405,
+              "new_line_no": 0
+            },
+            {
+              "content": "func NestjsInheritanceExtractionSection(detectedFramework string, fileDependenciesDescription string) string {",
+              "line_type": "added",
+              "old_line_no": 0,
+              "new_line_no": 525
+            },
+            {
+              "content": "\t/*",
+              "line_type": "context",
+              "old_line_no": 406,
+              "new_line_no": 526
+            },
+            {
+              "content": "\t\tInheritance Extraction Section is a prompt section that provides instructions on how to handle inheritance in API endpoints.",
+              "line_type": "context",
+              "old_line_no": 407,
+              "new_line_no": 527
+            },
+            {
+              "content": "\t\tIt is specifically designed for frameworks like JavaScript/Nestjs and Java/quarkus,",
+              "line_type": "context",
+              "old_line_no": 408,
+              "new_line_no": 528
+            }
+          ]
+        },
+        {
+          "old_start_line": 412,
+          "old_line_count": 7,
+          "new_start_line": 532,
+          "new_line_count": 7,
+          "header_text": "func inheritenceExtractionSection(detectedFramework string, fileDependenciesDesc",
+          "lines": [
+            {
+              "content": "\tif fileDependenciesDescription == \"\" {",
+              "line_type": "context",
+              "old_line_no": 412,
+              "new_line_no": 532
+            },
+            {
+              "content": "\t\treturn \"\"",
+              "line_type": "context",
+              "old_line_no": 413,
+              "new_line_no": 533
+            },
+            {
+              "content": "\t}",
+              "line_type": "context",
+              "old_line_no": 414,
+              "new_line_no": 534
+            },
+            {
+              "content": "\tif detectedFramework == \"JavaScript/Nestjs\" || detectedFramework == \"Java/quarkus\" || detectedFramework == \"Java/jersey\" {",
+              "line_type": "deleted",
+              "old_line_no": 415,
+              "new_line_no": 0
+            },
+            {
+              "content": "\tif detectedFramework == \"JavaScript/Nestjs\" {",
+              "line_type": "added",
+              "old_line_no": 0,
+              "new_line_no": 535
+            },
+            {
+              "content": "\t\treturn `",
+              "line_type": "context",
+              "old_line_no": 416,
+              "new_line_no": 536
+            },
+            {
+              "content": "1.2 **API Endpoint Inheritance \u0026 Extension Handling**",
+              "line_type": "context",
+              "old_line_no": 417,
+              "new_line_no": 537
+            },
+            {
+              "content": "    ",
+              "line_type": "context",
+              "old_line_no": 418,
+              "new_line_no": 538
+            }
+          ]
+        },
+        {
+          "old_start_line": 601,
+          "old_line_count": 11,
+          "new_start_line": 721,
+          "new_line_count": 6,
+          "header_text": "func inheritenceExtractionSection(detectedFramework string, fileDependenciesDesc",
+          "lines": [
+            {
+              "content": "\t\t},",
+              "line_type": "context",
+              "old_line_no": 601,
+              "new_line_no": 721
+            },
+            {
+              "content": "      ]",
+              "line_type": "context",
+              "old_line_no": 602,
+              "new_line_no": 722
+            },
+            {
+              "content": "    }",
+              "line_type": "context",
+              "old_line_no": 603,
+              "new_line_no": 723
+            },
+            {
+              "content": "    Note:",
+              "line_type": "deleted",
+              "old_line_no": 604,
+              "new_line_no": 0
+            },
+            {
+              "content": "    - The output must include all inherited endpoints from the base controller, merged under each extending parent class.",
+              "line_type": "deleted",
+              "old_line_no": 605,
+              "new_line_no": 0
+            },
+            {
+              "content": "    - Each endpoint must have its own entry with the correct HTTP method, path, and metadata.",
+              "line_type": "deleted",
+              "old_line_no": 606,
+              "new_line_no": 0
+            },
+            {
+              "content": "    - Ensure that the final output is a complete OpenAPI JSON specification, including all merged endpoints and their metadata.",
+              "line_type": "deleted",
+              "old_line_no": 607,
+              "new_line_no": 0
+            },
+            {
+              "content": "    - Don't skip any child class API endpoints.",
+              "line_type": "deleted",
+              "old_line_no": 608,
+              "new_line_no": 0
+            },
+            {
+              "content": "    `",
+              "line_type": "context",
+              "old_line_no": 609,
+              "new_line_no": 724
+            },
+            {
+              "content": "\t}",
+              "line_type": "context",
+              "old_line_no": 610,
+              "new_line_no": 725
+            },
+            {
+              "content": "\treturn \"\"",
+              "line_type": "context",
+              "old_line_no": 611,
+              "new_line_no": 726
+            },
+            {
+              "content": "",
+              "line_type": "context",
+              "old_line_no": 612,
+              "new_line_no": 727
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "old_path": "liveapi-backend/qmanager/repodag.go",
+      "new_path": "liveapi-backend/qmanager/repodag.go",
+      "hunks": [
+        {
+          "old_start_line": 94,
+          "old_line_count": 7,
+          "new_start_line": 94,
+          "new_line_count": 7,
+          "header_text": "func BuildCompleteMetadata(ctx context.Context, repoData *RepoData, jobID string",
+          "lines": [
+            {
+              "content": "\tif repoData.PathToContent == nil {",
+              "line_type": "context",
+              "old_line_no": 94,
+              "new_line_no": 94
+            },
+            {
+              "content": "\t\treturn nil, nil, nil, errors.New(\"PathToContent cannot be nil\")",
+              "line_type": "context",
+              "old_line_no": 95,
+              "new_line_no": 95
+            },
+            {
+              "content": "\t}",
+              "line_type": "context",
+              "old_line_no": 96,
+              "new_line_no": 96
+            },
+            {
+              "content": "",
+              "line_type": "deleted",
+              "old_line_no": 97,
+              "new_line_no": 0
+            },
+            {
+              "content": "\tvar edges []Edge",
+              "line_type": "added",
+              "old_line_no": 0,
+              "new_line_no": 97
+            },
+            {
+              "content": "\t// Prepare gemini client once",
+              "line_type": "context",
+              "old_line_no": 98,
+              "new_line_no": 98
+            },
+            {
+              "content": "\tmodel := gemini.InitGeminiClient(ctx)",
+              "line_type": "context",
+              "old_line_no": 99,
+              "new_line_no": 99
+            },
+            {
+              "content": "\tgeminiConfig, err := utils.Configuration()",
+              "line_type": "context",
+              "old_line_no": 100,
+              "new_line_no": 100
+            }
+          ]
+        },
+        {
+          "old_start_line": 118,
+          "old_line_count": 7,
+          "new_start_line": 118,
+          "new_line_count": 7,
+          "header_text": "func BuildCompleteMetadata(ctx context.Context, repoData *RepoData, jobID string",
+          "lines": [
+            {
+              "content": "\tidToNode := make(map[string]ClassNode)",
+              "line_type": "context",
+              "old_line_no": 118,
+              "new_line_no": 118
+            },
+            {
+              "content": "\tfileParents := make(map[string]map[string]bool)",
+              "line_type": "context",
+              "old_line_no": 119,
+              "new_line_no": 119
+            },
+            {
+              "content": "\tidToToken := make(map[string]int)",
+              "line_type": "context",
+              "old_line_no": 120,
+              "new_line_no": 120
+            },
+            {
+              "content": "\tvar edges []Edge",
+              "line_type": "deleted",
+              "old_line_no": 121,
+              "new_line_no": 0
+            },
+            {
+              "content": "",
+              "line_type": "added",
+              "old_line_no": 0,
+              "new_line_no": 121
+            },
+            {
+              "content": "\tnodeHasChildren := make(map[string]bool)",
+              "line_type": "context",
+              "old_line_no": 122,
+              "new_line_no": 122
+            },
+            {
+              "content": "\treferencedNodeIDs := make(map[string]bool)",
+              "line_type": "context",
+              "old_line_no": 123,
+              "new_line_no": 123
+            },
+            {
+              "content": "",
+              "line_type": "context",
+              "old_line_no": 124,
+              "new_line_no": 124
+            }
+          ]
+        },
+        {
+          "old_start_line": 142,
+          "old_line_count": 7,
+          "new_start_line": 142,
+          "new_line_count": 7,
+          "header_text": "func BuildCompleteMetadata(ctx context.Context, repoData *RepoData, jobID string",
+          "lines": [
+            {
+              "content": "",
+              "line_type": "context",
+              "old_line_no": 142,
+              "new_line_no": 142
+            },
+            {
+              "content": "\t\tclassEntry.Path = normalizePath(repoData.ProjectRoot, classEntry.Path)",
+              "line_type": "context",
+              "old_line_no": 143,
+              "new_line_no": 143
+            },
+            {
+              "content": "\t\tif _, found := repoData.PathToContent[classEntry.Path]; !found {",
+              "line_type": "context",
+              "old_line_no": 144,
+              "new_line_no": 144
+            },
+            {
+              "content": "\t\t\tlog.Debug().Str(\"jobID\", jobID).Str(\"path\", classEntry.Path).Msg(\"Skipping - file content not found\")",
+              "line_type": "deleted",
+              "old_line_no": 145,
+              "new_line_no": 0
+            },
+            {
+              "content": "\t\t\t//log.Debug().Str(\"jobID\", jobID).Str(\"path\", classEntry.Path).Msg(\"Skipping - file content not found\")",
+              "line_type": "added",
+              "old_line_no": 0,
+              "new_line_no": 145
+            },
+            {
+              "content": "\t\t\tcontinue",
+              "line_type": "context",
+              "old_line_no": 146,
+              "new_line_no": 146
+            },
+            {
+              "content": "\t\t}",
+              "line_type": "context",
+              "old_line_no": 147,
+              "new_line_no": 147
+            },
+            {
+              "content": "",
+              "line_type": "context",
+              "old_line_no": 148,
+              "new_line_no": 148
+            }
+          ]
+        },
+        {
+          "old_start_line": 187,
+          "old_line_count": 6,
+          "new_start_line": 187,
+          "new_line_count": 7,
+          "header_text": "func BuildCompleteMetadata(ctx context.Context, repoData *RepoData, jobID string",
+          "lines": [
+            {
+              "content": "\t\t\t\tidToToken[fileID] = -1",
+              "line_type": "context",
+              "old_line_no": 187,
+              "new_line_no": 187
+            },
+            {
+              "content": "\t\t\t\tlog.Debug().Str(\"jobID\", jobID).Str(\"file\", classEntry.Path).Err(terr).Msg(\"CountTokens failed (recorded -1)\")",
+              "line_type": "context",
+              "old_line_no": 188,
+              "new_line_no": 188
+            },
+            {
+              "content": "\t\t\t} else {",
+              "line_type": "context",
+              "old_line_no": 189,
+              "new_line_no": 189
+            },
+            {
+              "content": "\t\t\t\tlog.Debug().Str(\"jobID\", jobID).Str(\"file\", classEntry.Path).Int(\"tokens\", tokenCount).Msg(\"CountTokens succeeded\")",
+              "line_type": "added",
+              "old_line_no": 0,
+              "new_line_no": 190
+            },
+            {
+              "content": "\t\t\t\tidToToken[fileID] = tokenCount",
+              "line_type": "context",
+              "old_line_no": 190,
+              "new_line_no": 191
+            },
+            {
+              "content": "\t\t\t\tmetadata.TokenCountByFileID[fileID] = tokenCount",
+              "line_type": "context",
+              "old_line_no": 191,
+              "new_line_no": 192
+            },
+            {
+              "content": "\t\t\t}",
+              "line_type": "context",
+              "old_line_no": 192,
+              "new_line_no": 193
+            }
+          ]
+        },
+        {
+          "old_start_line": 199,
+          "old_line_count": 7,
+          "new_start_line": 200,
+          "new_line_count": 8,
+          "header_text": "func BuildCompleteMetadata(ctx context.Context, repoData *RepoData, jobID string",
+          "lines": [
+            {
+              "content": "\t\tInt(\"skippedNotClass\", skippedNotClass).",
+              "line_type": "context",
+              "old_line_no": 199,
+              "new_line_no": 200
+            },
+            {
+              "content": "\t\tInt(\"totalLines\", totalLines).",
+              "line_type": "context",
+              "old_line_no": 200,
+              "new_line_no": 201
+            },
+            {
+              "content": "\t\tMsg(\"Parsed valid class/interface entries\")",
+              "line_type": "context",
+              "old_line_no": 201,
+              "new_line_no": 202
+            },
+            {
+              "content": "",
+              "line_type": "deleted",
+              "old_line_no": 202,
+              "new_line_no": 0
+            },
+            {
+              "content": "\t// Found All Interfaces and Classes nodes",
+              "line_type": "added",
+              "old_line_no": 0,
+              "new_line_no": 203
+            },
+            {
+              "content": "\t// Second pass: create edges based on parents",
+              "line_type": "added",
+              "old_line_no": 0,
+              "new_line_no": 204
+            },
+            {
+              "content": "\tfor fileID := range idToNode {",
+              "line_type": "context",
+              "old_line_no": 203,
+              "new_line_no": 205
+            },
+            {
+              "content": "\t\tparentSet := fileParents[fileID]",
+              "line_type": "context",
+              "old_line_no": 204,
+              "new_line_no": 206
+            },
+            {
+              "content": "\t\tif len(parentSet) == 0 {",
+              "line_type": "context",
+              "old_line_no": 205,
+              "new_line_no": 207
+            }
+          ]
+        },
+        {
+          "old_start_line": 255,
+          "old_line_count": 9,
+          "new_start_line": 257,
+          "new_line_count": 9,
+          "header_text": "func BuildCompleteMetadata(ctx context.Context, repoData *RepoData, jobID string",
+          "lines": [
+            {
+              "content": "\t}",
+              "line_type": "context",
+              "old_line_no": 255,
+              "new_line_no": 257
+            },
+            {
+              "content": "\tlog.Info().Str(\"jobID\", jobID).Int(\"preparedFiles\", len(metadata.FileIDByPath)).Msg(\"Metadata build complete\")",
+              "line_type": "context",
+              "old_line_no": 256,
+              "new_line_no": 258
+            },
+            {
+              "content": "",
+              "line_type": "context",
+              "old_line_no": 257,
+              "new_line_no": 259
+            },
+            {
+              "content": "\tchainLeafMap, cerr := buildDependencyChains(batchBuilder, jobID)",
+              "line_type": "deleted",
+              "old_line_no": 258,
+              "new_line_no": 0
+            },
+            {
+              "content": "\tif cerr != nil {",
+              "line_type": "deleted",
+              "old_line_no": 259,
+              "new_line_no": 0
+            },
+            {
+              "content": "\t\treturn nil, nil, nil, fmt.Errorf(\"failed to get dependency chains: %w\", cerr)",
+              "line_type": "deleted",
+              "old_line_no": 260,
+              "new_line_no": 0
+            },
+            {
+              "content": "\tchainLeafMap, chainErr := buildDependencyChains(batchBuilder, jobID)",
+              "line_type": "added",
+              "old_line_no": 0,
+              "new_line_no": 260
+            },
+            {
+              "content": "\tif chainErr != nil {",
+              "line_type": "added",
+              "old_line_no": 0,
+              "new_line_no": 261
+            },
+            {
+              "content": "\t\treturn nil, nil, nil, fmt.Errorf(\"failed to get dependency chains: %w\", chainErr)",
+              "line_type": "added",
+              "old_line_no": 0,
+              "new_line_no": 262
+            },
+            {
+              "content": "\t}",
+              "line_type": "context",
+              "old_line_no": 261,
+              "new_line_no": 263
+            },
+            {
+              "content": "\tlog.Debug().Str(\"jobID\", jobID).Int(\"leafCount\", len(chainLeafMap)).Msg(\"Collected dependency chains\")",
+              "line_type": "context",
+              "old_line_no": 262,
+              "new_line_no": 264
+            },
+            {
+              "content": "",
+              "line_type": "context",
+              "old_line_no": 263,
+              "new_line_no": 265
+            }
+          ]
+        },
+        {
+          "old_start_line": 433,
+          "old_line_count": 8,
+          "new_start_line": 435,
+          "new_line_count": 23,
+          "header_text": "func collectUnbatched(batchBuilder *BatchBuilder, allRoutes []string, jobID stri",
+          "lines": [
+            {
+              "content": "\treturn unbatched",
+              "line_type": "context",
+              "old_line_no": 433,
+              "new_line_no": 435
+            },
+            {
+              "content": "}",
+              "line_type": "context",
+              "old_line_no": 434,
+              "new_line_no": 436
+            },
+            {
+              "content": "",
+              "line_type": "context",
+              "old_line_no": 435,
+              "new_line_no": 437
+            },
+            {
+              "content": "// processDependencyChains iterates through leaf nodes, builds dependency chains, and organizes them into batches",
+              "line_type": "deleted",
+              "old_line_no": 436,
+              "new_line_no": 0
+            },
+            {
+              "content": "// while respecting token limits. It handles oversized chains by isolating them and manages batch transitions.",
+              "line_type": "deleted",
+              "old_line_no": 437,
+              "new_line_no": 0
+            },
+            {
+              "content": "// deterministicChainKey builds a stable string key for a dependency chain by joining",
+              "line_type": "added",
+              "old_line_no": 0,
+              "new_line_no": 438
+            },
+            {
+              "content": "// its file paths (falls back to the file ID if the path is missing). Use this key",
+              "line_type": "added",
+              "old_line_no": 0,
+              "new_line_no": 439
+            },
+            {
+              "content": "// to sort chains deterministically.",
+              "line_type": "added",
+              "old_line_no": 0,
+              "new_line_no": 440
+            },
+            {
+              "content": "func processDependencyChains(chain DependencyChain, idToPath map[string]string) string {",
+              "line_type": "added",
+              "old_line_no": 0,
+              "new_line_no": 441
+            },
+            {
+              "content": "\tparts := make([]string, 0, len(chain.ChainIDs))",
+              "line_type": "added",
+              "old_line_no": 0,
+              "new_line_no": 442
+            },
+            {
+              "content": "\tfor _, id := range chain.ChainIDs {",
+              "line_type": "added",
+              "old_line_no": 0,
+              "new_line_no": 443
+            },
+            {
+              "content": "\t\tif p, ok := idToPath[id]; ok \u0026\u0026 p != \"\" {",
+              "line_type": "added",
+              "old_line_no": 0,
+              "new_line_no": 444
+            },
+            {
+              "content": "\t\t\tparts = append(parts, p)",
+              "line_type": "added",
+              "old_line_no": 0,
+              "new_line_no": 445
+            },
+            {
+              "content": "\t\t} else {",
+              "line_type": "added",
+              "old_line_no": 0,
+              "new_line_no": 446
+            },
+            {
+              "content": "\t\t\tparts = append(parts, id)",
+              "line_type": "added",
+              "old_line_no": 0,
+              "new_line_no": 447
+            },
+            {
+              "content": "\t\t}",
+              "line_type": "added",
+              "old_line_no": 0,
+              "new_line_no": 448
+            },
+            {
+              "content": "\t}",
+              "line_type": "added",
+              "old_line_no": 0,
+              "new_line_no": 449
+            },
+            {
+              "content": "\treturn strings.Join(parts, \"|\")",
+              "line_type": "added",
+              "old_line_no": 0,
+              "new_line_no": 450
+            },
+            {
+              "content": "}",
+              "line_type": "added",
+              "old_line_no": 0,
+              "new_line_no": 451
+            },
+            {
+              "content": "",
+              "line_type": "added",
+              "old_line_no": 0,
+              "new_line_no": 452
+            },
+            {
+              "content": "// ProcessDependencyChains iterates through leaf nodes in a deterministic, sorted order.",
+              "line_type": "added",
+              "old_line_no": 0,
+              "new_line_no": 453
+            },
+            {
+              "content": "// It sorts leaf IDs by their file path and sorts chains per-leaf deterministically too.",
+              "line_type": "added",
+              "old_line_no": 0,
+              "new_line_no": 454
+            },
+            {
+              "content": "func ProcessDependencyChains(batchBuilder *BatchBuilder, maxTokens int, chainLeafMap map[string][]DependencyChain, jobID string) error {",
+              "line_type": "context",
+              "old_line_no": 438,
+              "new_line_no": 455
+            },
+            {
+              "content": "\tif batchBuilder == nil {",
+              "line_type": "context",
+              "old_line_no": 439,
+              "new_line_no": 456
+            },
+            {
+              "content": "\t\treturn errors.New(\"builder cannot be nil\")",
+              "line_type": "context",
+              "old_line_no": 440,
+              "new_line_no": 457
+            }
+          ]
+        },
+        {
+          "old_start_line": 442,
+          "old_line_count": 10,
+          "new_start_line": 459,
+          "new_line_count": 31,
+          "header_text": "func ProcessDependencyChains(batchBuilder *BatchBuilder, maxTokens int, chainLea",
+          "lines": [
+            {
+              "content": "",
+              "line_type": "context",
+              "old_line_no": 442,
+              "new_line_no": 459
+            },
+            {
+              "content": "\tlog.Info().Str(\"jobID\", jobID).Int(\"maxTokens\", maxTokens).Msg(\"Processing dependency chains\")",
+              "line_type": "context",
+              "old_line_no": 443,
+              "new_line_no": 460
+            },
+            {
+              "content": "",
+              "line_type": "context",
+              "old_line_no": 444,
+              "new_line_no": 461
+            },
+            {
+              "content": "\t// Build a deterministic (sorted) order of leaf IDs using file paths.",
+              "line_type": "added",
+              "old_line_no": 0,
+              "new_line_no": 462
+            },
+            {
+              "content": "\tleafIDs := make([]string, 0, len(chainLeafMap))",
+              "line_type": "added",
+              "old_line_no": 0,
+              "new_line_no": 463
+            },
+            {
+              "content": "\tfor leafID := range chainLeafMap {",
+              "line_type": "added",
+              "old_line_no": 0,
+              "new_line_no": 464
+            },
+            {
+              "content": "\t\tleafIDs = append(leafIDs, leafID)",
+              "line_type": "added",
+              "old_line_no": 0,
+              "new_line_no": 465
+            },
+            {
+              "content": "\t}",
+              "line_type": "added",
+              "old_line_no": 0,
+              "new_line_no": 466
+            },
+            {
+              "content": "\tsort.Slice(leafIDs, func(leftLeafIndex, rightLeafIndex int) bool {",
+              "line_type": "added",
+              "old_line_no": 0,
+              "new_line_no": 467
+            },
+            {
+              "content": "\t\tleftPath := batchBuilder.InlineGroupBatchMetadata.FilePathByID[leafIDs[leftLeafIndex]]",
+              "line_type": "added",
+              "old_line_no": 0,
+              "new_line_no": 468
+            },
+            {
+              "content": "\t\trightPath := batchBuilder.InlineGroupBatchMetadata.FilePathByID[leafIDs[rightLeafIndex]]",
+              "line_type": "added",
+              "old_line_no": 0,
+              "new_line_no": 469
+            },
+            {
+              "content": "\t\treturn leftPath \u003c rightPath",
+              "line_type": "added",
+              "old_line_no": 0,
+              "new_line_no": 470
+            },
+            {
+              "content": "\t})",
+              "line_type": "added",
+              "old_line_no": 0,
+              "new_line_no": 471
+            },
+            {
+              "content": "",
+              "line_type": "added",
+              "old_line_no": 0,
+              "new_line_no": 472
+            },
+            {
+              "content": "\tcurrentBatch := RouteBatch{URLs: []URLInfo{}, FileDependencies: []FileDependencies{}}",
+              "line_type": "context",
+              "old_line_no": 445,
+              "new_line_no": 473
+            },
+            {
+              "content": "\tcurrentTokens := 0",
+              "line_type": "context",
+              "old_line_no": 446,
+              "new_line_no": 474
+            },
+            {
+              "content": "",
+              "line_type": "context",
+              "old_line_no": 447,
+              "new_line_no": 475
+            },
+            {
+              "content": "\tfor _, chains := range chainLeafMap {",
+              "line_type": "deleted",
+              "old_line_no": 448,
+              "new_line_no": 0
+            },
+            {
+              "content": "\t// Iterate in deterministic order",
+              "line_type": "added",
+              "old_line_no": 0,
+              "new_line_no": 476
+            },
+            {
+              "content": "\tfor _, leafID := range leafIDs {",
+              "line_type": "added",
+              "old_line_no": 0,
+              "new_line_no": 477
+            },
+            {
+              "content": "\t\tchains := chainLeafMap[leafID]",
+              "line_type": "added",
+              "old_line_no": 0,
+              "new_line_no": 478
+            },
+            {
+              "content": "",
+              "line_type": "added",
+              "old_line_no": 0,
+              "new_line_no": 479
+            },
+            {
+              "content": "\t\t// Sort chains deterministically (by joined file-path key) so their ordering is stable.",
+              "line_type": "added",
+              "old_line_no": 0,
+              "new_line_no": 480
+            },
+            {
+              "content": "\t\tsort.Slice(chains, func(leftIndex, rightIndex int) bool {",
+              "line_type": "added",
+              "old_line_no": 0,
+              "new_line_no": 481
+            },
+            {
+              "content": "\t\t\tleftKey := processDependencyChains(chains[leftIndex], batchBuilder.InlineGroupBatchMetadata.FilePathByID)",
+              "line_type": "added",
+              "old_line_no": 0,
+              "new_line_no": 482
+            },
+            {
+              "content": "\t\t\trightKey := processDependencyChains(chains[rightIndex], batchBuilder.InlineGroupBatchMetadata.FilePathByID)",
+              "line_type": "added",
+              "old_line_no": 0,
+              "new_line_no": 483
+            },
+            {
+              "content": "\t\t\treturn leftKey \u003c rightKey",
+              "line_type": "added",
+              "old_line_no": 0,
+              "new_line_no": 484
+            },
+            {
+              "content": "\t\t})",
+              "line_type": "added",
+              "old_line_no": 0,
+              "new_line_no": 485
+            },
+            {
+              "content": "",
+              "line_type": "added",
+              "old_line_no": 0,
+              "new_line_no": 486
+            },
+            {
+              "content": "\t\tfor _, chain := range chains {",
+              "line_type": "context",
+              "old_line_no": 449,
+              "new_line_no": 487
+            },
+            {
+              "content": "\t\t\t// If this chain alone exceeds the token limit, isolate it",
+              "line_type": "context",
+              "old_line_no": 450,
+              "new_line_no": 488
+            },
+            {
+              "content": "\t\t\tif chain.TokenCount \u003e maxTokens {",
+              "line_type": "context",
+              "old_line_no": 451,
+              "new_line_no": 489
+            }
+          ]
+        },
+        {
+          "old_start_line": 504,
+          "old_line_count": 25,
+          "new_start_line": 542,
+          "new_line_count": 83,
+          "header_text": "func buildDependencyChains(builder *BatchBuilder, jobID string) (map[string][]De",
+          "lines": [
+            {
+              "content": "\t}",
+              "line_type": "context",
+              "old_line_no": 504,
+              "new_line_no": 542
+            },
+            {
+              "content": "",
+              "line_type": "context",
+              "old_line_no": 505,
+              "new_line_no": 543
+            },
+            {
+              "content": "\tlog.Debug().Str(\"jobID\", jobID).Msg(\"Building chains from leaf nodes\")",
+              "line_type": "context",
+              "old_line_no": 506,
+              "new_line_no": 544
+            },
+            {
+              "content": "",
+              "line_type": "added",
+              "old_line_no": 0,
+              "new_line_no": 545
+            },
+            {
+              "content": "\t// 1) Collect edges to determine which nodes actually participate in relationships.",
+              "line_type": "added",
+              "old_line_no": 0,
+              "new_line_no": 546
+            },
+            {
+              "content": "\tedges, err := builder.graph.Edges()",
+              "line_type": "added",
+              "old_line_no": 0,
+              "new_line_no": 547
+            },
+            {
+              "content": "\tif err != nil {",
+              "line_type": "added",
+              "old_line_no": 0,
+              "new_line_no": 548
+            },
+            {
+              "content": "\t\treturn nil, fmt.Errorf(\"failed to get graph edges: %w\", err)",
+              "line_type": "added",
+              "old_line_no": 0,
+              "new_line_no": 549
+            },
+            {
+              "content": "\t}",
+              "line_type": "added",
+              "old_line_no": 0,
+              "new_line_no": 550
+            },
+            {
+              "content": "",
+              "line_type": "added",
+              "old_line_no": 0,
+              "new_line_no": 551
+            },
+            {
+              "content": "\tusedNodeIDs := make(map[string]bool)",
+              "line_type": "added",
+              "old_line_no": 0,
+              "new_line_no": 552
+            },
+            {
+              "content": "\tfor _, e := range edges {",
+              "line_type": "added",
+              "old_line_no": 0,
+              "new_line_no": 553
+            },
+            {
+              "content": "\t\tusedNodeIDs[e.Source] = true",
+              "line_type": "added",
+              "old_line_no": 0,
+              "new_line_no": 554
+            },
+            {
+              "content": "\t\tusedNodeIDs[e.Target] = true",
+              "line_type": "added",
+              "old_line_no": 0,
+              "new_line_no": 555
+            },
+            {
+              "content": "\t}",
+              "line_type": "added",
+              "old_line_no": 0,
+              "new_line_no": 556
+            },
+            {
+              "content": "",
+              "line_type": "added",
+              "old_line_no": 0,
+              "new_line_no": 557
+            },
+            {
+              "content": "\t// If there are no edges, there are no relations to build chains from.",
+              "line_type": "added",
+              "old_line_no": 0,
+              "new_line_no": 558
+            },
+            {
+              "content": "\tif len(usedNodeIDs) == 0 {",
+              "line_type": "added",
+              "old_line_no": 0,
+              "new_line_no": 559
+            },
+            {
+              "content": "\t\tlog.Debug().Str(\"jobID\", jobID).Msg(\"No edges present in graph; returning empty chain map\")",
+              "line_type": "added",
+              "old_line_no": 0,
+              "new_line_no": 560
+            },
+            {
+              "content": "\t\treturn map[string][]DependencyChain{}, nil",
+              "line_type": "added",
+              "old_line_no": 0,
+              "new_line_no": 561
+            },
+            {
+              "content": "\t}",
+              "line_type": "added",
+              "old_line_no": 0,
+              "new_line_no": 562
+            },
+            {
+              "content": "",
+              "line_type": "added",
+              "old_line_no": 0,
+              "new_line_no": 563
+            },
+            {
+              "content": "\t// 2) Get leaf IDs (sorted by file path) then filter out any leaf that is isolated (not in usedNodeIDs).",
+              "line_type": "added",
+              "old_line_no": 0,
+              "new_line_no": 564
+            },
+            {
+              "content": "\tleafIDs, err := getLeafFilePaths(builder)",
+              "line_type": "context",
+              "old_line_no": 507,
+              "new_line_no": 565
+            },
+            {
+              "content": "\tif err != nil {",
+              "line_type": "context",
+              "old_line_no": 508,
+              "new_line_no": 566
+            },
+            {
+              "content": "\t\treturn nil, fmt.Errorf(\"failed to get leaf file paths: %w\", err)",
+              "line_type": "context",
+              "old_line_no": 509,
+              "new_line_no": 567
+            },
+            {
+              "content": "\t}",
+              "line_type": "context",
+              "old_line_no": 510,
+              "new_line_no": 568
+            },
+            {
+              "content": "\tlog.Debug().Str(\"jobID\", jobID).Int(\"leafIDsFound\", len(leafIDs)).Msg(\"Leaf IDs retrieved\")",
+              "line_type": "context",
+              "old_line_no": 511,
+              "new_line_no": 569
+            },
+            {
+              "content": "",
+              "line_type": "context",
+              "old_line_no": 512,
+              "new_line_no": 570
+            },
+            {
+              "content": "\t// Use PredecessorMap to get reverse edges",
+              "line_type": "deleted",
+              "old_line_no": 513,
+              "new_line_no": 0
+            },
+            {
+              "content": "\tfilteredLeafIDs := make([]string, 0, len(leafIDs))",
+              "line_type": "added",
+              "old_line_no": 0,
+              "new_line_no": 571
+            },
+            {
+              "content": "\tfor _, id := range leafIDs {",
+              "line_type": "added",
+              "old_line_no": 0,
+              "new_line_no": 572
+            },
+            {
+              "content": "\t\tif usedNodeIDs[id] {",
+              "line_type": "added",
+              "old_line_no": 0,
+              "new_line_no": 573
+            },
+            {
+              "content": "\t\t\tfilteredLeafIDs = append(filteredLeafIDs, id)",
+              "line_type": "added",
+              "old_line_no": 0,
+              "new_line_no": 574
+            },
+            {
+              "content": "\t\t} else {",
+              "line_type": "added",
+              "old_line_no": 0,
+              "new_line_no": 575
+            },
+            {
+              "content": "\t\t\tlog.Debug().Str(\"jobID\", jobID).Str(\"leafID\", id).Msg(\"Skipping isolated leaf (no relations)\")",
+              "line_type": "added",
+              "old_line_no": 0,
+              "new_line_no": 576
+            },
+            {
+              "content": "\t\t}",
+              "line_type": "added",
+              "old_line_no": 0,
+              "new_line_no": 577
+            },
+            {
+              "content": "\t}",
+              "line_type": "added",
+              "old_line_no": 0,
+              "new_line_no": 578
+            },
+            {
+              "content": "\tlog.Debug().Str(\"jobID\", jobID).Int(\"filteredLeafCount\", len(filteredLeafIDs)).Msg(\"Filtered leaves that participate in edges\")",
+              "line_type": "added",
+              "old_line_no": 0,
+              "new_line_no": 579
+            },
+            {
+              "content": "",
+              "line_type": "added",
+              "old_line_no": 0,
+              "new_line_no": 580
+            },
+            {
+              "content": "\t// 3) Build a pruned predecessor map that contains only nodes participating in edges.",
+              "line_type": "added",
+              "old_line_no": 0,
+              "new_line_no": 581
+            },
+            {
+              "content": "\treverseEdges, err := builder.graph.PredecessorMap()",
+              "line_type": "context",
+              "old_line_no": 514,
+              "new_line_no": 582
+            },
+            {
+              "content": "\tif err != nil {",
+              "line_type": "context",
+              "old_line_no": 515,
+              "new_line_no": 583
+            },
+            {
+              "content": "\t\treturn nil, fmt.Errorf(\"failed to get predecessor map: %w\", err)",
+              "line_type": "context",
+              "old_line_no": 516,
+              "new_line_no": 584
+            },
+            {
+              "content": "\t}",
+              "line_type": "context",
+              "old_line_no": 517,
+              "new_line_no": 585
+            },
+            {
+              "content": "\tprunedReverse := make(map[string]map[string]graph.Edge[string])",
+              "line_type": "added",
+              "old_line_no": 0,
+              "new_line_no": 586
+            },
+            {
+              "content": "\tfor nodeID, parents := range reverseEdges {",
+              "line_type": "added",
+              "old_line_no": 0,
+              "new_line_no": 587
+            },
+            {
+              "content": "\t\tif !usedNodeIDs[nodeID] {",
+              "line_type": "added",
+              "old_line_no": 0,
+              "new_line_no": 588
+            },
+            {
+              "content": "\t\t\tcontinue",
+              "line_type": "added",
+              "old_line_no": 0,
+              "new_line_no": 589
+            },
+            {
+              "content": "\t\t}",
+              "line_type": "added",
+              "old_line_no": 0,
+              "new_line_no": 590
+            },
+            {
+              "content": "\t\tfor parentID, edge := range parents {",
+              "line_type": "added",
+              "old_line_no": 0,
+              "new_line_no": 591
+            },
+            {
+              "content": "\t\t\tif !usedNodeIDs[parentID] {",
+              "line_type": "added",
+              "old_line_no": 0,
+              "new_line_no": 592
+            },
+            {
+              "content": "\t\t\t\tcontinue",
+              "line_type": "added",
+              "old_line_no": 0,
+              "new_line_no": 593
+            },
+            {
+              "content": "\t\t\t}",
+              "line_type": "added",
+              "old_line_no": 0,
+              "new_line_no": 594
+            },
+            {
+              "content": "\t\t\tif _, ok := prunedReverse[nodeID]; !ok {",
+              "line_type": "added",
+              "old_line_no": 0,
+              "new_line_no": 595
+            },
+            {
+              "content": "\t\t\t\tprunedReverse[nodeID] = make(map[string]graph.Edge[string])",
+              "line_type": "added",
+              "old_line_no": 0,
+              "new_line_no": 596
+            },
+            {
+              "content": "\t\t\t}",
+              "line_type": "added",
+              "old_line_no": 0,
+              "new_line_no": 597
+            },
+            {
+              "content": "\t\t\tprunedReverse[nodeID][parentID] = edge",
+              "line_type": "added",
+              "old_line_no": 0,
+              "new_line_no": 598
+            },
+            {
+              "content": "\t\t}",
+              "line_type": "added",
+              "old_line_no": 0,
+              "new_line_no": 599
+            },
+            {
+              "content": "\t}",
+              "line_type": "added",
+              "old_line_no": 0,
+              "new_line_no": 600
+            },
+            {
+              "content": "",
+              "line_type": "added",
+              "old_line_no": 0,
+              "new_line_no": 601
+            },
+            {
+              "content": "\t// 4) Prune token map to only include nodes that are used (prevents lookups on totally isolated nodes).",
+              "line_type": "added",
+              "old_line_no": 0,
+              "new_line_no": 602
+            },
+            {
+              "content": "\tprunedTokenCounts := make(map[string]int)",
+              "line_type": "added",
+              "old_line_no": 0,
+              "new_line_no": 603
+            },
+            {
+              "content": "\tfor id, t := range builder.InlineGroupBatchMetadata.TokenCountByFileID {",
+              "line_type": "added",
+              "old_line_no": 0,
+              "new_line_no": 604
+            },
+            {
+              "content": "\t\tif usedNodeIDs[id] {",
+              "line_type": "added",
+              "old_line_no": 0,
+              "new_line_no": 605
+            },
+            {
+              "content": "\t\t\tprunedTokenCounts[id] = t",
+              "line_type": "added",
+              "old_line_no": 0,
+              "new_line_no": 606
+            },
+            {
+              "content": "\t\t}",
+              "line_type": "added",
+              "old_line_no": 0,
+              "new_line_no": 607
+            },
+            {
+              "content": "\t}",
+              "line_type": "added",
+              "old_line_no": 0,
+              "new_line_no": 608
+            },
+            {
+              "content": "",
+              "line_type": "context",
+              "old_line_no": 518,
+              "new_line_no": 609
+            },
+            {
+              "content": "\t// 5) Build chains from each filtered leaf using the pruned predecessor map and token counts.",
+              "line_type": "added",
+              "old_line_no": 0,
+              "new_line_no": 610
+            },
+            {
+              "content": "\tresult := make(map[string][]DependencyChain)",
+              "line_type": "context",
+              "old_line_no": 519,
+              "new_line_no": 611
+            },
+            {
+              "content": "\tfor _, leafID := range leafIDs {",
+              "line_type": "deleted",
+              "old_line_no": 520,
+              "new_line_no": 0
+            },
+            {
+              "content": "\tfor _, leafID := range filteredLeafIDs {",
+              "line_type": "added",
+              "old_line_no": 0,
+              "new_line_no": 612
+            },
+            {
+              "content": "\t\tchains := buildChainsFromLeaf(",
+              "line_type": "context",
+              "old_line_no": 521,
+              "new_line_no": 613
+            },
+            {
+              "content": "\t\t\tleafID,",
+              "line_type": "context",
+              "old_line_no": 522,
+              "new_line_no": 614
+            },
+            {
+              "content": "\t\t\tbuilder.InlineGroupBatchMetadata.TokenCountByFileID,",
+              "line_type": "deleted",
+              "old_line_no": 523,
+              "new_line_no": 0
+            },
+            {
+              "content": "\t\t\treverseEdges,",
+              "line_type": "deleted",
+              "old_line_no": 524,
+              "new_line_no": 0
+            },
+            {
+              "content": "\t\t\tprunedTokenCounts,",
+              "line_type": "added",
+              "old_line_no": 0,
+              "new_line_no": 615
+            },
+            {
+              "content": "\t\t\tprunedReverse,",
+              "line_type": "added",
+              "old_line_no": 0,
+              "new_line_no": 616
+            },
+            {
+              "content": "\t\t)",
+              "line_type": "context",
+              "old_line_no": 525,
+              "new_line_no": 617
+            },
+            {
+              "content": "\t\tif len(chains) == 0 {",
+              "line_type": "added",
+              "old_line_no": 0,
+              "new_line_no": 618
+            },
+            {
+              "content": "\t\t\tlog.Debug().Str(\"jobID\", jobID).Str(\"leafID\", leafID).Msg(\"No chains built for leaf after pruning\")",
+              "line_type": "added",
+              "old_line_no": 0,
+              "new_line_no": 619
+            },
+            {
+              "content": "\t\t\tcontinue",
+              "line_type": "added",
+              "old_line_no": 0,
+              "new_line_no": 620
+            },
+            {
+              "content": "\t\t}",
+              "line_type": "added",
+              "old_line_no": 0,
+              "new_line_no": 621
+            },
+            {
+              "content": "\t\tresult[leafID] = chains",
+              "line_type": "context",
+              "old_line_no": 526,
+              "new_line_no": 622
+            },
+            {
+              "content": "\t\tlog.Debug().Str(\"jobID\", jobID).Str(\"leafID\", leafID).Int(\"chainsForLeaf\", len(chains)).Msg(\"Built chains for leaf\")",
+              "line_type": "context",
+              "old_line_no": 527,
+              "new_line_no": 623
+            },
+            {
+              "content": "\t}",
+              "line_type": "context",
+              "old_line_no": 528,
+              "new_line_no": 624
+            },
+            {
+              "content": "",
+              "line_type": "context",
+              "old_line_no": 529,
+              "new_line_no": 625
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "old_path": "liveapi-backend/tests/repodag_tests/data/group_batch/current_output/current_output1/batches.json",
+      "new_path": "liveapi-backend/tests/repodag_tests/data/group_batch/current_output/current_output1/batches.json",
+      "hunks": null
+    },
+    {
+      "old_path": "liveapi-backend/tests/repodag_tests/data/group_batch/current_output/current_output1/graph.png",
+      "new_path": "liveapi-backend/tests/repodag_tests/data/group_batch/current_output/current_output1/graph.png",
+      "hunks": null
+    },
+    {
+      "old_path": "liveapi-backend/tests/repodag_tests/data/group_batch/current_output/current_output2/batches.json",
+      "new_path": "liveapi-backend/tests/repodag_tests/data/group_batch/current_output/current_output2/batches.json",
+      "hunks": null
+    },
+    {
+      "old_path": "liveapi-backend/tests/repodag_tests/data/group_batch/current_output/current_output2/graph.png",
+      "new_path": "liveapi-backend/tests/repodag_tests/data/group_batch/current_output/current_output2/graph.png",
+      "hunks": null
+    },
+    {
+      "old_path": "liveapi-backend/tests/repodag_tests/data/group_batch/current_output/current_output3/batches.json",
+      "new_path": "liveapi-backend/tests/repodag_tests/data/group_batch/current_output/current_output3/batches.json",
+      "hunks": null
+    },
+    {
+      "old_path": "liveapi-backend/tests/repodag_tests/data/group_batch/current_output/current_output3/graph.png",
+      "new_path": "liveapi-backend/tests/repodag_tests/data/group_batch/current_output/current_output3/graph.png",
+      "hunks": null
+    },
+    {
+      "old_path": "liveapi-backend/tests/repodag_tests/data/group_batch/input/input1/ctags.json",
+      "new_path": "liveapi-backend/tests/repodag_tests/data/group_batch/input/input1/ctags.json",
+      "hunks": null
+    }
+  ],
+  "raw_data_paths": {
+    "commits": "cmd/mrmodel/testdata/gitlab/commits.json",
+    "diff": "cmd/mrmodel/testdata/gitlab/diff.txt",
+    "discussions": "cmd/mrmodel/testdata/gitlab/discussions.json",
+    "notes": "cmd/mrmodel/testdata/gitlab/notes.json"
+  }
+}
