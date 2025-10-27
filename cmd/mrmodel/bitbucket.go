@@ -159,6 +159,11 @@ func runBitbucket(args []string) error {
 	}
 	filteredComments := filterBitbucketComments(comments)
 
+	diffText, err := fetchBitbucketPRDiff(client, workspaceSlug, repoSlug, prID, emailVal, tokenVal)
+	if err != nil {
+		return fmt.Errorf("fetch diff: %w", err)
+	}
+
 	if err := os.MkdirAll(*outDir, 0o755); err != nil {
 		return fmt.Errorf("create output dir: %w", err)
 	}
@@ -179,6 +184,16 @@ func runBitbucket(args []string) error {
 		"items":        comments,
 	}); err != nil {
 		return fmt.Errorf("write raw comments: %w", err)
+	}
+
+	diffParser := NewLocalParser()
+	parsedDiffs, err := diffParser.Parse(diffText)
+	if err != nil {
+		return fmt.Errorf("parse diff: %w", err)
+	}
+
+	if err := writeJSONPretty(filepath.Join(*outDir, "bb_diffs.json"), parsedDiffs); err != nil {
+		return fmt.Errorf("write parsed diffs: %w", err)
 	}
 
 	timelineItems := buildBitbucketTimeline(workspaceSlug, repoSlug, commits, filteredComments)
@@ -202,7 +217,7 @@ func runBitbucket(args []string) error {
 	}
 
 	fmt.Printf("Target PR: %s\n", prURL)
-	fmt.Printf("Bitbucket artifacts written to %s (bb_timeline.json, bb_comment_tree.json)\n", *outDir)
+	fmt.Printf("Bitbucket artifacts written to %s (bb_timeline.json, bb_comment_tree.json, bb_diffs.json)\n", *outDir)
 	fmt.Printf("Summary: commits=%d comments=%d (filtered from %d raw)\n", len(commits), len(filteredComments), len(comments))
 	return nil
 }
@@ -495,6 +510,34 @@ func fetchBitbucketPRComments(client *http.Client, workspace, repo, prID, email,
 		}
 	}
 	return results, nil
+}
+
+func fetchBitbucketPRDiff(client *http.Client, workspace, repo, prID, email, token string) (string, error) {
+	endpoint := fmt.Sprintf("%s/repositories/%s/%s/pullrequests/%s/diff", bitbucketAPIBase, url.PathEscape(workspace), url.PathEscape(repo), url.PathEscape(prID))
+	req, err := http.NewRequest("GET", endpoint, nil)
+	if err != nil {
+		return "", fmt.Errorf("create request: %w", err)
+	}
+	req.SetBasicAuth(email, token)
+	req.Header.Set("User-Agent", "LiveReview-MRModel/1.0")
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return "", fmt.Errorf("execute request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return "", fmt.Errorf("bad status: %s (body: %s)", resp.Status, string(body))
+	}
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return "", fmt.Errorf("read body: %w", err)
+	}
+
+	return string(body), nil
 }
 
 func filterBitbucketComments(comments []bitbucketComment) []bitbucketComment {
