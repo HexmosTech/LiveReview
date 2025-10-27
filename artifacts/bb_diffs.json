@@ -1,0 +1,1559 @@
+[
+  {
+    "old_path": "activepm2.py",
+    "new_path": "activepm2.py",
+    "hunks": [
+      {
+        "old_start_line": 3,
+        "old_line_count": 62,
+        "new_start_line": 3,
+        "new_line_count": 206,
+        "header_text": "import json",
+        "lines": [
+          {
+            "content": "import logging",
+            "line_type": "context",
+            "old_line_no": 3,
+            "new_line_no": 3
+          },
+          {
+            "content": "import time",
+            "line_type": "context",
+            "old_line_no": 4,
+            "new_line_no": 4
+          },
+          {
+            "content": "from logging.handlers import RotatingFileHandler",
+            "line_type": "context",
+            "old_line_no": 5,
+            "new_line_no": 5
+          },
+          {
+            "content": "from pathlib import Path",
+            "line_type": "added",
+            "old_line_no": 0,
+            "new_line_no": 6
+          },
+          {
+            "content": "from typing import Optional, Dict, Any",
+            "line_type": "added",
+            "old_line_no": 0,
+            "new_line_no": 7
+          },
+          {
+            "content": "",
+            "line_type": "context",
+            "old_line_no": 6,
+            "new_line_no": 8
+          },
+          {
+            "content": "# Configure logging",
+            "line_type": "deleted",
+            "old_line_no": 7,
+            "new_line_no": 0
+          },
+          {
+            "content": "logging.basicConfig(",
+            "line_type": "deleted",
+            "old_line_no": 8,
+            "new_line_no": 0
+          },
+          {
+            "content": "    level=logging.INFO, format=\"%(asctime)s - %(levelname)s - %(message)s\"",
+            "line_type": "deleted",
+            "old_line_no": 9,
+            "new_line_no": 0
+          },
+          {
+            "content": ")",
+            "line_type": "deleted",
+            "old_line_no": 10,
+            "new_line_no": 0
+          },
+          {
+            "content": "",
+            "line_type": "context",
+            "old_line_no": 11,
+            "new_line_no": 9
+          },
+          {
+            "content": "# Create a rotating file handler with a maximum file size of 20 MB",
+            "line_type": "deleted",
+            "old_line_no": 12,
+            "new_line_no": 0
+          },
+          {
+            "content": "log_handler = RotatingFileHandler(",
+            "line_type": "deleted",
+            "old_line_no": 13,
+            "new_line_no": 0
+          },
+          {
+            "content": "    \"/tmp/activepm2.log\", maxBytes=20 * 1024 * 1024, backupCount=1",
+            "line_type": "deleted",
+            "old_line_no": 14,
+            "new_line_no": 0
+          },
+          {
+            "content": ")",
+            "line_type": "deleted",
+            "old_line_no": 15,
+            "new_line_no": 0
+          },
+          {
+            "content": "log_handler.setLevel(logging.INFO)",
+            "line_type": "deleted",
+            "old_line_no": 16,
+            "new_line_no": 0
+          },
+          {
+            "content": "log_handler.setFormatter(logging.Formatter(\"%(asctime)s - %(levelname)s - %(message)s\"))",
+            "line_type": "deleted",
+            "old_line_no": 17,
+            "new_line_no": 0
+          },
+          {
+            "content": "",
+            "line_type": "deleted",
+            "old_line_no": 18,
+            "new_line_no": 0
+          },
+          {
+            "content": "logger = logging.getLogger()",
+            "line_type": "deleted",
+            "old_line_no": 19,
+            "new_line_no": 0
+          },
+          {
+            "content": "logger.addHandler(log_handler)",
+            "line_type": "deleted",
+            "old_line_no": 20,
+            "new_line_no": 0
+          },
+          {
+            "content": "",
+            "line_type": "deleted",
+            "old_line_no": 21,
+            "new_line_no": 0
+          },
+          {
+            "content": "",
+            "line_type": "deleted",
+            "old_line_no": 22,
+            "new_line_no": 0
+          },
+          {
+            "content": "def check_and_restart_pm2():",
+            "line_type": "deleted",
+            "old_line_no": 23,
+            "new_line_no": 0
+          },
+          {
+            "content": "    try:",
+            "line_type": "deleted",
+            "old_line_no": 24,
+            "new_line_no": 0
+          },
+          {
+            "content": "        # Run 'pm2-go ls' command",
+            "line_type": "deleted",
+            "old_line_no": 25,
+            "new_line_no": 0
+          },
+          {
+            "content": "        logger.info(\"Running 'pm2-go ls' command...\")",
+            "line_type": "deleted",
+            "old_line_no": 26,
+            "new_line_no": 0
+          },
+          {
+            "content": "        pm2_ls_output = subprocess.check_output([\"pm2-go\", \"ls\"]).decode().strip()",
+            "line_type": "deleted",
+            "old_line_no": 27,
+            "new_line_no": 0
+          },
+          {
+            "content": "        # logger.info(\"pm2-go ls output: %s\", pm2_ls_output)",
+            "line_type": "deleted",
+            "old_line_no": 28,
+            "new_line_no": 0
+          },
+          {
+            "content": "",
+            "line_type": "deleted",
+            "old_line_no": 29,
+            "new_line_no": 0
+          },
+          {
+            "content": "        # Run 'pm2-go dump' command and capture output",
+            "line_type": "deleted",
+            "old_line_no": 30,
+            "new_line_no": 0
+          },
+          {
+            "content": "        logger.info(\"Running 'pm2-go dump' command...\")",
+            "line_type": "deleted",
+            "old_line_no": 31,
+            "new_line_no": 0
+          },
+          {
+            "content": "        pm2_dump_output = subprocess.run(",
+            "line_type": "deleted",
+            "old_line_no": 32,
+            "new_line_no": 0
+          },
+          {
+            "content": "            [\"pm2-go\", \"dump\"], capture_output=True, text=True",
+            "line_type": "deleted",
+            "old_line_no": 33,
+            "new_line_no": 0
+          },
+          {
+            "content": "class PM2Monitor:",
+            "line_type": "added",
+            "old_line_no": 0,
+            "new_line_no": 10
+          },
+          {
+            "content": "    \"\"\"A class to monitor and manage PM2 processes.\"\"\"",
+            "line_type": "added",
+            "old_line_no": 0,
+            "new_line_no": 11
+          },
+          {
+            "content": "    ",
+            "line_type": "added",
+            "old_line_no": 0,
+            "new_line_no": 12
+          },
+          {
+            "content": "    def __init__(self, ",
+            "line_type": "added",
+            "old_line_no": 0,
+            "new_line_no": 13
+          },
+          {
+            "content": "                 log_file: str = \"/tmp/activepm2.log\",",
+            "line_type": "added",
+            "old_line_no": 0,
+            "new_line_no": 14
+          },
+          {
+            "content": "                 max_log_size: int = 20 * 1024 * 1024,  # 20 MB",
+            "line_type": "added",
+            "old_line_no": 0,
+            "new_line_no": 15
+          },
+          {
+            "content": "                 backup_count: int = 1,",
+            "line_type": "added",
+            "old_line_no": 0,
+            "new_line_no": 16
+          },
+          {
+            "content": "                 check_interval: int = 15,",
+            "line_type": "added",
+            "old_line_no": 0,
+            "new_line_no": 17
+          },
+          {
+            "content": "                 dump_file_path: str = \"/root/.pm2-go/dump.json\",",
+            "line_type": "added",
+            "old_line_no": 0,
+            "new_line_no": 18
+          },
+          {
+            "content": "                 processes_file: str = \"processes.json\"):",
+            "line_type": "added",
+            "old_line_no": 0,
+            "new_line_no": 19
+          },
+          {
+            "content": "        \"\"\"",
+            "line_type": "added",
+            "old_line_no": 0,
+            "new_line_no": 20
+          },
+          {
+            "content": "        Initialize the PM2 monitor.",
+            "line_type": "added",
+            "old_line_no": 0,
+            "new_line_no": 21
+          },
+          {
+            "content": "        ",
+            "line_type": "added",
+            "old_line_no": 0,
+            "new_line_no": 22
+          },
+          {
+            "content": "        Args:",
+            "line_type": "added",
+            "old_line_no": 0,
+            "new_line_no": 23
+          },
+          {
+            "content": "            log_file: Path to the log file",
+            "line_type": "added",
+            "old_line_no": 0,
+            "new_line_no": 24
+          },
+          {
+            "content": "            max_log_size: Maximum size of log file in bytes",
+            "line_type": "added",
+            "old_line_no": 0,
+            "new_line_no": 25
+          },
+          {
+            "content": "            backup_count: Number of backup log files to keep",
+            "line_type": "added",
+            "old_line_no": 0,
+            "new_line_no": 26
+          },
+          {
+            "content": "            check_interval: Interval between checks in seconds",
+            "line_type": "added",
+            "old_line_no": 0,
+            "new_line_no": 27
+          },
+          {
+            "content": "            dump_file_path: Path to PM2 dump file",
+            "line_type": "added",
+            "old_line_no": 0,
+            "new_line_no": 28
+          },
+          {
+            "content": "            processes_file: Path to processes configuration file",
+            "line_type": "added",
+            "old_line_no": 0,
+            "new_line_no": 29
+          },
+          {
+            "content": "        \"\"\"",
+            "line_type": "added",
+            "old_line_no": 0,
+            "new_line_no": 30
+          },
+          {
+            "content": "        self.log_file = log_file",
+            "line_type": "added",
+            "old_line_no": 0,
+            "new_line_no": 31
+          },
+          {
+            "content": "        self.max_log_size = max_log_size",
+            "line_type": "added",
+            "old_line_no": 0,
+            "new_line_no": 32
+          },
+          {
+            "content": "        self.backup_count = backup_count",
+            "line_type": "added",
+            "old_line_no": 0,
+            "new_line_no": 33
+          },
+          {
+            "content": "        self.check_interval = check_interval",
+            "line_type": "added",
+            "old_line_no": 0,
+            "new_line_no": 34
+          },
+          {
+            "content": "        self.dump_file_path = dump_file_path",
+            "line_type": "added",
+            "old_line_no": 0,
+            "new_line_no": 35
+          },
+          {
+            "content": "        self.processes_file = processes_file",
+            "line_type": "added",
+            "old_line_no": 0,
+            "new_line_no": 36
+          },
+          {
+            "content": "        ",
+            "line_type": "added",
+            "old_line_no": 0,
+            "new_line_no": 37
+          },
+          {
+            "content": "        self._setup_logging()",
+            "line_type": "added",
+            "old_line_no": 0,
+            "new_line_no": 38
+          },
+          {
+            "content": "        self.logger = logging.getLogger(__name__)",
+            "line_type": "added",
+            "old_line_no": 0,
+            "new_line_no": 39
+          },
+          {
+            "content": "    ",
+            "line_type": "added",
+            "old_line_no": 0,
+            "new_line_no": 40
+          },
+          {
+            "content": "    def _setup_logging(self) -\u003e None:",
+            "line_type": "added",
+            "old_line_no": 0,
+            "new_line_no": 41
+          },
+          {
+            "content": "        \"\"\"Configure logging with rotating file handler.\"\"\"",
+            "line_type": "added",
+            "old_line_no": 0,
+            "new_line_no": 42
+          },
+          {
+            "content": "        log_format = \"%(asctime)s - %(levelname)s - %(message)s\"",
+            "line_type": "added",
+            "old_line_no": 0,
+            "new_line_no": 43
+          },
+          {
+            "content": "        ",
+            "line_type": "added",
+            "old_line_no": 0,
+            "new_line_no": 44
+          },
+          {
+            "content": "        # Configure basic logging",
+            "line_type": "added",
+            "old_line_no": 0,
+            "new_line_no": 45
+          },
+          {
+            "content": "        logging.basicConfig(",
+            "line_type": "added",
+            "old_line_no": 0,
+            "new_line_no": 46
+          },
+          {
+            "content": "            level=logging.INFO,",
+            "line_type": "added",
+            "old_line_no": 0,
+            "new_line_no": 47
+          },
+          {
+            "content": "            format=log_format",
+            "line_type": "added",
+            "old_line_no": 0,
+            "new_line_no": 48
+          },
+          {
+            "content": "        )",
+            "line_type": "context",
+            "old_line_no": 34,
+            "new_line_no": 49
+          },
+          {
+            "content": "        # logger.info(\"pm2-go dump output: %s\", pm2_dump_json)",
+            "line_type": "deleted",
+            "old_line_no": 35,
+            "new_line_no": 0
+          },
+          {
+            "content": "        dump_file_path = \"/root/.pm2-go/dump.json\"",
+            "line_type": "deleted",
+            "old_line_no": 36,
+            "new_line_no": 0
+          },
+          {
+            "content": "        with open(dump_file_path, \"r\") as dump_file:",
+            "line_type": "deleted",
+            "old_line_no": 37,
+            "new_line_no": 0
+          },
+          {
+            "content": "            data = json.load(dump_file)",
+            "line_type": "deleted",
+            "old_line_no": 38,
+            "new_line_no": 0
+          },
+          {
+            "content": "",
+            "line_type": "deleted",
+            "old_line_no": 39,
+            "new_line_no": 0
+          },
+          {
+            "content": "        # Check if the value is an empty list",
+            "line_type": "deleted",
+            "old_line_no": 40,
+            "new_line_no": 0
+          },
+          {
+            "content": "        if not data:",
+            "line_type": "deleted",
+            "old_line_no": 41,
+            "new_line_no": 0
+          },
+          {
+            "content": "            # If empty, restart pm2",
+            "line_type": "deleted",
+            "old_line_no": 42,
+            "new_line_no": 0
+          },
+          {
+            "content": "            logger.info(\"Dump.json is empty, restarting pm2...\")",
+            "line_type": "deleted",
+            "old_line_no": 43,
+            "new_line_no": 0
+          },
+          {
+            "content": "            subprocess.run([\"pm2-go\", \"start\", \"processes.json\"], check=True)",
+            "line_type": "deleted",
+            "old_line_no": 44,
+            "new_line_no": 0
+          },
+          {
+            "content": "            logger.info(\"pm2 restarted successfully.\")",
+            "line_type": "deleted",
+            "old_line_no": 45,
+            "new_line_no": 0
+          },
+          {
+            "content": "        else:",
+            "line_type": "deleted",
+            "old_line_no": 46,
+            "new_line_no": 0
+          },
+          {
+            "content": "            logger.info(\"Dump.json is not empty. No action required.\")",
+            "line_type": "deleted",
+            "old_line_no": 47,
+            "new_line_no": 0
+          },
+          {
+            "content": "    except subprocess.CalledProcessError as e:",
+            "line_type": "deleted",
+            "old_line_no": 48,
+            "new_line_no": 0
+          },
+          {
+            "content": "        logger.error(\"Error: %s\", e)",
+            "line_type": "deleted",
+            "old_line_no": 49,
+            "new_line_no": 0
+          },
+          {
+            "content": "    except json.JSONDecodeError:",
+            "line_type": "deleted",
+            "old_line_no": 50,
+            "new_line_no": 0
+          },
+          {
+            "content": "        logger.error(\"Error: Unable to decode dump.json\")",
+            "line_type": "deleted",
+            "old_line_no": 51,
+            "new_line_no": 0
+          },
+          {
+            "content": "    except Exception as e:",
+            "line_type": "deleted",
+            "old_line_no": 52,
+            "new_line_no": 0
+          },
+          {
+            "content": "        logger.error(\"An unexpected error occurred: %s\", e)",
+            "line_type": "deleted",
+            "old_line_no": 53,
+            "new_line_no": 0
+          },
+          {
+            "content": "        ",
+            "line_type": "added",
+            "old_line_no": 0,
+            "new_line_no": 50
+          },
+          {
+            "content": "        # Create rotating file handler",
+            "line_type": "added",
+            "old_line_no": 0,
+            "new_line_no": 51
+          },
+          {
+            "content": "        log_handler = RotatingFileHandler(",
+            "line_type": "added",
+            "old_line_no": 0,
+            "new_line_no": 52
+          },
+          {
+            "content": "            self.log_file,",
+            "line_type": "added",
+            "old_line_no": 0,
+            "new_line_no": 53
+          },
+          {
+            "content": "            maxBytes=self.max_log_size,",
+            "line_type": "added",
+            "old_line_no": 0,
+            "new_line_no": 54
+          },
+          {
+            "content": "            backupCount=self.backup_count",
+            "line_type": "added",
+            "old_line_no": 0,
+            "new_line_no": 55
+          },
+          {
+            "content": "        )",
+            "line_type": "added",
+            "old_line_no": 0,
+            "new_line_no": 56
+          },
+          {
+            "content": "        log_handler.setLevel(logging.INFO)",
+            "line_type": "added",
+            "old_line_no": 0,
+            "new_line_no": 57
+          },
+          {
+            "content": "        log_handler.setFormatter(logging.Formatter(log_format))",
+            "line_type": "added",
+            "old_line_no": 0,
+            "new_line_no": 58
+          },
+          {
+            "content": "        ",
+            "line_type": "added",
+            "old_line_no": 0,
+            "new_line_no": 59
+          },
+          {
+            "content": "        # Add handler to root logger",
+            "line_type": "added",
+            "old_line_no": 0,
+            "new_line_no": 60
+          },
+          {
+            "content": "        logger = logging.getLogger()",
+            "line_type": "added",
+            "old_line_no": 0,
+            "new_line_no": 61
+          },
+          {
+            "content": "        logger.addHandler(log_handler)",
+            "line_type": "added",
+            "old_line_no": 0,
+            "new_line_no": 62
+          },
+          {
+            "content": "    ",
+            "line_type": "added",
+            "old_line_no": 0,
+            "new_line_no": 63
+          },
+          {
+            "content": "    def _run_pm2_command(self, command: list, capture_output: bool = True) -\u003e Optional[str]:",
+            "line_type": "added",
+            "old_line_no": 0,
+            "new_line_no": 64
+          },
+          {
+            "content": "        \"\"\"",
+            "line_type": "added",
+            "old_line_no": 0,
+            "new_line_no": 65
+          },
+          {
+            "content": "        Run a PM2 command safely.",
+            "line_type": "added",
+            "old_line_no": 0,
+            "new_line_no": 66
+          },
+          {
+            "content": "        ",
+            "line_type": "added",
+            "old_line_no": 0,
+            "new_line_no": 67
+          },
+          {
+            "content": "        Args:",
+            "line_type": "added",
+            "old_line_no": 0,
+            "new_line_no": 68
+          },
+          {
+            "content": "            command: List of command arguments",
+            "line_type": "added",
+            "old_line_no": 0,
+            "new_line_no": 69
+          },
+          {
+            "content": "            capture_output: Whether to capture and return output",
+            "line_type": "added",
+            "old_line_no": 0,
+            "new_line_no": 70
+          },
+          {
+            "content": "            ",
+            "line_type": "added",
+            "old_line_no": 0,
+            "new_line_no": 71
+          },
+          {
+            "content": "        Returns:",
+            "line_type": "added",
+            "old_line_no": 0,
+            "new_line_no": 72
+          },
+          {
+            "content": "            Command output as string if capture_output is True, None otherwise",
+            "line_type": "added",
+            "old_line_no": 0,
+            "new_line_no": 73
+          },
+          {
+            "content": "            ",
+            "line_type": "added",
+            "old_line_no": 0,
+            "new_line_no": 74
+          },
+          {
+            "content": "        Raises:",
+            "line_type": "added",
+            "old_line_no": 0,
+            "new_line_no": 75
+          },
+          {
+            "content": "            subprocess.CalledProcessError: If command fails",
+            "line_type": "added",
+            "old_line_no": 0,
+            "new_line_no": 76
+          },
+          {
+            "content": "        \"\"\"",
+            "line_type": "added",
+            "old_line_no": 0,
+            "new_line_no": 77
+          },
+          {
+            "content": "        try:",
+            "line_type": "added",
+            "old_line_no": 0,
+            "new_line_no": 78
+          },
+          {
+            "content": "            if capture_output:",
+            "line_type": "added",
+            "old_line_no": 0,
+            "new_line_no": 79
+          },
+          {
+            "content": "                result = subprocess.run(command, capture_output=True, text=True, check=True)",
+            "line_type": "added",
+            "old_line_no": 0,
+            "new_line_no": 80
+          },
+          {
+            "content": "                return result.stdout.strip()",
+            "line_type": "added",
+            "old_line_no": 0,
+            "new_line_no": 81
+          },
+          {
+            "content": "            else:",
+            "line_type": "added",
+            "old_line_no": 0,
+            "new_line_no": 82
+          },
+          {
+            "content": "                subprocess.run(command, check=True)",
+            "line_type": "added",
+            "old_line_no": 0,
+            "new_line_no": 83
+          },
+          {
+            "content": "                return None",
+            "line_type": "added",
+            "old_line_no": 0,
+            "new_line_no": 84
+          },
+          {
+            "content": "        except subprocess.CalledProcessError as e:",
+            "line_type": "added",
+            "old_line_no": 0,
+            "new_line_no": 85
+          },
+          {
+            "content": "            self.logger.error(f\"PM2 command failed: {' '.join(command)} - {e}\")",
+            "line_type": "added",
+            "old_line_no": 0,
+            "new_line_no": 86
+          },
+          {
+            "content": "            raise",
+            "line_type": "added",
+            "old_line_no": 0,
+            "new_line_no": 87
+          },
+          {
+            "content": "    ",
+            "line_type": "added",
+            "old_line_no": 0,
+            "new_line_no": 88
+          },
+          {
+            "content": "    def _get_pm2_status(self) -\u003e str:",
+            "line_type": "added",
+            "old_line_no": 0,
+            "new_line_no": 89
+          },
+          {
+            "content": "        \"\"\"",
+            "line_type": "added",
+            "old_line_no": 0,
+            "new_line_no": 90
+          },
+          {
+            "content": "        Get current PM2 status.",
+            "line_type": "added",
+            "old_line_no": 0,
+            "new_line_no": 91
+          },
+          {
+            "content": "        ",
+            "line_type": "added",
+            "old_line_no": 0,
+            "new_line_no": 92
+          },
+          {
+            "content": "        Returns:",
+            "line_type": "added",
+            "old_line_no": 0,
+            "new_line_no": 93
+          },
+          {
+            "content": "            PM2 status output",
+            "line_type": "added",
+            "old_line_no": 0,
+            "new_line_no": 94
+          },
+          {
+            "content": "            ",
+            "line_type": "added",
+            "old_line_no": 0,
+            "new_line_no": 95
+          },
+          {
+            "content": "        Raises:",
+            "line_type": "added",
+            "old_line_no": 0,
+            "new_line_no": 96
+          },
+          {
+            "content": "            subprocess.CalledProcessError: If pm2-go ls fails",
+            "line_type": "added",
+            "old_line_no": 0,
+            "new_line_no": 97
+          },
+          {
+            "content": "        \"\"\"",
+            "line_type": "added",
+            "old_line_no": 0,
+            "new_line_no": 98
+          },
+          {
+            "content": "        self.logger.info(\"Running 'pm2-go ls' command...\")",
+            "line_type": "added",
+            "old_line_no": 0,
+            "new_line_no": 99
+          },
+          {
+            "content": "        return self._run_pm2_command([\"pm2-go\", \"ls\"])",
+            "line_type": "added",
+            "old_line_no": 0,
+            "new_line_no": 100
+          },
+          {
+            "content": "    ",
+            "line_type": "added",
+            "old_line_no": 0,
+            "new_line_no": 101
+          },
+          {
+            "content": "    def _create_pm2_dump(self) -\u003e None:",
+            "line_type": "added",
+            "old_line_no": 0,
+            "new_line_no": 102
+          },
+          {
+            "content": "        \"\"\"",
+            "line_type": "added",
+            "old_line_no": 0,
+            "new_line_no": 103
+          },
+          {
+            "content": "        Create PM2 dump file.",
+            "line_type": "added",
+            "old_line_no": 0,
+            "new_line_no": 104
+          },
+          {
+            "content": "        ",
+            "line_type": "added",
+            "old_line_no": 0,
+            "new_line_no": 105
+          },
+          {
+            "content": "        Raises:",
+            "line_type": "added",
+            "old_line_no": 0,
+            "new_line_no": 106
+          },
+          {
+            "content": "            subprocess.CalledProcessError: If pm2-go dump fails",
+            "line_type": "added",
+            "old_line_no": 0,
+            "new_line_no": 107
+          },
+          {
+            "content": "        \"\"\"",
+            "line_type": "added",
+            "old_line_no": 0,
+            "new_line_no": 108
+          },
+          {
+            "content": "        self.logger.info(\"Running 'pm2-go dump' command...\")",
+            "line_type": "added",
+            "old_line_no": 0,
+            "new_line_no": 109
+          },
+          {
+            "content": "        self._run_pm2_command([\"pm2-go\", \"dump\"], capture_output=False)",
+            "line_type": "added",
+            "old_line_no": 0,
+            "new_line_no": 110
+          },
+          {
+            "content": "    ",
+            "line_type": "added",
+            "old_line_no": 0,
+            "new_line_no": 111
+          },
+          {
+            "content": "    def _read_dump_file(self) -\u003e Optional[Dict[str, Any]]:",
+            "line_type": "added",
+            "old_line_no": 0,
+            "new_line_no": 112
+          },
+          {
+            "content": "        \"\"\"",
+            "line_type": "added",
+            "old_line_no": 0,
+            "new_line_no": 113
+          },
+          {
+            "content": "        Read and parse the PM2 dump file.",
+            "line_type": "added",
+            "old_line_no": 0,
+            "new_line_no": 114
+          },
+          {
+            "content": "        ",
+            "line_type": "added",
+            "old_line_no": 0,
+            "new_line_no": 115
+          },
+          {
+            "content": "        Returns:",
+            "line_type": "added",
+            "old_line_no": 0,
+            "new_line_no": 116
+          },
+          {
+            "content": "            Parsed JSON data from dump file, None if file doesn't exist or is invalid",
+            "line_type": "added",
+            "old_line_no": 0,
+            "new_line_no": 117
+          },
+          {
+            "content": "        \"\"\"",
+            "line_type": "added",
+            "old_line_no": 0,
+            "new_line_no": 118
+          },
+          {
+            "content": "        try:",
+            "line_type": "added",
+            "old_line_no": 0,
+            "new_line_no": 119
+          },
+          {
+            "content": "            if not Path(self.dump_file_path).exists():",
+            "line_type": "added",
+            "old_line_no": 0,
+            "new_line_no": 120
+          },
+          {
+            "content": "                self.logger.warning(f\"Dump file not found: {self.dump_file_path}\")",
+            "line_type": "added",
+            "old_line_no": 0,
+            "new_line_no": 121
+          },
+          {
+            "content": "                return None",
+            "line_type": "added",
+            "old_line_no": 0,
+            "new_line_no": 122
+          },
+          {
+            "content": "                ",
+            "line_type": "added",
+            "old_line_no": 0,
+            "new_line_no": 123
+          },
+          {
+            "content": "            with open(self.dump_file_path, \"r\") as dump_file:",
+            "line_type": "added",
+            "old_line_no": 0,
+            "new_line_no": 124
+          },
+          {
+            "content": "                data = json.load(dump_file)",
+            "line_type": "added",
+            "old_line_no": 0,
+            "new_line_no": 125
+          },
+          {
+            "content": "                return data",
+            "line_type": "added",
+            "old_line_no": 0,
+            "new_line_no": 126
+          },
+          {
+            "content": "                ",
+            "line_type": "added",
+            "old_line_no": 0,
+            "new_line_no": 127
+          },
+          {
+            "content": "        except json.JSONDecodeError as e:",
+            "line_type": "added",
+            "old_line_no": 0,
+            "new_line_no": 128
+          },
+          {
+            "content": "            self.logger.error(f\"Failed to parse dump file: {e}\")",
+            "line_type": "added",
+            "old_line_no": 0,
+            "new_line_no": 129
+          },
+          {
+            "content": "            return None",
+            "line_type": "added",
+            "old_line_no": 0,
+            "new_line_no": 130
+          },
+          {
+            "content": "        except Exception as e:",
+            "line_type": "added",
+            "old_line_no": 0,
+            "new_line_no": 131
+          },
+          {
+            "content": "            self.logger.error(f\"Error reading dump file: {e}\")",
+            "line_type": "added",
+            "old_line_no": 0,
+            "new_line_no": 132
+          },
+          {
+            "content": "            return None",
+            "line_type": "added",
+            "old_line_no": 0,
+            "new_line_no": 133
+          },
+          {
+            "content": "    ",
+            "line_type": "added",
+            "old_line_no": 0,
+            "new_line_no": 134
+          },
+          {
+            "content": "    def _restart_pm2(self) -\u003e bool:",
+            "line_type": "added",
+            "old_line_no": 0,
+            "new_line_no": 135
+          },
+          {
+            "content": "        \"\"\"",
+            "line_type": "added",
+            "old_line_no": 0,
+            "new_line_no": 136
+          },
+          {
+            "content": "        Restart PM2 processes.",
+            "line_type": "added",
+            "old_line_no": 0,
+            "new_line_no": 137
+          },
+          {
+            "content": "        ",
+            "line_type": "added",
+            "old_line_no": 0,
+            "new_line_no": 138
+          },
+          {
+            "content": "        Returns:",
+            "line_type": "added",
+            "old_line_no": 0,
+            "new_line_no": 139
+          },
+          {
+            "content": "            True if restart was successful, False otherwise",
+            "line_type": "added",
+            "old_line_no": 0,
+            "new_line_no": 140
+          },
+          {
+            "content": "        \"\"\"",
+            "line_type": "added",
+            "old_line_no": 0,
+            "new_line_no": 141
+          },
+          {
+            "content": "        try:",
+            "line_type": "added",
+            "old_line_no": 0,
+            "new_line_no": 142
+          },
+          {
+            "content": "            self.logger.info(f\"Restarting PM2 with {self.processes_file}...\")",
+            "line_type": "added",
+            "old_line_no": 0,
+            "new_line_no": 143
+          },
+          {
+            "content": "            self._run_pm2_command([\"pm2-go\", \"start\", self.processes_file], capture_output=False)",
+            "line_type": "added",
+            "old_line_no": 0,
+            "new_line_no": 144
+          },
+          {
+            "content": "            self.logger.info(\"PM2 restarted successfully.\")",
+            "line_type": "added",
+            "old_line_no": 0,
+            "new_line_no": 145
+          },
+          {
+            "content": "            return True",
+            "line_type": "added",
+            "old_line_no": 0,
+            "new_line_no": 146
+          },
+          {
+            "content": "        except subprocess.CalledProcessError:",
+            "line_type": "added",
+            "old_line_no": 0,
+            "new_line_no": 147
+          },
+          {
+            "content": "            self.logger.error(\"Failed to restart PM2.\")",
+            "line_type": "added",
+            "old_line_no": 0,
+            "new_line_no": 148
+          },
+          {
+            "content": "            return False",
+            "line_type": "added",
+            "old_line_no": 0,
+            "new_line_no": 149
+          },
+          {
+            "content": "    ",
+            "line_type": "added",
+            "old_line_no": 0,
+            "new_line_no": 150
+          },
+          {
+            "content": "    def check_and_restart_pm2(self) -\u003e bool:",
+            "line_type": "added",
+            "old_line_no": 0,
+            "new_line_no": 151
+          },
+          {
+            "content": "        \"\"\"",
+            "line_type": "added",
+            "old_line_no": 0,
+            "new_line_no": 152
+          },
+          {
+            "content": "        Check PM2 status and restart if necessary.",
+            "line_type": "added",
+            "old_line_no": 0,
+            "new_line_no": 153
+          },
+          {
+            "content": "        ",
+            "line_type": "added",
+            "old_line_no": 0,
+            "new_line_no": 154
+          },
+          {
+            "content": "        Returns:",
+            "line_type": "added",
+            "old_line_no": 0,
+            "new_line_no": 155
+          },
+          {
+            "content": "            True if action was taken, False otherwise",
+            "line_type": "added",
+            "old_line_no": 0,
+            "new_line_no": 156
+          },
+          {
+            "content": "        \"\"\"",
+            "line_type": "added",
+            "old_line_no": 0,
+            "new_line_no": 157
+          },
+          {
+            "content": "        try:",
+            "line_type": "added",
+            "old_line_no": 0,
+            "new_line_no": 158
+          },
+          {
+            "content": "            # Get current PM2 status",
+            "line_type": "added",
+            "old_line_no": 0,
+            "new_line_no": 159
+          },
+          {
+            "content": "            self._get_pm2_status()",
+            "line_type": "added",
+            "old_line_no": 0,
+            "new_line_no": 160
+          },
+          {
+            "content": "            ",
+            "line_type": "added",
+            "old_line_no": 0,
+            "new_line_no": 161
+          },
+          {
+            "content": "            # Create dump file",
+            "line_type": "added",
+            "old_line_no": 0,
+            "new_line_no": 162
+          },
+          {
+            "content": "            self._create_pm2_dump()",
+            "line_type": "added",
+            "old_line_no": 0,
+            "new_line_no": 163
+          },
+          {
+            "content": "            ",
+            "line_type": "added",
+            "old_line_no": 0,
+            "new_line_no": 164
+          },
+          {
+            "content": "            # Read and check dump file",
+            "line_type": "added",
+            "old_line_no": 0,
+            "new_line_no": 165
+          },
+          {
+            "content": "            data = self._read_dump_file()",
+            "line_type": "added",
+            "old_line_no": 0,
+            "new_line_no": 166
+          },
+          {
+            "content": "            ",
+            "line_type": "added",
+            "old_line_no": 0,
+            "new_line_no": 167
+          },
+          {
+            "content": "            if data is None or not data:",
+            "line_type": "added",
+            "old_line_no": 0,
+            "new_line_no": 168
+          },
+          {
+            "content": "                self.logger.info(\"Dump file is empty or invalid, restarting PM2...\")",
+            "line_type": "added",
+            "old_line_no": 0,
+            "new_line_no": 169
+          },
+          {
+            "content": "                return self._restart_pm2()",
+            "line_type": "added",
+            "old_line_no": 0,
+            "new_line_no": 170
+          },
+          {
+            "content": "            else:",
+            "line_type": "added",
+            "old_line_no": 0,
+            "new_line_no": 171
+          },
+          {
+            "content": "                self.logger.info(\"Dump file contains data. No action required.\")",
+            "line_type": "added",
+            "old_line_no": 0,
+            "new_line_no": 172
+          },
+          {
+            "content": "                return False",
+            "line_type": "added",
+            "old_line_no": 0,
+            "new_line_no": 173
+          },
+          {
+            "content": "                ",
+            "line_type": "added",
+            "old_line_no": 0,
+            "new_line_no": 174
+          },
+          {
+            "content": "        except subprocess.CalledProcessError as e:",
+            "line_type": "added",
+            "old_line_no": 0,
+            "new_line_no": 175
+          },
+          {
+            "content": "            self.logger.error(f\"PM2 command error: {e}\")",
+            "line_type": "added",
+            "old_line_no": 0,
+            "new_line_no": 176
+          },
+          {
+            "content": "            return False",
+            "line_type": "added",
+            "old_line_no": 0,
+            "new_line_no": 177
+          },
+          {
+            "content": "        except Exception as e:",
+            "line_type": "added",
+            "old_line_no": 0,
+            "new_line_no": 178
+          },
+          {
+            "content": "            self.logger.error(f\"Unexpected error during PM2 check: {e}\")",
+            "line_type": "added",
+            "old_line_no": 0,
+            "new_line_no": 179
+          },
+          {
+            "content": "            return False",
+            "line_type": "added",
+            "old_line_no": 0,
+            "new_line_no": 180
+          },
+          {
+            "content": "    ",
+            "line_type": "added",
+            "old_line_no": 0,
+            "new_line_no": 181
+          },
+          {
+            "content": "    def run_monitoring_loop(self) -\u003e None:",
+            "line_type": "added",
+            "old_line_no": 0,
+            "new_line_no": 182
+          },
+          {
+            "content": "        \"\"\"Run the main monitoring loop.\"\"\"",
+            "line_type": "added",
+            "old_line_no": 0,
+            "new_line_no": 183
+          },
+          {
+            "content": "        self.logger.info(\"Starting PM2 monitoring service...\")",
+            "line_type": "added",
+            "old_line_no": 0,
+            "new_line_no": 184
+          },
+          {
+            "content": "        ",
+            "line_type": "added",
+            "old_line_no": 0,
+            "new_line_no": 185
+          },
+          {
+            "content": "        while True:",
+            "line_type": "added",
+            "old_line_no": 0,
+            "new_line_no": 186
+          },
+          {
+            "content": "            try:",
+            "line_type": "added",
+            "old_line_no": 0,
+            "new_line_no": 187
+          },
+          {
+            "content": "                self.logger.info(\"Checking PM2 status...\")",
+            "line_type": "added",
+            "old_line_no": 0,
+            "new_line_no": 188
+          },
+          {
+            "content": "                self.check_and_restart_pm2()",
+            "line_type": "added",
+            "old_line_no": 0,
+            "new_line_no": 189
+          },
+          {
+            "content": "                ",
+            "line_type": "added",
+            "old_line_no": 0,
+            "new_line_no": 190
+          },
+          {
+            "content": "                self.logger.info(f\"Waiting {self.check_interval} seconds before next check...\")",
+            "line_type": "added",
+            "old_line_no": 0,
+            "new_line_no": 191
+          },
+          {
+            "content": "                time.sleep(self.check_interval)",
+            "line_type": "added",
+            "old_line_no": 0,
+            "new_line_no": 192
+          },
+          {
+            "content": "                ",
+            "line_type": "added",
+            "old_line_no": 0,
+            "new_line_no": 193
+          },
+          {
+            "content": "            except KeyboardInterrupt:",
+            "line_type": "added",
+            "old_line_no": 0,
+            "new_line_no": 194
+          },
+          {
+            "content": "                self.logger.info(\"Monitoring stopped by user.\")",
+            "line_type": "added",
+            "old_line_no": 0,
+            "new_line_no": 195
+          },
+          {
+            "content": "                break",
+            "line_type": "added",
+            "old_line_no": 0,
+            "new_line_no": 196
+          },
+          {
+            "content": "            except Exception as e:",
+            "line_type": "added",
+            "old_line_no": 0,
+            "new_line_no": 197
+          },
+          {
+            "content": "                self.logger.error(f\"Error in monitoring loop: {e}\")",
+            "line_type": "added",
+            "old_line_no": 0,
+            "new_line_no": 198
+          },
+          {
+            "content": "                time.sleep(self.check_interval)",
+            "line_type": "added",
+            "old_line_no": 0,
+            "new_line_no": 199
+          },
+          {
+            "content": "",
+            "line_type": "context",
+            "old_line_no": 54,
+            "new_line_no": 200
+          },
+          {
+            "content": "",
+            "line_type": "context",
+            "old_line_no": 55,
+            "new_line_no": 201
+          },
+          {
+            "content": "def main():",
+            "line_type": "context",
+            "old_line_no": 56,
+            "new_line_no": 202
+          },
+          {
+            "content": "    while True:",
+            "line_type": "deleted",
+            "old_line_no": 57,
+            "new_line_no": 0
+          },
+          {
+            "content": "        logger.info(\"Checking pm2 status...\")",
+            "line_type": "deleted",
+            "old_line_no": 58,
+            "new_line_no": 0
+          },
+          {
+            "content": "        check_and_restart_pm2()",
+            "line_type": "deleted",
+            "old_line_no": 59,
+            "new_line_no": 0
+          },
+          {
+            "content": "        logger.info(\"Waiting for 15 seconds before next check...\")",
+            "line_type": "deleted",
+            "old_line_no": 60,
+            "new_line_no": 0
+          },
+          {
+            "content": "        time.sleep(15)",
+            "line_type": "deleted",
+            "old_line_no": 61,
+            "new_line_no": 0
+          },
+          {
+            "content": "    \"\"\"Main entry point for the PM2 monitoring service.\"\"\"",
+            "line_type": "added",
+            "old_line_no": 0,
+            "new_line_no": 203
+          },
+          {
+            "content": "    monitor = PM2Monitor()",
+            "line_type": "added",
+            "old_line_no": 0,
+            "new_line_no": 204
+          },
+          {
+            "content": "    monitor.run_monitoring_loop()",
+            "line_type": "added",
+            "old_line_no": 0,
+            "new_line_no": 205
+          },
+          {
+            "content": "",
+            "line_type": "context",
+            "old_line_no": 62,
+            "new_line_no": 206
+          },
+          {
+            "content": "",
+            "line_type": "context",
+            "old_line_no": 63,
+            "new_line_no": 207
+          },
+          {
+            "content": "if __name__ == \"__main__\":",
+            "line_type": "context",
+            "old_line_no": 64,
+            "new_line_no": 208
+          },
+          {
+            "content": "",
+            "line_type": "context",
+            "old_line_no": 65,
+            "new_line_no": 209
+          }
+        ]
+      }
+    ]
+  }
+]
