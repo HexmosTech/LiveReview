@@ -1,0 +1,36 @@
+[
+  {
+    "sha": "7911538c2d6262fea6ada0070babd216a30d2fc6",
+    "commit": {
+      "author": {
+        "name": "livereviewbot",
+        "email": "livereviewbot@gmail.com",
+        "date": "2025-07-24T09:53:43Z"
+      },
+      "committer": {
+        "name": "livereviewbot",
+        "email": "livereviewbot@gmail.com",
+        "date": "2025-07-24T09:53:43Z"
+      },
+      "message": "attempt to find a suitable base commit from which to branch when scaffolding a PR branch, should now handle merge commits"
+    },
+    "author": {
+      "id": 222574465,
+      "login": "livereviewbot",
+      "name": "",
+      "html_url": "https://github.com/livereviewbot",
+      "avatar_url": "https://avatars.githubusercontent.com/u/222574465?v=4",
+      "type": "User"
+    },
+    "committer": {
+      "id": 222574465,
+      "login": "livereviewbot",
+      "name": "",
+      "html_url": "https://github.com/livereviewbot",
+      "avatar_url": "https://avatars.githubusercontent.com/u/222574465?v=4",
+      "type": "User"
+    },
+    "url": "https://api.github.com/repos/livereviewbot/glabmig/commits/7911538c2d6262fea6ada0070babd216a30d2fc6",
+    "html_url": "https://github.com/livereviewbot/glabmig/commit/7911538c2d6262fea6ada0070babd216a30d2fc6"
+  }
+]
