@@ -1932,6 +1932,26 @@
       ]
     }
   ],
+  "participants": [
+    {
+      "provider": "bitbucket",
+      "username": "557058:d5413fa2-c288-425a-9c2e-83782f46ebb7",
+      "name": "shrijith sv",
+      "web_url": "https://bitbucket.org/%7Bd156ef03-bf37-414f-a0ad-dc71b12807f5%7D/"
+    },
+    {
+      "provider": "bitbucket",
+      "username": "712020:a02bc964-a339-4d21-baa3-71da9c43382e",
+      "name": "Contorted Expression",
+      "web_url": "https://bitbucket.org/%7B225d8b60-7756-4d30-ba43-f71d844bf97e%7D/"
+    },
+    {
+      "provider": "bitbucket",
+      "username": "712020:cd5db0f9-0d82-428a-b778-80a5b9416408",
+      "name": "LiveReview Bot",
+      "web_url": "https://bitbucket.org/%7B268007d3-10bd-4edb-93d1-7056116ad08c%7D/"
+    }
+  ],
   "raw_data_paths": {
     "comments": "cmd/mrmodel/testdata/bitbucket/comments.json",
     "commits": "cmd/mrmodel/testdata/bitbucket/commits.json",

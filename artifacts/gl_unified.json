@@ -3949,6 +3949,31 @@
       "hunks": null
     }
   ],
+  "participants": [
+    {
+      "provider": "gitlab",
+      "name": "Ganesh Kumar",
+      "email": "ganeshkumar6120@gmail.com"
+    },
+    {
+      "provider": "gitlab",
+      "id": 48,
+      "username": "Ganesh",
+      "name": "Ganesh Kumar"
+    },
+    {
+      "provider": "gitlab",
+      "id": 83,
+      "username": "LiveReviewBot",
+      "name": "LiveReviewBot"
+    },
+    {
+      "provider": "gitlab",
+      "id": 3,
+      "username": "shrijith",
+      "name": "Shrijith"
+    }
+  ],
   "raw_data_paths": {
     "commits": "cmd/mrmodel/testdata/gitlab/commits.json",
     "diff": "cmd/mrmodel/testdata/gitlab/diff.txt",

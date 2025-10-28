@@ -407,6 +407,7 @@ func runBitbucket(args []string) error {
 		Timeline:     timelineItems,
 		CommentTree:  commentTree,
 		Diffs:        diffsPtrs,
+		Participants: extractParticipants(timelineItems),
 		RawDataPaths: rawDataPaths,
 	}
 
