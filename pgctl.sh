@@ -39,7 +39,7 @@ fi
 # Config for the "livereview" app
 PG_CONTAINER_NAME="livereview_pg"
 PG_VERSION="15"
-PG_DATA_DIR="./livereview_pgdata"
+PG_DATA_DIR="./.livereview_pgdata"
 
 # Ensure data dir exists
 mkdir -p "$PG_DATA_DIR"
