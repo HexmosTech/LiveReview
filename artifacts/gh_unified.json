@@ -12835,6 +12835,32 @@
       ]
     }
   ],
+  "participants": [
+    {
+      "provider": "github",
+      "id": 175728472,
+      "username": "copilot-pull-request-reviewer[bot]",
+      "name": "copilot-pull-request-reviewer[bot]",
+      "avatar_url": "https://avatars.githubusercontent.com/in/946600?v=4",
+      "web_url": "https://github.com/apps/copilot-pull-request-reviewer"
+    },
+    {
+      "provider": "github",
+      "id": 222574465,
+      "username": "livereviewbot",
+      "name": "livereviewbot",
+      "avatar_url": "https://avatars.githubusercontent.com/u/222574465?v=4",
+      "web_url": "https://github.com/livereviewbot"
+    },
+    {
+      "provider": "github",
+      "id": 796107,
+      "username": "shrsv",
+      "name": "shrsv",
+      "avatar_url": "https://avatars.githubusercontent.com/u/796107?v=4",
+      "web_url": "https://github.com/shrsv"
+    }
+  ],
   "raw_data_paths": {
     "commits": "cmd/mrmodel/testdata/github/commits.json",
     "diff": "cmd/mrmodel/testdata/github/diff.txt",
