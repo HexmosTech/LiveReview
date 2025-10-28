@@ -1,7 +1,6 @@
 package main
 
 import (
-	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
@@ -431,18 +430,6 @@ func buildGitHubCommentTree(issueComments []githubapi.GitHubV2CommentInfo, revie
 	return reviewmodel.CommentTree{Roots: roots}
 }
 
-func sortCommentChildren(node *reviewmodel.CommentNode) {
-	if len(node.Children) == 0 {
-		return
-	}
-	sort.Slice(node.Children, func(i, j int) bool {
-		return node.Children[i].CreatedAt.Before(node.Children[j].CreatedAt)
-	})
-	for _, child := range node.Children {
-		sortCommentChildren(child)
-	}
-}
-
 func deriveLineNumbers(comment githubapi.GitHubV2ReviewComment) (lineNew, lineOld int) {
 	lineNew = comment.Line
 	lineOld = comment.OriginalLine
@@ -481,18 +468,6 @@ func parseGitHubTime(value string) time.Time {
 		return t
 	}
 	return time.Time{}
-}
-
-func writeJSONPretty(path string, v interface{}) error {
-	file, err := os.Create(path)
-	if err != nil {
-		return err
-	}
-	defer file.Close()
-
-	encoder := json.NewEncoder(file)
-	encoder.SetIndent("", "  ")
-	return encoder.Encode(v)
 }
 
 func selectCommitTimestamp(commit githubapi.GitHubV2CommitInfo) time.Time {

@@ -1,0 +1,282 @@
+[
+  {
+    "id": 699722901,
+    "content": {
+      "raw": "@712020:cd5db0f9-0d82-428a-b778-80a5b9416408 Good question!\n\n`os.path.exists()` checks if a path exists, regardless of whether it's a file, directory, link, or any other type of filesystem object. It returns `True` if the path exists and `False` otherwise.\n\n`os.path.isfile()` specifically checks if a path exists *and* is a regular file. It returns `True` only if the path exists and is a file; otherwise (if it's a directory, a link, or doesn't exist), it returns `False`.\n\nIn summary: use `exists()` if you only care if *something* is at the given path, and use `isfile()` if you need to confirm that the path points to a regular file.\n"
+    },
+    "user": {
+      "uuid": "{268007d3-10bd-4edb-93d1-7056116ad08c}",
+      "username": "",
+      "display_name": "LiveReview Bot",
+      "account_id": "712020:cd5db0f9-0d82-428a-b778-80a5b9416408",
+      "type": "user",
+      "links": {
+        "html": {
+          "href": "https://bitbucket.org/%7B268007d3-10bd-4edb-93d1-7056116ad08c%7D/"
+        }
+      }
+    },
+    "created_on": "2025-10-14T14:15:42.066940+00:00",
+    "updated_on": "2025-10-14T14:15:42.076088+00:00",
+    "parent": {
+      "id": 699722325
+    },
+    "inline": {
+      "path": "activepm2.py",
+      "from": null,
+      "to": 120
+    },
+    "deleted": false,
+    "type": "pullrequest_comment"
+  },
+  {
+    "id": 699722842,
+    "content": {
+      "raw": "@{712020:cd5db0f9-0d82-428a-b778-80a5b9416408} What is the difference between is\\_file and exists\\(\\)"
+    },
+    "user": {
+      "uuid": "{225d8b60-7756-4d30-ba43-f71d844bf97e}",
+      "username": "",
+      "display_name": "Contorted Expression",
+      "account_id": "712020:a02bc964-a339-4d21-baa3-71da9c43382e",
+      "type": "user",
+      "links": {
+        "html": {
+          "href": "https://bitbucket.org/%7B225d8b60-7756-4d30-ba43-f71d844bf97e%7D/"
+        }
+      }
+    },
+    "created_on": "2025-10-14T14:15:37.091407+00:00",
+    "updated_on": "2025-10-14T14:15:37.100550+00:00",
+    "parent": {
+      "id": 699722325
+    },
+    "inline": {
+      "path": "activepm2.py",
+      "from": null,
+      "to": 120
+    },
+    "deleted": false,
+    "type": "pullrequest_comment"
+  },
+  {
+    "id": 699722348,
+    "content": {
+      "raw": "Checking for both `data is None` and `not data` is redundant. `not data` will evaluate to `True` if `data` is `None`."
+    },
+    "user": {
+      "uuid": "{268007d3-10bd-4edb-93d1-7056116ad08c}",
+      "username": "",
+      "display_name": "LiveReview Bot",
+      "account_id": "712020:cd5db0f9-0d82-428a-b778-80a5b9416408",
+      "type": "user",
+      "links": {
+        "html": {
+          "href": "https://bitbucket.org/%7B268007d3-10bd-4edb-93d1-7056116ad08c%7D/"
+        }
+      }
+    },
+    "created_on": "2025-10-14T14:14:47.276929+00:00",
+    "updated_on": "2025-10-14T14:14:47.282966+00:00",
+    "parent": null,
+    "inline": {
+      "path": "activepm2.py",
+      "from": null,
+      "to": 168
+    },
+    "deleted": false,
+    "type": "pullrequest_comment"
+  },
+  {
+    "id": 699722338,
+    "content": {
+      "raw": "The return value of `_get_pm2_status` is not used.  Consider removing the call or using the status information."
+    },
+    "user": {
+      "uuid": "{268007d3-10bd-4edb-93d1-7056116ad08c}",
+      "username": "",
+      "display_name": "LiveReview Bot",
+      "account_id": "712020:cd5db0f9-0d82-428a-b778-80a5b9416408",
+      "type": "user",
+      "links": {
+        "html": {
+          "href": "https://bitbucket.org/%7B268007d3-10bd-4edb-93d1-7056116ad08c%7D/"
+        }
+      }
+    },
+    "created_on": "2025-10-14T14:14:46.617207+00:00",
+    "updated_on": "2025-10-14T14:14:46.625690+00:00",
+    "parent": null,
+    "inline": {
+      "path": "activepm2.py",
+      "from": null,
+      "to": 160
+    },
+    "deleted": false,
+    "type": "pullrequest_comment"
+  },
+  {
+    "id": 699722336,
+    "content": {
+      "raw": "It might be better to open the file with an encoding specified, e.g., `encoding='utf-8'`, to handle potential encoding issues."
+    },
+    "user": {
+      "uuid": "{268007d3-10bd-4edb-93d1-7056116ad08c}",
+      "username": "",
+      "display_name": "LiveReview Bot",
+      "account_id": "712020:cd5db0f9-0d82-428a-b778-80a5b9416408",
+      "type": "user",
+      "links": {
+        "html": {
+          "href": "https://bitbucket.org/%7B268007d3-10bd-4edb-93d1-7056116ad08c%7D/"
+        }
+      }
+    },
+    "created_on": "2025-10-14T14:14:45.931953+00:00",
+    "updated_on": "2025-10-14T14:14:45.940716+00:00",
+    "parent": null,
+    "inline": {
+      "path": "activepm2.py",
+      "from": null,
+      "to": 125
+    },
+    "deleted": false,
+    "type": "pullrequest_comment"
+  },
+  {
+    "id": 699722325,
+    "content": {
+      "raw": "Consider using `Path.is_file()` instead of `Path.exists()` to ensure it's a file and not a directory or other special file."
+    },
+    "user": {
+      "uuid": "{268007d3-10bd-4edb-93d1-7056116ad08c}",
+      "username": "",
+      "display_name": "LiveReview Bot",
+      "account_id": "712020:cd5db0f9-0d82-428a-b778-80a5b9416408",
+      "type": "user",
+      "links": {
+        "html": {
+          "href": "https://bitbucket.org/%7B268007d3-10bd-4edb-93d1-7056116ad08c%7D/"
+        }
+      }
+    },
+    "created_on": "2025-10-14T14:14:45.272324+00:00",
+    "updated_on": "2025-10-14T14:14:45.279393+00:00",
+    "parent": null,
+    "inline": {
+      "path": "activepm2.py",
+      "from": null,
+      "to": 120
+    },
+    "deleted": false,
+    "type": "pullrequest_comment"
+  },
+  {
+    "id": 699722320,
+    "content": {
+      "raw": "Reraising the exception here will cause the monitoring loop to terminate. Consider logging the error and continuing the loop, or implementing a retry mechanism."
+    },
+    "user": {
+      "uuid": "{268007d3-10bd-4edb-93d1-7056116ad08c}",
+      "username": "",
+      "display_name": "LiveReview Bot",
+      "account_id": "712020:cd5db0f9-0d82-428a-b778-80a5b9416408",
+      "type": "user",
+      "links": {
+        "html": {
+          "href": "https://bitbucket.org/%7B268007d3-10bd-4edb-93d1-7056116ad08c%7D/"
+        }
+      }
+    },
+    "created_on": "2025-10-14T14:14:44.701189+00:00",
+    "updated_on": "2025-10-14T14:14:44.706253+00:00",
+    "parent": null,
+    "inline": {
+      "path": "activepm2.py",
+      "from": null,
+      "to": 87
+    },
+    "deleted": false,
+    "type": "pullrequest_comment"
+  },
+  {
+    "id": 699722309,
+    "content": {
+      "raw": "Consider adding a timeout to the subprocess calls to prevent indefinite hanging.  Also, the type hint `list` is too broad.  Specify the type of elements in the list."
+    },
+    "user": {
+      "uuid": "{268007d3-10bd-4edb-93d1-7056116ad08c}",
+      "username": "",
+      "display_name": "LiveReview Bot",
+      "account_id": "712020:cd5db0f9-0d82-428a-b778-80a5b9416408",
+      "type": "user",
+      "links": {
+        "html": {
+          "href": "https://bitbucket.org/%7B268007d3-10bd-4edb-93d1-7056116ad08c%7D/"
+        }
+      }
+    },
+    "created_on": "2025-10-14T14:14:44.037812+00:00",
+    "updated_on": "2025-10-14T14:14:44.044111+00:00",
+    "parent": null,
+    "inline": {
+      "path": "activepm2.py",
+      "from": null,
+      "to": 64
+    },
+    "deleted": false,
+    "type": "pullrequest_comment"
+  },
+  {
+    "id": 699722299,
+    "content": {
+      "raw": "Consider using environment variables for configuration to avoid hardcoding values."
+    },
+    "user": {
+      "uuid": "{268007d3-10bd-4edb-93d1-7056116ad08c}",
+      "username": "",
+      "display_name": "LiveReview Bot",
+      "account_id": "712020:cd5db0f9-0d82-428a-b778-80a5b9416408",
+      "type": "user",
+      "links": {
+        "html": {
+          "href": "https://bitbucket.org/%7B268007d3-10bd-4edb-93d1-7056116ad08c%7D/"
+        }
+      }
+    },
+    "created_on": "2025-10-14T14:14:43.425529+00:00",
+    "updated_on": "2025-10-14T14:14:43.432039+00:00",
+    "parent": null,
+    "inline": {
+      "path": "activepm2.py",
+      "from": null,
+      "to": 14
+    },
+    "deleted": false,
+    "type": "pullrequest_comment"
+  },
+  {
+    "id": 699722293,
+    "content": {
+      "raw": "# Refactor Active PM2 Monitoring Script to Class-Based Structure\n\n## Overview\nThis change refactors the original procedural script into a `PM2Monitor` class. This improves code organization, readability, and testability by encapsulating the PM2 monitoring logic, logging configuration, and the main monitoring loop within a single class.\n\n## Key Changes\n- **Class Structure**: Introduced a `PM2Monitor` class to encapsulate the PM2 monitoring logic, including checking and restarting processes.\n- **Logging**: Logging configuration is now handled within the `PM2Monitor` class.\n- **Main Loop**: The main monitoring loop is now part of the `PM2Monitor` class, improving structure and readability.\n\n## Impact\n- **Functionality**: Improved code organization and maintainability. The core functionality of monitoring and restarting PM2 processes remains the same.\n- **Risk**:\n    - Potential for errors introduced during the refactoring process.\n    - The current implementation may terminate the monitoring loop upon encountering an exception.\n    - Hardcoded values are present and should be externalized via environment variables.\n    - The script does not explicitly handle file encodings, which could lead to issues.\n    - Subprocess calls lack timeouts, potentially leading to indefinite hanging.\n"
+    },
+    "user": {
+      "uuid": "{268007d3-10bd-4edb-93d1-7056116ad08c}",
+      "username": "",
+      "display_name": "LiveReview Bot",
+      "account_id": "712020:cd5db0f9-0d82-428a-b778-80a5b9416408",
+      "type": "user",
+      "links": {
+        "html": {
+          "href": "https://bitbucket.org/%7B268007d3-10bd-4edb-93d1-7056116ad08c%7D/"
+        }
+      }
+    },
+    "created_on": "2025-10-14T14:14:42.764801+00:00",
+    "updated_on": "2025-10-14T14:14:42.771582+00:00",
+    "parent": null,
+    "inline": null,
+    "deleted": false,
+    "type": "pullrequest_comment"
+  }
+]

@@ -52,7 +52,10 @@ func (f *StandardProviderFactory) CreateProvider(ctx context.Context, config Pro
 		apiToken, _ := config.Config["pat_token"].(string)
 		email, _ := config.Config["email"].(string)
 		log.Printf("[DEBUG] Bitbucket token exists: %v, email: %s", len(apiToken) > 0, email)
-		provider := bitbucket.NewBitbucketProvider(apiToken, email)
+		provider, err := bitbucket.NewBitbucketProvider(apiToken, email, "")
+		if err != nil {
+			return nil, fmt.Errorf("failed to create bitbucket provider: %w", err)
+		}
 		if err := provider.Configure(config.Config); err != nil {
 			return nil, err
 		}
