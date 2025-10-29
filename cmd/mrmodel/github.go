@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
@@ -32,6 +33,79 @@ func (s *stringFlag) Set(v string) error {
 	s.value = v
 	s.set = true
 	return nil
+}
+
+func mustMarshal(v interface{}) []byte {
+	data, err := json.MarshalIndent(v, "", "  ")
+	if err != nil {
+		panic(err)
+	}
+	return data
+}
+
+func buildGitHubArtifact(owner, name, prID, pat string) (*UnifiedArtifact, error) {
+	commits, err := githubapi.FetchGitHubPRCommitsV2(owner, name, prID, pat)
+	if err != nil {
+		return nil, fmt.Errorf("fetch commits: %w", err)
+	}
+	issueComments, err := githubapi.FetchGitHubPRCommentsV2(owner, name, prID, pat)
+	if err != nil {
+		return nil, fmt.Errorf("fetch issue comments: %w", err)
+	}
+	reviewComments, err := githubapi.FetchGitHubPRReviewCommentsV2(owner, name, prID, pat)
+	if err != nil {
+		return nil, fmt.Errorf("fetch review comments: %w", err)
+	}
+	reviews, err := githubapi.FetchGitHubPRReviewsV2(owner, name, prID, pat)
+	if err != nil {
+		return nil, fmt.Errorf("fetch reviews: %w", err)
+	}
+
+	diffText, err := githubapi.FetchGitHubPRDiff(owner, name, prID, pat)
+	if err != nil {
+		return nil, fmt.Errorf("fetch diff: %w", err)
+	}
+
+	// 3. Process data and build unified artifact
+	timelineItems := buildGitHubTimeline(owner, name, commits, issueComments, reviewComments, reviews)
+	sort.Slice(timelineItems, func(i, j int) bool {
+		return timelineItems[i].CreatedAt.Before(timelineItems[j].CreatedAt)
+	})
+
+	commentTree := buildGitHubCommentTree(issueComments, reviewComments, reviews)
+
+	diffParser := NewLocalParser()
+	parsedDiffs, err := diffParser.Parse(string(diffText))
+	if err != nil {
+		return nil, fmt.Errorf("parse diff: %w", err)
+	}
+
+	// Convert []LocalCodeDiff to []*LocalCodeDiff for the unified artifact
+	diffsPtrs := make([]*LocalCodeDiff, len(parsedDiffs))
+	for i := range parsedDiffs {
+		diffsPtrs[i] = &parsedDiffs[i]
+	}
+
+	unifiedArtifact := &UnifiedArtifact{
+		Provider:     "github",
+		Timeline:     timelineItems,
+		CommentTree:  commentTree,
+		Diffs:        diffsPtrs,
+		Participants: extractParticipants(timelineItems),
+	}
+
+	// This is a bit of a hack to pass the raw data back to the caller for writing, without changing the artifact struct
+	if githubEnableArtifactWriting {
+		unifiedArtifact.RawDataPaths = map[string]string{
+			"commits":         string(mustMarshal(commits)),
+			"issue_comments":  string(mustMarshal(issueComments)),
+			"review_comments": string(mustMarshal(reviewComments)),
+			"reviews":         string(mustMarshal(reviews)),
+			"diff":            diffText,
+		}
+	}
+
+	return unifiedArtifact, nil
 }
 
 // runGitHub collects GitHub PR context and writes timeline + comment tree exports.
@@ -88,102 +162,50 @@ func runGitHub(args []string) error {
 		}
 	}
 
-	commits, err := githubapi.FetchGitHubPRCommitsV2(owner, name, prID, pat)
+	unifiedArtifact, err := buildGitHubArtifact(owner, name, prID, pat)
 	if err != nil {
-		return fmt.Errorf("fetch commits: %w", err)
-	}
-	issueComments, err := githubapi.FetchGitHubPRCommentsV2(owner, name, prID, pat)
-	if err != nil {
-		return fmt.Errorf("fetch issue comments: %w", err)
-	}
-	reviewComments, err := githubapi.FetchGitHubPRReviewCommentsV2(owner, name, prID, pat)
-	if err != nil {
-		return fmt.Errorf("fetch review comments: %w", err)
-	}
-	reviews, err := githubapi.FetchGitHubPRReviewsV2(owner, name, prID, pat)
-	if err != nil {
-		return fmt.Errorf("fetch reviews: %w", err)
-	}
-
-	diffText, err := githubapi.FetchGitHubPRDiff(owner, name, prID, pat)
-	if err != nil {
-		return fmt.Errorf("fetch diff: %w", err)
+		return err
 	}
 
 	// --- Start of new implementation ---
 
-	var rawDataPaths map[string]string
-	testDataDir := filepath.Join("cmd", "mrmodel", "testdata", "github")
 	if githubEnableArtifactWriting {
 		// 1. Create output directories
 		if err := os.MkdirAll(*outDir, 0o755); err != nil {
 			return fmt.Errorf("create output dir: %w", err)
 		}
+		testDataDir := filepath.Join("cmd", "mrmodel", "testdata", "github")
 		if err := os.MkdirAll(testDataDir, 0o755); err != nil {
 			return fmt.Errorf("create testdata dir: %w", err)
 		}
 
 		// 2. Write raw API responses to testdata directory
-		rawDataPaths = make(map[string]string)
-
 		rawCommitsPath := filepath.Join(testDataDir, "commits.json")
-		if err := writeJSONPretty(rawCommitsPath, commits); err != nil {
+		if err := os.WriteFile(rawCommitsPath, []byte(unifiedArtifact.RawDataPaths["commits"]), 0644); err != nil {
 			return fmt.Errorf("write raw commits: %w", err)
 		}
-		rawDataPaths["commits"] = rawCommitsPath
 
 		rawIssueCommentsPath := filepath.Join(testDataDir, "issue_comments.json")
-		if err := writeJSONPretty(rawIssueCommentsPath, issueComments); err != nil {
+		if err := os.WriteFile(rawIssueCommentsPath, []byte(unifiedArtifact.RawDataPaths["issue_comments"]), 0644); err != nil {
 			return fmt.Errorf("write raw issue comments: %w", err)
 		}
-		rawDataPaths["issue_comments"] = rawIssueCommentsPath
 
 		rawReviewCommentsPath := filepath.Join(testDataDir, "review_comments.json")
-		if err := writeJSONPretty(rawReviewCommentsPath, reviewComments); err != nil {
+		if err := os.WriteFile(rawReviewCommentsPath, []byte(unifiedArtifact.RawDataPaths["review_comments"]), 0644); err != nil {
 			return fmt.Errorf("write raw review comments: %w", err)
 		}
-		rawDataPaths["review_comments"] = rawReviewCommentsPath
 
 		rawReviewsPath := filepath.Join(testDataDir, "reviews.json")
-		if err := writeJSONPretty(rawReviewsPath, reviews); err != nil {
+		if err := os.WriteFile(rawReviewsPath, []byte(unifiedArtifact.RawDataPaths["reviews"]), 0644); err != nil {
 			return fmt.Errorf("write raw reviews: %w", err)
 		}
-		rawDataPaths["reviews"] = rawReviewsPath
 
 		rawDiffPath := filepath.Join(testDataDir, "diff.txt")
-		if err := os.WriteFile(rawDiffPath, []byte(diffText), 0644); err != nil {
+		if err := os.WriteFile(rawDiffPath, []byte(unifiedArtifact.RawDataPaths["diff"]), 0644); err != nil {
 			return fmt.Errorf("write raw diff: %w", err)
 		}
-		rawDataPaths["diff"] = rawDiffPath
-	}
-
-	// 3. Process data and build unified artifact
-	timelineItems := buildGitHubTimeline(owner, name, commits, issueComments, reviewComments, reviews)
-	sort.Slice(timelineItems, func(i, j int) bool {
-		return timelineItems[i].CreatedAt.Before(timelineItems[j].CreatedAt)
-	})
-
-	commentTree := buildGitHubCommentTree(issueComments, reviewComments, reviews)
-
-	diffParser := NewLocalParser()
-	parsedDiffs, err := diffParser.Parse(string(diffText))
-	if err != nil {
-		return fmt.Errorf("parse diff: %w", err)
-	}
-
-	// Convert []LocalCodeDiff to []*LocalCodeDiff for the unified artifact
-	diffsPtrs := make([]*LocalCodeDiff, len(parsedDiffs))
-	for i := range parsedDiffs {
-		diffsPtrs[i] = &parsedDiffs[i]
-	}
-
-	unifiedArtifact := UnifiedArtifact{
-		Provider:     "github",
-		Timeline:     timelineItems,
-		CommentTree:  commentTree,
-		Diffs:        diffsPtrs,
-		Participants: extractParticipants(timelineItems),
-		RawDataPaths: rawDataPaths,
+		// clear the raw data from the main artifact before writing the final unified file
+		unifiedArtifact.RawDataPaths = nil
 	}
 
 	if githubEnableArtifactWriting {
@@ -195,10 +217,11 @@ func runGitHub(args []string) error {
 
 		fmt.Printf("Target PR: %s\n", prURL)
 		fmt.Printf("GitHub unified artifact written to %s\n", unifiedPath)
+		testDataDir := filepath.Join("cmd", "mrmodel", "testdata", "github")
 		fmt.Printf("Raw API responses for testing saved in %s\n", testDataDir)
 	}
 
-	fmt.Printf("Summary: commits=%d issue_comments=%d review_comments=%d reviews=%d\n", len(commits), len(issueComments), len(reviewComments), len(reviews))
+	fmt.Printf("Summary: timeline_items=%d participants=%d diff_files=%d\n", len(unifiedArtifact.Timeline), len(unifiedArtifact.Participants), len(unifiedArtifact.Diffs))
 	return nil
 }
 
