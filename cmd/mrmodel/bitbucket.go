@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/livereview/internal/database"
+	"github.com/livereview/internal/providers"
 	"github.com/livereview/internal/providers/bitbucket"
 	"github.com/livereview/internal/reviewmodel"
 	"github.com/livereview/pkg/shared"
@@ -330,6 +331,102 @@ func findBitbucketCredentialsFromDB() (*shared.VCSCredentials, error) {
 	return &creds, nil
 }
 
+func fetchBitbucketData(provider *bitbucket.BitbucketProvider, prID string, prURL string) (details *providers.MergeRequestDetails, diffs string, commits []bitbucket.BitbucketCommit, comments []bitbucket.BitbucketComment, err error) {
+	details, err = provider.GetMergeRequestDetails(context.Background(), prURL)
+	if err != nil {
+		return nil, "", nil, nil, fmt.Errorf("GetMergeRequestDetails failed: %w", err)
+	}
+
+	diffs, err = provider.GetPullRequestDiff(prID)
+	if err != nil {
+		return nil, "", nil, nil, fmt.Errorf("failed to get MR changes: %w", err)
+	}
+
+	commits, err = provider.GetPullRequestCommits(prID)
+	if err != nil {
+		return nil, "", nil, nil, fmt.Errorf("GetPullRequestCommits failed: %w", err)
+	}
+
+	comments, err = provider.GetPullRequestComments(prID)
+	if err != nil {
+		return nil, "", nil, nil, fmt.Errorf("GetPullRequestComments failed: %w", err)
+	}
+
+	return details, diffs, commits, comments, nil
+}
+
+func writeBitbucketArtifacts(outDir string, commits []bitbucket.BitbucketCommit, comments []bitbucket.BitbucketComment, diffs string, unifiedArtifact *UnifiedArtifact) error {
+	if !bbArtifactEnabled {
+		return nil
+	}
+
+	// 1. Create output directories
+	if err := os.MkdirAll(outDir, 0o755); err != nil {
+		return fmt.Errorf("create output dir: %w", err)
+	}
+	testDataDir := filepath.Join("cmd", "mrmodel", "testdata", "bitbucket")
+	if err := os.MkdirAll(testDataDir, 0o755); err != nil {
+		return fmt.Errorf("create testdata dir: %w", err)
+	}
+
+	// 2. Write raw API responses to testdata directory
+	rawCommitsPath := filepath.Join(testDataDir, "commits.json")
+	if err := writeJSONPretty(rawCommitsPath, commits); err != nil {
+		return fmt.Errorf("write raw commits: %w", err)
+	}
+
+	rawCommentsPath := filepath.Join(testDataDir, "comments.json")
+	if err := writeJSONPretty(rawCommentsPath, comments); err != nil {
+		return fmt.Errorf("write raw comments: %w", err)
+	}
+
+	rawDiffPath := filepath.Join(testDataDir, "diff.txt")
+	if err := os.WriteFile(rawDiffPath, []byte(diffs), 0644); err != nil {
+		return fmt.Errorf("write raw diff: %w", err)
+	}
+
+	// 3. Write unified artifact to a single file
+	unifiedPath := filepath.Join(outDir, "bb_unified.json")
+	if err := writeJSONPretty(unifiedPath, unifiedArtifact); err != nil {
+		return fmt.Errorf("write unified artifact: %w", err)
+	}
+
+	fmt.Printf("Bitbucket unified artifact written to %s\n", unifiedPath)
+	fmt.Printf("Raw API responses for testing saved in %s\n", testDataDir)
+
+	return nil
+}
+
+func buildBitbucketUnifiedArtifact(repoURL string, commits []bitbucket.BitbucketCommit, comments []bitbucket.BitbucketComment, diffs string, outDir string) (*UnifiedArtifact, error) {
+	timelineItems := buildBitbucketTimeline(repoURL, commits, comments)
+	commentTree := buildBitbucketCommentTree(comments)
+
+	diffParser := NewLocalParser()
+	parsedDiffs, err := diffParser.Parse(diffs)
+	if err != nil {
+		return nil, fmt.Errorf("parse diff: %w", err)
+	}
+
+	diffsPtrs := make([]*LocalCodeDiff, len(parsedDiffs))
+	for i := range parsedDiffs {
+		diffsPtrs[i] = &parsedDiffs[i]
+	}
+
+	unifiedArtifact := &UnifiedArtifact{
+		Provider:     "bitbucket",
+		Timeline:     timelineItems,
+		CommentTree:  commentTree,
+		Diffs:        diffsPtrs,
+		Participants: extractParticipants(timelineItems),
+	}
+
+	if err := writeBitbucketArtifacts(outDir, commits, comments, diffs, unifiedArtifact); err != nil {
+		return nil, err
+	}
+
+	return unifiedArtifact, nil
+}
+
 func runBitbucket(args []string) error {
 	fs := flag.NewFlagSet("bitbucket", flag.ContinueOnError)
 	outDir := fs.String("out", "artifacts", "Output directory for generated artifacts")
@@ -371,95 +468,18 @@ func runBitbucket(args []string) error {
 		return fmt.Errorf("bitbucket provider creation failed: %w", errProv)
 	}
 
-	details, err := provider.GetMergeRequestDetails(context.Background(), prURL)
+	details, diffs, commits, comments, err := fetchBitbucketData(provider, prID, prURL)
 	if err != nil {
-		return fmt.Errorf("GetMergeRequestDetails failed: %w", err)
+		return err
 	}
 
-	diffs, err := provider.GetPullRequestDiff(prID)
+	unifiedArtifact, err := buildBitbucketUnifiedArtifact(details.RepositoryURL, commits, comments, diffs, *outDir)
 	if err != nil {
-		return fmt.Errorf("failed to get MR changes: %w", err)
-	}
-
-	commits, err := provider.GetPullRequestCommits(prID)
-	if err != nil {
-		return fmt.Errorf("GetPullRequestCommits failed: %w", err)
-	}
-	comments, err := provider.GetPullRequestComments(prID)
-	if err != nil {
-		return fmt.Errorf("GetPullRequestComments failed: %w", err)
-	}
-
-	var rawDataPaths map[string]string
-	if bbArtifactEnabled {
-		// 1. Create output directories
-		if err := os.MkdirAll(*outDir, 0o755); err != nil {
-			return fmt.Errorf("create output dir: %w", err)
-		}
-		testDataDir := filepath.Join("cmd", "mrmodel", "testdata", "bitbucket")
-		if err := os.MkdirAll(testDataDir, 0o755); err != nil {
-			return fmt.Errorf("create testdata dir: %w", err)
-		}
-
-		// 2. Write raw API responses to testdata directory
-		rawDataPaths = make(map[string]string)
-
-		rawCommitsPath := filepath.Join(testDataDir, "commits.json")
-		if err := writeJSONPretty(rawCommitsPath, commits); err != nil {
-			return fmt.Errorf("write raw commits: %w", err)
-		}
-		rawDataPaths["commits"] = rawCommitsPath
-
-		rawCommentsPath := filepath.Join(testDataDir, "comments.json")
-		if err := writeJSONPretty(rawCommentsPath, comments); err != nil {
-			return fmt.Errorf("write raw comments: %w", err)
-		}
-		rawDataPaths["comments"] = rawCommentsPath
-
-		rawDiffPath := filepath.Join(testDataDir, "diff.txt")
-		if err := os.WriteFile(rawDiffPath, []byte(diffs), 0644); err != nil {
-			return fmt.Errorf("write raw diff: %w", err)
-		}
-		rawDataPaths["diff"] = rawDiffPath
-	}
-
-	// 3. Process data and build unified artifact
-	timelineItems := buildBitbucketTimeline(details.RepositoryURL, commits, comments)
-	commentTree := buildBitbucketCommentTree(comments)
-
-	diffParser := NewLocalParser()
-	parsedDiffs, err := diffParser.Parse(diffs)
-	if err != nil {
-		return fmt.Errorf("parse diff: %w", err)
-	}
-
-	diffsPtrs := make([]*LocalCodeDiff, len(parsedDiffs))
-	for i := range parsedDiffs {
-		diffsPtrs[i] = &parsedDiffs[i]
-	}
-
-	unifiedArtifact := UnifiedArtifact{
-		Provider:     "bitbucket",
-		Timeline:     timelineItems,
-		CommentTree:  commentTree,
-		Diffs:        diffsPtrs,
-		Participants: extractParticipants(timelineItems),
-		RawDataPaths: rawDataPaths,
-	}
-
-	if bbArtifactEnabled {
-		// 4. Write unified artifact to a single file
-		unifiedPath := filepath.Join(*outDir, "bb_unified.json")
-		if err := writeJSONPretty(unifiedPath, unifiedArtifact); err != nil {
-			return fmt.Errorf("write unified artifact: %w", err)
-		}
-
-		fmt.Printf("Bitbucket unified artifact written to %s\n", unifiedPath)
-		testDataDir := filepath.Join("cmd", "mrmodel", "testdata", "bitbucket")
-		fmt.Printf("Raw API responses for testing saved in %s\n", testDataDir)
+		return err
 	}
 
 	fmt.Printf("Target PR: %s\n", prURL)
 
+	_ = unifiedArtifact
 	return nil
 }
