@@ -29,30 +29,37 @@ func atoi(s string) int {
 	return n
 }
 
-func fetchGitLabData(provider *gl.GitLabProvider, mrURL string) (details *providers.MergeRequestDetails, diffs string, commits []gl.GitLabCommit, discussions []gl.GitLabDiscussion, standaloneNotes []gl.GitLabNote, err error) {
+func fetchGitLabData(provider *gl.GitLabProvider, mrURL string) (
+	*providers.MergeRequestDetails,
+	string,
+	[]gl.GitLabCommit,
+	[]gl.GitLabDiscussion,
+	[]gl.GitLabNote,
+	error,
+) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	details, err = provider.GetMergeRequestDetails(ctx, mrURL)
+	details, err := provider.GetMergeRequestDetails(ctx, mrURL)
 	if err != nil {
 		return nil, "", nil, nil, nil, fmt.Errorf("GetMergeRequestDetails failed: %w", err)
 	}
 
-	diffs, err = provider.GetMergeRequestChangesAsText(ctx, details.ID)
+	diffs, err := provider.GetMergeRequestChangesAsText(ctx, details.ID)
 	if err != nil {
 		return nil, "", nil, nil, nil, fmt.Errorf("failed to get MR changes: %w", err)
 	}
 
 	httpClient := provider.GetHTTPClient()
-	commits, err = httpClient.GetMergeRequestCommits(details.ProjectID, atoi(details.ID))
+	commits, err := httpClient.GetMergeRequestCommits(details.ProjectID, atoi(details.ID))
 	if err != nil {
 		return nil, "", nil, nil, nil, fmt.Errorf("GetMergeRequestCommits failed: %w", err)
 	}
-	discussions, err = httpClient.GetMergeRequestDiscussions(details.ProjectID, atoi(details.ID))
+	discussions, err := httpClient.GetMergeRequestDiscussions(details.ProjectID, atoi(details.ID))
 	if err != nil {
 		return nil, "", nil, nil, nil, fmt.Errorf("GetMergeRequestDiscussions failed: %w", err)
 	}
-	standaloneNotes, err = httpClient.GetMergeRequestNotes(details.ProjectID, atoi(details.ID))
+	standaloneNotes, err := httpClient.GetMergeRequestNotes(details.ProjectID, atoi(details.ID))
 	if err != nil {
 		return nil, "", nil, nil, nil, fmt.Errorf("GetMergeRequestNotes failed: %w", err)
 	}
@@ -60,7 +67,11 @@ func fetchGitLabData(provider *gl.GitLabProvider, mrURL string) (details *provid
 	return details, diffs, commits, discussions, standaloneNotes, nil
 }
 
-func writeArtifacts(outDir string, commits []gl.GitLabCommit, discussions []gl.GitLabDiscussion, standaloneNotes []gl.GitLabNote, diffs string) error {
+func writeArtifacts(outDir string, commits []gl.GitLabCommit, discussions []gl.GitLabDiscussion, standaloneNotes []gl.GitLabNote, diffs string, unifiedArtifact *UnifiedArtifact) error {
+	if !gitlabEnableArtifactWriting {
+		return nil
+	}
+
 	if err := os.MkdirAll(outDir, 0o755); err != nil {
 		return fmt.Errorf("create output dir: %w", err)
 	}
@@ -89,10 +100,16 @@ func writeArtifacts(outDir string, commits []gl.GitLabCommit, discussions []gl.G
 		return fmt.Errorf("write raw diff: %w", err)
 	}
 
+	unifiedPath := filepath.Join(outDir, "gl_unified.json")
+	if err := writeJSONPretty(unifiedPath, unifiedArtifact); err != nil {
+		return fmt.Errorf("write unified artifact: %w", err)
+	}
+	fmt.Printf("GitLab unified artifact written to %s\n", unifiedPath)
+
 	return nil
 }
 
-func buildUnifiedArtifact(commits []gl.GitLabCommit, discussions []gl.GitLabDiscussion, standaloneNotes []gl.GitLabNote, diffs string) (*UnifiedArtifact, error) {
+func buildUnifiedArtifact(commits []gl.GitLabCommit, discussions []gl.GitLabDiscussion, standaloneNotes []gl.GitLabNote, diffs string, outDir string) (*UnifiedArtifact, error) {
 	timelineItems := rm.BuildTimeline(commits, discussions, standaloneNotes)
 	commentTree := rm.BuildCommentTree(discussions, standaloneNotes)
 
@@ -115,6 +132,10 @@ func buildUnifiedArtifact(commits []gl.GitLabCommit, discussions []gl.GitLabDisc
 		Participants: extractParticipants(timelineItems),
 	}
 
+	if err := writeArtifacts(outDir, commits, discussions, standaloneNotes, diffs, unifiedArtifact); err != nil {
+		return nil, err
+	}
+
 	return unifiedArtifact, nil
 }
 
@@ -130,29 +151,16 @@ func runGitLab(args []string) error {
 		return fmt.Errorf("failed to init gitlab provider: %w", err)
 	}
 
-	details, diffs, commits, discussions, standaloneNotes, err := fetchGitLabData(provider, hardcodedMRURL)
+	_, diffs, commits, discussions, standaloneNotes, err := fetchGitLabData(provider, hardcodedMRURL)
 	if err != nil {
 		return err
 	}
 
-	if gitlabEnableArtifactWriting {
-		if err := writeArtifacts(*outDir, commits, discussions, standaloneNotes, diffs); err != nil {
-			return err
-		}
-	}
-
-	unifiedArtifact, err := buildUnifiedArtifact(commits, discussions, standaloneNotes, diffs)
+	unifiedArtifact, err := buildUnifiedArtifact(commits, discussions, standaloneNotes, diffs, *outDir)
 	if err != nil {
 		return err
 	}
 
-	if gitlabEnableArtifactWriting {
-		unifiedPath := filepath.Join(*outDir, "gl_unified.json")
-		if err := writeJSONPretty(unifiedPath, unifiedArtifact); err != nil {
-			return fmt.Errorf("write unified artifact: %w", err)
-		}
-		fmt.Printf("GitLab unified artifact written to %s\n", unifiedPath)
-	}
 	fmt.Printf("Summary: commits=%d discussions=%d notes=%d\n", len(commits), len(discussions), len(standaloneNotes))
 
 	if *dryRun {
@@ -160,6 +168,6 @@ func runGitLab(args []string) error {
 		return nil
 	}
 
-	_ = details
+	_ = unifiedArtifact
 	return nil
 }
