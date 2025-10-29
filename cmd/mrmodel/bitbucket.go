@@ -20,6 +20,11 @@ import (
 	"github.com/livereview/pkg/shared"
 )
 
+const (
+	defaultBitbucketPRURL = "https://bitbucket.org/contorted/fb_backends/pull-requests/1"
+	bbArtifactEnabled     = false
+)
+
 func buildBitbucketTimeline(repoURL string, commits []bitbucket.BitbucketCommit, comments []bitbucket.BitbucketComment) []reviewmodel.TimelineItem {
 	items := make([]reviewmodel.TimelineItem, 0, len(commits)+len(comments))
 
@@ -292,11 +297,6 @@ func parseBitbucketTime(value string) time.Time {
 	}
 	return time.Time{}
 }
-
-const (
-	defaultBitbucketPRURL = "https://bitbucket.org/contorted/fb_backends/pull-requests/1"
-	bbArtifactEnabled     = false
-)
 
 func getBitbucketPRIDFromURL(repoURL string) (string, error) {
 	_, _, prID, err := bitbucket.ParseBitbucketURL(repoURL)
