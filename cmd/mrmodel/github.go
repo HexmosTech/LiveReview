@@ -17,11 +17,6 @@ import (
 	"github.com/livereview/internal/reviewmodel"
 )
 
-const (
-	defaultGitHubPRURL          = "https://github.com/livereviewbot/glabmig/pull/2"
-	githubEnableArtifactWriting = false
-)
-
 type stringFlag struct {
 	value string
 	set   bool
@@ -95,7 +90,7 @@ func (m *MrModelImpl) buildGitHubArtifact(owner, name, prID, pat string) (*Unifi
 	}
 
 	// This is a bit of a hack to pass the raw data back to the caller for writing, without changing the artifact struct
-	if githubEnableArtifactWriting {
+	if m.EnableArtifactWriting {
 		unifiedArtifact.RawDataPaths = map[string]string{
 			"commits":         string(m.mustMarshal(commits)),
 			"issue_comments":  string(m.mustMarshal(issueComments)),
@@ -365,6 +360,7 @@ func (m *MrModelImpl) firstNonEmptyString(values ...string) string {
 // =====================================================================================
 // runGitHub collects GitHub PR context and writes timeline + comment tree exports.
 func runGitHub(args []string) error {
+	const defaultGitHubPRURL = "https://github.com/livereviewbot/glabmig/pull/2"
 	fs := flag.NewFlagSet("github", flag.ContinueOnError)
 	repo := fs.String("repo", "", "GitHub repository in owner/repo format")
 	prNumber := fs.Int("pr", 0, "Pull request number")
@@ -425,7 +421,7 @@ func runGitHub(args []string) error {
 	}
 
 	// --- Start of new implementation ---
-	if githubEnableArtifactWriting {
+	if mrmodel.EnableArtifactWriting {
 		// 1. Create output directories
 		if err := os.MkdirAll(*outDir, 0o755); err != nil {
 			return fmt.Errorf("create output dir: %w", err)
@@ -464,7 +460,7 @@ func runGitHub(args []string) error {
 		unifiedArtifact.RawDataPaths = nil
 	}
 
-	if githubEnableArtifactWriting {
+	if mrmodel.EnableArtifactWriting {
 		// 4. Write unified artifact to a single file
 		unifiedPath := filepath.Join(*outDir, "gh_unified.json")
 		if err := writeJSONPretty(unifiedPath, unifiedArtifact); err != nil {
