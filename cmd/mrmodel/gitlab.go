@@ -18,9 +18,10 @@ import (
 // NOTE: This sample hardcodes connection details for Phase 0 connectivity.
 // Requested by user: do not use env vars.
 const (
-	hardcodedBaseURL = "https://git.apps.hexmos.com"
-	hardcodedMRURL   = "https://git.apps.hexmos.com/hexmos/liveapi/-/merge_requests/426"
-	hardcodedPAT     = "REDACTED_GITLAB_PAT_4N286MQp1OjJiCA.01.0y0a9upua"
+	gitlabEnableArtifactWriting = false
+	hardcodedBaseURL            = "https://git.apps.hexmos.com"
+	hardcodedMRURL              = "https://git.apps.hexmos.com/hexmos/liveapi/-/merge_requests/426"
+	hardcodedPAT                = "REDACTED_GITLAB_PAT_4N286MQp1OjJiCA.01.0y0a9upua"
 )
 
 func runGitLab(args []string) error {
@@ -66,41 +67,43 @@ func runGitLab(args []string) error {
 		return fmt.Errorf("GetMergeRequestNotes failed: %w", err)
 	}
 
-	// 1. Create output directories
-	if err := os.MkdirAll(*outDir, 0o755); err != nil {
-		return fmt.Errorf("create output dir: %w", err)
-	}
-	testDataDir := filepath.Join("cmd", "mrmodel", "testdata", "gitlab")
-	if err := os.MkdirAll(testDataDir, 0o755); err != nil {
-		return fmt.Errorf("create testdata dir: %w", err)
-	}
+	if gitlabEnableArtifactWriting {
+		// 1. Create output directories
+		if err := os.MkdirAll(*outDir, 0o755); err != nil {
+			return fmt.Errorf("create output dir: %w", err)
+		}
+		testDataDir := filepath.Join("cmd", "mrmodel", "testdata", "gitlab")
+		if err := os.MkdirAll(testDataDir, 0o755); err != nil {
+			return fmt.Errorf("create testdata dir: %w", err)
+		}
 
-	// 2. Write raw API responses to testdata directory
-	rawDataPaths := make(map[string]string)
+		// 2. Write raw API responses to testdata directory
+		rawDataPaths := make(map[string]string)
 
-	rawCommitsPath := filepath.Join(testDataDir, "commits.json")
-	if err := writeJSONPretty(rawCommitsPath, commits); err != nil {
-		return fmt.Errorf("write raw commits: %w", err)
-	}
-	rawDataPaths["commits"] = rawCommitsPath
+		rawCommitsPath := filepath.Join(testDataDir, "commits.json")
+		if err := writeJSONPretty(rawCommitsPath, commits); err != nil {
+			return fmt.Errorf("write raw commits: %w", err)
+		}
+		rawDataPaths["commits"] = rawCommitsPath
 
-	rawDiscussionsPath := filepath.Join(testDataDir, "discussions.json")
-	if err := writeJSONPretty(rawDiscussionsPath, discussions); err != nil {
-		return fmt.Errorf("write raw discussions: %w", err)
-	}
-	rawDataPaths["discussions"] = rawDiscussionsPath
+		rawDiscussionsPath := filepath.Join(testDataDir, "discussions.json")
+		if err := writeJSONPretty(rawDiscussionsPath, discussions); err != nil {
+			return fmt.Errorf("write raw discussions: %w", err)
+		}
+		rawDataPaths["discussions"] = rawDiscussionsPath
 
-	rawNotesPath := filepath.Join(testDataDir, "notes.json")
-	if err := writeJSONPretty(rawNotesPath, standaloneNotes); err != nil {
-		return fmt.Errorf("write raw notes: %w", err)
-	}
-	rawDataPaths["notes"] = rawNotesPath
+		rawNotesPath := filepath.Join(testDataDir, "notes.json")
+		if err := writeJSONPretty(rawNotesPath, standaloneNotes); err != nil {
+			return fmt.Errorf("write raw notes: %w", err)
+		}
+		rawDataPaths["notes"] = rawNotesPath
 
-	rawDiffPath := filepath.Join(testDataDir, "diff.txt")
-	if err := os.WriteFile(rawDiffPath, []byte(diffs), 0644); err != nil {
-		return fmt.Errorf("write raw diff: %w", err)
+		rawDiffPath := filepath.Join(testDataDir, "diff.txt")
+		if err := os.WriteFile(rawDiffPath, []byte(diffs), 0644); err != nil {
+			return fmt.Errorf("write raw diff: %w", err)
+		}
+		rawDataPaths["diff"] = rawDiffPath
 	}
-	rawDataPaths["diff"] = rawDiffPath
 
 	// 3. Process data and build unified artifact
 	timelineItems := rm.BuildTimeline(commits, discussions, standaloneNotes)
@@ -123,18 +126,17 @@ func runGitLab(args []string) error {
 		CommentTree:  commentTree,
 		Diffs:        diffsPtrs,
 		Participants: extractParticipants(timelineItems),
-		RawDataPaths: rawDataPaths,
+		// RawDataPaths: rawDataPaths,
 	}
 
-	// 4. Write unified artifact to a single file
-	unifiedPath := filepath.Join(*outDir, "gl_unified.json")
-	if err := writeJSONPretty(unifiedPath, unifiedArtifact); err != nil {
-		return fmt.Errorf("write unified artifact: %w", err)
+	if gitlabEnableArtifactWriting {
+		// 4. Write unified artifact to a single file
+		unifiedPath := filepath.Join(*outDir, "gl_unified.json")
+		if err := writeJSONPretty(unifiedPath, unifiedArtifact); err != nil {
+			return fmt.Errorf("write unified artifact: %w", err)
+		}
+		fmt.Printf("GitLab unified artifact written to %s\n", unifiedPath)
 	}
-
-	fmt.Printf("Target MR: %s\n", mrURL)
-	fmt.Printf("GitLab unified artifact written to %s\n", unifiedPath)
-	fmt.Printf("Raw API responses for testing saved in %s\n", testDataDir)
 	fmt.Printf("Summary: commits=%d discussions=%d notes=%d\n", len(commits), len(discussions), len(standaloneNotes))
 
 	if *dryRun {
