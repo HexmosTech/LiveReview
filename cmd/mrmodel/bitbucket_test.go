@@ -25,9 +25,10 @@ func TestBitbucketMRModelGeneration(t *testing.T) {
 	var bbComments []bitbucket.BitbucketComment
 	require.NoError(t, json.Unmarshal(commentsData, &bbComments))
 
-	timelineItems := buildBitbucketTimeline(testRepoURL, bbCommits, bbComments)
+	mrModel := &MrModelImpl{}
+	timelineItems := mrModel.buildBitbucketTimeline(testRepoURL, bbCommits, bbComments)
 	assert.NotEmpty(t, timelineItems)
 
-	commentTree := buildBitbucketCommentTree(bbComments)
+	commentTree := mrModel.buildBitbucketCommentTree(bbComments)
 	assert.NotEmpty(t, commentTree.Roots)
 }
