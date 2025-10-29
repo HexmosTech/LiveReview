@@ -35,7 +35,7 @@ func (s *stringFlag) Set(v string) error {
 	return nil
 }
 
-func mustMarshal(v interface{}) []byte {
+func (m *MrModelImpl) mustMarshal(v interface{}) []byte {
 	data, err := json.MarshalIndent(v, "", "  ")
 	if err != nil {
 		panic(err)
@@ -43,7 +43,7 @@ func mustMarshal(v interface{}) []byte {
 	return data
 }
 
-func buildGitHubArtifact(owner, name, prID, pat string) (*UnifiedArtifact, error) {
+func (m *MrModelImpl) buildGitHubArtifact(owner, name, prID, pat string) (*UnifiedArtifact, error) {
 	commits, err := githubapi.FetchGitHubPRCommitsV2(owner, name, prID, pat)
 	if err != nil {
 		return nil, fmt.Errorf("fetch commits: %w", err)
@@ -67,12 +67,12 @@ func buildGitHubArtifact(owner, name, prID, pat string) (*UnifiedArtifact, error
 	}
 
 	// 3. Process data and build unified artifact
-	timelineItems := buildGitHubTimeline(owner, name, commits, issueComments, reviewComments, reviews)
+	timelineItems := m.buildGitHubTimeline(owner, name, commits, issueComments, reviewComments, reviews)
 	sort.Slice(timelineItems, func(i, j int) bool {
 		return timelineItems[i].CreatedAt.Before(timelineItems[j].CreatedAt)
 	})
 
-	commentTree := buildGitHubCommentTree(issueComments, reviewComments, reviews)
+	commentTree := m.buildGitHubCommentTree(issueComments, reviewComments, reviews)
 
 	diffParser := NewLocalParser()
 	parsedDiffs, err := diffParser.Parse(string(diffText))
@@ -97,10 +97,10 @@ func buildGitHubArtifact(owner, name, prID, pat string) (*UnifiedArtifact, error
 	// This is a bit of a hack to pass the raw data back to the caller for writing, without changing the artifact struct
 	if githubEnableArtifactWriting {
 		unifiedArtifact.RawDataPaths = map[string]string{
-			"commits":         string(mustMarshal(commits)),
-			"issue_comments":  string(mustMarshal(issueComments)),
-			"review_comments": string(mustMarshal(reviewComments)),
-			"reviews":         string(mustMarshal(reviews)),
+			"commits":         string(m.mustMarshal(commits)),
+			"issue_comments":  string(m.mustMarshal(issueComments)),
+			"review_comments": string(m.mustMarshal(reviewComments)),
+			"reviews":         string(m.mustMarshal(reviews)),
 			"diff":            diffText,
 		}
 	}
@@ -108,11 +108,11 @@ func buildGitHubArtifact(owner, name, prID, pat string) (*UnifiedArtifact, error
 	return unifiedArtifact, nil
 }
 
-func buildGitHubTimeline(owner, repo string, commits []githubapi.GitHubV2CommitInfo, issueComments []githubapi.GitHubV2CommentInfo, reviewComments []githubapi.GitHubV2ReviewComment, reviews []githubapi.GitHubV2ReviewInfo) []reviewmodel.TimelineItem {
+func (m *MrModelImpl) buildGitHubTimeline(owner, repo string, commits []githubapi.GitHubV2CommitInfo, issueComments []githubapi.GitHubV2CommentInfo, reviewComments []githubapi.GitHubV2ReviewComment, reviews []githubapi.GitHubV2ReviewInfo) []reviewmodel.TimelineItem {
 	items := make([]reviewmodel.TimelineItem, 0, len(commits)+len(issueComments)+len(reviewComments)+len(reviews))
 
 	for _, commit := range commits {
-		timestamp := selectCommitTimestamp(commit)
+		timestamp := m.selectCommitTimestamp(commit)
 		message := strings.TrimSpace(commit.Commit.Message)
 		title := message
 		if idx := strings.IndexRune(title, '\n'); idx >= 0 {
@@ -125,7 +125,7 @@ func buildGitHubTimeline(owner, repo string, commits []githubapi.GitHubV2CommitI
 		if webURL == "" {
 			webURL = fmt.Sprintf("https://github.com/%s/%s/commit/%s", owner, repo, commit.SHA)
 		}
-		authorInfo := selectCommitAuthorInfo(commit)
+		authorInfo := m.selectCommitAuthorInfo(commit)
 		items = append(items, reviewmodel.TimelineItem{
 			Kind:      "commit",
 			ID:        commit.SHA,
@@ -142,12 +142,12 @@ func buildGitHubTimeline(owner, repo string, commits []githubapi.GitHubV2CommitI
 
 	for _, comment := range issueComments {
 		id := strconv.Itoa(comment.ID)
-		timestamp := parseGitHubTime(comment.CreatedAt)
+		timestamp := m.parseGitHubTime(comment.CreatedAt)
 		items = append(items, reviewmodel.TimelineItem{
 			Kind:      "comment",
 			ID:        id,
 			CreatedAt: timestamp,
-			Author:    githubUserToAuthor(comment.User),
+			Author:    m.githubUserToAuthor(comment.User),
 			Comment: &reviewmodel.TimelineComment{
 				NoteID: id,
 				Body:   comment.Body,
@@ -157,8 +157,8 @@ func buildGitHubTimeline(owner, repo string, commits []githubapi.GitHubV2CommitI
 
 	for _, comment := range reviewComments {
 		id := strconv.Itoa(comment.ID)
-		timestamp := parseGitHubTime(comment.CreatedAt)
-		lineNew, lineOld := deriveLineNumbers(comment)
+		timestamp := m.parseGitHubTime(comment.CreatedAt)
+		lineNew, lineOld := m.deriveLineNumbers(comment)
 		discussionID := ""
 		if comment.PullRequestReviewID != 0 {
 			discussionID = strconv.Itoa(comment.PullRequestReviewID)
@@ -167,7 +167,7 @@ func buildGitHubTimeline(owner, repo string, commits []githubapi.GitHubV2CommitI
 			Kind:      "comment",
 			ID:        id,
 			CreatedAt: timestamp,
-			Author:    githubUserToAuthor(comment.User),
+			Author:    m.githubUserToAuthor(comment.User),
 			Comment: &reviewmodel.TimelineComment{
 				NoteID:     id,
 				Discussion: discussionID,
@@ -185,12 +185,12 @@ func buildGitHubTimeline(owner, repo string, commits []githubapi.GitHubV2CommitI
 			continue
 		}
 		id := fmt.Sprintf("review-%d", review.ID)
-		timestamp := parseGitHubTime(review.SubmittedAt)
+		timestamp := m.parseGitHubTime(review.SubmittedAt)
 		items = append(items, reviewmodel.TimelineItem{
 			Kind:      "comment",
 			ID:        id,
 			CreatedAt: timestamp,
-			Author:    githubUserToAuthor(review.User),
+			Author:    m.githubUserToAuthor(review.User),
 			Comment: &reviewmodel.TimelineComment{
 				NoteID: id,
 				Body:   body,
@@ -201,14 +201,14 @@ func buildGitHubTimeline(owner, repo string, commits []githubapi.GitHubV2CommitI
 	return items
 }
 
-func buildGitHubCommentTree(issueComments []githubapi.GitHubV2CommentInfo, reviewComments []githubapi.GitHubV2ReviewComment, reviews []githubapi.GitHubV2ReviewInfo) reviewmodel.CommentTree {
+func (m *MrModelImpl) buildGitHubCommentTree(issueComments []githubapi.GitHubV2CommentInfo, reviewComments []githubapi.GitHubV2ReviewComment, reviews []githubapi.GitHubV2ReviewInfo) reviewmodel.CommentTree {
 	nodes := make(map[string]*reviewmodel.CommentNode, len(reviewComments))
 	roots := make([]*reviewmodel.CommentNode, 0, len(issueComments)+len(reviewComments)+len(reviews))
 
 	for _, comment := range reviewComments {
 		id := strconv.Itoa(comment.ID)
-		timestamp := parseGitHubTime(comment.CreatedAt)
-		lineNew, lineOld := deriveLineNumbers(comment)
+		timestamp := m.parseGitHubTime(comment.CreatedAt)
+		lineNew, lineOld := m.deriveLineNumbers(comment)
 		discussionID := ""
 		if comment.PullRequestReviewID != 0 {
 			discussionID = strconv.Itoa(comment.PullRequestReviewID)
@@ -216,7 +216,7 @@ func buildGitHubCommentTree(issueComments []githubapi.GitHubV2CommentInfo, revie
 		nodes[id] = &reviewmodel.CommentNode{
 			ID:           id,
 			DiscussionID: discussionID,
-			Author:       githubUserToAuthor(comment.User),
+			Author:       m.githubUserToAuthor(comment.User),
 			Body:         comment.Body,
 			CreatedAt:    timestamp,
 			FilePath:     comment.Path,
@@ -244,10 +244,10 @@ func buildGitHubCommentTree(issueComments []githubapi.GitHubV2CommentInfo, revie
 
 	for _, comment := range issueComments {
 		id := strconv.Itoa(comment.ID)
-		timestamp := parseGitHubTime(comment.CreatedAt)
+		timestamp := m.parseGitHubTime(comment.CreatedAt)
 		roots = append(roots, &reviewmodel.CommentNode{
 			ID:        id,
-			Author:    githubUserToAuthor(comment.User),
+			Author:    m.githubUserToAuthor(comment.User),
 			Body:      comment.Body,
 			CreatedAt: timestamp,
 		})
@@ -259,10 +259,10 @@ func buildGitHubCommentTree(issueComments []githubapi.GitHubV2CommentInfo, revie
 			continue
 		}
 		id := fmt.Sprintf("review-%d", review.ID)
-		timestamp := parseGitHubTime(review.SubmittedAt)
+		timestamp := m.parseGitHubTime(review.SubmittedAt)
 		roots = append(roots, &reviewmodel.CommentNode{
 			ID:        id,
-			Author:    githubUserToAuthor(review.User),
+			Author:    m.githubUserToAuthor(review.User),
 			Body:      body,
 			CreatedAt: timestamp,
 		})
@@ -278,7 +278,7 @@ func buildGitHubCommentTree(issueComments []githubapi.GitHubV2CommentInfo, revie
 	return reviewmodel.CommentTree{Roots: roots}
 }
 
-func deriveLineNumbers(comment githubapi.GitHubV2ReviewComment) (lineNew, lineOld int) {
+func (m *MrModelImpl) deriveLineNumbers(comment githubapi.GitHubV2ReviewComment) (lineNew, lineOld int) {
 	lineNew = comment.Line
 	lineOld = comment.OriginalLine
 	if lineNew == 0 && !strings.EqualFold(comment.Side, "RIGHT") {
@@ -290,7 +290,7 @@ func deriveLineNumbers(comment githubapi.GitHubV2ReviewComment) (lineNew, lineOl
 	return
 }
 
-func githubUserToAuthor(user githubapi.GitHubV2User) reviewmodel.AuthorInfo {
+func (m *MrModelImpl) githubUserToAuthor(user githubapi.GitHubV2User) reviewmodel.AuthorInfo {
 	displayName := strings.TrimSpace(user.Name)
 	if displayName == "" {
 		displayName = user.Login
@@ -305,7 +305,7 @@ func githubUserToAuthor(user githubapi.GitHubV2User) reviewmodel.AuthorInfo {
 	}
 }
 
-func parseGitHubTime(value string) time.Time {
+func (m *MrModelImpl) parseGitHubTime(value string) time.Time {
 	if value == "" {
 		return time.Time{}
 	}
@@ -318,17 +318,17 @@ func parseGitHubTime(value string) time.Time {
 	return time.Time{}
 }
 
-func selectCommitTimestamp(commit githubapi.GitHubV2CommitInfo) time.Time {
-	if ts := parseGitHubTime(commit.Commit.Author.Date); !ts.IsZero() {
+func (m *MrModelImpl) selectCommitTimestamp(commit githubapi.GitHubV2CommitInfo) time.Time {
+	if ts := m.parseGitHubTime(commit.Commit.Author.Date); !ts.IsZero() {
 		return ts
 	}
-	if ts := parseGitHubTime(commit.Commit.Committer.Date); !ts.IsZero() {
+	if ts := m.parseGitHubTime(commit.Commit.Committer.Date); !ts.IsZero() {
 		return ts
 	}
 	return time.Time{}
 }
 
-func selectCommitAuthorInfo(commit githubapi.GitHubV2CommitInfo) reviewmodel.AuthorInfo {
+func (m *MrModelImpl) selectCommitAuthorInfo(commit githubapi.GitHubV2CommitInfo) reviewmodel.AuthorInfo {
 	if commit.Author != nil {
 		name := strings.TrimSpace(commit.Author.Name)
 		if name == "" {
@@ -344,12 +344,12 @@ func selectCommitAuthorInfo(commit githubapi.GitHubV2CommitInfo) reviewmodel.Aut
 		}
 	}
 	payload := commit.Commit
-	name := firstNonEmptyString(payload.Author.Name, payload.Committer.Name)
-	email := firstNonEmptyString(payload.Author.Email, payload.Committer.Email)
+	name := m.firstNonEmptyString(payload.Author.Name, payload.Committer.Name)
+	email := m.firstNonEmptyString(payload.Author.Email, payload.Committer.Email)
 	return reviewmodel.AuthorInfo{Provider: "github", Name: name, Email: email}
 }
 
-func firstNonEmptyString(values ...string) string {
+func (m *MrModelImpl) firstNonEmptyString(values ...string) string {
 	for _, v := range values {
 		if strings.TrimSpace(v) != "" {
 			return v
@@ -383,16 +383,18 @@ func runGitHub(args []string) error {
 	var owner, name, prID, prURL string
 	useURL := urlFlag.set || (repoVal == "" && prVal == 0)
 
+	mrmodel := &MrModelImpl{}
+
 	if useURL {
 		var err error
-		owner, name, prID, err = parseGitHubPRURL(urlVal)
+		owner, name, prID, err = mrmodel.parseGitHubPRURL(urlVal)
 		if err != nil {
 			return err
 		}
 		prURL = urlVal
 	} else if repoVal != "" && prVal > 0 {
 		var err error
-		owner, name, err = splitRepo(repoVal)
+		owner, name, err = mrmodel.splitRepo(repoVal)
 		if err != nil {
 			return err
 		}
@@ -411,13 +413,13 @@ func runGitHub(args []string) error {
 	}
 	if pat == "" {
 		var dbErr error
-		pat, dbErr = findGitHubTokenFromDB()
+		pat, dbErr = mrmodel.findGitHubTokenFromDB()
 		if dbErr != nil {
 			return fmt.Errorf("GitHub token not provided via flags/env and lookup failed: %w", dbErr)
 		}
 	}
 
-	unifiedArtifact, err := buildGitHubArtifact(owner, name, prID, pat)
+	unifiedArtifact, err := mrmodel.buildGitHubArtifact(owner, name, prID, pat)
 	if err != nil {
 		return err
 	}
@@ -479,7 +481,7 @@ func runGitHub(args []string) error {
 	return nil
 }
 
-func parseGitHubPRURL(raw string) (string, string, string, error) {
+func (m *MrModelImpl) parseGitHubPRURL(raw string) (string, string, string, error) {
 	if strings.TrimSpace(raw) == "" {
 		return "", "", "", errors.New("PR URL is empty")
 	}
@@ -507,7 +509,7 @@ func parseGitHubPRURL(raw string) (string, string, string, error) {
 	return owner, repo, number, nil
 }
 
-func findGitHubTokenFromDB() (string, error) {
+func (m *MrModelImpl) findGitHubTokenFromDB() (string, error) {
 	rows, err := fetchIntegrationTokens()
 	if err != nil {
 		return "", fmt.Errorf("fetch integration_tokens: %w", err)
@@ -534,7 +536,7 @@ func findGitHubTokenFromDB() (string, error) {
 	return "", errors.New("no GitHub PAT found in integration_tokens")
 }
 
-func splitRepo(repo string) (string, string, error) {
+func (m *MrModelImpl) splitRepo(repo string) (string, string, error) {
 	parts := strings.Split(repo, "/")
 	if len(parts) != 2 {
 		return "", "", fmt.Errorf("invalid repo %q (expected owner/repo)", repo)
