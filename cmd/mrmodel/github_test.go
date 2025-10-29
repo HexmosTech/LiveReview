@@ -41,12 +41,13 @@ func TestGitHubDataProcessing(t *testing.T) {
 	owner := "test-owner"
 	repo := "test-repo"
 
-	timelineItems := buildGitHubTimeline(owner, repo, commits, issueComments, reviewComments, reviews)
+	mrmodel := &MrModelImpl{}
+	timelineItems := mrmodel.buildGitHubTimeline(owner, repo, commits, issueComments, reviewComments, reviews)
 	sort.Slice(timelineItems, func(i, j int) bool {
 		return timelineItems[i].CreatedAt.Before(timelineItems[j].CreatedAt)
 	})
 
-	commentTree := buildGitHubCommentTree(issueComments, reviewComments, reviews)
+	commentTree := mrmodel.buildGitHubCommentTree(issueComments, reviewComments, reviews)
 
 	diffParser := NewLocalParser()
 	parsedDiffs, err := diffParser.Parse(string(diffText))
