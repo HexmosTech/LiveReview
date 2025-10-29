@@ -17,19 +17,6 @@ import (
 	"github.com/livereview/internal/reviewmodel"
 )
 
-type stringFlag struct {
-	value string
-	set   bool
-}
-
-func (s *stringFlag) String() string { return s.value }
-
-func (s *stringFlag) Set(v string) error {
-	s.value = v
-	s.set = true
-	return nil
-}
-
 func (m *MrModelImpl) mustMarshal(v interface{}) []byte {
 	data, err := json.MarshalIndent(v, "", "  ")
 	if err != nil {
@@ -353,11 +340,92 @@ func (m *MrModelImpl) firstNonEmptyString(values ...string) string {
 	return ""
 }
 
+func (m *MrModelImpl) parseGitHubPRURL(raw string) (string, string, string, error) {
+	if strings.TrimSpace(raw) == "" {
+		return "", "", "", errors.New("PR URL is empty")
+	}
+	parsed, err := url.Parse(raw)
+	if err != nil {
+		return "", "", "", fmt.Errorf("parse PR URL: %w", err)
+	}
+	if parsed.Host != "github.com" {
+		return "", "", "", fmt.Errorf("unsupported host %q in PR URL", parsed.Host)
+	}
+	segments := strings.Split(strings.Trim(parsed.Path, "/"), "/")
+	if len(segments) < 4 {
+		return "", "", "", fmt.Errorf("invalid PR URL path %q", parsed.Path)
+	}
+	owner := segments[0]
+	repo := segments[1]
+	kind := segments[2]
+	number := segments[3]
+	if kind != "pull" && kind != "pulls" {
+		return "", "", "", fmt.Errorf("invalid PR URL path %q", parsed.Path)
+	}
+	if _, err := strconv.Atoi(number); err != nil {
+		return "", "", "", fmt.Errorf("invalid PR number %q", number)
+	}
+	return owner, repo, number, nil
+}
+
+func (m *MrModelImpl) findGitHubTokenFromDB() (string, error) {
+	rows, err := fetchIntegrationTokens()
+	if err != nil {
+		return "", fmt.Errorf("fetch integration_tokens: %w", err)
+	}
+
+	for _, row := range rows {
+		provider, _ := row["provider"].(string)
+		if !strings.EqualFold(provider, "github") {
+			continue
+		}
+		token, _ := row["pat_token"].(string)
+		token = strings.TrimSpace(token)
+		if token == "" {
+			continue
+		}
+		if name, _ := row["connection_name"].(string); name != "" {
+			fmt.Printf("Using GitHub PAT from integration_tokens connection %s\n", name)
+		} else {
+			fmt.Println("Using GitHub PAT from integration_tokens")
+		}
+		return token, nil
+	}
+
+	return "", errors.New("no GitHub PAT found in integration_tokens")
+}
+
+func (m *MrModelImpl) splitRepo(repo string) (string, string, error) {
+	parts := strings.Split(repo, "/")
+	if len(parts) != 2 {
+		return "", "", fmt.Errorf("invalid repo %q (expected owner/repo)", repo)
+	}
+	owner := strings.TrimSpace(parts[0])
+	name := strings.TrimSpace(parts[1])
+	if owner == "" || name == "" {
+		return "", "", fmt.Errorf("invalid repo %q (expected owner/repo)", repo)
+	}
+	return owner, name, nil
+}
+
 // =====================================================================================
 //
 //	CLI-specific functions
 //
 // =====================================================================================
+type stringFlag struct {
+	value string
+	set   bool
+}
+
+func (s *stringFlag) String() string { return s.value }
+
+func (s *stringFlag) Set(v string) error {
+	s.value = v
+	s.set = true
+	return nil
+}
+
 // runGitHub collects GitHub PR context and writes timeline + comment tree exports.
 func runGitHub(args []string) error {
 	const defaultGitHubPRURL = "https://github.com/livereviewbot/glabmig/pull/2"
@@ -475,72 +543,4 @@ func runGitHub(args []string) error {
 
 	fmt.Printf("Summary: timeline_items=%d participants=%d diff_files=%d\n", len(unifiedArtifact.Timeline), len(unifiedArtifact.Participants), len(unifiedArtifact.Diffs))
 	return nil
-}
-
-func (m *MrModelImpl) parseGitHubPRURL(raw string) (string, string, string, error) {
-	if strings.TrimSpace(raw) == "" {
-		return "", "", "", errors.New("PR URL is empty")
-	}
-	parsed, err := url.Parse(raw)
-	if err != nil {
-		return "", "", "", fmt.Errorf("parse PR URL: %w", err)
-	}
-	if parsed.Host != "github.com" {
-		return "", "", "", fmt.Errorf("unsupported host %q in PR URL", parsed.Host)
-	}
-	segments := strings.Split(strings.Trim(parsed.Path, "/"), "/")
-	if len(segments) < 4 {
-		return "", "", "", fmt.Errorf("invalid PR URL path %q", parsed.Path)
-	}
-	owner := segments[0]
-	repo := segments[1]
-	kind := segments[2]
-	number := segments[3]
-	if kind != "pull" && kind != "pulls" {
-		return "", "", "", fmt.Errorf("invalid PR URL path %q", parsed.Path)
-	}
-	if _, err := strconv.Atoi(number); err != nil {
-		return "", "", "", fmt.Errorf("invalid PR number %q", number)
-	}
-	return owner, repo, number, nil
-}
-
-func (m *MrModelImpl) findGitHubTokenFromDB() (string, error) {
-	rows, err := fetchIntegrationTokens()
-	if err != nil {
-		return "", fmt.Errorf("fetch integration_tokens: %w", err)
-	}
-
-	for _, row := range rows {
-		provider, _ := row["provider"].(string)
-		if !strings.EqualFold(provider, "github") {
-			continue
-		}
-		token, _ := row["pat_token"].(string)
-		token = strings.TrimSpace(token)
-		if token == "" {
-			continue
-		}
-		if name, _ := row["connection_name"].(string); name != "" {
-			fmt.Printf("Using GitHub PAT from integration_tokens connection %s\n", name)
-		} else {
-			fmt.Println("Using GitHub PAT from integration_tokens")
-		}
-		return token, nil
-	}
-
-	return "", errors.New("no GitHub PAT found in integration_tokens")
-}
-
-func (m *MrModelImpl) splitRepo(repo string) (string, string, error) {
-	parts := strings.Split(repo, "/")
-	if len(parts) != 2 {
-		return "", "", fmt.Errorf("invalid repo %q (expected owner/repo)", repo)
-	}
-	owner := strings.TrimSpace(parts[0])
-	name := strings.TrimSpace(parts[1])
-	if owner == "" || name == "" {
-		return "", "", fmt.Errorf("invalid repo %q (expected owner/repo)", repo)
-	}
-	return owner, name, nil
 }
