@@ -16,7 +16,10 @@ import (
 	"github.com/livereview/internal/reviewmodel"
 )
 
-const defaultGitHubPRURL = "https://github.com/livereviewbot/glabmig/pull/2"
+const (
+	defaultGitHubPRURL          = "https://github.com/livereviewbot/glabmig/pull/2"
+	githubEnableArtifactWriting = false
+)
 
 type stringFlag struct {
 	value string
@@ -109,47 +112,50 @@ func runGitHub(args []string) error {
 
 	// --- Start of new implementation ---
 
-	// 1. Create output directories
-	if err := os.MkdirAll(*outDir, 0o755); err != nil {
-		return fmt.Errorf("create output dir: %w", err)
-	}
+	var rawDataPaths map[string]string
 	testDataDir := filepath.Join("cmd", "mrmodel", "testdata", "github")
-	if err := os.MkdirAll(testDataDir, 0o755); err != nil {
-		return fmt.Errorf("create testdata dir: %w", err)
-	}
+	if githubEnableArtifactWriting {
+		// 1. Create output directories
+		if err := os.MkdirAll(*outDir, 0o755); err != nil {
+			return fmt.Errorf("create output dir: %w", err)
+		}
+		if err := os.MkdirAll(testDataDir, 0o755); err != nil {
+			return fmt.Errorf("create testdata dir: %w", err)
+		}
 
-	// 2. Write raw API responses to testdata directory
-	rawDataPaths := make(map[string]string)
+		// 2. Write raw API responses to testdata directory
+		rawDataPaths = make(map[string]string)
 
-	rawCommitsPath := filepath.Join(testDataDir, "commits.json")
-	if err := writeJSONPretty(rawCommitsPath, commits); err != nil {
-		return fmt.Errorf("write raw commits: %w", err)
-	}
-	rawDataPaths["commits"] = rawCommitsPath
+		rawCommitsPath := filepath.Join(testDataDir, "commits.json")
+		if err := writeJSONPretty(rawCommitsPath, commits); err != nil {
+			return fmt.Errorf("write raw commits: %w", err)
+		}
+		rawDataPaths["commits"] = rawCommitsPath
 
-	rawIssueCommentsPath := filepath.Join(testDataDir, "issue_comments.json")
-	if err := writeJSONPretty(rawIssueCommentsPath, issueComments); err != nil {
-		return fmt.Errorf("write raw issue comments: %w", err)
-	}
-	rawDataPaths["issue_comments"] = rawIssueCommentsPath
+		rawIssueCommentsPath := filepath.Join(testDataDir, "issue_comments.json")
+		if err := writeJSONPretty(rawIssueCommentsPath, issueComments); err != nil {
+			return fmt.Errorf("write raw issue comments: %w", err)
+		}
+		rawDataPaths["issue_comments"] = rawIssueCommentsPath
 
-	rawReviewCommentsPath := filepath.Join(testDataDir, "review_comments.json")
-	if err := writeJSONPretty(rawReviewCommentsPath, reviewComments); err != nil {
-		return fmt.Errorf("write raw review comments: %w", err)
-	}
-	rawDataPaths["review_comments"] = rawReviewCommentsPath
+		rawReviewCommentsPath := filepath.Join(testDataDir, "review_comments.json")
+		if err := writeJSONPretty(rawReviewCommentsPath, reviewComments); err != nil {
+			return fmt.Errorf("write raw review comments: %w", err)
+		}
+		rawDataPaths["review_comments"] = rawReviewCommentsPath
 
-	rawReviewsPath := filepath.Join(testDataDir, "reviews.json")
-	if err := writeJSONPretty(rawReviewsPath, reviews); err != nil {
-		return fmt.Errorf("write raw reviews: %w", err)
-	}
-	rawDataPaths["reviews"] = rawReviewsPath
+		rawReviewsPath := filepath.Join(testDataDir, "reviews.json")
+		if err := writeJSONPretty(rawReviewsPath, reviews); err != nil {
+			return fmt.Errorf("write raw reviews: %w", err)
+		}
+		rawDataPaths["reviews"] = rawReviewsPath
 
-	rawDiffPath := filepath.Join(testDataDir, "diff.txt")
-	if err := os.WriteFile(rawDiffPath, []byte(diffText), 0644); err != nil {
-		return fmt.Errorf("write raw diff: %w", err)
+		rawDiffPath := filepath.Join(testDataDir, "diff.txt")
+		if err := os.WriteFile(rawDiffPath, []byte(diffText), 0644); err != nil {
+			return fmt.Errorf("write raw diff: %w", err)
+		}
+		rawDataPaths["diff"] = rawDiffPath
 	}
-	rawDataPaths["diff"] = rawDiffPath
 
 	// 3. Process data and build unified artifact
 	timelineItems := buildGitHubTimeline(owner, name, commits, issueComments, reviewComments, reviews)
@@ -180,15 +186,18 @@ func runGitHub(args []string) error {
 		RawDataPaths: rawDataPaths,
 	}
 
-	// 4. Write unified artifact to a single file
-	unifiedPath := filepath.Join(*outDir, "gh_unified.json")
-	if err := writeJSONPretty(unifiedPath, unifiedArtifact); err != nil {
-		return fmt.Errorf("write unified artifact: %w", err)
+	if githubEnableArtifactWriting {
+		// 4. Write unified artifact to a single file
+		unifiedPath := filepath.Join(*outDir, "gh_unified.json")
+		if err := writeJSONPretty(unifiedPath, unifiedArtifact); err != nil {
+			return fmt.Errorf("write unified artifact: %w", err)
+		}
+
+		fmt.Printf("Target PR: %s\n", prURL)
+		fmt.Printf("GitHub unified artifact written to %s\n", unifiedPath)
+		fmt.Printf("Raw API responses for testing saved in %s\n", testDataDir)
 	}
 
-	fmt.Printf("Target PR: %s\n", prURL)
-	fmt.Printf("GitHub unified artifact written to %s\n", unifiedPath)
-	fmt.Printf("Raw API responses for testing saved in %s\n", testDataDir)
 	fmt.Printf("Summary: commits=%d issue_comments=%d review_comments=%d reviews=%d\n", len(commits), len(issueComments), len(reviewComments), len(reviews))
 	return nil
 }
