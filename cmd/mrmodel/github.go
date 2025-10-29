@@ -3,7 +3,6 @@ package main
 import (
 	"encoding/json"
 	"errors"
-	"flag"
 	"fmt"
 	"net/url"
 	"os"
@@ -457,89 +456,4 @@ func (m *MrModelImpl) splitRepo(repo string) (string, string, error) {
 		return "", "", fmt.Errorf("invalid repo %q (expected owner/repo)", repo)
 	}
 	return owner, name, nil
-}
-
-// =====================================================================================
-//
-//	CLI-specific functions
-//
-// =====================================================================================
-type stringFlag struct {
-	value string
-	set   bool
-}
-
-func (s *stringFlag) String() string { return s.value }
-
-func (s *stringFlag) Set(v string) error {
-	s.value = v
-	s.set = true
-	return nil
-}
-
-// runGitHub collects GitHub PR context and writes timeline + comment tree exports.
-func runGitHub(args []string) error {
-	const defaultGitHubPRURL = "https://github.com/livereviewbot/glabmig/pull/2"
-	fs := flag.NewFlagSet("github", flag.ContinueOnError)
-	repo := fs.String("repo", "", "GitHub repository in owner/repo format")
-	prNumber := fs.Int("pr", 0, "Pull request number")
-	token := fs.String("token", "", "GitHub personal access token (optional if GITHUB_TOKEN or GITHUB_PAT set)")
-	outDir := fs.String("out", "artifacts", "Output directory for generated artifacts")
-	urlFlag := stringFlag{value: defaultGitHubPRURL}
-	fs.Var(&urlFlag, "url", "GitHub pull request URL (overrides --repo/--pr)")
-	if err := fs.Parse(args); err != nil {
-		return err
-	}
-
-	repoVal := strings.TrimSpace(*repo)
-	prVal := *prNumber
-	urlVal := strings.TrimSpace(urlFlag.value)
-
-	var owner, name, prID, prURL string
-	useURL := urlFlag.set || (repoVal == "" && prVal == 0)
-
-	mrmodel := &MrModelImpl{}
-
-	if useURL {
-		var err error
-		owner, name, prID, err = mrmodel.parseGitHubPRURL(urlVal)
-		if err != nil {
-			return err
-		}
-		prURL = urlVal
-	} else if repoVal != "" && prVal > 0 {
-		var err error
-		owner, name, err = mrmodel.splitRepo(repoVal)
-		if err != nil {
-			return err
-		}
-		prID = strconv.Itoa(prVal)
-		prURL = fmt.Sprintf("https://github.com/%s/%s/pull/%s", owner, name, prID)
-	} else {
-		return errors.New("must provide both --repo and --pr or a valid --url")
-	}
-
-	pat := strings.TrimSpace(*token)
-	if pat == "" {
-		pat = strings.TrimSpace(os.Getenv("GITHUB_TOKEN"))
-	}
-	if pat == "" {
-		pat = strings.TrimSpace(os.Getenv("GITHUB_PAT"))
-	}
-	if pat == "" {
-		var dbErr error
-		pat, dbErr = mrmodel.findGitHubTokenFromDB()
-		if dbErr != nil {
-			return fmt.Errorf("GitHub token not provided via flags/env and lookup failed: %w", dbErr)
-		}
-	}
-
-	unifiedArtifact, err := mrmodel.buildGitHubArtifact(owner, name, prID, pat, *outDir)
-	if err != nil {
-		return err
-	}
-
-	fmt.Printf("Target PR: %s\n", prURL)
-	fmt.Printf("Summary: timeline_items=%d participants=%d diff_files=%d\n", len(unifiedArtifact.Timeline), len(unifiedArtifact.Participants), len(unifiedArtifact.Diffs))
-	return nil
 }
