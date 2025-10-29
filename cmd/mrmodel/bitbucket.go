@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
@@ -11,12 +10,10 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
-	"strconv"
 	"strings"
 	"time"
 
 	"github.com/livereview/internal/database"
-	"github.com/livereview/internal/providers"
 	"github.com/livereview/internal/providers/bitbucket"
 	"github.com/livereview/internal/reviewmodel"
 	"github.com/livereview/pkg/shared"
@@ -297,6 +294,39 @@ func parseBitbucketTime(value string) time.Time {
 
 const defaultBitbucketPRURL = "https://bitbucket.org/contorted/fb_backends/pull-requests/1"
 
+func getBitbucketPRIDFromURL(repoURL string) (string, error) {
+	_, _, prID, err := bitbucket.ParseBitbucketURL(repoURL)
+	if err != nil {
+		return "", err
+	}
+	if prID == "" {
+		return "", fmt.Errorf("pull request ID not found in URL: %s", repoURL)
+	}
+	return prID, nil
+}
+
+func findBitbucketCredentialsFromDB() (*shared.VCSCredentials, error) {
+	db, err := database.NewDB()
+	if err != nil {
+		return nil, fmt.Errorf("failed to connect to database: %w", err)
+	}
+	defer db.Close()
+
+	var creds shared.VCSCredentials
+	// Use pat_token column which stores the Personal Access Token
+	// For Bitbucket, we'll need to extract email from metadata if needed
+	err = db.QueryRow("SELECT pat_token FROM integration_tokens WHERE provider = 'bitbucket' LIMIT 1").Scan(&creds.Token)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query bitbucket credentials: %w", err)
+	}
+
+	// For now, set a default email - in production this should come from metadata or config
+	creds.Email = "livereviewbot@gmail.com"
+	creds.Provider = "bitbucket"
+
+	return &creds, nil
+}
+
 func runBitbucket(args []string) error {
 	fs := flag.NewFlagSet("bitbucket", flag.ContinueOnError)
 	outDir := fs.String("out", "artifacts", "Output directory for generated artifacts")
@@ -422,156 +452,4 @@ func runBitbucket(args []string) error {
 	fmt.Printf("Raw API responses for testing saved in %s\n", testDataDir)
 
 	return nil
-}
-
-func getBitbucketPRIDFromURL(repoURL string) (string, error) {
-	_, _, prID, err := bitbucket.ParseBitbucketURL(repoURL)
-	if err != nil {
-		return "", err
-	}
-	if prID == "" {
-		return "", fmt.Errorf("pull request ID not found in URL: %s", repoURL)
-	}
-	return prID, nil
-}
-
-func findBitbucketCredentialsFromDB() (*shared.VCSCredentials, error) {
-	db, err := database.NewDB()
-	if err != nil {
-		return nil, fmt.Errorf("failed to connect to database: %w", err)
-	}
-	defer db.Close()
-
-	var creds shared.VCSCredentials
-	// Use pat_token column which stores the Personal Access Token
-	// For Bitbucket, we'll need to extract email from metadata if needed
-	err = db.QueryRow("SELECT pat_token FROM integration_tokens WHERE provider = 'bitbucket' LIMIT 1").Scan(&creds.Token)
-	if err != nil {
-		return nil, fmt.Errorf("failed to query bitbucket credentials: %w", err)
-	}
-
-	// For now, set a default email - in production this should come from metadata or config
-	creds.Email = "livereviewbot@gmail.com"
-	creds.Provider = "bitbucket"
-
-	return &creds, nil
-}
-
-func collectBitbucketRepoCandidates(meta map[string]interface{}, row map[string]interface{}) []string {
-	candidates := []string{}
-	if meta != nil {
-		if v := strings.TrimSpace(asString(meta["project_full_name"])); v != "" {
-			candidates = append(candidates, v)
-		}
-		workspace := strings.TrimSpace(asString(meta["workspace"]))
-		repository := strings.TrimSpace(asString(meta["repository"]))
-		if workspace != "" && repository != "" {
-			candidates = append(candidates, workspace+"/"+repository)
-		}
-		if arr := toStringSlice(meta["projects_cache"]); len(arr) > 0 {
-			candidates = append(candidates, arr...)
-		}
-	}
-	if v := strings.TrimSpace(asString(row["provider_url"])); v != "" {
-		candidates = append(candidates, v)
-	}
-	if arr := toStringSlice(row["projects_cache"]); len(arr) > 0 {
-		candidates = append(candidates, arr...)
-	}
-	return candidates
-}
-
-func normalizeBitbucketRepoCandidate(value string) string {
-	value = strings.TrimSpace(value)
-	if value == "" {
-		return ""
-	}
-	if strings.HasPrefix(strings.ToLower(value), "http://") || strings.HasPrefix(strings.ToLower(value), "https://") {
-		if u, err := url.Parse(value); err == nil {
-			parts := strings.Split(strings.Trim(u.Path, "/"), "/")
-			if len(parts) >= 2 {
-				return strings.ToLower(strings.TrimSpace(parts[0]) + "/" + strings.TrimSpace(parts[1]))
-			}
-		}
-	}
-	parts := strings.Split(strings.Trim(value, "/"), "/")
-	if len(parts) >= 2 {
-		return strings.ToLower(strings.TrimSpace(parts[0]) + "/" + strings.TrimSpace(parts[1]))
-	}
-	return ""
-}
-
-func metaValue(meta map[string]interface{}, key string) interface{} {
-	if meta == nil {
-		return ""
-	}
-	return meta[key]
-}
-
-func asString(v interface{}) string {
-	switch val := v.(type) {
-	case string:
-		return val
-	case []byte:
-		return string(val)
-	case fmt.Stringer:
-		return val.String()
-	case json.Number:
-		return val.String()
-	case int:
-		return strconv.Itoa(val)
-	case int64:
-		return strconv.FormatInt(val, 10)
-	default:
-		return ""
-	}
-}
-
-func toStringSlice(v interface{}) []string {
-	switch val := v.(type) {
-	case nil:
-		return nil
-	case []string:
-		return val
-	case []interface{}:
-		out := make([]string, 0, len(val))
-		for _, item := range val {
-			if s := strings.TrimSpace(asString(item)); s != "" {
-				out = append(out, s)
-			}
-		}
-		return out
-	case string:
-		s := strings.TrimSpace(val)
-		if s == "" {
-			return nil
-		}
-		if strings.HasPrefix(s, "[") {
-			var parsed []string
-			if err := json.Unmarshal([]byte(s), &parsed); err == nil {
-				return parsed
-			}
-		}
-		return []string{s}
-	case []byte:
-		return toStringSlice(string(val))
-	default:
-		return nil
-	}
-}
-
-func getBitbucketPRID(details *providers.MergeRequestDetails) (string, error) {
-	// Example RepositoryURL: https://bitbucket.org/goprasanth/test-go-repo
-	if details.RepositoryURL == "" {
-		return "", fmt.Errorf("repository URL is empty")
-	}
-	_, _, prID, err := bitbucket.ParseBitbucketURL(details.URL)
-	if err != nil {
-		return "", fmt.Errorf("failed to parse repository URL: %w", err)
-	}
-	if prID == "" {
-		return "", fmt.Errorf("could not extract PR ID from URL: %s", details.URL)
-	}
-
-	return prID, nil
 }
