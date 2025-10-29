@@ -108,191 +108,6 @@ func buildGitHubArtifact(owner, name, prID, pat string) (*UnifiedArtifact, error
 	return unifiedArtifact, nil
 }
 
-// runGitHub collects GitHub PR context and writes timeline + comment tree exports.
-func runGitHub(args []string) error {
-	fs := flag.NewFlagSet("github", flag.ContinueOnError)
-	repo := fs.String("repo", "", "GitHub repository in owner/repo format")
-	prNumber := fs.Int("pr", 0, "Pull request number")
-	token := fs.String("token", "", "GitHub personal access token (optional if GITHUB_TOKEN or GITHUB_PAT set)")
-	outDir := fs.String("out", "artifacts", "Output directory for generated artifacts")
-	urlFlag := stringFlag{value: defaultGitHubPRURL}
-	fs.Var(&urlFlag, "url", "GitHub pull request URL (overrides --repo/--pr)")
-	if err := fs.Parse(args); err != nil {
-		return err
-	}
-
-	repoVal := strings.TrimSpace(*repo)
-	prVal := *prNumber
-	urlVal := strings.TrimSpace(urlFlag.value)
-
-	var owner, name, prID, prURL string
-	useURL := urlFlag.set || (repoVal == "" && prVal == 0)
-
-	if useURL {
-		var err error
-		owner, name, prID, err = parseGitHubPRURL(urlVal)
-		if err != nil {
-			return err
-		}
-		prURL = urlVal
-	} else if repoVal != "" && prVal > 0 {
-		var err error
-		owner, name, err = splitRepo(repoVal)
-		if err != nil {
-			return err
-		}
-		prID = strconv.Itoa(prVal)
-		prURL = fmt.Sprintf("https://github.com/%s/%s/pull/%s", owner, name, prID)
-	} else {
-		return errors.New("must provide both --repo and --pr or a valid --url")
-	}
-
-	pat := strings.TrimSpace(*token)
-	if pat == "" {
-		pat = strings.TrimSpace(os.Getenv("GITHUB_TOKEN"))
-	}
-	if pat == "" {
-		pat = strings.TrimSpace(os.Getenv("GITHUB_PAT"))
-	}
-	if pat == "" {
-		var dbErr error
-		pat, dbErr = findGitHubTokenFromDB()
-		if dbErr != nil {
-			return fmt.Errorf("GitHub token not provided via flags/env and lookup failed: %w", dbErr)
-		}
-	}
-
-	unifiedArtifact, err := buildGitHubArtifact(owner, name, prID, pat)
-	if err != nil {
-		return err
-	}
-
-	// --- Start of new implementation ---
-
-	if githubEnableArtifactWriting {
-		// 1. Create output directories
-		if err := os.MkdirAll(*outDir, 0o755); err != nil {
-			return fmt.Errorf("create output dir: %w", err)
-		}
-		testDataDir := filepath.Join("cmd", "mrmodel", "testdata", "github")
-		if err := os.MkdirAll(testDataDir, 0o755); err != nil {
-			return fmt.Errorf("create testdata dir: %w", err)
-		}
-
-		// 2. Write raw API responses to testdata directory
-		rawCommitsPath := filepath.Join(testDataDir, "commits.json")
-		if err := os.WriteFile(rawCommitsPath, []byte(unifiedArtifact.RawDataPaths["commits"]), 0644); err != nil {
-			return fmt.Errorf("write raw commits: %w", err)
-		}
-
-		rawIssueCommentsPath := filepath.Join(testDataDir, "issue_comments.json")
-		if err := os.WriteFile(rawIssueCommentsPath, []byte(unifiedArtifact.RawDataPaths["issue_comments"]), 0644); err != nil {
-			return fmt.Errorf("write raw issue comments: %w", err)
-		}
-
-		rawReviewCommentsPath := filepath.Join(testDataDir, "review_comments.json")
-		if err := os.WriteFile(rawReviewCommentsPath, []byte(unifiedArtifact.RawDataPaths["review_comments"]), 0644); err != nil {
-			return fmt.Errorf("write raw review comments: %w", err)
-		}
-
-		rawReviewsPath := filepath.Join(testDataDir, "reviews.json")
-		if err := os.WriteFile(rawReviewsPath, []byte(unifiedArtifact.RawDataPaths["reviews"]), 0644); err != nil {
-			return fmt.Errorf("write raw reviews: %w", err)
-		}
-
-		rawDiffPath := filepath.Join(testDataDir, "diff.txt")
-		if err := os.WriteFile(rawDiffPath, []byte(unifiedArtifact.RawDataPaths["diff"]), 0644); err != nil {
-			return fmt.Errorf("write raw diff: %w", err)
-		}
-		// clear the raw data from the main artifact before writing the final unified file
-		unifiedArtifact.RawDataPaths = nil
-	}
-
-	if githubEnableArtifactWriting {
-		// 4. Write unified artifact to a single file
-		unifiedPath := filepath.Join(*outDir, "gh_unified.json")
-		if err := writeJSONPretty(unifiedPath, unifiedArtifact); err != nil {
-			return fmt.Errorf("write unified artifact: %w", err)
-		}
-
-		fmt.Printf("Target PR: %s\n", prURL)
-		fmt.Printf("GitHub unified artifact written to %s\n", unifiedPath)
-		testDataDir := filepath.Join("cmd", "mrmodel", "testdata", "github")
-		fmt.Printf("Raw API responses for testing saved in %s\n", testDataDir)
-	}
-
-	fmt.Printf("Summary: timeline_items=%d participants=%d diff_files=%d\n", len(unifiedArtifact.Timeline), len(unifiedArtifact.Participants), len(unifiedArtifact.Diffs))
-	return nil
-}
-
-func parseGitHubPRURL(raw string) (string, string, string, error) {
-	if strings.TrimSpace(raw) == "" {
-		return "", "", "", errors.New("PR URL is empty")
-	}
-	parsed, err := url.Parse(raw)
-	if err != nil {
-		return "", "", "", fmt.Errorf("parse PR URL: %w", err)
-	}
-	if parsed.Host != "github.com" {
-		return "", "", "", fmt.Errorf("unsupported host %q in PR URL", parsed.Host)
-	}
-	segments := strings.Split(strings.Trim(parsed.Path, "/"), "/")
-	if len(segments) < 4 {
-		return "", "", "", fmt.Errorf("invalid PR URL path %q", parsed.Path)
-	}
-	owner := segments[0]
-	repo := segments[1]
-	kind := segments[2]
-	number := segments[3]
-	if kind != "pull" && kind != "pulls" {
-		return "", "", "", fmt.Errorf("invalid PR URL path %q", parsed.Path)
-	}
-	if _, err := strconv.Atoi(number); err != nil {
-		return "", "", "", fmt.Errorf("invalid PR number %q", number)
-	}
-	return owner, repo, number, nil
-}
-
-func findGitHubTokenFromDB() (string, error) {
-	rows, err := fetchIntegrationTokens()
-	if err != nil {
-		return "", fmt.Errorf("fetch integration_tokens: %w", err)
-	}
-
-	for _, row := range rows {
-		provider, _ := row["provider"].(string)
-		if !strings.EqualFold(provider, "github") {
-			continue
-		}
-		token, _ := row["pat_token"].(string)
-		token = strings.TrimSpace(token)
-		if token == "" {
-			continue
-		}
-		if name, _ := row["connection_name"].(string); name != "" {
-			fmt.Printf("Using GitHub PAT from integration_tokens connection %s\n", name)
-		} else {
-			fmt.Println("Using GitHub PAT from integration_tokens")
-		}
-		return token, nil
-	}
-
-	return "", errors.New("no GitHub PAT found in integration_tokens")
-}
-
-func splitRepo(repo string) (string, string, error) {
-	parts := strings.Split(repo, "/")
-	if len(parts) != 2 {
-		return "", "", fmt.Errorf("invalid repo %q (expected owner/repo)", repo)
-	}
-	owner := strings.TrimSpace(parts[0])
-	name := strings.TrimSpace(parts[1])
-	if owner == "" || name == "" {
-		return "", "", fmt.Errorf("invalid repo %q (expected owner/repo)", repo)
-	}
-	return owner, name, nil
-}
-
 func buildGitHubTimeline(owner, repo string, commits []githubapi.GitHubV2CommitInfo, issueComments []githubapi.GitHubV2CommentInfo, reviewComments []githubapi.GitHubV2ReviewComment, reviews []githubapi.GitHubV2ReviewInfo) []reviewmodel.TimelineItem {
 	items := make([]reviewmodel.TimelineItem, 0, len(commits)+len(issueComments)+len(reviewComments)+len(reviews))
 
@@ -541,4 +356,193 @@ func firstNonEmptyString(values ...string) string {
 		}
 	}
 	return ""
+}
+
+// =====================================================================================
+//
+//	CLI-specific functions
+//
+// =====================================================================================
+// runGitHub collects GitHub PR context and writes timeline + comment tree exports.
+func runGitHub(args []string) error {
+	fs := flag.NewFlagSet("github", flag.ContinueOnError)
+	repo := fs.String("repo", "", "GitHub repository in owner/repo format")
+	prNumber := fs.Int("pr", 0, "Pull request number")
+	token := fs.String("token", "", "GitHub personal access token (optional if GITHUB_TOKEN or GITHUB_PAT set)")
+	outDir := fs.String("out", "artifacts", "Output directory for generated artifacts")
+	urlFlag := stringFlag{value: defaultGitHubPRURL}
+	fs.Var(&urlFlag, "url", "GitHub pull request URL (overrides --repo/--pr)")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+
+	repoVal := strings.TrimSpace(*repo)
+	prVal := *prNumber
+	urlVal := strings.TrimSpace(urlFlag.value)
+
+	var owner, name, prID, prURL string
+	useURL := urlFlag.set || (repoVal == "" && prVal == 0)
+
+	if useURL {
+		var err error
+		owner, name, prID, err = parseGitHubPRURL(urlVal)
+		if err != nil {
+			return err
+		}
+		prURL = urlVal
+	} else if repoVal != "" && prVal > 0 {
+		var err error
+		owner, name, err = splitRepo(repoVal)
+		if err != nil {
+			return err
+		}
+		prID = strconv.Itoa(prVal)
+		prURL = fmt.Sprintf("https://github.com/%s/%s/pull/%s", owner, name, prID)
+	} else {
+		return errors.New("must provide both --repo and --pr or a valid --url")
+	}
+
+	pat := strings.TrimSpace(*token)
+	if pat == "" {
+		pat = strings.TrimSpace(os.Getenv("GITHUB_TOKEN"))
+	}
+	if pat == "" {
+		pat = strings.TrimSpace(os.Getenv("GITHUB_PAT"))
+	}
+	if pat == "" {
+		var dbErr error
+		pat, dbErr = findGitHubTokenFromDB()
+		if dbErr != nil {
+			return fmt.Errorf("GitHub token not provided via flags/env and lookup failed: %w", dbErr)
+		}
+	}
+
+	unifiedArtifact, err := buildGitHubArtifact(owner, name, prID, pat)
+	if err != nil {
+		return err
+	}
+
+	// --- Start of new implementation ---
+	if githubEnableArtifactWriting {
+		// 1. Create output directories
+		if err := os.MkdirAll(*outDir, 0o755); err != nil {
+			return fmt.Errorf("create output dir: %w", err)
+		}
+		testDataDir := filepath.Join("cmd", "mrmodel", "testdata", "github")
+		if err := os.MkdirAll(testDataDir, 0o755); err != nil {
+			return fmt.Errorf("create testdata dir: %w", err)
+		}
+
+		// 2. Write raw API responses to testdata directory
+		rawCommitsPath := filepath.Join(testDataDir, "commits.json")
+		if err := os.WriteFile(rawCommitsPath, []byte(unifiedArtifact.RawDataPaths["commits"]), 0644); err != nil {
+			return fmt.Errorf("write raw commits: %w", err)
+		}
+
+		rawIssueCommentsPath := filepath.Join(testDataDir, "issue_comments.json")
+		if err := os.WriteFile(rawIssueCommentsPath, []byte(unifiedArtifact.RawDataPaths["issue_comments"]), 0644); err != nil {
+			return fmt.Errorf("write raw issue comments: %w", err)
+		}
+
+		rawReviewCommentsPath := filepath.Join(testDataDir, "review_comments.json")
+		if err := os.WriteFile(rawReviewCommentsPath, []byte(unifiedArtifact.RawDataPaths["review_comments"]), 0644); err != nil {
+			return fmt.Errorf("write raw review comments: %w", err)
+		}
+
+		rawReviewsPath := filepath.Join(testDataDir, "reviews.json")
+		if err := os.WriteFile(rawReviewsPath, []byte(unifiedArtifact.RawDataPaths["reviews"]), 0644); err != nil {
+			return fmt.Errorf("write raw reviews: %w", err)
+		}
+
+		rawDiffPath := filepath.Join(testDataDir, "diff.txt")
+		if err := os.WriteFile(rawDiffPath, []byte(unifiedArtifact.RawDataPaths["diff"]), 0644); err != nil {
+			return fmt.Errorf("write raw diff: %w", err)
+		}
+		// clear the raw data from the main artifact before writing the final unified file
+		unifiedArtifact.RawDataPaths = nil
+	}
+
+	if githubEnableArtifactWriting {
+		// 4. Write unified artifact to a single file
+		unifiedPath := filepath.Join(*outDir, "gh_unified.json")
+		if err := writeJSONPretty(unifiedPath, unifiedArtifact); err != nil {
+			return fmt.Errorf("write unified artifact: %w", err)
+		}
+
+		fmt.Printf("Target PR: %s\n", prURL)
+		fmt.Printf("GitHub unified artifact written to %s\n", unifiedPath)
+		testDataDir := filepath.Join("cmd", "mrmodel", "testdata", "github")
+		fmt.Printf("Raw API responses for testing saved in %s\n", testDataDir)
+	}
+
+	fmt.Printf("Summary: timeline_items=%d participants=%d diff_files=%d\n", len(unifiedArtifact.Timeline), len(unifiedArtifact.Participants), len(unifiedArtifact.Diffs))
+	return nil
+}
+
+func parseGitHubPRURL(raw string) (string, string, string, error) {
+	if strings.TrimSpace(raw) == "" {
+		return "", "", "", errors.New("PR URL is empty")
+	}
+	parsed, err := url.Parse(raw)
+	if err != nil {
+		return "", "", "", fmt.Errorf("parse PR URL: %w", err)
+	}
+	if parsed.Host != "github.com" {
+		return "", "", "", fmt.Errorf("unsupported host %q in PR URL", parsed.Host)
+	}
+	segments := strings.Split(strings.Trim(parsed.Path, "/"), "/")
+	if len(segments) < 4 {
+		return "", "", "", fmt.Errorf("invalid PR URL path %q", parsed.Path)
+	}
+	owner := segments[0]
+	repo := segments[1]
+	kind := segments[2]
+	number := segments[3]
+	if kind != "pull" && kind != "pulls" {
+		return "", "", "", fmt.Errorf("invalid PR URL path %q", parsed.Path)
+	}
+	if _, err := strconv.Atoi(number); err != nil {
+		return "", "", "", fmt.Errorf("invalid PR number %q", number)
+	}
+	return owner, repo, number, nil
+}
+
+func findGitHubTokenFromDB() (string, error) {
+	rows, err := fetchIntegrationTokens()
+	if err != nil {
+		return "", fmt.Errorf("fetch integration_tokens: %w", err)
+	}
+
+	for _, row := range rows {
+		provider, _ := row["provider"].(string)
+		if !strings.EqualFold(provider, "github") {
+			continue
+		}
+		token, _ := row["pat_token"].(string)
+		token = strings.TrimSpace(token)
+		if token == "" {
+			continue
+		}
+		if name, _ := row["connection_name"].(string); name != "" {
+			fmt.Printf("Using GitHub PAT from integration_tokens connection %s\n", name)
+		} else {
+			fmt.Println("Using GitHub PAT from integration_tokens")
+		}
+		return token, nil
+	}
+
+	return "", errors.New("no GitHub PAT found in integration_tokens")
+}
+
+func splitRepo(repo string) (string, string, error) {
+	parts := strings.Split(repo, "/")
+	if len(parts) != 2 {
+		return "", "", fmt.Errorf("invalid repo %q (expected owner/repo)", repo)
+	}
+	owner := strings.TrimSpace(parts[0])
+	name := strings.TrimSpace(parts[1])
+	if owner == "" || name == "" {
+		return "", "", fmt.Errorf("invalid repo %q (expected owner/repo)", repo)
+	}
+	return owner, name, nil
 }
