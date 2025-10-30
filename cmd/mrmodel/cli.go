@@ -8,6 +8,7 @@ import (
 	"os"
 	"strings"
 
+	"github.com/livereview/cmd/mrmodel/lib"
 	"github.com/livereview/internal/database"
 	"github.com/livereview/internal/providers/bitbucket"
 	gl "github.com/livereview/internal/providers/gitlab"
@@ -56,18 +57,18 @@ func runGitHub(args []string) error {
 	var owner, name, prID, prURL string
 	useURL := urlFlag.set || (repoVal == "" && prVal == 0)
 
-	mrmodel := &MrModelImpl{}
+	mrmodel := &lib.MrModelImpl{}
 
 	if useURL {
 		var err error
-		owner, name, prID, err = mrmodel.parseGitHubPRURL(urlVal)
+		owner, name, prID, err = mrmodel.ParseGitHubPRURL(urlVal)
 		if err != nil {
 			return err
 		}
 		prURL = urlVal
 	} else if repoVal != "" && prVal > 0 {
 		var err error
-		owner, name, err = mrmodel.splitRepo(repoVal)
+		owner, name, err = mrmodel.SplitRepo(repoVal)
 		if err != nil {
 			return err
 		}
@@ -86,13 +87,13 @@ func runGitHub(args []string) error {
 	}
 	if pat == "" {
 		var dbErr error
-		pat, dbErr = mrmodel.findGitHubTokenFromDB()
+		pat, dbErr = lib.FindGitHubTokenFromDB()
 		if dbErr != nil {
 			return fmt.Errorf("GitHub token not provided via flags/env and lookup failed: %w", dbErr)
 		}
 	}
 
-	unifiedArtifact, err := mrmodel.buildGitHubArtifact(owner, name, prID, pat, *outDir)
+	unifiedArtifact, err := mrmodel.BuildGitHubArtifact(owner, name, prID, pat, *outDir)
 	if err != nil {
 		return err
 	}
@@ -121,9 +122,8 @@ func runGitLab(args []string) error {
 	enableArtifacts := fs.Bool("enable-artifacts", false, "Enable writing artifacts to disk")
 	fs.Parse(args)
 
-	mrModel := &MrModelImpl{
-		EnableArtifactWriting: *enableArtifacts,
-	}
+	mrModel := &lib.MrModelImpl{}
+	mrModel.EnableArtifactWriting = *enableArtifacts
 
 	cfg := gl.GitLabConfig{URL: hardcodedGitlabBaseURL, Token: hardcodedGitlabPAT}
 	provider, err := gl.New(cfg)
@@ -131,12 +131,12 @@ func runGitLab(args []string) error {
 		return fmt.Errorf("failed to init gitlab provider: %w", err)
 	}
 
-	_, diffs, commits, discussions, standaloneNotes, err := mrModel.fetchGitLabData(provider, hardcodedGitlabMRURL)
+	_, diffs, commits, discussions, standaloneNotes, err := mrModel.FetchGitLabData(provider, hardcodedGitlabMRURL)
 	if err != nil {
 		return err
 	}
 
-	unifiedArtifact, err := mrModel.buildUnifiedArtifact(commits, discussions, standaloneNotes, diffs, *outDir)
+	unifiedArtifact, err := mrModel.BuildGitLabUnifiedArtifact(commits, discussions, standaloneNotes, diffs, *outDir)
 	if err != nil {
 		return err
 	}
@@ -203,9 +203,8 @@ func runBitbucket(args []string) error {
 		return fmt.Errorf("failed to parse flags: %w", err)
 	}
 
-	mrModel := &MrModelImpl{
-		EnableArtifactWriting: *enableArtifacts,
-	}
+	mrModel := &lib.MrModelImpl{}
+	mrModel.EnableArtifactWriting = *enableArtifacts
 
 	prURL := strings.TrimSpace(urlFlag.value)
 	if prURL == "" {
@@ -239,7 +238,7 @@ func runBitbucket(args []string) error {
 		return fmt.Errorf("bitbucket provider creation failed: %w", errProv)
 	}
 
-	unifiedArtifact, err := mrModel.buildBitbucketArtifact(provider, prID, prURL, *outDir)
+	unifiedArtifact, err := mrModel.BuildBitbucketArtifact(provider, prID, prURL, *outDir)
 	if err != nil {
 		return err
 	}

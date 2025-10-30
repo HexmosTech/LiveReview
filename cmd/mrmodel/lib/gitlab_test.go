@@ -1,4 +1,4 @@
-package main
+package lib
 
 import (
 	"encoding/json"
@@ -17,7 +17,7 @@ func TestGitLabMRModelGeneration(t *testing.T) {
 	// It ensures that the data processing and structuring logic is correct
 	// without making live API calls.
 
-	testDataDir := filepath.Join("testdata", "gitlab")
+	testDataDir := filepath.Join("..", "testdata", "gitlab")
 
 	// 1. Read raw data from test files
 	var commits []gl.GitLabCommit

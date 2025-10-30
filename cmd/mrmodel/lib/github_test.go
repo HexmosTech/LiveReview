@@ -1,4 +1,4 @@
-package main
+package lib
 
 import (
 	"encoding/json"
@@ -13,8 +13,8 @@ import (
 )
 
 func TestGitHubDataProcessing(t *testing.T) {
-	// 1. Define paths to test data
-	testDataDir := filepath.Join("testdata", "github")
+	// 1. Define paths to test data (in parent directory's testdata)
+	testDataDir := filepath.Join("..", "testdata", "github")
 	commitsPath := filepath.Join(testDataDir, "commits.json")
 	issueCommentsPath := filepath.Join(testDataDir, "issue_comments.json")
 	reviewCommentsPath := filepath.Join(testDataDir, "review_comments.json")

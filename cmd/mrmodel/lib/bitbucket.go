@@ -1,4 +1,4 @@
-package main
+package lib
 
 import (
 	"context"
@@ -10,48 +10,12 @@ import (
 	"strings"
 	"time"
 
-	"github.com/livereview/cmd/mrmodel/lib"
 	"github.com/livereview/internal/providers"
 	"github.com/livereview/internal/providers/bitbucket"
 	rm "github.com/livereview/internal/reviewmodel"
 )
 
-// Type aliases for backward compatibility
-type LocalParser = lib.LocalParser
-
-// NewLocalParser creates a new LocalParser.
-func NewLocalParser() *LocalParser {
-	return lib.NewLocalParser()
-}
-
-// Wrapper functions for backward compatibility
-func writeJSONPretty(path string, v interface{}) error {
-	return lib.WriteJSONPretty(path, v)
-}
-
-func sortCommentChildren(node *rm.CommentNode) {
-	lib.SortCommentChildren(node)
-}
-
-func extractParticipants(timeline []rm.TimelineItem) []rm.AuthorInfo {
-	return lib.ExtractParticipants(timeline)
-}
-
-// MrModelImpl is a struct to hold the mrmodel library implementation.
-type MrModelImpl struct {
-	EnableArtifactWriting bool
-}
-
-// Helpers
-func atoi(s string) int {
-	var n int
-	fmt.Sscan(s, &n)
-	return n
-}
-
-// Bitbucket-specific methods
-
-func (m *MrModelImpl) fetchBitbucketData(provider interface{}, prID string, prURL string) (details *providers.MergeRequestDetails, diffs string, commits interface{}, comments interface{}, err error) {
+func (m *MrModelImpl) FetchBitbucketData(provider interface{}, prID string, prURL string) (details *providers.MergeRequestDetails, diffs string, commits interface{}, comments interface{}, err error) {
 	// Type assertion for Bitbucket provider
 	bbProvider, ok := provider.(interface {
 		GetMergeRequestDetails(ctx context.Context, prURL string) (*providers.MergeRequestDetails, error)
@@ -86,8 +50,8 @@ func (m *MrModelImpl) fetchBitbucketData(provider interface{}, prID string, prUR
 	return details, diffs, commits, comments, nil
 }
 
-func (m *MrModelImpl) buildBitbucketArtifact(provider *bitbucket.BitbucketProvider, prID, prURL, outDir string) (*lib.UnifiedArtifact, error) {
-	details, diffs, commitsIface, commentsIface, err := m.fetchBitbucketData(provider, prID, prURL)
+func (m *MrModelImpl) BuildBitbucketArtifact(provider *bitbucket.BitbucketProvider, prID, prURL, outDir string) (*UnifiedArtifact, error) {
+	details, diffs, commitsIface, commentsIface, err := m.FetchBitbucketData(provider, prID, prURL)
 	if err != nil {
 		return nil, err
 	}
@@ -110,17 +74,17 @@ func (m *MrModelImpl) buildBitbucketArtifact(provider *bitbucket.BitbucketProvid
 		return nil, fmt.Errorf("parse diff: %w", err)
 	}
 
-	diffsPtrs := make([]*lib.LocalCodeDiff, len(parsedDiffs))
+	diffsPtrs := make([]*LocalCodeDiff, len(parsedDiffs))
 	for i := range parsedDiffs {
 		diffsPtrs[i] = &parsedDiffs[i]
 	}
 
-	unifiedArtifact := &lib.UnifiedArtifact{
+	unifiedArtifact := &UnifiedArtifact{
 		Provider:     "bitbucket",
 		Timeline:     timelineItems,
 		CommentTree:  commentTree,
 		Diffs:        diffsPtrs,
-		Participants: extractParticipants(timelineItems),
+		Participants: ExtractParticipants(timelineItems),
 	}
 
 	if err := m.writeBitbucketArtifacts(outDir, commits, comments, diffs, unifiedArtifact); err != nil {
@@ -130,7 +94,7 @@ func (m *MrModelImpl) buildBitbucketArtifact(provider *bitbucket.BitbucketProvid
 	return unifiedArtifact, nil
 }
 
-func (m *MrModelImpl) writeBitbucketArtifacts(outDir string, commits []bitbucket.BitbucketCommit, comments []bitbucket.BitbucketComment, diffs string, unifiedArtifact *lib.UnifiedArtifact) error {
+func (m *MrModelImpl) writeBitbucketArtifacts(outDir string, commits []bitbucket.BitbucketCommit, comments []bitbucket.BitbucketComment, diffs string, unifiedArtifact *UnifiedArtifact) error {
 	if !m.EnableArtifactWriting {
 		return nil
 	}
@@ -146,12 +110,12 @@ func (m *MrModelImpl) writeBitbucketArtifacts(outDir string, commits []bitbucket
 
 	// 2. Write raw API responses to testdata directory
 	rawCommitsPath := filepath.Join(testDataDir, "commits.json")
-	if err := writeJSONPretty(rawCommitsPath, commits); err != nil {
+	if err := WriteJSONPretty(rawCommitsPath, commits); err != nil {
 		return fmt.Errorf("write raw commits: %w", err)
 	}
 
 	rawCommentsPath := filepath.Join(testDataDir, "comments.json")
-	if err := writeJSONPretty(rawCommentsPath, comments); err != nil {
+	if err := WriteJSONPretty(rawCommentsPath, comments); err != nil {
 		return fmt.Errorf("write raw comments: %w", err)
 	}
 
@@ -162,7 +126,7 @@ func (m *MrModelImpl) writeBitbucketArtifacts(outDir string, commits []bitbucket
 
 	// 3. Write unified artifact to a single file
 	unifiedPath := filepath.Join(outDir, "bb_unified.json")
-	if err := writeJSONPretty(unifiedPath, unifiedArtifact); err != nil {
+	if err := WriteJSONPretty(unifiedPath, unifiedArtifact); err != nil {
 		return fmt.Errorf("write unified artifact: %w", err)
 	}
 
@@ -289,7 +253,7 @@ func (m *MrModelImpl) buildBitbucketCommentTree(comments []bitbucket.BitbucketCo
 		return roots[i].CreatedAt.Before(roots[j].CreatedAt)
 	})
 	for _, root := range roots {
-		sortCommentChildren(root)
+		SortCommentChildren(root)
 	}
 
 	return rm.CommentTree{Roots: roots}

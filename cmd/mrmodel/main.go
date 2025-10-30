@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"log"
 	"os"
+
+	"github.com/livereview/cmd/mrmodel/lib"
 )
 
 func main() {
@@ -15,7 +17,7 @@ func main() {
 	subcommand := os.Args[1]
 	switch subcommand {
 	case "dump-db":
-		if _, err := dumpIntegrationTokens(); err != nil {
+		if _, err := lib.DumpIntegrationTokens(); err != nil {
 			log.Fatalf("failed to dump integration_tokens: %v", err)
 		}
 	case "github":
