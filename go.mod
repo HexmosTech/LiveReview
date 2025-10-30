@@ -17,6 +17,7 @@ require (
 
 require (
 	github.com/golang-jwt/jwt/v5 v5.3.0
+	github.com/google/go-cmp v0.7.0
 	github.com/jackc/pgx/v5 v5.7.5
 	github.com/kaptinlin/jsonrepair v0.2.3
 	github.com/labstack/echo/v4 v4.13.4
