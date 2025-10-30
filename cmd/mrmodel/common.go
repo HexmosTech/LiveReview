@@ -24,6 +24,19 @@ func NewLocalParser() *LocalParser {
 	return lib.NewLocalParser()
 }
 
+// Wrapper functions for backward compatibility
+func writeJSONPretty(path string, v interface{}) error {
+	return lib.WriteJSONPretty(path, v)
+}
+
+func sortCommentChildren(node *rm.CommentNode) {
+	lib.SortCommentChildren(node)
+}
+
+func extractParticipants(timeline []rm.TimelineItem) []rm.AuthorInfo {
+	return lib.ExtractParticipants(timeline)
+}
+
 // MrModelImpl is a struct to hold the mrmodel library implementation.
 type MrModelImpl struct {
 	EnableArtifactWriting bool
