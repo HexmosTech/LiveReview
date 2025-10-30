@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/livereview/cmd/mrmodel/lib"
 	githubapi "github.com/livereview/internal/provider_input/github"
 	"github.com/livereview/internal/reviewmodel"
 )
@@ -24,7 +25,7 @@ func (m *MrModelImpl) mustMarshal(v interface{}) []byte {
 	return data
 }
 
-func (m *MrModelImpl) buildGitHubArtifact(owner, name, prID, pat, outDir string) (*UnifiedArtifact, error) {
+func (m *MrModelImpl) buildGitHubArtifact(owner, name, prID, pat, outDir string) (*lib.UnifiedArtifact, error) {
 	commits, err := githubapi.FetchGitHubPRCommitsV2(owner, name, prID, pat)
 	if err != nil {
 		return nil, fmt.Errorf("fetch commits: %w", err)
@@ -62,12 +63,12 @@ func (m *MrModelImpl) buildGitHubArtifact(owner, name, prID, pat, outDir string)
 	}
 
 	// Convert []LocalCodeDiff to []*LocalCodeDiff for the unified artifact
-	diffsPtrs := make([]*LocalCodeDiff, len(parsedDiffs))
+	diffsPtrs := make([]*lib.LocalCodeDiff, len(parsedDiffs))
 	for i := range parsedDiffs {
 		diffsPtrs[i] = &parsedDiffs[i]
 	}
 
-	unifiedArtifact := &UnifiedArtifact{
+	unifiedArtifact := &lib.UnifiedArtifact{
 		Provider:     "github",
 		Timeline:     timelineItems,
 		CommentTree:  commentTree,
@@ -93,7 +94,7 @@ func (m *MrModelImpl) buildGitHubArtifact(owner, name, prID, pat, outDir string)
 	return unifiedArtifact, nil
 }
 
-func (m *MrModelImpl) writeGitHubArtifacts(unifiedArtifact *UnifiedArtifact, outDir string) error {
+func (m *MrModelImpl) writeGitHubArtifacts(unifiedArtifact *lib.UnifiedArtifact, outDir string) error {
 	// 1. Create output directories
 	if err := os.MkdirAll(outDir, 0o755); err != nil {
 		return fmt.Errorf("create output dir: %w", err)

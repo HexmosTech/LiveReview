@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/livereview/cmd/mrmodel/lib"
 	"github.com/livereview/internal/providers"
 	"github.com/livereview/internal/providers/bitbucket"
 	rm "github.com/livereview/internal/reviewmodel"
@@ -64,7 +65,7 @@ func (m *MrModelImpl) fetchBitbucketData(provider interface{}, prID string, prUR
 	return details, diffs, commits, comments, nil
 }
 
-func (m *MrModelImpl) buildBitbucketArtifact(provider *bitbucket.BitbucketProvider, prID, prURL, outDir string) (*UnifiedArtifact, error) {
+func (m *MrModelImpl) buildBitbucketArtifact(provider *bitbucket.BitbucketProvider, prID, prURL, outDir string) (*lib.UnifiedArtifact, error) {
 	details, diffs, commitsIface, commentsIface, err := m.fetchBitbucketData(provider, prID, prURL)
 	if err != nil {
 		return nil, err
@@ -88,12 +89,12 @@ func (m *MrModelImpl) buildBitbucketArtifact(provider *bitbucket.BitbucketProvid
 		return nil, fmt.Errorf("parse diff: %w", err)
 	}
 
-	diffsPtrs := make([]*LocalCodeDiff, len(parsedDiffs))
+	diffsPtrs := make([]*lib.LocalCodeDiff, len(parsedDiffs))
 	for i := range parsedDiffs {
 		diffsPtrs[i] = &parsedDiffs[i]
 	}
 
-	unifiedArtifact := &UnifiedArtifact{
+	unifiedArtifact := &lib.UnifiedArtifact{
 		Provider:     "bitbucket",
 		Timeline:     timelineItems,
 		CommentTree:  commentTree,
@@ -108,7 +109,7 @@ func (m *MrModelImpl) buildBitbucketArtifact(provider *bitbucket.BitbucketProvid
 	return unifiedArtifact, nil
 }
 
-func (m *MrModelImpl) writeBitbucketArtifacts(outDir string, commits []bitbucket.BitbucketCommit, comments []bitbucket.BitbucketComment, diffs string, unifiedArtifact *UnifiedArtifact) error {
+func (m *MrModelImpl) writeBitbucketArtifacts(outDir string, commits []bitbucket.BitbucketCommit, comments []bitbucket.BitbucketComment, diffs string, unifiedArtifact *lib.UnifiedArtifact) error {
 	if !m.EnableArtifactWriting {
 		return nil
 	}
