@@ -16,6 +16,14 @@ import (
 	rm "github.com/livereview/internal/reviewmodel"
 )
 
+// Type aliases for backward compatibility
+type LocalParser = lib.LocalParser
+
+// NewLocalParser creates a new LocalParser.
+func NewLocalParser() *LocalParser {
+	return lib.NewLocalParser()
+}
+
 // MrModelImpl is a struct to hold the mrmodel library implementation.
 type MrModelImpl struct {
 	EnableArtifactWriting bool

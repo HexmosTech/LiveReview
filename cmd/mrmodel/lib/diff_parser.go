@@ -1,12 +1,10 @@
-package main
+package lib
 
 import (
 	"fmt"
 	"regexp"
 	"strconv"
 	"strings"
-
-	"github.com/livereview/cmd/mrmodel/lib"
 )
 
 // LocalParser is a self-contained parser for unified diffs.
@@ -18,8 +16,8 @@ func NewLocalParser() *LocalParser {
 }
 
 // Parse parses a unified diff string into a slice of LocalCodeDiffs.
-func (p *LocalParser) Parse(diffContent string) ([]lib.LocalCodeDiff, error) {
-	var diffs []lib.LocalCodeDiff
+func (p *LocalParser) Parse(diffContent string) ([]LocalCodeDiff, error) {
+	var diffs []LocalCodeDiff
 	files := regexp.MustCompile(`(?m)^diff --git a/(.+) b/(.+)`).Split(diffContent, -1)
 	if len(files) == 0 {
 		return nil, nil
@@ -56,7 +54,7 @@ func (p *LocalParser) Parse(diffContent string) ([]lib.LocalCodeDiff, error) {
 			return nil, fmt.Errorf("extracting hunks for %s: %w", newPath, err)
 		}
 
-		diffs = append(diffs, lib.LocalCodeDiff{
+		diffs = append(diffs, LocalCodeDiff{
 			OldPath: oldPath,
 			NewPath: newPath,
 			Hunks:   hunks,
@@ -75,8 +73,8 @@ func parseDiffGitHeader(header string) (string, string) {
 	return "", ""
 }
 
-func (p *LocalParser) extractHunks(lines []string) ([]lib.LocalDiffHunk, error) {
-	var hunks []lib.LocalDiffHunk
+func (p *LocalParser) extractHunks(lines []string) ([]LocalDiffHunk, error) {
+	var hunks []LocalDiffHunk
 	hunkHeaderRegex := regexp.MustCompile(`^@@ -(\d+),(\d+) \+(\d+),(\d+) @@(.*)`)
 
 	for i := 0; i < len(lines); i++ {
@@ -96,7 +94,7 @@ func (p *LocalParser) extractHunks(lines []string) ([]lib.LocalDiffHunk, error) 
 		newLines, _ := strconv.Atoi(matches[4])
 		headerText := strings.TrimSpace(matches[5])
 
-		hunk := lib.LocalDiffHunk{
+		hunk := LocalDiffHunk{
 			OldStartLine: oldStart,
 			OldLineCount: oldLines,
 			NewStartLine: newStart,
@@ -123,18 +121,18 @@ func (p *LocalParser) extractHunks(lines []string) ([]lib.LocalDiffHunk, error) 
 				break
 			}
 
-			var dLine lib.LocalDiffLine
+			var dLine LocalDiffLine
 			switch {
 			case strings.HasPrefix(hunkLine, "+"):
-				dLine = lib.LocalDiffLine{Content: hunkLine[1:], LineType: "added", OldLineNo: 0, NewLineNo: newLineNo}
+				dLine = LocalDiffLine{Content: hunkLine[1:], LineType: "added", OldLineNo: 0, NewLineNo: newLineNo}
 				newLineNo++
 				hunkLinesAdded++
 			case strings.HasPrefix(hunkLine, "-"):
-				dLine = lib.LocalDiffLine{Content: hunkLine[1:], LineType: "deleted", OldLineNo: oldLineNo, NewLineNo: 0}
+				dLine = LocalDiffLine{Content: hunkLine[1:], LineType: "deleted", OldLineNo: oldLineNo, NewLineNo: 0}
 				oldLineNo++
 				hunkLinesDeleted++
 			case strings.HasPrefix(hunkLine, " "):
-				dLine = lib.LocalDiffLine{Content: hunkLine[1:], LineType: "context", OldLineNo: oldLineNo, NewLineNo: newLineNo}
+				dLine = LocalDiffLine{Content: hunkLine[1:], LineType: "context", OldLineNo: oldLineNo, NewLineNo: newLineNo}
 				oldLineNo++
 				newLineNo++
 			case hunkLine == `\ No newline at end of file`:
@@ -142,7 +140,7 @@ func (p *LocalParser) extractHunks(lines []string) ([]lib.LocalDiffHunk, error) 
 				continue
 			default:
 				// Should be context line, but might not have a space if it's an empty line
-				dLine = lib.LocalDiffLine{Content: hunkLine, LineType: "context", OldLineNo: oldLineNo, NewLineNo: newLineNo}
+				dLine = LocalDiffLine{Content: hunkLine, LineType: "context", OldLineNo: oldLineNo, NewLineNo: newLineNo}
 				oldLineNo++
 				newLineNo++
 			}
