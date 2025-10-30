@@ -1,4 +1,4 @@
-package main
+package lib
 
 import (
 	"encoding/json"
@@ -9,7 +9,7 @@ import (
 	"github.com/livereview/internal/reviewmodel"
 )
 
-func writeJSONPretty(path string, v interface{}) error {
+func WriteJSONPretty(path string, v interface{}) error {
 	file, err := os.Create(path)
 	if err != nil {
 		return fmt.Errorf("create file: %w", err)
@@ -21,7 +21,7 @@ func writeJSONPretty(path string, v interface{}) error {
 	return encoder.Encode(v)
 }
 
-func sortCommentChildren(node *reviewmodel.CommentNode) {
+func SortCommentChildren(node *reviewmodel.CommentNode) {
 	if len(node.Children) == 0 {
 		return
 	}
@@ -29,12 +29,12 @@ func sortCommentChildren(node *reviewmodel.CommentNode) {
 		return node.Children[i].CreatedAt.Before(node.Children[j].CreatedAt)
 	})
 	for _, child := range node.Children {
-		sortCommentChildren(child)
+		SortCommentChildren(child)
 	}
 }
 
-// extractParticipants collects unique authors from timeline items
-func extractParticipants(timeline []reviewmodel.TimelineItem) []reviewmodel.AuthorInfo {
+// ExtractParticipants collects unique authors from timeline items
+func ExtractParticipants(timeline []reviewmodel.TimelineItem) []reviewmodel.AuthorInfo {
 	seen := make(map[string]reviewmodel.AuthorInfo)
 
 	for _, item := range timeline {
