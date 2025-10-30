@@ -1,4 +1,4 @@
-package main
+package lib
 
 import (
 	"bufio"
@@ -15,9 +15,9 @@ import (
 	_ "github.com/lib/pq"
 )
 
-// dumpIntegrationTokens prints every row in public.integration_tokens and returns the data.
-func dumpIntegrationTokens() ([]map[string]interface{}, error) {
-	rowSet, err := fetchIntegrationTokens()
+// DumpIntegrationTokens prints every row in public.integration_tokens and returns the data.
+func DumpIntegrationTokens() ([]map[string]interface{}, error) {
+	rowSet, err := FetchIntegrationTokens()
 	if err != nil {
 		return nil, err
 	}
@@ -36,8 +36,8 @@ func dumpIntegrationTokens() ([]map[string]interface{}, error) {
 	return rowSet, nil
 }
 
-// fetchIntegrationTokens reads DATABASE_URL, queries integration_tokens, and returns the rows.
-func fetchIntegrationTokens() ([]map[string]interface{}, error) {
+// FetchIntegrationTokens reads DATABASE_URL, queries integration_tokens, and returns the rows.
+func FetchIntegrationTokens() ([]map[string]interface{}, error) {
 	dbURL, err := loadDatabaseURL()
 	if err != nil {
 		return nil, err

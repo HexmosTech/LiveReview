@@ -1,4 +1,4 @@
-package main
+package lib
 
 import (
 	"context"
@@ -7,13 +7,12 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/livereview/cmd/mrmodel/lib"
 	"github.com/livereview/internal/providers"
 	gl "github.com/livereview/internal/providers/gitlab"
 	rm "github.com/livereview/internal/reviewmodel"
 )
 
-func (m *MrModelImpl) fetchGitLabData(provider *gl.GitLabProvider, mrURL string) (
+func (m *MrModelImpl) FetchGitLabData(provider *gl.GitLabProvider, mrURL string) (
 	*providers.MergeRequestDetails,
 	string,
 	[]gl.GitLabCommit,
@@ -51,7 +50,7 @@ func (m *MrModelImpl) fetchGitLabData(provider *gl.GitLabProvider, mrURL string)
 	return details, diffs, commits, discussions, standaloneNotes, nil
 }
 
-func (m *MrModelImpl) writeArtifacts(outDir string, commits []gl.GitLabCommit, discussions []gl.GitLabDiscussion, standaloneNotes []gl.GitLabNote, diffs string, unifiedArtifact *lib.UnifiedArtifact) error {
+func (m *MrModelImpl) writeGitLabArtifacts(outDir string, commits []gl.GitLabCommit, discussions []gl.GitLabDiscussion, standaloneNotes []gl.GitLabNote, diffs string, unifiedArtifact *UnifiedArtifact) error {
 	if !m.EnableArtifactWriting {
 		return nil
 	}
@@ -65,17 +64,17 @@ func (m *MrModelImpl) writeArtifacts(outDir string, commits []gl.GitLabCommit, d
 	}
 
 	rawCommitsPath := filepath.Join(testDataDir, "commits.json")
-	if err := writeJSONPretty(rawCommitsPath, commits); err != nil {
+	if err := WriteJSONPretty(rawCommitsPath, commits); err != nil {
 		return fmt.Errorf("write raw commits: %w", err)
 	}
 
 	rawDiscussionsPath := filepath.Join(testDataDir, "discussions.json")
-	if err := writeJSONPretty(rawDiscussionsPath, discussions); err != nil {
+	if err := WriteJSONPretty(rawDiscussionsPath, discussions); err != nil {
 		return fmt.Errorf("write raw discussions: %w", err)
 	}
 
 	rawNotesPath := filepath.Join(testDataDir, "notes.json")
-	if err := writeJSONPretty(rawNotesPath, standaloneNotes); err != nil {
+	if err := WriteJSONPretty(rawNotesPath, standaloneNotes); err != nil {
 		return fmt.Errorf("write raw notes: %w", err)
 	}
 
@@ -85,7 +84,7 @@ func (m *MrModelImpl) writeArtifacts(outDir string, commits []gl.GitLabCommit, d
 	}
 
 	unifiedPath := filepath.Join(outDir, "gl_unified.json")
-	if err := writeJSONPretty(unifiedPath, unifiedArtifact); err != nil {
+	if err := WriteJSONPretty(unifiedPath, unifiedArtifact); err != nil {
 		return fmt.Errorf("write unified artifact: %w", err)
 	}
 	fmt.Printf("GitLab unified artifact written to %s\n", unifiedPath)
@@ -93,7 +92,7 @@ func (m *MrModelImpl) writeArtifacts(outDir string, commits []gl.GitLabCommit, d
 	return nil
 }
 
-func (m *MrModelImpl) buildUnifiedArtifact(commits []gl.GitLabCommit, discussions []gl.GitLabDiscussion, standaloneNotes []gl.GitLabNote, diffs string, outDir string) (*lib.UnifiedArtifact, error) {
+func (m *MrModelImpl) BuildGitLabUnifiedArtifact(commits []gl.GitLabCommit, discussions []gl.GitLabDiscussion, standaloneNotes []gl.GitLabNote, diffs string, outDir string) (*UnifiedArtifact, error) {
 	timelineItems := rm.BuildTimeline(commits, discussions, standaloneNotes)
 	commentTree := rm.BuildCommentTree(discussions, standaloneNotes)
 
@@ -103,20 +102,20 @@ func (m *MrModelImpl) buildUnifiedArtifact(commits []gl.GitLabCommit, discussion
 		return nil, fmt.Errorf("parse diff: %w", err)
 	}
 
-	diffsPtrs := make([]*lib.LocalCodeDiff, len(parsedDiffs))
+	diffsPtrs := make([]*LocalCodeDiff, len(parsedDiffs))
 	for i := range parsedDiffs {
 		diffsPtrs[i] = &parsedDiffs[i]
 	}
 
-	unifiedArtifact := &lib.UnifiedArtifact{
+	unifiedArtifact := &UnifiedArtifact{
 		Provider:     "gitlab",
 		Timeline:     timelineItems,
 		CommentTree:  commentTree,
 		Diffs:        diffsPtrs,
-		Participants: extractParticipants(timelineItems),
+		Participants: ExtractParticipants(timelineItems),
 	}
 
-	if err := m.writeArtifacts(outDir, commits, discussions, standaloneNotes, diffs, unifiedArtifact); err != nil {
+	if err := m.writeGitLabArtifacts(outDir, commits, discussions, standaloneNotes, diffs, unifiedArtifact); err != nil {
 		return nil, err
 	}
 

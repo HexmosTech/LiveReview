@@ -1,4 +1,4 @@
-package main
+package lib
 
 import (
 	"encoding/json"
@@ -14,13 +14,13 @@ import (
 func TestBitbucketMRModelGeneration(t *testing.T) {
 	const testRepoURL = "https://bitbucket.org/goprasanth/test-go-repo"
 
-	// Read test data from files
-	commitsData, err := os.ReadFile(filepath.Join("testdata", "bitbucket", "commits.json"))
+	// Read test data from files (in parent directory's testdata)
+	commitsData, err := os.ReadFile(filepath.Join("..", "testdata", "bitbucket", "commits.json"))
 	require.NoError(t, err)
 	var bbCommits []bitbucket.BitbucketCommit
 	require.NoError(t, json.Unmarshal(commitsData, &bbCommits))
 
-	commentsData, err := os.ReadFile(filepath.Join("testdata", "bitbucket", "comments.json"))
+	commentsData, err := os.ReadFile(filepath.Join("..", "testdata", "bitbucket", "comments.json"))
 	require.NoError(t, err)
 	var bbComments []bitbucket.BitbucketComment
 	require.NoError(t, json.Unmarshal(commentsData, &bbComments))

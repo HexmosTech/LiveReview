@@ -1,4 +1,4 @@
-package main
+package lib
 
 import (
 	"encoding/json"
@@ -12,7 +12,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/livereview/cmd/mrmodel/lib"
 	githubapi "github.com/livereview/internal/provider_input/github"
 	"github.com/livereview/internal/reviewmodel"
 )
@@ -25,7 +24,7 @@ func (m *MrModelImpl) mustMarshal(v interface{}) []byte {
 	return data
 }
 
-func (m *MrModelImpl) buildGitHubArtifact(owner, name, prID, pat, outDir string) (*lib.UnifiedArtifact, error) {
+func (m *MrModelImpl) BuildGitHubArtifact(owner, name, prID, pat, outDir string) (*UnifiedArtifact, error) {
 	commits, err := githubapi.FetchGitHubPRCommitsV2(owner, name, prID, pat)
 	if err != nil {
 		return nil, fmt.Errorf("fetch commits: %w", err)
@@ -63,17 +62,17 @@ func (m *MrModelImpl) buildGitHubArtifact(owner, name, prID, pat, outDir string)
 	}
 
 	// Convert []LocalCodeDiff to []*LocalCodeDiff for the unified artifact
-	diffsPtrs := make([]*lib.LocalCodeDiff, len(parsedDiffs))
+	diffsPtrs := make([]*LocalCodeDiff, len(parsedDiffs))
 	for i := range parsedDiffs {
 		diffsPtrs[i] = &parsedDiffs[i]
 	}
 
-	unifiedArtifact := &lib.UnifiedArtifact{
+	unifiedArtifact := &UnifiedArtifact{
 		Provider:     "github",
 		Timeline:     timelineItems,
 		CommentTree:  commentTree,
 		Diffs:        diffsPtrs,
-		Participants: extractParticipants(timelineItems),
+		Participants: ExtractParticipants(timelineItems),
 	}
 
 	// This is a bit of a hack to pass the raw data back to the caller for writing, without changing the artifact struct
@@ -94,7 +93,7 @@ func (m *MrModelImpl) buildGitHubArtifact(owner, name, prID, pat, outDir string)
 	return unifiedArtifact, nil
 }
 
-func (m *MrModelImpl) writeGitHubArtifacts(unifiedArtifact *lib.UnifiedArtifact, outDir string) error {
+func (m *MrModelImpl) writeGitHubArtifacts(unifiedArtifact *UnifiedArtifact, outDir string) error {
 	// 1. Create output directories
 	if err := os.MkdirAll(outDir, 0o755); err != nil {
 		return fmt.Errorf("create output dir: %w", err)
@@ -132,7 +131,7 @@ func (m *MrModelImpl) writeGitHubArtifacts(unifiedArtifact *lib.UnifiedArtifact,
 
 	// 4. Write unified artifact to a single file
 	unifiedPath := filepath.Join(outDir, "gh_unified.json")
-	if err := writeJSONPretty(unifiedPath, unifiedArtifact); err != nil {
+	if err := WriteJSONPretty(unifiedPath, unifiedArtifact); err != nil {
 		return fmt.Errorf("write unified artifact: %w", err)
 	}
 
@@ -305,7 +304,7 @@ func (m *MrModelImpl) buildGitHubCommentTree(issueComments []githubapi.GitHubV2C
 		return roots[i].CreatedAt.Before(roots[j].CreatedAt)
 	})
 	for _, root := range roots {
-		sortCommentChildren(root)
+		SortCommentChildren(root)
 	}
 
 	return reviewmodel.CommentTree{Roots: roots}
@@ -391,7 +390,7 @@ func (m *MrModelImpl) firstNonEmptyString(values ...string) string {
 	return ""
 }
 
-func (m *MrModelImpl) parseGitHubPRURL(raw string) (string, string, string, error) {
+func (m *MrModelImpl) ParseGitHubPRURL(raw string) (string, string, string, error) {
 	if strings.TrimSpace(raw) == "" {
 		return "", "", "", errors.New("PR URL is empty")
 	}
@@ -419,8 +418,22 @@ func (m *MrModelImpl) parseGitHubPRURL(raw string) (string, string, string, erro
 	return owner, repo, number, nil
 }
 
-func (m *MrModelImpl) findGitHubTokenFromDB() (string, error) {
-	rows, err := fetchIntegrationTokens()
+func (m *MrModelImpl) SplitRepo(repo string) (string, string, error) {
+	parts := strings.Split(repo, "/")
+	if len(parts) != 2 {
+		return "", "", fmt.Errorf("invalid repo %q (expected owner/repo)", repo)
+	}
+	owner := strings.TrimSpace(parts[0])
+	name := strings.TrimSpace(parts[1])
+	if owner == "" || name == "" {
+		return "", "", fmt.Errorf("invalid repo %q (expected owner/repo)", repo)
+	}
+	return owner, name, nil
+}
+
+// FindGitHubTokenFromDB searches integration_tokens table for a GitHub PAT
+func FindGitHubTokenFromDB() (string, error) {
+	rows, err := FetchIntegrationTokens()
 	if err != nil {
 		return "", fmt.Errorf("fetch integration_tokens: %w", err)
 	}
@@ -444,17 +457,4 @@ func (m *MrModelImpl) findGitHubTokenFromDB() (string, error) {
 	}
 
 	return "", errors.New("no GitHub PAT found in integration_tokens")
-}
-
-func (m *MrModelImpl) splitRepo(repo string) (string, string, error) {
-	parts := strings.Split(repo, "/")
-	if len(parts) != 2 {
-		return "", "", fmt.Errorf("invalid repo %q (expected owner/repo)", repo)
-	}
-	owner := strings.TrimSpace(parts[0])
-	name := strings.TrimSpace(parts[1])
-	if owner == "" || name == "" {
-		return "", "", fmt.Errorf("invalid repo %q (expected owner/repo)", repo)
-	}
-	return owner, name, nil
 }
