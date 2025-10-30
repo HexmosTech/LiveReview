@@ -112,3 +112,100 @@ func TestBuildFileCommentIndex(t *testing.T) {
 	t.Logf("Total: %d comments (%d general, %d file-specific)",
 		totalComments, generalCount, totalComments-generalCount)
 }
+
+// TestBuildFileCommentTree tests building the tree structure per file
+func TestBuildFileCommentTree(t *testing.T) {
+	artifactPath := "../../../artifacts/gl_unified.json"
+
+	// Read the JSON file
+	data, err := os.ReadFile(artifactPath)
+	if err != nil {
+		t.Fatalf("Failed to read artifact file: %v", err)
+	}
+
+	// Unmarshal into UnifiedArtifact
+	var artifact UnifiedArtifact
+	if err := json.Unmarshal(data, &artifact); err != nil {
+		t.Fatalf("Failed to unmarshal JSON: %v", err)
+	}
+
+	// Build the tree
+	tree := BuildFileCommentTree(&artifact)
+
+	t.Logf("Built tree with %d entries (files + general)", len(tree))
+
+	// Validate the tree
+	validation := ValidateFileCommentTree(tree, &artifact)
+
+	t.Logf("Validation results:")
+	t.Logf("  Total comments in tree: %d", validation["total_tree_comments"])
+	t.Logf("  Total comments in artifact: %d", validation["total_artifact_comments"])
+	t.Logf("  All comments preserved: %v", validation["all_comments_preserved"])
+	t.Logf("  File count: %d", validation["file_count"])
+
+	threadsPerFile := validation["threads_per_file"].(map[string]int)
+	t.Logf("  Threads per file:")
+	for file, count := range threadsPerFile {
+		t.Logf("    %s: %d thread(s)", file, count)
+	}
+
+	// Verify all comments are preserved
+	if !validation["all_comments_preserved"].(bool) {
+		t.Errorf("Not all comments preserved! Tree has %d but artifact has %d",
+			validation["total_tree_comments"], validation["total_artifact_comments"])
+	}
+}
+
+// TestShowCommentsPerFileTree tests showing the tree structure
+func TestShowCommentsPerFileTree(t *testing.T) {
+	artifactPath := "../../../artifacts/gl_unified.json"
+
+	// Read the JSON file
+	data, err := os.ReadFile(artifactPath)
+	if err != nil {
+		t.Fatalf("Failed to read artifact file: %v", err)
+	}
+
+	// Unmarshal into UnifiedArtifact
+	var artifact UnifiedArtifact
+	if err := json.Unmarshal(data, &artifact); err != nil {
+		t.Fatalf("Failed to unmarshal JSON: %v", err)
+	}
+
+	t.Logf("Loaded UnifiedArtifact with %d diffs, %d comment roots",
+		len(artifact.Diffs), len(artifact.CommentTree.Roots))
+
+	// Show comments per file with tree structure
+	ShowCommentsPerFileTree(&artifact)
+}
+
+// TestShowCommentsPerFileTreeBitbucket tests with Bitbucket data that has threaded comments
+func TestShowCommentsPerFileTreeBitbucket(t *testing.T) {
+	artifactPath := "../../../artifacts/bb_unified.json"
+
+	// Read the JSON file
+	data, err := os.ReadFile(artifactPath)
+	if err != nil {
+		t.Fatalf("Failed to read artifact file: %v", err)
+	}
+
+	// Unmarshal into UnifiedArtifact
+	var artifact UnifiedArtifact
+	if err := json.Unmarshal(data, &artifact); err != nil {
+		t.Fatalf("Failed to unmarshal JSON: %v", err)
+	}
+
+	t.Logf("Loaded Bitbucket UnifiedArtifact with %d diffs, %d comment roots",
+		len(artifact.Diffs), len(artifact.CommentTree.Roots))
+
+	// Build and validate tree
+	tree := BuildFileCommentTree(&artifact)
+	validation := ValidateFileCommentTree(tree, &artifact)
+
+	t.Logf("Validation: %d comments in tree, %d in artifact, preserved: %v",
+		validation["total_tree_comments"], validation["total_artifact_comments"],
+		validation["all_comments_preserved"])
+
+	// Show comments per file with tree structure
+	ShowCommentsPerFileTree(&artifact)
+}
