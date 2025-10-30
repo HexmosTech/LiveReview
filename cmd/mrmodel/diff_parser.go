@@ -5,32 +5,9 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+
+	"github.com/livereview/cmd/mrmodel/lib"
 )
-
-// LocalDiffLine represents a single line in a diff hunk.
-type LocalDiffLine struct {
-	Content   string `json:"content"`
-	LineType  string `json:"line_type"` // 'added', 'deleted', 'context'
-	OldLineNo int    `json:"old_line_no"`
-	NewLineNo int    `json:"new_line_no"`
-}
-
-// LocalDiffHunk represents a hunk of changes in a diff.
-type LocalDiffHunk struct {
-	OldStartLine int             `json:"old_start_line"`
-	OldLineCount int             `json:"old_line_count"`
-	NewStartLine int             `json:"new_start_line"`
-	NewLineCount int             `json:"new_line_count"`
-	HeaderText   string          `json:"header_text"`
-	Lines        []LocalDiffLine `json:"lines"`
-}
-
-// LocalCodeDiff represents the parsed diff for a single file.
-type LocalCodeDiff struct {
-	OldPath string          `json:"old_path"`
-	NewPath string          `json:"new_path"`
-	Hunks   []LocalDiffHunk `json:"hunks"`
-}
 
 // LocalParser is a self-contained parser for unified diffs.
 type LocalParser struct{}
@@ -41,8 +18,8 @@ func NewLocalParser() *LocalParser {
 }
 
 // Parse parses a unified diff string into a slice of LocalCodeDiffs.
-func (p *LocalParser) Parse(diffContent string) ([]LocalCodeDiff, error) {
-	var diffs []LocalCodeDiff
+func (p *LocalParser) Parse(diffContent string) ([]lib.LocalCodeDiff, error) {
+	var diffs []lib.LocalCodeDiff
 	files := regexp.MustCompile(`(?m)^diff --git a/(.+) b/(.+)`).Split(diffContent, -1)
 	if len(files) == 0 {
 		return nil, nil
@@ -79,7 +56,7 @@ func (p *LocalParser) Parse(diffContent string) ([]LocalCodeDiff, error) {
 			return nil, fmt.Errorf("extracting hunks for %s: %w", newPath, err)
 		}
 
-		diffs = append(diffs, LocalCodeDiff{
+		diffs = append(diffs, lib.LocalCodeDiff{
 			OldPath: oldPath,
 			NewPath: newPath,
 			Hunks:   hunks,
@@ -98,8 +75,8 @@ func parseDiffGitHeader(header string) (string, string) {
 	return "", ""
 }
 
-func (p *LocalParser) extractHunks(lines []string) ([]LocalDiffHunk, error) {
-	var hunks []LocalDiffHunk
+func (p *LocalParser) extractHunks(lines []string) ([]lib.LocalDiffHunk, error) {
+	var hunks []lib.LocalDiffHunk
 	hunkHeaderRegex := regexp.MustCompile(`^@@ -(\d+),(\d+) \+(\d+),(\d+) @@(.*)`)
 
 	for i := 0; i < len(lines); i++ {
@@ -119,7 +96,7 @@ func (p *LocalParser) extractHunks(lines []string) ([]LocalDiffHunk, error) {
 		newLines, _ := strconv.Atoi(matches[4])
 		headerText := strings.TrimSpace(matches[5])
 
-		hunk := LocalDiffHunk{
+		hunk := lib.LocalDiffHunk{
 			OldStartLine: oldStart,
 			OldLineCount: oldLines,
 			NewStartLine: newStart,
@@ -146,18 +123,18 @@ func (p *LocalParser) extractHunks(lines []string) ([]LocalDiffHunk, error) {
 				break
 			}
 
-			var dLine LocalDiffLine
+			var dLine lib.LocalDiffLine
 			switch {
 			case strings.HasPrefix(hunkLine, "+"):
-				dLine = LocalDiffLine{Content: hunkLine[1:], LineType: "added", OldLineNo: 0, NewLineNo: newLineNo}
+				dLine = lib.LocalDiffLine{Content: hunkLine[1:], LineType: "added", OldLineNo: 0, NewLineNo: newLineNo}
 				newLineNo++
 				hunkLinesAdded++
 			case strings.HasPrefix(hunkLine, "-"):
-				dLine = LocalDiffLine{Content: hunkLine[1:], LineType: "deleted", OldLineNo: oldLineNo, NewLineNo: 0}
+				dLine = lib.LocalDiffLine{Content: hunkLine[1:], LineType: "deleted", OldLineNo: oldLineNo, NewLineNo: 0}
 				oldLineNo++
 				hunkLinesDeleted++
 			case strings.HasPrefix(hunkLine, " "):
-				dLine = LocalDiffLine{Content: hunkLine[1:], LineType: "context", OldLineNo: oldLineNo, NewLineNo: newLineNo}
+				dLine = lib.LocalDiffLine{Content: hunkLine[1:], LineType: "context", OldLineNo: oldLineNo, NewLineNo: newLineNo}
 				oldLineNo++
 				newLineNo++
 			case hunkLine == `\ No newline at end of file`:
@@ -165,7 +142,7 @@ func (p *LocalParser) extractHunks(lines []string) ([]LocalDiffHunk, error) {
 				continue
 			default:
 				// Should be context line, but might not have a space if it's an empty line
-				dLine = LocalDiffLine{Content: hunkLine, LineType: "context", OldLineNo: oldLineNo, NewLineNo: newLineNo}
+				dLine = lib.LocalDiffLine{Content: hunkLine, LineType: "context", OldLineNo: oldLineNo, NewLineNo: newLineNo}
 				oldLineNo++
 				newLineNo++
 			}

@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"time"
 
+	"github.com/livereview/cmd/mrmodel/lib"
 	"github.com/livereview/internal/providers"
 	gl "github.com/livereview/internal/providers/gitlab"
 	rm "github.com/livereview/internal/reviewmodel"
@@ -50,7 +51,7 @@ func (m *MrModelImpl) fetchGitLabData(provider *gl.GitLabProvider, mrURL string)
 	return details, diffs, commits, discussions, standaloneNotes, nil
 }
 
-func (m *MrModelImpl) writeArtifacts(outDir string, commits []gl.GitLabCommit, discussions []gl.GitLabDiscussion, standaloneNotes []gl.GitLabNote, diffs string, unifiedArtifact *UnifiedArtifact) error {
+func (m *MrModelImpl) writeArtifacts(outDir string, commits []gl.GitLabCommit, discussions []gl.GitLabDiscussion, standaloneNotes []gl.GitLabNote, diffs string, unifiedArtifact *lib.UnifiedArtifact) error {
 	if !m.EnableArtifactWriting {
 		return nil
 	}
@@ -92,7 +93,7 @@ func (m *MrModelImpl) writeArtifacts(outDir string, commits []gl.GitLabCommit, d
 	return nil
 }
 
-func (m *MrModelImpl) buildUnifiedArtifact(commits []gl.GitLabCommit, discussions []gl.GitLabDiscussion, standaloneNotes []gl.GitLabNote, diffs string, outDir string) (*UnifiedArtifact, error) {
+func (m *MrModelImpl) buildUnifiedArtifact(commits []gl.GitLabCommit, discussions []gl.GitLabDiscussion, standaloneNotes []gl.GitLabNote, diffs string, outDir string) (*lib.UnifiedArtifact, error) {
 	timelineItems := rm.BuildTimeline(commits, discussions, standaloneNotes)
 	commentTree := rm.BuildCommentTree(discussions, standaloneNotes)
 
@@ -102,12 +103,12 @@ func (m *MrModelImpl) buildUnifiedArtifact(commits []gl.GitLabCommit, discussion
 		return nil, fmt.Errorf("parse diff: %w", err)
 	}
 
-	diffsPtrs := make([]*LocalCodeDiff, len(parsedDiffs))
+	diffsPtrs := make([]*lib.LocalCodeDiff, len(parsedDiffs))
 	for i := range parsedDiffs {
 		diffsPtrs[i] = &parsedDiffs[i]
 	}
 
-	unifiedArtifact := &UnifiedArtifact{
+	unifiedArtifact := &lib.UnifiedArtifact{
 		Provider:     "gitlab",
 		Timeline:     timelineItems,
 		CommentTree:  commentTree,
