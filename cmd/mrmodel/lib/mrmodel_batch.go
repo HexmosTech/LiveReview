@@ -30,7 +30,8 @@ func ListPaths(artifact *UnifiedArtifact) []FilePath {
 }
 
 // BuildFileCommentIndex creates an efficient lookup from file path to comments
-// by iterating through the comment tree once
+// by iterating through the comment tree once. Comments without a file path are
+// stored under the key "" (empty string) as "general" comments.
 func BuildFileCommentIndex(artifact *UnifiedArtifact) FileCommentIndex {
 	index := make(FileCommentIndex)
 
@@ -44,10 +45,12 @@ func BuildFileCommentIndex(artifact *UnifiedArtifact) FileCommentIndex {
 
 // indexCommentNode recursively indexes a comment node and its children
 func indexCommentNode(node *reviewmodel.CommentNode, index FileCommentIndex) {
-	// If this comment has a file path, add it to the index
-	if node.FilePath != "" {
-		index[node.FilePath] = append(index[node.FilePath], node)
+	// Add to index - use empty string for comments without a file path (general comments)
+	filePath := node.FilePath
+	if filePath == "" {
+		filePath = "" // General comments
 	}
+	index[filePath] = append(index[filePath], node)
 
 	// Recursively index children
 	for _, child := range node.Children {
@@ -61,6 +64,17 @@ func ShowCommentsPerFile(artifact *UnifiedArtifact) {
 	commentIndex := BuildFileCommentIndex(artifact)
 
 	fmt.Println("\n=== Files and Their Comments ===")
+
+	// Show general comments first (comments not associated with any file)
+	generalComments := commentIndex[""]
+	if len(generalComments) > 0 {
+		fmt.Printf("\nGeneral Comments (not associated with specific files): %d\n", len(generalComments))
+		for _, comment := range generalComments {
+			printComment(comment, "   ")
+		}
+	}
+
+	// Show comments for each file
 	for _, path := range paths {
 		fmt.Printf("\n%d. File: %s\n", path.Index, path.NewPath)
 		if path.OldPath != path.NewPath {
