@@ -174,7 +174,18 @@ func printCommentTree(node *reviewmodel.CommentNode, indent string, depth int) {
 		author = node.Author.Username
 	}
 
-	fmt.Printf("%s- [%s] %s\n", indent, author, node.CreatedAt.Format("2006-01-02 15:04:05"))
+	// Use different markers for root vs children
+	marker := "-"
+	if depth > 0 {
+		marker = "↳" // Reply arrow for children
+	}
+
+	fmt.Printf("%s%s [%s] %s", indent, marker, author, node.CreatedAt.Format("2006-01-02 15:04:05"))
+	if len(node.Children) > 0 {
+		fmt.Printf(" (%d replies)", len(node.Children))
+	}
+	fmt.Println()
+
 	if node.FilePath != "" {
 		fmt.Printf("%s  File: %s (line %d)\n", indent, node.FilePath, node.LineNew)
 	}
