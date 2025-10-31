@@ -206,6 +206,24 @@ func TestShowCommentsPerFileTreeBitbucket(t *testing.T) {
 		validation["total_tree_comments"], validation["total_artifact_comments"],
 		validation["all_comments_preserved"])
 
+	// Verify we have threaded comments
+	foundThreadedComment := false
+	for _, roots := range tree {
+		for _, root := range roots {
+			if len(root.Children) > 0 {
+				foundThreadedComment = true
+				t.Logf("Found threaded comment: root ID=%s has %d children", root.ID, len(root.Children))
+				for i, child := range root.Children {
+					t.Logf("  Child %d: ID=%s, ParentID=%s", i+1, child.ID, child.ParentID)
+				}
+			}
+		}
+	}
+
+	if !foundThreadedComment {
+		t.Error("Expected to find threaded comments but found none")
+	}
+
 	// Show comments per file with tree structure
 	ShowCommentsPerFileTree(&artifact)
 }
