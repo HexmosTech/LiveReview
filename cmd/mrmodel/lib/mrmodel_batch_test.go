@@ -277,3 +277,53 @@ func TestShowCommentsPerFileTreeGitlab(t *testing.T) {
 	// Show comments per file with tree structure
 	ShowCommentsPerFileTree(&artifact)
 }
+
+// TestShowCommentsPerFileTreeGithub tests with GitHub data
+func TestShowCommentsPerFileTreeGithub(t *testing.T) {
+	artifactPath := "../../../artifacts/gh_unified.json"
+
+	// Read the JSON file
+	data, err := os.ReadFile(artifactPath)
+	if err != nil {
+		t.Fatalf("Failed to read artifact file: %v", err)
+	}
+
+	// Unmarshal into UnifiedArtifact
+	var artifact UnifiedArtifact
+	if err := json.Unmarshal(data, &artifact); err != nil {
+		t.Fatalf("Failed to unmarshal JSON: %v", err)
+	}
+
+	t.Logf("Loaded GitHub UnifiedArtifact with %d diffs, %d comment roots",
+		len(artifact.Diffs), len(artifact.CommentTree.Roots))
+
+	// Build and validate tree
+	tree := BuildFileCommentTree(&artifact)
+	validation := ValidateFileCommentTree(tree, &artifact)
+
+	t.Logf("Validation: %d comments in tree, %d in artifact, preserved: %v",
+		validation["total_tree_comments"], validation["total_artifact_comments"],
+		validation["all_comments_preserved"])
+
+	// Check for threaded comments
+	foundThreadedComment := false
+	threadCount := 0
+	for _, roots := range tree {
+		for _, root := range roots {
+			if len(root.Children) > 0 {
+				foundThreadedComment = true
+				threadCount++
+				t.Logf("Found threaded comment: root ID=%s has %d children", root.ID, len(root.Children))
+			}
+		}
+	}
+
+	if foundThreadedComment {
+		t.Logf("Total threaded comments found: %d", threadCount)
+	} else {
+		t.Logf("No threaded comments found (all comments are top-level)")
+	}
+
+	// Show comments per file with tree structure
+	ShowCommentsPerFileTree(&artifact)
+}
