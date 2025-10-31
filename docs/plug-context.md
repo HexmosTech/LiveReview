@@ -99,60 +99,99 @@ mrmodel "github.com/livereview/cmd/mrmodel/lib"
 gl "github.com/livereview/internal/providers/gitlab"
 ```
 
-**Step 1.2:** Add helper method `buildGitLabArtifactFromEvent(event UnifiedWebhookEventV2) (*mrmodel.UnifiedArtifact, error)`
+**Step 1.2:** Add helper method `buildGitLabArtifactFromEvent(ctx context.Context, event UnifiedWebhookEventV2) (*mrmodel.UnifiedArtifact, error)`
 - Location: Add as private method in `UnifiedProcessorV2Impl`, after other helper methods
 - Copy pattern from cli.go:
   ```go
-  func (p *UnifiedProcessorV2Impl) buildGitLabArtifactFromEvent(event UnifiedWebhookEventV2) (*mrmodel.UnifiedArtifact, error) {
-      // Extract GitLab instance URL from repository web URL
-      gitlabInstanceURL := event.Repository.WebURL
-      // Remove project path to get base URL (everything before the project)
-      if idx := strings.LastIndex(gitlabInstanceURL, "/"); idx != -1 {
-          parts := strings.Split(gitlabInstanceURL, "/")
-          if len(parts) >= 3 {
-              gitlabInstanceURL = strings.Join(parts[:3], "/") // https://domain.com
+  func (p *UnifiedProcessorV2Impl) buildGitLabArtifactFromEvent(ctx context.Context, event UnifiedWebhookEventV2) (*mrmodel.UnifiedArtifact, error) {
+      if event.Repository.WebURL == "" || event.MergeRequest == nil {
+          return nil, fmt.Errorf("missing required fields for MR URL construction")
+      }
+      
+      // Get MR number - prioritize Number field (IID), fallback to ID
+      var mrNumber string
+      if event.MergeRequest.Number > 0 {
+          mrNumber = fmt.Sprintf("%d", event.MergeRequest.Number)
+      } else if event.MergeRequest.ID != "" {
+          mrNumber = event.MergeRequest.ID
+      } else {
+          return nil, fmt.Errorf("missing MR number/ID")
+      }
+      
+      // Construct MR URL from event
+      mrURL := event.Repository.WebURL + "/-/merge_requests/" + mrNumber
+      log.Printf("[DEBUG] Constructed MR URL: %s", mrURL)
+      
+      // Extract GitLab base URL from repository URL
+      // event.Repository.WebURL is like "https://git.apps.hexmos.com/hexmos/liveapi"
+      // We need just "https://git.apps.hexmos.com"
+      var gitlabBaseURL string
+      if idx := strings.Index(event.Repository.WebURL, "://"); idx != -1 {
+          // Find the first slash after the protocol
+          remaining := event.Repository.WebURL[idx+3:]
+          if slashIdx := strings.Index(remaining, "/"); slashIdx != -1 {
+              gitlabBaseURL = event.Repository.WebURL[:idx+3+slashIdx]
+          } else {
+              gitlabBaseURL = event.Repository.WebURL
           }
+      } else {
+          return nil, fmt.Errorf("invalid repository URL format: %s", event.Repository.WebURL)
       }
       
-      // Get token from database
-      var token string
-      query := `SELECT pat_token FROM integration_tokens WHERE provider IN ('gitlab', 'gitlab-com', 'gitlab-self-hosted') AND RTRIM(provider_url, '/') = RTRIM($1, '/') LIMIT 1`
-      err := p.server.db.QueryRow(query, gitlabInstanceURL).Scan(&token)
+      gitlabBaseURL = strings.TrimRight(gitlabBaseURL, "/")
+      log.Printf("[DEBUG] Extracted GitLab base URL: %s", gitlabBaseURL)
+      
+      // Look up GitLab PAT from integration_tokens table using base URL
+      // IMPORTANT: Include 'gitlab-self-hosted' in provider list
+      query := `SELECT pat_token FROM integration_tokens 
+                WHERE provider IN ('gitlab', 'GitLab', 'gitlab-self-hosted') 
+                AND RTRIM(provider_url, '/') = $1 
+                LIMIT 1`
+      
+      var patToken string
+      err := p.server.db.QueryRow(query, gitlabBaseURL).Scan(&patToken)
       if err != nil {
-          return nil, fmt.Errorf("no access token found for GitLab instance %s: %w", gitlabInstanceURL, err)
+          return nil, fmt.Errorf("failed to find GitLab PAT for %s: %w", gitlabBaseURL, err)
       }
       
-      // Construct MR URL
-      mrURL := fmt.Sprintf("%s/-/merge_requests/%d", event.Repository.WebURL, event.MergeRequest.Number)
+      log.Printf("[DEBUG] Found GitLab PAT for %s", gitlabBaseURL)
       
-      // Create GitLab provider (exactly like cli.go)
-      cfg := gl.GitLabConfig{URL: gitlabInstanceURL, Token: token}
+      // Create GitLab provider (following cli.go pattern)
+      cfg := gl.GitLabConfig{URL: gitlabBaseURL, Token: patToken}
       provider, err := gl.New(cfg)
       if err != nil {
           return nil, fmt.Errorf("failed to init gitlab provider: %w", err)
       }
       
-      // Create mrmodel instance (exactly like cli.go)
-      mrModel := &mrmodel.MrModelImpl{EnableArtifactWriting: false}
+      // Create mrModel instance
+      mrModel := &mrmodel.MrModelImpl{}
+      mrModel.EnableArtifactWriting = false // Don't write to disk
       
-      // Fetch data (exactly like cli.go)
+      // Fetch GitLab data (following cli.go pattern)
       _, diffs, commits, discussions, standaloneNotes, err := mrModel.FetchGitLabData(provider, mrURL)
       if err != nil {
           return nil, fmt.Errorf("failed to fetch GitLab data: %w", err)
       }
       
-      // Build artifact (exactly like cli.go) - empty string for outDir
-      unifiedArtifact, err := mrModel.BuildGitLabUnifiedArtifact(commits, discussions, standaloneNotes, diffs, "")
+      log.Printf("[DEBUG] Fetched GitLab data: commits=%d discussions=%d notes=%d diffs=%d",
+          len(commits), len(discussions), len(standaloneNotes), len(diffs))
+      
+      // Build unified artifact (following cli.go pattern)
+      artifact, err := mrModel.BuildGitLabUnifiedArtifact(commits, discussions, standaloneNotes, diffs, "")
       if err != nil {
-          return nil, fmt.Errorf("failed to build unified artifact: %w", err)
+          return nil, fmt.Errorf("failed to build GitLab artifact: %w", err)
       }
       
-      log.Printf("[DEBUG] Built artifact: %d diffs, %d timeline items, %d comment roots", 
-          len(unifiedArtifact.Diffs), len(unifiedArtifact.Timeline), len(unifiedArtifact.CommentTree.Roots))
-      
-      return unifiedArtifact, nil
+      return artifact, nil
   }
   ```
+
+**KEY LEARNINGS:**
+1. **MR Number vs ID**: `event.MergeRequest.Number` is an `int` (IID), not a string. Format it with `fmt.Sprintf("%d", ...)` for URL construction.
+2. **Base URL Extraction**: Repository WebURL contains full path (`https://git.apps.hexmos.com/hexmos/liveapi`). Must extract base URL (`https://git.apps.hexmos.com`) by finding first slash after protocol.
+3. **Provider Name in DB**: Self-hosted GitLab stores as `'gitlab-self-hosted'`, not `'gitlab'`. Always include all variants in query: `('gitlab', 'GitLab', 'gitlab-self-hosted')`.
+4. **Query Pattern**: Use `RTRIM(provider_url, '/') = $1` to handle trailing slash differences.
+5. **Context Parameter**: Pass `ctx context.Context` as first parameter for consistency with other methods.
 
 **Step 1.3:** Add basic artifact formatter `formatArtifactForPrompt(artifact *mrmodel.UnifiedArtifact) string`
 - Location: After `buildGitLabArtifactFromEvent()`
@@ -223,25 +262,30 @@ gl "github.com/livereview/internal/providers/gitlab"
           }
       }
       
-      return b.String()
+**Step 1.4:** Modify `ProcessCommentReply()` to build and use artifact
+- Location: Line 240, at the beginning
+- Add:
+  ```go
+  // Build GitLab artifact for context (Phase 1 - Iteration 1)
+  var artifact *mrmodel.UnifiedArtifact
+  if strings.ToLower(event.Provider) == "gitlab" {
+      log.Printf("[DEBUG] Building GitLab artifact for contextual response")
+      var err error
+      artifact, err = p.buildGitLabArtifactFromEvent(ctx, event)
+      if err != nil {
+          return "", nil, fmt.Errorf("failed to build GitLab artifact: %w", err)
+      }
   }
-  
-  func (p *UnifiedProcessorV2Impl) formatCommentThreadBasic(node *mrmodel.CommentNode, depth int) string {
-      var b strings.Builder
-      indent := strings.Repeat("  ", depth)
-      
-      author := node.Author.Username
-      if author == "" {
-          author = "unknown"
-      }
-      
-      marker := "-"
-      if depth > 0 {
-          marker = "↳"
-      }
-      
-      location := ""
-      if node.FilePath != "" {
+  ```
+- Pass to next function:
+  ```go
+  response, learning := p.buildContextualResponseWithLearningV2(ctx, event, timeline, orgID, artifact)
+  ```
+
+**KEY LEARNINGS:**
+1. **Use Case-Insensitive Check**: Use `strings.ToLower(event.Provider) == "gitlab"` instead of exact match.
+2. **Fail on Error**: Don't continue without context - return error immediately. Missing credentials or network issues should stop the reply flow rather than silently failing.
+3. **Pass Context**: Always pass `ctx` to `buildGitLabArtifactFromEvent(ctx, event)`. if node.FilePath != "" {
           location = fmt.Sprintf(" [%s:%d]", node.FilePath, node.LineNew)
       }
       

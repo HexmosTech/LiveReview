@@ -571,6 +571,7 @@ func (s *Server) HandleCreatePATIntegrationToken(c echo.Context) error {
 
 // ValidateGitLabProfile validates GitLab PAT and base URL by fetching user profile
 func (s *Server) ValidateGitLabProfile(c echo.Context) error {
+	fmt.Println("Reached ValidateGitlabProfile")
 	type reqBody struct {
 		BaseURL string `json:"base_url"`
 		PAT     string `json:"pat"`

@@ -2,71 +2,349 @@ You are LiveReviewBot, an AI code review assistant.
 
 CONTEXT:
 - Repository: LiveAPI
-- MR/PR title: Ganesh/repodag v2
+- MR/PR title: Lince/fix recall report
+
+=== MERGE REQUEST CONTEXT ===
+
+PARTICIPANTS:
+- @ (Lince Mathew)
+- @Lince (Lince Mathew)
+- @LiveReviewBot (LiveReviewBot)
+- @shrijith (Shrijith)
+
+COMMENT THREADS:
+- @LiveReviewBot: **Severity: info**
+
+# Dynamic Prompt Generation Based on Detected Framework
+
+## Overview
+This change modifies the prompt generation logic to be dynamic based on the detected framework (specifically...
+- @LiveReviewBot on liveapi-backend/exam/compare.go:269: **Severity: warning**
+
+This logic assigns a score of 100 if both tokens are parameters. This might be too generous. Consider the case where the actual token is `{user_id}` and the ideal token is `{...
+  - @shrijith on liveapi-backend/exam/compare.go:269: @LiveReviewBot wouldnt that make the implementation more complicated
+- @LiveReviewBot on liveapi-backend/prompt/subPrompt.go:71: **Severity: warning**
+
+This conditional logic determines whether to return the DRF method extraction section based on the `detectedFramework`.  Consider adding a default case or handling other pote...
+  - @Lince on liveapi-backend/prompt/subPrompt.go:71: changed this line in [version 3 of the diff](/hexmos/liveapi/-/merge_requests/416/diffs?diff_id=13727&start_sha=f454cc92e3965cba1fb7913b450a5791d64391f7#98aff874ccf5b8d340bf569886726f1c20a8a2d9_71_71)
+- @LiveReviewBot on liveapi-backend/prompt/subPrompt.go:334: **Severity: warning**
+
+Returning an empty string when the framework is not Python/Django might not be the best approach.  Consider returning a default prompt or an error message indicating that the...
+  - @Lince on liveapi-backend/prompt/subPrompt.go:334: changed this line in [version 3 of the diff](/hexmos/liveapi/-/merge_requests/416/diffs?diff_id=13727&start_sha=f454cc92e3965cba1fb7913b450a5791d64391f7#98aff874ccf5b8d340bf569886726f1c20a8a2d9_334...
+- @Lince: added 2 commits
+
+<ul><li>0ebcf65d - Fix comparison logic</li><li>f454cc92 - Update fuzzy scoring logic for parameterized tokens in comparison</li></ul>
+
+[Compare with previous version](/hexmos/live...
+- @Lince: added 1 commit
+
+<ul><li>eef0f9d3 - Refactor DRFMethodExtractionSection to remove detectedFramework parameter</li></ul>
+
+[Compare with previous version](/hexmos/liveapi/-/merge_requests/416/diffs?di...
+- @Lince: changed the description
+- @Lince: mentioned in commit 4b543b0c9c827266fa8a4dfa8b955d10d9202639
+- @shrijith: **Severity: info**
+
+# Exam Parameter Comparison Improvements
+
+## Overview
+This change focuses on improving the accuracy and configurability of exam parameter comparison logic within the `liveapi-ba...
+- @shrijith on liveapi-backend/exam/compare.go:272: **Severity: info**
+
+Consider using `fuzzy.LevenshteinDistance` or similar for more fine-grained control over scoring, especially if token length varies significantly. `fuzzy.Ratio` might not be the...
+- @shrijith on liveapi-backend/exam/compare.go:277: **Severity: warning**
+
+The base weight is hardcoded. Consider making this configurable.
+
+**Suggestions:**
+1. Introduce a configuration parameter for the base weight.
+2. Consider using environment v...
+- @shrijith: **Severity: info**
+
+# Exam Comparison Logic Enhancement and Code Cleanup
+
+## Overview
+This change focuses on improving the exam comparison logic, specifically around parameter matching using fuzzy ...
+- @shrijith on liveapi-backend/exam/compare.go:267: **Severity: info**
+
+The comment doesn't explain *why* the fuzzy score is calculated for parameters. What problem does this solve?
+
+**Suggestions:**
+1. Elaborate on the purpose of calculating the fu...
+- @shrijith on liveapi-backend/exam/compare.go:272: **Severity: warning**
+
+Consider adding a check to ensure that `actualToken` and `idealToken` are not empty strings before passing them to `fuzzy.Ratio`. Empty strings could lead to unexpected behav...
+- @shrijith on liveapi-backend/exam/compare.go:277: **Severity: info**
+
+Why is `baseWeight` being introduced? What is the purpose of separating this out?
+
+**Suggestions:**
+1. Add a comment explaining the purpose and significance of the `baseWeight` ...
+- @shrijith on liveapi-backend/prompt/subPrompt.go:71: **Severity: info**
+
+Remove the unnecessary blank line.
+
+**Suggestions:**
+1. Delete the blank line.
+- @shrijith: **Severity: info**
+
+# Improve Fuzzy Matching Logic in Exam Question Comparison
+
+## Overview
+This change refines the fuzzy matching algorithm used for comparing exam questions, specifically focusing...
+- @shrijith on liveapi-backend/exam/compare.go:272: **Severity: warning**
+
+The fuzzy.Ratio function returns an integer. Multiplying it by a float64 might lead to unexpected behavior due to integer truncation. Consider casting to float *before* passi...
+- @shrijith on liveapi-backend/exam/compare.go:277: **Severity: info**
+
+Consider extracting the calculation `0.7 * float64(minLength-idx) / float64(math.Max(1, float64(tokenCount-1)))` into a named variable for better readability. It's used in multi...
+- @shrijith: **Severity: info**
+
+```markdown
+# Exam Comparison Logic Enhancement
+
+## Overview
+This change focuses on improving the accuracy and robustness of the exam comparison logic, specifically within the `...
+- @shrijith on liveapi-backend/exam/compare.go:269: @LiveReviewBot wouldnt that make the implementation more complicated
+- @shrijith on liveapi-backend/exam/compare.go:277: **Severity: info**
+
+The baseWeight is now a constant. Consider making it configurable or deriving it from a config value, as it might need adjustment in the future.
+
+**Suggestions:**
+1. Introduce a...
+- @shrijith on liveapi-backend/exam/compare.go:272: **Severity: info**
+
+The fuzzy.Ratio function returns an integer. Casting it to float64 might lead to loss of precision if the ratio is very high. Consider multiplying by `baseWeight` *after* castin...
+- @shrijith: **Severity: info**
+
+# Exam Comparison Logic Improvements
+
+## Overview
+This change focuses on refining the exam comparison logic within the `liveapi-backend` application. The goal is to improve the ...
+- @shrijith on liveapi-backend/exam/compare.go:277: **Severity: info**
+
+The `math.Max` function is used with a literal `1`.  Consider adding a comment explaining why this is necessary, or refactor if the `1` represents a configurable minimum value.
+...
+- @shrijith on liveapi-backend/exam/compare.go:277: **Severity: info**
+
+The magic number `0.7` appears twice. Consider defining it as a constant to improve readability and maintainability.
+
+**Suggestions:**
+1. Define a constant `const weightFactor =...
+- @shrijith on liveapi-backend/exam/compare.go:272: **Severity: info**
+
+The `fuzzy.Ratio` function calculates a similarity score. Ensure that the score is properly normalized or scaled to fit within the expected range for `weightedScore`.
+
+**Suggest...
+- @shrijith on liveapi-backend/exam/compare.go:272: **Severity: warning**
+
+Consider adding a check to prevent `fuzzy.Ratio` from being called with empty strings, which could lead to unexpected behavior or errors.
+
+**Suggestions:**
+1. Add a condition...
+- @shrijith: **Severity: info**
+
+# Exam Comparison Logic Enhancement
+
+## Overview
+
+This change focuses on improving the exam comparison logic within the `liveapi-backend`, specifically in the `compare.go` file....
+- @shrijith on liveapi-backend/exam/compare.go:277: **Severity: info**
+
+The `math.Max` function's second argument is hardcoded as 1.  Why is this the minimum value? Add a comment explaining the reasoning.
+
+**Suggestions:**
+1. Add a comment explainin...
+... (10 more threads)
+
+CODE CHANGES:
+
+--- liveapi-backend/exam/compare.go ---
++11 -1
+@@ -262,9 +262,19 @@ func CompareWithoutPrinting(testRunID int, updateIdeal bool) (*ComparisonData, e
+					for idx := 0; idx < minLength; idx++ {
+						idealToken := idealReversed[idx]
+						actualToken := actualReversed[idx]
+						baseWeight := 0.3
+
+						//  if both tokens are params, then calculate the fuzzy score and total weight
+						// This is to handle cases like /users/{id} vs /users/{slug
+						if strings.HasPrefix(actualToken, "{") && strings.HasSuffix(actualToken, "}") &&
+							strings.HasPrefix(idealToken, "{") && strings.HasSuffix(idealToken, "}") {
+
+							weightedScore += baseWeight * float64(fuzzy.Ratio(actualToken, idealToken))
+							totalWeight += baseWeight
+							continue
+						}
+						// Higher weight for earlier paths starting from right of endpoint (most specific parts)
+						weight := 0.3 + (0.7 * float64(minLength-idx) / float64(math.Max(1, float64(tokenCount-1))))
+						weight := baseWeight + (0.7 * float64(minLength-idx) / float64(math.Max(1, float64(tokenCount-1))))
+						totalWeight += weight
+
+						fuzzyScore := float64(fuzzy.Ratio(actualToken, idealToken))
+
+
+--- liveapi-backend/prompt/subPrompt.go ---
++1 -0
+@@ -68,6 +68,7 @@ func DRFMethodExtractionSection() string {
+		4. An example scenario where an initial JSON representation of a single HTTP method
+			is expanded to multiple entries corresponding to all supported methods.
+	*/
+
+	return `
+		Process each stage (A, B, C, D, E, F) strictly in sequence, layer by layer.
+		Do not discard, overwrite, or replace the outputs of previous stages.
+
+
+=== END MERGE REQUEST CONTEXT ===
+
 
 CURRENT COMMENT (reply only to this message unless explicitly asked otherwise):
-@shrijith wrote: @LiveReviewBot What is this about?
+@shrijith wrote: @LiveReviewBot wouldnt that make the implementation more complicated
 Repository path: hexmos/liveapi
 
 RECENT CONVERSATION ACROSS THREAD (for context only, do not respond to prior messages unless they are referenced in the current comment):
 - LiveReviewBot: **Severity: info**
 
-# Code Improvements and Bug Fixes in `repodag` and `prompt` Packages
+# Dynamic Prompt Generation Based on Detected Framework
 
-## Overvie
-- LiveReviewBot: **Severity: info**
-
-# Code Improvements and Bug Fixes in `repodag` and `prompt` Packages
-
-## Overvie
+## Overview
+This change
 - LiveReviewBot: **Severity: warning**
 
-Typo: 'inheritence' should be 'inheritance'
+This logic assigns a score of 100 if both tokens are parameters. This might b
+- LiveReviewBot: **Severity: warning**
+
+This conditional logic determines whether to return the DRF method extraction
+- LiveReviewBot: **Severity: warning**
+
+Returning an empty string when the framework is not Python/Django might not b
+- shrijith: **Severity: info**
+
+# Exam Parameter Comparison Improvements
+
+## Overview
+This change focuses on imp
+- shrijith: **Severity: info**
+
+Consider using `fuzzy.LevenshteinDistance` or similar for more fine-grained cont
+- shrijith: **Severity: warning**
+
+The base weight is hardcoded. Consider making this configurable.
+
+**Suggestio
+- shrijith: **Severity: info**
+
+# Exam Comparison Logic Enhancement and Code Cleanup
+
+## Overview
+This change fo
+- shrijith: **Severity: info**
+
+The comment doesn't explain *why* the fuzzy score is calculated for parameters. 
+- shrijith: **Severity: warning**
+
+Consider adding a check to ensure that `actualToken` and `idealToken` are not
+- shrijith: **Severity: info**
+
+Why is `baseWeight` being introduced? What is the purpose of separating this out
+- shrijith: **Severity: info**
+
+Remove the unnecessary blank line.
 
 **Suggestions:**
-1. Correct the 
-- LiveReviewBot: **Severity: warning**
+1. Delete the blank line.
+- shrijith: **Severity: info**
 
-Typo: 'inheritence' should be 'inheritance'
+# Improve Fuzzy Matching Logic in Exam Question Comparison
 
-**Suggestions:**
-1. Correct the 
-- LiveReviewBot: **Severity: warning**
+## Overview
+This cha
+- shrijith: **Severity: warning**
 
-Grammar: 'child class base API decalred in @Path('student').' should be 'chil
-- LiveReviewBot: **Severity: warning**
+The fuzzy.Ratio function returns an integer. Multiplying it by a float64 migh
+- shrijith: **Severity: info**
 
-Grammar: 'child class base API decalred in @Path('student').' should be 'chil
-- LiveReviewBot: **Severity: warning**
+Consider extracting the calculation `0.7 * float64(minLength-idx) / float64(math
+- shrijith: **Severity: info**
 
-Grammar: 'Base API endpoint '/student' and this extends parent api's.' should
-- LiveReviewBot: **Severity: warning**
+```markdown
+# Exam Comparison Logic Enhancement
 
-Grammar: 'Base API endpoint '/student' and this extends parent api's.' should
-- LiveReviewBot: **Severity: warning**
+## Overview
+This change focuses
+- shrijith: **Severity: critical**
 
-Typo: 'inheritence' should be 'inheritance'
+Potential divide-by-zero error if `tokenCount` is 0. The `math.Max(1, float6
+- shrijith: **Severity: info**
 
-**Suggestions:**
-1. Correct the 
-- LiveReviewBot: **Severity: warning**
+# Exam Comparison Logic Refinement
 
-This condition was previously `detectedFramework == "JavaScript/Nestjs" || de
-- LiveReviewBot: **Severity: info**
+## Overview
+This change focuses on refining 
+- shrijith: **Severity: info**
 
-Consider adding back the debug log or replacing it with a more informative log a
-- LiveReviewBot: **Severity: info**
+Consider making `baseWeight` a constant to improve readability and maintainabili
+- shrijith: **Severity: info**
 
-Consider using a structured log to include the reason why the leaf is isolated f
-- shrijith: As a rule within our team - we prefer using plain text logging rather than structured logging.
-- LiveReviewBot: Understood. I'll keep the logging as plain text. I'll make sure future suggestions respect this pref
-- shrijith: @LiveReviewBot What is this about?
+The fuzzy.Ratio function can return 0.  If actualToken and idealToken are very d
+- shrijith: **Severity: warning**
 
-CODE CONTEXT:
-**Code Location:**
-- File: liveapi-backend/prompt/subPrompt.go
-- Line: 398
+Potential integer overflow: fuzzy.Ratio returns an integer, which is then con
+- shrijith: **Severity: info**
 
+The formula for calculating `weight` looks complex. Add a comment explaining the
+- shrijith: **Severity: info**
+
+# Exam Comparison Logic Refinement
+
+## Overview
+This change focuses on improving
+- shrijith: **Severity: info**
+
+Consider extracting this logic into a separate function for better readability a
+- shrijith: **Severity: warning**
+
+The `fuzzy.Ratio` function can be computationally expensive. Consider caching
+- shrijith: **Severity: info**
+
+The `baseWeight` is used twice. Consider defining it as a constant for better ma
+- shrijith: **Severity: info**
+
+The `math.Max` function's second argument is hardcoded as 1.  Why is this the mi
+- shrijith: **Severity: info**
+
+# Exam Comparison Logic Enhancement
+
+## Overview
+
+This change focuses on improvi
+- shrijith: **Severity: warning**
+
+Consider adding a check to prevent `fuzzy.Ratio` from being called with empty
+- shrijith: **Severity: info**
+
+The `fuzzy.Ratio` function calculates a similarity score. Ensure that the score 
+- shrijith: **Severity: info**
+
+The magic number `0.7` appears twice. Consider defining it as a constant to impr
+- shrijith: **Severity: info**
+
+The `math.Max` function is used with a literal `1`.  Consider adding a comment e
+- shrijith: **Severity: info**
+
+# Exam Comparison Logic Improvements
+
+## Overview
+This change focuses on refinin
+- shrijith: **Severity: info**
+
+The fuzzy.Ratio function returns an integer. Casting it to float64 might lead to
+- shrijith: **Severity: info**
+
+The baseWeight is now a constant. Consider making it configurable or deriving it
+- shrijith: @LiveReviewBot wouldnt that make the implementation more complicated
+- shrijith: @LiveReviewBot wouldnt that make the implementation more complicated
 
 TASK:
 Answer the CURRENT COMMENT directly. Keep the reply focused on the exact question or concern that was raised. Reference surrounding code or prior discussion only when it improves the specific answer.
@@ -106,6 +384,14 @@ If you identify a learning, add this JSON block at the end of your response:
 Only include learning block if there's genuinely something worth learning. Most responses won't have learnings. Never repeat a previously acknowledged learning unless this comment introduces new guidance.
 
 RESPONSE:
+
+Here is the full MR context:
+
+Full Code and Comments CONTEXT for the MR:
+**Code Location:**
+- File: liveapi-backend/exam/compare.go
+- Line: 269
+
 === Org learnings ===
 Incorporate the following established org guidance when drafting your reply:
 - [TS958I] Team prefers plain text logging over structured logging: The team prefers using plain text loggin...

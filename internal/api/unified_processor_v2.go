@@ -11,12 +11,15 @@ import (
 	"strings"
 	"time"
 
+	mrmodel "github.com/livereview/cmd/mrmodel/lib"
 	"github.com/livereview/internal/aiconnectors"
 	coreprocessor "github.com/livereview/internal/core_processor"
 	"github.com/livereview/internal/learnings"
 	bitbucketmentions "github.com/livereview/internal/providers/bitbucket"
 	githubmentions "github.com/livereview/internal/providers/github"
 	gitlabmentions "github.com/livereview/internal/providers/gitlab"
+	gl "github.com/livereview/internal/providers/gitlab"
+	"github.com/livereview/internal/reviewmodel"
 )
 
 // Phase 7.1: Unified processor for provider-agnostic LLM processing
@@ -244,14 +247,25 @@ func (p *UnifiedProcessorV2Impl) ProcessCommentReply(ctx context.Context, event 
 
 	log.Printf("[INFO] Processing comment reply for %s provider using original contextual logic", event.Provider)
 
+	// Build GitLab artifact for context (Phase 1 - Iteration 1)
+	var artifact *mrmodel.UnifiedArtifact
+	if strings.ToLower(event.Provider) == "gitlab" && p.server.DB() != nil {
+		log.Printf("[DEBUG] Building GitLab artifact for contextual response")
+		var err error
+		artifact, err = p.buildGitLabArtifactFromEvent(ctx, event)
+		if err != nil {
+			return "", nil, fmt.Errorf("failed to build GitLab artifact: %w", err)
+		}
+	}
+
 	// Use the original sophisticated contextual response logic
-	response, learning := p.buildContextualResponseWithLearningV2(ctx, event, timeline, orgID)
+	response, learning := p.buildContextualResponseWithLearningV2(ctx, event, timeline, orgID, artifact)
 
 	return response, learning, nil
 }
 
 // buildCommentReplyPromptWithLearning creates LLM prompt with learning instructions
-func (p *UnifiedProcessorV2Impl) buildCommentReplyPromptWithLearning(event UnifiedWebhookEventV2, timeline *UnifiedTimelineV2) string {
+func (p *UnifiedProcessorV2Impl) buildCommentReplyPromptWithLearning(event UnifiedWebhookEventV2, timeline *UnifiedTimelineV2, artifact *mrmodel.UnifiedArtifact) string {
 	prompt := &strings.Builder{}
 
 	// Core context
@@ -260,6 +274,17 @@ func (p *UnifiedProcessorV2Impl) buildCommentReplyPromptWithLearning(event Unifi
 	prompt.WriteString(fmt.Sprintf("- Repository: %s\n", event.Repository.Name))
 	if event.MergeRequest != nil {
 		prompt.WriteString(fmt.Sprintf("- MR/PR title: %s\n", event.MergeRequest.Title))
+	}
+
+	// Add MR context from artifact if available (Phase 1 - Iteration 1)
+	if artifact != nil {
+		log.Printf("[DEBUG] Injecting MR context from artifact into prompt")
+		mrContext := p.formatArtifactForPrompt(artifact)
+		if mrContext != "" {
+			prompt.WriteString("\n")
+			prompt.WriteString(mrContext)
+			prompt.WriteString("\n")
+		}
 	}
 
 	prompt.WriteString("\nCURRENT COMMENT (reply only to this message unless explicitly asked otherwise):\n")
@@ -279,15 +304,6 @@ func (p *UnifiedProcessorV2Impl) buildCommentReplyPromptWithLearning(event Unifi
 				}
 				prompt.WriteString(fmt.Sprintf("- %s: %s\n", item.Comment.Author.Username, content))
 			}
-		}
-	}
-
-	if event.Comment != nil {
-		builder := coreprocessor.UnifiedContextBuilderV2{}
-		if codeContext, err := builder.ExtractCodeContext(*event.Comment, event.Provider); err == nil && codeContext != "" {
-			prompt.WriteString("\nCODE CONTEXT:\n")
-			prompt.WriteString(codeContext)
-			prompt.WriteString("\n")
 		}
 	}
 
@@ -329,12 +345,22 @@ func (p *UnifiedProcessorV2Impl) buildCommentReplyPromptWithLearning(event Unifi
 	prompt.WriteString("Only include learning block if there's genuinely something worth learning. Most responses won't have learnings. Never repeat a previously acknowledged learning unless this comment introduces new guidance.\n\n")
 	prompt.WriteString("RESPONSE:\n")
 
+	if event.Comment != nil {
+		builder := coreprocessor.UnifiedContextBuilderV2{}
+		if codeContext, err := builder.ExtractCodeContext(*event.Comment, event.Provider); err == nil && codeContext != "" {
+			prompt.WriteString("\nHere is the full MR context:\n")
+			prompt.WriteString("\nFull Code and Comments CONTEXT for the MR:\n")
+			prompt.WriteString(codeContext)
+			prompt.WriteString("\n")
+		}
+	}
+
 	return prompt.String()
 }
 
 // buildContextualResponseWithLearningV2 creates response using LLM with learning instructions
-func (p *UnifiedProcessorV2Impl) buildContextualResponseWithLearningV2(ctx context.Context, event UnifiedWebhookEventV2, timeline *UnifiedTimelineV2, orgID int64) (string, *LearningMetadataV2) {
-	prompt := p.buildCommentReplyPromptWithLearning(event, timeline)
+func (p *UnifiedProcessorV2Impl) buildContextualResponseWithLearningV2(ctx context.Context, event UnifiedWebhookEventV2, timeline *UnifiedTimelineV2, orgID int64, artifact *mrmodel.UnifiedArtifact) (string, *LearningMetadataV2) {
+	prompt := p.buildCommentReplyPromptWithLearning(event, timeline, artifact)
 
 	var relevantLearnings []*learnings.Learning
 	if orgID != 0 {
@@ -1050,4 +1076,244 @@ func (p *UnifiedProcessorV2Impl) truncateString(s string, maxLength int) string 
 		return s
 	}
 	return s[:maxLength-3] + "..."
+}
+
+// =====================================================================================
+// Phase 1 - Iteration 1: GitLab MR Context Integration
+// =====================================================================================
+
+// buildGitLabArtifactFromEvent builds UnifiedArtifact from webhook event
+// Copies pattern from cli.go runGitLab function
+func (p *UnifiedProcessorV2Impl) buildGitLabArtifactFromEvent(ctx context.Context, event UnifiedWebhookEventV2) (*mrmodel.UnifiedArtifact, error) {
+	if event.Repository.WebURL == "" || event.MergeRequest == nil {
+		return nil, fmt.Errorf("missing required fields for MR URL construction")
+	}
+
+	// Get MR number - prioritize Number field (IID), fallback to ID
+	var mrNumber string
+	if event.MergeRequest.Number > 0 {
+		mrNumber = fmt.Sprintf("%d", event.MergeRequest.Number)
+	} else if event.MergeRequest.ID != "" {
+		mrNumber = event.MergeRequest.ID
+	} else {
+		return nil, fmt.Errorf("missing MR number/ID")
+	}
+
+	// Construct MR URL from event
+	mrURL := event.Repository.WebURL + "/-/merge_requests/" + mrNumber
+	log.Printf("[DEBUG] Constructed MR URL: %s", mrURL)
+
+	// Extract GitLab base URL from repository URL
+	// event.Repository.WebURL is like "https://git.apps.hexmos.com/hexmos/liveapi"
+	// We need just "https://git.apps.hexmos.com"
+	var gitlabBaseURL string
+	if idx := strings.Index(event.Repository.WebURL, "://"); idx != -1 {
+		// Find the first slash after the protocol
+		remaining := event.Repository.WebURL[idx+3:]
+		if slashIdx := strings.Index(remaining, "/"); slashIdx != -1 {
+			gitlabBaseURL = event.Repository.WebURL[:idx+3+slashIdx]
+		} else {
+			gitlabBaseURL = event.Repository.WebURL
+		}
+	} else {
+		return nil, fmt.Errorf("invalid repository URL format: %s", event.Repository.WebURL)
+	}
+
+	gitlabBaseURL = strings.TrimRight(gitlabBaseURL, "/")
+	log.Printf("[DEBUG] Extracted GitLab base URL: %s", gitlabBaseURL)
+
+	// Look up GitLab PAT from integration_tokens table using base URL
+	query := `SELECT pat_token FROM integration_tokens 
+	          WHERE provider IN ('gitlab', 'GitLab', 'gitlab-self-hosted') 
+	          AND RTRIM(provider_url, '/') = $1 
+	          LIMIT 1`
+
+	var patToken string
+	err := p.server.db.QueryRow(query, gitlabBaseURL).Scan(&patToken)
+	if err != nil {
+		return nil, fmt.Errorf("failed to find GitLab PAT for %s: %w", gitlabBaseURL, err)
+	}
+
+	log.Printf("[DEBUG] Found GitLab PAT for %s", gitlabBaseURL)
+
+	// Create GitLab provider (following cli.go pattern)
+	cfg := gl.GitLabConfig{URL: gitlabBaseURL, Token: patToken}
+	provider, err := gl.New(cfg)
+	if err != nil {
+		return nil, fmt.Errorf("failed to init gitlab provider: %w", err)
+	}
+
+	// Create mrModel instance
+	mrModel := &mrmodel.MrModelImpl{}
+	mrModel.EnableArtifactWriting = false // Don't write to disk
+
+	// Fetch GitLab data (following cli.go pattern)
+	_, diffs, commits, discussions, standaloneNotes, err := mrModel.FetchGitLabData(provider, mrURL)
+	if err != nil {
+		return nil, fmt.Errorf("failed to fetch GitLab data: %w", err)
+	}
+
+	log.Printf("[DEBUG] Fetched GitLab data: commits=%d discussions=%d notes=%d diffs=%d",
+		len(commits), len(discussions), len(standaloneNotes), len(diffs))
+
+	// Build unified artifact (following cli.go pattern)
+	artifact, err := mrModel.BuildGitLabUnifiedArtifact(commits, discussions, standaloneNotes, diffs, "")
+	if err != nil {
+		return nil, fmt.Errorf("failed to build GitLab artifact 2: %w", err)
+	}
+
+	return artifact, nil
+} // formatArtifactForPrompt converts UnifiedArtifact to text for LLM prompt
+
+// Phase 1 - Iteration 1: Basic formatting with simple heuristics
+func (p *UnifiedProcessorV2Impl) formatArtifactForPrompt(artifact *mrmodel.UnifiedArtifact) string {
+	if artifact == nil {
+		return ""
+	}
+
+	var builder strings.Builder
+	builder.WriteString("=== MERGE REQUEST CONTEXT ===\n")
+
+	// Add participants
+	if len(artifact.Participants) > 0 {
+		builder.WriteString("\nPARTICIPANTS:\n")
+		for _, participant := range artifact.Participants {
+			builder.WriteString(fmt.Sprintf("- @%s (%s)\n", participant.Username, participant.Name))
+		}
+	}
+
+	/*
+		// Add timeline summary (limit to prevent overwhelming context)
+		if len(artifact.Timeline) > 0 {
+			builder.WriteString("\nTIMELINE SUMMARY:\n")
+			count := 0
+			maxTimelineItems := 10
+			for i := len(artifact.Timeline) - 1; i >= 0 && count < maxTimelineItems; i-- {
+				item := artifact.Timeline[i]
+				summary := ""
+				if item.Kind == "commit" && item.Commit != nil {
+					summary = item.Commit.Title
+				} else if item.Kind == "comment" && item.Comment != nil {
+					summary = item.Comment.Body
+				}
+				builder.WriteString(fmt.Sprintf("- [%s] %s: %s\n",
+					item.CreatedAt.Format("2006-01-02 15:04"),
+					item.Author.Username,
+					p.truncateString(summary, 100)))
+				count++
+			}
+			if len(artifact.Timeline) > maxTimelineItems {
+				builder.WriteString(fmt.Sprintf("... (%d more timeline items)\n", len(artifact.Timeline)-maxTimelineItems))
+			}
+		}
+	*/
+
+	// Add comment threads (basic format - limit to prevent overwhelming context)
+	if len(artifact.CommentTree.Roots) > 0 {
+		builder.WriteString("\nCOMMENT THREADS:\n")
+		threadCount := 0
+		maxThreads := 30
+		for _, root := range artifact.CommentTree.Roots {
+			if threadCount >= maxThreads {
+				builder.WriteString(fmt.Sprintf("... (%d more threads)\n", len(artifact.CommentTree.Roots)-maxThreads))
+				break
+			}
+			builder.WriteString(p.formatCommentThreadBasic(root, 0))
+			threadCount++
+		}
+	}
+
+	// Add diffs (limit to prevent overwhelming context)
+	if len(artifact.Diffs) > 0 {
+		builder.WriteString("\nCODE CHANGES:\n")
+		totalLines := 0
+		maxDiffLines := 200
+		filesIncluded := 0
+
+		for _, diff := range artifact.Diffs {
+			// Count lines in hunks
+			diffLines := 0
+			for _, hunk := range diff.Hunks {
+				diffLines += len(hunk.Lines)
+			}
+
+			if totalLines+diffLines > maxDiffLines {
+				builder.WriteString(fmt.Sprintf("... (%d more files with changes)\n", len(artifact.Diffs)-filesIncluded))
+				break
+			}
+
+			// Calculate added/deleted lines
+			addedLines := 0
+			deletedLines := 0
+			for _, hunk := range diff.Hunks {
+				for _, line := range hunk.Lines {
+					if line.LineType == "added" {
+						addedLines++
+					} else if line.LineType == "deleted" {
+						deletedLines++
+					}
+				}
+			}
+
+			path := diff.NewPath
+			if path == "" {
+				path = diff.OldPath
+			}
+
+			builder.WriteString(fmt.Sprintf("\n--- %s ---\n", path))
+			builder.WriteString(fmt.Sprintf("+%d -%d\n", addedLines, deletedLines))
+
+			// Format hunks
+			for _, hunk := range diff.Hunks {
+				builder.WriteString(fmt.Sprintf("@@ -%d,%d +%d,%d @@ %s\n",
+					hunk.OldStartLine, hunk.OldLineCount,
+					hunk.NewStartLine, hunk.NewLineCount,
+					hunk.HeaderText))
+				for _, line := range hunk.Lines {
+					builder.WriteString(line.Content)
+					builder.WriteString("\n")
+				}
+			}
+
+			totalLines += diffLines
+			filesIncluded++
+		}
+	}
+
+	builder.WriteString("\n=== END MERGE REQUEST CONTEXT ===\n")
+	return builder.String()
+}
+
+// formatCommentThreadBasic formats a comment thread recursively (basic format)
+func (p *UnifiedProcessorV2Impl) formatCommentThreadBasic(comment *reviewmodel.CommentNode, depth int) string {
+	if comment == nil {
+		return ""
+	}
+
+	var builder strings.Builder
+	indent := strings.Repeat("  ", depth)
+
+	// Format comment header
+	location := ""
+	if comment.FilePath != "" {
+		location = fmt.Sprintf(" on %s", comment.FilePath)
+		if comment.LineNew > 0 {
+			location += fmt.Sprintf(":%d", comment.LineNew)
+		} else if comment.LineOld > 0 {
+			location += fmt.Sprintf(":%d", comment.LineOld)
+		}
+	}
+
+	builder.WriteString(fmt.Sprintf("%s- @%s%s: %s\n",
+		indent,
+		comment.Author.Username,
+		location,
+		p.truncateString(comment.Body, 200)))
+
+	// Recursively format children
+	for _, child := range comment.Children {
+		builder.WriteString(p.formatCommentThreadBasic(child, depth+1))
+	}
+
+	return builder.String()
 }

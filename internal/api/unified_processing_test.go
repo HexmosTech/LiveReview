@@ -222,8 +222,12 @@ func TestUnifiedProcessorV2(t *testing.T) {
 				},
 			},
 			MergeRequest: &UnifiedMergeRequestV2{
-				ID:    "123",
-				Title: "Add new feature",
+				ID:     "123",
+				Number: 42,
+				Title:  "Add new feature",
+			},
+			Repository: UnifiedRepositoryV2{
+				WebURL: "https://gitlab.example.com/test/repo",
 			},
 		}
 
@@ -274,8 +278,8 @@ func TestUnifiedProcessorV2(t *testing.T) {
 			Repository:   UnifiedRepositoryV2{Name: "hexmos/live-review"},
 		}
 
-		prompt := processorImpl.buildCommentReplyPromptWithLearning(event, nil)
-		assert.Contains(t, prompt, "CODE CONTEXT")
+		prompt := processorImpl.buildCommentReplyPromptWithLearning(event, nil, nil)
+		assert.Contains(t, prompt, "Full Code and Comments CONTEXT for the MR")
 		assert.Contains(t, prompt, "config/config.go")
 		assert.Contains(t, prompt, "@@ -38,0 +39,2 @@")
 		assert.Contains(t, prompt, "Target line code: `dateFormat := \"Mon, 2 Jan 2006\"`")
@@ -313,7 +317,7 @@ func TestBuildCommentReplyPromptIncludesTimelineContext(t *testing.T) {
 		},
 	}
 
-	prompt := processor.buildCommentReplyPromptWithLearning(event, timeline)
+	prompt := processor.buildCommentReplyPromptWithLearning(event, timeline, nil)
 
 	assert.Contains(t, prompt, "RECENT CONVERSATION ACROSS THREAD (for context only, do not respond to prior messages unless they are referenced in the current comment):")
 	assert.Contains(t, prompt, "reviewer")
@@ -783,8 +787,12 @@ func TestProcessingPipeline(t *testing.T) {
 				},
 			},
 			MergeRequest: &UnifiedMergeRequestV2{
-				ID:    "123",
-				Title: "Fix authentication bug",
+				ID:     "123",
+				Number: 42,
+				Title:  "Fix authentication bug",
+			},
+			Repository: UnifiedRepositoryV2{
+				WebURL: "https://gitlab.example.com/test/repo",
 			},
 		}
 
