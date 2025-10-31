@@ -16,3 +16,5 @@ When doing refactors or improvements - don't do fallback implementations unless 
 When you want to run a test - always run the most specific test you want to run. Don't run all or other irrelevant tests, because there could be failing tests, etc and it makes it hard to see the results of the test you want to run.
 
 When making proposals - think of how you can accomplish goals in an incremental way rather than suggesting sweeping refactors.
+
+When you are working on plan files (usually md/markdown files) - avoid writing detailed code (more than 5-10 lines)
