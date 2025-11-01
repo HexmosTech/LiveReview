@@ -346,7 +346,7 @@ func (p *UnifiedProcessorV2Impl) buildCommentReplyPromptWithLearning(event Unifi
 	instructionsSection.WriteString(`  "content": "Full description of the team's practice, preference, or rule",` + "\n")
 	instructionsSection.WriteString(`  "tags": ["relevant", "keywords", "for_searching"],` + "\n")
 	instructionsSection.WriteString(`  "scope": "org|repo",` + "\n")
-	instructionsSection.WriteString(`  "confidence": 1-5` + "\n")
+	instructionsSection.WriteString(`  "confidence": <integer 1-5, where 5=very confident this is a team standard, 1=uncertain>` + "\n")
 	instructionsSection.WriteString("}\n```\n\n")
 	instructionsSection.WriteString("Only include learning block if there's genuinely something worth learning. Most responses won't have learnings. Never repeat a previously acknowledged learning unless this comment introduces new guidance.\n\n")
 	instructionsSection.WriteString("RESPONSE:\n")
