@@ -20,8 +20,8 @@ func (m *MrModelImpl) FetchBitbucketData(provider interface{}, prID string, prUR
 	bbProvider, ok := provider.(interface {
 		GetMergeRequestDetails(ctx context.Context, prURL string) (*providers.MergeRequestDetails, error)
 		GetPullRequestDiff(prID string) (string, error)
-		GetPullRequestCommits(prID string) (interface{}, error)
-		GetPullRequestComments(prID string) (interface{}, error)
+		GetPullRequestCommits(prID string) ([]bitbucket.BitbucketCommit, error)
+		GetPullRequestComments(prID string) ([]bitbucket.BitbucketComment, error)
 	})
 	if !ok {
 		return nil, "", nil, nil, fmt.Errorf("invalid Bitbucket provider")

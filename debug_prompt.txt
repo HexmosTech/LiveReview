@@ -1,81 +1,298 @@
 You are LiveReviewBot, an AI code review assistant.
 
 CONTEXT:
-- Repository: glabmig
-- MR/PR title: attempt to find a suitable base commit from which to branch when scaf…
+- Repository: fb_backends
+- MR/PR title: p1 test
 
 === MERGE REQUEST CONTEXT ===
 
 PARTICIPANTS:
-- @copilot-pull-request-reviewer[bot] (copilot-pull-request-reviewer[bot])
-- @livereviewbot (livereviewbot)
-- @shrsv (shrsv)
+- @557058:d5413fa2-c288-425a-9c2e-83782f46ebb7 (shrijith sv)
+- @712020:a02bc964-a339-4d21-baa3-71da9c43382e (Contorted Expression)
+- @712020:cd5db0f9-0d82-428a-b778-80a5b9416408 (LiveReview Bot)
 
 COMMENT THREADS:
-- @copilot-pull-request-reviewer[bot]: ## Pull Request Overview
+- @712020:cd5db0f9-0d82-428a-b778-80a5b9416408 on activepm2.py:168: Checking for both `data is None` and `not data` is redundant. `not data` will evaluate to `True` if `data` is `None`.
+- @712020:a02bc964-a339-4d21-baa3-71da9c43382e on activepm2.py:120: @{712020:cd5db0f9-0d82-428a-b778-80a5b9416408} What is the difference between is\_file and exists\(\)
+- @712020:cd5db0f9-0d82-428a-b778-80a5b9416408 on activepm2.py:120: @712020:cd5db0f9-0d82-428a-b778-80a5b9416408 Good question!
 
-This pull request refactors a GitLab-to-GitHub migration tool to handle merge commits and improve the process of finding a suitable base commit when scaffolding PR branche...
-- @livereviewbot: # Introduction of GitLab/GitHub API Interaction Helpers and Migration Logic
-
-## Overview
-
-This change introduces helper functions for interacting with the GitLab and GitHub APIs, along with the cor...
-- @livereviewbot on main.go:21: Consider adding a comment explaining why atomic is necessary (thread-safe error counting).
-- @livereviewbot on main.go:97: The `parseConfig` function can return an error. Handle it gracefully.
-  - @shrsv on main.go:97: 
-What kind of error can it return? And how to handle
-  - @livereviewbot on main.go:97: The `parseConfig()` function can return an error if it fails to parse the configuration from the command-line flags or any configuration files (if those are used). This could be due to:
-
-*   **Inva...
-- @livereviewbot on main.go:116: The `setupAPIClients` function can return an error. Handle it gracefully.
-- @livereviewbot on main.go:122: The `loadProjects` function can return an error. Handle it gracefully.
-  - @shrsv on main.go:122: Why do you say so?
-  - @livereviewbot on main.go:122: Without more context, I'm unsure what "Why do you say so?" refers to. Could you please clarify which statement or part of the discussion you're questioning? This will help me provide a more relevan...
-- @livereviewbot on main.go:134: Consider returning an error from `performMigration` instead of relying on the global `errCount`. This would make error handling more explicit and easier to test.
-- @livereviewbot on main.go:173: Consider using `errors.Is` or `errors.As` for more robust error checking.
-- @livereviewbot on main.go:236: Check if `len(s) > 0` to prevent potential index out of range errors when accessing `s[0]` if the header value is empty.
-- @livereviewbot on main.go:246: Check if `len(v) > 0` to prevent potential index out of range errors when accessing `v[0]` if the header value is empty.
-- @livereviewbot on main.go:249: Check if `len(w) > 0` to prevent potential index out of range errors when accessing `w[0]` if the header value is empty.
-- @livereviewbot on main.go:285: Consider adding a comment explaining why `StatusForbidden` is sometimes used for rate limits. This isn't standard and might confuse others.
-- @livereviewbot on main.go:306: Use consistent naming for variables (requestURL vs requestMethod).
-- @livereviewbot on main.go:317: Consider renaming httpClient to ghHttpClient to better reflect its usage
-- @livereviewbot on main.go:328: Return the error directly instead of wrapping it in fmt.Errorf.  The caller can add context if needed.
-- @livereviewbot on main.go:340: Return the error directly instead of wrapping it in fmt.Errorf.  The caller can add context if needed.
-- @livereviewbot on main.go:352: Return the error directly instead of wrapping it in fmt.Errorf.  The caller can add context if needed.
-- @livereviewbot on main.go:360: Return the error directly instead of wrapping it in fmt.Errorf.  The caller can add context if needed.
-- @livereviewbot on main.go:365: Return the error directly instead of wrapping it in fmt.Errorf.  The caller can add context if needed.
-- @livereviewbot on main.go:390: Consider using `sync.Pool` instead of a mutex to protect the `results` slice if performance is critical and the order of results isn't important.  This could reduce contention.
-- @livereviewbot on main.go:401: Returning nil here after logging an error might mask issues. Consider returning the error up to the errgroup and handling the logging at a higher level.
-- @livereviewbot on main.go:431: Return the error directly instead of wrapping it in fmt.Errorf.  The caller can add context if needed.
-- @livereviewbot on main.go:437: Return the error directly instead of wrapping it in fmt.Errorf.  The caller can add context if needed.
-- @livereviewbot on main.go:442: Return the error directly instead of wrapping it in fmt.Errorf.  The caller can add context if needed.
-- @livereviewbot on main.go:470: Returning nil here after logging an error might mask issues. Consider returning the error up to the errgroup and handling the logging at a higher level.
-  - @shrsv on main.go:470: @livereviewbot how does it mask issues? explain in a bit more detail
-- @livereviewbot on main.go:487: Consider adding a small jitter to the `time.Sleep` duration to avoid potential synchronization issues across multiple instances of the program.
-  - @shrsv on main.go:487: As a rule - within our team - we don't like to use Sleep to deal with async issues. Synchronization issues must be settled with guaranteed mechanisms such as mutex or semaphore or other language-sp...
-  - @livereviewbot on main.go:487: Okay, I understand. Thanks for clarifying your team's preference to avoid using `Sleep` for handling asynchronous issues and instead using synchronization primitives like mutexes, semaphores, or ch...
-- @livereviewbot on main.go:494: The sleep duration should be configurable via a flag.
-- @livereviewbot on main.go:511: Return the error directly instead of wrapping it in fmt.Errorf.  The caller can add context if needed.
-- @livereviewbot on main.go:526: Return the error directly instead of wrapping it in fmt.Errorf.  The caller can add context if needed.
-- @livereviewbot on main.go:531: Return the error directly instead of wrapping it in fmt.Errorf.  The caller can add context if needed.
-... (10 more threads)
+`os.path.exists()` checks if a path exists, regardless of whether it's a file, directory, link, or any other type of filesystem object. ...
+- @712020:a02bc964-a339-4d21-baa3-71da9c43382e on activepm2.py:87: 
+- @712020:cd5db0f9-0d82-428a-b778-80a5b9416408 on activepm2.py:87: 
+- @712020:a02bc964-a339-4d21-baa3-71da9c43382e on activepm2.py:87: 
+- @712020:cd5db0f9-0d82-428a-b778-80a5b9416408 on activepm2.py:87: 
+- @712020:a02bc964-a339-4d21-baa3-71da9c43382e on activepm2.py:87: 
+- @712020:cd5db0f9-0d82-428a-b778-80a5b9416408 on activepm2.py:87: 
+- @712020:a02bc964-a339-4d21-baa3-71da9c43382e on activepm2.py:87: What is the monitoring loop here?
 
 CODE CHANGES:
-... (1 more files with changes)
+
+--- activepm2.py (+194 -50) ---
+@@ -3,62 +3,206 @@ import json
+import logging
+import time
+from logging.handlers import RotatingFileHandler
+from pathlib import Path
+from typing import Optional, Dict, Any
+
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s"
+)
+
+# Create a rotating file handler with a maximum file size of 20 MB
+log_handler = RotatingFileHandler(
+    "/tmp/activepm2.log", maxBytes=20 * 1024 * 1024, backupCount=1
+)
+log_handler.setLevel(logging.INFO)
+log_handler.setFormatter(logging.Formatter("%(asctime)s - %(levelname)s - %(message)s"))
+
+logger = logging.getLogger()
+logger.addHandler(log_handler)
+
+
+def check_and_restart_pm2():
+    try:
+        # Run 'pm2-go ls' command
+        logger.info("Running 'pm2-go ls' command...")
+        pm2_ls_output = subprocess.check_output(["pm2-go", "ls"]).decode().strip()
+        # logger.info("pm2-go ls output: %s", pm2_ls_output)
+
+        # Run 'pm2-go dump' command and capture output
+        logger.info("Running 'pm2-go dump' command...")
+        pm2_dump_output = subprocess.run(
+            ["pm2-go", "dump"], capture_output=True, text=True
+class PM2Monitor:
+    """A class to monitor and manage PM2 processes."""
+    
+    def __init__(self, 
+                 log_file: str = "/tmp/activepm2.log",
+                 max_log_size: int = 20 * 1024 * 1024,  # 20 MB
+                 backup_count: int = 1,
+                 check_interval: int = 15,
+                 dump_file_path: str = "/root/.pm2-go/dump.json",
+                 processes_file: str = "processes.json"):
+        """
+        Initialize the PM2 monitor.
+        
+        Args:
+            log_file: Path to the log file
+            max_log_size: Maximum size of log file in bytes
+            backup_count: Number of backup log files to keep
+            check_interval: Interval between checks in seconds
+            dump_file_path: Path to PM2 dump file
+            processes_file: Path to processes configuration file
+        """
+        self.log_file = log_file
+        self.max_log_size = max_log_size
+        self.backup_count = backup_count
+        self.check_interval = check_interval
+        self.dump_file_path = dump_file_path
+        self.processes_file = processes_file
+        
+        self._setup_logging()
+        self.logger = logging.getLogger(__name__)
+    
+    def _setup_logging(self) -> None:
+        """Configure logging with rotating file handler."""
+        log_format = "%(asctime)s - %(levelname)s - %(message)s"
+        
+        # Configure basic logging
+        logging.basicConfig(
+            level=logging.INFO,
+            format=log_format
+        )
+        # logger.info("pm2-go dump output: %s", pm2_dump_json)
+        dump_file_path = "/root/.pm2-go/dump.json"
+        with open(dump_file_path, "r") as dump_file:
+            data = json.load(dump_file)
+
+        # Check if the value is an empty list
+        if not data:
+            # If empty, restart pm2
+            logger.info("Dump.json is empty, restarting pm2...")
+            subprocess.run(["pm2-go", "start", "processes.json"], check=True)
+            logger.info("pm2 restarted successfully.")
+        else:
+            logger.info("Dump.json is not empty. No action required.")
+    except subprocess.CalledProcessError as e:
+        logger.error("Error: %s", e)
+    except json.JSONDecodeError:
+        logger.error("Error: Unable to decode dump.json")
+    except Exception as e:
+        logger.error("An unexpected error occurred: %s", e)
+        
+        # Create rotating file handler
+        log_handler = RotatingFileHandler(
+            self.log_file,
+            maxBytes=self.max_log_size,
+            backupCount=self.backup_count
+        )
+        log_handler.setLevel(logging.INFO)
+        log_handler.setFormatter(logging.Formatter(log_format))
+        
+        # Add handler to root logger
+        logger = logging.getLogger()
+        logger.addHandler(log_handler)
+    
+    def _run_pm2_command(self, command: list, capture_output: bool = True) -> Optional[str]:
+        """
+        Run a PM2 command safely.
+        
+        Args:
+            command: List of command arguments
+            capture_output: Whether to capture and return output
+            
+        Returns:
+            Command output as string if capture_output is True, None otherwise
+            
+        Raises:
+            subprocess.CalledProcessError: If command fails
+        """
+        try:
+            if capture_output:
+                result = subprocess.run(command, capture_output=True, text=True, check=True)
+                return result.stdout.strip()
+            else:
+                subprocess.run(command, check=True)
+                return None
+        except subprocess.CalledProcessError as e:
+            self.logger.error(f"PM2 command failed: {' '.join(command)} - {e}")
+            raise
+    
+    def _get_pm2_status(self) -> str:
+        """
+        Get current PM2 status.
+        
+        Returns:
+            PM2 status output
+            
+        Raises:
+            subprocess.CalledProcessError: If pm2-go ls fails
+        """
+        self.logger.info("Running 'pm2-go ls' command...")
+        return self._run_pm2_command(["pm2-go", "ls"])
+    
+    def _create_pm2_dump(self) -> None:
+        """
+        Create PM2 dump file.
+        
+        Raises:
+            subprocess.CalledProcessError: If pm2-go dump fails
+        """
+        self.logger.info("Running 'pm2-go dump' command...")
+        self._run_pm2_command(["pm2-go", "dump"], capture_output=False)
+    
+    def _read_dump_file(self) -> Optional[Dict[str, Any]]:
+        """
+        Read and parse the PM2 dump file.
+        
+        Returns:
+            Parsed JSON data from dump file, None if file doesn't exist or is invalid
+        """
+        try:
+            if not Path(self.dump_file_path).exists():
+                self.logger.warning(f"Dump file not found: {self.dump_file_path}")
+                return None
+                
+            with open(self.dump_file_path, "r") as dump_file:
+                data = json.load(dump_file)
+                return data
+                
+        except json.JSONDecodeError as e:
+            self.logger.error(f"Failed to parse dump file: {e}")
+            return None
+        except Exception as e:
+            self.logger.error(f"Error reading dump file: {e}")
+            return None
+    
+    def _restart_pm2(self) -> bool:
+        """
+        Restart PM2 processes.
+        
+        Returns:
+            True if restart was successful, False otherwise
+        """
+        try:
+            self.logger.info(f"Restarting PM2 with {self.processes_file}...")
+            self._run_pm2_command(["pm2-go", "start", self.processes_file], capture_output=False)
+            self.logger.info("PM2 restarted successfully.")
+            return True
+        except subprocess.CalledProcessError:
+            self.logger.error("Failed to restart PM2.")
+            return False
+    
+    def check_and_restart_pm2(self) -> bool:
+        """
+        Check PM2 status and restart if necessary.
+        
+        Returns:
+            True if action was taken, False otherwise
+        """
+        try:
+            # Get current PM2 status
+            self._get_pm2_status()
+            
+            # Create dump file
+            self._create_pm2_dump()
+            
+            # Read and check dump file
+            data = self._read_dump_file()
+            
+            if data is None or not data:
+                self.logger.info("Dump file is empty or invalid, restarting PM2...")
+                return self._restart_pm2()
+            else:
+                self.logger.info("Dump file contains data. No action required.")
+                return False
+                
+        except subprocess.CalledProcessError as e:
+            self.logger.error(f"PM2 command error: {e}")
+            return False
+        except Exception as e:
+            self.logger.error(f"Unexpected error during PM2 check: {e}")
+            return False
+    
+    def run_monitoring_loop(self) -> None:
+        """Run the main monitoring loop."""
+        self.logger.info("Starting PM2 monitoring service...")
+        
+        while True:
+            try:
+                self.logger.info("Checking PM2 status...")
+                self.check_and_restart_pm2()
+                
+                self.logger.info(f"Waiting {self.check_interval} seconds before next check...")
+                time.sleep(self.check_interval)
+                
+            except KeyboardInterrupt:
+                self.logger.info("Monitoring stopped by user.")
+                break
+            except Exception as e:
+                self.logger.error(f"Error in monitoring loop: {e}")
+                time.sleep(self.check_interval)
+
+
+def main():
+    while True:
+        logger.info("Checking pm2 status...")
+        check_and_restart_pm2()
+        logger.info("Waiting for 15 seconds before next check...")
+        time.sleep(15)
+    """Main entry point for the PM2 monitoring service."""
+    monitor = PM2Monitor()
+    monitor.run_monitoring_loop()
+
+
+if __name__ == "__main__":
+
 
 === END MERGE REQUEST CONTEXT ===
 
 
 CURRENT COMMENT (reply only to this message unless explicitly asked otherwise):
-@shrsv wrote: @livereviewbot how does it mask issues? explain in a bit more detail
-Repository path: livereviewbot/glabmig
-
-RECENT CONVERSATION ACROSS THREAD (for context only, do not respond to prior messages unless they are referenced in the current comment):
-- livereviewbot: # Introduction of GitLab/GitHub API Interaction Helpers and Migration Logic
-
-## Overview
-
-This chang
+@ wrote: What is the monitoring loop here?
+Repository path: contorted/fb_backends
 
 TASK:
 Answer the CURRENT COMMENT directly. Keep the reply focused on the exact question or concern that was raised. Reference surrounding code or prior discussion only when it improves the specific answer.
@@ -120,340 +337,15 @@ Here is the full MR context:
 
 Full Code and Comments CONTEXT for the MR:
 **Code Location:**
-- File: main.go
-- Line: 470
-- Target line code: `sendErr(fmt.Errorf("failed to migrate project %s: %w", proj.GitlabPath, err))`
-
-**Diff Context:**
-```diff
-@@ -221,339 +281,330 @@ func main() {
- 		}
- 
- 		retryableStatuses := []int{
--			http.StatusTooManyRequests, // rate-limiting
--			http.StatusForbidden,       // rate-limiting
--
-+			http.StatusTooManyRequests,   // rate-limiting
-+			http.StatusForbidden,         // rate-limiting (sometimes used for rate limits)
- 			http.StatusRequestTimeout,
--			http.StatusFailedDependency,
-+			http.StatusFailedDependency, // Used by some APIs for transient errors
- 			http.StatusInternalServerError,
- 			http.StatusBadGateway,
- 			http.StatusServiceUnavailable,
- 			http.StatusGatewayTimeout,
- 		}
- 
- 		requestMethod := "unknown"
--		requestUrl := "unknown"
-+		requestURL := "unknown"
- 
- 		if req := resp.Request; req != nil {
- 			requestMethod = req.Method
- 			if req.URL != nil {
--				requestUrl = req.URL.String()
-+				requestURL = req.URL.String()
- 			}
- 		}
- 
- 		for _, status := range retryableStatuses {
- 			if resp.StatusCode == status {
--				logger.Trace("retrying failed API request", "method", requestMethod, "url", requestUrl, "status", resp.StatusCode)
-+				logger.Trace("retrying failed API request", "method", requestMethod, "url", requestURL, "status", resp.StatusCode)
- 				return true, nil
- 			}
- 		}
- 
- 		return false, nil
- 	}
-+	return retryClient
-+}
- 
--	client := githubpagination.NewClient(&retryablehttp.RoundTripper{Client: retryClient}, githubpagination.WithPerPage(100))
-+// setupAPIClients initializes GitHub and GitLab clients.
-+func setupAPIClients(ctx context.Context, httpClient *retryablehttp.Client, cfg *Config) (*github.Client, *gitlab.Client, error) {
-+	// GitHub Client
-+	ghClient := githubpagination.NewClient(&retryablehttp.RoundTripper{Client: httpClient}, githubpagination.WithPerPage(githubAPIPerPage))
- 
--	if githubDomain == defaultGithubDomain {
--		gh = github.NewClient(client).WithAuthToken(githubToken)
-+	var gh *github.Client
-+	var err error
-+	if cfg.GithubDomain == defaultGithubDomain {
-+		gh = github.NewClient(ghClient).WithAuthToken(cfg.GithubToken)
- 	} else {
--		githubUrl := fmt.Sprintf("https://%s", githubDomain)
--		if gh, err = github.NewClient(client).WithAuthToken(githubToken).WithEnterpriseURLs(githubUrl, githubUrl); err != nil {
--			sendErr(err)
--			os.Exit(1)
-+		githubURL := fmt.Sprintf("https://%s", cfg.GithubDomain)
-+		if gh, err = github.NewClient(ghClient).WithAuthToken(cfg.GithubToken).WithEnterpriseURLs(githubURL, githubURL); err != nil {
-+			return nil, nil, fmt.Errorf("failed to create GitHub enterprise client: %w", err)
- 		}
- 	}
- 
-+	// GitLab Client
- 	gitlabOpts := make([]gitlab.ClientOptionFunc, 0)
--	if gitlabDomain != defaultGitlabDomain {
--		gitlabUrl := fmt.Sprintf("https://%s", gitlabDomain)
--		gitlabOpts = append(gitlabOpts, gitlab.WithBaseURL(gitlabUrl))
-+	if cfg.GitlabDomain != defaultGitlabDomain {
-+		gitlabURL := fmt.Sprintf("https://%s", cfg.GitlabDomain)
-+		gitlabOpts = append(gitlabOpts, gitlab.WithBaseURL(gitlabURL))
- 	}
--	if gl, err = gitlab.NewClient(gitlabToken, gitlabOpts...); err != nil {
--		sendErr(err)
--		os.Exit(1)
-+	gl, err := gitlab.NewClient(cfg.GitlabToken, gitlabOpts...)
-+	if err != nil {
-+		return nil, nil, fmt.Errorf("failed to create GitLab client: %w", err)
- 	}
- 
--	projects := make([]Project, 0)
--	if projectsCsvPath != "" {
--		data, err := os.ReadFile(projectsCsvPath)
-+	return gh, gl, nil
-+}
-+
-+// loadProjects reads project configurations from a CSV file or uses inline values.
-+func loadProjects(cfg *Config) ([]ProjectConfig, error) {
-+	projects := make([]ProjectConfig, 0)
-+	if cfg.ProjectsCsvPath != "" {
-+		data, err := os.ReadFile(cfg.ProjectsCsvPath)
- 		if err != nil {
--			sendErr(err)
--			os.Exit(1)
-+			return nil, fmt.Errorf("failed to read projects CSV file %q: %w", cfg.ProjectsCsvPath, err)
- 		}
- 
- 		// Trim a UTF-8 BOM, if present
- 		data = bytes.TrimPrefix(data, []byte("\xef\xbb\xbf"))
- 
--		if projects, err = csv.NewReader(bytes.NewBuffer(data)).ReadAll(); err != nil {
--			sendErr(err)
--			os.Exit(1)
-+		csvRecords, err := csv.NewReader(bytes.NewBuffer(data)).ReadAll()
-+		if err != nil {
-+			return nil, fmt.Errorf("failed to parse projects CSV: %w", err)
- 		}
--	} else {
--		projects = []Project{{gitlabProject, githubRepo}}
--	}
- 
--	if report {
--		printReport(ctx, projects)
--	} else {
--		if err = performMigration(ctx, projects); err != nil {
--			sendErr(err)
--			os.Exit(1)
--		} else if errCount > 0 {
--			logger.Warn(fmt.Sprintf("encountered %d errors during migration, review log output for details", errCount))
--			os.Exit(1)
-+		for i, record := range csvRecords {
-+			if len(record) < 2 {
-+				return nil, fmt.Errorf("invalid CSV row %d: expected at least 2 columns (GitLab Path, GitHub Repo)", i+1)
-+			}
-+			projects = append(projects, ProjectConfig{
-+				GitlabPath: record[0],
-+				GithubRepo: record[1],
-+			})
- 		}
-+	} else {
-+		projects = []ProjectConfig{{GitlabPath: cfg.GitlabProject, GithubRepo: cfg.GithubRepo}}
- 	}
-+	return projects, nil
- }
- 
--func printReport(ctx context.Context, projects []Project) {
-+// sendErr is a helper to log an error and increment a global counter.
-+// It's generally better to propagate errors, but this function is kept for consistency with the original.
-+func sendErr(err error) {
-+	errCount.Add(1)
-+	logger.Error(err.Error())
-+}
-+
-+// printReport generates and prints a report of projects and their merge request counts.
-+func printReport(ctx context.Context, projects []ProjectConfig) {
- 	logger.Debug("building report")
- 
--	results := make([]Report, 0)
-+	results := make([]Report, 0, len(projects))
-+	var mu sync.Mutex // Mutex to protect results slice during concurrent writes
- 
--	for _, proj := range projects {
--		if err := ctx.Err(); err != nil {
--			return
--		}
-+	group, gCtx := errgroup.WithContext(ctx)
-+	group.SetLimit(defaultConcurrency) // Limit concurrency for report generation
- 
--		result, err := reportProject(ctx, proj)
--		if err != nil {
--			errCount++
--			sendErr(err)
--		}
-+	for _, proj := range projects {
-+		proj := proj // Capture loop variable
-+		group.Go(func() error {
-+			result, err := reportProject(gCtx, proj)
-+			if err != nil {
-+				sendErr(fmt.Errorf("failed to report on project %s: %w", proj.GitlabPath, err))
-+				return nil // Do not propagate error up to errgroup if we've already logged it
-+			}
-+			if result != nil {
-+				mu.Lock()
-+				results = append(results, *result)
-+				mu.Unlock()
-+			}
-+			return nil
-+		})
-+	}
- 
--		if result != nil {
--			results = append(results, *result)
--		}
-+	if err := group.Wait(); err != nil {
-+		logger.Error("error during report generation", "err", err)
- 	}
- 
- 	fmt.Println()
--
- 	totalMergeRequests := 0
- 	for _, result := range results {
- 		totalMergeRequests += result.MergeRequestsCount
--		fmt.Printf("%#v\n", result)
-+		fmt.Printf("%+v\n", result) // Use %+v for detailed struct output
- 	}
--
- 	fmt.Println()
- 	fmt.Printf("Total merge requests: %d\n", totalMergeRequests)
- 	fmt.Println()
- }
- 
--func reportProject(ctx context.Context, proj []string) (*Report, error) {
--	gitlabPath := strings.Split(proj[0], "/")
--	//githubPath := strings.Split(proj[1], "/")
--
--	logger.Debug("searching for GitLab project", "name", gitlabPath[1], "group", gitlabPath[0])
--	searchTerm := gitlabPath[1]
--	projectResult, _, err := gl.Projects.ListProjects(&gitlab.ListProjectsOptions{Search: &searchTerm})
--	if err != nil {
--		return nil, fmt.Errorf("listing projects: %v", err)
--	}
--
--	var project *gitlab.Project
--	for _, item := range projectResult {
--		if item == nil {
--			continue
--		}
--
--		if item.PathWithNamespace == proj[0] {
--			logger.Debug("found GitLab project", "name", gitlabPath[1], "group", gitlabPath[0], "project_id", item.ID)
--			project = item
--		}
--	}
--
--	if project == nil {
--		return nil, fmt.Errorf("no matching GitLab project found: %s", proj[0])
-+// reportProject retrieves and counts merge requests for a single GitLab project.
-+func reportProject(ctx context.Context, proj ProjectConfig) (*Report, error) {
-+	gitlabPathParts := strings.Split(proj.GitlabPath, "/")
-+	if len(gitlabPathParts) < 2 {
-+		return nil, fmt.Errorf("invalid GitLab project path format: %s. Expected 'group/project'", proj.GitlabPath)
- 	}
-+	groupName := gitlabPathParts[0]
-+	projectName := gitlabPathParts[1]
- 
--	var mergeRequests []*gitlab.MergeRequest
--
--	opts := &gitlab.ListProjectMergeRequestsOptions{
--		OrderBy: pointer("created_at"),
--		Sort:    pointer("asc"),
-+	project, err := findGitlabProject(ctx, gl, proj.GitlabPath)
-+	if err != nil {
-+		return nil, fmt.Errorf("failed to find GitLab project %s: %w", proj.GitlabPath, err)
- 	}
- 
--	logger.Debug("retrieving GitLab merge requests", "name", gitlabPath[1], "group", gitlabPath[0], "project_id", project.ID)
--	for {
--		result, resp, err := gl.MergeRequests.ListProjectMergeRequests(project.ID, opts)
--		if err != nil {
--			return nil, fmt.Errorf("retrieving gitlab merge requests: %v", err)
--		}
--
--		mergeRequests = append(mergeRequests, result...)
--
--		if resp.NextPage == 0 {
--			break
--		}
--
--		opts.Page = resp.NextPage
-+	mergeRequests, err := listGitlabMergeRequests(ctx, gl, project.ID)
-+	if err != nil {
-+		return nil, fmt.Errorf("failed to retrieve GitLab merge requests for project %s: %w", proj.GitlabPath, err)
- 	}
- 
- 	return &Report{
--		GroupName:          gitlabPath[0],
--		ProjectName:        gitlabPath[1],
-+		GroupName:          groupName,
-+		ProjectName:        projectName,
- 		MergeRequestsCount: len(mergeRequests),
- 	}, nil
- }
- 
--func performMigration(ctx context.Context, projects []Project) error {
--	concurrency := maxConcurrency
--	if len(projects) < maxConcurrency {
-+// performMigration orchestrates the migration of multiple projects concurrently.
-+func performMigration(ctx context.Context, cfg *Config, projects []ProjectConfig) error {
-+	concurrency := cfg.MaxConcurrency
-+	if len(projects) < cfg.MaxConcurrency {
- 		concurrency = len(projects)
- 	}
- 
- 	logger.Info(fmt.Sprintf("processing %d project(s) with %d workers", len(projects), concurrency))
- 
--	var wg sync.WaitGroup
--	queue := make(chan Project, concurrency*2)
-+	group, gCtx := errgroup.WithContext(ctx)
-+	group.SetLimit(concurrency)
- 
--	for i := 0; i < concurrency; i++ {
--		wg.Add(1)
--
--		go func() {
--			defer wg.Done()
--
--			for proj := range queue {
--				if err := ctx.Err(); err != nil {
--					break
--				}
--
--				if err := migrateProject(ctx, proj); err != nil {
--					errCount++
--					sendErr(err)
--				}
--			}
--		}()
--	}
--
--	queueProjects := func() {
-+	migrateProjectsFunc := func() {
- 		for _, proj := range projects {
--			if err := ctx.Err(); err != nil {
--				break
--			}
--
--			queue <- proj
-+			proj := proj // Capture loop variable
-+			group.Go(func() error {
-+				if err := migrateProject(gCtx, cfg, proj); err != nil {
-+					sendErr(fmt.Errorf("failed to migrate project %s: %w", proj.GitlabPath, err))
-```
+- File: activepm2.py
+- Line: 87
+- Type: new
 
 === Org learnings ===
 Incorporate the following established org guidance when drafting your reply:
+- [REJDUF] Propagate errors to errgroup for proper error handling: When using errgroup, always return errors...
+  Propagate errors to errgroup for proper error handling: When using errgroup, always return errors from goroutines so that errgroup.Wait() can detect and handle them. Avoid returning nil after logging an error, as this masks the issue.
+  Tags: errgroup, error handling, concurrency
 - [TS958I] Team prefers plain text logging over structured logging: The team prefers using plain text loggin...
   Team prefers plain text logging over structured logging: The team prefers using plain text logging instead of structured logging.
   Tags: logging, plain text, structured logging

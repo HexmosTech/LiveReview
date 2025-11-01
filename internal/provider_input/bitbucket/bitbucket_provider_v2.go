@@ -325,12 +325,13 @@ func (p *BitbucketV2Provider) ConvertCommentEvent(headers map[string]string, bod
 
 	// Create unified webhook event
 	unifiedEvent := &UnifiedWebhookEventV2{
-		Provider:   "bitbucket",
-		EventType:  "comment_created",
-		Comment:    &unifiedComment,
-		Repository: p.convertRepositoryV2(payload.Repository),
-		Actor:      p.convertUserV2(payload.Actor),
-		Timestamp:  payload.Date,
+		Provider:     "bitbucket",
+		EventType:    "comment_created",
+		Comment:      &unifiedComment,
+		MergeRequest: p.convertPullRequestV2(payload.PullRequest),
+		Repository:   p.convertRepositoryV2(payload.Repository),
+		Actor:        p.convertUserV2(payload.Actor),
+		Timestamp:    payload.Date,
 	}
 
 	if capture.Enabled() {

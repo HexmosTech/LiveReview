@@ -247,7 +247,7 @@ func (p *UnifiedProcessorV2Impl) ProcessCommentReply(ctx context.Context, event 
 
 	log.Printf("[INFO] Processing comment reply for %s provider using original contextual logic", event.Provider)
 
-	// Build artifact for context (Phase 1 + Phase A)
+	// Build artifact for context (Phase 1 + Phase A + Phase B)
 	var artifact *mrmodel.UnifiedArtifact
 	if p.server.DB() != nil {
 		provider := strings.ToLower(event.Provider)
@@ -265,6 +265,13 @@ func (p *UnifiedProcessorV2Impl) ProcessCommentReply(ctx context.Context, event 
 			artifact, err = p.buildGitHubArtifactFromEvent(ctx, event)
 			if err != nil {
 				return "", nil, fmt.Errorf("failed to build GitHub artifact: %w", err)
+			}
+		case "bitbucket":
+			log.Printf("[DEBUG] Building Bitbucket artifact for contextual response")
+			var err error
+			artifact, err = p.buildBitbucketArtifactFromEvent(ctx, event)
+			if err != nil {
+				return "", nil, fmt.Errorf("failed to build Bitbucket artifact: %w", err)
 			}
 		}
 	}
@@ -1246,6 +1253,73 @@ func (p *UnifiedProcessorV2Impl) buildGitHubArtifactFromEvent(ctx context.Contex
 	return artifact, nil
 }
 
+// buildBitbucketArtifactFromEvent builds UnifiedArtifact from Bitbucket webhook event
+// Copies pattern from cli.go runBitbucket function
+func (p *UnifiedProcessorV2Impl) buildBitbucketArtifactFromEvent(ctx context.Context, event UnifiedWebhookEventV2) (*mrmodel.UnifiedArtifact, error) {
+	if event.Repository.WebURL == "" || event.MergeRequest == nil {
+		return nil, fmt.Errorf("missing required fields for PR URL construction")
+	}
+
+	// For Bitbucket, we need the full PR URL and PR ID
+	// event.Repository.WebURL is like "https://bitbucket.org/workspace/repo"
+	// PR URL format: https://bitbucket.org/workspace/repo/pull-requests/123
+
+	// Get PR ID/number
+	var prID string
+	if event.MergeRequest.Number > 0 {
+		prID = fmt.Sprintf("%d", event.MergeRequest.Number)
+	} else if event.MergeRequest.ID != "" {
+		prID = event.MergeRequest.ID
+	} else {
+		return nil, fmt.Errorf("missing PR number/ID")
+	}
+
+	// Construct full PR URL
+	// event.Repository.WebURL should already contain workspace/repo
+	prURL := strings.TrimRight(event.Repository.WebURL, "/") + "/pull-requests/" + prID
+
+	log.Printf("[DEBUG] Constructed Bitbucket PR URL: %s", prURL)
+
+	// Look up Bitbucket credentials from integration_tokens table
+	// Bitbucket stores provider='bitbucket' or 'Bitbucket'
+	query := `SELECT pat_token FROM integration_tokens 
+	          WHERE provider IN ('bitbucket', 'Bitbucket') 
+	          LIMIT 1`
+
+	var patToken string
+	err := p.server.DB().QueryRow(query).Scan(&patToken)
+	if err != nil {
+		return nil, fmt.Errorf("failed to find Bitbucket PAT: %w", err)
+	}
+
+	log.Printf("[DEBUG] Found Bitbucket PAT")
+
+	// Bitbucket provider needs email - use default for bot
+	// In production, this could come from metadata or config
+	botEmail := "livereviewbot@gmail.com"
+
+	// Create Bitbucket provider (following cli.go pattern)
+	provider, err := bitbucketmentions.NewBitbucketProvider(patToken, botEmail, prURL)
+	if err != nil {
+		return nil, fmt.Errorf("failed to init bitbucket provider: %w", err)
+	}
+
+	// Create mrModel instance
+	mrModel := &mrmodel.MrModelImpl{}
+	mrModel.EnableArtifactWriting = false // Don't write to disk
+
+	// Build Bitbucket artifact (following cli.go pattern)
+	artifact, err := mrModel.BuildBitbucketArtifact(provider, prID, prURL, "")
+	if err != nil {
+		return nil, fmt.Errorf("failed to build Bitbucket artifact: %w", err)
+	}
+
+	log.Printf("[DEBUG] Built Bitbucket artifact: timeline=%d participants=%d diffs=%d",
+		len(artifact.Timeline), len(artifact.Participants), len(artifact.Diffs))
+
+	return artifact, nil
+}
+
 // formatArtifactForPrompt converts UnifiedArtifact to text for LLM prompt
 // Phase 1 - Iteration 1: Basic formatting with simple heuristics
 func (p *UnifiedProcessorV2Impl) formatArtifactForPrompt(artifact *mrmodel.UnifiedArtifact) string {
@@ -1309,25 +1383,21 @@ func (p *UnifiedProcessorV2Impl) formatArtifactForPrompt(artifact *mrmodel.Unifi
 	if len(artifact.Diffs) > 0 {
 		builder.WriteString("\nCODE CHANGES:\n")
 		totalLines := 0
-		maxDiffLines := 200
+		maxDiffLines := 500 // Increased from 200 to show more context
 		filesIncluded := 0
 
 		for _, diff := range artifact.Diffs {
-			// Count lines in hunks
+			path := diff.NewPath
+			if path == "" {
+				path = diff.OldPath
+			}
+
+			// Calculate added/deleted lines and count total diff lines
+			addedLines := 0
+			deletedLines := 0
 			diffLines := 0
 			for _, hunk := range diff.Hunks {
 				diffLines += len(hunk.Lines)
-			}
-
-			if totalLines+diffLines > maxDiffLines {
-				builder.WriteString(fmt.Sprintf("... (%d more files with changes)\n", len(artifact.Diffs)-filesIncluded))
-				break
-			}
-
-			// Calculate added/deleted lines
-			addedLines := 0
-			deletedLines := 0
-			for _, hunk := range diff.Hunks {
 				for _, line := range hunk.Lines {
 					if line.LineType == "added" {
 						addedLines++
@@ -1337,29 +1407,51 @@ func (p *UnifiedProcessorV2Impl) formatArtifactForPrompt(artifact *mrmodel.Unifi
 				}
 			}
 
-			path := diff.NewPath
-			if path == "" {
-				path = diff.OldPath
-			}
+			// Write file header
+			builder.WriteString(fmt.Sprintf("\n--- %s (+%d -%d) ---\n", path, addedLines, deletedLines))
 
-			builder.WriteString(fmt.Sprintf("\n--- %s ---\n", path))
-			builder.WriteString(fmt.Sprintf("+%d -%d\n", addedLines, deletedLines))
-
-			// Format hunks
+			// Write hunks, but truncate if we exceed the limit
+			linesWritten := 0
+			truncated := false
 			for _, hunk := range diff.Hunks {
+				if totalLines >= maxDiffLines {
+					truncated = true
+					break
+				}
+
 				builder.WriteString(fmt.Sprintf("@@ -%d,%d +%d,%d @@ %s\n",
 					hunk.OldStartLine, hunk.OldLineCount,
 					hunk.NewStartLine, hunk.NewLineCount,
 					hunk.HeaderText))
+				totalLines++
+				linesWritten++
+
 				for _, line := range hunk.Lines {
+					if totalLines >= maxDiffLines {
+						truncated = true
+						break
+					}
 					builder.WriteString(line.Content)
 					builder.WriteString("\n")
+					totalLines++
+					linesWritten++
+				}
+
+				if truncated {
+					break
 				}
 			}
 
-			totalLines += diffLines
+			if truncated {
+				builder.WriteString(fmt.Sprintf("... (diff truncated after %d lines, %d more files with changes)\n",
+					totalLines, len(artifact.Diffs)-filesIncluded-1))
+				break
+			}
+
 			filesIncluded++
 		}
+
+		log.Printf("[DEBUG] Formatted %d files with %d total diff lines", filesIncluded, totalLines)
 	}
 
 	builder.WriteString("\n=== END MERGE REQUEST CONTEXT ===\n")
