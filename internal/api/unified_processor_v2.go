@@ -247,14 +247,25 @@ func (p *UnifiedProcessorV2Impl) ProcessCommentReply(ctx context.Context, event 
 
 	log.Printf("[INFO] Processing comment reply for %s provider using original contextual logic", event.Provider)
 
-	// Build GitLab artifact for context (Phase 1 - Iteration 1)
+	// Build artifact for context (Phase 1 + Phase A)
 	var artifact *mrmodel.UnifiedArtifact
-	if strings.ToLower(event.Provider) == "gitlab" && p.server.DB() != nil {
-		log.Printf("[DEBUG] Building GitLab artifact for contextual response")
-		var err error
-		artifact, err = p.buildGitLabArtifactFromEvent(ctx, event)
-		if err != nil {
-			return "", nil, fmt.Errorf("failed to build GitLab artifact: %w", err)
+	if p.server.DB() != nil {
+		provider := strings.ToLower(event.Provider)
+		switch provider {
+		case "gitlab":
+			log.Printf("[DEBUG] Building GitLab artifact for contextual response")
+			var err error
+			artifact, err = p.buildGitLabArtifactFromEvent(ctx, event)
+			if err != nil {
+				return "", nil, fmt.Errorf("failed to build GitLab artifact: %w", err)
+			}
+		case "github":
+			log.Printf("[DEBUG] Building GitHub artifact for contextual response")
+			var err error
+			artifact, err = p.buildGitHubArtifactFromEvent(ctx, event)
+			if err != nil {
+				return "", nil, fmt.Errorf("failed to build GitHub artifact: %w", err)
+			}
 		}
 	}
 
@@ -1163,8 +1174,79 @@ func (p *UnifiedProcessorV2Impl) buildGitLabArtifactFromEvent(ctx context.Contex
 	}
 
 	return artifact, nil
-} // formatArtifactForPrompt converts UnifiedArtifact to text for LLM prompt
+}
 
+// buildGitHubArtifactFromEvent builds UnifiedArtifact from GitHub webhook event
+// Copies pattern from cli.go runGitHub function
+func (p *UnifiedProcessorV2Impl) buildGitHubArtifactFromEvent(ctx context.Context, event UnifiedWebhookEventV2) (*mrmodel.UnifiedArtifact, error) {
+	if event.Repository.WebURL == "" || event.MergeRequest == nil {
+		return nil, fmt.Errorf("missing required fields for PR URL construction")
+	}
+
+	// Parse GitHub PR URL from event
+	// event.Repository.WebURL is like "https://github.com/owner/repo"
+	// We need owner, repo, and PR number
+
+	// Extract owner and repo from WebURL
+	// Format: https://github.com/owner/repo
+	var owner, repo string
+	if idx := strings.Index(event.Repository.WebURL, "github.com/"); idx != -1 {
+		remainder := event.Repository.WebURL[idx+len("github.com/"):]
+		parts := strings.Split(remainder, "/")
+		if len(parts) >= 2 {
+			owner = parts[0]
+			repo = parts[1]
+		} else {
+			return nil, fmt.Errorf("invalid GitHub repository URL format: %s", event.Repository.WebURL)
+		}
+	} else {
+		return nil, fmt.Errorf("not a GitHub URL: %s", event.Repository.WebURL)
+	}
+
+	// Get PR number
+	var prNumber string
+	if event.MergeRequest.Number > 0 {
+		prNumber = fmt.Sprintf("%d", event.MergeRequest.Number)
+	} else if event.MergeRequest.ID != "" {
+		prNumber = event.MergeRequest.ID
+	} else {
+		return nil, fmt.Errorf("missing PR number/ID")
+	}
+
+	log.Printf("[DEBUG] Extracted GitHub PR info: owner=%s, repo=%s, pr=%s", owner, repo, prNumber)
+
+	// Look up GitHub PAT from integration_tokens table
+	// GitHub uses 'github.com' as provider_url or 'github' as provider
+	query := `SELECT pat_token FROM integration_tokens 
+	          WHERE provider IN ('github', 'GitHub') 
+	          AND (provider_url = 'https://github.com' OR provider_url = 'github.com' OR provider_url = 'github')
+	          LIMIT 1`
+
+	var patToken string
+	err := p.server.DB().QueryRow(query).Scan(&patToken)
+	if err != nil {
+		return nil, fmt.Errorf("failed to find GitHub PAT: %w", err)
+	}
+
+	log.Printf("[DEBUG] Found GitHub PAT")
+
+	// Create mrModel instance
+	mrModel := &mrmodel.MrModelImpl{}
+	mrModel.EnableArtifactWriting = false // Don't write to disk
+
+	// Build GitHub artifact (following cli.go pattern)
+	artifact, err := mrModel.BuildGitHubArtifact(owner, repo, prNumber, patToken, "")
+	if err != nil {
+		return nil, fmt.Errorf("failed to build GitHub artifact: %w", err)
+	}
+
+	log.Printf("[DEBUG] Built GitHub artifact: timeline=%d participants=%d diffs=%d",
+		len(artifact.Timeline), len(artifact.Participants), len(artifact.Diffs))
+
+	return artifact, nil
+}
+
+// formatArtifactForPrompt converts UnifiedArtifact to text for LLM prompt
 // Phase 1 - Iteration 1: Basic formatting with simple heuristics
 func (p *UnifiedProcessorV2Impl) formatArtifactForPrompt(artifact *mrmodel.UnifiedArtifact) string {
 	if artifact == nil {
