@@ -92,7 +92,7 @@ func (s *PostgresStore) ListByOrg(ctx context.Context, orgID int64) ([]*Learning
 
 func (s *PostgresStore) ListByOrgWithPagination(ctx context.Context, orgID int64, offset, limit int, search string, includeArchived bool) ([]*Learning, error) {
 	query := `
-        SELECT id, short_id, org_id, scope_kind, coalesce(repo_id,''), title, body, tags, status, confidence, simhash, embedding, source_urls, source_context, created_at, updated_at
+        SELECT DISTINCT ON (body) id, short_id, org_id, scope_kind, coalesce(repo_id,''), title, body, tags, status, confidence, simhash, embedding, source_urls, source_context, created_at, updated_at
         FROM learnings WHERE org_id=$1`
 
 	args := []interface{}{orgID}
@@ -110,7 +110,7 @@ func (s *PostgresStore) ListByOrgWithPagination(ctx context.Context, orgID int64
 		query += ` AND status != 'archived'`
 	}
 
-	query += ` ORDER BY updated_at DESC`
+	query += ` ORDER BY body, confidence DESC, updated_at DESC`
 
 	// Add pagination
 	if limit > 0 {
