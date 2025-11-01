@@ -537,6 +537,194 @@ bash -lc 'go build livereview.go'
 
 ---
 
+## PHASE B: Bitbucket Support
+
+**Goal:** Add same contextual artifact support for Bitbucket PRs as we have for GitLab MRs and GitHub PRs
+
+**File:** `/home/shrsv/bin/LiveReview/internal/api/unified_processor_v2.go`
+
+**Step B.1:** Add Bitbucket provider import (at top of file, after GitHub import)
+```go
+bb "github.com/livereview/internal/providers/bitbucket"
+```
+
+**Step B.2:** Add helper method `buildBitbucketArtifactFromEvent(ctx context.Context, event UnifiedWebhookEventV2) (*mrmodel.UnifiedArtifact, error)`
+- Location: Add after `buildGitHubArtifactFromEvent()`
+- Copy pattern from cli.go Bitbucket handling:
+  ```go
+  func (p *UnifiedProcessorV2Impl) buildBitbucketArtifactFromEvent(ctx context.Context, event UnifiedWebhookEventV2) (*mrmodel.UnifiedArtifact, error) {
+      if event.Repository.WebURL == "" || event.MergeRequest == nil {
+          return nil, fmt.Errorf("missing required fields for PR URL construction")
+      }
+      
+      // For Bitbucket, we need the full PR URL and PR ID
+      // event.Repository.WebURL is like "https://bitbucket.org/workspace/repo"
+      // PR URL format: https://bitbucket.org/workspace/repo/pull-requests/123
+      
+      // Get PR ID/number
+      var prID string
+      if event.MergeRequest.Number > 0 {
+          prID = fmt.Sprintf("%d", event.MergeRequest.Number)
+      } else if event.MergeRequest.ID != "" {
+          prID = event.MergeRequest.ID
+      } else {
+          return nil, fmt.Errorf("missing PR number/ID")
+      }
+      
+      // Construct full PR URL
+      // event.Repository.WebURL should already contain workspace/repo
+      prURL := strings.TrimRight(event.Repository.WebURL, "/") + "/pull-requests/" + prID
+      
+      log.Printf("[DEBUG] Constructed Bitbucket PR URL: %s", prURL)
+      
+      // Look up Bitbucket credentials from integration_tokens table
+      // Bitbucket stores provider='bitbucket' or 'Bitbucket'
+      query := `SELECT pat_token FROM integration_tokens 
+                WHERE provider IN ('bitbucket', 'Bitbucket') 
+                LIMIT 1`
+      
+      var patToken string
+      err := p.server.DB().QueryRow(query).Scan(&patToken)
+      if err != nil {
+          return nil, fmt.Errorf("failed to find Bitbucket PAT: %w", err)
+      }
+      
+      log.Printf("[DEBUG] Found Bitbucket PAT")
+      
+      // Bitbucket provider needs email - use default for bot
+      // In production, this could come from metadata or config
+      botEmail := "livereviewbot@gmail.com"
+      
+      // Create Bitbucket provider (following cli.go pattern)
+      provider, err := bb.NewBitbucketProvider(patToken, botEmail, prURL)
+      if err != nil {
+          return nil, fmt.Errorf("failed to init bitbucket provider: %w", err)
+      }
+      
+      // Create mrModel instance
+      mrModel := &mrmodel.MrModelImpl{}
+      mrModel.EnableArtifactWriting = false // Don't write to disk
+      
+      // Build Bitbucket artifact (following cli.go pattern)
+      artifact, err := mrModel.BuildBitbucketArtifact(provider, prID, prURL, "")
+      if err != nil {
+          return nil, fmt.Errorf("failed to build Bitbucket artifact: %w", err)
+      }
+      
+      log.Printf("[DEBUG] Built Bitbucket artifact: timeline=%d participants=%d diffs=%d",
+          len(artifact.Timeline), len(artifact.Participants), len(artifact.Diffs))
+      
+      return artifact, nil
+  }
+  ```
+
+**KEY LEARNINGS - Bitbucket:**
+1. **URL Structure**: Bitbucket URLs use workspace/repo format - `https://bitbucket.org/workspace/repo/pull-requests/123`
+2. **PR URL Construction**: Must append `/pull-requests/{prID}` to repository WebURL
+3. **Token Lookup**: Bitbucket PAT is stored with provider='bitbucket' or 'Bitbucket'
+4. **Email Requirement**: Bitbucket provider constructor requires email parameter (unlike GitLab/GitHub)
+5. **Provider Instance**: Like GitLab, Bitbucket needs a provider instance created with `NewBitbucketProvider(token, email, prURL)`
+6. **Same Artifact Structure**: Returns same `UnifiedArtifact` type - can reuse `formatArtifactForPrompt()`
+7. **Artifact Building**: `BuildBitbucketArtifact(provider, prID, prURL, outDir)` takes provider instance and both prID and prURL
+
+**Step B.3:** Modify `ProcessCommentReply()` to handle Bitbucket (update existing switch from Phase A)
+- Location: Line 250, add new case to existing switch statement
+- Change from:
+  ```go
+  // Build artifact for context (Phase 1 + Phase A)
+  var artifact *mrmodel.UnifiedArtifact
+  if p.server.DB() != nil {
+      provider := strings.ToLower(event.Provider)
+      switch provider {
+      case "gitlab":
+          log.Printf("[DEBUG] Building GitLab artifact for contextual response")
+          var err error
+          artifact, err = p.buildGitLabArtifactFromEvent(ctx, event)
+          if err != nil {
+              return "", nil, fmt.Errorf("failed to build GitLab artifact: %w", err)
+          }
+      case "github":
+          log.Printf("[DEBUG] Building GitHub artifact for contextual response")
+          var err error
+          artifact, err = p.buildGitHubArtifactFromEvent(ctx, event)
+          if err != nil {
+              return "", nil, fmt.Errorf("failed to build GitHub artifact: %w", err)
+          }
+      }
+  }
+  ```
+- To:
+  ```go
+  // Build artifact for context (Phase 1 + Phase A + Phase B)
+  var artifact *mrmodel.UnifiedArtifact
+  if p.server.DB() != nil {
+      provider := strings.ToLower(event.Provider)
+      switch provider {
+      case "gitlab":
+          log.Printf("[DEBUG] Building GitLab artifact for contextual response")
+          var err error
+          artifact, err = p.buildGitLabArtifactFromEvent(ctx, event)
+          if err != nil {
+              return "", nil, fmt.Errorf("failed to build GitLab artifact: %w", err)
+          }
+      case "github":
+          log.Printf("[DEBUG] Building GitHub artifact for contextual response")
+          var err error
+          artifact, err = p.buildGitHubArtifactFromEvent(ctx, event)
+          if err != nil {
+              return "", nil, fmt.Errorf("failed to build GitHub artifact: %w", err)
+          }
+      case "bitbucket":
+          log.Printf("[DEBUG] Building Bitbucket artifact for contextual response")
+          var err error
+          artifact, err = p.buildBitbucketArtifactFromEvent(ctx, event)
+          if err != nil {
+              return "", nil, fmt.Errorf("failed to build Bitbucket artifact: %w", err)
+          }
+      }
+  }
+  ```
+
+**Step B.4:** No other changes needed!
+- The `formatArtifactForPrompt()` method works for all three providers (same UnifiedArtifact structure)
+- The `formatCommentThreadBasic()` method works for all providers
+- All prompt building logic is provider-agnostic
+
+---
+
+## PHASE B Testing: Bitbucket Support
+
+**Step B.T1:** Build
+```bash
+bash -lc 'go build livereview.go'
+```
+
+**Step B.T2:** Test with Bitbucket
+- Post a comment on Bitbucket PR (e.g., `@livereview can you explain this change?`)
+- Check `debug_prompt.txt` should show:
+  - "=== MERGE REQUEST CONTEXT ===" (same header for all providers)
+  - List of changed files from the PR
+  - Diff hunks (truncated)
+  - Discussion threads (PR comments, inline comments, activities)
+
+**Step B.T3:** Verify bot reply uses context
+- Bot should have awareness of other files/comments in PR
+- Should reference existing PR comments
+- Should understand full PR context when answering questions
+
+**Step B.T4:** Test all three providers work together
+- Verify GitLab still works (no regression)
+- Verify GitHub still works (no regression)
+- Verify Bitbucket works independently
+- All three use the same context formatting
+
+**Step B.T5:** Test database integration
+- Verify Bitbucket PAT lookup works from integration_tokens table
+- Test with `provider='bitbucket'` and `provider='Bitbucket'` (case variations)
+- Confirm email parameter doesn't cause issues
+
+---
+
 # ITERATION 2: Intelligent File-Based Context
 
 **Goal:** Filter artifact by file/line to show only relevant context
