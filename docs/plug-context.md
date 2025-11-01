@@ -351,7 +351,7 @@ gl "github.com/livereview/internal/providers/gitlab"
 
 ---
 
-## PHASE 2: Testing Iteration 1
+## PHASE 2: Testing Iteration 1 (GitLab)
 
 **Step 2.1:** Build
 ```bash
@@ -369,6 +369,171 @@ bash -lc 'go build livereview.go'
 **Step 2.3:** Verify bot reply uses context
 - Bot should have awareness of other files/comments in MR
 - Reply should be more contextually relevant
+
+---
+
+## PHASE A: GitHub Support
+
+**Goal:** Add same contextual artifact support for GitHub PRs as we have for GitLab MRs
+
+**File:** `/home/shrsv/bin/LiveReview/internal/api/unified_processor_v2.go`
+
+**Step A.1:** Add GitHub provider import (at top of file, after GitLab import)
+```go
+gh "github.com/livereview/internal/providers/github"
+```
+
+**Step A.2:** Add helper method `buildGitHubArtifactFromEvent(ctx context.Context, event UnifiedWebhookEventV2) (*mrmodel.UnifiedArtifact, error)`
+- Location: Add after `buildGitLabArtifactFromEvent()`
+- Copy pattern from cli.go GitHub handling:
+  ```go
+  func (p *UnifiedProcessorV2Impl) buildGitHubArtifactFromEvent(ctx context.Context, event UnifiedWebhookEventV2) (*mrmodel.UnifiedArtifact, error) {
+      if event.Repository.WebURL == "" || event.MergeRequest == nil {
+          return nil, fmt.Errorf("missing required fields for PR URL construction")
+      }
+      
+      // Parse GitHub PR URL from event
+      // event.Repository.WebURL is like "https://github.com/owner/repo"
+      // We need owner, repo, and PR number
+      
+      // Extract owner and repo from WebURL
+      // Format: https://github.com/owner/repo
+      var owner, repo string
+      if idx := strings.Index(event.Repository.WebURL, "github.com/"); idx != -1 {
+          remainder := event.Repository.WebURL[idx+len("github.com/"):]
+          parts := strings.Split(remainder, "/")
+          if len(parts) >= 2 {
+              owner = parts[0]
+              repo = parts[1]
+          } else {
+              return nil, fmt.Errorf("invalid GitHub repository URL format: %s", event.Repository.WebURL)
+          }
+      } else {
+          return nil, fmt.Errorf("not a GitHub URL: %s", event.Repository.WebURL)
+      }
+      
+      // Get PR number
+      var prNumber string
+      if event.MergeRequest.Number > 0 {
+          prNumber = fmt.Sprintf("%d", event.MergeRequest.Number)
+      } else if event.MergeRequest.ID != "" {
+          prNumber = event.MergeRequest.ID
+      } else {
+          return nil, fmt.Errorf("missing PR number/ID")
+      }
+      
+      log.Printf("[DEBUG] Extracted GitHub PR info: owner=%s, repo=%s, pr=%s", owner, repo, prNumber)
+      
+      // Look up GitHub PAT from integration_tokens table
+      // GitHub uses 'github.com' as provider_url or 'github' as provider
+      query := `SELECT pat_token FROM integration_tokens 
+                WHERE provider IN ('github', 'GitHub') 
+                AND (provider_url = 'https://github.com' OR provider_url = 'github.com' OR provider_url = 'github')
+                LIMIT 1`
+      
+      var patToken string
+      err := p.server.DB().QueryRow(query).Scan(&patToken)
+      if err != nil {
+          return nil, fmt.Errorf("failed to find GitHub PAT: %w", err)
+      }
+      
+      log.Printf("[DEBUG] Found GitHub PAT")
+      
+      // Create mrModel instance
+      mrModel := &mrmodel.MrModelImpl{}
+      mrModel.EnableArtifactWriting = false // Don't write to disk
+      
+      // Build GitHub artifact (following cli.go pattern)
+      artifact, err := mrModel.BuildGitHubArtifact(owner, repo, prNumber, patToken, "")
+      if err != nil {
+          return nil, fmt.Errorf("failed to build GitHub artifact: %w", err)
+      }
+      
+      log.Printf("[DEBUG] Built GitHub artifact: timeline=%d participants=%d diffs=%d",
+          len(artifact.Timeline), len(artifact.Participants), len(artifact.Diffs))
+      
+      return artifact, nil
+  }
+  ```
+
+**KEY LEARNINGS - GitHub:**
+1. **URL Structure**: GitHub URLs are simpler - `https://github.com/owner/repo` (no project path like GitLab)
+2. **Token Lookup**: GitHub PAT is stored with provider='github' and provider_url can be 'github.com' or 'github'
+3. **Artifact Building**: `BuildGitHubArtifact(owner, repo, prNumber, pat, outDir)` takes owner/repo separately
+4. **No Provider Instance**: Unlike GitLab which needs a provider instance, GitHub artifact builder uses direct API calls
+5. **Same Artifact Structure**: Returns same `UnifiedArtifact` type - can reuse `formatArtifactForPrompt()`
+
+**Step A.3:** Modify `ProcessCommentReply()` to handle GitHub (update existing code from Step 1.4)
+- Location: Line 240, modify the artifact building section
+- Change from:
+  ```go
+  // Build GitLab artifact for context (Phase 1 - Iteration 1)
+  var artifact *mrmodel.UnifiedArtifact
+  if strings.ToLower(event.Provider) == "gitlab" && p.server.DB() != nil {
+      log.Printf("[DEBUG] Building GitLab artifact for contextual response")
+      var err error
+      artifact, err = p.buildGitLabArtifactFromEvent(ctx, event)
+      if err != nil {
+          return "", nil, fmt.Errorf("failed to build GitLab artifact: %w", err)
+      }
+  }
+  ```
+- To:
+  ```go
+  // Build artifact for context (Phase 1 + Phase A)
+  var artifact *mrmodel.UnifiedArtifact
+  if p.server.DB() != nil {
+      provider := strings.ToLower(event.Provider)
+      switch provider {
+      case "gitlab":
+          log.Printf("[DEBUG] Building GitLab artifact for contextual response")
+          var err error
+          artifact, err = p.buildGitLabArtifactFromEvent(ctx, event)
+          if err != nil {
+              return "", nil, fmt.Errorf("failed to build GitLab artifact: %w", err)
+          }
+      case "github":
+          log.Printf("[DEBUG] Building GitHub artifact for contextual response")
+          var err error
+          artifact, err = p.buildGitHubArtifactFromEvent(ctx, event)
+          if err != nil {
+              return "", nil, fmt.Errorf("failed to build GitHub artifact: %w", err)
+          }
+      }
+  }
+  ```
+
+**Step A.4:** No other changes needed!
+- The `formatArtifactForPrompt()` method works for both GitLab and GitHub (same UnifiedArtifact structure)
+- The `formatCommentThreadBasic()` method works for both providers
+- All prompt building logic is provider-agnostic
+
+---
+
+## PHASE A Testing: GitHub Support
+
+**Step A.T1:** Build
+```bash
+bash -lc 'go build livereview.go'
+```
+
+**Step A.T2:** Test with GitHub
+- Post a comment on GitHub PR (e.g., `@livereview what does this code do?`)
+- Check `debug_prompt.txt` should show:
+  - "=== MERGE REQUEST CONTEXT ===" (same header for both providers)
+  - List of changed files from the PR
+  - Diff hunks (truncated)
+  - Discussion threads (PR comments, review comments, reviews)
+
+**Step A.T3:** Verify bot reply uses context
+- Bot should have awareness of other files/comments in PR
+- Should reference existing review comments
+- Should understand full PR context when answering questions
+
+**Step A.T4:** Test both providers work together
+- Verify GitLab still works (no regression)
+- Verify GitHub works independently
+- Both use the same context formatting
 
 ---
 
