@@ -1,350 +1,81 @@
 You are LiveReviewBot, an AI code review assistant.
 
 CONTEXT:
-- Repository: LiveAPI
-- MR/PR title: Lince/fix recall report
+- Repository: glabmig
+- MR/PR title: attempt to find a suitable base commit from which to branch when scaf…
 
 === MERGE REQUEST CONTEXT ===
 
 PARTICIPANTS:
-- @ (Lince Mathew)
-- @Lince (Lince Mathew)
-- @LiveReviewBot (LiveReviewBot)
-- @shrijith (Shrijith)
+- @copilot-pull-request-reviewer[bot] (copilot-pull-request-reviewer[bot])
+- @livereviewbot (livereviewbot)
+- @shrsv (shrsv)
 
 COMMENT THREADS:
-- @LiveReviewBot: **Severity: info**
+- @copilot-pull-request-reviewer[bot]: ## Pull Request Overview
 
-# Dynamic Prompt Generation Based on Detected Framework
-
-## Overview
-This change modifies the prompt generation logic to be dynamic based on the detected framework (specifically...
-- @LiveReviewBot on liveapi-backend/exam/compare.go:269: **Severity: warning**
-
-This logic assigns a score of 100 if both tokens are parameters. This might be too generous. Consider the case where the actual token is `{user_id}` and the ideal token is `{...
-  - @shrijith on liveapi-backend/exam/compare.go:269: @LiveReviewBot wouldnt that make the implementation more complicated
-- @LiveReviewBot on liveapi-backend/prompt/subPrompt.go:71: **Severity: warning**
-
-This conditional logic determines whether to return the DRF method extraction section based on the `detectedFramework`.  Consider adding a default case or handling other pote...
-  - @Lince on liveapi-backend/prompt/subPrompt.go:71: changed this line in [version 3 of the diff](/hexmos/liveapi/-/merge_requests/416/diffs?diff_id=13727&start_sha=f454cc92e3965cba1fb7913b450a5791d64391f7#98aff874ccf5b8d340bf569886726f1c20a8a2d9_71_71)
-- @LiveReviewBot on liveapi-backend/prompt/subPrompt.go:334: **Severity: warning**
-
-Returning an empty string when the framework is not Python/Django might not be the best approach.  Consider returning a default prompt or an error message indicating that the...
-  - @Lince on liveapi-backend/prompt/subPrompt.go:334: changed this line in [version 3 of the diff](/hexmos/liveapi/-/merge_requests/416/diffs?diff_id=13727&start_sha=f454cc92e3965cba1fb7913b450a5791d64391f7#98aff874ccf5b8d340bf569886726f1c20a8a2d9_334...
-- @Lince: added 2 commits
-
-<ul><li>0ebcf65d - Fix comparison logic</li><li>f454cc92 - Update fuzzy scoring logic for parameterized tokens in comparison</li></ul>
-
-[Compare with previous version](/hexmos/live...
-- @Lince: added 1 commit
-
-<ul><li>eef0f9d3 - Refactor DRFMethodExtractionSection to remove detectedFramework parameter</li></ul>
-
-[Compare with previous version](/hexmos/liveapi/-/merge_requests/416/diffs?di...
-- @Lince: changed the description
-- @Lince: mentioned in commit 4b543b0c9c827266fa8a4dfa8b955d10d9202639
-- @shrijith: **Severity: info**
-
-# Exam Parameter Comparison Improvements
-
-## Overview
-This change focuses on improving the accuracy and configurability of exam parameter comparison logic within the `liveapi-ba...
-- @shrijith on liveapi-backend/exam/compare.go:272: **Severity: info**
-
-Consider using `fuzzy.LevenshteinDistance` or similar for more fine-grained control over scoring, especially if token length varies significantly. `fuzzy.Ratio` might not be the...
-- @shrijith on liveapi-backend/exam/compare.go:277: **Severity: warning**
-
-The base weight is hardcoded. Consider making this configurable.
-
-**Suggestions:**
-1. Introduce a configuration parameter for the base weight.
-2. Consider using environment v...
-- @shrijith: **Severity: info**
-
-# Exam Comparison Logic Enhancement and Code Cleanup
-
-## Overview
-This change focuses on improving the exam comparison logic, specifically around parameter matching using fuzzy ...
-- @shrijith on liveapi-backend/exam/compare.go:267: **Severity: info**
-
-The comment doesn't explain *why* the fuzzy score is calculated for parameters. What problem does this solve?
-
-**Suggestions:**
-1. Elaborate on the purpose of calculating the fu...
-- @shrijith on liveapi-backend/exam/compare.go:272: **Severity: warning**
-
-Consider adding a check to ensure that `actualToken` and `idealToken` are not empty strings before passing them to `fuzzy.Ratio`. Empty strings could lead to unexpected behav...
-- @shrijith on liveapi-backend/exam/compare.go:277: **Severity: info**
-
-Why is `baseWeight` being introduced? What is the purpose of separating this out?
-
-**Suggestions:**
-1. Add a comment explaining the purpose and significance of the `baseWeight` ...
-- @shrijith on liveapi-backend/prompt/subPrompt.go:71: **Severity: info**
-
-Remove the unnecessary blank line.
-
-**Suggestions:**
-1. Delete the blank line.
-- @shrijith: **Severity: info**
-
-# Improve Fuzzy Matching Logic in Exam Question Comparison
-
-## Overview
-This change refines the fuzzy matching algorithm used for comparing exam questions, specifically focusing...
-- @shrijith on liveapi-backend/exam/compare.go:272: **Severity: warning**
-
-The fuzzy.Ratio function returns an integer. Multiplying it by a float64 might lead to unexpected behavior due to integer truncation. Consider casting to float *before* passi...
-- @shrijith on liveapi-backend/exam/compare.go:277: **Severity: info**
-
-Consider extracting the calculation `0.7 * float64(minLength-idx) / float64(math.Max(1, float64(tokenCount-1)))` into a named variable for better readability. It's used in multi...
-- @shrijith: **Severity: info**
-
-```markdown
-# Exam Comparison Logic Enhancement
-
-## Overview
-This change focuses on improving the accuracy and robustness of the exam comparison logic, specifically within the `...
-- @shrijith on liveapi-backend/exam/compare.go:269: @LiveReviewBot wouldnt that make the implementation more complicated
-- @shrijith on liveapi-backend/exam/compare.go:277: **Severity: info**
-
-The baseWeight is now a constant. Consider making it configurable or deriving it from a config value, as it might need adjustment in the future.
-
-**Suggestions:**
-1. Introduce a...
-- @shrijith on liveapi-backend/exam/compare.go:272: **Severity: info**
-
-The fuzzy.Ratio function returns an integer. Casting it to float64 might lead to loss of precision if the ratio is very high. Consider multiplying by `baseWeight` *after* castin...
-- @shrijith: **Severity: info**
-
-# Exam Comparison Logic Improvements
-
-## Overview
-This change focuses on refining the exam comparison logic within the `liveapi-backend` application. The goal is to improve the ...
-- @shrijith on liveapi-backend/exam/compare.go:277: **Severity: info**
-
-The `math.Max` function is used with a literal `1`.  Consider adding a comment explaining why this is necessary, or refactor if the `1` represents a configurable minimum value.
-...
-- @shrijith on liveapi-backend/exam/compare.go:277: **Severity: info**
-
-The magic number `0.7` appears twice. Consider defining it as a constant to improve readability and maintainability.
-
-**Suggestions:**
-1. Define a constant `const weightFactor =...
-- @shrijith on liveapi-backend/exam/compare.go:272: **Severity: info**
-
-The `fuzzy.Ratio` function calculates a similarity score. Ensure that the score is properly normalized or scaled to fit within the expected range for `weightedScore`.
-
-**Suggest...
-- @shrijith on liveapi-backend/exam/compare.go:272: **Severity: warning**
-
-Consider adding a check to prevent `fuzzy.Ratio` from being called with empty strings, which could lead to unexpected behavior or errors.
-
-**Suggestions:**
-1. Add a condition...
-- @shrijith: **Severity: info**
-
-# Exam Comparison Logic Enhancement
+This pull request refactors a GitLab-to-GitHub migration tool to handle merge commits and improve the process of finding a suitable base commit when scaffolding PR branche...
+- @livereviewbot: # Introduction of GitLab/GitHub API Interaction Helpers and Migration Logic
 
 ## Overview
 
-This change focuses on improving the exam comparison logic within the `liveapi-backend`, specifically in the `compare.go` file....
-- @shrijith on liveapi-backend/exam/compare.go:277: **Severity: info**
+This change introduces helper functions for interacting with the GitLab and GitHub APIs, along with the cor...
+- @livereviewbot on main.go:21: Consider adding a comment explaining why atomic is necessary (thread-safe error counting).
+- @livereviewbot on main.go:97: The `parseConfig` function can return an error. Handle it gracefully.
+  - @shrsv on main.go:97: 
+What kind of error can it return? And how to handle
+  - @livereviewbot on main.go:97: The `parseConfig()` function can return an error if it fails to parse the configuration from the command-line flags or any configuration files (if those are used). This could be due to:
 
-The `math.Max` function's second argument is hardcoded as 1.  Why is this the minimum value? Add a comment explaining the reasoning.
-
-**Suggestions:**
-1. Add a comment explainin...
+*   **Inva...
+- @livereviewbot on main.go:116: The `setupAPIClients` function can return an error. Handle it gracefully.
+- @livereviewbot on main.go:122: The `loadProjects` function can return an error. Handle it gracefully.
+  - @shrsv on main.go:122: Why do you say so?
+  - @livereviewbot on main.go:122: Without more context, I'm unsure what "Why do you say so?" refers to. Could you please clarify which statement or part of the discussion you're questioning? This will help me provide a more relevan...
+- @livereviewbot on main.go:134: Consider returning an error from `performMigration` instead of relying on the global `errCount`. This would make error handling more explicit and easier to test.
+- @livereviewbot on main.go:173: Consider using `errors.Is` or `errors.As` for more robust error checking.
+- @livereviewbot on main.go:236: Check if `len(s) > 0` to prevent potential index out of range errors when accessing `s[0]` if the header value is empty.
+- @livereviewbot on main.go:246: Check if `len(v) > 0` to prevent potential index out of range errors when accessing `v[0]` if the header value is empty.
+- @livereviewbot on main.go:249: Check if `len(w) > 0` to prevent potential index out of range errors when accessing `w[0]` if the header value is empty.
+- @livereviewbot on main.go:285: Consider adding a comment explaining why `StatusForbidden` is sometimes used for rate limits. This isn't standard and might confuse others.
+- @livereviewbot on main.go:306: Use consistent naming for variables (requestURL vs requestMethod).
+- @livereviewbot on main.go:317: Consider renaming httpClient to ghHttpClient to better reflect its usage
+- @livereviewbot on main.go:328: Return the error directly instead of wrapping it in fmt.Errorf.  The caller can add context if needed.
+- @livereviewbot on main.go:340: Return the error directly instead of wrapping it in fmt.Errorf.  The caller can add context if needed.
+- @livereviewbot on main.go:352: Return the error directly instead of wrapping it in fmt.Errorf.  The caller can add context if needed.
+- @livereviewbot on main.go:360: Return the error directly instead of wrapping it in fmt.Errorf.  The caller can add context if needed.
+- @livereviewbot on main.go:365: Return the error directly instead of wrapping it in fmt.Errorf.  The caller can add context if needed.
+- @livereviewbot on main.go:390: Consider using `sync.Pool` instead of a mutex to protect the `results` slice if performance is critical and the order of results isn't important.  This could reduce contention.
+- @livereviewbot on main.go:401: Returning nil here after logging an error might mask issues. Consider returning the error up to the errgroup and handling the logging at a higher level.
+- @livereviewbot on main.go:431: Return the error directly instead of wrapping it in fmt.Errorf.  The caller can add context if needed.
+- @livereviewbot on main.go:437: Return the error directly instead of wrapping it in fmt.Errorf.  The caller can add context if needed.
+- @livereviewbot on main.go:442: Return the error directly instead of wrapping it in fmt.Errorf.  The caller can add context if needed.
+- @livereviewbot on main.go:470: Returning nil here after logging an error might mask issues. Consider returning the error up to the errgroup and handling the logging at a higher level.
+  - @shrsv on main.go:470: @livereviewbot how does it mask issues? explain in a bit more detail
+- @livereviewbot on main.go:487: Consider adding a small jitter to the `time.Sleep` duration to avoid potential synchronization issues across multiple instances of the program.
+  - @shrsv on main.go:487: As a rule - within our team - we don't like to use Sleep to deal with async issues. Synchronization issues must be settled with guaranteed mechanisms such as mutex or semaphore or other language-sp...
+  - @livereviewbot on main.go:487: Okay, I understand. Thanks for clarifying your team's preference to avoid using `Sleep` for handling asynchronous issues and instead using synchronization primitives like mutexes, semaphores, or ch...
+- @livereviewbot on main.go:494: The sleep duration should be configurable via a flag.
+- @livereviewbot on main.go:511: Return the error directly instead of wrapping it in fmt.Errorf.  The caller can add context if needed.
+- @livereviewbot on main.go:526: Return the error directly instead of wrapping it in fmt.Errorf.  The caller can add context if needed.
+- @livereviewbot on main.go:531: Return the error directly instead of wrapping it in fmt.Errorf.  The caller can add context if needed.
 ... (10 more threads)
 
 CODE CHANGES:
-
---- liveapi-backend/exam/compare.go ---
-+11 -1
-@@ -262,9 +262,19 @@ func CompareWithoutPrinting(testRunID int, updateIdeal bool) (*ComparisonData, e
-					for idx := 0; idx < minLength; idx++ {
-						idealToken := idealReversed[idx]
-						actualToken := actualReversed[idx]
-						baseWeight := 0.3
-
-						//  if both tokens are params, then calculate the fuzzy score and total weight
-						// This is to handle cases like /users/{id} vs /users/{slug
-						if strings.HasPrefix(actualToken, "{") && strings.HasSuffix(actualToken, "}") &&
-							strings.HasPrefix(idealToken, "{") && strings.HasSuffix(idealToken, "}") {
-
-							weightedScore += baseWeight * float64(fuzzy.Ratio(actualToken, idealToken))
-							totalWeight += baseWeight
-							continue
-						}
-						// Higher weight for earlier paths starting from right of endpoint (most specific parts)
-						weight := 0.3 + (0.7 * float64(minLength-idx) / float64(math.Max(1, float64(tokenCount-1))))
-						weight := baseWeight + (0.7 * float64(minLength-idx) / float64(math.Max(1, float64(tokenCount-1))))
-						totalWeight += weight
-
-						fuzzyScore := float64(fuzzy.Ratio(actualToken, idealToken))
-
-
---- liveapi-backend/prompt/subPrompt.go ---
-+1 -0
-@@ -68,6 +68,7 @@ func DRFMethodExtractionSection() string {
-		4. An example scenario where an initial JSON representation of a single HTTP method
-			is expanded to multiple entries corresponding to all supported methods.
-	*/
-
-	return `
-		Process each stage (A, B, C, D, E, F) strictly in sequence, layer by layer.
-		Do not discard, overwrite, or replace the outputs of previous stages.
-
+... (1 more files with changes)
 
 === END MERGE REQUEST CONTEXT ===
 
 
 CURRENT COMMENT (reply only to this message unless explicitly asked otherwise):
-@shrijith wrote: @LiveReviewBot wouldnt that make the implementation more complicated
-Repository path: hexmos/liveapi
+@shrsv wrote: @livereviewbot how does it mask issues? explain in a bit more detail
+Repository path: livereviewbot/glabmig
 
 RECENT CONVERSATION ACROSS THREAD (for context only, do not respond to prior messages unless they are referenced in the current comment):
-- LiveReviewBot: **Severity: info**
-
-# Dynamic Prompt Generation Based on Detected Framework
-
-## Overview
-This change
-- LiveReviewBot: **Severity: warning**
-
-This logic assigns a score of 100 if both tokens are parameters. This might b
-- LiveReviewBot: **Severity: warning**
-
-This conditional logic determines whether to return the DRF method extraction
-- LiveReviewBot: **Severity: warning**
-
-Returning an empty string when the framework is not Python/Django might not b
-- shrijith: **Severity: info**
-
-# Exam Parameter Comparison Improvements
-
-## Overview
-This change focuses on imp
-- shrijith: **Severity: info**
-
-Consider using `fuzzy.LevenshteinDistance` or similar for more fine-grained cont
-- shrijith: **Severity: warning**
-
-The base weight is hardcoded. Consider making this configurable.
-
-**Suggestio
-- shrijith: **Severity: info**
-
-# Exam Comparison Logic Enhancement and Code Cleanup
-
-## Overview
-This change fo
-- shrijith: **Severity: info**
-
-The comment doesn't explain *why* the fuzzy score is calculated for parameters. 
-- shrijith: **Severity: warning**
-
-Consider adding a check to ensure that `actualToken` and `idealToken` are not
-- shrijith: **Severity: info**
-
-Why is `baseWeight` being introduced? What is the purpose of separating this out
-- shrijith: **Severity: info**
-
-Remove the unnecessary blank line.
-
-**Suggestions:**
-1. Delete the blank line.
-- shrijith: **Severity: info**
-
-# Improve Fuzzy Matching Logic in Exam Question Comparison
-
-## Overview
-This cha
-- shrijith: **Severity: warning**
-
-The fuzzy.Ratio function returns an integer. Multiplying it by a float64 migh
-- shrijith: **Severity: info**
-
-Consider extracting the calculation `0.7 * float64(minLength-idx) / float64(math
-- shrijith: **Severity: info**
-
-```markdown
-# Exam Comparison Logic Enhancement
-
-## Overview
-This change focuses
-- shrijith: **Severity: critical**
-
-Potential divide-by-zero error if `tokenCount` is 0. The `math.Max(1, float6
-- shrijith: **Severity: info**
-
-# Exam Comparison Logic Refinement
-
-## Overview
-This change focuses on refining 
-- shrijith: **Severity: info**
-
-Consider making `baseWeight` a constant to improve readability and maintainabili
-- shrijith: **Severity: info**
-
-The fuzzy.Ratio function can return 0.  If actualToken and idealToken are very d
-- shrijith: **Severity: warning**
-
-Potential integer overflow: fuzzy.Ratio returns an integer, which is then con
-- shrijith: **Severity: info**
-
-The formula for calculating `weight` looks complex. Add a comment explaining the
-- shrijith: **Severity: info**
-
-# Exam Comparison Logic Refinement
-
-## Overview
-This change focuses on improving
-- shrijith: **Severity: info**
-
-Consider extracting this logic into a separate function for better readability a
-- shrijith: **Severity: warning**
-
-The `fuzzy.Ratio` function can be computationally expensive. Consider caching
-- shrijith: **Severity: info**
-
-The `baseWeight` is used twice. Consider defining it as a constant for better ma
-- shrijith: **Severity: info**
-
-The `math.Max` function's second argument is hardcoded as 1.  Why is this the mi
-- shrijith: **Severity: info**
-
-# Exam Comparison Logic Enhancement
+- livereviewbot: # Introduction of GitLab/GitHub API Interaction Helpers and Migration Logic
 
 ## Overview
 
-This change focuses on improvi
-- shrijith: **Severity: warning**
-
-Consider adding a check to prevent `fuzzy.Ratio` from being called with empty
-- shrijith: **Severity: info**
-
-The `fuzzy.Ratio` function calculates a similarity score. Ensure that the score 
-- shrijith: **Severity: info**
-
-The magic number `0.7` appears twice. Consider defining it as a constant to impr
-- shrijith: **Severity: info**
-
-The `math.Max` function is used with a literal `1`.  Consider adding a comment e
-- shrijith: **Severity: info**
-
-# Exam Comparison Logic Improvements
-
-## Overview
-This change focuses on refinin
-- shrijith: **Severity: info**
-
-The fuzzy.Ratio function returns an integer. Casting it to float64 might lead to
-- shrijith: **Severity: info**
-
-The baseWeight is now a constant. Consider making it configurable or deriving it
-- shrijith: @LiveReviewBot wouldnt that make the implementation more complicated
-- shrijith: @LiveReviewBot wouldnt that make the implementation more complicated
+This chang
 
 TASK:
 Answer the CURRENT COMMENT directly. Keep the reply focused on the exact question or concern that was raised. Reference surrounding code or prior discussion only when it improves the specific answer.
@@ -389,8 +120,337 @@ Here is the full MR context:
 
 Full Code and Comments CONTEXT for the MR:
 **Code Location:**
-- File: liveapi-backend/exam/compare.go
-- Line: 269
+- File: main.go
+- Line: 470
+- Target line code: `sendErr(fmt.Errorf("failed to migrate project %s: %w", proj.GitlabPath, err))`
+
+**Diff Context:**
+```diff
+@@ -221,339 +281,330 @@ func main() {
+ 		}
+ 
+ 		retryableStatuses := []int{
+-			http.StatusTooManyRequests, // rate-limiting
+-			http.StatusForbidden,       // rate-limiting
+-
++			http.StatusTooManyRequests,   // rate-limiting
++			http.StatusForbidden,         // rate-limiting (sometimes used for rate limits)
+ 			http.StatusRequestTimeout,
+-			http.StatusFailedDependency,
++			http.StatusFailedDependency, // Used by some APIs for transient errors
+ 			http.StatusInternalServerError,
+ 			http.StatusBadGateway,
+ 			http.StatusServiceUnavailable,
+ 			http.StatusGatewayTimeout,
+ 		}
+ 
+ 		requestMethod := "unknown"
+-		requestUrl := "unknown"
++		requestURL := "unknown"
+ 
+ 		if req := resp.Request; req != nil {
+ 			requestMethod = req.Method
+ 			if req.URL != nil {
+-				requestUrl = req.URL.String()
++				requestURL = req.URL.String()
+ 			}
+ 		}
+ 
+ 		for _, status := range retryableStatuses {
+ 			if resp.StatusCode == status {
+-				logger.Trace("retrying failed API request", "method", requestMethod, "url", requestUrl, "status", resp.StatusCode)
++				logger.Trace("retrying failed API request", "method", requestMethod, "url", requestURL, "status", resp.StatusCode)
+ 				return true, nil
+ 			}
+ 		}
+ 
+ 		return false, nil
+ 	}
++	return retryClient
++}
+ 
+-	client := githubpagination.NewClient(&retryablehttp.RoundTripper{Client: retryClient}, githubpagination.WithPerPage(100))
++// setupAPIClients initializes GitHub and GitLab clients.
++func setupAPIClients(ctx context.Context, httpClient *retryablehttp.Client, cfg *Config) (*github.Client, *gitlab.Client, error) {
++	// GitHub Client
++	ghClient := githubpagination.NewClient(&retryablehttp.RoundTripper{Client: httpClient}, githubpagination.WithPerPage(githubAPIPerPage))
+ 
+-	if githubDomain == defaultGithubDomain {
+-		gh = github.NewClient(client).WithAuthToken(githubToken)
++	var gh *github.Client
++	var err error
++	if cfg.GithubDomain == defaultGithubDomain {
++		gh = github.NewClient(ghClient).WithAuthToken(cfg.GithubToken)
+ 	} else {
+-		githubUrl := fmt.Sprintf("https://%s", githubDomain)
+-		if gh, err = github.NewClient(client).WithAuthToken(githubToken).WithEnterpriseURLs(githubUrl, githubUrl); err != nil {
+-			sendErr(err)
+-			os.Exit(1)
++		githubURL := fmt.Sprintf("https://%s", cfg.GithubDomain)
++		if gh, err = github.NewClient(ghClient).WithAuthToken(cfg.GithubToken).WithEnterpriseURLs(githubURL, githubURL); err != nil {
++			return nil, nil, fmt.Errorf("failed to create GitHub enterprise client: %w", err)
+ 		}
+ 	}
+ 
++	// GitLab Client
+ 	gitlabOpts := make([]gitlab.ClientOptionFunc, 0)
+-	if gitlabDomain != defaultGitlabDomain {
+-		gitlabUrl := fmt.Sprintf("https://%s", gitlabDomain)
+-		gitlabOpts = append(gitlabOpts, gitlab.WithBaseURL(gitlabUrl))
++	if cfg.GitlabDomain != defaultGitlabDomain {
++		gitlabURL := fmt.Sprintf("https://%s", cfg.GitlabDomain)
++		gitlabOpts = append(gitlabOpts, gitlab.WithBaseURL(gitlabURL))
+ 	}
+-	if gl, err = gitlab.NewClient(gitlabToken, gitlabOpts...); err != nil {
+-		sendErr(err)
+-		os.Exit(1)
++	gl, err := gitlab.NewClient(cfg.GitlabToken, gitlabOpts...)
++	if err != nil {
++		return nil, nil, fmt.Errorf("failed to create GitLab client: %w", err)
+ 	}
+ 
+-	projects := make([]Project, 0)
+-	if projectsCsvPath != "" {
+-		data, err := os.ReadFile(projectsCsvPath)
++	return gh, gl, nil
++}
++
++// loadProjects reads project configurations from a CSV file or uses inline values.
++func loadProjects(cfg *Config) ([]ProjectConfig, error) {
++	projects := make([]ProjectConfig, 0)
++	if cfg.ProjectsCsvPath != "" {
++		data, err := os.ReadFile(cfg.ProjectsCsvPath)
+ 		if err != nil {
+-			sendErr(err)
+-			os.Exit(1)
++			return nil, fmt.Errorf("failed to read projects CSV file %q: %w", cfg.ProjectsCsvPath, err)
+ 		}
+ 
+ 		// Trim a UTF-8 BOM, if present
+ 		data = bytes.TrimPrefix(data, []byte("\xef\xbb\xbf"))
+ 
+-		if projects, err = csv.NewReader(bytes.NewBuffer(data)).ReadAll(); err != nil {
+-			sendErr(err)
+-			os.Exit(1)
++		csvRecords, err := csv.NewReader(bytes.NewBuffer(data)).ReadAll()
++		if err != nil {
++			return nil, fmt.Errorf("failed to parse projects CSV: %w", err)
+ 		}
+-	} else {
+-		projects = []Project{{gitlabProject, githubRepo}}
+-	}
+ 
+-	if report {
+-		printReport(ctx, projects)
+-	} else {
+-		if err = performMigration(ctx, projects); err != nil {
+-			sendErr(err)
+-			os.Exit(1)
+-		} else if errCount > 0 {
+-			logger.Warn(fmt.Sprintf("encountered %d errors during migration, review log output for details", errCount))
+-			os.Exit(1)
++		for i, record := range csvRecords {
++			if len(record) < 2 {
++				return nil, fmt.Errorf("invalid CSV row %d: expected at least 2 columns (GitLab Path, GitHub Repo)", i+1)
++			}
++			projects = append(projects, ProjectConfig{
++				GitlabPath: record[0],
++				GithubRepo: record[1],
++			})
+ 		}
++	} else {
++		projects = []ProjectConfig{{GitlabPath: cfg.GitlabProject, GithubRepo: cfg.GithubRepo}}
+ 	}
++	return projects, nil
+ }
+ 
+-func printReport(ctx context.Context, projects []Project) {
++// sendErr is a helper to log an error and increment a global counter.
++// It's generally better to propagate errors, but this function is kept for consistency with the original.
++func sendErr(err error) {
++	errCount.Add(1)
++	logger.Error(err.Error())
++}
++
++// printReport generates and prints a report of projects and their merge request counts.
++func printReport(ctx context.Context, projects []ProjectConfig) {
+ 	logger.Debug("building report")
+ 
+-	results := make([]Report, 0)
++	results := make([]Report, 0, len(projects))
++	var mu sync.Mutex // Mutex to protect results slice during concurrent writes
+ 
+-	for _, proj := range projects {
+-		if err := ctx.Err(); err != nil {
+-			return
+-		}
++	group, gCtx := errgroup.WithContext(ctx)
++	group.SetLimit(defaultConcurrency) // Limit concurrency for report generation
+ 
+-		result, err := reportProject(ctx, proj)
+-		if err != nil {
+-			errCount++
+-			sendErr(err)
+-		}
++	for _, proj := range projects {
++		proj := proj // Capture loop variable
++		group.Go(func() error {
++			result, err := reportProject(gCtx, proj)
++			if err != nil {
++				sendErr(fmt.Errorf("failed to report on project %s: %w", proj.GitlabPath, err))
++				return nil // Do not propagate error up to errgroup if we've already logged it
++			}
++			if result != nil {
++				mu.Lock()
++				results = append(results, *result)
++				mu.Unlock()
++			}
++			return nil
++		})
++	}
+ 
+-		if result != nil {
+-			results = append(results, *result)
+-		}
++	if err := group.Wait(); err != nil {
++		logger.Error("error during report generation", "err", err)
+ 	}
+ 
+ 	fmt.Println()
+-
+ 	totalMergeRequests := 0
+ 	for _, result := range results {
+ 		totalMergeRequests += result.MergeRequestsCount
+-		fmt.Printf("%#v\n", result)
++		fmt.Printf("%+v\n", result) // Use %+v for detailed struct output
+ 	}
+-
+ 	fmt.Println()
+ 	fmt.Printf("Total merge requests: %d\n", totalMergeRequests)
+ 	fmt.Println()
+ }
+ 
+-func reportProject(ctx context.Context, proj []string) (*Report, error) {
+-	gitlabPath := strings.Split(proj[0], "/")
+-	//githubPath := strings.Split(proj[1], "/")
+-
+-	logger.Debug("searching for GitLab project", "name", gitlabPath[1], "group", gitlabPath[0])
+-	searchTerm := gitlabPath[1]
+-	projectResult, _, err := gl.Projects.ListProjects(&gitlab.ListProjectsOptions{Search: &searchTerm})
+-	if err != nil {
+-		return nil, fmt.Errorf("listing projects: %v", err)
+-	}
+-
+-	var project *gitlab.Project
+-	for _, item := range projectResult {
+-		if item == nil {
+-			continue
+-		}
+-
+-		if item.PathWithNamespace == proj[0] {
+-			logger.Debug("found GitLab project", "name", gitlabPath[1], "group", gitlabPath[0], "project_id", item.ID)
+-			project = item
+-		}
+-	}
+-
+-	if project == nil {
+-		return nil, fmt.Errorf("no matching GitLab project found: %s", proj[0])
++// reportProject retrieves and counts merge requests for a single GitLab project.
++func reportProject(ctx context.Context, proj ProjectConfig) (*Report, error) {
++	gitlabPathParts := strings.Split(proj.GitlabPath, "/")
++	if len(gitlabPathParts) < 2 {
++		return nil, fmt.Errorf("invalid GitLab project path format: %s. Expected 'group/project'", proj.GitlabPath)
+ 	}
++	groupName := gitlabPathParts[0]
++	projectName := gitlabPathParts[1]
+ 
+-	var mergeRequests []*gitlab.MergeRequest
+-
+-	opts := &gitlab.ListProjectMergeRequestsOptions{
+-		OrderBy: pointer("created_at"),
+-		Sort:    pointer("asc"),
++	project, err := findGitlabProject(ctx, gl, proj.GitlabPath)
++	if err != nil {
++		return nil, fmt.Errorf("failed to find GitLab project %s: %w", proj.GitlabPath, err)
+ 	}
+ 
+-	logger.Debug("retrieving GitLab merge requests", "name", gitlabPath[1], "group", gitlabPath[0], "project_id", project.ID)
+-	for {
+-		result, resp, err := gl.MergeRequests.ListProjectMergeRequests(project.ID, opts)
+-		if err != nil {
+-			return nil, fmt.Errorf("retrieving gitlab merge requests: %v", err)
+-		}
+-
+-		mergeRequests = append(mergeRequests, result...)
+-
+-		if resp.NextPage == 0 {
+-			break
+-		}
+-
+-		opts.Page = resp.NextPage
++	mergeRequests, err := listGitlabMergeRequests(ctx, gl, project.ID)
++	if err != nil {
++		return nil, fmt.Errorf("failed to retrieve GitLab merge requests for project %s: %w", proj.GitlabPath, err)
+ 	}
+ 
+ 	return &Report{
+-		GroupName:          gitlabPath[0],
+-		ProjectName:        gitlabPath[1],
++		GroupName:          groupName,
++		ProjectName:        projectName,
+ 		MergeRequestsCount: len(mergeRequests),
+ 	}, nil
+ }
+ 
+-func performMigration(ctx context.Context, projects []Project) error {
+-	concurrency := maxConcurrency
+-	if len(projects) < maxConcurrency {
++// performMigration orchestrates the migration of multiple projects concurrently.
++func performMigration(ctx context.Context, cfg *Config, projects []ProjectConfig) error {
++	concurrency := cfg.MaxConcurrency
++	if len(projects) < cfg.MaxConcurrency {
+ 		concurrency = len(projects)
+ 	}
+ 
+ 	logger.Info(fmt.Sprintf("processing %d project(s) with %d workers", len(projects), concurrency))
+ 
+-	var wg sync.WaitGroup
+-	queue := make(chan Project, concurrency*2)
++	group, gCtx := errgroup.WithContext(ctx)
++	group.SetLimit(concurrency)
+ 
+-	for i := 0; i < concurrency; i++ {
+-		wg.Add(1)
+-
+-		go func() {
+-			defer wg.Done()
+-
+-			for proj := range queue {
+-				if err := ctx.Err(); err != nil {
+-					break
+-				}
+-
+-				if err := migrateProject(ctx, proj); err != nil {
+-					errCount++
+-					sendErr(err)
+-				}
+-			}
+-		}()
+-	}
+-
+-	queueProjects := func() {
++	migrateProjectsFunc := func() {
+ 		for _, proj := range projects {
+-			if err := ctx.Err(); err != nil {
+-				break
+-			}
+-
+-			queue <- proj
++			proj := proj // Capture loop variable
++			group.Go(func() error {
++				if err := migrateProject(gCtx, cfg, proj); err != nil {
++					sendErr(fmt.Errorf("failed to migrate project %s: %w", proj.GitlabPath, err))
+```
 
 === Org learnings ===
 Incorporate the following established org guidance when drafting your reply:
