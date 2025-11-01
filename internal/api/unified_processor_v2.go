@@ -284,20 +284,91 @@ func (p *UnifiedProcessorV2Impl) ProcessCommentReply(ctx context.Context, event 
 
 // buildCommentReplyPromptWithLearning creates LLM prompt with learning instructions
 func (p *UnifiedProcessorV2Impl) buildCommentReplyPromptWithLearning(event UnifiedWebhookEventV2, timeline *UnifiedTimelineV2, artifact *mrmodel.UnifiedArtifact) string {
-	prompt := &strings.Builder{}
+	staticPrompt := &strings.Builder{}
 
 	// Core context
-	prompt.WriteString("You are LiveReviewBot, an AI code review assistant.\n\n")
-	prompt.WriteString("CONTEXT:\n")
-	prompt.WriteString(fmt.Sprintf("- Repository: %s\n", event.Repository.Name))
+	staticPrompt.WriteString("You are LiveReviewBot, an AI code review assistant.\n\n")
+	staticPrompt.WriteString("CONTEXT:\n")
+	staticPrompt.WriteString(fmt.Sprintf("- Repository: %s\n", event.Repository.Name))
 	if event.MergeRequest != nil {
-		prompt.WriteString(fmt.Sprintf("- MR/PR title: %s\n", event.MergeRequest.Title))
+		staticPrompt.WriteString(fmt.Sprintf("- MR/PR title: %s\n", event.MergeRequest.Title))
 	}
 
-	// Add MR context from artifact if available (Phase 1 - Iteration 1)
+	// Build timeline section separately
+	timelineSection := &strings.Builder{}
+	if timeline != nil && len(timeline.Items) > 0 {
+		timelineSection.WriteString("\nRECENT CONVERSATION ACROSS THREAD (for context only, do not respond to prior messages unless they are referenced in the current comment):\n")
+		for _, item := range timeline.Items {
+			if item.Comment != nil {
+				content := item.Comment.Body
+				if len(content) > 100 {
+					content = content[:100]
+				}
+				timelineSection.WriteString(fmt.Sprintf("- %s: %s\n", item.Comment.Author.Username, content))
+			}
+		}
+	}
+
+	// Build instructions section
+	instructionsSection := &strings.Builder{}
+	instructionsSection.WriteString("\nCURRENT COMMENT (reply only to this message unless explicitly asked otherwise):\n")
+	instructionsSection.WriteString(fmt.Sprintf("@%s wrote: %s\n", event.Comment.Author.Username, event.Comment.Body))
+	if event.Repository.Name != "" {
+		instructionsSection.WriteString(fmt.Sprintf("Repository path: %s\n", event.Repository.FullName))
+	}
+
+	instructionsSection.WriteString("\nTASK:\n")
+	instructionsSection.WriteString("Answer the CURRENT COMMENT directly. Keep the reply focused on the exact question or concern that was raised. Reference surrounding code or prior discussion only when it improves the specific answer.\n")
+	instructionsSection.WriteString("- Do not summarise unrelated feedback or earlier conversations unless the user explicitly asked for it.\n")
+	instructionsSection.WriteString("- If the user asks \"what is this about?\" or similar, explain the referenced code fragment plainly and briefly.\n")
+	instructionsSection.WriteString("- Stay concise, professional, and actionable.\n\n")
+
+	// LEARNING INSTRUCTIONS
+	instructionsSection.WriteString("LEARNING EXTRACTION:\n")
+	instructionsSection.WriteString("IMPORTANT: Look for team policies, coding standards, and preferences that should be remembered for future interactions.\n\n")
+	instructionsSection.WriteString("EXTRACT LEARNING when you see phrases like:\n")
+	instructionsSection.WriteString("- \"our team prefers...\", \"we generally...\", \"in our team...\"\n")
+	instructionsSection.WriteString("- \"we don't use...\", \"we always...\", \"our standard is...\"\n")
+	instructionsSection.WriteString("- \"team policy\", \"coding standard\", \"house rule\"\n")
+	instructionsSection.WriteString("- User correcting you about team practices\n")
+	instructionsSection.WriteString("- Specific technology choices: \"we use X instead of Y\"\n\n")
+	instructionsSection.WriteString("LEARNING EXAMPLES:\n")
+	instructionsSection.WriteString("✓ \"our team prefers assertion-based error management\" → Extract team policy about assertions\n")
+	instructionsSection.WriteString("✓ \"we don't use magic numbers, always use constants\" → Extract coding standard\n")
+	instructionsSection.WriteString("✓ \"in our codebase, we use TypeScript instead of JavaScript\" → Extract technology preference\n")
+	instructionsSection.WriteString("✗ \"this code has a bug\" → No learning (just reporting an issue)\n")
+	instructionsSection.WriteString("✗ \"can you explain this function?\" → No learning (just asking for help)\n\n")
+	instructionsSection.WriteString("If you identify a learning, add this JSON block at the end of your response:\n")
+	instructionsSection.WriteString("```learning\n")
+	instructionsSection.WriteString("{\n")
+	instructionsSection.WriteString(`  "type": "team_policy|coding_standard|preference|rule",` + "\n")
+	instructionsSection.WriteString(`  "title": "Brief descriptive title of what you learned",` + "\n")
+	instructionsSection.WriteString(`  "content": "Full description of the team's practice, preference, or rule",` + "\n")
+	instructionsSection.WriteString(`  "tags": ["relevant", "keywords", "for_searching"],` + "\n")
+	instructionsSection.WriteString(`  "scope": "org|repo",` + "\n")
+	instructionsSection.WriteString(`  "confidence": 1-5` + "\n")
+	instructionsSection.WriteString("}\n```\n\n")
+	instructionsSection.WriteString("Only include learning block if there's genuinely something worth learning. Most responses won't have learnings. Never repeat a previously acknowledged learning unless this comment introduces new guidance.\n\n")
+	instructionsSection.WriteString("RESPONSE:\n")
+
+	// Calculate tokens for static parts
+	staticText := staticPrompt.String()
+	timelineText := timelineSection.String()
+	instructionsText := instructionsSection.String()
+
+	staticTokens := estimateTokens(staticText)
+	timelineTokens := estimateTokens(timelineText)
+	instructionsTokens := estimateTokens(instructionsText)
+
+	// Build final prompt with MR context that uses remaining budget
+	prompt := &strings.Builder{}
+	prompt.WriteString(staticText)
+
+	// Add MR context from artifact if available
 	if artifact != nil {
 		log.Printf("[DEBUG] Injecting MR context from artifact into prompt")
-		mrContext := p.formatArtifactForPrompt(artifact)
+		// Pass the calculated static costs to formatArtifactForPrompt
+		mrContext := p.formatArtifactForPromptWithBudget(artifact, staticTokens+timelineTokens+instructionsTokens)
 		if mrContext != "" {
 			prompt.WriteString("\n")
 			prompt.WriteString(mrContext)
@@ -305,63 +376,8 @@ func (p *UnifiedProcessorV2Impl) buildCommentReplyPromptWithLearning(event Unifi
 		}
 	}
 
-	prompt.WriteString("\nCURRENT COMMENT (reply only to this message unless explicitly asked otherwise):\n")
-	prompt.WriteString(fmt.Sprintf("@%s wrote: %s\n", event.Comment.Author.Username, event.Comment.Body))
-	if event.Repository.Name != "" {
-		prompt.WriteString(fmt.Sprintf("Repository path: %s\n", event.Repository.FullName))
-	}
-
-	// Timeline context if available
-	if timeline != nil && len(timeline.Items) > 0 {
-		prompt.WriteString("\nRECENT CONVERSATION ACROSS THREAD (for context only, do not respond to prior messages unless they are referenced in the current comment):\n")
-		for _, item := range timeline.Items {
-			if item.Comment != nil {
-				content := item.Comment.Body
-				if len(content) > 100 {
-					content = content[:100]
-				}
-				prompt.WriteString(fmt.Sprintf("- %s: %s\n", item.Comment.Author.Username, content))
-			}
-		}
-	}
-
-	prompt.WriteString("\nTASK:\n")
-	prompt.WriteString("Answer the CURRENT COMMENT directly. Keep the reply focused on the exact question or concern that was raised. Reference surrounding code or prior discussion only when it improves the specific answer.\n")
-	prompt.WriteString("- Do not summarise unrelated feedback or earlier conversations unless the user explicitly asked for it.\n")
-	prompt.WriteString("- If the user asks \"what is this about?\" or similar, explain the referenced code fragment plainly and briefly.\n")
-	prompt.WriteString("- Stay concise, professional, and actionable.\n\n")
-
-	// LEARNING INSTRUCTIONS - Enhanced with specific examples and triggers
-	prompt.WriteString("LEARNING EXTRACTION:\n")
-	prompt.WriteString("IMPORTANT: Look for team policies, coding standards, and preferences that should be remembered for future interactions.\n\n")
-
-	prompt.WriteString("EXTRACT LEARNING when you see phrases like:\n")
-	prompt.WriteString("- \"our team prefers...\", \"we generally...\", \"in our team...\"\n")
-	prompt.WriteString("- \"we don't use...\", \"we always...\", \"our standard is...\"\n")
-	prompt.WriteString("- \"team policy\", \"coding standard\", \"house rule\"\n")
-	prompt.WriteString("- User correcting you about team practices\n")
-	prompt.WriteString("- Specific technology choices: \"we use X instead of Y\"\n\n")
-
-	prompt.WriteString("LEARNING EXAMPLES:\n")
-	prompt.WriteString("✓ \"our team prefers assertion-based error management\" → Extract team policy about assertions\n")
-	prompt.WriteString("✓ \"we don't use magic numbers, always use constants\" → Extract coding standard\n")
-	prompt.WriteString("✓ \"in our codebase, we use TypeScript instead of JavaScript\" → Extract technology preference\n")
-	prompt.WriteString("✗ \"this code has a bug\" → No learning (just reporting an issue)\n")
-	prompt.WriteString("✗ \"can you explain this function?\" → No learning (just asking for help)\n\n")
-
-	prompt.WriteString("If you identify a learning, add this JSON block at the end of your response:\n")
-	prompt.WriteString("```learning\n")
-	prompt.WriteString("{\n")
-	prompt.WriteString(`  "type": "team_policy|coding_standard|preference|rule",` + "\n")
-	prompt.WriteString(`  "title": "Brief descriptive title of what you learned",` + "\n")
-	prompt.WriteString(`  "content": "Full description of the team's practice, preference, or rule",` + "\n")
-	prompt.WriteString(`  "tags": ["relevant", "keywords", "for_searching"],` + "\n")
-	prompt.WriteString(`  "scope": "org|repo",` + "\n")
-	prompt.WriteString(`  "confidence": 1-5` + "\n")
-	prompt.WriteString("}\n```\n\n")
-
-	prompt.WriteString("Only include learning block if there's genuinely something worth learning. Most responses won't have learnings. Never repeat a previously acknowledged learning unless this comment introduces new guidance.\n\n")
-	prompt.WriteString("RESPONSE:\n")
+	prompt.WriteString(timelineText)
+	prompt.WriteString(instructionsText)
 
 	if event.Comment != nil {
 		builder := coreprocessor.UnifiedContextBuilderV2{}
@@ -1320,145 +1336,197 @@ func (p *UnifiedProcessorV2Impl) buildBitbucketArtifactFromEvent(ctx context.Con
 	return artifact, nil
 }
 
-// formatArtifactForPrompt converts UnifiedArtifact to text for LLM prompt
-// Phase 1 - Iteration 1: Basic formatting with simple heuristics
-func (p *UnifiedProcessorV2Impl) formatArtifactForPrompt(artifact *mrmodel.UnifiedArtifact) string {
+// estimateTokens provides rough token count estimate (1 token ≈ 4 characters for English)
+func estimateTokens(text string) int {
+	return len(text) / 4
+}
+
+// formatArtifactForPromptWithBudget converts UnifiedArtifact to text for LLM prompt
+// Uses token budget approach - calculates actual token usage and allocates rest to diffs
+func (p *UnifiedProcessorV2Impl) formatArtifactForPromptWithBudget(artifact *mrmodel.UnifiedArtifact, staticCost int) string {
 	if artifact == nil {
 		return ""
 	}
 
+	const totalPromptBudget = 200000 // Total token budget for entire prompt
+
 	var builder strings.Builder
 	builder.WriteString("=== MERGE REQUEST CONTEXT ===\n")
 
-	// Add participants
+	// Build participants section
+	participantsSection := &strings.Builder{}
 	if len(artifact.Participants) > 0 {
-		builder.WriteString("\nPARTICIPANTS:\n")
+		participantsSection.WriteString("\nPARTICIPANTS:\n")
 		for _, participant := range artifact.Participants {
-			builder.WriteString(fmt.Sprintf("- @%s (%s)\n", participant.Username, participant.Name))
+			participantsSection.WriteString(fmt.Sprintf("- @%s (%s)\n", participant.Username, participant.Name))
 		}
 	}
 
-	/*
-		// Add timeline summary (limit to prevent overwhelming context)
-		if len(artifact.Timeline) > 0 {
-			builder.WriteString("\nTIMELINE SUMMARY:\n")
-			count := 0
-			maxTimelineItems := 10
-			for i := len(artifact.Timeline) - 1; i >= 0 && count < maxTimelineItems; i-- {
-				item := artifact.Timeline[i]
-				summary := ""
-				if item.Kind == "commit" && item.Commit != nil {
-					summary = item.Commit.Title
-				} else if item.Kind == "comment" && item.Comment != nil {
-					summary = item.Comment.Body
-				}
-				builder.WriteString(fmt.Sprintf("- [%s] %s: %s\n",
-					item.CreatedAt.Format("2006-01-02 15:04"),
-					item.Author.Username,
-					p.truncateString(summary, 100)))
-				count++
-			}
-			if len(artifact.Timeline) > maxTimelineItems {
-				builder.WriteString(fmt.Sprintf("... (%d more timeline items)\n", len(artifact.Timeline)-maxTimelineItems))
-			}
-		}
-	*/
-
-	// Add comment threads (basic format - limit to prevent overwhelming context)
+	// Build comment threads section
+	commentsSection := &strings.Builder{}
 	if len(artifact.CommentTree.Roots) > 0 {
-		builder.WriteString("\nCOMMENT THREADS:\n")
+		commentsSection.WriteString("\nCOMMENT THREADS:\n")
 		threadCount := 0
-		maxThreads := 30
+		maxThreads := 50 // Increased from 30
 		for _, root := range artifact.CommentTree.Roots {
 			if threadCount >= maxThreads {
-				builder.WriteString(fmt.Sprintf("... (%d more threads)\n", len(artifact.CommentTree.Roots)-maxThreads))
+				commentsSection.WriteString(fmt.Sprintf("... (%d more threads)\n", len(artifact.CommentTree.Roots)-maxThreads))
 				break
 			}
-			builder.WriteString(p.formatCommentThreadBasic(root, 0))
+			commentsSection.WriteString(p.formatCommentThreadBasic(root, 0))
 			threadCount++
 		}
 	}
 
-	// Add diffs (limit to prevent overwhelming context)
+	// Calculate tokens used
+	participantsText := participantsSection.String()
+	commentsText := commentsSection.String()
+
+	participantsTokens := estimateTokens(participantsText)
+	commentsTokens := estimateTokens(commentsText)
+
+	// Calculate remaining budget for diffs
+	usedTokens := staticCost + participantsTokens + commentsTokens
+	remainingBudget := totalPromptBudget - usedTokens
+
+	// Calculate percentages
+	staticPct := float64(staticCost) * 100.0 / float64(totalPromptBudget)
+	participantsPct := float64(participantsTokens) * 100.0 / float64(totalPromptBudget)
+	commentsPct := float64(commentsTokens) * 100.0 / float64(totalPromptBudget)
+	diffBudgetPct := float64(remainingBudget) * 100.0 / float64(totalPromptBudget)
+
+	log.Printf("[TOKEN_BUDGET] Total budget: %d tokens (100%%)", totalPromptBudget)
+	log.Printf("[TOKEN_BUDGET] ├─ Static instructions: %d tokens (%.1f%%)", staticCost, staticPct)
+	log.Printf("[TOKEN_BUDGET] ├─ Participants: %d tokens (%.1f%%)", participantsTokens, participantsPct)
+	log.Printf("[TOKEN_BUDGET] ├─ Comment threads: %d tokens (%.1f%%)", commentsTokens, commentsPct)
+	log.Printf("[TOKEN_BUDGET] └─ Available for diffs: %d tokens (%.1f%%)", remainingBudget, diffBudgetPct)
+
+	// Ensure minimum budget for diffs
+	if remainingBudget < 10000 {
+		log.Printf("[TOKEN_BUDGET] ⚠️  WARNING: Very low diff budget (%d tokens), setting minimum to 10000", remainingBudget)
+		remainingBudget = 10000
+	}
+
+	// Write participants and comments
+	builder.WriteString(participantsText)
+	builder.WriteString(commentsText)
+
+	// Add diffs using remaining token budget
 	if len(artifact.Diffs) > 0 {
-		builder.WriteString("\nCODE CHANGES:\n")
-		totalLines := 0
-		maxDiffLines := 500 // Increased from 200 to show more context
-		filesIncluded := 0
+		diffsSection := p.formatDiffsWithBudget(artifact.Diffs, remainingBudget)
+		builder.WriteString(diffsSection)
+	}
 
-		for _, diff := range artifact.Diffs {
-			path := diff.NewPath
-			if path == "" {
-				path = diff.OldPath
-			}
+	builder.WriteString("\n=== END MERGE REQUEST CONTEXT ===\n")
 
-			// Calculate added/deleted lines and count total diff lines
-			addedLines := 0
-			deletedLines := 0
-			diffLines := 0
-			for _, hunk := range diff.Hunks {
-				diffLines += len(hunk.Lines)
-				for _, line := range hunk.Lines {
-					if line.LineType == "added" {
-						addedLines++
-					} else if line.LineType == "deleted" {
-						deletedLines++
-					}
+	finalText := builder.String()
+	finalTokens := estimateTokens(finalText)
+	finalPct := float64(finalTokens) * 100.0 / float64(totalPromptBudget)
+	log.Printf("[TOKEN_BUDGET] 📊 Final MR context: %d tokens (%.1f%% of total budget)", finalTokens, finalPct)
+
+	return finalText
+}
+
+// formatDiffsWithBudget formats diffs within the given token budget
+func (p *UnifiedProcessorV2Impl) formatDiffsWithBudget(diffs []*mrmodel.LocalCodeDiff, tokenBudget int) string {
+	var builder strings.Builder
+	builder.WriteString("\nCODE CHANGES:\n")
+
+	currentTokens := estimateTokens(builder.String())
+	filesIncluded := 0
+	linesIncluded := 0
+
+	for _, diff := range diffs {
+		path := diff.NewPath
+		if path == "" {
+			path = diff.OldPath
+		}
+
+		// Calculate added/deleted lines
+		addedLines := 0
+		deletedLines := 0
+		for _, hunk := range diff.Hunks {
+			for _, line := range hunk.Lines {
+				if line.LineType == "added" {
+					addedLines++
+				} else if line.LineType == "deleted" {
+					deletedLines++
 				}
 			}
+		}
 
-			// Write file header
-			builder.WriteString(fmt.Sprintf("\n--- %s (+%d -%d) ---\n", path, addedLines, deletedLines))
+		// Build file section
+		fileSection := &strings.Builder{}
+		fileSection.WriteString(fmt.Sprintf("\n--- %s (+%d -%d) ---\n", path, addedLines, deletedLines))
 
-			// Write hunks, but truncate if we exceed the limit
-			linesWritten := 0
-			truncated := false
-			for _, hunk := range diff.Hunks {
-				if totalLines >= maxDiffLines {
+		// Add hunks
+		truncated := false
+		for _, hunk := range diff.Hunks {
+			hunkHeader := fmt.Sprintf("@@ -%d,%d +%d,%d @@ %s\n",
+				hunk.OldStartLine, hunk.OldLineCount,
+				hunk.NewStartLine, hunk.NewLineCount,
+				hunk.HeaderText)
+			fileSection.WriteString(hunkHeader)
+
+			for _, line := range hunk.Lines {
+				fileSection.WriteString(line.Content)
+				fileSection.WriteString("\n")
+				linesIncluded++
+
+				// Check if we're approaching budget limit
+				sectionTokens := estimateTokens(fileSection.String())
+				if currentTokens+sectionTokens >= tokenBudget {
 					truncated = true
-					break
-				}
-
-				builder.WriteString(fmt.Sprintf("@@ -%d,%d +%d,%d @@ %s\n",
-					hunk.OldStartLine, hunk.OldLineCount,
-					hunk.NewStartLine, hunk.NewLineCount,
-					hunk.HeaderText))
-				totalLines++
-				linesWritten++
-
-				for _, line := range hunk.Lines {
-					if totalLines >= maxDiffLines {
-						truncated = true
-						break
-					}
-					builder.WriteString(line.Content)
-					builder.WriteString("\n")
-					totalLines++
-					linesWritten++
-				}
-
-				if truncated {
 					break
 				}
 			}
 
 			if truncated {
-				builder.WriteString(fmt.Sprintf("... (diff truncated after %d lines, %d more files with changes)\n",
-					totalLines, len(artifact.Diffs)-filesIncluded-1))
 				break
 			}
-
-			filesIncluded++
 		}
 
-		log.Printf("[DEBUG] Formatted %d files with %d total diff lines", filesIncluded, totalLines)
+		// Check if adding this file would exceed budget
+		sectionText := fileSection.String()
+		sectionTokens := estimateTokens(sectionText)
+
+		if currentTokens+sectionTokens >= tokenBudget {
+			// Budget exhausted
+			filesRemaining := len(diffs) - filesIncluded
+			log.Printf("[TOKEN_BUDGET] 🔴 Diff budget exhausted: %d/%d files included, %d files truncated, %d diff lines included",
+				filesIncluded, len(diffs), filesRemaining, linesIncluded)
+			builder.WriteString(fmt.Sprintf("\n... (diff truncated due to token budget: %d/%d files shown, %d files omitted, %d diff lines included)\n",
+				filesIncluded, len(diffs), filesRemaining, linesIncluded))
+			break
+		}
+
+		// Add this file's diff
+		builder.WriteString(sectionText)
+		currentTokens += sectionTokens
+		filesIncluded++
+
+		if truncated {
+			filesRemaining := len(diffs) - filesIncluded
+			log.Printf("[TOKEN_BUDGET] 🟡 Diff partially truncated: %d/%d files included, %d files omitted, %d diff lines included",
+				filesIncluded, len(diffs), filesRemaining, linesIncluded)
+			builder.WriteString(fmt.Sprintf("... (file truncated, %d more files with changes)\n", filesRemaining))
+			break
+		}
 	}
 
-	builder.WriteString("\n=== END MERGE REQUEST CONTEXT ===\n")
-	return builder.String()
-}
+	actualTokens := estimateTokens(builder.String())
+	actualPct := float64(actualTokens) * 100.0 / float64(tokenBudget)
 
-// formatCommentThreadBasic formats a comment thread recursively (basic format)
+	if filesIncluded == len(diffs) {
+		log.Printf("[TOKEN_BUDGET] ✅ All diffs included: %d/%d files, %d lines, %d tokens used (%.1f%% of diff budget)",
+			filesIncluded, len(diffs), linesIncluded, actualTokens, actualPct)
+	} else {
+		log.Printf("[TOKEN_BUDGET] ⚠️  Diffs truncated: %d/%d files, %d lines, %d tokens used (%.1f%% of diff budget)",
+			filesIncluded, len(diffs), linesIncluded, actualTokens, actualPct)
+	}
+
+	return builder.String()
+} // formatCommentThreadBasic formats a comment thread recursively (basic format)
 func (p *UnifiedProcessorV2Impl) formatCommentThreadBasic(comment *reviewmodel.CommentNode, depth int) string {
 	if comment == nil {
 		return ""

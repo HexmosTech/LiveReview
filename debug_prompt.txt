@@ -12,11 +12,11 @@ PARTICIPANTS:
 - @712020:cd5db0f9-0d82-428a-b778-80a5b9416408 (LiveReview Bot)
 
 COMMENT THREADS:
-- @712020:cd5db0f9-0d82-428a-b778-80a5b9416408 on activepm2.py:168: Checking for both `data is None` and `not data` is redundant. `not data` will evaluate to `True` if `data` is `None`.
-- @712020:a02bc964-a339-4d21-baa3-71da9c43382e on activepm2.py:120: @{712020:cd5db0f9-0d82-428a-b778-80a5b9416408} What is the difference between is\_file and exists\(\)
 - @712020:cd5db0f9-0d82-428a-b778-80a5b9416408 on activepm2.py:120: @712020:cd5db0f9-0d82-428a-b778-80a5b9416408 Good question!
 
 `os.path.exists()` checks if a path exists, regardless of whether it's a file, directory, link, or any other type of filesystem object. ...
+- @712020:a02bc964-a339-4d21-baa3-71da9c43382e on activepm2.py:87: 
+- @712020:cd5db0f9-0d82-428a-b778-80a5b9416408 on activepm2.py:87: 
 - @712020:a02bc964-a339-4d21-baa3-71da9c43382e on activepm2.py:87: 
 - @712020:cd5db0f9-0d82-428a-b778-80a5b9416408 on activepm2.py:87: 
 - @712020:a02bc964-a339-4d21-baa3-71da9c43382e on activepm2.py:87: 
