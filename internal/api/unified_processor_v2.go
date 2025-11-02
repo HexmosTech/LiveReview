@@ -325,6 +325,19 @@ func (p *UnifiedProcessorV2Impl) buildCommentReplyPromptWithLearning(event Unifi
 		if event.Comment.Position.LineType != "" {
 			instructionsSection.WriteString(fmt.Sprintf("- Line type: %s\n", event.Comment.Position.LineType))
 		}
+
+		// Extract actual code lines from artifact diffs if available
+		if artifact != nil {
+			codeLines := p.extractCodeLinesFromDiff(artifact, event.Comment.Position.FilePath, event.Comment.Position.LineNumber)
+			if len(codeLines) > 0 {
+				instructionsSection.WriteString("\nCode snippet:\n```\n")
+				for _, line := range codeLines {
+					instructionsSection.WriteString(line)
+					instructionsSection.WriteString("\n")
+				}
+				instructionsSection.WriteString("```\n")
+			}
+		}
 	}
 
 	instructionsSection.WriteString("\nTASK:\n")
@@ -518,6 +531,81 @@ func truncateLearningBodyV2(body string, limit int) string {
 	}
 
 	return body
+}
+
+// extractCodeLinesFromDiff extracts code lines around a specific line number from the diff
+func (p *UnifiedProcessorV2Impl) extractCodeLinesFromDiff(artifact *mrmodel.UnifiedArtifact, filePath string, lineNumber int) []string {
+	if artifact == nil || len(artifact.Diffs) == 0 {
+		return nil
+	}
+
+	// Find the diff for the specified file
+	var targetDiff *mrmodel.LocalCodeDiff
+	for i := range artifact.Diffs {
+		if artifact.Diffs[i].NewPath == filePath || artifact.Diffs[i].OldPath == filePath {
+			targetDiff = artifact.Diffs[i]
+			break
+		}
+	}
+
+	if targetDiff == nil {
+		return nil
+	}
+
+	// Extract lines from hunks that contain or are near the target line
+	var result []string
+	const contextLines = 3 // Show 3 lines before and after
+
+	for _, hunk := range targetDiff.Hunks {
+		for i, line := range hunk.Lines {
+			// Check if this line matches our target (use NewLineNo for new/context lines)
+			lineNo := line.NewLineNo
+			if line.LineType == "deleted" {
+				lineNo = line.OldLineNo
+			}
+
+			// If this line is within context range of our target
+			if lineNo >= lineNumber-contextLines && lineNo <= lineNumber+contextLines {
+				// Include a few lines before and after
+				startIdx := max(0, i-contextLines)
+				endIdx := min(len(hunk.Lines), i+contextLines+1)
+
+				for j := startIdx; j < endIdx; j++ {
+					diffLine := hunk.Lines[j]
+					linePrefix := " "
+					if diffLine.LineType == "added" {
+						linePrefix = "+"
+					} else if diffLine.LineType == "deleted" {
+						linePrefix = "-"
+					}
+
+					displayLineNo := diffLine.NewLineNo
+					if diffLine.LineType == "deleted" {
+						displayLineNo = diffLine.OldLineNo
+					}
+
+					result = append(result, fmt.Sprintf("%s %d: %s", linePrefix, displayLineNo, diffLine.Content))
+				}
+				return result // Found our context, return it
+			}
+		}
+	}
+
+	return nil
+}
+
+func max(a, b int) int {
+	if a > b {
+		return a
+	}
+	return b
+}
+
+func min(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
 }
 
 // ProcessFullReview processes full review flow when bot is assigned as reviewer
