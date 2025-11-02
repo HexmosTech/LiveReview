@@ -317,6 +317,16 @@ func (p *UnifiedProcessorV2Impl) buildCommentReplyPromptWithLearning(event Unifi
 		instructionsSection.WriteString(fmt.Sprintf("Repository path: %s\n", event.Repository.FullName))
 	}
 
+	// Add code context if this is an inline comment
+	if event.Comment.Position != nil {
+		instructionsSection.WriteString("\nCode context:\n")
+		instructionsSection.WriteString(fmt.Sprintf("- File: %s\n", event.Comment.Position.FilePath))
+		instructionsSection.WriteString(fmt.Sprintf("- Line: %d\n", event.Comment.Position.LineNumber))
+		if event.Comment.Position.LineType != "" {
+			instructionsSection.WriteString(fmt.Sprintf("- Line type: %s\n", event.Comment.Position.LineType))
+		}
+	}
+
 	instructionsSection.WriteString("\nTASK:\n")
 	instructionsSection.WriteString("Answer the CURRENT COMMENT directly. Keep the reply focused on the exact question or concern that was raised. Reference surrounding code or prior discussion only when it improves the specific answer.\n")
 	instructionsSection.WriteString("- Do not summarise unrelated feedback or earlier conversations unless the user explicitly asked for it.\n")
