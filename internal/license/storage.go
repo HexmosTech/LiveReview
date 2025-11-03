@@ -85,3 +85,12 @@ func (s *Storage) UpdateValidationResult(ctx context.Context, success bool, erro
 	}
 	return nil
 }
+
+// DeleteLicenseState deletes the license state record.
+func (s *Storage) DeleteLicenseState(ctx context.Context) error {
+	_, err := s.db.ExecContext(ctx, `DELETE FROM license_state WHERE id=1`)
+	if err != nil {
+		return fmt.Errorf("delete license_state: %w", err)
+	}
+	return nil
+}
