@@ -167,3 +167,8 @@ func (s *Service) expireIfGraceExceeded(ctx context.Context) error {
 	}
 	return nil
 }
+
+// DeleteLicense removes the license from the system.
+func (s *Service) DeleteLicense(ctx context.Context) error {
+	return s.store.DeleteLicenseState(ctx)
+}

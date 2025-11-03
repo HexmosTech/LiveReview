@@ -16,6 +16,7 @@ func (s *Server) attachLicenseRoutes(v1 *echo.Group) {
 	group.GET("/status", s.handleLicenseStatus)
 	group.POST("/update", s.handleLicenseUpdate)
 	group.POST("/refresh", s.handleLicenseRefresh)
+	group.DELETE("/delete", s.handleLicenseDelete)
 }
 
 func (s *Server) licenseService() *lic.Service {
@@ -92,6 +93,14 @@ func toStatusResponse(st *lic.LicenseState) *LicenseStatusResponse {
 		LastValidatedAt:    lastValStr,
 		LastValidationCode: st.LastValidationErrCode,
 	}
+}
+
+func (s *Server) handleLicenseDelete(c echo.Context) error {
+	svc := s.licenseService()
+	if err := svc.DeleteLicense(c.Request().Context()); err != nil {
+		return c.JSON(http.StatusInternalServerError, map[string]string{"error": err.Error()})
+	}
+	return c.JSON(http.StatusOK, map[string]string{"message": "license_deleted_successfully"})
 }
 
 func classifyLicenseError(c echo.Context, err error) error {

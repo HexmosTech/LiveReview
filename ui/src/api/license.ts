@@ -25,3 +25,7 @@ export async function updateLicense(token: string): Promise<LicenseStatusRespons
 export async function refreshLicense(): Promise<LicenseStatusResponse> {
   return apiClient.post<LicenseStatusResponse>('/license/refresh', {});
 }
+
+export async function deleteLicense(): Promise<{ message: string }> {
+  return apiClient.delete<{ message: string }>('/license/delete');
+}
