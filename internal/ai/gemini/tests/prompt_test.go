@@ -52,7 +52,7 @@ func TestConstructPrompt(t *testing.T) {
 	assert.Contains(t, prompt, "Code Review Request")
 	assert.Contains(t, prompt, "Review the following code changes thoroughly")
 	assert.Contains(t, prompt, "Format your response as JSON")
-	assert.Contains(t, prompt, "fileSummary")
+	assert.Contains(t, prompt, "fileSummaries")
 	assert.Contains(t, prompt, "comments")
 
 	// Verify it contains file information
