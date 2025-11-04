@@ -1,0 +1,1763 @@
+{
+  "results": [
+    {
+      "objectId": "9L9n5sS5lm",
+      "timestamp": { "__type": "Date", "iso": "2025-11-04T09:16:41.219Z" },
+      "details": { "validatedAt": "2025-11-04T09:16:41.219Z" },
+      "action": "VALIDATE_SUCCESS",
+      "actorType": "admin",
+      "actorId": "system",
+      "licenceId": "UI7xE8Bozn",
+      "email": "xavier.desbieys@dotsafe.fr",
+      "appName": "LiveReview",
+      "createdAt": "2025-11-04T09:16:41.219Z",
+      "updatedAt": "2025-11-04T09:16:41.219Z"
+    },
+    {
+      "objectId": "htdWKxJeR3",
+      "timestamp": { "__type": "Date", "iso": "2025-11-04T05:37:21.671Z" },
+      "details": { "validatedAt": "2025-11-04T05:37:21.670Z" },
+      "action": "VALIDATE_SUCCESS",
+      "actorType": "admin",
+      "actorId": "system",
+      "licenceId": "2CRp8hS4OY",
+      "email": "shrijith.sv@gmail.com",
+      "appName": "LiveReview",
+      "createdAt": "2025-11-04T05:37:21.671Z",
+      "updatedAt": "2025-11-04T05:37:21.671Z"
+    },
+    {
+      "objectId": "kwgrzv1xeV",
+      "timestamp": { "__type": "Date", "iso": "2025-11-03T16:48:31.917Z" },
+      "details": {
+        "seatCount": 0,
+        "durationDays": 15,
+        "licenceVersion": 1,
+        "jtiPrefix": "47ebb230"
+      },
+      "action": "ISSUE",
+      "actorType": "admin",
+      "actorId": "system",
+      "licenceId": "yDUKR3ikP1",
+      "email": "kjt1175@joliet86.org",
+      "appName": "LiveReview",
+      "tokenJtiPrefix": "47ebb230",
+      "createdAt": "2025-11-03T16:48:31.918Z",
+      "updatedAt": "2025-11-03T16:48:31.918Z"
+    },
+    {
+      "objectId": "h3eCc6CKQT",
+      "timestamp": { "__type": "Date", "iso": "2025-11-03T16:38:55.254Z" },
+      "details": {
+        "seatCount": 0,
+        "durationDays": 15,
+        "licenceVersion": 1,
+        "jtiPrefix": "719ae503"
+      },
+      "action": "ISSUE",
+      "actorType": "admin",
+      "actorId": "system",
+      "licenceId": "rzNpJfYf8R",
+      "email": "adenmarina2@gmail.com",
+      "appName": "LiveReview",
+      "tokenJtiPrefix": "719ae503",
+      "createdAt": "2025-11-03T16:38:55.255Z",
+      "updatedAt": "2025-11-03T16:38:55.255Z"
+    },
+    {
+      "objectId": "9D9WagfSFd",
+      "timestamp": { "__type": "Date", "iso": "2025-11-03T14:00:42.277Z" },
+      "details": { "validatedAt": "2025-11-03T14:00:42.276Z" },
+      "action": "VALIDATE_SUCCESS",
+      "actorType": "admin",
+      "actorId": "system",
+      "licenceId": "2CRp8hS4OY",
+      "email": "shrijith.sv@gmail.com",
+      "appName": "LiveReview",
+      "createdAt": "2025-11-03T14:00:42.277Z",
+      "updatedAt": "2025-11-03T14:00:42.277Z"
+    },
+    {
+      "objectId": "7pDQnJXE3f",
+      "timestamp": { "__type": "Date", "iso": "2025-11-03T13:44:10.924Z" },
+      "details": {
+        "oldLicenceId": "Fj5ENHtr92",
+        "seatCount": 0,
+        "durationDays": 15,
+        "preservedExpiry": "2025-11-17T13:50:52.333Z",
+        "licenceVersion": 1,
+        "jtiPrefix": "2e1f45f9",
+        "reason": "user_requested"
+      },
+      "action": "REISSUE",
+      "actorType": "admin",
+      "actorId": "system",
+      "licenceId": "2CRp8hS4OY",
+      "email": "shrijith.sv@gmail.com",
+      "appName": "LiveReview",
+      "tokenJtiPrefix": "2e1f45f9",
+      "createdAt": "2025-11-03T13:44:10.925Z",
+      "updatedAt": "2025-11-03T13:44:10.925Z"
+    },
+    {
+      "objectId": "t0hjVVnqlF",
+      "timestamp": { "__type": "Date", "iso": "2025-11-03T13:44:10.892Z" },
+      "details": {
+        "reason": "REISSUE",
+        "oldLicenceId": "Fj5ENHtr92",
+        "revokedBy": "admin"
+      },
+      "action": "REVOKE",
+      "actorType": "admin",
+      "actorId": "system",
+      "licenceId": "Fj5ENHtr92",
+      "email": "shrijith.sv@gmail.com",
+      "appName": "LiveReview",
+      "createdAt": "2025-11-03T13:44:10.893Z",
+      "updatedAt": "2025-11-03T13:44:10.893Z"
+    },
+    {
+      "objectId": "lllnPNFMzY",
+      "timestamp": { "__type": "Date", "iso": "2025-11-03T13:38:16.201Z" },
+      "details": { "validatedAt": "2025-11-03T13:38:16.201Z" },
+      "action": "VALIDATE_SUCCESS",
+      "actorType": "admin",
+      "actorId": "system",
+      "licenceId": "Fj5ENHtr92",
+      "email": "shrijith.sv@gmail.com",
+      "appName": "LiveReview",
+      "createdAt": "2025-11-03T13:38:16.202Z",
+      "updatedAt": "2025-11-03T13:38:16.202Z"
+    },
+    {
+      "objectId": "MkyQg1K3wE",
+      "timestamp": { "__type": "Date", "iso": "2025-11-03T13:14:13.801Z" },
+      "details": {
+        "seatCount": 0,
+        "durationDays": 15,
+        "licenceVersion": 1,
+        "jtiPrefix": "033f42e2"
+      },
+      "action": "ISSUE",
+      "actorType": "admin",
+      "actorId": "system",
+      "licenceId": "UI7xE8Bozn",
+      "email": "xavier.desbieys@dotsafe.fr",
+      "appName": "LiveReview",
+      "tokenJtiPrefix": "033f42e2",
+      "createdAt": "2025-11-03T13:14:13.802Z",
+      "updatedAt": "2025-11-03T13:14:13.802Z"
+    },
+    {
+      "objectId": "UDOGmJceFS",
+      "timestamp": { "__type": "Date", "iso": "2025-11-02T18:12:02.944Z" },
+      "details": {
+        "seatCount": 0,
+        "durationDays": 15,
+        "licenceVersion": 1,
+        "jtiPrefix": "b379e4e6"
+      },
+      "action": "ISSUE",
+      "actorType": "admin",
+      "actorId": "system",
+      "licenceId": "lZsTW1SZ3c",
+      "email": "justmegaliga10000@gmail.com",
+      "appName": "LiveReview",
+      "tokenJtiPrefix": "b379e4e6",
+      "createdAt": "2025-11-02T18:12:02.945Z",
+      "updatedAt": "2025-11-02T18:12:02.945Z"
+    },
+    {
+      "objectId": "jXHDHhWQvK",
+      "timestamp": { "__type": "Date", "iso": "2025-11-02T15:48:59.268Z" },
+      "details": { "validatedAt": "2025-11-02T15:48:59.268Z" },
+      "action": "VALIDATE_SUCCESS",
+      "actorType": "admin",
+      "actorId": "system",
+      "licenceId": "Fj5ENHtr92",
+      "email": "shrijith.sv@gmail.com",
+      "appName": "LiveReview",
+      "createdAt": "2025-11-02T15:48:59.269Z",
+      "updatedAt": "2025-11-02T15:48:59.269Z"
+    },
+    {
+      "objectId": "QZF40UX6ln",
+      "timestamp": { "__type": "Date", "iso": "2025-11-02T13:50:52.356Z" },
+      "details": {
+        "renewalCount": 1,
+        "licenceVersion": 2,
+        "extendedByDays": 15,
+        "jtiPrefix": "624a78bc"
+      },
+      "action": "RENEW",
+      "actorType": "admin",
+      "actorId": "system",
+      "licenceId": "Fj5ENHtr92",
+      "email": "shrijith.sv@gmail.com",
+      "appName": "LiveReview",
+      "tokenJtiPrefix": "624a78bc",
+      "createdAt": "2025-11-02T13:50:52.357Z",
+      "updatedAt": "2025-11-02T13:50:52.357Z"
+    },
+    {
+      "objectId": "YeNPUfTX6g",
+      "timestamp": { "__type": "Date", "iso": "2025-11-02T04:40:31.652Z" },
+      "details": {
+        "seatCount": 0,
+        "durationDays": 15,
+        "licenceVersion": 1,
+        "jtiPrefix": "a28f72a3"
+      },
+      "action": "ISSUE",
+      "actorType": "admin",
+      "actorId": "system",
+      "licenceId": "Q3Jx4EQxyY",
+      "email": "sravsscutie29@gmail.com",
+      "appName": "LiveReview",
+      "tokenJtiPrefix": "a28f72a3",
+      "createdAt": "2025-11-02T04:40:31.653Z",
+      "updatedAt": "2025-11-02T04:40:31.653Z"
+    },
+    {
+      "objectId": "ymHmRA1bnP",
+      "timestamp": { "__type": "Date", "iso": "2025-11-01T11:15:12.900Z" },
+      "details": {
+        "seatCount": 0,
+        "durationDays": 15,
+        "licenceVersion": 1,
+        "jtiPrefix": "a8f26c2e"
+      },
+      "action": "ISSUE",
+      "actorType": "admin",
+      "actorId": "system",
+      "licenceId": "AlWfiDQABy",
+      "email": "dev@harryadney.com",
+      "appName": "LiveReview",
+      "tokenJtiPrefix": "a8f26c2e",
+      "createdAt": "2025-11-01T11:15:12.900Z",
+      "updatedAt": "2025-11-01T11:15:12.900Z"
+    },
+    {
+      "objectId": "TCzZCR75dk",
+      "timestamp": { "__type": "Date", "iso": "2025-10-31T16:57:56.797Z" },
+      "details": {
+        "seatCount": 0,
+        "durationDays": 15,
+        "licenceVersion": 1,
+        "jtiPrefix": "87643307"
+      },
+      "action": "ISSUE",
+      "actorType": "admin",
+      "actorId": "system",
+      "licenceId": "LAaM5v8CG7",
+      "email": "tagmartin4@gmail.com",
+      "appName": "LiveReview",
+      "tokenJtiPrefix": "87643307",
+      "createdAt": "2025-10-31T16:57:56.798Z",
+      "updatedAt": "2025-10-31T16:57:56.798Z"
+    },
+    {
+      "objectId": "ylmOk738Pl",
+      "timestamp": { "__type": "Date", "iso": "2025-10-31T13:44:25.930Z" },
+      "details": {
+        "seatCount": 0,
+        "durationDays": 15,
+        "licenceVersion": 1,
+        "jtiPrefix": "6d01a1ef"
+      },
+      "action": "ISSUE",
+      "actorType": "admin",
+      "actorId": "system",
+      "licenceId": "AiBB7rAF4j",
+      "email": "ibrahimshaikh73730@gmail.com",
+      "appName": "LiveReview",
+      "tokenJtiPrefix": "6d01a1ef",
+      "createdAt": "2025-10-31T13:44:25.931Z",
+      "updatedAt": "2025-10-31T13:44:25.931Z"
+    },
+    {
+      "objectId": "C2nl8HOuUN",
+      "timestamp": { "__type": "Date", "iso": "2025-10-31T02:57:29.370Z" },
+      "details": {
+        "seatCount": 0,
+        "durationDays": 15,
+        "licenceVersion": 1,
+        "jtiPrefix": "8831b151"
+      },
+      "action": "ISSUE",
+      "actorType": "admin",
+      "actorId": "system",
+      "licenceId": "A4xWzI6ZTG",
+      "email": "rajinikanishka1@gmail.com",
+      "appName": "LiveReview",
+      "tokenJtiPrefix": "8831b151",
+      "createdAt": "2025-10-31T02:57:29.371Z",
+      "updatedAt": "2025-10-31T02:57:29.371Z"
+    },
+    {
+      "objectId": "J9ybwCGocO",
+      "timestamp": { "__type": "Date", "iso": "2025-10-30T20:28:34.813Z" },
+      "details": {
+        "seatCount": 0,
+        "durationDays": 15,
+        "licenceVersion": 1,
+        "jtiPrefix": "f49b6980"
+      },
+      "action": "ISSUE",
+      "actorType": "admin",
+      "actorId": "system",
+      "licenceId": "9pjUPuZSoh",
+      "email": "razaullahmanihaar0@gmail.com",
+      "appName": "LiveReview",
+      "tokenJtiPrefix": "f49b6980",
+      "createdAt": "2025-10-30T20:28:34.814Z",
+      "updatedAt": "2025-10-30T20:28:34.814Z"
+    },
+    {
+      "objectId": "PamFgFVgCI",
+      "timestamp": { "__type": "Date", "iso": "2025-10-30T05:21:04.918Z" },
+      "details": {
+        "seatCount": 0,
+        "durationDays": 15,
+        "licenceVersion": 1,
+        "jtiPrefix": "7bed792a"
+      },
+      "action": "ISSUE",
+      "actorType": "admin",
+      "actorId": "system",
+      "licenceId": "IbrNRz13q1",
+      "email": "klevotch@gmail.com",
+      "appName": "LiveReview",
+      "tokenJtiPrefix": "7bed792a",
+      "createdAt": "2025-10-30T05:21:04.918Z",
+      "updatedAt": "2025-10-30T05:21:04.918Z"
+    },
+    {
+      "objectId": "iuikwifts1",
+      "timestamp": { "__type": "Date", "iso": "2025-10-29T15:24:47.588Z" },
+      "details": {
+        "oldLicenceId": "Eaw9K4XxaN",
+        "seatCount": 0,
+        "durationDays": 15,
+        "preservedExpiry": "2025-11-13T15:23:33.234Z",
+        "licenceVersion": 1,
+        "jtiPrefix": "f7bec583",
+        "reason": "user_requested"
+      },
+      "action": "REISSUE",
+      "actorType": "admin",
+      "actorId": "system",
+      "licenceId": "lXlnAui4jN",
+      "email": "jojoking335588@gmail.com",
+      "appName": "LiveReview",
+      "tokenJtiPrefix": "f7bec583",
+      "createdAt": "2025-10-29T15:24:47.588Z",
+      "updatedAt": "2025-10-29T15:24:47.588Z"
+    },
+    {
+      "objectId": "EOWlu8eKp6",
+      "timestamp": { "__type": "Date", "iso": "2025-10-29T15:24:47.561Z" },
+      "details": {
+        "reason": "REISSUE",
+        "oldLicenceId": "Eaw9K4XxaN",
+        "revokedBy": "admin"
+      },
+      "action": "REVOKE",
+      "actorType": "admin",
+      "actorId": "system",
+      "licenceId": "Eaw9K4XxaN",
+      "email": "jojoking335588@gmail.com",
+      "appName": "LiveReview",
+      "createdAt": "2025-10-29T15:24:47.561Z",
+      "updatedAt": "2025-10-29T15:24:47.561Z"
+    },
+    {
+      "objectId": "F6gQUNQ6IW",
+      "timestamp": { "__type": "Date", "iso": "2025-10-29T15:23:33.251Z" },
+      "details": {
+        "seatCount": 0,
+        "durationDays": 15,
+        "licenceVersion": 1,
+        "jtiPrefix": "f29e1d84"
+      },
+      "action": "ISSUE",
+      "actorType": "admin",
+      "actorId": "system",
+      "licenceId": "Eaw9K4XxaN",
+      "email": "jojoking335588@gmail.com",
+      "appName": "LiveReview",
+      "tokenJtiPrefix": "f29e1d84",
+      "createdAt": "2025-10-29T15:23:33.251Z",
+      "updatedAt": "2025-10-29T15:23:33.251Z"
+    },
+    {
+      "objectId": "SsXjQNOtd3",
+      "timestamp": { "__type": "Date", "iso": "2025-10-29T11:35:24.649Z" },
+      "details": {
+        "seatCount": 0,
+        "durationDays": 15,
+        "licenceVersion": 1,
+        "jtiPrefix": "654e5fe6"
+      },
+      "action": "ISSUE",
+      "actorType": "admin",
+      "actorId": "system",
+      "licenceId": "2OrE4WKfvC",
+      "email": "sociancecome@gmail.com",
+      "appName": "LiveReview",
+      "tokenJtiPrefix": "654e5fe6",
+      "createdAt": "2025-10-29T11:35:24.650Z",
+      "updatedAt": "2025-10-29T11:35:24.650Z"
+    },
+    {
+      "objectId": "HCc8h3W0iU",
+      "timestamp": { "__type": "Date", "iso": "2025-10-29T07:08:01.004Z" },
+      "details": {
+        "seatCount": 0,
+        "durationDays": 15,
+        "licenceVersion": 1,
+        "jtiPrefix": "a6f32b28"
+      },
+      "action": "ISSUE",
+      "actorType": "admin",
+      "actorId": "system",
+      "licenceId": "xToMQLBEtu",
+      "email": "alan.chang@cloudysys.com",
+      "appName": "LiveReview",
+      "tokenJtiPrefix": "a6f32b28",
+      "createdAt": "2025-10-29T07:08:01.004Z",
+      "updatedAt": "2025-10-29T07:08:01.004Z"
+    },
+    {
+      "objectId": "xYegYNcCxa",
+      "timestamp": { "__type": "Date", "iso": "2025-10-28T17:08:44.508Z" },
+      "details": {
+        "seatCount": 0,
+        "durationDays": 15,
+        "licenceVersion": 1,
+        "jtiPrefix": "29bf9248"
+      },
+      "action": "ISSUE",
+      "actorType": "admin",
+      "actorId": "system",
+      "licenceId": "4C6aON3Nt3",
+      "email": "meibing_240@126.com",
+      "appName": "LiveReview",
+      "tokenJtiPrefix": "29bf9248",
+      "createdAt": "2025-10-28T17:08:44.509Z",
+      "updatedAt": "2025-10-28T17:08:44.509Z"
+    },
+    {
+      "objectId": "fuWo6hL3bs",
+      "timestamp": { "__type": "Date", "iso": "2025-10-27T18:43:10.738Z" },
+      "details": {
+        "seatCount": 0,
+        "durationDays": 15,
+        "licenceVersion": 1,
+        "jtiPrefix": "1e08fa6a"
+      },
+      "action": "ISSUE",
+      "actorType": "admin",
+      "actorId": "system",
+      "licenceId": "v4dYGURaiv",
+      "email": "osbelperera31@gmail.com",
+      "appName": "LiveReview",
+      "tokenJtiPrefix": "1e08fa6a",
+      "createdAt": "2025-10-27T18:43:10.739Z",
+      "updatedAt": "2025-10-27T18:43:10.739Z"
+    },
+    {
+      "objectId": "wuR0jMwTCd",
+      "timestamp": { "__type": "Date", "iso": "2025-10-27T14:45:25.225Z" },
+      "details": {
+        "seatCount": 0,
+        "durationDays": 15,
+        "licenceVersion": 1,
+        "jtiPrefix": "d7e96c22"
+      },
+      "action": "ISSUE",
+      "actorType": "admin",
+      "actorId": "system",
+      "licenceId": "CUvbNZ7x9A",
+      "email": "myjunkmails333@gmail.com",
+      "appName": "LiveReview",
+      "tokenJtiPrefix": "d7e96c22",
+      "createdAt": "2025-10-27T14:45:25.226Z",
+      "updatedAt": "2025-10-27T14:45:25.226Z"
+    },
+    {
+      "objectId": "Nc34nVHVZY",
+      "timestamp": { "__type": "Date", "iso": "2025-10-27T06:53:38.118Z" },
+      "details": {
+        "seatCount": 0,
+        "durationDays": 15,
+        "licenceVersion": 1,
+        "jtiPrefix": "53fa1e9c"
+      },
+      "action": "ISSUE",
+      "actorType": "admin",
+      "actorId": "system",
+      "licenceId": "y8CcP3afSW",
+      "email": "oman201428@gmail.com",
+      "appName": "LiveReview",
+      "tokenJtiPrefix": "53fa1e9c",
+      "createdAt": "2025-10-27T06:53:38.119Z",
+      "updatedAt": "2025-10-27T06:53:38.119Z"
+    },
+    {
+      "objectId": "pNzv0DRhHK",
+      "timestamp": { "__type": "Date", "iso": "2025-10-26T23:28:42.182Z" },
+      "details": {
+        "seatCount": 0,
+        "durationDays": 15,
+        "licenceVersion": 1,
+        "jtiPrefix": "a2230b7d"
+      },
+      "action": "ISSUE",
+      "actorType": "admin",
+      "actorId": "system",
+      "licenceId": "mc2eSUYrPL",
+      "email": "ramzi@trymaestro.app",
+      "appName": "LiveReview",
+      "tokenJtiPrefix": "a2230b7d",
+      "createdAt": "2025-10-26T23:28:42.183Z",
+      "updatedAt": "2025-10-26T23:28:42.183Z"
+    },
+    {
+      "objectId": "lrA0gjCxBa",
+      "timestamp": { "__type": "Date", "iso": "2025-10-23T13:35:43.934Z" },
+      "details": {
+        "seatCount": 0,
+        "durationDays": 15,
+        "licenceVersion": 1,
+        "jtiPrefix": "93c77455"
+      },
+      "action": "ISSUE",
+      "actorType": "admin",
+      "actorId": "system",
+      "licenceId": "JFVwXWJgji",
+      "email": "cole.coffman@gmail.com",
+      "appName": "LiveReview",
+      "tokenJtiPrefix": "93c77455",
+      "createdAt": "2025-10-23T13:35:43.935Z",
+      "updatedAt": "2025-10-23T13:35:43.935Z"
+    },
+    {
+      "objectId": "m6pLAwMv8Y",
+      "timestamp": { "__type": "Date", "iso": "2025-10-23T10:57:48.857Z" },
+      "details": {
+        "seatCount": 0,
+        "durationDays": 15,
+        "licenceVersion": 1,
+        "jtiPrefix": "0fb62ffa"
+      },
+      "action": "ISSUE",
+      "actorType": "admin",
+      "actorId": "system",
+      "licenceId": "TSlZSgBPCn",
+      "email": "kotvalera@gmail.com",
+      "appName": "LiveReview",
+      "tokenJtiPrefix": "0fb62ffa",
+      "createdAt": "2025-10-23T10:57:48.859Z",
+      "updatedAt": "2025-10-23T10:57:48.859Z"
+    },
+    {
+      "objectId": "aXNxoIw2Km",
+      "timestamp": { "__type": "Date", "iso": "2025-10-23T04:06:37.839Z" },
+      "details": {
+        "seatCount": 0,
+        "durationDays": 15,
+        "licenceVersion": 2,
+        "jtiPrefix": "a45e2ebb"
+      },
+      "action": "ISSUE",
+      "actorType": "admin",
+      "actorId": "system",
+      "licenceId": "ZpjcBrKekZ",
+      "email": "websterdav@webseccorp.com",
+      "appName": "LiveReview",
+      "tokenJtiPrefix": "a45e2ebb",
+      "createdAt": "2025-10-23T04:06:37.840Z",
+      "updatedAt": "2025-10-23T04:06:37.840Z"
+    },
+    {
+      "objectId": "xTE5zsw7Gg",
+      "timestamp": { "__type": "Date", "iso": "2025-10-22T07:58:02.866Z" },
+      "details": {
+        "oldLicenceId": "LBWEAKo6tB",
+        "seatCount": 0,
+        "durationDays": 15,
+        "preservedExpiry": "2025-11-06T07:56:52.016Z",
+        "licenceVersion": 1,
+        "jtiPrefix": "9098c711",
+        "reason": "user_requested"
+      },
+      "action": "REISSUE",
+      "actorType": "admin",
+      "actorId": "system",
+      "licenceId": "bIPv3McuDA",
+      "email": "lotmathew9@gmail.com",
+      "appName": "LiveReview",
+      "tokenJtiPrefix": "9098c711",
+      "createdAt": "2025-10-22T07:58:02.866Z",
+      "updatedAt": "2025-10-22T07:58:02.866Z"
+    },
+    {
+      "objectId": "Qv2NxyDG7Q",
+      "timestamp": { "__type": "Date", "iso": "2025-10-22T07:58:02.819Z" },
+      "details": {
+        "reason": "REISSUE",
+        "oldLicenceId": "LBWEAKo6tB",
+        "revokedBy": "admin"
+      },
+      "action": "REVOKE",
+      "actorType": "admin",
+      "actorId": "system",
+      "licenceId": "LBWEAKo6tB",
+      "email": "lotmathew9@gmail.com",
+      "appName": "LiveReview",
+      "createdAt": "2025-10-22T07:58:02.822Z",
+      "updatedAt": "2025-10-22T07:58:02.822Z"
+    },
+    {
+      "objectId": "TDNgiENrRy",
+      "timestamp": { "__type": "Date", "iso": "2025-10-22T07:56:52.036Z" },
+      "details": {
+        "seatCount": 0,
+        "durationDays": 15,
+        "licenceVersion": 1,
+        "jtiPrefix": "1cd53730"
+      },
+      "action": "ISSUE",
+      "actorType": "admin",
+      "actorId": "system",
+      "licenceId": "LBWEAKo6tB",
+      "email": "lotmathew9@gmail.com",
+      "appName": "LiveReview",
+      "tokenJtiPrefix": "1cd53730",
+      "createdAt": "2025-10-22T07:56:52.037Z",
+      "updatedAt": "2025-10-22T07:56:52.037Z"
+    },
+    {
+      "objectId": "2ZFEeGiPrd",
+      "timestamp": { "__type": "Date", "iso": "2025-10-21T13:42:27.097Z" },
+      "details": { "validatedAt": "2025-10-21T13:42:27.097Z" },
+      "action": "VALIDATE_SUCCESS",
+      "actorType": "admin",
+      "actorId": "system",
+      "licenceId": "Fj5ENHtr92",
+      "email": "shrijith.sv@gmail.com",
+      "appName": "LiveReview",
+      "createdAt": "2025-10-21T13:42:27.098Z",
+      "updatedAt": "2025-10-21T13:42:27.098Z"
+    },
+    {
+      "objectId": "d7MroY585w",
+      "timestamp": { "__type": "Date", "iso": "2025-10-21T13:34:03.482Z" },
+      "details": {
+        "oldLicenceId": "5ZJZyvT0IM",
+        "seatCount": 0,
+        "durationDays": 15,
+        "preservedExpiry": "2025-11-05T06:39:27.458Z",
+        "licenceVersion": 1,
+        "jtiPrefix": "65891c06",
+        "reason": "user_requested"
+      },
+      "action": "REISSUE",
+      "actorType": "admin",
+      "actorId": "system",
+      "licenceId": "Fj5ENHtr92",
+      "email": "shrijith.sv@gmail.com",
+      "appName": "LiveReview",
+      "tokenJtiPrefix": "65891c06",
+      "createdAt": "2025-10-21T13:34:03.483Z",
+      "updatedAt": "2025-10-21T13:34:03.483Z"
+    },
+    {
+      "objectId": "zoG7zEJbJ8",
+      "timestamp": { "__type": "Date", "iso": "2025-10-21T13:34:03.438Z" },
+      "details": {
+        "reason": "REISSUE",
+        "oldLicenceId": "5ZJZyvT0IM",
+        "revokedBy": "admin"
+      },
+      "action": "REVOKE",
+      "actorType": "admin",
+      "actorId": "system",
+      "licenceId": "5ZJZyvT0IM",
+      "email": "shrijith.sv@gmail.com",
+      "appName": "LiveReview",
+      "createdAt": "2025-10-21T13:34:03.439Z",
+      "updatedAt": "2025-10-21T13:34:03.439Z"
+    },
+    {
+      "objectId": "GJ944zFmDQ",
+      "timestamp": { "__type": "Date", "iso": "2025-10-21T06:50:43.246Z" },
+      "details": { "validatedAt": "2025-10-21T06:50:43.246Z" },
+      "action": "VALIDATE_SUCCESS",
+      "actorType": "admin",
+      "actorId": "system",
+      "licenceId": "5ZJZyvT0IM",
+      "email": "shrijith.sv@gmail.com",
+      "appName": "LiveReview",
+      "createdAt": "2025-10-21T06:50:43.247Z",
+      "updatedAt": "2025-10-21T06:50:43.247Z"
+    },
+    {
+      "objectId": "3thxl38BPT",
+      "timestamp": { "__type": "Date", "iso": "2025-10-21T06:39:27.490Z" },
+      "details": {
+        "renewalCount": 1,
+        "licenceVersion": 2,
+        "extendedByDays": 15,
+        "jtiPrefix": "a6225774"
+      },
+      "action": "RENEW",
+      "actorType": "admin",
+      "actorId": "system",
+      "licenceId": "5ZJZyvT0IM",
+      "email": "shrijith.sv@gmail.com",
+      "appName": "LiveReview",
+      "tokenJtiPrefix": "a6225774",
+      "createdAt": "2025-10-21T06:39:27.491Z",
+      "updatedAt": "2025-10-21T06:39:27.491Z"
+    },
+    {
+      "objectId": "4f7czWzJCW",
+      "timestamp": { "__type": "Date", "iso": "2025-10-20T16:04:01.451Z" },
+      "details": {
+        "seatCount": 0,
+        "durationDays": 15,
+        "licenceVersion": 1,
+        "jtiPrefix": "c596abe8"
+      },
+      "action": "ISSUE",
+      "actorType": "admin",
+      "actorId": "system",
+      "licenceId": "Lo8IQ19CFF",
+      "email": "rijulrajtkeey3@gmail.com",
+      "appName": "LiveReview",
+      "tokenJtiPrefix": "c596abe8",
+      "createdAt": "2025-10-20T16:04:01.451Z",
+      "updatedAt": "2025-10-20T16:04:01.451Z"
+    },
+    {
+      "objectId": "SBnKZj313G",
+      "timestamp": { "__type": "Date", "iso": "2025-10-20T15:58:50.501Z" },
+      "details": {
+        "seatCount": 0,
+        "durationDays": 15,
+        "licenceVersion": 1,
+        "jtiPrefix": "90413f4a"
+      },
+      "action": "ISSUE",
+      "actorType": "admin",
+      "actorId": "system",
+      "licenceId": "aOdWc1w0Ga",
+      "email": "technozoomyt2@gmail.com",
+      "appName": "LiveReview",
+      "tokenJtiPrefix": "90413f4a",
+      "createdAt": "2025-10-20T15:58:50.502Z",
+      "updatedAt": "2025-10-20T15:58:50.502Z"
+    },
+    {
+      "objectId": "lT4iDfjSLi",
+      "timestamp": { "__type": "Date", "iso": "2025-10-20T13:52:05.182Z" },
+      "details": {
+        "seatCount": 0,
+        "durationDays": 15,
+        "licenceVersion": 1,
+        "jtiPrefix": "5317d91c"
+      },
+      "action": "ISSUE",
+      "actorType": "admin",
+      "actorId": "system",
+      "licenceId": "dI88px1OPd",
+      "email": "technozoomyt@gmail.com",
+      "appName": "LiveReview",
+      "tokenJtiPrefix": "5317d91c",
+      "createdAt": "2025-10-20T13:52:05.183Z",
+      "updatedAt": "2025-10-20T13:52:05.183Z"
+    },
+    {
+      "objectId": "fy2uL8pt45",
+      "timestamp": { "__type": "Date", "iso": "2025-10-20T13:46:36.301Z" },
+      "details": { "validatedAt": "2025-10-20T13:46:36.301Z" },
+      "action": "VALIDATE_SUCCESS",
+      "actorType": "admin",
+      "actorId": "system",
+      "licenceId": "5ZJZyvT0IM",
+      "email": "shrijith.sv@gmail.com",
+      "appName": "LiveReview",
+      "createdAt": "2025-10-20T13:46:36.302Z",
+      "updatedAt": "2025-10-20T13:46:36.302Z"
+    },
+    {
+      "objectId": "qQMX1bxE7l",
+      "timestamp": { "__type": "Date", "iso": "2025-10-19T19:48:48.963Z" },
+      "details": {
+        "seatCount": 0,
+        "durationDays": 15,
+        "licenceVersion": 1,
+        "jtiPrefix": "e806faf8"
+      },
+      "action": "ISSUE",
+      "actorType": "admin",
+      "actorId": "system",
+      "licenceId": "1IySqKS3a6",
+      "email": "ahed5921@gmail.com",
+      "appName": "LiveReview",
+      "tokenJtiPrefix": "e806faf8",
+      "createdAt": "2025-10-19T19:48:48.964Z",
+      "updatedAt": "2025-10-19T19:48:48.964Z"
+    },
+    {
+      "objectId": "DWbM54RvOi",
+      "timestamp": { "__type": "Date", "iso": "2025-10-19T16:42:37.877Z" },
+      "details": {
+        "seatCount": 0,
+        "durationDays": 15,
+        "licenceVersion": 1,
+        "jtiPrefix": "56babe13"
+      },
+      "action": "ISSUE",
+      "actorType": "admin",
+      "actorId": "system",
+      "licenceId": "bAHpFZ3V5u",
+      "email": "amazingstardom@gmail.com",
+      "appName": "LiveReview",
+      "tokenJtiPrefix": "56babe13",
+      "createdAt": "2025-10-19T16:42:37.877Z",
+      "updatedAt": "2025-10-19T16:42:37.877Z"
+    },
+    {
+      "objectId": "iqLHFBSPik",
+      "timestamp": { "__type": "Date", "iso": "2025-10-19T16:41:01.509Z" },
+      "details": {
+        "seatCount": 0,
+        "durationDays": 15,
+        "licenceVersion": 1,
+        "jtiPrefix": "d51f3ee1"
+      },
+      "action": "ISSUE",
+      "actorType": "admin",
+      "actorId": "system",
+      "licenceId": "NvXO2tcTKW",
+      "email": "rijulrajtkeey2@gmail.com",
+      "appName": "LiveReview",
+      "tokenJtiPrefix": "d51f3ee1",
+      "createdAt": "2025-10-19T16:41:01.511Z",
+      "updatedAt": "2025-10-19T16:41:01.511Z"
+    },
+    {
+      "objectId": "i7K3Y2lnLb",
+      "timestamp": { "__type": "Date", "iso": "2025-10-19T16:40:09.372Z" },
+      "details": {
+        "seatCount": 0,
+        "durationDays": 15,
+        "licenceVersion": 1,
+        "jtiPrefix": "b568a92c"
+      },
+      "action": "ISSUE",
+      "actorType": "admin",
+      "actorId": "system",
+      "licenceId": "DRx9YFp9pu",
+      "email": "shrijith@hexmos.com",
+      "appName": "LiveReview",
+      "tokenJtiPrefix": "b568a92c",
+      "createdAt": "2025-10-19T16:40:09.373Z",
+      "updatedAt": "2025-10-19T16:40:09.373Z"
+    },
+    {
+      "objectId": "kHdZ2U0qWF",
+      "timestamp": { "__type": "Date", "iso": "2025-10-19T16:32:55.323Z" },
+      "details": {
+        "oldLicenceId": "1cAXyI0Imj",
+        "seatCount": 0,
+        "durationDays": 15,
+        "preservedExpiry": "2025-11-03T16:31:27.223Z",
+        "licenceVersion": 1,
+        "jtiPrefix": "127d6eca",
+        "reason": "user_requested"
+      },
+      "action": "REISSUE",
+      "actorType": "admin",
+      "actorId": "system",
+      "licenceId": "sXJ9YAlo8G",
+      "email": "lince@hexmos.com",
+      "appName": "LiveReview",
+      "tokenJtiPrefix": "127d6eca",
+      "createdAt": "2025-10-19T16:32:55.324Z",
+      "updatedAt": "2025-10-19T16:32:55.324Z"
+    },
+    {
+      "objectId": "dFCABX82gu",
+      "timestamp": { "__type": "Date", "iso": "2025-10-19T16:32:55.300Z" },
+      "details": {
+        "reason": "REISSUE",
+        "oldLicenceId": "1cAXyI0Imj",
+        "revokedBy": "admin"
+      },
+      "action": "REVOKE",
+      "actorType": "admin",
+      "actorId": "system",
+      "licenceId": "1cAXyI0Imj",
+      "email": "lince@hexmos.com",
+      "appName": "LiveReview",
+      "createdAt": "2025-10-19T16:32:55.301Z",
+      "updatedAt": "2025-10-19T16:32:55.301Z"
+    },
+    {
+      "objectId": "f1THNXszsf",
+      "timestamp": { "__type": "Date", "iso": "2025-10-19T16:31:27.263Z" },
+      "details": {
+        "seatCount": 0,
+        "durationDays": 15,
+        "licenceVersion": 1,
+        "jtiPrefix": "c0dde5d1"
+      },
+      "action": "ISSUE",
+      "actorType": "admin",
+      "actorId": "system",
+      "licenceId": "1cAXyI0Imj",
+      "email": "lince@hexmos.com",
+      "appName": "LiveReview",
+      "tokenJtiPrefix": "c0dde5d1",
+      "createdAt": "2025-10-19T16:31:27.264Z",
+      "updatedAt": "2025-10-19T16:31:27.264Z"
+    },
+    {
+      "objectId": "hjUvGpk4GY",
+      "timestamp": { "__type": "Date", "iso": "2025-10-19T09:02:31.250Z" },
+      "details": { "validatedAt": "2025-10-19T09:02:31.250Z" },
+      "action": "VALIDATE_SUCCESS",
+      "actorType": "admin",
+      "actorId": "system",
+      "licenceId": "5ZJZyvT0IM",
+      "email": "shrijith.sv@gmail.com",
+      "appName": "LiveReview",
+      "createdAt": "2025-10-19T09:02:31.251Z",
+      "updatedAt": "2025-10-19T09:02:31.251Z"
+    },
+    {
+      "objectId": "sxhoeDGEKp",
+      "timestamp": { "__type": "Date", "iso": "2025-10-18T13:28:50.765Z" },
+      "details": { "validatedAt": "2025-10-18T13:28:50.765Z" },
+      "action": "VALIDATE_SUCCESS",
+      "actorType": "admin",
+      "actorId": "system",
+      "licenceId": "5ZJZyvT0IM",
+      "email": "shrijith.sv@gmail.com",
+      "appName": "LiveReview",
+      "createdAt": "2025-10-18T13:28:50.766Z",
+      "updatedAt": "2025-10-18T13:28:50.766Z"
+    },
+    {
+      "objectId": "bOqyEoMGKx",
+      "timestamp": { "__type": "Date", "iso": "2025-10-18T13:20:04.505Z" },
+      "details": {
+        "oldLicenceId": "A66lg5br5Y",
+        "seatCount": 0,
+        "durationDays": 15,
+        "preservedExpiry": "2025-10-22T16:07:39.981Z",
+        "licenceVersion": 1,
+        "jtiPrefix": "46be414c",
+        "reason": "user_requested"
+      },
+      "action": "REISSUE",
+      "actorType": "admin",
+      "actorId": "system",
+      "licenceId": "5ZJZyvT0IM",
+      "email": "shrijith.sv@gmail.com",
+      "appName": "LiveReview",
+      "tokenJtiPrefix": "46be414c",
+      "createdAt": "2025-10-18T13:20:04.505Z",
+      "updatedAt": "2025-10-18T13:20:04.505Z"
+    },
+    {
+      "objectId": "aiXbGHvM2q",
+      "timestamp": { "__type": "Date", "iso": "2025-10-18T13:20:04.458Z" },
+      "details": {
+        "reason": "REISSUE",
+        "oldLicenceId": "A66lg5br5Y",
+        "revokedBy": "admin"
+      },
+      "action": "REVOKE",
+      "actorType": "admin",
+      "actorId": "system",
+      "licenceId": "A66lg5br5Y",
+      "email": "shrijith.sv@gmail.com",
+      "appName": "LiveReview",
+      "createdAt": "2025-10-18T13:20:04.459Z",
+      "updatedAt": "2025-10-18T13:20:04.459Z"
+    },
+    {
+      "objectId": "kzCluG9FiQ",
+      "timestamp": { "__type": "Date", "iso": "2025-10-17T06:36:45.802Z" },
+      "details": {
+        "seatCount": 0,
+        "durationDays": 15,
+        "licenceVersion": 1,
+        "jtiPrefix": "3f65389f"
+      },
+      "action": "ISSUE",
+      "actorType": "admin",
+      "actorId": "system",
+      "licenceId": "zshqMJyR4c",
+      "email": "lulong.dak@gmail.com",
+      "appName": "LiveReview",
+      "tokenJtiPrefix": "3f65389f",
+      "createdAt": "2025-10-17T06:36:45.802Z",
+      "updatedAt": "2025-10-17T06:36:45.802Z"
+    },
+    {
+      "objectId": "FcqiuatscV",
+      "timestamp": { "__type": "Date", "iso": "2025-10-16T17:20:11.822Z" },
+      "details": {
+        "seatCount": 0,
+        "durationDays": 15,
+        "licenceVersion": 1,
+        "jtiPrefix": "630e042e"
+      },
+      "action": "ISSUE",
+      "actorType": "admin",
+      "actorId": "system",
+      "licenceId": "HqvF0aPkAT",
+      "email": "athteststs@gmail.com",
+      "appName": "LiveReview",
+      "tokenJtiPrefix": "630e042e",
+      "createdAt": "2025-10-16T17:20:11.823Z",
+      "updatedAt": "2025-10-16T17:20:11.823Z"
+    },
+    {
+      "objectId": "4og2dk1Pzu",
+      "timestamp": { "__type": "Date", "iso": "2025-10-16T14:29:00.542Z" },
+      "details": { "validatedAt": "2025-10-16T14:29:00.542Z" },
+      "action": "VALIDATE_SUCCESS",
+      "actorType": "admin",
+      "actorId": "system",
+      "licenceId": "A66lg5br5Y",
+      "email": "shrijith.sv@gmail.com",
+      "appName": "LiveReview",
+      "createdAt": "2025-10-16T14:29:00.543Z",
+      "updatedAt": "2025-10-16T14:29:00.543Z"
+    },
+    {
+      "objectId": "laLBstcyBi",
+      "timestamp": { "__type": "Date", "iso": "2025-10-16T11:31:42.600Z" },
+      "details": {
+        "seatCount": 0,
+        "durationDays": 15,
+        "licenceVersion": 1,
+        "jtiPrefix": "cd541e02"
+      },
+      "action": "ISSUE",
+      "actorType": "admin",
+      "actorId": "system",
+      "licenceId": "bkK2GiCQ3e",
+      "email": "prince.kumar@unthinkable.co",
+      "appName": "LiveReview",
+      "tokenJtiPrefix": "cd541e02",
+      "createdAt": "2025-10-16T11:31:42.601Z",
+      "updatedAt": "2025-10-16T11:31:42.601Z"
+    },
+    {
+      "objectId": "ZtjRXsCpWD",
+      "timestamp": { "__type": "Date", "iso": "2025-10-15T15:27:59.536Z" },
+      "details": { "validatedAt": "2025-10-15T15:27:59.536Z" },
+      "action": "VALIDATE_SUCCESS",
+      "actorType": "admin",
+      "actorId": "system",
+      "licenceId": "A66lg5br5Y",
+      "email": "shrijith.sv@gmail.com",
+      "appName": "LiveReview",
+      "createdAt": "2025-10-15T15:27:59.537Z",
+      "updatedAt": "2025-10-15T15:27:59.537Z"
+    },
+    {
+      "objectId": "kNIU5TFdiu",
+      "timestamp": { "__type": "Date", "iso": "2025-10-15T13:13:58.642Z" },
+      "details": {
+        "seatCount": 0,
+        "durationDays": 15,
+        "licenceVersion": 1,
+        "jtiPrefix": "39b1c6c3"
+      },
+      "action": "ISSUE",
+      "actorType": "admin",
+      "actorId": "system",
+      "licenceId": "dt5Artp1R6",
+      "email": "athreyatesttt@gmail.com",
+      "appName": "LiveReview",
+      "tokenJtiPrefix": "39b1c6c3",
+      "createdAt": "2025-10-15T13:13:58.643Z",
+      "updatedAt": "2025-10-15T13:13:58.643Z"
+    },
+    {
+      "objectId": "tNF4a7CDtG",
+      "timestamp": { "__type": "Date", "iso": "2025-10-15T12:57:12.223Z" },
+      "details": {
+        "seatCount": 0,
+        "durationDays": 15,
+        "licenceVersion": 1,
+        "jtiPrefix": "7a069b4d"
+      },
+      "action": "ISSUE",
+      "actorType": "admin",
+      "actorId": "system",
+      "licenceId": "HAfZ8Fltwo",
+      "email": "athreyatest@gmail.com",
+      "appName": "LiveReview",
+      "tokenJtiPrefix": "7a069b4d",
+      "createdAt": "2025-10-15T12:57:12.223Z",
+      "updatedAt": "2025-10-15T12:57:12.223Z"
+    },
+    {
+      "objectId": "jx5iGqQyPn",
+      "timestamp": { "__type": "Date", "iso": "2025-10-14T11:04:41.387Z" },
+      "details": {
+        "seatCount": 0,
+        "durationDays": 15,
+        "licenceVersion": 1,
+        "jtiPrefix": "b9f6995e"
+      },
+      "action": "ISSUE",
+      "actorType": "admin",
+      "actorId": "system",
+      "licenceId": "rYc7jw47Xu",
+      "email": "arshadkhan615.ei@gmail.com",
+      "appName": "LiveReview",
+      "tokenJtiPrefix": "b9f6995e",
+      "createdAt": "2025-10-14T11:04:41.388Z",
+      "updatedAt": "2025-10-14T11:04:41.388Z"
+    },
+    {
+      "objectId": "HYUv4WAmMb",
+      "timestamp": { "__type": "Date", "iso": "2025-10-14T09:10:31.666Z" },
+      "details": { "validatedAt": "2025-10-14T09:10:31.666Z" },
+      "action": "VALIDATE_SUCCESS",
+      "actorType": "admin",
+      "actorId": "system",
+      "licenceId": "A66lg5br5Y",
+      "email": "shrijith.sv@gmail.com",
+      "appName": "LiveReview",
+      "createdAt": "2025-10-14T09:10:31.670Z",
+      "updatedAt": "2025-10-14T09:10:31.670Z"
+    },
+    {
+      "objectId": "312B3QFRlg",
+      "timestamp": { "__type": "Date", "iso": "2025-10-14T04:18:01.472Z" },
+      "details": {
+        "seatCount": 0,
+        "durationDays": 15,
+        "licenceVersion": 1,
+        "jtiPrefix": "5b42fc3a"
+      },
+      "action": "ISSUE",
+      "actorType": "admin",
+      "actorId": "system",
+      "licenceId": "IWZ44KsZQu",
+      "email": "ulashevvohidjon2@gmail.com",
+      "appName": "LiveReview",
+      "tokenJtiPrefix": "5b42fc3a",
+      "createdAt": "2025-10-14T04:18:01.473Z",
+      "updatedAt": "2025-10-14T04:18:01.473Z"
+    },
+    {
+      "objectId": "Ew0VHoO3Z9",
+      "timestamp": { "__type": "Date", "iso": "2025-10-14T00:12:42.322Z" },
+      "details": {
+        "seatCount": 0,
+        "durationDays": 15,
+        "licenceVersion": 1,
+        "jtiPrefix": "b424a191"
+      },
+      "action": "ISSUE",
+      "actorType": "admin",
+      "actorId": "system",
+      "licenceId": "yAqoIzoF0p",
+      "email": "baez46104@gmail.com",
+      "appName": "LiveReview",
+      "tokenJtiPrefix": "b424a191",
+      "createdAt": "2025-10-14T00:12:42.323Z",
+      "updatedAt": "2025-10-14T00:12:42.323Z"
+    },
+    {
+      "objectId": "8hPEEhlHqD",
+      "timestamp": { "__type": "Date", "iso": "2025-10-12T14:33:08.586Z" },
+      "details": { "validatedAt": "2025-10-12T14:33:08.586Z" },
+      "action": "VALIDATE_SUCCESS",
+      "actorType": "admin",
+      "actorId": "system",
+      "licenceId": "A66lg5br5Y",
+      "email": "shrijith.sv@gmail.com",
+      "appName": "LiveReview",
+      "createdAt": "2025-10-12T14:33:08.587Z",
+      "updatedAt": "2025-10-12T14:33:08.587Z"
+    },
+    {
+      "objectId": "Nrryj5WDJw",
+      "timestamp": { "__type": "Date", "iso": "2025-10-12T10:15:13.636Z" },
+      "details": {
+        "seatCount": 0,
+        "durationDays": 15,
+        "licenceVersion": 1,
+        "jtiPrefix": "f1433ff7"
+      },
+      "action": "ISSUE",
+      "actorType": "admin",
+      "actorId": "system",
+      "licenceId": "HFISJYWwgH",
+      "email": "pehalavanchoudhary@gmail.com",
+      "appName": "LiveReview",
+      "tokenJtiPrefix": "f1433ff7",
+      "createdAt": "2025-10-12T10:15:13.637Z",
+      "updatedAt": "2025-10-12T10:15:13.637Z"
+    },
+    {
+      "objectId": "s7CV1HP5n4",
+      "timestamp": { "__type": "Date", "iso": "2025-10-12T03:14:28.614Z" },
+      "details": {
+        "seatCount": 0,
+        "durationDays": 15,
+        "licenceVersion": 1,
+        "jtiPrefix": "feba6534"
+      },
+      "action": "ISSUE",
+      "actorType": "admin",
+      "actorId": "system",
+      "licenceId": "rhSxy0L9Al",
+      "email": "sangname0101@gmail.com",
+      "appName": "LiveReview",
+      "tokenJtiPrefix": "feba6534",
+      "createdAt": "2025-10-12T03:14:28.615Z",
+      "updatedAt": "2025-10-12T03:14:28.615Z"
+    },
+    {
+      "objectId": "4RZVvPucFa",
+      "timestamp": { "__type": "Date", "iso": "2025-10-12T00:30:40.289Z" },
+      "details": {
+        "seatCount": 0,
+        "durationDays": 15,
+        "licenceVersion": 1,
+        "jtiPrefix": "440dbcab"
+      },
+      "action": "ISSUE",
+      "actorType": "admin",
+      "actorId": "system",
+      "licenceId": "XyQKQVr6af",
+      "email": "mediakoneser@gmail.com",
+      "appName": "LiveReview",
+      "tokenJtiPrefix": "440dbcab",
+      "createdAt": "2025-10-12T00:30:40.290Z",
+      "updatedAt": "2025-10-12T00:30:40.290Z"
+    },
+    {
+      "objectId": "iZc4lEgGo1",
+      "timestamp": { "__type": "Date", "iso": "2025-10-11T05:01:11.295Z" },
+      "details": { "validatedAt": "2025-10-11T05:01:11.295Z" },
+      "action": "VALIDATE_SUCCESS",
+      "actorType": "admin",
+      "actorId": "system",
+      "licenceId": "A66lg5br5Y",
+      "email": "shrijith.sv@gmail.com",
+      "appName": "LiveReview",
+      "createdAt": "2025-10-11T05:01:11.295Z",
+      "updatedAt": "2025-10-11T05:01:11.295Z"
+    },
+    {
+      "objectId": "qbSuPPKILK",
+      "timestamp": { "__type": "Date", "iso": "2025-10-10T05:32:46.371Z" },
+      "details": { "validatedAt": "2025-10-10T05:32:46.370Z" },
+      "action": "VALIDATE_SUCCESS",
+      "actorType": "admin",
+      "actorId": "system",
+      "licenceId": "A66lg5br5Y",
+      "email": "shrijith.sv@gmail.com",
+      "appName": "LiveReview",
+      "createdAt": "2025-10-10T05:32:46.371Z",
+      "updatedAt": "2025-10-10T05:32:46.371Z"
+    },
+    {
+      "objectId": "prZJTccYvx",
+      "timestamp": { "__type": "Date", "iso": "2025-10-09T14:00:26.918Z" },
+      "details": { "validatedAt": "2025-10-09T14:00:26.918Z" },
+      "action": "VALIDATE_SUCCESS",
+      "actorType": "admin",
+      "actorId": "system",
+      "licenceId": "A66lg5br5Y",
+      "email": "shrijith.sv@gmail.com",
+      "appName": "LiveReview",
+      "createdAt": "2025-10-09T14:00:26.919Z",
+      "updatedAt": "2025-10-09T14:00:26.919Z"
+    },
+    {
+      "objectId": "DAvBFPfsMG",
+      "timestamp": { "__type": "Date", "iso": "2025-10-09T09:30:31.116Z" },
+      "details": {
+        "seatCount": 0,
+        "durationDays": 15,
+        "licenceVersion": 1,
+        "jtiPrefix": "4a2ae9fb"
+      },
+      "action": "ISSUE",
+      "actorType": "admin",
+      "actorId": "system",
+      "licenceId": "gPoWVDen1O",
+      "email": "fhyyi2532@gmail.com",
+      "appName": "LiveReview",
+      "tokenJtiPrefix": "4a2ae9fb",
+      "createdAt": "2025-10-09T09:30:31.118Z",
+      "updatedAt": "2025-10-09T09:30:31.118Z"
+    },
+    {
+      "objectId": "tQ3uLW8I6y",
+      "timestamp": { "__type": "Date", "iso": "2025-10-09T07:43:23.532Z" },
+      "details": {
+        "seatCount": 0,
+        "durationDays": 15,
+        "licenceVersion": 1,
+        "jtiPrefix": "5e49a3a7"
+      },
+      "action": "ISSUE",
+      "actorType": "admin",
+      "actorId": "system",
+      "licenceId": "HsEDNOL6Cv",
+      "email": "pushparaj.badu+review@procurementexpress.com",
+      "appName": "LiveReview",
+      "tokenJtiPrefix": "5e49a3a7",
+      "createdAt": "2025-10-09T07:43:23.533Z",
+      "updatedAt": "2025-10-09T07:43:23.533Z"
+    },
+    {
+      "objectId": "ZOON8eXF0f",
+      "timestamp": { "__type": "Date", "iso": "2025-10-09T02:29:25.107Z" },
+      "details": {
+        "seatCount": 0,
+        "durationDays": 15,
+        "licenceVersion": 1,
+        "jtiPrefix": "41107d4a"
+      },
+      "action": "ISSUE",
+      "actorType": "admin",
+      "actorId": "system",
+      "licenceId": "5iWagvazMv",
+      "email": "jarrytiga@gmail.com",
+      "appName": "LiveReview",
+      "tokenJtiPrefix": "41107d4a",
+      "createdAt": "2025-10-09T02:29:25.108Z",
+      "updatedAt": "2025-10-09T02:29:25.108Z"
+    },
+    {
+      "objectId": "8CrAyKSHE3",
+      "timestamp": { "__type": "Date", "iso": "2025-10-08T10:10:48.684Z" },
+      "details": {
+        "error": "TOKEN_VERSION_MISMATCH",
+        "message": "Token version mismatch"
+      },
+      "action": "VALIDATE_FAIL",
+      "actorType": "admin",
+      "actorId": "system",
+      "email": "unknown",
+      "appName": "unknown",
+      "createdAt": "2025-10-08T10:10:48.684Z",
+      "updatedAt": "2025-10-08T10:10:48.684Z"
+    },
+    {
+      "objectId": "ajs09MeYlQ",
+      "timestamp": { "__type": "Date", "iso": "2025-10-08T09:56:11.964Z" },
+      "details": {
+        "seatCount": 0,
+        "durationDays": 15,
+        "licenceVersion": 1,
+        "jtiPrefix": "1038bccd"
+      },
+      "action": "ISSUE",
+      "actorType": "admin",
+      "actorId": "system",
+      "licenceId": "nktgTxniJr",
+      "email": "eribeiro@icapitalnetwork.com",
+      "appName": "LiveReview",
+      "tokenJtiPrefix": "1038bccd",
+      "createdAt": "2025-10-08T09:56:11.965Z",
+      "updatedAt": "2025-10-08T09:56:11.965Z"
+    },
+    {
+      "objectId": "RZluOY761P",
+      "timestamp": { "__type": "Date", "iso": "2025-10-08T05:41:37.349Z" },
+      "details": { "validatedAt": "2025-10-08T05:41:37.349Z" },
+      "action": "VALIDATE_SUCCESS",
+      "actorType": "admin",
+      "actorId": "system",
+      "licenceId": "A66lg5br5Y",
+      "email": "shrijith.sv@gmail.com",
+      "appName": "LiveReview",
+      "createdAt": "2025-10-08T05:41:37.350Z",
+      "updatedAt": "2025-10-08T05:41:37.350Z"
+    },
+    {
+      "objectId": "DEYAvdVap1",
+      "timestamp": { "__type": "Date", "iso": "2025-10-08T05:05:59.639Z" },
+      "details": {
+        "seatCount": 0,
+        "durationDays": 15,
+        "licenceVersion": 1,
+        "jtiPrefix": "30f355c5"
+      },
+      "action": "ISSUE",
+      "actorType": "admin",
+      "actorId": "system",
+      "licenceId": "flrlloioTJ",
+      "email": "tamacrea@gmail.com",
+      "appName": "LiveReview",
+      "tokenJtiPrefix": "30f355c5",
+      "createdAt": "2025-10-08T05:05:59.640Z",
+      "updatedAt": "2025-10-08T05:05:59.640Z"
+    },
+    {
+      "objectId": "ZgqeEFqApZ",
+      "timestamp": { "__type": "Date", "iso": "2025-10-08T04:50:04.594Z" },
+      "details": {
+        "seatCount": 0,
+        "durationDays": 15,
+        "licenceVersion": 1,
+        "jtiPrefix": "4125046a"
+      },
+      "action": "ISSUE",
+      "actorType": "admin",
+      "actorId": "system",
+      "licenceId": "zzB4NHYIYT",
+      "email": "sedan-prepay-clash@duck.com",
+      "appName": "LiveReview",
+      "tokenJtiPrefix": "4125046a",
+      "createdAt": "2025-10-08T04:50:04.594Z",
+      "updatedAt": "2025-10-08T04:50:04.594Z"
+    },
+    {
+      "objectId": "iZ8y3mxzDB",
+      "timestamp": { "__type": "Date", "iso": "2025-10-07T23:24:47.246Z" },
+      "details": {
+        "seatCount": 0,
+        "durationDays": 15,
+        "licenceVersion": 1,
+        "jtiPrefix": "97affc55"
+      },
+      "action": "ISSUE",
+      "actorType": "admin",
+      "actorId": "system",
+      "licenceId": "O7adx1Bl9T",
+      "email": "veronicabastosveve885@gmail.com",
+      "appName": "LiveReview",
+      "tokenJtiPrefix": "97affc55",
+      "createdAt": "2025-10-07T23:24:47.254Z",
+      "updatedAt": "2025-10-07T23:24:47.254Z"
+    },
+    {
+      "objectId": "hdz0z1gBe4",
+      "timestamp": { "__type": "Date", "iso": "2025-10-07T16:09:58.826Z" },
+      "details": { "validatedAt": "2025-10-07T16:09:58.826Z" },
+      "action": "VALIDATE_SUCCESS",
+      "actorType": "admin",
+      "actorId": "system",
+      "licenceId": "A66lg5br5Y",
+      "email": "shrijith.sv@gmail.com",
+      "appName": "LiveReview",
+      "createdAt": "2025-10-07T16:09:58.827Z",
+      "updatedAt": "2025-10-07T16:09:58.827Z"
+    },
+    {
+      "objectId": "NIK4neitJ9",
+      "timestamp": { "__type": "Date", "iso": "2025-10-07T16:07:40.021Z" },
+      "details": {
+        "renewalCount": 1,
+        "licenceVersion": 2,
+        "extendedByDays": 15,
+        "jtiPrefix": "08a12aab"
+      },
+      "action": "RENEW",
+      "actorType": "admin",
+      "actorId": "system",
+      "licenceId": "A66lg5br5Y",
+      "email": "shrijith.sv@gmail.com",
+      "appName": "LiveReview",
+      "tokenJtiPrefix": "08a12aab",
+      "createdAt": "2025-10-07T16:07:40.022Z",
+      "updatedAt": "2025-10-07T16:07:40.022Z"
+    },
+    {
+      "objectId": "t3hLWByqpk",
+      "timestamp": { "__type": "Date", "iso": "2025-10-07T11:50:16.191Z" },
+      "details": {
+        "seatCount": 0,
+        "durationDays": 15,
+        "licenceVersion": 2,
+        "jtiPrefix": "03ae9c35"
+      },
+      "action": "ISSUE",
+      "actorType": "admin",
+      "actorId": "system",
+      "licenceId": "RVlA7ztSIG",
+      "email": "ozdeslergrup@gmail.com",
+      "appName": "LiveReview",
+      "tokenJtiPrefix": "03ae9c35",
+      "createdAt": "2025-10-07T11:50:16.192Z",
+      "updatedAt": "2025-10-07T11:50:16.192Z"
+    },
+    {
+      "objectId": "qUhzNLqFCC",
+      "timestamp": { "__type": "Date", "iso": "2025-10-07T10:10:48.727Z" },
+      "details": {
+        "error": "TOKEN_VERSION_MISMATCH",
+        "message": "Token version mismatch"
+      },
+      "action": "VALIDATE_FAIL",
+      "actorType": "admin",
+      "actorId": "system",
+      "email": "unknown",
+      "appName": "unknown",
+      "createdAt": "2025-10-07T10:10:48.727Z",
+      "updatedAt": "2025-10-07T10:10:48.727Z"
+    },
+    {
+      "objectId": "4bMw5Yj4jc",
+      "timestamp": { "__type": "Date", "iso": "2025-10-07T08:17:00.401Z" },
+      "details": {
+        "seatCount": 0,
+        "durationDays": 15,
+        "licenceVersion": 1,
+        "jtiPrefix": "e395d50e"
+      },
+      "action": "ISSUE",
+      "actorType": "admin",
+      "actorId": "system",
+      "licenceId": "WdhvK5a29j",
+      "email": "mdshogibr46@gmail.com",
+      "appName": "LiveReview",
+      "tokenJtiPrefix": "e395d50e",
+      "createdAt": "2025-10-07T08:17:00.423Z",
+      "updatedAt": "2025-10-07T08:17:00.423Z"
+    },
+    {
+      "objectId": "5hdLpi4f1H",
+      "timestamp": { "__type": "Date", "iso": "2025-10-07T08:07:23.473Z" },
+      "details": {
+        "seatCount": 0,
+        "durationDays": 15,
+        "licenceVersion": 1,
+        "jtiPrefix": "36aa55bd"
+      },
+      "action": "ISSUE",
+      "actorType": "admin",
+      "actorId": "system",
+      "licenceId": "RVlA7ztSIG",
+      "email": "ozdeslergrup@gmail.com",
+      "appName": "LiveReview",
+      "tokenJtiPrefix": "36aa55bd",
+      "createdAt": "2025-10-07T08:07:23.474Z",
+      "updatedAt": "2025-10-07T08:07:23.474Z"
+    },
+    {
+      "objectId": "OSs0B0mcRZ",
+      "timestamp": { "__type": "Date", "iso": "2025-10-06T15:51:11.797Z" },
+      "details": {
+        "seatCount": 0,
+        "durationDays": 15,
+        "licenceVersion": 1,
+        "jtiPrefix": "bd393caa"
+      },
+      "action": "ISSUE",
+      "actorType": "admin",
+      "actorId": "system",
+      "licenceId": "zz796AEtCF",
+      "email": "khamr4142@gmail.com",
+      "appName": "LiveReview",
+      "tokenJtiPrefix": "bd393caa",
+      "createdAt": "2025-10-06T15:51:11.798Z",
+      "updatedAt": "2025-10-06T15:51:11.798Z"
+    },
+    {
+      "objectId": "zgRvgUyDbn",
+      "timestamp": { "__type": "Date", "iso": "2025-10-06T13:21:49.634Z" },
+      "details": { "validatedAt": "2025-10-06T13:21:49.634Z" },
+      "action": "VALIDATE_SUCCESS",
+      "actorType": "admin",
+      "actorId": "system",
+      "licenceId": "A66lg5br5Y",
+      "email": "shrijith.sv@gmail.com",
+      "appName": "LiveReview",
+      "createdAt": "2025-10-06T13:21:49.638Z",
+      "updatedAt": "2025-10-06T13:21:49.638Z"
+    },
+    {
+      "objectId": "LAe0qyrzvf",
+      "timestamp": { "__type": "Date", "iso": "2025-10-06T13:10:27.147Z" },
+      "details": { "validatedAt": "2025-10-06T13:10:27.147Z" },
+      "action": "VALIDATE_SUCCESS",
+      "actorType": "admin",
+      "actorId": "system",
+      "licenceId": "5Iy4dQK5Vx",
+      "email": "martin.cajka@moxymind.eu",
+      "appName": "LiveReview",
+      "createdAt": "2025-10-06T13:10:27.148Z",
+      "updatedAt": "2025-10-06T13:10:27.148Z"
+    },
+    {
+      "objectId": "LezMmAw1MF",
+      "timestamp": { "__type": "Date", "iso": "2025-10-06T12:45:18.861Z" },
+      "details": {
+        "oldLicenceId": "VoOUER8JgA",
+        "seatCount": 0,
+        "durationDays": 15,
+        "preservedExpiry": "2025-10-21T12:09:35.908Z",
+        "licenceVersion": 1,
+        "jtiPrefix": "6de184a9",
+        "reason": "user_requested"
+      },
+      "action": "REISSUE",
+      "actorType": "admin",
+      "actorId": "system",
+      "licenceId": "5Iy4dQK5Vx",
+      "email": "martin.cajka@moxymind.eu",
+      "appName": "LiveReview",
+      "tokenJtiPrefix": "6de184a9",
+      "createdAt": "2025-10-06T12:45:18.861Z",
+      "updatedAt": "2025-10-06T12:45:18.861Z"
+    },
+    {
+      "objectId": "8URXKmfBWw",
+      "timestamp": { "__type": "Date", "iso": "2025-10-06T12:45:18.768Z" },
+      "details": {
+        "reason": "REISSUE",
+        "oldLicenceId": "VoOUER8JgA",
+        "revokedBy": "admin"
+      },
+      "action": "REVOKE",
+      "actorType": "admin",
+      "actorId": "system",
+      "licenceId": "VoOUER8JgA",
+      "email": "martin.cajka@moxymind.eu",
+      "appName": "LiveReview",
+      "createdAt": "2025-10-06T12:45:18.804Z",
+      "updatedAt": "2025-10-06T12:45:18.804Z"
+    },
+    {
+      "objectId": "sNCs1x7qkt",
+      "timestamp": { "__type": "Date", "iso": "2025-10-06T12:09:35.930Z" },
+      "details": {
+        "seatCount": 0,
+        "durationDays": 15,
+        "licenceVersion": 1,
+        "jtiPrefix": "6489d7ed"
+      },
+      "action": "ISSUE",
+      "actorType": "admin",
+      "actorId": "system",
+      "licenceId": "VoOUER8JgA",
+      "email": "martin.cajka@moxymind.eu",
+      "appName": "LiveReview",
+      "tokenJtiPrefix": "6489d7ed",
+      "createdAt": "2025-10-06T12:09:35.931Z",
+      "updatedAt": "2025-10-06T12:09:35.931Z"
+    },
+    {
+      "objectId": "fyJQxXHbxf",
+      "timestamp": { "__type": "Date", "iso": "2025-10-06T11:55:57.689Z" },
+      "details": {
+        "seatCount": 0,
+        "durationDays": 15,
+        "licenceVersion": 1,
+        "jtiPrefix": "dc031560"
+      },
+      "action": "ISSUE",
+      "actorType": "admin",
+      "actorId": "system",
+      "licenceId": "hdt5BwaDGs",
+      "email": "discretepc2023@gmail.com",
+      "appName": "LiveReview",
+      "tokenJtiPrefix": "dc031560",
+      "createdAt": "2025-10-06T11:55:57.690Z",
+      "updatedAt": "2025-10-06T11:55:57.690Z"
+    },
+    {
+      "objectId": "6dK0z5OPhx",
+      "timestamp": { "__type": "Date", "iso": "2025-10-06T10:10:48.689Z" },
+      "details": {
+        "error": "TOKEN_VERSION_MISMATCH",
+        "message": "Token version mismatch"
+      },
+      "action": "VALIDATE_FAIL",
+      "actorType": "admin",
+      "actorId": "system",
+      "email": "unknown",
+      "appName": "unknown",
+      "createdAt": "2025-10-06T10:10:48.690Z",
+      "updatedAt": "2025-10-06T10:10:48.690Z"
+    },
+    {
+      "objectId": "oXOugDWdui",
+      "timestamp": { "__type": "Date", "iso": "2025-10-06T06:11:26.729Z" },
+      "details": {
+        "seatCount": 0,
+        "durationDays": 15,
+        "licenceVersion": 1,
+        "jtiPrefix": "79a0cd8b"
+      },
+      "action": "ISSUE",
+      "actorType": "admin",
+      "actorId": "system",
+      "licenceId": "w9mLvFHnVI",
+      "email": "bhadrli2927@gmail.com",
+      "appName": "LiveReview",
+      "tokenJtiPrefix": "79a0cd8b",
+      "createdAt": "2025-10-06T06:11:26.729Z",
+      "updatedAt": "2025-10-06T06:11:26.729Z"
+    },
+    {
+      "objectId": "xGSNPefbLn",
+      "timestamp": { "__type": "Date", "iso": "2025-10-05T16:10:14.885Z" },
+      "details": {
+        "seatCount": 0,
+        "durationDays": 15,
+        "licenceVersion": 1,
+        "jtiPrefix": "2e5651d5"
+      },
+      "action": "ISSUE",
+      "actorType": "admin",
+      "actorId": "system",
+      "licenceId": "CgKCxIJFoB",
+      "email": "reenkrass@googlemail.com",
+      "appName": "LiveReview",
+      "tokenJtiPrefix": "2e5651d5",
+      "createdAt": "2025-10-05T16:10:14.885Z",
+      "updatedAt": "2025-10-05T16:10:14.885Z"
+    },
+    {
+      "objectId": "Gr6F7k82gL",
+      "timestamp": { "__type": "Date", "iso": "2025-10-05T10:10:48.714Z" },
+      "details": {
+        "error": "TOKEN_VERSION_MISMATCH",
+        "message": "Token version mismatch"
+      },
+      "action": "VALIDATE_FAIL",
+      "actorType": "admin",
+      "actorId": "system",
+      "email": "unknown",
+      "appName": "unknown",
+      "createdAt": "2025-10-05T10:10:48.715Z",
+      "updatedAt": "2025-10-05T10:10:48.715Z"
+    },
+    {
+      "objectId": "yngWG6B0j7",
+      "timestamp": { "__type": "Date", "iso": "2025-10-05T04:51:23.411Z" },
+      "details": { "validatedAt": "2025-10-05T04:51:23.411Z" },
+      "action": "VALIDATE_SUCCESS",
+      "actorType": "admin",
+      "actorId": "system",
+      "licenceId": "A66lg5br5Y",
+      "email": "shrijith.sv@gmail.com",
+      "appName": "LiveReview",
+      "createdAt": "2025-10-05T04:51:23.415Z",
+      "updatedAt": "2025-10-05T04:51:23.415Z"
+    }
+  ]
+}
