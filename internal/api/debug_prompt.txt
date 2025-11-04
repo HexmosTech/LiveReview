@@ -38,7 +38,7 @@ If you identify a learning, add this JSON block at the end of your response:
   "content": "Full description of the team's practice, preference, or rule",
   "tags": ["relevant", "keywords", "for_searching"],
   "scope": "org|repo",
-  "confidence": 1-5
+  "confidence": <integer 1-5, where 5=very confident this is a team standard, 1=uncertain>
 }
 ```
 
