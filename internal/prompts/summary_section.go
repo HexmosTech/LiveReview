@@ -3,34 +3,44 @@ package prompts
 import (
 	"fmt"
 	"strings"
-
-	"github.com/livereview/pkg/models"
 )
 
-// BuildSummarySection formats the file summaries and line comments section
-// to append after the base summary prompt rendered by Manager.Render("summary").
-func BuildSummarySection(fileSummaries []string, comments []*models.ReviewComment) string {
+// BuildSummarySection formats structured technical summaries into a textual
+// block that feeds the final summary LLM prompt.
+func BuildSummarySection(entries []TechnicalSummary) string {
 	var b strings.Builder
 
-	// File summaries
-	b.WriteString("File-level summaries:\n")
-	for _, fs := range fileSummaries {
-		if strings.TrimSpace(fs) == "" {
+	b.WriteString("File-level technical summaries:\n")
+
+	written := false
+	for _, entry := range entries {
+		summary := strings.TrimSpace(entry.Summary)
+		if summary == "" && len(entry.KeyChanges) == 0 {
 			continue
 		}
-		b.WriteString("- ")
-		b.WriteString(fs)
-		b.WriteString("\n")
+
+		label := strings.TrimSpace(entry.FilePath)
+		if label == "" {
+			label = "Repository-wide"
+		}
+
+		b.WriteString(fmt.Sprintf("- %s\n", label))
+		if summary != "" {
+			b.WriteString(fmt.Sprintf("  Summary: %s\n", summary))
+		}
+		for _, change := range entry.KeyChanges {
+			changeText := strings.TrimSpace(change)
+			if changeText == "" {
+				continue
+			}
+			b.WriteString(fmt.Sprintf("  * %s\n", changeText))
+		}
+		written = true
 	}
 
-	// Line comments
-	b.WriteString("\nLine comments:\n")
-	for _, c := range comments {
-		if c == nil {
-			continue
-		}
-		// Keep close to legacy formatting used by tests/consumers
-		b.WriteString(fmt.Sprintf("- [%s:%d] %s\n", c.FilePath, c.Line, c.Content))
+	if !written {
+		b.WriteString("- Repository-wide\n")
+		b.WriteString("  Summary: No substantive technical summaries were captured.\n")
 	}
 
 	return b.String()

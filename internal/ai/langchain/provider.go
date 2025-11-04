@@ -36,6 +36,12 @@ type LangchainProvider struct {
 	logger       *logging.ReviewLogger // Logger for this review
 }
 
+type aiResponseFileSummary struct {
+	FilePath   string   `json:"filePath"`
+	Summary    string   `json:"summary"`
+	KeyChanges []string `json:"keyChanges"`
+}
+
 // minInt returns the minimum of two integers
 func minInt(a, b int) int {
 	if a < b {
@@ -906,13 +912,16 @@ func (p *LangchainProvider) reviewCodeBatchFormatted(ctx context.Context, diffs 
 
 	fmt.Printf("[LANGCHAIN SUCCESS] Batch %s completed with %d comments\n", batchId, len(result.Comments))
 
+	legacySummary := collapseSummariesForLegacy(result.TechnicalSummaries)
+
 	// Convert to BatchResult
 	return &batch.BatchResult{
-		Summary:     result.FileSummary, // Use FileSummary for batch-level summary
-		FileSummary: result.FileSummary,
-		Comments:    result.Comments,
-		Error:       nil,
-		BatchID:     batchId,
+		Summary:            legacySummary,
+		FileSummary:        legacySummary,
+		TechnicalSummaries: result.TechnicalSummaries,
+		Comments:           result.Comments,
+		Error:              nil,
+		BatchID:            batchId,
 	}, nil
 }
 
@@ -1025,8 +1034,9 @@ func (p *LangchainProvider) parseResponse(response string, diffs []models.CodeDi
 	}
 
 	type Response struct {
-		FileSummary string    `json:"fileSummary"`
-		Comments    []Comment `json:"comments"`
+		FileSummaries []aiResponseFileSummary `json:"fileSummaries"`
+		FileSummary   string                  `json:"fileSummary"` // legacy fallback
+		Comments      []Comment               `json:"comments"`
 	}
 
 	// Try to extract JSON from the response
@@ -1064,6 +1074,8 @@ func (p *LangchainProvider) parseResponse(response string, diffs []models.CodeDi
 	}
 
 	// Convert to our models
+	summaries := normalizeFileSummaries(resp.FileSummaries, resp.FileSummary)
+
 	var comments []*models.ReviewComment
 	for _, comment := range resp.Comments {
 		// TODO: Fix line validation logic - currently too restrictive
@@ -1096,14 +1108,14 @@ func (p *LangchainProvider) parseResponse(response string, diffs []models.CodeDi
 	}
 
 	return &ParsedResult{
-		FileSummary: resp.FileSummary,
-		Comments:    comments,
+		TechnicalSummaries: summaries,
+		Comments:           comments,
 	}, nil
 }
 
 type ParsedResult struct {
-	FileSummary string
-	Comments    []*models.ReviewComment
+	TechnicalSummaries []prompts.TechnicalSummary
+	Comments           []*models.ReviewComment
 }
 
 // fallbackParsedResult builds a minimal, user-visible result when the model response is empty/invalid
@@ -1122,8 +1134,11 @@ func (p *LangchainProvider) fallbackParsedResult(response string, diffs []models
 	summary := fmt.Sprintf("AI returned an unstructured/invalid response (%s). Showing raw excerpt below for visibility.\n\n%s", cause, trimmed)
 
 	return &ParsedResult{
-		FileSummary: summary,
-		Comments:    []*models.ReviewComment{},
+		TechnicalSummaries: []prompts.TechnicalSummary{{
+			FilePath: "",
+			Summary:  summary,
+		}},
+		Comments: []*models.ReviewComment{},
 	}
 }
 
@@ -1249,6 +1264,85 @@ func getLastChars(s string, maxLen int) string {
 		return s
 	}
 	return s[len(s)-maxLen:]
+}
+
+func normalizeFileSummaries(raw []aiResponseFileSummary, legacy string) []prompts.TechnicalSummary {
+	var out []prompts.TechnicalSummary
+	seen := make(map[string]struct{})
+
+	for _, entry := range raw {
+		summary := strings.TrimSpace(entry.Summary)
+		keyChanges := normalizeKeyChanges(entry.KeyChanges)
+		if summary == "" && len(keyChanges) == 0 {
+			continue
+		}
+
+		filePath := strings.TrimSpace(entry.FilePath)
+		out = append(out, prompts.TechnicalSummary{
+			FilePath:   filePath,
+			Summary:    summary,
+			KeyChanges: keyChanges,
+		})
+		seen[filePath] = struct{}{}
+	}
+
+	legacy = strings.TrimSpace(legacy)
+	if legacy != "" {
+		if _, exists := seen[""]; !exists {
+			out = append(out, prompts.TechnicalSummary{Summary: legacy})
+		}
+	}
+
+	return out
+}
+
+func normalizeKeyChanges(changes []string) []string {
+	if len(changes) == 0 {
+		return nil
+	}
+	seen := make(map[string]struct{})
+	var out []string
+	for _, change := range changes {
+		trimmed := strings.TrimSpace(change)
+		if trimmed == "" {
+			continue
+		}
+		key := strings.ToLower(trimmed)
+		if _, exists := seen[key]; exists {
+			continue
+		}
+		seen[key] = struct{}{}
+		out = append(out, trimmed)
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
+}
+
+func collapseSummariesForLegacy(entries []prompts.TechnicalSummary) string {
+	if len(entries) == 0 {
+		return ""
+	}
+	var sections []string
+	for _, entry := range entries {
+		summary := strings.TrimSpace(entry.Summary)
+		if summary == "" && len(entry.KeyChanges) == 0 {
+			continue
+		}
+		if len(entry.KeyChanges) > 0 {
+			bulletPrefix := "- "
+			if summary != "" {
+				summary += "\n"
+			}
+			summary += bulletPrefix + strings.Join(entry.KeyChanges, "\n"+bulletPrefix)
+		}
+		if entry.FilePath != "" {
+			summary = fmt.Sprintf("%s: %s", entry.FilePath, summary)
+		}
+		sections = append(sections, summary)
+	}
+	return strings.Join(sections, "\n\n")
 }
 
 // (removed unused writeLogFile helper)

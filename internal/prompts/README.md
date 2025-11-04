@@ -22,7 +22,7 @@ The main service that constructs prompts by combining templates with dynamic dat
 
 **Primary Methods:**
 - `BuildCodeReviewPrompt(diffs)` - Creates prompts for the main code review functionality (used by trigger-review endpoint)
-- `BuildSummaryPrompt(summaries, comments)` - Creates prompts for generating high-level summaries
+- `BuildSummaryPrompt(technicalSummaries)` - Creates prompts for generating high-level summaries from structured per-file data
 
 #### Templates
 Constants containing all prompt text templates, organized by purpose:
@@ -61,9 +61,9 @@ func createReviewPrompt(diffs []*models.CodeDiff) string {
 ```go
 import "github.com/livereview/internal/prompts"
 
-func synthesizeGeneralSummary(ctx context.Context, llm llms.Model, fileSummaries []string, comments []*models.ReviewComment) string {
-    builder := prompts.NewPromptBuilder()
-    promptText := builder.BuildSummaryPrompt(fileSummaries, comments)
+func synthesizeGeneralSummary(ctx context.Context, llm llms.Model, entries []prompts.TechnicalSummary) string {
+   builder := prompts.NewPromptBuilder()
+   promptText := builder.BuildSummaryPrompt(entries)
     
     summary, err := llms.GenerateFromSinglePrompt(ctx, llm, promptText)
     if err != nil {

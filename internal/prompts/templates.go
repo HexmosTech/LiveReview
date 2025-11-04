@@ -12,7 +12,7 @@ const (
 	CodeReviewerRole = "You are an expert code reviewer"
 
 	// SummaryWriterRole defines the AI role for generating summaries
-	SummaryWriterRole = "You are an expert code reviewer. Given the following file-level summaries and line comments, synthesize a single, high-level summary"
+	SummaryWriterRole = "You are an expert code reviewer. Given the following file-level technical summaries, synthesize a single, coherent markdown summary"
 )
 
 // Core instruction templates
@@ -20,8 +20,8 @@ const (
 	// CodeReviewInstructions provides the main instructions for code review
 	CodeReviewInstructions = `Review the following code changes thoroughly and provide:
 1. Specific actionable line comments highlighting issues, improvements, and best practices
-2. File-level summaries ONLY for complex files that warrant explanation (not for every file)
-3. DO NOT provide a general summary here - that will be synthesized separately`
+2. A structured technical summary entry for every file with meaningful changes (intent, architecture, data flows, edge cases)
+3. Skip trivial/no-op files entirely and DO NOT provide a global summary here — that will be synthesized separately`
 
 	// ReviewGuidelines provides quality guidelines for reviews
 	ReviewGuidelines = `IMPORTANT REVIEW GUIDELINES:
@@ -30,7 +30,7 @@ const (
 - Keep comments concise and use active voice
 - Avoid unnecessary praise or filler comments
 - Avoid commenting on simplistic or obvious things (imports, blank space changes, etc.)
-- File summaries should only be provided for complex changes that need explanation`
+- Technical file summaries must explain the why/intent/architecture for substantive changes and should call out data model or interface impacts`
 
 	// CommentRequirements specifies what each comment should include
 	CommentRequirements = `For each line comment, include:
@@ -48,17 +48,26 @@ const (
 	JSONStructureExample = `Format your response as JSON with the following structure:
 ` + "```json" + `
 {
-  "fileSummary": "Optional: Brief summary of complex file changes (omit if file is simple)",
-  "comments": [
-    {
-      "filePath": "path/to/file.ext",
-      "lineNumber": 42,
-      "content": "Description of the issue",
-      "severity": "info|warning|critical",
-      "suggestions": ["Specific improvement suggestion 1", "Specific improvement suggestion 2"],
-      "isInternal": false
-    }
-  ]
+	"fileSummaries": [
+		{
+			"filePath": "path/to/file.ext",
+			"summary": "Technical intent and implementation details for this file",
+			"keyChanges": [
+				"Primary architectural or data-flow implication",
+				"Any noteworthy edge cases or follow-up tasks"
+			]
+		}
+	],
+	"comments": [
+		{
+			"filePath": "path/to/file.ext",
+			"lineNumber": 42,
+			"content": "Description of the issue",
+			"severity": "info|warning|critical",
+			"suggestions": ["Specific improvement suggestion 1", "Specific improvement suggestion 2"],
+			"isInternal": false
+		}
+	]
 }
 ` + "```"
 )
@@ -99,26 +108,26 @@ const (
 	// SummaryRequirements provides requirements for high-level summaries
 	SummaryRequirements = `REQUIREMENTS:
 1. Use markdown formatting with clear structure: # headings, ## subheadings, **bold**, bullet points
-2. Focus on the big picture, impact, and intent - NOT individual file details
-3. Make it scannable and easy to understand quickly
-4. Start with a clear main title using # heading
-5. Use bullet points for key changes and impacts
-6. Keep it concise but informative`
+2. Focus strictly on technical artifacts, architectural shifts, data flows, and new interfaces
+3. Do NOT restate inline review comments, opinions, or meta feedback
+4. Make it scannable and easy to understand quickly
+5. Start with a clear main title using # heading
+6. Use bullet points that highlight concrete technical impacts and follow-up risks`
 
 	// SummaryStructure provides the expected markdown structure for summaries
 	SummaryStructure = `Generate a well-formatted markdown summary following this structure:
 # [Clear main title of what changed]
 
 ## Overview
-Brief description of the change intent and scope.
+Brief technical description of the change intent, scope, and context.
 
-## Key Changes
-- **Area 1**: Description
-- **Area 2**: Description
+## Technical Highlights
+- **Component / File**: Concrete technical takeaway or architectural shift
+- **Component / File**: Concrete technical takeaway or architectural shift
 
 ## Impact
-- **Functionality**: How this affects functionality
-- **Risk**: Any notable risks or considerations`
+- **Functionality**: What capability changed or was added
+- **Risk**: Notable risks, migration considerations, or debt`
 )
 
 // Section headers

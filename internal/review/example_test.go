@@ -66,8 +66,10 @@ func (m *MockAIProvider) ReviewCodeBatch(ctx context.Context, diffs []models.Cod
 	}
 
 	return &batch.BatchResult{
-		Summary:  result.Summary,
-		Comments: result.Comments,
+		Summary:            result.Summary,
+		FileSummary:        result.Summary,
+		TechnicalSummaries: nil,
+		Comments:           result.Comments,
 	}, nil
 }
 

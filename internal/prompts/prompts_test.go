@@ -69,7 +69,8 @@ func TestPromptBuilder_BuildCodeReviewPrompt(t *testing.T) {
 	assert.True(t, len(lines) > 50, "Prompt should be comprehensive")
 
 	// Check that JSON structure is properly included
-	assert.Contains(t, prompt, "fileSummary")
+	assert.Contains(t, prompt, "fileSummaries")
+	assert.Contains(t, prompt, "keyChanges")
 	assert.Contains(t, prompt, "lineNumber")
 	assert.Contains(t, prompt, "isInternal")
 }
@@ -77,48 +78,36 @@ func TestPromptBuilder_BuildCodeReviewPrompt(t *testing.T) {
 func TestPromptBuilder_BuildSummaryPrompt(t *testing.T) {
 	builder := NewPromptBuilder()
 
-	fileSummaries := []string{
-		"Added new authentication module",
-		"Updated database schema",
-		"Fixed security vulnerability in login",
-	}
-
-	comments := []*models.ReviewComment{
+	entries := []TechnicalSummary{
 		{
-			FilePath: "auth.go",
-			Line:     42,
-			Content:  "Consider using bcrypt for password hashing",
+			FilePath:   "auth/service.go",
+			Summary:    "Replaced legacy session validation with token introspection pipeline.",
+			KeyChanges: []string{"Introduces oauth.IntrospectClient", "Deprecates in-memory session cache"},
 		},
 		{
-			FilePath: "db.go",
-			Line:     15,
-			Content:  "Add migration for this schema change",
+			FilePath: "db/migrations/20241103_add_audit.sql",
+			Summary:  "Adds audit trail tables for admin actions and seeds v1 procedures.",
 		},
 	}
 
 	// Generate summary prompt
-	prompt := builder.BuildSummaryPrompt(fileSummaries, comments)
+	prompt := builder.BuildSummaryPrompt(entries)
 
 	// Verify prompt contains key elements
 	assert.Contains(t, prompt, "expert code reviewer")
-	assert.Contains(t, prompt, "synthesize a single, high-level summary")
+	assert.Contains(t, prompt, "synthesize a single, coherent markdown summary")
 	assert.Contains(t, prompt, "REQUIREMENTS:")
 	assert.Contains(t, prompt, "markdown formatting")
 
 	// Verify file summaries are included
-	assert.Contains(t, prompt, "Added new authentication module")
-	assert.Contains(t, prompt, "Updated database schema")
-	assert.Contains(t, prompt, "Fixed security vulnerability")
-
-	// Verify comments are included
-	assert.Contains(t, prompt, "[auth.go:42]")
-	assert.Contains(t, prompt, "bcrypt for password hashing")
-	assert.Contains(t, prompt, "[db.go:15]")
-	assert.Contains(t, prompt, "migration for this schema")
+	assert.Contains(t, prompt, "auth/service.go")
+	assert.Contains(t, prompt, "Replaced legacy session validation")
+	assert.Contains(t, prompt, "Introduces oauth.IntrospectClient")
+	assert.Contains(t, prompt, "db/migrations/20241103_add_audit.sql")
 
 	// Verify structure template is included
 	assert.Contains(t, prompt, "## Overview")
-	assert.Contains(t, prompt, "## Key Changes")
+	assert.Contains(t, prompt, "## Technical Highlights")
 	assert.Contains(t, prompt, "## Impact")
 }
 

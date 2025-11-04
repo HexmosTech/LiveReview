@@ -4,8 +4,10 @@ import (
 	"context"
 	"fmt"
 	"runtime"
+	"strings"
 
 	"github.com/livereview/internal/batch"
+	"github.com/livereview/internal/prompts"
 	"github.com/livereview/pkg/models"
 )
 
@@ -147,11 +149,18 @@ func (p *GeminiProvider) ReviewCodeBatch(
 	}
 
 	// Convert to BatchResult
+	trimmedSummary := strings.TrimSpace(result.Summary)
+	var summaries []prompts.TechnicalSummary
+	if trimmedSummary != "" {
+		summaries = append(summaries, prompts.TechnicalSummary{Summary: trimmedSummary})
+	}
+
 	return &batch.BatchResult{
-		Summary:     "",             // No batch-level summary needed
-		FileSummary: result.Summary, // Extract fileSummary from temporarily stored Summary
-		Comments:    result.Comments,
-		Error:       nil,
+		Summary:            trimmedSummary,
+		FileSummary:        trimmedSummary,
+		TechnicalSummaries: summaries,
+		Comments:           result.Comments,
+		Error:              nil,
 	}, nil
 }
 

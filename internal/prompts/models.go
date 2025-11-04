@@ -22,6 +22,15 @@ type Context struct {
 	Repository         *string
 }
 
+// TechnicalSummary captures the technical takeaways for a single file or
+// architectural unit so downstream prompts can stay focused on facts instead
+// of inline review commentary.
+type TechnicalSummary struct {
+	FilePath   string   // canonical file path; empty indicates repo-wide notes
+	Summary    string   // concise technical description of what changed
+	KeyChanges []string // optional bullet list of noteworthy impacts
+}
+
 // Chunk represents a user/system-provided text block that contributes to a variable.
 type Chunk struct {
 	ID                   int64

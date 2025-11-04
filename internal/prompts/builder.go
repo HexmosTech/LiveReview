@@ -29,12 +29,12 @@ func (pb *PromptBuilder) BuildCodeReviewPrompt(diffs []*models.CodeDiff) string 
 }
 
 // BuildSummaryPrompt generates a prompt for synthesizing high-level summaries
-func (pb *PromptBuilder) BuildSummaryPrompt(fileSummaries []string, comments []*models.ReviewComment) string {
+func (pb *PromptBuilder) BuildSummaryPrompt(entries []TechnicalSummary) string {
 	base, err := NewManager(nil, vendorpack.New()).Render(context.Background(), Context{OrgID: 0}, "summary", nil)
 	if err != nil {
 		return ""
 	}
-	return base + "\n\n" + BuildSummarySection(fileSummaries, comments) + "\n\n" + SummaryStructure
+	return base + "\n\n" + BuildSummarySection(entries) + "\n\n" + SummaryStructure
 }
 
 // addCodeDiffs adds the actual code changes to the prompt
