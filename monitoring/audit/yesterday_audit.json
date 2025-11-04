@@ -25,6 +25,19 @@
       "appName": "LiveReview",
       "createdAt": "2025-11-04T05:37:21.671Z",
       "updatedAt": "2025-11-04T05:37:21.671Z"
+    },    
+    {
+      "objectId": "htdWKxJeR3",
+      "timestamp": { "__type": "Date", "iso": "2025-11-04T05:37:21.671Z" },
+      "details": { "validatedAt": "2025-11-04T05:37:21.670Z" },
+      "action": "VALIDATE_SUCCESS",
+      "actorType": "admin",
+      "actorId": "system",
+      "licenceId": "2CRp8hS4OY",
+      "email": "shrijith.sv@gmail.com",
+      "appName": "LiveReview",
+      "createdAt": "2025-11-04T05:37:21.671Z",
+      "updatedAt": "2025-11-04T05:37:21.671Z"
     },
     {
       "objectId": "kwgrzv1xeV",
