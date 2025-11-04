@@ -350,11 +350,12 @@ func (p *BatchProcessor) BatchInputs(input []models.CodeDiff) *BatchInput {
 
 // BatchResult represents the result of processing a single batch
 type BatchResult struct {
-	Summary     string
-	FileSummary string // New: file-level summary if present
-	Comments    []*models.ReviewComment
-	Error       error
-	BatchID     string
+	Summary            string
+	FileSummary        string // New: file-level summary if present
+	TechnicalSummaries []prompts.TechnicalSummary
+	Comments           []*models.ReviewComment
+	Error              error
+	BatchID            string
 }
 
 // AggregateAndCombineOutputs combines the results of multiple batches
@@ -384,13 +385,41 @@ func (p *BatchProcessor) AggregateAndCombineOutputs(ctx context.Context, llm llm
 	}
 
 	// Collect file-level summaries and separate internal/external comments
-	var fileSummaries []string
+	summaryByFile := make(map[string]*prompts.TechnicalSummary)
+	var summaryOrder []string
 	var externalComments []*models.ReviewComment
 	var internalComments []*models.ReviewComment
 	totalComments := 0
 	for _, result := range results {
-		if result.FileSummary != "" {
-			fileSummaries = append(fileSummaries, result.FileSummary)
+		entries := result.TechnicalSummaries
+		if len(entries) == 0 && strings.TrimSpace(result.FileSummary) != "" {
+			entries = []prompts.TechnicalSummary{{
+				FilePath:   "",
+				Summary:    strings.TrimSpace(result.FileSummary),
+				KeyChanges: nil,
+			}}
+		}
+		for _, entry := range entries {
+			summary := strings.TrimSpace(entry.Summary)
+			if summary == "" && len(entry.KeyChanges) == 0 {
+				continue
+			}
+			key := strings.TrimSpace(entry.FilePath)
+			if _, exists := summaryByFile[key]; !exists {
+				copyEntry := prompts.TechnicalSummary{
+					FilePath:   key,
+					Summary:    summary,
+					KeyChanges: dedupeKeyChanges(entry.KeyChanges),
+				}
+				summaryByFile[key] = &copyEntry
+				summaryOrder = append(summaryOrder, key)
+			} else {
+				existing := summaryByFile[key]
+				if summary != "" {
+					existing.Summary = mergeSummaries(existing.Summary, summary)
+				}
+				existing.KeyChanges = mergeKeyChanges(existing.KeyChanges, entry.KeyChanges)
+			}
 		}
 
 		// Separate internal and external comments
@@ -404,9 +433,7 @@ func (p *BatchProcessor) AggregateAndCombineOutputs(ctx context.Context, llm llm
 		}
 	}
 
-	// Synthesize general summary from all file summaries and ALL comments (internal + external)
-	allCommentsForSynthesis := append(append([]*models.ReviewComment{}, internalComments...), externalComments...)
-	// New path: Manager.Render("summary") + summary section
+	// Synthesize general summary strictly from structured technical summaries
 	base := ""
 	{
 		// No DB store for v0.1; org-global defaults suffice
@@ -417,15 +444,16 @@ func (p *BatchProcessor) AggregateAndCombineOutputs(ctx context.Context, llm llm
 			return nil, fmt.Errorf("build summary prompt failed: %w", err)
 		}
 	}
-	promptText := base + "\n\n" + prompts.BuildSummarySection(fileSummaries, allCommentsForSynthesis) + "\n\n" + prompts.SummaryStructure
+	orderedSummaries := flattenSummaries(summaryOrder, summaryByFile)
+	promptText := base + "\n\n" + prompts.BuildSummarySection(orderedSummaries) + "\n\n" + prompts.SummaryStructure
 
 	generalSummary, err := llms.GenerateFromSinglePrompt(ctx, llm, promptText)
 	if err != nil {
 		generalSummary = "Error generating summary: " + err.Error()
 	}
 
-	p.Logger.Info("Aggregation complete: %d total comments (%d external, %d internal), %d file summaries",
-		totalComments, len(externalComments), len(internalComments), len(fileSummaries))
+	p.Logger.Info("Aggregation complete: %d total comments (%d external, %d internal), %d technical summaries",
+		totalComments, len(externalComments), len(internalComments), len(orderedSummaries))
 
 	// Output: one general summary, only EXTERNAL comments for posting
 	return &models.ReviewResult{
@@ -433,6 +461,60 @@ func (p *BatchProcessor) AggregateAndCombineOutputs(ctx context.Context, llm llm
 		Comments:         externalComments,
 		InternalComments: internalComments,
 	}, nil
+}
+
+func mergeSummaries(existing, incoming string) string {
+	existing = strings.TrimSpace(existing)
+	incoming = strings.TrimSpace(incoming)
+	if incoming == "" {
+		return existing
+	}
+	if existing == "" {
+		return incoming
+	}
+	if strings.Contains(existing, incoming) {
+		return existing
+	}
+	return existing + "\n" + incoming
+}
+
+func dedupeKeyChanges(changes []string) []string {
+	seen := make(map[string]struct{})
+	var out []string
+	for _, change := range changes {
+		trimmed := strings.TrimSpace(change)
+		if trimmed == "" {
+			continue
+		}
+		key := strings.ToLower(trimmed)
+		if _, ok := seen[key]; ok {
+			continue
+		}
+		seen[key] = struct{}{}
+		out = append(out, trimmed)
+	}
+	return out
+}
+
+func mergeKeyChanges(existing []string, incoming []string) []string {
+	combined := append(append([]string{}, existing...), incoming...)
+	return dedupeKeyChanges(combined)
+}
+
+func flattenSummaries(order []string, entries map[string]*prompts.TechnicalSummary) []prompts.TechnicalSummary {
+	result := make([]prompts.TechnicalSummary, 0, len(entries))
+	for _, key := range order {
+		entry, ok := entries[key]
+		if !ok {
+			continue
+		}
+		result = append(result, prompts.TechnicalSummary{
+			FilePath:   entry.FilePath,
+			Summary:    strings.TrimSpace(entry.Summary),
+			KeyChanges: dedupeKeyChanges(entry.KeyChanges),
+		})
+	}
+	return result
 }
 
 // deduplicateComments removes duplicate comments based on file path and line number
