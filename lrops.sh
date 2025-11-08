@@ -85,6 +85,34 @@ section_header() {
 }
 
 # =============================================================================
+# PORTABLE SED (GNU/BSD) HELPERS
+# =============================================================================
+
+# sed -i behaves differently on macOS (BSD sed) vs GNU sed. These helpers
+# provide a uniform interface: sed_inplace 's/a/b/' path/to/file
+sed_inplace() {
+    # Usage: sed_inplace 'SED_SCRIPT' FILE
+    local script="$1"
+    local file="$2"
+    if sed --version >/dev/null 2>&1; then
+        sed -i "$script" "$file"
+    else
+        sed -i '' "$script" "$file"
+    fi
+}
+
+sudo_sed_inplace() {
+    # Usage: sudo_sed_inplace 'SED_SCRIPT' FILE
+    local script="$1"
+    local file="$2"
+    if sudo sed --version >/dev/null 2>&1; then
+        sudo sed -i "$script" "$file"
+    else
+        sudo sed -i '' "$script" "$file"
+    fi
+}
+
+# =============================================================================
 # ERROR HANDLING AND CLEANUP
 # =============================================================================
 
@@ -1855,8 +1883,8 @@ generate_docker_compose() {
     fi
     
     # Substitute variables in the docker-compose file
-    sed -i "s/\${LIVEREVIEW_VERSION}/$LIVEREVIEW_VERSION/g" "$output_file"
-    sed -i "s/\${DB_PASSWORD}/\${DB_PASSWORD}/g" "$output_file"  # Keep as variable reference
+    sed_inplace "s/\\${LIVEREVIEW_VERSION}/$LIVEREVIEW_VERSION/g" "$output_file"
+    sed_inplace "s/\\${DB_PASSWORD}/\\${DB_PASSWORD}/g" "$output_file"  # Keep as variable reference
     # Ports are parameterized; no hard substitution required beyond defaults
     # Ensure ownership by invoking user
     if [[ -n "${SUDO_UID:-}" && -n "${SUDO_GID:-}" ]]; then
@@ -2031,13 +2059,13 @@ env_validate_cmd() {
         log_warning "Validation found issues. Attempting targeted fixes..."
         # Auto-fix: normalize boolean
         if grep -q '^LIVEREVIEW_REVERSE_PROXY=' "$tmp_cfg"; then
-            sed -i 's/^LIVEREVIEW_REVERSE_PROXY=.*/LIVEREVIEW_REVERSE_PROXY=false/' "$tmp_cfg"
+            sed_inplace 's/^LIVEREVIEW_REVERSE_PROXY=.*/LIVEREVIEW_REVERSE_PROXY=false/' "$tmp_cfg"
         fi
         # Auto-fix: ensure different ports
         local bport=$(grep '^LIVEREVIEW_BACKEND_PORT=' "$tmp_cfg" | cut -d'=' -f2)
         local fport=$(grep '^LIVEREVIEW_FRONTEND_PORT=' "$tmp_cfg" | cut -d'=' -f2)
         if [[ -n "$bport" && "$bport" == "$fport" ]]; then
-            sed -i 's/^LIVEREVIEW_FRONTEND_PORT=.*/LIVEREVIEW_FRONTEND_PORT=8081/' "$tmp_cfg"
+            sed_inplace 's/^LIVEREVIEW_FRONTEND_PORT=.*/LIVEREVIEW_FRONTEND_PORT=8081/' "$tmp_cfg"
         fi
         # Auto-fix: generate secrets if missing
         if ! grep -q '^DB_PASSWORD=' "$tmp_cfg"; then
@@ -2664,7 +2692,7 @@ update_containers_cmd() {
     # Update LIVEREVIEW_VERSION in .env (add if missing)
     if [[ -f "$LIVEREVIEW_INSTALL_DIR/.env" ]]; then
         if grep -q '^LIVEREVIEW_VERSION=' "$LIVEREVIEW_INSTALL_DIR/.env"; then
-            sed -i "s/^LIVEREVIEW_VERSION=.*/LIVEREVIEW_VERSION=${target_version}/" "$LIVEREVIEW_INSTALL_DIR/.env"
+            sed_inplace "s/^LIVEREVIEW_VERSION=.*/LIVEREVIEW_VERSION=${target_version}/" "$LIVEREVIEW_INSTALL_DIR/.env"
         else
             echo "LIVEREVIEW_VERSION=${target_version}" >> "$LIVEREVIEW_INSTALL_DIR/.env"
         fi
@@ -3392,7 +3420,7 @@ set_mode_cmd() {
     # Update or add LIVEREVIEW_REVERSE_PROXY setting
     if grep -q '^LIVEREVIEW_REVERSE_PROXY=' "$env_file"; then
         # Update existing value
-        if sed -i "s/^LIVEREVIEW_REVERSE_PROXY=.*/LIVEREVIEW_REVERSE_PROXY=$target_value/" "$env_file"; then
+        if sed_inplace "s/^LIVEREVIEW_REVERSE_PROXY=.*/LIVEREVIEW_REVERSE_PROXY=$target_value/" "$env_file"; then
             log_success "Updated LIVEREVIEW_REVERSE_PROXY=$target_value"
         else
             log_error "Failed to update LIVEREVIEW_REVERSE_PROXY in .env file"
@@ -4023,7 +4051,7 @@ INSTALLATION
    sudo cp ~/livereview/config/nginx.conf.example /etc/nginx/sites-available/livereview
 
 3. Edit the domain name:
-   sudo sed -i 's/your-domain.com/your-actual-domain.org/g' /etc/nginx/sites-available/livereview
+    sudo_sed_inplace 's/your-domain.com/your-actual-domain.org/g' /etc/nginx/sites-available/livereview
 
 4. Enable the site:
    sudo ln -s /etc/nginx/sites-available/livereview /etc/nginx/sites-enabled/
@@ -4187,7 +4215,7 @@ INSTALLATION
 
 2. Copy and configure the template:
    sudo cp ~/livereview/config/caddy.conf.example /etc/caddy/Caddyfile
-   sudo sed -i 's/your-domain.com/your-actual-domain.org/g' /etc/caddy/Caddyfile
+    sudo_sed_inplace 's/your-domain.com/your-actual-domain.org/g' /etc/caddy/Caddyfile
 
 3. Start Caddy:
    sudo systemctl enable caddy
@@ -4352,7 +4380,7 @@ INSTALLATION
     
 3. Copy and configure the template:
    sudo cp ~/livereview/config/apache.conf.example /etc/apache2/sites-available/livereview.conf
-   sudo sed -i 's/your-domain.com/your-actual-domain.org/g' /etc/apache2/sites-available/livereview.conf
+    sudo_sed_inplace 's/your-domain.com/your-actual-domain.org/g' /etc/apache2/sites-available/livereview.conf
 
 4. Enable the site:
    sudo a2ensite livereview
@@ -6328,11 +6356,11 @@ if [[ -f "/etc/nginx/sites-available/livereview" ]] || [[ -f "/etc/nginx/conf.d/
     log_info "Updating nginx configuration..."
     # Create SSL-enabled nginx config
     sudo cp "$LIVEREVIEW_DIR/config/nginx.conf.example" "/tmp/livereview-ssl.conf"
-    sudo sed -i "s/your-domain.com/$DOMAIN/g" "/tmp/livereview-ssl.conf"
+    sudo_sed_inplace "s/your-domain.com/$DOMAIN/g" "/tmp/livereview-ssl.conf"
     
     # Uncomment HTTPS section
-    sudo sed -i '/# HTTPS configuration/,/# Redirect HTTP to HTTPS/s/^# //' "/tmp/livereview-ssl.conf"
-    sudo sed -i '/# Redirect HTTP to HTTPS/,/# }/s/^# //' "/tmp/livereview-ssl.conf"
+    sudo_sed_inplace '/# HTTPS configuration/,/# Redirect HTTP to HTTPS/s/^# //' "/tmp/livereview-ssl.conf"
+    sudo_sed_inplace '/# Redirect HTTP to HTTPS/,/# }/s/^# //' "/tmp/livereview-ssl.conf"
     
     # Install the configuration
     sudo cp "/tmp/livereview-ssl.conf" "/etc/nginx/sites-available/livereview"
@@ -6349,18 +6377,18 @@ if [[ -f "/etc/nginx/sites-available/livereview" ]] || [[ -f "/etc/nginx/conf.d/
 elif [[ -f "/etc/caddy/Caddyfile" ]]; then
     log_info "Updating Caddy configuration..."
     sudo cp "$LIVEREVIEW_DIR/config/caddy.conf.example" "/etc/caddy/Caddyfile"
-    sudo sed -i "s/your-domain.com/$DOMAIN/g" "/etc/caddy/Caddyfile"
+    sudo_sed_inplace "s/your-domain.com/$DOMAIN/g" "/etc/caddy/Caddyfile"
     sudo systemctl reload caddy
     log_success "✓ Caddy configuration updated (automatic HTTPS)"
     
 elif [[ -f "/etc/apache2/sites-available/livereview.conf" ]]; then
     log_info "Updating Apache configuration..."
     sudo cp "$LIVEREVIEW_DIR/config/apache.conf.example" "/tmp/livereview-ssl.conf"
-    sudo sed -i "s/your-domain.com/$DOMAIN/g" "/tmp/livereview-ssl.conf"
+    sudo_sed_inplace "s/your-domain.com/$DOMAIN/g" "/tmp/livereview-ssl.conf"
     
     # Uncomment HTTPS section
-    sudo sed -i '/# HTTPS virtual host/,/# <\/VirtualHost>/s/^# //' "/tmp/livereview-ssl.conf"
-    sudo sed -i '/# Redirect HTTP to HTTPS/,/# <\/VirtualHost>/s/^# //' "/tmp/livereview-ssl.conf"
+    sudo_sed_inplace '/# HTTPS virtual host/,/# <\/VirtualHost>/s/^# //' "/tmp/livereview-ssl.conf"
+    sudo_sed_inplace '/# Redirect HTTP to HTTPS/,/# <\/VirtualHost>/s/^# //' "/tmp/livereview-ssl.conf"
     
     sudo cp "/tmp/livereview-ssl.conf" "/etc/apache2/sites-available/livereview.conf"
     
