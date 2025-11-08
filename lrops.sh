@@ -91,6 +91,18 @@ section_header() {
     echo -e "${BLUE}$(printf '=%.0s' {1..80})${NC}" >&2
 }
 
+# Simple progress countdown with inline updates (one line)
+progress_sleep() {
+    local seconds=${1:-0}
+    local label=${2:-"Waiting"}
+    local i
+    for (( i=1; i<=seconds; i++ )); do
+        printf "\r%s: %2ds/%2ds" "$label" "$i" "$seconds" >&2
+        sleep 1
+    done
+    echo >&2
+}
+
 # =============================================================================
 # PORTABLE SED (GNU/BSD) HELPERS
 # =============================================================================
@@ -2193,43 +2205,41 @@ wait_for_containers() {
     while [[ $wait_time -lt $max_wait ]]; do
         log_info "Checking container status... (${wait_time}/${max_wait}s)"
         
-        # Check if all containers are running
-        local containers_running
-        containers_running=$(docker_compose ps -q | wc -l)
         local containers_healthy=0
         
-        if [[ $containers_running -gt 0 ]]; then
-            # Check PostgreSQL container health with more retries
-            local db_ready=false
-            for i in {1..3}; do
-                if docker_compose exec -T livereview-db pg_isready -U livereview >/dev/null 2>&1; then
-                    db_ready=true
-                    break
-                fi
-                sleep 2
-            done
-            
-            if [[ "$db_ready" == "true" ]]; then
+        # Check PostgreSQL container health
+        local db_state=$(docker inspect --format='{{.State.Status}}' livereview-db 2>/dev/null || echo "missing")
+        local db_health=$(docker inspect --format='{{.State.Health.Status}}' livereview-db 2>/dev/null || echo "none")
+        
+        if [[ "$db_state" == "running" ]]; then
+            if [[ "$db_health" == "healthy" ]] || docker_compose exec -T livereview-db pg_isready -U livereview >/dev/null 2>&1; then
                 log_info "✓ PostgreSQL container is healthy"
                 ((containers_healthy++))
             else
-                log_info "○ PostgreSQL container not ready yet..."
-            fi
-            
-            # Check LiveReview app container (more thorough check)
-            if docker_compose ps livereview-app | grep -q "Up" && ! docker_compose ps livereview-app | grep -q "Restarting"; then
-                # Additional check - try to connect to the app
-                if curl -f -s --max-time 5 "http://localhost:${LIVEREVIEW_BACKEND_PORT:-8888}/health" >/dev/null 2>&1; then
-                    log_info "✓ LiveReview app container is healthy and responding"
-                    ((containers_healthy++))
-                else
-                    log_info "○ LiveReview app container running but not responding yet..."
-                fi
-            else
-                log_info "○ LiveReview app container not ready yet..."
+                log_info "○ PostgreSQL container running, health: ${db_health:-checking...}"
             fi
         else
-            log_info "○ No containers running yet..."
+            log_info "○ PostgreSQL container state: $db_state"
+        fi
+        
+        # Check LiveReview app container
+        local app_state=$(docker inspect --format='{{.State.Status}}' livereview-app 2>/dev/null || echo "missing")
+        local app_health=$(docker inspect --format='{{.State.Health.Status}}' livereview-app 2>/dev/null || echo "none")
+        
+        if [[ "$app_state" == "running" ]]; then
+            # If container has healthcheck defined, use it; otherwise use HTTP check
+            if [[ "$app_health" == "healthy" ]]; then
+                log_info "✓ LiveReview app container is healthy (docker healthcheck)"
+                ((containers_healthy++))
+            elif curl -f -s --max-time 5 "http://localhost:${LIVEREVIEW_BACKEND_PORT:-8888}/health" >/dev/null 2>&1 || \
+                 curl -f -s --max-time 5 "http://localhost:${LIVEREVIEW_BACKEND_PORT:-8888}/api/health" >/dev/null 2>&1; then
+                log_info "✓ LiveReview app container is healthy (HTTP check)"
+                ((containers_healthy++))
+            else
+                log_info "○ LiveReview app running, health: ${app_health}, HTTP not ready yet..."
+            fi
+        else
+            log_info "○ LiveReview app container state: $app_state"
         fi
         
         # If both containers are healthy, we're done
@@ -2256,6 +2266,13 @@ verify_deployment() {
     
     section_header "VERIFYING DEPLOYMENT"
     log_info "Verifying LiveReview deployment..."
+
+    # On macOS, Docker Desktop may still be initializing even after containers start.
+    # Give an explicit short warm-up with visible progress to avoid false negatives.
+    if [[ "$(uname -s)" == "Darwin" ]]; then
+        log_info "macOS detected: performing extra warm-up before verification (45s)"
+        progress_sleep 45 "Warming up containers"
+    fi
     
     # Source configuration to get ports
     source "$config_file"
