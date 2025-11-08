@@ -2166,9 +2166,16 @@ wait_for_containers() {
     section_header "WAITING FOR CONTAINER HEALTH"
     log_info "Waiting for containers to become healthy..."
     
-    local max_wait=180  # Increased from 120 to 180 seconds (3 minutes)
+    local max_wait=180  # base for Linux
     local wait_time=0
-    local check_interval=10  # Increased from 5 to 10 seconds between checks
+    local check_interval=10
+
+    # macOS (Docker Desktop) cold start penalty: extend grace period
+    if [[ "$(uname -s)" == "Darwin" ]]; then
+        log_info "macOS detected: extending health wait window (adds 150s)"
+        max_wait=$((max_wait + 150))          # total 330s
+        check_interval=10                     # keep interval stable
+    fi
     
     cd "$LIVEREVIEW_INSTALL_DIR" || {
         log_error "Could not change to installation directory: $LIVEREVIEW_INSTALL_DIR"
@@ -2176,8 +2183,12 @@ wait_for_containers() {
     }
     
     # Give containers initial time to start
-    log_info "Giving containers initial startup time..."
-    sleep 15
+    local initial_sleep=15
+    if [[ "$(uname -s)" == "Darwin" ]]; then
+        initial_sleep=30  # extra warm-up for VM init
+    fi
+    log_info "Giving containers initial startup time (${initial_sleep}s)..."
+    sleep "$initial_sleep"
     
     while [[ $wait_time -lt $max_wait ]]; do
         log_info "Checking container status... (${wait_time}/${max_wait}s)"
@@ -2262,7 +2273,14 @@ verify_deployment() {
     local api_ready=false
     local endpoints=("/health" "/api/health" "/api/healthcheck" "/api")
     
-    for i in {1..12}; do  # Try for 60 seconds (12 * 5 second intervals)
+    local api_attempts=12
+    local api_interval=5
+    if [[ "$(uname -s)" == "Darwin" ]]; then
+        api_attempts=20   # 100s
+        api_interval=5
+        log_info "macOS detected: extending API readiness attempts to $api_attempts"
+    fi
+    for (( i=1; i<=api_attempts; i++ )); do
         for endpoint in "${endpoints[@]}"; do
             if curl -f -s --max-time 5 "http://localhost:${LIVEREVIEW_BACKEND_PORT}${endpoint}" >/dev/null 2>&1; then
                 log_success "✓ API endpoint is accessible at: http://localhost:${LIVEREVIEW_BACKEND_PORT}${endpoint}"
@@ -2270,8 +2288,8 @@ verify_deployment() {
                 break 2
             fi
         done
-        log_info "○ API not ready, waiting... (attempt $i/12)"
-        sleep 5
+        log_info "○ API not ready, waiting... (attempt $i/$api_attempts)"
+        sleep "$api_interval"
     done
     
     if [[ "$api_ready" != "true" ]]; then
@@ -2282,14 +2300,21 @@ verify_deployment() {
     # Check UI endpoint
     log_info "Checking UI endpoint at http://localhost:${LIVEREVIEW_FRONTEND_PORT}/"
     local ui_ready=false
-    for i in {1..6}; do  # Try for 30 seconds (6 * 5 second intervals)
+    local ui_attempts=6
+    local ui_interval=5
+    if [[ "$(uname -s)" == "Darwin" ]]; then
+        ui_attempts=12   # 60s
+        ui_interval=5
+        log_info "macOS detected: extending UI readiness attempts to $ui_attempts"
+    fi
+    for (( i=1; i<=ui_attempts; i++ )); do
         if curl -f -s --max-time 5 "http://localhost:${LIVEREVIEW_FRONTEND_PORT}/" >/dev/null 2>&1; then
             log_success "✓ UI endpoint is accessible"
             ui_ready=true
             break
         else
-            log_info "○ UI not ready, waiting... (attempt $i/6)"
-            sleep 5
+            log_info "○ UI not ready, waiting... (attempt $i/$ui_attempts)"
+            sleep "$ui_interval"
         fi
     done
     
