@@ -4539,12 +4539,15 @@ validate_installation_health() {
         return 1
     }
     
-    # Check if containers are running
-    if ! docker_compose ps | grep -q "Up"; then
-        log_error "❌ Containers are not running"
-        ((validation_errors++))
-    else
+    # Check if containers are running using docker inspect (not ps parsing)
+    local db_state=$(docker inspect --format='{{.State.Status}}' livereview-db 2>/dev/null || echo "missing")
+    local app_state=$(docker inspect --format='{{.State.Status}}' livereview-app 2>/dev/null || echo "missing")
+    
+    if [[ "$db_state" == "running" && "$app_state" == "running" ]]; then
         log_success "✅ Containers are running"
+    else
+        log_error "❌ Containers are not running (db: $db_state, app: $app_state)"
+        ((validation_errors++))
     fi
     
     # Check container health with retry logic
@@ -4553,8 +4556,21 @@ validate_installation_health() {
     
     # Retry health checks multiple times
     for i in {1..5}; do
-        app_health=$(docker_compose ps -q livereview-app | xargs docker inspect --format='{{.State.Health.Status}}' 2>/dev/null || echo "unknown")
-        db_health=$(docker_compose ps -q livereview-db | xargs docker inspect --format='{{.State.Health.Status}}' 2>/dev/null || echo "unknown")
+        app_health=$(docker inspect --format='{{.State.Health.Status}}' livereview-app 2>/dev/null || echo "none")
+        db_health=$(docker inspect --format='{{.State.Health.Status}}' livereview-db 2>/dev/null || echo "none")
+        
+        # If no healthcheck defined, check via service availability
+        if [[ "$app_health" == "none" ]]; then
+            if curl -f -s --max-time 3 "http://localhost:${API_PORT}/health" >/dev/null 2>&1; then
+                app_health="healthy"
+            fi
+        fi
+        
+        if [[ "$db_health" == "none" ]]; then
+            if docker exec livereview-db pg_isready -U livereview >/dev/null 2>&1; then
+                db_health="healthy"
+            fi
+        fi
         
         if [[ "$app_health" == "healthy" && "$db_health" == "healthy" ]]; then
             break
