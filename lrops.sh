@@ -6,6 +6,13 @@
 
 set -euo pipefail  # Exit on error, undefined vars, pipe failures
 
+# Ensure the script runs under Bash only
+if [[ -z "${BASH_VERSION:-}" ]]; then
+    echo "This script must be run with Bash." >&2
+    echo "Try: bash lrops.sh <command> [options]" >&2
+    exit 1
+fi
+
 # =============================================================================
 # SCRIPT METADATA AND CONSTANTS
 # =============================================================================
@@ -94,22 +101,20 @@ sed_inplace() {
     # Usage: sed_inplace 'SED_SCRIPT' FILE
     local script="$1"
     local file="$2"
-    if sed --version >/dev/null 2>&1; then
-        sed -i "$script" "$file"
-    else
-        sed -i '' "$script" "$file"
-    fi
+    case "$(uname -s)" in
+        Darwin) sed -i '' "$script" "$file" ;;
+        *)      sed -i   "$script" "$file" ;;
+    esac
 }
 
 sudo_sed_inplace() {
     # Usage: sudo_sed_inplace 'SED_SCRIPT' FILE
     local script="$1"
     local file="$2"
-    if sudo sed --version >/dev/null 2>&1; then
-        sudo sed -i "$script" "$file"
-    else
-        sudo sed -i '' "$script" "$file"
-    fi
+    case "$(uname -s)" in
+        Darwin) sudo sed -i '' "$script" "$file" ;;
+        *)      sudo sed -i   "$script" "$file" ;;
+    esac
 }
 
 # =============================================================================
@@ -1887,7 +1892,7 @@ generate_docker_compose() {
     # Determine version to inject (fallback if empty)
     local effective_version="${LIVEREVIEW_VERSION:-latest}"
     sed_inplace "s/\\${LIVEREVIEW_VERSION}/$effective_version/g" "$output_file"
-    sed_inplace "s/\\${DB_PASSWORD}/\\${DB_PASSWORD}/g" "$output_file"  # Keep as variable reference
+    # Do not rewrite DB_PASSWORD placeholder; leave ${DB_PASSWORD} intact in compose
     # Ports are parameterized; no hard substitution required beyond defaults
     # Ensure ownership by invoking user
     if [[ -n "${SUDO_UID:-}" && -n "${SUDO_GID:-}" ]]; then
