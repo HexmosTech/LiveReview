@@ -86,6 +86,7 @@ curl -fsSL https://raw.githubusercontent.com/HexmosTech/LiveReview/main/lrops.sh
 
 Points to note:
 
+- The installer script must be run via `bash` (zsh/fish/etc are not supported officially)
 - Installer tested with Ubuntu/MacOS
 - Requires docker (with `docker-compose` or `docker compose`)
 - Requires `jq`
