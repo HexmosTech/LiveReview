@@ -84,6 +84,12 @@ This is the recommended installation method. With this - you can get your first 
 curl -fsSL https://raw.githubusercontent.com/HexmosTech/LiveReview/main/lrops.sh | sudo bash -s -- setup-demo
 ```
 
+Points to note:
+
+- Installer tested with Ubuntu/MacOS
+- Requires docker (with `docker-compose` or `docker compose`)
+- Requires `jq`
+
 You'll require a Free Licence to get started - follow the guide [here](https://github.com/HexmosTech/LiveReview/wiki/Get-a-LiveReview-Licence) to obtain a Licence.
 
 **Demo Mode Features:**

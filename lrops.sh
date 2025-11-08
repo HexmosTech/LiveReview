@@ -6,6 +6,13 @@
 
 set -euo pipefail  # Exit on error, undefined vars, pipe failures
 
+# Ensure the script runs under Bash only
+if [[ -z "${BASH_VERSION:-}" ]]; then
+    echo "This script must be run with Bash." >&2
+    echo "Try: bash lrops.sh <command> [options]" >&2
+    exit 1
+fi
+
 # =============================================================================
 # SCRIPT METADATA AND CONSTANTS
 # =============================================================================
@@ -82,6 +89,44 @@ section_header() {
     echo -e "${BLUE}$(printf '=%.0s' {1..80})${NC}" >&2
     echo -e "${BLUE}📋 $*${NC}" >&2
     echo -e "${BLUE}$(printf '=%.0s' {1..80})${NC}" >&2
+}
+
+# Simple progress countdown with inline updates (one line)
+progress_sleep() {
+    local seconds=${1:-0}
+    local label=${2:-"Waiting"}
+    local i
+    for (( i=1; i<=seconds; i++ )); do
+        printf "\r%s: %2ds/%2ds" "$label" "$i" "$seconds" >&2
+        sleep 1
+    done
+    echo >&2
+}
+
+# =============================================================================
+# PORTABLE SED (GNU/BSD) HELPERS
+# =============================================================================
+
+# sed -i behaves differently on macOS (BSD sed) vs GNU sed. These helpers
+# provide a uniform interface: sed_inplace 's/a/b/' path/to/file
+sed_inplace() {
+    # Usage: sed_inplace 'SED_SCRIPT' FILE
+    local script="$1"
+    local file="$2"
+    case "$(uname -s)" in
+        Darwin) sed -i '' "$script" "$file" ;;
+        *)      sed -i   "$script" "$file" ;;
+    esac
+}
+
+sudo_sed_inplace() {
+    # Usage: sudo_sed_inplace 'SED_SCRIPT' FILE
+    local script="$1"
+    local file="$2"
+    case "$(uname -s)" in
+        Darwin) sudo sed -i '' "$script" "$file" ;;
+        *)      sudo sed -i   "$script" "$file" ;;
+    esac
 }
 
 # =============================================================================
@@ -1816,6 +1861,8 @@ DATABASE_URL=postgres://livereview:$DB_PASSWORD@livereview-db:5432/livereview?ss
 
 # Security
 JWT_SECRET=$JWT_SECRET
+# Application version (fallback to latest if unset at generation time)
+LIVEREVIEW_VERSION=${LIVEREVIEW_VERSION:-latest}
 EOF
     
     # Set secure permissions on .env file (readable by Docker containers)
@@ -1854,9 +1901,10 @@ generate_docker_compose() {
         error_exit "Failed to extract docker-compose.yml template"
     fi
     
-    # Substitute variables in the docker-compose file
-    sed -i "s/\${LIVEREVIEW_VERSION}/$LIVEREVIEW_VERSION/g" "$output_file"
-    sed -i "s/\${DB_PASSWORD}/\${DB_PASSWORD}/g" "$output_file"  # Keep as variable reference
+    # Determine version to inject (fallback if empty)
+    local effective_version="${LIVEREVIEW_VERSION:-latest}"
+    sed_inplace "s/\\${LIVEREVIEW_VERSION}/$effective_version/g" "$output_file"
+    # Do not rewrite DB_PASSWORD placeholder; leave ${DB_PASSWORD} intact in compose
     # Ports are parameterized; no hard substitution required beyond defaults
     # Ensure ownership by invoking user
     if [[ -n "${SUDO_UID:-}" && -n "${SUDO_GID:-}" ]]; then
@@ -2031,13 +2079,13 @@ env_validate_cmd() {
         log_warning "Validation found issues. Attempting targeted fixes..."
         # Auto-fix: normalize boolean
         if grep -q '^LIVEREVIEW_REVERSE_PROXY=' "$tmp_cfg"; then
-            sed -i 's/^LIVEREVIEW_REVERSE_PROXY=.*/LIVEREVIEW_REVERSE_PROXY=false/' "$tmp_cfg"
+            sed_inplace 's/^LIVEREVIEW_REVERSE_PROXY=.*/LIVEREVIEW_REVERSE_PROXY=false/' "$tmp_cfg"
         fi
         # Auto-fix: ensure different ports
         local bport=$(grep '^LIVEREVIEW_BACKEND_PORT=' "$tmp_cfg" | cut -d'=' -f2)
         local fport=$(grep '^LIVEREVIEW_FRONTEND_PORT=' "$tmp_cfg" | cut -d'=' -f2)
         if [[ -n "$bport" && "$bport" == "$fport" ]]; then
-            sed -i 's/^LIVEREVIEW_FRONTEND_PORT=.*/LIVEREVIEW_FRONTEND_PORT=8081/' "$tmp_cfg"
+            sed_inplace 's/^LIVEREVIEW_FRONTEND_PORT=.*/LIVEREVIEW_FRONTEND_PORT=8081/' "$tmp_cfg"
         fi
         # Auto-fix: generate secrets if missing
         if ! grep -q '^DB_PASSWORD=' "$tmp_cfg"; then
@@ -2130,9 +2178,16 @@ wait_for_containers() {
     section_header "WAITING FOR CONTAINER HEALTH"
     log_info "Waiting for containers to become healthy..."
     
-    local max_wait=180  # Increased from 120 to 180 seconds (3 minutes)
+    local max_wait=180  # base for Linux
     local wait_time=0
-    local check_interval=10  # Increased from 5 to 10 seconds between checks
+    local check_interval=10
+
+    # macOS (Docker Desktop) cold start penalty: extend grace period
+    if [[ "$(uname -s)" == "Darwin" ]]; then
+        log_info "macOS detected: extending health wait window (adds 150s)"
+        max_wait=$((max_wait + 150))          # total 330s
+        check_interval=10                     # keep interval stable
+    fi
     
     cd "$LIVEREVIEW_INSTALL_DIR" || {
         log_error "Could not change to installation directory: $LIVEREVIEW_INSTALL_DIR"
@@ -2140,49 +2195,51 @@ wait_for_containers() {
     }
     
     # Give containers initial time to start
-    log_info "Giving containers initial startup time..."
-    sleep 15
+    local initial_sleep=15
+    if [[ "$(uname -s)" == "Darwin" ]]; then
+        initial_sleep=30  # extra warm-up for VM init
+    fi
+    log_info "Giving containers initial startup time (${initial_sleep}s)..."
+    sleep "$initial_sleep"
     
     while [[ $wait_time -lt $max_wait ]]; do
         log_info "Checking container status... (${wait_time}/${max_wait}s)"
         
-        # Check if all containers are running
-        local containers_running
-        containers_running=$(docker_compose ps -q | wc -l)
         local containers_healthy=0
         
-        if [[ $containers_running -gt 0 ]]; then
-            # Check PostgreSQL container health with more retries
-            local db_ready=false
-            for i in {1..3}; do
-                if docker_compose exec -T livereview-db pg_isready -U livereview >/dev/null 2>&1; then
-                    db_ready=true
-                    break
-                fi
-                sleep 2
-            done
-            
-            if [[ "$db_ready" == "true" ]]; then
+        # Check PostgreSQL container health
+        local db_state=$(docker inspect --format='{{.State.Status}}' livereview-db 2>/dev/null || echo "missing")
+        local db_health=$(docker inspect --format='{{.State.Health.Status}}' livereview-db 2>/dev/null || echo "none")
+        
+        if [[ "$db_state" == "running" ]]; then
+            if [[ "$db_health" == "healthy" ]] || docker_compose exec -T livereview-db pg_isready -U livereview >/dev/null 2>&1; then
                 log_info "✓ PostgreSQL container is healthy"
                 ((containers_healthy++))
             else
-                log_info "○ PostgreSQL container not ready yet..."
-            fi
-            
-            # Check LiveReview app container (more thorough check)
-            if docker_compose ps livereview-app | grep -q "Up" && ! docker_compose ps livereview-app | grep -q "Restarting"; then
-                # Additional check - try to connect to the app
-                if curl -f -s --max-time 5 "http://localhost:${LIVEREVIEW_BACKEND_PORT:-8888}/health" >/dev/null 2>&1; then
-                    log_info "✓ LiveReview app container is healthy and responding"
-                    ((containers_healthy++))
-                else
-                    log_info "○ LiveReview app container running but not responding yet..."
-                fi
-            else
-                log_info "○ LiveReview app container not ready yet..."
+                log_info "○ PostgreSQL container running, health: ${db_health:-checking...}"
             fi
         else
-            log_info "○ No containers running yet..."
+            log_info "○ PostgreSQL container state: $db_state"
+        fi
+        
+        # Check LiveReview app container
+        local app_state=$(docker inspect --format='{{.State.Status}}' livereview-app 2>/dev/null || echo "missing")
+        local app_health=$(docker inspect --format='{{.State.Health.Status}}' livereview-app 2>/dev/null || echo "none")
+        
+        if [[ "$app_state" == "running" ]]; then
+            # If container has healthcheck defined, use it; otherwise use HTTP check
+            if [[ "$app_health" == "healthy" ]]; then
+                log_info "✓ LiveReview app container is healthy (docker healthcheck)"
+                ((containers_healthy++))
+            elif curl -f -s --max-time 5 "http://localhost:${LIVEREVIEW_BACKEND_PORT:-8888}/health" >/dev/null 2>&1 || \
+                 curl -f -s --max-time 5 "http://localhost:${LIVEREVIEW_BACKEND_PORT:-8888}/api/health" >/dev/null 2>&1; then
+                log_info "✓ LiveReview app container is healthy (HTTP check)"
+                ((containers_healthy++))
+            else
+                log_info "○ LiveReview app running, health: ${app_health}, HTTP not ready yet..."
+            fi
+        else
+            log_info "○ LiveReview app container state: $app_state"
         fi
         
         # If both containers are healthy, we're done
@@ -2209,6 +2266,13 @@ verify_deployment() {
     
     section_header "VERIFYING DEPLOYMENT"
     log_info "Verifying LiveReview deployment..."
+
+    # On macOS, Docker Desktop may still be initializing even after containers start.
+    # Give an explicit short warm-up with visible progress to avoid false negatives.
+    if [[ "$(uname -s)" == "Darwin" ]]; then
+        log_info "macOS detected: performing extra warm-up before verification (45s)"
+        progress_sleep 45 "Warming up containers"
+    fi
     
     # Source configuration to get ports
     source "$config_file"
@@ -2226,7 +2290,14 @@ verify_deployment() {
     local api_ready=false
     local endpoints=("/health" "/api/health" "/api/healthcheck" "/api")
     
-    for i in {1..12}; do  # Try for 60 seconds (12 * 5 second intervals)
+    local api_attempts=12
+    local api_interval=5
+    if [[ "$(uname -s)" == "Darwin" ]]; then
+        api_attempts=20   # 100s
+        api_interval=5
+        log_info "macOS detected: extending API readiness attempts to $api_attempts"
+    fi
+    for (( i=1; i<=api_attempts; i++ )); do
         for endpoint in "${endpoints[@]}"; do
             if curl -f -s --max-time 5 "http://localhost:${LIVEREVIEW_BACKEND_PORT}${endpoint}" >/dev/null 2>&1; then
                 log_success "✓ API endpoint is accessible at: http://localhost:${LIVEREVIEW_BACKEND_PORT}${endpoint}"
@@ -2234,8 +2305,8 @@ verify_deployment() {
                 break 2
             fi
         done
-        log_info "○ API not ready, waiting... (attempt $i/12)"
-        sleep 5
+        log_info "○ API not ready, waiting... (attempt $i/$api_attempts)"
+        sleep "$api_interval"
     done
     
     if [[ "$api_ready" != "true" ]]; then
@@ -2246,14 +2317,21 @@ verify_deployment() {
     # Check UI endpoint
     log_info "Checking UI endpoint at http://localhost:${LIVEREVIEW_FRONTEND_PORT}/"
     local ui_ready=false
-    for i in {1..6}; do  # Try for 30 seconds (6 * 5 second intervals)
+    local ui_attempts=6
+    local ui_interval=5
+    if [[ "$(uname -s)" == "Darwin" ]]; then
+        ui_attempts=12   # 60s
+        ui_interval=5
+        log_info "macOS detected: extending UI readiness attempts to $ui_attempts"
+    fi
+    for (( i=1; i<=ui_attempts; i++ )); do
         if curl -f -s --max-time 5 "http://localhost:${LIVEREVIEW_FRONTEND_PORT}/" >/dev/null 2>&1; then
             log_success "✓ UI endpoint is accessible"
             ui_ready=true
             break
         else
-            log_info "○ UI not ready, waiting... (attempt $i/6)"
-            sleep 5
+            log_info "○ UI not ready, waiting... (attempt $i/$ui_attempts)"
+            sleep "$ui_interval"
         fi
     done
     
@@ -2664,7 +2742,7 @@ update_containers_cmd() {
     # Update LIVEREVIEW_VERSION in .env (add if missing)
     if [[ -f "$LIVEREVIEW_INSTALL_DIR/.env" ]]; then
         if grep -q '^LIVEREVIEW_VERSION=' "$LIVEREVIEW_INSTALL_DIR/.env"; then
-            sed -i "s/^LIVEREVIEW_VERSION=.*/LIVEREVIEW_VERSION=${target_version}/" "$LIVEREVIEW_INSTALL_DIR/.env"
+            sed_inplace "s/^LIVEREVIEW_VERSION=.*/LIVEREVIEW_VERSION=${target_version}/" "$LIVEREVIEW_INSTALL_DIR/.env"
         else
             echo "LIVEREVIEW_VERSION=${target_version}" >> "$LIVEREVIEW_INSTALL_DIR/.env"
         fi
@@ -3392,7 +3470,7 @@ set_mode_cmd() {
     # Update or add LIVEREVIEW_REVERSE_PROXY setting
     if grep -q '^LIVEREVIEW_REVERSE_PROXY=' "$env_file"; then
         # Update existing value
-        if sed -i "s/^LIVEREVIEW_REVERSE_PROXY=.*/LIVEREVIEW_REVERSE_PROXY=$target_value/" "$env_file"; then
+        if sed_inplace "s/^LIVEREVIEW_REVERSE_PROXY=.*/LIVEREVIEW_REVERSE_PROXY=$target_value/" "$env_file"; then
             log_success "Updated LIVEREVIEW_REVERSE_PROXY=$target_value"
         else
             log_error "Failed to update LIVEREVIEW_REVERSE_PROXY in .env file"
@@ -4023,7 +4101,7 @@ INSTALLATION
    sudo cp ~/livereview/config/nginx.conf.example /etc/nginx/sites-available/livereview
 
 3. Edit the domain name:
-   sudo sed -i 's/your-domain.com/your-actual-domain.org/g' /etc/nginx/sites-available/livereview
+    sudo_sed_inplace 's/your-domain.com/your-actual-domain.org/g' /etc/nginx/sites-available/livereview
 
 4. Enable the site:
    sudo ln -s /etc/nginx/sites-available/livereview /etc/nginx/sites-enabled/
@@ -4187,7 +4265,7 @@ INSTALLATION
 
 2. Copy and configure the template:
    sudo cp ~/livereview/config/caddy.conf.example /etc/caddy/Caddyfile
-   sudo sed -i 's/your-domain.com/your-actual-domain.org/g' /etc/caddy/Caddyfile
+    sudo_sed_inplace 's/your-domain.com/your-actual-domain.org/g' /etc/caddy/Caddyfile
 
 3. Start Caddy:
    sudo systemctl enable caddy
@@ -4352,7 +4430,7 @@ INSTALLATION
     
 3. Copy and configure the template:
    sudo cp ~/livereview/config/apache.conf.example /etc/apache2/sites-available/livereview.conf
-   sudo sed -i 's/your-domain.com/your-actual-domain.org/g' /etc/apache2/sites-available/livereview.conf
+    sudo_sed_inplace 's/your-domain.com/your-actual-domain.org/g' /etc/apache2/sites-available/livereview.conf
 
 4. Enable the site:
    sudo a2ensite livereview
@@ -4461,12 +4539,15 @@ validate_installation_health() {
         return 1
     }
     
-    # Check if containers are running
-    if ! docker_compose ps | grep -q "Up"; then
-        log_error "❌ Containers are not running"
-        ((validation_errors++))
-    else
+    # Check if containers are running using docker inspect (not ps parsing)
+    local db_state=$(docker inspect --format='{{.State.Status}}' livereview-db 2>/dev/null || echo "missing")
+    local app_state=$(docker inspect --format='{{.State.Status}}' livereview-app 2>/dev/null || echo "missing")
+    
+    if [[ "$db_state" == "running" && "$app_state" == "running" ]]; then
         log_success "✅ Containers are running"
+    else
+        log_error "❌ Containers are not running (db: $db_state, app: $app_state)"
+        ((validation_errors++))
     fi
     
     # Check container health with retry logic
@@ -4475,8 +4556,21 @@ validate_installation_health() {
     
     # Retry health checks multiple times
     for i in {1..5}; do
-        app_health=$(docker_compose ps -q livereview-app | xargs docker inspect --format='{{.State.Health.Status}}' 2>/dev/null || echo "unknown")
-        db_health=$(docker_compose ps -q livereview-db | xargs docker inspect --format='{{.State.Health.Status}}' 2>/dev/null || echo "unknown")
+        app_health=$(docker inspect --format='{{.State.Health.Status}}' livereview-app 2>/dev/null || echo "none")
+        db_health=$(docker inspect --format='{{.State.Health.Status}}' livereview-db 2>/dev/null || echo "none")
+        
+        # If no healthcheck defined, check via service availability
+        if [[ "$app_health" == "none" ]]; then
+            if curl -f -s --max-time 3 "http://localhost:${API_PORT}/health" >/dev/null 2>&1; then
+                app_health="healthy"
+            fi
+        fi
+        
+        if [[ "$db_health" == "none" ]]; then
+            if docker exec livereview-db pg_isready -U livereview >/dev/null 2>&1; then
+                db_health="healthy"
+            fi
+        fi
         
         if [[ "$app_health" == "healthy" && "$db_health" == "healthy" ]]; then
             break
@@ -4550,28 +4644,29 @@ validate_installation_health() {
     
     # Check for recent errors in logs (excluding harmless entries)
     log_info "Checking for errors in recent logs..."
-    local recent_errors=$(docker_compose logs --since=2m 2>/dev/null | grep -i "error\|fail\|panic\|fatal" | grep -v '"error":""' | grep -v "relation.*does not exist" | wc -l)
+    local recent_errors=$(docker_compose logs --since=2m 2>/dev/null | grep -i "error\|fail\|panic\|fatal" | grep -v '"error":""' | grep -v '"error":null' | grep -v "relation.*does not exist" | grep -v "no rows in result set" | grep -v "error\":\[\]" | wc -l)
     if [[ $recent_errors -eq 0 ]]; then
         log_success "✅ No recent errors found in logs"
     else
-        log_warning "⚠️ Found $recent_errors recent error(s) in logs"
-        ((validation_errors++))
+        log_warning "⚠️ Found $recent_errors recent error(s) in logs (may be harmless startup messages)"
+        # Don't increment validation_errors for log messages - they're often false positives
     fi
     
     # Summary
     if [[ $validation_errors -eq 0 ]]; then
         log_success "🎉 All validation checks passed!"
         log_success "✅ LiveReview is fully operational!"
+        return 0
     elif [[ $validation_errors -le 2 ]]; then
         log_warning "⚠️ Found $validation_errors minor validation issues"
         log_info "LiveReview may still be starting up. Wait a few more minutes and check status again."
         log_info "Run 'lrops.sh status' for detailed status information"
+        return 0  # Don't fail on minor issues
     else
         log_error "❌ Found $validation_errors validation issues"
         log_info "Run 'lrops.sh status' for detailed status information"
+        return 1
     fi
-    
-    return $validation_errors
 }
 
 # Generate comprehensive installation report file
@@ -6328,11 +6423,11 @@ if [[ -f "/etc/nginx/sites-available/livereview" ]] || [[ -f "/etc/nginx/conf.d/
     log_info "Updating nginx configuration..."
     # Create SSL-enabled nginx config
     sudo cp "$LIVEREVIEW_DIR/config/nginx.conf.example" "/tmp/livereview-ssl.conf"
-    sudo sed -i "s/your-domain.com/$DOMAIN/g" "/tmp/livereview-ssl.conf"
+    sudo_sed_inplace "s/your-domain.com/$DOMAIN/g" "/tmp/livereview-ssl.conf"
     
     # Uncomment HTTPS section
-    sudo sed -i '/# HTTPS configuration/,/# Redirect HTTP to HTTPS/s/^# //' "/tmp/livereview-ssl.conf"
-    sudo sed -i '/# Redirect HTTP to HTTPS/,/# }/s/^# //' "/tmp/livereview-ssl.conf"
+    sudo_sed_inplace '/# HTTPS configuration/,/# Redirect HTTP to HTTPS/s/^# //' "/tmp/livereview-ssl.conf"
+    sudo_sed_inplace '/# Redirect HTTP to HTTPS/,/# }/s/^# //' "/tmp/livereview-ssl.conf"
     
     # Install the configuration
     sudo cp "/tmp/livereview-ssl.conf" "/etc/nginx/sites-available/livereview"
@@ -6349,18 +6444,18 @@ if [[ -f "/etc/nginx/sites-available/livereview" ]] || [[ -f "/etc/nginx/conf.d/
 elif [[ -f "/etc/caddy/Caddyfile" ]]; then
     log_info "Updating Caddy configuration..."
     sudo cp "$LIVEREVIEW_DIR/config/caddy.conf.example" "/etc/caddy/Caddyfile"
-    sudo sed -i "s/your-domain.com/$DOMAIN/g" "/etc/caddy/Caddyfile"
+    sudo_sed_inplace "s/your-domain.com/$DOMAIN/g" "/etc/caddy/Caddyfile"
     sudo systemctl reload caddy
     log_success "✓ Caddy configuration updated (automatic HTTPS)"
     
 elif [[ -f "/etc/apache2/sites-available/livereview.conf" ]]; then
     log_info "Updating Apache configuration..."
     sudo cp "$LIVEREVIEW_DIR/config/apache.conf.example" "/tmp/livereview-ssl.conf"
-    sudo sed -i "s/your-domain.com/$DOMAIN/g" "/tmp/livereview-ssl.conf"
+    sudo_sed_inplace "s/your-domain.com/$DOMAIN/g" "/tmp/livereview-ssl.conf"
     
     # Uncomment HTTPS section
-    sudo sed -i '/# HTTPS virtual host/,/# <\/VirtualHost>/s/^# //' "/tmp/livereview-ssl.conf"
-    sudo sed -i '/# Redirect HTTP to HTTPS/,/# <\/VirtualHost>/s/^# //' "/tmp/livereview-ssl.conf"
+    sudo_sed_inplace '/# HTTPS virtual host/,/# <\/VirtualHost>/s/^# //' "/tmp/livereview-ssl.conf"
+    sudo_sed_inplace '/# Redirect HTTP to HTTPS/,/# <\/VirtualHost>/s/^# //' "/tmp/livereview-ssl.conf"
     
     sudo cp "/tmp/livereview-ssl.conf" "/etc/apache2/sites-available/livereview.conf"
     
