@@ -1844,6 +1844,8 @@ DATABASE_URL=postgres://livereview:$DB_PASSWORD@livereview-db:5432/livereview?ss
 
 # Security
 JWT_SECRET=$JWT_SECRET
+# Application version (fallback to latest if unset at generation time)
+LIVEREVIEW_VERSION=${LIVEREVIEW_VERSION:-latest}
 EOF
     
     # Set secure permissions on .env file (readable by Docker containers)
@@ -1882,8 +1884,9 @@ generate_docker_compose() {
         error_exit "Failed to extract docker-compose.yml template"
     fi
     
-    # Substitute variables in the docker-compose file
-    sed_inplace "s/\\${LIVEREVIEW_VERSION}/$LIVEREVIEW_VERSION/g" "$output_file"
+    # Determine version to inject (fallback if empty)
+    local effective_version="${LIVEREVIEW_VERSION:-latest}"
+    sed_inplace "s/\\${LIVEREVIEW_VERSION}/$effective_version/g" "$output_file"
     sed_inplace "s/\\${DB_PASSWORD}/\\${DB_PASSWORD}/g" "$output_file"  # Keep as variable reference
     # Ports are parameterized; no hard substitution required beyond defaults
     # Ensure ownership by invoking user
