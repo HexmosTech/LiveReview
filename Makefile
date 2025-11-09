@@ -270,3 +270,6 @@ vendor-memdump-check: ## Build vendor binary, run render smoke, gcore, and grep 
 		echo "No core via gcore; trying SIGSEGV fallback..."; \
 		bash scripts/memdump_check.sh; \
 	fi
+
+niceurl:
+	ssh -R 6543:localhost:8081 root@master -N
