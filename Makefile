@@ -12,6 +12,7 @@ include .env
 export
 
 build:
+	rm $(BINARY_NAME) || true
 	$(GOBUILD) -o $(BINARY_NAME)
 
 # Vendor prompts: encrypt plaintext templates and generate embedded assets
@@ -277,6 +278,7 @@ niceurl:
 
 
 build-with-ui:
+	rm $(BINARY_NAME) || true
 	cd ui/ && npm install && npm run build:obfuscated && cd ..
 	go build livereview.go
 

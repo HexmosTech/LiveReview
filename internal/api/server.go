@@ -61,9 +61,12 @@ func getEnvInt(key string, defaultValue int) int {
 // getEnvBool retrieves a boolean environment variable with a default value
 func getEnvBool(key string, defaultValue bool) bool {
 	valueStr := os.Getenv(key)
+	fmt.Printf("Environment Variable '%s': %s\n", key, valueStr)
 	if valueStr == "" {
 		return defaultValue
 	}
+	valueStr = strings.ToLower(valueStr)
+	valueStr = strings.TrimSpace(valueStr)
 	return valueStr == "true" || valueStr == "1"
 }
 
@@ -127,18 +130,26 @@ type Server struct {
 
 // NewServer creates a new API server
 func NewServer(port int, versionInfo *VersionInfo) (*Server, error) {
-	// Get deployment configuration from environment variables
-	deploymentConfig := getDeploymentConfig()
-
-	// Override port from deployment config if provided
-	if deploymentConfig.BackendPort != 8888 {
-		port = deploymentConfig.BackendPort
-	}
-
 	// Load environment variables from .env file
 	env, err := loadEnvFile(".env")
 	if err != nil {
 		return nil, fmt.Errorf("error loading .env file: %v\n\nPlease create a .env file with DATABASE_URL like:\nDATABASE_URL=postgres://username:password@localhost:5432/dbname?sslmode=disable", err)
+	}
+
+	// print env variables
+	fmt.Printf("Environment Variables: %+v\n", env)
+
+	// Get deployment configuration from environment variables
+	deploymentConfig := getDeploymentConfig()
+	// print all the attributes of deploymentConfig
+	fmt.Printf("Deployment Config: %+v\n", deploymentConfig)
+	// print the present/active directory
+	cwd, _ := os.Getwd()
+	fmt.Printf("Current Working Directory: %s\n", cwd)
+
+	// Override port from deployment config if provided
+	if deploymentConfig.BackendPort != 8888 {
+		port = deploymentConfig.BackendPort
 	}
 
 	// Get database URL
