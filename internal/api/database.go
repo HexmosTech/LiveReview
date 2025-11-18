@@ -38,6 +38,9 @@ func loadEnvFile(filePath string) (map[string]string, error) {
 		// Remove quotes if present
 		value = strings.Trim(value, `"'`)
 		envMap[key] = value
+
+		// Also set in os environment
+		os.Setenv(key, value)
 	}
 
 	if err := scanner.Err(); err != nil {
