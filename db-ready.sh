@@ -156,8 +156,6 @@ main() {
     # Step 2: Run migrations
     run_migrations
     
-    # Step 3: Start servers
-    start_servers
 }
 
 # Execute main function

@@ -283,6 +283,8 @@ build-with-ui:
 raw-deploy:
 	rsync -avz ./livereview db-ready.sh ecosystem.config.js master:/root/public_lr/
 	rsync -avz ./.env.prod master:/root/public_lr/.env
+	rsync -avz ./db/ master:/root/public_lr/db/
+	ssh master "cd /root/public_lr && chmod a+x db-ready.sh && ./db-ready.sh"
 	ssh master "cd /root/public_lr && pm2 reload ecosystem.config.js"
 
 	
