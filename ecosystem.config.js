@@ -7,7 +7,7 @@ module.exports = {
   }, {
     name: 'livereview-ui',
     script: './livereview',
-    args: 'ui',
+    args: "ui --port 8081 --api-url ''",
     watch: false
   }]
 };
