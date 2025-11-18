@@ -281,7 +281,8 @@ build-with-ui:
 	go build livereview.go
 
 raw-deploy:
-	rsync -avz ./livereview ./.env ecosystem.config.js master:/root/public_lr/
-	ssh master "cd /root/public_lr && pm2 reload ecosystem.config.js --env production"
+	rsync -avz ./livereview db-ready.sh ecosystem.config.js master:/root/public_lr/
+	rsync -avz ./.env.prod master:/root/public_lr/.env
+	ssh master "cd /root/public_lr && pm2 reload ecosystem.config.js"
 
 	
