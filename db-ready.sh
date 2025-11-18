@@ -3,32 +3,81 @@ set -e
 
 echo "🚀 Starting LiveReview application..."
 
+# Function to load .env file
+load_env() {
+    if [ -f ".env" ]; then
+        echo "📋 Loading environment variables from .env file..."
+        # Export variables from .env, handling variable substitution
+        set -a
+        . ./.env
+        set +a
+        echo "✅ Environment variables loaded"
+    else
+        echo "⚠️  No .env file found, using existing environment variables"
+    fi
+}
+
+# Function to extract database connection details
+extract_db_details() {
+    if [ -z "$DATABASE_URL" ]; then
+        echo "❌ DATABASE_URL not set"
+        exit 1
+    fi
+    
+    # Parse DATABASE_URL to extract components
+    # Format: postgres://user:password@host:port/database?params
+    DB_USER=$(echo "$DATABASE_URL" | sed -n 's#.*://\([^:]*\):.*#\1#p')
+    DB_PASS=$(echo "$DATABASE_URL" | sed -n 's#.*://[^:]*:\([^@]*\)@.*#\1#p')
+    DB_HOST=$(echo "$DATABASE_URL" | sed -n 's#.*@\([^:]*\):.*#\1#p')
+    DB_PORT=$(echo "$DATABASE_URL" | sed -n 's#.*:\([0-9]*\)/.*#\1#p')
+    DB_NAME=$(echo "$DATABASE_URL" | sed -n 's#.*/\([^?]*\).*#\1#p')
+    
+    echo "📊 Database connection details:"
+    echo "  - Host: $DB_HOST"
+    echo "  - Port: $DB_PORT"
+    echo "  - User: $DB_USER"
+    echo "  - Database: $DB_NAME"
+    
+    export DB_USER DB_PASS DB_HOST DB_PORT DB_NAME
+}
+
 # Function to wait for PostgreSQL to be ready
 wait_for_postgres() {
-    echo "⏳ Waiting for PostgreSQL to be ready..."
+    echo "⏳ Waiting for PostgreSQL server to be ready..."
     
-    until pg_isready -h livereview-db -p 5432 -U livereview; do
+    until pg_isready -h "$DB_HOST" -p "$DB_PORT" -U "$DB_USER"; do
         echo "  PostgreSQL is not ready yet. Waiting 2 seconds..."
         sleep 2
     done
     
-    echo "✅ PostgreSQL is ready!"
+    echo "✅ PostgreSQL server is ready!"
+}
+
+# Function to check if database exists and create if needed
+ensure_database_exists() {
+    echo "🔍 Checking if database '$DB_NAME' exists..."
+    
+    # Try to connect to the target database
+    if PGPASSWORD="$DB_PASS" psql -h "$DB_HOST" -p "$DB_PORT" -U "$DB_USER" -d "$DB_NAME" -c "SELECT 1;" > /dev/null 2>&1; then
+        echo "✅ Database '$DB_NAME' exists"
+        return 0
+    fi
+    
+    echo "⚠️  Database '$DB_NAME' does not exist, creating it..."
+    
+    # Connect to postgres database to create the target database
+    if PGPASSWORD="$DB_PASS" psql -h "$DB_HOST" -p "$DB_PORT" -U "$DB_USER" -d "postgres" -c "CREATE DATABASE $DB_NAME;" > /dev/null 2>&1; then
+        echo "✅ Database '$DB_NAME' created successfully"
+    else
+        echo "❌ Failed to create database '$DB_NAME'"
+        exit 1
+    fi
 }
 
 # Function to run database migrations
 run_migrations() {
     echo "🔄 Running database migrations..."
-    
-    # Build DATABASE_URL from parts if not provided
-    if [ -z "$DATABASE_URL" ]; then
-        if [ -z "$DB_PASSWORD" ]; then
-            echo "❌ DB_PASSWORD not provided; cannot construct DATABASE_URL"
-            exit 1
-        fi
-        DATABASE_URL="postgres://livereview:${DB_PASSWORD}@livereview-db:5432/livereview?sslmode=disable"
-        export DATABASE_URL
-    fi
-    echo "🗄  Using DATABASE_URL host=$(echo "$DATABASE_URL" | sed 's#.*@##' | cut -d'?' -f1)"
+    echo "🗄  Using DATABASE_URL: $DATABASE_URL"
     
     # Run dbmate migrations first
     if dbmate up; then
@@ -150,10 +199,19 @@ main() {
     echo "📋 LiveReview Startup Sequence"
     echo "=============================="
     
-    # Step 1: Wait for PostgreSQL
+    # Step 1: Load environment variables from .env
+    load_env
+    
+    # Step 2: Extract database connection details
+    extract_db_details
+    
+    # Step 3: Wait for PostgreSQL server
     wait_for_postgres
     
-    # Step 2: Run migrations
+    # Step 4: Ensure database exists (create if needed)
+    ensure_database_exists
+    
+    # Step 5: Run migrations
     run_migrations
     
 }
