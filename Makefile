@@ -281,6 +281,6 @@ build-with-ui:
 	go build livereview.go
 
 raw-deploy:
-	rsync -avz ./livereview ./.env master:/root/public_lr/livereview	
+	rsync -avz ./livereview ./.env master:/root/public_lr/
 
 	
