@@ -24,6 +24,17 @@ const Login: React.FC = () => {
   console.log('🔍 Is localhost?:', window.location.hostname === 'localhost');
   console.log('🔍 LIVEREVIEW_CONFIG at render:', JSON.stringify(window.LIVEREVIEW_CONFIG, null, 2));
 
+  // Alert cloud/self-hosted mode based on root .env flag
+  const isCloud = (process.env.LIVEREVIEW_IS_CLOUD || '').toString();
+  if (typeof window !== 'undefined') {
+    // Only alert once per page load
+    const marker = '__LIVEREVIEW_IS_CLOUD_ALERTED__';
+    if (!(window as any)[marker]) {
+      (window as any)[marker] = true;
+      alert(`LIVEREVIEW_IS_CLOUD = ${isCloud}`);
+    }
+  }
+
   // Check if we're in production mode and accessing via localhost
   const isProductionModeOnLocalhost = () => {
     // Check if we're on localhost but in production mode (reverse proxy enabled)
