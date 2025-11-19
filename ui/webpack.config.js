@@ -8,6 +8,7 @@ const ForkTsCheckerWebpackPlugin = require('fork-ts-checker-webpack-plugin');
 const BundleAnalyzerPlugin = require('webpack-bundle-analyzer').BundleAnalyzerPlugin;
 const WebpackObfuscator = require('webpack-obfuscator');
 const webpack = require('webpack');
+const fs = require('fs');
 const metaConfig = require('./meta.config.js');
 
 module.exports =  (env, options)=> {
@@ -15,6 +16,13 @@ module.exports =  (env, options)=> {
     const devMode = options.mode === 'development' ? true : false;
 
     process.env.NODE_ENV = options.mode;
+
+    // Load root .env so UI can inherit server configuration (single source of truth)
+    const rootEnvPath = path.resolve(__dirname, '..', '.env');
+    if (fs.existsSync(rootEnvPath)) {
+        const dotenv = require('dotenv');
+        dotenv.config({ path: rootEnvPath });
+    }
 
     return {
         mode: options.mode,
@@ -104,6 +112,8 @@ module.exports =  (env, options)=> {
                 // Support unified API_URL with fallback to framework-specific variable
                 'process.env.API_URL': JSON.stringify(process.env.API_URL || process.env.REACT_APP_API_URL),
                 'process.env.REACT_APP_API_URL': JSON.stringify(process.env.API_URL || process.env.REACT_APP_API_URL),
+                // Expose cloud/self-hosted flag from root .env to browser
+                'process.env.LIVEREVIEW_IS_CLOUD': JSON.stringify(process.env.LIVEREVIEW_IS_CLOUD || ''),
             }),
             new MiniCssExtractPlugin({
                 // Options similar to the same options in webpackOptions.output
