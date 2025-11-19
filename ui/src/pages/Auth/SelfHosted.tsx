@@ -31,7 +31,7 @@ const SelfHosted: React.FC = () => {
 		const marker = '__LIVEREVIEW_IS_CLOUD_ALERTED__';
 		if (!(window as any)[marker]) {
 			(window as any)[marker] = true;
-			alert(`LIVEREVIEW_IS_CLOUD = ${isCloud}`);
+			 console.log(`LIVEREVIEW_IS_CLOUD = ${isCloud}`);
 		}
 	}
 
