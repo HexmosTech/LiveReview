@@ -691,6 +691,29 @@ func (h *AuthHandlers) EnsureCloudUser(c echo.Context) error {
 		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "commit failed"})
 	}
 
+	// Create full user object for token generation
+	user := &models.User{
+		ID:        userID,
+		Email:     req.Email,
+		CreatedAt: time.Now(),
+		UpdatedAt: time.Now(),
+	}
+
+	// Create session tokens like normal login
+	userAgent := c.Request().Header.Get("User-Agent")
+	ipAddress := c.RealIP()
+	tokenPair, err := h.tokenService.CreateTokenPair(user, userAgent, ipAddress)
+	if err != nil {
+		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "failed to create session tokens"})
+	}
+
+	// Get user's organizations (should at least include the personal org just created/verified)
+	organizations, err := h.getUserOrganizations(userID)
+	if err != nil {
+		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "failed to get user organizations"})
+	}
+
+	// Return a response compatible with LoginResponse structure
 	return c.JSON(http.StatusOK, map[string]interface{}{
 		"status":               "ok",
 		"user_id":              userID,
@@ -699,5 +722,14 @@ func (h *AuthHandlers) EnsureCloudUser(c echo.Context) error {
 		"created_org":          createdOrg,
 		"super_admin_assigned": assignedSuperAdmin,
 		"email":                req.Email,
+		// Add standard login response fields
+		"user": &UserInfo{
+			ID:        userID,
+			Email:     req.Email,
+			CreatedAt: user.CreatedAt,
+			UpdatedAt: user.UpdatedAt,
+		},
+		"tokens":        tokenPair,
+		"organizations": organizations,
 	})
 }

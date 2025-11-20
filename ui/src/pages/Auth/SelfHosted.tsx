@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { useDispatch, useSelector } from 'react-redux';
 import { useAppDispatch, useAppSelector } from '../../store/configureStore';
 import { login } from '../../store/Auth/reducer';
+import { handleLoginError } from '../../utils/authHelpers';
 import toast from 'react-hot-toast';
 
 const SelfHosted: React.FC = () => {
@@ -55,9 +56,7 @@ const SelfHosted: React.FC = () => {
 			await dispatch(login({ email, password })).unwrap();
 			toast.success('Login successful!');
 		} catch (err) {
-			const errorMessage = (err as Error).message || 'An unknown error occurred.';
-			toast.error(`Login failed: ${errorMessage}`);
-			console.error('Login error:', err);
+			handleLoginError(err);
 		}
 	};
 

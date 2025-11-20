@@ -1,4 +1,7 @@
 import React, { useEffect, useState } from 'react';
+import { useAppDispatch } from '../../store/configureStore';
+import { handleLoginSuccess, handleLoginError } from '../../utils/authHelpers';
+import { LoginResponse } from '../../api/auth';
 
 interface AuthedUser {
 	email: string;
@@ -20,10 +23,12 @@ interface CloudProvisionResponse {
 }
 
 const Cloud: React.FC = () => {
+	const dispatch = useAppDispatch();
 	const [user, setUser] = useState<AuthedUser | null>(null);
 	const [isClient, setIsClient] = useState(false);
 	const [provisionResult, setProvisionResult] = useState<CloudProvisionResponse | null>(null);
 	const [provisioning, setProvisioning] = useState(false);
+	const [loggingIn, setLoggingIn] = useState(false);
 
 	useEffect(() => {
 		setIsClient(true);
@@ -89,7 +94,7 @@ const Cloud: React.FC = () => {
 
 	// After we have the external user + JWT, call ensure-cloud-user (idempotent)
 	useEffect(() => {
-		if (!user || provisioning || provisionResult) return;
+		if (!user || provisioning || provisionResult || loggingIn) return;
 		setProvisioning(true);
 		(async () => {
 			try {
@@ -113,14 +118,27 @@ const Cloud: React.FC = () => {
 					setProvisionResult({ error: data?.error || `HTTP ${resp.status}`, raw: data });
 				} else {
 					setProvisionResult({ ...data, raw: data });
+					
+					// If we got tokens and user info back, process as a login
+					if (data.tokens && data.user && data.organizations) {
+						setLoggingIn(true);
+						const loginResponse: LoginResponse = {
+							user: data.user,
+							tokens: data.tokens,
+							organizations: data.organizations,
+						};
+						handleLoginSuccess(loginResponse, dispatch);
+						// Navigation will happen automatically via Redux state change
+					}
 				}
 			} catch (err: any) {
 				setProvisionResult({ error: err?.message || 'unknown error', raw: null });
+				handleLoginError(err);
 			} finally {
 				setProvisioning(false);
 			}
 		})();
-	}, [user, provisioning, provisionResult]);
+	}, [user, provisioning, provisionResult, loggingIn, dispatch]);
 
 	return (
 		<div className="min-h-screen bg-gray-900 flex items-center justify-center">
