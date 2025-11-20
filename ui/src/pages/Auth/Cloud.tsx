@@ -142,20 +142,35 @@ const Cloud: React.FC = () => {
 
 	return (
 		<div className="min-h-screen bg-gray-900 flex items-center justify-center">
-			<div className="max-w-2xl w-full bg-gray-800 p-8 rounded-lg shadow-lg text-white">
-				<h1 className="text-2xl font-bold mb-4 text-center">Cloud Login</h1>
-				<p className="text-sm text-gray-300 mb-6 text-center">
-					Sign in via Hexmos SSO and see the returned credentials
-					below.
-				</p>
-				<div className="flex justify-center mb-8">
-					<button
-						onClick={handleLoginClick}
-						className="inline-block bg-blue-600 hover:bg-blue-700 transition text-white font-semibold py-2 px-6 rounded"
-					>
-						Sign in with Hexmos
-					</button>
+			<div className="max-w-md w-full bg-gray-800 p-8 rounded-lg shadow-lg">
+				<div className="text-center mb-8">
+					<img src="assets/logo-horizontal.svg" alt="LiveReview Logo" className="h-16 w-auto mx-auto" />
 				</div>
+				<div className="text-center mb-8">
+					<h2 className="text-lg font-medium text-gray-300">Sign in to <strong>LiveReview</strong> in 30 seconds:</h2>
+				</div>
+
+				{loggingIn ? (
+					<div className="mt-8 flex flex-col items-center justify-center space-y-4">
+						<div className="animate-spin rounded-full h-12 w-12 border-b-2 border-indigo-500"></div>
+						<p className="text-gray-400 text-sm">Signing you in...</p>
+					</div>
+				) : (
+					<div className="flex justify-center">
+						<button
+							onClick={handleLoginClick}
+							className="inline-flex items-center justify-center gap-3 py-4 px-8 border border-transparent text-base font-semibold rounded-lg text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 transition-colors shadow-lg"
+						>
+							<img 
+								src="assets/hexmos-logo.svg" 
+								alt="Hexmos" 
+								className="h-6 w-6"
+							/>
+							Sign in with Hexmos
+						</button>
+					</div>
+				)}
+				
 				<div className="overflow-x-auto hidden">
 					<table className="min-w-full text-left text-sm border border-gray-700 rounded-lg overflow-hidden">
 						<thead className="bg-gray-700 text-gray-100">
