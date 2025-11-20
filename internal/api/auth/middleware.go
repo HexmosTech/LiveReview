@@ -4,9 +4,11 @@ import (
 	"database/sql"
 	"fmt"
 	"net/http"
+	"os"
 	"strconv"
 	"strings"
 
+	"github.com/golang-jwt/jwt/v5"
 	"github.com/labstack/echo/v4"
 	"github.com/livereview/pkg/models"
 )
@@ -43,7 +45,14 @@ func RequireAuth(tokenService *TokenService, db *sql.DB) echo.MiddlewareFunc {
 			// Validate token
 			user, err := tokenService.ValidateAccessToken(tokenString)
 			if err != nil {
-				return echo.NewHTTPError(http.StatusUnauthorized, "Invalid or expired token")
+				// Fallback: validate with CLOUD_JWT_SECRET for verification-stage tokens
+				fallbackUser, ferr := validateWithCloudSecret(tokenString, db)
+				if ferr != nil {
+					return echo.NewHTTPError(http.StatusUnauthorized, "Invalid or expired token")
+				}
+				// Add user to context and continue
+				c.Set(string(UserContextKey), fallbackUser)
+				return next(c)
 			}
 
 			// Add user to context
@@ -52,6 +61,61 @@ func RequireAuth(tokenService *TokenService, db *sql.DB) echo.MiddlewareFunc {
 			return next(c)
 		}
 	}
+}
+
+// validateWithCloudSecret attempts to validate a JWT using CLOUD_JWT_SECRET without DB token checks.
+// If valid, it resolves the user from DB using claims (by ID first, then email).
+func validateWithCloudSecret(tokenString string, db *sql.DB) (*models.User, error) {
+	secret := os.Getenv("CLOUD_JWT_SECRET")
+	if strings.TrimSpace(secret) == "" {
+		return nil, fmt.Errorf("CLOUD_JWT_SECRET not configured")
+	}
+
+	token, err := jwt.ParseWithClaims(tokenString, &JWTClaims{}, func(token *jwt.Token) (interface{}, error) {
+		if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
+			return nil, fmt.Errorf("unexpected signing method: %v", token.Header["alg"])
+		}
+		return []byte(secret), nil
+	})
+	if err != nil || !token.Valid {
+		if err == nil {
+			err = fmt.Errorf("invalid token")
+		}
+		return nil, err
+	}
+
+	claims, ok := token.Claims.(*JWTClaims)
+	if !ok {
+		return nil, fmt.Errorf("invalid token claims")
+	}
+
+	// Try resolving user by ID first
+	user := &models.User{}
+	if claims.UserID != 0 {
+		err = db.QueryRow(`
+			SELECT id, email, password_hash, created_at, updated_at
+			FROM users WHERE id = $1
+		`, claims.UserID).Scan(&user.ID, &user.Email, &user.PasswordHash, &user.CreatedAt, &user.UpdatedAt)
+		if err == nil {
+			return user, nil
+		}
+		if err != sql.ErrNoRows {
+			return nil, err
+		}
+	}
+
+	// Fallback: resolve by email if present
+	if strings.TrimSpace(claims.Email) != "" {
+		err = db.QueryRow(`
+			SELECT id, email, password_hash, created_at, updated_at
+			FROM users WHERE email = $1
+		`, claims.Email).Scan(&user.ID, &user.Email, &user.PasswordHash, &user.CreatedAt, &user.UpdatedAt)
+		if err == nil {
+			return user, nil
+		}
+	}
+
+	return nil, fmt.Errorf("user not found for cloud jwt")
 }
 
 // AuthMiddleware holds the dependencies for auth middleware
