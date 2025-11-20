@@ -319,6 +319,9 @@ func (s *Server) setupRoutes() {
 	// System info endpoints (public)
 	public.GET("/system/info", s.getSystemInfo)
 
+	// Cloud user ensure endpoint (now public; handler performs CLOUD_JWT_SECRET validation)
+	public.POST("/auth/ensure-cloud-user", s.authHandlers.EnsureCloudUser)
+
 	// Protected routes (require authentication)
 	protected := v1.Group("")
 	protected.Use(auth.RequireAuth(s.tokenService, s.db))
