@@ -7,9 +7,23 @@ interface AuthedUser {
 	avatarUrl?: string;
 }
 
+interface CloudProvisionResponse {
+	status?: string;
+	user_id?: number;
+	org_id?: number;
+	created_user?: boolean;
+	created_org?: boolean;
+	super_admin_assigned?: boolean;
+	email?: string;
+	error?: string; // capture error message from backend
+	raw?: any; // full raw response for debugging
+}
+
 const Cloud: React.FC = () => {
 	const [user, setUser] = useState<AuthedUser | null>(null);
 	const [isClient, setIsClient] = useState(false);
+	const [provisionResult, setProvisionResult] = useState<CloudProvisionResponse | null>(null);
+	const [provisioning, setProvisioning] = useState(false);
 
 	useEffect(() => {
 		setIsClient(true);
@@ -73,6 +87,41 @@ const Cloud: React.FC = () => {
 		}
 	};
 
+	// After we have the external user + JWT, call ensure-cloud-user (idempotent)
+	useEffect(() => {
+		if (!user || provisioning || provisionResult) return;
+		setProvisioning(true);
+		(async () => {
+			try {
+				const url = `${window.location.origin}/api/v1/auth/ensure-cloud-user`;
+				const payload = {
+					email: user.email,
+					first_name: user.name.split(' ')[0] || user.name,
+					last_name: user.name.split(' ').slice(1).join(' ') || '',
+				};
+				const resp = await fetch(url, {
+					method: 'POST',
+					headers: {
+						'Content-Type': 'application/json',
+						Authorization: `Bearer ${user.jwt}`,
+					},
+					body: JSON.stringify(payload),
+				});
+				let data: any = null;
+				try { data = await resp.json(); } catch { data = { error: 'non-json response' }; }
+				if (!resp.ok) {
+					setProvisionResult({ error: data?.error || `HTTP ${resp.status}`, raw: data });
+				} else {
+					setProvisionResult({ ...data, raw: data });
+				}
+			} catch (err: any) {
+				setProvisionResult({ error: err?.message || 'unknown error', raw: null });
+			} finally {
+				setProvisioning(false);
+			}
+		})();
+	}, [user, provisioning, provisionResult]);
+
 	return (
 		<div className="min-h-screen bg-gray-900 flex items-center justify-center">
 			<div className="max-w-2xl w-full bg-gray-800 p-8 rounded-lg shadow-lg text-white">
@@ -126,6 +175,43 @@ const Cloud: React.FC = () => {
 								<td className="px-4 py-2">Avatar URL</td>
 								<td className="px-4 py-2 break-all max-w-xs">
 									{user?.avatarUrl || '-'}
+								</td>
+							</tr>
+							<tr>
+								<td className="px-4 py-2 border-t border-gray-700">Cloud Provision</td>
+								<td className="px-4 py-2 border-t border-gray-700">
+									{!user && 'Awaiting auth'}
+									{user && provisioning && 'Provisioning...'}
+									{user && !provisioning && provisionResult && (
+										<div className="space-y-1">
+											<div className="text-xs">
+												Status: {provisionResult.status || (provisionResult.error ? 'error' : 'ok')}
+											</div>
+											{provisionResult.error && (
+												<div className="text-xs text-red-400 break-all">Error: {provisionResult.error}</div>
+											)}
+											{provisionResult.user_id !== undefined && (
+												<div className="text-xs">User ID: {provisionResult.user_id}</div>
+											)}
+											{provisionResult.org_id !== undefined && (
+												<div className="text-xs">Org ID: {provisionResult.org_id}</div>
+											)}
+											{provisionResult.super_admin_assigned !== undefined && (
+												<div className="text-xs">Super Admin Assigned: {String(provisionResult.super_admin_assigned)}</div>
+											)}
+											{provisionResult.created_user !== undefined && (
+												<div className="text-xs">Created User: {String(provisionResult.created_user)}</div>
+											)}
+											{provisionResult.created_org !== undefined && (
+												<div className="text-xs">Created Org: {String(provisionResult.created_org)}</div>
+											)}
+											{provisionResult.raw && (
+												<div className="text-xs text-gray-400 break-all">
+													Raw: {(() => { try { return JSON.stringify(provisionResult.raw); } catch { return 'unstringifiable'; } })()}
+												</div>
+											)}
+										</div>
+									)}
 								</td>
 							</tr>
 						</tbody>

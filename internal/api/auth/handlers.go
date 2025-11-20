@@ -1,12 +1,16 @@
 package auth
 
 import (
+	"crypto/rand"
 	"database/sql"
+	"encoding/hex"
 	"fmt"
 	"net/http"
+	"os"
 	"strings"
 	"time"
 
+	"github.com/golang-jwt/jwt/v5"
 	"github.com/labstack/echo/v4"
 	"github.com/livereview/pkg/models"
 	"golang.org/x/crypto/bcrypt"
@@ -522,4 +526,178 @@ func (h *AuthHandlers) getUserOrganizations(userID int64) ([]OrgInfo, error) {
 	}
 
 	return organizations, nil
+}
+
+// EnsureCloudUserRequest represents the request body for ensuring a cloud user exists
+type EnsureCloudUserRequest struct {
+	Email     string `json:"email"`
+	FirstName string `json:"first_name"`
+	LastName  string `json:"last_name"`
+}
+
+// EnsureCloudUser ensures that a user and a personal organization exist, assigning super_admin role.
+// Idempotent: if user/org/role mapping already exist, it returns success without changes.
+func (h *AuthHandlers) EnsureCloudUser(c echo.Context) error {
+	// Basic JWT validation using CLOUD_JWT_SECRET (manual, since this route is public)
+	authHeader := c.Request().Header.Get("Authorization")
+	if authHeader == "" || !strings.HasPrefix(authHeader, "Bearer ") {
+		return c.JSON(http.StatusUnauthorized, map[string]string{"error": "authorization header required"})
+	}
+	tokenString := strings.TrimPrefix(authHeader, "Bearer ")
+	secret := os.Getenv("CLOUD_JWT_SECRET")
+	if strings.TrimSpace(secret) == "" {
+		return c.JSON(http.StatusUnauthorized, map[string]string{"error": "cloud jwt not configured"})
+	}
+
+	token, err := jwt.ParseWithClaims(tokenString, &JWTClaims{}, func(token *jwt.Token) (interface{}, error) {
+		if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
+			return nil, fmt.Errorf("unexpected signing method: %v", token.Header["alg"])
+		}
+		return []byte(secret), nil
+	})
+	if err != nil || !token.Valid {
+		if err == nil {
+			err = fmt.Errorf("invalid token")
+		}
+		return c.JSON(http.StatusUnauthorized, map[string]string{"error": err.Error()})
+	}
+	claims, ok := token.Claims.(*JWTClaims)
+	if !ok {
+		return c.JSON(http.StatusUnauthorized, map[string]string{"error": "invalid token claims"})
+	}
+
+	var req EnsureCloudUserRequest
+	if err := c.Bind(&req); err != nil {
+		return c.JSON(http.StatusBadRequest, map[string]string{"error": "invalid request body"})
+	}
+	req.Email = strings.TrimSpace(strings.ToLower(req.Email))
+	if req.Email == "" || !strings.Contains(req.Email, "@") {
+		return c.JSON(http.StatusBadRequest, map[string]string{"error": "valid email required"})
+	}
+
+	// Optional: enforce that token email matches requested email (defense-in-depth)
+	if strings.TrimSpace(claims.Email) != "" && !strings.EqualFold(claims.Email, req.Email) {
+		return c.JSON(http.StatusForbidden, map[string]string{"error": "token-user mismatch"})
+	}
+
+	// Start transaction to ensure atomicity
+	tx, err := h.db.Begin()
+	if err != nil {
+		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "database transaction error"})
+	}
+	defer tx.Rollback()
+
+	createdUser := false
+	createdOrg := false
+	assignedSuperAdmin := false
+
+	// 1. Find or create user
+	var userID int64
+	var existingPasswordHash string
+	err = tx.QueryRow(`SELECT id, password_hash FROM users WHERE email = $1`, req.Email).Scan(&userID, &existingPasswordHash)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			// Create random password (not used directly by external auth) and hash it
+			randBytes := make([]byte, 24)
+			if _, rerr := rand.Read(randBytes); rerr != nil {
+				return c.JSON(http.StatusInternalServerError, map[string]string{"error": "failed to generate credentials"})
+			}
+			rawPassword := hex.EncodeToString(randBytes)
+			hashed, herr := bcrypt.GenerateFromPassword([]byte(rawPassword), bcrypt.DefaultCost)
+			if herr != nil {
+				return c.JSON(http.StatusInternalServerError, map[string]string{"error": "failed to hash password"})
+			}
+			var firstNamePtr, lastNamePtr interface{}
+			if req.FirstName != "" {
+				firstNamePtr = req.FirstName
+			} else {
+				firstNamePtr = nil
+			}
+			if req.LastName != "" {
+				lastNamePtr = req.LastName
+			} else {
+				lastNamePtr = nil
+			}
+			err = tx.QueryRow(`
+				INSERT INTO users (email, password_hash, first_name, last_name, password_reset_required, created_at, updated_at)
+				VALUES ($1, $2, $3, $4, false, NOW(), NOW()) RETURNING id
+			`, req.Email, string(hashed), firstNamePtr, lastNamePtr).Scan(&userID)
+			if err != nil {
+				return c.JSON(http.StatusInternalServerError, map[string]string{"error": "failed to create user"})
+			}
+			createdUser = true
+		} else {
+			return c.JSON(http.StatusInternalServerError, map[string]string{"error": "failed to query user"})
+		}
+	}
+
+	// 2. Find or create personal organization (org name == email)
+	var orgID int64
+	err = tx.QueryRow(`SELECT id FROM orgs WHERE name = $1`, req.Email).Scan(&orgID)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			// Create org; mimic org_service CreateOrganization simpler (include prompt context)
+			err = tx.QueryRow(`
+				INSERT INTO orgs (name, description, created_by_user_id, created_at, updated_at)
+				VALUES ($1, $2, $3, NOW(), NOW()) RETURNING id
+			`, req.Email, "Personal organization for "+req.Email, userID).Scan(&orgID)
+			if err != nil {
+				return c.JSON(http.StatusInternalServerError, map[string]string{"error": "failed to create organization"})
+			}
+			// Create prompt application context entry like service does
+			_, err = tx.Exec(`INSERT INTO prompt_application_context (org_id, created_at, updated_at) VALUES ($1, NOW(), NOW())`, orgID)
+			if err != nil {
+				return c.JSON(http.StatusInternalServerError, map[string]string{"error": "failed to init org context"})
+			}
+			createdOrg = true
+		} else {
+			return c.JSON(http.StatusInternalServerError, map[string]string{"error": "failed to query organization"})
+		}
+	}
+
+	// 3. Ensure super_admin role assignment for user in this org
+	var superAdminRoleID int64
+	err = tx.QueryRow(`SELECT id FROM roles WHERE name = 'super_admin' LIMIT 1`).Scan(&superAdminRoleID)
+	if err != nil {
+		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "super_admin role not found"})
+	}
+
+	var existingRoleID int64
+	roleErr := tx.QueryRow(`SELECT role_id FROM user_roles WHERE user_id = $1 AND org_id = $2`, userID, orgID).Scan(&existingRoleID)
+	if roleErr != nil {
+		if roleErr == sql.ErrNoRows {
+			// Assign super admin role
+			_, err = tx.Exec(`
+				INSERT INTO user_roles (user_id, org_id, role_id, created_at, updated_at)
+				VALUES ($1, $2, $3, NOW(), NOW())
+			`, userID, orgID, superAdminRoleID)
+			if err != nil {
+				return c.JSON(http.StatusInternalServerError, map[string]string{"error": "failed to assign super_admin role"})
+			}
+			assignedSuperAdmin = true
+		} else {
+			return c.JSON(http.StatusInternalServerError, map[string]string{"error": "failed to query user role"})
+		}
+	} else if existingRoleID != superAdminRoleID {
+		// Upgrade role to super_admin
+		_, err = tx.Exec(`UPDATE user_roles SET role_id = $1, updated_at = NOW() WHERE user_id = $2 AND org_id = $3`, superAdminRoleID, userID, orgID)
+		if err != nil {
+			return c.JSON(http.StatusInternalServerError, map[string]string{"error": "failed to upgrade role"})
+		}
+		assignedSuperAdmin = true
+	}
+
+	if err = tx.Commit(); err != nil {
+		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "commit failed"})
+	}
+
+	return c.JSON(http.StatusOK, map[string]interface{}{
+		"status":               "ok",
+		"user_id":              userID,
+		"org_id":               orgID,
+		"created_user":         createdUser,
+		"created_org":          createdOrg,
+		"super_admin_assigned": assignedSuperAdmin,
+		"email":                req.Email,
+	})
 }
