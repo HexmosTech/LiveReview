@@ -169,7 +169,7 @@ const Cloud: React.FC = () => {
 								className="inline-flex items-center justify-center gap-3 py-4 px-8 border border-transparent text-base font-semibold rounded-lg text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 transition-colors shadow-lg"
 							>
 								<img 
-									src="assets/hexmos-logo.svg" 
+									src="/assets/hexmos-logo.svg" 
 									alt="Hexmos" 
 									className="h-6 w-6"
 								/>
