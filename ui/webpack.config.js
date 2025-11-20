@@ -18,7 +18,7 @@ module.exports =  (env, options)=> {
     process.env.NODE_ENV = options.mode;
 
     // Load root .env so UI can inherit server configuration (single source of truth)
-    const rootEnvPath = path.resolve(__dirname, '..', '.env');
+    const rootEnvPath = path.resolve(__dirname, '..', '.env.prod');
     if (fs.existsSync(rootEnvPath)) {
         const dotenv = require('dotenv');
         dotenv.config({ path: rootEnvPath });
