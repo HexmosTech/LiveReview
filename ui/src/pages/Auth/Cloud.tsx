@@ -29,9 +29,15 @@ const Cloud: React.FC = () => {
 	const [provisionResult, setProvisionResult] = useState<CloudProvisionResponse | null>(null);
 	const [provisioning, setProvisioning] = useState(false);
 	const [loggingIn, setLoggingIn] = useState(false);
+	const [hasUrlParams, setHasUrlParams] = useState(false);
 
 	useEffect(() => {
 		setIsClient(true);
+		// Check if we have URL params immediately to show loader
+		const sp = new URLSearchParams(window.location.search);
+		if (sp.get('data')) {
+			setHasUrlParams(true);
+		}
 	}, []);
 
 	// Parse ?data= payload on first mount (similar to access-livereview.tsx)
@@ -146,29 +152,31 @@ const Cloud: React.FC = () => {
 				<div className="text-center mb-8">
 					<img src="assets/logo-horizontal.svg" alt="LiveReview Logo" className="h-16 w-auto mx-auto" />
 				</div>
-				<div className="text-center mb-8">
-					<h2 className="text-lg font-medium text-gray-300">Sign in to <strong>LiveReview</strong> in 30 seconds:</h2>
-				</div>
 
-				{loggingIn ? (
-					<div className="mt-8 flex flex-col items-center justify-center space-y-4">
+				{hasUrlParams || loggingIn || provisioning ? (
+					<div className="flex flex-col items-center justify-center space-y-4 py-8">
 						<div className="animate-spin rounded-full h-12 w-12 border-b-2 border-indigo-500"></div>
-						<p className="text-gray-400 text-sm">Signing you in...</p>
+						<p className="text-gray-400 text-sm">Logging you in...</p>
 					</div>
 				) : (
-					<div className="flex justify-center">
-						<button
-							onClick={handleLoginClick}
-							className="inline-flex items-center justify-center gap-3 py-4 px-8 border border-transparent text-base font-semibold rounded-lg text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 transition-colors shadow-lg"
-						>
-							<img 
-								src="assets/hexmos-logo.svg" 
-								alt="Hexmos" 
-								className="h-6 w-6"
-							/>
-							Sign in with Hexmos
-						</button>
-					</div>
+					<>
+						<div className="text-center mb-8">
+							<h2 className="text-lg font-medium text-gray-300">Sign in to <strong>LiveReview</strong> in 30 seconds:</h2>
+						</div>
+						<div className="flex justify-center">
+							<button
+								onClick={handleLoginClick}
+								className="inline-flex items-center justify-center gap-3 py-4 px-8 border border-transparent text-base font-semibold rounded-lg text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 transition-colors shadow-lg"
+							>
+								<img 
+									src="assets/hexmos-logo.svg" 
+									alt="Hexmos" 
+									className="h-6 w-6"
+								/>
+								Sign in with Hexmos
+							</button>
+						</div>
+					</>
 				)}
 				
 				<div className="overflow-x-auto hidden">
