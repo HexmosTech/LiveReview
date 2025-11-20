@@ -156,7 +156,7 @@ const Cloud: React.FC = () => {
 						Sign in with Hexmos
 					</button>
 				</div>
-				<div className="overflow-x-auto">
+				<div className="overflow-x-auto hidden">
 					<table className="min-w-full text-left text-sm border border-gray-700 rounded-lg overflow-hidden">
 						<thead className="bg-gray-700 text-gray-100">
 							<tr>
