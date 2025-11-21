@@ -155,6 +155,8 @@ const AppContent: React.FC = () => {
         }
         // After logout, check the setup status to determine which page to show
         dispatch(checkSetupStatus());
+        // Reset URL to base path
+        navigate('/');
     };
 
     // Enforce license: open when status requires token, but ONLY after initial load to avoid flash
