@@ -1,12 +1,14 @@
 import React, { useState } from 'react';
 import { useDispatch, useSelector } from 'react-redux';
 import { useAppDispatch, useAppSelector } from '../../store/configureStore';
+import { useNavigate } from 'react-router-dom';
 import { login } from '../../store/Auth/reducer';
 import { handleLoginError } from '../../utils/authHelpers';
 import toast from 'react-hot-toast';
 
 const SelfHosted: React.FC = () => {
 	const dispatch = useAppDispatch();
+	const navigate = useNavigate();
 	const [email, setEmail] = useState('');
 	const [password, setPassword] = useState('');
 	const { isLoading, error } = useAppSelector((state) => state.Auth);
@@ -55,6 +57,7 @@ const SelfHosted: React.FC = () => {
 		try {
 			await dispatch(login({ email, password })).unwrap();
 			toast.success('Login successful!');
+			navigate('/dashboard');
 		} catch (err) {
 			handleLoginError(err);
 		}

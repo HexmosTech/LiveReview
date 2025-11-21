@@ -147,7 +147,13 @@ const Cloud: React.FC = () => {
 	}, [user, provisioning, provisionResult, loggingIn, dispatch]);
 
 	return (
-		<div className="min-h-screen bg-gray-900 flex items-center justify-center">
+		<div className="min-h-screen bg-gray-900 flex items-center justify-center relative">
+			<a 
+				href="#/admin" 
+				className="absolute bottom-4 right-4 text-xs text-gray-600 hover:text-gray-500 transition-colors"
+			>
+				Super Admin Login
+			</a>
 			<div className="max-w-md w-full bg-gray-800 p-8 rounded-lg shadow-lg">
 				<div className="text-center mb-8">
 					<img src="assets/logo-horizontal.svg" alt="LiveReview Logo" className="h-16 w-auto mx-auto" />

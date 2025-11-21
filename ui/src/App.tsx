@@ -9,6 +9,7 @@ import AIProviders from './pages/AIProviders/AIProviders';
 import Settings from './pages/Settings/Settings';
 import ReviewsRoutes from './pages/Reviews/ReviewsRoutes';
 import Login from './pages/Auth/Login';
+import SelfHosted from './pages/Auth/SelfHosted';
 import Setup from './pages/Setup/Setup';
 import CodeHostCallback from './pages/Auth/CodeHostCallback';
 import OAuthCallbackHandler from './pages/Auth/OAuthCallbackHandler';
@@ -108,6 +109,13 @@ const AppContent: React.FC = () => {
         setActivePage(getCurrentPage());
     }, [location]);
 
+    // Redirect from /admin to dashboard when authenticated
+    useEffect(() => {
+        if (isAuthenticated && location.pathname === '/admin') {
+            navigate('/dashboard');
+        }
+    }, [isAuthenticated, location.pathname, navigate]);
+
     // Check setup status or fetch user data on app load
     useEffect(() => {
         if (accessToken) {
@@ -185,7 +193,7 @@ const AppContent: React.FC = () => {
     } else if (isSetupRequired) {
         body = <Setup />;
     } else if (!isAuthenticated) {
-        body = <Login />;
+        body = location.pathname === '/admin' ? <SelfHosted /> : <Login />;
     } else {
         body = (
             <div className={`min-h-screen flex flex-col transition-opacity duration-200 ${uiReady ? 'opacity-100' : 'opacity-0'}`}> 
