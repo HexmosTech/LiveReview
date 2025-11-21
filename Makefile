@@ -283,6 +283,7 @@ build-with-ui:
 	go build livereview.go
 
 raw-deploy:
+	ssh master "cd /root/public_lr && mv ./livereview ./livereview.bak || true"
 	rsync -avz ./livereview db-ready.sh ecosystem.config.js deps.sh master:/root/public_lr/
 	rsync -avz ./.env.prod master:/root/public_lr/.env
 	rsync -avz ./db/ master:/root/public_lr/db/
