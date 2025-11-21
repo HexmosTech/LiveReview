@@ -3,6 +3,16 @@ Package jobqueue provides a River-based job queue system for managing webhook in
 
 For configuration options, retry policies, and tuning parameters, see queue_config.go.
 All configurable values have been moved there for easier management.
+
+WEBHOOK MIGRATION STRATEGY:
+Existing webhooks with old URLs (without connector_id) will NOT be automatically migrated.
+New webhook URL format: {baseURL}/api/v1/{provider}-hook/{connector_id}
+Old webhook URL format: {baseURL}/api/v1/{provider}-hook (deprecated)
+
+Users must manually re-enable manual trigger from the ConnectorDetails UI page to update
+their webhooks to the new connector-scoped URL format. This ensures proper org context
+derivation and multi-org isolation. Old webhooks will return 404 after deployment,
+prompting users to reconfigure via the "Enable Manual Trigger" button.
 */
 package jobqueue
 
@@ -192,40 +202,29 @@ func (w *WebhookInstallWorker) getWebhookEndpointForProvider(provider string) st
 	}
 }
 
-// getWebhookEndpointForProviderWithCustomEndpoint builds provider-specific endpoint with custom base URL
-func (w *WebhookInstallWorker) getWebhookEndpointForProviderWithCustomEndpoint(provider, customEndpoint string) string {
-	// Remove any trailing slash
+// getWebhookEndpointForProviderWithCustomEndpoint builds provider-specific endpoint with custom base URL and connector_id
+// New URL format: {baseURL}/api/v1/{provider}-hook/{connector_id}
+// This enables org context derivation via middleware that extracts connector_id from URL path
+func (w *WebhookInstallWorker) getWebhookEndpointForProviderWithCustomEndpoint(provider, customEndpoint string, connectorID int) string {
+	// Remove any trailing slash from base URL
 	baseURL := strings.TrimSuffix(customEndpoint, "/")
 
-	// The customEndpoint should already include the correct path (e.g., /api/v1/gitlab-hook)
-	// But let's ensure it has the right provider-specific endpoint
+	// Build connector-scoped webhook URL with provider-specific path
+	var providerPath string
 	switch provider {
 	case "gitlab", "gitlab-com", "gitlab-enterprise":
-		if strings.HasSuffix(baseURL, "/api/v1/gitlab-hook") {
-			return baseURL
-		}
-		// If it ends with a different hook, replace it
-		if strings.HasSuffix(baseURL, "/api/v1/github-hook") {
-			return strings.TrimSuffix(baseURL, "/api/v1/github-hook") + "/api/v1/gitlab-hook"
-		}
-		if strings.HasSuffix(baseURL, "/api/v1/bitbucket-hook") {
-			return strings.TrimSuffix(baseURL, "/api/v1/bitbucket-hook") + "/api/v1/gitlab-hook"
-		}
-		// If no specific hook endpoint, it should already be correct from getWebhookPublicEndpoint
-		return baseURL
+		providerPath = "/api/v1/gitlab-hook"
 	case "github", "github-com", "github-enterprise":
-		if strings.HasSuffix(baseURL, "/api/v1/github-hook") {
-			return baseURL
-		}
-		return strings.TrimSuffix(baseURL, "/api/v1/gitlab-hook") + "/api/v1/github-hook"
+		providerPath = "/api/v1/github-hook"
 	case "bitbucket", "bitbucket-cloud":
-		if strings.HasSuffix(baseURL, "/api/v1/bitbucket-hook") {
-			return baseURL
-		}
-		return strings.TrimSuffix(baseURL, "/api/v1/gitlab-hook") + "/api/v1/bitbucket-hook"
+		providerPath = "/api/v1/bitbucket-hook"
 	default:
-		return baseURL
+		// Fallback to generic webhook endpoint
+		providerPath = "/api/v1/webhook"
 	}
+
+	// Append connector_id to URL for org context derivation
+	return fmt.Sprintf("%s%s/%d", baseURL, providerPath, connectorID)
 }
 
 // GitLab API client methods
@@ -338,7 +337,7 @@ func (w *WebhookInstallWorker) webhookExists(projectID int, webhookURL, baseURL,
 	return nil, nil // Not found
 }
 
-func (w *WebhookInstallWorker) installGitLabWebhook(projectID int, baseURL, pat string) (*GitLabHook, error) {
+func (w *WebhookInstallWorker) installGitLabWebhook(projectID int, baseURL, pat string, connectorID int) (*GitLabHook, error) {
 	// Get the current production URL from database (don't use cached config)
 	db, err := sql.Open("postgres", w.pool.Config().ConnString())
 	if err != nil {
@@ -354,8 +353,8 @@ func (w *WebhookInstallWorker) installGitLabWebhook(projectID int, baseURL, pat 
 		return nil, fmt.Errorf("webhook endpoint not configured: please set livereview_prod_url in settings before installing webhooks")
 	}
 
-	// Get provider-specific webhook endpoint using current configuration
-	webhookURL := w.getWebhookEndpointForProviderWithCustomEndpoint("gitlab", currentEndpoint)
+	// Get provider-specific webhook endpoint with connector_id for org scoping
+	webhookURL := w.getWebhookEndpointForProviderWithCustomEndpoint("gitlab", currentEndpoint, connectorID)
 
 	// Check if webhook already exists
 	existingHook, err := w.webhookExists(projectID, webhookURL, baseURL, pat)
@@ -449,8 +448,8 @@ func (w *WebhookInstallWorker) handleGitLabWebhookInstall(ctx context.Context, a
 
 	log.Printf("Resolved project %s to ID: %d", args.ProjectPath, projectID)
 
-	// Install the webhook in GitLab
-	webhook, err := w.installGitLabWebhook(projectID, args.BaseURL, args.PAT)
+	// Install the webhook in GitLab with connector_id for org scoping
+	webhook, err := w.installGitLabWebhook(projectID, args.BaseURL, args.PAT, args.ConnectorID)
 	if err != nil {
 		log.Printf("Failed to install webhook for project %s (ID: %d): %v", args.ProjectPath, projectID, err)
 		return fmt.Errorf("failed to install webhook: %w", err)
@@ -481,8 +480,8 @@ func (w *WebhookInstallWorker) handleGitHubWebhookInstall(ctx context.Context, a
 
 	log.Printf("Installing GitHub webhook for repository: %s/%s", owner, repo)
 
-	// Install the webhook in GitHub
-	webhook, err := w.installGitHubWebhook(owner, repo, args.BaseURL, args.PAT)
+	// Install the webhook in GitHub with connector_id for org scoping
+	webhook, err := w.installGitHubWebhook(owner, repo, args.BaseURL, args.PAT, args.ConnectorID)
 	if err != nil {
 		log.Printf("Failed to install webhook for GitHub repository %s/%s: %v", owner, repo, err)
 		return fmt.Errorf("failed to install webhook: %w", err)
@@ -527,13 +526,14 @@ func (w *WebhookInstallWorker) updateWebhookRegistryGitLab(ctx context.Context, 
 
 	// Prepare webhook details
 	webhookID := ""
-	webhookURL := w.getWebhookEndpointForProvider("gitlab")
+	webhookURL := "" // Will be populated from webhook object if available
 	webhookName := "LiveReview Webhook"
 	events := "merge_requests,notes"
 	status := "automatic" // Changed from "manual" since we actually installed a webhook
 
 	if webhook != nil {
 		webhookID = fmt.Sprintf("%d", webhook.ID)
+		webhookURL = webhook.URL // Use actual URL from GitLab's response
 	}
 
 	if err == pgx.ErrNoRows {
@@ -697,7 +697,7 @@ func (w *WebhookInstallWorker) gitHubWebhookExists(owner, repo, webhookURL, base
 }
 
 // installGitHubWebhook installs a webhook in GitHub repository
-func (w *WebhookInstallWorker) installGitHubWebhook(owner, repo, baseURL, pat string) (*GitHubHook, error) {
+func (w *WebhookInstallWorker) installGitHubWebhook(owner, repo, baseURL, pat string, connectorID int) (*GitHubHook, error) {
 	// Get the current production URL from database (don't use cached config)
 	db, err := sql.Open("postgres", w.pool.Config().ConnString())
 	if err != nil {
@@ -713,8 +713,8 @@ func (w *WebhookInstallWorker) installGitHubWebhook(owner, repo, baseURL, pat st
 		return nil, fmt.Errorf("webhook endpoint not configured: please set livereview_prod_url in settings before installing webhooks")
 	}
 
-	// Get provider-specific webhook endpoint using current configuration
-	webhookURL := w.getWebhookEndpointForProviderWithCustomEndpoint("github", currentEndpoint)
+	// Get provider-specific webhook endpoint with connector_id for org scoping
+	webhookURL := w.getWebhookEndpointForProviderWithCustomEndpoint("github", currentEndpoint, connectorID)
 
 	// Check if webhook already exists
 	existingHook, err := w.gitHubWebhookExists(owner, repo, webhookURL, baseURL, pat)
@@ -818,13 +818,14 @@ func (w *WebhookInstallWorker) updateWebhookRegistryGitHub(ctx context.Context, 
 
 	// Prepare webhook details
 	webhookID := ""
-	webhookURL := w.getWebhookEndpointForProvider("github")
+	webhookURL := "" // Will be populated from webhook object if available
 	webhookName := "LiveReview Webhook"
 	events := "pull_request,issue_comment"
 	status := "manual" // GitHub webhooks enable manual trigger
 
 	if webhook != nil {
 		webhookID = fmt.Sprintf("%d", webhook.ID)
+		webhookURL = webhook.Config.URL // Use actual URL from GitHub's response
 	}
 
 	if err == pgx.ErrNoRows {
@@ -946,8 +947,8 @@ func (w *WebhookInstallWorker) handleBitbucketWebhookInstall(ctx context.Context
 		return fmt.Errorf("failed to get Bitbucket email for connector %d: %w", args.ConnectorID, err)
 	}
 
-	// Install the webhook in Bitbucket
-	webhook, err := w.installBitbucketWebhook(workspace, repo, email, args.PAT)
+	// Install the webhook in Bitbucket with connector_id for org scoping
+	webhook, err := w.installBitbucketWebhook(workspace, repo, email, args.PAT, args.ConnectorID)
 	if err != nil {
 		log.Printf("Failed to install webhook for Bitbucket repository %s/%s: %v", workspace, repo, err)
 		return fmt.Errorf("failed to install webhook: %w", err)
@@ -1052,7 +1053,7 @@ func (w *WebhookInstallWorker) bitbucketWebhookExists(workspace, repo, webhookUR
 }
 
 // installBitbucketWebhook installs a webhook in Bitbucket repository
-func (w *WebhookInstallWorker) installBitbucketWebhook(workspace, repo, email, apiToken string) (*BitbucketHook, error) {
+func (w *WebhookInstallWorker) installBitbucketWebhook(workspace, repo, email, apiToken string, connectorID int) (*BitbucketHook, error) {
 	// Get the current production URL from database (don't use cached config)
 	db, err := sql.Open("postgres", w.pool.Config().ConnString())
 	if err != nil {
@@ -1068,8 +1069,8 @@ func (w *WebhookInstallWorker) installBitbucketWebhook(workspace, repo, email, a
 		return nil, fmt.Errorf("webhook endpoint not configured: please set livereview_prod_url in settings before installing webhooks")
 	}
 
-	// Get provider-specific webhook endpoint using current configuration
-	webhookURL := w.getWebhookEndpointForProviderWithCustomEndpoint("bitbucket", currentEndpoint)
+	// Get provider-specific webhook endpoint with connector_id for org scoping
+	webhookURL := w.getWebhookEndpointForProviderWithCustomEndpoint("bitbucket", currentEndpoint, connectorID)
 
 	// Check if webhook already exists
 	existingHook, err := w.bitbucketWebhookExists(workspace, repo, webhookURL, email, apiToken)
@@ -1159,13 +1160,14 @@ func (w *WebhookInstallWorker) updateWebhookRegistryBitbucket(ctx context.Contex
 
 	// Prepare webhook details
 	webhookID := ""
-	webhookURL := w.getWebhookEndpointForProvider("bitbucket")
+	webhookURL := "" // Will be populated from webhook object if available
 	webhookName := "LiveReview Webhook"
 	events := "pullrequest:created,pullrequest:updated,pullrequest:comment_created"
 	status := "manual" // Bitbucket webhooks enable manual trigger
 
 	if webhook != nil {
 		webhookID = webhook.UUID
+		webhookURL = webhook.URL // Use actual URL from Bitbucket's response
 	}
 
 	if err == pgx.ErrNoRows {
@@ -1284,7 +1286,7 @@ func (w *WebhookRemovalWorker) handleGitLabWebhookRemoval(ctx context.Context, a
 	log.Printf("Resolved project %s to ID: %d", args.ProjectPath, projectID)
 
 	// Remove webhooks from GitLab
-	err = w.removeWebhooks(projectID, args.BaseURL, args.PAT)
+	err = w.removeWebhooks(projectID, args.BaseURL, args.PAT, args.ConnectorID, args.ProjectPath)
 	if err != nil {
 		log.Printf("Failed to remove webhooks for project %s (ID: %d): %v", args.ProjectPath, projectID, err)
 		return fmt.Errorf("failed to remove webhooks: %w", err)
@@ -1314,7 +1316,7 @@ func (w *WebhookRemovalWorker) handleGitHubWebhookRemoval(ctx context.Context, a
 	log.Printf("Removing GitHub webhooks for repository: %s/%s", owner, repo)
 
 	// Remove webhooks from GitHub
-	err := w.removeGitHubWebhooks(owner, repo, args.BaseURL, args.PAT)
+	err := w.removeGitHubWebhooks(owner, repo, args.BaseURL, args.PAT, args.ConnectorID)
 	if err != nil {
 		log.Printf("Failed to remove webhooks for GitHub repository %s/%s: %v", owner, repo, err)
 		return fmt.Errorf("failed to remove webhooks: %w", err)
@@ -1358,54 +1360,41 @@ func (w *WebhookRemovalWorker) getProjectID(projectPath, baseURL, pat string) (i
 	return project.ID, nil
 }
 
+// getWebhookEndpointForProviderWithConnector returns webhook endpoint with connector ID
+func (w *WebhookRemovalWorker) getWebhookEndpointForProviderWithConnector(provider string, connectorID int) string {
+	baseURL := w.config.WebhookConfig.PublicEndpoint
+	baseURL = strings.TrimSuffix(baseURL, "/")
+
+	switch provider {
+	case "gitlab", "gitlab-com", "gitlab-enterprise":
+		return fmt.Sprintf("%s/api/v1/gitlab-hook/%d", baseURL, connectorID)
+	case "github", "github-com", "github-enterprise":
+		return fmt.Sprintf("%s/api/v1/github-hook/%d", baseURL, connectorID)
+	case "bitbucket", "bitbucket-cloud":
+		return fmt.Sprintf("%s/api/v1/bitbucket-hook/%d", baseURL, connectorID)
+	default:
+		return fmt.Sprintf("%s/api/v1/%s-hook/%d", baseURL, provider, connectorID)
+	}
+}
+
 // getWebhookEndpointForProvider returns the correct webhook endpoint based on the provider for removal worker
+// DEPRECATED: Use getWebhookEndpointForProviderWithConnector instead
 func (w *WebhookRemovalWorker) getWebhookEndpointForProvider(provider string) string {
 	baseURL := w.config.WebhookConfig.PublicEndpoint
 
 	// Remove any trailing slash
 	baseURL = strings.TrimSuffix(baseURL, "/")
 
-	// Replace provider-specific endpoint
+	// Return old-style webhook URLs (without connector_id) with /api/v1 prefix
 	switch provider {
 	case "gitlab", "gitlab-com", "gitlab-enterprise":
-		// Replace any existing endpoint with gitlab-hook
-		if strings.HasSuffix(baseURL, "/github-hook") {
-			baseURL = strings.TrimSuffix(baseURL, "/github-hook")
-		} else if strings.HasSuffix(baseURL, "/gitlab-hook") {
-			// Already correct
-			return baseURL
-		}
-		return baseURL + "/gitlab-hook"
+		return baseURL + "/api/v1/gitlab-hook"
 	case "github", "github-com", "github-enterprise":
-		// Replace any existing endpoint with github-hook
-		if strings.HasSuffix(baseURL, "/gitlab-hook") {
-			baseURL = strings.TrimSuffix(baseURL, "/gitlab-hook")
-		} else if strings.HasSuffix(baseURL, "/github-hook") {
-			// Already correct
-			return baseURL
-		}
-		return baseURL + "/github-hook"
+		return baseURL + "/api/v1/github-hook"
 	case "bitbucket", "bitbucket-cloud":
-		// Replace any existing endpoint with bitbucket-hook
-		if strings.HasSuffix(baseURL, "/gitlab-hook") {
-			baseURL = strings.TrimSuffix(baseURL, "/gitlab-hook")
-		} else if strings.HasSuffix(baseURL, "/github-hook") {
-			baseURL = strings.TrimSuffix(baseURL, "/github-hook")
-		} else if strings.HasSuffix(baseURL, "/bitbucket-hook") {
-			// Already correct
-			return baseURL
-		}
-		return baseURL + "/bitbucket-hook"
+		return baseURL + "/api/v1/bitbucket-hook"
 	default:
-		// For unknown providers, try to strip known endpoints and return base
-		if strings.HasSuffix(baseURL, "/gitlab-hook") {
-			baseURL = strings.TrimSuffix(baseURL, "/gitlab-hook")
-		} else if strings.HasSuffix(baseURL, "/github-hook") {
-			baseURL = strings.TrimSuffix(baseURL, "/github-hook")
-		} else if strings.HasSuffix(baseURL, "/bitbucket-hook") {
-			baseURL = strings.TrimSuffix(baseURL, "/bitbucket-hook")
-		}
-		return baseURL
+		return baseURL + "/api/v1/" + provider + "-hook"
 	}
 }
 
@@ -1441,13 +1430,19 @@ func (w *WebhookRemovalWorker) makeGitLabRequest(method, endpoint string, payloa
 }
 
 // removeWebhooks removes all LiveReview webhooks from a GitLab project
-func (w *WebhookRemovalWorker) removeWebhooks(projectID int, baseURL, pat string) error {
+func (w *WebhookRemovalWorker) removeWebhooks(projectID int, baseURL, pat string, connectorID int, projectPath string) error {
 	// Get existing hooks
 	resp, err := w.makeGitLabRequest("GET", fmt.Sprintf("/api/v4/projects/%d/hooks", projectID), nil, baseURL, pat)
 	if err != nil {
 		return fmt.Errorf("failed to fetch existing hooks: %w", err)
 	}
 	defer resp.Body.Close()
+
+	// Handle 404 gracefully - project or hooks might already be deleted
+	if resp.StatusCode == http.StatusNotFound {
+		log.Printf("[INFO] Project %d not found or no access - treating as already removed", projectID)
+		return nil
+	}
 
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(resp.Body)
@@ -1459,12 +1454,15 @@ func (w *WebhookRemovalWorker) removeWebhooks(projectID int, baseURL, pat string
 		return fmt.Errorf("failed to decode hooks response: %w", err)
 	}
 
-	webhookURL := w.getWebhookEndpointForProvider("gitlab")
+	// Build both old-style (no connector_id) and new-style (with connector_id) webhook URLs
+	webhookURLNew := w.getWebhookEndpointForProviderWithConnector("gitlab", connectorID)
+	webhookURLOld := w.getWebhookEndpointForProvider("gitlab")
 	removedCount := 0
 
-	// Remove hooks that match our webhook URL
+	// Remove hooks that match either old-style or new-style webhook URLs
 	for _, hook := range hooks {
-		if hook.URL == webhookURL {
+		if hook.URL == webhookURLNew || hook.URL == webhookURLOld {
+			log.Printf("Removing webhook #%d with URL: %s", hook.ID, hook.URL)
 			resp, err := w.makeGitLabRequest("DELETE", fmt.Sprintf("/api/v4/projects/%d/hooks/%d", projectID, hook.ID), nil, baseURL, pat)
 			if err != nil {
 				log.Printf("Failed to delete webhook #%d: %v", hook.ID, err)
@@ -1472,8 +1470,9 @@ func (w *WebhookRemovalWorker) removeWebhooks(projectID int, baseURL, pat string
 			}
 			resp.Body.Close()
 
-			if resp.StatusCode == http.StatusNoContent {
-				log.Printf("Deleted webhook #%d for project %d", hook.ID, projectID)
+			// Treat 404 as success - webhook already deleted
+			if resp.StatusCode == http.StatusNoContent || resp.StatusCode == http.StatusNotFound {
+				log.Printf("Deleted webhook #%d for project %d (or already deleted)", hook.ID, projectID)
 				removedCount++
 			} else {
 				log.Printf("Failed to delete webhook #%d (status %d)", hook.ID, resp.StatusCode)
@@ -1643,7 +1642,7 @@ func (w *WebhookRemovalWorker) makeGitHubRequestForRemoval(method, endpoint stri
 }
 
 // removeGitHubWebhooks removes all LiveReview webhooks from a GitHub repository
-func (w *WebhookRemovalWorker) removeGitHubWebhooks(owner, repo, baseURL, pat string) error {
+func (w *WebhookRemovalWorker) removeGitHubWebhooks(owner, repo, baseURL, pat string, connectorID int) error {
 	// Get existing hooks
 	endpoint := fmt.Sprintf("/repos/%s/%s/hooks", owner, repo)
 	resp, err := w.makeGitHubRequestForRemoval("GET", endpoint, nil, baseURL, pat)
@@ -1651,6 +1650,12 @@ func (w *WebhookRemovalWorker) removeGitHubWebhooks(owner, repo, baseURL, pat st
 		return fmt.Errorf("failed to fetch existing hooks: %w", err)
 	}
 	defer resp.Body.Close()
+
+	// Handle 404 gracefully - repository might be deleted or no access
+	if resp.StatusCode == http.StatusNotFound {
+		log.Printf("[INFO] Repository %s/%s not found or no access - treating as already removed", owner, repo)
+		return nil
+	}
 
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(resp.Body)
@@ -1662,12 +1667,15 @@ func (w *WebhookRemovalWorker) removeGitHubWebhooks(owner, repo, baseURL, pat st
 		return fmt.Errorf("failed to decode hooks response: %w", err)
 	}
 
-	webhookURL := w.getWebhookEndpointForProvider("github")
+	// Build both old-style (no connector_id) and new-style (with connector_id) webhook URLs
+	webhookURLNew := w.getWebhookEndpointForProviderWithConnector("github", connectorID)
+	webhookURLOld := w.getWebhookEndpointForProvider("github")
 	removedCount := 0
 
-	// Remove hooks that match our webhook URL
+	// Remove hooks that match either old-style or new-style webhook URLs
 	for _, hook := range hooks {
-		if hook.Config.URL == webhookURL {
+		if hook.Config.URL == webhookURLNew || hook.Config.URL == webhookURLOld {
+			log.Printf("Removing webhook #%d with URL: %s", hook.ID, hook.Config.URL)
 			deleteEndpoint := fmt.Sprintf("/repos/%s/%s/hooks/%d", owner, repo, hook.ID)
 			resp, err := w.makeGitHubRequestForRemoval("DELETE", deleteEndpoint, nil, baseURL, pat)
 			if err != nil {
@@ -1676,8 +1684,9 @@ func (w *WebhookRemovalWorker) removeGitHubWebhooks(owner, repo, baseURL, pat st
 			}
 			resp.Body.Close()
 
-			if resp.StatusCode == http.StatusNoContent {
-				log.Printf("Deleted webhook #%d for repository %s/%s", hook.ID, owner, repo)
+			// Treat 404 as success - webhook already deleted
+			if resp.StatusCode == http.StatusNoContent || resp.StatusCode == http.StatusNotFound {
+				log.Printf("Deleted webhook #%d for repository %s/%s (or already deleted)", hook.ID, owner, repo)
 				removedCount++
 			} else {
 				log.Printf("Failed to delete webhook #%d (status %d)", hook.ID, resp.StatusCode)
@@ -1819,7 +1828,7 @@ func (w *WebhookRemovalWorker) handleBitbucketWebhookRemoval(ctx context.Context
 	}
 
 	// Remove webhooks from Bitbucket
-	err = w.removeBitbucketWebhooks(workspace, repo, email, args.PAT)
+	err = w.removeBitbucketWebhooks(workspace, repo, email, args.PAT, args.ConnectorID)
 	if err != nil {
 		log.Printf("Failed to remove webhooks from Bitbucket repository %s/%s: %v", workspace, repo, err)
 		// Don't return error here - we still want to update the registry
@@ -1889,10 +1898,7 @@ func (w *WebhookRemovalWorker) makeBitbucketRequestForRemoval(method, endpoint s
 }
 
 // removeBitbucketWebhooks removes all LiveReview webhooks from a Bitbucket repository
-func (w *WebhookRemovalWorker) removeBitbucketWebhooks(workspace, repo, email, apiToken string) error {
-	// Get webhook endpoint URL to identify our webhooks
-	webhookURL := w.getWebhookEndpointForProviderRemoval("bitbucket")
-
+func (w *WebhookRemovalWorker) removeBitbucketWebhooks(workspace, repo, email, apiToken string, connectorID int) error {
 	// Get list of existing webhooks
 	endpoint := fmt.Sprintf("/repositories/%s/%s/hooks", workspace, repo)
 	resp, err := w.makeBitbucketRequestForRemoval("GET", endpoint, nil, email, apiToken)
@@ -1901,8 +1907,9 @@ func (w *WebhookRemovalWorker) removeBitbucketWebhooks(workspace, repo, email, a
 	}
 	defer resp.Body.Close()
 
+	// Handle 404 gracefully - repository might be deleted or no access
 	if resp.StatusCode == http.StatusNotFound {
-		log.Printf("Repository %s/%s not found or no access", workspace, repo)
+		log.Printf("[INFO] Repository %s/%s not found or no access - treating as already removed", workspace, repo)
 		return nil
 	}
 
@@ -1918,10 +1925,15 @@ func (w *WebhookRemovalWorker) removeBitbucketWebhooks(workspace, repo, email, a
 		return fmt.Errorf("failed to decode webhook list: %w", err)
 	}
 
-	// Remove webhooks that match our URL or contain "LiveReview"
+	// Build both old-style (no connector_id) and new-style (with connector_id) webhook URLs
+	webhookURLNew := w.getWebhookEndpointForProviderWithConnector("bitbucket", connectorID)
+	webhookURLOld := w.getWebhookEndpointForProviderRemoval("bitbucket")
+
+	// Remove webhooks that match either old-style or new-style webhook URLs
 	removedCount := 0
 	for _, hook := range response.Values {
-		if hook.URL == webhookURL || strings.Contains(hook.Description, "LiveReview") {
+		if hook.URL == webhookURLNew || hook.URL == webhookURLOld {
+			log.Printf("Removing webhook %s with URL: %s", hook.UUID, hook.URL)
 			deleteEndpoint := fmt.Sprintf("/repositories/%s/%s/hooks/%s", workspace, repo, hook.UUID)
 			deleteResp, err := w.makeBitbucketRequestForRemoval("DELETE", deleteEndpoint, nil, email, apiToken)
 			if err != nil {
@@ -1930,8 +1942,9 @@ func (w *WebhookRemovalWorker) removeBitbucketWebhooks(workspace, repo, email, a
 			}
 			deleteResp.Body.Close()
 
+			// Treat 404 as success - webhook already deleted
 			if deleteResp.StatusCode == http.StatusNoContent || deleteResp.StatusCode == http.StatusNotFound {
-				log.Printf("Removed Bitbucket webhook %s from repository %s/%s", hook.UUID, workspace, repo)
+				log.Printf("Removed Bitbucket webhook %s from repository %s/%s (or already deleted)", hook.UUID, workspace, repo)
 				removedCount++
 			} else {
 				log.Printf("Failed to delete webhook %s (status %d)", hook.UUID, deleteResp.StatusCode)
@@ -1959,13 +1972,8 @@ func (w *WebhookRemovalWorker) getWebhookEndpointForProviderRemoval(provider str
 	// Remove any trailing slash
 	baseURL = strings.TrimSuffix(baseURL, "/")
 
-	// Return the provider-specific hook endpoint (consistent with install worker)
-	switch provider {
-	case "bitbucket", "bitbucket-cloud":
-		return baseURL + "/bitbucket-hook"
-	default:
-		return fmt.Sprintf("%s/%s-hook", baseURL, provider)
-	}
+	// Return old-style webhook URL with /api/v1 prefix (consistent with getWebhookEndpointForProvider)
+	return baseURL + "/api/v1/" + provider + "-hook"
 }
 
 // updateWebhookRegistryForBitbucketRemoval updates the webhook registry to mark Bitbucket repository as unconnected

@@ -51,9 +51,10 @@ import (
 	"github.com/riverqueue/river"
 )
 
-// getWebhookPublicEndpoint returns the webhook endpoint URL based on deployment mode.
+// getWebhookPublicEndpoint returns the base webhook endpoint URL (without provider-specific path) based on deployment mode.
 // In production mode, it queries the database for livereview_prod_url.
 // If not set, returns empty string (will be validated when actually installing webhooks).
+// The returned base URL does NOT include provider path or connector_id - those are appended by getWebhookEndpointForProviderWithCustomEndpoint.
 func getWebhookPublicEndpoint(db *sql.DB) (string, error) {
 	reverseProxy := os.Getenv("LIVEREVIEW_REVERSE_PROXY") == "true"
 
@@ -72,14 +73,16 @@ func getWebhookPublicEndpoint(db *sql.DB) (string, error) {
 			// Production URL is empty - return empty string (will be validated during webhook installation)
 			return "", nil
 		}
-		return strings.TrimSuffix(strings.TrimSpace(prodURL.String), "/") + "/api/v1/gitlab-hook", nil
+		// Return just the base URL without any provider-specific path
+		return strings.TrimSuffix(strings.TrimSpace(prodURL.String), "/"), nil
 	} else {
 		// Demo mode: Use localhost with backend port
 		backendPort := os.Getenv("LIVEREVIEW_BACKEND_PORT")
 		if backendPort == "" {
 			backendPort = "8888"
 		}
-		return "http://localhost:" + backendPort + "/api/v1/gitlab-hook", nil
+		// Return just the base URL without any provider-specific path
+		return "http://localhost:" + backendPort, nil
 	}
 }
 

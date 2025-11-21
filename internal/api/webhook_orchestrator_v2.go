@@ -2,17 +2,16 @@ package api
 
 import (
 	"context"
-	"database/sql"
 	"fmt"
 	"io"
 	"log"
 	"net/http"
-	"strconv"
 	"strings"
 	"time"
 
 	"github.com/labstack/echo/v4"
 
+	"github.com/livereview/internal/api/auth"
 	coreprocessor "github.com/livereview/internal/core_processor"
 )
 
@@ -180,29 +179,29 @@ func (wo *WebhookOrchestratorV2) ProcessWebhookEvent(c echo.Context) error {
 
 	log.Printf("[INFO] Response warranted: scenario=%s", scenario.Type)
 
-	// Extract org ID from headers before async processing
-	// TODO: For proper org scoping, consider:
-	// 1. Adding org_id to webhook URLs (e.g., /api/v1/gitlab-hook/:org_id)
-	// 2. Storing org mapping in webhook tokens/secrets
-	// 3. Deriving org from repository/project metadata
-	var orgID int64 = 1 // Fallback default
-	if orgIDStr := c.Request().Header.Get("X-Org-Context"); orgIDStr != "" {
-		if parsedOrgID, err := strconv.ParseInt(orgIDStr, 10, 64); err == nil {
-			orgID = parsedOrgID
-		}
-	} else {
-		// Webhook doesn't have org context - use MAX(org_id) as temporary workaround
-		if wo.server != nil && wo.server.db != nil {
-			var maxOrgID sql.NullInt64
-			err := wo.server.db.QueryRow("SELECT MAX(id) FROM orgs").Scan(&maxOrgID)
-			if err == nil && maxOrgID.Valid {
-				orgID = maxOrgID.Int64
-				log.Printf("[DEBUG] Using MAX org_id=%d for webhook (no org context available)", orgID)
-			} else {
-				log.Printf("[WARN] Failed to get MAX org_id, using default=1: %v", err)
-			}
-		}
+	// Extract org ID and connector ID from context (set by BuildOrgContextFromConnector middleware)
+	connectorID, ok := auth.GetConnectorIDFromContext(c)
+	if !ok {
+		log.Printf("[ERROR] Connector ID not found in context - webhook route configuration error")
+		return c.JSON(http.StatusInternalServerError, map[string]string{
+			"error": "internal_error",
+		})
 	}
+	orgID, ok := auth.GetOrgIDFromContext(c)
+	if !ok {
+		log.Printf("[ERROR] Org ID not found in context - middleware configuration error")
+		return c.JSON(http.StatusInternalServerError, map[string]string{
+			"error": "internal_error",
+		})
+	}
+
+	// TODO: Implement anti-spoofing validation using webhook secrets
+	// - For GitLab: validate X-Gitlab-Token against stored webhook secret
+	// - For GitHub: validate X-Hub-Signature-256 against stored webhook secret
+	// - For Bitbucket: validate request signature against stored webhook secret
+	// Reject requests with invalid signatures to prevent spoofing attacks
+
+	log.Printf("[DEBUG] Processing webhook for connector_id=%d, org_id=%d", connectorID, orgID)
 
 	// Phase 4: Asynchronous Processing (return response quickly)
 	go wo.processEventAsync(context.Background(), event, provider, scenario, startTime, orgID)

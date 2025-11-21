@@ -173,6 +173,60 @@ func (am *AuthMiddleware) BuildOrgContextFromHeader() echo.MiddlewareFunc {
 	}
 }
 
+// BuildOrgContextFromConnector middleware extracts connector_id from URL path parameter,
+// queries the integration_tokens table to get the org_id, validates both connector and org exist,
+// and sets connector_id and org_id in context for downstream handlers.
+// This is used for webhook endpoints where the connector_id is in the URL path.
+func (am *AuthMiddleware) BuildOrgContextFromConnector() echo.MiddlewareFunc {
+	return func(next echo.HandlerFunc) echo.HandlerFunc {
+		return func(c echo.Context) error {
+			connectorIDStr := c.Param("connector_id")
+			if connectorIDStr == "" {
+				return echo.NewHTTPError(http.StatusBadRequest, "Connector ID required in URL path")
+			}
+
+			connectorID, err := strconv.ParseInt(connectorIDStr, 10, 64)
+			if err != nil {
+				return echo.NewHTTPError(http.StatusBadRequest, "Invalid connector ID")
+			}
+
+			// Query integration_tokens to get org_id for this connector
+			var orgID int64
+			err = am.db.QueryRow(`
+				SELECT org_id FROM integration_tokens WHERE id = $1
+			`, connectorID).Scan(&orgID)
+
+			if err != nil {
+				if err == sql.ErrNoRows {
+					return echo.NewHTTPError(http.StatusNotFound, "Connector not found")
+				}
+				return echo.NewHTTPError(http.StatusInternalServerError, "Failed to fetch connector")
+			}
+
+			// Validate that the organization exists and is active
+			org := &models.Org{}
+			err = am.db.QueryRow(`
+				SELECT id, name, description, created_at, updated_at
+				FROM orgs WHERE id = $1
+			`, orgID).Scan(&org.ID, &org.Name, &org.Description, &org.CreatedAt, &org.UpdatedAt)
+
+			if err != nil {
+				if err == sql.ErrNoRows {
+					return echo.NewHTTPError(http.StatusNotFound, "Organization not found for this connector")
+				}
+				return echo.NewHTTPError(http.StatusInternalServerError, "Failed to fetch organization")
+			}
+
+			// Store both connector_id and org context for downstream handlers
+			c.Set("connector_id", connectorID)
+			c.Set(string(OrgContextKey), org)
+			c.Set("org_id", org.ID)
+
+			return next(c)
+		}
+	}
+}
+
 // BuildOrgContext middleware extracts org_id from URL and validates org exists
 func (am *AuthMiddleware) BuildOrgContext() echo.MiddlewareFunc {
 	return func(next echo.HandlerFunc) echo.HandlerFunc {
@@ -380,4 +434,26 @@ func MustGetPermissionContext(c echo.Context) *PermissionContext {
 		panic("Permission context not found - ensure middleware is properly configured")
 	}
 	return permCtx
+}
+
+// GetConnectorIDFromContext extracts connector_id from echo context
+// Returns the connector_id and true if found, 0 and false otherwise
+func GetConnectorIDFromContext(c echo.Context) (int64, bool) {
+	connectorIDInterface := c.Get("connector_id")
+	if connectorIDInterface == nil {
+		return 0, false
+	}
+	connectorID, ok := connectorIDInterface.(int64)
+	return connectorID, ok
+}
+
+// GetOrgIDFromContext extracts org_id from echo context
+// Returns the org_id and true if found, 0 and false otherwise
+func GetOrgIDFromContext(c echo.Context) (int64, bool) {
+	orgIDInterface := c.Get("org_id")
+	if orgIDInterface == nil {
+		return 0, false
+	}
+	orgID, ok := orgIDInterface.(int64)
+	return orgID, ok
 }

@@ -485,23 +485,29 @@ func (s *Server) setupRoutes() {
 	promptsGroup.POST("/:key/variables/:var/chunks", s.CreatePromptChunk)
 	promptsGroup.POST("/:key/variables/:var/reorder", s.ReorderPromptChunks)
 
+	// Webhook routes with connector_id for org context derivation
+	// New connector-scoped webhook URLs: /api/v1/{provider}-hook/{connector_id}
+	// The BuildOrgContextFromConnector middleware extracts connector_id from URL,
+	// queries integration_tokens for org_id, and sets both in context
+	webhookMiddleware := authMiddleware.BuildOrgContextFromConnector()
+
 	// GitLab webhook handler (V2 Orchestrator)
-	v1.POST("/gitlab-hook", s.WebhookOrchestratorV2Handler)
+	v1.POST("/gitlab-hook/:connector_id", s.WebhookOrchestratorV2Handler, webhookMiddleware)
 
 	// GitLab comment webhook handler (V2 Orchestrator)
-	v1.POST("/webhooks/gitlab/comments", s.WebhookOrchestratorV2Handler)
+	v1.POST("/webhooks/gitlab/comments/:connector_id", s.WebhookOrchestratorV2Handler, webhookMiddleware)
 
 	// GitHub webhook handler (V2 Orchestrator)
-	v1.POST("/github-hook", s.WebhookOrchestratorV2Handler)
+	v1.POST("/github-hook/:connector_id", s.WebhookOrchestratorV2Handler, webhookMiddleware)
 
 	// Bitbucket webhook handler (V2 Orchestrator)
-	v1.POST("/bitbucket-hook", s.WebhookOrchestratorV2Handler)
+	v1.POST("/bitbucket-hook/:connector_id", s.WebhookOrchestratorV2Handler, webhookMiddleware)
 
 	// Generic webhook handler (V2 Orchestrator)
-	v1.POST("/webhook", s.WebhookOrchestratorV2Handler)
+	v1.POST("/webhook/:connector_id", s.WebhookOrchestratorV2Handler, webhookMiddleware)
 
-	// Legacy V2 endpoint (for backward compatibility)
-	v1.POST("/webhook/v2", s.WebhookOrchestratorV2Handler)
+	// Legacy V2 endpoint removed - old webhooks without connector_id will return 404
+	// Users must re-enable manual trigger from connector settings to update webhook URLs
 
 	// AI Connector endpoints
 	v1.POST("/aiconnectors/validate-key", s.ValidateAIConnectorKey)
@@ -1106,6 +1112,41 @@ func normalizeProviderValue(value string) string {
 	}
 }
 
+// validateConnectorOwnership checks if a connector belongs to the user's organization
+// Returns the connector's org_id and an error response if validation fails
+func (s *Server) validateConnectorOwnership(c echo.Context, connectorID int) (int64, error) {
+	// Get org context from middleware
+	orgID, ok := auth.GetOrgIDFromContext(c)
+	if !ok {
+		return 0, c.JSON(http.StatusUnauthorized, map[string]string{
+			"error": "Org context not found",
+		})
+	}
+
+	// Query connector's org_id
+	var connectorOrgID int64
+	ownershipQuery := `SELECT org_id FROM integration_tokens WHERE id = $1`
+	err := s.db.QueryRow(ownershipQuery, connectorID).Scan(&connectorOrgID)
+	if err == sql.ErrNoRows {
+		return 0, c.JSON(http.StatusNotFound, map[string]string{
+			"error": "Connector not found",
+		})
+	} else if err != nil {
+		return 0, c.JSON(http.StatusInternalServerError, map[string]string{
+			"error": "Failed to verify connector ownership",
+		})
+	}
+
+	// Verify org ownership
+	if connectorOrgID != orgID {
+		return 0, c.JSON(http.StatusForbidden, map[string]string{
+			"error": "Connector does not belong to your organization",
+		})
+	}
+
+	return connectorOrgID, nil
+}
+
 // getVersion returns version information about the LiveReview API
 func (s *Server) getVersion(c echo.Context) error {
 	response := map[string]interface{}{
@@ -1135,6 +1176,11 @@ func (s *Server) EnableManualTriggerForAllProjects(c echo.Context) error {
 		return c.JSON(http.StatusBadRequest, map[string]string{
 			"error": "Invalid connector ID",
 		})
+	}
+
+	// Validate connector ownership
+	if _, err := s.validateConnectorOwnership(c, connectorId); err != nil {
+		return err
 	}
 
 	// Get repository access data for this connector
@@ -1204,6 +1250,11 @@ func (s *Server) DisableManualTriggerForAllProjects(c echo.Context) error {
 		return c.JSON(http.StatusBadRequest, map[string]string{
 			"error": "Invalid connector ID",
 		})
+	}
+
+	// Validate connector ownership
+	if _, err := s.validateConnectorOwnership(c, connectorId); err != nil {
+		return err
 	}
 
 	// Get repository access data for this connector

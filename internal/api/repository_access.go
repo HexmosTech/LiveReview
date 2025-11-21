@@ -331,6 +331,11 @@ func (s *Server) GetRepositoryAccess(c echo.Context) error {
 		})
 	}
 
+	// Validate connector ownership
+	if _, err := s.validateConnectorOwnership(c, connectorID); err != nil {
+		return err
+	}
+
 	// Check if refresh is requested
 	forceRefresh := c.QueryParam("refresh") == "true"
 
