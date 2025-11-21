@@ -2,7 +2,6 @@ package api
 
 import (
 	"context"
-	"database/sql"
 	"encoding/json"
 	"fmt"
 	"hash/fnv"
@@ -131,28 +130,12 @@ func (lp *LearningProcessorV2Impl) ApplyLearning(learning *LearningMetadataV2) e
 		return nil // No learning to apply
 	}
 
-	// TODO: WEBHOOK ORG CONTEXT ISSUE
-	// GitLab webhooks don't include X-Org-Context header, so we default to orgID=1.
-	// Better long-term solutions:
-	// 1. Include org context in webhook URL: /api/v1/gitlab-hook/{orgId}
-	// 2. Store org mapping per GitLab instance/project in integration_tokens table
-	// 3. Use repository ownership to determine org context
-	// For now, use highest org ID as fallback when orgID is 1 (likely default)
-	effectiveOrgID := learning.OrgID
-	if learning.OrgID <= 1 {
-		// Query for highest org ID as fallback
-		var maxOrgID sql.NullInt64
-		err := lp.server.db.QueryRow("SELECT MAX(id) FROM orgs").Scan(&maxOrgID)
-		if err != nil || !maxOrgID.Valid {
-			log.Printf("[WARN] Failed to get max org ID, using default: %v", err)
-			effectiveOrgID = 1
-		} else {
-			effectiveOrgID = maxOrgID.Int64
-			log.Printf("[INFO] Using highest org ID %d for learning storage (webhook fallback)", effectiveOrgID)
-		}
+	// Validate org ID is properly set (should come from connector-scoped webhook URL)
+	if learning.OrgID <= 0 {
+		return fmt.Errorf("invalid org_id=%d in learning - webhook org context not properly configured", learning.OrgID)
 	}
 
-	log.Printf("[INFO] Storing learning in database: %s (OrgID=%d)", learning.Type, effectiveOrgID)
+	log.Printf("[INFO] Storing learning in database: %s (OrgID=%d)", learning.Type, learning.OrgID)
 
 	// Generate a short ID for the learning
 	shortID := lp.generateShortID()
@@ -228,7 +211,7 @@ func (lp *LearningProcessorV2Impl) ApplyLearning(learning *LearningMetadataV2) e
 	err := lp.server.db.QueryRow(
 		query,
 		shortID,                  // $1
-		effectiveOrgID,           // $2 - use effective org ID (may be fallback)
+		learning.OrgID,           // $2
 		scopeKind,                // $3
 		repoID,                   // $4
 		title,                    // $5
@@ -251,7 +234,7 @@ func (lp *LearningProcessorV2Impl) ApplyLearning(learning *LearningMetadataV2) e
 	// Store the learning ID and org back in metadata for reference
 	learning.Metadata["learning_id"] = learningID
 	learning.Metadata["short_id"] = shortID
-	learning.Metadata["org_id"] = effectiveOrgID
+	learning.Metadata["org_id"] = learning.OrgID
 
 	return nil
 }
