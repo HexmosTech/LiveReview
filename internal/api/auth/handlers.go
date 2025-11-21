@@ -657,7 +657,7 @@ func (h *AuthHandlers) EnsureCloudUser(c echo.Context) error {
 
 	// 3. Ensure super_admin role assignment for user in this org
 	var superAdminRoleID int64
-	err = tx.QueryRow(`SELECT id FROM roles WHERE name = 'super_admin' LIMIT 1`).Scan(&superAdminRoleID)
+	err = tx.QueryRow(`SELECT id FROM roles WHERE name = 'owner' LIMIT 1`).Scan(&superAdminRoleID)
 	if err != nil {
 		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "super_admin role not found"})
 	}
