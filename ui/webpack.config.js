@@ -17,11 +17,17 @@ module.exports =  (env, options)=> {
 
     process.env.NODE_ENV = options.mode;
 
-    // Load root .env so UI can inherit server configuration (single source of truth)
+    // Load .env.selfhosted if it exists, otherwise fallback to .env.prod
+    const rootEnvPathSelfHosted = path.resolve(__dirname, '..', '.env.selfhosted');
     const rootEnvPath = path.resolve(__dirname, '..', '.env.prod');
-    if (fs.existsSync(rootEnvPath)) {
+    if (fs.existsSync(rootEnvPathSelfHosted)) {
+        const dotenv = require('dotenv');
+        dotenv.config({ path: rootEnvPathSelfHosted });
+        console.log("Loaded environment variables from .env.selfhosted");
+    } else if (fs.existsSync(rootEnvPath)) {
         const dotenv = require('dotenv');
         dotenv.config({ path: rootEnvPath });
+        console.log("Loaded environment variables from .env.prod");
     }
 
     return {
