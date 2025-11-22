@@ -280,9 +280,29 @@ func (am *AuthMiddleware) ValidateOrgAccess() echo.MiddlewareFunc {
 			}
 			org := orgInterface.(*models.Org)
 
+			// Check if user is a super admin first - they have access to all orgs
+			var isSuperAdmin bool
+			err := am.db.QueryRow(`
+				SELECT EXISTS(
+					SELECT 1 FROM user_roles ur
+					JOIN roles r ON ur.role_id = r.id
+					WHERE ur.user_id = $1 AND r.name = $2
+				)
+			`, user.ID, RoleSuperAdmin).Scan(&isSuperAdmin)
+
+			if err != nil {
+				return echo.NewHTTPError(http.StatusInternalServerError, "Failed to check super admin status")
+			}
+
+			// If super admin, grant access with super_admin role
+			if isSuperAdmin {
+				c.Set("user_role", RoleSuperAdmin)
+				return next(c)
+			}
+
 			// Check if user has access to this organization
 			var userRole string
-			err := am.db.QueryRow(`
+			err = am.db.QueryRow(`
 				SELECT r.name
 				FROM user_roles ur
 				JOIN roles r ON ur.role_id = r.id
