@@ -1,4 +1,5 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import classNames from 'classnames';
 import { Button, Icons } from '../UIPrimitives';
 import { useOrgContext } from '../../hooks/useOrgContext';
@@ -60,6 +61,7 @@ export const OrganizationSelector: React.FC<OrganizationSelectorProps> = ({
     } = useOrgContext();
 
     const dropdownRef = useRef<HTMLDivElement>(null);
+    const [switchingToOrg, setSwitchingToOrg] = useState<Organization | null>(null);
 
     // Load organizations on mount - This is now handled by useOrgContext
     // useEffect(() => {
@@ -84,12 +86,26 @@ export const OrganizationSelector: React.FC<OrganizationSelectorProps> = ({
 
     // Handle organization switch
     const handleOrgSwitch = (org: Organization) => {
+        // Skip if already on this org
+        if (currentOrg?.id === org.id) {
+            closeOrgSelector();
+            return;
+        }
+        
+        // Show switching indicator
+        setSwitchingToOrg(org);
+        closeOrgSelector();
+        
+        // Save the switch and reload
         switchToOrg(org.id);
         if (onOrgSwitch) {
             onOrgSwitch(org);
         }
-        // Reload the page to refresh all data for the new organization
-        window.location.reload();
+        
+        // Small delay to show the indicator, then reload
+        setTimeout(() => {
+            window.location.reload();
+        }, 800);
     };
 
     // Handle create organization
@@ -313,6 +329,27 @@ export const OrganizationSelector: React.FC<OrganizationSelectorProps> = ({
                         </svg>
                     </div>
                 </div>
+            )}
+
+            {/* Switching Indicator */}
+            {switchingToOrg && createPortal(
+                <div className="fixed inset-0 z-[9999] flex items-center justify-center p-4">
+                    <div className="absolute inset-0 bg-black/70" />
+                    <div className="relative bg-slate-800 rounded-lg border border-slate-600 shadow-2xl p-8">
+                        <div className="flex flex-col items-center space-y-4">
+                            <div className="w-12 h-12 border-4 border-blue-500 border-t-transparent rounded-full animate-spin"></div>
+                            <div className="text-center">
+                                <h3 className="text-lg font-medium text-white mb-1">
+                                    Switching to {switchingToOrg.name}
+                                </h3>
+                                <p className="text-sm text-slate-400">
+                                    Reloading page...
+                                </p>
+                            </div>
+                        </div>
+                    </div>
+                </div>,
+                document.body
             )}
         </div>
     );
