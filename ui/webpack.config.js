@@ -17,17 +17,36 @@ module.exports =  (env, options)=> {
 
     process.env.NODE_ENV = options.mode;
 
-    // Load .env.selfhosted if it exists, otherwise fallback to .env.prod
-    const rootEnvPathSelfHosted = path.resolve(__dirname, '..', '.env.selfhosted');
-    const rootEnvPath = path.resolve(__dirname, '..', '.env.prod');
-    if (fs.existsSync(rootEnvPathSelfHosted)) {
-        const dotenv = require('dotenv');
-        dotenv.config({ path: rootEnvPathSelfHosted });
-        console.log("Loaded environment variables from .env.selfhosted");
-    } else if (fs.existsSync(rootEnvPath)) {
-        const dotenv = require('dotenv');
-        dotenv.config({ path: rootEnvPath });
-        console.log("Loaded environment variables from .env.prod");
+    // Explicit build mode control to prevent mistakes:
+    // - LIVEREVIEW_BUILD_MODE=local     -> Use .env (local testing, user-controlled is_cloud)
+    // - LIVEREVIEW_BUILD_MODE=prod      -> Use .env.prod (production deploy, is_cloud=true)
+    // - LIVEREVIEW_BUILD_MODE=selfhosted -> Use .env.selfhosted (Docker build, is_cloud=false)
+    // - No mode set                     -> Use .env (default for local development)
+    const dotenv = require('dotenv');
+    const buildMode = process.env.LIVEREVIEW_BUILD_MODE || 'local';
+    
+    let envPath;
+    let envName;
+    
+    if (buildMode === 'selfhosted') {
+        envPath = path.resolve(__dirname, '..', '.env.selfhosted');
+        envName = '.env.selfhosted';
+    } else if (buildMode === 'prod') {
+        envPath = path.resolve(__dirname, '..', '.env.prod');
+        envName = '.env.prod';
+    } else {
+        envPath = path.resolve(__dirname, '..', '.env');
+        envName = '.env';
+    }
+    
+    if (fs.existsSync(envPath)) {
+        dotenv.config({ path: envPath });
+        console.log(`✅ Build Mode: ${buildMode.toUpperCase()} | Config: ${envName}`);
+        console.log(`   LIVEREVIEW_IS_CLOUD: ${process.env.LIVEREVIEW_IS_CLOUD}`);
+    } else {
+        console.error(`❌ ERROR: ${envName} not found at ${envPath}`);
+        console.error(`   Build mode: ${buildMode}`);
+        throw new Error(`Required config file ${envName} not found`);
     }
 
     return {

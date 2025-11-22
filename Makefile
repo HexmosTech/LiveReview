@@ -278,16 +278,28 @@ niceurl:
 
 
 build-with-ui:
+	@echo "🔨 Building for PRODUCTION deployment (is_cloud=true)"
+	@if [ ! -f .env.prod ]; then \
+		echo "❌ ERROR: .env.prod not found! Cannot build for production."; \
+		exit 1; \
+	fi
 	rm $(BINARY_NAME) || true
-	cd ui/ && npm install && npm run build:obfuscated && cd ..
+	cd ui/ && npm install && LIVEREVIEW_BUILD_MODE=prod NODE_ENV=production npm run build:obfuscated && cd ..
 	go build livereview.go
+	@echo "✅ Production build complete. Binary ready for raw-deploy."
 
-raw-deploy:
+raw-deploy: build-with-ui
+	@echo "🚀 Deploying to production server..."
+	@if [ ! -f ./livereview ]; then \
+		echo "❌ ERROR: livereview binary not found! Run 'make build-with-ui' first."; \
+		exit 1; \
+	fi
 	ssh master "cd /root/public_lr && mv ./livereview ./livereview.bak || true"
 	rsync -avz ./livereview db-ready.sh ecosystem.config.js deps.sh master:/root/public_lr/
 	rsync -avz ./.env.prod master:/root/public_lr/.env
 	rsync -avz ./db/ master:/root/public_lr/db/
 	ssh master "cd /root/public_lr && chmod a+x db-ready.sh && ./db-ready.sh"
 	ssh master "cd /root/public_lr && pm2 reload ecosystem.config.js"
+	@echo "✅ Production deployment complete!"
 
 	
