@@ -131,7 +131,9 @@ const LearningsTab: React.FC = () => {
         params.set('search', search.trim());
       }
 
+      console.log('Fetching learnings with params:', params.toString());
       const data = await apiClient.get<LearningsResponse>(`/api/v1/learnings?${params}`);
+      console.log('Learnings response:', data);
       
       if (data && data.items && data.pagination) {
         setItems(data.items);
