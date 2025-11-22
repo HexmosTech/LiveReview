@@ -379,8 +379,10 @@ func (s *Server) setupRoutes() {
 	adminGroup.GET("/analytics/users", s.userHandlers.GetUserAnalytics)
 
 	// Organization management endpoints
-	// User organization access (get their orgs)
-	protected.GET("/organizations", s.orgHandlers.GetUserOrganizations)
+	// User organization access (get their orgs) - needs permission context to detect super admin
+	protectedOrgsGroup := protected.Group("")
+	protectedOrgsGroup.Use(authMiddleware.BuildGlobalPermissionContext())
+	protectedOrgsGroup.GET("/organizations", s.orgHandlers.GetUserOrganizations)
 	protected.GET("/organizations/:org_id", s.orgHandlers.GetOrganization)
 
 	// Organization management within org context
