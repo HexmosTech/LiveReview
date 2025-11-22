@@ -12,8 +12,12 @@ RUN echo "📦 Installing UI dependencies..." && npm ci --progress=true
 
 # Copy UI source and build production assets
 COPY ui/ ./
-RUN echo "🔨 Building UI production assets..." && \
-    CI=true NODE_ENV=production npm run build && \
+# Copy .env.selfhosted for self-hosted Docker builds (LIVEREVIEW_IS_CLOUD=false)
+COPY .env.selfhosted ../.env.selfhosted
+
+# Build UI with explicit SELFHOSTED mode to ensure is_cloud=false
+RUN echo "🔨 Building UI for SELF-HOSTED deployment (is_cloud=false)..." && \
+    LIVEREVIEW_BUILD_MODE=selfhosted CI=true NODE_ENV=production npm run build:obfuscated && \
     echo "✅ UI build completed successfully"
 
 # Stage 2: Cross-compile all binaries for all architectures in one stage

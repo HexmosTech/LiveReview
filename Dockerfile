@@ -12,12 +12,12 @@ RUN echo "📦 Installing UI dependencies..." && \
 
 # Copy UI source and build production assets
 COPY ui/ ./
-# Copy .env.selfhosted to the UI directory
-COPY .env.selfhosted ./ui/.env.selfhosted
+# Copy .env.selfhosted to parent directory for webpack (self-hosted Docker builds)
+COPY .env.selfhosted ../.env.selfhosted
 
-# Note: API URL is now configured at runtime, not build time
-RUN echo "🔨 Building UI production assets with .env.selfhosted..." && \
-    CI=true NODE_ENV=production npm run build:obfuscated && \
+# Build UI with explicit SELFHOSTED mode to ensure is_cloud=false
+RUN echo "🔨 Building UI for SELF-HOSTED deployment (is_cloud=false)..." && \
+    LIVEREVIEW_BUILD_MODE=selfhosted CI=true NODE_ENV=production npm run build:obfuscated && \
     echo "✅ Webpack build completed successfully"
 
 # Verify build output
