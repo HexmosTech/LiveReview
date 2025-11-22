@@ -88,6 +88,8 @@ export const OrganizationSelector: React.FC<OrganizationSelectorProps> = ({
         if (onOrgSwitch) {
             onOrgSwitch(org);
         }
+        // Reload the page to refresh all data for the new organization
+        window.location.reload();
     };
 
     // Handle create organization
