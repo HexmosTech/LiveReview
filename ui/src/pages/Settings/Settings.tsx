@@ -259,7 +259,7 @@ const Settings = () => {
     const navigate = useNavigate();
     const { domain } = useAppSelector((state) => state.Settings);
     const { isSuperAdmin, canManageCurrentOrg, currentOrg } = useOrgContext();
-    const canAccessPrompts = isSuperAdmin || currentOrg?.role === 'owner';
+    const canAccessPrompts = isSuperAdmin || (currentOrg && ['owner', 'member'].includes(currentOrg.role));
     
     const activeTab = location.hash.substring(1) || 'general';
     const [productionUrl, setProductionUrl] = useState('');
@@ -292,8 +292,8 @@ const Settings = () => {
             </svg>
         ) }] : []),
         ...(canAccessPrompts ? [{ id: 'prompts', name: 'Prompts', icon: <Icons.AI /> }] : []),
-        // Learnings tab visible to org managers and above
-        ...(canManageCurrentOrg ? [{ id: 'learnings', name: 'Learnings', icon: <Icons.List /> }] : []),
+        // Learnings tab visible to all org members
+        ...((isSuperAdmin || currentOrg) ? [{ id: 'learnings', name: 'Learnings', icon: <Icons.List /> }] : []),
         ...(canManageCurrentOrg ? [{ 
             id: 'users', 
             name: 'User Management', 
@@ -693,7 +693,7 @@ const Settings = () => {
                         </Card>
                     )}
 
-                    {activeTab === 'learnings' && canManageCurrentOrg && (
+                    {activeTab === 'learnings' && (isSuperAdmin || currentOrg) && (
                         <Card>
                             <LearningsTab />
                         </Card>
