@@ -100,7 +100,7 @@ func (s *OrganizationService) GetUserOrganizations(userID int64, isSuperAdmin bo
 	var args []interface{}
 
 	if isSuperAdmin {
-		// Super admin can see all organizations
+		// Super admin can see all organizations except Default Organization
 		query = `
 			SELECT o.id, o.name, o.description, o.is_active, o.created_at, o.updated_at,
 			       o.created_by_user_id, o.settings, o.subscription_plan, o.max_users,
@@ -108,12 +108,12 @@ func (s *OrganizationService) GetUserOrganizations(userID int64, isSuperAdmin bo
 			FROM orgs o
 			LEFT JOIN user_roles ur ON o.id = ur.org_id AND ur.user_id = $1
 			LEFT JOIN roles r ON ur.role_id = r.id
-			WHERE o.is_active = true
+			WHERE o.is_active = true AND o.name != 'Default Organization'
 			ORDER BY o.name ASC
 		`
 		args = []interface{}{userID}
 	} else {
-		// Regular users can only see organizations they belong to
+		// Regular users can only see organizations they belong to, excluding Default Organization
 		query = `
 			SELECT o.id, o.name, o.description, o.is_active, o.created_at, o.updated_at,
 			       o.created_by_user_id, o.settings, o.subscription_plan, o.max_users,
@@ -121,7 +121,7 @@ func (s *OrganizationService) GetUserOrganizations(userID int64, isSuperAdmin bo
 			FROM orgs o
 			INNER JOIN user_roles ur ON o.id = ur.org_id
 			INNER JOIN roles r ON ur.role_id = r.id
-			WHERE ur.user_id = $1 AND o.is_active = true
+			WHERE ur.user_id = $1 AND o.is_active = true AND o.name != 'Default Organization'
 			ORDER BY o.name ASC
 		`
 		args = []interface{}{userID}

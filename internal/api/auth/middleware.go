@@ -342,6 +342,45 @@ func (am *AuthMiddleware) BuildPermissionContext() echo.MiddlewareFunc {
 	}
 }
 
+// BuildGlobalPermissionContext middleware builds a permission context for global endpoints
+// that don't require organization context (like listing user's organizations)
+func (am *AuthMiddleware) BuildGlobalPermissionContext() echo.MiddlewareFunc {
+	return func(next echo.HandlerFunc) echo.HandlerFunc {
+		return func(c echo.Context) error {
+			// Get user from context
+			userInterface := c.Get(string(UserContextKey))
+			if userInterface == nil {
+				return echo.NewHTTPError(http.StatusUnauthorized, "User not found in context")
+			}
+			user := userInterface.(*models.User)
+
+			// Check if user is super admin in any organization
+			var isSuperAdmin bool
+			err := am.db.QueryRow(`
+				SELECT EXISTS(
+					SELECT 1 FROM user_roles ur
+					JOIN roles r ON ur.role_id = r.id
+					WHERE ur.user_id = $1 AND r.name = $2
+				)
+			`, user.ID, RoleSuperAdmin).Scan(&isSuperAdmin)
+
+			if err != nil {
+				return echo.NewHTTPError(http.StatusInternalServerError, "Failed to check super admin status")
+			}
+
+			// Build minimal permission context with just super admin flag
+			permissionContext := &PermissionContext{
+				User:         user,
+				IsSuperAdmin: isSuperAdmin,
+			}
+
+			// Store permission context
+			c.Set(string(PermissionContextKey), permissionContext)
+			return next(c)
+		}
+	}
+}
+
 // RequireSuperAdmin middleware checks if user is super admin
 func (am *AuthMiddleware) RequireSuperAdmin() echo.MiddlewareFunc {
 	return func(next echo.HandlerFunc) echo.HandlerFunc {
