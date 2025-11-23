@@ -4,6 +4,7 @@ import classNames from 'classnames';
 import { Button, Icons } from '../UIPrimitives';
 import { OrganizationSelector } from '../OrganizationSelector';
 import { useSystemInfo } from '../../hooks/useSystemInfo';
+import { useOrgContext } from '../../hooks/useOrgContext';
 
 export type NavbarProps = {
     title: string;
@@ -15,8 +16,8 @@ export type NavbarProps = {
 const baseNavLinks = [
     { name: 'Dashboard', key: 'dashboard', icon: <Icons.Dashboard /> },
     { name: 'Reviews', key: 'reviews', icon: <Icons.Reviews /> },
-    { name: 'Git Providers', key: 'git', icon: <Icons.Git /> },
-    { name: 'AI Providers', key: 'ai', icon: <Icons.AI /> },
+    { name: 'Git Providers', key: 'git', icon: <Icons.Git />, requiresOwnerOrAdmin: true },
+    { name: 'AI Providers', key: 'ai', icon: <Icons.AI />, requiresOwnerOrAdmin: true },
     { name: 'Settings', key: 'settings', icon: <Icons.Settings /> },
 ];
 
@@ -33,9 +34,21 @@ const testNavLink = {
 export const Navbar: React.FC<NavbarProps> = ({ title, activePage = 'dashboard', onNavigate, onLogout }) => {
     const [isOpen, setIsOpen] = useState(false);
     const { isDevMode } = useSystemInfo();
+    const { isSuperAdmin, currentOrg } = useOrgContext();
+
+    // Check if user can manage current org (owner or super admin)
+    const canManageCurrentOrg = isSuperAdmin || currentOrg?.role === 'owner';
+
+    // Filter nav links based on permissions
+    const filteredBaseLinks = baseNavLinks.filter(link => {
+        if (link.requiresOwnerOrAdmin) {
+            return canManageCurrentOrg;
+        }
+        return true;
+    });
 
     // Conditionally include test middleware link based on dev mode
-    const navLinks = isDevMode ? [...baseNavLinks, testNavLink] : baseNavLinks;
+    const navLinks = isDevMode ? [...filteredBaseLinks, testNavLink] : filteredBaseLinks;
 
     const handleNavClick = (key: string) => {
         if (onNavigate) onNavigate(key);
