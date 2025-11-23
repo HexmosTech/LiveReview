@@ -97,7 +97,7 @@ export const createOrganization = createAsyncThunk(
             const organization = await organizationsApi.createOrganization(payload);
             return organization;
         } catch (error: any) {
-            return rejectWithValue(error.response?.data?.message || 'Failed to create organization');
+            return rejectWithValue(error.message || 'Failed to create organization');
         }
     }
 );

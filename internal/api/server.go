@@ -391,8 +391,10 @@ func (s *Server) setupRoutes() {
 	orgGroup.GET("/analytics", s.orgHandlers.GetOrganizationAnalytics)
 	orgGroup.PUT("", s.orgHandlers.UpdateOrganization) // Update org details (owners only)
 
+	// Organization creation - available to all authenticated users
+	protectedOrgsGroup.POST("/organizations", s.orgHandlers.CreateOrganization)
+
 	// Super admin organization management
-	adminGroup.POST("/organizations", s.orgHandlers.CreateOrganization)
 	adminGroup.DELETE("/organizations/:org_id", s.orgHandlers.DeactivateOrganization)
 
 	// Learnings endpoints (organization-scoped, MVP)

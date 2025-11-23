@@ -55,10 +55,10 @@ export const organizationsApi = {
     },
 
     /**
-     * Create a new organization (super admin only)
+     * Create a new organization (available to all authenticated users)
      */
     async createOrganization(data: CreateOrganizationRequest): Promise<Organization> {
-        const response = await apiClient.post<{ message: string; organization: any }>('/api/v1/admin/organizations', data);
+        const response = await apiClient.post<{ message: string; organization: any }>('/api/v1/organizations', data);
         return {
             ...response.organization,
             role: response.organization.role_name || 'owner', // Map role_name to role, default to owner for creator
