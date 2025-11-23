@@ -20,7 +20,7 @@ func NewOrganizationService(db *sql.DB, logger *log.Logger) *OrganizationService
 	}
 }
 
-// CreateOrganization creates a new organization (super admin only)
+// CreateOrganization creates a new organization (available to all authenticated users)
 func (s *OrganizationService) CreateOrganization(createdByUserID int64, name, description string) (*models.Org, error) {
 	// Start transaction to create org and assign creator as owner
 	tx, err := s.db.Begin()
@@ -28,6 +28,19 @@ func (s *OrganizationService) CreateOrganization(createdByUserID int64, name, de
 		return nil, fmt.Errorf("failed to start transaction: %w", err)
 	}
 	defer tx.Rollback()
+
+	// Check if organization with this name already exists
+	var existingCount int
+	checkQuery := `SELECT COUNT(*) FROM orgs WHERE LOWER(name) = LOWER($1) AND is_active = true`
+	err = tx.QueryRow(checkQuery, name).Scan(&existingCount)
+	if err != nil {
+		s.logger.Printf("Error checking for existing organization: %v", err)
+		return nil, fmt.Errorf("failed to check for existing organization: %w", err)
+	}
+
+	if existingCount > 0 {
+		return nil, fmt.Errorf("organization with name '%s' already exists", name)
+	}
 
 	// Create the organization
 	query := `

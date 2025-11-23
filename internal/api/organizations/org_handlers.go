@@ -4,6 +4,7 @@ import (
 	"log"
 	"net/http"
 	"strconv"
+	"strings"
 
 	"github.com/labstack/echo/v4"
 	"github.com/livereview/internal/api/auth"
@@ -21,14 +22,12 @@ func NewOrganizationHandlers(service *OrganizationService, logger *log.Logger) *
 	}
 }
 
-// CreateOrganization creates a new organization (super admin only)
+// CreateOrganization creates a new organization (available to all authenticated users)
 func (h *OrganizationHandlers) CreateOrganization(c echo.Context) error {
 	user := auth.GetUser(c)
 	if user == nil {
 		return echo.NewHTTPError(http.StatusUnauthorized, "authentication required")
 	}
-
-	// Super admin check is handled by RequireSuperAdmin middleware
 
 	var req struct {
 		Name        string `json:"name" validate:"required,min=1,max=255"`
@@ -53,7 +52,11 @@ func (h *OrganizationHandlers) CreateOrganization(c echo.Context) error {
 	org, err := h.service.CreateOrganization(user.ID, req.Name, req.Description)
 	if err != nil {
 		h.logger.Printf("Error creating organization: %v", err)
-		return echo.NewHTTPError(http.StatusInternalServerError, "failed to create organization")
+		// Check if it's a duplicate name error
+		if strings.Contains(err.Error(), "already exists") {
+			return echo.NewHTTPError(http.StatusConflict, err.Error())
+		}
+		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
 	}
 
 	return c.JSON(http.StatusCreated, map[string]interface{}{

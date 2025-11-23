@@ -23,7 +23,7 @@ export interface OrganizationSelectorProps {
     className?: string;
     
     /**
-     * Show organization creation option (super admin only)
+     * Show organization creation option (available to all users)
      */
     showCreateOption?: boolean;
     
@@ -311,8 +311,8 @@ export const OrganizationSelector: React.FC<OrganizationSelectorProps> = ({
                             </button>
                         ))}
 
-                        {/* Create Organization Option (Super Admin) */}
-                        {isSuperAdmin && showCreateOption && (
+                        {/* Create Organization Option */}
+                        {showCreateOption && (
                             <>
                                 <div className="border-t border-slate-600/60 my-2"></div>
                                 <button
