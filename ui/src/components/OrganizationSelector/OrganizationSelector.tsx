@@ -4,6 +4,7 @@ import classNames from 'classnames';
 import { Button, Icons } from '../UIPrimitives';
 import { useOrgContext } from '../../hooks/useOrgContext';
 import { Organization } from '../../store/Organizations/types';
+import { CreateOrganizationModal } from '../CreateOrganizationModal';
 
 export interface OrganizationSelectorProps {
     /**
@@ -62,6 +63,7 @@ export const OrganizationSelector: React.FC<OrganizationSelectorProps> = ({
 
     const dropdownRef = useRef<HTMLDivElement>(null);
     const [switchingToOrg, setSwitchingToOrg] = useState<Organization | null>(null);
+    const [showCreateModal, setShowCreateModal] = useState(false);
 
     // Load organizations on mount - This is now handled by useOrgContext
     // useEffect(() => {
@@ -111,9 +113,17 @@ export const OrganizationSelector: React.FC<OrganizationSelectorProps> = ({
     // Handle create organization
     const handleCreateOrg = () => {
         closeOrgSelector();
+        setShowCreateModal(true);
         if (onCreateOrg) {
             onCreateOrg();
         }
+    };
+
+    // Handle successful organization creation
+    const handleCreateSuccess = () => {
+        // The modal already reloads the organizations list
+        // We can optionally reload here as well
+        loadUserOrgs();
     };
 
     // Size-based styling
@@ -351,6 +361,13 @@ export const OrganizationSelector: React.FC<OrganizationSelectorProps> = ({
                 </div>,
                 document.body
             )}
+
+            {/* Create Organization Modal */}
+            <CreateOrganizationModal
+                isOpen={showCreateModal}
+                onClose={() => setShowCreateModal(false)}
+                onSuccess={handleCreateSuccess}
+            />
         </div>
     );
 };

@@ -52,24 +52,45 @@ func (s *OrganizationService) CreateOrganization(createdByUserID int64, name, de
 		return nil, fmt.Errorf("failed to create organization: %w", err)
 	}
 
-	// Get the owner role ID (role name = 'owner')
-	var ownerRoleID int64
-	roleQuery := `SELECT id FROM roles WHERE name = 'owner' LIMIT 1`
-	err = tx.QueryRow(roleQuery).Scan(&ownerRoleID)
+	// Check if the creator is a super admin
+	var isSuperAdmin bool
+	superAdminCheckQuery := `
+		SELECT EXISTS(
+			SELECT 1 FROM user_roles ur
+			JOIN roles r ON ur.role_id = r.id
+			WHERE ur.user_id = $1 AND r.name = 'super_admin'
+		)
+	`
+	err = tx.QueryRow(superAdminCheckQuery, createdByUserID).Scan(&isSuperAdmin)
 	if err != nil {
-		s.logger.Printf("Error getting owner role ID: %v", err)
-		return nil, fmt.Errorf("failed to get owner role: %w", err)
+		s.logger.Printf("Error checking super admin status: %v", err)
+		return nil, fmt.Errorf("failed to check super admin status: %w", err)
 	}
 
-	// Assign the creator as owner of the new organization
-	userRoleQuery := `
-		INSERT INTO user_roles (user_id, role_id, org_id, created_at, updated_at)
-		VALUES ($1, $2, $3, NOW(), NOW())
-	`
-	_, err = tx.Exec(userRoleQuery, createdByUserID, ownerRoleID, org.ID)
-	if err != nil {
-		s.logger.Printf("Error assigning creator as owner: %v", err)
-		return nil, fmt.Errorf("failed to assign creator as owner: %w", err)
+	// Only assign owner role if creator is NOT a super admin
+	// Super admins already have global access to all organizations
+	if !isSuperAdmin {
+		// Get the owner role ID (role name = 'owner')
+		var ownerRoleID int64
+		roleQuery := `SELECT id FROM roles WHERE name = 'owner' LIMIT 1`
+		err = tx.QueryRow(roleQuery).Scan(&ownerRoleID)
+		if err != nil {
+			s.logger.Printf("Error getting owner role ID: %v", err)
+			return nil, fmt.Errorf("failed to get owner role: %w", err)
+		}
+
+		// Assign the creator as owner of the new organization
+		userRoleQuery := `
+			INSERT INTO user_roles (user_id, role_id, org_id, created_at, updated_at)
+			VALUES ($1, $2, $3, NOW(), NOW())
+		`
+		_, err = tx.Exec(userRoleQuery, createdByUserID, ownerRoleID, org.ID)
+		if err != nil {
+			s.logger.Printf("Error assigning creator as owner: %v", err)
+			return nil, fmt.Errorf("failed to assign creator as owner: %w", err)
+		}
+	} else {
+		s.logger.Printf("Skipping owner role assignment for super admin user %d (org %d)", createdByUserID, org.ID)
 	}
 
 	// Create default prompt application context for the new organization

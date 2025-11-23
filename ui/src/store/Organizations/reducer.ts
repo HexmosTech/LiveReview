@@ -207,14 +207,24 @@ const organizationsSlice = createSlice({
                 state.loading.members = false;
                 state.error = action.payload as string;
             })
+            .addCase(createOrganization.pending, (state) => {
+                state.loading.creating = true;
+                state.error = null;
+            })
             .addCase(createOrganization.fulfilled, (state, action) => {
+                state.loading.creating = false;
                 state.userOrganizations.push(action.payload);
             })
             .addCase(createOrganization.rejected, (state, action) => {
                 state.loading.creating = false;
                 state.error = action.payload as string;
             })
+            .addCase(updateOrganization.pending, (state) => {
+                state.loading.updating = true;
+                state.error = null;
+            })
             .addCase(updateOrganization.fulfilled, (state, action) => {
+                state.loading.updating = false;
                 const index = state.userOrganizations.findIndex(org => org.id === action.payload.id);
                 if (index !== -1) {
                     state.userOrganizations[index] = action.payload;
@@ -223,6 +233,10 @@ const organizationsSlice = createSlice({
             .addCase(updateOrganization.rejected, (state, action) => {
                 state.loading.updating = false;
                 state.error = action.payload as string;
+            })
+            .addCase(changeUserRole.pending, (state) => {
+                state.loading.updating = true;
+                state.error = null;
             })
             .addCase(changeUserRole.fulfilled, (state, action) => {
                 state.loading.updating = false;
