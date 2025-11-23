@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { Link } from 'react-router-dom';
 import toast from 'react-hot-toast';
 import { Button } from '../UIPrimitives';
@@ -24,7 +24,13 @@ export const UserManagement: React.FC<UserManagementProps> = ({
     const canManageUsers = isSuperAdminView ? isSuperAdmin : canManageCurrentOrg;
 
     // Load users
-    const loadUsers = async () => {
+    const loadUsers = useCallback(async () => {
+        console.log('[UserManagement] loadUsers called', { 
+            orgId: currentOrg?.id, 
+            isSuperAdminView, 
+            isSuperAdmin 
+        });
+        
         if (isSuperAdminView && !isSuperAdmin) {
             setError('Access denied: Super admin privileges required');
             return;
@@ -32,6 +38,7 @@ export const UserManagement: React.FC<UserManagementProps> = ({
 
         if (!isSuperAdminView && !currentOrg) {
             // This can happen briefly on first load, so don't set an error
+            console.log('[UserManagement] Skipping load - no currentOrg yet');
             return;
         }
 
@@ -43,6 +50,7 @@ export const UserManagement: React.FC<UserManagementProps> = ({
                 // TODO: Implement super admin user fetching
                 setUsers([]);
             } else if (currentOrg) {
+                console.log('[UserManagement] Fetching users for org:', currentOrg.id);
                 const response = await fetchOrgUsers(currentOrg.id.toString());
                 setUsers(response.members || []);
             }
@@ -52,12 +60,13 @@ export const UserManagement: React.FC<UserManagementProps> = ({
         } finally {
             setLoading(false);
         }
-    };
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [currentOrg?.id, isSuperAdminView, isSuperAdmin]);
 
     // Load users on mount and when context changes
     useEffect(() => {
         loadUsers();
-    }, [currentOrg, isSuperAdminView, isSuperAdmin]);
+    }, [loadUsers]);
 
     const handleDeactivateUser = async (user: Member) => {
         const userName = user.first_name && user.last_name ? `${user.first_name} ${user.last_name}` : user.email;
