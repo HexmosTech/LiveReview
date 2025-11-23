@@ -44,7 +44,7 @@ export const UserManagement: React.FC<UserManagementProps> = ({
                 setUsers([]);
             } else if (currentOrg) {
                 const response = await fetchOrgUsers(currentOrg.id.toString());
-                setUsers(response.members);
+                setUsers(response.members || []);
             }
         } catch (err: any) {
             console.error('Failed to load users:', err);
@@ -102,6 +102,18 @@ export const UserManagement: React.FC<UserManagementProps> = ({
                             : `Manage users in ${currentOrg?.name || 'your organization'}`
                         }
                     </p>
+                    {!isSuperAdminView && currentOrg && currentOrg.created_at && (
+                        <p className="text-slate-500 text-sm mt-1">
+                            Organization created on {new Date(currentOrg.created_at).toLocaleDateString()}
+                            {currentOrg.creator_email && (
+                                <> by {
+                                    currentOrg.creator_first_name && currentOrg.creator_last_name 
+                                        ? `${currentOrg.creator_first_name} ${currentOrg.creator_last_name}` 
+                                        : currentOrg.creator_email
+                                }</>
+                            )}
+                        </p>
+                    )}
                 </div>
                 
                 {canManageUsers && (

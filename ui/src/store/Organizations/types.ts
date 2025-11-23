@@ -10,6 +10,9 @@ export interface Organization {
     subscription_plan?: string;
     max_users?: number;
     created_by_user_id?: number;
+    creator_email?: string;
+    creator_first_name?: string;
+    creator_last_name?: string;
     member_count?: number;
     role?: string; 
 }

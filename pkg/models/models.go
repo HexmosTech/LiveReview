@@ -23,7 +23,10 @@ type Org struct {
 // OrgWithRole extends Org with the user's role in that organization
 type OrgWithRole struct {
 	Org
-	RoleName string `json:"role_name"`
+	RoleName         string  `json:"role_name"`
+	CreatorEmail     *string `json:"creator_email,omitempty"`
+	CreatorFirstName *string `json:"creator_first_name,omitempty"`
+	CreatorLastName  *string `json:"creator_last_name,omitempty"`
 }
 
 // OrgAnalytics contains analytics data for an organization

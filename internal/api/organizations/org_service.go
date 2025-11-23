@@ -125,10 +125,14 @@ func (s *OrganizationService) GetUserOrganizations(userID int64, isSuperAdmin bo
 		query = `
 			SELECT o.id, o.name, o.description, o.is_active, o.created_at, o.updated_at,
 			       o.created_by_user_id, o.settings, o.subscription_plan, o.max_users,
-			       COALESCE(r.name, 'super_admin') as role_name
+			       COALESCE(r.name, 'super_admin') as role_name,
+			       creator.email as creator_email,
+			       creator.first_name as creator_first_name,
+			       creator.last_name as creator_last_name
 			FROM orgs o
 			LEFT JOIN user_roles ur ON o.id = ur.org_id AND ur.user_id = $1
 			LEFT JOIN roles r ON ur.role_id = r.id
+			LEFT JOIN users creator ON o.created_by_user_id = creator.id
 			WHERE o.is_active = true AND o.name != 'Default Organization'
 			ORDER BY o.name ASC
 		`
@@ -138,10 +142,14 @@ func (s *OrganizationService) GetUserOrganizations(userID int64, isSuperAdmin bo
 		query = `
 			SELECT o.id, o.name, o.description, o.is_active, o.created_at, o.updated_at,
 			       o.created_by_user_id, o.settings, o.subscription_plan, o.max_users,
-			       r.name as role_name
+			       r.name as role_name,
+			       creator.email as creator_email,
+			       creator.first_name as creator_first_name,
+			       creator.last_name as creator_last_name
 			FROM orgs o
 			INNER JOIN user_roles ur ON o.id = ur.org_id
 			INNER JOIN roles r ON ur.role_id = r.id
+			LEFT JOIN users creator ON o.created_by_user_id = creator.id
 			WHERE ur.user_id = $1 AND o.is_active = true AND o.name != 'Default Organization'
 			ORDER BY o.name ASC
 		`
@@ -160,6 +168,7 @@ func (s *OrganizationService) GetUserOrganizations(userID int64, isSuperAdmin bo
 		var org models.OrgWithRole
 		var settings sql.NullString
 		var createdByUserID sql.NullInt64
+		var creatorEmail, creatorFirstName, creatorLastName sql.NullString
 
 		err := rows.Scan(
 			&org.ID,
@@ -173,6 +182,9 @@ func (s *OrganizationService) GetUserOrganizations(userID int64, isSuperAdmin bo
 			&org.SubscriptionPlan,
 			&org.MaxUsers,
 			&org.RoleName,
+			&creatorEmail,
+			&creatorFirstName,
+			&creatorLastName,
 		)
 		if err != nil {
 			s.logger.Printf("Error scanning organization row: %v", err)
@@ -186,6 +198,15 @@ func (s *OrganizationService) GetUserOrganizations(userID int64, isSuperAdmin bo
 			org.Settings = settings.String
 		} else {
 			org.Settings = "{}"
+		}
+		if creatorEmail.Valid {
+			org.CreatorEmail = &creatorEmail.String
+		}
+		if creatorFirstName.Valid {
+			org.CreatorFirstName = &creatorFirstName.String
+		}
+		if creatorLastName.Valid {
+			org.CreatorLastName = &creatorLastName.String
 		}
 
 		orgs = append(orgs, &org)
