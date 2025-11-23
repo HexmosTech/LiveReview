@@ -154,7 +154,7 @@ const Cloud: React.FC = () => {
 				href="#/admin" 
 				className="absolute bottom-4 right-4 text-xs text-gray-600 hover:text-gray-500 transition-colors"
 			>
-				Super Admin Login
+				Email Login
 			</a>
 			<div className="max-w-md w-full bg-gray-800 p-8 rounded-lg shadow-lg">
 				<div className="text-center mb-8">
