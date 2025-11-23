@@ -294,7 +294,8 @@ const Settings = () => {
         ...(canAccessPrompts ? [{ id: 'prompts', name: 'Prompts', icon: <Icons.AI /> }] : []),
         // Learnings tab visible to all org members
         ...((isSuperAdmin || currentOrg) ? [{ id: 'learnings', name: 'Learnings', icon: <Icons.List /> }] : []),
-        ...(canManageCurrentOrg ? [{ 
+        // User Management tab visible to all org members (read-only for non-owners)
+        ...((isSuperAdmin || currentOrg) ? [{ 
             id: 'users', 
             name: 'User Management', 
             icon: (
@@ -701,7 +702,7 @@ const Settings = () => {
 
                     {/* AI Configuration, UI Preferences, Global Admin temporarily hidden */}
 
-                    {activeTab === 'users' && canManageCurrentOrg && (
+                    {activeTab === 'users' && (isSuperAdmin || currentOrg) && (
                         <Card>
                             <UserManagement isSuperAdminView={false} />
                         </Card>
