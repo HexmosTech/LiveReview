@@ -340,13 +340,13 @@ func (s *Server) getAIConfigFromDatabase(ctx context.Context) (review.AIConfig, 
 		case "ollama":
 			model = "llama3.2:latest" // Default Ollama model
 		case "gemini":
-			model = "gemini-2.0-flash-exp" // Default Gemini model
+			model = "gemini-2.0-flash" // Default Gemini model
 		case "openai":
 			model = "gpt-3.5-turbo" // Default OpenAI model
 		case "anthropic":
 			model = "claude-3-haiku-20240307" // Default Anthropic model
 		default:
-			model = "gemini-2.0-flash-exp" // Default fallback
+			model = "gemini-2.0-flash" // Default fallback
 		}
 	}
 
