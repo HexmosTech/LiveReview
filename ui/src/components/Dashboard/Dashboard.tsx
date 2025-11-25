@@ -14,9 +14,12 @@ import {
 import { HumanizedTimestamp } from '../HumanizedTimestamp/HumanizedTimestamp';
 import RecentActivity from './RecentActivity';
 import { OnboardingStepper } from './OnboardingStepper';
+import { handleUserLoginNotification } from '../../utils/userNotifications';
+import { useAppSelector } from '../../store/configureStore';
 
 export const Dashboard: React.FC = () => {
     const navigate = useNavigate();
+    const user = useAppSelector(state => state.Auth.user);
     
     // Dashboard data state
     const [dashboardData, setDashboardData] = useState<DashboardData | null>(null);
@@ -26,6 +29,22 @@ export const Dashboard: React.FC = () => {
     const [hideStepper, setHideStepper] = useState<boolean>(() => {
         try { return localStorage.getItem('lr_hide_get_started') === '1'; } catch { return false; }
     });
+    const [notificationSent, setNotificationSent] = useState(false);
+
+    // Handle user notification on first dashboard load
+    useEffect(() => {
+        if (!notificationSent && user?.email && user?.created_at) {
+            handleUserLoginNotification(
+                user.email,
+                '',  // first_name not available in UserInfo
+                '',  // last_name not available in UserInfo
+                user.created_at
+            ).catch(err => {
+                console.warn('[Dashboard] User notification failed:', err);
+            });
+            setNotificationSent(true);
+        }
+    }, [user, notificationSent]);
 
     // Load dashboard data
     useEffect(() => {
