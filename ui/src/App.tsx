@@ -1,6 +1,5 @@
 import React, { useEffect, useState } from 'react';
 import { HashRouter as Router, Routes, Route, Navigate, useNavigate, useLocation, Link } from 'react-router-dom';
-import posthog from 'posthog-js';
 import { Navbar } from './components/Navbar/Navbar';
 import { Dashboard } from './components/Dashboard/Dashboard';
 import { DemoModeBanner } from './components/DemoModeBanner';
@@ -239,20 +238,6 @@ const AppContent: React.FC = () => {
 
 // Main App component with Router
 const App: React.FC = () => {
-
-
-    // Initialize PostHog once on app mount
-    React.useEffect(() => {
-        const isCloud = (process.env.LIVEREVIEW_IS_CLOUD || '').toString().toLowerCase() === 'true';
-        if (isCloud) {
-            posthog.init('REDACTED_POSTHOG_KEY', {
-                api_host: 'https://us.i.posthog.com',
-                defaults: '2025-05-24'
-            })
-
-        }
-    }, []);
-
     // Check if we have OAuth parameters in the URL (for GitLab redirect)
     // This runs before the router setup
     React.useEffect(() => {
