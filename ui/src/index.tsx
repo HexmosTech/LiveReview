@@ -6,6 +6,7 @@ import React from 'react';
 import { createRoot } from 'react-dom/client';
 import { Provider as ReduxProvider } from 'react-redux';
 import { PostHogProvider } from 'posthog-js/react';
+import "posthog-js/dist/recorder"
 
 import configureAppStore, { getPreloadedState } from './store/configureStore';
 import AppContextProvider from './contexts/AppContextProvider';
@@ -31,9 +32,10 @@ import { injectStore } from './api/apiClient';
                     apiKey="REDACTED_POSTHOG_KEY"
                     options={{
                         api_host: 'https://us.i.posthog.com',
-                        defaults: '2025-05-24',
-                        capture_exceptions: true,
-                        debug: true
+                        person_profiles: 'always',
+                        capture_pageview: true,
+                        capture_pageleave: true,
+                        capture_exceptions: true
                     }}
                 >
                     <ReduxProvider store={store}>
