@@ -22,6 +22,7 @@ import LicenseModal from './components/License/LicenseModal';
 import LicenseStatusBar from './components/License/LicenseStatusBar';
 import { Toaster } from 'react-hot-toast';
 import UserForm from './components/UserManagement/UserForm';
+// import { usePostHog } from '@posthog/react'
 
 const Footer = () => (
     <footer className="bg-slate-900 border-t border-slate-700 py-8 mt-auto">
@@ -87,8 +88,12 @@ const AppContent: React.FC = () => {
     // Subtle fade-in for main content to make initial paint feel smoother
     const [uiReady, setUiReady] = useState(false);
     useEffect(() => {
+        console.info('[LiveReview][AppContent] mounted');
         const id = requestAnimationFrame(() => setUiReady(true));
-        return () => cancelAnimationFrame(id);
+        return () => {
+            cancelAnimationFrame(id);
+            console.info('[LiveReview][AppContent] unmounted');
+        };
     }, []);
 
     // Extract the current page from the path
@@ -106,7 +111,14 @@ const AppContent: React.FC = () => {
 
     // Update active page when location changes
     useEffect(() => {
-        setActivePage(getCurrentPage());
+        const nextPage = getCurrentPage();
+        console.info('[LiveReview][AppContent] location changed', {
+            pathname: location.pathname,
+            hash: location.hash,
+            search: location.search,
+            nextPage,
+        });
+        setActivePage(nextPage);
     }, [location]);
 
     // Redirect from /admin to dashboard when authenticated
@@ -137,8 +149,12 @@ const AppContent: React.FC = () => {
 
     // Debug listener for Auth state changes
     useEffect(() => {
-        console.log('Auth state changed - isAuthenticated:', isAuthenticated, 'isSetupRequired:', isSetupRequired);
-    }, [isAuthenticated, isSetupRequired]);
+        console.info('[LiveReview][Auth]', {
+            isAuthenticated,
+            isSetupRequired,
+            isLoading,
+        });
+    }, [isAuthenticated, isSetupRequired, isLoading]);
 
     // Handle navigation
     const handleNavigate = (page: string) => {
@@ -238,6 +254,19 @@ const AppContent: React.FC = () => {
 
 // Main App component with Router
 const App: React.FC = () => {
+    // const posthog = usePostHog()
+    useEffect(() => {
+        console.info('[LiveReview][App] mounted');
+        return () => {
+            console.info('[LiveReview][App] unmounted');
+        };
+    }, []);
+
+    // useEffect(() => {
+    //     console.info('[LiveReview][App] posthog hook updated', {
+    //         hasPosthog: Boolean(posthog),
+    //     });
+    // }, [posthog]);
     // Check if we have OAuth parameters in the URL (for GitLab redirect)
     // This runs before the router setup
     React.useEffect(() => {
