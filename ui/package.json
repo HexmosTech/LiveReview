@@ -87,6 +87,7 @@
     "date-fns": "^4.1.0",
     "dotenv": "^17.2.3",
     "helper-toolkit-ts": "^1.1.13",
+    "posthog-js": "^1.298.1",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
     "react-hook-form": "^7.62.0",

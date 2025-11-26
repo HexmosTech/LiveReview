@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { HashRouter as Router, Routes, Route, Navigate, useNavigate, useLocation, Link } from 'react-router-dom';
+import posthog from 'posthog-js';
 import { Navbar } from './components/Navbar/Navbar';
 import { Dashboard } from './components/Dashboard/Dashboard';
 import { DemoModeBanner } from './components/DemoModeBanner';
@@ -90,7 +91,7 @@ const AppContent: React.FC = () => {
         const id = requestAnimationFrame(() => setUiReady(true));
         return () => cancelAnimationFrame(id);
     }, []);
-    
+
     // Extract the current page from the path
     const getCurrentPage = (): string => {
         const path = location.pathname;
@@ -101,9 +102,9 @@ const AppContent: React.FC = () => {
         if (path.startsWith('/settings')) return 'settings';
         return 'dashboard';
     };
-    
+
     const [activePage, setActivePage] = useState(getCurrentPage());
-    
+
     // Update active page when location changes
     useEffect(() => {
         setActivePage(getCurrentPage());
@@ -134,7 +135,7 @@ const AppContent: React.FC = () => {
             dispatch(fetchLicenseStatus());
         }
     }, [dispatch, isAuthenticated]);
-    
+
     // Debug listener for Auth state changes
     useEffect(() => {
         console.log('Auth state changed - isAuthenticated:', isAuthenticated, 'isSetupRequired:', isSetupRequired);
@@ -169,7 +170,7 @@ const AppContent: React.FC = () => {
             // Avoid opening modal until we know the real status
             return;
         }
-        if (['missing','invalid','expired'].includes(licenseStatus)) {
+        if (['missing', 'invalid', 'expired'].includes(licenseStatus)) {
             dispatch(openLicenseModal());
         } else {
             dispatch(closeLicenseModal());
@@ -198,7 +199,7 @@ const AppContent: React.FC = () => {
         body = location.pathname === '/admin' ? <SelfHosted /> : <Login />;
     } else {
         body = (
-            <div className={`min-h-screen flex flex-col transition-opacity duration-200 ${uiReady ? 'opacity-100' : 'opacity-0'}`}> 
+            <div className={`min-h-screen flex flex-col transition-opacity duration-200 ${uiReady ? 'opacity-100' : 'opacity-0'}`}>
                 <Navbar
                     title="LiveReview"
                     activePage={activePage}
@@ -228,7 +229,7 @@ const AppContent: React.FC = () => {
                     </Routes>
                 </div>
                 <Footer />
-                <LicenseModal open={licenseOpen} onClose={() => dispatch(closeLicenseModal())} strictMode={['missing','invalid','expired'].includes(licenseStatus)} />
+                <LicenseModal open={licenseOpen} onClose={() => dispatch(closeLicenseModal())} strictMode={['missing', 'invalid', 'expired'].includes(licenseStatus)} />
             </div>
         );
     }
@@ -238,6 +239,20 @@ const AppContent: React.FC = () => {
 
 // Main App component with Router
 const App: React.FC = () => {
+
+
+    // Initialize PostHog once on app mount
+    React.useEffect(() => {
+        const isCloud = (process.env.LIVEREVIEW_IS_CLOUD || '').toString().toLowerCase() === 'true';
+        if (isCloud) {
+            posthog.init('REDACTED_POSTHOG_KEY', {
+                api_host: 'https://us.i.posthog.com',
+                defaults: '2025-05-24'
+            })
+
+        }
+    }, []);
+
     // Check if we have OAuth parameters in the URL (for GitLab redirect)
     // This runs before the router setup
     React.useEffect(() => {
@@ -247,30 +262,30 @@ const App: React.FC = () => {
             const code = urlParams.get('code');
             const error = urlParams.get('error');
             const state = urlParams.get('state');
-            
-            console.log("Checking for OAuth parameters in URL:", { 
-                code: code ? "present" : "absent", 
-                error: error ? "present" : "absent", 
+
+            console.log("Checking for OAuth parameters in URL:", {
+                code: code ? "present" : "absent",
+                error: error ? "present" : "absent",
                 state: state ? "present" : "absent",
                 fullUrl: window.location.href
             });
-            
+
             // If we have OAuth parameters and we're at the root URL
             if ((code || error) && window.location.hash === '') {
                 console.log("Detected OAuth redirect parameters:", { code, error, state });
-                
+
                 // Check if there's a redirect overlay from previous navigation and remove it
                 const overlay = document.getElementById('gitlab-redirect-overlay');
                 if (overlay) {
                     console.log("Removing gitlab-redirect-overlay");
                     overlay.remove();
                 }
-                
+
                 // Store OAuth parameters in sessionStorage
                 if (code) sessionStorage.setItem('oauth_code', code);
                 if (error) sessionStorage.setItem('oauth_error', error);
                 if (state) sessionStorage.setItem('oauth_state', state);
-                
+
                 // Redirect to the OAuth callback route with clean URL
                 console.log("Redirecting to OAuth callback route");
                 window.location.href = '/#/oauth-callback';
