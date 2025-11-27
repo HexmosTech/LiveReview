@@ -3,8 +3,10 @@ package api
 import (
 	"context"
 	"database/sql"
+	"fmt"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/labstack/echo/v4"
@@ -108,6 +110,7 @@ type AIConnectorResponse struct {
 	ProviderName  string `json:"provider_name"`
 	ConnectorName string `json:"connector_name"`
 	DisplayOrder  int    `json:"display_order"`
+	OrgID         int64  `json:"org_id"`
 	CreatedAt     string `json:"created_at"`
 	UpdatedAt     string `json:"updated_at"`
 	APIKeyPreview string `json:"api_key_preview"`
@@ -116,8 +119,22 @@ type AIConnectorResponse struct {
 	APIKey        string `json:"api_key,omitempty"` // Full API key for editing (only when requested)
 }
 
+// FetchOllamaModelsRequest represents the request for fetching Ollama models
+type FetchOllamaModelsRequest struct {
+	BaseURL  string `json:"base_url"`
+	JWTToken string `json:"jwt_token,omitempty"`
+}
+
 // CreateAIConnector handles requests to create a new AI connector
 func (s *Server) CreateAIConnector(c echo.Context) error {
+	orgIDVal := c.Get("org_id")
+	orgID, ok := orgIDVal.(int64)
+	if !ok {
+		return c.JSON(http.StatusBadRequest, map[string]string{
+			"error": "Organization context required",
+		})
+	}
+
 	var req AIConnectorCreateRequest
 	if err := c.Bind(&req); err != nil {
 		return c.JSON(http.StatusBadRequest, map[string]string{
@@ -148,8 +165,10 @@ func (s *Server) CreateAIConnector(c echo.Context) error {
 	// Create a storage instance
 	storage := aiconnectors.NewStorage(s.db)
 
+	ctx := c.Request().Context()
+
 	// Get the current max display order and increment it
-	maxOrder, err := storage.GetMaxDisplayOrder(context.Background())
+	maxOrder, err := storage.GetMaxDisplayOrder(ctx, orgID)
 	if err != nil {
 		log.Error().Err(err).Msg("Failed to get max display order")
 		return c.JSON(http.StatusInternalServerError, map[string]string{
@@ -172,10 +191,11 @@ func (s *Server) CreateAIConnector(c echo.Context) error {
 		BaseURL:       sql.NullString{String: req.BaseURL, Valid: req.BaseURL != ""},
 		SelectedModel: sql.NullString{String: req.SelectedModel, Valid: req.SelectedModel != ""},
 		DisplayOrder:  nextOrder, // Auto-assign next order
+		OrgID:         orgID,
 	}
 
 	// Save the connector to the database
-	if err := storage.CreateConnector(context.Background(), connector); err != nil {
+	if err := storage.CreateConnector(ctx, orgID, connector); err != nil {
 		log.Error().Err(err).Msg("Failed to create connector")
 		return c.JSON(http.StatusInternalServerError, map[string]string{
 			"error": "Failed to create connector: " + err.Error(),
@@ -188,6 +208,7 @@ func (s *Server) CreateAIConnector(c echo.Context) error {
 		ProviderName:  connector.ProviderName,
 		ConnectorName: connector.ConnectorName,
 		DisplayOrder:  connector.DisplayOrder,
+		OrgID:         connector.OrgID,
 		CreatedAt:     connector.CreatedAt.Format(time.RFC3339),
 		UpdatedAt:     connector.UpdatedAt.Format(time.RFC3339),
 		APIKeyPreview: getMaskedKey(connector.ApiKey),
@@ -196,11 +217,21 @@ func (s *Server) CreateAIConnector(c echo.Context) error {
 
 // GetAIConnectors handles requests to get all AI connectors
 func (s *Server) GetAIConnectors(c echo.Context) error {
+	orgIDVal := c.Get("org_id")
+	orgID, ok := orgIDVal.(int64)
+	if !ok {
+		return c.JSON(http.StatusBadRequest, map[string]string{
+			"error": "Organization context required",
+		})
+	}
+
 	// Create a storage instance
 	storage := aiconnectors.NewStorage(s.db)
 
+	ctx := c.Request().Context()
+
 	// Get all connectors
-	connectors, err := storage.GetAllConnectors(context.Background())
+	connectors, err := storage.GetAllConnectors(ctx, orgID)
 	if err != nil {
 		log.Error().Err(err).Msg("Failed to get connectors")
 		return c.JSON(http.StatusInternalServerError, map[string]string{
@@ -216,6 +247,7 @@ func (s *Server) GetAIConnectors(c echo.Context) error {
 			ProviderName:  connector.ProviderName,
 			ConnectorName: connector.ConnectorName,
 			DisplayOrder:  connector.DisplayOrder,
+			OrgID:         connector.OrgID,
 			CreatedAt:     connector.CreatedAt.Format(time.RFC3339),
 			UpdatedAt:     connector.UpdatedAt.Format(time.RFC3339),
 			APIKeyPreview: getMaskedKey(connector.ApiKey),
@@ -230,6 +262,14 @@ func (s *Server) GetAIConnectors(c echo.Context) error {
 
 // UpdateAIConnector handles requests to update an existing AI connector
 func (s *Server) UpdateAIConnector(c echo.Context) error {
+	orgIDVal := c.Get("org_id")
+	orgID, ok := orgIDVal.(int64)
+	if !ok {
+		return c.JSON(http.StatusBadRequest, map[string]string{
+			"error": "Organization context required",
+		})
+	}
+
 	// Get connector ID from URL parameter
 	id := c.Param("id")
 	if id == "" {
@@ -278,7 +318,9 @@ func (s *Server) UpdateAIConnector(c echo.Context) error {
 	storage := aiconnectors.NewStorage(s.db)
 
 	// Get existing connector to update
-	existingConnector, err := storage.GetConnectorByID(context.Background(), connectorID)
+	ctx := c.Request().Context()
+
+	existingConnector, err := storage.GetConnectorByID(ctx, orgID, connectorID)
 	if err != nil {
 		return c.JSON(http.StatusNotFound, map[string]string{
 			"error": "Connector not found",
@@ -290,6 +332,7 @@ func (s *Server) UpdateAIConnector(c echo.Context) error {
 	existingConnector.ApiKey = req.APIKey
 	existingConnector.ConnectorName = req.ConnectorName
 	existingConnector.DisplayOrder = req.DisplayOrder
+	existingConnector.OrgID = orgID
 
 	// Update Ollama-specific fields if provided
 	if req.BaseURL != "" {
@@ -300,7 +343,7 @@ func (s *Server) UpdateAIConnector(c echo.Context) error {
 	}
 
 	// Save updated connector
-	if err := storage.UpdateConnector(context.Background(), existingConnector); err != nil {
+	if err := storage.UpdateConnector(ctx, existingConnector); err != nil {
 		log.Error().Err(err).Msg("Failed to update connector")
 		return c.JSON(http.StatusInternalServerError, map[string]string{
 			"error": "Failed to update connector: " + err.Error(),
@@ -313,6 +356,7 @@ func (s *Server) UpdateAIConnector(c echo.Context) error {
 		ProviderName:  existingConnector.ProviderName,
 		ConnectorName: existingConnector.ConnectorName,
 		DisplayOrder:  existingConnector.DisplayOrder,
+		OrgID:         existingConnector.OrgID,
 		CreatedAt:     existingConnector.CreatedAt.Format(time.RFC3339),
 		UpdatedAt:     existingConnector.UpdatedAt.Format(time.RFC3339),
 		APIKeyPreview: getMaskedKey(existingConnector.ApiKey),
@@ -324,6 +368,14 @@ func (s *Server) UpdateAIConnector(c echo.Context) error {
 
 // ReorderAIConnectors handles requests to reorder AI connectors
 func (s *Server) ReorderAIConnectors(c echo.Context) error {
+	orgIDVal := c.Get("org_id")
+	orgID, ok := orgIDVal.(int64)
+	if !ok {
+		return c.JSON(http.StatusBadRequest, map[string]string{
+			"error": "Organization context required",
+		})
+	}
+
 	// Parse request body
 	var updates []aiconnectors.DisplayOrderUpdate
 	if err := c.Bind(&updates); err != nil {
@@ -342,7 +394,9 @@ func (s *Server) ReorderAIConnectors(c echo.Context) error {
 	storage := aiconnectors.NewStorage(s.db)
 
 	// Update display orders
-	if err := storage.UpdateDisplayOrders(context.Background(), updates); err != nil {
+	ctx := c.Request().Context()
+
+	if err := storage.UpdateDisplayOrders(ctx, orgID, updates); err != nil {
 		log.Error().Err(err).Msg("Failed to update display orders")
 		return c.JSON(http.StatusInternalServerError, map[string]string{
 			"error": "Failed to update display orders: " + err.Error(),
@@ -356,6 +410,14 @@ func (s *Server) ReorderAIConnectors(c echo.Context) error {
 
 // DeleteAIConnector handles requests to delete an AI connector by ID
 func (s *Server) DeleteAIConnector(c echo.Context) error {
+	orgIDVal := c.Get("org_id")
+	orgID, ok := orgIDVal.(int64)
+	if !ok {
+		return c.JSON(http.StatusBadRequest, map[string]string{
+			"error": "Organization context required",
+		})
+	}
+
 	// Get connector ID from URL parameter
 	id := c.Param("id")
 	if id == "" {
@@ -376,7 +438,9 @@ func (s *Server) DeleteAIConnector(c echo.Context) error {
 	storage := aiconnectors.NewStorage(s.db)
 
 	// Delete the connector
-	if err := storage.DeleteConnector(context.Background(), connectorID); err != nil {
+	ctx := c.Request().Context()
+
+	if err := storage.DeleteConnector(ctx, orgID, connectorID); err != nil {
 		log.Error().Err(err).Int64("id", connectorID).Msg("Failed to delete connector")
 		return c.JSON(http.StatusInternalServerError, map[string]string{
 			"error": "Failed to delete connector: " + err.Error(),
@@ -385,5 +449,60 @@ func (s *Server) DeleteAIConnector(c echo.Context) error {
 
 	return c.JSON(http.StatusOK, map[string]string{
 		"message": "Connector deleted successfully",
+	})
+}
+
+// FetchOllamaModels handles requests to fetch available models from an Ollama instance
+func (s *Server) FetchOllamaModels(c echo.Context) error {
+	orgIDVal := c.Get("org_id")
+	if _, ok := orgIDVal.(int64); !ok {
+		return c.JSON(http.StatusBadRequest, map[string]string{
+			"error": "Organization context required",
+		})
+	}
+
+	var req FetchOllamaModelsRequest
+	if err := c.Bind(&req); err != nil {
+		return c.JSON(http.StatusBadRequest, map[string]string{
+			"error": "Invalid request format",
+		})
+	}
+
+	if strings.TrimSpace(req.BaseURL) == "" {
+		return c.JSON(http.StatusBadRequest, map[string]string{
+			"error": "Base URL is required",
+		})
+	}
+
+	log.Info().
+		Str("base_url", req.BaseURL).
+		Msg("Fetching models from Ollama instance")
+
+	ctx, cancel := context.WithTimeout(c.Request().Context(), 30*time.Second)
+	defer cancel()
+
+	models, err := aiconnectors.FetchOllamaModels(ctx, req.BaseURL, req.JWTToken)
+	if err != nil {
+		log.Error().Err(err).
+			Str("base_url", req.BaseURL).
+			Msg("Failed to fetch models from Ollama")
+		return c.JSON(http.StatusBadRequest, map[string]string{
+			"error": fmt.Sprintf("Failed to fetch models: %v", err),
+		})
+	}
+
+	var modelNames []string
+	for _, model := range models {
+		modelNames = append(modelNames, model.Name)
+	}
+
+	log.Info().
+		Str("base_url", req.BaseURL).
+		Int("model_count", len(modelNames)).
+		Msg("Successfully fetched Ollama models")
+
+	return c.JSON(http.StatusOK, map[string]interface{}{
+		"models": modelNames,
+		"count":  len(modelNames),
 	})
 }

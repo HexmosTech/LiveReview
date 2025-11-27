@@ -112,6 +112,14 @@ func createConnectorHandler(c echo.Context) error {
 		})
 	}
 
+	orgIDVal := c.Get("org_id")
+	orgID, ok := orgIDVal.(int64)
+	if !ok {
+		return c.JSON(http.StatusBadRequest, map[string]string{
+			"error": "Organization context required",
+		})
+	}
+
 	var req CreateConnectorRequest
 	if err := c.Bind(&req); err != nil {
 		log.Error().Err(err).Msg("Failed to bind create connector request")
@@ -137,10 +145,11 @@ func createConnectorHandler(c echo.Context) error {
 		BaseURL:       sql.NullString{String: req.BaseURL, Valid: req.BaseURL != ""},
 		SelectedModel: sql.NullString{String: req.SelectedModel, Valid: req.SelectedModel != ""},
 		DisplayOrder:  req.DisplayOrder,
+		OrgID:         orgID,
 	}
 
 	// Save the connector to the database
-	if err := storage.CreateConnector(context.Background(), connector); err != nil {
+	if err := storage.CreateConnector(context.Background(), orgID, connector); err != nil {
 		log.Error().Err(err).Msg("Failed to create connector")
 		return c.JSON(http.StatusInternalServerError, map[string]string{
 			"error": fmt.Sprintf("Failed to create connector: %v", err),
