@@ -54,13 +54,6 @@ func (s *Storage) CreateConnector(ctx context.Context, connector *ConnectorRecor
 	) RETURNING id, created_at, updated_at
 	`
 
-	// Debug logging to see what display_order is being inserted
-	log.Debug().
-		Str("provider_name", connector.ProviderName).
-		Str("connector_name", connector.ConnectorName).
-		Int("display_order", connector.DisplayOrder).
-		Msg("Inserting connector with display_order")
-
 	// Convert string values to sql.NullString for database insertion
 	var baseURL, selectedModel interface{}
 	if connector.BaseURL.Valid && connector.BaseURL.String != "" {
@@ -75,6 +68,17 @@ func (s *Storage) CreateConnector(ctx context.Context, connector *ConnectorRecor
 		selectedModel = nil
 	}
 
+	// Detailed logging of all parameters before INSERT
+	log.Info().
+		Int64("org_id", connector.OrgID).
+		Str("provider_name", connector.ProviderName).
+		Str("connector_name", connector.ConnectorName).
+		Str("api_key_prefix", connector.ApiKey[:min(4, len(connector.ApiKey))]).
+		Interface("base_url", baseURL).
+		Interface("selected_model", selectedModel).
+		Int("display_order", connector.DisplayOrder).
+		Msg("Executing INSERT INTO ai_connectors - all parameters")
+
 	err := s.db.QueryRowContext(
 		ctx, query,
 		connector.ProviderName, connector.ApiKey, connector.ConnectorName,
@@ -82,7 +86,12 @@ func (s *Storage) CreateConnector(ctx context.Context, connector *ConnectorRecor
 	).Scan(&connector.ID, &connector.CreatedAt, &connector.UpdatedAt)
 
 	if err != nil {
-		return fmt.Errorf("failed to create connector: %w", err)
+		log.Error().
+			Err(err).
+			Int64("org_id", connector.OrgID).
+			Str("provider_name", connector.ProviderName).
+			Msg("Database INSERT failed - check if org_id exists in orgs table")
+		return fmt.Errorf("failed to create connector with org_id=%d: %w (hint: verify org exists in orgs table)", connector.OrgID, err)
 	}
 
 	// Set the Provider based on ProviderName
