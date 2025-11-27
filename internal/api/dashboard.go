@@ -242,16 +242,19 @@ func (dm *DashboardManager) collectStatistics(ctx context.Context, data *Dashboa
 		log.Printf("Found %d AI reviews from reviews table", data.TotalReviews)
 	}
 
-	// Count total comments from ai_comments table
+	// Count total comments from review completion events
 	err = dm.db.QueryRowContext(ctx,
-		`SELECT COUNT(*) FROM ai_comments WHERE org_id = $1`,
+		`SELECT COALESCE(SUM(COALESCE(NULLIF(data->>'commentCount', '')::int, 0)), 0)
+		FROM review_events
+		WHERE org_id = $1
+		  AND event_type = 'completion'`,
 		orgID,
 	).Scan(&data.TotalComments)
 	if err != nil {
-		log.Printf("Error counting AI comments from ai_comments table: %v", err)
+		log.Printf("Error counting AI comments from review_events: %v", err)
 		data.TotalComments = 0
 	} else {
-		log.Printf("Found %d AI comments from comments table", data.TotalComments)
+		log.Printf("Found %d AI comments from review completion events", data.TotalComments)
 	}
 
 	// Count connected Git providers correctly
@@ -396,13 +399,15 @@ func (dm *DashboardManager) collectPerformanceMetrics(ctx context.Context, data 
 
 	// Calculate comments this week
 	err = dm.db.QueryRowContext(ctx,
-		`SELECT COUNT(*) FROM ai_comments
+		`SELECT COALESCE(SUM(COALESCE(NULLIF(data->>'commentCount', '')::int, 0)), 0)
+		FROM review_events
 		WHERE org_id = $1
-		AND created_at >= DATE_TRUNC('week', NOW())`,
+		  AND event_type = 'completion'
+		  AND ts >= DATE_TRUNC('week', NOW())`,
 		orgID,
 	).Scan(&data.PerformanceMetrics.CommentsThisWeek)
 	if err != nil {
-		log.Printf("Error counting weekly AI comments: %v", err)
+		log.Printf("Error counting weekly AI comments from review_events: %v", err)
 		data.PerformanceMetrics.CommentsThisWeek = 0
 	}
 
