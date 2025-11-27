@@ -11,7 +11,7 @@ import (
 
 // Handler for creating PAT integration token
 func HandleCreatePATIntegrationToken(db *sql.DB, c echo.Context) error {
-	connectorID, err := CreatePATIntegrationToken(db, c)
+	connectorID, _, err := CreatePATIntegrationToken(db, c)
 	if err != nil {
 		return err
 	}
@@ -19,7 +19,7 @@ func HandleCreatePATIntegrationToken(db *sql.DB, c echo.Context) error {
 }
 
 // CreatePATIntegrationToken creates a PAT integration token and returns the ID
-func CreatePATIntegrationToken(db *sql.DB, c echo.Context) (int64, error) {
+func CreatePATIntegrationToken(db *sql.DB, c echo.Context) (int64, int64, error) {
 	type reqBody struct {
 		Name     string                 `json:"name"` // connector_name
 		Type     string                 `json:"type"` // provider
@@ -29,13 +29,13 @@ func CreatePATIntegrationToken(db *sql.DB, c echo.Context) (int64, error) {
 	}
 	var body reqBody
 	if err := c.Bind(&body); err != nil {
-		return 0, fmt.Errorf("invalid request body: %w", err)
+		return 0, 0, fmt.Errorf("invalid request body: %w", err)
 	}
 
 	// Extract org_id from context (set by BuildOrgContextFromHeader middleware)
 	orgID, ok := c.Get("org_id").(int64)
 	if !ok {
-		return 0, fmt.Errorf("organization context not found - missing org_id")
+		return 0, 0, fmt.Errorf("organization context not found - missing org_id")
 	}
 
 	// Remove username from metadata if present (should be connector_name)
@@ -49,7 +49,7 @@ func CreatePATIntegrationToken(db *sql.DB, c echo.Context) (int64, error) {
 	if body.Metadata != nil {
 		metadataJSON, err = json.Marshal(body.Metadata)
 		if err != nil {
-			return 0, fmt.Errorf("invalid metadata format: %w", err)
+			return 0, 0, fmt.Errorf("invalid metadata format: %w", err)
 		}
 	} else {
 		metadataJSON = []byte("{}")
@@ -72,7 +72,7 @@ func CreatePATIntegrationToken(db *sql.DB, c echo.Context) (int64, error) {
 		orgID,         // org_id
 	).Scan(&id)
 	if err != nil {
-		return 0, fmt.Errorf("database error: %w", err)
+		return 0, 0, fmt.Errorf("database error: %w", err)
 	}
-	return id, nil
+	return id, orgID, nil
 }

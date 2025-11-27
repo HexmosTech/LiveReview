@@ -230,16 +230,16 @@ func (dm *DashboardManager) RefreshOrgDashboard(ctx context.Context, orgID int64
 func (dm *DashboardManager) collectStatistics(ctx context.Context, data *DashboardData, orgID int64) error {
 	log.Println("Starting statistics collection...")
 
-	// Count total AI reviews from recent_activity table only (legacy job_queue removed)
+	// Count total AI reviews directly from reviews table
 	err := dm.db.QueryRowContext(ctx,
-		`SELECT COUNT(*) FROM recent_activity WHERE activity_type = 'review_triggered' AND org_id = $1`,
+		`SELECT COUNT(*) FROM reviews WHERE org_id = $1`,
 		orgID,
 	).Scan(&data.TotalReviews)
 	if err != nil {
 		log.Printf("Error counting AI reviews from recent_activity: %v", err)
 		data.TotalReviews = 0
 	} else {
-		log.Printf("Found %d AI reviews from activity tracking", data.TotalReviews)
+		log.Printf("Found %d AI reviews from reviews table", data.TotalReviews)
 	}
 
 	// Count total comments from ai_comments table
@@ -294,10 +294,25 @@ func (dm *DashboardManager) collectRecentActivity(ctx context.Context, data *Das
 	// Get recent job queue activities
 	// Query recent activities from recent_activity table (new system)
 	rows, err := dm.db.QueryContext(ctx,
-		`SELECT id, activity_type, event_data, created_at
-		FROM recent_activity
-		WHERE org_id = $1
-		ORDER BY created_at DESC
+		`SELECT ra.id, ra.activity_type, ra.event_data, ra.created_at
+		FROM recent_activity ra
+		WHERE ra.org_id = $1
+		   OR (ra.review_id IS NOT NULL AND EXISTS (
+			SELECT 1 FROM reviews r WHERE r.id = ra.review_id AND r.org_id = $1
+		   ))
+		   OR (
+			ra.activity_type IN ('connector_created', 'webhook_installed')
+			AND EXISTS (
+				SELECT 1
+				FROM integration_tokens it
+				WHERE it.id = CASE
+					WHEN (ra.event_data->>'connector_id') ~ '^[0-9]+$' THEN (ra.event_data->>'connector_id')::bigint
+					ELSE NULL
+				END
+				AND it.org_id = $1
+			)
+		   )
+		ORDER BY ra.created_at DESC
 		LIMIT 10`,
 		orgID,
 	)
@@ -365,11 +380,10 @@ func (dm *DashboardManager) collectRecentActivity(ctx context.Context, data *Das
 func (dm *DashboardManager) collectPerformanceMetrics(ctx context.Context, data *DashboardData, orgID int64) error {
 	log.Println("Starting performance metrics collection...")
 
-	// Calculate reviews this week using recent_activity only
+	// Calculate reviews this week using reviews table
 	err := dm.db.QueryRowContext(ctx,
-		`SELECT COUNT(*) FROM recent_activity
-		WHERE activity_type = 'review_triggered'
-		AND org_id = $1
+		`SELECT COUNT(*) FROM reviews
+		WHERE org_id = $1
 		AND created_at >= DATE_TRUNC('week', NOW())`,
 		orgID,
 	).Scan(&data.PerformanceMetrics.ReviewsThisWeek)
@@ -377,7 +391,7 @@ func (dm *DashboardManager) collectPerformanceMetrics(ctx context.Context, data 
 		log.Printf("Error counting weekly reviews from recent_activity: %v", err)
 		data.PerformanceMetrics.ReviewsThisWeek = 0
 	} else {
-		log.Printf("Found %d AI reviews this week from activity tracking", data.PerformanceMetrics.ReviewsThisWeek)
+		log.Printf("Found %d AI reviews this week from reviews table", data.PerformanceMetrics.ReviewsThisWeek)
 	}
 
 	// Calculate comments this week
