@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"sync"
 	"time"
 
 	"github.com/labstack/echo/v4"
@@ -59,11 +60,15 @@ type SystemStatus struct {
 	LastHealthCheck time.Time `json:"last_health_check"`
 }
 
+const dashboardCacheTTL = 5 * time.Minute
+
 // DashboardManager handles dashboard data updates and retrieval
 type DashboardManager struct {
 	db     *sql.DB
 	ctx    context.Context
 	cancel context.CancelFunc
+	mu     sync.RWMutex
+	cache  map[int64]DashboardData
 }
 
 // NewDashboardManager creates a new dashboard manager
@@ -73,6 +78,7 @@ func NewDashboardManager(db *sql.DB) *DashboardManager {
 		db:     db,
 		ctx:    ctx,
 		cancel: cancel,
+		cache:  make(map[int64]DashboardData),
 	}
 }
 
@@ -81,7 +87,7 @@ func (dm *DashboardManager) Start() {
 	log.Println("Starting dashboard manager...")
 
 	// Initial update
-	if err := dm.updateDashboardData(); err != nil {
+	if err := dm.updateDashboardData(dm.ctx); err != nil {
 		log.Printf("Error in initial dashboard update: %v", err)
 	}
 
@@ -95,7 +101,7 @@ func (dm *DashboardManager) Start() {
 				log.Println("Dashboard manager stopped")
 				return
 			case <-ticker.C:
-				if err := dm.updateDashboardData(); err != nil {
+				if err := dm.updateDashboardData(dm.ctx); err != nil {
 					log.Printf("Error updating dashboard data: %v", err)
 				} else {
 					log.Println("Dashboard data updated successfully")
@@ -112,46 +118,123 @@ func (dm *DashboardManager) Stop() {
 }
 
 // updateDashboardData collects and updates dashboard metrics
-func (dm *DashboardManager) updateDashboardData() error {
-	log.Println("Collecting dashboard data...")
+func (dm *DashboardManager) updateDashboardData(ctx context.Context) error {
+	log.Println("Refreshing dashboard cache for all organizations...")
 
-	dashboardData := DashboardData{
+	orgIDs, err := dm.getAllOrgIDs(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to list organizations: %w", err)
+	}
+
+	for _, orgID := range orgIDs {
+		data, buildErr := dm.buildDashboardData(ctx, orgID)
+		if buildErr != nil {
+			log.Printf("Error building dashboard data for org %d: %v", orgID, buildErr)
+			continue
+		}
+
+		dm.mu.Lock()
+		dm.cache[orgID] = data
+		dm.mu.Unlock()
+	}
+
+	return nil
+}
+
+func (dm *DashboardManager) getAllOrgIDs(ctx context.Context) ([]int64, error) {
+	rows, err := dm.db.QueryContext(ctx, `SELECT id FROM orgs`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var ids []int64
+	for rows.Next() {
+		var id int64
+		if scanErr := rows.Scan(&id); scanErr != nil {
+			return nil, scanErr
+		}
+		ids = append(ids, id)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	if len(ids) == 0 {
+		return []int64{1}, nil
+	}
+
+	return ids, nil
+}
+
+func (dm *DashboardManager) buildDashboardData(ctx context.Context, orgID int64) (DashboardData, error) {
+	data := DashboardData{
 		LastUpdated: time.Now(),
 	}
 
-	// Collect statistics
-	if err := dm.collectStatistics(&dashboardData); err != nil {
-		log.Printf("Error collecting statistics: %v", err)
+	if err := dm.collectStatistics(ctx, &data, orgID); err != nil {
+		log.Printf("Error collecting statistics for org %d: %v", orgID, err)
 	}
 
-	// Collect recent activity
-	if err := dm.collectRecentActivity(&dashboardData); err != nil {
-		log.Printf("Error collecting recent activity: %v", err)
+	if err := dm.collectRecentActivity(ctx, &data, orgID); err != nil {
+		log.Printf("Error collecting recent activity for org %d: %v", orgID, err)
 	}
 
-	// Collect performance metrics
-	if err := dm.collectPerformanceMetrics(&dashboardData); err != nil {
-		log.Printf("Error collecting performance metrics: %v", err)
+	if err := dm.collectPerformanceMetrics(ctx, &data, orgID); err != nil {
+		log.Printf("Error collecting performance metrics for org %d: %v", orgID, err)
 	}
 
-	// Collect system status
-	if err := dm.collectSystemStatus(&dashboardData); err != nil {
-		log.Printf("Error collecting system status: %v", err)
+	if err := dm.collectSystemStatus(&data); err != nil {
+		log.Printf("Error collecting system status for org %d: %v", orgID, err)
 	}
 
-	// Store in database
-	return dm.storeDashboardData(dashboardData)
+	return data, nil
+}
+
+func (dm *DashboardManager) GetDashboardDataForOrg(ctx context.Context, orgID int64) (DashboardData, error) {
+	dm.mu.RLock()
+	cached, ok := dm.cache[orgID]
+	if ok && time.Since(cached.LastUpdated) < dashboardCacheTTL {
+		dm.mu.RUnlock()
+		return cached, nil
+	}
+	dm.mu.RUnlock()
+
+	data, err := dm.buildDashboardData(ctx, orgID)
+	if err != nil {
+		return DashboardData{}, err
+	}
+
+	dm.mu.Lock()
+	dm.cache[orgID] = data
+	dm.mu.Unlock()
+
+	return data, nil
+}
+
+func (dm *DashboardManager) RefreshOrgDashboard(ctx context.Context, orgID int64) (DashboardData, error) {
+	data, err := dm.buildDashboardData(ctx, orgID)
+	if err != nil {
+		return DashboardData{}, err
+	}
+
+	dm.mu.Lock()
+	dm.cache[orgID] = data
+	dm.mu.Unlock()
+
+	return data, nil
 }
 
 // collectStatistics gathers basic statistics
-func (dm *DashboardManager) collectStatistics(data *DashboardData) error {
+func (dm *DashboardManager) collectStatistics(ctx context.Context, data *DashboardData, orgID int64) error {
 	log.Println("Starting statistics collection...")
 
 	// Count total AI reviews from recent_activity table only (legacy job_queue removed)
-	err := dm.db.QueryRow(`
-		SELECT COUNT(*) FROM recent_activity 
-		WHERE activity_type = 'review_triggered'
-	`).Scan(&data.TotalReviews)
+	err := dm.db.QueryRowContext(ctx,
+		`SELECT COUNT(*) FROM recent_activity WHERE activity_type = 'review_triggered' AND org_id = $1`,
+		orgID,
+	).Scan(&data.TotalReviews)
 	if err != nil {
 		log.Printf("Error counting AI reviews from recent_activity: %v", err)
 		data.TotalReviews = 0
@@ -160,7 +243,10 @@ func (dm *DashboardManager) collectStatistics(data *DashboardData) error {
 	}
 
 	// Count total comments from ai_comments table
-	err = dm.db.QueryRow(`SELECT COUNT(*) FROM ai_comments`).Scan(&data.TotalComments)
+	err = dm.db.QueryRowContext(ctx,
+		`SELECT COUNT(*) FROM ai_comments WHERE org_id = $1`,
+		orgID,
+	).Scan(&data.TotalComments)
 	if err != nil {
 		log.Printf("Error counting AI comments from ai_comments table: %v", err)
 		data.TotalComments = 0
@@ -169,9 +255,10 @@ func (dm *DashboardManager) collectStatistics(data *DashboardData) error {
 	}
 
 	// Count connected Git providers correctly
-	err = dm.db.QueryRow(`
-		SELECT COUNT(*) FROM integration_tokens
-	`).Scan(&data.ConnectedProviders)
+	err = dm.db.QueryRowContext(ctx,
+		`SELECT COUNT(*) FROM integration_tokens WHERE org_id = $1`,
+		orgID,
+	).Scan(&data.ConnectedProviders)
 	if err != nil {
 		log.Printf("Error counting git providers: %v", err)
 		data.ConnectedProviders = 0
@@ -180,9 +267,10 @@ func (dm *DashboardManager) collectStatistics(data *DashboardData) error {
 	}
 
 	// Count active AI connectors correctly
-	err = dm.db.QueryRow(`
-		SELECT COUNT(*) FROM ai_connectors
-	`).Scan(&data.ActiveAIConnectors)
+	err = dm.db.QueryRowContext(ctx,
+		`SELECT COUNT(*) FROM ai_connectors WHERE org_id = $1`,
+		orgID,
+	).Scan(&data.ActiveAIConnectors)
 	if err != nil {
 		log.Printf("Error counting AI connectors: %v", err)
 		data.ActiveAIConnectors = 0
@@ -197,7 +285,7 @@ func (dm *DashboardManager) collectStatistics(data *DashboardData) error {
 }
 
 // collectRecentActivity gathers recent activity data
-func (dm *DashboardManager) collectRecentActivity(data *DashboardData) error {
+func (dm *DashboardManager) collectRecentActivity(ctx context.Context, data *DashboardData, orgID int64) error {
 	log.Println("Starting recent activity collection...")
 
 	// Initialize with empty slice instead of nil
@@ -205,12 +293,14 @@ func (dm *DashboardManager) collectRecentActivity(data *DashboardData) error {
 
 	// Get recent job queue activities
 	// Query recent activities from recent_activity table (new system)
-	rows, err := dm.db.Query(`
-		SELECT id, activity_type, event_data, created_at
+	rows, err := dm.db.QueryContext(ctx,
+		`SELECT id, activity_type, event_data, created_at
 		FROM recent_activity
+		WHERE org_id = $1
 		ORDER BY created_at DESC
-		LIMIT 10
-	`)
+		LIMIT 10`,
+		orgID,
+	)
 	if err != nil {
 		log.Printf("Error querying recent activity: %v", err)
 		return nil
@@ -272,15 +362,17 @@ func (dm *DashboardManager) collectRecentActivity(data *DashboardData) error {
 }
 
 // collectPerformanceMetrics gathers performance data
-func (dm *DashboardManager) collectPerformanceMetrics(data *DashboardData) error {
+func (dm *DashboardManager) collectPerformanceMetrics(ctx context.Context, data *DashboardData, orgID int64) error {
 	log.Println("Starting performance metrics collection...")
 
 	// Calculate reviews this week using recent_activity only
-	err := dm.db.QueryRow(`
-		SELECT COUNT(*) FROM recent_activity 
+	err := dm.db.QueryRowContext(ctx,
+		`SELECT COUNT(*) FROM recent_activity
 		WHERE activity_type = 'review_triggered'
-		AND created_at >= DATE_TRUNC('week', NOW())
-	`).Scan(&data.PerformanceMetrics.ReviewsThisWeek)
+		AND org_id = $1
+		AND created_at >= DATE_TRUNC('week', NOW())`,
+		orgID,
+	).Scan(&data.PerformanceMetrics.ReviewsThisWeek)
 	if err != nil {
 		log.Printf("Error counting weekly reviews from recent_activity: %v", err)
 		data.PerformanceMetrics.ReviewsThisWeek = 0
@@ -288,8 +380,17 @@ func (dm *DashboardManager) collectPerformanceMetrics(data *DashboardData) error
 		log.Printf("Found %d AI reviews this week from activity tracking", data.PerformanceMetrics.ReviewsThisWeek)
 	}
 
-	// Calculate comments this week (approximation)
-	data.PerformanceMetrics.CommentsThisWeek = data.PerformanceMetrics.ReviewsThisWeek * 3 // Estimate
+	// Calculate comments this week
+	err = dm.db.QueryRowContext(ctx,
+		`SELECT COUNT(*) FROM ai_comments
+		WHERE org_id = $1
+		AND created_at >= DATE_TRUNC('week', NOW())`,
+		orgID,
+	).Scan(&data.PerformanceMetrics.CommentsThisWeek)
+	if err != nil {
+		log.Printf("Error counting weekly AI comments: %v", err)
+		data.PerformanceMetrics.CommentsThisWeek = 0
+	}
 
 	// Calculate success rate
 	// Without legacy job queue metrics, default success rate to 100%
@@ -319,104 +420,51 @@ func (dm *DashboardManager) collectSystemStatus(data *DashboardData) error {
 }
 
 // storeDashboardData saves the collected data to the database
-func (dm *DashboardManager) storeDashboardData(data DashboardData) error {
-	jsonData, err := json.Marshal(data)
-	if err != nil {
-		return fmt.Errorf("error marshaling dashboard data: %v", err)
-	}
-
-	_, err = dm.db.Exec(`
-		UPDATE dashboard_cache 
-		SET data = $1, updated_at = NOW() 
-		WHERE id = 1
-	`, jsonData)
-
-	if err != nil {
-		return fmt.Errorf("error storing dashboard data: %v", err)
-	}
-
-	return nil
-}
 
 // GetDashboardData retrieves the cached dashboard data
 func (s *Server) GetDashboardData(c echo.Context) error {
-	var jsonData []byte
-	var updatedAt time.Time
+	orgIDVal := c.Get("org_id")
+	orgID, ok := orgIDVal.(int64)
+	if !ok {
+		return c.JSON(http.StatusBadRequest, map[string]string{
+			"error": "Organization context required",
+		})
+	}
 
-	err := s.db.QueryRow(`
-		SELECT data, updated_at FROM dashboard_cache WHERE id = 1
-	`).Scan(&jsonData, &updatedAt)
-
+	data, err := s.dashboardManager.GetDashboardDataForOrg(c.Request().Context(), orgID)
 	if err != nil {
-		if err == sql.ErrNoRows {
-			// If no cache exists, trigger an immediate update and return basic data
-			log.Println("No dashboard cache found, creating initial data")
-
-			// Create a basic dashboard structure
-			emptyData := DashboardData{
-				TotalReviews:       0,
-				TotalComments:      0,
-				ConnectedProviders: 0,
-				ActiveAIConnectors: 0,
-				LastUpdated:        time.Now(),
-				RecentActivity:     []ActivityItem{},
-				PerformanceMetrics: PerformanceMetrics{
-					AvgResponseTime:  2.3,
-					ReviewsThisWeek:  0,
-					CommentsThisWeek: 0,
-					SuccessRate:      100.0,
-				},
-				SystemStatus: SystemStatus{
-					JobQueueHealth:  "healthy",
-					DatabaseHealth:  "healthy",
-					APIHealth:       "healthy",
-					LastHealthCheck: time.Now(),
-				},
-			}
-
-			// Try to get real counts if possible
-			if err := s.dashboardManager.collectStatistics(&emptyData); err != nil {
-				log.Printf("Error collecting initial statistics: %v", err)
-			}
-
-			// Store the initial data
-			if err := s.dashboardManager.storeDashboardData(emptyData); err != nil {
-				log.Printf("Error storing initial dashboard data: %v", err)
-			}
-
-			return c.JSON(http.StatusOK, emptyData)
-		}
-		log.Printf("Error retrieving dashboard data: %v", err)
+		log.Printf("Error building dashboard data for org %d: %v", orgID, err)
 		return c.JSON(http.StatusInternalServerError, map[string]string{
-			"error": "Failed to retrieve dashboard data",
+			"error": "Failed to build dashboard data",
 		})
 	}
 
-	// Parse and return the JSON data
-	var dashboardData DashboardData
-	if err := json.Unmarshal(jsonData, &dashboardData); err != nil {
-		log.Printf("Error parsing dashboard data: %v", err)
-		return c.JSON(http.StatusInternalServerError, map[string]string{
-			"error": "Failed to parse dashboard data",
-		})
-	}
-
-	return c.JSON(http.StatusOK, dashboardData)
+	return c.JSON(http.StatusOK, data)
 }
 
 // RefreshDashboardData manually triggers a dashboard data update
 func (s *Server) RefreshDashboardData(c echo.Context) error {
 	log.Println("Manual dashboard refresh triggered")
 
-	if err := s.dashboardManager.updateDashboardData(); err != nil {
-		log.Printf("Error refreshing dashboard data: %v", err)
+	orgIDVal := c.Get("org_id")
+	orgID, ok := orgIDVal.(int64)
+	if !ok {
+		return c.JSON(http.StatusBadRequest, map[string]string{
+			"error": "Organization context required",
+		})
+	}
+
+	data, err := s.dashboardManager.RefreshOrgDashboard(c.Request().Context(), orgID)
+	if err != nil {
+		log.Printf("Error refreshing dashboard data for org %d: %v", orgID, err)
 		return c.JSON(http.StatusInternalServerError, map[string]string{
 			"error": "Failed to refresh dashboard data",
 		})
 	}
 
-	return c.JSON(http.StatusOK, map[string]string{
-		"message": "Dashboard data refreshed successfully",
+	return c.JSON(http.StatusOK, map[string]interface{}{
+		"message":      "Dashboard data refreshed successfully",
+		"last_updated": data.LastUpdated,
 	})
 }
 
