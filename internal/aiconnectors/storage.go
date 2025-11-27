@@ -20,6 +20,7 @@ type ConnectorRecord struct {
 	BaseURL       sql.NullString `json:"base_url"`       // Base URL for providers like Ollama
 	SelectedModel sql.NullString `json:"selected_model"` // Selected model for the connector
 	DisplayOrder  int            `json:"display_order"`
+	OrgID         int64          `json:"org_id"`
 	CreatedAt     time.Time      `json:"created_at"`
 	UpdatedAt     time.Time      `json:"updated_at"`
 
@@ -42,13 +43,13 @@ func NewStorage(db *sql.DB) *Storage {
 }
 
 // CreateConnector creates a new connector in the database
-func (s *Storage) CreateConnector(ctx context.Context, connector *ConnectorRecord) error {
+func (s *Storage) CreateConnector(ctx context.Context, orgID int64, connector *ConnectorRecord) error {
 	query := `
 	INSERT INTO ai_connectors (
-		provider_name, api_key, connector_name, base_url, selected_model, display_order,
+		provider_name, api_key, connector_name, base_url, selected_model, display_order, org_id,
 		created_at, updated_at
 	) VALUES (
-		$1, $2, $3, $4, $5, $6, 
+		$1, $2, $3, $4, $5, $6, $7,
 		NOW(), NOW()
 	) RETURNING id, created_at, updated_at
 	`
@@ -74,10 +75,12 @@ func (s *Storage) CreateConnector(ctx context.Context, connector *ConnectorRecor
 		selectedModel = nil
 	}
 
+	connector.OrgID = orgID
+
 	err := s.db.QueryRowContext(
 		ctx, query,
 		connector.ProviderName, connector.ApiKey, connector.ConnectorName,
-		baseURL, selectedModel, connector.DisplayOrder,
+		baseURL, selectedModel, connector.DisplayOrder, connector.OrgID,
 	).Scan(&connector.ID, &connector.CreatedAt, &connector.UpdatedAt)
 
 	if err != nil {
@@ -91,19 +94,19 @@ func (s *Storage) CreateConnector(ctx context.Context, connector *ConnectorRecor
 }
 
 // GetConnectorByID retrieves a connector by ID
-func (s *Storage) GetConnectorByID(ctx context.Context, id int64) (*ConnectorRecord, error) {
+func (s *Storage) GetConnectorByID(ctx context.Context, orgID int64, id int64) (*ConnectorRecord, error) {
 	query := `
-	SELECT id, provider_name, api_key, connector_name, base_url, selected_model, display_order, 
-	       created_at, updated_at
+	SELECT id, provider_name, api_key, connector_name, base_url, selected_model, display_order,
+	       org_id, created_at, updated_at
 	FROM ai_connectors
-	WHERE id = $1
+	WHERE id = $1 AND org_id = $2
 	`
 
 	var connector ConnectorRecord
-	err := s.db.QueryRowContext(ctx, query, id).Scan(
+	err := s.db.QueryRowContext(ctx, query, id, orgID).Scan(
 		&connector.ID, &connector.ProviderName, &connector.ApiKey, &connector.ConnectorName,
 		&connector.BaseURL, &connector.SelectedModel, &connector.DisplayOrder,
-		&connector.CreatedAt, &connector.UpdatedAt,
+		&connector.OrgID, &connector.CreatedAt, &connector.UpdatedAt,
 	)
 
 	if err != nil {
@@ -120,16 +123,16 @@ func (s *Storage) GetConnectorByID(ctx context.Context, id int64) (*ConnectorRec
 }
 
 // GetConnectorsByProvider retrieves all connectors for a specific provider
-func (s *Storage) GetConnectorsByProvider(ctx context.Context, provider Provider) ([]*ConnectorRecord, error) {
+func (s *Storage) GetConnectorsByProvider(ctx context.Context, orgID int64, provider Provider) ([]*ConnectorRecord, error) {
 	query := `
-	SELECT id, provider_name, api_key, connector_name, base_url, selected_model, display_order, 
-	       created_at, updated_at
+	SELECT id, provider_name, api_key, connector_name, base_url, selected_model, display_order,
+	       org_id, created_at, updated_at
 	FROM ai_connectors
-	WHERE provider_name = $1
+	WHERE provider_name = $1 AND org_id = $2
 	ORDER BY display_order ASC
 	`
 
-	rows, err := s.db.QueryContext(ctx, query, string(provider))
+	rows, err := s.db.QueryContext(ctx, query, string(provider), orgID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get connectors by provider: %w", err)
 	}
@@ -141,7 +144,7 @@ func (s *Storage) GetConnectorsByProvider(ctx context.Context, provider Provider
 		err := rows.Scan(
 			&connector.ID, &connector.ProviderName, &connector.ApiKey, &connector.ConnectorName,
 			&connector.BaseURL, &connector.SelectedModel, &connector.DisplayOrder,
-			&connector.CreatedAt, &connector.UpdatedAt,
+			&connector.OrgID, &connector.CreatedAt, &connector.UpdatedAt,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("failed to scan connector: %w", err)
@@ -161,15 +164,16 @@ func (s *Storage) GetConnectorsByProvider(ctx context.Context, provider Provider
 }
 
 // GetAllConnectors retrieves all connectors
-func (s *Storage) GetAllConnectors(ctx context.Context) ([]*ConnectorRecord, error) {
+func (s *Storage) GetAllConnectors(ctx context.Context, orgID int64) ([]*ConnectorRecord, error) {
 	query := `
-	SELECT id, provider_name, api_key, connector_name, base_url, selected_model, display_order, 
-	       created_at, updated_at
+	SELECT id, provider_name, api_key, connector_name, base_url, selected_model, display_order,
+	       org_id, created_at, updated_at
 	FROM ai_connectors
+	WHERE org_id = $1
 	ORDER BY display_order ASC
 	`
 
-	rows, err := s.db.QueryContext(ctx, query)
+	rows, err := s.db.QueryContext(ctx, query, orgID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get all connectors: %w", err)
 	}
@@ -181,7 +185,7 @@ func (s *Storage) GetAllConnectors(ctx context.Context) ([]*ConnectorRecord, err
 		err := rows.Scan(
 			&connector.ID, &connector.ProviderName, &connector.ApiKey, &connector.ConnectorName,
 			&connector.BaseURL, &connector.SelectedModel, &connector.DisplayOrder,
-			&connector.CreatedAt, &connector.UpdatedAt,
+			&connector.OrgID, &connector.CreatedAt, &connector.UpdatedAt,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("failed to scan connector: %w", err)
@@ -206,7 +210,7 @@ func (s *Storage) UpdateConnector(ctx context.Context, connector *ConnectorRecor
 	UPDATE ai_connectors
 	SET provider_name = $1, api_key = $2, connector_name = $3, base_url = $4, selected_model = $5, display_order = $6,
 	    updated_at = NOW()
-	WHERE id = $7
+	WHERE id = $7 AND org_id = $8
 	RETURNING updated_at
 	`
 
@@ -228,7 +232,7 @@ func (s *Storage) UpdateConnector(ctx context.Context, connector *ConnectorRecor
 		ctx, query,
 		connector.ProviderName, connector.ApiKey, connector.ConnectorName,
 		baseURL, selectedModel, connector.DisplayOrder,
-		connector.ID,
+		connector.ID, connector.OrgID,
 	).Scan(&connector.UpdatedAt)
 
 	if err != nil {
@@ -242,10 +246,10 @@ func (s *Storage) UpdateConnector(ctx context.Context, connector *ConnectorRecor
 }
 
 // DeleteConnector deletes a connector from the database
-func (s *Storage) DeleteConnector(ctx context.Context, id int64) error {
-	query := `DELETE FROM ai_connectors WHERE id = $1`
+func (s *Storage) DeleteConnector(ctx context.Context, orgID int64, id int64) error {
+	query := `DELETE FROM ai_connectors WHERE id = $1 AND org_id = $2`
 
-	result, err := s.db.ExecContext(ctx, query, id)
+	result, err := s.db.ExecContext(ctx, query, id, orgID)
 	if err != nil {
 		return fmt.Errorf("failed to delete connector: %w", err)
 	}
@@ -330,11 +334,11 @@ func maskAPIKey(apiKey string) string {
 }
 
 // GetMaxDisplayOrder returns the maximum display_order value in the database
-func (s *Storage) GetMaxDisplayOrder(ctx context.Context) (int, error) {
-	query := `SELECT COALESCE(MAX(display_order), 0) FROM ai_connectors`
+func (s *Storage) GetMaxDisplayOrder(ctx context.Context, orgID int64) (int, error) {
+	query := `SELECT COALESCE(MAX(display_order), 0) FROM ai_connectors WHERE org_id = $1`
 
 	var maxOrder int
-	err := s.db.QueryRowContext(ctx, query).Scan(&maxOrder)
+	err := s.db.QueryRowContext(ctx, query, orgID).Scan(&maxOrder)
 	if err != nil {
 		return 0, fmt.Errorf("failed to get max display order: %w", err)
 	}
@@ -351,14 +355,14 @@ func (s *Storage) GetMaxDisplayOrder(ctx context.Context) (int, error) {
 }
 
 // UpdateDisplayOrders updates the display order for multiple connectors
-func (s *Storage) UpdateDisplayOrders(ctx context.Context, updates []DisplayOrderUpdate) error {
+func (s *Storage) UpdateDisplayOrders(ctx context.Context, orgID int64, updates []DisplayOrderUpdate) error {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return fmt.Errorf("failed to begin transaction: %w", err)
 	}
 	defer tx.Rollback()
 
-	query := `UPDATE ai_connectors SET display_order = $1, updated_at = NOW() WHERE id = $2`
+	query := `UPDATE ai_connectors SET display_order = $1, updated_at = NOW() WHERE id = $2 AND org_id = $3`
 
 	for _, update := range updates {
 		// Convert string ID to int64
@@ -367,9 +371,18 @@ func (s *Storage) UpdateDisplayOrders(ctx context.Context, updates []DisplayOrde
 			return fmt.Errorf("invalid connector ID %s: %w", update.ID, err)
 		}
 
-		_, err = tx.ExecContext(ctx, query, update.DisplayOrder, connectorID)
+		result, err := tx.ExecContext(ctx, query, update.DisplayOrder, connectorID, orgID)
 		if err != nil {
 			return fmt.Errorf("failed to update display order for connector %s: %w", update.ID, err)
+		}
+
+		affected, err := result.RowsAffected()
+		if err != nil {
+			return fmt.Errorf("failed to get affected rows for connector %s: %w", update.ID, err)
+		}
+
+		if affected == 0 {
+			return fmt.Errorf("connector %s not found for organization", update.ID)
 		}
 	}
 

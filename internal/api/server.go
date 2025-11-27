@@ -15,7 +15,6 @@ import (
 
 	"github.com/labstack/echo/v4"
 	"github.com/labstack/echo/v4/middleware"
-	"github.com/livereview/internal/aiconnectors"
 	"github.com/livereview/internal/api/auth"
 	"github.com/livereview/internal/api/organizations"
 	"github.com/livereview/internal/api/users"
@@ -513,16 +512,20 @@ func (s *Server) setupRoutes() {
 	// Legacy V2 endpoint removed - old webhooks without connector_id will return 404
 	// Users must re-enable manual trigger from connector settings to update webhook URLs
 
-	// AI Connector endpoints
-	v1.POST("/aiconnectors/validate-key", s.ValidateAIConnectorKey)
-	v1.POST("/aiconnectors", s.CreateAIConnector)
-	v1.GET("/aiconnectors", s.GetAIConnectors)
-	v1.PUT("/aiconnectors/:id", s.UpdateAIConnector)
-	v1.PUT("/aiconnectors/reorder", s.ReorderAIConnectors)
-	v1.DELETE("/aiconnectors/:id", s.DeleteAIConnector)
+	// AI Connector endpoints (organization scoped)
+	aiConnectorGroup := v1.Group("/aiconnectors")
+	aiConnectorGroup.Use(authMiddleware.RequireAuth())
+	aiConnectorGroup.Use(authMiddleware.BuildOrgContextFromHeader())
+	aiConnectorGroup.Use(authMiddleware.ValidateOrgAccess())
+	aiConnectorGroup.Use(authMiddleware.BuildPermissionContext())
 
-	// Register additional AI connector handlers (including Ollama)
-	aiconnectors.RegisterHandlers(s.echo)
+	aiConnectorGroup.POST("/validate-key", s.ValidateAIConnectorKey)
+	aiConnectorGroup.POST("", s.CreateAIConnector)
+	aiConnectorGroup.GET("", s.GetAIConnectors)
+	aiConnectorGroup.PUT("/:id", s.UpdateAIConnector)
+	aiConnectorGroup.PUT("/reorder", s.ReorderAIConnectors)
+	aiConnectorGroup.DELETE("/:id", s.DeleteAIConnector)
+	aiConnectorGroup.POST("/ollama/models", s.FetchOllamaModels)
 
 	// Dashboard endpoints
 	v1.GET("/dashboard", s.GetDashboardData)
