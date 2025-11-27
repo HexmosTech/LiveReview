@@ -968,7 +968,7 @@ func (p *UnifiedProcessorV2Impl) buildUnifiedPromptV2(event UnifiedWebhookEventV
 // generateLLMResponseWithLearning generates LLM response and extracts learning
 func (p *UnifiedProcessorV2Impl) generateLLMResponseWithLearning(ctx context.Context, prompt string, event UnifiedWebhookEventV2, orgID int64) (string, *LearningMetadataV2, error) {
 	// Try to get LLM response
-	llmResponse, err := p.generateLLMResponseV2(ctx, prompt)
+	llmResponse, err := p.generateLLMResponseV2(ctx, prompt, orgID)
 	if err != nil {
 		return "", nil, err
 	}
@@ -983,14 +983,14 @@ func (p *UnifiedProcessorV2Impl) generateLLMResponseWithLearning(ctx context.Con
 }
 
 // generateLLMResponseV2 uses the actual AI connectors infrastructure
-func (p *UnifiedProcessorV2Impl) generateLLMResponseV2(ctx context.Context, prompt string) (string, error) {
+func (p *UnifiedProcessorV2Impl) generateLLMResponseV2(ctx context.Context, prompt string, orgID int64) (string, error) {
 	if p.server == nil || p.server.db == nil {
 		return "", fmt.Errorf("server or database not available")
 	}
 
-	// Get available AI connectors
+	// Get available AI connectors for this organization
 	storage := aiconnectors.NewStorage(p.server.db)
-	connectors, err := storage.GetAllConnectors(ctx)
+	connectors, err := storage.GetAllConnectors(ctx, orgID)
 	if err != nil {
 		return "", fmt.Errorf("failed to get AI connectors: %w", err)
 	}

@@ -298,12 +298,12 @@ func (s *Server) createReviewService(token *IntegrationToken) (*review.Service, 
 }
 
 // getAIConfigFromDatabase retrieves AI configuration from ai_connectors table
-func (s *Server) getAIConfigFromDatabase(ctx context.Context) (review.AIConfig, error) {
+func (s *Server) getAIConfigFromDatabase(ctx context.Context, orgID int64) (review.AIConfig, error) {
 	// Create storage instance to query ai_connectors table
 	storage := aiconnectors.NewStorage(s.db)
 
-	// Get all connectors ordered by display_order
-	connectors, err := storage.GetAllConnectors(ctx)
+	// Get all connectors ordered by display_order for this organization
+	connectors, err := storage.GetAllConnectors(ctx, orgID)
 	if err != nil {
 		return review.AIConfig{}, fmt.Errorf("failed to get AI connectors: %w", err)
 	}
@@ -381,9 +381,10 @@ func (s *Server) getAIConfigFromDatabase(ctx context.Context) (review.AIConfig, 
 func (s *Server) buildReviewRequest(
 	token *IntegrationToken,
 	requestURL, reviewID, accessToken string,
+	orgID int64,
 ) (*review.ReviewRequest, error) {
 	// Get AI configuration from database instead of config files
-	aiConfig, err := s.getAIConfigFromDatabase(context.Background())
+	aiConfig, err := s.getAIConfigFromDatabase(context.Background(), orgID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get AI configuration from database: %w", err)
 	}
