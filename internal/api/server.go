@@ -527,9 +527,14 @@ func (s *Server) setupRoutes() {
 	aiConnectorGroup.DELETE("/:id", s.DeleteAIConnector)
 	aiConnectorGroup.POST("/ollama/models", s.FetchOllamaModels)
 
-	// Dashboard endpoints
-	v1.GET("/dashboard", s.GetDashboardData)
-	v1.POST("/dashboard/refresh", s.RefreshDashboardData)
+	// Dashboard endpoints (organization scoped)
+	dashboardGroup := v1.Group("/dashboard")
+	dashboardGroup.Use(authMiddleware.RequireAuth())
+	dashboardGroup.Use(authMiddleware.BuildOrgContextFromHeader())
+	dashboardGroup.Use(authMiddleware.ValidateOrgAccess())
+	dashboardGroup.Use(authMiddleware.BuildPermissionContext())
+	dashboardGroup.GET("", s.GetDashboardData)
+	dashboardGroup.POST("/refresh", s.RefreshDashboardData)
 
 	// Activity endpoints
 	v1.GET("/activities", s.GetRecentActivities)
