@@ -17,23 +17,25 @@ type AIConnectorsAdapter struct {
 	storage  *aiconnectors.Storage
 	provider aiconnectors.Provider
 	model    string
+	orgID    int64
 }
 
 // NewAIConnectorsAdapter creates a new adapter for the aiconnectors module
-func NewAIConnectorsAdapter(db *sql.DB, provider aiconnectors.Provider, model string) (*AIConnectorsAdapter, error) {
+func NewAIConnectorsAdapter(db *sql.DB, provider aiconnectors.Provider, model string, orgID int64) (*AIConnectorsAdapter, error) {
 	storage := aiconnectors.NewStorage(db)
 
 	return &AIConnectorsAdapter{
 		storage:  storage,
 		provider: provider,
 		model:    model,
+		orgID:    orgID,
 	}, nil
 }
 
 // ReviewCode takes code diff information and returns a review result with summary and comments
 func (a *AIConnectorsAdapter) ReviewCode(ctx context.Context, diffs []*models.CodeDiff) (*models.ReviewResult, error) {
-	// Get all connectors for this provider
-	connectors, err := a.storage.GetConnectorsByProvider(ctx, a.provider)
+	// Get all connectors for this provider and organization
+	connectors, err := a.storage.GetConnectorsByProvider(ctx, a.provider, a.orgID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get connectors: %w", err)
 	}
