@@ -118,14 +118,6 @@ type AIConnectorResponse struct {
 
 // CreateAIConnector handles requests to create a new AI connector
 func (s *Server) CreateAIConnector(c echo.Context) error {
-	// Get org_id from context
-	orgID, ok := c.Get("org_id").(int64)
-	if !ok {
-		return c.JSON(http.StatusUnauthorized, map[string]string{
-			"error": "Organization ID not found in context",
-		})
-	}
-
 	var req AIConnectorCreateRequest
 	if err := c.Bind(&req); err != nil {
 		return c.JSON(http.StatusBadRequest, map[string]string{
@@ -180,7 +172,6 @@ func (s *Server) CreateAIConnector(c echo.Context) error {
 		BaseURL:       sql.NullString{String: req.BaseURL, Valid: req.BaseURL != ""},
 		SelectedModel: sql.NullString{String: req.SelectedModel, Valid: req.SelectedModel != ""},
 		DisplayOrder:  nextOrder, // Auto-assign next order
-		OrgID:         orgID,     // Set organization ID
 	}
 
 	// Save the connector to the database
@@ -205,19 +196,11 @@ func (s *Server) CreateAIConnector(c echo.Context) error {
 
 // GetAIConnectors handles requests to get all AI connectors
 func (s *Server) GetAIConnectors(c echo.Context) error {
-	// Get org_id from context
-	orgID, ok := c.Get("org_id").(int64)
-	if !ok {
-		return c.JSON(http.StatusUnauthorized, map[string]string{
-			"error": "Organization ID not found in context",
-		})
-	}
-
 	// Create a storage instance
 	storage := aiconnectors.NewStorage(s.db)
 
-	// Get all connectors for this organization
-	connectors, err := storage.GetAllConnectors(context.Background(), orgID)
+	// Get all connectors
+	connectors, err := storage.GetAllConnectors(context.Background())
 	if err != nil {
 		log.Error().Err(err).Msg("Failed to get connectors")
 		return c.JSON(http.StatusInternalServerError, map[string]string{
@@ -247,14 +230,6 @@ func (s *Server) GetAIConnectors(c echo.Context) error {
 
 // UpdateAIConnector handles requests to update an existing AI connector
 func (s *Server) UpdateAIConnector(c echo.Context) error {
-	// Get org_id from context
-	orgID, ok := c.Get("org_id").(int64)
-	if !ok {
-		return c.JSON(http.StatusUnauthorized, map[string]string{
-			"error": "Organization ID not found in context",
-		})
-	}
-
 	// Get connector ID from URL parameter
 	id := c.Param("id")
 	if id == "" {
@@ -307,13 +282,6 @@ func (s *Server) UpdateAIConnector(c echo.Context) error {
 	if err != nil {
 		return c.JSON(http.StatusNotFound, map[string]string{
 			"error": "Connector not found",
-		})
-	}
-
-	// Verify connector belongs to this organization
-	if existingConnector.OrgID != orgID {
-		return c.JSON(http.StatusForbidden, map[string]string{
-			"error": "Access denied: connector belongs to different organization",
 		})
 	}
 
@@ -388,14 +356,6 @@ func (s *Server) ReorderAIConnectors(c echo.Context) error {
 
 // DeleteAIConnector handles requests to delete an AI connector by ID
 func (s *Server) DeleteAIConnector(c echo.Context) error {
-	// Get org_id from context
-	orgID, ok := c.Get("org_id").(int64)
-	if !ok {
-		return c.JSON(http.StatusUnauthorized, map[string]string{
-			"error": "Organization ID not found in context",
-		})
-	}
-
 	// Get connector ID from URL parameter
 	id := c.Param("id")
 	if id == "" {
@@ -415,8 +375,8 @@ func (s *Server) DeleteAIConnector(c echo.Context) error {
 	// Create a storage instance
 	storage := aiconnectors.NewStorage(s.db)
 
-	// Delete the connector (will only delete if it belongs to this org)
-	if err := storage.DeleteConnector(context.Background(), connectorID, orgID); err != nil {
+	// Delete the connector
+	if err := storage.DeleteConnector(context.Background(), connectorID); err != nil {
 		log.Error().Err(err).Int64("id", connectorID).Msg("Failed to delete connector")
 		return c.JSON(http.StatusInternalServerError, map[string]string{
 			"error": "Failed to delete connector: " + err.Error(),

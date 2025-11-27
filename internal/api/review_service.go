@@ -288,7 +288,7 @@ func (s *Server) createReviewRequest(ctx *reviewSetupContext) error {
 		ctx.logger.Log("Building review request...")
 	}
 	log.Printf("[DEBUG] TriggerReviewV2: Building review request")
-	reviewRequest, err := s.buildReviewRequest(ctx.token, ctx.requestURL, ctx.reviewID, ctx.accessToken, ctx.orgID)
+	reviewRequest, err := s.buildReviewRequest(ctx.token, ctx.requestURL, ctx.reviewID, ctx.accessToken)
 	if err != nil {
 		if ctx.logger != nil {
 			ctx.logger.LogError("Failed to build review request", err)
