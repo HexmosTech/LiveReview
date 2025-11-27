@@ -3,7 +3,6 @@ package api
 import (
 	"context"
 	"database/sql"
-	"fmt"
 	"net/http"
 	"strconv"
 	"time"
@@ -127,25 +126,6 @@ func (s *Server) CreateAIConnector(c echo.Context) error {
 		})
 	}
 
-	log.Info().Int64("org_id", orgID).Msg("CreateAIConnector: Retrieved org_id from context")
-
-	// Verify organization exists
-	var orgExists bool
-	err := s.db.QueryRow("SELECT EXISTS(SELECT 1 FROM orgs WHERE id = $1)", orgID).Scan(&orgExists)
-	if err != nil {
-		log.Error().Err(err).Int64("org_id", orgID).Msg("Failed to check if organization exists")
-		return c.JSON(http.StatusInternalServerError, map[string]string{
-			"error": "Failed to verify organization: " + err.Error(),
-		})
-	}
-
-	if !orgExists {
-		log.Error().Int64("org_id", orgID).Msg("Organization does not exist in database")
-		return c.JSON(http.StatusBadRequest, map[string]string{
-			"error": fmt.Sprintf("Organization with ID %d does not exist. Please contact support.", orgID),
-		})
-	}
-
 	var req AIConnectorCreateRequest
 	if err := c.Bind(&req); err != nil {
 		return c.JSON(http.StatusBadRequest, map[string]string{
@@ -203,16 +183,9 @@ func (s *Server) CreateAIConnector(c echo.Context) error {
 		OrgID:         orgID,     // Set organization ID
 	}
 
-	log.Info().
-		Int64("org_id", orgID).
-		Str("provider_name", req.ProviderName).
-		Str("connector_name", req.ConnectorName).
-		Int("display_order", nextOrder).
-		Msg("Creating AI connector with org_id")
-
 	// Save the connector to the database
 	if err := storage.CreateConnector(context.Background(), connector); err != nil {
-		log.Error().Err(err).Int64("org_id", orgID).Msg("Failed to create connector")
+		log.Error().Err(err).Msg("Failed to create connector")
 		return c.JSON(http.StatusInternalServerError, map[string]string{
 			"error": "Failed to create connector: " + err.Error(),
 		})
