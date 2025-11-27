@@ -24,12 +24,13 @@ type ActivityEntry struct {
 
 // ActivityTracker handles recording activities to the database
 type ActivityTracker struct {
-	db *sql.DB
+	db    *sql.DB
+	orgID int64
 }
 
 // NewActivityTracker creates a new activity tracker
-func NewActivityTracker(db *sql.DB) *ActivityTracker {
-	return &ActivityTracker{db: db}
+func NewActivityTracker(db *sql.DB, orgID int64) *ActivityTracker {
+	return &ActivityTracker{db: db, orgID: orgID}
 }
 
 // TrackActivity records a new activity in the database
@@ -45,10 +46,10 @@ func (at *ActivityTracker) TrackActivityWithReview(activityType string, eventDat
 	}
 
 	query := `
-		INSERT INTO recent_activity (activity_type, event_data, review_id)
-		VALUES ($1, $2, $3)
+		INSERT INTO recent_activity (activity_type, event_data, review_id, org_id)
+		VALUES ($1, $2, $3, $4)
 	`
-	_, err = at.db.Exec(query, activityType, eventDataJSON, reviewID)
+	_, err = at.db.Exec(query, activityType, eventDataJSON, reviewID, at.orgID)
 	if err != nil {
 		return fmt.Errorf("failed to insert activity: %w", err)
 	}
@@ -66,13 +67,29 @@ func (at *ActivityTracker) GetRecentActivities(limit, offset int) ([]ActivityEnt
 	}
 
 	query := `
-		SELECT id, activity_type, event_data, created_at
-		FROM recent_activity
-		ORDER BY created_at DESC
-		LIMIT $1 OFFSET $2
+		SELECT ra.id, ra.activity_type, ra.event_data, ra.created_at
+		FROM recent_activity ra
+		WHERE ra.org_id = $1
+		   OR (ra.review_id IS NOT NULL AND EXISTS (
+			SELECT 1 FROM reviews r WHERE r.id = ra.review_id AND r.org_id = $1
+		   ))
+		   OR (
+			ra.activity_type IN ('connector_created', 'webhook_installed')
+			AND EXISTS (
+				SELECT 1
+				FROM integration_tokens it
+				WHERE it.id = CASE
+					WHEN (ra.event_data->>'connector_id') ~ '^[0-9]+$' THEN (ra.event_data->>'connector_id')::bigint
+					ELSE NULL
+				END
+				AND it.org_id = $1
+			)
+		   )
+		ORDER BY ra.created_at DESC
+		LIMIT $2 OFFSET $3
 	`
 
-	rows, err := at.db.Query(query, limit, offset)
+	rows, err := at.db.Query(query, at.orgID, limit, offset)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query activities: %w", err)
 	}
@@ -103,8 +120,27 @@ func (at *ActivityTracker) GetRecentActivities(limit, offset int) ([]ActivityEnt
 // GetActivityCount returns the total count of activities
 func (at *ActivityTracker) GetActivityCount() (int, error) {
 	var count int
-	query := `SELECT COUNT(*) FROM recent_activity`
-	err := at.db.QueryRow(query).Scan(&count)
+	query := `
+		SELECT COUNT(*)
+		FROM recent_activity ra
+		WHERE ra.org_id = $1
+		   OR (ra.review_id IS NOT NULL AND EXISTS (
+			SELECT 1 FROM reviews r WHERE r.id = ra.review_id AND r.org_id = $1
+		   ))
+		   OR (
+			ra.activity_type IN ('connector_created', 'webhook_installed')
+			AND EXISTS (
+				SELECT 1
+				FROM integration_tokens it
+				WHERE it.id = CASE
+					WHEN (ra.event_data->>'connector_id') ~ '^[0-9]+$' THEN (ra.event_data->>'connector_id')::bigint
+					ELSE NULL
+				END
+				AND it.org_id = $1
+			)
+		   )
+	`
+	err := at.db.QueryRow(query, at.orgID).Scan(&count)
 	if err != nil {
 		return 0, fmt.Errorf("failed to get activity count: %w", err)
 	}
@@ -113,6 +149,12 @@ func (at *ActivityTracker) GetActivityCount() (int, error) {
 
 // GetRecentActivities handles the API endpoint for fetching recent activities
 func (s *Server) GetRecentActivities(c echo.Context) error {
+	orgID, ok := c.Get("org_id").(int64)
+	if !ok {
+		return c.JSON(http.StatusBadRequest, map[string]string{
+			"error": "Missing organization context",
+		})
+	}
 	// Parse query parameters
 	limitStr := c.QueryParam("limit")
 	offsetStr := c.QueryParam("offset")
@@ -132,7 +174,7 @@ func (s *Server) GetRecentActivities(c echo.Context) error {
 	}
 
 	// Create activity tracker
-	tracker := NewActivityTracker(s.db)
+	tracker := NewActivityTracker(s.db, orgID)
 
 	// Get activities
 	activities, err := tracker.GetRecentActivities(limit, offset)
@@ -160,20 +202,20 @@ func (s *Server) GetRecentActivities(c echo.Context) error {
 }
 
 // TrackReviewTriggered is a helper function to track review triggered activities
-func TrackReviewTriggered(db *sql.DB, repository, branch, commitHash, triggerType, provider string, connectorID *int64, userEmail, originalURL string) (int64, error) {
+func TrackReviewTriggered(db *sql.DB, orgID int64, repository, branch, commitHash, triggerType, provider string, connectorID *int64, userEmail, originalURL string) (int64, error) {
 	// First, create a review record
 	reviewManager := NewReviewManager(db)
 	metadata := map[string]interface{}{
 		"original_url": originalURL,
 	}
 
-	review, err := reviewManager.CreateReview(repository, branch, commitHash, originalURL, triggerType, userEmail, provider, connectorID, metadata)
+	review, err := reviewManager.CreateReviewWithOrg(repository, branch, commitHash, originalURL, triggerType, userEmail, provider, connectorID, metadata, orgID)
 	if err != nil {
 		return 0, fmt.Errorf("failed to create review record: %w", err)
 	}
 
 	// Then track the activity with review_id
-	tracker := NewActivityTracker(db)
+	tracker := NewActivityTracker(db, orgID)
 	eventData := map[string]interface{}{
 		"repository":   repository,
 		"branch":       branch,
@@ -262,14 +304,15 @@ func extractCommitFromURL(urlStr string) string {
 }
 
 // TrackConnectorCreated is a helper function to track connector creation activities
-func TrackConnectorCreated(db *sql.DB, provider, providerURL string, connectorID int, repositoryCount int) {
-	tracker := NewActivityTracker(db)
+func TrackConnectorCreated(db *sql.DB, orgID int64, provider, providerURL string, connectorID int, repositoryCount int) {
+	tracker := NewActivityTracker(db, orgID)
 
 	eventData := map[string]interface{}{
 		"provider":         provider,
 		"provider_url":     providerURL,
 		"connector_id":     connectorID,
 		"repository_count": repositoryCount,
+		"org_id":           orgID,
 	}
 
 	err := tracker.TrackActivity("connector_created", eventData)
@@ -280,14 +323,15 @@ func TrackConnectorCreated(db *sql.DB, provider, providerURL string, connectorID
 }
 
 // TrackWebhookInstalled is a helper function to track webhook installation activities
-func TrackWebhookInstalled(db *sql.DB, repository string, connectorID int, provider string, success bool) {
-	tracker := NewActivityTracker(db)
+func TrackWebhookInstalled(db *sql.DB, orgID int64, repository string, connectorID int, provider string, success bool) {
+	tracker := NewActivityTracker(db, orgID)
 
 	eventData := map[string]interface{}{
 		"repository":   repository,
 		"connector_id": connectorID,
 		"provider":     provider,
 		"success":      success,
+		"org_id":       orgID,
 	}
 
 	err := tracker.TrackActivity("webhook_installed", eventData)
@@ -295,4 +339,43 @@ func TrackWebhookInstalled(db *sql.DB, repository string, connectorID int, provi
 		// Log error but don't fail the main operation
 		fmt.Printf("Failed to track webhook installation activity: %v\n", err)
 	}
+}
+
+// BackfillRecentActivityOrgIDs updates existing recent_activity rows to ensure org_id matches source records.
+func BackfillRecentActivityOrgIDs(db *sql.DB) error {
+	queries := []string{
+		`UPDATE recent_activity ra
+			SET org_id = r.org_id
+			FROM reviews r
+			WHERE ra.review_id = r.id
+			  AND ra.org_id IS DISTINCT FROM r.org_id`,
+		`UPDATE recent_activity ra
+			SET org_id = it.org_id
+			FROM integration_tokens it,
+				LATERAL (
+					SELECT (ra.event_data->>'connector_id')::bigint AS connector_id
+					WHERE (ra.event_data->>'connector_id') ~ '^[0-9]+$'
+				) conn
+			WHERE ra.activity_type = 'connector_created'
+			  AND conn.connector_id = it.id
+			  AND ra.org_id IS DISTINCT FROM it.org_id`,
+		`UPDATE recent_activity ra
+			SET org_id = it.org_id
+			FROM integration_tokens it,
+				LATERAL (
+					SELECT (ra.event_data->>'connector_id')::bigint AS connector_id
+					WHERE (ra.event_data->>'connector_id') ~ '^[0-9]+$'
+				) conn
+			WHERE ra.activity_type = 'webhook_installed'
+			  AND conn.connector_id = it.id
+			  AND ra.org_id IS DISTINCT FROM it.org_id`,
+	}
+
+	for _, query := range queries {
+		if _, err := db.Exec(query); err != nil {
+			return err
+		}
+	}
+
+	return nil
 }

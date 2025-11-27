@@ -412,7 +412,7 @@ func (s *Server) trackActivity(ctx *reviewSetupContext) {
 		repository := extractRepositoryFromURL(ctx.requestURL)
 		branch := extractBranchFromURL(ctx.requestURL)
 		commitHash := extractCommitFromURL(ctx.requestURL)
-		tracker := NewActivityTracker(s.db)
+		tracker := NewActivityTracker(s.db, ctx.orgID)
 		eventData := map[string]interface{}{
 			"repository":   repository,
 			"branch":       branch,

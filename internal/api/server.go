@@ -275,6 +275,10 @@ func NewServer(port int, versionInfo *VersionInfo) (*Server, error) {
 	// Set the server reference in auto webhook installer (circular dependency)
 	autoWebhookInstaller.server = server
 
+	if err := BackfillRecentActivityOrgIDs(db); err != nil {
+		log.Printf("Failed to backfill recent activity org IDs: %v", err)
+	}
+
 	// Setup routes
 	server.setupRoutes()
 
@@ -536,8 +540,13 @@ func (s *Server) setupRoutes() {
 	dashboardGroup.GET("", s.GetDashboardData)
 	dashboardGroup.POST("/refresh", s.RefreshDashboardData)
 
-	// Activity endpoints
-	v1.GET("/activities", s.GetRecentActivities)
+	// Activity endpoints (organization scoped)
+	activityGroup := v1.Group("/activities")
+	activityGroup.Use(authMiddleware.RequireAuth())
+	activityGroup.Use(authMiddleware.BuildOrgContextFromHeader())
+	activityGroup.Use(authMiddleware.ValidateOrgAccess())
+	activityGroup.Use(authMiddleware.BuildPermissionContext())
+	activityGroup.GET("", s.GetRecentActivities)
 
 	// License endpoints (Phase 3)
 	s.attachLicenseRoutes(v1)
@@ -566,7 +575,7 @@ func (s *Server) setupRoutes() {
 // Handler for creating PAT integration token, delegates to pat_token.go
 func (s *Server) HandleCreatePATIntegrationToken(c echo.Context) error {
 	// Create the PAT connector and get the ID
-	connectorID, err := CreatePATIntegrationToken(s.db, c)
+	connectorID, orgID, err := CreatePATIntegrationToken(s.db, c)
 	if err != nil {
 		// Handle specific error types
 		if strings.Contains(err.Error(), "invalid request body") {
@@ -584,12 +593,12 @@ func (s *Server) HandleCreatePATIntegrationToken(c echo.Context) error {
 
 	// Track connector creation activity in background
 	go func() {
-		// Get connector details from database to track them properly
+		localOrgID := orgID
 		var provider, providerURL string
 		query := `SELECT provider, provider_url FROM integration_tokens WHERE id = $1`
 		err := s.db.QueryRow(query, connectorID).Scan(&provider, &providerURL)
 		if err == nil {
-			TrackConnectorCreated(s.db, provider, providerURL, int(connectorID), 0) // repository count will be updated later
+			TrackConnectorCreated(s.db, localOrgID, provider, providerURL, int(connectorID), 0) // repository count will be updated later
 		}
 	}()
 
