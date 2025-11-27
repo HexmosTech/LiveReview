@@ -513,13 +513,16 @@ func (s *Server) setupRoutes() {
 	// Legacy V2 endpoint removed - old webhooks without connector_id will return 404
 	// Users must re-enable manual trigger from connector settings to update webhook URLs
 
-	// AI Connector endpoints
-	v1.POST("/aiconnectors/validate-key", s.ValidateAIConnectorKey)
-	v1.POST("/aiconnectors", s.CreateAIConnector)
-	v1.GET("/aiconnectors", s.GetAIConnectors)
-	v1.PUT("/aiconnectors/:id", s.UpdateAIConnector)
-	v1.PUT("/aiconnectors/reorder", s.ReorderAIConnectors)
-	v1.DELETE("/aiconnectors/:id", s.DeleteAIConnector)
+	// AI Connector endpoints - require org context from header
+	aiConnectorsGroup := v1.Group("/aiconnectors")
+	aiConnectorsGroup.Use(authMiddleware.RequireAuth())
+	aiConnectorsGroup.Use(authMiddleware.BuildOrgContextFromHeader())
+	aiConnectorsGroup.POST("/validate-key", s.ValidateAIConnectorKey)
+	aiConnectorsGroup.POST("", s.CreateAIConnector)
+	aiConnectorsGroup.GET("", s.GetAIConnectors)
+	aiConnectorsGroup.PUT("/:id", s.UpdateAIConnector)
+	aiConnectorsGroup.PUT("/reorder", s.ReorderAIConnectors)
+	aiConnectorsGroup.DELETE("/:id", s.DeleteAIConnector)
 
 	// Register additional AI connector handlers (including Ollama)
 	aiconnectors.RegisterHandlers(s.echo)
