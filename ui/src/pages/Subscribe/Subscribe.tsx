@@ -265,6 +265,7 @@ const Subscribe: React.FC = () => {
   const [billingPeriod, setBillingPeriod] = useState<BillingPeriod>('annual');
   const [contactOpen, setContactOpen] = useState(false);
   const [hoveredCell, setHoveredCell] = useState<{ feature: string; column: string } | null>(null);
+  const [mousePosition, setMousePosition] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
 
   const features: Feature[] = [
     {
@@ -350,20 +351,30 @@ const Subscribe: React.FC = () => {
     const cellKey = `${featureName}-${column}`;
     const isHovered = hoveredCell?.feature === featureName && hoveredCell?.column === column;
 
+    const handleMouseMove = (e: React.MouseEvent) => {
+      setMousePosition({ x: e.clientX, y: e.clientY });
+    };
+
     if (typeof value === 'string') {
       return (
         <div 
           className="relative group"
           onMouseEnter={() => setHoveredCell({ feature: featureName, column })}
           onMouseLeave={() => setHoveredCell(null)}
+          onMouseMove={handleMouseMove}
         >
           <span className="text-sm text-slate-100 cursor-default">
             {value}
           </span>
           {isHovered && (
-            <div className="absolute z-10 bottom-full left-0 mb-2 px-3 py-2 bg-slate-950 text-white text-xs rounded-lg shadow-xl border border-slate-600 whitespace-nowrap">
+            <div 
+              className="fixed z-10 px-3 py-2 bg-slate-950 text-white text-xs rounded-lg shadow-xl border border-slate-600 whitespace-nowrap pointer-events-none"
+              style={{
+                left: `${mousePosition.x + 12}px`,
+                top: `${mousePosition.y - 12}px`,
+              }}
+            >
               {featureName}
-              <div className="absolute top-full left-4 w-0 h-0 border-l-4 border-r-4 border-t-4 border-l-transparent border-r-transparent border-t-slate-950"></div>
             </div>
           )}
         </div>
@@ -379,15 +390,21 @@ const Subscribe: React.FC = () => {
         className="relative group"
         onMouseEnter={() => setHoveredCell({ feature: featureName, column })}
         onMouseLeave={() => setHoveredCell(null)}
+        onMouseMove={handleMouseMove}
       >
         <span className="inline-flex items-center gap-2 cursor-default">
           <IconComponent className={`w-4 h-4 ${iconColor}`} />
           <span className="text-sm text-slate-100">{text}</span>
         </span>
         {isHovered && (
-          <div className="absolute z-10 bottom-full left-0 mb-2 px-3 py-2 bg-slate-950 text-white text-xs rounded-lg shadow-xl border border-slate-600 whitespace-nowrap">
+          <div 
+            className="fixed z-10 px-3 py-2 bg-slate-950 text-white text-xs rounded-lg shadow-xl border border-slate-600 whitespace-nowrap pointer-events-none"
+            style={{
+              left: `${mousePosition.x + 12}px`,
+              top: `${mousePosition.y - 12}px`,
+            }}
+          >
             {featureName}
-            <div className="absolute top-full left-4 w-0 h-0 border-l-4 border-r-4 border-t-4 border-l-transparent border-r-transparent border-t-slate-950"></div>
           </div>
         )}
       </div>
@@ -514,10 +531,10 @@ const Subscribe: React.FC = () => {
               {billingPeriod === 'annual' && (
                 <div className="mt-2">
                   <p className="text-sm text-blue-400">
-                    Billed annually at {teamPrice.total}/user/year
+                    <span className="line-through text-slate-500">$72</span> {teamPrice.total}/user/year
                   </p>
                   <p className="text-sm text-emerald-400 font-semibold">
-                    {teamPrice.savings}
+                    Save $12/user/year ({teamPrice.savings})
                   </p>
                 </div>
               )}
