@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 
 interface IconProps {
   className?: string;
@@ -262,6 +263,7 @@ const ContactSalesModal: React.FC<ContactModalProps> = ({ open, onClose }) => {
 };
 
 const Subscribe: React.FC = () => {
+  const navigate = useNavigate();
   const [billingPeriod, setBillingPeriod] = useState<BillingPeriod>('annual');
   const [contactOpen, setContactOpen] = useState(false);
   const [hoveredCell, setHoveredCell] = useState<{ feature: string; column: string } | null>(null);
@@ -465,6 +467,7 @@ const Subscribe: React.FC = () => {
 
             <button
               type="button"
+              onClick={() => navigate('/')}
               className="w-full bg-slate-700 hover:bg-slate-600 text-white font-semibold py-3 px-6 rounded-lg transition-colors mb-6"
             >
               Continue With Hobby
@@ -700,6 +703,35 @@ const Subscribe: React.FC = () => {
                     </td>
                   </tr>
                 ))}
+                <tr className="bg-slate-900/50">
+                  <td className="px-4 py-6"></td>
+                  <td className="px-4 py-6">
+                    <button
+                      type="button"
+                      onClick={() => navigate('/')}
+                      className="w-full bg-slate-700 hover:bg-slate-600 text-white font-semibold py-2.5 px-4 rounded-lg transition-colors text-sm"
+                    >
+                      Continue With Hobby
+                    </button>
+                  </td>
+                  <td className="px-4 py-6">
+                    <button
+                      type="button"
+                      className="w-full bg-blue-600 hover:bg-blue-700 text-white font-semibold py-2.5 px-4 rounded-lg transition-colors shadow-lg text-sm"
+                    >
+                      Get Team Plan
+                    </button>
+                  </td>
+                  <td className="px-4 py-6">
+                    <button
+                      type="button"
+                      className="w-full bg-gray-600 hover:bg-gray-500 text-white font-semibold py-2.5 px-4 rounded-lg transition-colors text-sm"
+                      onClick={() => setContactOpen(true)}
+                    >
+                      Contact Sales
+                    </button>
+                  </td>
+                </tr>
               </tbody>
             </table>
           </div>
