@@ -264,6 +264,7 @@ const ContactSalesModal: React.FC<ContactModalProps> = ({ open, onClose }) => {
 const Subscribe: React.FC = () => {
   const [billingPeriod, setBillingPeriod] = useState<BillingPeriod>('annual');
   const [contactOpen, setContactOpen] = useState(false);
+  const [hoveredCell, setHoveredCell] = useState<{ feature: string; column: string } | null>(null);
 
   const features: Feature[] = [
     {
@@ -303,19 +304,13 @@ const Subscribe: React.FC = () => {
       enterprise: 'Cloud + Self-hosted',
     },
     {
-      name: 'Self-Hosted Deployment',
+      name: 'Private Self-Hosted Deployment',
       hobby: false,
       team: false,
       enterprise: true,
     },
     {
       name: 'Custom Domain',
-      hobby: false,
-      team: false,
-      enterprise: true,
-    },
-    {
-      name: 'Full Privacy & Data Control',
       hobby: false,
       team: false,
       enterprise: true,
@@ -351,25 +346,50 @@ const Subscribe: React.FC = () => {
 
   const teamPrice = getTeamPrice();
 
-  const renderFeatureValue = (value: boolean | string) => {
+  const renderFeatureValue = (value: boolean | string, featureName: string, column: string) => {
+    const cellKey = `${featureName}-${column}`;
+    const isHovered = hoveredCell?.feature === featureName && hoveredCell?.column === column;
+
     if (typeof value === 'string') {
       return (
-        <div className="flex justify-center">
-          <span className="inline-flex items-center justify-center px-3 py-1 rounded-md bg-slate-800 text-sm text-slate-100 font-medium border border-slate-700/70">
+        <div 
+          className="relative group"
+          onMouseEnter={() => setHoveredCell({ feature: featureName, column })}
+          onMouseLeave={() => setHoveredCell(null)}
+        >
+          <span className="text-sm text-slate-100 cursor-default">
             {value}
           </span>
+          {isHovered && (
+            <div className="absolute z-10 bottom-full left-0 mb-2 px-3 py-2 bg-slate-950 text-white text-xs rounded-lg shadow-xl border border-slate-600 whitespace-nowrap">
+              {featureName}
+              <div className="absolute top-full left-4 w-0 h-0 border-l-4 border-r-4 border-t-4 border-l-transparent border-r-transparent border-t-slate-950"></div>
+            </div>
+          )}
         </div>
       );
     }
 
     const IconComponent = value ? CheckIcon : XIcon;
-    const color = value ? 'text-emerald-400 bg-emerald-500/15 border border-emerald-400/60' : 'text-rose-400 bg-rose-500/10 border border-rose-400/50';
+    const iconColor = value ? 'text-emerald-400' : 'text-rose-400';
+    const text = value ? 'Yes' : 'No';
 
     return (
-      <div className="flex justify-center">
-        <span className={`inline-flex items-center justify-center w-9 h-9 rounded-full ${color}`}>
-          <IconComponent className="w-5 h-5" />
+      <div 
+        className="relative group"
+        onMouseEnter={() => setHoveredCell({ feature: featureName, column })}
+        onMouseLeave={() => setHoveredCell(null)}
+      >
+        <span className="inline-flex items-center gap-2 cursor-default">
+          <IconComponent className={`w-4 h-4 ${iconColor}`} />
+          <span className="text-sm text-slate-100">{text}</span>
         </span>
+        {isHovered && (
+          <div className="absolute z-10 bottom-full left-0 mb-2 px-3 py-2 bg-slate-950 text-white text-xs rounded-lg shadow-xl border border-slate-600 whitespace-nowrap">
+            {featureName}
+            <div className="absolute top-full left-4 w-0 h-0 border-l-4 border-r-4 border-t-4 border-l-transparent border-r-transparent border-t-slate-950"></div>
+          </div>
+        )}
       </div>
     );
   };
@@ -624,16 +644,16 @@ const Subscribe: React.FC = () => {
             <table className="w-full">
               <thead>
                 <tr className="bg-slate-900/50">
-                  <th className="px-6 py-4 text-left text-sm font-semibold text-slate-300">
+                  <th className="px-4 py-4 text-left text-sm font-semibold text-slate-300">
                     Feature
                   </th>
-                  <th className="px-6 py-4 text-center text-sm font-semibold text-slate-300">
+                  <th className="px-4 py-4 text-left text-sm font-semibold text-slate-300">
                     Hobby
                   </th>
-                  <th className="px-6 py-4 text-center text-sm font-semibold text-blue-400">
+                  <th className="px-4 py-4 text-left text-sm font-semibold text-blue-400">
                     Team
                   </th>
-                  <th className="px-6 py-4 text-center text-sm font-semibold text-purple-400">
+                  <th className="px-4 py-4 text-left text-sm font-semibold text-purple-400">
                     Enterprise
                   </th>
                 </tr>
@@ -644,17 +664,17 @@ const Subscribe: React.FC = () => {
                     key={index}
                     className="hover:bg-slate-700/30 transition-colors"
                   >
-                    <td className="px-6 py-4 text-sm font-medium text-white">
+                    <td className="px-4 py-4 text-sm font-medium text-white">
                       {feature.name}
                     </td>
-                    <td className="px-6 py-4">
-                      {renderFeatureValue(feature.hobby)}
+                    <td className="px-4 py-4">
+                      {renderFeatureValue(feature.hobby, feature.name, 'hobby')}
                     </td>
-                    <td className="px-6 py-4">
-                      {renderFeatureValue(feature.team)}
+                    <td className="px-4 py-4">
+                      {renderFeatureValue(feature.team, feature.name, 'team')}
                     </td>
-                    <td className="px-6 py-4">
-                      {renderFeatureValue(feature.enterprise)}
+                    <td className="px-4 py-4">
+                      {renderFeatureValue(feature.enterprise, feature.name, 'enterprise')}
                     </td>
                   </tr>
                 ))}
