@@ -16,6 +16,7 @@ import OAuthCallbackHandler from './pages/Auth/OAuthCallbackHandler';
 import HomeWithOAuthCheck from './pages/Home/HomeWithOAuthCheck';
 import { MiddlewareTestPage } from './pages/MiddlewareTestPage';
 import Subscribe from './pages/Subscribe/Subscribe';
+import TeamCheckout from './pages/Checkout/TeamCheckout';
 import { useAppDispatch, useAppSelector } from './store/configureStore';
 import { logout, checkSetupStatus, fetchUser } from './store/Auth/reducer';
 import { fetchLicenseStatus, openModal as openLicenseModal, closeModal as closeLicenseModal } from './store/License/slice';
@@ -231,6 +232,7 @@ const AppContent: React.FC = () => {
                         <Route path="/" element={<HomeWithOAuthCheck />} />
                         <Route path="/dashboard" element={<Dashboard />} />
                         <Route path="/subscribe" element={<Subscribe />} />
+                        <Route path="/checkout/team" element={<TeamCheckout />} />
                         <Route path="/reviews/*" element={<ReviewsRoutes />} />
                         <Route path="/git/*" element={<GitProviders />} />
                         <Route path="/ai" element={<AIProviders />} />

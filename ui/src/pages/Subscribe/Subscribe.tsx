@@ -1,5 +1,13 @@
 import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { useOrgContext } from '../../hooks/useOrgContext';
+
+// Declare Razorpay on window object
+declare global {
+  interface Window {
+    Razorpay: any;
+  }
+}
 
 interface IconProps {
   className?: string;
@@ -264,10 +272,13 @@ const ContactSalesModal: React.FC<ContactModalProps> = ({ open, onClose }) => {
 
 const Subscribe: React.FC = () => {
   const navigate = useNavigate();
+  const { currentOrgId, currentOrg } = useOrgContext();
   const [billingPeriod, setBillingPeriod] = useState<BillingPeriod>('annual');
   const [contactOpen, setContactOpen] = useState(false);
   const [hoveredCell, setHoveredCell] = useState<{ feature: string; column: string } | null>(null);
   const [mousePosition, setMousePosition] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
+
+  const isAuthenticated = !!localStorage.getItem('accessToken');
 
   const features: Feature[] = [
     {
@@ -336,18 +347,29 @@ const Subscribe: React.FC = () => {
     if (billingPeriod === 'annual') {
       return {
         monthly: '$5',
-        total: '$60',
+        perUser: '$60/year',
         savings: '17% off',
       };
     }
     return {
       monthly: '$6',
-      total: '$6',
+      perUser: '$6/month',
       savings: null,
     };
   };
 
   const teamPrice = getTeamPrice();
+
+  const handleGetTeamPlan = () => {
+    if (!isAuthenticated) {
+      // Redirect to sign in
+      navigate('/signin', { state: { returnTo: '/subscribe' } });
+      return;
+    }
+    
+    // Navigate to checkout wizard with billing period
+    navigate(`/checkout/team?period=${billingPeriod}`);
+  };
 
   const renderFeatureValue = (value: boolean | string, featureName: string, column: string) => {
     const cellKey = `${featureName}-${column}`;
@@ -523,6 +545,7 @@ const Subscribe: React.FC = () => {
               <p className="text-slate-400 text-sm mb-4">
                 For growing teams and organizations
               </p>
+              
               <div className="flex items-baseline">
                 <span className="text-4xl font-bold text-white">
                   {teamPrice.monthly}
@@ -534,7 +557,7 @@ const Subscribe: React.FC = () => {
               {billingPeriod === 'annual' && (
                 <div className="mt-2">
                   <p className="text-sm text-blue-400">
-                    <span className="line-through text-slate-500">$72</span> {teamPrice.total}/user/year
+                    {teamPrice.perUser}
                   </p>
                   <p className="text-sm text-emerald-400 font-semibold">
                     Save $12/user/year ({teamPrice.savings})
@@ -545,6 +568,7 @@ const Subscribe: React.FC = () => {
 
             <button
               type="button"
+              onClick={handleGetTeamPlan}
               className="w-full bg-blue-600 hover:bg-blue-700 text-white font-semibold py-3 px-6 rounded-lg transition-colors mb-6 shadow-lg"
             >
               Get Team Plan
@@ -717,6 +741,7 @@ const Subscribe: React.FC = () => {
                   <td className="px-4 py-6">
                     <button
                       type="button"
+                      onClick={handleGetTeamPlan}
                       className="w-full bg-blue-600 hover:bg-blue-700 text-white font-semibold py-2.5 px-4 rounded-lg transition-colors shadow-lg text-sm"
                     >
                       Get Team Plan

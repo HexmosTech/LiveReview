@@ -1025,29 +1025,40 @@ curl http://localhost:8888/api/v1/users/3/license \
 ### Phase 4: UI Integration (Week 4)
 **Goal:** Complete user-facing purchase and management flow
 
-1. **Subscription Page (`/subscribe`)** ✅
-   - Display plan pricing
-   - "Get Team Plan" button
-   - Seat quantity selector
-   - Razorpay checkout integration
+**Current Status:** Pricing page exists (Subscribe.tsx) but not wired to backend
 
-2. **Checkout Flow** ✅
-   - Initialize Razorpay checkout
-   - Handle success callback
-   - Handle failure callback
-   - Redirect after payment
+**Step 1: Wire Up Razorpay Checkout** ✅ COMPLETE
+   - [x] Display plan pricing (existing in Subscribe.tsx)
+   - [x] "Get Team Plan" button (existing)
+   - [x] Add Razorpay SDK to UI (script tag added to index.html)
+   - [x] Use proper auth hooks (useOrgContext for org/user context)
+   - [x] Navigate to checkout wizard on button click
+   - [x] Fix authentication detection (uses accessToken from localStorage)
+   - [x] Clean pricing page (removed seat selector, will be in wizard)
 
-3. **License Management Page** ✅
-   - View active subscription
-   - See assigned/available seats
-   - Assign licenses to org members
-   - Revoke licenses
-   - Update seat count
+**Step 2: Build Checkout Wizard Page** 🔄 IN PROGRESS
+   - [ ] Create `/checkout/team` page component
+   - [ ] Add seat quantity selector in wizard
+   - [ ] Display price summary based on seats and billing period
+   - [ ] Call `/api/v1/subscriptions` endpoint with auth
+   - [ ] Initialize Razorpay checkout modal
+   - [ ] Handle payment success/failure callbacks
+   - [ ] Redirect to `/dashboard/licenses` on success
 
-4. **User Dashboard** ✅
-   - Show current plan
-   - Show expiration date
-   - Upgrade prompts for free users
+**Step 3: Build License Management Page** ⏳ NOT STARTED
+   - [ ] Create `/dashboard/licenses` page
+   - [ ] View active subscriptions owned by user
+   - [ ] See assigned/available seats (e.g., "3/10 seats")
+   - [ ] List team members with license status
+   - [ ] Assign licenses to org members
+   - [ ] Revoke licenses
+   - [ ] Update seat count option
+
+**Step 3: Update User Dashboard** ⏳ NOT STARTED
+   - [ ] Show current plan badge (Free/Team)
+   - [ ] Show expiration date if licensed
+   - [ ] Upgrade prompts for free users
+   - [ ] Display seat information for owners
 
 **Verification & Spot Checks:**
 
