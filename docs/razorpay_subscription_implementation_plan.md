@@ -161,16 +161,6 @@ COMMIT;
 └────────┬────────┘              │
          │                       │
          │                       │
-         ├──────────┐            │
-         │          │            │
-         ▼          ▼            │
-┌──────────────────┐             │
-│license_assignments│ (STATE)    │
-│  - subscription_id│            │
-│  - user_id       ├─────────────┘
-│  - org_id        │ (usage org)
-│  - status        │
-└──────────────────┘
          │
          │ every change
          │ logged to
@@ -217,7 +207,10 @@ COMMIT;
 - `assigned_seats`: Denormalized counter - updated when licenses assigned/revoked (for fast queries)
 - `razorpay_data`: JSONB for Razorpay's 20+ fields (avoid migrations when they add fields)
 
+**Migration File:** `db/migrations/YYYYMMDDHHMMSS_add_subscription_tables.sql`
+
 ```sql
+-- migrate:up
 -- Subscriptions: Track Razorpay subscriptions owned by users
 -- Licenses can be assigned to any user in any org owned by the subscription owner
 CREATE TABLE subscriptions (
@@ -256,6 +249,9 @@ CREATE TABLE subscriptions (
 CREATE INDEX idx_subscriptions_owner ON subscriptions(owner_user_id);
 CREATE INDEX idx_subscriptions_status ON subscriptions(status);
 CREATE INDEX idx_subscriptions_razorpay ON subscriptions(razorpay_subscription_id);
+
+-- migrate:down
+DROP TABLE IF EXISTS subscriptions CASCADE;
 ```
 
 **Index Justification:**
@@ -281,10 +277,11 @@ CREATE INDEX idx_subscriptions_razorpay ON subscriptions(razorpay_subscription_i
 - No additional joins needed for org context queries
 
 ```sql
--- Extend existing user_roles table
+-- migrate:up
+-- Extend existing user_roles table (composite PK: user_id, role_id, org_id)
 ALTER TABLE user_roles 
   ADD COLUMN plan_type VARCHAR(50) DEFAULT 'free' NOT NULL,
-  ADD COLUMN license_expires_at TIMESTAMP,
+  ADD COLUMN license_expires_at TIMESTAMP WITH TIME ZONE,
   ADD COLUMN active_subscription_id BIGINT REFERENCES subscriptions(id);
 
 CREATE INDEX idx_user_roles_plan_type ON user_roles(plan_type);
@@ -292,6 +289,15 @@ CREATE INDEX idx_user_roles_license_expires ON user_roles(license_expires_at)
   WHERE license_expires_at IS NOT NULL;
 CREATE INDEX idx_user_roles_subscription ON user_roles(active_subscription_id)
   WHERE active_subscription_id IS NOT NULL;
+
+-- migrate:down
+DROP INDEX IF EXISTS idx_user_roles_subscription;
+DROP INDEX IF EXISTS idx_user_roles_license_expires;
+DROP INDEX IF EXISTS idx_user_roles_plan_type;
+ALTER TABLE user_roles 
+  DROP COLUMN IF EXISTS active_subscription_id,
+  DROP COLUMN IF EXISTS license_expires_at,
+  DROP COLUMN IF EXISTS plan_type;
 ```
 
 **Assignment Pattern:**
@@ -353,6 +359,7 @@ WHERE id = ?;
 - Unified idempotency handling
 
 ```sql
+-- migrate:up
 -- License Log: Unified audit trail for license actions and payment events
 CREATE TABLE license_log (
     id BIGSERIAL PRIMARY KEY,
@@ -386,6 +393,9 @@ CREATE INDEX idx_license_log_user ON license_log(user_id);
 CREATE INDEX idx_license_log_action ON license_log(action);
 CREATE INDEX idx_license_log_processed ON license_log(processed) WHERE processed = false;
 CREATE INDEX idx_license_log_razorpay ON license_log(razorpay_event_id) WHERE razorpay_event_id IS NOT NULL;
+
+-- migrate:down
+DROP TABLE IF EXISTS license_log CASCADE;
 ```
 
 **Index Justification:**
@@ -675,9 +685,13 @@ type GetUserLicenseResponse struct {
 **Goal:** Make the system aware of plans and enforce limits
 
 1. **Database Schema** ✅
-   - Create migration files for new tables
-   - Run migrations
-   - Add indices
+   - Create migration using dbmate: `dbmate new add_subscription_tables`
+   - Write migration SQL for:
+     * CREATE TABLE subscriptions
+     * ALTER TABLE user_roles (add plan_type, license_expires_at, active_subscription_id)
+     * CREATE TABLE license_log
+   - Apply migration: `dbmate up`
+   - Verify schema changes
 
 2. **Plan Definitions** ✅
    - Create `internal/license/plans.go`
@@ -698,6 +712,23 @@ type GetUserLicenseResponse struct {
    - Test free plan limits
    - Test enforcement behavior
    - Test JWT generation/validation
+
+**Migration Files Location:** `db/migrations/`
+
+**Migration Commands:**
+```bash
+# Create new migration
+dbmate new add_subscription_tables
+
+# Apply migrations
+dbmate up
+
+# Rollback if needed
+dbmate down
+
+# Check migration status
+dbmate status
+```
 
 **Deliverable:** System enforces plan limits, free users are blocked at 3 reviews/day
 
@@ -739,9 +770,9 @@ type GetUserLicenseResponse struct {
 
 1. **Assignment Service** ✅
    - Create `internal/license/assignment_service.go`
-   - Implement AssignLicense
-   - Implement RevokeLicense
-   - Implement GetAssignments
+   - Implement AssignLicense (updates user_roles)
+   - Implement RevokeLicense (reverts user_roles to free)
+   - Implement ListAssignedUsers (queries user_roles by subscription_id)
 
 2. **User Sync** ✅
    - Update user's `plan_type` on assignment
@@ -852,34 +883,42 @@ type GetUserLicenseResponse struct {
 
 ## 6. Key Implementation Details
 
-### 6.1 Razorpay Plan IDs (from payment.go)
+### 6.1 Razorpay Configuration (from payment.go)
 
+**Credentials:**
+```go
+// Test Mode (Already Configured)
+RAZORPAY_TEST_ACCESS_KEY := "REDACTED_TEST_KEY"
+RAZORPAY_TEST_SECRET_KEY := "REDACTED_TEST_SECRET"
+
+// Live Mode
+RAZORPAY_ACCESS_KEY := "REDACTED_LIVE_KEY"
+RAZORPAY_SECRET_KEY := "REDACTED_LIVE_SECRET"
+```
+
+**Plan Creation (internal/license/payment/payment.go):**
+```go
+// Create plans programmatically
+monthlyPlan, err := CreatePlan("test", "monthly")
+// Returns plan with ID to store in config
+// Price: 600 cents ($6/month)
+
+annualPlan, err := CreatePlan("test", "yearly")
+// Returns plan with ID to store in config  
+// Price: 6000 cents ($60/year, 17% discount)
+```
+
+**Store Plan IDs After Creation:**
 ```go
 const (
-    // Test Mode
-    TeamMonthlyTestPlanID = "plan_test_monthly_team"  // $6/user/month
-    TeamAnnualTestPlanID  = "plan_test_annual_team"   // $60/user/year (17% discount)
+    // Test Mode - Create these first via CreatePlan()
+    TeamMonthlyTestPlanID = "plan_XXXXX"  // Get from CreatePlan() response
+    TeamAnnualTestPlanID  = "plan_YYYYY"  // Get from CreatePlan() response
     
-    // Live Mode
-    TeamMonthlyLivePlanID = "plan_live_monthly_team"  // $6/user/month
-    TeamAnnualLivePlanID  = "plan_live_annual_team"   // $60/user/year (17% discount)
+    // Live Mode - Create when going to production
+    TeamMonthlyLivePlanID = "plan_ZZZZZ"
+    TeamAnnualLivePlanID  = "plan_WWWWW"
 )
-
-func GetPlanID(mode, planType string) (string, error) {
-    switch mode {
-    case "test":
-        if planType == "team_monthly" {
-            return TeamMonthlyTestPlanID, nil
-        }
-        return TeamAnnualTestPlanID, nil
-    case "live":
-        if planType == "team_monthly" {
-            return TeamMonthlyLivePlanID, nil
-        }
-        return TeamAnnualLivePlanID, nil
-    }
-    return "", fmt.Errorf("invalid mode or plan type")
-}
 ```
 
 ### 6.2 Checkout Integration (UI)
@@ -978,9 +1017,8 @@ func (s *AssignmentService) AssignLicense(subscriptionID, userID, orgID, assigne
         return err
     }
     
-    // Count assignments across all orgs for this subscription
-    assignedCount, _ := s.countAssignedSeats(tx, subscriptionID)
-    if assignedCount >= sub.Quantity {
+    // Check if seats are available (using denormalized counter)
+    if sub.AssignedSeats >= sub.Quantity {
         return errors.New("no available seats")
     }
     
@@ -1193,14 +1231,51 @@ OR (for free user):
 
 ---
 
-## 12. Key Differences from Your Initial Design
+## 12. Pre-Implementation Checklist
+
+### Environment Setup
+- [x] **Razorpay Test Account** - Credentials configured in payment.go
+  - Access Key: `REDACTED_TEST_KEY`
+  - Secret Key: `REDACTED_TEST_SECRET`
+- [x] **PostgreSQL Database** - Running and accessible
+- [x] **Current Schema** - Available in db/schema.sql
+- [x] **Migration Tool** - dbmate installed and ready
+
+### Before Starting Implementation
+- [ ] **Backup Database** - Create snapshot before migrations
+  ```bash
+  ./pgctl.sh shell -c "pg_dump livereview > backup_$(date +%Y%m%d_%H%M%S).sql"
+  ```
+- [ ] **Create Razorpay Plans** - Run CreatePlan() to get plan IDs
+  ```go
+  monthlyPlan, _ := CreatePlan("test", "monthly")
+  annualPlan, _ := CreatePlan("test", "yearly")
+  // Store monthlyPlan.ID and annualPlan.ID in constants
+  ```
+- [ ] **Update Plan Constants** - Store actual plan IDs in code
+- [ ] **Test Database Connection** - Verify dbmate can connect
+  ```bash
+  dbmate status
+  ```
+
+### Migration Readiness
+- [ ] **Review Migration SQL** - Check subscriptions, user_roles, license_log schemas
+- [ ] **Understand Rollback** - Know how to use `dbmate down` if needed
+- [ ] **Check user_roles Structure** - Verify composite PK (user_id, role_id, org_id) exists in db/schema.sql
+
+**Ready to proceed?** Start with Phase 1, step 1: Create migration with `dbmate new add_subscription_tables`
+
+---
+
+## 13. Key Differences from Initial Design
 
 ### What Changed:
 1. **Subscription Creation**: Returns Razorpay subscription object ready for checkout (not just ID)
 2. **License Assignment**: Separate from subscription creation (owner assigns after purchase)
-3. **User Plan Field**: Stored directly on users table (denormalized for JWT performance)
-4. **Enforcement**: JWT-based (no DB lookup), with middleware guards
+3. **User Plan Storage**: Extended user_roles table instead of separate license_assignments table
+4. **Enforcement**: JWT-based (no DB lookup), with org-specific claims
 5. **Incremental Approach**: Start with enforcement (Phase 1), not purchasing
+6. **Migration Tool**: Using dbmate with migrate:up/migrate:down syntax
 
 ### What Stayed:
 1. **First Principles**: Build from ground up ✅
@@ -1211,15 +1286,65 @@ OR (for free user):
 
 ---
 
+## 12. Pre-Implementation Checklist
+
+### Environment Setup
+- [x] **Razorpay Test Account** - Credentials configured in payment.go
+  - Access Key: `REDACTED_TEST_KEY`
+  - Secret Key: `REDACTED_TEST_SECRET`
+- [x] **PostgreSQL Database** - Running and accessible
+- [x] **Current Schema** - Available in db/schema.sql
+- [x] **Migration Tool** - dbmate installed and ready
+
+### Before Starting Implementation
+- [ ] **Backup Database** - Create snapshot before migrations
+  ```bash
+  ./pgctl.sh shell -c "pg_dump livereview > backup_$(date +%Y%m%d_%H%M%S).sql"
+  ```
+- [ ] **Create Razorpay Plans** - Run CreatePlan() to get plan IDs
+  ```go
+  monthlyPlan, _ := CreatePlan("test", "monthly")
+  annualPlan, _ := CreatePlan("test", "yearly")
+  // Store monthlyPlan.ID and annualPlan.ID in constants
+  ```
+- [ ] **Update Plan Constants** - Store actual plan IDs in code
+- [ ] **Test Database Connection** - Verify dbmate can connect
+  ```bash
+  dbmate status
+  ```
+
+### Migration Readiness
+- [ ] **Review Migration SQL** - Check subscriptions, user_roles, license_log schemas
+- [ ] **Understand Rollback** - Know how to use `dbmate down` if needed
+- [ ] **Check user_roles Structure** - Verify composite PK (user_id, role_id, org_id) exists
+
+**Ready to proceed?** Start with Phase 1, step 1: Create migration with `dbmate new add_subscription_tables`
+
+---
+
 ## Summary
 
-This plan provides a complete, incremental path to implementing Razorpay subscriptions:
+This plan provides a complete, incremental path to implementing Razorpay subscriptions with all prerequisites ready:
 
-1. **Week 1**: Enforcement (make limits work)
-2. **Week 2**: Razorpay integration (create subscriptions)
-3. **Week 3**: License assignment (apply to users)
-4. **Week 4**: UI (complete user flow)
-5. **Week 5**: Lifecycle (renewals, expiry)
-6. **Week 6**: Testing & polish
+**Environment Status:**
+- ✅ Razorpay test credentials configured (payment.go)
+- ✅ PostgreSQL running with current schema (db/schema.sql)
+- ✅ Migration tool ready (dbmate)
+
+**Implementation Path:**
+
+1. **Week 1**: Database migrations (dbmate) + Enforcement (JWT, middleware, limits)
+2. **Week 2**: Razorpay integration (CreatePlan, subscriptions, webhooks)
+3. **Week 3**: License assignment (user_roles updates, cross-org support)
+4. **Week 4**: UI (checkout flow, license management)
+5. **Week 5**: Lifecycle (renewals, expiry, grace periods)
+6. **Week 6**: Testing & polish (integration tests, edge cases)
+
+**First Steps:**
+1. Backup database: `./pgctl.sh shell -c "pg_dump livereview > backup.sql"`
+2. Create migration: `dbmate new add_subscription_tables`
+3. Write migration SQL (subscriptions, user_roles extension, license_log)
+4. Apply migration: `dbmate up`
+5. Create Razorpay plans: Run `CreatePlan("test", "monthly")` and `CreatePlan("test", "yearly")`
 
 Each phase builds on the previous, with clear deliverables and testing checkpoints. The system is designed for reliability, security, and maintainability from day one.
