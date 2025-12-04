@@ -209,13 +209,12 @@ COMMIT;
 
 #### 2.3.1 Subscriptions Table
 
-#### 2.3.1 Subscriptions Table
-
 **Purpose**: Current state of all subscriptions (what is active now)
 
 **Key Fields:**
 - `status`: Current lifecycle state - updated when state changes, not deleted
 - `quantity`: Enforcement boundary (can't assign more licenses than this)
+- `assigned_seats`: Denormalized counter - updated when licenses assigned/revoked (for fast queries)
 - `razorpay_data`: JSONB for Razorpay's 20+ fields (avoid migrations when they add fields)
 
 ```sql
@@ -233,7 +232,8 @@ CREATE TABLE subscriptions (
     
     -- Subscription Details
     plan_type VARCHAR(50) NOT NULL, -- 'team_monthly' | 'team_annual'
-    quantity INT NOT NULL, -- number of seats
+    quantity INT NOT NULL, -- number of seats purchased
+    assigned_seats INT DEFAULT 0 NOT NULL, -- number of seats currently assigned (denormalized counter)
     status VARCHAR(50) NOT NULL, -- 'created' | 'active' | 'cancelled' | 'expired'
     
     -- Billing Cycle
@@ -249,7 +249,8 @@ CREATE TABLE subscriptions (
     -- Razorpay Metadata (JSON for flexibility)
     razorpay_data JSONB,
     
-    CONSTRAINT valid_quantity CHECK (quantity > 0)
+    CONSTRAINT valid_quantity CHECK (quantity > 0),
+    CONSTRAINT valid_assigned_seats CHECK (assigned_seats >= 0 AND assigned_seats <= quantity)
 );
 
 CREATE INDEX idx_subscriptions_owner ON subscriptions(owner_user_id);
@@ -1018,9 +1019,20 @@ func (s *AssignmentService) AssignLicense(subscriptionID, userID, orgID, assigne
         return errors.New("user not found in org")
     }
     
+    // 5. Increment assigned_seats counter
+    _, err = tx.Exec(`
+        UPDATE subscriptions
+        SET assigned_seats = assigned_seats + 1
+        WHERE id = $1
+    `, subscriptionID)
+    
+    if err != nil {
+        return err
+    }
+    
     tx.Commit()
     
-    // 5. Invalidate user's existing JWTs for this org (optional - force re-login)
+    // 6. Invalidate user's existing JWTs for this org (optional - force re-login)
     s.invalidateUserTokensForOrg(userID, orgID)
     
     return nil
