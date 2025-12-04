@@ -730,6 +730,62 @@ dbmate down
 dbmate status
 ```
 
+**Verification & Spot Checks:**
+
+1. **Database Schema Verification** (CLI)
+```bash
+# Check tables exist
+./pgctl.sh shell -c "\dt subscriptions"
+./pgctl.sh shell -c "\dt license_log"
+
+# Verify user_roles columns added
+./pgctl.sh shell -c "\d user_roles" | grep -E "plan_type|license_expires_at|active_subscription_id"
+
+# Check indexes created
+./pgctl.sh shell -c "\di" | grep -E "idx_subscriptions|idx_user_roles_plan|idx_license_log"
+
+# Verify constraints
+./pgctl.sh shell -c "\d+ subscriptions" | grep -E "valid_quantity|valid_assigned_seats"
+```
+
+2. **Plan Definitions Test** (Code)
+```bash
+# Run unit tests for plan definitions
+go test ./internal/license -run TestPlanDefinitions -v
+go test ./internal/license -run TestPlanLimits -v
+```
+
+3. **JWT Claims Test** (Code)
+```bash
+# Test JWT generation with new claims
+go test ./internal/api/auth -run TestCustomClaims -v
+go test ./internal/api/auth -run TestJWTWithOrgContext -v
+```
+
+4. **Enforcement Middleware Test** (Code)
+```bash
+# Test plan enforcement logic
+go test ./internal/api/middleware -run TestEnforcePlan -v
+go test ./internal/api/middleware -run TestCheckReviewLimit -v
+```
+
+5. **Integration Spot Check** (CLI)
+```bash
+# Create a test free user in database
+./pgctl.sh shell -c "INSERT INTO user_roles (user_id, role_id, org_id, plan_type) VALUES (999, 1, 1, 'free') ON CONFLICT DO NOTHING;"
+
+# Verify default plan is 'free'
+./pgctl.sh shell -c "SELECT user_id, org_id, plan_type, license_expires_at FROM user_roles WHERE user_id = 999;"
+
+# Expected output: plan_type = 'free', license_expires_at = NULL
+```
+
+6. **[USER ACTION] UI Verification**
+   - [ ] Login as free user
+   - [ ] Create 3 reviews successfully
+   - [ ] Attempt 4th review - should see "Daily review limit reached" error
+   - [ ] Check that error message mentions "Upgrade to Team plan"
+
 **Deliverable:** System enforces plan limits, free users are blocked at 3 reviews/day
 
 ---
@@ -761,6 +817,73 @@ dbmate status
    - Add transaction support
    - Error handling
 
+**Verification & Spot Checks:**
+
+1. **Razorpay Plan Creation** (CLI)
+```bash
+# Test plan creation via Go code
+go run -tags=test ./cmd/create_plans.go
+# Should output: Monthly Plan ID: plan_XXXXX, Annual Plan ID: plan_YYYYY
+
+# Or test via direct API call
+curl -u REDACTED_TEST_KEY:REDACTED_TEST_SECRET \
+  https://api.razorpay.com/v1/plans | jq '.items[] | {id, item: .item.name}'
+# Should show LiveReview Team plans
+```
+
+2. **Subscription Service Tests** (Code)
+```bash
+# Test subscription creation
+go test ./internal/license -run TestCreateSubscription -v
+go test ./internal/license -run TestUpdateQuantity -v
+go test ./internal/license -run TestCancelSubscription -v
+```
+
+3. **Webhook Signature Verification** (Code)
+```bash
+# Test webhook signature validation
+go test ./internal/api/webhooks -run TestVerifyWebhookSignature -v
+go test ./internal/api/webhooks -run TestHandleRazorpayWebhook -v
+```
+
+4. **Database Subscription Record** (CLI)
+```bash
+# Create test subscription via API
+curl -X POST http://localhost:8888/api/v1/subscriptions \
+  -H "Authorization: Bearer <test_jwt>" \
+  -H "Content-Type: application/json" \
+  -d '{"plan_type": "team_monthly", "quantity": 5}'
+
+# Verify subscription in database
+./pgctl.sh shell -c "SELECT id, owner_user_id, plan_type, quantity, status FROM subscriptions ORDER BY created_at DESC LIMIT 1;"
+# Expected: status = 'created', quantity = 5
+```
+
+5. **Webhook Event Logging** (CLI)
+```bash
+# Send test webhook (simulate Razorpay)
+curl -X POST http://localhost:8888/api/v1/webhooks/razorpay \
+  -H "X-Razorpay-Signature: <test_signature>" \
+  -d '{"event": "subscription.activated", "payload": {...}}'
+
+# Check license_log for webhook entry
+./pgctl.sh shell -c "SELECT action, razorpay_event_id, processed FROM license_log WHERE action LIKE 'subscription.%' ORDER BY created_at DESC LIMIT 5;"
+# Should see logged webhook events
+```
+
+6. **Idempotency Check** (CLI)
+```bash
+# Send same webhook twice
+./pgctl.sh shell -c "SELECT COUNT(*) FROM license_log WHERE razorpay_event_id = 'evt_test_123';"
+# Should return 1 (duplicate ignored via UNIQUE constraint)
+```
+
+7. **[USER ACTION] UI Verification**
+   - [ ] Navigate to /subscribe page
+   - [ ] See Team Monthly ($6/user/month) and Annual ($60/user/year) options
+   - [ ] Click "Get Team Plan" - should initialize Razorpay checkout
+   - [ ] Verify Razorpay test mode indicated in checkout UI
+
 **Deliverable:** Can create subscriptions in Razorpay via API
 
 ---
@@ -789,6 +912,111 @@ dbmate status
    - Only subscription owner can assign licenses
    - Can assign to users in any org owned by subscription owner
    - User must be a member of the target org
+
+**Verification & Spot Checks:**
+
+1. **Assignment Service Tests** (Code)
+```bash
+# Test license assignment logic
+go test ./internal/license -run TestAssignLicense -v
+go test ./internal/license -run TestRevokeLicense -v
+go test ./internal/license -run TestAssignmentValidation -v
+go test ./internal/license -run TestCrossOrgAssignment -v
+```
+
+2. **API Endpoint Tests** (Code)
+```bash
+# Test assignment endpoints
+go test ./internal/api -run TestAssignLicensesEndpoint -v
+go test ./internal/api -run TestRevokeLicenseEndpoint -v
+go test ./internal/api -run TestGetUserLicenseEndpoint -v
+```
+
+3. **License Assignment Flow** (CLI)
+```bash
+# Create test subscription in DB
+./pgctl.sh shell -c "INSERT INTO subscriptions (owner_user_id, razorpay_subscription_id, plan_type, quantity, status) VALUES (1, 'sub_test_123', 'team_monthly', 10, 'active') RETURNING id;"
+# Note the returned subscription ID
+
+# Assign license to user via API
+curl -X POST http://localhost:8888/api/v1/subscriptions/1/licenses \
+  -H "Authorization: Bearer <owner_jwt>" \
+  -H "Content-Type: application/json" \
+  -d '{"user_ids": [2, 3], "org_id": 1}'
+
+# Verify user_roles updated
+./pgctl.sh shell -c "SELECT user_id, org_id, plan_type, license_expires_at, active_subscription_id FROM user_roles WHERE user_id IN (2,3) AND org_id = 1;"
+# Expected: plan_type = 'team', active_subscription_id = 1
+
+# Verify assigned_seats counter incremented
+./pgctl.sh shell -c "SELECT quantity, assigned_seats FROM subscriptions WHERE id = 1;"
+# Expected: assigned_seats = 2
+```
+
+4. **License Log Audit Trail** (CLI)
+```bash
+# Check audit log for assignments
+./pgctl.sh shell -c "SELECT user_id, org_id, action, actor_id, created_at FROM license_log WHERE subscription_id = 1 ORDER BY created_at DESC;"
+# Should show 'assigned' actions for users 2 and 3
+```
+
+5. **Cross-Org Assignment Test** (CLI)
+```bash
+# Verify owner can assign across multiple orgs they own
+./pgctl.sh shell -c "SELECT id, owner_id FROM orgs WHERE owner_id = 1;"
+# Note multiple org IDs
+
+# Assign license in different org
+curl -X POST http://localhost:8888/api/v1/subscriptions/1/licenses \
+  -d '{"user_ids": [4], "org_id": 2}'
+
+# Verify assignment in org 2
+./pgctl.sh shell -c "SELECT user_id, org_id, plan_type FROM user_roles WHERE user_id = 4 AND org_id = 2;"
+# Expected: plan_type = 'team'
+```
+
+6. **Seat Limit Enforcement** (CLI)
+```bash
+# Try to assign more than available seats
+curl -X POST http://localhost:8888/api/v1/subscriptions/1/licenses \
+  -d '{"user_ids": [5,6,7,8,9,10,11,12], "org_id": 1}'
+# Should fail with "no available seats" when quantity reached
+
+# Verify assigned_seats doesn't exceed quantity
+./pgctl.sh shell -c "SELECT quantity, assigned_seats, (quantity - assigned_seats) as available FROM subscriptions WHERE id = 1;"
+```
+
+7. **License Revocation** (CLI)
+```bash
+# Revoke license
+curl -X DELETE http://localhost:8888/api/v1/subscriptions/1/licenses/2 \
+  -H "Authorization: Bearer <owner_jwt>"
+
+# Verify user_roles reverted to free
+./pgctl.sh shell -c "SELECT user_id, org_id, plan_type, license_expires_at FROM user_roles WHERE user_id = 2 AND org_id = 1;"
+# Expected: plan_type = 'free', license_expires_at = NULL
+
+# Verify assigned_seats decremented
+./pgctl.sh shell -c "SELECT assigned_seats FROM subscriptions WHERE id = 1;"
+# Expected: assigned_seats decreased by 1
+```
+
+8. **JWT Claims Update** (CLI)
+```bash
+# Get user license info
+curl http://localhost:8888/api/v1/users/3/license \
+  -H "Authorization: Bearer <jwt>"
+# Should show plan_type, license_expires_at, subscription_id
+```
+
+9. **[USER ACTION] UI Verification**
+   - [ ] Login as subscription owner
+   - [ ] Navigate to license management page
+   - [ ] See subscription with "10 seats: 3 assigned, 7 available"
+   - [ ] Click "Assign License" and select users from dropdown
+   - [ ] Verify assigned users show "Team" badge
+   - [ ] Click "Revoke" on a user - should revert to "Free"
+   - [ ] Verify seat counter updates in real-time
 
 **Deliverable:** Subscription owners can assign/revoke licenses to users across all their organizations
 
@@ -821,6 +1049,88 @@ dbmate status
    - Show expiration date
    - Upgrade prompts for free users
 
+**Verification & Spot Checks:**
+
+1. **Frontend Build Check** (CLI)
+```bash
+# Build UI without errors
+cd ui
+npm run build
+# Should complete without errors
+
+# Check for Razorpay script inclusion
+grep -r "razorpay" src/
+# Should find Razorpay checkout integration
+```
+
+2. **API Integration Tests** (Code)
+```bash
+# Test API endpoints used by UI
+go test ./internal/api -run TestSubscriptionEndpoints -v
+go test ./internal/api -run TestPaymentVerification -v
+```
+
+3. **Checkout Flow Simulation** (CLI)
+```bash
+# Test subscription creation returns checkout data
+curl -X POST http://localhost:8888/api/v1/subscriptions \
+  -H "Authorization: Bearer <test_jwt>" \
+  -d '{"plan_type": "team_monthly", "quantity": 3}' | jq
+# Expected fields: razorpay_subscription_id, razorpay_key_id, short_url, amount
+```
+
+4. **Payment Verification Endpoint** (CLI)
+```bash
+# Test payment verification (mock signature)
+curl -X POST http://localhost:8888/api/v1/subscriptions/verify-payment \
+  -H "Authorization: Bearer <test_jwt>" \
+  -d '{"razorpay_payment_id": "pay_test", "razorpay_subscription_id": "sub_test", "razorpay_signature": "test_sig"}'
+# Should validate and update subscription status
+```
+
+5. **[USER ACTION] Complete UI Verification**
+
+   **Subscription Page:**
+   - [ ] Navigate to `/subscribe`
+   - [ ] See pricing: Monthly $6/user/month, Annual $60/user/year
+   - [ ] See "17% savings" badge on annual plan
+   - [ ] Seat quantity selector works (min 1, increments properly)
+   - [ ] Total price updates correctly (e.g., 5 seats × $6 = $30/month)
+   - [ ] "Get Team Plan" button enabled
+
+   **Checkout Flow:**
+   - [ ] Click "Get Team Plan" for Monthly with 5 seats
+   - [ ] Razorpay checkout modal opens
+   - [ ] See correct amount: $30 ($6 × 5 seats)
+   - [ ] Test mode indicator visible
+   - [ ] Use Razorpay test card: 4111 1111 1111 1111
+   - [ ] Payment succeeds
+   - [ ] Redirect to `/dashboard/licenses`
+
+   **License Management Page:**
+   - [ ] See active subscription: "Team Monthly - 5 seats"
+   - [ ] Shows "0 assigned, 5 available"
+   - [ ] "Assign Licenses" button visible
+   - [ ] Click "Assign" - see list of org members
+   - [ ] Select 2 users and assign
+   - [ ] Counter updates to "2 assigned, 3 available"
+   - [ ] Assigned users show in table with "Revoke" button
+   - [ ] "Update Seat Count" option visible
+
+   **User Dashboard:**
+   - [ ] Login as assigned user
+   - [ ] Dashboard shows "Team Plan" badge
+   - [ ] See "License expires: [date]" 
+   - [ ] No daily review limit message
+   - [ ] Create more than 3 reviews - should succeed
+
+   **Free User Dashboard:**
+   - [ ] Login as unassigned user
+   - [ ] Dashboard shows "Free Plan"
+   - [ ] See "Upgrade to Team" CTA prominently
+   - [ ] Create 3 reviews - success
+   - [ ] Attempt 4th review - blocked with upgrade message
+
 **Deliverable:** Full UI for purchasing and managing subscriptions
 
 ---
@@ -847,6 +1157,145 @@ dbmate status
    - Immediate vs end-of-cycle cancellation
    - Refund handling (if applicable)
    - Data retention policy
+
+**Verification & Spot Checks:**
+
+1. **Expiration Job Tests** (Code)
+```bash
+# Test scheduled expiration checks
+go test ./internal/jobs -run TestCheckExpiringLicenses -v
+go test ./internal/jobs -run TestAutoDowngradeExpired -v
+go test ./internal/notifications -run TestExpiryNotifications -v
+```
+
+2. **Simulate License Expiration** (CLI)
+```bash
+# Set license to expire soon
+./pgctl.sh shell -c "UPDATE user_roles SET license_expires_at = NOW() + INTERVAL '2 days' WHERE user_id = 3 AND org_id = 1;"
+
+# Run expiration notification job
+go run ./cmd/jobs/notify_expiring_licenses.go
+
+# Check notifications sent
+./pgctl.sh shell -c "SELECT user_id, notification_type, sent_at FROM notifications WHERE notification_type = 'license_expiring' ORDER BY sent_at DESC LIMIT 5;"
+```
+
+3. **Test Expiration Enforcement** (CLI)
+```bash
+# Set license to expired
+./pgctl.sh shell -c "UPDATE user_roles SET license_expires_at = NOW() - INTERVAL '1 day' WHERE user_id = 3 AND org_id = 1;"
+
+# Try to access with expired license (should fail)
+curl http://localhost:8888/api/v1/reviews \
+  -H "Authorization: Bearer <expired_jwt>" \
+  -X POST -d '{...}'
+# Expected: 402 Payment Required - "Your license has expired"
+```
+
+4. **Grace Period Test** (CLI)
+```bash
+# Set license expired but within grace period
+./pgctl.sh shell -c "UPDATE user_roles SET license_expires_at = NOW() - INTERVAL '3 days' WHERE user_id = 3;"
+
+# Check grace period status
+curl http://localhost:8888/api/v1/users/3/license
+# Should show: {"status": "grace_period", "days_remaining": 4}
+```
+
+5. **Auto-Downgrade Test** (CLI)
+```bash
+# Run downgrade job for licenses past grace period
+go run ./cmd/jobs/downgrade_expired_licenses.go
+
+# Verify users downgraded to free
+./pgctl.sh shell -c "SELECT user_id, org_id, plan_type FROM user_roles WHERE license_expires_at < NOW() - INTERVAL '7 days' LIMIT 5;"
+# Expected: plan_type = 'free' for expired licenses
+
+# Check license_log for downgrade actions
+./pgctl.sh shell -c "SELECT user_id, action, created_at FROM license_log WHERE action = 'expired' ORDER BY created_at DESC LIMIT 5;"
+```
+
+6. **Renewal Webhook Test** (CLI)
+```bash
+# Simulate Razorpay renewal webhook
+curl -X POST http://localhost:8888/api/v1/webhooks/razorpay \
+  -H "X-Razorpay-Signature: <signature>" \
+  -d '{
+    "event": "subscription.charged",
+    "payload": {
+      "subscription": {"entity": {"id": "sub_123", "current_period_end": 1735689600}}
+    }
+  }'
+
+# Verify license_expires_at updated for assigned users
+./pgctl.sh shell -c "SELECT user_id, license_expires_at FROM user_roles WHERE active_subscription_id IN (SELECT id FROM subscriptions WHERE razorpay_subscription_id = 'sub_123');"
+# Expected: license_expires_at extended to new period end
+```
+
+7. **Cancellation Test** (CLI)
+```bash
+# Cancel subscription (end of cycle)
+curl -X POST http://localhost:8888/api/v1/subscriptions/1/cancel \
+  -H "Authorization: Bearer <owner_jwt>" \
+  -d '{"cancel_at_cycle_end": true}'
+
+# Verify subscription status
+./pgctl.sh shell -c "SELECT id, status, cancelled_at, current_period_end FROM subscriptions WHERE id = 1;"
+# Expected: status = 'cancelled', current_period_end still in future
+
+# Verify users retain access until period end
+./pgctl.sh shell -c "SELECT plan_type, license_expires_at FROM user_roles WHERE active_subscription_id = 1;"
+# Expected: plan_type still 'team', expires_at = current_period_end
+```
+
+8. **Payment Retry Test** (CLI)
+```bash
+# Simulate failed payment webhook
+curl -X POST http://localhost:8888/api/v1/webhooks/razorpay \
+  -d '{"event": "payment.failed", "payload": {...}}'
+
+# Check license_log for failure
+./pgctl.sh shell -c "SELECT action, payload FROM license_log WHERE action = 'payment.failed' ORDER BY created_at DESC LIMIT 1;"
+
+# Verify subscription status updated
+./pgctl.sh shell -c "SELECT status FROM subscriptions WHERE razorpay_subscription_id = 'sub_with_failed_payment';"
+# Expected: status = 'halted' or 'past_due'
+```
+
+9. **[USER ACTION] UI Verification**
+
+   **Expiration Notifications:**
+   - [ ] Check email for "License expiring in 7 days" notification
+   - [ ] Check email for "License expiring in 3 days" notification  
+   - [ ] Check email for "License expiring in 1 day" notification
+   - [ ] Verify emails contain renewal link
+
+   **Expired License Experience:**
+   - [ ] Login as user with expired license
+   - [ ] Dashboard shows "License Expired" warning banner
+   - [ ] See "Renew Now" button prominently
+   - [ ] Try to create review - blocked with "Payment Required" error
+   - [ ] Error message includes "Your license expired on [date]"
+
+   **Grace Period Experience:**
+   - [ ] Login as user in grace period (expired < 7 days)
+   - [ ] Dashboard shows "Grace Period: 4 days remaining" warning
+   - [ ] Can still access in read-only mode
+   - [ ] Write operations disabled
+
+   **Renewal Flow:**
+   - [ ] Click "Renew" from expired dashboard
+   - [ ] Redirected to payment page with existing subscription details
+   - [ ] Complete payment
+   - [ ] Dashboard updates to show active license with new expiry date
+
+   **Cancellation UI:**
+   - [ ] Login as subscription owner
+   - [ ] Go to subscription management
+   - [ ] Click "Cancel Subscription"
+   - [ ] See options: "Cancel Now" vs "Cancel at End of Cycle"
+   - [ ] Choose "End of Cycle" - confirmation shows expiry date
+   - [ ] Status shows "Cancelled (Active until [date])"
 
 **Deliverable:** Automated lifecycle management
 
@@ -877,7 +1326,218 @@ dbmate status
    - Integration guide
    - Troubleshooting guide
 
+**Verification & Spot Checks:**
+
+1. **Full Integration Test Suite** (Code)
+```bash
+# Run complete test suite
+go test ./... -v -cover
+
+# Run integration tests specifically
+go test ./internal/api/integration -run TestFullPurchaseFlow -v
+go test ./internal/api/integration -run TestAssignmentFlow -v
+go test ./internal/api/integration -run TestWebhookProcessing -v
+go test ./internal/api/integration -run TestExpirationFlow -v
+
+# Check test coverage
+go test ./internal/license/... -coverprofile=coverage.out
+go tool cover -func=coverage.out | grep total
+# Target: >80% coverage for license package
+```
+
+2. **Edge Case Tests** (Code)
+```bash
+# Test concurrent assignments
+go test ./internal/license -run TestConcurrentAssignments -v -race
+
+# Test webhook replay protection
+go test ./internal/api/webhooks -run TestWebhookIdempotency -v
+
+# Test subscription downgrades
+go test ./internal/license -run TestDowngradeSubscription -v
+
+# Test payment failure recovery
+go test ./internal/license -run TestPaymentFailureRecovery -v
+```
+
+3. **Load/Stress Test** (CLI)
+```bash
+# Test concurrent license assignments (requires 'hey' tool)
+hey -n 100 -c 10 -m POST \
+  -H "Authorization: Bearer <jwt>" \
+  -d '{"user_ids": [10], "org_id": 1}' \
+  http://localhost:8888/api/v1/subscriptions/1/licenses
+
+# Verify data integrity after load
+./pgctl.sh shell -c "SELECT COUNT(*) FROM license_log WHERE action = 'assigned';"
+./pgctl.sh shell -c "SELECT assigned_seats FROM subscriptions WHERE id = 1;"
+# assigned_seats should match license_log count
+```
+
+4. **Webhook Replay Attack Test** (CLI)
+```bash
+# Send same webhook multiple times rapidly
+for i in {1..10}; do
+  curl -X POST http://localhost:8888/api/v1/webhooks/razorpay \
+    -H "X-Razorpay-Signature: <valid_sig>" \
+    -d '{"event": "subscription.activated", "id": "evt_duplicate_test", ...}' &
+done
+wait
+
+# Verify only processed once
+./pgctl.sh shell -c "SELECT COUNT(*) FROM license_log WHERE razorpay_event_id = 'evt_duplicate_test';"
+# Expected: 1 (duplicates rejected)
+```
+
+5. **Data Consistency Checks** (CLI)
+```bash
+# Verify assigned_seats matches actual assignments
+./pgctl.sh shell -c "
+SELECT 
+  s.id,
+  s.assigned_seats as counter,
+  COUNT(ur.user_id) as actual_assignments,
+  (s.assigned_seats = COUNT(ur.user_id)) as consistent
+FROM subscriptions s
+LEFT JOIN user_roles ur ON ur.active_subscription_id = s.id
+GROUP BY s.id, s.assigned_seats;
+"
+# All rows should show consistent = true
+
+# Verify no orphaned licenses
+./pgctl.sh shell -c "SELECT COUNT(*) FROM user_roles WHERE active_subscription_id IS NOT NULL AND active_subscription_id NOT IN (SELECT id FROM subscriptions);"
+# Expected: 0
+
+# Verify license_log completeness
+./pgctl.sh shell -c "
+SELECT 
+  action,
+  COUNT(*) as count,
+  COUNT(DISTINCT subscription_id) as unique_subscriptions
+FROM license_log 
+GROUP BY action 
+ORDER BY count DESC;
+"
+# Should see all action types: assigned, revoked, expired, subscription.*, payment.*
+```
+
+6. **Admin Tool Tests** (CLI)
+```bash
+# Test manual license grant
+go run ./cmd/admin/grant_license.go --user-id=99 --org-id=1 --plan=team --expires="2025-12-31"
+
+# Verify grant bypasses subscription
+./pgctl.sh shell -c "SELECT user_id, plan_type, active_subscription_id FROM user_roles WHERE user_id = 99;"
+# Expected: plan_type = 'team', active_subscription_id = NULL (manual grant)
+
+# Test subscription override
+go run ./cmd/admin/override_subscription.go --subscription-id=1 --extend-days=30
+
+# Check audit log for admin actions
+./pgctl.sh shell -c "SELECT action, actor_id, payload FROM license_log WHERE action LIKE 'admin.%' ORDER BY created_at DESC LIMIT 5;"
+```
+
+7. **Security Audit** (CLI)
+```bash
+# Test authorization - non-owner can't assign licenses
+curl -X POST http://localhost:8888/api/v1/subscriptions/1/licenses \
+  -H "Authorization: Bearer <non_owner_jwt>" \
+  -d '{"user_ids": [10], "org_id": 1}'
+# Expected: 403 Forbidden
+
+# Test cross-org protection - can't assign to org not owned
+curl -X POST http://localhost:8888/api/v1/subscriptions/1/licenses \
+  -H "Authorization: Bearer <owner_jwt>" \
+  -d '{"user_ids": [10], "org_id": 999}'
+# Expected: 403 Forbidden or 400 Bad Request
+
+# Test expired JWT rejection
+curl http://localhost:8888/api/v1/reviews \
+  -H "Authorization: Bearer <expired_jwt>"
+# Expected: 401 Unauthorized
+```
+
+8. **Performance Benchmarks** (Code)
+```bash
+# Run performance benchmarks
+go test ./internal/license -bench=BenchmarkAssignLicense -benchmem
+go test ./internal/api/middleware -bench=BenchmarkEnforcePlan -benchmem
+
+# Check slow query log
+./pgctl.sh shell -c "SELECT query, mean_exec_time, calls FROM pg_stat_statements WHERE mean_exec_time > 100 ORDER BY mean_exec_time DESC LIMIT 10;"
+# Verify no subscription-related queries >100ms
+```
+
+9. **Documentation Verification** (CLI)
+```bash
+# Verify API docs exist
+ls -la docs/api/
+# Should contain: subscriptions.md, licenses.md, webhooks.md
+
+# Check code examples compile
+go build -o /dev/null examples/create_subscription.go
+go build -o /dev/null examples/assign_license.go
+
+# Verify troubleshooting guide covers common issues
+grep -i "payment failed" docs/troubleshooting.md
+grep -i "webhook" docs/troubleshooting.md
+grep -i "license expired" docs/troubleshooting.md
+```
+
+10. **[USER ACTION] End-to-End Acceptance Testing**
+
+   **Complete Purchase Journey:**
+   - [ ] Start as new free user
+   - [ ] Hit 3-review limit
+   - [ ] Click upgrade → purchase Team plan (5 seats)
+   - [ ] Payment completes successfully
+   - [ ] Automatically assigned first license
+   - [ ] Create >3 reviews successfully
+   - [ ] Invite 4 team members to org
+   - [ ] Assign licenses to all 4 members
+   - [ ] Each member can create unlimited reviews
+   - [ ] Attempt to assign 6th license → blocked (only 5 seats)
+
+   **Cross-Org Scenario:**
+   - [ ] Create second org (same owner)
+   - [ ] Invite different users to org 2
+   - [ ] Assign licenses from same subscription to org 2 users
+   - [ ] User A in org 1 is Team, same User A in org 2 is Free
+   - [ ] Verify User A sees different limits when switching orgs
+
+   **Lifecycle Journey:**
+   - [ ] Cancel subscription (end of cycle)
+   - [ ] Continue using until expiry date
+   - [ ] On expiry, all assigned users downgraded
+   - [ ] Receive expiration notifications
+   - [ ] Renew subscription
+   - [ ] Users automatically upgraded back to Team
+
+   **Error Handling:**
+   - [ ] Try to assign license to non-member → see clear error
+   - [ ] Try payment with invalid card → see Razorpay error
+   - [ ] Simulate webhook failure → verify retry mechanism
+   - [ ] Test with slow network → see loading states
+
+   **Admin Tools:**
+   - [ ] Admin grants license manually
+   - [ ] License shows in user dashboard
+   - [ ] Admin revokes license
+   - [ ] User immediately downgraded
+
 **Deliverable:** Production-ready subscription system
+
+**Go/No-Go Checklist for Production:**
+- [ ] All integration tests passing
+- [ ] Test coverage >80% for license package
+- [ ] No high-severity security issues
+- [ ] Webhook signature verification working
+- [ ] All edge cases handled gracefully
+- [ ] Admin tools tested and documented
+- [ ] Load testing passed (100 concurrent requests)
+- [ ] Data consistency verified in test environment
+- [ ] User acceptance testing completed
+- [ ] Rollback plan documented and tested
 
 ---
 
