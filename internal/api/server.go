@@ -21,6 +21,7 @@ import (
 	"github.com/livereview/internal/jobqueue"
 	"github.com/livereview/internal/learnings"
 	"github.com/livereview/internal/license"
+	"github.com/livereview/internal/license/payment"
 	bitbucketprovider "github.com/livereview/internal/provider_input/bitbucket"
 	githubprovider "github.com/livereview/internal/provider_input/github"
 	gitlabprovider "github.com/livereview/internal/provider_input/gitlab"
@@ -570,6 +571,25 @@ func (s *Server) setupRoutes() {
 	reviewsGroup.GET("/:id/events", reviewEventsHandler.GetReviewEvents)
 	reviewsGroup.GET("/:id/events/:type", reviewEventsHandler.GetReviewEventsByType)
 	reviewsGroup.GET("/:id/summary", reviewEventsHandler.GetReviewSummary)
+
+	// Subscription endpoints (organization scoped)
+	subscriptionsHandler := NewSubscriptionsHandler(s.db)
+	subscriptionsGroup := v1.Group("/subscriptions")
+	subscriptionsGroup.Use(authMiddleware.RequireAuth())
+	subscriptionsGroup.Use(authMiddleware.BuildOrgContextFromHeader())
+	subscriptionsGroup.Use(authMiddleware.ValidateOrgAccess())
+	subscriptionsGroup.Use(authMiddleware.BuildPermissionContext())
+
+	subscriptionsGroup.POST("", subscriptionsHandler.CreateSubscription)
+	subscriptionsGroup.GET("/:id", subscriptionsHandler.GetSubscription)
+	subscriptionsGroup.PATCH("/:id/quantity", subscriptionsHandler.UpdateQuantity)
+	subscriptionsGroup.POST("/:id/cancel", subscriptionsHandler.CancelSubscription)
+	subscriptionsGroup.POST("/:id/assign", subscriptionsHandler.AssignLicense)
+	subscriptionsGroup.DELETE("/:id/users/:user_id", subscriptionsHandler.RevokeLicense)
+
+	// Razorpay webhook endpoint (public - signature verified in handler)
+	webhookHandler := payment.NewRazorpayWebhookHandler(s.db, os.Getenv("RAZORPAY_WEBHOOK_SECRET"))
+	v1.POST("/webhooks/razorpay", webhookHandler.HandleWebhook)
 }
 
 // Handler for creating PAT integration token, delegates to pat_token.go

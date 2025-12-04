@@ -1,4 +1,4 @@
-package license
+package payment
 
 import "encoding/json"
 
