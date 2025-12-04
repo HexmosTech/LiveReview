@@ -1,4 +1,4 @@
-\restrict iOxVPn0aQAMfqHLi92HoSxbxJFt9BUvZQTjYSyNB0OPYFkaxBbPWJswKyDEslxN
+\restrict wgYtlDYAbsYQvHYYYgJrCCmNY0byhR1p8gyRDFLbiI5fJTP90l699yGv3Ilg0kv
 
 -- Dumped from database version 15.14 (Debian 15.14-1.pgdg13+1)
 -- Dumped by pg_dump version 15.14 (Ubuntu 15.14-1.pgdg22.04+1)
@@ -367,14 +367,15 @@ CREATE TABLE public.license_log (
     subscription_id bigint,
     user_id bigint,
     org_id bigint,
-    action character varying(100) NOT NULL,
+    event_type character varying(100) NOT NULL,
     actor_id bigint,
     razorpay_event_id character varying(255),
-    payload jsonb,
+    metadata jsonb,
     processed boolean DEFAULT true,
     processed_at timestamp with time zone,
     error_message text,
-    created_at timestamp with time zone DEFAULT now() NOT NULL
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    description text
 );
 
 
@@ -834,6 +835,10 @@ CREATE TABLE public.subscriptions (
     cancelled_at timestamp with time zone,
     expired_at timestamp with time zone,
     razorpay_data jsonb,
+    org_id bigint,
+    license_expires_at timestamp with time zone,
+    notes jsonb,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
     CONSTRAINT valid_assigned_seats CHECK (((assigned_seats >= 0) AND (assigned_seats <= quantity))),
     CONSTRAINT valid_quantity CHECK ((quantity > 0))
 );
@@ -1690,7 +1695,7 @@ CREATE INDEX idx_learnings_tsv ON public.learnings USING gin (tsv);
 -- Name: idx_license_log_action; Type: INDEX; Schema: public; Owner: -
 --
 
-CREATE INDEX idx_license_log_action ON public.license_log USING btree (action);
+CREATE INDEX idx_license_log_action ON public.license_log USING btree (event_type);
 
 
 --
@@ -1901,6 +1906,13 @@ CREATE INDEX idx_reviews_repository ON public.reviews USING btree (repository);
 --
 
 CREATE INDEX idx_reviews_status ON public.reviews USING btree (status);
+
+
+--
+-- Name: idx_subscriptions_org; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_subscriptions_org ON public.subscriptions USING btree (org_id);
 
 
 --
@@ -2298,6 +2310,14 @@ ALTER TABLE ONLY public.river_client_queue
 
 
 --
+-- Name: subscriptions subscriptions_org_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.subscriptions
+    ADD CONSTRAINT subscriptions_org_id_fkey FOREIGN KEY (org_id) REFERENCES public.orgs(id);
+
+
+--
 -- Name: subscriptions subscriptions_owner_user_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -2429,7 +2449,7 @@ ALTER TABLE ONLY public.webhook_registry
 -- PostgreSQL database dump complete
 --
 
-\unrestrict iOxVPn0aQAMfqHLi92HoSxbxJFt9BUvZQTjYSyNB0OPYFkaxBbPWJswKyDEslxN
+\unrestrict wgYtlDYAbsYQvHYYYgJrCCmNY0byhR1p8gyRDFLbiI5fJTP90l699yGv3Ilg0kv
 
 
 --
@@ -2472,4 +2492,5 @@ INSERT INTO public.schema_migrations (version) VALUES
     ('20250924122125'),
     ('20250925120001'),
     ('20251007'),
-    ('20251204105958');
+    ('20251204105958'),
+    ('20251204134413');

@@ -1,4 +1,4 @@
-package license
+package payment
 
 import (
 	"database/sql"
@@ -76,18 +76,20 @@ func (s *SubscriptionService) CreateTeamSubscription(ownerUserID, orgID int, pla
 
 	// Insert into subscriptions table
 	notesJSON, _ := json.Marshal(notes)
-	_, err = tx.Exec(`
+	var dbSubscriptionID int64
+	err = tx.QueryRow(`
 		INSERT INTO subscriptions (
 			razorpay_subscription_id, owner_user_id, org_id, plan_type,
 			quantity, assigned_seats, status, razorpay_plan_id,
 			current_period_start, current_period_end, license_expires_at,
 			notes, created_at, updated_at
-		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, NOW(), NOW())`,
+		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, NOW(), NOW())
+		RETURNING id`,
 		sub.ID, ownerUserID, orgID, dbPlanType,
 		quantity, 0, sub.Status, razorpayPlanID,
 		time.Unix(sub.CurrentStart, 0), time.Unix(sub.CurrentEnd, 0), licenseExpiresAt,
 		notesJSON,
-	)
+	).Scan(&dbSubscriptionID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to insert subscription: %w", err)
 	}
@@ -100,7 +102,7 @@ func (s *SubscriptionService) CreateTeamSubscription(ownerUserID, orgID int, pla
 		    active_subscription_id = $2,
 		    updated_at = NOW()
 		WHERE user_id = $3 AND org_id = $4`,
-		licenseExpiresAt, sub.ID, ownerUserID, orgID,
+		licenseExpiresAt, dbSubscriptionID, ownerUserID, orgID,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to update user_roles: %w", err)
@@ -348,13 +350,14 @@ func (s *SubscriptionService) AssignLicense(subscriptionID string, userID, orgID
 	// Check subscription capacity
 	var quantity, assignedSeats int
 	var ownerUserID int
+	var dbSubscriptionID int64
 	var licenseExpiresAt time.Time
 	err = tx.QueryRow(`
-		SELECT quantity, assigned_seats, owner_user_id, license_expires_at
+		SELECT id, quantity, assigned_seats, owner_user_id, license_expires_at
 		FROM subscriptions
 		WHERE razorpay_subscription_id = $1`,
 		subscriptionID,
-	).Scan(&quantity, &assignedSeats, &ownerUserID, &licenseExpiresAt)
+	).Scan(&dbSubscriptionID, &quantity, &assignedSeats, &ownerUserID, &licenseExpiresAt)
 	if err != nil {
 		return fmt.Errorf("failed to get subscription: %w", err)
 	}
@@ -383,7 +386,7 @@ func (s *SubscriptionService) AssignLicense(subscriptionID string, userID, orgID
 		    active_subscription_id = $2,
 		    updated_at = NOW()
 		WHERE user_id = $3 AND org_id = $4`,
-		licenseExpiresAt, subscriptionID, userID, orgID,
+		licenseExpiresAt, dbSubscriptionID, userID, orgID,
 	)
 	if err != nil {
 		// Handle case where user_roles entry doesn't exist yet
@@ -391,9 +394,9 @@ func (s *SubscriptionService) AssignLicense(subscriptionID string, userID, orgID
 			// Insert new user_roles entry
 			_, err = tx.Exec(`
 				INSERT INTO user_roles (
-					user_id, org_id, role, plan_type, license_expires_at, active_subscription_id, created_at, updated_at
-				) VALUES ($1, $2, 'member', 'team', $3, $4, NOW(), NOW())`,
-				userID, orgID, licenseExpiresAt, subscriptionID,
+					user_id, org_id, role_id, plan_type, license_expires_at, active_subscription_id, created_at, updated_at
+				) VALUES ($1, $2, 3, 'team', $3, $4, NOW(), NOW())`,
+				userID, orgID, licenseExpiresAt, dbSubscriptionID,
 			)
 			if err != nil {
 				return fmt.Errorf("failed to create user_roles: %w", err)
