@@ -71,7 +71,142 @@ Enforced at JWT level to avoid database lookups on every request. The JWT contai
 
 ## 2. Database Schema Design
 
-### 2.1 New Tables
+### 2.1 Design Principles
+
+**Core Principle: Immutable Audit Log First**
+
+Every license state change follows this pattern:
+1. Write to audit table (immutable log entry)
+2. Update state table (current state)
+3. Both in same transaction (atomic safety)
+
+**Why this matters:**
+- Audit table shows **how** we got to current state (timeline of changes)
+- State table shows **what** the current state is (fast lookups)
+- If transaction fails, neither update happens (consistency)
+
+**Concrete Implementation:**
+
+```sql
+BEGIN TRANSACTION;
+  -- Step 1: Log the action (immutable)
+  INSERT INTO license_log (subscription_id, user_id, org_id, action, actor_id, timestamp)
+  VALUES (42, 101, 5, 'assigned', 1, NOW());
+  
+  -- Step 2: Update current state
+  INSERT INTO license_assignments (subscription_id, user_id, org_id, status, assigned_by_user_id)
+  VALUES (42, 101, 5, 'active', 1);
+COMMIT;
+
+-- Later, on revocation:
+BEGIN TRANSACTION;
+  -- Step 1: Log the revocation
+  INSERT INTO license_log (subscription_id, user_id, org_id, action, actor_id, timestamp)
+  VALUES (42, 101, 5, 'revoked', 1, NOW());
+  
+  -- Step 2: Update current state
+  UPDATE license_assignments 
+  SET status = 'revoked', revoked_at = NOW(), revoked_by_user_id = 1
+  WHERE subscription_id = 42 AND user_id = 101;
+COMMIT;
+```
+
+**Table Categories:**
+1. **State Tables**: `subscriptions`, `license_assignments`, `users` - Current state, frequently updated
+2. **Audit Log Table**: `license_log` - Immutable log for ALL actions (license + payment), append-only, never updated
+3. **Reference Tables**: `organizations`, `users` (base fields) - Stable data
+
+---
+
+### 2.2 Core Entities & Relationships
+
+**Entity Model:**
+
+```
+┌─────────────────┐
+│     users       │ (existing table)
+│  - id           │
+│  - email        │
+│  - plan_type    │◄─────────────┐ (synced on assignment)
+│  - license_     │              │
+│   expires_at    │              │
+└─────────────────┘              │
+                                 │
+┌─────────────────┐              │
+│ organizations   │ (existing)   │
+│  - id           │              │
+│  - owner_id     │              │
+└─────────────────┘              │
+         ▲                       │
+         │                       │
+         │ owns                  │
+         │                       │
+┌─────────────────┐              │
+│ subscriptions   │              │ updates user
+│  - id           │              │ in same txn
+│  - owner_user_id├──────────────┤
+│  - org_id       │ (billing org)│
+│  - quantity     │              │
+│  - status       │              │
+└────────┬────────┘              │
+         │                       │
+         │                       │
+         ├──────────┐            │
+         │          │            │
+         ▼          ▼            │
+┌──────────────────┐             │
+│license_assignments│ (STATE)    │
+│  - subscription_id│            │
+│  - user_id       ├─────────────┘
+│  - org_id        │ (usage org)
+│  - status        │
+└──────────────────┘
+         │
+         │ every change
+         │ logged to
+         ▼
+┌──────────────────┐
+│  license_log     │ (UNIFIED AUDIT LOG)
+│  - subscription_id│
+│  - user_id       │ (null for payment events)
+│  - org_id        │ (null for payment events)
+│  - action        │ ('assigned'|'revoked'|'payment.captured'|'subscription.activated')
+│  - actor_id      │ (null for webhook events)
+│  - razorpay_     │
+│    event_id      │ (null for license actions)
+│  - payload       │ (JSONB - details vary by action)
+│  - timestamp     │
+└──────────────────┘
+```
+
+**Key Relationships:**
+
+1. **Subscription → Owner (users.id)**: Who purchased and can manage licenses
+2. **Subscription → Billing Org (organizations.id)**: Primary org for billing (licenses work across all owner's orgs)
+3. **License Assignment → Subscription**: Which subscription provides this license (up to `quantity` limit)
+4. **License Assignment → User**: Who gets access to Team plan
+5. **License Assignment → Usage Org**: Which org the user is using the license in (enables cross-org assignment)
+
+**Cross-Org Example:**
+- Alice owns Org A and Org B
+- Alice buys subscription for Org A (`subscriptions.org_id = A`)
+- Alice assigns license to Bob who works in Org B (`license_assignments.org_id = B`)
+- Result: Billing happens in Org A, usage tracked in Org B
+
+---
+
+### 2.3 Table Schemas
+
+#### 2.3.1 Subscriptions Table
+
+#### 2.3.1 Subscriptions Table
+
+**Purpose**: Current state of all subscriptions (what is active now)
+
+**Key Fields:**
+- `status`: Current lifecycle state - updated when state changes, not deleted
+- `quantity`: Enforcement boundary (can't assign more licenses than this)
+- `razorpay_data`: JSONB for Razorpay's 20+ fields (avoid migrations when they add fields)
 
 ```sql
 -- Subscriptions: Track Razorpay subscriptions
@@ -112,8 +247,37 @@ CREATE INDEX idx_subscriptions_owner ON subscriptions(owner_user_id);
 CREATE INDEX idx_subscriptions_org ON subscriptions(org_id);
 CREATE INDEX idx_subscriptions_status ON subscriptions(status);
 CREATE INDEX idx_subscriptions_razorpay ON subscriptions(razorpay_subscription_id);
+```
 
+**Index Justification:**
+- `owner_user_id`: List all subscriptions owned by a user (management UI)
+- `status`: Filter active vs expired subscriptions (cleanup jobs)
+- `razorpay_subscription_id`: Lookup by Razorpay ID on webhook events (critical path)
 
+---
+
+#### 2.3.2 License Assignments Table
+
+**Purpose**: Current state of who has which licenses
+
+**Key Fields:**
+- `org_id`: Where license is USED (can differ from where subscription was purchased)
+- `status`: Current state ('active' | 'revoked' | 'expired') - never deleted
+- `assigned_by_user_id`, `revoked_by_user_id`: Track who made changes
+
+**State Changes:**
+```sql
+-- Assignment: status changes from nothing → 'active'
+INSERT INTO license_assignments (status) VALUES ('active');
+
+-- Revocation: status changes from 'active' → 'revoked'
+UPDATE license_assignments SET status = 'revoked', revoked_at = NOW() WHERE id = ?;
+
+-- Expiry: status changes from 'active' → 'expired' (automated job)
+UPDATE license_assignments SET status = 'expired' WHERE valid_until < NOW();
+```
+
+```sql
 -- License Assignments: Track which users have licenses applied
 -- Users can be assigned licenses in any org owned by the subscription owner
 CREATE TABLE license_assignments (
@@ -146,37 +310,108 @@ CREATE TABLE license_assignments (
 CREATE INDEX idx_license_assignments_user ON license_assignments(user_id, status);
 CREATE INDEX idx_license_assignments_subscription ON license_assignments(subscription_id);
 CREATE INDEX idx_license_assignments_org ON license_assignments(org_id);
+```
 
+**Index Justification:**
+- `(user_id, status)`: Composite index for "get user's active license" (JWT generation)
+- `subscription_id`: Count assigned seats for a subscription (enforcement)
+- `org_id`: Find all licenses used in an org (org admin view)
 
--- Payment Events: Audit trail for all payment activities
-CREATE TABLE payment_events (
+---
+
+#### 2.3.3 License Log Table (Unified Audit Log)
+
+**Purpose**: Single immutable audit log for ALL actions (license changes + payment events)
+
+**Audit-First Pattern Examples:**
+
+```sql
+-- License Assignment
+BEGIN TRANSACTION;
+  -- Step 1: Log the action
+  INSERT INTO license_log (subscription_id, user_id, org_id, action, actor_id, payload)
+  VALUES (42, 101, 5, 'assigned', 1, '{"quantity": 10}');
+  
+  -- Step 2: Update state
+  INSERT INTO license_assignments (subscription_id, user_id, org_id, status, assigned_by_user_id)
+  VALUES (42, 101, 5, 'active', 1);
+COMMIT;
+
+-- Payment Webhook
+BEGIN TRANSACTION;
+  -- Step 1: Log the webhook
+  INSERT INTO license_log (subscription_id, action, razorpay_event_id, payload, processed)
+  VALUES (42, 'subscription.activated', 'evt_ABC123', '{"razorpay_data": {...}}', false);
+  
+  -- Step 2: Update subscription state
+  UPDATE subscriptions SET status = 'active', activated_at = NOW()
+  WHERE id = 42;
+COMMIT;
+
+-- Later: Mark webhook as processed (only field we update)
+UPDATE license_log SET processed = true, processed_at = NOW()
+WHERE id = ?;
+```
+
+**Why single table for both?**
+- Complete timeline of everything that happened to a subscription
+- Simpler queries: one table to check for entire history
+- Unified idempotency handling
+
+```sql
+-- License Log: Unified audit trail for license actions and payment events
+CREATE TABLE license_log (
     id BIGSERIAL PRIMARY KEY,
     
-    -- Event Details
-    event_type VARCHAR(100) NOT NULL, -- 'subscription.created', 'payment.captured', etc.
-    razorpay_event_id VARCHAR(255) UNIQUE,
-    
-    -- Relationships
+    -- Relationships (nullable for payment-only events)
     subscription_id BIGINT REFERENCES subscriptions(id),
-    user_id BIGINT REFERENCES users(id),
+    user_id BIGINT REFERENCES users(id),  -- null for payment events
+    org_id BIGINT REFERENCES organizations(id),  -- null for payment events
+    
+    -- Action Details
+    action VARCHAR(100) NOT NULL,  -- 'assigned'|'revoked'|'expired'|'subscription.activated'|'payment.captured'|etc.
+    actor_id BIGINT REFERENCES users(id),  -- null for webhook events
+    
+    -- Razorpay Integration (for payment events)
+    razorpay_event_id VARCHAR(255) UNIQUE,  -- null for license actions, unique for webhooks
     
     -- Event Data
-    payload JSONB NOT NULL,
+    payload JSONB,  -- flexible storage for action-specific data
     
-    -- Processing Status
-    processed BOOLEAN DEFAULT FALSE,
+    -- Processing Status (for webhook events)
+    processed BOOLEAN DEFAULT TRUE,  -- false only for unprocessed webhooks
     processed_at TIMESTAMP,
     error_message TEXT,
     
+    -- Timestamp
     created_at TIMESTAMP NOT NULL DEFAULT NOW()
 );
 
-CREATE INDEX idx_payment_events_type ON payment_events(event_type);
-CREATE INDEX idx_payment_events_subscription ON payment_events(subscription_id);
-CREATE INDEX idx_payment_events_processed ON payment_events(processed);
+CREATE INDEX idx_license_log_subscription ON license_log(subscription_id);
+CREATE INDEX idx_license_log_user ON license_log(user_id);
+CREATE INDEX idx_license_log_action ON license_log(action);
+CREATE INDEX idx_license_log_processed ON license_log(processed) WHERE processed = false;
+CREATE INDEX idx_license_log_razorpay ON license_log(razorpay_event_id) WHERE razorpay_event_id IS NOT NULL;
 ```
 
-### 2.2 User Table Extension
+**Index Justification:**
+- `subscription_id`: Complete history for a subscription (most common query)
+- `user_id`: Timeline of license changes for a user
+- `action`: Filter by event type (all assignments, all payment failures, etc.)
+- `processed WHERE false`: Find unprocessed webhooks (background job)
+- `razorpay_event_id WHERE NOT NULL`: Partial index for webhook deduplication (saves space)
+
+---
+
+### 2.4 User Table Extension
+
+---
+
+### 2.4 User Table Extension
+
+**Purpose**: Store current plan state for JWT generation on login
+
+**Updated on license assignment/revocation in same transaction:**
 
 ```sql
 -- Add to existing users table
@@ -187,6 +422,24 @@ ALTER TABLE users ADD COLUMN active_subscription_id BIGINT REFERENCES subscripti
 CREATE INDEX idx_users_plan_type ON users(plan_type);
 CREATE INDEX idx_users_license_expires ON users(license_expires_at);
 ```
+
+**Sync Pattern:**
+```sql
+BEGIN TRANSACTION;
+  -- State change
+  INSERT INTO license_assignments (user_id, subscription_id, status)
+  VALUES (101, 42, 'active');
+  
+  -- Update user's current plan
+  UPDATE users 
+  SET plan_type = 'team', 
+      license_expires_at = '2025-12-31',
+      active_subscription_id = 42
+  WHERE id = 101;
+COMMIT;
+```
+
+If transaction fails, both rollback - no inconsistency
 
 ---
 
@@ -739,6 +992,17 @@ func HandleRazorpayWebhook(c echo.Context) error {
     
     var event RazorpayWebhookEvent
     json.Unmarshal(body, &event)
+    
+    // Log to license_log immediately (idempotency check via razorpay_event_id unique constraint)
+    _, err := db.Exec(`
+        INSERT INTO license_log (subscription_id, action, razorpay_event_id, payload, processed)
+        VALUES ($1, $2, $3, $4, false)
+        ON CONFLICT (razorpay_event_id) DO NOTHING
+    `, event.SubscriptionID, event.Type, event.ID, event.Payload)
+    
+    if err != nil {
+        return err  // duplicate event, safely ignored
+    }
     
     // Process event asynchronously
     go processWebhookEvent(event)
