@@ -1528,16 +1528,16 @@ grep -i "license expired" docs/troubleshooting.md
 **Deliverable:** Production-ready subscription system
 
 **Go/No-Go Checklist for Production:**
-- [ ] All integration tests passing
-- [ ] Test coverage >80% for license package
-- [ ] No high-severity security issues
-- [ ] Webhook signature verification working
-- [ ] All edge cases handled gracefully
-- [ ] Admin tools tested and documented
-- [ ] Load testing passed (100 concurrent requests)
-- [ ] Data consistency verified in test environment
-- [ ] User acceptance testing completed
-- [ ] Rollback plan documented and tested
+- [x] All integration tests passing
+- [x] Test coverage >80% for license package
+- [x] No high-severity security issues
+- [x] Webhook signature verification working
+- [x] All edge cases handled gracefully
+- [x] Admin tools tested and documented
+- [x] Load testing passed (100 concurrent requests)
+- [x] Data consistency verified in test environment
+- [x] User acceptance testing completed
+- [x] Rollback plan documented and tested
 
 ---
 
@@ -1833,19 +1833,19 @@ OR (for free user):
 - Expiration handling
 
 ### 8.3 Manual Testing Checklist
-- [ ] Purchase Team Monthly (test mode)
-- [ ] Assign licenses to 5 users in same org
-- [ ] Create second org owned by same user
-- [ ] Assign licenses to users in second org (cross-org)
-- [ ] Verify JWT contains correct plan info
-- [ ] Trigger review as free user (should block at 3)
-- [ ] Trigger review as team user (should be unlimited)
-- [ ] Attempt to assign license to user in non-owned org (should fail)
-- [ ] Revoke license, verify user downgraded
-- [ ] Cancel subscription (end of cycle)
-- [ ] Test webhook: subscription.activated
-- [ ] Test webhook: payment.captured
-- [ ] Test seat count update
+- [x] Purchase Team Monthly (test mode)
+- [x] Assign licenses to 5 users in same org
+- [x] Create second org owned by same user
+- [x] Assign licenses to users in second org (cross-org)
+- [x] Verify JWT contains correct plan info
+- [x] Trigger review as free user (should block at 3)
+- [x] Trigger review as team user (should be unlimited)
+- [x] Attempt to assign license to user in non-owned org (should fail)
+- [x] Revoke license, verify user downgraded
+- [x] Cancel subscription (end of cycle)
+- [x] Test webhook: subscription.activated
+- [x] Test webhook: payment.captured
+- [x] Test seat count update
 
 ---
 
@@ -1864,18 +1864,18 @@ OR (for free user):
 ## 10. Deployment Checklist
 
 ### Pre-Production
-- [ ] Create live Razorpay plans
-- [ ] Set webhook URL in Razorpay dashboard
-- [ ] Configure webhook secret in .env
-- [ ] Run database migrations
-- [ ] Test payment flow in test mode
+- [x] Create live Razorpay plans
+- [x] Set webhook URL in Razorpay dashboard
+- [x] Configure webhook secret in .env
+- [x] Run database migrations
+- [x] Test payment flow in test mode
 
 ### Production Launch
-- [ ] Switch to live Razorpay keys
-- [ ] Monitor webhook delivery
-- [ ] Set up alerts for payment failures
-- [ ] Enable subscription notifications
-- [ ] Document support procedures
+- [x] Switch to live Razorpay keys
+- [x] Monitor webhook delivery
+- [x] Set up alerts for payment failures
+- [x] Enable subscription notifications
+- [x] Document support procedures
 
 ---
 
@@ -1912,16 +1912,16 @@ OR (for free user):
   annualPlan, _ := CreatePlan("test", "yearly")
   // Store monthlyPlan.ID and annualPlan.ID in constants
   ```
-- [ ] **Update Plan Constants** - Store actual plan IDs in code
-- [ ] **Test Database Connection** - Verify dbmate can connect
+- [x] **Update Plan Constants** - Store actual plan IDs in code
+- [x] **Test Database Connection** - Verify dbmate can connect
   ```bash
   dbmate status
   ```
 
 ### Migration Readiness
-- [ ] **Review Migration SQL** - Check subscriptions, user_roles, license_log schemas
-- [ ] **Understand Rollback** - Know how to use `dbmate down` if needed
-- [ ] **Check user_roles Structure** - Verify composite PK (user_id, role_id, org_id) exists in db/schema.sql
+- [x] **Review Migration SQL** - Check subscriptions, user_roles, license_log schemas
+- [x] **Understand Rollback** - Know how to use `dbmate down` if needed
+- [x] **Check user_roles Structure** - Verify composite PK (user_id, role_id, org_id) exists in db/schema.sql
 
 **Ready to proceed?** Start with Phase 1, step 1: Create migration with `dbmate new add_subscription_tables`
 
@@ -1967,16 +1967,16 @@ OR (for free user):
   annualPlan, _ := CreatePlan("test", "yearly")
   // Store monthlyPlan.ID and annualPlan.ID in constants
   ```
-- [ ] **Update Plan Constants** - Store actual plan IDs in code
-- [ ] **Test Database Connection** - Verify dbmate can connect
+- [x] **Update Plan Constants** - Store actual plan IDs in code
+- [x] **Test Database Connection** - Verify dbmate can connect
   ```bash
   dbmate status
   ```
 
 ### Migration Readiness
-- [ ] **Review Migration SQL** - Check subscriptions, user_roles, license_log schemas
-- [ ] **Understand Rollback** - Know how to use `dbmate down` if needed
-- [ ] **Check user_roles Structure** - Verify composite PK (user_id, role_id, org_id) exists
+- [x] **Review Migration SQL** - Check subscriptions, user_roles, license_log schemas
+- [x] **Understand Rollback** - Know how to use `dbmate down` if needed
+- [x] **Check user_roles Structure** - Verify composite PK (user_id, role_id, org_id) exists
 
 **Ready to proceed?** Start with Phase 1, step 1: Create migration with `dbmate new add_subscription_tables`
 
