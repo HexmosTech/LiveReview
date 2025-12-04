@@ -1,4 +1,4 @@
-\restrict ioGMOfReTqfFlhfQV3rHHCCpOUeyr3IRIy8iP1eVc9Cj8l3rev9QqxQBuGF70UA
+\restrict iOxVPn0aQAMfqHLi92HoSxbxJFt9BUvZQTjYSyNB0OPYFkaxBbPWJswKyDEslxN
 
 -- Dumped from database version 15.14 (Debian 15.14-1.pgdg13+1)
 -- Dumped by pg_dump version 15.14 (Ubuntu 15.14-1.pgdg22.04+1)
@@ -356,6 +356,45 @@ CREATE TABLE public.learnings (
     created_at timestamp with time zone DEFAULT now() NOT NULL,
     updated_at timestamp with time zone DEFAULT now() NOT NULL
 );
+
+
+--
+-- Name: license_log; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.license_log (
+    id bigint NOT NULL,
+    subscription_id bigint,
+    user_id bigint,
+    org_id bigint,
+    action character varying(100) NOT NULL,
+    actor_id bigint,
+    razorpay_event_id character varying(255),
+    payload jsonb,
+    processed boolean DEFAULT true,
+    processed_at timestamp with time zone,
+    error_message text,
+    created_at timestamp with time zone DEFAULT now() NOT NULL
+);
+
+
+--
+-- Name: license_log_id_seq; Type: SEQUENCE; Schema: public; Owner: -
+--
+
+CREATE SEQUENCE public.license_log_id_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+
+--
+-- Name: license_log_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: -
+--
+
+ALTER SEQUENCE public.license_log_id_seq OWNED BY public.license_log.id;
 
 
 --
@@ -776,6 +815,50 @@ CREATE TABLE public.schema_migrations (
 
 
 --
+-- Name: subscriptions; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.subscriptions (
+    id bigint NOT NULL,
+    razorpay_subscription_id character varying(255) NOT NULL,
+    razorpay_plan_id character varying(255) NOT NULL,
+    owner_user_id bigint NOT NULL,
+    plan_type character varying(50) NOT NULL,
+    quantity integer NOT NULL,
+    assigned_seats integer DEFAULT 0 NOT NULL,
+    status character varying(50) NOT NULL,
+    current_period_start timestamp with time zone,
+    current_period_end timestamp with time zone,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    activated_at timestamp with time zone,
+    cancelled_at timestamp with time zone,
+    expired_at timestamp with time zone,
+    razorpay_data jsonb,
+    CONSTRAINT valid_assigned_seats CHECK (((assigned_seats >= 0) AND (assigned_seats <= quantity))),
+    CONSTRAINT valid_quantity CHECK ((quantity > 0))
+);
+
+
+--
+-- Name: subscriptions_id_seq; Type: SEQUENCE; Schema: public; Owner: -
+--
+
+CREATE SEQUENCE public.subscriptions_id_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+
+--
+-- Name: subscriptions_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: -
+--
+
+ALTER SEQUENCE public.subscriptions_id_seq OWNED BY public.subscriptions.id;
+
+
+--
 -- Name: user_management_audit; Type: TABLE; Schema: public; Owner: -
 --
 
@@ -853,7 +936,10 @@ CREATE TABLE public.user_roles (
     role_id bigint NOT NULL,
     org_id bigint NOT NULL,
     created_at timestamp with time zone DEFAULT now(),
-    updated_at timestamp with time zone DEFAULT now()
+    updated_at timestamp with time zone DEFAULT now(),
+    plan_type character varying(50) DEFAULT 'free'::character varying NOT NULL,
+    license_expires_at timestamp with time zone,
+    active_subscription_id bigint
 );
 
 
@@ -977,6 +1063,13 @@ ALTER TABLE ONLY public.integration_tokens ALTER COLUMN id SET DEFAULT nextval('
 
 
 --
+-- Name: license_log id; Type: DEFAULT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.license_log ALTER COLUMN id SET DEFAULT nextval('public.license_log_id_seq'::regclass);
+
+
+--
 -- Name: orgs id; Type: DEFAULT; Schema: public; Owner: -
 --
 
@@ -1030,6 +1123,13 @@ ALTER TABLE ONLY public.river_job ALTER COLUMN id SET DEFAULT nextval('public.ri
 --
 
 ALTER TABLE ONLY public.roles ALTER COLUMN id SET DEFAULT nextval('public.roles_id_seq'::regclass);
+
+
+--
+-- Name: subscriptions id; Type: DEFAULT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.subscriptions ALTER COLUMN id SET DEFAULT nextval('public.subscriptions_id_seq'::regclass);
 
 
 --
@@ -1130,6 +1230,22 @@ ALTER TABLE ONLY public.learnings
 
 ALTER TABLE ONLY public.learnings
     ADD CONSTRAINT learnings_short_id_key UNIQUE (short_id);
+
+
+--
+-- Name: license_log license_log_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.license_log
+    ADD CONSTRAINT license_log_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: license_log license_log_razorpay_event_id_key; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.license_log
+    ADD CONSTRAINT license_log_razorpay_event_id_key UNIQUE (razorpay_event_id);
 
 
 --
@@ -1266,6 +1382,22 @@ ALTER TABLE ONLY public.roles
 
 ALTER TABLE ONLY public.schema_migrations
     ADD CONSTRAINT schema_migrations_pkey PRIMARY KEY (version);
+
+
+--
+-- Name: subscriptions subscriptions_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.subscriptions
+    ADD CONSTRAINT subscriptions_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: subscriptions subscriptions_razorpay_subscription_id_key; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.subscriptions
+    ADD CONSTRAINT subscriptions_razorpay_subscription_id_key UNIQUE (razorpay_subscription_id);
 
 
 --
@@ -1555,6 +1687,41 @@ CREATE INDEX idx_learnings_tsv ON public.learnings USING gin (tsv);
 
 
 --
+-- Name: idx_license_log_action; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_license_log_action ON public.license_log USING btree (action);
+
+
+--
+-- Name: idx_license_log_processed; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_license_log_processed ON public.license_log USING btree (processed) WHERE (processed = false);
+
+
+--
+-- Name: idx_license_log_razorpay; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_license_log_razorpay ON public.license_log USING btree (razorpay_event_id) WHERE (razorpay_event_id IS NOT NULL);
+
+
+--
+-- Name: idx_license_log_subscription; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_license_log_subscription ON public.license_log USING btree (subscription_id);
+
+
+--
+-- Name: idx_license_log_user; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_license_log_user ON public.license_log USING btree (user_id);
+
+
+--
 -- Name: idx_license_state_expires_at; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -1737,6 +1904,27 @@ CREATE INDEX idx_reviews_status ON public.reviews USING btree (status);
 
 
 --
+-- Name: idx_subscriptions_owner; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_subscriptions_owner ON public.subscriptions USING btree (owner_user_id);
+
+
+--
+-- Name: idx_subscriptions_razorpay; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_subscriptions_razorpay ON public.subscriptions USING btree (razorpay_subscription_id);
+
+
+--
+-- Name: idx_subscriptions_status; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_subscriptions_status ON public.subscriptions USING btree (status);
+
+
+--
 -- Name: idx_user_role_history_changed_by; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -1758,10 +1946,31 @@ CREATE INDEX idx_user_role_history_user ON public.user_role_history USING btree 
 
 
 --
+-- Name: idx_user_roles_license_expires; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_user_roles_license_expires ON public.user_roles USING btree (license_expires_at) WHERE (license_expires_at IS NOT NULL);
+
+
+--
 -- Name: idx_user_roles_org_id; Type: INDEX; Schema: public; Owner: -
 --
 
 CREATE INDEX idx_user_roles_org_id ON public.user_roles USING btree (org_id);
+
+
+--
+-- Name: idx_user_roles_plan_type; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_user_roles_plan_type ON public.user_roles USING btree (plan_type);
+
+
+--
+-- Name: idx_user_roles_subscription; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_user_roles_subscription ON public.user_roles USING btree (active_subscription_id) WHERE (active_subscription_id IS NOT NULL);
 
 
 --
@@ -1969,6 +2178,38 @@ ALTER TABLE ONLY public.learning_events
 
 
 --
+-- Name: license_log license_log_actor_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.license_log
+    ADD CONSTRAINT license_log_actor_id_fkey FOREIGN KEY (actor_id) REFERENCES public.users(id);
+
+
+--
+-- Name: license_log license_log_org_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.license_log
+    ADD CONSTRAINT license_log_org_id_fkey FOREIGN KEY (org_id) REFERENCES public.orgs(id);
+
+
+--
+-- Name: license_log license_log_subscription_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.license_log
+    ADD CONSTRAINT license_log_subscription_id_fkey FOREIGN KEY (subscription_id) REFERENCES public.subscriptions(id);
+
+
+--
+-- Name: license_log license_log_user_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.license_log
+    ADD CONSTRAINT license_log_user_id_fkey FOREIGN KEY (user_id) REFERENCES public.users(id);
+
+
+--
 -- Name: orgs orgs_created_by_user_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -2057,6 +2298,14 @@ ALTER TABLE ONLY public.river_client_queue
 
 
 --
+-- Name: subscriptions subscriptions_owner_user_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.subscriptions
+    ADD CONSTRAINT subscriptions_owner_user_id_fkey FOREIGN KEY (owner_user_id) REFERENCES public.users(id);
+
+
+--
 -- Name: user_management_audit user_management_audit_org_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -2121,6 +2370,14 @@ ALTER TABLE ONLY public.user_role_history
 
 
 --
+-- Name: user_roles user_roles_active_subscription_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.user_roles
+    ADD CONSTRAINT user_roles_active_subscription_id_fkey FOREIGN KEY (active_subscription_id) REFERENCES public.subscriptions(id);
+
+
+--
 -- Name: user_roles user_roles_org_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -2172,7 +2429,7 @@ ALTER TABLE ONLY public.webhook_registry
 -- PostgreSQL database dump complete
 --
 
-\unrestrict ioGMOfReTqfFlhfQV3rHHCCpOUeyr3IRIy8iP1eVc9Cj8l3rev9QqxQBuGF70UA
+\unrestrict iOxVPn0aQAMfqHLi92HoSxbxJFt9BUvZQTjYSyNB0OPYFkaxBbPWJswKyDEslxN
 
 
 --
@@ -2214,4 +2471,5 @@ INSERT INTO public.schema_migrations (version) VALUES
     ('20250909120000'),
     ('20250924122125'),
     ('20250925120001'),
-    ('20251007');
+    ('20251007'),
+    ('20251204105958');

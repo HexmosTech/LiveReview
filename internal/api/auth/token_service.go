@@ -35,6 +35,13 @@ type JWTClaims struct {
 	UserID    int64  `json:"user_id"`
 	Email     string `json:"email"`
 	TokenHash string `json:"token_hash"` // Reference to database token
+
+	// Plan & License Information (org-specific)
+	CurrentOrgID     int64  `json:"current_org_id,omitempty"`     // Which org user is acting in
+	PlanType         string `json:"plan_type,omitempty"`          // Plan in current org ('free'|'team')
+	LicenseExpiresAt *int64 `json:"license_expires_at,omitempty"` // Expiry in current org (unix timestamp)
+	SubscriptionID   *int64 `json:"subscription_id,omitempty"`    // Subscription for current org
+
 	jwt.RegisteredClaims
 }
 
@@ -64,7 +71,13 @@ func (ts *TokenService) hashToken(token string) string {
 }
 
 // CreateTokenPair creates both access and refresh tokens for a user
+// For backward compatibility, creates token without org context (defaults to free plan)
 func (ts *TokenService) CreateTokenPair(user *models.User, userAgent, ipAddress string) (*TokenPair, error) {
+	return ts.CreateTokenPairWithOrg(user, 0, userAgent, ipAddress)
+}
+
+// CreateTokenPairWithOrg creates tokens with org-specific plan information
+func (ts *TokenService) CreateTokenPairWithOrg(user *models.User, orgID int64, userAgent, ipAddress string) (*TokenPair, error) {
 	// Generate refresh token
 	refreshToken, err := ts.generateRandomToken()
 	if err != nil {
@@ -105,17 +118,56 @@ func (ts *TokenService) CreateTokenPair(user *models.User, userAgent, ipAddress 
 		return nil, fmt.Errorf("failed to store access token: %w", err)
 	}
 
-	// Create JWT access token
+	// Fetch org-specific plan information if orgID is provided
+	var planType string
+	var licenseExpiresAt *time.Time
+	var subscriptionID *int64
+
+	if orgID > 0 {
+		err = ts.db.QueryRow(`
+			SELECT plan_type, license_expires_at, active_subscription_id
+			FROM user_roles
+			WHERE user_id = $1 AND org_id = $2
+			LIMIT 1
+		`, user.ID, orgID).Scan(&planType, &licenseExpiresAt, &subscriptionID)
+
+		if err != nil && err != sql.ErrNoRows {
+			return nil, fmt.Errorf("failed to fetch plan info: %w", err)
+		}
+
+		// If user not found in org or no plan set, default to free
+		if err == sql.ErrNoRows || planType == "" {
+			planType = "free"
+		}
+	} else {
+		// No org context, default to free
+		planType = "free"
+	}
+
+	// Create JWT access token with org-specific claims
 	claims := &JWTClaims{
-		UserID:    user.ID,
-		Email:     user.Email,
-		TokenHash: accessTokenHash,
+		UserID:       user.ID,
+		Email:        user.Email,
+		TokenHash:    accessTokenHash,
+		CurrentOrgID: orgID,
+		PlanType:     planType,
 		RegisteredClaims: jwt.RegisteredClaims{
 			ExpiresAt: jwt.NewNumericDate(accessExpiresAt),
 			IssuedAt:  jwt.NewNumericDate(time.Now()),
 			Issuer:    "livereview",
 			Subject:   fmt.Sprintf("user_%d", user.ID),
 		},
+	}
+
+	// Add license expiry if available
+	if licenseExpiresAt != nil {
+		expiryUnix := licenseExpiresAt.Unix()
+		claims.LicenseExpiresAt = &expiryUnix
+	}
+
+	// Add subscription ID if available
+	if subscriptionID != nil {
+		claims.SubscriptionID = subscriptionID
 	}
 
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
