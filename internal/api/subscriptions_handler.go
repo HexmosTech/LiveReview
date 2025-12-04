@@ -6,6 +6,7 @@ import (
 	"strconv"
 
 	"github.com/labstack/echo/v4"
+	"github.com/livereview/internal/api/auth"
 	"github.com/livereview/internal/license/payment"
 )
 
@@ -30,20 +31,33 @@ type CreateSubscriptionRequest struct {
 // CreateSubscription creates a new team subscription
 func (h *SubscriptionsHandler) CreateSubscription(c echo.Context) error {
 	// Get org context (set by middleware)
-	orgID, ok := c.Get("org_id").(int)
-	if !ok {
+	orgIDVal := c.Get("org_id")
+	var orgID int64
+	switch v := orgIDVal.(type) {
+	case int64:
+		orgID = v
+	case int:
+		orgID = int64(v)
+	default:
 		return c.JSON(http.StatusBadRequest, map[string]string{
-			"error": "organization context required",
+			"error": "organization context required (create subscription handler)",
 		})
 	}
 
-	// Get user ID from auth context
-	userID, ok := c.Get("user_id").(int)
-	if !ok {
+	if orgID == 0 {
+		return c.JSON(http.StatusBadRequest, map[string]string{
+			"error": "organization context required (create subscription handler)",
+		})
+	}
+
+	// Get authenticated user from context
+	user := auth.GetUser(c)
+	if user == nil {
 		return c.JSON(http.StatusUnauthorized, map[string]string{
 			"error": "authentication required",
 		})
 	}
+	userID := int(user.ID)
 
 	// Parse request
 	var req CreateSubscriptionRequest
@@ -53,10 +67,18 @@ func (h *SubscriptionsHandler) CreateSubscription(c echo.Context) error {
 		})
 	}
 
-	// Validate plan type
+	// Normalize plan type to internal values
+	switch req.PlanType {
+	case "team_monthly":
+		req.PlanType = "monthly"
+	case "team_annual", "team_yearly", "annual":
+		req.PlanType = "yearly"
+	}
+
+	// Validate plan type after normalization
 	if req.PlanType != "monthly" && req.PlanType != "yearly" {
 		return c.JSON(http.StatusBadRequest, map[string]string{
-			"error": "plan_type must be 'monthly' or 'yearly'",
+			"error": "plan_type must be 'monthly', 'yearly', 'team_monthly', or 'team_annual'",
 		})
 	}
 
@@ -71,14 +93,33 @@ func (h *SubscriptionsHandler) CreateSubscription(c echo.Context) error {
 	mode := "test" // TODO: Get from config or environment
 
 	// Create subscription
-	sub, err := h.service.CreateTeamSubscription(userID, orgID, req.PlanType, req.Quantity, mode)
+	sub, err := h.service.CreateTeamSubscription(userID, int(orgID), req.PlanType, req.Quantity, mode)
 	if err != nil {
 		return c.JSON(http.StatusInternalServerError, map[string]string{
 			"error": err.Error(),
 		})
 	}
 
-	return c.JSON(http.StatusCreated, sub)
+	// Fetch Razorpay public key for checkout initialization
+	keyID, _, err := payment.GetRazorpayKeys(mode)
+	if err != nil {
+		return c.JSON(http.StatusInternalServerError, map[string]string{
+			"error": "failed to resolve Razorpay configuration",
+		})
+	}
+
+	response := map[string]interface{}{
+		"razorpay_subscription_id": sub.ID,
+		"razorpay_key_id":          keyID,
+		"status":                   sub.Status,
+		"quantity":                 req.Quantity,
+		"plan_type":                req.PlanType,
+		"short_url":                sub.ShortURL,
+		"current_period_start":     sub.CurrentStart,
+		"current_period_end":       sub.CurrentEnd,
+	}
+
+	return c.JSON(http.StatusCreated, response)
 }
 
 // UpdateQuantityRequest represents the request to update subscription quantity
@@ -203,10 +244,22 @@ func (h *SubscriptionsHandler) AssignLicense(c echo.Context) error {
 	}
 
 	// Get org context
-	orgID, ok := c.Get("org_id").(int)
-	if !ok {
+	orgIDVal := c.Get("org_id")
+	var orgID int64
+	switch v := orgIDVal.(type) {
+	case int64:
+		orgID = v
+	case int:
+		orgID = int64(v)
+	default:
 		return c.JSON(http.StatusBadRequest, map[string]string{
-			"error": "organization context required",
+			"error": "organization context required (assign license handler)",
+		})
+	}
+
+	if orgID == 0 {
+		return c.JSON(http.StatusBadRequest, map[string]string{
+			"error": "organization context required (assign license handler)",
 		})
 	}
 
@@ -219,7 +272,7 @@ func (h *SubscriptionsHandler) AssignLicense(c echo.Context) error {
 	}
 
 	// Assign license
-	if err := h.service.AssignLicense(subscriptionID, req.UserID, orgID); err != nil {
+	if err := h.service.AssignLicense(subscriptionID, req.UserID, int(orgID)); err != nil {
 		return c.JSON(http.StatusInternalServerError, map[string]string{
 			"error": err.Error(),
 		})
@@ -241,10 +294,22 @@ func (h *SubscriptionsHandler) RevokeLicense(c echo.Context) error {
 	}
 
 	// Get org context
-	orgID, ok := c.Get("org_id").(int)
-	if !ok {
+	orgIDVal := c.Get("org_id")
+	var orgID int64
+	switch v := orgIDVal.(type) {
+	case int64:
+		orgID = v
+	case int:
+		orgID = int64(v)
+	default:
 		return c.JSON(http.StatusBadRequest, map[string]string{
-			"error": "organization context required",
+			"error": "organization context required (revoke license handler)",
+		})
+	}
+
+	if orgID == 0 {
+		return c.JSON(http.StatusBadRequest, map[string]string{
+			"error": "organization context required (revoke license handler)",
 		})
 	}
 
@@ -258,7 +323,7 @@ func (h *SubscriptionsHandler) RevokeLicense(c echo.Context) error {
 	}
 
 	// Revoke license
-	if err := h.service.RevokeLicense(subscriptionID, userID, orgID); err != nil {
+	if err := h.service.RevokeLicense(subscriptionID, userID, int(orgID)); err != nil {
 		return c.JSON(http.StatusInternalServerError, map[string]string{
 			"error": err.Error(),
 		})
