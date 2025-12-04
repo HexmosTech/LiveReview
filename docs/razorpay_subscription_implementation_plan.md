@@ -19,10 +19,12 @@ This document outlines a comprehensive, end-to-end implementation plan for Razor
 ### 1.1 Core Concepts
 
 **License Ownership Model:**
-- **License Owner**: User who purchases subscription (can apply licenses across all orgs they own)
+- **License Owner**: User who purchases subscription
 - **Available Licenses**: Total seats purchased (quantity in subscription)
-- **Applied Licenses**: Licenses assigned to specific users across owner's organizations
+- **Applied Licenses**: Licenses assigned to specific user-org pairs via `user_roles` table
 - **Unassigned Licenses**: Available - Applied
+
+**Key Insight:** The same user can have different plans in different orgs (stored in `user_roles.plan_type`)
 
 **License States:**
 ```
@@ -33,26 +35,29 @@ Free Plan → Purchase → Active Team License → Expired → Back to Free Plan
 
 **Plan Enforcement:**
 
-Enforced at JWT level to avoid database lookups on every request. The JWT contains only the minimal information needed to make authorization decisions:
+Enforced at JWT level using the user's plan in the **current org context**. The JWT contains:
 
 **JWT Claims for Plan Enforcement:**
-1. **`planType`** (string): Current plan tier (`"free"` | `"team"` | `"enterprise"`)
-   - **Purpose**: Determines which features the user can access
-   - **Example**: Free users blocked from unlimited reviews, Team users allowed
+1. **`currentOrgID`** (int64): Which org the user is currently acting in
+   - **Purpose**: Determines which user_role record to use for plan lookup
+   - **Example**: User switches org → new JWT issued with new orgID
 
-2. **`licenseExpiresAt`** (int64 | null): Unix timestamp when license expires
-   - **Purpose**: Enables instant expiry checks without DB lookup
-   - **Value**: `null` for free plan (never expires), epoch timestamp for paid plans
-   - **Example**: `1735689600` = expires Dec 31, 2024 23:59:59 UTC
+2. **`planType`** (string): Plan for current org (`"free"` | `"team"` | `"enterprise"`)
+   - **Purpose**: Cached from `user_roles.plan_type` for the current org
+   - **Example**: User is `team` in Org A, `free` in Org B
 
-3. **`subscriptionID`** (int64 | null): Reference to active subscription
-   - **Purpose**: Track which subscription provides this license (for auditing/debugging)
-   - **Value**: `null` for free users, subscription ID for paid users
-   - **Note**: Not used for enforcement, only for operational tracking
+3. **`licenseExpiresAt`** (int64 | null): When license expires in current org
+   - **Purpose**: Instant expiry checks without DB lookup
+   - **Value**: From `user_roles.license_expires_at` for current org
+
+4. **`subscriptionID`** (int64 | null): Subscription providing license in current org
+   - **Purpose**: Operational tracking only
+   - **Value**: From `user_roles.active_subscription_id`
 
 **Examples:**
-- Free user: `{planType: "free", licenseExpiresAt: null, subscriptionID: null}`
-- Team user: `{planType: "team", licenseExpiresAt: 1735689600, subscriptionID: 42}`
+- Free user in Org A: `{currentOrgID: 1, planType: "free", licenseExpiresAt: null, subscriptionID: null}`
+- Team user in Org A: `{currentOrgID: 1, planType: "team", licenseExpiresAt: 1735689600, subscriptionID: 42}`
+- Same user switches to Org B (where they're free): `{currentOrgID: 2, planType: "free", licenseExpiresAt: null, subscriptionID: null}`
 
 **Enforcement Flow:**
 1. User makes API request
@@ -93,9 +98,12 @@ BEGIN TRANSACTION;
   INSERT INTO license_log (subscription_id, user_id, org_id, action, actor_id, timestamp)
   VALUES (42, 101, 5, 'assigned', 1, NOW());
   
-  -- Step 2: Update current state
-  INSERT INTO license_assignments (subscription_id, user_id, org_id, status, assigned_by_user_id)
-  VALUES (42, 101, 5, 'active', 1);
+  -- Step 2: Update current state (in user_roles table)
+  UPDATE user_roles 
+  SET plan_type = 'team', 
+      license_expires_at = '2025-12-31',
+      active_subscription_id = 42
+  WHERE user_id = 101 AND org_id = 5;
 COMMIT;
 
 -- Later, on revocation:
@@ -104,17 +112,19 @@ BEGIN TRANSACTION;
   INSERT INTO license_log (subscription_id, user_id, org_id, action, actor_id, timestamp)
   VALUES (42, 101, 5, 'revoked', 1, NOW());
   
-  -- Step 2: Update current state
-  UPDATE license_assignments 
-  SET status = 'revoked', revoked_at = NOW(), revoked_by_user_id = 1
-  WHERE subscription_id = 42 AND user_id = 101;
+  -- Step 2: Update current state (revert to free)
+  UPDATE user_roles 
+  SET plan_type = 'free',
+      license_expires_at = NULL,
+      active_subscription_id = NULL
+  WHERE user_id = 101 AND org_id = 5;
 COMMIT;
 ```
 
 **Table Categories:**
-1. **State Tables**: `subscriptions`, `license_assignments`, `users` - Current state, frequently updated
+1. **State Tables**: `subscriptions`, `user_roles` (extended) - Current state, frequently updated
 2. **Audit Log Table**: `license_log` - Immutable log for ALL actions (license + payment), append-only, never updated
-3. **Reference Tables**: `organizations`, `users` (base fields) - Stable data
+3. **Reference Tables**: `organizations`, `users`, `roles` - Stable data
 
 ---
 
@@ -182,16 +192,16 @@ COMMIT;
 **Key Relationships:**
 
 1. **Subscription → Owner (users.id)**: Who purchased and can manage licenses
-2. **Subscription → Billing Org (organizations.id)**: Primary org for billing (licenses work across all owner's orgs)
-3. **License Assignment → Subscription**: Which subscription provides this license (up to `quantity` limit)
-4. **License Assignment → User**: Who gets access to Team plan
-5. **License Assignment → Usage Org**: Which org the user is using the license in (enables cross-org assignment)
+2. **User Roles → User, Org, Role**: Existing junction table linking users to orgs with roles
+3. **License Assignment = User Role + Plan Fields**: License is "applied" by adding plan fields to user_roles record
 
 **Cross-Org Example:**
 - Alice owns Org A and Org B
-- Alice buys subscription for Org A (`subscriptions.org_id = A`)
-- Alice assigns license to Bob who works in Org B (`license_assignments.org_id = B`)
-- Result: Billing happens in Org A, usage tracked in Org B
+- Alice buys subscription (owner: Alice, quantity: 10)
+- Bob is a member of both Org A and Org B (two `user_roles` records)
+- Alice assigns license to Bob in Org A → `UPDATE user_roles SET plan_type='team' WHERE user_id=Bob AND org_id=A`
+- Bob remains free in Org B → `user_roles.plan_type='free' WHERE user_id=Bob AND org_id=B`
+- Result: Bob sees Team features only when working in Org A
 
 ---
 
@@ -209,8 +219,8 @@ COMMIT;
 - `razorpay_data`: JSONB for Razorpay's 20+ fields (avoid migrations when they add fields)
 
 ```sql
--- Subscriptions: Track Razorpay subscriptions
--- Note: Licenses from a subscription can be applied to users across all orgs owned by owner_user_id
+-- Subscriptions: Track Razorpay subscriptions owned by users
+-- Licenses can be assigned to any user in any org owned by the subscription owner
 CREATE TABLE subscriptions (
     id BIGSERIAL PRIMARY KEY,
     
@@ -219,8 +229,7 @@ CREATE TABLE subscriptions (
     razorpay_plan_id VARCHAR(255) NOT NULL,
     
     -- Ownership
-    owner_user_id BIGINT NOT NULL REFERENCES users(id),
-    org_id BIGINT NOT NULL REFERENCES organizations(id), -- Primary org for billing, but licenses can be applied across owner's orgs
+    owner_user_id BIGINT NOT NULL REFERENCES users(id),  -- User who purchased, can assign across all their orgs
     
     -- Subscription Details
     plan_type VARCHAR(50) NOT NULL, -- 'team_monthly' | 'team_annual'
@@ -244,7 +253,6 @@ CREATE TABLE subscriptions (
 );
 
 CREATE INDEX idx_subscriptions_owner ON subscriptions(owner_user_id);
-CREATE INDEX idx_subscriptions_org ON subscriptions(org_id);
 CREATE INDEX idx_subscriptions_status ON subscriptions(status);
 CREATE INDEX idx_subscriptions_razorpay ON subscriptions(razorpay_subscription_id);
 ```
@@ -256,66 +264,48 @@ CREATE INDEX idx_subscriptions_razorpay ON subscriptions(razorpay_subscription_i
 
 ---
 
-#### 2.3.2 License Assignments Table
+#### 2.3.2 User Roles Table (Extended for Licensing)
 
-**Purpose**: Current state of who has which licenses
+**Purpose**: Existing junction table linking users to orgs - EXTENDED to store per-org license info
 
-**Key Fields:**
-- `org_id`: Where license is USED (can differ from where subscription was purchased)
-- `status`: Current state ('active' | 'revoked' | 'expired') - never deleted
-- `assigned_by_user_id`, `revoked_by_user_id`: Track who made changes
+**Key Fields (NEW):**
+- `plan_type`: User's plan in THIS org ('free'|'team' - defaults to 'free')
+- `license_expires_at`: When license expires in THIS org (NULL for free)
+- `active_subscription_id`: Which subscription provides license in THIS org
 
-**State Changes:**
-```sql
--- Assignment: status changes from nothing → 'active'
-INSERT INTO license_assignments (status) VALUES ('active');
-
--- Revocation: status changes from 'active' → 'revoked'
-UPDATE license_assignments SET status = 'revoked', revoked_at = NOW() WHERE id = ?;
-
--- Expiry: status changes from 'active' → 'expired' (automated job)
-UPDATE license_assignments SET status = 'expired' WHERE valid_until < NOW();
-```
+**Why extend user_roles instead of separate table?**
+- User-org relationship already exists (users can be in multiple orgs)
+- Natural place to store "what plan does this user have in this org?"
+- Same user can have different plans in different orgs
+- No additional joins needed for org context queries
 
 ```sql
--- License Assignments: Track which users have licenses applied
--- Users can be assigned licenses in any org owned by the subscription owner
-CREATE TABLE license_assignments (
-    id BIGSERIAL PRIMARY KEY,
-    
-    -- Relationships
-    subscription_id BIGINT NOT NULL REFERENCES subscriptions(id) ON DELETE CASCADE,
-    user_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-    org_id BIGINT NOT NULL REFERENCES organizations(id), -- The org where this license is being used
-    
-    -- Assignment Metadata
-    assigned_by_user_id BIGINT NOT NULL REFERENCES users(id),
-    assigned_at TIMESTAMP NOT NULL DEFAULT NOW(),
-    
-    -- Revocation Tracking
-    revoked_at TIMESTAMP,
-    revoked_by_user_id BIGINT REFERENCES users(id),
-    
-    -- Validity Period (synced from subscription)
-    valid_from TIMESTAMP NOT NULL,
-    valid_until TIMESTAMP, -- NULL for active, set when subscription ends
-    
-    -- Status
-    status VARCHAR(50) NOT NULL DEFAULT 'active', -- 'active' | 'revoked' | 'expired'
-    
-    CONSTRAINT unique_active_assignment UNIQUE (subscription_id, user_id, status),
-    CONSTRAINT no_self_assignment CHECK (user_id != assigned_by_user_id)
-);
+-- Extend existing user_roles table
+ALTER TABLE user_roles 
+  ADD COLUMN plan_type VARCHAR(50) DEFAULT 'free' NOT NULL,
+  ADD COLUMN license_expires_at TIMESTAMP,
+  ADD COLUMN active_subscription_id BIGINT REFERENCES subscriptions(id);
 
-CREATE INDEX idx_license_assignments_user ON license_assignments(user_id, status);
-CREATE INDEX idx_license_assignments_subscription ON license_assignments(subscription_id);
-CREATE INDEX idx_license_assignments_org ON license_assignments(org_id);
+CREATE INDEX idx_user_roles_plan_type ON user_roles(plan_type);
+CREATE INDEX idx_user_roles_license_expires ON user_roles(license_expires_at) 
+  WHERE license_expires_at IS NOT NULL;
+CREATE INDEX idx_user_roles_subscription ON user_roles(active_subscription_id)
+  WHERE active_subscription_id IS NOT NULL;
 ```
 
-**Index Justification:**
-- `(user_id, status)`: Composite index for "get user's active license" (JWT generation)
-- `subscription_id`: Count assigned seats for a subscription (enforcement)
-- `org_id`: Find all licenses used in an org (org admin view)
+**Assignment Pattern:**
+```sql
+-- Assign license to user in specific org
+UPDATE user_roles
+SET plan_type = 'team',
+    license_expires_at = '2025-12-31',
+    active_subscription_id = 42
+WHERE user_id = 101 AND org_id = 5;
+
+-- Same user in different org remains free
+SELECT plan_type FROM user_roles WHERE user_id = 101 AND org_id = 6;
+-- Returns: 'free'
+```
 
 ---
 
@@ -332,9 +322,12 @@ BEGIN TRANSACTION;
   INSERT INTO license_log (subscription_id, user_id, org_id, action, actor_id, payload)
   VALUES (42, 101, 5, 'assigned', 1, '{"quantity": 10}');
   
-  -- Step 2: Update state
-  INSERT INTO license_assignments (subscription_id, user_id, org_id, status, assigned_by_user_id)
-  VALUES (42, 101, 5, 'active', 1);
+  -- Step 2: Update state (in user_roles table)
+  UPDATE user_roles
+  SET plan_type = 'team', 
+      license_expires_at = '2025-12-31',
+      active_subscription_id = 42
+  WHERE user_id = 101 AND org_id = 5;
 COMMIT;
 
 -- Payment Webhook
@@ -403,46 +396,6 @@ CREATE INDEX idx_license_log_razorpay ON license_log(razorpay_event_id) WHERE ra
 
 ---
 
-### 2.4 User Table Extension
-
----
-
-### 2.4 User Table Extension
-
-**Purpose**: Store current plan state for JWT generation on login
-
-**Updated on license assignment/revocation in same transaction:**
-
-```sql
--- Add to existing users table
-ALTER TABLE users ADD COLUMN plan_type VARCHAR(50) DEFAULT 'free' NOT NULL;
-ALTER TABLE users ADD COLUMN license_expires_at TIMESTAMP;
-ALTER TABLE users ADD COLUMN active_subscription_id BIGINT REFERENCES subscriptions(id);
-
-CREATE INDEX idx_users_plan_type ON users(plan_type);
-CREATE INDEX idx_users_license_expires ON users(license_expires_at);
-```
-
-**Sync Pattern:**
-```sql
-BEGIN TRANSACTION;
-  -- State change
-  INSERT INTO license_assignments (user_id, subscription_id, status)
-  VALUES (101, 42, 'active');
-  
-  -- Update user's current plan
-  UPDATE users 
-  SET plan_type = 'team', 
-      license_expires_at = '2025-12-31',
-      active_subscription_id = 42
-  WHERE id = 101;
-COMMIT;
-```
-
-If transaction fails, both rollback - no inconsistency
-
----
-
 ## 3. Plan Limits & Enforcement
 
 ### 3.1 Plan Definitions
@@ -497,10 +450,11 @@ type CustomClaims struct {
     UserID           int64     `json:"uid"`
     Email            string    `json:"email"`
     
-    // Plan & License Information
-    PlanType         string    `json:"plan_type"`          // "free" | "team" | "enterprise"
-    LicenseExpiresAt *int64    `json:"license_expires_at"` // Unix timestamp, null for free
-    SubscriptionID   *int64    `json:"subscription_id"`    // Reference to active subscription
+    // Plan & License Information (org-specific)
+    CurrentOrgID     int64     `json:"current_org_id"`     // Which org user is acting in
+    PlanType         string    `json:"plan_type"`          // Plan in current org
+    LicenseExpiresAt *int64    `json:"license_expires_at"` // Expiry in current org
+    SubscriptionID   *int64    `json:"subscription_id"`    // Subscription for current org
     
     jwt.RegisteredClaims
 }
@@ -599,7 +553,6 @@ func CheckReviewLimit(db *sql.DB) echo.MiddlewareFunc {
 type CreateSubscriptionRequest struct {
     PlanType    string `json:"plan_type" validate:"required,oneof=team_monthly team_annual"`
     Quantity    int    `json:"quantity" validate:"required,min=1"`
-    OrgID       int64  `json:"org_id" validate:"required"`
 }
 
 type CreateSubscriptionResponse struct {
@@ -621,8 +574,6 @@ type ListSubscriptionsResponse struct {
 type SubscriptionSummary struct {
     ID                     int64     `json:"id"`
     RazorpaySubscriptionID string    `json:"razorpay_subscription_id"`
-    OrgID                  int64     `json:"org_id"`
-    OrgName                string    `json:"org_name"`
     PlanType               string    `json:"plan_type"`
     Status                 string    `json:"status"`
     Quantity               int       `json:"quantity"`
@@ -661,9 +612,10 @@ type CancelSubscriptionRequest struct {
 
 ```go
 // POST /api/v1/subscriptions/:id/licenses
-// Assign licenses to users
+// Assign licenses to users in specific org
 type AssignLicensesRequest struct {
     UserIDs []int64 `json:"user_ids" validate:"required,min=1"`
+    OrgID   int64   `json:"org_id" validate:"required"`  // Which org to assign licenses in
 }
 
 type AssignLicensesResponse struct {
@@ -938,7 +890,7 @@ const handleCheckout = async (planType: string, quantity: number) => {
     const response = await fetch('/api/v1/subscriptions', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ plan_type: planType, quantity, org_id: currentOrgId })
+        body: JSON.stringify({ plan_type: planType, quantity })
     });
     
     const data = await response.json();
@@ -1015,7 +967,7 @@ func HandleRazorpayWebhook(c echo.Context) error {
 
 ```go
 // internal/license/assignment_service.go
-func (s *AssignmentService) AssignLicense(subscriptionID, userID, assignedByUserID int64) error {
+func (s *AssignmentService) AssignLicense(subscriptionID, userID, orgID, assignedByUserID int64) error {
     tx, _ := s.db.Begin()
     defer tx.Rollback()
     
@@ -1025,6 +977,7 @@ func (s *AssignmentService) AssignLicense(subscriptionID, userID, assignedByUser
         return err
     }
     
+    // Count assignments across all orgs for this subscription
     assignedCount, _ := s.countAssignedSeats(tx, subscriptionID)
     if assignedCount >= sub.Quantity {
         return errors.New("no available seats")
@@ -1035,44 +988,40 @@ func (s *AssignmentService) AssignLicense(subscriptionID, userID, assignedByUser
         return errors.New("only subscription owner can assign licenses")
     }
     
-    // 3. Check user is in an org owned by subscription owner
-    userOrgID, err := s.getUserOrgID(tx, userID)
-    if err != nil {
-        return errors.New("user not found or not in any organization")
+    // 3. Verify user is a member of the target org and owner owns that org
+    var count int
+    err = tx.QueryRow(`
+        SELECT COUNT(*) FROM user_roles ur
+        JOIN orgs o ON ur.org_id = o.id
+        WHERE ur.user_id = $1 AND ur.org_id = $2 AND o.owner_id = $3
+    `, userID, orgID, assignedByUserID).Scan(&count)
+    
+    if err != nil || count == 0 {
+        return errors.New("user must be in org owned by subscription owner")
     }
     
-    if !s.userOwnsOrg(tx, sub.OwnerUserID, userOrgID) {
-        return errors.New("can only assign licenses to users in organizations you own")
-    }
-    
-    // 4. Create assignment (org_id is the user's org, not subscription's org)
-    _, err = tx.Exec(`
-        INSERT INTO license_assignments 
-        (subscription_id, user_id, org_id, assigned_by_user_id, valid_from, status)
-        VALUES ($1, $2, $3, $4, NOW(), 'active')
-    `, subscriptionID, userID, userOrgID, assignedByUserID)
-    
-    if err != nil {
-        return err
-    }
-    
-    // 5. Update user's plan
-    _, err = tx.Exec(`
-        UPDATE users 
-        SET plan_type = 'team', 
+    // 4. Update user_roles with license (tracks where the license is being used)
+    result, err := tx.Exec(`
+        UPDATE user_roles
+        SET plan_type = 'team',
             license_expires_at = $1,
             active_subscription_id = $2
-        WHERE id = $3
-    `, sub.CurrentPeriodEnd, subscriptionID, userID)
+        WHERE user_id = $3 AND org_id = $4
+    `, sub.CurrentPeriodEnd, subscriptionID, userID, orgID)
     
     if err != nil {
         return err
+    }
+    
+    rowsAffected, _ := result.RowsAffected()
+    if rowsAffected == 0 {
+        return errors.New("user not found in org")
     }
     
     tx.Commit()
     
-    // 6. Invalidate user's existing JWTs (optional - force re-login)
-    s.invalidateUserTokens(userID)
+    // 5. Invalidate user's existing JWTs for this org (optional - force re-login)
+    s.invalidateUserTokensForOrg(userID, orgID)
     
     return nil
 }
@@ -1090,8 +1039,7 @@ POST /api/v1/subscriptions
 Request:
 {
     "plan_type": "team_annual",
-    "quantity": 10,
-    "org_id": 5
+    "quantity": 10
 }
 
 Response (201):
