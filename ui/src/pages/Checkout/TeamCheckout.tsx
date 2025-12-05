@@ -10,6 +10,15 @@ declare global {
   }
 }
 
+type CheckoutSuccess = {
+  subscriptionId: string;
+  paymentId?: string;
+  planLabel: string;
+  seats: number;
+  total: number;
+  billingNote: string;
+};
+
 const TeamCheckout: React.FC = () => {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
@@ -20,6 +29,7 @@ const TeamCheckout: React.FC = () => {
   const [seats, setSeats] = useState<number>(5);
   const [isProcessing, setIsProcessing] = useState<boolean>(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [successInfo, setSuccessInfo] = useState<CheckoutSuccess | null>(null);
 
   const isAnnual = period === 'annual';
   const pricePerSeat = isAnnual ? 60 : 6;
@@ -41,6 +51,7 @@ const TeamCheckout: React.FC = () => {
   const handlePurchase = async () => {
     setIsProcessing(true);
     setErrorMessage(null);
+    setSuccessInfo(null);
 
     try {
       const token = localStorage.getItem('accessToken');
@@ -98,9 +109,15 @@ const TeamCheckout: React.FC = () => {
         description: `Team ${isAnnual ? 'Annual' : 'Monthly'} - ${seats} ${seats === 1 ? 'seat' : 'seats'}`,
         image: '/assets/logo-with-text.svg',
         handler: async (razorpayResponse: any) => {
-          console.log('Payment successful:', razorpayResponse);
-          // Redirect to license management
-          navigate('/dashboard/licenses');
+          setIsProcessing(false);
+          setSuccessInfo({
+            subscriptionId: data.razorpay_subscription_id,
+            paymentId: razorpayResponse?.razorpay_payment_id,
+            planLabel: `Team ${isAnnual ? 'Annual' : 'Monthly'} Plan`,
+            seats,
+            total: totalPrice,
+            billingNote: isAnnual ? 'Billed annually' : 'Billed monthly',
+          });
         },
         modal: {
           ondismiss: () => {
@@ -123,6 +140,72 @@ const TeamCheckout: React.FC = () => {
       setIsProcessing(false);
     }
   };
+
+  if (successInfo) {
+    return (
+      <div className="min-h-screen bg-gradient-to-b from-slate-900 to-slate-800 py-12 px-4">
+        <div className="max-w-xl mx-auto bg-slate-800 rounded-2xl border border-slate-700 p-10 text-center shadow-xl">
+          <div className="flex items-center justify-center w-16 h-16 mx-auto rounded-full bg-emerald-500/10 border border-emerald-500/40 mb-6">
+            <svg className="w-9 h-9 text-emerald-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+            </svg>
+          </div>
+          <h1 className="text-3xl font-bold text-white mb-3">Purchase Successful</h1>
+          <p className="text-slate-300 mb-8">
+            Your subscription is now active. You can start assigning seats to your team right away.
+          </p>
+
+          <div className="bg-slate-900/60 border border-slate-700 rounded-xl p-6 text-left mb-8">
+            <dl className="space-y-4">
+              <div className="flex justify-between text-slate-300">
+                <dt>Plan</dt>
+                <dd className="text-white font-semibold">{successInfo.planLabel}</dd>
+              </div>
+              <div className="flex justify-between text-slate-300">
+                <dt>Seats purchased</dt>
+                <dd className="text-white font-semibold">{successInfo.seats}</dd>
+              </div>
+              <div className="flex justify-between text-slate-300">
+                <dt>Total</dt>
+                <dd className="text-white font-semibold">${successInfo.total}</dd>
+              </div>
+              <div className="flex justify-between text-slate-300">
+                <dt>Billing</dt>
+                <dd className="text-white font-semibold">{successInfo.billingNote}</dd>
+              </div>
+              <div className="flex justify-between text-slate-300">
+                <dt>Subscription ID</dt>
+                <dd className="text-white font-mono text-sm break-all">{successInfo.subscriptionId}</dd>
+              </div>
+              {successInfo.paymentId && (
+                <div className="flex justify-between text-slate-300">
+                  <dt>Payment ID</dt>
+                  <dd className="text-white font-mono text-sm break-all">{successInfo.paymentId}</dd>
+                </div>
+              )}
+            </dl>
+          </div>
+
+          <div className="flex flex-col sm:flex-row gap-4 justify-center">
+            <button
+              type="button"
+              onClick={() => navigate('/dashboard/licenses')}
+              className="flex-1 sm:flex-none px-6 py-3 bg-blue-600 hover:bg-blue-700 text-white font-semibold rounded-lg transition-colors shadow-lg"
+            >
+              Manage team licenses
+            </button>
+            <button
+              type="button"
+              onClick={() => navigate('/dashboard')}
+              className="flex-1 sm:flex-none px-6 py-3 bg-slate-700 hover:bg-slate-600 text-white font-semibold rounded-lg transition-colors"
+            >
+              Go to dashboard
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-gradient-to-b from-slate-900 to-slate-800 py-12 px-4">
