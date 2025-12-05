@@ -461,8 +461,20 @@ func (s *SubscriptionService) RevokeLicense(subscriptionID string, userID, orgID
 	}
 	defer tx.Rollback()
 
+	// Get the database ID for this subscription
+	var dbSubscriptionID int64
+	err = tx.QueryRow(`
+		SELECT id
+		FROM subscriptions
+		WHERE razorpay_subscription_id = $1`,
+		subscriptionID,
+	).Scan(&dbSubscriptionID)
+	if err != nil {
+		return fmt.Errorf("failed to get subscription: %w", err)
+	}
+
 	// Verify user has this subscription
-	var currentSubID sql.NullString
+	var currentSubID sql.NullInt64
 	err = tx.QueryRow(`
 		SELECT active_subscription_id
 		FROM user_roles
@@ -473,7 +485,7 @@ func (s *SubscriptionService) RevokeLicense(subscriptionID string, userID, orgID
 		return fmt.Errorf("failed to get user_roles: %w", err)
 	}
 
-	if !currentSubID.Valid || currentSubID.String != subscriptionID {
+	if !currentSubID.Valid || currentSubID.Int64 != dbSubscriptionID {
 		return fmt.Errorf("user %d does not have subscription %s", userID, subscriptionID)
 	}
 
