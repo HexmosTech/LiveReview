@@ -116,7 +116,7 @@ func createConnectorHandler(c echo.Context) error {
 	orgID, ok := orgIDVal.(int64)
 	if !ok {
 		return c.JSON(http.StatusBadRequest, map[string]string{
-			"error": "Organization context required",
+			"error": "Organization context required (create connector handler)",
 		})
 	}
 
