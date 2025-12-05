@@ -61,10 +61,32 @@ func (s *SubscriptionService) CreateTeamSubscription(ownerUserID, orgID int, pla
 	// Calculate license expiration (30 days for monthly, 365 days for yearly)
 	var licenseExpiresAt time.Time
 	dbPlanType := "team_" + planType // Store as team_monthly or team_yearly in DB
-	if planType == "monthly" {
-		licenseExpiresAt = time.Now().AddDate(0, 1, 0) // 1 month
+
+	// Calculate current period start and end
+	// For new subscriptions, Razorpay returns 0 for current_start/current_end
+	// We'll use the creation time as start and calculate end based on plan type
+	var currentPeriodStart, currentPeriodEnd time.Time
+	if sub.CurrentStart > 0 {
+		currentPeriodStart = time.Unix(sub.CurrentStart, 0)
 	} else {
-		licenseExpiresAt = time.Now().AddDate(1, 0, 0) // 1 year
+		currentPeriodStart = time.Now()
+	}
+
+	if sub.CurrentEnd > 0 {
+		currentPeriodEnd = time.Unix(sub.CurrentEnd, 0)
+	} else {
+		// Calculate based on plan type
+		if planType == "monthly" {
+			currentPeriodEnd = currentPeriodStart.AddDate(0, 1, 0) // 1 month
+		} else {
+			currentPeriodEnd = currentPeriodStart.AddDate(1, 0, 0) // 1 year
+		}
+	}
+
+	if planType == "monthly" {
+		licenseExpiresAt = currentPeriodEnd
+	} else {
+		licenseExpiresAt = currentPeriodEnd
 	}
 
 	// Start transaction
@@ -87,7 +109,7 @@ func (s *SubscriptionService) CreateTeamSubscription(ownerUserID, orgID int, pla
 		RETURNING id`,
 		sub.ID, ownerUserID, orgID, dbPlanType,
 		quantity, 0, sub.Status, razorpayPlanID,
-		time.Unix(sub.CurrentStart, 0), time.Unix(sub.CurrentEnd, 0), licenseExpiresAt,
+		currentPeriodStart, currentPeriodEnd, licenseExpiresAt,
 		notesJSON,
 	).Scan(&dbSubscriptionID)
 	if err != nil {
