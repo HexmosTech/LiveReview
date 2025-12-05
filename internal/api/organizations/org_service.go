@@ -444,7 +444,8 @@ func (s *OrganizationService) GetOrganizationMembers(orgID int64, limit, offset 
 	query := `
 		SELECT u.id, u.email, u.first_name, u.last_name, u.is_active, u.last_login_at,
 		       u.created_at, u.updated_at, u.created_by_user_id, u.password_reset_required,
-		       r.name as role, r.id as role_id, ur.org_id
+		       r.name as role, r.id as role_id, ur.org_id,
+		       ur.plan_type, ur.license_expires_at
 		FROM users u
 		INNER JOIN user_roles ur ON u.id = ur.user_id
 		INNER JOIN roles r ON ur.role_id = r.id
@@ -466,6 +467,7 @@ func (s *OrganizationService) GetOrganizationMembers(orgID int64, limit, offset 
 		var firstName, lastName sql.NullString
 		var lastLoginAt sql.NullTime
 		var createdByUserID sql.NullInt64
+		var licenseExpiresAt sql.NullTime
 
 		err := rows.Scan(
 			&user.ID,
@@ -481,6 +483,8 @@ func (s *OrganizationService) GetOrganizationMembers(orgID int64, limit, offset 
 			&user.Role,
 			&user.RoleID,
 			&user.OrgID,
+			&user.PlanType,
+			&licenseExpiresAt,
 		)
 		if err != nil {
 			s.logger.Printf("Error scanning member row: %v", err)
@@ -498,6 +502,9 @@ func (s *OrganizationService) GetOrganizationMembers(orgID int64, limit, offset 
 		}
 		if createdByUserID.Valid {
 			user.CreatedByUserID = &createdByUserID.Int64
+		}
+		if licenseExpiresAt.Valid {
+			user.LicenseExpiresAt = &licenseExpiresAt.Time
 		}
 
 		members = append(members, &user)

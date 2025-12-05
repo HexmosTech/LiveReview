@@ -7,6 +7,8 @@ export interface UserInfo {
   email: string;
   created_at: string;
   updated_at: string;
+  plan_type?: string;
+  license_expires_at?: string;
 }
 
 export interface OrgInfo {

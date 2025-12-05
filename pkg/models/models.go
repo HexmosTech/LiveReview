@@ -55,9 +55,11 @@ type User struct {
 // UserWithRole extends User with role information for a specific organization
 type UserWithRole struct {
 	User
-	Role   string `json:"role"`
-	RoleID int64  `json:"role_id"`
-	OrgID  int64  `json:"org_id"`
+	Role             string     `json:"role"`
+	RoleID           int64      `json:"role_id"`
+	OrgID            int64      `json:"org_id"`
+	PlanType         string     `json:"plan_type"`
+	LicenseExpiresAt *time.Time `json:"license_expires_at,omitempty"`
 }
 
 // UserProfile represents user profile information for self-service updates

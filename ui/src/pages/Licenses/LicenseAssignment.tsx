@@ -14,9 +14,9 @@ type Subscription = {
 };
 
 type OrgMember = {
-  user_id: number;
+  id: number;
   email: string;
-  role_name: string;
+  role: string;
   plan_type: string;
   license_expires_at: string | null;
 };
@@ -57,10 +57,10 @@ const LicenseAssignment: React.FC = () => {
       }
 
       // Fetch member details with license info
-      const membersResponse = await apiClient.get<{ users: OrgMember[] }>(
+      const membersResponse = await apiClient.get<{ members: OrgMember[] }>(
         `/orgs/${currentOrgId}/users`
       );
-      setMembers(membersResponse.users || []);
+      setMembers(membersResponse.members || []);
     } catch (err: any) {
       setError(err.message || 'Failed to load data');
     } finally {
@@ -211,16 +211,16 @@ const LicenseAssignment: React.FC = () => {
             <div className="divide-y divide-slate-700">
               {members.map((member) => {
                 const hasLicense = isLicensed(member);
-                const isProcessingThis = processing === member.user_id;
+                const isProcessingThis = processing === member.id;
 
                 return (
-                  <div key={member.user_id} className="p-6 hover:bg-slate-900/40 transition-colors">
+                  <div key={member.id} className="p-6 hover:bg-slate-900/40 transition-colors">
                     <div className="flex items-center justify-between">
                       <div className="flex-1">
                         <div className="flex items-center gap-3 mb-1">
                           <h3 className="text-white font-medium">{member.email}</h3>
                           <span className="px-2 py-1 text-xs font-semibold rounded border bg-slate-700/40 text-slate-300 border-slate-600">
-                            {member.role_name}
+                            {member.role}
                           </span>
                           {hasLicense && (
                             <span className="px-2 py-1 text-xs font-semibold rounded border bg-emerald-500/10 text-emerald-400 border-emerald-500/40">
@@ -238,7 +238,7 @@ const LicenseAssignment: React.FC = () => {
                       <div>
                         {hasLicense ? (
                           <button
-                            onClick={() => handleRevoke(member.user_id)}
+                            onClick={() => handleRevoke(member.id)}
                             disabled={isProcessingThis}
                             className="px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-lg transition-colors text-sm font-medium disabled:opacity-50 disabled:cursor-not-allowed"
                           >
@@ -246,7 +246,7 @@ const LicenseAssignment: React.FC = () => {
                           </button>
                         ) : (
                           <button
-                            onClick={() => handleAssign(member.user_id)}
+                            onClick={() => handleAssign(member.id)}
                             disabled={isProcessingThis || availableSeats === 0}
                             className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors text-sm font-medium disabled:opacity-50 disabled:cursor-not-allowed"
                           >

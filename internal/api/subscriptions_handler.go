@@ -245,6 +245,14 @@ func (h *SubscriptionsHandler) AssignLicense(c echo.Context) error {
 		})
 	}
 
+	// Get authenticated user
+	user := auth.GetUser(c)
+	if user == nil {
+		return c.JSON(http.StatusUnauthorized, map[string]string{
+			"error": "authentication required",
+		})
+	}
+
 	// Get org context
 	orgIDVal := c.Get("org_id")
 	var orgID int64
@@ -262,6 +270,31 @@ func (h *SubscriptionsHandler) AssignLicense(c echo.Context) error {
 	if orgID == 0 {
 		return c.JSON(http.StatusBadRequest, map[string]string{
 			"error": "organization context required (assign license handler)",
+		})
+	}
+
+	// Verify user owns this subscription
+	var ownerUserID int
+	err := h.db.QueryRow(`
+		SELECT owner_user_id
+		FROM subscriptions
+		WHERE razorpay_subscription_id = $1`,
+		subscriptionID,
+	).Scan(&ownerUserID)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return c.JSON(http.StatusNotFound, map[string]string{
+				"error": "subscription not found",
+			})
+		}
+		return c.JSON(http.StatusInternalServerError, map[string]string{
+			"error": "failed to verify subscription ownership",
+		})
+	}
+
+	if ownerUserID != int(user.ID) {
+		return c.JSON(http.StatusForbidden, map[string]string{
+			"error": "only subscription owner can assign licenses",
 		})
 	}
 
@@ -295,6 +328,14 @@ func (h *SubscriptionsHandler) RevokeLicense(c echo.Context) error {
 		})
 	}
 
+	// Get authenticated user
+	user := auth.GetUser(c)
+	if user == nil {
+		return c.JSON(http.StatusUnauthorized, map[string]string{
+			"error": "authentication required",
+		})
+	}
+
 	// Get org context
 	orgIDVal := c.Get("org_id")
 	var orgID int64
@@ -312,6 +353,31 @@ func (h *SubscriptionsHandler) RevokeLicense(c echo.Context) error {
 	if orgID == 0 {
 		return c.JSON(http.StatusBadRequest, map[string]string{
 			"error": "organization context required (revoke license handler)",
+		})
+	}
+
+	// Verify user owns this subscription
+	var ownerUserID int
+	err := h.db.QueryRow(`
+		SELECT owner_user_id
+		FROM subscriptions
+		WHERE razorpay_subscription_id = $1`,
+		subscriptionID,
+	).Scan(&ownerUserID)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return c.JSON(http.StatusNotFound, map[string]string{
+				"error": "subscription not found",
+			})
+		}
+		return c.JSON(http.StatusInternalServerError, map[string]string{
+			"error": "failed to verify subscription ownership",
+		})
+	}
+
+	if ownerUserID != int(user.ID) {
+		return c.JSON(http.StatusForbidden, map[string]string{
+			"error": "only subscription owner can revoke licenses",
 		})
 	}
 

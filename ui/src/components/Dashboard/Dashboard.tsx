@@ -14,6 +14,7 @@ import {
 import { HumanizedTimestamp } from '../HumanizedTimestamp/HumanizedTimestamp';
 import RecentActivity from './RecentActivity';
 import { OnboardingStepper } from './OnboardingStepper';
+import { PlanBadge } from './PlanBadge';
 import { handleUserLoginNotification } from '../../utils/userNotifications';
 import { useAppSelector } from '../../store/configureStore';
 
@@ -184,6 +185,9 @@ export const Dashboard: React.FC = () => {
                     className="fixed bottom-6 right-6 sm:hidden z-40 rounded-full w-14 h-14 shadow-xl hover:shadow-2xl transition-all duration-300 hover:scale-110 bg-gradient-to-r from-blue-600 to-blue-700 hover:from-blue-500 hover:to-blue-600"
                     aria-label="New Review"
                 />
+
+                {/* Plan Badge */}
+                <PlanBadge />
 
                 {/* Get Started stepper – stays visible until the user dismisses it, unless thresholds auto-hide it */}
                 {!hideStepper && !autoHideStepper && (

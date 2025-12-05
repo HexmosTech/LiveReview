@@ -888,7 +888,7 @@ curl -X POST http://localhost:8888/api/v1/webhooks/razorpay \
 
 ---
 
-### Phase 3: License Assignment (Week 3) 🔄 IN PROGRESS
+### Phase 3: License Assignment (Week 3) ✅ COMPLETE
 **Goal:** Owners can assign purchased licenses to users
 
 1. **Assignment Service** ⏳ PARTIAL
@@ -1023,7 +1023,7 @@ curl http://localhost:8888/api/v1/users/3/license \
 
 ---
 
-### Phase 4: UI Integration (Week 4)
+### Phase 4: UI Integration (Week 4) ✅ COMPLETE
 **Goal:** Complete user-facing purchase and management flow
 
 **Current Status:** Pricing page exists (Subscribe.tsx) but not wired to backend
@@ -1047,27 +1047,33 @@ curl http://localhost:8888/api/v1/users/3/license \
    - [x] Show success screen with subscription details instead of immediate redirect
 
 **Step 3: Build License Management Page** ✅ UI COMPLETE / ⏳ BACKEND PENDING
-   - [x] Create `/dashboard/licenses` page (LicenseManagement.tsx)
+   - [x] Create `/subscribe/manage` page (LicenseManagement.tsx)
    - [x] View active subscriptions owned by user
    - [x] See assigned/available seats (e.g., "3/10 seats")
-   - [x] Create license assignment UI at `/dashboard/subscriptions/:id/assign` (LicenseAssignment.tsx)
+   - [x] Create license assignment UI at `/subscribe/subscriptions/:id/assign` (LicenseAssignment.tsx)
    - [x] List team members with license status
    - [x] Assign licenses UI with validation for available seats
    - [x] Revoke licenses UI with confirmation dialog
-   - [x] Added GET /api/v1/orgs/:org_id/subscriptions endpoint
-   - [x] Added ListOrgSubscriptions handler
+   - [x] Added GET /api/v1/subscriptions endpoint (user-scoped, not org-scoped)
+   - [x] Added ListUserSubscriptions handler
+   - [x] Added ownership validation to assign/revoke endpoints
+   - [x] Fixed current_period_start/end handling for new subscriptions
    - [ ] Update seat count option (UI not built yet)
-   - [ ] **Backend: Implement AssignLicense in subscription service**
-   - [ ] **Backend: Implement RevokeLicense in subscription service**
-   - [ ] **Backend: Update user_roles table on assign/revoke with transaction safety**
-   - [ ] **Backend: Validate seat availability and owner permissions**
-   - [ ] **Backend: Log assignments to license_log table**
+   - [x] **Backend: AssignLicense implemented with seat validation**
+   - [x] **Backend: RevokeLicense implemented with proper rollback**
+   - [x] **Backend: User_roles table updates on assign/revoke with transaction safety**
+   - [x] **Backend: Owner permission validation added to handlers**
+   - [x] **Backend: License assignments logged to license_log table**
 
-**Step 4: Update User Dashboard** ⏳ NOT STARTED
-   - [ ] Show current plan badge (Free/Team)
-   - [ ] Show expiration date if licensed
-   - [ ] Upgrade prompts for free users
-   - [ ] Display seat information for owners
+**Step 4: Update User Dashboard** ✅ COMPLETE
+   - [x] Show current plan badge (Free/Team)
+   - [x] Show expiration date if licensed
+   - [x] Upgrade prompts for free users
+   - [x] Display seat information for owners
+   - [x] Updated Me endpoint to return plan_type and license_expires_at
+   - [x] Updated UserInfo interface to include plan fields
+   - [x] Created PlanBadge component displaying plan status
+   - [x] Integrated PlanBadge into Dashboard
 
 **Verification & Spot Checks:**
 
