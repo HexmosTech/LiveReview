@@ -185,13 +185,16 @@ async function apiRequest<T>(
     '/auth/setup',
     '/auth/setup-status',
     '/auth/me',
-    '/organizations',
   ];
+
+  // Explicitly exclude only the base /organizations endpoint (for listing user orgs), not sub-paths
+  const isBaseOrganizationsEndpoint = path === '/organizations' || path.startsWith('/organizations?');
 
   // Add X-Org-Context header if an organization is selected and the path is not excluded.
   if (
     selectedOrgId &&
     !excludedPaths.some(p => path.includes(p)) &&
+    !isBaseOrganizationsEndpoint &&
     !path.startsWith('/admin')
   ) {
     headers['X-Org-Context'] = selectedOrgId.toString();

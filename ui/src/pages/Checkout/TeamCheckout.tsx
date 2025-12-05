@@ -189,7 +189,7 @@ const TeamCheckout: React.FC = () => {
           <div className="flex flex-col sm:flex-row gap-4 justify-center">
             <button
               type="button"
-              onClick={() => navigate('/dashboard/licenses')}
+              onClick={() => navigate('/subscribe/manage')}
               className="flex-1 sm:flex-none px-6 py-3 bg-blue-600 hover:bg-blue-700 text-white font-semibold rounded-lg transition-colors shadow-lg"
             >
               Manage team licenses

@@ -448,6 +448,31 @@ const Subscribe: React.FC = () => {
             Start free, scale as you grow
           </p>
 
+          {/* Manage Subscriptions Link */}
+          {isAuthenticated && (
+            <div className="mb-6">
+              <button
+                type="button"
+                onClick={() => navigate('/subscribe/manage')}
+                className="inline-flex items-center gap-2 text-blue-400 hover:text-blue-300 font-medium text-sm transition-colors"
+              >
+                <svg
+                  xmlns="http://www.w3.org/2000/svg"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  className="w-4 h-4"
+                >
+                  <path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6" />
+                </svg>
+                Manage Subscriptions
+              </button>
+            </div>
+          )}
+
           {/* Billing Toggle */}
           <div className="inline-flex items-center bg-slate-800 rounded-lg p-1 border border-slate-700">
             <button

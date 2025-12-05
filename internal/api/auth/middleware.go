@@ -257,6 +257,7 @@ func (am *AuthMiddleware) BuildOrgContext() echo.MiddlewareFunc {
 
 			// Store org in context
 			c.Set(string(OrgContextKey), org)
+			c.Set("org_id", org.ID)
 			return next(c)
 		}
 	}

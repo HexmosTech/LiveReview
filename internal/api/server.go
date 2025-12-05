@@ -587,6 +587,9 @@ func (s *Server) setupRoutes() {
 	subscriptionsGroup.POST("/:id/assign", subscriptionsHandler.AssignLicense)
 	subscriptionsGroup.DELETE("/:id/users/:user_id", subscriptionsHandler.RevokeLicense)
 
+	// List subscriptions - user can see their own subscriptions across all orgs
+	protected.GET("/subscriptions", subscriptionsHandler.ListUserSubscriptions)
+
 	// Razorpay webhook endpoint (public - signature verified in handler)
 	webhookHandler := payment.NewRazorpayWebhookHandler(s.db, os.Getenv("RAZORPAY_WEBHOOK_SECRET"))
 	v1.POST("/webhooks/razorpay", webhookHandler.HandleWebhook)
