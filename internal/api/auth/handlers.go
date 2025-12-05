@@ -45,10 +45,12 @@ type LoginResponse struct {
 
 // UserInfo represents basic user information (no sensitive data)
 type UserInfo struct {
-	ID        int64     `json:"id"`
-	Email     string    `json:"email"`
-	CreatedAt time.Time `json:"created_at"`
-	UpdatedAt time.Time `json:"updated_at"`
+	ID               int64      `json:"id"`
+	Email            string     `json:"email"`
+	CreatedAt        time.Time  `json:"created_at"`
+	UpdatedAt        time.Time  `json:"updated_at"`
+	PlanType         string     `json:"plan_type,omitempty"`
+	LicenseExpiresAt *time.Time `json:"license_expires_at,omitempty"`
 }
 
 // OrgInfo represents organization information for the user
@@ -231,15 +233,36 @@ func (h *AuthHandlers) Me(c echo.Context) error {
 		})
 	}
 
+	// Get plan information from user_roles for the first org (or could get for current org)
+	var planType string
+	var licenseExpiresAt *time.Time
+	if len(organizations) > 0 {
+		err = h.db.QueryRow(`
+			SELECT plan_type, license_expires_at
+			FROM user_roles
+			WHERE user_id = $1 AND org_id = $2`,
+			user.ID, organizations[0].ID,
+		).Scan(&planType, &licenseExpiresAt)
+		if err != nil && err != sql.ErrNoRows {
+			// Log error but don't fail - just use default free plan
+			planType = "free"
+		}
+	}
+	if planType == "" {
+		planType = "free"
+	}
+
 	response := struct {
 		User          *UserInfo `json:"user"`
 		Organizations []OrgInfo `json:"organizations"`
 	}{
 		User: &UserInfo{
-			ID:        user.ID,
-			Email:     user.Email,
-			CreatedAt: user.CreatedAt,
-			UpdatedAt: user.UpdatedAt,
+			ID:               user.ID,
+			Email:            user.Email,
+			CreatedAt:        user.CreatedAt,
+			UpdatedAt:        user.UpdatedAt,
+			PlanType:         planType,
+			LicenseExpiresAt: licenseExpiresAt,
 		},
 		Organizations: organizations,
 	}
