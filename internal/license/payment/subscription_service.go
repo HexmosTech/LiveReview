@@ -389,7 +389,7 @@ func (s *SubscriptionService) AssignLicense(subscriptionID string, userID, orgID
 	}
 
 	// Increment assigned_seats
-	_, err = tx.Exec(`
+	result, err := tx.Exec(`
 		UPDATE subscriptions
 		SET assigned_seats = assigned_seats + 1,
 		    updated_at = NOW()
@@ -398,6 +398,13 @@ func (s *SubscriptionService) AssignLicense(subscriptionID string, userID, orgID
 	)
 	if err != nil {
 		return fmt.Errorf("failed to increment assigned_seats: %w", err)
+	}
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("failed to check rows affected: %w", err)
+	}
+	if rowsAffected == 0 {
+		return fmt.Errorf("failed to increment assigned_seats: subscription not found")
 	}
 
 	// Update user_roles
@@ -490,7 +497,7 @@ func (s *SubscriptionService) RevokeLicense(subscriptionID string, userID, orgID
 	}
 
 	// Decrement assigned_seats
-	_, err = tx.Exec(`
+	result, err := tx.Exec(`
 		UPDATE subscriptions
 		SET assigned_seats = assigned_seats - 1,
 		    updated_at = NOW()
@@ -499,6 +506,13 @@ func (s *SubscriptionService) RevokeLicense(subscriptionID string, userID, orgID
 	)
 	if err != nil {
 		return fmt.Errorf("failed to decrement assigned_seats: %w", err)
+	}
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("failed to check rows affected: %w", err)
+	}
+	if rowsAffected == 0 {
+		return fmt.Errorf("failed to decrement assigned_seats: subscription not found")
 	}
 
 	// Revert user to free plan
