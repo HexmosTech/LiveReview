@@ -8,6 +8,7 @@ export interface Organization {
     updated_at: string;
     settings?: any; // Or a more specific type if known
     subscription_plan?: string;
+    subscription_status?: string;
     max_users?: number;
     created_by_user_id?: number;
     creator_email?: string;

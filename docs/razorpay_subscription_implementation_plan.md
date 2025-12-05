@@ -681,7 +681,7 @@ type GetUserLicenseResponse struct {
 
 ## 5. Implementation Phases
 
-### Phase 1: Enforcement Infrastructure (Week 1)
+### Phase 1: Enforcement Infrastructure (Week 1) ✅ COMPLETE
 **Goal:** Make the system aware of plans and enforce limits
 
 1. **Database Schema** ✅
@@ -790,7 +790,7 @@ go test ./internal/api/middleware -run TestCheckReviewLimit -v
 
 ---
 
-### Phase 2: Razorpay Integration (Week 2)
+### Phase 2: Razorpay Integration (Week 2) ✅ COMPLETE
 **Goal:** Connect to Razorpay, create/manage subscriptions
 
 1. **Plan Setup in Razorpay** ✅
@@ -888,30 +888,31 @@ curl -X POST http://localhost:8888/api/v1/webhooks/razorpay \
 
 ---
 
-### Phase 3: License Assignment (Week 3)
+### Phase 3: License Assignment (Week 3) 🔄 IN PROGRESS
 **Goal:** Owners can assign purchased licenses to users
 
-1. **Assignment Service** ✅
+1. **Assignment Service** ⏳ PARTIAL
    - Create `internal/license/assignment_service.go`
-   - Implement AssignLicense (updates user_roles)
-   - Implement RevokeLicense (reverts user_roles to free)
+   - Implement AssignLicense (updates user_roles) - **NEEDS IMPLEMENTATION**
+   - Implement RevokeLicense (reverts user_roles to free) - **NEEDS IMPLEMENTATION**
    - Implement ListAssignedUsers (queries user_roles by subscription_id)
 
-2. **User Sync** ✅
-   - Update user's `plan_type` on assignment
-   - Update user's `license_expires_at`
+2. **User Sync** ⏳ PARTIAL
+   - Update user's `plan_type` on assignment - **NEEDS IMPLEMENTATION**
+   - Update user's `license_expires_at` - **NEEDS IMPLEMENTATION**
    - Issue new JWT with updated claims
 
 3. **API Endpoints** ✅
-   - POST /api/v1/subscriptions/:id/licenses
-   - DELETE /api/v1/subscriptions/:id/licenses/:user_id
-   - GET /api/v1/users/:id/license
+   - POST /api/v1/subscriptions/:id/assign (handler exists, service logic pending)
+   - DELETE /api/v1/subscriptions/:id/users/:user_id (handler exists, service logic pending)
+   - GET /api/v1/subscriptions/:id
+   - GET /api/v1/orgs/:org_id/subscriptions (list endpoint added)
 
-4. **Validation Logic** ✅
-   - Check seat availability
-   - Only subscription owner can assign licenses
-   - Can assign to users in any org owned by subscription owner
-   - User must be a member of the target org
+4. **Validation Logic** ⏳ PARTIAL
+   - Check seat availability - **NEEDS IMPLEMENTATION IN SERVICE**
+   - Only subscription owner can assign licenses - **NEEDS IMPLEMENTATION**
+   - Can assign to users in any org owned by subscription owner - **NEEDS IMPLEMENTATION**
+   - User must be a member of the target org - **NEEDS IMPLEMENTATION**
 
 **Verification & Spot Checks:**
 
@@ -1036,25 +1037,33 @@ curl http://localhost:8888/api/v1/users/3/license \
    - [x] Fix authentication detection (uses accessToken from localStorage)
    - [x] Clean pricing page (removed seat selector, will be in wizard)
 
-**Step 2: Build Checkout Wizard Page** 🔄 IN PROGRESS
-   - [ ] Create `/checkout/team` page component
-   - [ ] Add seat quantity selector in wizard
-   - [ ] Display price summary based on seats and billing period
-   - [ ] Call `/api/v1/subscriptions` endpoint with auth
-   - [ ] Initialize Razorpay checkout modal
-   - [ ] Handle payment success/failure callbacks
-   - [ ] Redirect to `/dashboard/licenses` on success
+**Step 2: Build Checkout Wizard Page** ✅ COMPLETE
+   - [x] Create `/checkout/team` page component
+   - [x] Add seat quantity selector in wizard
+   - [x] Display price summary based on seats and billing period
+   - [x] Call `/api/v1/subscriptions` endpoint with auth
+   - [x] Initialize Razorpay checkout modal
+   - [x] Handle payment success/failure callbacks
+   - [x] Show success screen with subscription details instead of immediate redirect
 
-**Step 3: Build License Management Page** ⏳ NOT STARTED
-   - [ ] Create `/dashboard/licenses` page
-   - [ ] View active subscriptions owned by user
-   - [ ] See assigned/available seats (e.g., "3/10 seats")
-   - [ ] List team members with license status
-   - [ ] Assign licenses to org members
-   - [ ] Revoke licenses
-   - [ ] Update seat count option
+**Step 3: Build License Management Page** ✅ UI COMPLETE / ⏳ BACKEND PENDING
+   - [x] Create `/dashboard/licenses` page (LicenseManagement.tsx)
+   - [x] View active subscriptions owned by user
+   - [x] See assigned/available seats (e.g., "3/10 seats")
+   - [x] Create license assignment UI at `/dashboard/subscriptions/:id/assign` (LicenseAssignment.tsx)
+   - [x] List team members with license status
+   - [x] Assign licenses UI with validation for available seats
+   - [x] Revoke licenses UI with confirmation dialog
+   - [x] Added GET /api/v1/orgs/:org_id/subscriptions endpoint
+   - [x] Added ListOrgSubscriptions handler
+   - [ ] Update seat count option (UI not built yet)
+   - [ ] **Backend: Implement AssignLicense in subscription service**
+   - [ ] **Backend: Implement RevokeLicense in subscription service**
+   - [ ] **Backend: Update user_roles table on assign/revoke with transaction safety**
+   - [ ] **Backend: Validate seat availability and owner permissions**
+   - [ ] **Backend: Log assignments to license_log table**
 
-**Step 3: Update User Dashboard** ⏳ NOT STARTED
+**Step 4: Update User Dashboard** ⏳ NOT STARTED
    - [ ] Show current plan badge (Free/Team)
    - [ ] Show expiration date if licensed
    - [ ] Upgrade prompts for free users

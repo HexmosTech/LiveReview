@@ -13,12 +13,14 @@ import (
 // SubscriptionsHandler handles subscription-related API endpoints
 type SubscriptionsHandler struct {
 	service *payment.SubscriptionService
+	db      *sql.DB
 }
 
 // NewSubscriptionsHandler creates a new subscriptions handler
 func NewSubscriptionsHandler(db *sql.DB) *SubscriptionsHandler {
 	return &SubscriptionsHandler{
 		service: payment.NewSubscriptionService(db),
+		db:      db,
 	}
 }
 
@@ -331,5 +333,163 @@ func (h *SubscriptionsHandler) RevokeLicense(c echo.Context) error {
 
 	return c.JSON(http.StatusOK, map[string]string{
 		"message": "license revoked successfully",
+	})
+}
+
+// ListUserSubscriptions lists all subscriptions owned by the authenticated user
+func (h *SubscriptionsHandler) ListUserSubscriptions(c echo.Context) error {
+	// Get authenticated user
+	user := auth.GetUser(c)
+	if user == nil {
+		return c.JSON(http.StatusUnauthorized, map[string]string{
+			"error": "authentication required",
+		})
+	}
+
+	// Query subscriptions owned by the user
+	rows, err := h.db.Query(`
+		SELECT 
+			id, razorpay_subscription_id, owner_user_id, org_id, plan_type,
+			quantity, assigned_seats, status, razorpay_plan_id,
+			current_period_start, current_period_end, license_expires_at,
+			created_at, updated_at
+		FROM subscriptions
+		WHERE owner_user_id = $1
+		ORDER BY created_at DESC
+	`, user.ID)
+	if err != nil {
+		return c.JSON(http.StatusInternalServerError, map[string]string{
+			"error": "failed to fetch subscriptions",
+		})
+	}
+	defer rows.Close()
+
+	type SubscriptionResponse struct {
+		ID                     int64  `json:"id"`
+		RazorpaySubscriptionID string `json:"razorpay_subscription_id"`
+		OwnerUserID            int    `json:"owner_user_id"`
+		OrgID                  int    `json:"org_id"`
+		PlanType               string `json:"plan_type"`
+		Quantity               int    `json:"quantity"`
+		AssignedSeats          int    `json:"assigned_seats"`
+		Status                 string `json:"status"`
+		RazorpayPlanID         string `json:"razorpay_plan_id"`
+		CurrentPeriodStart     string `json:"current_period_start"`
+		CurrentPeriodEnd       string `json:"current_period_end"`
+		LicenseExpiresAt       string `json:"license_expires_at"`
+		CreatedAt              string `json:"created_at"`
+		UpdatedAt              string `json:"updated_at"`
+	}
+
+	var subscriptions []SubscriptionResponse
+	for rows.Next() {
+		var sub SubscriptionResponse
+		if err := rows.Scan(
+			&sub.ID, &sub.RazorpaySubscriptionID, &sub.OwnerUserID, &sub.OrgID, &sub.PlanType,
+			&sub.Quantity, &sub.AssignedSeats, &sub.Status, &sub.RazorpayPlanID,
+			&sub.CurrentPeriodStart, &sub.CurrentPeriodEnd, &sub.LicenseExpiresAt,
+			&sub.CreatedAt, &sub.UpdatedAt,
+		); err != nil {
+			return c.JSON(http.StatusInternalServerError, map[string]string{
+				"error": "failed to parse subscriptions",
+			})
+		}
+		subscriptions = append(subscriptions, sub)
+	}
+
+	if err := rows.Err(); err != nil {
+		return c.JSON(http.StatusInternalServerError, map[string]string{
+			"error": "error iterating subscriptions",
+		})
+	}
+
+	return c.JSON(http.StatusOK, map[string]interface{}{
+		"subscriptions": subscriptions,
+		"count":         len(subscriptions),
+	})
+}
+
+// ListOrgSubscriptions lists all subscriptions for an organization (deprecated, kept for compatibility)
+func (h *SubscriptionsHandler) ListOrgSubscriptions(c echo.Context) error {
+	// Get org context
+	orgIDVal := c.Get("org_id")
+	var orgID int64
+	switch v := orgIDVal.(type) {
+	case int64:
+		orgID = v
+	case int:
+		orgID = int64(v)
+	default:
+		return c.JSON(http.StatusBadRequest, map[string]string{
+			"error": "organization context required",
+		})
+	}
+
+	if orgID == 0 {
+		return c.JSON(http.StatusBadRequest, map[string]string{
+			"error": "organization context required",
+		})
+	}
+
+	// Query subscriptions for the org
+	rows, err := h.db.Query(`
+		SELECT 
+			id, razorpay_subscription_id, owner_user_id, org_id, plan_type,
+			quantity, assigned_seats, status, razorpay_plan_id,
+			current_period_start, current_period_end, license_expires_at,
+			created_at, updated_at
+		FROM subscriptions
+		WHERE org_id = $1
+		ORDER BY created_at DESC
+	`, orgID)
+	if err != nil {
+		return c.JSON(http.StatusInternalServerError, map[string]string{
+			"error": "failed to fetch subscriptions",
+		})
+	}
+	defer rows.Close()
+
+	type SubscriptionResponse struct {
+		ID                     int64  `json:"id"`
+		RazorpaySubscriptionID string `json:"razorpay_subscription_id"`
+		OwnerUserID            int    `json:"owner_user_id"`
+		OrgID                  int    `json:"org_id"`
+		PlanType               string `json:"plan_type"`
+		Quantity               int    `json:"quantity"`
+		AssignedSeats          int    `json:"assigned_seats"`
+		Status                 string `json:"status"`
+		RazorpayPlanID         string `json:"razorpay_plan_id"`
+		CurrentPeriodStart     string `json:"current_period_start"`
+		CurrentPeriodEnd       string `json:"current_period_end"`
+		LicenseExpiresAt       string `json:"license_expires_at"`
+		CreatedAt              string `json:"created_at"`
+		UpdatedAt              string `json:"updated_at"`
+	}
+
+	var subscriptions []SubscriptionResponse
+	for rows.Next() {
+		var sub SubscriptionResponse
+		if err := rows.Scan(
+			&sub.ID, &sub.RazorpaySubscriptionID, &sub.OwnerUserID, &sub.OrgID, &sub.PlanType,
+			&sub.Quantity, &sub.AssignedSeats, &sub.Status, &sub.RazorpayPlanID,
+			&sub.CurrentPeriodStart, &sub.CurrentPeriodEnd, &sub.LicenseExpiresAt,
+			&sub.CreatedAt, &sub.UpdatedAt,
+		); err != nil {
+			return c.JSON(http.StatusInternalServerError, map[string]string{
+				"error": "failed to parse subscriptions",
+			})
+		}
+		subscriptions = append(subscriptions, sub)
+	}
+
+	if err := rows.Err(); err != nil {
+		return c.JSON(http.StatusInternalServerError, map[string]string{
+			"error": "error iterating subscriptions",
+		})
+	}
+
+	return c.JSON(http.StatusOK, map[string]interface{}{
+		"subscriptions": subscriptions,
+		"count":         len(subscriptions),
 	})
 }
