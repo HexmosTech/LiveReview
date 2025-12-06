@@ -31,6 +31,8 @@ const LicenseAssignment: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [processing, setProcessing] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [selectedMembers, setSelectedMembers] = useState<Set<number>>(new Set());
+  const [bulkProcessing, setBulkProcessing] = useState(false);
 
   useEffect(() => {
     if (!currentOrgId || !subscriptionId) {
@@ -116,6 +118,116 @@ const LicenseAssignment: React.FC = () => {
     return member.plan_type === 'team' && member.license_expires_at;
   };
 
+  const toggleMember = (userId: number) => {
+    setSelectedMembers(prev => {
+      const next = new Set(prev);
+      if (next.has(userId)) {
+        next.delete(userId);
+      } else {
+        next.add(userId);
+      }
+      return next;
+    });
+  };
+
+  const toggleSelectAll = () => {
+    if (selectedMembers.size === members.length) {
+      setSelectedMembers(new Set());
+    } else {
+      setSelectedMembers(new Set(members.map(m => m.id)));
+    }
+  };
+
+  const handleBulkAssign = async () => {
+    if (!subscriptionId || !subscription || selectedMembers.size === 0) return;
+
+    const unlicensedSelected = Array.from(selectedMembers).filter(id => {
+      const member = members.find(m => m.id === id);
+      return member && !isLicensed(member);
+    });
+
+    if (unlicensedSelected.length === 0) {
+      toast.error('No unlicensed members selected');
+      return;
+    }
+
+    const availableSeats = subscription.quantity - subscription.assigned_seats;
+    if (unlicensedSelected.length > availableSeats) {
+      toast.error(`Only ${availableSeats} seat(s) available, but ${unlicensedSelected.length} selected`);
+      return;
+    }
+
+    setBulkProcessing(true);
+    let successCount = 0;
+    let errorCount = 0;
+
+    for (const userId of unlicensedSelected) {
+      try {
+        await apiClient.post(`/subscriptions/${subscriptionId}/assign`, {
+          user_id: userId,
+        });
+        successCount++;
+      } catch (err: any) {
+        errorCount++;
+      }
+    }
+
+    setBulkProcessing(false);
+    setSelectedMembers(new Set());
+
+    if (successCount > 0) {
+      toast.success(`${successCount} license(s) assigned successfully`);
+    }
+    if (errorCount > 0) {
+      toast.error(`${errorCount} assignment(s) failed`);
+    }
+
+    loadData();
+  };
+
+  const handleBulkRevoke = async () => {
+    if (!subscriptionId || selectedMembers.size === 0) return;
+
+    const licensedSelected = Array.from(selectedMembers).filter(id => {
+      const member = members.find(m => m.id === id);
+      return member && isLicensed(member);
+    });
+
+    if (licensedSelected.length === 0) {
+      toast.error('No licensed members selected');
+      return;
+    }
+
+    if (!confirm(`Are you sure you want to revoke ${licensedSelected.length} license(s)? Users will lose Team plan access.`)) {
+      return;
+    }
+
+    setBulkProcessing(true);
+    let successCount = 0;
+    let errorCount = 0;
+
+    for (const userId of licensedSelected) {
+      try {
+        await apiClient.delete(`/subscriptions/${subscriptionId}/users/${userId}`);
+        successCount++;
+      } catch (err: any) {
+        errorCount++;
+      }
+    }
+
+    setBulkProcessing(false);
+    setSelectedMembers(new Set());
+
+    if (successCount > 0) {
+      toast.success(`${successCount} license(s) revoked successfully`);
+    }
+    if (errorCount > 0) {
+      toast.error(`${errorCount} revocation(s) failed`);
+    }
+
+    loadData();
+  };
+
   if (loading) {
     return (
       <div className="min-h-screen bg-gradient-to-b from-slate-900 to-slate-800 py-8 px-4">
@@ -197,10 +309,35 @@ const LicenseAssignment: React.FC = () => {
         {/* Members List */}
         <div className="bg-slate-800 rounded-xl border border-slate-700 overflow-hidden">
           <div className="p-6 border-b border-slate-700">
-            <h2 className="text-xl font-semibold text-white">Team Members</h2>
-            <p className="text-sm text-slate-400 mt-1">
-              Assign or revoke team licenses for organization members
-            </p>
+            <div className="flex items-center justify-between">
+              <div>
+                <h2 className="text-xl font-semibold text-white">Team Members</h2>
+                <p className="text-sm text-slate-400 mt-1">
+                  Assign or revoke team licenses for organization members
+                </p>
+              </div>
+              {selectedMembers.size > 0 && (
+                <div className="flex items-center gap-3">
+                  <span className="text-sm text-slate-400">
+                    {selectedMembers.size} selected
+                  </span>
+                  <button
+                    onClick={handleBulkAssign}
+                    disabled={bulkProcessing}
+                    className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors text-sm font-medium disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    {bulkProcessing ? 'Processing...' : 'Assign Selected'}
+                  </button>
+                  <button
+                    onClick={handleBulkRevoke}
+                    disabled={bulkProcessing}
+                    className="px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-lg transition-colors text-sm font-medium disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    {bulkProcessing ? 'Processing...' : 'Revoke Selected'}
+                  </button>
+                </div>
+              )}
+            </div>
           </div>
 
           {members.length === 0 ? (
@@ -208,56 +345,82 @@ const LicenseAssignment: React.FC = () => {
               <p className="text-slate-400">No team members found</p>
             </div>
           ) : (
-            <div className="divide-y divide-slate-700">
-              {members.map((member) => {
-                const hasLicense = isLicensed(member);
-                const isProcessingThis = processing === member.id;
+            <div>
+              {/* Select All Header */}
+              <div className="p-4 border-b border-slate-700 bg-slate-900/40 flex items-center">
+                <div className="w-4 h-4 flex items-center justify-center flex-shrink-0">
+                  <input
+                    type="checkbox"
+                    checked={selectedMembers.size === members.length && members.length > 0}
+                    onChange={toggleSelectAll}
+                    className="w-4 h-4 text-blue-600 bg-slate-700 border-slate-600 rounded focus:ring-blue-500 focus:ring-2"
+                  />
+                </div>
+                <span className="ml-4 text-sm font-medium text-slate-300">
+                  Select All ({members.length})
+                </span>
+              </div>
 
-                return (
-                  <div key={member.id} className="p-6 hover:bg-slate-900/40 transition-colors">
-                    <div className="flex items-center justify-between">
-                      <div className="flex-1">
-                        <div className="flex items-center gap-3 mb-1">
-                          <h3 className="text-white font-medium">{member.email}</h3>
-                          <span className="px-2 py-1 text-xs font-semibold rounded border bg-slate-700/40 text-slate-300 border-slate-600">
-                            {member.role}
-                          </span>
-                          {hasLicense && (
-                            <span className="px-2 py-1 text-xs font-semibold rounded border bg-emerald-500/10 text-emerald-400 border-emerald-500/40">
-                              Licensed
+              {/* Member Rows */}
+              <div className="divide-y divide-slate-700">
+                {members.map((member) => {
+                  const hasLicense = isLicensed(member);
+                  const isProcessingThis = processing === member.id;
+                  const isSelected = selectedMembers.has(member.id);
+
+                  return (
+                    <div key={member.id} className="p-4 hover:bg-slate-900/40 transition-colors flex items-center gap-4">
+                      <div className="w-4 h-4 flex items-center justify-center flex-shrink-0">
+                        <input
+                          type="checkbox"
+                          checked={isSelected}
+                          onChange={() => toggleMember(member.id)}
+                          disabled={bulkProcessing || isProcessingThis}
+                          className="w-4 h-4 text-blue-600 bg-slate-700 border-slate-600 rounded focus:ring-blue-500 focus:ring-2 disabled:opacity-50"
+                        />
+                      </div>
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-3 mb-1 flex-wrap">
+                            <h3 className="text-white font-medium truncate">{member.email}</h3>
+                            <span className="px-2 py-1 text-xs font-semibold rounded border bg-slate-700/40 text-slate-300 border-slate-600 flex-shrink-0">
+                              {member.role}
                             </span>
+                            {hasLicense && (
+                              <span className="px-2 py-1 text-xs font-semibold rounded border bg-emerald-500/10 text-emerald-400 border-emerald-500/40 flex-shrink-0">
+                                Licensed
+                              </span>
+                            )}
+                          </div>
+                          {hasLicense && member.license_expires_at && (
+                            <p className="text-sm text-slate-400">
+                              Expires: {new Date(member.license_expires_at).toLocaleDateString()}
+                            </p>
                           )}
                         </div>
-                        {hasLicense && member.license_expires_at && (
-                          <p className="text-sm text-slate-400">
-                            Expires: {new Date(member.license_expires_at).toLocaleDateString()}
-                          </p>
-                        )}
-                      </div>
 
-                      <div>
-                        {hasLicense ? (
-                          <button
-                            onClick={() => handleRevoke(member.id)}
-                            disabled={isProcessingThis}
-                            className="px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-lg transition-colors text-sm font-medium disabled:opacity-50 disabled:cursor-not-allowed"
-                          >
-                            {isProcessingThis ? 'Revoking...' : 'Revoke'}
-                          </button>
-                        ) : (
-                          <button
-                            onClick={() => handleAssign(member.id)}
-                            disabled={isProcessingThis || availableSeats === 0}
-                            className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors text-sm font-medium disabled:opacity-50 disabled:cursor-not-allowed"
-                          >
-                            {isProcessingThis ? 'Assigning...' : 'Assign License'}
-                          </button>
-                        )}
-                      </div>
+                        <div className="flex-shrink-0">
+                          {hasLicense ? (
+                            <button
+                              onClick={() => handleRevoke(member.id)}
+                              disabled={isProcessingThis || bulkProcessing}
+                              className="px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-lg transition-colors text-sm font-medium disabled:opacity-50 disabled:cursor-not-allowed min-w-[100px]"
+                            >
+                              {isProcessingThis ? 'Revoking...' : 'Revoke'}
+                            </button>
+                          ) : (
+                            <button
+                              onClick={() => handleAssign(member.id)}
+                              disabled={isProcessingThis || availableSeats === 0 || bulkProcessing}
+                              className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors text-sm font-medium disabled:opacity-50 disabled:cursor-not-allowed min-w-[100px]"
+                            >
+                              {isProcessingThis ? 'Assigning...' : 'Assign License'}
+                            </button>
+                          )}
+                        </div>
                     </div>
-                  </div>
-                );
-              })}
+                  );
+                })}
+              </div>
             </div>
           )}
         </div>
