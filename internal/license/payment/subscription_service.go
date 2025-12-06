@@ -330,13 +330,14 @@ type SubscriptionDetails struct {
 
 // GetSubscriptionDetails retrieves subscription details from both DB and Razorpay
 func (s *SubscriptionService) GetSubscriptionDetails(subscriptionID string, mode string) (*SubscriptionDetails, error) {
-	// Get from DB
+	// Get from DB with calculated assigned_seats from user_roles
 	var details SubscriptionDetails
 	err := s.db.QueryRow(`
-		SELECT id, owner_user_id, org_id, plan_type, quantity, assigned_seats,
-		       status, license_expires_at, created_at, updated_at
-		FROM subscriptions
-		WHERE razorpay_subscription_id = $1`,
+		SELECT s.id, s.owner_user_id, s.org_id, s.plan_type, s.quantity,
+		       COALESCE((SELECT COUNT(*) FROM user_roles ur WHERE ur.active_subscription_id = s.id AND ur.plan_type = 'team'), 0) as assigned_seats,
+		       s.status, s.license_expires_at, s.created_at, s.updated_at
+		FROM subscriptions s
+		WHERE s.razorpay_subscription_id = $1`,
 		subscriptionID,
 	).Scan(
 		&details.ID, &details.OwnerUserID, &details.OrgID, &details.PlanType,
@@ -369,17 +370,19 @@ func (s *SubscriptionService) AssignLicense(subscriptionID string, userID, orgID
 	}
 	defer tx.Rollback()
 
-	// Check subscription capacity
-	var quantity, assignedSeats int
+	// Check subscription capacity - calculate assigned_seats dynamically from user_roles
+	var quantity int
 	var ownerUserID int
 	var dbSubscriptionID int64
 	var licenseExpiresAt time.Time
+	var assignedSeats int
 	err = tx.QueryRow(`
-		SELECT id, quantity, assigned_seats, owner_user_id, license_expires_at
-		FROM subscriptions
-		WHERE razorpay_subscription_id = $1`,
+		SELECT s.id, s.quantity, s.owner_user_id, s.license_expires_at,
+		       COALESCE((SELECT COUNT(*) FROM user_roles ur WHERE ur.active_subscription_id = s.id AND ur.plan_type = 'team'), 0) as assigned_seats
+		FROM subscriptions s
+		WHERE s.razorpay_subscription_id = $1`,
 		subscriptionID,
-	).Scan(&dbSubscriptionID, &quantity, &assignedSeats, &ownerUserID, &licenseExpiresAt)
+	).Scan(&dbSubscriptionID, &quantity, &ownerUserID, &licenseExpiresAt, &assignedSeats)
 	if err != nil {
 		return fmt.Errorf("failed to get subscription: %w", err)
 	}
@@ -388,24 +391,7 @@ func (s *SubscriptionService) AssignLicense(subscriptionID string, userID, orgID
 		return fmt.Errorf("subscription at capacity: %d/%d seats used", assignedSeats, quantity)
 	}
 
-	// Increment assigned_seats
-	result, err := tx.Exec(`
-		UPDATE subscriptions
-		SET assigned_seats = assigned_seats + 1,
-		    updated_at = NOW()
-		WHERE razorpay_subscription_id = $1`,
-		subscriptionID,
-	)
-	if err != nil {
-		return fmt.Errorf("failed to increment assigned_seats: %w", err)
-	}
-	rowsAffected, err := result.RowsAffected()
-	if err != nil {
-		return fmt.Errorf("failed to check rows affected: %w", err)
-	}
-	if rowsAffected == 0 {
-		return fmt.Errorf("failed to increment assigned_seats: subscription not found")
-	}
+	// No need to increment assigned_seats counter - we calculate it dynamically
 
 	// Update user_roles
 	_, err = tx.Exec(`
@@ -496,24 +482,7 @@ func (s *SubscriptionService) RevokeLicense(subscriptionID string, userID, orgID
 		return fmt.Errorf("user %d does not have subscription %s", userID, subscriptionID)
 	}
 
-	// Decrement assigned_seats
-	result, err := tx.Exec(`
-		UPDATE subscriptions
-		SET assigned_seats = assigned_seats - 1,
-		    updated_at = NOW()
-		WHERE razorpay_subscription_id = $1`,
-		subscriptionID,
-	)
-	if err != nil {
-		return fmt.Errorf("failed to decrement assigned_seats: %w", err)
-	}
-	rowsAffected, err := result.RowsAffected()
-	if err != nil {
-		return fmt.Errorf("failed to check rows affected: %w", err)
-	}
-	if rowsAffected == 0 {
-		return fmt.Errorf("failed to decrement assigned_seats: subscription not found")
-	}
+	// No need to decrement assigned_seats counter - we calculate it dynamically
 
 	// Revert user to free plan
 	_, err = tx.Exec(`
