@@ -19,6 +19,8 @@ type OrgMember = {
   role: string;
   plan_type: string;
   license_expires_at: string | null;
+  active_subscription_id?: number;
+  razorpay_subscription_id?: string;
 };
 
 const LicenseAssignment: React.FC = () => {
@@ -282,6 +284,12 @@ const LicenseAssignment: React.FC = () => {
 
         {/* Subscription Info */}
         <div className="bg-slate-800 rounded-xl border border-slate-700 p-6 mb-8">
+          <div className="mb-4">
+            <h2 className="text-lg font-semibold text-white mb-1">Subscription Details</h2>
+            <p className="text-sm text-slate-400">
+              ID: <span className="font-mono text-slate-300">{subscription.razorpay_subscription_id}</span>
+            </p>
+          </div>
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-6">
             <div>
               <div className="text-slate-400 text-sm mb-1">Total Seats</div>
@@ -367,6 +375,8 @@ const LicenseAssignment: React.FC = () => {
                   const hasLicense = isLicensed(member);
                   const isProcessingThis = processing === member.id;
                   const isSelected = selectedMembers.has(member.id);
+                  const hasOtherSubscription = member.razorpay_subscription_id && 
+                                               member.razorpay_subscription_id !== subscriptionId;
 
                   return (
                     <div key={member.id} className="p-4 hover:bg-slate-900/40 transition-colors flex items-center gap-4">
@@ -385,27 +395,47 @@ const LicenseAssignment: React.FC = () => {
                             <span className="px-2 py-1 text-xs font-semibold rounded border bg-slate-700/40 text-slate-300 border-slate-600 flex-shrink-0">
                               {member.role}
                             </span>
-                            {hasLicense && (
+                            {hasLicense && !hasOtherSubscription && (
                               <span className="px-2 py-1 text-xs font-semibold rounded border bg-emerald-500/10 text-emerald-400 border-emerald-500/40 flex-shrink-0">
-                                Licensed
+                                Licensed (This)
                               </span>
+                            )}
+                            {hasOtherSubscription && member.razorpay_subscription_id && (
+                              <button
+                                onClick={() => navigate(`/subscribe/subscriptions/${member.razorpay_subscription_id}/assign`)}
+                                className="px-2 py-1 text-xs font-semibold rounded border bg-orange-500/10 text-orange-400 border-orange-500/40 flex-shrink-0 hover:bg-orange-500/20 transition-colors"
+                                title="Click to view other subscription"
+                              >
+                                Licensed (Other: {member.razorpay_subscription_id})
+                              </button>
                             )}
                           </div>
                           {hasLicense && member.license_expires_at && (
                             <p className="text-sm text-slate-400">
                               Expires: {new Date(member.license_expires_at).toLocaleDateString()}
+                              {hasOtherSubscription && (
+                                <span className="text-orange-400 ml-2">• Revoke other subscription first</span>
+                              )}
                             </p>
                           )}
                         </div>
 
                         <div className="flex-shrink-0">
-                          {hasLicense ? (
+                          {hasLicense && !hasOtherSubscription ? (
                             <button
                               onClick={() => handleRevoke(member.id)}
                               disabled={isProcessingThis || bulkProcessing}
                               className="px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-lg transition-colors text-sm font-medium disabled:opacity-50 disabled:cursor-not-allowed min-w-[100px]"
                             >
                               {isProcessingThis ? 'Revoking...' : 'Revoke'}
+                            </button>
+                          ) : hasOtherSubscription ? (
+                            <button
+                              disabled={true}
+                              className="px-4 py-2 bg-slate-600 text-slate-400 rounded-lg text-sm font-medium cursor-not-allowed min-w-[100px]"
+                              title="User has license from another subscription"
+                            >
+                              Other Sub
                             </button>
                           ) : (
                             <button

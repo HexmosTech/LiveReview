@@ -391,6 +391,25 @@ func (s *SubscriptionService) AssignLicense(subscriptionID string, userID, orgID
 		return fmt.Errorf("subscription at capacity: %d/%d seats used", assignedSeats, quantity)
 	}
 
+	// Check if user already has an active subscription in this org
+	var existingSubID sql.NullInt64
+	var existingRazorpaySubID sql.NullString
+	err = tx.QueryRow(`
+		SELECT ur.active_subscription_id, s.razorpay_subscription_id
+		FROM user_roles ur
+		LEFT JOIN subscriptions s ON ur.active_subscription_id = s.id
+		WHERE ur.user_id = $1 AND ur.org_id = $2 AND ur.plan_type = 'team'`,
+		userID, orgID,
+	).Scan(&existingSubID, &existingRazorpaySubID)
+
+	if err != nil && err != sql.ErrNoRows {
+		return fmt.Errorf("failed to check existing subscription: %w", err)
+	}
+
+	if existingSubID.Valid && existingSubID.Int64 != dbSubscriptionID {
+		return fmt.Errorf("user already has an active license from subscription %s - please revoke that first", existingRazorpaySubID.String)
+	}
+
 	// No need to increment assigned_seats counter - we calculate it dynamically
 
 	// Update user_roles
