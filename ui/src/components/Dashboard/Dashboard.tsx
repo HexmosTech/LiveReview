@@ -186,9 +186,6 @@ export const Dashboard: React.FC = () => {
                     aria-label="New Review"
                 />
 
-                {/* Plan Badge */}
-                <PlanBadge />
-
                 {/* Get Started stepper – stays visible until the user dismisses it, unless thresholds auto-hide it */}
                 {!hideStepper && !autoHideStepper && (
                     <OnboardingStepper
