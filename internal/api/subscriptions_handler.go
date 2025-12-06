@@ -412,16 +412,20 @@ func (h *SubscriptionsHandler) ListUserSubscriptions(c echo.Context) error {
 		})
 	}
 
-	// Query subscriptions owned by the user
+	// Query subscriptions owned by the user with calculated assigned_seats from user_roles
+	// Only return subscriptions that are active or have assigned seats
 	rows, err := h.db.Query(`
 		SELECT 
-			id, razorpay_subscription_id, owner_user_id, org_id, plan_type,
-			quantity, assigned_seats, status, razorpay_plan_id,
-			current_period_start, current_period_end, license_expires_at,
-			created_at, updated_at
-		FROM subscriptions
-		WHERE owner_user_id = $1
-		ORDER BY created_at DESC
+			s.id, s.razorpay_subscription_id, s.owner_user_id, s.org_id, s.plan_type,
+			s.quantity, 
+			COALESCE((SELECT COUNT(*) FROM user_roles ur WHERE ur.active_subscription_id = s.id AND ur.plan_type = 'team'), 0) as assigned_seats,
+			s.status, s.razorpay_plan_id,
+			s.current_period_start, s.current_period_end, s.license_expires_at,
+			s.created_at, s.updated_at
+		FROM subscriptions s
+		WHERE s.owner_user_id = $1
+		  AND (s.status IN ('created', 'authenticated', 'active') OR EXISTS (SELECT 1 FROM user_roles ur WHERE ur.active_subscription_id = s.id))
+		ORDER BY s.created_at DESC
 	`, user.ID)
 	if err != nil {
 		return c.JSON(http.StatusInternalServerError, map[string]string{
