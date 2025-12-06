@@ -184,7 +184,7 @@ const LicenseManagement: React.FC = () => {
                     </div>
                     <button
                       onClick={() => navigate(`/subscribe/subscriptions/${sub.razorpay_subscription_id}/assign`)}
-                      className="px-4 py-2 bg-slate-700 hover:bg-slate-600 text-white rounded-lg transition-colors text-sm font-medium"
+                      className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors text-sm font-medium"
                     >
                       Assign Seats
                     </button>
@@ -213,18 +213,8 @@ const LicenseManagement: React.FC = () => {
 
                 {/* Quick Actions */}
                 <div className="p-6 bg-slate-900/40">
-                  <div className="flex items-center justify-between">
-                    <div className="text-sm text-slate-400">
-                      Created {formatDate(sub.created_at)} • Renews {formatDate(sub.current_period_end)}
-                    </div>
-                    <div className="flex gap-3">
-                      <button
-                        onClick={() => navigate(`/subscribe/subscriptions/${sub.razorpay_subscription_id}/assign`)}
-                        className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors text-sm font-medium"
-                      >
-                        Assign Seats
-                      </button>
-                    </div>
+                  <div className="text-sm text-slate-400">
+                    Created {formatDate(sub.created_at)} • Renews {formatDate(sub.current_period_end)}
                   </div>
                 </div>
               </div>
