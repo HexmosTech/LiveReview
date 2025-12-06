@@ -273,7 +273,7 @@ vendor-memdump-check: ## Build vendor binary, run render smoke, gcore, and grep 
 	fi
 
 niceurl:
-	ssh root@master "kill -9 \$$( netstat -tulpn | grep :6543 | awk '{print \$$7}' | cut -d/ -f1 | head -n 1)" || true
+	ssh root@master "PID=\$$( netstat -tulpn | grep :6543 | awk '{print \$$7}' | cut -d/ -f1 | head -n 1); [ -n \"\$$PID\" ] && kill -9 \$$PID || true" || true
 	ssh -R 6543:localhost:8081 root@master -N
 
 
