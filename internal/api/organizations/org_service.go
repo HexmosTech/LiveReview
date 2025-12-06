@@ -445,10 +445,12 @@ func (s *OrganizationService) GetOrganizationMembers(orgID int64, limit, offset 
 		SELECT u.id, u.email, u.first_name, u.last_name, u.is_active, u.last_login_at,
 		       u.created_at, u.updated_at, u.created_by_user_id, u.password_reset_required,
 		       r.name as role, r.id as role_id, ur.org_id,
-		       ur.plan_type, ur.license_expires_at
+		       ur.plan_type, ur.license_expires_at, ur.active_subscription_id,
+		       s.razorpay_subscription_id
 		FROM users u
 		INNER JOIN user_roles ur ON u.id = ur.user_id
 		INNER JOIN roles r ON ur.role_id = r.id
+		LEFT JOIN subscriptions s ON ur.active_subscription_id = s.id
 		WHERE ur.org_id = $1 AND u.is_active = true
 		ORDER BY u.email ASC
 		LIMIT $2 OFFSET $3
@@ -468,6 +470,8 @@ func (s *OrganizationService) GetOrganizationMembers(orgID int64, limit, offset 
 		var lastLoginAt sql.NullTime
 		var createdByUserID sql.NullInt64
 		var licenseExpiresAt sql.NullTime
+		var activeSubscriptionID sql.NullInt64
+		var razorpaySubscriptionID sql.NullString
 
 		err := rows.Scan(
 			&user.ID,
@@ -485,6 +489,8 @@ func (s *OrganizationService) GetOrganizationMembers(orgID int64, limit, offset 
 			&user.OrgID,
 			&user.PlanType,
 			&licenseExpiresAt,
+			&activeSubscriptionID,
+			&razorpaySubscriptionID,
 		)
 		if err != nil {
 			s.logger.Printf("Error scanning member row: %v", err)
@@ -505,6 +511,12 @@ func (s *OrganizationService) GetOrganizationMembers(orgID int64, limit, offset 
 		}
 		if licenseExpiresAt.Valid {
 			user.LicenseExpiresAt = &licenseExpiresAt.Time
+		}
+		if activeSubscriptionID.Valid {
+			user.ActiveSubscriptionID = &activeSubscriptionID.Int64
+		}
+		if razorpaySubscriptionID.Valid {
+			user.RazorpaySubscriptionID = &razorpaySubscriptionID.String
 		}
 
 		members = append(members, &user)
