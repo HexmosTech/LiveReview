@@ -117,7 +117,7 @@ const LicenseManagement: React.FC = () => {
         <div className="mb-8">
           <div className="flex items-center justify-between mb-4">
             <div>
-              <h1 className="text-3xl font-bold text-white mb-2">License Management</h1>
+              <h1 className="text-3xl font-bold text-white mb-2">Subscription Management</h1>
               <p className="text-slate-400">
                 Manage your team subscriptions and seat assignments
                 {currentOrg && ` for ${currentOrg.name}`}
