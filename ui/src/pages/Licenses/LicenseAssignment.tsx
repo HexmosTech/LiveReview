@@ -403,7 +403,7 @@ const LicenseAssignment: React.FC = () => {
                             {hasOtherSubscription && member.razorpay_subscription_id && (
                               <button
                                 onClick={() => navigate(`/subscribe/subscriptions/${member.razorpay_subscription_id}/assign`)}
-                                className="px-2 py-1 text-xs font-semibold rounded border bg-orange-500/10 text-orange-400 border-orange-500/40 flex-shrink-0 hover:bg-orange-500/20 transition-colors"
+                                className="px-2 py-1 text-xs font-semibold rounded border bg-orange-500/10 text-orange-400 border-orange-500/40 flex-shrink-0 hover:bg-orange-500/30 hover:border-orange-500/60 transition-colors cursor-pointer"
                                 title="Click to view other subscription"
                               >
                                 Licensed (Other: {member.razorpay_subscription_id})
