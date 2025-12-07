@@ -549,11 +549,18 @@ COMMENT ON INDEX idx_user_roles_user_org_plan IS 'Covering index for subscriptio
 - **Benchmark subscription lookup query** - must be <5ms at p99
 
 ### Step 2: Backend Implementation (Week 2)
+- ✅ **Add `isCloudMode()` helper** to [internal/api/server.go](../internal/api/server.go)
+- ✅ **Add `IsCloud` field** to `DeploymentConfig` struct
+- ✅ **Update `getDeploymentConfig()`** to read `LIVEREVIEW_IS_CLOUD`
+- ✅ **Add startup configuration validation** (log cloud vs self-hosted mode)
 - ~~Implement JWT claims extension (Phase 1)~~ - NOT NEEDED (keeping JWTs simple)
 - Implement enforcement middleware with optimized queries (Phase 2)
 - Add prepared statement caching for subscription lookups
 - Update EnsureCloudUser (Phase 4)
+- ✅ **Update `CheckReviewLimit` middleware** to skip enforcement in self-hosted mode
+- ✅ **Update `EnforceSubscriptionLimits` middleware** to skip enforcement in self-hosted mode
 - **Performance testing:** Verify subscription lookup <5ms under load
+- **Validation testing:** Run cloud vs self-hosted behavior tests
 - Deploy to staging environment
 
 ### Step 3: Usage Tracking ✅ **ALREADY COMPLETE**
@@ -562,8 +569,12 @@ COMMENT ON INDEX idx_user_roles_user_org_plan IS 'Covering index for subscriptio
 - ⚠️ **Action Required:** Verify middleware is applied to review creation routes
 
 ### Step 4: Frontend Updates (Week 4)
+- ✅ **Create centralized `isCloudMode()` helper** in [ui/src/utils/deploymentMode.ts](../ui/src/utils/deploymentMode.ts)
+- ✅ **Replace all inline cloud checks** with centralized helper
+- ✅ **Add runtime validation** to detect frontend/backend mode mismatch
 - Hide license UI in cloud mode (Phase 5)
 - Create placeholder subscription page
+- **Manual validation:** Test both cloud and self-hosted modes
 - Deploy to staging
 - User acceptance testing
 
@@ -571,6 +582,375 @@ COMMENT ON INDEX idx_user_roles_user_org_plan IS 'Covering index for subscriptio
 - Deploy to production cloud
 - Monitor for issues
 - Verify self-hosted installations unaffected
+
+## Cloud vs Self-Hosted Feature Matrix & Validation
+
+### Critical: `LIVEREVIEW_IS_CLOUD` Configuration
+
+**Current State:**
+- ✅ Frontend reads `LIVEREVIEW_IS_CLOUD` from `process.env` (injected at build time via webpack)
+- ❌ **Backend does NOT currently read `LIVEREVIEW_IS_CLOUD`** - only reads `LIVEREVIEW_REVERSE_PROXY`
+- ⚠️ **Action Required:** Backend must read and use `LIVEREVIEW_IS_CLOUD` for subscription enforcement
+
+### Feature Enforcement Matrix
+
+| Feature/Component | Cloud Mode (`LIVEREVIEW_IS_CLOUD=true`) | Self-Hosted Mode (`LIVEREVIEW_IS_CLOUD=false`) |
+|-------------------|----------------------------------------|------------------------------------------------|
+| **Authentication** | | |
+| - Login UI | Hexmos SSO only ([Cloud.tsx](../ui/src/pages/Auth/Cloud.tsx)) | Email/Password ([SelfHosted.tsx](../ui/src/pages/Auth/SelfHosted.tsx)) |
+| - JWT Generation | Via `EnsureCloudUser` handler | Via standard login handler |
+| - JWT Secret | `CLOUD_JWT_SECRET` → `JWT_SECRET` replacement | `JWT_SECRET` only |
+| **License/Subscription** | | |
+| - Enforcement | Subscription-based (query `user_roles.plan_type`) | File-based JWT validation (`internal/license/`) |
+| - UI Display | Hide license banner/settings | Show license management UI |
+| - Settings Page | Show subscription management | Show license upload/status |
+| - Default Plan | `plan_type='free'` on signup | N/A (requires license file) |
+| **Usage Limits** | | |
+| - Review Limits | 3/day for free plan (via `CheckReviewLimit` middleware) | Unlimited (no middleware check) |
+| - Plan Enforcement | `EnforceSubscriptionLimits` middleware | Skip subscription checks |
+| **Analytics** | | |
+| - Microsoft Clarity | Enabled ([index.tsx](../ui/src/index.tsx) line 79-82) | Disabled |
+| - User Notifications | Disabled ([userNotifications.ts](../ui/src/utils/userNotifications.ts) line 99-101) | Enabled |
+| **Payment/Billing** | | |
+| - Razorpay Integration | Enabled (future Phase 7) | Disabled |
+| - Subscription Webhooks | Enabled (future Phase 7) | Disabled |
+
+### Backend Implementation Checklist
+
+**Step 1: Add `isCloudMode()` helper in [internal/api/server.go](../internal/api/server.go)**
+
+```go
+// isCloudMode checks if LiveReview is running in cloud mode
+func isCloudMode() bool {
+    return getEnvBool("LIVEREVIEW_IS_CLOUD", false)
+}
+
+// Add to DeploymentConfig struct:
+type DeploymentConfig struct {
+    BackendPort     int
+    FrontendPort    int
+    ReverseProxy    bool
+    IsCloud         bool   // NEW: cloud vs self-hosted
+    Mode            string // "demo" or "production"
+    WebhooksEnabled bool
+}
+
+// Update getDeploymentConfig():
+func getDeploymentConfig() *DeploymentConfig {
+    config := &DeploymentConfig{
+        BackendPort:  getEnvInt("LIVEREVIEW_BACKEND_PORT", 8888),
+        FrontendPort: getEnvInt("LIVEREVIEW_FRONTEND_PORT", 8081),
+        ReverseProxy: getEnvBool("LIVEREVIEW_REVERSE_PROXY", false),
+        IsCloud:      getEnvBool("LIVEREVIEW_IS_CLOUD", false), // NEW
+    }
+    
+    // Auto-configure derived values
+    if config.ReverseProxy {
+        config.Mode = "production"
+        config.WebhooksEnabled = true
+    } else {
+        config.Mode = "demo"
+        config.WebhooksEnabled = false
+    }
+    
+    return config
+}
+```
+
+**Step 2: Update `EnforceSubscriptionLimits` middleware to use `isCloudMode()`**
+
+```go
+// In internal/api/auth/middleware.go
+func (am *AuthMiddleware) EnforceSubscriptionLimits() echo.MiddlewareFunc {
+    return func(next echo.HandlerFunc) echo.HandlerFunc {
+        return func(c echo.Context) error {
+            // CRITICAL: Only enforce subscriptions in cloud mode
+            if !isCloudMode() {
+                // Self-hosted: skip subscription checks entirely
+                return next(c)
+            }
+            
+            // Cloud mode: enforce subscription limits
+            // ... (rest of Phase 2 implementation)
+        }
+    }
+}
+```
+
+**Step 3: Update `CheckReviewLimit` middleware**
+
+```go
+// In internal/api/middleware/plan_enforcement.go
+func CheckReviewLimit(db *sql.DB) echo.MiddlewareFunc {
+    return func(next echo.HandlerFunc) echo.HandlerFunc {
+        return func(c echo.Context) error {
+            // CRITICAL: Only enforce limits in cloud mode
+            if !isCloudMode() {
+                return next(c)
+            }
+            
+            // Existing implementation...
+        }
+    }
+}
+```
+
+**Step 4: Update UI config endpoint**
+
+```go
+// In internal/api/ui.go or similar
+func (s *Server) GetUIConfig(c echo.Context) error {
+    return c.JSON(http.StatusOK, map[string]interface{}{
+        "isCloud": s.deploymentConfig.IsCloud,
+        "version": s.versionInfo.Version,
+        "mode":    s.deploymentConfig.Mode,
+    })
+}
+```
+
+### Frontend Implementation Checklist
+
+**Step 1: Centralize `isCloud` detection**
+
+Create [ui/src/utils/deploymentMode.ts](../ui/src/utils/deploymentMode.ts):
+
+```typescript
+// Centralized deployment mode detection
+export const isCloudMode = (): boolean => {
+    return (process.env.LIVEREVIEW_IS_CLOUD || '').toString().toLowerCase() === 'true';
+};
+
+export const isSelfHostedMode = (): boolean => {
+    return !isCloudMode();
+};
+```
+
+**Step 2: Replace all inline checks**
+
+Update these files to use centralized helper:
+- ✅ [ui/src/index.tsx](../ui/src/index.tsx) line 79
+- ✅ [ui/src/pages/Auth/Login.tsx](../ui/src/pages/Auth/Login.tsx) line 6
+- ✅ [ui/src/utils/userNotifications.ts](../ui/src/utils/userNotifications.ts) line 99
+- ✅ [ui/src/pages/Auth/SelfHosted.tsx](../ui/src/pages/Auth/SelfHosted.tsx) line 31
+- 🆕 License settings page (add conditional)
+- 🆕 Subscription page (add conditional)
+
+**Step 3: Add runtime validation**
+
+```typescript
+// In ui/src/index.tsx, add early validation:
+const isCloud = isCloudMode();
+const backendConfig = await fetch('/api/v1/ui-config').then(r => r.json());
+
+if (isCloud !== backendConfig.isCloud) {
+    console.error('[CRITICAL] Frontend/Backend cloud mode mismatch!');
+    console.error(`  Frontend LIVEREVIEW_IS_CLOUD: ${isCloud}`);
+    console.error(`  Backend LIVEREVIEW_IS_CLOUD: ${backendConfig.isCloud}`);
+    alert('Configuration error: deployment mode mismatch. Please contact support.');
+}
+```
+
+### Validation Tests
+
+**1. Environment Variable Validation Test**
+
+```go
+// internal/api/server_test.go
+func TestCloudModeDetection(t *testing.T) {
+    tests := []struct {
+        name     string
+        envValue string
+        expected bool
+    }{
+        {"Cloud mode enabled", "true", true},
+        {"Cloud mode disabled", "false", false},
+        {"Cloud mode empty", "", false},
+        {"Cloud mode uppercase", "TRUE", true},
+        {"Cloud mode numeric", "1", true},
+    }
+    
+    for _, tt := range tests {
+        t.Run(tt.name, func(t *testing.T) {
+            os.Setenv("LIVEREVIEW_IS_CLOUD", tt.envValue)
+            defer os.Unsetenv("LIVEREVIEW_IS_CLOUD")
+            
+            if got := isCloudMode(); got != tt.expected {
+                t.Errorf("isCloudMode() = %v, want %v", got, tt.expected)
+            }
+        })
+    }
+}
+```
+
+**2. Middleware Conditional Tests**
+
+```go
+// internal/api/middleware/plan_enforcement_test.go
+func TestCheckReviewLimit_SkipsInSelfHosted(t *testing.T) {
+    os.Setenv("LIVEREVIEW_IS_CLOUD", "false")
+    defer os.Unsetenv("LIVEREVIEW_IS_CLOUD")
+    
+    // Create test request for self-hosted mode
+    // Verify middleware does NOT query reviews table
+    // Verify middleware does NOT enforce limits
+}
+
+func TestCheckReviewLimit_EnforcesInCloud(t *testing.T) {
+    os.Setenv("LIVEREVIEW_IS_CLOUD", "true")
+    defer os.Unsetenv("LIVEREVIEW_IS_CLOUD")
+    
+    // Create test request for cloud mode
+    // Verify middleware DOES query user_roles table
+    // Verify middleware DOES enforce 3-review limit
+}
+```
+
+**3. Integration Tests**
+
+```go
+// internal/api/integration_test.go
+func TestCloudVsSelfHostedBehavior(t *testing.T) {
+    t.Run("Cloud Mode", func(t *testing.T) {
+        os.Setenv("LIVEREVIEW_IS_CLOUD", "true")
+        defer os.Unsetenv("LIVEREVIEW_IS_CLOUD")
+        
+        // Test: Login redirects to Hexmos SSO
+        // Test: Free user limited to 3 reviews
+        // Test: License UI hidden
+        // Test: Subscription enforcement active
+    })
+    
+    t.Run("Self-Hosted Mode", func(t *testing.T) {
+        os.Setenv("LIVEREVIEW_IS_CLOUD", "false")
+        defer os.Unsetenv("LIVEREVIEW_IS_CLOUD")
+        
+        // Test: Login shows email/password form
+        // Test: No review limits enforced
+        // Test: License UI visible
+        // Test: Subscription enforcement skipped
+    })
+}
+```
+
+**4. Manual Validation Checklist**
+
+Before deploying to production, manually verify:
+
+**Cloud Mode (`LIVEREVIEW_IS_CLOUD=true`):**
+- [ ] Login page shows only Hexmos SSO button (no email/password form)
+- [ ] After login, license banner is hidden in settings
+- [ ] Subscription management page is accessible
+- [ ] License settings page redirects to subscription
+- [ ] Free user can create exactly 3 reviews, then gets 429 error
+- [ ] Free user gets upgrade prompt after 3rd review
+- [ ] Microsoft Clarity tracking is active (check browser console)
+- [ ] User notifications are disabled
+- [ ] Backend logs show: `Environment Variable 'LIVEREVIEW_IS_CLOUD': true`
+
+**Self-Hosted Mode (`LIVEREVIEW_IS_CLOUD=false`):**
+- [ ] Login page shows email/password form (no SSO)
+- [ ] License banner is visible in settings
+- [ ] License management page is accessible
+- [ ] Can upload and validate license file
+- [ ] No review count limits enforced (can create >3 reviews)
+- [ ] No subscription enforcement (no `user_roles` queries)
+- [ ] Microsoft Clarity tracking is disabled
+- [ ] User notifications are enabled
+- [ ] Backend logs show: `Environment Variable 'LIVEREVIEW_IS_CLOUD': false`
+
+**5. Automated E2E Tests**
+
+```typescript
+// ui/e2e/deployment-modes.spec.ts
+describe('Deployment Mode Validation', () => {
+    describe('Cloud Mode', () => {
+        beforeAll(() => {
+            process.env.LIVEREVIEW_IS_CLOUD = 'true';
+        });
+        
+        it('shows Hexmos SSO login only', async () => {
+            await page.goto('/login');
+            expect(await page.locator('[data-testid="hexmos-sso-button"]').isVisible()).toBe(true);
+            expect(await page.locator('[data-testid="email-password-form"]').isVisible()).toBe(false);
+        });
+        
+        it('enforces 3-review limit for free users', async () => {
+            // Login as free user, create 3 reviews, verify 4th blocked
+        });
+        
+        it('hides license UI in settings', async () => {
+            await page.goto('/settings/license');
+            expect(page.url()).toContain('/settings/subscription');
+        });
+    });
+    
+    describe('Self-Hosted Mode', () => {
+        beforeAll(() => {
+            process.env.LIVEREVIEW_IS_CLOUD = 'false';
+        });
+        
+        it('shows email/password login', async () => {
+            await page.goto('/login');
+            expect(await page.locator('[data-testid="email-password-form"]').isVisible()).toBe(true);
+        });
+        
+        it('does not enforce review limits', async () => {
+            // Create >3 reviews, verify all succeed
+        });
+        
+        it('shows license UI in settings', async () => {
+            await page.goto('/settings/license');
+            expect(await page.locator('[data-testid="license-upload"]').isVisible()).toBe(true);
+        });
+    });
+});
+```
+
+### Configuration Validation on Startup
+
+Add startup validation in [internal/api/server.go](../internal/api/server.go):
+
+```go
+func (s *Server) validateConfiguration() error {
+    log.Printf("[Config Validation] LIVEREVIEW_IS_CLOUD: %v", s.deploymentConfig.IsCloud)
+    log.Printf("[Config Validation] LIVEREVIEW_REVERSE_PROXY: %v", s.deploymentConfig.ReverseProxy)
+    
+    if s.deploymentConfig.IsCloud {
+        log.Printf("[Cloud Mode] Subscription enforcement: ENABLED")
+        log.Printf("[Cloud Mode] License file validation: DISABLED")
+        
+        // Verify required cloud secrets
+        if os.Getenv("CLOUD_JWT_SECRET") == "" {
+            return fmt.Errorf("CLOUD_JWT_SECRET required in cloud mode")
+        }
+    } else {
+        log.Printf("[Self-Hosted Mode] Subscription enforcement: DISABLED")
+        log.Printf("[Self-Hosted Mode] License file validation: ENABLED")
+        
+        // Verify license validator is accessible
+        if err := validateLicenseValidator(); err != nil {
+            log.Printf("[Warning] License validator check failed: %v", err)
+        }
+    }
+    
+    return nil
+}
+```
+
+Call this in `NewServer()`:
+
+```go
+func NewServer(port int, versionInfo *VersionInfo) (*Server, error) {
+    // ... existing initialization ...
+    
+    // Validate configuration before starting
+    if err := server.validateConfiguration(); err != nil {
+        return nil, fmt.Errorf("configuration validation failed: %w", err)
+    }
+    
+    return server, nil
+}
+```
 
 ## Open Questions & Future Work
 
@@ -623,19 +1003,32 @@ COMMENT ON INDEX idx_user_roles_user_org_plan IS 'Covering index for subscriptio
 ## Success Criteria
 
 ### Cloud Mode
+- [ ] **Backend reads `LIVEREVIEW_IS_CLOUD=true`** correctly
+- [ ] **Startup logs confirm:** "[Cloud Mode] Subscription enforcement: ENABLED"
 - [ ] New users get `plan_type='free'` automatically
 - [ ] ~~JWT contains subscription claims~~ - Subscription data loaded per-request from DB
 - [ ] Covering index created on `user_roles(user_id, org_id)`
 - [ ] Subscription lookup query uses index-only scan
 - [ ] Query performance <5ms at p99 under production load
 - [ ] Free users limited to 3 reviews per day
+- [ ] **`CheckReviewLimit` middleware active** (queries reviews table)
+- [ ] **`EnforceSubscriptionLimits` middleware active** (queries user_roles)
 - [ ] License UI hidden, subscription page shown
-- [ ] Clear error messages when limits reached
+- [ ] **Login page shows Hexmos SSO only** (no email/password form)
+- [ ] **Microsoft Clarity enabled** in browser
+- [ ] Clear error messages when limits reached (429 Too Many Requests)
 - [ ] No license file required
 
 ### Self-Hosted Mode
+- [ ] **Backend reads `LIVEREVIEW_IS_CLOUD=false`** correctly
+- [ ] **Startup logs confirm:** "[Self-Hosted Mode] Subscription enforcement: DISABLED"
+- [ ] **`CheckReviewLimit` middleware skipped** (no queries to reviews table)
+- [ ] **`EnforceSubscriptionLimits` middleware skipped** (no queries to user_roles)
 - [ ] Existing license validation works unchanged
 - [ ] License UI continues to function
+- [ ] **Login page shows email/password form** (no SSO)
+- [ ] **Microsoft Clarity disabled**
+- [ ] No review count limits enforced (can create >3 reviews)
 - [ ] No behavioral changes from user perspective
 - [ ] No new environment variables required (except existing `LIVEREVIEW_IS_CLOUD=false`)
 
@@ -646,6 +1039,11 @@ COMMENT ON INDEX idx_user_roles_user_org_plan IS 'Covering index for subscriptio
 - [ ] Monitoring in place for usage tracking
 - [ ] **Performance monitoring:** Subscription query latency dashboards
 - [ ] **Index verification:** Automated checks that covering index is used
+- [ ] **Configuration validation tests pass** (cloud and self-hosted modes)
+- [ ] **Frontend/backend mode mismatch detection works**
+- [ ] **Unit tests for `isCloudMode()` helper pass**
+- [ ] **Integration tests for both modes pass**
+- [ ] **Manual validation checklist completed** (both modes)
 - [ ] Error tracking for enforcement failures
 - [ ] Load testing shows <5ms p99 latency for subscription checks
 
@@ -762,22 +1160,31 @@ Files to be modified:
 
 1. **Backend:**
    - ~~`internal/api/auth/token_service.go` - Extend JWT claims, add subscription data~~ - NOT NEEDED
-   - `internal/api/auth/middleware.go` - Add EnforceSubscriptionLimits middleware with optimized queries
+   - `internal/api/server.go` - Add `isCloudMode()` helper, update `DeploymentConfig`, add startup validation
+   - `internal/api/auth/middleware.go` - Add EnforceSubscriptionLimits middleware with optimized queries + cloud mode check
+   - `internal/api/middleware/plan_enforcement.go` - Update CheckReviewLimit to skip in self-hosted mode
    - `internal/api/auth/handlers.go` - Update EnsureCloudUser to set plan_type
-   - `internal/api/server.go` - Apply new middleware to routes
-   - `internal/api/ui.go` - Pass isCloud config to frontend
-   - `internal/api/reviews.go` - Add usage tracking to review creation
+   - `internal/api/ui.go` - Add GetUIConfig endpoint to expose isCloud to frontend
+   - `internal/api/reviews.go` - Verify CheckReviewLimit middleware applied
+   - `internal/api/server_test.go` - Add cloud mode detection tests (NEW)
+   - `internal/api/middleware/plan_enforcement_test.go` - Add conditional middleware tests (NEW)
+   - `internal/api/integration_test.go` - Add cloud vs self-hosted behavior tests (NEW)
 
 2. **Database:**
    - `migrations/XXXXXX_add_subscription_to_user_roles.up.sql` - New migration with covering index
    - ~~`migrations/XXXXXX_create_daily_usage.up.sql`~~ - NOT NEEDED
 
 3. **Frontend:**
+   - `ui/src/utils/deploymentMode.ts` - Centralized isCloudMode() helper (NEW)
+   - `ui/src/index.tsx` - Add runtime validation for mode mismatch
+   - `ui/src/pages/Auth/Login.tsx` - Update to use centralized helper
    - `ui/src/pages/Auth/Cloud.tsx` - No changes needed
+   - `ui/src/utils/userNotifications.ts` - Update to use centralized helper
    - `ui/src/pages/Settings/License.tsx` - Add cloud mode redirect
    - `ui/src/pages/Settings/Subscription.tsx` - New file (placeholder)
    - `ui/src/components/LicenseStatusBanner.tsx` - Add conditional rendering
    - `ui/src/routes/settings.tsx` - Add subscription route
+   - `ui/e2e/deployment-modes.spec.ts` - E2E validation tests (NEW)
 
 4. **Documentation:**
    - `docs/subscription-licence-shift.md` - This file
