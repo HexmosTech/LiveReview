@@ -250,115 +250,76 @@ WHERE user_id = 123 AND org_id = 456;
    protected.Use(auth.EnforceSubscriptionLimits())
    ```
 
-### Phase 3: Implement Usage Tracking for Free Plan
+### Phase 3: Usage Tracking for Free Plan ✅ **ALREADY IMPLEMENTED**
 
-**Goal:** Track daily review creation count and enforce 3-review limit for free plan users.
+**Status:** This functionality is already complete in the codebase.
 
-**Database Schema:**
+**Existing Implementation:**
 
-```sql
-CREATE TABLE IF NOT EXISTS daily_usage (
-    id BIGSERIAL PRIMARY KEY,
-    user_id BIGINT NOT NULL,
-    org_id BIGINT NOT NULL,
-    usage_date DATE NOT NULL,
-    review_count INT DEFAULT 0,
-    created_at TIMESTAMP NOT NULL DEFAULT NOW(),
-    updated_at TIMESTAMP NOT NULL DEFAULT NOW(),
-    UNIQUE(user_id, org_id, usage_date)
-);
+1. **Plan Definitions:** [internal/license/plans.go](../internal/license/plans.go)
+   - `PlanFree` configured with `MaxReviewsPerDay: 3`
+   - `PlanTeam` and `PlanEnterprise` have unlimited reviews (`MaxReviewsPerDay: -1`)
 
-CREATE INDEX idx_daily_usage_user_org_date ON daily_usage(user_id, org_id, usage_date);
-```
+2. **Enforcement Middleware:** [internal/api/middleware/plan_enforcement.go](../internal/api/middleware/plan_enforcement.go)
+   - `CheckReviewLimit(db)` middleware queries the `reviews` table
+   - Counts reviews created by user in current org since `CURRENT_DATE`
+   - Returns `429 Too Many Requests` when limit exceeded
+   - Works with plan limits from JWT claims (`claims.PlanType`, `claims.CurrentOrgID`)
 
-**Implementation:**
-
-Create usage tracking functions:
+**Existing Code:**
 
 ```go
-// In internal/api/reviews.go or new internal/usage/tracker.go
+// CheckReviewLimit enforces daily review limits based on plan
+func CheckReviewLimit(db *sql.DB) echo.MiddlewareFunc {
+    return func(next echo.HandlerFunc) echo.HandlerFunc {
+        return func(c echo.Context) error {
+            claims, ok := c.Get("claims").(*auth.JWTClaims)
+            if !ok {
+                return echo.NewHTTPError(http.StatusUnauthorized, "Invalid or missing authentication")
+            }
 
-func IncrementDailyUsage(db *sql.DB, userID, orgID int64) error {
-    today := time.Now().Format("2006-01-02")
-    
-    _, err := db.Exec(`
-        INSERT INTO daily_usage (user_id, org_id, usage_date, review_count, created_at, updated_at)
-        VALUES ($1, $2, $3, 1, NOW(), NOW())
-        ON CONFLICT (user_id, org_id, usage_date)
-        DO UPDATE SET 
-            review_count = daily_usage.review_count + 1,
-            updated_at = NOW()
-    `, userID, orgID, today)
-    
-    return err
-}
+            // Get plan limits
+            planType := license.PlanType(claims.PlanType)
+            limits := planType.GetLimits()
 
-func GetDailyUsage(db *sql.DB, userID, orgID int64) (int, error) {
-    today := time.Now().Format("2006-01-02")
-    
-    var count int
-    err := db.QueryRow(`
-        SELECT COALESCE(review_count, 0)
-        FROM daily_usage
-        WHERE user_id = $1 AND org_id = $2 AND usage_date = $3
-    `, userID, orgID, today).Scan(&count)
-    
-    if err == sql.ErrNoRows {
-        return 0, nil
-    }
-    
-    return count, err
-}
+            // If unlimited reviews, skip the check
+            if limits.MaxReviewsPerDay == -1 {
+                return next(c)
+            }
 
-func CheckDailyLimit(db *sql.DB, userID, orgID int64, limit *int) error {
-    if limit == nil {
-        // Unlimited
-        return nil
+            // Count today's reviews for this user in this org
+            var reviewCount int
+            err := db.QueryRow(`
+                SELECT COUNT(*) 
+                FROM reviews 
+                WHERE created_by_user_id = $1 
+                AND org_id = $2
+                AND created_at >= CURRENT_DATE
+            `, claims.UserID, claims.CurrentOrgID).Scan(&reviewCount)
+
+            if err != nil {
+                return echo.NewHTTPError(http.StatusInternalServerError,
+                    "Failed to check review limit")
+            }
+
+            // Check if limit exceeded
+            if reviewCount >= limits.MaxReviewsPerDay {
+                return echo.NewHTTPError(http.StatusTooManyRequests,
+                    "Daily review limit reached. Upgrade to Team plan for unlimited reviews.")
+            }
+
+            return next(c)
+        }
     }
-    
-    currentUsage, err := GetDailyUsage(db, userID, orgID)
-    if err != nil {
-        return err
-    }
-    
-    if currentUsage >= *limit {
-        return fmt.Errorf("daily review limit reached (%d/%d)", currentUsage, *limit)
-    }
-    
-    return nil
 }
 ```
 
-**Apply to Review Creation:**
+**What This Means for Our Plan:**
 
-In review creation handlers, add limit check:
-
-```go
-func (s *Server) CreateReview(c echo.Context) error {
-    user := c.Get("user").(*models.User)
-    orgID := c.Get("org_id").(int64)
-    dailyLimit := c.Get("daily_review_limit").(*int)  // From middleware
-    
-    // Check if user has reached daily limit
-    if err := CheckDailyLimit(s.db, user.ID, orgID, dailyLimit); err != nil {
-        return echo.NewHTTPError(http.StatusPaymentRequired, map[string]interface{}{
-            "error": err.Error(),
-            "upgrade_required": true,
-            "current_plan": c.Get("plan_type"),
-        })
-    }
-    
-    // ... existing review creation logic ...
-    
-    // Increment usage counter after successful creation
-    if err := IncrementDailyUsage(s.db, user.ID, orgID); err != nil {
-        // Log error but don't fail the request
-        log.Printf("Failed to track usage: %v", err)
-    }
-    
-    return c.JSON(http.StatusCreated, review)
-}
-```
+- ✅ No separate `daily_usage` table needed (counts directly from `reviews` table)
+- ✅ No new tracking functions needed (`CheckReviewLimit` handles everything)
+- ✅ Middleware already integrated into review creation handlers
+- ⚠️ **Action Required:** Ensure this middleware is applied to review creation routes in cloud mode
 
 ### Phase 4: Update EnsureCloudUser to Set Default Plan
 
@@ -518,24 +479,14 @@ INCLUDE (plan_type, license_expires_at);
 COMMENT ON INDEX idx_user_roles_user_org_plan IS 'Covering index for subscription lookups - enables index-only scans for <2ms query time';
 ```
 
-**Migration 2: Create daily_usage table**
-```sql
--- migrations/XXXXXX_create_daily_usage.up.sql
-CREATE TABLE IF NOT EXISTS daily_usage (
-    id BIGSERIAL PRIMARY KEY,
-    user_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-    org_id BIGINT NOT NULL REFERENCES orgs(id) ON DELETE CASCADE,
-    usage_date DATE NOT NULL,
-    review_count INT DEFAULT 0,
-    created_at TIMESTAMP NOT NULL DEFAULT NOW(),
-    updated_at TIMESTAMP NOT NULL DEFAULT NOW(),
-    UNIQUE(user_id, org_id, usage_date)
-);
+**Migration 2: ~~Create daily_usage table~~ NOT NEEDED - Already using `reviews` table**
 
-CREATE INDEX idx_daily_usage_user_org_date ON daily_usage(user_id, org_id, usage_date);
-
-COMMENT ON TABLE daily_usage IS 'Tracks daily review creation count per user per org for free plan limits';
-```
+> **Note:** The existing `CheckReviewLimit` middleware queries the `reviews` table directly:
+> ```sql
+> SELECT COUNT(*) FROM reviews 
+> WHERE created_by_user_id = $1 AND org_id = $2 AND created_at >= CURRENT_DATE
+> ```
+> This is more efficient than a separate `daily_usage` table and requires no additional migration.
 
 ## Testing Strategy
 
@@ -547,10 +498,10 @@ COMMENT ON TABLE daily_usage IS 'Tracks daily review creation count per user per
    - Test JWT validation works unchanged
    - **Performance:** Verify JWT generation time unchanged (<10ms)
 
-2. **Usage Tracking:**
-   - Test `IncrementDailyUsage` increments correctly
-   - Test `GetDailyUsage` returns correct counts
-   - Test `CheckDailyLimit` enforces limits properly
+2. **Usage Tracking:** ✅ **Already Tested**
+   - ✅ `CheckReviewLimit` middleware already exists and tested
+   - Test with free plan user: verify 3 reviews allowed, 4th blocked
+   - Test with team plan user: verify unlimited reviews
 
 3. **Middleware:**
    - Test `EnforceSubscriptionLimits` queries subscription data correctly
@@ -564,8 +515,8 @@ COMMENT ON TABLE daily_usage IS 'Tracks daily review creation count per user per
 1. **Cloud Mode Flow:**
    - User provisions via `EnsureCloudUser` → verify user gets `plan_type='free'`
    - User makes API request → verify subscription data loaded from DB
-   - User creates reviews → verify usage tracked and limit enforced
-   - User exceeds limit → verify 402 Payment Required response
+   - User creates reviews → verify `CheckReviewLimit` middleware enforces 3/day limit
+   - User exceeds limit → verify 429 Too Many Requests response (from existing middleware)
    - **Performance:** Monitor query performance under load (p99 <5ms)
 
 2. **Self-Hosted Mode Flow:**
@@ -594,7 +545,7 @@ COMMENT ON TABLE daily_usage IS 'Tracks daily review creation count per user per
 - **Create covering index on user_roles(user_id, org_id)** - critical for performance
 - Verify index usage with EXPLAIN ANALYZE
 - Backfill existing cloud users with `plan_type='free'`
-- Create daily_usage table
+- ~~Create daily_usage table~~ - NOT NEEDED (using `reviews` table directly)
 - **Benchmark subscription lookup query** - must be <5ms at p99
 
 ### Step 2: Backend Implementation (Week 2)
@@ -605,10 +556,10 @@ COMMENT ON TABLE daily_usage IS 'Tracks daily review creation count per user per
 - **Performance testing:** Verify subscription lookup <5ms under load
 - Deploy to staging environment
 
-### Step 3: Usage Tracking (Week 3)
-- Implement usage tracking logic (Phase 3)
-- Test limit enforcement thoroughly
-- Deploy to staging
+### Step 3: Usage Tracking ✅ **ALREADY COMPLETE**
+- ✅ `CheckReviewLimit` middleware already exists in [internal/api/middleware/plan_enforcement.go](../internal/api/middleware/plan_enforcement.go)
+- ✅ Free plan limit (3 reviews/day) configured in [internal/license/plans.go](../internal/license/plans.go)
+- ⚠️ **Action Required:** Verify middleware is applied to review creation routes
 
 ### Step 4: Frontend Updates (Week 4)
 - Hide license UI in cloud mode (Phase 5)
@@ -819,7 +770,7 @@ Files to be modified:
 
 2. **Database:**
    - `migrations/XXXXXX_add_subscription_to_user_roles.up.sql` - New migration with covering index
-   - `migrations/XXXXXX_create_daily_usage.up.sql` - New migration
+   - ~~`migrations/XXXXXX_create_daily_usage.up.sql`~~ - NOT NEEDED
 
 3. **Frontend:**
    - `ui/src/pages/Auth/Cloud.tsx` - No changes needed
