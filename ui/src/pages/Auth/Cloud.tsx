@@ -137,6 +137,8 @@ const Cloud: React.FC = () => {
 						};
 						handleLoginSuccess(loginResponse, dispatch);
 						// Navigation will happen automatically via Redux state change
+						// But let's also force it for this login page case
+						window.location.hash = '/dashboard';
 					}
 				}
 			} catch (err: any) {
