@@ -597,9 +597,9 @@ COMMENT ON INDEX idx_user_roles_user_org_plan IS 'Covering index for subscriptio
 | Feature/Component | Cloud Mode (`LIVEREVIEW_IS_CLOUD=true`) | Self-Hosted Mode (`LIVEREVIEW_IS_CLOUD=false`) |
 |-------------------|----------------------------------------|------------------------------------------------|
 | **Authentication** | | |
-| - Login UI | Hexmos SSO only ([Cloud.tsx](../ui/src/pages/Auth/Cloud.tsx)) | Email/Password ([SelfHosted.tsx](../ui/src/pages/Auth/SelfHosted.tsx)) |
-| - JWT Generation | Via `EnsureCloudUser` handler | Via standard login handler |
-| - JWT Secret | `CLOUD_JWT_SECRET` → `JWT_SECRET` replacement | `JWT_SECRET` only |
+| - Login UI | **Both** Hexmos SSO ([Cloud.tsx](../ui/src/pages/Auth/Cloud.tsx)) **and** Email/Password ([SelfHosted.tsx](../ui/src/pages/Auth/SelfHosted.tsx)) supported (SSO primary for users, email/password for super users) | Email/Password only ([SelfHosted.tsx](../ui/src/pages/Auth/SelfHosted.tsx)) |
+| - JWT Generation | Via `EnsureCloudUser` handler ([handlers.go](../internal/api/auth/handlers.go) line ~570) for SSO **OR** via `Login` handler ([handlers.go](../internal/api/auth/handlers.go) line ~82) for email/password | Via `Login` handler ([handlers.go](../internal/api/auth/handlers.go) line ~82) only |
+| - JWT Secret | `CLOUD_JWT_SECRET` (validates fw-parse JWT) → `JWT_SECRET` (generates LiveReview JWT) | `JWT_SECRET` only |
 | **License/Subscription** | | |
 | - Enforcement | Subscription-based (query `user_roles.plan_type`) | File-based JWT validation (`internal/license/`) |
 | - UI Display | Hide license banner/settings | Show license management UI |
