@@ -7,11 +7,19 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/labstack/echo/v4"
 	"github.com/livereview/pkg/models"
 )
+
+// isCloudMode checks if LiveReview is running in cloud mode
+func isCloudMode() bool {
+	valueStr := os.Getenv("LIVEREVIEW_IS_CLOUD")
+	valueStr = strings.ToLower(strings.TrimSpace(valueStr))
+	return valueStr == "true" || valueStr == "1"
+}
 
 // ContextKey represents keys for context values
 type ContextKey string
@@ -122,19 +130,116 @@ func validateWithCloudSecret(tokenString string, db *sql.DB) (*models.User, erro
 type AuthMiddleware struct {
 	tokenService *TokenService
 	db           *sql.DB
+	planStmt     *sql.Stmt // Prepared statement for plan lookup
 }
 
 // NewAuthMiddleware creates a new auth middleware
 func NewAuthMiddleware(tokenService *TokenService, db *sql.DB) *AuthMiddleware {
+	// Prepare statement for subscription plan lookups (performance optimization)
+	stmt, err := db.Prepare(`
+		SELECT plan_type, license_expires_at
+		FROM user_roles
+		WHERE user_id = $1 AND org_id = $2
+	`)
+	if err != nil {
+		// Log warning but don't fail - will fall back to non-prepared queries
+		fmt.Printf("[Warning] Failed to prepare plan query: %v\n", err)
+	}
+
 	return &AuthMiddleware{
 		tokenService: tokenService,
 		db:           db,
+		planStmt:     stmt,
 	}
 }
 
 // RequireAuth middleware validates that a valid JWT token is present
 func (am *AuthMiddleware) RequireAuth() echo.MiddlewareFunc {
 	return RequireAuth(am.tokenService, am.db)
+}
+
+// EnforceSubscriptionLimits checks subscription validity in cloud mode
+func (am *AuthMiddleware) EnforceSubscriptionLimits() echo.MiddlewareFunc {
+	return func(next echo.HandlerFunc) echo.HandlerFunc {
+		return func(c echo.Context) error {
+			// Only enforce subscriptions in cloud mode
+			if !isCloudMode() {
+				// Self-hosted: skip subscription checks entirely
+				return next(c)
+			}
+
+			// Cloud mode: load subscription data based on current org context
+			userInterface := c.Get(string(UserContextKey))
+			if userInterface == nil {
+				return echo.NewHTTPError(http.StatusUnauthorized, "user not found in context")
+			}
+			user, ok := userInterface.(*models.User)
+			if !ok {
+				return echo.NewHTTPError(http.StatusUnauthorized, "invalid user in context")
+			}
+
+			// Get org_id from context (set by BuildOrgContext or BuildOrgContextFromHeader)
+			orgID, hasOrgID := GetOrgIDFromContext(c)
+			if !hasOrgID {
+				// If no org context, use default/first org for the user
+				err := am.db.QueryRow(`
+					SELECT org_id FROM user_roles 
+					WHERE user_id = $1 
+					ORDER BY created_at ASC LIMIT 1
+				`, user.ID).Scan(&orgID)
+				if err != nil {
+					if err == sql.ErrNoRows {
+						return echo.NewHTTPError(http.StatusForbidden, "no organization access")
+					}
+					return echo.NewHTTPError(http.StatusInternalServerError, "failed to get user organization")
+				}
+				c.Set("org_id", orgID)
+			}
+
+			// Query user's plan in this specific org using prepared statement if available
+			var planType string
+			var licenseExpiresAt sql.NullTime
+			var err error
+
+			if am.planStmt != nil {
+				err = am.planStmt.QueryRow(user.ID, orgID).Scan(&planType, &licenseExpiresAt)
+			} else {
+				// Fallback to non-prepared query
+				err = am.db.QueryRow(`
+					SELECT plan_type, license_expires_at
+					FROM user_roles
+					WHERE user_id = $1 AND org_id = $2
+				`, user.ID, orgID).Scan(&planType, &licenseExpiresAt)
+			}
+
+			if err != nil {
+				if err == sql.ErrNoRows {
+					return echo.NewHTTPError(http.StatusForbidden, "no access to this organization")
+				}
+				return echo.NewHTTPError(http.StatusInternalServerError, "failed to check subscription")
+			}
+
+			// Check license expiration
+			if licenseExpiresAt.Valid && time.Now().After(licenseExpiresAt.Time) {
+				return echo.NewHTTPError(http.StatusPaymentRequired, map[string]interface{}{
+					"error":            "license expired",
+					"expired_at":       licenseExpiresAt.Time,
+					"upgrade_required": true,
+				})
+			}
+
+			// Set plan info in context for downstream handlers
+			c.Set("plan_type", planType)
+			if planType == "free" {
+				dailyLimit := 3
+				c.Set("daily_review_limit", &dailyLimit)
+			} else {
+				c.Set("daily_review_limit", (*int)(nil)) // unlimited
+			}
+
+			return next(c)
+		}
+	}
 }
 
 // BuildOrgContextFromHeader middleware extracts org_id from X-Org-Context header and validates org exists
