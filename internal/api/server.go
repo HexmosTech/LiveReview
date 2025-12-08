@@ -44,6 +44,7 @@ type DeploymentConfig struct {
 	BackendPort     int
 	FrontendPort    int
 	ReverseProxy    bool
+	IsCloud         bool   // cloud vs self-hosted deployment
 	Mode            string // derived: "demo" or "production"
 	WebhooksEnabled bool   // derived: based on mode
 }
@@ -70,12 +71,18 @@ func getEnvBool(key string, defaultValue bool) bool {
 	return valueStr == "true" || valueStr == "1"
 }
 
+// isCloudMode checks if LiveReview is running in cloud mode
+func isCloudMode() bool {
+	return getEnvBool("LIVEREVIEW_IS_CLOUD", false)
+}
+
 // getDeploymentConfig reads deployment configuration from environment variables
 func getDeploymentConfig() *DeploymentConfig {
 	config := &DeploymentConfig{
 		BackendPort:  getEnvInt("LIVEREVIEW_BACKEND_PORT", 8888),
 		FrontendPort: getEnvInt("LIVEREVIEW_FRONTEND_PORT", 8081),
 		ReverseProxy: getEnvBool("LIVEREVIEW_REVERSE_PROXY", false),
+		IsCloud:      getEnvBool("LIVEREVIEW_IS_CLOUD", false),
 	}
 
 	// Auto-configure derived values
@@ -280,10 +287,41 @@ func NewServer(port int, versionInfo *VersionInfo) (*Server, error) {
 		log.Printf("Failed to backfill recent activity org IDs: %v", err)
 	}
 
+	// Validate configuration before starting server
+	if err := server.validateConfiguration(); err != nil {
+		return nil, fmt.Errorf("configuration validation failed: %w", err)
+	}
+
 	// Setup routes
 	server.setupRoutes()
 
 	return server, nil
+}
+
+// validateConfiguration validates startup configuration and logs deployment mode
+func (s *Server) validateConfiguration() error {
+	log.Printf("[Config Validation] LIVEREVIEW_IS_CLOUD: %v", s.deploymentConfig.IsCloud)
+	log.Printf("[Config Validation] LIVEREVIEW_REVERSE_PROXY: %v", s.deploymentConfig.ReverseProxy)
+	log.Printf("[Config Validation] Deployment Mode: %s", s.deploymentConfig.Mode)
+
+	if s.deploymentConfig.IsCloud {
+		log.Printf("[Cloud Mode] Subscription enforcement: ENABLED")
+		log.Printf("[Cloud Mode] License file validation: DISABLED")
+
+		// Verify required cloud secrets
+		if os.Getenv("CLOUD_JWT_SECRET") == "" {
+			return fmt.Errorf("CLOUD_JWT_SECRET required in cloud mode")
+		}
+		log.Printf("[Cloud Mode] CLOUD_JWT_SECRET: configured ✓")
+	} else {
+		log.Printf("[Self-Hosted Mode] Subscription enforcement: DISABLED")
+		log.Printf("[Self-Hosted Mode] License file validation: ENABLED")
+
+		// Note: License validator accessibility check can be added here if needed
+		// For now, we'll let it fail gracefully at runtime if unavailable
+	}
+
+	return nil
 }
 
 // DB exposes the underlying database handle (primarily for tests)
