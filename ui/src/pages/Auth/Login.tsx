@@ -1,11 +1,10 @@
 import React from 'react';
 import Cloud from './Cloud';
 import SelfHosted from './SelfHosted';
+import { isCloudMode } from '../../utils/deploymentMode';
 
 const Login: React.FC = () => {
-  const isCloud = (process.env.LIVEREVIEW_IS_CLOUD || '').toString().toLowerCase() === 'true';
-
-  return isCloud ? <Cloud /> : <SelfHosted />;
+  return isCloudMode() ? <Cloud /> : <SelfHosted />;
 };
 
 export default Login;

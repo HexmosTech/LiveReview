@@ -569,15 +569,17 @@ COMMENT ON INDEX idx_user_roles_user_org_plan IS 'Covering index for subscriptio
 - ✅ Free plan limit (3 reviews/day) configured in [internal/license/plans.go](../internal/license/plans.go)
 - ⚠️ **Action Required:** Verify middleware is applied to review creation routes
 
-### Step 4: Frontend Updates (Week 4)
+### Step 4: Frontend Updates ✅ **COMPLETE**
 - ✅ **Create centralized `isCloudMode()` helper** in [ui/src/utils/deploymentMode.ts](../ui/src/utils/deploymentMode.ts)
-- ✅ **Replace all inline cloud checks** with centralized helper
-- ✅ **Add runtime validation** to detect frontend/backend mode mismatch
-- Hide license UI in cloud mode (Phase 5)
-- Create placeholder subscription page
-- **Manual validation:** Test both cloud and self-hosted modes
-- Deploy to staging
-- User acceptance testing
+- ✅ **Replace all inline cloud checks** with centralized helper (Login.tsx, index.tsx, userNotifications.ts)
+- ✅ **Add runtime validation** to detect frontend/backend mode mismatch (validateDeploymentModeMatch)
+- ✅ **Hide license UI in cloud mode** - LicenseStatusBar returns null, LicenseTab redirects
+- ✅ **Create subscription management page** - SubscriptionTab.tsx with free plan display
+- ✅ **Add UI config endpoint** - /api/v1/ui-config returns isCloud, version, mode
+- ✅ **Integrate SubscriptionTab** into Settings.tsx (replaces LicenseManagement in cloud mode)
+- ⏳ **Manual validation:** Test both cloud and self-hosted modes - NEXT
+- ⏳ Deploy to staging
+- ⏳ User acceptance testing
 
 ### Step 5: Production Deployment (Week 5)
 - Deploy to production cloud

@@ -76,8 +76,20 @@ const ensureMicrosoftClarity = (siteId: string) => {
         </React.StrictMode>
     );
 
-    const isCloud = (process.env.LIVEREVIEW_IS_CLOUD || '').toString().toLowerCase() === 'true';
-    if (isCloud) {
+    const { isCloudMode, validateDeploymentModeMatch } = await import('./utils/deploymentMode');
+    
+    // Validate frontend/backend deployment mode match
+    try {
+        const response = await fetch('/api/v1/ui-config');
+        if (response.ok) {
+            const config = await response.json();
+            validateDeploymentModeMatch(config.isCloud);
+        }
+    } catch (err) {
+        console.warn('[LiveReview] Could not validate deployment mode:', err);
+    }
+    
+    if (isCloudMode()) {
         console.info('[LiveReview] Running in Cloud mode (Clarity)');
         ensureMicrosoftClarity('uc7wgsui3g');
     } else {

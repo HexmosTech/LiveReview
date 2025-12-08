@@ -3,6 +3,7 @@ import { useLocation, useNavigate } from 'react-router-dom';
 import { PageHeader, Card, Button, Icons, Input, Alert, Badge } from '../../components/UIPrimitives';
 import PromptsPage from '../Prompts';
 import LicenseTab from './LicenseTab';
+import SubscriptionTab from './SubscriptionTab';
 import LearningsTab from './LearningsTab';
 import { UserManagement } from '../../components/UserManagement';
 import LicenseManagement from '../Licenses/LicenseManagement';
@@ -10,6 +11,7 @@ import { useOrgContext } from '../../hooks/useOrgContext';
 import { useAppDispatch, useAppSelector } from '../../store/configureStore';
 import { updateDomain } from '../../store/Settings/reducer';
 import apiClient from '../../api/apiClient';
+import { isCloudMode } from '../../utils/deploymentMode';
 
 // Custom styled alerts for dark mode
 interface AlertProps {
@@ -286,8 +288,8 @@ const Settings = () => {
                 </svg>
             )
         }] : []),
-        // License tab visible only to super_admin or org owner
-        ...((isSuperAdmin || currentOrg?.role === 'owner') ? [{ id: 'license', name: 'License', icon: (
+        // License tab: in cloud mode only super_admin, in self-hosted mode super_admin or owner
+        ...((isCloudMode() ? isSuperAdmin : (isSuperAdmin || currentOrg?.role === 'owner')) ? [{ id: 'license', name: 'License', icon: (
             <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 7a4 4 0 10-4 4v1a1 1 0 001 1h1v1a1 1 0 001 1h1l3 3 3-3-3-3v-2a4 4 0 00-4-4z" />
             </svg>
@@ -699,7 +701,7 @@ const Settings = () => {
                         </Card>
                     )}
 
-                    {activeTab === 'license' && (isSuperAdmin || currentOrg?.role === 'owner') && (
+                    {activeTab === 'license' && (isCloudMode() ? isSuperAdmin : (isSuperAdmin || currentOrg?.role === 'owner')) && (
                         <Card>
                             <LicenseTab />
                         </Card>
@@ -720,7 +722,9 @@ const Settings = () => {
                     )}
 
                     {activeTab === 'subscriptions' && (isSuperAdmin || currentOrg) && (
-                        <LicenseManagement />
+                        <Card>
+                            {isCloudMode() ? <SubscriptionTab /> : <LicenseManagement />}
+                        </Card>
                     )}
 
                     {tabs.length === 0 && (
