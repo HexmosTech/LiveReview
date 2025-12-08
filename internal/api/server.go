@@ -368,6 +368,10 @@ func (s *Server) setupRoutes() {
 	protected := v1.Group("")
 	protected.Use(auth.RequireAuth(s.tokenService, s.db))
 
+	// Apply subscription enforcement middleware (cloud mode only)
+	authMiddleware := auth.NewAuthMiddleware(s.tokenService, s.db)
+	protected.Use(authMiddleware.EnforceSubscriptionLimits())
+
 	// User management endpoints
 	protected.GET("/auth/me", s.authHandlers.Me)
 	protected.POST("/auth/logout", s.authHandlers.Logout)
@@ -390,7 +394,7 @@ func (s *Server) setupRoutes() {
 	}
 
 	// Organization-scoped user management routes
-	authMiddleware := auth.NewAuthMiddleware(s.tokenService, s.db)
+	// Note: authMiddleware already created above
 
 	// Org routes group - requires org context and permissions
 	orgGroup := v1.Group("/orgs/:org_id")
