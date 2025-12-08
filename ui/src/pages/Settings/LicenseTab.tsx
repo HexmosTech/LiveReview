@@ -1,17 +1,32 @@
-import React from 'react';
+import React, { useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import toast from 'react-hot-toast';
 import { useAppSelector, useAppDispatch } from '../../store/configureStore';
 import { triggerLicenseRefresh, triggerLicenseRevalidation, triggerLicenseDelete, openModal as openLicenseModal, openDeleteConfirm, closeDeleteConfirm } from '../../store/License/slice';
 import { logout } from '../../store/Auth/reducer';
+import { isCloudMode } from '../../utils/deploymentMode';
 
 const roleCanView = (role?: string) => role === 'super_admin' || role === 'owner';
 
 const LicenseTab: React.FC = () => {
   const dispatch = useAppDispatch();
+  const navigate = useNavigate();
   const license = useAppSelector(s => s.License);
   const auth = useAppSelector(s => s.Auth);
   const activeOrg = auth.organizations[0];
   const canView = roleCanView(activeOrg?.role);
+
+  // Redirect to subscription tab if in cloud mode
+  useEffect(() => {
+    if (isCloudMode()) {
+      navigate('/settings#subscriptions', { replace: true });
+    }
+  }, [navigate]);
+
+  // Don't render anything if in cloud mode (will redirect)
+  if (isCloudMode()) {
+    return null;
+  }
 
   if (!canView) {
     return (

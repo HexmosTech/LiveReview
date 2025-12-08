@@ -96,8 +96,8 @@ export const handleUserLoginNotification = async (
   createdAt: string
 ): Promise<void> => {
   // Only run in cloud deployments
-  const isCloud = (process.env.LIVEREVIEW_IS_CLOUD || '').toString().toLowerCase() === 'true';
-  if (!isCloud) {
+  const { isCloudMode } = await import('./deploymentMode');
+  if (!isCloudMode()) {
     console.info("[LiveReview] Not in cloud mode, skipping notifications");
     return;
   }

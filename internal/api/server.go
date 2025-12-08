@@ -360,6 +360,7 @@ func (s *Server) setupRoutes() {
 
 	// System info endpoints (public)
 	public.GET("/system/info", s.getSystemInfo)
+	public.GET("/ui-config", s.getUIConfig)
 
 	// Cloud user ensure endpoint (now public; handler performs CLOUD_JWT_SECRET validation)
 	public.POST("/auth/ensure-cloud-user", s.authHandlers.EnsureCloudUser)
@@ -1454,6 +1455,16 @@ func (s *Server) getSystemInfo(c echo.Context) error {
 	}
 
 	return c.JSON(http.StatusOK, info)
+}
+
+// getUIConfig returns deployment configuration for the frontend
+func (s *Server) getUIConfig(c echo.Context) error {
+	config := map[string]interface{}{
+		"isCloud": s.deploymentConfig.IsCloud,
+		"version": s.versionInfo.Version,
+		"mode":    s.deploymentConfig.Mode,
+	}
+	return c.JSON(http.StatusOK, config)
 }
 
 // WebhookOrchestratorV2Handler handles webhooks using the V2 orchestrator (full processing pipeline)

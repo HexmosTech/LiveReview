@@ -3,6 +3,7 @@ import { useAppDispatch, useAppSelector } from '../../store/configureStore';
 import { triggerLicenseRefresh } from '../../store/License/slice';
 import { getSystemInfo } from '../../api/system';
 import { Tooltip } from '../UIPrimitives';
+import { isCloudMode } from '../../utils/deploymentMode';
 
 export interface LicenseStatusBarProps {
   onOpenModal?: () => void;
@@ -29,6 +30,11 @@ const formatDaysLeft = (expiresAt?: string) => {
 };
 
 const LicenseStatusBar: React.FC<LicenseStatusBarProps> = ({ onOpenModal }) => {
+  // Don't render in cloud mode - subscription management replaces license UI
+  if (isCloudMode()) {
+    return null;
+  }
+
   const dispatch = useAppDispatch();
   const license = useAppSelector(s => s.License);
   const isLoading = !license.loadedOnce || license.loading;
