@@ -1,4 +1,4 @@
-\restrict wgYtlDYAbsYQvHYYYgJrCCmNY0byhR1p8gyRDFLbiI5fJTP90l699yGv3Ilg0kv
+\restrict rQySYAAgw2Bk0liu6Kj56HKm4tMEyKFgEzpjdpR3gpsvJzdcHgkIffMZi5cDY4x
 
 -- Dumped from database version 15.14 (Debian 15.14-1.pgdg13+1)
 -- Dumped by pg_dump version 15.14 (Ubuntu 15.14-1.pgdg22.04+1)
@@ -946,6 +946,27 @@ CREATE TABLE public.user_roles (
     license_expires_at timestamp with time zone,
     active_subscription_id bigint
 );
+
+
+--
+-- Name: COLUMN user_roles.plan_type; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.user_roles.plan_type IS 'User plan in this org: free, team, enterprise';
+
+
+--
+-- Name: COLUMN user_roles.license_expires_at; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.user_roles.license_expires_at IS 'When the license expires for this user in this org';
+
+
+--
+-- Name: COLUMN user_roles.active_subscription_id; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.user_roles.active_subscription_id IS 'Reference to subscriptions table (future)';
 
 
 --
@@ -2000,6 +2021,20 @@ CREATE INDEX idx_user_roles_user_org ON public.user_roles USING btree (user_id, 
 
 
 --
+-- Name: idx_user_roles_user_org_plan; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_user_roles_user_org_plan ON public.user_roles USING btree (user_id, org_id) INCLUDE (plan_type, license_expires_at);
+
+
+--
+-- Name: INDEX idx_user_roles_user_org_plan; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON INDEX public.idx_user_roles_user_org_plan IS 'Covering index for subscription lookups - enables index-only scans for <2ms query time';
+
+
+--
 -- Name: idx_users_created_by; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -2449,7 +2484,7 @@ ALTER TABLE ONLY public.webhook_registry
 -- PostgreSQL database dump complete
 --
 
-\unrestrict wgYtlDYAbsYQvHYYYgJrCCmNY0byhR1p8gyRDFLbiI5fJTP90l699yGv3Ilg0kv
+\unrestrict rQySYAAgw2Bk0liu6Kj56HKm4tMEyKFgEzpjdpR3gpsvJzdcHgkIffMZi5cDY4x
 
 
 --
@@ -2457,6 +2492,7 @@ ALTER TABLE ONLY public.webhook_registry
 --
 
 INSERT INTO public.schema_migrations (version) VALUES
+    ('20241208'),
     ('20250719000001'),
     ('20250719000002'),
     ('20250719000003'),

@@ -3,12 +3,24 @@ package middleware
 import (
 	"database/sql"
 	"net/http"
+	"os"
+	"strings"
 	"time"
 
 	"github.com/labstack/echo/v4"
 	"github.com/livereview/internal/api/auth"
 	"github.com/livereview/internal/license"
 )
+
+// isCloudMode checks if running in cloud deployment mode
+func isCloudMode() bool {
+	valueStr := os.Getenv("LIVEREVIEW_IS_CLOUD")
+	if valueStr == "" {
+		return false
+	}
+	valueStr = strings.ToLower(strings.TrimSpace(valueStr))
+	return valueStr == "true" || valueStr == "1"
+}
 
 // EnforcePlan checks if user's plan allows access to a specific feature
 func EnforcePlan(requiredFeature string) echo.MiddlewareFunc {
@@ -45,6 +57,12 @@ func EnforcePlan(requiredFeature string) echo.MiddlewareFunc {
 func CheckReviewLimit(db *sql.DB) echo.MiddlewareFunc {
 	return func(next echo.HandlerFunc) echo.HandlerFunc {
 		return func(c echo.Context) error {
+			// CRITICAL: Only enforce limits in cloud mode
+			// In self-hosted mode, skip all subscription/plan checks
+			if !isCloudMode() {
+				return next(c)
+			}
+
 			// Get JWT claims from context
 			claims, ok := c.Get("claims").(*auth.JWTClaims)
 			if !ok {

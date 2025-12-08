@@ -689,10 +689,10 @@ func (h *AuthHandlers) EnsureCloudUser(c echo.Context) error {
 	roleErr := tx.QueryRow(`SELECT role_id FROM user_roles WHERE user_id = $1 AND org_id = $2`, userID, orgID).Scan(&existingRoleID)
 	if roleErr != nil {
 		if roleErr == sql.ErrNoRows {
-			// Assign super admin role
+			// Assign super admin role with free plan
 			_, err = tx.Exec(`
-				INSERT INTO user_roles (user_id, org_id, role_id, created_at, updated_at)
-				VALUES ($1, $2, $3, NOW(), NOW())
+				INSERT INTO user_roles (user_id, org_id, role_id, plan_type, created_at, updated_at)
+				VALUES ($1, $2, $3, 'free', NOW(), NOW())
 			`, userID, orgID, superAdminRoleID)
 			if err != nil {
 				return c.JSON(http.StatusInternalServerError, map[string]string{"error": "failed to assign super_admin role"})
