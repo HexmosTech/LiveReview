@@ -303,16 +303,17 @@ func (s *SubscriptionService) CancelSubscription(subscriptionID string, immediat
 // SubscriptionDetails holds subscription info from both DB and Razorpay
 type SubscriptionDetails struct {
 	// From DB
-	ID               int       `json:"id"`
-	OwnerUserID      int       `json:"owner_user_id"`
-	OrgID            int       `json:"org_id"`
-	PlanType         string    `json:"plan_type"`
-	Quantity         int       `json:"quantity"`
-	AssignedSeats    int       `json:"assigned_seats"`
-	Status           string    `json:"status"`
-	LicenseExpiresAt time.Time `json:"license_expires_at"`
-	CreatedAt        time.Time `json:"created_at"`
-	UpdatedAt        time.Time `json:"updated_at"`
+	ID                     int       `json:"id"`
+	RazorpaySubscriptionID string    `json:"razorpay_subscription_id"`
+	OwnerUserID            int       `json:"owner_user_id"`
+	OrgID                  int       `json:"org_id"`
+	PlanType               string    `json:"plan_type"`
+	Quantity               int       `json:"quantity"`
+	AssignedSeats          int       `json:"assigned_seats"`
+	Status                 string    `json:"status"`
+	LicenseExpiresAt       time.Time `json:"license_expires_at"`
+	CreatedAt              time.Time `json:"created_at"`
+	UpdatedAt              time.Time `json:"updated_at"`
 	// Payment Info
 	PaymentVerified       bool       `json:"payment_verified"`
 	LastPaymentID         string     `json:"last_payment_id,omitempty"`
@@ -331,7 +332,7 @@ func (s *SubscriptionService) GetSubscriptionDetails(subscriptionID string, mode
 	var lastPaymentReceivedAt sql.NullTime
 
 	err := s.db.QueryRow(`
-		SELECT s.id, s.owner_user_id, s.org_id, s.plan_type, s.quantity,
+		SELECT s.id, s.razorpay_subscription_id, s.owner_user_id, s.org_id, s.plan_type, s.quantity,
 		       COALESCE((SELECT COUNT(*) FROM user_roles ur WHERE ur.active_subscription_id = s.id AND ur.plan_type = 'team'), 0) as assigned_seats,
 		       s.status, s.license_expires_at, s.created_at, s.updated_at,
 		       s.payment_verified, s.last_payment_id, s.last_payment_status, s.last_payment_received_at
@@ -339,7 +340,7 @@ func (s *SubscriptionService) GetSubscriptionDetails(subscriptionID string, mode
 		WHERE s.razorpay_subscription_id = $1`,
 		subscriptionID,
 	).Scan(
-		&details.ID, &details.OwnerUserID, &details.OrgID, &details.PlanType,
+		&details.ID, &details.RazorpaySubscriptionID, &details.OwnerUserID, &details.OrgID, &details.PlanType,
 		&details.Quantity, &details.AssignedSeats, &details.Status,
 		&details.LicenseExpiresAt, &details.CreatedAt, &details.UpdatedAt,
 		&details.PaymentVerified, &lastPaymentID, &lastPaymentStatus, &lastPaymentReceivedAt,
@@ -402,8 +403,7 @@ func (s *SubscriptionService) AssignLicense(subscriptionID string, userID, orgID
 
 	// CRITICAL: Block assignment until payment is verified
 	if !paymentVerified {
-		return fmt.Errorf("cannot assign license: payment not yet received for subscription %s (status: %s)",
-			subscriptionID, lastPaymentStatus.String)
+		return fmt.Errorf("payment pending - licenses cannot be assigned until payment is received. Check back in 5-10 minutes")
 	}
 
 	if assignedSeats >= quantity {
