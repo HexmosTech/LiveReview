@@ -1,9 +1,11 @@
-import React, { useEffect } from 'react';
+import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { isCloudMode } from '../../utils/deploymentMode';
+import LicenseManagement from '../Licenses/LicenseManagement';
 
 const SubscriptionTab: React.FC = () => {
   const navigate = useNavigate();
+  const [activeTab, setActiveTab] = useState<'overview' | 'assignments'>('overview');
 
   useEffect(() => {
     // Redirect to license page if in self-hosted mode
@@ -19,6 +21,46 @@ const SubscriptionTab: React.FC = () => {
 
   return (
     <div className="p-6 space-y-6" data-testid="subscription-tab">
+      {/* Tab Navigation */}
+      <div className="border-b border-slate-700 -mx-6 px-6">
+        <div className="flex space-x-1">
+          <button
+            onClick={() => setActiveTab('overview')}
+            className={`px-4 py-3 text-sm font-medium transition-colors ${
+              activeTab === 'overview'
+                ? 'text-white border-b-2 border-blue-500'
+                : 'text-slate-400 hover:text-slate-300'
+            }`}
+          >
+            Overview
+          </button>
+          <button
+            onClick={() => setActiveTab('assignments')}
+            className={`px-4 py-3 text-sm font-medium transition-colors ${
+              activeTab === 'assignments'
+                ? 'text-white border-b-2 border-blue-500'
+                : 'text-slate-400 hover:text-slate-300'
+            }`}
+          >
+            License Assignments
+          </button>
+        </div>
+      </div>
+
+      {/* Tab Content */}
+      {activeTab === 'overview' ? (
+        <OverviewTab navigate={navigate} />
+      ) : (
+        <AssignmentsTab />
+      )}
+    </div>
+  );
+};
+
+// Overview Tab Component
+const OverviewTab: React.FC<{ navigate: any }> = ({ navigate }) => {
+  return (
+    <div className="space-y-6">
       <div>
         <h2 className="text-lg font-semibold text-white mb-2">Subscription Management</h2>
         <p className="text-sm text-slate-400 mb-4">
@@ -105,6 +147,15 @@ const SubscriptionTab: React.FC = () => {
           No billing history available for free plan
         </p>
       </div>
+    </div>
+  );
+};
+
+// Assignments Tab Component
+const AssignmentsTab: React.FC = () => {
+  return (
+    <div className="-mx-6 -my-6">
+      <LicenseManagement />
     </div>
   );
 };
