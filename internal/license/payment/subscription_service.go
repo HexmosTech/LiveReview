@@ -116,19 +116,8 @@ func (s *SubscriptionService) CreateTeamSubscription(ownerUserID, orgID int, pla
 		return nil, fmt.Errorf("failed to insert subscription: %w", err)
 	}
 
-	// Update user_roles to set this as active subscription
-	_, err = tx.Exec(`
-		UPDATE user_roles
-		SET plan_type = 'team',
-		    license_expires_at = $1,
-		    active_subscription_id = $2,
-		    updated_at = NOW()
-		WHERE user_id = $3 AND org_id = $4`,
-		licenseExpiresAt, dbSubscriptionID, ownerUserID, orgID,
-	)
-	if err != nil {
-		return nil, fmt.Errorf("failed to update user_roles: %w", err)
-	}
+	// Note: We do NOT automatically assign the license to the purchaser
+	// The owner must explicitly assign licenses via the assignment UI
 
 	// Log to license_log
 	metadata := map[string]interface{}{
