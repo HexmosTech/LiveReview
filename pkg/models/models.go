@@ -27,6 +27,9 @@ type OrgWithRole struct {
 	CreatorEmail     *string `json:"creator_email,omitempty"`
 	CreatorFirstName *string `json:"creator_first_name,omitempty"`
 	CreatorLastName  *string `json:"creator_last_name,omitempty"`
+	// User's plan in this organization (cloud mode)
+	PlanType         *string    `json:"plan_type,omitempty"`
+	LicenseExpiresAt *time.Time `json:"license_expires_at,omitempty"`
 }
 
 // OrgAnalytics contains analytics data for an organization

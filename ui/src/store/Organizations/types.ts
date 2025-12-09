@@ -15,7 +15,10 @@ export interface Organization {
     creator_first_name?: string;
     creator_last_name?: string;
     member_count?: number;
-    role?: string; 
+    role?: string;
+    // User's plan in this organization (cloud mode only)
+    plan_type?: string;
+    license_expires_at?: string;
 }
 
 export interface OrganizationMember {
