@@ -1,4 +1,4 @@
-\restrict rQySYAAgw2Bk0liu6Kj56HKm4tMEyKFgEzpjdpR3gpsvJzdcHgkIffMZi5cDY4x
+\restrict 4GxukKlX4vhLg6WfSUPlaVIQulZOG0PPgOya3Ag7w6u7gI8s5laQMsn0h1IHhMm
 
 -- Dumped from database version 15.14 (Debian 15.14-1.pgdg13+1)
 -- Dumped by pg_dump version 15.14 (Ubuntu 15.14-1.pgdg22.04+1)
@@ -816,6 +816,72 @@ CREATE TABLE public.schema_migrations (
 
 
 --
+-- Name: subscription_payments; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.subscription_payments (
+    id bigint NOT NULL,
+    subscription_id bigint,
+    razorpay_payment_id character varying(255) NOT NULL,
+    razorpay_order_id character varying(255),
+    razorpay_invoice_id character varying(255),
+    amount bigint NOT NULL,
+    currency character varying(10) DEFAULT 'INR'::character varying NOT NULL,
+    status character varying(50) NOT NULL,
+    method character varying(50),
+    authorized_at timestamp with time zone,
+    captured_at timestamp with time zone,
+    failed_at timestamp with time zone,
+    refunded_at timestamp with time zone,
+    razorpay_data jsonb,
+    error_code character varying(100),
+    error_description text,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL
+);
+
+
+--
+-- Name: TABLE subscription_payments; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON TABLE public.subscription_payments IS 'Complete history of all payments for subscriptions';
+
+
+--
+-- Name: COLUMN subscription_payments.amount; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.subscription_payments.amount IS 'Amount in smallest currency unit (paise for INR)';
+
+
+--
+-- Name: COLUMN subscription_payments.status; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.subscription_payments.status IS 'Payment status: authorized, captured, failed, refunded';
+
+
+--
+-- Name: subscription_payments_id_seq; Type: SEQUENCE; Schema: public; Owner: -
+--
+
+CREATE SEQUENCE public.subscription_payments_id_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+
+--
+-- Name: subscription_payments_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: -
+--
+
+ALTER SEQUENCE public.subscription_payments_id_seq OWNED BY public.subscription_payments.id;
+
+
+--
 -- Name: subscriptions; Type: TABLE; Schema: public; Owner: -
 --
 
@@ -839,9 +905,41 @@ CREATE TABLE public.subscriptions (
     license_expires_at timestamp with time zone,
     notes jsonb,
     updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    last_payment_id character varying(255),
+    last_payment_status character varying(50),
+    last_payment_received_at timestamp with time zone,
+    payment_verified boolean DEFAULT false NOT NULL,
     CONSTRAINT valid_assigned_seats CHECK (((assigned_seats >= 0) AND (assigned_seats <= quantity))),
     CONSTRAINT valid_quantity CHECK ((quantity > 0))
 );
+
+
+--
+-- Name: COLUMN subscriptions.last_payment_id; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.subscriptions.last_payment_id IS 'Razorpay payment ID from most recent payment';
+
+
+--
+-- Name: COLUMN subscriptions.last_payment_status; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.subscriptions.last_payment_status IS 'Status of last payment: authorized, captured, failed, refunded';
+
+
+--
+-- Name: COLUMN subscriptions.last_payment_received_at; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.subscriptions.last_payment_received_at IS 'Timestamp when payment was actually received (captured)';
+
+
+--
+-- Name: COLUMN subscriptions.payment_verified; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.subscriptions.payment_verified IS 'Whether any payment has been successfully received for this subscription';
 
 
 --
@@ -1152,6 +1250,13 @@ ALTER TABLE ONLY public.roles ALTER COLUMN id SET DEFAULT nextval('public.roles_
 
 
 --
+-- Name: subscription_payments id; Type: DEFAULT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.subscription_payments ALTER COLUMN id SET DEFAULT nextval('public.subscription_payments_id_seq'::regclass);
+
+
+--
 -- Name: subscriptions id; Type: DEFAULT; Schema: public; Owner: -
 --
 
@@ -1408,6 +1513,22 @@ ALTER TABLE ONLY public.roles
 
 ALTER TABLE ONLY public.schema_migrations
     ADD CONSTRAINT schema_migrations_pkey PRIMARY KEY (version);
+
+
+--
+-- Name: subscription_payments subscription_payments_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.subscription_payments
+    ADD CONSTRAINT subscription_payments_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: subscription_payments subscription_payments_razorpay_payment_id_key; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.subscription_payments
+    ADD CONSTRAINT subscription_payments_razorpay_payment_id_key UNIQUE (razorpay_payment_id);
 
 
 --
@@ -1930,6 +2051,34 @@ CREATE INDEX idx_reviews_status ON public.reviews USING btree (status);
 
 
 --
+-- Name: idx_subscription_payments_captured; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_subscription_payments_captured ON public.subscription_payments USING btree (captured_at) WHERE (captured_at IS NOT NULL);
+
+
+--
+-- Name: idx_subscription_payments_razorpay; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_subscription_payments_razorpay ON public.subscription_payments USING btree (razorpay_payment_id);
+
+
+--
+-- Name: idx_subscription_payments_status; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_subscription_payments_status ON public.subscription_payments USING btree (status);
+
+
+--
+-- Name: idx_subscription_payments_subscription; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_subscription_payments_subscription ON public.subscription_payments USING btree (subscription_id);
+
+
+--
 -- Name: idx_subscriptions_org; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -1941,6 +2090,20 @@ CREATE INDEX idx_subscriptions_org ON public.subscriptions USING btree (org_id);
 --
 
 CREATE INDEX idx_subscriptions_owner ON public.subscriptions USING btree (owner_user_id);
+
+
+--
+-- Name: idx_subscriptions_payment_status; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_subscriptions_payment_status ON public.subscriptions USING btree (last_payment_status);
+
+
+--
+-- Name: idx_subscriptions_payment_verified; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_subscriptions_payment_verified ON public.subscriptions USING btree (payment_verified);
 
 
 --
@@ -2345,6 +2508,14 @@ ALTER TABLE ONLY public.river_client_queue
 
 
 --
+-- Name: subscription_payments subscription_payments_subscription_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.subscription_payments
+    ADD CONSTRAINT subscription_payments_subscription_id_fkey FOREIGN KEY (subscription_id) REFERENCES public.subscriptions(id);
+
+
+--
 -- Name: subscriptions subscriptions_org_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -2484,7 +2655,7 @@ ALTER TABLE ONLY public.webhook_registry
 -- PostgreSQL database dump complete
 --
 
-\unrestrict rQySYAAgw2Bk0liu6Kj56HKm4tMEyKFgEzpjdpR3gpsvJzdcHgkIffMZi5cDY4x
+\unrestrict 4GxukKlX4vhLg6WfSUPlaVIQulZOG0PPgOya3Ag7w6u7gI8s5laQMsn0h1IHhMm
 
 
 --
@@ -2529,4 +2700,5 @@ INSERT INTO public.schema_migrations (version) VALUES
     ('20250925120001'),
     ('20251007'),
     ('20251204105958'),
-    ('20251204134413');
+    ('20251204134413'),
+    ('20251209');

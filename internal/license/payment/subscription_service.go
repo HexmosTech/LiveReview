@@ -313,18 +313,28 @@ type SubscriptionDetails struct {
 	LicenseExpiresAt time.Time `json:"license_expires_at"`
 	CreatedAt        time.Time `json:"created_at"`
 	UpdatedAt        time.Time `json:"updated_at"`
+	// Payment Info
+	PaymentVerified       bool       `json:"payment_verified"`
+	LastPaymentID         string     `json:"last_payment_id,omitempty"`
+	LastPaymentStatus     string     `json:"last_payment_status,omitempty"`
+	LastPaymentReceivedAt *time.Time `json:"last_payment_received_at,omitempty"`
 	// From Razorpay
 	RazorpaySubscription *RazorpaySubscription `json:"razorpay_subscription,omitempty"`
 }
 
 // GetSubscriptionDetails retrieves subscription details from both DB and Razorpay
 func (s *SubscriptionService) GetSubscriptionDetails(subscriptionID string, mode string) (*SubscriptionDetails, error) {
-	// Get from DB with calculated assigned_seats from user_roles
+	// Get from DB with calculated assigned_seats from user_roles AND payment info
 	var details SubscriptionDetails
+	var lastPaymentID sql.NullString
+	var lastPaymentStatus sql.NullString
+	var lastPaymentReceivedAt sql.NullTime
+
 	err := s.db.QueryRow(`
 		SELECT s.id, s.owner_user_id, s.org_id, s.plan_type, s.quantity,
 		       COALESCE((SELECT COUNT(*) FROM user_roles ur WHERE ur.active_subscription_id = s.id AND ur.plan_type = 'team'), 0) as assigned_seats,
-		       s.status, s.license_expires_at, s.created_at, s.updated_at
+		       s.status, s.license_expires_at, s.created_at, s.updated_at,
+		       s.payment_verified, s.last_payment_id, s.last_payment_status, s.last_payment_received_at
 		FROM subscriptions s
 		WHERE s.razorpay_subscription_id = $1`,
 		subscriptionID,
@@ -332,12 +342,24 @@ func (s *SubscriptionService) GetSubscriptionDetails(subscriptionID string, mode
 		&details.ID, &details.OwnerUserID, &details.OrgID, &details.PlanType,
 		&details.Quantity, &details.AssignedSeats, &details.Status,
 		&details.LicenseExpiresAt, &details.CreatedAt, &details.UpdatedAt,
+		&details.PaymentVerified, &lastPaymentID, &lastPaymentStatus, &lastPaymentReceivedAt,
 	)
 	if err == sql.ErrNoRows {
 		return nil, fmt.Errorf("subscription not found: %s", subscriptionID)
 	}
 	if err != nil {
 		return nil, fmt.Errorf("failed to get subscription from DB: %w", err)
+	}
+
+	// Set nullable payment fields
+	if lastPaymentID.Valid {
+		details.LastPaymentID = lastPaymentID.String
+	}
+	if lastPaymentStatus.Valid {
+		details.LastPaymentStatus = lastPaymentStatus.String
+	}
+	if lastPaymentReceivedAt.Valid {
+		details.LastPaymentReceivedAt = &lastPaymentReceivedAt.Time
 	}
 
 	// Get from Razorpay
@@ -359,21 +381,29 @@ func (s *SubscriptionService) AssignLicense(subscriptionID string, userID, orgID
 	}
 	defer tx.Rollback()
 
-	// Check subscription capacity - calculate assigned_seats dynamically from user_roles
+	// Check subscription capacity and payment verification
 	var quantity int
 	var ownerUserID int
 	var dbSubscriptionID int64
 	var licenseExpiresAt time.Time
 	var assignedSeats int
+	var paymentVerified bool
+	var lastPaymentStatus sql.NullString
 	err = tx.QueryRow(`
-		SELECT s.id, s.quantity, s.owner_user_id, s.license_expires_at,
+		SELECT s.id, s.quantity, s.owner_user_id, s.license_expires_at, s.payment_verified, s.last_payment_status,
 		       COALESCE((SELECT COUNT(*) FROM user_roles ur WHERE ur.active_subscription_id = s.id AND ur.plan_type = 'team'), 0) as assigned_seats
 		FROM subscriptions s
 		WHERE s.razorpay_subscription_id = $1`,
 		subscriptionID,
-	).Scan(&dbSubscriptionID, &quantity, &ownerUserID, &licenseExpiresAt, &assignedSeats)
+	).Scan(&dbSubscriptionID, &quantity, &ownerUserID, &licenseExpiresAt, &paymentVerified, &lastPaymentStatus, &assignedSeats)
 	if err != nil {
 		return fmt.Errorf("failed to get subscription: %w", err)
+	}
+
+	// CRITICAL: Block assignment until payment is verified
+	if !paymentVerified {
+		return fmt.Errorf("cannot assign license: payment not yet received for subscription %s (status: %s)",
+			subscriptionID, lastPaymentStatus.String)
 	}
 
 	if assignedSeats >= quantity {

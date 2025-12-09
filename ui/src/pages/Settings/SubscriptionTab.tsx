@@ -4,6 +4,7 @@ import { isCloudMode } from '../../utils/deploymentMode';
 import { useAppSelector } from '../../store/configureStore';
 import { useOrgContext } from '../../hooks/useOrgContext';
 import LicenseManagement from '../Licenses/LicenseManagement';
+import { CancelSubscriptionModal } from '../../components/Subscriptions';
 
 const SubscriptionTab: React.FC = () => {
   const navigate = useNavigate();
@@ -70,12 +71,44 @@ const SubscriptionTab: React.FC = () => {
 // Overview Tab Component
 const OverviewTab: React.FC<{ navigate: any }> = ({ navigate }) => {
   const { currentOrg } = useOrgContext();
+  const [showCancelModal, setShowCancelModal] = useState(false);
+  const [subscriptionId, setSubscriptionId] = useState<string | null>(null);
   
   // Read plan from current org (org-scoped), not from Auth.user
   const planType = currentOrg?.plan_type || 'free';
   const licenseExpiresAt = currentOrg?.license_expires_at;
   const isTeamPlan = planType === 'team';
   const isFree = planType === 'free';
+
+  // Fetch subscription ID if user has team plan
+  useEffect(() => {
+    if (isTeamPlan && currentOrg?.id) {
+      // Fetch subscription details to get subscription ID
+      fetch('/api/v1/subscriptions', {
+        headers: {
+          'X-Org-Context': currentOrg.id.toString(),
+        },
+      })
+        .then(res => res.json())
+        .then(data => {
+          if (data.subscriptions && data.subscriptions.length > 0) {
+            // Get the active subscription for this org
+            const activeSub = data.subscriptions.find((sub: any) => 
+              sub.status === 'active' && sub.org_id === currentOrg.id
+            );
+            if (activeSub) {
+              setSubscriptionId(activeSub.razorpay_subscription_id);
+            }
+          }
+        })
+        .catch(err => console.error('Failed to fetch subscriptions:', err));
+    }
+  }, [isTeamPlan, currentOrg?.id]);
+
+  const handleCancelSuccess = () => {
+    // Reload the page to reflect updated subscription status
+    window.location.reload();
+  };
 
   const formatDate = (dateString: string | null | undefined) => {
     if (!dateString) return null;
@@ -192,7 +225,17 @@ const OverviewTab: React.FC<{ navigate: any }> = ({ navigate }) => {
       {/* Team Plan Benefits - show for team users */}
       {isTeamPlan && (
         <div className="bg-gradient-to-r from-blue-900/40 to-purple-900/40 border border-blue-700/50 rounded-lg p-6">
-          <h3 className="text-md font-semibold text-white mb-2">Team Plan Benefits</h3>
+          <div className="flex items-center justify-between mb-2">
+            <h3 className="text-md font-semibold text-white">Team Plan Benefits</h3>
+            {subscriptionId && (
+              <button
+                onClick={() => setShowCancelModal(true)}
+                className="px-3 py-1.5 text-xs font-medium text-red-300 bg-red-900/40 hover:bg-red-900/60 border border-red-500/30 hover:border-red-500/50 rounded-lg transition-colors"
+              >
+                Cancel Subscription
+              </button>
+            )}
+          </div>
           <p className="text-sm text-slate-300 mb-4">
             You're enjoying all premium features
           </p>
@@ -223,6 +266,17 @@ const OverviewTab: React.FC<{ navigate: any }> = ({ navigate }) => {
             </li>
           </ul>
         </div>
+      )}
+
+      {/* Cancel Subscription Modal */}
+      {subscriptionId && (
+        <CancelSubscriptionModal
+          isOpen={showCancelModal}
+          onClose={() => setShowCancelModal(false)}
+          onSuccess={handleCancelSuccess}
+          subscriptionId={subscriptionId}
+          expiryDate={licenseExpiresAt}
+        />
       )}
 
       {/* Billing History Placeholder */}
