@@ -128,7 +128,9 @@ const AppContent: React.FC = () => {
     // Redirect from /admin to dashboard when authenticated
     useEffect(() => {
         if (isAuthenticated && location.pathname === '/admin') {
-            navigate('/dashboard');
+            // Clean URL and navigate smoothly to dashboard
+            window.history.replaceState(null, '', '/');
+            navigate('/dashboard', { replace: true });
         }
     }, [isAuthenticated, location.pathname, navigate]);
 

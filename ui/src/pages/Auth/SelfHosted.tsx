@@ -57,7 +57,11 @@ const SelfHosted: React.FC = () => {
 		try {
 			await dispatch(login({ email, password })).unwrap();
 			toast.success('Login successful!');
-			navigate('/dashboard');
+			// Clean URL and navigate smoothly to dashboard
+			if (window.location.pathname !== '/') {
+				window.history.replaceState(null, '', '/');
+			}
+			navigate('/dashboard', { replace: true });
 		} catch (err) {
 			handleLoginError(err);
 		}

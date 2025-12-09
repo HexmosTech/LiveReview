@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useAppDispatch } from '../../store/configureStore';
 import { handleLoginSuccess, handleLoginError } from '../../utils/authHelpers';
 import { LoginResponse } from '../../api/auth';
@@ -24,6 +25,7 @@ interface CloudProvisionResponse {
 
 const Cloud: React.FC = () => {
 	const dispatch = useAppDispatch();
+	const navigate = useNavigate();
 	const [user, setUser] = useState<AuthedUser | null>(null);
 	const [isClient, setIsClient] = useState(false);
 	const [provisionResult, setProvisionResult] = useState<CloudProvisionResponse | null>(null);
@@ -136,9 +138,11 @@ const Cloud: React.FC = () => {
 							organizations: data.organizations,
 						};
 						handleLoginSuccess(loginResponse, dispatch);
-						// Navigation will happen automatically via Redux state change
-						// But let's also force it for this login page case
-						window.location.hash = '/dashboard';
+						// Clean URL and navigate smoothly to dashboard
+						if (window.location.pathname !== '/') {
+							window.history.replaceState(null, '', '/');
+						}
+						navigate('/dashboard', { replace: true });
 					}
 				}
 			} catch (err: any) {
