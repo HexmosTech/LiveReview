@@ -11,6 +11,10 @@ type Subscription = {
   quantity: number;
   assigned_seats: number;
   status: string;
+  payment_verified: boolean;
+  last_payment_id?: string;
+  last_payment_status?: string;
+  last_payment_received_at?: string;
 };
 
 type OrgMember = {
@@ -289,6 +293,21 @@ const LicenseAssignment: React.FC = () => {
             <p className="text-sm text-slate-400">
               ID: <span className="font-mono text-slate-300">{subscription.razorpay_subscription_id}</span>
             </p>
+            {subscription.last_payment_id && (
+              <p className="text-sm text-slate-400 mt-1">
+                Payment ID: <span className="font-mono text-slate-300">{subscription.last_payment_id}</span>
+                {subscription.last_payment_status && (
+                  <span className={`ml-2 px-2 py-0.5 rounded text-xs ${subscription.payment_verified ? 'bg-emerald-500/20 text-emerald-300' : 'bg-orange-500/20 text-orange-300'}`}>
+                    {subscription.last_payment_status}
+                  </span>
+                )}
+              </p>
+            )}
+            {!subscription.payment_verified && (
+              <div className="mt-2 p-2 bg-orange-500/10 border border-orange-500/40 rounded text-xs text-orange-300">
+                ⚠️ Payment pending - licenses cannot be assigned until payment is received
+              </div>
+            )}
           </div>
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-6">
             <div>
