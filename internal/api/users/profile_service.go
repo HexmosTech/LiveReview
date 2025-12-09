@@ -22,14 +22,16 @@ func NewProfileService(db *sql.DB) *ProfileService {
 
 // UserProfile represents user profile information
 type UserProfile struct {
-	ID          int64      `json:"id"`
-	Email       string     `json:"email"`
-	FirstName   *string    `json:"first_name"`
-	LastName    *string    `json:"last_name"`
-	IsActive    bool       `json:"is_active"`
-	CreatedAt   time.Time  `json:"created_at"`
-	UpdatedAt   time.Time  `json:"updated_at"`
-	LastLoginAt *time.Time `json:"last_login_at"`
+	ID               int64      `json:"id"`
+	Email            string     `json:"email"`
+	FirstName        *string    `json:"first_name"`
+	LastName         *string    `json:"last_name"`
+	IsActive         bool       `json:"is_active"`
+	CreatedAt        time.Time  `json:"created_at"`
+	UpdatedAt        time.Time  `json:"updated_at"`
+	LastLoginAt      *time.Time `json:"last_login_at"`
+	PlanType         *string    `json:"plan_type"`
+	LicenseExpiresAt *time.Time `json:"license_expires_at"`
 }
 
 // UpdateProfileRequest represents a profile update request
@@ -50,12 +52,17 @@ func (ps *ProfileService) GetUserProfile(userID int64) (*UserProfile, error) {
 	profile := &UserProfile{}
 
 	err := ps.db.QueryRow(`
-		SELECT id, email, first_name, last_name, is_active, created_at, updated_at, last_login_at
-		FROM users
-		WHERE id = $1
+		SELECT 
+			u.id, u.email, u.first_name, u.last_name, u.is_active, 
+			u.created_at, u.updated_at, u.last_login_at,
+			ur.plan_type, ur.license_expires_at
+		FROM users u
+		LEFT JOIN user_roles ur ON u.id = ur.user_id
+		WHERE u.id = $1
 	`, userID).Scan(
 		&profile.ID, &profile.Email, &profile.FirstName, &profile.LastName,
 		&profile.IsActive, &profile.CreatedAt, &profile.UpdatedAt, &profile.LastLoginAt,
+		&profile.PlanType, &profile.LicenseExpiresAt,
 	)
 
 	if err != nil {

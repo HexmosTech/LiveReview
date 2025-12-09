@@ -141,7 +141,9 @@ func (s *OrganizationService) GetUserOrganizations(userID int64, isSuperAdmin bo
 			       COALESCE(r.name, 'super_admin') as role_name,
 			       creator.email as creator_email,
 			       creator.first_name as creator_first_name,
-			       creator.last_name as creator_last_name
+			       creator.last_name as creator_last_name,
+			       ur.plan_type,
+			       ur.license_expires_at
 			FROM orgs o
 			LEFT JOIN user_roles ur ON o.id = ur.org_id AND ur.user_id = $1
 			LEFT JOIN roles r ON ur.role_id = r.id
@@ -158,7 +160,9 @@ func (s *OrganizationService) GetUserOrganizations(userID int64, isSuperAdmin bo
 			       r.name as role_name,
 			       creator.email as creator_email,
 			       creator.first_name as creator_first_name,
-			       creator.last_name as creator_last_name
+			       creator.last_name as creator_last_name,
+			       ur.plan_type,
+			       ur.license_expires_at
 			FROM orgs o
 			INNER JOIN user_roles ur ON o.id = ur.org_id
 			INNER JOIN roles r ON ur.role_id = r.id
@@ -198,6 +202,8 @@ func (s *OrganizationService) GetUserOrganizations(userID int64, isSuperAdmin bo
 			&creatorEmail,
 			&creatorFirstName,
 			&creatorLastName,
+			&org.PlanType,
+			&org.LicenseExpiresAt,
 		)
 		if err != nil {
 			s.logger.Printf("Error scanning organization row: %v", err)

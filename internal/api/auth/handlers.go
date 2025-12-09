@@ -55,9 +55,11 @@ type UserInfo struct {
 
 // OrgInfo represents organization information for the user
 type OrgInfo struct {
-	ID   int64  `json:"id"`
-	Name string `json:"name"`
-	Role string `json:"role"` // super_admin, owner, member
+	ID               int64      `json:"id"`
+	Name             string     `json:"name"`
+	Role             string     `json:"role"` // super_admin, owner, member
+	PlanType         *string    `json:"plan_type,omitempty"`
+	LicenseExpiresAt *time.Time `json:"license_expires_at,omitempty"`
 }
 
 // RefreshRequest represents the token refresh request
@@ -133,13 +135,34 @@ func (h *AuthHandlers) Login(c echo.Context) error {
 		})
 	}
 
+	// Get plan information from user_roles (only in cloud mode)
+	var planType string
+	var licenseExpiresAt *time.Time
+	if isCloudMode() && len(organizations) > 0 {
+		err = h.db.QueryRow(`
+			SELECT plan_type, license_expires_at
+			FROM user_roles
+			WHERE user_id = $1 AND org_id = $2`,
+			user.ID, organizations[0].ID,
+		).Scan(&planType, &licenseExpiresAt)
+		if err != nil && err != sql.ErrNoRows {
+			// Log error but don't fail - just use default free plan
+			planType = "free"
+		}
+	}
+	if planType == "" {
+		planType = "free"
+	}
+
 	// Build response
 	response := LoginResponse{
 		User: &UserInfo{
-			ID:        user.ID,
-			Email:     user.Email,
-			CreatedAt: user.CreatedAt,
-			UpdatedAt: user.UpdatedAt,
+			ID:               user.ID,
+			Email:            user.Email,
+			CreatedAt:        user.CreatedAt,
+			UpdatedAt:        user.UpdatedAt,
+			PlanType:         planType,
+			LicenseExpiresAt: licenseExpiresAt,
 		},
 		TokenPair:     tokenPair,
 		Organizations: organizations,
@@ -233,10 +256,10 @@ func (h *AuthHandlers) Me(c echo.Context) error {
 		})
 	}
 
-	// Get plan information from user_roles for the first org (or could get for current org)
+	// Get plan information from user_roles (only in cloud mode)
 	var planType string
 	var licenseExpiresAt *time.Time
-	if len(organizations) > 0 {
+	if isCloudMode() && len(organizations) > 0 {
 		err = h.db.QueryRow(`
 			SELECT plan_type, license_expires_at
 			FROM user_roles
@@ -525,7 +548,7 @@ func (h *AuthHandlers) CheckSetupStatus(c echo.Context) error {
 // Helper method to get user's organizations and roles
 func (h *AuthHandlers) getUserOrganizations(userID int64) ([]OrgInfo, error) {
 	rows, err := h.db.Query(`
-		SELECT o.id, o.name, r.name
+		SELECT o.id, o.name, r.name, ur.plan_type, ur.license_expires_at
 		FROM orgs o
 		JOIN user_roles ur ON o.id = ur.org_id
 		JOIN roles r ON ur.role_id = r.id
@@ -541,7 +564,7 @@ func (h *AuthHandlers) getUserOrganizations(userID int64) ([]OrgInfo, error) {
 	var organizations []OrgInfo
 	for rows.Next() {
 		var org OrgInfo
-		err := rows.Scan(&org.ID, &org.Name, &org.Role)
+		err := rows.Scan(&org.ID, &org.Name, &org.Role, &org.PlanType, &org.LicenseExpiresAt)
 		if err != nil {
 			return nil, err
 		}

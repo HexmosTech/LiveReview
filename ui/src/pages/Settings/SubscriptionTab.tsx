@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { isCloudMode } from '../../utils/deploymentMode';
 import { useAppSelector } from '../../store/configureStore';
+import { useOrgContext } from '../../hooks/useOrgContext';
 import LicenseManagement from '../Licenses/LicenseManagement';
 
 const SubscriptionTab: React.FC = () => {
@@ -60,10 +61,11 @@ const SubscriptionTab: React.FC = () => {
 
 // Overview Tab Component
 const OverviewTab: React.FC<{ navigate: any }> = ({ navigate }) => {
-  const user = useAppSelector(state => state.Auth.user);
+  const { currentOrg } = useOrgContext();
   
-  const planType = user?.plan_type || 'free';
-  const licenseExpiresAt = user?.license_expires_at;
+  // Read plan from current org (org-scoped), not from Auth.user
+  const planType = currentOrg?.plan_type || 'free';
+  const licenseExpiresAt = currentOrg?.license_expires_at;
   const isTeamPlan = planType === 'team';
   const isFree = planType === 'free';
 
