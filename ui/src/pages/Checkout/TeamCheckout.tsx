@@ -150,10 +150,31 @@ const TeamCheckout: React.FC = () => {
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
             </svg>
           </div>
-          <h1 className="text-3xl font-bold text-white mb-3">Purchase Successful</h1>
-          <p className="text-slate-300 mb-8">
-            Your subscription is now active. You can start assigning seats to your team right away.
+          <h1 className="text-3xl font-bold text-white mb-3">Purchase Successful! 🎉</h1>
+          <p className="text-slate-300 mb-6">
+            Your subscription has been created successfully.
           </p>
+
+          {/* Important Notice - Seat Assignment */}
+          <div className="bg-amber-900/20 border-2 border-amber-500/60 rounded-lg p-5 mb-8">
+            <div className="flex items-start gap-3">
+              <div className="flex-shrink-0 mt-0.5">
+                <svg className="w-6 h-6 text-amber-400" fill="currentColor" viewBox="0 0 20 20">
+                  <path fillRule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
+                </svg>
+              </div>
+              <div className="flex-1">
+                <h3 className="text-lg font-bold text-amber-300 mb-2">Important: Assign Seats to Activate</h3>
+                <p className="text-amber-100 text-sm leading-relaxed mb-3">
+                  Your subscription is created, but <strong>no seats are assigned yet</strong>. 
+                  Team members won't have access to premium features until you explicitly assign licenses to them.
+                </p>
+                <p className="text-amber-100 text-sm leading-relaxed">
+                  Click <strong>"Assign Team Licenses"</strong> below to manage seat assignments.
+                </p>
+              </div>
+            </div>
+          </div>
 
           <div className="bg-slate-900/60 border border-slate-700 rounded-xl p-6 text-left mb-8">
             <dl className="space-y-4">
@@ -190,9 +211,9 @@ const TeamCheckout: React.FC = () => {
             <button
               type="button"
               onClick={() => navigate('/subscribe/manage')}
-              className="flex-1 sm:flex-none px-6 py-3 bg-blue-600 hover:bg-blue-700 text-white font-semibold rounded-lg transition-colors shadow-lg"
+              className="flex-1 sm:flex-none px-8 py-4 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-lg transition-colors shadow-lg text-lg"
             >
-              Manage team licenses
+              Assign Team Licenses →
             </button>
             <button
               type="button"
