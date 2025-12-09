@@ -289,9 +289,9 @@ const LicenseAssignment: React.FC = () => {
         {/* Subscription Info */}
         <div className="bg-slate-800 rounded-xl border border-slate-700 p-6 mb-8">
           <div className="mb-4">
-            <h2 className="text-lg font-semibold text-white mb-1">Subscription Details</h2>
-            <p className="text-sm text-slate-400">
-              ID: <span className="font-mono text-slate-300">{subscription.razorpay_subscription_id}</span>
+            <h2 className="text-lg font-semibold text-white mb-2">Subscription Details</h2>
+            <p className="text-sm text-slate-400 mb-1">
+              <span className="text-slate-500">ID:</span> <span className="font-mono text-slate-300">{subscription.razorpay_subscription_id}</span>
             </p>
             {subscription.last_payment_id && (
               <p className="text-sm text-slate-400 mt-1">
@@ -304,8 +304,8 @@ const LicenseAssignment: React.FC = () => {
               </p>
             )}
             {!subscription.payment_verified && (
-              <div className="mt-2 p-2 bg-orange-500/10 border border-orange-500/40 rounded text-xs text-orange-300">
-                ⚠️ Payment pending - licenses cannot be assigned until payment is received
+              <div className="mt-3 p-3 bg-orange-500/10 border border-orange-500/40 rounded text-sm text-orange-300">
+                ⚠️ Payment pending - licenses cannot be assigned until payment is received. Check back in 5-10 minutes.
               </div>
             )}
           </div>
