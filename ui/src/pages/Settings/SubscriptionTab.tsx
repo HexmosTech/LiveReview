@@ -7,7 +7,11 @@ import LicenseManagement from '../Licenses/LicenseManagement';
 
 const SubscriptionTab: React.FC = () => {
   const navigate = useNavigate();
+  const { currentOrg, isSuperAdmin } = useOrgContext();
   const [activeTab, setActiveTab] = useState<'overview' | 'assignments'>('overview');
+
+  // Check if user can manage licenses (owner or super admin)
+  const canManageLicenses = isSuperAdmin || currentOrg?.role === 'owner';
 
   useEffect(() => {
     // Redirect to license page if in self-hosted mode
@@ -36,24 +40,28 @@ const SubscriptionTab: React.FC = () => {
           >
             Overview
           </button>
-          <button
-            onClick={() => setActiveTab('assignments')}
-            className={`px-4 py-3 text-sm font-medium transition-colors ${
-              activeTab === 'assignments'
-                ? 'text-white border-b-2 border-blue-500'
-                : 'text-slate-400 hover:text-slate-300'
-            }`}
-          >
-            License Assignments
-          </button>
+          {canManageLicenses && (
+            <button
+              onClick={() => setActiveTab('assignments')}
+              className={`px-4 py-3 text-sm font-medium transition-colors ${
+                activeTab === 'assignments'
+                  ? 'text-white border-b-2 border-blue-500'
+                  : 'text-slate-400 hover:text-slate-300'
+              }`}
+            >
+              License Assignments
+            </button>
+          )}
         </div>
       </div>
 
       {/* Tab Content */}
       {activeTab === 'overview' ? (
         <OverviewTab navigate={navigate} />
-      ) : (
+      ) : canManageLicenses ? (
         <AssignmentsTab />
+      ) : (
+        <OverviewTab navigate={navigate} />
       )}
     </div>
   );
