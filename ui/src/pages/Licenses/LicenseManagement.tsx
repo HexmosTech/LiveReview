@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import moment from 'moment-timezone';
 import { useOrgContext } from '../../hooks/useOrgContext';
 import apiClient from '../../api/apiClient';
 
@@ -62,11 +63,10 @@ const LicenseManagement: React.FC = () => {
   };
 
   const formatDate = (dateString: string) => {
-    return new Date(dateString).toLocaleDateString('en-US', {
-      year: 'numeric',
-      month: 'short',
-      day: 'numeric',
-    });
+    // Get user's timezone
+    const userTimezone = moment.tz.guess();
+    // Use moment-timezone to properly format with timezone abbreviation
+    return moment.tz(dateString, userTimezone).format('MMM D, YYYY, h:mm A z');
   };
 
   const getPlanLabel = (planType: string) => {
