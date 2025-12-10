@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import moment from 'moment-timezone';
 import { isCloudMode } from '../../utils/deploymentMode';
 import { useAppSelector } from '../../store/configureStore';
 import { useOrgContext } from '../../hooks/useOrgContext';
@@ -112,11 +113,8 @@ const OverviewTab: React.FC<{ navigate: any }> = ({ navigate }) => {
 
   const formatDate = (dateString: string | null | undefined) => {
     if (!dateString) return null;
-    return new Date(dateString).toLocaleDateString('en-US', {
-      year: 'numeric',
-      month: 'long',
-      day: 'numeric',
-    });
+    const userTimezone = moment.tz.guess();
+    return moment.tz(dateString, userTimezone).format('MMM D, YYYY, h:mm A z');
   };
 
   const getPlanDisplayName = (plan: string) => {
