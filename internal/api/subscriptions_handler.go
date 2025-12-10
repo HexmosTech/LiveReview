@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"net/http"
 	"strconv"
+	"time"
 
 	"github.com/labstack/echo/v4"
 	"github.com/livereview/internal/api/auth"
@@ -11,6 +12,18 @@ import (
 )
 
 // SubscriptionsHandler handles subscription-related API endpoints
+//
+// Timestamp Handling:
+// All timestamp fields (created_at, updated_at, current_period_start, current_period_end, license_expires_at)
+// are returned in RFC3339 format with timezone information (e.g., "2024-12-10T14:30:00Z" or "2024-12-10T14:30:00+05:30").
+// This allows frontend applications to:
+//   - Display times in the user's local timezone
+//   - Show human-friendly relative times (e.g., "2 hours ago")
+//   - Sort subscriptions accurately by creation time
+//   - Distinguish between multiple subscriptions created on the same day
+//
+// Frontend implementations should use JavaScript's Date object or libraries like date-fns/dayjs
+// to parse and format these timestamps according to user preferences.
 type SubscriptionsHandler struct {
 	service *payment.SubscriptionService
 	db      *sql.DB
@@ -216,18 +229,57 @@ func (h *SubscriptionsHandler) GetSubscription(c echo.Context) error {
 		})
 	}
 
-	// Determine mode
-	mode := "test" // TODO: Get from config or environment
+	// Query subscription from database with all fields
+	type SubscriptionResponse struct {
+		ID                     int64      `json:"id"`
+		RazorpaySubscriptionID string     `json:"razorpay_subscription_id"`
+		OwnerUserID            int        `json:"owner_user_id"`
+		OrgID                  int        `json:"org_id"`
+		PlanType               string     `json:"plan_type"`
+		Quantity               int        `json:"quantity"`
+		AssignedSeats          int        `json:"assigned_seats"`
+		Status                 string     `json:"status"`
+		RazorpayPlanID         string     `json:"razorpay_plan_id"`
+		CurrentPeriodStart     *time.Time `json:"current_period_start,omitempty"`
+		CurrentPeriodEnd       *time.Time `json:"current_period_end,omitempty"`
+		CreatedAt              time.Time  `json:"created_at"`
+		UpdatedAt              time.Time  `json:"updated_at"`
+		PaymentVerified        bool       `json:"payment_verified"`
+		LastPaymentID          *string    `json:"last_payment_id,omitempty"`
+		LastPaymentStatus      *string    `json:"last_payment_status,omitempty"`
+	}
 
-	// Get subscription details
-	details, err := h.service.GetSubscriptionDetails(subscriptionID, mode)
+	var sub SubscriptionResponse
+	err := h.db.QueryRow(`
+		SELECT 
+			id, razorpay_subscription_id, owner_user_id, org_id, plan_type,
+			quantity, 
+			COALESCE((SELECT COUNT(*) FROM user_roles ur WHERE ur.active_subscription_id = s.id AND ur.plan_type = 'team'), 0) as assigned_seats,
+			status, razorpay_plan_id,
+			current_period_start, current_period_end,
+			created_at, updated_at,
+			payment_verified, last_payment_id, last_payment_status
+		FROM subscriptions s
+		WHERE razorpay_subscription_id = $1
+	`, subscriptionID).Scan(
+		&sub.ID, &sub.RazorpaySubscriptionID, &sub.OwnerUserID, &sub.OrgID, &sub.PlanType,
+		&sub.Quantity, &sub.AssignedSeats, &sub.Status, &sub.RazorpayPlanID,
+		&sub.CurrentPeriodStart, &sub.CurrentPeriodEnd,
+		&sub.CreatedAt, &sub.UpdatedAt,
+		&sub.PaymentVerified, &sub.LastPaymentID, &sub.LastPaymentStatus,
+	)
 	if err != nil {
+		if err == sql.ErrNoRows {
+			return c.JSON(http.StatusNotFound, map[string]string{
+				"error": "subscription not found",
+			})
+		}
 		return c.JSON(http.StatusInternalServerError, map[string]string{
-			"error": err.Error(),
+			"error": "failed to fetch subscription",
 		})
 	}
 
-	return c.JSON(http.StatusOK, details)
+	return c.JSON(http.StatusOK, sub)
 }
 
 // AssignLicenseRequest represents the request to assign a license to a user
@@ -435,20 +487,20 @@ func (h *SubscriptionsHandler) ListUserSubscriptions(c echo.Context) error {
 	defer rows.Close()
 
 	type SubscriptionResponse struct {
-		ID                     int64  `json:"id"`
-		RazorpaySubscriptionID string `json:"razorpay_subscription_id"`
-		OwnerUserID            int    `json:"owner_user_id"`
-		OrgID                  int    `json:"org_id"`
-		PlanType               string `json:"plan_type"`
-		Quantity               int    `json:"quantity"`
-		AssignedSeats          int    `json:"assigned_seats"`
-		Status                 string `json:"status"`
-		RazorpayPlanID         string `json:"razorpay_plan_id"`
-		CurrentPeriodStart     string `json:"current_period_start"`
-		CurrentPeriodEnd       string `json:"current_period_end"`
-		LicenseExpiresAt       string `json:"license_expires_at"`
-		CreatedAt              string `json:"created_at"`
-		UpdatedAt              string `json:"updated_at"`
+		ID                     int64      `json:"id"`
+		RazorpaySubscriptionID string     `json:"razorpay_subscription_id"`
+		OwnerUserID            int        `json:"owner_user_id"`
+		OrgID                  int        `json:"org_id"`
+		PlanType               string     `json:"plan_type"`
+		Quantity               int        `json:"quantity"`
+		AssignedSeats          int        `json:"assigned_seats"`
+		Status                 string     `json:"status"`
+		RazorpayPlanID         string     `json:"razorpay_plan_id"`
+		CurrentPeriodStart     *time.Time `json:"current_period_start,omitempty"` // Nullable timestamp, RFC3339 with timezone
+		CurrentPeriodEnd       *time.Time `json:"current_period_end,omitempty"`   // Nullable timestamp, RFC3339 with timezone
+		LicenseExpiresAt       *time.Time `json:"license_expires_at,omitempty"`   // Nullable timestamp, RFC3339 with timezone
+		CreatedAt              time.Time  `json:"created_at"`                     // RFC3339 with timezone for precise sorting and display
+		UpdatedAt              time.Time  `json:"updated_at"`                     // RFC3339 with timezone
 	}
 
 	var subscriptions []SubscriptionResponse
@@ -520,20 +572,20 @@ func (h *SubscriptionsHandler) ListOrgSubscriptions(c echo.Context) error {
 	defer rows.Close()
 
 	type SubscriptionResponse struct {
-		ID                     int64  `json:"id"`
-		RazorpaySubscriptionID string `json:"razorpay_subscription_id"`
-		OwnerUserID            int    `json:"owner_user_id"`
-		OrgID                  int    `json:"org_id"`
-		PlanType               string `json:"plan_type"`
-		Quantity               int    `json:"quantity"`
-		AssignedSeats          int    `json:"assigned_seats"`
-		Status                 string `json:"status"`
-		RazorpayPlanID         string `json:"razorpay_plan_id"`
-		CurrentPeriodStart     string `json:"current_period_start"`
-		CurrentPeriodEnd       string `json:"current_period_end"`
-		LicenseExpiresAt       string `json:"license_expires_at"`
-		CreatedAt              string `json:"created_at"`
-		UpdatedAt              string `json:"updated_at"`
+		ID                     int64      `json:"id"`
+		RazorpaySubscriptionID string     `json:"razorpay_subscription_id"`
+		OwnerUserID            int        `json:"owner_user_id"`
+		OrgID                  int        `json:"org_id"`
+		PlanType               string     `json:"plan_type"`
+		Quantity               int        `json:"quantity"`
+		AssignedSeats          int        `json:"assigned_seats"`
+		Status                 string     `json:"status"`
+		RazorpayPlanID         string     `json:"razorpay_plan_id"`
+		CurrentPeriodStart     *time.Time `json:"current_period_start,omitempty"` // Nullable timestamp, RFC3339 with timezone
+		CurrentPeriodEnd       *time.Time `json:"current_period_end,omitempty"`   // Nullable timestamp, RFC3339 with timezone
+		LicenseExpiresAt       *time.Time `json:"license_expires_at,omitempty"`   // Nullable timestamp, RFC3339 with timezone
+		CreatedAt              time.Time  `json:"created_at"`                     // RFC3339 with timezone for precise sorting and display
+		UpdatedAt              time.Time  `json:"updated_at"`                     // RFC3339 with timezone
 	}
 
 	var subscriptions []SubscriptionResponse

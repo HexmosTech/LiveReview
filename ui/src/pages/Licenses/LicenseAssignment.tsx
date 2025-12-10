@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
+import moment from 'moment-timezone';
 import { useOrgContext } from '../../hooks/useOrgContext';
 import apiClient from '../../api/apiClient';
 import toast from 'react-hot-toast';
@@ -15,6 +16,8 @@ type Subscription = {
   last_payment_id?: string;
   last_payment_status?: string;
   last_payment_received_at?: string;
+  created_at?: string;
+  current_period_end?: string;
 };
 
 type OrgMember = {
@@ -308,6 +311,16 @@ const LicenseAssignment: React.FC = () => {
                 ⚠️ Payment pending - licenses cannot be assigned until payment is received. Check back in 5-10 minutes.
               </div>
             )}
+            {subscription.created_at && (
+              <p className="text-sm text-slate-400 mt-2">
+                Created: <span className="text-slate-300">{moment.tz(subscription.created_at, moment.tz.guess()).format('MMM D, YYYY, h:mm A z')}</span>
+              </p>
+            )}
+            {subscription.current_period_end && (
+              <p className="text-sm text-slate-400 mt-1">
+                Renews: <span className="text-slate-300">{moment.tz(subscription.current_period_end, moment.tz.guess()).format('MMM D, YYYY, h:mm A z')}</span>
+              </p>
+            )}
           </div>
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-6">
             <div>
@@ -429,14 +442,6 @@ const LicenseAssignment: React.FC = () => {
                               </button>
                             )}
                           </div>
-                          {hasLicense && member.license_expires_at && (
-                            <p className="text-sm text-slate-400">
-                              Expires: {new Date(member.license_expires_at).toLocaleDateString()}
-                              {hasOtherSubscription && (
-                                <span className="text-orange-400 ml-2">• Revoke other subscription first</span>
-                              )}
-                            </p>
-                          )}
                         </div>
 
                         <div className="flex-shrink-0">
