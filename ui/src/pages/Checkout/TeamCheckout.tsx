@@ -182,9 +182,9 @@ const TeamCheckout: React.FC = () => {
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
             </svg>
           </div>
-          <h1 className="text-3xl font-bold text-white mb-3">Purchase Successful! 🎉</h1>
+          <h1 className="text-3xl font-bold text-white mb-3">Payment Initiated Successfully! 🎉</h1>
           <p className="text-slate-300 mb-6">
-            Your subscription has been created successfully.
+            Your subscription has been created and payment has been initiated. It may take a few minutes for the payment to be captured and reflected in your account.
           </p>
 
           {/* Important Notice - Seat Assignment */}
@@ -200,6 +200,10 @@ const TeamCheckout: React.FC = () => {
                 <p className="text-amber-100 text-sm leading-relaxed mb-3">
                   Your subscription is created, but <strong>no seats are assigned yet</strong>. 
                   Team members won't have access to premium features until you explicitly assign licenses to them.
+                </p>
+                <p className="text-amber-100 text-sm leading-relaxed mb-3">
+                  <strong>Note:</strong> Payment capture can take a few minutes to process. If you see a "payment pending" message, 
+                  don't worry—just check back in 5-10 minutes.
                 </p>
                 <p className="text-amber-100 text-sm leading-relaxed">
                   Click <strong>"Assign Team Licenses"</strong> below to manage seat assignments.
