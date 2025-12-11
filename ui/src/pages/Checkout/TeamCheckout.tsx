@@ -184,7 +184,7 @@ const TeamCheckout: React.FC = () => {
           </div>
           <h1 className="text-3xl font-bold text-white mb-3">Payment Initiated Successfully! 🎉</h1>
           <p className="text-slate-300 mb-6">
-            Your subscription has been created and payment has been initiated. It may take a few minutes for the payment to be captured and reflected in your account.
+            Your subscription has been created and payment has been initiated. <strong>It may take a few minutes for the payment to be captured and reflected in your account.</strong>
           </p>
 
           {/* Important Notice - Seat Assignment */}
