@@ -2,6 +2,7 @@ import os
 import psycopg2
 from urllib.parse import urlparse
 import datetime
+import requests
 
 def get_db_connection():
     """Establishes a connection to the database using the URL in this file."""
@@ -67,13 +68,41 @@ def print_report(stats):
     print(f"New Reviews Created: {stats['reviews_created']}")
     print("--------------------------")
 
+def send_to_discord(stats):
+    """Sends the daily stats report to a Discord webhook."""
+    webhook_url = "https://discord.com/api/webhooks/1394676585151332402/Gwp-Qvt-_0UHK8yVZ_6rPxRHm3Y0x_cdQICstDD7MQ2eBNyqJaatL-uyixTnFMy8KV_H"
+    
+    report_lines = [
+        "--- Daily Stats Report ---",
+        f"Date: {stats['date']}",
+        f"New AI Connectors: {stats['new_ai_connectors']}",
+        f"New Git Connectors: {stats['new_git_connectors']}",
+        f"New Users Created: {stats['new_users']}",
+        f"New Reviews Created: {stats['reviews_created']}",
+        "--------------------------"
+    ]
+    report_content = "\n".join(report_lines)
+    
+    data = {
+        "content": f"```\n{report_content}\n```"
+    }
+    
+    try:
+        response = requests.post(webhook_url, json=data)
+        response.raise_for_status()
+        print("Successfully sent the report to Discord.")
+    except requests.exceptions.RequestException as e:
+        print(f"Failed to send the report to Discord: {e}")
+
+
 if __name__ == "__main__":
     try:
-        # The script needs psycopg2 to run. Let's make sure it's installed.
-        # You can install it by running: pip install psycopg2-binary
+        # The script needs psycopg2 and requests to run.
+        # You can install them by running: pip install psycopg2-binary requests
         stats = get_daily_stats()
         print_report(stats)
+        send_to_discord(stats)
     except ImportError:
-        print("psycopg2 is not installed. Please install it using: pip install psycopg2-binary")
+        print("psycopg2 or requests is not installed. Please install it using: pip install psycopg2-binary requests")
     except Exception as e:
         print(f"An error occurred: {e}")
