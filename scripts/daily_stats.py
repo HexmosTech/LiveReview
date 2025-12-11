@@ -64,7 +64,7 @@ def print_report(stats):
     print(f"New AI Connectors: {stats['new_ai_connectors']}")
     print(f"New Git Connectors: {stats['new_git_connectors']}")
     print(f"New Users Created: {stats['new_users']}")
-    print(f"Reviews Created: {stats['reviews_created']}")
+    print(f"New Reviews Created: {stats['reviews_created']}")
     print("--------------------------")
 
 if __name__ == "__main__":
