@@ -308,7 +308,8 @@ const LicenseAssignment: React.FC = () => {
             )}
             {!subscription.payment_verified && (
               <div className="mt-3 p-3 bg-orange-500/10 border border-orange-500/40 rounded text-sm text-orange-300">
-                ⚠️ Payment pending - licenses cannot be assigned until payment is received. Check back in 5-10 minutes.
+                ⚠️ Payment pending - licenses cannot be assigned until payment is captured. Payment initiation and capture are different steps. 
+                This can take a few minutes to process, so don't worry—just check back in 5-10 minutes.
               </div>
             )}
             {subscription.created_at && (
