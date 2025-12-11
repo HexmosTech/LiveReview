@@ -19,6 +19,17 @@ type CheckoutSuccess = {
   billingNote: string;
 };
 
+type PaymentFailure = {
+  errorCode?: string;
+  errorDescription: string;
+  errorStep?: string;
+  errorReason?: string;
+  subscriptionId?: string;
+  planLabel: string;
+  seats: number;
+  total: number;
+};
+
 const TeamCheckout: React.FC = () => {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
@@ -31,6 +42,8 @@ const TeamCheckout: React.FC = () => {
   const [isConfirming, setIsConfirming] = useState<boolean>(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [successInfo, setSuccessInfo] = useState<CheckoutSuccess | null>(null);
+  const [failureInfo, setFailureInfo] = useState<PaymentFailure | null>(null);
+  const [currentSubscriptionData, setCurrentSubscriptionData] = useState<any>(null);
 
   const isAnnual = period === 'annual';
   const pricePerSeat = isAnnual ? 60 : 6;
@@ -53,17 +66,28 @@ const TeamCheckout: React.FC = () => {
     setIsProcessing(true);
     setErrorMessage(null);
     setSuccessInfo(null);
+    setFailureInfo(null);
 
     try {
       const token = localStorage.getItem('accessToken');
       if (!token) {
-        setErrorMessage('Please sign in to continue');
+        setFailureInfo({
+          errorDescription: 'Please sign in to continue with your purchase.',
+          planLabel: `Team ${isAnnual ? 'Annual' : 'Monthly'} Plan`,
+          seats,
+          total: totalPrice,
+        });
         setIsProcessing(false);
         return;
       }
 
       if (!currentOrgId) {
-        setErrorMessage('No organization selected. Please switch to an organization and try again.');
+        setFailureInfo({
+          errorDescription: 'No organization selected. Please switch to an organization and try again.',
+          planLabel: `Team ${isAnnual ? 'Annual' : 'Monthly'} Plan`,
+          seats,
+          total: totalPrice,
+        });
         setIsProcessing(false);
         return;
       }
@@ -101,6 +125,9 @@ const TeamCheckout: React.FC = () => {
           throw err;
         }
       }
+
+      // Store subscription data for retry
+      setCurrentSubscriptionData(data);
 
       // Initialize Razorpay checkout
       const options = {
@@ -148,16 +175,103 @@ const TeamCheckout: React.FC = () => {
 
       const rzp = new window.Razorpay(options);
       rzp.on('payment.failed', (response: any) => {
-        setErrorMessage(`Payment failed: ${response.error.description}`);
+        const error = response.error || {};
+        setFailureInfo({
+          errorCode: error.code,
+          errorDescription: error.description || 'Payment failed. Please try again.',
+          errorStep: error.step,
+          errorReason: error.reason,
+          subscriptionId: data.razorpay_subscription_id,
+          planLabel: `Team ${isAnnual ? 'Annual' : 'Monthly'} Plan`,
+          seats,
+          total: totalPrice,
+        });
         setIsProcessing(false);
         setIsConfirming(false);
       });
       rzp.open();
     } catch (error) {
-      setErrorMessage(error instanceof Error ? error.message : 'An error occurred');
+      // Show failure page for any errors during subscription creation
+      const errorMessage = error instanceof Error ? error.message : 'An error occurred during checkout';
+      setFailureInfo({
+        errorDescription: errorMessage,
+        planLabel: `Team ${isAnnual ? 'Annual' : 'Monthly'} Plan`,
+        seats,
+        total: totalPrice,
+      });
       setIsProcessing(false);
       setIsConfirming(false);
     }
+  };
+
+  const handleRetryPayment = () => {
+    if (!currentSubscriptionData) {
+      // If we don't have the subscription data, restart the flow
+      setFailureInfo(null);
+      return;
+    }
+
+    // Reopen Razorpay with the existing subscription
+    setFailureInfo(null);
+    setIsProcessing(true);
+
+    const options = {
+      key: currentSubscriptionData.razorpay_key_id,
+      subscription_id: currentSubscriptionData.razorpay_subscription_id,
+      name: 'LiveReview',
+      description: `Team ${isAnnual ? 'Annual' : 'Monthly'} - ${seats} ${seats === 1 ? 'seat' : 'seats'}`,
+      image: '/assets/logo-with-text.svg',
+      handler: async (razorpayResponse: any) => {
+        setIsConfirming(true);
+        
+        try {
+          await apiClient.post('/subscriptions/confirm-purchase', {
+            razorpay_subscription_id: currentSubscriptionData.razorpay_subscription_id,
+            razorpay_payment_id: razorpayResponse?.razorpay_payment_id,
+          });
+        } catch (confirmError) {
+          console.error('Failed to confirm purchase (non-blocking):', confirmError);
+        }
+
+        setIsProcessing(false);
+        setIsConfirming(false);
+        setSuccessInfo({
+          subscriptionId: currentSubscriptionData.razorpay_subscription_id,
+          paymentId: razorpayResponse?.razorpay_payment_id,
+          planLabel: `Team ${isAnnual ? 'Annual' : 'Monthly'} Plan`,
+          seats,
+          total: totalPrice,
+          billingNote: isAnnual ? 'Billed annually' : 'Billed monthly',
+        });
+      },
+      modal: {
+        ondismiss: () => {
+          setIsProcessing(false);
+          setIsConfirming(false);
+        },
+      },
+      theme: {
+        color: '#3B82F6',
+      },
+    };
+
+    const rzp = new window.Razorpay(options);
+    rzp.on('payment.failed', (response: any) => {
+      const error = response.error || {};
+      setFailureInfo({
+        errorCode: error.code,
+        errorDescription: error.description || 'Payment failed. Please try again.',
+        errorStep: error.step,
+        errorReason: error.reason,
+        subscriptionId: currentSubscriptionData.razorpay_subscription_id,
+        planLabel: `Team ${isAnnual ? 'Annual' : 'Monthly'} Plan`,
+        seats,
+        total: totalPrice,
+      });
+      setIsProcessing(false);
+      setIsConfirming(false);
+    });
+    rzp.open();
   };
 
   // Show loader overlay while confirming payment
@@ -264,6 +378,138 @@ const TeamCheckout: React.FC = () => {
     );
   }
 
+  // Payment failure page
+  if (failureInfo) {
+    const getErrorHelpText = (errorCode?: string) => {
+      const helpMessages: Record<string, string> = {
+        'BAD_REQUEST_ERROR': 'There was an issue with the payment request. Please check your payment details and try again.',
+        'GATEWAY_ERROR': 'The payment gateway encountered an error. This is usually temporary—please try again in a few moments.',
+        'SERVER_ERROR': 'Our server encountered an error. Please try again in a few moments.',
+        'INVALID_CARD': 'The card details entered are invalid. Please verify your card number, expiry date, and CVV.',
+        'INSUFFICIENT_FUNDS': 'Your card has insufficient funds. Please try a different payment method.',
+        'CARD_DECLINED': 'Your card was declined by the bank. Please contact your bank or try a different card.',
+        'AUTHENTICATION_ERROR': '3D Secure authentication failed. Please try again or use a different card.',
+        'TRANSACTION_DECLINED': 'The transaction was declined by your bank. Please contact your bank for more details.',
+      };
+      return helpMessages[errorCode || ''] || 'Please check your payment details and try again.';
+    };
+
+    return (
+      <div className="min-h-screen bg-gradient-to-b from-slate-900 to-slate-800 py-12 px-4">
+        <div className="max-w-xl mx-auto bg-slate-800 rounded-2xl border border-slate-700 p-10 text-center shadow-xl">
+          <div className="flex items-center justify-center w-16 h-16 mx-auto rounded-full bg-rose-500/10 border border-rose-500/40 mb-6">
+            <svg className="w-9 h-9 text-rose-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+            </svg>
+          </div>
+          <h1 className="text-3xl font-bold text-white mb-3">Payment Failed</h1>
+          <p className="text-slate-300 mb-6">
+            We couldn't process your payment. Don't worry—you can try again with the same or a different payment method.
+          </p>
+
+          {/* Error Details */}
+          <div className="bg-rose-900/20 border-2 border-rose-500/40 rounded-lg p-5 mb-6 text-left">
+            <h3 className="text-lg font-bold text-rose-300 mb-3">Error Details</h3>
+            <div className="space-y-2 text-sm">
+              <p className="text-rose-100">
+                <strong>Description:</strong> {failureInfo.errorDescription}
+              </p>
+              {failureInfo.errorCode && (
+                <p className="text-rose-100">
+                  <strong>Error Code:</strong> {failureInfo.errorCode}
+                </p>
+              )}
+              {failureInfo.errorStep && (
+                <p className="text-rose-100">
+                  <strong>Failed at:</strong> {failureInfo.errorStep}
+                </p>
+              )}
+              {failureInfo.errorReason && (
+                <p className="text-rose-100">
+                  <strong>Reason:</strong> {failureInfo.errorReason}
+                </p>
+              )}
+            </div>
+          </div>
+
+          {/* Helpful Tips */}
+          <div className="bg-blue-900/20 border border-blue-500/40 rounded-lg p-5 mb-8 text-left">
+            <h3 className="text-lg font-bold text-blue-300 mb-3">💡 What you can do</h3>
+            <div className="space-y-2 text-sm text-blue-100">
+              <p><strong>• {getErrorHelpText(failureInfo.errorCode)}</strong></p>
+              <p>• Ensure your card has sufficient balance and is activated for online transactions</p>
+              <p>• Check if your card supports international payments (if applicable)</p>
+              <p>• Try using a different card or payment method</p>
+              <p>• Contact your bank if the issue persists—they may have blocked the transaction</p>
+              <p>• Make sure your billing address matches your card details</p>
+            </div>
+          </div>
+
+          {/* Order Summary */}
+          <div className="bg-slate-900/60 border border-slate-700 rounded-xl p-6 text-left mb-8">
+            <h3 className="text-lg font-semibold text-white mb-4">Order Summary</h3>
+            <dl className="space-y-3">
+              <div className="flex justify-between text-slate-300">
+                <dt>Plan</dt>
+                <dd className="text-white font-semibold">{failureInfo.planLabel}</dd>
+              </div>
+              <div className="flex justify-between text-slate-300">
+                <dt>Seats</dt>
+                <dd className="text-white font-semibold">{failureInfo.seats}</dd>
+              </div>
+              <div className="flex justify-between text-slate-300">
+                <dt>Amount</dt>
+                <dd className="text-white font-semibold">${failureInfo.total}</dd>
+              </div>
+              {failureInfo.subscriptionId && (
+                <div className="flex justify-between text-slate-300">
+                  <dt>Subscription ID</dt>
+                  <dd className="text-white font-mono text-xs break-all">{failureInfo.subscriptionId}</dd>
+                </div>
+              )}
+            </dl>
+          </div>
+
+          {/* Action Buttons */}
+          <div className="flex flex-col sm:flex-row gap-4 justify-center">
+            <button
+              type="button"
+              onClick={handleRetryPayment}
+              disabled={isProcessing}
+              className="flex-1 sm:flex-none px-8 py-4 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-lg transition-colors shadow-lg text-lg disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {isProcessing ? (
+                <span className="inline-flex items-center gap-2">
+                  <span className="inline-flex h-4 w-4 animate-spin rounded-full border-2 border-white/60 border-t-transparent" />
+                  Processing...
+                </span>
+              ) : (
+                'Retry Payment'
+              )}
+            </button>
+            <button
+              type="button"
+              onClick={() => navigate('/subscribe')}
+              className="flex-1 sm:flex-none px-6 py-3 bg-slate-700 hover:bg-slate-600 text-white font-semibold rounded-lg transition-colors"
+            >
+              Back to Pricing
+            </button>
+          </div>
+
+          {/* Support Info */}
+          <div className="mt-6 pt-6 border-t border-slate-700">
+            <p className="text-slate-400 text-sm">
+              Need help? Contact our support team at{' '}
+              <a href="mailto:support@livereview.io" className="text-blue-400 hover:text-blue-300 underline">
+                support@livereview.io
+              </a>
+            </p>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen bg-gradient-to-b from-slate-900 to-slate-800 py-12 px-4">
       <div className="max-w-2xl mx-auto">
@@ -364,13 +610,6 @@ const TeamCheckout: React.FC = () => {
               </p>
             </div>
           </div>
-
-          {/* Error Message */}
-          {errorMessage && (
-            <div className="mb-6 p-4 bg-rose-500/10 border border-rose-500/40 rounded-lg">
-              <p className="text-rose-300 text-sm">{errorMessage}</p>
-            </div>
-          )}
 
           {/* Action Buttons */}
           <div className="flex gap-4">
