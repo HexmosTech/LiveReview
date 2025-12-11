@@ -270,6 +270,16 @@ func (h *RazorpayWebhookHandler) handleSubscriptionActivated(event *RazorpayWebh
 
 	fmt.Printf("[SUBSCRIPTION.ACTIVATED] Subscription ID: %s, Status: %s\n", sub.ID, sub.Status)
 
+	// Try to extract payment from webhook (subscription.activated includes payment)
+	payment, err := h.extractPayment(event)
+	if err != nil {
+		fmt.Printf("[SUBSCRIPTION.ACTIVATED] ⚠ No payment in webhook (non-blocking): %v\n", err)
+		payment = nil // Continue without payment
+	} else {
+		fmt.Printf("[SUBSCRIPTION.ACTIVATED] ✓ Payment extracted: %s, Status: %s, Captured: %v\n",
+			payment.ID, payment.Status, payment.Captured.Bool())
+	}
+
 	tx, err := h.db.Begin()
 	if err != nil {
 		return fmt.Errorf("failed to begin transaction: %w", err)
@@ -277,31 +287,64 @@ func (h *RazorpayWebhookHandler) handleSubscriptionActivated(event *RazorpayWebh
 	defer tx.Rollback()
 
 	// Get subscription details to find user and org
+	var subscriptionID int64
 	var ownerUserID, orgID int
 	var planType string
 	err = tx.QueryRow(`
-		SELECT owner_user_id, org_id, plan_type
+		SELECT id, owner_user_id, org_id, plan_type
 		FROM subscriptions
 		WHERE razorpay_subscription_id = $1`,
 		sub.ID,
-	).Scan(&ownerUserID, &orgID, &planType)
+	).Scan(&subscriptionID, &ownerUserID, &orgID, &planType)
 	if err != nil {
 		return fmt.Errorf("subscription not found: %s", sub.ID)
 	}
 
 	// Update subscription status
-	_, err = tx.Exec(`
+	updateQuery := `
 		UPDATE subscriptions
 		SET status = $1,
 		    current_period_start = $2,
 		    current_period_end = $3,
-		    updated_at = NOW()
-		WHERE razorpay_subscription_id = $4`,
+		    updated_at = NOW()`
+	updateArgs := []interface{}{
 		sub.Status,
 		time.Unix(sub.CurrentStart, 0),
 		time.Unix(sub.CurrentEnd, 0),
-		sub.ID,
-	)
+	}
+
+	// If payment was captured, mark as verified
+	if payment != nil && payment.Captured.Bool() && payment.Status == "captured" {
+		fmt.Printf("[SUBSCRIPTION.ACTIVATED] ✓ Payment captured, marking subscription as PAID\n")
+		updateQuery += `,
+		    last_payment_id = $4,
+		    last_payment_status = $5,
+		    last_payment_received_at = NOW(),
+		    payment_verified = TRUE`
+		updateArgs = append(updateArgs, payment.ID, payment.Status)
+
+		// Also store in subscription_payments table
+		_, err = tx.Exec(`
+			INSERT INTO subscription_payments (
+				subscription_id, razorpay_payment_id, amount, currency, 
+				status, captured, method, created_at
+			) VALUES ($1, $2, $3, $4, $5, $6, $7, NOW())
+			ON CONFLICT (razorpay_payment_id) DO UPDATE SET
+				status = EXCLUDED.status,
+				captured = EXCLUDED.captured,
+				updated_at = NOW()`,
+			subscriptionID, payment.ID, payment.Amount, payment.Currency,
+			payment.Status, payment.Captured.Bool(), payment.Method,
+		)
+		if err != nil {
+			fmt.Printf("[SUBSCRIPTION.ACTIVATED] ⚠ Failed to store payment (non-blocking): %v\n", err)
+		}
+	}
+
+	updateQuery += ` WHERE razorpay_subscription_id = $` + fmt.Sprintf("%d", len(updateArgs)+1)
+	updateArgs = append(updateArgs, sub.ID)
+
+	_, err = tx.Exec(updateQuery, updateArgs...)
 	if err != nil {
 		return fmt.Errorf("failed to update subscription: %w", err)
 	}
@@ -311,6 +354,11 @@ func (h *RazorpayWebhookHandler) handleSubscriptionActivated(event *RazorpayWebh
 		"subscription_id": sub.ID,
 		"status":          sub.Status,
 		"event":           event.Event,
+	}
+	if payment != nil {
+		metadata["payment_id"] = payment.ID
+		metadata["payment_status"] = payment.Status
+		metadata["payment_captured"] = payment.Captured.Bool()
 	}
 	metadataJSON, _ := json.Marshal(metadata)
 	_, err = tx.Exec(`

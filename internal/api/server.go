@@ -624,6 +624,7 @@ func (s *Server) setupRoutes() {
 	subscriptionsGroup.Use(authMiddleware.BuildPermissionContext())
 
 	subscriptionsGroup.POST("", subscriptionsHandler.CreateSubscription)
+	subscriptionsGroup.POST("/confirm-purchase", subscriptionsHandler.ConfirmPurchase)
 	subscriptionsGroup.GET("/:id", subscriptionsHandler.GetSubscription)
 	subscriptionsGroup.PATCH("/:id/quantity", subscriptionsHandler.UpdateQuantity)
 	subscriptionsGroup.POST("/:id/cancel", subscriptionsHandler.CancelSubscription)
