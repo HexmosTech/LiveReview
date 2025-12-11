@@ -560,3 +560,93 @@ func (s *SubscriptionService) RevokeLicense(subscriptionID string, userID, orgID
 
 	return nil
 }
+
+// ConfirmPurchase is called by the frontend immediately after a successful purchase
+// to pre-populate the database with subscription and payment relationship
+// This prevents race conditions where Razorpay webhooks arrive before the subscription
+// is recorded in our database
+func (s *SubscriptionService) ConfirmPurchase(req *PurchaseConfirmationRequest, mode string) error {
+	// Fetch payment details from Razorpay to check if it's captured
+	payment, err := GetPaymentByID(mode, req.RazorpayPaymentID)
+	if err != nil {
+		return fmt.Errorf("failed to fetch payment from Razorpay: %w", err)
+	}
+
+	tx, err := s.db.Begin()
+	if err != nil {
+		return fmt.Errorf("failed to begin transaction: %w", err)
+	}
+	defer tx.Rollback()
+
+	// Get the subscription's internal ID and owner info
+	var dbSubscriptionID int64
+	var ownerUserID, orgID int
+	err = tx.QueryRow(`
+		SELECT id, owner_user_id, org_id
+		FROM subscriptions
+		WHERE razorpay_subscription_id = $1`,
+		req.RazorpaySubscriptionID,
+	).Scan(&dbSubscriptionID, &ownerUserID, &orgID)
+	if err != nil {
+		return fmt.Errorf("subscription not found: %w", err)
+	}
+
+	// Update subscription with payment info
+	// Set payment_verified=TRUE if payment is captured
+	paymentVerified := bool(payment.Captured)
+	_, err = tx.Exec(`
+		UPDATE subscriptions
+		SET last_payment_id = $1,
+		    last_payment_status = $2,
+		    last_payment_received_at = NOW(),
+		    payment_verified = $3,
+		    updated_at = NOW()
+		WHERE id = $4`,
+		payment.ID, payment.Status, paymentVerified, dbSubscriptionID,
+	)
+	if err != nil {
+		return fmt.Errorf("failed to update subscription with payment info: %w", err)
+	}
+
+	// Record in subscription_payments table for audit trail
+	paymentJSON, _ := json.Marshal(payment)
+	_, err = tx.Exec(`
+		INSERT INTO subscription_payments (
+			subscription_id, razorpay_payment_id, amount, currency,
+			status, captured, method, created_at, payment_payload
+		) VALUES ($1, $2, $3, $4, $5, $6, $7, NOW(), $8)
+		ON CONFLICT (razorpay_payment_id) DO NOTHING`,
+		dbSubscriptionID, payment.ID, payment.Amount, payment.Currency,
+		payment.Status, payment.Captured, payment.Method, paymentJSON,
+	)
+	if err != nil {
+		return fmt.Errorf("failed to insert into subscription_payments: %w", err)
+	}
+
+	// Log to license_log
+	metadata := map[string]interface{}{
+		"subscription_id": req.RazorpaySubscriptionID,
+		"payment_id":      payment.ID,
+		"amount":          payment.Amount,
+		"status":          payment.Status,
+		"captured":        payment.Captured,
+	}
+	metadataJSON, _ := json.Marshal(metadata)
+	_, err = tx.Exec(`
+		INSERT INTO license_log (
+			user_id, org_id, event_type, description, metadata, created_at
+		) VALUES ($1, $2, $3, $4, $5, NOW())`,
+		ownerUserID, orgID, "purchase_confirmed",
+		fmt.Sprintf("Purchase confirmed: payment %s (captured: %t)", payment.ID, payment.Captured),
+		metadataJSON,
+	)
+	if err != nil {
+		return fmt.Errorf("failed to log purchase confirmation: %w", err)
+	}
+
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("failed to commit transaction: %w", err)
+	}
+
+	return nil
+}

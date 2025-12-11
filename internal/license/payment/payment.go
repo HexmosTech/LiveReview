@@ -213,3 +213,42 @@ func GetPlanByID(mode, planID string) (*RazorpayPlan, error) {
 
 	return &plan, nil
 }
+
+// GetPaymentByID fetches a specific payment by ID from Razorpay
+func GetPaymentByID(mode, paymentID string) (*RazorpayPayment, error) {
+	accessKey, secretKey, err := GetRazorpayKeys(mode)
+	if err != nil {
+		return nil, err
+	}
+
+	url := fmt.Sprintf("%s/payments/%s", razorpayBaseURL, paymentID)
+	req, err := http.NewRequest("GET", url, nil)
+	if err != nil {
+		return nil, fmt.Errorf("error creating request: %w", err)
+	}
+
+	req.SetBasicAuth(accessKey, secretKey)
+
+	client := &http.Client{}
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("error making request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("error reading response: %w", err)
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("razorpay API error (status %d): %s", resp.StatusCode, string(body))
+	}
+
+	var payment RazorpayPayment
+	if err := json.Unmarshal(body, &payment); err != nil {
+		return nil, fmt.Errorf("error unmarshaling response: %w", err)
+	}
+
+	return &payment, nil
+}

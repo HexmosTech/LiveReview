@@ -615,3 +615,43 @@ func (h *SubscriptionsHandler) ListOrgSubscriptions(c echo.Context) error {
 		"count":         len(subscriptions),
 	})
 }
+
+// ConfirmPurchase is called by the frontend immediately after a successful purchase
+// to pre-populate the database with subscription and payment relationship.
+// This prevents race conditions where Razorpay webhooks arrive before the subscription
+// is properly recorded in our database.
+func (h *SubscriptionsHandler) ConfirmPurchase(c echo.Context) error {
+	// Parse request
+	var req payment.PurchaseConfirmationRequest
+	if err := c.Bind(&req); err != nil {
+		return c.JSON(http.StatusBadRequest, map[string]string{
+			"error": "invalid request body",
+		})
+	}
+
+	// Validate required fields
+	if req.RazorpaySubscriptionID == "" {
+		return c.JSON(http.StatusBadRequest, map[string]string{
+			"error": "razorpay_subscription_id is required",
+		})
+	}
+	if req.RazorpayPaymentID == "" {
+		return c.JSON(http.StatusBadRequest, map[string]string{
+			"error": "razorpay_payment_id is required",
+		})
+	}
+
+	// Determine mode
+	mode := "test" // TODO: Get from config or environment
+
+	// Confirm purchase
+	if err := h.service.ConfirmPurchase(&req, mode); err != nil {
+		return c.JSON(http.StatusInternalServerError, map[string]string{
+			"error": err.Error(),
+		})
+	}
+
+	return c.JSON(http.StatusOK, map[string]string{
+		"message": "purchase confirmed successfully",
+	})
+}

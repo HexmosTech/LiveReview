@@ -28,6 +28,7 @@ const TeamCheckout: React.FC = () => {
   const period = searchParams.get('period') || 'annual';
   const [seats, setSeats] = useState<number>(5);
   const [isProcessing, setIsProcessing] = useState<boolean>(false);
+  const [isConfirming, setIsConfirming] = useState<boolean>(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [successInfo, setSuccessInfo] = useState<CheckoutSuccess | null>(null);
 
@@ -109,7 +110,22 @@ const TeamCheckout: React.FC = () => {
         description: `Team ${isAnnual ? 'Annual' : 'Monthly'} - ${seats} ${seats === 1 ? 'seat' : 'seats'}`,
         image: '/assets/logo-with-text.svg',
         handler: async (razorpayResponse: any) => {
+          // Show loader while confirming purchase
+          setIsConfirming(true);
+          
+          // Immediately confirm the purchase to prevent race conditions with webhooks
+          try {
+            await apiClient.post('/subscriptions/confirm-purchase', {
+              razorpay_subscription_id: data.razorpay_subscription_id,
+              razorpay_payment_id: razorpayResponse?.razorpay_payment_id,
+            });
+          } catch (confirmError) {
+            console.error('Failed to confirm purchase (non-blocking):', confirmError);
+            // Don't block the success flow - webhooks will eventually process the payment
+          }
+
           setIsProcessing(false);
+          setIsConfirming(false);
           setSuccessInfo({
             subscriptionId: data.razorpay_subscription_id,
             paymentId: razorpayResponse?.razorpay_payment_id,
@@ -122,6 +138,7 @@ const TeamCheckout: React.FC = () => {
         modal: {
           ondismiss: () => {
             setIsProcessing(false);
+            setIsConfirming(false);
           },
         },
         theme: {
@@ -133,13 +150,28 @@ const TeamCheckout: React.FC = () => {
       rzp.on('payment.failed', (response: any) => {
         setErrorMessage(`Payment failed: ${response.error.description}`);
         setIsProcessing(false);
+        setIsConfirming(false);
       });
       rzp.open();
     } catch (error) {
       setErrorMessage(error instanceof Error ? error.message : 'An error occurred');
       setIsProcessing(false);
+      setIsConfirming(false);
     }
   };
+
+  // Show loader overlay while confirming payment
+  if (isConfirming) {
+    return (
+      <div className="min-h-screen bg-gradient-to-b from-slate-900 to-slate-800 flex items-center justify-center">
+        <div className="text-center">
+          <div className="inline-flex h-16 w-16 animate-spin rounded-full border-4 border-white/30 border-t-white mb-4" />
+          <h2 className="text-2xl font-bold text-white mb-2">Confirming your purchase...</h2>
+          <p className="text-slate-300">Please wait while we process your payment</p>
+        </div>
+      </div>
+    );
+  }
 
   if (successInfo) {
     return (
@@ -210,7 +242,7 @@ const TeamCheckout: React.FC = () => {
           <div className="flex flex-col sm:flex-row gap-4 justify-center">
             <button
               type="button"
-              onClick={() => navigate('/subscribe/manage')}
+              onClick={() => navigate(`/subscribe/subscriptions/${successInfo.subscriptionId}/assign`)}
               className="flex-1 sm:flex-none px-8 py-4 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-lg transition-colors shadow-lg text-lg"
             >
               Assign Team Licenses →
