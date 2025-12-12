@@ -11,27 +11,27 @@ export interface OrganizationSelectorProps {
      * Position of the selector (for styling)
      */
     position?: 'navbar' | 'sidebar' | 'inline';
-    
+
     /**
      * Size variant
      */
     size?: 'sm' | 'md' | 'lg';
-    
+
     /**
      * Custom className
      */
     className?: string;
-    
+
     /**
      * Show organization creation option (available to all users)
      */
     showCreateOption?: boolean;
-    
+
     /**
      * Callback when organization is switched
      */
     onOrgSwitch?: (org: Organization) => void;
-    
+
     /**
      * Callback when create organization is clicked
      */
@@ -72,6 +72,26 @@ export const OrganizationSelector: React.FC<OrganizationSelectorProps> = ({
     //     }
     // }, [hasOrganizations, loading.organizations, loadUserOrgs]);
 
+    const [searchTerm, setSearchTerm] = useState('');
+    const searchInputRef = useRef<HTMLInputElement>(null);
+
+    // Focus search input when dropdown opens
+    useEffect(() => {
+        if (orgSelectorOpen && searchInputRef.current) {
+            // Small timeout to allow the element to be rendered and transition to complete
+            setTimeout(() => {
+                searchInputRef.current?.focus();
+            }, 100);
+        } else {
+            setSearchTerm(''); // Reset search when closed
+        }
+    }, [orgSelectorOpen]);
+
+    // Filter organizations
+    const filteredOrgs = userOrganizations.filter(org =>
+        org.name.toLowerCase().includes(searchTerm.toLowerCase())
+    );
+
     // Handle click outside to close dropdown
     useEffect(() => {
         const handleClickOutside = (event: MouseEvent) => {
@@ -93,17 +113,17 @@ export const OrganizationSelector: React.FC<OrganizationSelectorProps> = ({
             closeOrgSelector();
             return;
         }
-        
+
         // Show switching indicator
         setSwitchingToOrg(org);
         closeOrgSelector();
-        
+
         // Save the switch and reload
         switchToOrg(org.id);
         if (onOrgSwitch) {
             onOrgSwitch(org);
         }
-        
+
         // Small delay to show the indicator, then reload
         setTimeout(() => {
             window.location.reload();
@@ -135,12 +155,12 @@ export const OrganizationSelector: React.FC<OrganizationSelectorProps> = ({
         },
         md: {
             button: 'px-3 py-2 text-sm',
-            dropdown: 'w-56 text-sm',
+            dropdown: 'w-64 text-sm', // Slightly wider for search
             icon: 'w-4 h-4',
         },
         lg: {
             button: 'px-4 py-2 text-base',
-            dropdown: 'w-64 text-base',
+            dropdown: 'w-72 text-base', // Slightly wider for search
             icon: 'w-5 h-5',
         },
     };
@@ -271,62 +291,89 @@ export const OrganizationSelector: React.FC<OrganizationSelectorProps> = ({
             {/* Dropdown Menu */}
             {orgSelectorOpen && (
                 <div className={classNames(
-                    'absolute z-50 mt-1 bg-slate-800 border border-slate-600/60 rounded-lg shadow-xl backdrop-blur-sm',
+                    'absolute z-50 mt-1 bg-slate-800 border border-slate-600/60 rounded-lg shadow-xl backdrop-blur-sm flex flex-col',
                     styles.dropdown,
                     position === 'navbar' && 'right-0',
                     position === 'sidebar' && 'left-0',
                     position === 'inline' && 'left-0'
                 )}>
-                    <div className="py-2">
-                        {/* Organizations List */}
-                        <div className="px-3 py-1 text-xs font-medium text-slate-400 uppercase tracking-wider">
+                    {/* Header with Search */}
+                    <div className="p-2 border-b border-slate-700/50">
+                        <div className="text-xs font-medium text-slate-400 uppercase tracking-wider mb-2 px-1">
                             Organizations
                         </div>
-                        
-                        {userOrganizations.map((org) => (
-                            <button
-                                key={org.id}
-                                onClick={() => handleOrgSwitch(org)}
-                                className={classNames(
-                                    'w-full px-3 py-2 text-left hover:bg-slate-700/60 transition-colors',
-                                    'flex items-center space-x-2',
-                                    currentOrg?.id === org.id && 'bg-blue-600/20 text-blue-300'
-                                )}
-                                disabled={loading.switching}
+                        <div className="relative">
+                            <input
+                                ref={searchInputRef}
+                                type="text"
+                                placeholder="Filter..."
+                                value={searchTerm}
+                                onChange={(e) => setSearchTerm(e.target.value)}
+                                className="w-full bg-slate-900/50 text-slate-200 text-sm rounded px-2 py-1.5 pl-8 border border-slate-700 focus:border-blue-500/50 focus:outline-none focus:ring-1 focus:ring-blue-500/50 placeholder-slate-500"
+                                onClick={(e) => e.stopPropagation()}
+                            />
+                            <svg
+                                className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-500"
+                                fill="none"
+                                stroke="currentColor"
+                                viewBox="0 0 24 24"
                             >
-                                <svg className={styles.icon} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
-                                </svg>
-                                <div className="flex-1 min-w-0">
-                                    <div className="font-medium truncate">{org.name}</div>
-                                    {org.role && (
-                                        <div className="text-xs text-slate-400 capitalize">{org.role}</div>
-                                    )}
-                                </div>
-                                {currentOrg?.id === org.id && (
-                                    <svg className={styles.icon} fill="currentColor" viewBox="0 0 20 20">
-                                        <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
-                                    </svg>
-                                )}
-                            </button>
-                        ))}
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                            </svg>
+                        </div>
+                    </div>
 
-                        {/* Create Organization Option */}
-                        {showCreateOption && (
-                            <>
-                                <div className="border-t border-slate-600/60 my-2"></div>
+                    {/* Organizations List - Scrollable */}
+                    <div className="overflow-y-auto max-h-60 py-1">
+                        {filteredOrgs.length > 0 ? (
+                            filteredOrgs.map((org) => (
                                 <button
-                                    onClick={handleCreateOrg}
-                                    className="w-full px-3 py-2 text-left hover:bg-slate-700/60 transition-colors flex items-center space-x-2 text-green-400"
+                                    key={org.id}
+                                    onClick={() => handleOrgSwitch(org)}
+                                    className={classNames(
+                                        'w-full px-3 py-2 text-left hover:bg-slate-700/60 transition-colors',
+                                        'flex items-center space-x-2',
+                                        currentOrg?.id === org.id && 'bg-blue-600/20 text-blue-300'
+                                    )}
+                                    disabled={loading.switching}
                                 >
                                     <svg className={styles.icon} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
                                     </svg>
-                                    <span>Create Organization</span>
+                                    <div className="flex-1 min-w-0">
+                                        <div className="font-medium truncate">{org.name}</div>
+                                        {org.role && (
+                                            <div className="text-xs text-slate-400 capitalize">{org.role}</div>
+                                        )}
+                                    </div>
+                                    {currentOrg?.id === org.id && (
+                                        <svg className={styles.icon} fill="currentColor" viewBox="0 0 20 20">
+                                            <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
+                                        </svg>
+                                    )}
                                 </button>
-                            </>
+                            ))
+                        ) : (
+                            <div className="px-3 py-4 text-center text-sm text-slate-500">
+                                No organizations found
+                            </div>
                         )}
                     </div>
+
+                    {/* Create Organization Option - Fixed at bottom */}
+                    {showCreateOption && (
+                        <div className="p-2 border-t border-slate-700/50 bg-slate-800/95 backdrop-blur rounded-b-lg">
+                            <button
+                                onClick={handleCreateOrg}
+                                className="w-full px-3 py-2 text-left bg-slate-700/30 hover:bg-slate-700/60 rounded transition-colors flex items-center justify-center space-x-2 text-green-400 border border-transparent hover:border-slate-600"
+                            >
+                                <svg className={styles.icon} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
+                                </svg>
+                                <span className="font-medium">Create Organization</span>
+                            </button>
+                        </div>
+                    )}
                 </div>
             )}
 
