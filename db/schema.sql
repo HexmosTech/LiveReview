@@ -1,4 +1,4 @@
-\restrict ohTqAXvV5KsWY0rmPfjpaijt5Wpomq2KsImPXp9L988EfF9Jk8ObaJabd6GSM0D
+\restrict xwI4pxPlBJdskBf53U8HGIE6xKUkbNtHzchWi9l8AHvGBgoZoVRyWvav4tptEAl
 
 -- Dumped from database version 15.14 (Debian 15.14-1.pgdg13+1)
 -- Dumped by pg_dump version 15.14 (Ubuntu 15.14-1.pgdg22.04+1)
@@ -837,7 +837,8 @@ CREATE TABLE public.subscription_payments (
     error_code character varying(100),
     error_description text,
     created_at timestamp with time zone DEFAULT now() NOT NULL,
-    updated_at timestamp with time zone DEFAULT now() NOT NULL
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    captured boolean DEFAULT false NOT NULL
 );
 
 
@@ -860,6 +861,13 @@ COMMENT ON COLUMN public.subscription_payments.amount IS 'Amount in smallest cur
 --
 
 COMMENT ON COLUMN public.subscription_payments.status IS 'Payment status: authorized, captured, failed, refunded';
+
+
+--
+-- Name: COLUMN subscription_payments.captured; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.subscription_payments.captured IS 'Whether the payment has been captured (true) or just authorized (false)';
 
 
 --
@@ -2059,6 +2067,13 @@ CREATE INDEX idx_subscription_payments_captured ON public.subscription_payments 
 
 
 --
+-- Name: idx_subscription_payments_captured_bool; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_subscription_payments_captured_bool ON public.subscription_payments USING btree (captured);
+
+
+--
 -- Name: idx_subscription_payments_razorpay; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -2656,7 +2671,7 @@ ALTER TABLE ONLY public.webhook_registry
 -- PostgreSQL database dump complete
 --
 
-\unrestrict ohTqAXvV5KsWY0rmPfjpaijt5Wpomq2KsImPXp9L988EfF9Jk8ObaJabd6GSM0D
+\unrestrict xwI4pxPlBJdskBf53U8HGIE6xKUkbNtHzchWi9l8AHvGBgoZoVRyWvav4tptEAl
 
 
 --
@@ -2703,4 +2718,5 @@ INSERT INTO public.schema_migrations (version) VALUES
     ('20251204105958'),
     ('20251204134413'),
     ('20251209'),
+    ('20251213101233'),
     ('20251213103152');
