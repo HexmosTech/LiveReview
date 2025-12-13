@@ -17,6 +17,7 @@ type Subscription = {
     license_expires_at: string;
     created_at: string;
     cancel_at_period_end: boolean;
+    short_url?: string;
 };
 
 type AssignedUser = {
@@ -263,14 +264,34 @@ const LicenseManagement: React.FC = () => {
                                         Created {formatDate(sub.created_at)} • {sub.status === 'cancelled' || sub.cancel_at_period_end ? 'Expires' : 'Renews'} {formatDate(sub.current_period_end)}
                                     </div>
 
-                                    {sub.status === 'active' && !sub.cancel_at_period_end && (
-                                        <button
-                                            onClick={() => handleCancelClick(sub)}
-                                            className="text-xs text-red-400 hover:text-red-300 transition-colors font-medium"
-                                        >
-                                            Cancel Subscription
-                                        </button>
-                                    )}
+                                    <div className="flex items-center gap-3">
+                                        {/* Payment Method Link */}
+                                        {sub.short_url && (
+                                            <a
+                                                href={sub.short_url}
+                                                target="_blank"
+                                                rel="noopener noreferrer"
+                                                className={`inline-flex items-center gap-2 px-3 py-1.5 text-xs font-medium rounded transition-colors ${sub.status === 'halted'
+                                                        ? 'bg-orange-600 hover:bg-orange-700 text-white'
+                                                        : 'text-slate-400 hover:text-slate-300'
+                                                    }`}
+                                            >
+                                                <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 10h18M7 15h1m4 0h1m-7 4h12a3 3 0 003-3V8a3 3 0 00-3-3H6a3 3 0 00-3 3v8a3 3 0 003 3z" />
+                                                </svg>
+                                                {sub.status === 'halted' ? 'Update Payment' : 'Manage Payment'}
+                                            </a>
+                                        )}
+
+                                        {sub.status === 'active' && !sub.cancel_at_period_end && (
+                                            <button
+                                                onClick={() => handleCancelClick(sub)}
+                                                className="text-xs text-red-400 hover:text-red-300 transition-colors font-medium"
+                                            >
+                                                Cancel Subscription
+                                            </button>
+                                        )}
+                                    </div>
                                 </div>
                             </div>
                         ))}

@@ -21,6 +21,7 @@ type Subscription = {
     current_period_end?: string;
     license_expires_at?: string;
     cancel_at_period_end: boolean;
+    short_url?: string;
 };
 
 type OrgMember = {
@@ -281,6 +282,7 @@ const LicenseAssignment: React.FC = () => {
     const isCancelled = subscription.status === 'cancelled';
     const isScheduledToCancel = subscription.cancel_at_period_end;
     const isActive = subscription.status === 'active';
+    const isHalted = subscription.status === 'halted';
 
     return (
         <div className="min-h-screen bg-gradient-to-b from-slate-900 to-slate-800 py-8 px-4">
@@ -303,14 +305,7 @@ const LicenseAssignment: React.FC = () => {
                                 Manage license assignments for your team {currentOrg && `in ${currentOrg.name}`}
                             </p>
                         </div>
-                        {isActive && !isScheduledToCancel && (
-                            <button
-                                onClick={() => setShowCancelModal(true)}
-                                className="px-4 py-2 bg-red-900/30 hover:bg-red-900/50 text-red-300 border border-red-500/30 hover:border-red-500/50 rounded-lg transition-colors text-sm font-medium"
-                            >
-                                Cancel Subscription
-                            </button>
-                        )}
+
                     </div>
                 </div>
 
@@ -395,6 +390,63 @@ const LicenseAssignment: React.FC = () => {
                         <div>
                             <div className="text-slate-400 text-sm mb-1">Available</div>
                             <div className="text-2xl font-bold text-blue-400">{availableSeats}</div>
+                        </div>
+                    </div>
+
+                    {/* Subscription Actions Section */}
+                    <div className="mt-6 pt-6 border-t border-slate-700">
+                        <h3 className="text-sm font-semibold text-slate-300 mb-4">Subscription Actions</h3>
+                        <div className="space-y-3">
+                            {/* Payment Method Link */}
+                            {subscription.short_url && (
+                                <a
+                                    href={subscription.short_url}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className={`flex items-center justify-between w-full px-4 py-3 text-sm font-medium rounded-lg transition-colors ${isHalted
+                                        ? 'bg-orange-600 hover:bg-orange-700 text-white shadow-lg shadow-orange-500/20'
+                                        : 'bg-slate-700 hover:bg-slate-600 text-slate-300 border border-slate-600'
+                                        }`}
+                                >
+                                    <div className="flex items-center gap-3">
+                                        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 10h18M7 15h1m4 0h1m-7 4h12a3 3 0 003-3V8a3 3 0 00-3-3H6a3 3 0 00-3 3v8a3 3 0 003 3z" />
+                                        </svg>
+                                        <div className="text-left">
+                                            <div className="font-medium">{isHalted ? 'Update Payment Method' : 'Manage Payment Method'}</div>
+                                            <div className={`text-xs ${isHalted ? 'text-orange-200' : 'text-slate-400'}`}>
+                                                Update card details or payment information
+                                            </div>
+                                        </div>
+                                    </div>
+                                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+                                    </svg>
+                                </a>
+                            )}
+
+                            {/* Cancel Subscription Button - Subtle */}
+                            {isActive && !isScheduledToCancel && (
+                                <button
+                                    onClick={() => setShowCancelModal(true)}
+                                    className="flex items-center justify-between w-full px-4 py-3 text-sm text-slate-400 hover:text-slate-300 hover:bg-slate-700/50 rounded-lg transition-colors border border-slate-700/50"
+                                >
+                                    <div className="flex items-center gap-3">
+                                        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                                        </svg>
+                                        <div className="text-left">
+                                            <div className="font-medium">Cancel Subscription</div>
+                                            <div className="text-xs text-slate-500">
+                                                Cancel at end of billing period
+                                            </div>
+                                        </div>
+                                    </div>
+                                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                                    </svg>
+                                </button>
+                            )}
                         </div>
                     </div>
 
