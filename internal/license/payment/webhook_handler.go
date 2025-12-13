@@ -550,6 +550,7 @@ func (h *RazorpayWebhookHandler) handleSubscriptionCancelled(event *RazorpayWebh
 	_, err = tx.Exec(`
 		UPDATE subscriptions
 		SET status = $1,
+		    cancel_at_period_end = TRUE,
 		    updated_at = NOW()
 		WHERE razorpay_subscription_id = $2`,
 		sub.Status, sub.ID,
@@ -558,8 +559,22 @@ func (h *RazorpayWebhookHandler) handleSubscriptionCancelled(event *RazorpayWebh
 		return fmt.Errorf("failed to update subscription: %w", err)
 	}
 
-	// Note: We don't immediately revoke licenses - they remain valid until license_expires_at
-	// The user keeps access until the paid period ends
+	// Revert users to free plan ONLY if subscription is not active
+	// If it's active but cancelled, it means it's scheduled for cancellation at period end
+	if sub.Status != "active" {
+		_, err = tx.Exec(`
+			UPDATE user_roles
+			SET plan_type = 'free',
+			    license_expires_at = NULL,
+			    active_subscription_id = NULL,
+			    updated_at = NOW()
+			WHERE active_subscription_id = $1`,
+			sub.ID,
+		)
+		if err != nil {
+			return fmt.Errorf("failed to revert users to free plan: %w", err)
+		}
+	}
 
 	// Log the event
 	metadata := map[string]interface{}{
@@ -573,7 +588,7 @@ func (h *RazorpayWebhookHandler) handleSubscriptionCancelled(event *RazorpayWebh
 			user_id, org_id, event_type, description, metadata, created_at
 		) VALUES ($1, $2, $3, $4, $5, NOW())`,
 		ownerUserID, orgID, "subscription_cancelled",
-		"Subscription cancelled, access continues until license expiry",
+		"Subscription cancelled, users reverted to free plan",
 		metadataJSON,
 	)
 	if err != nil {

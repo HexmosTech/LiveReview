@@ -247,6 +247,7 @@ func (h *SubscriptionsHandler) GetSubscription(c echo.Context) error {
 		PaymentVerified        bool       `json:"payment_verified"`
 		LastPaymentID          *string    `json:"last_payment_id,omitempty"`
 		LastPaymentStatus      *string    `json:"last_payment_status,omitempty"`
+		CancelAtPeriodEnd      bool       `json:"cancel_at_period_end"`
 	}
 
 	var sub SubscriptionResponse
@@ -258,7 +259,8 @@ func (h *SubscriptionsHandler) GetSubscription(c echo.Context) error {
 			status, razorpay_plan_id,
 			current_period_start, current_period_end,
 			created_at, updated_at,
-			payment_verified, last_payment_id, last_payment_status
+			payment_verified, last_payment_id, last_payment_status,
+			cancel_at_period_end
 		FROM subscriptions s
 		WHERE razorpay_subscription_id = $1
 	`, subscriptionID).Scan(
@@ -267,6 +269,7 @@ func (h *SubscriptionsHandler) GetSubscription(c echo.Context) error {
 		&sub.CurrentPeriodStart, &sub.CurrentPeriodEnd,
 		&sub.CreatedAt, &sub.UpdatedAt,
 		&sub.PaymentVerified, &sub.LastPaymentID, &sub.LastPaymentStatus,
+		&sub.CancelAtPeriodEnd,
 	)
 	if err != nil {
 		if err == sql.ErrNoRows {
@@ -473,7 +476,7 @@ func (h *SubscriptionsHandler) ListUserSubscriptions(c echo.Context) error {
 			COALESCE((SELECT COUNT(*) FROM user_roles ur WHERE ur.active_subscription_id = s.id AND ur.plan_type = 'team'), 0) as assigned_seats,
 			s.status, s.razorpay_plan_id,
 			s.current_period_start, s.current_period_end, s.license_expires_at,
-			s.created_at, s.updated_at
+			s.created_at, s.updated_at, s.cancel_at_period_end
 		FROM subscriptions s
 		WHERE s.owner_user_id = $1
 		  AND (s.status IN ('created', 'authenticated', 'active') OR EXISTS (SELECT 1 FROM user_roles ur WHERE ur.active_subscription_id = s.id))
@@ -501,6 +504,7 @@ func (h *SubscriptionsHandler) ListUserSubscriptions(c echo.Context) error {
 		LicenseExpiresAt       *time.Time `json:"license_expires_at,omitempty"`   // Nullable timestamp, RFC3339 with timezone
 		CreatedAt              time.Time  `json:"created_at"`                     // RFC3339 with timezone for precise sorting and display
 		UpdatedAt              time.Time  `json:"updated_at"`                     // RFC3339 with timezone
+		CancelAtPeriodEnd      bool       `json:"cancel_at_period_end"`
 	}
 
 	var subscriptions []SubscriptionResponse
@@ -510,7 +514,7 @@ func (h *SubscriptionsHandler) ListUserSubscriptions(c echo.Context) error {
 			&sub.ID, &sub.RazorpaySubscriptionID, &sub.OwnerUserID, &sub.OrgID, &sub.PlanType,
 			&sub.Quantity, &sub.AssignedSeats, &sub.Status, &sub.RazorpayPlanID,
 			&sub.CurrentPeriodStart, &sub.CurrentPeriodEnd, &sub.LicenseExpiresAt,
-			&sub.CreatedAt, &sub.UpdatedAt,
+			&sub.CreatedAt, &sub.UpdatedAt, &sub.CancelAtPeriodEnd,
 		); err != nil {
 			return c.JSON(http.StatusInternalServerError, map[string]string{
 				"error": "failed to parse subscriptions",
@@ -559,7 +563,7 @@ func (h *SubscriptionsHandler) ListOrgSubscriptions(c echo.Context) error {
 			id, razorpay_subscription_id, owner_user_id, org_id, plan_type,
 			quantity, assigned_seats, status, razorpay_plan_id,
 			current_period_start, current_period_end, license_expires_at,
-			created_at, updated_at
+			created_at, updated_at, cancel_at_period_end
 		FROM subscriptions
 		WHERE org_id = $1
 		ORDER BY created_at DESC
@@ -586,6 +590,7 @@ func (h *SubscriptionsHandler) ListOrgSubscriptions(c echo.Context) error {
 		LicenseExpiresAt       *time.Time `json:"license_expires_at,omitempty"`   // Nullable timestamp, RFC3339 with timezone
 		CreatedAt              time.Time  `json:"created_at"`                     // RFC3339 with timezone for precise sorting and display
 		UpdatedAt              time.Time  `json:"updated_at"`                     // RFC3339 with timezone
+		CancelAtPeriodEnd      bool       `json:"cancel_at_period_end"`
 	}
 
 	var subscriptions []SubscriptionResponse
@@ -595,7 +600,7 @@ func (h *SubscriptionsHandler) ListOrgSubscriptions(c echo.Context) error {
 			&sub.ID, &sub.RazorpaySubscriptionID, &sub.OwnerUserID, &sub.OrgID, &sub.PlanType,
 			&sub.Quantity, &sub.AssignedSeats, &sub.Status, &sub.RazorpayPlanID,
 			&sub.CurrentPeriodStart, &sub.CurrentPeriodEnd, &sub.LicenseExpiresAt,
-			&sub.CreatedAt, &sub.UpdatedAt,
+			&sub.CreatedAt, &sub.UpdatedAt, &sub.CancelAtPeriodEnd,
 		); err != nil {
 			return c.JSON(http.StatusInternalServerError, map[string]string{
 				"error": "failed to parse subscriptions",

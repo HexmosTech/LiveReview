@@ -24,6 +24,7 @@ import { logout, checkSetupStatus, fetchUser } from './store/Auth/reducer';
 import { fetchLicenseStatus, openModal as openLicenseModal, closeModal as closeLicenseModal } from './store/License/slice';
 import LicenseModal from './components/License/LicenseModal';
 import LicenseStatusBar from './components/License/LicenseStatusBar';
+import { SubscriptionGuard } from './components/SubscriptionGuard';
 import { Toaster } from 'react-hot-toast';
 import UserForm from './components/UserManagement/UserForm';
 // import { usePostHog } from '@posthog/react'
@@ -232,26 +233,28 @@ const AppContent: React.FC = () => {
                 <URLMismatchBanner />
                 <LicenseStatusBar onOpenModal={() => dispatch(openLicenseModal())} />
                 <div className="flex-grow">
-                    <Routes>
-                        <Route path="/" element={<HomeWithOAuthCheck />} />
-                        <Route path="/dashboard" element={<Dashboard />} />
-                        <Route path="/subscribe" element={<Subscribe />} />
-                        <Route path="/subscribe/manage" element={<LicenseManagement />} />
-                        <Route path="/subscribe/subscriptions/:id/assign" element={<LicenseAssignment />} />
-                        <Route path="/checkout/team" element={<TeamCheckout />} />
-                        <Route path="/reviews/*" element={<ReviewsRoutes />} />
-                        <Route path="/git/*" element={<GitProviders />} />
-                        <Route path="/ai" element={<AIProviders />} />
-                        <Route path="/ai/:provider" element={<AIProviders />} />
-                        <Route path="/ai/:provider/:action" element={<AIProviders />} />
-                        <Route path="/ai/:provider/:action/:connectorId" element={<AIProviders />} />
-                        <Route path="/settings/*" element={<Settings />} />
-                        <Route path="/settings/users/add" element={<UserForm />} />
-                        <Route path="/settings/users/edit/:userId" element={<UserForm />} />
-                        <Route path="/test-middleware" element={<MiddlewareTestPage />} />
-                        <Route path="/oauth-callback" element={<OAuthCallbackHandler />} />
-                        <Route path="*" element={<Navigate to="/" replace />} />
-                    </Routes>
+                    <SubscriptionGuard>
+                        <Routes>
+                            <Route path="/" element={<HomeWithOAuthCheck />} />
+                            <Route path="/dashboard" element={<Dashboard />} />
+                            <Route path="/subscribe" element={<Subscribe />} />
+                            <Route path="/subscribe/manage" element={<LicenseManagement />} />
+                            <Route path="/subscribe/subscriptions/:id/assign" element={<LicenseAssignment />} />
+                            <Route path="/checkout/team" element={<TeamCheckout />} />
+                            <Route path="/reviews/*" element={<ReviewsRoutes />} />
+                            <Route path="/git/*" element={<GitProviders />} />
+                            <Route path="/ai" element={<AIProviders />} />
+                            <Route path="/ai/:provider" element={<AIProviders />} />
+                            <Route path="/ai/:provider/:action" element={<AIProviders />} />
+                            <Route path="/ai/:provider/:action/:connectorId" element={<AIProviders />} />
+                            <Route path="/settings/*" element={<Settings />} />
+                            <Route path="/settings/users/add" element={<UserForm />} />
+                            <Route path="/settings/users/edit/:userId" element={<UserForm />} />
+                            <Route path="/test-middleware" element={<MiddlewareTestPage />} />
+                            <Route path="/oauth-callback" element={<OAuthCallbackHandler />} />
+                            <Route path="*" element={<Navigate to="/" replace />} />
+                        </Routes>
+                    </SubscriptionGuard>
                 </div>
                 <Footer />
                 <LicenseModal open={licenseOpen} onClose={() => dispatch(closeLicenseModal())} strictMode={['missing', 'invalid', 'expired'].includes(licenseStatus)} />

@@ -1,4 +1,4 @@
-\restrict 4GxukKlX4vhLg6WfSUPlaVIQulZOG0PPgOya3Ag7w6u7gI8s5laQMsn0h1IHhMm
+\restrict ohTqAXvV5KsWY0rmPfjpaijt5Wpomq2KsImPXp9L988EfF9Jk8ObaJabd6GSM0D
 
 -- Dumped from database version 15.14 (Debian 15.14-1.pgdg13+1)
 -- Dumped by pg_dump version 15.14 (Ubuntu 15.14-1.pgdg22.04+1)
@@ -909,6 +909,7 @@ CREATE TABLE public.subscriptions (
     last_payment_status character varying(50),
     last_payment_received_at timestamp with time zone,
     payment_verified boolean DEFAULT false NOT NULL,
+    cancel_at_period_end boolean DEFAULT false,
     CONSTRAINT valid_assigned_seats CHECK (((assigned_seats >= 0) AND (assigned_seats <= quantity))),
     CONSTRAINT valid_quantity CHECK ((quantity > 0))
 );
@@ -2655,7 +2656,7 @@ ALTER TABLE ONLY public.webhook_registry
 -- PostgreSQL database dump complete
 --
 
-\unrestrict 4GxukKlX4vhLg6WfSUPlaVIQulZOG0PPgOya3Ag7w6u7gI8s5laQMsn0h1IHhMm
+\unrestrict ohTqAXvV5KsWY0rmPfjpaijt5Wpomq2KsImPXp9L988EfF9Jk8ObaJabd6GSM0D
 
 
 --
@@ -2701,4 +2702,5 @@ INSERT INTO public.schema_migrations (version) VALUES
     ('20251007'),
     ('20251204105958'),
     ('20251204134413'),
-    ('20251209');
+    ('20251209'),
+    ('20251213103152');

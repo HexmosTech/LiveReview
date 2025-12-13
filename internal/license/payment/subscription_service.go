@@ -249,9 +249,10 @@ func (s *SubscriptionService) CancelSubscription(subscriptionID string, immediat
 	_, err = tx.Exec(`
 		UPDATE subscriptions
 		SET status = $1,
+		    cancel_at_period_end = $2,
 		    updated_at = NOW()
-		WHERE razorpay_subscription_id = $2`,
-		sub.Status, subscriptionID,
+		WHERE razorpay_subscription_id = $3`,
+		sub.Status, !immediate, subscriptionID,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to update subscription: %w", err)
