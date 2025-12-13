@@ -135,6 +135,8 @@ func (h *RazorpayWebhookHandler) processEvent(event *RazorpayWebhookEvent) error
 		// subscription.authenticated is sent when first payment is authorized
 		// This event contains both subscription and payment data
 		return h.handleSubscriptionAuthenticated(event)
+	case "subscription.expired":
+		return h.handleSubscriptionExpired(event)
 	case "payment.authorized":
 		return h.handlePaymentAuthorized(event)
 	case "payment.captured":
@@ -466,11 +468,14 @@ func (h *RazorpayWebhookHandler) handleSubscriptionCharged(event *RazorpayWebhoo
 	}
 
 	// Update subscription with new expiry
+	// Also set status to 'active' (in case it was halted) and clear cancel_at_period_end (renewal = not cancelled)
 	_, err = tx.Exec(`
 		UPDATE subscriptions
 		SET license_expires_at = $1,
 		    current_period_start = $2,
 		    current_period_end = $3,
+		    status = 'active',
+		    cancel_at_period_end = FALSE,
 		    updated_at = NOW()
 		WHERE id = $4`,
 		newExpiry,
@@ -481,6 +486,8 @@ func (h *RazorpayWebhookHandler) handleSubscriptionCharged(event *RazorpayWebhoo
 	if err != nil {
 		return fmt.Errorf("failed to update subscription: %w", err)
 	}
+
+	fmt.Printf("[SUBSCRIPTION.CHARGED] ✓ Updated subscription to active status, license extended to %s\n", newExpiry.Format("2006-01-02"))
 
 	// Update all users with this subscription (use internal ID)
 	_, err = tx.Exec(`
@@ -687,8 +694,137 @@ func (h *RazorpayWebhookHandler) handleSubscriptionPending(event *RazorpayWebhoo
 }
 
 // handleSubscriptionHalted handles subscription halt (payment failures)
+// If the subscription has passed its expiry date, it should be expired and users downgraded
 func (h *RazorpayWebhookHandler) handleSubscriptionHalted(event *RazorpayWebhookEvent) error {
-	return h.updateSubscriptionStatus(event, "halted")
+	sub, err := h.extractSubscription(event)
+	if err != nil {
+		return err
+	}
+
+	fmt.Printf("[SUBSCRIPTION.HALTED] Processing halted subscription: %s\n", sub.ID)
+
+	tx, err := h.db.Begin()
+	if err != nil {
+		return fmt.Errorf("failed to begin transaction: %w", err)
+	}
+	defer tx.Rollback()
+
+	// Get subscription details including expiry
+	var subscriptionID int64
+	var ownerUserID, orgID int
+	var currentPeriodEnd time.Time
+	err = tx.QueryRow(`
+		SELECT id, owner_user_id, org_id, current_period_end
+		FROM subscriptions
+		WHERE razorpay_subscription_id = $1`,
+		sub.ID,
+	).Scan(&subscriptionID, &ownerUserID, &orgID, &currentPeriodEnd)
+	if err != nil {
+		return fmt.Errorf("subscription not found: %s", sub.ID)
+	}
+
+	// Check if subscription has expired (current_period_end is in the past)
+	now := time.Now()
+	hasExpired := currentPeriodEnd.Before(now)
+
+	if hasExpired {
+		fmt.Printf("[SUBSCRIPTION.HALTED] ⚠ Subscription has expired (period_end: %s), expiring subscription\n",
+			currentPeriodEnd.Format("2006-01-02 15:04:05"))
+
+		// Update subscription status to expired
+		_, err = tx.Exec(`
+			UPDATE subscriptions
+			SET status = 'expired',
+			    updated_at = NOW()
+			WHERE razorpay_subscription_id = $1`,
+			sub.ID,
+		)
+		if err != nil {
+			return fmt.Errorf("failed to update subscription to expired: %w", err)
+		}
+
+		// Revert ALL users on this subscription to free plan
+		result, err := tx.Exec(`
+			UPDATE user_roles
+			SET plan_type = 'free',
+			    license_expires_at = NULL,
+			    active_subscription_id = NULL,
+			    updated_at = NOW()
+			WHERE active_subscription_id = $1`,
+			subscriptionID,
+		)
+		if err != nil {
+			return fmt.Errorf("failed to revert users to free plan: %w", err)
+		}
+
+		rowsAffected, _ := result.RowsAffected()
+		fmt.Printf("[SUBSCRIPTION.HALTED] ✓ Expired subscription, reverted %d user(s) to free plan\n", rowsAffected)
+
+		// Log the expiration event
+		metadata := map[string]interface{}{
+			"subscription_id": sub.ID,
+			"status":          "expired",
+			"event":           event.Event,
+			"reason":          "halted_past_expiry",
+			"users_affected":  rowsAffected,
+			"period_end":      currentPeriodEnd,
+		}
+		metadataJSON, _ := json.Marshal(metadata)
+		_, err = tx.Exec(`
+			INSERT INTO license_log (
+				user_id, org_id, event_type, description, metadata, created_at
+			) VALUES ($1, $2, $3, $4, $5, NOW())`,
+			ownerUserID, orgID, "subscription_expired",
+			fmt.Sprintf("Subscription halted and expired (payment failed), %d user(s) reverted to free plan", rowsAffected),
+			metadataJSON,
+		)
+		if err != nil {
+			return fmt.Errorf("failed to log event: %w", err)
+		}
+
+		fmt.Printf("[SUBSCRIPTION.HALTED] ✓ SUCCESS: Subscription %s expired due to payment failure\n", sub.ID)
+	} else {
+		fmt.Printf("[SUBSCRIPTION.HALTED] ⚠ Subscription halted but not expired yet (period_end: %s), keeping users active\n",
+			currentPeriodEnd.Format("2006-01-02 15:04:05"))
+
+		// Update status to halted but keep users active until period_end
+		_, err = tx.Exec(`
+			UPDATE subscriptions
+			SET status = 'halted',
+			    updated_at = NOW()
+			WHERE razorpay_subscription_id = $1`,
+			sub.ID,
+		)
+		if err != nil {
+			return fmt.Errorf("failed to update subscription to halted: %w", err)
+		}
+
+		// Log the halted event
+		metadata := map[string]interface{}{
+			"subscription_id":   sub.ID,
+			"status":            "halted",
+			"event":             event.Event,
+			"period_end":        currentPeriodEnd,
+			"days_until_expiry": int(currentPeriodEnd.Sub(now).Hours() / 24),
+		}
+		metadataJSON, _ := json.Marshal(metadata)
+		_, err = tx.Exec(`
+			INSERT INTO license_log (
+				user_id, org_id, event_type, description, metadata, created_at
+			) VALUES ($1, $2, $3, $4, $5, NOW())`,
+			ownerUserID, orgID, "subscription_halted",
+			fmt.Sprintf("Subscription halted (payment failed), will expire on %s if not resolved", currentPeriodEnd.Format("2006-01-02")),
+			metadataJSON,
+		)
+		if err != nil {
+			return fmt.Errorf("failed to log event: %w", err)
+		}
+
+		fmt.Printf("[SUBSCRIPTION.HALTED] ✓ Subscription %s marked as halted, users retain access until %s\n",
+			sub.ID, currentPeriodEnd.Format("2006-01-02"))
+	}
+
+	return tx.Commit()
 }
 
 // updateSubscriptionStatus is a helper for simple status updates
@@ -1214,4 +1350,90 @@ func (h *RazorpayWebhookHandler) logPaymentFailureWithoutSubscription(payment *R
 	)
 
 	return err
+}
+
+// handleSubscriptionExpired handles subscription expiration
+// This is sent by Razorpay when a subscription expires (either naturally or after cancellation period ends)
+func (h *RazorpayWebhookHandler) handleSubscriptionExpired(event *RazorpayWebhookEvent) error {
+	sub, err := h.extractSubscription(event)
+	if err != nil {
+		return err
+	}
+
+	fmt.Printf("[SUBSCRIPTION.EXPIRED] Processing expiration for subscription: %s\n", sub.ID)
+
+	tx, err := h.db.Begin()
+	if err != nil {
+		return fmt.Errorf("failed to begin transaction: %w", err)
+	}
+	defer tx.Rollback()
+
+	// Get subscription details
+	var ownerUserID, orgID int
+	err = tx.QueryRow(`
+		SELECT owner_user_id, org_id
+		FROM subscriptions
+		WHERE razorpay_subscription_id = $1`,
+		sub.ID,
+	).Scan(&ownerUserID, &orgID)
+	if err != nil {
+		return fmt.Errorf("subscription not found: %s", sub.ID)
+	}
+
+	// Update subscription status to expired
+	_, err = tx.Exec(`
+		UPDATE subscriptions
+		SET status = 'expired',
+		    updated_at = NOW()
+		WHERE razorpay_subscription_id = $1`,
+		sub.ID,
+	)
+	if err != nil {
+		return fmt.Errorf("failed to update subscription: %w", err)
+	}
+
+	fmt.Printf("[SUBSCRIPTION.EXPIRED] ✓ Updated subscription %s to expired status\n", sub.ID)
+
+	// Revert ALL users on this subscription to free plan
+	result, err := tx.Exec(`
+		UPDATE user_roles
+		SET plan_type = 'free',
+		    license_expires_at = NULL,
+		    active_subscription_id = NULL,
+		    updated_at = NOW()
+		WHERE active_subscription_id = (
+			SELECT id FROM subscriptions WHERE razorpay_subscription_id = $1
+		)`,
+		sub.ID,
+	)
+	if err != nil {
+		return fmt.Errorf("failed to revert users to free plan: %w", err)
+	}
+
+	rowsAffected, _ := result.RowsAffected()
+	fmt.Printf("[SUBSCRIPTION.EXPIRED] ✓ Reverted %d user(s) to free plan\n", rowsAffected)
+
+	// Log the event
+	metadata := map[string]interface{}{
+		"subscription_id": sub.ID,
+		"status":          "expired",
+		"event":           event.Event,
+		"users_affected":  rowsAffected,
+	}
+	metadataJSON, _ := json.Marshal(metadata)
+	_, err = tx.Exec(`
+		INSERT INTO license_log (
+			user_id, org_id, event_type, description, metadata, created_at
+		) VALUES ($1, $2, $3, $4, $5, NOW())`,
+		ownerUserID, orgID, "subscription_expired",
+		fmt.Sprintf("Subscription expired, %d user(s) reverted to free plan", rowsAffected),
+		metadataJSON,
+	)
+	if err != nil {
+		return fmt.Errorf("failed to log event: %w", err)
+	}
+
+	fmt.Printf("[SUBSCRIPTION.EXPIRED] ✓ SUCCESS: Subscription %s expired and users downgraded\n", sub.ID)
+
+	return tx.Commit()
 }

@@ -104,13 +104,13 @@ func (s *SubscriptionService) CreateTeamSubscription(ownerUserID, orgID int, pla
 			razorpay_subscription_id, owner_user_id, org_id, plan_type,
 			quantity, assigned_seats, status, razorpay_plan_id,
 			current_period_start, current_period_end, license_expires_at,
-			notes, created_at, updated_at
-		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, NOW(), NOW())
+			short_url, notes, created_at, updated_at
+		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, NOW(), NOW())
 		RETURNING id`,
 		sub.ID, ownerUserID, orgID, dbPlanType,
 		quantity, 0, sub.Status, razorpayPlanID,
 		currentPeriodStart, currentPeriodEnd, licenseExpiresAt,
-		notesJSON,
+		sub.ShortURL, notesJSON,
 	).Scan(&dbSubscriptionID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to insert subscription: %w", err)

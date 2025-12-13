@@ -1,4 +1,4 @@
-\restrict xwI4pxPlBJdskBf53U8HGIE6xKUkbNtHzchWi9l8AHvGBgoZoVRyWvav4tptEAl
+\restrict 8O0p9BPDxvUlMMPhEDWCsHbk8MQRdPEZqWX91siCBaDFxpTUo973y6lVeRIg5Ld
 
 -- Dumped from database version 15.14 (Debian 15.14-1.pgdg13+1)
 -- Dumped by pg_dump version 15.14 (Ubuntu 15.14-1.pgdg22.04+1)
@@ -918,6 +918,7 @@ CREATE TABLE public.subscriptions (
     last_payment_received_at timestamp with time zone,
     payment_verified boolean DEFAULT false NOT NULL,
     cancel_at_period_end boolean DEFAULT false,
+    short_url character varying(500),
     CONSTRAINT valid_assigned_seats CHECK (((assigned_seats >= 0) AND (assigned_seats <= quantity))),
     CONSTRAINT valid_quantity CHECK ((quantity > 0))
 );
@@ -949,6 +950,13 @@ COMMENT ON COLUMN public.subscriptions.last_payment_received_at IS 'Timestamp wh
 --
 
 COMMENT ON COLUMN public.subscriptions.payment_verified IS 'Whether any payment has been successfully received for this subscription';
+
+
+--
+-- Name: COLUMN subscriptions.short_url; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.subscriptions.short_url IS 'Razorpay public link for customers to manage subscription (no login required)';
 
 
 --
@@ -2130,6 +2138,13 @@ CREATE INDEX idx_subscriptions_razorpay ON public.subscriptions USING btree (raz
 
 
 --
+-- Name: idx_subscriptions_short_url; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_subscriptions_short_url ON public.subscriptions USING btree (short_url) WHERE (short_url IS NOT NULL);
+
+
+--
 -- Name: idx_subscriptions_status; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -2671,7 +2686,7 @@ ALTER TABLE ONLY public.webhook_registry
 -- PostgreSQL database dump complete
 --
 
-\unrestrict xwI4pxPlBJdskBf53U8HGIE6xKUkbNtHzchWi9l8AHvGBgoZoVRyWvav4tptEAl
+\unrestrict 8O0p9BPDxvUlMMPhEDWCsHbk8MQRdPEZqWX91siCBaDFxpTUo973y6lVeRIg5Ld
 
 
 --
@@ -2719,4 +2734,5 @@ INSERT INTO public.schema_migrations (version) VALUES
     ('20251204134413'),
     ('20251209'),
     ('20251213101233'),
-    ('20251213103152');
+    ('20251213103152'),
+    ('20251213144431');
