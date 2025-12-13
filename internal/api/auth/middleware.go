@@ -137,9 +137,10 @@ type AuthMiddleware struct {
 func NewAuthMiddleware(tokenService *TokenService, db *sql.DB) *AuthMiddleware {
 	// Prepare statement for subscription plan lookups (performance optimization)
 	stmt, err := db.Prepare(`
-		SELECT plan_type, license_expires_at
-		FROM user_roles
-		WHERE user_id = $1 AND org_id = $2
+		SELECT ur.plan_type, ur.license_expires_at, (o.created_by_user_id = ur.user_id) as is_creator
+		FROM user_roles ur
+		JOIN orgs o ON ur.org_id = o.id
+		WHERE ur.user_id = $1 AND ur.org_id = $2
 	`)
 	if err != nil {
 		// Log warning but don't fail - will fall back to non-prepared queries
@@ -199,17 +200,19 @@ func (am *AuthMiddleware) EnforceSubscriptionLimits() echo.MiddlewareFunc {
 			// Query user's plan in this specific org using prepared statement if available
 			var planType string
 			var licenseExpiresAt sql.NullTime
+			var isOrgCreator bool
 			var err error
 
 			if am.planStmt != nil {
-				err = am.planStmt.QueryRow(user.ID, orgID).Scan(&planType, &licenseExpiresAt)
+				err = am.planStmt.QueryRow(user.ID, orgID).Scan(&planType, &licenseExpiresAt, &isOrgCreator)
 			} else {
 				// Fallback to non-prepared query
 				err = am.db.QueryRow(`
-					SELECT plan_type, license_expires_at
-					FROM user_roles
-					WHERE user_id = $1 AND org_id = $2
-				`, user.ID, orgID).Scan(&planType, &licenseExpiresAt)
+					SELECT ur.plan_type, ur.license_expires_at, (o.created_by_user_id = ur.user_id) as is_creator
+					FROM user_roles ur
+					JOIN orgs o ON ur.org_id = o.id
+					WHERE ur.user_id = $1 AND ur.org_id = $2
+				`, user.ID, orgID).Scan(&planType, &licenseExpiresAt, &isOrgCreator)
 			}
 
 			if err != nil {
@@ -217,6 +220,26 @@ func (am *AuthMiddleware) EnforceSubscriptionLimits() echo.MiddlewareFunc {
 					return echo.NewHTTPError(http.StatusForbidden, "no access to this organization")
 				}
 				return echo.NewHTTPError(http.StatusInternalServerError, "failed to check subscription")
+			}
+
+			// STRICT ENFORCEMENT for Free/Hobby Plan
+			if planType == "free" && !isOrgCreator {
+				// Allow Super Admins to bypass this restriction
+				var isSuperAdmin bool
+				saErr := am.db.QueryRow(`
+					SELECT EXISTS(
+						SELECT 1 FROM user_roles ur
+						JOIN roles r ON ur.role_id = r.id
+						WHERE ur.user_id = $1 AND r.name = 'super_admin'
+					)
+				`, user.ID).Scan(&isSuperAdmin)
+
+				if saErr == nil && !isSuperAdmin {
+					return echo.NewHTTPError(http.StatusForbidden, map[string]interface{}{
+						"code":    "ERR_SUBSCRIPTION_REQUIRED",
+						"message": "This organization is on the Hobby plan. Only the creator can access it.",
+					})
+				}
 			}
 
 			// Check license expiration
