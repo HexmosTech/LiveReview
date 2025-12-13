@@ -36,6 +36,7 @@ const LicenseManagement: React.FC = () => {
     const [showCancelModal, setShowCancelModal] = useState(false);
     const [cancelSubscriptionId, setCancelSubscriptionId] = useState<string | null>(null);
     const [cancelExpiryDate, setCancelExpiryDate] = useState<string | undefined>(undefined);
+    const [navigating, setNavigating] = useState<string | null>(null);
 
     useEffect(() => {
         loadSubscriptions();
@@ -79,6 +80,14 @@ const LicenseManagement: React.FC = () => {
         loadSubscriptions();
         setShowCancelModal(false);
         setCancelSubscriptionId(null);
+    };
+
+    const handleNavigateToAssignment = (subscriptionId: string) => {
+        setNavigating(subscriptionId);
+        // Small delay to ensure the UI updates before navigation
+        setTimeout(() => {
+            navigate(`/subscribe/subscriptions/${subscriptionId}/assign`);
+        }, 50);
     };
 
     const formatDate = (dateString: string) => {
@@ -210,10 +219,18 @@ const LicenseManagement: React.FC = () => {
                                             </p>
                                         </div>
                                         <button
-                                            onClick={() => navigate(`/subscribe/subscriptions/${sub.razorpay_subscription_id}/assign`)}
-                                            className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors text-sm font-medium"
+                                            onClick={() => handleNavigateToAssignment(sub.razorpay_subscription_id)}
+                                            disabled={navigating === sub.razorpay_subscription_id}
+                                            className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors text-sm font-medium disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2 min-w-[120px] justify-center"
                                         >
-                                            Assign Seats
+                                            {navigating === sub.razorpay_subscription_id ? (
+                                                <>
+                                                    <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                                                    <span>Loading...</span>
+                                                </>
+                                            ) : (
+                                                'Assign Seats'
+                                            )}
                                         </button>
                                     </div>
 
