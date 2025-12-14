@@ -13,6 +13,7 @@ import {
 import { triggerReview, TriggerReviewRequest } from '../../api/reviews';
 import { getConnectors, ConnectorResponse } from '../../api/connectors';
 import { ErrorBoundary } from '../../components/ErrorBoundary';
+import { UpgradePromptModal } from '../../components/Subscriptions';
 
 const NewReview: React.FC = () => {
   const navigate = useNavigate();
@@ -22,6 +23,9 @@ const NewReview: React.FC = () => {
   const [loadingConnectors, setLoadingConnectors] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
+  const [showUpgradeModal, setShowUpgradeModal] = useState(false);
+  const [upgradeReason, setUpgradeReason] = useState<'DAILY_LIMIT' | 'NOT_ORG_CREATOR'>('DAILY_LIMIT');
+  const [limitInfo, setLimitInfo] = useState<{ used: number; limit: number }>({ used: 3, limit: 3 });
 
   // Load connectors when component mounts
   useEffect(() => {
@@ -106,7 +110,28 @@ const NewReview: React.FC = () => {
       
     } catch (err: any) {
       console.error('Error triggering review:', err);
-      setError(err.message || 'Failed to trigger review. Please try again later.');
+      
+      // Check for subscription limit errors (HTTP 402)
+      if (err.response?.status === 402 || err.statusCode === 402) {
+        const errorData = err.response?.data || err;
+        const errorCode = errorData.code;
+        
+        if (errorCode === 'DAILY_LIMIT_EXCEEDED') {
+          setLimitInfo({
+            used: errorData.used || 3,
+            limit: errorData.limit || 3,
+          });
+          setUpgradeReason('DAILY_LIMIT');
+          setShowUpgradeModal(true);
+        } else if (errorCode === 'NOT_ORG_CREATOR') {
+          setUpgradeReason('NOT_ORG_CREATOR');
+          setShowUpgradeModal(true);
+        } else {
+          setError(errorData.message || err.message || 'Failed to trigger review. Please try again later.');
+        }
+      } else {
+        setError(err.message || 'Failed to trigger review. Please try again later.');
+      }
     } finally {
       setLoading(false);
     }
@@ -223,6 +248,15 @@ const NewReview: React.FC = () => {
             </form>
           )}
         </Card>
+
+        {/* Upgrade Modal */}
+        <UpgradePromptModal
+          isOpen={showUpgradeModal}
+          onClose={() => setShowUpgradeModal(false)}
+          reason={upgradeReason}
+          currentCount={limitInfo.used}
+          limit={limitInfo.limit}
+        />
       </div>
     </ErrorBoundary>
   );

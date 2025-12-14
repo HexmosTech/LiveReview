@@ -635,6 +635,15 @@ func (s *Server) setupRoutes() {
 	// List subscriptions - user can see their own subscriptions across all orgs
 	protected.GET("/subscriptions", subscriptionsHandler.ListUserSubscriptions)
 
+	// Quota status endpoint (organization scoped)
+	quotaHandler := NewQuotaStatusHandler(s.db)
+	quotaGroup := v1.Group("/quota")
+	quotaGroup.Use(authMiddleware.RequireAuth())
+	quotaGroup.Use(authMiddleware.BuildOrgContextFromHeader())
+	quotaGroup.Use(authMiddleware.ValidateOrgAccess())
+	quotaGroup.Use(authMiddleware.BuildPermissionContext())
+	quotaGroup.GET("/status", quotaHandler.GetQuotaStatus)
+
 	// Razorpay webhook endpoint (public - signature verified in handler)
 	webhookHandler := payment.NewRazorpayWebhookHandler(s.db, os.Getenv("RAZORPAY_WEBHOOK_SECRET"))
 	v1.POST("/webhooks/razorpay", webhookHandler.HandleWebhook)

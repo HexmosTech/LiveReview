@@ -4,7 +4,7 @@ import moment from 'moment-timezone';
 import { useOrgContext } from '../../hooks/useOrgContext';
 import apiClient from '../../api/apiClient';
 import toast from 'react-hot-toast';
-import { CancelSubscriptionModal } from '../../components/Subscriptions';
+import { CancelSubscriptionModal, UpgradePromptModal } from '../../components/Subscriptions';
 
 type Subscription = {
     id: number;
@@ -49,6 +49,7 @@ const LicenseAssignment: React.FC = () => {
     const [selectedMembers, setSelectedMembers] = useState<Set<number>>(new Set());
     const [bulkProcessing, setBulkProcessing] = useState(false);
     const [showCancelModal, setShowCancelModal] = useState(false);
+    const [showUpgradeModal, setShowUpgradeModal] = useState(false);
 
     useEffect(() => {
         if (!currentOrgId || !subscriptionId) {
@@ -88,6 +89,12 @@ const LicenseAssignment: React.FC = () => {
 
     const handleAssign = async (userId: number) => {
         if (!subscriptionId || !subscription) return;
+
+        // Check if organization is on free plan - can't activate members
+        if (currentOrg?.plan_type === 'free') {
+            setShowUpgradeModal(true);
+            return;
+        }
 
         // Check if seats available
         if (subscription.assigned_seats >= subscription.quantity) {
@@ -156,6 +163,12 @@ const LicenseAssignment: React.FC = () => {
 
     const handleBulkAssign = async () => {
         if (!subscriptionId || !subscription || selectedMembers.size === 0) return;
+
+        // Check if organization is on free plan - can't activate members
+        if (currentOrg?.plan_type === 'free') {
+            setShowUpgradeModal(true);
+            return;
+        }
 
         const unlicensedSelected = Array.from(selectedMembers).filter(id => {
             const member = members.find(m => m.id === id);
@@ -615,6 +628,12 @@ const LicenseAssignment: React.FC = () => {
                     expiryDate={subscription.current_period_end}
                 />
             )}
+
+            <UpgradePromptModal
+                isOpen={showUpgradeModal}
+                onClose={() => setShowUpgradeModal(false)}
+                reason="MEMBER_ACTIVATION"
+            />
         </div>
     );
 };
