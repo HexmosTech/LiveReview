@@ -72,7 +72,7 @@ const SubscriptionTab: React.FC = () => {
 
 // Overview Tab Component
 const OverviewTab: React.FC<{ navigate: any }> = ({ navigate }) => {
-  const { currentOrg } = useOrgContext();
+  const { currentOrg, isSuperAdmin } = useOrgContext();
   const [showCancelModal, setShowCancelModal] = useState(false);
   const [subscriptionId, setSubscriptionId] = useState<string | null>(null);
   const [pendingCancel, setPendingCancel] = useState(false);
@@ -119,8 +119,8 @@ const OverviewTab: React.FC<{ navigate: any }> = ({ navigate }) => {
   };
 
   const getPlanDisplayName = (plan: string) => {
-    if (plan === 'team' || plan.includes('team')) return 'Team Plan';
-    return 'Free Plan';
+    if (plan === 'team' || plan.includes('team')) return 'Team Subscription';
+    return 'Free Subscription';
   };
 
   const dailyLimit = isTeamPlan ? 'Unlimited' : '3 reviews per day';
@@ -134,21 +134,31 @@ const OverviewTab: React.FC<{ navigate: any }> = ({ navigate }) => {
         </p>
       </div>
 
-      {/* Current Plan Section */}
+      {/* Current Subscription Section */}
       <div className="bg-slate-800/60 border border-slate-700 rounded-lg p-6">
         <div className="flex items-center justify-between mb-4">
           <div>
-            <h3 className="text-md font-semibold text-white">Current Plan</h3>
+            <h3 className="text-md font-semibold text-white">Current Subscription</h3>
             <p className="text-sm text-slate-400 mt-1">{getPlanDisplayName(planType)}</p>
           </div>
-          <div className={`px-4 py-2 rounded-lg text-sm font-medium ${
-            pendingCancel
-              ? 'bg-amber-500/10 text-amber-400 border border-amber-500/40'
-              : isTeamPlan
-              ? 'bg-blue-900/40 text-blue-300'
-              : 'bg-emerald-900/40 text-emerald-300'
-          }`}>
-            {pendingCancel ? 'PENDING EXPIRY' : (status || 'Active').toUpperCase()}
+          <div className="flex items-center gap-2">
+            <div className={`px-4 py-2 rounded-lg text-sm font-medium ${
+              pendingCancel
+                ? 'bg-amber-500/10 text-amber-400 border border-amber-500/40'
+                : isTeamPlan
+                ? 'bg-blue-900/40 text-blue-300'
+                : 'bg-emerald-900/40 text-emerald-300'
+            }`}>
+              {pendingCancel ? 'PENDING EXPIRY' : (status || 'Active').toUpperCase()}
+            </div>
+            {subscriptionId && (isSuperAdmin || currentOrg?.role === 'owner') && (
+              <button
+                onClick={() => navigate(`/subscribe/subscriptions/${subscriptionId}/assign`)}
+                className="px-3 py-1.5 text-xs font-medium bg-slate-700 hover:bg-slate-600 text-white rounded-lg border border-slate-600 transition-colors"
+              >
+                View Subscription Details
+              </button>
+            )}
           </div>
         </div>
 
@@ -200,7 +210,7 @@ const OverviewTab: React.FC<{ navigate: any }> = ({ navigate }) => {
       {/* Upgrade Section - only show for free users */}
       {isFree && (
         <div className="bg-gradient-to-r from-blue-900/40 to-purple-900/40 border border-blue-700/50 rounded-lg p-6">
-          <h3 className="text-md font-semibold text-white mb-2">Upgrade to Team Plan</h3>
+          <h3 className="text-md font-semibold text-white mb-2">Upgrade to Team Subscription</h3>
           <p className="text-sm text-slate-300 mb-4">
             Get unlimited reviews, priority support, and advanced features for your team
           </p>
@@ -239,11 +249,11 @@ const OverviewTab: React.FC<{ navigate: any }> = ({ navigate }) => {
         </div>
       )}
 
-      {/* Team Plan Benefits - show for team users */}
+      {/* Team Subscription Benefits - show for team users */}
       {isTeamPlan && (
         <div className="bg-gradient-to-r from-blue-900/40 to-purple-900/40 border border-blue-700/50 rounded-lg p-6">
           <div className="flex items-center justify-between mb-2">
-            <h3 className="text-md font-semibold text-white">Team Plan Benefits</h3>
+            <h3 className="text-md font-semibold text-white">Team Subscription Benefits</h3>
             {subscriptionId && !pendingCancel && (
               <button
                 onClick={() => setShowCancelModal(true)}
