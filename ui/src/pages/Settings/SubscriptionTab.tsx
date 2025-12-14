@@ -171,7 +171,7 @@ const OverviewTab: React.FC<{ navigate: any }> = ({ navigate }) => {
               <div>
                 <p className="text-slate-300 text-sm font-medium">Subscription Cancelled</p>
                 <p className="text-slate-400 text-sm mt-1">
-                  Your access will remain active until <span className="text-white">{formatDate(displayExpiry)}</span>. After this date, your organization will be reverted to the Free plan.
+                  Your access will remain active until <span className="text-white">{formatDate(displayExpiry)}</span>. After this date, you will move to the free hobby plan and your team members will need a new subscription to continue access.
                 </p>
               </div>
             </div>

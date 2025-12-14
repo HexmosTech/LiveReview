@@ -14,6 +14,8 @@ type Subscription = {
     assigned_seats: number;
     status: string;
     payment_verified: boolean;
+    owner_email?: string;
+    owner_name?: string;
     last_payment_id?: string;
     last_payment_status?: string;
     last_payment_received_at?: string;
@@ -318,6 +320,17 @@ const LicenseAssignment: React.FC = () => {
                                 <p className="text-sm text-slate-400 mb-1">
                                     <span className="text-slate-500">ID:</span> <span className="font-mono text-slate-300">{subscription.razorpay_subscription_id}</span>
                                 </p>
+                                {(subscription.owner_name || subscription.owner_email) && (
+                                    <p className="text-sm text-slate-400">
+                                        <span className="text-slate-500">Created by:</span>{' '}
+                                        <span className="text-slate-300">
+                                            {subscription.owner_name || '—'}
+                                        </span>
+                                        {subscription.owner_email && (
+                                            <span className="text-slate-500"> ({subscription.owner_email})</span>
+                                        )}
+                                    </p>
+                                )}
                                 {subscription.last_payment_id && (
                                     <p className="text-sm text-slate-400 mt-1">
                                         Payment ID: <span className="font-mono text-slate-300">{subscription.last_payment_id}</span>

@@ -234,6 +234,8 @@ func (h *SubscriptionsHandler) GetSubscription(c echo.Context) error {
 		ID                     int64      `json:"id"`
 		RazorpaySubscriptionID string     `json:"razorpay_subscription_id"`
 		OwnerUserID            int        `json:"owner_user_id"`
+		OwnerEmail             string     `json:"owner_email"`
+		OwnerName              string     `json:"owner_name"`
 		OrgID                  int        `json:"org_id"`
 		PlanType               string     `json:"plan_type"`
 		Quantity               int        `json:"quantity"`
@@ -254,16 +256,19 @@ func (h *SubscriptionsHandler) GetSubscription(c echo.Context) error {
 	var sub SubscriptionResponse
 	err := h.db.QueryRow(`
 		SELECT 
-			id, razorpay_subscription_id, owner_user_id, org_id, plan_type,
-			quantity, 
+			s.id, s.razorpay_subscription_id, s.owner_user_id, s.org_id, s.plan_type,
+			s.quantity, 
 			COALESCE((SELECT COUNT(*) FROM user_roles ur WHERE ur.active_subscription_id = s.id AND ur.plan_type = 'team'), 0) as assigned_seats,
-			status, razorpay_plan_id,
-			current_period_start, current_period_end,
-			created_at, updated_at,
-			payment_verified, last_payment_id, last_payment_status,
-			cancel_at_period_end, short_url
+			s.status, s.razorpay_plan_id,
+			s.current_period_start, s.current_period_end,
+			s.created_at, s.updated_at,
+			s.payment_verified, s.last_payment_id, s.last_payment_status,
+			s.cancel_at_period_end, s.short_url,
+			u.email,
+			TRIM(CONCAT(COALESCE(u.first_name,''), ' ', COALESCE(u.last_name,''))) as owner_name
 		FROM subscriptions s
-		WHERE razorpay_subscription_id = $1
+		LEFT JOIN users u ON u.id = s.owner_user_id
+		WHERE s.razorpay_subscription_id = $1
 	`, subscriptionID).Scan(
 		&sub.ID, &sub.RazorpaySubscriptionID, &sub.OwnerUserID, &sub.OrgID, &sub.PlanType,
 		&sub.Quantity, &sub.AssignedSeats, &sub.Status, &sub.RazorpayPlanID,
@@ -271,6 +276,7 @@ func (h *SubscriptionsHandler) GetSubscription(c echo.Context) error {
 		&sub.CreatedAt, &sub.UpdatedAt,
 		&sub.PaymentVerified, &sub.LastPaymentID, &sub.LastPaymentStatus,
 		&sub.CancelAtPeriodEnd, &sub.ShortURL,
+		&sub.OwnerEmail, &sub.OwnerName,
 	)
 	if err != nil {
 		if err == sql.ErrNoRows {
