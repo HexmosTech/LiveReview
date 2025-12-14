@@ -242,15 +242,13 @@ module.exports =  (env, options)=> {
                             hoist_vars: true,
                             if_return: true,
                             join_vars: true,
-                            side_effects: false
+                            side_effects: true // Keep side effects to avoid breaking libraries like moment.js
                         },
                         mangle: {
-                            toplevel: true,
+                            toplevel: false, // Don't mangle top-level names to avoid breaking libraries
                             eval: true,
                             keep_fnames: false,
-                            properties: {
-                                regex: /^_/ // Mangle properties starting with underscore
-                            }
+                            properties: false, // Disable property mangling to prevent breaking moment.js and other libraries
                         },
                         format: {
                             comments: false,
