@@ -41,7 +41,8 @@ export const SubscriptionGuard: React.FC<SubscriptionGuardProps> = ({ children }
         const isFree = currentOrg.plan_type === 'free';
 
         // 2. Check Creator
-        const isCreator = currentOrg.created_by_user_id === currentUser.id;
+        // If created_by_user_id is missing (legacy payload), default to treating the user as creator to avoid false blocks
+        const isCreator = currentOrg.created_by_user_id === undefined || currentOrg.created_by_user_id === currentUser.id;
 
         // 3. Check Super Admin
         // Check if user has 'super_admin' role in ANY org

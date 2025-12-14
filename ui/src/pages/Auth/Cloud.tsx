@@ -137,6 +137,12 @@ const Cloud: React.FC = () => {
                             tokens: data.tokens,
                             organizations: data.organizations,
                         };
+                        
+                        // Populate Organizations store immediately to avoid extra API calls
+                        if (data.organizations && data.organizations.length > 0) {
+                            dispatch({ type: 'organizations/setOrganizationsFromAuth', payload: data.organizations });
+                        }
+                        
                         handleLoginSuccess(loginResponse, dispatch);
                         // Clean URL and navigate smoothly to dashboard
                         if (window.location.pathname !== '/') {
@@ -156,12 +162,6 @@ const Cloud: React.FC = () => {
 
     return (
         <div className="min-h-screen bg-gray-900 flex items-center justify-center relative">
-            <a
-                href="#/admin"
-                className="absolute bottom-4 right-4 text-xs text-gray-600 hover:text-gray-500 transition-colors"
-            >
-                Email Login
-            </a>
             <div className="max-w-md w-full bg-gray-800 p-8 rounded-lg shadow-lg">
                 <div className="text-center mb-8">
                     <img src="assets/logo-horizontal.svg" alt="LiveReview Logo" className="h-16 w-auto mx-auto" />

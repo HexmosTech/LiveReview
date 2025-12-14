@@ -60,6 +60,7 @@ type OrgInfo struct {
 	Role             string     `json:"role"` // super_admin, owner, member
 	PlanType         *string    `json:"plan_type,omitempty"`
 	LicenseExpiresAt *time.Time `json:"license_expires_at,omitempty"`
+	CreatedByUserID  *int64     `json:"created_by_user_id,omitempty"`
 }
 
 // RefreshRequest represents the token refresh request
@@ -548,7 +549,7 @@ func (h *AuthHandlers) CheckSetupStatus(c echo.Context) error {
 // Helper method to get user's organizations and roles
 func (h *AuthHandlers) getUserOrganizations(userID int64) ([]OrgInfo, error) {
 	rows, err := h.db.Query(`
-		SELECT o.id, o.name, r.name, ur.plan_type, ur.license_expires_at
+		SELECT o.id, o.name, r.name, ur.plan_type, ur.license_expires_at, o.created_by_user_id
 		FROM orgs o
 		JOIN user_roles ur ON o.id = ur.org_id
 		JOIN roles r ON ur.role_id = r.id
@@ -564,9 +565,13 @@ func (h *AuthHandlers) getUserOrganizations(userID int64) ([]OrgInfo, error) {
 	var organizations []OrgInfo
 	for rows.Next() {
 		var org OrgInfo
-		err := rows.Scan(&org.ID, &org.Name, &org.Role, &org.PlanType, &org.LicenseExpiresAt)
+		var createdBy sql.NullInt64
+		err := rows.Scan(&org.ID, &org.Name, &org.Role, &org.PlanType, &org.LicenseExpiresAt, &createdBy)
 		if err != nil {
 			return nil, err
+		}
+		if createdBy.Valid {
+			org.CreatedByUserID = &createdBy.Int64
 		}
 		organizations = append(organizations, org)
 	}
