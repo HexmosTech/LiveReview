@@ -24,6 +24,7 @@ import { logout, checkSetupStatus, fetchUser } from './store/Auth/reducer';
 import { fetchLicenseStatus, openModal as openLicenseModal, closeModal as closeLicenseModal } from './store/License/slice';
 import LicenseModal from './components/License/LicenseModal';
 import LicenseStatusBar from './components/License/LicenseStatusBar';
+import { isCloudMode } from './utils/deploymentMode';
 import { SubscriptionGuard } from './components/SubscriptionGuard';
 import { Toaster } from 'react-hot-toast';
 import UserForm from './components/UserManagement/UserForm';
@@ -183,7 +184,14 @@ const AppContent: React.FC = () => {
     };
 
     // Enforce license: open when status requires token, but ONLY after initial load to avoid flash
+    // License modal should NOT appear in cloud mode (only for self-hosted)
     useEffect(() => {
+        // Skip license modal entirely in cloud mode
+        if (isCloudMode()) {
+            dispatch(closeLicenseModal());
+            return;
+        }
+        
         if (!isAuthenticated) {
             dispatch(closeLicenseModal());
             return;
@@ -231,7 +239,7 @@ const AppContent: React.FC = () => {
                 {/* DemoModeBanner kept for compatibility; now mostly replaced by status bar badge */}
                 {/* <DemoModeBanner /> */}
                 <URLMismatchBanner />
-                <LicenseStatusBar onOpenModal={() => dispatch(openLicenseModal())} />
+                {!isCloudMode() && <LicenseStatusBar onOpenModal={() => dispatch(openLicenseModal())} />}
                 <div className="flex-grow">
                     <SubscriptionGuard>
                         <Routes>
@@ -257,7 +265,7 @@ const AppContent: React.FC = () => {
                     </SubscriptionGuard>
                 </div>
                 <Footer />
-                <LicenseModal open={licenseOpen} onClose={() => dispatch(closeLicenseModal())} strictMode={['missing', 'invalid', 'expired'].includes(licenseStatus)} />
+                {!isCloudMode() && <LicenseModal open={licenseOpen} onClose={() => dispatch(closeLicenseModal())} strictMode={['missing', 'invalid', 'expired'].includes(licenseStatus)} />}
             </div>
         );
     }
