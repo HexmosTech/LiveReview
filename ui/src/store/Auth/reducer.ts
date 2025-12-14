@@ -55,9 +55,15 @@ export const checkSetupStatus = createAsyncThunk(
 
 export const setupAdmin = createAsyncThunk(
   'auth/setupAdmin',
-  async (params: { email: string; password: string; orgName: string }, { rejectWithValue }) => {
+  async (params: { email: string; password: string; orgName: string }, { rejectWithValue, dispatch }) => {
     try {
       const response = await apiSetupAdmin(params.email, params.password, params.orgName);
+      
+      // Immediately populate Organizations store to avoid extra API call
+      if (response.organizations && response.organizations.length > 0) {
+        dispatch({ type: 'organizations/setOrganizationsFromAuth', payload: response.organizations });
+      }
+      
       return response;
     } catch (error) {
       return rejectWithValue((error as Error).message);
@@ -67,9 +73,15 @@ export const setupAdmin = createAsyncThunk(
 
 export const login = createAsyncThunk(
   'auth/login',
-  async (params: { email: string; password: string }, { rejectWithValue }) => {
+  async (params: { email: string; password: string }, { rejectWithValue, dispatch }) => {
     try {
       const response = await apiLogin(params.email, params.password);
+      
+      // Immediately populate Organizations store to avoid extra API call
+      if (response.organizations && response.organizations.length > 0) {
+        dispatch({ type: 'organizations/setOrganizationsFromAuth', payload: response.organizations });
+      }
+      
       return response;
     } catch (error) {
       return rejectWithValue((error as Error).message);
@@ -151,6 +163,12 @@ const authSlice = createSlice({
         state.refreshToken = action.payload.tokens.refresh_token;
         localStorage.setItem('accessToken', action.payload.tokens.access_token);
         localStorage.setItem('refreshToken', action.payload.tokens.refresh_token);
+        
+        // Set the first organization as current to avoid API calls without org context
+        if (action.payload.organizations && action.payload.organizations.length > 0) {
+          const firstOrg = action.payload.organizations[0];
+          localStorage.setItem('currentOrgId', firstOrg.id.toString());
+        }
       })
       .addCase(setupAdmin.rejected, (state, action) => {
         state.isLoading = false;
@@ -171,6 +189,12 @@ const authSlice = createSlice({
         state.refreshToken = action.payload.tokens.refresh_token;
         localStorage.setItem('accessToken', action.payload.tokens.access_token);
         localStorage.setItem('refreshToken', action.payload.tokens.refresh_token);
+        
+        // Set the first organization as current to avoid API calls without org context
+        if (action.payload.organizations && action.payload.organizations.length > 0) {
+          const firstOrg = action.payload.organizations[0];
+          localStorage.setItem('currentOrgId', firstOrg.id.toString());
+        }
       })
       .addCase(login.rejected, (state, action) => {
         state.isLoading = false;

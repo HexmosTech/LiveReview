@@ -143,6 +143,30 @@ const organizationsSlice = createSlice({
                 state.currentOrgId = parseInt(currentOrgId, 10);
             }
         },
+        setOrganizationsFromAuth(state, action: PayloadAction<Organization[]>) {
+            // Set organizations directly from auth response (avoid extra API call)
+            state.userOrganizations = action.payload;
+            
+            const orgs = action.payload;
+            if (orgs && orgs.length > 0) {
+                const storedOrgId = state.currentOrgId; // Use state's currentOrgId which was initialized from storage
+                let orgToSelect = storedOrgId ? orgs.find(o => o.id === storedOrgId) : undefined;
+
+                if (!orgToSelect) {
+                    orgToSelect = orgs[0];
+                }
+                
+                if (orgToSelect) {
+                    state.currentOrg = orgToSelect;
+                    state.currentOrgId = orgToSelect.id;
+                    localStorage.setItem('currentOrgId', orgToSelect.id.toString());
+                }
+            } else {
+                state.currentOrg = null;
+                state.currentOrgId = null;
+                localStorage.removeItem('currentOrgId');
+            }
+        },
     },
     extraReducers: (builder) => {
         builder
@@ -254,9 +278,33 @@ const organizationsSlice = createSlice({
             .addCase(logout.fulfilled, (state) => {
                 // Reset to initial state on logout
                 Object.assign(state, initialState);
-            });
+            })
+            // Listen for auth login/setupAdmin actions to populate organizations immediately
+            .addMatcher(
+                (action) => action.type === 'auth/login/fulfilled' || action.type === 'auth/setupAdmin/fulfilled',
+                (state, action: any) => {
+                    // Populate organizations from auth response
+                    if (action.payload?.organizations && action.payload.organizations.length > 0) {
+                        state.userOrganizations = action.payload.organizations;
+                        
+                        const orgs = action.payload.organizations;
+                        const storedOrgId = state.currentOrgId;
+                        let orgToSelect = storedOrgId ? orgs.find((o: Organization) => o.id === storedOrgId) : undefined;
+
+                        if (!orgToSelect) {
+                            orgToSelect = orgs[0];
+                        }
+                        
+                        if (orgToSelect) {
+                            state.currentOrg = orgToSelect;
+                            state.currentOrgId = orgToSelect.id;
+                            localStorage.setItem('currentOrgId', orgToSelect.id.toString());
+                        }
+                    }
+                }
+            );
     },
 });
 
-export const { setOrgSelectorOpen, clearError, initializeFromStorage } = organizationsSlice.actions;
+export const { setOrgSelectorOpen, clearError, initializeFromStorage, setOrganizationsFromAuth } = organizationsSlice.actions;
 export default organizationsSlice.reducer;

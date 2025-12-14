@@ -226,7 +226,13 @@ const AppContent: React.FC = () => {
     } else if (isSetupRequired) {
         body = <Setup />;
     } else if (!isAuthenticated) {
-        body = location.pathname === '/admin' ? <SelfHosted /> : <Login />;
+        // Allow email/admin login screen only when explicitly visiting /admin in cloud
+        // (needed for initial setup or troubleshooting); otherwise use cloud login.
+        if (isCloudMode() && location.pathname === '/admin') {
+            body = <SelfHosted />;
+        } else {
+            body = <Login />;
+        }
     } else {
         body = (
             <div className={`min-h-screen flex flex-col transition-opacity duration-200 ${uiReady ? 'opacity-100' : 'opacity-0'}`}>

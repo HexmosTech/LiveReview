@@ -137,7 +137,7 @@ type AuthMiddleware struct {
 func NewAuthMiddleware(tokenService *TokenService, db *sql.DB) *AuthMiddleware {
 	// Prepare statement for subscription plan lookups (performance optimization)
 	stmt, err := db.Prepare(`
-		SELECT ur.plan_type, ur.license_expires_at, (o.created_by_user_id = ur.user_id) as is_creator
+		SELECT ur.plan_type, ur.license_expires_at, COALESCE((o.created_by_user_id = ur.user_id), true) as is_creator
 		FROM user_roles ur
 		JOIN orgs o ON ur.org_id = o.id
 		WHERE ur.user_id = $1 AND ur.org_id = $2
@@ -198,7 +198,7 @@ func (am *AuthMiddleware) EnforceSubscriptionLimits() echo.MiddlewareFunc {
 			}
 
 			// Query user's plan in this specific org using prepared statement if available
-			var planType string
+			var planType sql.NullString
 			var licenseExpiresAt sql.NullTime
 			var isOrgCreator bool
 			var err error
@@ -208,7 +208,7 @@ func (am *AuthMiddleware) EnforceSubscriptionLimits() echo.MiddlewareFunc {
 			} else {
 				// Fallback to non-prepared query
 				err = am.db.QueryRow(`
-					SELECT ur.plan_type, ur.license_expires_at, (o.created_by_user_id = ur.user_id) as is_creator
+					SELECT ur.plan_type, ur.license_expires_at, COALESCE((o.created_by_user_id = ur.user_id), true) as is_creator
 					FROM user_roles ur
 					JOIN orgs o ON ur.org_id = o.id
 					WHERE ur.user_id = $1 AND ur.org_id = $2
@@ -219,11 +219,21 @@ func (am *AuthMiddleware) EnforceSubscriptionLimits() echo.MiddlewareFunc {
 				if err == sql.ErrNoRows {
 					return echo.NewHTTPError(http.StatusForbidden, "no access to this organization")
 				}
+				fmt.Printf("[Subscription] plan lookup failed user=%d org=%d err=%v\n", user.ID, orgID, err)
 				return echo.NewHTTPError(http.StatusInternalServerError, "failed to check subscription")
 			}
 
+			// Resolve plan type safely (NULL or empty -> free)
+			resolvedPlanType := "free"
+			if planType.Valid {
+				trimmedPlan := strings.TrimSpace(planType.String)
+				if trimmedPlan != "" {
+					resolvedPlanType = trimmedPlan
+				}
+			}
+
 			// STRICT ENFORCEMENT for Free/Hobby Plan
-			if planType == "free" && !isOrgCreator {
+			if resolvedPlanType == "free" && !isOrgCreator {
 				// Allow Super Admins to bypass this restriction
 				var isSuperAdmin bool
 				saErr := am.db.QueryRow(`
@@ -252,8 +262,8 @@ func (am *AuthMiddleware) EnforceSubscriptionLimits() echo.MiddlewareFunc {
 			}
 
 			// Set plan info in context for downstream handlers
-			c.Set("plan_type", planType)
-			if planType == "free" {
+			c.Set("plan_type", resolvedPlanType)
+			if resolvedPlanType == "free" {
 				dailyLimit := 3
 				c.Set("daily_review_limit", &dailyLimit)
 			} else {
