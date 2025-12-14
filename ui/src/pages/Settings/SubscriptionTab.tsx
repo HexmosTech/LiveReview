@@ -6,6 +6,7 @@ import { useAppSelector } from '../../store/configureStore';
 import { useOrgContext } from '../../hooks/useOrgContext';
 import LicenseManagement from '../Licenses/LicenseManagement';
 import { CancelSubscriptionModal } from '../../components/Subscriptions';
+import apiClient from '../../api/apiClient';
 
 const SubscriptionTab: React.FC = () => {
   const navigate = useNavigate();
@@ -74,6 +75,9 @@ const OverviewTab: React.FC<{ navigate: any }> = ({ navigate }) => {
   const { currentOrg } = useOrgContext();
   const [showCancelModal, setShowCancelModal] = useState(false);
   const [subscriptionId, setSubscriptionId] = useState<string | null>(null);
+  const [pendingCancel, setPendingCancel] = useState(false);
+  const [status, setStatus] = useState<string>('');
+  const [displayExpiry, setDisplayExpiry] = useState<string | null>(null);
   
   // Read plan from current org (org-scoped), not from Auth.user
   const planType = currentOrg?.plan_type || 'free';
@@ -81,30 +85,27 @@ const OverviewTab: React.FC<{ navigate: any }> = ({ navigate }) => {
   const isTeamPlan = planType === 'team';
   const isFree = planType === 'free';
 
-  // Fetch subscription ID if user has team plan
+  // Fetch current subscription (org-scoped)
   useEffect(() => {
     if (isTeamPlan && currentOrg?.id) {
-      // Fetch subscription details to get subscription ID
-      fetch('/api/v1/subscriptions', {
-        headers: {
-          'X-Org-Context': currentOrg.id.toString(),
-        },
-      })
-        .then(res => res.json())
-        .then(data => {
-          if (data.subscriptions && data.subscriptions.length > 0) {
-            // Get the active subscription for this org
-            const activeSub = data.subscriptions.find((sub: any) => 
-              sub.status === 'active' && sub.org_id === currentOrg.id
-            );
-            if (activeSub) {
-              setSubscriptionId(activeSub.razorpay_subscription_id);
-            }
+      apiClient
+        .get('/subscriptions/current', {
+          headers: {
+            'X-Org-Context': currentOrg.id.toString(),
+          },
+        })
+        .then((data: any) => {
+          if (data) {
+            setSubscriptionId(data.subscription_id || null);
+            setPendingCancel(Boolean(data.cancel_at_period_end));
+            setStatus(data.status || '');
+            const expirySrc = data.cancel_at_period_end ? data.current_period_end : data.license_expires_at;
+            setDisplayExpiry(expirySrc || licenseExpiresAt || null);
           }
         })
-        .catch(err => console.error('Failed to fetch subscriptions:', err));
+        .catch(err => console.error('Failed to fetch current subscription:', err));
     }
-  }, [isTeamPlan, currentOrg?.id]);
+  }, [isTeamPlan, currentOrg?.id, licenseExpiresAt]);
 
   const handleCancelSuccess = () => {
     // Reload the page to reflect updated subscription status
@@ -118,7 +119,7 @@ const OverviewTab: React.FC<{ navigate: any }> = ({ navigate }) => {
   };
 
   const getPlanDisplayName = (plan: string) => {
-    if (plan === 'team') return 'Team Plan';
+    if (plan === 'team' || plan.includes('team')) return 'Team Plan';
     return 'Free Plan';
   };
 
@@ -141,18 +142,36 @@ const OverviewTab: React.FC<{ navigate: any }> = ({ navigate }) => {
             <p className="text-sm text-slate-400 mt-1">{getPlanDisplayName(planType)}</p>
           </div>
           <div className={`px-4 py-2 rounded-lg text-sm font-medium ${
-            isTeamPlan 
-              ? 'bg-blue-900/40 text-blue-300' 
+            pendingCancel
+              ? 'bg-amber-500/10 text-amber-400 border border-amber-500/40'
+              : isTeamPlan
+              ? 'bg-blue-900/40 text-blue-300'
               : 'bg-emerald-900/40 text-emerald-300'
           }`}>
-            Active
+            {pendingCancel ? 'PENDING EXPIRY' : (status || 'Active').toUpperCase()}
           </div>
         </div>
 
-        {isTeamPlan && licenseExpiresAt && (
+        {pendingCancel && displayExpiry && (
+          <div className="mb-4 p-3 bg-slate-700/50 border border-slate-600 rounded-lg">
+            <div className="flex items-start gap-3">
+              <svg className="w-5 h-5 text-slate-400 mt-0.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+              </svg>
+              <div>
+                <p className="text-slate-300 text-sm font-medium">Subscription Cancelled</p>
+                <p className="text-slate-400 text-sm mt-1">
+                  Your access will remain active until <span className="text-white">{formatDate(displayExpiry)}</span>. After this date, your organization will be reverted to the Free plan.
+                </p>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {isTeamPlan && (displayExpiry || licenseExpiresAt) && (
           <div className="mb-4 p-3 bg-slate-900/60 border border-slate-700 rounded-lg">
             <div className="text-slate-400 text-xs mb-1">License Expires</div>
-            <div className="text-white font-medium">{formatDate(licenseExpiresAt)}</div>
+            <div className="text-white font-medium">{formatDate(displayExpiry || licenseExpiresAt)}</div>
           </div>
         )}
 
@@ -225,7 +244,7 @@ const OverviewTab: React.FC<{ navigate: any }> = ({ navigate }) => {
         <div className="bg-gradient-to-r from-blue-900/40 to-purple-900/40 border border-blue-700/50 rounded-lg p-6">
           <div className="flex items-center justify-between mb-2">
             <h3 className="text-md font-semibold text-white">Team Plan Benefits</h3>
-            {subscriptionId && (
+            {subscriptionId && !pendingCancel && (
               <button
                 onClick={() => setShowCancelModal(true)}
                 className="px-3 py-1.5 text-xs font-medium text-red-300 bg-red-900/40 hover:bg-red-900/60 border border-red-500/30 hover:border-red-500/50 rounded-lg transition-colors"

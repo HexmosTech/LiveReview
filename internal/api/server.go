@@ -626,6 +626,7 @@ func (s *Server) setupRoutes() {
 	subscriptionsGroup.POST("", subscriptionsHandler.CreateSubscription)
 	subscriptionsGroup.POST("/confirm-purchase", subscriptionsHandler.ConfirmPurchase)
 	subscriptionsGroup.GET("/:id", subscriptionsHandler.GetSubscription)
+	subscriptionsGroup.GET("/current", subscriptionsHandler.GetCurrentSubscription)
 	subscriptionsGroup.PATCH("/:id/quantity", subscriptionsHandler.UpdateQuantity)
 	subscriptionsGroup.POST("/:id/cancel", subscriptionsHandler.CancelSubscription)
 	subscriptionsGroup.POST("/:id/assign", subscriptionsHandler.AssignLicense)
