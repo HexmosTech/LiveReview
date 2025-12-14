@@ -12,6 +12,7 @@ import (
 	"github.com/livereview/internal/config"
 	"github.com/livereview/internal/logging"
 	reviewpkg "github.com/livereview/internal/review"
+	"github.com/livereview/pkg/models"
 )
 
 // ReviewService encapsulates the review orchestration logic
@@ -54,9 +55,91 @@ func NewReviewService(cfg *config.Config) *ReviewService {
 	}
 }
 
+// checkDailyReviewLimit verifies if the user has exceeded their daily review limit (free plan only)
+func (s *Server) checkDailyReviewLimit(c echo.Context) error {
+	// Get daily review limit from context (set by EnforceSubscriptionLimits middleware)
+	dailyLimitPtr, ok := c.Get("daily_review_limit").(*int)
+	if !ok || dailyLimitPtr == nil {
+		// No limit (team plan) or not set - allow review
+		return nil
+	}
+	dailyLimit := *dailyLimitPtr
+
+	// Get org_id and user from context
+	orgID, ok := c.Get("org_id").(int64)
+	if !ok {
+		return c.JSON(http.StatusBadRequest, map[string]interface{}{
+			"error": "organization context required",
+		})
+	}
+
+	user, ok := c.Get("user").(*models.User)
+	if !ok || user == nil {
+		return c.JSON(http.StatusUnauthorized, map[string]interface{}{
+			"error": "user authentication required",
+		})
+	}
+
+	// Check if user is org creator (only org creator can trigger reviews on free plan)
+	var isOrgCreator bool
+	err := s.db.QueryRow(`
+		SELECT (o.created_by_user_id = $1) as is_creator
+		FROM orgs o
+		WHERE o.id = $2
+	`, user.ID, orgID).Scan(&isOrgCreator)
+	if err != nil {
+		log.Printf("[ERROR] Failed to check org creator status: %v", err)
+		return c.JSON(http.StatusInternalServerError, map[string]interface{}{
+			"error": "failed to verify permissions",
+		})
+	}
+
+	if !isOrgCreator {
+		return c.JSON(http.StatusPaymentRequired, map[string]interface{}{
+			"code":    "NOT_ORG_CREATOR",
+			"error":   "Only the organization creator can trigger reviews on the free plan",
+			"message": "Upgrade to Team plan to allow all members to trigger reviews",
+		})
+	}
+
+	// Count reviews created today by this user in this org
+	var reviewsToday int
+	err = s.db.QueryRow(`
+		SELECT COUNT(*)
+		FROM reviews
+		WHERE org_id = $1
+		  AND user_email = $2
+		  AND created_at >= CURRENT_DATE
+	`, orgID, user.Email).Scan(&reviewsToday)
+	if err != nil {
+		log.Printf("[ERROR] Failed to count daily reviews: %v", err)
+		return c.JSON(http.StatusInternalServerError, map[string]interface{}{
+			"error": "failed to check review quota",
+		})
+	}
+
+	if reviewsToday >= dailyLimit {
+		return c.JSON(http.StatusPaymentRequired, map[string]interface{}{
+			"code":    "DAILY_LIMIT_EXCEEDED",
+			"error":   fmt.Sprintf("Daily review limit exceeded (%d/%d)", reviewsToday, dailyLimit),
+			"message": "You've reached your daily limit of 3 reviews. Upgrade to Team plan for unlimited reviews.",
+			"limit":   dailyLimit,
+			"used":    reviewsToday,
+		})
+	}
+
+	log.Printf("[DEBUG] Daily review check passed: %d/%d reviews used", reviewsToday, dailyLimit)
+	return nil
+}
+
 // TriggerReviewV2 handles the request to trigger a code review using the new decoupled architecture
 func (s *Server) TriggerReviewV2(c echo.Context) error {
 	log.Printf("[DEBUG] TriggerReviewV2: Starting review request handling")
+
+	// Check daily review limit for free plan users BEFORE creating any DB records
+	if err := s.checkDailyReviewLimit(c); err != nil {
+		return err // Already formatted as JSON response
+	}
 
 	// Phase 1: Setup review context (org_id, parse request, create DB record, init logger)
 	ctx, err := s.setupReviewContext(c)

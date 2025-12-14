@@ -141,6 +141,30 @@ export const UserManagement: React.FC<UserManagementProps> = ({
                 )}
             </div>
 
+            {/* Free Plan Info Banner */}
+            {!isSuperAdminView && currentOrg?.plan_type === 'free' && (
+                <div className="bg-blue-900/20 border border-blue-500/30 rounded-lg p-4">
+                    <div className="flex items-start">
+                        <svg className="w-5 h-5 text-blue-400 mr-3 mt-0.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                        </svg>
+                        <div className="flex-1">
+                            <h3 className="text-blue-200 font-semibold mb-1">Free Plan Limitations</h3>
+                            <p className="text-blue-100/80 text-sm mb-2">
+                                You can add members to your organization, but on the Free plan only the organization creator has access. 
+                                Added members won't be able to access reviews or trigger new reviews.
+                            </p>
+                            <p className="text-blue-100/80 text-sm">
+                                <Link to="/subscribe" className="text-blue-300 hover:text-blue-200 underline font-medium">
+                                    Upgrade to Team Plan
+                                </Link>
+                                {' '}to give all team members full access with unlimited reviews.
+                            </p>
+                        </div>
+                    </div>
+                </div>
+            )}
+
             {/* Access Control Messages */}
             {!isSuperAdminView && !canManageCurrentOrg && (
                 <div className="bg-yellow-900/20 border border-yellow-600/30 rounded-lg p-4">

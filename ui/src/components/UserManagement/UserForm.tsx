@@ -9,6 +9,7 @@ import { createOrgUser, fetchOrgUser, updateOrgUser, Member } from '../../api/us
 import { Button, Input, Select } from '../UIPrimitives';
 import { useAppDispatch } from '../../store/configureStore';
 import { loadUserOrganizations } from '../../store/Organizations/reducer';
+import { UpgradePromptModal } from '../Subscriptions';
 
 const baseSchema = z.object({
   email: z.string().email({ message: 'Invalid email address' }),
@@ -56,6 +57,7 @@ const UserForm: React.FC = () => {
 
   const [user, setUser] = useState<Member | null>(null);
   const [loading, setLoading] = useState(false);
+  const [showUpgradeModal, setShowUpgradeModal] = useState(false);
 
   const {
     register,
@@ -148,6 +150,12 @@ const UserForm: React.FC = () => {
           password: data.password,
         });
         toast.success(`User ${newUser.email} created successfully!`);
+        
+        // Show upgrade prompt if on free plan
+        if (currentOrg?.plan_type === 'free') {
+          setShowUpgradeModal(true);
+          return; // Don't navigate yet, let user see modal
+        }
       }
       navigate('/settings#users');
     } catch (error) {
@@ -248,6 +256,16 @@ const UserForm: React.FC = () => {
           </div>
         </form>
       </div>
+
+      {/* Upgrade Modal */}
+      <UpgradePromptModal
+        isOpen={showUpgradeModal}
+        onClose={() => {
+          setShowUpgradeModal(false);
+          navigate('/settings#users');
+        }}
+        reason="MEMBER_ACTIVATION"
+      />
     </div>
   );
 };
