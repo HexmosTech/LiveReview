@@ -77,6 +77,7 @@ const OverviewTab: React.FC<{ navigate: any }> = ({ navigate }) => {
   const [subscriptionId, setSubscriptionId] = useState<string | null>(null);
   const [pendingCancel, setPendingCancel] = useState(false);
   const [status, setStatus] = useState<string>('');
+  const [statusLoading, setStatusLoading] = useState(false);
   const [displayExpiry, setDisplayExpiry] = useState<string | null>(null);
   
   // Read plan from current org (org-scoped), not from Auth.user
@@ -88,6 +89,9 @@ const OverviewTab: React.FC<{ navigate: any }> = ({ navigate }) => {
   // Fetch current subscription (org-scoped)
   useEffect(() => {
     if (isTeamPlan && currentOrg?.id) {
+      setStatusLoading(true);
+      setPendingCancel(false);
+      setStatus('');
       apiClient
         .get('/subscriptions/current', {
           headers: {
@@ -103,7 +107,10 @@ const OverviewTab: React.FC<{ navigate: any }> = ({ navigate }) => {
             setDisplayExpiry(expirySrc || licenseExpiresAt || null);
           }
         })
-        .catch(err => console.error('Failed to fetch current subscription:', err));
+        .catch(err => console.error('Failed to fetch current subscription:', err))
+        .finally(() => setStatusLoading(false));
+    } else {
+      setStatusLoading(false);
     }
   }, [isTeamPlan, currentOrg?.id, licenseExpiresAt]);
 
@@ -145,11 +152,18 @@ const OverviewTab: React.FC<{ navigate: any }> = ({ navigate }) => {
             <div className={`px-4 py-2 rounded-lg text-sm font-medium ${
               pendingCancel
                 ? 'bg-amber-500/10 text-amber-400 border border-amber-500/40'
+                : statusLoading
+                ? 'bg-slate-700 text-slate-300 border border-slate-600'
                 : isTeamPlan
                 ? 'bg-blue-900/40 text-blue-300'
                 : 'bg-emerald-900/40 text-emerald-300'
             }`}>
-              {pendingCancel ? 'PENDING EXPIRY' : (status || 'Active').toUpperCase()}
+              {statusLoading ? (
+                <span className="flex items-center gap-2">
+                  <span className="inline-block w-3 h-3 border-2 border-slate-500 border-t-transparent rounded-full animate-spin" aria-label="Loading status" />
+                  Loading...
+                </span>
+              ) : pendingCancel ? 'PENDING EXPIRY' : (status || 'Active').toUpperCase()}
             </div>
             {subscriptionId && (isSuperAdmin || currentOrg?.role === 'owner') && (
               <button
