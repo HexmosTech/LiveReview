@@ -458,6 +458,115 @@ func (h *SubscriptionsHandler) RevokeLicense(c echo.Context) error {
 	})
 }
 
+// GetCurrentSubscription returns the active subscription for the requesting user/org context
+func (h *SubscriptionsHandler) GetCurrentSubscription(c echo.Context) error {
+	// Auth user
+	user := auth.GetUser(c)
+	if user == nil {
+		return c.JSON(http.StatusUnauthorized, map[string]string{"error": "authentication required"})
+	}
+
+	// Org context (set by middleware)
+	orgIDVal := c.Get("org_id")
+	var orgID int64
+	switch v := orgIDVal.(type) {
+	case int64:
+		orgID = v
+	case int:
+		orgID = int64(v)
+	default:
+		return c.JSON(http.StatusBadRequest, map[string]string{"error": "organization context required"})
+	}
+
+	if orgID == 0 {
+		return c.JSON(http.StatusBadRequest, map[string]string{"error": "organization context required"})
+	}
+
+	// Fetch user's active subscription id and plan for this org
+	var planType sql.NullString
+	var licenseExpiresAt sql.NullTime
+	var activeSubID sql.NullInt64
+	err := h.db.QueryRow(`
+		SELECT ur.plan_type, ur.license_expires_at, ur.active_subscription_id
+		FROM user_roles ur
+		WHERE ur.user_id = $1 AND ur.org_id = $2
+		LIMIT 1
+	`, user.ID, orgID).Scan(&planType, &licenseExpiresAt, &activeSubID)
+
+	if err == sql.ErrNoRows {
+		return c.JSON(http.StatusOK, map[string]interface{}{
+			"plan_type":            "free",
+			"status":               "free",
+			"cancel_at_period_end": false,
+			"subscription":         nil,
+		})
+	}
+	if err != nil {
+		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "failed to fetch user role"})
+	}
+
+	// If no active subscription, treat as free
+	if !activeSubID.Valid {
+		return c.JSON(http.StatusOK, map[string]interface{}{
+			"plan_type":            "free",
+			"status":               "free",
+			"cancel_at_period_end": false,
+			"subscription":         nil,
+		})
+	}
+
+	// Load subscription details
+	var sub struct {
+		ID                int64
+		RZPID             string
+		Status            string
+		CancelAtPeriodEnd bool
+		CurrentPeriodEnd  *time.Time
+		LicenseExpiresAt  *time.Time
+		PlanType          string
+		Quantity          int
+		AssignedSeats     int
+		ShortURL          *string
+	}
+
+	err = h.db.QueryRow(`
+		SELECT s.id, s.razorpay_subscription_id, s.status, s.cancel_at_period_end,
+		       s.current_period_end, s.license_expires_at, s.plan_type, s.quantity,
+		       COALESCE((SELECT COUNT(*) FROM user_roles ur WHERE ur.active_subscription_id = s.id AND ur.plan_type = 'team'), 0) as assigned_seats,
+		       s.short_url
+		FROM subscriptions s
+		WHERE s.id = $1 AND s.org_id = $2
+	`, activeSubID.Int64, orgID).Scan(
+		&sub.ID, &sub.RZPID, &sub.Status, &sub.CancelAtPeriodEnd,
+		&sub.CurrentPeriodEnd, &sub.LicenseExpiresAt, &sub.PlanType, &sub.Quantity,
+		&sub.AssignedSeats, &sub.ShortURL,
+	)
+	if err == sql.ErrNoRows {
+		// Subscription reference missing, treat as free
+		return c.JSON(http.StatusOK, map[string]interface{}{
+			"plan_type":            "free",
+			"status":               "free",
+			"cancel_at_period_end": false,
+			"subscription":         nil,
+		})
+	}
+	if err != nil {
+		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "failed to load subscription"})
+	}
+
+	return c.JSON(http.StatusOK, map[string]interface{}{
+		"plan_type":            sub.PlanType,
+		"status":               sub.Status,
+		"cancel_at_period_end": sub.CancelAtPeriodEnd,
+		"current_period_end":   sub.CurrentPeriodEnd,
+		"license_expires_at":   sub.LicenseExpiresAt,
+		"subscription_id":      sub.RZPID,
+		"quantity":             sub.Quantity,
+		"assigned_seats":       sub.AssignedSeats,
+		"short_url":            sub.ShortURL,
+	})
+}
+
 // ListUserSubscriptions lists all subscriptions owned by the authenticated user
 func (h *SubscriptionsHandler) ListUserSubscriptions(c echo.Context) error {
 	// Get authenticated user
