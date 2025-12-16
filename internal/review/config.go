@@ -69,7 +69,7 @@ func (cs *ConfigurationService) buildAIConfig() (AIConfig, error) {
 
 	// Set defaults if not specified
 	if model == "" {
-		model = "gemini-2.0-flash"
+		model = "gemini-2.5-flash"
 	}
 	if temperature == 0 {
 		temperature = 0.4
@@ -89,7 +89,7 @@ func DefaultReviewConfig() Config {
 	return Config{
 		ReviewTimeout: 10 * time.Minute,
 		DefaultAI:     "langchain",
-		DefaultModel:  "gemini-2.0-flash",
+		DefaultModel:  "gemini-2.5-flash",
 		Temperature:   0.4,
 	}
 }
