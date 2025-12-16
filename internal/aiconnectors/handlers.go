@@ -237,6 +237,7 @@ func GetProviderModels(provider Provider) []string {
 		}
 	case ProviderGemini:
 		return []string{
+			"gemini-2.5-flash",
 			"gemini-2.0-flash",
 			"gemini-1.5-pro",
 			"gemini-1.5-flash",
@@ -274,7 +275,7 @@ func GetDefaultModel(provider Provider) string {
 	case ProviderOpenAI:
 		return "gpt-4"
 	case ProviderGemini:
-		return "gemini-2.0-flash"
+		return "gemini-1.5-flash"
 	case ProviderClaude:
 		return "claude-3-sonnet-20240229"
 	case ProviderCohere:

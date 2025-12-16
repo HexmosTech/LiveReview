@@ -125,8 +125,8 @@ func ValidateAPIKey(ctx context.Context, provider Provider, apiKey string, baseU
 	case ProviderOpenAI:
 		options.ModelConfig.Model = "gpt-3.5-turbo"
 	case ProviderGemini:
-		options.ModelConfig.Model = "gemini-2.0-flash"
-		log.Debug().Msg("Using Gemini 2.0 Flash model for validation")
+		options.ModelConfig.Model = "gemini-2.5-flash"
+		log.Debug().Msg("Using Gemini 2.5 Flash model for validation")
 	case ProviderClaude:
 		options.ModelConfig.Model = "claude-3-sonnet-20240229"
 	case ProviderCohere:
@@ -186,6 +186,13 @@ func ValidateAPIKey(ctx context.Context, provider Provider, apiKey string, baseU
 			Str("error_type", fmt.Sprintf("%T", err)).
 			Str("full_error", fmt.Sprintf("%+v", err)).
 			Msg("API key validation failed with error")
+
+		// Check if error is quota-related (contains "429" or "quota")
+		errStr := err.Error()
+		if contains(errStr, "429") || contains(errStr, "quota") || contains(errStr, "Quota exceeded") {
+			return false, fmt.Errorf("quota exceeded - this typically means the API key is valid but has reached its rate limit: %w", err)
+		}
+
 		return false, nil // API key is invalid, but don't return an error
 	}
 
@@ -328,4 +335,19 @@ func min(a, b int) int {
 		return a
 	}
 	return b
+}
+
+// Helper function to check if string contains substring (case-insensitive)
+func contains(s, substr string) bool {
+	return len(s) >= len(substr) && (s == substr || len(substr) == 0 ||
+		(len(s) > 0 && len(substr) > 0 && stringContains(s, substr)))
+}
+
+func stringContains(s, substr string) bool {
+	for i := 0; i <= len(s)-len(substr); i++ {
+		if s[i:i+len(substr)] == substr {
+			return true
+		}
+	}
+	return false
 }
