@@ -29,29 +29,30 @@ def get_daily_stats():
     conn = get_db_connection()
     cursor = conn.cursor()
     
-    today = datetime.date.today()
+    # Report on yesterday's activity
+    yesterday = datetime.date.today() - datetime.timedelta(days=1)
     
-    # 1. How many new AI connectors today
-    cursor.execute("SELECT COUNT(*) FROM ai_connectors WHERE DATE(created_at) = %s", (today,))
+    # 1. How many new AI connectors yesterday
+    cursor.execute("SELECT COUNT(*) FROM ai_connectors WHERE DATE(created_at) = %s", (yesterday,))
     ai_connectors_count = cursor.fetchone()[0]
     
-    # 2. How many new git connectors today (assuming integration_tokens for git connectors)
-    cursor.execute("SELECT COUNT(*) FROM integration_tokens WHERE DATE(created_at) = %s", (today,))
+    # 2. How many new git connectors yesterday (assuming integration_tokens for git connectors)
+    cursor.execute("SELECT COUNT(*) FROM integration_tokens WHERE DATE(created_at) = %s", (yesterday,))
     git_connectors_count = cursor.fetchone()[0]
     
-    # 3. How many reviews created today
-    cursor.execute("SELECT COUNT(*) FROM reviews WHERE DATE(created_at) = %s", (today,))
+    # 3. How many reviews created yesterday
+    cursor.execute("SELECT COUNT(*) FROM reviews WHERE DATE(created_at) = %s", (yesterday,))
     reviews_count = cursor.fetchone()[0]
 
-    # 4. How many new users created today
-    cursor.execute("SELECT COUNT(*) FROM users WHERE DATE(created_at) = %s", (today,))
+    # 4. How many new users created yesterday
+    cursor.execute("SELECT COUNT(*) FROM users WHERE DATE(created_at) = %s", (yesterday,))
     new_users_count = cursor.fetchone()[0]
     
     cursor.close()
     conn.close()
     
     return {
-        "date": today,
+        "date": yesterday,
         "new_ai_connectors": ai_connectors_count,
         "new_git_connectors": git_connectors_count,
         "reviews_created": reviews_count,
