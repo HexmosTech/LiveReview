@@ -267,6 +267,40 @@ func (rm *ReviewManager) UpdateReviewMetadata(reviewID int64, update ReviewMetad
 	return nil
 }
 
+// MergeReviewMetadata merges the provided fields into the existing metadata JSON.
+// Existing keys are overwritten with the provided values, while other keys are preserved.
+func (rm *ReviewManager) MergeReviewMetadata(reviewID int64, updates map[string]interface{}) error {
+	if len(updates) == 0 {
+		return nil
+	}
+
+	var currentJSON []byte
+	if err := rm.db.QueryRow(`SELECT COALESCE(metadata, '{}') FROM reviews WHERE id = $1`, reviewID).Scan(&currentJSON); err != nil {
+		return fmt.Errorf("failed to load review metadata: %w", err)
+	}
+
+	existing := map[string]interface{}{}
+	if len(currentJSON) > 0 {
+		// Ignore errors and fall back to empty map on malformed JSON
+		_ = json.Unmarshal(currentJSON, &existing)
+	}
+
+	for k, v := range updates {
+		existing[k] = v
+	}
+
+	merged, err := json.Marshal(existing)
+	if err != nil {
+		return fmt.Errorf("failed to marshal merged metadata: %w", err)
+	}
+
+	if _, err := rm.db.Exec(`UPDATE reviews SET metadata = $1 WHERE id = $2`, merged, reviewID); err != nil {
+		return fmt.Errorf("failed to update review metadata: %w", err)
+	}
+
+	return nil
+}
+
 // AddAIComment adds an AI comment to a review
 func (rm *ReviewManager) AddAIComment(reviewID int64, commentType string, content map[string]interface{}, filePath *string, lineNumber *int, orgID int64) (*AIComment, error) {
 	contentJSON, err := json.Marshal(content)

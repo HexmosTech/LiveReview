@@ -42,10 +42,11 @@ type Config struct {
 
 // ReviewRequest contains all the information needed to perform a review
 type ReviewRequest struct {
-	URL      string
-	ReviewID string
-	Provider ProviderConfig
-	AI       AIConfig
+	URL              string
+	ReviewID         string
+	Provider         ProviderConfig
+	AI               AIConfig
+	PreloadedChanges []*models.CodeDiff
 }
 
 // ProviderConfig contains provider-specific configuration
@@ -137,23 +138,30 @@ func (s *Service) ProcessReview(ctx context.Context, request ReviewRequest) *Rev
 	reviewCtx, cancel := context.WithTimeout(ctx, s.config.ReviewTimeout)
 	defer cancel()
 
-	// Step 1: Create provider
-	if s.logger != nil {
-		s.logger.LogSection("PROVIDER CREATION")
-		s.logger.Log("Creating %s provider...", request.Provider.Type)
-	}
-	provider, err := s.providers.CreateProvider(reviewCtx, request.Provider)
-	if err != nil {
+	// Step 1: Create provider unless preloaded changes are supplied
+	var provider providers.Provider
+	if request.PreloadedChanges == nil {
 		if s.logger != nil {
-			s.logger.LogError("Provider creation failed", err)
-			s.logger.EmitStageError("Preparation", err)
+			s.logger.LogSection("PROVIDER CREATION")
+			s.logger.Log("Creating %s provider...", request.Provider.Type)
 		}
-		result.Error = fmt.Errorf("failed to create provider: %w", err)
-		result.Duration = time.Since(start)
-		return result
-	}
-	if s.logger != nil {
-		s.logger.Log("✓ %s provider created successfully", request.Provider.Type)
+		var err error
+		provider, err = s.providers.CreateProvider(reviewCtx, request.Provider)
+		if err != nil {
+			if s.logger != nil {
+				s.logger.LogError("Provider creation failed", err)
+				s.logger.EmitStageError("Preparation", err)
+			}
+			result.Error = fmt.Errorf("failed to create provider: %w", err)
+			result.Duration = time.Since(start)
+			return result
+		}
+		if s.logger != nil {
+			s.logger.Log("✓ %s provider created successfully", request.Provider.Type)
+		}
+	} else if s.logger != nil {
+		s.logger.LogSection("PROVIDER CREATION")
+		s.logger.Log("Skipping provider creation: using preloaded changes")
 	}
 
 	// Step 2: Create AI provider
@@ -182,7 +190,7 @@ func (s *Service) ProcessReview(ctx context.Context, request ReviewRequest) *Rev
 		s.logger.EmitStageStarted("Analysis")
 		s.logger.Log("Executing review workflow...")
 	}
-	reviewData, err := s.executeReviewWorkflow(reviewCtx, provider, aiProvider, request.URL)
+	reviewData, err := s.executeReviewWorkflow(reviewCtx, provider, aiProvider, request)
 	if err != nil {
 		if s.logger != nil {
 			s.logger.LogError("Review workflow execution failed", err)
@@ -199,67 +207,81 @@ func (s *Service) ProcessReview(ctx context.Context, request ReviewRequest) *Rev
 	}
 
 	// Step 4: Post results (Artifact Generation stage)
-	if s.logger != nil {
-		s.logger.LogSection("RESULTS POSTING")
-		s.logger.EmitStageStarted("Artifact Generation")
-		s.logger.Log("Posting review results...")
-		s.logger.Log("  MR ID: %s", reviewData.MRDetails.ID)
-		s.logger.Log("  MR Title: %s", reviewData.MRDetails.Title)
-		s.logger.Log("  Provider type: %s", reviewData.MRDetails.ProviderType)
-	}
+	if request.Provider.Type == "cli" {
+		if s.logger != nil {
+			s.logger.LogSection("RESULTS POSTING")
+			s.logger.EmitStageStarted("Artifact Generation")
+			s.logger.Log("Skipping external provider posting for CLI diffs")
+			s.logger.EmitStageCompleted("Artifact Generation", "Results stored for CLI diff review")
+		}
+	} else {
+		if s.logger != nil {
+			s.logger.LogSection("RESULTS POSTING")
+			s.logger.EmitStageStarted("Artifact Generation")
+			s.logger.Log("Posting review results...")
+			s.logger.Log("  MR ID: %s", reviewData.MRDetails.ID)
+			s.logger.Log("  MR Title: %s", reviewData.MRDetails.Title)
+			s.logger.Log("  Provider type: %s", reviewData.MRDetails.ProviderType)
+		}
 
-	// For GitHub, we need to convert the MR ID to owner/repo/number format for posting comments
-	postingID := reviewData.MRDetails.ID
-	if reviewData.MRDetails.ProviderType == "github" {
-		if s.logger != nil {
-			s.logger.Log("Converting GitHub MR ID for comment posting...")
-		}
-		u, err := neturl.Parse(reviewData.MRDetails.URL)
-		if err == nil {
-			parts := strings.Split(u.Path, "/")
-			if len(parts) >= 5 && parts[3] == "pull" {
-				owner := parts[1]
-				repo := parts[2]
-				number := parts[4]
-				postingID = owner + "/" + repo + "/" + number
-				if s.logger != nil {
-					s.logger.Log("✓ GitHub posting ID: %s", postingID)
+		// For GitHub, we need to convert the MR ID to owner/repo/number format for posting comments
+		postingID := reviewData.MRDetails.ID
+		if reviewData.MRDetails.ProviderType == "github" {
+			if s.logger != nil {
+				s.logger.Log("Converting GitHub MR ID for comment posting...")
+			}
+			u, err := neturl.Parse(reviewData.MRDetails.URL)
+			if err == nil {
+				parts := strings.Split(u.Path, "/")
+				if len(parts) >= 5 && parts[3] == "pull" {
+					owner := parts[1]
+					repo := parts[2]
+					number := parts[4]
+					postingID = owner + "/" + repo + "/" + number
+					if s.logger != nil {
+						s.logger.Log("✓ GitHub posting ID: %s", postingID)
+					}
+					log.Printf("[DEBUG] GitHub: Using posting ID '%s' for comments", postingID)
 				}
-				log.Printf("[DEBUG] GitHub: Using posting ID '%s' for comments", postingID)
+			}
+		} else if reviewData.MRDetails.ProviderType == "bitbucket" {
+			if s.logger != nil {
+				s.logger.Log("Converting Bitbucket MR ID for comment posting...")
+			}
+			u, err := neturl.Parse(reviewData.MRDetails.URL)
+			if err == nil {
+				parts := strings.Split(u.Path, "/")
+				if len(parts) >= 5 && parts[3] == "pull-requests" {
+					workspace := parts[1]
+					repo := parts[2]
+					number := parts[4]
+					postingID = workspace + "/" + repo + "/" + number
+					if s.logger != nil {
+						s.logger.Log("✓ Bitbucket posting ID: %s", postingID)
+					}
+					log.Printf("[DEBUG] Bitbucket: Using posting ID '%s' for comments", postingID)
+				}
 			}
 		}
-	} else if reviewData.MRDetails.ProviderType == "bitbucket" {
-		if s.logger != nil {
-			s.logger.Log("Converting Bitbucket MR ID for comment posting...")
+		if provider == nil {
+			result.Error = fmt.Errorf("provider is nil; cannot post results")
+			result.Duration = time.Since(start)
+			return result
 		}
-		u, err := neturl.Parse(reviewData.MRDetails.URL)
-		if err == nil {
-			parts := strings.Split(u.Path, "/")
-			if len(parts) >= 5 && parts[3] == "pull-requests" {
-				workspace := parts[1]
-				repo := parts[2]
-				number := parts[4]
-				postingID = workspace + "/" + repo + "/" + number
-				if s.logger != nil {
-					s.logger.Log("✓ Bitbucket posting ID: %s", postingID)
-				}
-				log.Printf("[DEBUG] Bitbucket: Using posting ID '%s' for comments", postingID)
+		err = s.postReviewResults(reviewCtx, provider, postingID, reviewData.Result)
+		if err != nil {
+			if s.logger != nil {
+				s.logger.LogError("Failed to post results", err)
+				s.logger.EmitStageError("Artifact Generation", err)
 			}
+			result.Error = fmt.Errorf("failed to post results: %w", err)
+			result.Duration = time.Since(start)
+			return result
 		}
-	}
-	err = s.postReviewResults(reviewCtx, provider, postingID, reviewData.Result)
-	if err != nil {
 		if s.logger != nil {
-			s.logger.LogError("Failed to post results", err)
-			s.logger.EmitStageError("Artifact Generation", err)
+			s.logger.Log("✓ Results posted successfully")
+			s.logger.EmitStageCompleted("Artifact Generation", fmt.Sprintf("Posted %d comments to merge request", len(reviewData.Result.Comments)))
 		}
-		result.Error = fmt.Errorf("failed to post results: %w", err)
-		result.Duration = time.Since(start)
-		return result
-	}
-	if s.logger != nil {
-		s.logger.Log("✓ Results posted successfully")
-		s.logger.EmitStageCompleted("Artifact Generation", fmt.Sprintf("Posted %d comments to merge request", len(reviewData.Result.Comments)))
 	}
 
 	// Step 5: Finalization
@@ -296,126 +318,148 @@ func (s *Service) executeReviewWorkflow(
 	ctx context.Context,
 	provider providers.Provider,
 	aiProvider ai.Provider,
-	url string,
+	request ReviewRequest,
 ) (*ReviewWorkflowResult, error) {
 
-	// Get MR details
-	if s.logger != nil {
-		s.logger.LogSection("MERGE REQUEST DETAILS")
-		s.logger.Log("Fetching merge request details for URL: %s", url)
-	}
-	log.Printf("[DEBUG] Fetching merge request details for URL: %s", url)
-	mrDetails, err := provider.GetMergeRequestDetails(ctx, url)
-	if err != nil {
-		if s.logger != nil {
-			s.logger.LogError("Failed to get merge request details", err)
-		}
-		return nil, fmt.Errorf("failed to get merge request details: %w", err)
-	}
-	if s.logger != nil {
-		s.logger.Log("✓ MR details retrieved successfully")
-		s.logger.Log("  ID: %s", mrDetails.ID)
-		s.logger.Log("  Title: %s", mrDetails.Title)
-		s.logger.Log("  Provider: %s", mrDetails.ProviderType)
-		s.logger.Log("  URL: %s", mrDetails.URL)
-	}
-	log.Printf("[DEBUG] Retrieved MR details successfully. ID: %s, Title: %s", mrDetails.ID, mrDetails.Title)
+	var mrDetails *providers.MergeRequestDetails
+	var changes []*models.CodeDiff
 
-	// Get MR changes
-	if s.logger != nil {
-		s.logger.LogSection("CODE CHANGES RETRIEVAL")
-		s.logger.Log("Fetching merge request changes for MR ID: %s", mrDetails.ID)
-	}
-	log.Printf("[DEBUG] Fetching merge request changes for MR ID: %s", mrDetails.ID)
-	// For GitHub, pass owner/repo/number as PR ID
-	prID := mrDetails.ID
-	if mrDetails.ProviderType == "github" {
+	if request.PreloadedChanges != nil {
 		if s.logger != nil {
-			s.logger.Log("Converting GitHub URL for changes API...")
+			s.logger.LogSection("PRELOADED CHANGES")
+			s.logger.Log("Using %d preloaded code diffs", len(request.PreloadedChanges))
 		}
-		// Robustly parse owner, repo, number from MR URL
-		// Example: https://github.com/owner/repo/pull/123
-		u, err := neturl.Parse(mrDetails.URL)
-		if err == nil {
-			parts := strings.Split(u.Path, "/")
-			if len(parts) >= 5 && parts[3] == "pull" {
-				owner := parts[1]
-				repo := parts[2]
-				number := parts[4]
-				prID = owner + "/" + repo + "/" + number
-				if s.logger != nil {
-					s.logger.Log("✓ GitHub PR ID: %s", prID)
+		m := &providers.MergeRequestDetails{
+			ID:           request.ReviewID,
+			Title:        "CLI Diff Review",
+			ProviderType: request.Provider.Type,
+			URL:          request.URL,
+		}
+		mrDetails = m
+		changes = request.PreloadedChanges
+	} else {
+		if provider == nil {
+			return nil, fmt.Errorf("provider is required when preloaded changes are not supplied")
+		}
+		// Get MR details
+		if s.logger != nil {
+			s.logger.LogSection("MERGE REQUEST DETAILS")
+			s.logger.Log("Fetching merge request details for URL: %s", request.URL)
+		}
+		log.Printf("[DEBUG] Fetching merge request details for URL: %s", request.URL)
+		var err error
+		mrDetails, err = provider.GetMergeRequestDetails(ctx, request.URL)
+		if err != nil {
+			if s.logger != nil {
+				s.logger.LogError("Failed to get merge request details", err)
+			}
+			return nil, fmt.Errorf("failed to get merge request details: %w", err)
+		}
+		if s.logger != nil {
+			s.logger.Log("✓ MR details retrieved successfully")
+			s.logger.Log("  ID: %s", mrDetails.ID)
+			s.logger.Log("  Title: %s", mrDetails.Title)
+			s.logger.Log("  Provider: %s", mrDetails.ProviderType)
+			s.logger.Log("  URL: %s", mrDetails.URL)
+		}
+		log.Printf("[DEBUG] Retrieved MR details successfully. ID: %s, Title: %s", mrDetails.ID, mrDetails.Title)
+
+		// Get MR changes
+		if s.logger != nil {
+			s.logger.LogSection("CODE CHANGES RETRIEVAL")
+			s.logger.Log("Fetching merge request changes for MR ID: %s", mrDetails.ID)
+		}
+		log.Printf("[DEBUG] Fetching merge request changes for MR ID: %s", mrDetails.ID)
+		// For GitHub, pass owner/repo/number as PR ID
+		prID := mrDetails.ID
+		if mrDetails.ProviderType == "github" {
+			if s.logger != nil {
+				s.logger.Log("Converting GitHub URL for changes API...")
+			}
+			// Robustly parse owner, repo, number from MR URL
+			// Example: https://github.com/owner/repo/pull/123
+			u, err := neturl.Parse(mrDetails.URL)
+			if err == nil {
+				parts := strings.Split(u.Path, "/")
+				if len(parts) >= 5 && parts[3] == "pull" {
+					owner := parts[1]
+					repo := parts[2]
+					number := parts[4]
+					prID = owner + "/" + repo + "/" + number
+					if s.logger != nil {
+						s.logger.Log("✓ GitHub PR ID: %s", prID)
+					}
+					log.Printf("[DEBUG] GitHub: Converted MR ID from '%s' to '%s'", mrDetails.ID, prID)
+				} else {
+					if s.logger != nil {
+						s.logger.Log("⚠ Failed to parse GitHub URL parts (len=%d)", len(parts))
+					}
+					log.Printf("[DEBUG] GitHub: Failed to parse URL parts, len=%d, parts=%v", len(parts), parts)
 				}
-				log.Printf("[DEBUG] GitHub: Converted MR ID from '%s' to '%s'", mrDetails.ID, prID)
 			} else {
 				if s.logger != nil {
-					s.logger.Log("⚠ Failed to parse GitHub URL parts (len=%d)", len(parts))
+					s.logger.LogError("Failed to parse GitHub URL", err)
 				}
-				log.Printf("[DEBUG] GitHub: Failed to parse URL parts, len=%d, parts=%v", len(parts), parts)
+				log.Printf("[DEBUG] GitHub: Failed to parse URL: %v", err)
 			}
-		} else {
+		} else if mrDetails.ProviderType == "bitbucket" {
 			if s.logger != nil {
-				s.logger.LogError("Failed to parse GitHub URL", err)
+				s.logger.Log("Converting Bitbucket URL for changes API...")
 			}
-			log.Printf("[DEBUG] GitHub: Failed to parse URL: %v", err)
-		}
-	} else if mrDetails.ProviderType == "bitbucket" {
-		if s.logger != nil {
-			s.logger.Log("Converting Bitbucket URL for changes API...")
-		}
-		// Robustly parse workspace, repo, number from MR URL
-		// Example: https://bitbucket.org/workspace/repository/pull-requests/123
-		u, err := neturl.Parse(mrDetails.URL)
-		if err == nil {
-			parts := strings.Split(u.Path, "/")
-			if len(parts) >= 5 && parts[3] == "pull-requests" {
-				workspace := parts[1]
-				repo := parts[2]
-				number := parts[4]
-				prID = workspace + "/" + repo + "/" + number
-				if s.logger != nil {
-					s.logger.Log("✓ Bitbucket PR ID: %s", prID)
+			// Robustly parse workspace, repo, number from MR URL
+			// Example: https://bitbucket.org/workspace/repository/pull-requests/123
+			u, err := neturl.Parse(mrDetails.URL)
+			if err == nil {
+				parts := strings.Split(u.Path, "/")
+				if len(parts) >= 5 && parts[3] == "pull-requests" {
+					workspace := parts[1]
+					repo := parts[2]
+					number := parts[4]
+					prID = workspace + "/" + repo + "/" + number
+					if s.logger != nil {
+						s.logger.Log("✓ Bitbucket PR ID: %s", prID)
+					}
+					log.Printf("[DEBUG] Bitbucket: Converted MR ID from '%s' to '%s'", mrDetails.ID, prID)
+				} else {
+					if s.logger != nil {
+						s.logger.Log("⚠ Failed to parse Bitbucket URL parts (len=%d)", len(parts))
+					}
+					log.Printf("[DEBUG] Bitbucket: Failed to parse URL parts, len=%d, parts=%v", len(parts), parts)
 				}
-				log.Printf("[DEBUG] Bitbucket: Converted MR ID from '%s' to '%s'", mrDetails.ID, prID)
 			} else {
 				if s.logger != nil {
-					s.logger.Log("⚠ Failed to parse Bitbucket URL parts (len=%d)", len(parts))
+					s.logger.LogError("Failed to parse Bitbucket URL", err)
 				}
-				log.Printf("[DEBUG] Bitbucket: Failed to parse URL parts, len=%d, parts=%v", len(parts), parts)
+				log.Printf("[DEBUG] Bitbucket: Failed to parse URL: %v", err)
 			}
-		} else {
-			if s.logger != nil {
-				s.logger.LogError("Failed to parse Bitbucket URL", err)
-			}
-			log.Printf("[DEBUG] Bitbucket: Failed to parse URL: %v", err)
 		}
-	}
-	if s.logger != nil {
-		s.logger.Log("Using PR ID for changes API: %s", prID)
-	}
-	log.Printf("[DEBUG] Using PR ID for GetMergeRequestChanges: %s", prID)
-	changes, err := provider.GetMergeRequestChanges(ctx, prID)
-	if err != nil {
 		if s.logger != nil {
-			s.logger.LogError("Failed to get code changes", err)
-			s.logger.EmitStageError("Analysis", err)
+			s.logger.Log("Using PR ID for changes API: %s", prID)
 		}
-		return nil, fmt.Errorf("failed to get code changes: %w", err)
-	}
-	if s.logger != nil {
-		s.logger.Log("✓ Retrieved %d changed files", len(changes))
-		for i, change := range changes {
-			hunkCount := len(change.Hunks)
-			totalLines := 0
-			for _, hunk := range change.Hunks {
-				totalLines += len(strings.Split(hunk.Content, "\n"))
+		log.Printf("[DEBUG] Using PR ID for GetMergeRequestChanges: %s", prID)
+		changes, err = provider.GetMergeRequestChanges(ctx, prID)
+		if err != nil {
+			if s.logger != nil {
+				s.logger.LogError("Failed to get code changes", err)
+				s.logger.EmitStageError("Analysis", err)
 			}
-			s.logger.Log("  File %d: %s (%d hunks, ~%d lines)", i+1, change.FilePath, hunkCount, totalLines)
+			return nil, fmt.Errorf("failed to get code changes: %w", err)
 		}
-	}
-	log.Printf("[DEBUG] Retrieved %d changed files", len(changes))
-	if s.logger != nil {
-		s.logger.EmitStageCompleted("Analysis", fmt.Sprintf("Retrieved %d changed files from merge request", len(changes)))
+		if s.logger != nil {
+			s.logger.Log("✓ Retrieved %d changed files", len(changes))
+			for i, change := range changes {
+				hunkCount := len(change.Hunks)
+				totalLines := 0
+				for _, hunk := range change.Hunks {
+					totalLines += len(strings.Split(hunk.Content, "\n"))
+				}
+				s.logger.Log("  File %d: %s (%d hunks, ~%d lines)", i+1, change.FilePath, hunkCount, totalLines)
+			}
+		}
+		log.Printf("[DEBUG] Retrieved %d changed files", len(changes))
+		if s.logger != nil {
+			s.logger.EmitStageCompleted("Analysis", fmt.Sprintf("Retrieved %d changed files from merge request", len(changes)))
+		}
 	}
 
 	// Check if there are no changes to review

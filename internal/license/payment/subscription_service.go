@@ -12,8 +12,8 @@ import (
 // Razorpay Plan IDs - these should be set after creating plans in Razorpay
 // Run: go test -v ./internal/license/payment -run TestSetupPlans
 var (
-	TeamMonthlyPlanID = "plan_RnY4EmRoj5bsRl"
-	TeamYearlyPlanID  = "plan_RnY4FSDAPXQhRa"
+	TeamMonthlyPlanID = "plan_Rt80PrSij8WMsd"
+	TeamYearlyPlanID  = "plan_Rt80QMx4ZD5wmZ"
 )
 
 // SubscriptionService handles business logic for subscriptions, wrapping the payment package
