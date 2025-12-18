@@ -358,6 +358,10 @@ func (s *Server) setupRoutes() {
 	public.GET("/auth/setup-status", s.authHandlers.CheckSetupStatus)
 	public.POST("/auth/setup", s.authHandlers.SetupAdmin)
 
+	// Diff review endpoints (public, guarded by bypass key inside handler)
+	public.POST("/diff-review", s.DiffReview)
+	public.GET("/diff-review/:review_id", s.GetDiffReviewStatus)
+
 	// System info endpoints (public)
 	public.GET("/system/info", s.getSystemInfo)
 	public.GET("/ui-config", s.getUIConfig)
