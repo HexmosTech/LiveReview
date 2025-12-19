@@ -61,25 +61,33 @@ Create `/api/v1/diff-review` that bypasses auth, accepts base64-encoded diff ZIP
 
 - Expected HTTP codes: 200 on accepted/processing/completed, 401 on bad key, 400 on malformed payload.
 
-3) **Implement `lrc` CLI (new binary under `cmd/lrc`)**
+3) ✅ **Implement `lrc` CLI (new binary under `cmd/lrc`)**
 - Flags: `--repo-name` (default cwd basename), `--diff-source` (staged|working|range|file), `--range` (for range mode), `--diff-file`, `--api-url`, `--api-key`, `--poll-interval`, `--timeout`, `--output` (json|pretty), `--verbose`.
 - Flow: collect diff → zip+base64 → POST → poll → render → exit non-zero on HTTP/contract failures or review status `failed`.
 - Dependencies: reuse existing diff parser structs if needed for rendering; avoid server imports where possible.
-- Implementation: place CLI code in [lrc/lrc.go](lrc/lrc.go), using `github.com/urfave/cli/v2` for argument parsing (consistent with existing binaries).
+- Implementation: placed CLI code in [cmd/lrc/main.go](cmd/lrc/main.go), using `github.com/urfave/cli/v2` for argument parsing (consistent with existing binaries).
 
-4) **Handler-level unit test (no DB)**
-- Add a test that stubs ReviewManager methods (create, update status, merge metadata, get) to assert:
+4) ✅ **Handler-level unit test (no DB)**
+- Added tests that stub ReviewManager methods (create, update status, merge metadata, get) to assert:
 	- `preloaded_changes` stored on POST.
 	- `review_result` stored on completion path.
 	- Correct status responses for processing/completed.
+- Tests in [internal/api/diff_review_test.go](internal/api/diff_review_test.go).
 
-5) **Key model, configurability, and security**
-- Shift from single global bypass key to per-user personal keys managed in the UI (settings page): generate/label/revoke keys, show last-used timestamp for audit.
-- Server: accept keys tied to user role/identity; store hashed key + metadata; log usage per key; optionally scope to org or repo name pattern.
-- Client: `lrc` accepts `--api-key` (or env `LRC_API_KEY`); no hardcoded global key. Request/response stay the same.
-- Add doc note that keys are revocable and usage is tracked for accountability; recommend scoping keys per developer machine.
+5) ✅ **Key model, configurability, and security**
+- Shifted from single global bypass key to per-user personal API keys.
+- Database schema: [db/migrations/20251219135906_create_api_keys_table.sql](db/migrations/20251219135906_create_api_keys_table.sql)
+- Server implementation:
+	- API key generation/hashing/validation: [internal/api/api_keys.go](internal/api/api_keys.go)
+	- CRUD endpoints: [internal/api/api_key_handlers.go](internal/api/api_key_handlers.go)
+	- Middleware for authentication: `APIKeyAuthMiddleware` validates keys and sets user/org context
+	- Keys are SHA-256 hashed, include prefix for display, track last-used timestamp
+	- Scoped to user and organization, support expiration and revocation
+- Updated [internal/api/diff_review.go](internal/api/diff_review.go) to use API key auth from middleware context instead of bypass key
+- Updated [internal/api/server.go](internal/api/server.go) to register API key routes under org context and protect diff-review endpoints with API key middleware
+- Client: `lrc` accepts `--api-key` (or env `LRC_API_KEY`). Request/response structure unchanged.
 
-6) **Optional polish**
-- Add `make lrc` target to build the CLI.
-- Add a short README snippet in `cmd/lrc` mirroring the doc flow.
-- Consider a `--no-poll` mode that just returns `review_id` for external orchestration.
+6) ✅ **Optional polish**
+- Added `make lrc` target to build the CLI in [Makefile](Makefile).
+- Added comprehensive README in [cmd/lrc/README.md](cmd/lrc/README.md) with usage examples, flag documentation, and troubleshooting.
+- Future enhancement: Consider a `--no-poll` mode that just returns `review_id` for external orchestration.

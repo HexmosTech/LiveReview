@@ -21,8 +21,6 @@ import (
 	"github.com/livereview/pkg/models"
 )
 
-const diffReviewBypassKey = "lr-internal-2024"
-
 // diffReviewRequest models the incoming POST payload for diff reviews.
 type diffReviewRequest struct {
 	DiffZipBase64 string `json:"diff_zip_base64"`
@@ -37,9 +35,9 @@ type diffReviewResult struct {
 
 // DiffReview accepts a base64-encoded ZIP containing a unified diff and triggers a review.
 func (s *Server) DiffReview(c echo.Context) error {
-	if err := ensureBypassKey(c); err != nil {
-		return err
-	}
+	// API key authentication is handled by middleware
+	// Extract user and org context from middleware
+	orgID := c.Get("org_id").(int64)
 
 	var req diffReviewRequest
 	if err := c.Bind(&req); err != nil {
@@ -61,7 +59,7 @@ func (s *Server) DiffReview(c echo.Context) error {
 	}
 
 	rm := NewReviewManager(s.db)
-	reviewRecord, err := rm.CreateReviewWithOrg(repoName, "", "", "", "cli_diff", "", "cli", nil, map[string]interface{}{"source": "diff-review"}, 1)
+	reviewRecord, err := rm.CreateReviewWithOrg(repoName, "", "", "", "cli_diff", "", "cli", nil, map[string]interface{}{"source": "diff-review"}, orgID)
 	if err != nil {
 		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "failed to create review record"})
 	}
@@ -72,7 +70,7 @@ func (s *Server) DiffReview(c echo.Context) error {
 		log.Printf("[WARN] failed to store preloaded_changes for review %d: %v", reviewRecord.ID, err)
 	}
 
-	aiConfig, err := s.getAIConfigFromDatabase(context.Background(), 1)
+	aiConfig, err := s.getAIConfigFromDatabase(context.Background(), orgID)
 	if err != nil {
 		return c.JSON(http.StatusInternalServerError, map[string]string{"error": fmt.Sprintf("failed to load AI config: %v", err)})
 	}
@@ -95,9 +93,7 @@ func (s *Server) DiffReview(c echo.Context) error {
 
 // GetDiffReviewStatus returns processing status or completed results for a diff review.
 func (s *Server) GetDiffReviewStatus(c echo.Context) error {
-	if err := ensureBypassKey(c); err != nil {
-		return err
-	}
+	// API key authentication is handled by middleware
 
 	reviewIDStr := c.Param("review_id")
 	reviewID, err := strconv.ParseInt(reviewIDStr, 10, 64)
@@ -167,13 +163,6 @@ func (s *Server) runDiffReview(request review.ReviewRequest, rm *ReviewManager, 
 	if err := rm.MergeReviewMetadata(reviewID, map[string]interface{}{"review_result": payload}); err != nil {
 		log.Printf("[WARN] failed to persist review_result for %d: %v", reviewID, err)
 	}
-}
-
-func ensureBypassKey(c echo.Context) error {
-	if c.Request().Header.Get("X-Bypass-Key") != diffReviewBypassKey {
-		return c.JSON(http.StatusUnauthorized, map[string]string{"error": "unauthorized"})
-	}
-	return nil
 }
 
 // parseDiffZipBase64 decodes the client payload (base64 zip containing a unified diff)

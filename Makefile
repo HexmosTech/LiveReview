@@ -15,6 +15,9 @@ build:
 	rm $(BINARY_NAME) || true
 	$(GOBUILD) -o $(BINARY_NAME)
 
+lrc:
+	$(GOBUILD) -o lrc ./cmd/lrc
+
 # Vendor prompts: encrypt plaintext templates and generate embedded assets
 # Usage examples:
 #   make vendor-prompts-encrypt                       # default output dir

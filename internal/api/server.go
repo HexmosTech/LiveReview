@@ -358,9 +358,11 @@ func (s *Server) setupRoutes() {
 	public.GET("/auth/setup-status", s.authHandlers.CheckSetupStatus)
 	public.POST("/auth/setup", s.authHandlers.SetupAdmin)
 
-	// Diff review endpoints (public, guarded by bypass key inside handler)
-	public.POST("/diff-review", s.DiffReview)
-	public.GET("/diff-review/:review_id", s.GetDiffReviewStatus)
+	// Diff review endpoints (protected by API key middleware)
+	diffReviewGroup := v1.Group("/diff-review")
+	diffReviewGroup.Use(APIKeyAuthMiddleware(s.db))
+	diffReviewGroup.POST("", s.DiffReview)
+	diffReviewGroup.GET("/:review_id", s.GetDiffReviewStatus)
 
 	// System info endpoints (public)
 	public.GET("/system/info", s.getSystemInfo)
@@ -441,6 +443,12 @@ func (s *Server) setupRoutes() {
 	orgGroup.PUT("/members/:user_id/role", s.orgHandlers.ChangeUserRole)
 	orgGroup.GET("/analytics", s.orgHandlers.GetOrganizationAnalytics)
 	orgGroup.PUT("", s.orgHandlers.UpdateOrganization) // Update org details (owners only)
+
+	// API key management within org context
+	orgGroup.POST("/api-keys", s.CreateAPIKeyHandler)
+	orgGroup.GET("/api-keys", s.ListAPIKeysHandler)
+	orgGroup.POST("/api-keys/:id/revoke", s.RevokeAPIKeyHandler)
+	orgGroup.DELETE("/api-keys/:id", s.DeleteAPIKeyHandler)
 
 	// Organization creation - available to all authenticated users
 	protectedOrgsGroup.POST("/organizations", s.orgHandlers.CreateOrganization)
