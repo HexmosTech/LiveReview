@@ -1,4 +1,4 @@
-\restrict 8O0p9BPDxvUlMMPhEDWCsHbk8MQRdPEZqWX91siCBaDFxpTUo973y6lVeRIg5Ld
+\restrict s10NMNwXWU4NsIX9UxmaV4JfnHZF96CD3nF0iOFcn87Ikj8uaY8f7VEJvkrEUwK
 
 -- Dumped from database version 15.14 (Debian 15.14-1.pgdg13+1)
 -- Dumped by pg_dump version 15.14 (Ubuntu 15.14-1.pgdg22.04+1)
@@ -168,6 +168,87 @@ CREATE SEQUENCE public.ai_connectors_id_seq
 --
 
 ALTER SEQUENCE public.ai_connectors_id_seq OWNED BY public.ai_connectors.id;
+
+
+--
+-- Name: api_keys; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.api_keys (
+    id bigint NOT NULL,
+    user_id bigint NOT NULL,
+    org_id bigint NOT NULL,
+    key_hash character varying(128) NOT NULL,
+    key_prefix character varying(16) NOT NULL,
+    label character varying(255) NOT NULL,
+    scopes jsonb DEFAULT '[]'::jsonb,
+    last_used_at timestamp without time zone,
+    created_at timestamp without time zone DEFAULT now() NOT NULL,
+    expires_at timestamp without time zone,
+    revoked_at timestamp without time zone,
+    CONSTRAINT valid_expiry CHECK (((expires_at IS NULL) OR (expires_at > created_at)))
+);
+
+
+--
+-- Name: TABLE api_keys; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON TABLE public.api_keys IS 'Personal API keys for programmatic access';
+
+
+--
+-- Name: COLUMN api_keys.key_hash; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.api_keys.key_hash IS 'SHA-256 hash of the API key';
+
+
+--
+-- Name: COLUMN api_keys.key_prefix; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.api_keys.key_prefix IS 'First 8 chars of the key for display purposes';
+
+
+--
+-- Name: COLUMN api_keys.label; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.api_keys.label IS 'User-provided label for the key';
+
+
+--
+-- Name: COLUMN api_keys.scopes; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.api_keys.scopes IS 'JSON array of scope strings (e.g., ["read", "write"])';
+
+
+--
+-- Name: COLUMN api_keys.last_used_at; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.api_keys.last_used_at IS 'Timestamp of last successful authentication';
+
+
+--
+-- Name: api_keys_id_seq; Type: SEQUENCE; Schema: public; Owner: -
+--
+
+CREATE SEQUENCE public.api_keys_id_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+
+--
+-- Name: api_keys_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: -
+--
+
+ALTER SEQUENCE public.api_keys_id_seq OWNED BY public.api_keys.id;
 
 
 --
@@ -1183,6 +1264,13 @@ ALTER TABLE ONLY public.ai_connectors ALTER COLUMN id SET DEFAULT nextval('publi
 
 
 --
+-- Name: api_keys id; Type: DEFAULT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.api_keys ALTER COLUMN id SET DEFAULT nextval('public.api_keys_id_seq'::regclass);
+
+
+--
 -- Name: auth_tokens id; Type: DEFAULT; Schema: public; Owner: -
 --
 
@@ -1322,6 +1410,22 @@ ALTER TABLE ONLY public.ai_comments
 
 ALTER TABLE ONLY public.ai_connectors
     ADD CONSTRAINT ai_connectors_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: api_keys api_keys_key_hash_key; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.api_keys
+    ADD CONSTRAINT api_keys_key_hash_key UNIQUE (key_hash);
+
+
+--
+-- Name: api_keys api_keys_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.api_keys
+    ADD CONSTRAINT api_keys_pkey PRIMARY KEY (id);
 
 
 --
@@ -1680,6 +1784,34 @@ CREATE INDEX idx_ai_connectors_org_provider ON public.ai_connectors USING btree 
 --
 
 CREATE INDEX idx_ai_connectors_provider_name ON public.ai_connectors USING btree (provider_name);
+
+
+--
+-- Name: idx_api_keys_key_hash; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_api_keys_key_hash ON public.api_keys USING btree (key_hash);
+
+
+--
+-- Name: idx_api_keys_key_prefix; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_api_keys_key_prefix ON public.api_keys USING btree (key_prefix);
+
+
+--
+-- Name: idx_api_keys_org_id; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_api_keys_org_id ON public.api_keys USING btree (org_id);
+
+
+--
+-- Name: idx_api_keys_user_id; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_api_keys_user_id ON public.api_keys USING btree (user_id);
 
 
 --
@@ -2379,6 +2511,22 @@ ALTER TABLE ONLY public.ai_connectors
 
 
 --
+-- Name: api_keys api_keys_org_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.api_keys
+    ADD CONSTRAINT api_keys_org_id_fkey FOREIGN KEY (org_id) REFERENCES public.orgs(id) ON DELETE CASCADE;
+
+
+--
+-- Name: api_keys api_keys_user_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.api_keys
+    ADD CONSTRAINT api_keys_user_id_fkey FOREIGN KEY (user_id) REFERENCES public.users(id) ON DELETE CASCADE;
+
+
+--
 -- Name: auth_tokens auth_tokens_user_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -2686,7 +2834,7 @@ ALTER TABLE ONLY public.webhook_registry
 -- PostgreSQL database dump complete
 --
 
-\unrestrict 8O0p9BPDxvUlMMPhEDWCsHbk8MQRdPEZqWX91siCBaDFxpTUo973y6lVeRIg5Ld
+\unrestrict s10NMNwXWU4NsIX9UxmaV4JfnHZF96CD3nF0iOFcn87Ikj8uaY8f7VEJvkrEUwK
 
 
 --
@@ -2735,4 +2883,5 @@ INSERT INTO public.schema_migrations (version) VALUES
     ('20251209'),
     ('20251213101233'),
     ('20251213103152'),
-    ('20251213144431');
+    ('20251213144431'),
+    ('20251219135906');
