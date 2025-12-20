@@ -38,9 +38,10 @@ PLATFORMS = [
 
 # B2 configuration (hardcoded for hexmos/lrc)
 B2_API_BASE = "https://api.backblazeb2.com"
-B2_KEY_ID = "K005Gg5MFEAwe4Q9V0sftIN4SyIKa/U"
-B2_APP_KEY = "K005Gg5MFEAwe4Q9V0sftIN4SyIKa/U"  # Application key
+B2_KEY_ID = "00536b4c5851afd0000000005"  # Application Key ID
+B2_APP_KEY = "K005Gg5MFEAwe4Q9V0sftIN4SyIKa/U"  # Application Key (secret)
 B2_BUCKET_NAME = "hexmos"
+B2_BUCKET_ID = "33d6ab74ac456875919a0f1d"  # Bucket ID (key has write access to lrc/ folder only)
 B2_UPLOAD_PATH_PREFIX = "lrc"  # Files go to hexmos/lrc/<version>/
 
 
@@ -347,11 +348,24 @@ class LRCBuilder:
         """
         self.log("Starting B2 upload...", force=True)
         
-        # Authorize with hardcoded credentials
-        auth_data = self.authorize_b2(B2_APP_KEY)
+        # Get application key (from environment or hardcoded value)
+        app_key = os.environ.get("B2_APP_KEY") or B2_APP_KEY
+        if not app_key:
+            print("Error: B2_APP_KEY not set")
+            print("Either set environment variable: export B2_APP_KEY=your_secret_key")
+            print("Or update B2_APP_KEY in scripts/lrc_build.py")
+            sys.exit(1)
         
-        # Find bucket ID by name
-        bucket_id = self.find_bucket_id(auth_data, B2_BUCKET_NAME)
+        # Authorize with credentials
+        auth_data = self.authorize_b2(app_key)
+        
+        # Use hardcoded bucket ID (key doesn't have listBuckets permission)
+        bucket_id = B2_BUCKET_ID
+        if not bucket_id:
+            print("Error: B2_BUCKET_ID not set in scripts/lrc_build.py")
+            sys.exit(1)
+        
+        self.log(f"Using bucket ID: {bucket_id}")
         
         # Upload each platform's files (binary + SHA256SUMS)
         for binary_path, platform_dir in files:
