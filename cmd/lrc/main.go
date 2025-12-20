@@ -22,6 +22,13 @@ import (
 	"github.com/urfave/cli/v2"
 )
 
+// Version information (set via ldflags during build)
+var (
+	version   = "development"
+	buildTime = "unknown"
+	gitCommit = "unknown"
+)
+
 // diffReviewRequest models the POST payload to /api/v1/diff-review
 type diffReviewRequest struct {
 	DiffZipBase64 string `json:"diff_zip_base64"`
@@ -58,8 +65,9 @@ type diffReviewComment struct {
 
 func main() {
 	app := &cli.App{
-		Name:  "lrc",
-		Usage: "LiveReview CLI - submit local diffs for AI review",
+		Name:    "lrc",
+		Usage:   "LiveReview CLI - submit local diffs for AI review",
+		Version: version,
 		Flags: []cli.Flag{
 			&cli.StringFlag{
 				Name:    "repo-name",
@@ -147,6 +155,18 @@ func main() {
 				Aliases: []string{"v"},
 				Usage:   "enable verbose output",
 				EnvVars: []string{"LRC_VERBOSE"},
+			},
+		},
+		Commands: []*cli.Command{
+			{
+				Name:  "version",
+				Usage: "Show version information",
+				Action: func(c *cli.Context) error {
+					fmt.Printf("lrc version %s\n", version)
+					fmt.Printf("  Build time: %s\n", buildTime)
+					fmt.Printf("  Git commit: %s\n", gitCommit)
+					return nil
+				},
 			},
 		},
 		Action: runReview,
