@@ -62,10 +62,11 @@ Create `/api/v1/diff-review` that bypasses auth, accepts base64-encoded diff ZIP
 - Expected HTTP codes: 200 on accepted/processing/completed, 401 on bad key, 400 on malformed payload.
 
 3) ✅ **Implement `lrc` CLI (new binary under `cmd/lrc`)**
-- Flags: `--repo-name` (default cwd basename), `--diff-source` (staged|working|range|file), `--range` (for range mode), `--diff-file`, `--api-url`, `--api-key`, `--poll-interval`, `--timeout`, `--output` (json|pretty), `--verbose`.
-- Flow: collect diff → zip+base64 → POST → poll → render → exit non-zero on HTTP/contract failures or review status `failed`.
+- Flags: `--repo-name` (default cwd basename), `--diff-source` (staged|working|range|file), `--range` (for range mode), `--diff-file`, `--api-url`, `--api-key`, `--poll-interval`, `--timeout`, `--output` (json|pretty), `--verbose`, `--save-bundle` (inspect payload), `--save-json` (save response), `--save-text` (searchable output with markers).
+- Config: API key can be set via flag, env var `LRC_API_KEY`, or `~/.lrc.toml` file.
+- Flow: collect diff → zip+base64 → (optionally save bundle) → POST → poll → (optionally save JSON/text) → render → exit non-zero on HTTP/contract failures or review status `failed`.
 - Dependencies: reuse existing diff parser structs if needed for rendering; avoid server imports where possible.
-- Implementation: placed CLI code in [cmd/lrc/main.go](cmd/lrc/main.go), using `github.com/urfave/cli/v2` for argument parsing (consistent with existing binaries).
+- Implementation: placed CLI code in [cmd/lrc/main.go](cmd/lrc/main.go), using `github.com/urfave/cli/v2` for argument parsing (consistent with existing binaries). Binary built to `cmd/lrc/lrc` via `make lrc`.
 
 4) ✅ **Handler-level unit test (no DB)**
 - Added tests that stub ReviewManager methods (create, update status, merge metadata, get) to assert:

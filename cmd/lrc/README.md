@@ -50,16 +50,37 @@ lrc --api-key YOUR_API_KEY
 
 ### Configuration
 
-All flags can be set via environment variables:
+You can provide configuration in three ways (in order of precedence):
+
+1. **Command-line flags**: `--api-key YOUR_API_KEY --api-url https://your-instance.com`
+2. **Environment variables**: `export LRC_API_KEY="your-api-key" LRC_API_URL="https://your-instance.com"`
+3. **Config file**: Create `~/.lrc.toml` with:
+   ```toml
+   # Your LiveReview API key
+   api_key = "lr_e6v7jedwwd33xsbztg5tvi3hpkmhcvudexkvucwm3bn47vvmlcha"
+   
+   # Your LiveReview API endpoint (base URL, without /api suffix)
+   # The CLI automatically appends /api/v1/diff-review
+   api_url = "https://manual-talent.apps.hexmos.com"
+   ```
+
+#### Setting Up Your Config File
 
 ```bash
-export LRC_API_KEY="your-api-key"
-export LRC_API_URL="http://localhost:8888"
-export LRC_REPO_NAME="my-project"
-export LRC_OUTPUT="pretty"  # or "json"
+# Copy the sample config
+cp cmd/lrc/.lrc.toml.sample ~/.lrc.toml
 
-lrc --diff-source staged
+# Edit with your credentials
+vim ~/.lrc.toml
+
+# Protect your API key
+chmod 600 ~/.lrc.toml
+
+# Now you can run lrc without any flags
+lrc
 ```
+
+All other flags can be set via environment variables or command-line flags.
 
 ### Flags
 
@@ -70,13 +91,95 @@ lrc --diff-source staged
 | `--range` | `LRC_RANGE` | | Git range (e.g., `HEAD~1..HEAD`) for `range` mode |
 | `--diff-file` | `LRC_DIFF_FILE` | | Path to diff file for `file` mode |
 | `--api-url` | `LRC_API_URL` | `http://localhost:8888` | LiveReview API base URL |
-| `--api-key` | `LRC_API_KEY` | *required* | API key for authentication |
+| `--api-key` | `LRC_API_KEY` | (from config) | API key for authentication |
 | `--poll-interval` | `LRC_POLL_INTERVAL` | `2s` | Interval between status polls |
 | `--timeout` | `LRC_TIMEOUT` | `5m` | Maximum wait time for review |
 | `--output` | `LRC_OUTPUT` | `pretty` | Output format: `pretty` or `json` |
+| `--save-bundle` | `LRC_SAVE_BUNDLE` | | Save bundle to file for inspection before sending |
+| `--save-json` | `LRC_SAVE_JSON` | | Save JSON response to file after completion |
+| `--save-text` | `LRC_SAVE_TEXT` | | Save formatted text with comment markers to file |
+| `--save-html` | `LRC_SAVE_HTML` | | Save GitHub-style HTML review to file |
 | `--verbose, -v` | `LRC_VERBOSE` | `false` | Enable verbose output |
 
 ## Examples
+
+### Setup API key in config file
+
+```bash
+# Create config file with your API key and endpoint
+cat > ~/.lrc.toml << EOF
+# Your LiveReview API key
+api_key = "lr_e6v7jedwwd33xsbztg5tvi3hpkmhcvudexkvucwm3bn47vvmlcha"
+
+# Your LiveReview API endpoint
+api_url = "https://manual-talent.apps.hexmos.com"
+EOF
+
+# Protect your config file
+chmod 600 ~/.lrc.toml
+
+# Now you can run lrc without specifying the key or URL
+lrc
+```
+
+### Inspect bundle before sending
+
+```bash
+# Save the bundle for inspection before submitting
+lrc --save-bundle bundle.txt
+
+# Review the bundle file to see what will be sent
+less bundle.txt
+```
+
+### Save review results to files
+
+```bash
+# Save both JSON and formatted text output
+lrc --save-json review.json --save-text review.txt
+
+# Save HTML output for viewing in browser
+lrc --save-html review.html
+
+# Save all formats
+lrc --save-json review.json --save-text review.txt --save-html review.html
+
+# Search for comments in the text file
+grep -n ">>>COMMENT<<<" review.txt
+
+# Or use your editor's search function to jump between comments
+vim review.txt  # then search for: />>>COMMENT<<<
+
+# Open HTML review in browser
+xdg-open review.html  # Linux
+open review.html      # macOS
+start review.html     # Windows
+```
+
+### Complete workflow with all output options
+
+```bash
+# Run review with all inspection/output options
+lrc \
+  --save-bundle bundle.txt \
+  --save-json review.json \
+  --save-text review.txt \
+  --save-html review.html \
+  --verbose
+
+# Review the bundle that was sent
+cat bundle.txt
+
+# Check the raw JSON response
+jq . review.json
+
+# Navigate through comments in text file
+# Search for ">>>COMMENT<<<" to jump between comments
+vim review.txt
+
+# Open HTML review in browser (best for visual inspection)
+xdg-open review.html
+```
 
 ### Review uncommitted changes
 
@@ -188,6 +291,49 @@ The tool communicates with these endpoints:
 - `1` - Error (network failure, invalid input, review failed, timeout, etc.)
 
 ## Troubleshooting
+
+### "API key not provided"
+
+You can provide the API key in three ways:
+
+```bash
+# Option 1: Config file (recommended)
+echo 'api_key = "your-key"' > ~/.lrc.toml
+
+# Option 2: Environment variable
+export LRC_API_KEY="your-key"
+
+# Option 3: Command-line flag
+lrc --api-key your-key
+```
+
+### Inspecting what gets sent to the API
+
+Use `--save-bundle` to see exactly what will be transmitted:
+
+```bash
+lrc --save-bundle bundle.txt --verbose
+
+# The bundle file contains:
+# - Original diff content
+# - Zip archive info
+# - Base64 encoded payload (what the API receives)
+```
+
+### Analyzing review comments
+
+Use `--save-text` to get a searchable text file with markers:
+
+```bash
+lrc --save-text review.txt
+
+# Search for comments:
+grep ">>>COMMENT<<<" review.txt
+
+# Or use editor search to jump between comments:
+vim review.txt  # then: />>>COMMENT<<<
+code review.txt  # then: Ctrl+F ">>>COMMENT<<<"
+```
 
 ### "no diff content collected"
 

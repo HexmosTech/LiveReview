@@ -16,7 +16,7 @@ build:
 	$(GOBUILD) -o $(BINARY_NAME)
 
 lrc:
-	$(GOBUILD) -o lrc ./cmd/lrc
+	$(GOBUILD) -o cmd/lrc/lrc ./cmd/lrc
 
 # Vendor prompts: encrypt plaintext templates and generate embedded assets
 # Usage examples:
