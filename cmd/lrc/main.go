@@ -23,7 +23,7 @@ import (
 )
 
 // Version information (set via ldflags during build)
-const appVersion = "v0.0.1" // Semantic version - bump this for releases
+const appVersion = "v0.0.2" // Semantic version - bump this for releases
 
 var (
 	version   = appVersion // Can be overridden via ldflags
