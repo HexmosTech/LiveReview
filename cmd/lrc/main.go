@@ -152,7 +152,6 @@ func main() {
 			},
 			&cli.BoolFlag{
 				Name:    "verbose",
-				Aliases: []string{"v"},
 				Usage:   "enable verbose output",
 				EnvVars: []string{"LRC_VERBOSE"},
 			},
