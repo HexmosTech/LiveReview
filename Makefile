@@ -56,11 +56,20 @@ lrc-bump:
 	@echo "Run 'make lrc-build' to build this version"
 
 # Build and upload lrc to Backblaze B2
-# Credentials: Hardcoded in scripts/lrc_build.py (hexmos/lrc bucket)
-# Upload path: hexmos/lrc/<version>/lrc-<os>-<arch>[.exe]
-# Example: hexmos/lrc/v1.0.0/lrc-linux-amd64
+# Requires: B2_APP_KEY environment variable (the secret application key, not the keyID)
+# Upload path: hexmos/lrc/<version>/<platform>/lrc[.exe]
+# Example structure:
+#   hexmos/lrc/v0.0.1/linux-amd64/lrc
+#   hexmos/lrc/v0.0.1/darwin-arm64/lrc
+#   hexmos/lrc/v0.0.1/windows-amd64/lrc.exe
 lrc-release:
 	@echo "🚀 Building and releasing lrc..."
+	@if [ -z "$$B2_APP_KEY" ]; then \
+		echo "❌ Error: B2_APP_KEY not set"; \
+		echo "Set it with: export B2_APP_KEY=your_secret_application_key"; \
+		echo "Note: This is the SECRET key, not the keyID"; \
+		exit 1; \
+	fi
 	@python scripts/lrc_build.py -v release
 
 # Clean lrc build artifacts
