@@ -23,8 +23,10 @@ import (
 )
 
 // Version information (set via ldflags during build)
+const appVersion = "v0.0.1" // Semantic version - bump this for releases
+
 var (
-	version   = "development"
+	version   = appVersion // Can be overridden via ldflags
 	buildTime = "unknown"
 	gitCommit = "unknown"
 )

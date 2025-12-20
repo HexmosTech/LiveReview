@@ -18,6 +18,57 @@ build:
 lrc:
 	$(GOBUILD) -o cmd/lrc/lrc ./cmd/lrc
 
+# LRC CLI Build and Release Management
+# Version: Semantic versioning (v1.0.0) defined in cmd/lrc/main.go as appVersion
+# Requires: cmd/lrc/ directory to be clean (no uncommitted changes)
+
+.PHONY: lrc-build lrc-bump lrc-release lrc-clean
+
+# Build lrc for all platforms (linux/darwin/windows, amd64/arm64)
+# Binary names: lrc-<os>-<arch>[.exe] (consistent across versions)
+# Output: dist/lrc/lrc-<os>-<arch> + SHA256SUMS
+# Version is extracted from appVersion constant in cmd/lrc/main.go
+lrc-build:
+	@echo "🔨 Building lrc CLI for all platforms..."
+	@python scripts/lrc_build.py -v build
+
+# Bump lrc version by editing appVersion in cmd/lrc/main.go
+# Example: Change const appVersion = "v1.0.0" to "v1.1.0"
+# Then commit the change with this target
+lrc-bump:
+	@echo "📝 Bumping lrc version..."
+	@if [ -z "$$(git diff --name-only cmd/lrc/)" ] && [ -z "$$(git diff --cached --name-only cmd/lrc/)" ]; then \
+		echo "❌ No changes in cmd/lrc/ to commit"; \
+		echo ""; \
+		echo "To bump version:"; \
+		echo "  1. Edit cmd/lrc/main.go and update: const appVersion = \"vX.Y.Z\""; \
+		echo "  2. Run 'make lrc-bump' to commit the change"; \
+		exit 1; \
+	fi
+	@echo "Changes in cmd/lrc/:"
+	@git diff --stat cmd/lrc/
+	@git diff --cached --stat cmd/lrc/
+	@echo ""
+	@read -p "Commit message [bump lrc version]: " msg; \
+	msg=$${msg:-"bump lrc version"}; \
+	git add cmd/lrc/ && git commit -m "lrc: $$msg"
+	@echo "✅ Version bumped and committed"
+	@echo "Run 'make lrc-build' to build this version"
+
+# Build and upload lrc to Backblaze B2
+# Credentials: Hardcoded in scripts/lrc_build.py (hexmos/lrc bucket)
+# Upload path: hexmos/lrc/<version>/lrc-<os>-<arch>[.exe]
+# Example: hexmos/lrc/v1.0.0/lrc-linux-amd64
+lrc-release:
+	@echo "🚀 Building and releasing lrc..."
+	@python scripts/lrc_build.py -v release
+
+# Clean lrc build artifacts
+lrc-clean:
+	@echo "🧹 Cleaning lrc build artifacts..."
+	@rm -rf dist/lrc
+	@echo "✅ Clean complete"
+
 # Vendor prompts: encrypt plaintext templates and generate embedded assets
 # Usage examples:
 #   make vendor-prompts-encrypt                       # default output dir
