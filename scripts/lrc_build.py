@@ -1,0 +1,433 @@
+#!/usr/bin/env python3
+"""
+lrc Build and Release Automation
+
+This script handles building the lrc CLI tool for multiple platforms,
+version management based on Git commit IDs, and uploading releases to
+Backblaze B2 storage using native REST APIs.
+"""
+
+import argparse
+import hashlib
+import json
+import os
+import shutil
+import subprocess
+import sys
+from datetime import datetime
+from pathlib import Path
+from typing import Dict, List, Optional, Tuple
+
+try:
+    import requests
+except ImportError:
+    print("Error: requests library not found. Install with: pip install requests")
+    sys.exit(1)
+
+
+# Build configuration
+LRC_SOURCE_PATH = "cmd/lrc"
+BUILD_OUTPUT_DIR = "dist/lrc"
+PLATFORMS = [
+    ("linux", "amd64"),
+    ("linux", "arm64"),
+    ("darwin", "amd64"),
+    ("darwin", "arm64"),
+    ("windows", "amd64"),
+]
+
+# B2 configuration (hardcoded for hexmos/lrc)
+B2_API_BASE = "https://api.backblazeb2.com"
+B2_KEY_ID = "K005Gg5MFEAwe4Q9V0sftIN4SyIKa/U"
+B2_APP_KEY = "K005Gg5MFEAwe4Q9V0sftIN4SyIKa/U"  # Application key
+B2_BUCKET_NAME = "hexmos"
+B2_UPLOAD_PATH_PREFIX = "lrc"  # Files go to hexmos/lrc/<version>/
+
+
+class LRCBuilder:
+    """Handles building and releasing lrc CLI tool"""
+
+    def __init__(self, verbose: bool = False):
+        self.verbose = verbose
+        self.project_root = Path(__file__).parent.parent.resolve()
+        self.lrc_path = self.project_root / LRC_SOURCE_PATH
+        self.dist_dir = self.project_root / BUILD_OUTPUT_DIR
+
+    def log(self, message: str, force: bool = False):
+        """Print message if verbose or force"""
+        if self.verbose or force:
+            print(message)
+
+    def run_command(
+        self, cmd: List[str], cwd: Optional[Path] = None, check: bool = True
+    ) -> Tuple[int, str, str]:
+        """Run a shell command and return exit code, stdout, stderr"""
+        if self.verbose:
+            self.log(f"Running: {' '.join(cmd)}")
+        
+        result = subprocess.run(
+            cmd,
+            cwd=cwd or self.project_root,
+            capture_output=True,
+            text=True,
+        )
+        
+        if check and result.returncode != 0:
+            print(f"Error running command: {' '.join(cmd)}")
+            print(f"Exit code: {result.returncode}")
+            print(f"Stderr: {result.stderr}")
+            sys.exit(1)
+        
+        return result.returncode, result.stdout.strip(), result.stderr.strip()
+
+    def check_lrc_clean(self) -> bool:
+        """Check if lrc directory has uncommitted changes"""
+        self.log("Checking for uncommitted changes in cmd/lrc/...")
+        
+        # Check if there are any unstaged changes in cmd/lrc
+        code, stdout, _ = self.run_command(
+            ["git", "diff", "--quiet", "cmd/lrc/"],
+            check=False
+        )
+        if code != 0:
+            return False
+        
+        # Check if there are any staged but uncommitted changes in cmd/lrc
+        code, stdout, _ = self.run_command(
+            ["git", "diff", "--cached", "--quiet", "cmd/lrc/"],
+            check=False
+        )
+        if code != 0:
+            return False
+        
+        # Check for untracked files in cmd/lrc
+        _, stdout, _ = self.run_command(
+            ["git", "ls-files", "--others", "--exclude-standard", "cmd/lrc/"]
+        )
+        if stdout:
+            return False
+        
+        return True
+
+    def get_commit_id(self) -> str:
+        """Get current Git commit ID (short SHA)"""
+        _, stdout, _ = self.run_command(["git", "rev-parse", "--short=7", "HEAD"])
+        return stdout
+
+    def get_version_from_source(self) -> str:
+        """Extract version from cmd/lrc/main.go"""
+        main_go = self.lrc_path / "main.go"
+        if not main_go.exists():
+            print(f"Error: {main_go} not found")
+            sys.exit(1)
+        
+        with open(main_go, "r") as f:
+            for line in f:
+                if line.strip().startswith("const appVersion"):
+                    # Extract version from: const appVersion = "v1.0.0"
+                    parts = line.split('"')
+                    if len(parts) >= 2:
+                        return parts[1]
+        
+        print("Error: Could not find appVersion in cmd/lrc/main.go")
+        sys.exit(1)
+
+    def get_build_time(self) -> str:
+        """Get current build timestamp"""
+        return datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")
+
+    def build_for_platform(
+        self, goos: str, goarch: str, version: str, build_time: str, commit: str
+    ) -> Path:
+        """Build lrc for a specific platform"""
+        binary_name = f"lrc-{goos}-{goarch}"
+        if goos == "windows":
+            binary_name += ".exe"
+        
+        output_path = self.dist_dir / binary_name
+        
+        self.log(f"Building {goos}/{goarch}...", force=True)
+        
+        # Prepare ldflags for version injection
+        ldflags = (
+            f"-X main.version={version} "
+            f"-X main.buildTime={build_time} "
+            f"-X main.gitCommit={commit}"
+        )
+        
+        # Build command
+        env = os.environ.copy()
+        env["CGO_ENABLED"] = "0"
+        env["GOOS"] = goos
+        env["GOARCH"] = goarch
+        
+        cmd = [
+            "go", "build",
+            "-ldflags", ldflags,
+            "-o", str(output_path),
+            "./cmd/lrc"
+        ]
+        
+        result = subprocess.run(
+            cmd,
+            cwd=self.project_root,
+            env=env,
+            capture_output=True,
+            text=True,
+        )
+        
+        if result.returncode != 0:
+            print(f"Error building for {goos}/{goarch}:")
+            print(result.stderr)
+            sys.exit(1)
+        
+        # Compute SHA256 checksum
+        sha256_hash = hashlib.sha256()
+        with open(output_path, "rb") as f:
+            for chunk in iter(lambda: f.read(4096), b""):
+                sha256_hash.update(chunk)
+        
+        checksum = sha256_hash.hexdigest()
+        self.log(f"  ✓ Built {binary_name} (SHA256: {checksum[:16]}...)")
+        
+        return output_path
+
+    def build_cross_platform(self, version: str) -> List[Path]:
+        """Build for all platforms"""
+        self.log("Starting cross-platform build...", force=True)
+        
+        # Clean and create dist directory
+        if self.dist_dir.exists():
+            shutil.rmtree(self.dist_dir)
+        self.dist_dir.mkdir(parents=True)
+        
+        build_time = self.get_build_time()
+        commit = self.get_commit_id()
+        
+        built_files = []
+        for goos, goarch in PLATFORMS:
+            output_path = self.build_for_platform(goos, goarch, version, build_time, commit)
+            built_files.append(output_path)
+        
+        # Generate SHA256SUMS file
+        sums_file = self.dist_dir / "SHA256SUMS"
+        with open(sums_file, "w") as f:
+            for binary_path in built_files:
+                sha256_hash = hashlib.sha256()
+                with open(binary_path, "rb") as bf:
+                    for chunk in iter(lambda: bf.read(4096), b""):
+                        sha256_hash.update(chunk)
+                checksum = sha256_hash.hexdigest()
+                f.write(f"{checksum}  {binary_path.name}\n")
+        
+        built_files.append(sums_file)
+        self.log(f"\n✓ Build complete! {len(built_files)} files in {self.dist_dir}", force=True)
+        
+        return built_files
+
+    def authorize_b2(self, app_key: str) -> Dict:
+        """Authorize with B2 and get auth token"""
+        self.log("Authorizing with Backblaze B2...")
+        
+        url = f"{B2_API_BASE}/b2api/v2/b2_authorize_account"
+        
+        response = requests.get(
+            url,
+            auth=(B2_KEY_ID, app_key),
+            timeout=30
+        )
+        
+        if response.status_code != 200:
+            print(f"Error authorizing with B2: {response.status_code}")
+            print(response.text)
+            sys.exit(1)
+        
+        data = response.json()
+        self.log(f"✓ Authorized with B2 (Account: {data.get('accountId', 'unknown')})")
+        return data
+
+    def find_bucket_id(self, auth_data: Dict, bucket_name: str) -> str:
+        """Find bucket ID by name"""
+        self.log(f"Looking up bucket '{bucket_name}'...")
+        
+        url = f"{auth_data['apiUrl']}/b2api/v2/b2_list_buckets"
+        
+        response = requests.post(
+            url,
+            headers={"Authorization": auth_data["authorizationToken"]},
+            json={"accountId": auth_data["accountId"]},
+            timeout=30
+        )
+        
+        if response.status_code != 200:
+            print(f"Error listing buckets: {response.status_code}")
+            print(response.text)
+            sys.exit(1)
+        
+        buckets = response.json().get("buckets", [])
+        for bucket in buckets:
+            if bucket["bucketName"] == bucket_name:
+                bucket_id = bucket["bucketId"]
+                self.log(f"✓ Found bucket '{bucket_name}' (ID: {bucket_id})")
+                return bucket_id
+        
+        print(f"Error: Bucket '{bucket_name}' not found")
+        print(f"Available buckets: {[b['bucketName'] for b in buckets]}")
+        sys.exit(1)
+
+    def get_upload_url(self, auth_data: Dict, bucket_id: str) -> Dict:
+        """Get upload URL for B2 bucket"""
+        self.log(f"Getting upload URL for bucket {bucket_id}...")
+        
+        url = f"{auth_data['apiUrl']}/b2api/v2/b2_get_upload_url"
+        
+        response = requests.post(
+            url,
+            headers={"Authorization": auth_data["authorizationToken"]},
+            json={"bucketId": bucket_id},
+            timeout=30
+        )
+        
+        if response.status_code != 200:
+            print(f"Error getting upload URL: {response.status_code}")
+            print(response.text)
+            sys.exit(1)
+        
+        return response.json()
+
+    def upload_file_to_b2(
+        self, upload_data: Dict, file_path: Path, b2_file_name: str
+    ) -> Dict:
+        """Upload a file to B2"""
+        self.log(f"Uploading {file_path.name} as {b2_file_name}...")
+        
+        # Read file and compute SHA1 (required by B2)
+        with open(file_path, "rb") as f:
+            file_data = f.read()
+        
+        sha1_hash = hashlib.sha1(file_data).hexdigest()
+        
+        headers = {
+            "Authorization": upload_data["authorizationToken"],
+            "X-Bz-File-Name": b2_file_name,
+            "Content-Type": "application/octet-stream",
+            "X-Bz-Content-Sha1": sha1_hash,
+            "X-Bz-Info-src_last_modified_millis": str(int(file_path.stat().st_mtime * 1000)),
+        }
+        
+        response = requests.post(
+            upload_data["uploadUrl"],
+            headers=headers,
+            data=file_data,
+            timeout=300  # 5 minutes for large files
+        )
+        
+        if response.status_code != 200:
+            print(f"Error uploading file: {response.status_code}")
+            print(response.text)
+            sys.exit(1)
+        
+        self.log(f"  ✓ Uploaded {file_path.name}", force=True)
+        return response.json()
+
+    def upload_to_b2(self, files: List[Path], version: str):
+        """Upload all built files to B2 using hardcoded credentials"""
+        self.log("Starting B2 upload...", force=True)
+        
+        # Authorize with hardcoded credentials
+        auth_data = self.authorize_b2(B2_APP_KEY)
+        
+        # Find bucket ID by name
+        bucket_id = self.find_bucket_id(auth_data, B2_BUCKET_NAME)
+        
+        # Upload each file
+        for file_path in files:
+            # Get fresh upload URL for each file (B2 best practice)
+            upload_data = self.get_upload_url(auth_data, bucket_id)
+            
+            # B2 file name: hexmos/lrc/<version>/lrc-<os>-<arch>
+            b2_file_name = f"{B2_UPLOAD_PATH_PREFIX}/{version}/{file_path.name}"
+            
+            # Upload
+            self.upload_file_to_b2(upload_data, file_path, b2_file_name)
+        
+        # Construct public download URLs
+        download_base = f"https://f005.backblazeb2.com/file/{B2_BUCKET_NAME}/{B2_UPLOAD_PATH_PREFIX}/{version}"
+        
+        self.log(f"\n✓ Upload complete! Files available at:", force=True)
+        self.log(f"  {download_base}/", force=True)
+        self.log(f"\nDirect download URLs:", force=True)
+        for file_path in files:
+            self.log(f"  {download_base}/{file_path.name}", force=True)
+
+    def cmd_build(self, args):
+        """Build lrc binaries"""
+        # Check for clean working directory
+        if not self.check_lrc_clean():
+            print("Error: cmd/lrc/ has uncommitted changes")
+            print("Please commit or stash changes before building")
+            sys.exit(1)
+        
+        # Get version from source code
+        version = self.get_version_from_source()
+        commit = self.get_commit_id()
+        self.log(f"Building version {version} (commit: {commit})", force=True)
+        
+        # Build for all platforms
+        built_files = self.build_cross_platform(version)
+        
+        return version, built_files
+
+    def cmd_release(self, args):
+        """Build and upload to B2 (using hardcoded credentials)"""
+        # Build
+        version, built_files = self.cmd_build(args)
+        
+        # Upload using hardcoded credentials
+        self.upload_to_b2(built_files, version)
+        
+        self.log("\n🎉 Release complete!", force=True)
+
+
+def main():
+    parser = argparse.ArgumentParser(
+        description="Build and release lrc CLI tool",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    
+    parser.add_argument(
+        "-v", "--verbose",
+        action="store_true",
+        help="Enable verbose output"
+    )
+    
+    subparsers = parser.add_subparsers(dest="command", help="Command to run")
+    
+    # Build command
+    build_parser = subparsers.add_parser("build", help="Build lrc for all platforms")
+    
+    # Release command
+    release_parser = subparsers.add_parser(
+        "release",
+        help="Build and upload to Backblaze B2"
+    )
+    
+    args = parser.parse_args()
+    
+    if not args.command:
+        parser.print_help()
+        sys.exit(1)
+    
+    builder = LRCBuilder(verbose=args.verbose)
+    
+    if args.command == "build":
+        builder.cmd_build(args)
+    elif args.command == "release":
+        builder.cmd_release(args)
+    else:
+        parser.print_help()
+        sys.exit(1)
+
+
+if __name__ == "__main__":
+    main()
