@@ -138,13 +138,19 @@ class LRCBuilder:
 
     def build_for_platform(
         self, goos: str, goarch: str, version: str, build_time: str, commit: str
-    ) -> Path:
-        """Build lrc for a specific platform"""
-        binary_name = f"lrc-{goos}-{goarch}"
-        if goos == "windows":
-            binary_name += ".exe"
+    ) -> Tuple[Path, str]:
+        """Build lrc for a specific platform
         
-        output_path = self.dist_dir / binary_name
+        Returns: (binary_path, platform_dir) tuple
+        """
+        # Create platform directory: linux-amd64, darwin-arm64, etc.
+        platform_dir = f"{goos}-{goarch}"
+        platform_path = self.dist_dir / platform_dir
+        platform_path.mkdir(parents=True, exist_ok=True)
+        
+        # Simple binary name: lrc or lrc.exe
+        binary_name = "lrc.exe" if goos == "windows" else "lrc"
+        output_path = platform_path / binary_name
         
         self.log(f"Building {goos}/{goarch}...", force=True)
         
@@ -188,12 +194,15 @@ class LRCBuilder:
                 sha256_hash.update(chunk)
         
         checksum = sha256_hash.hexdigest()
-        self.log(f"  ✓ Built {binary_name} (SHA256: {checksum[:16]}...)")
+        self.log(f"  ✓ Built {platform_dir}/{binary_name} (SHA256: {checksum[:16]}...)")
         
-        return output_path
+        return output_path, platform_dir
 
-    def build_cross_platform(self, version: str) -> List[Path]:
-        """Build for all platforms"""
+    def build_cross_platform(self, version: str) -> List[Tuple[Path, str]]:
+        """Build for all platforms
+        
+        Returns: List of (binary_path, platform_dir) tuples
+        """
         self.log("Starting cross-platform build...", force=True)
         
         # Clean and create dist directory
@@ -206,22 +215,21 @@ class LRCBuilder:
         
         built_files = []
         for goos, goarch in PLATFORMS:
-            output_path = self.build_for_platform(goos, goarch, version, build_time, commit)
-            built_files.append(output_path)
+            binary_path, platform_dir = self.build_for_platform(goos, goarch, version, build_time, commit)
+            built_files.append((binary_path, platform_dir))
         
-        # Generate SHA256SUMS file
-        sums_file = self.dist_dir / "SHA256SUMS"
-        with open(sums_file, "w") as f:
-            for binary_path in built_files:
-                sha256_hash = hashlib.sha256()
-                with open(binary_path, "rb") as bf:
-                    for chunk in iter(lambda: bf.read(4096), b""):
-                        sha256_hash.update(chunk)
-                checksum = sha256_hash.hexdigest()
+        # Generate SHA256SUMS file in each platform directory
+        for binary_path, platform_dir in built_files:
+            sums_file = binary_path.parent / "SHA256SUMS"
+            sha256_hash = hashlib.sha256()
+            with open(binary_path, "rb") as bf:
+                for chunk in iter(lambda: bf.read(4096), b""):
+                    sha256_hash.update(chunk)
+            checksum = sha256_hash.hexdigest()
+            with open(sums_file, "w") as f:
                 f.write(f"{checksum}  {binary_path.name}\n")
         
-        built_files.append(sums_file)
-        self.log(f"\n✓ Build complete! {len(built_files)} files in {self.dist_dir}", force=True)
+        self.log(f"\n✓ Build complete! {len(built_files)} platform builds in {self.dist_dir}", force=True)
         
         return built_files
 
@@ -330,8 +338,13 @@ class LRCBuilder:
         self.log(f"  ✓ Uploaded {file_path.name}", force=True)
         return response.json()
 
-    def upload_to_b2(self, files: List[Path], version: str):
-        """Upload all built files to B2 using hardcoded credentials"""
+    def upload_to_b2(self, files: List[Tuple[Path, str]], version: str):
+        """Upload all built files to B2 using hardcoded credentials
+        
+        Args:
+            files: List of (binary_path, platform_dir) tuples
+            version: Semantic version string (e.g., "v1.0.0")
+        """
         self.log("Starting B2 upload...", force=True)
         
         # Authorize with hardcoded credentials
@@ -340,25 +353,32 @@ class LRCBuilder:
         # Find bucket ID by name
         bucket_id = self.find_bucket_id(auth_data, B2_BUCKET_NAME)
         
-        # Upload each file
-        for file_path in files:
-            # Get fresh upload URL for each file (B2 best practice)
+        # Upload each platform's files (binary + SHA256SUMS)
+        for binary_path, platform_dir in files:
+            # Get fresh upload URL for binary
             upload_data = self.get_upload_url(auth_data, bucket_id)
             
-            # B2 file name: hexmos/lrc/<version>/lrc-<os>-<arch>
-            b2_file_name = f"{B2_UPLOAD_PATH_PREFIX}/{version}/{file_path.name}"
+            # B2 path: lrc/<version>/<platform>/lrc (or lrc.exe)
+            b2_file_name = f"{B2_UPLOAD_PATH_PREFIX}/{version}/{platform_dir}/{binary_path.name}"
             
-            # Upload
-            self.upload_file_to_b2(upload_data, file_path, b2_file_name)
+            # Upload binary
+            self.upload_file_to_b2(upload_data, binary_path, b2_file_name)
+            
+            # Upload SHA256SUMS for this platform
+            sums_file = binary_path.parent / "SHA256SUMS"
+            if sums_file.exists():
+                upload_data = self.get_upload_url(auth_data, bucket_id)
+                b2_sums_name = f"{B2_UPLOAD_PATH_PREFIX}/{version}/{platform_dir}/SHA256SUMS"
+                self.upload_file_to_b2(upload_data, sums_file, b2_sums_name)
         
         # Construct public download URLs
         download_base = f"https://f005.backblazeb2.com/file/{B2_BUCKET_NAME}/{B2_UPLOAD_PATH_PREFIX}/{version}"
         
         self.log(f"\n✓ Upload complete! Files available at:", force=True)
         self.log(f"  {download_base}/", force=True)
-        self.log(f"\nDirect download URLs:", force=True)
-        for file_path in files:
-            self.log(f"  {download_base}/{file_path.name}", force=True)
+        self.log(f"\nPlatform directories:", force=True)
+        for _, platform_dir in files:
+            self.log(f"  {download_base}/{platform_dir}/", force=True)
 
     def cmd_build(self, args):
         """Build lrc binaries"""
