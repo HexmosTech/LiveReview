@@ -41,7 +41,7 @@ lrc-bump:
 	@python scripts/lrc_build.py bump
 
 # Build and upload lrc to Backblaze B2
-# Requires: B2_APP_KEY environment variable (the secret application key, not the keyID)
+# B2 credentials are hardcoded in scripts/lrc_build.py
 # Upload path: hexmos/lrc/<version>/<platform>/lrc[.exe]
 # Example structure:
 #   hexmos/lrc/v0.0.1/linux-amd64/lrc
@@ -49,12 +49,6 @@ lrc-bump:
 #   hexmos/lrc/v0.0.1/windows-amd64/lrc.exe
 lrc-release:
 	@echo "🚀 Building and releasing lrc..."
-	@if [ -z "$$B2_APP_KEY" ]; then \
-		echo "❌ Error: B2_APP_KEY not set"; \
-		echo "Set it with: export B2_APP_KEY=your_secret_application_key"; \
-		echo "Note: This is the SECRET key, not the keyID"; \
-		exit 1; \
-	fi
 	@python scripts/lrc_build.py -v release
 
 # Clean lrc build artifacts
