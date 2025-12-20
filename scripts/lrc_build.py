@@ -133,6 +133,69 @@ class LRCBuilder:
         print("Error: Could not find appVersion in cmd/lrc/main.go")
         sys.exit(1)
 
+    def parse_version(self, version: str) -> Tuple[int, int, int]:
+        """Parse semantic version string (v1.2.3) into tuple (1, 2, 3)"""
+        if not version.startswith("v"):
+            print(f"Error: Version must start with 'v': {version}")
+            sys.exit(1)
+        
+        parts = version[1:].split(".")
+        if len(parts) != 3:
+            print(f"Error: Version must be in format vX.Y.Z: {version}")
+            sys.exit(1)
+        
+        try:
+            return (int(parts[0]), int(parts[1]), int(parts[2]))
+        except ValueError:
+            print(f"Error: Invalid version format: {version}")
+            sys.exit(1)
+
+    def bump_version(self, current: str, bump_type: str) -> str:
+        """Bump version based on type (patch, minor, major)"""
+        major, minor, patch = self.parse_version(current)
+        
+        if bump_type == "patch":
+            patch += 1
+        elif bump_type == "minor":
+            minor += 1
+            patch = 0
+        elif bump_type == "major":
+            major += 1
+            minor = 0
+            patch = 0
+        else:
+            print(f"Error: Invalid bump type: {bump_type}")
+            sys.exit(1)
+        
+        return f"v{major}.{minor}.{patch}"
+
+    def update_version_in_source(self, new_version: str):
+        """Update appVersion constant in cmd/lrc/main.go"""
+        main_go = self.lrc_path / "main.go"
+        
+        with open(main_go, "r") as f:
+            lines = f.readlines()
+        
+        updated = False
+        for i, line in enumerate(lines):
+            if line.strip().startswith("const appVersion"):
+                # Replace the version while preserving the comment
+                if "//" in line:
+                    lines[i] = f'const appVersion = "{new_version}" // Semantic version - bump this for releases\n'
+                else:
+                    lines[i] = f'const appVersion = "{new_version}"\n'
+                updated = True
+                break
+        
+        if not updated:
+            print("Error: Could not update appVersion in cmd/lrc/main.go")
+            sys.exit(1)
+        
+        with open(main_go, "w") as f:
+            f.writelines(lines)
+        
+        self.log(f"Updated {main_go} to version {new_version}", force=True)
+
     def get_build_time(self) -> str:
         """Get current build timestamp"""
         return datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")
@@ -412,6 +475,63 @@ class LRCBuilder:
         
         return version, built_files
 
+    def cmd_bump(self, args):
+        """Bump version in cmd/lrc/main.go"""
+        # Check for clean working directory
+        if not self.check_lrc_clean():
+            print("Error: cmd/lrc/ has uncommitted changes")
+            print("Please commit or stash changes before bumping version")
+            sys.exit(1)
+        
+        # Get current version
+        current_version = self.get_version_from_source()
+        self.log(f"Current version: {current_version}", force=True)
+        
+        # Prompt for bump type
+        print("\nSelect version bump type:")
+        print("  1. patch (bug fixes, small changes)")
+        print("  2. minor (new features, backward compatible)")
+        print("  3. major (breaking changes)")
+        
+        while True:
+            choice = input("\nEnter choice [1/2/3] or [patch/minor/major]: ").strip().lower()
+            
+            if choice in ["1", "patch"]:
+                bump_type = "patch"
+                break
+            elif choice in ["2", "minor"]:
+                bump_type = "minor"
+                break
+            elif choice in ["3", "major"]:
+                bump_type = "major"
+                break
+            else:
+                print("Invalid choice. Please enter 1, 2, 3, patch, minor, or major")
+        
+        # Calculate new version
+        new_version = self.bump_version(current_version, bump_type)
+        self.log(f"New version: {new_version}", force=True)
+        
+        # Confirm
+        confirm = input(f"\nBump {current_version} → {new_version}? [y/N]: ").strip().lower()
+        if confirm != "y":
+            print("Aborted")
+            sys.exit(0)
+        
+        # Update version in source
+        self.update_version_in_source(new_version)
+        
+        # Commit the change
+        self.log("Committing version bump...", force=True)
+        self.run_command(["git", "add", "cmd/lrc/main.go"])
+        self.run_command([
+            "git", "commit", "-m",
+            f"lrc: bump version {current_version} → {new_version}"
+        ])
+        
+        self.log(f"\n✅ Version bumped to {new_version}", force=True)
+        self.log("Run 'make lrc-build' to build this version", force=True)
+
     def cmd_release(self, args):
         """Build and upload to B2 (using hardcoded credentials)"""
         # Build
@@ -440,6 +560,9 @@ def main():
     # Build command
     build_parser = subparsers.add_parser("build", help="Build lrc for all platforms")
     
+    # Bump command
+    bump_parser = subparsers.add_parser("bump", help="Bump version in cmd/lrc/main.go")
+    
     # Release command
     release_parser = subparsers.add_parser(
         "release",
@@ -456,6 +579,8 @@ def main():
     
     if args.command == "build":
         builder.cmd_build(args)
+    elif args.command == "bump":
+        builder.cmd_bump(args)
     elif args.command == "release":
         builder.cmd_release(args)
     else:

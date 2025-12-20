@@ -33,27 +33,12 @@ lrc-build:
 	@python scripts/lrc_build.py -v build
 
 # Bump lrc version by editing appVersion in cmd/lrc/main.go
-# Example: Change const appVersion = "v1.0.0" to "v1.1.0"
-# Then commit the change with this target
+# Prompts for version bump type (patch/minor/major)
+# Automatically calculates new version and commits the change
+# Example: v0.0.1 → v0.0.2 (patch), v0.1.0 (minor), v1.0.0 (major)
 lrc-bump:
 	@echo "📝 Bumping lrc version..."
-	@if [ -z "$$(git diff --name-only cmd/lrc/)" ] && [ -z "$$(git diff --cached --name-only cmd/lrc/)" ]; then \
-		echo "❌ No changes in cmd/lrc/ to commit"; \
-		echo ""; \
-		echo "To bump version:"; \
-		echo "  1. Edit cmd/lrc/main.go and update: const appVersion = \"vX.Y.Z\""; \
-		echo "  2. Run 'make lrc-bump' to commit the change"; \
-		exit 1; \
-	fi
-	@echo "Changes in cmd/lrc/:"
-	@git diff --stat cmd/lrc/
-	@git diff --cached --stat cmd/lrc/
-	@echo ""
-	@read -p "Commit message [bump lrc version]: " msg; \
-	msg=$${msg:-"bump lrc version"}; \
-	git add cmd/lrc/ && git commit -m "lrc: $$msg"
-	@echo "✅ Version bumped and committed"
-	@echo "Run 'make lrc-build' to build this version"
+	@python scripts/lrc_build.py bump
 
 # Build and upload lrc to Backblaze B2
 # Requires: B2_APP_KEY environment variable (the secret application key, not the keyID)
