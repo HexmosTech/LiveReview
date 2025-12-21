@@ -22,7 +22,7 @@ lrc:
 # Version: Semantic versioning (v1.0.0) defined in cmd/lrc/main.go as appVersion
 # Requires: cmd/lrc/ directory to be clean (no uncommitted changes)
 
-.PHONY: lrc-build lrc-bump lrc-release lrc-clean
+.PHONY: lrc-build lrc-build-local lrc-run lrc-bump lrc-release lrc-clean
 
 # Build lrc for all platforms (linux/darwin/windows, amd64/arm64)
 # Binary names: lrc-<os>-<arch>[.exe] (consistent across versions)
@@ -31,6 +31,16 @@ lrc:
 lrc-build:
 	@echo "🔨 Building lrc CLI for all platforms..."
 	@python scripts/lrc_build.py -v build
+
+# Build lrc locally for the current platform without requiring a clean tree
+lrc-build-local:
+	@echo "🔨 Building lrc CLI locally (dirty tree allowed)..."
+	@cd cmd/lrc && go build -o lrc
+
+# Run the locally built lrc CLI (pass args via ARGS="--flag value")
+lrc-run: lrc-build-local
+	@echo "▶️ Running lrc CLI locally..."
+	@cd cmd/lrc && ./lrc $(ARGS)
 
 # Bump lrc version by editing appVersion in cmd/lrc/main.go
 # Prompts for version bump type (patch/minor/major)
