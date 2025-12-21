@@ -34,3 +34,5 @@ timeline.json
 
 node_modules
 dist/
+
+./cmd/lrc/lrc
