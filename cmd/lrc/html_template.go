@@ -2,9 +2,11 @@ package main
 
 import (
 	"bytes"
+	crand "crypto/rand"
 	"fmt"
 	"html"
 	"html/template"
+	"math/big"
 	"strings"
 	"time"
 )
@@ -17,6 +19,7 @@ type HTMLTemplateData struct {
 	TotalComments int
 	Files         []HTMLFileData
 	HasSummary    bool
+	FriendlyName  string
 }
 
 // HTMLFileData represents a file for HTML rendering
@@ -69,6 +72,7 @@ func prepareHTMLData(result *diffReviewResponse) *HTMLTemplateData {
 		TotalComments: totalComments,
 		Files:         files,
 		HasSummary:    result.Summary != "",
+		FriendlyName:  generateFriendlyName(),
 	}
 }
 
@@ -206,13 +210,87 @@ func renderHTMLTemplate(data *HTMLTemplateData) (string, error) {
 	return buf.String(), nil
 }
 
+var friendlyAdjectives = []string{
+	"aurora",
+	"bold",
+	"calm",
+	"daring",
+	"elegant",
+	"fearless",
+	"golden",
+	"luminous",
+	"magnetic",
+	"nova",
+	"radiant",
+	"serene",
+	"stellar",
+	"swift",
+	"vivid",
+}
+
+var friendlyNouns = []string{
+	"atlas",
+	"cascade",
+	"comet",
+	"harbor",
+	"horizon",
+	"lantern",
+	"mesa",
+	"orchid",
+	"peak",
+	"pulse",
+	"quartz",
+	"signal",
+	"sparrow",
+	"summit",
+	"voyage",
+}
+
+func generateFriendlyName() string {
+	adj := pickRandomWord(friendlyAdjectives)
+	noun := pickRandomWord(friendlyNouns)
+
+	switch {
+	case adj == "" && noun == "":
+		return "Untitled Run"
+	case noun == "":
+		return capitalize(adj)
+	case adj == "":
+		return capitalize(noun)
+	default:
+		return fmt.Sprintf("%s %s", capitalize(adj), capitalize(noun))
+	}
+}
+
+func pickRandomWord(options []string) string {
+	if len(options) == 0 {
+		return ""
+	}
+	max := big.NewInt(int64(len(options)))
+	idx, err := crand.Int(crand.Reader, max)
+	if err != nil {
+		return options[0]
+	}
+	return options[idx.Int64()]
+}
+
+func capitalize(word string) string {
+	if len(word) == 0 {
+		return ""
+	}
+	if len(word) == 1 {
+		return strings.ToUpper(word)
+	}
+	return strings.ToUpper(word[:1]) + word[1:]
+}
+
 // htmlTemplate is the main HTML template
 const htmlTemplate = `<!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>LiveReview Results</title>
+    <title>LiveReview Results{{if .FriendlyName}} — {{.FriendlyName}}{{end}}</title>
     <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
     <script>
         // Define functions early so onclick handlers can reference them
@@ -385,7 +463,28 @@ const htmlTemplate = `<!DOCTYPE html>
             display: block;
         }
         .brand-text h1 { font-size: 22px; font-weight: 700; margin-bottom: 4px; color: #f8fafc; }
-        .brand-text .meta { color: #9ca3af; font-size: 12px; }
+        .brand-text .meta { color: #9ca3af; font-size: 12px; margin-bottom: 6px; }
+        .run-name-pill {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 4px 12px;
+            border-radius: 999px;
+            background: rgba(59,130,246,0.15);
+            color: #bfdbfe;
+            font-size: 12px;
+            font-weight: 700;
+            border: 1px solid rgba(96,165,250,0.35);
+            width: fit-content;
+        }
+        .run-name-pill .dot {
+            width: 6px;
+            height: 6px;
+            border-radius: 50%;
+            background: #60a5fa;
+            display: inline-block;
+            box-shadow: 0 0 6px rgba(96,165,250,0.6);
+        }
         .summary {
             padding: var(--space-lg);
             background: rgba(255,255,255,0.02);
@@ -628,9 +727,10 @@ const htmlTemplate = `<!DOCTYPE html>
                     <div class="brand-text">
                         <h1>LiveReview Results</h1>
                         <div class="meta">Generated: {{.GeneratedTime}}</div>
+{{if .FriendlyName}}                        <div class="run-name-pill"><span class="dot"></span>Run: {{.FriendlyName}}</div>
+{{end}}                    </div>
                     </div>
                 </div>
-            </div>
 {{if .HasSummary}}        <script type="text/markdown" id="summary-markdown">{{.Summary}}</script>
         <div class="summary" id="summary-content"></div>
 {{end}}        <div class="stats">
@@ -678,7 +778,6 @@ const htmlTemplate = `<!DOCTYPE html>
             Review complete: {{.TotalComments}} total comment(s)
         </div>
         </div>
-    </div>
     </div>
 
     <script>
