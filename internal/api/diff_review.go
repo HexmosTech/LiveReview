@@ -39,6 +39,39 @@ func (s *Server) DiffReview(c echo.Context) error {
 	// API key authentication is handled by middleware
 	// Extract user and org context from middleware
 	orgID := c.Get("org_id").(int64)
+	userID := c.Get("user_id").(int64)
+	log.Printf("[DiffReview] Extracted from context: userID=%d, orgID=%d", userID, orgID)
+
+	// Fetch user info for author tracking
+	var userEmail, authorName, authorUsername string
+	var user models.User
+	err := s.db.QueryRow(`
+		SELECT id, email, first_name, last_name
+		FROM users
+		WHERE id = $1
+	`, userID).Scan(&user.ID, &user.Email, &user.FirstName, &user.LastName)
+
+	if err == nil {
+		userEmail = user.Email
+		log.Printf("[DiffReview] User fetched: id=%d, email=%s, firstName=%v, lastName=%v",
+			user.ID, user.Email, user.FirstName, user.LastName)
+
+		// Build author name from first/last name if available
+		if user.FirstName != nil && user.LastName != nil {
+			authorName = strings.TrimSpace(*user.FirstName + " " + *user.LastName)
+		} else if user.FirstName != nil {
+			authorName = *user.FirstName
+		} else if user.LastName != nil {
+			authorName = *user.LastName
+		}
+		// Use email username as fallback for authorUsername
+		if emailParts := strings.Split(user.Email, "@"); len(emailParts) > 0 {
+			authorUsername = emailParts[0]
+		}
+		log.Printf("[DiffReview] Built author info: authorName='%s', authorUsername='%s'", authorName, authorUsername)
+	} else {
+		log.Printf("[DiffReview] ERROR fetching user: %v", err)
+	}
 
 	var req diffReviewRequest
 	if err := c.Bind(&req); err != nil {
@@ -61,9 +94,12 @@ func (s *Server) DiffReview(c echo.Context) error {
 
 	// Generate friendly name for CLI review
 	friendlyName := naming.GenerateFriendlyName()
+	log.Printf("[DiffReview] Generated friendlyName='%s'", friendlyName)
 
 	rm := NewReviewManager(s.db)
-	reviewRecord, err := rm.CreateReviewWithOrg(repoName, "", "", "", "cli_diff", "", "cli", nil, map[string]interface{}{"source": "diff-review"}, orgID, friendlyName)
+	log.Printf("[DiffReview] Creating review with: repoName=%s, userEmail=%s, orgID=%d, friendlyName=%s, authorName=%s, authorUsername=%s",
+		repoName, userEmail, orgID, friendlyName, authorName, authorUsername)
+	reviewRecord, err := rm.CreateReviewWithOrg(repoName, "", "", "", "cli_diff", userEmail, "cli", nil, map[string]interface{}{"source": "diff-review"}, orgID, friendlyName, authorName, authorUsername)
 	if err != nil {
 		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "failed to create review record"})
 	}
