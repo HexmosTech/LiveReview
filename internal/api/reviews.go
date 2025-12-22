@@ -94,7 +94,7 @@ func (rm *ReviewManager) CreateReview(repository, branch, commitHash, prMrURL, t
 }
 
 // CreateReviewWithOrg creates a new review record with explicit org scoping
-func (rm *ReviewManager) CreateReviewWithOrg(repository, branch, commitHash, prMrURL, triggerType, userEmail, provider string, connectorID *int64, metadata map[string]interface{}, orgID int64, friendlyName string) (*Review, error) {
+func (rm *ReviewManager) CreateReviewWithOrg(repository, branch, commitHash, prMrURL, triggerType, userEmail, provider string, connectorID *int64, metadata map[string]interface{}, orgID int64, friendlyName string, authorName string, authorUsername string) (*Review, error) {
 	var metadataJSON []byte
 	var err error
 
@@ -108,13 +108,13 @@ func (rm *ReviewManager) CreateReviewWithOrg(repository, branch, commitHash, prM
 	}
 
 	query := `
-		INSERT INTO reviews (repository, branch, commit_hash, pr_mr_url, connector_id, trigger_type, user_email, provider, metadata, org_id, friendly_name)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+		INSERT INTO reviews (repository, branch, commit_hash, pr_mr_url, connector_id, trigger_type, user_email, provider, metadata, org_id, friendly_name, author_name, author_username)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
 		RETURNING id, created_at
 	`
 
 	var review Review
-	err = rm.db.QueryRow(query, repository, branch, commitHash, prMrURL, connectorID, triggerType, userEmail, provider, metadataJSON, orgID, friendlyName).Scan(&review.ID, &review.CreatedAt)
+	err = rm.db.QueryRow(query, repository, branch, commitHash, prMrURL, connectorID, triggerType, userEmail, provider, metadataJSON, orgID, friendlyName, authorName, authorUsername).Scan(&review.ID, &review.CreatedAt)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create review: %w", err)
 	}
@@ -132,6 +132,12 @@ func (rm *ReviewManager) CreateReviewWithOrg(repository, branch, commitHash, prM
 	review.Metadata = metadataJSON
 	if friendlyName != "" {
 		review.FriendlyName = &friendlyName
+	}
+	if authorName != "" {
+		review.AuthorName = &authorName
+	}
+	if authorUsername != "" {
+		review.AuthorUsername = &authorUsername
 	}
 
 	return &review, nil

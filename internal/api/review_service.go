@@ -236,6 +236,8 @@ func (s *Server) setupReviewContext(c echo.Context) (*reviewSetupContext, error)
 		},
 		orgID,
 		"", // friendlyName (only for CLI reviews)
+		"", // authorName (only for CLI reviews)
+		"", // authorUsername (only for CLI reviews)
 	)
 	if err != nil {
 		log.Printf("[ERROR] Failed to create database record: %v", err)

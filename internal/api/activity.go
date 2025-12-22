@@ -209,7 +209,7 @@ func TrackReviewTriggered(db *sql.DB, orgID int64, repository, branch, commitHas
 		"original_url": originalURL,
 	}
 
-	review, err := reviewManager.CreateReviewWithOrg(repository, branch, commitHash, originalURL, triggerType, userEmail, provider, connectorID, metadata, orgID, "")
+	review, err := reviewManager.CreateReviewWithOrg(repository, branch, commitHash, originalURL, triggerType, userEmail, provider, connectorID, metadata, orgID, "", "", "")
 	if err != nil {
 		return 0, fmt.Errorf("failed to create review record: %w", err)
 	}
