@@ -400,8 +400,18 @@ const Reviews: React.FC = () => {
                                     const cleanedRepository = review.repository ? review.repository.replace(/^https?:\/\//, '').replace(/\/$/, '') : '';
                                     const repoSegments = cleanedRepository.split('/').filter(Boolean);
                                     const repoShort = repoSegments.length ? repoSegments[repoSegments.length - 1] : '';
-                                    const primaryTitleCandidate = review.mrTitle?.trim();
-                                    const primaryTitle = primaryTitleCandidate && primaryTitleCandidate.length > 0 ? primaryTitleCandidate : (mrDescriptor || repoShort || 'Code Review');
+                                    
+                                    // Determine primary title based on review type
+                                    let primaryTitle: string;
+                                    if (review.triggerType === 'cli_diff') {
+                                        // For CLI reviews, prefer AI summary title, then friendly name, then fallback
+                                        primaryTitle = review.aiSummaryTitle?.trim() || review.friendlyName?.trim() || repoShort || 'CLI Review';
+                                    } else {
+                                        // For MR reviews, use MR title or fallback
+                                        const mrTitleCandidate = review.mrTitle?.trim();
+                                        primaryTitle = mrTitleCandidate && mrTitleCandidate.length > 0 ? mrTitleCandidate : (mrDescriptor || repoShort || 'Code Review');
+                                    }
+                                    
                                     const displayProviderRaw = review.provider ? review.provider.replace(/[-_]/g, ' ') : '';
                                     const displayProvider = displayProviderRaw ? toTitleCase(displayProviderRaw) : '';
                                     const fallbackAuthorFromUrl = review.prMrUrl ? extractAuthorFromUrl(review.prMrUrl) : null;

@@ -235,6 +235,7 @@ func (s *Server) setupReviewContext(c echo.Context) (*reviewSetupContext, error)
 			"triggered_from": "frontend",
 		},
 		orgID,
+		"", // friendlyName (only for CLI reviews)
 	)
 	if err != nil {
 		log.Printf("[ERROR] Failed to create database record: %v", err)

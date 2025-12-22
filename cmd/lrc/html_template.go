@@ -2,13 +2,13 @@ package main
 
 import (
 	"bytes"
-	crand "crypto/rand"
 	"fmt"
 	"html"
 	"html/template"
-	"math/big"
 	"strings"
 	"time"
+
+	"github.com/livereview/internal/naming"
 )
 
 // HTMLTemplateData contains all data needed for the HTML template
@@ -72,7 +72,7 @@ func prepareHTMLData(result *diffReviewResponse) *HTMLTemplateData {
 		TotalComments: totalComments,
 		Files:         files,
 		HasSummary:    result.Summary != "",
-		FriendlyName:  generateFriendlyName(),
+		FriendlyName:  naming.GenerateFriendlyName(),
 	}
 }
 
@@ -244,44 +244,6 @@ var friendlyNouns = []string{
 	"sparrow",
 	"summit",
 	"voyage",
-}
-
-func generateFriendlyName() string {
-	adj := pickRandomWord(friendlyAdjectives)
-	noun := pickRandomWord(friendlyNouns)
-
-	switch {
-	case adj == "" && noun == "":
-		return "Untitled Run"
-	case noun == "":
-		return capitalize(adj)
-	case adj == "":
-		return capitalize(noun)
-	default:
-		return fmt.Sprintf("%s %s", capitalize(adj), capitalize(noun))
-	}
-}
-
-func pickRandomWord(options []string) string {
-	if len(options) == 0 {
-		return ""
-	}
-	max := big.NewInt(int64(len(options)))
-	idx, err := crand.Int(crand.Reader, max)
-	if err != nil {
-		return options[0]
-	}
-	return options[idx.Int64()]
-}
-
-func capitalize(word string) string {
-	if len(word) == 0 {
-		return ""
-	}
-	if len(word) == 1 {
-		return strings.ToUpper(word)
-	}
-	return strings.ToUpper(word[:1]) + word[1:]
 }
 
 // htmlTemplate is the main HTML template
