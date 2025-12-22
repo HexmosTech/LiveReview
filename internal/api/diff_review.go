@@ -180,12 +180,29 @@ func (s *Server) runDiffReview(request review.ReviewRequest, rm *ReviewManager, 
 		log.Printf("[WARN] failed to persist review_result for %d: %v", reviewID, err)
 	}
 
-	// Persist AI summary title for later display
+	// Persist AI summary title for later display (extract first heading only)
 	if summary != "" {
-		if err := rm.MergeReviewMetadata(reviewID, map[string]interface{}{"ai_summary_title": summary}); err != nil {
-			log.Printf("[WARN] failed to persist ai_summary_title for %d: %v", reviewID, err)
+		title := extractFirstHeading(summary)
+		if title != "" {
+			if err := rm.MergeReviewMetadata(reviewID, map[string]interface{}{"ai_summary_title": title}); err != nil {
+				log.Printf("[WARN] failed to persist ai_summary_title for %d: %v", reviewID, err)
+			}
 		}
 	}
+}
+
+// extractFirstHeading extracts the first markdown heading (# ...) from a markdown text
+func extractFirstHeading(markdown string) string {
+	lines := strings.Split(markdown, "\n")
+	for _, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		if strings.HasPrefix(trimmed, "#") {
+			// Remove the # characters and leading/trailing whitespace
+			heading := strings.TrimSpace(strings.TrimLeft(trimmed, "#"))
+			return heading
+		}
+	}
+	return ""
 }
 
 // parseDiffZipBase64 decodes the client payload (base64 zip containing a unified diff)
