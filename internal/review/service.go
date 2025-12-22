@@ -204,6 +204,7 @@ func (s *Service) ProcessReview(ctx context.Context, request ReviewRequest) *Rev
 		s.logger.Log("✓ Review workflow executed successfully")
 		s.logger.Log("  Generated %d comments", len(reviewData.Result.Comments))
 		s.logger.Log("  Summary length: %d characters", len(reviewData.Result.Summary))
+		s.logger.EmitStageCompleted("Analysis", fmt.Sprintf("Workflow completed with %d comments", len(reviewData.Result.Comments)))
 	}
 
 	// Step 4: Post results (Artifact Generation stage)
@@ -325,9 +326,17 @@ func (s *Service) executeReviewWorkflow(
 	var changes []*models.CodeDiff
 
 	if request.PreloadedChanges != nil {
+		// CLI review path - use preloaded changes
 		if s.logger != nil {
-			s.logger.LogSection("PRELOADED CHANGES")
-			s.logger.Log("Using %d preloaded code diffs", len(request.PreloadedChanges))
+			s.logger.LogSection("MERGE REQUEST DETAILS")
+			s.logger.Log("Using preloaded CLI diff - skipping external MR fetch")
+			s.logger.Log("✓ CLI diff details retrieved successfully")
+			s.logger.Log("  Review ID: %s", request.ReviewID)
+			s.logger.Log("  Type: CLI Diff Review")
+			s.logger.Log("  Provider: %s", request.Provider.Type)
+			s.logger.LogSection("CODE CHANGES RETRIEVAL")
+			s.logger.Log("Using %d preloaded code diffs from uploaded diff", len(request.PreloadedChanges))
+			s.logger.Log("✓ Code changes retrieved successfully")
 		}
 		m := &providers.MergeRequestDetails{
 			ID:           request.ReviewID,

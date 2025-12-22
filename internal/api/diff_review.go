@@ -17,6 +17,7 @@ import (
 
 	"github.com/labstack/echo/v4"
 	"github.com/livereview/cmd/mrmodel/lib"
+	"github.com/livereview/internal/logging"
 	"github.com/livereview/internal/naming"
 	"github.com/livereview/internal/review"
 	"github.com/livereview/pkg/models"
@@ -123,7 +124,7 @@ func (s *Server) DiffReview(c echo.Context) error {
 		PreloadedChanges: modelDiffs,
 	}
 
-	go s.runDiffReview(reviewRequest, rm, reviewRecord.ID)
+	go s.runDiffReview(reviewRequest, rm, reviewRecord.ID, orgID)
 
 	return c.JSON(http.StatusOK, map[string]interface{}{
 		"review_id": fmt.Sprintf("%d", reviewRecord.ID),
@@ -192,7 +193,31 @@ func (s *Server) GetDiffReviewStatus(c echo.Context) error {
 }
 
 // runDiffReview executes the review asynchronously and persists results.
-func (s *Server) runDiffReview(request review.ReviewRequest, rm *ReviewManager, reviewID int64) {
+func (s *Server) runDiffReview(request review.ReviewRequest, rm *ReviewManager, reviewID int64, orgID int64) {
+	// Initialize logger with event sink for UI visibility
+	logger, err := logging.StartReviewLoggingWithIDs(fmt.Sprintf("%d", reviewID), reviewID, orgID)
+	if err != nil {
+		log.Printf("[ERROR] Failed to start logging for review %d: %v", reviewID, err)
+	}
+
+	if logger != nil {
+		// Attach event sink so logs go to review_events table for UI
+		eventSink := NewDatabaseEventSink(s.db)
+		logger.SetEventSink(eventSink)
+		logger.LogSection("CLI DIFF REVIEW STARTED")
+		logger.Log("Review ID: %d", reviewID)
+		logger.Log("Organization ID: %d", orgID)
+		logger.Log("Processing diff from CLI...")
+	}
+
+	// Mark as in progress
+	_ = rm.UpdateReviewStatus(reviewID, "in_progress")
+
+	if logger != nil {
+		logger.LogSection("PROCESSING REVIEW")
+		logger.Log("Analyzing changes and generating comments...")
+	}
+
 	result := review.NewService(review.NewStandardProviderFactory(), review.NewStandardAIProviderFactory(), review.DefaultReviewConfig()).ProcessReview(context.Background(), request)
 
 	status := "failed"
@@ -202,9 +227,19 @@ func (s *Server) runDiffReview(request review.ReviewRequest, rm *ReviewManager, 
 	if result != nil {
 		if result.Success {
 			status = "completed"
+			if logger != nil {
+				logger.LogSection("REVIEW COMPLETED")
+				logger.Log("Successfully generated %d comments", len(result.Comments))
+			}
+		} else if logger != nil {
+			logger.LogSection("REVIEW FAILED")
+			logger.Log("Review processing encountered errors")
 		}
 		summary = result.Summary
 		comments = result.Comments
+	} else if logger != nil {
+		logger.LogSection("REVIEW FAILED")
+		logger.Log("Review processing returned no result")
 	}
 
 	if err := rm.UpdateReviewStatus(reviewID, status); err != nil {
