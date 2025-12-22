@@ -27,7 +27,8 @@ const (
 	ReviewGuidelines = `IMPORTANT REVIEW GUIDELINES:
 - Focus on finding bugs, security issues, and improvement opportunities
 - Highlight unclear code and readability issues
-- Keep comments concise and use active voice
+- Use direct, active voice and short sentences (max 15-20 words)
+- Be specific and concise - avoid wordiness, passive voice, and meandering explanations
 - Avoid unnecessary praise or filler comments
 - Avoid commenting on simplistic or obvious things (imports, blank space changes, etc.)
 - Technical file summaries must explain the why/intent/architecture for substantive changes and should call out data model or interface impacts`
@@ -111,23 +112,40 @@ const (
 2. Focus strictly on technical artifacts, architectural shifts, data flows, and new interfaces
 3. Do NOT restate inline review comments, opinions, or meta feedback
 4. Make it scannable and easy to understand quickly
-5. Start with a clear main title using # heading
-6. Use bullet points that highlight concrete technical impacts and follow-up risks`
+5. Use DIRECT, CONCISE language - short sentences (max 15-20 words), active voice, no fluff
+6. Title must be specific and action-oriented - NEVER start with "Enhanced", "Improved", or generic verbs
+7. Title should describe WHAT changed, not that something was enhanced (e.g., "Async Logging for CLI Reviews" not "Enhanced CLI Review Logging")
+8. Use bullet points that highlight concrete technical impacts and follow-up risks`
 
 	// SummaryStructure provides the expected markdown structure for summaries
 	SummaryStructure = `Generate a well-formatted markdown summary following this structure:
-# [Clear main title of what changed]
+# [Use IMPERATIVE VERB + specific object - command form, active voice]
+
+Title MUST use imperative verbs (command form): Add, Fix, Refactor, Update, Remove, Standardize, Implement, Extract, etc.
+
+Examples of GOOD titles (imperative, active):
+- "Add Async Logging for CLI Reviews"
+- "Extract Author Info from JWT Context"
+- "Fix Provider Null Check for CLI Workflows"
+- "Standardize Prompt Template for AI Output"
+- "Refactor Stage Completion Event Emission"
+
+Examples of BAD titles (passive, noun phrases):
+- "Prompt Template Standardization for AI Output Generation" ❌
+- "Async Logging Infrastructure for CLI Reviews" ❌
+- "JWT-Based Author Attribution in Review Records" ❌
+- "Provider Null Safety for CLI Diff Workflows" ❌
 
 ## Overview
-Brief technical description of the change intent, scope, and context.
+Brief technical description (2-3 short sentences max). Use active voice and direct language.
 
 ## Technical Highlights
-- **Component / File**: Concrete technical takeaway or architectural shift
-- **Component / File**: Concrete technical takeaway or architectural shift
+- **Component / File**: Concrete technical takeaway or architectural shift (1 sentence)
+- **Component / File**: Concrete technical takeaway or architectural shift (1 sentence)
 
 ## Impact
-- **Functionality**: What capability changed or was added
-- **Risk**: Notable risks, migration considerations, or debt`
+- **Functionality**: What capability changed or was added (1 sentence)
+- **Risk**: Notable risks, migration considerations, or debt (1 sentence)`
 )
 
 // Section headers
