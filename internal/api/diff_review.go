@@ -17,6 +17,7 @@ import (
 
 	"github.com/labstack/echo/v4"
 	"github.com/livereview/cmd/mrmodel/lib"
+	"github.com/livereview/internal/naming"
 	"github.com/livereview/internal/review"
 	"github.com/livereview/pkg/models"
 )
@@ -58,8 +59,11 @@ func (s *Server) DiffReview(c echo.Context) error {
 		repoName = "cli-diff"
 	}
 
+	// Generate friendly name for CLI review
+	friendlyName := naming.GenerateFriendlyName()
+
 	rm := NewReviewManager(s.db)
-	reviewRecord, err := rm.CreateReviewWithOrg(repoName, "", "", "", "cli_diff", "", "cli", nil, map[string]interface{}{"source": "diff-review"}, orgID)
+	reviewRecord, err := rm.CreateReviewWithOrg(repoName, "", "", "", "cli_diff", "", "cli", nil, map[string]interface{}{"source": "diff-review"}, orgID, friendlyName)
 	if err != nil {
 		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "failed to create review record"})
 	}
@@ -131,12 +135,24 @@ func (s *Server) GetDiffReviewStatus(c echo.Context) error {
 
 	files := buildDiffFiles(preloaded, result.Comments)
 
-	return c.JSON(http.StatusOK, map[string]interface{}{
+	response := map[string]interface{}{
 		"status":    "completed",
 		"review_id": fmt.Sprintf("%d", reviewRecord.ID),
 		"summary":   result.Summary,
 		"files":     files,
-	})
+	}
+
+	// Include friendly_name if available
+	if reviewRecord.FriendlyName != nil {
+		response["friendly_name"] = *reviewRecord.FriendlyName
+	}
+
+	// Include ai_summary_title if available
+	if aiSummaryTitle, ok := meta["ai_summary_title"].(string); ok && aiSummaryTitle != "" {
+		response["ai_summary_title"] = aiSummaryTitle
+	}
+
+	return c.JSON(http.StatusOK, response)
 }
 
 // runDiffReview executes the review asynchronously and persists results.
@@ -162,6 +178,13 @@ func (s *Server) runDiffReview(request review.ReviewRequest, rm *ReviewManager, 
 	payload := diffReviewResult{Summary: summary, Comments: comments}
 	if err := rm.MergeReviewMetadata(reviewID, map[string]interface{}{"review_result": payload}); err != nil {
 		log.Printf("[WARN] failed to persist review_result for %d: %v", reviewID, err)
+	}
+
+	// Persist AI summary title for later display
+	if summary != "" {
+		if err := rm.MergeReviewMetadata(reviewID, map[string]interface{}{"ai_summary_title": summary}); err != nil {
+			log.Printf("[WARN] failed to persist ai_summary_title for %d: %v", reviewID, err)
+		}
 	}
 }
 

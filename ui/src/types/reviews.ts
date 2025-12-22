@@ -12,6 +12,8 @@ export interface Review {
   userEmail?: string;
   provider?: string;
   mrTitle?: string;
+  friendlyName?: string;
+  aiSummaryTitle?: string;
   authorName?: string;
   authorUsername?: string;
   createdAt: string;

@@ -1,4 +1,4 @@
-\restrict s10NMNwXWU4NsIX9UxmaV4JfnHZF96CD3nF0iOFcn87Ikj8uaY8f7VEJvkrEUwK
+\restrict v6xVcsIYJL2IjUXJFoHKSk8hDfsUvapuqN8UfY1QXfiv1vh3rkDrOX0XFlKwe2g
 
 -- Dumped from database version 15.14 (Debian 15.14-1.pgdg13+1)
 -- Dumped by pg_dump version 15.14 (Ubuntu 15.14-1.pgdg22.04+1)
@@ -710,6 +710,7 @@ CREATE TABLE public.reviews (
     mr_title text,
     author_name text,
     author_username text,
+    friendly_name text,
     CONSTRAINT reviews_status_check CHECK (((status)::text = ANY ((ARRAY['created'::character varying, 'in_progress'::character varying, 'completed'::character varying, 'failed'::character varying])::text[])))
 );
 
@@ -2834,7 +2835,7 @@ ALTER TABLE ONLY public.webhook_registry
 -- PostgreSQL database dump complete
 --
 
-\unrestrict s10NMNwXWU4NsIX9UxmaV4JfnHZF96CD3nF0iOFcn87Ikj8uaY8f7VEJvkrEUwK
+\unrestrict v6xVcsIYJL2IjUXJFoHKSk8hDfsUvapuqN8UfY1QXfiv1vh3rkDrOX0XFlKwe2g
 
 
 --
@@ -2884,4 +2885,5 @@ INSERT INTO public.schema_migrations (version) VALUES
     ('20251213101233'),
     ('20251213103152'),
     ('20251213144431'),
-    ('20251219135906');
+    ('20251219135906'),
+    ('20251222074428');

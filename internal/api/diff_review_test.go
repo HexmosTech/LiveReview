@@ -230,7 +230,7 @@ func newMockReviewManager() *mockReviewManager {
 	}
 }
 
-func (m *mockReviewManager) CreateReviewWithOrg(repository, branch, commitHash, prMrURL, triggerType, userEmail, provider string, connectorID *int64, metadata map[string]interface{}, orgID int64) (*Review, error) {
+func (m *mockReviewManager) CreateReviewWithOrg(repository, branch, commitHash, prMrURL, triggerType, userEmail, provider string, connectorID *int64, metadata map[string]interface{}, orgID int64, friendlyName string) (*Review, error) {
 	if m.createErr != nil {
 		return nil, m.createErr
 	}
@@ -310,7 +310,7 @@ func TestDiffReviewHandlerStoresPreloadedChanges(t *testing.T) {
 	modelDiffs := convertLocalDiffs(localDiffs)
 
 	// Create review via mock
-	review, err := mockRM.CreateReviewWithOrg("test-repo", "", "", "", "cli_diff", "", "cli", nil, map[string]interface{}{"source": "diff-review"}, 1)
+	review, err := mockRM.CreateReviewWithOrg("test-repo", "", "", "", "cli_diff", "", "cli", nil, map[string]interface{}{"source": "diff-review"}, 1, "Test Friendly")
 	if err != nil {
 		t.Fatalf("failed to create review: %v", err)
 	}
@@ -356,7 +356,7 @@ func TestDiffReviewHandlerStoresReviewResult(t *testing.T) {
 	mockRM := newMockReviewManager()
 
 	// Create a review
-	review, _ := mockRM.CreateReviewWithOrg("test-repo", "", "", "", "cli_diff", "", "cli", nil, map[string]interface{}{}, 1)
+	review, _ := mockRM.CreateReviewWithOrg("test-repo", "", "", "", "cli_diff", "", "cli", nil, map[string]interface{}{}, 1, "")
 
 	// Simulate completion with review result
 	result := diffReviewResult{
@@ -405,7 +405,7 @@ func TestDiffReviewStatusProgression(t *testing.T) {
 	mockRM := newMockReviewManager()
 
 	// Create review (starts as pending)
-	review, _ := mockRM.CreateReviewWithOrg("test-repo", "", "", "", "cli_diff", "", "cli", nil, map[string]interface{}{}, 1)
+	review, _ := mockRM.CreateReviewWithOrg("test-repo", "", "", "", "cli_diff", "", "cli", nil, map[string]interface{}{}, 1, "")
 
 	if review.Status != "pending" {
 		t.Fatalf("expected initial status 'pending', got %s", review.Status)
@@ -441,7 +441,7 @@ func TestDiffReviewPollingWithProcessingStatus(t *testing.T) {
 	mockRM := newMockReviewManager()
 
 	// Create and mark as processing
-	review, _ := mockRM.CreateReviewWithOrg("test-repo", "", "", "", "cli_diff", "", "cli", nil, map[string]interface{}{}, 1)
+	review, _ := mockRM.CreateReviewWithOrg("test-repo", "", "", "", "cli_diff", "", "cli", nil, map[string]interface{}{}, 1, "")
 	mockRM.UpdateReviewStatus(review.ID, "processing")
 
 	// Simulate polling - should return processing status
@@ -471,7 +471,7 @@ func TestDiffReviewPollingWithCompletedStatus(t *testing.T) {
 	mockRM := newMockReviewManager()
 
 	// Create review, store preloaded changes
-	review, _ := mockRM.CreateReviewWithOrg("test-repo", "", "", "", "cli_diff", "", "cli", nil, map[string]interface{}{}, 1)
+	review, _ := mockRM.CreateReviewWithOrg("test-repo", "", "", "", "cli_diff", "", "cli", nil, map[string]interface{}{}, 1, "")
 
 	diff := "diff --git a/file.go b/file.go\n--- a/file.go\n+++ b/file.go\n@@ -1,0 +1,1 @@\n+code\n"
 	var buf bytes.Buffer

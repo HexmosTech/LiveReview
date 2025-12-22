@@ -21,6 +21,7 @@ type Review struct {
 	UserEmail      string          `json:"user_email"`
 	Provider       string          `json:"provider"`
 	MRTitle        *string         `json:"mr_title"`
+	FriendlyName   *string         `json:"friendly_name"`
 	AuthorName     *string         `json:"author_name"`
 	AuthorUsername *string         `json:"author_username"`
 	CreatedAt      time.Time       `json:"created_at"`
@@ -93,7 +94,7 @@ func (rm *ReviewManager) CreateReview(repository, branch, commitHash, prMrURL, t
 }
 
 // CreateReviewWithOrg creates a new review record with explicit org scoping
-func (rm *ReviewManager) CreateReviewWithOrg(repository, branch, commitHash, prMrURL, triggerType, userEmail, provider string, connectorID *int64, metadata map[string]interface{}, orgID int64) (*Review, error) {
+func (rm *ReviewManager) CreateReviewWithOrg(repository, branch, commitHash, prMrURL, triggerType, userEmail, provider string, connectorID *int64, metadata map[string]interface{}, orgID int64, friendlyName string) (*Review, error) {
 	var metadataJSON []byte
 	var err error
 
@@ -107,13 +108,13 @@ func (rm *ReviewManager) CreateReviewWithOrg(repository, branch, commitHash, prM
 	}
 
 	query := `
-		INSERT INTO reviews (repository, branch, commit_hash, pr_mr_url, connector_id, trigger_type, user_email, provider, metadata, org_id)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+		INSERT INTO reviews (repository, branch, commit_hash, pr_mr_url, connector_id, trigger_type, user_email, provider, metadata, org_id, friendly_name)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
 		RETURNING id, created_at
 	`
 
 	var review Review
-	err = rm.db.QueryRow(query, repository, branch, commitHash, prMrURL, connectorID, triggerType, userEmail, provider, metadataJSON, orgID).Scan(&review.ID, &review.CreatedAt)
+	err = rm.db.QueryRow(query, repository, branch, commitHash, prMrURL, connectorID, triggerType, userEmail, provider, metadataJSON, orgID, friendlyName).Scan(&review.ID, &review.CreatedAt)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create review: %w", err)
 	}
@@ -129,6 +130,9 @@ func (rm *ReviewManager) CreateReviewWithOrg(repository, branch, commitHash, prM
 	review.UserEmail = userEmail
 	review.Provider = provider
 	review.Metadata = metadataJSON
+	if friendlyName != "" {
+		review.FriendlyName = &friendlyName
+	}
 
 	return &review, nil
 }
@@ -162,14 +166,14 @@ func (rm *ReviewManager) UpdateReviewStatus(reviewID int64, status string) error
 func (rm *ReviewManager) GetReview(reviewID int64) (*Review, error) {
 	query := `
 		SELECT id, repository, branch, commit_hash, pr_mr_url, connector_id,
-		       status, trigger_type, user_email, provider, mr_title, author_name, author_username,
+		       status, trigger_type, user_email, provider, mr_title, friendly_name, author_name, author_username,
 		       created_at, started_at, completed_at, metadata
 		FROM reviews
 		WHERE id = $1
 	`
 
 	var review Review
-	var mrTitle, authorName, authorUsername sql.NullString
+	var mrTitle, friendlyName, authorName, authorUsername sql.NullString
 	err := rm.db.QueryRow(query, reviewID).Scan(
 		&review.ID,
 		&review.Repository,
@@ -182,6 +186,7 @@ func (rm *ReviewManager) GetReview(reviewID int64) (*Review, error) {
 		&review.UserEmail,
 		&review.Provider,
 		&mrTitle,
+		&friendlyName,
 		&authorName,
 		&authorUsername,
 		&review.CreatedAt,
@@ -195,6 +200,9 @@ func (rm *ReviewManager) GetReview(reviewID int64) (*Review, error) {
 
 	if mrTitle.Valid {
 		review.MRTitle = &mrTitle.String
+	}
+	if friendlyName.Valid {
+		review.FriendlyName = &friendlyName.String
 	}
 	if authorName.Valid {
 		review.AuthorName = &authorName.String

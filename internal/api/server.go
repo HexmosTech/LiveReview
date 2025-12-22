@@ -858,6 +858,8 @@ type ReviewResponse struct {
 	UserEmail      *string                `json:"userEmail,omitempty"`
 	Provider       *string                `json:"provider,omitempty"`
 	MRTitle        *string                `json:"mrTitle,omitempty"`
+	FriendlyName   *string                `json:"friendlyName,omitempty"`
+	AISummaryTitle *string                `json:"aiSummaryTitle,omitempty"`
 	AuthorName     *string                `json:"authorName,omitempty"`
 	AuthorUsername *string                `json:"authorUsername,omitempty"`
 	CreatedAt      time.Time              `json:"createdAt"`
@@ -903,7 +905,7 @@ func (s *Server) getReviews(c echo.Context) error {
 	// Build base query
 	baseQuery := `
 		SELECT id, repository, branch, commit_hash, pr_mr_url, connector_id,
-		       status, trigger_type, user_email, provider, mr_title, author_name, author_username,
+		       status, trigger_type, user_email, provider, mr_title, friendly_name, author_name, author_username,
 		       created_at, started_at, completed_at, metadata, org_id
 		FROM public.reviews 
 		WHERE org_id = $1
@@ -965,7 +967,7 @@ func (s *Server) getReviews(c echo.Context) error {
 	for rows.Next() {
 		var review ReviewResponse
 		var metadataJSON sql.NullString
-		var mrTitleNS, authorNameNS, authorUsernameNS sql.NullString
+		var mrTitleNS, friendlyNameNS, authorNameNS, authorUsernameNS sql.NullString
 
 		err := rows.Scan(
 			&review.ID,
@@ -979,6 +981,7 @@ func (s *Server) getReviews(c echo.Context) error {
 			&review.UserEmail,
 			&review.Provider,
 			&mrTitleNS,
+			&friendlyNameNS,
 			&authorNameNS,
 			&authorUsernameNS,
 			&review.CreatedAt,
@@ -1003,11 +1006,21 @@ func (s *Server) getReviews(c echo.Context) error {
 		if mrTitleNS.Valid {
 			review.MRTitle = &mrTitleNS.String
 		}
+		if friendlyNameNS.Valid {
+			review.FriendlyName = &friendlyNameNS.String
+		}
 		if authorNameNS.Valid {
 			review.AuthorName = &authorNameNS.String
 		}
 		if authorUsernameNS.Valid {
 			review.AuthorUsername = &authorUsernameNS.String
+		}
+
+		// For CLI reviews, extract AI summary title from metadata if available
+		if review.TriggerType == "cli_diff" && review.Metadata != nil {
+			if aiSummaryTitle, ok := review.Metadata["ai_summary_title"].(string); ok && aiSummaryTitle != "" {
+				review.AISummaryTitle = &aiSummaryTitle
+			}
 		}
 
 		reviews = append(reviews, review)
@@ -1063,7 +1076,7 @@ func (s *Server) getReviewByID(c echo.Context) error {
 	// Query review by ID with org scoping
 	query := `
 		SELECT id, repository, branch, commit_hash, pr_mr_url, connector_id,
-		       status, trigger_type, user_email, provider, mr_title, author_name, author_username,
+		       status, trigger_type, user_email, provider, mr_title, friendly_name, author_name, author_username,
 		       created_at, started_at, completed_at, metadata, org_id
 		FROM public.reviews 
 		WHERE id = $1 AND org_id = $2
@@ -1071,7 +1084,7 @@ func (s *Server) getReviewByID(c echo.Context) error {
 
 	var review ReviewResponse
 	var metadataJSON sql.NullString
-	var mrTitleNS, authorNameNS, authorUsernameNS sql.NullString
+	var mrTitleNS, friendlyNameNS, authorNameNS, authorUsernameNS sql.NullString
 
 	err = s.db.QueryRow(query, reviewID, orgID).Scan(
 		&review.ID,
@@ -1085,6 +1098,7 @@ func (s *Server) getReviewByID(c echo.Context) error {
 		&review.UserEmail,
 		&review.Provider,
 		&mrTitleNS,
+		&friendlyNameNS,
 		&authorNameNS,
 		&authorUsernameNS,
 		&review.CreatedAt,
@@ -1113,11 +1127,21 @@ func (s *Server) getReviewByID(c echo.Context) error {
 	if mrTitleNS.Valid {
 		review.MRTitle = &mrTitleNS.String
 	}
+	if friendlyNameNS.Valid {
+		review.FriendlyName = &friendlyNameNS.String
+	}
 	if authorNameNS.Valid {
 		review.AuthorName = &authorNameNS.String
 	}
 	if authorUsernameNS.Valid {
 		review.AuthorUsername = &authorUsernameNS.String
+	}
+
+	// For CLI reviews, extract AI summary title from metadata if available
+	if review.TriggerType == "cli_diff" && review.Metadata != nil {
+		if aiSummaryTitle, ok := review.Metadata["ai_summary_title"].(string); ok && aiSummaryTitle != "" {
+			review.AISummaryTitle = &aiSummaryTitle
+		}
 	}
 
 	if review.Provider == nil || strings.TrimSpace(*review.Provider) == "" || strings.EqualFold(*review.Provider, "unknown") {
