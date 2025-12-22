@@ -56,6 +56,11 @@ type HTMLCommentData struct {
 	HasCategory bool
 }
 
+func deleteThisFunction() {
+	// TODO: this is a dummy function which should be deleted
+	return
+}
+
 // prepareHTMLData converts the API response to template data
 func prepareHTMLData(result *diffReviewResponse) *HTMLTemplateData {
 	totalComments := countTotalComments(result.Files)
