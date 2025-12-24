@@ -3,10 +3,11 @@ import classNames from 'classnames';
 import { Button, Icons, Tooltip } from '../UIPrimitives';
 
 interface OnboardingStepperProps {
-  hasGitProvider: boolean;
+  hasCLI: boolean;
   hasAIProvider: boolean;
   hasRunReview?: boolean;
-  onConnectGit: () => void;
+  installCommand?: string;
+  installCommandWindows?: string;
   onConfigureAI: () => void;
   onNewReview: () => void;
   onDismiss?: () => void;
@@ -15,7 +16,7 @@ interface OnboardingStepperProps {
 
 const Step: React.FC<{
   title: string;
-  description: string;
+  description: string | React.ReactNode;
   done?: boolean;
   action?: React.ReactNode;
   isLast?: boolean;
@@ -36,24 +37,49 @@ const Step: React.FC<{
           <h4 className={classNames('text-sm font-semibold', done ? 'text-white' : 'text-slate-200')}>{title}</h4>
           {action && <div className="ml-3">{action}</div>}
         </div>
-        <p className="text-sm text-slate-300 mt-0.5">{description}</p>
+        <div className="text-sm text-slate-300 mt-0.5">{description}</div>
         {!isLast && <div className="h-5 border-l border-slate-700 ml-3 my-3" />}
       </div>
     </div>
   );
 };
 
+const CodeBlock: React.FC<{ code: string; onCopy?: () => void }> = ({ code, onCopy }) => {
+  const [copied, setCopied] = useState(false);
+
+  const handleCopy = () => {
+    navigator.clipboard.writeText(code);
+    setCopied(true);
+    if (onCopy) onCopy();
+    setTimeout(() => setCopied(false), 2000);
+  };
+
+  return (
+    <div className="relative mt-2 bg-slate-900/80 rounded border border-slate-700 p-3 pr-12 font-mono text-xs text-slate-200 overflow-x-auto">
+      <code>{code}</code>
+      <button
+        onClick={handleCopy}
+        className="absolute top-2 right-2 p-1.5 rounded bg-slate-700 hover:bg-slate-600 transition-colors"
+        title="Copy to clipboard"
+      >
+        {copied ? <Icons.Success /> : <Icons.Copy />}
+      </button>
+    </div>
+  );
+};
+
 export const OnboardingStepper: React.FC<OnboardingStepperProps> = ({
-  hasGitProvider,
+  hasCLI,
   hasAIProvider,
   hasRunReview = false,
-  onConnectGit,
+  installCommand,
+  installCommandWindows,
   onConfigureAI,
   onNewReview,
   onDismiss,
   className,
 }) => {
-  const allSet = hasGitProvider && hasAIProvider;
+  const allSet = hasCLI && hasAIProvider;
   const [collapsed, setCollapsed] = useState<boolean>(() => {
     try { return localStorage.getItem('lr_get_started_collapsed') === '1'; } catch { return false; }
   });
@@ -67,11 +93,13 @@ export const OnboardingStepper: React.FC<OnboardingStepperProps> = ({
   };
 
   return (
-    <div className={classNames('rounded-lg border border-slate-700 bg-slate-800/60 p-4', className)}>
-      <div className="flex items-center justify-between mb-3">
+    <div className={classNames('rounded-lg border border-blue-500/30 bg-gradient-to-br from-slate-800/80 to-slate-900/80 p-6 shadow-xl', className)}>
+      <div className="flex items-center justify-between mb-4">
         <div>
-          <h3 className="text-base font-semibold text-white">Get started</h3>
-          <p className="text-sm text-slate-300">Follow these steps to run your first AI-powered review.</p>
+          <h3 className="text-2xl font-extrabold bg-gradient-to-r from-blue-400 via-cyan-400 to-emerald-400 bg-clip-text text-transparent mb-1.5">
+            🚀 Get your first review in 2 minutes
+          </h3>
+          <p className="text-base text-slate-300 font-medium">Three simple steps to AI-powered code reviews.</p>
         </div>
         <div className="flex items-center gap-3 flex-wrap">
           {allSet && collapsed && (
@@ -111,20 +139,8 @@ export const OnboardingStepper: React.FC<OnboardingStepperProps> = ({
       {!collapsed && (
       <div className="space-y-2">
         <Step
-          title="Step 1: Connect Git Provider"
-          description="Link GitHub, GitLab or Bitbucket so LiveReview can access your repos."
-          done={hasGitProvider}
-          action={
-            !hasGitProvider && (
-              <Button size="sm" variant="outline" icon={<Icons.Git />} onClick={onConnectGit}>
-                Connect
-              </Button>
-            )
-          }
-        />
-        <Step
-          title="Step 2: Configure AI"
-          description="Add at least one AI provider (e.g., OpenAI) to generate code review comments."
+          title="Step 1: Configure AI"
+          description="Add at least one AI provider (e.g., OpenAI, Gemini, or Ollama) to generate code review comments."
           done={hasAIProvider}
           action={
             !hasAIProvider && (
@@ -135,29 +151,41 @@ export const OnboardingStepper: React.FC<OnboardingStepperProps> = ({
           }
         />
         <Step
-          title="Step 3: Trigger New Review"
+          title="Step 2: Install CLI"
           description={
-            allSet
-              ? 'Everything is connected. Create your first review to see insights here.'
-              : 'Once steps 1 and 2 are complete, you can run your first review.'
+            <>
+              <p>Run this command to install the lrc CLI with pre-configured credentials:</p>
+              {installCommand ? (
+                <>
+                  <p className="mt-2 text-xs text-slate-400">Linux/Mac:</p>
+                  <CodeBlock code={installCommand} />
+                  <p className="mt-3 text-xs text-slate-400">Windows PowerShell:</p>
+                  <CodeBlock code={installCommandWindows} />
+                </>
+              ) : (
+                <>
+                  <p className="mt-2 text-sm text-slate-300">Manual installation:</p>
+                  <CodeBlock code="curl -fsSL https://hexmos.com/lrc-install.sh | bash" />
+                  <p className="mt-2 text-xs text-slate-400">Then configure with: echo 'api_key = \"your-api-key\"\napi_url = \"http://localhost:8888\"' > ~/.lrc.toml</p>
+                </>
+              )}
+            </>
+          }
+          done={hasCLI}
+        />
+        <Step
+          title="Step 3: Trigger Review"
+          description={
+            <>
+              <p>Navigate to any git repository with uncommitted changes and run:</p>
+              <CodeBlock code="lrc review" />
+              {!allSet && (
+                <p className="mt-2 text-sm text-amber-400">Complete steps 1 and 2 first</p>
+              )}
+            </>
           }
           done={hasRunReview}
           isLast
-          action={
-            allSet ? (
-              <Button size="sm" variant="primary" icon={<Icons.Add />} onClick={onNewReview}>
-                New Review
-              </Button>
-            ) : (
-              <Tooltip content="Complete steps 1 and 2 to enable this action.">
-                <span>
-                  <Button size="sm" variant="outline" icon={<Icons.Add />} disabled>
-                    New Review
-                  </Button>
-                </span>
-              </Tooltip>
-            )
-          }
         />
       </div>
       )}

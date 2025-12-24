@@ -1,4 +1,4 @@
-\restrict v6xVcsIYJL2IjUXJFoHKSk8hDfsUvapuqN8UfY1QXfiv1vh3rkDrOX0XFlKwe2g
+\restrict 1y2Y2KoQ0zcqKPf85uj6tOI9shSeW9LbZMjuHtmpWDX2JyprP9JBbZOE7OOtxmS
 
 -- Dumped from database version 15.14 (Debian 15.14-1.pgdg13+1)
 -- Dumped by pg_dump version 15.14 (Ubuntu 15.14-1.pgdg22.04+1)
@@ -1183,7 +1183,9 @@ CREATE TABLE public.users (
     created_by_user_id bigint,
     deactivated_at timestamp without time zone,
     deactivated_by_user_id bigint,
-    password_reset_required boolean DEFAULT false NOT NULL
+    password_reset_required boolean DEFAULT false NOT NULL,
+    onboarding_api_key text,
+    last_cli_used_at timestamp with time zone
 );
 
 
@@ -2383,6 +2385,13 @@ CREATE INDEX idx_users_last_login ON public.users USING btree (last_login_at DES
 
 
 --
+-- Name: idx_users_onboarding_api_key; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_users_onboarding_api_key ON public.users USING btree (onboarding_api_key) WHERE (onboarding_api_key IS NOT NULL);
+
+
+--
 -- Name: idx_users_org_active; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -2835,7 +2844,7 @@ ALTER TABLE ONLY public.webhook_registry
 -- PostgreSQL database dump complete
 --
 
-\unrestrict v6xVcsIYJL2IjUXJFoHKSk8hDfsUvapuqN8UfY1QXfiv1vh3rkDrOX0XFlKwe2g
+\unrestrict 1y2Y2KoQ0zcqKPf85uj6tOI9shSeW9LbZMjuHtmpWDX2JyprP9JBbZOE7OOtxmS
 
 
 --
@@ -2886,4 +2895,5 @@ INSERT INTO public.schema_migrations (version) VALUES
     ('20251213103152'),
     ('20251213144431'),
     ('20251219135906'),
-    ('20251222074428');
+    ('20251222074428'),
+    ('20251224132642');

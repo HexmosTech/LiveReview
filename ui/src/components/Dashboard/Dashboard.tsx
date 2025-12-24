@@ -92,12 +92,26 @@ export const Dashboard: React.FC = () => {
     const aiConnectors = dashboardData?.active_ai_connectors || 0;
 
     // Derive onboarding state
-    const hasGitProvider = connectedProviders > 0;
+    const hasCLI = dashboardData?.cli_installed || false;
     const hasAIProvider = aiConnectors > 0;
-    const allSet = hasGitProvider && hasAIProvider;
+    const allSet = hasCLI && hasAIProvider;
     // Auto-hide thresholds: disappear when the user clearly moved past onboarding
-    const autoHideStepper = connectedProviders > 1 && aiConnectors > 1 && codeReviews > 1;
+    const autoHideStepper = hasCLI && aiConnectors > 1 && codeReviews > 1;
     const hasRunReview = codeReviews > 0;
+
+    // Build install commands with API key
+    const apiKey = dashboardData?.onboarding_api_key || '';
+    // Get API URL from current page or fallback to dashboard data
+    const baseUrl = typeof window !== 'undefined' 
+        ? `${window.location.protocol}//${window.location.host}`
+        : (dashboardData?.api_url || 'http://localhost:8888');
+    const apiUrl = baseUrl;
+    const installCommand = apiKey 
+        ? `curl -fsSL https://hexmos.com/lrc-install.sh | LRC_API_KEY="${apiKey}" LRC_API_URL="${apiUrl}" bash`
+        : '';
+    const installCommandWindows = apiKey
+        ? `$env:LRC_API_KEY="${apiKey}"; $env:LRC_API_URL="${apiUrl}"; iwr -useb https://hexmos.com/lrc-install.ps1 | iex`
+        : '';
 
     // After the user has completed all steps and seen the panel once,
     // auto-hide it and persist the dismissal so it doesn't reappear.
@@ -189,10 +203,11 @@ export const Dashboard: React.FC = () => {
                 {/* Get Started stepper – stays visible until the user dismisses it, unless thresholds auto-hide it */}
                 {!hideStepper && !autoHideStepper && (
                     <OnboardingStepper
-                        hasGitProvider={hasGitProvider}
+                        hasCLI={hasCLI}
                         hasAIProvider={hasAIProvider}
                         hasRunReview={hasRunReview}
-                        onConnectGit={() => navigate('/git')}
+                        installCommand={installCommand}
+                        installCommandWindows={installCommandWindows}
                         onConfigureAI={() => navigate('/ai')}
                         onNewReview={() => navigate('/reviews/new')}
                         onDismiss={() => { setHideStepper(true); try { localStorage.setItem('lr_hide_get_started','1'); } catch {} }}

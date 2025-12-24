@@ -29,6 +29,9 @@ export interface DashboardData {
     total_comments: number;
     connected_providers: number;
     active_ai_connectors: number;
+    onboarding_api_key?: string;
+    api_url: string;
+    cli_installed: boolean;
     recent_activity: ActivityItem[];
     performance_metrics: PerformanceMetrics;
     system_status: SystemStatus;
