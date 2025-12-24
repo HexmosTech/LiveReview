@@ -364,6 +364,12 @@ func (s *Server) setupRoutes() {
 	diffReviewGroup.POST("", s.DiffReview)
 	diffReviewGroup.GET("/:review_id", s.GetDiffReviewStatus)
 
+	// Onboarding endpoints
+	// CLI usage tracking (protected by API key)
+	diffReviewGroup.POST("/cli-used", s.TrackCLIUsage)
+
+	// Clear onboarding API key (protected by auth)
+
 	// System info endpoints (public)
 	public.GET("/system/info", s.getSystemInfo)
 	public.GET("/ui-config", s.getUIConfig)
@@ -383,6 +389,9 @@ func (s *Server) setupRoutes() {
 	protected.GET("/auth/me", s.authHandlers.Me)
 	protected.POST("/auth/logout", s.authHandlers.Logout)
 	protected.POST("/auth/change-password", s.authHandlers.ChangePassword)
+
+	// Clear onboarding API key
+	protected.POST("/onboarding/clear-api-key", s.ClearOnboardingAPIKey)
 
 	// Self-service profile endpoints
 	protected.GET("/users/profile", s.profileHandlers.GetProfile)

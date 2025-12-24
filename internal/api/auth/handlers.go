@@ -669,6 +669,7 @@ func (h *AuthHandlers) EnsureCloudUser(c echo.Context) error {
 			} else {
 				lastNamePtr = nil
 			}
+
 			err = tx.QueryRow(`
 				INSERT INTO users (email, password_hash, first_name, last_name, password_reset_required, created_at, updated_at)
 				VALUES ($1, $2, $3, $4, false, NOW(), NOW()) RETURNING id
@@ -784,3 +785,6 @@ func (h *AuthHandlers) EnsureCloudUser(c echo.Context) error {
 		"organizations": organizations,
 	})
 }
+
+// Note: Onboarding API keys are now created using the standard APIKeyManager from the api package
+// This is called after transaction commit to avoid import cycles

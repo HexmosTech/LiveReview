@@ -21,6 +21,11 @@ type DashboardData struct {
 	ConnectedProviders int `json:"connected_providers"`
 	ActiveAIConnectors int `json:"active_ai_connectors"`
 
+	// Onboarding
+	OnboardingAPIKey string `json:"onboarding_api_key,omitempty"`
+	APIUrl           string `json:"api_url"`
+	CLIInstalled     bool   `json:"cli_installed"`
+
 	// Recent Activity
 	RecentActivity []ActivityItem `json:"recent_activity"`
 
@@ -177,6 +182,10 @@ func (dm *DashboardManager) buildDashboardData(ctx context.Context, orgID int64)
 		log.Printf("Error collecting statistics for org %d: %v", orgID, err)
 	}
 
+	if err := dm.collectOnboardingData(ctx, &data, orgID); err != nil {
+		log.Printf("Error collecting onboarding data for org %d: %v", orgID, err)
+	}
+
 	if err := dm.collectRecentActivity(ctx, &data, orgID); err != nil {
 		log.Printf("Error collecting recent activity for org %d: %v", orgID, err)
 	}
@@ -283,6 +292,69 @@ func (dm *DashboardManager) collectStatistics(ctx context.Context, data *Dashboa
 
 	log.Printf("Statistics collection complete: reviews=%d, comments=%d, providers=%d, ai_connectors=%d",
 		data.TotalReviews, data.TotalComments, data.ConnectedProviders, data.ActiveAIConnectors)
+
+	return nil
+}
+
+// collectOnboardingData gathers onboarding-specific information
+func (dm *DashboardManager) collectOnboardingData(ctx context.Context, data *DashboardData, orgID int64) error {
+	log.Println("Starting onboarding data collection...")
+
+	// Get API URL from environment or use default
+	data.APIUrl = "http://localhost:8888" // TODO: Get from config
+
+	// Get the first user with owner role in this org to find their onboarding API key
+	var userID int64
+	var onboardingKey sql.NullString
+	var lastCLIUsed sql.NullTime
+
+	err := dm.db.QueryRowContext(ctx,
+		`SELECT u.id, u.onboarding_api_key, u.last_cli_used_at
+		FROM users u
+		INNER JOIN user_roles ur ON u.id = ur.user_id
+		INNER JOIN roles r ON ur.role_id = r.id
+		WHERE ur.org_id = $1 AND r.name IN ('owner', 'super_admin')
+		ORDER BY u.created_at ASC
+		LIMIT 1`,
+		orgID,
+	).Scan(&userID, &onboardingKey, &lastCLIUsed)
+
+	if err != nil && err != sql.ErrNoRows {
+		log.Printf("Error querying onboarding data: %v", err)
+		return err
+	}
+
+	// If user exists but has no onboarding API key, generate one
+	if err == nil && (!onboardingKey.Valid || onboardingKey.String == "") {
+		log.Printf("Generating onboarding API key for existing user %d", userID)
+		apiKeyManager := NewAPIKeyManager(dm.db)
+		// Create API key in api_keys table and get the plain key back
+		_, newKey, genErr := apiKeyManager.CreateAPIKey(userID, orgID, "Onboarding API Key", []string{}, nil)
+		if genErr == nil {
+			_, updateErr := dm.db.ExecContext(ctx,
+				`UPDATE users SET onboarding_api_key = $1 WHERE id = $2`,
+				newKey, userID)
+			if updateErr == nil {
+				onboardingKey = sql.NullString{String: newKey, Valid: true}
+				log.Printf("Generated onboarding API key for user %d", userID)
+			} else {
+				log.Printf("Failed to update onboarding API key: %v", updateErr)
+			}
+		} else {
+			log.Printf("Failed to generate API key: %v", genErr)
+		}
+	}
+
+	// Set onboarding API key if it exists
+	if onboardingKey.Valid && onboardingKey.String != "" {
+		data.OnboardingAPIKey = onboardingKey.String
+	}
+
+	// Check if CLI has been used
+	data.CLIInstalled = lastCLIUsed.Valid
+
+	log.Printf("Onboarding data collected: has_api_key=%v, cli_installed=%v",
+		data.OnboardingAPIKey != "", data.CLIInstalled)
 
 	return nil
 }

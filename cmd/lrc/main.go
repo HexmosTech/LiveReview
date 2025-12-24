@@ -398,6 +398,9 @@ func runReviewWithOptions(opts reviewOptions) error {
 
 	fmt.Printf("Review submitted, ID: %s\n", reviewID)
 
+	// Track CLI usage (best-effort, non-blocking)
+	go trackCLIUsage(config.APIURL, config.APIKey, verbose)
+
 	// Poll for completion with user-visible progress
 	result, err := pollReview(config.APIURL, config.APIKey, reviewID, opts.pollInterval, opts.timeout, verbose)
 	if err != nil {
@@ -600,6 +603,36 @@ func submitReview(apiURL, apiKey, base64Diff, repoName string, verbose bool) (st
 	}
 
 	return reviewID, nil
+}
+
+// trackCLIUsage sends a telemetry ping to the backend to track CLI usage
+// This is a best-effort call and failures are silently ignored
+func trackCLIUsage(apiURL, apiKey string, verbose bool) {
+	endpoint := strings.TrimSuffix(apiURL, "/") + "/api/v1/diff-review/cli-used"
+
+	req, err := http.NewRequest("POST", endpoint, nil)
+	if err != nil {
+		if verbose {
+			log.Printf("Failed to create telemetry request: %v", err)
+		}
+		return
+	}
+
+	req.Header.Set("X-API-Key", apiKey)
+
+	client := &http.Client{Timeout: 5 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		if verbose {
+			log.Printf("Failed to send telemetry: %v", err)
+		}
+		return
+	}
+	defer resp.Body.Close()
+
+	if verbose && resp.StatusCode == http.StatusOK {
+		log.Println("CLI usage tracked successfully")
+	}
 }
 
 func pollReview(apiURL, apiKey, reviewID string, pollInterval, timeout time.Duration, verbose bool) (*diffReviewResponse, error) {
