@@ -33,31 +33,32 @@ func (s *Server) ClearOnboardingAPIKey(c echo.Context) error {
 
 // TrackCLIUsage updates the last_cli_used_at timestamp for a user
 func (s *Server) TrackCLIUsage(c echo.Context) error {
-	// This endpoint uses API key authentication, so we need to get user from API key
-	apiKeyVal := c.Get("api_key")
-	if apiKeyVal == nil {
+	// This endpoint uses API key authentication middleware which sets user_id in context
+	userIDVal := c.Get("user_id")
+	if userIDVal == nil {
 		return c.JSON(http.StatusUnauthorized, map[string]string{
 			"error": "API key required",
 		})
 	}
 
-	apiKey, ok := apiKeyVal.(*APIKey)
+	userID, ok := userIDVal.(int64)
 	if !ok {
 		return c.JSON(http.StatusInternalServerError, map[string]string{
-			"error": "Invalid API key context",
+			"error": "Invalid user context",
 		})
 	}
 
 	// Update last CLI used timestamp
 	query := `UPDATE users SET last_cli_used_at = NOW() WHERE id = $1`
-	_, err := s.db.Exec(query, apiKey.UserID)
+	_, err := s.db.Exec(query, userID)
 	if err != nil {
-		log.Printf("Error updating CLI usage for user %d: %v", apiKey.UserID, err)
+		log.Printf("Error updating CLI usage for user %d: %v", userID, err)
 		return c.JSON(http.StatusInternalServerError, map[string]string{
 			"error": "Failed to track CLI usage",
 		})
 	}
 
+	log.Printf("Successfully tracked CLI usage for user %d", userID)
 	return c.JSON(http.StatusOK, map[string]string{
 		"message": "CLI usage tracked successfully",
 	})

@@ -95,8 +95,6 @@ export const Dashboard: React.FC = () => {
     const hasCLI = dashboardData?.cli_installed || false;
     const hasAIProvider = aiConnectors > 0;
     const allSet = hasCLI && hasAIProvider;
-    // Auto-hide thresholds: disappear when the user clearly moved past onboarding
-    const autoHideStepper = hasCLI && aiConnectors > 1 && codeReviews > 1;
     const hasRunReview = codeReviews > 0;
 
     // Build install commands with API key
@@ -113,24 +111,8 @@ export const Dashboard: React.FC = () => {
         ? `$env:LRC_API_KEY="${apiKey}"; $env:LRC_API_URL="${apiUrl}"; iwr -useb https://hexmos.com/lrc-install.ps1 | iex`
         : '';
 
-    // After the user has completed all steps and seen the panel once,
-    // auto-hide it and persist the dismissal so it doesn't reappear.
-    useEffect(() => {
-        if (!hideStepper && allSet && hasRunReview) {
-            let wasAutoHidden = false;
-            try { wasAutoHidden = localStorage.getItem('lr_get_started_auto_hidden') === '1'; } catch {}
-            if (!wasAutoHidden) {
-                const timer = setTimeout(() => {
-                    setHideStepper(true);
-                    try {
-                        localStorage.setItem('lr_hide_get_started', '1');
-                        localStorage.setItem('lr_get_started_auto_hidden', '1');
-                    } catch {}
-                }, 3500); // give a moment to notice completion, then hide
-                return () => clearTimeout(timer);
-            }
-        }
-    }, [hideStepper, allSet, hasRunReview]);
+    // Auto-hide feature disabled - users can manually dismiss the onboarding stepper if they want
+    // by clicking "Don't show again" button
 
     // Check if this is an empty state (no connections and no activity)
     const isEmpty = connectedProviders === 0 && codeReviews === 0 && aiComments === 0;
@@ -200,8 +182,8 @@ export const Dashboard: React.FC = () => {
                     aria-label="New Review"
                 />
 
-                {/* Get Started stepper – stays visible until the user dismisses it, unless thresholds auto-hide it */}
-                {!hideStepper && !autoHideStepper && (
+                {/* Get Started stepper – stays visible until the user manually dismisses it */}
+                {!hideStepper && (
                     <OnboardingStepper
                         hasCLI={hasCLI}
                         hasAIProvider={hasAIProvider}
