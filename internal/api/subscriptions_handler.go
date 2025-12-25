@@ -105,7 +105,7 @@ func (h *SubscriptionsHandler) CreateSubscription(c echo.Context) error {
 	}
 
 	// Determine mode (test vs live)
-	mode := "test" // TODO: Get from config or environment
+	mode := "live" // Production mode
 
 	// Create subscription
 	sub, err := h.service.CreateTeamSubscription(userID, int(orgID), req.PlanType, req.Quantity, mode)
@@ -169,7 +169,7 @@ func (h *SubscriptionsHandler) UpdateQuantity(c echo.Context) error {
 	}
 
 	// Determine mode
-	mode := "test" // TODO: Get from config or environment
+	mode := "live" // Production mode
 
 	// Update quantity
 	sub, err := h.service.UpdateQuantity(subscriptionID, req.Quantity, req.ScheduleChangeAt, mode)
@@ -206,7 +206,7 @@ func (h *SubscriptionsHandler) CancelSubscription(c echo.Context) error {
 	}
 
 	// Determine mode
-	mode := "test" // TODO: Get from config or environment
+	mode := "live" // Production mode
 
 	// Cancel subscription
 	sub, err := h.service.CancelSubscription(subscriptionID, req.Immediate, mode)
@@ -764,7 +764,7 @@ func (h *SubscriptionsHandler) ConfirmPurchase(c echo.Context) error {
 	}
 
 	// Determine mode
-	mode := "test" // TODO: Get from config or environment
+	mode := "live" // Production mode
 
 	// Confirm purchase
 	if err := h.service.ConfirmPurchase(&req, mode); err != nil {

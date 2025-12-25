@@ -95,15 +95,15 @@ func CreatePlan(mode, planType string) (*RazorpayPlan, error) {
 
 	switch planType {
 	case "monthly":
-		// Monthly plan: $6/user/month
+		// Monthly plan: $5/user/month
 		plan = RazorpayPlan{
 			Mode:        mode,
 			Period:      "monthly",
 			Interval:    1,
-			Description: "LiveReview Team Monthly Plan - $6 per user per month",
+			Description: "LiveReview Team Monthly Plan - $5 per user per month",
 			Item: RazorpayPlanItem{
 				Name:     "LiveReview Team - Monthly",
-				Amount:   600, // $6 in USD cents (600 cents = $6)
+				Amount:   500, // $5 in USD cents (500 cents = $5)
 				Currency: "USD",
 			},
 			NotesMap: map[string]string{
@@ -112,12 +112,12 @@ func CreatePlan(mode, planType string) (*RazorpayPlan, error) {
 			},
 		}
 	case "yearly":
-		// Yearly plan: $60/user/year ($5/month, 17% discount)
+		// Yearly plan: $60/user/year ($5/month, no discount)
 		plan = RazorpayPlan{
 			Mode:        mode,
 			Period:      "yearly",
 			Interval:    1,
-			Description: "LiveReview Team Annual Plan - $60 per user per year (17% savings)",
+			Description: "LiveReview Team Annual Plan - $60 per user per year",
 			Item: RazorpayPlanItem{
 				Name:     "LiveReview Team - Annual",
 				Amount:   6000, // $60 in USD cents (6000 cents = $60)
@@ -126,7 +126,6 @@ func CreatePlan(mode, planType string) (*RazorpayPlan, error) {
 			NotesMap: map[string]string{
 				"plan_type": "team_yearly",
 				"app_name":  "LiveReview",
-				"discount":  "17%",
 			},
 		}
 	default:
