@@ -12,6 +12,7 @@ interface OnboardingStepperProps {
   onNewReview: () => void;
   onDismiss?: () => void;
   className?: string;
+  userId?: number | string; // For scoping localStorage to user
 }
 
 const Step: React.FC<{
@@ -78,16 +79,25 @@ export const OnboardingStepper: React.FC<OnboardingStepperProps> = ({
   onNewReview,
   onDismiss,
   className,
+  userId,
 }) => {
   const allSet = hasCLI && hasAIProvider;
   const [collapsed, setCollapsed] = useState<boolean>(() => {
-    try { return localStorage.getItem('lr_get_started_collapsed') === '1'; } catch { return false; }
+    try { 
+      const key = userId ? `lr_get_started_collapsed_${userId}` : 'lr_get_started_collapsed';
+      return localStorage.getItem(key) === '1'; 
+    } catch { 
+      return false; 
+    }
   });
 
   const toggleCollapsed = () => {
     setCollapsed(prev => {
       const next = !prev;
-      try { localStorage.setItem('lr_get_started_collapsed', next ? '1' : '0'); } catch {}
+      try { 
+        const key = userId ? `lr_get_started_collapsed_${userId}` : 'lr_get_started_collapsed';
+        localStorage.setItem(key, next ? '1' : '0'); 
+      } catch {}
       return next;
     });
   };
