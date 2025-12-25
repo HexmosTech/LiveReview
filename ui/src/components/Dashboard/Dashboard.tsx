@@ -28,7 +28,13 @@ export const Dashboard: React.FC = () => {
     const [error, setError] = useState<string | null>(null);
     const [isSyncing, setIsSyncing] = useState(false);
     const [hideStepper, setHideStepper] = useState<boolean>(() => {
-        try { return localStorage.getItem('lr_hide_get_started') === '1'; } catch { return false; }
+        // Scope localStorage to user ID so each user has their own onboarding state
+        try { 
+            const key = user?.id ? `lr_hide_get_started_${user.id}` : 'lr_hide_get_started';
+            return localStorage.getItem(key) === '1'; 
+        } catch { 
+            return false; 
+        }
     });
     const [notificationSent, setNotificationSent] = useState(false);
 
@@ -192,7 +198,14 @@ export const Dashboard: React.FC = () => {
                         installCommandWindows={installCommandWindows}
                         onConfigureAI={() => navigate('/ai')}
                         onNewReview={() => navigate('/reviews/new')}
-                        onDismiss={() => { setHideStepper(true); try { localStorage.setItem('lr_hide_get_started','1'); } catch {} }}
+                        userId={user?.id}
+                        onDismiss={() => { 
+                            setHideStepper(true); 
+                            try { 
+                                const key = user?.id ? `lr_hide_get_started_${user.id}` : 'lr_hide_get_started';
+                                localStorage.setItem(key, '1'); 
+                            } catch {} 
+                        }}
                         className="mb-6"
                     />
                 )}
