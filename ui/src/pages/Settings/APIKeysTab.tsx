@@ -166,7 +166,7 @@ const APIKeysTab: React.FC = () => {
                             <p className="text-green-100 text-sm mb-3">
                                 Copy this key now - it won't be shown again!
                             </p>
-                            <div className="flex items-center space-x-2 bg-slate-900 rounded p-3">
+                            <div className="flex items-center space-x-2 bg-slate-900 rounded p-3 mb-4">
                                 <code className="text-green-400 font-mono text-sm flex-1 break-all">
                                     {createdKey}
                                 </code>
@@ -179,6 +179,58 @@ const APIKeysTab: React.FC = () => {
                                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 5H6a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2v-1M8 5a2 2 0 002 2h2a2 2 0 002-2M8 5a2 2 0 012-2h2a2 2 0 012 2m0 0h2a2 2 0 012 2v3m2 4H10m0 0l3-3m-3 3l3 3" />
                                     </svg>
                                 </Button>
+                            </div>
+                            <div className="border-t border-green-700 pt-3 mt-3">
+                                <h5 className="text-green-200 font-medium text-sm mb-2">Install the lrc CLI</h5>
+                                <p className="text-green-100 text-xs mb-2">
+                                    Run this command to install the CLI with your credentials:
+                                </p>
+                                <div className="space-y-2">
+                                    <div>
+                                        <p className="text-green-200 text-xs mb-1">Linux/Mac:</p>
+                                        <div className="flex items-center space-x-2 bg-slate-900 rounded p-2">
+                                            <code className="text-green-300 font-mono text-xs flex-1 break-all">
+                                                {`curl -fsSL https://hexmos.com/lrc-install.sh | LRC_API_KEY="${createdKey}" LRC_API_URL="${typeof window !== 'undefined' ? `${window.location.protocol}//${window.location.host}` : 'http://localhost:8888'}" bash`}
+                                            </code>
+                                            <Button
+                                                size="sm"
+                                                variant="ghost"
+                                                onClick={() => {
+                                                    const cmd = `curl -fsSL https://hexmos.com/lrc-install.sh | LRC_API_KEY="${createdKey}" LRC_API_URL="${typeof window !== 'undefined' ? `${window.location.protocol}//${window.location.host}` : 'http://localhost:8888'}" bash`;
+                                                    navigator.clipboard.writeText(cmd);
+                                                    setSuccess('Command copied to clipboard!');
+                                                    setTimeout(() => setSuccess(null), 2000);
+                                                }}
+                                            >
+                                                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 5H6a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2v-1M8 5a2 2 0 002 2h2a2 2 0 002-2M8 5a2 2 0 012-2h2a2 2 0 012 2m0 0h2a2 2 0 012 2v3m2 4H10m0 0l3-3m-3 3l3 3" />
+                                                </svg>
+                                            </Button>
+                                        </div>
+                                    </div>
+                                    <div>
+                                        <p className="text-green-200 text-xs mb-1">Windows PowerShell:</p>
+                                        <div className="flex items-center space-x-2 bg-slate-900 rounded p-2">
+                                            <code className="text-green-300 font-mono text-xs flex-1 break-all">
+                                                {`$env:LRC_API_KEY="${createdKey}"; $env:LRC_API_URL="${typeof window !== 'undefined' ? `${window.location.protocol}//${window.location.host}` : 'http://localhost:8888'}"; iwr -useb https://hexmos.com/lrc-install.ps1 | iex`}
+                                            </code>
+                                            <Button
+                                                size="sm"
+                                                variant="ghost"
+                                                onClick={() => {
+                                                    const cmd = `$env:LRC_API_KEY="${createdKey}"; $env:LRC_API_URL="${typeof window !== 'undefined' ? `${window.location.protocol}//${window.location.host}` : 'http://localhost:8888'}"; iwr -useb https://hexmos.com/lrc-install.ps1 | iex`;
+                                                    navigator.clipboard.writeText(cmd);
+                                                    setSuccess('Command copied to clipboard!');
+                                                    setTimeout(() => setSuccess(null), 2000);
+                                                }}
+                                            >
+                                                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 5H6a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2v-1M8 5a2 2 0 002 2h2a2 2 0 002-2M8 5a2 2 0 012-2h2a2 2 0 012 2m0 0h2a2 2 0 012 2v3m2 4H10m0 0l3-3m-3 3l3 3" />
+                                                </svg>
+                                            </Button>
+                                        </div>
+                                    </div>
+                                </div>
                             </div>
                         </div>
                     </div>
