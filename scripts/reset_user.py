@@ -180,7 +180,37 @@ def reset_user_onboarding(email):
         else:
             print("✓ No auth tokens to delete")
         
-        # 9. Delete the organizations if user was the only member
+        # 9. Delete license_log entries for user's organizations
+        if orgs:
+            cursor.execute("""
+                SELECT COUNT(*) as count 
+                FROM license_log 
+                WHERE org_id = ANY(%s)
+            """, (org_ids,))
+            license_log_count = cursor.fetchone()['count']
+            
+            if license_log_count > 0:
+                cursor.execute("DELETE FROM license_log WHERE org_id = ANY(%s)", (org_ids,))
+                print(f"✓ Deleted {license_log_count} license log(s)")
+            else:
+                print("✓ No license logs to delete")
+        
+        # 10. Delete subscriptions for user's organizations
+        if orgs:
+            cursor.execute("""
+                SELECT COUNT(*) as count 
+                FROM subscriptions 
+                WHERE org_id = ANY(%s)
+            """, (org_ids,))
+            subscription_count = cursor.fetchone()['count']
+            
+            if subscription_count > 0:
+                cursor.execute("DELETE FROM subscriptions WHERE org_id = ANY(%s)", (org_ids,))
+                print(f"✓ Deleted {subscription_count} subscription(s)")
+            else:
+                print("✓ No subscriptions to delete")
+        
+        # 11. Delete the organizations if user was the only member
         if orgs:
             for org in orgs:
                 cursor.execute("SELECT COUNT(*) as count FROM user_roles WHERE org_id = %s", (org['id'],))
@@ -190,7 +220,7 @@ def reset_user_onboarding(email):
                     cursor.execute("DELETE FROM orgs WHERE id = %s", (org['id'],))
                     print(f"✓ Deleted organization '{org['name']}' (no remaining members)")
         
-        # 10. Delete the user
+        # 12. Delete the user
         cursor.execute("DELETE FROM users WHERE id = %s", (user_id,))
         print(f"✓ Deleted user account")
         
