@@ -211,6 +211,7 @@ def reset_user_onboarding(email):
                 print("✓ No subscriptions to delete")
         
         # 11. Delete the organizations if user was the only member
+        
         if orgs:
             for org in orgs:
                 cursor.execute("SELECT COUNT(*) as count FROM user_roles WHERE org_id = %s", (org['id'],))
