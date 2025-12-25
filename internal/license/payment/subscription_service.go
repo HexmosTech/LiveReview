@@ -9,11 +9,11 @@ import (
 	"github.com/lib/pq"
 )
 
-// Razorpay Plan IDs - these should be set after creating plans in Razorpay
-// Run: go test -v ./internal/license/payment -run TestSetupPlans
+// Razorpay Plan IDs - LIVE/PRODUCTION environment
+// Monthly: $5/user/month, Yearly: $60/user/year
 var (
-	TeamMonthlyPlanID = "plan_Rt80PrSij8WMsd"
-	TeamYearlyPlanID  = "plan_Rt80QMx4ZD5wmZ"
+	TeamMonthlyPlanID = "plan_RvrblDPJl6Dj5g"
+	TeamYearlyPlanID  = "plan_Rvrblxe5n0WkMq"
 )
 
 // SubscriptionService handles business logic for subscriptions, wrapping the payment package
