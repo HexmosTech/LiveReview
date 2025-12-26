@@ -52,33 +52,38 @@ const ensureMicrosoftClarity = (siteId: string) => {
     console.info('[LiveReview][Clarity] initialized', { siteId });
 };
 
-(async () => {
-    const preloadedState = getPreloadedState();
-    const store = configureAppStore(preloadedState);
-    injectStore(store);
+const preloadedState = getPreloadedState();
+const store = configureAppStore(preloadedState);
+injectStore(store);
 
-    // Make store available globally for token refresh
-    (window as ClarityWindow).__REDUX_STORE__ = store;
+// Make store available globally for token refresh
+(window as ClarityWindow).__REDUX_STORE__ = store;
 
-    const rootElement = document.getElementById('root');
-    if (!rootElement) {
-        throw new Error('Root element not found');
-    }
-    const root = createRoot(rootElement);
+const rootElement = document.getElementById('root');
+if (!rootElement) {
+    throw new Error('Root element not found');
+}
+const root = createRoot(rootElement);
 
-    const appTree = (
-        <React.StrictMode>
-            <ReduxProvider store={store}>
-                <AppContextProvider>
-                    <App />
-                </AppContextProvider>
-            </ReduxProvider>
-        </React.StrictMode>
-    );
+const appTree = (
+    <React.StrictMode>
+        <ReduxProvider store={store}>
+            <AppContextProvider>
+                <App />
+            </AppContextProvider>
+        </ReduxProvider>
+    </React.StrictMode>
+);
 
+root.render(appTree);
+
+if (typeof window !== 'undefined' && typeof (window as any).__lr_hide_boot === 'function') {
+    (window as any).__lr_hide_boot();
+}
+
+void (async () => {
     const { isCloudMode, validateDeploymentModeMatch } = await import('./utils/deploymentMode');
-    
-    // Validate frontend/backend deployment mode match
+    // Validate frontend/backend deployment mode match (non-blocking for first paint)
     try {
         const response = await fetch('/api/v1/ui-config');
         if (response.ok) {
@@ -88,13 +93,11 @@ const ensureMicrosoftClarity = (siteId: string) => {
     } catch (err) {
         console.warn('[LiveReview] Could not validate deployment mode:', err);
     }
-    
+
     if (isCloudMode()) {
         console.info('[LiveReview] Running in Cloud mode (Clarity)');
         ensureMicrosoftClarity('uc7wgsui3g');
     } else {
         console.info('[LiveReview] Running in Self-Hosted mode');
     }
-
-    root.render(appTree);
 })();

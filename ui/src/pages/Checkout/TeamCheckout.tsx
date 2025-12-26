@@ -10,6 +10,20 @@ declare global {
   }
 }
 
+const ensureRazorpay = (): Promise<void> => {
+  if (typeof window !== 'undefined' && window.Razorpay) {
+    return Promise.resolve();
+  }
+  return new Promise((resolve, reject) => {
+    const script = document.createElement('script');
+    script.src = 'https://checkout.razorpay.com/v1/checkout.js';
+    script.async = true;
+    script.onload = () => resolve();
+    script.onerror = () => reject(new Error('Failed to load Razorpay'));
+    document.head.appendChild(script);
+  });
+};
+
 type CheckoutSuccess = {
   subscriptionId: string;
   paymentId?: string;
@@ -44,6 +58,7 @@ const TeamCheckout: React.FC = () => {
   const [successInfo, setSuccessInfo] = useState<CheckoutSuccess | null>(null);
   const [failureInfo, setFailureInfo] = useState<PaymentFailure | null>(null);
   const [currentSubscriptionData, setCurrentSubscriptionData] = useState<any>(null);
+  const [razorpayReady, setRazorpayReady] = useState(false);
 
   const isAnnual = period === 'annual';
   const pricePerSeat = isAnnual ? 60 : 6;
@@ -61,6 +76,21 @@ const TeamCheckout: React.FC = () => {
       navigate('/signin', { state: { returnTo: `/checkout/team?period=${period}` } });
     }
   }, [navigate, period]);
+
+  useEffect(() => {
+    let mounted = true;
+    ensureRazorpay()
+      .then(() => {
+        if (mounted) setRazorpayReady(true);
+      })
+      .catch((err) => {
+        console.error('Failed to load Razorpay script:', err);
+        if (mounted) setErrorMessage('Unable to load payment SDK. Please retry.');
+      });
+    return () => {
+      mounted = false;
+    };
+  }, []);
 
   const handlePurchase = async () => {
     setIsProcessing(true);
@@ -128,6 +158,12 @@ const TeamCheckout: React.FC = () => {
 
       // Store subscription data for retry
       setCurrentSubscriptionData(data);
+
+      // Ensure Razorpay SDK is present before opening checkout
+      if (!razorpayReady) {
+        await ensureRazorpay();
+        setRazorpayReady(true);
+      }
 
       // Initialize Razorpay checkout
       const options = {

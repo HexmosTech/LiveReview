@@ -7,6 +7,7 @@ const CopyPlugin = require('copy-webpack-plugin');
 const ForkTsCheckerWebpackPlugin = require('fork-ts-checker-webpack-plugin');
 const BundleAnalyzerPlugin = require('webpack-bundle-analyzer').BundleAnalyzerPlugin;
 const WebpackObfuscator = require('webpack-obfuscator');
+const Beasties = require('beasties-webpack-plugin');
 const webpack = require('webpack');
 const fs = require('fs');
 const metaConfig = require('./meta.config.js');
@@ -124,8 +125,8 @@ module.exports =  (env, options)=> {
                 //     }
                 // },
                 {
-                    test: /\.(png|jpg|gif|svg)$/,
-                    type: 'asset/inline'
+                    test: /\.(png|jpe?g|gif|svg)$/i,
+                    type: 'asset/resource'
                 },
             ]
         },
@@ -184,6 +185,12 @@ module.exports =  (env, options)=> {
                     useShortDoctype                : true
                 }
             }),
+            // Inline critical CSS and load the rest asynchronously to avoid render-blocking
+            !devMode ? new Beasties({
+                preload: 'swap',
+                noscriptFallback: true,
+                compress: true
+            }) : false,
             // !devMode ? new CleanWebpackPlugin() : false,
             !devMode && process.env.ANALYZE_BUNDLE && !process.env.CI ? new BundleAnalyzerPlugin() : false,
             // Optional JavaScript obfuscation for production builds (enable with OBFUSCATE=true)
@@ -209,18 +216,18 @@ module.exports =  (env, options)=> {
             }) : false
         ].filter(Boolean),
         optimization: {
-            // splitChunks: {
-            //     cacheGroups: {
-            //         // vendor chunk
-            //         vendor: {
-            //             // sync + async chunks
-            //             chunks: 'all',
-            //             name: 'vendor',
-            //             // import file path containing node_modules
-            //             test: /node_modules/
-            //         }
-            //     }
-            // },
+            splitChunks: {
+                chunks: 'all',
+                cacheGroups: {
+                    vendor: {
+                        test: /[\\/]node_modules[\\/]/,
+                        name: 'vendors',
+                        chunks: 'all',
+                        priority: -10
+                    }
+                }
+            },
+            runtimeChunk: 'single',
             minimizer: [
                 new TerserPlugin({
                     extractComments: false, // Don't extract comments to separate file
