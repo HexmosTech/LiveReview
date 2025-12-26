@@ -1,24 +1,8 @@
-import React, { useEffect, useState } from 'react';
+import React, { Suspense, useEffect, useState } from 'react';
 import { HashRouter as Router, Routes, Route, Navigate, useNavigate, useLocation, Link } from 'react-router-dom';
 import { Navbar } from './components/Navbar/Navbar';
-import { Dashboard } from './components/Dashboard/Dashboard';
 import { DemoModeBanner } from './components/DemoModeBanner';
 import { URLMismatchBanner } from './components/URLMismatchBanner';
-import GitProviders from './pages/GitProviders/GitProviders';
-import AIProviders from './pages/AIProviders/AIProviders';
-import Settings from './pages/Settings/Settings';
-import ReviewsRoutes from './pages/Reviews/ReviewsRoutes';
-import Login from './pages/Auth/Login';
-import SelfHosted from './pages/Auth/SelfHosted';
-import Setup from './pages/Setup/Setup';
-import CodeHostCallback from './pages/Auth/CodeHostCallback';
-import OAuthCallbackHandler from './pages/Auth/OAuthCallbackHandler';
-import HomeWithOAuthCheck from './pages/Home/HomeWithOAuthCheck';
-import { MiddlewareTestPage } from './pages/MiddlewareTestPage';
-import Subscribe from './pages/Subscribe/Subscribe';
-import TeamCheckout from './pages/Checkout/TeamCheckout';
-import LicenseManagement from './pages/Licenses/LicenseManagement';
-import LicenseAssignment from './pages/Licenses/LicenseAssignment';
 import { useAppDispatch, useAppSelector } from './store/configureStore';
 import { logout, checkSetupStatus, fetchUser } from './store/Auth/reducer';
 import { fetchLicenseStatus, openModal as openLicenseModal, closeModal as closeLicenseModal } from './store/License/slice';
@@ -27,7 +11,24 @@ import LicenseStatusBar from './components/License/LicenseStatusBar';
 import { isCloudMode } from './utils/deploymentMode';
 import { SubscriptionGuard } from './components/SubscriptionGuard';
 import { Toaster } from 'react-hot-toast';
-import UserForm from './components/UserManagement/UserForm';
+
+const Dashboard = React.lazy(() => import('./components/Dashboard/Dashboard').then((m) => ({ default: m.Dashboard })));
+const GitProviders = React.lazy(() => import('./pages/GitProviders/GitProviders'));
+const AIProviders = React.lazy(() => import('./pages/AIProviders/AIProviders'));
+const Settings = React.lazy(() => import('./pages/Settings/Settings'));
+const ReviewsRoutes = React.lazy(() => import('./pages/Reviews/ReviewsRoutes'));
+const Login = React.lazy(() => import('./pages/Auth/Login'));
+const SelfHosted = React.lazy(() => import('./pages/Auth/SelfHosted'));
+const Setup = React.lazy(() => import('./pages/Setup/Setup'));
+const CodeHostCallback = React.lazy(() => import('./pages/Auth/CodeHostCallback'));
+const OAuthCallbackHandler = React.lazy(() => import('./pages/Auth/OAuthCallbackHandler'));
+const HomeWithOAuthCheck = React.lazy(() => import('./pages/Home/HomeWithOAuthCheck'));
+const MiddlewareTestPage = React.lazy(() => import('./pages/MiddlewareTestPage').then((m) => ({ default: m.MiddlewareTestPage })));
+const Subscribe = React.lazy(() => import('./pages/Subscribe/Subscribe'));
+const TeamCheckout = React.lazy(() => import('./pages/Checkout/TeamCheckout'));
+const LicenseManagement = React.lazy(() => import('./pages/Licenses/LicenseManagement'));
+const LicenseAssignment = React.lazy(() => import('./pages/Licenses/LicenseAssignment'));
+const UserForm = React.lazy(() => import('./components/UserManagement/UserForm'));
 // import { usePostHog } from '@posthog/react'
 
 const Footer = () => (
@@ -82,6 +83,27 @@ const Footer = () => (
     </footer>
 );
 
+const RouteFallback = () => (
+    <div className="min-h-screen flex items-center justify-center bg-slate-900 text-slate-100">
+        <div className="flex items-center gap-3">
+            <div className="h-10 w-10 rounded-full border-2 border-indigo-500 border-t-transparent animate-spin" aria-hidden />
+            <span>Loading…</span>
+        </div>
+    </div>
+);
+
+const BootScreen: React.FC<{ visible: boolean }> = ({ visible }) => (
+    <div
+        className={`fixed inset-0 z-40 flex items-center justify-center bg-slate-950 transition-opacity duration-200 ${visible ? 'opacity-100 pointer-events-auto' : 'opacity-0 pointer-events-none'}`}
+        aria-busy={visible}
+    >
+        <div className="flex flex-col items-center gap-4">
+            <img src="/assets/logo-horizontal.svg" alt="LiveReview" className="h-12 w-auto" width="240" height="64" loading="eager" />
+            <div className="h-10 w-10 rounded-full border-2 border-indigo-500 border-t-transparent animate-spin" aria-hidden />
+        </div>
+    </div>
+);
+
 // Main application content with routing
 const AppContent: React.FC = () => {
     const dispatch = useAppDispatch();
@@ -93,6 +115,7 @@ const AppContent: React.FC = () => {
     const licenseLoadedOnce = useAppSelector(s => s.License.loadedOnce);
     // Subtle fade-in for main content to make initial paint feel smoother
     const [uiReady, setUiReady] = useState(false);
+    const [bootVisible, setBootVisible] = useState(true);
     useEffect(() => {
         console.info('[LiveReview][AppContent] mounted');
         const id = requestAnimationFrame(() => setUiReady(true));
@@ -101,6 +124,16 @@ const AppContent: React.FC = () => {
             console.info('[LiveReview][AppContent] unmounted');
         };
     }, []);
+
+    // Hide boot overlay once we have auth state resolved or after a short timeout
+    useEffect(() => {
+        if (!bootVisible) return;
+        const timeout = setTimeout(() => setBootVisible(false), isLoading ? 1200 : 150);
+        if (!isLoading) {
+            setBootVisible(false);
+        }
+        return () => clearTimeout(timeout);
+    }, [bootVisible, isLoading]);
 
     // Extract the current page from the path
     const getCurrentPage = (): string => {
@@ -248,26 +281,28 @@ const AppContent: React.FC = () => {
                 {!isCloudMode() && <LicenseStatusBar onOpenModal={() => dispatch(openLicenseModal())} />}
                 <div className="flex-grow">
                     <SubscriptionGuard>
-                        <Routes>
-                            <Route path="/" element={<HomeWithOAuthCheck />} />
-                            <Route path="/dashboard" element={<Dashboard />} />
-                            <Route path="/subscribe" element={<Subscribe />} />
-                            <Route path="/subscribe/manage" element={<LicenseManagement />} />
-                            <Route path="/subscribe/subscriptions/:id/assign" element={<LicenseAssignment />} />
-                            <Route path="/checkout/team" element={<TeamCheckout />} />
-                            <Route path="/reviews/*" element={<ReviewsRoutes />} />
-                            <Route path="/git/*" element={<GitProviders />} />
-                            <Route path="/ai" element={<AIProviders />} />
-                            <Route path="/ai/:provider" element={<AIProviders />} />
-                            <Route path="/ai/:provider/:action" element={<AIProviders />} />
-                            <Route path="/ai/:provider/:action/:connectorId" element={<AIProviders />} />
-                            <Route path="/settings/*" element={<Settings />} />
-                            <Route path="/settings/users/add" element={<UserForm />} />
-                            <Route path="/settings/users/edit/:userId" element={<UserForm />} />
-                            <Route path="/test-middleware" element={<MiddlewareTestPage />} />
-                            <Route path="/oauth-callback" element={<OAuthCallbackHandler />} />
-                            <Route path="*" element={<Navigate to="/" replace />} />
-                        </Routes>
+                        <Suspense fallback={<RouteFallback />}>
+                            <Routes>
+                                <Route path="/" element={<HomeWithOAuthCheck />} />
+                                <Route path="/dashboard" element={<Dashboard />} />
+                                <Route path="/subscribe" element={<Subscribe />} />
+                                <Route path="/subscribe/manage" element={<LicenseManagement />} />
+                                <Route path="/subscribe/subscriptions/:id/assign" element={<LicenseAssignment />} />
+                                <Route path="/checkout/team" element={<TeamCheckout />} />
+                                <Route path="/reviews/*" element={<ReviewsRoutes />} />
+                                <Route path="/git/*" element={<GitProviders />} />
+                                <Route path="/ai" element={<AIProviders />} />
+                                <Route path="/ai/:provider" element={<AIProviders />} />
+                                <Route path="/ai/:provider/:action" element={<AIProviders />} />
+                                <Route path="/ai/:provider/:action/:connectorId" element={<AIProviders />} />
+                                <Route path="/settings/*" element={<Settings />} />
+                                <Route path="/settings/users/add" element={<UserForm />} />
+                                <Route path="/settings/users/edit/:userId" element={<UserForm />} />
+                                <Route path="/test-middleware" element={<MiddlewareTestPage />} />
+                                <Route path="/oauth-callback" element={<OAuthCallbackHandler />} />
+                                <Route path="*" element={<Navigate to="/" replace />} />
+                            </Routes>
+                        </Suspense>
                     </SubscriptionGuard>
                 </div>
                 <Footer />
@@ -276,7 +311,12 @@ const AppContent: React.FC = () => {
         );
     }
 
-    return <>{body}</>;
+    return (
+        <>
+            <BootScreen visible={bootVisible} />
+            {body}
+        </>
+    );
 };
 
 // Main App component with Router
