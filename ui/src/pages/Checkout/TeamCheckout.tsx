@@ -24,6 +24,78 @@ const ensureRazorpay = (): Promise<void> => {
   });
 };
 
+const ensureRazorpayStyles = () => {
+  if (document.getElementById('razorpay-custom-style')) return;
+  const style = document.createElement('style');
+  style.id = 'razorpay-custom-style';
+  style.textContent = `
+    /*
+      Razorpay Checkout (checkout.js) injects:
+      - div.razorpay-container
+      - div.razorpay-backdrop
+      - iframe.razorpay-checkout-frame
+
+      The UI inside the iframe is cross-origin and cannot be styled.
+      We can only safely style the host-page wrapper/backdrop and the iframe element itself.
+    */
+
+    /* Prevent any Razorpay DOM from flashing before a user-initiated open() */
+    body:not(.razorpay-active) .razorpay-container {
+      display: none !important;
+    }
+
+    body.razorpay-active {
+      overflow: hidden !important;
+    }
+
+    /* Use Razorpay's own backdrop element (more reliable than ::before) */
+    body.razorpay-active .razorpay-backdrop {
+      background: rgba(0, 7, 16, 0.72) !important;
+      backdrop-filter: blur(2px);
+    }
+
+    /* Layout the modal with equal padding on all sides */
+    body.razorpay-active .razorpay-container {
+      display: flex !important;
+      align-items: center !important;
+      justify-content: center !important;
+      padding: clamp(18px, 4vw, 36px) !important;
+      box-sizing: border-box !important;
+      background: transparent !important;
+    }
+
+    /* The white you're seeing is almost certainly INSIDE the iframe.
+       We can't recolor it, but we can reduce glare by dimming the iframe rendering. */
+    body.razorpay-active iframe.razorpay-checkout-frame {
+      width: clamp(360px, 92vw, 520px) !important;
+      /* Keep it dialog-like (not a full-height sheet) */
+      height: clamp(520px, 78vh, 600px) !important;
+      border: 0 !important;
+      border-radius: 14px !important;
+      overflow: hidden !important;
+      box-shadow: 0 24px 80px rgba(0, 0, 0, 0.45), 0 6px 24px rgba(0,0,0,0.25) !important;
+      filter: brightness(0.88) saturate(0.92) contrast(0.98);
+      background: #0b1220 !important;
+    }
+
+    /* Fallback selector (some versions omit the class) */
+    body.razorpay-active .razorpay-container iframe {
+      border-radius: 14px !important;
+      box-shadow: 0 24px 80px rgba(0, 0, 0, 0.45), 0 6px 24px rgba(0,0,0,0.25) !important;
+      filter: brightness(0.88) saturate(0.92) contrast(0.98);
+    }
+
+    @media (max-width: 640px) {
+      body.razorpay-active iframe.razorpay-checkout-frame {
+        width: calc(100vw - 2 * 16px) !important;
+        /* On small screens allow more height, but keep a margin */
+        height: calc(100vh - 2 * 16px) !important;
+      }
+    }
+  `;
+  document.head.appendChild(style);
+};
+
 type CheckoutSuccess = {
   subscriptionId: string;
   paymentId?: string;
@@ -82,6 +154,7 @@ const TeamCheckout: React.FC = () => {
     ensureRazorpay()
       .then(() => {
         if (mounted) setRazorpayReady(true);
+        if (mounted) ensureRazorpayStyles();
       })
       .catch((err) => {
         console.error('Failed to load Razorpay script:', err);
@@ -162,6 +235,7 @@ const TeamCheckout: React.FC = () => {
       // Ensure Razorpay SDK is present before opening checkout
       if (!razorpayReady) {
         await ensureRazorpay();
+        ensureRazorpayStyles();
         setRazorpayReady(true);
       }
 
@@ -202,6 +276,7 @@ const TeamCheckout: React.FC = () => {
           ondismiss: () => {
             setIsProcessing(false);
             setIsConfirming(false);
+            document.body.classList.remove('razorpay-active');
           },
         },
         theme: {
@@ -210,6 +285,7 @@ const TeamCheckout: React.FC = () => {
       };
 
       const rzp = new window.Razorpay(options);
+      document.body.classList.add('razorpay-active');
       rzp.on('payment.failed', (response: any) => {
         const error = response.error || {};
         setFailureInfo({
@@ -224,6 +300,7 @@ const TeamCheckout: React.FC = () => {
         });
         setIsProcessing(false);
         setIsConfirming(false);
+        document.body.classList.remove('razorpay-active');
       });
       rzp.open();
     } catch (error) {
