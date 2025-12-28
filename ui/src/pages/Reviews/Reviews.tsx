@@ -223,7 +223,7 @@ const Reviews: React.FC = () => {
             {/* Header */}
             <div className="flex items-center justify-between mb-8">
                 <div>
-                    <h1 className="text-3xl font-bold text-white mb-2">Code Reviews</h1>
+                    <h1 className="text-3xl font-bold text-white mb-2">Code Review Previews</h1>
                     <p className="text-slate-300">Manage and monitor your AI-powered code review sessions</p>
                 </div>
                 <Button
@@ -232,8 +232,9 @@ const Reviews: React.FC = () => {
                     variant="primary"
                     icon={<Icons.Add />}
                     className="bg-green-600 hover:bg-green-700"
+                    title="Safe preview - no comments posted"
                 >
-                    Start New Review
+                    Preview New Review
                 </Button>
             </div>
 
@@ -358,8 +359,8 @@ const Reviews: React.FC = () => {
             {reviews.length === 0 ? (
                 <div className="text-center py-16">
                     <Icons.EmptyState />
-                    <h3 className="text-xl font-medium text-slate-300 mt-4">No reviews found</h3>
-                    <p className="text-slate-400 mt-2 mb-6">Get started by creating your first code review session</p>
+                    <h3 className="text-xl font-medium text-slate-300 mt-4">No review previews found</h3>
+                    <p className="text-slate-400 mt-2 mb-6">Get started by creating your first preview session (safe - no comments posted)</p>
                     <Button
                         as={Link}
                         to="/reviews/new"
@@ -367,7 +368,7 @@ const Reviews: React.FC = () => {
                         icon={<Icons.Add />}
                         className="bg-green-600 hover:bg-green-700"
                     >
-                        Start New Review
+                        Preview New Review
                     </Button>
                 </div>
             ) : (

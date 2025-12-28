@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import classNames from 'classnames';
 import { Button, Icons, Tooltip } from '../UIPrimitives';
+import { SafetyBanner } from '../SafetyBanner/SafetyBanner';
 
 interface OnboardingStepperProps {
   hasCLI: boolean;
@@ -107,9 +108,9 @@ export const OnboardingStepper: React.FC<OnboardingStepperProps> = ({
       <div className="flex items-center justify-between mb-4">
         <div>
           <h3 className="text-2xl font-extrabold bg-gradient-to-r from-blue-400 via-cyan-400 to-emerald-400 bg-clip-text text-transparent mb-1.5">
-            🚀 Get your first review in 2 minutes
+            🚀 Get your first preview in 2 minutes
           </h3>
-          <p className="text-base text-slate-300 font-medium">Three simple steps to AI-powered code reviews.</p>
+          <p className="text-base text-slate-300 font-medium">Three simple steps to safe, preview-only AI code reviews.</p>
         </div>
         <div className="flex items-center gap-3 flex-wrap">
           {allSet && collapsed && (
@@ -148,6 +149,9 @@ export const OnboardingStepper: React.FC<OnboardingStepperProps> = ({
 
       {!collapsed && (
       <div className="space-y-2">
+        {/* Safety Banner */}
+        <SafetyBanner variant="detailed" className="mb-4" />
+        
         <Step
           title="Step 1: Configure AI"
           description="Add at least one AI provider (e.g., OpenAI, Gemini, or Ollama) to generate code review comments."
@@ -184,7 +188,7 @@ export const OnboardingStepper: React.FC<OnboardingStepperProps> = ({
           done={hasCLI}
         />
         <Step
-          title="Step 3: Trigger Review"
+          title="Step 3: Preview Review Comments"
           description={
             <>
               <p>Navigate to any git repository with uncommitted changes and run:</p>
