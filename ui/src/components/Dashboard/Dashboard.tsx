@@ -127,7 +127,7 @@ export const Dashboard: React.FC = () => {
         <div className="min-h-screen">
             <main className="container mx-auto px-4 py-6">
                 {/* Header with aligned content and prominent CTA */}
-                <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-6">
+                <div className="flex flex-col gap-3 sm:flex-row sm:justify-between sm:items-center mb-6">
                     <div className="mb-4 sm:mb-0">
                         <div className="flex items-center gap-2">
                             <h1 className="text-2xl font-bold text-white">Dashboard</h1>
@@ -144,7 +144,7 @@ export const Dashboard: React.FC = () => {
                             )}
                         </p>
                     </div>
-                    <div className="flex gap-3">
+                    <div className="hidden sm:flex gap-3">
                         <Button 
                             variant="primary" 
                             icon={<Icons.Add />}
@@ -213,7 +213,7 @@ export const Dashboard: React.FC = () => {
                 )}
 
                 {/* Main Statistics Grid - Improved density and alignment */}
-                <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
                     <StatCard 
                         variant="primary"
                         title="AI Reviews" 

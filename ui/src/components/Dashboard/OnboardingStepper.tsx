@@ -57,11 +57,11 @@ const CodeBlock: React.FC<{ code: string; onCopy?: () => void }> = ({ code, onCo
   };
 
   return (
-    <div className="relative mt-2 bg-slate-900/80 rounded border border-slate-700 p-3 pr-12 font-mono text-xs text-slate-200 overflow-x-auto">
-      <code>{code}</code>
+    <div className="relative mt-2 bg-slate-900/80 rounded border border-slate-700 p-3 pr-12 font-mono text-xs text-slate-200 overflow-x-auto max-w-full">
+      <code className="block whitespace-pre-wrap break-all">{code}</code>
       <button
         onClick={handleCopy}
-        className="absolute top-2 right-2 p-1.5 rounded bg-slate-700 hover:bg-slate-600 transition-colors"
+        className="absolute top-2 right-2 p-1.5 rounded bg-slate-700 hover:bg-slate-600 transition-colors flex-shrink-0"
         title="Copy to clipboard"
       >
         {copied ? <Icons.Success /> : <Icons.Copy />}
@@ -105,14 +105,14 @@ export const OnboardingStepper: React.FC<OnboardingStepperProps> = ({
 
   return (
     <div className={classNames('rounded-lg border border-blue-500/30 bg-gradient-to-br from-slate-800/80 to-slate-900/80 p-6 shadow-xl', className)}>
-      <div className="flex items-center justify-between mb-4">
-        <div>
+      <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between mb-4">
+        <div className="max-w-3xl">
           <h3 className="text-2xl font-extrabold bg-gradient-to-r from-blue-400 via-cyan-400 to-emerald-400 bg-clip-text text-transparent mb-1.5">
             🚀 Get your first preview in 2 minutes
           </h3>
           <p className="text-base text-slate-300 font-medium">Three simple steps to safe, preview-only AI code reviews.</p>
         </div>
-        <div className="flex items-center gap-3 flex-wrap">
+        <div className="flex items-center gap-2 sm:gap-3 flex-wrap justify-start lg:justify-end">
           {allSet && collapsed && (
             <Button variant="primary" size="sm" icon={<Icons.Add />} onClick={onNewReview}>
               New Review
