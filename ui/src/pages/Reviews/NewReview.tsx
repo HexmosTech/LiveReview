@@ -142,8 +142,8 @@ const NewReview: React.FC = () => {
     <ErrorBoundary>
       <div className="container mx-auto px-4 py-8">
         <PageHeader
-          title="Preview Review Comments"
-          description="See what LiveReview would say — safe preview with no comments posted"
+          title="New Review"
+          description="Generate review comments safely — no comments posted automatically"
           actions={
             <Button
               variant="outline"
@@ -217,7 +217,7 @@ const NewReview: React.FC = () => {
                   icon={<svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1" />
                   </svg>}
-                  helperText="Enter the URL of the merge/pull request to preview review comments"
+                  helperText="Enter the URL of the merge/pull request to start a review"
                 />
               </div>
               
@@ -231,7 +231,7 @@ const NewReview: React.FC = () => {
                 </div>
                 <div className="mt-3 pt-3 border-t border-slate-600">
                   <p className="text-xs text-green-300 font-medium">
-                    🔒 Preview only - No comments will be posted to your PR/MR
+                    🔒 Safe run - No comments will be posted to your PR/MR
                   </p>
                 </div>
               </div>
@@ -251,7 +251,7 @@ const NewReview: React.FC = () => {
                   disabled={loading || !url.trim()}
                   isLoading={loading}
                 >
-                  Preview Review Comments
+                  Start Review
                 </Button>
               </div>
             </form>

@@ -150,9 +150,9 @@ export const Dashboard: React.FC = () => {
                             icon={<Icons.Add />}
                             onClick={() => navigate('/reviews/new')}
                             className="shadow-xl hover:shadow-2xl transition-all duration-300 hover:scale-105 bg-gradient-to-r from-blue-600 to-blue-700 hover:from-blue-500 hover:to-blue-600"
-                            title="Safe preview - no comments posted"
+                            title="Safe review - no comments posted"
                         >
-                            Preview Review
+                            New Review
                         </Button>
                     </div>
                 </div>
@@ -186,8 +186,8 @@ export const Dashboard: React.FC = () => {
                     icon={<Icons.Add />}
                     onClick={() => navigate('/reviews/new')}
                     className="fixed bottom-6 right-6 sm:hidden z-40 rounded-full w-14 h-14 shadow-xl hover:shadow-2xl transition-all duration-300 hover:scale-110 bg-gradient-to-r from-blue-600 to-blue-700 hover:from-blue-500 hover:to-blue-600"
-                    aria-label="Preview Review (Safe - no comments posted)"
-                    title="Safe preview - no comments posted"
+                    aria-label="New Review (Safe - no comments posted)"
+                    title="Safe review - no comments posted"
                 />
 
                 {/* Get Started stepper – stays visible until the user manually dismisses it */}
@@ -223,9 +223,9 @@ export const Dashboard: React.FC = () => {
                                 <path d="M14.72,8.79l-4.29,4.3L8.78,11.44a1,1,0,1,0-1.41,1.41l2.35,2.36a1,1,0,0,0,.71.29,1,1,0,0,0,.7-.29l5-5a1,1,0,0,0,0-1.42A1,1,0,0,0,14.72,8.79ZM12,2A10,10,0,1,0,22,12,10,10,0,0,0,12,2Zm0,18a8,8,0,1,1,8-8A8,8,0,0,1,12,20Z"/>
                             </svg>
                         }
-                        description="Review previews generated"
-                        emptyNote="No previews yet."
-                        emptyCtaLabel="Preview one now"
+                        description="Reviews generated"
+                        emptyNote="No reviews yet."
+                        emptyCtaLabel="Start one now"
                         onEmptyCta={() => navigate('/reviews/new')}
                     />
                     <StatCard 
@@ -334,10 +334,10 @@ export const Dashboard: React.FC = () => {
                                                         <EmptyState
                                                             icon={<Icons.EmptyState />}
                                                             title="Nothing to show yet"
-                                                            description="Once you run a preview, you'll see activity, comments and trends here."
+                                                            description="Once you run a review, you'll see activity, comments and trends here."
                                                             action={
                                                                 <Button variant="primary" icon={<Icons.Add />} onClick={() => navigate('/reviews/new')}>
-                                                                    Preview Review
+                                                                    New Review
                                                                 </Button>
                                                             }
                                                         />
