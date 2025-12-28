@@ -93,8 +93,8 @@ export const RecentActivity: React.FC<RecentActivityProps> = ({ className }) => 
         const formattedActivity = formatActivity(activity);
         
         return (
-            <div key={activity.id} className="flex items-center justify-between p-3 rounded-lg bg-slate-700/50 hover:bg-slate-700/70 transition-colors min-h-[60px]">
-                <div className="flex items-center space-x-3 flex-1 min-w-0">
+            <div key={activity.id} className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between p-3 rounded-lg bg-slate-700/50 hover:bg-slate-700/70 transition-colors min-h-[60px]">
+                <div className="flex items-start space-x-3 flex-1 min-w-0">
                     <div className="flex-shrink-0 w-6 h-6 flex items-center justify-center">
                         {formattedActivity.icon}
                     </div>
@@ -107,15 +107,13 @@ export const RecentActivity: React.FC<RecentActivityProps> = ({ className }) => 
                         </p>
                     </div>
                 </div>
-                <div className="flex items-center space-x-2 flex-shrink-0">
-                    {/* Timestamp badge comes first */}
+                <div className="flex items-center gap-2 w-full sm:w-auto sm:justify-end">
                     <Badge variant="default" size="sm" className="bg-slate-600 text-slate-300 px-3 py-1.5 h-8 flex items-center">
                         <HumanizedTimestamp 
                             timestamp={activity.created_at}
                             className="text-slate-300 text-xs"
                         />
                     </Badge>
-                    {/* External link button comes after timestamp */}
                     {formattedActivity.actionUrl && (
                         <a
                             href={formattedActivity.actionUrl}
