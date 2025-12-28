@@ -116,10 +116,10 @@ const ConnectorsList: React.FC<ConnectorsListProps> = ({
             title="Your Connectors" 
             badge={`${filteredConnectors.length}`}
         >
-            <div className="flex justify-between items-center mb-4">
+            <div className="flex flex-col gap-3 sm:flex-row sm:justify-between sm:items-center mb-4">
                 {/* Reorder controls - only show for "All Connectors" */}
                 {selectedProvider === 'all' && connectorsToDisplay.length > 1 && (
-                    <div className="flex items-center space-x-2">
+                    <div className="flex items-center gap-2">
                         {!isReorderMode ? (
                             <Button
                                 variant="outline"
@@ -153,7 +153,7 @@ const ConnectorsList: React.FC<ConnectorsListProps> = ({
                 )}
                 
                 {/* Add Connector button */}
-                <div className="flex space-x-2">
+                <div className="flex gap-2 w-full sm:w-auto">
                     {selectedProvider === 'all' ? (
                         <div className="relative" ref={dropdownRef}>
                             <Button
