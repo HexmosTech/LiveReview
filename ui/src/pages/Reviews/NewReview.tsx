@@ -14,6 +14,7 @@ import { triggerReview, TriggerReviewRequest } from '../../api/reviews';
 import { getConnectors, ConnectorResponse } from '../../api/connectors';
 import { ErrorBoundary } from '../../components/ErrorBoundary';
 import { UpgradePromptModal } from '../../components/Subscriptions';
+import { SafetyBanner } from '../../components/SafetyBanner/SafetyBanner';
 
 const NewReview: React.FC = () => {
   const navigate = useNavigate();
@@ -141,8 +142,8 @@ const NewReview: React.FC = () => {
     <ErrorBoundary>
       <div className="container mx-auto px-4 py-8">
         <PageHeader
-          title="New Code Review"
-          description="Trigger a code review for a merge/pull request"
+          title="Preview Review Comments"
+          description="See what LiveReview would say — safe preview with no comments posted"
           actions={
             <Button
               variant="outline"
@@ -178,6 +179,9 @@ const NewReview: React.FC = () => {
             />
           ) : (
             <form onSubmit={handleSubmit}>
+              {/* Safety Banner */}
+              <SafetyBanner variant="detailed" className="mb-6" />
+              
               <h3 className="text-lg font-medium text-white mb-4">Enter Merge/Pull Request URL</h3>
               
               {error && (
@@ -213,7 +217,7 @@ const NewReview: React.FC = () => {
                   icon={<svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1" />
                   </svg>}
-                  helperText="Enter the URL of the merge/pull request you want to review"
+                  helperText="Enter the URL of the merge/pull request to preview review comments"
                 />
               </div>
               
@@ -224,6 +228,11 @@ const NewReview: React.FC = () => {
                   <div>• GitLab: https://gitlab.com/group/project/-/merge_requests/123</div>
                   <div>• GitHub: https://github.com/owner/repo/pull/123</div>
                   <div>• Bitbucket: https://bitbucket.org/workspace/repo/pull-requests/123</div>
+                </div>
+                <div className="mt-3 pt-3 border-t border-slate-600">
+                  <p className="text-xs text-green-300 font-medium">
+                    🔒 Preview only - No comments will be posted to your PR/MR
+                  </p>
                 </div>
               </div>
               
@@ -242,7 +251,7 @@ const NewReview: React.FC = () => {
                   disabled={loading || !url.trim()}
                   isLoading={loading}
                 >
-                  Trigger Review
+                  Preview Review Comments
                 </Button>
               </div>
             </form>
