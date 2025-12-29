@@ -650,9 +650,16 @@ const htmlTemplate = `<!DOCTYPE html>
             border-radius: 10px;
             background: linear-gradient(90deg, rgba(51,65,85,0.35), rgba(30,41,59,0.35));
             display: flex;
-            align-items: center;
-            gap: 12px;
+            align-items: flex-start;
+            gap: 16px;
             flex-wrap: wrap;
+        }
+
+        .precommit-bar-left {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+            min-width: 220px;
         }
 
         .precommit-bar-title {
@@ -665,6 +672,44 @@ const htmlTemplate = `<!DOCTYPE html>
             display: flex;
             gap: 10px;
             align-items: center;
+        }
+
+        .precommit-message {
+            flex: 1;
+            min-width: 260px;
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+
+        .precommit-message label {
+            font-size: 12px;
+            font-weight: 600;
+            color: #cbd5e1;
+        }
+
+        .precommit-message textarea {
+            width: 100%;
+            min-height: 90px;
+            resize: vertical;
+            background: rgba(15,23,42,0.4);
+            border: 1px solid #475569;
+            color: #e2e8f0;
+            border-radius: 10px;
+            padding: 10px 12px;
+            font-family: "JetBrains Mono", "SFMono-Regular", ui-monospace, monospace;
+            font-size: 13px;
+            line-height: 1.45;
+        }
+
+        .precommit-message textarea:focus {
+            outline: 1px solid #60a5fa;
+            box-shadow: 0 0 0 3px rgba(96,165,250,0.25);
+        }
+
+        .precommit-message-hint {
+            color: #94a3b8;
+            font-size: 12px;
         }
 
         .btn-primary {
@@ -765,12 +810,19 @@ const htmlTemplate = `<!DOCTYPE html>
             <div class="stat">Comments: <span class="count">{{.TotalComments}}</span></div>
         </div>
 {{if .Precommit}}        <div class="precommit-bar">
-            <div class="precommit-bar-title">Pre-commit action</div>
-            <div class="precommit-actions">
-                <button id="btn-commit" class="btn-primary">Commit</button>
-                <button id="btn-skip" class="btn-ghost">Skip Commit</button>
+            <div class="precommit-bar-left">
+                <div class="precommit-bar-title">Pre-commit action</div>
+                <div class="precommit-actions">
+                    <button id="btn-commit" class="btn-primary">Commit</button>
+                    <button id="btn-skip" class="btn-ghost">Skip Commit</button>
+                </div>
+                <div id="precommit-status" class="precommit-status"></div>
             </div>
-            <div id="precommit-status" class="precommit-status"></div>
+            <div class="precommit-message">
+                <label for="commit-message">Commit message (optional)</label>
+                <textarea id="commit-message" placeholder="Edit the commit message before continuing; leave blank to keep your existing git message."></textarea>
+                <div class="precommit-message-hint">Applied when you choose Commit here; ignored on Skip.</div>
+            </div>
         </div>
 {{end}}        <button class="expand-all" onclick="toggleAll()">Expand All Files</button>
 {{if .Files}}{{range .Files}}        <div class="file collapsed" id="file_{{.ID}}" data-has-comments="{{.HasComments}}">
@@ -832,24 +884,39 @@ const htmlTemplate = `<!DOCTYPE html>
                 const commitBtn = document.getElementById('btn-commit');
                 const skipBtn = document.getElementById('btn-skip');
                 const statusEl = document.getElementById('precommit-status');
+                const messageInput = document.getElementById('commit-message');
 
                 const setStatus = (text) => { statusEl.textContent = text; };
                 const disableAll = () => {
                     commitBtn.disabled = true;
                     skipBtn.disabled = true;
+                    if (messageInput) {
+                        messageInput.disabled = true;
+                    }
+                };
+
+                const enableActions = () => {
+                    commitBtn.disabled = false;
+                    skipBtn.disabled = false;
+                    if (messageInput) {
+                        messageInput.disabled = false;
+                    }
                 };
 
                 const postDecision = async (path, successText) => {
                     disableAll();
                     setStatus('Sending decision...');
                     try {
-                        const res = await fetch(path, { method: 'POST' });
+                        const res = await fetch(path, {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ message: messageInput ? messageInput.value : '' })
+                        });
                         if (!res.ok) throw new Error('Request failed: ' + res.status);
                         setStatus(successText + ' — you can now return to the terminal.');
                     } catch (err) {
                         setStatus('Failed: ' + err.message);
-                        commitBtn.disabled = false;
-                        skipBtn.disabled = false;
+                        enableActions();
                     }
                 };
 
