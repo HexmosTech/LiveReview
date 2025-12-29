@@ -75,6 +75,7 @@ const (
 	defaultPollInterval = 2 * time.Second
 	defaultTimeout      = 5 * time.Minute
 	defaultOutputFormat = "pretty"
+	commitMessageFile   = "livereview_commit_message"
 )
 
 // highlightURL adds ANSI color to make served links stand out in terminals.
@@ -362,6 +363,16 @@ func pickServePort(preferredPort, maxTries int) (int, error) {
 func runReviewWithOptions(opts reviewOptions) error {
 	verbose := opts.verbose
 	var tempHTMLPath string
+	var commitMsgPath string
+
+	if opts.precommit {
+		gitDir, err := resolveGitDir()
+		if err != nil {
+			return fmt.Errorf("precommit mode requires a git repository: %w", err)
+		}
+		commitMsgPath = filepath.Join(gitDir, commitMessageFile)
+		_ = clearCommitMessageFile(commitMsgPath)
+	}
 
 	// Load configuration from config file or overrides
 	config, err := loadConfigValues(opts.apiKey, opts.apiURL, verbose)
@@ -566,7 +577,7 @@ func runReviewWithOptions(opts reviewOptions) error {
 			// Precommit mode: interactive prompt for commit decision
 			if opts.precommit {
 				// Don't render to stdout in precommit mode, go straight to prompt
-				exitCode := serveHTMLPrecommit(htmlPath, opts.port)
+				exitCode := serveHTMLPrecommit(htmlPath, opts.port, commitMsgPath)
 				os.Exit(exitCode)
 			}
 
@@ -641,6 +652,31 @@ func runGitCommand(name string, args ...string) ([]byte, error) {
 		return nil, err
 	}
 	return output, nil
+}
+
+// resolveGitDir returns the absolute path to the repository's .git directory.
+func resolveGitDir() (string, error) {
+	cmd := exec.Command("git", "rev-parse", "--git-dir")
+	out, err := cmd.Output()
+	if err != nil {
+		return "", fmt.Errorf("failed to locate git directory: %w", err)
+	}
+
+	gitDir := strings.TrimSpace(string(out))
+	if gitDir == "" {
+		return "", fmt.Errorf("git directory path is empty")
+	}
+
+	if filepath.IsAbs(gitDir) {
+		return gitDir, nil
+	}
+
+	cwd, err := os.Getwd()
+	if err != nil {
+		return "", fmt.Errorf("failed to resolve working directory: %w", err)
+	}
+
+	return filepath.Join(cwd, gitDir), nil
 }
 
 func createZipArchive(diffContent []byte) ([]byte, error) {
@@ -1317,9 +1353,60 @@ func handleCtrlKeyWithCancel(stop <-chan struct{}) (int, error) {
 	}
 }
 
+// persistCommitMessage writes the desired commit message to a temporary file that the commit-msg hook will consume.
+func persistCommitMessage(commitMsgPath, message string) error {
+	if commitMsgPath == "" {
+		return nil
+	}
+
+	trimmed := strings.TrimRight(message, "\r\n")
+	if strings.TrimSpace(trimmed) == "" {
+		return clearCommitMessageFile(commitMsgPath)
+	}
+
+	normalized := trimmed + "\n"
+	return os.WriteFile(commitMsgPath, []byte(normalized), 0600)
+}
+
+// clearCommitMessageFile removes any pending commit-message override file.
+func clearCommitMessageFile(commitMsgPath string) error {
+	if commitMsgPath == "" {
+		return nil
+	}
+
+	if err := os.Remove(commitMsgPath); err != nil && !os.IsNotExist(err) {
+		return err
+	}
+
+	return nil
+}
+
+// readCommitMessageFromRequest extracts an optional commit message from a JSON request body.
+func readCommitMessageFromRequest(r *http.Request) string {
+	if r.Body == nil {
+		return ""
+	}
+
+	defer r.Body.Close()
+	body, err := io.ReadAll(io.LimitReader(r.Body, 64*1024))
+	if err != nil || len(body) == 0 {
+		return ""
+	}
+
+	var payload struct {
+		Message string `json:"message"`
+	}
+
+	if err := json.Unmarshal(body, &payload); err != nil {
+		return ""
+	}
+
+	return strings.TrimRight(payload.Message, "\r\n")
+}
+
 // serveHTMLPrecommit serves HTML and waits for user decision
 // Returns exit code: 0 = commit, 1 = don't commit
-func serveHTMLPrecommit(htmlPath string, port int) int {
+func serveHTMLPrecommit(htmlPath string, port int, commitMsgPath string) int {
 	absPath, err := filepath.Abs(htmlPath)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Failed to get absolute path: %v\n", err)
@@ -1331,6 +1418,8 @@ func serveHTMLPrecommit(htmlPath string, port int) int {
 		fmt.Fprintf(os.Stderr, "HTML file not found: %v\n", err)
 		return 1
 	}
+
+	_ = clearCommitMessageFile(commitMsgPath)
 
 	url := fmt.Sprintf("http://localhost:%d", port)
 	fmt.Printf("\n")
@@ -1349,11 +1438,16 @@ func serveHTMLPrecommit(htmlPath string, port int) int {
 		http.ServeFile(w, r, absPath)
 	})
 
-	decisionChan := make(chan int, 1) // 0=commit,2=skip-from-terminal,1=abort,3=skip-from-HTML-abort
+	type precommitDecision struct {
+		code    int
+		message string
+	}
+
+	decisionChan := make(chan precommitDecision, 1) // 0=commit,2=skip-from-terminal,1=abort,3=skip-from-HTML-abort
 	var decideOnce sync.Once
-	decide := func(code int) {
+	decide := func(code int, message string) {
 		decideOnce.Do(func() {
-			decisionChan <- code
+			decisionChan <- precommitDecision{code: code, message: message}
 		})
 	}
 
@@ -1363,7 +1457,8 @@ func serveHTMLPrecommit(htmlPath string, port int) int {
 			w.WriteHeader(http.StatusMethodNotAllowed)
 			return
 		}
-		decide(0)
+		msg := readCommitMessageFromRequest(r)
+		decide(0, msg)
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte("ok"))
 	})
@@ -1373,7 +1468,7 @@ func serveHTMLPrecommit(htmlPath string, port int) int {
 			w.WriteHeader(http.StatusMethodNotAllowed)
 			return
 		}
-		decide(3)
+		decide(3, "")
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte("ok"))
 	})
@@ -1405,7 +1500,7 @@ func serveHTMLPrecommit(htmlPath string, port int) int {
 	signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM)
 	go func() {
 		<-sigChan
-		decide(1)
+		decide(1, "")
 	}()
 
 	// Read from /dev/tty directly to avoid stdin issues in git hooks (Enter fallback, cooked mode)
@@ -1414,29 +1509,50 @@ func serveHTMLPrecommit(htmlPath string, port int) int {
 		if err != nil {
 			fmt.Println("Warning: Could not open terminal, auto-proceeding")
 			time.Sleep(2 * time.Second)
-			decide(0)
+			decide(0, "")
 			return
 		}
 		defer tty.Close()
 
+		reader := bufio.NewReader(tty)
+
 		fmt.Printf("📋 Review complete. Choose action:\n")
 		fmt.Printf("   [Enter]  Continue with commit\n")
 		fmt.Printf("   [Ctrl-C] Abort commit\n")
+		fmt.Printf("\nOptional: type a new commit message and press Enter to use it (leave blank to keep Git's message).\n")
+		fmt.Printf("> ")
+		os.Stdout.Sync()
+
+		typedMessage, _ := reader.ReadString('\n')
+		typedMessage = strings.TrimRight(strings.TrimRight(typedMessage, "\n"), "\r")
+
+		fmt.Printf("\n[Enter] Continue with commit\n")
+		fmt.Printf("[Ctrl-C] Abort commit\n")
 		fmt.Printf("\nYour choice: ")
 		os.Stdout.Sync()
 
-		reader := bufio.NewReader(tty)
 		_, err = reader.ReadString('\n')
 		if err != nil {
-			decide(0)
+			decide(0, typedMessage)
 			return
 		}
-		decide(0)
+		decide(0, typedMessage)
 	}()
 
 	// Wait for any decision source
-	code := <-decisionChan
-	switch code {
+	decision := <-decisionChan
+
+	if commitMsgPath != "" {
+		if decision.code == 0 && strings.TrimSpace(decision.message) != "" {
+			if err := persistCommitMessage(commitMsgPath, decision.message); err != nil {
+				fmt.Fprintf(os.Stderr, "Warning: failed to store commit message: %v\n", err)
+			}
+		} else {
+			_ = clearCommitMessageFile(commitMsgPath)
+		}
+	}
+
+	switch decision.code {
 	case 0:
 		fmt.Println("\n✅ Proceeding with commit")
 	case 2:
@@ -1448,7 +1564,7 @@ func serveHTMLPrecommit(htmlPath string, port int) int {
 	}
 	fmt.Println()
 	server.Close()
-	return code
+	return decision.code
 }
 
 // =============================================================================
@@ -1782,10 +1898,19 @@ func generateCommitMsgHook() string {
 # lrc_version: %s
 # This section is managed by LiveReview CLI (lrc)
 # Manual changes within markers will be lost on hook updates
-
+	fi
 STATE_FILE=".git/livereview_state"
 LOCK_DIR=".git/livereview_state.lock"
 COMMIT_MSG_FILE="$1"
+COMMIT_MSG_OVERRIDE=".git/%s"
+
+# Apply commit-message override from lrc (if present)
+if [ -f "$COMMIT_MSG_OVERRIDE" ]; then
+	if [ -s "$COMMIT_MSG_OVERRIDE" ]; then
+		cat "$COMMIT_MSG_OVERRIDE" > "$COMMIT_MSG_FILE"
+	fi
+	rm -f "$COMMIT_MSG_OVERRIDE" 2>/dev/null || true
+fi
 
 # Read state if exists
 if [ -f "$STATE_FILE" ]; then
@@ -1809,7 +1934,7 @@ fi
 
 # Always exit 0
 exit 0
-%s`, lrcMarkerBegin, version, lrcMarkerEnd)
+%s`, lrcMarkerBegin, version, commitMessageFile, lrcMarkerEnd)
 }
 
 // cleanOldBackups removes old backup files, keeping only the last N
