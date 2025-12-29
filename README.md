@@ -423,6 +423,3 @@ ssh -R manual-talent:80:localhost:8081 serveo.net
 ## License
 
 [MIT License](LICENSE)
-test
-test line
-test
