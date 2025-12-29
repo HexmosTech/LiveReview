@@ -20,6 +20,7 @@ type HTMLTemplateData struct {
 	Files         []HTMLFileData
 	HasSummary    bool
 	FriendlyName  string
+	Precommit     bool
 }
 
 // HTMLFileData represents a file for HTML rendering
@@ -62,7 +63,7 @@ func deleteThisFunction() {
 }
 
 // prepareHTMLData converts the API response to template data
-func prepareHTMLData(result *diffReviewResponse) *HTMLTemplateData {
+func prepareHTMLData(result *diffReviewResponse, precommit bool) *HTMLTemplateData {
 	totalComments := countTotalComments(result.Files)
 
 	files := make([]HTMLFileData, len(result.Files))
@@ -78,6 +79,7 @@ func prepareHTMLData(result *diffReviewResponse) *HTMLTemplateData {
 		Files:         files,
 		HasSummary:    result.Summary != "",
 		FriendlyName:  naming.GenerateFriendlyName(),
+		Precommit:     precommit,
 	}
 }
 
@@ -639,6 +641,64 @@ const htmlTemplate = `<!DOCTYPE html>
             border: 1px solid rgba(255,255,255,0.06);
             border-radius: 16px;
         }
+
+        /* Precommit action bar */
+        .precommit-bar {
+            margin: 12px 0 20px;
+            padding: 14px 16px;
+            border: 1px solid #334155;
+            border-radius: 10px;
+            background: linear-gradient(90deg, rgba(51,65,85,0.35), rgba(30,41,59,0.35));
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            flex-wrap: wrap;
+        }
+
+        .precommit-bar-title {
+            font-weight: 600;
+            color: #e2e8f0;
+            margin-right: 6px;
+        }
+
+        .precommit-actions {
+            display: flex;
+            gap: 10px;
+            align-items: center;
+        }
+
+        .btn-primary {
+            background: linear-gradient(135deg, #22c55e, #16a34a);
+            color: #0b0f1a;
+            border: none;
+            padding: 10px 14px;
+            border-radius: 8px;
+            font-weight: 700;
+            cursor: pointer;
+            box-shadow: 0 6px 20px rgba(34,197,94,0.25);
+        }
+
+        .btn-ghost {
+            background: transparent;
+            color: #e2e8f0;
+            border: 1px solid #475569;
+            padding: 10px 14px;
+            border-radius: 8px;
+            font-weight: 600;
+            cursor: pointer;
+        }
+
+        .btn-primary:disabled,
+        .btn-ghost:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+        }
+
+        .precommit-status {
+            color: #94a3b8;
+            font-size: 13px;
+            min-height: 18px;
+        }
         .expand-all {
             padding: var(--space-sm) var(--space-lg);
             margin: 0;
@@ -704,7 +764,15 @@ const htmlTemplate = `<!DOCTYPE html>
             <div class="stat">Files: <span class="count">{{.TotalFiles}}</span></div>
             <div class="stat">Comments: <span class="count">{{.TotalComments}}</span></div>
         </div>
-        <button class="expand-all" onclick="toggleAll()">Expand All Files</button>
+{{if .Precommit}}        <div class="precommit-bar">
+            <div class="precommit-bar-title">Pre-commit action</div>
+            <div class="precommit-actions">
+                <button id="btn-commit" class="btn-primary">Commit</button>
+                <button id="btn-skip" class="btn-ghost">Skip Commit</button>
+            </div>
+            <div id="precommit-status" class="precommit-status"></div>
+        </div>
+{{end}}        <button class="expand-all" onclick="toggleAll()">Expand All Files</button>
 {{if .Files}}{{range .Files}}        <div class="file collapsed" id="file_{{.ID}}" data-has-comments="{{.HasComments}}">
             <div class="file-header" onclick="toggleFile('file_{{.ID}}')">
                 <span class="toggle"></span>
@@ -750,12 +818,43 @@ const htmlTemplate = `<!DOCTYPE html>
     <script>
         // Initialize on page load
         document.addEventListener('DOMContentLoaded', function() {
+            const isPrecommit = {{if .Precommit}}true{{else}}false{{end}};
+
             // Render markdown in summary
             const summaryMarkdown = document.getElementById('summary-markdown');
             const summaryEl = document.getElementById('summary-content');
             if (summaryMarkdown && summaryEl && typeof marked !== 'undefined') {
                 const markdownText = summaryMarkdown.textContent;
                 summaryEl.innerHTML = marked.parse(markdownText);
+            }
+
+            if (isPrecommit) {
+                const commitBtn = document.getElementById('btn-commit');
+                const skipBtn = document.getElementById('btn-skip');
+                const statusEl = document.getElementById('precommit-status');
+
+                const setStatus = (text) => { statusEl.textContent = text; };
+                const disableAll = () => {
+                    commitBtn.disabled = true;
+                    skipBtn.disabled = true;
+                };
+
+                const postDecision = async (path, successText) => {
+                    disableAll();
+                    setStatus('Sending decision...');
+                    try {
+                        const res = await fetch(path, { method: 'POST' });
+                        if (!res.ok) throw new Error('Request failed: ' + res.status);
+                        setStatus(successText + ' — you can now return to the terminal.');
+                    } catch (err) {
+                        setStatus('Failed: ' + err.message);
+                        commitBtn.disabled = false;
+                        skipBtn.disabled = false;
+                    }
+                };
+
+                commitBtn.addEventListener('click', () => postDecision('/commit', 'Commit requested'));
+                skipBtn.addEventListener('click', () => postDecision('/skip', 'Skip requested'));
             }
 
             // Build sidebar file list
