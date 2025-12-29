@@ -1377,10 +1377,12 @@ func serveHTMLPrecommit(htmlPath string, port int) int {
 	select {
 	case <-sigChan:
 		fmt.Println("\n❌ Commit aborted by user")
+		fmt.Println()
 		server.Close()
 		return 1
 	case <-enterChan:
 		fmt.Println("\n✅ Proceeding with commit")
+		fmt.Println()
 		server.Close()
 		return 0
 	}
