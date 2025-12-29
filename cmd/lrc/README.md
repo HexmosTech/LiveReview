@@ -26,6 +26,28 @@ Review staged changes:
 lrc --api-key YOUR_API_KEY
 ```
 
+### Git Hook Installation
+
+Install pre-commit hooks for automatic code review:
+
+```bash
+# Install hooks
+lrc install-hooks
+
+# Uninstall hooks
+lrc uninstall-hooks
+
+# Force update existing lrc hooks
+lrc install-hooks --force
+```
+
+The hooks will:
+- Run `lrc review --staged` before each commit
+- Never block commits (always exits 0)
+- Can be skipped with Ctrl-C
+- Can be bypassed with `git commit --no-verify`
+- Add a commit trailer: `LiveReview Pre-Commit Check: [ran|skipped]`
+
 ### Diff Sources
 
 - **Staged changes** (default):

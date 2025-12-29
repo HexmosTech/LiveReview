@@ -195,6 +195,22 @@ func main() {
 				Action: runReviewDebug,
 			},
 			{
+				Name:  "install-hooks",
+				Usage: "Install pre-commit and commit-msg Git hooks for automatic code review",
+				Flags: []cli.Flag{
+					&cli.BoolFlag{
+						Name:  "force",
+						Usage: "overwrite existing lrc hook sections",
+					},
+				},
+				Action: runInstallHooks,
+			},
+			{
+				Name:   "uninstall-hooks",
+				Usage:  "Remove lrc Git hooks, preserving other hook content",
+				Action: runUninstallHooks,
+			},
+			{
 				Name:  "version",
 				Usage: "Show version information",
 				Action: func(c *cli.Context) error {
@@ -1138,4 +1154,404 @@ func openBrowser(url string) {
 func fileExists(path string) bool {
 	_, err := os.Stat(path)
 	return err == nil
+}
+
+// =============================================================================
+// GIT HOOK MANAGEMENT
+// =============================================================================
+
+const (
+	lrcMarkerBegin = "# BEGIN lrc managed section - DO NOT EDIT"
+	lrcMarkerEnd   = "# END lrc managed section"
+)
+
+// runInstallHooks installs pre-commit and commit-msg hooks with sentinel markers
+func runInstallHooks(c *cli.Context) error {
+	force := c.Bool("force")
+
+	// Check if we're in a git repository
+	if !isGitRepository() {
+		return fmt.Errorf("not in a git repository (no .git directory found)")
+	}
+
+	hooksDir := ".git/hooks"
+	if err := os.MkdirAll(hooksDir, 0755); err != nil {
+		return fmt.Errorf("failed to create hooks directory: %w", err)
+	}
+
+	backupDir := ".git/.lrc_backups"
+	if err := os.MkdirAll(backupDir, 0755); err != nil {
+		return fmt.Errorf("failed to create backup directory: %w", err)
+	}
+
+	// Install pre-commit hook
+	preCommitPath := filepath.Join(hooksDir, "pre-commit")
+	if err := installHook(preCommitPath, generatePreCommitHook(), "pre-commit", backupDir, force); err != nil {
+		return fmt.Errorf("failed to install pre-commit hook: %w", err)
+	}
+
+	// Install commit-msg hook
+	commitMsgPath := filepath.Join(hooksDir, "commit-msg")
+	if err := installHook(commitMsgPath, generateCommitMsgHook(), "commit-msg", backupDir, force); err != nil {
+		return fmt.Errorf("failed to install commit-msg hook: %w", err)
+	}
+
+	fmt.Println("✅ LiveReview hooks installed successfully!")
+	fmt.Println()
+	fmt.Println("Pre-commit hook will:")
+	fmt.Println("  • Run 'lrc review --staged' before each commit")
+	fmt.Println("  • Never block commits (always exits 0)")
+	fmt.Println("  • Can be skipped with Ctrl-C")
+	fmt.Println("  • Can be bypassed with 'git commit --no-verify'")
+	fmt.Println()
+	fmt.Println("Commit-msg hook will:")
+	fmt.Println("  • Add 'LiveReview Pre-Commit Check: [ran|skipped]' trailer")
+	fmt.Println()
+	fmt.Println("To uninstall: lrc uninstall-hooks")
+
+	return nil
+}
+
+// runUninstallHooks removes lrc-managed hook sections
+func runUninstallHooks(c *cli.Context) error {
+	if !isGitRepository() {
+		return fmt.Errorf("not in a git repository (no .git directory found)")
+	}
+
+	hooksDir := ".git/hooks"
+	hooks := []string{"pre-commit", "commit-msg"}
+	removed := 0
+
+	for _, hookName := range hooks {
+		hookPath := filepath.Join(hooksDir, hookName)
+		if err := uninstallHook(hookPath, hookName); err != nil {
+			fmt.Printf("⚠️  Warning: failed to uninstall %s: %v\n", hookName, err)
+		} else {
+			removed++
+		}
+	}
+
+	if removed > 0 {
+		fmt.Printf("✅ Removed lrc hooks from %d file(s)\n", removed)
+	} else {
+		fmt.Println("ℹ️  No lrc hooks found to remove")
+	}
+
+	return nil
+}
+
+// isGitRepository checks if current directory is in a git repository
+func isGitRepository() bool {
+	_, err := os.Stat(".git")
+	return err == nil
+}
+
+// installHook installs or updates a hook with lrc managed section
+func installHook(hookPath, lrcSection, hookName, backupDir string, force bool) error {
+	timestamp := time.Now().Format("20060102_150405")
+	backupPath := filepath.Join(backupDir, fmt.Sprintf("%s.%s", hookName, timestamp))
+
+	// Check if hook file exists
+	existingContent, err := os.ReadFile(hookPath)
+	if err != nil && !os.IsNotExist(err) {
+		return fmt.Errorf("failed to read existing hook: %w", err)
+	}
+
+	if len(existingContent) == 0 {
+		// No existing hook - create new file with just lrc section
+		content := "#!/bin/sh\n" + lrcSection
+		if err := os.WriteFile(hookPath, []byte(content), 0755); err != nil {
+			return fmt.Errorf("failed to write hook: %w", err)
+		}
+		fmt.Printf("✅ Created %s\n", hookName)
+		return nil
+	}
+
+	// Existing hook found - create backup
+	if err := os.WriteFile(backupPath, existingContent, 0644); err != nil {
+		return fmt.Errorf("failed to create backup: %w", err)
+	}
+	fmt.Printf("📁 Backup created: %s\n", backupPath)
+
+	// Check if lrc section already exists
+	contentStr := string(existingContent)
+	if strings.Contains(contentStr, lrcMarkerBegin) {
+		if !force {
+			fmt.Printf("ℹ️  %s already has lrc section (use --force to update)\n", hookName)
+			return nil
+		}
+		// Replace existing lrc section
+		newContent := replaceLrcSection(contentStr, lrcSection)
+		if err := os.WriteFile(hookPath, []byte(newContent), 0755); err != nil {
+			return fmt.Errorf("failed to update hook: %w", err)
+		}
+		fmt.Printf("✅ Updated %s (replaced lrc section)\n", hookName)
+		return nil
+	}
+
+	// No lrc section - append it
+	var newContent string
+	if !strings.HasPrefix(contentStr, "#!/") {
+		// No shebang - add one
+		newContent = "#!/bin/sh\n" + lrcSection + "\n" + contentStr
+	} else {
+		// Has shebang - insert after first line
+		lines := strings.SplitN(contentStr, "\n", 2)
+		if len(lines) == 1 {
+			newContent = lines[0] + "\n" + lrcSection
+		} else {
+			newContent = lines[0] + "\n" + lrcSection + "\n" + lines[1]
+		}
+	}
+
+	if err := os.WriteFile(hookPath, []byte(newContent), 0755); err != nil {
+		return fmt.Errorf("failed to write hook: %w", err)
+	}
+	fmt.Printf("✅ Updated %s (added lrc section)\n", hookName)
+
+	return nil
+}
+
+// uninstallHook removes lrc-managed section from a hook file
+func uninstallHook(hookPath, hookName string) error {
+	content, err := os.ReadFile(hookPath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil // Hook doesn't exist, nothing to do
+		}
+		return fmt.Errorf("failed to read hook: %w", err)
+	}
+
+	contentStr := string(content)
+	if !strings.Contains(contentStr, lrcMarkerBegin) {
+		// No lrc section found
+		return nil
+	}
+
+	// Remove lrc section
+	newContent := removeLrcSection(contentStr)
+
+	// If file is now empty or only has shebang, delete it
+	trimmed := strings.TrimSpace(newContent)
+	if trimmed == "" || trimmed == "#!/bin/sh" {
+		if err := os.Remove(hookPath); err != nil {
+			return fmt.Errorf("failed to remove hook file: %w", err)
+		}
+		fmt.Printf("🗑️  Removed %s (was empty after removing lrc section)\n", hookName)
+		return nil
+	}
+
+	// Write cleaned content back
+	if err := os.WriteFile(hookPath, []byte(newContent), 0755); err != nil {
+		return fmt.Errorf("failed to write hook: %w", err)
+	}
+	fmt.Printf("✅ Removed lrc section from %s\n", hookName)
+
+	return nil
+}
+
+// replaceLrcSection replaces the lrc-managed section in hook content
+func replaceLrcSection(content, newSection string) string {
+	start := strings.Index(content, lrcMarkerBegin)
+	if start == -1 {
+		return content
+	}
+
+	end := strings.Index(content[start:], lrcMarkerEnd)
+	if end == -1 {
+		return content
+	}
+	end += start + len(lrcMarkerEnd)
+
+	// Find end of line after marker
+	if end < len(content) && content[end] == '\n' {
+		end++
+	}
+
+	return content[:start] + newSection + "\n" + content[end:]
+}
+
+// removeLrcSection removes the lrc-managed section from hook content
+func removeLrcSection(content string) string {
+	start := strings.Index(content, lrcMarkerBegin)
+	if start == -1 {
+		return content
+	}
+
+	end := strings.Index(content[start:], lrcMarkerEnd)
+	if end == -1 {
+		return content
+	}
+	end += start + len(lrcMarkerEnd)
+
+	// Find end of line after marker
+	if end < len(content) && content[end] == '\n' {
+		end++
+	}
+
+	// Remove the section, preserving content before and after
+	return content[:start] + content[end:]
+}
+
+// generatePreCommitHook generates the pre-commit hook script
+func generatePreCommitHook() string {
+	return fmt.Sprintf(`%s
+# lrc_version: %s
+# This section is managed by LiveReview CLI (lrc)
+# Manual changes within markers will be lost on hook updates
+
+# Detect if running in TTY
+if [ -t 0 ] && [ -t 1 ]; then
+    LRC_INTERACTIVE=1
+else
+    LRC_INTERACTIVE=0
+fi
+
+# State file for hook coordination
+STATE_FILE=".git/livereview_state"
+LOCK_DIR=".git/livereview_state.lock"
+
+# Cleanup function
+cleanup_lock() {
+    rmdir "$LOCK_DIR" 2>/dev/null || true
+}
+
+# Set up cleanup trap
+trap cleanup_lock EXIT INT TERM
+
+# Acquire lock with timeout (5 minutes)
+MAX_WAIT=300
+WAITED=0
+
+# Check for stale locks (>5 minutes old)
+if [ -d "$LOCK_DIR" ]; then
+    if command -v stat >/dev/null 2>&1; then
+        # Try to get lock age
+        LOCK_AGE=$(($(date +%%s) - $(stat -c %%Y "$LOCK_DIR" 2>/dev/null || stat -f %%m "$LOCK_DIR" 2>/dev/null || echo 0)))
+        if [ "$LOCK_AGE" -gt 300 ]; then
+            echo "Removing stale lock (${LOCK_AGE}s old)"
+            rmdir "$LOCK_DIR" 2>/dev/null || true
+        fi
+    fi
+fi
+
+# Try to acquire lock
+while ! mkdir "$LOCK_DIR" 2>/dev/null; do
+    if [ $WAITED -ge $MAX_WAIT ]; then
+        echo "Could not acquire lock after ${MAX_WAIT}s, skipping review" >&2
+        exit 0
+    fi
+    sleep 1
+    WAITED=$((WAITED + 1))
+done
+
+# Run review
+if [ "$LRC_INTERACTIVE" = "1" ]; then
+    echo "Running LiveReview pre-commit check..."
+    lrc review --staged
+else
+    # Non-interactive (GUI) mode - run quietly
+    lrc review --staged >/dev/null 2>&1
+fi
+
+REVIEW_EXIT=$?
+
+# Write state based on exit code
+if [ $REVIEW_EXIT -eq 130 ]; then
+    # Ctrl-C (SIGINT) - user skipped
+    echo "skipped:$$:$(date +%%s)" > "${STATE_FILE}.tmp"
+elif [ $REVIEW_EXIT -eq 0 ]; then
+    # Success
+    echo "ran:$$:$(date +%%s)" > "${STATE_FILE}.tmp"
+else
+    # Other error - treat as skipped
+    echo "skipped:$$:$(date +%%s)" > "${STATE_FILE}.tmp"
+fi
+
+# Atomic move
+mv "${STATE_FILE}.tmp" "$STATE_FILE" 2>/dev/null || true
+
+# Always exit 0 to allow commit
+exit 0
+%s`, lrcMarkerBegin, version, lrcMarkerEnd)
+}
+
+// generateCommitMsgHook generates the commit-msg hook script
+func generateCommitMsgHook() string {
+	return fmt.Sprintf(`%s
+# lrc_version: %s
+# This section is managed by LiveReview CLI (lrc)
+# Manual changes within markers will be lost on hook updates
+
+STATE_FILE=".git/livereview_state"
+LOCK_DIR=".git/livereview_state.lock"
+COMMIT_MSG_FILE="$1"
+
+# Read state if exists
+if [ -f "$STATE_FILE" ]; then
+    STATE=$(cat "$STATE_FILE" 2>/dev/null | cut -d: -f1)
+    
+    if [ "$STATE" = "ran" ]; then
+        echo "" >> "$COMMIT_MSG_FILE"
+        echo "LiveReview Pre-Commit Check: ran" >> "$COMMIT_MSG_FILE"
+    elif [ "$STATE" = "skipped" ]; then
+        echo "" >> "$COMMIT_MSG_FILE"
+        echo "LiveReview Pre-Commit Check: skipped" >> "$COMMIT_MSG_FILE"
+    fi
+    
+    # Clean up state file and lock
+    rm -f "$STATE_FILE" 2>/dev/null || true
+    rmdir "$LOCK_DIR" 2>/dev/null || true
+fi
+
+# Always exit 0
+exit 0
+%s`, lrcMarkerBegin, version, lrcMarkerEnd)
+}
+
+// cleanOldBackups removes old backup files, keeping only the last N
+func cleanOldBackups(backupDir string, keepLast int) error {
+	entries, err := os.ReadDir(backupDir)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil
+		}
+		return err
+	}
+
+	// Group backups by hook name
+	backupsByHook := make(map[string][]os.DirEntry)
+	for _, entry := range entries {
+		if entry.IsDir() {
+			continue
+		}
+		name := entry.Name()
+		// Extract hook name (before first dot)
+		parts := strings.SplitN(name, ".", 2)
+		if len(parts) == 2 {
+			hookName := parts[0]
+			backupsByHook[hookName] = append(backupsByHook[hookName], entry)
+		}
+	}
+
+	// For each hook, keep only the last N backups
+	for hookName, backups := range backupsByHook {
+		if len(backups) <= keepLast {
+			continue
+		}
+
+		// Sort by name (which includes timestamp)
+		// Oldest first
+		for i := 0; i < len(backups)-keepLast; i++ {
+			oldPath := filepath.Join(backupDir, backups[i].Name())
+			if err := os.Remove(oldPath); err != nil {
+				log.Printf("Warning: failed to remove old backup %s: %v", oldPath, err)
+			} else {
+				log.Printf("Removed old backup: %s", backups[i].Name())
+			}
+		}
+		log.Printf("Cleaned up old %s backups (kept last %d)", hookName, keepLast)
+	}
+
+	return nil
 }
