@@ -2,6 +2,7 @@ package main
 
 import (
 	"archive/zip"
+	"bufio"
 	"bytes"
 	"encoding/base64"
 	"encoding/json"
@@ -383,6 +384,8 @@ func runReviewWithOptions(opts reviewOptions) error {
 		log.Printf("API URL: %s", config.APIURL)
 	}
 
+	var result *diffReviewResponse
+
 	// Collect diff
 	diffContent, err := collectDiffWithOptions(opts)
 	if err != nil {
@@ -435,47 +438,72 @@ func runReviewWithOptions(opts reviewOptions) error {
 	// Track CLI usage (best-effort, non-blocking)
 	go trackCLIUsage(config.APIURL, config.APIKey, verbose)
 
-	// In precommit mode, set up signal handlers for Ctrl-C and terminal reader for Ctrl-S
-	var ctrlSCleanup func()
+	// In precommit mode, set up decision channels for Ctrl-C / Ctrl-S and ensure cleanup
+	decisionCode := -1
 	if opts.precommit {
-		// Set up Ctrl-C handler
 		sigChan := make(chan os.Signal, 1)
 		signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM)
 
+		decisionChan := make(chan int, 1) // 0 commit, 1 abort, 2 skip-review (proceed)
+		stopCtrlS := make(chan struct{})
+		var stopCtrlSOnce sync.Once
+		stopCtrlSFn := func() { stopCtrlSOnce.Do(func() { close(stopCtrlS) }) }
+
+		// Ctrl-C -> abort commit
 		go func() {
 			<-sigChan
-			// Ctrl-C - abort review and commit
-			fmt.Println("\n❌ Review and commit aborted by user")
-			os.Exit(1)
+			decisionChan <- 1
 		}()
 
-		// Set up Ctrl-S handler (raw terminal mode) with cleanup function
-		stopCtrlS := make(chan struct{})
-		ctrlSCleanup = func() {
-			close(stopCtrlS)
-		}
-
+		// Ctrl-S -> skip review but still commit; Ctrl-C captured in raw mode fallback
 		go func() {
-			if err := handleCtrlSWithCancel(stopCtrlS); err == nil {
-				// Ctrl-S pressed - skip review, proceed with commit
-				fmt.Println("\n⏭️  Review skipped, proceeding with commit")
-				os.Exit(2) // Exit 2 = skipped manually
+			code, err := handleCtrlKeyWithCancel(stopCtrlS)
+			if err == nil && code != 0 {
+				decisionChan <- code
 			}
 		}()
 
 		fmt.Println("💡 Press Ctrl-C to abort commit, or Ctrl-S to skip review and commit")
 		os.Stdout.Sync()
-	}
 
-	// Poll for completion with user-visible progress
-	result, err := pollReview(config.APIURL, config.APIKey, reviewID, opts.pollInterval, opts.timeout, verbose)
-	if err != nil {
-		return fmt.Errorf("failed to poll review: %w", err)
-	}
+		// Poll concurrently and race with decisions
+		var pollResult *diffReviewResponse
+		var pollErr error
+		pollDone := make(chan struct{})
+		go func() {
+			pollResult, pollErr = pollReview(config.APIURL, config.APIKey, reviewID, opts.pollInterval, opts.timeout, verbose)
+			close(pollDone)
+		}()
 
-	// Stop Ctrl-S handler when review completes
-	if ctrlSCleanup != nil {
-		ctrlSCleanup()
+		select {
+		case decisionCode = <-decisionChan:
+			stopCtrlSFn()
+		case <-pollDone:
+			stopCtrlSFn()
+			if pollErr != nil {
+				return fmt.Errorf("failed to poll review: %w", pollErr)
+			}
+			result = pollResult
+		}
+
+		// If a decision happened before poll finished, act now
+		if decisionCode != -1 {
+			switch decisionCode {
+			case 1:
+				fmt.Println("\n❌ Review and commit aborted by user")
+			case 2:
+				fmt.Println("\n⏭️  Review skipped, proceeding with commit")
+			}
+			fmt.Println()
+			return cli.Exit("precommit decision", decisionCode)
+		}
+	} else {
+		// Non-precommit: just poll
+		var pollErr error
+		result, pollErr = pollReview(config.APIURL, config.APIKey, reviewID, opts.pollInterval, opts.timeout, verbose)
+		if pollErr != nil {
+			return fmt.Errorf("failed to poll review: %w", pollErr)
+		}
 	}
 
 	autoHTMLPath, err := applyDefaultHTMLServe(&opts)
@@ -723,6 +751,7 @@ func pollReview(apiURL, apiKey, reviewID string, pollInterval, timeout time.Dura
 	endpoint := strings.TrimSuffix(apiURL, "/") + "/api/v1/diff-review/" + reviewID
 	deadline := time.Now().Add(timeout)
 	start := time.Now()
+	isTTY := term.IsTerminal(int(os.Stdout.Fd()))
 	fmt.Printf("Waiting for review completion (poll every %s, timeout %s)...\n", pollInterval, timeout)
 	os.Stdout.Sync()
 
@@ -760,8 +789,12 @@ func pollReview(apiURL, apiKey, reviewID string, pollInterval, timeout time.Dura
 		}
 
 		statusLine := fmt.Sprintf("Status: %s | elapsed: %s", result.Status, time.Since(start).Truncate(time.Second))
-		fmt.Printf("\r%-80s", statusLine)
-		os.Stdout.Sync() // Force flush for real-time updates and clear prior text
+		if isTTY {
+			fmt.Printf("\r%-80s", statusLine)
+			os.Stdout.Sync() // Force flush for real-time updates and clear prior text
+		} else {
+			fmt.Println(statusLine)
+		}
 		if verbose {
 			log.Printf("%s", statusLine)
 		}
@@ -1227,13 +1260,13 @@ func fileExists(path string) bool {
 	return err == nil
 }
 
-// handleCtrlSWithCancel sets up raw terminal mode to detect Ctrl-S with cancellation
-// Returns nil when Ctrl-S is detected, or error if cancelled/failed
-func handleCtrlSWithCancel(stop <-chan struct{}) error {
+// handleCtrlKeyWithCancel sets up raw terminal mode to detect Ctrl-S (skip) and Ctrl-C (abort)
+// Returns decision codes: 2 for Ctrl-S, 1 for Ctrl-C, 0 if nothing, or error on cancellation/failure
+func handleCtrlKeyWithCancel(stop <-chan struct{}) (int, error) {
 	// Try to open /dev/tty directly
 	tty, err := os.Open("/dev/tty")
 	if err != nil {
-		return err
+		return 0, err
 	}
 	defer tty.Close()
 
@@ -1241,7 +1274,7 @@ func handleCtrlSWithCancel(stop <-chan struct{}) error {
 	fd := int(tty.Fd())
 	oldState, err := term.MakeRaw(fd)
 	if err != nil {
-		return err
+		return 0, err
 	}
 
 	// Ensure restoration on exit
@@ -1258,8 +1291,12 @@ func handleCtrlSWithCancel(stop <-chan struct{}) error {
 				readChan <- err
 				return
 			}
-			if buf[0] == 0x13 { // Ctrl-S
+			switch buf[0] {
+			case 0x13: // Ctrl-S (XOFF)
 				readChan <- nil
+				return
+			case 0x03: // Ctrl-C (ETX)
+				readChan <- fmt.Errorf("ctrl-c")
 				return
 			}
 		}
@@ -1267,10 +1304,16 @@ func handleCtrlSWithCancel(stop <-chan struct{}) error {
 
 	select {
 	case err := <-readChan:
-		return err
+		if err == nil {
+			return 2, nil
+		}
+		if err.Error() == "ctrl-c" {
+			return 1, nil
+		}
+		return 0, err
 	case <-stop:
 		// Cancelled - restore terminal and return error
-		return fmt.Errorf("cancelled")
+		return 0, fmt.Errorf("cancelled")
 	}
 }
 
@@ -1365,11 +1408,10 @@ func serveHTMLPrecommit(htmlPath string, port int) int {
 		decide(1)
 	}()
 
-	// Read from /dev/tty directly to avoid stdin issues in git hooks (Enter fallback)
+	// Read from /dev/tty directly to avoid stdin issues in git hooks (Enter fallback, cooked mode)
 	go func() {
 		tty, err := os.Open("/dev/tty")
 		if err != nil {
-			// Fallback if can't open tty
 			fmt.Println("Warning: Could not open terminal, auto-proceeding")
 			time.Sleep(2 * time.Second)
 			decide(0)
@@ -1383,25 +1425,12 @@ func serveHTMLPrecommit(htmlPath string, port int) int {
 		fmt.Printf("\nYour choice: ")
 		os.Stdout.Sync()
 
-		// Set terminal to raw mode to detect single keypress
-		fd := int(tty.Fd())
-		oldState, err := term.MakeRaw(fd)
-		if err != nil {
-			// If can't set raw mode, just proceed
-			decide(0)
-			return
-		}
-		defer term.Restore(fd, oldState)
-
-		// Read single keypress - any key proceeds (Enter = 0x0a or 0x0d)
-		buf := make([]byte, 1)
-		_, err = tty.Read(buf)
+		reader := bufio.NewReader(tty)
+		_, err = reader.ReadString('\n')
 		if err != nil {
 			decide(0)
 			return
 		}
-
-		// Got a keypress, proceed
 		decide(0)
 	}()
 
