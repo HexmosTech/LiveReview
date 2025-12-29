@@ -12,14 +12,17 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
+	"os/signal"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/knadh/koanf/parsers/toml"
 	"github.com/knadh/koanf/providers/file"
 	"github.com/knadh/koanf/v2"
 	"github.com/urfave/cli/v2"
+	"golang.org/x/term"
 )
 
 // Version information (set via ldflags during build)
@@ -136,6 +139,11 @@ var baseFlags = []cli.Flag{
 		Usage:   "enable verbose output",
 		EnvVars: []string{"LRC_VERBOSE"},
 	},
+	&cli.BoolFlag{
+		Name:    "precommit",
+		Usage:   "pre-commit mode: interactive prompts for commit decision (Ctrl-C=abort, Ctrl-S=skip+commit, Enter=commit)",
+		EnvVars: []string{"LRC_PRECOMMIT"},
+	},
 }
 
 var debugFlags = []cli.Flag{
@@ -246,6 +254,7 @@ type reviewOptions struct {
 	serve        bool
 	port         int
 	verbose      bool
+	precommit    bool
 }
 
 func runReviewSimple(c *cli.Context) error {
@@ -260,18 +269,19 @@ func runReviewDebug(c *cli.Context) error {
 
 func buildOptionsFromContext(c *cli.Context, includeDebug bool) reviewOptions {
 	opts := reviewOptions{
-		repoName: c.String("repo-name"),
-		rangeVal: c.String("range"),
-		diffFile: c.String("diff-file"),
-		apiURL:   c.String("api-url"),
-		apiKey:   c.String("api-key"),
-		output:   c.String("output"),
-		saveHTML: c.String("save-html"),
-		serve:    c.Bool("serve"),
-		port:     c.Int("port"),
-		verbose:  c.Bool("verbose"),
-		saveJSON: c.String("save-json"),
-		saveText: c.String("save-text"),
+		repoName:  c.String("repo-name"),
+		rangeVal:  c.String("range"),
+		diffFile:  c.String("diff-file"),
+		apiURL:    c.String("api-url"),
+		apiKey:    c.String("api-key"),
+		output:    c.String("output"),
+		saveHTML:  c.String("save-html"),
+		serve:     c.Bool("serve"),
+		port:      c.Int("port"),
+		verbose:   c.Bool("verbose"),
+		precommit: c.Bool("precommit"),
+		saveJSON:  c.String("save-json"),
+		saveText:  c.String("save-text"),
 	}
 
 	staged := c.Bool("staged")
@@ -414,13 +424,57 @@ func runReviewWithOptions(opts reviewOptions) error {
 
 	fmt.Printf("Review submitted, ID: %s\n", reviewID)
 
+	// In precommit mode, ensure unbuffered output
+	if opts.precommit {
+		// Force flush and set unbuffered
+		os.Stdout.Sync()
+		os.Stderr.Sync()
+	}
+
 	// Track CLI usage (best-effort, non-blocking)
 	go trackCLIUsage(config.APIURL, config.APIKey, verbose)
+
+	// In precommit mode, set up signal handlers for Ctrl-C and terminal reader for Ctrl-S
+	var ctrlSCleanup func()
+	if opts.precommit {
+		// Set up Ctrl-C handler
+		sigChan := make(chan os.Signal, 1)
+		signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM)
+
+		go func() {
+			<-sigChan
+			// Ctrl-C - abort review and commit
+			fmt.Println("\n❌ Review and commit aborted by user")
+			os.Exit(1)
+		}()
+
+		// Set up Ctrl-S handler (raw terminal mode) with cleanup function
+		stopCtrlS := make(chan struct{})
+		ctrlSCleanup = func() {
+			close(stopCtrlS)
+		}
+
+		go func() {
+			if err := handleCtrlSWithCancel(stopCtrlS); err == nil {
+				// Ctrl-S pressed - skip review, proceed with commit
+				fmt.Println("\n⏭️  Review skipped, proceeding with commit")
+				os.Exit(2) // Exit 2 = skipped manually
+			}
+		}()
+
+		fmt.Println("💡 Press Ctrl-C to abort commit, or Ctrl-S to skip review and commit")
+		os.Stdout.Sync()
+	}
 
 	// Poll for completion with user-visible progress
 	result, err := pollReview(config.APIURL, config.APIKey, reviewID, opts.pollInterval, opts.timeout, verbose)
 	if err != nil {
 		return fmt.Errorf("failed to poll review: %w", err)
+	}
+
+	// Stop Ctrl-S handler when review completes
+	if ctrlSCleanup != nil {
+		ctrlSCleanup()
 	}
 
 	autoHTMLPath, err := applyDefaultHTMLServe(&opts)
@@ -460,6 +514,9 @@ func runReviewWithOptions(opts reviewOptions) error {
 			return fmt.Errorf("failed to save HTML output: %w", err)
 		}
 
+		// Ensure we're on a fresh line after status updates
+		fmt.Printf("\n")
+
 		if autoHTMLPath != "" {
 			fmt.Printf("HTML review saved to (auto-selected): %s\n", htmlPath)
 		} else {
@@ -477,6 +534,14 @@ func runReviewWithOptions(opts reviewOptions) error {
 				opts.port = selectedPort
 			}
 
+			// Precommit mode: interactive prompt for commit decision
+			if opts.precommit {
+				// Don't render to stdout in precommit mode, go straight to prompt
+				exitCode := serveHTMLPrecommit(htmlPath, opts.port)
+				os.Exit(exitCode)
+			}
+
+			// Normal mode: serve and block
 			serveURL := fmt.Sprintf("http://localhost:%d", opts.port)
 			fmt.Printf("Serving HTML review at: %s\n", highlightURL(serveURL))
 			if err := serveHTML(htmlPath, opts.port); err != nil {
@@ -485,9 +550,11 @@ func runReviewWithOptions(opts reviewOptions) error {
 		}
 	}
 
-	// Render result to stdout
-	if err := renderResult(result, opts.output); err != nil {
-		return fmt.Errorf("failed to render result: %w", err)
+	// Render result to stdout (skip in precommit mode - handled by prompt)
+	if !opts.precommit {
+		if err := renderResult(result, opts.output); err != nil {
+			return fmt.Errorf("failed to render result: %w", err)
+		}
 	}
 
 	return nil
@@ -656,6 +723,7 @@ func pollReview(apiURL, apiKey, reviewID string, pollInterval, timeout time.Dura
 	deadline := time.Now().Add(timeout)
 	start := time.Now()
 	fmt.Printf("Waiting for review completion (poll every %s, timeout %s)...\n", pollInterval, timeout)
+	os.Stdout.Sync()
 
 	if verbose {
 		log.Printf("Polling for review completion (timeout: %v)...", timeout)
@@ -691,7 +759,8 @@ func pollReview(apiURL, apiKey, reviewID string, pollInterval, timeout time.Dura
 		}
 
 		statusLine := fmt.Sprintf("Status: %s | elapsed: %s", result.Status, time.Since(start).Truncate(time.Second))
-		fmt.Printf("\r%s", statusLine)
+		fmt.Printf("\r%-80s", statusLine)
+		os.Stdout.Sync() // Force flush for real-time updates and clear prior text
 		if verbose {
 			log.Printf("%s", statusLine)
 		}
@@ -1156,6 +1225,167 @@ func fileExists(path string) bool {
 	return err == nil
 }
 
+// handleCtrlSWithCancel sets up raw terminal mode to detect Ctrl-S with cancellation
+// Returns nil when Ctrl-S is detected, or error if cancelled/failed
+func handleCtrlSWithCancel(stop <-chan struct{}) error {
+	// Try to open /dev/tty directly
+	tty, err := os.Open("/dev/tty")
+	if err != nil {
+		return err
+	}
+	defer tty.Close()
+
+	// Set terminal to raw mode
+	fd := int(tty.Fd())
+	oldState, err := term.MakeRaw(fd)
+	if err != nil {
+		return err
+	}
+
+	// Ensure restoration on exit
+	defer term.Restore(fd, oldState)
+
+	// Read bytes looking for Ctrl-S (0x13) or cancellation
+	buf := make([]byte, 1)
+	readChan := make(chan error, 1)
+
+	go func() {
+		for {
+			n, err := tty.Read(buf)
+			if err != nil || n == 0 {
+				readChan <- err
+				return
+			}
+			if buf[0] == 0x13 { // Ctrl-S
+				readChan <- nil
+				return
+			}
+		}
+	}()
+
+	select {
+	case err := <-readChan:
+		return err
+	case <-stop:
+		// Cancelled - restore terminal and return error
+		return fmt.Errorf("cancelled")
+	}
+}
+
+// serveHTMLPrecommit serves HTML and waits for user decision
+// Returns exit code: 0 = commit, 1 = don't commit
+func serveHTMLPrecommit(htmlPath string, port int) int {
+	absPath, err := filepath.Abs(htmlPath)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Failed to get absolute path: %v\n", err)
+		return 1
+	}
+
+	// Check if file exists
+	if _, err := os.Stat(absPath); err != nil {
+		fmt.Fprintf(os.Stderr, "HTML file not found: %v\n", err)
+		return 1
+	}
+
+	url := fmt.Sprintf("http://localhost:%d", port)
+	fmt.Printf("\n")
+	fmt.Printf("🌐 Review available at: %s\n", highlightURL(url))
+	fmt.Printf("\n")
+
+	// Open browser
+	go func() {
+		time.Sleep(500 * time.Millisecond)
+		openBrowser(url)
+	}()
+
+	// Setup HTTP handler
+	mux := http.NewServeMux()
+	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		http.ServeFile(w, r, absPath)
+	})
+
+	// Start server in background
+	server := &http.Server{
+		Addr:    fmt.Sprintf(":%d", port),
+		Handler: mux,
+	}
+
+	serverReady := make(chan bool, 1)
+	go func() {
+		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			log.Printf("Server error: %v", err)
+		}
+	}()
+
+	// Give server a moment to start
+	go func() {
+		time.Sleep(200 * time.Millisecond)
+		serverReady <- true
+	}()
+
+	<-serverReady
+
+	// Wait for Enter or Ctrl-C
+	// Set up signal handling for Ctrl-C
+	sigChan := make(chan os.Signal, 1)
+	signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM)
+
+	// Channel for Enter key
+	enterChan := make(chan bool, 1)
+
+	// Read from /dev/tty directly to avoid stdin issues in git hooks
+	go func() {
+		tty, err := os.Open("/dev/tty")
+		if err != nil {
+			// Fallback if can't open tty
+			fmt.Println("Warning: Could not open terminal, auto-proceeding")
+			time.Sleep(2 * time.Second)
+			enterChan <- true
+			return
+		}
+		defer tty.Close()
+
+		fmt.Printf("📋 Review complete. Choose action:\n")
+		fmt.Printf("   [Enter]  Continue with commit\n")
+		fmt.Printf("   [Ctrl-C] Abort commit\n")
+		fmt.Printf("\nYour choice: ")
+		os.Stdout.Sync()
+
+		// Set terminal to raw mode to detect single keypress
+		fd := int(tty.Fd())
+		oldState, err := term.MakeRaw(fd)
+		if err != nil {
+			// If can't set raw mode, just proceed
+			enterChan <- true
+			return
+		}
+		defer term.Restore(fd, oldState)
+
+		// Read single keypress - any key proceeds (Enter = 0x0a or 0x0d)
+		buf := make([]byte, 1)
+		_, err = tty.Read(buf)
+		if err != nil {
+			enterChan <- true
+			return
+		}
+
+		// Got a keypress, proceed
+		enterChan <- true
+	}()
+
+	// Wait for signal or Enter
+	select {
+	case <-sigChan:
+		fmt.Println("\n❌ Commit aborted by user")
+		server.Close()
+		return 1
+	case <-enterChan:
+		fmt.Println("\n✅ Proceeding with commit")
+		server.Close()
+		return 0
+	}
+}
+
 // =============================================================================
 // GIT HOOK MANAGEMENT
 // =============================================================================
@@ -1199,9 +1429,9 @@ func runInstallHooks(c *cli.Context) error {
 	fmt.Println("✅ LiveReview hooks installed successfully!")
 	fmt.Println()
 	fmt.Println("Pre-commit hook will:")
-	fmt.Println("  • Run 'lrc review --staged' before each commit")
-	fmt.Println("  • Never block commits (always exits 0)")
-	fmt.Println("  • Can be skipped with Ctrl-C")
+	fmt.Println("  • Run 'lrc review --staged --precommit' before each commit")
+	fmt.Println("  • Show review progress and open browser")
+	fmt.Println("  • Wait for your decision: [Enter]=commit, [Ctrl-C]=abort")
 	fmt.Println("  • Can be bypassed with 'git commit --no-verify'")
 	fmt.Println()
 	fmt.Println("Commit-msg hook will:")
@@ -1400,8 +1630,8 @@ func generatePreCommitHook() string {
 # This section is managed by LiveReview CLI (lrc)
 # Manual changes within markers will be lost on hook updates
 
-# Detect if running in TTY
-if [ -t 0 ] && [ -t 1 ]; then
+# Detect if running in TTY (check stdout, not stdin - Git redirects stdin)
+if [ -t 1 ]; then
     LRC_INTERACTIVE=1
 else
     LRC_INTERACTIVE=0
@@ -1448,31 +1678,36 @@ done
 # Run review
 if [ "$LRC_INTERACTIVE" = "1" ]; then
     echo "Running LiveReview pre-commit check..."
-    lrc review --staged
+    # Merge stderr to stdout and force unbuffered output
+    exec 2>&1
+    lrc review --staged --precommit
+    REVIEW_EXIT=$?
 else
     # Non-interactive (GUI) mode - run quietly
-    lrc review --staged >/dev/null 2>&1
+    lrc review --staged --output json >/dev/null 2>&1
+    REVIEW_EXIT=$?
 fi
 
-REVIEW_EXIT=$?
-
-# Write state based on exit code
-if [ $REVIEW_EXIT -eq 130 ]; then
-    # Ctrl-C (SIGINT) - user skipped
-    echo "skipped:$$:$(date +%%s)" > "${STATE_FILE}.tmp"
-elif [ $REVIEW_EXIT -eq 0 ]; then
-    # Success
+# Check exit code
+# 0 = review completed, user pressed Enter (ran normally)
+# 2 = user pressed Ctrl-S during review (skipped manually)
+# other = abort commit
+if [ $REVIEW_EXIT -eq 0 ]; then
+    # Review ran and user confirmed commit
     echo "ran:$$:$(date +%%s)" > "${STATE_FILE}.tmp"
+    mv "${STATE_FILE}.tmp" "$STATE_FILE" 2>/dev/null || true
+    exit 0
+elif [ $REVIEW_EXIT -eq 2 ]; then
+    # User pressed Ctrl-S to skip review
+    echo "skipped_manual:$$:$(date +%%s)" > "${STATE_FILE}.tmp"
+    mv "${STATE_FILE}.tmp" "$STATE_FILE" 2>/dev/null || true
+    exit 0
 else
-    # Other error - treat as skipped
+    # User aborted or error occurred
     echo "skipped:$$:$(date +%%s)" > "${STATE_FILE}.tmp"
+    mv "${STATE_FILE}.tmp" "$STATE_FILE" 2>/dev/null || true
+    exit 1
 fi
-
-# Atomic move
-mv "${STATE_FILE}.tmp" "$STATE_FILE" 2>/dev/null || true
-
-# Always exit 0 to allow commit
-exit 0
 %s`, lrcMarkerBegin, version, lrcMarkerEnd)
 }
 
@@ -1494,6 +1729,9 @@ if [ -f "$STATE_FILE" ]; then
     if [ "$STATE" = "ran" ]; then
         echo "" >> "$COMMIT_MSG_FILE"
         echo "LiveReview Pre-Commit Check: ran" >> "$COMMIT_MSG_FILE"
+    elif [ "$STATE" = "skipped_manual" ]; then
+        echo "" >> "$COMMIT_MSG_FILE"
+        echo "LiveReview Pre-Commit Check: skipped manually" >> "$COMMIT_MSG_FILE"
     elif [ "$STATE" = "skipped" ]; then
         echo "" >> "$COMMIT_MSG_FILE"
         echo "LiveReview Pre-Commit Check: skipped" >> "$COMMIT_MSG_FILE"
