@@ -15,6 +15,7 @@ import (
 	"os/signal"
 	"path/filepath"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
@@ -510,7 +511,7 @@ func runReviewWithOptions(opts reviewOptions) error {
 
 	// Save HTML output if requested
 	if htmlPath := opts.saveHTML; htmlPath != "" {
-		if err := saveHTMLOutput(htmlPath, result, verbose); err != nil {
+		if err := saveHTMLOutput(htmlPath, result, verbose, opts.precommit); err != nil {
 			return fmt.Errorf("failed to save HTML output: %w", err)
 		}
 
@@ -1134,9 +1135,10 @@ func renderHunkWithComments(buf *bytes.Buffer, hunk diffReviewHunk, commentsByLi
 }
 
 // saveHTMLOutput saves formatted HTML output with GitHub-style review UI
-func saveHTMLOutput(path string, result *diffReviewResponse, verbose bool) error {
+
+func saveHTMLOutput(path string, result *diffReviewResponse, verbose bool, precommit bool) error {
 	// Prepare template data
-	data := prepareHTMLData(result)
+	data := prepareHTMLData(result, precommit)
 
 	// Render HTML using template
 	htmlContent, err := renderHTMLTemplate(data)
@@ -1304,6 +1306,35 @@ func serveHTMLPrecommit(htmlPath string, port int) int {
 		http.ServeFile(w, r, absPath)
 	})
 
+	decisionChan := make(chan int, 1) // 0=commit,2=skip-from-terminal,1=abort,3=skip-from-HTML-abort
+	var decideOnce sync.Once
+	decide := func(code int) {
+		decideOnce.Do(func() {
+			decisionChan <- code
+		})
+	}
+
+	// Pre-commit action endpoints (HTML buttons call these)
+	mux.HandleFunc("/commit", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			w.WriteHeader(http.StatusMethodNotAllowed)
+			return
+		}
+		decide(0)
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte("ok"))
+	})
+
+	mux.HandleFunc("/skip", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			w.WriteHeader(http.StatusMethodNotAllowed)
+			return
+		}
+		decide(3)
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte("ok"))
+	})
+
 	// Start server in background
 	server := &http.Server{
 		Addr:    fmt.Sprintf(":%d", port),
@@ -1325,22 +1356,23 @@ func serveHTMLPrecommit(htmlPath string, port int) int {
 
 	<-serverReady
 
-	// Wait for Enter or Ctrl-C
+	// Wait for decision: Enter, Ctrl-C, HTML buttons
 	// Set up signal handling for Ctrl-C
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM)
+	go func() {
+		<-sigChan
+		decide(1)
+	}()
 
-	// Channel for Enter key
-	enterChan := make(chan bool, 1)
-
-	// Read from /dev/tty directly to avoid stdin issues in git hooks
+	// Read from /dev/tty directly to avoid stdin issues in git hooks (Enter fallback)
 	go func() {
 		tty, err := os.Open("/dev/tty")
 		if err != nil {
 			// Fallback if can't open tty
 			fmt.Println("Warning: Could not open terminal, auto-proceeding")
 			time.Sleep(2 * time.Second)
-			enterChan <- true
+			decide(0)
 			return
 		}
 		defer tty.Close()
@@ -1356,7 +1388,7 @@ func serveHTMLPrecommit(htmlPath string, port int) int {
 		oldState, err := term.MakeRaw(fd)
 		if err != nil {
 			// If can't set raw mode, just proceed
-			enterChan <- true
+			decide(0)
 			return
 		}
 		defer term.Restore(fd, oldState)
@@ -1365,27 +1397,29 @@ func serveHTMLPrecommit(htmlPath string, port int) int {
 		buf := make([]byte, 1)
 		_, err = tty.Read(buf)
 		if err != nil {
-			enterChan <- true
+			decide(0)
 			return
 		}
 
 		// Got a keypress, proceed
-		enterChan <- true
+		decide(0)
 	}()
 
-	// Wait for signal or Enter
-	select {
-	case <-sigChan:
-		fmt.Println("\n❌ Commit aborted by user")
-		fmt.Println()
-		server.Close()
-		return 1
-	case <-enterChan:
+	// Wait for any decision source
+	code := <-decisionChan
+	switch code {
+	case 0:
 		fmt.Println("\n✅ Proceeding with commit")
-		fmt.Println()
-		server.Close()
-		return 0
+	case 2:
+		fmt.Println("\n⏭️  Review skipped from terminal; proceeding with commit")
+	case 3:
+		fmt.Println("\n⏭️  Skip requested from review page; aborting commit")
+	case 1:
+		fmt.Println("\n❌ Commit aborted by user")
 	}
+	fmt.Println()
+	server.Close()
+	return code
 }
 
 // =============================================================================
