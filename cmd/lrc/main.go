@@ -78,6 +78,7 @@ const (
 	commitMessageFile   = "livereview_commit_message"
 	editorWrapperScript = "lrc_editor.sh"
 	editorBackupFile    = ".lrc_editor_backup"
+	pushRequestFile     = "livereview_push_request"
 )
 
 // highlightURL adds ANSI color to make served links stand out in terminals.
@@ -209,11 +210,12 @@ func main() {
 			},
 			{
 				Name:  "install-hooks",
-				Usage: "Install pre-commit and commit-msg Git hooks for automatic code review",
+				Usage: "Install prepare-commit-msg, commit-msg, and post-commit Git hooks for automatic code review",
 				Flags: []cli.Flag{
 					&cli.BoolFlag{
 						Name:  "force",
-						Usage: "overwrite existing lrc hook sections",
+						Usage: "overwrite existing lrc hook sections (default: true)",
+						Value: true,
 					},
 				},
 				Action: runInstallHooks,
@@ -368,7 +370,7 @@ func runReviewWithOptions(opts reviewOptions) error {
 	verbose := opts.verbose
 	var tempHTMLPath string
 	var commitMsgPath string
-	initialMsg := opts.initialMsg
+	initialMsg := sanitizeInitialMessage(opts.initialMsg)
 
 	if opts.precommit {
 		gitDir, err := resolveGitDir()
@@ -491,10 +493,22 @@ func runReviewWithOptions(opts reviewOptions) error {
 			close(pollDone)
 		}()
 
+		var pollFinished bool
 		select {
 		case decisionCode = <-decisionChan:
 			stopCtrlSFn()
 		case <-pollDone:
+			pollFinished = true
+		}
+
+		if pollFinished {
+			// Prefer a user decision if it arrives within a short grace window after poll finishes
+			select {
+			case decisionCode = <-decisionChan:
+				// got user decision
+			case <-time.After(300 * time.Millisecond):
+				// no decision quickly; proceed with poll result
+			}
 			stopCtrlSFn()
 			if pollErr != nil {
 				return fmt.Errorf("failed to poll review: %w", pollErr)
@@ -502,7 +516,7 @@ func runReviewWithOptions(opts reviewOptions) error {
 			result = pollResult
 		}
 
-		// If a decision happened before poll finished, act now
+		// If a decision happened before we proceed, act now
 		if decisionCode != -1 {
 			switch decisionCode {
 			case 1:
@@ -511,7 +525,7 @@ func runReviewWithOptions(opts reviewOptions) error {
 				fmt.Println("\n⏭️  Review skipped, proceeding with commit")
 			}
 			fmt.Println()
-			return cli.Exit("precommit decision", decisionCode)
+			return cli.Exit("", decisionCode)
 		}
 	} else {
 		// Non-precommit: just poll
@@ -1301,6 +1315,36 @@ func fileExists(path string) bool {
 	return err == nil
 }
 
+// sanitizeInitialMessage strips trailers and whitespace from a prefilled commit message
+// and drops the message entirely if only trailers remain.
+func sanitizeInitialMessage(msg string) string {
+	trimmed := strings.TrimSpace(msg)
+	if trimmed == "" {
+		return ""
+	}
+
+	lines := strings.Split(trimmed, "\n")
+	filtered := make([]string, 0, len(lines))
+
+	for _, line := range lines {
+		clean := strings.TrimSpace(line)
+		if clean == "" {
+			continue
+		}
+		if strings.HasPrefix(clean, "LiveReview Pre-Commit Check:") {
+			continue
+		}
+		if strings.HasPrefix(clean, "#") {
+			// Drop git template comment lines for prefill cleanliness
+			continue
+		}
+		filtered = append(filtered, line)
+	}
+
+	result := strings.TrimSpace(strings.Join(filtered, "\n"))
+	return result
+}
+
 // handleCtrlKeyWithCancel sets up raw terminal mode to detect Ctrl-S (skip) and Ctrl-C (abort)
 // Returns decision codes: 2 for Ctrl-S, 1 for Ctrl-C, 0 if nothing, or error on cancellation/failure
 func handleCtrlKeyWithCancel(stop <-chan struct{}) (int, error) {
@@ -1386,6 +1430,29 @@ func clearCommitMessageFile(commitMsgPath string) error {
 	return nil
 }
 
+// persistPushRequest creates a marker file to request a post-commit push.
+func persistPushRequest(commitMsgPath string) error {
+	if commitMsgPath == "" {
+		return nil
+	}
+
+	pushPath := filepath.Join(filepath.Dir(commitMsgPath), pushRequestFile)
+	return os.WriteFile(pushPath, []byte("push"), 0600)
+}
+
+// clearPushRequest removes any pending push request marker.
+func clearPushRequest(commitMsgPath string) error {
+	if commitMsgPath == "" {
+		return nil
+	}
+
+	pushPath := filepath.Join(filepath.Dir(commitMsgPath), pushRequestFile)
+	if err := os.Remove(pushPath); err != nil && !os.IsNotExist(err) {
+		return err
+	}
+	return nil
+}
+
 // readCommitMessageFromRequest extracts an optional commit message from a JSON request body.
 func readCommitMessageFromRequest(r *http.Request) string {
 	if r.Body == nil {
@@ -1446,13 +1513,14 @@ func serveHTMLPrecommit(htmlPath string, port int, commitMsgPath string, initial
 	type precommitDecision struct {
 		code    int
 		message string
+		push    bool
 	}
 
-	decisionChan := make(chan precommitDecision, 1) // 0=commit,2=skip-from-terminal,1=abort,3=skip-from-HTML-abort
+	decisionChan := make(chan precommitDecision, 1) // 0=commit,2=skip-from-terminal,1=abort,3=skip-from-HTML-abort, push flag handled separately
 	var decideOnce sync.Once
-	decide := func(code int, message string) {
+	decide := func(code int, message string, push bool) {
 		decideOnce.Do(func() {
-			decisionChan <- precommitDecision{code: code, message: message}
+			decisionChan <- precommitDecision{code: code, message: message, push: push}
 		})
 	}
 
@@ -1463,7 +1531,18 @@ func serveHTMLPrecommit(htmlPath string, port int, commitMsgPath string, initial
 			return
 		}
 		msg := readCommitMessageFromRequest(r)
-		decide(0, msg)
+		decide(0, msg, false)
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte("ok"))
+	})
+
+	mux.HandleFunc("/commit-push", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			w.WriteHeader(http.StatusMethodNotAllowed)
+			return
+		}
+		msg := readCommitMessageFromRequest(r)
+		decide(0, msg, true)
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte("ok"))
 	})
@@ -1473,7 +1552,7 @@ func serveHTMLPrecommit(htmlPath string, port int, commitMsgPath string, initial
 			w.WriteHeader(http.StatusMethodNotAllowed)
 			return
 		}
-		decide(3, "")
+		decide(3, "", false)
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte("ok"))
 	})
@@ -1505,7 +1584,7 @@ func serveHTMLPrecommit(htmlPath string, port int, commitMsgPath string, initial
 	signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM)
 	go func() {
 		<-sigChan
-		decide(1, "")
+		decide(1, "", false)
 	}()
 
 	// Read from /dev/tty directly to avoid stdin issues in git hooks (Enter fallback, cooked mode)
@@ -1514,7 +1593,7 @@ func serveHTMLPrecommit(htmlPath string, port int, commitMsgPath string, initial
 		if err != nil {
 			fmt.Println("Warning: Could not open terminal, auto-proceeding")
 			time.Sleep(2 * time.Second)
-			decide(0, initialMsg)
+			decide(0, initialMsg, false)
 			return
 		}
 		defer tty.Close()
@@ -1544,10 +1623,10 @@ func serveHTMLPrecommit(htmlPath string, port int, commitMsgPath string, initial
 
 		_, err = reader.ReadString('\n')
 		if err != nil {
-			decide(0, typedMessage)
+			decide(0, typedMessage, false)
 			return
 		}
-		decide(0, typedMessage)
+		decide(0, typedMessage, false)
 	}()
 
 	// Wait for any decision source
@@ -1570,6 +1649,14 @@ func serveHTMLPrecommit(htmlPath string, port int, commitMsgPath string, initial
 		} else {
 			_ = clearCommitMessageFile(commitMsgPath)
 		}
+	}
+
+	if decision.code == 0 && decision.push {
+		if err := persistPushRequest(commitMsgPath); err != nil {
+			fmt.Fprintf(os.Stderr, "Warning: failed to store push request: %v\n", err)
+		}
+	} else {
+		_ = clearPushRequest(commitMsgPath)
 	}
 
 	switch decision.code {
@@ -1596,7 +1683,7 @@ const (
 	lrcMarkerEnd   = "# END lrc managed section"
 )
 
-// runInstallHooks installs pre-commit and commit-msg hooks with sentinel markers
+// runInstallHooks installs prepare-commit-msg, commit-msg, and post-commit hooks with sentinel markers
 func runInstallHooks(c *cli.Context) error {
 	force := c.Bool("force")
 
@@ -1620,10 +1707,14 @@ func runInstallHooks(c *cli.Context) error {
 		return fmt.Errorf("failed to create backup directory: %w", err)
 	}
 
-	// Install pre-commit hook
-	preCommitPath := filepath.Join(hooksDir, "pre-commit")
-	if err := installHook(preCommitPath, generatePreCommitHook(), "pre-commit", backupDir, force); err != nil {
-		return fmt.Errorf("failed to install pre-commit hook: %w", err)
+	// Clean up legacy pre-commit lrc section to avoid double-running after migration
+	legacyPreCommit := filepath.Join(hooksDir, "pre-commit")
+	_ = uninstallHook(legacyPreCommit, "pre-commit")
+
+	// Install prepare-commit-msg hook
+	prepareCommitMsgPath := filepath.Join(hooksDir, "prepare-commit-msg")
+	if err := installHook(prepareCommitMsgPath, generatePrepareCommitMsgHook(), "prepare-commit-msg", backupDir, force); err != nil {
+		return fmt.Errorf("failed to install prepare-commit-msg hook: %w", err)
 	}
 
 	// Install commit-msg hook
@@ -1632,17 +1723,23 @@ func runInstallHooks(c *cli.Context) error {
 		return fmt.Errorf("failed to install commit-msg hook: %w", err)
 	}
 
+	// Install post-commit hook (for optional push)
+	postCommitPath := filepath.Join(hooksDir, "post-commit")
+	if err := installHook(postCommitPath, generatePostCommitHook(), "post-commit", backupDir, force); err != nil {
+		return fmt.Errorf("failed to install post-commit hook: %w", err)
+	}
+
 	if err := installEditorWrapper(gitDir); err != nil {
 		return fmt.Errorf("failed to install editor wrapper: %w", err)
 	}
 
 	fmt.Println("✅ LiveReview hooks installed successfully!")
 	fmt.Println()
-	fmt.Println("Pre-commit hook will:")
-	fmt.Println("  • Run 'lrc review --staged --precommit' before each commit")
+	fmt.Println("Prepare-commit-msg hook will:")
+	fmt.Println("  • Run 'lrc review --staged --precommit' with your current commit message available")
 	fmt.Println("  • Show review progress and open browser")
-	fmt.Println("  • Wait for your decision: [Enter]=commit, [Ctrl-C]=abort")
-	fmt.Println("  • Can be bypassed with 'git commit --no-verify'")
+	fmt.Println("  • Wait for your decision: [Enter]=commit, [Ctrl-C]=abort, [Ctrl-S]=skip+commit")
+	fmt.Println("  • Can be bypassed with LRC_SKIP_REVIEW=1 environment variable")
 	fmt.Println()
 	fmt.Println("Commit-msg hook will:")
 	fmt.Println("  • Add 'LiveReview Pre-Commit Check: [ran|skipped]' trailer")
@@ -1664,7 +1761,7 @@ func runUninstallHooks(c *cli.Context) error {
 	}
 
 	hooksDir := ".git/hooks"
-	hooks := []string{"pre-commit", "commit-msg"}
+	hooks := []string{"prepare-commit-msg", "commit-msg", "post-commit"}
 	removed := 0
 
 	for _, hookName := range hooks {
@@ -1726,7 +1823,7 @@ func installHook(hookPath, lrcSection, hookName, backupDir string, force bool) e
 	contentStr := string(existingContent)
 	if strings.Contains(contentStr, lrcMarkerBegin) {
 		if !force {
-			fmt.Printf("ℹ️  %s already has lrc section (use --force to update)\n", hookName)
+			fmt.Printf("ℹ️  %s already has lrc section (use --force=false to skip updating)\n", hookName)
 			return nil
 		}
 		// Replace existing lrc section
@@ -1938,18 +2035,21 @@ func removeLrcSection(content string) string {
 	return content[:start] + content[end:]
 }
 
-// generatePreCommitHook generates the pre-commit hook script
-func generatePreCommitHook() string {
+// generatePrepareCommitMsgHook generates the prepare-commit-msg hook script
+func generatePrepareCommitMsgHook() string {
 	return fmt.Sprintf(`%s
 # lrc_version: %s
 # This section is managed by LiveReview CLI (lrc)
 # Manual changes within markers will be lost on hook updates
 
+COMMIT_MSG_FILE="$1"
+SKIP_REVIEW="${LRC_SKIP_REVIEW:-}" 
+
 # Detect if running in TTY (check stdout, not stdin - Git redirects stdin)
 if [ -t 1 ]; then
-    LRC_INTERACTIVE=1
+	LRC_INTERACTIVE=1
 else
-    LRC_INTERACTIVE=0
+	LRC_INTERACTIVE=0
 fi
 
 # State file for hook coordination
@@ -1958,11 +2058,19 @@ LOCK_DIR=".git/livereview_state.lock"
 
 # Cleanup function
 cleanup_lock() {
-    rmdir "$LOCK_DIR" 2>/dev/null || true
+	rmdir "$LOCK_DIR" 2>/dev/null || true
 }
 
 # Set up cleanup trap
 trap cleanup_lock EXIT INT TERM
+
+# Allow explicit bypass (analogous to --no-verify)
+if [ "$SKIP_REVIEW" = "1" ]; then
+	echo "LiveReview: skipping review (LRC_SKIP_REVIEW=1)" >&2
+	echo "skipped_env:$$:$(date +%%s)" > "${STATE_FILE}.tmp"
+	mv "${STATE_FILE}.tmp" "$STATE_FILE" 2>/dev/null || true
+	exit 0
+fi
 
 # Acquire lock with timeout (5 minutes)
 MAX_WAIT=300
@@ -1970,64 +2078,56 @@ WAITED=0
 
 # Check for stale locks (>5 minutes old)
 if [ -d "$LOCK_DIR" ]; then
-    if command -v stat >/dev/null 2>&1; then
-        # Try to get lock age
-        LOCK_AGE=$(($(date +%%s) - $(stat -c %%Y "$LOCK_DIR" 2>/dev/null || stat -f %%m "$LOCK_DIR" 2>/dev/null || echo 0)))
-        if [ "$LOCK_AGE" -gt 300 ]; then
-            echo "Removing stale lock (${LOCK_AGE}s old)"
-            rmdir "$LOCK_DIR" 2>/dev/null || true
-        fi
-    fi
+	if command -v stat >/dev/null 2>&1; then
+		LOCK_AGE=$(($(date +%%s) - $(stat -c %%Y "$LOCK_DIR" 2>/dev/null || stat -f %%m "$LOCK_DIR" 2>/dev/null || echo 0)))
+		if [ "$LOCK_AGE" -gt 300 ]; then
+			echo "Removing stale lock (${LOCK_AGE}s old)" >&2
+			rmdir "$LOCK_DIR" 2>/dev/null || true
+		fi
+	fi
 fi
 
-# Try to acquire lock
 while ! mkdir "$LOCK_DIR" 2>/dev/null; do
-    if [ $WAITED -ge $MAX_WAIT ]; then
-        echo "Could not acquire lock after ${MAX_WAIT}s, skipping review" >&2
-        exit 0
-    fi
-    sleep 1
-    WAITED=$((WAITED + 1))
+	if [ $WAITED -ge $MAX_WAIT ]; then
+		echo "Could not acquire LiveReview lock after ${MAX_WAIT}s, skipping review" >&2
+		echo "skipped_lock:$$:$(date +%%s)" > "${STATE_FILE}.tmp"
+		mv "${STATE_FILE}.tmp" "$STATE_FILE" 2>/dev/null || true
+		exit 0
+	fi
+	sleep 1
+	WAITED=$((WAITED + 1))
 done
 
-# Capture existing commit message if git prepared it (e.g., commit -m)
+# Capture current commit message (available in prepare-commit-msg)
 INITIAL_MSG=""
-if [ -f ".git/COMMIT_EDITMSG" ]; then
-	INITIAL_MSG="$(cat .git/COMMIT_EDITMSG 2>/dev/null || true)"
+if [ -n "$COMMIT_MSG_FILE" ] && [ -f "$COMMIT_MSG_FILE" ]; then
+	INITIAL_MSG="$(cat "$COMMIT_MSG_FILE" 2>/dev/null || true)"
 fi
 
 # Run review
 if [ "$LRC_INTERACTIVE" = "1" ]; then
-	echo "Running LiveReview pre-commit check..."
-	# Merge stderr to stdout and force unbuffered output
+	echo "Running LiveReview commit check..."
 	exec 2>&1
 	LRC_INITIAL_MESSAGE="$INITIAL_MSG" lrc review --staged --precommit
 	REVIEW_EXIT=$?
 else
-	# Non-interactive (GUI) mode - run quietly
 	LRC_INITIAL_MESSAGE="$INITIAL_MSG" lrc review --staged --output json >/dev/null 2>&1
 	REVIEW_EXIT=$?
 fi
 
 # Check exit code
-# 0 = review completed, user pressed Enter (ran normally)
-# 2 = user pressed Ctrl-S during review (skipped manually)
-# other = abort commit
 if [ $REVIEW_EXIT -eq 0 ]; then
-    # Review ran and user confirmed commit
-    echo "ran:$$:$(date +%%s)" > "${STATE_FILE}.tmp"
-    mv "${STATE_FILE}.tmp" "$STATE_FILE" 2>/dev/null || true
-    exit 0
+	echo "ran:$$:$(date +%%s)" > "${STATE_FILE}.tmp"
+	mv "${STATE_FILE}.tmp" "$STATE_FILE" 2>/dev/null || true
+	exit 0
 elif [ $REVIEW_EXIT -eq 2 ]; then
-    # User pressed Ctrl-S to skip review
-    echo "skipped_manual:$$:$(date +%%s)" > "${STATE_FILE}.tmp"
-    mv "${STATE_FILE}.tmp" "$STATE_FILE" 2>/dev/null || true
-    exit 0
+	echo "skipped_manual:$$:$(date +%%s)" > "${STATE_FILE}.tmp"
+	mv "${STATE_FILE}.tmp" "$STATE_FILE" 2>/dev/null || true
+	exit 0
 else
-    # User aborted or error occurred
-    echo "skipped:$$:$(date +%%s)" > "${STATE_FILE}.tmp"
-    mv "${STATE_FILE}.tmp" "$STATE_FILE" 2>/dev/null || true
-    exit 1
+	echo "skipped:$$:$(date +%%s)" > "${STATE_FILE}.tmp"
+	mv "${STATE_FILE}.tmp" "$STATE_FILE" 2>/dev/null || true
+	exit 1
 fi
 %s`, lrcMarkerBegin, version, lrcMarkerEnd)
 }
@@ -2055,16 +2155,16 @@ fi
 if [ -f "$STATE_FILE" ]; then
     STATE=$(cat "$STATE_FILE" 2>/dev/null | cut -d: -f1)
     
-    if [ "$STATE" = "ran" ]; then
-        echo "" >> "$COMMIT_MSG_FILE"
-        echo "LiveReview Pre-Commit Check: ran" >> "$COMMIT_MSG_FILE"
-    elif [ "$STATE" = "skipped_manual" ]; then
-        echo "" >> "$COMMIT_MSG_FILE"
-        echo "LiveReview Pre-Commit Check: skipped manually" >> "$COMMIT_MSG_FILE"
-    elif [ "$STATE" = "skipped" ]; then
-        echo "" >> "$COMMIT_MSG_FILE"
-        echo "LiveReview Pre-Commit Check: skipped" >> "$COMMIT_MSG_FILE"
-    fi
+	if [ "$STATE" = "ran" ]; then
+		echo "" >> "$COMMIT_MSG_FILE"
+		echo "LiveReview Pre-Commit Check: ran" >> "$COMMIT_MSG_FILE"
+	elif [ "$STATE" = "skipped_manual" ]; then
+		echo "" >> "$COMMIT_MSG_FILE"
+		echo "LiveReview Pre-Commit Check: skipped manually" >> "$COMMIT_MSG_FILE"
+	elif [ "$STATE" = "skipped" ] || [ "$STATE" = "skipped_env" ] || [ "$STATE" = "skipped_lock" ]; then
+		echo "" >> "$COMMIT_MSG_FILE"
+		echo "LiveReview Pre-Commit Check: skipped" >> "$COMMIT_MSG_FILE"
+	fi
     
     # Clean up state file and lock
     rm -f "$STATE_FILE" 2>/dev/null || true
@@ -2074,6 +2174,89 @@ fi
 # Always exit 0
 exit 0
 %s`, lrcMarkerBegin, version, commitMessageFile, lrcMarkerEnd)
+}
+
+// generatePostCommitHook runs a safe pull (ff-only) and push when requested.
+func generatePostCommitHook() string {
+	return fmt.Sprintf(`%s
+# lrc_version: %s
+# This section is managed by LiveReview CLI (lrc)
+# Manual changes within markers will be lost on hook updates
+
+PUSH_FLAG=".git/%s"
+UPSTREAM=""
+UPSTREAM_REMOTE=""
+UPSTREAM_BRANCH=""
+
+# Only act when flag exists
+if [ ! -f "$PUSH_FLAG" ]; then
+	exit 0
+fi
+
+cleanup_flag() {
+	rm -f "$PUSH_FLAG" 2>/dev/null || true
+}
+
+echo "lrc: commit-and-push requested; verifying state and pushing if safe"
+
+# 1. Require clean working tree (including index)
+if ! git diff --quiet || ! git diff --cached --quiet; then
+	echo "lrc: push skipped – working tree not clean"
+	cleanup_flag
+	exit 0
+fi
+
+# 2. Abort if HEAD is detached
+if ! git symbolic-ref -q HEAD >/dev/null; then
+	echo "lrc: push skipped – detached HEAD"
+	cleanup_flag
+	exit 0
+fi
+
+# 3. Abort if no upstream
+if ! git rev-parse --abbrev-ref --symbolic-full-name @{u} >/dev/null 2>&1; then
+	echo "lrc: push skipped – no upstream configured"
+	cleanup_flag
+	exit 0
+fi
+
+UPSTREAM=$(git rev-parse --abbrev-ref --symbolic-full-name @{u} 2>/dev/null)
+UPSTREAM_REMOTE=${UPSTREAM%%/*}
+UPSTREAM_BRANCH=${UPSTREAM#*/}
+if [ -z "$UPSTREAM_REMOTE" ] || [ -z "$UPSTREAM_BRANCH" ]; then
+	echo "lrc: push skipped – unable to resolve upstream"
+	cleanup_flag
+	exit 0
+fi
+echo "lrc: upstream detected -> $UPSTREAM_REMOTE/$UPSTREAM_BRANCH"
+
+# 4. Fetch upstream
+if ! git fetch --prune; then
+	echo "lrc: push skipped – fetch failed"
+	cleanup_flag
+	exit 0
+fi
+echo "lrc: fetched $UPSTREAM_REMOTE"
+
+# 5. Fast-forward only
+if ! git merge --ff-only @{u}; then
+	echo "lrc: push skipped – fast-forward merge failed"
+	cleanup_flag
+	exit 0
+fi
+echo "lrc: fast-forwarded to $UPSTREAM"
+
+# 6. Push
+echo "lrc: pushing to $UPSTREAM_REMOTE/$UPSTREAM_BRANCH"
+if ! git push "$UPSTREAM_REMOTE" HEAD:"$UPSTREAM_BRANCH"; then
+	echo "lrc: push failed"
+	cleanup_flag
+	exit 0
+fi
+echo "lrc: push complete -> $UPSTREAM_REMOTE/$UPSTREAM_BRANCH"
+cleanup_flag
+exit 0
+%s`, lrcMarkerBegin, version, pushRequestFile, lrcMarkerEnd)
 }
 
 // cleanOldBackups removes old backup files, keeping only the last N

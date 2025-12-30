@@ -816,6 +816,7 @@ const htmlTemplate = `<!DOCTYPE html>
                 <div class="precommit-bar-title">Pre-commit action</div>
                 <div class="precommit-actions">
                     <button id="btn-commit" class="btn-primary">Commit</button>
+                    <button id="btn-commit-push" class="btn-primary">Commit and Push</button>
                     <button id="btn-skip" class="btn-ghost">Skip Commit</button>
                 </div>
                 <div id="precommit-status" class="precommit-status"></div>
@@ -884,6 +885,7 @@ const htmlTemplate = `<!DOCTYPE html>
 
             if (isPrecommit) {
                 const commitBtn = document.getElementById('btn-commit');
+                const commitPushBtn = document.getElementById('btn-commit-push');
                 const skipBtn = document.getElementById('btn-skip');
                 const statusEl = document.getElementById('precommit-status');
                 const messageInput = document.getElementById('commit-message');
@@ -891,6 +893,7 @@ const htmlTemplate = `<!DOCTYPE html>
                 const setStatus = (text) => { statusEl.textContent = text; };
                 const disableAll = () => {
                     commitBtn.disabled = true;
+                    commitPushBtn.disabled = true;
                     skipBtn.disabled = true;
                     if (messageInput) {
                         messageInput.disabled = true;
@@ -899,6 +902,7 @@ const htmlTemplate = `<!DOCTYPE html>
 
                 const enableActions = () => {
                     commitBtn.disabled = false;
+                    commitPushBtn.disabled = false;
                     skipBtn.disabled = false;
                     if (messageInput) {
                         messageInput.disabled = false;
@@ -923,6 +927,7 @@ const htmlTemplate = `<!DOCTYPE html>
                 };
 
                 commitBtn.addEventListener('click', () => postDecision('/commit', 'Commit requested'));
+                commitPushBtn.addEventListener('click', () => postDecision('/commit-push', 'Commit and push requested'));
                 skipBtn.addEventListener('click', () => postDecision('/skip', 'Skip requested'));
             }
 
