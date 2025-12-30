@@ -260,6 +260,7 @@ type reviewOptions struct {
 	port         int
 	verbose      bool
 	precommit    bool
+	initialMsg   string
 }
 
 func runReviewSimple(c *cli.Context) error {
@@ -274,19 +275,20 @@ func runReviewDebug(c *cli.Context) error {
 
 func buildOptionsFromContext(c *cli.Context, includeDebug bool) reviewOptions {
 	opts := reviewOptions{
-		repoName:  c.String("repo-name"),
-		rangeVal:  c.String("range"),
-		diffFile:  c.String("diff-file"),
-		apiURL:    c.String("api-url"),
-		apiKey:    c.String("api-key"),
-		output:    c.String("output"),
-		saveHTML:  c.String("save-html"),
-		serve:     c.Bool("serve"),
-		port:      c.Int("port"),
-		verbose:   c.Bool("verbose"),
-		precommit: c.Bool("precommit"),
-		saveJSON:  c.String("save-json"),
-		saveText:  c.String("save-text"),
+		repoName:   c.String("repo-name"),
+		rangeVal:   c.String("range"),
+		diffFile:   c.String("diff-file"),
+		apiURL:     c.String("api-url"),
+		apiKey:     c.String("api-key"),
+		output:     c.String("output"),
+		saveHTML:   c.String("save-html"),
+		serve:      c.Bool("serve"),
+		port:       c.Int("port"),
+		verbose:    c.Bool("verbose"),
+		precommit:  c.Bool("precommit"),
+		saveJSON:   c.String("save-json"),
+		saveText:   c.String("save-text"),
+		initialMsg: strings.TrimRight(os.Getenv("LRC_INITIAL_MESSAGE"), "\r\n"),
 	}
 
 	staged := c.Bool("staged")
@@ -366,6 +368,7 @@ func runReviewWithOptions(opts reviewOptions) error {
 	verbose := opts.verbose
 	var tempHTMLPath string
 	var commitMsgPath string
+	initialMsg := opts.initialMsg
 
 	if opts.precommit {
 		gitDir, err := resolveGitDir()
@@ -552,7 +555,7 @@ func runReviewWithOptions(opts reviewOptions) error {
 
 	// Save HTML output if requested
 	if htmlPath := opts.saveHTML; htmlPath != "" {
-		if err := saveHTMLOutput(htmlPath, result, verbose, opts.precommit); err != nil {
+		if err := saveHTMLOutput(htmlPath, result, verbose, opts.precommit, initialMsg); err != nil {
 			return fmt.Errorf("failed to save HTML output: %w", err)
 		}
 
@@ -579,7 +582,7 @@ func runReviewWithOptions(opts reviewOptions) error {
 			// Precommit mode: interactive prompt for commit decision
 			if opts.precommit {
 				// Don't render to stdout in precommit mode, go straight to prompt
-				exitCode := serveHTMLPrecommit(htmlPath, opts.port, commitMsgPath)
+				exitCode := serveHTMLPrecommit(htmlPath, opts.port, commitMsgPath, initialMsg)
 				os.Exit(exitCode)
 			}
 
@@ -1207,9 +1210,9 @@ func renderHunkWithComments(buf *bytes.Buffer, hunk diffReviewHunk, commentsByLi
 
 // saveHTMLOutput saves formatted HTML output with GitHub-style review UI
 
-func saveHTMLOutput(path string, result *diffReviewResponse, verbose bool, precommit bool) error {
+func saveHTMLOutput(path string, result *diffReviewResponse, verbose bool, precommit bool, initialMsg string) error {
 	// Prepare template data
-	data := prepareHTMLData(result, precommit)
+	data := prepareHTMLData(result, precommit, initialMsg)
 
 	// Render HTML using template
 	htmlContent, err := renderHTMLTemplate(data)
@@ -1408,7 +1411,7 @@ func readCommitMessageFromRequest(r *http.Request) string {
 
 // serveHTMLPrecommit serves HTML and waits for user decision
 // Returns exit code: 0 = commit, 1 = don't commit
-func serveHTMLPrecommit(htmlPath string, port int, commitMsgPath string) int {
+func serveHTMLPrecommit(htmlPath string, port int, commitMsgPath string, initialMsg string) int {
 	absPath, err := filepath.Abs(htmlPath)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Failed to get absolute path: %v\n", err)
@@ -1511,7 +1514,7 @@ func serveHTMLPrecommit(htmlPath string, port int, commitMsgPath string) int {
 		if err != nil {
 			fmt.Println("Warning: Could not open terminal, auto-proceeding")
 			time.Sleep(2 * time.Second)
-			decide(0, "")
+			decide(0, initialMsg)
 			return
 		}
 		defer tty.Close()
@@ -1522,11 +1525,17 @@ func serveHTMLPrecommit(htmlPath string, port int, commitMsgPath string) int {
 		fmt.Printf("   [Enter]  Continue with commit\n")
 		fmt.Printf("   [Ctrl-C] Abort commit\n")
 		fmt.Printf("\nOptional: type a new commit message and press Enter to use it (leave blank to keep Git's message).\n")
+		if strings.TrimSpace(initialMsg) != "" {
+			fmt.Printf("(current message): %s\n", initialMsg)
+		}
 		fmt.Printf("> ")
 		os.Stdout.Sync()
 
 		typedMessage, _ := reader.ReadString('\n')
 		typedMessage = strings.TrimRight(strings.TrimRight(typedMessage, "\n"), "\r")
+		if strings.TrimSpace(typedMessage) == "" {
+			typedMessage = initialMsg
+		}
 
 		fmt.Printf("\n[Enter] Continue with commit\n")
 		fmt.Printf("[Ctrl-C] Abort commit\n")
@@ -1545,9 +1554,18 @@ func serveHTMLPrecommit(htmlPath string, port int, commitMsgPath string) int {
 	decision := <-decisionChan
 
 	if commitMsgPath != "" {
-		if decision.code == 0 && strings.TrimSpace(decision.message) != "" {
-			if err := persistCommitMessage(commitMsgPath, decision.message); err != nil {
-				fmt.Fprintf(os.Stderr, "Warning: failed to store commit message: %v\n", err)
+		if decision.code == 0 {
+			msgToPersist := decision.message
+			if strings.TrimSpace(msgToPersist) == "" {
+				msgToPersist = initialMsg
+			}
+
+			if strings.TrimSpace(msgToPersist) != "" {
+				if err := persistCommitMessage(commitMsgPath, msgToPersist); err != nil {
+					fmt.Fprintf(os.Stderr, "Warning: failed to store commit message: %v\n", err)
+				}
+			} else {
+				_ = clearCommitMessageFile(commitMsgPath)
 			}
 		} else {
 			_ = clearCommitMessageFile(commitMsgPath)
@@ -1972,17 +1990,23 @@ while ! mkdir "$LOCK_DIR" 2>/dev/null; do
     WAITED=$((WAITED + 1))
 done
 
+# Capture existing commit message if git prepared it (e.g., commit -m)
+INITIAL_MSG=""
+if [ -f ".git/COMMIT_EDITMSG" ]; then
+	INITIAL_MSG="$(cat .git/COMMIT_EDITMSG 2>/dev/null || true)"
+fi
+
 # Run review
 if [ "$LRC_INTERACTIVE" = "1" ]; then
-    echo "Running LiveReview pre-commit check..."
-    # Merge stderr to stdout and force unbuffered output
-    exec 2>&1
-    lrc review --staged --precommit
-    REVIEW_EXIT=$?
+	echo "Running LiveReview pre-commit check..."
+	# Merge stderr to stdout and force unbuffered output
+	exec 2>&1
+	LRC_INITIAL_MESSAGE="$INITIAL_MSG" lrc review --staged --precommit
+	REVIEW_EXIT=$?
 else
-    # Non-interactive (GUI) mode - run quietly
-    lrc review --staged --output json >/dev/null 2>&1
-    REVIEW_EXIT=$?
+	# Non-interactive (GUI) mode - run quietly
+	LRC_INITIAL_MESSAGE="$INITIAL_MSG" lrc review --staged --output json >/dev/null 2>&1
+	REVIEW_EXIT=$?
 fi
 
 # Check exit code
