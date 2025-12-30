@@ -951,9 +951,9 @@ const htmlTemplate = `<!DOCTYPE html>
                 <div id="precommit-status" class="precommit-status"></div>
             </div>
             <div class="precommit-message">
-                <label for="commit-message">Commit message (optional)</label>
-                <textarea id="commit-message" placeholder="Edit the commit message before continuing; leave blank to keep your existing git message.">{{.InitialMsg}}</textarea>
-                <div class="precommit-message-hint">Applied when you choose Commit here; ignored on Skip.</div>
+                <label for="commit-message">Commit message</label>
+                <textarea id="commit-message" placeholder="Enter your commit message (required)">{{.InitialMsg}}</textarea>
+                <div class="precommit-message-hint">Required for commit actions; ignored on Skip.</div>
             </div>
         </div>
 {{end}}        <div class="toolbar-row">
@@ -1058,7 +1058,15 @@ const htmlTemplate = `<!DOCTYPE html>
                     }
                 };
 
-                const postDecision = async (path, successText) => {
+                const postDecision = async (path, successText, requireMessage) => {
+                    if (requireMessage) {
+                        const msg = messageInput ? messageInput.value.trim() : '';
+                        if (!msg) {
+                            setStatus('Commit message is required');
+                            if (messageInput) messageInput.focus();
+                            return;
+                        }
+                    }
                     disableAll();
                     setStatus('Sending decision...');
                     try {
@@ -1075,9 +1083,9 @@ const htmlTemplate = `<!DOCTYPE html>
                     }
                 };
 
-                commitBtn.addEventListener('click', () => postDecision('/commit', 'Commit requested'));
-                commitPushBtn.addEventListener('click', () => postDecision('/commit-push', 'Commit and push requested'));
-                skipBtn.addEventListener('click', () => postDecision('/skip', 'Skip requested'));
+                commitBtn.addEventListener('click', () => postDecision('/commit', 'Commit requested', true));
+                commitPushBtn.addEventListener('click', () => postDecision('/commit-push', 'Commit and push requested', true));
+                skipBtn.addEventListener('click', () => postDecision('/skip', 'Skip requested', false));
             }
 
             // Build sidebar file list
