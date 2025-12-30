@@ -76,6 +76,8 @@ const (
 	defaultTimeout      = 5 * time.Minute
 	defaultOutputFormat = "pretty"
 	commitMessageFile   = "livereview_commit_message"
+	editorWrapperScript = "lrc_editor.sh"
+	editorBackupFile    = ".lrc_editor_backup"
 )
 
 // highlightURL adds ANSI color to make served links stand out in terminals.
@@ -1585,6 +1587,11 @@ func runInstallHooks(c *cli.Context) error {
 		return fmt.Errorf("not in a git repository (no .git directory found)")
 	}
 
+	gitDir, err := resolveGitDir()
+	if err != nil {
+		return err
+	}
+
 	hooksDir := ".git/hooks"
 	if err := os.MkdirAll(hooksDir, 0755); err != nil {
 		return fmt.Errorf("failed to create hooks directory: %w", err)
@@ -1605,6 +1612,10 @@ func runInstallHooks(c *cli.Context) error {
 	commitMsgPath := filepath.Join(hooksDir, "commit-msg")
 	if err := installHook(commitMsgPath, generateCommitMsgHook(), "commit-msg", backupDir, force); err != nil {
 		return fmt.Errorf("failed to install commit-msg hook: %w", err)
+	}
+
+	if err := installEditorWrapper(gitDir); err != nil {
+		return fmt.Errorf("failed to install editor wrapper: %w", err)
 	}
 
 	fmt.Println("✅ LiveReview hooks installed successfully!")
@@ -1629,6 +1640,11 @@ func runUninstallHooks(c *cli.Context) error {
 		return fmt.Errorf("not in a git repository (no .git directory found)")
 	}
 
+	gitDir, err := resolveGitDir()
+	if err != nil {
+		return err
+	}
+
 	hooksDir := ".git/hooks"
 	hooks := []string{"pre-commit", "commit-msg"}
 	removed := 0
@@ -1646,6 +1662,10 @@ func runUninstallHooks(c *cli.Context) error {
 		fmt.Printf("✅ Removed lrc hooks from %d file(s)\n", removed)
 	} else {
 		fmt.Println("ℹ️  No lrc hooks found to remove")
+	}
+
+	if err := uninstallEditorWrapper(gitDir); err != nil {
+		fmt.Printf("⚠️  Warning: failed to clean editor wrapper: %v\n", err)
 	}
 
 	return nil
@@ -1759,6 +1779,102 @@ func uninstallHook(hookPath, hookName string) error {
 	fmt.Printf("✅ Removed lrc section from %s\n", hookName)
 
 	return nil
+}
+
+// installEditorWrapper sets core.editor to an lrc-managed wrapper that injects
+// the precommit-provided message when available and falls back to the user's editor.
+func installEditorWrapper(gitDir string) error {
+	repoRoot := filepath.Dir(gitDir)
+	scriptPath := filepath.Join(gitDir, editorWrapperScript)
+	backupPath := filepath.Join(gitDir, editorBackupFile)
+
+	// Backup existing core.editor if set
+	currentEditor, _ := readGitConfig(repoRoot, "core.editor")
+	if currentEditor != "" {
+		_ = os.WriteFile(backupPath, []byte(currentEditor), 0600)
+	}
+
+	script := fmt.Sprintf(`#!/bin/sh
+set -e
+
+OVERRIDE_FILE="%s"
+
+if [ -f "$OVERRIDE_FILE" ] && [ -s "$OVERRIDE_FILE" ]; then
+    cat "$OVERRIDE_FILE" > "$1"
+    exit 0
+fi
+
+if [ -n "$LRC_FALLBACK_EDITOR" ]; then
+    exec $LRC_FALLBACK_EDITOR "$@"
+fi
+
+if [ -n "$VISUAL" ]; then
+    exec "$VISUAL" "$@"
+fi
+
+if [ -n "$EDITOR" ]; then
+    exec "$EDITOR" "$@"
+fi
+
+exec vi "$@"
+`, filepath.Join(gitDir, commitMessageFile))
+
+	if err := os.WriteFile(scriptPath, []byte(script), 0755); err != nil {
+		return fmt.Errorf("failed to write editor wrapper: %w", err)
+	}
+
+	if err := setGitConfig(repoRoot, "core.editor", scriptPath); err != nil {
+		return fmt.Errorf("failed to set core.editor: %w", err)
+	}
+
+	return nil
+}
+
+// uninstallEditorWrapper restores the previous editor (if backed up) and removes wrapper files.
+func uninstallEditorWrapper(gitDir string) error {
+	repoRoot := filepath.Dir(gitDir)
+	scriptPath := filepath.Join(gitDir, editorWrapperScript)
+	backupPath := filepath.Join(gitDir, editorBackupFile)
+
+	if data, err := os.ReadFile(backupPath); err == nil {
+		value := strings.TrimSpace(string(data))
+		if value != "" {
+			_ = setGitConfig(repoRoot, "core.editor", value)
+		}
+	} else {
+		// No backup; remove config if set
+		_ = unsetGitConfig(repoRoot, "core.editor")
+	}
+
+	_ = os.Remove(scriptPath)
+	_ = os.Remove(backupPath)
+
+	return nil
+}
+
+// readGitConfig reads a single git config key from the repository root.
+func readGitConfig(repoRoot, key string) (string, error) {
+	cmd := exec.Command("git", "config", "--get", key)
+	cmd.Dir = repoRoot
+	out, err := cmd.Output()
+	if err != nil {
+		return "", err
+	}
+	return strings.TrimSpace(string(out)), nil
+}
+
+// setGitConfig sets a git config key in the given repository.
+func setGitConfig(repoRoot, key, value string) error {
+	cmd := exec.Command("git", "config", key, value)
+	cmd.Dir = repoRoot
+	return cmd.Run()
+}
+
+// unsetGitConfig removes a git config key in the given repository.
+func unsetGitConfig(repoRoot, key string) error {
+	cmd := exec.Command("git", "config", "--unset", key)
+	cmd.Dir = repoRoot
+	return cmd.Run()
 }
 
 // replaceLrcSection replaces the lrc-managed section in hook content
@@ -1898,7 +2014,6 @@ func generateCommitMsgHook() string {
 # lrc_version: %s
 # This section is managed by LiveReview CLI (lrc)
 # Manual changes within markers will be lost on hook updates
-	fi
 STATE_FILE=".git/livereview_state"
 LOCK_DIR=".git/livereview_state.lock"
 COMMIT_MSG_FILE="$1"

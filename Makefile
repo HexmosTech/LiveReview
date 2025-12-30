@@ -35,7 +35,10 @@ lrc-build:
 # Build lrc locally for the current platform without requiring a clean tree
 lrc-build-local:
 	@echo "🔨 Building lrc CLI locally (dirty tree allowed)..."
-	@cd cmd/lrc && go build -o lrc
+	@go build -o /tmp/lrc ./cmd/lrc
+	@sudo install -m 0755 /tmp/lrc /usr/local/bin/lrc
+	@echo "✅ Installed lrc to /usr/local/bin"
+	
 
 # Run the locally built lrc CLI (pass args via ARGS="--flag value")
 lrc-run: lrc-build-local
