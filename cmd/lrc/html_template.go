@@ -144,7 +144,7 @@ func parseHunkLines(hunk diffReviewHunk, commentsByLine map[int][]diffReviewComm
 			lineData = HTMLLineData{
 				OldNum:  fmt.Sprintf("%d", oldLine),
 				NewNum:  "",
-				Content: html.EscapeString(line),
+				Content: line,
 				Class:   "diff-del",
 			}
 			oldLine++
@@ -152,7 +152,7 @@ func parseHunkLines(hunk diffReviewHunk, commentsByLine map[int][]diffReviewComm
 			lineData = HTMLLineData{
 				OldNum:  "",
 				NewNum:  fmt.Sprintf("%d", newLine),
-				Content: html.EscapeString(line),
+				Content: line,
 				Class:   "diff-add",
 			}
 
@@ -167,7 +167,7 @@ func parseHunkLines(hunk diffReviewHunk, commentsByLine map[int][]diffReviewComm
 			lineData = HTMLLineData{
 				OldNum:  fmt.Sprintf("%d", oldLine),
 				NewNum:  fmt.Sprintf("%d", newLine),
-				Content: html.EscapeString(" " + line),
+				Content: " " + line,
 				Class:   "diff-context",
 			}
 			oldLine++
