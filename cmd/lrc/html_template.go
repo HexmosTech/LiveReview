@@ -56,11 +56,7 @@ type HTMLCommentData struct {
 	Category    string
 	Content     string
 	HasCategory bool
-}
-
-func deleteThisFunction() {
-	// TODO: this is a dummy function which should be deleted
-	return
+	Line        int
 }
 
 // prepareHTMLData converts the API response to template data
@@ -201,6 +197,7 @@ func prepareComments(comments []diffReviewComment) []HTMLCommentData {
 			Category:    comment.Category,
 			Content:     html.EscapeString(comment.Content),
 			HasCategory: comment.Category != "",
+			Line:        comment.Line,
 		}
 	}
 
@@ -584,6 +581,15 @@ const htmlTemplate = `<!DOCTYPE html>
             background: rgba(59,130,246,0.05);
             border-top: 1px solid rgba(59,130,246,0.25);
             border-bottom: 1px solid rgba(59,130,246,0.25);
+            transition: background 0.3s ease;
+        }
+        .comment-row.highlight {
+            background: rgba(139,92,246,0.25);
+            animation: highlightPulse 1.5s ease-in-out;
+        }
+        @keyframes highlightPulse {
+            0%, 100% { background: rgba(139,92,246,0.25); }
+            50% { background: rgba(139,92,246,0.35); }
         }
         .comment-row td {
             padding-left: calc(45px * 2 + 12px);
@@ -749,7 +755,6 @@ const htmlTemplate = `<!DOCTYPE html>
         .expand-all {
             padding: var(--space-sm) var(--space-lg);
             margin: 0;
-            align-self: flex-start;
             background: linear-gradient(135deg, #22d3ee, #60a5fa);
             color: #0b1220;
             border: none;
@@ -761,6 +766,131 @@ const htmlTemplate = `<!DOCTYPE html>
             transition: transform 0.1s ease, box-shadow 0.1s ease;
         }
         .expand-all:hover { transform: translateY(-1px); box-shadow: 0 14px 30px rgba(34,211,238,0.4); }
+
+        .toolbar-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: var(--space-md);
+            margin: 0;
+        }
+
+        .copy-issues-btn {
+            padding: var(--space-sm) var(--space-lg);
+            background: linear-gradient(135deg, #8b5cf6, #6366f1);
+            color: #fff;
+            border: none;
+            border-radius: 10px;
+            cursor: pointer;
+            font-size: 13px;
+            font-weight: 800;
+            box-shadow: 0 10px 25px rgba(139,92,246,0.35);
+            transition: transform 0.1s ease, box-shadow 0.1s ease;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        .copy-issues-btn:hover { transform: translateY(-1px); box-shadow: 0 14px 30px rgba(139,92,246,0.4); }
+        .copy-issues-btn::before {
+            content: "📋";
+            font-size: 16px;
+        }
+
+        .issues-toolbar { margin: 10px 0 0 0; }
+        .issues-panel {
+            margin-top: 8px;
+            background: #0f1724;
+            border: 1px solid #1f2a3a;
+            border-radius: 8px;
+            padding: 10px;
+        }
+        .issues-panel.hidden { display: none; }
+        .issues-actions {
+            display: flex;
+            gap: 10px;
+            align-items: center;
+            flex-wrap: wrap;
+            margin-bottom: 8px;
+        }
+        .severity-filters {
+            display: flex;
+            gap: 6px;
+            padding: 4px;
+            background: rgba(255,255,255,0.02);
+            border-radius: 6px;
+            border: 1px solid rgba(255,255,255,0.05);
+        }
+        .severity-filter-btn {
+            padding: 4px 10px;
+            background: transparent;
+            color: #9ca3af;
+            border: 1px solid transparent;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 11px;
+            font-weight: 600;
+            text-transform: uppercase;
+            transition: all 0.15s ease;
+        }
+        .severity-filter-btn:hover {
+            background: rgba(255,255,255,0.03);
+        }
+        .severity-filter-btn.active {
+            border-color: currentColor;
+        }
+        .severity-filter-btn.all { color: #60a5fa; }
+        .severity-filter-btn.all.active { background: rgba(96,165,250,0.15); }
+        .severity-filter-btn.error { color: #ef4444; }
+        .severity-filter-btn.error.active { background: rgba(239,68,68,0.15); }
+        .severity-filter-btn.warning { color: #eab308; }
+        .severity-filter-btn.warning.active { background: rgba(234,179,8,0.15); }
+        .severity-filter-btn.info { color: #22d3ee; }
+        .severity-filter-btn.info.active { background: rgba(34,211,238,0.15); }
+        .issues-list {
+            max-height: 220px;
+            overflow: auto;
+            border-top: 1px solid #1f2a3a;
+            padding-top: 8px;
+            display: grid;
+            gap: 6px;
+        }
+        .issue-item {
+            display: grid;
+            grid-template-columns: auto 1fr auto;
+            gap: 8px;
+            padding: 8px;
+            background: #111827;
+            border: 1px solid #1f2a3a;
+            border-radius: 6px;
+        }
+        .issue-item.hidden { display: none; }
+        .issue-nav-link {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            width: 28px;
+            height: 28px;
+            background: rgba(139,92,246,0.15);
+            border: 1px solid rgba(139,92,246,0.3);
+            border-radius: 6px;
+            color: #a78bfa;
+            cursor: pointer;
+            font-size: 16px;
+            transition: all 0.15s ease;
+            text-decoration: none;
+        }
+        .issue-nav-link:hover {
+            background: rgba(139,92,246,0.25);
+            border-color: rgba(139,92,246,0.5);
+            transform: scale(1.1);
+        }
+        .issue-path {
+            font-family: ui-monospace, SFMono-Regular, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+            color: #c9d1d9;
+            font-size: 12px;
+        }
+        .issue-message { color: #e6edf3; font-size: 13px; }
+        .issues-status { color: #8b949e; font-size: 12px; }
 
         /* Scrollbar styling */
         .sidebar-content::-webkit-scrollbar,
@@ -827,8 +957,28 @@ const htmlTemplate = `<!DOCTYPE html>
                 <div class="precommit-message-hint">Applied when you choose Commit here; ignored on Skip.</div>
             </div>
         </div>
-{{end}}        <button class="expand-all" onclick="toggleAll()">Expand All Files</button>
-{{if .Files}}{{range .Files}}        <div class="file collapsed" id="file_{{.ID}}" data-has-comments="{{.HasComments}}">
+{{end}}        <div class="toolbar-row">
+            <button class="expand-all" onclick="toggleAll()">Expand All Files</button>
+            <button id="issues-toggle" class="copy-issues-btn">Copy Issues</button>
+        </div>
+        <div class="issues-toolbar">
+            <div id="issues-panel" class="issues-panel hidden">
+                <div class="issues-actions">
+                    <div class="severity-filters">
+                        <button class="severity-filter-btn all active" data-severity="all">All</button>
+                        <button class="severity-filter-btn error" data-severity="error">Error</button>
+                        <button class="severity-filter-btn warning" data-severity="warning">Warning</button>
+                        <button class="severity-filter-btn info" data-severity="info">Info</button>
+                    </div>
+                    <button id="issues-select-all" class="btn-ghost">Select All</button>
+                    <button id="issues-deselect-all" class="btn-ghost">Deselect All</button>
+                    <button id="issues-copy" class="btn-primary">Copy Selected</button>
+                    <span id="issues-status" class="issues-status"></span>
+                </div>
+                <div id="issues-list" class="issues-list"></div>
+            </div>
+        </div>
+{{if .Files}}{{range .Files}}        <div class="file collapsed" id="file_{{.ID}}" data-has-comments="{{.HasComments}}" data-filepath="{{.FilePath}}">
             <div class="file-header" onclick="toggleFile('file_{{.ID}}')">
                 <span class="toggle"></span>
                 <span class="filename">{{.FilePath}}</span>
@@ -847,7 +997,7 @@ const htmlTemplate = `<!DOCTYPE html>
                         <td class="line-num">{{.NewNum}}</td>
                         <td class="line-content">{{.Content}}</td>
                     </tr>
-{{if .IsComment}}{{range .Comments}}                    <tr class="comment-row">
+{{if .IsComment}}{{range .Comments}}                    <tr class="comment-row" data-line="{{.Line}}">
                         <td colspan="3">
                             <div class="comment-container">
                                 <div class="comment-header">
@@ -1012,6 +1162,205 @@ const htmlTemplate = `<!DOCTYPE html>
                     }
                 }
             });
+
+            // Issues copy UI
+            const issuesToggle = document.getElementById('issues-toggle');
+            const issuesPanel = document.getElementById('issues-panel');
+            const issuesList = document.getElementById('issues-list');
+            const issuesStatus = document.getElementById('issues-status');
+            const issuesSelectAll = document.getElementById('issues-select-all');
+            const issuesDeselectAll = document.getElementById('issues-deselect-all');
+            const issuesCopy = document.getElementById('issues-copy');
+
+            const collectIssues = () => {
+                const collected = [];
+                document.querySelectorAll('.file[data-has-comments="true"]').forEach(file => {
+                    const filepath = file.dataset.filepath || (file.querySelector('.filename')?.textContent || '');
+                    const fileId = file.id;
+                    const comments = file.querySelectorAll('.comment-row');
+                    comments.forEach((row, idx) => {
+                        const line = row.dataset.line || '';
+                        if (!row.id) {
+                            row.id = 'comment-' + fileId + '-' + line + '-' + idx;
+                        }
+                        const commentId = row.id;
+                        const body = (row.querySelector('.comment-body')?.innerText || '').trim();
+                        if (!body) return;
+                        const severity = (row.querySelector('.comment-badge')?.innerText || '').trim();
+                        const category = (row.querySelector('.comment-category')?.innerText || '').trim();
+                        collected.push({ filepath, line, body, severity, category, commentId, fileId });
+                    });
+                });
+                return collected;
+            };
+
+            const renderIssues = (issues) => {
+                issuesList.innerHTML = '';
+                issues.forEach((issue, idx) => {
+                    const item = document.createElement('div');
+                    item.className = 'issue-item';
+                    item.dataset.severity = issue.severity.toLowerCase();
+
+                    const checkbox = document.createElement('input');
+                    checkbox.type = 'checkbox';
+                    checkbox.checked = true;
+                    checkbox.dataset.idx = idx;
+
+                    const content = document.createElement('div');
+                    const path = document.createElement('div');
+                    path.className = 'issue-path';
+                    const lineSuffix = issue.line ? ':' + issue.line : '';
+                    path.textContent = issue.filepath + lineSuffix;
+
+                    const msg = document.createElement('div');
+                    msg.className = 'issue-message';
+                    const sev = issue.severity ? ' (' + issue.severity + (issue.category ? ', ' + issue.category : '') + ')' : '';
+                    msg.textContent = issue.body + sev;
+
+                    content.appendChild(path);
+                    content.appendChild(msg);
+
+                    const navLink = document.createElement('a');
+                    navLink.className = 'issue-nav-link';
+                    navLink.href = '#' + issue.commentId;
+                    navLink.textContent = '→';
+                    navLink.title = 'Navigate to comment';
+                    navLink.addEventListener('click', (e) => {
+                        e.preventDefault();
+                        navigateToComment(issue.commentId, issue.fileId);
+                    });
+
+                    item.appendChild(checkbox);
+                    item.appendChild(content);
+                    item.appendChild(navLink);
+                    issuesList.appendChild(item);
+                });
+            };
+
+            const setIssuesStatus = (text) => { issuesStatus.textContent = text; };
+
+            const getSelectedIssues = () => {
+                const selected = [];
+                issuesList.querySelectorAll('input[type="checkbox"]').forEach(cb => {
+                    if (cb.checked) {
+                        const idx = parseInt(cb.dataset.idx, 10);
+                        if (!isNaN(idx) && currentIssues[idx]) {
+                            selected.push(currentIssues[idx]);
+                        }
+                    }
+                });
+                return selected;
+            };
+
+            const copyIssues = async (issues) => {
+                const lines = issues.map(issue => {
+                    const lineSuffix = issue.line ? ':' + issue.line : '';
+                    const sev = issue.severity ? ' (' + issue.severity + (issue.category ? ', ' + issue.category : '') + ')' : '';
+                    return issue.filepath + lineSuffix + ' — ' + issue.body + sev;
+                });
+                const text = lines.join('\n');
+                await navigator.clipboard.writeText(text);
+            };
+
+            let currentIssues = [];
+            let currentSeverityFilter = 'all';
+
+            const navigateToComment = (commentId, fileId) => {
+                const file = document.getElementById(fileId);
+                const comment = document.getElementById(commentId);
+                if (!file || !comment) return;
+
+                if (file.classList.contains('collapsed')) {
+                    toggleFile(fileId);
+                }
+
+                setTimeout(() => {
+                    const mainContent = document.querySelector('.main-content');
+                    const header = document.querySelector('.header');
+                    const headerHeight = header ? header.offsetHeight : 60;
+                    const commentRect = comment.getBoundingClientRect();
+                    const mainContentRect = mainContent.getBoundingClientRect();
+                    const scrollTarget = mainContent.scrollTop + commentRect.top - mainContentRect.top - headerHeight - 20;
+
+                    mainContent.scrollTo({ top: scrollTarget, behavior: 'smooth' });
+
+                    document.querySelectorAll('.comment-row.highlight').forEach(c => c.classList.remove('highlight'));
+                    comment.classList.add('highlight');
+                    setTimeout(() => comment.classList.remove('highlight'), 1500);
+                }, 100);
+            };
+
+            const filterBySeverity = (severity) => {
+                currentSeverityFilter = severity;
+                document.querySelectorAll('.severity-filter-btn').forEach(btn => {
+                    btn.classList.toggle('active', btn.dataset.severity === severity);
+                });
+                
+                issuesList.querySelectorAll('.issue-item').forEach(item => {
+                    const itemSeverity = item.dataset.severity;
+                    if (severity === 'all' || itemSeverity === severity) {
+                        item.classList.remove('hidden');
+                    } else {
+                        item.classList.add('hidden');
+                    }
+                });
+            };
+
+            if (issuesToggle) {
+                issuesToggle.addEventListener('click', () => {
+                    const opening = issuesPanel.classList.contains('hidden');
+                    if (opening) {
+                        currentIssues = collectIssues();
+                        renderIssues(currentIssues);
+                        currentSeverityFilter = 'all';
+                        filterBySeverity('all');
+                    }
+                    issuesPanel.classList.toggle('hidden');
+                    setIssuesStatus('');
+                });
+            }
+
+            document.querySelectorAll('.severity-filter-btn').forEach(btn => {
+                btn.addEventListener('click', () => {
+                    filterBySeverity(btn.dataset.severity);
+                });
+            });
+
+            if (issuesSelectAll) {
+                issuesSelectAll.addEventListener('click', () => {
+                    issuesList.querySelectorAll('input[type="checkbox"]').forEach(cb => {
+                        if (!cb.closest('.issue-item').classList.contains('hidden')) {
+                            cb.checked = true;
+                        }
+                    });
+                });
+            }
+
+            if (issuesDeselectAll) {
+                issuesDeselectAll.addEventListener('click', () => {
+                    issuesList.querySelectorAll('input[type="checkbox"]').forEach(cb => {
+                        if (!cb.closest('.issue-item').classList.contains('hidden')) {
+                            cb.checked = false;
+                        }
+                    });
+                });
+            }
+
+            if (issuesCopy) {
+                issuesCopy.addEventListener('click', async () => {
+                    const selected = getSelectedIssues();
+                    if (selected.length === 0) {
+                        setIssuesStatus('Nothing selected to copy');
+                        return;
+                    }
+                    try {
+                        await copyIssues(selected);
+                        setIssuesStatus('Copied ' + selected.length + ' issue(s)');
+                    } catch (err) {
+                        setIssuesStatus('Copy failed: ' + err.message);
+                    }
+                });
+            }
         });
     </script>
 </body>
