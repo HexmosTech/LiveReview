@@ -276,6 +276,16 @@ func runReviewDebug(c *cli.Context) error {
 }
 
 func buildOptionsFromContext(c *cli.Context, includeDebug bool) reviewOptions {
+	// Get initial commit message from file or environment variable
+	initialMsg := ""
+	if msgFile := os.Getenv("LRC_INITIAL_MESSAGE_FILE"); msgFile != "" {
+		if data, err := os.ReadFile(msgFile); err == nil {
+			initialMsg = strings.TrimRight(string(data), "\r\n")
+		}
+	} else {
+		initialMsg = strings.TrimRight(os.Getenv("LRC_INITIAL_MESSAGE"), "\r\n")
+	}
+
 	opts := reviewOptions{
 		repoName:   c.String("repo-name"),
 		rangeVal:   c.String("range"),
@@ -290,7 +300,7 @@ func buildOptionsFromContext(c *cli.Context, includeDebug bool) reviewOptions {
 		precommit:  c.Bool("precommit"),
 		saveJSON:   c.String("save-json"),
 		saveText:   c.String("save-text"),
-		initialMsg: strings.TrimRight(os.Getenv("LRC_INITIAL_MESSAGE"), "\r\n"),
+		initialMsg: initialMsg,
 	}
 
 	staged := c.Bool("staged")
@@ -2099,21 +2109,24 @@ while ! mkdir "$LOCK_DIR" 2>/dev/null; do
 done
 
 # Capture current commit message (available in prepare-commit-msg)
-INITIAL_MSG=""
+INITIAL_MSG_FILE=".git/livereview_initial_message.$$"
 if [ -n "$COMMIT_MSG_FILE" ] && [ -f "$COMMIT_MSG_FILE" ]; then
-	INITIAL_MSG="$(cat "$COMMIT_MSG_FILE" 2>/dev/null || true)"
+	cat "$COMMIT_MSG_FILE" > "$INITIAL_MSG_FILE" 2>/dev/null || true
 fi
 
 # Run review
 if [ "$LRC_INTERACTIVE" = "1" ]; then
 	echo "Running LiveReview commit check..."
 	exec 2>&1
-	LRC_INITIAL_MESSAGE="$INITIAL_MSG" lrc review --staged --precommit
+	LRC_INITIAL_MESSAGE_FILE="$INITIAL_MSG_FILE" lrc review --staged --precommit
 	REVIEW_EXIT=$?
 else
-	LRC_INITIAL_MESSAGE="$INITIAL_MSG" lrc review --staged --output json >/dev/null 2>&1
+	LRC_INITIAL_MESSAGE_FILE="$INITIAL_MSG_FILE" lrc review --staged --output json >/dev/null 2>&1
 	REVIEW_EXIT=$?
 fi
+
+# Cleanup initial message file
+rm -f "$INITIAL_MSG_FILE"
 
 # Check exit code
 if [ $REVIEW_EXIT -eq 0 ]; then
