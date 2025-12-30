@@ -3,7 +3,6 @@ package main
 import (
 	"bytes"
 	"fmt"
-	"html"
 	"html/template"
 	"strings"
 	"time"
@@ -195,7 +194,7 @@ func prepareComments(comments []diffReviewComment) []HTMLCommentData {
 			Severity:    strings.ToUpper(severity),
 			BadgeClass:  badgeClass,
 			Category:    comment.Category,
-			Content:     html.EscapeString(comment.Content),
+			Content:     comment.Content,
 			HasCategory: comment.Category != "",
 			Line:        comment.Line,
 		}
