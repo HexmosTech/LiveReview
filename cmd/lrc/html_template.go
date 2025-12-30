@@ -21,6 +21,7 @@ type HTMLTemplateData struct {
 	HasSummary    bool
 	FriendlyName  string
 	Precommit     bool
+	InitialMsg    string
 }
 
 // HTMLFileData represents a file for HTML rendering
@@ -63,7 +64,7 @@ func deleteThisFunction() {
 }
 
 // prepareHTMLData converts the API response to template data
-func prepareHTMLData(result *diffReviewResponse, precommit bool) *HTMLTemplateData {
+func prepareHTMLData(result *diffReviewResponse, precommit bool, initialMsg string) *HTMLTemplateData {
 	totalComments := countTotalComments(result.Files)
 
 	files := make([]HTMLFileData, len(result.Files))
@@ -80,6 +81,7 @@ func prepareHTMLData(result *diffReviewResponse, precommit bool) *HTMLTemplateDa
 		HasSummary:    result.Summary != "",
 		FriendlyName:  naming.GenerateFriendlyName(),
 		Precommit:     precommit,
+		InitialMsg:    initialMsg,
 	}
 }
 
@@ -820,7 +822,7 @@ const htmlTemplate = `<!DOCTYPE html>
             </div>
             <div class="precommit-message">
                 <label for="commit-message">Commit message (optional)</label>
-                <textarea id="commit-message" placeholder="Edit the commit message before continuing; leave blank to keep your existing git message."></textarea>
+                <textarea id="commit-message" placeholder="Edit the commit message before continuing; leave blank to keep your existing git message.">{{.InitialMsg}}</textarea>
                 <div class="precommit-message-hint">Applied when you choose Commit here; ignored on Skip.</div>
             </div>
         </div>
