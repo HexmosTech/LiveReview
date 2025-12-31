@@ -3,6 +3,11 @@ __LRC_MARKER_BEGIN__
 # This section is managed by LiveReview CLI (lrc)
 # Manual changes within markers will be lost on hook updates
 
+DISABLED_FILE=".git/lrc/disabled"
+if [ -f "$DISABLED_FILE" ]; then
+	exit 0
+fi
+
 # Detect interactive terminal (stdout check; git redirects stdin)
 if [ -t 1 ]; then
 	echo "LiveReview pre-commit: interactive environment detected; no-op"

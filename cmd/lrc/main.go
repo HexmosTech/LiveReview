@@ -209,21 +209,53 @@ func main() {
 				Action: runReviewDebug,
 			},
 			{
-				Name:  "install-hooks",
-				Usage: "Install prepare-commit-msg, commit-msg, and post-commit Git hooks for automatic code review",
-				Flags: []cli.Flag{
-					&cli.BoolFlag{
-						Name:  "force",
-						Usage: "overwrite existing lrc hook sections (default: true)",
-						Value: true,
+				Name:  "hooks",
+				Usage: "Manage LiveReview Git hook integration (global dispatcher)",
+				Subcommands: []*cli.Command{
+					{
+						Name:  "install",
+						Usage: "Install global LiveReview hook dispatchers (uses core.hooksPath)",
+						Flags: []cli.Flag{
+							&cli.StringFlag{
+								Name:  "path",
+								Usage: "custom hooksPath (defaults to core.hooksPath or ~/.git-hooks)",
+							},
+						},
+						Action: runHooksInstall,
+					},
+					{
+						Name:   "uninstall",
+						Usage:  "Remove LiveReview hook dispatchers and managed scripts",
+						Action: runHooksUninstall,
+					},
+					{
+						Name:   "enable",
+						Usage:  "Enable LiveReview hooks for the current repository",
+						Action: runHooksEnable,
+					},
+					{
+						Name:   "disable",
+						Usage:  "Disable LiveReview hooks for the current repository",
+						Action: runHooksDisable,
+					},
+					{
+						Name:   "status",
+						Usage:  "Show LiveReview hook status for the current repository",
+						Action: runHooksStatus,
 					},
 				},
-				Action: runInstallHooks,
+			},
+			{
+				Name:   "install-hooks",
+				Usage:  "Install LiveReview hooks (deprecated; use 'lrc hooks install')",
+				Hidden: true,
+				Action: runHooksInstall,
 			},
 			{
 				Name:   "uninstall-hooks",
-				Usage:  "Remove lrc Git hooks, preserving other hook content",
-				Action: runUninstallHooks,
+				Usage:  "Uninstall LiveReview hooks (deprecated; use 'lrc hooks uninstall')",
+				Hidden: true,
+				Action: runHooksUninstall,
 			},
 			{
 				Name:  "version",
@@ -1804,99 +1836,201 @@ func serveHTMLPrecommit(htmlPath string, port int, commitMsgPath string, initial
 // =============================================================================
 
 const (
-	lrcMarkerBegin = "# BEGIN lrc managed section - DO NOT EDIT"
-	lrcMarkerEnd   = "# END lrc managed section"
+	lrcMarkerBegin        = "# BEGIN lrc managed section - DO NOT EDIT"
+	lrcMarkerEnd          = "# END lrc managed section"
+	defaultGlobalHooksDir = ".git-hooks"
+	hooksMetaFilename     = ".lrc-hooks-meta.json"
 )
 
-// runInstallHooks installs prepare-commit-msg, commit-msg, and post-commit hooks with sentinel markers
-func runInstallHooks(c *cli.Context) error {
-	force := c.Bool("force")
+var managedHooks = []string{"pre-commit", "prepare-commit-msg", "commit-msg", "post-commit"}
 
-	// Check if we're in a git repository
-	if !isGitRepository() {
-		return fmt.Errorf("not in a git repository (no .git directory found)")
+type hooksMeta struct {
+	Path     string `json:"path"`
+	PrevPath string `json:"prev_path,omitempty"`
+	SetByLRC bool   `json:"set_by_lrc"`
+}
+
+func defaultGlobalHooksPath() (string, error) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "", err
 	}
 
-	gitDir, err := resolveGitDir()
+	return filepath.Join(home, defaultGlobalHooksDir), nil
+}
+
+func currentHooksPath() (string, error) {
+	cmd := exec.Command("git", "config", "--global", "--get", "core.hooksPath")
+	out, err := cmd.Output()
 	if err != nil {
+		return "", nil
+	}
+
+	return strings.TrimSpace(string(out)), nil
+}
+
+func setGlobalHooksPath(path string) error {
+	cmd := exec.Command("git", "config", "--global", "core.hooksPath", path)
+	return cmd.Run()
+}
+
+func unsetGlobalHooksPath() error {
+	cmd := exec.Command("git", "config", "--global", "--unset", "core.hooksPath")
+	return cmd.Run()
+}
+
+func hooksMetaPath(hooksPath string) string {
+	return filepath.Join(hooksPath, hooksMetaFilename)
+}
+
+func writeHooksMeta(hooksPath string, meta hooksMeta) {
+	data, err := json.MarshalIndent(meta, "", "  ")
+	if err != nil {
+		return
+	}
+
+	_ = os.MkdirAll(hooksPath, 0755)
+	_ = os.WriteFile(hooksMetaPath(hooksPath), data, 0644)
+}
+
+func readHooksMeta(hooksPath string) (*hooksMeta, error) {
+	data, err := os.ReadFile(hooksMetaPath(hooksPath))
+	if err != nil {
+		return nil, err
+	}
+
+	var meta hooksMeta
+	if err := json.Unmarshal(data, &meta); err != nil {
+		return nil, err
+	}
+
+	return &meta, nil
+}
+
+func removeHooksMeta(hooksPath string) error {
+	return os.Remove(hooksMetaPath(hooksPath))
+}
+
+func writeManagedHookScripts(dir string) error {
+	if err := os.MkdirAll(dir, 0755); err != nil {
 		return err
 	}
 
-	hooksDir := ".git/hooks"
-	if err := os.MkdirAll(hooksDir, 0755); err != nil {
-		return fmt.Errorf("failed to create hooks directory: %w", err)
+	scripts := map[string]string{
+		"pre-commit":         generatePreCommitHook(),
+		"prepare-commit-msg": generatePrepareCommitMsgHook(),
+		"commit-msg":         generateCommitMsgHook(),
+		"post-commit":        generatePostCommitHook(),
 	}
 
-	backupDir := ".git/.lrc_backups"
-	if err := os.MkdirAll(backupDir, 0755); err != nil {
-		return fmt.Errorf("failed to create backup directory: %w", err)
+	for name, content := range scripts {
+		path := filepath.Join(dir, name)
+		script := "#!/bin/sh\n" + content
+		if err := os.WriteFile(path, []byte(script), 0755); err != nil {
+			return fmt.Errorf("failed to write managed hook %s: %w", name, err)
+		}
 	}
-
-	// Clean up legacy pre-commit lrc section to avoid double-running after migration
-	legacyPreCommit := filepath.Join(hooksDir, "pre-commit")
-	_ = uninstallHook(legacyPreCommit, "pre-commit")
-
-	// Install pre-commit hook (TTY guard)
-	preCommitPath := filepath.Join(hooksDir, "pre-commit")
-	if err := installHook(preCommitPath, generatePreCommitHook(), "pre-commit", backupDir, force); err != nil {
-		return fmt.Errorf("failed to install pre-commit hook: %w", err)
-	}
-
-	// Install prepare-commit-msg hook
-	prepareCommitMsgPath := filepath.Join(hooksDir, "prepare-commit-msg")
-	if err := installHook(prepareCommitMsgPath, generatePrepareCommitMsgHook(), "prepare-commit-msg", backupDir, force); err != nil {
-		return fmt.Errorf("failed to install prepare-commit-msg hook: %w", err)
-	}
-
-	// Install commit-msg hook
-	commitMsgPath := filepath.Join(hooksDir, "commit-msg")
-	if err := installHook(commitMsgPath, generateCommitMsgHook(), "commit-msg", backupDir, force); err != nil {
-		return fmt.Errorf("failed to install commit-msg hook: %w", err)
-	}
-
-	// Install post-commit hook (for optional push)
-	postCommitPath := filepath.Join(hooksDir, "post-commit")
-	if err := installHook(postCommitPath, generatePostCommitHook(), "post-commit", backupDir, force); err != nil {
-		return fmt.Errorf("failed to install post-commit hook: %w", err)
-	}
-
-	if err := installEditorWrapper(gitDir); err != nil {
-		return fmt.Errorf("failed to install editor wrapper: %w", err)
-	}
-
-	fmt.Println("✅ LiveReview hooks installed successfully!")
-	fmt.Println()
-	fmt.Println("Prepare-commit-msg hook will:")
-	fmt.Println("  • Run 'lrc review --staged --precommit' with your current commit message available")
-	fmt.Println("  • Show review progress and open browser")
-	fmt.Println("  • Wait for your decision: [Enter]=commit, [Ctrl-C]=abort, [Ctrl-S]=skip+commit")
-	fmt.Println("  • Can be bypassed with LRC_SKIP_REVIEW=1 environment variable")
-	fmt.Println()
-	fmt.Println("Commit-msg hook will:")
-	fmt.Println("  • Add 'LiveReview Pre-Commit Check: [ran|skipped]' trailer")
-	fmt.Println()
-	fmt.Println("To uninstall: lrc uninstall-hooks")
 
 	return nil
 }
 
-// runUninstallHooks removes lrc-managed hook sections
-func runUninstallHooks(c *cli.Context) error {
-	if !isGitRepository() {
-		return fmt.Errorf("not in a git repository (no .git directory found)")
+// runHooksInstall installs global dispatchers and managed hook scripts under core.hooksPath
+func runHooksInstall(c *cli.Context) error {
+	requestedPath := strings.TrimSpace(c.String("path"))
+	currentPath, _ := currentHooksPath()
+	defaultPath, err := defaultGlobalHooksPath()
+	if err != nil {
+		return fmt.Errorf("failed to determine default hooks path: %w", err)
 	}
 
-	gitDir, err := resolveGitDir()
+	hooksPath := requestedPath
+	if hooksPath == "" {
+		if currentPath != "" {
+			hooksPath = currentPath
+		} else {
+			hooksPath = defaultPath
+		}
+	}
+
+	absHooksPath, err := filepath.Abs(hooksPath)
 	if err != nil {
+		return fmt.Errorf("failed to resolve hooks path: %w", err)
+	}
+
+	setConfig := false
+	if currentPath == "" {
+		setConfig = true
+	} else if requestedPath != "" && requestedPath != currentPath {
+		setConfig = true
+	}
+
+	if setConfig {
+		if err := setGlobalHooksPath(absHooksPath); err != nil {
+			return fmt.Errorf("failed to set core.hooksPath: %w", err)
+		}
+	}
+
+	if err := os.MkdirAll(absHooksPath, 0755); err != nil {
+		return fmt.Errorf("failed to create hooks path %s: %w", absHooksPath, err)
+	}
+
+	managedDir := filepath.Join(absHooksPath, "lrc")
+	backupDir := filepath.Join(absHooksPath, ".lrc_backups")
+	if err := os.MkdirAll(backupDir, 0755); err != nil {
+		return fmt.Errorf("failed to create backup directory: %w", err)
+	}
+
+	if err := writeManagedHookScripts(managedDir); err != nil {
 		return err
 	}
 
-	hooksDir := ".git/hooks"
-	hooks := []string{"pre-commit", "prepare-commit-msg", "commit-msg", "post-commit"}
-	removed := 0
+	for _, hookName := range managedHooks {
+		hookPath := filepath.Join(absHooksPath, hookName)
+		dispatcher := generateDispatcherHook(hookName)
+		if err := installHook(hookPath, dispatcher, hookName, backupDir, true); err != nil {
+			return fmt.Errorf("failed to install dispatcher for %s: %w", hookName, err)
+		}
+	}
 
-	for _, hookName := range hooks {
-		hookPath := filepath.Join(hooksDir, hookName)
+	// Strip any legacy lrc sections from the current repo's local hooks to avoid double execution
+	if gitDir, err := resolveGitDir(); err == nil {
+		hooksDir := filepath.Join(gitDir, "hooks")
+		for _, hookName := range managedHooks {
+			hookPath := filepath.Join(hooksDir, hookName)
+			_ = uninstallHook(hookPath, hookName)
+		}
+	}
+
+	writeHooksMeta(absHooksPath, hooksMeta{Path: absHooksPath, PrevPath: currentPath, SetByLRC: setConfig})
+	_ = cleanOldBackups(backupDir, 5)
+
+	fmt.Printf("✅ LiveReview global hooks installed at %s\n", absHooksPath)
+	fmt.Println("Global dispatchers will chain repo-local hooks when present.")
+	fmt.Println("Use 'lrc hooks disable' in a repo to bypass LiveReview hooks there.")
+
+	return nil
+}
+
+// runHooksUninstall removes lrc-managed sections from global dispatchers and managed scripts
+func runHooksUninstall(c *cli.Context) error {
+	hooksPath, _ := currentHooksPath()
+	if hooksPath == "" {
+		var err error
+		hooksPath, err = defaultGlobalHooksPath()
+		if err != nil {
+			return fmt.Errorf("failed to determine hooks path: %w", err)
+		}
+	}
+
+	absHooksPath, err := filepath.Abs(hooksPath)
+	if err != nil {
+		return fmt.Errorf("failed to resolve hooks path: %w", err)
+	}
+
+	meta, _ := readHooksMeta(absHooksPath)
+	removed := 0
+	for _, hookName := range managedHooks {
+		hookPath := filepath.Join(absHooksPath, hookName)
 		if err := uninstallHook(hookPath, hookName); err != nil {
 			fmt.Printf("⚠️  Warning: failed to uninstall %s: %v\n", hookName, err)
 		} else {
@@ -1904,14 +2038,117 @@ func runUninstallHooks(c *cli.Context) error {
 		}
 	}
 
-	if removed > 0 {
-		fmt.Printf("✅ Removed lrc hooks from %d file(s)\n", removed)
-	} else {
-		fmt.Println("ℹ️  No lrc hooks found to remove")
+	_ = os.RemoveAll(filepath.Join(absHooksPath, "lrc"))
+	_ = cleanOldBackups(filepath.Join(absHooksPath, ".lrc_backups"), 5)
+	_ = removeHooksMeta(absHooksPath)
+
+	if meta != nil && meta.SetByLRC && meta.Path == absHooksPath {
+		if meta.PrevPath == "" {
+			_ = unsetGlobalHooksPath()
+		} else {
+			_ = setGlobalHooksPath(meta.PrevPath)
+		}
 	}
 
-	if err := uninstallEditorWrapper(gitDir); err != nil {
-		fmt.Printf("⚠️  Warning: failed to clean editor wrapper: %v\n", err)
+	if removed > 0 {
+		fmt.Printf("✅ Removed LiveReview sections from %d hook(s) at %s\n", removed, absHooksPath)
+	} else {
+		fmt.Printf("ℹ️  No LiveReview sections found in %s\n", absHooksPath)
+	}
+
+	return nil
+}
+
+func runHooksDisable(c *cli.Context) error {
+	gitDir, err := resolveGitDir()
+	if err != nil {
+		return fmt.Errorf("not in a git repository: %w", err)
+	}
+
+	lrcDir := filepath.Join(gitDir, "lrc")
+	if err := os.MkdirAll(lrcDir, 0755); err != nil {
+		return fmt.Errorf("failed to create lrc directory: %w", err)
+	}
+
+	marker := filepath.Join(lrcDir, "disabled")
+	if err := os.WriteFile(marker, []byte("disabled\n"), 0644); err != nil {
+		return fmt.Errorf("failed to write disable marker: %w", err)
+	}
+
+	fmt.Println("🔕 LiveReview hooks disabled for this repository")
+	return nil
+}
+
+func runHooksEnable(c *cli.Context) error {
+	gitDir, err := resolveGitDir()
+	if err != nil {
+		return fmt.Errorf("not in a git repository: %w", err)
+	}
+
+	marker := filepath.Join(gitDir, "lrc", "disabled")
+	if err := os.Remove(marker); err != nil && !os.IsNotExist(err) {
+		return fmt.Errorf("failed to remove disable marker: %w", err)
+	}
+
+	fmt.Println("🔔 LiveReview hooks enabled for this repository")
+	return nil
+}
+
+func hookHasManagedSection(path string) bool {
+	content, err := os.ReadFile(path)
+	if err != nil {
+		return false
+	}
+
+	return strings.Contains(string(content), lrcMarkerBegin)
+}
+
+func runHooksStatus(c *cli.Context) error {
+	hooksPath, _ := currentHooksPath()
+	defaultPath, _ := defaultGlobalHooksPath()
+	if hooksPath == "" {
+		hooksPath = defaultPath
+	}
+
+	absHooksPath, err := filepath.Abs(hooksPath)
+	if err != nil {
+		return fmt.Errorf("failed to resolve hooks path: %w", err)
+	}
+
+	gitDir, gitErr := resolveGitDir()
+	repoDisabled := false
+	if gitErr == nil {
+		repoDisabled = fileExists(filepath.Join(gitDir, "lrc", "disabled"))
+	}
+
+	fmt.Printf("hooksPath: %s\n", absHooksPath)
+	if cfg, _ := currentHooksPath(); cfg != "" {
+		fmt.Printf("core.hooksPath: %s\n", cfg)
+	} else {
+		fmt.Println("core.hooksPath: not set (using repo default unless dispatcher present)")
+	}
+
+	if gitErr == nil {
+		fmt.Printf("repo: %s\n", filepath.Dir(gitDir))
+		if repoDisabled {
+			fmt.Println("status: disabled via .git/lrc/disabled")
+		} else {
+			fmt.Println("status: enabled")
+		}
+	} else {
+		fmt.Println("repo: not detected")
+	}
+
+	for _, hookName := range managedHooks {
+		hookPath := filepath.Join(absHooksPath, hookName)
+		fmt.Printf("%s: ", hookName)
+		if hookHasManagedSection(hookPath) {
+			fmt.Println("LiveReview dispatcher present")
+		} else if fileExists(hookPath) {
+			fmt.Println("custom hook (no LiveReview block)")
+		} else {
+			fmt.Println("missing")
+		}
 	}
 
 	return nil
@@ -2201,6 +2438,15 @@ func generatePostCommitHook() string {
 		hookMarkerEndPlaceholder:       lrcMarkerEnd,
 		hookVersionPlaceholder:         version,
 		hookPushRequestFilePlaceholder: pushRequestFile,
+	})
+}
+
+func generateDispatcherHook(hookName string) string {
+	return renderHookTemplate("hooks/dispatcher.sh", map[string]string{
+		hookMarkerBeginPlaceholder: lrcMarkerBegin,
+		hookMarkerEndPlaceholder:   lrcMarkerEnd,
+		hookVersionPlaceholder:     version,
+		hookNamePlaceholder:        hookName,
 	})
 }
 

@@ -8,6 +8,11 @@ COMMIT_MSG_FILE="$1"
 COMMIT_MSG_OVERRIDE=".git/__LRC_COMMIT_MESSAGE_FILE__"
 LRC_DIR=".git/lrc"
 ATTEST_DIR="$LRC_DIR/attestations"
+DISABLED_FILE="$LRC_DIR/disabled"
+
+if [ -f "$DISABLED_FILE" ]; then
+	exit 0
+fi
 
 # Non-interactive: require attestation for current staged tree before trailers
 if [ ! -t 1 ]; then
