@@ -380,6 +380,8 @@ func runReviewWithOptions(opts reviewOptions) error {
 	verbose := opts.verbose
 	var tempHTMLPath string
 	var commitMsgPath string
+	attestationAction := ""
+	attestationWritten := false
 	initialMsg := sanitizeInitialMessage(opts.initialMsg)
 
 	if opts.precommit {
@@ -524,6 +526,10 @@ func runReviewWithOptions(opts reviewOptions) error {
 				return fmt.Errorf("failed to poll review: %w", pollErr)
 			}
 			result = pollResult
+			attestationAction = "reviewed"
+			if err := ensureAttestation(attestationAction, verbose, &attestationWritten); err != nil {
+				return err
+			}
 		}
 
 		// If a decision happened before we proceed, act now
@@ -531,11 +537,20 @@ func runReviewWithOptions(opts reviewOptions) error {
 			switch decisionCode {
 			case 1:
 				fmt.Println("\n❌ Review and commit aborted by user")
+				fmt.Println()
+				return cli.Exit("", decisionCode)
 			case 2:
 				fmt.Println("\n⏭️  Review skipped, proceeding with commit")
+				if err := ensureAttestation("skipped", verbose, &attestationWritten); err != nil {
+					return err
+				}
+				fmt.Println()
+				return cli.Exit("", decisionCode)
+			case 3:
+				fmt.Println("\n⏭️  Skip requested from review page; aborting commit")
+				fmt.Println()
+				return cli.Exit("", decisionCode)
 			}
-			fmt.Println()
-			return cli.Exit("", decisionCode)
 		}
 	} else {
 		// Non-precommit: just poll
@@ -543,6 +558,10 @@ func runReviewWithOptions(opts reviewOptions) error {
 		result, pollErr = pollReview(config.APIURL, config.APIKey, reviewID, opts.pollInterval, opts.timeout, verbose)
 		if pollErr != nil {
 			return fmt.Errorf("failed to poll review: %w", pollErr)
+		}
+		attestationAction = "reviewed"
+		if err := ensureAttestation(attestationAction, verbose, &attestationWritten); err != nil {
+			return err
 		}
 	}
 
@@ -606,6 +625,9 @@ func runReviewWithOptions(opts reviewOptions) error {
 			// Precommit mode: interactive prompt for commit decision
 			if opts.precommit {
 				// Don't render to stdout in precommit mode, go straight to prompt
+				if err := ensureAttestation(attestationAction, verbose, &attestationWritten); err != nil {
+					return err
+				}
 				exitCode := serveHTMLPrecommit(htmlPath, opts.port, commitMsgPath, initialMsg)
 				os.Exit(exitCode)
 			}
@@ -624,6 +646,10 @@ func runReviewWithOptions(opts reviewOptions) error {
 		if err := renderResult(result, opts.output); err != nil {
 			return fmt.Errorf("failed to render result: %w", err)
 		}
+	}
+
+	if err := ensureAttestation(attestationAction, verbose, &attestationWritten); err != nil {
+		return err
 	}
 
 	return nil
@@ -681,6 +707,95 @@ func runGitCommand(name string, args ...string) ([]byte, error) {
 		return nil, err
 	}
 	return output, nil
+}
+
+type attestationPayload struct {
+	Action string `json:"action"`
+}
+
+func ensureAttestation(action string, verbose bool, written *bool) error {
+	if written != nil && *written {
+		return nil
+	}
+	if strings.TrimSpace(action) == "" {
+		return nil
+	}
+
+	path, err := writeAttestationForCurrentTree(action)
+	if err != nil {
+		return fmt.Errorf("failed to write attestation: %w", err)
+	}
+	if verbose {
+		log.Printf("Attestation written: %s (action=%s)", path, action)
+	}
+	if written != nil {
+		*written = true
+	}
+	return nil
+}
+
+func writeAttestationForCurrentTree(action string) (string, error) {
+	if strings.TrimSpace(action) == "" {
+		return "", fmt.Errorf("attestation action cannot be empty")
+	}
+
+	treeHash, err := currentTreeHash()
+	if err != nil {
+		return "", fmt.Errorf("failed to compute tree hash: %w", err)
+	}
+	if treeHash == "" {
+		return "", fmt.Errorf("empty tree hash")
+	}
+
+	gitDir, err := resolveGitDir()
+	if err != nil {
+		return "", fmt.Errorf("failed to resolve git dir: %w", err)
+	}
+	if !filepath.IsAbs(gitDir) {
+		gitDir, err = filepath.Abs(gitDir)
+		if err != nil {
+			return "", fmt.Errorf("failed to absolutize git dir: %w", err)
+		}
+	}
+
+	attestDir := filepath.Join(gitDir, "lrc", "attestations")
+	if err := os.MkdirAll(attestDir, 0755); err != nil {
+		return "", fmt.Errorf("failed to create attestation directory: %w", err)
+	}
+
+	data, err := json.Marshal(attestationPayload{Action: action})
+	if err != nil {
+		return "", fmt.Errorf("failed to marshal attestation: %w", err)
+	}
+
+	tmpFile, err := os.CreateTemp(attestDir, fmt.Sprintf("%s.*.json", treeHash))
+	if err != nil {
+		return "", fmt.Errorf("failed to create temp attestation file: %w", err)
+	}
+
+	if _, err := tmpFile.Write(data); err != nil {
+		tmpFile.Close()
+		return "", fmt.Errorf("failed to write attestation: %w", err)
+	}
+
+	if err := tmpFile.Close(); err != nil {
+		return "", fmt.Errorf("failed to finalize attestation: %w", err)
+	}
+
+	target := filepath.Join(attestDir, fmt.Sprintf("%s.json", treeHash))
+	if err := os.Rename(tmpFile.Name(), target); err != nil {
+		return "", fmt.Errorf("failed to move attestation into place: %w", err)
+	}
+
+	return target, nil
+}
+
+func currentTreeHash() (string, error) {
+	out, err := runGitCommand("git", "write-tree")
+	if err != nil {
+		return "", err
+	}
+	return strings.TrimSpace(string(out)), nil
 }
 
 // resolveGitDir returns the absolute path to the repository's .git directory.
