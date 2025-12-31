@@ -5,12 +5,30 @@ __LRC_MARKER_BEGIN__
 
 COMMIT_MSG_FILE="$1"
 SKIP_REVIEW="${LRC_SKIP_REVIEW:-}" 
+LRC_DIR=".git/lrc"
+ATTEST_DIR="$LRC_DIR/attestations"
 
 # Detect if running in TTY (check stdout, not stdin - Git redirects stdin)
 if [ -t 1 ]; then
 	LRC_INTERACTIVE=1
 else
 	LRC_INTERACTIVE=0
+fi
+
+# Non-interactive: require attestation for current staged tree; do not run review here
+if [ "$LRC_INTERACTIVE" = "0" ]; then
+	TREE_HASH="$(git write-tree 2>/dev/null || true)"
+	ATTEST_FILE="$ATTEST_DIR/$TREE_HASH.json"
+	if [ -z "$TREE_HASH" ]; then
+		echo "LiveReview prepare-commit-msg: failed to compute staged tree hash; run 'lrc review --staged' before committing" >&2
+		exit 1
+	fi
+	if [ ! -f "$ATTEST_FILE" ]; then
+		echo "LiveReview prepare-commit-msg: no attestation for staged tree ($TREE_HASH). Run 'lrc review --staged' and retry." >&2
+		exit 1
+	fi
+	echo "LiveReview prepare-commit-msg: attestation present for $TREE_HASH; proceeding" >&2
+	exit 0
 fi
 
 # State file for hook coordination
