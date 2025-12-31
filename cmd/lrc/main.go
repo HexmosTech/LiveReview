@@ -150,6 +150,11 @@ var baseFlags = []cli.Flag{
 		Usage:   "pre-commit mode: interactive prompts for commit decision (Ctrl-C=abort, Ctrl-S=skip+commit, Enter=commit)",
 		EnvVars: []string{"LRC_PRECOMMIT"},
 	},
+	&cli.BoolFlag{
+		Name:    "skip",
+		Usage:   "mark review as skipped and write attestation without contacting the API",
+		EnvVars: []string{"LRC_SKIP"},
+	},
 }
 
 var debugFlags = []cli.Flag{
@@ -294,6 +299,7 @@ type reviewOptions struct {
 	port         int
 	verbose      bool
 	precommit    bool
+	skip         bool
 	initialMsg   string
 }
 
@@ -330,6 +336,7 @@ func buildOptionsFromContext(c *cli.Context, includeDebug bool) reviewOptions {
 		port:       c.Int("port"),
 		verbose:    c.Bool("verbose"),
 		precommit:  c.Bool("precommit"),
+		skip:       c.Bool("skip"),
 		saveJSON:   c.String("save-json"),
 		saveText:   c.String("save-text"),
 		initialMsg: initialMsg,
@@ -415,6 +422,20 @@ func runReviewWithOptions(opts reviewOptions) error {
 	attestationAction := ""
 	attestationWritten := false
 	initialMsg := sanitizeInitialMessage(opts.initialMsg)
+
+	// Short-circuit skip: write attestation and exit without contacting the API
+	if opts.skip {
+		attestationAction = "skipped"
+		if err := ensureAttestation(attestationAction, verbose, &attestationWritten); err != nil {
+			return err
+		}
+		if verbose {
+			log.Println("Review skipped by --skip; attestation recorded")
+		} else {
+			fmt.Println("LiveReview: marked review as skipped for current tree")
+		}
+		return nil
+	}
 
 	if opts.precommit {
 		gitDir, err := resolveGitDir()
