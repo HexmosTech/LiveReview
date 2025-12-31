@@ -354,7 +354,7 @@ func buildOptionsFromContext(c *cli.Context, includeDebug bool) reviewOptions {
 	}
 
 	if diffSource == "" {
-		diffSource = "working"
+		diffSource = "staged"
 	}
 
 	opts.diffSource = diffSource
