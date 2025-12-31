@@ -456,6 +456,16 @@ func runReviewWithOptions(opts reviewOptions) error {
 		_ = clearCommitMessageFile(commitMsgPath)
 	}
 
+	// If an attestation already exists for the current tree, skip running another review
+	if existing, err := existingAttestationAction(); err == nil && existing != "" {
+		if verbose {
+			log.Printf("Attestation already present for current tree (action=%s); skipping review", existing)
+		} else {
+			fmt.Printf("LiveReview: attestation already present for current tree (%s); skipping review\n", existing)
+		}
+		return nil
+	}
+
 	// Load configuration from config file or overrides
 	config, err := loadConfigValues(opts.apiKey, opts.apiURL, verbose)
 	if err != nil {
@@ -795,6 +805,35 @@ func ensureAttestation(action string, verbose bool, written *bool) error {
 		*written = true
 	}
 	return nil
+}
+
+// existingAttestationAction returns the attestation action for the current tree, if present.
+func existingAttestationAction() (string, error) {
+	treeHash, err := currentTreeHash()
+	if err != nil {
+		return "", err
+	}
+	if treeHash == "" {
+		return "", nil
+	}
+
+	gitDir, err := resolveGitDir()
+	if err != nil {
+		return "", err
+	}
+
+	attestPath := filepath.Join(gitDir, "lrc", "attestations", fmt.Sprintf("%s.json", treeHash))
+	data, err := os.ReadFile(attestPath)
+	if err != nil {
+		return "", nil // not present
+	}
+
+	var payload attestationPayload
+	if err := json.Unmarshal(data, &payload); err != nil {
+		return "", nil
+	}
+
+	return strings.TrimSpace(payload.Action), nil
 }
 
 func writeAttestationForCurrentTree(action string) (string, error) {
