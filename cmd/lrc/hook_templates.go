@@ -6,7 +6,7 @@ import (
 	"strings"
 )
 
-//go:embed hooks/prepare-commit-msg.sh hooks/commit-msg.sh hooks/post-commit.sh hooks/pre-commit.sh
+//go:embed hooks/prepare-commit-msg.sh hooks/commit-msg.sh hooks/post-commit.sh hooks/pre-commit.sh hooks/dispatcher.sh
 var hookTemplatesFS embed.FS
 
 const (
@@ -15,6 +15,7 @@ const (
 	hookVersionPlaceholder           = "__LRC_VERSION__"
 	hookCommitMessageFilePlaceholder = "__LRC_COMMIT_MESSAGE_FILE__"
 	hookPushRequestFilePlaceholder   = "__LRC_PUSH_REQUEST_FILE__"
+	hookNamePlaceholder              = "__HOOK_NAME__"
 )
 
 func renderHookTemplate(path string, replacements map[string]string) string {

@@ -7,6 +7,11 @@ COMMIT_MSG_FILE="$1"
 SKIP_REVIEW="${LRC_SKIP_REVIEW:-}" 
 LRC_DIR=".git/lrc"
 ATTEST_DIR="$LRC_DIR/attestations"
+DISABLED_FILE="$LRC_DIR/disabled"
+
+if [ -f "$DISABLED_FILE" ]; then
+	exit 0
+fi
 
 # Detect if running in TTY (check stdout, not stdin - Git redirects stdin)
 if [ -t 1 ]; then

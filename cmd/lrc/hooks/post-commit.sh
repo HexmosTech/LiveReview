@@ -6,9 +6,14 @@ __LRC_MARKER_BEGIN__
 PUSH_FLAG=".git/__LRC_PUSH_REQUEST_FILE__"
 LRC_DIR=".git/lrc"
 ATTEST_DIR="$LRC_DIR/attestations"
+DISABLED_FILE="$LRC_DIR/disabled"
 UPSTREAM=""
 UPSTREAM_REMOTE=""
 UPSTREAM_BRANCH=""
+
+if [ -f "$DISABLED_FILE" ]; then
+	exit 0
+fi
 
 cleanup_flag() {
 	rm -f "$PUSH_FLAG" 2>/dev/null || true
