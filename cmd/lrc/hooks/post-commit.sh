@@ -4,18 +4,31 @@ __LRC_MARKER_BEGIN__
 # Manual changes within markers will be lost on hook updates
 
 PUSH_FLAG=".git/__LRC_PUSH_REQUEST_FILE__"
+LRC_DIR=".git/lrc"
+ATTEST_DIR="$LRC_DIR/attestations"
 UPSTREAM=""
 UPSTREAM_REMOTE=""
 UPSTREAM_BRANCH=""
 
-# Only act when flag exists
-if [ ! -f "$PUSH_FLAG" ]; then
-	exit 0
-fi
-
 cleanup_flag() {
 	rm -f "$PUSH_FLAG" 2>/dev/null || true
 }
+
+cleanup_attestation() {
+	TREE_HASH="$(git rev-parse --verify HEAD^{tree} 2>/dev/null || true)"
+	if [ -n "$TREE_HASH" ] && [ -f "$ATTEST_DIR/$TREE_HASH.json" ]; then
+		rm -f "$ATTEST_DIR/$TREE_HASH.json" 2>/dev/null || true
+		echo "lrc: cleared attestation for committed tree $TREE_HASH"
+	fi
+}
+
+# Always clear attestation for the committed tree
+cleanup_attestation
+
+# If push was not requested, we're done
+if [ ! -f "$PUSH_FLAG" ]; then
+	exit 0
+fi
 
 echo "lrc: commit-and-push requested; verifying state and pushing if safe"
 

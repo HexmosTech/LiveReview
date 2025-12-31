@@ -9,6 +9,20 @@ if [ -t 1 ]; then
 	exit 0
 fi
 
-echo "LiveReview pre-commit: non-interactive environment detected; aborting commit"
-exit 1
+# Non-interactive: require attestation for current staged tree
+TREE_HASH="$(git write-tree 2>/dev/null || true)"
+ATTEST_FILE=".git/lrc/attestations/$TREE_HASH.json"
+
+if [ -z "$TREE_HASH" ]; then
+	echo "LiveReview pre-commit: failed to compute staged tree hash; run 'lrc review --staged' before committing"
+	exit 1
+fi
+
+if [ ! -f "$ATTEST_FILE" ]; then
+	echo "LiveReview pre-commit: no attestation found for staged tree ($TREE_HASH). Run 'lrc review --staged' and retry." 
+	exit 1
+fi
+
+echo "LiveReview pre-commit: attestation present for $TREE_HASH; proceeding"
+exit 0
 __LRC_MARKER_END__
