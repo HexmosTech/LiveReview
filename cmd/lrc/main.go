@@ -1721,6 +1721,12 @@ func runInstallHooks(c *cli.Context) error {
 	legacyPreCommit := filepath.Join(hooksDir, "pre-commit")
 	_ = uninstallHook(legacyPreCommit, "pre-commit")
 
+	// Install pre-commit hook (TTY guard)
+	preCommitPath := filepath.Join(hooksDir, "pre-commit")
+	if err := installHook(preCommitPath, generatePreCommitHook(), "pre-commit", backupDir, force); err != nil {
+		return fmt.Errorf("failed to install pre-commit hook: %w", err)
+	}
+
 	// Install prepare-commit-msg hook
 	prepareCommitMsgPath := filepath.Join(hooksDir, "prepare-commit-msg")
 	if err := installHook(prepareCommitMsgPath, generatePrepareCommitMsgHook(), "prepare-commit-msg", backupDir, force); err != nil {
@@ -1771,7 +1777,7 @@ func runUninstallHooks(c *cli.Context) error {
 	}
 
 	hooksDir := ".git/hooks"
-	hooks := []string{"prepare-commit-msg", "commit-msg", "post-commit"}
+	hooks := []string{"pre-commit", "prepare-commit-msg", "commit-msg", "post-commit"}
 	removed := 0
 
 	for _, hookName := range hooks {
@@ -2043,6 +2049,15 @@ func removeLrcSection(content string) string {
 
 	// Remove the section, preserving content before and after
 	return content[:start] + content[end:]
+}
+
+// generatePreCommitHook generates the pre-commit hook script
+func generatePreCommitHook() string {
+	return renderHookTemplate("hooks/pre-commit.sh", map[string]string{
+		hookMarkerBeginPlaceholder: lrcMarkerBegin,
+		hookMarkerEndPlaceholder:   lrcMarkerEnd,
+		hookVersionPlaceholder:     version,
+	})
 }
 
 // generatePrepareCommitMsgHook generates the prepare-commit-msg hook script

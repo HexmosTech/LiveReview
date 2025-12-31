@@ -6,7 +6,7 @@ import (
 	"strings"
 )
 
-//go:embed hooks/prepare-commit-msg.sh hooks/commit-msg.sh hooks/post-commit.sh
+//go:embed hooks/prepare-commit-msg.sh hooks/commit-msg.sh hooks/post-commit.sh hooks/pre-commit.sh
 var hookTemplatesFS embed.FS
 
 const (
