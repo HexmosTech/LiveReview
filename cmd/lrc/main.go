@@ -225,12 +225,22 @@ func main() {
 								Name:  "path",
 								Usage: "custom hooksPath (defaults to core.hooksPath or ~/.git-hooks)",
 							},
+							&cli.BoolFlag{
+								Name:  "local",
+								Usage: "install into the current repo hooks path (respects core.hooksPath)",
+							},
 						},
 						Action: runHooksInstall,
 					},
 					{
-						Name:   "uninstall",
-						Usage:  "Remove LiveReview hook dispatchers and managed scripts",
+						Name:  "uninstall",
+						Usage: "Remove LiveReview hook dispatchers and managed scripts",
+						Flags: []cli.Flag{
+							&cli.BoolFlag{
+								Name:  "local",
+								Usage: "uninstall from the current repo hooks path",
+							},
+						},
 						Action: runHooksUninstall,
 					},
 					{
@@ -1890,6 +1900,28 @@ func currentHooksPath() (string, error) {
 	return strings.TrimSpace(string(out)), nil
 }
 
+func currentLocalHooksPath(repoRoot string) (string, error) {
+	cmd := exec.Command("git", "config", "--local", "--get", "core.hooksPath")
+	cmd.Dir = repoRoot
+	out, err := cmd.Output()
+	if err != nil {
+		return "", nil
+	}
+
+	return strings.TrimSpace(string(out)), nil
+}
+
+func resolveRepoHooksPath(repoRoot string) (string, error) {
+	localPath, _ := currentLocalHooksPath(repoRoot)
+	if localPath == "" {
+		return filepath.Join(repoRoot, ".git", "hooks"), nil
+	}
+	if filepath.IsAbs(localPath) {
+		return localPath, nil
+	}
+	return filepath.Join(repoRoot, localPath), nil
+}
+
 func setGlobalHooksPath(path string) error {
 	cmd := exec.Command("git", "config", "--global", "core.hooksPath", path)
 	return cmd.Run()
@@ -1955,21 +1987,47 @@ func writeManagedHookScripts(dir string) error {
 	return nil
 }
 
-// runHooksInstall installs global dispatchers and managed hook scripts under core.hooksPath
+// runHooksInstall installs dispatchers and managed hook scripts under either global core.hooksPath or the current repo hooks path when --local is used
 func runHooksInstall(c *cli.Context) error {
+	localInstall := c.Bool("local")
 	requestedPath := strings.TrimSpace(c.String("path"))
-	currentPath, _ := currentHooksPath()
-	defaultPath, err := defaultGlobalHooksPath()
-	if err != nil {
-		return fmt.Errorf("failed to determine default hooks path: %w", err)
-	}
+	var hooksPath string
+	setConfig := false
 
-	hooksPath := requestedPath
-	if hooksPath == "" {
-		if currentPath != "" {
-			hooksPath = currentPath
-		} else {
-			hooksPath = defaultPath
+	if localInstall {
+		if !isGitRepository() {
+			return fmt.Errorf("not in a git repository (no .git directory found)")
+		}
+
+		gitDir, err := resolveGitDir()
+		if err != nil {
+			return err
+		}
+		repoRoot := filepath.Dir(gitDir)
+		hooksPath, err = resolveRepoHooksPath(repoRoot)
+		if err != nil {
+			return err
+		}
+	} else {
+		currentPath, _ := currentHooksPath()
+		defaultPath, err := defaultGlobalHooksPath()
+		if err != nil {
+			return fmt.Errorf("failed to determine default hooks path: %w", err)
+		}
+
+		hooksPath = requestedPath
+		if hooksPath == "" {
+			if currentPath != "" {
+				hooksPath = currentPath
+			} else {
+				hooksPath = defaultPath
+			}
+		}
+
+		if currentPath == "" {
+			setConfig = true
+		} else if requestedPath != "" && requestedPath != currentPath {
+			setConfig = true
 		}
 	}
 
@@ -1978,14 +2036,7 @@ func runHooksInstall(c *cli.Context) error {
 		return fmt.Errorf("failed to resolve hooks path: %w", err)
 	}
 
-	setConfig := false
-	if currentPath == "" {
-		setConfig = true
-	} else if requestedPath != "" && requestedPath != currentPath {
-		setConfig = true
-	}
-
-	if setConfig {
+	if !localInstall && setConfig {
 		if err := setGlobalHooksPath(absHooksPath); err != nil {
 			return fmt.Errorf("failed to set core.hooksPath: %w", err)
 		}
@@ -2013,33 +2064,48 @@ func runHooksInstall(c *cli.Context) error {
 		}
 	}
 
-	// Strip any legacy lrc sections from the current repo's local hooks to avoid double execution
-	if gitDir, err := resolveGitDir(); err == nil {
-		hooksDir := filepath.Join(gitDir, "hooks")
-		for _, hookName := range managedHooks {
-			hookPath := filepath.Join(hooksDir, hookName)
-			_ = uninstallHook(hookPath, hookName)
-		}
+	if !localInstall {
+		writeHooksMeta(absHooksPath, hooksMeta{Path: absHooksPath, PrevPath: hooksPath, SetByLRC: setConfig})
 	}
-
-	writeHooksMeta(absHooksPath, hooksMeta{Path: absHooksPath, PrevPath: currentPath, SetByLRC: setConfig})
 	_ = cleanOldBackups(backupDir, 5)
 
-	fmt.Printf("✅ LiveReview global hooks installed at %s\n", absHooksPath)
-	fmt.Println("Global dispatchers will chain repo-local hooks when present.")
+	if localInstall {
+		fmt.Printf("✅ LiveReview hooks installed in repo path: %s\n", absHooksPath)
+	} else {
+		fmt.Printf("✅ LiveReview global hooks installed at %s\n", absHooksPath)
+	}
+	fmt.Println("Dispatchers will chain repo-local hooks when present.")
 	fmt.Println("Use 'lrc hooks disable' in a repo to bypass LiveReview hooks there.")
 
 	return nil
 }
 
-// runHooksUninstall removes lrc-managed sections from global dispatchers and managed scripts
+// runHooksUninstall removes lrc-managed sections from dispatchers and managed scripts (global or local)
 func runHooksUninstall(c *cli.Context) error {
-	hooksPath, _ := currentHooksPath()
-	if hooksPath == "" {
-		var err error
-		hooksPath, err = defaultGlobalHooksPath()
+	localUninstall := c.Bool("local")
+	var hooksPath string
+
+	if localUninstall {
+		if !isGitRepository() {
+			return fmt.Errorf("not in a git repository (no .git directory found)")
+		}
+		gitDir, err := resolveGitDir()
 		if err != nil {
-			return fmt.Errorf("failed to determine hooks path: %w", err)
+			return err
+		}
+		repoRoot := filepath.Dir(gitDir)
+		hooksPath, err = resolveRepoHooksPath(repoRoot)
+		if err != nil {
+			return err
+		}
+	} else {
+		hooksPath, _ = currentHooksPath()
+		if hooksPath == "" {
+			var err error
+			hooksPath, err = defaultGlobalHooksPath()
+			if err != nil {
+				return fmt.Errorf("failed to determine hooks path: %w", err)
+			}
 		}
 	}
 
@@ -2048,7 +2114,10 @@ func runHooksUninstall(c *cli.Context) error {
 		return fmt.Errorf("failed to resolve hooks path: %w", err)
 	}
 
-	meta, _ := readHooksMeta(absHooksPath)
+	var meta *hooksMeta
+	if !localUninstall {
+		meta, _ = readHooksMeta(absHooksPath)
+	}
 	removed := 0
 	for _, hookName := range managedHooks {
 		hookPath := filepath.Join(absHooksPath, hookName)
@@ -2061,9 +2130,11 @@ func runHooksUninstall(c *cli.Context) error {
 
 	_ = os.RemoveAll(filepath.Join(absHooksPath, "lrc"))
 	_ = cleanOldBackups(filepath.Join(absHooksPath, ".lrc_backups"), 5)
-	_ = removeHooksMeta(absHooksPath)
+	if !localUninstall {
+		_ = removeHooksMeta(absHooksPath)
+	}
 
-	if meta != nil && meta.SetByLRC && meta.Path == absHooksPath {
+	if !localUninstall && meta != nil && meta.SetByLRC && meta.Path == absHooksPath {
 		if meta.PrevPath == "" {
 			_ = unsetGlobalHooksPath()
 		} else {
