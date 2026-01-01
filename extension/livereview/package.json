@@ -14,7 +14,13 @@
     "onCommand:livereview.enableGitHooks",
     "onCommand:livereview.helloWorld",
     "onCommand:livereview.runLiveReview",
-    "onCommand:livereview.skipLiveReview"
+    "onCommand:livereview.skipLiveReview",
+    "onCommand:livereview.manageHooks",
+    "onCommand:livereview.hooks.installGlobal",
+    "onCommand:livereview.hooks.uninstallGlobal",
+    "onCommand:livereview.hooks.enableLocal",
+    "onCommand:livereview.hooks.disableLocal",
+    "onCommand:livereview.hooks.status"
   ],
   "main": "./dist/extension.js",
   "contributes": {
@@ -42,6 +48,30 @@
           "light": "images/lr-skip-light.svg",
           "dark": "images/lr-skip-dark.svg"
         }
+      },
+      {
+        "command": "livereview.manageHooks",
+        "title": "LiveReview: Manage Hooks"
+      },
+      {
+        "command": "livereview.hooks.installGlobal",
+        "title": "LiveReview: Install Global Hooks"
+      },
+      {
+        "command": "livereview.hooks.uninstallGlobal",
+        "title": "LiveReview: Uninstall Global Hooks"
+      },
+      {
+        "command": "livereview.hooks.enableLocal",
+        "title": "LiveReview: Enable Hooks (Repo)"
+      },
+      {
+        "command": "livereview.hooks.disableLocal",
+        "title": "LiveReview: Disable Hooks (Repo)"
+      },
+      {
+        "command": "livereview.hooks.status",
+        "title": "LiveReview: Hook Status (Repo)"
       }
     ],
     "configuration": {
