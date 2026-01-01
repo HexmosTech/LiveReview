@@ -134,6 +134,6 @@ LiveReview is a **hygiene standard**, enforced by defaults.
 
 In mature engineering cultures, this should feel obvious:
 
-> *I don’t commit code I haven’t read.*
+> *I don’t commit code I haven’t checked.*
 
 LiveReview exists to make that standard enforceable, visible, and routine.
