@@ -1,0 +1,566 @@
+import * as path from 'path';
+import * as vscode from 'vscode';
+import * as util from 'util';
+import * as fs from 'fs';
+import * as os from 'os';
+import { execFile } from 'child_process';
+
+const execFileAsync = util.promisify(execFile);
+const DEFAULT_API_URL = 'https://livereview.hexmos.com';
+
+type APIState = 'uninitialized' | 'initialized';
+
+interface GitExtension {
+	readonly enabled: boolean;
+	readonly onDidChangeEnablement: vscode.Event<boolean>;
+	getAPI(version: 1): API;
+}
+
+interface API {
+	readonly state: APIState;
+	readonly repositories: Repository[];
+	readonly onDidOpenRepository: vscode.Event<Repository>;
+	readonly onDidCloseRepository: vscode.Event<Repository>;
+	readonly onDidChangeState: vscode.Event<APIState>;
+	registerPostCommitCommandsProvider?(provider: PostCommitCommandsProvider): vscode.Disposable;
+}
+
+interface PostCommitCommandsProvider {
+	provideCommands(): Command[];
+}
+
+interface Command {
+	command: string;
+	title: string;
+	tooltip?: string;
+	arguments?: unknown[];
+}
+
+interface Repository {
+	readonly rootUri: vscode.Uri;
+	readonly state: RepositoryState;
+	readonly onDidCommit: vscode.Event<void>;
+	readonly onDidCheckout: vscode.Event<void>;
+	log(options?: LogOptions): Promise<Commit[]>;
+}
+
+interface RepositoryState {
+	readonly HEAD: Branch | undefined;
+	readonly indexChanges: Change[];
+	readonly workingTreeChanges: Change[];
+	readonly mergeChanges: Change[];
+	readonly onDidChange: vscode.Event<void>;
+}
+
+interface Branch {
+	readonly name?: string;
+	readonly commit?: string;
+}
+
+interface Change {
+	readonly uri: vscode.Uri;
+	readonly renameUri?: vscode.Uri;
+	readonly status: Status;
+}
+
+interface LogOptions {
+	readonly maxEntries?: number;
+	readonly path?: string;
+	readonly ref?: string;
+}
+
+interface Commit {
+	readonly hash: string;
+	readonly message: string;
+}
+
+// Matches VS Code Git extension status enum; only used for labels.
+const enum Status {
+	INDEX_MODIFIED,
+	INDEX_ADDED,
+	INDEX_DELETED,
+	INDEX_RENAMED,
+	INDEX_COPIED,
+	MODIFIED,
+	DELETED,
+	UNTRACKED,
+	IGNORED,
+	INTENT_TO_ADD,
+	ADDED_BY_US,
+	ADDED_BY_THEM,
+	DELETED_BY_US,
+	DELETED_BY_THEM,
+	BOTH_ADDED,
+	BOTH_DELETED,
+	BOTH_MODIFIED
+}
+
+const statusLabels: Record<number, string> = {
+	[Status.INDEX_MODIFIED]: 'staged edit',
+	[Status.INDEX_ADDED]: 'staged add',
+	[Status.INDEX_DELETED]: 'staged delete',
+	[Status.INDEX_RENAMED]: 'staged rename',
+	[Status.INDEX_COPIED]: 'staged copy',
+	[Status.MODIFIED]: 'modified',
+	[Status.DELETED]: 'deleted',
+	[Status.UNTRACKED]: 'untracked',
+	[Status.IGNORED]: 'ignored',
+	[Status.INTENT_TO_ADD]: 'intent-to-add',
+	[Status.ADDED_BY_US]: 'added by us',
+	[Status.ADDED_BY_THEM]: 'added by them',
+	[Status.DELETED_BY_US]: 'deleted by us',
+	[Status.DELETED_BY_THEM]: 'deleted by them',
+	[Status.BOTH_ADDED]: 'both added',
+	[Status.BOTH_DELETED]: 'both deleted',
+	[Status.BOTH_MODIFIED]: 'both modified'
+};
+
+export function activate(context: vscode.ExtensionContext) {
+	const output = vscode.window.createOutputChannel('LiveReview Git Hooks');
+	const repoSubscriptions = new Map<string, vscode.Disposable[]>();
+	let currentApi: API | undefined;
+	const lrcConfigPath = path.join(os.homedir(), '.lrc.toml');
+
+	context.subscriptions.push(output);
+
+	const logInfo = (message: string) => {
+		output.appendLine(message);
+	};
+
+	const describeChange = (change: Change): string => {
+		const targetName = path.basename(change.uri.fsPath);
+		const renameNote = change.renameUri ? ` (from ${path.basename(change.renameUri.fsPath)})` : '';
+		return `${statusLabels[change.status] ?? 'change'}: ${targetName}${renameNote}`;
+	};
+
+	const readLrcConfig = async (): Promise<{ api_url?: string; api_key?: string } | undefined> => {
+		try {
+			const content = await fs.promises.readFile(lrcConfigPath, 'utf8');
+			const lines = content.split(/\r?\n/);
+			const result: { api_url?: string; api_key?: string } = {};
+			for (const line of lines) {
+				const trimmed = line.trim();
+				if (!trimmed || trimmed.startsWith('#')) {
+					continue;
+				}
+				const [key, rawValue] = trimmed.split('=').map(part => part?.trim());
+				if (!key || rawValue === undefined) {
+					continue;
+				}
+				const unquoted = rawValue.replace(/^"|"$/g, '');
+				if (key === 'api_url') {
+					result.api_url = unquoted;
+				} else if (key === 'api_key') {
+					result.api_key = unquoted;
+				}
+			}
+			return result;
+		} catch {
+			return undefined;
+		}
+	};
+
+	const writeLrcConfig = async (apiUrl: string, apiKey: string) => {
+		const body = [`api_key = "${apiKey}"`, `api_url = "${apiUrl}"`].join('\n') + '\n';
+		await fs.promises.writeFile(lrcConfigPath, body, { encoding: 'utf8' });
+	};
+
+	const syncSettingsFromFile = async () => {
+		const cfg = vscode.workspace.getConfiguration('livereview');
+		const existing = await readLrcConfig();
+
+		if (!existing) {
+			await writeLrcConfig(cfg.get<string>('apiUrl', DEFAULT_API_URL), cfg.get<string>('apiKey', ''));
+			return;
+		}
+
+		const fileApiUrl = existing.api_url ?? DEFAULT_API_URL;
+		const fileApiKey = existing.api_key ?? '';
+
+		if (cfg.get<string>('apiUrl') !== fileApiUrl) {
+			await cfg.update('apiUrl', fileApiUrl, vscode.ConfigurationTarget.Global);
+		}
+		if (cfg.get<string>('apiKey') !== fileApiKey) {
+			await cfg.update('apiKey', fileApiKey, vscode.ConfigurationTarget.Global);
+		}
+	};
+
+	const syncFileFromSettings = async () => {
+		const cfg = vscode.workspace.getConfiguration('livereview');
+		const apiUrl = cfg.get<string>('apiUrl', DEFAULT_API_URL) || DEFAULT_API_URL;
+		const apiKey = cfg.get<string>('apiKey', '') || '';
+		await writeLrcConfig(apiUrl, apiKey);
+	};
+
+	const runGit = async (repoPath: string, args: string[]) => {
+		return execFileAsync('git', args, { cwd: repoPath });
+	};
+
+	const runPreCommitChecks = async (repoPath: string) => {
+		let against = 'HEAD';
+		try {
+			await runGit(repoPath, ['rev-parse', '--verify', 'HEAD']);
+		} catch {
+			const { stdout } = await runGit(repoPath, ['hash-object', '-t', 'tree', '/dev/null']);
+			against = stdout.trim();
+		}
+
+		let allowNonAscii = false;
+		try {
+			const { stdout } = await runGit(repoPath, ['config', '--type=bool', 'hooks.allownonascii']);
+			allowNonAscii = stdout.trim() === 'true';
+		} catch {
+			// default remains false
+		}
+
+		if (!allowNonAscii) {
+			const { stdout } = await runGit(repoPath, ['diff', '--cached', '--name-only', '--diff-filter=A', '-z', against]);
+			const files = stdout.split('\0').filter(Boolean);
+			const bad = files.filter(f => /[^\u0000-\u007f]/.test(f));
+			if (bad.length) {
+				const err = new Error(`Non-ASCII filename(s) staged: ${bad.join(', ')}`);
+				throw err;
+			}
+		}
+
+		try {
+			await runGit(repoPath, ['diff-index', '--check', '--cached', against, '--']);
+		} catch (error: unknown) {
+			const stderr = (error as { stderr?: string }).stderr ?? '';
+			const msg = stderr.trim() || String(error);
+			throw new Error(`Whitespace check failed: ${msg}`);
+		}
+	};
+
+	const readCommitMsgNote = async (repoPath: string, cleanup: boolean): Promise<string | undefined> => {
+		const stateFile = path.join(repoPath, '.git', 'livereview_state');
+		const lockDir = path.join(repoPath, '.git', 'livereview_state.lock');
+
+		let state: string | undefined;
+		try {
+			const content = await fs.promises.readFile(stateFile, 'utf8');
+			state = content.split(':')[0]?.trim();
+		} catch {
+			// no state; nothing to report
+		}
+
+		let note: string | undefined;
+		if (state === 'ran') {
+			note = 'LiveReview Pre-Commit Check: ran';
+		} else if (state === 'skipped_manual') {
+			note = 'LiveReview Pre-Commit Check: skipped manually';
+		} else if (state === 'skipped') {
+			note = 'LiveReview Pre-Commit Check: skipped';
+		}
+
+		if (cleanup) {
+			try { await fs.promises.rm(stateFile); } catch {}
+			try { await fs.promises.rmdir(lockDir); } catch {}
+		}
+
+		return note;
+	};
+
+	const runLrc = async (repoPath: string, mode: 'review' | 'skip'): Promise<string> => {
+		const termName = `LiveReview lrc (${path.basename(repoPath)})`;
+		const term = vscode.window.createTerminal({ name: termName, cwd: repoPath });
+		const stateFile = path.join(repoPath, '.git', 'livereview_state');
+		const lockDir = path.join(repoPath, '.git', 'livereview_state.lock');
+
+		const args = mode === 'skip' ? 'review --staged --skip' : 'review --staged --precommit';
+		const onSuccessState = mode === 'skip' ? 'skipped_manual' : 'ran';
+
+		const cmd = [
+			'mkdir -p',
+			`"${lockDir}"`,
+			'&&',
+			'LRC_INTERACTIVE=1',
+			'/usr/local/bin/lrc',
+			args,
+			'; code=$?',
+			';',
+			`if [ $code -eq 0 ]; then echo "${onSuccessState}:$$:$(date +%s)" >`,
+			`"${stateFile}"`,
+			';',
+			'elif [ $code -eq 2 ]; then echo "skipped_manual:$$:$(date +%s)" >',
+			`"${stateFile}"`,
+			';',
+			'else echo "skipped:$$:$(date +%s)" >',
+			`"${stateFile}"`,
+			';',
+			'fi',
+			';',
+			'rmdir',
+			`"${lockDir}"`,
+			'2>/dev/null || true'
+		].join(' ');
+
+		term.show(true);
+		term.sendText(cmd, true);
+
+		return `lrc launched in terminal "${termName}" (${mode}). Check terminal for details.`;
+	};
+
+	const runReview = async (repo: Repository, staged: Change[]) => {
+		const repoPath = repo.rootUri.fsPath;
+		const repoName = path.basename(repoPath);
+		const stagedCount = staged.length;
+
+		await vscode.window.withProgress({ location: vscode.ProgressLocation.Notification, title: `LiveReview checks for ${repoName}` }, async (progress) => {
+			try {
+				progress.report({ message: 'Running pre-commit checks...' });
+				await runPreCommitChecks(repoPath);
+
+				progress.report({ message: 'Launching lrc (interactive terminal)...' });
+				const launchNote = await runLrc(repoPath, 'review');
+
+				const summaryLines = [
+					`✅ Pre-commit checks passed for ${stagedCount} staged file(s).`,
+					`🔧 ${launchNote}`
+				];
+
+				const summary = summaryLines.join('\n');
+				logInfo(`[review] ${repoName}:\n${summary}`);
+				vscode.window.showInformationMessage(summary, 'Open Output').then(sel => {
+					if (sel === 'Open Output') {
+						output.show(true);
+					}
+				});
+			} catch (error: unknown) {
+				const message = (error as Error)?.message ?? String(error);
+				logInfo(`[review error] ${repoName}: ${message}`);
+				vscode.window.showErrorMessage(`LiveReview checks failed: ${message}`, 'Open Output').then(sel => {
+					if (sel === 'Open Output') {
+						output.show(true);
+					}
+				});
+			}
+		});
+	};
+
+	const runSkipReview = async (repo: Repository, staged: Change[]) => {
+		const repoPath = repo.rootUri.fsPath;
+		const repoName = path.basename(repoPath);
+		const stagedCount = staged.length;
+
+		await vscode.window.withProgress({ location: vscode.ProgressLocation.Notification, title: `LiveReview skip for ${repoName}` }, async (progress) => {
+			try {
+				progress.report({ message: 'Launching lrc skip (interactive terminal)...' });
+				const launchNote = await runLrc(repoPath, 'skip');
+
+				const summaryLines = [
+					`⏭️ LiveReview skipped for ${stagedCount} staged file(s).`,
+					`🔧 ${launchNote}`
+				];
+
+				const summary = summaryLines.join('\n');
+				logInfo(`[review skip] ${repoName}:\n${summary}`);
+				vscode.window.showInformationMessage(summary, 'Open Output').then(sel => {
+					if (sel === 'Open Output') {
+						output.show(true);
+					}
+				});
+			} catch (error: unknown) {
+				const message = (error as Error)?.message ?? String(error);
+				logInfo(`[review skip error] ${repoName}: ${message}`);
+				vscode.window.showErrorMessage(`LiveReview skip failed: ${message}`, 'Open Output').then(sel => {
+					if (sel === 'Open Output') {
+						output.show(true);
+					}
+				});
+			}
+		});
+	};
+
+	const runReviewForActiveRepo = () => {
+		const repo = currentApi?.repositories[0];
+		if (!repo) {
+			vscode.window.showWarningMessage('LiveReview: No Git repository detected.');
+			return;
+		}
+
+		const staged = repo.state.indexChanges;
+		if (!staged.length) {
+			vscode.window.showWarningMessage('LiveReview: No staged files to review.');
+			return;
+		}
+
+		void runReview(repo, staged);
+	};
+
+	const runSkipForActiveRepo = () => {
+		const repo = currentApi?.repositories[0];
+		if (!repo) {
+			vscode.window.showWarningMessage('LiveReview: No Git repository detected.');
+			return;
+		}
+
+		const staged = repo.state.indexChanges;
+		if (!staged.length) {
+			vscode.window.showWarningMessage('LiveReview: No staged files to skip.');
+			return;
+		}
+
+		void runSkipReview(repo, staged);
+	};
+
+	const handleStaging = (repo: Repository) => {
+		const staged = repo.state.indexChanges;
+
+		if (!staged.length) {
+			return;
+		}
+
+		const sample = staged.slice(0, 3).map(describeChange);
+		const extraCount = staged.length - sample.length;
+		const repoName = path.basename(repo.rootUri.fsPath);
+		const message = extraCount > 0
+			? `🔔 Staged ${staged.length} files in ${repoName}: ${sample.join(', ')} (+${extraCount} more). Run LiveReview?`
+			: `🔔 Staged ${staged.length} files in ${repoName}: ${sample.join(', ')}. Run LiveReview?`;
+
+		vscode.window.showInformationMessage(message, 'Run LiveReview', 'Dismiss').then(selection => {
+			if (selection === 'Run LiveReview') {
+				void runReview(repo, staged);
+			}
+		});
+	};
+
+	const getLatestCommit = async (repo: Repository): Promise<Commit | undefined> => {
+		try {
+			const commits = await repo.log({ maxEntries: 1 });
+			return commits[0];
+		} catch (error) {
+			logInfo(`Failed to read latest commit: ${String(error)}`);
+			return undefined;
+		}
+	};
+
+	const handleCommit = async (repo: Repository) => {
+		const head = repo.state.HEAD;
+		const latest = await getLatestCommit(repo);
+		const branchName = head?.name ?? 'detached HEAD';
+		const hash = latest?.hash ?? head?.commit ?? 'unknown hash';
+		const message = latest?.message ?? 'no commit message found';
+		const repoName = path.basename(repo.rootUri.fsPath);
+
+		logInfo(`[commit] ${repoName} on ${branchName}: ${hash} — ${message}`);
+		vscode.window.showInformationMessage(`Commit recorded on ${branchName}: ${hash} — ${message}`);
+	};
+
+	const attachRepo = (repo: Repository) => {
+		const key = repo.rootUri.fsPath;
+		if (repoSubscriptions.has(key)) {
+			return;
+		}
+
+		logInfo(`Attaching LiveReview hooks to ${key}`);
+
+		const disposables: vscode.Disposable[] = [];
+
+		disposables.push(repo.state.onDidChange(() => handleStaging(repo)));
+		disposables.push(repo.onDidCommit(() => void handleCommit(repo)));
+
+		repoSubscriptions.set(key, disposables);
+		context.subscriptions.push(...disposables);
+
+		vscode.window.showInformationMessage(`LiveReview Git hooks armed for ${path.basename(key)}.`);
+	};
+
+	const detachRepo = (repo: Repository) => {
+		const key = repo.rootUri.fsPath;
+		const disposables = repoSubscriptions.get(key);
+		if (!disposables) {
+			return;
+		}
+		logInfo(`Detaching LiveReview hooks from ${key}`);
+		disposables.forEach(d => d.dispose());
+		repoSubscriptions.delete(key);
+	};
+
+	const wireGitAPI = (api: API) => {
+		currentApi = api;
+		api.repositories.forEach(attachRepo);
+		context.subscriptions.push(api.onDidOpenRepository(repo => attachRepo(repo)));
+		context.subscriptions.push(api.onDidCloseRepository(repo => detachRepo(repo)));
+
+		if (api.registerPostCommitCommandsProvider) {
+			const provider: PostCommitCommandsProvider = {
+				provideCommands: () => [{ command: 'livereview.enableGitHooks', title: 'LiveReview: Post-commit review mock' }]
+			};
+			context.subscriptions.push(api.registerPostCommitCommandsProvider(provider));
+		}
+	};
+
+	const initGit = async () => {
+		const gitExtension = vscode.extensions.getExtension<GitExtension>('vscode.git');
+		if (!gitExtension) {
+			vscode.window.showWarningMessage('LiveReview: Git extension not found.');
+			return;
+		}
+
+		const git = gitExtension.exports;
+		if (!git) {
+			vscode.window.showWarningMessage('LiveReview: Git extension exports are unavailable.');
+			return;
+		}
+
+		if (!git.enabled) {
+			vscode.window.showWarningMessage('LiveReview: Git extension is disabled. Enable it to use LiveReview hooks.');
+			return;
+		}
+
+		let api: API;
+		try {
+			api = git.getAPI(1);
+		} catch (error) {
+			vscode.window.showWarningMessage(`LiveReview: Unable to acquire Git API: ${String(error)}`);
+			return;
+		}
+
+		if (api.state === 'initialized') {
+			wireGitAPI(api);
+		} else {
+			const ready = api.onDidChangeState(state => {
+				if (state === 'initialized') {
+					wireGitAPI(api);
+					ready.dispose();
+				}
+			});
+			context.subscriptions.push(ready);
+		}
+	};
+
+	const enableHooksCommand = vscode.commands.registerCommand('livereview.enableGitHooks', () => {
+		vscode.window.showInformationMessage('LiveReview: (Re)initializing Git hooks...');
+		void initGit();
+	});
+
+	const runLiveReviewCommand = vscode.commands.registerCommand('livereview.runLiveReview', () => {
+		runReviewForActiveRepo();
+	});
+
+	const skipLiveReviewCommand = vscode.commands.registerCommand('livereview.skipLiveReview', () => {
+		runSkipForActiveRepo();
+	});
+
+	const helloCommand = vscode.commands.registerCommand('livereview.helloWorld', () => {
+		vscode.window.showInformationMessage('Hello World from LiveReview!');
+	});
+
+	context.subscriptions.push(enableHooksCommand, runLiveReviewCommand, skipLiveReviewCommand, helloCommand);
+
+	vscode.window.showInformationMessage('LiveReview activated: Git hooks arming...');
+	void syncSettingsFromFile().finally(() => {
+		void initGit();
+	});
+
+	context.subscriptions.push(vscode.workspace.onDidChangeConfiguration(event => {
+		if (event.affectsConfiguration('livereview.apiUrl') || event.affectsConfiguration('livereview.apiKey')) {
+			void syncFileFromSettings();
+		}
+	}));
+}
+
+export function deactivate() {
+	// Nothing to clean up beyond disposables tracked in context.
+}

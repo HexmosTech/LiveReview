@@ -1,0 +1,104 @@
+{
+  "name": "livereview",
+  "displayName": "LiveReview",
+  "description": "AI Code Reviewer",
+  "version": "0.0.1",
+  "engines": {
+    "vscode": "^1.107.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "activationEvents": [
+    "onStartupFinished",
+    "onCommand:livereview.enableGitHooks",
+    "onCommand:livereview.helloWorld",
+    "onCommand:livereview.runLiveReview",
+    "onCommand:livereview.skipLiveReview"
+  ],
+  "main": "./dist/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "livereview.helloWorld",
+        "title": "Hello World"
+      },
+      {
+        "command": "livereview.enableGitHooks",
+        "title": "LiveReview: Enable Git Hooks"
+      },
+      {
+        "command": "livereview.runLiveReview",
+        "title": "LiveReview: Run Review",
+        "icon": {
+          "light": "images/lr-light.svg",
+          "dark": "images/lr-dark.svg"
+        }
+      },
+      {
+        "command": "livereview.skipLiveReview",
+        "title": "LiveReview: Skip Review",
+        "icon": {
+          "light": "images/lr-skip-light.svg",
+          "dark": "images/lr-skip-dark.svg"
+        }
+      }
+    ],
+    "configuration": {
+      "title": "LiveReview",
+      "properties": {
+        "livereview.apiUrl": {
+          "type": "string",
+          "default": "https://livereview.hexmos.com",
+          "description": "LiveReview API URL (mirrored to ~/.lrc.toml)."
+        },
+        "livereview.apiKey": {
+          "type": "string",
+          "default": "",
+          "markdownDescription": "LiveReview API key (stored in plaintext in ~/.lrc.toml).",
+          "scope": "application"
+        }
+      }
+    },
+    "menus": {
+      "scm/title": [
+        {
+          "command": "livereview.runLiveReview",
+          "group": "navigation@9",
+          "when": "scmProvider == git"
+        },
+        {
+          "command": "livereview.skipLiveReview",
+          "group": "navigation@9",
+          "when": "scmProvider == git"
+        }
+      ]
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run package",
+    "compile": "npm run check-types && npm run lint && node esbuild.js",
+    "watch": "npm-run-all -p watch:*",
+    "watch:esbuild": "node esbuild.js --watch",
+    "watch:tsc": "tsc --noEmit --watch --project tsconfig.json",
+    "package": "npm run check-types && npm run lint && node esbuild.js --production",
+    "compile-tests": "tsc -p . --outDir out",
+    "watch-tests": "tsc -p . -w --outDir out",
+    "pretest": "npm run compile-tests && npm run compile && npm run lint",
+    "check-types": "tsc --noEmit",
+    "lint": "eslint src",
+    "test": "vscode-test"
+  },
+  "devDependencies": {
+    "@types/vscode": "^1.107.0",
+    "@types/mocha": "^10.0.10",
+    "@types/node": "22.x",
+    "typescript-eslint": "^8.48.1",
+    "eslint": "^9.39.1",
+    "esbuild": "^0.27.1",
+    "npm-run-all": "^4.1.5",
+    "typescript": "^5.9.3",
+    "@vscode/test-cli": "^0.0.12",
+    "@vscode/test-electron": "^2.5.2"
+  }
+}
