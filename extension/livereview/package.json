@@ -1,6 +1,8 @@
 {
   "name": "livereview",
   "displayName": "LiveReview",
+  "icon": "images/logo.png",
+  "publisher": "Hexmos",
   "repository": {
     "url": "https://hexmos.com/livereview"
   },
