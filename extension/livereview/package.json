@@ -1,6 +1,9 @@
 {
   "name": "livereview",
   "displayName": "LiveReview",
+  "repository": {
+    "url": "https://hexmos.com/livereview"
+  },
   "description": "AI Code Reviewer",
   "version": "0.0.1",
   "engines": {
