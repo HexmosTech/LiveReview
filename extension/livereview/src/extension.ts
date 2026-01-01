@@ -7,6 +7,7 @@ import { execFile } from 'child_process';
 
 const execFileAsync = util.promisify(execFile);
 const DEFAULT_API_URL = 'https://livereview.hexmos.com';
+let cachedLrcPath: string | undefined;
 
 type APIState = 'uninitialized' | 'initialized';
 
@@ -192,8 +193,82 @@ export function activate(context: vscode.ExtensionContext) {
 		await writeLrcConfig(apiUrl, apiKey);
 	};
 
+	const resolveLrcPath = async (): Promise<string> => {
+		if (cachedLrcPath) {
+			return cachedLrcPath;
+		}
+		const envPath = process.env.LRC_BIN?.trim();
+		if (envPath) {
+			try {
+				await fs.promises.access(envPath, fs.constants.X_OK);
+				cachedLrcPath = envPath;
+				return envPath;
+			} catch {
+				// ignore invalid env override and continue resolution
+			}
+		}
+		const isWindows = process.platform === 'win32';
+		const finder = isWindows ? 'where' : 'which';
+		const targets = isWindows ? ['lrc.exe', 'git-lrc.exe'] : ['lrc'];
+		for (const target of targets) {
+			try {
+				const { stdout } = await execFileAsync(finder, [target]);
+				const candidates = stdout
+					.split(/\r?\n/)
+					.map(line => line.trim())
+					.filter(Boolean);
+				if (candidates.length) {
+					cachedLrcPath = candidates[0];
+					return cachedLrcPath;
+				}
+			} catch {
+				// ignore
+			}
+		}
+
+		if (isWindows) {
+			const candidates = [
+				path.join(process.env.ProgramFiles ?? 'C:/Program Files', 'lrc', 'lrc.exe'),
+				path.join(process.env.LOCALAPPDATA ?? '', 'Programs', 'lrc', 'lrc.exe'),
+				'C:/Program Files/LiveReview/lrc.exe'
+			].filter(Boolean);
+			const found = candidates.find(fs.existsSync);
+			if (found) {
+				cachedLrcPath = found;
+				return cachedLrcPath;
+			}
+			cachedLrcPath = candidates[0];
+			return cachedLrcPath;
+		}
+
+		cachedLrcPath = '/usr/local/bin/lrc';
+		return cachedLrcPath;
+	};
+
+	const extractErrorMessage = (error: unknown): string => {
+		if (error instanceof Error) {
+			const stderr = (error as { stderr?: string }).stderr;
+			const msg = stderr?.trim();
+			return msg && msg.length > 0 ? msg : error.message;
+		}
+		if (typeof error === 'string') {
+			return error;
+		}
+		return String(error);
+	};
+
 	const runGit = async (repoPath: string, args: string[]) => {
 		return execFileAsync('git', args, { cwd: repoPath });
+	};
+
+	const runLrcCli = async (args: string[], cwd?: string): Promise<{ stdout: string; stderr: string }> => {
+		const lrcPath = await resolveLrcPath();
+		try {
+			const { stdout, stderr } = await execFileAsync(lrcPath, args, { cwd });
+			return { stdout: stdout.trim(), stderr: stderr.trim() };
+		} catch (error: unknown) {
+			throw new Error(extractErrorMessage(error));
+		}
 	};
 
 	const runPreCommitChecks = async (repoPath: string) => {
@@ -266,34 +341,44 @@ export function activate(context: vscode.ExtensionContext) {
 		const term = vscode.window.createTerminal({ name: termName, cwd: repoPath });
 		const stateFile = path.join(repoPath, '.git', 'livereview_state');
 		const lockDir = path.join(repoPath, '.git', 'livereview_state.lock');
+		const lrcPath = await resolveLrcPath();
 
 		const args = mode === 'skip' ? 'review --staged --skip' : 'review --staged --precommit';
 		const onSuccessState = mode === 'skip' ? 'skipped_manual' : 'ran';
 
-		const cmd = [
-			'mkdir -p',
-			`"${lockDir}"`,
-			'&&',
-			'LRC_INTERACTIVE=1',
-			'/usr/local/bin/lrc',
-			args,
-			'; code=$?',
-			';',
-			`if [ $code -eq 0 ]; then echo "${onSuccessState}:$$:$(date +%s)" >`,
-			`"${stateFile}"`,
-			';',
-			'elif [ $code -eq 2 ]; then echo "skipped_manual:$$:$(date +%s)" >',
-			`"${stateFile}"`,
-			';',
-			'else echo "skipped:$$:$(date +%s)" >',
-			`"${stateFile}"`,
-			';',
-			'fi',
-			';',
-			'rmdir',
-			`"${lockDir}"`,
-			'2>/dev/null || true'
-		].join(' ');
+		const cmd = process.platform === 'win32'
+			? [
+				`New-Item -ItemType Directory -Force -Path "${lockDir}" | Out-Null`,
+				`$env:LRC_INTERACTIVE="1"`,
+				`& "${lrcPath}" ${args}`,
+				`$code=$LASTEXITCODE`,
+				`if ($code -eq 0) { "${onSuccessState}:$PID:$(Get-Date -UFormat %s)" | Set-Content -Path "${stateFile}" } elseif ($code -eq 2) { "skipped_manual:$PID:$(Get-Date -UFormat %s)" | Set-Content -Path "${stateFile}" } else { "skipped:$PID:$(Get-Date -UFormat %s)" | Set-Content -Path "${stateFile}" }`,
+				`Remove-Item -LiteralPath "${lockDir}" -Force -ErrorAction SilentlyContinue`
+			].join('; ')
+			: [
+				'mkdir -p',
+				`"${lockDir}"`,
+				'&&',
+				'LRC_INTERACTIVE=1',
+				`"${lrcPath}"`,
+				args,
+				'; code=$?',
+				';',
+				`if [ $code -eq 0 ]; then echo "${onSuccessState}:$$:$(date +%s)" >`,
+				`"${stateFile}"`,
+				';',
+				'elif [ $code -eq 2 ]; then echo "skipped_manual:$$:$(date +%s)" >',
+				`"${stateFile}"`,
+				';',
+				'else echo "skipped:$$:$(date +%s)" >',
+				`"${stateFile}"`,
+				';',
+				'fi',
+				';',
+				'rmdir',
+				`"${lockDir}"`,
+				'2>/dev/null || true'
+			].join(' ');
 
 		term.show(true);
 		term.sendText(cmd, true);
@@ -316,7 +401,8 @@ export function activate(context: vscode.ExtensionContext) {
 
 				const summaryLines = [
 					`✅ Pre-commit checks passed for ${stagedCount} staged file(s).`,
-					`🔧 ${launchNote}`
+					`🔧 ${launchNote}`,
+					'⏳ Review is running in the terminal; watch for completion there.'
 				];
 
 				const summary = summaryLines.join('\n');
@@ -372,10 +458,9 @@ export function activate(context: vscode.ExtensionContext) {
 		});
 	};
 
-	const runReviewForActiveRepo = () => {
-		const repo = currentApi?.repositories[0];
+	const runReviewForActiveRepo = async (explicitRepo?: Repository) => {
+		const repo = explicitRepo ?? await pickRepo();
 		if (!repo) {
-			vscode.window.showWarningMessage('LiveReview: No Git repository detected.');
 			return;
 		}
 
@@ -388,10 +473,9 @@ export function activate(context: vscode.ExtensionContext) {
 		void runReview(repo, staged);
 	};
 
-	const runSkipForActiveRepo = () => {
-		const repo = currentApi?.repositories[0];
+	const runSkipForActiveRepo = async (explicitRepo?: Repository) => {
+		const repo = explicitRepo ?? await pickRepo();
 		if (!repo) {
-			vscode.window.showWarningMessage('LiveReview: No Git repository detected.');
 			return;
 		}
 
@@ -402,6 +486,115 @@ export function activate(context: vscode.ExtensionContext) {
 		}
 
 		void runSkipReview(repo, staged);
+	};
+
+	const runReviewForRepo = async (repo: Repository) => {
+		const staged = repo.state.indexChanges;
+		if (!staged.length) {
+			vscode.window.showWarningMessage('LiveReview: No staged files to review.');
+			return;
+		}
+		void runReview(repo, staged);
+	};
+
+	const tryGetRepoFromArg = (arg: unknown): Repository | undefined => {
+		const candidate = arg as Partial<Repository> | undefined;
+		if (!candidate || !candidate.rootUri) {
+			return undefined;
+		}
+		if (!(candidate.rootUri instanceof vscode.Uri)) {
+			return undefined;
+		}
+		if (candidate.state && Array.isArray(candidate.state.indexChanges)) {
+			return candidate as Repository;
+		}
+		return undefined;
+	};
+
+	const pickRepo = async (): Promise<Repository | undefined> => {
+		const repos = currentApi?.repositories ?? [];
+		if (!repos.length) {
+			vscode.window.showWarningMessage('LiveReview: No Git repository detected.');
+			return undefined;
+		}
+		if (repos.length === 1) {
+			return repos[0];
+		}
+		const picks = repos.map(r => ({
+			label: path.basename(r.rootUri.fsPath),
+			description: r.rootUri.fsPath,
+			repo: r
+		}));
+		const choice = await vscode.window.showQuickPick(picks, { placeHolder: 'Select a repository for LiveReview hooks' });
+		return choice?.repo;
+	};
+
+	const runHookAction = async (action: 'installGlobal' | 'uninstallGlobal' | 'enableLocal' | 'disableLocal' | 'status') => {
+		const repo = action === 'installGlobal' || action === 'uninstallGlobal' ? undefined : await pickRepo();
+		if (action !== 'installGlobal' && action !== 'uninstallGlobal' && !repo) {
+			return;
+		}
+
+		const cwd = repo?.rootUri.fsPath;
+		const titleMap: Record<typeof action, string> = {
+			installGlobal: 'Install global hooks',
+			uninstallGlobal: 'Uninstall global hooks',
+			enableLocal: 'Enable hooks (repo)',
+			disableLocal: 'Disable hooks (repo)',
+			status: 'Hook status (repo)'
+		};
+		const argsMap: Record<typeof action, string[]> = {
+			installGlobal: ['hooks', 'install'],
+			uninstallGlobal: ['hooks', 'uninstall'],
+			enableLocal: ['hooks', 'enable'],
+			disableLocal: ['hooks', 'disable'],
+			status: ['hooks', 'status']
+		};
+
+		const title = titleMap[action];
+		await vscode.window.withProgress({ location: vscode.ProgressLocation.Notification, title: `LiveReview: ${title}` }, async (progress) => {
+			progress.report({ message: 'Running lrc...' });
+			try {
+				const { stdout, stderr } = await runLrcCli(argsMap[action], cwd);
+				const sections: string[] = [];
+				if (stdout) {
+					sections.push(`stdout:\n${stdout}`);
+				}
+				if (stderr) {
+					sections.push(`stderr:\n${stderr}`);
+				}
+				const lines = sections.join('\n---\n') || 'Done.';
+				logInfo(`[hooks] ${title}${cwd ? ` @ ${cwd}` : ''}\n${lines}`);
+				vscode.window.showInformationMessage(`LiveReview: ${title} succeeded.`, 'Open Output').then(sel => {
+					if (sel === 'Open Output') {
+						output.show(true);
+					}
+				});
+			} catch (error: unknown) {
+				const message = extractErrorMessage(error);
+				logInfo(`[hooks error] ${title}${cwd ? ` @ ${cwd}` : ''}: ${message}`);
+				vscode.window.showErrorMessage(`LiveReview: ${title} failed: ${message}`, 'Open Output').then(sel => {
+					if (sel === 'Open Output') {
+						output.show(true);
+					}
+				});
+			}
+		});
+	};
+
+	const manageHooks = async () => {
+		const picks = [
+			{ label: 'Install global hooks', action: 'installGlobal' as const },
+			{ label: 'Uninstall global hooks', action: 'uninstallGlobal' as const },
+			{ label: 'Enable hooks for this repo', action: 'enableLocal' as const },
+			{ label: 'Disable hooks for this repo', action: 'disableLocal' as const },
+			{ label: 'Show hook status (repo)', action: 'status' as const }
+		];
+		const choice = await vscode.window.showQuickPick(picks, { placeHolder: 'LiveReview hook actions' });
+		if (!choice) {
+			return;
+		}
+		void runHookAction(choice.action);
 	};
 
 	const handleStaging = (repo: Repository) => {
@@ -420,7 +613,7 @@ export function activate(context: vscode.ExtensionContext) {
 
 		vscode.window.showInformationMessage(message, 'Run LiveReview', 'Dismiss').then(selection => {
 			if (selection === 'Run LiveReview') {
-				void runReview(repo, staged);
+				void runReviewForActiveRepo(repo);
 			}
 		});
 	};
@@ -535,19 +728,56 @@ export function activate(context: vscode.ExtensionContext) {
 		void initGit();
 	});
 
-	const runLiveReviewCommand = vscode.commands.registerCommand('livereview.runLiveReview', () => {
-		runReviewForActiveRepo();
+	const runLiveReviewCommand = vscode.commands.registerCommand('livereview.runLiveReview', (...args: unknown[]) => {
+		const repo = tryGetRepoFromArg(args[0]);
+		void runReviewForActiveRepo(repo);
 	});
 
-	const skipLiveReviewCommand = vscode.commands.registerCommand('livereview.skipLiveReview', () => {
-		runSkipForActiveRepo();
+	const skipLiveReviewCommand = vscode.commands.registerCommand('livereview.skipLiveReview', (...args: unknown[]) => {
+		const repo = tryGetRepoFromArg(args[0]);
+		void runSkipForActiveRepo(repo);
+	});
+
+	const manageHooksCommand = vscode.commands.registerCommand('livereview.manageHooks', () => {
+		void manageHooks();
+	});
+
+	const installGlobalHooksCommand = vscode.commands.registerCommand('livereview.hooks.installGlobal', () => {
+		void runHookAction('installGlobal');
+	});
+
+	const uninstallGlobalHooksCommand = vscode.commands.registerCommand('livereview.hooks.uninstallGlobal', () => {
+		void runHookAction('uninstallGlobal');
+	});
+
+	const enableLocalHooksCommand = vscode.commands.registerCommand('livereview.hooks.enableLocal', () => {
+		void runHookAction('enableLocal');
+	});
+
+	const disableLocalHooksCommand = vscode.commands.registerCommand('livereview.hooks.disableLocal', () => {
+		void runHookAction('disableLocal');
+	});
+
+	const statusHooksCommand = vscode.commands.registerCommand('livereview.hooks.status', () => {
+		void runHookAction('status');
 	});
 
 	const helloCommand = vscode.commands.registerCommand('livereview.helloWorld', () => {
 		vscode.window.showInformationMessage('Hello World from LiveReview!');
 	});
 
-	context.subscriptions.push(enableHooksCommand, runLiveReviewCommand, skipLiveReviewCommand, helloCommand);
+	context.subscriptions.push(
+		enableHooksCommand,
+		runLiveReviewCommand,
+		skipLiveReviewCommand,
+		manageHooksCommand,
+		installGlobalHooksCommand,
+		uninstallGlobalHooksCommand,
+		enableLocalHooksCommand,
+		disableLocalHooksCommand,
+		statusHooksCommand,
+		helloCommand
+	);
 
 	vscode.window.showInformationMessage('LiveReview activated: Git hooks arming...');
 	void syncSettingsFromFile().finally(() => {
