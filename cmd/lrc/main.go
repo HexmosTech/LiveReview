@@ -158,6 +158,11 @@ var baseFlags = []cli.Flag{
 		Usage:   "mark review as skipped and write attestation without contacting the API",
 		EnvVars: []string{"LRC_SKIP"},
 	},
+	&cli.BoolFlag{
+		Name:    "force",
+		Usage:   "force rerun by removing existing attestation/hash for current tree",
+		EnvVars: []string{"LRC_FORCE"},
+	},
 }
 
 var debugFlags = []cli.Flag{
@@ -313,6 +318,7 @@ type reviewOptions struct {
 	verbose      bool
 	precommit    bool
 	skip         bool
+	force        bool
 	initialMsg   string
 }
 
@@ -356,6 +362,7 @@ func buildOptionsFromContext(c *cli.Context, includeDebug bool) (reviewOptions, 
 		verbose:    c.Bool("verbose"),
 		precommit:  c.Bool("precommit"),
 		skip:       c.Bool("skip"),
+		force:      c.Bool("force"),
 		saveJSON:   c.String("save-json"),
 		saveText:   c.String("save-text"),
 		initialMsg: initialMsg,
@@ -478,13 +485,18 @@ func runReviewWithOptions(opts reviewOptions) error {
 		_ = clearCommitMessageFile(commitMsgPath)
 	}
 
-	// Always try to clear any existing attestation for the current tree so reruns proceed
-	if err := deleteAttestationForCurrentTree(); err != nil {
-		if verbose {
-			log.Printf("Failed to remove existing attestation for current tree: %v", err)
+	// If an attestation exists, either fail with guidance or remove it when --force is used
+	if existing, err := existingAttestationAction(); err == nil && existing != "" {
+		if !opts.force {
+			return cli.Exit(fmt.Sprintf("LiveReview: attestation already present for current tree (%s); use --force to rerun", existing), 1)
 		}
-	} else if verbose {
-		log.Printf("Cleared any existing attestation for current tree; rerunning review")
+		if err := deleteAttestationForCurrentTree(); err != nil {
+			if verbose {
+				log.Printf("Failed to remove existing attestation for current tree: %v", err)
+			}
+		} else if verbose {
+			log.Printf("Removed existing attestation for current tree (action=%s); rerunning review", existing)
+		}
 	}
 
 	// Load configuration from config file or overrides
