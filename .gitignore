@@ -1,7 +1,7 @@
 hunk_format_logs
 air.log
 
-./livereview
+/livereview
 
 # Log files
 *.log
