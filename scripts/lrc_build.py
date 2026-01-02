@@ -524,6 +524,8 @@ class LRCBuilder:
         # Commit the change
         self.log("Committing version bump...", force=True)
         self.run_command(["git", "add", "cmd/lrc/main.go"])
+        # Run lrc review skip to record attestation before committing
+        self.run_command(["git", "lrc", "review", "--skip"])
         self.run_command([
             "git", "commit", "-m",
             f"lrc: bump version {current_version} → {new_version}"
