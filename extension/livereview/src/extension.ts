@@ -339,46 +339,15 @@ export function activate(context: vscode.ExtensionContext) {
 	const runLrc = async (repoPath: string, mode: 'review' | 'skip'): Promise<string> => {
 		const termName = `LiveReview lrc (${path.basename(repoPath)})`;
 		const term = vscode.window.createTerminal({ name: termName, cwd: repoPath });
-		const stateFile = path.join(repoPath, '.git', 'livereview_state');
-		const lockDir = path.join(repoPath, '.git', 'livereview_state.lock');
-		const lrcPath = await resolveLrcPath();
+		const lrcPath = '/usr/local/bin/lrc';
 
-		const args = mode === 'skip' ? 'review --staged --skip' : 'review --staged --precommit';
-		const onSuccessState = mode === 'skip' ? 'skipped_manual' : 'ran';
-
-		const cmd = process.platform === 'win32'
-			? [
-				`New-Item -ItemType Directory -Force -Path "${lockDir}" | Out-Null`,
-				`$env:LRC_INTERACTIVE="1"`,
-				`& "${lrcPath}" ${args}`,
-				`$code=$LASTEXITCODE`,
-				`if ($code -eq 0) { "${onSuccessState}:$PID:$(Get-Date -UFormat %s)" | Set-Content -Path "${stateFile}" } elseif ($code -eq 2) { "skipped_manual:$PID:$(Get-Date -UFormat %s)" | Set-Content -Path "${stateFile}" } else { "skipped:$PID:$(Get-Date -UFormat %s)" | Set-Content -Path "${stateFile}" }`,
-				`Remove-Item -LiteralPath "${lockDir}" -Force -ErrorAction SilentlyContinue`
-			].join('; ')
-			: [
-				'mkdir -p',
-				`"${lockDir}"`,
-				'&&',
-				'LRC_INTERACTIVE=1',
-				`"${lrcPath}"`,
-				args,
-				'; code=$?',
-				';',
-				`if [ $code -eq 0 ]; then echo "${onSuccessState}:$$:$(date +%s)" >`,
-				`"${stateFile}"`,
-				';',
-				'elif [ $code -eq 2 ]; then echo "skipped_manual:$$:$(date +%s)" >',
-				`"${stateFile}"`,
-				';',
-				'else echo "skipped:$$:$(date +%s)" >',
-				`"${stateFile}"`,
-				';',
-				'fi',
-				';',
-				'rmdir',
-				`"${lockDir}"`,
-				'2>/dev/null || true'
-			].join(' ');
+		const args = mode === 'skip'
+			? ['review', '--precommit', '--skip']
+			: ['review', '--precommit'];
+		const cmd = [
+			process.platform === 'win32' ? `& "${lrcPath}"` : `"${lrcPath}"`,
+			...args
+		].join(' ');
 
 		term.show(true);
 		term.sendText(cmd, true);
@@ -762,10 +731,6 @@ export function activate(context: vscode.ExtensionContext) {
 		void runHookAction('status');
 	});
 
-	const helloCommand = vscode.commands.registerCommand('livereview.helloWorld', () => {
-		vscode.window.showInformationMessage('Hello World from LiveReview!');
-	});
-
 	context.subscriptions.push(
 		enableHooksCommand,
 		runLiveReviewCommand,
@@ -775,8 +740,7 @@ export function activate(context: vscode.ExtensionContext) {
 		uninstallGlobalHooksCommand,
 		enableLocalHooksCommand,
 		disableLocalHooksCommand,
-		statusHooksCommand,
-		helloCommand
+		statusHooksCommand
 	);
 
 	vscode.window.showInformationMessage('LiveReview activated: Git hooks arming...');

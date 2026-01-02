@@ -7,7 +7,7 @@
     "url": "https://hexmos.com/livereview"
   },
   "description": "AI Code Reviewer",
-  "version": "0.0.2",
+  "version": "0.0.4",
   "engines": {
     "vscode": "^1.70.0"
   },
@@ -17,7 +17,6 @@
   "activationEvents": [
     "onStartupFinished",
     "onCommand:livereview.enableGitHooks",
-    "onCommand:livereview.helloWorld",
     "onCommand:livereview.runLiveReview",
     "onCommand:livereview.skipLiveReview",
     "onCommand:livereview.manageHooks",
@@ -30,10 +29,6 @@
   "main": "./dist/extension.js",
   "contributes": {
     "commands": [
-      {
-        "command": "livereview.helloWorld",
-        "title": "Hello World"
-      },
       {
         "command": "livereview.enableGitHooks",
         "title": "LiveReview: Enable Git Hooks"
