@@ -1,6 +1,6 @@
 VSIX := livereview.vsix
 
-.PHONY: package clean install
+.PHONY: package clean install min-api-version
 
 package:
 	npm install
@@ -11,6 +11,10 @@ install: package
 
 publish:
 	npx @vscode/vsce publish
+
+# Find the minimum supported VS Code API version by running the probe script
+min-api-version:
+	./find-min-version.sh
 
 clean:
 	rm -f $(VSIX)
