@@ -11,6 +11,7 @@ install: package
 
 publish:
 	npx @vscode/vsce publish
+	npx ovsx publish --pat "[REDACTED_OPENVSX_TOKEN]"
 
 # Find the minimum supported VS Code API version by running the probe script
 min-api-version:

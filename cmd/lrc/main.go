@@ -6,8 +6,10 @@ import (
 	"bytes"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"log"
 	"net"
 	"net/http"
@@ -148,6 +150,7 @@ var baseFlags = []cli.Flag{
 	&cli.BoolFlag{
 		Name:    "precommit",
 		Usage:   "pre-commit mode: interactive prompts for commit decision (Ctrl-C=abort, Ctrl-S=skip+commit, Enter=commit)",
+		Value:   false,
 		EnvVars: []string{"LRC_PRECOMMIT"},
 	},
 	&cli.BoolFlag{
@@ -314,16 +317,22 @@ type reviewOptions struct {
 }
 
 func runReviewSimple(c *cli.Context) error {
-	opts := buildOptionsFromContext(c, false)
+	opts, err := buildOptionsFromContext(c, false)
+	if err != nil {
+		return err
+	}
 	return runReviewWithOptions(opts)
 }
 
 func runReviewDebug(c *cli.Context) error {
-	opts := buildOptionsFromContext(c, true)
+	opts, err := buildOptionsFromContext(c, true)
+	if err != nil {
+		return err
+	}
 	return runReviewWithOptions(opts)
 }
 
-func buildOptionsFromContext(c *cli.Context, includeDebug bool) reviewOptions {
+func buildOptionsFromContext(c *cli.Context, includeDebug bool) (reviewOptions, error) {
 	// Get initial commit message from file or environment variable
 	initialMsg := ""
 	if msgFile := os.Getenv("LRC_INITIAL_MESSAGE_FILE"); msgFile != "" {
@@ -352,6 +361,12 @@ func buildOptionsFromContext(c *cli.Context, includeDebug bool) reviewOptions {
 		initialMsg: initialMsg,
 	}
 
+	userFlags := c.NumFlags()
+
+	if opts.skip {
+		opts.precommit = false
+	}
+
 	staged := c.Bool("staged")
 	diffSource := c.String("diff-source")
 
@@ -363,8 +378,15 @@ func buildOptionsFromContext(c *cli.Context, includeDebug bool) reviewOptions {
 		diffSource = "staged"
 	}
 
-	if diffSource == "" {
+	if diffSource == "" && userFlags == 0 {
 		diffSource = "staged"
+		if !opts.skip {
+			opts.precommit = true
+		}
+	}
+
+	if diffSource == "" {
+		return reviewOptions{}, fmt.Errorf("diff source not specified; pass --staged or --diff-source")
 	}
 
 	opts.diffSource = diffSource
@@ -386,7 +408,7 @@ func buildOptionsFromContext(c *cli.Context, includeDebug bool) reviewOptions {
 		opts.output = defaultOutputFormat
 	}
 
-	return opts
+	return opts, nil
 }
 
 // applyDefaultHTMLServe enables HTML saving/serving when the user runs with defaults.
@@ -456,14 +478,13 @@ func runReviewWithOptions(opts reviewOptions) error {
 		_ = clearCommitMessageFile(commitMsgPath)
 	}
 
-	// If an attestation already exists for the current tree, skip running another review
-	if existing, err := existingAttestationAction(); err == nil && existing != "" {
+	// Always try to clear any existing attestation for the current tree so reruns proceed
+	if err := deleteAttestationForCurrentTree(); err != nil {
 		if verbose {
-			log.Printf("Attestation already present for current tree (action=%s); skipping review", existing)
-		} else {
-			fmt.Printf("LiveReview: attestation already present for current tree (%s); skipping review\n", existing)
+			log.Printf("Failed to remove existing attestation for current tree: %v", err)
 		}
-		return nil
+	} else if verbose {
+		log.Printf("Cleared any existing attestation for current tree; rerunning review")
 	}
 
 	// Load configuration from config file or overrides
@@ -890,6 +911,28 @@ func writeAttestationForCurrentTree(action string) (string, error) {
 	}
 
 	return target, nil
+}
+
+func deleteAttestationForCurrentTree() error {
+	treeHash, err := currentTreeHash()
+	if err != nil {
+		return fmt.Errorf("failed to compute tree hash: %w", err)
+	}
+	if treeHash == "" {
+		return nil
+	}
+
+	gitDir, err := resolveGitDir()
+	if err != nil {
+		return fmt.Errorf("failed to resolve git dir: %w", err)
+	}
+
+	attestPath := filepath.Join(gitDir, "lrc", "attestations", fmt.Sprintf("%s.json", treeHash))
+	if err := os.Remove(attestPath); err != nil && !errors.Is(err, fs.ErrNotExist) {
+		return fmt.Errorf("failed to delete attestation %s: %w", attestPath, err)
+	}
+
+	return nil
 }
 
 func currentTreeHash() (string, error) {
