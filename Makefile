@@ -36,6 +36,7 @@ lrc-build:
 lrc-build-local:
 	@echo "🔨 Building lrc CLI locally (dirty tree allowed)..."
 	@go build -o /tmp/lrc ./cmd/lrc
+	@sudo rm -f /usr/local/bin/lrc || true
 	@sudo install -m 0755 /tmp/lrc /usr/local/bin/lrc
 	@echo "✅ Installed lrc to /usr/local/bin"
 	
