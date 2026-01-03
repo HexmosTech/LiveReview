@@ -46,9 +46,18 @@ type diffReviewRequest struct {
 
 // diffReviewResponse models the response from GET /api/v1/diff-review/:id
 type diffReviewResponse struct {
-	Status  string                 `json:"status"`
-	Summary string                 `json:"summary,omitempty"`
-	Files   []diffReviewFileResult `json:"files,omitempty"`
+	Status       string                 `json:"status"`
+	Summary      string                 `json:"summary,omitempty"`
+	Files        []diffReviewFileResult `json:"files,omitempty"`
+	Message      string                 `json:"message,omitempty"`
+	FriendlyName string                 `json:"friendly_name,omitempty"`
+}
+
+type diffReviewCreateResponse struct {
+	ReviewID     string `json:"review_id"`
+	Status       string `json:"status"`
+	FriendlyName string `json:"friendly_name,omitempty"`
+	UserEmail    string `json:"user_email,omitempty"`
 }
 
 type diffReviewFileResult struct {
@@ -86,6 +95,14 @@ const (
 // highlightURL adds ANSI color to make served links stand out in terminals.
 func highlightURL(url string) string {
 	return "\033[36m" + url + "\033[0m"
+}
+
+func buildReviewURL(apiURL, reviewID string) string {
+	base := strings.TrimSuffix(strings.TrimSuffix(strings.TrimSuffix(apiURL, "/"), "/api"), "/api/v1")
+	if base == "" {
+		return ""
+	}
+	return fmt.Sprintf("%s/#/reviews/%s", base, reviewID)
 }
 
 var baseFlags = []cli.Flag{
@@ -555,12 +572,24 @@ func runReviewWithOptions(opts reviewOptions) error {
 	}
 
 	// Submit review
-	reviewID, err := submitReview(config.APIURL, config.APIKey, base64Diff, repoName, verbose)
+	submitResp, err := submitReview(config.APIURL, config.APIKey, base64Diff, repoName, verbose)
 	if err != nil {
 		return fmt.Errorf("failed to submit review: %w", err)
 	}
 
+	reviewID := submitResp.ReviewID
+	reviewURL := buildReviewURL(config.APIURL, reviewID)
+
 	fmt.Printf("Review submitted, ID: %s\n", reviewID)
+	if submitResp.UserEmail != "" {
+		fmt.Printf("Account: %s\n", submitResp.UserEmail)
+	}
+	if submitResp.FriendlyName != "" {
+		fmt.Printf("Title: %s\n", submitResp.FriendlyName)
+	}
+	if reviewURL != "" {
+		fmt.Printf("Review link: %s\n", highlightURL(reviewURL))
+	}
 
 	// In precommit mode, ensure unbuffered output
 	if opts.precommit {
@@ -627,6 +656,9 @@ func runReviewWithOptions(opts reviewOptions) error {
 			}
 			stopCtrlSFn()
 			if pollErr != nil {
+				if reviewURL != "" {
+					return fmt.Errorf("failed to poll review (see %s): %w", reviewURL, pollErr)
+				}
 				return fmt.Errorf("failed to poll review: %w", pollErr)
 			}
 			result = pollResult
@@ -1118,7 +1150,7 @@ func createZipArchive(diffContent []byte) ([]byte, error) {
 	return buf.Bytes(), nil
 }
 
-func submitReview(apiURL, apiKey, base64Diff, repoName string, verbose bool) (string, error) {
+func submitReview(apiURL, apiKey, base64Diff, repoName string, verbose bool) (diffReviewCreateResponse, error) {
 	endpoint := strings.TrimSuffix(apiURL, "/") + "/api/v1/diff-review"
 
 	payload := diffReviewRequest{
@@ -1128,12 +1160,12 @@ func submitReview(apiURL, apiKey, base64Diff, repoName string, verbose bool) (st
 
 	jsonData, err := json.Marshal(payload)
 	if err != nil {
-		return "", fmt.Errorf("failed to marshal request: %w", err)
+		return diffReviewCreateResponse{}, fmt.Errorf("failed to marshal request: %w", err)
 	}
 
 	req, err := http.NewRequest("POST", endpoint, bytes.NewBuffer(jsonData))
 	if err != nil {
-		return "", fmt.Errorf("failed to create request: %w", err)
+		return diffReviewCreateResponse{}, fmt.Errorf("failed to create request: %w", err)
 	}
 
 	req.Header.Set("Content-Type", "application/json")
@@ -1146,30 +1178,29 @@ func submitReview(apiURL, apiKey, base64Diff, repoName string, verbose bool) (st
 	client := &http.Client{Timeout: 30 * time.Second}
 	resp, err := client.Do(req)
 	if err != nil {
-		return "", fmt.Errorf("failed to send request: %w", err)
+		return diffReviewCreateResponse{}, fmt.Errorf("failed to send request: %w", err)
 	}
 	defer resp.Body.Close()
 
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return "", fmt.Errorf("failed to read response: %w", err)
+		return diffReviewCreateResponse{}, fmt.Errorf("failed to read response: %w", err)
 	}
 
 	if resp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("API returned status %d: %s", resp.StatusCode, string(body))
+		return diffReviewCreateResponse{}, fmt.Errorf("API returned status %d: %s", resp.StatusCode, string(body))
 	}
 
-	var result map[string]interface{}
+	var result diffReviewCreateResponse
 	if err := json.Unmarshal(body, &result); err != nil {
-		return "", fmt.Errorf("failed to parse response: %w", err)
+		return diffReviewCreateResponse{}, fmt.Errorf("failed to parse response: %w", err)
 	}
 
-	reviewID, ok := result["review_id"].(string)
-	if !ok {
-		return "", fmt.Errorf("review_id not found in response")
+	if result.ReviewID == "" {
+		return diffReviewCreateResponse{}, fmt.Errorf("review_id not found in response")
 	}
 
-	return reviewID, nil
+	return result, nil
 }
 
 // trackCLIUsage sends a telemetry ping to the backend to track CLI usage
@@ -1255,13 +1286,21 @@ func pollReview(apiURL, apiKey, reviewID string, pollInterval, timeout time.Dura
 		}
 
 		if result.Status == "completed" {
-			fmt.Println()
+			if isTTY {
+				fmt.Printf("\r%-80s\n", statusLine)
+			}
 			return &result, nil
 		}
 
 		if result.Status == "failed" {
-			fmt.Println()
-			return nil, fmt.Errorf("review failed")
+			if isTTY {
+				fmt.Printf("\r%-80s\n", statusLine)
+			}
+			reason := strings.TrimSpace(result.Message)
+			if reason == "" {
+				reason = "no additional details provided"
+			}
+			return nil, fmt.Errorf("review failed: %s", reason)
 		}
 
 		time.Sleep(pollInterval)
