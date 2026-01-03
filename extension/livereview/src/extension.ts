@@ -353,9 +353,12 @@ export async function activate(context: vscode.ExtensionContext) {
 			process.platform === 'win32' ? `& "${lrcPath}"` : `"${lrcPath}"`,
 			...args
 		].join(' ');
+		const cdPrefix = process.platform === 'win32'
+			? `cd /d "${repoPath}" && `
+			: `cd "${repoPath}" && `;
 
 		term.show(true);
-		term.sendText(cmd, true);
+		term.sendText(cdPrefix + cmd, true);
 
 		return `lrc launched in terminal "${termName}" (${mode}). Check terminal for details.`;
 	};
@@ -485,6 +488,74 @@ export async function activate(context: vscode.ExtensionContext) {
 		return undefined;
 	};
 
+	const findRepoForFsPath = (fsPath: string): Repository | undefined => {
+		const repos = currentApi?.repositories ?? [];
+		const normalized = path.resolve(fsPath);
+		return repos.find(repo => {
+			const root = path.resolve(repo.rootUri.fsPath);
+			return normalized === root || normalized.startsWith(root + path.sep);
+		});
+	};
+
+	const resolveRepoFromArgs = (args: unknown[]): Repository | undefined => {
+		for (const arg of args) {
+			const directRepo = tryGetRepoFromArg(arg);
+			if (directRepo) {
+				return directRepo;
+			}
+
+			if (arg instanceof vscode.Uri) {
+				const repo = findRepoForFsPath(arg.fsPath);
+				if (repo) {
+					return repo;
+				}
+			}
+
+			const withRoot = arg as { rootUri?: vscode.Uri };
+			if (withRoot?.rootUri instanceof vscode.Uri) {
+				const repo = findRepoForFsPath(withRoot.rootUri.fsPath);
+				if (repo) {
+					return repo;
+				}
+			}
+
+			const withResource = arg as { resourceUri?: vscode.Uri };
+			if (withResource?.resourceUri instanceof vscode.Uri) {
+				const repo = findRepoForFsPath(withResource.resourceUri.fsPath);
+				if (repo) {
+					return repo;
+				}
+			}
+
+			const group = arg as { resourceStates?: Array<{ resourceUri?: vscode.Uri }> };
+			if (group?.resourceStates?.length) {
+				for (const state of group.resourceStates) {
+					if (state?.resourceUri instanceof vscode.Uri) {
+						const repo = findRepoForFsPath(state.resourceUri.fsPath);
+						if (repo) {
+							return repo;
+						}
+					}
+				}
+			}
+
+			if (Array.isArray(arg)) {
+				const nested = resolveRepoFromArgs(arg);
+				if (nested) {
+					return nested;
+				}
+			}
+
+			if (typeof arg === 'string') {
+				const repo = findRepoForFsPath(arg);
+				if (repo) {
+					return repo;
+				}
+			}
+		}
+		return undefined;
+	};
+
 	const pickRepo = async (): Promise<Repository | undefined> => {
 		const repos = currentApi?.repositories ?? [];
 		if (!repos.length) {
@@ -503,8 +574,8 @@ export async function activate(context: vscode.ExtensionContext) {
 		return choice?.repo;
 	};
 
-	const runHookAction = async (action: 'installGlobal' | 'uninstallGlobal' | 'enableLocal' | 'disableLocal' | 'status') => {
-		const repo = action === 'installGlobal' || action === 'uninstallGlobal' ? undefined : await pickRepo();
+	const runHookAction = async (action: 'installGlobal' | 'uninstallGlobal' | 'enableLocal' | 'disableLocal' | 'status', explicitRepo?: Repository) => {
+		const repo = action === 'installGlobal' || action === 'uninstallGlobal' ? undefined : (explicitRepo ?? await pickRepo());
 		if (action !== 'installGlobal' && action !== 'uninstallGlobal' && !repo) {
 			return;
 		}
@@ -704,12 +775,12 @@ export async function activate(context: vscode.ExtensionContext) {
 	});
 
 	const runLiveReviewCommand = vscode.commands.registerCommand('livereview.runLiveReview', (...args: unknown[]) => {
-		const repo = tryGetRepoFromArg(args[0]);
+		const repo = resolveRepoFromArgs(args);
 		void runReviewForActiveRepo(repo);
 	});
 
 	const skipLiveReviewCommand = vscode.commands.registerCommand('livereview.skipLiveReview', (...args: unknown[]) => {
-		const repo = tryGetRepoFromArg(args[0]);
+		const repo = resolveRepoFromArgs(args);
 		void runSkipForActiveRepo(repo);
 	});
 
@@ -717,24 +788,29 @@ export async function activate(context: vscode.ExtensionContext) {
 		void manageHooks();
 	});
 
-	const installGlobalHooksCommand = vscode.commands.registerCommand('livereview.hooks.installGlobal', () => {
-		void runHookAction('installGlobal');
+	const installGlobalHooksCommand = vscode.commands.registerCommand('livereview.hooks.installGlobal', (...args: unknown[]) => {
+		const repo = resolveRepoFromArgs(args);
+		void runHookAction('installGlobal', repo);
 	});
 
-	const uninstallGlobalHooksCommand = vscode.commands.registerCommand('livereview.hooks.uninstallGlobal', () => {
-		void runHookAction('uninstallGlobal');
+	const uninstallGlobalHooksCommand = vscode.commands.registerCommand('livereview.hooks.uninstallGlobal', (...args: unknown[]) => {
+		const repo = resolveRepoFromArgs(args);
+		void runHookAction('uninstallGlobal', repo);
 	});
 
-	const enableLocalHooksCommand = vscode.commands.registerCommand('livereview.hooks.enableLocal', () => {
-		void runHookAction('enableLocal');
+	const enableLocalHooksCommand = vscode.commands.registerCommand('livereview.hooks.enableLocal', (...args: unknown[]) => {
+		const repo = resolveRepoFromArgs(args);
+		void runHookAction('enableLocal', repo);
 	});
 
-	const disableLocalHooksCommand = vscode.commands.registerCommand('livereview.hooks.disableLocal', () => {
-		void runHookAction('disableLocal');
+	const disableLocalHooksCommand = vscode.commands.registerCommand('livereview.hooks.disableLocal', (...args: unknown[]) => {
+		const repo = resolveRepoFromArgs(args);
+		void runHookAction('disableLocal', repo);
 	});
 
-	const statusHooksCommand = vscode.commands.registerCommand('livereview.hooks.status', () => {
-		void runHookAction('status');
+	const statusHooksCommand = vscode.commands.registerCommand('livereview.hooks.status', (...args: unknown[]) => {
+		const repo = resolveRepoFromArgs(args);
+		void runHookAction('status', repo);
 	});
 
 	context.subscriptions.push(
