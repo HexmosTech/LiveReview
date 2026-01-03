@@ -275,6 +275,8 @@ func (p *LangchainProvider) MaxTokensPerBatch() int {
 			return 30000 // Gemini can handle larger batches
 		case "openai":
 			return 16000 // OpenAI models like GPT-3.5/4
+		case "openrouter":
+			return 24000 // OpenRouter proxy endpoints often allow larger contexts
 		case "anthropic":
 			return 20000 // Claude models
 		default:
@@ -306,6 +308,11 @@ func (p *LangchainProvider) initializeLLM() error {
 	case "google", "googleai", "gemini":
 		return p.initializeGeminiLLM()
 	case "openai":
+		return p.initializeOpenAILLM()
+	case "openrouter":
+		if p.baseURL == "" {
+			p.baseURL = "https://openrouter.ai/api/v1"
+		}
 		return p.initializeOpenAILLM()
 	case "anthropic":
 		return p.initializeAnthropicLLM()
