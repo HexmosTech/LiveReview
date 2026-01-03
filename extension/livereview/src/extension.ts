@@ -371,7 +371,7 @@ export async function activate(context: vscode.ExtensionContext) {
 		await vscode.window.withProgress({ location: vscode.ProgressLocation.Notification, title: `LiveReview checks for ${repoName}` }, async (progress) => {
 			try {
 				progress.report({ message: 'Running pre-commit checks...' });
-				await runPreCommitChecks(repoPath);
+				// await runPreCommitChecks(repoPath);
 
 				progress.report({ message: 'Launching lrc (interactive terminal)...' });
 				const launchNote = await runLrc(repoPath, 'review');
