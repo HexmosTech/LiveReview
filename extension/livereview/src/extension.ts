@@ -4,6 +4,7 @@ import * as util from 'util';
 import * as fs from 'fs';
 import * as os from 'os';
 import { execFile } from 'child_process';
+import { ensureLatestExtension, ensureLatestLrc } from './update';
 
 const execFileAsync = util.promisify(execFile);
 const DEFAULT_API_URL = 'https://livereview.hexmos.com';
@@ -116,7 +117,7 @@ const statusLabels: Record<number, string> = {
 	[Status.BOTH_MODIFIED]: 'both modified'
 };
 
-export function activate(context: vscode.ExtensionContext) {
+export async function activate(context: vscode.ExtensionContext) {
 	const output = vscode.window.createOutputChannel('LiveReview Git Hooks');
 	const repoSubscriptions = new Map<string, vscode.Disposable[]>();
 	let currentApi: API | undefined;
@@ -339,7 +340,7 @@ export function activate(context: vscode.ExtensionContext) {
 	const runLrc = async (repoPath: string, mode: 'review' | 'skip'): Promise<string> => {
 		const termName = `LiveReview lrc (${path.basename(repoPath)})`;
 		const term = vscode.window.createTerminal({ name: termName, cwd: repoPath });
-		const lrcPath = '/usr/local/bin/lrc';
+		const lrcPath = await resolveLrcPath();
 
 		const args = mode === 'skip'
 			? ['review', '--skip']
@@ -743,6 +744,13 @@ export function activate(context: vscode.ExtensionContext) {
 		disableLocalHooksCommand,
 		statusHooksCommand
 	);
+
+	await ensureLatestExtension(context, output).catch(err => {
+		output.appendLine(`LiveReview: Extension version check failed: ${String(err)}`);
+	});
+	await ensureLatestLrc(resolveLrcPath, output).catch(err => {
+		output.appendLine(`LiveReview: lrc version check failed: ${String(err)}`);
+	});
 
 	void syncSettingsFromFile().finally(() => {
 		void initGit();
