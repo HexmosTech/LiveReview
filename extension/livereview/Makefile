@@ -7,7 +7,7 @@ package:
 	npx @vscode/vsce package -o $(VSIX)
 
 install: package
-	code-insiders --install-extension $(VSIX)
+	code-insiders --install-extension $(VSIX) --force
 
 publish:
 	npx @vscode/vsce publish
