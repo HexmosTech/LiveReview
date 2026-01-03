@@ -98,6 +98,10 @@ func (f *StandardAIProviderFactory) CreateAIProvider(ctx context.Context, config
 		providerName, _ := config.Config["provider_name"].(string)
 		baseURL, _ := config.Config["base_url"].(string)
 
+		if strings.EqualFold(providerName, "openrouter") && baseURL == "" {
+			baseURL = "https://openrouter.ai/api/v1"
+		}
+
 		// Set provider-specific token limits
 		maxTokens := f.getProviderMaxTokens(providerName)
 
@@ -118,6 +122,10 @@ func (f *StandardAIProviderFactory) CreateAIProvider(ctx context.Context, config
 		// Extract provider information from config
 		providerName, _ := config.Config["provider_name"].(string)
 		baseURL, _ := config.Config["base_url"].(string)
+
+		if strings.EqualFold(providerName, "openrouter") && baseURL == "" {
+			baseURL = "https://openrouter.ai/api/v1"
+		}
 
 		// Set provider-specific token limits
 		maxTokens := f.getProviderMaxTokens(providerName)
@@ -146,6 +154,8 @@ func (f *StandardAIProviderFactory) getProviderMaxTokens(providerName string) in
 		return 30000 // Gemini can handle larger batches
 	case "openai":
 		return 16000 // OpenAI models like GPT-3.5/4 can handle decent batches
+	case "openrouter":
+		return 24000 // OpenRouter proxy for wide model set; allow generous tokens
 	case "anthropic":
 		return 20000 // Claude models can handle large batches
 	default:

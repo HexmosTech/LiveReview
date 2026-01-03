@@ -343,6 +343,8 @@ func (s *Server) getAIConfigFromDatabase(ctx context.Context, orgID int64) (revi
 			model = "gemini-2.5-flash" // Default Gemini model
 		case "openai":
 			model = "gpt-3.5-turbo" // Default OpenAI model
+		case "openrouter":
+			model = "deepseek/deepseek-r1-0528:free" // Default OpenRouter model
 		case "anthropic":
 			model = "claude-3-haiku-20240307" // Default Anthropic model
 		default:
@@ -358,9 +360,17 @@ func (s *Server) getAIConfigFromDatabase(ctx context.Context, orgID int64) (revi
 	}
 
 	// Add base URL if available
+	baseURL := ""
 	if connector.BaseURL.Valid && connector.BaseURL.String != "" {
-		configMap["base_url"] = connector.BaseURL.String
-		fmt.Printf("[AI CONFIG] Using base URL: %s\n", connector.BaseURL.String)
+		baseURL = connector.BaseURL.String
+	}
+	if baseURL == "" && connector.ProviderName == "openrouter" {
+		baseURL = "https://openrouter.ai/api/v1"
+	}
+
+	if baseURL != "" {
+		configMap["base_url"] = baseURL
+		fmt.Printf("[AI CONFIG] Using base URL: %s\n", baseURL)
 	} else {
 		fmt.Printf("[AI CONFIG] No base URL configured\n")
 	}

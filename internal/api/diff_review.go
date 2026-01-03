@@ -127,8 +127,10 @@ func (s *Server) DiffReview(c echo.Context) error {
 	go s.runDiffReview(reviewRequest, rm, reviewRecord.ID, orgID)
 
 	return c.JSON(http.StatusOK, map[string]interface{}{
-		"review_id": fmt.Sprintf("%d", reviewRecord.ID),
-		"status":    "processing",
+		"review_id":     fmt.Sprintf("%d", reviewRecord.ID),
+		"status":        "processing",
+		"friendly_name": friendlyName,
+		"user_email":    userEmail,
 	})
 }
 
@@ -149,10 +151,26 @@ func (s *Server) GetDiffReviewStatus(c echo.Context) error {
 	}
 
 	if reviewRecord.Status != "completed" {
-		return c.JSON(http.StatusOK, map[string]interface{}{
+		meta := map[string]interface{}{}
+		if len(reviewRecord.Metadata) > 0 {
+			_ = json.Unmarshal(reviewRecord.Metadata, &meta)
+		}
+
+		failureReason, _ := meta["failure_reason"].(string)
+		response := map[string]interface{}{
 			"status":    reviewRecord.Status,
 			"review_id": fmt.Sprintf("%d", reviewRecord.ID),
-		})
+		}
+
+		if reviewRecord.FriendlyName != nil {
+			response["friendly_name"] = *reviewRecord.FriendlyName
+		}
+
+		if failureReason != "" {
+			response["message"] = failureReason
+		}
+
+		return c.JSON(http.StatusOK, response)
 	}
 
 	meta := map[string]interface{}{}
@@ -223,6 +241,7 @@ func (s *Server) runDiffReview(request review.ReviewRequest, rm *ReviewManager, 
 	status := "failed"
 	summary := ""
 	var comments []*models.ReviewComment
+	failureReason := ""
 
 	if result != nil {
 		if result.Success {
@@ -231,15 +250,26 @@ func (s *Server) runDiffReview(request review.ReviewRequest, rm *ReviewManager, 
 				logger.LogSection("REVIEW COMPLETED")
 				logger.Log("Successfully generated %d comments", len(result.Comments))
 			}
-		} else if logger != nil {
-			logger.LogSection("REVIEW FAILED")
-			logger.Log("Review processing encountered errors")
+		} else {
+			if result.Error != nil {
+				failureReason = result.Error.Error()
+			}
+			if failureReason == "" {
+				failureReason = "review processing encountered errors"
+			}
+			if logger != nil {
+				logger.LogSection("REVIEW FAILED")
+				logger.Log("Review processing encountered errors: %s", failureReason)
+			}
 		}
 		summary = result.Summary
 		comments = result.Comments
-	} else if logger != nil {
-		logger.LogSection("REVIEW FAILED")
-		logger.Log("Review processing returned no result")
+	} else {
+		failureReason = "review processing returned no result"
+		if logger != nil {
+			logger.LogSection("REVIEW FAILED")
+			logger.Log("Review processing returned no result")
+		}
 	}
 
 	if err := rm.UpdateReviewStatus(reviewID, status); err != nil {
@@ -247,7 +277,11 @@ func (s *Server) runDiffReview(request review.ReviewRequest, rm *ReviewManager, 
 	}
 
 	payload := diffReviewResult{Summary: summary, Comments: comments}
-	if err := rm.MergeReviewMetadata(reviewID, map[string]interface{}{"review_result": payload}); err != nil {
+	meta := map[string]interface{}{"review_result": payload}
+	if failureReason != "" {
+		meta["failure_reason"] = failureReason
+	}
+	if err := rm.MergeReviewMetadata(reviewID, meta); err != nil {
 		log.Printf("[WARN] failed to persist review_result for %d: %v", reviewID, err)
 	}
 
