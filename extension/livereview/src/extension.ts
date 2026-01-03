@@ -342,8 +342,8 @@ export function activate(context: vscode.ExtensionContext) {
 		const lrcPath = '/usr/local/bin/lrc';
 
 		const args = mode === 'skip'
-			? ['review', '--precommit', '--skip']
-			: ['review', '--precommit'];
+			? ['review', '--skip']
+			: ['review'];
 		const cmd = [
 			process.platform === 'win32' ? `& "${lrcPath}"` : `"${lrcPath}"`,
 			...args
@@ -369,7 +369,7 @@ export function activate(context: vscode.ExtensionContext) {
 				const launchNote = await runLrc(repoPath, 'review');
 
 				const summaryLines = [
-					`✅ Pre-commit checks passed for ${stagedCount} staged file(s).`,
+					`🚀 LiveReview started for ${stagedCount} staged file(s).`,
 					`🔧 ${launchNote}`,
 					'⏳ Review is running in the terminal; watch for completion there.'
 				];
@@ -580,9 +580,11 @@ export function activate(context: vscode.ExtensionContext) {
 			? `🔔 Staged ${staged.length} files in ${repoName}: ${sample.join(', ')} (+${extraCount} more). Run LiveReview?`
 			: `🔔 Staged ${staged.length} files in ${repoName}: ${sample.join(', ')}. Run LiveReview?`;
 
-		vscode.window.showInformationMessage(message, 'Run LiveReview', 'Dismiss').then(selection => {
+		vscode.window.showInformationMessage(message, 'Run LiveReview', 'Skip Review', 'Dismiss').then(selection => {
 			if (selection === 'Run LiveReview') {
 				void runReviewForActiveRepo(repo);
+			} else if (selection === 'Skip Review') {
+				void runSkipForActiveRepo(repo);
 			}
 		});
 	};
@@ -625,7 +627,6 @@ export function activate(context: vscode.ExtensionContext) {
 		repoSubscriptions.set(key, disposables);
 		context.subscriptions.push(...disposables);
 
-		vscode.window.showInformationMessage(`LiveReview Git hooks armed for ${path.basename(key)}.`);
 	};
 
 	const detachRepo = (repo: Repository) => {
@@ -743,7 +744,6 @@ export function activate(context: vscode.ExtensionContext) {
 		statusHooksCommand
 	);
 
-	vscode.window.showInformationMessage('LiveReview activated: Git hooks arming...');
 	void syncSettingsFromFile().finally(() => {
 		void initGit();
 	});

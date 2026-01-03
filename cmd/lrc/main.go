@@ -368,8 +368,6 @@ func buildOptionsFromContext(c *cli.Context, includeDebug bool) (reviewOptions, 
 		initialMsg: initialMsg,
 	}
 
-	userFlags := c.NumFlags()
-
 	if opts.skip {
 		opts.precommit = false
 	}
@@ -385,15 +383,8 @@ func buildOptionsFromContext(c *cli.Context, includeDebug bool) (reviewOptions, 
 		diffSource = "staged"
 	}
 
-	if diffSource == "" && userFlags == 0 {
-		diffSource = "staged"
-		if !opts.skip {
-			opts.precommit = true
-		}
-	}
-
 	if diffSource == "" {
-		return reviewOptions{}, fmt.Errorf("diff source not specified; pass --staged or --diff-source")
+		diffSource = "staged"
 	}
 
 	opts.diffSource = diffSource
@@ -462,6 +453,9 @@ func runReviewWithOptions(opts reviewOptions) error {
 	attestationWritten := false
 	initialMsg := sanitizeInitialMessage(opts.initialMsg)
 
+	// Interactive flow (Ctrl-S + Web UI actions) is now the default for all reviews that are not --skip
+	useInteractive := !opts.skip
+
 	// Short-circuit skip: write attestation and exit without contacting the API
 	if opts.skip {
 		attestationAction = "skipped"
@@ -485,17 +479,21 @@ func runReviewWithOptions(opts reviewOptions) error {
 		_ = clearCommitMessageFile(commitMsgPath)
 	}
 
-	// If an attestation exists, either fail with guidance or remove it when --force is used
-	if existing, err := existingAttestationAction(); err == nil && existing != "" {
-		if !opts.force {
-			return cli.Exit(fmt.Sprintf("LiveReview: attestation already present for current tree (%s); use --force to rerun", existing), 1)
-		}
-		if err := deleteAttestationForCurrentTree(); err != nil {
-			if verbose {
-				log.Printf("Failed to remove existing attestation for current tree: %v", err)
+	// Handle --force: delete existing attestation if present
+	if opts.force {
+		if existing, err := existingAttestationAction(); err == nil && existing != "" {
+			if err := deleteAttestationForCurrentTree(); err != nil {
+				if verbose {
+					log.Printf("Failed to remove existing attestation for current tree: %v", err)
+				}
+			} else if verbose {
+				log.Printf("Removed existing attestation for current tree (action=%s); rerunning review", existing)
 			}
-		} else if verbose {
-			log.Printf("Removed existing attestation for current tree (action=%s); rerunning review", existing)
+		}
+	} else {
+		// Check if attestation exists and fail with guidance if --force not used
+		if existing, err := existingAttestationAction(); err == nil && existing != "" {
+			return cli.Exit(fmt.Sprintf("LiveReview: attestation already present for current tree (%s); use --force to rerun", existing), 1)
 		}
 	}
 
@@ -574,9 +572,9 @@ func runReviewWithOptions(opts reviewOptions) error {
 	// Track CLI usage (best-effort, non-blocking)
 	go trackCLIUsage(config.APIURL, config.APIKey, verbose)
 
-	// In precommit mode, set up decision channels for Ctrl-C / Ctrl-S and ensure cleanup
+	// Interactive path (default): set up decision channels for Ctrl-C / Ctrl-S and poll
 	decisionCode := -1
-	if opts.precommit {
+	if useInteractive {
 		sigChan := make(chan os.Signal, 1)
 		signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM)
 
@@ -658,17 +656,6 @@ func runReviewWithOptions(opts reviewOptions) error {
 				return cli.Exit("", decisionCode)
 			}
 		}
-	} else {
-		// Non-precommit: just poll
-		var pollErr error
-		result, pollErr = pollReview(config.APIURL, config.APIKey, reviewID, opts.pollInterval, opts.timeout, verbose)
-		if pollErr != nil {
-			return fmt.Errorf("failed to poll review: %w", pollErr)
-		}
-		attestationAction = "reviewed"
-		if err := ensureAttestation(attestationAction, verbose, &attestationWritten); err != nil {
-			return err
-		}
 	}
 
 	autoHTMLPath, err := applyDefaultHTMLServe(&opts)
@@ -704,7 +691,7 @@ func runReviewWithOptions(opts reviewOptions) error {
 
 	// Save HTML output if requested
 	if htmlPath := opts.saveHTML; htmlPath != "" {
-		if err := saveHTMLOutput(htmlPath, result, verbose, opts.precommit, initialMsg); err != nil {
+		if err := saveHTMLOutput(htmlPath, result, verbose, useInteractive, initialMsg); err != nil {
 			return fmt.Errorf("failed to save HTML output: %w", err)
 		}
 
@@ -728,17 +715,73 @@ func runReviewWithOptions(opts reviewOptions) error {
 				opts.port = selectedPort
 			}
 
-			// Precommit mode: interactive prompt for commit decision
-			if opts.precommit {
-				// Don't render to stdout in precommit mode, go straight to prompt
+			// Interactive prompt for commit decision (default for all non-skip runs)
+			if useInteractive {
 				if err := ensureAttestation(attestationAction, verbose, &attestationWritten); err != nil {
 					return err
 				}
-				exitCode := serveHTMLPrecommit(htmlPath, opts.port, commitMsgPath, initialMsg)
-				os.Exit(exitCode)
+				code, msg, push, err := serveHTMLInteractive(htmlPath, opts.port, initialMsg)
+				if err != nil {
+					return err
+				}
+
+				if opts.precommit {
+					// Hook path: persist commit message/push request for downstream hooks and exit with hook code
+					if commitMsgPath != "" {
+						if code == 0 {
+							msgToPersist := msg
+							if strings.TrimSpace(msgToPersist) == "" {
+								msgToPersist = initialMsg
+							}
+
+							if strings.TrimSpace(msgToPersist) != "" {
+								if err := persistCommitMessage(commitMsgPath, msgToPersist); err != nil {
+									fmt.Fprintf(os.Stderr, "Warning: failed to store commit message: %v\n", err)
+								}
+							} else {
+								_ = clearCommitMessageFile(commitMsgPath)
+							}
+						} else {
+							_ = clearCommitMessageFile(commitMsgPath)
+						}
+					}
+
+					if code == 0 && push {
+						if err := persistPushRequest(commitMsgPath); err != nil {
+							fmt.Fprintf(os.Stderr, "Warning: failed to store push request: %v\n", err)
+						}
+					} else {
+						_ = clearPushRequest(commitMsgPath)
+					}
+
+					os.Exit(code)
+				}
+
+				// Non-hook interactive: execute commit (and optional push) directly
+				switch code {
+				case 1:
+					return cli.Exit("", code)
+				case 2:
+					// Skip review but proceed with commit: honor skip by writing attestation already handled above; no commit performed here.
+					return nil
+				case 3:
+					return cli.Exit("", code)
+				case 0:
+					finalMsg := strings.TrimSpace(msg)
+					if finalMsg == "" {
+						finalMsg = strings.TrimSpace(initialMsg)
+					}
+					if finalMsg == "" {
+						return fmt.Errorf("commit message is required for commit/commit+push")
+					}
+					if err := runCommitAndMaybePush(finalMsg, push, verbose); err != nil {
+						return err
+					}
+					return nil
+				}
 			}
 
-			// Normal mode: serve and block
+			// Non-interactive serve: just host HTML
 			serveURL := fmt.Sprintf("http://localhost:%d", opts.port)
 			fmt.Printf("Serving HTML review at: %s\n", highlightURL(serveURL))
 			if err := serveHTML(htmlPath, opts.port); err != nil {
@@ -747,8 +790,8 @@ func runReviewWithOptions(opts reviewOptions) error {
 		}
 	}
 
-	// Render result to stdout (skip in precommit mode - handled by prompt)
-	if !opts.precommit {
+	// Render result to stdout (skip in interactive mode - handled by prompt/UI)
+	if !useInteractive {
 		if err := renderResult(result, opts.output); err != nil {
 			return fmt.Errorf("failed to render result: %w", err)
 		}
@@ -813,6 +856,81 @@ func runGitCommand(name string, args ...string) ([]byte, error) {
 		return nil, err
 	}
 	return output, nil
+}
+
+// runCommitAndMaybePush commits the staged changes (bypassing hooks) and optionally pushes with safety checks.
+func runCommitAndMaybePush(message string, push bool, verbose bool) error {
+	msg := strings.TrimSpace(message)
+	if msg == "" {
+		return fmt.Errorf("commit message cannot be empty")
+	}
+
+	commitCmd := exec.Command("git", "commit", "--no-verify", "-m", msg)
+	commitCmd.Stdout = os.Stdout
+	commitCmd.Stderr = os.Stderr
+	// Set env var to prevent hook recursion (prepare-commit-msg still runs with --no-verify)
+	commitCmd.Env = append(os.Environ(), "LRC_SKIP_REVIEW=1")
+	if verbose {
+		log.Printf("Running git commit (no-verify, LRC_SKIP_REVIEW=1)")
+	}
+	if err := commitCmd.Run(); err != nil {
+		return fmt.Errorf("git commit failed: %w", err)
+	}
+
+	if !push {
+		return nil
+	}
+
+	// Guarded push: check we're not detached, have upstream, sync with ff-only, then push
+	if err := exec.Command("git", "symbolic-ref", "-q", "HEAD").Run(); err != nil {
+		fmt.Println("Skipping push – detached HEAD")
+		return nil
+	}
+
+	upBytes, err := exec.Command("git", "rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}").Output()
+	if err != nil {
+		fmt.Println("Skipping push – no upstream configured")
+		return nil
+	}
+	upstream := strings.TrimSpace(string(upBytes))
+	parts := strings.SplitN(upstream, "/", 2)
+	if len(parts) != 2 || parts[0] == "" || parts[1] == "" {
+		fmt.Println("Skipping push – unable to resolve upstream")
+		return nil
+	}
+	remote, branch := parts[0], parts[1]
+
+	fmt.Printf("Fetching %s...\n", remote)
+	fetchCmd := exec.Command("git", "fetch", "--prune", remote)
+	fetchCmd.Stdout = os.Stdout
+	fetchCmd.Stderr = os.Stderr
+	if err := fetchCmd.Run(); err != nil {
+		fmt.Println("Skipping push – fetch failed")
+		return nil
+	}
+
+	fmt.Println("Attempting fast-forward merge...")
+	mergeCmd := exec.Command("git", "merge", "--ff-only", "@{u}")
+	mergeCmd.Stdout = os.Stdout
+	mergeCmd.Stderr = os.Stderr
+	if err := mergeCmd.Run(); err != nil {
+		fmt.Println("Skipping push – fast-forward merge failed (remote has diverged)")
+		return nil
+	}
+
+	if verbose {
+		log.Printf("Pushing HEAD to %s/%s", remote, branch)
+	}
+	fmt.Printf("Pushing to %s/%s...\n", remote, branch)
+	pushCmd := exec.Command("git", "push", remote, "HEAD:"+branch)
+	pushCmd.Stdout = os.Stdout
+	pushCmd.Stderr = os.Stderr
+	if err := pushCmd.Run(); err != nil {
+		return fmt.Errorf("git push failed: %w", err)
+	}
+
+	fmt.Println("✅ Push complete")
+	return nil
 }
 
 type attestationPayload struct {
@@ -1506,9 +1624,9 @@ func renderHunkWithComments(buf *bytes.Buffer, hunk diffReviewHunk, commentsByLi
 
 // saveHTMLOutput saves formatted HTML output with GitHub-style review UI
 
-func saveHTMLOutput(path string, result *diffReviewResponse, verbose bool, precommit bool, initialMsg string) error {
+func saveHTMLOutput(path string, result *diffReviewResponse, verbose bool, interactive bool, initialMsg string) error {
 	// Prepare template data
-	data := prepareHTMLData(result, precommit, initialMsg)
+	data := prepareHTMLData(result, interactive, initialMsg)
 
 	// Render HTML using template
 	htmlContent, err := renderHTMLTemplate(data)
@@ -1758,22 +1876,18 @@ func readCommitMessageFromRequest(r *http.Request) string {
 	return strings.TrimRight(payload.Message, "\r\n")
 }
 
-// serveHTMLPrecommit serves HTML and waits for user decision
-// Returns exit code: 0 = commit, 1 = don't commit
-func serveHTMLPrecommit(htmlPath string, port int, commitMsgPath string, initialMsg string) int {
+// serveHTMLInteractive serves HTML and waits for user decision
+// Returns decision details (code: 0 commit, 1 abort, 2 skip-from-terminal, 3 skip-from-HTML)
+func serveHTMLInteractive(htmlPath string, port int, initialMsg string) (int, string, bool, error) {
 	absPath, err := filepath.Abs(htmlPath)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "Failed to get absolute path: %v\n", err)
-		return 1
+		return 1, "", false, fmt.Errorf("failed to get absolute path: %w", err)
 	}
 
 	// Check if file exists
 	if _, err := os.Stat(absPath); err != nil {
-		fmt.Fprintf(os.Stderr, "HTML file not found: %v\n", err)
-		return 1
+		return 1, "", false, fmt.Errorf("HTML file not found: %w", err)
 	}
-
-	_ = clearCommitMessageFile(commitMsgPath)
 
 	url := fmt.Sprintf("http://localhost:%d", port)
 	fmt.Printf("\n")
@@ -1914,33 +2028,6 @@ func serveHTMLPrecommit(htmlPath string, port int, commitMsgPath string, initial
 	// Wait for any decision source
 	decision := <-decisionChan
 
-	if commitMsgPath != "" {
-		if decision.code == 0 {
-			msgToPersist := decision.message
-			if strings.TrimSpace(msgToPersist) == "" {
-				msgToPersist = initialMsg
-			}
-
-			if strings.TrimSpace(msgToPersist) != "" {
-				if err := persistCommitMessage(commitMsgPath, msgToPersist); err != nil {
-					fmt.Fprintf(os.Stderr, "Warning: failed to store commit message: %v\n", err)
-				}
-			} else {
-				_ = clearCommitMessageFile(commitMsgPath)
-			}
-		} else {
-			_ = clearCommitMessageFile(commitMsgPath)
-		}
-	}
-
-	if decision.code == 0 && decision.push {
-		if err := persistPushRequest(commitMsgPath); err != nil {
-			fmt.Fprintf(os.Stderr, "Warning: failed to store push request: %v\n", err)
-		}
-	} else {
-		_ = clearPushRequest(commitMsgPath)
-	}
-
 	switch decision.code {
 	case 0:
 		fmt.Println("\n✅ Proceeding with commit")
@@ -1953,7 +2040,7 @@ func serveHTMLPrecommit(htmlPath string, port int, commitMsgPath string, initial
 	}
 	fmt.Println()
 	server.Close()
-	return decision.code
+	return decision.code, decision.message, decision.push, nil
 }
 
 // =============================================================================

@@ -13,6 +13,11 @@ if [ -f "$DISABLED_FILE" ]; then
 	exit 0
 fi
 
+# Allow explicit bypass (analogous to --no-verify)
+if [ "$LRC_SKIP_REVIEW" = "1" ]; then
+	exit 0
+fi
+
 # Detect if running in TTY (check stdout, not stdin - Git redirects stdin)
 if [ -t 1 ]; then
 	LRC_INTERACTIVE=1
@@ -48,9 +53,19 @@ cleanup_lock() {
 # Set up cleanup trap
 trap cleanup_lock EXIT INT TERM
 
-# Allow explicit bypass (analogous to --no-verify)
+# Check if attestation already exists for current tree (e.g., from prior lrc review)
+TREE_HASH="$(git write-tree 2>/dev/null || true)"
+ATTEST_FILE="$ATTEST_DIR/$TREE_HASH.json"
+if [ -n "$TREE_HASH" ] && [ -f "$ATTEST_FILE" ]; then
+	echo "LiveReview: attestation already present for $TREE_HASH; proceeding with commit" >&2
+	echo "ran:$$:$(date +%s)" > "${STATE_FILE}.tmp"
+	mv "${STATE_FILE}.tmp" "$STATE_FILE" 2>/dev/null || true
+	exit 0
+fi
+
+# Legacy env var check (kept for compatibility)
 if [ "$SKIP_REVIEW" = "1" ]; then
-	echo "LiveReview: skipping review (LRC_SKIP_REVIEW=1)" >&2
+	echo "LiveReview: skipping review (SKIP_REVIEW=1)" >&2
 	echo "skipped_env:$$:$(date +%s)" > "${STATE_FILE}.tmp"
 	mv "${STATE_FILE}.tmp" "$STATE_FILE" 2>/dev/null || true
 	exit 0
