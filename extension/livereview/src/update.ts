@@ -136,7 +136,7 @@ const platformInstallCommand = (): string => {
 	if (process.platform === 'win32') {
 		return 'iwr -useb https://hexmos.com/lrc-install.ps1 | iex';
 	}
-	return 'curl -fsSL https://hexmos.com/lrc-install.sh | bash';
+	return 'curl -fsSL https://hexmos.com/lrc-install.sh | sudo bash';
 };
 
 const openInstallerTerminal = (title: string, command: string) => {
