@@ -122,6 +122,10 @@ export async function activate(context: vscode.ExtensionContext) {
 	const repoSubscriptions = new Map<string, vscode.Disposable[]>();
 	let currentApi: API | undefined;
 	const lrcConfigPath = path.join(os.homedir(), '.lrc.toml');
+	const LAST_VERSION_KEY = 'livereview.lastVersion';
+	const extensionVersion = context.extension.packageJSON.version as string;
+	const previousVersion = context.globalState.get<string>(LAST_VERSION_KEY);
+	const extensionUpdated = Boolean(previousVersion && previousVersion !== extensionVersion);
 
 	context.subscriptions.push(output);
 
@@ -748,9 +752,11 @@ export async function activate(context: vscode.ExtensionContext) {
 	await ensureLatestExtension(context, output).catch(err => {
 		output.appendLine(`LiveReview: Extension version check failed: ${String(err)}`);
 	});
-	await ensureLatestLrc(resolveLrcPath, output).catch(err => {
+	await ensureLatestLrc(resolveLrcPath, output, { forceRemoteRefresh: extensionUpdated }).catch(err => {
 		output.appendLine(`LiveReview: lrc version check failed: ${String(err)}`);
 	});
+
+	void context.globalState.update(LAST_VERSION_KEY, extensionVersion);
 
 	void syncSettingsFromFile().finally(() => {
 		void initGit();

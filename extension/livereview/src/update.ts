@@ -58,9 +58,9 @@ const httpRequest = (options: https.RequestOptions, body?: string): Promise<stri
 	});
 };
 
-const fetchLatestLrcVersionFromB2 = async (): Promise<string | undefined> => {
+const fetchLatestLrcVersionFromB2 = async (forceRefresh = false): Promise<string | undefined> => {
 	const now = Date.now();
-	if (b2Cache && b2Cache.expiresAt > now) {
+	if (!forceRefresh && b2Cache && b2Cache.expiresAt > now) {
 		return b2Cache.latestVersion;
 	}
 
@@ -145,9 +145,13 @@ const openInstallerTerminal = (title: string, command: string) => {
 	term.sendText(command, true);
 };
 
-export const ensureLatestLrc = async (resolveLrcPath: () => Promise<string>, output: vscode.OutputChannel): Promise<void> => {
+export const ensureLatestLrc = async (
+	resolveLrcPath: () => Promise<string>,
+	output: vscode.OutputChannel,
+	opts?: { forceRemoteRefresh?: boolean }
+): Promise<void> => {
 	const localVersion = await getLocalLrcVersion(resolveLrcPath);
-	const remoteVersion = await fetchLatestLrcVersionFromB2();
+	const remoteVersion = await fetchLatestLrcVersionFromB2(opts?.forceRemoteRefresh ?? false);
 
 	if (!remoteVersion && !localVersion) {
 		const installCmd = platformInstallCommand();
