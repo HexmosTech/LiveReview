@@ -37,21 +37,14 @@ fi
 
 echo "lrc: commit-and-push requested; verifying state and pushing if safe"
 
-# 1. Require clean working tree (including index)
-if ! git diff --quiet || ! git diff --cached --quiet; then
-	echo "lrc: push skipped – working tree not clean"
-	cleanup_flag
-	exit 0
-fi
-
-# 2. Abort if HEAD is detached
+# 1. Abort if HEAD is detached
 if ! git symbolic-ref -q HEAD >/dev/null; then
 	echo "lrc: push skipped – detached HEAD"
 	cleanup_flag
 	exit 0
 fi
 
-# 3. Abort if no upstream
+# 2. Abort if no upstream
 if ! git rev-parse --abbrev-ref --symbolic-full-name @{u} >/dev/null 2>&1; then
 	echo "lrc: push skipped – no upstream configured"
 	cleanup_flag
@@ -68,23 +61,24 @@ if [ -z "$UPSTREAM_REMOTE" ] || [ -z "$UPSTREAM_BRANCH" ]; then
 fi
 echo "lrc: upstream detected -> $UPSTREAM_REMOTE/$UPSTREAM_BRANCH"
 
-# 4. Fetch upstream
-if ! git fetch --prune; then
+# 3. Fetch upstream
+echo "lrc: fetching $UPSTREAM_REMOTE"
+if ! git fetch --prune "$UPSTREAM_REMOTE"; then
 	echo "lrc: push skipped – fetch failed"
 	cleanup_flag
 	exit 0
 fi
-echo "lrc: fetched $UPSTREAM_REMOTE"
 
-# 5. Fast-forward only
+# 4. Fast-forward only
+echo "lrc: attempting fast-forward merge"
 if ! git merge --ff-only @{u}; then
-	echo "lrc: push skipped – fast-forward merge failed"
+	echo "lrc: push skipped – fast-forward merge failed (remote has diverged)"
 	cleanup_flag
 	exit 0
 fi
 echo "lrc: fast-forwarded to $UPSTREAM"
 
-# 6. Push
+# 5. Push
 echo "lrc: pushing to $UPSTREAM_REMOTE/$UPSTREAM_BRANCH"
 if ! git push "$UPSTREAM_REMOTE" HEAD:"$UPSTREAM_BRANCH"; then
 	echo "lrc: push failed"

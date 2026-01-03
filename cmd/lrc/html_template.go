@@ -19,7 +19,7 @@ type HTMLTemplateData struct {
 	Files         []HTMLFileData
 	HasSummary    bool
 	FriendlyName  string
-	Precommit     bool
+	Interactive   bool
 	InitialMsg    string
 }
 
@@ -59,7 +59,7 @@ type HTMLCommentData struct {
 }
 
 // prepareHTMLData converts the API response to template data
-func prepareHTMLData(result *diffReviewResponse, precommit bool, initialMsg string) *HTMLTemplateData {
+func prepareHTMLData(result *diffReviewResponse, interactive bool, initialMsg string) *HTMLTemplateData {
 	totalComments := countTotalComments(result.Files)
 
 	files := make([]HTMLFileData, len(result.Files))
@@ -75,7 +75,7 @@ func prepareHTMLData(result *diffReviewResponse, precommit bool, initialMsg stri
 		Files:         files,
 		HasSummary:    result.Summary != "",
 		FriendlyName:  naming.GenerateFriendlyName(),
-		Precommit:     precommit,
+		Interactive:   interactive,
 		InitialMsg:    initialMsg,
 	}
 }
@@ -940,7 +940,7 @@ const htmlTemplate = `<!DOCTYPE html>
             <div class="stat">Files: <span class="count">{{.TotalFiles}}</span></div>
             <div class="stat">Comments: <span class="count">{{.TotalComments}}</span></div>
         </div>
-{{if .Precommit}}        <div class="precommit-bar">
+{{if .Interactive}}        <div class="precommit-bar">
             <div class="precommit-bar-left">
                 <div class="precommit-bar-title">Pre-commit action</div>
                 <div class="precommit-actions">
@@ -1022,7 +1022,7 @@ const htmlTemplate = `<!DOCTYPE html>
     <script>
         // Initialize on page load
         document.addEventListener('DOMContentLoaded', function() {
-            const isPrecommit = {{if .Precommit}}true{{else}}false{{end}};
+            const isPrecommit = {{if .Interactive}}true{{else}}false{{end}};
 
             // Render markdown in summary
             const summaryMarkdown = document.getElementById('summary-markdown');
