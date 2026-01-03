@@ -60,6 +60,10 @@ const ConnectorForm: React.FC<ConnectorFormProps> = ({
             return !!formData.baseURL;
         }
         
+        if (providerDetails?.id === 'openrouter' && !formData.selectedModel) {
+            return false;
+        }
+		
         // For other providers, require API key
         return !!formData.apiKey;
     };
@@ -167,6 +171,18 @@ const ConnectorForm: React.FC<ConnectorFormProps> = ({
                     helperText={isOllama ? "Optional JWT token for Ollama authentication" : "Your API key will be stored securely"}
                 />
 
+                {/* Model field for providers that require an explicit model (e.g., OpenRouter) */}
+                {providerDetails && (providerDetails.models?.length || providerDetails.defaultModel) && (
+                    <Input
+                        label="Model"
+                        name="selectedModel"
+                        value={formData.selectedModel || ''}
+                        onChange={onInputChange}
+                        placeholder={providerDetails.defaultModel || 'Enter model name'}
+                        helperText={providerDetails.id === 'openrouter' ? 'OpenRouter model ID (defaults to free DeepSeek route)' : 'Specify the model to use'}
+                    />
+                )}
+
                 {/* Base URL field for providers that support it (like Ollama) */}
                 {((selectedProvider !== 'all' && getProviderDetails(selectedProvider).requiresBaseURL) || 
                   (selectedProvider === 'all' && formData.providerType && getProviderDetails(formData.providerType).requiresBaseURL)) && (
@@ -190,12 +206,7 @@ const ConnectorForm: React.FC<ConnectorFormProps> = ({
                     <Button
                         variant="primary"
                         onClick={onSave}
-                        disabled={
-                            !formData.name || 
-                            !formData.apiKey || 
-                            (selectedProvider === 'all' && !formData.providerType) ||
-                            isLoading
-                        }
+                        disabled={!isValidForm() || isLoading}
                     >
                         {isLoading ? 'Processing...' : (isEditing ? 'Update' : 'Save')} Connector
                     </Button>

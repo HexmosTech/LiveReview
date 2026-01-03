@@ -52,11 +52,12 @@ export const fetchAIConnectors = async (): Promise<AIConnector[]> => {
  */
 export const validateAIProviderKey = async (
     providerId: string, 
-    apiKey: string
+    apiKey: string,
+    model?: string
 ): Promise<ValidationResult> => {
     try {
         console.log(`Validating API key for provider: ${providerId}`);
-        const result = await validateAPIKey(providerId, apiKey);
+		const result = await validateAPIKey(providerId, apiKey, undefined, model);
         console.log('Validation result:', result);
         return result;
     } catch (error) {

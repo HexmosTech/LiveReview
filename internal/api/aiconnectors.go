@@ -19,6 +19,7 @@ type AIConnectorKeyValidationRequest struct {
 	Provider string `json:"provider"`
 	APIKey   string `json:"api_key"`
 	BaseURL  string `json:"base_url,omitempty"`
+	Model    string `json:"model,omitempty"`
 }
 
 // AIConnectorKeyValidationResponse represents the response for API key validation
@@ -53,10 +54,9 @@ func (s *Server) ValidateAIConnectorKey(c echo.Context) error {
 		})
 	}
 
-	// Log the validation attempt
+	// Log the validation attempt without exposing the API key
 	log.Info().
 		Str("provider", req.Provider).
-		Str("api_key_prefix", getMaskedKey(req.APIKey)).
 		Msg("Validating AI provider API key")
 
 	// Validate the API key
@@ -65,6 +65,7 @@ func (s *Server) ValidateAIConnectorKey(c echo.Context) error {
 		aiconnectors.Provider(req.Provider),
 		req.APIKey,
 		req.BaseURL,
+		req.Model,
 	)
 
 	if err != nil {
@@ -183,13 +184,19 @@ func (s *Server) CreateAIConnector(c echo.Context) error {
 		Int("req_display_order", req.DisplayOrder).
 		Msg("Auto-incrementing display order for new connector")
 
+	// Use provided model or provider default
+	selectedModel := req.SelectedModel
+	if selectedModel == "" && req.ProviderName == string(aiconnectors.ProviderOpenRouter) {
+		selectedModel = aiconnectors.GetDefaultModel(aiconnectors.ProviderOpenRouter)
+	}
+
 	// Create a connector record
 	connector := &aiconnectors.ConnectorRecord{
 		ProviderName:  req.ProviderName,
 		ApiKey:        req.APIKey,
 		ConnectorName: req.ConnectorName,
 		BaseURL:       sql.NullString{String: req.BaseURL, Valid: req.BaseURL != ""},
-		SelectedModel: sql.NullString{String: req.SelectedModel, Valid: req.SelectedModel != ""},
+		SelectedModel: sql.NullString{String: selectedModel, Valid: selectedModel != ""},
 		DisplayOrder:  nextOrder, // Auto-assign next order
 		OrgID:         orgID,
 	}
@@ -334,12 +341,17 @@ func (s *Server) UpdateAIConnector(c echo.Context) error {
 	existingConnector.DisplayOrder = req.DisplayOrder
 	existingConnector.OrgID = orgID
 
-	// Update Ollama-specific fields if provided
+	// Update provider-specific fields if provided
 	if req.BaseURL != "" {
 		existingConnector.BaseURL = sql.NullString{String: req.BaseURL, Valid: true}
 	}
-	if req.SelectedModel != "" {
-		existingConnector.SelectedModel = sql.NullString{String: req.SelectedModel, Valid: true}
+
+	selectedModel := req.SelectedModel
+	if selectedModel == "" && req.ProviderName == string(aiconnectors.ProviderOpenRouter) {
+		selectedModel = aiconnectors.GetDefaultModel(aiconnectors.ProviderOpenRouter)
+	}
+	if selectedModel != "" {
+		existingConnector.SelectedModel = sql.NullString{String: selectedModel, Valid: true}
 	}
 
 	// Save updated connector
