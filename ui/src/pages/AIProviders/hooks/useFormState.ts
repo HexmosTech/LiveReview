@@ -28,12 +28,14 @@ export const useFormState = (
     };
 
     const handleProviderTypeChange = (providerType: string, providers: any[]) => {
+        const providerMeta = providers.find((p: any) => p.id === providerType);
+        const defaultModel = providerMeta?.defaultModel || '';
         setFormData({
             ...formData,
             providerType,
             name: formData.name || generateFriendlyNameForProvider(providerType, providers),
             // Reset model selection when provider changes
-            selectedModel: '',
+            selectedModel: defaultModel,
             // Reset base URL when provider changes to non-Ollama
             baseURL: providerType === 'ollama' ? formData.baseURL : ''
         });

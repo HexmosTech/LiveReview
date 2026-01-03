@@ -23,6 +23,7 @@ const (
 	ProviderClaude     Provider = "claude"
 	ProviderCohere     Provider = "cohere"
 	ProviderOllama     Provider = "ollama"
+	ProviderOpenRouter Provider = "openrouter"
 	ProviderLocalModel Provider = "local"
 )
 
@@ -72,6 +73,8 @@ func NewConnector(ctx context.Context, options ConnectorOptions) (*Connector, er
 		model, err = createCohereModel(ctx, options)
 	case ProviderOllama:
 		model, err = createOllamaModel(ctx, options)
+	case ProviderOpenRouter:
+		model, err = createOpenRouterModel(ctx, options)
 	default:
 		return nil, fmt.Errorf("unsupported provider: %s", options.Provider)
 	}
@@ -88,10 +91,10 @@ func NewConnector(ctx context.Context, options ConnectorOptions) (*Connector, er
 }
 
 // ValidateAPIKey validates the provided API key against the provider
-func ValidateAPIKey(ctx context.Context, provider Provider, apiKey string, baseURL string) (bool, error) {
+func ValidateAPIKey(ctx context.Context, provider Provider, apiKey string, baseURL string, model string) (bool, error) {
 	log.Debug().
 		Str("provider", string(provider)).
-		Str("api_key_prefix", apiKey[:min(len(apiKey), 10)]).
+		Str("api_key_masked", maskAPIKey(apiKey)).
 		Str("base_url", baseURL).
 		Msg("Starting API key validation")
 
@@ -121,21 +124,26 @@ func ValidateAPIKey(ctx context.Context, provider Provider, apiKey string, baseU
 	}
 
 	// Set default model based on provider
-	switch provider {
-	case ProviderOpenAI:
-		options.ModelConfig.Model = "gpt-3.5-turbo"
-	case ProviderGemini:
-		options.ModelConfig.Model = "gemini-2.5-flash"
-		log.Debug().Msg("Using Gemini 2.5 Flash model for validation")
-	case ProviderClaude:
-		options.ModelConfig.Model = "claude-3-sonnet-20240229"
-	case ProviderCohere:
-		options.ModelConfig.Model = "command"
-	case ProviderOllama:
-		options.ModelConfig.Model = "llama3"
-	default:
-		log.Error().Str("provider", string(provider)).Msg("Unsupported provider")
-		return false, fmt.Errorf("unsupported provider: %s", provider)
+	options.ModelConfig.Model = model
+	if options.ModelConfig.Model == "" {
+		switch provider {
+		case ProviderOpenAI:
+			options.ModelConfig.Model = "gpt-3.5-turbo"
+		case ProviderGemini:
+			options.ModelConfig.Model = "gemini-2.5-flash"
+			log.Debug().Msg("Using Gemini 2.5 Flash model for validation")
+		case ProviderClaude:
+			options.ModelConfig.Model = "claude-3-sonnet-20240229"
+		case ProviderCohere:
+			options.ModelConfig.Model = "command"
+		case ProviderOllama:
+			options.ModelConfig.Model = "llama3"
+		case ProviderOpenRouter:
+			options.ModelConfig.Model = "deepseek/deepseek-r1-0528:free"
+		default:
+			log.Error().Str("provider", string(provider)).Msg("Unsupported provider")
+			return false, fmt.Errorf("unsupported provider: %s", provider)
+		}
 	}
 
 	log.Debug().
@@ -182,7 +190,7 @@ func ValidateAPIKey(ctx context.Context, provider Provider, apiKey string, baseU
 		log.Error().Err(err).
 			Str("provider", string(provider)).
 			Str("model", options.ModelConfig.Model).
-			Str("api_key_prefix", apiKey[:min(len(apiKey), 10)]).
+			Str("api_key_masked", maskAPIKey(apiKey)).
 			Str("error_type", fmt.Sprintf("%T", err)).
 			Str("full_error", fmt.Sprintf("%+v", err)).
 			Msg("API key validation failed with error")
@@ -199,7 +207,7 @@ func ValidateAPIKey(ctx context.Context, provider Provider, apiKey string, baseU
 	log.Debug().
 		Str("provider", string(provider)).
 		Str("model", options.ModelConfig.Model).
-		Str("api_key_prefix", apiKey[:min(len(apiKey), 10)]).
+		Str("api_key_masked", maskAPIKey(apiKey)).
 		Msg("API key validation successful")
 
 	return true, nil // API key is valid
@@ -225,7 +233,7 @@ func createOpenAIModel(ctx context.Context, options ConnectorOptions) (llms.Mode
 
 func createGeminiModel(ctx context.Context, options ConnectorOptions) (llms.Model, error) {
 	log.Debug().
-		Str("api_key_prefix", options.APIKey[:min(len(options.APIKey), 10)]).
+		Str("api_key_masked", maskAPIKey(options.APIKey)).
 		Str("model", options.ModelConfig.Model).
 		Msg("Creating Gemini model with options")
 
@@ -241,7 +249,7 @@ func createGeminiModel(ctx context.Context, options ConnectorOptions) (llms.Mode
 	model, err := googleai.New(ctx, opts...)
 	if err != nil {
 		log.Error().Err(err).
-			Str("api_key_prefix", options.APIKey[:min(len(options.APIKey), 10)]).
+			Str("api_key_masked", maskAPIKey(options.APIKey)).
 			Str("model", options.ModelConfig.Model).
 			Str("error_type", fmt.Sprintf("%T", err)).
 			Str("full_error", fmt.Sprintf("%+v", err)).
@@ -291,6 +299,23 @@ func createOllamaModel(ctx context.Context, options ConnectorOptions) (llms.Mode
 	// We'll need to use llms.CallOption when making calls instead
 
 	return ollama.New(opts...)
+}
+
+func createOpenRouterModel(ctx context.Context, options ConnectorOptions) (llms.Model, error) {
+	// Default base URL for OpenRouter
+	baseURL := options.BaseURL
+	if baseURL == "" {
+		baseURL = "https://openrouter.ai/api/v1"
+	}
+
+	opts := []openai.Option{
+		openai.WithModel(options.ModelConfig.Model),
+		openai.WithToken(options.APIKey),
+		openai.WithBaseURL(baseURL),
+	}
+
+	// OpenRouter supports pass-through model names; no extra options needed
+	return openai.New(opts...)
 }
 
 // Call calls the LLM with the given input and returns the response

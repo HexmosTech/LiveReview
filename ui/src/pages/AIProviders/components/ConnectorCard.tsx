@@ -26,6 +26,7 @@ const ConnectorCard: React.FC<ConnectorCardProps> = ({
     const supportMap: Record<string, 'recommended' | 'experimental' | undefined> = {
         gemini: 'recommended',
         ollama: 'recommended',
+        openrouter: 'recommended',
         openai: 'experimental',
         claude: 'experimental',
         cohere: 'experimental'
@@ -70,6 +71,11 @@ const ConnectorCard: React.FC<ConnectorCardProps> = ({
                                     ? '••••••••' + connector.apiKey.slice(-4) 
                                     : (connector.apiKey ? connector.apiKey : 'Not set')}
                             </p>
+                            {connector.selectedModel && (
+                                <p className="text-sm text-slate-300 truncate">
+                                    Model: {connector.selectedModel}
+                                </p>
+                            )}
                         </div>
                     </div>
                     <div className="flex items-center gap-2 justify-between sm:justify-end w-full sm:w-auto" onClick={(e) => e.stopPropagation()}>

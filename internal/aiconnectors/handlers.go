@@ -16,6 +16,7 @@ type ValidateAPIKeyRequest struct {
 	Provider Provider `json:"provider"`
 	APIKey   string   `json:"api_key"`
 	BaseURL  string   `json:"base_url,omitempty"`
+	Model    string   `json:"model,omitempty"`
 }
 
 // ValidateAPIKeyResponse represents the response for API key validation
@@ -78,11 +79,11 @@ func validateAPIKeyHandler(c echo.Context) error {
 	// Log the validation attempt
 	log.Info().
 		Str("provider", string(req.Provider)).
-		Str("api_key_prefix", req.APIKey[:min(5, len(req.APIKey))]+"...").
+		Str("api_key_masked", maskAPIKey(req.APIKey)).
 		Msg("Validating API key")
 
 	// Validate the API key
-	valid, err := ValidateAPIKey(context.Background(), req.Provider, req.APIKey, req.BaseURL)
+	valid, err := ValidateAPIKey(context.Background(), req.Provider, req.APIKey, req.BaseURL, req.Model)
 	if err != nil {
 		log.Error().Err(err).Msg("Error validating API key")
 		return c.JSON(http.StatusInternalServerError, ValidateAPIKeyResponse{
@@ -228,6 +229,10 @@ func fetchOllamaModelsHandler(c echo.Context) error {
 // GetProviderModels returns the available models for a provider
 func GetProviderModels(provider Provider) []string {
 	switch provider {
+	case ProviderOpenRouter:
+		return []string{
+			"deepseek/deepseek-r1-0528:free",
+		}
 	case ProviderOpenAI:
 		return []string{
 			"gpt-3.5-turbo",
@@ -272,6 +277,8 @@ func GetProviderModels(provider Provider) []string {
 // GetDefaultModel returns the default model for a provider
 func GetDefaultModel(provider Provider) string {
 	switch provider {
+	case ProviderOpenRouter:
+		return "deepseek/deepseek-r1-0528:free"
 	case ProviderOpenAI:
 		return "gpt-4"
 	case ProviderGemini:

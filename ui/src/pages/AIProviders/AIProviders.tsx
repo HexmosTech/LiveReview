@@ -48,6 +48,18 @@ const popularAIProviders: AIProvider[] = [
         supportLevel: 'recommended'
     },
     { 
+        id: 'openrouter',
+        name: 'OpenRouter', 
+        url: 'https://openrouter.ai/', 
+        description: 'Bring your own key and choose any OpenRouter model. Defaults to the free DeepSeek route.',
+        icon: <Icons.AI />,
+        apiKeyPlaceholder: 'sk-or-v1-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx',
+        models: ['deepseek/deepseek-r1-0528:free'],
+        defaultModel: 'deepseek/deepseek-r1-0528:free',
+        baseURLPlaceholder: 'https://openrouter.ai/api/v1',
+        supportLevel: 'recommended'
+    },
+    { 
         id: 'ollama',
         name: 'Ollama', 
         url: 'https://ollama.ai/', 
@@ -131,6 +143,12 @@ const AIProviders: React.FC = () => {
     const [isSaved, setIsSaved] = useState(false);
     const [showDropdown, setShowDropdown] = useState(false);
     const dropdownRef = useRef<HTMLDivElement>(null);
+
+    const getDefaultModelFor = (providerId?: string) => {
+        if (!providerId) return '';
+        const meta = popularAIProviders.find(p => p.id === providerId);
+        return meta?.defaultModel || '';
+    };
     
     // Calculate provider connector counts
     const connectorCounts = connectors.reduce((counts: Record<string, number>, connector) => {
@@ -184,7 +202,9 @@ const AIProviders: React.FC = () => {
         setFormData({
             name: generateFriendlyNameForProvider(selectedProvider, popularAIProviders),
             apiKey: '',
-            providerType: selectedProvider === 'all' ? '' : selectedProvider
+		providerType: selectedProvider === 'all' ? '' : selectedProvider,
+		selectedModel: getDefaultModelFor(selectedProvider === 'all' ? undefined : selectedProvider),
+		baseURL: ''
         });
         setIsEditing(false);
         setSelectedConnector(null);
@@ -196,7 +216,9 @@ const AIProviders: React.FC = () => {
         setFormData({
             name: generateFriendlyNameForProvider(providerId, popularAIProviders),
             apiKey: '',
-            providerType: providerId
+		providerType: providerId,
+		selectedModel: getDefaultModelFor(providerId),
+		baseURL: ''
         });
         setIsEditing(false);
         setSelectedConnector(null);
@@ -210,8 +232,10 @@ const AIProviders: React.FC = () => {
         setSelectedProvider(connector.providerName);
         setFormData({
             name: connector.name,
-            apiKey: connector.apiKey,
-            providerType: connector.providerName
+		apiKey: connector.fullApiKey || connector.apiKey,
+		providerType: connector.providerName,
+		baseURL: connector.baseURL || connector.base_url || '',
+		selectedModel: connector.selectedModel || connector.selected_model || getDefaultModelFor(connector.providerName)
         });
         setIsEditing(true);
         updateUrlFragment(connector.providerName, 'edit', connector.id);
@@ -234,7 +258,7 @@ const AIProviders: React.FC = () => {
                 formData.name,
                 selectedConnector,
                 formData.baseURL,
-                formData.selectedModel
+				formData.selectedModel || getDefaultModelFor(providerToUse)
             );
             
             if (success) {
