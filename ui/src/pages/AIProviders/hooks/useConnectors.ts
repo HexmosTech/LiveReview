@@ -71,7 +71,7 @@ export const useConnectors = (): UseConnectorsResult => {
             if (providerId !== 'ollama') {
                 // First validate the API key for non-Ollama providers
                 try {
-                    const validationResult = await validateAIProviderKey(providerId, apiKey);
+				const validationResult = await validateAIProviderKey(providerId, apiKey, selectedModel);
                     
                     if (!validationResult.valid) {
                         setError(`API key validation failed: ${validationResult.message}`);

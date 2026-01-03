@@ -111,7 +111,8 @@ export const getAIConnectors = async (): Promise<any[]> => {
 export const validateAIProviderKey = async (
   provider: string,
   apiKey: string,
-  baseURL?: string
+  baseURL?: string,
+  model?: string
 ): Promise<{ valid: boolean; message: string }> => {
   try {
     const response = await apiClient.post<{ valid: boolean; message: string }>(
@@ -120,6 +121,7 @@ export const validateAIProviderKey = async (
         provider,
         api_key: apiKey,
         base_url: baseURL,
+        model,
       }
     );
     return response;
