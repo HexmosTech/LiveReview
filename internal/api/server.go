@@ -23,6 +23,7 @@ import (
 	"github.com/livereview/internal/license"
 	"github.com/livereview/internal/license/payment"
 	bitbucketprovider "github.com/livereview/internal/provider_input/bitbucket"
+	giteaprovider "github.com/livereview/internal/provider_input/gitea"
 	githubprovider "github.com/livereview/internal/provider_input/github"
 	gitlabprovider "github.com/livereview/internal/provider_input/gitlab"
 	bitbucketoutput "github.com/livereview/internal/provider_output/bitbucket"
@@ -535,6 +536,9 @@ func (s *Server) setupRoutes() {
 	// Bitbucket profile validation endpoint
 	v1.POST("/bitbucket/validate-profile", s.ValidateBitbucketProfile)
 
+	// Gitea profile validation endpoint
+	v1.POST("/gitea/validate-profile", s.ValidateGiteaProfile)
+
 	// Organization-scoped PAT creation (uses X-Org-Context header for organization context)
 	patGroup := v1.Group("/integration_tokens")
 	patGroup.Use(authMiddleware.RequireAuth())
@@ -764,6 +768,26 @@ func (s *Server) ValidateBitbucketProfile(c echo.Context) error {
 
 	// Validate credentials and fetch the profile in one call
 	profile, err := FetchBitbucketProfile(body.Email, body.ApiToken)
+	if err != nil {
+		return c.JSON(http.StatusBadRequest, map[string]string{"error": err.Error()})
+	}
+	return c.JSON(http.StatusOK, profile)
+}
+
+// ValidateGiteaProfile validates Gitea PAT + base URL by fetching user profile
+func (s *Server) ValidateGiteaProfile(c echo.Context) error {
+	type reqBody struct {
+		BaseURL string `json:"base_url"`
+		PAT     string `json:"pat"`
+	}
+	var body reqBody
+	if err := c.Bind(&body); err != nil {
+		return c.JSON(http.StatusBadRequest, map[string]string{"error": "Invalid request body"})
+	}
+	if body.BaseURL == "" || body.PAT == "" {
+		return c.JSON(http.StatusBadRequest, map[string]string{"error": "base_url and pat are required"})
+	}
+	profile, err := giteaprovider.FetchGiteaProfile(body.BaseURL, body.PAT)
 	if err != nil {
 		return c.JSON(http.StatusBadRequest, map[string]string{"error": err.Error()})
 	}

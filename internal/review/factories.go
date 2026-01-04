@@ -155,7 +155,7 @@ func (f *StandardAIProviderFactory) getProviderMaxTokens(providerName string) in
 	case "openai":
 		return 16000 // OpenAI models like GPT-3.5/4 can handle decent batches
 	case "openrouter":
-		return 24000 // OpenRouter proxy for wide model set; allow generous tokens
+		return 8000 // OpenRouter models commonly cap near 8k
 	case "anthropic":
 		return 20000 // Claude models can handle large batches
 	default:

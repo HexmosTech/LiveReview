@@ -1,12 +1,15 @@
 package langchain
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
 	"os"
+	"reflect"
 	"regexp"
 	"strconv"
 	"strings"
@@ -276,7 +279,7 @@ func (p *LangchainProvider) MaxTokensPerBatch() int {
 		case "openai":
 			return 16000 // OpenAI models like GPT-3.5/4
 		case "openrouter":
-			return 24000 // OpenRouter proxy endpoints often allow larger contexts
+			return 8000 // OpenRouter models commonly cap around 8k; stay conservative
 		case "anthropic":
 			return 20000 // Claude models
 		default:
@@ -423,6 +426,33 @@ func (t *authTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 	return resp, err
 }
 
+// openRouterLoggingTransport logs HTTP error bodies for OpenRouter to surface provider failures.
+type openRouterLoggingTransport struct {
+	base http.RoundTripper
+}
+
+func (t *openRouterLoggingTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	if t.base == nil {
+		t.base = http.DefaultTransport
+	}
+
+	resp, err := t.base.RoundTrip(req)
+	if err != nil {
+		fmt.Printf("[OPENROUTER HTTP ERROR] request failed: %v\n", err)
+		return resp, err
+	}
+
+	if resp != nil && resp.StatusCode >= 400 {
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, 8192))
+		resp.Body.Close()
+		resp.Body = io.NopCloser(bytes.NewBuffer(body))
+		fmt.Printf("[OPENROUTER HTTP ERROR] status=%s url=%s body=%s\n",
+			resp.Status, req.URL.String(), truncateString(string(body), 1200))
+	}
+
+	return resp, err
+}
+
 func (p *LangchainProvider) initializeGeminiLLM() error {
 	if p.apiKey == "" {
 		return fmt.Errorf("API key is required for Gemini")
@@ -464,6 +494,14 @@ func (p *LangchainProvider) initializeOpenAILLM() error {
 
 	if p.baseURL != "" {
 		options = append(options, openai.WithBaseURL(p.baseURL))
+	}
+
+	if strings.EqualFold(p.providerType, "openrouter") {
+		client := &http.Client{
+			Transport: &openRouterLoggingTransport{base: http.DefaultTransport},
+			Timeout:   5 * time.Minute,
+		}
+		options = append(options, openai.WithHTTPClient(client))
 	}
 
 	fmt.Printf("[LANGCHAIN INIT] Initializing OpenAI LLM with model: %s, base URL: %s\n", p.getModelName(), p.baseURL)
@@ -833,6 +871,7 @@ func (p *LangchainProvider) reviewCodeBatchFormatted(ctx context.Context, diffs 
 		fmt.Printf("\n[LANGCHAIN ERROR] LLM call failed for batch %s: %v\n", batchId, err)
 		fmt.Printf("[LANGCHAIN ERROR] Provider: %s, Model: %s, Base URL: %s\n",
 			p.providerType, p.modelName, p.baseURL)
+		p.logLLMErrorDetails(err, batchId)
 
 		// Fallback for Ollama: retry once without streaming (some reverse proxies buffer/block streams)
 		if strings.EqualFold(p.providerType, "ollama") {
@@ -878,6 +917,7 @@ func (p *LangchainProvider) reviewCodeBatchFormatted(ctx context.Context, diffs 
 					p.logger.LogError(fmt.Sprintf("LLM non-streaming fallback batch %s", batchId), fbErr)
 				}
 				fmt.Printf("[LANGCHAIN FALLBACK ERROR] Non-streaming attempt failed after %v: %v\n", time.Since(startFB), fbErr)
+				p.logLLMErrorDetails(fbErr, batchId+"-fallback")
 				return nil, fmt.Errorf("LLM call failed (streaming + fallback): %w | fallback: %v", err, fbErr)
 			}
 
@@ -1350,6 +1390,111 @@ func collapseSummariesForLegacy(entries []prompts.TechnicalSummary) string {
 		sections = append(sections, summary)
 	}
 	return strings.Join(sections, "\n\n")
+}
+
+// logLLMErrorDetails attempts to surface structured details from provider-specific errors
+// so failures like OpenRouter 400s include status codes and bodies in review logs.
+func (p *LangchainProvider) logLLMErrorDetails(err error, batchID string) {
+	if err == nil {
+		return
+	}
+
+	prefix := "LLM error"
+	if batchID != "" {
+		prefix = fmt.Sprintf("LLM error for batch %s", batchID)
+	}
+
+	seen := make(map[error]struct{})
+	for depth, current := 0, err; current != nil; depth, current = depth+1, errors.Unwrap(current) {
+		if _, exists := seen[current]; exists {
+			break
+		}
+		seen[current] = struct{}{}
+
+		baseMsg := fmt.Sprintf("%s (cause %d): type=%T msg=%v", prefix, depth, current, current)
+		fmt.Printf("[LANGCHAIN ERROR DETAIL] %s\n", baseMsg)
+		if p.logger != nil {
+			p.logger.Log(baseMsg)
+		}
+
+		if extra := describeStructuredError(current); extra != "" {
+			detailMsg := fmt.Sprintf("%s (cause %d) detail: %s", prefix, depth, extra)
+			fmt.Printf("[LANGCHAIN ERROR DETAIL] %s\n", detailMsg)
+			if p.logger != nil {
+				p.logger.Log(detailMsg)
+			}
+		}
+	}
+}
+
+// describeStructuredError inspects common HTTP/API error fields via reflection to avoid
+// tight coupling to provider-specific error types while still surfacing useful data.
+func describeStructuredError(err error) string {
+	rv := reflect.ValueOf(err)
+	for rv.Kind() == reflect.Pointer {
+		if rv.IsNil() {
+			return ""
+		}
+		rv = rv.Elem()
+	}
+
+	if !rv.IsValid() || rv.Kind() != reflect.Struct {
+		return ""
+	}
+
+	fields := []string{
+		"HTTPStatusCode",
+		"StatusCode",
+		"Status",
+		"Type",
+		"Code",
+		"Param",
+		"Message",
+		"Body",
+		"RawBody",
+		"ResponseBody",
+		"RequestID",
+	}
+
+	var parts []string
+	for _, name := range fields {
+		field := rv.FieldByName(name)
+		if !field.IsValid() || !field.CanInterface() {
+			continue
+		}
+
+		if formatted := formatErrorFieldValue(field); formatted != "" {
+			parts = append(parts, fmt.Sprintf("%s=%s", strings.ToLower(name), formatted))
+		}
+	}
+
+	return strings.Join(parts, ", ")
+}
+
+// formatErrorFieldValue safely stringifies error fields and truncates large bodies.
+func formatErrorFieldValue(v reflect.Value) string {
+	const bodyPreviewLimit = 800
+
+	switch v.Kind() {
+	case reflect.String:
+		return truncateString(v.String(), bodyPreviewLimit)
+	case reflect.Int, reflect.Int64, reflect.Int32, reflect.Int16, reflect.Int8:
+		return fmt.Sprintf("%d", v.Int())
+	case reflect.Uint, reflect.Uint64, reflect.Uint32, reflect.Uint16, reflect.Uint8:
+		return fmt.Sprintf("%d", v.Uint())
+	case reflect.Float32, reflect.Float64:
+		return fmt.Sprintf("%.3f", v.Float())
+	case reflect.Slice:
+		if v.Type().Elem().Kind() == reflect.Uint8 {
+			return truncateString(string(v.Bytes()), bodyPreviewLimit)
+		}
+	}
+
+	if v.CanInterface() {
+		return truncateString(fmt.Sprintf("%v", v.Interface()), bodyPreviewLimit)
+	}
+
+	return ""
 }
 
 // (removed unused writeLogFile helper)

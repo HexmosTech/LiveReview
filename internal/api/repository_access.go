@@ -12,6 +12,7 @@ import (
 	"github.com/labstack/echo/v4"
 
 	"github.com/livereview/internal/providers/bitbucket"
+	"github.com/livereview/internal/providers/gitea"
 	"github.com/livereview/internal/providers/github"
 	"github.com/livereview/internal/providers/gitlab"
 )
@@ -133,10 +134,10 @@ func (s *Server) fetchAndCacheRepositoryData(connectorID int, forceRefresh bool,
 		// If unmarshaling fails, continue with fresh fetch
 	}
 
-	// Support GitLab, GitHub, and Bitbucket providers
+	// Support GitLab, GitHub, Bitbucket, and Gitea providers
 	if provider != "gitlab" && provider != "gitlab-com" && provider != "gitlab-self-hosted" &&
 		provider != "github" && provider != "github-com" && provider != "github-enterprise" &&
-		provider != "bitbucket" {
+		provider != "bitbucket" && provider != "gitea" {
 		response.Error = fmt.Sprintf("Repository discovery not yet implemented for provider: %s", provider)
 		if shouldCache {
 			s.updateProjectsCache(connectorID, response)
@@ -162,6 +163,9 @@ func (s *Server) fetchAndCacheRepositoryData(connectorID int, forceRefresh bool,
 	} else if strings.HasPrefix(provider, "github") {
 		// Use the GitHub project discovery function
 		projects, err = github.DiscoverProjectsGitHub(providerURL, patToken)
+	} else if strings.HasPrefix(provider, "gitea") {
+		// Use the Gitea project discovery function
+		projects, err = gitea.DiscoverProjectsGitea(providerURL, patToken)
 	} else if strings.HasPrefix(provider, "bitbucket") {
 		// Use the Bitbucket project discovery function
 		// For Bitbucket, we need email from metadata
