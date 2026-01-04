@@ -139,6 +139,8 @@ const GitProvidersList: React.FC = () => {
                 return 'GitHub';
             case 'bitbucket':
                 return 'Bitbucket';
+            case 'gitea':
+                return 'Gitea';
             default:
                 return type.charAt(0).toUpperCase() + type.slice(1);
         }
@@ -154,6 +156,8 @@ const GitProvidersList: React.FC = () => {
                 return <Icons.GitHub />;
             case 'bitbucket':
                 return <Icons.Bitbucket />;
+            case 'gitea':
+                return <Icons.Git />;
             default:
                 return <Icons.Git />;
         }

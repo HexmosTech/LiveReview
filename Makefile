@@ -359,4 +359,11 @@ raw-deploy: build-with-ui
 	ssh master "cd /root/public_lr && pm2 reload ecosystem.config.js"
 	@echo "✅ Production deployment complete!"
 
+# Fetch recent PM2 logs from the production host for quick inspection
+# Usage: make pm2-logs [LINES=400]
+pm2-logs:
+	@LOG_LINES=$${LINES:-200}; \
+	echo "📜 Fetching last $$LOG_LINES lines of PM2 logs from master..."; \
+	ssh master "tail -n $$LOG_LINES ~/.pm2/logs/livereview-api-out.log ~/.pm2/logs/livereview-api-error.log ~/.pm2/logs/livereview-ui-out.log ~/.pm2/logs/livereview-ui-error.log"
+
 	

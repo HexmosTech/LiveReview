@@ -497,7 +497,7 @@ func (s *Service) executeReviewWorkflow(
 		s.logger.Log("  Total files: %d", len(changes))
 	}
 	log.Printf("[DEBUG] Sending code to AI for review (batching enabled), total files: %d", len(changes))
-	batchProcessor := s.createBatchProcessor()
+	batchProcessor := s.createBatchProcessor(aiProvider)
 	result, err := aiProvider.ReviewCodeWithBatching(ctx, changes, batchProcessor)
 	if err != nil {
 		if s.logger != nil {
@@ -522,10 +522,26 @@ func (s *Service) executeReviewWorkflow(
 }
 
 // createBatchProcessor returns a batch processor with recommended settings for batching and retry
-func (s *Service) createBatchProcessor() *batch.BatchProcessor {
+// and respects provider-specific token limits with a safety buffer for prompt overhead.
+func (s *Service) createBatchProcessor(provider ai.Provider) *batch.BatchProcessor {
 	processor := batch.DefaultBatchProcessor()
-	// Set max tokens per batch to 10,000 (or ~40,000 chars)
-	processor.MaxBatchTokens = 10000
+
+	maxTokens := processor.MaxBatchTokens
+	if provider != nil {
+		if providerLimit := provider.MaxTokensPerBatch(); providerLimit > 0 && providerLimit < maxTokens {
+			maxTokens = providerLimit
+		}
+	}
+
+	const promptOverheadTokens = 1500
+	if maxTokens > promptOverheadTokens {
+		maxTokens -= promptOverheadTokens // Leave headroom for system prompts and metadata
+	}
+	if maxTokens <= 0 {
+		maxTokens = processor.MaxBatchTokens // Fallback to default if everything else fails
+	}
+
+	processor.MaxBatchTokens = maxTokens
 	// Configure retry logic (3 retries, 2s delay)
 	processor.TaskQueueConfig.MaxRetries = 3
 	processor.TaskQueueConfig.RetryDelay = 2 * time.Second
