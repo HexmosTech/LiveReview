@@ -1,8 +1,12 @@
 package aiconnectors
 
 import (
+	"bytes"
 	"context"
 	"fmt"
+	"io"
+	"net/http"
+	"time"
 
 	"github.com/rs/zerolog/log"
 	"github.com/tmc/langchaingo/llms"
@@ -308,14 +312,50 @@ func createOpenRouterModel(ctx context.Context, options ConnectorOptions) (llms.
 		baseURL = "https://openrouter.ai/api/v1"
 	}
 
+	httpClient := &http.Client{
+		Transport: &openRouterLoggingTransport{base: http.DefaultTransport},
+		Timeout:   5 * time.Minute,
+	}
+
 	opts := []openai.Option{
 		openai.WithModel(options.ModelConfig.Model),
 		openai.WithToken(options.APIKey),
 		openai.WithBaseURL(baseURL),
+		openai.WithHTTPClient(httpClient),
 	}
 
 	// OpenRouter supports pass-through model names; no extra options needed
 	return openai.New(opts...)
+}
+
+// openRouterLoggingTransport logs response bodies for OpenRouter errors to aid debugging.
+type openRouterLoggingTransport struct {
+	base http.RoundTripper
+}
+
+func (t *openRouterLoggingTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	if t.base == nil {
+		t.base = http.DefaultTransport
+	}
+
+	resp, err := t.base.RoundTrip(req)
+	if err != nil {
+		log.Error().Err(err).Msg("OpenRouter request failed before response")
+		return resp, err
+	}
+
+	if resp != nil && resp.StatusCode >= 400 {
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, 8192))
+		resp.Body.Close()
+		resp.Body = io.NopCloser(bytes.NewBuffer(body))
+		log.Error().
+			Str("url", req.URL.String()).
+			Int("status", resp.StatusCode).
+			Str("body", truncateString(string(body), 1200)).
+			Msg("OpenRouter HTTP error")
+	}
+
+	return resp, err
 }
 
 // Call calls the LLM with the given input and returns the response
@@ -360,6 +400,14 @@ func min(a, b int) int {
 		return a
 	}
 	return b
+}
+
+// truncateString limits string length for safe logging.
+func truncateString(s string, maxLen int) string {
+	if len(s) <= maxLen {
+		return s
+	}
+	return s[:maxLen]
 }
 
 // Helper function to check if string contains substring (case-insensitive)
