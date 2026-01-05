@@ -234,7 +234,7 @@ const Reviews: React.FC = () => {
                     className="bg-green-600 hover:bg-green-700"
                     title="Safe preview - no comments posted"
                 >
-                    Preview New Review
+                    New Review
                 </Button>
             </div>
 
@@ -368,7 +368,7 @@ const Reviews: React.FC = () => {
                         icon={<Icons.Add />}
                         className="bg-green-600 hover:bg-green-700"
                     >
-                        Preview New Review
+                        New Review
                     </Button>
                 </div>
             ) : (

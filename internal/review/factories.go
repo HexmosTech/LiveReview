@@ -11,6 +11,7 @@ import (
 	"github.com/livereview/internal/logging"
 	"github.com/livereview/internal/providers"
 	"github.com/livereview/internal/providers/bitbucket"
+	"github.com/livereview/internal/providers/gitea"
 	"github.com/livereview/internal/providers/github"
 	"github.com/livereview/internal/providers/gitlab"
 )
@@ -62,6 +63,22 @@ func (f *StandardProviderFactory) CreateProvider(ctx context.Context, config Pro
 		return provider, nil
 	}
 
+	// Handle Gitea variants
+	if strings.HasPrefix(config.Type, "gitea") {
+		log.Printf("[DEBUG] Creating Gitea provider")
+		provider, err := gitea.NewProvider(gitea.Config{
+			BaseURL: config.URL,
+			Token:   config.Token,
+		})
+		if err != nil {
+			return nil, fmt.Errorf("failed to create gitea provider: %w", err)
+		}
+		if err := provider.Configure(config.Config); err != nil {
+			return nil, err
+		}
+		return provider, nil
+	}
+
 	return nil, fmt.Errorf("unsupported provider type: %s", config.Type)
 }
 
@@ -77,6 +94,10 @@ func (f *StandardProviderFactory) SupportsProvider(providerType string) bool {
 	}
 	// Support Bitbucket variants
 	if strings.HasPrefix(providerType, "bitbucket") {
+		return true
+	}
+	// Support Gitea variants
+	if strings.HasPrefix(providerType, "gitea") {
 		return true
 	}
 	return false
