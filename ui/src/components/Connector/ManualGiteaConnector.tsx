@@ -13,6 +13,8 @@ const ManualGiteaConnector: React.FC = () => {
     const [connectorName, setConnectorName] = useState('');
     const [baseURL, setBaseURL] = useState('');
     const [pat, setPat] = useState('');
+    const [username, setUsername] = useState('');
+    const [password, setPassword] = useState('');
     const [profile, setProfile] = useState<any | null>(null);
     const [profileError, setProfileError] = useState<string | null>(null);
     const [confirming, setConfirming] = useState(false);
@@ -20,15 +22,22 @@ const ManualGiteaConnector: React.FC = () => {
 
     const normalizeBaseURL = (url: string) => url.trim().replace(/\/+$/, '');
 
+    const packPat = () => JSON.stringify({
+        pat: pat.trim(),
+        username: username.trim(),
+        password,
+    });
+
     const handleSaveConnector = async () => {
         setSaving(true);
         try {
             const normalizedURL = normalizeBaseURL(baseURL);
+            const packedPat = packPat();
             await createPATConnector({
                 name: connectorName || profile?.full_name || profile?.login || 'Gitea Connector',
                 type: 'gitea',
                 url: normalizedURL,
-                pat_token: pat,
+                pat_token: packedPat,
                 metadata: {
                     manual: true,
                     giteaProfile: profile,
@@ -56,7 +65,7 @@ const ManualGiteaConnector: React.FC = () => {
     return (
         <Card title="Manual Gitea Connector">
             <div className="mb-4 rounded-md bg-emerald-900 text-emerald-100 px-4 py-3 border border-emerald-500 text-sm">
-                <span className="font-semibold">Heads up:</span> Use your Gitea instance URL (e.g., https://gitea.mycompany.com) and a PAT with repository read access. A dedicated service account (e.g., livereview-bot) is recommended.
+                <span className="font-semibold">Heads up:</span> Use your Gitea instance URL (e.g., https://gitea.mycompany.com), a PAT with repository read access, and the bot username/password for inline comment sessions. A dedicated service account (e.g., livereview-bot) is recommended.
             </div>
 
             {!profile && (
@@ -66,7 +75,8 @@ const ManualGiteaConnector: React.FC = () => {
                     setConfirming(true);
                     try {
                         const normalizedURL = normalizeBaseURL(baseURL);
-                        const result = await validateGiteaProfile(normalizedURL, pat);
+                        const packedPat = packPat();
+                        const result = await validateGiteaProfile(normalizedURL, packedPat);
                         setProfile(result);
                     } catch (err: any) {
                         const message = err?.message || 'Failed to validate Gitea credentials';
@@ -128,6 +138,23 @@ const ManualGiteaConnector: React.FC = () => {
                             helperText="Ensure the PAT has access to all target repositories."
                         />
                     </div>
+                    <Input
+                        id="manual-gitea-username"
+                        label="Bot Username"
+                        value={username}
+                        onChange={e => setUsername(e.target.value)}
+                        required
+                        helperText="Used for session-based inline comments."
+                    />
+                    <Input
+                        id="manual-gitea-password"
+                        label="Bot Password"
+                        type="password"
+                        value={password}
+                        onChange={e => setPassword(e.target.value)}
+                        required
+                        helperText="Stored with the PAT for inline comment sessions."
+                    />
                     {profileError && (
                         <div className="rounded-md bg-red-900 border border-red-700 px-4 py-3">
                             <div className="flex items-start">
