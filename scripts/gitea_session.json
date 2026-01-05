@@ -1,0 +1,11 @@
+{
+  "base_url": "https://gitea.hexmos.site",
+  "user": "livereview",
+  "csrf": "ZACvDRcOjyTxLyWZFlrUoiXs9Bc6MTc2NzYwMzc2Mjg1OTE4NjUwNA",
+  "cookies": {
+    "i_like_gitea": "dcf7b6a337d581cc",
+    "_csrf": "ZACvDRcOjyTxLyWZFlrUoiXs9Bc6MTc2NzYwMzc2Mjg1OTE4NjUwNA",
+    "gitea_incredible": "7DFh1d5eX5%3A9cc3b8e7049e750099b5577b699c814ce9615b69937c124b32321d876a30afee",
+    "lang": "en-US"
+  }
+}
