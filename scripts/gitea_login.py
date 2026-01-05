@@ -45,6 +45,7 @@ class SessionContext:
 	csrf: str
 	base_url: str
 	user: str
+	password: str
 	cookies: Dict[str, str]
 
 
@@ -114,6 +115,7 @@ def create_session(base_url: str, username: str, password: str) -> SessionContex
 		csrf=csrf_cookie,
 		base_url=base_url,
 		user=username,
+		password=password,
 		cookies={k: v for k, v in session.cookies.get_dict().items()},
 	)
 	dump_session(
@@ -156,8 +158,7 @@ def post_inline_comment(
 		"content": content,
 		"single_review": "true",
 	}
-	headers = {"X-CSRF-Token": ctx.csrf, "Referer": f"{ctx.base_url}/user/login"}
-	r = ctx.session.post(comment_url, data=form, headers=headers, timeout=20)
+	r = _post_with_relogin(ctx, comment_url, form)
 	return r.status_code, {
 		"location": r.headers.get("Location"),
 		"text_snippet": r.text[:200],
@@ -191,8 +192,7 @@ def reply_inline_comment(
 		"reply": str(parent_comment_id),
 		"single_review": "true",
 	}
-	headers = {"X-CSRF-Token": ctx.csrf, "Referer": f"{ctx.base_url}/user/login"}
-	r = ctx.session.post(comment_url, data=form, headers=headers, timeout=20)
+	r = _post_with_relogin(ctx, comment_url, form)
 	return r.status_code, {
 		"location": r.headers.get("Location"),
 		"text_snippet": r.text[:200],
@@ -204,7 +204,7 @@ def list_inline_comment_ids(
 ) -> list[int]:
 	"""Scrape PR files page for inline comment ids (data-comment-id attributes)."""
 	url = f"{ctx.base_url}/{owner}/{repo}/pulls/{pr_number}/files"
-	r = ctx.session.get(url, timeout=20)
+	r = _get_with_relogin(ctx, url)
 	r.raise_for_status()
 	ids = set(int(m) for m in re.findall(r'data-comment-id="(\d+)"', r.text))
 	return sorted(ids)
@@ -215,7 +215,6 @@ def delete_inline_comment(
 ) -> Tuple[int, str]:
 	"""Try multiple known delete endpoints until one works."""
 	form = {"_csrf": ctx.csrf}
-	headers = {"X-CSRF-Token": ctx.csrf, "Referer": f"{ctx.base_url}/user/login"}
 	candidates = [
 		f"{ctx.base_url}/{owner}/{repo}/pulls/comments/{comment_id}/delete",
 	]
@@ -230,11 +229,54 @@ def delete_inline_comment(
 	last_url = ""
 	for url in candidates:
 		last_url = url
-		r = ctx.session.post(url, data=form, headers=headers, timeout=20)
+		r = _post_with_relogin(ctx, url, form)
 		last_status = r.status_code
 		if r.status_code in (200, 204, 302, 303):
 			return r.status_code, url
 	return last_status, last_url
+
+
+# ---------- Session reliability helpers ----------
+
+
+def _should_relogin(resp: requests.Response) -> bool:
+	loc = (resp.headers.get("Location") or "").lower()
+	body_snip = (resp.text or "")[:500].lower()
+	if resp.status_code in (401, 403):
+		return True
+	if resp.status_code in (301, 302, 303, 307, 308) and "user/login" in loc:
+		return True
+	if resp.status_code == 200 and ("user/login" in body_snip or "sign in" in body_snip):
+		return True
+	return False
+
+
+def _refresh_session(ctx: SessionContext) -> None:
+	new_ctx = create_session(ctx.base_url, ctx.user, ctx.password)
+	ctx.session = new_ctx.session
+	ctx.csrf = new_ctx.csrf
+	ctx.cookies = new_ctx.cookies
+
+
+def _post_with_relogin(ctx: SessionContext, url: str, form: Dict[str, str]) -> requests.Response:
+	def _do() -> requests.Response:
+		form["_csrf"] = ctx.csrf
+		headers = {"X-CSRF-Token": ctx.csrf, "Referer": f"{ctx.base_url}/user/login"}
+		return ctx.session.post(url, data=form, headers=headers, timeout=20)
+
+	r = _do()
+	if _should_relogin(r):
+		_refresh_session(ctx)
+		r = _do()
+	return r
+
+
+def _get_with_relogin(ctx: SessionContext, url: str) -> requests.Response:
+	r = ctx.session.get(url, timeout=20)
+	if _should_relogin(r):
+		_refresh_session(ctx)
+		r = ctx.session.get(url, timeout=20)
+	return r
 
 
 # ---------- CLI demo ----------
