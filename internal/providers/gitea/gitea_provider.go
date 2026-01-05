@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/http/cookiejar"
 	neturl "net/url"
 	"regexp"
 	"strconv"
@@ -25,15 +26,29 @@ type Config struct {
 type Provider struct {
 	baseURL    string
 	token      string
+	username   string
+	password   string
 	httpClient *http.Client
+	session    *sessionClient
 }
 
 // NewProvider creates a Provider with the supplied configuration.
 func NewProvider(cfg Config) (*Provider, error) {
 	base := strings.TrimSuffix(cfg.BaseURL, "/")
+	pt := decodePackedToken(cfg.Token)
+	tok := cfg.Token
+	user := ""
+	pass := ""
+	if pt.pat != "" {
+		tok = pt.pat
+		user = pt.username
+		pass = pt.password
+	}
 	return &Provider{
 		baseURL:    base,
-		token:      cfg.Token,
+		token:      tok,
+		username:   user,
+		password:   pass,
 		httpClient: &http.Client{},
 	}, nil
 }
@@ -60,6 +75,24 @@ func (p *Provider) Configure(config map[string]interface{}) error {
 		token = v
 	}
 
+	// If token is JSON-encoded, unpack pat/username/password to allow packed storage.
+	if parsed := decodePackedToken(token); parsed.pat != "" {
+		token = parsed.pat
+		if p.username == "" {
+			p.username = parsed.username
+		}
+		if p.password == "" {
+			p.password = parsed.password
+		}
+	}
+
+	if v, ok := config["username"].(string); ok {
+		p.username = strings.TrimSpace(v)
+	}
+	if v, ok := config["password"].(string); ok {
+		p.password = v
+	}
+
 	if base == "" {
 		return fmt.Errorf("base_url is required for Gitea provider")
 	}
@@ -72,6 +105,7 @@ func (p *Provider) Configure(config map[string]interface{}) error {
 	if p.httpClient == nil {
 		p.httpClient = &http.Client{}
 	}
+	p.session = nil // reset session on reconfigure
 	return nil
 }
 
@@ -213,47 +247,18 @@ func (p *Provider) PostComment(ctx context.Context, prID string, comment *models
 		return fmt.Errorf("base_url is required to post comments")
 	}
 
-	// Inline comment path
+	// Inline comment path: use session (browser-style) flow as primary mechanism.
 	if comment.FilePath != "" && comment.Line > 0 {
 		pr, err := p.fetchPullRequest(ctx, owner, repo, number)
 		if err != nil {
 			return fmt.Errorf("failed to fetch pull request for inline comment: %w", err)
 		}
-
-		payload := map[string]interface{}{
-			"body": comment.Content,
-			"path": comment.FilePath,
-			"line": comment.Line,
-			"side": "RIGHT",
+		if !p.hasSessionCreds() {
+			return fmt.Errorf("session credentials not provided for Gitea inline comments")
 		}
-		if comment.IsDeletedLine {
-			payload["side"] = "LEFT"
+		if err := p.postInlineViaSession(ctx, apiBase, owner, repo, number, comment, pr.Head.SHA); err != nil {
+			return err
 		}
-		if pr.Head.SHA != "" {
-			payload["commit_id"] = pr.Head.SHA
-		}
-
-		apiURL := fmt.Sprintf("%s/api/v1/repos/%s/%s/pulls/%s/comments", apiBase, owner, repo, number)
-		body, _ := json.Marshal(payload)
-
-		req, err := http.NewRequestWithContext(ctx, http.MethodPost, apiURL, strings.NewReader(string(body)))
-		if err != nil {
-			return fmt.Errorf("failed to build inline comment request: %w", err)
-		}
-		p.applyAuthHeaders(req)
-		req.Header.Set("Content-Type", "application/json")
-
-		resp, err := p.httpClient.Do(req)
-		if err != nil {
-			return fmt.Errorf("failed to post inline comment: %w", err)
-		}
-		defer resp.Body.Close()
-
-		if resp.StatusCode != http.StatusCreated {
-			respBody, _ := io.ReadAll(io.LimitReader(resp.Body, 2048))
-			return fmt.Errorf("gitea inline comment failed (%d): %s", resp.StatusCode, string(respBody))
-		}
-
 		return nil
 	}
 
@@ -297,6 +302,182 @@ func (p *Provider) PostComments(ctx context.Context, prID string, comments []*mo
 func (p *Provider) applyAuthHeaders(req *http.Request) {
 	req.Header.Set("Authorization", fmt.Sprintf("token %s", p.token))
 	req.Header.Set("Accept", "application/json")
+}
+
+// Session-based inline posting (browser-style). Re-logins automatically on auth failures.
+func (p *Provider) postInlineViaSession(ctx context.Context, apiBase, owner, repo, number string, comment *models.ReviewComment, headSHA string) error {
+	if err := p.ensureSession(ctx); err != nil {
+		return err
+	}
+
+	side := "proposed"
+	if comment.IsDeletedLine {
+		side = "previous"
+	}
+
+	commentURL := fmt.Sprintf("%s/%s/%s/pulls/%s/files/reviews/comments", apiBase, owner, repo, number)
+	form := neturl.Values{}
+	form.Set("_csrf", p.session.csrf)
+	form.Set("origin", "diff")
+	form.Set("latest_commit_id", headSHA)
+	form.Set("side", side)
+	form.Set("line", strconv.Itoa(comment.Line))
+	form.Set("path", comment.FilePath)
+	form.Set("diff_start_cid", "")
+	form.Set("diff_end_cid", "")
+	form.Set("diff_base_cid", "")
+	form.Set("content", comment.Content)
+	form.Set("single_review", "true")
+
+	postReq, err := http.NewRequestWithContext(ctx, http.MethodPost, commentURL, strings.NewReader(form.Encode()))
+	if err != nil {
+		return fmt.Errorf("failed to build session inline comment request: %w", err)
+	}
+	postReq.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	postReq.Header.Set("X-CSRF-Token", p.session.csrf)
+
+	resp, err := p.session.client.Do(postReq)
+	if err != nil {
+		return fmt.Errorf("failed to post inline via session: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden || needsRelogin(resp) {
+		if err := p.relogin(ctx); err != nil {
+			return fmt.Errorf("session relogin failed: %w", err)
+		}
+		resp, err = p.session.client.Do(postReq)
+		if err != nil {
+			return fmt.Errorf("failed to post inline after relogin: %w", err)
+		}
+		defer resp.Body.Close()
+	}
+
+	if resp.StatusCode != http.StatusCreated && resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusFound {
+		respBody, _ := io.ReadAll(io.LimitReader(resp.Body, 2048))
+		return fmt.Errorf("gitea session inline comment failed (%d): %s", resp.StatusCode, string(respBody))
+	}
+
+	return nil
+}
+
+func (p *Provider) hasSessionCreds() bool {
+	return strings.TrimSpace(p.username) != "" && p.password != ""
+}
+
+type sessionClient struct {
+	client *http.Client
+	csrf   string
+}
+
+func (p *Provider) ensureSession(ctx context.Context) error {
+	if p.session != nil && p.session.csrf != "" {
+		return nil
+	}
+	if !p.hasSessionCreds() {
+		return fmt.Errorf("session credentials not provided for Gitea inline fallback")
+	}
+	jar, _ := cookiejar.New(nil)
+	cli := &http.Client{Jar: jar}
+
+	loginURL := fmt.Sprintf("%s/user/login", p.baseURL)
+	getReq, err := http.NewRequestWithContext(ctx, http.MethodGet, loginURL, nil)
+	if err != nil {
+		return fmt.Errorf("failed to build login GET: %w", err)
+	}
+	resp, err := cli.Do(getReq)
+	if err != nil {
+		return fmt.Errorf("failed to fetch login page: %w", err)
+	}
+	defer resp.Body.Close()
+	bodyBytes, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
+	csrf := extractCSRF(string(bodyBytes))
+	if csrf == "" {
+		csrf = cookieValue(cli.Jar, p.baseURL, "_csrf")
+	}
+	if csrf == "" {
+		return fmt.Errorf("failed to extract CSRF token for Gitea session")
+	}
+
+	form := neturl.Values{}
+	form.Set("_csrf", csrf)
+	form.Set("user_name", p.username)
+	form.Set("password", p.password)
+	form.Set("remember", "on")
+
+	postReq, err := http.NewRequestWithContext(ctx, http.MethodPost, loginURL, strings.NewReader(form.Encode()))
+	if err != nil {
+		return fmt.Errorf("failed to build login POST: %w", err)
+	}
+	postReq.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+
+	resp, err = cli.Do(postReq)
+	if err != nil {
+		return fmt.Errorf("failed to execute login POST: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusFound && resp.StatusCode != http.StatusSeeOther {
+		respBody, _ := io.ReadAll(io.LimitReader(resp.Body, 2048))
+		return fmt.Errorf("gitea login failed (%d): %s", resp.StatusCode, string(respBody))
+	}
+
+	authCookie := cookieValue(cli.Jar, p.baseURL, "gitea_incredible")
+	csrfCookie := cookieValue(cli.Jar, p.baseURL, "_csrf")
+	if authCookie == "" {
+		return fmt.Errorf("gitea login missing session cookie")
+	}
+	finalCSRF := csrf
+	if csrfCookie != "" {
+		finalCSRF = csrfCookie
+	}
+
+	p.session = &sessionClient{client: cli, csrf: finalCSRF}
+	return nil
+}
+
+func (p *Provider) relogin(ctx context.Context) error {
+	p.session = nil
+	return p.ensureSession(ctx)
+}
+
+func needsRelogin(resp *http.Response) bool {
+	if resp == nil {
+		return true
+	}
+	if resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden {
+		return true
+	}
+	loc := strings.ToLower(resp.Header.Get("Location"))
+	if strings.Contains(loc, "login") {
+		return true
+	}
+	return false
+}
+
+func extractCSRF(html string) string {
+	re := regexp.MustCompile(`name="_csrf"\s+value="([^"]+)"`)
+	matches := re.FindStringSubmatch(html)
+	if len(matches) == 2 {
+		return matches[1]
+	}
+	return ""
+}
+
+func cookieValue(jar http.CookieJar, rawURL, name string) string {
+	if jar == nil {
+		return ""
+	}
+	u, err := neturl.Parse(rawURL)
+	if err != nil {
+		return ""
+	}
+	for _, c := range jar.Cookies(u) {
+		if c.Name == name {
+			return c.Value
+		}
+	}
+	return ""
 }
 
 func (p *Provider) fetchPullRequest(ctx context.Context, owner, repo, number string) (*pullRequest, error) {
@@ -393,6 +574,12 @@ type prRepo struct {
 	HTMLURL  string `json:"html_url"`
 }
 
+type packedToken struct {
+	pat      string
+	username string
+	password string
+}
+
 type pullRequestFile struct {
 	Filename         string `json:"filename"`
 	PreviousFilename string `json:"previous_filename"`
@@ -468,4 +655,20 @@ func firstNonEmpty(values ...string) string {
 		}
 	}
 	return ""
+}
+
+func decodePackedToken(raw string) packedToken {
+	var payload struct {
+		Pat      string `json:"pat"`
+		Username string `json:"username"`
+		Password string `json:"password"`
+	}
+	var pt packedToken
+	if err := json.Unmarshal([]byte(strings.TrimSpace(raw)), &payload); err != nil {
+		return pt
+	}
+	pt.pat = payload.Pat
+	pt.username = payload.Username
+	pt.password = payload.Password
+	return pt
 }

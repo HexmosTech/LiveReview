@@ -272,11 +272,16 @@ func ensureValidToken(token *IntegrationToken) string {
 	// Handle Gitea variants
 	if strings.HasPrefix(token.Provider, "gitea") {
 		if token.TokenType == "PAT" && token.PatToken != "" {
-			log.Printf("[DEBUG] ensureValidToken: Using Gitea PAT from database: %s", maskToken(token.PatToken))
-			return token.PatToken
+			pat, _, _ := decodePATPayload(token.PatToken)
+			log.Printf("[DEBUG] ensureValidToken: Using Gitea PAT from database: %s", maskToken(pat))
+			return pat
 		}
-		log.Printf("[DEBUG] ensureValidToken: Using Gitea access token: %s", maskToken(token.AccessToken))
-		return token.AccessToken
+		pat, _, _ := decodePATPayload(token.AccessToken)
+		if pat == "" {
+			pat = token.AccessToken
+		}
+		log.Printf("[DEBUG] ensureValidToken: Using Gitea access token: %s", maskToken(pat))
+		return pat
 	}
 
 	// Default fallback
@@ -432,8 +437,18 @@ func (s *Server) buildReviewRequest(
 				}
 			}
 		} else if strings.HasPrefix(token.Provider, "gitea") {
-			providerToken = token.PatToken
-			providerConfigMap["pat_token"] = token.PatToken
+			pat, user, pass := decodePATPayload(token.PatToken)
+			if pat == "" {
+				pat = token.PatToken
+			}
+			providerToken = pat
+			providerConfigMap["pat_token"] = pat
+			if user != "" {
+				providerConfigMap["username"] = user
+			}
+			if pass != "" {
+				providerConfigMap["password"] = pass
+			}
 		}
 	}
 
@@ -469,6 +484,22 @@ func truncateString(s string, maxLen int) string {
 		return s
 	}
 	return s[:maxLen] + "..."
+}
+
+// decodePATPayload attempts to parse a JSON-encoded PAT payload that may include
+// additional credentials for providers like Gitea. Expected format:
+// {"pat":"...","username":"...","password":"..."}
+// If parsing fails, returns empty strings allowing callers to fall back.
+func decodePATPayload(raw string) (pat, username, password string) {
+	var payload struct {
+		Pat      string `json:"pat"`
+		Username string `json:"username"`
+		Password string `json:"password"`
+	}
+	if err := json.Unmarshal([]byte(strings.TrimSpace(raw)), &payload); err != nil {
+		return "", "", ""
+	}
+	return payload.Pat, payload.Username, payload.Password
 }
 
 // parseTriggerReviewRequest parses the request body into a TriggerReviewRequest and returns an error if parsing fails.
