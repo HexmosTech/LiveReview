@@ -373,6 +373,7 @@ def run_demo(
 	inline_form_side: str,
 	reply_parent_override: Optional[int],
 	org_id: int,
+	test_relogin: bool,
 ) -> None:
 	owner, repo, number = parse_pr_url(pr_url)
 	client = GiteaClient(connector.base_url, connector.pat)
@@ -390,6 +391,18 @@ def run_demo(
 			repo=repo,
 			pr_number=number,
 			base_url=connector.base_url,
+		)
+		return
+
+	if test_relogin:
+		test_relogin_flow(
+			base_url=connector.base_url,
+			owner=owner,
+			repo=repo,
+			pr_number=number,
+			path_hint="cmd/config.go",
+			line_hint=3,
+			head_sha=head_sha or "",
 		)
 		return
 
@@ -634,6 +647,63 @@ def delete_all_comments(
 	except Exception as exc:
 		print(f"Browser-session inline deletion failed: {exc}")
 
+
+def test_relogin_flow(
+	base_url: str,
+	owner: str,
+	repo: str,
+	pr_number: int,
+	path_hint: str,
+	line_hint: int,
+	head_sha: str,
+) -> None:
+	"""Validate relogin by forcing cookie expiry before GET and POST."""
+	print("Starting relogin test...")
+	ctx = create_session(
+		base_url,
+		os.environ.get("GITEA_USER", "livereview"),
+		os.environ.get("GITEA_PASS", "gitea@12345"),
+	)
+
+	baseline_ids = list_inline_comment_ids(ctx, owner, repo, pr_number)
+	print(f" baseline inline ids: {baseline_ids}")
+
+	# Force expiry then GET
+	ctx.session.cookies.pop("gitea_incredible", None)
+	ids_after_relogin = list_inline_comment_ids(ctx, owner, repo, pr_number)
+	print(f" after forced expiry, fetched inline ids (should succeed): {ids_after_relogin}")
+
+	# Force expiry then POST
+	ctx.session.cookies.pop("gitea_incredible", None)
+	marker = f"[relogin-test {time.strftime('%H:%M:%S')}]"
+	status_post, meta_post = post_inline_comment(
+		ctx,
+		owner=owner,
+		repo=repo,
+		pr_number=pr_number,
+		path=path_hint,
+		line=line_hint,
+		side="proposed",
+		commit_id=head_sha,
+		content=marker,
+	)
+	print(f" post status={status_post} meta={meta_post}")
+
+	# Identify and remove newly created inline(s)
+	ids_after_post = list_inline_comment_ids(ctx, owner, repo, pr_number)
+	new_ids = [cid for cid in ids_after_post if cid not in baseline_ids]
+	if new_ids:
+		print(f" cleaning up new inline ids: {new_ids}")
+		for cid in new_ids:
+			status_del, used_url = delete_inline_comment(
+				ctx, owner, repo, cid, pr_number=pr_number
+			)
+			print(f"  deleted inline {cid} status={status_del} url={used_url}")
+	else:
+		print(" no new inline ids detected after post")
+
+	print("Relogin test complete.")
+
 def main() -> None:
 	parser = argparse.ArgumentParser(description="Gitea comment workflow demo")
 	parser.add_argument(
@@ -656,6 +726,11 @@ def main() -> None:
 		"--delete",
 		action="store_true",
 		help="Delete created comments at the end",
+	)
+	parser.add_argument(
+		"--test-relogin",
+		action="store_true",
+		help="Run relogin test (forces cookie expiry, GET+POST, cleans up new inline)",
 	)
 	args = parser.parse_args()
 
@@ -687,6 +762,7 @@ def main() -> None:
 		delete_after=args.delete,
 		inline_form_side=args.inline_side,
 		reply_parent_override=args.reply_parent,
+		test_relogin=args.test_relogin,
 		org_id=connector.org_id,
 	)
 
