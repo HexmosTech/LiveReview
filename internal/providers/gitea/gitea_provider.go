@@ -190,6 +190,13 @@ func (p *Provider) GetMergeRequestChanges(ctx context.Context, prID string) ([]*
 		return nil, fmt.Errorf("base_url is required to fetch changes")
 	}
 
+	// First try unified diff endpoint for exact hunks
+	diffs, err := p.fetchDiffAsUnified(ctx, apiBase, owner, repo, number)
+	if err == nil && len(diffs) > 0 {
+		return diffs, nil
+	}
+
+	// Fallback to files endpoint if unified diff is unavailable
 	apiURL := fmt.Sprintf("%s/api/v1/repos/%s/%s/pulls/%s/files", apiBase, owner, repo, number)
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, apiURL, nil)
 	if err != nil {
@@ -213,7 +220,7 @@ func (p *Provider) GetMergeRequestChanges(ctx context.Context, prID string) ([]*
 		return nil, fmt.Errorf("failed to decode pull request files: %w", err)
 	}
 
-	var diffs []*models.CodeDiff
+	var fileDiffs []*models.CodeDiff
 	for _, f := range files {
 		hunks := parsePatchIntoHunks(f.Patch)
 		diff := &models.CodeDiff{
@@ -226,10 +233,39 @@ func (p *Provider) GetMergeRequestChanges(ctx context.Context, prID string) ([]*
 			OldFilePath: f.PreviousFilename,
 			Hunks:       hunks,
 		}
-		diffs = append(diffs, diff)
+		fileDiffs = append(fileDiffs, diff)
 	}
 
-	return diffs, nil
+	return fileDiffs, nil
+}
+
+// fetchDiffAsUnified fetches the PR diff via the .diff endpoint and parses into CodeDiffs.
+func (p *Provider) fetchDiffAsUnified(ctx context.Context, apiBase, owner, repo, number string) ([]*models.CodeDiff, error) {
+	// Gitea supports /repos/{owner}/{repo}/pulls/{index}.diff or .patch
+	apiURL := fmt.Sprintf("%s/api/v1/repos/%s/%s/pulls/%s.diff", apiBase, owner, repo, number)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, apiURL, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to build diff request: %w", err)
+	}
+	p.applyAuthHeaders(req)
+
+	resp, err := p.httpClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("failed to fetch diff: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, 1024))
+		return nil, fmt.Errorf("gitea diff fetch failed (%d): %s", resp.StatusCode, string(body))
+	}
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read diff body: %w", err)
+	}
+
+	return parseUnifiedDiff(string(body)), nil
 }
 
 // PostComment posts a comment on a PR. Supports inline (file/line) comments and general comments.
@@ -588,6 +624,12 @@ type pullRequestFile struct {
 	SHA              string `json:"sha"`
 }
 
+type filePatch struct {
+	oldPath string
+	newPath string
+	patch   string
+}
+
 func parsePatchIntoHunks(patch string) []models.DiffHunk {
 	if patch == "" {
 		return nil
@@ -671,4 +713,78 @@ func decodePackedToken(raw string) packedToken {
 	pt.username = payload.Username
 	pt.password = payload.Password
 	return pt
+}
+
+// parseUnifiedDiff splits a unified diff into CodeDiffs per file.
+func parseUnifiedDiff(content string) []*models.CodeDiff {
+	files := splitUnifiedDiff(content)
+	var diffs []*models.CodeDiff
+	for _, fp := range files {
+		hunks := parsePatchIntoHunks(fp.patch)
+		status, oldPath := detectStatus(fp.patch, fp.oldPath)
+
+		diffs = append(diffs, &models.CodeDiff{
+			FilePath:    fp.newPath,
+			OldFilePath: oldPath,
+			FileType:    getFileType(fp.newPath),
+			IsNew:       status == "added",
+			IsDeleted:   status == "removed",
+			IsRenamed:   status == "renamed",
+			Hunks:       hunks,
+		})
+	}
+	return diffs
+}
+
+func splitUnifiedDiff(content string) []filePatch {
+	lines := strings.Split(content, "\n")
+	var files []filePatch
+	var current filePatch
+	var buf strings.Builder
+
+	diffHeaderRegex := regexp.MustCompile(`^diff --git a/(.*) b/(.*)$`)
+
+	flush := func() {
+		if current.newPath == "" {
+			return
+		}
+		current.patch = buf.String()
+		files = append(files, current)
+		buf.Reset()
+		current = filePatch{}
+	}
+
+	for _, line := range lines {
+		if match := diffHeaderRegex.FindStringSubmatch(line); match != nil {
+			flush()
+			current.oldPath = match[1]
+			current.newPath = match[2]
+			buf.WriteString(line + "\n")
+			continue
+		}
+		if current.newPath != "" {
+			buf.WriteString(line + "\n")
+		}
+	}
+
+	flush()
+	return files
+}
+
+func detectStatus(patch, defaultOldPath string) (status string, oldPath string) {
+	status = "modified"
+	oldPath = defaultOldPath
+	for _, line := range strings.Split(patch, "\n") {
+		if strings.HasPrefix(line, "new file mode") {
+			status = "added"
+		}
+		if strings.HasPrefix(line, "deleted file mode") {
+			status = "removed"
+		}
+		if strings.HasPrefix(line, "rename from ") {
+			status = "renamed"
+			oldPath = strings.TrimSpace(strings.TrimPrefix(line, "rename from "))
+		}
+	}
+	return
 }

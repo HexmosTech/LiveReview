@@ -2,9 +2,20 @@
 
 set -euo pipefail
 
-# Load environment variables from .env file
-if [ -f .env ]; then
-    export $(grep -v '^#' .env | xargs)
+# Determine which env file to use
+ENV_FILE=".env"
+if [ "${1:-}" = "--prod" ]; then
+    ENV_FILE=".env.prod"
+    shift  # Remove --prod from arguments
+fi
+
+# Load environment variables from env file
+if [ -f "$ENV_FILE" ]; then
+    echo "Using environment file: $ENV_FILE"
+    export $(grep -v '^#' "$ENV_FILE" | xargs)
+else
+    echo "ERROR: $ENV_FILE not found"
+    exit 1
 fi
 
 # Parse DATABASE_URL to extract connection details
@@ -45,7 +56,22 @@ PG_DATA_DIR="./.livereview_pgdata"
 mkdir -p "$PG_DATA_DIR"
 
 usage() {
-  echo "Usage: $0 {start|stop|status|logs|info|rm|reset|migrations|conn|shell}"
+  echo "Usage: $0 [--prod] {start|stop|status|logs|info|rm|reset|migrations|conn|shell}"
+  echo ""
+  echo "Options:"
+  echo "  --prod    Use .env.prod instead of .env"
+  echo ""
+  echo "Commands:"
+  echo "  start       Start PostgreSQL container"
+  echo "  stop        Stop PostgreSQL container"
+  echo "  status      Show container status"
+  echo "  logs        Tail container logs"
+  echo "  info        Show connection info"
+  echo "  rm          Remove container"
+  echo "  reset       Reset database (destructive)"
+  echo "  migrations  Setup dbmate"
+  echo "  conn        Print connection string"
+  echo "  shell       Open psql shell or run SQL with -c"
   exit 1
 }
 

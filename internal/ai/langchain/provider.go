@@ -639,6 +639,16 @@ func (p *LangchainProvider) reviewCodeBatchFormatted(ctx context.Context, diffs 
 		p.logger.EmitBatchStart(batchId, len(diffs))
 	}
 
+	// TEMP DEBUG: Write prompt to /tmp/ for inspection
+	/*
+		tmpPromptPath := fmt.Sprintf("/tmp/livereview_prompt_batch_%s.txt", batchId)
+		if err := os.WriteFile(tmpPromptPath, []byte(prompt), 0644); err != nil {
+			fmt.Printf("[DEBUG] Failed to write prompt to %s: %v\n", tmpPromptPath, err)
+		} else {
+			fmt.Printf("[DEBUG] Wrote prompt to %s (%d bytes)\n", tmpPromptPath, len(prompt))
+		}
+	*/
+
 	// Extra defensive logging to help diagnose empty prompts in some environments
 	// Only print a safe preview (head/tail) to avoid flooding logs
 	safeHead := truncateString(prompt, 1200)
@@ -933,7 +943,17 @@ func (p *LangchainProvider) reviewCodeBatchFormatted(ctx context.Context, diffs 
 	}
 
 	fmt.Printf("\n[STREAM COMPLETE] Full response received after %v (%d chunks, %d chars)\n",
-		time.Since(startTime), totalChunks, len(response)) // Log response to global logger
+		time.Since(startTime), totalChunks, len(response))
+
+	// TEMP DEBUG: Write response to /tmp/ for inspection
+	tmpResponsePath := fmt.Sprintf("/tmp/livereview_response_batch_%s.txt", batchId)
+	if err := os.WriteFile(tmpResponsePath, []byte(response), 0644); err != nil {
+		fmt.Printf("[DEBUG] Failed to write response to %s: %v\n", tmpResponsePath, err)
+	} else {
+		fmt.Printf("[DEBUG] Wrote response to %s (%d bytes)\n", tmpResponsePath, len(response))
+	}
+
+	// Log response to global logger
 	if p.logger != nil {
 		p.logger.LogResponse(batchId, response)
 	}
