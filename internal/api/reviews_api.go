@@ -209,10 +209,13 @@ func (s *Server) refreshTokenIfNeeded(token *IntegrationToken, forceRefresh bool
 
 // validateProvider checks if the provider is supported
 func validateProvider(provider string) error {
-	// Support GitLab variants (gitlab, gitlab-self-hosted, etc.), GitHub variants, and Bitbucket variants
-	if !strings.HasPrefix(provider, "gitlab") && !strings.HasPrefix(provider, "github") && !strings.HasPrefix(provider, "bitbucket") {
+	// Support GitLab variants (gitlab, gitlab-self-hosted, etc.), GitHub variants, Bitbucket variants, and Gitea
+	if !strings.HasPrefix(provider, "gitlab") &&
+		!strings.HasPrefix(provider, "github") &&
+		!strings.HasPrefix(provider, "bitbucket") &&
+		!strings.HasPrefix(provider, "gitea") {
 		log.Printf("[DEBUG] validateProvider: Unsupported provider: %s", provider)
-		return fmt.Errorf("unsupported provider type: %s. Currently, only GitLab, GitHub, and Bitbucket variants are supported", provider)
+		return fmt.Errorf("unsupported provider type: %s. Currently, GitLab, GitHub, Bitbucket, and Gitea variants are supported", provider)
 	}
 	log.Printf("[DEBUG] validateProvider: Provider is supported: %s", provider)
 	return nil
@@ -264,6 +267,16 @@ func ensureValidToken(token *IntegrationToken) string {
 		accessToken := token.AccessToken
 		log.Printf("[DEBUG] ensureValidToken: Using Bitbucket access token: %s", maskToken(accessToken))
 		return accessToken
+	}
+
+	// Handle Gitea variants
+	if strings.HasPrefix(token.Provider, "gitea") {
+		if token.TokenType == "PAT" && token.PatToken != "" {
+			log.Printf("[DEBUG] ensureValidToken: Using Gitea PAT from database: %s", maskToken(token.PatToken))
+			return token.PatToken
+		}
+		log.Printf("[DEBUG] ensureValidToken: Using Gitea access token: %s", maskToken(token.AccessToken))
+		return token.AccessToken
 	}
 
 	// Default fallback
@@ -418,6 +431,17 @@ func (s *Server) buildReviewRequest(
 					providerConfigMap["email"] = email
 				}
 			}
+		} else if strings.HasPrefix(token.Provider, "gitea") {
+			providerToken = token.PatToken
+			providerConfigMap["pat_token"] = token.PatToken
+		}
+	}
+
+	// Provide base URL to provider configs that need it
+	if strings.HasPrefix(token.Provider, "gitea") {
+		providerConfigMap["base_url"] = token.ProviderURL
+		if _, ok := providerConfigMap["pat_token"]; !ok {
+			providerConfigMap["pat_token"] = providerToken
 		}
 	}
 
