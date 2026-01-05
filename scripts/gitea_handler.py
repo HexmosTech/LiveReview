@@ -111,6 +111,17 @@ def map_form_side(api_side: str) -> str:
 	return "proposed"
 
 
+def unpack_pat(raw: str) -> str:
+	"""Extract PAT from optional JSON payload {"pat":..., "username":..., "password":...}."""
+	try:
+		payload = json.loads(raw.strip())
+		if isinstance(payload, dict) and payload.get("pat"):
+			return str(payload.get("pat"))
+	except Exception:
+		pass
+	return raw
+
+
 def find_comment_by_marker(
 	comments: List[Dict], marker: str, path: Optional[str]
 ) -> Optional[Dict]:
@@ -169,7 +180,10 @@ def load_connector_from_db(
 	if not pat:
 		raise RuntimeError("Connector PAT is missing")
 	return GiteaConnector(
-		connector_id=connector_id_db, org_id=org_id_db, base_url=base, pat=pat
+		connector_id=connector_id_db,
+		org_id=org_id_db,
+		base_url=base,
+		pat=unpack_pat(pat),
 	)
 
 
@@ -181,7 +195,7 @@ def load_connector_from_db(
 class GiteaClient:
 	def __init__(self, base_url: str, pat: str) -> None:
 		self.base_url = base_url.rstrip("/")
-		self.pat = pat
+		self.pat = unpack_pat(pat)
 		self.session = requests.Session()
 		self.session.headers.update(
 			{
@@ -194,6 +208,15 @@ class GiteaClient:
 	def get_pull(self, owner: str, repo: str, number: int) -> Dict:
 		url = f"{self.base_url}/api/v1/repos/{owner}/{repo}/pulls/{number}"
 		return self._request("GET", url)
+
+	def get_pull_diff(self, owner: str, repo: str, number: int) -> str:
+		url = f"{self.base_url}/api/v1/repos/{owner}/{repo}/pulls/{number}.diff"
+		resp = self.session.get(url, timeout=30)
+		if resp.status_code != 200:
+			raise RuntimeError(
+				f"Diff fetch failed {resp.status_code}: {resp.text[:400]}"
+			)
+		return resp.text
 
 	def list_pull_files(self, owner: str, repo: str, number: int) -> List[Dict]:
 		url = f"{self.base_url}/api/v1/repos/{owner}/{repo}/pulls/{number}/files"
@@ -372,8 +395,9 @@ def run_demo(
 	delete_after: bool,
 	inline_form_side: str,
 	reply_parent_override: Optional[int],
-	org_id: int,
 	test_relogin: bool,
+	show_diff_info: bool,
+	org_id: int,
 ) -> None:
 	owner, repo, number = parse_pr_url(pr_url)
 	client = GiteaClient(connector.base_url, connector.pat)
@@ -383,6 +407,10 @@ def run_demo(
 	pr = client.get_pull(owner, repo, number)
 	head_sha = pr.get("head", {}).get("sha")
 	print(f"PR title: {pr.get('title')} head_sha={head_sha}")
+
+	if show_diff_info:
+		inspect_diff_shapes(client, owner, repo, number)
+		return
 
 	if delete_after:
 		delete_all_comments(
@@ -502,6 +530,38 @@ def run_demo(
 
 	if delete_after:
 		cleanup_comments(owner, repo, created_ids, review_comments, issue_comments, client)
+
+
+def inspect_diff_shapes(client: GiteaClient, owner: str, repo: str, number: int) -> None:
+	"""Print shapes/samples of diff endpoints to verify content for review."""
+	print("\n--- Unified diff (.diff) ---")
+	try:
+		diff_text = client.get_pull_diff(owner, repo, number)
+		diff_lines = diff_text.splitlines()
+		print(f"lines={len(diff_lines)} chars={len(diff_text)}")
+		for line in diff_lines[:30]:
+			print(line)
+		if len(diff_lines) > 30:
+			print("... (truncated) ...")
+	except Exception as exc:
+		print(f"diff fetch failed: {exc}")
+
+	print("\n--- Files API (/files) ---")
+	try:
+		files = client.list_pull_files(owner, repo, number)
+		print(f"file count={len(files)}")
+		for f in files:
+			patch = f.get("patch") or ""
+			path = f.get("filename")
+			print(
+				f"- {path} status={f.get('status')} sha={f.get('sha')} patch_lines={len(patch.splitlines())}"
+			)
+			for line in patch.splitlines()[:20]:
+				print(f"  {line}")
+			if len(patch.splitlines()) > 20:
+				print("  ... (truncated) ...")
+	except Exception as exc:
+		print(f"files fetch failed: {exc}")
 
 
 def summarize_comments(
@@ -732,6 +792,11 @@ def main() -> None:
 		action="store_true",
 		help="Run relogin test (forces cookie expiry, GET+POST, cleans up new inline)",
 	)
+	parser.add_argument(
+		"--show-diff-info",
+		action="store_true",
+		help="Inspect diff responses (.diff and files API) and exit",
+	)
 	args = parser.parse_args()
 
 	# Prefer production .env.prod; fallback to local .env.
@@ -763,6 +828,7 @@ def main() -> None:
 		inline_form_side=args.inline_side,
 		reply_parent_override=args.reply_parent,
 		test_relogin=args.test_relogin,
+		show_diff_info=args.show_diff_info,
 		org_id=connector.org_id,
 	)
 
