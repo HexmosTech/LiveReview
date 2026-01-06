@@ -25,6 +25,6 @@
   <g transform="translate(220, 100)" font-family="Arial, sans-serif" font-weight="bold">
     <text x="0" y="15" font-size="70" fill="white">Live</text>
     <text x="150" y="15" font-size="70" fill="#60A5FA">Review</text>
-    <text x="0" y="60" font-size="24" fill="#9CA3AF">AI-Powered Code Review</text>
+    <text x="0" y="60" font-size="24" fill="#9CA3AF">AI Code Review with Teeth</text>
   </g>
 </svg>
