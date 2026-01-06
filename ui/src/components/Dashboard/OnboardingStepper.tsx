@@ -108,7 +108,7 @@ export const OnboardingStepper: React.FC<OnboardingStepperProps> = ({
       <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between mb-4">
         <div className="max-w-3xl">
           <h3 className="text-2xl font-extrabold bg-gradient-to-r from-blue-400 via-cyan-400 to-emerald-400 bg-clip-text text-transparent mb-1.5">
-            🚀 Get your first preview in 2 minutes
+            🚀 Get your first review in 2 minutes
           </h3>
           <p className="text-base text-slate-300 font-medium">Three simple steps to safe, preview-only AI code reviews.</p>
         </div>
