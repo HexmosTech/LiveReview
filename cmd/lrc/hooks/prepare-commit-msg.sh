@@ -13,6 +13,13 @@ if [ -f "$DISABLED_FILE" ]; then
 	exit 0
 fi
 
+# Skip during Git sequencer operations to avoid re-triggering on rebase/merge/cherry-pick
+GIT_DIR="$(git rev-parse --git-dir 2>/dev/null || echo .git)"
+if [ -d "$GIT_DIR/rebase-apply" ] || [ -d "$GIT_DIR/rebase-merge" ] || [ -f "$GIT_DIR/MERGE_HEAD" ] || [ -f "$GIT_DIR/CHERRY_PICK_HEAD" ]; then
+	echo "LiveReview: skipping during rebase/merge/cherry-pick" >&2
+	exit 0
+fi
+
 # Allow explicit bypass (analogous to --no-verify)
 if [ "$LRC_SKIP_REVIEW" = "1" ]; then
 	exit 0
