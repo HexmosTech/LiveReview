@@ -56,6 +56,7 @@ type HTMLCommentData struct {
 	Content     string
 	HasCategory bool
 	Line        int
+	FilePath    string
 }
 
 // prepareHTMLData converts the API response to template data
@@ -94,7 +95,7 @@ func prepareFileData(file diffReviewFileResult) HTMLFileData {
 	// Process hunks
 	hunks := make([]HTMLHunkData, len(file.Hunks))
 	for i, hunk := range file.Hunks {
-		hunks[i] = prepareHunkData(hunk, commentsByLine)
+		hunks[i] = prepareHunkData(hunk, commentsByLine, file.FilePath)
 	}
 
 	return HTMLFileData{
@@ -107,12 +108,12 @@ func prepareFileData(file diffReviewFileResult) HTMLFileData {
 }
 
 // prepareHunkData converts a hunk to HTML hunk data
-func prepareHunkData(hunk diffReviewHunk, commentsByLine map[int][]diffReviewComment) HTMLHunkData {
+func prepareHunkData(hunk diffReviewHunk, commentsByLine map[int][]diffReviewComment, filePath string) HTMLHunkData {
 	header := fmt.Sprintf("@@ -%d,%d +%d,%d @@",
 		hunk.OldStartLine, hunk.OldLineCount,
 		hunk.NewStartLine, hunk.NewLineCount)
 
-	lines := parseHunkLines(hunk, commentsByLine)
+	lines := parseHunkLines(hunk, commentsByLine, filePath)
 
 	return HTMLHunkData{
 		Header: header,
@@ -121,7 +122,7 @@ func prepareHunkData(hunk diffReviewHunk, commentsByLine map[int][]diffReviewCom
 }
 
 // parseHunkLines parses hunk content into lines with comments
-func parseHunkLines(hunk diffReviewHunk, commentsByLine map[int][]diffReviewComment) []HTMLLineData {
+func parseHunkLines(hunk diffReviewHunk, commentsByLine map[int][]diffReviewComment, filePath string) []HTMLLineData {
 	contentLines := strings.Split(hunk.Content, "\n")
 	oldLine := hunk.OldStartLine
 	newLine := hunk.NewStartLine
@@ -154,7 +155,7 @@ func parseHunkLines(hunk diffReviewHunk, commentsByLine map[int][]diffReviewComm
 			// Check for comments on this line
 			if comments, hasComment := commentsByLine[newLine]; hasComment {
 				lineData.IsComment = true
-				lineData.Comments = prepareComments(comments)
+				lineData.Comments = prepareComments(comments, filePath)
 			}
 
 			newLine++
@@ -176,7 +177,7 @@ func parseHunkLines(hunk diffReviewHunk, commentsByLine map[int][]diffReviewComm
 }
 
 // prepareComments converts comments to HTML comment data
-func prepareComments(comments []diffReviewComment) []HTMLCommentData {
+func prepareComments(comments []diffReviewComment, filePath string) []HTMLCommentData {
 	result := make([]HTMLCommentData, len(comments))
 
 	for i, comment := range comments {
@@ -197,6 +198,7 @@ func prepareComments(comments []diffReviewComment) []HTMLCommentData {
 			Content:     comment.Content,
 			HasCategory: comment.Category != "",
 			Line:        comment.Line,
+			FilePath:    filePath,
 		}
 	}
 
@@ -602,6 +604,7 @@ const htmlTemplate = `<!DOCTYPE html>
             border: 1px solid rgba(59,130,246,0.3);
             border-radius: 8px;
             box-shadow: 0 8px 24px rgba(0,0,0,0.35);
+            position: relative;
         }
         .comment-header {
             display: flex;
@@ -610,6 +613,40 @@ const htmlTemplate = `<!DOCTYPE html>
             margin-bottom: 8px;
             font-weight: 700;
             color: #e5e7eb;
+        }
+        .comment-copy-btn {
+            position: absolute;
+            top: 8px;
+            right: 8px;
+            background: rgba(139,92,246,0.15);
+            border: 1px solid rgba(139,92,246,0.3);
+            color: #c4b5fd;
+            padding: 4px 10px;
+            border-radius: 6px;
+            font-size: 11px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.15s ease;
+            display: flex;
+            align-items: center;
+            gap: 4px;
+        }
+        .comment-copy-btn:hover {
+            background: rgba(139,92,246,0.25);
+            border-color: rgba(139,92,246,0.5);
+            transform: scale(1.05);
+        }
+        .comment-copy-btn::before {
+            content: "📋";
+            font-size: 12px;
+        }
+        .comment-copy-btn.copied {
+            background: rgba(34,197,94,0.15);
+            border-color: rgba(34,197,94,0.3);
+            color: #bbf7d0;
+        }
+        .comment-copy-btn.copied::before {
+            content: "✓";
         }
         .comment-badge {
             padding: 3px 10px;
@@ -998,7 +1035,8 @@ const htmlTemplate = `<!DOCTYPE html>
                     </tr>
 {{if .IsComment}}{{range .Comments}}                    <tr class="comment-row" data-line="{{.Line}}">
                         <td colspan="3">
-                            <div class="comment-container">
+                            <div class="comment-container" data-filepath="{{.FilePath}}" data-line="{{.Line}}" data-comment="{{.Content}}">
+                                <button class="comment-copy-btn" title="Copy issue details">Copy</button>
                                 <div class="comment-header">
                                     <span class="comment-badge {{.BadgeClass}}">{{.Severity}}</span>
 {{if .HasCategory}}                                    <span class="comment-category">{{.Category}}</span>
@@ -1368,6 +1406,70 @@ const htmlTemplate = `<!DOCTYPE html>
                     }
                 });
             }
+
+            // Individual comment copy buttons
+            document.querySelectorAll('.comment-copy-btn').forEach(btn => {
+                btn.addEventListener('click', async (e) => {
+                    e.stopPropagation();
+                    
+                    const container = btn.closest('.comment-container');
+                    if (!container) return;
+                    
+                    const filepath = container.dataset.filepath || '';
+                    const line = container.dataset.line || '';
+                    const comment = container.dataset.comment || '';
+                    
+                    // Find the corresponding diff line to get code excerpt
+                    const commentRow = container.closest('.comment-row');
+                    let codeExcerpt = '';
+                    if (commentRow) {
+                        const prevRow = commentRow.previousElementSibling;
+                        if (prevRow && prevRow.classList.contains('diff-line')) {
+                            const lineContent = prevRow.querySelector('.line-content');
+                            if (lineContent) {
+                                codeExcerpt = lineContent.textContent.trim();
+                            }
+                        }
+                    }
+                    
+                    // Build the copy text
+                    let copyText = '';
+                    if (filepath) {
+                        copyText += filepath;
+                        if (line) {
+                            copyText += ':' + line;
+                        }
+                        copyText += '\n\n';
+                    }
+                    
+                    if (codeExcerpt) {
+                        copyText += 'Code excerpt:\n  ' + codeExcerpt + '\n\n';
+                    }
+                    
+                    if (comment) {
+                        copyText += 'Issue:\n' + comment;
+                    }
+                    
+                    try {
+                        await navigator.clipboard.writeText(copyText);
+                        
+                        const originalText = btn.textContent;
+                        btn.classList.add('copied');
+                        btn.textContent = 'Copied!';
+                        
+                        setTimeout(() => {
+                            btn.classList.remove('copied');
+                            btn.textContent = originalText;
+                        }, 2000);
+                    } catch (err) {
+                        console.error('Copy failed:', err);
+                        btn.textContent = 'Failed';
+                        setTimeout(() => {
+                            btn.textContent = 'Copy';
+                        }, 2000);
+                    }
+                });
+            });
         });
     </script>
 </body>
