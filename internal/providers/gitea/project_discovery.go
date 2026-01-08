@@ -7,7 +7,6 @@ import (
 	"net/http"
 	"net/url"
 	"strconv"
-	"strings"
 )
 
 // GiteaRepositoryBasic represents basic repository information from Gitea API.
@@ -27,8 +26,11 @@ func DiscoverProjectsGitea(baseURL, pat string) ([]string, error) {
 	page := 1
 	perPage := 50 // Gitea default max is typically 50
 
+	// Unpack PAT if it's stored in packed format (JSON with pat/username/password)
+	pat = UnpackGiteaPAT(pat)
+
 	client := &http.Client{}
-	apiBase := strings.TrimSuffix(baseURL, "/")
+	apiBase := NormalizeGiteaBaseURL(baseURL)
 	if apiBase == "" {
 		return nil, fmt.Errorf("base_url is required for Gitea")
 	}
@@ -39,6 +41,8 @@ func DiscoverProjectsGitea(baseURL, pat string) ([]string, error) {
 		params.Add("page", strconv.Itoa(page))
 		params.Add("limit", strconv.Itoa(perPage))
 		apiURL += "?" + params.Encode()
+
+		fmt.Printf("[DEBUG] Gitea discovery - baseURL: %s, apiBase after normalize: %s, final apiURL: %s\n", baseURL, apiBase, apiURL)
 
 		req, err := http.NewRequest("GET", apiURL, nil)
 		if err != nil {
