@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/livereview/internal/providers/bitbucket"
+	"github.com/livereview/internal/providers/gitea"
 	"github.com/livereview/internal/providers/github"
 	"github.com/livereview/internal/providers/gitlab"
 )
@@ -144,7 +145,7 @@ func (awi *AutoWebhookInstaller) getConnectorDetails(connectorID int) (*Connecto
 
 // shouldAutoInstall determines if a connector should have automatic webhook installation
 func (awi *AutoWebhookInstaller) shouldAutoInstall(connector *ConnectorDetails) bool {
-	// Auto-install for both GitLab and GitHub providers
+	// Auto-install for GitLab, GitHub, and Gitea providers
 	isGitLab := connector.Provider == "gitlab" ||
 		connector.Provider == "gitlab-com" ||
 		connector.Provider == "gitlab-self-hosted"
@@ -153,7 +154,9 @@ func (awi *AutoWebhookInstaller) shouldAutoInstall(connector *ConnectorDetails) 
 		connector.Provider == "github-com" ||
 		connector.Provider == "github-enterprise"
 
-	if !isGitLab && !isGitHub {
+	isGitea := connector.Provider == "gitea"
+
+	if !isGitLab && !isGitHub && !isGitea {
 		return false
 	}
 
@@ -180,6 +183,9 @@ func (awi *AutoWebhookInstaller) discoverAndCacheProjects(connectorID int, conne
 	} else if strings.HasPrefix(connector.Provider, "github") {
 		// Use the GitHub project discovery function
 		projects, err = github.DiscoverProjectsGitHub(connector.ProviderURL, connector.PATToken)
+	} else if strings.HasPrefix(connector.Provider, "gitea") {
+		// Use the Gitea project discovery function
+		projects, err = gitea.DiscoverProjectsGitea(connector.ProviderURL, connector.PATToken)
 	} else if strings.HasPrefix(connector.Provider, "bitbucket") {
 		// Use the Bitbucket project discovery function
 		// For Bitbucket, we need email from metadata

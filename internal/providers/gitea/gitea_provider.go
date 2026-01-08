@@ -100,7 +100,7 @@ func (p *Provider) Configure(config map[string]interface{}) error {
 		return fmt.Errorf("token is required for Gitea provider")
 	}
 
-	p.baseURL = base
+	p.baseURL = NormalizeGiteaBaseURL(base)
 	p.token = token
 	if p.httpClient == nil {
 		p.httpClient = &http.Client{}

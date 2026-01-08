@@ -32,6 +32,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/livereview/internal/providers/gitea"
 	"github.com/riverqueue/river"
 	"github.com/riverqueue/river/riverdriver/riverpgxv5"
 )
@@ -106,6 +107,20 @@ type GitHubWebhookPayload struct {
 		ContentType string `json:"content_type"`
 		Secret      string `json:"secret,omitempty"`
 		InsecureSSL string `json:"insecure_ssl"`
+	} `json:"config"`
+}
+
+// Gitea API response structures
+type GiteaHook struct {
+	ID     int64    `json:"id"`
+	Type   string   `json:"type"`
+	Active bool     `json:"active"`
+	Events []string `json:"events"`
+	Config struct {
+		URL         string `json:"url"`
+		ContentType string `json:"content_type"`
+		Secret      string `json:"secret"`
+		InsecureSSL bool   `json:"insecure_ssl"`
 	} `json:"config"`
 }
 
@@ -189,6 +204,17 @@ func (w *WebhookInstallWorker) getWebhookEndpointForProvider(provider string) st
 			return baseURL
 		}
 		return baseURL + "/bitbucket-hook"
+	case "gitea":
+		if strings.HasSuffix(baseURL, "/gitlab-hook") {
+			baseURL = strings.TrimSuffix(baseURL, "/gitlab-hook")
+		} else if strings.HasSuffix(baseURL, "/github-hook") {
+			baseURL = strings.TrimSuffix(baseURL, "/github-hook")
+		} else if strings.HasSuffix(baseURL, "/bitbucket-hook") {
+			baseURL = strings.TrimSuffix(baseURL, "/bitbucket-hook")
+		} else if strings.HasSuffix(baseURL, "/gitea-hook") {
+			return baseURL
+		}
+		return baseURL + "/gitea-hook"
 	default:
 		// For unknown providers, try to strip known endpoints and return base
 		if strings.HasSuffix(baseURL, "/gitlab-hook") {
@@ -218,6 +244,8 @@ func (w *WebhookInstallWorker) getWebhookEndpointForProviderWithCustomEndpoint(p
 		providerPath = "/api/v1/github-hook"
 	case "bitbucket", "bitbucket-cloud":
 		providerPath = "/api/v1/bitbucket-hook"
+	case "gitea":
+		providerPath = "/api/v1/gitea-hook"
 	default:
 		// Fallback to generic webhook endpoint
 		providerPath = "/api/v1/webhook"
@@ -432,6 +460,8 @@ func (w *WebhookInstallWorker) Work(ctx context.Context, job *river.Job[WebhookI
 		return w.handleGitHubWebhookInstall(ctx, args)
 	} else if strings.HasPrefix(args.Provider, "bitbucket") {
 		return w.handleBitbucketWebhookInstall(ctx, args)
+	} else if strings.HasPrefix(args.Provider, "gitea") {
+		return w.handleGiteaWebhookInstall(ctx, args)
 	} else {
 		return fmt.Errorf("unsupported provider: %s", args.Provider)
 	}
@@ -1253,6 +1283,277 @@ func (w *WebhookInstallWorker) updateWebhookRegistryBitbucket(ctx context.Contex
 	return nil
 }
 
+// Gitea webhook installation methods
+
+// handleGiteaWebhookInstall handles Gitea webhook installation
+func (w *WebhookInstallWorker) handleGiteaWebhookInstall(ctx context.Context, args WebhookInstallJobArgs) error {
+	parts := strings.SplitN(args.ProjectPath, "/", 2)
+	if len(parts) != 2 {
+		return fmt.Errorf("invalid Gitea repository format: %s (expected: owner/repo)", args.ProjectPath)
+	}
+	owner, repo := parts[0], parts[1]
+
+	// Unpack PAT if it's in packed format
+	pat := gitea.UnpackGiteaPAT(args.PAT)
+
+	log.Printf("Installing Gitea webhook for repository: %s/%s", owner, repo)
+
+	webhook, err := w.installGiteaWebhook(owner, repo, args.BaseURL, pat, args.ConnectorID)
+	if err != nil {
+		log.Printf("Failed to install webhook for Gitea repository %s/%s: %v", owner, repo, err)
+		return fmt.Errorf("failed to install webhook: %w", err)
+	}
+
+	if webhook != nil {
+		log.Printf("Successfully installed Gitea webhook #%d for repository %s/%s", webhook.ID, owner, repo)
+	} else {
+		log.Printf("Successfully verified existing Gitea webhook for repository %s/%s", owner, repo)
+	}
+
+	if err := w.updateWebhookRegistryGitea(ctx, args, webhook); err != nil {
+		log.Printf("Failed to update webhook registry for Gitea repository %s/%s: %v", owner, repo, err)
+		// Do not fail the job if registry update fails after webhook creation
+	}
+
+	log.Printf("Gitea webhook installation completed for repository: %s/%s", owner, repo)
+	return nil
+}
+
+// makeGiteaRequest makes a request to the Gitea API
+func (w *WebhookInstallWorker) makeGiteaRequest(method, endpoint string, payload interface{}, baseURL, pat string) (*http.Response, error) {
+	var body io.Reader
+	if payload != nil {
+		jsonData, err := json.Marshal(payload)
+		if err != nil {
+			return nil, fmt.Errorf("failed to marshal payload: %w", err)
+		}
+		body = bytes.NewBuffer(jsonData)
+	}
+
+	apiBase := gitea.NormalizeGiteaBaseURL(baseURL)
+	// Gitea API endpoints always use /api/v1 prefix
+	fullURL := fmt.Sprintf("%s/api/v1%s", apiBase, endpoint)
+
+	req, err := http.NewRequest(method, fullURL, body)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create request: %w", err)
+	}
+
+	req.Header.Set("Authorization", "token "+pat)
+	req.Header.Set("Accept", "application/json")
+	if payload != nil {
+		req.Header.Set("Content-Type", "application/json")
+	}
+
+	client := &http.Client{Timeout: 30 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("HTTP request failed: %w", err)
+	}
+
+	return resp, nil
+}
+
+// giteaWebhookExists checks if a webhook already exists for the repository
+func (w *WebhookInstallWorker) giteaWebhookExists(owner, repo, webhookURL, baseURL, pat string) (*GiteaHook, error) {
+	endpoint := fmt.Sprintf("/repos/%s/%s/hooks", owner, repo)
+	resp, err := w.makeGiteaRequest(http.MethodGet, endpoint, nil, baseURL, pat)
+	if err != nil {
+		return nil, fmt.Errorf("failed to list webhooks: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("gitea API error (status %d): %s", resp.StatusCode, string(body))
+	}
+
+	var hooks []GiteaHook
+	if err := json.NewDecoder(resp.Body).Decode(&hooks); err != nil {
+		return nil, fmt.Errorf("failed to decode hooks response: %w", err)
+	}
+
+	oldWebhookURL := w.getWebhookEndpointForProvider("gitea")
+	for _, hook := range hooks {
+		if hook.Config.URL == webhookURL || hook.Config.URL == oldWebhookURL {
+			return &hook, nil
+		}
+	}
+
+	return nil, nil
+}
+
+// installGiteaWebhook installs or updates a webhook for a Gitea repository
+func (w *WebhookInstallWorker) installGiteaWebhook(owner, repo, baseURL, pat string, connectorID int) (*GiteaHook, error) {
+	// Get the current production URL from database (do not use cached config)
+	db, err := sql.Open("postgres", w.pool.Config().ConnString())
+	if err != nil {
+		return nil, fmt.Errorf("failed to connect to database: %w", err)
+	}
+	defer db.Close()
+
+	currentEndpoint, err := getWebhookPublicEndpoint(db)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get current webhook endpoint: %w", err)
+	}
+	if currentEndpoint == "" {
+		return nil, fmt.Errorf("webhook endpoint not configured: please set livereview_prod_url in settings before installing webhooks")
+	}
+
+	webhookURL := w.getWebhookEndpointForProviderWithCustomEndpoint("gitea", currentEndpoint, connectorID)
+
+	// Check if webhook already exists
+	existingHook, err := w.giteaWebhookExists(owner, repo, webhookURL, baseURL, pat)
+	if err != nil {
+		return nil, fmt.Errorf("failed to check existing webhooks: %w", err)
+	}
+
+	events := []string{"pull_request", "issue_comment"}
+	payload := map[string]interface{}{
+		"type": "gitea",
+		"config": map[string]interface{}{
+			"url":          webhookURL,
+			"content_type": "json",
+			"secret":       w.config.WebhookConfig.Secret,
+		},
+		"events": events,
+		"active": true,
+	}
+
+	endpoint := fmt.Sprintf("/repos/%s/%s/hooks", owner, repo)
+	method := http.MethodPost
+	if existingHook != nil {
+		endpoint = fmt.Sprintf("/repos/%s/%s/hooks/%d", owner, repo, existingHook.ID)
+		method = http.MethodPatch
+	}
+
+	resp, err := w.makeGiteaRequest(method, endpoint, payload, baseURL, pat)
+	if err != nil {
+		return nil, fmt.Errorf("failed to install webhook: %w", err)
+	}
+	defer resp.Body.Close()
+
+	// Gitea returns 200 for update and 201 for create
+	if resp.StatusCode != http.StatusCreated && resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("gitea API error installing webhook (status %d): %s", resp.StatusCode, string(body))
+	}
+
+	var hook GiteaHook
+	if err := json.NewDecoder(resp.Body).Decode(&hook); err != nil {
+		return nil, fmt.Errorf("failed to decode webhook response: %w", err)
+	}
+
+	return &hook, nil
+}
+
+// updateWebhookRegistryGitea creates or updates the webhook registry entry for a Gitea repository
+func (w *WebhookInstallWorker) updateWebhookRegistryGitea(ctx context.Context, args WebhookInstallJobArgs, webhook *GiteaHook) error {
+	var existingID int
+	checkQuery := `
+		SELECT id FROM webhook_registry 
+		WHERE integration_token_id = $1 AND project_full_name = $2
+	`
+
+	err := w.pool.QueryRow(ctx, checkQuery, args.ConnectorID, args.ProjectPath).Scan(&existingID)
+	now := time.Now()
+
+	projectName := args.ProjectPath
+	if slash := strings.LastIndex(args.ProjectPath, "/"); slash != -1 {
+		projectName = args.ProjectPath[slash+1:]
+	}
+
+	webhookID := ""
+	webhookURL := ""
+	webhookName := "LiveReview Webhook"
+	events := "pull_request,issue_comment"
+	status := "automatic"
+
+	if webhook != nil {
+		webhookID = fmt.Sprintf("%d", webhook.ID)
+		webhookURL = webhook.Config.URL
+	}
+
+	if err == pgx.ErrNoRows {
+		insertQuery := `
+			INSERT INTO webhook_registry (
+				provider,
+				provider_project_id,
+				project_name,
+				project_full_name,
+				webhook_id,
+				webhook_url,
+				webhook_secret,
+				webhook_name,
+				events,
+				status,
+				last_verified_at,
+				created_at,
+				updated_at,
+				integration_token_id
+			) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
+		`
+
+		_, err = w.pool.Exec(ctx, insertQuery,
+			args.Provider,
+			args.ProjectPath,
+			projectName,
+			args.ProjectPath,
+			webhookID,
+			webhookURL,
+			w.config.WebhookConfig.Secret,
+			webhookName,
+			events,
+			status,
+			now,
+			now,
+			now,
+			args.ConnectorID,
+		)
+
+		if err != nil {
+			return fmt.Errorf("failed to insert webhook registry: %w", err)
+		}
+
+		log.Printf("Created webhook_registry entry for Gitea project %s with status '%s'", args.ProjectPath, status)
+		return nil
+	} else if err != nil {
+		return fmt.Errorf("failed to check existing webhook registry: %w", err)
+	}
+
+	updateQuery := `
+		UPDATE webhook_registry 
+		SET status = $1,
+		    updated_at = $2,
+		    last_verified_at = $3,
+		    webhook_name = $4,
+		    events = $5,
+		    webhook_id = $6,
+		    webhook_url = $7,
+		    webhook_secret = $8
+		WHERE id = $9
+	`
+
+	_, err = w.pool.Exec(ctx, updateQuery,
+		status,
+		now,
+		now,
+		webhookName,
+		events,
+		webhookID,
+		webhookURL,
+		w.config.WebhookConfig.Secret,
+		existingID,
+	)
+
+	if err != nil {
+		return fmt.Errorf("failed to update webhook registry: %w", err)
+	}
+
+	log.Printf("Updated webhook_registry entry for Gitea project %s with status '%s'", args.ProjectPath, status)
+	return nil
+}
+
 // WebhookRemovalWorker methods
 
 // Work processes a webhook removal job
@@ -1269,6 +1570,8 @@ func (w *WebhookRemovalWorker) Work(ctx context.Context, job *river.Job[WebhookR
 		return w.handleGitHubWebhookRemoval(ctx, args)
 	} else if strings.HasPrefix(args.Provider, "bitbucket") {
 		return w.handleBitbucketWebhookRemoval(ctx, args)
+	} else if strings.HasPrefix(args.Provider, "gitea") {
+		return w.handleGiteaWebhookRemoval(ctx, args)
 	} else {
 		return fmt.Errorf("unsupported provider: %s", args.Provider)
 	}
@@ -1372,6 +1675,8 @@ func (w *WebhookRemovalWorker) getWebhookEndpointForProviderWithConnector(provid
 		return fmt.Sprintf("%s/api/v1/github-hook/%d", baseURL, connectorID)
 	case "bitbucket", "bitbucket-cloud":
 		return fmt.Sprintf("%s/api/v1/bitbucket-hook/%d", baseURL, connectorID)
+	case "gitea":
+		return fmt.Sprintf("%s/api/v1/gitea-hook/%d", baseURL, connectorID)
 	default:
 		return fmt.Sprintf("%s/api/v1/%s-hook/%d", baseURL, provider, connectorID)
 	}
@@ -1393,6 +1698,8 @@ func (w *WebhookRemovalWorker) getWebhookEndpointForProvider(provider string) st
 		return baseURL + "/api/v1/github-hook"
 	case "bitbucket", "bitbucket-cloud":
 		return baseURL + "/api/v1/bitbucket-hook"
+	case "gitea":
+		return baseURL + "/api/v1/gitea-hook"
 	default:
 		return baseURL + "/api/v1/" + provider + "-hook"
 	}
@@ -2078,6 +2385,222 @@ func (w *WebhookRemovalWorker) updateWebhookRegistryForBitbucketRemoval(ctx cont
 		log.Printf("Updated webhook_registry entry for Bitbucket repository %s with status '%s'", args.ProjectPath, status)
 	}
 
+	return nil
+}
+
+// Gitea webhook removal methods
+
+// handleGiteaWebhookRemoval handles Gitea webhook removal
+func (w *WebhookRemovalWorker) handleGiteaWebhookRemoval(ctx context.Context, args WebhookRemovalJobArgs) error {
+	parts := strings.SplitN(args.ProjectPath, "/", 2)
+	if len(parts) != 2 {
+		return fmt.Errorf("invalid Gitea repository format: %s (expected: owner/repo)", args.ProjectPath)
+	}
+	owner, repo := parts[0], parts[1]
+
+	// Unpack PAT if it's in packed format
+	pat := gitea.UnpackGiteaPAT(args.PAT)
+
+	log.Printf("Removing Gitea webhooks for repository: %s/%s", owner, repo)
+
+	if err := w.removeGiteaWebhooks(owner, repo, args.BaseURL, pat, args.ConnectorID); err != nil {
+		log.Printf("Failed to remove webhooks from Gitea repository %s/%s: %v", owner, repo, err)
+		// continue to registry update even on API failure
+	}
+
+	if err := w.updateWebhookRegistryForGiteaRemoval(ctx, args); err != nil {
+		return fmt.Errorf("failed to update webhook registry: %w", err)
+	}
+
+	log.Printf("Gitea webhook removal completed for repository: %s/%s", owner, repo)
+	return nil
+}
+
+// makeGiteaRequestForRemoval makes a request to the Gitea API for removal operations
+func (w *WebhookRemovalWorker) makeGiteaRequestForRemoval(method, endpoint string, payload interface{}, baseURL, pat string) (*http.Response, error) {
+	var body io.Reader
+	if payload != nil {
+		jsonData, err := json.Marshal(payload)
+		if err != nil {
+			return nil, fmt.Errorf("failed to marshal payload: %w", err)
+		}
+		body = bytes.NewBuffer(jsonData)
+	}
+
+	apiBase := gitea.NormalizeGiteaBaseURL(baseURL)
+	// Gitea API endpoints always use /api/v1 prefix
+	fullURL := fmt.Sprintf("%s/api/v1%s", apiBase, endpoint)
+
+	req, err := http.NewRequest(method, fullURL, body)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create request: %w", err)
+	}
+
+	req.Header.Set("Authorization", "token "+pat)
+	req.Header.Set("Accept", "application/json")
+	if payload != nil {
+		req.Header.Set("Content-Type", "application/json")
+	}
+
+	client := &http.Client{Timeout: 30 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("HTTP request failed: %w", err)
+	}
+
+	return resp, nil
+}
+
+// removeGiteaWebhooks removes all LiveReview webhooks from a Gitea repository
+func (w *WebhookRemovalWorker) removeGiteaWebhooks(owner, repo, baseURL, pat string, connectorID int) error {
+	endpoint := fmt.Sprintf("/repos/%s/%s/hooks", owner, repo)
+	resp, err := w.makeGiteaRequestForRemoval(http.MethodGet, endpoint, nil, baseURL, pat)
+	if err != nil {
+		return fmt.Errorf("failed to fetch webhooks: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode == http.StatusNotFound {
+		log.Printf("[INFO] Gitea repository %s/%s not found or inaccessible - treating as already removed", owner, repo)
+		return nil
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("gitea API error fetching webhooks (status %d): %s", resp.StatusCode, string(body))
+	}
+
+	var hooks []GiteaHook
+	if err := json.NewDecoder(resp.Body).Decode(&hooks); err != nil {
+		return fmt.Errorf("failed to decode webhook list: %w", err)
+	}
+
+	webhookURLNew := w.getWebhookEndpointForProviderWithConnector("gitea", connectorID)
+	webhookURLOld := w.getWebhookEndpointForProvider("gitea")
+
+	removed := 0
+	for _, hook := range hooks {
+		if hook.Config.URL == webhookURLNew || hook.Config.URL == webhookURLOld {
+			deleteEndpoint := fmt.Sprintf("/api/v1/repos/%s/%s/hooks/%d", owner, repo, hook.ID)
+			deleteResp, err := w.makeGiteaRequestForRemoval(http.MethodDelete, deleteEndpoint, nil, baseURL, pat)
+			if err != nil {
+				log.Printf("Failed to delete Gitea webhook %d: %v", hook.ID, err)
+				continue
+			}
+			deleteResp.Body.Close()
+
+			if deleteResp.StatusCode == http.StatusNoContent || deleteResp.StatusCode == http.StatusNotFound || deleteResp.StatusCode == http.StatusOK {
+				removed++
+				log.Printf("Removed Gitea webhook %d for repository %s/%s", hook.ID, owner, repo)
+			} else {
+				log.Printf("Failed to delete Gitea webhook %d (status %d)", hook.ID, deleteResp.StatusCode)
+			}
+		}
+	}
+
+	if removed == 0 {
+		log.Printf("No LiveReview webhooks found for Gitea repository %s/%s", owner, repo)
+	}
+
+	return nil
+}
+
+// updateWebhookRegistryForGiteaRemoval marks a Gitea repository as unconnected in the webhook registry
+func (w *WebhookRemovalWorker) updateWebhookRegistryForGiteaRemoval(ctx context.Context, args WebhookRemovalJobArgs) error {
+	checkQuery := `
+		SELECT id FROM webhook_registry 
+		WHERE integration_token_id = $1 AND project_full_name = $2
+	`
+
+	var existingID int
+	err := w.pool.QueryRow(ctx, checkQuery, args.ConnectorID, args.ProjectPath).Scan(&existingID)
+	now := time.Now()
+
+	projectName := args.ProjectPath
+	if slash := strings.LastIndex(args.ProjectPath, "/"); slash >= 0 {
+		projectName = args.ProjectPath[slash+1:]
+	}
+
+	status := "unconnected"
+	webhookID := ""
+	webhookURL := w.getWebhookEndpointForProvider("gitea")
+	webhookName := "LiveReview Webhook"
+	events := "pull_request,issue_comment"
+
+	if err == pgx.ErrNoRows {
+		insertQuery := `
+			INSERT INTO webhook_registry (
+				provider,
+				provider_project_id,
+				project_name,
+				project_full_name,
+				webhook_id,
+				webhook_url,
+				webhook_secret,
+				webhook_name,
+				events,
+				status,
+				last_verified_at,
+				integration_token_id,
+				created_at,
+				updated_at
+			) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
+		`
+
+		_, err = w.pool.Exec(ctx, insertQuery,
+			args.Provider,
+			args.ProjectPath,
+			projectName,
+			args.ProjectPath,
+			webhookID,
+			webhookURL,
+			w.config.WebhookConfig.Secret,
+			webhookName,
+			events,
+			status,
+			now,
+			args.ConnectorID,
+			now,
+			now,
+		)
+
+		if err != nil {
+			return fmt.Errorf("failed to create webhook registry entry: %w", err)
+		}
+
+		log.Printf("Created webhook_registry entry for Gitea repository %s with status '%s'", args.ProjectPath, status)
+		return nil
+	} else if err != nil {
+		return fmt.Errorf("failed to check existing webhook registry entry: %w", err)
+	}
+
+	updateQuery := `
+		UPDATE webhook_registry 
+		SET 
+			webhook_id = $1,
+			webhook_url = $2,
+			webhook_secret = $3,
+			status = $4,
+			last_verified_at = $5,
+			updated_at = $6
+		WHERE id = $7
+	`
+
+	_, err = w.pool.Exec(ctx, updateQuery,
+		webhookID,
+		webhookURL,
+		w.config.WebhookConfig.Secret,
+		status,
+		now,
+		now,
+		existingID,
+	)
+
+	if err != nil {
+		return fmt.Errorf("failed to update webhook registry: %w", err)
+	}
+
+	log.Printf("Updated webhook_registry entry for Gitea repository %s with status '%s'", args.ProjectPath, status)
 	return nil
 }
 

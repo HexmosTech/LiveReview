@@ -4,7 +4,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
-	"strings"
+
+	gitea "github.com/livereview/internal/providers/gitea"
 )
 
 // GiteaProfile represents the user profile info fetched from Gitea using a PAT.
@@ -19,11 +20,11 @@ type GiteaProfile struct {
 // FetchGiteaProfile validates a PAT by fetching the authenticated user's profile.
 // It calls <baseURL>/api/v1/user using the provided PAT.
 func FetchGiteaProfile(baseURL, pat string) (*GiteaProfile, error) {
-	base := strings.TrimSuffix(baseURL, "/")
+	base := gitea.NormalizeGiteaBaseURL(baseURL)
 	if base == "" {
 		return nil, fmt.Errorf("base_url is required for Gitea")
 	}
-	pat = unpackPAT(pat)
+	pat = gitea.UnpackGiteaPAT(pat)
 	apiURL := fmt.Sprintf("%s/api/v1/user", base)
 
 	req, err := http.NewRequest("GET", apiURL, nil)
@@ -54,20 +55,4 @@ func FetchGiteaProfile(baseURL, pat string) (*GiteaProfile, error) {
 	}
 
 	return &profile, nil
-}
-
-// unpackPAT extracts the raw PAT when the UI sends a JSON payload
-// like {"pat":"...","username":"...","password":"..."}.
-// Falls back to the original string if parsing fails.
-func unpackPAT(raw string) string {
-	var payload struct {
-		Pat string `json:"pat"`
-	}
-	if err := json.Unmarshal([]byte(strings.TrimSpace(raw)), &payload); err != nil {
-		return raw
-	}
-	if payload.Pat == "" {
-		return raw
-	}
-	return payload.Pat
 }
