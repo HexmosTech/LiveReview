@@ -7,6 +7,13 @@ import (
 	"strings"
 )
 
+// Credentials bundles PAT plus optional basic credentials when provided in packed JSON.
+type Credentials struct {
+	PAT      string
+	Username string
+	Password string
+}
+
 // NormalizeGiteaBaseURL trims common swagger/api suffixes and returns a clean base URL.
 // Unlike the old version, this preserves sub-paths for Gitea instances like https://example.com/gitea
 func NormalizeGiteaBaseURL(raw string) string {
@@ -56,4 +63,21 @@ func UnpackGiteaPAT(raw string) string {
 	}
 	// Fallback to raw if no pat field
 	return raw
+}
+
+// UnpackGiteaCredentials returns PAT plus optional username/password if present.
+// If unpacking fails, only PAT is populated with the raw token value.
+func UnpackGiteaCredentials(raw string) Credentials {
+	var payload struct {
+		Pat      string `json:"pat"`
+		Username string `json:"username"`
+		Password string `json:"password"`
+	}
+	if err := json.Unmarshal([]byte(strings.TrimSpace(raw)), &payload); err != nil {
+		return Credentials{PAT: raw}
+	}
+	if payload.Pat == "" {
+		payload.Pat = raw
+	}
+	return Credentials{PAT: payload.Pat, Username: payload.Username, Password: payload.Password}
 }

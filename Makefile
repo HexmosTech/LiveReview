@@ -360,6 +360,21 @@ raw-deploy: build-with-ui
 	ssh master "cd /root/public_lr && pm2 reload ecosystem.config.js"
 	@echo "✅ Production deployment complete!"
 
+raw-deploy-backend:
+	@echo "🚀 Deploying to production server..."
+	go build livereview.go
+	@if [ ! -f ./livereview ]; then \
+		echo "❌ ERROR: livereview binary not found! Run 'make build-with-ui' first."; \
+		exit 1; \
+	fi
+	ssh master "cd /root/public_lr && mv ./livereview ./livereview.bak || true"
+	rsync -avz ./livereview db-ready.sh ecosystem.config.js deps.sh master:/root/public_lr/
+	rsync -avz ./.env.prod master:/root/public_lr/.env
+	rsync -avz ./db/ master:/root/public_lr/db/
+	ssh master "cd /root/public_lr && chmod a+x db-ready.sh && ./db-ready.sh"
+	ssh master "cd /root/public_lr && pm2 reload ecosystem.config.js"
+	@echo "✅ Production deployment complete!"
+
 # Fetch recent PM2 logs from the production host for quick inspection
 # Usage: make pm2-logs [LINES=400]
 pm2-logs:

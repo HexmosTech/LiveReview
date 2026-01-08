@@ -1,55 +1,1897 @@
+Gitea API Inspection Log
+Generated: 2026-01-08T20:34:50.340899
+PR URL: https://gitea.hexmos.site/megaorg/livereview/pulls/17
+================================================================================
 
-[2026-01-08T06:15:06.439513] get_user
-METHOD: GET
-URL: https://gitea.hexmos.site/api/v1/user
-PAYLOAD: None
-STATUS: 200
-RESPONSE: {"id":2,"login":"livereview","login_name":"","source_id":0,"full_name":"","email":"livereveiewbot@gmail.com","avatar_url":"https://gitea.hexmos.site/avatars/dd58054c086f0375c2440173ba52a163","html_url":"https://gitea.hexmos.site/livereview","language":"en-US","is_admin":false,"last_login":"2026-01-05T10:52:59Z","created":"2026-01-04T05:32:59Z","restricted":false,"active":true,"prohibit_login":false,"location":"","website":"","description":"","visibility":"private","followers_count":0,"following_count":0,"starred_repos_count":0,"username":"livereview"}
+================================================================================
+[2026-01-08T20:34:50.341306] get_authenticated_user
+================================================================================
+REQUEST:
+  METHOD: GET
+  URL: https://gitea.hexmos.site/api/v1/user
+  HEADERS:
+    User-Agent: python-requests/2.31.0
+    Accept-Encoding: gzip, deflate, br
+    Accept: application/json
+    Connection: keep-alive
+    Authorization: token ***REDACTED***
+  PAYLOAD: None
 
+RESPONSE:
+  STATUS: 200
+  HEADERS:
+    Server: nginx/1.24.0 (Ubuntu)
+    Date: Thu, 08 Jan 2026 15:04:53 GMT
+    Content-Type: application/json;charset=utf-8
+    Content-Length: 558
+    Connection: keep-alive
+    Cache-Control: max-age=0, private, must-revalidate, no-transform
+    X-Content-Type-Options: nosniff
+    X-Frame-Options: SAMEORIGIN
+  BODY:
+    {
+    "id": 2,
+    "login": "livereview",
+    "login_name": "",
+    "source_id": 0,
+    "full_name": "",
+    "email": "livereveiewbot@gmail.com",
+    "avatar_url": "https://gitea.hexmos.site/avatars/dd58054c086f0375c2440173ba52a163",
+    "html_url": "https://gitea.hexmos.site/livereview",
+    "language": "en-US",
+    "is_admin": false,
+    "last_login": "2026-01-05T10:52:59Z",
+    "created": "2026-01-04T05:32:59Z",
+    "restricted": false,
+    "active": true,
+    "prohibit_login": false,
+    "location": "",
+    "website": "",
+    "description": "",
+    "visibility": "private",
+    "followers_count": 0,
+    "following_count": 0,
+    "starred_repos_count": 0,
+    "username": "livereview"
+}
+--------------------------------------------------------------------------------
 
-[2026-01-08T06:15:07.188678] list_repos
-METHOD: GET
-URL: https://gitea.hexmos.site/api/v1/user/repos
-PAYLOAD: None
-STATUS: 200
-RESPONSE: [{"id":2,"owner":{"id":3,"login":"megaorg","login_name":"","source_id":0,"full_name":"","email":"","avatar_url":"https://gitea.hexmos.site/avatars/2cbaffca520167f0d4ba4964b4070d61","html_url":"https://gitea.hexmos.site/megaorg","language":"","is_admin":false,"last_login":"0001-01-01T00:00:00Z","created":"2026-01-04T05:35:04Z","restricted":false,"active":false,"prohibit_login":false,"location":"","website":"","description":"","visibility":"limited","followers_count":0,"following_count":0,"starred_repos_count":0,"username":"megaorg"},"name":"livereview","full_name":"megaorg/livereview","description":"","empty":false,"private":true,"fork":false,"template":false,"mirror":false,"size":32926,"language":"Go","languages_url":"https://gitea.hexmos.site/api/v1/repos/megaorg/livereview/languages","html_url":"https://gitea.hexmos.site/megaorg/livereview","url":"https://gitea.hexmos.site/api/v1/repos/megaorg/livereview","link":"","ssh_url":"ssh://git@gitea.hexmos.site:2222/megaorg/livereview.git","clone_url":"https://gitea.hexmos.site/megaorg/livereview.git","original_url":"https://git.apps.hexmos.com/hexmos/livereview.git","website":"","stars_count":0,"forks_count":0,"watchers_count":2,"open_issues_count":12,"open_pr_counter":1,"release_counter":0,"default_branch":"master","archived":false,"created_at":"2026-01-04T05:20:48Z","updated_at":"2026-01-04T05:28:26Z","archived_at":"1970-01-01T00:00:00Z","permissions":{"admin":true,"push":true,"pull":true},"has_code":false,"has_issues":true,"internal_tracker":{"enable_time_tracker":true,"allow_only_contributors_to_track_time":true,"enable_issue_dependencies":true},"has_wiki":true,"has_pull_requests":true,"has_projects":true,"projects_mode":"all","has_releases":true,"has_packages":true,"has_actions":true,"ignore_whitespace_conflicts":false,"allow_merge_commits":true,"allow_rebase":true,"allow_rebase_explicit":true,"allow_squash_merge":true,"allow_fast_forward_only_merge":true,"allow_rebase_update":true,"allow_manual_merge":false,"autodetect_manual_merge":false,"default_delete_branch_after_merge":false,"default_merge_style":"merge","default_allow_maintainer_edit":false,"avatar_url":"","internal":false,"mirror_interval":"","object_format_name":"sha1","mirror_updated":"0001-01-01T00:00:00Z","topics":[],"licenses":[]}]
+================================================================================
+[2026-01-08T20:34:51.160613] list_issue_comments
+================================================================================
+REQUEST:
+  METHOD: GET
+  URL: https://gitea.hexmos.site/api/v1/repos/megaorg/livereview/issues/17/comments
+  HEADERS:
+    User-Agent: python-requests/2.31.0
+    Accept-Encoding: gzip, deflate, br
+    Accept: application/json
+    Connection: keep-alive
+    Authorization: token ***REDACTED***
+  PAYLOAD: None
 
+RESPONSE:
+  STATUS: 200
+  HEADERS:
+    Server: nginx/1.24.0 (Ubuntu)
+    Date: Thu, 08 Jan 2026 15:04:53 GMT
+    Content-Type: application/json;charset=utf-8
+    Transfer-Encoding: chunked
+    Connection: keep-alive
+    Access-Control-Expose-Headers: X-Total-Count
+    Cache-Control: max-age=0, private, must-revalidate, no-transform
+    X-Content-Type-Options: nosniff
+    X-Frame-Options: SAMEORIGIN
+    X-Total-Count: 2
+  BODY:
+    [
+    {
+        "id": 82,
+        "html_url": "https://gitea.hexmos.site/megaorg/livereview/pulls/17#issuecomment-82",
+        "pull_request_url": "https://gitea.hexmos.site/megaorg/livereview/pulls/17",
+        "issue_url": "",
+        "user": {
+            "id": 2,
+            "login": "livereview",
+            "login_name": "",
+            "source_id": 0,
+            "full_name": "",
+            "email": "livereview@noreply.localhost",
+            "avatar_url": "https://gitea.hexmos.site/avatars/dd58054c086f0375c2440173ba52a163",
+            "html_url": "https://gitea.hexmos.site/livereview",
+            "language": "",
+            "is_admin": false,
+            "last_login": "0001-01-01T00:00:00Z",
+            "created": "2026-01-04T05:32:59Z",
+            "restricted": false,
+            "active": false,
+            "prohibit_login": false,
+            "location": "",
+            "website": "",
+            "description": "",
+            "visibility": "private",
+            "followers_count": 0,
+            "following_count": 0,
+            "starred_repos_count": 0,
+            "username": "livereview"
+        },
+        "original_author": "",
+        "original_author_id": 0,
+        "body": "# Verify No Technical Modifications\n\n## Overview\nRepository-wide analysis identified no substantive technical changes. No new architectural shifts or data flows were introduced. Existing interfaces and components remain unchanged.\n\n## Technical Highlights\n- No new technical artifacts or architectural shifts were captured.\n- No new data flows or interfaces were identified.\n\n## Impact\n- **Functionality**: No changes to existing functionality or capabilities were observed.\n- **Risk**: No new technical risks, migration considerations, or debt were identified.",
+        "assets": [],
+        "created_at": "2026-01-05T10:52:59Z",
+        "updated_at": "2026-01-05T10:52:59Z"
+    },
+    {
+        "id": 105,
+        "html_url": "https://gitea.hexmos.site/megaorg/livereview/pulls/17#issuecomment-105",
+        "pull_request_url": "https://gitea.hexmos.site/megaorg/livereview/pulls/17",
+        "issue_url": "",
+        "user": {
+            "id": 2,
+            "login": "livereview",
+            "login_name": "",
+            "source_id": 0,
+            "full_name": "",
+            "email": "livereview@noreply.localhost",
+            "avatar_url": "https://gitea.hexmos.site/avatars/dd58054c086f0375c2440173ba52a163",
+            "html_url": "https://gitea.hexmos.site/livereview",
+            "language": "",
+            "is_admin": false,
+            "last_login": "0001-01-01T00:00:00Z",
+            "created": "2026-01-04T05:32:59Z",
+            "restricted": false,
+            "active": false,
+            "prohibit_login": false,
+            "location": "",
+            "website": "",
+            "description": "",
+            "visibility": "private",
+            "followers_count": 0,
+            "following_count": 0,
+            "starred_repos_count": 0,
+            "username": "livereview"
+        },
+        "original_author": "",
+        "original_author_id": 0,
+        "body": "I'm sorry, I'm unable to generate a response right now. Please try again later. (Error: AI connector call failed: googleapi: Error 429: You exceeded your current quota, please check your plan and billing details. For more information on this error, head to: https://ai.google.dev/gemini-api/docs/rate-limits. To monitor your current usage, head to: https://ai.dev/rate-limit. \n* Quota exceeded for metric: generativelanguage.googleapis.com/generate_content_free_tier_input_token_count, limit: 0, model: gemini-2.0-flash\n* Quota exceeded for metric: generativelanguage.googleapis.com/generate_content_free_tier_requests, limit: 0, model: gemini-2.0-flash\n* Quota exceeded for metric: generativelanguage.googleapis.com/generate_content_free_tier_requests, limit: 0, model: gemini-2.0-flash\nPlease retry in 27.826832585s.)",
+        "assets": [],
+        "created_at": "2026-01-08T15:04:32Z",
+        "updated_at": "2026-01-08T15:04:32Z"
+    }
+]
+--------------------------------------------------------------------------------
 
-[2026-01-08T06:15:07.987843] list_hooks
-METHOD: GET
-URL: https://gitea.hexmos.site/api/v1/repos/megaorg/livereview/hooks
-PAYLOAD: None
-STATUS: 200
-RESPONSE: []
+================================================================================
+[2026-01-08T20:34:51.411806] list_review_comments
+================================================================================
+REQUEST:
+  METHOD: GET
+  URL: https://gitea.hexmos.site/api/v1/repos/megaorg/livereview/pulls/17/comments
+  HEADERS:
+    User-Agent: python-requests/2.31.0
+    Accept-Encoding: gzip, deflate, br
+    Accept: application/json
+    Connection: keep-alive
+    Authorization: token ***REDACTED***
+  PAYLOAD: None
 
+RESPONSE:
+  STATUS: 404
+  HEADERS:
+    Server: nginx/1.24.0 (Ubuntu)
+    Date: Thu, 08 Jan 2026 15:04:53 GMT
+    Content-Type: application/json;charset=utf-8
+    Content-Length: 84
+    Connection: keep-alive
+    Cache-Control: max-age=0, private, must-revalidate, no-transform
+    X-Content-Type-Options: nosniff
+    X-Frame-Options: SAMEORIGIN
+  BODY:
+    {
+    "errors": null,
+    "message": "not found",
+    "url": "https://gitea.hexmos.site/api/swagger"
+}
+--------------------------------------------------------------------------------
 
-[2026-01-08T06:15:08.744804] create_hook
-METHOD: POST
-URL: https://gitea.hexmos.site/api/v1/repos/megaorg/livereview/hooks
-PAYLOAD: {'type': 'gitea', 'config': {'url': 'https://example.com/webhook-test', 'content_type': 'json', 'secret': 'abc123'}, 'events': ['pull_request', 'issue_comment'], 'active': True}
-STATUS: 201
-RESPONSE: {"id":3,"type":"gitea","branch_filter":"","config":{"content_type":"json","url":"https://example.com/webhook-test"},"events":["issue_comment","pull_request_assign","pull_request_label","pull_request_milestone","pull_request_comment","pull_request","pull_request_review","pull_request_review_request","pull_request_sync"],"authorization_header":"","active":true,"updated_at":"2026-01-08T06:15:11Z","created_at":"2026-01-08T06:15:11Z"}
+================================================================================
+[2026-01-08T20:34:51.655751] list_pull_reviews
+================================================================================
+REQUEST:
+  METHOD: GET
+  URL: https://gitea.hexmos.site/api/v1/repos/megaorg/livereview/pulls/17/reviews
+  HEADERS:
+    User-Agent: python-requests/2.31.0
+    Accept-Encoding: gzip, deflate, br
+    Accept: application/json
+    Connection: keep-alive
+    Authorization: token ***REDACTED***
+  PAYLOAD: None
 
+RESPONSE:
+  STATUS: 200
+  HEADERS:
+    Server: nginx/1.24.0 (Ubuntu)
+    Date: Thu, 08 Jan 2026 15:04:54 GMT
+    Content-Type: application/json;charset=utf-8
+    Transfer-Encoding: chunked
+    Connection: keep-alive
+    Access-Control-Expose-Headers: X-Total-Count
+    Cache-Control: max-age=0, private, must-revalidate, no-transform
+    X-Content-Type-Options: nosniff
+    X-Frame-Options: SAMEORIGIN
+    X-Total-Count: 31
+  BODY:
+    [
+    {
+        "id": 1,
+        "user": {
+            "id": 2,
+            "login": "livereview",
+            "login_name": "",
+            "source_id": 0,
+            "full_name": "",
+            "email": "livereveiewbot@gmail.com",
+            "avatar_url": "https://gitea.hexmos.site/avatars/dd58054c086f0375c2440173ba52a163",
+            "html_url": "https://gitea.hexmos.site/livereview",
+            "language": "en-US",
+            "is_admin": false,
+            "last_login": "2026-01-05T10:52:59Z",
+            "created": "2026-01-04T05:32:59Z",
+            "restricted": false,
+            "active": true,
+            "prohibit_login": false,
+            "location": "",
+            "website": "",
+            "description": "",
+            "visibility": "private",
+            "followers_count": 0,
+            "following_count": 0,
+            "starred_repos_count": 0,
+            "username": "livereview"
+        },
+        "team": null,
+        "state": "COMMENT",
+        "body": "",
+        "commit_id": "91650c1bd33f153479777fdd98ae62b6c9035cb8",
+        "stale": false,
+        "official": false,
+        "dismissed": false,
+        "comments_count": 0,
+        "submitted_at": "2026-01-05T06:25:46Z",
+        "updated_at": "2026-01-05T06:25:47Z",
+        "html_url": "https://gitea.hexmos.site/megaorg/livereview/pulls/17#issuecomment-19",
+        "pull_request_url": "https://gitea.hexmos.site/megaorg/livereview/pulls/17"
+    },
+    {
+        "id": 2,
+        "user": {
+            "id": 2,
+            "login": "livereview",
+            "login_name": "",
+            "source_id": 0,
+            "full_name": "",
+            "email": "livereveiewbot@gmail.com",
+            "avatar_url": "https://gitea.hexmos.site/avatars/dd58054c086f0375c2440173ba52a163",
+            "html_url": "https://gitea.hexmos.site/livereview",
+            "language": "en-US",
+            "is_admin": false,
+            "last_login": "2026-01-05T10:52:59Z",
+            "created": "2026-01-04T05:32:59Z",
+            "restricted": false,
+            "active": true,
+            "prohibit_login": false,
+            "location": "",
+            "website": "",
+            "description": "",
+            "visibility": "private",
+            "followers_count": 0,
+            "following_count": 0,
+            "starred_repos_count": 0,
+            "username": "livereview"
+        },
+        "team": null,
+        "state": "COMMENT",
+        "body": "",
+        "commit_id": "91650c1bd33f153479777fdd98ae62b6c9035cb8",
+        "stale": false,
+        "official": false,
+        "dismissed": false,
+        "comments_count": 0,
+        "submitted_at": "2026-01-05T08:27:31Z",
+        "updated_at": "2026-01-05T08:27:31Z",
+        "html_url": "https://gitea.hexmos.site/megaorg/livereview/pulls/17#issuecomment-21",
+        "pull_request_url": "https://gitea.hexmos.site/megaorg/livereview/pulls/17"
+    },
+    {
+        "id": 3,
+        "user": {
+            "id": 2,
+            "login": "livereview",
+            "login_name": "",
+            "source_id": 0,
+            "full_name": "",
+            "email": "livereveiewbot@gmail.com",
+            "avatar_url": "https://gitea.hexmos.site/avatars/dd58054c086f0375c2440173ba52a163",
+            "html_url": "https://gitea.hexmos.site/livereview",
+            "language": "en-US",
+            "is_admin": false,
+            "last_login": "2026-01-05T10:52:59Z",
+            "created": "2026-01-04T05:32:59Z",
+            "restricted": false,
+            "active": true,
+            "prohibit_login": false,
+            "location": "",
+            "website": "",
+            "description": "",
+            "visibility": "private",
+            "followers_count": 0,
+            "following_count": 0,
+            "starred_repos_count": 0,
+            "username": "livereview"
+        },
+        "team": null,
+        "state": "COMMENT",
+        "body": "",
+        "commit_id": "91650c1bd33f153479777fdd98ae62b6c9035cb8",
+        "stale": false,
+        "official": false,
+        "dismissed": false,
+        "comments_count": 0,
+        "submitted_at": "2026-01-05T08:30:42Z",
+        "updated_at": "2026-01-05T08:30:42Z",
+        "html_url": "https://gitea.hexmos.site/megaorg/livereview/pulls/17#issuecomment-23",
+        "pull_request_url": "https://gitea.hexmos.site/megaorg/livereview/pulls/17"
+    },
+    {
+        "id": 4,
+        "user": {
+            "id": 2,
+            "login": "livereview",
+            "login_name": "",
+            "source_id": 0,
+            "full_name": "",
+            "email": "livereveiewbot@gmail.com",
+            "avatar_url": "https://gitea.hexmos.site/avatars/dd58054c086f0375c2440173ba52a163",
+            "html_url": "https://gitea.hexmos.site/livereview",
+            "language": "en-US",
+            "is_admin": false,
+            "last_login": "2026-01-05T10:52:59Z",
+            "created": "2026-01-04T05:32:59Z",
+            "restricted": false,
+            "active": true,
+            "prohibit_login": false,
+            "location": "",
+            "website": "",
+            "description": "",
+            "visibility": "private",
+            "followers_count": 0,
+            "following_count": 0,
+            "starred_repos_count": 0,
+            "username": "livereview"
+        },
+        "team": null,
+        "state": "COMMENT",
+        "body": "",
+        "commit_id": "91650c1bd33f153479777fdd98ae62b6c9035cb8",
+        "stale": false,
+        "official": false,
+        "dismissed": false,
+        "comments_count": 0,
+        "submitted_at": "2026-01-05T08:37:09Z",
+        "updated_at": "2026-01-05T08:37:09Z",
+        "html_url": "https://gitea.hexmos.site/megaorg/livereview/pulls/17#issuecomment-25",
+        "pull_request_url": "https://gitea.hexmos.site/megaorg/livereview/pulls/17"
+    },
+    {
+        "id": 5,
+        "user": {
+            "id": 2,
+            "login": "livereview",
+            "login_name": "",
+            "source_id": 0,
+            "full_name": "",
+            "email": "livereveiewbot@gmail.com",
+            "avatar_url": "https://gitea.hexmos.site/avatars/dd58054c086f0375c2440173ba52a163",
+            "html_url": "https://gitea.hexmos.site/livereview",
+            "language": "en-US",
+            "is_admin": false,
+            "last_login": "2026-01-05T10:52:59Z",
+            "created": "2026-01-04T05:32:59Z",
+            "restricted": false,
+            "active": true,
+            "prohibit_login": false,
+            "location": "",
+            "website": "",
+            "description": "",
+            "visibility": "private",
+            "followers_count": 0,
+            "following_count": 0,
+            "starred_repos_count": 0,
+            "username": "livereview"
+        },
+        "team": null,
+        "state": "COMMENT",
+        "body": "",
+        "commit_id": "91650c1bd33f153479777fdd98ae62b6c9035cb8",
+        "stale": false,
+        "official": false,
+        "dismissed": false,
+        "comments_count": 0,
+        "submitted_at": "2026-01-05T08:38:03Z",
+        "updated_at": "2026-01-05T08:38:03Z",
+        "html_url": "https://gitea.hexmos.site/megaorg/livereview/pulls/17#issuecomment-27",
+        "pull_request_url": "https://gitea.hexmos.site/megaorg/livereview/pulls/17"
+    },
+    {
+        "id": 6,
+        "user": {
+            "id": 2,
+            "login": "livereview",
+            "login_name": "",
+            "source_id": 0,
+            "full_name": "",
+            "email": "livereveiewbot@gmail.com",
+            "avatar_url": "https://gitea.hexmos.site/avatars/dd58054c086f0375c2440173ba52a163",
+            "html_url": "https://gitea.hexmos.site/livereview",
+            "language": "en-US",
+            "is_admin": false,
+            "last_login": "2026-01-05T10:52:59Z",
+            "created": "2026-01-04T05:32:59Z",
+            "restricted": false,
+            "active": true,
+            "prohibit_login": false,
+            "location": "",
+            "website": "",
+            "description": "",
+            "visibility": "private",
+            "followers_count": 0,
+            "following_count": 0,
+            "starred_repos_count": 0,
+            "username": "livereview"
+        },
+        "team": null,
+        "state": "COMMENT",
+        "body": "",
+        "commit_id": "91650c1bd33f153479777fdd98ae62b6c9035cb8",
+        "stale": false,
+        "official": false,
+        "dismissed": false,
+        "comments_count": 0,
+        "submitted_at": "2026-01-05T08:48:22Z",
+        "updated_at": "2026-01-05T08:48:22Z",
+        "html_url": "https://gitea.hexmos.site/megaorg/livereview/pulls/17#issuecomment-31",
+        "pull_request_url": "https://gitea.hexmos.site/megaorg/livereview/pulls/17"
+    },
+    {
+        "id": 7,
+        "user": {
+            "id": 2,
+            "login": "livereview",
+            "login_name": "",
+            "source_id": 0,
+            "full_name": "",
+            "email": "livereveiewbot@gmail.com",
+            "avatar_url": "https://gitea.hexmos.site/avatars/dd58054c086f0375c2440173ba52a163",
+            "html_url": "https://gitea.hexmos.site/livereview",
+            "language": "en-US",
+            "is_admin": false,
+            "last_login": "2026-01-05T10:52:59Z",
+            "created": "2026-01-04T05:32:59Z",
+            "restricted": false,
+            "active": true,
+            "prohibit_login": false,
+            "location": "",
+            "website": "",
+            "description": "",
+            "visibility": "private",
+            "followers_count": 0,
+            "following_count": 0,
+            "starred_repos_count": 0,
+            "username": "livereview"
+        },
+        "team": null,
+        "state": "COMMENT",
+        "body": "",
+        "commit_id": "91650c1bd33f153479777fdd98ae62b6c9035cb8",
+        "stale": false,
+        "official": false,
+        "dismissed": false,
+        "comments_count": 0,
+        "submitted_at": "2026-01-05T09:13:48Z",
+        "updated_at": "2026-01-05T09:13:48Z",
+        "html_url": "https://gitea.hexmos.site/megaorg/livereview/pulls/17#issuecomment-33",
+        "pull_request_url": "https://gitea.hexmos.site/megaorg/livereview/pulls/17"
+    },
+    {
+        "id": 8,
+        "user": {
+            "id": 2,
+            "login": "livereview",
+            "login_name": "",
+            "source_id": 0,
+            "full_name": "",
+            "email": "livereveiewbot@gmail.com",
+            "avatar_url": "https://gitea.hexmos.site/avatars/dd58054c086f0375c2440173ba52a163",
+            "html_url": "https://gitea.hexmos.site/livereview",
+            "language": "en-US",
+            "is_admin": false,
+            "last_login": "2026-01-05T10:52:59Z",
+            "created": "2026-01-04T05:32:59Z",
+            "restricted": false,
+            "active": true,
+            "prohibit_login": false,
+            "location": "",
+            "website": "",
+            "description": "",
+            "visibility": "private",
+            "followers_count": 0,
+            "following_count": 0,
+            "starred_repos_count": 0,
+            "username": "livereview"
+        },
+        "team": null,
+        "state": "COMMENT",
+        "body": "",
+        "commit_id": "91650c1bd33f153479777fdd98ae62b6c9035cb8",
+        "stale": false,
+        "official": false,
+        "dismissed": false,
+        "comments_count": 0,
+        "submitted_at": "2026-01-05T09:56:30Z",
+        "updated_at": "2026-01-05T09:56:30Z",
+        "html_url": "https://gitea.hexmos.site/megaorg/livereview/pulls/17#issuecomment-36",
+        "pull_request_url": "https://gitea.hexmos.site/megaorg/livereview/pulls/17"
+    },
+    {
+        "id": 9,
+        "user": {
+            "id": 2,
+            "login": "livereview",
+            "login_name": "",
+            "source_id": 0,
+            "full_name": "",
+            "email": "livereveiewbot@gmail.com",
+            "avatar_url": "https://gitea.hexmos.site/avatars/dd58054c086f0375c2440173ba52a163",
+            "html_url": "https://gitea.hexmos.site/livereview",
+            "language": "en-US",
+            "is_admin": false,
+            "last_login": "2026-01-05T10:52:59Z",
+            "created": "2026-01-04T05:32:59Z",
+            "restricted": false,
+            "active": true,
+            "prohibit_login": false,
+            "location": "",
+            "website": "",
+            "description": "",
+            "visibility": "private",
+            "followers_count": 0,
+            "following_count": 0,
+            "starred_repos_count": 0,
+            "username": "livereview"
+        },
+        "team": null,
+        "state": "COMMENT",
+        "body": "",
+        "commit_id": "91650c1bd33f153479777fdd98ae62b6c9035cb8",
+        "stale": false,
+        "official": false,
+        "dismissed": false,
+        "comments_count": 0,
+        "submitted_at": "2026-01-05T09:56:30Z",
+        "updated_at": "2026-01-05T09:56:30Z",
+        "html_url": "https://gitea.hexmos.site/megaorg/livereview/pulls/17#issuecomment-38",
+        "pull_request_url": "https://gitea.hexmos.site/megaorg/livereview/pulls/17"
+    },
+    {
+        "id": 10,
+        "user": {
+            "id": 2,
+            "login": "livereview",
+            "login_name": "",
+            "source_id": 0,
+            "full_name": "",
+            "email": "livereveiewbot@gmail.com",
+            "avatar_url": "https://gitea.hexmos.site/avatars/dd58054c086f0375c2440173ba52a163",
+            "html_url": "https://gitea.hexmos.site/livereview",
+            "language": "en-US",
+            "is_admin": false,
+            "last_login": "2026-01-05T10:52:59Z",
+            "created": "2026-01-04T05:32:59Z",
+            "restricted": false,
+            "active": true,
+            "prohibit_login": false,
+            "location": "",
+            "website": "",
+            "description": "",
+            "visibility": "private",
+            "followers_count": 0,
+            "following_count": 0,
+            "starred_repos_count": 0,
+            "username": "livereview"
+        },
+        "team": null,
+        "state": "COMMENT",
+        "body": "",
+        "commit_id": "91650c1bd33f153479777fdd98ae62b6c9035cb8",
+        "stale": false,
+        "official": false,
+        "dismissed": false,
+        "comments_count": 0,
+        "submitted_at": "2026-01-05T09:56:30Z",
+        "updated_at": "2026-01-05T09:56:30Z",
+        "html_url": "https://gitea.hexmos.site/megaorg/livereview/pulls/17#issuecomment-40",
+        "pull_request_url": "https://gitea.hexmos.site/megaorg/livereview/pulls/17"
+    },
+    {
+        "id": 11,
+        "user": {
+            "id": 2,
+            "login": "livereview",
+            "login_name": "",
+            "source_id": 0,
+            "full_name": "",
+            "email": "livereveiewbot@gmail.com",
+            "avatar_url": "https://gitea.hexmos.site/avatars/dd58054c086f0375c2440173ba52a163",
+            "html_url": "https://gitea.hexmos.site/livereview",
+            "language": "en-US",
+            "is_admin": false,
+            "last_login": "2026-01-05T10:52:59Z",
+            "created": "2026-01-04T05:32:59Z",
+            "restricted": false,
+            "active": true,
+            "prohibit_login": false,
+            "location": "",
+            "website": "",
+            "description": "",
+            "visibility": "private",
+            "followers_count": 0,
+            "following_count": 0,
+            "starred_repos_count": 0,
+            "username": "livereview"
+        },
+        "team": null,
+        "state": "COMMENT",
+        "body": "",
+        "commit_id": "91650c1bd33f153479777fdd98ae62b6c9035cb8",
+        "stale": false,
+        "official": false,
+        "dismissed": false,
+        "comments_count": 0,
+        "submitted_at": "2026-01-05T09:56:30Z",
+        "updated_at": "2026-01-05T09:56:31Z",
+        "html_url": "https://gitea.hexmos.site/megaorg/livereview/pulls/17#issuecomment-42",
+        "pull_request_url": "https://gitea.hexmos.site/megaorg/livereview/pulls/17"
+    },
+    {
+        "id": 12,
+        "user": {
+            "id": 2,
+            "login": "livereview",
+            "login_name": "",
+            "source_id": 0,
+            "full_name": "",
+            "email": "livereveiewbot@gmail.com",
+            "avatar_url": "https://gitea.hexmos.site/avatars/dd58054c086f0375c2440173ba52a163",
+            "html_url": "https://gitea.hexmos.site/livereview",
+            "language": "en-US",
+            "is_admin": false,
+            "last_login": "2026-01-05T10:52:59Z",
+            "created": "2026-01-04T05:32:59Z",
+            "restricted": false,
+            "active": true,
+            "prohibit_login": false,
+            "location": "",
+            "website": "",
+            "description": "",
+            "visibility": "private",
+            "followers_count": 0,
+            "following_count": 0,
+            "starred_repos_count": 0,
+            "username": "livereview"
+        },
+        "team": null,
+        "state": "COMMENT",
+        "body": "",
+        "commit_id": "91650c1bd33f153479777fdd98ae62b6c9035cb8",
+        "stale": false,
+        "official": false,
+        "dismissed": false,
+        "comments_count": 0,
+        "submitted_at": "2026-01-05T09:56:31Z",
+        "updated_at": "2026-01-05T09:56:31Z",
+        "html_url": "https://gitea.hexmos.site/megaorg/livereview/pulls/17#issuecomment-44",
+        "pull_request_url": "https://gitea.hexmos.site/megaorg/livereview/pulls/17"
+    },
+    {
+        "id": 13,
+        "user": {
+            "id": 2,
+            "login": "livereview",
+            "login_name": "",
+            "source_id": 0,
+            "full_name": "",
+            "email": "livereveiewbot@gmail.com",
+            "avatar_url": "https://gitea.hexmos.site/avatars/dd58054c086f0375c2440173ba52a163",
+            "html_url": "https://gitea.hexmos.site/livereview",
+            "language": "en-US",
+            "is_admin": false,
+            "last_login": "2026-01-05T10:52:59Z",
+            "created": "2026-01-04T05:32:59Z",
+            "restricted": false,
+            "active": true,
+            "prohibit_login": false,
+            "location": "",
+            "website": "",
+            "description": "",
+            "visibility": "private",
+            "followers_count": 0,
+            "following_count": 0,
+            "starred_repos_count": 0,
+            "username": "livereview"
+        },
+        "team": null,
+        "state": "COMMENT",
+        "body": "",
+        "commit_id": "91650c1bd33f153479777fdd98ae62b6c9035cb8",
+        "stale": false,
+        "official": false,
+        "dismissed": false,
+        "comments_count": 0,
+        "submitted_at": "2026-01-05T09:56:31Z",
+        "updated_at": "2026-01-05T09:56:31Z",
+        "html_url": "https://gitea.hexmos.site/megaorg/livereview/pulls/17#issuecomment-46",
+        "pull_request_url": "https://gitea.hexmos.site/megaorg/livereview/pulls/17"
+    },
+    {
+        "id": 14,
+        "user": {
+            "id": 2,
+            "login": "livereview",
+            "login_name": "",
+            "source_id": 0,
+            "full_name": "",
+            "email": "livereveiewbot@gmail.com",
+            "avatar_url": "https://gitea.hexmos.site/avatars/dd58054c086f0375c2440173ba52a163",
+            "html_url": "https://gitea.hexmos.site/livereview",
+            "language": "en-US",
+            "is_admin": false,
+            "last_login": "2026-01-05T10:52:59Z",
+            "created": "2026-01-04T05:32:59Z",
+            "restricted": false,
+            "active": true,
+            "prohibit_login": false,
+            "location": "",
+            "website": "",
+            "description": "",
+            "visibility": "private",
+            "followers_count": 0,
+            "following_count": 0,
+            "starred_repos_count": 0,
+            "username": "livereview"
+        },
+        "team": null,
+        "state": "COMMENT",
+        "body": "",
+        "commit_id": "91650c1bd33f153479777fdd98ae62b6c9035cb8",
+        "stale": false,
+        "official": false,
+        "dismissed": false,
+        "comments_count": 0,
+        "submitted_at": "2026-01-05T09:56:31Z",
+        "updated_at": "2026-01-05T09:56:31Z",
+        "html_url": "https://gitea.hexmos.site/megaorg/livereview/pulls/17#issuecomment-48",
+        "pull_request_url": "https://gitea.hexmos.site/megaorg/livereview/pulls/17"
+    },
+    {
+        "id": 15,
+        "user": {
+            "id": 2,
+            "login": "livereview",
+            "login_name": "",
+            "source_id": 0,
+            "full_name": "",
+            "email": "livereveiewbot@gmail.com",
+            "avatar_url": "https://gitea.hexmos.site/avatars/dd58054c086f0375c2440173ba52a163",
+            "html_url": "https://gitea.hexmos.site/livereview",
+            "language": "en-US",
+            "is_admin": false,
+            "last_login": "2026-01-05T10:52:59Z",
+            "created": "2026-01-04T05:32:59Z",
+            "restricted": false,
+            "active": true,
+            "prohibit_login": false,
+            "location": "",
+            "website": "",
+            "description": "",
+            "visibility": "private",
+            "followers_count": 0,
+            "following_count": 0,
+            "starred_repos_count": 0,
+            "username": "livereview"
+        },
+        "team": null,
+        "state": "COMMENT",
+        "body": "",
+        "commit_id": "91650c1bd33f153479777fdd98ae62b6c9035cb8",
+        "stale": false,
+        "official": false,
+        "dismissed": false,
+        "comments_count": 0,
+        "submitted_at": "2026-01-05T09:56:32Z",
+        "updated_at": "2026-01-05T09:56:32Z",
+        "html_url": "https://gitea.hexmos.site/megaorg/livereview/pulls/17#issuecomment-50",
+        "pull_request_url": "https://gitea.hexmos.site/megaorg/livereview/pulls/17"
+    },
+    {
+        "id": 16,
+        "user": {
+            "id": 2,
+            "login": "livereview",
+            "login_name": "",
+            "source_id": 0,
+            "full_name": "",
+            "email": "livereveiewbot@gmail.com",
+            "avatar_url": "https://gitea.hexmos.site/avatars/dd58054c086f0375c2440173ba52a163",
+            "html_url": "https://gitea.hexmos.site/livereview",
+            "language": "en-US",
+            "is_admin": false,
+            "last_login": "2026-01-05T10:52:59Z",
+            "created": "2026-01-04T05:32:59Z",
+            "restricted": false,
+            "active": true,
+            "prohibit_login": false,
+            "location": "",
+            "website": "",
+            "description": "",
+            "visibility": "private",
+            "followers_count": 0,
+            "following_count": 0,
+            "starred_repos_count": 0,
+            "username": "livereview"
+        },
+        "team": null,
+        "state": "COMMENT",
+        "body": "",
+        "commit_id": "91650c1bd33f153479777fdd98ae62b6c9035cb8",
+        "stale": false,
+        "official": false,
+        "dismissed": false,
+        "comments_count": 0,
+        "submitted_at": "2026-01-05T09:56:32Z",
+        "updated_at": "2026-01-05T09:56:32Z",
+        "html_url": "https://gitea.hexmos.site/megaorg/livereview/pulls/17#issuecomment-52",
+        "pull_request_url": "https://gitea.hexmos.site/megaorg/livereview/pulls/17"
+    },
+    {
+        "id": 17,
+        "user": {
+            "id": 2,
+            "login": "livereview",
+            "login_name": "",
+            "source_id": 0,
+            "full_name": "",
+            "email": "livereveiewbot@gmail.com",
+            "avatar_url": "https://gitea.hexmos.site/avatars/dd58054c086f0375c2440173ba52a163",
+            "html_url": "https://gitea.hexmos.site/livereview",
+            "language": "en-US",
+            "is_admin": false,
+            "last_login": "2026-01-05T10:52:59Z",
+            "created": "2026-01-04T05:32:59Z",
+            "restricted": false,
+            "active": true,
+            "prohibit_login": false,
+            "location": "",
+            "website": "",
+            "description": "",
+            "visibility": "private",
+            "followers_count": 0,
+            "following_count": 0,
+            "starred_repos_count": 0,
+            "username": "livereview"
+        },
+        "team": null,
+        "state": "COMMENT",
+        "body": "",
+        "commit_id": "91650c1bd33f153479777fdd98ae62b6c9035cb8",
+        "stale": false,
+        "official": false,
+        "dismissed": false,
+        "comments_count": 0,
+        "submitted_at": "2026-01-05T09:56:32Z",
+        "updated_at": "2026-01-05T09:56:32Z",
+        "html_url": "https://gitea.hexmos.site/megaorg/livereview/pulls/17#issuecomment-54",
+        "pull_request_url": "https://gitea.hexmos.site/megaorg/livereview/pulls/17"
+    },
+    {
+        "id": 18,
+        "user": {
+            "id": 2,
+            "login": "livereview",
+            "login_name": "",
+            "source_id": 0,
+            "full_name": "",
+            "email": "livereveiewbot@gmail.com",
+            "avatar_url": "https://gitea.hexmos.site/avatars/dd58054c086f0375c2440173ba52a163",
+            "html_url": "https://gitea.hexmos.site/livereview",
+            "language": "en-US",
+            "is_admin": false,
+            "last_login": "2026-01-05T10:52:59Z",
+            "created": "2026-01-04T05:32:59Z",
+            "restricted": false,
+            "active": true,
+            "prohibit_login": false,
+            "location": "",
+            "website": "",
+            "description": "",
+            "visibility": "private",
+            "followers_count": 0,
+            "following_count": 0,
+            "starred_repos_count": 0,
+            "username": "livereview"
+        },
+        "team": null,
+        "state": "COMMENT",
+        "body": "",
+        "commit_id": "91650c1bd33f153479777fdd98ae62b6c9035cb8",
+        "stale": false,
+        "official": false,
+        "dismissed": false,
+        "comments_count": 0,
+        "submitted_at": "2026-01-05T09:56:32Z",
+        "updated_at": "2026-01-05T09:56:32Z",
+        "html_url": "https://gitea.hexmos.site/megaorg/livereview/pulls/17#issuecomment-56",
+        "pull_request_url": "https://gitea.hexmos.site/megaorg/livereview/pulls/17"
+    },
+    {
+        "id": 19,
+        "user": {
+            "id": 2,
+            "login": "livereview",
+            "login_name": "",
+            "source_id": 0,
+            "full_name": "",
+            "email": "livereveiewbot@gmail.com",
+            "avatar_url": "https://gitea.hexmos.site/avatars/dd58054c086f0375c2440173ba52a163",
+            "html_url": "https://gitea.hexmos.site/livereview",
+            "language": "en-US",
+            "is_admin": false,
+            "last_login": "2026-01-05T10:52:59Z",
+            "created": "2026-01-04T05:32:59Z",
+            "restricted": false,
+            "active": true,
+            "prohibit_login": false,
+            "location": "",
+            "website": "",
+            "description": "",
+            "visibility": "private",
+            "followers_count": 0,
+            "following_count": 0,
+            "starred_repos_count": 0,
+            "username": "livereview"
+        },
+        "team": null,
+        "state": "COMMENT",
+        "body": "",
+        "commit_id": "91650c1bd33f153479777fdd98ae62b6c9035cb8",
+        "stale": false,
+        "official": false,
+        "dismissed": false,
+        "comments_count": 0,
+        "submitted_at": "2026-01-05T09:56:33Z",
+        "updated_at": "2026-01-05T09:56:33Z",
+        "html_url": "https://gitea.hexmos.site/megaorg/livereview/pulls/17#issuecomment-58",
+        "pull_request_url": "https://gitea.hexmos.site/megaorg/livereview/pulls/17"
+    },
+    {
+        "id": 20,
+        "user": {
+            "id": 2,
+            "login": "livereview",
+            "login_name": "",
+            "source_id": 0,
+            "full_name": "",
+            "email": "livereveiewbot@gmail.com",
+            "avatar_url": "https://gitea.hexmos.site/avatars/dd58054c086f0375c2440173ba52a163",
+            "html_url": "https://gitea.hexmos.site/livereview",
+            "language": "en-US",
+            "is_admin": false,
+            "last_login": "2026-01-05T10:52:59Z",
+            "created": "2026-01-04T05:32:59Z",
+            "restricted": false,
+            "active": true,
+            "prohibit_login": false,
+            "location": "",
+            "website": "",
+            "description": "",
+            "visibility": "private",
+            "followers_count": 0,
+            "following_count": 0,
+            "starred_repos_count": 0,
+            "username": "livereview"
+        },
+        "team": null,
+        "state": "COMMENT",
+        "body": "",
+        "commit_id": "91650c1bd33f153479777fdd98ae62b6c9035cb8",
+        "stale": false,
+        "official": false,
+        "dismissed": false,
+        "comments_count": 0,
+        "submitted_at": "2026-01-05T09:56:33Z",
+        "updated_at": "2026-01-05T09:56:33Z",
+        "html_url": "https://gitea.hexmos.site/megaorg/livereview/pulls/17#issuecomment-60",
+        "pull_request_url": "https://gitea.hexmos.site/megaorg/livereview/pulls/17"
+    },
+    {
+        "id": 21,
+        "user": {
+            "id": 2,
+            "login": "livereview",
+            "login_name": "",
+            "source_id": 0,
+            "full_name": "",
+            "email": "livereveiewbot@gmail.com",
+            "avatar_url": "https://gitea.hexmos.site/avatars/dd58054c086f0375c2440173ba52a163",
+            "html_url": "https://gitea.hexmos.site/livereview",
+            "language": "en-US",
+            "is_admin": false,
+            "last_login": "2026-01-05T10:52:59Z",
+            "created": "2026-01-04T05:32:59Z",
+            "restricted": false,
+            "active": true,
+            "prohibit_login": false,
+            "location": "",
+            "website": "",
+            "description": "",
+            "visibility": "private",
+            "followers_count": 0,
+            "following_count": 0,
+            "starred_repos_count": 0,
+            "username": "livereview"
+        },
+        "team": null,
+        "state": "COMMENT",
+        "body": "",
+        "commit_id": "91650c1bd33f153479777fdd98ae62b6c9035cb8",
+        "stale": false,
+        "official": false,
+        "dismissed": false,
+        "comments_count": 0,
+        "submitted_at": "2026-01-05T09:56:33Z",
+        "updated_at": "2026-01-05T09:56:33Z",
+        "html_url": "https://gitea.hexmos.site/megaorg/livereview/pulls/17#issuecomment-62",
+        "pull_request_url": "https://gitea.hexmos.site/megaorg/livereview/pulls/17"
+    },
+    {
+        "id": 22,
+        "user": {
+            "id": 2,
+            "login": "livereview",
+            "login_name": "",
+            "source_id": 0,
+            "full_name": "",
+            "email": "livereveiewbot@gmail.com",
+            "avatar_url": "https://gitea.hexmos.site/avatars/dd58054c086f0375c2440173ba52a163",
+            "html_url": "https://gitea.hexmos.site/livereview",
+            "language": "en-US",
+            "is_admin": false,
+            "last_login": "2026-01-05T10:52:59Z",
+            "created": "2026-01-04T05:32:59Z",
+            "restricted": false,
+            "active": true,
+            "prohibit_login": false,
+            "location": "",
+            "website": "",
+            "description": "",
+            "visibility": "private",
+            "followers_count": 0,
+            "following_count": 0,
+            "starred_repos_count": 0,
+            "username": "livereview"
+        },
+        "team": null,
+        "state": "COMMENT",
+        "body": "",
+        "commit_id": "91650c1bd33f153479777fdd98ae62b6c9035cb8",
+        "stale": false,
+        "official": false,
+        "dismissed": false,
+        "comments_count": 0,
+        "submitted_at": "2026-01-05T09:56:34Z",
+        "updated_at": "2026-01-05T09:56:34Z",
+        "html_url": "https://gitea.hexmos.site/megaorg/livereview/pulls/17#issuecomment-64",
+        "pull_request_url": "https://gitea.hexmos.site/megaorg/livereview/pulls/17"
+    },
+    {
+        "id": 23,
+        "user": {
+            "id": 2,
+            "login": "livereview",
+            "login_name": "",
+            "source_id": 0,
+            "full_name": "",
+            "email": "livereveiewbot@gmail.com",
+            "avatar_url": "https://gitea.hexmos.site/avatars/dd58054c086f0375c2440173ba52a163",
+            "html_url": "https://gitea.hexmos.site/livereview",
+            "language": "en-US",
+            "is_admin": false,
+            "last_login": "2026-01-05T10:52:59Z",
+            "created": "2026-01-04T05:32:59Z",
+            "restricted": false,
+            "active": true,
+            "prohibit_login": false,
+            "location": "",
+            "website": "",
+            "description": "",
+            "visibility": "private",
+            "followers_count": 0,
+            "following_count": 0,
+            "starred_repos_count": 0,
+            "username": "livereview"
+        },
+        "team": null,
+        "state": "COMMENT",
+        "body": "",
+        "commit_id": "91650c1bd33f153479777fdd98ae62b6c9035cb8",
+        "stale": false,
+        "official": false,
+        "dismissed": false,
+        "comments_count": 0,
+        "submitted_at": "2026-01-05T09:56:34Z",
+        "updated_at": "2026-01-05T09:56:34Z",
+        "html_url": "https://gitea.hexmos.site/megaorg/livereview/pulls/17#issuecomment-66",
+        "pull_request_url": "https://gitea.hexmos.site/megaorg/livereview/pulls/17"
+    },
+    {
+        "id": 24,
+        "user": {
+            "id": 2,
+            "login": "livereview",
+            "login_name": "",
+            "source_id": 0,
+            "full_name": "",
+            "email": "livereveiewbot@gmail.com",
+            "avatar_url": "https://gitea.hexmos.site/avatars/dd58054c086f0375c2440173ba52a163",
+            "html_url": "https://gitea.hexmos.site/livereview",
+            "language": "en-US",
+            "is_admin": false,
+            "last_login": "2026-01-05T10:52:59Z",
+            "created": "2026-01-04T05:32:59Z",
+            "restricted": false,
+            "active": true,
+            "prohibit_login": false,
+            "location": "",
+            "website": "",
+            "description": "",
+            "visibility": "private",
+            "followers_count": 0,
+            "following_count": 0,
+            "starred_repos_count": 0,
+            "username": "livereview"
+        },
+        "team": null,
+        "state": "COMMENT",
+        "body": "",
+        "commit_id": "91650c1bd33f153479777fdd98ae62b6c9035cb8",
+        "stale": false,
+        "official": false,
+        "dismissed": false,
+        "comments_count": 0,
+        "submitted_at": "2026-01-05T09:56:34Z",
+        "updated_at": "2026-01-05T09:56:34Z",
+        "html_url": "https://gitea.hexmos.site/megaorg/livereview/pulls/17#issuecomment-68",
+        "pull_request_url": "https://gitea.hexmos.site/megaorg/livereview/pulls/17"
+    },
+    {
+        "id": 25,
+        "user": {
+            "id": 2,
+            "login": "livereview",
+            "login_name": "",
+            "source_id": 0,
+            "full_name": "",
+            "email": "livereveiewbot@gmail.com",
+            "avatar_url": "https://gitea.hexmos.site/avatars/dd58054c086f0375c2440173ba52a163",
+            "html_url": "https://gitea.hexmos.site/livereview",
+            "language": "en-US",
+            "is_admin": false,
+            "last_login": "2026-01-05T10:52:59Z",
+            "created": "2026-01-04T05:32:59Z",
+            "restricted": false,
+            "active": true,
+            "prohibit_login": false,
+            "location": "",
+            "website": "",
+            "description": "",
+            "visibility": "private",
+            "followers_count": 0,
+            "following_count": 0,
+            "starred_repos_count": 0,
+            "username": "livereview"
+        },
+        "team": null,
+        "state": "COMMENT",
+        "body": "",
+        "commit_id": "91650c1bd33f153479777fdd98ae62b6c9035cb8",
+        "stale": false,
+        "official": false,
+        "dismissed": false,
+        "comments_count": 0,
+        "submitted_at": "2026-01-05T09:56:34Z",
+        "updated_at": "2026-01-05T09:56:35Z",
+        "html_url": "https://gitea.hexmos.site/megaorg/livereview/pulls/17#issuecomment-70",
+        "pull_request_url": "https://gitea.hexmos.site/megaorg/livereview/pulls/17"
+    },
+    {
+        "id": 26,
+        "user": {
+            "id": 2,
+            "login": "livereview",
+            "login_name": "",
+            "source_id": 0,
+            "full_name": "",
+            "email": "livereveiewbot@gmail.com",
+            "avatar_url": "https://gitea.hexmos.site/avatars/dd58054c086f0375c2440173ba52a163",
+            "html_url": "https://gitea.hexmos.site/livereview",
+            "language": "en-US",
+            "is_admin": false,
+            "last_login": "2026-01-05T10:52:59Z",
+            "created": "2026-01-04T05:32:59Z",
+            "restricted": false,
+            "active": true,
+            "prohibit_login": false,
+            "location": "",
+            "website": "",
+            "description": "",
+            "visibility": "private",
+            "followers_count": 0,
+            "following_count": 0,
+            "starred_repos_count": 0,
+            "username": "livereview"
+        },
+        "team": null,
+        "state": "COMMENT",
+        "body": "",
+        "commit_id": "91650c1bd33f153479777fdd98ae62b6c9035cb8",
+        "stale": false,
+        "official": false,
+        "dismissed": false,
+        "comments_count": 0,
+        "submitted_at": "2026-01-05T09:56:35Z",
+        "updated_at": "2026-01-05T09:56:35Z",
+        "html_url": "https://gitea.hexmos.site/megaorg/livereview/pulls/17#issuecomment-72",
+        "pull_request_url": "https://gitea.hexmos.site/megaorg/livereview/pulls/17"
+    },
+    {
+        "id": 27,
+        "user": {
+            "id": 2,
+            "login": "livereview",
+            "login_name": "",
+            "source_id": 0,
+            "full_name": "",
+            "email": "livereveiewbot@gmail.com",
+            "avatar_url": "https://gitea.hexmos.site/avatars/dd58054c086f0375c2440173ba52a163",
+            "html_url": "https://gitea.hexmos.site/livereview",
+            "language": "en-US",
+            "is_admin": false,
+            "last_login": "2026-01-05T10:52:59Z",
+            "created": "2026-01-04T05:32:59Z",
+            "restricted": false,
+            "active": true,
+            "prohibit_login": false,
+            "location": "",
+            "website": "",
+            "description": "",
+            "visibility": "private",
+            "followers_count": 0,
+            "following_count": 0,
+            "starred_repos_count": 0,
+            "username": "livereview"
+        },
+        "team": null,
+        "state": "COMMENT",
+        "body": "",
+        "commit_id": "91650c1bd33f153479777fdd98ae62b6c9035cb8",
+        "stale": false,
+        "official": false,
+        "dismissed": false,
+        "comments_count": 0,
+        "submitted_at": "2026-01-05T09:56:35Z",
+        "updated_at": "2026-01-05T09:56:35Z",
+        "html_url": "https://gitea.hexmos.site/megaorg/livereview/pulls/17#issuecomment-74",
+        "pull_request_url": "https://gitea.hexmos.site/megaorg/livereview/pulls/17"
+    },
+    {
+        "id": 28,
+        "user": {
+            "id": 2,
+            "login": "livereview",
+            "login_name": "",
+            "source_id": 0,
+            "full_name": "",
+            "email": "livereveiewbot@gmail.com",
+            "avatar_url": "https://gitea.hexmos.site/avatars/dd58054c086f0375c2440173ba52a163",
+            "html_url": "https://gitea.hexmos.site/livereview",
+            "language": "en-US",
+            "is_admin": false,
+            "last_login": "2026-01-05T10:52:59Z",
+            "created": "2026-01-04T05:32:59Z",
+            "restricted": false,
+            "active": true,
+            "prohibit_login": false,
+            "location": "",
+            "website": "",
+            "description": "",
+            "visibility": "private",
+            "followers_count": 0,
+            "following_count": 0,
+            "starred_repos_count": 0,
+            "username": "livereview"
+        },
+        "team": null,
+        "state": "COMMENT",
+        "body": "",
+        "commit_id": "91650c1bd33f153479777fdd98ae62b6c9035cb8",
+        "stale": false,
+        "official": false,
+        "dismissed": false,
+        "comments_count": 0,
+        "submitted_at": "2026-01-05T09:56:35Z",
+        "updated_at": "2026-01-05T09:56:35Z",
+        "html_url": "https://gitea.hexmos.site/megaorg/livereview/pulls/17#issuecomment-76",
+        "pull_request_url": "https://gitea.hexmos.site/megaorg/livereview/pulls/17"
+    },
+    {
+        "id": 29,
+        "user": {
+            "id": 2,
+            "login": "livereview",
+            "login_name": "",
+            "source_id": 0,
+            "full_name": "",
+            "email": "livereveiewbot@gmail.com",
+            "avatar_url": "https://gitea.hexmos.site/avatars/dd58054c086f0375c2440173ba52a163",
+            "html_url": "https://gitea.hexmos.site/livereview",
+            "language": "en-US",
+            "is_admin": false,
+            "last_login": "2026-01-05T10:52:59Z",
+            "created": "2026-01-04T05:32:59Z",
+            "restricted": false,
+            "active": true,
+            "prohibit_login": false,
+            "location": "",
+            "website": "",
+            "description": "",
+            "visibility": "private",
+            "followers_count": 0,
+            "following_count": 0,
+            "starred_repos_count": 0,
+            "username": "livereview"
+        },
+        "team": null,
+        "state": "COMMENT",
+        "body": "",
+        "commit_id": "91650c1bd33f153479777fdd98ae62b6c9035cb8",
+        "stale": false,
+        "official": false,
+        "dismissed": false,
+        "comments_count": 0,
+        "submitted_at": "2026-01-05T09:56:36Z",
+        "updated_at": "2026-01-05T09:56:36Z",
+        "html_url": "https://gitea.hexmos.site/megaorg/livereview/pulls/17#issuecomment-78",
+        "pull_request_url": "https://gitea.hexmos.site/megaorg/livereview/pulls/17"
+    },
+    {
+        "id": 30,
+        "user": {
+            "id": 2,
+            "login": "livereview",
+            "login_name": "",
+            "source_id": 0,
+            "full_name": "",
+            "email": "livereveiewbot@gmail.com",
+            "avatar_url": "https://gitea.hexmos.site/avatars/dd58054c086f0375c2440173ba52a163",
+            "html_url": "https://gitea.hexmos.site/livereview",
+            "language": "en-US",
+            "is_admin": false,
+            "last_login": "2026-01-05T10:52:59Z",
+            "created": "2026-01-04T05:32:59Z",
+            "restricted": false,
+            "active": true,
+            "prohibit_login": false,
+            "location": "",
+            "website": "",
+            "description": "",
+            "visibility": "private",
+            "followers_count": 0,
+            "following_count": 0,
+            "starred_repos_count": 0,
+            "username": "livereview"
+        },
+        "team": null,
+        "state": "COMMENT",
+        "body": "",
+        "commit_id": "91650c1bd33f153479777fdd98ae62b6c9035cb8",
+        "stale": false,
+        "official": false,
+        "dismissed": false,
+        "comments_count": 0,
+        "submitted_at": "2026-01-05T09:56:36Z",
+        "updated_at": "2026-01-05T09:56:36Z",
+        "html_url": "https://gitea.hexmos.site/megaorg/livereview/pulls/17#issuecomment-80",
+        "pull_request_url": "https://gitea.hexmos.site/megaorg/livereview/pulls/17"
+    },
+    {
+        "id": 31,
+        "user": {
+            "id": 2,
+            "login": "livereview",
+            "login_name": "",
+            "source_id": 0,
+            "full_name": "",
+            "email": "livereveiewbot@gmail.com",
+            "avatar_url": "https://gitea.hexmos.site/avatars/dd58054c086f0375c2440173ba52a163",
+            "html_url": "https://gitea.hexmos.site/livereview",
+            "language": "en-US",
+            "is_admin": false,
+            "last_login": "2026-01-05T10:52:59Z",
+            "created": "2026-01-04T05:32:59Z",
+            "restricted": false,
+            "active": true,
+            "prohibit_login": false,
+            "location": "",
+            "website": "",
+            "description": "",
+            "visibility": "private",
+            "followers_count": 0,
+            "following_count": 0,
+            "starred_repos_count": 0,
+            "username": "livereview"
+        },
+        "team": null,
+        "state": "COMMENT",
+        "body": "",
+        "commit_id": "91650c1bd33f153479777fdd98ae62b6c9035cb8",
+        "stale": false,
+        "official": false,
+        "dismissed": false,
+        "comments_count": 2,
+        "submitted_at": "2026-01-05T10:52:59Z",
+        "updated_at": "2026-01-05T10:52:59Z",
+        "html_url": "https://gitea.hexmos.site/megaorg/livereview/pulls/17#issuecomment-84",
+        "pull_request_url": "https://gitea.hexmos.site/megaorg/livereview/pulls/17"
+    }
+]
+--------------------------------------------------------------------------------
 
-[2026-01-08T06:15:09.519128] list_hooks
-METHOD: GET
-URL: https://gitea.hexmos.site/api/v1/repos/megaorg/livereview/hooks
-PAYLOAD: None
-STATUS: 200
-RESPONSE: [{"id":3,"type":"gitea","branch_filter":"","config":{"content_type":"json","url":"https://example.com/webhook-test"},"events":["pull_request_assign","pull_request_milestone","pull_request_review","pull_request","pull_request_label","pull_request_sync","pull_request_comment","pull_request_review_request","issue_comment"],"authorization_header":"","active":true,"updated_at":"2026-01-08T06:15:11Z","created_at":"2026-01-08T06:15:11Z"}]
+================================================================================
+[2026-01-08T20:34:52.366758] get_review_31_comments
+================================================================================
+REQUEST:
+  METHOD: GET
+  URL: https://gitea.hexmos.site/api/v1/repos/megaorg/livereview/pulls/17/reviews/31/comments
+  HEADERS:
+    User-Agent: python-requests/2.31.0
+    Accept-Encoding: gzip, deflate, br
+    Accept: application/json
+    Connection: keep-alive
+    Authorization: token ***REDACTED***
+  PAYLOAD: None
 
+RESPONSE:
+  STATUS: 200
+  HEADERS:
+    Server: nginx/1.24.0 (Ubuntu)
+    Date: Thu, 08 Jan 2026 15:04:54 GMT
+    Content-Type: application/json;charset=utf-8
+    Transfer-Encoding: chunked
+    Connection: keep-alive
+    Cache-Control: max-age=0, private, must-revalidate, no-transform
+    X-Content-Type-Options: nosniff
+    X-Frame-Options: SAMEORIGIN
+  BODY:
+    [
+    {
+        "id": 83,
+        "body": "This line is not valid Go code and will cause a compilation error.",
+        "user": {
+            "id": 2,
+            "login": "livereview",
+            "login_name": "",
+            "source_id": 0,
+            "full_name": "",
+            "email": "livereveiewbot@gmail.com",
+            "avatar_url": "https://gitea.hexmos.site/avatars/dd58054c086f0375c2440173ba52a163",
+            "html_url": "https://gitea.hexmos.site/livereview",
+            "language": "en-US",
+            "is_admin": false,
+            "last_login": "2026-01-05T10:52:59Z",
+            "created": "2026-01-04T05:32:59Z",
+            "restricted": false,
+            "active": true,
+            "prohibit_login": false,
+            "location": "",
+            "website": "",
+            "description": "",
+            "visibility": "private",
+            "followers_count": 0,
+            "following_count": 0,
+            "starred_repos_count": 0,
+            "username": "livereview"
+        },
+        "resolver": null,
+        "pull_request_review_id": 31,
+        "created_at": "2026-01-05T10:52:59Z",
+        "updated_at": "2026-01-05T10:52:59Z",
+        "path": "cmd/config.go",
+        "commit_id": "91650c1bd33f153479777fdd98ae62b6c9035cb8",
+        "original_commit_id": "",
+        "diff_hunk": "@@ -1,5 +1,8 @@\n package cmd\n \n+this line is a bit tricky...",
+        "position": 3,
+        "original_position": 0,
+        "html_url": "https://gitea.hexmos.site/megaorg/livereview/pulls/17#issuecomment-83",
+        "pull_request_url": "https://gitea.hexmos.site/megaorg/livereview/pulls/17"
+    },
+    {
+        "id": 104,
+        "body": "@livereview What is this comment about?",
+        "user": {
+            "id": 1,
+            "login": "gitea",
+            "login_name": "",
+            "source_id": 0,
+            "full_name": "",
+            "email": "shrijith.sv@gmail.com",
+            "avatar_url": "https://gitea.hexmos.site/avatars/643dbf2aad811aa296b32e137d08c77d",
+            "html_url": "https://gitea.hexmos.site/gitea",
+            "language": "",
+            "is_admin": false,
+            "last_login": "0001-01-01T00:00:00Z",
+            "created": "2026-01-04T05:07:24Z",
+            "restricted": false,
+            "active": false,
+            "prohibit_login": false,
+            "location": "",
+            "website": "",
+            "description": "",
+            "visibility": "public",
+            "followers_count": 0,
+            "following_count": 0,
+            "starred_repos_count": 1,
+            "username": "gitea"
+        },
+        "resolver": null,
+        "pull_request_review_id": 31,
+        "created_at": "2026-01-08T15:04:30Z",
+        "updated_at": "2026-01-08T15:04:30Z",
+        "path": "cmd/config.go",
+        "commit_id": "91650c1bd33f153479777fdd98ae62b6c9035cb8",
+        "original_commit_id": "",
+        "diff_hunk": "@@ -1,5 +1,8 @@\n package cmd\n \n+this line is a bit tricky...",
+        "position": 3,
+        "original_position": 0,
+        "html_url": "https://gitea.hexmos.site/megaorg/livereview/pulls/17#issuecomment-104",
+        "pull_request_url": "https://gitea.hexmos.site/megaorg/livereview/pulls/17"
+    }
+]
+--------------------------------------------------------------------------------
 
-[2026-01-08T06:15:10.253352] delete_hook
-METHOD: DELETE
-URL: https://gitea.hexmos.site/api/v1/repos/megaorg/livereview/hooks/3
-PAYLOAD: None
-STATUS: 204
-RESPONSE: 
+================================================================================
+[2026-01-08T20:34:52.652688] get_pull
+================================================================================
+REQUEST:
+  METHOD: GET
+  URL: https://gitea.hexmos.site/api/v1/repos/megaorg/livereview/pulls/17
+  HEADERS:
+    User-Agent: python-requests/2.31.0
+    Accept-Encoding: gzip, deflate, br
+    Accept: application/json
+    Connection: keep-alive
+    Authorization: token ***REDACTED***
+  PAYLOAD: None
 
-[2026-01-08T06:15:11.003736] list_hooks
-METHOD: GET
-URL: https://gitea.hexmos.site/api/v1/repos/megaorg/livereview/hooks
-PAYLOAD: None
-STATUS: 200
-RESPONSE: []
-
+RESPONSE:
+  STATUS: 200
+  HEADERS:
+    Server: nginx/1.24.0 (Ubuntu)
+    Date: Thu, 08 Jan 2026 15:04:54 GMT
+    Content-Type: application/json;charset=utf-8
+    Transfer-Encoding: chunked
+    Connection: keep-alive
+    Cache-Control: max-age=0, private, must-revalidate, no-transform
+    X-Content-Type-Options: nosniff
+    X-Frame-Options: SAMEORIGIN
+  BODY:
+    {
+    "id": 2,
+    "url": "https://gitea.hexmos.site/megaorg/livereview/pulls/17",
+    "number": 17,
+    "user": {
+        "id": 1,
+        "login": "gitea",
+        "login_name": "",
+        "source_id": 0,
+        "full_name": "",
+        "email": "shrijith.sv@gmail.com",
+        "avatar_url": "https://gitea.hexmos.site/avatars/643dbf2aad811aa296b32e137d08c77d",
+        "html_url": "https://gitea.hexmos.site/gitea",
+        "language": "",
+        "is_admin": false,
+        "last_login": "0001-01-01T00:00:00Z",
+        "created": "2026-01-04T05:07:24Z",
+        "restricted": false,
+        "active": false,
+        "prohibit_login": false,
+        "location": "",
+        "website": "",
+        "description": "",
+        "visibility": "public",
+        "followers_count": 0,
+        "following_count": 0,
+        "starred_repos_count": 1,
+        "username": "gitea"
+    },
+    "title": "faulty commit",
+    "body": "LiveReview Pre-Commit Check: skipped",
+    "labels": [],
+    "milestone": null,
+    "assignee": null,
+    "assignees": [],
+    "requested_reviewers": [
+        {
+            "id": 2,
+            "login": "livereview",
+            "login_name": "",
+            "source_id": 0,
+            "full_name": "",
+            "email": "livereview@noreply.localhost",
+            "avatar_url": "https://gitea.hexmos.site/avatars/dd58054c086f0375c2440173ba52a163",
+            "html_url": "https://gitea.hexmos.site/livereview",
+            "language": "",
+            "is_admin": false,
+            "last_login": "0001-01-01T00:00:00Z",
+            "created": "2026-01-04T05:32:59Z",
+            "restricted": false,
+            "active": false,
+            "prohibit_login": false,
+            "location": "",
+            "website": "",
+            "description": "",
+            "visibility": "private",
+            "followers_count": 0,
+            "following_count": 0,
+            "starred_repos_count": 0,
+            "username": "livereview"
+        }
+    ],
+    "requested_reviewers_teams": [],
+    "state": "open",
+    "draft": false,
+    "is_locked": false,
+    "comments": 33,
+    "review_comments": 31,
+    "additions": 3,
+    "deletions": 0,
+    "changed_files": 1,
+    "html_url": "https://gitea.hexmos.site/megaorg/livereview/pulls/17",
+    "diff_url": "https://gitea.hexmos.site/megaorg/livereview/pulls/17.diff",
+    "patch_url": "https://gitea.hexmos.site/megaorg/livereview/pulls/17.patch",
+    "mergeable": true,
+    "merged": false,
+    "merged_at": null,
+    "merge_commit_sha": null,
+    "merged_by": null,
+    "allow_maintainer_edit": false,
+    "base": {
+        "label": "master",
+        "ref": "master",
+        "sha": "372b18fb6aad91545e526f15445aeb350ec6961e",
+        "repo_id": 2,
+        "repo": {
+            "id": 2,
+            "owner": {
+                "id": 3,
+                "login": "megaorg",
+                "login_name": "",
+                "source_id": 0,
+                "full_name": "",
+                "email": "",
+                "avatar_url": "https://gitea.hexmos.site/avatars/2cbaffca520167f0d4ba4964b4070d61",
+                "html_url": "https://gitea.hexmos.site/megaorg",
+                "language": "",
+                "is_admin": false,
+                "last_login": "0001-01-01T00:00:00Z",
+                "created": "2026-01-04T05:35:04Z",
+                "restricted": false,
+                "active": false,
+                "prohibit_login": false,
+                "location": "",
+                "website": "",
+                "description": "",
+                "visibility": "limited",
+                "followers_count": 0,
+                "following_count": 0,
+                "starred_repos_count": 0,
+                "username": "megaorg"
+            },
+            "name": "livereview",
+            "full_name": "megaorg/livereview",
+            "description": "",
+            "empty": false,
+            "private": true,
+            "fork": false,
+            "template": false,
+            "mirror": false,
+            "size": 32926,
+            "language": "",
+            "languages_url": "https://gitea.hexmos.site/api/v1/repos/megaorg/livereview/languages",
+            "html_url": "https://gitea.hexmos.site/megaorg/livereview",
+            "url": "https://gitea.hexmos.site/api/v1/repos/megaorg/livereview",
+            "link": "",
+            "ssh_url": "ssh://git@gitea.hexmos.site:2222/megaorg/livereview.git",
+            "clone_url": "https://gitea.hexmos.site/megaorg/livereview.git",
+            "original_url": "https://git.apps.hexmos.com/hexmos/livereview.git",
+            "website": "",
+            "stars_count": 0,
+            "forks_count": 0,
+            "watchers_count": 2,
+            "open_issues_count": 12,
+            "open_pr_counter": 1,
+            "release_counter": 0,
+            "default_branch": "master",
+            "archived": false,
+            "created_at": "2026-01-04T05:20:48Z",
+            "updated_at": "2026-01-04T05:28:26Z",
+            "archived_at": "1970-01-01T00:00:00Z",
+            "permissions": {
+                "admin": true,
+                "push": true,
+                "pull": true
+            },
+            "has_code": false,
+            "has_issues": true,
+            "internal_tracker": {
+                "enable_time_tracker": true,
+                "allow_only_contributors_to_track_time": true,
+                "enable_issue_dependencies": true
+            },
+            "has_wiki": true,
+            "has_pull_requests": true,
+            "has_projects": true,
+            "projects_mode": "all",
+            "has_releases": true,
+            "has_packages": true,
+            "has_actions": true,
+            "ignore_whitespace_conflicts": false,
+            "allow_merge_commits": true,
+            "allow_rebase": true,
+            "allow_rebase_explicit": true,
+            "allow_squash_merge": true,
+            "allow_fast_forward_only_merge": true,
+            "allow_rebase_update": true,
+            "allow_manual_merge": false,
+            "autodetect_manual_merge": false,
+            "default_delete_branch_after_merge": false,
+            "default_merge_style": "merge",
+            "default_allow_maintainer_edit": false,
+            "avatar_url": "",
+            "internal": false,
+            "mirror_interval": "",
+            "object_format_name": "sha1",
+            "mirror_updated": "0001-01-01T00:00:00Z",
+            "topics": [],
+            "licenses": []
+        }
+    },
+    "head": {
+        "label": "faulty",
+        "ref": "faulty",
+        "sha": "91650c1bd33f153479777fdd98ae62b6c9035cb8",
+        "repo_id": 2,
+        "repo": {
+            "id": 2,
+            "owner": {
+                "id": 3,
+                "login": "megaorg",
+                "login_name": "",
+                "source_id": 0,
+                "full_name": "",
+                "email": "",
+                "avatar_url": "https://gitea.hexmos.site/avatars/2cbaffca520167f0d4ba4964b4070d61",
+                "html_url": "https://gitea.hexmos.site/megaorg",
+                "language": "",
+                "is_admin": false,
+                "last_login": "0001-01-01T00:00:00Z",
+                "created": "2026-01-04T05:35:04Z",
+                "restricted": false,
+                "active": false,
+                "prohibit_login": false,
+                "location": "",
+                "website": "",
+                "description": "",
+                "visibility": "limited",
+                "followers_count": 0,
+                "following_count": 0,
+                "starred_repos_count": 0,
+                "username": "megaorg"
+            },
+            "name": "livereview",
+            "full_name": "megaorg/livereview",
+            "description": "",
+            "empty": false,
+            "private": true,
+            "fork": false,
+            "template": false,
+            "mirror": false,
+            "size": 32926,
+            "language": "",
+            "languages_url": "https://gitea.hexmos.site/api/v1/repos/megaorg/livereview/languages",
+            "html_url": "https://gitea.hexmos.site/megaorg/livereview",
+            "url": "https://gitea.hexmos.site/api/v1/repos/megaorg/livereview",
+            "link": "",
+            "ssh_url": "ssh://git@gitea.hexmos.site:2222/megaorg/livereview.git",
+            "clone_url": "https://gitea.hexmos.site/megaorg/livereview.git",
+            "original_url": "https://git.apps.hexmos.com/hexmos/livereview.git",
+            "website": "",
+            "stars_count": 0,
+            "forks_count": 0,
+            "watchers_count": 2,
+            "open_issues_count": 12,
+            "open_pr_counter": 1,
+            "release_counter": 0,
+            "default_branch": "master",
+            "archived": false,
+            "created_at": "2026-01-04T05:20:48Z",
+            "updated_at": "2026-01-04T05:28:26Z",
+            "archived_at": "1970-01-01T00:00:00Z",
+            "permissions": {
+                "admin": true,
+                "push": true,
+                "pull": true
+            },
+            "has_code": false,
+            "has_issues": true,
+            "internal_tracker": {
+                "enable_time_tracker": true,
+                "allow_only_contributors_to_track_time": true,
+                "enable_issue_dependencies": true
+            },
+            "has_wiki": true,
+            "has_pull_requests": true,
+            "has_projects": true,
+            "projects_mode": "all",
+            "has_releases": true,
+            "has_packages": true,
+            "has_actions": true,
+            "ignore_whitespace_conflicts": false,
+            "allow_merge_commits": true,
+            "allow_rebase": true,
+            "allow_rebase_explicit": true,
+            "allow_squash_merge": true,
+            "allow_fast_forward_only_merge": true,
+            "allow_rebase_update": true,
+            "allow_manual_merge": false,
+            "autodetect_manual_merge": false,
+            "default_delete_branch_after_merge": false,
+            "default_merge_style": "merge",
+            "default_allow_maintainer_edit": false,
+            "avatar_url": "",
+            "internal": false,
+            "mirror_interval": "",
+            "object_format_name": "sha1",
+            "mirror_updated": "0001-01-01T00:00:00Z",
+            "topics": [],
+            "licenses": []
+        }
+    },
+    "merge_base": "372b18fb6aad91545e526f15445aeb350ec6961e",
+    "due_date": null,
+    "created_at": "2026-01-04T05:29:24Z",
+    "updated_at": "2026-01-08T15:04:32Z",
+    "closed_at": null,
+    "pin_order": 0
+}
+--------------------------------------------------------------------------------

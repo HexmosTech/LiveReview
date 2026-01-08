@@ -1,21 +1,16 @@
 """
-Experimental Gitea comment workflow exerciser.
+Gitea API inspection tool.
 
-Supported flows:
-- General PR comment (PAT/API)
-- Inline PR comment (browser session + CSRF)
-- Reply to an inline comment (browser session + CSRF)
-- Fetching comment metadata (author, timestamps, threading)
-- Deleting comments (PAT/API) via --delete
-- Walking parent chains via in_reply_to
+Fetches all comment/review APIs for PR #17 and logs full request/response 
+details to gitea_webhooks.txt for analysis.
 
-It pulls the Gitea connector (PAT + base_url) from integration_tokens
-using DATABASE_URL from the environment, then operates on a target PR URL
-(default https://gitea.hexmos.site/megaorg/livereview/pulls/17).
+Pulls the Gitea connector (PAT + base_url) from integration_tokens using 
+DATABASE_URL from the environment.
 """
 
 import argparse
 import dataclasses
+import datetime
 import json
 import os
 import sys
@@ -193,7 +188,7 @@ def load_connector_from_db(
 
 
 class GiteaClient:
-	def __init__(self, base_url: str, pat: str) -> None:
+	def __init__(self, base_url: str, pat: str, log_file: Optional[str] = None) -> None:
 		self.base_url = base_url.rstrip("/")
 		self.pat = unpack_pat(pat)
 		self.session = requests.Session()
@@ -203,11 +198,12 @@ class GiteaClient:
 				"Accept": "application/json",
 			}
 		)
+		self.log_file = log_file
 
 	# -------- Basic GET helpers
 	def get_pull(self, owner: str, repo: str, number: int) -> Dict:
 		url = f"{self.base_url}/api/v1/repos/{owner}/{repo}/pulls/{number}"
-		return self._request("GET", url)
+		return self._request("GET", url, operation_name="get_pull")
 
 	def get_pull_diff(self, owner: str, repo: str, number: int) -> str:
 		url = f"{self.base_url}/api/v1/repos/{owner}/{repo}/pulls/{number}.diff"
@@ -220,36 +216,55 @@ class GiteaClient:
 
 	def list_pull_files(self, owner: str, repo: str, number: int) -> List[Dict]:
 		url = f"{self.base_url}/api/v1/repos/{owner}/{repo}/pulls/{number}/files"
-		return self._request("GET", url)
+		return self._request("GET", url, operation_name="list_pull_files")
 
 	def list_review_comments(
 		self, owner: str, repo: str, number: int
 	) -> List[Dict]:
 		url = f"{self.base_url}/api/v1/repos/{owner}/{repo}/pulls/{number}/comments"
 		try:
-			return self._request("GET", url)
+			return self._request("GET", url, operation_name="list_review_comments")
 		except RuntimeError as exc:
 			print(f"Review comments not available: {exc}")
 			return []
 
 	def list_issue_comments(self, owner: str, repo: str, number: int) -> List[Dict]:
 		url = f"{self.base_url}/api/v1/repos/{owner}/{repo}/issues/{number}/comments"
-		return self._request("GET", url)
+		return self._request("GET", url, operation_name="list_issue_comments")
+
+	def get_authenticated_user(self) -> Dict:
+		"""Get the currently authenticated user (bot user info)."""
+		url = f"{self.base_url}/api/v1/user"
+		return self._request("GET", url, operation_name="get_authenticated_user")
+
+	def list_pull_reviews(self, owner: str, repo: str, number: int) -> List[Dict]:
+		"""List all reviews for a pull request."""
+		url = f"{self.base_url}/api/v1/repos/{owner}/{repo}/pulls/{number}/reviews"
+		return self._request("GET", url, operation_name="list_pull_reviews")
+	
+	def get_review_comments(self, owner: str, repo: str, number: int, review_id: int) -> List[Dict]:
+		"""Get comments for a specific review."""
+		url = f"{self.base_url}/api/v1/repos/{owner}/{repo}/pulls/{number}/reviews/{review_id}/comments"
+		try:
+			return self._request("GET", url, operation_name=f"get_review_{review_id}_comments")
+		except RuntimeError as exc:
+			print(f"Review {review_id} comments not available: {exc}")
+			return []
 
 	def get_review_comment(self, owner: str, repo: str, comment_id: int) -> Dict:
 		url = f"{self.base_url}/api/v1/repos/{owner}/{repo}/pulls/comments/{comment_id}"
-		return self._request("GET", url)
+		return self._request("GET", url, operation_name="get_review_comment")
 
 	def get_issue_comment(self, owner: str, repo: str, comment_id: int) -> Dict:
 		url = f"{self.base_url}/api/v1/repos/{owner}/{repo}/issues/comments/{comment_id}"
-		return self._request("GET", url)
+		return self._request("GET", url, operation_name="get_issue_comment")
 
 	# -------- Create / reply
 	def create_general_comment(
 		self, owner: str, repo: str, number: int, body: str
 	) -> Dict:
 		url = f"{self.base_url}/api/v1/repos/{owner}/{repo}/issues/{number}/comments"
-		return self._request("POST", url, json={"body": body}, expected=(201,))
+		return self._request("POST", url, json={"body": body}, expected=(201,), operation_name="create_general_comment")
 
 	def create_inline_comment(
 		self,
@@ -298,8 +313,18 @@ class GiteaClient:
 		*,
 		json: Optional[Dict] = None,
 		expected: Tuple[int, ...] = (200,),
+		operation_name: str = "request",
 	) -> Dict:
+		# Log request
+		if self.log_file:
+			self._log_request(operation_name, method, url, json)
+		
 		resp = self.session.request(method, url, json=json, timeout=30)
+		
+		# Log response
+		if self.log_file:
+			self._log_response(resp)
+		
 		if resp.status_code not in expected:
 			snippet = resp.text[:400]
 			raise RuntimeError(
@@ -308,6 +333,50 @@ class GiteaClient:
 		if resp.status_code == 204:
 			return {}
 		return resp.json()
+	
+	def _log_request(self, operation_name: str, method: str, url: str, payload: Optional[Dict]) -> None:
+		"""Log HTTP request to file."""
+		timestamp = datetime.datetime.now().isoformat()
+		with open(self.log_file, "a", encoding="utf-8") as f:
+			f.write(f"\n{'='*80}\n")
+			f.write(f"[{timestamp}] {operation_name}\n")
+			f.write(f"{'='*80}\n")
+			f.write(f"REQUEST:\n")
+			f.write(f"  METHOD: {method}\n")
+			f.write(f"  URL: {url}\n")
+			f.write(f"  HEADERS:\n")
+			for key, value in self.session.headers.items():
+				if key.lower() == "authorization":
+					f.write(f"    {key}: token ***REDACTED***\n")
+				else:
+					f.write(f"    {key}: {value}\n")
+			if payload:
+				f.write(f"  PAYLOAD:\n")
+				f.write(f"    {json.dumps(payload, indent=4)}\n")
+			else:
+				f.write(f"  PAYLOAD: None\n")
+	
+	def _log_response(self, resp: requests.Response) -> None:
+		"""Log HTTP response to file."""
+		with open(self.log_file, "a", encoding="utf-8") as f:
+			f.write(f"\nRESPONSE:\n")
+			f.write(f"  STATUS: {resp.status_code}\n")
+			f.write(f"  HEADERS:\n")
+			for key, value in resp.headers.items():
+				f.write(f"    {key}: {value}\n")
+			f.write(f"  BODY:\n")
+			try:
+				if resp.status_code == 204:
+					f.write(f"    (empty - 204 No Content)\n")
+				elif resp.text:
+					body = resp.json() if resp.headers.get("content-type", "").startswith("application/json") else resp.text
+					f.write(f"    {json.dumps(body, indent=4) if isinstance(body, (dict, list)) else body}\n")
+				else:
+					f.write(f"    (empty)\n")
+			except Exception as exc:
+				f.write(f"    (failed to parse: {exc})\n")
+				f.write(f"    RAW: {resp.text[:1000]}\n")
+			f.write(f"{'-'*80}\n")
 
 
 def choose_inline_target(
@@ -397,10 +466,24 @@ def run_demo(
 	reply_parent_override: Optional[int],
 	test_relogin: bool,
 	show_diff_info: bool,
+	show_comment_apis: bool,
 	org_id: int,
 ) -> None:
 	owner, repo, number = parse_pr_url(pr_url)
-	client = GiteaClient(connector.base_url, connector.pat)
+	
+	# Setup log file for API inspection
+	log_file = None
+	if show_comment_apis:
+		script_dir = os.path.dirname(__file__)
+		log_file = os.path.join(script_dir, "gitea_webhooks.txt")
+		# Clear the log file
+		with open(log_file, "w", encoding="utf-8") as f:
+			f.write(f"Gitea API Inspection Log\n")
+			f.write(f"Generated: {datetime.datetime.now().isoformat()}\n")
+			f.write(f"PR URL: {pr_url}\n")
+			f.write(f"{'='*80}\n")
+	
+	client = GiteaClient(connector.base_url, connector.pat, log_file=log_file)
 	inline_form_side = map_form_side(inline_form_side)
 
 	print(f"Using connector id={connector.connector_id} org={org_id} base={connector.base_url}")
@@ -410,6 +493,10 @@ def run_demo(
 
 	if show_diff_info:
 		inspect_diff_shapes(client, owner, repo, number)
+		return
+
+	if show_comment_apis:
+		inspect_comment_apis(client, owner, repo, number)
 		return
 
 	if delete_after:
@@ -562,6 +649,71 @@ def inspect_diff_shapes(client: GiteaClient, owner: str, repo: str, number: int)
 				print("  ... (truncated) ...")
 	except Exception as exc:
 		print(f"files fetch failed: {exc}")
+
+
+def inspect_comment_apis(client: GiteaClient, owner: str, repo: str, number: int) -> None:
+	"""Explore all comment/review API responses to understand structure.
+	All requests/responses are logged to gitea_webhooks.txt."""
+	print("\n=== COMMENT/REVIEW API INSPECTION ===")
+	print("All requests and responses are being logged to gitea_webhooks.txt\n")
+	
+	# 1. Authenticated user (bot info)
+	print("1. Fetching authenticated user (GET /api/v1/user)...")
+	try:
+		user = client.get_authenticated_user()
+		print(f"   ✓ Success - User: {user.get('login')} (ID: {user.get('id')})")
+	except Exception as exc:
+		print(f"   ✗ Failed: {exc}")
+	
+	# 2. Issue comments (general PR comments)
+	print("2. Fetching issue comments (GET /api/v1/repos/{owner}/{repo}/issues/{number}/comments)...")
+	try:
+		issue_comments = client.list_issue_comments(owner, repo, number)
+		print(f"   ✓ Success - Found {len(issue_comments)} issue comments")
+	except Exception as exc:
+		print(f"   ✗ Failed: {exc}")
+	
+	# 3. Review comments (inline/code comments)
+	print("3. Fetching review comments (GET /api/v1/repos/{owner}/{repo}/pulls/{number}/comments)...")
+	try:
+		review_comments = client.list_review_comments(owner, repo, number)
+		print(f"   ✓ Success - Found {len(review_comments)} review comments")
+	except Exception as exc:
+		print(f"   ✗ Failed: {exc}")
+	
+	# 4. Pull request reviews
+	print("4. Fetching pull request reviews (GET /api/v1/repos/{owner}/{repo}/pulls/{number}/reviews)...")
+	reviews = []
+	try:
+		reviews = client.list_pull_reviews(owner, repo, number)
+		print(f"   ✓ Success - Found {len(reviews)} reviews")
+	except Exception as exc:
+		print(f"   ✗ Failed: {exc}")
+	
+	# 4b. Fetch comments for each review that has comments
+	if reviews:
+		print("4b. Fetching comments for reviews with comments_count > 0...")
+		for review in reviews:
+			review_id = review.get("id")
+			comments_count = review.get("comments_count", 0)
+			if comments_count > 0:
+				print(f"    - Review {review_id} (has {comments_count} comments)...")
+				try:
+					comments = client.get_review_comments(owner, repo, number, review_id)
+					print(f"      ✓ Got {len(comments)} comments")
+				except Exception as exc:
+					print(f"      ✗ Failed: {exc}")
+	
+	# 5. Pull request details
+	print("5. Fetching pull request details (GET /api/v1/repos/{owner}/{repo}/pulls/{number})...")
+	try:
+		pr = client.get_pull(owner, repo, number)
+		print(f"   ✓ Success - PR: {pr.get('title')}")
+	except Exception as exc:
+		print(f"   ✗ Failed: {exc}")
+	
+	print("\n=== INSPECTION COMPLETE ===")
+	print(f"Check gitea_webhooks.txt for full request/response details")
 
 
 def summarize_comments(
@@ -765,40 +917,9 @@ def test_relogin_flow(
 	print("Relogin test complete.")
 
 def main() -> None:
-	parser = argparse.ArgumentParser(description="Gitea comment workflow demo")
-	parser.add_argument(
-		"--pr-url",
-		default="https://gitea.hexmos.site/megaorg/livereview/pulls/17",
-		help="Target pull request URL",
-	)
-	parser.add_argument(
-		"--inline-side",
-		default="proposed",
-		choices=["proposed", "previous"],
-		help="Side for inline/reply comments (web form)",
-	)
-	parser.add_argument(
-		"--reply-parent",
-		type=int,
-		help="Existing inline comment id to reply to (skip creating a new inline)",
-	)
-	parser.add_argument(
-		"--delete",
-		action="store_true",
-		help="Delete created comments at the end",
-	)
-	parser.add_argument(
-		"--test-relogin",
-		action="store_true",
-		help="Run relogin test (forces cookie expiry, GET+POST, cleans up new inline)",
-	)
-	parser.add_argument(
-		"--show-diff-info",
-		action="store_true",
-		help="Inspect diff responses (.diff and files API) and exit",
-	)
-	args = parser.parse_args()
-
+	# Hardcoded PR URL
+	pr_url = "https://gitea.hexmos.site/megaorg/livereview/pulls/17"
+	
 	# Prefer production .env.prod; fallback to local .env.
 	script_dir = os.path.dirname(__file__)
 	prod_env = os.path.abspath(os.path.join(script_dir, os.pardir, ".env.prod"))
@@ -811,26 +932,29 @@ def main() -> None:
 	else:
 		raise SystemExit("No .env or .env.prod found next to repository root")
 
-	# Also load browser session env (same files, but tolerant) for GITEA_USER/PASS.
-	load_browser_env()
-
 	dsn = os.environ.get("DATABASE_URL")
 	if not dsn:
 		raise SystemExit("DATABASE_URL is required in environment")
 
 	# Infer the newest Gitea connector automatically.
 	connector = load_connector_from_db(dsn, org_id=None, connector_id=None)
-
-	run_demo(
-		connector=connector,
-		pr_url=args.pr_url,
-		delete_after=args.delete,
-		inline_form_side=args.inline_side,
-		reply_parent_override=args.reply_parent,
-		test_relogin=args.test_relogin,
-		show_diff_info=args.show_diff_info,
-		org_id=connector.org_id,
-	)
+	
+	# Setup log file
+	log_file = os.path.join(script_dir, "gitea_webhooks.txt")
+	with open(log_file, "w", encoding="utf-8") as f:
+		f.write(f"Gitea API Inspection Log\n")
+		f.write(f"Generated: {datetime.datetime.now().isoformat()}\n")
+		f.write(f"PR URL: {pr_url}\n")
+		f.write(f"{'='*80}\n")
+	
+	owner, repo, number = parse_pr_url(pr_url)
+	client = GiteaClient(connector.base_url, connector.pat, log_file=log_file)
+	
+	print(f"Using connector id={connector.connector_id} org={connector.org_id} base={connector.base_url}")
+	print(f"Logging all API requests/responses to: {log_file}\n")
+	
+	# Run API inspection
+	inspect_comment_apis(client, owner, repo, number)
 
 
 if __name__ == "__main__":

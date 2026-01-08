@@ -195,11 +195,20 @@ func (wo *WebhookOrchestratorV2) ProcessWebhookEvent(c echo.Context) error {
 		})
 	}
 
-	// TODO: Implement anti-spoofing validation using webhook secrets
-	// - For GitLab: validate X-Gitlab-Token against stored webhook secret
-	// - For GitHub: validate X-Hub-Signature-256 against stored webhook secret
-	// - For Bitbucket: validate request signature against stored webhook secret
-	// Reject requests with invalid signatures to prevent spoofing attacks
+	// Webhook signature validation (if provider supports it)
+	type signatureValidator interface {
+		ValidateWebhookSignature(connectorID int64, headers map[string]string, body []byte) bool
+	}
+	if validator, ok := provider.(signatureValidator); ok {
+		if !validator.ValidateWebhookSignature(connectorID, headers, bodyBytes) {
+			log.Printf("[ERROR] Webhook signature validation failed for connector_id=%d, provider=%s", connectorID, providerName)
+			return c.JSON(http.StatusUnauthorized, map[string]string{
+				"error":    "invalid_signature",
+				"provider": providerName,
+			})
+		}
+		log.Printf("[DEBUG] Webhook signature validated for connector_id=%d", connectorID)
+	}
 
 	log.Printf("[DEBUG] Processing webhook for connector_id=%d, org_id=%d", connectorID, orgID)
 
@@ -323,6 +332,8 @@ func (wo *WebhookOrchestratorV2) handleCommentReplyFlow(ctx context.Context, eve
 	}
 
 	// Post the response
+	log.Printf("[DIAG] Calling provider.PostCommentReply with response_len=%d, event=%s/%s, comment_id=%s",
+		len(response), event.EventType, event.Provider, event.Comment.ID)
 	if err := provider.PostCommentReply(event, response); err != nil {
 		log.Printf("[ERROR] Failed to post comment reply: %v", err)
 		return
@@ -448,6 +459,17 @@ func (wo *WebhookOrchestratorV2) getBotUserInfo(event *UnifiedWebhookEventV2) (*
 		botProvider, ok := provider.(botInfoProvider)
 		if !ok {
 			return nil, fmt.Errorf("bitbucket provider does not implement bot lookup")
+		}
+		return botProvider.GetBotUserInfo(event.Repository)
+
+	case "gitea":
+		provider, ok := wo.providerRegistry.providers["gitea"]
+		if !ok {
+			return nil, fmt.Errorf("gitea provider not registered")
+		}
+		botProvider, ok := provider.(botInfoProvider)
+		if !ok {
+			return nil, fmt.Errorf("gitea provider does not implement bot lookup")
 		}
 		return botProvider.GetBotUserInfo(event.Repository)
 

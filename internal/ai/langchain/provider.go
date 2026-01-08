@@ -540,7 +540,7 @@ func (p *LangchainProvider) getModelName() string {
 	if p.modelName != "" {
 		return p.modelName
 	}
-	return "gemini-1.5-flash" // Default model
+	return "gemini-2.5-flash" // Default model
 }
 
 // ReviewCode is the legacy method for backwards compatibility
