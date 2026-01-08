@@ -244,10 +244,10 @@ func GetProviderModels(provider Provider) []string {
 		return []string{
 			"gemini-2.5-flash",
 			"gemini-2.5-flash",
-			"gemini-1.5-pro",
-			"gemini-1.5-flash",
-			"gemini-pro",
-			"gemini-pro-vision",
+			// "gemini-1.5-pro",
+			// "gemini-1.5-flash",
+			// "gemini-pro",
+			// "gemini-pro-vision",
 		}
 	case ProviderClaude:
 		return []string{

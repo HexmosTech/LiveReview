@@ -27,6 +27,7 @@ import (
 	githubprovider "github.com/livereview/internal/provider_input/github"
 	gitlabprovider "github.com/livereview/internal/provider_input/gitlab"
 	bitbucketoutput "github.com/livereview/internal/provider_output/bitbucket"
+	giteaoutput "github.com/livereview/internal/provider_output/gitea"
 	githuboutput "github.com/livereview/internal/provider_output/github"
 	gitlaboutput "github.com/livereview/internal/provider_output/gitlab"
 	// Import FetchGitLabProfile
@@ -124,6 +125,7 @@ type Server struct {
 	gitlabProviderV2    *gitlabprovider.GitLabV2Provider
 	githubProviderV2    *githubprovider.GitHubV2Provider
 	bitbucketProviderV2 *bitbucketprovider.BitbucketV2Provider
+	giteaProviderV2     *giteaprovider.GiteaV2Provider
 
 	gitlabAuthService *gitlabprovider.AuthService
 
@@ -274,6 +276,7 @@ func NewServer(port int, versionInfo *VersionInfo) (*Server, error) {
 	server.gitlabProviderV2 = gitlabprovider.NewGitLabV2Provider(db, gitlaboutput.NewAPIClient())
 	server.githubProviderV2 = githubprovider.NewGitHubV2Provider(db, githuboutput.NewAPIClient())
 	server.bitbucketProviderV2 = bitbucketprovider.NewBitbucketV2Provider(db, bitbucketoutput.NewAPIClient())
+	server.giteaProviderV2 = giteaprovider.NewGiteaV2Provider(db, giteaoutput.NewAPIClient())
 
 	// Initialize V2 webhook registry
 	server.webhookRegistryV2 = NewWebhookProviderRegistry(server)
@@ -578,6 +581,9 @@ func (s *Server) setupRoutes() {
 
 	// Bitbucket webhook handler (V2 Orchestrator)
 	v1.POST("/bitbucket-hook/:connector_id", s.WebhookOrchestratorV2Handler, webhookMiddleware)
+
+	// Gitea webhook handler (V2 Orchestrator)
+	v1.POST("/gitea-hook/:connector_id", s.WebhookOrchestratorV2Handler, webhookMiddleware)
 
 	// Generic webhook handler (V2 Orchestrator)
 	v1.POST("/webhook/:connector_id", s.WebhookOrchestratorV2Handler, webhookMiddleware)

@@ -24,6 +24,7 @@ func NewWebhookProviderRegistry(server *Server) *WebhookProviderRegistry {
 	registry.providers["gitlab"] = server.gitlabProviderV2
 	registry.providers["github"] = server.githubProviderV2
 	registry.providers["bitbucket"] = server.bitbucketProviderV2
+	registry.providers["gitea"] = server.giteaProviderV2
 
 	log.Printf("[INFO] Webhook provider registry initialized with providers: %v",
 		registry.getProviderNames())
@@ -50,8 +51,14 @@ func (r *WebhookProviderRegistry) getProviderNames() []string {
 func (r *WebhookProviderRegistry) DetectProvider(headers map[string]string, body []byte) (string, WebhookProviderV2) {
 	log.Printf("[DEBUG] Detecting provider for webhook with headers: %v", getRelevantHeaders(headers))
 
-	// Check each provider to see if it can handle this webhook
-	for providerName, provider := range r.providers {
+	// Check providers in priority order (Gitea before GitHub since Gitea sends GitHub-compatible headers)
+	priorityOrder := []string{"gitea", "gitlab", "github", "bitbucket"}
+
+	for _, providerName := range priorityOrder {
+		provider, exists := r.providers[providerName]
+		if !exists {
+			continue
+		}
 		if provider.CanHandleWebhook(headers, body) {
 			log.Printf("[INFO] Provider detected: %s", providerName)
 			return providerName, provider
@@ -71,6 +78,7 @@ func getRelevantHeaders(headers map[string]string) map[string]string {
 		"X-GitHub-Event", "X-GitHub-Delivery", "X-Hub-Signature",
 		"X-Gitlab-Event", "X-Gitlab-Token", "X-Gitlab-Event-UUID",
 		"X-Event-Key", "X-Request-UUID", "X-Hook-UUID", // Bitbucket
+		"X-Gitea-Event", "X-Gitea-Delivery", "X-Gitea-Signature", // Gitea
 		"User-Agent", "Content-Type",
 	}
 
