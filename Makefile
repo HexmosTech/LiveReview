@@ -38,6 +38,7 @@ lrc-build-local:
 	@go build -o /tmp/lrc ./cmd/lrc
 	@sudo rm -f /usr/local/bin/lrc || true
 	@sudo install -m 0755 /tmp/lrc /usr/local/bin/lrc
+	@sudo cp /usr/local/bin/lrc /usr/bin/git-lrc
 	@echo "✅ Installed lrc to /usr/local/bin"
 	
 
