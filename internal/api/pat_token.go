@@ -5,8 +5,10 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"strings"
 
 	"github.com/labstack/echo/v4"
+	"github.com/livereview/internal/providers/gitea"
 )
 
 // Handler for creating PAT integration token
@@ -55,6 +57,12 @@ func CreatePATIntegrationToken(db *sql.DB, c echo.Context) (int64, int64, error)
 		metadataJSON = []byte("{}")
 	}
 
+	// Normalize provider URL for certain providers (e.g., strip swagger path for Gitea)
+	providerURL := body.URL
+	if strings.HasPrefix(body.Type, "gitea") {
+		providerURL = gitea.NormalizeGiteaBaseURL(body.URL)
+	}
+
 	// Set expires_at to NULL for PAT tokens and include org_id
 	query := `INSERT INTO integration_tokens (provider, provider_app_id, token_type, pat_token, access_token, connection_name, provider_url, metadata, expires_at, org_id, created_at, updated_at)
 			  VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, now(), now()) RETURNING id`
@@ -66,7 +74,7 @@ func CreatePATIntegrationToken(db *sql.DB, c echo.Context) (int64, int64, error)
 		body.PATToken, // pat_token
 		"NA",          // access_token
 		body.Name,     // connection_name (from frontend 'name')
-		body.URL,      // provider_url
+		providerURL,   // provider_url (normalized)
 		metadataJSON,  // metadata
 		nil,           // expires_at
 		orgID,         // org_id
