@@ -12,18 +12,20 @@ import (
 
 // HTMLTemplateData contains all data needed for the HTML template
 type HTMLTemplateData struct {
-	GeneratedTime string
-	Summary       string
-	TotalFiles    int
-	TotalComments int
-	Files         []HTMLFileData
-	HasSummary    bool
-	FriendlyName  string
-	Interactive   bool
-	InitialMsg    string
-	ReviewID      string // For polling events
-	APIURL        string // For polling events
-	APIKey        string // For authenticated API calls
+	GeneratedTime      string
+	Summary            string
+	Status             string
+	TotalFiles         int
+	TotalComments      int
+	Files              []HTMLFileData
+	HasSummary         bool
+	FriendlyName       string
+	Interactive        bool
+	IsPostCommitReview bool // True when reviewing historical commit (--commit mode)
+	InitialMsg         string
+	ReviewID           string // For polling events
+	APIURL             string // For polling events
+	APIKey             string // For authenticated API calls
 }
 
 // HTMLFileData represents a file for HTML rendering
@@ -63,7 +65,7 @@ type HTMLCommentData struct {
 }
 
 // prepareHTMLData converts the API response to template data
-func prepareHTMLData(result *diffReviewResponse, interactive bool, initialMsg, reviewID, apiURL, apiKey string) *HTMLTemplateData {
+func prepareHTMLData(result *diffReviewResponse, interactive bool, isPostCommitReview bool, initialMsg, reviewID, apiURL, apiKey string) *HTMLTemplateData {
 	totalComments := countTotalComments(result.Files)
 
 	files := make([]HTMLFileData, len(result.Files))
@@ -72,18 +74,20 @@ func prepareHTMLData(result *diffReviewResponse, interactive bool, initialMsg, r
 	}
 
 	return &HTMLTemplateData{
-		GeneratedTime: time.Now().Format("2006-01-02 15:04:05 MST"),
-		Summary:       result.Summary,
-		TotalFiles:    len(result.Files),
-		TotalComments: totalComments,
-		Files:         files,
-		HasSummary:    result.Summary != "",
-		FriendlyName:  naming.GenerateFriendlyName(),
-		Interactive:   interactive,
-		InitialMsg:    initialMsg,
-		ReviewID:      reviewID,
-		APIURL:        apiURL,
-		APIKey:        apiKey,
+		GeneratedTime:      time.Now().Format("2006-01-02 15:04:05 MST"),
+		Summary:            result.Summary,
+		Status:             result.Status,
+		TotalFiles:         len(result.Files),
+		TotalComments:      totalComments,
+		Files:              files,
+		HasSummary:         result.Summary != "",
+		FriendlyName:       naming.GenerateFriendlyName(),
+		Interactive:        interactive,
+		IsPostCommitReview: isPostCommitReview,
+		InitialMsg:         initialMsg,
+		ReviewID:           reviewID,
+		APIURL:             apiURL,
+		APIKey:             apiKey,
 	}
 }
 
@@ -1172,9 +1176,13 @@ const htmlTemplate = `<!DOCTYPE html>
         .main-content::-webkit-scrollbar-thumb:hover {
             background: rgba(148,163,184,0.6);
         }
+        
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
     </style>
 </head>
-<body>
+<body data-status="{{.Status}}">
     <div class="sidebar">
         <div class="sidebar-header">
             <h2>📂 Files</h2>
@@ -1198,12 +1206,19 @@ const htmlTemplate = `<!DOCTYPE html>
                     </div>
                 </div>
 {{if .HasSummary}}        <script type="text/markdown" id="summary-markdown">{{.Summary}}</script>
+{{end}}        <div id="review-loader" style="display: none; padding: 16px; margin-bottom: 16px; background: #1f2937; border: 1px solid #374151; border-radius: 6px;">
+            <div style="display: flex; align-items: center; gap: 12px;">
+                <div class="spinner" style="width: 20px; height: 20px; border: 3px solid #374151; border-top-color: #3b82f6; border-radius: 50%; animation: spin 1s linear infinite;"></div>
+                <span id="loader-message" style="color: #9ca3af;">Loading review results...</span>
+            </div>
+        </div>
+        <div id="review-status" style="display: none; padding: 16px; margin-bottom: 16px; border-radius: 6px; font-weight: 500; border: 1px solid transparent;"></div>
         <div class="summary" id="summary-content"></div>
-{{end}}        <div class="stats">
+        <div class="stats">
             <div class="stat">Files: <span class="count">{{.TotalFiles}}</span></div>
             <div class="stat">Comments: <span class="count">{{.TotalComments}}</span></div>
         </div>
-{{if .Interactive}}        <div class="precommit-bar">
+{{if and .Interactive (not .IsPostCommitReview)}}        <div class="precommit-bar">
             <div class="precommit-bar-left">
                 <div class="precommit-bar-title">Pre-commit action</div>
                 <div class="precommit-actions">
@@ -1217,6 +1232,11 @@ const htmlTemplate = `<!DOCTYPE html>
                 <label for="commit-message">Commit message</label>
                 <textarea id="commit-message" placeholder="Enter your commit message (required)">{{.InitialMsg}}</textarea>
                 <div class="precommit-message-hint">Required for commit actions; ignored on Skip.</div>
+            </div>
+        </div>
+{{end}}{{if and .Interactive .IsPostCommitReview}}        <div class="precommit-bar">
+            <div style="padding: 16px; color: #9ca3af;">
+                <p>📖 Viewing historical commit review. Press <strong>Ctrl-C</strong> in the terminal to exit.</p>
             </div>
         </div>
 {{end}}        <div class="toolbar-row">
@@ -1827,12 +1847,64 @@ const htmlTemplate = `<!DOCTYPE html>
                 });
             });
 
+            function applyInitialStatus() {
+                const status = (document.body.dataset.status || '').toLowerCase() || 'in_progress';
+                const loader = document.getElementById('review-loader');
+                const statusEl = document.getElementById('review-status');
+                if (status === 'failed') {
+                    if (loader) loader.style.display = 'none';
+                    if (statusEl) {
+                        statusEl.style.display = 'flex';
+                        statusEl.style.alignItems = 'center';
+                        statusEl.style.gap = '12px';
+                        statusEl.style.background = '#fef2f2';
+                        statusEl.style.borderColor = '#fecaca';
+                        statusEl.style.color = '#991b1b';
+                        statusEl.innerHTML = '<span style="font-size: 20px;">❌</span><span>Review failed</span>';
+                    }
+                    const summaryScript = document.getElementById('summary-markdown');
+                    const summaryEl = document.getElementById('summary-content');
+                    if (summaryScript && summaryEl) {
+                        const errorDiv = document.createElement('div');
+                        errorDiv.style.cssText = 'padding: 16px; background: #fef2f2; border: 1px solid #fecaca; border-radius: 6px; color: #991b1b; margin-bottom: 16px;';
+                        const raw = summaryScript.textContent || summaryScript.innerText || '';
+                        const rendered = (typeof marked !== 'undefined') ? marked.parse(raw) : raw.replace(/\n/g, '<br>');
+                        errorDiv.innerHTML = '<strong style="display: block; margin-bottom: 8px; font-size: 16px;">⚠️ Error Details:</strong>' + rendered;
+                        summaryEl.innerHTML = '';
+                        summaryEl.appendChild(errorDiv);
+                    }
+                } else if (status === 'completed') {
+                    if (loader) loader.style.display = 'none';
+                    if (statusEl) {
+                        statusEl.style.display = 'flex';
+                        statusEl.style.alignItems = 'center';
+                        statusEl.style.gap = '12px';
+                        statusEl.style.background = '#f0fdf4';
+                        statusEl.style.borderColor = '#bbf7d0';
+                        statusEl.style.color = '#166534';
+                        statusEl.innerHTML = '<span style="font-size: 20px;">✅</span><span>Review completed successfully</span>';
+                    }
+                }
+            }
+
+            document.addEventListener('DOMContentLoaded', applyInitialStatus);
+
             // Progressive comment loading via event polling
             {{if and .ReviewID .APIURL .APIKey}}
-            console.log('Initializing event polling with reviewID:', '{{.ReviewID}}');
+            console.log('[Progressive] Initializing event polling with reviewID:', '{{.ReviewID}}');
             const reviewID = '{{.ReviewID}}';
             // Use local proxy to avoid CORS issues
             const apiURL = '';
+            
+            // Show loader immediately ONLY if status is in_progress (not already failed/completed)
+            const initialStatus = (document.body.dataset.status || '').toLowerCase();
+            const loader = document.getElementById('review-loader');
+            if (loader && initialStatus !== 'failed' && initialStatus !== 'completed') {
+                loader.style.display = 'block';
+                console.log('[Progressive] Loader displayed');
+            } else {
+                console.log('[Progressive] Skipping loader display, status is:', initialStatus);
+            }
             
             // State management (matches ReviewEventsPage.tsx lines 27-28)
             let allEvents = [];  // Complete event list (like useState)
@@ -1877,11 +1949,19 @@ const htmlTemplate = `<!DOCTYPE html>
                 const filePath = comment.FilePath;
                 const lineNum = comment.Line;
                 
+                if (!filePath || lineNum === undefined) {
+                    console.warn('[insertComment] Skipping comment with missing FilePath or Line:', comment);
+                    return;
+                }
+                
+                console.log('[insertComment] Inserting comment for', filePath + ':' + lineNum);
+                
                 // Find the file container - encode path to valid ID
                 const fileId = filePath.replace(/[^a-zA-Z0-9]/g, '_');
                 const fileDiv = document.getElementById(fileId);
                 if (!fileDiv) {
-                    console.log('File not found:', filePath);
+                    console.error('[insertComment] File div not found:', filePath, '(id:', fileId + ')');
+                    console.error('[insertComment] Available IDs:', Array.from(document.querySelectorAll('[id]')).map(el => el.id).filter(id => !id.startsWith('sidebar')).slice(0, 10));
                     return;
                 }
                 
@@ -2062,11 +2142,20 @@ const htmlTemplate = `<!DOCTYPE html>
                         // Handle batch completion with comments
                         if (event.type === 'batch' && event.data.status === 'completed' && event.data.comments) {
                             const comments = event.data.comments;
-                            console.log('Processing batch', event.batchId, 'with', comments.length, 'comments');
+                            console.log('[Batch] Processing batch', event.batchId, 'with', comments.length, 'comments');
                             
+                            let successCount = 0;
+                            let failCount = 0;
                             for (const comment of comments) {
-                                insertComment(comment, event.batchId);
+                                try {
+                                    insertComment(comment, event.batchId);
+                                    successCount++;
+                                } catch (err) {
+                                    console.error('[Batch] Failed to insert comment:', err, comment);
+                                    failCount++;
+                                }
                             }
+                            console.log('[Batch] Inserted', successCount, 'comments,', failCount, 'failures');
                             
                             // Update top-level comment count in stats section (real-time update)
                             const statsCommentCount = document.querySelector('.stats .stat:nth-child(2) .count');
@@ -2087,34 +2176,127 @@ const htmlTemplate = `<!DOCTYPE html>
                             }
                         }
                         
-                        // Handle completion event
-                        if (event.type === 'completion') {
-                            console.log('🎉 Review completion event detected!');
+                        // Handle "REVIEW FAILED" log event - this indicates review completed with errors
+                        if (event.type === 'log' && event.message && event.message.includes('REVIEW FAILED')) {
+                            console.log('[ReviewFailed] Detected REVIEW FAILED in log');
                             if (pollingInterval) {
                                 clearInterval(pollingInterval);
                                 pollingInterval = null;
-                                console.log('Stopped polling after completion');
                             }
                             
-                            // Update or create status indicator above summary (don't overwrite summary content)
-                            let statusEl = document.getElementById('review-status');
-                            if (!statusEl) {
-                                // Create status element if it doesn't exist
-                                statusEl = document.createElement('div');
-                                statusEl.id = 'review-status';
-                                statusEl.style.cssText = 'padding: 12px; margin-bottom: 16px; background: #238636; color: white; border-radius: 6px; font-weight: 500;';
+                            // Hide loader
+                            const loader = document.getElementById('review-loader');
+                            if (loader) loader.style.display = 'none';
+                            
+                            // Show error status
+                            const statusEl = document.getElementById('review-status');
+                            if (statusEl) {
+                                statusEl.style.display = 'flex';
+                                statusEl.style.alignItems = 'center';
+                                statusEl.style.gap = '12px';
+                                statusEl.style.background = '#fef2f2';
+                                statusEl.style.borderColor = '#fecaca';
+                                statusEl.style.color = '#991b1b';
+                                statusEl.innerHTML = '<span style="font-size: 20px;">❌</span><span>Completed with Errors</span>';
+                            }
+                            
+                            // Update/hide summary area - no longer "in progress"
+                            const summaryEl = document.getElementById('summary-content');
+                            if (summaryEl) {
+                                summaryEl.innerHTML = '<div style="color: #991b1b;">Review failed. Check the Event Log for details.</div>';
+                            }
+                            
+                            // Update footer
+                            const totalEl = document.querySelector('.footer');
+                            if (totalEl) {
+                                totalEl.textContent = totalEl.textContent.replace(/Review in progress:/, 'Completed with errors:');
+                            }
+                        }
+                        
+                        // Handle completion event
+                        if (event.type === 'completion') {
+                            console.log('[Completion] Review completion event received:', event.data);
+                            if (pollingInterval) {
+                                clearInterval(pollingInterval);
+                                pollingInterval = null;
+                                console.log('[Completion] Stopped polling');
+                            }
+                            
+                            // Hide loader
+                            const loader = document.getElementById('review-loader');
+                            if (loader) {
+                                loader.style.display = 'none';
+                            }
+                            
+                            // Check if there's an error summary (indicates failure)
+                            const hasError = event.data.errorSummary && event.data.errorSummary.trim() !== '';
+                            
+                            // Show completion or error status with proper styling
+                            const statusEl = document.getElementById('review-status');
+                            if (statusEl) {
+                                statusEl.style.display = 'flex';
+                                statusEl.style.alignItems = 'center';
+                                statusEl.style.gap = '12px';
+                                if (hasError) {
+                                    statusEl.style.background = '#fef2f2';
+                                    statusEl.style.borderColor = '#fecaca';
+                                    statusEl.style.color = '#991b1b';
+                                    statusEl.innerHTML = '<span style="font-size: 20px;">❌</span><span>Review completed with errors</span>';
+                                    console.log('[Completion] Error detected:', event.data.errorSummary);
+                                } else {
+                                    statusEl.style.background = '#f0fdf4';
+                                    statusEl.style.borderColor = '#bbf7d0';
+                                    statusEl.style.color = '#166534';
+                                    statusEl.innerHTML = '<span style="font-size: 20px;">✅</span><span>Review completed successfully</span>';
+                                }
+                                console.log('[Completion] Status updated');
+                            }
+                            
+                            // Display error summary if present
+                            if (hasError) {
                                 const summaryEl = document.getElementById('summary-content');
-                                if (summaryEl && summaryEl.parentNode) {
-                                    summaryEl.parentNode.insertBefore(statusEl, summaryEl);
+                                if (summaryEl) {
+                                    const errorDiv = document.createElement('div');
+                                    errorDiv.style.cssText = 'padding: 16px; background: #fef2f2; border: 1px solid #fecaca; border-radius: 6px; color: #991b1b; margin-bottom: 16px;';
+                                    errorDiv.innerHTML = '<strong style="display: block; margin-bottom: 8px; font-size: 16px;">⚠️ Error Details:</strong>' +
+                                        '<pre style="white-space: pre-wrap; font-family: monospace; font-size: 13px; margin: 0;">' + 
+                                        (event.data.errorSummary || 'Review failed') + '</pre>';
+                                    summaryEl.prepend(errorDiv);
+                                    console.log('[Completion] Error summary displayed');
                                 }
                             }
-                            statusEl.textContent = '✅ Review completed';
+                            
+                            // Update summary with actual result from completion event (if available)
+                            if (event.data.resultSummary) {
+                                console.log('[Completion] Updating summary with result:', event.data.resultSummary.substring(0, 100) + '...');
+                                const summaryEl = document.getElementById('summary-content');
+                                if (summaryEl) {
+                                    const resultDiv = document.createElement('div');
+                                    // Render markdown if marked is available
+                                    if (typeof marked !== 'undefined') {
+                                        resultDiv.innerHTML = marked.parse(event.data.resultSummary);
+                                    } else {
+                                        // Fallback to plain text with line breaks
+                                        resultDiv.textContent = event.data.resultSummary;
+                                        resultDiv.style.whiteSpace = 'pre-wrap';
+                                    }
+                                    summaryEl.appendChild(resultDiv);
+                                    console.log('[Completion] Summary rendered');
+                                } else {
+                                    console.error('[Completion] Summary element not found');
+                                }
+                            } else if (!hasError) {
+                                console.warn('[Completion] No resultSummary in completion event');
+                            }
                             
                             // Update top-level comment count with final count
                             if (event.data.commentCount !== undefined) {
                                 const statsCommentCount = document.querySelector('.stats .stat:nth-child(2) .count');
                                 if (statsCommentCount) {
                                     statsCommentCount.textContent = event.data.commentCount;
+                                    console.log('[Completion] Updated stats comment count to', event.data.commentCount);
+                                } else {
+                                    console.error('[Completion] Stats comment count element not found');
                                 }
                             }
                             
@@ -2126,12 +2308,17 @@ const htmlTemplate = `<!DOCTYPE html>
                                 if (!totalEl.textContent.includes('Review complete')) {
                                     totalEl.textContent = 'Review complete: ' + finalCount + ' total comment(s)';
                                 }
+                                console.log('[Completion] Updated footer with final count:', finalCount);
                             }
                             
                             // Update events status
                             const eventsStatus = document.getElementById('events-status');
                             if (eventsStatus) {
-                                eventsStatus.textContent = '✅ Review completed';
+                                if (hasError) {
+                                    eventsStatus.textContent = '❌ Review completed with errors';
+                                } else {
+                                    eventsStatus.textContent = '✅ Review completed successfully';
+                                }
                             }
                         }
                     }
@@ -2176,18 +2363,22 @@ const htmlTemplate = `<!DOCTYPE html>
                 }
             }
             
-            // Start polling
-            console.log('[Event Polling] Starting for review', reviewID);
-            pollEvents(); // Initial poll
-            pollingInterval = setInterval(pollEvents, 2000);
+            // Start polling ONLY if status is in_progress (not already failed/completed)
+            if (initialStatus !== 'failed' && initialStatus !== 'completed') {
+                console.log('[Event Polling] Starting for review', reviewID);
+                pollEvents(); // Initial poll
+                pollingInterval = setInterval(pollEvents, 2000);
 
-            // Stop polling after 10 minutes
-            setTimeout(() => {
-                if (pollingInterval) {
-                    clearInterval(pollingInterval);
-                    console.log('[Event Polling] Stopped after timeout');
-                }
-            }, 10 * 60 * 1000);
+                // Stop polling after 10 minutes
+                setTimeout(() => {
+                    if (pollingInterval) {
+                        clearInterval(pollingInterval);
+                        console.log('[Event Polling] Stopped after timeout');
+                    }
+                }, 10 * 60 * 1000);
+            } else {
+                console.log('[Event Polling] Skipping polling, status is already:', initialStatus);
+            }
             {{end}}
 
             // Copy logs button handler

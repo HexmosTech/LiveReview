@@ -177,6 +177,20 @@ func (r *ReviewLogger) EmitReviewCompletion(commentCount int, summary string) {
 	_ = r.eventSink.EmitCompletionEvent(ctx, r.reviewIDInt, r.orgID, resultSummary, commentCount, "")
 }
 
+// EmitReviewFailure emits a completion event with error information
+func (r *ReviewLogger) EmitReviewFailure(err error) {
+	if r == nil || r.eventSink == nil {
+		return
+	}
+
+	ctx := context.Background()
+	errorSummary := "Review failed"
+	if err != nil {
+		errorSummary = err.Error()
+	}
+	_ = r.eventSink.EmitCompletionEvent(ctx, r.reviewIDInt, r.orgID, "Review failed", 0, errorSummary)
+}
+
 // EmitBatchStart emits an event when a batch starts processing
 func (r *ReviewLogger) EmitBatchStart(batchID string, fileCount int) {
 	if r == nil || r.eventSink == nil {
