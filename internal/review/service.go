@@ -151,6 +151,7 @@ func (s *Service) ProcessReview(ctx context.Context, request ReviewRequest) *Rev
 			if s.logger != nil {
 				s.logger.LogError("Provider creation failed", err)
 				s.logger.EmitStageError("Preparation", err)
+				s.logger.EmitReviewFailure(err)
 			}
 			result.Error = fmt.Errorf("failed to create provider: %w", err)
 			result.Duration = time.Since(start)
@@ -174,6 +175,7 @@ func (s *Service) ProcessReview(ctx context.Context, request ReviewRequest) *Rev
 		if s.logger != nil {
 			s.logger.LogError("AI provider creation failed", err)
 			s.logger.EmitStageError("Preparation", err)
+			s.logger.EmitReviewFailure(err)
 		}
 		result.Error = fmt.Errorf("failed to create AI provider: %w", err)
 		result.Duration = time.Since(start)
@@ -195,6 +197,7 @@ func (s *Service) ProcessReview(ctx context.Context, request ReviewRequest) *Rev
 		if s.logger != nil {
 			s.logger.LogError("Review workflow execution failed", err)
 			s.logger.EmitStageError("Analysis", err)
+			s.logger.EmitReviewFailure(err)
 		}
 		result.Error = err
 		result.Duration = time.Since(start)
@@ -265,7 +268,11 @@ func (s *Service) ProcessReview(ctx context.Context, request ReviewRequest) *Rev
 			}
 		}
 		if provider == nil {
-			result.Error = fmt.Errorf("provider is nil; cannot post results")
+			err := fmt.Errorf("provider is nil; cannot post results")
+			if s.logger != nil {
+				s.logger.EmitReviewFailure(err)
+			}
+			result.Error = err
 			result.Duration = time.Since(start)
 			return result
 		}
@@ -274,6 +281,7 @@ func (s *Service) ProcessReview(ctx context.Context, request ReviewRequest) *Rev
 			if s.logger != nil {
 				s.logger.LogError("Failed to post results", err)
 				s.logger.EmitStageError("Artifact Generation", err)
+				s.logger.EmitReviewFailure(err)
 			}
 			result.Error = fmt.Errorf("failed to post results: %w", err)
 			result.Duration = time.Since(start)
