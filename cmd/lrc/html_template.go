@@ -21,6 +21,9 @@ type HTMLTemplateData struct {
 	FriendlyName  string
 	Interactive   bool
 	InitialMsg    string
+	ReviewID      string // For polling events
+	APIURL        string // For polling events
+	APIKey        string // For authenticated API calls
 }
 
 // HTMLFileData represents a file for HTML rendering
@@ -60,7 +63,7 @@ type HTMLCommentData struct {
 }
 
 // prepareHTMLData converts the API response to template data
-func prepareHTMLData(result *diffReviewResponse, interactive bool, initialMsg string) *HTMLTemplateData {
+func prepareHTMLData(result *diffReviewResponse, interactive bool, initialMsg, reviewID, apiURL, apiKey string) *HTMLTemplateData {
 	totalComments := countTotalComments(result.Files)
 
 	files := make([]HTMLFileData, len(result.Files))
@@ -78,6 +81,9 @@ func prepareHTMLData(result *diffReviewResponse, interactive bool, initialMsg st
 		FriendlyName:  naming.GenerateFriendlyName(),
 		Interactive:   interactive,
 		InitialMsg:    initialMsg,
+		ReviewID:      reviewID,
+		APIURL:        apiURL,
+		APIKey:        apiKey,
 	}
 }
 
@@ -292,6 +298,41 @@ const htmlTemplate = `<!DOCTYPE html>
                 });
                 button.textContent = 'Collapse All Files';
                 allExpanded = true;
+            }
+        }
+        
+        // Tab switching function (defined early for onclick handlers)
+        function switchTab(tabName) {
+            // Hide all tabs
+            document.querySelectorAll('.tab-content').forEach(tab => {
+                tab.classList.remove('active');
+                tab.style.display = 'none';
+            });
+            // Remove active from all buttons
+            document.querySelectorAll('.tab-btn').forEach(btn => {
+                btn.classList.remove('active');
+            });
+            
+            // Show selected tab
+            const selectedTab = document.getElementById(tabName + '-tab');
+            if (selectedTab) {
+                selectedTab.classList.add('active');
+                selectedTab.style.display = 'block';
+            }
+            
+            // Activate button
+            const selectedBtn = document.querySelector('.tab-btn[data-tab="' + tabName + '"]');
+            if (selectedBtn) {
+                selectedBtn.classList.add('active');
+            }
+            
+            // Clear notification badge when switching to events tab
+            if (tabName === 'events') {
+                const badge = document.getElementById('event-notification-badge');
+                if (badge) {
+                    badge.style.display = 'none';
+                    badge.textContent = '0';
+                }
             }
         }
     </script>
@@ -592,6 +633,36 @@ const htmlTemplate = `<!DOCTYPE html>
             0%, 100% { background: rgba(139,92,246,0.25); }
             50% { background: rgba(139,92,246,0.35); }
         }
+        
+        /* Animation for newly added progressive comments */
+        @keyframes slideInFade {
+            0% {
+                opacity: 0;
+                transform: translateY(-10px);
+            }
+            100% {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+        
+        .comment-row.new-comment {
+            animation: slideInFade 0.5s ease-out, highlightPulse 2s ease-in-out;
+        }
+        
+        /* Smooth transitions for count badges */
+        .comment-count, .sidebar-file-badge {
+            transition: all 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+        }
+        
+        .comment-count.updated, .sidebar-file-badge.updated {
+            animation: countPulse 0.6s ease-out;
+        }
+        
+        @keyframes countPulse {
+            0%, 100% { transform: scale(1); }
+            50% { transform: scale(1.2); background: rgba(139,92,246,0.4); }
+        }
         .comment-row td {
             padding-left: calc(45px * 2 + 12px);
             padding-right: 0;
@@ -805,6 +876,161 @@ const htmlTemplate = `<!DOCTYPE html>
 
         .toolbar-row {
             display: flex;
+            gap: 12px;
+            align-items: center;
+            padding: var(--space-sm) 0;
+            margin-bottom: var(--space-md);
+            border-bottom: 1px solid rgba(255,255,255,0.08);
+        }
+        
+        /* Tab styles */
+        .view-tabs {
+            display: flex;
+            gap: 8px;
+            margin-right: auto;
+        }
+        .tab-btn {
+            padding: 8px 16px;
+            background: rgba(15,23,42,0.6);
+            color: #94a3b8;
+            border: 1px solid rgba(255,255,255,0.08);
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 13px;
+            font-weight: 600;
+            transition: all 0.2s ease;
+        }
+        .tab-btn:hover {
+            background: rgba(59,130,246,0.15);
+            color: #e2e8f0;
+            border-color: rgba(59,130,246,0.3);
+        }
+        .tab-btn.active {
+            background: linear-gradient(135deg, #3b82f6, #2563eb);
+            color: white;
+            border-color: transparent;
+            box-shadow: 0 4px 12px rgba(59,130,246,0.3);
+        }
+        .tab-content {
+            display: none;
+        }
+        .tab-content.active {
+            display: block;
+        }
+        
+        /* Events tab styles */
+        .events-container {
+            background: rgba(15,23,42,0.6);
+            border-radius: 12px;
+            padding: 24px;
+            margin: 16px 0;
+        }
+        .events-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            margin-bottom: 20px;
+            padding-bottom: 16px;
+            border-bottom: 1px solid rgba(255,255,255,0.08);
+        }
+        .events-header h3 {
+            margin: 0 0 8px 0;
+            font-size: 18px;
+            font-weight: 600;
+            color: #e6edf3;
+        }
+        .events-status {
+            color: #8b949e;
+            font-size: 13px;
+        }
+        .events-controls {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+        .auto-scroll-label {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            font-size: 13px;
+            color: #8b949e;
+            cursor: pointer;
+        }
+        .auto-scroll-label input[type="checkbox"] {
+            cursor: pointer;
+        }
+        .copy-logs-btn {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            padding: 6px 12px;
+            background: rgba(59,130,246,0.15);
+            border: 1px solid rgba(59,130,246,0.3);
+            border-radius: 6px;
+            color: #60a5fa;
+            font-size: 13px;
+            font-weight: 500;
+            cursor: pointer;
+            transition: all 0.2s ease;
+        }
+        .copy-logs-btn:hover {
+            background: rgba(59,130,246,0.25);
+            border-color: rgba(59,130,246,0.5);
+        }
+        .copy-logs-btn svg {
+            width: 16px;
+            height: 16px;
+        }
+        .events-list {
+            /* Use main page scroll instead of nested scroll */
+            font-family: ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace;
+            font-size: 13px;
+            line-height: 1.6;
+        }
+        .event-item {
+            padding: 4px 0;
+            border-bottom: 1px solid rgba(255,255,255,0.03);
+            display: flex;
+            gap: 12px;
+            color: #8b949e;
+        }
+        .event-item:hover {
+            background: rgba(255,255,255,0.02);
+        }
+        .event-time {
+            color: #6e7681;
+            font-size: 12px;
+            min-width: 80px;
+            flex-shrink: 0;
+        }
+        .event-message {
+            color: #c9d1d9;
+            flex: 1;
+        }
+        .event-type {
+            display: inline-block;
+            padding: 2px 6px;
+            border-radius: 4px;
+            font-size: 11px;
+            font-weight: 600;
+            text-transform: uppercase;
+            margin-right: 8px;
+        }
+        .event-type.batch {
+            background: rgba(59,130,246,0.15);
+            color: #60a5fa;
+        }
+        .event-type.completion {
+            background: rgba(168,85,247,0.15);
+            color: #c084fc;
+        }
+        .event-type.error {
+            background: rgba(239,68,68,0.15);
+            color: #f87171;
+        }
+        
+        .toolbar-row {
+            display: flex;
             justify-content: space-between;
             align-items: center;
             gap: var(--space-md);
@@ -994,6 +1220,13 @@ const htmlTemplate = `<!DOCTYPE html>
             </div>
         </div>
 {{end}}        <div class="toolbar-row">
+            <div class="view-tabs">
+                <button class="tab-btn active" data-tab="files" onclick="switchTab('files')">📁 Files & Comments</button>
+                <button id="events-tab-btn" class="tab-btn" data-tab="events" onclick="switchTab('events')">
+                    📊 Event Log
+                    <span id="event-notification-badge" class="notification-badge" style="display: none;">0</span>
+                </button>
+            </div>
             <button class="expand-all" onclick="toggleAll()">Expand All Files</button>
             <button id="issues-toggle" class="copy-issues-btn">Copy Issues</button>
         </div>
@@ -1001,9 +1234,9 @@ const htmlTemplate = `<!DOCTYPE html>
             <div id="issues-panel" class="issues-panel hidden">
                 <div class="issues-actions">
                     <div class="severity-filters">
-                        <button class="severity-filter-btn all active" data-severity="all">All</button>
-                        <button class="severity-filter-btn error" data-severity="error">Error</button>
-                        <button class="severity-filter-btn warning" data-severity="warning">Warning</button>
+                        <button class="severity-filter-btn all" data-severity="all">All</button>
+                        <button class="severity-filter-btn error active" data-severity="error">Error</button>
+                        <button class="severity-filter-btn warning active" data-severity="warning">Warning</button>
                         <button class="severity-filter-btn info" data-severity="info">Info</button>
                     </div>
                     <button id="issues-select-all" class="btn-ghost">Select All</button>
@@ -1014,6 +1247,9 @@ const htmlTemplate = `<!DOCTYPE html>
                 <div id="issues-list" class="issues-list"></div>
             </div>
         </div>
+        
+        <!-- Files Tab Content -->
+        <div id="files-tab" class="tab-content active">
 {{if .Files}}{{range .Files}}        <div class="file collapsed" id="file_{{.ID}}" data-has-comments="{{.HasComments}}" data-filepath="{{.FilePath}}">
             <div class="file-header" onclick="toggleFile('file_{{.ID}}')">
                 <span class="toggle"></span>
@@ -1021,10 +1257,7 @@ const htmlTemplate = `<!DOCTYPE html>
 {{if .HasComments}}                <span class="comment-count">{{.CommentCount}}</span>
 {{end}}            </div>
             <div class="file-content">
-{{if not .HasComments}}                <div style="padding: 20px; text-align: center; color: #57606a;">
-                    No comments for this file.
-                </div>
-{{else}}                <table class="diff-table">
+{{if .Hunks}}                <table class="diff-table">
 {{range .Hunks}}                    <tr>
                         <td colspan="3" class="hunk-header">{{.Header}}</td>
                     </tr>
@@ -1046,18 +1279,126 @@ const htmlTemplate = `<!DOCTYPE html>
                         </td>
                     </tr>
 {{end}}{{end}}{{end}}{{end}}                </table>
+{{else}}                <div style="padding: 20px; text-align: center; color: #57606a;">
+                    No diff content available.
+                </div>
 {{end}}            </div>
         </div>
 {{end}}{{else}}        <div style="padding: 40px 20px; text-align: center; color: #57606a;">
             No files reviewed or no comments generated.
         </div>
-{{end}}        <div class="footer">
+{{end}}        </div>
+        
+        <!-- Events Tab Content -->
+        <div id="events-tab" class="tab-content" style="display: none;">
+            <div class="events-container">
+                <div class="events-header">
+                    <div>
+                        <h3>Review Progress</h3>
+                        <div class="events-status" id="events-status">Waiting for events...</div>
+                    </div>
+                    <div class="events-controls">
+                        <label class="auto-scroll-label">
+                            <input type="checkbox" id="auto-scroll-checkbox" checked>
+                            <span>Auto-scroll</span>
+                        </label>
+                        <button id="copy-logs-btn" class="copy-logs-btn" title="Copy all logs to clipboard">
+                            <svg width="16" height="16" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
+                            </svg>
+                            Copy Logs
+                        </button>
+                    </div>
+                </div>
+                <div class="events-list" id="events-list">
+                    <!-- Events will be dynamically added here -->
+                </div>
+            </div>
+        </div>
+        
+        <div class="footer">
             Review complete: {{.TotalComments}} total comment(s)
         </div>
         </div>
     </div>
 
     <script>
+        // Render event in the events list
+        function renderEvent(event) {
+            const eventsList = document.getElementById('events-list');
+            if (!eventsList) return;
+            
+            const eventItem = document.createElement('div');
+            eventItem.className = 'event-item';
+            eventItem.dataset.eventId = event.id;
+            eventItem.dataset.eventType = event.type || 'log'; // Store type for later reference
+            
+            // Update notification badge on Event Log tab if not currently viewing it
+            const eventsTab = document.getElementById('events-tab');
+            const eventsBadge = document.getElementById('event-notification-badge');
+            if (eventsTab && !eventsTab.classList.contains('active') && eventsBadge) {
+                const currentCount = parseInt(eventsBadge.textContent) || 0;
+                eventsBadge.textContent = currentCount + 1;
+                eventsBadge.style.display = 'inline-block';
+            }
+            
+            // Show badges only for important event types (not regular logs)
+            let badgeHTML = '';
+            if (event.type === 'batch') {
+                badgeHTML = '<span class="event-type batch">BATCH</span>';
+            } else if (event.type === 'completion') {
+                badgeHTML = '<span class="event-type completion">COMPLETE</span>';
+            } else if (event.level === 'error') {
+                badgeHTML = '<span class="event-type error">ERROR</span>';
+            }
+            
+            // Format timestamp
+            const timestamp = new Date(event.time).toLocaleTimeString();
+            
+            // Build message
+            let message = '';
+            const eventData = event.data || {};
+            
+            if (event.type === 'log') {
+                message = (eventData.message || '').replace(/\\\\n/g, '\\n').replace(/\\\\t/g, '  ').replace(/\\\\"/g, '"');
+            } else if (event.type === 'batch') {
+                const batchId = event.batchId || 'unknown';
+                if (eventData.status === 'processing') {
+                    const fileCount = eventData.fileCount || 0;
+                    message = 'Batch ' + batchId + ' started: processing ' + fileCount + ' file' + (fileCount !== 1 ? 's' : '');
+                } else if (eventData.status === 'completed') {
+                    const commentCount = eventData.fileCount || 0;
+                    message = 'Batch ' + batchId + ' completed: generated ' + commentCount + ' comment' + (commentCount !== 1 ? 's' : '');
+                } else {
+                    message = 'Batch ' + batchId + ': ' + (eventData.status || 'unknown status');
+                }
+            } else if (event.type === 'completion') {
+                const commentCount = eventData.commentCount || 0;
+                message = eventData.resultSummary || ('Process completed with ' + commentCount + ' comment' + (commentCount !== 1 ? 's' : ''));
+            } else {
+                message = eventData.message || JSON.stringify(eventData);
+            }
+            
+            // Simple single-line format: [time] [badge?] message
+            eventItem.innerHTML = 
+                '<span class="event-time">' + timestamp + '</span>' +
+                '<span class="event-message">' + badgeHTML + message + '</span>';
+            
+            eventsList.appendChild(eventItem);
+            
+            // Auto-scroll to bottom if enabled and on events tab
+            const autoScrollCheckbox = document.getElementById('auto-scroll-checkbox');
+            if (autoScrollCheckbox && autoScrollCheckbox.checked) {
+                const eventsTabElement = document.getElementById('events-tab');
+                if (eventsTabElement && eventsTabElement.classList.contains('active')) {
+                    // Scroll to bottom of page
+                    setTimeout(() => {
+                        window.scrollTo({ top: document.body.scrollHeight, behavior: 'smooth' });
+                    }, 100);
+                }
+            }
+        }
+        
         // Initialize on page load
         document.addEventListener('DOMContentLoaded', function() {
             const isPrecommit = {{if .Interactive}}true{{else}}false{{end}};
@@ -1248,7 +1589,9 @@ const htmlTemplate = `<!DOCTYPE html>
 
                     const checkbox = document.createElement('input');
                     checkbox.type = 'checkbox';
-                    checkbox.checked = true;
+                    // Only check ERROR and WARNING by default
+                    const sevLower = issue.severity.toLowerCase();
+                    checkbox.checked = (sevLower === 'error' || sevLower === 'warning' || sevLower === 'critical');
                     checkbox.dataset.idx = idx;
 
                     const content = document.createElement('div');
@@ -1357,8 +1700,21 @@ const htmlTemplate = `<!DOCTYPE html>
                     if (opening) {
                         currentIssues = collectIssues();
                         renderIssues(currentIssues);
-                        currentSeverityFilter = 'all';
-                        filterBySeverity('all');
+                        // Default to showing error and warning
+                        currentSeverityFilter = 'error,warning';
+                        document.querySelectorAll('.severity-filter-btn').forEach(btn => {
+                            const sev = btn.dataset.severity;
+                            btn.classList.toggle('active', sev === 'error' || sev === 'warning');
+                        });
+                        // Show only error and warning items
+                        issuesList.querySelectorAll('.issue-item').forEach(item => {
+                            const itemSeverity = item.dataset.severity;
+                            if (itemSeverity === 'error' || itemSeverity === 'warning' || itemSeverity === 'critical') {
+                                item.classList.remove('hidden');
+                            } else {
+                                item.classList.add('hidden');
+                            }
+                        });
                     }
                     issuesPanel.classList.toggle('hidden');
                     setIssuesStatus('');
@@ -1470,6 +1826,403 @@ const htmlTemplate = `<!DOCTYPE html>
                     }
                 });
             });
+
+            // Progressive comment loading via event polling
+            {{if and .ReviewID .APIURL .APIKey}}
+            console.log('Initializing event polling with reviewID:', '{{.ReviewID}}');
+            const reviewID = '{{.ReviewID}}';
+            // Use local proxy to avoid CORS issues
+            const apiURL = '';
+            
+            // State management (matches ReviewEventsPage.tsx lines 27-28)
+            let allEvents = [];  // Complete event list (like useState)
+            let pollingInterval = null;
+            const displayedComments = new Set(); // Track which comments we've already shown
+
+            // Function to create a comment element
+            function createCommentElement(comment, batchId) {
+                const severity = comment.Severity || 'info';
+                const badgeClass = severity === 'critical' ? 'badge-critical' :
+                                  severity === 'warning' ? 'badge-warning' : 'badge-info';
+                
+                const commentDiv = document.createElement('tr');
+                commentDiv.className = 'comment-row';
+                commentDiv.dataset.progressive = 'true';
+                commentDiv.dataset.batchId = batchId;
+                
+                // Use full content hash for uniqueness to avoid false positives
+                const commentKey = comment.FilePath + ':' + comment.Line + ':' + comment.Content;
+                if (displayedComments.has(commentKey)) {
+                    return null; // Already displayed
+                }
+                displayedComments.add(commentKey);
+                
+                commentDiv.innerHTML = '<td colspan="3" class="comment-cell">' +
+                    '<div class="comment-container" data-filepath="' + (comment.FilePath || '') + '" ' +
+                    'data-line="' + (comment.Line || '') + '" data-comment="' + (comment.Content || '').replace(/"/g, '&quot;') + '">' +
+                    '<div class="comment-header">' +
+                    '<span class="severity-badge ' + badgeClass + '">' + severity.toUpperCase() + '</span>' +
+                    (comment.Category ? '<span class="category-badge">' + comment.Category + '</span>' : '') +
+                    '<span class="line-info">Line ' + comment.Line + '</span>' +
+                    '<button class="comment-copy-btn" title="Copy this comment">Copy</button>' +
+                    '</div>' +
+                    '<div class="comment-content">' + comment.Content.replace(/\n/g, '<br>') + '</div>' +
+                    '</div></td>';
+                
+                return commentDiv;
+            }
+
+            // Function to insert comment into the appropriate file/line
+            function insertComment(comment, batchId) {
+                const filePath = comment.FilePath;
+                const lineNum = comment.Line;
+                
+                // Find the file container - encode path to valid ID
+                const fileId = filePath.replace(/[^a-zA-Z0-9]/g, '_');
+                const fileDiv = document.getElementById(fileId);
+                if (!fileDiv) {
+                    console.log('File not found:', filePath);
+                    return;
+                }
+                
+                // Find the diff table
+                const table = fileDiv.querySelector('.diff-table');
+                if (!table) {
+                    console.log('Table not found for file:', filePath);
+                    return;
+                }
+                
+                // Find the line with this new line number
+                const rows = table.querySelectorAll('tr.diff-line');
+                let targetRow = null;
+                for (const row of rows) {
+                    const newNumCell = row.querySelector('.new-num');
+                    if (newNumCell && newNumCell.textContent.trim() === String(lineNum)) {
+                        targetRow = row;
+                        break;
+                    }
+                }
+                
+                if (!targetRow) {
+                    console.log('Line not found:', lineNum, 'in file:', filePath);
+                    return;
+                }
+                
+                // Check if this exact comment already exists for this line
+                let checkRow = targetRow.nextElementSibling;
+                while (checkRow && checkRow.classList.contains('comment-row')) {
+                    const existingComment = checkRow.querySelector('.comment-container');
+                    if (existingComment) {
+                        const existingContent = existingComment.dataset.comment || '';
+                        if (existingContent === comment.Content) {
+                            return; // Exact duplicate already exists
+                        }
+                    }
+                    checkRow = checkRow.nextElementSibling;
+                }
+                
+                // Create and insert comment
+                const commentEl = createCommentElement(comment, batchId);
+                if (commentEl) {
+                    // Add new-comment class for animation
+                    commentEl.classList.add('new-comment');
+                    targetRow.insertAdjacentElement('afterend', commentEl);
+                    
+                    // Remove animation class after it completes
+                    setTimeout(() => {
+                        commentEl.classList.remove('new-comment');
+                    }, 2500);
+                    
+                    // Update file comment count with animation
+                    const countEl = fileDiv.querySelector('.comment-count');
+                    if (countEl) {
+                        const currentCount = parseInt(countEl.textContent) || 0;
+                        countEl.textContent = currentCount + 1;
+                        countEl.classList.add('updated');
+                        setTimeout(() => countEl.classList.remove('updated'), 600);
+                    }
+                    
+                    // Update sidebar badge with animation
+                    const sidebarItem = document.querySelector('.sidebar-file[data-file-id="' + fileId + '"]');
+                    if (sidebarItem) {
+                        let badge = sidebarItem.querySelector('.sidebar-file-badge');
+                        if (!badge) {
+                            badge = document.createElement('span');
+                            badge.className = 'sidebar-file-badge';
+                            sidebarItem.appendChild(badge);
+                        }
+                        const currentCount = parseInt(badge.textContent) || 0;
+                        badge.textContent = currentCount + 1;
+                        badge.classList.add('updated');
+                        setTimeout(() => badge.classList.remove('updated'), 600);
+                    }
+                    
+                    // Expand the file if collapsed with smooth scroll
+                    if (fileDiv.classList.contains('collapsed')) {
+                        fileDiv.classList.remove('collapsed');
+                        fileDiv.classList.add('expanded');
+                        // Smooth scroll to show the new comment
+                        setTimeout(() => {
+                            commentEl.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+                        }, 100);
+                    }
+                    
+                    // Add copy handler to the new button
+                    const copyBtn = commentEl.querySelector('.comment-copy-btn');
+                    if (copyBtn) {
+                        copyBtn.addEventListener('click', async (e) => {
+                            e.stopPropagation();
+                            const container = commentEl.querySelector('.comment-container');
+                            const filepath = container.dataset.filepath || '';
+                            const line = container.dataset.line || '';
+                            const commentText = container.dataset.comment || '';
+                            
+                            let copyText = '';
+                            if (filepath) {
+                                copyText += filepath + ':' + line + '\\n\\n';
+                            }
+                            copyText += 'Issue:\\n' + commentText;
+                            
+                            try {
+                                await navigator.clipboard.writeText(copyText);
+                                copyBtn.textContent = 'Copied!';
+                                setTimeout(() => { copyBtn.textContent = 'Copy'; }, 2000);
+                            } catch (err) {
+                                copyBtn.textContent = 'Failed';
+                                setTimeout(() => { copyBtn.textContent = 'Copy'; }, 2000);
+                            }
+                        });
+                    }
+                    
+                    console.log('Added progressive comment:', filePath + ':' + lineNum);
+                }
+            }
+
+            // Transform backend event to display format (matches ReviewEventsPage.tsx lines 92-126)
+            // NOTE: This intentionally duplicates ReviewEventsPage.tsx logic using vanilla JS (not a maintenance issue)
+            function transformEvent(event) {
+                let message = '';
+                const eventData = event.data || {};
+                
+                switch (event.type) {
+                    case 'log':
+                        // Decode escaped characters
+                        message = (eventData.message || '').replace(/\\n/g, '\n').replace(/\\t/g, '  ').replace(/\\"/g, '"');
+                        break;
+                    case 'batch':
+                        const batchId = event.batchId || 'unknown';
+                        if (eventData.status === 'processing') {
+                            const fileCount = eventData.fileCount || 0;
+                            message = 'Batch ' + batchId + ' started: processing ' + fileCount + ' file' + (fileCount !== 1 ? 's' : '');
+                        } else if (eventData.status === 'completed') {
+                            const commentCount = eventData.commentCount || 0;
+                            message = 'Batch ' + batchId + ' completed: generated ' + commentCount + ' comment' + (commentCount !== 1 ? 's' : '');
+                        } else {
+                            message = 'Batch ' + batchId + ': ' + (eventData.status || 'unknown status');
+                        }
+                        break;
+                    case 'status':
+                        message = 'Status: ' + (eventData.status || 'unknown');
+                        break;
+                    case 'artifact':
+                        message = eventData.url ? 'Generated: ' + (eventData.kind || 'artifact') : 'Artifact: ' + (eventData.kind || 'unknown');
+                        break;
+                    case 'completion':
+                        const commentCount = eventData.commentCount || 0;
+                        message = eventData.resultSummary || ('Process completed with ' + commentCount + ' comment' + (commentCount !== 1 ? 's' : ''));
+                        break;
+                    default:
+                        message = JSON.stringify(eventData);
+                }
+                
+                return {
+                    id: event.id,
+                    type: event.type,
+                    time: event.time,
+                    level: event.level || 'info',
+                    batchId: event.batchId,
+                    data: eventData,
+                    message: message
+                };
+            }
+
+            // Append new events intelligently (matches ReviewEventsPage.tsx lines 50-76)
+            // NOTE: This intentionally duplicates ReviewEventsPage.tsx logic using vanilla JS (not a maintenance issue)
+            function appendNewEvents(newEvents) {
+                if (newEvents.length > allEvents.length) {
+                    // Only process the NEW events (key: slice from current length)
+                    const addedEvents = newEvents.slice(allEvents.length);
+                    
+                    console.log('Appending', addedEvents.length, 'new events (total:', newEvents.length, ')');
+                    
+                    for (const event of addedEvents) {
+                        // Render event in events tab
+                        renderEvent(event);
+                        
+                        // Handle batch completion with comments
+                        if (event.type === 'batch' && event.data.status === 'completed' && event.data.comments) {
+                            const comments = event.data.comments;
+                            console.log('Processing batch', event.batchId, 'with', comments.length, 'comments');
+                            
+                            for (const comment of comments) {
+                                insertComment(comment, event.batchId);
+                            }
+                            
+                            // Update top-level comment count in stats section (real-time update)
+                            const statsCommentCount = document.querySelector('.stats .stat:nth-child(2) .count');
+                            if (statsCommentCount) {
+                                const currentCount = parseInt(statsCommentCount.textContent) || 0;
+                                statsCommentCount.textContent = currentCount + comments.length;
+                            }
+                            
+                            // Update total comment count (surgical update to preserve other footer content)
+                            const totalEl = document.querySelector('.footer');
+                            if (totalEl) {
+                                const currentTotal = parseInt(totalEl.textContent.match(/\d+/)?.[0] || '0');
+                                const newTotal = currentTotal + comments.length;
+                                totalEl.textContent = totalEl.textContent.replace(/\d+ total comment\(s\)/, newTotal + ' total comment(s)');
+                                if (!totalEl.textContent.includes('total comment')) {
+                                    totalEl.textContent = 'Review in progress: ' + newTotal + ' total comment(s)';
+                                }
+                            }
+                        }
+                        
+                        // Handle completion event
+                        if (event.type === 'completion') {
+                            console.log('🎉 Review completion event detected!');
+                            if (pollingInterval) {
+                                clearInterval(pollingInterval);
+                                pollingInterval = null;
+                                console.log('Stopped polling after completion');
+                            }
+                            
+                            // Update or create status indicator above summary (don't overwrite summary content)
+                            let statusEl = document.getElementById('review-status');
+                            if (!statusEl) {
+                                // Create status element if it doesn't exist
+                                statusEl = document.createElement('div');
+                                statusEl.id = 'review-status';
+                                statusEl.style.cssText = 'padding: 12px; margin-bottom: 16px; background: #238636; color: white; border-radius: 6px; font-weight: 500;';
+                                const summaryEl = document.getElementById('summary-content');
+                                if (summaryEl && summaryEl.parentNode) {
+                                    summaryEl.parentNode.insertBefore(statusEl, summaryEl);
+                                }
+                            }
+                            statusEl.textContent = '✅ Review completed';
+                            
+                            // Update top-level comment count with final count
+                            if (event.data.commentCount !== undefined) {
+                                const statsCommentCount = document.querySelector('.stats .stat:nth-child(2) .count');
+                                if (statsCommentCount) {
+                                    statsCommentCount.textContent = event.data.commentCount;
+                                }
+                            }
+                            
+                            // Update footer with final count (surgical update to preserve other footer content)
+                            const totalEl = document.querySelector('.footer');
+                            if (totalEl && event.data.commentCount !== undefined) {
+                                const finalCount = event.data.commentCount;
+                                totalEl.textContent = totalEl.textContent.replace(/Review in progress:/, 'Review complete:').replace(/\d+ total comment\(s\)/, finalCount + ' total comment(s)');
+                                if (!totalEl.textContent.includes('Review complete')) {
+                                    totalEl.textContent = 'Review complete: ' + finalCount + ' total comment(s)';
+                                }
+                            }
+                            
+                            // Update events status
+                            const eventsStatus = document.getElementById('events-status');
+                            if (eventsStatus) {
+                                eventsStatus.textContent = '✅ Review completed';
+                            }
+                        }
+                    }
+                    
+                    // Update state (critical: replace entire array)
+                    allEvents = newEvents;
+                }
+            }
+
+            // Poll for events (matches ReviewEventsPage.tsx lines 78-157)
+            async function pollEvents() {
+                try {
+                    // Fetch ALL events (matches line 90: limit=1000)
+                    // NOTE: 1000 limit matches ReviewEventsPage.tsx and is sufficient for typical reviews
+                    const url = '/api/v1/diff-review/' + reviewID + '/events?limit=1000';
+                    const response = await fetch(url);
+                    
+                    if (!response.ok) {
+                        console.warn('Failed to fetch events (will retry):', response.status);
+                        return;
+                    }
+                    
+                    const data = await response.json();
+                    const backendEvents = data.events || [];
+                    
+                    // Transform ALL events (matches lines 92-126)
+                    const transformedEvents = backendEvents.map(transformEvent);
+                    
+                    console.log('[pollEvents] Fetched', transformedEvents.length, 'total events');
+                    
+                    // Update events status display
+                    const eventsStatus = document.getElementById('events-status');
+                    if (eventsStatus && transformedEvents.length > 0) {
+                        eventsStatus.textContent = transformedEvents.length + ' events received';
+                    }
+                    
+                    // Smart append only NEW events (matches line 136)
+                    appendNewEvents(transformedEvents);
+                    
+                } catch (err) {
+                    console.error('[pollEvents] Error:', err);
+                }
+            }
+            
+            // Start polling
+            console.log('[Event Polling] Starting for review', reviewID);
+            pollEvents(); // Initial poll
+            pollingInterval = setInterval(pollEvents, 2000);
+
+            // Stop polling after 10 minutes
+            setTimeout(() => {
+                if (pollingInterval) {
+                    clearInterval(pollingInterval);
+                    console.log('[Event Polling] Stopped after timeout');
+                }
+            }, 10 * 60 * 1000);
+            {{end}}
+
+            // Copy logs button handler
+            const copyLogsBtn = document.getElementById('copy-logs-btn');
+            if (copyLogsBtn) {
+                copyLogsBtn.addEventListener('click', async function() {
+                    const eventsList = document.getElementById('events-list');
+                    if (!eventsList) return;
+                    
+                    const events = eventsList.querySelectorAll('.event-item');
+                    const logsText = Array.from(events).map((eventItem, index) => {
+                        const typeEl = eventItem.querySelector('.event-type');
+                        const timeEl = eventItem.querySelector('.event-time');
+                        const messageEl = eventItem.querySelector('.event-message');
+                        
+                        const type = typeEl ? typeEl.textContent : 'UNKNOWN';
+                        const time = timeEl ? timeEl.textContent : '';
+                        const message = messageEl ? messageEl.textContent : '';
+                        
+                        return '[' + (index + 1) + '] ' + time + ' - ' + type + '\\n  ' + message;
+                    }).join('\\n\\n');
+                    
+                    try {
+                        await navigator.clipboard.writeText(logsText);
+                        // Show temporary success feedback
+                        const originalText = copyLogsBtn.innerHTML;
+                        copyLogsBtn.innerHTML = '<svg width="16" height="16" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>Copied!';
+                        setTimeout(() => {
+                            copyLogsBtn.innerHTML = originalText;
+                        }, 2000);
+                    } catch (err) {
+                        console.error('Failed to copy logs:', err);
+                    }
+                });
+            }
         });
     </script>
 </body>

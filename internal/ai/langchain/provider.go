@@ -973,8 +973,8 @@ func (p *LangchainProvider) reviewCodeBatchFormatted(ctx context.Context, diffs 
 	if p.logger != nil {
 		p.logger.LogComments(batchId, result.Comments)
 		p.logger.Log("Batch %s completed successfully with %d comments", batchId, len(result.Comments))
-		// Emit batch completion event so UI can update progress
-		p.logger.EmitBatchComplete(batchId, len(result.Comments))
+		// Emit batch completion event with actual comments so UI can display them progressively
+		p.logger.EmitBatchComplete(batchId, len(result.Comments), result.Comments)
 	}
 
 	fmt.Printf("[LANGCHAIN SUCCESS] Batch %s completed with %d comments\n", batchId, len(result.Comments))
@@ -1062,29 +1062,79 @@ func (p *LangchainProvider) ReviewCodeWithBatching(ctx context.Context, diffs []
 	// Execute all tasks
 	taskResults := taskQueue.ProcessAll(ctx)
 
-	// Collect results
-	batchResults := make([]*batch.BatchResult, len(batchInput.Batches))
+	// Collect results - TOLERATE PARTIAL FAILURES
+	// Instead of failing on first error, collect successful batches and warn about failures
+	var successfulBatches []*batch.BatchResult
+	var failedBatches []string
+	var partialFailure bool
+
 	for i := range batchInput.Batches {
 		batchID := fmt.Sprintf("batch-%d", i+1)
 		taskResult, ok := taskResults[batchID]
 
 		if !ok || taskResult.Error != nil {
-			if !ok {
-				return nil, fmt.Errorf("batch %s not found in results", batchID)
+			// Log failure but CONTINUE collecting other batches
+			failedBatches = append(failedBatches, batchID)
+			partialFailure = true
+
+			if p.logger != nil {
+				errorMsg := "batch not found in results"
+				if taskResult != nil && taskResult.Error != nil {
+					errorMsg = taskResult.Error.Error()
+				}
+				p.logger.Log("⚠️ Batch %s failed: %v (continuing with other batches)", batchID, errorMsg)
 			}
-			return nil, fmt.Errorf("error processing batch %s: %v", batchID, taskResult.Error)
+
+			// Log to console as well
+			if !ok {
+				fmt.Printf("[PARTIAL FAILURE] Batch %s not found in results, skipping\n", batchID)
+			} else {
+				fmt.Printf("[PARTIAL FAILURE] Batch %s failed: %v, skipping\n", batchID, taskResult.Error)
+			}
+			continue // KEY CHANGE: Don't return error, continue collecting
 		}
 
 		batchResult, ok := taskResult.Result.(*batch.BatchResult)
 		if !ok {
-			return nil, fmt.Errorf("invalid result type for batch %s", batchID)
+			failedBatches = append(failedBatches, batchID)
+			partialFailure = true
+			if p.logger != nil {
+				p.logger.Log("⚠️ Batch %s: invalid result type, skipping", batchID)
+			}
+			fmt.Printf("[PARTIAL FAILURE] Batch %s: invalid result type, skipping\n", batchID)
+			continue
 		}
 
-		batchResults[i] = batchResult
+		successfulBatches = append(successfulBatches, batchResult)
 	}
 
-	// Aggregate results using the batch processor's aggregation logic
-	return batchProcessor.AggregateAndCombineOutputs(ctx, p.llm, batchResults)
+	// If NO batches succeeded, THEN fail the entire review
+	if len(successfulBatches) == 0 {
+		return nil, fmt.Errorf("all %d batches failed: %v", len(batchInput.Batches), failedBatches)
+	}
+
+	// Aggregate ONLY successful batches
+	result, err := batchProcessor.AggregateAndCombineOutputs(ctx, p.llm, successfulBatches)
+	if err != nil {
+		return nil, fmt.Errorf("failed to aggregate results from %d successful batches: %w", len(successfulBatches), err)
+	}
+
+	// Add warning about partial results to the summary
+	if partialFailure {
+		warningMsg := fmt.Sprintf("\n\n---\n\n⚠️ **Partial Review Results**\n\nThis review completed with partial results: **%d out of %d batches** processed successfully.\n\n**Failed batches:** %v\n\nThe comments and analysis shown are based only on the files that were successfully reviewed. Some files may have been skipped due to batch processing errors.",
+			len(successfulBatches), len(batchInput.Batches), failedBatches)
+
+		result.Summary = result.Summary + warningMsg
+
+		if p.logger != nil {
+			p.logger.Log("⚠️ Review completed with partial results: %d/%d batches succeeded (%v failed)",
+				len(successfulBatches), len(batchInput.Batches), failedBatches)
+		}
+		fmt.Printf("\n[PARTIAL SUCCESS] Review completed with %d/%d successful batches (failed: %v)\n",
+			len(successfulBatches), len(batchInput.Batches), failedBatches)
+	}
+
+	return result, nil
 }
 
 // parseResponse parses the LLM response into a structured result

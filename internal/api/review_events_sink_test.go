@@ -60,7 +60,7 @@ func TestDatabaseEventSink(t *testing.T) {
 	})
 
 	t.Run("EmitBatchEvent", func(t *testing.T) {
-		err := sink.EmitBatchEvent(ctx, reviewID, orgID, "test-batch-1", "processing", 600, 4)
+		err := sink.EmitBatchEvent(ctx, reviewID, orgID, "test-batch-1", "processing", 600, 4, nil)
 		require.NoError(t, err)
 
 		// Verify event was stored
