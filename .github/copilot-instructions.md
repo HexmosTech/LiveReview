@@ -26,4 +26,4 @@ Always create and run migrations with dbmate command, not with adhoc sql queries
 for building the CLI use the following command:
 cd /home/shrsv/bin/LiveReview && make lrc-build-local && lrc hooks install
 
-A primary rule in programming is that the name must match function or meaning. If the name says one thing and the function or meaning is another - it must be treated as a major bug and treated with highest priority. Always fix naming bugs immediately when discovered.
+A primary rule in programming is that the name must match function or meaning. If the name says one thing and the function or meaning is another - it must be treated as a major bug and treated with highest priority. Always fix naming bugs immediately when discovered. Ideally 1 name stands for one thing and one thing only. Don't overload names with various functions and meanings.

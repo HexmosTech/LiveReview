@@ -604,6 +604,19 @@ func runReviewWithOptions(opts reviewOptions) error {
 	reviewID := submitResp.ReviewID
 	reviewURL := buildReviewURL(config.APIURL, reviewID)
 
+	// Track whether progressive loading mode is active
+	progressiveLoadingActive := false
+
+	// Shared decision channel for progressive loading (will be used after review completes)
+	type progressiveDecision struct {
+		code    int
+		message string
+		push    bool
+	}
+	var progressiveDecisionChan chan progressiveDecision
+	var progressiveDecide func(code int, message string, push bool)
+	var progressiveDecideOnce sync.Once
+
 	fmt.Printf("Review submitted, ID: %s\n", reviewID)
 	if submitResp.UserEmail != "" {
 		fmt.Printf("Account: %s\n", submitResp.UserEmail)
@@ -667,21 +680,52 @@ func runReviewWithOptions(opts reviewOptions) error {
 		fmt.Printf("\n🌐 Review available at: %s\n", highlightURL(serveURL))
 		fmt.Printf("   Comments will appear progressively as batches complete\n\n")
 
+		// Mark that progressive loading is active
+		progressiveLoadingActive = true
+
+		// Initialize decision channel for progressive loading
+		progressiveDecisionChan = make(chan progressiveDecision, 1)
+		progressiveDecide = func(code int, message string, push bool) {
+			progressiveDecideOnce.Do(func() {
+				progressiveDecisionChan <- progressiveDecision{code: code, message: message, push: push}
+			})
+		}
+
 		// Start server in background
 		go func() {
 			mux := http.NewServeMux()
 			mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 				http.ServeFile(w, r, autoHTMLPath)
 			})
+			// Functional commit handlers that work with the decision channel
 			mux.HandleFunc("/commit", func(w http.ResponseWriter, r *http.Request) {
-				// Interactive commit handlers handled by serveHTMLInteractive later
+				if r.Method != http.MethodPost {
+					w.WriteHeader(http.StatusMethodNotAllowed)
+					return
+				}
+				msg := readCommitMessageFromRequest(r)
+				progressiveDecide(0, msg, false)
 				w.WriteHeader(http.StatusOK)
+				_, _ = w.Write([]byte("ok"))
 			})
 			mux.HandleFunc("/commit-push", func(w http.ResponseWriter, r *http.Request) {
+				if r.Method != http.MethodPost {
+					w.WriteHeader(http.StatusMethodNotAllowed)
+					return
+				}
+				msg := readCommitMessageFromRequest(r)
+				progressiveDecide(0, msg, true)
 				w.WriteHeader(http.StatusOK)
+				_, _ = w.Write([]byte("ok"))
 			})
 			mux.HandleFunc("/skip", func(w http.ResponseWriter, r *http.Request) {
+				if r.Method != http.MethodPost {
+					w.WriteHeader(http.StatusMethodNotAllowed)
+					return
+				}
+				progressiveDecide(3, "", false)
 				w.WriteHeader(http.StatusOK)
+				_, _ = w.Write([]byte("ok"))
 			})
 			// Proxy endpoint for review-events API to avoid CORS
 			mux.HandleFunc("/api/v1/diff-review/", func(w http.ResponseWriter, r *http.Request) {
@@ -921,56 +965,74 @@ func runReviewWithOptions(opts reviewOptions) error {
 				}
 
 				// If progressive loading was active, the server is already running.
-				// Don't start a new server - just wait for terminal input.
-				if reviewID != "" {
+				// Don't start a new server - wait for decisions from HTTP or terminal.
+				if progressiveLoadingActive {
 					// Progressive loading active - server already running on opts.port
 					fmt.Printf("\n📋 Review complete. Choose action:\n")
 					fmt.Printf("   [Enter]  Continue with commit\n")
-					fmt.Printf("   [Ctrl-C] Abort commit\n\n")
+					fmt.Printf("   [Ctrl-C] Abort commit\n")
+					fmt.Printf("   Or use the web UI buttons\n\n")
 
-					// Wait for user decision via terminal only
-					code := 0
-					msg := initialMsg
-					push := false
-
+					// Set up terminal input handlers that call progressiveDecide
 					sigChan := make(chan os.Signal, 1)
 					signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM)
-					decisionChan := make(chan int, 1)
 
 					go func() {
 						<-sigChan
-						decisionChan <- 1 // abort
+						progressiveDecide(1, "", false) // abort
 					}()
 
 					go func() {
 						tty, err := os.Open("/dev/tty")
-						if err == nil {
-							defer tty.Close()
-							reader := bufio.NewReader(tty)
-							reader.ReadString('\n')
+						if err != nil {
+							progressiveDecide(1, "", false) // fail on terminal error
+							return
 						}
-						decisionChan <- 0 // commit
+						defer tty.Close()
+
+						// Prompt for commit message if empty
+						msg := initialMsg
+						if strings.TrimSpace(msg) == "" {
+							fmt.Fprint(tty, "Enter commit message: ")
+							reader := bufio.NewReader(tty)
+							input, err := reader.ReadString('\n')
+							if err != nil {
+								progressiveDecide(1, "", false) // abort on read error
+								return
+							}
+							msg = strings.TrimSpace(input)
+						} else {
+							// Just wait for Enter if we have initial message
+							reader := bufio.NewReader(tty)
+							_, err := reader.ReadString('\n')
+							if err != nil {
+								progressiveDecide(1, "", false) // abort on read error
+								return
+							}
+						}
+						progressiveDecide(0, msg, false) // commit with entered/initial message
 					}()
 
-					code = <-decisionChan
+					// Wait for decision from either HTTP endpoint or terminal
+					decision := <-progressiveDecisionChan
 
 					if opts.precommit {
-						os.Exit(code)
+						os.Exit(decision.code)
 					}
 
-					switch code {
+					switch decision.code {
 					case 1:
 						fmt.Println("\n❌ Commit aborted by user")
-						return cli.Exit("", code)
+						return cli.Exit("", decision.code)
 					case 0:
-						finalMsg := strings.TrimSpace(msg)
+						finalMsg := strings.TrimSpace(decision.message)
 						if finalMsg == "" {
 							finalMsg = strings.TrimSpace(initialMsg)
 						}
 						if finalMsg == "" {
 							return fmt.Errorf("commit message is required for commit/commit+push")
 						}
-						if err := runCommitAndMaybePush(finalMsg, push, verbose); err != nil {
+						if err := runCommitAndMaybePush(finalMsg, decision.push, verbose); err != nil {
 							return err
 						}
 						return nil
@@ -2277,7 +2339,19 @@ func readCommitMessageFromRequest(r *http.Request) string {
 		return ""
 	}
 
-	return strings.TrimRight(payload.Message, "\r\n")
+	// Sanitize message: remove null bytes and control characters (except newlines/tabs)
+	msg := strings.TrimRight(payload.Message, "\r\n")
+	msg = strings.Map(func(r rune) rune {
+		if r == '\n' || r == '\t' || r == '\r' {
+			return r // Allow newlines and tabs
+		}
+		if r < 32 || r == 127 {
+			return -1 // Remove control characters and DEL
+		}
+		return r
+	}, msg)
+
+	return msg
 }
 
 // serveHTMLInteractive serves HTML and waits for user decision
