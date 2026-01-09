@@ -198,6 +198,34 @@ export default function ReviewEventsPage({
 
   const newEventsCount = events.length - lastEventCount;
 
+  // Copy all logs to clipboard
+  const copyLogsToClipboard = async () => {
+    try {
+      const logsText = events.map((event, index) => {
+        const timestamp = new Date(event.timestamp).toISOString();
+        const header = `[${index + 1}] ${timestamp} - ${event.eventType.toUpperCase()} - ${event.severity.toUpperCase()}`;
+        const message = event.message;
+        
+        let details = '';
+        if (event.details) {
+          const detailsObj = { ...event.details };
+          if (Object.keys(detailsObj).length > 0) {
+            details = '\n  Details: ' + JSON.stringify(detailsObj, null, 2).split('\n').join('\n  ');
+          }
+        }
+        
+        return `${header}\n  ${message}${details}`;
+      }).join('\n\n');
+      
+      await navigator.clipboard.writeText(logsText);
+      
+      // Show a temporary success notification (optional)
+      console.log('Logs copied to clipboard');
+    } catch (error) {
+      console.error('Failed to copy logs:', error);
+    }
+  };
+
   return (
     <div className={`space-y-6 ${className}`}>
       {/* Header with tabs and controls */}
@@ -233,6 +261,18 @@ export default function ReviewEventsPage({
 
         {/* Single consolidated control */}
         <div className="flex items-center space-x-4">
+          {currentView === 'raw' && events.length > 0 && (
+            <button
+              onClick={copyLogsToClipboard}
+              className="px-3 py-2 rounded-lg text-sm font-medium bg-slate-700 text-slate-300 hover:bg-slate-600 transition-colors flex items-center gap-2"
+              title="Copy all logs to clipboard"
+            >
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
+              </svg>
+              Copy Logs
+            </button>
+          )}
           {newEventsCount > 0 && (
             <span className="text-sm text-blue-400">
               +{newEventsCount} new events
