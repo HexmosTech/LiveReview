@@ -14,7 +14,7 @@ import (
 type EventSink interface {
 	EmitStatusEvent(ctx context.Context, reviewID, orgID int64, status string) error
 	EmitLogEvent(ctx context.Context, reviewID, orgID int64, level, message, batchID string) error
-	EmitBatchEvent(ctx context.Context, reviewID, orgID int64, batchID, status string, tokenEstimate, fileCount int) error
+	EmitBatchEvent(ctx context.Context, reviewID, orgID int64, batchID, status string, tokenEstimate, fileCount int, comments interface{}) error
 	EmitArtifactEvent(ctx context.Context, reviewID, orgID int64, kind, url, batchID string, sizeBytes int64, previewHead, previewTail string) error
 	EmitCompletionEvent(ctx context.Context, reviewID, orgID int64, resultSummary string, commentCount int, errorSummary string) error
 }
@@ -185,7 +185,7 @@ func (r *ReviewLogger) EmitBatchStart(batchID string, fileCount int) {
 
 	ctx := context.Background()
 	// Emit batch event with "processing" status
-	_ = r.eventSink.EmitBatchEvent(ctx, r.reviewIDInt, r.orgID, batchID, "processing", 0, fileCount)
+	_ = r.eventSink.EmitBatchEvent(ctx, r.reviewIDInt, r.orgID, batchID, "processing", 0, fileCount, nil)
 
 	// Also emit a log event for visibility
 	message := fmt.Sprintf("Batch %s started: processing %d files", batchID, fileCount)
@@ -194,15 +194,14 @@ func (r *ReviewLogger) EmitBatchStart(batchID string, fileCount int) {
 }
 
 // EmitBatchComplete emits an event when a batch completes processing
-func (r *ReviewLogger) EmitBatchComplete(batchID string, commentCount int) {
+func (r *ReviewLogger) EmitBatchComplete(batchID string, commentCount int, comments interface{}) {
 	if r == nil || r.eventSink == nil {
 		return
 	}
 
 	ctx := context.Background()
-	// Emit batch event with "completed" status
-	// Note: fileCount parameter is repurposed to carry commentCount for completed batches
-	_ = r.eventSink.EmitBatchEvent(ctx, r.reviewIDInt, r.orgID, batchID, "completed", 0, commentCount)
+	// Emit batch event with "completed" status and actual comment data
+	_ = r.eventSink.EmitBatchEvent(ctx, r.reviewIDInt, r.orgID, batchID, "completed", 0, commentCount, comments)
 
 	// Also emit a log event for visibility
 	message := fmt.Sprintf("Batch %s completed: generated %d comments", batchID, commentCount)

@@ -120,11 +120,19 @@ func (s *PollingEventService) CreateLogEvent(ctx context.Context, reviewID, orgI
 }
 
 // CreateBatchEvent creates a batch progress event
-func (s *PollingEventService) CreateBatchEvent(ctx context.Context, reviewID, orgID int64, batchID, status string, tokenEstimate, fileCount *int, startedAt, finishedAt *time.Time) error {
+func (s *PollingEventService) CreateBatchEvent(ctx context.Context, reviewID, orgID int64, batchID, status string, tokenEstimate, fileCount *int, startedAt, finishedAt *time.Time, comments interface{}) error {
 	data := EventData{
 		Status:        &status,
 		TokenEstimate: tokenEstimate,
-		FileCount:     fileCount,
+		Comments:      comments,
+	}
+
+	// Use FileCount for processing, CommentCount for completed
+	if status == "processing" {
+		data.FileCount = fileCount
+	} else if status == "completed" {
+		// For completed batches, fileCount param actually contains comment count
+		data.CommentCount = fileCount
 	}
 
 	if startedAt != nil {

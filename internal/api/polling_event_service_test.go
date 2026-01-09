@@ -80,7 +80,7 @@ func TestPollingEventService(t *testing.T) {
 		fileCount := 3
 		startTime := time.Now()
 
-		err := service.CreateBatchEvent(ctx, reviewID, orgID, batchID, "processing", &tokenEstimate, &fileCount, &startTime, nil)
+		err := service.CreateBatchEvent(ctx, reviewID, orgID, batchID, "processing", &tokenEstimate, &fileCount, &startTime, nil, nil)
 		require.NoError(t, err)
 
 		// Get batch events

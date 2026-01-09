@@ -368,6 +368,12 @@ func (s *Server) setupRoutes() {
 	diffReviewGroup.POST("", s.DiffReview)
 	diffReviewGroup.GET("/:review_id", s.GetDiffReviewStatus)
 
+	// Review events endpoints (alternative API key-based access for CLI)
+	diffReviewEventsHandler := NewReviewEventsHandler(s.db)
+	diffReviewGroup.GET("/:id/events", diffReviewEventsHandler.GetReviewEvents)
+	diffReviewGroup.GET("/:id/events/:type", diffReviewEventsHandler.GetReviewEventsByType)
+	diffReviewGroup.GET("/:id/summary", diffReviewEventsHandler.GetReviewSummary)
+
 	// Onboarding endpoints
 	// CLI usage tracking (protected by API key)
 	diffReviewGroup.POST("/cli-used", s.TrackCLIUsage)

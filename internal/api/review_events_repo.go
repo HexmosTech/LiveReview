@@ -32,8 +32,9 @@ type EventData struct {
 	Message *string `json:"message,omitempty"`
 
 	// For "batch" events
-	TokenEstimate *int `json:"tokenEstimate,omitempty"`
-	FileCount     *int `json:"fileCount,omitempty"`
+	TokenEstimate *int        `json:"tokenEstimate,omitempty"`
+	FileCount     *int        `json:"fileCount,omitempty"` // Number of files in the batch
+	Comments      interface{} `json:"comments,omitempty"`  // Actual comment objects when batch completes
 
 	// For "artifact" events
 	Kind        *string `json:"kind,omitempty"`
@@ -42,9 +43,9 @@ type EventData struct {
 	PreviewTail *string `json:"previewTail,omitempty"`
 	URL         *string `json:"url,omitempty"`
 
-	// For "completion" events
+	// For "completion" events (also used by "batch" events with status="completed")
 	ResultSummary *string `json:"resultSummary,omitempty"`
-	CommentCount  *int    `json:"commentCount,omitempty"`
+	CommentCount  *int    `json:"commentCount,omitempty"` // Number of comments generated
 	ErrorSummary  *string `json:"errorSummary,omitempty"`
 
 	// For "retry" events

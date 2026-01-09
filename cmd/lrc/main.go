@@ -17,6 +17,8 @@ import (
 	"os/exec"
 	"os/signal"
 	"path/filepath"
+	"regexp"
+	"strconv"
 	"strings"
 	"sync"
 	"syscall"
@@ -120,6 +122,11 @@ var baseFlags = []cli.Flag{
 		Name:    "range",
 		Usage:   "git range for staged/working diff override (e.g., HEAD~1..HEAD)",
 		EnvVars: []string{"LRC_RANGE"},
+	},
+	&cli.StringFlag{
+		Name:    "commit",
+		Usage:   "review a specific commit or commit range (e.g., HEAD, HEAD~1, HEAD~3..HEAD, abc123)",
+		EnvVars: []string{"LRC_COMMIT"},
 	},
 	&cli.StringFlag{
 		Name:    "diff-file",
@@ -320,6 +327,7 @@ type reviewOptions struct {
 	repoName     string
 	diffSource   string
 	rangeVal     string
+	commitVal    string
 	diffFile     string
 	apiURL       string
 	apiKey       string
@@ -369,6 +377,7 @@ func buildOptionsFromContext(c *cli.Context, includeDebug bool) (reviewOptions, 
 	opts := reviewOptions{
 		repoName:   c.String("repo-name"),
 		rangeVal:   c.String("range"),
+		commitVal:  c.String("commit"),
 		diffFile:   c.String("diff-file"),
 		apiURL:     c.String("api-url"),
 		apiKey:     c.String("api-key"),
@@ -394,6 +403,16 @@ func buildOptionsFromContext(c *cli.Context, includeDebug bool) (reviewOptions, 
 
 	if opts.diffFile != "" {
 		diffSource = "file"
+	} else if opts.commitVal != "" {
+		diffSource = "commit"
+		// Commit mode is for post-commit reviews - disable precommit/skip features
+		opts.precommit = false
+		opts.skip = false
+		// Auto-enable serve mode for post-commit reviews (user can view in browser)
+		// Only if not explicitly set by user via flags
+		if !c.IsSet("serve") && !c.IsSet("save-html") {
+			opts.serve = true
+		}
 	} else if opts.rangeVal != "" {
 		diffSource = "range"
 	} else if staged {
@@ -471,7 +490,9 @@ func runReviewWithOptions(opts reviewOptions) error {
 	initialMsg := sanitizeInitialMessage(opts.initialMsg)
 
 	// Interactive flow (Ctrl-S + Web UI actions) is now the default for all reviews that are not --skip
-	useInteractive := !opts.skip
+	// But NOT for commit mode - that's post-commit review only
+	isPostCommitReview := (opts.diffSource == "commit")
+	useInteractive := !opts.skip && !isPostCommitReview
 
 	// Short-circuit skip: write attestation and exit without contacting the API
 	if opts.skip {
@@ -497,20 +518,23 @@ func runReviewWithOptions(opts reviewOptions) error {
 	}
 
 	// Handle --force: delete existing attestation if present
-	if opts.force {
-		if existing, err := existingAttestationAction(); err == nil && existing != "" {
-			if err := deleteAttestationForCurrentTree(); err != nil {
-				if verbose {
-					log.Printf("Failed to remove existing attestation for current tree: %v", err)
+	// Skip attestation logic for post-commit reviews
+	if !isPostCommitReview {
+		if opts.force {
+			if existing, err := existingAttestationAction(); err == nil && existing != "" {
+				if err := deleteAttestationForCurrentTree(); err != nil {
+					if verbose {
+						log.Printf("Failed to remove existing attestation for current tree: %v", err)
+					}
+				} else if verbose {
+					log.Printf("Removed existing attestation for current tree (action=%s); rerunning review", existing)
 				}
-			} else if verbose {
-				log.Printf("Removed existing attestation for current tree (action=%s); rerunning review", existing)
 			}
-		}
-	} else {
-		// Check if attestation exists and fail with guidance if --force not used
-		if existing, err := existingAttestationAction(); err == nil && existing != "" {
-			return cli.Exit(fmt.Sprintf("LiveReview: attestation already present for current tree (%s); use --force to rerun", existing), 1)
+		} else {
+			// Check if attestation exists and fail with guidance if --force not used
+			if existing, err := existingAttestationAction(); err == nil && existing != "" {
+				return cli.Exit(fmt.Sprintf("LiveReview: attestation already present for current tree (%s); use --force to rerun", existing), 1)
+			}
 		}
 	}
 
@@ -601,6 +625,144 @@ func runReviewWithOptions(opts reviewOptions) error {
 	// Track CLI usage (best-effort, non-blocking)
 	go trackCLIUsage(config.APIURL, config.APIKey, verbose)
 
+	// Generate and serve skeleton HTML immediately if --serve is enabled
+	if opts.serve || (opts.saveHTML == "" && !isPostCommitReview) {
+		// Apply default HTML path
+		autoHTMLPath, err := applyDefaultHTMLServe(&opts)
+		if err != nil {
+			return err
+		}
+		tempHTMLPath = autoHTMLPath
+
+		// Parse the diff content to generate file structures for immediate display
+		filesFromDiff, parseErr := parseDiffToFiles(diffContent)
+		if parseErr != nil && verbose {
+			log.Printf("Warning: failed to parse diff for skeleton HTML: %v", parseErr)
+		}
+
+		// Generate skeleton HTML with reviewID for progressive loading and actual diff content
+		skeletonResult := &diffReviewResponse{
+			Status:  "in_progress",
+			Summary: "Review in progress... Comments will appear as batches complete.",
+			Files:   filesFromDiff, // Include the actual diff content
+		}
+		if err := saveHTMLOutput(autoHTMLPath, skeletonResult, verbose, useInteractive, initialMsg, reviewID, config.APIURL, config.APIKey); err != nil {
+			return fmt.Errorf("failed to generate skeleton HTML: %w", err)
+		}
+		if verbose {
+			log.Printf("Generated skeleton HTML with %d files at: %s", len(filesFromDiff), autoHTMLPath)
+		}
+
+		// Start serving immediately in background
+		selectedPort, err := pickServePort(opts.port, 10)
+		if err != nil {
+			return fmt.Errorf("failed to find available port: %w", err)
+		}
+		if selectedPort != opts.port {
+			fmt.Printf("Port %d is busy; serving on %d instead.\n", opts.port, selectedPort)
+			opts.port = selectedPort
+		}
+
+		serveURL := fmt.Sprintf("http://localhost:%d", opts.port)
+		fmt.Printf("\n🌐 Review available at: %s\n", highlightURL(serveURL))
+		fmt.Printf("   Comments will appear progressively as batches complete\n\n")
+
+		// Start server in background
+		go func() {
+			mux := http.NewServeMux()
+			mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+				http.ServeFile(w, r, autoHTMLPath)
+			})
+			mux.HandleFunc("/commit", func(w http.ResponseWriter, r *http.Request) {
+				// Interactive commit handlers handled by serveHTMLInteractive later
+				w.WriteHeader(http.StatusOK)
+			})
+			mux.HandleFunc("/commit-push", func(w http.ResponseWriter, r *http.Request) {
+				w.WriteHeader(http.StatusOK)
+			})
+			mux.HandleFunc("/skip", func(w http.ResponseWriter, r *http.Request) {
+				w.WriteHeader(http.StatusOK)
+			})
+			// Proxy endpoint for review-events API to avoid CORS
+			mux.HandleFunc("/api/v1/diff-review/", func(w http.ResponseWriter, r *http.Request) {
+				// Forward request to backend API with authentication
+				backendURL := config.APIURL + r.URL.Path
+				if r.URL.RawQuery != "" {
+					backendURL += "?" + r.URL.RawQuery
+				}
+
+				if verbose {
+					log.Printf("Proxying %s request to: %s", r.Method, backendURL)
+					log.Printf("Using API key: %s...", config.APIKey[:min(10, len(config.APIKey))])
+				}
+
+				// Forward the actual HTTP method (GET, POST, PUT, etc)
+				req, err := http.NewRequest(r.Method, backendURL, r.Body)
+				if err != nil {
+					http.Error(w, "Failed to create request", http.StatusInternalServerError)
+					return
+				}
+				req.Header.Set("X-API-Key", config.APIKey)
+
+				client := &http.Client{Timeout: 10 * time.Second}
+				resp, err := client.Do(req)
+				if err != nil {
+					if verbose {
+						log.Printf("Proxy error: %v", err)
+					}
+					http.Error(w, "Failed to fetch events", http.StatusBadGateway)
+					return
+				}
+				defer resp.Body.Close()
+
+				if verbose {
+					log.Printf("Backend response status: %d", resp.StatusCode)
+				}
+
+				// Copy response headers
+				for key, values := range resp.Header {
+					for _, value := range values {
+						w.Header().Add(key, value)
+					}
+				}
+				w.WriteHeader(resp.StatusCode)
+
+				// Copy response body
+				bodyBytes, err := io.ReadAll(resp.Body)
+				if err != nil && verbose {
+					log.Printf("Error reading response: %v", err)
+				}
+				if verbose && resp.StatusCode != 200 {
+					log.Printf("Error response body: %s", string(bodyBytes))
+				}
+				w.Write(bodyBytes)
+			})
+			server := &http.Server{
+				Addr:    fmt.Sprintf(":%d", opts.port),
+				Handler: mux,
+			}
+			if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+				if verbose {
+					log.Printf("Background server error: %v", err)
+				}
+			}
+		}()
+		time.Sleep(100 * time.Millisecond) // Give server time to start
+	}
+
+	// For post-commit reviews, just poll and get results without interactive flow
+	if isPostCommitReview {
+		var pollErr error
+		result, pollErr = pollReview(config.APIURL, config.APIKey, reviewID, opts.pollInterval, opts.timeout, verbose)
+		if pollErr != nil {
+			if reviewURL != "" {
+				return fmt.Errorf("failed to poll review (see %s): %w", reviewURL, pollErr)
+			}
+			return fmt.Errorf("failed to poll review: %w", pollErr)
+		}
+		// No attestation for post-commit reviews
+	}
+
 	// Interactive path (default): set up decision channels for Ctrl-C / Ctrl-S and poll
 	decisionCode := -1
 	if useInteractive {
@@ -690,11 +852,16 @@ func runReviewWithOptions(opts reviewOptions) error {
 		}
 	}
 
-	autoHTMLPath, err := applyDefaultHTMLServe(&opts)
-	if err != nil {
-		return err
+	// Apply default HTML serve for interactive/non-post-commit reviews
+	if !isPostCommitReview {
+		autoHTMLPath, err := applyDefaultHTMLServe(&opts)
+		if err != nil {
+			return err
+		}
+		tempHTMLPath = autoHTMLPath
 	}
-	tempHTMLPath = autoHTMLPath
+
+	// Clean up temp HTML file on exit
 	if tempHTMLPath != "" {
 		defer func() {
 			if err := os.Remove(tempHTMLPath); err == nil {
@@ -723,14 +890,14 @@ func runReviewWithOptions(opts reviewOptions) error {
 
 	// Save HTML output if requested
 	if htmlPath := opts.saveHTML; htmlPath != "" {
-		if err := saveHTMLOutput(htmlPath, result, verbose, useInteractive, initialMsg); err != nil {
+		if err := saveHTMLOutput(htmlPath, result, verbose, useInteractive, initialMsg, reviewID, config.APIURL, config.APIKey); err != nil {
 			return fmt.Errorf("failed to save HTML output: %w", err)
 		}
 
 		// Ensure we're on a fresh line after status updates
 		fmt.Printf("\n")
 
-		if autoHTMLPath != "" {
+		if tempHTMLPath != "" {
 			fmt.Printf("HTML review saved to (auto-selected): %s\n", htmlPath)
 		} else {
 			fmt.Printf("HTML review saved to: %s\n", htmlPath)
@@ -752,64 +919,123 @@ func runReviewWithOptions(opts reviewOptions) error {
 				if err := ensureAttestation(attestationAction, verbose, &attestationWritten); err != nil {
 					return err
 				}
-				code, msg, push, err := serveHTMLInteractive(htmlPath, opts.port, initialMsg)
-				if err != nil {
-					return err
-				}
 
-				if opts.precommit {
-					// Hook path: persist commit message/push request for downstream hooks and exit with hook code
-					if commitMsgPath != "" {
-						if code == 0 {
-							msgToPersist := msg
-							if strings.TrimSpace(msgToPersist) == "" {
-								msgToPersist = initialMsg
-							}
+				// If progressive loading was active, the server is already running.
+				// Don't start a new server - just wait for terminal input.
+				if reviewID != "" {
+					// Progressive loading active - server already running on opts.port
+					fmt.Printf("\n📋 Review complete. Choose action:\n")
+					fmt.Printf("   [Enter]  Continue with commit\n")
+					fmt.Printf("   [Ctrl-C] Abort commit\n\n")
 
-							if strings.TrimSpace(msgToPersist) != "" {
-								if err := persistCommitMessage(commitMsgPath, msgToPersist); err != nil {
-									fmt.Fprintf(os.Stderr, "Warning: failed to store commit message: %v\n", err)
+					// Wait for user decision via terminal only
+					code := 0
+					msg := initialMsg
+					push := false
+
+					sigChan := make(chan os.Signal, 1)
+					signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM)
+					decisionChan := make(chan int, 1)
+
+					go func() {
+						<-sigChan
+						decisionChan <- 1 // abort
+					}()
+
+					go func() {
+						tty, err := os.Open("/dev/tty")
+						if err == nil {
+							defer tty.Close()
+							reader := bufio.NewReader(tty)
+							reader.ReadString('\n')
+						}
+						decisionChan <- 0 // commit
+					}()
+
+					code = <-decisionChan
+
+					if opts.precommit {
+						os.Exit(code)
+					}
+
+					switch code {
+					case 1:
+						fmt.Println("\n❌ Commit aborted by user")
+						return cli.Exit("", code)
+					case 0:
+						finalMsg := strings.TrimSpace(msg)
+						if finalMsg == "" {
+							finalMsg = strings.TrimSpace(initialMsg)
+						}
+						if finalMsg == "" {
+							return fmt.Errorf("commit message is required for commit/commit+push")
+						}
+						if err := runCommitAndMaybePush(finalMsg, push, verbose); err != nil {
+							return err
+						}
+						return nil
+					}
+				} else {
+					// No progressive loading - use normal serveHTMLInteractive
+					code, msg, push, err := serveHTMLInteractive(htmlPath, opts.port, initialMsg, false)
+					if err != nil {
+						return err
+					}
+
+					if opts.precommit {
+						// Hook path: persist commit message/push request for downstream hooks and exit with hook code
+						if commitMsgPath != "" {
+							if code == 0 {
+								msgToPersist := msg
+								if strings.TrimSpace(msgToPersist) == "" {
+									msgToPersist = initialMsg
+								}
+
+								if strings.TrimSpace(msgToPersist) != "" {
+									if err := persistCommitMessage(commitMsgPath, msgToPersist); err != nil {
+										fmt.Fprintf(os.Stderr, "Warning: failed to store commit message: %v\n", err)
+									}
+								} else {
+									_ = clearCommitMessageFile(commitMsgPath)
 								}
 							} else {
 								_ = clearCommitMessageFile(commitMsgPath)
 							}
+						}
+
+						if code == 0 && push {
+							if err := persistPushRequest(commitMsgPath); err != nil {
+								fmt.Fprintf(os.Stderr, "Warning: failed to store push request: %v\n", err)
+							}
 						} else {
-							_ = clearCommitMessageFile(commitMsgPath)
+							_ = clearPushRequest(commitMsgPath)
 						}
+
+						os.Exit(code)
 					}
 
-					if code == 0 && push {
-						if err := persistPushRequest(commitMsgPath); err != nil {
-							fmt.Fprintf(os.Stderr, "Warning: failed to store push request: %v\n", err)
+					// Non-hook interactive: execute commit (and optional push) directly
+					switch code {
+					case 1:
+						return cli.Exit("", code)
+					case 2:
+						// Skip review but proceed with commit: honor skip by writing attestation already handled above; no commit performed here.
+						return nil
+					case 3:
+						return cli.Exit("", code)
+					case 0:
+						finalMsg := strings.TrimSpace(msg)
+						if finalMsg == "" {
+							finalMsg = strings.TrimSpace(initialMsg)
 						}
-					} else {
-						_ = clearPushRequest(commitMsgPath)
+						if finalMsg == "" {
+							return fmt.Errorf("commit message is required for commit/commit+push")
+						}
+						if err := runCommitAndMaybePush(finalMsg, push, verbose); err != nil {
+							return err
+						}
+						return nil
 					}
-
-					os.Exit(code)
-				}
-
-				// Non-hook interactive: execute commit (and optional push) directly
-				switch code {
-				case 1:
-					return cli.Exit("", code)
-				case 2:
-					// Skip review but proceed with commit: honor skip by writing attestation already handled above; no commit performed here.
-					return nil
-				case 3:
-					return cli.Exit("", code)
-				case 0:
-					finalMsg := strings.TrimSpace(msg)
-					if finalMsg == "" {
-						finalMsg = strings.TrimSpace(initialMsg)
-					}
-					if finalMsg == "" {
-						return fmt.Errorf("commit message is required for commit/commit+push")
-					}
-					if err := runCommitAndMaybePush(finalMsg, push, verbose); err != nil {
-						return err
-					}
-					return nil
 				}
 			}
 
@@ -819,18 +1045,38 @@ func runReviewWithOptions(opts reviewOptions) error {
 			if err := serveHTML(htmlPath, opts.port); err != nil {
 				return fmt.Errorf("failed to serve HTML: %w", err)
 			}
+		} else if isPostCommitReview && opts.serve {
+			// Post-commit review serving (non-interactive, just view results)
+			selectedPort, err := pickServePort(opts.port, 10)
+			if err != nil {
+				return fmt.Errorf("failed to find available port: %w", err)
+			}
+			if selectedPort != opts.port {
+				fmt.Printf("Port %d is busy; serving on %d instead.\n", opts.port, selectedPort)
+				opts.port = selectedPort
+			}
+
+			serveURL := fmt.Sprintf("http://localhost:%d", opts.port)
+			fmt.Printf("\nServing HTML review at: %s\n", highlightURL(serveURL))
+			fmt.Printf("Press Ctrl+C to stop the server\n\n")
+			if err := serveHTML(htmlPath, opts.port); err != nil {
+				return fmt.Errorf("failed to serve HTML: %w", err)
+			}
 		}
 	}
 
-	// Render result to stdout (skip in interactive mode - handled by prompt/UI)
-	if !useInteractive {
+	// Render result to stdout (skip in interactive mode or when serving - handled by UI)
+	if !useInteractive && !opts.serve {
 		if err := renderResult(result, opts.output); err != nil {
 			return fmt.Errorf("failed to render result: %w", err)
 		}
 	}
 
-	if err := ensureAttestation(attestationAction, verbose, &attestationWritten); err != nil {
-		return err
+	// Only write attestation for pre-commit reviews, not post-commit reviews
+	if !isPostCommitReview {
+		if err := ensureAttestation(attestationAction, verbose, &attestationWritten); err != nil {
+			return err
+		}
 	}
 
 	return nil
@@ -853,6 +1099,22 @@ func collectDiffWithOptions(opts reviewOptions) ([]byte, error) {
 		}
 		return runGitCommand("git", "diff")
 
+	case "commit":
+		commitVal := opts.commitVal
+		if commitVal == "" {
+			return nil, fmt.Errorf("--commit is required when diff-source=commit")
+		}
+		if verbose {
+			log.Printf("Collecting diff for commit: %s", commitVal)
+		}
+		// Check if it's a range (contains .. or ...)
+		if strings.Contains(commitVal, "..") {
+			// It's a commit range, use git diff
+			return runGitCommand("git", "diff", commitVal)
+		}
+		// Single commit, use git show to get the commit's changes
+		return runGitCommand("git", "show", "--format=", commitVal)
+
 	case "range":
 		rangeVal := opts.rangeVal
 		if rangeVal == "" {
@@ -874,7 +1136,7 @@ func collectDiffWithOptions(opts reviewOptions) ([]byte, error) {
 		return os.ReadFile(filePath)
 
 	default:
-		return nil, fmt.Errorf("invalid diff-source: %s (must be staged, working, range, or file)", diffSource)
+		return nil, fmt.Errorf("invalid diff-source: %s (must be staged, working, commit, range, or file)", diffSource)
 	}
 }
 
@@ -1661,11 +1923,114 @@ func renderHunkWithComments(buf *bytes.Buffer, hunk diffReviewHunk, commentsByLi
 	buf.WriteString("\n")
 }
 
+// parseDiffToFiles parses raw git diff content into file structures for HTML display
+func parseDiffToFiles(diffContent []byte) ([]diffReviewFileResult, error) {
+	if len(diffContent) == 0 {
+		return nil, fmt.Errorf("empty diff content")
+	}
+
+	var files []diffReviewFileResult
+	diffStr := string(diffContent)
+	// Handle both LF (\n) and CRLF (\r\n) line endings for cross-platform compatibility
+	lines := strings.FieldsFunc(diffStr, func(r rune) bool {
+		return r == '\n' || r == '\r'
+	})
+
+	var currentFile *diffReviewFileResult
+	var currentHunk *diffReviewHunk
+	var hunkLines []string
+
+	for i := 0; i < len(lines); i++ {
+		line := lines[i]
+
+		// New file header: diff --git a/path b/path
+		if strings.HasPrefix(line, "diff --git") {
+			// Save previous file if exists
+			if currentFile != nil {
+				if currentHunk != nil && len(hunkLines) > 0 {
+					currentHunk.Content = strings.Join(hunkLines, "\n")
+					currentFile.Hunks = append(currentFile.Hunks, *currentHunk)
+				}
+				files = append(files, *currentFile)
+			}
+
+			// Extract file path (after b/)
+			parts := strings.Split(line, " ")
+			filePath := ""
+			for _, part := range parts {
+				if strings.HasPrefix(part, "b/") {
+					filePath = strings.TrimPrefix(part, "b/")
+					break
+				}
+			}
+
+			currentFile = &diffReviewFileResult{
+				FilePath: filePath,
+				Hunks:    []diffReviewHunk{},
+				Comments: []diffReviewComment{},
+			}
+			currentHunk = nil
+			hunkLines = nil
+			continue
+		}
+
+		// Hunk header: @@ -old_start,old_count +new_start,new_count @@
+		if strings.HasPrefix(line, "@@") && currentFile != nil {
+			// Save previous hunk if exists
+			if currentHunk != nil && len(hunkLines) > 0 {
+				currentHunk.Content = strings.Join(hunkLines, "\n")
+				currentFile.Hunks = append(currentFile.Hunks, *currentHunk)
+			}
+
+			// Parse hunk header
+			re := regexp.MustCompile(`@@ -(\d+),?(\d*) \+(\d+),?(\d*) @@`)
+			matches := re.FindStringSubmatch(line)
+			if len(matches) >= 4 {
+				oldStart, _ := strconv.Atoi(matches[1])
+				oldCount, _ := strconv.Atoi(matches[2])
+				if oldCount == 0 {
+					oldCount = 1
+				}
+				newStart, _ := strconv.Atoi(matches[3])
+				newCount, _ := strconv.Atoi(matches[4])
+				if newCount == 0 {
+					newCount = 1
+				}
+
+				currentHunk = &diffReviewHunk{
+					OldStartLine: oldStart,
+					OldLineCount: oldCount,
+					NewStartLine: newStart,
+					NewLineCount: newCount,
+				}
+				hunkLines = []string{line} // Include the header
+			}
+			continue
+		}
+
+		// Hunk content lines (-, +, or space prefix)
+		if currentHunk != nil && (strings.HasPrefix(line, "-") || strings.HasPrefix(line, "+") || strings.HasPrefix(line, " ")) {
+			hunkLines = append(hunkLines, line)
+		}
+	}
+
+	// Save last file and hunk
+	if currentFile != nil {
+		if currentHunk != nil && len(hunkLines) > 0 {
+			currentHunk.Content = strings.Join(hunkLines, "\n")
+			currentFile.Hunks = append(currentFile.Hunks, *currentHunk)
+		}
+		files = append(files, *currentFile)
+	}
+
+	return files, nil
+}
+
 // saveHTMLOutput saves formatted HTML output with GitHub-style review UI
 
-func saveHTMLOutput(path string, result *diffReviewResponse, verbose bool, interactive bool, initialMsg string) error {
+func saveHTMLOutput(path string, result *diffReviewResponse, verbose bool, interactive bool, initialMsg, reviewID, apiURL, apiKey string) error {
 	// Prepare template data
-	data := prepareHTMLData(result, interactive, initialMsg)
+	data := prepareHTMLData(result, interactive, initialMsg, reviewID, apiURL, apiKey)
 
 	// Render HTML using template
 	htmlContent, err := renderHTMLTemplate(data)
@@ -1917,7 +2282,8 @@ func readCommitMessageFromRequest(r *http.Request) string {
 
 // serveHTMLInteractive serves HTML and waits for user decision
 // Returns decision details (code: 0 commit, 1 abort, 2 skip-from-terminal, 3 skip-from-HTML)
-func serveHTMLInteractive(htmlPath string, port int, initialMsg string) (int, string, bool, error) {
+// skipBrowserOpen: set to true if browser is already open (e.g., from progressive loading)
+func serveHTMLInteractive(htmlPath string, port int, initialMsg string, skipBrowserOpen bool) (int, string, bool, error) {
 	absPath, err := filepath.Abs(htmlPath)
 	if err != nil {
 		return 1, "", false, fmt.Errorf("failed to get absolute path: %w", err)
@@ -1933,11 +2299,13 @@ func serveHTMLInteractive(htmlPath string, port int, initialMsg string) (int, st
 	fmt.Printf("🌐 Review available at: %s\n", highlightURL(url))
 	fmt.Printf("\n")
 
-	// Open browser
-	go func() {
-		time.Sleep(500 * time.Millisecond)
-		openBrowser(url)
-	}()
+	// Open browser only if not already open
+	if !skipBrowserOpen {
+		go func() {
+			time.Sleep(500 * time.Millisecond)
+			openBrowser(url)
+		}()
+	}
 
 	// Setup HTTP handler
 	mux := http.NewServeMux()
