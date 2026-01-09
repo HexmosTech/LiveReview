@@ -13,7 +13,7 @@ type ReviewEventSink interface {
 	EventSink // Embed the basic EventSink interface
 	EmitStatusEvent(ctx context.Context, reviewID, orgID int64, status string) error
 	EmitLogEvent(ctx context.Context, reviewID, orgID int64, level, message, batchID string) error
-	EmitBatchEvent(ctx context.Context, reviewID, orgID int64, batchID, status string, tokenEstimate, fileCount int) error
+	EmitBatchEvent(ctx context.Context, reviewID, orgID int64, batchID, status string, tokenEstimate, fileCount int, comments interface{}) error
 	EmitArtifactEvent(ctx context.Context, reviewID, orgID int64, kind, url, batchID string, sizeBytes int64, previewHead, previewTail string) error
 	EmitCompletionEvent(ctx context.Context, reviewID, orgID int64, resultSummary string, commentCount int, errorSummary string) error
 }
@@ -50,15 +50,17 @@ func (s *DatabaseEventSink) EmitLogEvent(ctx context.Context, reviewID, orgID in
 }
 
 // EmitBatchEvent emits a batch progress event
-func (s *DatabaseEventSink) EmitBatchEvent(ctx context.Context, reviewID, orgID int64, batchID, status string, tokenEstimate, fileCount int) error {
+func (s *DatabaseEventSink) EmitBatchEvent(ctx context.Context, reviewID, orgID int64, batchID, status string, tokenEstimate, fileCount int, comments interface{}) error {
 	var tokenPtr, filePtr *int
 	if tokenEstimate > 0 {
 		tokenPtr = &tokenEstimate
 	}
+	// For completed batches, fileCount actually contains commentCount (API design quirk)
+	// This will be fixed to use a proper commentCount parameter
 	if fileCount > 0 {
 		filePtr = &fileCount
 	}
-	return s.service.CreateBatchEvent(ctx, reviewID, orgID, batchID, status, tokenPtr, filePtr, nil, nil)
+	return s.service.CreateBatchEvent(ctx, reviewID, orgID, batchID, status, tokenPtr, filePtr, nil, nil, comments)
 }
 
 // EmitArtifactEvent emits an artifact reference event

@@ -48,7 +48,7 @@ func TestReviewEventsEndpoints(t *testing.T) {
 
 	_ = sink.EmitStatusEvent(ctx, reviewID, orgID, "running")
 	_ = sink.EmitLogEvent(ctx, reviewID, orgID, "info", "Test log message for endpoints", "test-batch-1")
-	_ = sink.EmitBatchEvent(ctx, reviewID, orgID, "test-batch-1", "processing", 700, 5)
+	_ = sink.EmitBatchEvent(ctx, reviewID, orgID, "test-batch-1", "processing", 700, 5, nil)
 
 	t.Run("GetReviewEvents", func(t *testing.T) {
 		req := httptest.NewRequest(http.MethodGet, "/api/v1/reviews/123/events", nil)
