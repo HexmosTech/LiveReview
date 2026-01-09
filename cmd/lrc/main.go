@@ -448,23 +448,27 @@ func buildOptionsFromContext(c *cli.Context, includeDebug bool) (reviewOptions, 
 // applyDefaultHTMLServe enables HTML saving/serving when the user runs with defaults.
 // It only triggers when no HTML path or serve flag was provided and the output format is the default.
 func applyDefaultHTMLServe(opts *reviewOptions) (string, error) {
-	if opts.saveHTML != "" || opts.serve || opts.output != defaultOutputFormat {
-		return "", nil
+	// If HTML path already set or output format is not HTML, nothing to do
+	if opts.saveHTML != "" || opts.output != defaultOutputFormat {
+		return opts.saveHTML, nil
 	}
 
-	tmpFile, err := os.CreateTemp("", "lrc-review-*.html")
-	if err != nil {
-		return "", fmt.Errorf("failed to create temporary HTML file: %w", err)
+	// Serve is enabled but no HTML path - create temp file
+	if opts.serve {
+		tmpFile, err := os.CreateTemp("", "lrc-review-*.html")
+		if err != nil {
+			return "", fmt.Errorf("failed to create temporary HTML file: %w", err)
+		}
+
+		if err := tmpFile.Close(); err != nil {
+			return "", fmt.Errorf("failed to prepare temporary HTML file: %w", err)
+		}
+
+		opts.saveHTML = tmpFile.Name()
+		return opts.saveHTML, nil
 	}
 
-	if err := tmpFile.Close(); err != nil {
-		return "", fmt.Errorf("failed to prepare temporary HTML file: %w", err)
-	}
-
-	opts.saveHTML = tmpFile.Name()
-	opts.serve = true
-
-	return opts.saveHTML, nil
+	return "", nil
 }
 
 // pickServePort tries the requested port, then increments by 1 up to maxTries to find a free port.
@@ -489,10 +493,15 @@ func runReviewWithOptions(opts reviewOptions) error {
 	attestationWritten := false
 	initialMsg := sanitizeInitialMessage(opts.initialMsg)
 
-	// Interactive flow (Ctrl-S + Web UI actions) is now the default for all reviews that are not --skip
-	// But NOT for commit mode - that's post-commit review only
-	isPostCommitReview := (opts.diffSource == "commit")
-	useInteractive := !opts.skip && !isPostCommitReview
+	// Determine if this is a post-commit review (reviewing already-committed code, read-only)
+	// vs a pre-commit review (reviewing staged changes before commit, can commit from UI)
+	// When --commit flag is used, we're always reviewing historical commits (read-only mode)
+	isPostCommitReview := opts.diffSource == "commit"
+
+	// Interactive flow (Web UI with commit actions) is the default when --serve is enabled
+	// BUT: disable interactive actions when reviewing historical commits (isPostCommitReview)
+	// Skip interactive mode if explicitly using --skip, not serving, or reviewing history
+	useInteractive := !opts.skip && opts.serve && !isPostCommitReview
 
 	// Short-circuit skip: write attestation and exit without contacting the API
 	if opts.skip {
@@ -639,8 +648,14 @@ func runReviewWithOptions(opts reviewOptions) error {
 	go trackCLIUsage(config.APIURL, config.APIKey, verbose)
 
 	// Generate and serve skeleton HTML immediately if --serve is enabled
-	if opts.serve || (opts.saveHTML == "" && !isPostCommitReview) {
-		// Apply default HTML path
+	// Auto-enable serve when no HTML path specified and not in post-commit mode
+	autoServeEnabled := !opts.serve && opts.saveHTML == "" && !isPostCommitReview
+	if autoServeEnabled {
+		opts.serve = true
+	}
+
+	if opts.serve {
+		// Apply default HTML path - create temp file if needed
 		autoHTMLPath, err := applyDefaultHTMLServe(&opts)
 		if err != nil {
 			return err
@@ -659,7 +674,7 @@ func runReviewWithOptions(opts reviewOptions) error {
 			Summary: "Review in progress... Comments will appear as batches complete.",
 			Files:   filesFromDiff, // Include the actual diff content
 		}
-		if err := saveHTMLOutput(autoHTMLPath, skeletonResult, verbose, useInteractive, initialMsg, reviewID, config.APIURL, config.APIKey); err != nil {
+		if err := saveHTMLOutput(autoHTMLPath, skeletonResult, verbose, useInteractive, isPostCommitReview, initialMsg, reviewID, config.APIURL, config.APIKey); err != nil {
 			return fmt.Errorf("failed to generate skeleton HTML: %w", err)
 		}
 		if verbose {
@@ -799,10 +814,23 @@ func runReviewWithOptions(opts reviewOptions) error {
 		var pollErr error
 		result, pollErr = pollReview(config.APIURL, config.APIKey, reviewID, opts.pollInterval, opts.timeout, verbose)
 		if pollErr != nil {
-			if reviewURL != "" {
-				return fmt.Errorf("failed to poll review (see %s): %w", reviewURL, pollErr)
+			// If progressive loading is active, don't crash - keep server running to show error
+			if progressiveLoadingActive {
+				fmt.Printf("\n⚠️  Review failed: %v\n", pollErr)
+				fmt.Printf("   Error details available in browser at: http://localhost:%d\n", opts.port)
+				fmt.Printf("   Press Ctrl-C to exit\n\n")
+				// Create result with error so HTML can display it
+				result = &diffReviewResponse{
+					Status:  "failed",
+					Summary: fmt.Sprintf("Review failed: %v", pollErr),
+					Message: pollErr.Error(),
+				}
+			} else {
+				if reviewURL != "" {
+					return fmt.Errorf("failed to poll review (see %s): %w", reviewURL, pollErr)
+				}
+				return fmt.Errorf("failed to poll review: %w", pollErr)
 			}
-			return fmt.Errorf("failed to poll review: %w", pollErr)
 		}
 		// No attestation for post-commit reviews
 	}
@@ -862,12 +890,25 @@ func runReviewWithOptions(opts reviewOptions) error {
 			}
 			stopCtrlSFn()
 			if pollErr != nil {
-				if reviewURL != "" {
-					return fmt.Errorf("failed to poll review (see %s): %w", reviewURL, pollErr)
+				// If progressive loading is active, don't crash - let server keep running to show error
+				if progressiveLoadingActive {
+					fmt.Printf("\n⚠️  Review failed: %v\n", pollErr)
+					fmt.Printf("   Error details available in browser at: http://localhost:%d\n\n", opts.port)
+					// Create empty result - error will be delivered via completion event, not in Summary
+					result = &diffReviewResponse{
+						Status:  "failed",
+						Summary: "",
+						Message: pollErr.Error(),
+					}
+				} else {
+					if reviewURL != "" {
+						return fmt.Errorf("failed to poll review (see %s): %w", reviewURL, pollErr)
+					}
+					return fmt.Errorf("failed to poll review: %w", pollErr)
 				}
-				return fmt.Errorf("failed to poll review: %w", pollErr)
+			} else {
+				result = pollResult
 			}
-			result = pollResult
 			attestationAction = "reviewed"
 			if err := ensureAttestation(attestationAction, verbose, &attestationWritten); err != nil {
 				return err
@@ -933,8 +974,10 @@ func runReviewWithOptions(opts reviewOptions) error {
 	}
 
 	// Save HTML output if requested
-	if htmlPath := opts.saveHTML; htmlPath != "" {
-		if err := saveHTMLOutput(htmlPath, result, verbose, useInteractive, initialMsg, reviewID, config.APIURL, config.APIKey); err != nil {
+	// Skip if progressive loading is active - the browser already has the skeleton HTML
+	// and will receive error/completion via the events API
+	if htmlPath := opts.saveHTML; htmlPath != "" && !progressiveLoadingActive {
+		if err := saveHTMLOutput(htmlPath, result, verbose, useInteractive, isPostCommitReview, initialMsg, reviewID, config.APIURL, config.APIKey); err != nil {
 			return fmt.Errorf("failed to save HTML output: %w", err)
 		}
 
@@ -946,9 +989,14 @@ func runReviewWithOptions(opts reviewOptions) error {
 		} else {
 			fmt.Printf("HTML review saved to: %s\n", htmlPath)
 		}
+	}
 
-		// Start HTTP server if --serve flag is set
-		if opts.serve {
+	// Handle serve mode
+	if opts.serve {
+		htmlPath := opts.saveHTML
+
+		// Only pick a new port if progressive loading is NOT active (server not already running)
+		if !progressiveLoadingActive {
 			selectedPort, err := pickServePort(opts.port, 10)
 			if err != nil {
 				return fmt.Errorf("failed to find available port: %w", err)
@@ -957,173 +1005,167 @@ func runReviewWithOptions(opts reviewOptions) error {
 				fmt.Printf("Port %d is busy; serving on %d instead.\n", opts.port, selectedPort)
 				opts.port = selectedPort
 			}
+		}
 
-			// Interactive prompt for commit decision (default for all non-skip runs)
-			if useInteractive {
-				if err := ensureAttestation(attestationAction, verbose, &attestationWritten); err != nil {
+		// Interactive prompt for commit decision (default for all non-skip runs)
+		if useInteractive {
+			if err := ensureAttestation(attestationAction, verbose, &attestationWritten); err != nil {
+				return err
+			}
+
+			// If progressive loading was active, the server is already running.
+			// Don't start a new server - wait for decisions from HTTP or terminal.
+			if progressiveLoadingActive {
+				// Progressive loading active - server already running on opts.port
+				fmt.Printf("\n📋 Review complete. Choose action:\n")
+				fmt.Printf("   [Enter]  Continue with commit\n")
+				fmt.Printf("   [Ctrl-C] Abort commit\n")
+				fmt.Printf("   Or use the web UI buttons\n\n")
+
+				// Set up terminal input handlers that call progressiveDecide
+				sigChan := make(chan os.Signal, 1)
+				signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM)
+
+				go func() {
+					<-sigChan
+					progressiveDecide(1, "", false) // abort
+				}()
+
+				go func() {
+					tty, err := os.Open("/dev/tty")
+					if err != nil {
+						progressiveDecide(1, "", false) // fail on terminal error
+						return
+					}
+					defer tty.Close()
+
+					// Prompt for commit message if empty
+					msg := initialMsg
+					if strings.TrimSpace(msg) == "" {
+						fmt.Fprint(tty, "Enter commit message: ")
+						reader := bufio.NewReader(tty)
+						input, err := reader.ReadString('\n')
+						if err != nil {
+							progressiveDecide(1, "", false) // abort on read error
+							return
+						}
+						msg = strings.TrimSpace(input)
+					} else {
+						// Just wait for Enter if we have initial message
+						reader := bufio.NewReader(tty)
+						_, err := reader.ReadString('\n')
+						if err != nil {
+							progressiveDecide(1, "", false) // abort on read error
+							return
+						}
+					}
+					progressiveDecide(0, msg, false) // commit with entered/initial message
+				}()
+
+				// Wait for decision from either HTTP endpoint or terminal
+				decision := <-progressiveDecisionChan
+
+				if opts.precommit {
+					os.Exit(decision.code)
+				}
+
+				switch decision.code {
+				case 1:
+					fmt.Println("\n❌ Commit aborted by user")
+					return cli.Exit("", decision.code)
+				case 0:
+					finalMsg := strings.TrimSpace(decision.message)
+					if finalMsg == "" {
+						finalMsg = strings.TrimSpace(initialMsg)
+					}
+					if finalMsg == "" {
+						return fmt.Errorf("commit message is required for commit/commit+push")
+					}
+					if err := runCommitAndMaybePush(finalMsg, decision.push, verbose); err != nil {
+						return err
+					}
+					return nil
+				}
+			} else {
+				// No progressive loading - use normal serveHTMLInteractive
+				code, msg, push, err := serveHTMLInteractive(htmlPath, opts.port, initialMsg, false)
+				if err != nil {
 					return err
 				}
 
-				// If progressive loading was active, the server is already running.
-				// Don't start a new server - wait for decisions from HTTP or terminal.
-				if progressiveLoadingActive {
-					// Progressive loading active - server already running on opts.port
-					fmt.Printf("\n📋 Review complete. Choose action:\n")
-					fmt.Printf("   [Enter]  Continue with commit\n")
-					fmt.Printf("   [Ctrl-C] Abort commit\n")
-					fmt.Printf("   Or use the web UI buttons\n\n")
-
-					// Set up terminal input handlers that call progressiveDecide
-					sigChan := make(chan os.Signal, 1)
-					signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM)
-
-					go func() {
-						<-sigChan
-						progressiveDecide(1, "", false) // abort
-					}()
-
-					go func() {
-						tty, err := os.Open("/dev/tty")
-						if err != nil {
-							progressiveDecide(1, "", false) // fail on terminal error
-							return
-						}
-						defer tty.Close()
-
-						// Prompt for commit message if empty
-						msg := initialMsg
-						if strings.TrimSpace(msg) == "" {
-							fmt.Fprint(tty, "Enter commit message: ")
-							reader := bufio.NewReader(tty)
-							input, err := reader.ReadString('\n')
-							if err != nil {
-								progressiveDecide(1, "", false) // abort on read error
-								return
+				if opts.precommit {
+					// Hook path: persist commit message/push request for downstream hooks and exit with hook code
+					if commitMsgPath != "" {
+						if code == 0 {
+							msgToPersist := msg
+							if strings.TrimSpace(msgToPersist) == "" {
+								msgToPersist = initialMsg
 							}
-							msg = strings.TrimSpace(input)
-						} else {
-							// Just wait for Enter if we have initial message
-							reader := bufio.NewReader(tty)
-							_, err := reader.ReadString('\n')
-							if err != nil {
-								progressiveDecide(1, "", false) // abort on read error
-								return
-							}
-						}
-						progressiveDecide(0, msg, false) // commit with entered/initial message
-					}()
 
-					// Wait for decision from either HTTP endpoint or terminal
-					decision := <-progressiveDecisionChan
-
-					if opts.precommit {
-						os.Exit(decision.code)
-					}
-
-					switch decision.code {
-					case 1:
-						fmt.Println("\n❌ Commit aborted by user")
-						return cli.Exit("", decision.code)
-					case 0:
-						finalMsg := strings.TrimSpace(decision.message)
-						if finalMsg == "" {
-							finalMsg = strings.TrimSpace(initialMsg)
-						}
-						if finalMsg == "" {
-							return fmt.Errorf("commit message is required for commit/commit+push")
-						}
-						if err := runCommitAndMaybePush(finalMsg, decision.push, verbose); err != nil {
-							return err
-						}
-						return nil
-					}
-				} else {
-					// No progressive loading - use normal serveHTMLInteractive
-					code, msg, push, err := serveHTMLInteractive(htmlPath, opts.port, initialMsg, false)
-					if err != nil {
-						return err
-					}
-
-					if opts.precommit {
-						// Hook path: persist commit message/push request for downstream hooks and exit with hook code
-						if commitMsgPath != "" {
-							if code == 0 {
-								msgToPersist := msg
-								if strings.TrimSpace(msgToPersist) == "" {
-									msgToPersist = initialMsg
-								}
-
-								if strings.TrimSpace(msgToPersist) != "" {
-									if err := persistCommitMessage(commitMsgPath, msgToPersist); err != nil {
-										fmt.Fprintf(os.Stderr, "Warning: failed to store commit message: %v\n", err)
-									}
-								} else {
-									_ = clearCommitMessageFile(commitMsgPath)
+							if strings.TrimSpace(msgToPersist) != "" {
+								if err := persistCommitMessage(commitMsgPath, msgToPersist); err != nil {
+									fmt.Fprintf(os.Stderr, "Warning: failed to store commit message: %v\n", err)
 								}
 							} else {
 								_ = clearCommitMessageFile(commitMsgPath)
 							}
-						}
-
-						if code == 0 && push {
-							if err := persistPushRequest(commitMsgPath); err != nil {
-								fmt.Fprintf(os.Stderr, "Warning: failed to store push request: %v\n", err)
-							}
 						} else {
-							_ = clearPushRequest(commitMsgPath)
+							_ = clearCommitMessageFile(commitMsgPath)
 						}
-
-						os.Exit(code)
 					}
 
-					// Non-hook interactive: execute commit (and optional push) directly
-					switch code {
-					case 1:
-						return cli.Exit("", code)
-					case 2:
-						// Skip review but proceed with commit: honor skip by writing attestation already handled above; no commit performed here.
-						return nil
-					case 3:
-						return cli.Exit("", code)
-					case 0:
-						finalMsg := strings.TrimSpace(msg)
-						if finalMsg == "" {
-							finalMsg = strings.TrimSpace(initialMsg)
+					if code == 0 && push {
+						if err := persistPushRequest(commitMsgPath); err != nil {
+							fmt.Fprintf(os.Stderr, "Warning: failed to store push request: %v\n", err)
 						}
-						if finalMsg == "" {
-							return fmt.Errorf("commit message is required for commit/commit+push")
-						}
-						if err := runCommitAndMaybePush(finalMsg, push, verbose); err != nil {
-							return err
-						}
-						return nil
+					} else {
+						_ = clearPushRequest(commitMsgPath)
 					}
+
+					os.Exit(code)
+				}
+
+				// Non-hook interactive: execute commit (and optional push) directly
+				switch code {
+				case 1:
+					return cli.Exit("", code)
+				case 2:
+					// Skip review but proceed with commit: honor skip by writing attestation already handled above; no commit performed here.
+					return nil
+				case 3:
+					return cli.Exit("", code)
+				case 0:
+					finalMsg := strings.TrimSpace(msg)
+					if finalMsg == "" {
+						finalMsg = strings.TrimSpace(initialMsg)
+					}
+					if finalMsg == "" {
+						return fmt.Errorf("commit message is required for commit/commit+push")
+					}
+					if err := runCommitAndMaybePush(finalMsg, push, verbose); err != nil {
+						return err
+					}
+					return nil
 				}
 			}
+		}
 
-			// Non-interactive serve: just host HTML
+		// Non-interactive serve: just host HTML (skip if progressive loading was active - server already running)
+		if !progressiveLoadingActive {
 			serveURL := fmt.Sprintf("http://localhost:%d", opts.port)
 			fmt.Printf("Serving HTML review at: %s\n", highlightURL(serveURL))
 			if err := serveHTML(htmlPath, opts.port); err != nil {
 				return fmt.Errorf("failed to serve HTML: %w", err)
 			}
-		} else if isPostCommitReview && opts.serve {
-			// Post-commit review serving (non-interactive, just view results)
-			selectedPort, err := pickServePort(opts.port, 10)
-			if err != nil {
-				return fmt.Errorf("failed to find available port: %w", err)
-			}
-			if selectedPort != opts.port {
-				fmt.Printf("Port %d is busy; serving on %d instead.\n", opts.port, selectedPort)
-				opts.port = selectedPort
-			}
-
-			serveURL := fmt.Sprintf("http://localhost:%d", opts.port)
-			fmt.Printf("\nServing HTML review at: %s\n", highlightURL(serveURL))
-			fmt.Printf("Press Ctrl+C to stop the server\n\n")
-			if err := serveHTML(htmlPath, opts.port); err != nil {
-				return fmt.Errorf("failed to serve HTML: %w", err)
-			}
+		} else if isPostCommitReview {
+			// Post-commit review with progressive loading: server is already running, just wait for Ctrl-C
+			fmt.Printf("\n📖 Viewing historical commit review.\n")
+			fmt.Printf("   Press Ctrl-C to exit.\n\n")
+			sigChan := make(chan os.Signal, 1)
+			signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM)
+			<-sigChan
+			fmt.Println("\nExiting...")
+			return nil
 		}
 	}
 
@@ -1620,11 +1662,14 @@ func pollReview(apiURL, apiKey, reviewID string, pollInterval, timeout time.Dura
 			if isTTY {
 				fmt.Printf("\r%-80s\n", statusLine)
 			}
+			// Return the result with error info instead of just an error
+			// This allows progressive loading to display error details in the UI
 			reason := strings.TrimSpace(result.Message)
 			if reason == "" {
 				reason = "no additional details provided"
 			}
-			return nil, fmt.Errorf("review failed: %s", reason)
+			result.Summary = fmt.Sprintf("Review failed: %s", reason)
+			return &result, fmt.Errorf("review failed: %s", reason)
 		}
 
 		time.Sleep(pollInterval)
@@ -2090,9 +2135,9 @@ func parseDiffToFiles(diffContent []byte) ([]diffReviewFileResult, error) {
 
 // saveHTMLOutput saves formatted HTML output with GitHub-style review UI
 
-func saveHTMLOutput(path string, result *diffReviewResponse, verbose bool, interactive bool, initialMsg, reviewID, apiURL, apiKey string) error {
+func saveHTMLOutput(path string, result *diffReviewResponse, verbose bool, interactive bool, isPostCommitReview bool, initialMsg, reviewID, apiURL, apiKey string) error {
 	// Prepare template data
-	data := prepareHTMLData(result, interactive, initialMsg, reviewID, apiURL, apiKey)
+	data := prepareHTMLData(result, interactive, isPostCommitReview, initialMsg, reviewID, apiURL, apiKey)
 
 	// Render HTML using template
 	htmlContent, err := renderHTMLTemplate(data)
