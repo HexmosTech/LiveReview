@@ -1089,7 +1089,9 @@ func runReviewWithOptions(opts reviewOptions) error {
 					// Prompt for commit message if empty
 					msg := initialMsg
 					if strings.TrimSpace(msg) == "" {
-						fmt.Fprint(tty, "Enter commit message: ")
+						// Write prompt to stdout so user can see it
+						fmt.Print("Enter commit message: ")
+						os.Stdout.Sync()
 						reader := bufio.NewReader(tty)
 						input, err := reader.ReadString('\n')
 						if err != nil {
