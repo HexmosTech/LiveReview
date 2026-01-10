@@ -265,6 +265,15 @@ async function initApp() {
             };
         }, [fetchReviewData, fetchEvents]);
         
+        // Update page title with friendly name
+        useEffect(() => {
+            if (reviewData?.friendlyName) {
+                document.title = `LiveReview - ${reviewData.friendlyName}`;
+            } else {
+                document.title = 'LiveReview';
+            }
+        }, [reviewData?.friendlyName]);
+        
         // Toggle single file
         const toggleFile = useCallback((fileId) => {
             setExpandedFiles(prev => {
