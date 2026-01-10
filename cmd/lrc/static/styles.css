@@ -733,8 +733,35 @@ body {
     cursor: pointer;
 }
 
-.auto-scroll-label input[type="checkbox"] {
+.tail-log-btn {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 12px;
+    background: rgba(16,185,129,0.15);
+    border: 1px solid rgba(16,185,129,0.3);
+    border-radius: 6px;
+    color: #10b981;
+    font-size: 13px;
+    font-weight: 500;
     cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+.tail-log-btn:hover {
+    background: rgba(16,185,129,0.25);
+    border-color: rgba(16,185,129,0.5);
+}
+
+.tail-log-btn.active {
+    background: rgba(16,185,129,0.3);
+    border-color: rgba(16,185,129,0.6);
+    color: #34d399;
+}
+
+.tail-log-btn svg {
+    width: 16px;
+    height: 16px;
 }
 
 .copy-logs-btn {
