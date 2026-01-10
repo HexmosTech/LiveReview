@@ -15,7 +15,7 @@ export async function createPrecommitBar() {
         if (isPostCommitReview) {
             return html`
                 <div class="precommit-bar">
-                    <div style="padding: 16px; color: #9ca3af;">
+                    <div style="padding: 12px; color: var(--text-muted); font-size: 13px;">
                         <p>📖 Viewing historical commit review. Press <strong>Ctrl-C</strong> in the terminal to exit.</p>
                     </div>
                 </div>
@@ -52,25 +52,34 @@ export async function createPrecommitBar() {
                     <div class="precommit-bar-title">Pre-commit action</div>
                     <div class="precommit-actions">
                         <button 
-                            class="btn-primary"
+                            class="btn btn-primary"
                             disabled=${disabled}
                             onClick=${() => postDecision('/commit', 'Commit requested', true)}
                         >
+                            <svg width="14" height="14" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" />
+                            </svg>
                             Commit
                         </button>
                         <button 
-                            class="btn-primary"
+                            class="btn btn-primary"
                             disabled=${disabled}
                             onClick=${() => postDecision('/commit-push', 'Commit and push requested', true)}
                         >
-                            Commit and Push
+                            <svg width="14" height="14" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
+                            </svg>
+                            Commit & Push
                         </button>
                         <button 
-                            class="btn-ghost"
+                            class="btn btn-ghost"
                             disabled=${disabled}
                             onClick=${() => postDecision('/skip', 'Skip requested', false)}
                         >
-                            Skip Commit
+                            <svg width="14" height="14" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+                            </svg>
+                            Skip
                         </button>
                     </div>
                     <div class="precommit-status">${status}</div>
@@ -79,7 +88,7 @@ export async function createPrecommitBar() {
                     <label for="commit-message">Commit message</label>
                     <textarea 
                         id="commit-message"
-                        placeholder="Enter your commit message (required)"
+                        placeholder="Enter your commit message"
                         value=${message}
                         disabled=${disabled}
                         onInput=${(e) => setMessage(e.target.value)}

@@ -14,6 +14,16 @@ import { getToolbar } from './components/Toolbar.js';
 
 // Convert API response to UI data format
 // Backend uses snake_case JSON keys (file_path, old_start_line, etc.)
+
+// Helper: count actual comments from files array
+function countCommentsFromFiles(files) {
+    if (!files) return 0;
+    return files.reduce((total, file) => {
+        const comments = file.comments || file.Comments || [];
+        return total + comments.length;
+    }, 0);
+}
+
 function convertFilesToUIFormat(files) {
     if (!files) return [];
     
@@ -158,9 +168,12 @@ async function initApp() {
         const [issuesPanelVisible, setIssuesPanelVisible] = useState(false);
         const [events, setEvents] = useState([]);
         const [newEventCount, setNewEventCount] = useState(0);
+        const [isTailing, setIsTailing] = useState(false);
         
         const pollingRef = useRef(null);
         const eventsPollingRef = useRef(null);
+        const eventsListRef = useRef(null);
+        const [logsCopied, setLogsCopied] = useState(false);
         
         // Fetch review data from API
         const fetchReviewData = useCallback(async () => {
@@ -174,9 +187,15 @@ async function initApp() {
                 // Convert files to UI format
                 const uiFiles = convertFilesToUIFormat(data.files);
                 
+                // Calculate actual comment count from files (don't trust API counter)
+                const actualCommentCount = countCommentsFromFiles(data.files);
+                
                 setReviewData(prev => {
-                    // Auto-expand files with comments on first load
+                    // Auto-expand files with comments
+                    // On first load: expand all files with comments
+                    // On updates: also expand any NEW files that have comments
                     if (!prev) {
+                        // First load - expand all files with comments
                         const expanded = new Set();
                         uiFiles.forEach(file => {
                             if (file.HasComments) {
@@ -186,13 +205,26 @@ async function initApp() {
                         if (expanded.size > 0) {
                             setExpandedFiles(expanded);
                         }
+                    } else {
+                        // Subsequent updates - expand any new files with comments
+                        const prevFileIds = new Set((prev.Files || []).map(f => f.ID));
+                        const newFilesWithComments = uiFiles.filter(
+                            file => file.HasComments && !prevFileIds.has(file.ID)
+                        );
+                        if (newFilesWithComments.length > 0) {
+                            setExpandedFiles(prevExpanded => {
+                                const next = new Set(prevExpanded);
+                                newFilesWithComments.forEach(file => next.add(file.ID));
+                                return next;
+                            });
+                        }
                     }
                     
                     return {
                         ...data,
                         Files: uiFiles,
                         TotalFiles: uiFiles.length,
-                        TotalComments: data.totalComments || 0
+                        TotalComments: actualCommentCount  // Derived from actual file comments
                     };
                 });
                 
@@ -304,6 +336,8 @@ async function initApp() {
         
         // Handle sidebar file click
         const handleFileClick = useCallback((fileId) => {
+            // Always switch to files tab when clicking a file in sidebar
+            setActiveTab('files');
             setActiveFileId(fileId);
             setExpandedFiles(prev => {
                 const next = new Set(prev);
@@ -311,7 +345,7 @@ async function initApp() {
                 return next;
             });
             
-            // Scroll to file
+            // Scroll to file after brief delay to allow tab switch
             setTimeout(() => {
                 const fileEl = document.getElementById(fileId);
                 if (fileEl) {
@@ -323,11 +357,15 @@ async function initApp() {
                     const scrollTarget = mainContent.scrollTop + fileRect.top - mainContentRect.top - headerHeight - 10;
                     mainContent.scrollTo({ top: scrollTarget, behavior: 'smooth' });
                 }
-            }, 50);
+            }, 100);
         }, []);
         
         // Navigate to comment
         const navigateToComment = useCallback((commentId, fileId) => {
+            // Switch to files tab first
+            setActiveTab('files');
+            
+            // Expand the file containing the comment
             setExpandedFiles(prev => {
                 const next = new Set(prev);
                 next.add(fileId);
@@ -359,12 +397,49 @@ async function initApp() {
             }
         }, []);
         
+        // Tail log handler - toggle tailing on/off
+        const handleTailLog = useCallback(() => {
+            setIsTailing(prev => {
+                const newValue = !prev;
+                if (newValue && eventsListRef.current) {
+                    eventsListRef.current.scrollTop = eventsListRef.current.scrollHeight;
+                }
+                return newValue;
+            });
+        }, []);
+        
+        // Copy logs handler
+        const handleCopyLogs = useCallback(async () => {
+            const logsText = events.map((event, index) => {
+                const time = event.time ? new Date(event.time).toLocaleTimeString() : '';
+                const type = event.type ? event.type.toUpperCase() : 'LOG';
+                return `[${index + 1}] ${time} - ${type}\n  ${event.message}`;
+            }).join('\n\n');
+            
+            try {
+                await navigator.clipboard.writeText(logsText);
+                setLogsCopied(true);
+                setTimeout(() => setLogsCopied(false), 2000);
+            } catch (err) {
+                console.error('Failed to copy logs:', err);
+            }
+        }, [events]);
+        
         // Loading state
         if (loading && !reviewData) {
             return html`
-                <div style="display: flex; align-items: center; justify-content: center; height: 100vh; color: #9ca3af;">
-                    <div class="spinner" style="width: 24px; height: 24px; border: 3px solid #374151; border-top-color: #3b82f6; border-radius: 50%; animation: spin 1s linear infinite; margin-right: 12px;"></div>
-                    Loading LiveReview...
+                <div class="loading-screen">
+                    <div class="loading-content">
+                        <div class="loading-logo">
+                            <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                                <circle cx="12" cy="12" r="10" />
+                                <path d="M12 6v6l4 2" stroke-linecap="round" />
+                            </svg>
+                        </div>
+                        <h1 class="loading-title">LiveReview</h1>
+                        <div class="loading-spinner"></div>
+                        <p class="loading-text">Loading review data...</p>
+                    </div>
                 </div>
             `;
         }
@@ -372,10 +447,17 @@ async function initApp() {
         // Error state
         if (error && !reviewData) {
             return html`
-                <div style="display: flex; align-items: center; justify-content: center; height: 100vh; color: #ef4444;">
-                    <div>
-                        <h2>Error Loading Review</h2>
-                        <p>${error}</p>
+                <div class="loading-screen">
+                    <div class="loading-content">
+                        <div class="loading-logo error">
+                            <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                                <circle cx="12" cy="12" r="10" />
+                                <path d="M15 9l-6 6M9 9l6 6" stroke-linecap="round" />
+                            </svg>
+                        </div>
+                        <h1 class="loading-title">LiveReview</h1>
+                        <h2 class="loading-error-title">Error Loading Review</h2>
+                        <p class="loading-error-text">${error}</p>
                     </div>
                 </div>
             `;
@@ -384,8 +466,10 @@ async function initApp() {
         const status = reviewData?.status || 'in_progress';
         const showLoader = status === 'in_progress';
         const summary = reviewData?.summary || '';
-        const totalComments = reviewData?.totalComments || reviewData?.TotalComments || 0;
         const files = reviewData?.Files || [];
+        
+        // Calculate totalComments from actual files - single source of truth
+        const totalComments = files.reduce((sum, file) => sum + (file.CommentCount || 0), 0);
         
         // Status display
         const getStatusDisplay = () => {
@@ -411,7 +495,6 @@ async function initApp() {
         return html`
             <${Sidebar} 
                 files=${files}
-                totalComments=${totalComments}
                 activeFileId=${activeFileId}
                 onFileClick=${handleFileClick}
             />
@@ -460,6 +543,10 @@ async function initApp() {
                         onCopyIssues=${() => setIssuesPanelVisible(!issuesPanelVisible)}
                         eventCount=${newEventCount}
                         showEventBadge=${activeTab !== 'events'}
+                        onTailLog=${handleTailLog}
+                        isTailing=${isTailing}
+                        onCopyLogs=${handleCopyLogs}
+                        logsCopied=${logsCopied}
                     />
                     
                     <div class="issues-toolbar">
@@ -467,6 +554,7 @@ async function initApp() {
                             files=${files}
                             visible=${issuesPanelVisible}
                             onNavigate=${navigateToComment}
+                            onClose=${() => setIssuesPanelVisible(false)}
                         />
                     </div>
                     
@@ -496,6 +584,8 @@ async function initApp() {
                         <${EventLog}
                             events=${events}
                             status=${status}
+                            isTailing=${isTailing}
+                            listRef=${eventsListRef}
                         />
                     </div>
                     

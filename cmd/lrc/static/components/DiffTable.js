@@ -1,12 +1,12 @@
 // DiffTable component - renders diff hunks with lines and comments
-import { waitForPreact, getBadgeClass } from './utils.js';
+import { waitForPreact, getBadgeClass, filePathToId } from './utils.js';
 import { getComment } from './Comment.js';
 
 export async function createDiffTable() {
     const { html } = await waitForPreact();
     const Comment = await getComment();
     
-    return function DiffTable({ hunks, filePath }) {
+    return function DiffTable({ hunks, filePath, fileId }) {
         if (!hunks || hunks.length === 0) {
             return html`
                 <div style="padding: 20px; text-align: center; color: #57606a;">
@@ -14,6 +14,9 @@ export async function createDiffTable() {
                 </div>
             `;
         }
+        
+        // Use provided fileId or generate from filePath
+        const resolvedFileId = fileId || filePathToId(filePath);
         
         return html`
             <table class="diff-table">
@@ -32,11 +35,12 @@ export async function createDiffTable() {
                                 <td class="line-num">${line.NewNum}</td>
                                 <td class="line-content">${line.Content}</td>
                             </tr>
-                            ${line.IsComment && line.Comments && line.Comments.map(comment => html`
+                            ${line.IsComment && line.Comments && line.Comments.map((comment, commentIdx) => html`
                                 <${Comment} 
                                     comment=${comment} 
                                     filePath=${filePath}
                                     codeExcerpt=${codeExcerpt}
+                                    commentId=${`comment-${resolvedFileId}-${comment.Line}-${commentIdx}`}
                                 />
                             `)}
                         `;
