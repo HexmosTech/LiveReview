@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>LiveReview Results</title>
+    
+    <!-- Styles -->
+    <link rel="stylesheet" href="/static/styles.css">
+    
+    <!-- Preact + HTM (no build step required) -->
+    <script type="module">
+        import { h, render } from 'https://esm.sh/preact@10.19.3';
+        import { useState, useEffect, useCallback, useRef } from 'https://esm.sh/preact@10.19.3/hooks';
+        import htm from 'https://esm.sh/htm@3.1.1';
+        
+        // Initialize HTM with Preact
+        const html = htm.bind(h);
+        
+        // Make available globally for components
+        window.preact = { h, render, useState, useEffect, useCallback, useRef, html };
+    </script>
+    
+    <!-- Markdown parser -->
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+</head>
+<body>
+    <div id="app">
+        <!-- Loading state before JS initializes -->
+        <div style="display: flex; align-items: center; justify-content: center; height: 100vh; color: #9ca3af;">
+            <div class="spinner" style="width: 24px; height: 24px; border: 3px solid #374151; border-top-color: #3b82f6; border-radius: 50%; animation: spin 1s linear infinite; margin-right: 12px;"></div>
+            Loading LiveReview...
+        </div>
+    </div>
+    
+    <!-- Application entry point - fetches data from /api/review -->
+    <script type="module" src="/static/app.js"></script>
+</body>
+</html>
