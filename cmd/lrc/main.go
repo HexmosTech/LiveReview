@@ -38,6 +38,10 @@ var (
 	version   = appVersion // Can be overridden via ldflags
 	buildTime = "unknown"
 	gitCommit = "unknown"
+
+	// Global review state for the web UI API
+	currentReviewState *ReviewState
+	reviewStateMu      sync.RWMutex
 )
 
 // diffReviewRequest models the POST payload to /api/v1/diff-review
@@ -654,32 +658,22 @@ func runReviewWithOptions(opts reviewOptions) error {
 		opts.serve = true
 	}
 
-	if opts.serve {
-		// Apply default HTML path - create temp file if needed
-		autoHTMLPath, err := applyDefaultHTMLServe(&opts)
-		if err != nil {
-			return err
-		}
-		tempHTMLPath = autoHTMLPath
+	// Recalculate useInteractive now that opts.serve may have been auto-enabled
+	// This is critical for Case 1 (hook-based terminal invocation) where serve is auto-enabled
+	// and we need the interactive flow with commit/push/skip options
+	useInteractive = !opts.skip && opts.serve && !isPostCommitReview
 
+	if opts.serve {
 		// Parse the diff content to generate file structures for immediate display
 		filesFromDiff, parseErr := parseDiffToFiles(diffContent)
 		if parseErr != nil && verbose {
 			log.Printf("Warning: failed to parse diff for skeleton HTML: %v", parseErr)
 		}
 
-		// Generate skeleton HTML with reviewID for progressive loading and actual diff content
-		skeletonResult := &diffReviewResponse{
-			Status:  "in_progress",
-			Summary: "Review in progress... Comments will appear as batches complete.",
-			Files:   filesFromDiff, // Include the actual diff content
-		}
-		if err := saveHTMLOutput(autoHTMLPath, skeletonResult, verbose, useInteractive, isPostCommitReview, initialMsg, reviewID, config.APIURL, config.APIKey); err != nil {
-			return fmt.Errorf("failed to generate skeleton HTML: %w", err)
-		}
-		if verbose {
-			log.Printf("Generated skeleton HTML with %d files at: %s", len(filesFromDiff), autoHTMLPath)
-		}
+		// Initialize global review state for API-based UI
+		reviewStateMu.Lock()
+		currentReviewState = NewReviewState(reviewID, filesFromDiff, useInteractive, isPostCommitReview, initialMsg, config.APIURL)
+		reviewStateMu.Unlock()
 
 		// Start serving immediately in background
 		selectedPort, err := pickServePort(opts.port, 10)
@@ -693,7 +687,7 @@ func runReviewWithOptions(opts reviewOptions) error {
 
 		serveURL := fmt.Sprintf("http://localhost:%d", opts.port)
 		fmt.Printf("\n🌐 Review available at: %s\n", highlightURL(serveURL))
-		fmt.Printf("   Comments will appear progressively as batches complete\n\n")
+		fmt.Printf("   Comments will appear progressively as review runs\n\n")
 
 		// Mark that progressive loading is active
 		progressiveLoadingActive = true
@@ -709,9 +703,37 @@ func runReviewWithOptions(opts reviewOptions) error {
 		// Start server in background
 		go func() {
 			mux := http.NewServeMux()
+			// Serve static assets (JS, CSS) from embedded filesystem
+			mux.Handle("/static/", http.StripPrefix("/static/", getStaticHandler()))
+
+			// Serve index.html from embedded filesystem (no file on disk needed)
 			mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-				http.ServeFile(w, r, autoHTMLPath)
+				if r.URL.Path != "/" {
+					http.NotFound(w, r)
+					return
+				}
+				w.Header().Set("Content-Type", "text/html; charset=utf-8")
+				htmlBytes, err := staticFiles.ReadFile("static/index.html")
+				if err != nil {
+					http.Error(w, "Failed to load page", http.StatusInternalServerError)
+					return
+				}
+				w.Write(htmlBytes)
 			})
+
+			// API endpoint for review state - frontend polls this
+			mux.HandleFunc("/api/review", func(w http.ResponseWriter, r *http.Request) {
+				reviewStateMu.RLock()
+				state := currentReviewState
+				reviewStateMu.RUnlock()
+
+				if state == nil {
+					http.Error(w, "No review in progress", http.StatusNotFound)
+					return
+				}
+				state.ServeHTTP(w, r)
+			})
+
 			// Functional commit handlers that work with the decision channel
 			mux.HandleFunc("/commit", func(w http.ResponseWriter, r *http.Request) {
 				if r.Method != http.MethodPost {
@@ -825,12 +847,25 @@ func runReviewWithOptions(opts reviewOptions) error {
 					Summary: fmt.Sprintf("Review failed: %v", pollErr),
 					Message: pollErr.Error(),
 				}
+				// Update review state with error
+				reviewStateMu.Lock()
+				if currentReviewState != nil {
+					currentReviewState.SetFailed(pollErr.Error())
+				}
+				reviewStateMu.Unlock()
 			} else {
 				if reviewURL != "" {
 					return fmt.Errorf("failed to poll review (see %s): %w", reviewURL, pollErr)
 				}
 				return fmt.Errorf("failed to poll review: %w", pollErr)
 			}
+		} else {
+			// Update review state with final result
+			reviewStateMu.Lock()
+			if currentReviewState != nil {
+				currentReviewState.UpdateFromResult(result)
+			}
+			reviewStateMu.Unlock()
 		}
 		// No attestation for post-commit reviews
 	}
@@ -900,6 +935,12 @@ func runReviewWithOptions(opts reviewOptions) error {
 						Summary: "",
 						Message: pollErr.Error(),
 					}
+					// Update review state with error
+					reviewStateMu.Lock()
+					if currentReviewState != nil {
+						currentReviewState.SetFailed(pollErr.Error())
+					}
+					reviewStateMu.Unlock()
 				} else {
 					if reviewURL != "" {
 						return fmt.Errorf("failed to poll review (see %s): %w", reviewURL, pollErr)
@@ -908,6 +949,12 @@ func runReviewWithOptions(opts reviewOptions) error {
 				}
 			} else {
 				result = pollResult
+				// Update review state with final result
+				reviewStateMu.Lock()
+				if currentReviewState != nil {
+					currentReviewState.UpdateFromResult(pollResult)
+				}
+				reviewStateMu.Unlock()
 			}
 			attestationAction = "reviewed"
 			if err := ensureAttestation(attestationAction, verbose, &attestationWritten); err != nil {
@@ -1157,9 +1204,14 @@ func runReviewWithOptions(opts reviewOptions) error {
 			if err := serveHTML(htmlPath, opts.port); err != nil {
 				return fmt.Errorf("failed to serve HTML: %w", err)
 			}
-		} else if isPostCommitReview {
-			// Post-commit review with progressive loading: server is already running, just wait for Ctrl-C
-			fmt.Printf("\n📖 Viewing historical commit review.\n")
+		} else {
+			// Progressive loading is active - server is already running in background goroutine
+			// We need to block and wait for Ctrl-C so the server keeps running
+			if isPostCommitReview {
+				fmt.Printf("\n📖 Viewing historical commit review.\n")
+			} else {
+				fmt.Printf("\n📋 Review in progress.\n")
+			}
 			fmt.Printf("   Press Ctrl-C to exit.\n\n")
 			sigChan := make(chan os.Signal, 1)
 			signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM)
@@ -2184,13 +2236,16 @@ func serveHTML(htmlPath string, port int) error {
 	}()
 
 	// Setup HTTP handler
-	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+	mux := http.NewServeMux()
+	// Serve static assets (JS, CSS) from embedded filesystem
+	mux.Handle("/static/", http.StripPrefix("/static/", getStaticHandler()))
+	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		http.ServeFile(w, r, absPath)
 	})
 
 	// Start server
 	addr := fmt.Sprintf(":%d", port)
-	if err := http.ListenAndServe(addr, nil); err != nil {
+	if err := http.ListenAndServe(addr, mux); err != nil {
 		return fmt.Errorf("server error: %w", err)
 	}
 
@@ -2428,6 +2483,8 @@ func serveHTMLInteractive(htmlPath string, port int, initialMsg string, skipBrow
 
 	// Setup HTTP handler
 	mux := http.NewServeMux()
+	// Serve static assets (JS, CSS) from embedded filesystem
+	mux.Handle("/static/", http.StripPrefix("/static/", getStaticHandler()))
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		http.ServeFile(w, r, absPath)
 	})
