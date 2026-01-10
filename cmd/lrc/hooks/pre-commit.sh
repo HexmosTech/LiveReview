@@ -31,7 +31,7 @@ if [ -z "$TREE_HASH" ]; then
 fi
 
 if [ ! -f "$ATTEST_FILE" ]; then
-	echo "LiveReview pre-commit: no attestation found for staged tree ($TREE_HASH). Run 'lrc review --staged' and retry." 
+	printf "You are using LiveReview. You must run 'lrc review' or 'lrc review --skip' to attest your changes before you commit." 
 	exit 1
 fi
 
