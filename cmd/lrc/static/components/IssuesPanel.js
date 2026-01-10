@@ -2,12 +2,13 @@
 import { waitForPreact, getBadgeClass, copyToClipboard } from './utils.js';
 
 export async function createIssuesPanel() {
-    const { html, useState, useEffect } = await waitForPreact();
+    const { html, useState, useEffect, useCallback } = await waitForPreact();
     
-    return function IssuesPanel({ files, visible, onNavigate }) {
-        const [filter, setFilter] = useState('error,warning');
+    return function IssuesPanel({ files, visible, onNavigate, onClose }) {
+        // Multi-select filters: Set of active severity types (default: error + warning)
+        const [activeFilters, setActiveFilters] = useState(new Set(['error', 'warning']));
         const [selectedIndices, setSelectedIndices] = useState(new Set());
-        const [status, setStatus] = useState('');
+        const [copyStatus, setCopyStatus] = useState(null); // null, 'copied', 'error'
         
         // Collect issues from files
         const issues = [];
@@ -19,7 +20,7 @@ export async function createIssuesPanel() {
                         line.Comments.forEach((comment, commentIdx) => {
                             issues.push({
                                 filePath: file.FilePath,
-                                fileId: 'file_' + file.FilePath.replace(/[^a-zA-Z0-9]/g, '_'),
+                                fileId: file.ID,
                                 line: comment.Line,
                                 body: comment.Content,
                                 severity: comment.Severity,
@@ -32,12 +33,24 @@ export async function createIssuesPanel() {
             });
         });
         
-        // Initialize selected based on filter
+        // Count issues by severity
+        const errorCount = issues.filter(i => (i.severity || '').toLowerCase() === 'error').length;
+        const warningCount = issues.filter(i => (i.severity || '').toLowerCase() === 'warning').length;
+        const infoCount = issues.filter(i => (i.severity || '').toLowerCase() === 'info').length;
+        
+        // Check if severity matches any active filter
+        const filterMatches = useCallback((severity) => {
+            if (activeFilters.size === 0) return false;
+            const sev = (severity || '').toLowerCase();
+            return activeFilters.has(sev);
+        }, [activeFilters]);
+        
+        // Initialize: select all issues matching default filters (error + warning)
         useEffect(() => {
             const newSelected = new Set();
             issues.forEach((issue, idx) => {
                 const sev = (issue.severity || '').toLowerCase();
-                if (sev === 'error' || sev === 'warning' || sev === 'critical') {
+                if (activeFilters.has(sev)) {
                     newSelected.add(idx);
                 }
             });
@@ -46,14 +59,23 @@ export async function createIssuesPanel() {
         
         if (!visible) return null;
         
-        const filterMatches = (severity) => {
-            const sev = (severity || '').toLowerCase();
-            if (filter === 'all') return true;
-            return filter.includes(sev);
-        };
-        
+        // Visible issues based on active filters
         const visibleIssues = issues.filter(issue => filterMatches(issue.severity));
         
+        // Toggle a filter on/off
+        const toggleFilter = (type) => {
+            setActiveFilters(prev => {
+                const next = new Set(prev);
+                if (next.has(type)) {
+                    next.delete(type);
+                } else {
+                    next.add(type);
+                }
+                return next;
+            });
+        };
+        
+        // Select all visible issues
         const handleSelectAll = () => {
             const newSelected = new Set(selectedIndices);
             issues.forEach((issue, idx) => {
@@ -64,6 +86,7 @@ export async function createIssuesPanel() {
             setSelectedIndices(newSelected);
         };
         
+        // Deselect all visible issues
         const handleDeselectAll = () => {
             const newSelected = new Set(selectedIndices);
             issues.forEach((issue, idx) => {
@@ -75,9 +98,12 @@ export async function createIssuesPanel() {
         };
         
         const handleCopy = async () => {
-            const selected = issues.filter((_, idx) => selectedIndices.has(idx));
+            const selected = issues.filter((issue, idx) => 
+                selectedIndices.has(idx) && filterMatches(issue.severity)
+            );
             if (selected.length === 0) {
-                setStatus('Nothing selected to copy');
+                setCopyStatus('error');
+                setTimeout(() => setCopyStatus(null), 2000);
                 return;
             }
             
@@ -89,9 +115,11 @@ export async function createIssuesPanel() {
             
             try {
                 await copyToClipboard(lines.join('\n'));
-                setStatus(`Copied ${selected.length} issue(s)`);
+                setCopyStatus('copied');
+                setTimeout(() => setCopyStatus(null), 2000);
             } catch (err) {
-                setStatus('Copy failed: ' + err.message);
+                setCopyStatus('error');
+                setTimeout(() => setCopyStatus(null), 2000);
             }
         };
         
@@ -105,51 +133,96 @@ export async function createIssuesPanel() {
             setSelectedIndices(newSelected);
         };
         
-        const setFilterType = (type) => {
-            if (type === 'all') {
-                setFilter('all');
-            } else {
-                setFilter(type);
+        // Handle navigation to comment
+        const handleNavigate = (commentId, fileId) => {
+            if (onNavigate) {
+                onNavigate(commentId, fileId);
             }
         };
         
+        // Count selected in current filter view
+        const selectedInFilter = issues.filter((issue, idx) => 
+            selectedIndices.has(idx) && filterMatches(issue.severity)
+        ).length;
+        const visibleCount = visibleIssues.length;
+        
         return html`
             <div class="issues-panel">
-                <div class="issues-actions">
-                    <div class="severity-filters">
-                        <button 
-                            class="severity-filter-btn all ${filter === 'all' ? 'active' : ''}"
-                            onClick=${() => setFilterType('all')}
-                        >All</button>
-                        <button 
-                            class="severity-filter-btn error ${filter.includes('error') ? 'active' : ''}"
-                            onClick=${() => setFilterType('error')}
-                        >Error</button>
-                        <button 
-                            class="severity-filter-btn warning ${filter.includes('warning') ? 'active' : ''}"
-                            onClick=${() => setFilterType('warning')}
-                        >Warning</button>
-                        <button 
-                            class="severity-filter-btn info ${filter === 'info' ? 'active' : ''}"
-                            onClick=${() => setFilterType('info')}
-                        >Info</button>
+                <div class="issues-header">
+                    <div class="issues-actions">
+                        <div class="severity-filters">
+                            <button 
+                                class="severity-filter-btn error ${activeFilters.has('error') ? 'active' : ''}"
+                                onClick=${() => toggleFilter('error')}
+                                title="Toggle error issues"
+                            >
+                                ERROR
+                                <span class="filter-badge">${errorCount}</span>
+                            </button>
+                            <button 
+                                class="severity-filter-btn warning ${activeFilters.has('warning') ? 'active' : ''}"
+                                onClick=${() => toggleFilter('warning')}
+                                title="Toggle warning issues"
+                            >
+                                WARNING
+                                <span class="filter-badge">${warningCount}</span>
+                            </button>
+                            <button 
+                                class="severity-filter-btn info ${activeFilters.has('info') ? 'active' : ''}"
+                                onClick=${() => toggleFilter('info')}
+                                title="Toggle info issues"
+                            >
+                                INFO
+                                <span class="filter-badge">${infoCount}</span>
+                            </button>
+                        </div>
+                        <button class="action-btn" onClick=${handleSelectAll} title="Select all visible issues">Select All</button>
+                        <button class="action-btn" onClick=${handleDeselectAll} title="Deselect all visible issues">Deselect All</button>
+                        <button class="action-btn ${copyStatus === 'copied' ? 'copied' : ''} ${copyStatus === 'error' ? 'error-state' : ''}" onClick=${handleCopy}>
+                            ${copyStatus === 'copied' ? html`
+                                <svg width="14" height="14" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" />
+                                </svg>
+                                Copied!
+                            ` : copyStatus === 'error' ? html`
+                                <svg width="14" height="14" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+                                </svg>
+                                None Selected
+                            ` : html`
+                                <svg width="14" height="14" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
+                                </svg>
+                                Copy Selected
+                            `}
+                        </button>
+                        <span class="issues-count">${selectedInFilter} of ${visibleCount} selected</span>
                     </div>
-                    <button class="btn-ghost" onClick=${handleSelectAll}>Select All</button>
-                    <button class="btn-ghost" onClick=${handleDeselectAll}>Deselect All</button>
-                    <button class="btn-primary" onClick=${handleCopy}>Copy Selected</button>
-                    <span class="issues-status">${status}</span>
+                    <button class="issues-close-btn" onClick=${onClose} title="Close panel">
+                        <svg width="16" height="16" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+                        </svg>
+                    </button>
                 </div>
                 <div class="issues-list">
-                    ${issues.map((issue, idx) => {
+                    ${visibleIssues.length === 0 ? html`
+                        <div class="issues-empty">
+                            ${activeFilters.size === 0 
+                                ? 'Select at least one category filter above'
+                                : 'No issues match the selected filters'
+                            }
+                        </div>
+                    ` : issues.map((issue, idx) => {
                         const hidden = !filterMatches(issue.severity);
+                        if (hidden) return null;
                         return html`
-                            <div class="issue-item ${hidden ? 'hidden' : ''}" data-severity="${(issue.severity || '').toLowerCase()}">
+                            <div class="issue-item" data-severity="${(issue.severity || '').toLowerCase()}">
                                 <input 
                                     type="checkbox"
                                     checked=${selectedIndices.has(idx)}
                                     onChange=${() => toggleSelected(idx)}
                                 />
-                                <div>
+                                <div class="issue-content">
                                     <div class="issue-path">
                                         ${issue.filePath}${issue.line ? ':' + issue.line : ''}
                                     </div>
@@ -157,15 +230,16 @@ export async function createIssuesPanel() {
                                         ${issue.body}${issue.severity ? ` (${issue.severity}${issue.category ? ', ' + issue.category : ''})` : ''}
                                     </div>
                                 </div>
-                                <a 
-                                    class="issue-nav-link"
-                                    href="#${issue.commentId}"
-                                    title="Navigate to comment"
-                                    onClick=${(e) => {
-                                        e.preventDefault();
-                                        onNavigate(issue.commentId, issue.fileId);
-                                    }}
-                                >→</a>
+                                <button 
+                                    class="issue-nav-btn"
+                                    type="button"
+                                    title="Go to comment"
+                                    onClick=${() => handleNavigate(issue.commentId, issue.fileId)}
+                                >
+                                    <svg width="16" height="16" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14 5l7 7m0 0l-7 7m7-7H3" />
+                                    </svg>
+                                </button>
                             </div>
                         `;
                     })}
