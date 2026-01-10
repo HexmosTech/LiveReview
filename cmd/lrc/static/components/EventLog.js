@@ -2,12 +2,26 @@
 import { waitForPreact, formatTime, copyToClipboard } from './utils.js';
 
 export async function createEventLog() {
-    const { html, useState, useRef } = await waitForPreact();
+    const { html, useState, useRef, useEffect } = await waitForPreact();
     
     return function EventLog({ events, status }) {
-        const [autoScroll, setAutoScroll] = useState(true);
         const [copied, setCopied] = useState(false);
+        const [isTailing, setIsTailing] = useState(false);
         const listRef = useRef(null);
+        
+        // Scroll to bottom when tailing is enabled or when new events arrive while tailing
+        useEffect(() => {
+            if (isTailing && listRef.current) {
+                listRef.current.scrollTop = listRef.current.scrollHeight;
+            }
+        }, [events, isTailing]);
+        
+        const handleTailLog = () => {
+            setIsTailing(true);
+            if (listRef.current) {
+                listRef.current.scrollTop = listRef.current.scrollHeight;
+            }
+        };
         
         const handleCopyLogs = async () => {
             const logsText = events.map((event, index) => {
@@ -22,6 +36,17 @@ export async function createEventLog() {
                 setTimeout(() => setCopied(false), 2000);
             } catch (err) {
                 console.error('Failed to copy logs:', err);
+            }
+        };
+        
+        // Stop tailing when user manually scrolls up
+        const handleScroll = (e) => {
+            if (listRef.current) {
+                const { scrollTop, scrollHeight, clientHeight } = listRef.current;
+                const isAtBottom = scrollHeight - scrollTop - clientHeight < 50;
+                if (!isAtBottom && isTailing) {
+                    setIsTailing(false);
+                }
             }
         };
         
@@ -51,14 +76,16 @@ export async function createEventLog() {
                         <div class="events-status">${getStatusText()}</div>
                     </div>
                     <div class="events-controls">
-                        <label class="auto-scroll-label">
-                            <input 
-                                type="checkbox" 
-                                checked=${autoScroll}
-                                onChange=${(e) => setAutoScroll(e.target.checked)}
-                            />
-                            <span>Auto-scroll</span>
-                        </label>
+                        <button 
+                            class="tail-log-btn ${isTailing ? 'active' : ''}"
+                            title="Scroll to bottom and follow new logs"
+                            onClick=${handleTailLog}
+                        >
+                            <svg width="16" height="16" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 14l-7 7m0 0l-7-7m7 7V3" />
+                            </svg>
+                            ${isTailing ? 'Tailing...' : 'Tail Log'}
+                        </button>
                         <button 
                             class="copy-logs-btn"
                             title="Copy all logs to clipboard"
@@ -71,7 +98,7 @@ export async function createEventLog() {
                         </button>
                     </div>
                 </div>
-                <div class="events-list" ref=${listRef}>
+                <div class="events-list" ref=${listRef} onScroll=${handleScroll}>
                     ${events.map(event => html`
                         <div class="event-item" data-event-id="${event.id}" data-event-type="${event.type || 'log'}">
                             <span class="event-time">${formatTime(event.time)}</span>
