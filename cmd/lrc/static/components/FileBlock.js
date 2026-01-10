@@ -7,7 +7,8 @@ export async function createFileBlock() {
     const DiffTable = await getDiffTable();
     
     return function FileBlock({ file, expanded, onToggle }) {
-        const fileId = filePathToId(file.FilePath);
+        // Use file.ID if available (set by convertFilesToUIFormat), otherwise generate
+        const fileId = file.ID || filePathToId(file.FilePath);
         
         return html`
             <div 
@@ -24,7 +25,7 @@ export async function createFileBlock() {
                     `}
                 </div>
                 <div class="file-content">
-                    <${DiffTable} hunks=${file.Hunks} filePath=${file.FilePath} />
+                    <${DiffTable} hunks=${file.Hunks} filePath=${file.FilePath} fileId=${fileId} />
                 </div>
             </div>
         `;

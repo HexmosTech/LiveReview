@@ -4,7 +4,7 @@ import { waitForPreact, getBadgeClass, copyToClipboard } from './utils.js';
 export async function createComment() {
     const { html, useState } = await waitForPreact();
     
-    return function Comment({ comment, filePath, codeExcerpt }) {
+    return function Comment({ comment, filePath, codeExcerpt, commentId }) {
         const [copied, setCopied] = useState(false);
         
         const handleCopy = async (e) => {
@@ -37,7 +37,7 @@ export async function createComment() {
         const badgeClass = getBadgeClass(comment.Severity);
         
         return html`
-            <tr class="comment-row" data-line="${comment.Line}">
+            <tr class="comment-row" data-line="${comment.Line}" id="${commentId}">
                 <td colspan="3">
                     <div 
                         class="comment-container"

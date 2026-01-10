@@ -4,15 +4,17 @@ import { waitForPreact, filePathToId } from './utils.js';
 export async function createSidebar() {
     const { html } = await waitForPreact();
     
-    return function Sidebar({ files, totalComments, activeFileId, onFileClick }) {
+    return function Sidebar({ files, activeFileId, onFileClick }) {
         const totalFiles = files.length;
+        // Calculate total comments from actual file data
+        const totalComments = files.reduce((sum, file) => sum + (file.CommentCount || 0), 0);
         
         return html`
             <div class="sidebar">
                 <div class="sidebar-header">
-                    <h2>📂 Files</h2>
+                    <h2>📂 FILES</h2>
                     <div class="sidebar-stats">
-                        ${totalFiles} files • ${totalComments} comments
+                        ${totalFiles} file${totalFiles !== 1 ? 's' : ''} • ${totalComments} comment${totalComments !== 1 ? 's' : ''}
                     </div>
                 </div>
                 <div class="sidebar-content">
@@ -29,7 +31,7 @@ export async function createSidebar() {
                                 <span class="sidebar-file-name" title="${file.FilePath}">
                                     ${file.FilePath}
                                 </span>
-                                ${file.HasComments && html`
+                                ${file.CommentCount > 0 && html`
                                     <span class="sidebar-file-badge">${file.CommentCount}</span>
                                 `}
                             </div>
