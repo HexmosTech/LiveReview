@@ -8,6 +8,7 @@ import (
 	"github.com/livereview/internal/naming"
 )
 
+// Data structures for HTML template rendering
 // HTMLTemplateData contains all data needed for the HTML template
 // This holds all the template related data structures
 type HTMLTemplateData struct {
