@@ -18,6 +18,7 @@ import (
 	"os/signal"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"strconv"
 	"strings"
 	"sync"
@@ -96,6 +97,13 @@ const (
 	editorWrapperScript = "lrc_editor.sh"
 	editorBackupFile    = ".lrc_editor_backup"
 	pushRequestFile     = "livereview_push_request"
+
+	// B2 constants for self-update (read-only credentials)
+	b2KeyID    = "00536b4c5851afd0000000006"
+	b2AppKey   = "K005DV+hNk6/fdQr8oXHmRsdo8U2YAU"
+	b2BucketID = "33d6ab74ac456875919a0f1d"
+	b2Prefix   = "lrc"
+	b2AuthURL  = "https://api.backblazeb2.com/b2api/v2/b2_authorize_account"
 )
 
 // highlightURL adds ANSI color to make served links stand out in terminals.
@@ -317,6 +325,22 @@ func main() {
 					fmt.Printf("  Git commit: %s\n", gitCommit)
 					return nil
 				},
+			},
+			{
+				Name:    "self-update",
+				Aliases: []string{"update"},
+				Usage:   "Update lrc to the latest version",
+				Flags: []cli.Flag{
+					&cli.BoolFlag{
+						Name:  "check",
+						Usage: "Only check for updates without installing",
+					},
+					&cli.BoolFlag{
+						Name:  "force",
+						Usage: "Force reinstall even if already up-to-date",
+					},
+				},
+				Action: runSelfUpdate,
 			},
 		},
 		Action: runReviewSimple,
@@ -3352,5 +3376,251 @@ func cleanOldBackups(backupDir string, keepLast int) error {
 		log.Printf("Cleaned up old %s backups (kept last %d)", hookName, keepLast)
 	}
 
+	return nil
+}
+
+// =============================================================================
+// SELF-UPDATE FUNCTIONALITY
+// =============================================================================
+
+// Pre-compiled regexes for version parsing
+var (
+	semverRe        = regexp.MustCompile(`v?(\d+)\.(\d+)\.(\d+)`)
+	b2VersionPathRe = regexp.MustCompile(`^lrc/(v\d+\.\d+\.\d+)/`)
+)
+
+// b2AuthResponse models the B2 authorization response
+type b2AuthResponse struct {
+	AuthorizationToken string `json:"authorizationToken"`
+	APIURL             string `json:"apiUrl"`
+}
+
+// b2ListRequest models the B2 list files request
+type b2ListRequest struct {
+	BucketID      string `json:"bucketId"`
+	StartFileName string `json:"startFileName"`
+	Prefix        string `json:"prefix"`
+	MaxFileCount  int    `json:"maxFileCount"`
+}
+
+// b2ListResponse models the B2 list files response
+type b2ListResponse struct {
+	Files []struct {
+		FileName string `json:"fileName"`
+	} `json:"files"`
+}
+
+// semverParse extracts major, minor, patch from a version string like "v0.1.14"
+func semverParse(v string) (int, int, int, bool) {
+	match := semverRe.FindStringSubmatch(strings.TrimSpace(v))
+	if match == nil {
+		return 0, 0, 0, false
+	}
+	major, _ := strconv.Atoi(match[1])
+	minor, _ := strconv.Atoi(match[2])
+	patch, _ := strconv.Atoi(match[3])
+	return major, minor, patch, true
+}
+
+// semverCompare compares two version strings, returns:
+// 1 if a > b, -1 if a < b, 0 if equal, error if parsing fails
+func semverCompare(a, b string) (int, error) {
+	a1, a2, a3, okA := semverParse(a)
+	b1, b2, b3, okB := semverParse(b)
+	if !okA {
+		return 0, fmt.Errorf("invalid version format: %q", a)
+	}
+	if !okB {
+		return 0, fmt.Errorf("invalid version format: %q", b)
+	}
+	if a1 != b1 {
+		if a1 > b1 {
+			return 1, nil
+		}
+		return -1, nil
+	}
+	if a2 != b2 {
+		if a2 > b2 {
+			return 1, nil
+		}
+		return -1, nil
+	}
+	if a3 != b3 {
+		if a3 > b3 {
+			return 1, nil
+		}
+		return -1, nil
+	}
+	return 0, nil
+}
+
+// fetchLatestVersionFromB2 queries B2 to find the latest lrc version
+func fetchLatestVersionFromB2() (string, error) {
+	// Step 1: Authorize with B2
+	authReq, err := http.NewRequest("GET", b2AuthURL, nil)
+	if err != nil {
+		return "", fmt.Errorf("failed to create auth request: %w", err)
+	}
+	authReq.SetBasicAuth(b2KeyID, b2AppKey)
+
+	client := &http.Client{Timeout: 30 * time.Second}
+	authResp, err := client.Do(authReq)
+	if err != nil {
+		return "", fmt.Errorf("B2 auth request failed: %w", err)
+	}
+	defer authResp.Body.Close()
+
+	if authResp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(authResp.Body)
+		return "", fmt.Errorf("B2 auth failed with status %d: %s", authResp.StatusCode, string(body))
+	}
+
+	var authData b2AuthResponse
+	if err := json.NewDecoder(authResp.Body).Decode(&authData); err != nil {
+		return "", fmt.Errorf("failed to decode B2 auth response: %w", err)
+	}
+
+	// Step 2: List files in the lrc/ prefix
+	listURL := authData.APIURL + "/b2api/v2/b2_list_file_names"
+	listReqBody := b2ListRequest{
+		BucketID:      b2BucketID,
+		StartFileName: b2Prefix + "/",
+		Prefix:        b2Prefix + "/",
+		MaxFileCount:  1000,
+	}
+	listBodyBytes, err := json.Marshal(listReqBody)
+	if err != nil {
+		return "", fmt.Errorf("failed to marshal list request: %w", err)
+	}
+
+	listReq, err := http.NewRequest("POST", listURL, bytes.NewReader(listBodyBytes))
+	if err != nil {
+		return "", fmt.Errorf("failed to create list request: %w", err)
+	}
+	listReq.Header.Set("Authorization", authData.AuthorizationToken)
+	listReq.Header.Set("Content-Type", "application/json")
+
+	listResp, err := client.Do(listReq)
+	if err != nil {
+		return "", fmt.Errorf("B2 list request failed: %w", err)
+	}
+	defer listResp.Body.Close()
+
+	if listResp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(listResp.Body)
+		return "", fmt.Errorf("B2 list failed with status %d: %s", listResp.StatusCode, string(body))
+	}
+
+	var listData b2ListResponse
+	if err := json.NewDecoder(listResp.Body).Decode(&listData); err != nil {
+		return "", fmt.Errorf("failed to decode B2 list response: %w", err)
+	}
+
+	// Step 3: Extract versions and find the latest
+	seen := make(map[string]bool)
+	var latestVersion string
+
+	for _, f := range listData.Files {
+		match := b2VersionPathRe.FindStringSubmatch(f.FileName)
+		if match != nil {
+			v := match[1]
+			if !seen[v] {
+				seen[v] = true
+				if latestVersion == "" {
+					latestVersion = v
+				} else if cmp, err := semverCompare(v, latestVersion); err == nil && cmp > 0 {
+					latestVersion = v
+				}
+			}
+		}
+	}
+
+	if latestVersion == "" {
+		return "", fmt.Errorf("no versions found in B2 bucket")
+	}
+
+	return latestVersion, nil
+}
+
+// platformInstallCommand returns the appropriate installer command for the current platform
+func platformInstallCommand() string {
+	if runtime.GOOS == "windows" {
+		return `powershell -Command "iwr -useb https://hexmos.com/lrc-install.ps1 | iex"`
+	}
+	return "curl -fsSL https://hexmos.com/lrc-install.sh | sudo bash"
+}
+
+// ANSI color codes for terminal output
+const (
+	colorReset  = "\033[0m"
+	colorRed    = "\033[31m"
+	colorGreen  = "\033[32m"
+	colorYellow = "\033[33m"
+	colorCyan   = "\033[36m"
+	colorBold   = "\033[1m"
+)
+
+// runSelfUpdate handles the self-update command
+func runSelfUpdate(c *cli.Context) error {
+	checkOnly := c.Bool("check")
+	force := c.Bool("force")
+
+	fmt.Printf("Current version: %s%s%s\n", colorCyan, version, colorReset)
+	fmt.Println("Checking for updates...")
+
+	latestVersion, err := fetchLatestVersionFromB2()
+	if err != nil {
+		return fmt.Errorf("failed to check for updates: %w", err)
+	}
+
+	fmt.Printf("Latest version:  %s%s%s\n", colorCyan, latestVersion, colorReset)
+
+	cmp, err := semverCompare(version, latestVersion)
+	if err != nil {
+		return fmt.Errorf("failed to compare versions: %w", err)
+	}
+	if cmp >= 0 && !force {
+		fmt.Printf("\n%s✓ lrc is already up to date!%s\n", colorGreen, colorReset)
+		return nil
+	}
+
+	if cmp >= 0 && force {
+		fmt.Printf("\n%sForce reinstall requested%s\n", colorYellow, colorReset)
+	} else {
+		fmt.Printf("\n%s⬆ Update available: %s → %s%s\n", colorYellow, version, latestVersion, colorReset)
+	}
+
+	if checkOnly {
+		fmt.Println("\nRun 'lrc self-update' (without --check) to install the update.")
+		return nil
+	}
+
+	// Warn about sudo requirement on non-Windows platforms
+	if runtime.GOOS != "windows" {
+		fmt.Printf("\n%s%s⚠ NOTE: The installer will use 'sudo' and may prompt for your password.%s\n\n",
+			colorBold, colorYellow, colorReset)
+	}
+
+	// Get the installer command
+	installCmd := platformInstallCommand()
+	fmt.Printf("Running installer: %s\n\n", installCmd)
+
+	// Execute the installer
+	var cmd *exec.Cmd
+	if runtime.GOOS == "windows" {
+		cmd = exec.Command("powershell", "-Command", installCmd)
+	} else {
+		cmd = exec.Command("bash", "-c", installCmd)
+	}
+
+	cmd.Stdin = os.Stdin
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("installer failed: %w", err)
+	}
+
+	fmt.Printf("\n%s✓ Update complete! Run 'lrc version' to verify.%s\n", colorGreen, colorReset)
 	return nil
 }
