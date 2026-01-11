@@ -9,6 +9,7 @@ import (
 )
 
 // HTMLTemplateData contains all data needed for the HTML template
+// This holds all the template related data structures
 type HTMLTemplateData struct {
 	GeneratedTime      string
 	Summary            string
@@ -217,4 +218,3 @@ func prepareComments(comments []diffReviewComment, filePath string) []HTMLCommen
 func renderHTMLTemplate(data *HTMLTemplateData) (string, error) {
 	return renderPreactHTML(data)
 }
-
