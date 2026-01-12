@@ -3,6 +3,22 @@ import toast from 'react-hot-toast';
 import { LoginResponse } from '../api/auth';
 
 /**
+ * Get the stored redirect URL from sessionStorage after successful login
+ * @returns The redirect URL or null if not set
+ */
+export const getRedirectAfterLogin = (): string | null => {
+	const redirectUrl = sessionStorage.getItem('redirectAfterLogin');
+	return redirectUrl;
+};
+
+/**
+ * Clear the stored redirect URL from sessionStorage
+ */
+export const clearRedirectAfterLogin = (): void => {
+	sessionStorage.removeItem('redirectAfterLogin');
+};
+
+/**
  * Common post-login handler that processes a successful login response
  * by dispatching it to the Redux store. The store will handle setting
  * tokens in localStorage and updating auth state.
