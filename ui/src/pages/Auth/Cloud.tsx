@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAppDispatch } from '../../store/configureStore';
-import { handleLoginSuccess, handleLoginError } from '../../utils/authHelpers';
+import { handleLoginSuccess, handleLoginError, getRedirectAfterLogin, clearRedirectAfterLogin } from '../../utils/authHelpers';
 import { LoginResponse } from '../../api/auth';
 
 interface AuthedUser {
@@ -144,11 +144,28 @@ const Cloud: React.FC = () => {
                         }
                         
                         handleLoginSuccess(loginResponse, dispatch);
-                        // Clean URL and navigate smoothly to dashboard
+                        
+                        // Clean URL and navigate
                         if (window.location.pathname !== '/') {
                             window.history.replaceState(null, '', '/');
                         }
-                        navigate('/dashboard', { replace: true });
+                        
+                        // Get the redirect URL if it was stored
+                        const redirectUrl = getRedirectAfterLogin();
+                        
+                        // Navigate to the original URL or dashboard as fallback
+                        const targetUrl = redirectUrl || '/dashboard';
+                        clearRedirectAfterLogin();
+                        
+                        // If redirectUrl is a hash path like #/reviews/618, extract the path part
+                        if (redirectUrl && redirectUrl.startsWith('#')) {
+                            const pathWithoutHash = redirectUrl.slice(1); // Remove the # prefix
+                            navigate(pathWithoutHash, { replace: true });
+                        } else if (redirectUrl) {
+                            navigate(redirectUrl, { replace: true });
+                        } else {
+                            navigate(targetUrl, { replace: true });
+                        }
                     }
                 }
             } catch (err: any) {

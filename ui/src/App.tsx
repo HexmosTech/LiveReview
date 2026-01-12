@@ -135,6 +135,26 @@ const AppContent: React.FC = () => {
         return () => clearTimeout(timeout);
     }, [bootVisible, isLoading]);
 
+    // CRITICAL: Capture the intended destination URL immediately on mount, before any navigation occurs
+    // This runs once when the component mounts to preserve the user's originally requested URL
+    useEffect(() => {
+        // Only run once on mount
+        const hashPath = window.location.hash;
+        const isProtectedRoute = 
+            hashPath && 
+            hashPath !== '' && 
+            hashPath !== '#/' && 
+            !hashPath.startsWith('#/oauth-callback') && 
+            !hashPath.startsWith('#/admin');
+        
+        if (isProtectedRoute && !isAuthenticated) {
+            // Store immediately before any other code can change the hash
+            sessionStorage.setItem('redirectAfterLogin', hashPath);
+            console.info('[LiveReview][Mount] Captured initial redirect URL:', hashPath);
+        }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, []); // Run only once on mount
+
     // Extract the current page from the path
     const getCurrentPage = (): string => {
         const path = location.pathname;

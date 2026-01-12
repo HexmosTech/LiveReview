@@ -3,7 +3,7 @@ import { useDispatch, useSelector } from 'react-redux';
 import { useAppDispatch, useAppSelector } from '../../store/configureStore';
 import { useNavigate } from 'react-router-dom';
 import { login } from '../../store/Auth/reducer';
-import { handleLoginError } from '../../utils/authHelpers';
+import { handleLoginError, getRedirectAfterLogin, clearRedirectAfterLogin } from '../../utils/authHelpers';
 import toast from 'react-hot-toast';
 
 const SelfHosted: React.FC = () => {
@@ -57,11 +57,30 @@ const SelfHosted: React.FC = () => {
 		try {
 			await dispatch(login({ email, password })).unwrap();
 			toast.success('Login successful!');
-			// Clean URL and navigate smoothly to dashboard
+			
+			// Get the redirect URL if it was stored
+			const redirectUrl = getRedirectAfterLogin();
+			
+			// Clean URL and navigate
 			if (window.location.pathname !== '/') {
 				window.history.replaceState(null, '', '/');
 			}
-			navigate('/dashboard', { replace: true });
+			
+			// Navigate to the original URL or dashboard as fallback
+			const targetUrl = redirectUrl || '/dashboard';
+			
+			// Clear the stored redirect URL after using it
+			clearRedirectAfterLogin();
+			
+			// If redirectUrl is a hash path like #/reviews/618, extract the path part
+			if (redirectUrl && redirectUrl.startsWith('#')) {
+				const pathWithoutHash = redirectUrl.slice(1); // Remove the # prefix
+				navigate(pathWithoutHash, { replace: true });
+			} else if (redirectUrl) {
+				navigate(redirectUrl, { replace: true });
+			} else {
+				navigate(targetUrl, { replace: true });
+			}
 		} catch (err) {
 			handleLoginError(err);
 		}
