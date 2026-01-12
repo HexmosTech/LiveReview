@@ -67,6 +67,15 @@ type diffReviewCreateResponse struct {
 	UserEmail    string `json:"user_email,omitempty"`
 }
 
+type APIError struct {
+	StatusCode int
+	Body       string
+}
+
+func (e *APIError) Error() string {
+	return fmt.Sprintf("API returned status %d: %s", e.StatusCode, e.Body)
+}
+
 type diffReviewFileResult struct {
 	FilePath string              `json:"file_path"`
 	Hunks    []diffReviewHunk    `json:"hunks"`
@@ -635,6 +644,35 @@ func runReviewWithOptions(opts reviewOptions) error {
 	// Submit review
 	submitResp, err := submitReview(config.APIURL, config.APIKey, base64Diff, repoName, verbose)
 	if err != nil {
+		// Handle 413 Request Entity Too Large - prompt user to skip if interactive
+		var apiErr *APIError
+		if errors.As(err, &apiErr) && apiErr.StatusCode == http.StatusRequestEntityTooLarge {
+			isInteractive := term.IsTerminal(int(os.Stdin.Fd())) && term.IsTerminal(int(os.Stdout.Fd()))
+			if isInteractive {
+				fmt.Printf("\n⚠️  Review submission failed: The diff is too large for the API (Status 413).\n")
+				fmt.Print("Do you want to skip the review and proceed with the commit? [y/N]: ")
+
+				reader := bufio.NewReader(os.Stdin)
+				response, rErr := reader.ReadString('\n')
+				if rErr != nil {
+					// Fallback to error if we can't read input
+					return fmt.Errorf("failed to read input during 413 handling: %w (original error: %v)", rErr, err)
+				}
+				response = strings.ToLower(strings.TrimSpace(response))
+
+				if response == "y" || response == "yes" {
+					fmt.Println("Proceeding with skipped review...")
+					attestationAction = "skipped"
+					if err := ensureAttestation(attestationAction, verbose, &attestationWritten); err != nil {
+						return err
+					}
+					// Return nil to indicate success (review skipped, but process continues)
+					return nil
+				}
+				// User declined to skip, return specific error without body
+				return fmt.Errorf("review submission aborted by user (diff too large)")
+			}
+		}
 		return fmt.Errorf("failed to submit review: %w", err)
 	}
 
@@ -1632,7 +1670,7 @@ func submitReview(apiURL, apiKey, base64Diff, repoName string, verbose bool) (di
 	}
 
 	if resp.StatusCode != http.StatusOK {
-		return diffReviewCreateResponse{}, fmt.Errorf("API returned status %d: %s", resp.StatusCode, string(body))
+		return diffReviewCreateResponse{}, &APIError{StatusCode: resp.StatusCode, Body: string(body)}
 	}
 
 	var result diffReviewCreateResponse
