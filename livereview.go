@@ -26,6 +26,9 @@ func main() {
 	cmd.BuildTime = buildTime
 	cmd.GitCommit = gitCommit
 
+	// Try to load .env file if it exists (ignore error)
+	_ = cmd.LoadEnvFile(".env")
+
 	app := &cli.App{
 		Name:    "livereview",
 		Usage:   "AI-powered code review tool for GitLab, GitHub, and BitBucket",

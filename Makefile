@@ -382,4 +382,8 @@ pm2-logs:
 	echo "📜 Fetching last $$LOG_LINES lines of PM2 logs from master..."; \
 	ssh master "tail -n $$LOG_LINES ~/.pm2/logs/livereview-api-out.log ~/.pm2/logs/livereview-api-error.log ~/.pm2/logs/livereview-ui-out.log ~/.pm2/logs/livereview-ui-error.log"
 
+run-selfhosted:
+	which air || go install github.com/air-verse/air@latest
+	air -- --env-file .env.selfhosted
+
 	
