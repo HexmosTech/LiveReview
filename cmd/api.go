@@ -23,6 +23,10 @@ func APICommand() *cli.Command {
 		Name:  "api",
 		Usage: "Start the LiveReview API server",
 		Flags: []cli.Flag{
+			&cli.StringFlag{
+				Name:  "env-file",
+				Usage: "Path to .env file to load (overwrites existing variables)",
+			},
 			&cli.IntFlag{
 				Name:    "port",
 				Aliases: []string{"p"},
@@ -69,6 +73,13 @@ func APICommand() *cli.Command {
 			},
 		},
 		Action: func(c *cli.Context) error {
+			if envFile := c.String("env-file"); envFile != "" {
+				if err := LoadEnvFile(envFile); err != nil {
+					return fmt.Errorf("failed to load env file %s: %w", envFile, err)
+				}
+				fmt.Printf("Loaded environment from %s\n", envFile)
+			}
+
 			port := c.Int("port")
 
 			// Check for environment variable override
