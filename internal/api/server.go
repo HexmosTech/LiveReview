@@ -669,6 +669,11 @@ func (s *Server) setupRoutes() {
 	subscriptionsGroup.POST("/:id/assign", subscriptionsHandler.AssignLicense)
 	subscriptionsGroup.DELETE("/:id/users/:user_id", subscriptionsHandler.RevokeLicense)
 
+	// Self-hosted purchase endpoints (no auth required)
+	selfHostedGroup := v1.Group("/subscriptions/selfhosted")
+	selfHostedGroup.POST("/purchase", subscriptionsHandler.CreateSelfHostedPurchase)
+	selfHostedGroup.POST("/confirm", subscriptionsHandler.ConfirmSelfHostedPurchase)
+
 	// List subscriptions - user can see their own subscriptions across all orgs
 	protected.GET("/subscriptions", subscriptionsHandler.ListUserSubscriptions)
 

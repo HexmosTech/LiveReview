@@ -316,6 +316,8 @@ const AppContent: React.FC = () => {
                                 <Route path="/ai/:provider/:action" element={<AIProviders />} />
                                 <Route path="/ai/:provider/:action/:connectorId" element={<AIProviders />} />
                                 <Route path="/settings/*" element={<Settings />} />
+                                <Route path="/settings-subscriptions-overview" element={<Settings />} />
+                                <Route path="/settings-subscriptions-assign" element={<Settings />} />
                                 <Route path="/settings/users/add" element={<UserForm />} />
                                 <Route path="/settings/users/edit/:userId" element={<UserForm />} />
                                 <Route path="/test-middleware" element={<MiddlewareTestPage />} />
