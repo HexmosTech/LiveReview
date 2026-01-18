@@ -11,7 +11,15 @@ import apiClient from '../../api/apiClient';
 const SubscriptionTab: React.FC = () => {
   const navigate = useNavigate();
   const { currentOrg, isSuperAdmin } = useOrgContext();
-  const [activeTab, setActiveTab] = useState<'overview' | 'assignments'>('overview');
+  
+  // Initialize tab from URL path
+  const getInitialTab = (): 'overview' | 'assignments' => {
+    const hash = window.location.hash;
+    if (hash.includes('settings-subscriptions-assign')) return 'assignments';
+    return 'overview';
+  };
+  
+  const [activeTab, setActiveTab] = useState<'overview' | 'assignments'>(getInitialTab);
 
   // Check if user can manage licenses (owner or super admin)
   const canManageLicenses = isSuperAdmin || currentOrg?.role === 'owner';
@@ -22,6 +30,22 @@ const SubscriptionTab: React.FC = () => {
       navigate('/settings/license', { replace: true });
     }
   }, [navigate]);
+
+  // Update tab when location changes
+  useEffect(() => {
+    const hash = window.location.hash;
+    if (hash.includes('settings-subscriptions-assign')) {
+      setActiveTab('assignments');
+    } else if (hash.includes('settings-subscriptions-overview')) {
+      setActiveTab('overview');
+    }
+  }, [window.location.hash]);
+
+  const handleTabChange = (tab: 'overview' | 'assignments') => {
+    setActiveTab(tab);
+    const route = tab === 'assignments' ? '/settings-subscriptions-assign' : '/settings-subscriptions-overview';
+    navigate(route);
+  };
 
   // Only render if in cloud mode
   if (!isCloudMode()) {
@@ -34,7 +58,7 @@ const SubscriptionTab: React.FC = () => {
       <div className="border-b border-slate-700 -mx-6 px-6">
         <div className="flex space-x-1">
           <button
-            onClick={() => setActiveTab('overview')}
+            onClick={() => handleTabChange('overview')}
             className={`px-4 py-3 text-sm font-medium transition-colors ${
               activeTab === 'overview'
                 ? 'text-white border-b-2 border-blue-500'
@@ -45,7 +69,7 @@ const SubscriptionTab: React.FC = () => {
           </button>
           {canManageLicenses && (
             <button
-              onClick={() => setActiveTab('assignments')}
+              onClick={() => handleTabChange('assignments')}
               className={`px-4 py-3 text-sm font-medium transition-colors ${
                 activeTab === 'assignments'
                   ? 'text-white border-b-2 border-blue-500'

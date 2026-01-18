@@ -3,6 +3,7 @@ package api
 import (
 	"database/sql"
 	"net/http"
+	"os"
 	"strconv"
 	"time"
 
@@ -236,7 +237,7 @@ func (h *SubscriptionsHandler) GetSubscription(c echo.Context) error {
 		OwnerUserID            int        `json:"owner_user_id"`
 		OwnerEmail             string     `json:"owner_email"`
 		OwnerName              string     `json:"owner_name"`
-		OrgID                  int        `json:"org_id"`
+		OrgID                  *int       `json:"org_id,omitempty"` // Nullable for self-hosted subscriptions
 		PlanType               string     `json:"plan_type"`
 		Quantity               int        `json:"quantity"`
 		AssignedSeats          int        `json:"assigned_seats"`
@@ -578,10 +579,13 @@ func (h *SubscriptionsHandler) ListUserSubscriptions(c echo.Context) error {
 	// Get authenticated user
 	user := auth.GetUser(c)
 	if user == nil {
+		c.Logger().Warn("ListUserSubscriptions: authentication required")
 		return c.JSON(http.StatusUnauthorized, map[string]string{
 			"error": "authentication required",
 		})
 	}
+
+	c.Logger().Infof("ListUserSubscriptions: fetching subscriptions for user_id=%d email=%s", user.ID, user.Email)
 
 	// Query subscriptions owned by the user with calculated assigned_seats from user_roles
 	// Only return subscriptions that are active or have assigned seats
@@ -599,6 +603,7 @@ func (h *SubscriptionsHandler) ListUserSubscriptions(c echo.Context) error {
 		ORDER BY s.created_at DESC
 	`, user.ID)
 	if err != nil {
+		c.Logger().Errorf("ListUserSubscriptions: failed to execute query for user_id=%d: %v", user.ID, err)
 		return c.JSON(http.StatusInternalServerError, map[string]string{
 			"error": "failed to fetch subscriptions",
 		})
@@ -609,7 +614,7 @@ func (h *SubscriptionsHandler) ListUserSubscriptions(c echo.Context) error {
 		ID                     int64      `json:"id"`
 		RazorpaySubscriptionID string     `json:"razorpay_subscription_id"`
 		OwnerUserID            int        `json:"owner_user_id"`
-		OrgID                  int        `json:"org_id"`
+		OrgID                  *int       `json:"org_id,omitempty"` // Nullable for self-hosted subscriptions
 		PlanType               string     `json:"plan_type"`
 		Quantity               int        `json:"quantity"`
 		AssignedSeats          int        `json:"assigned_seats"`
@@ -625,7 +630,9 @@ func (h *SubscriptionsHandler) ListUserSubscriptions(c echo.Context) error {
 	}
 
 	var subscriptions []SubscriptionResponse
+	rowCount := 0
 	for rows.Next() {
+		rowCount++
 		var sub SubscriptionResponse
 		if err := rows.Scan(
 			&sub.ID, &sub.RazorpaySubscriptionID, &sub.OwnerUserID, &sub.OrgID, &sub.PlanType,
@@ -633,19 +640,24 @@ func (h *SubscriptionsHandler) ListUserSubscriptions(c echo.Context) error {
 			&sub.CurrentPeriodStart, &sub.CurrentPeriodEnd, &sub.LicenseExpiresAt,
 			&sub.CreatedAt, &sub.UpdatedAt, &sub.CancelAtPeriodEnd, &sub.ShortURL,
 		); err != nil {
+			c.Logger().Errorf("ListUserSubscriptions: failed to scan row %d for user_id=%d: %v", rowCount, user.ID, err)
 			return c.JSON(http.StatusInternalServerError, map[string]string{
 				"error": "failed to parse subscriptions",
 			})
 		}
+		c.Logger().Debugf("ListUserSubscriptions: parsed subscription id=%d rzp_id=%s plan=%s status=%s",
+			sub.ID, sub.RazorpaySubscriptionID, sub.PlanType, sub.Status)
 		subscriptions = append(subscriptions, sub)
 	}
 
 	if err := rows.Err(); err != nil {
+		c.Logger().Errorf("ListUserSubscriptions: error iterating rows for user_id=%d: %v", user.ID, err)
 		return c.JSON(http.StatusInternalServerError, map[string]string{
 			"error": "error iterating subscriptions",
 		})
 	}
 
+	c.Logger().Infof("ListUserSubscriptions: successfully fetched %d subscriptions for user_id=%d", len(subscriptions), user.ID)
 	return c.JSON(http.StatusOK, map[string]interface{}{
 		"subscriptions": subscriptions,
 		"count":         len(subscriptions),
@@ -775,5 +787,78 @@ func (h *SubscriptionsHandler) ConfirmPurchase(c echo.Context) error {
 
 	return c.JSON(http.StatusOK, map[string]string{
 		"message": "purchase confirmed successfully",
+	})
+}
+
+// CreateSelfHostedPurchase creates a self-hosted purchase (no auth required)
+func (h *SubscriptionsHandler) CreateSelfHostedPurchase(c echo.Context) error {
+	var req struct {
+		Email    string `json:"email"`
+		Quantity int    `json:"quantity"`
+	}
+	if err := c.Bind(&req); err != nil {
+		return c.JSON(http.StatusBadRequest, map[string]string{
+			"error": "invalid request body",
+		})
+	}
+
+	if req.Email == "" {
+		return c.JSON(http.StatusBadRequest, map[string]string{
+			"error": "email is required",
+		})
+	}
+
+	if req.Quantity < 1 {
+		req.Quantity = 1
+	}
+
+	// Read mode from environment: "test" or "live" (defaults to "test" for safety)
+	mode := os.Getenv("RAZORPAY_MODE")
+	if mode == "" {
+		mode = "test"
+	}
+	result, err := h.service.CreateSelfHostedPurchase(req.Email, req.Quantity, mode)
+	if err != nil {
+		return c.JSON(http.StatusInternalServerError, map[string]string{
+			"error": err.Error(),
+		})
+	}
+
+	return c.JSON(http.StatusOK, result)
+}
+
+// ConfirmSelfHostedPurchase confirms a self-hosted purchase and generates license
+func (h *SubscriptionsHandler) ConfirmSelfHostedPurchase(c echo.Context) error {
+	var req struct {
+		SubscriptionID string `json:"subscription_id"`
+		PaymentID      string `json:"payment_id"`
+	}
+	if err := c.Bind(&req); err != nil {
+		return c.JSON(http.StatusBadRequest, map[string]string{
+			"error": "invalid request body",
+		})
+	}
+
+	if req.SubscriptionID == "" || req.PaymentID == "" {
+		return c.JSON(http.StatusBadRequest, map[string]string{
+			"error": "subscription_id and payment_id are required",
+		})
+	}
+
+	// Read mode from environment: "test" or "live" (defaults to "test" for safety)
+	mode := os.Getenv("RAZORPAY_MODE")
+	if mode == "" {
+		mode = "test"
+	}
+	licenseKey, err := h.service.ConfirmSelfHostedPurchase(req.SubscriptionID, req.PaymentID, mode)
+	if err != nil {
+		return c.JSON(http.StatusInternalServerError, map[string]string{
+			"error": err.Error(),
+		})
+	}
+
+	return c.JSON(http.StatusOK, map[string]string{
+		"license_key": licenseKey,
+		"message":     "License generated successfully",
 	})
 }

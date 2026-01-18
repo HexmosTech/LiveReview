@@ -265,7 +265,10 @@ const Settings = () => {
     const { isSuperAdmin, canManageCurrentOrg, currentOrg } = useOrgContext();
     const canAccessPrompts = isSuperAdmin || (currentOrg && ['owner', 'member'].includes(currentOrg.role));
     
-    const activeTab = location.hash.substring(1) || 'general';
+    // Check if we're on a subscription sub-route
+    const isSubscriptionRoute = location.pathname.startsWith('/settings-subscriptions-');
+    const activeTab = isSubscriptionRoute ? 'subscriptions' : (location.hash.substring(1) || 'general');
+    
     const [productionUrl, setProductionUrl] = useState('');
     const [showSaved, setShowSaved] = useState(false);
     const [error, setError] = useState('');
@@ -333,19 +336,19 @@ const Settings = () => {
     const tabIds = tabs.map(t => t.id);
     const firstTab = tabIds[0];
 
-    // Ensure a valid default tab if hash missing or removed
+    // Ensure a valid default tab if hash missing or removed (but not for subscription sub-routes)
     useEffect(() => {
-        if (!location.hash && firstTab) {
+        if (!isSubscriptionRoute && !location.hash && firstTab) {
             navigate(`#${firstTab}`, { replace: true });
         }
-    }, [location.hash, firstTab, navigate]);
+    }, [location.hash, firstTab, navigate, isSubscriptionRoute]);
 
-    // Redirect if current hash points to a hidden/removed tab
+    // Redirect if current hash points to a hidden/removed tab (but not for subscription sub-routes)
     useEffect(() => {
-        if (activeTab && !tabIds.includes(activeTab) && firstTab) {
+        if (!isSubscriptionRoute && activeTab && !tabIds.includes(activeTab) && firstTab) {
             navigate(`#${firstTab}`, { replace: true });
         }
-    }, [activeTab, tabIds.join(':'), firstTab, navigate]);
+    }, [activeTab, tabIds.join(':'), firstTab, navigate, isSubscriptionRoute]);
 
     // Redirect away from prompts tab if user loses permission or navigates manually
     useEffect(() => {
@@ -560,7 +563,7 @@ const Settings = () => {
                                     fullWidth 
                                     className="justify-start"
                                     icon={tab.icon}
-                                    onClick={() => navigate(`#${tab.id}`)}
+                                    onClick={() => navigate(`/settings#${tab.id}`)}
                                 >
                                     {tab.name}
                                 </Button>

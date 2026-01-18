@@ -1,20 +1,35 @@
 package payment
 
 import (
+	"bytes"
+	"crypto/rand"
 	"database/sql"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"net/http"
+	"os"
 	"time"
 
 	"github.com/lib/pq"
+	"golang.org/x/crypto/bcrypt"
 )
 
-// Razorpay Plan IDs - LIVE/PRODUCTION environment
-// Monthly: $5/user/month, Yearly: $60/user/year
-var (
-	TeamMonthlyPlanID = "plan_RvrblDPJl6Dj5g"
-	TeamYearlyPlanID  = "plan_Rvrblxe5n0WkMq"
-)
+// GetPlanID returns the appropriate Razorpay plan ID based on mode and plan type
+// Reads from environment variables for easy test/prod switching
+func GetPlanID(mode, planType string) string {
+	if mode == "test" {
+		if planType == "monthly" {
+			return os.Getenv("RAZORPAY_TEST_MONTHLY_PLAN_ID")
+		}
+		return os.Getenv("RAZORPAY_TEST_YEARLY_PLAN_ID")
+	}
+	// live mode
+	if planType == "monthly" {
+		return os.Getenv("RAZORPAY_LIVE_MONTHLY_PLAN_ID")
+	}
+	return os.Getenv("RAZORPAY_LIVE_YEARLY_PLAN_ID")
+}
 
 // SubscriptionService handles business logic for subscriptions, wrapping the payment package
 type SubscriptionService struct {
@@ -33,16 +48,11 @@ func (s *SubscriptionService) CreateTeamSubscription(ownerUserID, orgID int, pla
 		return nil, fmt.Errorf("invalid plan type: %s (must be monthly or yearly)", planType)
 	}
 
-	// Get the corresponding Razorpay plan ID
-	var razorpayPlanID string
-	if planType == "monthly" {
-		razorpayPlanID = TeamMonthlyPlanID
-	} else {
-		razorpayPlanID = TeamYearlyPlanID
-	}
+	// Get the corresponding Razorpay plan ID based on mode
+	razorpayPlanID := GetPlanID(mode, planType)
 
 	if razorpayPlanID == "" {
-		return nil, fmt.Errorf("razorpay plan ID not configured for %s", planType)
+		return nil, fmt.Errorf("razorpay plan ID not configured for %s in %s mode", planType, mode)
 	}
 
 	// Create notes for the subscription
@@ -614,7 +624,7 @@ func (s *SubscriptionService) ConfirmPurchase(req *PurchaseConfirmationRequest, 
 	_, err = tx.Exec(`
 		INSERT INTO subscription_payments (
 			subscription_id, razorpay_payment_id, amount, currency,
-			status, captured, method, created_at, payment_payload
+			status, captured, method, created_at, razorpay_data
 		) VALUES ($1, $2, $3, $4, $5, $6, $7, NOW(), $8)
 		ON CONFLICT (razorpay_payment_id) DO NOTHING`,
 		dbSubscriptionID, payment.ID, payment.Amount, payment.Currency,
@@ -650,4 +660,351 @@ func (s *SubscriptionService) ConfirmPurchase(req *PurchaseConfirmationRequest, 
 	}
 
 	return nil
+}
+
+// SelfHostedPurchaseRequest represents a self-hosted purchase request
+type SelfHostedPurchaseRequest struct {
+	Email    string `json:"email"`
+	Quantity int    `json:"quantity"` // Should be 1 for self-hosted
+}
+
+// SelfHostedPurchaseResponse represents the response for self-hosted purchase
+type SelfHostedPurchaseResponse struct {
+	SubscriptionID string `json:"subscription_id"`
+	ShortURL       string `json:"short_url"`
+	LicenseKey     string `json:"license_key,omitempty"` // Sent after payment confirmation
+}
+
+// getOrCreateShadowUser retrieves an existing user by email or creates a new shadow user
+func (s *SubscriptionService) getOrCreateShadowUser(email string) (int64, error) {
+	var userID int64
+	err := s.db.QueryRow(`SELECT id FROM users WHERE email = $1`, email).Scan(&userID)
+	if err == nil {
+		return userID, nil
+	}
+	if err != sql.ErrNoRows {
+		return 0, fmt.Errorf("failed to query user: %w", err)
+	}
+
+	// User doesn't exist, create shadow user
+	// Generate secure random password
+	passwordBytes := make([]byte, 32)
+	if _, err := rand.Read(passwordBytes); err != nil {
+		return 0, fmt.Errorf("failed to generate random password: %w", err)
+	}
+	password := hex.EncodeToString(passwordBytes)
+
+	// Hash password
+	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
+	if err != nil {
+		return 0, fmt.Errorf("failed to hash password: %w", err)
+	}
+
+	// Insert shadow user
+	err = s.db.QueryRow(`
+		INSERT INTO users (email, password_hash, created_at, updated_at)
+		VALUES ($1, $2, NOW(), NOW())
+		RETURNING id`,
+		email, string(hashedPassword),
+	).Scan(&userID)
+	if err != nil {
+		return 0, fmt.Errorf("failed to create shadow user: %w", err)
+	}
+
+	return userID, nil
+}
+
+// CreateSelfHostedPurchase creates a self-hosted purchase without requiring full user/org setup
+func (s *SubscriptionService) CreateSelfHostedPurchase(email string, quantity int, mode string) (*SelfHostedPurchaseResponse, error) {
+	// Use the annual plan for self-hosted, get the correct one based on mode
+	razorpayPlanID := GetPlanID(mode, "yearly")
+
+	if quantity < 1 {
+		quantity = 1
+	}
+
+	// Get or create shadow user for this email
+	userID, err := s.getOrCreateShadowUser(email)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get or create shadow user: %w", err)
+	}
+
+	// Create notes for the subscription
+	notes := map[string]string{
+		"email":     email,
+		"plan_type": "selfhosted_annual",
+		"purpose":   "self_hosted_license",
+	}
+
+	// Create subscription in Razorpay
+	sub, err := CreateSubscription(mode, razorpayPlanID, quantity, notes)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create razorpay subscription: %w", err)
+	}
+
+	// Calculate license expiration (365 days for annual)
+	currentPeriodStart := time.Now()
+	currentPeriodEnd := currentPeriodStart.AddDate(1, 0, 0) // 1 year
+	licenseExpiresAt := currentPeriodEnd
+
+	// Start transaction
+	tx, err := s.db.Begin()
+	if err != nil {
+		return nil, fmt.Errorf("failed to begin transaction: %w", err)
+	}
+	defer tx.Rollback()
+
+	// Insert into subscriptions table with a special marker for self-hosted
+	notesJSON, _ := json.Marshal(notes)
+	var dbSubscriptionID int64
+	err = tx.QueryRow(`
+		INSERT INTO subscriptions (
+			razorpay_subscription_id, owner_user_id, org_id, plan_type,
+			quantity, assigned_seats, status, razorpay_plan_id,
+			current_period_start, current_period_end, license_expires_at,
+			short_url, notes, created_at, updated_at
+		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, NOW(), NOW())
+		RETURNING id`,
+		sub.ID, userID, nil, "selfhosted_annual",
+		quantity, 0, sub.Status, razorpayPlanID,
+		currentPeriodStart, currentPeriodEnd, licenseExpiresAt,
+		sub.ShortURL, notesJSON,
+	).Scan(&dbSubscriptionID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to insert subscription: %w", err)
+	}
+
+	// Log to license_log
+	metadata := map[string]interface{}{
+		"subscription_id": sub.ID,
+		"plan_id":         razorpayPlanID,
+		"email":           email,
+		"quantity":        quantity,
+		"status":          sub.Status,
+		"purpose":         "self_hosted_purchase",
+	}
+	metadataJSON, _ := json.Marshal(metadata)
+	_, err = tx.Exec(`
+		INSERT INTO license_log (
+			user_id, org_id, event_type, description, metadata, created_at
+		) VALUES ($1, $2, $3, $4, $5, NOW())`,
+		nil, nil, "selfhosted_subscription_created",
+		fmt.Sprintf("Created self-hosted subscription for email: %s", email),
+		metadataJSON,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to log subscription creation: %w", err)
+	}
+
+	// Commit transaction
+	if err := tx.Commit(); err != nil {
+		return nil, fmt.Errorf("failed to commit transaction: %w", err)
+	}
+
+	return &SelfHostedPurchaseResponse{
+		SubscriptionID: sub.ID,
+		ShortURL:       sub.ShortURL,
+	}, nil
+}
+
+// ConfirmSelfHostedPurchase confirms payment and generates license key
+func (s *SubscriptionService) ConfirmSelfHostedPurchase(subscriptionID, paymentID, mode string) (string, error) {
+	// Fetch payment details from Razorpay
+	payment, err := GetPaymentByID(mode, paymentID)
+	if err != nil {
+		return "", fmt.Errorf("failed to fetch payment from Razorpay: %w", err)
+	}
+
+	if !payment.Captured {
+		return "", fmt.Errorf("payment not captured yet")
+	}
+
+	tx, err := s.db.Begin()
+	if err != nil {
+		return "", fmt.Errorf("failed to begin transaction: %w", err)
+	}
+	defer tx.Rollback()
+
+	// Get subscription details
+	var dbSubscriptionID int64
+	var email string
+	var notesJSON []byte
+	err = tx.QueryRow(`
+		SELECT id, notes
+		FROM subscriptions
+		WHERE razorpay_subscription_id = $1 AND plan_type = 'selfhosted_annual'`,
+		subscriptionID,
+	).Scan(&dbSubscriptionID, &notesJSON)
+	if err != nil {
+		return "", fmt.Errorf("subscription not found: %w", err)
+	}
+
+	// Extract email from notes
+	var notes map[string]string
+	if err := json.Unmarshal(notesJSON, &notes); err == nil {
+		email = notes["email"]
+	}
+
+	// Issue JWT license via fw-parse
+	jwtToken, err := s.issueSelfHostedJWT(email)
+	if err != nil {
+		// Log error but don't fail the purchase
+		fmt.Printf("Warning: Failed to issue JWT license: %v\n", err)
+		// Generate fallback key for tracking
+		licenseKey := fmt.Sprintf("LR-SELFHOSTED-%s-%d", subscriptionID[:8], time.Now().Unix())
+
+		// Update subscription with payment info only
+		_, err = tx.Exec(`
+			UPDATE subscriptions
+			SET last_payment_id = $1,
+			    last_payment_status = $2,
+			    last_payment_received_at = NOW(),
+			    payment_verified = TRUE,
+			    notes = jsonb_set(notes, '{license_key}', to_jsonb($3::text)),
+			    updated_at = NOW()
+			WHERE id = $4`,
+			payment.ID, payment.Status, licenseKey, dbSubscriptionID,
+		)
+		if err != nil {
+			return "", fmt.Errorf("failed to update subscription: %w", err)
+		}
+
+		// Record payment
+		paymentJSON, _ := json.Marshal(payment)
+		_, err = tx.Exec(`
+			INSERT INTO subscription_payments (
+				subscription_id, razorpay_payment_id, amount, currency,
+				status, captured, method, created_at, razorpay_data
+			) VALUES ($1, $2, $3, $4, $5, $6, $7, NOW(), $8)
+			ON CONFLICT (razorpay_payment_id) DO NOTHING`,
+			dbSubscriptionID, payment.ID, payment.Amount, payment.Currency,
+			payment.Status, payment.Captured, payment.Method, paymentJSON,
+		)
+		if err != nil {
+			return "", fmt.Errorf("failed to insert payment record: %w", err)
+		}
+
+		if err := tx.Commit(); err != nil {
+			return "", fmt.Errorf("failed to commit transaction: %w", err)
+		}
+
+		return "Payment confirmed. License generation pending. Please contact support@hexmos.com", nil
+	}
+
+	// Update subscription with payment info and JWT token
+	_, err = tx.Exec(`
+		UPDATE subscriptions
+		SET last_payment_id = $1,
+		    last_payment_status = $2,
+		    last_payment_received_at = NOW(),
+		    payment_verified = TRUE,
+		    notes = jsonb_set(notes, '{jwt_token}', to_jsonb($3::text)),
+		    updated_at = NOW()
+		WHERE id = $4`,
+		payment.ID, payment.Status, jwtToken, dbSubscriptionID,
+	)
+	if err != nil {
+		return "", fmt.Errorf("failed to update subscription: %w", err)
+	}
+
+	// Record in subscription_payments table
+	paymentJSON, _ := json.Marshal(payment)
+	_, err = tx.Exec(`
+		INSERT INTO subscription_payments (
+			subscription_id, razorpay_payment_id, amount, currency,
+			status, captured, method, created_at, razorpay_data
+		) VALUES ($1, $2, $3, $4, $5, $6, $7, NOW(), $8)
+		ON CONFLICT (razorpay_payment_id) DO NOTHING`,
+		dbSubscriptionID, payment.ID, payment.Amount, payment.Currency,
+		payment.Status, payment.Captured, payment.Method, paymentJSON,
+	)
+	if err != nil {
+		return "", fmt.Errorf("failed to insert payment record: %w", err)
+	}
+
+	// Log license generation
+	metadata := map[string]interface{}{
+		"subscription_id": subscriptionID,
+		"payment_id":      payment.ID,
+		"email":           email,
+		"jwt_issued":      true,
+		"amount":          payment.Amount,
+	}
+	metadataJSON, _ := json.Marshal(metadata)
+	_, err = tx.Exec(`
+		INSERT INTO license_log (
+			user_id, org_id, event_type, description, metadata, created_at
+		) VALUES ($1, $2, $3, $4, $5, NOW())`,
+		nil, nil, "selfhosted_license_generated",
+		fmt.Sprintf("Generated self-hosted JWT license for %s", email),
+		metadataJSON,
+	)
+	if err != nil {
+		return "", fmt.Errorf("failed to log license generation: %w", err)
+	}
+
+	if err := tx.Commit(); err != nil {
+		return "", fmt.Errorf("failed to commit transaction: %w", err)
+	}
+
+	return jwtToken, nil
+}
+
+// issueSelfHostedJWT calls fw-parse to issue a JWT license
+func (s *SubscriptionService) issueSelfHostedJWT(email string) (string, error) {
+	secret := os.Getenv("FW_PARSE_ADMIN_SECRET")
+	if secret == "" {
+		return "", fmt.Errorf("FW_PARSE_ADMIN_SECRET not configured")
+	}
+
+	// Build request payload
+	payload := map[string]interface{}{
+		"email":     email,
+		"appName":   "LiveReview",
+		"seatCount": 100,
+		"unlimited": true,
+		"days":      365,
+	}
+	payloadBytes, err := json.Marshal(payload)
+	if err != nil {
+		return "", fmt.Errorf("failed to marshal payload: %w", err)
+	}
+
+	// Create HTTP request
+	req, err := http.NewRequest("POST", "https://parse.apps.hexmos.com/jwtLicence/issue", bytes.NewBuffer(payloadBytes))
+	if err != nil {
+		return "", fmt.Errorf("failed to create request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("x-admin-secret", secret)
+
+	// Send request with timeout
+	client := &http.Client{Timeout: 10 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return "", fmt.Errorf("failed to call fw-parse: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("fw-parse returned status %d", resp.StatusCode)
+	}
+
+	// Parse response
+	var result struct {
+		Success bool `json:"success"`
+		Result  struct {
+			Token string `json:"token"`
+		} `json:"result"`
+		Error string `json:"error"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return "", fmt.Errorf("failed to decode response: %w", err)
+	}
+
+	if !result.Success || result.Result.Token == "" {
+		return "", fmt.Errorf("fw-parse error: %s", result.Error)
+	}
+
+	return result.Result.Token, nil
 }
