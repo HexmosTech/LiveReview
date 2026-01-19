@@ -232,7 +232,34 @@ func NewServer(port int, versionInfo *VersionInfo) (*Server, error) {
 	// Middleware
 	// e.Use(middleware.Logger()) // Disabled to reduce log noise
 	e.Use(middleware.Recover())
-	e.Use(middleware.CORS())
+	e.Use(middleware.CORSWithConfig(middleware.CORSConfig{
+		AllowOriginFunc: func(origin string) (bool, error) {
+			// Allow localhost for development
+			if strings.HasPrefix(origin, "http://localhost:") {
+				return true, nil
+			}
+			// Allow hexmos.com and all subdomains
+			if origin == "https://hexmos.com" || origin == "http://hexmos.com" {
+				return true, nil
+			}
+			if strings.HasSuffix(origin, ".hexmos.com") {
+				return true, nil
+			}
+			return false, nil
+		},
+		AllowMethods: []string{
+			echo.GET, echo.POST, echo.PUT, echo.PATCH, echo.DELETE, echo.OPTIONS,
+		},
+		AllowHeaders: []string{
+			echo.HeaderOrigin,
+			echo.HeaderContentType,
+			echo.HeaderAccept,
+			echo.HeaderAuthorization,
+			"X-Requested-With",
+			"X-Org-Context",
+		},
+		AllowCredentials: true,
+	}))
 
 	// Add database to context
 	e.Use(func(next echo.HandlerFunc) echo.HandlerFunc {
