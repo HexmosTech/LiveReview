@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"os"
 	"time"
@@ -829,12 +830,13 @@ func (s *SubscriptionService) ConfirmSelfHostedPurchase(subscriptionID, paymentI
 	var dbSubscriptionID int64
 	var email string
 	var notesJSON []byte
+	var quantity int
 	err = tx.QueryRow(`
-		SELECT id, notes
+		SELECT id, notes, quantity
 		FROM subscriptions
 		WHERE razorpay_subscription_id = $1 AND plan_type = 'selfhosted_annual'`,
 		subscriptionID,
-	).Scan(&dbSubscriptionID, &notesJSON)
+	).Scan(&dbSubscriptionID, &notesJSON, &quantity)
 	if err != nil {
 		return "", fmt.Errorf("subscription not found: %w", err)
 	}
@@ -845,8 +847,8 @@ func (s *SubscriptionService) ConfirmSelfHostedPurchase(subscriptionID, paymentI
 		email = notes["email"]
 	}
 
-	// Issue JWT license via fw-parse
-	jwtToken, err := s.issueSelfHostedJWT(email)
+	// Issue JWT license via fw-parse with the purchased quantity
+	jwtToken, err := s.issueSelfHostedJWT(email, quantity)
 	if err != nil {
 		// Log error but don't fail the purchase
 		fmt.Printf("Warning: Failed to issue JWT license: %v\n", err)
@@ -951,18 +953,21 @@ func (s *SubscriptionService) ConfirmSelfHostedPurchase(subscriptionID, paymentI
 }
 
 // issueSelfHostedJWT calls fw-parse to issue a JWT license
-func (s *SubscriptionService) issueSelfHostedJWT(email string) (string, error) {
+func (s *SubscriptionService) issueSelfHostedJWT(email string, seatCount int) (string, error) {
 	secret := os.Getenv("FW_PARSE_ADMIN_SECRET")
 	if secret == "" {
+		fmt.Printf("[issueSelfHostedJWT] ERROR: FW_PARSE_ADMIN_SECRET not configured\n")
 		return "", fmt.Errorf("FW_PARSE_ADMIN_SECRET not configured")
 	}
+
+	fmt.Printf("[issueSelfHostedJWT] Issuing JWT for email: %s, seatCount: %d\n", email, seatCount)
 
 	// Build request payload
 	payload := map[string]interface{}{
 		"email":     email,
 		"appName":   "LiveReview",
-		"seatCount": 100,
-		"unlimited": true,
+		"seatCount": seatCount,
+		"unlimited": seatCount == 0, // unlimited if 0 seats specified
 		"days":      365,
 	}
 	payloadBytes, err := json.Marshal(payload)
@@ -976,35 +981,49 @@ func (s *SubscriptionService) issueSelfHostedJWT(email string) (string, error) {
 		return "", fmt.Errorf("failed to create request: %w", err)
 	}
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("x-admin-secret", secret)
+	req.Header.Set("X-Internal-Admin-Secret", secret)
+
+	fmt.Printf("[issueSelfHostedJWT] Calling fw-parse at https://parse.apps.hexmos.com/jwtLicence/issue\n")
 
 	// Send request with timeout
 	client := &http.Client{Timeout: 10 * time.Second}
 	resp, err := client.Do(req)
 	if err != nil {
+		fmt.Printf("[issueSelfHostedJWT] ERROR: Failed to call fw-parse: %v\n", err)
 		return "", fmt.Errorf("failed to call fw-parse: %w", err)
 	}
 	defer resp.Body.Close()
 
+	fmt.Printf("[issueSelfHostedJWT] fw-parse response status: %d\n", resp.StatusCode)
+
+	// Read the full response body for logging
+	respBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return "", fmt.Errorf("failed to read response body: %w", err)
+	}
+	fmt.Printf("[issueSelfHostedJWT] fw-parse response body: %s\n", string(respBody))
+
 	if resp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("fw-parse returned status %d", resp.StatusCode)
+		return "", fmt.Errorf("fw-parse returned status %d: %s", resp.StatusCode, string(respBody))
 	}
 
-	// Parse response
+	// Parse response - fw-parse returns {"data":{"token":"...","expiresAt":"...",...}}
 	var result struct {
-		Success bool `json:"success"`
-		Result  struct {
+		Data struct {
 			Token string `json:"token"`
-		} `json:"result"`
+		} `json:"data"`
 		Error string `json:"error"`
 	}
-	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+	if err := json.Unmarshal(respBody, &result); err != nil {
+		fmt.Printf("[issueSelfHostedJWT] ERROR: Failed to parse response: %v\n", err)
 		return "", fmt.Errorf("failed to decode response: %w", err)
 	}
 
-	if !result.Success || result.Result.Token == "" {
+	if result.Data.Token == "" {
+		fmt.Printf("[issueSelfHostedJWT] ERROR: fw-parse error: %s\n", result.Error)
 		return "", fmt.Errorf("fw-parse error: %s", result.Error)
 	}
 
-	return result.Result.Token, nil
+	fmt.Printf("[issueSelfHostedJWT] SUCCESS: JWT issued for %s\n", email)
+	return result.Data.Token, nil
 }
