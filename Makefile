@@ -375,6 +375,13 @@ raw-deploy-backend:
 	ssh master "cd /root/public_lr && pm2 reload ecosystem.config.js"
 	@echo "✅ Production deployment complete!"
 
+# Deploy nginx config to production server
+deploy-nginx:
+	@echo "🔧 Deploying nginx config to production server..."
+	rsync -avz ./livereview.hexmos.com master:/etc/nginx/sites-available/livereview.hexmos.com
+	ssh master "nginx -t && systemctl reload nginx"
+	@echo "✅ Nginx config deployed and reloaded!"
+
 # Fetch recent PM2 logs from the production host for quick inspection
 # Usage: make pm2-logs [LINES=400]
 pm2-logs:
