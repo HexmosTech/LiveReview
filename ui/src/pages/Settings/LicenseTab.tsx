@@ -1,10 +1,11 @@
-import React, { useEffect } from 'react';
+import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import toast from 'react-hot-toast';
 import { useAppSelector, useAppDispatch } from '../../store/configureStore';
 import { triggerLicenseRefresh, triggerLicenseRevalidation, triggerLicenseDelete, openModal as openLicenseModal, openDeleteConfirm, closeDeleteConfirm } from '../../store/License/slice';
 import { logout } from '../../store/Auth/reducer';
 import { isCloudMode } from '../../utils/deploymentMode';
+import LicenseSeatAssignment from './LicenseSeatAssignment';
 
 const roleCanView = (role?: string) => role === 'super_admin' || role === 'owner';
 
@@ -16,12 +17,37 @@ const LicenseTab: React.FC = () => {
   const activeOrg = auth.organizations[0];
   const canView = roleCanView(activeOrg?.role);
 
+  // Initialize tab from URL hash
+  const getInitialTab = (): 'overview' | 'assignments' => {
+    const hash = window.location.hash;
+    if (hash.includes('license-assignments')) return 'assignments';
+    return 'overview';
+  };
+
+  const [activeTab, setActiveTab] = useState<'overview' | 'assignments'>(getInitialTab);
+
   // Redirect to subscription tab if in cloud mode
   useEffect(() => {
     if (isCloudMode()) {
       navigate('/settings#subscriptions', { replace: true });
     }
   }, [navigate]);
+
+  // Update tab when hash changes
+  useEffect(() => {
+    const hash = window.location.hash;
+    if (hash.includes('license-assignments')) {
+      setActiveTab('assignments');
+    } else if (hash.includes('license-overview')) {
+      setActiveTab('overview');
+    }
+  }, [window.location.hash]);
+
+  const handleTabChange = (tab: 'overview' | 'assignments') => {
+    setActiveTab(tab);
+    const hash = tab === 'assignments' ? '#license-assignments' : '#license-overview';
+    window.history.replaceState(null, '', `/settings${hash}`);
+  };
 
   // Don't render anything if in cloud mode (will redirect)
   if (isCloudMode()) {
@@ -35,6 +61,54 @@ const LicenseTab: React.FC = () => {
       </div>
     );
   }
+
+  return (
+    <div className="p-6 space-y-6" data-testid="license-tab">
+      {/* Tab Navigation */}
+      <div className="border-b border-slate-700 -mx-6 px-6">
+        <div className="flex space-x-1">
+          <button
+            onClick={() => handleTabChange('overview')}
+            className={`px-4 py-3 text-sm font-medium transition-colors ${
+              activeTab === 'overview'
+                ? 'text-white border-b-2 border-blue-500'
+                : 'text-slate-400 hover:text-slate-300'
+            }`}
+          >
+            Overview
+          </button>
+          <button
+            onClick={() => handleTabChange('assignments')}
+            className={`px-4 py-3 text-sm font-medium transition-colors ${
+              activeTab === 'assignments'
+                ? 'text-white border-b-2 border-blue-500'
+                : 'text-slate-400 hover:text-slate-300'
+            }`}
+          >
+            Seat Assignments
+            {license.assignedSeats != null && license.seatCount != null && !license.unlimited && (
+              <span className="ml-2 text-xs text-slate-500">
+                ({license.assignedSeats}/{license.seatCount})
+              </span>
+            )}
+          </button>
+        </div>
+      </div>
+
+      {/* Tab Content */}
+      {activeTab === 'overview' ? (
+        <LicenseOverviewTab />
+      ) : (
+        <LicenseSeatAssignment />
+      )}
+    </div>
+  );
+};
+
+// Overview Tab Component (extracted from original LicenseTab)
+const LicenseOverviewTab: React.FC = () => {
+  const dispatch = useAppDispatch();
+  const license = useAppSelector(s => s.License);
 
   const handleRefresh = () => dispatch(triggerLicenseRefresh());
   const handleReplace = () => {
@@ -90,7 +164,7 @@ const LicenseTab: React.FC = () => {
   };
 
   return (
-    <div className="p-6 space-y-6" data-testid="license-tab">
+    <div className="space-y-6">
       <div>
         <h2 className="text-lg font-semibold text-white mb-2">License Overview</h2>
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-sm">
@@ -108,7 +182,15 @@ const LicenseTab: React.FC = () => {
           </div>
           <div className="bg-slate-800/60 border border-slate-700 rounded p-4">
             <div className="text-slate-400 mb-1">Seats</div>
-            <div className="text-slate-200">{license.unlimited ? 'Unlimited' : (license.seatCount ?? '—')}</div>
+            <div className="text-slate-200">
+              {license.unlimited ? 'Unlimited' : (
+                license.seatCount != null ? (
+                  <>
+                    {license.assignedSeats ?? 0} / {license.seatCount} assigned
+                  </>
+                ) : '—'
+              )}
+            </div>
           </div>
           <div className="bg-slate-800/60 border border-slate-700 rounded p-4">
             <div className="text-slate-400 mb-1">Expires At</div>

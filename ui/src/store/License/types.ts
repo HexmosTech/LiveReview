@@ -13,6 +13,8 @@ export interface LicenseStateSlice {
   subject?: string;
   appName?: string;
   seatCount?: number;
+  activeUsers?: number;
+  assignedSeats?: number;
   unlimited: boolean;
   expiresAt?: string;
   lastValidatedAt?: string;

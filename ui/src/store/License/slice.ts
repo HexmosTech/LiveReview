@@ -32,6 +32,8 @@ function applyStatus(state: LicenseStateSlice, payload: LicenseStatusResponse) {
   state.subject = payload.subject;
   state.appName = payload.appName;
   state.seatCount = payload.seatCount;
+  state.activeUsers = payload.activeUsers;
+  state.assignedSeats = payload.assignedSeats;
   state.unlimited = payload.unlimited;
   state.expiresAt = payload.expiresAt;
   state.lastValidatedAt = payload.lastValidatedAt;
@@ -96,6 +98,8 @@ const slice = createSlice({
         state.subject = undefined;
         state.appName = undefined;
         state.seatCount = undefined;
+        state.activeUsers = undefined;
+        state.assignedSeats = undefined;
         state.unlimited = false;
         state.expiresAt = undefined;
         state.lastValidatedAt = undefined;

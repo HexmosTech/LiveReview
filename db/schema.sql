@@ -1,4 +1,4 @@
-\restrict 1y2Y2KoQ0zcqKPf85uj6tOI9shSeW9LbZMjuHtmpWDX2JyprP9JBbZOE7OOtxmS
+\restrict V121eZTgk6PeOGM8thspG8QWIdmbTQnbruY9gaNaPAsW9LNYIAJaTzSDeLF7ka8
 
 -- Dumped from database version 15.14 (Debian 15.14-1.pgdg13+1)
 -- Dumped by pg_dump version 15.14 (Ubuntu 15.14-1.pgdg22.04+1)
@@ -48,6 +48,20 @@ CREATE TYPE public.river_job_state AS ENUM (
     'running',
     'scheduled'
 );
+
+
+--
+-- Name: license_seat_assignments_set_updated_at(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.license_seat_assignments_set_updated_at() RETURNS trigger
+    LANGUAGE plpgsql
+    AS $$
+BEGIN
+    NEW.updated_at = NOW();
+    RETURN NEW;
+END;
+$$;
 
 
 --
@@ -477,6 +491,41 @@ CREATE SEQUENCE public.license_log_id_seq
 --
 
 ALTER SEQUENCE public.license_log_id_seq OWNED BY public.license_log.id;
+
+
+--
+-- Name: license_seat_assignments; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.license_seat_assignments (
+    id bigint NOT NULL,
+    user_id bigint NOT NULL,
+    assigned_by_user_id bigint,
+    assigned_at timestamp with time zone DEFAULT now() NOT NULL,
+    revoked_at timestamp with time zone,
+    is_active boolean DEFAULT true NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL
+);
+
+
+--
+-- Name: license_seat_assignments_id_seq; Type: SEQUENCE; Schema: public; Owner: -
+--
+
+CREATE SEQUENCE public.license_seat_assignments_id_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+
+--
+-- Name: license_seat_assignments_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: -
+--
+
+ALTER SEQUENCE public.license_seat_assignments_id_seq OWNED BY public.license_seat_assignments.id;
 
 
 --
@@ -1302,6 +1351,13 @@ ALTER TABLE ONLY public.license_log ALTER COLUMN id SET DEFAULT nextval('public.
 
 
 --
+-- Name: license_seat_assignments id; Type: DEFAULT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.license_seat_assignments ALTER COLUMN id SET DEFAULT nextval('public.license_seat_assignments_id_seq'::regclass);
+
+
+--
 -- Name: orgs id; Type: DEFAULT; Schema: public; Owner: -
 --
 
@@ -1501,6 +1557,14 @@ ALTER TABLE ONLY public.license_log
 
 ALTER TABLE ONLY public.license_log
     ADD CONSTRAINT license_log_razorpay_event_id_key UNIQUE (razorpay_event_id);
+
+
+--
+-- Name: license_seat_assignments license_seat_assignments_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.license_seat_assignments
+    ADD CONSTRAINT license_seat_assignments_pkey PRIMARY KEY (id);
 
 
 --
@@ -2021,6 +2085,27 @@ CREATE INDEX idx_license_log_user ON public.license_log USING btree (user_id);
 
 
 --
+-- Name: idx_license_seat_assignments_active; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_license_seat_assignments_active ON public.license_seat_assignments USING btree (is_active) WHERE (is_active = true);
+
+
+--
+-- Name: idx_license_seat_assignments_assigned_by; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_license_seat_assignments_assigned_by ON public.license_seat_assignments USING btree (assigned_by_user_id);
+
+
+--
+-- Name: idx_license_seat_assignments_user_active; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX idx_license_seat_assignments_user_active ON public.license_seat_assignments USING btree (user_id) WHERE (is_active = true);
+
+
+--
 -- Name: idx_license_state_expires_at; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -2490,6 +2575,13 @@ CREATE UNIQUE INDEX ux_license_state_singleton ON public.license_state USING btr
 
 
 --
+-- Name: license_seat_assignments trg_license_seat_assignments_updated_at; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER trg_license_seat_assignments_updated_at BEFORE UPDATE ON public.license_seat_assignments FOR EACH ROW EXECUTE FUNCTION public.license_seat_assignments_set_updated_at();
+
+
+--
 -- Name: license_state trg_license_state_updated_at; Type: TRIGGER; Schema: public; Owner: -
 --
 
@@ -2606,6 +2698,22 @@ ALTER TABLE ONLY public.license_log
 
 ALTER TABLE ONLY public.license_log
     ADD CONSTRAINT license_log_user_id_fkey FOREIGN KEY (user_id) REFERENCES public.users(id);
+
+
+--
+-- Name: license_seat_assignments license_seat_assignments_assigned_by_user_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.license_seat_assignments
+    ADD CONSTRAINT license_seat_assignments_assigned_by_user_id_fkey FOREIGN KEY (assigned_by_user_id) REFERENCES public.users(id) ON DELETE SET NULL;
+
+
+--
+-- Name: license_seat_assignments license_seat_assignments_user_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.license_seat_assignments
+    ADD CONSTRAINT license_seat_assignments_user_id_fkey FOREIGN KEY (user_id) REFERENCES public.users(id) ON DELETE CASCADE;
 
 
 --
@@ -2844,7 +2952,7 @@ ALTER TABLE ONLY public.webhook_registry
 -- PostgreSQL database dump complete
 --
 
-\unrestrict 1y2Y2KoQ0zcqKPf85uj6tOI9shSeW9LbZMjuHtmpWDX2JyprP9JBbZOE7OOtxmS
+\unrestrict V121eZTgk6PeOGM8thspG8QWIdmbTQnbruY9gaNaPAsW9LNYIAJaTzSDeLF7ka8
 
 
 --
@@ -2896,4 +3004,5 @@ INSERT INTO public.schema_migrations (version) VALUES
     ('20251213144431'),
     ('20251219135906'),
     ('20251222074428'),
-    ('20251224132642');
+    ('20251224132642'),
+    ('20260120122547');
