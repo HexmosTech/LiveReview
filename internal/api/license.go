@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/labstack/echo/v4"
+	"github.com/livereview/internal/api/middleware"
 	lic "github.com/livereview/internal/license"
 )
 
@@ -42,7 +43,7 @@ func (s *Server) handleLicenseStatus(c echo.Context) error {
 	if err != nil {
 		return c.JSON(http.StatusInternalServerError, map[string]string{"error": err.Error()})
 	}
-	resp := toStatusResponse(st)
+	resp := toStatusResponse(st, s.db)
 	return c.JSON(http.StatusOK, resp)
 }
 
@@ -58,7 +59,7 @@ func (s *Server) handleLicenseUpdate(c echo.Context) error {
 	if err != nil {
 		return classifyLicenseError(c, err)
 	}
-	return c.JSON(http.StatusOK, toStatusResponse(st))
+	return c.JSON(http.StatusOK, toStatusResponse(st, s.db))
 }
 
 func (s *Server) handleLicenseRefresh(c echo.Context) error {
@@ -67,10 +68,10 @@ func (s *Server) handleLicenseRefresh(c echo.Context) error {
 	if err != nil && err != lic.ErrLicenseMissing { // still return status even if missing
 		return classifyLicenseError(c, err)
 	}
-	return c.JSON(http.StatusOK, toStatusResponse(st))
+	return c.JSON(http.StatusOK, toStatusResponse(st, s.db))
 }
 
-func toStatusResponse(st *lic.LicenseState) *LicenseStatusResponse {
+func toStatusResponse(st *lic.LicenseState, db *sql.DB) *LicenseStatusResponse {
 	if st == nil {
 		return &LicenseStatusResponse{Status: lic.StatusMissing}
 	}
@@ -83,6 +84,24 @@ func toStatusResponse(st *lic.LicenseState) *LicenseStatusResponse {
 		s := st.LastValidatedAt.UTC().Format(time.RFC3339)
 		lastValStr = &s
 	}
+
+	// Get active user count for seat usage display
+	var activeUsersPtr *int
+	var assignedSeatsPtr *int
+	if db != nil {
+		if count, err := middleware.GetActiveUserCount(db); err == nil {
+			activeUsersPtr = &count
+		}
+		// Get assigned seats count (self-hosted only)
+		if !middleware.IsCloudMode() {
+			var assignedCount int
+			err := db.QueryRow("SELECT COUNT(*) FROM license_seat_assignments WHERE is_active = TRUE").Scan(&assignedCount)
+			if err == nil {
+				assignedSeatsPtr = &assignedCount
+			}
+		}
+	}
+
 	return &LicenseStatusResponse{
 		Status:             st.Status,
 		Subject:            st.Subject,
@@ -92,6 +111,8 @@ func toStatusResponse(st *lic.LicenseState) *LicenseStatusResponse {
 		ExpiresAt:          expStr,
 		LastValidatedAt:    lastValStr,
 		LastValidationCode: st.LastValidationErrCode,
+		ActiveUsers:        activeUsersPtr,
+		AssignedSeats:      assignedSeatsPtr,
 	}
 }
 

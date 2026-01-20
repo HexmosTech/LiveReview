@@ -19,15 +19,32 @@ type seatCountCache struct {
 	ttl        time.Duration
 }
 
+// seatAssignmentCache caches user seat assignment status
+type seatAssignmentCache struct {
+	assignments map[int64]bool // userID -> hasAssignment
+	lastUpdate  time.Time
+	mu          sync.RWMutex
+	ttl         time.Duration
+}
+
 var (
 	// Global cache for active user seat count (5 minute TTL)
 	activeSeatCache = &seatCountCache{
 		ttl: 5 * time.Minute,
 	}
+
+	// Global cache for seat assignments (1 minute TTL - shorter for quick updates)
+	seatAssignCache = &seatAssignmentCache{
+		assignments: make(map[int64]bool),
+		ttl:         1 * time.Minute,
+	}
 )
 
 // getActiveUserCount returns the count of active users with caching
 func (sc *seatCountCache) getActiveUserCount(db *sql.DB) (int, error) {
+	if db == nil {
+		return 0, nil
+	}
 	sc.mu.RLock()
 	if time.Since(sc.lastUpdate) < sc.ttl {
 		count := sc.count
@@ -71,6 +88,63 @@ func isAdminOrOwner(db *sql.DB, userID int64) (bool, error) {
 	return hasAdminRole, err
 }
 
+// hasAssignedSeat checks if a user has an active license seat assignment
+func (sc *seatAssignmentCache) hasAssignedSeat(db *sql.DB, userID int64) (bool, error) {
+	if db == nil {
+		return false, nil
+	}
+
+	sc.mu.RLock()
+	if time.Since(sc.lastUpdate) < sc.ttl {
+		hasAssignment, exists := sc.assignments[userID]
+		sc.mu.RUnlock()
+		if exists {
+			return hasAssignment, nil
+		}
+		// User not in cache, need to fetch
+	} else {
+		sc.mu.RUnlock()
+	}
+
+	// Fetch from DB
+	sc.mu.Lock()
+	defer sc.mu.Unlock()
+
+	// Double-check cache
+	if time.Since(sc.lastUpdate) < sc.ttl {
+		if hasAssignment, exists := sc.assignments[userID]; exists {
+			return hasAssignment, nil
+		}
+	} else {
+		// Cache expired, clear it
+		sc.assignments = make(map[int64]bool)
+		sc.lastUpdate = time.Now()
+	}
+
+	var hasAssignment bool
+	err := db.QueryRow(`
+		SELECT EXISTS(
+			SELECT 1 FROM license_seat_assignments
+			WHERE user_id = $1 AND is_active = TRUE
+		)
+	`, userID).Scan(&hasAssignment)
+	if err != nil {
+		return false, err
+	}
+
+	sc.assignments[userID] = hasAssignment
+	return hasAssignment, nil
+}
+
+// InvalidateSeatAssignmentCache clears the seat assignment cache
+// Call this after seat assignments are modified
+func InvalidateSeatAssignmentCache() {
+	seatAssignCache.mu.Lock()
+	defer seatAssignCache.mu.Unlock()
+	seatAssignCache.assignments = make(map[int64]bool)
+	seatAssignCache.lastUpdate = time.Time{} // force refresh
+}
+
 // EnforceSelfHostedLicense checks license validity and seat limits for self-hosted deployments
 // Only runs when LIVEREVIEW_IS_CLOUD=false
 func EnforceSelfHostedLicense(db *sql.DB, licenseService *license.Service) echo.MiddlewareFunc {
@@ -112,7 +186,7 @@ func EnforceSelfHostedLicense(db *sql.DB, licenseService *license.Service) echo.
 
 			// Check seat count limit (only if license has seat limit)
 			if !state.Unlimited && state.SeatCount != nil && *state.SeatCount > 0 {
-				// Check if user is admin/owner - they bypass seat limits
+				// Check if user is admin/owner - they bypass seat limits and assignment requirements
 				isAdmin, err := isAdminOrOwner(db, claims.UserID)
 				if err != nil {
 					// Log error but don't block - fail open for admin check
@@ -120,7 +194,20 @@ func EnforceSelfHostedLicense(db *sql.DB, licenseService *license.Service) echo.
 				}
 
 				if !isAdmin {
-					// Get active user count (cached)
+					// Check if user has an assigned seat
+					hasAssignment, err := seatAssignCache.hasAssignedSeat(db, claims.UserID)
+					if err != nil {
+						c.Logger().Errorf("Failed to check seat assignment: %v", err)
+						return echo.NewHTTPError(http.StatusInternalServerError,
+							"Failed to validate license seat assignment")
+					}
+
+					if !hasAssignment {
+						return echo.NewHTTPError(http.StatusForbidden,
+							"You do not have a license seat assigned. Please contact your administrator.")
+					}
+
+					// Also check total seat count as a safety measure
 					activeUsers, err := activeSeatCache.getActiveUserCount(db)
 					if err != nil {
 						c.Logger().Errorf("Failed to get active user count: %v", err)
@@ -139,4 +226,10 @@ func EnforceSelfHostedLicense(db *sql.DB, licenseService *license.Service) echo.
 			return next(c)
 		}
 	}
+}
+
+// GetActiveUserCount returns the cached count of active users.
+// This is exported for use by the license status API endpoint.
+func GetActiveUserCount(db *sql.DB) (int, error) {
+	return activeSeatCache.getActiveUserCount(db)
 }

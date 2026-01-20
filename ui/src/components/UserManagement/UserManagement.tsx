@@ -1,10 +1,13 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { Link } from 'react-router-dom';
 import toast from 'react-hot-toast';
+import { useSelector } from 'react-redux';
 import { Button } from '../UIPrimitives';
 import { UserList } from './UserList';
 import { useOrgContext } from '../../hooks/useOrgContext';
 import { fetchOrgUsers, Member, deactivateOrgUser } from '../../api/users';
+import { isCloudMode } from '../../utils/deploymentMode';
+import { RootState } from '../../store/configureStore';
 
 export interface UserManagementProps {
     /**
@@ -17,6 +20,7 @@ export const UserManagement: React.FC<UserManagementProps> = ({
     isSuperAdminView = false,
 }) => {
     const { currentOrg, isSuperAdmin, canManageCurrentOrg } = useOrgContext();
+    const license = useSelector((state: RootState) => state.License);
     const [users, setUsers] = useState<Member[]>([]);
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
@@ -141,8 +145,8 @@ export const UserManagement: React.FC<UserManagementProps> = ({
                 )}
             </div>
 
-            {/* Free Plan Info Banner */}
-            {!isSuperAdminView && currentOrg?.plan_type === 'free' && (
+            {/* Free Plan Info Banner - Cloud only */}
+            {isCloudMode() && !isSuperAdminView && currentOrg?.plan_type === 'free' && (
                 <div className="bg-blue-900/20 border border-blue-500/30 rounded-lg p-4">
                     <div className="flex items-start">
                         <svg className="w-5 h-5 text-blue-400 mr-3 mt-0.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
