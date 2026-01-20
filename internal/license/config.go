@@ -12,7 +12,6 @@ type Config struct {
 	ValidationInterval time.Duration // Interval between scheduled online validations
 	IncludeHardwareID  bool          // Whether to attach hardware fingerprint (future server support)
 	SkipValidation     bool          // Development shortcut – NEVER enable in production
-	EnforcementMode    string        // off|soft|strict
 }
 
 // default (hard-coded) values
@@ -25,17 +24,10 @@ var defaultConfig = &Config{
 	ValidationInterval: 24 * time.Hour,
 	IncludeHardwareID:  true,
 	SkipValidation:     false,
-	EnforcementMode:    "soft", // soft = warn but don't block
 }
 
 // LoadConfig returns the static default configuration.
 func LoadConfig() *Config { return defaultConfig }
-
-// IsStrict returns true if enforcement mode blocks usage on invalid / expired.
-func (c *Config) IsStrict() bool { return c.EnforcementMode == "strict" }
-
-// IsSoft returns true if enforcement mode warns but allows usage.
-func (c *Config) IsSoft() bool { return c.EnforcementMode == "soft" }
 
 // EffectiveTimeout exposes a safe timeout (never <5s) – defensive guard.
 func (c *Config) EffectiveTimeout() time.Duration {

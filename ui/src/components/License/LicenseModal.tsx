@@ -108,7 +108,7 @@ export const LicenseModal: React.FC<Props> = ({ open, onClose, strictMode }) => 
             <div className="text-xs text-amber-300 mt-2">
               This application requires a valid license token to proceed.{' '}
               <a
-                href="https://hexmos.com/livereview/access-livereview"
+                href="https://hexmos.com/livereview/selfhosted-access"
                 target="_blank"
                 rel="noreferrer"
                 className="underline"
