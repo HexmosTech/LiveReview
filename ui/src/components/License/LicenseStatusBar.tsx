@@ -19,6 +19,8 @@ const STATUS_STYLES: Record<string, { label: string; bg: string; fg: string; acc
   invalid: { label: 'Invalid', bg: 'bg-red-900/40', fg: 'text-red-300', accent: 'bg-red-500', description: 'Provided token invalid' },
 };
 
+const EXPIRY_WARNING_DAYS = 15; // Show warning banner when license expires in ≤15 days
+
 const formatDaysLeft = (expiresAt?: string) => {
   if (!expiresAt) return undefined;
   const now = new Date();
@@ -27,6 +29,20 @@ const formatDaysLeft = (expiresAt?: string) => {
   if (diff < 0) return 'expired';
   if (diff === 0) return 'expires today';
   return `${diff} day${diff === 1 ? '' : 's'} left`;
+};
+
+const getDaysRemaining = (expiresAt?: string): number | null => {
+  if (!expiresAt) return null;
+  const now = new Date();
+  const exp = new Date(expiresAt);
+  return Math.ceil((exp.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
+};
+
+const getExpiryWarningMessage = (daysRemaining: number): string => {
+  if (daysRemaining === 1) return 'Your license expires tomorrow! Renew now to avoid interruption.';
+  if (daysRemaining <= 3) return `Your license expires in ${daysRemaining} days. Renew soon to avoid service interruption.`;
+  if (daysRemaining <= 7) return `Your license expires in ${daysRemaining} days. Please renew to continue using LiveReview.`;
+  return `Your license expires in ${daysRemaining} days. Renew before expiry to maintain access.`;
 };
 
 const LicenseStatusBar: React.FC<LicenseStatusBarProps> = ({ onOpenModal }) => {
@@ -46,7 +62,9 @@ const LicenseStatusBar: React.FC<LicenseStatusBarProps> = ({ onOpenModal }) => {
   });
 
   const daysLeft = useMemo(() => formatDaysLeft(license.expiresAt), [license.expiresAt]);
+  const daysRemaining = useMemo(() => getDaysRemaining(license.expiresAt), [license.expiresAt]);
   const needsAction = !isLoading && ['missing','invalid','expired'].includes(license.status);
+  const showExpiryWarning = license.status === 'active' && daysRemaining !== null && daysRemaining <= EXPIRY_WARNING_DAYS && daysRemaining > 0;
 
   const handleRefresh = () => {
     if (!license.refreshing) dispatch(triggerLicenseRefresh());
@@ -83,62 +101,89 @@ const LicenseStatusBar: React.FC<LicenseStatusBarProps> = ({ onOpenModal }) => {
   }
 
   return (
-    <div className={`w-full border-b border-slate-800 ${style.bg}`} data-testid="license-status-bar">
-      <div className="container mx-auto px-4 text-xs py-1 flex items-center justify-between">
-        {/* Left: All license-related info and actions */}
-        <div className="flex items-center gap-4 flex-wrap">
-          <span className={`inline-flex items-center gap-1 font-medium ${style.fg}`}>
-            <span className={`h-2 w-2 rounded-full ${style.accent} animate-pulse`}></span>
-            {style.label}
-          </span>
-          {style.description && (
-            <span className="text-slate-400 hidden sm:inline" data-testid="license-desc">{style.description}</span>
-          )}
-          {daysLeft && license.status === 'active' && (
-            <span className="text-slate-400" data-testid="license-days-left">{daysLeft}</span>
-          )}
-          <div className="flex items-center gap-3">
-            {license.status === 'active' && (
-              <button
-                onClick={handleRefresh}
-                disabled={license.refreshing}
-                className="text-slate-400 hover:text-slate-200 disabled:opacity-40"
-                aria-label="Refresh license"
-              >
-                {license.refreshing ? 'Refreshing…' : 'Refresh'}
-              </button>
-            )}
-            <button
-              onClick={onOpenModal}
-              className={`underline ${needsAction ? 'text-amber-300 hover:text-amber-200' : 'text-slate-300 hover:text-slate-200'}`}
+    <>
+      {/* Expiry Warning Banner - Shown when license expires in ≤15 days */}
+      {showExpiryWarning && daysRemaining !== null && (
+        <div className="w-full bg-amber-900/60 border-b border-amber-700" data-testid="license-expiry-warning">
+          <div className="container mx-auto px-4 py-2 flex items-center justify-between gap-4">
+            <div className="flex items-center gap-3">
+              <svg className="w-5 h-5 text-amber-300 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
+                <path fillRule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
+              </svg>
+              <div className="flex flex-col sm:flex-row sm:items-center gap-1 sm:gap-2">
+                <span className="text-amber-100 font-medium text-sm">License Expiring Soon</span>
+                <span className="text-amber-200 text-xs sm:text-sm">{getExpiryWarningMessage(daysRemaining)}</span>
+              </div>
+            </div>
+            <a
+              href="https://hexmos.com/livereview/selfhosted-access/"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="flex-shrink-0 px-3 py-1 bg-amber-600 hover:bg-amber-500 text-white text-sm font-medium rounded transition-colors"
             >
-              {needsAction ? 'Enter License' : 'Update License'}
-            </button>
+              Renew License
+            </a>
           </div>
         </div>
+      )}
 
-        {/* Right: Deployment badge with hover details and click for modal */}
-        <div className="flex items-center">
-          <Tooltip
-            content={deploymentMode === 'demo'
-              ? 'Demo Mode: Webhooks disabled; manual triggers only.'
-              : (deploymentMode === 'production' ? 'Production Mode: Full capabilities enabled.' : 'Mode unknown')
-            }
-            position="left"
-          >
-            <button
-              type="button"
-              onClick={() => setShowDemoInfo(true)}
-              className={
-                `inline-flex items-center gap-1 px-2 py-0.5 rounded-full font-medium border ` +
-                (deploymentMode === 'demo' ? 'bg-amber-900/50 text-amber-200 border-amber-700' : 'bg-emerald-900/50 text-emerald-200 border-emerald-700')
+      <div className={`w-full border-b border-slate-800 ${style.bg}`} data-testid="license-status-bar">
+        <div className="container mx-auto px-4 text-xs py-1 flex items-center justify-between">
+          {/* Left: All license-related info and actions */}
+          <div className="flex items-center gap-4 flex-wrap">
+            <span className={`inline-flex items-center gap-1 font-medium ${style.fg}`}>
+              <span className={`h-2 w-2 rounded-full ${style.accent} animate-pulse`}></span>
+              {style.label}
+            </span>
+            {style.description && (
+              <span className="text-slate-400 hidden sm:inline" data-testid="license-desc">{style.description}</span>
+            )}
+            {daysLeft && license.status === 'active' && (
+              <span className="text-slate-400" data-testid="license-days-left">{daysLeft}</span>
+            )}
+            <div className="flex items-center gap-3">
+              {license.status === 'active' && (
+                <button
+                  onClick={handleRefresh}
+                  disabled={license.refreshing}
+                  className="text-slate-400 hover:text-slate-200 disabled:opacity-40"
+                  aria-label="Refresh license"
+                >
+                  {license.refreshing ? 'Refreshing…' : 'Refresh'}
+                </button>
+              )}
+              <button
+                onClick={onOpenModal}
+                className={`underline ${needsAction ? 'text-amber-300 hover:text-amber-200' : 'text-slate-300 hover:text-slate-200'}`}
+              >
+                {needsAction ? 'Enter License' : 'Update License'}
+              </button>
+            </div>
+          </div>
+
+          {/* Right: Deployment badge with hover details and click for modal */}
+          <div className="flex items-center">
+            <Tooltip
+              content={deploymentMode === 'demo'
+                ? 'Demo Mode: Webhooks disabled; manual triggers only.'
+                : (deploymentMode === 'production' ? 'Production Mode: Full capabilities enabled.' : 'Mode unknown')
               }
-              title={deploymentMode === 'demo' ? 'Demo Mode' : (deploymentMode === 'production' ? 'Production Mode' : 'Mode unknown')}
+              position="left"
             >
-              <span className={`h-1.5 w-1.5 rounded-full ${deploymentMode === 'demo' ? 'bg-amber-400' : 'bg-emerald-400'}`}></span>
-              {deploymentMode === 'demo' ? 'Demo Mode' : (deploymentMode === 'production' ? 'Production' : 'Mode')}
-            </button>
-          </Tooltip>
+              <button
+                type="button"
+                onClick={() => setShowDemoInfo(true)}
+                className={
+                  `inline-flex items-center gap-1 px-2 py-0.5 rounded-full font-medium border ` +
+                  (deploymentMode === 'demo' ? 'bg-amber-900/50 text-amber-200 border-amber-700' : 'bg-emerald-900/50 text-emerald-200 border-emerald-700')
+                }
+                title={deploymentMode === 'demo' ? 'Demo Mode' : (deploymentMode === 'production' ? 'Production Mode' : 'Mode unknown')}
+              >
+                <span className={`h-1.5 w-1.5 rounded-full ${deploymentMode === 'demo' ? 'bg-amber-400' : 'bg-emerald-400'}`}></span>
+                {deploymentMode === 'demo' ? 'Demo Mode' : (deploymentMode === 'production' ? 'Production' : 'Mode')}
+              </button>
+            </Tooltip>
+          </div>
         </div>
       </div>
 
@@ -175,7 +220,7 @@ const LicenseStatusBar: React.FC<LicenseStatusBarProps> = ({ onOpenModal }) => {
           </div>
         </div>
       )}
-    </div>
+    </>
   );
 };
 
