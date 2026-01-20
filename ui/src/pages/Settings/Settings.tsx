@@ -321,8 +321,8 @@ const Settings = () => {
                 </svg>
             )
         }] : []),
-        // Subscription Management tab visible to all org members
-        ...((isSuperAdmin || currentOrg) ? [{ 
+        // Subscription Management tab visible only in cloud mode
+        ...(isCloudMode() && (isSuperAdmin || currentOrg) ? [{ 
             id: 'subscriptions', 
             name: 'Subscription Management', 
             icon: (

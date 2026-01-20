@@ -963,12 +963,13 @@ func (s *SubscriptionService) issueSelfHostedJWT(email string, seatCount int) (s
 	fmt.Printf("[issueSelfHostedJWT] Issuing JWT for email: %s, seatCount: %d\n", email, seatCount)
 
 	// Build request payload
+	// Note: durationDays is the parameter fw-parse expects for license duration
 	payload := map[string]interface{}{
-		"email":     email,
-		"appName":   "LiveReview",
-		"seatCount": seatCount,
-		"unlimited": seatCount == 0, // unlimited if 0 seats specified
-		"days":      365,
+		"email":        email,
+		"appName":      "LiveReview",
+		"seatCount":    seatCount,
+		"unlimited":    seatCount == 0, // unlimited if 0 seats specified
+		"durationDays": 365,            // Annual license
 	}
 	payloadBytes, err := json.Marshal(payload)
 	if err != nil {
