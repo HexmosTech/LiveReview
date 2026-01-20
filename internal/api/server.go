@@ -659,6 +659,9 @@ func (s *Server) setupRoutes() {
 	// License endpoints (Phase 3)
 	s.attachLicenseRoutes(v1)
 
+	// License seat assignment endpoints (self-hosted only)
+	s.attachLicenseSeatsRoutes(v1, authMiddleware)
+
 	// Review events endpoints (Phase 3) - Review Progress UI
 	reviewsGroup := v1.Group("/reviews")
 	reviewsGroup.Use(authMiddleware.RequireAuth())

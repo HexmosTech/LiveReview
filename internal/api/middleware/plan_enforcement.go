@@ -22,6 +22,11 @@ func isCloudMode() bool {
 	return valueStr == "true" || valueStr == "1"
 }
 
+// IsCloudMode is the exported version of isCloudMode for use by other packages
+func IsCloudMode() bool {
+	return isCloudMode()
+}
+
 // EnforcePlan checks if user's plan allows access to a specific feature
 func EnforcePlan(requiredFeature string) echo.MiddlewareFunc {
 	return func(next echo.HandlerFunc) echo.HandlerFunc {

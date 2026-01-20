@@ -10,4 +10,8 @@ type LicenseStatusResponse struct {
 	ExpiresAt          *string `json:"expiresAt,omitempty"`
 	LastValidatedAt    *string `json:"lastValidatedAt,omitempty"`
 	LastValidationCode *string `json:"lastValidationCode,omitempty"`
+	// ActiveUsers is the current count of active users in the system (self-hosted mode)
+	ActiveUsers *int `json:"activeUsers,omitempty"`
+	// AssignedSeats is the count of users with assigned license seats (self-hosted mode)
+	AssignedSeats *int `json:"assignedSeats,omitempty"`
 }
