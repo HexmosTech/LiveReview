@@ -15,6 +15,7 @@ import (
 
 	"github.com/livereview/internal/capture"
 	coreprocessor "github.com/livereview/internal/core_processor"
+	"github.com/livereview/internal/webhookutils"
 )
 
 type (
@@ -55,18 +56,27 @@ func (p *GiteaV2Provider) ProviderName() string {
 // CanHandleWebhook checks if this provider can handle the webhook.
 // Gitea webhooks include X-Gitea-Event header.
 func (p *GiteaV2Provider) CanHandleWebhook(headers map[string]string, body []byte) bool {
-	// Check for Gitea-specific headers
-	if _, exists := headers["X-Gitea-Event"]; exists {
+	// If GitHub-specific headers are present, this is NOT a Gitea webhook
+	// (GitHub and Gitea have similar payload structures, so we must check headers first)
+	if _, exists := webhookutils.GetHeaderCaseInsensitive(headers, "X-GitHub-Event"); exists {
+		return false
+	}
+	if _, exists := webhookutils.GetHeaderCaseInsensitive(headers, "X-GitHub-Delivery"); exists {
+		return false
+	}
+
+	// Check for Gitea-specific headers using case-insensitive lookup
+	if _, exists := webhookutils.GetHeaderCaseInsensitive(headers, "X-Gitea-Event"); exists {
 		return true
 	}
-	if _, exists := headers["X-Gitea-Delivery"]; exists {
+	if _, exists := webhookutils.GetHeaderCaseInsensitive(headers, "X-Gitea-Delivery"); exists {
 		return true
 	}
-	if _, exists := headers["X-Gitea-Signature"]; exists {
+	if _, exists := webhookutils.GetHeaderCaseInsensitive(headers, "X-Gitea-Signature"); exists {
 		return true
 	}
 
-	// Fallback: check payload structure
+	// Fallback: check payload structure (only if no GitHub headers detected above)
 	var payload map[string]interface{}
 	if err := json.Unmarshal(body, &payload); err == nil {
 		// Gitea webhooks have a "repository" object with specific fields
@@ -89,13 +99,7 @@ func (p *GiteaV2Provider) CanHandleWebhook(headers map[string]string, body []byt
 
 // ConvertCommentEvent converts Gitea comment webhook to unified format.
 func (p *GiteaV2Provider) ConvertCommentEvent(headers map[string]string, body []byte) (*UnifiedWebhookEventV2, error) {
-	eventType := headers["X-Gitea-Event"]
-	if eventType == "" {
-		eventType = headers["X-Gitea-Event"]
-	}
-	if eventType == "" {
-		eventType = headers["x-gitea-event"]
-	}
+	eventType, _ := webhookutils.GetHeaderCaseInsensitive(headers, "X-Gitea-Event")
 	log.Printf("[DEBUG] Gitea webhook event type: '%s'", eventType)
 	log.Printf("[DEBUG] Available headers: %v", headers)
 
