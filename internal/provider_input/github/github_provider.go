@@ -9,6 +9,7 @@ import (
 
 	"github.com/livereview/internal/capture"
 	coreprocessor "github.com/livereview/internal/core_processor"
+	"github.com/livereview/internal/webhookutils"
 )
 
 type (
@@ -48,10 +49,10 @@ func (p *GitHubV2Provider) ProviderName() string {
 
 // CanHandleWebhook checks if this provider can handle the webhook.
 func (p *GitHubV2Provider) CanHandleWebhook(headers map[string]string, body []byte) bool {
-	if _, exists := headers["X-GitHub-Event"]; exists {
+	if _, exists := webhookutils.GetHeaderCaseInsensitive(headers, "X-GitHub-Event"); exists {
 		return true
 	}
-	if _, exists := headers["X-GitHub-Delivery"]; exists {
+	if _, exists := webhookutils.GetHeaderCaseInsensitive(headers, "X-GitHub-Delivery"); exists {
 		return true
 	}
 
@@ -73,13 +74,7 @@ func (p *GitHubV2Provider) CanHandleWebhook(headers map[string]string, body []by
 
 // ConvertCommentEvent converts GitHub comment webhook to unified format.
 func (p *GitHubV2Provider) ConvertCommentEvent(headers map[string]string, body []byte) (*UnifiedWebhookEventV2, error) {
-	eventType := headers["X-GitHub-Event"]
-	if eventType == "" {
-		eventType = headers["X-Github-Event"]
-	}
-	if eventType == "" {
-		eventType = headers["x-github-event"]
-	}
+	eventType, _ := webhookutils.GetHeaderCaseInsensitive(headers, "X-GitHub-Event")
 	log.Printf("[DEBUG] GitHub webhook event type: '%s'", eventType)
 	log.Printf("[DEBUG] Available headers: %v", headers)
 
