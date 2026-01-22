@@ -360,9 +360,24 @@ func (t *openRouterLoggingTransport) RoundTrip(req *http.Request) (*http.Respons
 
 // Call calls the LLM with the given input and returns the response
 func (c *Connector) Call(ctx context.Context, input string, options ...llms.CallOption) (string, error) {
+	log.Debug().
+		Str("provider", string(c.provider)).
+		Str("model", c.options.ModelConfig.Model).
+		Float64("temperature", c.options.ModelConfig.Temperature).
+		Msg("Connector.Call invoked with model config")
+
 	// Add default options based on connector configuration
 	callOptions := []llms.CallOption{
 		llms.WithTemperature(c.options.ModelConfig.Temperature),
+	}
+
+	// CRITICAL: Pass the model to the API call - required for Gemini and other providers
+	// Without this, Gemini uses the langchaingo library default (gemini-2.0-flash)
+	if c.options.ModelConfig.Model != "" {
+		log.Debug().Str("model", c.options.ModelConfig.Model).Msg("Adding llms.WithModel to call options")
+		callOptions = append(callOptions, llms.WithModel(c.options.ModelConfig.Model))
+	} else {
+		log.Warn().Msg("Model is empty in ModelConfig - will use library default!")
 	}
 
 	if c.options.ModelConfig.MaxTokens > 0 {

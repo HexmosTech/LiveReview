@@ -255,21 +255,21 @@ func (p *UnifiedProcessorV2Impl) ProcessCommentReply(ctx context.Context, event 
 		case "gitlab":
 			log.Printf("[DEBUG] Building GitLab artifact for contextual response")
 			var err error
-			artifact, err = p.buildGitLabArtifactFromEvent(ctx, event)
+			artifact, err = p.buildGitLabArtifactFromEvent(ctx, event, orgID)
 			if err != nil {
 				return "", nil, fmt.Errorf("failed to build GitLab artifact: %w", err)
 			}
 		case "github":
 			log.Printf("[DEBUG] Building GitHub artifact for contextual response")
 			var err error
-			artifact, err = p.buildGitHubArtifactFromEvent(ctx, event)
+			artifact, err = p.buildGitHubArtifactFromEvent(ctx, event, orgID)
 			if err != nil {
 				return "", nil, fmt.Errorf("failed to build GitHub artifact: %w", err)
 			}
 		case "bitbucket":
 			log.Printf("[DEBUG] Building Bitbucket artifact for contextual response")
 			var err error
-			artifact, err = p.buildBitbucketArtifactFromEvent(ctx, event)
+			artifact, err = p.buildBitbucketArtifactFromEvent(ctx, event, orgID)
 			if err != nil {
 				return "", nil, fmt.Errorf("failed to build Bitbucket artifact: %w", err)
 			}
@@ -1216,7 +1216,7 @@ func (p *UnifiedProcessorV2Impl) truncateString(s string, maxLength int) string 
 
 // buildGitLabArtifactFromEvent builds UnifiedArtifact from webhook event
 // Copies pattern from cli.go runGitLab function
-func (p *UnifiedProcessorV2Impl) buildGitLabArtifactFromEvent(ctx context.Context, event UnifiedWebhookEventV2) (*mrmodel.UnifiedArtifact, error) {
+func (p *UnifiedProcessorV2Impl) buildGitLabArtifactFromEvent(ctx context.Context, event UnifiedWebhookEventV2, orgID int64) (*mrmodel.UnifiedArtifact, error) {
 	if event.Repository.WebURL == "" || event.MergeRequest == nil {
 		return nil, fmt.Errorf("missing required fields for MR URL construction")
 	}
@@ -1233,7 +1233,7 @@ func (p *UnifiedProcessorV2Impl) buildGitLabArtifactFromEvent(ctx context.Contex
 
 	// Construct MR URL from event
 	mrURL := event.Repository.WebURL + "/-/merge_requests/" + mrNumber
-	log.Printf("[DEBUG] Constructed MR URL: %s", mrURL)
+	log.Printf("[DEBUG] Constructed MR URL: %s (org_id=%d)", mrURL, orgID)
 
 	// Extract GitLab base URL from repository URL
 	// event.Repository.WebURL is like "https://git.apps.hexmos.com/hexmos/liveapi"
@@ -1254,16 +1254,17 @@ func (p *UnifiedProcessorV2Impl) buildGitLabArtifactFromEvent(ctx context.Contex
 	gitlabBaseURL = strings.TrimRight(gitlabBaseURL, "/")
 	log.Printf("[DEBUG] Extracted GitLab base URL: %s", gitlabBaseURL)
 
-	// Look up GitLab PAT from integration_tokens table using base URL
+	// Look up GitLab PAT from integration_tokens table using base URL and org_id
 	query := `SELECT pat_token FROM integration_tokens 
 	          WHERE provider IN ('gitlab', 'GitLab', 'gitlab-self-hosted') 
 	          AND RTRIM(provider_url, '/') = $1 
+	          AND org_id = $2
 	          LIMIT 1`
 
 	var patToken string
-	err := p.server.db.QueryRow(query, gitlabBaseURL).Scan(&patToken)
+	err := p.server.db.QueryRow(query, gitlabBaseURL, orgID).Scan(&patToken)
 	if err != nil {
-		return nil, fmt.Errorf("failed to find GitLab PAT for %s: %w", gitlabBaseURL, err)
+		return nil, fmt.Errorf("failed to find GitLab PAT for %s (org %d): %w", gitlabBaseURL, orgID, err)
 	}
 
 	log.Printf("[DEBUG] Found GitLab PAT for %s", gitlabBaseURL)
@@ -1299,7 +1300,7 @@ func (p *UnifiedProcessorV2Impl) buildGitLabArtifactFromEvent(ctx context.Contex
 
 // buildGitHubArtifactFromEvent builds UnifiedArtifact from GitHub webhook event
 // Copies pattern from cli.go runGitHub function
-func (p *UnifiedProcessorV2Impl) buildGitHubArtifactFromEvent(ctx context.Context, event UnifiedWebhookEventV2) (*mrmodel.UnifiedArtifact, error) {
+func (p *UnifiedProcessorV2Impl) buildGitHubArtifactFromEvent(ctx context.Context, event UnifiedWebhookEventV2, orgID int64) (*mrmodel.UnifiedArtifact, error) {
 	if event.Repository.WebURL == "" || event.MergeRequest == nil {
 		return nil, fmt.Errorf("missing required fields for PR URL construction")
 	}
@@ -1334,19 +1335,18 @@ func (p *UnifiedProcessorV2Impl) buildGitHubArtifactFromEvent(ctx context.Contex
 		return nil, fmt.Errorf("missing PR number/ID")
 	}
 
-	log.Printf("[DEBUG] Extracted GitHub PR info: owner=%s, repo=%s, pr=%s", owner, repo, prNumber)
+	log.Printf("[DEBUG] Extracted GitHub PR info: owner=%s, repo=%s, pr=%s, org_id=%d", owner, repo, prNumber, orgID)
 
-	// Look up GitHub PAT from integration_tokens table
-	// GitHub uses 'github.com' as provider_url or 'github' as provider
+	// Look up GitHub PAT from integration_tokens table, filtered by org_id
 	query := `SELECT pat_token FROM integration_tokens 
 	          WHERE provider IN ('github', 'GitHub') 
-	          AND (provider_url = 'https://github.com' OR provider_url = 'github.com' OR provider_url = 'github')
+	          AND org_id = $1
 	          LIMIT 1`
 
 	var patToken string
-	err := p.server.DB().QueryRow(query).Scan(&patToken)
+	err := p.server.DB().QueryRow(query, orgID).Scan(&patToken)
 	if err != nil {
-		return nil, fmt.Errorf("failed to find GitHub PAT: %w", err)
+		return nil, fmt.Errorf("failed to find GitHub PAT for org %d: %w", orgID, err)
 	}
 
 	log.Printf("[DEBUG] Found GitHub PAT")
@@ -1369,7 +1369,7 @@ func (p *UnifiedProcessorV2Impl) buildGitHubArtifactFromEvent(ctx context.Contex
 
 // buildBitbucketArtifactFromEvent builds UnifiedArtifact from Bitbucket webhook event
 // Copies pattern from cli.go runBitbucket function
-func (p *UnifiedProcessorV2Impl) buildBitbucketArtifactFromEvent(ctx context.Context, event UnifiedWebhookEventV2) (*mrmodel.UnifiedArtifact, error) {
+func (p *UnifiedProcessorV2Impl) buildBitbucketArtifactFromEvent(ctx context.Context, event UnifiedWebhookEventV2, orgID int64) (*mrmodel.UnifiedArtifact, error) {
 	if event.Repository.WebURL == "" || event.MergeRequest == nil {
 		return nil, fmt.Errorf("missing required fields for PR URL construction")
 	}
@@ -1392,21 +1392,21 @@ func (p *UnifiedProcessorV2Impl) buildBitbucketArtifactFromEvent(ctx context.Con
 	// event.Repository.WebURL should already contain workspace/repo
 	prURL := strings.TrimRight(event.Repository.WebURL, "/") + "/pull-requests/" + prID
 
-	log.Printf("[DEBUG] Constructed Bitbucket PR URL: %s", prURL)
+	log.Printf("[DEBUG] Constructed Bitbucket PR URL: %s (org_id=%d)", prURL, orgID)
 
-	// Look up Bitbucket credentials from integration_tokens table
-	// Bitbucket stores provider='bitbucket' or 'Bitbucket'
+	// Look up Bitbucket credentials from integration_tokens table, filtered by org_id
 	query := `SELECT pat_token FROM integration_tokens 
 	          WHERE provider IN ('bitbucket', 'Bitbucket') 
+	          AND org_id = $1
 	          LIMIT 1`
 
 	var patToken string
-	err := p.server.DB().QueryRow(query).Scan(&patToken)
+	err := p.server.DB().QueryRow(query, orgID).Scan(&patToken)
 	if err != nil {
-		return nil, fmt.Errorf("failed to find Bitbucket PAT: %w", err)
+		return nil, fmt.Errorf("failed to find Bitbucket PAT for org %d: %w", orgID, err)
 	}
 
-	log.Printf("[DEBUG] Found Bitbucket PAT")
+	log.Printf("[DEBUG] Found Bitbucket PAT for org %d", orgID)
 
 	// Bitbucket provider needs email - use default for bot
 	// In production, this could come from metadata or config

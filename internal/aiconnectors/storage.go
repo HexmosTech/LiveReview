@@ -268,18 +268,31 @@ func (s *Storage) DeleteConnector(ctx context.Context, orgID int64, id int64) er
 
 // GetConnectorOptions creates ConnectorOptions from a ConnectorRecord
 func (r *ConnectorRecord) GetConnectorOptions() ConnectorOptions {
+	selectedModel := r.GetSelectedModel()
+	log.Debug().
+		Str("provider", r.ProviderName).
+		Str("connector_name", r.ConnectorName).
+		Str("selected_model_raw", selectedModel).
+		Bool("selected_model_valid", r.SelectedModel.Valid).
+		Msg("GetConnectorOptions extracting model from record")
+
 	options := ConnectorOptions{
 		Provider: r.Provider,
 		APIKey:   r.ApiKey,
 		BaseURL:  r.BaseURL.String, // Extract string from sql.NullString
 		ModelConfig: ModelConfig{
-			Model: r.GetSelectedModel(), // Use helper method
+			Model: selectedModel, // Use helper method
 		},
 	}
 
 	// Use default model if not specified
 	if options.ModelConfig.Model == "" {
-		options.ModelConfig.Model = GetDefaultModel(r.Provider)
+		defaultModel := GetDefaultModel(r.Provider)
+		log.Warn().
+			Str("provider", r.ProviderName).
+			Str("default_model", defaultModel).
+			Msg("selected_model is empty, falling back to default")
+		options.ModelConfig.Model = defaultModel
 	}
 
 	// Set default values if not specified
