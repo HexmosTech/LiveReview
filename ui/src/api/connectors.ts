@@ -1,5 +1,15 @@
 import apiClient from './apiClient';
 
+// Types for webhook status summary
+export interface WebhookStatusSummary {
+  total_projects: number;
+  unconnected: number;
+  manual: number;
+  automatic: number;
+  health_percent: number;
+  health_status: 'healthy' | 'partial' | 'setup_required';
+}
+
 // Types for repository access
 export interface ProjectWithStatus {
   project_path: string;
@@ -23,6 +33,7 @@ export interface ConnectorResponse {
   metadata: any;
   created_at: string;
   updated_at: string;
+  webhook_status?: WebhookStatusSummary;
 }
 
 /**

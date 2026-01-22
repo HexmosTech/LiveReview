@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { Routes, Route, useNavigate } from 'react-router-dom';
 import { formatDistanceToNow, format } from 'date-fns';
 import ConnectorForm from '../../components/Connector/ConnectorForm';
@@ -13,9 +13,10 @@ import {
     Icons, 
     Badge,
     Avatar,
-    Spinner
+    Spinner,
+    Tooltip
 } from '../../components/UIPrimitives';
-import { getConnectors, ConnectorResponse, deleteConnector } from '../../api/connectors';
+import { getConnectors, ConnectorResponse, deleteConnector, WebhookStatusSummary } from '../../api/connectors';
 import ConnectorDetails from './ConnectorDetails';
 
 // Spec for GitProviderKit
@@ -67,9 +68,11 @@ const GitProvidersList: React.FC = () => {
     const navigate = useNavigate();
     const storeConnectors = useAppSelector((state) => state.Connector.connectors);
     
-        // Use redux state only for connectors
+    // Use redux state only for connectors
     const [isLoading, setIsLoading] = useState<boolean>(true);
     const [error, setError] = useState<string | null>(null);
+    // Store raw API response to get webhook_status
+    const [apiConnectors, setApiConnectors] = useState<ConnectorResponse[]>([]);
     
     // Fetch connectors from API on component mount
     useEffect(() => {
@@ -77,6 +80,7 @@ const GitProvidersList: React.FC = () => {
             try {
                 setIsLoading(true);
                 const data = await getConnectors();
+                setApiConnectors(data);
                 // Transform API data to Connector[] shape
                 const connectorsFromApi = data.map(apiConnector => {
                     const connectorType = apiConnector.provider as ConnectorType;
@@ -102,8 +106,64 @@ const GitProvidersList: React.FC = () => {
         fetchConnectors();
     }, []);
     
-        // Use connectors from redux state only
-        const connectors = storeConnectors;
+    // Use connectors from redux state only
+    const connectors = storeConnectors;
+
+    // Create a map from connector ID to webhook status for quick lookup
+    const webhookStatusMap = useMemo(() => {
+        const map = new Map<string, WebhookStatusSummary | undefined>();
+        apiConnectors.forEach(c => {
+            map.set(c.id.toString(), c.webhook_status);
+        });
+        return map;
+    }, [apiConnectors]);
+
+    // Get status indicator for a single connector - shows webhook count
+    const getConnectorStatusBadge = (connectorId: string) => {
+        const status = webhookStatusMap.get(connectorId);
+        if (!status) return null;
+        
+        const { health_status, total_projects, manual, automatic } = status;
+        const connected = manual + automatic;
+        
+        // Show webhook count as "X/Y" format
+        let bgColor = 'bg-slate-600';
+        let textColor = 'text-slate-200';
+        
+        if (total_projects === 0) {
+            // No projects discovered yet
+            return (
+                <Tooltip content="No projects discovered yet. Click to refresh." position="top">
+                    <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-slate-600 text-slate-300 cursor-help">
+                        0 projects
+                    </span>
+                </Tooltip>
+            );
+        }
+        
+        if (health_status === 'healthy') {
+            bgColor = 'bg-green-600/80';
+            textColor = 'text-green-100';
+        } else if (health_status === 'partial') {
+            bgColor = 'bg-amber-600/80';
+            textColor = 'text-amber-100';
+        } else {
+            bgColor = 'bg-red-600/80';
+            textColor = 'text-red-100';
+        }
+        
+        const tooltipText = health_status === 'healthy' 
+            ? `All ${total_projects} projects have webhooks configured.`
+            : `${connected} of ${total_projects} projects have webhooks. Click to configure.`;
+        
+        return (
+            <Tooltip content={tooltipText} position="top">
+                <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${bgColor} ${textColor} cursor-help`}>
+                    {connected}/{total_projects} webhooks
+                </span>
+            </Tooltip>
+        );
+    };
 
     const handleDeleteConnector = async (connectorId: string, connectorName: string) => {
         if (!confirm(`Are you sure you want to delete "${connectorName}"? This action cannot be undone.`)) {
@@ -252,6 +312,7 @@ const GitProvidersList: React.FC = () => {
                                                     </div>
                                                 </div>
                                                 <div className="flex items-center space-x-2" onClick={(e) => e.stopPropagation()}>
+                                                    {getConnectorStatusBadge(connector.id)}
                                                     {connector.createdAt && (
                                                         <span 
                                                             className="text-xs text-slate-300 hover:text-slate-200 cursor-help transition-colors"
@@ -287,27 +348,6 @@ const GitProvidersList: React.FC = () => {
                             </ul>
                         )}
                     </Card>
-                    
-                    {connectors.length > 0 && (
-                        <Card title="Connection Status" className="mt-6">
-                            <div className="flex items-center justify-between">
-                                <div className="flex items-center">
-                                    <span className="flex h-3 w-3 relative mr-2">
-                                        <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span>
-                                        <span className="relative inline-flex rounded-full h-3 w-3 bg-green-500"></span>
-                                    </span>
-                                    <p className="text-sm text-slate-200">All connectors working properly</p>
-                                </div>
-                                <Button 
-                                    variant="outline" 
-                                    size="sm"
-                                    icon={<Icons.Dashboard />}
-                                >
-                                    View Details
-                                </Button>
-                            </div>
-                        </Card>
-                    )}
                 </div>
             </div>
         </div>

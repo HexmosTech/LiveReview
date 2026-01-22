@@ -11,16 +11,30 @@ import (
 	"github.com/labstack/echo/v4"
 )
 
+// WebhookStatusSummary represents aggregated webhook status for a connector
+type WebhookStatusSummary struct {
+	TotalProjects int `json:"total_projects"`
+	Unconnected   int `json:"unconnected"`
+	Manual        int `json:"manual"`
+	Automatic     int `json:"automatic"`
+	// HealthPercent is the percentage of projects with webhooks (manual or automatic)
+	// 100% = all projects have webhooks, 0% = no projects have webhooks
+	HealthPercent float64 `json:"health_percent"`
+	// HealthStatus is a simplified status: "healthy" (100%), "partial" (1-99%), "setup_required" (0%)
+	HealthStatus string `json:"health_status"`
+}
+
 // ConnectorResponse represents a single connector record returned by the API
 type ConnectorResponse struct {
-	ID             int64           `json:"id"`
-	Provider       string          `json:"provider"`
-	ProviderAppID  string          `json:"provider_app_id"`
-	ConnectionName string          `json:"connection_name"`
-	ProviderURL    string          `json:"provider_url"`
-	Metadata       json.RawMessage `json:"metadata"`
-	CreatedAt      time.Time       `json:"created_at"`
-	UpdatedAt      time.Time       `json:"updated_at"`
+	ID             int64                 `json:"id"`
+	Provider       string                `json:"provider"`
+	ProviderAppID  string                `json:"provider_app_id"`
+	ConnectionName string                `json:"connection_name"`
+	ProviderURL    string                `json:"provider_url"`
+	Metadata       json.RawMessage       `json:"metadata"`
+	CreatedAt      time.Time             `json:"created_at"`
+	UpdatedAt      time.Time             `json:"updated_at"`
+	WebhookStatus  *WebhookStatusSummary `json:"webhook_status,omitempty"`
 }
 
 // CompleteConnectorResponse represents a connector with all fields including sensitive data
@@ -181,6 +195,86 @@ func (s *Server) GetConnectorByProviderURL(providerURL string) (*CompleteConnect
 	return &connector, nil
 }
 
+// getWebhookStatusSummaryForConnector fetches aggregated webhook status for a single connector
+func (s *Server) getWebhookStatusSummaryForConnector(connectorID int64) *WebhookStatusSummary {
+	// Get total projects count from projects_cache in integration_tokens
+	var projectsCacheRaw []byte
+	err := s.db.QueryRow(`
+		SELECT projects_cache FROM integration_tokens WHERE id = $1
+	`, connectorID).Scan(&projectsCacheRaw)
+	if err != nil {
+		log.Printf("Failed to get projects_cache for connector %d: %v", connectorID, err)
+		return nil
+	}
+
+	// Parse projects_cache to get total count
+	// projects_cache is an object with a "projects" key containing an array
+	totalProjects := 0
+	if projectsCacheRaw != nil {
+		var projectsCache struct {
+			Projects []interface{} `json:"projects"`
+		}
+		if err := json.Unmarshal(projectsCacheRaw, &projectsCache); err == nil {
+			totalProjects = len(projectsCache.Projects)
+		}
+	}
+
+	// If no projects, return early
+	if totalProjects == 0 {
+		return &WebhookStatusSummary{
+			TotalProjects: 0,
+			Unconnected:   0,
+			Manual:        0,
+			Automatic:     0,
+			HealthPercent: 100, // No projects = healthy (nothing to set up)
+			HealthStatus:  "healthy",
+		}
+	}
+
+	// Count webhook statuses from webhook_registry
+	var manualCount, automaticCount int
+	err = s.db.QueryRow(`
+		SELECT 
+			COUNT(*) FILTER (WHERE status = 'manual' OR status = 'active') as manual_count,
+			COUNT(*) FILTER (WHERE status = 'automatic') as automatic_count
+		FROM webhook_registry 
+		WHERE integration_token_id = $1
+	`, connectorID).Scan(&manualCount, &automaticCount)
+	if err != nil {
+		log.Printf("Failed to get webhook status counts for connector %d: %v", connectorID, err)
+		return nil
+	}
+
+	connectedCount := manualCount + automaticCount
+	unconnectedCount := totalProjects - connectedCount
+	if unconnectedCount < 0 {
+		unconnectedCount = 0
+	}
+
+	// Calculate health percentage
+	healthPercent := float64(0)
+	if totalProjects > 0 {
+		healthPercent = float64(connectedCount) / float64(totalProjects) * 100
+	}
+
+	// Determine health status
+	healthStatus := "setup_required"
+	if healthPercent >= 100 {
+		healthStatus = "healthy"
+	} else if healthPercent > 0 {
+		healthStatus = "partial"
+	}
+
+	return &WebhookStatusSummary{
+		TotalProjects: totalProjects,
+		Unconnected:   unconnectedCount,
+		Manual:        manualCount,
+		Automatic:     automaticCount,
+		HealthPercent: healthPercent,
+		HealthStatus:  healthStatus,
+	}
+}
+
 // GetConnectors returns all integration tokens (connectors) for the current organization
 func (s *Server) GetConnectors(c echo.Context) error {
 	// Get organization ID from context (set by middleware)
@@ -251,6 +345,9 @@ func (s *Server) GetConnectors(c echo.Context) error {
 		} else {
 			connector.Metadata = json.RawMessage("{}")
 		}
+
+		// Fetch webhook status summary for this connector
+		connector.WebhookStatus = s.getWebhookStatusSummaryForConnector(connector.ID)
 
 		connectors = append(connectors, connector)
 	}
