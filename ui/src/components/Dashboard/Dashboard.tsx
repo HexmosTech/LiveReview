@@ -10,6 +10,7 @@ import {
     Button, 
     Icons,
     Tooltip,
+    Alert,
 } from '../UIPrimitives';
 import { HumanizedTimestamp } from '../HumanizedTimestamp/HumanizedTimestamp';
 import RecentActivity from './RecentActivity';
@@ -37,6 +38,8 @@ export const Dashboard: React.FC = () => {
         }
     });
     const [notificationSent, setNotificationSent] = useState(false);
+    // Track dismissed connector progress notifications (session-only, not persisted)
+    const [dismissedConnectors, setDismissedConnectors] = useState<Set<number>>(new Set());
 
     // Handle user notification on first dashboard load
     useEffect(() => {
@@ -123,9 +126,88 @@ export const Dashboard: React.FC = () => {
     // Check if this is an empty state (no connections and no activity)
     const isEmpty = connectedProviders === 0 && codeReviews === 0 && aiComments === 0;
 
+    // Get connectors that need setup attention (filter out dismissed ones)
+    const connectorsNeedingSetup = (dashboardData?.connector_setup_progress || []).filter(
+        c => !dismissedConnectors.has(c.connector_id)
+    );
+
+    // Helper to get phase variant for Alert
+    const getPhaseVariant = (phase: string): 'info' | 'warning' | 'success' | 'error' => {
+        switch (phase) {
+            case 'discovering': return 'info';
+            case 'installing': return 'warning';
+            case 'ready': return 'success';
+            case 'error': return 'error';
+            default: return 'info';
+        }
+    };
+
+    // Helper to get phase message
+    const getPhaseMessage = (phase: string, connectorName: string, provider: string, totalProjects: number, connectedProjects: number): string => {
+        switch (phase) {
+            case 'discovering':
+                return `${connectorName} (${provider}): Discovering projects...`;
+            case 'installing':
+                const percent = totalProjects > 0 ? Math.round((connectedProjects / totalProjects) * 100) : 0;
+                return `${connectorName} (${provider}): Installing webhooks ${connectedProjects}/${totalProjects} (${percent}%)`;
+            case 'ready':
+                return `${connectorName} (${provider}): Ready - ${totalProjects} projects connected`;
+            case 'error':
+                return `${connectorName} (${provider}): Setup failed - click to retry`;
+            default:
+                return `${connectorName} (${provider})`;
+        }
+    };
+
     return (
         <div className="min-h-screen">
             <main className="container mx-auto px-4 py-6">
+                {/* Connector Setup Progress - using standard Alert component */}
+                {connectorsNeedingSetup.length > 0 && (
+                    <div className="mb-6 space-y-3">
+                        {connectorsNeedingSetup.map((connector) => (
+                            <Alert 
+                                key={connector.connector_id}
+                                variant={getPhaseVariant(connector.phase)}
+                                onClose={() => {
+                                    setDismissedConnectors(prev => {
+                                        const newSet = new Set(Array.from(prev));
+                                        newSet.add(connector.connector_id);
+                                        return newSet;
+                                    });
+                                }}
+                                className="cursor-pointer hover:opacity-90"
+                            >
+                                <div 
+                                    className="flex items-center justify-between"
+                                    onClick={() => navigate(`/git/connector/${connector.connector_id}`)}
+                                >
+                                    <span>
+                                        {getPhaseMessage(
+                                            connector.phase, 
+                                            connector.connector_name, 
+                                            connector.provider, 
+                                            connector.total_projects, 
+                                            connector.connected_projects
+                                        )}
+                                    </span>
+                                    <Button 
+                                        variant="outline" 
+                                        size="sm"
+                                        className="ml-4 !border-current !text-current hover:opacity-80"
+                                        onClick={(e) => { 
+                                            e.stopPropagation(); 
+                                            navigate(`/git/connector/${connector.connector_id}`); 
+                                        }}
+                                    >
+                                        View Details
+                                    </Button>
+                                </div>
+                            </Alert>
+                        ))}
+                    </div>
+                )}
+
                 {/* Header with aligned content and prominent CTA */}
                 <div className="flex flex-col gap-3 sm:flex-row sm:justify-between sm:items-center mb-6">
                     <div className="mb-4 sm:mb-0">

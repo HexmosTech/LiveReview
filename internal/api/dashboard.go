@@ -13,6 +13,36 @@ import (
 	"github.com/labstack/echo/v4"
 )
 
+// WebhookHealthSummary represents overall webhook health across all connectors
+type WebhookHealthSummary struct {
+	TotalConnectors     int     `json:"total_connectors"`
+	TotalProjects       int     `json:"total_projects"`
+	ConnectedProjects   int     `json:"connected_projects"`
+	UnconnectedProjects int     `json:"unconnected_projects"`
+	HealthPercent       float64 `json:"health_percent"`
+	// HealthStatus: "healthy" (100%), "partial" (1-99%), "setup_required" (0% or no connectors)
+	HealthStatus string `json:"health_status"`
+	// SetupRequiredConnectors is the number of connectors that need webhook setup
+	SetupRequiredConnectors int `json:"setup_required_connectors"`
+	// MostRecentConnectorNeedingSetup is the ID of the most recently created connector that needs setup
+	MostRecentConnectorNeedingSetupID   *int64  `json:"most_recent_connector_needing_setup_id,omitempty"`
+	MostRecentConnectorNeedingSetupName *string `json:"most_recent_connector_needing_setup_name,omitempty"`
+}
+
+// ConnectorSetupProgress tracks the setup progress for connectors that need attention
+type ConnectorSetupProgress struct {
+	ConnectorID   int64  `json:"connector_id"`
+	ConnectorName string `json:"connector_name"`
+	Provider      string `json:"provider"`
+	// Phase: "discovering" (no projects yet), "installing" (projects exist, webhooks in progress), "ready" (all done), "error" (something failed)
+	Phase string `json:"phase"`
+	// Progress details
+	TotalProjects     int `json:"total_projects"`
+	ConnectedProjects int `json:"connected_projects"`
+	// Message to display to the user
+	Message string `json:"message"`
+}
+
 // DashboardData represents the structure of dashboard information
 type DashboardData struct {
 	// Statistics
@@ -20,6 +50,12 @@ type DashboardData struct {
 	TotalComments      int `json:"total_comments"`
 	ConnectedProviders int `json:"connected_providers"`
 	ActiveAIConnectors int `json:"active_ai_connectors"`
+
+	// Webhook Health
+	WebhookHealth *WebhookHealthSummary `json:"webhook_health,omitempty"`
+
+	// Connector Setup Progress - shows connectors that need attention
+	ConnectorSetupProgress []ConnectorSetupProgress `json:"connector_setup_progress,omitempty"`
 
 	// Onboarding
 	OnboardingAPIKey string `json:"onboarding_api_key,omitempty"`
@@ -182,6 +218,14 @@ func (dm *DashboardManager) buildDashboardData(ctx context.Context, orgID int64)
 		log.Printf("Error collecting statistics for org %d: %v", orgID, err)
 	}
 
+	if err := dm.collectWebhookHealth(ctx, &data, orgID); err != nil {
+		log.Printf("Error collecting webhook health for org %d: %v", orgID, err)
+	}
+
+	if err := dm.collectConnectorSetupProgress(ctx, &data, orgID); err != nil {
+		log.Printf("Error collecting connector setup progress for org %d: %v", orgID, err)
+	}
+
 	if err := dm.collectOnboardingData(ctx, &data, orgID); err != nil {
 		log.Printf("Error collecting onboarding data for org %d: %v", orgID, err)
 	}
@@ -292,6 +336,251 @@ func (dm *DashboardManager) collectStatistics(ctx context.Context, data *Dashboa
 
 	log.Printf("Statistics collection complete: reviews=%d, comments=%d, providers=%d, ai_connectors=%d",
 		data.TotalReviews, data.TotalComments, data.ConnectedProviders, data.ActiveAIConnectors)
+
+	return nil
+}
+
+// collectWebhookHealth gathers webhook health information across all connectors
+func (dm *DashboardManager) collectWebhookHealth(ctx context.Context, data *DashboardData, orgID int64) error {
+	log.Println("Starting webhook health collection...")
+
+	// Get all connectors and their projects_cache
+	rows, err := dm.db.QueryContext(ctx, `
+		SELECT it.id, it.projects_cache
+		FROM integration_tokens it
+		WHERE it.org_id = $1
+	`, orgID)
+	if err != nil {
+		log.Printf("Error querying connectors for webhook health: %v", err)
+		return err
+	}
+	defer rows.Close()
+
+	totalConnectors := 0
+	totalProjects := 0
+	connectorIDs := []int64{}
+
+	for rows.Next() {
+		var connectorID int64
+		var projectsCacheRaw []byte
+		if err := rows.Scan(&connectorID, &projectsCacheRaw); err != nil {
+			log.Printf("Error scanning connector row: %v", err)
+			continue
+		}
+
+		totalConnectors++
+		connectorIDs = append(connectorIDs, connectorID)
+
+		// Count projects from projects_cache (it's an object with a "projects" key)
+		if projectsCacheRaw != nil {
+			var projectsCache struct {
+				Projects []interface{} `json:"projects"`
+			}
+			if err := json.Unmarshal(projectsCacheRaw, &projectsCache); err == nil {
+				totalProjects += len(projectsCache.Projects)
+			}
+		}
+	}
+
+	if totalConnectors == 0 {
+		// No connectors, no webhook health to report
+		data.WebhookHealth = nil
+		return nil
+	}
+
+	// Count connected projects from webhook_registry for all connectors
+	var connectedProjects int
+	err = dm.db.QueryRowContext(ctx, `
+		SELECT COUNT(*)
+		FROM webhook_registry wr
+		INNER JOIN integration_tokens it ON wr.integration_token_id = it.id
+		WHERE it.org_id = $1 AND (wr.status = 'manual' OR wr.status = 'active' OR wr.status = 'automatic')
+	`, orgID).Scan(&connectedProjects)
+	if err != nil {
+		log.Printf("Error counting connected projects: %v", err)
+		connectedProjects = 0
+	}
+
+	// Count connectors that need setup (no webhooks at all)
+	var setupRequiredConnectors int
+	err = dm.db.QueryRowContext(ctx, `
+		SELECT COUNT(*)
+		FROM integration_tokens it
+		WHERE it.org_id = $1 
+		AND NOT EXISTS (
+			SELECT 1 FROM webhook_registry wr 
+			WHERE wr.integration_token_id = it.id 
+			AND (wr.status = 'manual' OR wr.status = 'active' OR wr.status = 'automatic')
+		)
+	`, orgID).Scan(&setupRequiredConnectors)
+	if err != nil {
+		log.Printf("Error counting setup required connectors: %v", err)
+		setupRequiredConnectors = 0
+	}
+
+	// Find the most recently created connector that needs setup
+	var mostRecentConnectorID sql.NullInt64
+	var mostRecentConnectorName sql.NullString
+	err = dm.db.QueryRowContext(ctx, `
+		SELECT it.id, it.connection_name
+		FROM integration_tokens it
+		WHERE it.org_id = $1 
+		AND NOT EXISTS (
+			SELECT 1 FROM webhook_registry wr 
+			WHERE wr.integration_token_id = it.id 
+			AND (wr.status = 'manual' OR wr.status = 'active' OR wr.status = 'automatic')
+		)
+		ORDER BY it.created_at DESC
+		LIMIT 1
+	`, orgID).Scan(&mostRecentConnectorID, &mostRecentConnectorName)
+	if err != nil && err != sql.ErrNoRows {
+		log.Printf("Error finding most recent connector needing setup: %v", err)
+	}
+
+	unconnectedProjects := totalProjects - connectedProjects
+	if unconnectedProjects < 0 {
+		unconnectedProjects = 0
+	}
+
+	// Calculate health percentage
+	healthPercent := float64(0)
+	if totalProjects > 0 {
+		healthPercent = float64(connectedProjects) / float64(totalProjects) * 100
+	} else if totalConnectors > 0 {
+		// Connectors exist but no projects cached yet - treat as setup_required
+		healthPercent = 0
+	}
+
+	// Determine health status
+	healthStatus := "setup_required"
+	if healthPercent >= 100 {
+		healthStatus = "healthy"
+	} else if healthPercent > 0 {
+		healthStatus = "partial"
+	}
+
+	webhookHealth := &WebhookHealthSummary{
+		TotalConnectors:         totalConnectors,
+		TotalProjects:           totalProjects,
+		ConnectedProjects:       connectedProjects,
+		UnconnectedProjects:     unconnectedProjects,
+		HealthPercent:           healthPercent,
+		HealthStatus:            healthStatus,
+		SetupRequiredConnectors: setupRequiredConnectors,
+	}
+
+	// Add most recent connector needing setup if found
+	if mostRecentConnectorID.Valid {
+		webhookHealth.MostRecentConnectorNeedingSetupID = &mostRecentConnectorID.Int64
+	}
+	if mostRecentConnectorName.Valid {
+		webhookHealth.MostRecentConnectorNeedingSetupName = &mostRecentConnectorName.String
+	}
+
+	data.WebhookHealth = webhookHealth
+
+	log.Printf("Webhook health collection complete: connectors=%d, projects=%d, connected=%d, health=%.1f%%",
+		totalConnectors, totalProjects, connectedProjects, healthPercent)
+
+	return nil
+}
+
+// collectConnectorSetupProgress gathers setup progress for connectors that need attention
+func (dm *DashboardManager) collectConnectorSetupProgress(ctx context.Context, data *DashboardData, orgID int64) error {
+	log.Println("Starting connector setup progress collection...")
+
+	// Get all connectors created in the last 10 minutes or that need attention
+	// This ensures users see the progress even for fast auto-installations
+	rows, err := dm.db.QueryContext(ctx, `
+		SELECT 
+			it.id, 
+			it.connection_name, 
+			it.provider,
+			it.projects_cache,
+			it.created_at,
+			COALESCE((
+				SELECT COUNT(*) 
+				FROM webhook_registry wr 
+				WHERE wr.integration_token_id = it.id 
+				AND (wr.status = 'manual' OR wr.status = 'active' OR wr.status = 'automatic')
+			), 0) as connected_count
+		FROM integration_tokens it
+		WHERE it.org_id = $1
+		ORDER BY it.created_at DESC
+	`, orgID)
+	if err != nil {
+		log.Printf("Error querying connectors for setup progress: %v", err)
+		return err
+	}
+	defer rows.Close()
+
+	var progressList []ConnectorSetupProgress
+	recentThreshold := time.Now().Add(-10 * time.Minute) // Show recently created connectors for 10 minutes
+
+	for rows.Next() {
+		var connectorID int64
+		var connectorName, provider string
+		var projectsCacheRaw []byte
+		var connectedCount int
+		var createdAt time.Time
+
+		if err := rows.Scan(&connectorID, &connectorName, &provider, &projectsCacheRaw, &createdAt, &connectedCount); err != nil {
+			log.Printf("Error scanning connector row for setup progress: %v", err)
+			continue
+		}
+
+		// Parse projects_cache to get total project count
+		totalProjects := 0
+		if projectsCacheRaw != nil {
+			var projectsCache struct {
+				Projects []interface{} `json:"projects"`
+			}
+			if err := json.Unmarshal(projectsCacheRaw, &projectsCache); err == nil {
+				totalProjects = len(projectsCache.Projects)
+			}
+		}
+
+		// Determine the phase based on project count and webhook count
+		var phase, message string
+
+		if totalProjects == 0 {
+			// Phase 1: No projects discovered yet
+			phase = "discovering"
+			message = "Discovering projects..."
+		} else if connectedCount == 0 {
+			// Phase 2: Projects exist but no webhooks installed
+			phase = "installing"
+			message = fmt.Sprintf("Installing webhooks: 0/%d", totalProjects)
+		} else if connectedCount < totalProjects {
+			// Phase 2: Some webhooks installed
+			phase = "installing"
+			message = fmt.Sprintf("Installing webhooks: %d/%d", connectedCount, totalProjects)
+		} else {
+			// Phase 3: All done
+			phase = "ready"
+			message = fmt.Sprintf("Ready: %d projects connected", totalProjects)
+		}
+
+		// Include connectors that are either:
+		// 1. Not fully ready (still in setup)
+		// 2. Recently created (within last 10 minutes) so user sees the success
+		isRecent := createdAt.After(recentThreshold)
+		if phase != "ready" || isRecent {
+			progressList = append(progressList, ConnectorSetupProgress{
+				ConnectorID:       connectorID,
+				ConnectorName:     connectorName,
+				Provider:          provider,
+				Phase:             phase,
+				TotalProjects:     totalProjects,
+				ConnectedProjects: connectedCount,
+				Message:           message,
+			})
+		}
+	}
+
+	data.ConnectorSetupProgress = progressList
+
+	log.Printf("Connector setup progress collection complete: %d connectors need attention", len(progressList))
 
 	return nil
 }
