@@ -24,11 +24,36 @@ export interface SystemStatus {
     last_health_check: string;
 }
 
+export interface WebhookHealthSummary {
+    total_connectors: number;
+    total_projects: number;
+    connected_projects: number;
+    unconnected_projects: number;
+    health_percent: number;
+    health_status: 'healthy' | 'partial' | 'setup_required';
+    setup_required_connectors: number;
+    most_recent_connector_needing_setup_id?: number;
+    most_recent_connector_needing_setup_name?: string;
+}
+
+export interface ConnectorSetupProgress {
+    connector_id: number;
+    connector_name: string;
+    provider: string;
+    // Phase: "discovering" (no projects yet), "installing" (projects exist, webhooks in progress), "ready" (all done), "error" (something failed)
+    phase: 'discovering' | 'installing' | 'ready' | 'error';
+    total_projects: number;
+    connected_projects: number;
+    message: string;
+}
+
 export interface DashboardData {
     total_reviews: number;
     total_comments: number;
     connected_providers: number;
     active_ai_connectors: number;
+    webhook_health?: WebhookHealthSummary;
+    connector_setup_progress?: ConnectorSetupProgress[];
     onboarding_api_key?: string;
     api_url: string;
     cli_installed: boolean;
