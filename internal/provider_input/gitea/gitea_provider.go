@@ -55,17 +55,12 @@ func (p *GiteaV2Provider) ProviderName() string {
 
 // CanHandleWebhook checks if this provider can handle the webhook.
 // Gitea webhooks include X-Gitea-Event header.
+// NOTE: Gitea sends BOTH X-Gitea-* AND X-Github-* headers for GitHub compatibility,
+// so we must check for Gitea headers first and claim the webhook if present.
 func (p *GiteaV2Provider) CanHandleWebhook(headers map[string]string, body []byte) bool {
-	// If GitHub-specific headers are present, this is NOT a Gitea webhook
-	// (GitHub and Gitea have similar payload structures, so we must check headers first)
-	if _, exists := webhookutils.GetHeaderCaseInsensitive(headers, "X-GitHub-Event"); exists {
-		return false
-	}
-	if _, exists := webhookutils.GetHeaderCaseInsensitive(headers, "X-GitHub-Delivery"); exists {
-		return false
-	}
-
-	// Check for Gitea-specific headers using case-insensitive lookup
+	// Check for Gitea-specific headers FIRST using case-insensitive lookup.
+	// Gitea sends both X-Gitea-* and X-Github-* headers, so if we see X-Gitea-*,
+	// this is definitely a Gitea webhook regardless of X-Github-* presence.
 	if _, exists := webhookutils.GetHeaderCaseInsensitive(headers, "X-Gitea-Event"); exists {
 		return true
 	}
@@ -76,24 +71,7 @@ func (p *GiteaV2Provider) CanHandleWebhook(headers map[string]string, body []byt
 		return true
 	}
 
-	// Fallback: check payload structure (only if no GitHub headers detected above)
-	var payload map[string]interface{}
-	if err := json.Unmarshal(body, &payload); err == nil {
-		// Gitea webhooks have a "repository" object with specific fields
-		if repo, exists := payload["repository"]; exists {
-			if repoMap, ok := repo.(map[string]interface{}); ok {
-				// Check for Gitea-specific fields
-				if _, hasFullName := repoMap["full_name"]; hasFullName {
-					if _, hasCloneURL := repoMap["clone_url"]; hasCloneURL {
-						if _, hasOwner := repoMap["owner"]; hasOwner {
-							return true
-						}
-					}
-				}
-			}
-		}
-	}
-
+	// No Gitea headers found - not a Gitea webhook
 	return false
 }
 

@@ -354,7 +354,7 @@ To use the Gemini AI backend, you need to provide an API key:
 ```toml
 [ai.gemini]
 api_key = "your-gemini-api-key"  # Your actual API key here
-model = "gemini-pro"
+model = "gemini-2.5-flash"
 temperature = 0.2
 ```
 
