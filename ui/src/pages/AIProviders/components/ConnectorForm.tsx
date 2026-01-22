@@ -171,16 +171,26 @@ const ConnectorForm: React.FC<ConnectorFormProps> = ({
                     helperText={isOllama ? "Optional JWT token for Ollama authentication" : "Your API key will be stored securely"}
                 />
 
-                {/* Model field for providers that require an explicit model (e.g., OpenRouter) */}
+                {/* Model field for providers that require an explicit model */}
                 {providerDetails && (providerDetails.models?.length || providerDetails.defaultModel) && (
-                    <Input
-                        label="Model"
-                        name="selectedModel"
-                        value={formData.selectedModel || ''}
-                        onChange={onInputChange}
-                        placeholder={providerDetails.defaultModel || 'Enter model name'}
-                        helperText={providerDetails.id === 'openrouter' ? 'OpenRouter model ID (defaults to free DeepSeek route)' : 'Specify the model to use'}
-                    />
+                    <div className="space-y-1">
+                        <label className="block text-sm font-medium text-slate-300">Model</label>
+                        <select
+                            name="selectedModel"
+                            className="block w-full bg-slate-700 border border-slate-600 text-white rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                            value={formData.selectedModel || providerDetails.defaultModel || ''}
+                            onChange={(e) => onInputChange(e as unknown as React.ChangeEvent<HTMLInputElement>)}
+                        >
+                            {providerDetails.models?.map((model: string) => (
+                                <option key={model} value={model}>
+                                    {model}{model === providerDetails.defaultModel ? ' (Recommended)' : ''}
+                                </option>
+                            ))}
+                        </select>
+                        <p className="text-xs text-slate-400">
+                            {providerDetails.id === 'openrouter' ? 'OpenRouter model ID (defaults to free DeepSeek route)' : 'Select the model to use'}
+                        </p>
+                    </div>
                 )}
 
                 {/* Base URL field for providers that support it (like Ollama) */}

@@ -86,7 +86,7 @@ token = "your-gitlab-token"
 
 [ai.gemini]
 api_key = "your-gemini-api-key"
-model = "gemini-pro"
+model = "gemini-2.5-flash"
 temperature = 0.2
 `
 
