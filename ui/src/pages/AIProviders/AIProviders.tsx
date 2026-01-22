@@ -43,8 +43,8 @@ const popularAIProviders: AIProvider[] = [
         description: 'High quality, multimodal reasoning. Recommended for balanced cost + performance.',
         icon: <Icons.Google />,
         apiKeyPlaceholder: 'gemini-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx',
-        models: ['gemini-pro', 'gemini-pro-vision', 'gemini-ultra'],
-        defaultModel: 'gemini-pro',
+        models: ['gemini-2.5-flash', 'gemini-2.5-flash-lite', 'gemini-2.5-pro', 'gemini-2.0-flash', 'gemini-2.0-flash-lite'],
+        defaultModel: 'gemini-2.5-flash',
         supportLevel: 'recommended'
     },
     { 
