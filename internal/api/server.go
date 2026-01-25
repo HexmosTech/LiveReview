@@ -368,11 +368,8 @@ func (s *Server) BitbucketProviderV2() *bitbucketprovider.BitbucketV2Provider {
 // setupRoutes configures all API endpoints
 func (s *Server) setupRoutes() {
 	// Health check endpoint
-	s.echo.GET("/health", func(c echo.Context) error {
-		return c.JSON(http.StatusOK, map[string]string{
-			"status": "healthy",
-		})
-	})
+	s.echo.GET("/health", s.healthCheck)
+	s.echo.GET("/api/health", s.healthCheck)
 
 	// Version endpoint
 	s.echo.GET("/api/version", s.getVersion)
@@ -1359,6 +1356,13 @@ func (s *Server) validateConnectorOwnership(c echo.Context, connectorID int) (in
 	}
 
 	return connectorOrgID, nil
+}
+
+// healthCheck handles health check requests
+func (s *Server) healthCheck(c echo.Context) error {
+	return c.JSON(http.StatusOK, map[string]string{
+		"status": "healthy",
+	})
 }
 
 // getVersion returns version information about the LiveReview API
