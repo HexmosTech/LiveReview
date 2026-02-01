@@ -1,10 +1,14 @@
 /**
  * User notification utilities for new LiveReview signups
  * Handles Listmonk subscription and Discord notifications
+ * 
+ * These features are cloud-only and disabled if env vars are not set.
  */
 
-const LISTMONK_LIST_ID = "813662aa-1a51-404c-be60-981ead18d9fe";
-const DISCORD_WEBHOOK_URL = "https://discord.com/api/webhooks/1394676585151332402/Gwp-Qvt-_0UHK8yVZ_6rPxRHm3Y0x_cdQICstDD7MQ2eBNyqJaatL-uyixTnFMy8KV_H";
+// Cloud notification config - empty means disabled
+const LISTMONK_LIST_ID = process.env.LR_LISTMONK_LIST_ID || '';
+const LISTMONK_URL = process.env.LR_LISTMONK_URL || '';
+const DISCORD_WEBHOOK_URL = process.env.LR_DISCORD_WEBHOOK_URL || '';
 
 // Consider users created within the last 5 minutes as "new" for notification purposes
 const NEW_USER_THRESHOLD_MINUTES = 5;
@@ -13,6 +17,11 @@ const NEW_USER_THRESHOLD_MINUTES = 5;
  * Send Discord notification for new user signup
  */
 const sendDiscordNotification = async (name: string, email: string): Promise<void> => {
+  if (!DISCORD_WEBHOOK_URL) {
+    console.info("[LiveReview] Discord notifications disabled (no webhook configured)");
+    return;
+  }
+  
   try {
     if (!email) return; // don't spam if email missing
     
@@ -57,6 +66,11 @@ const subscribeToListmonk = async (
   email: string,
   name: string
 ): Promise<void> => {
+  if (!LISTMONK_URL || !LISTMONK_LIST_ID) {
+    console.info("[LiveReview] Listmonk subscription disabled (no URL/list configured)");
+    return;
+  }
+  
   try {
     console.info("[LiveReview] Attempting Listmonk subscription for:", email);
     
@@ -67,7 +81,7 @@ const subscribeToListmonk = async (
       nonce: ""
     });
     
-    const response = await fetch("https://lm.hexmos.com/subscription/form", {
+    const response = await fetch(LISTMONK_URL, {
       method: "POST",
       headers: { "Content-Type": "application/x-www-form-urlencoded" },
       body: body.toString()

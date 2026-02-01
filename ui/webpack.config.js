@@ -140,6 +140,11 @@ module.exports =  (env, options)=> {
                 'process.env.REACT_APP_API_URL': JSON.stringify(process.env.API_URL || process.env.REACT_APP_API_URL),
                 // Expose cloud/self-hosted flag from root .env to browser
                 'process.env.LIVEREVIEW_IS_CLOUD': JSON.stringify(process.env.LIVEREVIEW_IS_CLOUD || ''),
+                // Cloud-only: Analytics and notification secrets (empty = disabled)
+                'process.env.LR_CLARITY_ID': JSON.stringify(process.env.LR_CLARITY_ID || ''),
+                'process.env.LR_DISCORD_WEBHOOK_URL': JSON.stringify(process.env.LR_DISCORD_WEBHOOK_URL || ''),
+                'process.env.LR_LISTMONK_URL': JSON.stringify(process.env.LR_LISTMONK_URL || ''),
+                'process.env.LR_LISTMONK_LIST_ID': JSON.stringify(process.env.LR_LISTMONK_LIST_ID || ''),
             }),
             new MiniCssExtractPlugin({
                 // Options similar to the same options in webpackOptions.output

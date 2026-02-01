@@ -95,8 +95,12 @@ void (async () => {
     }
 
     if (isCloudMode()) {
-        console.info('[LiveReview] Running in Cloud mode (Clarity)');
-        ensureMicrosoftClarity('uc7wgsui3g');
+        console.info('[LiveReview] Running in Cloud mode');
+        const clarityId = process.env.LR_CLARITY_ID;
+        if (clarityId) {
+            console.info('[LiveReview] Initializing Clarity');
+            ensureMicrosoftClarity(clarityId);
+        }
     } else {
         console.info('[LiveReview] Running in Self-Hosted mode');
     }
