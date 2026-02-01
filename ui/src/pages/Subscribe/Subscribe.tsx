@@ -141,7 +141,14 @@ const ContactSalesModal: React.FC<ContactModalProps> = ({ open, onClose }) => {
         ],
       };
 
-      const response = await fetch('https://discord.com/api/webhooks/1394676585151332402/Gwp-Qvt-_0UHK8yVZ_6rPxRHm3Y0x_cdQICstDD7MQ2eBNyqJaatL-uyixTnFMy8KV_H', {
+      const discordWebhookUrl = process.env.LR_DISCORD_WEBHOOK_URL;
+      if (!discordWebhookUrl) {
+        console.warn('[LiveReview] Discord webhook not configured, enquiry not sent');
+        setStatus('success'); // Still show success to user
+        return;
+      }
+      
+      const response = await fetch(discordWebhookUrl, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
