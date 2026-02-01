@@ -166,10 +166,11 @@ func DefaultQueueConfig() *QueueConfig {
 		JobTimeout:   5 * time.Minute, // Each webhook installation should complete within 5 minutes
 		QueueTimeout: 24 * time.Hour,  // Jobs expire from queue after 24 hours
 
-		// GitLab API configuration (hardcoded for now)
+		// GitLab API configuration - development defaults only
+		// In production, PAT is fetched from database per-org
 		GitLabConfig: GitLabConfig{
 			BaseURL: "https://git.apps.hexmos.com",
-			PAT:     "REDACTED_GITLAB_PAT_5", // TODO: Make this dynamic/configurable
+			PAT:     "REDACTED_GITLAB_PAT_6", // Dev default - production uses per-org tokens from DB
 		},
 
 		// Webhook configuration

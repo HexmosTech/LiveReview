@@ -12,10 +12,17 @@ import (
 func main_verify_line_comment() {
 	fmt.Println("Testing GitLab line comment functionality")
 
+	// Test token for git.apps.hexmos.com - hardcoded for testing only
+	token := "REDACTED_GITLAB_PAT_6"
+	if token == "" {
+		fmt.Println("Error: GITLAB_TOKEN environment variable not set")
+		os.Exit(1)
+	}
+
 	// Configuration
 	config := gitlab.GitLabConfig{
 		URL:   "https://git.apps.hexmos.com",
-		Token: "REDACTED_GITLAB_PAT_6",
+		Token: token,
 	}
 
 	// Create a GitLab client

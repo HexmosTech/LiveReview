@@ -6,27 +6,37 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"os"
 )
 
 const razorpayBaseURL = "https://api.razorpay.com/v1"
 
 // GetRazorpayKeys returns the Razorpay access and secret keys based on the mode
 // mode can be "test" or "live"
+// Keys are read from environment variables:
+// - RAZORPAY_LIVE_KEY and RAZORPAY_LIVE_SECRET for live mode
+// - RAZORPAY_TEST_KEY and RAZORPAY_TEST_SECRET for test mode
 func GetRazorpayKeys(mode string) (string, string, error) {
-
-	RAZORPAY_ACCESS_KEY := "REDACTED_LIVE_KEY"
-	RAZORPAY_SECRET_KEY := "REDACTED_LIVE_SECRET"
-	RAZORPAY_TEST_ACCESS_KEY := "REDACTED_TEST_KEY"
-	RAZORPAY_TEST_SECRET_KEY := "REDACTED_TEST_SECRET"
+	var accessKey, secretKey string
 
 	switch mode {
 	case "test":
-		return RAZORPAY_TEST_ACCESS_KEY, RAZORPAY_TEST_SECRET_KEY, nil
+		accessKey = os.Getenv("RAZORPAY_TEST_KEY")
+		secretKey = os.Getenv("RAZORPAY_TEST_SECRET")
+		if accessKey == "" || secretKey == "" {
+			return "", "", fmt.Errorf("RAZORPAY_TEST_KEY and RAZORPAY_TEST_SECRET environment variables must be set for test mode")
+		}
 	case "live":
-		return RAZORPAY_ACCESS_KEY, RAZORPAY_SECRET_KEY, nil
+		accessKey = os.Getenv("RAZORPAY_LIVE_KEY")
+		secretKey = os.Getenv("RAZORPAY_LIVE_SECRET")
+		if accessKey == "" || secretKey == "" {
+			return "", "", fmt.Errorf("RAZORPAY_LIVE_KEY and RAZORPAY_LIVE_SECRET environment variables must be set for live mode")
+		}
 	default:
-		return "", "", fmt.Errorf("invalid mode: %s", mode)
+		return "", "", fmt.Errorf("invalid mode: %s (must be 'test' or 'live')", mode)
 	}
+
+	return accessKey, secretKey, nil
 }
 
 // createPlanWithDetails creates a subscription plan in Razorpay with the given details

@@ -8,9 +8,11 @@ import requests
 import json
 import re
 import sys
+import os
 
 # GitLab API configuration
 BASE_URL = "https://git.apps.hexmos.com"
+# Test token for git.apps.hexmos.com - hardcoded for testing only
 TOKEN = "REDACTED_GITLAB_PAT_6"
 API_URL = f"{BASE_URL}/api/v4"
 

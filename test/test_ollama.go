@@ -23,6 +23,7 @@ func main() {
 	// Your Ollama server configuration
 	baseURL := "http://139.59.48.31/ollama"
 	model := "mistral:7b"
+	// Test API key for internal Ollama server - hardcoded for testing only
 	apiKey := "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpZCI6Ijc5NWQ5ZGFkLTg3OGYtNGYxNy05ZTM3LWNiYjkxYTE5YTY5OSJ9.fgzS3SxaLc17_BFS-Vq8OTtdNxbnu8FK_CJ0lutmB7s"
 
 	fmt.Printf("=== Ollama Test Case: %s ===\n", testType)

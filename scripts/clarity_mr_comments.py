@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import re
 import sys
 from typing import Dict, Optional, Tuple
@@ -34,6 +35,7 @@ import requests
 # --- Access details (mirrored from delete_all_comments.py) ---
 # NOTE: Keep these in sync with scripts/delete_all_comments.py; avoid logging the token.
 URL = "https://git.apps.hexmos.com"
+# Test token for git.apps.hexmos.com - hardcoded for testing only
 TOKEN = "REDACTED_GITLAB_PAT_6"
 MR_URL = "https://git.apps.hexmos.com/hexmos/liveapi/-/merge_requests/426"
 

@@ -80,6 +80,13 @@ func APICommand() *cli.Command {
 				fmt.Printf("Loaded environment from %s\n", envFile)
 			}
 
+			// Run configuration sanity check
+			configResult := CheckRequiredConfig(IsCloudModeEnabled())
+			PrintConfigCheck(configResult)
+			if len(configResult.Missing) > 0 {
+				return fmt.Errorf("missing required configuration: %v", configResult.Missing)
+			}
+
 			port := c.Int("port")
 
 			// Check for environment variable override

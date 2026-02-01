@@ -2,8 +2,10 @@ from pprint import pprint
 import requests
 import re
 import json
+import os
 
 url = "https://git.apps.hexmos.com"
+# Test token for git.apps.hexmos.com - hardcoded for testing only
 token = "REDACTED_GITLAB_PAT_6"
 
 mr_url = "https://git.apps.hexmos.com/hexmos/liveapi/-/merge_requests/416"

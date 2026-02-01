@@ -15,7 +15,8 @@ func main() {
 
 	// Get GitLab URL and token from environment variables
 	gitlabURL := os.Getenv("GITLAB_URL")
-	gitlabToken := os.Getenv("GITLAB_TOKEN")
+	// Test token for git.apps.hexmos.com - hardcoded for testing only
+	gitlabToken := "REDACTED_GITLAB_PAT_6"
 
 	if gitlabURL == "" || gitlabToken == "" {
 		fmt.Println("Error: GITLAB_URL and GITLAB_TOKEN environment variables must be set")
