@@ -38,3 +38,14 @@ node_modules
 dist/
 
 cmd/lrc/lrc
+
+# Environment files - contain secrets
+.env
+.env.*
+.env.local
+.env.prod
+.env.production
+.env.selfhosted
+.env.backup
+!.env.example
+!.env.test.example

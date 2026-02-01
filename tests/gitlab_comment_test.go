@@ -28,9 +28,14 @@ func TestGitLabLineCommentMethods(t *testing.T) {
 	}
 
 	// Replace these with your actual values from configuration
+	// Test token for git.apps.hexmos.com - hardcoded for testing only
+	token := "REDACTED_GITLAB_PAT_6"
+	if token == "" {
+		t.Skip("GITLAB_TOKEN environment variable not set, skipping test")
+	}
 	config := gitlab.GitLabConfig{
 		URL:   "https://git.apps.hexmos.com", // Replace with your GitLab URL
-		Token: "REDACTED_GITLAB_PAT_6",  // Replace with your GitLab token
+		Token: token,
 	}
 
 	// Create a GitLab provider with your config

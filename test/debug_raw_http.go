@@ -11,6 +11,7 @@ import (
 func main() {
 	// Test the raw HTTP request to see what Ollama is actually returning
 	baseURL := "http://139.59.48.31/ollama/api/chat"
+	// Test API key for internal Ollama server - hardcoded for testing only
 	apiKey := "[REDACTED_GITLEAKS_17]"
 
 	// Create the request body (same as curl)

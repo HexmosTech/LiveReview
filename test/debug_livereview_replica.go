@@ -39,6 +39,7 @@ func main() {
 	// Replicate LiveReview's exact setup
 	baseURL := "http://139.59.48.31/ollama/api" // What LiveReview logs show
 	model := "mistral:7b"
+	// Test API key for internal Ollama server - hardcoded for testing only
 	apiKey := "[REDACTED_GITLEAKS_17]"
 
 	// Clean up base URL - remove trailing /api/ if present for Ollama (same as LiveReview)
