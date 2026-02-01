@@ -12,6 +12,7 @@ import {
   SetupAdminResponse,
 } from '../../api/auth';
 import { TokenPair } from '../../api/auth';
+import { isCloudMode } from '../../utils/deploymentMode';
 
 export type AuthState = {
   isAuthenticated: boolean;
@@ -214,6 +215,12 @@ const authSlice = createSlice({
         state.organizations = [];
         localStorage.removeItem('accessToken');
         localStorage.removeItem('refreshToken');
+        
+        // Clear Hexmos SSO cookies in cloud mode
+        if (isCloudMode()) {
+          document.cookie = 'hexmos-one=; path=/; domain=.hexmos.com; expires=Thu, 01 Jan 1970 00:00:00 GMT';
+          document.cookie = 'hexmos-one-id=; path=/; domain=.hexmos.com; expires=Thu, 01 Jan 1970 00:00:00 GMT';
+        }
       })
       .addCase(logout.rejected, (state) => {
         // Even if logout fails on the server, clear local state
@@ -225,6 +232,12 @@ const authSlice = createSlice({
         state.organizations = [];
         localStorage.removeItem('accessToken');
         localStorage.removeItem('refreshToken');
+        
+        // Clear Hexmos SSO cookies in cloud mode
+        if (isCloudMode()) {
+          document.cookie = 'hexmos-one=; path=/; domain=.hexmos.com; expires=Thu, 01 Jan 1970 00:00:00 GMT';
+          document.cookie = 'hexmos-one-id=; path=/; domain=.hexmos.com; expires=Thu, 01 Jan 1970 00:00:00 GMT';
+        }
       })
 
       // Fetch User
