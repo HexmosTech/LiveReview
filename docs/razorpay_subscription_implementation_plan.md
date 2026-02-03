@@ -826,7 +826,7 @@ go run -tags=test ./cmd/create_plans.go
 # Should output: Monthly Plan ID: plan_XXXXX, Annual Plan ID: plan_YYYYY
 
 # Or test via direct API call
-curl -u REDACTED_TEST_KEY:REDACTED_TEST_SECRET \
+curl -u $RAZORPAY_TEST_KEY:$RAZORPAY_TEST_SECRET \
   https://api.razorpay.com/v1/plans | jq '.items[] | {id, item: .item.name}'
 # Should show LiveReview Team plans
 ```
@@ -1573,13 +1573,13 @@ grep -i "license expired" docs/troubleshooting.md
 
 **Credentials:**
 ```go
-// Test Mode (Already Configured)
-RAZORPAY_TEST_ACCESS_KEY := "REDACTED_TEST_KEY"
-RAZORPAY_TEST_SECRET_KEY := "REDACTED_TEST_SECRET"
+// Test Mode - Set via environment variables
+RAZORPAY_TEST_ACCESS_KEY := os.Getenv("RAZORPAY_TEST_KEY")      // rzp_test_xxxxxxxxxxxx
+RAZORPAY_TEST_SECRET_KEY := os.Getenv("RAZORPAY_TEST_SECRET")  // your_test_secret_here
 
-// Live Mode
-RAZORPAY_ACCESS_KEY := "REDACTED_LIVE_KEY"
-RAZORPAY_SECRET_KEY := "REDACTED_LIVE_SECRET"
+// Live Mode - Set via environment variables
+RAZORPAY_ACCESS_KEY := os.Getenv("RAZORPAY_LIVE_KEY")          // rzp_live_xxxxxxxxxxxx
+RAZORPAY_SECRET_KEY := os.Getenv("RAZORPAY_LIVE_SECRET")       // your_live_secret_here
 ```
 
 **Plan Creation (internal/license/payment/payment.go):**
@@ -1782,7 +1782,7 @@ Response (201):
 {
     "subscription_id": 42,
     "razorpay_subscription_id": "sub_ABC123XYZ",
-    "razorpay_key_id": "REDACTED_LIVE_KEY",
+    "razorpay_key_id": "<your_razorpay_key_id>",
     "short_url": "https://rzp.io/l/ABC123",
     "amount": 60000,  // $600 total for 10 seats/year ($60/seat * 10 seats)
     "currency": "USD",
@@ -1921,8 +1921,8 @@ OR (for free user):
 
 ### Environment Setup
 - [x] **Razorpay Test Account** - Credentials configured in payment.go
-  - Access Key: `REDACTED_TEST_KEY`
-  - Secret Key: `REDACTED_TEST_SECRET`
+  - Access Key: `<RAZORPAY_TEST_KEY>`
+  - Secret Key: `<RAZORPAY_TEST_SECRET>`
 - [x] **PostgreSQL Database** - Running and accessible
 - [x] **Current Schema** - Available in db/schema.sql
 - [x] **Migration Tool** - dbmate installed and ready
@@ -1976,8 +1976,8 @@ OR (for free user):
 
 ### Environment Setup
 - [x] **Razorpay Test Account** - Credentials configured in payment.go
-  - Access Key: `REDACTED_TEST_KEY`
-  - Secret Key: `REDACTED_TEST_SECRET`
+  - Access Key: `<RAZORPAY_TEST_KEY>`
+  - Secret Key: `<RAZORPAY_TEST_SECRET>`
 - [x] **PostgreSQL Database** - Running and accessible
 - [x] **Current Schema** - Available in db/schema.sql
 - [x] **Migration Tool** - dbmate installed and ready
