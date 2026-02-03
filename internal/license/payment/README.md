@@ -111,9 +111,9 @@ cancelled, err := CancelSubscription("test", subscriptionID, true)
 
 ## API Credentials
 
-Credentials are managed in `payment.go`:
-- **Test Mode**: `REDACTED_TEST_KEY` / `REDACTED_TEST_SECRET`
-- **Live Mode**: `REDACTED_LIVE_KEY` / `REDACTED_LIVE_SECRET`
+Credentials are managed via environment variables:
+- **Test Mode**: `RAZORPAY_TEST_KEY` / `RAZORPAY_TEST_SECRET`
+- **Live Mode**: `RAZORPAY_LIVE_KEY` / `RAZORPAY_LIVE_SECRET`
 
 Use "test" or "live" mode parameter in all functions.
 
