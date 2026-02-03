@@ -13,6 +13,9 @@ This document lists all credentials that were previously committed to git histor
 | **Production DATABASE_URL** | PostgreSQL credentials for live database (IP: REDACTED_DB_HOST) | 1. Generate new password on DB server<br>2. Update connection string in deployment environment<br>3. Restart application |
 | **RAZORPAY_LIVE_KEY** | Production payment gateway key | Regenerate in [Razorpay Dashboard](https://dashboard.razorpay.com/) → Settings → API Keys |
 | **RAZORPAY_LIVE_SECRET** | Production payment gateway secret | Same as above - regenerate together with key |
+| **GitHub PATs (5 tokens)** | Personal Access Tokens for GitHub API | Revoke in GitHub Settings → Developer Settings → Personal Access Tokens |
+| **GitLab PATs (6 tokens)** | Personal Access Tokens for GitLab API | Revoke in GitLab Settings → Access Tokens |
+| **Bitbucket App Passwords (6 tokens)** | App passwords for Bitbucket API | Revoke in Bitbucket Settings → App passwords |
 
 ### 🔴 HIGH Priority (Rotate Before Public Release)
 
