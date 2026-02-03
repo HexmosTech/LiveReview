@@ -58,3 +58,4 @@ livereview.toml
 # Local data directory (runtime data, local configs)
 .lrdata/
 !.lrdata/livereview.toml.example
+.secrets.local
