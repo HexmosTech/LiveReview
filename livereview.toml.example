@@ -1,0 +1,82 @@
+# LiveReview AI Configuration
+# Copy this file to livereview.toml and customize as needed
+#
+# This file configures AI providers and code review settings.
+# For development, copy to the project root.
+# For production/Docker, the app looks in /app/lrdata/livereview.toml
+
+# =============================================================================
+# GENERAL SETTINGS
+# =============================================================================
+
+[general]
+# Default VCS provider: "github", "gitlab", "gitea", "bitbucket"
+default_provider = "github"
+
+# Default AI backend: "langchain", "ollama", "openai"
+default_ai = "langchain"
+
+# =============================================================================
+# VCS PROVIDERS
+# Configure the version control systems you want to use
+# =============================================================================
+
+[providers.github]
+# GitHub API URL (use default for github.com, or your GitHub Enterprise URL)
+url = "https://api.github.com"
+# Token should be set via GITHUB_TOKEN environment variable
+
+[providers.gitlab]
+# GitLab instance URL
+url = "https://gitlab.com"
+# Token should be set via GITLAB_TOKEN environment variable
+
+[providers.gitea]
+# Gitea instance URL
+url = "https://gitea.example.com"
+# Token should be set via GITEA_TOKEN environment variable
+
+# =============================================================================
+# AI CONFIGURATION
+# Configure the AI backend for code reviews
+# =============================================================================
+
+[ai.langchain]
+# Model name (varies by provider)
+# Ollama: "llama3.2", "codellama", "mistral", etc.
+# Google: "gemini-2.0-flash", "gemini-2.5-pro", etc.
+# OpenAI: "gpt-4", "gpt-3.5-turbo", etc.
+model = "gemini-2.0-flash"
+
+# Provider type: "ollama", "google", "openai", "anthropic"
+# provider_type = "ollama"
+
+# Base URL for Ollama (only needed for Ollama provider)
+# Default: http://localhost:11434
+# base_url = "http://localhost:11434"
+
+# Temperature for generation (0.0 = deterministic, 1.0 = creative)
+temperature = 0.2
+
+# Maximum tokens per batch for processing
+max_tokens_per_batch = 8000
+
+# API key should be set via environment variable:
+# - Ollama: No key needed
+# - Google: GOOGLE_AI_API_KEY or LANGCHAIN_API_KEY
+# - OpenAI: OPENAI_API_KEY
+
+# =============================================================================
+# BATCH PROCESSING
+# Configure parallel processing for large reviews
+# =============================================================================
+
+[batch]
+# Number of concurrent workers for batch processing
+max_workers = 4
+
+# Maximum retries for failed batches
+max_retries = 3
+
+# Delay between retries in milliseconds
+retry_delay_ms = 2000
