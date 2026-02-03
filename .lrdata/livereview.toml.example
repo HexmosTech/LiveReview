@@ -1,0 +1,67 @@
+# LiveReview Runtime Configuration
+# Copy this file to livereview.toml in the same directory
+#
+# This file is used at runtime by the LiveReview application.
+# In Docker deployments, this directory is mounted at /app/lrdata/
+
+# =============================================================================
+# GENERAL SETTINGS
+# =============================================================================
+
+[general]
+# Default VCS provider to use
+default_provider = "github"
+
+# Default AI backend
+default_ai = "langchain"
+
+# =============================================================================
+# VCS PROVIDERS
+# =============================================================================
+
+[providers.github]
+url = "https://api.github.com"
+# Token: set GITHUB_TOKEN environment variable
+
+[providers.gitlab]
+url = "https://gitlab.com"
+# Token: set GITLAB_TOKEN environment variable
+
+# =============================================================================
+# AI CONFIGURATION
+# =============================================================================
+
+[ai.langchain]
+# Model to use for code reviews
+# Examples:
+#   Ollama local: "llama3.2", "codellama:13b", "deepseek-coder:6.7b"
+#   Google AI: "gemini-2.0-flash", "gemini-2.5-pro"
+#   OpenAI: "gpt-4-turbo", "gpt-4o"
+model = "gemini-2.0-flash"
+
+# Generation temperature (lower = more consistent, higher = more creative)
+temperature = 0.2
+
+# Maximum tokens per processing batch
+max_tokens_per_batch = 30000
+
+# For Ollama, uncomment and set your Ollama server URL:
+# provider_type = "ollama"
+# base_url = "http://localhost:11434"
+
+# API keys via environment:
+# - Google: GOOGLE_AI_API_KEY
+# - OpenAI: OPENAI_API_KEY
+# - Ollama: no key needed
+
+# =============================================================================
+# BATCH PROCESSING
+# =============================================================================
+
+[batch]
+# Concurrent workers for parallel processing
+max_workers = 4
+
+# Retry settings for failed operations
+max_retries = 3
+retry_delay_ms = 2000
