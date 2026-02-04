@@ -4,6 +4,8 @@ import apiClient from '../../api/apiClient';
 import { Badge, Button, Icons, Input, Card } from '../../components/UIPrimitives';
 import { HumanizedTimestamp } from '../../components/HumanizedTimestamp/HumanizedTimestamp';
 import CompactTags from '../../components/CompactTags';
+import LicenseUpgradeDialog from '../../components/License/LicenseUpgradeDialog';
+import { useHasLicenseFor } from '../../hooks/useLicenseTier';
 
 type ScopeKind = 'org' | 'repo';
 type Status = 'active' | 'archived';
@@ -98,6 +100,8 @@ const LearningsTab: React.FC = () => {
   const [hideArchived, setHideArchived] = useState(true); // Default to hiding archived
   const [editing, setEditing] = useState<EditState | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [showUpgradeDialog, setShowUpgradeDialog] = useState(false);
+  const hasTeamLicense = useHasLicenseFor('team');
 
   // Handle ESC key to close edit dialog
   useEffect(() => {
@@ -172,6 +176,10 @@ const LearningsTab: React.FC = () => {
   }, [search]);
 
   const beginEdit = (it: Learning) => {
+    if (!hasTeamLicense) {
+      setShowUpgradeDialog(true);
+      return;
+    }
     setEditing({
       id: it.id,
       title: it.title,
@@ -184,6 +192,10 @@ const LearningsTab: React.FC = () => {
 
   const saveEdit = async () => {
     if (!editing) return;
+    if (!hasTeamLicense) {
+      setShowUpgradeDialog(true);
+      return;
+    }
     setEditing({ ...editing, saving: true });
     const tags = editing.tagsCsv
       .split(',')
@@ -206,6 +218,10 @@ const LearningsTab: React.FC = () => {
   };
 
   const deleteLearning = async (id: string) => {
+    if (!hasTeamLicense) {
+      setShowUpgradeDialog(true);
+      return;
+    }
     setDeletingId(id);
     try {
       await apiClient.delete(`/api/v1/learnings/${id}`);
@@ -616,6 +632,15 @@ const LearningsTab: React.FC = () => {
         </div>,
         document.body
       )}
+
+      {/* License Upgrade Dialog */}
+      <LicenseUpgradeDialog
+        open={showUpgradeDialog}
+        onClose={() => setShowUpgradeDialog(false)}
+        requiredTier="team"
+        featureName="Learnings Management"
+        featureDescription="Manage org and repo-scoped learnings captured from MR threads to continuously improve your code review quality."
+      />
     </div>
   );
 };

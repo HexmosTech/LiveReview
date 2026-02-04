@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import toast from 'react-hot-toast';
 import { useSelector } from 'react-redux';
 import { Button } from '../UIPrimitives';
@@ -8,6 +8,8 @@ import { useOrgContext } from '../../hooks/useOrgContext';
 import { fetchOrgUsers, Member, deactivateOrgUser } from '../../api/users';
 import { isCloudMode } from '../../utils/deploymentMode';
 import { RootState } from '../../store/configureStore';
+import LicenseUpgradeDialog from '../License/LicenseUpgradeDialog';
+import { useLicenseTier, useHasLicenseFor, COMMUNITY_TIER_LIMITS } from '../../hooks/useLicenseTier';
 
 export interface UserManagementProps {
     /**
@@ -21,9 +23,13 @@ export const UserManagement: React.FC<UserManagementProps> = ({
 }) => {
     const { currentOrg, isSuperAdmin, canManageCurrentOrg } = useOrgContext();
     const license = useSelector((state: RootState) => state.License);
+    const navigate = useNavigate();
     const [users, setUsers] = useState<Member[]>([]);
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
+    const [showUpgradeDialog, setShowUpgradeDialog] = useState(false);
+    const licenseTier = useLicenseTier();
+    const hasTeamLicense = useHasLicenseFor('team');
 
     const canManageUsers = isSuperAdminView ? isSuperAdmin : canManageCurrentOrg;
 
@@ -132,8 +138,14 @@ export const UserManagement: React.FC<UserManagementProps> = ({
                 {canManageUsers && (
                     <Button
                         variant="primary"
-                        as={Link}
-                        to="/settings/users/add"
+                        onClick={() => {
+                            // Require Team license for more than allowed Community users (super admins exempt)
+                            if (users.length >= COMMUNITY_TIER_LIMITS.MAX_USERS && !hasTeamLicense && !isSuperAdmin) {
+                                setShowUpgradeDialog(true);
+                                return;
+                            }
+                            navigate('/settings/users/add');
+                        }}
                         icon={
                             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
@@ -207,6 +219,15 @@ export const UserManagement: React.FC<UserManagementProps> = ({
                 onDeactivateUser={handleDeactivateUser}
                 onTransferUser={isSuperAdminView ? handleTransferUser : undefined}
                 onRefresh={loadUsers}
+            />
+
+            {/* License Upgrade Dialog */}
+            <LicenseUpgradeDialog
+                open={showUpgradeDialog}
+                onClose={() => setShowUpgradeDialog(false)}
+                requiredTier="team"
+                featureName="Team Management (>3 users)"
+                featureDescription="Add more team members to your organization. Community tier includes up to 3 users."
             />
         </div>
     );

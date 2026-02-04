@@ -192,7 +192,8 @@ export const OnboardingStepper: React.FC<OnboardingStepperProps> = ({
           description={
             <>
               <p>Navigate to any git repository with uncommitted changes and run:</p>
-              <CodeBlock code="lrc review" />
+              <CodeBlock code="git add ." />
+              <CodeBlock code="git lrc review" />
               {!allSet && (
                 <p className="mt-2 text-sm text-amber-400">Complete steps 1 and 2 first</p>
               )}

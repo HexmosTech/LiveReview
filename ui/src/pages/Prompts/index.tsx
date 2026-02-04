@@ -2,6 +2,8 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { Button, Card } from '../../components/UIPrimitives';
 import promptsService from '../../services/prompts';
 import type { CatalogEntry, VariablesResponse } from '../../types/prompts';
+import LicenseUpgradeDialog from '../../components/License/LicenseUpgradeDialog';
+import { useHasLicenseFor } from '../../hooks/useLicenseTier';
 
 const DEFAULT_PROMPT_KEY = 'code_review';
 
@@ -14,6 +16,8 @@ const PromptsPage: React.FC = () => {
   const [styleGuide, setStyleGuide] = useState('');
   const [securityGuide, setSecurityGuide] = useState('');
   const [saving, setSaving] = useState<'style' | 'security' | null>(null);
+  const [showUpgradeDialog, setShowUpgradeDialog] = useState(false);
+  const hasTeamLicense = useHasLicenseFor('team');
 
   const hasStyleVar = useMemo(() => variables?.variables.some(v => v.name === 'style_guide'), [variables]);
   const hasSecurityVar = useMemo(() => variables?.variables.some(v => v.name === 'security_guidelines'), [variables]);
@@ -65,6 +69,12 @@ const PromptsPage: React.FC = () => {
   }, [promptKey]);
 
   const saveChunk = async (kind: 'style' | 'security') => {
+    // Check for Team license before saving (self-hosted mode only)
+    if (!hasTeamLicense) {
+      setShowUpgradeDialog(true);
+      return;
+    }
+    
     try {
       setSaving(kind);
       const varName = kind === 'style' ? 'style_guide' : 'security_guidelines';
@@ -157,6 +167,15 @@ const PromptsPage: React.FC = () => {
       </div>
 
       {/* Render preview removed per simplification requirements */}
+
+      {/* License Upgrade Dialog */}
+      <LicenseUpgradeDialog
+        open={showUpgradeDialog}
+        onClose={() => setShowUpgradeDialog(false)}
+        requiredTier="team"
+        featureName="Prompt Customization"
+        featureDescription="Customize your AI review prompts with style guides and security guidelines to get reviews tailored to your team's standards."
+      />
     </div>
   );
 };
