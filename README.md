@@ -256,7 +256,7 @@ Visit the [Wiki](https://github.com/HexmosTech/LiveReview/wiki) for complete doc
 LiveReview provides tangible improvements in code quality and delivery speed while generating meaningful metrics that demonstrate the value of your engineering investments. Teams typically see a 70% reduction in review time and up to 40% increase in velocity.
 
 **Is my code secure with LiveReview?**
-Absolutely. With self-hosted deployment, all code stays within your infrastructure with no data sent to external servers. For teams preferring managed hosting, our [cloud version](https://livereview.hexmos.com/) uses industry-standard security practices and encryption.
+Absolutely. With self-hosted deployment, all code stays within your infrastructure with no data sent to external servers. For teams preferring managed hosting, our [cloud version](https://hexmos.com/livereview/) uses industry-standard security practices and encryption.
 
 **What's the difference between Community and paid tiers?**
 Community Edition is fully functional with unlimited reviews, all AI providers, and all git integrations — limited to 3 users. Team and Enterprise tiers add prompt customization, learnings management, priority support, and unlimited users.
@@ -282,6 +282,6 @@ LiveReview is distributed under a modified variant of **Sustainable Use License 
 
 <p align="center">
    <b>Self-Host:</b> <a href="#quick-start">Get Started Free</a> | 
-   <b>Cloud:</b> <a href="https://livereview.hexmos.com/">Try livereview.hexmos.com</a> | 
+   <b>Cloud:</b> <a href="https://hexmos.com/livereview/">Try hexmos.com/livereview</a> | 
    <a href="https://github.com/HexmosTech/LiveReview/wiki">Documentation</a>
 </p>
