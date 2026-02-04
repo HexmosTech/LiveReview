@@ -71,6 +71,28 @@
 - High-quality MR Summary - goes through all the changes in its full context and produces short and medium-size summaries of reviews
 - Find a large number of technical issues in areas such as: unused variables, security vulnerabilities, performance issues, missing error handling, duplicated code detection, null pointer detection, data structure fit to problem, etc. Find a full list of both technical and business benefits in the [landing page](https://hexmos.com/livereview)
 
+## Self-Hosted Tiers
+
+LiveReview offers three tiers for self-hosted deployments:
+
+| Feature | Community | Team | Enterprise |
+|---------|:---------:|:----:|:----------:|
+| Basic Code Reviews | ✅ | ✅ | ✅ |
+| Git Provider Integration | ✅ | ✅ | ✅ |
+| AI Provider Configuration | ✅ | ✅ | ✅ |
+| Dashboard & Analytics | ✅ | ✅ | ✅ |
+| Prompt Customization | ❌ | ✅ | ✅ |
+| Learnings Management | ❌ | ✅ | ✅ |
+| Multiple API Keys | ❌ | ✅ | ✅ |
+| Team Management (>3 users) | ❌ | ✅ | ✅ |
+| Priority Support | ❌ | ✅ | ✅ |
+| SSO / SAML | ❌ | ❌ | ✅ |
+| Audit Logs | ❌ | ❌ | ✅ |
+| Compliance Reports | ❌ | ❌ | ✅ |
+| Custom Integrations | ❌ | ❌ | ✅ |
+
+[Get a License](https://hexmos.com/livereview/selfhosted-access/)
+
 ## Quick Start
 
 Get LiveReview running in under 5 minutes with our simplified two-mode deployment system:
