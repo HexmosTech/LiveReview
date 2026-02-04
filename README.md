@@ -187,7 +187,7 @@ Get instant AI code reviews without leaving your editor. Available for VSCode, C
 <a id="self-hosted-tiers"></a>
 ## Self-Hosted Tiers
 
-LiveReview offers three tiers for self-hosted deployments. **Community Edition is free forever** and provides genuine value for small teams and individual developers.
+LiveReview offers three tiers for self-hosted deployments. **Community Edition is free forever and provides genuine value for small teams and individual developers.**
 
 | Feature | Community (Free) | Team | Enterprise |
 |---------|:----------------:|:----:|:----------:|
@@ -278,6 +278,8 @@ LiveReview is distributed under a modified variant of **Sustainable Use License 
 >
 > This license ensures LiveReview remains sustainable while giving you full access to self-host and customize for your needs.
 
+For detailed terms, examples of permitted and prohibited uses, and definitions, see the full
+[LICENSE.md](LICENSE.md).
 ---
 
 <p align="center">
