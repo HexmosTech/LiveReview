@@ -9,7 +9,7 @@ LiveReview uses a source-available license based on the [fair-code](https://fair
 | Self-host on your infrastructure | Resell or offer as competing service |
 | Use for internal business operations | Redistribute modified versions commercially |
 | Modify for your own use | Circumvent license tier restrictions |
-| Share source for evaluation/testing | Remove licensing or copyright notices |
+| Share source for evaluation/testing/contributing | Remove licensing or copyright notices |
 
 ---
 
@@ -187,6 +187,3 @@ broad use and modification while reserving exclusive commercialization rights to
 This software is not "open source" as defined by the [Open Source Initiative](https://opensource.org/),
 as open source licenses cannot include limitations on commercial use. However, this license provides many
 of the same practical benefits for internal and non-commercial use.
-
-For detailed terms, examples of permitted and prohibited uses, and definitions, see the full
-[LICENSE.md](LICENSE.md).
