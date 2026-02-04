@@ -1,8 +1,20 @@
 # License
 
+## Quick Summary
+
+LiveReview uses a source-available license based on the [fair-code](https://faircode.io/) model.
+
+| ✅ Permitted | ❌ Prohibited |
+|-------------|---------------|
+| Self-host on your infrastructure | Resell or offer as competing service |
+| Use for internal business operations | Redistribute modified versions commercially |
+| Modify for your own use | Circumvent license tier restrictions |
+| Share source for evaluation/testing | Remove licensing or copyright notices |
+
+---
+
 Portions of this software are licensed as follows:
 
-- Content of branches other than the main branch (i.e. "master") are not licensed.
 - Source code files that contain ".ee." in their filename or ".ee" in their dirname are NOT licensed under
   the Sustainable Use License.
   To use source code files that contain ".ee." in their filename or ".ee" in their dirname you must hold a
@@ -38,8 +50,10 @@ The following uses of the software are expressly permitted under this license:
 3. **Modifications for Own Use.** You may modify the software to customize it for your own internal use,
    provided such modifications comply with the Prohibited Uses below.
 
-4. **Non-Commercial Distribution.** You may share unmodified copies of the software with others free of
-   charge for non-commercial purposes, provided you include a copy of this license.
+4. **Non-Commercial Distribution.** You may share unmodified copies of the software's source code with
+   others free of charge, solely for evaluation, testing, or contribution purposes. You must include a
+   copy of this license with any such distribution. This does not permit you to become a distribution
+   channel for the software or to package the software for redistribution.
 
 ### Prohibited Uses
 
@@ -70,12 +84,13 @@ The following uses of the software are expressly prohibited under this license:
 ### Patents
 
 The licensor grants you a license, under any patent claims the licensor can license, or becomes able to
-license, to make, have made, use, sell, offer for sale, import and have imported the software, in each case
-subject to the limitations and conditions in this license. This license does not cover any patent claims that
-you cause to be infringed by modifications or additions to the software. If you or your company make any
-written claim that the software infringes or contributes to infringement of any patent, your patent license
-for the software granted under these terms ends immediately. If your company makes such a claim, your patent
-license ends immediately for work on behalf of your company.
+license, to make, have made, and use the software, subject to the limitations and conditions in this license.
+This patent grant does not extend to any uses prohibited under the Permitted Uses and Prohibited Uses sections
+above. This license does not cover any patent claims that you cause to be infringed by modifications or
+additions to the software. If you or your company make any written claim that the software infringes or
+contributes to infringement of any patent, your patent license for the software granted under these terms
+ends immediately. If your company makes such a claim, your patent license ends immediately for work on
+behalf of your company.
 
 ### Notices
 
@@ -101,25 +116,74 @@ As far as the law allows, the software comes as is, without any warranty or cond
 not be liable to you for any damages arising out of these terms or the use or nature of the software, under
 any kind of legal claim.
 
+### What Is and Isn't Allowed: Examples
+
+Our license restricts use to "internal business purposes." In practice, this means all use is allowed unless
+you are selling a product, service, or module in which the value derives entirely or substantially from
+LiveReview functionality.
+
+**Examples of ALLOWED use:**
+
+- Using LiveReview to review code for your company's projects
+- Deploying LiveReview on your company's infrastructure for your development team
+- Connecting LiveReview to your private GitHub/GitLab/Bitbucket repositories
+- Modifying LiveReview's configuration or prompts for your team's needs
+- Providing consulting services to help other companies set up LiveReview
+- Building internal integrations between LiveReview and your other tools
+
+**Examples of NOT ALLOWED use:**
+
+- White-labeling LiveReview and offering it to your customers for money
+- Hosting LiveReview and charging people money to access it
+- Modifying the software to bypass license tier restrictions or unlock paid features
+- Distributing a modified version of LiveReview commercially
+- Offering LiveReview as part of a paid development tools bundle
+
+**If you want to use LiveReview for something not permitted by this license**, contact us at
+shrijith@hexmos.com to discuss a commercial agreement.
+
 ### Definitions
 
-The "licensor" is the entity offering these terms, specifically Hexmos Technology LLP.
+The **"licensor"** is the entity offering these terms, specifically Hexmos Technology LLP, a company
+registered in India.
 
-The "software" is the software the licensor makes available under these terms, including any portion of it.
+The **"software"** is the software the licensor makes available under these terms, including any portion
+of it, documentation, configuration files, and associated materials.
 
-"You" refers to the individual or entity agreeing to these terms.
+**"You"** (and "your") refers to the individual or entity agreeing to these terms.
 
-"Your company" is any legal entity, sole proprietorship, or other kind of organization that you work for, plus
-all organizations that have control over, are under the control of, or are under common control with that
-organization. Control means ownership of substantially all the assets of an entity, or the power to direct its
-management and policies by vote, contract, or otherwise. Control can be direct or indirect.
+**"Your company"** is any legal entity, sole proprietorship, or other kind of organization that you work
+for, plus all organizations that have control over, are under the control of, or are under common control
+with that organization. "Control" means ownership of substantially all the assets of an entity, or the
+power to direct its management and policies by vote, contract, or otherwise. Control can be direct or
+indirect.
 
-"Your license" is the license granted to you for the software under these terms.
+**"Your license"** is the license granted to you for the software under these terms.
 
-"Use" means anything you do with the software requiring your license.
+**"Use"** means anything you do with the software requiring your license, including but not limited to
+copying, modifying, distributing, running, or deploying the software.
 
-"Trademark" means trademarks, service marks, and similar rights.
+**"Internal business purposes"** means use of the software to support your own business operations,
+where the software is not itself the product or service being sold to third parties. Internal business
+purposes do not include operating the software primarily for the benefit of third parties, except in the
+course of providing professional services (such as consulting or implementation assistance) where the
+software itself is not sold, resold, sublicensed, or made available as a service to those third parties.
 
-"License tier" means the different levels of software functionality and access rights offered by the licensor,
-including but not limited to Community, Team, and Enterprise tiers, each with distinct features, user limits,
-and capabilities as defined by the licensor.
+**"Trademark"** means trademarks, service marks, trade names, logos, and similar rights.
+
+**"License tier"** means the different levels of software functionality and access rights offered by the
+licensor, including but not limited to Community (free), Team, and Enterprise tiers, each with distinct
+features, user limits, and capabilities as defined by the licensor and documented at
+https://hexmos.com/livereview/.
+
+**"Derivative work"** means any work that is based on or derived from the software, including modifications,
+translations, adaptations, or any other form in which the software may be recast, transformed, or adapted.
+
+### Fair-Code
+
+This license follows the [fair-code](https://faircode.io/) model: source-available software that permits
+broad use and modification while reserving commercial exploitation rights to the licensor.
+
+This software is not "open source" as defined by the [Open Source Initiative](https://opensource.org/),
+as open source licenses cannot include limitations on commercial use. However, this license provides many
+of the same practical benefits for internal and non-commercial use.
