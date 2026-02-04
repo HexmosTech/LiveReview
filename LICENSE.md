@@ -13,7 +13,7 @@ Portions of this software are licensed as follows:
 - Content outside of the above mentioned files or restrictions is available under the "Sustainable Use
   License" as defined below.
 
-## Sustainable Use License
+## Sustainable Use License (Modified)
 
 Version 1.0
 
@@ -24,15 +24,49 @@ By using the software, you agree to all of the terms and conditions below.
 ### Copyright License
 
 The licensor grants you a non-exclusive, royalty-free, worldwide, non-sublicensable, non-transferable license
-to use, copy, distribute, make available, and prepare derivative works of the software, in each case subject
-to the limitations below.
+to use, copy, and prepare derivative works of the software, in each case subject to the limitations below.
 
-### Limitations
+### Permitted Uses
 
-You may use or modify the software only for your own internal business purposes or for non-commercial or
-personal use. You may distribute the software or provide it to others only if you do so free of charge for
-non-commercial purposes. You may not alter, remove, or obscure any licensing, copyright, or other notices of
-the licensor in the software. Any use of the licensor’s trademarks is subject to applicable law.
+The following uses of the software are expressly permitted under this license:
+
+1. **Source Availability and Self-Hosting.** You may access, download, and deploy the software on your own
+   infrastructure for self-hosted use.
+
+2. **Internal Business Use.** You may use the software for your own internal business operations, including
+   commercial activities within your organization.
+
+3. **Modifications for Own Use.** You may modify the software to customize it for your own internal use,
+   provided such modifications comply with the Prohibited Uses below.
+
+4. **Non-Commercial Distribution.** You may share unmodified copies of the software with others free of
+   charge for non-commercial purposes, provided you include a copy of this license.
+
+### Prohibited Uses
+
+The following uses of the software are expressly prohibited under this license:
+
+1. **No Resale or Competing Services.** You may not sell, lease, license, sublicense, or otherwise
+   commercialize the software or any derivative works. You may not offer the software, or any derivative
+   work based on the software, as a hosted service, managed service, or any product or service that
+   competes with the licensor's offerings.
+
+2. **No Commercial Redistribution.** You may not distribute, publish, or make available any modified
+   versions of the software for commercial purposes. You may not distribute the software or derivative
+   works in exchange for fees, subscription payments, or other commercial consideration.
+
+3. **No Circumvention of License Tiers.** You may not modify, reverse engineer, or otherwise alter the
+   software to circumvent, disable, or bypass any license validation, feature gating, usage limitations,
+   or tier-based restrictions implemented in the software. This includes, without limitation, modifications
+   intended to access functionality designated for higher license tiers (such as Team or Enterprise features)
+   without holding a valid license for such tier.
+
+4. **No Removal of Notices.** You may not alter, remove, or obscure any licensing, copyright, trademark,
+   or other proprietary notices of the licensor contained in the software.
+
+5. **Trademark Restrictions.** Any use of the licensor's trademarks, service marks, trade names, or logos
+   is subject to applicable law and requires prior written consent from the licensor, except as necessary
+   to comply with the notice requirements of this license.
 
 ### Patents
 
@@ -70,19 +104,23 @@ any kind of legal claim.
 
 ### Definitions
 
-The “licensor” is the entity offering these terms.
+The "licensor" is the entity offering these terms, specifically Hexmos Technologies Private Limited.
 
-The “software” is the software the licensor makes available under these terms, including any portion of it.
+The "software" is the software the licensor makes available under these terms, including any portion of it.
 
-“You” refers to the individual or entity agreeing to these terms.
+"You" refers to the individual or entity agreeing to these terms.
 
-“Your company” is any legal entity, sole proprietorship, or other kind of organization that you work for, plus
+"Your company" is any legal entity, sole proprietorship, or other kind of organization that you work for, plus
 all organizations that have control over, are under the control of, or are under common control with that
 organization. Control means ownership of substantially all the assets of an entity, or the power to direct its
 management and policies by vote, contract, or otherwise. Control can be direct or indirect.
 
-“Your license” is the license granted to you for the software under these terms.
+"Your license" is the license granted to you for the software under these terms.
 
-“Use” means anything you do with the software requiring your license.
+"Use" means anything you do with the software requiring your license.
 
-“Trademark” means trademarks, service marks, and similar rights.
+"Trademark" means trademarks, service marks, and similar rights.
+
+"License tier" means the different levels of software functionality and access rights offered by the licensor,
+including but not limited to Community, Team, and Enterprise tiers, each with distinct features, user limits,
+and capabilities as defined by the licensor.
