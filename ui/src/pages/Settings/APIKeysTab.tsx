@@ -2,6 +2,8 @@ import React, { useState, useEffect } from 'react';
 import { Button, Icons, Input, Alert, Badge } from '../../components/UIPrimitives';
 import apiClient from '../../api/apiClient';
 import { useOrgContext } from '../../hooks/useOrgContext';
+import LicenseUpgradeDialog from '../../components/License/LicenseUpgradeDialog';
+import { useHasLicenseFor, COMMUNITY_TIER_LIMITS } from '../../hooks/useLicenseTier';
 
 export interface APIKey {
     id: number;
@@ -32,6 +34,17 @@ const APIKeysTab: React.FC = () => {
     const [createdKey, setCreatedKey] = useState<string | null>(null);
     const [error, setError] = useState<string | null>(null);
     const [success, setSuccess] = useState<string | null>(null);
+    const [showUpgradeDialog, setShowUpgradeDialog] = useState(false);
+    const hasTeamLicense = useHasLicenseFor('team');
+
+    // Check if adding a new API key requires Team license
+    const requiresLicenseForNewKey = () => {
+        if (keys.length >= COMMUNITY_TIER_LIMITS.MAX_API_KEYS && !hasTeamLicense) {
+            setShowUpgradeDialog(true);
+            return true;
+        }
+        return false;
+    };
 
     useEffect(() => {
         loadKeys();
@@ -58,6 +71,8 @@ const APIKeysTab: React.FC = () => {
             setError('Please enter a label for the API key');
             return;
         }
+
+        if (requiresLicenseForNewKey()) return;
 
         setError(null);
         setLoading(true);
@@ -252,7 +267,10 @@ const APIKeysTab: React.FC = () => {
                     variant="primary"
                     size="sm"
                     icon={<Icons.Add />}
-                    onClick={() => setShowCreateForm(!showCreateForm)}
+                    onClick={() => {
+                        if (requiresLicenseForNewKey()) return;
+                        setShowCreateForm(!showCreateForm);
+                    }}
                 >
                     Create New Key
                 </Button>
@@ -389,6 +407,15 @@ lrc --diff-source staged
                     </div>
                 </div>
             </div>
+
+            {/* License Upgrade Dialog */}
+            <LicenseUpgradeDialog
+                open={showUpgradeDialog}
+                onClose={() => setShowUpgradeDialog(false)}
+                requiredTier="team"
+                featureName="Multiple API Keys"
+                featureDescription="Create additional API keys for different environments, CI/CD pipelines, and team members. Community tier includes 1 API key."
+            />
         </div>
     );
 };
