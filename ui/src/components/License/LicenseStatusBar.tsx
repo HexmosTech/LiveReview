@@ -4,19 +4,20 @@ import { triggerLicenseRefresh } from '../../store/License/slice';
 import { getSystemInfo } from '../../api/system';
 import { Tooltip } from '../UIPrimitives';
 import { isCloudMode } from '../../utils/deploymentMode';
+import LicenseUpgradeDialog from './LicenseUpgradeDialog';
 
 export interface LicenseStatusBarProps {
   onOpenModal?: () => void;
 }
 
 // Map license status to styles & human labels
-const STATUS_STYLES: Record<string, { label: string; bg: string; fg: string; accent: string; description?: string; } > = {
-  active: { label: 'Active', bg: 'bg-emerald-900/40', fg: 'text-emerald-300', accent: 'bg-emerald-500', description: 'License valid' },
-  missing: { label: 'Missing', bg: 'bg-amber-900/40', fg: 'text-amber-300', accent: 'bg-amber-500', description: 'A license is required' },
+const STATUS_STYLES: Record<string, { label: string; bg: string; fg: string; accent: string; description?: string; upsellText?: string; } > = {
+  active: { label: 'Licensed', bg: 'bg-emerald-900/40', fg: 'text-emerald-300', accent: 'bg-emerald-500', description: 'License valid' },
+  missing: { label: 'Community Edition', bg: 'bg-blue-900/40', fg: 'text-blue-300', accent: 'bg-blue-500', description: 'Free tier', upsellText: 'Unlock Team features' },
   warning: { label: 'Network Warning', bg: 'bg-yellow-900/40', fg: 'text-yellow-300', accent: 'bg-yellow-500', description: 'Recent validation failures' },
   grace: { label: 'Grace Period', bg: 'bg-orange-900/40', fg: 'text-orange-300', accent: 'bg-orange-500', description: 'Connectivity issues persist; days remaining limited' },
-  expired: { label: 'Expired', bg: 'bg-red-900/40', fg: 'text-red-300', accent: 'bg-red-500', description: 'License expired — action required' },
-  invalid: { label: 'Invalid', bg: 'bg-red-900/40', fg: 'text-red-300', accent: 'bg-red-500', description: 'Provided token invalid' },
+  expired: { label: 'License Expired', bg: 'bg-red-900/40', fg: 'text-red-300', accent: 'bg-red-500', description: 'Renew to continue', upsellText: 'Renew now' },
+  invalid: { label: 'Invalid License', bg: 'bg-red-900/40', fg: 'text-red-300', accent: 'bg-red-500', description: 'Provided token invalid' },
 };
 
 const EXPIRY_WARNING_DAYS = 15; // Show warning banner when license expires in ≤15 days
@@ -57,6 +58,7 @@ const LicenseStatusBar: React.FC<LicenseStatusBarProps> = ({ onOpenModal }) => {
   const style = STATUS_STYLES[license.status] || STATUS_STYLES['missing'];
   const [deploymentMode, setDeploymentMode] = useState<'demo' | 'production' | 'unknown'>('unknown');
   const [showDemoInfo, setShowDemoInfo] = useState(false);
+  const [showUpgradeDialog, setShowUpgradeDialog] = useState(false);
   const [firstLoadBannerShown, setFirstLoadBannerShown] = useState<boolean>(() => {
     try { return localStorage.getItem('lr_demo_firstload_shown') === '1'; } catch { return true; }
   });
@@ -152,11 +154,20 @@ const LicenseStatusBar: React.FC<LicenseStatusBarProps> = ({ onOpenModal }) => {
                   {license.refreshing ? 'Refreshing…' : 'Refresh'}
                 </button>
               )}
+              {/* Upsell: Show "View Plans" for Community Edition / missing license */}
+              {style.upsellText && (
+                <button
+                  onClick={() => setShowUpgradeDialog(true)}
+                  className="px-2 py-0.5 bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-500 hover:to-purple-500 text-white text-xs font-medium rounded transition-all"
+                >
+                  {style.upsellText} →
+                </button>
+              )}
               <button
                 onClick={onOpenModal}
                 className={`underline ${needsAction ? 'text-amber-300 hover:text-amber-200' : 'text-slate-300 hover:text-slate-200'}`}
               >
-                {needsAction ? 'Enter License' : 'Update License'}
+                {license.status === 'missing' ? 'Have a license?' : (needsAction ? 'Enter License' : 'Update License')}
               </button>
             </div>
           </div>
@@ -220,6 +231,15 @@ const LicenseStatusBar: React.FC<LicenseStatusBarProps> = ({ onOpenModal }) => {
           </div>
         </div>
       )}
+
+      {/* License Upgrade Dialog for upsell */}
+      <LicenseUpgradeDialog
+        open={showUpgradeDialog}
+        onClose={() => setShowUpgradeDialog(false)}
+        requiredTier="team"
+        featureName="Team Features"
+        featureDescription="Unlock advanced features like custom prompts, learnings management, multiple API keys, and team collaboration."
+      />
     </>
   );
 };
