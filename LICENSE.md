@@ -187,3 +187,6 @@ broad use and modification while reserving exclusive commercialization rights to
 This software is not "open source" as defined by the [Open Source Initiative](https://opensource.org/),
 as open source licenses cannot include limitations on commercial use. However, this license provides many
 of the same practical benefits for internal and non-commercial use.
+
+For detailed terms, examples of permitted and prohibited uses, and definitions, see the full
+[LICENSE.md](LICENSE.md).
