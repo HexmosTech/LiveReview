@@ -265,7 +265,7 @@ Community Edition is fully functional with unlimited reviews, all AI providers, 
 
 ## License
 
-LiveReview is distributed under the **Sustainable Use License (SUL)**.
+LiveReview is distributed under a modified variant of **Sustainable Use License (SUL)**.
 
 > [!NOTE]
 >
