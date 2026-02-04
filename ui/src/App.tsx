@@ -238,6 +238,9 @@ const AppContent: React.FC = () => {
 
     // Enforce license: open when status requires token, but ONLY after initial load to avoid flash
     // License modal should NOT appear in cloud mode (only for self-hosted)
+    // Also, don't auto-open modal for missing license - allow general usage without a license
+    // Users can still open the modal manually via LicenseStatusBar to add a license
+    // Feature-specific restrictions are handled by LicenseUpgradeDialog
     useEffect(() => {
         // Skip license modal entirely in cloud mode
         if (isCloudMode()) {
@@ -249,16 +252,9 @@ const AppContent: React.FC = () => {
             dispatch(closeLicenseModal());
             return;
         }
-        if (!licenseLoadedOnce) {
-            // Avoid opening modal until we know the real status
-            return;
-        }
-        if (['missing', 'invalid', 'expired'].includes(licenseStatus)) {
-            dispatch(openLicenseModal());
-        } else {
-            dispatch(closeLicenseModal());
-        }
-    }, [isAuthenticated, licenseStatus, licenseLoadedOnce, dispatch]);
+        // Don't auto-open modal - let users use the app freely
+        // They can manually open it via LicenseStatusBar if they want to add a license
+    }, [isAuthenticated, dispatch]);
 
     // (Removed old keyboard shortcut & placeholder strict effect to prevent events firing after unmount)
 
@@ -328,7 +324,7 @@ const AppContent: React.FC = () => {
                     </SubscriptionGuard>
                 </div>
                 <Footer />
-                {!isCloudMode() && <LicenseModal open={licenseOpen} onClose={() => dispatch(closeLicenseModal())} strictMode={['missing', 'invalid', 'expired'].includes(licenseStatus)} />}
+                {!isCloudMode() && <LicenseModal open={licenseOpen} onClose={() => dispatch(closeLicenseModal())} />}
             </div>
         );
     }
