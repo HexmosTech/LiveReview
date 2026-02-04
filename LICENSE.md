@@ -182,7 +182,7 @@ translations, adaptations, or any other form in which the software may be recast
 ### Fair-Code
 
 This license follows the [fair-code](https://faircode.io/) model: source-available software that permits
-broad use and modification while reserving commercial exploitation rights to the licensor.
+broad use and modification while reserving exclusive commercialization rights to the licensor.
 
 This software is not "open source" as defined by the [Open Source Initiative](https://opensource.org/),
 as open source licenses cannot include limitations on commercial use. However, this license provides many
