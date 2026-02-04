@@ -33,8 +33,7 @@ The following uses of the software are expressly permitted under this license:
 1. **Source Availability and Self-Hosting.** You may access, download, and deploy the software on your own
    infrastructure for self-hosted use.
 
-2. **Internal Business Use.** You may use the software for your own internal business operations, including
-   commercial activities within your organization.
+2. **Internal Business Use.** You may use the software for your own internal business operations.
 
 3. **Modifications for Own Use.** You may modify the software to customize it for your own internal use,
    provided such modifications comply with the Prohibited Uses below.
