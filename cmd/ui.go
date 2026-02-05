@@ -58,8 +58,8 @@ func UICommand(uiAssets embed.FS) *cli.Command {
 
 			// If no API URL provided, try to auto-detect based on deployment mode
 			if apiURL == "" {
-				// Check for unified API_URL first
-				if unifiedAPI := os.Getenv("API_URL"); unifiedAPI != "" {
+				// Check for unified API_URL first (trim whitespace to handle malformed env vars)
+				if unifiedAPI := strings.TrimSpace(os.Getenv("API_URL")); unifiedAPI != "" {
 					apiURL = unifiedAPI
 				} else {
 					// Auto-detect based on reverse proxy setting

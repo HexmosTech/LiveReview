@@ -29,12 +29,14 @@ function getBaseUrl(): string {
   console.log('🔍 Checking runtime config...');
   console.log('🔍 window.LIVEREVIEW_CONFIG exists:', !!window.LIVEREVIEW_CONFIG);
   console.log('🔍 window.LIVEREVIEW_CONFIG.apiUrl:', window.LIVEREVIEW_CONFIG?.apiUrl);
-  console.log('🔍 apiUrl is not null:', window.LIVEREVIEW_CONFIG?.apiUrl !== null);
   
-  if (window.LIVEREVIEW_CONFIG?.apiUrl && window.LIVEREVIEW_CONFIG.apiUrl !== null) {
-    console.log('✅✅✅ Using runtime config apiUrl:', window.LIVEREVIEW_CONFIG.apiUrl);
+  // Trim whitespace to handle malformed config values  
+  const configUrl = window.LIVEREVIEW_CONFIG?.apiUrl;
+  if (configUrl && typeof configUrl === 'string' && configUrl.trim() !== '') {
+    const trimmedUrl = configUrl.trim();
+    console.log('✅✅✅ Using runtime config apiUrl:', trimmedUrl);
     console.log('🚨🚨🚨 === API CLIENT DEBUG END === 🚨🚨🚨');
-    return window.LIVEREVIEW_CONFIG.apiUrl;
+    return trimmedUrl;
   }
   
   console.log('⚠️⚠️⚠️ No runtime config found, using auto-detection');
