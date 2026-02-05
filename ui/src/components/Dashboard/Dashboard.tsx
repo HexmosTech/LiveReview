@@ -17,6 +17,7 @@ import RecentActivity from './RecentActivity';
 import { OnboardingStepper } from './OnboardingStepper';
 import { PlanBadge } from './PlanBadge';
 import { handleUserLoginNotification } from '../../utils/userNotifications';
+import { getApiUrl } from '../../utils/apiUrl';
 import { useAppSelector } from '../../store/configureStore';
 
 export const Dashboard: React.FC = () => {
@@ -108,11 +109,8 @@ export const Dashboard: React.FC = () => {
 
     // Build install commands with API key
     const apiKey = dashboardData?.onboarding_api_key || '';
-    // Get API URL from current page or fallback to dashboard data
-    const baseUrl = typeof window !== 'undefined' 
-        ? `${window.location.protocol}//${window.location.host}`
-        : (dashboardData?.api_url || 'http://localhost:8888');
-    const apiUrl = baseUrl;
+    // Get API URL - use the shared utility that correctly handles the UI/API port difference
+    const apiUrl = getApiUrl();
     const installCommand = apiKey 
         ? `curl -fsSL https://hexmos.com/lrc-install.sh | LRC_API_KEY="${apiKey}" LRC_API_URL="${apiUrl}" bash`
         : '';
