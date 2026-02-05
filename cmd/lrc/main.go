@@ -1632,6 +1632,28 @@ func createZipArchive(diffContent []byte) ([]byte, error) {
 	return buf.Bytes(), nil
 }
 
+// formatJSONParseError creates a helpful error message when JSON parsing fails.
+// It includes hints about common causes like wrong API URL/port.
+func formatJSONParseError(body []byte, contentType string, parseErr error) error {
+	bodyStr := string(body)
+	preview := bodyStr
+	if len(preview) > 200 {
+		preview = preview[:200] + "..."
+	}
+
+	// Check if the response looks like HTML (common when hitting frontend instead of API)
+	if strings.HasPrefix(strings.TrimSpace(bodyStr), "<") || strings.Contains(contentType, "text/html") {
+		return fmt.Errorf("received HTML instead of JSON (Content-Type: %s).\n"+
+			"This usually means api_url in ~/.lrc.toml points to the frontend UI instead of the API.\n"+
+			"Check that api_url uses the correct port (default API port is 8888, not 8081).\n"+
+			"Response preview: %s", contentType, preview)
+	}
+
+	// Generic JSON parse error with body preview
+	return fmt.Errorf("failed to parse response as JSON: %w\nContent-Type: %s\nResponse preview: %s",
+		parseErr, contentType, preview)
+}
+
 func submitReview(apiURL, apiKey, base64Diff, repoName string, verbose bool) (diffReviewCreateResponse, error) {
 	endpoint := strings.TrimSuffix(apiURL, "/") + "/api/v1/diff-review"
 
@@ -1669,13 +1691,15 @@ func submitReview(apiURL, apiKey, base64Diff, repoName string, verbose bool) (di
 		return diffReviewCreateResponse{}, fmt.Errorf("failed to read response: %w", err)
 	}
 
+	contentType := resp.Header.Get("Content-Type")
+
 	if resp.StatusCode != http.StatusOK {
 		return diffReviewCreateResponse{}, &APIError{StatusCode: resp.StatusCode, Body: string(body)}
 	}
 
 	var result diffReviewCreateResponse
 	if err := json.Unmarshal(body, &result); err != nil {
-		return diffReviewCreateResponse{}, fmt.Errorf("failed to parse response: %w", err)
+		return diffReviewCreateResponse{}, formatJSONParseError(body, contentType, err)
 	}
 
 	if result.ReviewID == "" {
@@ -1747,13 +1771,15 @@ func pollReview(apiURL, apiKey, reviewID string, pollInterval, timeout time.Dura
 			return nil, fmt.Errorf("failed to read response: %w", err)
 		}
 
+		contentType := resp.Header.Get("Content-Type")
+
 		if resp.StatusCode != http.StatusOK {
 			return nil, fmt.Errorf("API returned status %d: %s", resp.StatusCode, string(body))
 		}
 
 		var result diffReviewResponse
 		if err := json.Unmarshal(body, &result); err != nil {
-			return nil, fmt.Errorf("failed to parse response: %w", err)
+			return nil, formatJSONParseError(body, contentType, err)
 		}
 
 		statusLine := fmt.Sprintf("Status: %s | elapsed: %s", result.Status, time.Since(start).Truncate(time.Second))
