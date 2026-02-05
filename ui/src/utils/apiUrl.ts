@@ -11,8 +11,10 @@ export function getApiUrl(): string {
     }
     
     // Primary: runtime config injected by Go server
-    if ((window as any).LIVEREVIEW_CONFIG?.apiUrl) {
-        return (window as any).LIVEREVIEW_CONFIG.apiUrl;
+    // Trim whitespace to handle malformed config values
+    const configUrl = (window as any).LIVEREVIEW_CONFIG?.apiUrl;
+    if (configUrl && typeof configUrl === 'string' && configUrl.trim() !== '') {
+        return configUrl.trim();
     }
     
     // Fall back to current host (production reverse proxy mode)
