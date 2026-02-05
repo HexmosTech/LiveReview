@@ -39,33 +39,10 @@ function getBaseUrl(): string {
   
   console.log('⚠️⚠️⚠️ No runtime config found, using auto-detection');
   
-  // Auto-detection based on current URL and deployment mode
+  // Fall back to current host (production reverse proxy mode)
   const currentUrl = new URL(window.location.href);
-  const port = currentUrl.port;
-  
-  console.log('🔍 Current URL:', currentUrl.href);
-  console.log('🔍 Current URL port:', port);
-  console.log('🔍 Current URL hostname:', currentUrl.hostname);
-  
-  // If we're on localhost with port 8081, we're in demo mode (API on port 8888)
-  if (currentUrl.hostname === 'localhost' && port === '8081') {
-    const detectedUrl = `${currentUrl.protocol}//localhost:8888`;
-    console.log('🔍 Demo mode detected, using localhost:8888');
-    return detectedUrl;
-  }
-  
-  // If we're on localhost with a different port, use the same port for API
-  if (currentUrl.hostname === 'localhost' && port) {
-    const detectedUrl = `${currentUrl.protocol}//${currentUrl.hostname}:${port}`;
-    console.log('🔍 Localhost with port detected:', detectedUrl);
-    return detectedUrl;
-  }
-  
-  // For production (reverse proxy), construct API URL from current URL
-  // Remove port if present and use same protocol/hostname
-  const baseUrl = `${currentUrl.protocol}//${currentUrl.hostname}`;
-  console.log('🔍 Production mode detected, using current URL base:', baseUrl);
-  console.log('🔍 This will be used for API calls - no /api suffix needed as it will be added by URL construction');
+  const baseUrl = `${currentUrl.protocol}//${currentUrl.host}`;
+  console.log('🔍 Using current host as API base:', baseUrl);
   
   return baseUrl;
 }
