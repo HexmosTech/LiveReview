@@ -4,6 +4,7 @@ import apiClient from '../../api/apiClient';
 import { useOrgContext } from '../../hooks/useOrgContext';
 import LicenseUpgradeDialog from '../../components/License/LicenseUpgradeDialog';
 import { useHasLicenseFor, COMMUNITY_TIER_LIMITS } from '../../hooks/useLicenseTier';
+import { getApiUrl } from '../../utils/apiUrl';
 
 export interface APIKey {
     id: number;
@@ -205,13 +206,13 @@ const APIKeysTab: React.FC = () => {
                                         <p className="text-green-200 text-xs mb-1">Linux/Mac:</p>
                                         <div className="flex items-center space-x-2 bg-slate-900 rounded p-2">
                                             <code className="text-green-300 font-mono text-xs flex-1 break-all">
-                                                {`curl -fsSL https://hexmos.com/lrc-install.sh | LRC_API_KEY="${createdKey}" LRC_API_URL="${typeof window !== 'undefined' ? `${window.location.protocol}//${window.location.host}` : 'http://localhost:8888'}" bash`}
+                                                {`curl -fsSL https://hexmos.com/lrc-install.sh | LRC_API_KEY="${createdKey}" LRC_API_URL="${getApiUrl()}" bash`}
                                             </code>
                                             <Button
                                                 size="sm"
                                                 variant="ghost"
                                                 onClick={() => {
-                                                    const cmd = `curl -fsSL https://hexmos.com/lrc-install.sh | LRC_API_KEY="${createdKey}" LRC_API_URL="${typeof window !== 'undefined' ? `${window.location.protocol}//${window.location.host}` : 'http://localhost:8888'}" bash`;
+                                                    const cmd = `curl -fsSL https://hexmos.com/lrc-install.sh | LRC_API_KEY="${createdKey}" LRC_API_URL="${getApiUrl()}" bash`;
                                                     navigator.clipboard.writeText(cmd);
                                                     setSuccess('Command copied to clipboard!');
                                                     setTimeout(() => setSuccess(null), 2000);
@@ -227,13 +228,13 @@ const APIKeysTab: React.FC = () => {
                                         <p className="text-green-200 text-xs mb-1">Windows PowerShell:</p>
                                         <div className="flex items-center space-x-2 bg-slate-900 rounded p-2">
                                             <code className="text-green-300 font-mono text-xs flex-1 break-all">
-                                                {`$env:LRC_API_KEY="${createdKey}"; $env:LRC_API_URL="${typeof window !== 'undefined' ? `${window.location.protocol}//${window.location.host}` : 'http://localhost:8888'}"; iwr -useb https://hexmos.com/lrc-install.ps1 | iex`}
+                                                {`$env:LRC_API_KEY="${createdKey}"; $env:LRC_API_URL="${getApiUrl()}"; iwr -useb https://hexmos.com/lrc-install.ps1 | iex`}
                                             </code>
                                             <Button
                                                 size="sm"
                                                 variant="ghost"
                                                 onClick={() => {
-                                                    const cmd = `$env:LRC_API_KEY="${createdKey}"; $env:LRC_API_URL="${typeof window !== 'undefined' ? `${window.location.protocol}//${window.location.host}` : 'http://localhost:8888'}"; iwr -useb https://hexmos.com/lrc-install.ps1 | iex`;
+                                                    const cmd = `$env:LRC_API_KEY="${createdKey}"; $env:LRC_API_URL="${getApiUrl()}"; iwr -useb https://hexmos.com/lrc-install.ps1 | iex`;
                                                     navigator.clipboard.writeText(cmd);
                                                     setSuccess('Command copied to clipboard!');
                                                     setTimeout(() => setSuccess(null), 2000);
