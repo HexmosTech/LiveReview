@@ -5,8 +5,8 @@ export async function createIssuesPanel() {
     const { html, useState, useEffect, useCallback } = await waitForPreact();
     
     return function IssuesPanel({ files, visible, onNavigate, onClose }) {
-        // Multi-select filters: Set of active severity types (default: error + warning)
-        const [activeFilters, setActiveFilters] = useState(new Set(['error', 'warning']));
+        // Multi-select filters: Set of active severity types (default: critical + error + warning)
+        const [activeFilters, setActiveFilters] = useState(new Set(['critical', 'error', 'warning']));
         const [selectedIndices, setSelectedIndices] = useState(new Set());
         const [copyStatus, setCopyStatus] = useState(null); // null, 'copied', 'error'
         
@@ -34,6 +34,7 @@ export async function createIssuesPanel() {
         });
         
         // Count issues by severity
+        const criticalCount = issues.filter(i => (i.severity || '').toLowerCase() === 'critical').length;
         const errorCount = issues.filter(i => (i.severity || '').toLowerCase() === 'error').length;
         const warningCount = issues.filter(i => (i.severity || '').toLowerCase() === 'warning').length;
         const infoCount = issues.filter(i => (i.severity || '').toLowerCase() === 'info').length;
@@ -45,7 +46,7 @@ export async function createIssuesPanel() {
             return activeFilters.has(sev);
         }, [activeFilters]);
         
-        // Initialize: select all issues matching default filters (error + warning)
+        // Initialize: select all issues matching default filters (critical + error + warning)
         useEffect(() => {
             const newSelected = new Set();
             issues.forEach((issue, idx) => {
@@ -151,6 +152,14 @@ export async function createIssuesPanel() {
                 <div class="issues-header">
                     <div class="issues-actions">
                         <div class="severity-filters">
+                            <button 
+                                class="severity-filter-btn critical ${activeFilters.has('critical') ? 'active' : ''}"
+                                onClick=${() => toggleFilter('critical')}
+                                title="Toggle critical issues"
+                            >
+                                CRITICAL
+                                <span class="filter-badge">${criticalCount}</span>
+                            </button>
                             <button 
                                 class="severity-filter-btn error ${activeFilters.has('error') ? 'active' : ''}"
                                 onClick=${() => toggleFilter('error')}
