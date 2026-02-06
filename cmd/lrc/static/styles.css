@@ -1093,10 +1093,16 @@ body {
     font-weight: 700;
 }
 
+.severity-filter-btn.active .filter-badge {
+    background: var(--bg-primary);
+    color: currentColor;
+    border: 1.5px solid currentColor;
+}
+
 .severity-filter-btn.all { color: var(--accent-blue); }
 .severity-filter-btn.all.active { background: rgba(96,165,250,0.15); }
-.severity-filter-btn.critical { color: #dc2626; }
-.severity-filter-btn.critical.active { background: rgba(220,38,38,0.15); }
+.severity-filter-btn.critical { color: #f97316; }
+.severity-filter-btn.critical.active { background: rgba(249,115,22,0.15); }
 .severity-filter-btn.error { color: #ef4444; }
 .severity-filter-btn.error.active { background: rgba(239,68,68,0.15); }
 .severity-filter-btn.warning { color: #eab308; }
@@ -1177,6 +1183,19 @@ body {
     background: rgba(239, 68, 68, 0.2);
     border-color: rgba(239, 68, 68, 0.4);
     color: #fca5a5;
+}
+
+/* Copy Issues button primary action styling */
+.copy-issues-btn.copied {
+    background: rgba(76, 175, 80, 0.9) !important;
+    border-color: rgba(76, 175, 80, 1) !important;
+    color: #fff !important;
+}
+
+.copy-issues-btn.error-state {
+    background: rgba(239, 68, 68, 0.9) !important;
+    border-color: rgba(239, 68, 68, 1) !important;
+    color: #fff !important;
 }
 
 .issue-path {
