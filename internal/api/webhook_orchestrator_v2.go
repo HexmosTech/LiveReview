@@ -540,7 +540,11 @@ func (wo *WebhookOrchestratorV2) formatReviewComments(comments []UnifiedReviewCo
 	result := fmt.Sprintf("🔍 **Code Review Summary** (%d comments)\n\n", len(comments))
 
 	for i, comment := range comments {
-		result += fmt.Sprintf("**%d. %s**\n", i+1, comment.FilePath)
+		result += fmt.Sprintf("**%d. %s**", i+1, comment.FilePath)
+		if comment.Severity != "" {
+			result += fmt.Sprintf(" (%s)", comment.Severity)
+		}
+		result += "\n"
 		if comment.LineNumber > 0 {
 			result += fmt.Sprintf("   Line %d: ", comment.LineNumber)
 		}

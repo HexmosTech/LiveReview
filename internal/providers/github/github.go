@@ -71,9 +71,31 @@ func (p *GitHubProvider) PostComment(ctx context.Context, prID string, comment *
 	return p.postGeneralComment(ctx, owner, repo, number, comment)
 }
 
+// formatGitHubComment creates a consistently formatted comment for GitHub
+// with severity information and suggestions properly formatted
+func formatGitHubComment(comment *models.ReviewComment) string {
+	// Start with the content
+	formattedComment := comment.Content
+
+	// Add severity information at the beginning
+	if comment.Severity != "" {
+		formattedComment = fmt.Sprintf("**Severity: %s**\n\n%s", comment.Severity, formattedComment)
+	}
+
+	// Add suggestions section if we have any
+	if len(comment.Suggestions) > 0 {
+		formattedComment += "\n\n**Suggestions:**\n"
+		for i, suggestion := range comment.Suggestions {
+			formattedComment += fmt.Sprintf("%d. %s\n", i+1, suggestion)
+		}
+	}
+
+	return formattedComment
+}
+
 func (p *GitHubProvider) postGeneralComment(ctx context.Context, owner, repo, number string, comment *models.ReviewComment) error {
 	url := fmt.Sprintf("https://api.github.com/repos/%s/%s/issues/%s/comments", owner, repo, number)
-	payload := map[string]string{"body": comment.Content}
+	payload := map[string]string{"body": formatGitHubComment(comment)}
 
 	data, _ := json.Marshal(payload)
 	req, _ := http.NewRequestWithContext(ctx, "POST", url, bytes.NewBuffer(data))
@@ -125,7 +147,7 @@ func (p *GitHubProvider) postLineComment(ctx context.Context, owner, repo, numbe
 	url := fmt.Sprintf("https://api.github.com/repos/%s/%s/pulls/%s/comments", owner, repo, number)
 
 	payload := map[string]interface{}{
-		"body":      comment.Content,
+		"body":      formatGitHubComment(comment),
 		"commit_id": pr.Head.SHA,
 		"path":      comment.FilePath,
 		"line":      comment.Line,
