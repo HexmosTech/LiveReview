@@ -153,20 +153,20 @@ export async function createIssuesPanel() {
                     <div class="issues-actions">
                         <div class="severity-filters">
                             <button 
-                                class="severity-filter-btn critical ${activeFilters.has('critical') ? 'active' : ''}"
-                                onClick=${() => toggleFilter('critical')}
-                                title="Toggle critical issues"
-                            >
-                                CRITICAL
-                                <span class="filter-badge">${criticalCount}</span>
-                            </button>
-                            <button 
                                 class="severity-filter-btn error ${activeFilters.has('error') ? 'active' : ''}"
                                 onClick=${() => toggleFilter('error')}
                                 title="Toggle error issues"
                             >
                                 ERROR
                                 <span class="filter-badge">${errorCount}</span>
+                            </button>
+                            <button 
+                                class="severity-filter-btn critical ${activeFilters.has('critical') ? 'active' : ''}"
+                                onClick=${() => toggleFilter('critical')}
+                                title="Toggle critical issues"
+                            >
+                                CRITICAL
+                                <span class="filter-badge">${criticalCount}</span>
                             </button>
                             <button 
                                 class="severity-filter-btn warning ${activeFilters.has('warning') ? 'active' : ''}"
@@ -187,7 +187,7 @@ export async function createIssuesPanel() {
                         </div>
                         <button class="action-btn" onClick=${handleSelectAll} title="Select all visible issues">Select All</button>
                         <button class="action-btn" onClick=${handleDeselectAll} title="Deselect all visible issues">Deselect All</button>
-                        <button class="action-btn ${copyStatus === 'copied' ? 'copied' : ''} ${copyStatus === 'error' ? 'error-state' : ''}" onClick=${handleCopy}>
+                        <button class="btn btn-primary copy-issues-btn ${copyStatus === 'copied' ? 'copied' : ''} ${copyStatus === 'error' ? 'error-state' : ''}" onClick=${handleCopy}>
                             ${copyStatus === 'copied' ? html`
                                 <svg width="14" height="14" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" />
