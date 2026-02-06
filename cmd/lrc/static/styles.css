@@ -1095,6 +1095,8 @@ body {
 
 .severity-filter-btn.all { color: var(--accent-blue); }
 .severity-filter-btn.all.active { background: rgba(96,165,250,0.15); }
+.severity-filter-btn.critical { color: #dc2626; }
+.severity-filter-btn.critical.active { background: rgba(220,38,38,0.15); }
 .severity-filter-btn.error { color: #ef4444; }
 .severity-filter-btn.error.active { background: rgba(239,68,68,0.15); }
 .severity-filter-btn.warning { color: #eab308; }
