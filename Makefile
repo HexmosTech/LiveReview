@@ -207,7 +207,7 @@ TEST_PACKAGES := $(shell find . \
 	-path './livereview_pgdata' -prune -o \
 	-path './lrdata' -prune -o \
 	-path './vendor' -prune -o \
-	-path './test' -prune -o \
+	-path './debug' -prune -o \
 	-path './tests' -prune -o \
 	-type f -name '*.go' -print 2>/dev/null | \
 	xargs -n1 dirname | sort -u | tr '\n' ' ')
