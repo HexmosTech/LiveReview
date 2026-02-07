@@ -63,3 +63,5 @@ livereview.toml
 .lrdata/
 !.lrdata/livereview.toml.example
 .secrets.local
+
+chats/
