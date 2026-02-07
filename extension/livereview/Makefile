@@ -1,3 +1,6 @@
+-include .env
+export OVSX_PAT
+
 VSIX := livereview.vsix
 
 .PHONY: package clean install min-api-version
@@ -11,7 +14,7 @@ install: package
 
 publish:
 	npx @vscode/vsce publish
-	npx ovsx publish --pat "[REDACTED_OPENVSX_TOKEN]"
+	npx ovsx publish --pat $(OVSX_PAT)
 
 # Find the minimum supported VS Code API version by running the probe script
 min-api-version:
