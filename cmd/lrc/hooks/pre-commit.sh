@@ -31,7 +31,7 @@ if [ -z "$TREE_HASH" ]; then
 fi
 
 if [ ! -f "$ATTEST_FILE" ]; then
-	printf "You are using LiveReview. You must run 'lrc review' or 'lrc review --skip' to attest your changes before you commit." 
+	printf "You are using LiveReview. You must run 'lrc review', 'lrc review --skip', or 'lrc review --vouch' to attest your changes before you commit." 
 	exit 1
 fi
 
