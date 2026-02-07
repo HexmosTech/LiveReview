@@ -39,10 +39,6 @@ fi
 # Resolve attestation action if present (preferred source for trailer)
 TREE_HASH="$(git write-tree 2>/dev/null || true)"
 ATTEST_FILE="$ATTEST_DIR/$TREE_HASH.json"
-ATTEST_ACTION=""
-if [ -n "$TREE_HASH" ] && [ -f "$ATTEST_FILE" ]; then
-	ATTEST_ACTION=$(sed -n 's/.*"action"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$ATTEST_FILE" | head -n1)
-fi
 
 # Apply commit-message override from lrc (if present)
 if [ -f "$COMMIT_MSG_OVERRIDE" ]; then
@@ -60,12 +56,11 @@ add_trailer() {
 	TRAILER_ADDED=1
 }
 
-# Prefer attestation-derived action
-if [ -n "$ATTEST_ACTION" ]; then
-	if [ "$ATTEST_ACTION" = "reviewed" ]; then
-		add_trailer "LiveReview Pre-Commit Check: ran"
-	elif [ "$ATTEST_ACTION" = "skipped" ]; then
-		add_trailer "LiveReview Pre-Commit Check: skipped"
+# Use `lrc attestation-trailer` to get the formatted trailer (avoids fragile sed JSON parsing)
+if [ -n "$TREE_HASH" ] && [ -f "$ATTEST_FILE" ] && command -v lrc >/dev/null 2>&1; then
+	LRC_TRAILER=$(lrc attestation-trailer 2>/dev/null)
+	if [ -n "$LRC_TRAILER" ]; then
+		add_trailer "$LRC_TRAILER"
 	fi
 fi
 

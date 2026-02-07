@@ -208,6 +208,11 @@ var baseFlags = []cli.Flag{
 		Usage:   "force rerun by removing existing attestation/hash for current tree",
 		EnvVars: []string{"LRC_FORCE"},
 	},
+	&cli.BoolFlag{
+		Name:    "vouch",
+		Usage:   "vouch for changes manually without running AI review (records attestation with coverage stats from prior iterations)",
+		EnvVars: []string{"LRC_VOUCH"},
+	},
 }
 
 var debugFlags = []cli.Flag{
@@ -351,6 +356,26 @@ func main() {
 				},
 				Action: runSelfUpdate,
 			},
+			{
+				Name:   "review-cleanup",
+				Usage:  "Clean up review session history for the current branch (called by post-commit hook)",
+				Hidden: true,
+				Flags: []cli.Flag{
+					&cli.BoolFlag{
+						Name:  "verbose",
+						Usage: "enable verbose output",
+					},
+				},
+				Action: func(c *cli.Context) error {
+					return runReviewDBCleanup(c.Bool("verbose"))
+				},
+			},
+			{
+				Name:   "attestation-trailer",
+				Usage:  "Output the commit trailer for the current attestation (called by commit-msg hook)",
+				Hidden: true,
+				Action: runAttestationTrailer,
+			},
 		},
 		Action: runReviewSimple,
 	}
@@ -381,6 +406,7 @@ type reviewOptions struct {
 	precommit    bool
 	skip         bool
 	force        bool
+	vouch        bool
 	initialMsg   string
 }
 
@@ -426,13 +452,17 @@ func buildOptionsFromContext(c *cli.Context, includeDebug bool) (reviewOptions, 
 		precommit:  c.Bool("precommit"),
 		skip:       c.Bool("skip"),
 		force:      c.Bool("force"),
+		vouch:      c.Bool("vouch"),
 		saveJSON:   c.String("save-json"),
 		saveText:   c.String("save-text"),
 		initialMsg: initialMsg,
 	}
 
-	if opts.skip {
+	if opts.skip || opts.vouch {
 		opts.precommit = false
+	}
+	if opts.skip && opts.vouch {
+		return reviewOptions{}, fmt.Errorf("cannot use --skip and --vouch together")
 	}
 
 	staged := c.Bool("staged")
@@ -540,16 +570,75 @@ func runReviewWithOptions(opts reviewOptions) error {
 	// Skip interactive mode if explicitly using --skip, not serving, or reviewing history
 	useInteractive := !opts.skip && opts.serve && !isPostCommitReview
 
-	// Short-circuit skip: write attestation and exit without contacting the API
+	// Short-circuit skip: collect diff for coverage tracking, write attestation, exit
 	if opts.skip {
 		attestationAction = "skipped"
-		if err := ensureAttestation(attestationAction, verbose, &attestationWritten); err != nil {
+		var cov coverageResult
+		// Collect diff to record in DB for coverage tracking (best-effort)
+		diffContent, diffErr := collectDiffWithOptions(opts)
+		if diffErr != nil {
+			fmt.Fprintf(os.Stderr, "Warning: could not collect diff for coverage tracking: %v\n", diffErr)
+		} else if len(diffContent) > 0 {
+			parsedFiles, parseErr := parseDiffToFiles(diffContent)
+			if parseErr != nil {
+				fmt.Fprintf(os.Stderr, "Warning: could not parse diff for coverage tracking: %v\n", parseErr)
+			} else {
+				var covErr error
+				cov, covErr = recordAndComputeCoverage("skipped", parsedFiles, "", verbose)
+				if covErr != nil {
+					fmt.Fprintf(os.Stderr, "Warning: coverage computation failed: %v\n", covErr)
+				}
+			}
+		}
+		if cov.Iterations == 0 {
+			cov.Iterations = 1
+		}
+		if err := ensureAttestationFull(attestationPayload{
+			Action:           attestationAction,
+			Iterations:       cov.Iterations,
+			PriorAICovPct:    cov.PriorAICovPct,
+			PriorReviewCount: cov.PriorReviewCount,
+		}, verbose, &attestationWritten); err != nil {
 			return err
 		}
 		if verbose {
-			log.Println("Review skipped by --skip; attestation recorded")
+			log.Printf("Review skipped by --skip; attestation recorded (iter:%d, coverage:%.0f%%)", cov.Iterations, cov.PriorAICovPct)
 		} else {
-			fmt.Println("LiveReview: marked review as skipped for current tree")
+			fmt.Printf("LiveReview: skipped (iter:%d, coverage:%.0f%%)\n", cov.Iterations, cov.PriorAICovPct)
+		}
+		return nil
+	}
+
+	// Short-circuit vouch: collect diff, compute coverage, write attestation, exit
+	if opts.vouch {
+		attestationAction = "vouched"
+		diffContent, diffErr := collectDiffWithOptions(opts)
+		if diffErr != nil {
+			return fmt.Errorf("failed to collect diff for vouch: %w", diffErr)
+		}
+		if len(diffContent) == 0 {
+			return fmt.Errorf("no diff content to vouch for")
+		}
+		parsedFiles, parseErr := parseDiffToFiles(diffContent)
+		if parseErr != nil {
+			return fmt.Errorf("failed to parse diff for vouch: %w", parseErr)
+		}
+		cov, _ := recordAndComputeCoverage("vouched", parsedFiles, "", verbose)
+		if cov.Iterations == 0 {
+			cov.Iterations = 1
+		}
+		if err := ensureAttestationFull(attestationPayload{
+			Action:           attestationAction,
+			Iterations:       cov.Iterations,
+			PriorAICovPct:    cov.PriorAICovPct,
+			PriorReviewCount: cov.PriorReviewCount,
+		}, verbose, &attestationWritten); err != nil {
+			return err
+		}
+		if verbose {
+			log.Printf("Review vouched; attestation recorded (iter:%d, coverage:%.0f%%)", cov.Iterations, cov.PriorAICovPct)
+		} else {
+			fmt.Printf("LiveReview: vouched (iter:%d, coverage:%.0f%%)\n", cov.Iterations, cov.PriorAICovPct)
 		}
 		return nil
 	}
@@ -1019,7 +1108,27 @@ func runReviewWithOptions(opts reviewOptions) error {
 				reviewStateMu.Unlock()
 			}
 			attestationAction = "reviewed"
-			if err := ensureAttestation(attestationAction, verbose, &attestationWritten); err != nil {
+			// Record review in DB and compute coverage
+			var reviewCov coverageResult
+			parsedFilesForCov, parseFilesErr := parseDiffToFiles(diffContent)
+			if parseFilesErr != nil {
+				fmt.Fprintf(os.Stderr, "Warning: could not parse diff for coverage tracking: %v\n", parseFilesErr)
+			} else {
+				var covErr error
+				reviewCov, covErr = recordAndComputeCoverage("reviewed", parsedFilesForCov, reviewID, verbose)
+				if covErr != nil {
+					fmt.Fprintf(os.Stderr, "Warning: coverage computation failed: %v\n", covErr)
+				}
+			}
+			if reviewCov.Iterations == 0 {
+				reviewCov.Iterations = 1
+			}
+			if err := ensureAttestationFull(attestationPayload{
+				Action:           attestationAction,
+				Iterations:       reviewCov.Iterations,
+				PriorAICovPct:    reviewCov.PriorAICovPct,
+				PriorReviewCount: reviewCov.PriorReviewCount,
+			}, verbose, &attestationWritten); err != nil {
 				return err
 			}
 		}
@@ -1448,23 +1557,31 @@ func runCommitAndMaybePush(message string, push bool, verbose bool) error {
 }
 
 type attestationPayload struct {
-	Action string `json:"action"`
+	Action           string  `json:"action"`
+	Iterations       int     `json:"iterations"`
+	PriorAICovPct    float64 `json:"prior_ai_coverage_pct"`
+	PriorReviewCount int     `json:"prior_review_count"`
 }
 
 func ensureAttestation(action string, verbose bool, written *bool) error {
+	return ensureAttestationFull(attestationPayload{Action: action}, verbose, written)
+}
+
+func ensureAttestationFull(payload attestationPayload, verbose bool, written *bool) error {
 	if written != nil && *written {
 		return nil
 	}
-	if strings.TrimSpace(action) == "" {
+	if strings.TrimSpace(payload.Action) == "" {
 		return nil
 	}
 
-	path, err := writeAttestationForCurrentTree(action)
+	path, err := writeAttestationFullForCurrentTree(payload)
 	if err != nil {
 		return fmt.Errorf("failed to write attestation: %w", err)
 	}
 	if verbose {
-		log.Printf("Attestation written: %s (action=%s)", path, action)
+		log.Printf("Attestation written: %s (action=%s, iter:%d, coverage:%.0f%%)",
+			path, payload.Action, payload.Iterations, payload.PriorAICovPct)
 	}
 	if written != nil {
 		*written = true
@@ -1501,8 +1618,76 @@ func existingAttestationAction() (string, error) {
 	return strings.TrimSpace(payload.Action), nil
 }
 
+// readCurrentAttestation reads and parses the full attestation payload for the current tree.
+func readCurrentAttestation() (*attestationPayload, error) {
+	treeHash, err := currentTreeHash()
+	if err != nil {
+		return nil, err
+	}
+	if treeHash == "" {
+		return nil, nil
+	}
+
+	gitDir, err := resolveGitDir()
+	if err != nil {
+		return nil, err
+	}
+
+	attestPath := filepath.Join(gitDir, "lrc", "attestations", fmt.Sprintf("%s.json", treeHash))
+	data, err := os.ReadFile(attestPath)
+	if err != nil {
+		return nil, nil // not present
+	}
+
+	var payload attestationPayload
+	if err := json.Unmarshal(data, &payload); err != nil {
+		return nil, fmt.Errorf("malformed attestation JSON: %w", err)
+	}
+
+	return &payload, nil
+}
+
+// runAttestationTrailer outputs the formatted commit trailer from the current
+// attestation. Called by the commit-msg hook to avoid fragile sed JSON parsing.
+// Outputs nothing (and exits 0) if no attestation is present.
+func runAttestationTrailer(c *cli.Context) error {
+	payload, err := readCurrentAttestation()
+	if err != nil {
+		return err
+	}
+	if payload == nil || strings.TrimSpace(payload.Action) == "" {
+		return nil // no attestation — hook will fall back to legacy
+	}
+
+	// Map action to trailer value
+	var trailerVal string
+	switch payload.Action {
+	case "reviewed":
+		trailerVal = "ran"
+	case "skipped":
+		trailerVal = "skipped"
+	case "vouched":
+		trailerVal = "vouched"
+	default:
+		trailerVal = payload.Action
+	}
+
+	// Append iteration and coverage info if available
+	if payload.Iterations > 0 {
+		covPct := int(payload.PriorAICovPct + 0.5) // round to nearest int
+		trailerVal = fmt.Sprintf("%s (iter:%d, coverage:%d%%)", trailerVal, payload.Iterations, covPct)
+	}
+
+	fmt.Printf("LiveReview Pre-Commit Check: %s", trailerVal)
+	return nil
+}
+
 func writeAttestationForCurrentTree(action string) (string, error) {
-	if strings.TrimSpace(action) == "" {
+	return writeAttestationFullForCurrentTree(attestationPayload{Action: action})
+}
+
+func writeAttestationFullForCurrentTree(payload attestationPayload) (string, error) {
+	if strings.TrimSpace(payload.Action) == "" {
 		return "", fmt.Errorf("attestation action cannot be empty")
 	}
 
@@ -1530,7 +1715,7 @@ func writeAttestationForCurrentTree(action string) (string, error) {
 		return "", fmt.Errorf("failed to create attestation directory: %w", err)
 	}
 
-	data, err := json.Marshal(attestationPayload{Action: action})
+	data, err := json.Marshal(payload)
 	if err != nil {
 		return "", fmt.Errorf("failed to marshal attestation: %w", err)
 	}
