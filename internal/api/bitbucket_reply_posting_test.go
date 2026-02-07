@@ -77,7 +77,7 @@ func TestBitbucketCommentReplyPostingFromCapture(t *testing.T) {
 		}
 	})
 
-	captureDir := filepath.Join("captures", "bitbucket", "20251014-194407")
+	captureDir := filepath.Join("docs/raw/captures", "bitbucket", "20251014-194407")
 	requestCapturePath := filepath.Join(captureDir, "bitbucket-webhook-pullrequest_comment_created-body-0025.json")
 	responseCapturePath := filepath.Join(captureDir, "bitbucket-webhook-pullrequest_comment_created-unified-0032.json")
 
