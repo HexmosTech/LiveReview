@@ -43,7 +43,7 @@ func runGitHub(args []string) error {
 	repo := fs.String("repo", "", "GitHub repository in owner/repo format")
 	prNumber := fs.Int("pr", 0, "Pull request number")
 	token := fs.String("token", "", "GitHub personal access token (optional if GITHUB_TOKEN or GITHUB_PAT set)")
-	outDir := fs.String("out", "artifacts", "Output directory for generated artifacts")
+	outDir := fs.String("out", "docs/raw/artifacts", "Output directory for generated artifacts")
 	urlFlag := stringFlag{value: defaultGitHubPRURL}
 	fs.Var(&urlFlag, "url", "GitHub pull request URL (overrides --repo/--pr)")
 	if err := fs.Parse(args); err != nil {
@@ -118,7 +118,7 @@ const (
 func runGitLab(args []string) error {
 	fs := flag.NewFlagSet("gitlab", flag.ContinueOnError)
 	dryRun := fs.Bool("dry-run", false, "print prompt and result, do not post")
-	outDir := fs.String("out", "artifacts", "Output directory for generated artifacts")
+	outDir := fs.String("out", "docs/raw/artifacts", "Output directory for generated artifacts")
 	enableArtifacts := fs.Bool("enable-artifacts", false, "Enable writing artifacts to disk")
 	fs.Parse(args)
 
@@ -195,7 +195,7 @@ func findBitbucketCredentialsFromDB() (*shared.VCSCredentials, error) {
 
 func runBitbucket(args []string) error {
 	fs := flag.NewFlagSet("bitbucket", flag.ContinueOnError)
-	outDir := fs.String("out", "artifacts", "Output directory for generated artifacts")
+	outDir := fs.String("out", "docs/raw/artifacts", "Output directory for generated artifacts")
 	enableArtifacts := fs.Bool("enable-artifacts", false, "Enable writing artifacts to disk")
 	urlFlag := stringFlag{value: defaultBitbucketPRURL}
 	fs.Var(&urlFlag, "url", "Bitbucket pull request URL")

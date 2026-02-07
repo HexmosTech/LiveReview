@@ -30,7 +30,7 @@ const envCaptureDir = "LIVEREVIEW_CAPTURE_DIR"
 
 // defaultCaptureDir is the fallback location when the environment variable is unset.
 const (
-	defaultCaptureDir = "captures/github"
+	defaultCaptureDir = "docs/raw/captures/github"
 )
 
 // Enabled reports whether capture is currently active.
@@ -58,7 +58,7 @@ func captureDir(namespace string) string {
 		return dir
 	}
 	if namespace != "" {
-		return filepath.Join("captures", namespace)
+		return filepath.Join("docs/raw/captures", namespace)
 	}
 	return defaultCaptureDir
 }
