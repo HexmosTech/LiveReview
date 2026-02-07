@@ -37,6 +37,11 @@ cleanup_attestation() {
 # Always clear attestation for the committed tree
 cleanup_attestation
 
+# Clean up review session DB for this branch (best-effort)
+if command -v lrc >/dev/null 2>&1; then
+	lrc review-cleanup 2>/dev/null || true
+fi
+
 # If push was not requested, we're done
 if [ ! -f "$PUSH_FLAG" ]; then
 	exit 0
