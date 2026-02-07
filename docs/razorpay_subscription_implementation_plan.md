@@ -1500,9 +1500,8 @@ go test ./internal/api/middleware -bench=BenchmarkEnforcePlan -benchmem
 ls -la docs/api/
 # Should contain: subscriptions.md, licenses.md, webhooks.md
 
-# Check code examples compile
-go build -o /dev/null examples/create_subscription.go
-go build -o /dev/null examples/assign_license.go
+# Note: Code examples for subscriptions should be created in scripts/examples/
+# when implementing this feature (e.g., create_subscription.go, assign_license.go)
 
 # Verify troubleshooting guide covers common issues
 grep -i "payment failed" docs/troubleshooting.md
