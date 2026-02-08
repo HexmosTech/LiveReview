@@ -15,63 +15,6 @@ build:
 	rm $(BINARY_NAME) || true
 	$(GOBUILD) -o $(BINARY_NAME)
 
-lrc:
-	$(GOBUILD) -o cmd/lrc/lrc ./cmd/lrc
-
-# LRC CLI Build and Release Management
-# Version: Semantic versioning (v1.0.0) defined in cmd/lrc/main.go as appVersion
-# Requires: cmd/lrc/ directory to be clean (no uncommitted changes)
-
-.PHONY: lrc-build lrc-build-local lrc-run lrc-bump lrc-release lrc-clean
-
-# Build lrc for all platforms (linux/darwin/windows, amd64/arm64)
-# Binary names: lrc-<os>-<arch>[.exe] (consistent across versions)
-# Output: dist/lrc/lrc-<os>-<arch> + SHA256SUMS
-# Version is extracted from appVersion constant in cmd/lrc/main.go
-lrc-build:
-	@echo "🔨 Building lrc CLI for all platforms..."
-	@python scripts/lrc_build.py -v build
-
-# Build lrc locally for the current platform without requiring a clean tree
-lrc-build-local:
-	@echo "🔨 Building lrc CLI locally (dirty tree allowed)..."
-	@go build -o /tmp/lrc ./cmd/lrc
-	@sudo rm -f /usr/local/bin/lrc || true
-	@sudo install -m 0755 /tmp/lrc /usr/local/bin/lrc
-	@sudo cp /usr/local/bin/lrc /usr/bin/git-lrc
-	@echo "✅ Installed lrc to /usr/local/bin"
-	
-
-# Run the locally built lrc CLI (pass args via ARGS="--flag value")
-lrc-run: lrc-build-local
-	@echo "▶️ Running lrc CLI locally..."
-	@cd cmd/lrc && ./lrc $(ARGS)
-
-# Bump lrc version by editing appVersion in cmd/lrc/main.go
-# Prompts for version bump type (patch/minor/major)
-# Automatically calculates new version and commits the change
-# Example: v0.0.1 → v0.0.2 (patch), v0.1.0 (minor), v1.0.0 (major)
-lrc-bump:
-	@echo "📝 Bumping lrc version..."
-	@python scripts/lrc_build.py bump
-
-# Build and upload lrc to Backblaze B2
-# B2 credentials are hardcoded in scripts/lrc_build.py
-# Upload path: hexmos/lrc/<version>/<platform>/lrc[.exe]
-# Example structure:
-#   hexmos/lrc/v0.0.1/linux-amd64/lrc
-#   hexmos/lrc/v0.0.1/darwin-arm64/lrc
-#   hexmos/lrc/v0.0.1/windows-amd64/lrc.exe
-lrc-release:
-	@echo "🚀 Building and releasing lrc..."
-	@python scripts/lrc_build.py -v release
-
-# Clean lrc build artifacts
-lrc-clean:
-	@echo "🧹 Cleaning lrc build artifacts..."
-	@rm -rf dist/lrc
-	@echo "✅ Clean complete"
-
 # Vendor prompts: encrypt plaintext templates and generate embedded assets
 # Usage examples:
 #   make vendor-prompts-encrypt                       # default output dir
