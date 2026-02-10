@@ -1,10 +1,13 @@
 package auth
 
 import (
+	"bytes"
 	"crypto/rand"
 	"database/sql"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
+	"log"
 	"net/http"
 	"os"
 	"strings"
@@ -584,6 +587,7 @@ type EnsureCloudUserRequest struct {
 	Email     string `json:"email"`
 	FirstName string `json:"first_name"`
 	LastName  string `json:"last_name"`
+	Source    string `json:"source,omitempty"`
 }
 
 // EnsureCloudUser ensures that a user and a personal organization exist, assigning super_admin role.
@@ -759,6 +763,11 @@ func (h *AuthHandlers) EnsureCloudUser(c echo.Context) error {
 		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "failed to create session tokens"})
 	}
 
+	// Send Discord notification for new signups (async, best-effort)
+	if createdUser {
+		sendSignupDiscordNotification(req.Email, req.Source)
+	}
+
 	// Get user's organizations (should at least include the personal org just created/verified)
 	organizations, err := h.getUserOrganizations(userID)
 	if err != nil {
@@ -784,6 +793,41 @@ func (h *AuthHandlers) EnsureCloudUser(c echo.Context) error {
 		"tokens":        tokenPair,
 		"organizations": organizations,
 	})
+}
+
+// sendSignupDiscordNotification sends a notification to Discord when a new user signs up.
+// It runs asynchronously and never fails the signup flow.
+func sendSignupDiscordNotification(email, source string) {
+	webhookURL := os.Getenv("DISCORD_SIGNUP_WEBHOOK_URL")
+	if webhookURL == "" {
+		return
+	}
+
+	if source == "" {
+		source = "unknown"
+	}
+
+	content := fmt.Sprintf("🆕 **New signup** — `%s` (via %s) at %s",
+		email, source, time.Now().UTC().Format(time.RFC3339))
+
+	payload, err := json.Marshal(map[string]string{"content": content})
+	if err != nil {
+		log.Printf("[discord-notify] failed to marshal payload: %v", err)
+		return
+	}
+
+	go func() {
+		client := &http.Client{Timeout: 10 * time.Second}
+		resp, err := client.Post(webhookURL, "application/json", bytes.NewReader(payload))
+		if err != nil {
+			log.Printf("[discord-notify] failed to send: %v", err)
+			return
+		}
+		defer resp.Body.Close()
+		if resp.StatusCode >= 300 {
+			log.Printf("[discord-notify] unexpected status: %d", resp.StatusCode)
+		}
+	}()
 }
 
 // Note: Onboarding API keys are now created using the standard APIKeyManager from the api package
