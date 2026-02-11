@@ -28,7 +28,7 @@ The main service that constructs prompts by combining templates with dynamic dat
 Constants containing all prompt text templates, organized by purpose:
 
 - **System Roles**: `CodeReviewerRole`, `SummaryWriterRole`
-- **Instructions**: `CodeReviewInstructions`, `ReviewGuidelines`, `CommentRequirements`
+- **Instructions**: `CodeReviewInstructions`, `ReviewGuidelines`, `IssueDetectionChecklist`, `CommentRequirements`
 - **Output Formats**: `JSONStructureExample`, `SummaryStructure`
 - **Guidelines**: `CommentClassification`, `LineNumberInstructions`
 

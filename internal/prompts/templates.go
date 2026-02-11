@@ -40,7 +40,7 @@ const (
 - Severity (info, warning, critical)
 - Clear suggestions for improvement
 
-Focus on correctness, security, maintainability, and performance.`
+Focus on correctness, security, maintainability, performance, cloud cost risks, and code quality.`
 )
 
 // JSON structure templates
@@ -71,6 +71,59 @@ const (
 	]
 }
 ` + "```"
+)
+
+// Issue detection checklist
+const (
+	// IssueDetectionChecklist enumerates the categories and specific issues the reviewer must watch for
+	IssueDetectionChecklist = `ISSUE DETECTION FOCUS AREAS:
+You must actively scan for the following categories of issues. This list is non-exhaustive — flag any other problems you notice.
+
+**Security & Secrets**
+- Hardcoded secrets, API keys, passwords, or tokens
+- SQL injection, cross-site scripting (XSS), and other injection risks
+- Missing input validation or sanitization
+- Insecure cryptographic usage or weak auth checks
+
+**Correctness & Bugs**
+- Off-by-one errors
+- Null/nil pointer dereferences
+- Infinite loops or unbounded recursion
+- Unhandled promise rejections or missing error handling
+- Type mismatches and unsafe type coercion
+- Race conditions, deadlocks, and concurrency bugs
+- Unreachable or dead code
+
+**Performance & Resources**
+- Memory leaks and unclosed resources
+- Unoptimized database queries (N+1, missing indexes, full table scans)
+- Potential cloud cost explosions (unbounded S3 puts, SQS fan-out, runaway Lambda invocations, etc.)
+- Suboptimal algorithms or data structures where a better choice is straightforward
+
+**Code Quality & Maintainability**
+- Duplicated code blocks that should be extracted
+- Overly complex or deeply nested functions
+- Magic numbers and hardcoded file paths
+- Unused variables, imports, or parameters
+- Unclear or misleading variable/function names
+- Missing or misleading code comments and documentation
+- Functions doing too much — suggest smaller, reusable units
+- Excessive nesting that harms readability
+
+**Style & Conventions**
+- Naming convention violations
+- Inconsistent indentation or formatting
+- Line length violations
+- Inconsistent logging patterns
+- Deprecated API or library usage
+- Version compatibility issues
+
+**Reliability & Ops**
+- Missing or inadequate error messages
+- Inconsistent or missing error propagation
+- Config file inconsistencies
+- Internationalization (i18n) issues where relevant
+- Incomplete or missing unit test coverage for changed code`
 )
 
 // Comment classification guidelines
