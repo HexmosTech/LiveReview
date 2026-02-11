@@ -50,6 +50,7 @@ func TestPromptBuilder_BuildCodeReviewPrompt(t *testing.T) {
 	assert.Contains(t, prompt, "Review the following code changes thoroughly")
 	assert.Contains(t, prompt, "IMPORTANT REVIEW GUIDELINES")
 	assert.Contains(t, prompt, "Format your response as JSON")
+	assert.Contains(t, prompt, "ISSUE DETECTION FOCUS AREAS")
 	assert.Contains(t, prompt, "COMMENT CLASSIFICATION")
 	assert.Contains(t, prompt, "CRITICAL: LINE NUMBER REFERENCES")
 	assert.Contains(t, prompt, "# Code Changes")
@@ -190,6 +191,7 @@ func TestTemplateConstants(t *testing.T) {
 	assert.NotEmpty(t, JSONStructureExample)
 	assert.NotEmpty(t, CommentClassification)
 	assert.NotEmpty(t, LineNumberInstructions)
+	assert.NotEmpty(t, IssueDetectionChecklist)
 	assert.NotEmpty(t, SummaryRequirements)
 	assert.NotEmpty(t, SummaryStructure)
 
