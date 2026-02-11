@@ -9,6 +9,7 @@ func PlaintextTemplates() []PlaintextTemplate {
 		{PromptKey: "code_review", Provider: "", Body: "# Code Review Request\n\n" +
 			CodeReviewInstructions + "\n\n" +
 			ReviewGuidelines + "\n\n" +
+			IssueDetectionChecklist + "\n\n" +
 			CommentRequirements + "\n\n" +
 			JSONStructureExample + "\n\n" +
 			CommentClassification + "\n\n" +
