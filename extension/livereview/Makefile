@@ -12,6 +12,15 @@ package:
 install: package
 	code-insiders --install-extension $(VSIX) --force
 
+bump:
+	npm version patch
+
+minor:
+	npm version minor
+
+major:
+	npm version major
+
 publish:
 	npx @vscode/vsce publish
 	npx ovsx publish --pat $(OVSX_PAT)
