@@ -23,7 +23,7 @@ major:
 
 publish:
 	npx @vscode/vsce publish
-	npx ovsx publish --pat $(OVSX_PAT)
+	npx ovsx publish --pat ${OVSX_PAT}
 
 # Find the minimum supported VS Code API version by running the probe script
 min-api-version:
