@@ -10,6 +10,19 @@ const execFileAsync = util.promisify(execFile);
 const DEFAULT_API_URL = 'https://livereview.hexmos.com';
 let cachedLrcPath: string | undefined;
 
+type ShellType = 'powershell' | 'cmd' | 'bash';
+
+const detectShellType = (): ShellType => {
+	const shell = (vscode.env.shell ?? '').toLowerCase();
+	if (/powershell|pwsh/.test(shell)) {
+		return 'powershell';
+	}
+	if (/cmd\.exe/.test(shell)) {
+		return 'cmd';
+	}
+	return 'bash';
+};
+
 type APIState = 'uninitialized' | 'initialized';
 
 interface GitExtension {
@@ -242,8 +255,9 @@ export async function activate(context: vscode.ExtensionContext) {
 				cachedLrcPath = found;
 				return cachedLrcPath;
 			}
-			cachedLrcPath = candidates[0];
-			return cachedLrcPath;
+			throw new Error(
+				'Could not find lrc.exe. Install it via the LiveReview installer or set the LRC_BIN environment variable to the full path of lrc.exe.'
+			);
 		}
 
 		cachedLrcPath = '/usr/local/bin/lrc';
@@ -349,13 +363,21 @@ export async function activate(context: vscode.ExtensionContext) {
 		const args = mode === 'skip'
 			? ['review', '--skip']
 			: ['review'];
-		const cmd = [
-			process.platform === 'win32' ? `& "${lrcPath}"` : `"${lrcPath}"`,
-			...args
-		].join(' ');
-		const cdPrefix = process.platform === 'win32'
-			? `cd /d "${repoPath}" && `
-			: `cd "${repoPath}" && `;
+
+		const shellType = detectShellType();
+		let cdPrefix: string;
+		let lrcInvoke: string;
+		if (shellType === 'powershell') {
+			cdPrefix = `Set-Location -LiteralPath "${repoPath}"; `;
+			lrcInvoke = `& "${lrcPath}"`;
+		} else if (shellType === 'cmd') {
+			cdPrefix = `cd /d "${repoPath}" && `;
+			lrcInvoke = `"${lrcPath}"`;
+		} else {
+			cdPrefix = `cd "${repoPath}" && `;
+			lrcInvoke = `"${lrcPath}"`;
+		}
+		const cmd = [lrcInvoke, ...args].join(' ');
 
 		term.show(true);
 		term.sendText(cdPrefix + cmd, true);
