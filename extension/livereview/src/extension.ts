@@ -230,7 +230,7 @@ export async function activate(context: vscode.ExtensionContext) {
 		const targets = isWindows ? ['lrc.exe', 'git-lrc.exe'] : ['lrc'];
 		for (const target of targets) {
 			try {
-				const { stdout } = await execFileAsync(finder, [target]);
+				const { stdout } = await execFileAsync(finder, [target], { windowsHide: true });
 				const candidates = stdout
 					.split(/\r?\n/)
 					.map(line => line.trim())
@@ -277,13 +277,13 @@ export async function activate(context: vscode.ExtensionContext) {
 	};
 
 	const runGit = async (repoPath: string, args: string[]) => {
-		return execFileAsync('git', args, { cwd: repoPath });
+		return execFileAsync('git', args, { cwd: repoPath, windowsHide: true });
 	};
 
 	const runLrcCli = async (args: string[], cwd?: string): Promise<{ stdout: string; stderr: string }> => {
 		const lrcPath = await resolveLrcPath();
 		try {
-			const { stdout, stderr } = await execFileAsync(lrcPath, args, { cwd });
+			const { stdout, stderr } = await execFileAsync(lrcPath, args, { cwd, windowsHide: true });
 			return { stdout: stdout.trim(), stderr: stderr.trim() };
 		} catch (error: unknown) {
 			throw new Error(extractErrorMessage(error));
