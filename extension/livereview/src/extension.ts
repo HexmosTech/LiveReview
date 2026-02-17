@@ -842,13 +842,12 @@ export async function activate(context: vscode.ExtensionContext) {
 		statusHooksCommand
 	);
 
-	// Update prompts disabled — too noisy.
-	// await ensureLatestExtension(context, output).catch(err => {
-	// 	output.appendLine(`LiveReview: Extension version check failed: ${String(err)}`);
-	// });
-	// await ensureLatestLrc(resolveLrcPath, output, { forceRemoteRefresh: extensionUpdated }).catch(err => {
-	// 	output.appendLine(`LiveReview: lrc version check failed: ${String(err)}`);
-	// });
+	await ensureLatestExtension(context, output).catch(err => {
+		output.appendLine(`LiveReview: Extension version check failed: ${String(err)}`);
+	});
+	await ensureLatestLrc(resolveLrcPath, output, { forceRemoteRefresh: extensionUpdated }).catch(err => {
+		output.appendLine(`LiveReview: lrc version check failed: ${String(err)}`);
+	});
 
 	void context.globalState.update(LAST_VERSION_KEY, extensionVersion);
 
