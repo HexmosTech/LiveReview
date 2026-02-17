@@ -678,13 +678,8 @@ export async function activate(context: vscode.ExtensionContext) {
 			? `🔔 Staged ${staged.length} files in ${repoName}: ${sample.join(', ')} (+${extraCount} more). Run LiveReview?`
 			: `🔔 Staged ${staged.length} files in ${repoName}: ${sample.join(', ')}. Run LiveReview?`;
 
-		vscode.window.showInformationMessage(message, 'Run LiveReview', 'Skip Review', 'Dismiss').then(selection => {
-			if (selection === 'Run LiveReview') {
-				void runReviewForActiveRepo(repo);
-			} else if (selection === 'Skip Review') {
-				void runSkipForActiveRepo(repo);
-			}
-		});
+		// Notification disabled — too noisy. Users can invoke review/skip manually.
+		logInfo(`[staging] ${message}`);
 	};
 
 	const getLatestCommit = async (repo: Repository): Promise<Commit | undefined> => {
@@ -706,7 +701,7 @@ export async function activate(context: vscode.ExtensionContext) {
 		const repoName = path.basename(repo.rootUri.fsPath);
 
 		logInfo(`[commit] ${repoName} on ${branchName}: ${hash} — ${message}`);
-		vscode.window.showInformationMessage(`Commit recorded on ${branchName}: ${hash} — ${message}`);
+		// Notification disabled — too noisy.
 	};
 
 	const attachRepo = (repo: Repository) => {
@@ -847,12 +842,13 @@ export async function activate(context: vscode.ExtensionContext) {
 		statusHooksCommand
 	);
 
-	await ensureLatestExtension(context, output).catch(err => {
-		output.appendLine(`LiveReview: Extension version check failed: ${String(err)}`);
-	});
-	await ensureLatestLrc(resolveLrcPath, output, { forceRemoteRefresh: extensionUpdated }).catch(err => {
-		output.appendLine(`LiveReview: lrc version check failed: ${String(err)}`);
-	});
+	// Update prompts disabled — too noisy.
+	// await ensureLatestExtension(context, output).catch(err => {
+	// 	output.appendLine(`LiveReview: Extension version check failed: ${String(err)}`);
+	// });
+	// await ensureLatestLrc(resolveLrcPath, output, { forceRemoteRefresh: extensionUpdated }).catch(err => {
+	// 	output.appendLine(`LiveReview: lrc version check failed: ${String(err)}`);
+	// });
 
 	void context.globalState.update(LAST_VERSION_KEY, extensionVersion);
 
