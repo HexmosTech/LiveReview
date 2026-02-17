@@ -8,6 +8,7 @@
 // Cloud notification config - empty means disabled
 const LISTMONK_LIST_ID = process.env.LR_LISTMONK_LIST_ID || '';
 const LISTMONK_URL = process.env.LR_LISTMONK_URL || '';
+const DISCORD_PROXY_URL = process.env.LR_DISCORD_PROXY_URL || '';
 const DISCORD_WEBHOOK_URL = process.env.LR_DISCORD_WEBHOOK_URL || '';
 
 // Consider users created within the last 5 minutes as "new" for notification purposes
@@ -17,7 +18,7 @@ const NEW_USER_THRESHOLD_MINUTES = 5;
  * Send Discord notification for new user signup
  */
 const sendDiscordNotification = async (name: string, email: string): Promise<void> => {
-  if (!DISCORD_WEBHOOK_URL) {
+  if (!DISCORD_PROXY_URL && !DISCORD_WEBHOOK_URL) {
     console.info("[LiveReview] Discord notifications disabled (no webhook configured)");
     return;
   }
@@ -27,10 +28,18 @@ const sendDiscordNotification = async (name: string, email: string): Promise<voi
     
     const message = `🎉 New Cloud LiveReview User!\nName: ${name || "Not provided"}\nEmail: ${email || "Not provided"}\nTime: ${new Date().toISOString()}`;
     
-    const response = await fetch(DISCORD_WEBHOOK_URL, {
+    // If proxy is configured, POST to proxy with webhookURL in body
+    // Otherwise, POST directly to the Discord webhook URL
+    const postURL = DISCORD_PROXY_URL || DISCORD_WEBHOOK_URL;
+    const body: Record<string, unknown> = { content: message };
+    if (DISCORD_PROXY_URL) {
+      body.webhookURL = DISCORD_WEBHOOK_URL;
+    }
+
+    const response = await fetch(postURL, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ webhookURL: DISCORD_WEBHOOK_URL, content: message })
+      body: JSON.stringify(body)
     });
     
     if (!response.ok) {
