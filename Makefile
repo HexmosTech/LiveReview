@@ -6,6 +6,9 @@ GOBUILD=$(GOCMD) build
 GOCLEAN=$(GOCMD) clean
 GOTEST=$(GOCMD) test
 BINARY_NAME=livereview
+GH_REPO=HexmosTech/LiveReview
+GH=/usr/bin/gh
+ENV_VARS=DATABASE_URL JWT_SECRET LIVEREVIEW_BACKEND_PORT LIVEREVIEW_FRONTEND_PORT LIVEREVIEW_REVERSE_PROXY LIVEREVIEW_IS_CLOUD CLOUD_JWT_SECRET FW_PARSE_ADMIN_SECRET RAZORPAY_MODE RAZORPAY_WEBHOOK_SECRET RAZORPAY_TEST_KEY RAZORPAY_TEST_SECRET RAZORPAY_TEST_MONTHLY_PLAN_ID RAZORPAY_TEST_YEARLY_PLAN_ID RAZORPAY_LIVE_KEY RAZORPAY_LIVE_SECRET RAZORPAY_LIVE_MONTHLY_PLAN_ID RAZORPAY_LIVE_YEARLY_PLAN_ID DISCORD_SIGNUP_WEBHOOK_URL OVSX_PAT
 
 # Load environment variables from .env file
 include .env
@@ -336,4 +339,38 @@ run-selfhosted:
 	which air || go install github.com/air-verse/air@latest
 	air -- --env-file .env.selfhosted
 
-	
+# Upload .env variables to GitHub repo variables
+upload-secrets:
+	@if [ ! -f .env ]; then echo "Error: .env file not found"; exit 1; fi
+	@echo "Uploading .env to GitHub variables for $(GH_REPO)..."
+	@grep -v '^\s*#' .env | grep -v '^\s*$$' | while IFS='=' read -r key value; do \
+		value=$$(echo "$$value" | sed "s/^['\"]//;s/['\"]$$//"); \
+		echo "  Setting $$key..."; \
+		$(GH) variable set "$$key" --repo $(GH_REPO) --body "$$value" || echo "  ⚠️  Failed to set $$key"; \
+	done
+	@echo "✅ Uploaded. Current GitHub variables:"
+	@$(GH) variable list --repo $(GH_REPO)
+
+# Download GitHub repo variables to .env
+download-secrets:
+	@if [ -f .env ]; then \
+		echo "⚠️  .env already exists (modified: $$(stat -c '%y' .env 2>/dev/null || stat -f '%Sm' .env 2>/dev/null))"; \
+		printf "Overwrite? [y/N]: "; \
+		read ans; \
+		if [ "$$ans" != "y" ] && [ "$$ans" != "Y" ]; then \
+			echo "Aborted."; \
+			exit 1; \
+		fi; \
+	fi
+	@echo "Downloading GitHub variables for $(GH_REPO) to .env..."
+	@rm -f .env.tmp
+	@for var in $(ENV_VARS); do \
+		val=$$($(GH) variable get $$var --repo $(GH_REPO) 2>/dev/null); \
+		if [ $$? -eq 0 ]; then \
+			echo "$$var=$$val" >> .env.tmp; \
+		else \
+			echo "⚠️  Variable $$var not found on GitHub"; \
+		fi; \
+	done
+	@mv .env.tmp .env
+	@echo "✅ Downloaded to .env"
