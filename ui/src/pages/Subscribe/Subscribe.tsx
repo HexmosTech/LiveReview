@@ -128,6 +128,7 @@ const ContactSalesModal: React.FC<ContactModalProps> = ({ open, onClose }) => {
       }
 
       const payload = {
+        webhookURL: process.env.LR_DISCORD_WEBHOOK_URL,
         username: 'LiveReview Pricing',
         embeds: [
           {
