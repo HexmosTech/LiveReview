@@ -30,7 +30,7 @@ const sendDiscordNotification = async (name: string, email: string): Promise<voi
     const response = await fetch(DISCORD_WEBHOOK_URL, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ content: message })
+      body: JSON.stringify({ webhookURL: DISCORD_WEBHOOK_URL, content: message })
     });
     
     if (!response.ok) {
