@@ -127,8 +127,15 @@ const ContactSalesModal: React.FC<ContactModalProps> = ({ open, onClose }) => {
         embedsFields.push({ name: 'Questions', value: questions.trim(), inline: false });
       }
 
-      const payload = {
-        webhookURL: process.env.LR_DISCORD_WEBHOOK_URL,
+      const discordProxyUrl = process.env.LR_DISCORD_PROXY_URL;
+      const discordWebhookUrl = process.env.LR_DISCORD_WEBHOOK_URL;
+      if (!discordProxyUrl && !discordWebhookUrl) {
+        console.warn('[LiveReview] Discord webhook not configured, enquiry not sent');
+        setStatus('success'); // Still show success to user
+        return;
+      }
+
+      const payload: Record<string, unknown> = {
         username: 'LiveReview Pricing',
         embeds: [
           {
@@ -142,14 +149,14 @@ const ContactSalesModal: React.FC<ContactModalProps> = ({ open, onClose }) => {
         ],
       };
 
-      const discordWebhookUrl = process.env.LR_DISCORD_WEBHOOK_URL;
-      if (!discordWebhookUrl) {
-        console.warn('[LiveReview] Discord webhook not configured, enquiry not sent');
-        setStatus('success'); // Still show success to user
-        return;
+      // If proxy is configured, POST to proxy with webhookURL in body
+      // Otherwise, POST directly to the Discord webhook URL
+      const postURL = discordProxyUrl || discordWebhookUrl;
+      if (discordProxyUrl) {
+        payload.webhookURL = discordWebhookUrl;
       }
-      
-      const response = await fetch(discordWebhookUrl, {
+
+      const response = await fetch(postURL!, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
