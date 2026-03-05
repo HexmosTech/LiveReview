@@ -24,7 +24,9 @@
     "onCommand:livereview.hooks.uninstallGlobal",
     "onCommand:livereview.hooks.enableLocal",
     "onCommand:livereview.hooks.disableLocal",
-    "onCommand:livereview.hooks.status"
+    "onCommand:livereview.hooks.status",
+    "onCommand:livereview.updateLrc",
+    "onCommand:livereview.checkLrcUpdateStatus"
   ],
   "main": "./dist/extension.js",
   "contributes": {
@@ -72,6 +74,14 @@
       {
         "command": "livereview.hooks.status",
         "title": "LiveReview: Hook Status (Repo)"
+      },
+      {
+        "command": "livereview.updateLrc",
+        "title": "LiveReview: Update lrc"
+      },
+      {
+        "command": "livereview.checkLrcUpdateStatus",
+        "title": "LiveReview: Check lrc Update Status"
       }
     ],
     "configuration": {

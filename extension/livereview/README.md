@@ -119,7 +119,7 @@ LiveReview is a **hygiene standard**, enforced by defaults.
 * VS Code (recent stable version)
 * LiveReview CLI (`lrc`)
 
-> On startup, the extension checks your local `lrc` version against the latest in B2 and prompts with a **modal** updater when you are missing or outdated. It runs the official installers (`curl -fsSL https://hexmos.com/lrc-install.sh | bash` on mac/linux, `iwr -useb https://hexmos.com/lrc-install.ps1 | iex` on Windows) and may request sudo/administrator permission. The extension also reminds you when the extension itself is behind the marketplace version.
+> On startup, the extension checks your local `lrc` version against the latest in B2 and performs rootless updates in the background by default (`curl -fsSL https://hexmos.com/lrc-install.sh | bash` on mac/linux, `iwr -useb https://hexmos.com/lrc-install.ps1 | iex` on Windows). A **modal** prompt is shown only when one-time legacy binary migration is required (or a background update times out and needs attention). You can also use command palette actions to check update status and trigger an update manually.
 
 
 ## Who This Is For

@@ -4,7 +4,7 @@ import * as util from 'util';
 import * as fs from 'fs';
 import * as os from 'os';
 import { execFile } from 'child_process';
-import { ensureLatestExtension, ensureLatestLrc } from './update';
+import { ensureLatestExtension, ensureLatestLrc, type LrcUpdateStatus } from './update';
 
 const execFileAsync = util.promisify(execFile);
 const DEFAULT_API_URL = 'https://livereview.hexmos.com';
@@ -142,8 +142,53 @@ export async function activate(context: vscode.ExtensionContext) {
 
 	context.subscriptions.push(output);
 
+	const lrcUpdateStatusItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 50);
+	lrcUpdateStatusItem.command = 'livereview.checkLrcUpdateStatus';
+	lrcUpdateStatusItem.hide();
+	context.subscriptions.push(lrcUpdateStatusItem);
+
 	const logInfo = (message: string) => {
 		output.appendLine(message);
+	};
+
+	const renderLrcUpdateStatus = (status: LrcUpdateStatus) => {
+		switch (status.state) {
+			case 'checking':
+				lrcUpdateStatusItem.text = '$(sync~spin) LiveReview';
+				lrcUpdateStatusItem.tooltip = status.message;
+				lrcUpdateStatusItem.show();
+				break;
+			case 'updating':
+				lrcUpdateStatusItem.text = '$(sync~spin) lrc update';
+				lrcUpdateStatusItem.tooltip = status.message;
+				lrcUpdateStatusItem.show();
+				break;
+			case 'updateAvailable':
+				lrcUpdateStatusItem.text = '$(cloud-download) lrc update';
+				lrcUpdateStatusItem.tooltip = status.message;
+				lrcUpdateStatusItem.show();
+				break;
+			case 'needsMigration':
+				lrcUpdateStatusItem.text = '$(warning) lrc migration';
+				lrcUpdateStatusItem.tooltip = status.message;
+				lrcUpdateStatusItem.show();
+				break;
+			case 'failed':
+				lrcUpdateStatusItem.text = '$(error) lrc update';
+				lrcUpdateStatusItem.tooltip = status.message;
+				lrcUpdateStatusItem.show();
+				break;
+			case 'updated':
+				lrcUpdateStatusItem.text = '$(check) lrc updated';
+				lrcUpdateStatusItem.tooltip = status.message;
+				lrcUpdateStatusItem.show();
+				setTimeout(() => lrcUpdateStatusItem.hide(), 10000);
+				break;
+			case 'upToDate':
+			default:
+				lrcUpdateStatusItem.hide();
+				break;
+		}
 	};
 
 	const describeChange = (change: Change): string => {
@@ -830,6 +875,48 @@ export async function activate(context: vscode.ExtensionContext) {
 		void runHookAction('status', repo);
 	});
 
+	const updateLrcCommand = vscode.commands.registerCommand('livereview.updateLrc', async () => {
+		await ensureLatestLrc(resolveLrcPath, output, {
+			forceRemoteRefresh: true,
+			notifyOnBackgroundSuccess: true,
+			onStatus: renderLrcUpdateStatus
+		}).catch(err => {
+			output.appendLine(`LiveReview: Manual lrc update failed: ${String(err)}`);
+		});
+	});
+
+	const checkLrcUpdateStatusCommand = vscode.commands.registerCommand('livereview.checkLrcUpdateStatus', async () => {
+		const status = await ensureLatestLrc(resolveLrcPath, output, {
+			forceRemoteRefresh: true,
+			checkOnly: true,
+			onStatus: renderLrcUpdateStatus
+		}).catch(err => {
+			const message = `LiveReview: lrc update status check failed: ${String(err)}`;
+			output.appendLine(message);
+			vscode.window.showErrorMessage(message);
+			return undefined;
+		});
+
+		if (!status) {
+			return;
+		}
+
+		if (status.state === 'upToDate') {
+			vscode.window.showInformationMessage(`LiveReview: ${status.message}`);
+			return;
+		}
+
+		if (status.state === 'updateAvailable' || status.state === 'needsMigration') {
+			const choice = await vscode.window.showInformationMessage(`LiveReview: ${status.message}`, 'Update now');
+			if (choice === 'Update now') {
+				await vscode.commands.executeCommand('livereview.updateLrc');
+			}
+			return;
+		}
+
+		vscode.window.showInformationMessage(`LiveReview: ${status.message}`);
+	});
+
 	context.subscriptions.push(
 		enableHooksCommand,
 		runLiveReviewCommand,
@@ -839,13 +926,18 @@ export async function activate(context: vscode.ExtensionContext) {
 		uninstallGlobalHooksCommand,
 		enableLocalHooksCommand,
 		disableLocalHooksCommand,
-		statusHooksCommand
+		statusHooksCommand,
+		updateLrcCommand,
+		checkLrcUpdateStatusCommand
 	);
 
 	await ensureLatestExtension(context, output).catch(err => {
 		output.appendLine(`LiveReview: Extension version check failed: ${String(err)}`);
 	});
-	await ensureLatestLrc(resolveLrcPath, output, { forceRemoteRefresh: extensionUpdated }).catch(err => {
+	await ensureLatestLrc(resolveLrcPath, output, {
+		forceRemoteRefresh: extensionUpdated,
+		onStatus: renderLrcUpdateStatus
+	}).catch(err => {
 		output.appendLine(`LiveReview: lrc version check failed: ${String(err)}`);
 	});
 

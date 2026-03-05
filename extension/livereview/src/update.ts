@@ -1,9 +1,12 @@
 import * as https from 'https';
 import * as util from 'util';
 import * as vscode from 'vscode';
-import { execFile } from 'child_process';
+import * as fs from 'fs';
+import * as path from 'path';
+import { exec, execFile } from 'child_process';
 
 const execFileAsync = util.promisify(execFile);
+const execAsync = util.promisify(exec);
 
 // Backblaze B2 constants (read-only credentials)
 const B2_KEY_ID = 'REDACTED_B2_KEY_ID';
@@ -20,6 +23,23 @@ interface B2CacheEntry {
 }
 
 let b2Cache: B2CacheEntry | undefined;
+
+export type LrcUpdateState = 'checking' | 'upToDate' | 'updateAvailable' | 'updating' | 'updated' | 'needsMigration' | 'failed';
+
+export interface LrcUpdateStatus {
+	state: LrcUpdateState;
+	message: string;
+	localVersion?: string;
+	remoteVersion?: string;
+}
+
+export interface EnsureLatestLrcOptions {
+	forceRemoteRefresh?: boolean;
+	checkOnly?: boolean;
+	backgroundTimeoutMs?: number;
+	notifyOnBackgroundSuccess?: boolean;
+	onStatus?: (status: LrcUpdateStatus) => void;
+}
 
 const semverFromString = (input: string): string | undefined => {
 	const match = input.trim().match(/v?(\d+)\.(\d+)\.(\d+)/);
@@ -136,7 +156,7 @@ const platformInstallCommand = (): string => {
 	if (process.platform === 'win32') {
 		return 'iwr -useb https://hexmos.com/lrc-install.ps1 | iex';
 	}
-	return 'curl -fsSL https://hexmos.com/lrc-install.sh | sudo bash';
+	return 'curl -fsSL https://hexmos.com/lrc-install.sh | bash';
 };
 
 const openInstallerTerminal = (title: string, command: string) => {
@@ -145,48 +165,257 @@ const openInstallerTerminal = (title: string, command: string) => {
 	term.sendText(command, true);
 };
 
+const emitStatus = (
+	status: LrcUpdateStatus,
+	output: vscode.OutputChannel,
+	onStatus?: (status: LrcUpdateStatus) => void
+) => {
+	onStatus?.(status);
+	output.appendLine(`LiveReview: ${status.message}`);
+};
+
+const fileExists = async (targetPath: string): Promise<boolean> => {
+	try {
+		await fs.promises.access(targetPath, fs.constants.F_OK);
+		return true;
+	} catch {
+		return false;
+	}
+};
+
+const detectGitBinDir = async (): Promise<string | undefined> => {
+	try {
+		if (process.platform === 'win32') {
+			const { stdout } = await execFileAsync('where', ['git'], { windowsHide: true });
+			const candidate = stdout
+				.split(/\r?\n/)
+				.map(line => line.trim())
+				.find(line => line.length > 0);
+			return candidate ? path.dirname(candidate) : undefined;
+		}
+
+		const { stdout } = await execFileAsync('which', ['git']);
+		const candidate = stdout
+			.split(/\r?\n/)
+			.map(line => line.trim())
+			.find(line => line.length > 0);
+		return candidate ? path.dirname(candidate) : undefined;
+	} catch {
+		return undefined;
+	}
+};
+
+const hasLegacyBinaries = async (): Promise<boolean> => {
+	if (process.platform === 'win32') {
+		const candidates: string[] = [
+			path.join(process.env.ProgramFiles ?? 'C:/Program Files', 'lrc', 'lrc.exe')
+		];
+		const gitBinDir = await detectGitBinDir();
+		if (gitBinDir) {
+			candidates.push(path.join(gitBinDir, 'git-lrc.exe'));
+		}
+
+		for (const candidate of candidates) {
+			if (await fileExists(candidate)) {
+				return true;
+			}
+		}
+		return false;
+	}
+
+	const candidates: string[] = ['/usr/local/bin/lrc', '/usr/local/bin/git-lrc'];
+	const gitBinDir = await detectGitBinDir();
+	if (gitBinDir && gitBinDir !== '/usr/local/bin') {
+		candidates.push(path.join(gitBinDir, 'git-lrc'));
+	}
+
+	for (const candidate of candidates) {
+		if (await fileExists(candidate)) {
+			return true;
+		}
+	}
+	return false;
+};
+
+const runBackgroundInstaller = async (timeoutMs: number): Promise<'ok' | 'timeout'> => {
+	try {
+		if (process.platform === 'win32') {
+			await execFileAsync(
+				'powershell',
+				['-NoProfile', '-ExecutionPolicy', 'Bypass', '-Command', 'iwr -useb https://hexmos.com/lrc-install.ps1 | iex'],
+				{ windowsHide: true, timeout: timeoutMs }
+			);
+			return 'ok';
+		}
+
+		await execAsync('curl -fsSL https://hexmos.com/lrc-install.sh | bash', { timeout: timeoutMs });
+		return 'ok';
+	} catch (error: unknown) {
+		const code = (error as { code?: string }).code;
+		const killed = Boolean((error as { killed?: boolean }).killed);
+		if (code === 'ETIMEDOUT' || killed) {
+			return 'timeout';
+		}
+		throw error;
+	}
+};
+
 export const ensureLatestLrc = async (
 	resolveLrcPath: () => Promise<string>,
 	output: vscode.OutputChannel,
-	opts?: { forceRemoteRefresh?: boolean }
-): Promise<void> => {
+	opts?: EnsureLatestLrcOptions
+): Promise<LrcUpdateStatus> => {
+	const emit = (status: LrcUpdateStatus) => emitStatus(status, output, opts?.onStatus);
+	emit({ state: 'checking', message: 'Checking lrc version and update path.' });
+
 	const localVersion = await getLocalLrcVersion(resolveLrcPath);
 	const remoteVersion = await fetchLatestLrcVersionFromB2(opts?.forceRemoteRefresh ?? false);
+	const updateNeeded = !localVersion || (remoteVersion ? semverCompare(localVersion, remoteVersion) < 0 : false);
+	const legacyMigrationRequired = await hasLegacyBinaries();
+	const currentLabel = localVersion ?? 'not installed';
 
 	if (!remoteVersion && !localVersion) {
-		const installCmd = platformInstallCommand();
-		const message = 'LiveReview CLI (lrc) is not installed. Install now? The installer may request sudo/administrator permission.';
-		const choice = await vscode.window.showInformationMessage(message, { modal: true }, 'Install now', 'Later');
-		if (choice === 'Install now') {
-			output.appendLine('LiveReview: installing lrc (no local version found).');
-			openInstallerTerminal('LiveReview lrc install', installCmd);
-		} else {
-			output.appendLine('LiveReview: lrc installation skipped; functionality may be limited.');
+		if (opts?.checkOnly) {
+			const status: LrcUpdateStatus = {
+				state: legacyMigrationRequired ? 'needsMigration' : 'updateAvailable',
+				message: legacyMigrationRequired
+					? 'lrc is not installed and legacy migration is required.'
+					: 'lrc is not installed and can be installed rootlessly.'
+			};
+			emit(status);
+			return status;
 		}
-		return;
+
+		if (legacyMigrationRequired) {
+			const status: LrcUpdateStatus = {
+				state: 'needsMigration',
+				message: 'Legacy lrc binaries detected. User confirmation is required for migration.'
+			};
+			emit(status);
+			const choice = await vscode.window.showInformationMessage('LiveReview CLI is not installed. Run migration update now?', { modal: true }, 'Run update', 'Later');
+			if (choice === 'Run update') {
+				emit({ state: 'updating', message: 'Running installer in terminal for migration.' });
+				openInstallerTerminal('LiveReview lrc migration', platformInstallCommand());
+			}
+			return status;
+		}
+
+		emit({ state: 'updating', message: 'Installing lrc in background (rootless).' });
+		const backgroundResult = await runBackgroundInstaller(opts?.backgroundTimeoutMs ?? 120000);
+		if (backgroundResult === 'timeout') {
+			const status: LrcUpdateStatus = {
+				state: 'needsMigration',
+				message: 'Background install timed out. Migration update may require user confirmation.'
+			};
+			emit(status);
+			const choice = await vscode.window.showInformationMessage('LiveReview CLI install needs attention. Run migration update in terminal?', { modal: true }, 'Run update', 'Later');
+			if (choice === 'Run update') {
+				openInstallerTerminal('LiveReview lrc migration', platformInstallCommand());
+			}
+			return status;
+		}
+
+		const newLocalVersion = await getLocalLrcVersion(resolveLrcPath);
+		const status: LrcUpdateStatus = {
+			state: 'updated',
+			message: `lrc installed successfully (${newLocalVersion ?? 'installed'}).`,
+			localVersion: newLocalVersion
+		};
+		emit(status);
+		if (opts?.notifyOnBackgroundSuccess) {
+			void vscode.window.showInformationMessage('LiveReview: lrc installed in background.');
+		}
+		return status;
 	}
 
 	if (!remoteVersion) {
-		output.appendLine('LiveReview: Could not determine latest lrc version from B2; skipping update check.');
-		return;
+		const status: LrcUpdateStatus = {
+			state: localVersion ? 'upToDate' : 'failed',
+			message: localVersion
+				? `Could not determine latest lrc version from B2; keeping current version (${localVersion}).`
+				: 'Could not determine latest lrc version from B2 and lrc is not installed.',
+			localVersion
+		};
+		emit(status);
+		return status;
 	}
 
-	if (localVersion && semverCompare(localVersion, remoteVersion) >= 0) {
-		output.appendLine(`LiveReview: lrc is up to date (${localVersion}).`);
-		return;
+	if (!updateNeeded) {
+		const status: LrcUpdateStatus = {
+			state: 'upToDate',
+			message: `lrc is up to date (${localVersion}).`,
+			localVersion,
+			remoteVersion
+		};
+		emit(status);
+		return status;
 	}
 
-	const currentLabel = localVersion ?? 'not installed';
-	const installCmd = platformInstallCommand();
-	const message = `LiveReview CLI is outdated (${currentLabel} → ${remoteVersion}). Update now? The installer may request sudo/administrator permission.`;
-	const choice = await vscode.window.showInformationMessage(message, { modal: true }, 'Update now', 'Later');
-	if (choice !== 'Update now') {
-		output.appendLine('LiveReview: lrc update skipped by user; functionality may be limited.');
-		return;
+	if (opts?.checkOnly) {
+		const status: LrcUpdateStatus = {
+			state: legacyMigrationRequired ? 'needsMigration' : 'updateAvailable',
+			message: legacyMigrationRequired
+				? `lrc update requires migration (${currentLabel} → ${remoteVersion}).`
+				: `lrc update available (${currentLabel} → ${remoteVersion}).`,
+			localVersion,
+			remoteVersion
+		};
+		emit(status);
+		return status;
 	}
 
-	output.appendLine(`LiveReview: running installer to update lrc (${currentLabel} → ${remoteVersion}).`);
-	openInstallerTerminal('LiveReview lrc update', installCmd);
+	if (legacyMigrationRequired) {
+		const status: LrcUpdateStatus = {
+			state: 'needsMigration',
+			message: `Legacy binaries detected; migration update needed (${currentLabel} → ${remoteVersion}).`,
+			localVersion,
+			remoteVersion
+		};
+		emit(status);
+		const message = `LiveReview CLI update requires migration (${currentLabel} → ${remoteVersion}). Run update now?`;
+		const choice = await vscode.window.showInformationMessage(message, { modal: true }, 'Run update', 'Later');
+		if (choice === 'Run update') {
+			emit({ state: 'updating', message: `Running migration update in terminal (${currentLabel} → ${remoteVersion}).`, localVersion, remoteVersion });
+			openInstallerTerminal('LiveReview lrc migration', platformInstallCommand());
+		}
+		return status;
+}
+
+	emit({
+		state: 'updating',
+		message: `Running rootless background update (${currentLabel} → ${remoteVersion}).`,
+		localVersion,
+		remoteVersion
+	});
+
+	const backgroundResult = await runBackgroundInstaller(opts?.backgroundTimeoutMs ?? 120000);
+	if (backgroundResult === 'timeout') {
+		const status: LrcUpdateStatus = {
+			state: 'needsMigration',
+			message: `Background update timed out (${currentLabel} → ${remoteVersion}). Migration update may be required.`,
+			localVersion,
+			remoteVersion
+		};
+		emit(status);
+		const choice = await vscode.window.showInformationMessage('LiveReview CLI update needs attention. Run migration update in terminal?', { modal: true }, 'Run update', 'Later');
+		if (choice === 'Run update') {
+			openInstallerTerminal('LiveReview lrc migration', platformInstallCommand());
+		}
+		return status;
+}
+
+	const refreshedLocalVersion = await getLocalLrcVersion(resolveLrcPath);
+	const status: LrcUpdateStatus = {
+		state: 'updated',
+		message: `lrc updated successfully (${refreshedLocalVersion ?? remoteVersion}).`,
+		localVersion: refreshedLocalVersion,
+		remoteVersion
+	};
+	emit(status);
+	if (opts?.notifyOnBackgroundSuccess) {
+		void vscode.window.showInformationMessage(`LiveReview: lrc updated to ${refreshedLocalVersion ?? remoteVersion}.`);
+	}
+	return status;
 };
 
 const fetchLatestExtensionVersion = async (): Promise<string | undefined> => {
