@@ -132,7 +132,7 @@ func ValidateAPIKey(ctx context.Context, provider Provider, apiKey string, baseU
 	if options.ModelConfig.Model == "" {
 		switch provider {
 		case ProviderOpenAI:
-			options.ModelConfig.Model = "gpt-3.5-turbo"
+			options.ModelConfig.Model = "o4-mini"
 		case ProviderGemini:
 			options.ModelConfig.Model = "gemini-2.5-flash"
 			log.Debug().Msg("Using Gemini 2.5 Flash model for validation")

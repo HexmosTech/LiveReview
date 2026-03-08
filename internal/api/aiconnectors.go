@@ -186,8 +186,8 @@ func (s *Server) CreateAIConnector(c echo.Context) error {
 
 	// Use provided model or provider default
 	selectedModel := req.SelectedModel
-	if selectedModel == "" && req.ProviderName == string(aiconnectors.ProviderOpenRouter) {
-		selectedModel = aiconnectors.GetDefaultModel(aiconnectors.ProviderOpenRouter)
+	if selectedModel == "" {
+		selectedModel = aiconnectors.GetDefaultModel(aiconnectors.Provider(req.ProviderName))
 	}
 
 	// Create a connector record
@@ -347,8 +347,8 @@ func (s *Server) UpdateAIConnector(c echo.Context) error {
 	}
 
 	selectedModel := req.SelectedModel
-	if selectedModel == "" && req.ProviderName == string(aiconnectors.ProviderOpenRouter) {
-		selectedModel = aiconnectors.GetDefaultModel(aiconnectors.ProviderOpenRouter)
+	if selectedModel == "" {
+		selectedModel = aiconnectors.GetDefaultModel(aiconnectors.Provider(req.ProviderName))
 	}
 	if selectedModel != "" {
 		existingConnector.SelectedModel = sql.NullString{String: selectedModel, Valid: true}

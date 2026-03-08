@@ -34,7 +34,7 @@ import OllamaConnectorForm from './components/OllamaConnectorForm';
 import { generateFriendlyNameForProvider, getProviderDetails } from './utils/nameUtils';
 
 // Constant data
-// Order: recommended providers (Gemini, Ollama) first, then experimental ones.
+// Order: recommended providers first, then experimental ones.
 const popularAIProviders: AIProvider[] = [
     { 
         id: 'gemini',
@@ -76,12 +76,12 @@ const popularAIProviders: AIProvider[] = [
         id: 'openai',
         name: 'OpenAI', 
         url: 'https://platform.openai.com/', 
-        description: 'Powerful GPT models; full first‑class support coming soon.',
+        description: 'Fast, strong reasoning via OpenAI models with broad model compatibility.',
         icon: <Icons.OpenAI />,
         apiKeyPlaceholder: 'sk-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx',
-        models: ['gpt-3.5-turbo', 'gpt-4', 'gpt-4-turbo', 'gpt-4o'],
-        defaultModel: 'gpt-4',
-        supportLevel: 'experimental'
+        models: ['o4-mini', 'gpt-4.1', 'gpt-4.1-mini', 'gpt-4o-mini', 'gpt-4o', 'o3-mini'],
+        defaultModel: 'o4-mini',
+        supportLevel: 'recommended'
     },
     { 
         id: 'claude',
@@ -347,7 +347,7 @@ const AIProviders: React.FC = () => {
             <PageHeader 
                 title="AI Providers" 
                 description={
-                    "Configure and manage AI services for code review. Gemini & Ollama are recommended today. Other providers are experimental—help prioritize full support by voting in the community discussion."
+					"Configure and manage AI services for code review. Gemini, OpenAI, OpenRouter, and Ollama are recommended today."
                 }
                 actions={<a href="https://github.com/HexmosTech/LiveReview/discussions/9" target="_blank" rel="noopener noreferrer"><Button variant="outline" size="sm">Vote / Request Provider</Button></a>}
             />
