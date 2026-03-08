@@ -235,10 +235,12 @@ func GetProviderModels(provider Provider) []string {
 		}
 	case ProviderOpenAI:
 		return []string{
-			"gpt-3.5-turbo",
-			"gpt-4",
-			"gpt-4-turbo",
+			"o4-mini",
+			"gpt-4.1",
+			"gpt-4.1-mini",
+			"gpt-4o-mini",
 			"gpt-4o",
+			"o3-mini",
 		}
 	case ProviderGemini:
 		return []string{
@@ -279,7 +281,7 @@ func GetDefaultModel(provider Provider) string {
 	case ProviderOpenRouter:
 		return "deepseek/deepseek-r1-0528:free"
 	case ProviderOpenAI:
-		return "gpt-4"
+		return "o4-mini"
 	case ProviderGemini:
 		return "gemini-2.5-flash"
 	case ProviderClaude:

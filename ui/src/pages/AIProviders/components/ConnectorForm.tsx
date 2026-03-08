@@ -41,14 +41,35 @@ const ConnectorForm: React.FC<ConnectorFormProps> = ({
     onDelete,
     setError
 }) => {
+    const [customModelMode, setCustomModelMode] = React.useState(false);
+
     const getProviderDetails = (providerId: string) => {
         return providers.find(p => p.id === providerId) || providers[0];
+    };
+
+    const updateSelectedModel = (modelValue: string) => {
+        onInputChange({
+            target: {
+                name: 'selectedModel',
+                value: modelValue,
+            },
+        } as React.ChangeEvent<HTMLInputElement>);
     };
 
     // Check if current provider requires API key
     const currentProvider = selectedProvider === 'all' ? formData.providerType : selectedProvider;
     const providerDetails = currentProvider ? getProviderDetails(currentProvider) : null;
     const isOllama = providerDetails?.id === 'ollama';
+    const providerModels = providerDetails?.models || [];
+    const currentModelValue = formData.selectedModel || providerDetails?.defaultModel || '';
+    const usesCustomModel = !!currentModelValue && !providerModels.includes(currentModelValue);
+    const shouldShowCustomModelInput = customModelMode || usesCustomModel;
+
+    React.useEffect(() => {
+        if (!usesCustomModel) {
+            setCustomModelMode(false);
+        }
+    }, [currentProvider, usesCustomModel]);
     
     // Validation rules
     const isValidForm = () => {
@@ -178,17 +199,38 @@ const ConnectorForm: React.FC<ConnectorFormProps> = ({
                         <select
                             name="selectedModel"
                             className="block w-full bg-slate-700 border border-slate-600 text-white rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                            value={formData.selectedModel || providerDetails.defaultModel || ''}
-                            onChange={(e) => onInputChange(e as unknown as React.ChangeEvent<HTMLInputElement>)}
+                            value={usesCustomModel ? '__custom__' : currentModelValue}
+                            onChange={(e) => {
+                                const { value } = e.target;
+                                if (value === '__custom__') {
+                                    setCustomModelMode(true);
+                                    if (!usesCustomModel) {
+                                        updateSelectedModel('');
+                                    }
+                                    return;
+                                }
+                                setCustomModelMode(false);
+                                updateSelectedModel(value);
+                            }}
                         >
                             {providerDetails.models?.map((model: string) => (
                                 <option key={model} value={model}>
                                     {model}{model === providerDetails.defaultModel ? ' (Recommended)' : ''}
                                 </option>
                             ))}
+                            <option value="__custom__">Custom model…</option>
                         </select>
+                        {shouldShowCustomModelInput && (
+                            <Input
+                                label="Custom Model ID"
+                                name="selectedModel"
+                                value={usesCustomModel ? currentModelValue : ''}
+                                onChange={onInputChange}
+                                placeholder="Enter model ID (e.g., gpt-4.1, o3-mini)"
+                            />
+                        )}
                         <p className="text-xs text-slate-400">
-                            {providerDetails.id === 'openrouter' ? 'OpenRouter model ID (defaults to free DeepSeek route)' : 'Select the model to use'}
+                            {providerDetails.id === 'openrouter' ? 'OpenRouter model ID (defaults to free DeepSeek route)' : 'Select a model or enter a custom model ID'}
                         </p>
                     </div>
                 )}

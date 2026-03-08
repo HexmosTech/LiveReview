@@ -27,7 +27,7 @@ const ConnectorCard: React.FC<ConnectorCardProps> = ({
         gemini: 'recommended',
         ollama: 'recommended',
         openrouter: 'recommended',
-        openai: 'experimental',
+        openai: 'recommended',
         claude: 'experimental',
         cohere: 'experimental'
     };

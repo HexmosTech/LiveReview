@@ -360,7 +360,7 @@ func (s *Server) getAIConfigFromDatabase(ctx context.Context, orgID int64) (revi
 		case "gemini":
 			model = "gemini-2.5-flash" // Default Gemini model
 		case "openai":
-			model = "gpt-3.5-turbo" // Default OpenAI model
+			model = "o4-mini" // Default OpenAI model
 		case "openrouter":
 			model = "deepseek/deepseek-r1-0528:free" // Default OpenRouter model
 		case "anthropic":
