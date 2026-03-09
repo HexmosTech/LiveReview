@@ -595,7 +595,7 @@ func (p *LangchainProvider) getModelName() string {
 	case "openrouter":
 		return "deepseek/deepseek-r1-0528:free"
 	case "anthropic", "claude":
-		return "claude-3-sonnet-20240229"
+		return "claude-haiku-4-5-20251001"
 	case "ollama":
 		return "llama3"
 	default:

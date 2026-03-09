@@ -147,7 +147,7 @@ func ValidateAPIKey(ctx context.Context, provider Provider, apiKey string, baseU
 			options.ModelConfig.Model = "gemini-2.5-flash"
 			log.Debug().Msg("Using Gemini 2.5 Flash model for validation")
 		case ProviderClaude:
-			options.ModelConfig.Model = "claude-3-sonnet-20240229"
+			options.ModelConfig.Model = "claude-haiku-4-5-20251001"
 		case ProviderCohere:
 			options.ModelConfig.Model = "command"
 		case ProviderOllama:
