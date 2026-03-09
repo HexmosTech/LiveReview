@@ -1,4 +1,5 @@
 .PHONY: build run-review run-review-verbose test clean develop develop-reflex river-deps river-install river-migrate river-setup river-ui-install river-ui db-flip version version-bump version-patch version-minor version-major version-bump-dirty version-patch-dirty version-minor-dirty version-major-dirty version-bump-dry version-patch-dry version-minor-dry version-major-dry build-versioned docker-build docker-build-push docker-build-dry docker-interactive docker-interactive-push docker-interactive-dry docker-build docker-build-push docker-build-versioned docker-build-push-versioned docker-build-dry docker-build-push-dry docker-multiarch docker-multiarch-push docker-multiarch-dry docker-interactive-multiarch docker-interactive-multiarch-push cplrops vendor-prompts-encrypt vendor-prompts-build vendor-prompts-rebuild vendor-docker-build vendor-docker-build-dry vendor-docker-build-push vendor-docker-multiarch-dry vendor-docker-multiarch-push run logrun build-with-ui
+.PHONY: upload-secrets download-secrets list-secrets-files legacy-secrets-clear
 
 # Go parameters
 GOCMD=go
@@ -8,7 +9,8 @@ GOTEST=$(GOCMD) test
 BINARY_NAME=livereview
 GH_REPO=HexmosTech/LiveReview
 GH=/usr/bin/gh
-ENV_VARS=DATABASE_URL JWT_SECRET LIVEREVIEW_BACKEND_PORT LIVEREVIEW_FRONTEND_PORT LIVEREVIEW_REVERSE_PROXY LIVEREVIEW_IS_CLOUD CLOUD_JWT_SECRET FW_PARSE_ADMIN_SECRET RAZORPAY_MODE RAZORPAY_WEBHOOK_SECRET RAZORPAY_TEST_KEY RAZORPAY_TEST_SECRET RAZORPAY_TEST_MONTHLY_PLAN_ID RAZORPAY_TEST_YEARLY_PLAN_ID RAZORPAY_LIVE_KEY RAZORPAY_LIVE_SECRET RAZORPAY_LIVE_MONTHLY_PLAN_ID RAZORPAY_LIVE_YEARLY_PLAN_ID DISCORD_SIGNUP_WEBHOOK_URL OVSX_PAT
+GHSM_SCRIPT=scripts/ghsm.py
+LEGACY_ENV_VARS=DATABASE_URL JWT_SECRET LIVEREVIEW_BACKEND_PORT LIVEREVIEW_FRONTEND_PORT LIVEREVIEW_REVERSE_PROXY LIVEREVIEW_IS_CLOUD CLOUD_JWT_SECRET FW_PARSE_ADMIN_SECRET RAZORPAY_MODE RAZORPAY_WEBHOOK_SECRET RAZORPAY_TEST_KEY RAZORPAY_TEST_SECRET RAZORPAY_TEST_MONTHLY_PLAN_ID RAZORPAY_TEST_YEARLY_PLAN_ID RAZORPAY_LIVE_KEY RAZORPAY_LIVE_SECRET RAZORPAY_LIVE_MONTHLY_PLAN_ID RAZORPAY_LIVE_YEARLY_PLAN_ID DISCORD_SIGNUP_WEBHOOK_URL OVSX_PAT
 
 # Load environment variables from .env file
 include .env
@@ -339,38 +341,24 @@ run-selfhosted:
 	which air || go install github.com/air-verse/air@latest
 	air -- --env-file .env.selfhosted
 
-# Upload .env variables to GitHub repo variables
+# Upload tracked env files (.env, .env.prod, ui/.env.prod) to GitHub repo variables.
+# Backward compatible target name; implementation moved to scripts/ghsm.py.
 upload-secrets:
-	@if [ ! -f .env ]; then echo "Error: .env file not found"; exit 1; fi
-	@echo "Uploading .env to GitHub variables for $(GH_REPO)..."
-	@grep -v '^\s*#' .env | grep -v '^\s*$$' | while IFS='=' read -r key value; do \
-		value=$$(echo "$$value" | sed "s/^['\"]//;s/['\"]$$//"); \
-		echo "  Setting $$key..."; \
-		$(GH) variable set "$$key" --repo $(GH_REPO) --body "$$value" || echo "  ⚠️  Failed to set $$key"; \
-	done
-	@echo "✅ Uploaded. Current GitHub variables:"
-	@$(GH) variable list --repo $(GH_REPO)
+	@python3 $(GHSM_SCRIPT) --repo $(GH_REPO) upload
 
-# Download GitHub repo variables to .env
+# Download tracked env files from GitHub repo variables and replace local files.
+# scripts/ghsm.py always creates timestamped local backups before overwrite.
 download-secrets:
-	@if [ -f .env ]; then \
-		echo "⚠️  .env already exists (modified: $$(stat -c '%y' .env 2>/dev/null || stat -f '%Sm' .env 2>/dev/null))"; \
-		printf "Overwrite? [y/N]: "; \
-		read ans; \
-		if [ "$$ans" != "y" ] && [ "$$ans" != "Y" ]; then \
-			echo "Aborted."; \
-			exit 1; \
-		fi; \
-	fi
-	@echo "Downloading GitHub variables for $(GH_REPO) to .env..."
-	@rm -f .env.tmp
-	@for var in $(ENV_VARS); do \
-		val=$$($(GH) variable get $$var --repo $(GH_REPO) 2>/dev/null); \
-		if [ $$? -eq 0 ]; then \
-			echo "$$var=$$val" >> .env.tmp; \
-		else \
-			echo "⚠️  Variable $$var not found on GitHub"; \
-		fi; \
+	@python3 $(GHSM_SCRIPT) --repo $(GH_REPO) download
+
+# Show which files are managed by GH secret manager.
+list-secrets-files:
+	@python3 $(GHSM_SCRIPT) --repo $(GH_REPO) list-files
+
+# Legacy helper: clear old key/value repo variables used by previous upload-secrets flow.
+legacy-secrets-clear:
+	@echo "Removing legacy key/value repository variables from $(GH_REPO)..."
+	@for var in $(LEGACY_ENV_VARS); do \
+		$(GH) variable delete "$$var" --repo $(GH_REPO) >/dev/null 2>&1 || true; \
 	done
-	@mv .env.tmp .env
-	@echo "✅ Downloaded to .env"
+	@echo "✅ Legacy variable cleanup complete."
