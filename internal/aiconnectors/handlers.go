@@ -252,6 +252,15 @@ func GetProviderModels(provider Provider) []string {
 		}
 	case ProviderClaude:
 		return []string{
+			"claude-haiku-4-5-20251001",
+			"claude-opus-4-1-20250805",
+			"claude-opus-4-20250514",
+			"claude-opus-4-5-20251101",
+			"claude-opus-4-6",
+			"claude-sonnet-4-20250514",
+			"claude-sonnet-4-5-20250929",
+			"claude-sonnet-4-6",
+			// Legacy Claude 3 model IDs kept for backward compatibility.
 			"claude-3-opus-20240229",
 			"claude-3-sonnet-20240229",
 			"claude-3-haiku-20240307",
@@ -285,7 +294,7 @@ func GetDefaultModel(provider Provider) string {
 	case ProviderGemini:
 		return "gemini-2.5-flash"
 	case ProviderClaude:
-		return "claude-3-sonnet-20240229"
+		return "claude-haiku-4-5-20251001"
 	case ProviderCohere:
 		return "command-r"
 	case ProviderOllama:

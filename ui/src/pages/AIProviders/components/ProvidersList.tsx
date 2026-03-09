@@ -80,16 +80,7 @@ const ProvidersList: React.FC<ProvidersListProps> = ({
                                     </div>
                                 </div>
                             </div>
-                            <div className="pl-3 flex-shrink-0 flex items-center">
-                                {provider.supportLevel === 'recommended' && (
-                                    <span className="text-[10px] px-2 py-0.5 rounded-full bg-yellow-100 text-yellow-800 font-medium shadow-sm border border-yellow-200 tracking-wide">Recommended</span>
-                                )}
-                                {provider.supportLevel === 'experimental' && (
-                                    <span className="text-[10px] px-2 py-0.5 rounded-full bg-slate-600 text-slate-300 border border-slate-500 tracking-wide">
-                                        Experimental
-                                    </span>
-                                )}
-                            </div>
+                            <div className="pl-3 flex-shrink-0 flex items-center" />
                         </div>
                     </li>
                 );

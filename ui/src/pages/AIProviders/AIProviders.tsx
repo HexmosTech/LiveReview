@@ -34,18 +34,16 @@ import OllamaConnectorForm from './components/OllamaConnectorForm';
 import { generateFriendlyNameForProvider, getProviderDetails } from './utils/nameUtils';
 
 // Constant data
-// Order: recommended providers first, then experimental ones.
 const popularAIProviders: AIProvider[] = [
     { 
         id: 'gemini',
         name: 'Google Gemini', 
         url: 'https://ai.google.dev/', 
-        description: 'High quality, multimodal reasoning. Recommended for balanced cost + performance.',
+        description: 'High quality, multimodal reasoning with balanced cost and performance.',
         icon: <Icons.Google />,
         apiKeyPlaceholder: 'gemini-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx',
         models: ['gemini-2.5-flash', 'gemini-2.5-flash-lite', 'gemini-2.5-pro', 'gemini-2.0-flash', 'gemini-2.0-flash-lite'],
-        defaultModel: 'gemini-2.5-flash',
-        supportLevel: 'recommended'
+        defaultModel: 'gemini-2.5-flash'
     },
     { 
         id: 'openrouter',
@@ -56,8 +54,7 @@ const popularAIProviders: AIProvider[] = [
         apiKeyPlaceholder: 'sk-or-v1-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx',
         models: ['deepseek/deepseek-r1-0528:free'],
         defaultModel: 'deepseek/deepseek-r1-0528:free',
-        baseURLPlaceholder: 'https://openrouter.ai/api/v1',
-        supportLevel: 'recommended'
+        baseURLPlaceholder: 'https://openrouter.ai/api/v1'
     },
     { 
         id: 'ollama',
@@ -69,8 +66,7 @@ const popularAIProviders: AIProvider[] = [
         models: ['llama3', 'llama3.1', 'codellama', 'mistral', 'gemma'],
         defaultModel: 'llama3',
         baseURLPlaceholder: 'http://localhost:11434/ollama/api',
-        requiresBaseURL: true,
-        supportLevel: 'recommended'
+        requiresBaseURL: true
     },
     { 
         id: 'openai',
@@ -80,8 +76,7 @@ const popularAIProviders: AIProvider[] = [
         icon: <Icons.OpenAI />,
         apiKeyPlaceholder: 'sk-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx',
         models: ['o4-mini', 'gpt-4.1', 'gpt-4.1-mini', 'gpt-4o-mini', 'gpt-4o', 'o3-mini'],
-        defaultModel: 'o4-mini',
-        supportLevel: 'recommended'
+        defaultModel: 'o4-mini'
     },
     { 
         id: 'claude',
@@ -89,10 +84,21 @@ const popularAIProviders: AIProvider[] = [
         url: 'https://www.anthropic.com/', 
         description: 'Advanced reasoning & long context. Vote to prioritize deeper integration.',
         icon: <Icons.AI />,
-        apiKeyPlaceholder: 'claude-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx',
-        models: ['claude-3-opus', 'claude-3-sonnet', 'claude-3-haiku'],
-        defaultModel: 'claude-3-sonnet',
-        supportLevel: 'experimental'
+        apiKeyPlaceholder: 'sk-ant-api03-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx',
+        models: [
+            'claude-haiku-4-5-20251001',
+            'claude-opus-4-1-20250805',
+            'claude-opus-4-20250514',
+            'claude-opus-4-5-20251101',
+            'claude-opus-4-6',
+            'claude-sonnet-4-20250514',
+            'claude-sonnet-4-5-20250929',
+            'claude-sonnet-4-6',
+            'claude-3-opus-20240229',
+            'claude-3-sonnet-20240229',
+            'claude-3-haiku-20240307',
+        ],
+        defaultModel: 'claude-haiku-4-5-20251001'
     },
     { 
         id: 'cohere',
@@ -102,8 +108,7 @@ const popularAIProviders: AIProvider[] = [
         icon: <Icons.AI />,
         apiKeyPlaceholder: 'cohere-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx',
         models: ['command', 'command-light', 'command-r', 'command-r-plus'],
-        defaultModel: 'command-r',
-        supportLevel: 'experimental'
+        defaultModel: 'command-r'
     },
 ];
 
@@ -347,38 +352,10 @@ const AIProviders: React.FC = () => {
             <PageHeader 
                 title="AI Providers" 
                 description={
-					"Configure and manage AI services for code review. Gemini, OpenAI, OpenRouter, and Ollama are recommended today."
+					"Configure and manage AI services for code review."
                 }
                 actions={<a href="https://github.com/HexmosTech/LiveReview/discussions/9" target="_blank" rel="noopener noreferrer"><Button variant="outline" size="sm">Vote / Request Provider</Button></a>}
             />
-
-            {/* High-visibility banner for experimental provider selection */}
-            {selectedProvider !== 'all' && (() => {
-                const meta = popularAIProviders.find(p => p.id === selectedProvider);
-                if (!meta || meta.supportLevel !== 'experimental') return null;
-                return (
-                    <div className="mb-6">
-                        <Alert variant="warning" icon={<Icons.Warning />}> 
-                            <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
-                                <div className="text-sm md:pr-4">
-                                    <strong>{meta.name}</strong> is currently <strong>Experimental</strong>. Vote to accelerate full support (advanced settings, performance tuning, model coverage).
-                                </div>
-                                <a
-                                    href="https://github.com/HexmosTech/LiveReview/discussions/9"
-                                    target="_blank"
-                                    rel="noopener noreferrer"
-                                    className="inline-flex"
-                                >
-                                    <Button variant="primary" size="sm" className="whitespace-nowrap">
-                                        <Icons.AI />
-                                        <span className="ml-1">Add Your Vote</span>
-                                    </Button>
-                                </a>
-                            </div>
-                        </Alert>
-                    </div>
-                );
-            })()}
 
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
                 {/* Left panel for selecting providers */}

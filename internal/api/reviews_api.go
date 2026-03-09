@@ -364,7 +364,7 @@ func (s *Server) getAIConfigFromDatabase(ctx context.Context, orgID int64) (revi
 		case "openrouter":
 			model = "deepseek/deepseek-r1-0528:free" // Default OpenRouter model
 		case "claude":
-			model = "claude-3-haiku-20240307" // Default Anthropic model
+			model = "claude-haiku-4-5-20251001" // Default Anthropic model
 		default:
 			model = "gemini-2.5-flash" // Default fallback
 		}

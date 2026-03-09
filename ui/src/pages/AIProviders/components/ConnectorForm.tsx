@@ -139,7 +139,7 @@ const ConnectorForm: React.FC<ConnectorFormProps> = ({
                                     <option value="" disabled>Select a provider</option>
                                     {providers.map(p => (
                                         <option key={p.id} value={p.id}>
-                                            {p.name} {p.supportLevel === 'recommended' ? '(Recommended)' : p.supportLevel === 'experimental' ? '(Experimental)' : ''}
+                                            {p.name}
                                         </option>
                                     ))}
                                 </select>
@@ -215,7 +215,7 @@ const ConnectorForm: React.FC<ConnectorFormProps> = ({
                         >
                             {providerDetails.models?.map((model: string) => (
                                 <option key={model} value={model}>
-                                    {model}{model === providerDetails.defaultModel ? ' (Recommended)' : ''}
+                                    {model}{model === providerDetails.defaultModel ? ' (Default)' : ''}
                                 </option>
                             ))}
                             <option value="__custom__">Custom model…</option>

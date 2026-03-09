@@ -188,9 +188,7 @@ const ConnectorsList: React.FC<ConnectorsListProps> = ({
                                                     </span>
                                                     {provider.name}
                                                 </span>
-                                                <span className="text-xs text-slate-400 ml-2">
-                                                    {provider.supportLevel === 'recommended' ? 'Recommended' : provider.supportLevel === 'experimental' ? 'Experimental' : ''}
-                                                </span>
+                                                <span className="text-xs text-slate-400 ml-2" />
                                             </button>
                                         ))}
                                     </div>

@@ -22,16 +22,6 @@ const ConnectorCard: React.FC<ConnectorCardProps> = ({
     isLast,
     isReorderMode = false
 }) => {
-    // Lightweight mapping; keep in sync with popularAIProviders order/flags
-    const supportMap: Record<string, 'recommended' | 'experimental' | undefined> = {
-        gemini: 'recommended',
-        ollama: 'recommended',
-        openrouter: 'recommended',
-        openai: 'recommended',
-        claude: 'experimental',
-        cohere: 'experimental'
-    };
-
     return (
         <li 
             className="border border-slate-600 rounded-lg bg-slate-700 hover:bg-slate-600 transition-colors cursor-pointer"
@@ -59,12 +49,6 @@ const ConnectorCard: React.FC<ConnectorCardProps> = ({
                                 <Badge variant="primary" size="sm">
                                     {connector.providerName || 'Unknown'}
                                 </Badge>
-                                {supportMap[connector.providerName] === 'recommended' && (
-                                    <span className="text-[10px] px-2 py-0.5 rounded-full bg-yellow-100 text-yellow-800 font-medium border border-yellow-200 tracking-wide">Recommended</span>
-                                )}
-                                {supportMap[connector.providerName] === 'experimental' && (
-                                    <Badge variant="warning" size="sm">Experimental</Badge>
-                                )}
                             </div>
                             <p className="text-sm text-slate-300 truncate">
                                 API Key: {connector.apiKey && connector.apiKey.length > 4 
