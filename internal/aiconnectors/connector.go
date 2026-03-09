@@ -3,6 +3,7 @@ package aiconnectors
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
@@ -116,6 +117,15 @@ func ValidateAPIKey(ctx context.Context, provider Provider, apiKey string, baseU
 		return true, nil
 	}
 
+	// OpenAI o-series models are validated against /responses directly to match
+	// the official API flow and avoid client-library endpoint mismatches.
+	if provider == ProviderOpenAI {
+		if model == "" {
+			model = "o4-mini"
+		}
+		return validateOpenAIKeyViaResponses(ctx, apiKey, baseURL, model)
+	}
+
 	// Create temporary options with minimum configuration
 	options := ConnectorOptions{
 		Provider: provider,
@@ -215,6 +225,63 @@ func ValidateAPIKey(ctx context.Context, provider Provider, apiKey string, baseU
 		Msg("API key validation successful")
 
 	return true, nil // API key is valid
+}
+
+func validateOpenAIKeyViaResponses(ctx context.Context, apiKey string, baseURL string, model string) (bool, error) {
+	base := baseURL
+	if base == "" {
+		base = "https://api.openai.com/v1"
+	}
+
+	requestBody := map[string]interface{}{
+		"model":             model,
+		"input":             "Say hello world exactly.",
+		"max_output_tokens": 20,
+	}
+
+	body, err := json.Marshal(requestBody)
+	if err != nil {
+		return false, fmt.Errorf("failed to marshal OpenAI validation request: %w", err)
+	}
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, fmt.Sprintf("%s/responses", trimTrailingSlash(base)), bytes.NewReader(body))
+	if err != nil {
+		return false, fmt.Errorf("failed to create OpenAI validation request: %w", err)
+	}
+	req.Header.Set("Authorization", "Bearer "+apiKey)
+	req.Header.Set("Content-Type", "application/json")
+
+	client := &http.Client{Timeout: 30 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return false, fmt.Errorf("failed to call OpenAI responses API: %w", err)
+	}
+	defer resp.Body.Close()
+
+	_, _ = io.ReadAll(io.LimitReader(resp.Body, 8192))
+
+	if resp.StatusCode >= 200 && resp.StatusCode < 300 {
+		return true, nil
+	}
+
+	// Auth/config/quota/model issues should report invalid key/config at 200-level API result,
+	// not as server errors from this endpoint.
+	if resp.StatusCode == http.StatusUnauthorized ||
+		resp.StatusCode == http.StatusForbidden ||
+		resp.StatusCode == http.StatusNotFound ||
+		resp.StatusCode == http.StatusTooManyRequests ||
+		resp.StatusCode == http.StatusBadRequest {
+		return false, nil
+	}
+
+	return false, fmt.Errorf("openai responses API returned status %d", resp.StatusCode)
+}
+
+func trimTrailingSlash(s string) string {
+	for len(s) > 0 && s[len(s)-1] == '/' {
+		s = s[:len(s)-1]
+	}
+	return s
 }
 
 // Helper functions to create models for specific providers

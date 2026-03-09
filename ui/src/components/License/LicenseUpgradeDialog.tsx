@@ -1,9 +1,10 @@
 import React from 'react';
 import { createPortal } from 'react-dom';
-import { TIER_DISPLAY_NAMES, LicenseTier } from '../../constants/licenseTiers';
+import { TIER_DISPLAY_NAMES } from '../../constants/licenseTiers';
+import type { LicenseTier } from '../../constants/licenseTiers';
 
 // Re-export for backward compatibility
-export { LicenseTier } from '../../constants/licenseTiers';
+export type { LicenseTier } from '../../constants/licenseTiers';
 export { useLicenseTier, useHasLicenseFor, hasTierAccess as hasLicenseFor } from '../../hooks/useLicenseTier';
 
 interface LicenseUpgradeDialogProps {

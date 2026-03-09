@@ -317,7 +317,7 @@ func (p *LangchainProvider) initializeLLM() error {
 			p.baseURL = "https://openrouter.ai/api/v1"
 		}
 		return p.initializeOpenAILLM()
-	case "anthropic":
+	case "anthropic", "claude":
 		return p.initializeAnthropicLLM()
 	default:
 		// Logger accessed via p.logger
@@ -540,7 +540,20 @@ func (p *LangchainProvider) getModelName() string {
 	if p.modelName != "" {
 		return p.modelName
 	}
-	return "gemini-2.5-flash" // Default model
+
+	// Provider-specific defaults to avoid accidental cross-provider model names.
+	switch strings.ToLower(p.providerType) {
+	case "openai":
+		return "o4-mini"
+	case "openrouter":
+		return "deepseek/deepseek-r1-0528:free"
+	case "anthropic", "claude":
+		return "claude-3-sonnet-20240229"
+	case "ollama":
+		return "llama3"
+	default:
+		return "gemini-2.5-flash"
+	}
 }
 
 // ReviewCode is the legacy method for backwards compatibility
