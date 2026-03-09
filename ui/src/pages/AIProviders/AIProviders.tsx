@@ -46,6 +46,17 @@ const popularAIProviders: AIProvider[] = [
         defaultModel: 'gemini-2.5-flash'
     },
     { 
+        id: 'deepseek',
+        name: 'DeepSeek',
+        url: 'https://platform.deepseek.com/',
+        description: 'Native DeepSeek connector with chat as default and R1 available for deeper reasoning.',
+        icon: <Icons.AI />,
+        apiKeyPlaceholder: 'sk-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx',
+        models: ['deepseek-chat', 'deepseek-r1'],
+        defaultModel: 'deepseek-chat',
+        baseURLPlaceholder: 'https://api.deepseek.com/v1'
+    },
+    { 
         id: 'openrouter',
         name: 'OpenRouter', 
         url: 'https://openrouter.ai/', 

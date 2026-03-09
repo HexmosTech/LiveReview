@@ -16,6 +16,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/livereview/internal/aiconnectors"
 	"github.com/tmc/langchaingo/llms"
 	"github.com/tmc/langchaingo/llms/anthropic"
 	"github.com/tmc/langchaingo/llms/googleai"
@@ -321,6 +322,8 @@ func (p *LangchainProvider) MaxTokensPerBatch() int {
 			return 30000 // Gemini can handle larger batches
 		case "openai":
 			return 16000 // OpenAI models like GPT-3.5/4
+		case "deepseek":
+			return 16000 // DeepSeek chat/reasoner models
 		case "openrouter":
 			return 8000 // OpenRouter models commonly cap around 8k; stay conservative
 		case "anthropic":
@@ -359,10 +362,11 @@ func (p *LangchainProvider) initializeLLM() error {
 		return p.initializeGeminiLLM()
 	case "openai":
 		return p.initializeOpenAILLM()
+	case "deepseek":
+		p.baseURL = aiconnectors.ResolveBaseURLForProviderName(p.providerType, p.baseURL)
+		return p.initializeOpenAILLM()
 	case "openrouter":
-		if p.baseURL == "" {
-			p.baseURL = "https://openrouter.ai/api/v1"
-		}
+		p.baseURL = aiconnectors.ResolveBaseURLForProviderName(p.providerType, p.baseURL)
 		return p.initializeOpenAILLM()
 	case "anthropic", "claude":
 		return p.initializeAnthropicLLM()
@@ -592,6 +596,8 @@ func (p *LangchainProvider) getModelName() string {
 	switch strings.ToLower(p.providerType) {
 	case "openai":
 		return "o4-mini"
+	case "deepseek":
+		return "deepseek-chat"
 	case "openrouter":
 		return "deepseek/deepseek-r1-0528:free"
 	case "anthropic", "claude":
