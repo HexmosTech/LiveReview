@@ -229,6 +229,11 @@ func fetchOllamaModelsHandler(c echo.Context) error {
 // GetProviderModels returns the available models for a provider
 func GetProviderModels(provider Provider) []string {
 	switch provider {
+	case ProviderDeepSeek:
+		return []string{
+			"deepseek-chat",
+			"deepseek-r1",
+		}
 	case ProviderOpenRouter:
 		return []string{
 			"deepseek/deepseek-r1-0528:free",
@@ -287,6 +292,8 @@ func GetProviderModels(provider Provider) []string {
 // GetDefaultModel returns the default model for a provider
 func GetDefaultModel(provider Provider) string {
 	switch provider {
+	case ProviderDeepSeek:
+		return "deepseek-chat"
 	case ProviderOpenRouter:
 		return "deepseek/deepseek-r1-0528:free"
 	case ProviderOpenAI:

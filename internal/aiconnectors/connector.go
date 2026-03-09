@@ -24,6 +24,7 @@ type Provider string
 const (
 	// Provider types
 	ProviderOpenAI     Provider = "openai"
+	ProviderDeepSeek   Provider = "deepseek"
 	ProviderGemini     Provider = "gemini"
 	ProviderClaude     Provider = "claude"
 	ProviderCohere     Provider = "cohere"
@@ -70,6 +71,8 @@ func NewConnector(ctx context.Context, options ConnectorOptions) (*Connector, er
 	switch options.Provider {
 	case ProviderOpenAI:
 		model, err = createOpenAIModel(ctx, options)
+	case ProviderDeepSeek:
+		model, err = createDeepSeekModel(ctx, options)
 	case ProviderGemini:
 		model, err = createGeminiModel(ctx, options)
 	case ProviderClaude:
@@ -143,6 +146,8 @@ func ValidateAPIKey(ctx context.Context, provider Provider, apiKey string, baseU
 		switch provider {
 		case ProviderOpenAI:
 			options.ModelConfig.Model = "o4-mini"
+		case ProviderDeepSeek:
+			options.ModelConfig.Model = "deepseek-chat"
 		case ProviderGemini:
 			options.ModelConfig.Model = "gemini-2.5-flash"
 			log.Debug().Msg("Using Gemini 2.5 Flash model for validation")
@@ -302,6 +307,18 @@ func createOpenAIModel(ctx context.Context, options ConnectorOptions) (llms.Mode
 	return openai.New(opts...)
 }
 
+func createDeepSeekModel(ctx context.Context, options ConnectorOptions) (llms.Model, error) {
+	baseURL := ResolveBaseURL(ProviderDeepSeek, options.BaseURL)
+
+	opts := []openai.Option{
+		openai.WithModel(options.ModelConfig.Model),
+		openai.WithToken(options.APIKey),
+		openai.WithBaseURL(baseURL),
+	}
+
+	return openai.New(opts...)
+}
+
 func createGeminiModel(ctx context.Context, options ConnectorOptions) (llms.Model, error) {
 	log.Debug().
 		Str("api_key_masked", maskAPIKey(options.APIKey)).
@@ -373,11 +390,7 @@ func createOllamaModel(ctx context.Context, options ConnectorOptions) (llms.Mode
 }
 
 func createOpenRouterModel(ctx context.Context, options ConnectorOptions) (llms.Model, error) {
-	// Default base URL for OpenRouter
-	baseURL := options.BaseURL
-	if baseURL == "" {
-		baseURL = "https://openrouter.ai/api/v1"
-	}
+	baseURL := ResolveBaseURL(ProviderOpenRouter, options.BaseURL)
 
 	httpClient := &http.Client{
 		Transport: &openRouterLoggingTransport{base: http.DefaultTransport},

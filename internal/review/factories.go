@@ -8,6 +8,7 @@ import (
 
 	"github.com/livereview/internal/ai"
 	"github.com/livereview/internal/ai/langchain"
+	"github.com/livereview/internal/aiconnectors"
 	"github.com/livereview/internal/logging"
 	"github.com/livereview/internal/providers"
 	"github.com/livereview/internal/providers/bitbucket"
@@ -118,10 +119,7 @@ func (f *StandardAIProviderFactory) CreateAIProvider(ctx context.Context, config
 		// Extract provider information from config
 		providerName, _ := config.Config["provider_name"].(string)
 		baseURL, _ := config.Config["base_url"].(string)
-
-		if strings.EqualFold(providerName, "openrouter") && baseURL == "" {
-			baseURL = "https://openrouter.ai/api/v1"
-		}
+		baseURL = aiconnectors.ResolveBaseURLForProviderName(providerName, baseURL)
 
 		// Set provider-specific token limits
 		maxTokens := f.getProviderMaxTokens(providerName)
@@ -145,10 +143,7 @@ func (f *StandardAIProviderFactory) CreateAIProvider(ctx context.Context, config
 		// Extract provider information from config
 		providerName, _ := config.Config["provider_name"].(string)
 		baseURL, _ := config.Config["base_url"].(string)
-
-		if strings.EqualFold(providerName, "openrouter") && baseURL == "" {
-			baseURL = "https://openrouter.ai/api/v1"
-		}
+		baseURL = aiconnectors.ResolveBaseURLForProviderName(providerName, baseURL)
 
 		// Set provider-specific token limits
 		maxTokens := f.getProviderMaxTokens(providerName)
@@ -179,6 +174,8 @@ func (f *StandardAIProviderFactory) getProviderMaxTokens(providerName string) in
 		return 30000 // Gemini can handle larger batches
 	case "openai":
 		return 16000 // OpenAI models like GPT-3.5/4 can handle decent batches
+	case "deepseek":
+		return 16000 // DeepSeek chat/reasoner models can handle large review batches
 	case "openrouter":
 		return 8000 // OpenRouter models commonly cap near 8k
 	case "anthropic", "claude":
