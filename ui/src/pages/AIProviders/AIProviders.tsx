@@ -100,16 +100,6 @@ const popularAIProviders: AIProvider[] = [
         ],
         defaultModel: 'claude-haiku-4-5-20251001'
     },
-    { 
-        id: 'cohere',
-        name: 'Cohere', 
-        url: 'https://cohere.com/', 
-        description: 'Language focused LLMs. Community votes help unlock full support sooner.',
-        icon: <Icons.AI />,
-        apiKeyPlaceholder: 'cohere-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx',
-        models: ['command', 'command-light', 'command-r', 'command-r-plus'],
-        defaultModel: 'command-r'
-    },
 ];
 
 const AIProviders: React.FC = () => {
