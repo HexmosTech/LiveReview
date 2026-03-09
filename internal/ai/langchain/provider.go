@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"net/http"
 	"os"
 	"reflect"
@@ -30,13 +31,15 @@ import (
 
 // LangchainProvider implements the AI Provider interface using langchain abstractions
 type LangchainProvider struct {
-	llm          llms.Model
-	apiKey       string
-	modelName    string
-	maxTokens    int
-	providerType string                // NEW: Provider type (gemini, ollama, openai, etc.)
-	baseURL      string                // NEW: Base URL for custom endpoints
-	logger       *logging.ReviewLogger // Logger for this review
+	llm            llms.Model
+	apiKey         string
+	modelName      string
+	maxTokens      int
+	temperature    float64
+	temperatureSet bool
+	providerType   string                // NEW: Provider type (gemini, ollama, openai, etc.)
+	baseURL        string                // NEW: Base URL for custom endpoints
+	logger         *logging.ReviewLogger // Logger for this review
 }
 
 type aiResponseFileSummary struct {
@@ -242,23 +245,63 @@ func (p *LangchainProvider) formatSingleHunk(lines []string, oldStart, newStart 
 
 // Config for the langchain provider
 type Config struct {
-	APIKey       string `json:"api_key"`
-	ModelName    string `json:"model_name"`
-	MaxTokens    int    `json:"max_tokens"`
-	ProviderType string `json:"provider_type"` // NEW: "gemini", "ollama", "openai", etc.
-	BaseURL      string `json:"base_url"`      // NEW: For custom endpoints like Ollama
+	APIKey         string  `json:"api_key"`
+	ModelName      string  `json:"model_name"`
+	MaxTokens      int     `json:"max_tokens"`
+	Temperature    float64 `json:"temperature"`
+	TemperatureSet bool    `json:"temperature_set"`
+	ProviderType   string  `json:"provider_type"` // NEW: "gemini", "ollama", "openai", etc.
+	BaseURL        string  `json:"base_url"`      // NEW: For custom endpoints like Ollama
 }
 
 // New creates a new langchain-based AI provider
 func New(config Config, logger *logging.ReviewLogger) *LangchainProvider {
 	return &LangchainProvider{
-		apiKey:       config.APIKey,
-		modelName:    config.ModelName,
-		maxTokens:    config.MaxTokens,
-		providerType: config.ProviderType, // NEW
-		baseURL:      config.BaseURL,      // NEW
-		logger:       logger,              // NEW: Thread logger through
+		apiKey:         config.APIKey,
+		modelName:      config.ModelName,
+		maxTokens:      config.MaxTokens,
+		temperature:    config.Temperature,
+		temperatureSet: config.TemperatureSet,
+		providerType:   config.ProviderType, // NEW
+		baseURL:        config.BaseURL,      // NEW
+		logger:         logger,              // NEW: Thread logger through
 	}
+}
+
+func (p *LangchainProvider) effectiveTemperature() float64 {
+	provider := strings.ToLower(p.providerType)
+	model := strings.ToLower(p.getModelName())
+
+	// OpenAI o-series only supports the default temperature behavior.
+	if provider == "openai" && isOpenAISeriesModel(model) {
+		return 1.0
+	}
+
+	return normalizeTemperature(p.temperature, p.temperatureSet)
+}
+
+func isOpenAISeriesModel(model string) bool {
+	model = strings.TrimSpace(strings.ToLower(model))
+	if len(model) < 2 || model[0] != 'o' {
+		return false
+	}
+	return model[1] >= '0' && model[1] <= '9'
+}
+
+func normalizeTemperature(temp float64, isSet bool) float64 {
+	if !isSet {
+		return 0.4
+	}
+	if math.IsNaN(temp) || math.IsInf(temp, 0) {
+		return 0.4
+	}
+	if temp < 0 {
+		return 0
+	}
+	if temp > 2 {
+		return 2
+	}
+	return temp
 }
 
 func (p *LangchainProvider) Name() string {
@@ -298,6 +341,10 @@ func (p *LangchainProvider) Configure(config map[string]interface{}) error {
 	}
 	if maxTokens, ok := config["max_tokens"].(float64); ok { // JSON numbers are float64
 		p.maxTokens = int(maxTokens)
+	}
+	if temperature, ok := config["temperature"].(float64); ok {
+		p.temperature = temperature
+		p.temperatureSet = true
 	}
 
 	// Initialize the LLM
@@ -791,6 +838,7 @@ func (p *LangchainProvider) reviewCodeBatchFormatted(ctx context.Context, diffs 
 	forceNonStreaming := strings.EqualFold(p.providerType, "ollama") && strings.EqualFold(os.Getenv("LIVEREVIEW_OLLAMA_FORCE_NON_STREAMING"), "true")
 
 	startTime := time.Now()
+	effectiveTemp := p.effectiveTemperature()
 	if forceNonStreaming {
 		fmt.Printf("[STREAM DISABLED] Forcing non-streaming mode for Ollama due to env override.\n")
 		// Run a single non-streaming request under the same timeout
@@ -816,6 +864,7 @@ func (p *LangchainProvider) reviewCodeBatchFormatted(ctx context.Context, diffs 
 			timeoutCtx,
 			p.llm,
 			prompt,
+			llms.WithTemperature(effectiveTemp),
 		)
 		close(waitingDone)
 		if callErr != nil {
@@ -841,7 +890,7 @@ func (p *LangchainProvider) reviewCodeBatchFormatted(ctx context.Context, diffs 
 			"stream": true,
 			"format": "",
 			"options": map[string]interface{}{
-				"temperature": 0,
+				"temperature": effectiveTemp,
 			},
 		}
 		curlBodyJSON, _ := json.MarshalIndent(curlBody, "", "  ")
@@ -871,6 +920,7 @@ func (p *LangchainProvider) reviewCodeBatchFormatted(ctx context.Context, diffs 
 			timeoutCtx,
 			p.llm,
 			prompt,
+			llms.WithTemperature(effectiveTemp),
 			llms.WithStreamingFunc(streamingFunc),
 		)
 		fmt.Printf("[STREAM DEBUG] GenerateFromSinglePrompt returned, err=%v\n", err)
@@ -932,6 +982,7 @@ func (p *LangchainProvider) reviewCodeBatchFormatted(ctx context.Context, diffs 
 				fbCtx,
 				p.llm,
 				prompt,
+				llms.WithTemperature(effectiveTemp),
 			)
 			close(waitingDone)
 
@@ -1127,7 +1178,12 @@ func (p *LangchainProvider) ReviewCodeWithBatching(ctx context.Context, diffs []
 	}
 
 	// Aggregate ONLY successful batches
-	result, err := batchProcessor.AggregateAndCombineOutputs(ctx, p.llm, successfulBatches)
+	result, err := batchProcessor.AggregateAndCombineOutputs(
+		ctx,
+		p.llm,
+		successfulBatches,
+		llms.WithTemperature(p.effectiveTemperature()),
+	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to aggregate results from %d successful batches: %w", len(successfulBatches), err)
 	}

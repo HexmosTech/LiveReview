@@ -358,8 +358,9 @@ type BatchResult struct {
 	BatchID            string
 }
 
-// AggregateAndCombineOutputs combines the results of multiple batches
-func (p *BatchProcessor) AggregateAndCombineOutputs(ctx context.Context, llm llms.Model, results []*BatchResult) (*models.ReviewResult, error) {
+// AggregateAndCombineOutputs combines batch outputs and synthesizes a final summary.
+// Optional callOptions are applied only to the final summary LLM call.
+func (p *BatchProcessor) AggregateAndCombineOutputs(ctx context.Context, llm llms.Model, results []*BatchResult, callOptions ...llms.CallOption) (*models.ReviewResult, error) {
 	p.Logger.Info("Aggregating outputs from %d batch results", len(results))
 
 	if len(results) == 0 {
@@ -447,7 +448,7 @@ func (p *BatchProcessor) AggregateAndCombineOutputs(ctx context.Context, llm llm
 	orderedSummaries := flattenSummaries(summaryOrder, summaryByFile)
 	promptText := base + "\n\n" + prompts.BuildSummarySection(orderedSummaries) + "\n\n" + prompts.SummaryStructure
 
-	generalSummary, err := llms.GenerateFromSinglePrompt(ctx, llm, promptText)
+	generalSummary, err := llms.GenerateFromSinglePrompt(ctx, llm, promptText, callOptions...)
 	if err != nil {
 		generalSummary = "Error generating summary: " + err.Error()
 	}

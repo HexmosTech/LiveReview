@@ -132,11 +132,13 @@ func (f *StandardAIProviderFactory) CreateAIProvider(ctx context.Context, config
 		}
 
 		return langchain.New(langchain.Config{
-			APIKey:       config.APIKey,
-			ModelName:    config.Model,
-			MaxTokens:    maxTokens,
-			ProviderType: providerName,
-			BaseURL:      baseURL,
+			APIKey:         config.APIKey,
+			ModelName:      config.Model,
+			MaxTokens:      maxTokens,
+			Temperature:    config.Temperature,
+			TemperatureSet: true,
+			ProviderType:   providerName,
+			BaseURL:        baseURL,
 		}, logger), nil
 	default:
 		// Default to langchain for any unrecognized type
@@ -157,11 +159,13 @@ func (f *StandardAIProviderFactory) CreateAIProvider(ctx context.Context, config
 		}
 
 		return langchain.New(langchain.Config{
-			APIKey:       config.APIKey,
-			ModelName:    config.Model,
-			MaxTokens:    maxTokens,
-			ProviderType: providerName,
-			BaseURL:      baseURL,
+			APIKey:         config.APIKey,
+			ModelName:      config.Model,
+			MaxTokens:      maxTokens,
+			Temperature:    config.Temperature,
+			TemperatureSet: true,
+			ProviderType:   providerName,
+			BaseURL:        baseURL,
 		}, logger), nil
 	}
 }
