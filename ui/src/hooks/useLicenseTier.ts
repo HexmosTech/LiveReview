@@ -3,7 +3,8 @@
  */
 import { useAppSelector, RootState } from '../store/configureStore';
 import { isSelfHostedMode } from '../utils/deploymentMode';
-import { LicenseTier, hasTierAccess } from '../constants/licenseTiers';
+import { hasTierAccess } from '../constants/licenseTiers';
+import type { LicenseTier } from '../constants/licenseTiers';
 
 /**
  * Returns the current license tier based on license state.
@@ -63,4 +64,5 @@ export function useHasLicenseFor(requiredTier: LicenseTier): boolean {
 }
 
 // Re-export for convenience
-export { LicenseTier, hasTierAccess, COMMUNITY_TIER_LIMITS } from '../constants/licenseTiers';
+export { hasTierAccess, COMMUNITY_TIER_LIMITS } from '../constants/licenseTiers';
+export type { LicenseTier } from '../constants/licenseTiers';
