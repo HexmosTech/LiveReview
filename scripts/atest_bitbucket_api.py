@@ -7,12 +7,13 @@ This script tests the Bitbucket API key to verify it's working correctly.
 
 import requests
 import json
+import os
 
 # Configuration - same as the main script
 # For account API tokens, we need username and token
-USERNAME = "contorted"  # Your Bitbucket username
-API_TOKEN = "REDACTED_BITBUCKET_TOKEN_2"
-PULL_REQUEST_URL = "https://bitbucket.org/contorted/fb_backends/pull-requests/1"
+USERNAME = os.environ.get("LIVEREVIEW_BITBUCKET_USERNAME", "")
+API_TOKEN = os.environ.get("LIVEREVIEW_BITBUCKET_API_TOKEN", "")
+PULL_REQUEST_URL = os.environ.get("LIVEREVIEW_BITBUCKET_PR_URL", "")
 
 # Bitbucket API base URL
 BITBUCKET_API_BASE = "https://api.bitbucket.org/2.0"
@@ -160,6 +161,10 @@ def main():
     """
     Run all tests to diagnose the API key issue.
     """
+    if not USERNAME or not API_TOKEN or not PULL_REQUEST_URL:
+        print("Set LIVEREVIEW_BITBUCKET_USERNAME, LIVEREVIEW_BITBUCKET_API_TOKEN, and LIVEREVIEW_BITBUCKET_PR_URL.")
+        return
+
     print("Bitbucket API Key Diagnostic Tool")
     print("=" * 50)
     print()

@@ -102,9 +102,8 @@ func (sc *seatAssignmentCache) hasAssignedSeat(db *sql.DB, userID int64) (bool, 
 			return hasAssignment, nil
 		}
 		// User not in cache, need to fetch
-	} else {
-		sc.mu.RUnlock()
 	}
+	sc.mu.RUnlock()
 
 	// Fetch from DB
 	sc.mu.Lock()

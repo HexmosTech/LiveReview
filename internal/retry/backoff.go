@@ -2,8 +2,9 @@ package retry
 
 import (
 	"context"
+	crand "crypto/rand"
+	"encoding/binary"
 	"math"
-	"math/rand"
 	"strings"
 	"time"
 
@@ -170,7 +171,8 @@ func calculateDelay(config RetryConfig, attempt int) time.Duration {
 	if config.Jitter {
 		// Add up to 10% random jitter
 		jitterRange := delay * 0.1
-		jitter := (rand.Float64() - 0.5) * 2 * jitterRange // Random value between -jitterRange and +jitterRange
+		randomUnit := secureRandomUnitFloat64()
+		jitter := (randomUnit - 0.5) * 2 * jitterRange // Random value between -jitterRange and +jitterRange
 		delay += jitter
 
 		// Ensure delay is not negative
@@ -180,6 +182,15 @@ func calculateDelay(config RetryConfig, attempt int) time.Duration {
 	}
 
 	return time.Duration(delay)
+}
+
+func secureRandomUnitFloat64() float64 {
+	var b [8]byte
+	if _, err := crand.Read(b[:]); err != nil {
+		panic("secure random jitter generation failed: " + err.Error())
+	}
+	const maxUint64Float = float64(^uint64(0))
+	return float64(binary.BigEndian.Uint64(b[:])) / maxUint64Float
 }
 
 // IsRetryableError determines if an error is retryable

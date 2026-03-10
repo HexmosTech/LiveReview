@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"os"
 	"strings"
 	"time"
 
@@ -39,8 +40,10 @@ func main() {
 	// Replicate LiveReview's exact setup
 	baseURL := "http://139.59.48.31/ollama/api" // What LiveReview logs show
 	model := "mistral:7b"
-	// Test API key for internal Ollama server - hardcoded for testing only
-	apiKey := "[REDACTED_GITLEAKS_17]"
+	apiKey := strings.TrimSpace(os.Getenv("LIVEREVIEW_DEBUG_OLLAMA_API_KEY"))
+	if apiKey == "" {
+		panic("LIVEREVIEW_DEBUG_OLLAMA_API_KEY is required")
+	}
 
 	// Clean up base URL - remove trailing /api/ if present for Ollama (same as LiveReview)
 	cleanURL := strings.TrimSuffix(baseURL, "/api/")

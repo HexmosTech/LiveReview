@@ -2,13 +2,12 @@ package api
 
 import (
 	"context"
+	"crypto/rand"
 	"encoding/json"
 	"fmt"
 	"hash/fnv"
 	"log"
-	"math/rand"
 	"strings"
-	"time"
 
 	"github.com/lib/pq"
 
@@ -138,7 +137,10 @@ func (lp *LearningProcessorV2Impl) ApplyLearning(learning *LearningMetadataV2) e
 	log.Printf("[INFO] Storing learning in database: %s (OrgID=%d)", learning.Type, learning.OrgID)
 
 	// Generate a short ID for the learning
-	shortID := lp.generateShortID()
+	shortID, err := lp.generateShortID()
+	if err != nil {
+		return fmt.Errorf("failed to generate learning short ID: %w", err)
+	}
 
 	// Determine scope - default to org
 	scopeKind := "org"
@@ -208,7 +210,7 @@ func (lp *LearningProcessorV2Impl) ApplyLearning(learning *LearningMetadataV2) e
 		RETURNING id`
 
 	var learningID string
-	err := lp.server.db.QueryRow(
+	err = lp.server.db.QueryRow(
 		query,
 		shortID,                  // $1
 		learning.OrgID,           // $2
@@ -240,15 +242,18 @@ func (lp *LearningProcessorV2Impl) ApplyLearning(learning *LearningMetadataV2) e
 }
 
 // generateShortID generates a short ID for learnings
-func (lp *LearningProcessorV2Impl) generateShortID() string {
+func (lp *LearningProcessorV2Impl) generateShortID() (string, error) {
 	// Generate a random 6-character ID
 	const charset = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
-	seededRand := rand.New(rand.NewSource(time.Now().UnixNano()))
 	id := make([]byte, 6)
-	for i := range id {
-		id[i] = charset[seededRand.Intn(len(charset))]
+	randomBytes := make([]byte, len(id))
+	if _, err := rand.Read(randomBytes); err != nil {
+		return "", err
 	}
-	return string(id)
+	for i, b := range randomBytes {
+		id[i] = charset[int(b)%len(charset)]
+	}
+	return string(id), nil
 }
 
 // calculateSimpleHash calculates a simple hash for content deduplication

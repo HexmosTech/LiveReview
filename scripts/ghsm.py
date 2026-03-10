@@ -36,6 +36,8 @@ TRACKED_FILES: tuple[TrackedFile, ...] = (
 	TrackedFile(rel_path=".env", variable_name="GHSM_FILE_ENV"),
 	TrackedFile(rel_path=".env.prod", variable_name="GHSM_FILE_ENV_PROD"),
 	TrackedFile(rel_path="ui/.env.prod", variable_name="GHSM_FILE_UI_ENV_PROD"),
+	TrackedFile(rel_path="debug/.env", variable_name="GHSM_FILE_DEBUG_ENV"),
+	TrackedFile(rel_path="scripts/.env", variable_name="GHSM_FILE_SCRIPTS_ENV"),
 )
 
 

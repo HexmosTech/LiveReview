@@ -23,8 +23,10 @@ func main() {
 	// Your Ollama server configuration
 	baseURL := "http://139.59.48.31/ollama"
 	model := "mistral:7b"
-	// Test API key for internal Ollama server - hardcoded for testing only
-	apiKey := "[REDACTED_GITLEAKS_17]"
+	apiKey := os.Getenv("LIVEREVIEW_DEBUG_OLLAMA_API_KEY")
+	if apiKey == "" {
+		log.Fatal("LIVEREVIEW_DEBUG_OLLAMA_API_KEY is required")
+	}
 
 	fmt.Printf("=== Ollama Test Case: %s ===\n", testType)
 	fmt.Printf("Server: %s\n", baseURL)
