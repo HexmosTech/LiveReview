@@ -8,14 +8,15 @@ This script deletes all visible comments in a specified Bitbucket pull request.
 import requests
 import json
 import sys
+import os
 from urllib.parse import urlparse
 
 # Configuration - hardcoded values as requested
 # For Bitbucket account API tokens, Basic Auth requires email (preferred) or username + token
-EMAIL = "contortedexpression@gmail.com"  # e.g. "you@example.com". If empty, USERNAME will be used
-USERNAME = "contorted"  # Fallback if EMAIL is empty
-API_TOKEN = "REDACTED_BITBUCKET_TOKEN_2"
-PULL_REQUEST_URL = "https://bitbucket.org/contorted/fb_backends/pull-requests/1"
+EMAIL = os.environ.get("LIVEREVIEW_BITBUCKET_EMAIL", "")
+USERNAME = os.environ.get("LIVEREVIEW_BITBUCKET_USERNAME", "")
+API_TOKEN = os.environ.get("LIVEREVIEW_BITBUCKET_API_TOKEN", "")
+PULL_REQUEST_URL = os.environ.get("LIVEREVIEW_BITBUCKET_PR_URL", "")
 
 # Bitbucket API base URL
 BITBUCKET_API_BASE = "https://api.bitbucket.org/2.0"
@@ -130,6 +131,10 @@ def main():
     """
     Main function to delete all comments in the specified pull request.
     """
+    if not API_TOKEN or not PULL_REQUEST_URL or (not EMAIL and not USERNAME):
+        print("Set LIVEREVIEW_BITBUCKET_API_TOKEN, LIVEREVIEW_BITBUCKET_PR_URL, and LIVEREVIEW_BITBUCKET_EMAIL or LIVEREVIEW_BITBUCKET_USERNAME.")
+        return
+
     print("Bitbucket Pull Request Comment Deletion Script")
     print("=" * 50)
     

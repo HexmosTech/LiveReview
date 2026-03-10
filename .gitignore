@@ -65,3 +65,5 @@ livereview.toml
 .secrets.local
 
 chats/
+
+security_issues/

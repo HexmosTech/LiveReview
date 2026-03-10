@@ -557,11 +557,28 @@ export async function activate(context: vscode.ExtensionContext) {
 
 	const findRepoForFsPath = (fsPath: string): Repository | undefined => {
 		const repos = currentApi?.repositories ?? [];
-		const normalized = path.resolve(fsPath);
+		const normalized = normalizePathForComparison(fsPath);
 		return repos.find(repo => {
-			const root = path.resolve(repo.rootUri.fsPath);
-			return normalized === root || normalized.startsWith(root + path.sep);
+			const root = normalizePathForComparison(repo.rootUri.fsPath);
+			return isPathWithinRoot(normalized, root);
 		});
+	};
+
+	const normalizePathForComparison = (inputPath: string): string => {
+		const resolved = path.resolve(inputPath);
+		try {
+			return fs.realpathSync.native(resolved);
+		} catch {
+			return resolved;
+		}
+	};
+
+	const isPathWithinRoot = (candidate: string, root: string): boolean => {
+		if (candidate === root) {
+			return true;
+		}
+		const rel = path.relative(root, candidate);
+		return rel !== '' && !rel.startsWith('..') && !path.isAbsolute(rel);
 	};
 
 	const resolveRepoFromArgs = (args: unknown[]): Repository | undefined => {

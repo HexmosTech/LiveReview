@@ -35,6 +35,11 @@ type diffReviewResult struct {
 	Comments []*models.ReviewComment `json:"comments"`
 }
 
+const (
+	maxExtractedFileBytes  = 25 << 20  // 25 MiB per extracted file
+	maxExtractedTotalBytes = 200 << 20 // 200 MiB across all extracted files
+)
+
 // DiffReview accepts a base64-encoded ZIP containing a unified diff and triggers a review.
 func (s *Server) DiffReview(c echo.Context) error {
 	// API key authentication is handled by middleware
@@ -360,9 +365,16 @@ func extractZip(zipPath, dest string) ([]string, error) {
 	defer zr.Close()
 
 	var extracted []string
+	var totalExtracted int64
 	for _, f := range zr.File {
 		if f.FileInfo().IsDir() {
 			continue
+		}
+		if int64(f.UncompressedSize64) > maxExtractedFileBytes {
+			return extracted, fmt.Errorf("zip entry too large: %s", f.Name)
+		}
+		if totalExtracted+int64(f.UncompressedSize64) > maxExtractedTotalBytes {
+			return extracted, fmt.Errorf("zip exceeds maximum extracted size")
 		}
 		cleaned := filepath.Clean(f.Name)
 		targetPath := filepath.Join(dest, cleaned)
@@ -382,10 +394,23 @@ func extractZip(zipPath, dest string) ([]string, error) {
 			_ = rc.Close()
 			return extracted, err
 		}
-		if _, err := io.Copy(out, rc); err != nil {
+		limitReader := io.LimitReader(rc, maxExtractedFileBytes+1)
+		written, err := io.Copy(out, limitReader)
+		if err != nil {
 			out.Close()
 			_ = rc.Close()
 			return extracted, err
+		}
+		if written > maxExtractedFileBytes {
+			out.Close()
+			_ = rc.Close()
+			return extracted, fmt.Errorf("zip entry exceeds per-file limit: %s", f.Name)
+		}
+		totalExtracted += written
+		if totalExtracted > maxExtractedTotalBytes {
+			out.Close()
+			_ = rc.Close()
+			return extracted, fmt.Errorf("zip exceeds maximum extracted size")
 		}
 		out.Close()
 		_ = rc.Close()

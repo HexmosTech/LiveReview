@@ -4,11 +4,13 @@ import (
 	"embed"
 	"fmt"
 	"io/fs"
+	"net"
 	"net/http"
 	"os"
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/urfave/cli/v2"
 )
@@ -121,10 +123,16 @@ func UICommand(uiAssets embed.FS) *cli.Command {
 
 				// If file doesn't exist or root path, serve modified index.html for SPA routing
 				w.Header().Set("Content-Type", "text/html")
-				w.Write([]byte(cachedIndexHTML))
+				http.ServeContent(w, r, "index.html", time.Now(), strings.NewReader(cachedIndexHTML))
 			})
 
-			return http.ListenAndServe(fmt.Sprintf(":%d", port), nil)
+			listener, err := net.Listen("tcp", fmt.Sprintf(":%d", port))
+			if err != nil {
+				return err
+			}
+
+			server := &http.Server{Handler: nil}
+			return server.Serve(listener)
 		},
 	}
 }

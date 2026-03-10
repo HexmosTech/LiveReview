@@ -4,15 +4,23 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"os"
 	"strings"
 	"time"
 )
 
 func main() {
 	// Test the raw HTTP request to see what Ollama is actually returning
-	baseURL := "http://139.59.48.31/ollama/api/chat"
-	// Test API key for internal Ollama server - hardcoded for testing only
-	apiKey := "[REDACTED_GITLEAKS_17]"
+	baseURL := strings.TrimSpace(os.Getenv("LIVEREVIEW_DEBUG_OLLAMA_CHAT_URL"))
+	if baseURL == "" {
+		fmt.Println("LIVEREVIEW_DEBUG_OLLAMA_CHAT_URL is required")
+		return
+	}
+	apiKey := strings.TrimSpace(os.Getenv("LIVEREVIEW_DEBUG_OLLAMA_API_KEY"))
+	if apiKey == "" {
+		fmt.Println("LIVEREVIEW_DEBUG_OLLAMA_API_KEY is required")
+		return
+	}
 
 	// Create the request body (same as curl)
 	requestBody := `{

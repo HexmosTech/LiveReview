@@ -755,7 +755,9 @@ def test_reviewer_change_processing():
 
 def run_server():
     # Run the Flask dev server. In production, put this behind a real web server.
-    app.run(host="0.0.0.0", port=8888, debug=False)
+    host = os.environ.get("LIVEREVIEWBOT_HOST", "127.0.0.1")
+    port = int(os.environ.get("LIVEREVIEWBOT_PORT", "8888"))
+    app.run(host=host, port=port, debug=False)
 
 # ---------------------------------------------------------------------
 # Entrypoint
