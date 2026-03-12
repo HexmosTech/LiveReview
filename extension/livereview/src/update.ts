@@ -8,21 +8,16 @@ import { exec, execFile } from 'child_process';
 const execFileAsync = util.promisify(execFile);
 const execAsync = util.promisify(exec);
 
-// Backblaze B2 constants (read-only credentials)
-const B2_KEY_ID = 'REDACTED_B2_KEY_ID';
-const B2_APP_KEY = 'REDACTED_B2_APP_KEY';
-const B2_BUCKET_ID = '33d6ab74ac456875919a0f1d';
-const B2_PREFIX = 'lrc';
-const B2_AUTH_URL = 'https://api.backblazeb2.com/b2api/v2/b2_authorize_account';
+const LRC_RELEASE_MANIFEST_URL = 'https://f005.backblazeb2.com/file/hexmos/lrc/latest.json';
 
 const VERSION_CACHE_TTL_MS = 5 * 60 * 1000;
 
-interface B2CacheEntry {
+interface ManifestCacheEntry {
 	latestVersion: string;
 	expiresAt: number;
 }
 
-let b2Cache: B2CacheEntry | undefined;
+let manifestCache: ManifestCacheEntry | undefined;
 
 export type LrcUpdateState = 'checking' | 'upToDate' | 'updateAvailable' | 'updating' | 'updated' | 'needsMigration' | 'failed';
 
@@ -78,67 +73,27 @@ const httpRequest = (options: https.RequestOptions, body?: string): Promise<stri
 	});
 };
 
-const fetchLatestLrcVersionFromB2 = async (forceRefresh = false): Promise<string | undefined> => {
+const fetchLatestLrcVersionFromManifest = async (forceRefresh = false): Promise<string | undefined> => {
 	const now = Date.now();
-	if (!forceRefresh && b2Cache && b2Cache.expiresAt > now) {
-		return b2Cache.latestVersion;
+	if (!forceRefresh && manifestCache && manifestCache.expiresAt > now) {
+		return manifestCache.latestVersion;
 	}
 
-	const authUrl = new URL(B2_AUTH_URL);
-	const authOptions: https.RequestOptions = {
+	const manifestUrl = new URL(LRC_RELEASE_MANIFEST_URL);
+	const manifestRequest: https.RequestOptions = {
 		method: 'GET',
-		headers: {
-			Authorization: `Basic ${Buffer.from(`${B2_KEY_ID}:${B2_APP_KEY}`).toString('base64')}`
-		},
-		hostname: authUrl.hostname,
-		path: `${authUrl.pathname}${authUrl.search}`
+		hostname: manifestUrl.hostname,
+		path: `${manifestUrl.pathname}${manifestUrl.search}`
 	};
 
-	const authResponseRaw = await httpRequest(authOptions);
-	const authResponse = JSON.parse(authResponseRaw) as { authorizationToken?: string; apiUrl?: string };
-	const authToken = authResponse.authorizationToken;
-	const apiUrl = authResponse.apiUrl;
-	if (!authToken || !apiUrl) {
+	const manifestRaw = await httpRequest(manifestRequest);
+	const manifest = JSON.parse(manifestRaw) as { latest_version?: string };
+	const latest = semverFromString(manifest.latest_version ?? '');
+	if (!latest) {
 		return undefined;
 	}
 
-	const listBody = JSON.stringify({
-		bucketId: B2_BUCKET_ID,
-		startFileName: `${B2_PREFIX}/`,
-		prefix: `${B2_PREFIX}/`,
-		maxFileCount: 1000
-	});
-
-	const listUrl = new URL('/b2api/v2/b2_list_file_names', apiUrl);
-	const listOptions: https.RequestOptions = {
-		method: 'POST',
-		headers: {
-			Authorization: authToken,
-			'Content-Type': 'application/json',
-			'Content-Length': Buffer.byteLength(listBody)
-		},
-		hostname: listUrl.hostname,
-		path: `${listUrl.pathname}${listUrl.search}`
-	};
-
-	const listResponseRaw = await httpRequest(listOptions, listBody);
-	const listResponse = JSON.parse(listResponseRaw) as { files?: Array<{ fileName?: string }> };
-	const versions = (listResponse.files ?? [])
-		.map(f => f.fileName ?? '')
-		.map(name => {
-			const match = name.match(/^lrc\/(v\d+\.\d+\.\d+)\//);
-			return match ? match[1] : undefined;
-		})
-		.filter((v): v is string => Boolean(v));
-
-	const latest = versions.reduce<string | undefined>((best, cur) => {
-		if (!best) { return cur; }
-		return semverCompare(cur, best) > 0 ? cur : best;
-	}, undefined);
-
-	if (latest) {
-		b2Cache = { latestVersion: latest, expiresAt: now + VERSION_CACHE_TTL_MS };
-	}
+	manifestCache = { latestVersion: latest, expiresAt: now + VERSION_CACHE_TTL_MS };
 	return latest;
 };
 
@@ -269,7 +224,7 @@ export const ensureLatestLrc = async (
 	emit({ state: 'checking', message: 'Checking lrc version and update path.' });
 
 	const localVersion = await getLocalLrcVersion(resolveLrcPath);
-	const remoteVersion = await fetchLatestLrcVersionFromB2(opts?.forceRemoteRefresh ?? false);
+	const remoteVersion = await fetchLatestLrcVersionFromManifest(opts?.forceRemoteRefresh ?? false);
 	const updateNeeded = !localVersion || (remoteVersion ? semverCompare(localVersion, remoteVersion) < 0 : false);
 	const legacyMigrationRequired = await hasLegacyBinaries();
 	const currentLabel = localVersion ?? 'not installed';
@@ -332,8 +287,8 @@ export const ensureLatestLrc = async (
 		const status: LrcUpdateStatus = {
 			state: localVersion ? 'upToDate' : 'failed',
 			message: localVersion
-				? `Could not determine latest lrc version from B2; keeping current version (${localVersion}).`
-				: 'Could not determine latest lrc version from B2 and lrc is not installed.',
+				? `Could not determine latest lrc version from release manifest; keeping current version (${localVersion}).`
+				: 'Could not determine latest lrc version from release manifest and lrc is not installed.',
 			localVersion
 		};
 		emit(status);

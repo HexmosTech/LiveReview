@@ -4,11 +4,8 @@
 
 $ErrorActionPreference = "Stop"
 
-# B2 read-only credentials (hardcoded)
-$B2_KEY_ID = "REDACTED_B2_KEY_ID"
-$B2_APP_KEY = "REDACTED_B2_APP_KEY"
-$B2_BUCKET_NAME = "hexmos"
-$B2_PREFIX = "lrc"
+# Public release manifest URL
+$MANIFEST_URL = "https://f005.backblazeb2.com/file/hexmos/lrc/latest.json"
 
 Write-Host "🚀 lrc Installer" -ForegroundColor Cyan
 Write-Host "================" -ForegroundColor Cyan
@@ -33,78 +30,35 @@ $isAdmin = ([Security.Principal.WindowsPrincipal] [Security.Principal.WindowsIde
 $programFilesTarget = "$env:ProgramFiles\lrc"
 $userLocalTarget = "$env:LOCALAPPDATA\Programs\lrc"
 
-# Authorize with B2
-Write-Host -NoNewline "Authorizing with Backblaze B2... "
-$authString = "${B2_KEY_ID}:${B2_APP_KEY}"
-$authBytes = [System.Text.Encoding]::UTF8.GetBytes($authString)
-$authBase64 = [System.Convert]::ToBase64String($authBytes)
-
+# Fetch latest version from public manifest
+Write-Host -NoNewline "Fetching latest version from release manifest... "
 try {
-    $authResponse = Invoke-RestMethod -Uri "https://api.backblazeb2.com/b2api/v2/b2_authorize_account" `
-        -Method Get `
-        -Headers @{ "Authorization" = "Basic $authBase64" }
-    Write-Host "✓" -ForegroundColor Green
+    $manifest = Invoke-RestMethod -Uri $MANIFEST_URL -Method Get -UseBasicParsing
 } catch {
     Write-Host "✗" -ForegroundColor Red
-    Write-Host "Error: Failed to authorize with B2" -ForegroundColor Red
+    Write-Host "Error: Failed to fetch release manifest" -ForegroundColor Red
     Write-Host $_.Exception.Message -ForegroundColor Red
     exit 1
 }
 
-$AUTH_TOKEN = $authResponse.authorizationToken
-$API_URL = $authResponse.apiUrl
-$DOWNLOAD_URL = $authResponse.downloadUrl
-
-# List files in the lrc/ folder to find versions
-Write-Host -NoNewline "Finding latest version... "
-try {
-    $listBody = @{
-        bucketId = "33d6ab74ac456875919a0f1d"
-        startFileName = "$B2_PREFIX/"
-        prefix = "$B2_PREFIX/"
-        maxFileCount = 10000
-    } | ConvertTo-Json
-
-    $listResponse = Invoke-RestMethod -Uri "$API_URL/b2api/v2/b2_list_file_names" `
-        -Method Post `
-        -Headers @{ "Authorization" = $AUTH_TOKEN; "Content-Type" = "application/json" } `
-        -Body $listBody
-} catch {
+$LATEST_VERSION = [string]$manifest.latest_version
+$DOWNLOAD_BASE = [string]$manifest.download_base
+if ([string]::IsNullOrWhiteSpace($LATEST_VERSION) -or [string]::IsNullOrWhiteSpace($DOWNLOAD_BASE)) {
     Write-Host "✗" -ForegroundColor Red
-    Write-Host "Error: Failed to list files from B2" -ForegroundColor Red
-    Write-Host $_.Exception.Message -ForegroundColor Red
+    Write-Host "Error: Release manifest missing latest_version or download_base" -ForegroundColor Red
     exit 1
 }
 
-# Extract versions from file names (looking for paths like lrc/vX.Y.Z/)
-$versions = $listResponse.files | 
-    Where-Object { $_.fileName -match "^$B2_PREFIX/v[0-9]+\.[0-9]+\.[0-9]+/" } | 
-    ForEach-Object { 
-        if ($_.fileName -match "^$B2_PREFIX/(v[0-9]+\.[0-9]+\.[0-9]+)/") {
-            $matches[1]
-        }
-    } | 
-    Select-Object -Unique | 
-    Sort-Object -Descending
-
-if ($versions.Count -eq 0) {
-    Write-Host "✗" -ForegroundColor Red
-    Write-Host "Error: No versions found in $B2_BUCKET_NAME/$B2_PREFIX/" -ForegroundColor Red
-    exit 1
-}
-
-$LATEST_VERSION = $versions[0]
 Write-Host "✓ Latest version: $LATEST_VERSION" -ForegroundColor Green
 
 # Construct download URL
 $BINARY_NAME = "lrc.exe"
-$DOWNLOAD_PATH = "$B2_PREFIX/$LATEST_VERSION/$PLATFORM/$BINARY_NAME"
-$FULL_URL = "$DOWNLOAD_URL/file/$B2_BUCKET_NAME/$DOWNLOAD_PATH"
+$FULL_URL = "$DOWNLOAD_BASE/$LATEST_VERSION/$PLATFORM/$BINARY_NAME"
 
 Write-Host -NoNewline "Downloading lrc $LATEST_VERSION for $PLATFORM... "
 $TMP_FILE = [System.IO.Path]::GetTempFileName()
 try {
-    Invoke-WebRequest -Uri $FULL_URL -OutFile $TMP_FILE -UseBasicParsing -Headers @{ "Authorization" = $AUTH_TOKEN }
+    Invoke-WebRequest -Uri $FULL_URL -OutFile $TMP_FILE -UseBasicParsing
     Write-Host "✓" -ForegroundColor Green
 } catch {
     Write-Host "✗" -ForegroundColor Red
