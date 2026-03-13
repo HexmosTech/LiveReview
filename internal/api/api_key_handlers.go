@@ -2,6 +2,7 @@ package api
 
 import (
 	"database/sql"
+	"errors"
 	"net/http"
 	"strconv"
 	"time"
@@ -133,13 +134,37 @@ func APIKeyAuthMiddleware(db *sql.DB) echo.MiddlewareFunc {
 		return func(c echo.Context) error {
 			apiKey := c.Request().Header.Get("X-API-Key")
 			if apiKey == "" {
-				return c.JSON(http.StatusUnauthorized, map[string]string{"error": "API key required"})
+				return c.JSON(http.StatusUnauthorized, map[string]string{
+					"error":      "LiveReview API key required",
+					"error_code": "LIVE_REVIEW_API_KEY_REQUIRED",
+				})
 			}
 
 			manager := NewAPIKeyManager(db)
 			keyRecord, err := manager.ValidateAPIKey(apiKey)
 			if err != nil {
-				return c.JSON(http.StatusUnauthorized, map[string]string{"error": "invalid or expired API key"})
+				switch {
+				case errors.Is(err, ErrLiveReviewAPIKeyInvalid):
+					return c.JSON(http.StatusUnauthorized, map[string]string{
+						"error":      "LiveReview API key is invalid",
+						"error_code": "LIVE_REVIEW_API_KEY_INVALID",
+					})
+				case errors.Is(err, ErrLiveReviewAPIKeyRevoked):
+					return c.JSON(http.StatusUnauthorized, map[string]string{
+						"error":      "LiveReview API key is revoked",
+						"error_code": "LIVE_REVIEW_API_KEY_REVOKED",
+					})
+				case errors.Is(err, ErrLiveReviewAPIKeyExpired):
+					return c.JSON(http.StatusUnauthorized, map[string]string{
+						"error":      "LiveReview API key is expired",
+						"error_code": "LIVE_REVIEW_API_KEY_EXPIRED",
+					})
+				default:
+					return c.JSON(http.StatusUnauthorized, map[string]string{
+						"error":      "LiveReview API key validation failed",
+						"error_code": "LIVE_REVIEW_API_KEY_VALIDATION_FAILED",
+					})
+				}
 			}
 
 			// Update last used timestamp (async to not slow down request)
