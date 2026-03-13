@@ -1,0 +1,56 @@
+name: gitleaks
+
+on:
+  workflow_dispatch: {}
+  pull_request: {}
+  push:
+    branches:
+      - main
+      - master
+    paths:
+      - "**/*"
+      - .github/workflows/gitleaks.yml
+
+jobs:
+  gitleaks:
+    if: ${{ vars.ENABLE_SECURITY_WORKFLOWS == 'true' }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Resolve latest gitleaks version
+        id: gitleaks-version
+        run: |
+          set -euo pipefail
+          RELEASE_JSON="$(curl -fsSL https://api.github.com/repos/gitleaks/gitleaks/releases/latest)"
+          VERSION="$(printf '%s' "$RELEASE_JSON" | grep -m1 '"tag_name":' | sed -E 's/.*"v([^"]+)".*/\1/')"
+          if [ -z "$VERSION" ]; then
+            echo "Failed to resolve latest gitleaks version"
+            exit 1
+          fi
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+      - name: Cache gitleaks binary
+        id: cache-gitleaks
+        uses: actions/cache@v4
+        with:
+          path: .github-tools/bin/gitleaks
+          key: gitleaks-${{ runner.os }}-${{ steps.gitleaks-version.outputs.version }}
+      - name: Install gitleaks CLI
+        if: steps.cache-gitleaks.outputs.cache-hit != 'true'
+        run: |
+          set -euo pipefail
+          VERSION='${{ steps.gitleaks-version.outputs.version }}'
+          DOWNLOAD_URL="https://github.com/gitleaks/gitleaks/releases/download/v${VERSION}/gitleaks_${VERSION}_linux_x64.tar.gz"
+          mkdir -p .github-tools/bin
+          curl -fsSL -o .github-tools/gitleaks.tar.gz "$DOWNLOAD_URL"
+          tar -xzf .github-tools/gitleaks.tar.gz -C .github-tools/bin gitleaks
+          chmod +x .github-tools/bin/gitleaks
+      - name: Show gitleaks version
+        run: |
+          set -euo pipefail
+          .github-tools/bin/gitleaks version
+      - name: Run gitleaks
+        run: .github-tools/bin/gitleaks git . --redact --exit-code 1

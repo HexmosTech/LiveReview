@@ -1,0 +1,28 @@
+name: govulncheck
+
+on:
+  workflow_dispatch: {}
+  pull_request: {}
+  push:
+    branches:
+      - main
+      - master
+    paths:
+      - "**/*.go"
+      - go.mod
+      - go.sum
+      - .github/workflows/govulncheck.yml
+
+jobs:
+  govulncheck:
+    if: ${{ vars.ENABLE_SECURITY_WORKFLOWS == 'true' }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - run: go install golang.org/x/vuln/cmd/govulncheck@v1.1.4
+      - run: govulncheck ./...

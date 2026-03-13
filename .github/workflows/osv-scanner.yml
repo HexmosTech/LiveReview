@@ -1,0 +1,33 @@
+name: osv-scanner
+
+on:
+  workflow_dispatch: {}
+  pull_request: {}
+  push:
+    branches:
+      - main
+      - master
+    paths:
+      - go.mod
+      - go.sum
+      - .github/workflows/osv-scanner.yml
+
+jobs:
+  osv-scan:
+    if: ${{ vars.ENABLE_SECURITY_WORKFLOWS == 'true' }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - run: go install github.com/google/osv-scanner/v2/cmd/osv-scanner@latest
+      - run: mkdir -p security_issues
+      - run: osv-scanner --format json . > security_issues/osv-scanner-ci.json
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: osv-scanner-ci-report
+          path: security_issues/osv-scanner-ci.json
