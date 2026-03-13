@@ -7,9 +7,17 @@ import (
 	"encoding/base32"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
+)
+
+var (
+	ErrLiveReviewAPIKeyInvalid          = errors.New("liveReview API key invalid")
+	ErrLiveReviewAPIKeyRevoked          = errors.New("liveReview API key revoked")
+	ErrLiveReviewAPIKeyExpired          = errors.New("liveReview API key expired")
+	ErrLiveReviewAPIKeyValidationFailed = errors.New("liveReview API key validation failed")
 )
 
 // APIKey represents an API key record
@@ -117,7 +125,7 @@ func (m *APIKeyManager) ValidateAPIKey(key string) (*APIKey, error) {
 	query := `
 		SELECT id, user_id, org_id, key_hash, key_prefix, label, scopes, last_used_at, created_at, expires_at, revoked_at
 		FROM api_keys
-		WHERE key_hash = $1 AND revoked_at IS NULL
+		WHERE key_hash = $1
 	`
 
 	var apiKey APIKey
@@ -135,15 +143,19 @@ func (m *APIKeyManager) ValidateAPIKey(key string) (*APIKey, error) {
 		&apiKey.RevokedAt,
 	)
 	if err == sql.ErrNoRows {
-		return nil, fmt.Errorf("invalid API key")
+		return nil, ErrLiveReviewAPIKeyInvalid
 	}
 	if err != nil {
-		return nil, fmt.Errorf("failed to validate API key: %w", err)
+		return nil, fmt.Errorf("%w: %v", ErrLiveReviewAPIKeyValidationFailed, err)
+	}
+
+	if apiKey.RevokedAt != nil {
+		return nil, ErrLiveReviewAPIKeyRevoked
 	}
 
 	// Check if expired
 	if apiKey.ExpiresAt != nil && apiKey.ExpiresAt.Before(time.Now()) {
-		return nil, fmt.Errorf("API key expired")
+		return nil, ErrLiveReviewAPIKeyExpired
 	}
 
 	return &apiKey, nil
