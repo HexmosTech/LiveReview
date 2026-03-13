@@ -7,6 +7,9 @@ GOBUILD=$(GOCMD) build
 GOCLEAN=$(GOCMD) clean
 GOTEST=$(GOCMD) test
 BINARY_NAME=livereview
+REQUIRED_GO_VERSION=$(shell awk '/^go /{print $$2; exit}' go.mod)
+GOVULNCHECK_VERSION=v1.1.4
+GOVULNCHECK_CMD=GOTOOLCHAIN=go$(REQUIRED_GO_VERSION) $(GOCMD) run -a golang.org/x/vuln/cmd/govulncheck@$(GOVULNCHECK_VERSION)
 GH_REPO=HexmosTech/LiveReview
 GH=/usr/bin/gh
 GHSM_SCRIPT=scripts/ghsm.py
@@ -160,9 +163,53 @@ TEST_PACKAGES := $(shell find . \
 	-type f -name '*.go' -print 2>/dev/null | \
 	xargs -n1 dirname | sort -u | tr '\n' ' ')
 
+# Exclude ./scripts because it contains multiple standalone main programs.
+SECURITY_GOVULN_PACKAGES := $(filter-out ./scripts,$(TEST_PACKAGES))
+
 .PHONY: testall
 testall:
 	$(GOTEST) -count=1 $(TEST_PACKAGES)
+
+.PHONY: security-govulncheck security-govulncheck-json security-osv security-gitleaks security-triage
+
+# Run Go vulnerability analysis for reachable vulnerabilities.
+security-govulncheck:
+	@echo "Running govulncheck $(GOVULNCHECK_VERSION) with Go $(REQUIRED_GO_VERSION)..."
+	@$(GOVULNCHECK_CMD) $(SECURITY_GOVULN_PACKAGES)
+
+# Emit govulncheck report as JSON artifact under security_issues/.
+security-govulncheck-json:
+	mkdir -p security_issues
+	$(GOVULNCHECK_CMD) -json $(SECURITY_GOVULN_PACKAGES) > security_issues/govulncheck-$(shell date +%d-%m-%Y).json
+
+# Run OSV scanner against this repository.
+security-osv:
+	@command -v osv-scanner >/dev/null 2>&1 || { \
+		echo "osv-scanner not found. Install from https://github.com/google/osv-scanner"; \
+		exit 1; \
+	}
+	@mkdir -p security_issues
+	@osv-scanner --format json . > security_issues/osv-scanner-latest.json
+	@echo "Wrote security_issues/osv-scanner-latest.json"
+
+# Run gitleaks and emit a dated CSV artifact under security_issues/.
+security-gitleaks:
+	@command -v gitleaks >/dev/null 2>&1 || { \
+		echo "gitleaks not found. Install from https://github.com/gitleaks/gitleaks"; \
+		exit 1; \
+	}
+	@mkdir -p security_issues
+	@gitleaks git . -f csv -r security_issues/gitleaks-$(shell date +%d-%m-%Y).csv
+	@echo "Wrote security_issues/gitleaks-$(shell date +%d-%m-%Y).csv"
+
+# Regenerate machine-readable and markdown triage artifacts from the latest OSV report.
+security-triage: security-osv
+	@python3 scripts/extract_osv_report.py \
+		--input security_issues/osv-scanner-latest.json \
+		--csv security_issues/osv-triage-latest.csv \
+		--md security_issues/osv-triage-latest.md
+	@echo "Wrote security_issues/osv-triage-latest.csv"
+	@echo "Wrote security_issues/osv-triage-latest.md"
 
 .PHONY: license-test
 license-test:
