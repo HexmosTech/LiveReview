@@ -18,7 +18,16 @@ from gitea_login import (
 )
 
 
-# --- Hardcoded context from gitea_webhooks.txt ---
+def _require_env(name: str) -> str:
+	value = os.environ.get(name, "").strip()
+	if not value:
+		raise RuntimeError(
+			f"{name} is required. Set it in scripts/.env or export it in your shell."
+		)
+	return value
+
+
+# Runtime context defaults (can be overridden from env after load_env()).
 BASE_URL = "https://gitea.hexmos.site"
 OWNER = "megaorg"
 REPO = "livereview"
@@ -103,9 +112,21 @@ def fetch_thread(pat: str) -> Tuple[Optional[int], Optional[int], Dict[str, str]
 def post_reply() -> Tuple[int, Dict[str, str]]:
 	"""Login via form auth and POST inline comment using multipart form."""
 	load_env()
+	base_url = os.environ.get("GITEA_BASE_URL", "https://gitea.hexmos.site").rstrip("/")
+	owner = os.environ.get("GITEA_OWNER", "megaorg")
+	repo = os.environ.get("GITEA_REPO", "livereview")
+	pr_number = int(os.environ.get("GITEA_PR", "17"))
+	comment_path = os.environ.get("GITEA_FILE", "cmd/config.go")
 
-	username = os.environ.get("GITEA_USER", "livereview")
-	password = os.environ.get("GITEA_PASS", "gitea@12345")
+	username = _require_env("GITEA_USER")
+	password = _require_env("GITEA_PASS")
+
+	global BASE_URL, OWNER, REPO, PR_NUMBER, COMMENT_PATH
+	BASE_URL = base_url
+	OWNER = owner
+	REPO = repo
+	PR_NUMBER = pr_number
+	COMMENT_PATH = comment_path
 
 	# Create PAT to fetch review thread metadata
 	pat_status, pat, pat_meta = create_pat(username, password)
@@ -122,15 +143,15 @@ def post_reply() -> Tuple[int, Dict[str, str]]:
 		return 400, {"mode": "no-position", "error": "Cannot post inline comment without line position", **thread_meta}
 
 	# Use multipart form (the only working approach)
-	ctx = create_session(BASE_URL, username, password)
-	comment_url = f"{BASE_URL}/{OWNER}/{REPO}/pulls/{PR_NUMBER}/files/reviews/comments"
+	ctx = create_session(base_url, username, password)
+	comment_url = f"{base_url}/{owner}/{repo}/pulls/{pr_number}/files/reviews/comments"
 	form_fields = {
 		"_csrf": ctx.csrf,
 		"origin": "timeline",
 		"latest_commit_id": "",
 		"side": "proposed",
 		"line": str(line),
-		"path": COMMENT_PATH,
+		"path": comment_path,
 		"diff_start_cid": "",
 		"diff_end_cid": "",
 		"diff_base_cid": "",

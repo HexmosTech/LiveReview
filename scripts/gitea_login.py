@@ -23,8 +23,8 @@ import requests
 
 # ---------- Defaults (overridable via env) ----------
 BASE_URL = os.environ.get("GITEA_BASE_URL", "https://gitea.hexmos.site").rstrip("/")
-USERNAME = os.environ.get("GITEA_USER", "livereview")
-PASSWORD = os.environ.get("GITEA_PASS", "gitea@12345")
+USERNAME = os.environ.get("GITEA_USER", "")
+PASSWORD = os.environ.get("GITEA_PASS", "")
 PR_OWNER = os.environ.get("GITEA_OWNER", "megaorg")
 PR_REPO = os.environ.get("GITEA_REPO", "livereview")
 PR_NUMBER = int(os.environ.get("GITEA_PR", "17"))
@@ -53,9 +53,13 @@ class SessionContext:
 
 
 def load_env() -> None:
-	"""Load .env.prod then .env without clobbering existing vars."""
+	"""Load scripts/.env, then root .env.prod/.env without clobbering existing vars."""
 	script_dir = Path(__file__).resolve().parent
-	for candidate in (script_dir / "../.env.prod", script_dir / "../.env"):
+	for candidate in (
+		script_dir / ".env",
+		script_dir / "../.env.prod",
+		script_dir / "../.env",
+	):
 		if not candidate.exists():
 			continue
 		for raw in candidate.read_text().splitlines():
@@ -66,6 +70,15 @@ def load_env() -> None:
 			k = k.strip()
 			v = v.strip().strip('"').strip("'")
 			os.environ.setdefault(k, v)
+
+
+def _require_env(name: str) -> str:
+	value = os.environ.get(name, "").strip()
+	if not value:
+		raise RuntimeError(
+			f"{name} is required. Set it in scripts/.env or export it in your shell."
+		)
+	return value
 
 
 # ---------- Helpers ----------
@@ -284,7 +297,10 @@ def _get_with_relogin(ctx: SessionContext, url: str) -> requests.Response:
 
 def main() -> None:
 	load_env()
-	ctx = create_session(BASE_URL, USERNAME, PASSWORD)
+	base_url = os.environ.get("GITEA_BASE_URL", BASE_URL).rstrip("/")
+	username = _require_env("GITEA_USER")
+	password = _require_env("GITEA_PASS")
+	ctx = create_session(base_url, username, password)
 	status, meta = post_inline_comment(
 		ctx,
 		owner=PR_OWNER,

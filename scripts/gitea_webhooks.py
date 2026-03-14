@@ -44,6 +44,7 @@ Notes:
 import requests
 from datetime import datetime
 from pathlib import Path
+import os
 
 # Snapshot responses for quick reference during Go porting.
 sample_user_resp = {
@@ -87,10 +88,40 @@ sample_hook_create_resp = {
 
 sample_hook_list_resp = [sample_hook_create_resp]
 
-base_url = "https://gitea.hexmos.site"
-uname = "livereview"
-pwd = "gitea@12345"
-access_token = "[REDACTED_GITLEAKS_1]"
+def _load_env_candidates() -> None:
+    script_dir = Path(__file__).resolve().parent
+    for candidate in (
+        script_dir / ".env",
+        script_dir.parent / ".env.prod",
+        script_dir.parent / ".env",
+    ):
+        if not candidate.exists():
+            continue
+        for raw in candidate.read_text(encoding="utf-8").splitlines():
+            line = raw.strip()
+            if not line or line.startswith("#") or "=" not in line:
+                continue
+            key, value = line.split("=", 1)
+            key = key.strip()
+            value = value.strip().strip('"').strip("'")
+            if key and key not in os.environ:
+                os.environ[key] = value
+
+
+def _require_env(key: str) -> str:
+    value = os.environ.get(key, "").strip()
+    if not value:
+        raise RuntimeError(
+            f"Missing required environment variable {key}. "
+            "Load it from scripts/.env or export it in your shell."
+        )
+    return value
+
+
+_load_env_candidates()
+
+base_url = os.environ.get("GITEA_BASE_URL", "https://gitea.hexmos.site").rstrip("/")
+access_token = _require_env("GITEA_ACCESS_TOKEN")
 
 log_path = Path(__file__).with_suffix(".log")
 
