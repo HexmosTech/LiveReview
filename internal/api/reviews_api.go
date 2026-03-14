@@ -84,16 +84,15 @@ func (s *Server) findIntegrationToken(baseURL string) (*IntegrationToken, error)
 	sqlQuery := `
 		SELECT id, provider, access_token, refresh_token, expires_at, provider_app_id, client_secret, provider_url, token_type, pat_token, COALESCE(metadata, '{}')
 		FROM integration_tokens
-		WHERE provider_url LIKE $1
+		WHERE provider_url LIKE '%' || $1 || '%'
 		ORDER BY created_at DESC
 		LIMIT 1
 	`
-	queryPattern := "%" + baseURL + "%"
-	log.Printf("[DEBUG] findIntegrationToken: Query pattern: %s", queryPattern)
+	log.Printf("[DEBUG] findIntegrationToken: Query base URL: %s", baseURL)
 
 	token := &IntegrationToken{}
 	var metadataJSON string
-	err := s.db.QueryRow(sqlQuery, queryPattern).Scan(
+	err := s.db.QueryRow(sqlQuery, baseURL).Scan(
 		&token.ID, &token.Provider, &token.AccessToken, &token.RefreshToken,
 		&token.ExpiresAt, &token.ClientID, &token.ClientSecret, &token.ProviderURL,
 		&token.TokenType, &token.PatToken, &metadataJSON,

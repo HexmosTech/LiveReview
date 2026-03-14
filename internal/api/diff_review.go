@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -394,9 +395,8 @@ func extractZip(zipPath, dest string) ([]string, error) {
 			_ = rc.Close()
 			return extracted, err
 		}
-		limitReader := io.LimitReader(rc, maxExtractedFileBytes+1)
-		written, err := io.Copy(out, limitReader)
-		if err != nil {
+		written, err := io.CopyN(out, rc, maxExtractedFileBytes+1)
+		if err != nil && !errors.Is(err, io.EOF) && !errors.Is(err, io.ErrUnexpectedEOF) {
 			out.Close()
 			_ = rc.Close()
 			return extracted, err

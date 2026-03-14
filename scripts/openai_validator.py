@@ -13,11 +13,10 @@ import argparse
 import getpass
 import json
 import os
+import requests
 import socket
 import sys
 import traceback
-import urllib.error
-import urllib.request
 from dataclasses import dataclass
 from typing import Any, Optional
 
@@ -149,47 +148,47 @@ def validate_openai_key(api_key: str, model: str, base_url: str, timeout: float)
 		"input": "Say hello world exactly.",
 		"max_output_tokens": 20,
 	}
-	payload = json.dumps(body).encode("utf-8")
-
-	request = urllib.request.Request(
-		url=url,
-		data=payload,
-		method="POST",
-		headers={
-			"Authorization": f"Bearer {api_key}",
-			"Content-Type": "application/json",
-		},
-	)
 
 	try:
-		with urllib.request.urlopen(request, timeout=timeout) as response:
-			raw = response.read().decode("utf-8", errors="replace")
-			parsed: dict[str, Any]
-			try:
-				parsed = json.loads(raw)
-			except json.JSONDecodeError:
-				parsed = {"raw": raw}
+		response = requests.post(
+			url,
+			json=body,
+			headers={
+				"Authorization": f"Bearer {api_key}",
+				"Content-Type": "application/json",
+			},
+			timeout=timeout,
+		)
+		response.raise_for_status()
 
-			text = _extract_output_text(parsed)
-			if text:
-				msg = f"Success: API key is valid. Model replied: {text!r}"
-			else:
-				preview = _response_fallback_preview(parsed)
-				msg = (
-					"Success: API key is valid, but output text was not found in expected fields. "
-					f"Response preview: {preview}"
-				)
+		raw = response.text
+		parsed: dict[str, Any]
+		try:
+			parsed = json.loads(raw)
+		except json.JSONDecodeError:
+			parsed = {"raw": raw}
 
-			return ValidationResult(
-				ok=True,
-				message=msg,
-				request_id=response.headers.get("x-request-id"),
-				status_code=response.status,
-				response_body=parsed,
+		text = _extract_output_text(parsed)
+		if text:
+			msg = f"Success: API key is valid. Model replied: {text!r}"
+		else:
+			preview = _response_fallback_preview(parsed)
+			msg = (
+				"Success: API key is valid, but output text was not found in expected fields. "
+				f"Response preview: {preview}"
 			)
 
-	except urllib.error.HTTPError as exc:
-		raw_err = exc.read().decode("utf-8", errors="replace")
+		return ValidationResult(
+			ok=True,
+			message=msg,
+			request_id=response.headers.get("x-request-id"),
+			status_code=response.status_code,
+			response_body=parsed,
+		)
+
+	except requests.HTTPError as exc:
+		status_code = exc.response.status_code if exc.response is not None else 0
+		raw_err = exc.response.text if exc.response is not None else str(exc)
 		parsed_err: Optional[dict[str, Any]] = None
 		try:
 			parsed = json.loads(raw_err)
@@ -198,21 +197,23 @@ def validate_openai_key(api_key: str, model: str, base_url: str, timeout: float)
 		except json.JSONDecodeError:
 			parsed_err = {"raw": raw_err}
 
-		help_text = _friendly_error_help(exc.code, parsed_err)
+		help_text = _friendly_error_help(status_code, parsed_err)
 		return ValidationResult(
 			ok=False,
-			message=f"HTTP {exc.code}: {help_text}",
-			request_id=exc.headers.get("x-request-id") if exc.headers else None,
-			status_code=exc.code,
+			message=f"HTTP {status_code}: {help_text}",
+			request_id=exc.response.headers.get("x-request-id") if exc.response is not None else None,
+			status_code=status_code,
 			response_body=parsed_err,
 		)
 
-	except urllib.error.URLError as exc:
-		reason = exc.reason
-		if isinstance(reason, socket.timeout):
+	except requests.Timeout:
+		return ValidationResult(ok=False, message="Request timed out. Try a larger --timeout or check network connectivity.")
+
+	except requests.RequestException as exc:
+		if isinstance(exc, socket.timeout):
 			detail = "Request timed out. Try a larger --timeout or check network connectivity."
 		else:
-			detail = f"Network error: {reason}"
+			detail = f"Network error: {exc}"
 		return ValidationResult(ok=False, message=detail)
 
 	except Exception as exc:  # Defensive catch to print full diagnostic context.

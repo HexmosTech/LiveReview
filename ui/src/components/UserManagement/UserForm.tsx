@@ -160,9 +160,10 @@ const UserForm: React.FC = () => {
       navigate('/settings#users');
     } catch (error) {
       const action = isEditMode ? 'update' : 'create';
-      const errorMessage = (error as Error).message || 'An unknown error occurred.';
-      toast.error(`Failed to ${action} user: ${errorMessage}`);
-      console.error(`${action} user error:`, error);
+      const rawMessage = (error as Error).message || 'An unknown error occurred.';
+      const errorMessage = rawMessage.replace(/[\r\n]+/g, ' ').trim().slice(0, 200) || 'An unknown error occurred.';
+      toast.error(['Failed to', action, 'user:', errorMessage].join(' '));
+      console.error('User operation error', { action, error });
     }
   };
 

@@ -28,12 +28,7 @@ func main() {
 
 	fmt.Printf("Stats: %+v\n", stats)
 
-	// Test if it's valid JSON
-	var result interface{}
-	parseErr := json.Unmarshal([]byte(repaired), &result)
-	fmt.Printf("Parse error: %v\n", parseErr)
-
-	if parseErr == nil {
-		fmt.Printf("Parsed result: %+v\n", result)
-	}
+	// Validate repaired output without deserializing into an unconstrained interface.
+	valid := json.Valid([]byte(repaired))
+	fmt.Printf("Parse valid: %v\n", valid)
 }

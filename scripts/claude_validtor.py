@@ -10,9 +10,8 @@ from __future__ import annotations
 
 import getpass
 import json
+import requests
 import sys
-import urllib.error
-import urllib.request
 
 
 ANTHROPIC_API_URL = "https://api.anthropic.com/v1/messages"
@@ -76,52 +75,52 @@ def validate_api_key(api_key: str, model: str) -> tuple[str, str]:
 	}
 
 	data = json.dumps(payload).encode("utf-8")
-	req = urllib.request.Request(
-		ANTHROPIC_API_URL,
-		data=data,
-		headers={
-			"Content-Type": "application/json",
-			"x-api-key": api_key,
-			"anthropic-version": ANTHROPIC_VERSION,
-		},
-		method="POST",
-	)
 
 	try:
-		with urllib.request.urlopen(req, timeout=20) as response:
-			body = response.read().decode("utf-8")
-			parsed = json.loads(body)
-			text_parts = [
-				item.get("text", "")
-				for item in parsed.get("content", [])
-				if isinstance(item, dict) and item.get("type") == "text"
-			]
-			model_reply = " ".join(part.strip() for part in text_parts if part.strip())
-			if not model_reply:
-				model_reply = "<empty response text>"
-			return "valid", model_reply
-	except urllib.error.HTTPError as exc:
-		raw = exc.read().decode("utf-8", errors="replace")
+		response = requests.post(
+			ANTHROPIC_API_URL,
+			data=data,
+			headers={
+				"Content-Type": "application/json",
+				"x-api-key": api_key,
+				"anthropic-version": ANTHROPIC_VERSION,
+			},
+			timeout=20,
+		)
+		response.raise_for_status()
+		parsed = response.json()
+		text_parts = [
+			item.get("text", "")
+			for item in parsed.get("content", [])
+			if isinstance(item, dict) and item.get("type") == "text"
+		]
+		model_reply = " ".join(part.strip() for part in text_parts if part.strip())
+		if not model_reply:
+			model_reply = "<empty response text>"
+		return "valid", model_reply
+	except requests.HTTPError as exc:
+		status_code = exc.response.status_code if exc.response is not None else 0
+		raw = exc.response.text if exc.response is not None else str(exc)
 		try:
 			err_obj = json.loads(raw)
 			err_msg = err_obj.get("error", {}).get("message", raw)
 		except json.JSONDecodeError:
 			err_msg = raw or str(exc)
 
-		if exc.code in (401, 403):
-			return "invalid", f"Authentication failed ({exc.code}): {err_msg}"
+		if status_code in (401, 403):
+			return "invalid", f"Authentication failed ({status_code}): {err_msg}"
 
 		# 404 with a model message usually means the key is accepted but
 		# the configured model is unavailable or misspelled for this account.
 		err_msg_lower = str(err_msg).lower()
-		if exc.code == 404 and "model" in err_msg_lower:
-			return "model_unavailable", f"Model unavailable ({exc.code}): {err_msg}"
+		if status_code == 404 and "model" in err_msg_lower:
+			return "model_unavailable", f"Model unavailable ({status_code}): {err_msg}"
 
-		return "error", f"API request failed ({exc.code}): {err_msg}"
-	except urllib.error.URLError as exc:
-		return "error", f"Network error: {exc.reason}"
-	except TimeoutError:
+		return "error", f"API request failed ({status_code}): {err_msg}"
+	except requests.Timeout:
 		return "error", "Request timed out."
+	except requests.RequestException as exc:
+		return "error", f"Network error: {exc}"
 	except json.JSONDecodeError:
 		return "error", "Received non-JSON response from API."
 

@@ -1603,7 +1603,7 @@ func describeStructuredError(err error) string {
 
 	var parts []string
 	for _, name := range fields {
-		field := rv.FieldByName(name)
+		field := rv.FieldByName(name) // nosemgrep: go.lang.security.audit.unsafe-reflect-by-name.unsafe-reflect-by-name - `name` comes from the local static allowlist above.
 		if !field.IsValid() || !field.CanInterface() {
 			continue
 		}

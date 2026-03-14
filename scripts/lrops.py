@@ -120,7 +120,7 @@ class LiveReviewOps:
     
     def _display_build_plan(self, build_type, version, docker_version, architectures=None, multiarch=False, push=False, make_latest=False, registry=None, image_name=None, git_commit=None, build_time=None):
         """Display comprehensive build plan before execution"""
-        print(f"\n{'🚀 BUILD EXECUTION PLAN':=^100}")
+        print("\n" + "🚀 BUILD EXECUTION PLAN".center(100, "="))
         print(f"\n📋 BUILD CONFIGURATION:")
         print(f"   • Build Type: {build_type}")
         print(f"   • Version: {version}")
