@@ -140,5 +140,17 @@
     "typescript": "^5.9.3",
     "@vscode/test-cli": "^0.0.12",
     "@vscode/test-electron": "^2.5.2"
+  },
+  "overrides": {
+    "ajv@6": "6.14.0",
+    "ajv@8": "8.18.0",
+    "brace-expansion@1": "1.1.12",
+    "brace-expansion@2": "2.0.2",
+    "diff": "8.0.3",
+    "flatted": "3.4.0",
+    "js-yaml@4": "4.1.1",
+    "minimatch@3": "3.1.4",
+    "minimatch@9": "9.0.7",
+    "serialize-javascript": "7.0.4"
   }
 }
