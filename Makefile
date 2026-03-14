@@ -170,7 +170,7 @@ SECURITY_GOVULN_PACKAGES := $(filter-out ./scripts,$(TEST_PACKAGES))
 testall:
 	$(GOTEST) -count=1 $(TEST_PACKAGES)
 
-.PHONY: security-govulncheck security-govulncheck-json security-osv security-gitleaks security-semgrep security-triage
+.PHONY: security-govulncheck security-govulncheck-json security-osv security-gitleaks security-semgrep security-dependabot security-triage
 
 # Run Go vulnerability analysis for reachable vulnerabilities.
 security-govulncheck:
@@ -261,6 +261,21 @@ security-semgrep:
 		fi; \
 		echo "Wrote $$dated_report"; \
 		echo "Updated $$latest_report"
+
+# Pull Dependabot alerts via GitHub API and emit a dated JSON artifact under security_issues/.
+security-dependabot:
+	@command -v $(GH) >/dev/null 2>&1 || { \
+		echo "gh not found. Install from https://cli.github.com/"; \
+		exit 1; \
+	}
+	@mkdir -p security_issues
+	@dated_report="security_issues/dependabot-live-review-$(shell date +%d-%m-%Y).json"; \
+		$(GH) api \
+			-H "Accept: application/vnd.github+json" \
+			-H "X-GitHub-Api-Version: 2022-11-28" \
+			/repos/$(GH_REPO)/dependabot/alerts \
+			--paginate > "$$dated_report"; \
+		echo "Wrote $$dated_report"
 
 # Regenerate machine-readable and markdown triage artifacts from the latest OSV report.
 security-triage: security-osv
