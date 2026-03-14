@@ -13,7 +13,6 @@ on:
 
 jobs:
   gitleaks:
-    if: ${{ vars.ENABLE_SECURITY_WORKFLOWS == 'true' }}
     runs-on: ubuntu-latest
     permissions:
       contents: read
