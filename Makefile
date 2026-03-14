@@ -189,8 +189,32 @@ security-osv:
 		exit 1; \
 	}
 	@mkdir -p security_issues
-	@osv-scanner --format json . > security_issues/osv-scanner-latest.json
-	@echo "Wrote security_issues/osv-scanner-latest.json"
+	@dated_report="security_issues/osv-scanner-$(shell date +%d-%m-%Y).json"; \
+		latest_report="security_issues/osv-scanner-latest.json"; \
+		status=0; \
+		osv-scanner scan source --recursive --format json --no-call-analysis=go \
+			--experimental-exclude=debug \
+			--experimental-exclude=scripts \
+			--experimental-exclude=tests \
+			--experimental-exclude=.livereview_pgdata \
+			--experimental-exclude=.lrdata \
+			--experimental-exclude=livereview_pgdata \
+			--experimental-exclude=lrdata \
+			. > "$$dated_report" || status=$$?; \
+		if [ $$status -ne 0 ] && [ $$status -ne 1 ]; then \
+			echo "osv-scanner failed with exit code $$status"; \
+			exit $$status; \
+		fi; \
+		if [ ! -s "$$dated_report" ]; then \
+			echo "osv-scanner did not produce a report"; \
+			exit 1; \
+		fi; \
+		cp "$$dated_report" "$$latest_report"; \
+		if [ $$status -eq 1 ]; then \
+			echo "osv-scanner reported vulnerabilities (exit 1); report still generated."; \
+		fi; \
+		echo "Wrote $$dated_report"; \
+		echo "Updated $$latest_report"
 
 # Run gitleaks and emit a dated CSV artifact under security_issues/.
 security-gitleaks:

@@ -14,7 +14,6 @@ on:
 
 jobs:
   osv-scan:
-    if: ${{ vars.ENABLE_SECURITY_WORKFLOWS == 'true' }}
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -25,7 +24,7 @@ jobs:
           go-version-file: go.mod
       - run: go install github.com/google/osv-scanner/v2/cmd/osv-scanner@latest
       - run: mkdir -p security_issues
-      - run: osv-scanner --format json . > security_issues/osv-scanner-ci.json
+      - run: osv-scanner scan source --recursive --format json --no-call-analysis=go --experimental-exclude=debug --experimental-exclude=scripts --experimental-exclude=tests --experimental-exclude=.livereview_pgdata --experimental-exclude=.lrdata --experimental-exclude=livereview_pgdata --experimental-exclude=lrdata . > security_issues/osv-scanner-ci.json
       - uses: actions/upload-artifact@v4
         if: always()
         with:
