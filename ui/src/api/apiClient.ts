@@ -67,6 +67,35 @@ const defaultOptions: RequestInit = {
   },
 };
 
+let csrfTokenCache: string | null = null;
+
+async function ensureCsrfToken(): Promise<string | null> {
+  if (csrfTokenCache) {
+    return csrfTokenCache;
+  }
+
+  // CSRF token endpoint is provided by the local UI proxy server.
+  if (BASE_URL !== window.location.origin) {
+    return null;
+  }
+
+  try {
+    const res = await fetch(`${BASE_URL}/csrf-token`, { credentials: 'same-origin' });
+    if (!res.ok) {
+      return null;
+    }
+    const data = await res.json().catch(() => ({}));
+    if (typeof data?.csrfToken === 'string' && data.csrfToken.trim() !== '') {
+      csrfTokenCache = data.csrfToken;
+      return csrfTokenCache;
+    }
+  } catch {
+    return null;
+  }
+
+  return null;
+}
+
 // Track ongoing refresh request to prevent multiple simultaneous refreshes
 let refreshPromise: Promise<string> | null = null;
 
@@ -156,6 +185,13 @@ async function apiRequest<T>(
     headers['Authorization'] = `Bearer ${accessToken}`;
   }
 
+  if (method !== 'GET') {
+    const csrfToken = await ensureCsrfToken();
+    if (csrfToken) {
+      headers['X-CSRF-Token'] = csrfToken;
+    }
+  }
+
   // Paths that should not have the organization context header.
   const excludedPaths = [
     '/auth/login',
@@ -182,6 +218,7 @@ async function apiRequest<T>(
   const config: RequestInit = {
     method,
     headers,
+    credentials: 'same-origin',
     body: options.body ? (isFormData ? options.body : JSON.stringify(options.body)) : undefined,
   };
 
@@ -300,7 +337,11 @@ async function apiRequest<T>(
 
   // Parse the JSON response
   const responseData = JSON.parse(text);
-  console.log(`API response from ${path}:`, JSON.stringify(responseData));
+  console.log('API response', {
+    path,
+    method,
+    status: response.status,
+  });
   return responseData as T;
 }
 

@@ -4,7 +4,6 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
-	"strings"
 	"time"
 )
 
@@ -232,49 +231,67 @@ type ReviewMetadataUpdate struct {
 
 // UpdateReviewMetadata applies partial metadata updates to a review record.
 func (rm *ReviewManager) UpdateReviewMetadata(reviewID int64, update ReviewMetadataUpdate) error {
-	setClauses := make([]string, 0, 6)
-	args := make([]interface{}, 0, 6)
-	idx := 1
-
-	if update.Repository != nil {
-		setClauses = append(setClauses, fmt.Sprintf("repository = $%d", idx))
-		args = append(args, *update.Repository)
-		idx++
-	}
-	if update.Branch != nil {
-		setClauses = append(setClauses, fmt.Sprintf("branch = $%d", idx))
-		args = append(args, *update.Branch)
-		idx++
-	}
-	if update.Provider != nil {
-		setClauses = append(setClauses, fmt.Sprintf("provider = $%d", idx))
-		args = append(args, *update.Provider)
-		idx++
-	}
-	if update.MRTitle != nil {
-		setClauses = append(setClauses, fmt.Sprintf("mr_title = $%d", idx))
-		args = append(args, *update.MRTitle)
-		idx++
-	}
-	if update.AuthorName != nil {
-		setClauses = append(setClauses, fmt.Sprintf("author_name = $%d", idx))
-		args = append(args, *update.AuthorName)
-		idx++
-	}
-	if update.AuthorUsername != nil {
-		setClauses = append(setClauses, fmt.Sprintf("author_username = $%d", idx))
-		args = append(args, *update.AuthorUsername)
-		idx++
-	}
-
-	if len(setClauses) == 0 {
+	if update.Repository == nil &&
+		update.Branch == nil &&
+		update.Provider == nil &&
+		update.MRTitle == nil &&
+		update.AuthorName == nil &&
+		update.AuthorUsername == nil {
 		return nil
 	}
 
-	query := fmt.Sprintf("UPDATE reviews SET %s WHERE id = $%d", strings.Join(setClauses, ", "), idx)
-	args = append(args, reviewID)
+	var repositoryArg interface{}
+	if update.Repository != nil {
+		repositoryArg = *update.Repository
+	}
 
-	if _, err := rm.db.Exec(query, args...); err != nil {
+	var branchArg interface{}
+	if update.Branch != nil {
+		branchArg = *update.Branch
+	}
+
+	var providerArg interface{}
+	if update.Provider != nil {
+		providerArg = *update.Provider
+	}
+
+	var titleArg interface{}
+	if update.MRTitle != nil {
+		titleArg = *update.MRTitle
+	}
+
+	var authorNameArg interface{}
+	if update.AuthorName != nil {
+		authorNameArg = *update.AuthorName
+	}
+
+	var authorUsernameArg interface{}
+	if update.AuthorUsername != nil {
+		authorUsernameArg = *update.AuthorUsername
+	}
+
+	query := `
+		UPDATE reviews
+		SET
+			repository = COALESCE($1, repository),
+			branch = COALESCE($2, branch),
+			provider = COALESCE($3, provider),
+			mr_title = COALESCE($4, mr_title),
+			author_name = COALESCE($5, author_name),
+			author_username = COALESCE($6, author_username)
+		WHERE id = $7
+	`
+
+	if _, err := rm.db.Exec(
+		query,
+		repositoryArg,
+		branchArg,
+		providerArg,
+		titleArg,
+		authorNameArg,
+		authorUsernameArg,
+		reviewID,
+	); err != nil {
 		return fmt.Errorf("failed to update review metadata: %w", err)
 	}
 

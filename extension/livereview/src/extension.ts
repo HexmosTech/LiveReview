@@ -372,8 +372,8 @@ export async function activate(context: vscode.ExtensionContext) {
 	};
 
 	const readCommitMsgNote = async (repoPath: string, cleanup: boolean): Promise<string | undefined> => {
-		const stateFile = path.join(repoPath, '.git', 'livereview_state');
-		const lockDir = path.join(repoPath, '.git', 'livereview_state.lock');
+		const stateFile = resolveRepoGitPath(repoPath, 'livereview_state');
+		const lockDir = resolveRepoGitPath(repoPath, 'livereview_state.lock');
 
 		let state: string | undefined;
 		try {
@@ -564,12 +564,24 @@ export async function activate(context: vscode.ExtensionContext) {
 		});
 	};
 
+	const resolveRepoGitPath = (repoPath: string, relativePath: string): string => {
+		const gitRoot = path.normalize(`${repoPath}${path.sep}.git`);
+		const resolvedPath = path.normalize(`${gitRoot}${path.sep}${relativePath}`);
+		if (!isPathWithinRoot(resolvedPath, gitRoot)) {
+			throw new Error(`Invalid repository state path: ${relativePath}`);
+		}
+		return resolvedPath;
+	};
+
 	const normalizePathForComparison = (inputPath: string): string => {
-		const resolved = path.resolve(inputPath);
+		const absoluteInput = path.isAbsolute(inputPath)
+			? inputPath
+			: `${process.cwd()}${path.sep}${inputPath}`;
+		const normalized = path.normalize(absoluteInput);
 		try {
-			return fs.realpathSync.native(resolved);
+			return fs.realpathSync.native(normalized);
 		} catch {
-			return resolved;
+			return normalized;
 		}
 	};
 

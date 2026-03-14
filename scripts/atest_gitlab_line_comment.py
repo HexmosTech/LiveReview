@@ -60,8 +60,8 @@ def generate_line_code(start_sha, head_sha, file_path, line_num):
     # Normalize the file path
     normalized_path = file_path.replace("/", "_")
     
-    # Generate a hash for the file path
-    path_hash = hashlib.sha1(file_path.encode()).hexdigest()[:8]
+    # Generate a stable hash for the file path
+    path_hash = hashlib.sha256(file_path.encode()).hexdigest()[:8]
     
     # Generate new style line code
     new_style_line_code = f"{path_hash}_{line_num}"

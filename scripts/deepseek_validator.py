@@ -10,9 +10,8 @@ from __future__ import annotations
 
 import getpass
 import json
+import requests
 import sys
-import urllib.error
-import urllib.request
 
 
 DEEPSEEK_API_URL = "https://api.deepseek.com/chat/completions"
@@ -41,30 +40,30 @@ def validate_api_key(api_key: str) -> tuple[bool, str]:
 	}
 
 	data = json.dumps(payload).encode("utf-8")
-	req = urllib.request.Request(
-		DEEPSEEK_API_URL,
-		data=data,
-		headers={
-			"Content-Type": "application/json",
-			"Authorization": f"Bearer {api_key}",
-		},
-		method="POST",
-	)
 
 	try:
-		with urllib.request.urlopen(req, timeout=20) as response:
-			body = response.read().decode("utf-8", errors="replace")
-			parsed = json.loads(body)
-			choices = parsed.get("choices", [])
-			if choices and isinstance(choices[0], dict):
-				message = choices[0].get("message", {})
-				if isinstance(message, dict):
-					reply = str(message.get("content", "")).strip()
-					if reply:
-						return True, reply
-			return True, "<empty response text>"
-	except urllib.error.HTTPError as exc:
-		raw = exc.read().decode("utf-8", errors="replace")
+		response = requests.post(
+			DEEPSEEK_API_URL,
+			data=data,
+			headers={
+				"Content-Type": "application/json",
+				"Authorization": f"Bearer {api_key}",
+			},
+			timeout=20,
+		)
+		response.raise_for_status()
+		parsed = response.json()
+		choices = parsed.get("choices", [])
+		if choices and isinstance(choices[0], dict):
+			message = choices[0].get("message", {})
+			if isinstance(message, dict):
+				reply = str(message.get("content", "")).strip()
+				if reply:
+					return True, reply
+		return True, "<empty response text>"
+	except requests.HTTPError as exc:
+		status_code = exc.response.status_code if exc.response is not None else 0
+		raw = exc.response.text if exc.response is not None else str(exc)
 		try:
 			err_obj = json.loads(raw)
 		except json.JSONDecodeError:
@@ -78,13 +77,13 @@ def validate_api_key(api_key: str) -> tuple[bool, str]:
 		if not err_msg:
 			err_msg = raw or str(exc)
 
-		if exc.code in (401, 403):
-			return False, f"Authentication failed ({exc.code}): {err_msg}"
-		return False, f"API request failed ({exc.code}): {err_msg}"
-	except urllib.error.URLError as exc:
-		return False, f"Network error: {exc.reason}"
-	except TimeoutError:
+		if status_code in (401, 403):
+			return False, f"Authentication failed ({status_code}): {err_msg}"
+		return False, f"API request failed ({status_code}): {err_msg}"
+	except requests.Timeout:
 		return False, "Request timed out."
+	except requests.RequestException as exc:
+		return False, f"Network error: {exc}"
 	except json.JSONDecodeError:
 		return False, "Received non-JSON response from API."
 

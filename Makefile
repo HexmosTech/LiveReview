@@ -170,7 +170,7 @@ SECURITY_GOVULN_PACKAGES := $(filter-out ./scripts,$(TEST_PACKAGES))
 testall:
 	$(GOTEST) -count=1 $(TEST_PACKAGES)
 
-.PHONY: security-govulncheck security-govulncheck-json security-osv security-gitleaks security-triage
+.PHONY: security-govulncheck security-govulncheck-json security-osv security-gitleaks security-semgrep security-triage
 
 # Run Go vulnerability analysis for reachable vulnerabilities.
 security-govulncheck:
@@ -225,6 +225,42 @@ security-gitleaks:
 	@mkdir -p security_issues
 	@gitleaks git . -f csv -r security_issues/gitleaks-$(shell date +%d-%m-%Y).csv
 	@echo "Wrote security_issues/gitleaks-$(shell date +%d-%m-%Y).csv"
+
+# Run Semgrep and emit a dated JSON artifact under security_issues/.
+security-semgrep:
+	@command -v semgrep >/dev/null 2>&1 || { \
+		echo "semgrep not found. Install from https://semgrep.dev/docs/getting-started/quickstart"; \
+		exit 1; \
+	}
+	@mkdir -p security_issues
+	@dated_report="security_issues/semgrep-$(shell date +%d-%m-%Y).json"; \
+		latest_report="security_issues/semgrep-latest.json"; \
+		fail_on_findings=$${SEMGREP_FAIL_ON_FINDINGS:-1}; \
+		status=0; \
+		semgrep scan --config auto \
+			--exclude ui/docs \
+			--exclude ui/build \
+			--exclude ui/dist \
+			--json --output "$$dated_report" . || status=$$?; \
+		if [ $$status -ne 0 ] && [ $$status -ne 1 ]; then \
+			echo "semgrep failed with exit code $$status"; \
+			exit $$status; \
+		fi; \
+		if [ ! -s "$$dated_report" ]; then \
+			echo "semgrep did not produce a report"; \
+			exit 1; \
+		fi; \
+		cp "$$dated_report" "$$latest_report"; \
+		if [ $$status -eq 1 ]; then \
+			echo "semgrep reported findings (exit 1); report still generated."; \
+			if [ "$$fail_on_findings" = "1" ]; then \
+				echo "Failing because SEMGREP_FAIL_ON_FINDINGS=$$fail_on_findings"; \
+				exit 1; \
+			fi; \
+			echo "Continuing because SEMGREP_FAIL_ON_FINDINGS=$$fail_on_findings"; \
+		fi; \
+		echo "Wrote $$dated_report"; \
+		echo "Updated $$latest_report"
 
 # Regenerate machine-readable and markdown triage artifacts from the latest OSV report.
 security-triage: security-osv

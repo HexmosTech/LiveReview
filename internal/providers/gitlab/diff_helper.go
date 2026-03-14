@@ -1,7 +1,7 @@
 package gitlab
 
 import (
-	"crypto/sha1"
+	"crypto/sha256"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -234,7 +234,7 @@ func GenerateLineCode(startSHA, headSHA, filePath string, lineNum int, side stri
 	// Create a unique file identifier - in modern GitLab this is typically the path
 	// Since we don't have access to the file content hash that GitLab uses internally,
 	// we'll generate a stable hash from the file path
-	pathHash := fmt.Sprintf("%x", sha1.Sum([]byte(filePath)))[:8]
+	pathHash := fmt.Sprintf("%x", sha256.Sum256([]byte(filePath)))[:8]
 
 	// Generate the line code in GitLab's format
 	// For newer GitLab versions (>= 13.x), the format is generally:
