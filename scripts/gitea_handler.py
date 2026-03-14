@@ -69,6 +69,15 @@ def load_env_file(path: str) -> None:
 				os.environ[key] = val
 
 
+def require_env(name: str) -> str:
+	value = os.environ.get(name, "").strip()
+	if not value:
+		raise RuntimeError(
+			f"{name} is required. Set it in scripts/.env or export it in your shell."
+		)
+	return value
+
+
 # -------------------------
 # Data structures
 # -------------------------
@@ -545,8 +554,8 @@ def run_demo(
 	try:
 		ctx = create_session(
 			connector.base_url,
-			os.environ.get("GITEA_USER", "livereview"),
-			os.environ.get("GITEA_PASS", "gitea@12345"),
+			require_env("GITEA_USER"),
+			require_env("GITEA_PASS"),
 		)
 		if reply_parent_override is None:
 			status_inline, meta_inline = post_inline_comment(
@@ -842,8 +851,8 @@ def delete_all_comments(
 	try:
 		ctx = create_session(
 			base_url,
-			os.environ.get("GITEA_USER", "livereview"),
-			os.environ.get("GITEA_PASS", "gitea@12345"),
+			require_env("GITEA_USER"),
+			require_env("GITEA_PASS"),
 		)
 		inline_ids = list_inline_comment_ids(ctx, owner, repo, pr_number)
 		if inline_ids:
@@ -873,8 +882,8 @@ def test_relogin_flow(
 	print("Starting relogin test...")
 	ctx = create_session(
 		base_url,
-		os.environ.get("GITEA_USER", "livereview"),
-		os.environ.get("GITEA_PASS", "gitea@12345"),
+		require_env("GITEA_USER"),
+		require_env("GITEA_PASS"),
 	)
 
 	baseline_ids = list_inline_comment_ids(ctx, owner, repo, pr_number)
@@ -920,17 +929,21 @@ def main() -> None:
 	# Hardcoded PR URL
 	pr_url = "https://gitea.hexmos.site/megaorg/livereview/pulls/17"
 	
-	# Prefer production .env.prod; fallback to local .env.
+	# Load scoped scripts env first, then root env files.
 	script_dir = os.path.dirname(__file__)
+	scripts_env = os.path.abspath(os.path.join(script_dir, ".env"))
 	prod_env = os.path.abspath(os.path.join(script_dir, os.pardir, ".env.prod"))
 	local_env = os.path.abspath(os.path.join(script_dir, os.pardir, ".env"))
 
+	if os.path.exists(scripts_env):
+		load_env_file(scripts_env)
 	if os.path.exists(prod_env):
 		load_env_file(prod_env)
-	elif os.path.exists(local_env):
+	if os.path.exists(local_env):
 		load_env_file(local_env)
-	else:
-		raise SystemExit("No .env or .env.prod found next to repository root")
+
+	if not any(os.path.exists(p) for p in (scripts_env, prod_env, local_env)):
+		raise SystemExit("No scripts/.env, .env, or .env.prod found")
 
 	dsn = os.environ.get("DATABASE_URL")
 	if not dsn:
