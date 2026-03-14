@@ -1,5 +1,7 @@
 <img src="./assets/gfx/png/logo-with-text.png" height=80 />
 
+<a href="https://github.com/HexmosTech/git-lrc/actions/workflows/gitleaks.yml" target="_blank" rel="noopener noreferrer"><img alt="gitleaks" src="https://github.com/HexmosTech/git-lrc/actions/workflows/gitleaks.yml/badge.svg"></a>&nbsp;
+
 # AI Code Review with Teeth.
 
 **A powerful and flexible AI code reviewer — light on the pocket, heavy on impact.**
