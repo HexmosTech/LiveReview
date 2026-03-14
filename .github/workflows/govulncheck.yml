@@ -15,7 +15,6 @@ on:
 
 jobs:
   govulncheck:
-    if: ${{ vars.ENABLE_SECURITY_WORKFLOWS == 'true' }}
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -24,5 +23,7 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
-      - run: go install golang.org/x/vuln/cmd/govulncheck@v1.1.4
-      - run: govulncheck ./...
+      - name: Ensure optional Make env file exists
+        run: touch .env
+      - name: Run govulncheck via Makefile target
+        run: make security-govulncheck
