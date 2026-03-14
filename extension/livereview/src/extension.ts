@@ -41,7 +41,7 @@ interface API {
 }
 
 interface PostCommitCommandsProvider {
-	provideCommands(): Command[];
+	getCommands(): Command[];
 }
 
 interface Command {
@@ -815,7 +815,7 @@ export async function activate(context: vscode.ExtensionContext) {
 
 		if (api.registerPostCommitCommandsProvider) {
 			const provider: PostCommitCommandsProvider = {
-				provideCommands: () => [{ command: 'livereview.enableGitHooks', title: 'LiveReview: Post-commit review mock' }]
+				getCommands: () => [{ command: 'livereview.enableGitHooks', title: 'LiveReview: Post-commit review mock' }]
 			};
 			context.subscriptions.push(api.registerPostCommitCommandsProvider(provider));
 		}
