@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"os"
 	"strings"
+
+	"github.com/livereview/storage"
 )
 
 // ConfigCheckResult holds the result of configuration validation
@@ -115,7 +117,7 @@ func IsCloudModeEnabled() bool {
 
 // LoadEnvFile loads environment variables from a file, overwriting existing ones.
 func LoadEnvFile(filename string) error {
-	file, err := os.Open(filename)
+	file, err := storage.CmdEnvOpen(filename)
 	if err != nil {
 		return err
 	}

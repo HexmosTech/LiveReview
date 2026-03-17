@@ -22,6 +22,7 @@ import (
 	"github.com/livereview/internal/naming"
 	"github.com/livereview/internal/review"
 	"github.com/livereview/pkg/models"
+	"github.com/livereview/storage/archive"
 )
 
 // diffReviewRequest models the incoming POST payload for diff reviews.
@@ -51,12 +52,7 @@ func (s *Server) DiffReview(c echo.Context) error {
 
 	// Fetch user info for author tracking
 	var userEmail, authorName, authorUsername string
-	var user models.User
-	err := s.db.QueryRow(`
-		SELECT id, email, first_name, last_name
-		FROM users
-		WHERE id = $1
-	`, userID).Scan(&user.ID, &user.Email, &user.FirstName, &user.LastName)
+	user, err := archive.DiffReviewLoadUser(s.db, userID)
 
 	if err == nil {
 		userEmail = user.Email
@@ -325,14 +321,18 @@ func parseDiffZipBase64(encoded string) ([]lib.LocalCodeDiff, error) {
 		return nil, fmt.Errorf("failed to decode diff_zip_base64: %w", err)
 	}
 
-	tempDir, err := os.MkdirTemp("", "lr-diff-review-")
+	tempDir, err := archive.DiffReviewCreateTempWorkspace()
 	if err != nil {
 		return nil, fmt.Errorf("failed to create temp workspace: %w", err)
 	}
-	defer os.RemoveAll(tempDir)
+	defer func() {
+		if cleanupErr := archive.DiffReviewRemoveWorkspace(tempDir); cleanupErr != nil {
+			log.Printf("[WARN] failed to clean up temp workspace %q: %v", tempDir, cleanupErr)
+		}
+	}()
 
 	zipPath := filepath.Join(tempDir, "diff.zip")
-	if err := os.WriteFile(zipPath, zipBytes, 0600); err != nil {
+	if err := archive.DiffReviewWriteUploadedZip(zipPath, zipBytes); err != nil {
 		return nil, fmt.Errorf("failed to persist uploaded zip: %w", err)
 	}
 
@@ -344,7 +344,7 @@ func parseDiffZipBase64(encoded string) ([]lib.LocalCodeDiff, error) {
 		return nil, fmt.Errorf("zip archive contained no files")
 	}
 
-	diffContent, err := os.ReadFile(extractedFiles[0])
+	diffContent, err := archive.DiffReviewReadExtractedDiff(extractedFiles[0])
 	if err != nil {
 		return nil, fmt.Errorf("failed to read extracted diff: %w", err)
 	}
@@ -382,7 +382,7 @@ func extractZip(zipPath, dest string) ([]string, error) {
 		if !strings.HasPrefix(targetPath, filepath.Clean(dest)+string(os.PathSeparator)) {
 			return nil, fmt.Errorf("illegal file path %s", f.Name)
 		}
-		if err := os.MkdirAll(filepath.Dir(targetPath), 0755); err != nil {
+		if err := archive.DiffReviewEnsureParentDir(targetPath); err != nil {
 			return extracted, err
 		}
 		rc, err := f.Open()
@@ -390,7 +390,7 @@ func extractZip(zipPath, dest string) ([]string, error) {
 			return extracted, err
 		}
 
-		out, err := os.OpenFile(targetPath, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, f.Mode())
+		out, err := archive.DiffReviewOpenExtractedFile(targetPath, f.Mode())
 		if err != nil {
 			_ = rc.Close()
 			return extracted, err
