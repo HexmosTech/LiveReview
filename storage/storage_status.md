@@ -15,3 +15,9 @@
 | payment.GetSelfHostedConfirmationSeed | moved | [GetSelfHostedConfirmationSeed](payment/subscription_store.go#L599) |
 | payment.PersistSelfHostedFallback | moved | [PersistSelfHostedFallback](payment/subscription_store.go#L636) |
 | payment.PersistSelfHostedJWT | moved | [PersistSelfHostedJWT](payment/subscription_store.go#L699) |
+| jobqueue.NewWebhookStore | moved | [NewWebhookStore](jobqueue/webhook_store.go#L24) |
+| jobqueue.GetWebhookPublicEndpoint | moved | [GetWebhookPublicEndpoint](jobqueue/webhook_store.go#L33) |
+| jobqueue.GetWebhookRegistryID | moved | [GetWebhookRegistryID](jobqueue/webhook_store.go#L52) |
+| jobqueue.InsertWebhookRegistry | moved | [InsertWebhookRegistry](jobqueue/webhook_store.go#L84) |
+| jobqueue.UpdateWebhookRegistryByID | moved | [UpdateWebhookRegistryByID](jobqueue/webhook_store.go#L122) |
+| jobqueue.GetConnectorMetadata | moved | [GetConnectorMetadata](jobqueue/webhook_store.go#L145) |
