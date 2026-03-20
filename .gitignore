@@ -67,3 +67,4 @@ livereview.toml
 chats/
 
 security_issues/
+scripts/lr_sessions.py

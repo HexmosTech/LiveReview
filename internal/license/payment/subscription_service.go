@@ -1,18 +1,17 @@
 package payment
 
 import (
-	"bytes"
 	"crypto/rand"
 	"database/sql"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
-	"io"
-	"net/http"
 	"os"
 	"time"
 
-	"github.com/lib/pq"
+	networkpayment "github.com/livereview/network/payment"
+	storagepayment "github.com/livereview/storage/payment"
 	"golang.org/x/crypto/bcrypt"
 )
 
@@ -100,59 +99,23 @@ func (s *SubscriptionService) CreateTeamSubscription(ownerUserID, orgID int, pla
 		licenseExpiresAt = currentPeriodEnd
 	}
 
-	// Start transaction
-	tx, err := s.db.Begin()
+	store := storagepayment.NewSubscriptionStore(s.db)
+	err = store.CreateTeamSubscriptionRecord(storagepayment.CreateTeamSubscriptionRecordInput{
+		SubscriptionID:     sub.ID,
+		OwnerUserID:        ownerUserID,
+		OrgID:              orgID,
+		DBPlanType:         dbPlanType,
+		Quantity:           quantity,
+		Status:             sub.Status,
+		RazorpayPlanID:     razorpayPlanID,
+		CurrentPeriodStart: currentPeriodStart,
+		CurrentPeriodEnd:   currentPeriodEnd,
+		LicenseExpiresAt:   licenseExpiresAt,
+		ShortURL:           sub.ShortURL,
+		Notes:              notes,
+	})
 	if err != nil {
-		return nil, fmt.Errorf("failed to begin transaction: %w", err)
-	}
-	defer tx.Rollback()
-
-	// Insert into subscriptions table
-	notesJSON, _ := json.Marshal(notes)
-	var dbSubscriptionID int64
-	err = tx.QueryRow(`
-		INSERT INTO subscriptions (
-			razorpay_subscription_id, owner_user_id, org_id, plan_type,
-			quantity, assigned_seats, status, razorpay_plan_id,
-			current_period_start, current_period_end, license_expires_at,
-			short_url, notes, created_at, updated_at
-		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, NOW(), NOW())
-		RETURNING id`,
-		sub.ID, ownerUserID, orgID, dbPlanType,
-		quantity, 0, sub.Status, razorpayPlanID,
-		currentPeriodStart, currentPeriodEnd, licenseExpiresAt,
-		sub.ShortURL, notesJSON,
-	).Scan(&dbSubscriptionID)
-	if err != nil {
-		return nil, fmt.Errorf("failed to insert subscription: %w", err)
-	}
-
-	// Note: We do NOT automatically assign the license to the purchaser
-	// The owner must explicitly assign licenses via the assignment UI
-
-	// Log to license_log
-	metadata := map[string]interface{}{
-		"subscription_id": sub.ID,
-		"plan_id":         razorpayPlanID,
-		"quantity":        quantity,
-		"status":          sub.Status,
-	}
-	metadataJSON, _ := json.Marshal(metadata)
-	_, err = tx.Exec(`
-		INSERT INTO license_log (
-			user_id, org_id, event_type, description, metadata, created_at
-		) VALUES ($1, $2, $3, $4, $5, NOW())`,
-		ownerUserID, orgID, "subscription_created",
-		fmt.Sprintf("Created %s subscription with %d seats", dbPlanType, quantity),
-		metadataJSON,
-	)
-	if err != nil {
-		return nil, fmt.Errorf("failed to log subscription creation: %w", err)
-	}
-
-	// Commit transaction
-	if err := tx.Commit(); err != nil {
-		return nil, fmt.Errorf("failed to commit transaction: %w", err)
+		return nil, fmt.Errorf("failed to persist subscription: %w", err)
 	}
 
 	return sub, nil
@@ -166,62 +129,16 @@ func (s *SubscriptionService) UpdateQuantity(subscriptionID string, quantity int
 		return nil, fmt.Errorf("failed to update razorpay subscription: %w", err)
 	}
 
-	// Start transaction
-	tx, err := s.db.Begin()
+	store := storagepayment.NewSubscriptionStore(s.db)
+	err = store.UpdateSubscriptionQuantityRecord(storagepayment.UpdateSubscriptionQuantityRecordInput{
+		SubscriptionID:      subscriptionID,
+		Quantity:            sub.Quantity,
+		ScheduleChangeAt:    scheduleChangeAt,
+		Status:              sub.Status,
+		HasScheduledChanges: sub.HasScheduledChanges,
+	})
 	if err != nil {
-		return nil, fmt.Errorf("failed to begin transaction: %w", err)
-	}
-	defer tx.Rollback()
-
-	// Get current subscription details for logging
-	var ownerUserID, orgID int
-	var planType string
-	err = tx.QueryRow(`
-		SELECT owner_user_id, org_id, plan_type
-		FROM subscriptions
-		WHERE razorpay_subscription_id = $1`,
-		subscriptionID,
-	).Scan(&ownerUserID, &orgID, &planType)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get subscription details: %w", err)
-	}
-
-	// Update subscriptions table
-	_, err = tx.Exec(`
-		UPDATE subscriptions
-		SET quantity = $1,
-		    status = $2,
-		    updated_at = NOW()
-		WHERE razorpay_subscription_id = $3`,
-		sub.Quantity, sub.Status, subscriptionID,
-	)
-	if err != nil {
-		return nil, fmt.Errorf("failed to update subscription: %w", err)
-	}
-
-	// Log to license_log
-	metadata := map[string]interface{}{
-		"subscription_id":      subscriptionID,
-		"new_quantity":         quantity,
-		"schedule_change_at":   scheduleChangeAt,
-		"has_scheduled_change": sub.HasScheduledChanges,
-	}
-	metadataJSON, _ := json.Marshal(metadata)
-	_, err = tx.Exec(`
-		INSERT INTO license_log (
-			user_id, org_id, event_type, description, metadata, created_at
-		) VALUES ($1, $2, $3, $4, $5, NOW())`,
-		ownerUserID, orgID, "subscription_quantity_updated",
-		fmt.Sprintf("Updated subscription quantity to %d", quantity),
-		metadataJSON,
-	)
-	if err != nil {
-		return nil, fmt.Errorf("failed to log quantity update: %w", err)
-	}
-
-	// Commit transaction
-	if err := tx.Commit(); err != nil {
-		return nil, fmt.Errorf("failed to commit transaction: %w", err)
+		return nil, fmt.Errorf("failed to persist quantity update: %w", err)
 	}
 
 	return sub, nil
@@ -235,78 +152,14 @@ func (s *SubscriptionService) CancelSubscription(subscriptionID string, immediat
 		return nil, fmt.Errorf("failed to cancel razorpay subscription: %w", err)
 	}
 
-	// Start transaction
-	tx, err := s.db.Begin()
+	store := storagepayment.NewSubscriptionStore(s.db)
+	err = store.CancelSubscriptionRecord(storagepayment.CancelSubscriptionRecordInput{
+		SubscriptionID: subscriptionID,
+		Immediate:      immediate,
+		Status:         sub.Status,
+	})
 	if err != nil {
-		return nil, fmt.Errorf("failed to begin transaction: %w", err)
-	}
-	defer tx.Rollback()
-
-	// Get current subscription details for logging
-	var ownerUserID, orgID int
-	var planType string
-	var licenseExpiresAt time.Time
-	err = tx.QueryRow(`
-		SELECT owner_user_id, org_id, plan_type, license_expires_at
-		FROM subscriptions
-		WHERE razorpay_subscription_id = $1`,
-		subscriptionID,
-	).Scan(&ownerUserID, &orgID, &planType, &licenseExpiresAt)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get subscription details: %w", err)
-	}
-
-	// Update subscriptions table
-	_, err = tx.Exec(`
-		UPDATE subscriptions
-		SET status = $1,
-		    cancel_at_period_end = $2,
-		    updated_at = NOW()
-		WHERE razorpay_subscription_id = $3`,
-		sub.Status, !immediate, subscriptionID,
-	)
-	if err != nil {
-		return nil, fmt.Errorf("failed to update subscription: %w", err)
-	}
-
-	// If immediate cancellation, update user_roles to revert to free plan
-	if immediate {
-		_, err = tx.Exec(`
-			UPDATE user_roles
-			SET plan_type = 'free',
-			    license_expires_at = NULL,
-			    active_subscription_id = NULL,
-			    updated_at = NOW()
-			WHERE user_id = $1 AND org_id = $2`,
-			ownerUserID, orgID,
-		)
-		if err != nil {
-			return nil, fmt.Errorf("failed to update user_roles: %w", err)
-		}
-	}
-
-	// Log to license_log
-	metadata := map[string]interface{}{
-		"subscription_id": subscriptionID,
-		"immediate":       immediate,
-		"status":          sub.Status,
-	}
-	metadataJSON, _ := json.Marshal(metadata)
-	_, err = tx.Exec(`
-		INSERT INTO license_log (
-			user_id, org_id, event_type, description, metadata, created_at
-		) VALUES ($1, $2, $3, $4, $5, NOW())`,
-		ownerUserID, orgID, "subscription_cancelled",
-		fmt.Sprintf("Cancelled subscription (immediate: %t)", immediate),
-		metadataJSON,
-	)
-	if err != nil {
-		return nil, fmt.Errorf("failed to log cancellation: %w", err)
-	}
-
-	// Commit transaction
-	if err := tx.Commit(); err != nil {
-		return nil, fmt.Errorf("failed to commit transaction: %w", err)
+		return nil, fmt.Errorf("failed to persist cancellation: %w", err)
 	}
 
 	return sub, nil
@@ -315,7 +168,7 @@ func (s *SubscriptionService) CancelSubscription(subscriptionID string, immediat
 // SubscriptionDetails holds subscription info from both DB and Razorpay
 type SubscriptionDetails struct {
 	// From DB
-	ID                     int       `json:"id"`
+	ID                     int64     `json:"id"`
 	RazorpaySubscriptionID string    `json:"razorpay_subscription_id"`
 	OwnerUserID            int       `json:"owner_user_id"`
 	OrgID                  int       `json:"org_id"`
@@ -337,42 +190,38 @@ type SubscriptionDetails struct {
 
 // GetSubscriptionDetails retrieves subscription details from both DB and Razorpay
 func (s *SubscriptionService) GetSubscriptionDetails(subscriptionID string, mode string) (*SubscriptionDetails, error) {
-	// Get from DB with calculated assigned_seats from user_roles AND payment info
-	var details SubscriptionDetails
-	var lastPaymentID sql.NullString
-	var lastPaymentStatus sql.NullString
-	var lastPaymentReceivedAt sql.NullTime
-
-	err := s.db.QueryRow(`
-		SELECT s.id, s.razorpay_subscription_id, s.owner_user_id, s.org_id, s.plan_type, s.quantity,
-		       COALESCE((SELECT COUNT(*) FROM user_roles ur WHERE ur.active_subscription_id = s.id AND ur.plan_type = 'team'), 0) as assigned_seats,
-		       s.status, s.license_expires_at, s.created_at, s.updated_at,
-		       s.payment_verified, s.last_payment_id, s.last_payment_status, s.last_payment_received_at
-		FROM subscriptions s
-		WHERE s.razorpay_subscription_id = $1`,
-		subscriptionID,
-	).Scan(
-		&details.ID, &details.RazorpaySubscriptionID, &details.OwnerUserID, &details.OrgID, &details.PlanType,
-		&details.Quantity, &details.AssignedSeats, &details.Status,
-		&details.LicenseExpiresAt, &details.CreatedAt, &details.UpdatedAt,
-		&details.PaymentVerified, &lastPaymentID, &lastPaymentStatus, &lastPaymentReceivedAt,
-	)
-	if err == sql.ErrNoRows {
-		return nil, fmt.Errorf("subscription not found: %s", subscriptionID)
-	}
+	store := storagepayment.NewSubscriptionStore(s.db)
+	row, err := store.GetSubscriptionDetailsRow(subscriptionID)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get subscription from DB: %w", err)
+		if errors.Is(err, storagepayment.ErrSubscriptionNotFound) {
+			return nil, fmt.Errorf("subscription not found: %s", subscriptionID)
+		}
+		return nil, err
 	}
+
+	var details SubscriptionDetails
+	details.ID = row.ID
+	details.RazorpaySubscriptionID = row.RazorpaySubscriptionID
+	details.OwnerUserID = row.OwnerUserID
+	details.OrgID = row.OrgID
+	details.PlanType = row.PlanType
+	details.Quantity = row.Quantity
+	details.AssignedSeats = row.AssignedSeats
+	details.Status = row.Status
+	details.LicenseExpiresAt = row.LicenseExpiresAt
+	details.CreatedAt = row.CreatedAt
+	details.UpdatedAt = row.UpdatedAt
+	details.PaymentVerified = row.PaymentVerified
 
 	// Set nullable payment fields
-	if lastPaymentID.Valid {
-		details.LastPaymentID = lastPaymentID.String
+	if row.LastPaymentID.Valid {
+		details.LastPaymentID = row.LastPaymentID.String
 	}
-	if lastPaymentStatus.Valid {
-		details.LastPaymentStatus = lastPaymentStatus.String
+	if row.LastPaymentStatus.Valid {
+		details.LastPaymentStatus = row.LastPaymentStatus.String
 	}
-	if lastPaymentReceivedAt.Valid {
-		details.LastPaymentReceivedAt = &lastPaymentReceivedAt.Time
+	if row.LastPaymentReceivedAt.Valid {
+		details.LastPaymentReceivedAt = &row.LastPaymentReceivedAt.Time
 	}
 
 	// Get from Razorpay
@@ -388,189 +237,22 @@ func (s *SubscriptionService) GetSubscriptionDetails(subscriptionID string, mode
 
 // AssignLicense assigns a license to a user in the subscription
 func (s *SubscriptionService) AssignLicense(subscriptionID string, userID, orgID int) error {
-	tx, err := s.db.Begin()
-	if err != nil {
-		return fmt.Errorf("failed to begin transaction: %w", err)
-	}
-	defer tx.Rollback()
-
-	// Check subscription capacity and payment verification
-	var quantity int
-	var ownerUserID int
-	var dbSubscriptionID int64
-	var licenseExpiresAt time.Time
-	var assignedSeats int
-	var paymentVerified bool
-	var lastPaymentStatus sql.NullString
-	err = tx.QueryRow(`
-		SELECT s.id, s.quantity, s.owner_user_id, s.license_expires_at, s.payment_verified, s.last_payment_status,
-		       COALESCE((SELECT COUNT(*) FROM user_roles ur WHERE ur.active_subscription_id = s.id AND ur.plan_type = 'team'), 0) as assigned_seats
-		FROM subscriptions s
-		WHERE s.razorpay_subscription_id = $1`,
-		subscriptionID,
-	).Scan(&dbSubscriptionID, &quantity, &ownerUserID, &licenseExpiresAt, &paymentVerified, &lastPaymentStatus, &assignedSeats)
-	if err != nil {
-		return fmt.Errorf("failed to get subscription: %w", err)
-	}
-
-	// CRITICAL: Block assignment until payment is verified
-	if !paymentVerified {
-		return fmt.Errorf("payment pending - licenses cannot be assigned until payment is received. Check back in 5-10 minutes")
-	}
-
-	if assignedSeats >= quantity {
-		return fmt.Errorf("subscription at capacity: %d/%d seats used", assignedSeats, quantity)
-	}
-
-	// Check if user already has an active subscription in this org
-	var existingSubID sql.NullInt64
-	var existingRazorpaySubID sql.NullString
-	err = tx.QueryRow(`
-		SELECT ur.active_subscription_id, s.razorpay_subscription_id
-		FROM user_roles ur
-		LEFT JOIN subscriptions s ON ur.active_subscription_id = s.id
-		WHERE ur.user_id = $1 AND ur.org_id = $2 AND ur.plan_type = 'team'`,
-		userID, orgID,
-	).Scan(&existingSubID, &existingRazorpaySubID)
-
-	if err != nil && err != sql.ErrNoRows {
-		return fmt.Errorf("failed to check existing subscription: %w", err)
-	}
-
-	if existingSubID.Valid && existingSubID.Int64 != dbSubscriptionID {
-		return fmt.Errorf("user already has an active license from subscription %s - please revoke that first", existingRazorpaySubID.String)
-	}
-
-	// No need to increment assigned_seats counter - we calculate it dynamically
-
-	// Update user_roles
-	_, err = tx.Exec(`
-		UPDATE user_roles
-		SET plan_type = 'team',
-		    license_expires_at = $1,
-		    active_subscription_id = $2,
-		    updated_at = NOW()
-		WHERE user_id = $3 AND org_id = $4`,
-		licenseExpiresAt, dbSubscriptionID, userID, orgID,
-	)
-	if err != nil {
-		// Handle case where user_roles entry doesn't exist yet
-		if pqErr, ok := err.(*pq.Error); ok && pqErr.Code == "23503" {
-			// Insert new user_roles entry
-			_, err = tx.Exec(`
-				INSERT INTO user_roles (
-					user_id, org_id, role_id, plan_type, license_expires_at, active_subscription_id, created_at, updated_at
-				) VALUES ($1, $2, 3, 'team', $3, $4, NOW(), NOW())`,
-				userID, orgID, licenseExpiresAt, dbSubscriptionID,
-			)
-			if err != nil {
-				return fmt.Errorf("failed to create user_roles: %w", err)
-			}
-		} else {
-			return fmt.Errorf("failed to update user_roles: %w", err)
-		}
-	}
-
-	// Log to license_log
-	metadata := map[string]interface{}{
-		"subscription_id": subscriptionID,
-		"assigned_to":     userID,
-	}
-	metadataJSON, _ := json.Marshal(metadata)
-	_, err = tx.Exec(`
-		INSERT INTO license_log (
-			user_id, org_id, event_type, description, metadata, created_at
-		) VALUES ($1, $2, $3, $4, $5, NOW())`,
-		userID, orgID, "license_assigned",
-		fmt.Sprintf("License assigned from subscription %s", subscriptionID),
-		metadataJSON,
-	)
-	if err != nil {
-		return fmt.Errorf("failed to log license assignment: %w", err)
-	}
-
-	if err := tx.Commit(); err != nil {
-		return fmt.Errorf("failed to commit transaction: %w", err)
-	}
-
-	return nil
+	store := storagepayment.NewSubscriptionStore(s.db)
+	return store.AssignLicense(storagepayment.AssignLicenseInput{
+		SubscriptionID: subscriptionID,
+		UserID:         userID,
+		OrgID:          orgID,
+	})
 }
 
 // RevokeLicense removes a license from a user
 func (s *SubscriptionService) RevokeLicense(subscriptionID string, userID, orgID int) error {
-	tx, err := s.db.Begin()
-	if err != nil {
-		return fmt.Errorf("failed to begin transaction: %w", err)
-	}
-	defer tx.Rollback()
-
-	// Get the database ID for this subscription
-	var dbSubscriptionID int64
-	err = tx.QueryRow(`
-		SELECT id
-		FROM subscriptions
-		WHERE razorpay_subscription_id = $1`,
-		subscriptionID,
-	).Scan(&dbSubscriptionID)
-	if err != nil {
-		return fmt.Errorf("failed to get subscription: %w", err)
-	}
-
-	// Verify user has this subscription
-	var currentSubID sql.NullInt64
-	err = tx.QueryRow(`
-		SELECT active_subscription_id
-		FROM user_roles
-		WHERE user_id = $1 AND org_id = $2`,
-		userID, orgID,
-	).Scan(&currentSubID)
-	if err != nil {
-		return fmt.Errorf("failed to get user_roles: %w", err)
-	}
-
-	if !currentSubID.Valid || currentSubID.Int64 != dbSubscriptionID {
-		return fmt.Errorf("user %d does not have subscription %s", userID, subscriptionID)
-	}
-
-	// No need to decrement assigned_seats counter - we calculate it dynamically
-
-	// Revert user to free plan
-	_, err = tx.Exec(`
-		UPDATE user_roles
-		SET plan_type = 'free',
-		    license_expires_at = NULL,
-		    active_subscription_id = NULL,
-		    updated_at = NOW()
-		WHERE user_id = $1 AND org_id = $2`,
-		userID, orgID,
-	)
-	if err != nil {
-		return fmt.Errorf("failed to update user_roles: %w", err)
-	}
-
-	// Log to license_log
-	metadata := map[string]interface{}{
-		"subscription_id": subscriptionID,
-		"revoked_from":    userID,
-	}
-	metadataJSON, _ := json.Marshal(metadata)
-	_, err = tx.Exec(`
-		INSERT INTO license_log (
-			user_id, org_id, event_type, description, metadata, created_at
-		) VALUES ($1, $2, $3, $4, $5, NOW())`,
-		userID, orgID, "license_revoked",
-		fmt.Sprintf("License revoked from subscription %s", subscriptionID),
-		metadataJSON,
-	)
-	if err != nil {
-		return fmt.Errorf("failed to log license revocation: %w", err)
-	}
-
-	if err := tx.Commit(); err != nil {
-		return fmt.Errorf("failed to commit transaction: %w", err)
-	}
-
-	return nil
+	store := storagepayment.NewSubscriptionStore(s.db)
+	return store.RevokeLicense(storagepayment.RevokeLicenseInput{
+		SubscriptionID: subscriptionID,
+		UserID:         userID,
+		OrgID:          orgID,
+	})
 }
 
 // ConfirmPurchase is called by the frontend immediately after a successful purchase
@@ -678,12 +360,13 @@ type SelfHostedPurchaseResponse struct {
 
 // getOrCreateShadowUser retrieves an existing user by email or creates a new shadow user
 func (s *SubscriptionService) getOrCreateShadowUser(email string) (int64, error) {
-	var userID int64
-	err := s.db.QueryRow(`SELECT id FROM users WHERE email = $1`, email).Scan(&userID)
+	store := storagepayment.NewSubscriptionStore(s.db)
+
+	userID, err := store.GetUserIDByEmail(email)
 	if err == nil {
 		return userID, nil
 	}
-	if err != sql.ErrNoRows {
+	if !errors.Is(err, storagepayment.ErrUserNotFound) {
 		return 0, fmt.Errorf("failed to query user: %w", err)
 	}
 
@@ -701,13 +384,7 @@ func (s *SubscriptionService) getOrCreateShadowUser(email string) (int64, error)
 		return 0, fmt.Errorf("failed to hash password: %w", err)
 	}
 
-	// Insert shadow user
-	err = s.db.QueryRow(`
-		INSERT INTO users (email, password_hash, created_at, updated_at)
-		VALUES ($1, $2, NOW(), NOW())
-		RETURNING id`,
-		email, string(hashedPassword),
-	).Scan(&userID)
+	userID, err = store.CreateShadowUser(email, string(hashedPassword))
 	if err != nil {
 		return 0, fmt.Errorf("failed to create shadow user: %w", err)
 	}
@@ -748,58 +425,22 @@ func (s *SubscriptionService) CreateSelfHostedPurchase(email string, quantity in
 	currentPeriodEnd := currentPeriodStart.AddDate(1, 0, 0) // 1 year
 	licenseExpiresAt := currentPeriodEnd
 
-	// Start transaction
-	tx, err := s.db.Begin()
+	store := storagepayment.NewSubscriptionStore(s.db)
+	err = store.CreateSelfHostedSubscriptionRecord(storagepayment.CreateSelfHostedSubscriptionRecordInput{
+		SubscriptionID:     sub.ID,
+		UserID:             userID,
+		Quantity:           quantity,
+		Status:             sub.Status,
+		RazorpayPlanID:     razorpayPlanID,
+		CurrentPeriodStart: currentPeriodStart,
+		CurrentPeriodEnd:   currentPeriodEnd,
+		LicenseExpiresAt:   licenseExpiresAt,
+		ShortURL:           sub.ShortURL,
+		Notes:              notes,
+		Email:              email,
+	})
 	if err != nil {
-		return nil, fmt.Errorf("failed to begin transaction: %w", err)
-	}
-	defer tx.Rollback()
-
-	// Insert into subscriptions table with a special marker for self-hosted
-	notesJSON, _ := json.Marshal(notes)
-	var dbSubscriptionID int64
-	err = tx.QueryRow(`
-		INSERT INTO subscriptions (
-			razorpay_subscription_id, owner_user_id, org_id, plan_type,
-			quantity, assigned_seats, status, razorpay_plan_id,
-			current_period_start, current_period_end, license_expires_at,
-			short_url, notes, created_at, updated_at
-		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, NOW(), NOW())
-		RETURNING id`,
-		sub.ID, userID, nil, "selfhosted_annual",
-		quantity, 0, sub.Status, razorpayPlanID,
-		currentPeriodStart, currentPeriodEnd, licenseExpiresAt,
-		sub.ShortURL, notesJSON,
-	).Scan(&dbSubscriptionID)
-	if err != nil {
-		return nil, fmt.Errorf("failed to insert subscription: %w", err)
-	}
-
-	// Log to license_log
-	metadata := map[string]interface{}{
-		"subscription_id": sub.ID,
-		"plan_id":         razorpayPlanID,
-		"email":           email,
-		"quantity":        quantity,
-		"status":          sub.Status,
-		"purpose":         "self_hosted_purchase",
-	}
-	metadataJSON, _ := json.Marshal(metadata)
-	_, err = tx.Exec(`
-		INSERT INTO license_log (
-			user_id, org_id, event_type, description, metadata, created_at
-		) VALUES ($1, $2, $3, $4, $5, NOW())`,
-		nil, nil, "selfhosted_subscription_created",
-		fmt.Sprintf("Created self-hosted subscription for email: %s", email),
-		metadataJSON,
-	)
-	if err != nil {
-		return nil, fmt.Errorf("failed to log subscription creation: %w", err)
-	}
-
-	// Commit transaction
-	if err := tx.Commit(); err != nil {
-		return nil, fmt.Errorf("failed to commit transaction: %w", err)
+		return nil, fmt.Errorf("failed to persist self-hosted subscription record: %w", err)
 	}
 
 	return &SelfHostedPurchaseResponse{
@@ -820,32 +461,14 @@ func (s *SubscriptionService) ConfirmSelfHostedPurchase(subscriptionID, paymentI
 		return "", fmt.Errorf("payment not captured yet")
 	}
 
-	tx, err := s.db.Begin()
-	if err != nil {
-		return "", fmt.Errorf("failed to begin transaction: %w", err)
-	}
-	defer tx.Rollback()
-
-	// Get subscription details
-	var dbSubscriptionID int64
-	var email string
-	var notesJSON []byte
-	var quantity int
-	err = tx.QueryRow(`
-		SELECT id, notes, quantity
-		FROM subscriptions
-		WHERE razorpay_subscription_id = $1 AND plan_type = 'selfhosted_annual'`,
-		subscriptionID,
-	).Scan(&dbSubscriptionID, &notesJSON, &quantity)
+	store := storagepayment.NewSubscriptionStore(s.db)
+	seed, err := store.GetSelfHostedConfirmationSeed(subscriptionID)
 	if err != nil {
 		return "", fmt.Errorf("subscription not found: %w", err)
 	}
 
-	// Extract email from notes
-	var notes map[string]string
-	if err := json.Unmarshal(notesJSON, &notes); err == nil {
-		email = notes["email"]
-	}
+	email := seed.Email
+	quantity := seed.Quantity
 
 	// Issue JWT license via fw-parse with the purchased quantity
 	jwtToken, err := s.issueSelfHostedJWT(email, quantity)
@@ -855,98 +478,41 @@ func (s *SubscriptionService) ConfirmSelfHostedPurchase(subscriptionID, paymentI
 		// Generate fallback key for tracking
 		licenseKey := fmt.Sprintf("LR-SELFHOSTED-%s-%d", subscriptionID[:8], time.Now().Unix())
 
-		// Update subscription with payment info only
-		_, err = tx.Exec(`
-			UPDATE subscriptions
-			SET last_payment_id = $1,
-			    last_payment_status = $2,
-			    last_payment_received_at = NOW(),
-			    payment_verified = TRUE,
-			    notes = jsonb_set(notes, '{license_key}', to_jsonb($3::text)),
-			    updated_at = NOW()
-			WHERE id = $4`,
-			payment.ID, payment.Status, licenseKey, dbSubscriptionID,
-		)
-		if err != nil {
-			return "", fmt.Errorf("failed to update subscription: %w", err)
-		}
-
-		// Record payment
 		paymentJSON, _ := json.Marshal(payment)
-		_, err = tx.Exec(`
-			INSERT INTO subscription_payments (
-				subscription_id, razorpay_payment_id, amount, currency,
-				status, captured, method, created_at, razorpay_data
-			) VALUES ($1, $2, $3, $4, $5, $6, $7, NOW(), $8)
-			ON CONFLICT (razorpay_payment_id) DO NOTHING`,
-			dbSubscriptionID, payment.ID, payment.Amount, payment.Currency,
-			payment.Status, payment.Captured, payment.Method, paymentJSON,
-		)
+		err = store.PersistSelfHostedFallback(storagepayment.PersistSelfHostedFallbackInput{
+			SubscriptionDBID: seed.SubscriptionDBID,
+			PaymentID:        payment.ID,
+			PaymentStatus:    payment.Status,
+			PaymentAmount:    payment.Amount,
+			PaymentCurrency:  payment.Currency,
+			PaymentCaptured:  bool(payment.Captured),
+			PaymentMethod:    payment.Method,
+			PaymentJSON:      paymentJSON,
+			LicenseKey:       licenseKey,
+		})
 		if err != nil {
 			return "", fmt.Errorf("failed to insert payment record: %w", err)
-		}
-
-		if err := tx.Commit(); err != nil {
-			return "", fmt.Errorf("failed to commit transaction: %w", err)
 		}
 
 		return "Payment confirmed. License generation pending. Please contact support@hexmos.com", nil
 	}
 
-	// Update subscription with payment info and JWT token
-	_, err = tx.Exec(`
-		UPDATE subscriptions
-		SET last_payment_id = $1,
-		    last_payment_status = $2,
-		    last_payment_received_at = NOW(),
-		    payment_verified = TRUE,
-		    notes = jsonb_set(notes, '{jwt_token}', to_jsonb($3::text)),
-		    updated_at = NOW()
-		WHERE id = $4`,
-		payment.ID, payment.Status, jwtToken, dbSubscriptionID,
-	)
-	if err != nil {
-		return "", fmt.Errorf("failed to update subscription: %w", err)
-	}
-
-	// Record in subscription_payments table
 	paymentJSON, _ := json.Marshal(payment)
-	_, err = tx.Exec(`
-		INSERT INTO subscription_payments (
-			subscription_id, razorpay_payment_id, amount, currency,
-			status, captured, method, created_at, razorpay_data
-		) VALUES ($1, $2, $3, $4, $5, $6, $7, NOW(), $8)
-		ON CONFLICT (razorpay_payment_id) DO NOTHING`,
-		dbSubscriptionID, payment.ID, payment.Amount, payment.Currency,
-		payment.Status, payment.Captured, payment.Method, paymentJSON,
-	)
+	err = store.PersistSelfHostedJWT(storagepayment.PersistSelfHostedJWTInput{
+		SubscriptionID:   subscriptionID,
+		SubscriptionDBID: seed.SubscriptionDBID,
+		PaymentID:        payment.ID,
+		PaymentStatus:    payment.Status,
+		PaymentAmount:    payment.Amount,
+		PaymentCurrency:  payment.Currency,
+		PaymentCaptured:  bool(payment.Captured),
+		PaymentMethod:    payment.Method,
+		PaymentJSON:      paymentJSON,
+		JWTToken:         jwtToken,
+		Email:            email,
+	})
 	if err != nil {
-		return "", fmt.Errorf("failed to insert payment record: %w", err)
-	}
-
-	// Log license generation
-	metadata := map[string]interface{}{
-		"subscription_id": subscriptionID,
-		"payment_id":      payment.ID,
-		"email":           email,
-		"jwt_issued":      true,
-		"amount":          payment.Amount,
-	}
-	metadataJSON, _ := json.Marshal(metadata)
-	_, err = tx.Exec(`
-		INSERT INTO license_log (
-			user_id, org_id, event_type, description, metadata, created_at
-		) VALUES ($1, $2, $3, $4, $5, NOW())`,
-		nil, nil, "selfhosted_license_generated",
-		fmt.Sprintf("Generated self-hosted JWT license for %s", email),
-		metadataJSON,
-	)
-	if err != nil {
-		return "", fmt.Errorf("failed to log license generation: %w", err)
-	}
-
-	if err := tx.Commit(); err != nil {
-		return "", fmt.Errorf("failed to commit transaction: %w", err)
+		return "", fmt.Errorf("failed to persist self-hosted JWT, payment record, and log entry: %w", err)
 	}
 
 	return jwtToken, nil
@@ -976,36 +542,19 @@ func (s *SubscriptionService) issueSelfHostedJWT(email string, seatCount int) (s
 		return "", fmt.Errorf("failed to marshal payload: %w", err)
 	}
 
-	// Create HTTP request
-	req, err := http.NewRequest("POST", "https://parse.apps.hexmos.com/jwtLicence/issue", bytes.NewBuffer(payloadBytes))
-	if err != nil {
-		return "", fmt.Errorf("failed to create request: %w", err)
-	}
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("X-Internal-Admin-Secret", secret)
-
 	fmt.Printf("[issueSelfHostedJWT] Calling fw-parse at https://parse.apps.hexmos.com/jwtLicence/issue\n")
 
-	// Send request with timeout
-	client := &http.Client{Timeout: 10 * time.Second}
-	resp, err := client.Do(req)
+	statusCode, respBody, err := networkpayment.IssueSelfHostedJWTRequest(secret, payloadBytes)
 	if err != nil {
 		fmt.Printf("[issueSelfHostedJWT] ERROR: Failed to call fw-parse: %v\n", err)
 		return "", fmt.Errorf("failed to call fw-parse: %w", err)
 	}
-	defer resp.Body.Close()
 
-	fmt.Printf("[issueSelfHostedJWT] fw-parse response status: %d\n", resp.StatusCode)
-
-	// Read the full response body for logging
-	respBody, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return "", fmt.Errorf("failed to read response body: %w", err)
-	}
+	fmt.Printf("[issueSelfHostedJWT] fw-parse response status: %d\n", statusCode)
 	fmt.Printf("[issueSelfHostedJWT] fw-parse response body: %s\n", string(respBody))
 
-	if resp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("fw-parse returned status %d: %s", resp.StatusCode, string(respBody))
+	if statusCode != 200 {
+		return "", fmt.Errorf("fw-parse returned status %d: %s", statusCode, string(respBody))
 	}
 
 	// Parse response - fw-parse returns {"data":{"token":"...","expiresAt":"...",...}}
