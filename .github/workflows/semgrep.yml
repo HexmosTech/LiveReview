@@ -1,5 +1,6 @@
 on:
   workflow_dispatch: {}
+  pull_request: {}
   push:
     branches:
     - main
@@ -12,6 +13,7 @@ on:
 name: Semgrep
 jobs:
   semgrep:
+    if: github.event_name == 'workflow_dispatch' || github.event_name == 'push' || github.event_name == 'schedule'
     name: semgrep/ci
     runs-on: ubuntu-latest
     permissions:
