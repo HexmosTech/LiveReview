@@ -25,8 +25,8 @@
 | license.UpsertLicenseState | moved | [UpsertLicenseState](license/license_state_store.go#L56) |
 | license.UpdateValidationResult | moved | [UpdateValidationResult](license/license_state_store.go#L88) |
 | license.DeleteLicenseState | moved | [DeleteLicenseState](license/license_state_store.go#L119) |
-| providersgitlab.NewAuthTokenStore | moved | [NewAuthTokenStore](providers/gitlab/auth_token_store.go#L42) |
-| providersgitlab.UpsertGitLabIntegrationToken | moved | [UpsertGitLabIntegrationToken](providers/gitlab/auth_token_store.go#L46) |
-| providersgitlab.GetGitLabTokenRecord | moved | [GetGitLabTokenRecord](providers/gitlab/auth_token_store.go#L107) |
-| providersgitlab.GetProviderAppID | moved | [GetProviderAppID](providers/gitlab/auth_token_store.go#L120) |
-| providersgitlab.UpdateRefreshedToken | moved | [UpdateRefreshedToken](providers/gitlab/auth_token_store.go#L131) |
+| providersgitlab.NewAuthTokenStore | moved | [NewAuthTokenStore](providers/gitlab/auth_token_store.go#L44) |
+| providersgitlab.UpsertGitLabIntegrationToken | moved | [UpsertGitLabIntegrationToken](providers/gitlab/auth_token_store.go#L48) |
+| providersgitlab.GetGitLabTokenRecord | moved | [GetGitLabTokenRecord](providers/gitlab/auth_token_store.go#L109) |
+| providersgitlab.GetProviderAppID | moved | [GetProviderAppID](providers/gitlab/auth_token_store.go#L122) |
+| providersgitlab.UpdateRefreshedToken | moved | [UpdateRefreshedToken](providers/gitlab/auth_token_store.go#L133) |

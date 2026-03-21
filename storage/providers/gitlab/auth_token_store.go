@@ -6,6 +6,8 @@ import (
 	"time"
 )
 
+const gitlabProviderName = "gitlab"
+
 type TokenRecord struct {
 	RefreshToken       string
 	ProviderURL        string
@@ -59,8 +61,8 @@ func (s *AuthTokenStore) UpsertGitLabIntegrationToken(input TokenUpsertInput) (i
 	var existingID int64
 	err = tx.QueryRow(`
 		SELECT id FROM integration_tokens
-		WHERE provider = 'gitlab' AND provider_app_id = $1 AND connection_name = $2
-	`, input.ProviderAppID, input.ConnectionName).Scan(&existingID)
+		WHERE provider = $1 AND provider_app_id = $2 AND connection_name = $3
+	`, gitlabProviderName, input.ProviderAppID, input.ConnectionName).Scan(&existingID)
 	if err != nil && err != sql.ErrNoRows {
 		return 0, err
 	}
@@ -71,9 +73,9 @@ func (s *AuthTokenStore) UpsertGitLabIntegrationToken(input TokenUpsertInput) (i
 			INSERT INTO integration_tokens
 			(provider, provider_app_id, access_token, refresh_token, token_type, scope,
 			 expires_at, metadata, code, connection_name, provider_url, client_secret)
-			VALUES ('gitlab', $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
 			RETURNING id
-		`, input.ProviderAppID, input.AccessToken, input.RefreshToken,
+		`, gitlabProviderName, input.ProviderAppID, input.AccessToken, input.RefreshToken,
 			input.TokenType, input.Scope, input.ExpiresAt, input.MetadataJSON,
 			input.Code, input.ConnectionName, input.ProviderURL, input.ClientSecret).Scan(&integrationTokenID)
 	} else {
@@ -109,8 +111,8 @@ func (s *AuthTokenStore) GetGitLabTokenRecord(integrationID int64) (*TokenRecord
 	err := s.db.QueryRow(`
 		SELECT refresh_token, provider_url, client_secret
 		FROM integration_tokens
-		WHERE id = $1 AND provider = 'gitlab'
-	`, integrationID).Scan(&rec.RefreshToken, &rec.ProviderURL, &rec.StoredClientSecret)
+		WHERE id = $1 AND provider = $2
+	`, integrationID, gitlabProviderName).Scan(&rec.RefreshToken, &rec.ProviderURL, &rec.StoredClientSecret)
 	if err != nil {
 		return nil, err
 	}
