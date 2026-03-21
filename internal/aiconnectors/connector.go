@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"time"
 
+	networkaiconnectors "github.com/livereview/network/aiconnectors"
 	"github.com/rs/zerolog/log"
 	"github.com/tmc/langchaingo/llms"
 	"github.com/tmc/langchaingo/llms/anthropic"
@@ -249,15 +250,15 @@ func validateOpenAIKeyViaResponses(ctx context.Context, apiKey string, baseURL s
 		return false, fmt.Errorf("failed to marshal OpenAI validation request: %w", err)
 	}
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, fmt.Sprintf("%s/responses", trimTrailingSlash(base)), bytes.NewReader(body))
+	req, err := networkaiconnectors.NewRequestWithContext(ctx, http.MethodPost, fmt.Sprintf("%s/responses", trimTrailingSlash(base)), bytes.NewReader(body))
 	if err != nil {
 		return false, fmt.Errorf("failed to create OpenAI validation request: %w", err)
 	}
 	req.Header.Set("Authorization", "Bearer "+apiKey)
 	req.Header.Set("Content-Type", "application/json")
 
-	client := &http.Client{Timeout: 30 * time.Second}
-	resp, err := client.Do(req)
+	client := networkaiconnectors.NewHTTPClient(30 * time.Second)
+	resp, err := networkaiconnectors.Do(client, req)
 	if err != nil {
 		return false, fmt.Errorf("failed to call OpenAI responses API: %w", err)
 	}
@@ -392,10 +393,8 @@ func createOllamaModel(ctx context.Context, options ConnectorOptions) (llms.Mode
 func createOpenRouterModel(ctx context.Context, options ConnectorOptions) (llms.Model, error) {
 	baseURL := ResolveBaseURL(ProviderOpenRouter, options.BaseURL)
 
-	httpClient := &http.Client{
-		Transport: &openRouterLoggingTransport{base: http.DefaultTransport},
-		Timeout:   5 * time.Minute,
-	}
+	httpClient := networkaiconnectors.NewHTTPClient(5 * time.Minute)
+	httpClient.Transport = &openRouterLoggingTransport{base: http.DefaultTransport}
 
 	opts := []openai.Option{
 		openai.WithModel(options.ModelConfig.Model),

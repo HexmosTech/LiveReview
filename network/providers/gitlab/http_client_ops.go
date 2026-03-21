@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"time"
 )
 
@@ -41,4 +42,21 @@ func Do(client *http.Client, req *http.Request) (*http.Response, error) {
 		return nil, fmt.Errorf("http request is nil")
 	}
 	return client.Do(req)
+}
+
+func ParseURL(rawURL string) (*url.URL, error) {
+	parsed, err := url.Parse(rawURL)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse URL %q: %w", rawURL, err)
+	}
+	if !parsed.IsAbs() {
+		return nil, fmt.Errorf("URL must be absolute: %q", rawURL)
+	}
+	if parsed.Scheme != "http" && parsed.Scheme != "https" {
+		return nil, fmt.Errorf("URL scheme must be http or https: %q", rawURL)
+	}
+	if parsed.Host == "" {
+		return nil, fmt.Errorf("URL must include host: %q", rawURL)
+	}
+	return parsed, nil
 }

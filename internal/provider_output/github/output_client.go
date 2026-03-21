@@ -2,6 +2,7 @@ package github
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -12,6 +13,7 @@ import (
 	"time"
 
 	coreprocessor "github.com/livereview/internal/core_processor"
+	networkgithub "github.com/livereview/network/providers/github"
 )
 
 type (
@@ -36,7 +38,7 @@ type APIClient struct {
 
 // NewAPIClient constructs a GitHub output client with sensible defaults.
 func NewAPIClient() *APIClient {
-	return &APIClient{httpClient: &http.Client{Timeout: 30 * time.Second}}
+	return &APIClient{httpClient: networkgithub.NewHTTPClient(30 * time.Second)}
 }
 
 // PostCommentReply posts a reply to an existing GitHub comment thread.
@@ -152,7 +154,7 @@ func (c *APIClient) postToGitHubAPI(apiURL, token string, requestBody interface{
 		return fmt.Errorf("failed to marshal request body: %w", err)
 	}
 
-	req, err := http.NewRequest("POST", apiURL, bytes.NewBuffer(jsonBody))
+	req, err := networkgithub.NewRequestWithContext(context.Background(), http.MethodPost, apiURL, bytes.NewBuffer(jsonBody))
 	if err != nil {
 		return fmt.Errorf("failed to create HTTP request: %w", err)
 	}
@@ -166,10 +168,10 @@ func (c *APIClient) postToGitHubAPI(apiURL, token string, requestBody interface{
 
 	client := c.httpClient
 	if client == nil {
-		client = &http.Client{Timeout: 30 * time.Second}
+		client = networkgithub.NewHTTPClient(30 * time.Second)
 	}
 
-	resp, err := client.Do(req)
+	resp, err := networkgithub.Do(client, req)
 	if err != nil {
 		log.Printf("[ERROR] GitHub API request failed: %v", err)
 		return fmt.Errorf("failed to make HTTP request: %w", err)
