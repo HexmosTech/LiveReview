@@ -7,6 +7,8 @@ import (
 	"net/http"
 	"strings"
 	"time"
+
+	networkaiconnectors "github.com/livereview/network/aiconnectors"
 )
 
 // OllamaModel represents a model from Ollama API
@@ -44,7 +46,7 @@ func FetchOllamaModels(ctx context.Context, baseURL string, jwtToken string) ([]
 	apiURL := fmt.Sprintf("%s/tags", baseURL)
 
 	// Create HTTP request
-	req, err := http.NewRequestWithContext(ctx, "GET", apiURL, nil)
+	req, err := networkaiconnectors.NewRequestWithContext(ctx, http.MethodGet, apiURL, nil)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create request: %w", err)
 	}
@@ -55,12 +57,10 @@ func FetchOllamaModels(ctx context.Context, baseURL string, jwtToken string) ([]
 	}
 
 	// Create HTTP client with timeout
-	client := &http.Client{
-		Timeout: 10 * time.Second,
-	}
+	client := networkaiconnectors.NewHTTPClient(10 * time.Second)
 
 	// Make the request
-	resp, err := client.Do(req)
+	resp, err := networkaiconnectors.Do(client, req)
 	if err != nil {
 		return nil, fmt.Errorf("failed to connect to Ollama at %s: %w", baseURL, err)
 	}
