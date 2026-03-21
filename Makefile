@@ -499,3 +499,7 @@ legacy-secrets-clear:
 		$(GH) variable delete "$$var" --repo $(GH_REPO) >/dev/null 2>&1 || true; \
 	done
 	@echo "✅ Legacy variable cleanup complete."
+
+check-status-doc:
+	chmod +x scripts/check-status-doc-links.sh
+	./scripts/check-status-doc-links.sh
