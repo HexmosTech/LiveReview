@@ -1,22 +1,27 @@
 package users
 
 import (
+	"context"
 	"database/sql"
+	"errors"
 	"fmt"
+	"net/mail"
+	"strings"
 	"time"
 
+	storageusers "github.com/livereview/storage/users"
 	"golang.org/x/crypto/bcrypt"
 )
 
 // ProfileService handles user profile management operations
 type ProfileService struct {
-	db *sql.DB
+	store *storageusers.ProfileStore
 }
 
 // NewProfileService creates a new profile service
 func NewProfileService(db *sql.DB) *ProfileService {
 	return &ProfileService{
-		db: db,
+		store: storageusers.NewProfileStore(db),
 	}
 }
 
@@ -48,23 +53,8 @@ type ChangePasswordRequest struct {
 }
 
 // GetUserProfile retrieves the user's profile information
-func (ps *ProfileService) GetUserProfile(userID int64) (*UserProfile, error) {
-	profile := &UserProfile{}
-
-	err := ps.db.QueryRow(`
-		SELECT 
-			u.id, u.email, u.first_name, u.last_name, u.is_active, 
-			u.created_at, u.updated_at, u.last_login_at,
-			ur.plan_type, ur.license_expires_at
-		FROM users u
-		LEFT JOIN user_roles ur ON u.id = ur.user_id
-		WHERE u.id = $1
-	`, userID).Scan(
-		&profile.ID, &profile.Email, &profile.FirstName, &profile.LastName,
-		&profile.IsActive, &profile.CreatedAt, &profile.UpdatedAt, &profile.LastLoginAt,
-		&profile.PlanType, &profile.LicenseExpiresAt,
-	)
-
+func (ps *ProfileService) GetUserProfile(ctx context.Context, userID int64) (*UserProfile, error) {
+	rec, err := ps.store.GetUserProfile(ctx, userID)
 	if err != nil {
 		if err == sql.ErrNoRows {
 			return nil, fmt.Errorf("user not found")
@@ -72,89 +62,50 @@ func (ps *ProfileService) GetUserProfile(userID int64) (*UserProfile, error) {
 		return nil, fmt.Errorf("failed to get user profile: %w", err)
 	}
 
-	return profile, nil
+	return &UserProfile{
+		ID:               rec.ID,
+		Email:            rec.Email,
+		FirstName:        rec.FirstName,
+		LastName:         rec.LastName,
+		IsActive:         rec.IsActive,
+		CreatedAt:        rec.CreatedAt,
+		UpdatedAt:        rec.UpdatedAt,
+		LastLoginAt:      rec.LastLoginAt,
+		PlanType:         rec.PlanType,
+		LicenseExpiresAt: rec.LicenseExpiresAt,
+	}, nil
 }
 
 // UpdateUserProfile updates the user's profile information
-func (ps *ProfileService) UpdateUserProfile(userID int64, req UpdateProfileRequest) (*UserProfile, error) {
-	// Start transaction
-	tx, err := ps.db.Begin()
+func (ps *ProfileService) UpdateUserProfile(ctx context.Context, userID int64, req UpdateProfileRequest) (*UserProfile, error) {
+	if err := validateUpdateProfileRequest(req); err != nil {
+		return nil, err
+	}
+
+	err := ps.store.UpdateUserProfile(ctx, storageusers.UpdateProfileInput{
+		UserID:    userID,
+		FirstName: req.FirstName,
+		LastName:  req.LastName,
+		Email:     req.Email,
+	})
 	if err != nil {
-		return nil, fmt.Errorf("failed to start transaction: %w", err)
-	}
-	defer tx.Rollback()
-
-	// Build dynamic update query
-	setParts := []string{"updated_at = NOW()"}
-	args := []interface{}{}
-	argIndex := 1
-
-	if req.FirstName != nil {
-		setParts = append(setParts, fmt.Sprintf("first_name = $%d", argIndex))
-		args = append(args, *req.FirstName)
-		argIndex++
-	}
-
-	if req.LastName != nil {
-		setParts = append(setParts, fmt.Sprintf("last_name = $%d", argIndex))
-		args = append(args, *req.LastName)
-		argIndex++
-	}
-
-	if req.Email != nil {
-		// Check if email already exists for another user
-		var existingUserID int64
-		err = tx.QueryRow("SELECT id FROM users WHERE email = $1 AND id != $2", *req.Email, userID).Scan(&existingUserID)
-		if err == nil {
-			return nil, fmt.Errorf("email %s is already in use by another user", *req.Email)
-		} else if err != sql.ErrNoRows {
-			return nil, fmt.Errorf("failed to check existing email: %w", err)
+		if errors.Is(err, storageusers.ErrEmailInUse) {
+			return nil, storageusers.ErrEmailInUse
 		}
-
-		setParts = append(setParts, fmt.Sprintf("email = $%d", argIndex))
-		args = append(args, *req.Email)
-		argIndex++
-	}
-
-	// Update user if there are changes
-	if len(setParts) > 1 { // More than just updated_at
-		query := fmt.Sprintf("UPDATE users SET %s WHERE id = $%d",
-			fmt.Sprintf("%s", fmt.Sprintf("%s", fmt.Sprintf("%s", setParts[0]))),
-			argIndex)
-
-		// Properly join setParts
-		var setClause string
-		for i, part := range setParts {
-			if i == 0 {
-				setClause = part
-			} else {
-				setClause += ", " + part
-			}
-		}
-
-		query = fmt.Sprintf("UPDATE users SET %s WHERE id = $%d", setClause, argIndex)
-		args = append(args, userID)
-
-		_, err = tx.Exec(query, args...)
-		if err != nil {
-			return nil, fmt.Errorf("failed to update user profile: %w", err)
-		}
-	}
-
-	// Commit transaction
-	if err = tx.Commit(); err != nil {
-		return nil, fmt.Errorf("failed to commit transaction: %w", err)
+		return nil, fmt.Errorf("failed to update user profile: %w", err)
 	}
 
 	// Get updated profile
-	return ps.GetUserProfile(userID)
+	return ps.GetUserProfile(ctx, userID)
 }
 
 // ChangePassword changes the user's password
-func (ps *ProfileService) ChangePassword(userID int64, req ChangePasswordRequest) error {
-	// Get current password hash
-	var currentHash string
-	err := ps.db.QueryRow("SELECT password_hash FROM users WHERE id = $1", userID).Scan(&currentHash)
+func (ps *ProfileService) ChangePassword(ctx context.Context, userID int64, req ChangePasswordRequest) error {
+	if strings.TrimSpace(req.CurrentPassword) == "" || strings.TrimSpace(req.NewPassword) == "" {
+		return fmt.Errorf("current and new password are required")
+	}
+
+	currentHash, err := ps.store.GetCurrentPasswordHash(ctx, userID)
 	if err != nil {
 		if err == sql.ErrNoRows {
 			return fmt.Errorf("user not found")
@@ -174,47 +125,63 @@ func (ps *ProfileService) ChangePassword(userID int64, req ChangePasswordRequest
 		return fmt.Errorf("failed to hash new password: %w", err)
 	}
 
-	// Update password and clear password reset flag
-	_, err = ps.db.Exec(`
-		UPDATE users 
-		SET password_hash = $1, password_reset_required = false, updated_at = NOW()
-		WHERE id = $2
-	`, string(hashedPassword), userID)
-
+	updated, err := ps.store.UpdatePasswordIfCurrentHash(ctx, userID, currentHash, string(hashedPassword))
 	if err != nil {
 		return fmt.Errorf("failed to update password: %w", err)
+	}
+	if !updated {
+		return fmt.Errorf("current password is incorrect")
 	}
 
 	return nil
 }
 
 // GetUserOrganizations gets all organizations the user belongs to with their roles
-func (ps *ProfileService) GetUserOrganizations(userID int64) ([]UserOrgRole, error) {
-	rows, err := ps.db.Query(`
-		SELECT o.id, o.name, r.name as role, ur.role_id
-		FROM orgs o
-		JOIN user_roles ur ON o.id = ur.org_id
-		JOIN roles r ON ur.role_id = r.id
-		WHERE ur.user_id = $1
-		ORDER BY o.name
-	`, userID)
-
+func (ps *ProfileService) GetUserOrganizations(ctx context.Context, userID int64) ([]UserOrgRole, error) {
+	recs, err := ps.store.ListUserOrganizations(ctx, userID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get user organizations: %w", err)
 	}
-	defer rows.Close()
 
-	var organizations []UserOrgRole
-	for rows.Next() {
-		var org UserOrgRole
-		err := rows.Scan(&org.OrgID, &org.OrgName, &org.Role, &org.RoleID)
-		if err != nil {
-			return nil, fmt.Errorf("failed to scan organization: %w", err)
-		}
-		organizations = append(organizations, org)
+	organizations := make([]UserOrgRole, 0, len(recs))
+	for _, rec := range recs {
+		organizations = append(organizations, UserOrgRole{
+			OrgID:   rec.OrgID,
+			OrgName: rec.OrgName,
+			Role:    rec.Role,
+			RoleID:  rec.RoleID,
+		})
 	}
 
 	return organizations, nil
+}
+
+func validateUpdateProfileRequest(req UpdateProfileRequest) error {
+	if req.Email != nil {
+		email := strings.TrimSpace(*req.Email)
+		if email == "" {
+			return fmt.Errorf("email cannot be empty")
+		}
+		if _, err := mail.ParseAddress(email); err != nil {
+			return fmt.Errorf("email is invalid")
+		}
+	}
+
+	if req.FirstName != nil {
+		first := strings.TrimSpace(*req.FirstName)
+		if len(first) > 120 {
+			return fmt.Errorf("first_name is too long")
+		}
+	}
+
+	if req.LastName != nil {
+		last := strings.TrimSpace(*req.LastName)
+		if len(last) > 120 {
+			return fmt.Errorf("last_name is too long")
+		}
+	}
+
+	return nil
 }
 
 // UserOrgRole represents a user's role in an organization

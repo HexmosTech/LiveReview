@@ -1,5 +1,7 @@
 # Network Status
 
+Latest milestone batch note (MF-051, MF-059, MF-073, MF-074, MF-076, MF-083): no new network boundary operations were introduced; changes in this batch were storage/file boundary migrations only.
+
 | Operation | Status | Evidence |
 | --- | --- | --- |
 | payment.IssueSelfHostedJWTRequest | moved | [IssueSelfHostedJWTRequest](payment/fw_parse_client.go#L21) |

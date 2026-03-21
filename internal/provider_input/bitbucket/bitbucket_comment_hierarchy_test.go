@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	api "github.com/livereview/internal/api"
+	storagecore "github.com/livereview/storage/core"
 )
 
 func TestBitbucketCommentHierarchyFromCapture(t *testing.T) {
@@ -37,9 +38,10 @@ func TestBitbucketCommentHierarchyFromCapture(t *testing.T) {
 	})
 
 	provider := server.BitbucketProviderV2()
+	fileStore := storagecore.NewFileOpsStore()
 
 	capturePath := filepath.Join("captures", "bitbucket", "20251014-194407", "bitbucket-webhook-pullrequest_comment_created-body-0025.json")
-	body, err := os.ReadFile(capturePath)
+	body, err := fileStore.ReadFile(capturePath)
 	if err != nil {
 		t.Fatalf("failed to read capture file %s: %v", capturePath, err)
 	}

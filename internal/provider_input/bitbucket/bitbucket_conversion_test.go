@@ -2,13 +2,13 @@ package bitbucket
 
 import (
 	"encoding/json"
-	"os"
 	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/require"
 
 	coreprocessor "github.com/livereview/internal/core_processor"
+	storagecore "github.com/livereview/storage/core"
 )
 
 type unifiedEventsFixture struct {
@@ -168,8 +168,9 @@ func readExpectedTimelineFixture(t *testing.T, name string) expectedTimelineFixt
 func readFixture(t *testing.T, name string) []byte {
 	t.Helper()
 
+	fileStore := storagecore.NewFileOpsStore()
 	path := filepath.Join("testdata", name)
-	data, err := os.ReadFile(path)
+	data, err := fileStore.ReadFile(path)
 	require.NoErrorf(t, err, "read fixture %s", path)
 	return data
 }

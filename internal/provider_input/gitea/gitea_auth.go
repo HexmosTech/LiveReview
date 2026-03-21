@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	giteautils "github.com/livereview/internal/providers/gitea"
+	storagegitea "github.com/livereview/storage/providers/gitea"
 )
 
 // FindIntegrationTokenForGiteaRepo finds the integration token for a Gitea repository.
@@ -19,44 +20,26 @@ func FindIntegrationTokenForGiteaRepo(db *sql.DB, repoFullName string) (*Integra
 		return nil, "", fmt.Errorf("repository full name is empty")
 	}
 
-	// Query integration_tokens table for Gitea provider matching repo
-	// We need to find the connector that can handle this repository
-	// This requires matching against provider_url since we don't have direct repo mapping yet
-	query := `
-		SELECT id, provider, provider_url, pat_token, org_id, COALESCE(metadata, '{}') as metadata
-		FROM integration_tokens
-		WHERE provider = 'gitea'
-		AND org_id IS NOT NULL
-		ORDER BY updated_at DESC
-		LIMIT 10
-	`
-
-	rows, err := db.Query(query)
+	store := storagegitea.NewTokenStore(db)
+	records, err := store.ListRecentGiteaIntegrationTokens(10)
 	if err != nil {
 		return nil, "", fmt.Errorf("failed to query integration tokens: %w", err)
 	}
-	defer rows.Close()
 
 	var tokens []IntegrationToken
-	for rows.Next() {
+	for _, rec := range records {
 		var token IntegrationToken
-		var metadataJSON string
-
-		err := rows.Scan(
-			&token.ID,
-			&token.Provider,
-			&token.ProviderURL,
-			&token.PatToken,
-			&token.OrgID,
-			&metadataJSON,
-		)
-		if err != nil {
-			continue
-		}
+		token.ID = rec.ID
+		token.Provider = rec.Provider
+		token.ProviderURL = rec.ProviderURL
+		token.PatToken = rec.PatToken
+		token.OrgID = rec.OrgID
 
 		// Parse metadata JSON
-		if metadataJSON != "" {
-			_ = json.Unmarshal([]byte(metadataJSON), &token.Metadata)
+		if rec.MetadataJSON != "" {
+			if err := json.Unmarshal([]byte(rec.MetadataJSON), &token.Metadata); err != nil {
+				return nil, "", fmt.Errorf("failed to parse gitea metadata for connector %d: %w", rec.ID, err)
+			}
 		}
 		if token.Metadata == nil {
 			token.Metadata = make(map[string]interface{})
@@ -96,23 +79,8 @@ func FindIntegrationTokenByConnectorID(db *sql.DB, connectorID int) (*Integratio
 		return nil, "", fmt.Errorf("database connection is nil")
 	}
 
-	query := `
-		SELECT id, provider, provider_url, pat_token, org_id, COALESCE(metadata, '{}') as metadata
-		FROM integration_tokens
-		WHERE id = $1 AND provider = 'gitea'
-	`
-
-	var token IntegrationToken
-	var metadataJSON string
-
-	err := db.QueryRow(query, connectorID).Scan(
-		&token.ID,
-		&token.Provider,
-		&token.ProviderURL,
-		&token.PatToken,
-		&token.OrgID,
-		&metadataJSON,
-	)
+	store := storagegitea.NewTokenStore(db)
+	rec, err := store.GetGiteaIntegrationTokenByID(connectorID)
 	if err == sql.ErrNoRows {
 		return nil, "", fmt.Errorf("no Gitea connector found with id %d", connectorID)
 	}
@@ -120,9 +88,18 @@ func FindIntegrationTokenByConnectorID(db *sql.DB, connectorID int) (*Integratio
 		return nil, "", fmt.Errorf("failed to query integration token: %w", err)
 	}
 
+	var token IntegrationToken
+	token.ID = rec.ID
+	token.Provider = rec.Provider
+	token.ProviderURL = rec.ProviderURL
+	token.PatToken = rec.PatToken
+	token.OrgID = rec.OrgID
+
 	// Parse metadata JSON
-	if metadataJSON != "" {
-		_ = json.Unmarshal([]byte(metadataJSON), &token.Metadata)
+	if rec.MetadataJSON != "" {
+		if err := json.Unmarshal([]byte(rec.MetadataJSON), &token.Metadata); err != nil {
+			return nil, "", fmt.Errorf("failed to parse gitea metadata for connector %d: %w", rec.ID, err)
+		}
 	}
 	if token.Metadata == nil {
 		token.Metadata = make(map[string]interface{})
@@ -176,16 +153,8 @@ func FindWebhookSecretByConnectorID(db *sql.DB, connectorID int) (string, error)
 		return "", fmt.Errorf("database connection is nil")
 	}
 
-	query := `
-		SELECT webhook_secret
-		FROM webhook_registry
-		WHERE integration_token_id = $1 AND provider = 'gitea'
-		ORDER BY updated_at DESC
-		LIMIT 1
-	`
-
-	var secret sql.NullString
-	err := db.QueryRow(query, connectorID).Scan(&secret)
+	store := storagegitea.NewTokenStore(db)
+	secret, err := store.GetLatestWebhookSecret(connectorID)
 	if err == sql.ErrNoRows {
 		// No webhook registered yet - this is okay for manual trigger mode
 		return "", nil

@@ -2,7 +2,6 @@ package gitlab
 
 import (
 	"encoding/json"
-	"os"
 	"path/filepath"
 	"testing"
 
@@ -11,6 +10,7 @@ import (
 	coreprocessor "github.com/livereview/internal/core_processor"
 	providergitlab "github.com/livereview/internal/providers/gitlab"
 	"github.com/livereview/pkg/models"
+	storagecore "github.com/livereview/storage/core"
 )
 
 type unifiedEventsFixture struct {
@@ -239,8 +239,9 @@ func readExpectedDiffsFixture(t *testing.T, name string) expectedDiffsFixture {
 func readFixture(t *testing.T, name string) []byte {
 	t.Helper()
 
+	fileStore := storagecore.NewFileOpsStore()
 	path := filepath.Join("testdata", name)
-	data, err := os.ReadFile(path)
+	data, err := fileStore.ReadFile(path)
 	require.NoErrorf(t, err, "read fixture %s", path)
 	return data
 }
