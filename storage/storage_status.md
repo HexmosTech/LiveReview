@@ -21,3 +21,7 @@
 | jobqueue.InsertWebhookRegistry | moved | [InsertWebhookRegistry](jobqueue/webhook_store.go#L84) |
 | jobqueue.UpdateWebhookRegistryByID | moved | [UpdateWebhookRegistryByID](jobqueue/webhook_store.go#L122) |
 | jobqueue.GetConnectorMetadata | moved | [GetConnectorMetadata](jobqueue/webhook_store.go#L145) |
+| license.GetLicenseState | moved | [GetLicenseState](license/license_state_store.go#L41) |
+| license.UpsertLicenseState | moved | [UpsertLicenseState](license/license_state_store.go#L56) |
+| license.UpdateValidationResult | moved | [UpdateValidationResult](license/license_state_store.go#L88) |
+| license.DeleteLicenseState | moved | [DeleteLicenseState](license/license_state_store.go#L119) |
