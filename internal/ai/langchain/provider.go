@@ -695,7 +695,7 @@ func (p *LangchainProvider) reviewCodeBatchFormatted(ctx context.Context, diffs 
 	for i := range diffs {
 		diffPointers[i] = &diffs[i]
 	}
-	prompt := base + "\n\n" + prompts.BuildCodeChangesSection(diffPointers)
+	prompt := base + "\n\n" + prompts.BuildCodeChangesSectionWithContext(ctx, diffPointers)
 
 	// Log request to global logger and emit batch started event
 	if p.logger != nil {

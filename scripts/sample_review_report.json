@@ -1,0 +1,108 @@
+{
+  "mode": "triggered",
+  "timestamp": "2026-03-22T09:54:55.190377+00:00",
+  "base_url": "http://localhost:8888",
+  "review_id": "2119",
+  "trigger_response": {
+    "friendly_name": "Pearl Crystal",
+    "review_id": "2119",
+    "status": "processing",
+    "user_email": "shrijith@hexmos.com"
+  },
+  "preflight": {
+    "timestamp": "2026-03-22T09:54:53.151301+00:00",
+    "structure": {
+      "has_diff_header": true,
+      "has_file_markers": true,
+      "has_hunk_header": true,
+      "has_added_lines": true,
+      "has_removed_lines": true,
+      "non_empty": true,
+      "all_passed": true
+    },
+    "mitigation_expectations": {
+      "secrets_detected": 3,
+      "pii_emails_detected": 1,
+      "pii_phones_detected": 3,
+      "prompt_attack_markers_detected": 1,
+      "expects_secret_redaction_token": true,
+      "expects_pii_redaction": true,
+      "expects_prompt_attack_neutralization": true
+    },
+    "sanitized_preview": "diff --git a/app/security_probe.py b/app/security_probe.py\nindex 1111111..2222222 100644\n--- a/app/security_probe.py\n+++ b/app/security_probe.py\n@@ -1,6 +1,17 @@\n def process_user_input(user_text):\n-    return user_text.strip()\n+    # Prompt injection probe payload (must be neutralized before LLM use)\n+    # REDACTED_PROMPT_ATTACK\n+\n+    # Secret-like probe payloads (must be redacted)\n+    REDACTED_SECRET\n+    aws_key = \"REDACTED_SECRET\"\n+    slack_token = \"REDACTED_SECRET\"\n+\n+    # PII-like payloads (should be anonymized in natural language context)\n+    owner_email = \"REDACTED_EMAIL\"\n+    owner_phone = \"+REDACTED_PHONE\"\n+\n+    return f\"{user_text} :: {injected} :: {api_key} :: {owner_email} :: {owner_phone}\"\n\n def helper(a, b):\n\t return a + b"
+  },
+  "polling": {
+    "reached_processing_or_terminal": true,
+    "last_status_payload": {
+      "friendly_name": "Pearl Crystal",
+      "review_id": "2119",
+      "status": "in_progress"
+    },
+    "event_sample": [
+      {
+        "type": "status",
+        "status": null,
+        "message": null,
+        "timestamp": null
+      },
+      {
+        "type": "log",
+        "status": null,
+        "message": null,
+        "timestamp": null
+      },
+      {
+        "type": "log",
+        "status": null,
+        "message": null,
+        "timestamp": null
+      },
+      {
+        "type": "log",
+        "status": null,
+        "message": null,
+        "timestamp": null
+      },
+      {
+        "type": "log",
+        "status": null,
+        "message": null,
+        "timestamp": null
+      },
+      {
+        "type": "log",
+        "status": null,
+        "message": null,
+        "timestamp": null
+      },
+      {
+        "type": "log",
+        "status": null,
+        "message": null,
+        "timestamp": null
+      },
+      {
+        "type": "log",
+        "status": null,
+        "message": null,
+        "timestamp": null
+      },
+      {
+        "type": "log",
+        "status": null,
+        "message": null,
+        "timestamp": null
+      },
+      {
+        "type": "log",
+        "status": null,
+        "message": null,
+        "timestamp": null
+      }
+    ]
+  },
+  "notes": [
+    "This harness validates review input structure and mitigation coverage before relying on full LLM completion.",
+    "Polling intentionally stops early once processing/terminal state is reached."
+  ]
+}
