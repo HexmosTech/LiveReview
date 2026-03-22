@@ -1,7 +1,12 @@
 name: osv-scanner
 
 on:
-  workflow_dispatch: {}
+  workflow_dispatch:
+    inputs:
+      sha:
+        description: 'PR commit SHA to report status against'
+        required: false
+        default: ''
   push:
     branches:
       - main
@@ -16,8 +21,11 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
+      statuses: write
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.inputs.sha || github.sha }}
       - uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
@@ -29,3 +37,17 @@ jobs:
         with:
           name: osv-scanner-ci-report
           path: security_issues/osv-scanner-ci.json
+
+      - name: Report status to commit SHA
+        if: always() && github.event_name == 'workflow_dispatch' && github.event.inputs.sha != ''
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          STATE: ${{ job.status == 'success' && 'success' || 'failure' }}
+        run: |
+          gh api \
+            --method POST \
+            repos/${{ github.repository }}/statuses/${{ github.event.inputs.sha }} \
+            -f state="$STATE" \
+            -f context="osv-scan" \
+            -f description="OSV Scanner completed with status: $STATE" \
+            -f target_url="https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"
