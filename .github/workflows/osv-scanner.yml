@@ -2,7 +2,6 @@ name: osv-scanner
 
 on:
   workflow_dispatch: {}
-  pull_request: {}
   push:
     branches:
       - main
@@ -14,7 +13,6 @@ on:
 
 jobs:
   osv-scan:
-    if: github.event_name == 'workflow_dispatch' || github.event_name == 'push'
     runs-on: ubuntu-latest
     permissions:
       contents: read
