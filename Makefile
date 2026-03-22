@@ -8,6 +8,7 @@ GOCLEAN=$(GOCMD) clean
 GOTEST=$(GOCMD) test
 BINARY_NAME=livereview
 REQUIRED_GO_VERSION=$(shell awk '/^go /{print $$2; exit}' go.mod)
+REQUIRED_GO_SERIES=$(shell echo $(REQUIRED_GO_VERSION) | awk -F. '{print $$1"."$$2}')
 GOVULNCHECK_VERSION=v1.1.4
 GOVULNCHECK_CMD=GOTOOLCHAIN=go$(REQUIRED_GO_VERSION) $(GOCMD) run -a golang.org/x/vuln/cmd/govulncheck@$(GOVULNCHECK_VERSION)
 GH_REPO=HexmosTech/LiveReview
@@ -129,16 +130,36 @@ docker-interactive-dry:
 build-push: docker-build-push
 
 run:
+	@DLV_BIN_DIR=$$(go env GOBIN); \
+	if [ -z "$$DLV_BIN_DIR" ]; then DLV_BIN_DIR="$$(go env GOPATH)/bin"; fi; \
+	command -v dlv >/dev/null 2>&1 || { \
+		echo "Installing Delve with Go $(REQUIRED_GO_VERSION)..."; \
+		GOTOOLCHAIN=go$(REQUIRED_GO_VERSION) $(GOCMD) install github.com/go-delve/delve/cmd/dlv@latest; \
+	}; \
+	if ! go version -m "$$DLV_BIN_DIR/dlv" 2>/dev/null | grep -q "go1.$(REQUIRED_GO_SERIES)"; then \
+		echo "Rebuilding Delve with Go $(REQUIRED_GO_VERSION) for DWARFv5+ compatibility..."; \
+		GOTOOLCHAIN=go$(REQUIRED_GO_VERSION) $(GOCMD) install github.com/go-delve/delve/cmd/dlv@latest; \
+	fi
 	which air || go install github.com/air-verse/air@latest
-	air
+	DLV_BIN_DIR=$$(go env GOBIN); if [ -z "$$DLV_BIN_DIR" ]; then DLV_BIN_DIR="$$(go env GOPATH)/bin"; fi; PATH="$$DLV_BIN_DIR:$$PATH" air
 
 logrun:
 	which air || go install github.com/air-verse/air@latest
 	bash -c 'set -o pipefail; air 2>&1 | tee "logrun-$$(date +%Y%m%d-%H%M%S).log"'
 
 develop:
+	@DLV_BIN_DIR=$$(go env GOBIN); \
+	if [ -z "$$DLV_BIN_DIR" ]; then DLV_BIN_DIR="$$(go env GOPATH)/bin"; fi; \
+	command -v dlv >/dev/null 2>&1 || { \
+		echo "Installing Delve with Go $(REQUIRED_GO_VERSION)..."; \
+		GOTOOLCHAIN=go$(REQUIRED_GO_VERSION) $(GOCMD) install github.com/go-delve/delve/cmd/dlv@latest; \
+	}; \
+	if ! go version -m "$$DLV_BIN_DIR/dlv" 2>/dev/null | grep -q "go1.$(REQUIRED_GO_SERIES)"; then \
+		echo "Rebuilding Delve with Go $(REQUIRED_GO_VERSION) for DWARFv5+ compatibility..."; \
+		GOTOOLCHAIN=go$(REQUIRED_GO_VERSION) $(GOCMD) install github.com/go-delve/delve/cmd/dlv@latest; \
+	fi
 	which air || go install github.com/air-verse/air@latest
-	air
+	DLV_BIN_DIR=$$(go env GOBIN); if [ -z "$$DLV_BIN_DIR" ]; then DLV_BIN_DIR="$$(go env GOPATH)/bin"; fi; PATH="$$DLV_BIN_DIR:$$PATH" air
 
 develop-reflex:
 	which reflex || go install github.com/cespare/reflex@latest
