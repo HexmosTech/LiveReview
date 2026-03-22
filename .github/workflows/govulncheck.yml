@@ -17,6 +17,7 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
+      statuses: write
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
@@ -26,3 +27,17 @@ jobs:
         run: touch .env
       - name: Run govulncheck via Makefile target
         run: make security-govulncheck
+
+      - name: Report status to commit SHA
+        if: always() && github.event_name == 'workflow_dispatch'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          STATE: ${{ job.status == 'success' && 'success' || 'failure' }}
+        run: |
+          gh api \
+            --method POST \
+            repos/${{ github.repository }}/statuses/${{ github.sha }} \
+            -f state="$STATE" \
+            -f context="govulncheck" \
+            -f description="govulncheck completed with status: $STATE" \
+            -f target_url="https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"
