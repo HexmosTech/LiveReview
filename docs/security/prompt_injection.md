@@ -18,6 +18,12 @@ The current implementation uses a layered input-sanitization approach:
 This is intentionally non-blocking in the current phase: when risk is found, LiveReview sanitizes and continues rather than failing the review request.
 To reduce blind spots, deployments should pair this with runtime verification evidence (sanitized preview checks, risk-band trends) and incident-response thresholds for manual escalation.
 
+LiveReview now also applies a minimal post-output sanitization layer for user-visible model text:
+
+1. Redact high-confidence secrets and PII markers in generated output.
+2. Keep behavior non-blocking and redaction-first.
+3. Preserve existing graceful fallback behavior for malformed model output.
+
 ## Why Prompt Injection Matters in Code Review
 
 Code review systems process attacker-controllable text by design:
@@ -83,6 +89,13 @@ Where controls run:
 
 1. Prompt assembly stage sanitizes fragment-level inputs.
 2. Cloud preflight stage sanitizes full prompt-level input.
+3. Post-output stage sanitizes user-visible model text before final return.
+
+Post-output ordering note:
+
+1. In repair-aware parsing paths, sanitization is applied after repair and parse succeed.
+2. In plain-text response paths, sanitization is applied immediately after model response generation.
+3. Output sanitization does not reject responses in this phase; it redacts and continues.
 
 If risk is detected:
 

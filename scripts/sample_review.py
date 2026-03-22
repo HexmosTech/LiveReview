@@ -73,6 +73,16 @@ class ServerHandle:
 	started_by_script: bool
 
 
+@dataclass
+class CommandResult:
+	name: str
+	command: List[str]
+	passed: bool
+	exit_code: int
+	duration_ms: int
+	output_excerpt: str
+
+
 def now_utc() -> str:
 	return datetime.now(timezone.utc).isoformat()
 
@@ -431,8 +441,131 @@ def poll_early_state(
 	}
 
 
+def truncate_output(text: str, max_chars: int = 1600) -> str:
+	if len(text) <= max_chars:
+		return text
+	return text[:max_chars] + "\n... <truncated>"
+
+
+def run_command(repo_root: str, name: str, cmd: List[str], timeout_seconds: int = 180) -> CommandResult:
+	start = time.time()
+	try:
+		proc = subprocess.run(
+			cmd,
+			cwd=repo_root,
+			stdout=subprocess.PIPE,
+			stderr=subprocess.STDOUT,
+			text=True,
+			check=False,
+			timeout=timeout_seconds,
+		)
+		combined = proc.stdout or ""
+		duration_ms = int((time.time() - start) * 1000)
+		return CommandResult(
+			name=name,
+			command=cmd,
+			passed=(proc.returncode == 0),
+			exit_code=proc.returncode,
+			duration_ms=duration_ms,
+			output_excerpt=truncate_output(combined.strip()),
+		)
+	except subprocess.TimeoutExpired as err:
+		duration_ms = int((time.time() - start) * 1000)
+		captured = ""
+		if err.stdout:
+			captured += err.stdout
+		if err.stderr:
+			captured += "\n" + err.stderr
+		captured = (captured or f"command timed out after {timeout_seconds}s").strip()
+		return CommandResult(
+			name=name,
+			command=cmd,
+			passed=False,
+			exit_code=124,
+			duration_ms=duration_ms,
+			output_excerpt=truncate_output(captured),
+		)
+	except FileNotFoundError as err:
+		duration_ms = int((time.time() - start) * 1000)
+		return CommandResult(
+			name=name,
+			command=cmd,
+			passed=False,
+			exit_code=127,
+			duration_ms=duration_ms,
+			output_excerpt=f"command not found: {err}",
+		)
+
+
+def run_post_llm_checks(repo_root: str) -> Dict[str, Any]:
+	test_plan = [
+		(
+			"sanitizer_postflight_tests",
+			["go", "test", "./internal/aisanitize", "-run", "TestSanitizationPostflight", "-count=1"],
+		),
+		(
+			"unified_processor_post_output_hook_test",
+			["go", "test", "./internal/api", "-run", "TestApplyPostOutputSanitization_RedactsSensitiveOutput", "-count=1"],
+		),
+		(
+			"langchain_repair_then_sanitize_test",
+			[
+				"go",
+				"test",
+				"-vet=off",
+				"./internal/ai/langchain",
+				"-run",
+				"TestParseResponseWithRepair_AppliesSanitizationAfterRepair",
+				"-count=1",
+			],
+		),
+	]
+
+	results: List[CommandResult] = []
+	for name, cmd in test_plan:
+		log(f"running post-llm check: {name}")
+		result = run_command(repo_root, name, cmd)
+		status = "PASS" if result.passed else f"FAIL(exit={result.exit_code})"
+		log(f"{name}: {status} in {result.duration_ms}ms")
+		results.append(result)
+
+	passed = sum(1 for r in results if r.passed)
+	failed = len(results) - passed
+
+	return {
+		"timestamp": now_utc(),
+		"tests": [
+			{
+				"name": r.name,
+				"command": " ".join(r.command),
+				"passed": r.passed,
+				"exit_code": r.exit_code,
+				"duration_ms": r.duration_ms,
+				"output_excerpt": r.output_excerpt,
+			}
+			for r in results
+		],
+		"summary": {
+			"passed": passed,
+			"failed": failed,
+			"total": len(results),
+		},
+		"all_passed": failed == 0,
+		"notes": [
+			"This mode validates post-output sanitization behavior without invoking external LLM APIs.",
+			"Checks are executed through focused Go tests that cover sanitizer, unified processor, and repair-aware langchain paths.",
+		],
+	}
+
+
 def parse_args() -> argparse.Namespace:
 	parser = argparse.ArgumentParser(description="Unassisted on-demand review trigger preflight test")
+	parser.add_argument(
+		"--mode",
+		choices=["trigger", "post-llm"],
+		default="trigger",
+		help="Execution mode: trigger (existing review flow) or post-llm (no-LLM output-sanitization checks)",
+	)
 	parser.add_argument("--base-url", default=DEFAULT_BASE_URL, help="LiveReview base URL")
 	parser.add_argument("--email", default=DEFAULT_EMAIL, help="Login email")
 	parser.add_argument("--password", default=DEFAULT_PASSWORD, help="Login password")
@@ -473,10 +606,23 @@ def main() -> int:
 	init_log_file(log_file)
 	log(f"log file: {log_file}")
 	log(f"json report: {output_json_path}")
+	log(f"mode: {args.mode}")
 	repo_root = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 	server_handle: Optional[ServerHandle] = None
 
 	try:
+		if args.mode == "post-llm":
+			post_llm = run_post_llm_checks(repo_root)
+			report = {
+				"mode": "post-llm",
+				"base_url": args.base_url,
+				"post_llm": post_llm,
+			}
+			emit_json_report(report)
+			write_report(output_json_path, report)
+			log(f"wrote report to {output_json_path}")
+			return 0 if post_llm.get("all_passed") else 1
+
 		server_handle = start_server_if_needed(
 			base_url=args.base_url,
 			repo_root=repo_root,

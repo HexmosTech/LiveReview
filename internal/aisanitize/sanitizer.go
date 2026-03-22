@@ -278,6 +278,18 @@ func SanitizationPreflight(ctx context.Context, input string) (string, Sanitizat
 	return out, report
 }
 
+// SanitizationPostflight applies non-blocking output redaction for user-visible model text.
+// This reuses the natural-language sanitizer so output handling is deterministic and consistent
+// with existing controls.
+func SanitizationPostflight(ctx context.Context, output string) (string, SanitizationReport) {
+	out, report := SanitizeNaturalLanguageFragment(ctx, output)
+	outMarkdown, markdownChanged := sanitizeMarkdownForOutput(out)
+	if markdownChanged {
+		report.Sanitized = true
+	}
+	return outMarkdown, report
+}
+
 func SanitizeCodeLikeFragment(ctx context.Context, input string) (string, SanitizationReport) {
 	return SanitizationPreflight(ctx, input)
 }
