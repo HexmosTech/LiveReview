@@ -136,7 +136,7 @@ run:
 		echo "Installing Delve with Go $(REQUIRED_GO_VERSION)..."; \
 		GOTOOLCHAIN=go$(REQUIRED_GO_VERSION) $(GOCMD) install github.com/go-delve/delve/cmd/dlv@latest; \
 	}; \
-	if ! go version -m "$$DLV_BIN_DIR/dlv" 2>/dev/null | grep -q "go1.$(REQUIRED_GO_SERIES)"; then \
+	if ! go version -m "$$DLV_BIN_DIR/dlv" 2>/dev/null | grep -q "go$(REQUIRED_GO_SERIES)"; then \
 		echo "Rebuilding Delve with Go $(REQUIRED_GO_VERSION) for DWARFv5+ compatibility..."; \
 		GOTOOLCHAIN=go$(REQUIRED_GO_VERSION) $(GOCMD) install github.com/go-delve/delve/cmd/dlv@latest; \
 	fi
@@ -154,7 +154,7 @@ develop:
 		echo "Installing Delve with Go $(REQUIRED_GO_VERSION)..."; \
 		GOTOOLCHAIN=go$(REQUIRED_GO_VERSION) $(GOCMD) install github.com/go-delve/delve/cmd/dlv@latest; \
 	}; \
-	if ! go version -m "$$DLV_BIN_DIR/dlv" 2>/dev/null | grep -q "go1.$(REQUIRED_GO_SERIES)"; then \
+	if ! go version -m "$$DLV_BIN_DIR/dlv" 2>/dev/null | grep -q "go$(REQUIRED_GO_SERIES)"; then \
 		echo "Rebuilding Delve with Go $(REQUIRED_GO_VERSION) for DWARFv5+ compatibility..."; \
 		GOTOOLCHAIN=go$(REQUIRED_GO_VERSION) $(GOCMD) install github.com/go-delve/delve/cmd/dlv@latest; \
 	fi
