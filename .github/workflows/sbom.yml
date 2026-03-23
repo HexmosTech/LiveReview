@@ -22,12 +22,36 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
+    env:
+      SYFT_VERSION: v1.25.0
+      SYFT_CACHE_DIR: ${{ runner.temp }}/syft-bin
     steps:
       - uses: actions/checkout@v4
 
+      - name: Compute syft cache epoch
+        id: syft-cache-epoch
+        run: echo "epoch=$(date -u +%Y-%m)" >> "$GITHUB_OUTPUT"
+
+      - name: Cache syft binary
+        id: syft-cache
+        uses: actions/cache@v4
+        with:
+          path: ${{ env.SYFT_CACHE_DIR }}/syft
+          key: ${{ runner.os }}-syft-${{ env.SYFT_VERSION }}-${{ steps.syft-cache-epoch.outputs.epoch }}
+          restore-keys: |
+            ${{ runner.os }}-syft-${{ env.SYFT_VERSION }}-
+
       - name: Install syft
+        if: steps.syft-cache.outputs.cache-hit != 'true'
         run: |
-          curl -sSfL https://raw.githubusercontent.com/anchore/syft/main/install.sh | sh -s -- -b /usr/local/bin v1.25.0
+          mkdir -p "${SYFT_CACHE_DIR}"
+          curl -sSfL https://raw.githubusercontent.com/anchore/syft/main/install.sh | sh -s -- -b "${SYFT_CACHE_DIR}" "${SYFT_VERSION}"
+
+      - name: Add syft to PATH
+        run: echo "${SYFT_CACHE_DIR}" >> "$GITHUB_PATH"
+
+      - name: Verify syft
+        run: |
           syft version
 
       - name: Ensure optional Make env file exists
