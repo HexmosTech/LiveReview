@@ -24,7 +24,7 @@ jobs:
       contents: read
     env:
       SYFT_VERSION: v1.25.0
-      SYFT_CACHE_DIR: ${{ runner.temp }}/syft-bin
+      SYFT_CACHE_DIR: ${{ github.workspace }}/.cache/syft-bin
     steps:
       - uses: actions/checkout@v4
 
