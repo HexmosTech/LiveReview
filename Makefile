@@ -1,4 +1,4 @@
-.PHONY: build run-review run-review-verbose test clean develop develop-reflex river-deps river-install river-migrate river-setup river-ui-install river-ui db-flip version version-bump version-patch version-minor version-major version-bump-dirty version-patch-dirty version-minor-dirty version-major-dirty version-bump-dry version-patch-dry version-minor-dry version-major-dry build-versioned docker-build docker-build-push docker-build-dry docker-interactive docker-interactive-push docker-interactive-dry docker-build docker-build-push docker-build-versioned docker-build-push-versioned docker-build-dry docker-build-push-dry docker-multiarch docker-multiarch-push docker-multiarch-dry docker-interactive-multiarch docker-interactive-multiarch-push cplrops vendor-prompts-encrypt vendor-prompts-build vendor-prompts-rebuild vendor-docker-build vendor-docker-build-dry vendor-docker-build-push vendor-docker-multiarch-dry vendor-docker-multiarch-push run logrun build-with-ui
+.PHONY: build run-review run-review-verbose test clean develop develop-reflex river-deps river-install river-migrate river-setup river-ui-install river-ui db-flip version version-bump version-patch version-minor version-major version-bump-dirty version-patch-dirty version-minor-dirty version-major-dirty version-bump-dry version-patch-dry version-minor-dry version-major-dry build-versioned docker-build docker-build-push docker-build-dry docker-interactive docker-interactive-push docker-interactive-dry docker-build docker-build-push docker-build-versioned docker-build-push-versioned docker-build-dry docker-build-push-dry docker-multiarch docker-multiarch-push docker-multiarch-dry docker-interactive-multiarch docker-interactive-multiarch-push cplrops vendor-prompts-encrypt vendor-prompts-build vendor-prompts-rebuild vendor-docker-build vendor-docker-build-dry vendor-docker-build-push vendor-docker-multiarch-dry vendor-docker-multiarch-push run logrun build-with-ui security-sbom security-sbom-cyclonedx security-sbom-spdx security-sbom-validate
 .PHONY: upload-secrets download-secrets list-secrets-files legacy-secrets-clear
 
 # Go parameters
@@ -15,6 +15,8 @@ GH_REPO=HexmosTech/LiveReview
 GH=/usr/bin/gh
 GHSM_SCRIPT=scripts/ghsm.py
 LEGACY_ENV_VARS=DATABASE_URL JWT_SECRET LIVEREVIEW_BACKEND_PORT LIVEREVIEW_FRONTEND_PORT LIVEREVIEW_REVERSE_PROXY LIVEREVIEW_IS_CLOUD CLOUD_JWT_SECRET FW_PARSE_ADMIN_SECRET RAZORPAY_MODE RAZORPAY_WEBHOOK_SECRET RAZORPAY_TEST_KEY RAZORPAY_TEST_SECRET RAZORPAY_TEST_MONTHLY_PLAN_ID RAZORPAY_TEST_YEARLY_PLAN_ID RAZORPAY_LIVE_KEY RAZORPAY_LIVE_SECRET RAZORPAY_LIVE_MONTHLY_PLAN_ID RAZORPAY_LIVE_YEARLY_PLAN_ID DISCORD_SIGNUP_WEBHOOK_URL OVSX_PAT
+SYFT_CMD=syft
+SBOM_DIR=security_issues/sbom
 
 # Load environment variables from .env file
 include .env
@@ -520,6 +522,38 @@ legacy-secrets-clear:
 		$(GH) variable delete "$$var" --repo $(GH_REPO) >/dev/null 2>&1 || true; \
 	done
 	@echo "✅ Legacy variable cleanup complete."
+
+# Generate SBOMs in both CycloneDX and SPDX formats for Go and UI dependencies.
+security-sbom: security-sbom-cyclonedx security-sbom-spdx security-sbom-validate
+
+security-sbom-cyclonedx:
+	@command -v $(SYFT_CMD) >/dev/null 2>&1 || { \
+		echo "❌ syft not found. Install from https://github.com/anchore/syft"; \
+		exit 1; \
+	}
+	@mkdir -p $(SBOM_DIR)
+	@$(SYFT_CMD) file:go.mod -o cyclonedx-json=$(SBOM_DIR)/livereview-go-cyclonedx.json
+	@$(SYFT_CMD) file:ui/package-lock.json -o cyclonedx-json=$(SBOM_DIR)/livereview-ui-cyclonedx.json
+	@echo "✅ Wrote $(SBOM_DIR)/livereview-go-cyclonedx.json"
+	@echo "✅ Wrote $(SBOM_DIR)/livereview-ui-cyclonedx.json"
+
+security-sbom-spdx:
+	@command -v $(SYFT_CMD) >/dev/null 2>&1 || { \
+		echo "❌ syft not found. Install from https://github.com/anchore/syft"; \
+		exit 1; \
+	}
+	@mkdir -p $(SBOM_DIR)
+	@$(SYFT_CMD) file:go.mod -o spdx-json=$(SBOM_DIR)/livereview-go-spdx.json
+	@$(SYFT_CMD) file:ui/package-lock.json -o spdx-json=$(SBOM_DIR)/livereview-ui-spdx.json
+	@echo "✅ Wrote $(SBOM_DIR)/livereview-go-spdx.json"
+	@echo "✅ Wrote $(SBOM_DIR)/livereview-ui-spdx.json"
+
+security-sbom-validate:
+	@test -s $(SBOM_DIR)/livereview-go-cyclonedx.json
+	@test -s $(SBOM_DIR)/livereview-go-spdx.json
+	@test -s $(SBOM_DIR)/livereview-ui-cyclonedx.json
+	@test -s $(SBOM_DIR)/livereview-ui-spdx.json
+	@echo "✅ SBOM validation passed"
 
 check-status-doc:
 	chmod +x scripts/check-status-doc-links.sh
