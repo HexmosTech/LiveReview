@@ -7,8 +7,10 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strings"
 	"time"
 
+	"github.com/livereview/internal/aisanitize"
 	networkaiconnectors "github.com/livereview/network/aiconnectors"
 	"github.com/rs/zerolog/log"
 	"github.com/tmc/langchaingo/llms"
@@ -474,8 +476,38 @@ func (c *Connector) Call(ctx context.Context, input string, options ...llms.Call
 	// Append any additional options passed to the Call function
 	callOptions = append(callOptions, options...)
 
+	normalizedProvider := strings.ToLower(string(c.provider))
+	if isCloudProviderProvider(c.provider) {
+		sanitizedInput, report := aisanitize.SanitizationPreflight(ctx, input)
+		input = sanitizedInput
+		if report.PIIRedactError {
+			log.Warn().
+				Str("provider", normalizedProvider).
+				Msg("PII redaction encountered errors during cloud prompt preflight")
+		}
+		log.Debug().
+			Str("provider", normalizedProvider).
+			Str("risk_band", string(report.RiskBand)).
+			Float64("risk_score", report.RiskScore).
+			Int("detected_patterns", len(report.DetectedTypes)).
+			Int("secrets_redacted", report.SecretsRedacted).
+			Bool("pii_redacted", report.PIIRedacted).
+			Bool("pii_redact_error", report.PIIRedactError).
+			Bool("sanitized", report.Sanitized).
+			Msg("Applied cloud prompt sanitization preflight")
+	}
+
 	// Use GenerateFromSinglePrompt which is the recommended approach
 	return llms.GenerateFromSinglePrompt(ctx, c.llm, input, callOptions...)
+}
+
+func isCloudProviderProvider(provider Provider) bool {
+	switch provider {
+	case ProviderOpenAI, ProviderDeepSeek, ProviderGemini, ProviderClaude, ProviderOpenRouter:
+		return true
+	default:
+		return false
+	}
 }
 
 // GetProvider returns the provider of this connector
@@ -506,15 +538,5 @@ func truncateString(s string, maxLen int) string {
 
 // Helper function to check if string contains substring (case-insensitive)
 func contains(s, substr string) bool {
-	return len(s) >= len(substr) && (s == substr || len(substr) == 0 ||
-		(len(s) > 0 && len(substr) > 0 && stringContains(s, substr)))
-}
-
-func stringContains(s, substr string) bool {
-	for i := 0; i <= len(s)-len(substr); i++ {
-		if s[i:i+len(substr)] == substr {
-			return true
-		}
-	}
-	return false
+	return strings.Contains(strings.ToLower(s), strings.ToLower(substr))
 }
