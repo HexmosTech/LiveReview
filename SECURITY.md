@@ -193,5 +193,4 @@ Security fixes are prioritized on currently supported, actively maintained relea
 - Workflow definitions: [LiveReview workflows](https://github.com/HexmosTech/LiveReview/tree/main/.github/workflows)
 - Storage operations inventory: [storage/storage_status.md](storage/storage_status.md)
 - Network operations inventory: [network/network_status.md](network/network_status.md)
-- LLM output sanitization details: [docs/security/llm_output_sanitization.md](docs/security/llm_output_sanitization.md)
 
