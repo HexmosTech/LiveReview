@@ -252,6 +252,15 @@ Visit the [Wiki](https://github.com/HexmosTech/LiveReview/wiki) for complete doc
 
 ---
 
+## Security You Can Count On
+
+- Security is treated as a first-class concern across LiveReview deployment models.
+- We maintain documented reporting channels, response commitments, and verification references.
+- Automated security checks and SBOM generation support ongoing transparency.
+- For complete details, see [SECURITY.md](SECURITY.md).
+
+---
+
 ## Security Scans
 
 LiveReview includes local security scan targets in the Makefile:
