@@ -12,6 +12,7 @@ import (
 	"time"
 
 	coreprocessor "github.com/livereview/internal/core_processor"
+	networkgitlab "github.com/livereview/network/providers/gitlab"
 )
 
 type (
@@ -25,7 +26,7 @@ type APIClient struct {
 
 // NewAPIClient creates a GitLab output client with sane defaults.
 func NewAPIClient() *APIClient {
-	return &APIClient{httpClient: &http.Client{Timeout: 60 * time.Second}}
+	return &APIClient{httpClient: networkgitlab.NewHTTPClient(60 * time.Second)}
 }
 
 // PostCommentReply posts a reply or general note depending on the event context.
@@ -116,7 +117,7 @@ func (c *APIClient) postToGitLabAPI(ctx context.Context, apiURL, accessToken str
 	requestCtx, cancel := context.WithTimeout(ctx, 60*time.Second)
 	defer cancel()
 
-	req, err := http.NewRequestWithContext(requestCtx, http.MethodPost, apiURL, bytes.NewBuffer(jsonBody))
+	req, err := networkgitlab.NewRequestWithContext(requestCtx, http.MethodPost, apiURL, bytes.NewBuffer(jsonBody))
 	if err != nil {
 		return fmt.Errorf("failed to create HTTP request: %w", err)
 	}
@@ -125,10 +126,10 @@ func (c *APIClient) postToGitLabAPI(ctx context.Context, apiURL, accessToken str
 
 	client := c.httpClient
 	if client == nil {
-		client = &http.Client{Timeout: 60 * time.Second}
+		client = networkgitlab.NewHTTPClient(60 * time.Second)
 	}
 
-	resp, err := client.Do(req)
+	resp, err := networkgitlab.Do(client, req)
 	if err != nil {
 		log.Printf("[ERROR] GitLab API request failed: %v", err)
 		return fmt.Errorf("failed to make HTTP request: %w", err)

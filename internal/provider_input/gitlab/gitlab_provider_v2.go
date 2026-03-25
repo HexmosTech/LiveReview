@@ -17,6 +17,7 @@ import (
 	coreprocessor "github.com/livereview/internal/core_processor"
 	gl "github.com/livereview/internal/providers/gitlab"
 	rm "github.com/livereview/internal/reviewmodel"
+	networkgitlabin "github.com/livereview/network/providers/gitlab"
 )
 
 type (
@@ -840,7 +841,7 @@ func (p *GitLabV2Provider) FetchMergeRequestData(event *UnifiedWebhookEventV2) e
 	httpClient := &GitLabV2HTTPClient{
 		baseURL:     gitlabInstanceURL,
 		accessToken: accessToken,
-		client:      &http.Client{Timeout: 60 * time.Second},
+		client:      networkgitlabin.NewHTTPClient(60 * time.Second),
 	}
 
 	projectID, _ := strconv.Atoi(event.Repository.ID)
@@ -997,7 +998,7 @@ func (p *GitLabV2Provider) getFreshBotUserInfoV2(gitlabInstanceURL string) (*Git
 
 	// Call GitLab API to get current user info (the bot user)
 	apiURL := fmt.Sprintf("%s/api/v4/user", gitlabInstanceURL)
-	req, err := http.NewRequest("GET", apiURL, nil)
+	req, err := networkgitlabin.NewRequestWithContext(context.Background(), "GET", apiURL, nil)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create request: %w", err)
 	}
@@ -1005,8 +1006,8 @@ func (p *GitLabV2Provider) getFreshBotUserInfoV2(gitlabInstanceURL string) (*Git
 	req.Header.Set("Authorization", "Bearer "+accessToken)
 	req.Header.Set("Content-Type", "application/json")
 
-	client := &http.Client{Timeout: 60 * time.Second}
-	resp, err := client.Do(req)
+	client := networkgitlabin.NewHTTPClient(60 * time.Second)
+	resp, err := networkgitlabin.Do(client, req)
 	if err != nil {
 		return nil, fmt.Errorf("failed to make API request: %w", err)
 	}
@@ -1064,13 +1065,13 @@ func (p *GitLabV2Provider) GetBotUserInfo(repository UnifiedRepositoryV2) (*Unif
 // GetMergeRequestCommitsV2 fetches commits for a merge request
 func (c *GitLabV2HTTPClient) GetMergeRequestCommitsV2(projectID, mrIID int) ([]GitLabV2Commit, error) {
 	apiURL := fmt.Sprintf("%s/api/v4/projects/%d/merge_requests/%d/commits", c.baseURL, projectID, mrIID)
-	req, err := http.NewRequest("GET", apiURL, nil)
+	req, err := networkgitlabin.NewRequest("GET", apiURL, nil)
 	if err != nil {
 		return nil, err
 	}
 	req.Header.Set("Authorization", "Bearer "+c.accessToken)
 
-	resp, err := c.client.Do(req)
+	resp, err := networkgitlabin.Do(c.client, req)
 	if err != nil {
 		return nil, err
 	}
@@ -1095,13 +1096,13 @@ func (c *GitLabV2HTTPClient) GetMergeRequestCommitsV2(projectID, mrIID int) ([]G
 // GetMergeRequestDiscussionsV2 fetches discussions for a merge request
 func (c *GitLabV2HTTPClient) GetMergeRequestDiscussionsV2(projectID, mrIID int) ([]GitLabV2Discussion, error) {
 	apiURL := fmt.Sprintf("%s/api/v4/projects/%d/merge_requests/%d/discussions", c.baseURL, projectID, mrIID)
-	req, err := http.NewRequest("GET", apiURL, nil)
+	req, err := networkgitlabin.NewRequest("GET", apiURL, nil)
 	if err != nil {
 		return nil, err
 	}
 	req.Header.Set("Authorization", "Bearer "+c.accessToken)
 
-	resp, err := c.client.Do(req)
+	resp, err := networkgitlabin.Do(c.client, req)
 	if err != nil {
 		return nil, err
 	}
@@ -1126,13 +1127,13 @@ func (c *GitLabV2HTTPClient) GetMergeRequestDiscussionsV2(projectID, mrIID int) 
 // GetMergeRequestNotesV2 fetches standalone notes for a merge request
 func (c *GitLabV2HTTPClient) GetMergeRequestNotesV2(projectID, mrIID int) ([]GitLabV2Note, error) {
 	apiURL := fmt.Sprintf("%s/api/v4/projects/%d/merge_requests/%d/notes", c.baseURL, projectID, mrIID)
-	req, err := http.NewRequest("GET", apiURL, nil)
+	req, err := networkgitlabin.NewRequest("GET", apiURL, nil)
 	if err != nil {
 		return nil, err
 	}
 	req.Header.Set("Authorization", "Bearer "+c.accessToken)
 
-	resp, err := c.client.Do(req)
+	resp, err := networkgitlabin.Do(c.client, req)
 	if err != nil {
 		return nil, err
 	}
@@ -1411,7 +1412,7 @@ func (p *GitLabV2Provider) buildContextualAIResponseV2(ctx context.Context, even
 	httpClient := &GitLabV2HTTPClient{
 		baseURL:     gitlabInstanceURL,
 		accessToken: accessToken,
-		client:      &http.Client{Timeout: 60 * time.Second},
+		client:      networkgitlabin.NewHTTPClient(60 * time.Second),
 	}
 
 	projectID, _ := strconv.Atoi(event.Repository.ID)
@@ -1760,7 +1761,7 @@ func (p *GitLabV2Provider) checkIfReplyingToBotCommentV2(event *UnifiedWebhookEv
 	apiURL := fmt.Sprintf("%s/api/v4/projects/%d/merge_requests/%d/discussions/%s",
 		gitlabInstanceURL, projectID, mrIID, *event.Comment.DiscussionID)
 
-	req, err := http.NewRequest("GET", apiURL, nil)
+	req, err := networkgitlabin.NewRequest("GET", apiURL, nil)
 	if err != nil {
 		return false, fmt.Errorf("failed to create request: %w", err)
 	}
@@ -1768,8 +1769,8 @@ func (p *GitLabV2Provider) checkIfReplyingToBotCommentV2(event *UnifiedWebhookEv
 	req.Header.Set("Authorization", "Bearer "+accessToken)
 	req.Header.Set("Content-Type", "application/json")
 
-	client := &http.Client{Timeout: 60 * time.Second}
-	resp, err := client.Do(req)
+	client := networkgitlabin.NewHTTPClient(60 * time.Second)
+	resp, err := networkgitlabin.Do(client, req)
 	if err != nil {
 		return false, fmt.Errorf("failed to make API request: %w", err)
 	}

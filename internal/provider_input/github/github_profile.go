@@ -1,9 +1,13 @@
 package github
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"time"
+
+	networkgithub "github.com/livereview/network/providers/github"
 )
 
 // GitHubProfile represents the user profile info fetched from GitHub.
@@ -20,15 +24,15 @@ type GitHubProfile struct {
 // FetchGitHubProfile fetches the user profile from GitHub using PAT.
 func FetchGitHubProfile(pat string) (*GitHubProfile, error) {
 	url := "https://api.github.com/user"
-	client := &http.Client{}
-	req, err := http.NewRequest("GET", url, nil)
+	client := networkgithub.NewHTTPClient(10 * time.Second)
+	req, err := networkgithub.NewRequestWithContext(context.Background(), http.MethodGet, url, nil)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create request - please check the request format")
 	}
 	req.Header.Set("Authorization", fmt.Sprintf("token %s", pat))
 	req.Header.Set("Accept", "application/vnd.github.v3+json")
 
-	resp, err := client.Do(req)
+	resp, err := networkgithub.Do(client, req)
 	if err != nil {
 		return nil, fmt.Errorf("cannot connect to GitHub - please verify your internet connection")
 	}

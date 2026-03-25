@@ -7,6 +7,7 @@ import (
 	"strconv"
 	"time"
 
+	storageaiconnectors "github.com/livereview/storage/aiconnectors"
 	"github.com/rs/zerolog/log"
 )
 
@@ -32,13 +33,13 @@ type ConnectorRecord struct {
 
 // Storage provides methods to store and retrieve connectors
 type Storage struct {
-	db *sql.DB
+	store *storageaiconnectors.ConnectorStore
 }
 
 // NewStorage creates a new storage instance
 func NewStorage(db *sql.DB) *Storage {
 	return &Storage{
-		db: db,
+		store: storageaiconnectors.NewConnectorStore(db),
 	}
 }
 
@@ -77,7 +78,7 @@ func (s *Storage) CreateConnector(ctx context.Context, orgID int64, connector *C
 
 	connector.OrgID = orgID
 
-	err := s.db.QueryRowContext(
+	err := s.store.QueryRowContext(
 		ctx, query,
 		connector.ProviderName, connector.ApiKey, connector.ConnectorName,
 		baseURL, selectedModel, connector.DisplayOrder, connector.OrgID,
@@ -103,7 +104,7 @@ func (s *Storage) GetConnectorByID(ctx context.Context, orgID int64, id int64) (
 	`
 
 	var connector ConnectorRecord
-	err := s.db.QueryRowContext(ctx, query, id, orgID).Scan(
+	err := s.store.QueryRowContext(ctx, query, id, orgID).Scan(
 		&connector.ID, &connector.ProviderName, &connector.ApiKey, &connector.ConnectorName,
 		&connector.BaseURL, &connector.SelectedModel, &connector.DisplayOrder,
 		&connector.OrgID, &connector.CreatedAt, &connector.UpdatedAt,
@@ -132,7 +133,7 @@ func (s *Storage) GetConnectorsByProvider(ctx context.Context, orgID int64, prov
 	ORDER BY display_order ASC
 	`
 
-	rows, err := s.db.QueryContext(ctx, query, string(provider), orgID)
+	rows, err := s.store.QueryContext(ctx, query, string(provider), orgID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get connectors by provider: %w", err)
 	}
@@ -173,7 +174,7 @@ func (s *Storage) GetAllConnectors(ctx context.Context, orgID int64) ([]*Connect
 	ORDER BY display_order ASC
 	`
 
-	rows, err := s.db.QueryContext(ctx, query, orgID)
+	rows, err := s.store.QueryContext(ctx, query, orgID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get all connectors: %w", err)
 	}
@@ -228,7 +229,7 @@ func (s *Storage) UpdateConnector(ctx context.Context, connector *ConnectorRecor
 		selectedModel = nil
 	}
 
-	err := s.db.QueryRowContext(
+	err := s.store.QueryRowContext(
 		ctx, query,
 		connector.ProviderName, connector.ApiKey, connector.ConnectorName,
 		baseURL, selectedModel, connector.DisplayOrder,
@@ -249,7 +250,7 @@ func (s *Storage) UpdateConnector(ctx context.Context, connector *ConnectorRecor
 func (s *Storage) DeleteConnector(ctx context.Context, orgID int64, id int64) error {
 	query := `DELETE FROM ai_connectors WHERE id = $1 AND org_id = $2`
 
-	result, err := s.db.ExecContext(ctx, query, id, orgID)
+	result, err := s.store.ExecContext(ctx, query, id, orgID)
 	if err != nil {
 		return fmt.Errorf("failed to delete connector: %w", err)
 	}
@@ -351,7 +352,7 @@ func (s *Storage) GetMaxDisplayOrder(ctx context.Context, orgID int64) (int, err
 	query := `SELECT COALESCE(MAX(display_order), 0) FROM ai_connectors WHERE org_id = $1`
 
 	var maxOrder int
-	err := s.db.QueryRowContext(ctx, query, orgID).Scan(&maxOrder)
+	err := s.store.QueryRowContext(ctx, query, orgID).Scan(&maxOrder)
 	if err != nil {
 		return 0, fmt.Errorf("failed to get max display order: %w", err)
 	}
@@ -369,41 +370,19 @@ func (s *Storage) GetMaxDisplayOrder(ctx context.Context, orgID int64) (int, err
 
 // UpdateDisplayOrders updates the display order for multiple connectors
 func (s *Storage) UpdateDisplayOrders(ctx context.Context, orgID int64, updates []DisplayOrderUpdate) error {
-	tx, err := s.db.BeginTx(ctx, nil)
-	if err != nil {
-		return fmt.Errorf("failed to begin transaction: %w", err)
+	if len(updates) == 0 {
+		return nil
 	}
-	defer tx.Rollback()
 
-	query := `UPDATE ai_connectors SET display_order = $1, updated_at = NOW() WHERE id = $2 AND org_id = $3`
-
+	parsed := make([]storageaiconnectors.DisplayOrderUpdate, 0, len(updates))
 	for _, update := range updates {
-		// Convert string ID to int64
 		connectorID, err := strconv.ParseInt(update.ID, 10, 64)
 		if err != nil {
 			return fmt.Errorf("invalid connector ID %s: %w", update.ID, err)
 		}
-
-		result, err := tx.ExecContext(ctx, query, update.DisplayOrder, connectorID, orgID)
-		if err != nil {
-			return fmt.Errorf("failed to update display order for connector %s: %w", update.ID, err)
-		}
-
-		affected, err := result.RowsAffected()
-		if err != nil {
-			return fmt.Errorf("failed to get affected rows for connector %s: %w", update.ID, err)
-		}
-
-		if affected == 0 {
-			return fmt.Errorf("connector %s not found for organization", update.ID)
-		}
+		parsed = append(parsed, storageaiconnectors.DisplayOrderUpdate{ConnectorID: connectorID, DisplayOrder: update.DisplayOrder})
 	}
-
-	if err := tx.Commit(); err != nil {
-		return fmt.Errorf("failed to commit transaction: %w", err)
-	}
-
-	return nil
+	return s.store.UpdateDisplayOrders(ctx, orgID, parsed)
 }
 
 // DisplayOrderUpdate represents a display order update for a connector

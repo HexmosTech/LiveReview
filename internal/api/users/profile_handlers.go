@@ -1,10 +1,12 @@
 package users
 
 import (
+	"errors"
 	"net/http"
 
 	"github.com/labstack/echo/v4"
 	"github.com/livereview/internal/api/auth"
+	storageusers "github.com/livereview/storage/users"
 )
 
 // ProfileHandlers contains the profile management handler methods
@@ -28,7 +30,7 @@ func (ph *ProfileHandlers) GetProfile(c echo.Context) error {
 	}
 
 	// Get user profile
-	profile, err := ph.profileService.GetUserProfile(user.ID)
+	profile, err := ph.profileService.GetUserProfile(c.Request().Context(), user.ID)
 	if err != nil {
 		if err.Error() == "user not found" {
 			return echo.NewHTTPError(http.StatusNotFound, "User profile not found")
@@ -37,7 +39,7 @@ func (ph *ProfileHandlers) GetProfile(c echo.Context) error {
 	}
 
 	// Get user organizations
-	organizations, err := ph.profileService.GetUserOrganizations(user.ID)
+	organizations, err := ph.profileService.GetUserOrganizations(c.Request().Context(), user.ID)
 	if err != nil {
 		return echo.NewHTTPError(http.StatusInternalServerError, "Failed to get user organizations")
 	}
@@ -65,13 +67,16 @@ func (ph *ProfileHandlers) UpdateProfile(c echo.Context) error {
 	}
 
 	// Update profile
-	profile, err := ph.profileService.UpdateUserProfile(user.ID, req)
+	profile, err := ph.profileService.UpdateUserProfile(c.Request().Context(), user.ID, req)
 	if err != nil {
 		if err.Error() == "user not found" {
 			return echo.NewHTTPError(http.StatusNotFound, "User profile not found")
 		}
-		if err.Error() != "" && err.Error()[:5] == "email" {
+		if errors.Is(err, storageusers.ErrEmailInUse) {
 			return echo.NewHTTPError(http.StatusConflict, err.Error())
+		}
+		if err.Error() == "email cannot be empty" || err.Error() == "email is invalid" || err.Error() == "first_name is too long" || err.Error() == "last_name is too long" {
+			return echo.NewHTTPError(http.StatusBadRequest, err.Error())
 		}
 		return echo.NewHTTPError(http.StatusInternalServerError, "Failed to update user profile")
 	}
@@ -99,7 +104,7 @@ func (ph *ProfileHandlers) ChangePassword(c echo.Context) error {
 	}
 
 	// Change password
-	err := ph.profileService.ChangePassword(user.ID, req)
+	err := ph.profileService.ChangePassword(c.Request().Context(), user.ID, req)
 	if err != nil {
 		if err.Error() == "user not found" {
 			return echo.NewHTTPError(http.StatusNotFound, "User not found")

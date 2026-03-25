@@ -3,10 +3,12 @@ package gitlab
 import (
 	"context"
 	"fmt"
+	"log"
 	"net/url"
 	"regexp"
 	"strconv"
 
+	"github.com/livereview/internal/aisanitize"
 	gitlab "gitlab.com/gitlab-org/api/client-go"
 
 	"github.com/livereview/internal/providers"
@@ -268,8 +270,22 @@ func (p *GitLabProvider) extractMRInfo(mrURL string) (string, int, error) {
 // formatGitLabComment creates a consistently formatted comment for GitLab
 // with severity information and suggestions properly formatted
 func formatGitLabComment(comment *models.ReviewComment) string {
+	safeContent, contentReport := aisanitize.SanitizationPostflight(context.Background(), comment.Content)
+	if contentReport.PIIRedactError {
+		log.Printf("[WARN] GitLab comment sanitization reported internal error for content")
+	}
+
+	safeSuggestions := make([]string, 0, len(comment.Suggestions))
+	for _, suggestion := range comment.Suggestions {
+		safeSuggestion, suggestionReport := aisanitize.SanitizationPostflight(context.Background(), suggestion)
+		if suggestionReport.PIIRedactError {
+			log.Printf("[WARN] GitLab comment sanitization reported internal error for suggestion")
+		}
+		safeSuggestions = append(safeSuggestions, safeSuggestion)
+	}
+
 	// Start with the content
-	formattedComment := comment.Content
+	formattedComment := safeContent
 
 	// Add severity information at the beginning
 	if comment.Severity != "" {
@@ -277,9 +293,9 @@ func formatGitLabComment(comment *models.ReviewComment) string {
 	}
 
 	// Add suggestions section if we have any
-	if len(comment.Suggestions) > 0 {
+	if len(safeSuggestions) > 0 {
 		formattedComment += "\n\n**Suggestions:**\n"
-		for i, suggestion := range comment.Suggestions {
+		for i, suggestion := range safeSuggestions {
 			formattedComment += fmt.Sprintf("%d. %s\n", i+1, suggestion)
 		}
 	}

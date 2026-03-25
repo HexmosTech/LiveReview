@@ -1,21 +1,30 @@
 package langchain
 
 import (
+	"context"
 	"fmt"
+	"log"
 	"strings"
 
+	"github.com/livereview/internal/aisanitize"
 	"github.com/livereview/internal/llm"
 	"github.com/livereview/internal/logging"
 	"github.com/livereview/pkg/models"
 )
 
 // Enhanced parseResponse that integrates with our JSON repair system
-func (p *LangchainProvider) parseResponseWithRepair(response string, diffs []models.CodeDiff, reviewID, orgID int64, batchID string, logger *logging.ReviewLogger) (*ParsedResult, error) {
+func (p *LangchainProvider) parseResponseWithRepair(ctx context.Context, response string, diffs []models.CodeDiff, reviewID, orgID int64, batchID string, logger *logging.ReviewLogger) (*ParsedResult, error) {
 	// First try the original parsing
 	originalResult, originalErr := p.parseResponse(response, diffs)
 
 	// If original parsing succeeded, return it
 	if originalErr == nil {
+		if err := applyPostOutputSanitizeToParsedResult(ctx, originalResult, batchID, logger); err != nil {
+			log.Printf("[LANGCHAIN OUTPUT SANITIZE] batch=%s sanitize_error=%v", batchID, err)
+			if logger != nil {
+				logger.Log("Output sanitization encountered internal errors for batch %s: %v", batchID, err)
+			}
+		}
 		return originalResult, nil
 	}
 
@@ -23,7 +32,7 @@ func (p *LangchainProvider) parseResponseWithRepair(response string, diffs []mod
 	if logger != nil {
 		logger.Log("Original parsing failed: %v. Attempting JSON repair...", originalErr)
 	}
-	fmt.Printf("[LANGCHAIN] Original parsing failed: %v. Attempting JSON repair...\n", originalErr)
+	log.Printf("[LANGCHAIN] Original parsing failed: %v. Attempting JSON repair...", originalErr)
 
 	// Try our resilient JSON processing
 	var target interface{}
@@ -37,7 +46,7 @@ func (p *LangchainProvider) parseResponseWithRepair(response string, diffs []mod
 		if logger != nil {
 			logger.Log("JSON REPAIR: %s", repairMsg)
 		}
-		fmt.Printf("[LANGCHAIN JSON REPAIR] %s\n", repairMsg)
+		log.Printf("[LANGCHAIN JSON REPAIR] %s", repairMsg)
 
 		// Log the strategies used
 		if len(processorResult.RepairStats.RepairStrategies) > 0 {
@@ -45,7 +54,7 @@ func (p *LangchainProvider) parseResponseWithRepair(response string, diffs []mod
 			if logger != nil {
 				logger.Log("JSON REPAIR: %s", strategyMsg)
 			}
-			fmt.Printf("[LANGCHAIN JSON REPAIR] %s\n", strategyMsg)
+			log.Printf("[LANGCHAIN JSON REPAIR] %s", strategyMsg)
 		}
 	}
 
@@ -54,7 +63,7 @@ func (p *LangchainProvider) parseResponseWithRepair(response string, diffs []mod
 		if logger != nil {
 			logger.Log("JSON repair also failed: %v. Using graceful fallback.", err)
 		}
-		fmt.Printf("[LANGCHAIN FALLBACK] JSON repair also failed: %v. Using graceful fallback.\n", err)
+		log.Printf("[LANGCHAIN FALLBACK] JSON repair also failed: %v. Using graceful fallback.", err)
 		return p.fallbackParsedResult(response, diffs, "both original and repair parsing failed: "+err.Error()), nil
 	}
 
@@ -66,17 +75,122 @@ func (p *LangchainProvider) parseResponseWithRepair(response string, diffs []mod
 		if logger != nil {
 			logger.Log("Repaired JSON still failed to parse: %v. Using graceful fallback.", repairedErr)
 		}
-		fmt.Printf("[LANGCHAIN FALLBACK] Repaired JSON still failed to parse: %v. Using graceful fallback.\n", repairedErr)
+		log.Printf("[LANGCHAIN FALLBACK] Repaired JSON still failed to parse: %v. Using graceful fallback.", repairedErr)
 		return p.fallbackParsedResult(response, diffs, "repaired JSON parse failed: "+repairedErr.Error()), nil
 	}
 
 	// Success! Repaired JSON parsed correctly
+	if err := applyPostOutputSanitizeToParsedResult(ctx, repairedResult, batchID, logger); err != nil {
+		log.Printf("[LANGCHAIN OUTPUT SANITIZE] batch=%s sanitize_error=%v", batchID, err)
+		if logger != nil {
+			logger.Log("Output sanitization encountered internal errors for batch %s: %v", batchID, err)
+		}
+	}
 	successMsg := fmt.Sprintf("JSON repair successful - parsed response with %d comments", len(repairedResult.Comments))
 	if logger != nil {
 		logger.Log("SUCCESS: %s", successMsg)
 	}
-	fmt.Printf("[LANGCHAIN SUCCESS] %s\n", successMsg)
+	log.Printf("[LANGCHAIN SUCCESS] %s", successMsg)
 	return repairedResult, nil
+}
+
+func applyPostOutputSanitizeToParsedResult(ctx context.Context, parsed *ParsedResult, batchID string, logger *logging.ReviewLogger) (err error) {
+	defer func() {
+		if recovered := recover(); recovered != nil {
+			err = fmt.Errorf("panic during output sanitization: %v", recovered)
+		}
+	}()
+
+	if parsed == nil {
+		return nil
+	}
+
+	changed := false
+	secretsRedacted := 0
+	piiRedacted := false
+	internalErrors := 0
+
+	for i := range parsed.TechnicalSummaries {
+		orig := parsed.TechnicalSummaries[i].Summary
+		sanitized, report, sanitizeErr := sanitizePostflightSafe(ctx, orig)
+		if sanitizeErr != nil {
+			internalErrors++
+			continue
+		}
+		if sanitized != orig {
+			parsed.TechnicalSummaries[i].Summary = sanitized
+			changed = true
+		}
+		secretsRedacted += report.SecretsRedacted
+		piiRedacted = piiRedacted || report.PIIRedacted
+		if report.PIIRedactError {
+			internalErrors++
+		}
+	}
+
+	for _, comment := range parsed.Comments {
+		if comment == nil {
+			continue
+		}
+
+		orig := comment.Content
+		sanitized, report, sanitizeErr := sanitizePostflightSafe(ctx, orig)
+		if sanitizeErr != nil {
+			internalErrors++
+			continue
+		}
+		if sanitized != orig {
+			comment.Content = sanitized
+			changed = true
+		}
+		secretsRedacted += report.SecretsRedacted
+		piiRedacted = piiRedacted || report.PIIRedacted
+		if report.PIIRedactError {
+			internalErrors++
+		}
+
+		for idx, suggestion := range comment.Suggestions {
+			sanitizedSuggestion, suggestionReport, sanitizeErr := sanitizePostflightSafe(ctx, suggestion)
+			if sanitizeErr != nil {
+				internalErrors++
+				continue
+			}
+			if sanitizedSuggestion != suggestion {
+				comment.Suggestions[idx] = sanitizedSuggestion
+				changed = true
+			}
+			secretsRedacted += suggestionReport.SecretsRedacted
+			piiRedacted = piiRedacted || suggestionReport.PIIRedacted
+			if suggestionReport.PIIRedactError {
+				internalErrors++
+			}
+		}
+	}
+
+	if changed || internalErrors > 0 {
+		log.Printf("[LANGCHAIN OUTPUT SANITIZE] batch=%s sanitized=%t secrets_redacted=%d pii_redacted=%t internal_errors=%d", batchID, changed, secretsRedacted, piiRedacted, internalErrors)
+		if logger != nil {
+			logger.Log("Output sanitization summary for batch %s (sanitized=%t secrets_redacted=%d pii_redacted=%t internal_errors=%d)", batchID, changed, secretsRedacted, piiRedacted, internalErrors)
+		}
+	}
+
+	if internalErrors > 0 {
+		return fmt.Errorf("output sanitization encountered %d internal error(s)", internalErrors)
+	}
+
+	return nil
+}
+
+func sanitizePostflightSafe(ctx context.Context, value string) (sanitized string, report aisanitize.SanitizationReport, err error) {
+	defer func() {
+		if recovered := recover(); recovered != nil {
+			err = fmt.Errorf("panic in SanitizationPostflight: %v", recovered)
+			sanitized = value
+		}
+	}()
+
+	sanitized, report = aisanitize.SanitizationPostflight(ctx, value)
+	return sanitized, report, nil
 }
 
 // EnableJSONRepair modifies an existing LangChain provider to use JSON repair
@@ -85,5 +199,5 @@ func (p *LangchainProvider) EnableJSONRepair(reviewID, orgID int64) {
 	// This would be used to enable JSON repair on the existing provider
 	// For now, it's just a marker - the actual integration would happen
 	// by replacing calls to parseResponse with parseResponseWithRepair
-	fmt.Printf("[LANGCHAIN] JSON repair enabled for review %d (org %d)\n", reviewID, orgID)
+	log.Printf("[LANGCHAIN] JSON repair enabled for review %d (org %d)", reviewID, orgID)
 }

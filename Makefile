@@ -1,4 +1,4 @@
-.PHONY: build run-review run-review-verbose test clean develop develop-reflex river-deps river-install river-migrate river-setup river-ui-install river-ui db-flip version version-bump version-patch version-minor version-major version-bump-dirty version-patch-dirty version-minor-dirty version-major-dirty version-bump-dry version-patch-dry version-minor-dry version-major-dry build-versioned docker-build docker-build-push docker-build-dry docker-interactive docker-interactive-push docker-interactive-dry docker-build docker-build-push docker-build-versioned docker-build-push-versioned docker-build-dry docker-build-push-dry docker-multiarch docker-multiarch-push docker-multiarch-dry docker-interactive-multiarch docker-interactive-multiarch-push cplrops vendor-prompts-encrypt vendor-prompts-build vendor-prompts-rebuild vendor-docker-build vendor-docker-build-dry vendor-docker-build-push vendor-docker-multiarch-dry vendor-docker-multiarch-push run logrun build-with-ui
+.PHONY: build run-review run-review-verbose test clean develop develop-reflex river-deps river-install river-migrate river-setup river-ui-install river-ui db-flip version version-bump version-patch version-minor version-major version-bump-dirty version-patch-dirty version-minor-dirty version-major-dirty version-bump-dry version-patch-dry version-minor-dry version-major-dry build-versioned docker-build docker-build-push docker-build-dry docker-interactive docker-interactive-push docker-interactive-dry docker-build docker-build-push docker-build-versioned docker-build-push-versioned docker-build-dry docker-build-push-dry docker-multiarch docker-multiarch-push docker-multiarch-dry docker-interactive-multiarch docker-interactive-multiarch-push cplrops vendor-prompts-encrypt vendor-prompts-build vendor-prompts-rebuild vendor-docker-build vendor-docker-build-dry vendor-docker-build-push vendor-docker-multiarch-dry vendor-docker-multiarch-push run logrun build-with-ui security-sbom security-sbom-cyclonedx security-sbom-spdx security-sbom-validate release-notes-init release-notes-check release-preflight release-gh
 .PHONY: upload-secrets download-secrets list-secrets-files legacy-secrets-clear
 
 # Go parameters
@@ -8,12 +8,23 @@ GOCLEAN=$(GOCMD) clean
 GOTEST=$(GOCMD) test
 BINARY_NAME=livereview
 REQUIRED_GO_VERSION=$(shell awk '/^go /{print $$2; exit}' go.mod)
+REQUIRED_GO_SERIES=$(shell echo $(REQUIRED_GO_VERSION) | awk -F. '{print $$1"."$$2}')
 GOVULNCHECK_VERSION=v1.1.4
 GOVULNCHECK_CMD=GOTOOLCHAIN=go$(REQUIRED_GO_VERSION) $(GOCMD) run -a golang.org/x/vuln/cmd/govulncheck@$(GOVULNCHECK_VERSION)
 GH_REPO=HexmosTech/LiveReview
 GH=/usr/bin/gh
 GHSM_SCRIPT=scripts/ghsm.py
 LEGACY_ENV_VARS=DATABASE_URL JWT_SECRET LIVEREVIEW_BACKEND_PORT LIVEREVIEW_FRONTEND_PORT LIVEREVIEW_REVERSE_PROXY LIVEREVIEW_IS_CLOUD CLOUD_JWT_SECRET FW_PARSE_ADMIN_SECRET RAZORPAY_MODE RAZORPAY_WEBHOOK_SECRET RAZORPAY_TEST_KEY RAZORPAY_TEST_SECRET RAZORPAY_TEST_MONTHLY_PLAN_ID RAZORPAY_TEST_YEARLY_PLAN_ID RAZORPAY_LIVE_KEY RAZORPAY_LIVE_SECRET RAZORPAY_LIVE_MONTHLY_PLAN_ID RAZORPAY_LIVE_YEARLY_PLAN_ID DISCORD_SIGNUP_WEBHOOK_URL OVSX_PAT
+SYFT_CMD=syft
+SBOM_DIR=security_issues/sbom
+SBOM_VERSION?=$(shell git describe --tags --exact-match 2>/dev/null || git describe --tags --abbrev=0 2>/dev/null || echo dev)
+SBOM_CDX=$(SBOM_DIR)/livereview-$(SBOM_VERSION)-cyclonedx.json
+SBOM_SPDX=$(SBOM_DIR)/livereview-$(SBOM_VERSION)-spdx.json
+SBOM_UI_CDX=$(SBOM_DIR)/livereview-ui-$(SBOM_VERSION)-cyclonedx.json
+SBOM_UI_SPDX=$(SBOM_DIR)/livereview-ui-$(SBOM_VERSION)-spdx.json
+RELEASE_NOTES_DIR=docs/releases
+RELEASE_NOTES_TEMPLATE=$(RELEASE_NOTES_DIR)/_template.md
+RELEASE_GH_SCRIPT=scripts/release_gh.py
 
 # Load environment variables from .env file
 include .env
@@ -129,16 +140,36 @@ docker-interactive-dry:
 build-push: docker-build-push
 
 run:
+	@DLV_BIN_DIR=$$(go env GOBIN); \
+	if [ -z "$$DLV_BIN_DIR" ]; then DLV_BIN_DIR="$$(go env GOPATH)/bin"; fi; \
+	command -v dlv >/dev/null 2>&1 || { \
+		echo "Installing Delve with Go $(REQUIRED_GO_VERSION)..."; \
+		GOTOOLCHAIN=go$(REQUIRED_GO_VERSION) $(GOCMD) install github.com/go-delve/delve/cmd/dlv@latest; \
+	}; \
+	if ! go version -m "$$DLV_BIN_DIR/dlv" 2>/dev/null | grep -q "go$(REQUIRED_GO_SERIES)"; then \
+		echo "Rebuilding Delve with Go $(REQUIRED_GO_VERSION) for DWARFv5+ compatibility..."; \
+		GOTOOLCHAIN=go$(REQUIRED_GO_VERSION) $(GOCMD) install github.com/go-delve/delve/cmd/dlv@latest; \
+	fi
 	which air || go install github.com/air-verse/air@latest
-	air
+	DLV_BIN_DIR=$$(go env GOBIN); if [ -z "$$DLV_BIN_DIR" ]; then DLV_BIN_DIR="$$(go env GOPATH)/bin"; fi; PATH="$$DLV_BIN_DIR:$$PATH" air
 
 logrun:
 	which air || go install github.com/air-verse/air@latest
 	bash -c 'set -o pipefail; air 2>&1 | tee "logrun-$$(date +%Y%m%d-%H%M%S).log"'
 
 develop:
+	@DLV_BIN_DIR=$$(go env GOBIN); \
+	if [ -z "$$DLV_BIN_DIR" ]; then DLV_BIN_DIR="$$(go env GOPATH)/bin"; fi; \
+	command -v dlv >/dev/null 2>&1 || { \
+		echo "Installing Delve with Go $(REQUIRED_GO_VERSION)..."; \
+		GOTOOLCHAIN=go$(REQUIRED_GO_VERSION) $(GOCMD) install github.com/go-delve/delve/cmd/dlv@latest; \
+	}; \
+	if ! go version -m "$$DLV_BIN_DIR/dlv" 2>/dev/null | grep -q "go$(REQUIRED_GO_SERIES)"; then \
+		echo "Rebuilding Delve with Go $(REQUIRED_GO_VERSION) for DWARFv5+ compatibility..."; \
+		GOTOOLCHAIN=go$(REQUIRED_GO_VERSION) $(GOCMD) install github.com/go-delve/delve/cmd/dlv@latest; \
+	fi
 	which air || go install github.com/air-verse/air@latest
-	air
+	DLV_BIN_DIR=$$(go env GOBIN); if [ -z "$$DLV_BIN_DIR" ]; then DLV_BIN_DIR="$$(go env GOPATH)/bin"; fi; PATH="$$DLV_BIN_DIR:$$PATH" air
 
 develop-reflex:
 	which reflex || go install github.com/cespare/reflex@latest
@@ -353,6 +384,13 @@ docker-multiarch:
 
 docker-multiarch-push:
 	@python scripts/lrops.py build --docker --multiarch --push $(ARGS)
+	@echo "ℹ️  Optional GitHub release publish: make release-gh"
+	@echo "   Optional explicit override: make release-gh VERSION=$$(git describe --tags --abbrev=0 2>/dev/null || true)"
+
+# Optionally publish a GitHub release using markdown notes (no binary assets).
+# VERSION is optional and auto-inferred by scripts/release_gh.py.
+release-gh:
+	@python3 $(RELEASE_GH_SCRIPT) --repo $(GH_REPO) $(if $(VERSION),--version $(VERSION),)
 
 docker-multiarch-dry:
 	@python scripts/lrops.py build --docker --multiarch --dry-run $(ARGS)
@@ -499,6 +537,88 @@ legacy-secrets-clear:
 		$(GH) variable delete "$$var" --repo $(GH_REPO) >/dev/null 2>&1 || true; \
 	done
 	@echo "✅ Legacy variable cleanup complete."
+
+# Generate SBOMs in both CycloneDX and SPDX formats for Go and UI dependencies.
+security-sbom: security-sbom-cyclonedx security-sbom-spdx security-sbom-validate
+
+security-sbom-cyclonedx:
+	@command -v $(SYFT_CMD) >/dev/null 2>&1 || { \
+		echo "❌ syft not found. Install from https://github.com/anchore/syft"; \
+		exit 1; \
+	}
+	@mkdir -p $(SBOM_DIR)
+	@$(SYFT_CMD) file:go.mod --source-name livereview --source-version $(SBOM_VERSION) -o cyclonedx-json=$(SBOM_CDX)
+	@$(SYFT_CMD) file:ui/package-lock.json --source-name livereview-ui --source-version $(SBOM_VERSION) -o cyclonedx-json=$(SBOM_UI_CDX)
+	@echo "ℹ️  SBOM version: $(SBOM_VERSION)"
+	@echo "✅ Wrote $(SBOM_CDX)"
+	@echo "✅ Wrote $(SBOM_UI_CDX)"
+
+security-sbom-spdx:
+	@command -v $(SYFT_CMD) >/dev/null 2>&1 || { \
+		echo "❌ syft not found. Install from https://github.com/anchore/syft"; \
+		exit 1; \
+	}
+	@mkdir -p $(SBOM_DIR)
+	@$(SYFT_CMD) file:go.mod --source-name livereview --source-version $(SBOM_VERSION) -o spdx-json=$(SBOM_SPDX)
+	@$(SYFT_CMD) file:ui/package-lock.json --source-name livereview-ui --source-version $(SBOM_VERSION) -o spdx-json=$(SBOM_UI_SPDX)
+	@echo "ℹ️  SBOM version: $(SBOM_VERSION)"
+	@echo "✅ Wrote $(SBOM_SPDX)"
+	@echo "✅ Wrote $(SBOM_UI_SPDX)"
+
+security-sbom-validate:
+	@test -s $(SBOM_CDX)
+	@test -s $(SBOM_SPDX)
+	@test -s $(SBOM_UI_CDX)
+	@test -s $(SBOM_UI_SPDX)
+	@echo "✅ SBOM validation passed"
+
+# Generate release notes file from template.
+# Usage: make release-notes-init VERSION=v1.2.3
+release-notes-init:
+	@if [ -z "$(VERSION)" ]; then \
+		echo "❌ VERSION is required. Example: make release-notes-init VERSION=v1.2.3"; \
+		exit 1; \
+	fi
+	@echo "$(VERSION)" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+$$' || { \
+		echo "❌ VERSION must match vX.Y.Z"; \
+		exit 1; \
+	}
+	@test -f $(RELEASE_NOTES_TEMPLATE) || { \
+		echo "❌ Missing template: $(RELEASE_NOTES_TEMPLATE)"; \
+		exit 1; \
+	}
+	@mkdir -p $(RELEASE_NOTES_DIR)
+	@target="$(RELEASE_NOTES_DIR)/$(VERSION).md"; \
+	if [ -f "$$target" ]; then \
+		echo "❌ Release notes already exist: $$target"; \
+		exit 1; \
+	fi; \
+	sed -e "s/__VERSION__/$(VERSION)/g" -e "s/__DATE__/$(shell date -u +%Y-%m-%d)/g" "$(RELEASE_NOTES_TEMPLATE)" > "$$target"; \
+	echo "✅ Created $$target"
+
+# Validate release notes file exists and required headings are present.
+# Usage: make release-notes-check VERSION=v1.2.3
+release-notes-check:
+	@if [ -z "$(VERSION)" ]; then \
+		echo "❌ VERSION is required. Example: make release-notes-check VERSION=v1.2.3"; \
+		exit 1; \
+	fi
+	@echo "$(VERSION)" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+$$' || { \
+		echo "❌ VERSION must match vX.Y.Z"; \
+		exit 1; \
+	}
+	@target="$(RELEASE_NOTES_DIR)/$(VERSION).md"; \
+	test -f "$$target" || { echo "❌ Missing release notes: $$target"; exit 1; }; \
+	test -s "$$target" || { echo "❌ Release notes file is empty: $$target"; exit 1; }; \
+	grep -q '^## Summary' "$$target" || { echo "❌ Missing required section: ## Summary"; exit 1; }; \
+	grep -q '^## Install and Update' "$$target" || { echo "❌ Missing required section: ## Install and Update"; exit 1; }; \
+	grep -q '^## Changes' "$$target" || { echo "❌ Missing required section: ## Changes"; exit 1; }; \
+	echo "✅ Release notes validated: $$target"
+
+# Run all release checks before creating/publishing a GitHub release.
+# Usage: make release-preflight VERSION=v1.2.3
+release-preflight: release-notes-check
+	@echo "✅ Release preflight passed for $(VERSION)"
 
 check-status-doc:
 	chmod +x scripts/check-status-doc-links.sh
