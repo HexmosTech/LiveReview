@@ -1,9 +1,13 @@
 package gitlab
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"time"
+
+	networkgitlab "github.com/livereview/network/providers/gitlab"
 )
 
 // GitLabProfile represents the user profile info fetched from GitLab.
@@ -18,14 +22,14 @@ type GitLabProfile struct {
 // FetchGitLabProfile fetches the user profile from GitLab using PAT and base URL.
 func FetchGitLabProfile(baseURL, pat string) (*GitLabProfile, error) {
 	url := fmt.Sprintf("%s/api/v4/user", baseURL)
-	client := &http.Client{}
-	req, err := http.NewRequest("GET", url, nil)
+	client := networkgitlab.NewHTTPClient(10 * time.Second)
+	req, err := networkgitlab.NewRequestWithContext(context.Background(), http.MethodGet, url, nil)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create request - please check the GitLab URL format")
 	}
 	req.Header.Set("PRIVATE-TOKEN", pat)
 
-	resp, err := client.Do(req)
+	resp, err := networkgitlab.Do(client, req)
 	if err != nil {
 		return nil, fmt.Errorf("cannot connect to GitLab instance - please verify the URL is correct and accessible")
 	}

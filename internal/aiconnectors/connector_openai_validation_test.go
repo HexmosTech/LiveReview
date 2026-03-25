@@ -6,6 +6,8 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+
+	"github.com/livereview/internal/aisanitize"
 )
 
 func TestValidateAPIKeyOpenAIResponsesSuccess(t *testing.T) {
@@ -60,5 +62,21 @@ func TestValidateAPIKeyOpenAIResponsesAuthFailureReturnsInvalidNotError(t *testi
 	}
 	if valid {
 		t.Fatal("expected key to be invalid")
+	}
+}
+
+func TestIsCloudProviderClassification(t *testing.T) {
+	t.Parallel()
+
+	if !isCloudProviderProvider(ProviderOpenAI) {
+		t.Fatal("expected openai to be treated as cloud provider")
+	}
+
+	if isCloudProviderProvider(ProviderOllama) {
+		t.Fatal("expected ollama to be treated as non-cloud provider in step-1 sanitization")
+	}
+
+	if !aisanitize.IsCloudProvider("openai") {
+		t.Fatal("expected sanitizer cloud classifier to treat openai as cloud provider")
 	}
 }

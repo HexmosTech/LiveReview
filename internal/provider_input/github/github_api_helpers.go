@@ -9,12 +9,13 @@ import (
 	"time"
 
 	"github.com/livereview/internal/capture"
+	networkgithub "github.com/livereview/network/providers/github"
 )
 
 // FetchGitHubPRCommitsV2 fetches commits for a GitHub PR.
 func FetchGitHubPRCommitsV2(owner, repo, prNumber, token string) ([]GitHubV2CommitInfo, error) {
 	baseURL := fmt.Sprintf("https://api.github.com/repos/%s/%s/pulls/%s/commits", owner, repo, prNumber)
-	client := &http.Client{Timeout: 30 * time.Second}
+	client := networkgithub.NewHTTPClient(30 * time.Second)
 
 	commits := make([]GitHubV2CommitInfo, 0, 64)
 	page := 1
@@ -22,14 +23,14 @@ func FetchGitHubPRCommitsV2(owner, repo, prNumber, token string) ([]GitHubV2Comm
 
 	for {
 		apiURL := buildPaginatedURL(baseURL, page, perPage)
-		req, err := http.NewRequest("GET", apiURL, nil)
+		req, err := networkgithub.NewRequest("GET", apiURL, nil)
 		if err != nil {
 			return nil, err
 		}
 
 		setGitHubHeaders(req, token)
 
-		resp, err := client.Do(req)
+		resp, err := networkgithub.Do(client, req)
 		if err != nil {
 			return nil, err
 		}
@@ -71,7 +72,7 @@ func FetchGitHubPRCommitsV2(owner, repo, prNumber, token string) ([]GitHubV2Comm
 // FetchGitHubPRCommentsV2 fetches comments for a GitHub PR.
 func FetchGitHubPRCommentsV2(owner, repo, prNumber, token string) ([]GitHubV2CommentInfo, error) {
 	baseURL := fmt.Sprintf("https://api.github.com/repos/%s/%s/issues/%s/comments", owner, repo, prNumber)
-	client := &http.Client{Timeout: 30 * time.Second}
+	client := networkgithub.NewHTTPClient(30 * time.Second)
 
 	comments := make([]GitHubV2CommentInfo, 0, 32)
 	page := 1
@@ -79,14 +80,14 @@ func FetchGitHubPRCommentsV2(owner, repo, prNumber, token string) ([]GitHubV2Com
 
 	for {
 		apiURL := buildPaginatedURL(baseURL, page, perPage)
-		req, err := http.NewRequest("GET", apiURL, nil)
+		req, err := networkgithub.NewRequest("GET", apiURL, nil)
 		if err != nil {
 			return nil, err
 		}
 
 		setGitHubHeaders(req, token)
 
-		resp, err := client.Do(req)
+		resp, err := networkgithub.Do(client, req)
 		if err != nil {
 			return nil, err
 		}
@@ -128,7 +129,7 @@ func FetchGitHubPRCommentsV2(owner, repo, prNumber, token string) ([]GitHubV2Com
 // FetchGitHubPRReviewCommentsV2 fetches review (inline) comments for a GitHub PR.
 func FetchGitHubPRReviewCommentsV2(owner, repo, prNumber, token string) ([]GitHubV2ReviewComment, error) {
 	baseURL := fmt.Sprintf("https://api.github.com/repos/%s/%s/pulls/%s/comments", owner, repo, prNumber)
-	client := &http.Client{Timeout: 30 * time.Second}
+	client := networkgithub.NewHTTPClient(30 * time.Second)
 
 	comments := make([]GitHubV2ReviewComment, 0, 64)
 	page := 1
@@ -136,14 +137,14 @@ func FetchGitHubPRReviewCommentsV2(owner, repo, prNumber, token string) ([]GitHu
 
 	for {
 		apiURL := buildPaginatedURL(baseURL, page, perPage)
-		req, err := http.NewRequest("GET", apiURL, nil)
+		req, err := networkgithub.NewRequest("GET", apiURL, nil)
 		if err != nil {
 			return nil, err
 		}
 
 		setGitHubHeaders(req, token)
 
-		resp, err := client.Do(req)
+		resp, err := networkgithub.Do(client, req)
 		if err != nil {
 			return nil, err
 		}
@@ -185,7 +186,7 @@ func FetchGitHubPRReviewCommentsV2(owner, repo, prNumber, token string) ([]GitHu
 // FetchGitHubPRReviewsV2 fetches review submissions for a GitHub PR.
 func FetchGitHubPRReviewsV2(owner, repo, prNumber, token string) ([]GitHubV2ReviewInfo, error) {
 	baseURL := fmt.Sprintf("https://api.github.com/repos/%s/%s/pulls/%s/reviews", owner, repo, prNumber)
-	client := &http.Client{Timeout: 30 * time.Second}
+	client := networkgithub.NewHTTPClient(30 * time.Second)
 
 	reviews := make([]GitHubV2ReviewInfo, 0, 16)
 	page := 1
@@ -193,14 +194,14 @@ func FetchGitHubPRReviewsV2(owner, repo, prNumber, token string) ([]GitHubV2Revi
 
 	for {
 		apiURL := buildPaginatedURL(baseURL, page, perPage)
-		req, err := http.NewRequest("GET", apiURL, nil)
+		req, err := networkgithub.NewRequest("GET", apiURL, nil)
 		if err != nil {
 			return nil, err
 		}
 
 		setGitHubHeaders(req, token)
 
-		resp, err := client.Do(req)
+		resp, err := networkgithub.Do(client, req)
 		if err != nil {
 			return nil, err
 		}
@@ -242,9 +243,9 @@ func FetchGitHubPRReviewsV2(owner, repo, prNumber, token string) ([]GitHubV2Revi
 // FetchGitHubPRDiff fetches the diff for a GitHub PR.
 func FetchGitHubPRDiff(owner, repo, prNumber, token string) (string, error) {
 	apiURL := fmt.Sprintf("https://api.github.com/repos/%s/%s/pulls/%s", owner, repo, prNumber)
-	client := &http.Client{Timeout: 30 * time.Second}
+	client := networkgithub.NewHTTPClient(30 * time.Second)
 
-	req, err := http.NewRequest("GET", apiURL, nil)
+	req, err := networkgithub.NewRequest("GET", apiURL, nil)
 	if err != nil {
 		return "", err
 	}
@@ -252,7 +253,7 @@ func FetchGitHubPRDiff(owner, repo, prNumber, token string) (string, error) {
 	setGitHubHeaders(req, token)
 	req.Header.Set("Accept", "application/vnd.github.v3.diff")
 
-	resp, err := client.Do(req)
+	resp, err := networkgithub.Do(client, req)
 	if err != nil {
 		return "", err
 	}

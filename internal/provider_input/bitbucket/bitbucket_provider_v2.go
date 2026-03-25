@@ -1,6 +1,7 @@
 package bitbucket
 
 import (
+	"context"
 	"database/sql"
 	"encoding/json"
 	"fmt"
@@ -12,6 +13,8 @@ import (
 
 	"github.com/livereview/internal/capture"
 	coreprocessor "github.com/livereview/internal/core_processor"
+	networkbitbucket "github.com/livereview/network/providers/bitbucket"
+	storagebitbucket "github.com/livereview/storage/providers/bitbucket"
 )
 
 type (
@@ -235,20 +238,34 @@ type BitbucketV2CommentInfo struct {
 
 // BitbucketV2Provider implements the WebhookProviderV2 interface for Bitbucket.
 type BitbucketV2Provider struct {
-	db     *sql.DB
-	output BitbucketOutputClient
+	db         *sql.DB
+	output     BitbucketOutputClient
+	tokenStore bitbucketTokenStore
+}
+
+type bitbucketTokenStore interface {
+	GetTokenByRepoFullName(repoFullName string) (*storagebitbucket.IntegrationTokenRecord, error)
+	GetLatestBitbucketToken() (*storagebitbucket.IntegrationTokenRecord, error)
 }
 
 // NewBitbucketV2Provider creates a new Bitbucket V2 provider.
 func NewBitbucketV2Provider(db *sql.DB, output BitbucketOutputClient) *BitbucketV2Provider {
+	return NewBitbucketV2ProviderWithTokenStore(db, output, storagebitbucket.NewIntegrationTokenStore(db))
+}
+
+// NewBitbucketV2ProviderWithTokenStore creates a provider with an injected token store.
+func NewBitbucketV2ProviderWithTokenStore(db *sql.DB, output BitbucketOutputClient, tokenStore bitbucketTokenStore) *BitbucketV2Provider {
 	if db == nil {
 		panic("bitbucket provider requires database handle")
 	}
 	if output == nil {
 		panic("bitbucket provider requires output client")
 	}
+	if tokenStore == nil {
+		panic("bitbucket provider requires token store")
+	}
 
-	return &BitbucketV2Provider{db: db, output: output}
+	return &BitbucketV2Provider{db: db, output: output, tokenStore: tokenStore}
 }
 
 // ProviderName returns the name of this provider
@@ -481,7 +498,7 @@ func (p *BitbucketV2Provider) GetBotUserInfo(repository UnifiedRepositoryV2) (*U
 		return nil, fmt.Errorf("bitbucket token metadata missing email")
 	}
 
-	req, err := http.NewRequest("GET", "https://api.bitbucket.org/2.0/user", nil)
+	req, err := networkbitbucket.NewRequestWithContext(context.Background(), http.MethodGet, "https://api.bitbucket.org/2.0/user", nil)
 	if err != nil {
 		return nil, fmt.Errorf("failed to construct Bitbucket user request: %w", err)
 	}
@@ -490,8 +507,8 @@ func (p *BitbucketV2Provider) GetBotUserInfo(repository UnifiedRepositoryV2) (*U
 	req.Header.Set("Accept", "application/json")
 	req.Header.Set("User-Agent", "LiveReview-Bot")
 
-	client := &http.Client{Timeout: 10 * time.Second}
-	resp, err := client.Do(req)
+	client := networkbitbucket.NewHTTPClient(10 * time.Second)
+	resp, err := networkbitbucket.Do(client, req)
 	if err != nil {
 		return nil, fmt.Errorf("failed to call Bitbucket API: %w", err)
 	}
@@ -769,35 +786,26 @@ func (p *BitbucketV2Provider) findIntegrationTokenForBitbucketRepoV2(repoFullNam
 		return nil, fmt.Errorf("bitbucket provider not initialized with database handle")
 	}
 
-	query := `
-		SELECT it.id, it.provider, it.provider_url, it.pat_token, it.org_id, COALESCE(it.metadata, '{}')
-		FROM integration_tokens it
-		JOIN webhook_registry wr ON wr.integration_token_id = it.id
-		WHERE wr.project_full_name = $1
-		LIMIT 1
-	`
-
 	token := &IntegrationToken{Metadata: make(map[string]interface{})}
 	var metadataJSON []byte
-	err := p.db.QueryRow(query, repoFullName).Scan(
-		&token.ID, &token.Provider, &token.ProviderURL, &token.PatToken, &token.OrgID, &metadataJSON,
-	)
+	rec, err := p.tokenStore.GetTokenByRepoFullName(repoFullName)
 	if err != nil {
-		fallbackQuery := `
-			SELECT id, provider, provider_url, pat_token, org_id, COALESCE(metadata, '{}')
-			FROM integration_tokens
-			WHERE provider LIKE 'bitbucket%'
-			ORDER BY created_at DESC
-			LIMIT 1
-		`
+		if err != sql.ErrNoRows {
+			return nil, fmt.Errorf("failed token lookup for Bitbucket repository %s: %w", repoFullName, err)
+		}
 
-		err = p.db.QueryRow(fallbackQuery).Scan(
-			&token.ID, &token.Provider, &token.ProviderURL, &token.PatToken, &token.OrgID, &metadataJSON,
-		)
+		rec, err = p.tokenStore.GetLatestBitbucketToken()
 		if err != nil {
 			return nil, fmt.Errorf("no integration token found for Bitbucket repository %s: %w", repoFullName, err)
 		}
 	}
+
+	token.ID = rec.ID
+	token.Provider = rec.Provider
+	token.ProviderURL = rec.ProviderURL
+	token.PatToken = rec.PatToken
+	token.OrgID = rec.OrgID
+	metadataJSON = rec.Metadata
 
 	if len(metadataJSON) > 0 {
 		if err := json.Unmarshal(metadataJSON, &token.Metadata); err != nil {

@@ -7,18 +7,19 @@ import (
 	"strings"
 	"time"
 
+	storageusers "github.com/livereview/storage/users"
 	"golang.org/x/crypto/bcrypt"
 )
 
 // UserService handles core user management operations
 type UserService struct {
-	db *sql.DB
+	store *storageusers.UserStore
 }
 
 // NewUserService creates a new user service
 func NewUserService(db *sql.DB) *UserService {
 	return &UserService{
-		db: db,
+		store: storageusers.NewUserStore(db),
 	}
 }
 
@@ -66,57 +67,50 @@ func (us *UserService) CreateUserInOrg(orgID, createdByUserID int64, req CreateU
 		return nil, fmt.Errorf("failed to hash password: %w", err)
 	}
 
-	// Start transaction
-	tx, err := us.db.Begin()
-	if err != nil {
-		return nil, fmt.Errorf("failed to start transaction: %w", err)
-	}
-	defer tx.Rollback()
-
-	// Check if email already exists
-	var existingUserID int64
-	err = tx.QueryRow("SELECT id FROM users WHERE email = $1", req.Email).Scan(&existingUserID)
-	if err != sql.ErrNoRows {
-		if err == nil {
-			return nil, fmt.Errorf("user with email %s already exists", req.Email)
-		}
-		return nil, fmt.Errorf("failed to check existing email: %w", err)
-	}
-
-	// Create user
 	var userID int64
-	err = tx.QueryRow(`
-		INSERT INTO users (email, password_hash, first_name, last_name, created_by_user_id, password_reset_required, created_at, updated_at)
-		VALUES ($1, $2, $3, $4, $5, true, NOW(), NOW())
-		RETURNING id
-	`, req.Email, string(hashedPassword), req.FirstName, req.LastName, createdByUserID).Scan(&userID)
+	err = us.store.WithTx(func(tx *sql.Tx) error {
+		// Check if email already exists
+		var existingUserID int64
+		err := us.store.TxQueryRow(tx, "SELECT id FROM users WHERE email = $1", req.Email).Scan(&existingUserID)
+		if err != sql.ErrNoRows {
+			if err == nil {
+				return fmt.Errorf("user with email %s already exists", req.Email)
+			}
+			return fmt.Errorf("failed to check existing email: %w", err)
+		}
 
-	if err != nil {
-		return nil, fmt.Errorf("failed to create user: %w", err)
-	}
+		// Create user
+		err = us.store.TxQueryRow(tx, `
+			INSERT INTO users (email, password_hash, first_name, last_name, created_by_user_id, password_reset_required, created_at, updated_at)
+			VALUES ($1, $2, $3, $4, $5, true, NOW(), NOW())
+			RETURNING id
+		`, req.Email, string(hashedPassword), req.FirstName, req.LastName, createdByUserID).Scan(&userID)
+		if err != nil {
+			return fmt.Errorf("failed to create user: %w", err)
+		}
 
-	// Add user role
-	_, err = tx.Exec(`
-		INSERT INTO user_roles (user_id, org_id, role_id, created_at, updated_at)
-		VALUES ($1, $2, $3, NOW(), NOW())
-	`, userID, orgID, req.RoleID)
+		// Add user role
+		_, err = us.store.TxExec(tx, `
+			INSERT INTO user_roles (user_id, org_id, role_id, created_at, updated_at)
+			VALUES ($1, $2, $3, NOW(), NOW())
+		`, userID, orgID, req.RoleID)
+		if err != nil {
+			return fmt.Errorf("failed to assign user role: %w", err)
+		}
 
-	if err != nil {
-		return nil, fmt.Errorf("failed to assign user role: %w", err)
-	}
+		// Add audit trail
+		err = us.addUserAuditLog(tx, orgID, userID, createdByUserID, "created", map[string]interface{}{
+			"role_id": req.RoleID,
+			"email":   req.Email,
+		})
+		if err != nil {
+			return fmt.Errorf("failed to add audit log: %w", err)
+		}
 
-	// Add audit trail
-	err = us.addUserAuditLog(tx, orgID, userID, createdByUserID, "created", map[string]interface{}{
-		"role_id": req.RoleID,
-		"email":   req.Email,
+		return nil
 	})
 	if err != nil {
-		return nil, fmt.Errorf("failed to add audit log: %w", err)
-	}
-
-	// Commit transaction
-	if err = tx.Commit(); err != nil {
-		return nil, fmt.Errorf("failed to commit transaction: %w", err)
+		return nil, err
 	}
 
 	// Get the created user with role
@@ -126,7 +120,7 @@ func (us *UserService) CreateUserInOrg(orgID, createdByUserID int64, req CreateU
 // GetUserInOrg gets a user in a specific organization with their role
 func (us *UserService) GetUserInOrg(orgID, userID int64) (*UserWithRole, error) {
 	user := &UserWithRole{}
-	err := us.db.QueryRow(`
+	err := us.store.QueryRow(`
 		SELECT u.id, u.email, u.first_name, u.last_name, u.is_active, u.last_login_at,
 		       u.created_at, u.updated_at, u.created_by_user_id, u.deactivated_at,
 		       u.deactivated_by_user_id, u.password_reset_required,
@@ -156,7 +150,7 @@ func (us *UserService) GetUserInOrg(orgID, userID int64) (*UserWithRole, error) 
 func (us *UserService) ListUsersInOrg(orgID int64, offset, limit int) ([]*UserWithRole, int, error) {
 	// Get total count
 	var totalCount int
-	err := us.db.QueryRow(`
+	err := us.store.QueryRow(`
 		SELECT COUNT(*)
 		FROM users u
 		JOIN user_roles ur ON u.id = ur.user_id
@@ -168,7 +162,7 @@ func (us *UserService) ListUsersInOrg(orgID int64, offset, limit int) ([]*UserWi
 	}
 
 	// Get users with pagination
-	rows, err := us.db.Query(`
+	rows, err := us.store.Query(`
 		SELECT u.id, u.email, u.first_name, u.last_name, u.is_active, u.last_login_at,
 		       u.created_at, u.updated_at, u.created_by_user_id, u.deactivated_at,
 		       u.deactivated_by_user_id, u.password_reset_required,
@@ -206,13 +200,6 @@ func (us *UserService) ListUsersInOrg(orgID int64, offset, limit int) ([]*UserWi
 
 // UpdateUserInOrg updates a user in a specific organization
 func (us *UserService) UpdateUserInOrg(orgID, userID, updatedByUserID int64, req UpdateUserRequest) (*UserWithRole, error) {
-	// Start transaction
-	tx, err := us.db.Begin()
-	if err != nil {
-		return nil, fmt.Errorf("failed to start transaction: %w", err)
-	}
-	defer tx.Rollback()
-
 	// Build dynamic update query
 	setParts := []string{"updated_at = NOW()"}
 	args := []interface{}{}
@@ -247,71 +234,70 @@ func (us *UserService) UpdateUserInOrg(orgID, userID, updatedByUserID int64, req
 		}
 	}
 
-	// Update user if there are changes
-	if len(setParts) > 1 { // More than just updated_at
-		query := fmt.Sprintf("UPDATE users SET %s WHERE id = $%d",
-			strings.Join(setParts, ", "), argIndex)
-		args = append(args, userID)
+	err := us.store.WithTx(func(tx *sql.Tx) error {
+		// Update user if there are changes
+		if len(setParts) > 1 { // More than just updated_at
+			query := fmt.Sprintf("UPDATE users SET %s WHERE id = $%d",
+				strings.Join(setParts, ", "), argIndex)
+			args = append(args, userID)
 
-		_, err = tx.Exec(query, args...)
-		if err != nil {
-			return nil, fmt.Errorf("failed to update user: %w", err)
-		}
-
-		// Add audit log for user update
-		err = us.addUserAuditLog(tx, orgID, userID, updatedByUserID, "updated", auditDetails)
-		if err != nil {
-			return nil, fmt.Errorf("failed to add audit log: %w", err)
-		}
-	}
-
-	// Handle role change separately
-	if req.RoleID != nil {
-		// Get current role for audit trail
-		var currentRoleID int64
-		err = tx.QueryRow(`
-			SELECT role_id FROM user_roles WHERE user_id = $1 AND org_id = $2
-		`, userID, orgID).Scan(&currentRoleID)
-
-		if err != nil {
-			return nil, fmt.Errorf("failed to get current role: %w", err)
-		}
-
-		if currentRoleID != *req.RoleID {
-			// Update role
-			_, err = tx.Exec(`
-				UPDATE user_roles SET role_id = $1, updated_at = NOW()
-				WHERE user_id = $2 AND org_id = $3
-			`, *req.RoleID, userID, orgID)
-
+			_, err := us.store.TxExec(tx, query, args...)
 			if err != nil {
-				return nil, fmt.Errorf("failed to update user role: %w", err)
+				return fmt.Errorf("failed to update user: %w", err)
 			}
 
-			// Add role change to audit history
-			_, err = tx.Exec(`
-				INSERT INTO user_role_history (user_id, org_id, old_role_id, new_role_id, changed_by_user_id, created_at)
-				VALUES ($1, $2, $3, $4, $5, NOW())
-			`, userID, orgID, currentRoleID, *req.RoleID, updatedByUserID)
-
+			// Add audit log for user update
+			err = us.addUserAuditLog(tx, orgID, userID, updatedByUserID, "updated", auditDetails)
 			if err != nil {
-				return nil, fmt.Errorf("failed to add role history: %w", err)
-			}
-
-			// Add audit log for role change
-			err = us.addUserAuditLog(tx, orgID, userID, updatedByUserID, "role_changed", map[string]interface{}{
-				"old_role_id": currentRoleID,
-				"new_role_id": *req.RoleID,
-			})
-			if err != nil {
-				return nil, fmt.Errorf("failed to add role change audit log: %w", err)
+				return fmt.Errorf("failed to add audit log: %w", err)
 			}
 		}
-	}
 
-	// Commit transaction
-	if err = tx.Commit(); err != nil {
-		return nil, fmt.Errorf("failed to commit transaction: %w", err)
+		// Handle role change separately
+		if req.RoleID != nil {
+			// Get current role for audit trail
+			var currentRoleID int64
+			err := us.store.TxQueryRow(tx, `
+				SELECT role_id FROM user_roles WHERE user_id = $1 AND org_id = $2
+			`, userID, orgID).Scan(&currentRoleID)
+			if err != nil {
+				return fmt.Errorf("failed to get current role: %w", err)
+			}
+
+			if currentRoleID != *req.RoleID {
+				// Update role
+				_, err = us.store.TxExec(tx, `
+					UPDATE user_roles SET role_id = $1, updated_at = NOW()
+					WHERE user_id = $2 AND org_id = $3
+				`, *req.RoleID, userID, orgID)
+				if err != nil {
+					return fmt.Errorf("failed to update user role: %w", err)
+				}
+
+				// Add role change to audit history
+				_, err = us.store.TxExec(tx, `
+					INSERT INTO user_role_history (user_id, org_id, old_role_id, new_role_id, changed_by_user_id, created_at)
+					VALUES ($1, $2, $3, $4, $5, NOW())
+				`, userID, orgID, currentRoleID, *req.RoleID, updatedByUserID)
+				if err != nil {
+					return fmt.Errorf("failed to add role history: %w", err)
+				}
+
+				// Add audit log for role change
+				err = us.addUserAuditLog(tx, orgID, userID, updatedByUserID, "role_changed", map[string]interface{}{
+					"old_role_id": currentRoleID,
+					"new_role_id": *req.RoleID,
+				})
+				if err != nil {
+					return fmt.Errorf("failed to add role change audit log: %w", err)
+				}
+			}
+		}
+
+		return nil
+	})
+	if err != nil {
+		return nil, err
 	}
 
 	// Get updated user
@@ -320,67 +306,53 @@ func (us *UserService) UpdateUserInOrg(orgID, userID, updatedByUserID int64, req
 
 // DeactivateUserInOrg deactivates a user in a specific organization
 func (us *UserService) DeactivateUserInOrg(orgID, userID, deactivatedByUserID int64) error {
-	// Start transaction
-	tx, err := us.db.Begin()
-	if err != nil {
-		return fmt.Errorf("failed to start transaction: %w", err)
-	}
-	defer tx.Rollback()
+	return us.store.WithTx(func(tx *sql.Tx) error {
+		// Deactivate user
+		_, err := us.store.TxExec(tx, `
+			UPDATE users 
+			SET is_active = false, deactivated_at = NOW(), deactivated_by_user_id = $1, updated_at = NOW()
+			WHERE id = $2
+		`, deactivatedByUserID, userID)
+		if err != nil {
+			return fmt.Errorf("failed to deactivate user: %w", err)
+		}
 
-	// Deactivate user
-	_, err = tx.Exec(`
-		UPDATE users 
-		SET is_active = false, deactivated_at = NOW(), deactivated_by_user_id = $1, updated_at = NOW()
-		WHERE id = $2
-	`, deactivatedByUserID, userID)
+		// Add audit log
+		err = us.addUserAuditLog(tx, orgID, userID, deactivatedByUserID, "deactivated", map[string]interface{}{})
+		if err != nil {
+			return fmt.Errorf("failed to add audit log: %w", err)
+		}
 
-	if err != nil {
-		return fmt.Errorf("failed to deactivate user: %w", err)
-	}
-
-	// Add audit log
-	err = us.addUserAuditLog(tx, orgID, userID, deactivatedByUserID, "deactivated", map[string]interface{}{})
-	if err != nil {
-		return fmt.Errorf("failed to add audit log: %w", err)
-	}
-
-	// Commit transaction
-	return tx.Commit()
+		return nil
+	})
 }
 
 // ForcePasswordReset forces a user to reset their password on next login
 func (us *UserService) ForcePasswordReset(orgID, userID, updatedByUserID int64) error {
-	// Start transaction
-	tx, err := us.db.Begin()
-	if err != nil {
-		return fmt.Errorf("failed to start transaction: %w", err)
-	}
-	defer tx.Rollback()
+	return us.store.WithTx(func(tx *sql.Tx) error {
+		// Set password reset required
+		_, err := us.store.TxExec(tx, `
+			UPDATE users 
+			SET password_reset_required = true, updated_at = NOW()
+			WHERE id = $1
+		`, userID)
+		if err != nil {
+			return fmt.Errorf("failed to set password reset required: %w", err)
+		}
 
-	// Set password reset required
-	_, err = tx.Exec(`
-		UPDATE users 
-		SET password_reset_required = true, updated_at = NOW()
-		WHERE id = $1
-	`, userID)
+		// Add audit log
+		err = us.addUserAuditLog(tx, orgID, userID, updatedByUserID, "password_reset", map[string]interface{}{})
+		if err != nil {
+			return fmt.Errorf("failed to add audit log: %w", err)
+		}
 
-	if err != nil {
-		return fmt.Errorf("failed to set password reset required: %w", err)
-	}
-
-	// Add audit log
-	err = us.addUserAuditLog(tx, orgID, userID, updatedByUserID, "password_reset", map[string]interface{}{})
-	if err != nil {
-		return fmt.Errorf("failed to add audit log: %w", err)
-	}
-
-	// Commit transaction
-	return tx.Commit()
+		return nil
+	})
 }
 
 // GetUserAuditLog gets the audit log for a user
 func (us *UserService) GetUserAuditLog(orgID, userID int64, offset, limit int) ([]UserAuditEntry, error) {
-	rows, err := us.db.Query(`
+	rows, err := us.store.Query(`
 		SELECT uma.id, uma.action, uma.details, uma.created_at,
 		       performer.email as performed_by_email
 		FROM user_management_audit uma
@@ -424,7 +396,7 @@ func (us *UserService) addUserAuditLog(tx *sql.Tx, orgID, targetUserID, performe
 		return fmt.Errorf("failed to marshal audit details: %w", err)
 	}
 
-	_, err = tx.Exec(`
+	_, err = us.store.TxExec(tx, `
 		INSERT INTO user_management_audit (org_id, target_user_id, performed_by_user_id, action, details, created_at)
 		VALUES ($1, $2, $3, $4, $5, NOW())
 	`, orgID, targetUserID, performedByUserID, action, string(detailsJSON))
@@ -446,7 +418,7 @@ type GlobalUserWithOrg struct {
 func (us *UserService) ListAllUsers(offset, limit int) ([]*GlobalUserWithOrg, int, error) {
 	// Get total count
 	var totalCount int
-	err := us.db.QueryRow(`
+	err := us.store.QueryRow(`
 		SELECT COUNT(DISTINCT u.id)
 		FROM users u
 		JOIN user_roles ur ON u.id = ur.user_id
@@ -457,7 +429,7 @@ func (us *UserService) ListAllUsers(offset, limit int) ([]*GlobalUserWithOrg, in
 	}
 
 	// Get users with pagination
-	rows, err := us.db.Query(`
+	rows, err := us.store.Query(`
 		SELECT u.id, u.email, u.first_name, u.last_name, u.is_active, u.last_login_at,
 		       u.created_at, u.updated_at, u.created_by_user_id, u.deactivated_at,
 		       u.deactivated_by_user_id, u.password_reset_required,
@@ -497,7 +469,7 @@ func (us *UserService) ListAllUsers(offset, limit int) ([]*GlobalUserWithOrg, in
 func (us *UserService) CreateUserInAnyOrg(targetOrgID, createdByUserID int64, req CreateUserRequest) (*UserWithRole, error) {
 	// Verify target organization exists
 	var orgExists bool
-	err := us.db.QueryRow("SELECT EXISTS(SELECT 1 FROM orgs WHERE id = $1)", targetOrgID).Scan(&orgExists)
+	err := us.store.QueryRow("SELECT EXISTS(SELECT 1 FROM orgs WHERE id = $1)", targetOrgID).Scan(&orgExists)
 	if err != nil {
 		return nil, fmt.Errorf("failed to check organization existence: %w", err)
 	}
@@ -511,74 +483,67 @@ func (us *UserService) CreateUserInAnyOrg(targetOrgID, createdByUserID int64, re
 
 // TransferUserToOrg transfers a user from one organization to another (super admin only)
 func (us *UserService) TransferUserToOrg(userID, newOrgID, performedByUserID int64, newRoleID int64) (*UserWithRole, error) {
-	// Start transaction
-	tx, err := us.db.Begin()
-	if err != nil {
-		return nil, fmt.Errorf("failed to start transaction: %w", err)
-	}
-	defer tx.Rollback()
-
-	// Verify user exists
-	var currentOrgID int64
-	var currentRoleID int64
-	err = tx.QueryRow(`
-		SELECT ur.org_id, ur.role_id 
-		FROM user_roles ur 
-		WHERE ur.user_id = $1
-	`, userID).Scan(&currentOrgID, &currentRoleID)
-
-	if err != nil {
-		if err == sql.ErrNoRows {
-			return nil, fmt.Errorf("user not found")
+	err := us.store.WithTx(func(tx *sql.Tx) error {
+		// Verify user exists
+		var currentOrgID int64
+		var currentRoleID int64
+		err := us.store.TxQueryRow(tx, `
+			SELECT ur.org_id, ur.role_id 
+			FROM user_roles ur 
+			WHERE ur.user_id = $1
+		`, userID).Scan(&currentOrgID, &currentRoleID)
+		if err != nil {
+			if err == sql.ErrNoRows {
+				return fmt.Errorf("user not found")
+			}
+			return fmt.Errorf("failed to get current user org: %w", err)
 		}
-		return nil, fmt.Errorf("failed to get current user org: %w", err)
-	}
 
-	// Verify target organization exists
-	var orgExists bool
-	err = tx.QueryRow("SELECT EXISTS(SELECT 1 FROM orgs WHERE id = $1)", newOrgID).Scan(&orgExists)
-	if err != nil {
-		return nil, fmt.Errorf("failed to check target organization: %w", err)
-	}
-	if !orgExists {
-		return nil, fmt.Errorf("target organization does not exist")
-	}
+		// Verify target organization exists
+		var orgExists bool
+		err = us.store.TxQueryRow(tx, "SELECT EXISTS(SELECT 1 FROM orgs WHERE id = $1)", newOrgID).Scan(&orgExists)
+		if err != nil {
+			return fmt.Errorf("failed to check target organization: %w", err)
+		}
+		if !orgExists {
+			return fmt.Errorf("target organization does not exist")
+		}
 
-	// Verify target role exists
-	var roleExists bool
-	err = tx.QueryRow("SELECT EXISTS(SELECT 1 FROM roles WHERE id = $1)", newRoleID).Scan(&roleExists)
-	if err != nil {
-		return nil, fmt.Errorf("failed to check target role: %w", err)
-	}
-	if !roleExists {
-		return nil, fmt.Errorf("target role does not exist")
-	}
+		// Verify target role exists
+		var roleExists bool
+		err = us.store.TxQueryRow(tx, "SELECT EXISTS(SELECT 1 FROM roles WHERE id = $1)", newRoleID).Scan(&roleExists)
+		if err != nil {
+			return fmt.Errorf("failed to check target role: %w", err)
+		}
+		if !roleExists {
+			return fmt.Errorf("target role does not exist")
+		}
 
-	// Update user's organization and role
-	_, err = tx.Exec(`
-		UPDATE user_roles 
-		SET org_id = $1, role_id = $2, updated_at = NOW()
-		WHERE user_id = $3
-	`, newOrgID, newRoleID, userID)
+		// Update user's organization and role
+		_, err = us.store.TxExec(tx, `
+			UPDATE user_roles 
+			SET org_id = $1, role_id = $2, updated_at = NOW()
+			WHERE user_id = $3
+		`, newOrgID, newRoleID, userID)
+		if err != nil {
+			return fmt.Errorf("failed to transfer user: %w", err)
+		}
 
-	if err != nil {
-		return nil, fmt.Errorf("failed to transfer user: %w", err)
-	}
+		// Add audit log for the transfer
+		err = us.addUserAuditLog(tx, newOrgID, userID, performedByUserID, "transferred", map[string]interface{}{
+			"old_org_id":  currentOrgID,
+			"new_org_id":  newOrgID,
+			"old_role_id": currentRoleID,
+			"new_role_id": newRoleID,
+		})
+		if err != nil {
+			return fmt.Errorf("failed to add transfer audit log: %w", err)
+		}
 
-	// Add audit log for the transfer
-	err = us.addUserAuditLog(tx, newOrgID, userID, performedByUserID, "transferred", map[string]interface{}{
-		"old_org_id":  currentOrgID,
-		"new_org_id":  newOrgID,
-		"old_role_id": currentRoleID,
-		"new_role_id": newRoleID,
+		return nil
 	})
 	if err != nil {
-		return nil, fmt.Errorf("failed to add transfer audit log: %w", err)
-	}
-
-	// Commit transaction
-	if err = tx.Commit(); err != nil {
-		return nil, fmt.Errorf("failed to commit transaction: %w", err)
+		return nil, err
 	}
 
 	// Get updated user
@@ -590,25 +555,25 @@ func (us *UserService) GetUserAnalytics() (*UserAnalytics, error) {
 	analytics := &UserAnalytics{}
 
 	// Total users count
-	err := us.db.QueryRow("SELECT COUNT(*) FROM users").Scan(&analytics.TotalUsers)
+	err := us.store.QueryRow("SELECT COUNT(*) FROM users").Scan(&analytics.TotalUsers)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get total users: %w", err)
 	}
 
 	// Active users count
-	err = us.db.QueryRow("SELECT COUNT(*) FROM users WHERE is_active = true").Scan(&analytics.ActiveUsers)
+	err = us.store.QueryRow("SELECT COUNT(*) FROM users WHERE is_active = true").Scan(&analytics.ActiveUsers)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get active users: %w", err)
 	}
 
 	// Users requiring password reset
-	err = us.db.QueryRow("SELECT COUNT(*) FROM users WHERE password_reset_required = true").Scan(&analytics.UsersNeedingPasswordReset)
+	err = us.store.QueryRow("SELECT COUNT(*) FROM users WHERE password_reset_required = true").Scan(&analytics.UsersNeedingPasswordReset)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get users needing password reset: %w", err)
 	}
 
 	// Users by organization
-	rows, err := us.db.Query(`
+	rows, err := us.store.Query(`
 		SELECT o.name, COUNT(ur.user_id) 
 		FROM orgs o
 		LEFT JOIN user_roles ur ON o.id = ur.org_id
@@ -630,7 +595,7 @@ func (us *UserService) GetUserAnalytics() (*UserAnalytics, error) {
 	}
 
 	// Users by role
-	rows, err = us.db.Query(`
+	rows, err = us.store.Query(`
 		SELECT r.name, COUNT(ur.user_id) 
 		FROM roles r
 		LEFT JOIN user_roles ur ON r.id = ur.role_id

@@ -13,6 +13,7 @@ import (
 
 	mrmodel "github.com/livereview/cmd/mrmodel/lib"
 	"github.com/livereview/internal/aiconnectors"
+	"github.com/livereview/internal/aisanitize"
 	coreprocessor "github.com/livereview/internal/core_processor"
 	"github.com/livereview/internal/learnings"
 	bitbucketmentions "github.com/livereview/internal/providers/bitbucket"
@@ -1017,8 +1018,34 @@ func (p *UnifiedProcessorV2Impl) generateLLMResponseV2(ctx context.Context, prom
 		return "", fmt.Errorf("AI connector call failed: %w", err)
 	}
 
+	response = p.applyPostOutputSanitization(ctx, response, connectorRecord.ProviderName)
+
 	log.Printf("[DEBUG] Generated LLM response using %s connector", connectorRecord.ProviderName)
 	return response, nil
+}
+
+func (p *UnifiedProcessorV2Impl) applyPostOutputSanitization(ctx context.Context, response string, providerName string) string {
+	sanitized := response
+	var report aisanitize.SanitizationReport
+
+	func() {
+		defer func() {
+			if recovered := recover(); recovered != nil {
+				log.Printf("[WARN] Output sanitization panic for provider=%s: %v", providerName, recovered)
+				sanitized = response
+				report = aisanitize.SanitizationReport{}
+			}
+		}()
+		sanitized, report = aisanitize.SanitizationPostflight(ctx, response)
+	}()
+
+	if report.PIIRedactError {
+		log.Printf("[WARN] Output sanitization internal error for provider=%s pii_redact_error=%t", providerName, report.PIIRedactError)
+	}
+	if report.Sanitized {
+		log.Printf("[DEBUG] Output sanitization applied provider=%s secrets_redacted=%d pii_redacted=%t", providerName, report.SecretsRedacted, report.PIIRedacted)
+	}
+	return sanitized
 }
 
 // extractLearningFromLLMResponse extracts structured learning from LLM response

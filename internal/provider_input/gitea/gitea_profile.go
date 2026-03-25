@@ -1,11 +1,13 @@
 package gitea
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
 
 	gitea "github.com/livereview/internal/providers/gitea"
+	networkgitea "github.com/livereview/network/providers/gitea"
 )
 
 // GiteaProfile represents the user profile info fetched from Gitea using a PAT.
@@ -27,14 +29,14 @@ func FetchGiteaProfile(baseURL, pat string) (*GiteaProfile, error) {
 	pat = gitea.UnpackGiteaPAT(pat)
 	apiURL := fmt.Sprintf("%s/api/v1/user", base)
 
-	req, err := http.NewRequest("GET", apiURL, nil)
+	req, err := networkgitea.NewRequestWithContext(context.Background(), http.MethodGet, apiURL, nil)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create request")
 	}
 	req.Header.Set("Authorization", fmt.Sprintf("token %s", pat))
 	req.Header.Set("Accept", "application/json")
 
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := networkgitea.Do(http.DefaultClient, req)
 	if err != nil {
 		return nil, fmt.Errorf("cannot reach Gitea - please check the URL and network connectivity")
 	}

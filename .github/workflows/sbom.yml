@@ -1,0 +1,99 @@
+name: sbom
+
+on:
+  workflow_dispatch: {}
+  release:
+    types:
+      - published
+  push:
+    branches:
+      - main
+      - master
+    paths:
+      - go.mod
+      - go.sum
+      - ui/package.json
+      - ui/package-lock.json
+      - Makefile
+      - .github/workflows/sbom.yml
+
+jobs:
+  generate-sbom:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    env:
+      SYFT_VERSION: v1.25.0
+      SYFT_CACHE_DIR: ${{ github.workspace }}/.cache/syft-bin
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'release' && github.event.release.tag_name || github.ref }}
+
+      - name: Compute syft cache epoch
+        id: syft-cache-epoch
+        run: echo "epoch=$(date -u +%Y-%m)" >> "$GITHUB_OUTPUT"
+
+      - name: Cache syft binary
+        id: syft-cache
+        uses: actions/cache@v4
+        with:
+          path: ${{ env.SYFT_CACHE_DIR }}/syft
+          key: ${{ runner.os }}-syft-${{ env.SYFT_VERSION }}-${{ steps.syft-cache-epoch.outputs.epoch }}
+          restore-keys: |
+            ${{ runner.os }}-syft-${{ env.SYFT_VERSION }}-
+
+      - name: Install syft
+        if: steps.syft-cache.outputs.cache-hit != 'true'
+        run: |
+          mkdir -p "${SYFT_CACHE_DIR}"
+          curl -sSfL https://raw.githubusercontent.com/anchore/syft/main/install.sh | sh -s -- -b "${SYFT_CACHE_DIR}" "${SYFT_VERSION}"
+
+      - name: Add syft to PATH
+        run: echo "${SYFT_CACHE_DIR}" >> "$GITHUB_PATH"
+
+      - name: Verify syft
+        run: |
+          syft version
+
+      - name: Ensure optional Make env file exists
+        run: touch .env
+
+      - name: Generate SBOM files
+        run: |
+          if [ "${{ github.event_name }}" = "release" ]; then
+            make security-sbom SBOM_VERSION="${{ github.event.release.tag_name }}"
+          else
+            make security-sbom
+          fi
+
+      - name: Upload SBOM artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: sbom-livereview-${{ github.run_id }}
+          path: security_issues/sbom/*.json
+          if-no-files-found: error
+          retention-days: 30
+
+  publish-release-assets:
+    if: github.event_name == 'release'
+    needs:
+      - generate-sbom
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Download SBOM artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: sbom-livereview-${{ github.run_id }}
+          path: security_issues/sbom
+
+      - name: Upload SBOMs to release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.event.release.tag_name }}
+          fail_on_unmatched_files: true
+          clobber: true
+          files: |
+            security_issues/sbom/*.json

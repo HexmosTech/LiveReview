@@ -2,6 +2,7 @@ package gitea
 
 import (
 	"context"
+	"encoding/json"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -100,10 +101,14 @@ func TestPostCommentInlineDeletedLineUsesLeftSide(t *testing.T) {
 
 func TestPostCommentGeneral(t *testing.T) {
 	called := false
+	capturedBody := ""
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.Method + " " + r.URL.Path {
 		case "POST /api/v1/repos/owner/repo/issues/42/comments":
 			called = true
+			raw, err := io.ReadAll(r.Body)
+			require.NoError(t, err)
+			capturedBody = string(raw)
 			w.WriteHeader(http.StatusCreated)
 		default:
 			t.Fatalf("unexpected request: %s %s", r.Method, r.URL.Path)
@@ -117,6 +122,39 @@ func TestPostCommentGeneral(t *testing.T) {
 	err = p.PostComment(context.Background(), "owner/repo/42", &models.ReviewComment{Content: "hi"})
 	require.NoError(t, err)
 	require.True(t, called)
+
+	var payload map[string]string
+	require.NoError(t, json.Unmarshal([]byte(capturedBody), &payload))
+	require.Equal(t, "hi", payload["body"])
+}
+
+func TestPostCommentGeneral_SanitizesBody(t *testing.T) {
+	var capturedBody string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.Method + " " + r.URL.Path {
+		case "POST /api/v1/repos/owner/repo/issues/42/comments":
+			raw, err := io.ReadAll(r.Body)
+			require.NoError(t, err)
+			capturedBody = string(raw)
+			w.WriteHeader(http.StatusCreated)
+		default:
+			t.Fatalf("unexpected request: %s %s", r.Method, r.URL.Path)
+		}
+	}))
+	defer server.Close()
+
+	p, err := NewProvider(Config{BaseURL: server.URL, Token: "t"})
+	require.NoError(t, err)
+
+	err = p.PostComment(context.Background(), "owner/repo/42", &models.ReviewComment{Content: "[x](javascript:alert(1)) <script>alert(1)</script>"})
+	require.NoError(t, err)
+
+	var payload map[string]string
+	require.NoError(t, json.Unmarshal([]byte(capturedBody), &payload))
+	body := payload["body"]
+	require.NotContains(t, body, "javascript:")
+	require.NotContains(t, body, "<script>")
+	require.Contains(t, body, "[x](#)")
 }
 
 // Fallback path: API returns 404, provider uses session login to post inline.

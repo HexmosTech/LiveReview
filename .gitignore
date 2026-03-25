@@ -15,6 +15,7 @@ debug_prompt.txt
 gh_pr_*.json
 
 livereview_pgdata/
+.livereview_pgdata/
 lrdata/postgres/
 
 # Vendor prompts local artifacts (never commit)

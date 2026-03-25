@@ -6,8 +6,10 @@ import (
 	"io"
 	"net/http"
 	"testing"
+	"time"
 
 	coreprocessor "github.com/livereview/internal/core_processor"
+	networkgithub "github.com/livereview/network/providers/github"
 	"github.com/stretchr/testify/require"
 )
 
@@ -48,12 +50,14 @@ func TestPostCommentReply_IssueCommentUsesIssueEndpoint(t *testing.T) {
 	var capturedURL string
 	var capturedBody map[string]interface{}
 
-	client.httpClient = &http.Client{Transport: roundTripFunc(func(req *http.Request) *http.Response {
+	testClient := networkgithub.NewHTTPClient(30 * time.Second)
+	testClient.Transport = roundTripFunc(func(req *http.Request) *http.Response {
 		capturedURL = req.URL.String()
 		payload, _ := io.ReadAll(req.Body)
 		_ = json.Unmarshal(payload, &capturedBody)
 		return makeSuccessResponse()
-	})}
+	})
+	client.httpClient = testClient
 
 	require.NoError(t, client.PostCommentReply(event, "token", "hello"))
 	require.Equal(t, "https://api.github.com/repos/owner/repo/issues/42/comments", capturedURL)
@@ -69,12 +73,14 @@ func TestPostCommentReply_ReviewCommentTopLevelUsesRepliesEndpoint(t *testing.T)
 	var capturedURL string
 	var capturedBody map[string]interface{}
 
-	client.httpClient = &http.Client{Transport: roundTripFunc(func(req *http.Request) *http.Response {
+	testClient := networkgithub.NewHTTPClient(30 * time.Second)
+	testClient.Transport = roundTripFunc(func(req *http.Request) *http.Response {
 		capturedURL = req.URL.String()
 		payload, _ := io.ReadAll(req.Body)
 		_ = json.Unmarshal(payload, &capturedBody)
 		return makeSuccessResponse()
-	})}
+	})
+	client.httpClient = testClient
 
 	require.NoError(t, client.PostCommentReply(event, "token", "hello"))
 	require.Equal(t, "https://api.github.com/repos/owner/repo/pulls/42/comments", capturedURL)
@@ -92,12 +98,14 @@ func TestPostCommentReply_ReviewThreadReplyUsesInReplyTo(t *testing.T) {
 	var capturedURL string
 	var capturedBody map[string]interface{}
 
-	client.httpClient = &http.Client{Transport: roundTripFunc(func(req *http.Request) *http.Response {
+	testClient := networkgithub.NewHTTPClient(30 * time.Second)
+	testClient.Transport = roundTripFunc(func(req *http.Request) *http.Response {
 		capturedURL = req.URL.String()
 		payload, _ := io.ReadAll(req.Body)
 		_ = json.Unmarshal(payload, &capturedBody)
 		return makeSuccessResponse()
-	})}
+	})
+	client.httpClient = testClient
 
 	require.NoError(t, client.PostCommentReply(event, "token", "hello"))
 	require.Equal(t, "https://api.github.com/repos/owner/repo/pulls/42/comments", capturedURL)

@@ -2,6 +2,7 @@ package bitbucket
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -9,6 +10,8 @@ import (
 	"net/http"
 	"strconv"
 	"time"
+
+	networkbitbucket "github.com/livereview/network/providers/bitbucket"
 )
 
 // APIClient posts outbound requests to Bitbucket.
@@ -18,7 +21,7 @@ type APIClient struct {
 
 // NewAPIClient creates a Bitbucket output client.
 func NewAPIClient() *APIClient {
-	return &APIClient{httpClient: &http.Client{Timeout: 30 * time.Second}}
+	return &APIClient{httpClient: networkbitbucket.NewHTTPClient(30 * time.Second)}
 }
 
 // PostCommentReply creates or replies to a pull request comment.
@@ -52,7 +55,7 @@ func (c *APIClient) PostCommentReply(workspace, repository, prNumber string, inR
 		return fmt.Errorf("failed to marshal payload: %w", err)
 	}
 
-	req, err := http.NewRequest(http.MethodPost, apiURL, bytes.NewBuffer(jsonData))
+	req, err := networkbitbucket.NewRequestWithContext(context.Background(), http.MethodPost, apiURL, bytes.NewBuffer(jsonData))
 	if err != nil {
 		return fmt.Errorf("failed to create request: %w", err)
 	}
@@ -64,10 +67,10 @@ func (c *APIClient) PostCommentReply(workspace, repository, prNumber string, inR
 
 	client := c.httpClient
 	if client == nil {
-		client = &http.Client{Timeout: 30 * time.Second}
+		client = networkbitbucket.NewHTTPClient(30 * time.Second)
 	}
 
-	resp, err := client.Do(req)
+	resp, err := networkbitbucket.Do(client, req)
 	if err != nil {
 		return fmt.Errorf("bitbucket API request failed: %w", err)
 	}

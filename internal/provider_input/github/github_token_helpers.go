@@ -1,6 +1,7 @@
 package github
 
 import (
+	"context"
 	"database/sql"
 	"encoding/json"
 	"fmt"
@@ -8,6 +9,9 @@ import (
 	"log"
 	"net/http"
 	"time"
+
+	networkgithub "github.com/livereview/network/providers/github"
+	storagegithub "github.com/livereview/storage/providers/github"
 )
 
 // IntegrationToken holds GitHub-specific token data needed for API calls.
@@ -21,20 +25,17 @@ type IntegrationToken struct {
 
 // FindIntegrationTokenForGitHubRepo looks up a GitHub integration token.
 func FindIntegrationTokenForGitHubRepo(db *sql.DB, repoFullName string) (*IntegrationToken, error) {
-	query := `
-		SELECT id, provider, provider_url, pat_token, COALESCE(metadata, '{}')
-		FROM integration_tokens
-		WHERE provider = 'github'
-		  AND (provider_url = 'https://github.com' OR provider_url = 'https://api.github.com')
-		ORDER BY created_at DESC
-		LIMIT 1
-	`
-
 	token := &IntegrationToken{Metadata: make(map[string]interface{})}
-	var metadataJSON []byte
-	if err := db.QueryRow(query).Scan(&token.ID, &token.Provider, &token.ProviderURL, &token.PatToken, &metadataJSON); err != nil {
+	store := storagegithub.NewTokenStore(db)
+	rec, err := store.GetLatestGitHubToken()
+	if err != nil {
 		return nil, fmt.Errorf("no GitHub integration token found: %w", err)
 	}
+	token.ID = rec.ID
+	token.Provider = rec.Provider
+	token.ProviderURL = rec.ProviderURL
+	token.PatToken = rec.PatToken
+	metadataJSON := rec.Metadata
 
 	if len(metadataJSON) > 0 {
 		if err := json.Unmarshal(metadataJSON, &token.Metadata); err != nil {
@@ -47,7 +48,7 @@ func FindIntegrationTokenForGitHubRepo(db *sql.DB, repoFullName string) (*Integr
 
 // FetchGitHubBotUserInfo retrieves the authenticated bot user using the supplied PAT.
 func FetchGitHubBotUserInfo(pat string) (*GitHubV2BotUserInfo, error) {
-	req, err := http.NewRequest("GET", "https://api.github.com/user", nil)
+	req, err := networkgithub.NewRequestWithContext(context.Background(), http.MethodGet, "https://api.github.com/user", nil)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create request: %w", err)
 	}
@@ -56,8 +57,8 @@ func FetchGitHubBotUserInfo(pat string) (*GitHubV2BotUserInfo, error) {
 	req.Header.Set("Accept", "application/vnd.github.v3+json")
 	req.Header.Set("User-Agent", "LiveReview-Bot")
 
-	client := &http.Client{Timeout: 10 * time.Second}
-	resp, err := client.Do(req)
+	client := networkgithub.NewHTTPClient(10 * time.Second)
+	resp, err := networkgithub.Do(client, req)
 	if err != nil {
 		return nil, fmt.Errorf("failed to call GitHub API: %w", err)
 	}

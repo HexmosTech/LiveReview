@@ -7,8 +7,11 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strings"
 	"time"
 
+	"github.com/livereview/internal/aisanitize"
+	networkaiconnectors "github.com/livereview/network/aiconnectors"
 	"github.com/rs/zerolog/log"
 	"github.com/tmc/langchaingo/llms"
 	"github.com/tmc/langchaingo/llms/anthropic"
@@ -249,15 +252,15 @@ func validateOpenAIKeyViaResponses(ctx context.Context, apiKey string, baseURL s
 		return false, fmt.Errorf("failed to marshal OpenAI validation request: %w", err)
 	}
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, fmt.Sprintf("%s/responses", trimTrailingSlash(base)), bytes.NewReader(body))
+	req, err := networkaiconnectors.NewRequestWithContext(ctx, http.MethodPost, fmt.Sprintf("%s/responses", trimTrailingSlash(base)), bytes.NewReader(body))
 	if err != nil {
 		return false, fmt.Errorf("failed to create OpenAI validation request: %w", err)
 	}
 	req.Header.Set("Authorization", "Bearer "+apiKey)
 	req.Header.Set("Content-Type", "application/json")
 
-	client := &http.Client{Timeout: 30 * time.Second}
-	resp, err := client.Do(req)
+	client := networkaiconnectors.NewHTTPClient(30 * time.Second)
+	resp, err := networkaiconnectors.Do(client, req)
 	if err != nil {
 		return false, fmt.Errorf("failed to call OpenAI responses API: %w", err)
 	}
@@ -392,10 +395,8 @@ func createOllamaModel(ctx context.Context, options ConnectorOptions) (llms.Mode
 func createOpenRouterModel(ctx context.Context, options ConnectorOptions) (llms.Model, error) {
 	baseURL := ResolveBaseURL(ProviderOpenRouter, options.BaseURL)
 
-	httpClient := &http.Client{
-		Transport: &openRouterLoggingTransport{base: http.DefaultTransport},
-		Timeout:   5 * time.Minute,
-	}
+	httpClient := networkaiconnectors.NewHTTPClient(5 * time.Minute)
+	httpClient.Transport = &openRouterLoggingTransport{base: http.DefaultTransport}
 
 	opts := []openai.Option{
 		openai.WithModel(options.ModelConfig.Model),
@@ -475,8 +476,38 @@ func (c *Connector) Call(ctx context.Context, input string, options ...llms.Call
 	// Append any additional options passed to the Call function
 	callOptions = append(callOptions, options...)
 
+	normalizedProvider := strings.ToLower(string(c.provider))
+	if isCloudProviderProvider(c.provider) {
+		sanitizedInput, report := aisanitize.SanitizationPreflight(ctx, input)
+		input = sanitizedInput
+		if report.PIIRedactError {
+			log.Warn().
+				Str("provider", normalizedProvider).
+				Msg("PII redaction encountered errors during cloud prompt preflight")
+		}
+		log.Debug().
+			Str("provider", normalizedProvider).
+			Str("risk_band", string(report.RiskBand)).
+			Float64("risk_score", report.RiskScore).
+			Int("detected_patterns", len(report.DetectedTypes)).
+			Int("secrets_redacted", report.SecretsRedacted).
+			Bool("pii_redacted", report.PIIRedacted).
+			Bool("pii_redact_error", report.PIIRedactError).
+			Bool("sanitized", report.Sanitized).
+			Msg("Applied cloud prompt sanitization preflight")
+	}
+
 	// Use GenerateFromSinglePrompt which is the recommended approach
 	return llms.GenerateFromSinglePrompt(ctx, c.llm, input, callOptions...)
+}
+
+func isCloudProviderProvider(provider Provider) bool {
+	switch provider {
+	case ProviderOpenAI, ProviderDeepSeek, ProviderGemini, ProviderClaude, ProviderOpenRouter:
+		return true
+	default:
+		return false
+	}
 }
 
 // GetProvider returns the provider of this connector
@@ -507,15 +538,5 @@ func truncateString(s string, maxLen int) string {
 
 // Helper function to check if string contains substring (case-insensitive)
 func contains(s, substr string) bool {
-	return len(s) >= len(substr) && (s == substr || len(substr) == 0 ||
-		(len(s) > 0 && len(substr) > 0 && stringContains(s, substr)))
-}
-
-func stringContains(s, substr string) bool {
-	for i := 0; i <= len(s)-len(substr); i++ {
-		if s[i:i+len(substr)] == substr {
-			return true
-		}
-	}
-	return false
+	return strings.Contains(strings.ToLower(s), strings.ToLower(substr))
 }

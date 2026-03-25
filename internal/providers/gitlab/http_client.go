@@ -7,8 +7,10 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"time"
 
 	"github.com/livereview/internal/providers"
+	networkgitlab "github.com/livereview/network/providers/gitlab"
 	"github.com/livereview/pkg/models"
 )
 
@@ -38,7 +40,7 @@ func NewHTTPClient(baseURL, token string) *GitLabHTTPClient {
 	return &GitLabHTTPClient{
 		baseURL: fmt.Sprintf("%s/api/v4", baseURL),
 		token:   token,
-		client:  &http.Client{},
+		client:  networkgitlab.NewHTTPClient(60 * time.Second),
 	}
 }
 
@@ -161,7 +163,7 @@ func (c *GitLabHTTPClient) GetMergeRequest(projectID string, mrIID int) (*GitLab
 		maskToken(c.token), tokenType, len(c.token))
 
 	// Make the request
-	req, err := http.NewRequest("GET", requestURL, nil)
+	req, err := networkgitlab.NewRequest("GET", requestURL, nil)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create request: %w", err)
 	}
@@ -184,7 +186,7 @@ func (c *GitLabHTTPClient) GetMergeRequest(projectID string, mrIID int) (*GitLab
 	}
 
 	// Execute the request
-	resp, err := c.client.Do(req)
+	resp, err := networkgitlab.Do(c.client, req)
 	if err != nil {
 		return nil, fmt.Errorf("failed to execute request: %w", err)
 	}
@@ -213,7 +215,7 @@ func (c *GitLabHTTPClient) GetMergeRequestChanges(projectID string, mrIID int) (
 		c.baseURL, url.PathEscape(projectID), mrIID)
 
 	// Make the request
-	req, err := http.NewRequest("GET", requestURL, nil)
+	req, err := networkgitlab.NewRequest("GET", requestURL, nil)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create request: %w", err)
 	}
@@ -230,7 +232,7 @@ func (c *GitLabHTTPClient) GetMergeRequestChanges(projectID string, mrIID int) (
 	}
 
 	// Execute the request
-	resp, err := c.client.Do(req)
+	resp, err := networkgitlab.Do(c.client, req)
 	if err != nil {
 		return nil, fmt.Errorf("failed to execute request: %w", err)
 	}
@@ -292,7 +294,7 @@ func (c *GitLabHTTPClient) GetMergeRequestCommits(projectID string, mrIID int) (
 	requestURL := fmt.Sprintf("%s/projects/%s/merge_requests/%d/commits",
 		c.baseURL, url.PathEscape(projectID), mrIID)
 
-	req, err := http.NewRequest("GET", requestURL, nil)
+	req, err := networkgitlab.NewRequest("GET", requestURL, nil)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create request: %w", err)
 	}
@@ -303,7 +305,7 @@ func (c *GitLabHTTPClient) GetMergeRequestCommits(projectID string, mrIID int) (
 		req.Header.Add("Authorization", "Bearer "+c.token)
 	}
 
-	resp, err := c.client.Do(req)
+	resp, err := networkgitlab.Do(c.client, req)
 	if err != nil {
 		return nil, fmt.Errorf("failed to execute request: %w", err)
 	}
@@ -326,7 +328,7 @@ func (c *GitLabHTTPClient) GetMergeRequestDiscussions(projectID string, mrIID in
 	requestURL := fmt.Sprintf("%s/projects/%s/merge_requests/%d/discussions",
 		c.baseURL, url.PathEscape(projectID), mrIID)
 
-	req, err := http.NewRequest("GET", requestURL, nil)
+	req, err := networkgitlab.NewRequest("GET", requestURL, nil)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create request: %w", err)
 	}
@@ -336,7 +338,7 @@ func (c *GitLabHTTPClient) GetMergeRequestDiscussions(projectID string, mrIID in
 		req.Header.Add("Authorization", "Bearer "+c.token)
 	}
 
-	resp, err := c.client.Do(req)
+	resp, err := networkgitlab.Do(c.client, req)
 	if err != nil {
 		return nil, fmt.Errorf("failed to execute request: %w", err)
 	}
@@ -359,7 +361,7 @@ func (c *GitLabHTTPClient) GetMergeRequestNotes(projectID string, mrIID int) ([]
 	requestURL := fmt.Sprintf("%s/projects/%s/merge_requests/%d/notes",
 		c.baseURL, url.PathEscape(projectID), mrIID)
 
-	req, err := http.NewRequest("GET", requestURL, nil)
+	req, err := networkgitlab.NewRequest("GET", requestURL, nil)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create request: %w", err)
 	}
@@ -370,7 +372,7 @@ func (c *GitLabHTTPClient) GetMergeRequestNotes(projectID string, mrIID int) ([]
 		req.Header.Add("Authorization", "Bearer "+c.token)
 	}
 
-	resp, err := c.client.Do(req)
+	resp, err := networkgitlab.Do(c.client, req)
 	if err != nil {
 		return nil, fmt.Errorf("failed to execute request: %w", err)
 	}
@@ -395,7 +397,7 @@ func (c *GitLabHTTPClient) ListMergeRequests(projectID string) ([]GitLabMergeReq
 		c.baseURL, url.PathEscape(projectID))
 
 	// Make the request
-	req, err := http.NewRequest("GET", requestURL, nil)
+	req, err := networkgitlab.NewRequest("GET", requestURL, nil)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create request: %w", err)
 	}
@@ -404,7 +406,7 @@ func (c *GitLabHTTPClient) ListMergeRequests(projectID string) ([]GitLabMergeReq
 	req.Header.Add("PRIVATE-TOKEN", c.token)
 
 	// Execute the request
-	resp, err := c.client.Do(req)
+	resp, err := networkgitlab.Do(c.client, req)
 	if err != nil {
 		return nil, fmt.Errorf("failed to execute request: %w", err)
 	}
@@ -436,14 +438,14 @@ func (c *GitLabHTTPClient) GetMergeRequestDiffs(projectID string, mrIID int) (st
 	requestURL := fmt.Sprintf("%s/projects/%s/merge_requests/%d/diffs?view=inline",
 		c.baseURL, url.PathEscape(projectID), mrIID)
 
-	req, err := http.NewRequest("GET", requestURL, nil)
+	req, err := networkgitlab.NewRequest("GET", requestURL, nil)
 	if err != nil {
 		return "", fmt.Errorf("failed to create request: %w", err)
 	}
 
 	req.Header.Add("PRIVATE-TOKEN", c.token)
 
-	resp, err := c.client.Do(req)
+	resp, err := networkgitlab.Do(c.client, req)
 	if err != nil {
 		return "", fmt.Errorf("failed to execute request: %w", err)
 	}
@@ -484,14 +486,14 @@ func (c *GitLabHTTPClient) GetMergeRequestVersions(projectID string, mrIID int) 
 	requestURL := fmt.Sprintf("%s/projects/%s/merge_requests/%d/versions",
 		c.baseURL, url.PathEscape(projectID), mrIID)
 
-	req, err := http.NewRequest("GET", requestURL, nil)
+	req, err := networkgitlab.NewRequest("GET", requestURL, nil)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create request: %w", err)
 	}
 
 	req.Header.Add("PRIVATE-TOKEN", c.token)
 
-	resp, err := c.client.Do(req)
+	resp, err := networkgitlab.Do(c.client, req)
 	if err != nil {
 		return nil, fmt.Errorf("failed to execute request: %w", err)
 	}
@@ -579,7 +581,7 @@ func (c *GitLabHTTPClient) createDirectLineComment(projectID string, mrIID int, 
 	}
 
 	// Make the request
-	req, err := http.NewRequest("POST", requestURL, strings.NewReader(form.Encode()))
+	req, err := networkgitlab.NewRequest("POST", requestURL, strings.NewReader(form.Encode()))
 	if err != nil {
 		return fmt.Errorf("failed to create request: %w", err)
 	}
@@ -589,7 +591,7 @@ func (c *GitLabHTTPClient) createDirectLineComment(projectID string, mrIID int, 
 	req.Header.Add("Content-Type", "application/x-www-form-urlencoded")
 
 	// Execute the request
-	resp, err := c.client.Do(req)
+	resp, err := networkgitlab.Do(c.client, req)
 	if err != nil {
 		return fmt.Errorf("failed to execute request: %w", err)
 	}
@@ -624,7 +626,7 @@ func (c *GitLabHTTPClient) createFallbackLineComment(projectID string, mrIID int
 	values.Add("body", formattedComment)
 
 	// Make the request
-	req, err := http.NewRequest("POST", requestURL, strings.NewReader(values.Encode()))
+	req, err := networkgitlab.NewRequest("POST", requestURL, strings.NewReader(values.Encode()))
 	if err != nil {
 		return fmt.Errorf("failed to create request: %w", err)
 	}
@@ -634,7 +636,7 @@ func (c *GitLabHTTPClient) createFallbackLineComment(projectID string, mrIID int
 	req.Header.Add("Content-Type", "application/x-www-form-urlencoded")
 
 	// Execute the request
-	resp, err := c.client.Do(req)
+	resp, err := networkgitlab.Do(c.client, req)
 	if err != nil {
 		return fmt.Errorf("failed to execute request: %w", err)
 	}
@@ -719,7 +721,7 @@ func (c *GitLabHTTPClient) createDiscussionLineComment(projectID string, mrIID i
 	}
 
 	// Make the request
-	req, err := http.NewRequest("POST", requestURL, strings.NewReader(form.Encode()))
+	req, err := networkgitlab.NewRequest("POST", requestURL, strings.NewReader(form.Encode()))
 	if err != nil {
 		return fmt.Errorf("failed to create request: %w", err)
 	}
@@ -729,7 +731,7 @@ func (c *GitLabHTTPClient) createDiscussionLineComment(projectID string, mrIID i
 	req.Header.Add("Content-Type", "application/x-www-form-urlencoded")
 
 	// Execute the request
-	resp, err := c.client.Do(req)
+	resp, err := networkgitlab.Do(c.client, req)
 	if err != nil {
 		return fmt.Errorf("failed to execute request: %w", err)
 	}
@@ -889,7 +891,7 @@ func (c *GitLabHTTPClient) TestCreateCommentWithPositionType(projectID string, m
 	}
 
 	// Make the request
-	req, err := http.NewRequest("POST", requestURL, strings.NewReader(form.Encode()))
+	req, err := networkgitlab.NewRequest("POST", requestURL, strings.NewReader(form.Encode()))
 	if err != nil {
 		return fmt.Errorf("failed to create request: %w", err)
 	}
@@ -899,7 +901,7 @@ func (c *GitLabHTTPClient) TestCreateCommentWithPositionType(projectID string, m
 	req.Header.Add("Content-Type", "application/x-www-form-urlencoded")
 
 	// Execute the request
-	resp, err := c.client.Do(req)
+	resp, err := networkgitlab.Do(c.client, req)
 	if err != nil {
 		return fmt.Errorf("failed to execute request: %w", err)
 	}
@@ -928,13 +930,13 @@ func (c *GitLabHTTPClient) GetFileRawAtRef(projectID string, filePath string, re
 	requestURL := fmt.Sprintf("%s/projects/%s/repository/files/%s/raw?ref=%s",
 		c.baseURL, url.PathEscape(projectID), url.PathEscape(filePath), url.QueryEscape(ref))
 
-	req, err := http.NewRequest("GET", requestURL, nil)
+	req, err := networkgitlab.NewRequest("GET", requestURL, nil)
 	if err != nil {
 		return "", fmt.Errorf("failed to create request: %w", err)
 	}
 	req.Header.Add("PRIVATE-TOKEN", c.token)
 
-	resp, err := c.client.Do(req)
+	resp, err := networkgitlab.Do(c.client, req)
 	if err != nil {
 		return "", fmt.Errorf("failed to execute request: %w", err)
 	}
@@ -958,13 +960,13 @@ func (c *GitLabHTTPClient) CompareCommitsRaw(projectID string, fromSHA, toSHA st
 	requestURL := fmt.Sprintf("%s/projects/%s/repository/compare?from=%s&to=%s&straight=true",
 		c.baseURL, url.PathEscape(projectID), url.QueryEscape(fromSHA), url.QueryEscape(toSHA))
 
-	req, err := http.NewRequest("GET", requestURL, nil)
+	req, err := networkgitlab.NewRequest("GET", requestURL, nil)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create request: %w", err)
 	}
 	req.Header.Add("PRIVATE-TOKEN", c.token)
 
-	resp, err := c.client.Do(req)
+	resp, err := networkgitlab.Do(c.client, req)
 	if err != nil {
 		return nil, fmt.Errorf("failed to execute request: %w", err)
 	}
@@ -1015,14 +1017,14 @@ func (c *GitLabHTTPClient) AwardEmojiOnMRNote(projectID string, mrIID int, noteI
 	form := url.Values{}
 	form.Add("name", emojiName)
 
-	req, err := http.NewRequest("POST", requestURL, strings.NewReader(form.Encode()))
+	req, err := networkgitlab.NewRequest("POST", requestURL, strings.NewReader(form.Encode()))
 	if err != nil {
 		return fmt.Errorf("failed to create request: %w", err)
 	}
 	req.Header.Add("PRIVATE-TOKEN", c.token)
 	req.Header.Add("Content-Type", "application/x-www-form-urlencoded")
 
-	resp, err := c.client.Do(req)
+	resp, err := networkgitlab.Do(c.client, req)
 	if err != nil {
 		return fmt.Errorf("failed to execute request: %w", err)
 	}
@@ -1043,14 +1045,14 @@ func (c *GitLabHTTPClient) ReplyToDiscussionNote(projectID string, mrIID int, di
 	form := url.Values{}
 	form.Add("body", body)
 
-	req, err := http.NewRequest("POST", requestURL, strings.NewReader(form.Encode()))
+	req, err := networkgitlab.NewRequest("POST", requestURL, strings.NewReader(form.Encode()))
 	if err != nil {
 		return fmt.Errorf("failed to create request: %w", err)
 	}
 	req.Header.Add("PRIVATE-TOKEN", c.token)
 	req.Header.Add("Content-Type", "application/x-www-form-urlencoded")
 
-	resp, err := c.client.Do(req)
+	resp, err := networkgitlab.Do(c.client, req)
 	if err != nil {
 		return fmt.Errorf("failed to execute request: %w", err)
 	}

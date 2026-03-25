@@ -2,6 +2,7 @@ package gitea
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -17,6 +18,7 @@ import (
 
 	coreprocessor "github.com/livereview/internal/core_processor"
 	giteautils "github.com/livereview/internal/providers/gitea"
+	networkgitea "github.com/livereview/network/providers/gitea"
 )
 
 type (
@@ -42,7 +44,15 @@ type APIClient struct {
 
 // NewAPIClient constructs a Gitea output client with sensible defaults.
 func NewAPIClient() *APIClient {
-	return &APIClient{httpClient: &http.Client{Timeout: 30 * time.Second}}
+	return &APIClient{httpClient: networkgitea.NewHTTPClient(30 * time.Second)}
+}
+
+// NewAPIClientWithHTTPClient allows tests and callers to inject a custom HTTP client.
+func NewAPIClientWithHTTPClient(httpClient *http.Client) *APIClient {
+	if httpClient == nil {
+		httpClient = networkgitea.NewHTTPClient(30 * time.Second)
+	}
+	return &APIClient{httpClient: httpClient}
 }
 
 // PostCommentReply posts a reply to an existing Gitea comment thread.
@@ -185,7 +195,7 @@ func (c *APIClient) enrichCommentMetadata(baseURL, owner, repo string, event *Un
 	reviewsURL := fmt.Sprintf("%s/api/v1/repos/%s/%s/pulls/%d/reviews", baseURL, owner, repo, prNumber)
 	log.Printf("[DIAG] Fetching reviews from: %s", reviewsURL)
 
-	req, err := http.NewRequest("GET", reviewsURL, nil)
+	req, err := networkgitea.NewRequestWithContext(context.Background(), "GET", reviewsURL, nil)
 	if err != nil {
 		return fmt.Errorf("failed to create request: %w", err)
 	}
@@ -194,10 +204,10 @@ func (c *APIClient) enrichCommentMetadata(baseURL, owner, repo string, event *Un
 
 	client := c.httpClient
 	if client == nil {
-		client = &http.Client{Timeout: 30 * time.Second}
+		client = networkgitea.NewHTTPClient(30 * time.Second)
 	}
 
-	resp, err := client.Do(req)
+	resp, err := networkgitea.Do(client, req)
 	if err != nil {
 		return fmt.Errorf("failed to fetch reviews: %w", err)
 	}
@@ -235,11 +245,15 @@ func (c *APIClient) enrichCommentMetadata(baseURL, owner, repo string, event *Un
 			baseURL, owner, repo, prNumber, review.ID)
 		log.Printf("[DIAG] Fetching comments from review %d: %s", review.ID, commentsURL)
 
-		creq, _ := http.NewRequest("GET", commentsURL, nil)
+		creq, creqErr := networkgitea.NewRequestWithContext(context.Background(), "GET", commentsURL, nil)
+		if creqErr != nil {
+			log.Printf("[WARN] Failed to create review comments request for review %d: %v", review.ID, creqErr)
+			continue
+		}
 		creq.Header.Set("Authorization", "token "+token)
 		creq.Header.Set("Accept", "application/json")
 
-		cresp, err := client.Do(creq)
+		cresp, err := networkgitea.Do(client, creq)
 		if err != nil {
 			log.Printf("[WARN] Failed to fetch review %d comments: %v", review.ID, err)
 			continue
@@ -326,7 +340,7 @@ func (c *APIClient) enrichCommentMetadata(baseURL, owner, repo string, event *Un
 
 // fetchCommentFromEndpoint fetches comment details from a given API endpoint.
 func (c *APIClient) fetchCommentFromEndpoint(apiURL, token string) (map[string]interface{}, error) {
-	req, err := http.NewRequest("GET", apiURL, nil)
+	req, err := networkgitea.NewRequest("GET", apiURL, nil)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create request: %w", err)
 	}
@@ -337,11 +351,11 @@ func (c *APIClient) fetchCommentFromEndpoint(apiURL, token string) (map[string]i
 
 	client := c.httpClient
 	if client == nil {
-		client = &http.Client{Timeout: 30 * time.Second}
+		client = networkgitea.NewHTTPClient(30 * time.Second)
 	}
 
 	log.Printf("[DIAG] Executing fetch request...")
-	resp, err := client.Do(req)
+	resp, err := networkgitea.Do(client, req)
 	if err != nil {
 		return nil, fmt.Errorf("request failed: %w", err)
 	}
@@ -417,7 +431,7 @@ func (c *APIClient) createTemporaryPAT(baseURL, username, password string) (stri
 		return "", fmt.Errorf("failed to marshal request: %w", err)
 	}
 
-	req, err := http.NewRequest("POST", apiURL, bytes.NewBuffer(jsonBody))
+	req, err := networkgitea.NewRequestWithContext(context.Background(), "POST", apiURL, bytes.NewBuffer(jsonBody))
 	if err != nil {
 		return "", fmt.Errorf("failed to create request: %w", err)
 	}
@@ -428,11 +442,12 @@ func (c *APIClient) createTemporaryPAT(baseURL, username, password string) (stri
 
 	client := c.httpClient
 	if client == nil {
-		client = &http.Client{Timeout: 30 * time.Second}
+		client = networkgitea.NewHTTPClient(30 * time.Second)
+		c.httpClient = client
 	}
 
 	log.Printf("[DIAG] Executing PAT creation request...")
-	resp, err := client.Do(req)
+	resp, err := networkgitea.Do(client, req)
 	if err != nil {
 		return "", fmt.Errorf("request failed: %w", err)
 	}
@@ -569,7 +584,7 @@ func (c *APIClient) postToGiteaAPI(apiURL, token string, requestBody interface{}
 		return fmt.Errorf("failed to marshal request body: %w", err)
 	}
 
-	req, err := http.NewRequest("POST", apiURL, bytes.NewBuffer(jsonBody))
+	req, err := networkgitea.NewRequest("POST", apiURL, bytes.NewBuffer(jsonBody))
 	if err != nil {
 		return fmt.Errorf("failed to create HTTP request: %w", err)
 	}
@@ -583,10 +598,10 @@ func (c *APIClient) postToGiteaAPI(apiURL, token string, requestBody interface{}
 
 	client := c.httpClient
 	if client == nil {
-		client = &http.Client{Timeout: 30 * time.Second}
+		client = networkgitea.NewHTTPClient(30 * time.Second)
 	}
 
-	resp, err := client.Do(req)
+	resp, err := networkgitea.Do(client, req)
 	if err != nil {
 		log.Printf("[ERROR] Gitea API request failed: %v", err)
 		return fmt.Errorf("failed to make HTTP request: %w", err)
@@ -614,7 +629,7 @@ func (c *APIClient) postInlineCommentReplyMultipart(baseURL, owner, repo string,
 	}
 
 	jar, _ := cookiejar.New(nil)
-	client := &http.Client{Timeout: 30 * time.Second, Jar: jar}
+	client := networkgitea.NewHTTPClientWithJar(30*time.Second, jar)
 
 	loginURL := fmt.Sprintf("%s/user/login", baseURL)
 	log.Printf("[DIAG] Fetching login page: %s", loginURL)
@@ -709,7 +724,7 @@ func (c *APIClient) postInlineCommentReplyMultipart(baseURL, owner, repo string,
 	commentURL := fmt.Sprintf("%s/%s/%s/pulls/%d/files/reviews/comments", baseURL, owner, repo, prNumber)
 	log.Printf("[DIAG] Multipart POST URL: %s", commentURL)
 	log.Printf("[DIAG] Multipart body size: %d bytes", buf.Len())
-	req, err := http.NewRequest("POST", commentURL, &buf)
+	req, err := networkgitea.NewRequestWithContext(context.Background(), "POST", commentURL, &buf)
 	if err != nil {
 		return fmt.Errorf("failed to create multipart request: %w", err)
 	}
@@ -722,7 +737,7 @@ func (c *APIClient) postInlineCommentReplyMultipart(baseURL, owner, repo string,
 	log.Printf("[DIAG] Multipart POST headers: Content-Type=%s, CSRF_len=%d, Referer=%s",
 		mw.FormDataContentType(), len(csrf), req.Header.Get("Referer"))
 	log.Printf("[DIAG] Executing multipart POST request...")
-	resp, err = client.Do(req)
+	resp, err = networkgitea.Do(client, req)
 	if err != nil {
 		return fmt.Errorf("multipart reply request failed: %w", err)
 	}

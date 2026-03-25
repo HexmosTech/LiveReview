@@ -5,17 +5,19 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"time"
 
 	"github.com/lib/pq"
+	storagelearnings "github.com/livereview/storage/learnings"
 )
 
 type PostgresStore struct {
-	db *sql.DB
+	store *storagelearnings.LearningsStore
 }
 
-func NewPostgresStore(db *sql.DB) *PostgresStore { return &PostgresStore{db: db} }
+func NewPostgresStore(db *sql.DB) *PostgresStore {
+	return &PostgresStore{store: storagelearnings.NewLearningsStore(db)}
+}
 
 func (s *PostgresStore) Create(ctx context.Context, l *Learning) error {
 	var scJSON []byte
@@ -26,15 +28,26 @@ func (s *PostgresStore) Create(ctx context.Context, l *Learning) error {
 			return err
 		}
 	}
-	var id string
-	var createdAt, updatedAt time.Time
-	err = s.db.QueryRowContext(ctx, `
-        INSERT INTO learnings (short_id, org_id, scope_kind, repo_id, title, body, tags, status, confidence, simhash, embedding, source_urls, source_context, created_by, updated_by)
-        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)
-        RETURNING id, created_at, updated_at
-    `,
-		l.ShortID, l.OrgID, string(l.Scope), nullIfEmpty(l.RepoID), l.Title, l.Body, pq.Array(ensureSliceNotNil(l.Tags)), string(l.Status), l.Confidence, l.Simhash, l.Embedding, pq.Array(ensureSliceNotNil(l.SourceURLs)), scJSON, nullIfZero(l.CreatedBy()), nullIfZero(l.UpdatedBy()),
-	).Scan(&id, &createdAt, &updatedAt)
+	id, createdAt, updatedAt, err := s.store.InsertLearning(
+		ctx,
+		storagelearnings.InsertLearningInput{
+			ShortID:           l.ShortID,
+			OrgID:             l.OrgID,
+			ScopeKind:         string(l.Scope),
+			RepoID:            nullableStringPtr(l.RepoID),
+			Title:             l.Title,
+			Body:              l.Body,
+			Tags:              ensureSliceNotNil(l.Tags),
+			Status:            string(l.Status),
+			Confidence:        l.Confidence,
+			Simhash:           l.Simhash,
+			Embedding:         l.Embedding,
+			SourceURLs:        ensureSliceNotNil(l.SourceURLs),
+			SourceContextJSON: scJSON,
+			CreatedBy:         nullableInt64Ptr(l.CreatedBy()),
+			UpdatedBy:         nullableInt64Ptr(l.UpdatedBy()),
+		},
+	)
 	if err != nil {
 		return err
 	}
@@ -56,14 +69,24 @@ func (s *PostgresStore) Update(ctx context.Context, l *Learning) error {
 			return err
 		}
 	}
-	var updatedAt time.Time
-	res := s.db.QueryRowContext(ctx, `
-        UPDATE learnings
-        SET title=$1, body=$2, tags=$3, status=$4, confidence=$5, simhash=$6, embedding=$7, source_urls=$8, source_context=$9, scope_kind=$10, repo_id=$11, updated_at=now()
-        WHERE id=$12
-        RETURNING updated_at
-    `, l.Title, l.Body, pq.Array(ensureSliceNotNil(l.Tags)), string(l.Status), l.Confidence, l.Simhash, l.Embedding, pq.Array(ensureSliceNotNil(l.SourceURLs)), scJSON, string(l.Scope), nullIfEmpty(l.RepoID), l.ID)
-	if err := res.Scan(&updatedAt); err != nil {
+	updatedAt, err := s.store.UpdateLearning(
+		ctx,
+		storagelearnings.UpdateLearningInput{
+			ID:                l.ID,
+			Title:             l.Title,
+			Body:              l.Body,
+			Tags:              ensureSliceNotNil(l.Tags),
+			Status:            string(l.Status),
+			Confidence:        l.Confidence,
+			Simhash:           l.Simhash,
+			Embedding:         l.Embedding,
+			SourceURLs:        ensureSliceNotNil(l.SourceURLs),
+			SourceContextJSON: scJSON,
+			ScopeKind:         string(l.Scope),
+			RepoID:            nullableStringPtr(l.RepoID),
+		},
+	)
+	if err != nil {
 		return err
 	}
 	l.UpdatedAt = updatedAt
@@ -71,18 +94,12 @@ func (s *PostgresStore) Update(ctx context.Context, l *Learning) error {
 }
 
 func (s *PostgresStore) GetByID(ctx context.Context, id string) (*Learning, error) {
-	row := s.db.QueryRowContext(ctx, `
-        SELECT id, short_id, org_id, scope_kind, coalesce(repo_id,''), title, body, tags, status, confidence, simhash, embedding, source_urls, source_context, created_at, updated_at
-        FROM learnings WHERE id=$1
-    `, id)
+	row := s.store.QueryLearningByID(ctx, id)
 	return scanLearning(row)
 }
 
 func (s *PostgresStore) GetByShortID(ctx context.Context, orgID int64, shortID string) (*Learning, error) {
-	row := s.db.QueryRowContext(ctx, `
-        SELECT id, short_id, org_id, scope_kind, coalesce(repo_id,''), title, body, tags, status, confidence, simhash, embedding, source_urls, source_context, created_at, updated_at
-        FROM learnings WHERE org_id=$1 AND short_id=$2
-    `, orgID, shortID)
+	row := s.store.QueryLearningByShortID(ctx, orgID, shortID)
 	return scanLearning(row)
 }
 
@@ -91,39 +108,7 @@ func (s *PostgresStore) ListByOrg(ctx context.Context, orgID int64) ([]*Learning
 }
 
 func (s *PostgresStore) ListByOrgWithPagination(ctx context.Context, orgID int64, offset, limit int, search string, includeArchived bool) ([]*Learning, error) {
-	query := `
-        SELECT DISTINCT ON (body) id, short_id, org_id, scope_kind, coalesce(repo_id,''), title, body, tags, status, confidence, simhash, embedding, source_urls, source_context, created_at, updated_at
-        FROM learnings WHERE org_id=$1`
-
-	args := []interface{}{orgID}
-	argIndex := 2
-
-	// Add search filter
-	if search != "" {
-		query += ` AND (title ILIKE $` + fmt.Sprintf("%d", argIndex) + ` OR body ILIKE $` + fmt.Sprintf("%d", argIndex) + ` OR $` + fmt.Sprintf("%d", argIndex) + ` = ANY(tags) OR short_id ILIKE $` + fmt.Sprintf("%d", argIndex) + `)`
-		args = append(args, "%"+search+"%")
-		argIndex++
-	}
-
-	// Add status filter
-	if !includeArchived {
-		query += ` AND status != 'archived'`
-	}
-
-	query += ` ORDER BY body, confidence DESC, updated_at DESC`
-
-	// Add pagination
-	if limit > 0 {
-		query += ` LIMIT $` + fmt.Sprintf("%d", argIndex)
-		args = append(args, limit)
-		argIndex++
-	}
-	if offset > 0 {
-		query += ` OFFSET $` + fmt.Sprintf("%d", argIndex)
-		args = append(args, offset)
-	}
-
-	rows, err := s.db.QueryContext(ctx, query, args...)
+	rows, err := s.store.ListByOrgWithPagination(ctx, orgID, offset, limit, search, includeArchived)
 	if err != nil {
 		return nil, err
 	}
@@ -141,25 +126,7 @@ func (s *PostgresStore) ListByOrgWithPagination(ctx context.Context, orgID int64
 }
 
 func (s *PostgresStore) CountByOrg(ctx context.Context, orgID int64, search string, includeArchived bool) (int, error) {
-	query := `SELECT COUNT(*) FROM learnings WHERE org_id=$1`
-	args := []interface{}{orgID}
-	argIndex := 2
-
-	// Add search filter
-	if search != "" {
-		query += ` AND (title ILIKE $` + fmt.Sprintf("%d", argIndex) + ` OR body ILIKE $` + fmt.Sprintf("%d", argIndex) + ` OR $` + fmt.Sprintf("%d", argIndex) + ` = ANY(tags) OR short_id ILIKE $` + fmt.Sprintf("%d", argIndex) + `)`
-		args = append(args, "%"+search+"%")
-		argIndex++
-	}
-
-	// Add status filter
-	if !includeArchived {
-		query += ` AND status != 'archived'`
-	}
-
-	var count int
-	err := s.db.QueryRowContext(ctx, query, args...).Scan(&count)
-	return count, err
+	return s.store.CountByOrg(ctx, orgID, search, includeArchived)
 }
 
 func (s *PostgresStore) CreateEvent(ctx context.Context, ev *LearningEvent) error {
@@ -171,14 +138,26 @@ func (s *PostgresStore) CreateEvent(ctx context.Context, ev *LearningEvent) erro
 			return err
 		}
 	}
-	var id string
-	err = s.db.QueryRowContext(ctx, `
-        INSERT INTO learning_events (learning_id, org_id, action, provider, thread_id, comment_id, repository, commit_sha, file_path, line_start, line_end, actor_id, reason_snippet, classifier, context)
-        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)
-        RETURNING id
-    `,
-		ev.LearningID, ev.OrgID, string(ev.Action), ev.Provider, ev.ThreadID, ev.CommentID, ev.Repository, ev.CommitSHA, ev.FilePath, ev.LineStart, ev.LineEnd, nullIfZero64(0), ev.Reason, ev.Classifier, ctxJSON,
-	).Scan(&id)
+	id, err := s.store.InsertLearningEvent(
+		ctx,
+		storagelearnings.InsertLearningEventInput{
+			LearningID:    ev.LearningID,
+			OrgID:         ev.OrgID,
+			Action:        string(ev.Action),
+			Provider:      ev.Provider,
+			ThreadID:      ev.ThreadID,
+			CommentID:     ev.CommentID,
+			Repository:    ev.Repository,
+			CommitSHA:     ev.CommitSHA,
+			FilePath:      ev.FilePath,
+			LineStart:     ev.LineStart,
+			LineEnd:       ev.LineEnd,
+			ActorID:       nil,
+			ReasonSnippet: ev.Reason,
+			Classifier:    ev.Classifier,
+			ContextJSON:   ctxJSON,
+		},
+	)
 	if err != nil {
 		return err
 	}
@@ -230,6 +209,20 @@ func nullIfZero(v int64) interface{} {
 	return v
 }
 func nullIfZero64(v int64) interface{} { return nullIfZero(v) }
+
+func nullableStringPtr(v string) *string {
+	if v == "" {
+		return nil
+	}
+	return &v
+}
+
+func nullableInt64Ptr(v int64) *int64 {
+	if v == 0 {
+		return nil
+	}
+	return &v
+}
 
 // ensureSliceNotNil ensures a string slice is never nil to avoid NOT NULL constraint violations
 func ensureSliceNotNil(slice []string) []string {

@@ -1,6 +1,7 @@
 package gitlab
 
 import (
+	"context"
 	"database/sql"
 	"encoding/json"
 	"fmt"
@@ -10,6 +11,9 @@ import (
 	"net/url"
 	"strings"
 	"time"
+
+	networkgitlab "github.com/livereview/network/providers/gitlab"
+	storagegitlab "github.com/livereview/storage/providers/gitlab"
 )
 
 type (
@@ -74,11 +78,12 @@ type AuthService struct {
 	triggerInstallation func(int)
 	httpClient          *http.Client
 	now                 func() time.Time
+	tokenStore          *storagegitlab.AuthTokenStore
 }
 
 // NewAuthService constructs a GitLab auth service.
 func NewAuthService(db *sql.DB, trigger func(int)) *AuthService {
-	client := &http.Client{Timeout: 10 * time.Second}
+	client := networkgitlab.NewHTTPClient(10 * time.Second)
 	if trigger == nil {
 		trigger = func(int) {}
 	}
@@ -87,6 +92,7 @@ func NewAuthService(db *sql.DB, trigger func(int)) *AuthService {
 		triggerInstallation: trigger,
 		httpClient:          client,
 		now:                 time.Now,
+		tokenStore:          storagegitlab.NewAuthTokenStore(db),
 	}
 }
 
@@ -117,14 +123,14 @@ func (s *AuthService) ExchangeCode(req GitLabTokenRequest) (*AuthExchangeResult,
 	}
 
 	log.Printf("Making GitLab token request to: %s with params: %+v", tokenEndpoint, form)
-	tokenReq, err := http.NewRequest("POST", tokenEndpoint, strings.NewReader(form.Encode()))
+	tokenReq, err := networkgitlab.NewRequest(http.MethodPost, tokenEndpoint, strings.NewReader(form.Encode()))
 	if err != nil {
 		return nil, &AuthError{Status: http.StatusInternalServerError, Message: "Failed to create token request", err: err}
 	}
 	tokenReq.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	tokenReq.Header.Set("Accept", "application/json")
 
-	tokenResp, err := s.httpClient.Do(tokenReq)
+	tokenResp, err := networkgitlab.Do(s.httpClient, tokenReq)
 	if err != nil {
 		return nil, &AuthError{Status: http.StatusInternalServerError, Message: "Failed to send token request", err: err}
 	}
@@ -162,100 +168,73 @@ func (s *AuthService) ExchangeCode(req GitLabTokenRequest) (*AuthExchangeResult,
 		expiresAt = &expTime
 	}
 
-	metadata := map[string]interface{}{
-		"token_type": tokenData.TokenType,
-		"scope":      tokenData.Scope,
-		"created_at": tokenData.CreatedAt,
-	}
-
-	if userInfo != nil {
-		metadata["user_id"] = userInfo.ID
-		metadata["username"] = userInfo.Username
-		metadata["email"] = userInfo.Email
-		metadata["name"] = userInfo.Name
-		metadata["avatar_url"] = userInfo.AvatarURL
-	}
-
-	metadataJSON, err := json.Marshal(metadata)
+	metadataJSON, err := storagegitlab.BuildGitLabTokenMetadata(
+		tokenData.TokenType,
+		tokenData.Scope,
+		tokenData.CreatedAt,
+		func() int {
+			if userInfo != nil {
+				return userInfo.ID
+			}
+			return 0
+		}(),
+		func() string {
+			if userInfo != nil {
+				return userInfo.Username
+			}
+			return ""
+		}(),
+		func() string {
+			if userInfo != nil {
+				return userInfo.Email
+			}
+			return ""
+		}(),
+		func() string {
+			if userInfo != nil {
+				return userInfo.Name
+			}
+			return ""
+		}(),
+		func() string {
+			if userInfo != nil {
+				return userInfo.AvatarURL
+			}
+			return ""
+		}(),
+	)
 	if err != nil {
 		log.Printf("Failed to marshal metadata: %v", err)
 		metadataJSON = []byte("{}")
 	}
 
-	tx, err := s.db.Begin()
-	if err != nil {
-		return nil, &AuthError{Status: http.StatusInternalServerError, Message: "Database error", err: err}
-	}
-
-	rollback := true
-	defer func() {
-		if rollback {
-			tx.Rollback()
-		}
-	}()
-
 	connectionName := req.ConnectionName
 	if connectionName == "" {
 		if strings.Contains(req.GitlabURL, "gitlab.com") {
 			connectionName = "GitLab.com"
-		} else if u, err := url.Parse(req.GitlabURL); err == nil {
+		} else if u, err := networkgitlab.ParseURL(req.GitlabURL); err == nil {
 			connectionName = u.Hostname()
 		} else {
 			connectionName = "GitLab"
 		}
 	}
 
-	var expiresAtSQL interface{}
-	if expiresAt != nil {
-		expiresAtSQL = expiresAt.Format(time.RFC3339)
-	}
-
-	var existingID int64
-	err = tx.QueryRow(`
-		SELECT id FROM integration_tokens 
-		WHERE provider = 'gitlab' AND provider_app_id = $1 AND connection_name = $2
-	`, req.GitlabClientID, connectionName).Scan(&existingID)
-
-	if err != nil && err != sql.ErrNoRows {
-		return nil, &AuthError{Status: http.StatusInternalServerError, Message: "Database error", err: err}
-	}
-
-	var integrationTokenID int64
-	if err == sql.ErrNoRows {
-		err = tx.QueryRow(`
-			INSERT INTO integration_tokens 
-			(provider, provider_app_id, access_token, refresh_token, token_type, scope, 
-			 expires_at, metadata, code, connection_name, provider_url, client_secret)
-			VALUES ('gitlab', $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
-			RETURNING id
-		`, req.GitlabClientID, tokenData.AccessToken, tokenData.RefreshToken,
-			tokenData.TokenType, tokenData.Scope, expiresAtSQL, metadataJSON,
-			req.Code, connectionName, req.GitlabURL, req.GitlabClientSecret).Scan(&integrationTokenID)
-	} else {
-		err = tx.QueryRow(`
-			UPDATE integration_tokens 
-			SET access_token = $1, refresh_token = $2, token_type = $3, scope = $4, 
-			    expires_at = $5, metadata = $6, code = $7, updated_at = CURRENT_TIMESTAMP,
-				provider_url = $8, client_secret = $9
-			WHERE id = $10
-			RETURNING id
-		`, tokenData.AccessToken, tokenData.RefreshToken, tokenData.TokenType,
-			tokenData.Scope, expiresAtSQL, metadataJSON, req.Code, req.GitlabURL,
-			req.GitlabClientSecret, existingID).Scan(&integrationTokenID)
-
-		if err == nil {
-			integrationTokenID = existingID
-		}
-	}
-
+	integrationTokenID, err := s.tokenStore.UpsertGitLabIntegrationToken(storagegitlab.TokenUpsertInput{
+		ProviderAppID:  req.GitlabClientID,
+		AccessToken:    tokenData.AccessToken,
+		RefreshToken:   tokenData.RefreshToken,
+		TokenType:      tokenData.TokenType,
+		Scope:          tokenData.Scope,
+		ExpiresAt:      expiresAt,
+		MetadataJSON:   metadataJSON,
+		Code:           req.Code,
+		ConnectionName: connectionName,
+		ProviderURL:    req.GitlabURL,
+		ClientSecret:   req.GitlabClientSecret,
+	})
 	if err != nil {
 		return nil, &AuthError{Status: http.StatusInternalServerError, Message: "Failed to store token", err: err}
 	}
-
-	if err := tx.Commit(); err != nil {
-		return nil, &AuthError{Status: http.StatusInternalServerError, Message: "Database error", err: err}
-	}
-	rollback = false
 
 	s.triggerInstallation(int(integrationTokenID))
 
@@ -275,17 +254,15 @@ func (s *AuthService) ExchangeCode(req GitLabTokenRequest) (*AuthExchangeResult,
 func (s *AuthService) RefreshToken(integrationID int64, clientID, clientSecret string) GitLabRefreshTokenResult {
 	result := GitLabRefreshTokenResult{IntegrationID: integrationID}
 
-	var gitlabURL, refreshToken, storedClientSecret string
-	err := s.db.QueryRow(`
-		SELECT refresh_token, provider_url, client_secret
-		FROM integration_tokens
-		WHERE id = $1 AND provider = 'gitlab'
-	`, integrationID).Scan(&refreshToken, &gitlabURL, &storedClientSecret)
-
+	rec, err := s.tokenStore.GetGitLabTokenRecord(integrationID)
 	if err != nil {
 		result.Error = fmt.Errorf("failed to retrieve token data: %w", err)
 		return result
 	}
+
+	gitlabURL := rec.ProviderURL
+	refreshToken := rec.RefreshToken
+	storedClientSecret := rec.StoredClientSecret
 
 	if refreshToken == "" {
 		result.Error = fmt.Errorf("no refresh token available")
@@ -293,9 +270,7 @@ func (s *AuthService) RefreshToken(integrationID int64, clientID, clientSecret s
 	}
 
 	if clientID == "" {
-		if err := s.db.QueryRow(`
-			SELECT provider_app_id FROM integration_tokens WHERE id = $1
-		`, integrationID).Scan(&clientID); err != nil {
+		if clientID, err = s.tokenStore.GetProviderAppID(integrationID); err != nil {
 			result.Error = fmt.Errorf("failed to retrieve client ID: %w", err)
 			return result
 		}
@@ -318,7 +293,10 @@ func (s *AuthService) RefreshToken(integrationID int64, clientID, clientSecret s
 	form.Add("refresh_token", refreshToken)
 	form.Add("grant_type", "refresh_token")
 
-	tokenReq, err := http.NewRequest("POST", tokenEndpoint, strings.NewReader(form.Encode()))
+	requestCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	tokenReq, err := networkgitlab.NewRequestWithContext(requestCtx, http.MethodPost, tokenEndpoint, strings.NewReader(form.Encode()))
 	if err != nil {
 		result.Error = fmt.Errorf("failed to create token request: %w", err)
 		return result
@@ -326,7 +304,7 @@ func (s *AuthService) RefreshToken(integrationID int64, clientID, clientSecret s
 	tokenReq.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	tokenReq.Header.Set("Accept", "application/json")
 
-	tokenResp, err := s.httpClient.Do(tokenReq)
+	tokenResp, err := networkgitlab.Do(s.httpClient, tokenReq)
 	if err != nil {
 		result.Error = fmt.Errorf("failed to send token request: %w", err)
 		return result
@@ -358,18 +336,14 @@ func (s *AuthService) RefreshToken(integrationID int64, clientID, clientSecret s
 		expiresAt = &expTime
 	}
 
-	var expiresAtSQL interface{}
-	if expiresAt != nil {
-		expiresAtSQL = expiresAt.Format(time.RFC3339)
-	}
-
-	_, err = s.db.Exec(`
-		UPDATE integration_tokens 
-		SET access_token = $1, refresh_token = $2, token_type = $3, scope = $4, 
-		    expires_at = $5, updated_at = CURRENT_TIMESTAMP
-		WHERE id = $6
-	`, result.TokenData.AccessToken, result.TokenData.RefreshToken, result.TokenData.TokenType,
-		result.TokenData.Scope, expiresAtSQL, integrationID)
+	err = s.tokenStore.UpdateRefreshedToken(storagegitlab.TokenRefreshUpdateInput{
+		IntegrationID: integrationID,
+		AccessToken:   result.TokenData.AccessToken,
+		RefreshToken:  result.TokenData.RefreshToken,
+		TokenType:     result.TokenData.TokenType,
+		Scope:         result.TokenData.Scope,
+		ExpiresAt:     expiresAt,
+	})
 
 	if err != nil {
 		result.Error = fmt.Errorf("failed to update token: %w", err)
@@ -381,7 +355,7 @@ func (s *AuthService) RefreshToken(integrationID int64, clientID, clientSecret s
 func (s *AuthService) fetchGitLabUserInfo(gitlabURL, accessToken string) (*GitLabUserResponse, error) {
 	userEndpoint := fmt.Sprintf("%s/api/v4/user", strings.TrimSuffix(gitlabURL, "/"))
 
-	userReq, err := http.NewRequest("GET", userEndpoint, nil)
+	userReq, err := networkgitlab.NewRequest(http.MethodGet, userEndpoint, nil)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create user info request: %w", err)
 	}
@@ -389,7 +363,7 @@ func (s *AuthService) fetchGitLabUserInfo(gitlabURL, accessToken string) (*GitLa
 	userReq.Header.Set("Authorization", "Bearer "+accessToken)
 	userReq.Header.Set("Accept", "application/json")
 
-	resp, err := s.httpClient.Do(userReq)
+	resp, err := networkgitlab.Do(s.httpClient, userReq)
 	if err != nil {
 		return nil, fmt.Errorf("failed to send user info request: %w", err)
 	}

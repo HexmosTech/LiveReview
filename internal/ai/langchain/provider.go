@@ -695,7 +695,7 @@ func (p *LangchainProvider) reviewCodeBatchFormatted(ctx context.Context, diffs 
 	for i := range diffs {
 		diffPointers[i] = &diffs[i]
 	}
-	prompt := base + "\n\n" + prompts.BuildCodeChangesSection(diffPointers)
+	prompt := base + "\n\n" + prompts.BuildCodeChangesSectionWithContext(ctx, diffPointers)
 
 	// Log request to global logger and emit batch started event
 	if p.logger != nil {
@@ -1030,7 +1030,7 @@ func (p *LangchainProvider) reviewCodeBatchFormatted(ctx context.Context, diffs 
 
 	// Parse the response with enhanced JSON repair
 	fmt.Printf("[LANGCHAIN PARSE] Starting to parse response for batch %s with JSON repair...\n", batchId)
-	result, err := p.parseResponseWithRepair(response, diffs, 0, 0, batchId, p.logger)
+	result, err := p.parseResponseWithRepair(ctx, response, diffs, 0, 0, batchId, p.logger)
 	if err != nil {
 		if p.logger != nil {
 			p.logger.LogError(fmt.Sprintf("JSON parsing batch %s", batchId), err)

@@ -1,0 +1,13 @@
+title = "LiveReview gitleaks config"
+
+[extend]
+useDefault = true
+
+[[allowlists]]
+description = "Allow synthetic API-key fragment fixture in prompts redaction test"
+regexes = [
+  '''rawKey := "abcdef123456"''',
+]
+paths = [
+  '''internal/prompts/prompts_test.go''',
+]

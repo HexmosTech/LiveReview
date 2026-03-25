@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"time"
+
+	storagereviews "github.com/livereview/storage/reviews"
 )
 
 // Review represents a code review record
@@ -43,12 +45,12 @@ type AIComment struct {
 
 // ReviewManager handles review operations
 type ReviewManager struct {
-	db *sql.DB
+	store *storagereviews.ReviewStore
 }
 
 // NewReviewManager creates a new review manager
 func NewReviewManager(db *sql.DB) *ReviewManager {
-	return &ReviewManager{db: db}
+	return &ReviewManager{store: storagereviews.NewReviewStore(db)}
 }
 
 // CreateReview creates a new review record
@@ -72,7 +74,7 @@ func (rm *ReviewManager) CreateReview(repository, branch, commitHash, prMrURL, t
 	`
 
 	var review Review
-	err = rm.db.QueryRow(query, repository, branch, commitHash, prMrURL, connectorID, triggerType, userEmail, provider, metadataJSON).Scan(&review.ID, &review.CreatedAt)
+	err = rm.store.QueryRow(query, repository, branch, commitHash, prMrURL, connectorID, triggerType, userEmail, provider, metadataJSON).Scan(&review.ID, &review.CreatedAt)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create review: %w", err)
 	}
@@ -113,7 +115,7 @@ func (rm *ReviewManager) CreateReviewWithOrg(repository, branch, commitHash, prM
 	`
 
 	var review Review
-	err = rm.db.QueryRow(query, repository, branch, commitHash, prMrURL, connectorID, triggerType, userEmail, provider, metadataJSON, orgID, friendlyName, authorName, authorUsername).Scan(&review.ID, &review.CreatedAt)
+	err = rm.store.QueryRow(query, repository, branch, commitHash, prMrURL, connectorID, triggerType, userEmail, provider, metadataJSON, orgID, friendlyName, authorName, authorUsername).Scan(&review.ID, &review.CreatedAt)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create review: %w", err)
 	}
@@ -159,7 +161,7 @@ func (rm *ReviewManager) UpdateReviewStatus(reviewID int64, status string) error
 		args = []interface{}{status, reviewID}
 	}
 
-	_, err := rm.db.Exec(query, args...)
+	_, err := rm.store.Exec(query, args...)
 	if err != nil {
 		return fmt.Errorf("failed to update review status: %w", err)
 	}
@@ -179,7 +181,7 @@ func (rm *ReviewManager) GetReview(reviewID int64) (*Review, error) {
 
 	var review Review
 	var mrTitle, friendlyName, authorName, authorUsername sql.NullString
-	err := rm.db.QueryRow(query, reviewID).Scan(
+	err := rm.store.QueryRow(query, reviewID).Scan(
 		&review.ID,
 		&review.Repository,
 		&review.Branch,
@@ -282,7 +284,7 @@ func (rm *ReviewManager) UpdateReviewMetadata(reviewID int64, update ReviewMetad
 		WHERE id = $7
 	`
 
-	if _, err := rm.db.Exec(
+	if _, err := rm.store.Exec(
 		query,
 		repositoryArg,
 		branchArg,
@@ -306,7 +308,7 @@ func (rm *ReviewManager) MergeReviewMetadata(reviewID int64, updates map[string]
 	}
 
 	var currentJSON []byte
-	if err := rm.db.QueryRow(`SELECT COALESCE(metadata, '{}') FROM reviews WHERE id = $1`, reviewID).Scan(&currentJSON); err != nil {
+	if err := rm.store.QueryRow(`SELECT COALESCE(metadata, '{}') FROM reviews WHERE id = $1`, reviewID).Scan(&currentJSON); err != nil {
 		return fmt.Errorf("failed to load review metadata: %w", err)
 	}
 
@@ -325,7 +327,7 @@ func (rm *ReviewManager) MergeReviewMetadata(reviewID int64, updates map[string]
 		return fmt.Errorf("failed to marshal merged metadata: %w", err)
 	}
 
-	if _, err := rm.db.Exec(`UPDATE reviews SET metadata = $1 WHERE id = $2`, merged, reviewID); err != nil {
+	if _, err := rm.store.Exec(`UPDATE reviews SET metadata = $1 WHERE id = $2`, merged, reviewID); err != nil {
 		return fmt.Errorf("failed to update review metadata: %w", err)
 	}
 
@@ -346,7 +348,7 @@ func (rm *ReviewManager) AddAIComment(reviewID int64, commentType string, conten
 	`
 
 	var comment AIComment
-	err = rm.db.QueryRow(query, reviewID, commentType, contentJSON, filePath, lineNumber, orgID).Scan(&comment.ID, &comment.CreatedAt)
+	err = rm.store.QueryRow(query, reviewID, commentType, contentJSON, filePath, lineNumber, orgID).Scan(&comment.ID, &comment.CreatedAt)
 	if err != nil {
 		return nil, fmt.Errorf("failed to add AI comment: %w", err)
 	}
@@ -370,7 +372,7 @@ func (rm *ReviewManager) GetReviewComments(reviewID int64) ([]AIComment, error) 
 		ORDER BY created_at ASC
 	`
 
-	rows, err := rm.db.Query(query, reviewID)
+	rows, err := rm.store.Query(query, reviewID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query AI comments: %w", err)
 	}
@@ -421,7 +423,7 @@ func (rm *ReviewManager) GetReviewDuration(reviewID int64) (*time.Duration, erro
 func (rm *ReviewManager) GetTotalAIComments() (int, error) {
 	var count int
 	query := `SELECT COUNT(*) FROM ai_comments`
-	err := rm.db.QueryRow(query).Scan(&count)
+	err := rm.store.QueryRow(query).Scan(&count)
 	if err != nil {
 		return 0, fmt.Errorf("failed to get AI comments count: %w", err)
 	}
@@ -431,6 +433,8 @@ func (rm *ReviewManager) GetTotalAIComments() (int, error) {
 // TrackAICommentFromURL is a helper function to track AI comments based on MR/PR URL
 // This is useful when we have the comment content but need to find the associated review
 func TrackAICommentFromURL(db *sql.DB, prMrURL, commentType string, content map[string]interface{}, filePath *string, lineNumber *int, orgID int64) error {
+	reviewManager := NewReviewManager(db)
+
 	// Find the review by PR/MR URL
 	query := `
 		SELECT id FROM reviews 
@@ -440,7 +444,7 @@ func TrackAICommentFromURL(db *sql.DB, prMrURL, commentType string, content map[
 	`
 
 	var reviewID int64
-	err := db.QueryRow(query, prMrURL).Scan(&reviewID)
+	err := reviewManager.store.QueryRow(query, prMrURL).Scan(&reviewID)
 	if err != nil {
 		if err == sql.ErrNoRows {
 			// No review found for this URL, skip tracking
@@ -450,7 +454,6 @@ func TrackAICommentFromURL(db *sql.DB, prMrURL, commentType string, content map[
 	}
 
 	// Add the AI comment
-	reviewManager := NewReviewManager(db)
 	_, err = reviewManager.AddAIComment(reviewID, commentType, content, filePath, lineNumber, orgID)
 	if err != nil {
 		return fmt.Errorf("failed to add AI comment: %w", err)

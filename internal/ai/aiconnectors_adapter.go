@@ -70,7 +70,7 @@ func (a *AIConnectorsAdapter) ReviewCode(ctx context.Context, diffs []*models.Co
 	if err != nil {
 		return nil, fmt.Errorf("build prompt failed: %w", err)
 	}
-	prompt := base + "\n\n" + prompts.BuildCodeChangesSection(diffs)
+	prompt := base + "\n\n" + prompts.BuildCodeChangesSectionWithContext(ctx, diffs)
 
 	// Call the AI provider
 	log.Info().

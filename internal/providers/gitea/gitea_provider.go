@@ -12,6 +12,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/livereview/internal/aisanitize"
 	"github.com/livereview/internal/providers"
 	"github.com/livereview/pkg/models"
 )
@@ -270,6 +271,14 @@ func (p *Provider) fetchDiffAsUnified(ctx context.Context, apiBase, owner, repo,
 
 // PostComment posts a comment on a PR. Supports inline (file/line) comments and general comments.
 func (p *Provider) PostComment(ctx context.Context, prID string, comment *models.ReviewComment) error {
+	if comment == nil {
+		return fmt.Errorf("comment is required")
+	}
+
+	safeContent, _ := aisanitize.SanitizationPostflight(ctx, comment.Content)
+	safeComment := *comment
+	safeComment.Content = safeContent
+
 	parts := strings.Split(prID, "/")
 	if len(parts) != 3 {
 		return fmt.Errorf("invalid Gitea PR ID format: expected 'owner/repo/number', got '%s'", prID)
@@ -284,7 +293,7 @@ func (p *Provider) PostComment(ctx context.Context, prID string, comment *models
 	}
 
 	// Inline comment path: use session (browser-style) flow as primary mechanism.
-	if comment.FilePath != "" && comment.Line > 0 {
+	if safeComment.FilePath != "" && safeComment.Line > 0 {
 		pr, err := p.fetchPullRequest(ctx, owner, repo, number)
 		if err != nil {
 			return fmt.Errorf("failed to fetch pull request for inline comment: %w", err)
@@ -292,7 +301,7 @@ func (p *Provider) PostComment(ctx context.Context, prID string, comment *models
 		if !p.hasSessionCreds() {
 			return fmt.Errorf("session credentials not provided for Gitea inline comments")
 		}
-		if err := p.postInlineViaSession(ctx, apiBase, owner, repo, number, comment, pr.Head.SHA); err != nil {
+		if err := p.postInlineViaSession(ctx, apiBase, owner, repo, number, &safeComment, pr.Head.SHA); err != nil {
 			return err
 		}
 		return nil
@@ -300,7 +309,7 @@ func (p *Provider) PostComment(ctx context.Context, prID string, comment *models
 
 	// General (issue-level) comment
 	apiURL := fmt.Sprintf("%s/api/v1/repos/%s/%s/issues/%s/comments", apiBase, owner, repo, number)
-	payload := map[string]string{"body": comment.Content}
+	payload := map[string]string{"body": safeComment.Content}
 	body, _ := json.Marshal(payload)
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, apiURL, strings.NewReader(string(body)))

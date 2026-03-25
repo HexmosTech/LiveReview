@@ -1,6 +1,7 @@
 package gitea
 
 import (
+	"context"
 	"crypto/hmac"
 	"crypto/sha256"
 	"database/sql"
@@ -10,12 +11,14 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 
 	"github.com/livereview/internal/capture"
 	coreprocessor "github.com/livereview/internal/core_processor"
 	"github.com/livereview/internal/webhookutils"
+	networkgitea "github.com/livereview/network/providers/gitea"
 )
 
 type (
@@ -36,8 +39,9 @@ type GiteaOutputClient interface {
 
 // GiteaV2Provider implements webhook provider behaviour for Gitea.
 type GiteaV2Provider struct {
-	db     *sql.DB
-	output GiteaOutputClient
+	db                *sql.DB
+	output            GiteaOutputClient
+	botUserHTTPClient *http.Client
 }
 
 // NewGiteaV2Provider creates a Gitea provider with the required dependencies.
@@ -45,7 +49,11 @@ func NewGiteaV2Provider(db *sql.DB, output GiteaOutputClient) *GiteaV2Provider {
 	if output == nil {
 		panic("gitea output client is required")
 	}
-	return &GiteaV2Provider{db: db, output: output}
+	return &GiteaV2Provider{
+		db:                db,
+		output:            output,
+		botUserHTTPClient: networkgitea.NewHTTPClient(10 * time.Second),
+	}
 }
 
 // ProviderName returns the provider name.
@@ -180,9 +188,14 @@ func (p *GiteaV2Provider) GetBotUserInfo(repository UnifiedRepositoryV2) (*Unifi
 		return nil, fmt.Errorf("failed to get Gitea token: %w", err)
 	}
 
+	parsedBaseURL, err := url.Parse(baseURL)
+	if err != nil || parsedBaseURL.Scheme == "" || parsedBaseURL.Host == "" {
+		return nil, fmt.Errorf("invalid gitea base URL: %q", baseURL)
+	}
+
 	// Call Gitea API /api/v1/user to get authenticated user info
 	apiURL := fmt.Sprintf("%s/api/v1/user", baseURL)
-	req, err := http.NewRequest("GET", apiURL, nil)
+	req, err := networkgitea.NewRequestWithContext(context.Background(), "GET", apiURL, nil)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create request: %w", err)
 	}
@@ -190,8 +203,7 @@ func (p *GiteaV2Provider) GetBotUserInfo(repository UnifiedRepositoryV2) (*Unifi
 	req.Header.Set("Authorization", fmt.Sprintf("token %s", token.PatToken))
 	req.Header.Set("Accept", "application/json")
 
-	client := &http.Client{Timeout: 10 * time.Second}
-	resp, err := client.Do(req)
+	resp, err := networkgitea.Do(p.botUserHTTPClient, req)
 	if err != nil {
 		return nil, fmt.Errorf("failed to call Gitea user API: %w", err)
 	}
@@ -472,7 +484,7 @@ func (p *GiteaV2Provider) FetchMRTimeline(mr UnifiedMergeRequestV2) (*UnifiedTim
 // fetchIssueComments fetches general PR comments via /api/v1/repos/{owner}/{repo}/issues/{number}/comments
 func (p *GiteaV2Provider) fetchIssueComments(baseURL, token, owner, repo string, prNumber int) ([]GiteaIssueComment, error) {
 	apiURL := fmt.Sprintf("%s/api/v1/repos/%s/%s/issues/%d/comments", baseURL, owner, repo, prNumber)
-	req, err := http.NewRequest("GET", apiURL, nil)
+	req, err := networkgitea.NewRequest("GET", apiURL, nil)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create request: %w", err)
 	}
@@ -480,8 +492,8 @@ func (p *GiteaV2Provider) fetchIssueComments(baseURL, token, owner, repo string,
 	req.Header.Set("Authorization", fmt.Sprintf("token %s", token))
 	req.Header.Set("Accept", "application/json")
 
-	client := &http.Client{Timeout: 30 * time.Second}
-	resp, err := client.Do(req)
+	client := networkgitea.NewHTTPClient(30 * time.Second)
+	resp, err := networkgitea.Do(client, req)
 	if err != nil {
 		return nil, fmt.Errorf("failed to call Gitea API: %w", err)
 	}
@@ -503,7 +515,7 @@ func (p *GiteaV2Provider) fetchIssueComments(baseURL, token, owner, repo string,
 // fetchReviews fetches reviews via /api/v1/repos/{owner}/{repo}/pulls/{number}/reviews
 func (p *GiteaV2Provider) fetchReviews(baseURL, token, owner, repo string, prNumber int) ([]GiteaReview, error) {
 	apiURL := fmt.Sprintf("%s/api/v1/repos/%s/%s/pulls/%d/reviews", baseURL, owner, repo, prNumber)
-	req, err := http.NewRequest("GET", apiURL, nil)
+	req, err := networkgitea.NewRequest("GET", apiURL, nil)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create request: %w", err)
 	}
@@ -511,8 +523,8 @@ func (p *GiteaV2Provider) fetchReviews(baseURL, token, owner, repo string, prNum
 	req.Header.Set("Authorization", fmt.Sprintf("token %s", token))
 	req.Header.Set("Accept", "application/json")
 
-	client := &http.Client{Timeout: 30 * time.Second}
-	resp, err := client.Do(req)
+	client := networkgitea.NewHTTPClient(30 * time.Second)
+	resp, err := networkgitea.Do(client, req)
 	if err != nil {
 		return nil, fmt.Errorf("failed to call Gitea API: %w", err)
 	}
@@ -534,7 +546,7 @@ func (p *GiteaV2Provider) fetchReviews(baseURL, token, owner, repo string, prNum
 // fetchReviewComments fetches comments for a specific review via /api/v1/repos/{owner}/{repo}/pulls/{number}/reviews/{review_id}/comments
 func (p *GiteaV2Provider) fetchReviewComments(baseURL, token, owner, repo string, prNumber int, reviewID int64) ([]GiteaReviewComment, error) {
 	apiURL := fmt.Sprintf("%s/api/v1/repos/%s/%s/pulls/%d/reviews/%d/comments", baseURL, owner, repo, prNumber, reviewID)
-	req, err := http.NewRequest("GET", apiURL, nil)
+	req, err := networkgitea.NewRequest("GET", apiURL, nil)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create request: %w", err)
 	}
@@ -542,8 +554,8 @@ func (p *GiteaV2Provider) fetchReviewComments(baseURL, token, owner, repo string
 	req.Header.Set("Authorization", fmt.Sprintf("token %s", token))
 	req.Header.Set("Accept", "application/json")
 
-	client := &http.Client{Timeout: 30 * time.Second}
-	resp, err := client.Do(req)
+	client := networkgitea.NewHTTPClient(30 * time.Second)
+	resp, err := networkgitea.Do(client, req)
 	if err != nil {
 		return nil, fmt.Errorf("failed to call Gitea API: %w", err)
 	}
