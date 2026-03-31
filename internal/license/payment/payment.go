@@ -105,19 +105,19 @@ func CreatePlan(mode, planType string) (*RazorpayPlan, error) {
 
 	switch planType {
 	case "monthly":
-		// Monthly plan: $5/user/month
+		// Monthly base plan: $32/month per unit (LOC slab multiplier is quantity)
 		plan = RazorpayPlan{
 			Mode:        mode,
 			Period:      "monthly",
 			Interval:    1,
-			Description: "LiveReview Team Monthly Plan - $5 per user per month",
+			Description: "LiveReview LOC Base Monthly Plan - $32 per unit per month",
 			Item: RazorpayPlanItem{
-				Name:     "LiveReview Team - Monthly",
-				Amount:   500, // $5 in USD cents (500 cents = $5)
+				Name:     "LiveReview LOC Base - Monthly",
+				Amount:   3200, // $32 in USD cents
 				Currency: "USD",
 			},
 			NotesMap: map[string]string{
-				"plan_type": "team_monthly",
+				"plan_type": "team_32usd",
 				"app_name":  "LiveReview",
 			},
 		}

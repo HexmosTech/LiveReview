@@ -6,6 +6,7 @@ import {
   getReview, 
   getReviewEvents, 
   getReviewSummary, 
+    getReviewAccounting,
   formatRelativeTime, 
   getStatusColor, 
   getStatusText 
@@ -14,6 +15,7 @@ import {
   Review, 
   ReviewEvent, 
   ReviewSummary, 
+    ReviewAccounting,
   ReviewEventLevel,
   ReviewEventType 
 } from '../../types/reviews';
@@ -47,6 +49,8 @@ const ReviewDetail: React.FC = () => {
     const [review, setReview] = useState<Review | null>(null);
     const [events, setEvents] = useState<ReviewEvent[]>([]);
     const [summary, setSummary] = useState<ReviewSummary | null>(null);
+    const [accounting, setAccounting] = useState<ReviewAccounting | null>(null);
+    const [accountingError, setAccountingError] = useState<string | null>(null);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
     const [pollingEnabled, setPollingEnabled] = useState(true);
@@ -102,21 +106,37 @@ const ReviewDetail: React.FC = () => {
         try {
             setLoading(true);
             setError(null);
+            setAccountingError(null);
             
             const reviewId = parseInt(id, 10);
             if (isNaN(reviewId)) {
                 throw new Error('Invalid review ID');
             }
             
-            // Fetch review info, events, and summary in parallel
+            // Keep core review progress load independent from accounting availability.
             const [reviewData, eventsData, summaryData] = await Promise.all([
                 getReview(reviewId),
                 getReviewEvents(reviewId, undefined, 1000), // Get all events
-                getReviewSummary(reviewId)
+                getReviewSummary(reviewId),
             ]);
 
             setReview(reviewData);
             setSummary(summaryData);
+
+            try {
+                const accountingData = await getReviewAccounting(reviewId);
+                setAccounting(accountingData);
+            } catch (accountingErr) {
+                console.warn('Accounting endpoint unavailable:', accountingErr);
+                setAccounting(null);
+
+                const status = (accountingErr as any)?.status;
+                if (status === 404) {
+                    setAccountingError('Accounting details are unavailable on this server route.');
+                } else {
+                    setAccountingError('Accounting details could not be loaded right now.');
+                }
+            }
             
             const newEvents = (eventsData?.events as ReviewEvent[] | undefined) || [];
             setEvents(newEvents);
@@ -202,6 +222,25 @@ const ReviewDetail: React.FC = () => {
             </div>
         );
     }
+
+    const formatInt = (value?: number): string => {
+        if (value === undefined || value === null) {
+            return 'Not tracked yet';
+        }
+        return value.toLocaleString();
+    };
+
+    const formatCurrency = (value?: number): string => {
+        if (value === undefined || value === null) {
+            return 'Not tracked yet';
+        }
+        return `$${value.toFixed(4)}`;
+    };
+
+    const aiExecutionMode = typeof review.metadata?.ai_execution_mode === 'string' ? review.metadata.ai_execution_mode : '';
+    const aiExecutionSource = typeof review.metadata?.ai_execution_source === 'string' ? review.metadata.ai_execution_source : '';
+    const aiExecutionProvider = typeof review.metadata?.ai_provider_name === 'string' ? review.metadata.ai_provider_name : '';
+    const aiExecutionConnector = typeof review.metadata?.ai_connector_name === 'string' ? review.metadata.ai_connector_name : '';
 
     return (
         <div className="container mx-auto px-4 py-8">
@@ -291,6 +330,67 @@ const ReviewDetail: React.FC = () => {
                         </>
                     )}
                 </div>
+            </div>
+
+            {/* Accounting Panel */}
+            <div className="bg-slate-800 rounded-lg p-4 border border-slate-700 mb-6">
+                <div className="flex items-center justify-between mb-4">
+                    <h2 className="text-lg font-semibold text-white">Accounting</h2>
+                    {accounting?.lastAccountedAt && (
+                        <span className="text-xs text-slate-400">
+                            Last accounted {formatRelativeTime(accounting.lastAccountedAt)}
+                        </span>
+                    )}
+                </div>
+                {accountingError && (
+                    <div className="mb-4 rounded-md border border-amber-700 bg-amber-900/30 p-3 text-xs text-amber-200">
+                        {accountingError}
+                    </div>
+                )}
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-3 text-sm mb-4">
+                    <div className="bg-slate-900 rounded-md p-3 border border-slate-700">
+                        <p className="text-slate-400">Total LOC</p>
+                        <p className="text-white font-semibold text-base">{(accounting?.totalBillableLoc || 0).toLocaleString()}</p>
+                    </div>
+                    <div className="bg-slate-900 rounded-md p-3 border border-slate-700">
+                        <p className="text-slate-400">Input Tokens</p>
+                        <p className="text-white font-semibold text-base">{formatInt(accounting?.totalInputTokens)}</p>
+                    </div>
+                    <div className="bg-slate-900 rounded-md p-3 border border-slate-700">
+                        <p className="text-slate-400">Output Tokens</p>
+                        <p className="text-white font-semibold text-base">{formatInt(accounting?.totalOutputTokens)}</p>
+                    </div>
+                    <div className="bg-slate-900 rounded-md p-3 border border-slate-700">
+                        <p className="text-slate-400">Total Cost (USD)</p>
+                        <p className="text-white font-semibold text-base">{formatCurrency(accounting?.totalCostUsd)}</p>
+                    </div>
+                    <div className="bg-slate-900 rounded-md p-3 border border-slate-700">
+                        <p className="text-slate-400">Accounted Operations</p>
+                        <p className="text-white font-semibold text-base">{(accounting?.accountedOperations || 0).toLocaleString()}</p>
+                    </div>
+                    <div className="bg-slate-900 rounded-md p-3 border border-slate-700">
+                        <p className="text-slate-400">Token-tracked Operations</p>
+                        <p className="text-white font-semibold text-base">{(accounting?.tokenTrackedOperations || 0).toLocaleString()}</p>
+                    </div>
+                </div>
+                {accounting?.latestOperation && (
+                    <div className="bg-slate-900 rounded-md p-3 border border-slate-700 text-xs">
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-y-2 gap-x-4">
+                            <p className="text-slate-300"><span className="text-slate-500">Latest operation:</span> {accounting.latestOperation.operationType}</p>
+                            <p className="text-slate-300"><span className="text-slate-500">Trigger:</span> {accounting.latestOperation.triggerSource}</p>
+                            <p className="text-slate-300"><span className="text-slate-500">Provider/Model:</span> {(accounting.latestOperation.provider || 'unknown')} / {(accounting.latestOperation.model || 'unknown')}</p>
+                            <p className="text-slate-300"><span className="text-slate-500">Pricing version:</span> {accounting.latestOperation.pricingVersion || 'unknown'}</p>
+                            <p className="text-slate-300"><span className="text-slate-500">Operation ID:</span> {accounting.latestOperation.operationId}</p>
+                            <p className="text-slate-300"><span className="text-slate-500">Idempotency key:</span> {accounting.latestOperation.idempotencyKey}</p>
+                            {(aiExecutionMode || aiExecutionSource) && (
+                                <p className="text-slate-300"><span className="text-slate-500">AI execution:</span> {(aiExecutionMode || 'unknown')} via {(aiExecutionSource || 'unknown')}</p>
+                            )}
+                            {(aiExecutionProvider || aiExecutionConnector) && (
+                                <p className="text-slate-300"><span className="text-slate-500">AI route:</span> {(aiExecutionProvider || 'unknown')} / {(aiExecutionConnector || 'unknown')}</p>
+                            )}
+                        </div>
+                    </div>
+                )}
             </div>
 
             {/* Events Timeline - Full Width */}

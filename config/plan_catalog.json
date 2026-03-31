@@ -1,0 +1,117 @@
+{
+  "default_plan_code": "free_30k",
+  "plans": [
+    {
+      "code": "free_30k",
+      "display_name": "Free 30k",
+      "active": true,
+      "rank": 0,
+      "monthly_price_usd": 0,
+      "monthly_loc_limit": 30000,
+      "feature_flags": ["basic_review", "byok_required", "usage_envelope_v1"],
+      "trial_policy": {
+        "enabled": false,
+        "days": 0
+      },
+      "envelope_visibility": {
+        "show_price": true
+      }
+    },
+    {
+      "code": "team_32usd",
+      "display_name": "Team 32 USD",
+      "active": true,
+      "rank": 10,
+      "monthly_price_usd": 32,
+      "monthly_loc_limit": 100000,
+      "feature_flags": ["hosted_auto_model", "byok_optional", "usage_envelope_v1"],
+      "trial_policy": {
+        "enabled": false,
+        "days": 0
+      },
+      "envelope_visibility": {
+        "show_price": true
+      }
+    },
+    {
+      "code": "loc_200k",
+      "display_name": "LOC 200k",
+      "active": true,
+      "rank": 20,
+      "monthly_price_usd": 64,
+      "monthly_loc_limit": 200000,
+      "feature_flags": ["hosted_auto_model", "byok_optional", "usage_envelope_v1"],
+      "trial_policy": {
+        "enabled": false,
+        "days": 0
+      },
+      "envelope_visibility": {
+        "show_price": true
+      }
+    },
+    {
+      "code": "loc_400k",
+      "display_name": "LOC 400k",
+      "active": true,
+      "rank": 30,
+      "monthly_price_usd": 128,
+      "monthly_loc_limit": 400000,
+      "feature_flags": ["hosted_auto_model", "byok_optional", "usage_envelope_v1"],
+      "trial_policy": {
+        "enabled": false,
+        "days": 0
+      },
+      "envelope_visibility": {
+        "show_price": true
+      }
+    },
+    {
+      "code": "loc_800k",
+      "display_name": "LOC 800k",
+      "active": true,
+      "rank": 40,
+      "monthly_price_usd": 256,
+      "monthly_loc_limit": 800000,
+      "feature_flags": ["hosted_auto_model", "byok_optional", "usage_envelope_v1"],
+      "trial_policy": {
+        "enabled": false,
+        "days": 0
+      },
+      "envelope_visibility": {
+        "show_price": true
+      }
+    },
+    {
+      "code": "loc_1600k",
+      "display_name": "LOC 1.6M",
+      "active": true,
+      "rank": 50,
+      "monthly_price_usd": 512,
+      "monthly_loc_limit": 1600000,
+      "feature_flags": ["hosted_auto_model", "byok_optional", "usage_envelope_v1"],
+      "trial_policy": {
+        "enabled": false,
+        "days": 0
+      },
+      "envelope_visibility": {
+        "show_price": true
+      }
+    },
+    {
+      "code": "loc_3200k",
+      "display_name": "LOC 3.2M",
+      "active": true,
+      "rank": 60,
+      "monthly_price_usd": 1024,
+      "monthly_loc_limit": 3200000,
+      "feature_flags": ["hosted_auto_model", "byok_optional", "usage_envelope_v1"],
+      "trial_policy": {
+        "enabled": false,
+        "days": 0
+      },
+      "envelope_visibility": {
+        "show_price": true
+      }
+    }
+  ]
+}

@@ -35,6 +35,27 @@ func CheckRequiredConfig(isCloud bool) *ConfigCheckResult {
 	// Cloud mode requires additional secrets
 	if isCloud {
 		requiredVars = append(requiredVars, "CLOUD_JWT_SECRET")
+		requiredVars = append(requiredVars, "RAZORPAY_MODE", "RAZORPAY_WEBHOOK_SECRET")
+
+		mode := strings.ToLower(strings.TrimSpace(os.Getenv("RAZORPAY_MODE")))
+		switch mode {
+		case "test":
+			requiredVars = append(requiredVars,
+				"RAZORPAY_TEST_KEY",
+				"RAZORPAY_TEST_SECRET",
+				"RAZORPAY_TEST_MONTHLY_PLAN_ID",
+				"RAZORPAY_TEST_YEARLY_PLAN_ID",
+			)
+		case "live":
+			requiredVars = append(requiredVars,
+				"RAZORPAY_LIVE_KEY",
+				"RAZORPAY_LIVE_SECRET",
+				"RAZORPAY_LIVE_MONTHLY_PLAN_ID",
+				"RAZORPAY_LIVE_YEARLY_PLAN_ID",
+			)
+		default:
+			result.Warnings = append(result.Warnings, "RAZORPAY_MODE should be set to test or live")
+		}
 	}
 
 	for _, v := range requiredVars {

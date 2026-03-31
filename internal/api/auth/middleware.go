@@ -232,8 +232,11 @@ func (am *AuthMiddleware) EnforceSubscriptionLimits() echo.MiddlewareFunc {
 				}
 			}
 
+			normalizedPlanType := strings.ToLower(strings.TrimSpace(resolvedPlanType))
+			isFreeTier := normalizedPlanType == "free" || normalizedPlanType == "free_30k"
+
 			// STRICT ENFORCEMENT for Free/Hobby Plan
-			if resolvedPlanType == "free" && !isOrgCreator {
+			if isFreeTier && !isOrgCreator {
 				// Allow Super Admins to bypass this restriction
 				var isSuperAdmin bool
 				saErr := am.db.QueryRow(`
@@ -252,8 +255,8 @@ func (am *AuthMiddleware) EnforceSubscriptionLimits() echo.MiddlewareFunc {
 				}
 			}
 
-			// Check license expiration
-			if licenseExpiresAt.Valid && time.Now().After(licenseExpiresAt.Time) {
+			// Check license expiration only for non-free plans.
+			if !isFreeTier && licenseExpiresAt.Valid && time.Now().After(licenseExpiresAt.Time) {
 				return echo.NewHTTPError(http.StatusPaymentRequired, map[string]interface{}{
 					"error":            "license expired",
 					"expired_at":       licenseExpiresAt.Time,
@@ -263,7 +266,7 @@ func (am *AuthMiddleware) EnforceSubscriptionLimits() echo.MiddlewareFunc {
 
 			// Set plan info in context for downstream handlers
 			c.Set("plan_type", resolvedPlanType)
-			if resolvedPlanType == "free" {
+			if isFreeTier {
 				dailyLimit := 3
 				c.Set("daily_review_limit", &dailyLimit)
 			} else {

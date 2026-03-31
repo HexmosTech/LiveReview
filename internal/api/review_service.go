@@ -9,7 +9,9 @@ import (
 	"time"
 
 	"github.com/labstack/echo/v4"
+	apimiddleware "github.com/livereview/internal/api/middleware"
 	"github.com/livereview/internal/config"
+	"github.com/livereview/internal/license"
 	"github.com/livereview/internal/logging"
 	reviewpkg "github.com/livereview/internal/review"
 	"github.com/livereview/pkg/models"
@@ -25,6 +27,7 @@ type ReviewService struct {
 // reviewSetupContext holds the state for setting up a review
 type reviewSetupContext struct {
 	orgID         int64
+	planCode      license.PlanType
 	review        *Review
 	reviewID      string
 	logger        *logging.ReviewLogger
@@ -175,11 +178,35 @@ func (s *Server) TriggerReviewV2(c echo.Context) error {
 		ctx.logger.Log("=== Frontend request handling completed ===")
 	}
 	log.Printf("[DEBUG] TriggerReviewV2: Returning success response with reviewID: %s (DB ID: %d)", ctx.reviewID, ctx.review.ID)
-	return c.JSON(http.StatusOK, TriggerReviewResponse{
-		Message:  "Review triggered successfully using comprehensive logging architecture. Check review_logs/ for detailed progress.",
-		URL:      ctx.requestURL,
-		ReviewID: ctx.reviewID,
-	})
+	c.Set(EnvelopeOperationTypeContextKey, "manual_review")
+	c.Set(EnvelopeTriggerSourceContextKey, "manual")
+	operationID := fmt.Sprintf("manual-review:%d", ctx.review.ID)
+	c.Set(EnvelopeOperationIDContextKey, operationID)
+	c.Set(EnvelopeIdempotencyKeyContextKey, operationID)
+
+	aiExecutionMode := ""
+	aiExecutionSource := ""
+	if ctx.request != nil {
+		if mode, ok := ctx.request.AI.Config["ai_execution_mode"].(string); ok {
+			aiExecutionMode = strings.TrimSpace(mode)
+		}
+		if source, ok := ctx.request.AI.Config["ai_execution_source"].(string); ok {
+			aiExecutionSource = strings.TrimSpace(source)
+		}
+	}
+	response := map[string]interface{}{
+		"message":  "Review triggered successfully using comprehensive logging architecture. Check review_logs/ for detailed progress.",
+		"url":      ctx.requestURL,
+		"reviewId": ctx.reviewID,
+	}
+	if aiExecutionMode != "" {
+		response["ai_execution_mode"] = aiExecutionMode
+	}
+	if aiExecutionSource != "" {
+		response["ai_execution_source"] = aiExecutionSource
+	}
+
+	return JSONWithEnvelope(c, http.StatusOK, response)
 }
 
 func optionalString(value string) *string {
@@ -207,6 +234,10 @@ func (s *Server) setupReviewContext(c echo.Context) (*reviewSetupContext, error)
 		return nil, fmt.Errorf("organization context required - missing X-Org-Context header")
 	}
 	ctx.orgID = orgID
+	ctx.planCode = license.PlanFree30K
+	if planCtx, ok := c.Get(apimiddleware.PlanContextKey).(apimiddleware.PlanContext); ok && planCtx.PlanType != "" {
+		ctx.planCode = planCtx.PlanType
+	}
 	log.Printf("[DEBUG] ✓ Organization ID: %d", orgID)
 
 	// Parse request body
@@ -374,7 +405,7 @@ func (s *Server) createReviewRequest(ctx *reviewSetupContext) error {
 		ctx.logger.Log("Building review request...")
 	}
 	log.Printf("[DEBUG] TriggerReviewV2: Building review request")
-	reviewRequest, err := s.buildReviewRequest(ctx.token, ctx.requestURL, ctx.reviewID, ctx.accessToken, ctx.orgID)
+	reviewRequest, err := s.buildReviewRequest(ctx.token, ctx.requestURL, ctx.reviewID, ctx.accessToken, ctx.orgID, ctx.planCode)
 	if err != nil {
 		if ctx.logger != nil {
 			ctx.logger.LogError("Failed to build review request", err)
@@ -548,6 +579,41 @@ func (s *Server) launchBackgroundProcessing(ctx *reviewSetupContext) {
 		rm := NewReviewManager(s.db)
 		if result != nil && result.Success {
 			_ = rm.UpdateReviewStatus(ctx.review.ID, "completed")
+
+			operationID := fmt.Sprintf("manual-review:%d", ctx.review.ID)
+			idempotencyKey := operationID
+			if result.BillableLOC > 0 {
+				accountingService := license.NewLOCAccountingService(s.db)
+				if err := accountingService.AccountSuccess(context.Background(), license.LOCAccountSuccessInput{
+					OrgID:          ctx.orgID,
+					ReviewID:       ctx.review.ID,
+					OperationType:  "manual_review",
+					TriggerSource:  "manual",
+					OperationID:    operationID,
+					IdempotencyKey: idempotencyKey,
+					BillableLOC:    result.BillableLOC,
+					PlanCode:       ctx.planCode,
+					Provider:       result.Provider,
+					Model:          result.Model,
+					PricingVersion: result.PricingVersion,
+					InputTokens:    result.InputTokens,
+					OutputTokens:   result.OutputTokens,
+					CostUSD:        result.CostUSD,
+				}); err != nil {
+					log.Printf("[WARN] Manual review accounting failed for review %d: %v", ctx.review.ID, err)
+				} else {
+					meta := map[string]interface{}{
+						"operation_billable_loc": result.BillableLOC,
+						"operation_id":           operationID,
+						"idempotency_key":        idempotencyKey,
+						"accounted_at":           time.Now().UTC().Format(time.RFC3339),
+					}
+					for k, v := range aiExecutionMetadataFromConfig(ctx.request.AI.Config) {
+						meta[k] = v
+					}
+					_ = rm.MergeReviewMetadata(ctx.review.ID, meta)
+				}
+			}
 		} else {
 			_ = rm.UpdateReviewStatus(ctx.review.ID, "failed")
 		}
@@ -557,4 +623,24 @@ func (s *Server) launchBackgroundProcessing(ctx *reviewSetupContext) {
 			ctx.logger.Close()
 		}
 	}()
+}
+
+func aiExecutionMetadataFromConfig(config map[string]interface{}) map[string]interface{} {
+	meta := map[string]interface{}{}
+	if len(config) == 0 {
+		return meta
+	}
+	if mode, ok := config["ai_execution_mode"].(string); ok && strings.TrimSpace(mode) != "" {
+		meta["ai_execution_mode"] = strings.TrimSpace(mode)
+	}
+	if source, ok := config["ai_execution_source"].(string); ok && strings.TrimSpace(source) != "" {
+		meta["ai_execution_source"] = strings.TrimSpace(source)
+	}
+	if provider, ok := config["provider_name"].(string); ok && strings.TrimSpace(provider) != "" {
+		meta["ai_provider_name"] = strings.TrimSpace(provider)
+	}
+	if connectorName, ok := config["connector_name"].(string); ok && strings.TrimSpace(connectorName) != "" {
+		meta["ai_connector_name"] = strings.TrimSpace(connectorName)
+	}
+	return meta
 }

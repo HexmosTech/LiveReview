@@ -29,78 +29,34 @@ const ensureRazorpayStyles = () => {
   const style = document.createElement('style');
   style.id = 'razorpay-custom-style';
   style.textContent = `
-    /*
-      Razorpay Checkout (checkout.js) injects:
-      - div.razorpay-container
-      - div.razorpay-backdrop
-      - iframe.razorpay-checkout-frame
-
-      The UI inside the iframe is cross-origin and cannot be styled.
-      We can only safely style the host-page wrapper/backdrop and the iframe element itself.
-    */
-
-    /* Prevent any Razorpay DOM from flashing before a user-initiated open() */
-    body:not(.razorpay-active) .razorpay-container {
-      display: none !important;
-    }
-
     body.razorpay-active {
       overflow: hidden !important;
     }
 
-    /* Use Razorpay's own backdrop element (more reliable than ::before) */
+    /* Match LiveReview shell with a dark overlay while checkout is open. */
     body.razorpay-active .razorpay-backdrop {
-      background: rgba(0, 7, 16, 0.72) !important;
-      backdrop-filter: blur(2px);
+      background: rgba(2, 6, 23, 0.86) !important;
+      backdrop-filter: blur(1px);
     }
 
-    /* Layout the modal with equal padding on all sides */
+    /* Fallback dimmer in variants where backdrop node is absent. */
     body.razorpay-active .razorpay-container {
-      display: flex !important;
-      align-items: center !important;
-      justify-content: center !important;
-      padding: clamp(18px, 4vw, 36px) !important;
-      box-sizing: border-box !important;
-      background: transparent !important;
-    }
-
-    /* The white you're seeing is almost certainly INSIDE the iframe.
-       We can't recolor it, but we can reduce glare by dimming the iframe rendering. */
-    body.razorpay-active iframe.razorpay-checkout-frame {
-      width: clamp(360px, 92vw, 520px) !important;
-      /* Keep it dialog-like (not a full-height sheet) */
-      height: clamp(520px, 78vh, 600px) !important;
-      border: 0 !important;
-      border-radius: 14px !important;
-      overflow: hidden !important;
-      box-shadow: 0 24px 80px rgba(0, 0, 0, 0.45), 0 6px 24px rgba(0,0,0,0.25) !important;
-      filter: brightness(0.88) saturate(0.92) contrast(0.98);
-      background: #0b1220 !important;
-    }
-
-    /* Fallback selector (some versions omit the class) */
-    body.razorpay-active .razorpay-container iframe {
-      border-radius: 14px !important;
-      box-shadow: 0 24px 80px rgba(0, 0, 0, 0.45), 0 6px 24px rgba(0,0,0,0.25) !important;
-      filter: brightness(0.88) saturate(0.92) contrast(0.98);
-    }
-
-    @media (max-width: 640px) {
-      body.razorpay-active iframe.razorpay-checkout-frame {
-        width: calc(100vw - 2 * 16px) !important;
-        /* On small screens allow more height, but keep a margin */
-        height: calc(100vh - 2 * 16px) !important;
-      }
+      background: rgba(2, 6, 23, 0.86) !important;
     }
   `;
   document.head.appendChild(style);
 };
 
+const cleanupRazorpayOverlay = () => {
+  document.body.classList.remove('razorpay-active');
+};
+
 type CheckoutSuccess = {
   subscriptionId: string;
   paymentId?: string;
+  planCode: string;
   planLabel: string;
-  seats: number;
+  locLimit: number;
   total: number;
   billingNote: string;
 };
@@ -111,10 +67,35 @@ type PaymentFailure = {
   errorStep?: string;
   errorReason?: string;
   subscriptionId?: string;
+  planCode: string;
   planLabel: string;
-  seats: number;
+  locLimit: number;
   total: number;
 };
+
+type LOCSlab = {
+  code: string;
+  label: string;
+  locLimit: number;
+  monthlyPriceUSD: number;
+};
+
+type APIVersionResponse = {
+  subscriptionContractVersion?: string;
+};
+
+const RAZORPAY_THEME = {
+  color: '#131C2F',
+};
+
+const LOC_SLABS: LOCSlab[] = [
+  { code: 'team_32usd', label: '100k LOC', locLimit: 100000, monthlyPriceUSD: 32 },
+  { code: 'loc_200k', label: '200k LOC', locLimit: 200000, monthlyPriceUSD: 64 },
+  { code: 'loc_400k', label: '400k LOC', locLimit: 400000, monthlyPriceUSD: 128 },
+  { code: 'loc_800k', label: '800k LOC', locLimit: 800000, monthlyPriceUSD: 256 },
+  { code: 'loc_1600k', label: '1.6M LOC', locLimit: 1600000, monthlyPriceUSD: 512 },
+  { code: 'loc_3200k', label: '3.2M LOC', locLimit: 3200000, monthlyPriceUSD: 1024 },
+];
 
 const TeamCheckout: React.FC = () => {
   const navigate = useNavigate();
@@ -122,8 +103,8 @@ const TeamCheckout: React.FC = () => {
   const { currentOrgId, userOrganizations } = useOrgContext();
   const { organizations: authOrgs } = useAppSelector((state) => state.Auth);
   
-  const period = searchParams.get('period') || 'annual';
-  const [seats, setSeats] = useState<number>(5);
+  const period = searchParams.get('period') || 'monthly';
+  const [selectedPlanCode, setSelectedPlanCode] = useState<string>('team_32usd');
   const [isProcessing, setIsProcessing] = useState<boolean>(false);
   const [isConfirming, setIsConfirming] = useState<boolean>(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
@@ -131,12 +112,10 @@ const TeamCheckout: React.FC = () => {
   const [failureInfo, setFailureInfo] = useState<PaymentFailure | null>(null);
   const [currentSubscriptionData, setCurrentSubscriptionData] = useState<any>(null);
   const [razorpayReady, setRazorpayReady] = useState(false);
+  const [contractReady, setContractReady] = useState(false);
 
-  const isAnnual = period === 'annual';
-  const pricePerSeat = isAnnual ? 60 : 6;
-  const totalPrice = seats * pricePerSeat;
-  const savingsPerSeat = isAnnual ? 12 : 0;
-  const totalSavings = seats * savingsPerSeat;
+  const selectedPlan = LOC_SLABS.find((slab) => slab.code === selectedPlanCode) || LOC_SLABS[0];
+  const totalPrice = selectedPlan.monthlyPriceUSD;
 
   // Get org ID - try currentOrgId first, then fall back to first auth org
   const orgId = currentOrgId || (authOrgs && authOrgs.length > 0 ? authOrgs[0].id : null);
@@ -148,6 +127,40 @@ const TeamCheckout: React.FC = () => {
       navigate('/signin', { state: { returnTo: `/checkout/team?period=${period}` } });
     }
   }, [navigate, period]);
+
+  useEffect(() => {
+    let active = true;
+    const verifyContract = async () => {
+      try {
+        const response = await fetch('/api/version');
+        if (!response.ok) {
+          throw new Error('version endpoint unavailable');
+        }
+        const version: APIVersionResponse = await response.json();
+        const contractVersion = version?.subscriptionContractVersion || '';
+        if (contractVersion !== 'slab_plan_code_v1') {
+          if (active) {
+            setContractReady(false);
+            setErrorMessage('Backend version mismatch detected. Subscription API is not on slab plan_code contract yet. Please restart/update the API service.');
+          }
+          return;
+        }
+        if (active) {
+          setContractReady(true);
+        }
+      } catch (err) {
+        if (active) {
+          setContractReady(false);
+          setErrorMessage('Unable to verify API version. Please ensure the backend is running and reachable.');
+        }
+      }
+    };
+
+    verifyContract();
+    return () => {
+      active = false;
+    };
+  }, []);
 
   useEffect(() => {
     let mounted = true;
@@ -162,6 +175,7 @@ const TeamCheckout: React.FC = () => {
       });
     return () => {
       mounted = false;
+      cleanupRazorpayOverlay();
     };
   }, []);
 
@@ -176,19 +190,21 @@ const TeamCheckout: React.FC = () => {
       if (!token) {
         setFailureInfo({
           errorDescription: 'Please sign in to continue with your purchase.',
-          planLabel: `Team ${isAnnual ? 'Annual' : 'Monthly'} Plan`,
-          seats,
+          planCode: selectedPlan.code,
+          planLabel: selectedPlan.label,
+          locLimit: selectedPlan.locLimit,
           total: totalPrice,
         });
         setIsProcessing(false);
         return;
       }
 
-      if (!currentOrgId) {
+      if (!orgId) {
         setFailureInfo({
           errorDescription: 'No organization selected. Please switch to an organization and try again.',
-          planLabel: `Team ${isAnnual ? 'Annual' : 'Monthly'} Plan`,
-          seats,
+          planCode: selectedPlan.code,
+          planLabel: selectedPlan.label,
+          locLimit: selectedPlan.locLimit,
           total: totalPrice,
         });
         setIsProcessing(false);
@@ -199,8 +215,7 @@ const TeamCheckout: React.FC = () => {
       try {
         // Use apiClient which automatically adds X-Org-Context from Redux store
         data = await apiClient.post('/subscriptions', {
-          plan_type: isAnnual ? 'team_annual' : 'team_monthly',
-          quantity: seats,
+          plan_code: selectedPlan.code,
         });
       } catch (err: any) {
         // Fall back to direct fetch with explicit headers if org context error occurs
@@ -210,11 +225,10 @@ const TeamCheckout: React.FC = () => {
             headers: {
               'Content-Type': 'application/json',
               'Authorization': `Bearer ${token}`,
-              'X-Org-Context': currentOrgId.toString(),
+              'X-Org-Context': orgId.toString(),
             },
             body: JSON.stringify({
-              plan_type: isAnnual ? 'team_annual' : 'team_monthly',
-              quantity: seats,
+              plan_code: selectedPlan.code,
             }),
           });
 
@@ -243,45 +257,75 @@ const TeamCheckout: React.FC = () => {
       const options = {
         key: data.razorpay_key_id,
         subscription_id: data.razorpay_subscription_id,
-        name: 'LiveReview',
-        description: `Team ${isAnnual ? 'Annual' : 'Monthly'} - ${seats} ${seats === 1 ? 'seat' : 'seats'}`,
+        name: 'LiveReview LOC Plan',
+        description: `${selectedPlan.label} (${selectedPlan.locLimit.toLocaleString()} LOC/month)`,
         image: '/assets/logo-with-text.svg',
         handler: async (razorpayResponse: any) => {
           // Show loader while confirming purchase
           setIsConfirming(true);
+
+          const paymentID = razorpayResponse?.razorpay_payment_id;
+          const signature = razorpayResponse?.razorpay_signature;
+
+          if (!paymentID || !signature) {
+            cleanupRazorpayOverlay();
+            setFailureInfo({
+              errorDescription: 'Payment confirmation payload is incomplete. Please retry payment.',
+              planCode: selectedPlan.code,
+              planLabel: selectedPlan.label,
+              locLimit: selectedPlan.locLimit,
+              total: totalPrice,
+              subscriptionId: data.razorpay_subscription_id,
+            });
+            setIsProcessing(false);
+            setIsConfirming(false);
+            return;
+          }
           
           // Immediately confirm the purchase to prevent race conditions with webhooks
           try {
             await apiClient.post('/subscriptions/confirm-purchase', {
               razorpay_subscription_id: data.razorpay_subscription_id,
-              razorpay_payment_id: razorpayResponse?.razorpay_payment_id,
+              razorpay_payment_id: paymentID,
+              razorpay_signature: signature,
             });
-          } catch (confirmError) {
-            console.error('Failed to confirm purchase (non-blocking):', confirmError);
-            // Don't block the success flow - webhooks will eventually process the payment
+          } catch (confirmError: any) {
+            const confirmErrorMessage = confirmError?.message || 'Payment was completed but confirmation failed. Please retry.';
+            cleanupRazorpayOverlay();
+            setFailureInfo({
+              errorDescription: confirmErrorMessage,
+              planCode: selectedPlan.code,
+              planLabel: selectedPlan.label,
+              locLimit: selectedPlan.locLimit,
+              total: totalPrice,
+              subscriptionId: data.razorpay_subscription_id,
+            });
+            setIsProcessing(false);
+            setIsConfirming(false);
+            return;
           }
 
+          cleanupRazorpayOverlay();
           setIsProcessing(false);
           setIsConfirming(false);
           setSuccessInfo({
             subscriptionId: data.razorpay_subscription_id,
             paymentId: razorpayResponse?.razorpay_payment_id,
-            planLabel: `Team ${isAnnual ? 'Annual' : 'Monthly'} Plan`,
-            seats,
+            planCode: selectedPlan.code,
+            planLabel: selectedPlan.label,
+            locLimit: selectedPlan.locLimit,
             total: totalPrice,
-            billingNote: isAnnual ? 'Billed annually' : 'Billed monthly',
+            billingNote: 'Billed monthly',
           });
         },
         modal: {
           ondismiss: () => {
             setIsProcessing(false);
             setIsConfirming(false);
-            document.body.classList.remove('razorpay-active');
+            cleanupRazorpayOverlay();
           },
         },
-        theme: {
-          color: '#3B82F6',
-        },
+        theme: RAZORPAY_THEME,
       };
 
       const rzp = new window.Razorpay(options);
@@ -294,22 +338,25 @@ const TeamCheckout: React.FC = () => {
           errorStep: error.step,
           errorReason: error.reason,
           subscriptionId: data.razorpay_subscription_id,
-          planLabel: `Team ${isAnnual ? 'Annual' : 'Monthly'} Plan`,
-          seats,
+          planCode: selectedPlan.code,
+          planLabel: selectedPlan.label,
+          locLimit: selectedPlan.locLimit,
           total: totalPrice,
         });
         setIsProcessing(false);
         setIsConfirming(false);
-        document.body.classList.remove('razorpay-active');
+        cleanupRazorpayOverlay();
       });
       rzp.open();
     } catch (error) {
       // Show failure page for any errors during subscription creation
       const errorMessage = error instanceof Error ? error.message : 'An error occurred during checkout';
+      cleanupRazorpayOverlay();
       setFailureInfo({
         errorDescription: errorMessage,
-        planLabel: `Team ${isAnnual ? 'Annual' : 'Monthly'} Plan`,
-        seats,
+        planCode: selectedPlan.code,
+        planLabel: selectedPlan.label,
+        locLimit: selectedPlan.locLimit,
         total: totalPrice,
       });
       setIsProcessing(false);
@@ -331,44 +378,77 @@ const TeamCheckout: React.FC = () => {
     const options = {
       key: currentSubscriptionData.razorpay_key_id,
       subscription_id: currentSubscriptionData.razorpay_subscription_id,
-      name: 'LiveReview',
-      description: `Team ${isAnnual ? 'Annual' : 'Monthly'} - ${seats} ${seats === 1 ? 'seat' : 'seats'}`,
+      name: 'LiveReview LOC Plan',
+      description: `${selectedPlan.label} (${selectedPlan.locLimit.toLocaleString()} LOC/month)`,
       image: '/assets/logo-with-text.svg',
       handler: async (razorpayResponse: any) => {
         setIsConfirming(true);
+
+        const paymentID = razorpayResponse?.razorpay_payment_id;
+        const signature = razorpayResponse?.razorpay_signature;
+
+        if (!paymentID || !signature) {
+          cleanupRazorpayOverlay();
+          setFailureInfo({
+            errorDescription: 'Payment confirmation payload is incomplete. Please retry payment.',
+            planCode: selectedPlan.code,
+            planLabel: selectedPlan.label,
+            locLimit: selectedPlan.locLimit,
+            total: totalPrice,
+            subscriptionId: currentSubscriptionData.razorpay_subscription_id,
+          });
+          setIsProcessing(false);
+          setIsConfirming(false);
+          return;
+        }
         
         try {
           await apiClient.post('/subscriptions/confirm-purchase', {
             razorpay_subscription_id: currentSubscriptionData.razorpay_subscription_id,
-            razorpay_payment_id: razorpayResponse?.razorpay_payment_id,
+            razorpay_payment_id: paymentID,
+            razorpay_signature: signature,
           });
-        } catch (confirmError) {
-          console.error('Failed to confirm purchase (non-blocking):', confirmError);
+        } catch (confirmError: any) {
+          const confirmErrorMessage = confirmError?.message || 'Payment was completed but confirmation failed. Please retry.';
+          cleanupRazorpayOverlay();
+          setFailureInfo({
+            errorDescription: confirmErrorMessage,
+            planCode: selectedPlan.code,
+            planLabel: selectedPlan.label,
+            locLimit: selectedPlan.locLimit,
+            total: totalPrice,
+            subscriptionId: currentSubscriptionData.razorpay_subscription_id,
+          });
+          setIsProcessing(false);
+          setIsConfirming(false);
+          return;
         }
 
+        cleanupRazorpayOverlay();
         setIsProcessing(false);
         setIsConfirming(false);
         setSuccessInfo({
           subscriptionId: currentSubscriptionData.razorpay_subscription_id,
           paymentId: razorpayResponse?.razorpay_payment_id,
-          planLabel: `Team ${isAnnual ? 'Annual' : 'Monthly'} Plan`,
-          seats,
+          planCode: selectedPlan.code,
+          planLabel: selectedPlan.label,
+          locLimit: selectedPlan.locLimit,
           total: totalPrice,
-          billingNote: isAnnual ? 'Billed annually' : 'Billed monthly',
+          billingNote: 'Billed monthly',
         });
       },
       modal: {
         ondismiss: () => {
           setIsProcessing(false);
           setIsConfirming(false);
+          cleanupRazorpayOverlay();
         },
       },
-      theme: {
-        color: '#3B82F6',
-      },
+      theme: RAZORPAY_THEME,
     };
 
     const rzp = new window.Razorpay(options);
+    document.body.classList.add('razorpay-active');
     rzp.on('payment.failed', (response: any) => {
       const error = response.error || {};
       setFailureInfo({
@@ -377,12 +457,14 @@ const TeamCheckout: React.FC = () => {
         errorStep: error.step,
         errorReason: error.reason,
         subscriptionId: currentSubscriptionData.razorpay_subscription_id,
-        planLabel: `Team ${isAnnual ? 'Annual' : 'Monthly'} Plan`,
-        seats,
+        planCode: selectedPlan.code,
+        planLabel: selectedPlan.label,
+        locLimit: selectedPlan.locLimit,
         total: totalPrice,
       });
       setIsProcessing(false);
       setIsConfirming(false);
+      cleanupRazorpayOverlay();
     });
     rzp.open();
   };
@@ -414,7 +496,7 @@ const TeamCheckout: React.FC = () => {
             Your subscription has been created and payment has been initiated. <strong>It may take a few minutes for the payment to be captured and reflected in your account.</strong>
           </p>
 
-          {/* Important Notice - Seat Assignment */}
+          {/* Important Notice */}
           <div className="bg-amber-900/20 border-2 border-amber-500/60 rounded-lg p-5 mb-8">
             <div className="flex items-start gap-3">
               <div className="flex-shrink-0 mt-0.5">
@@ -423,17 +505,17 @@ const TeamCheckout: React.FC = () => {
                 </svg>
               </div>
               <div className="flex-1">
-                <h3 className="text-lg font-bold text-amber-300 mb-2">Important: Assign Seats to Activate</h3>
+                <h3 className="text-lg font-bold text-amber-300 mb-2">Important: Payment capture may take a few minutes</h3>
                 <p className="text-amber-100 text-sm leading-relaxed mb-3">
-                  Your subscription is created, but <strong>no seats are assigned yet</strong>. 
-                  Team members won't have access to premium features until you explicitly assign licenses to them.
+                  Your LOC slab subscription has been created and payment initiation succeeded.
+                  Billing state may take a short time to reflect while payment capture confirms.
                 </p>
                 <p className="text-amber-100 text-sm leading-relaxed mb-3">
                   <strong>Note:</strong> Payment capture can take a few minutes to process. If you see a "payment pending" message, 
                   don't worry—just check back in 5-10 minutes.
                 </p>
                 <p className="text-amber-100 text-sm leading-relaxed">
-                  Click <strong>"Assign Team Licenses"</strong> below to manage seat assignments.
+                  After confirmation, your organization's monthly LOC limit updates to the selected tier.
                 </p>
               </div>
             </div>
@@ -443,11 +525,11 @@ const TeamCheckout: React.FC = () => {
             <dl className="space-y-4">
               <div className="flex justify-between text-slate-300">
                 <dt>Plan</dt>
-                <dd className="text-white font-semibold">{successInfo.planLabel}</dd>
+                <dd className="text-white font-semibold">{successInfo.planCode}</dd>
               </div>
               <div className="flex justify-between text-slate-300">
-                <dt>Seats purchased</dt>
-                <dd className="text-white font-semibold">{successInfo.seats}</dd>
+                <dt>Monthly LOC</dt>
+                <dd className="text-white font-semibold">{successInfo.locLimit.toLocaleString()}</dd>
               </div>
               <div className="flex justify-between text-slate-300">
                 <dt>Total</dt>
@@ -473,10 +555,10 @@ const TeamCheckout: React.FC = () => {
           <div className="flex flex-col sm:flex-row gap-4 justify-center">
             <button
               type="button"
-              onClick={() => navigate(`/subscribe/subscriptions/${successInfo.subscriptionId}/assign`)}
+              onClick={() => navigate('/subscribe')}
               className="flex-1 sm:flex-none px-8 py-4 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-lg transition-colors shadow-lg text-lg"
             >
-              Assign Team Licenses →
+              Open Subscription Settings
             </button>
             <button
               type="button"
@@ -564,11 +646,11 @@ const TeamCheckout: React.FC = () => {
             <dl className="space-y-3">
               <div className="flex justify-between text-slate-300">
                 <dt>Plan</dt>
-                <dd className="text-white font-semibold">{failureInfo.planLabel}</dd>
+                <dd className="text-white font-semibold">{failureInfo.planCode}</dd>
               </div>
               <div className="flex justify-between text-slate-300">
-                <dt>Seats</dt>
-                <dd className="text-white font-semibold">{failureInfo.seats}</dd>
+                <dt>Monthly LOC</dt>
+                <dd className="text-white font-semibold">{failureInfo.locLimit.toLocaleString()}</dd>
               </div>
               <div className="flex justify-between text-slate-300">
                 <dt>Amount</dt>
@@ -641,62 +723,59 @@ const TeamCheckout: React.FC = () => {
             Complete Your Purchase
           </h1>
           <p className="text-slate-300">
-            Team {isAnnual ? 'Annual' : 'Monthly'} Plan
+            Monthly LOC Slab
           </p>
         </div>
 
         {/* Main Card */}
         <div className="bg-slate-800 rounded-lg border border-slate-700 p-8 shadow-xl">
+          {!contractReady && errorMessage && (
+            <div className="mb-6 rounded-lg border border-amber-500/50 bg-amber-900/20 p-4 text-sm text-amber-100">
+              <p className="font-semibold text-amber-200">Backend version warning</p>
+              <p className="mt-1">{errorMessage}</p>
+              <p className="mt-1">You can still continue and attempt payment.</p>
+            </div>
+          )}
+
           {/* Plan Summary */}
           <div className="mb-8 pb-8 border-b border-slate-700">
             <div className="flex items-baseline mb-2">
               <span className="text-4xl font-bold text-white">
-                ${isAnnual ? '60' : '6'}
+                ${selectedPlan.monthlyPriceUSD}
               </span>
               <span className="text-slate-400 ml-2">
-                /user/{isAnnual ? 'year' : 'month'}
+                /month
               </span>
             </div>
-            {isAnnual && (
-              <p className="text-emerald-400 text-sm font-semibold">
-                Save $12/user/year (17% off)
-              </p>
-            )}
+            <p className="text-emerald-400 text-sm font-semibold">
+              {selectedPlan.locLimit.toLocaleString()} LOC included monthly
+            </p>
           </div>
 
-          {/* Seat Selector */}
+          {/* Slab Selector */}
           <div className="mb-8">
             <label className="block text-lg font-semibold text-white mb-4">
-              How many team members?
+              Choose your LOC slab
             </label>
-            <div className="flex items-center gap-4">
-              <button
-                type="button"
-                onClick={() => setSeats(Math.max(1, seats - 1))}
-                disabled={seats <= 1}
-                className="w-12 h-12 flex items-center justify-center bg-slate-700 hover:bg-slate-600 text-white rounded-lg transition-colors text-xl font-bold disabled:opacity-30 disabled:cursor-not-allowed"
-              >
-                −
-              </button>
-              <div className="flex-1 max-w-xs">
-                <input
-                  type="number"
-                  min="1"
-                  value={seats}
-                  onChange={(e) => setSeats(Math.max(1, parseInt(e.target.value) || 1))}
-                  className="w-full px-4 py-3 bg-slate-700 text-white text-center text-2xl font-bold rounded-lg border border-slate-600 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                />
-                <p className="text-center text-slate-400 text-sm mt-2">
-                  {seats === 1 ? '1 seat' : `${seats} seats`}
-                </p>
-              </div>
-              <button
-                type="button"
-                onClick={() => setSeats(seats + 1)}
-                className="w-12 h-12 flex items-center justify-center bg-slate-700 hover:bg-slate-600 text-white rounded-lg transition-colors text-xl font-bold"
-              >
-                +
-              </button>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+              {LOC_SLABS.map((slab) => {
+                const isSelected = slab.code === selectedPlanCode;
+                return (
+                  <button
+                    key={slab.code}
+                    type="button"
+                    onClick={() => setSelectedPlanCode(slab.code)}
+                    className={`text-left rounded-lg border px-4 py-3 transition-colors ${
+                      isSelected
+                        ? 'border-blue-500 bg-blue-900/30'
+                        : 'border-slate-600 bg-slate-700/40 hover:border-slate-500'
+                    }`}
+                  >
+                    <p className="text-white font-semibold">{slab.label}</p>
+                    <p className="text-slate-300 text-sm">${slab.monthlyPriceUSD}/month</p>
+                  </button>
+                );
+              })}
             </div>
           </div>
 
@@ -705,21 +784,19 @@ const TeamCheckout: React.FC = () => {
             <h3 className="text-lg font-semibold text-white mb-4">Order Summary</h3>
             <div className="space-y-3">
               <div className="flex justify-between text-slate-300">
-                <span>{seats} × ${pricePerSeat} ({isAnnual ? 'annual' : 'monthly'})</span>
+                <span>{selectedPlan.label} monthly slab</span>
                 <span className="font-semibold">${totalPrice}</span>
               </div>
-              {isAnnual && totalSavings > 0 && (
-                <div className="flex justify-between text-emerald-400">
-                  <span>Annual savings</span>
-                  <span className="font-semibold">−${totalSavings}</span>
-                </div>
-              )}
+              <div className="flex justify-between text-slate-300">
+                <span>Included LOC / month</span>
+                <span className="font-semibold">{selectedPlan.locLimit.toLocaleString()}</span>
+              </div>
               <div className="pt-3 border-t border-slate-700 flex justify-between text-white text-xl font-bold">
                 <span>Total</span>
                 <span>${totalPrice}</span>
               </div>
               <p className="text-slate-400 text-sm">
-                Billed {isAnnual ? 'annually' : 'monthly'}
+                Billed monthly
               </p>
             </div>
           </div>
@@ -745,7 +822,7 @@ const TeamCheckout: React.FC = () => {
                   Processing...
                 </span>
               ) : (
-                `Purchase for $${totalPrice}`
+                `Purchase ${selectedPlan.label} for $${totalPrice}/month`
               )}
             </button>
           </div>
@@ -753,7 +830,7 @@ const TeamCheckout: React.FC = () => {
           {/* Additional Info */}
           <div className="mt-6 pt-6 border-t border-slate-700">
             <p className="text-slate-400 text-sm text-center">
-              You can assign licenses to team members after purchase
+              LOC quota updates after payment capture confirmation
             </p>
           </div>
         </div>
@@ -784,7 +861,7 @@ const TeamCheckout: React.FC = () => {
               <svg className="w-5 h-5 text-emerald-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
               </svg>
-              Prioritized support
+              Hosted auto model with optional BYOK
             </li>
           </ul>
         </div>

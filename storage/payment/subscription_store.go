@@ -267,6 +267,42 @@ type SubscriptionDetailsRow struct {
 	LastPaymentReceivedAt  sql.NullTime
 }
 
+type OrgSubscriptionRow struct {
+	RazorpaySubscriptionID string
+	Status                 string
+	PlanType               string
+	Quantity               int
+	CurrentPeriodEnd       time.Time
+}
+
+func (s *SubscriptionStore) ListSubscriptionsByOrgID(orgID int) ([]OrgSubscriptionRow, error) {
+	rows, err := s.db.Query(`
+		SELECT razorpay_subscription_id, status, plan_type, quantity, current_period_end
+		FROM subscriptions
+		WHERE org_id = $1
+		ORDER BY updated_at DESC, created_at DESC
+	`, orgID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to list subscriptions by org: %w", err)
+	}
+	defer rows.Close()
+
+	out := make([]OrgSubscriptionRow, 0)
+	for rows.Next() {
+		var row OrgSubscriptionRow
+		if err := rows.Scan(&row.RazorpaySubscriptionID, &row.Status, &row.PlanType, &row.Quantity, &row.CurrentPeriodEnd); err != nil {
+			return nil, fmt.Errorf("failed to scan org subscription row: %w", err)
+		}
+		out = append(out, row)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("failed to iterate org subscriptions: %w", err)
+	}
+
+	return out, nil
+}
+
 func (s *SubscriptionStore) GetSubscriptionDetailsRow(subscriptionID string) (*SubscriptionDetailsRow, error) {
 	var row SubscriptionDetailsRow
 	err := s.db.QueryRow(`

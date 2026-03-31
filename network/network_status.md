@@ -1,6 +1,6 @@
 # Network Status
 
-Latest milestone batch note (MF-051, MF-059, MF-073, MF-074, MF-076, MF-083): no new network boundary operations were introduced; changes in this batch were storage/file boundary migrations only.
+Latest milestone batch note (MF-051, MF-059, MF-073, MF-074, MF-076, MF-083, MF-LOC-001, MF-LOC-002, MF-LOC-003, MF-LOC-004, MF-LOC-005, MF-LOC-006, MF-LOC-007): no new network boundary operations were introduced; this batch added storage-backed plan transitions and API billing action wiring.
 
 | Operation | Status | Evidence |
 | --- | --- | --- |

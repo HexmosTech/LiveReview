@@ -68,7 +68,7 @@ func TestSubscriptionIntegration(t *testing.T) {
 
 	// Test 1: Create subscription
 	t.Run("CreateSubscription", func(t *testing.T) {
-		sub, err := service.CreateTeamSubscription(userID, orgID, "monthly", 5, "test")
+		sub, err := service.CreateTeamSubscription(userID, orgID, "loc_400k", "test")
 		if err != nil {
 			t.Fatalf("Failed to create subscription: %v", err)
 		}
@@ -93,14 +93,14 @@ func TestSubscriptionIntegration(t *testing.T) {
 			t.Fatalf("Subscription not found in DB: %v", err)
 		}
 
-		if dbQuantity != 5 {
-			t.Errorf("Expected quantity 5, got %d", dbQuantity)
+		if dbQuantity != 4 {
+			t.Errorf("Expected quantity 4, got %d", dbQuantity)
 		}
 		if assignedSeats != 0 {
 			t.Errorf("Expected assigned_seats 0, got %d", assignedSeats)
 		}
-		if dbPlanType != "team_monthly" {
-			t.Errorf("Expected plan_type 'team_monthly', got %s", dbPlanType)
+		if dbPlanType != "loc_400k" {
+			t.Errorf("Expected plan_type 'loc_400k', got %s", dbPlanType)
 		}
 
 		t.Logf("✓ DB persistence verified")
@@ -420,7 +420,7 @@ func TestWebhookProcessing(t *testing.T) {
 			license_expires_at, created_at, updated_at
 		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, NOW(), NOW())`,
 		subscriptionID, userID, orgID, "team_monthly",
-		5, 0, "created", TeamMonthlyPlanID,
+		5, 0, "created", GetPlanID("test", "monthly"),
 		time.Now().AddDate(0, 1, 0),
 	)
 	if err != nil {

@@ -25,9 +25,9 @@ import (
 	"fmt"
 	"io"
 	"log"
-	"net"
 	"net/http"
 	"net/url"
+	"os"
 	"strconv"
 	"strings"
 	"time"
@@ -2275,16 +2275,7 @@ func NewJobQueue(databaseURL string, db *sql.DB) (*JobQueue, error) {
 
 	// Create River client
 	workers := river.NewWorkers()
-	endpointURL, parseErr := url.Parse(strings.TrimSpace(config.WebhookConfig.PublicEndpoint))
-	if parseErr != nil {
-		return nil, fmt.Errorf("invalid webhook public endpoint: %w", parseErr)
-	}
-	hostname := strings.ToLower(endpointURL.Hostname())
-	isLocalEndpoint := hostname == "localhost" || hostname == "127.0.0.1" || hostname == "::1" || hostname == ""
-	if parsedIP := net.ParseIP(hostname); parsedIP != nil && parsedIP.IsLoopback() {
-		isLocalEndpoint = true
-	}
-	reverseProxy := !isLocalEndpoint
+	reverseProxy := strings.EqualFold(strings.TrimSpace(os.Getenv("LIVEREVIEW_REVERSE_PROXY")), "true")
 	store, err := storagejobqueue.NewWebhookStore(pool, reverseProxy, config.WebhookConfig.PublicEndpoint)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create webhook store: %w", err)

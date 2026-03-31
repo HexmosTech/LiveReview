@@ -1,15 +1,19 @@
 package payment
 
 import (
+	"crypto/hmac"
 	"crypto/rand"
+	"crypto/sha256"
 	"database/sql"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
+	"strings"
 	"time"
 
+	"github.com/livereview/internal/license"
 	networkpayment "github.com/livereview/network/payment"
 	storagepayment "github.com/livereview/storage/payment"
 	"golang.org/x/crypto/bcrypt"
@@ -41,25 +45,68 @@ func NewSubscriptionService(db *sql.DB) *SubscriptionService {
 	return &SubscriptionService{db: db}
 }
 
-// CreateTeamSubscription creates a new subscription via Razorpay and persists to DB
-func (s *SubscriptionService) CreateTeamSubscription(ownerUserID, orgID int, planType string, quantity int, mode string) (*RazorpaySubscription, error) {
-	// Validate plan type
-	if planType != "monthly" && planType != "yearly" {
-		return nil, fmt.Errorf("invalid plan type: %s (must be monthly or yearly)", planType)
+func planCodeToMonthlyQuantity(planCode license.PlanType) (int, error) {
+	switch planCode {
+	case license.PlanTeam32USD:
+		return 1, nil
+	case license.PlanLOC200K:
+		return 2, nil
+	case license.PlanLOC400K:
+		return 4, nil
+	case license.PlanLOC800K:
+		return 8, nil
+	case license.PlanLOC1600K:
+		return 16, nil
+	case license.PlanLOC3200K:
+		return 32, nil
+	default:
+		return 0, fmt.Errorf("unsupported paid plan code: %s", planCode)
+	}
+}
+
+func normalizePersistedPlanCode(raw string) license.PlanType {
+	normalized := license.PlanType(strings.TrimSpace(raw))
+	if normalized.IsValid() {
+		return normalized
 	}
 
-	// Get the corresponding Razorpay plan ID based on mode
-	razorpayPlanID := GetPlanID(mode, planType)
+	switch strings.ToLower(strings.TrimSpace(raw)) {
+	case "team", "team_monthly", "team_annual", "team_yearly", "monthly", "yearly":
+		return license.PlanTeam32USD
+	case "free":
+		return license.PlanFree30K
+	default:
+		return license.PlanTeam32USD
+	}
+}
+
+// CreateTeamSubscription creates a new monthly LOC slab subscription via Razorpay and persists to DB.
+func (s *SubscriptionService) CreateTeamSubscription(ownerUserID, orgID int, planCode string, mode string) (*RazorpaySubscription, error) {
+	persistedPlanCode := license.PlanType(strings.TrimSpace(planCode))
+	if !persistedPlanCode.IsValid() {
+		return nil, fmt.Errorf("invalid plan_code: %s", planCode)
+	}
+	if persistedPlanCode.GetLimits().MonthlyPriceUSD <= 0 {
+		return nil, fmt.Errorf("plan_code must be a paid LOC slab: %s", planCode)
+	}
+
+	quantity, err := planCodeToMonthlyQuantity(persistedPlanCode)
+	if err != nil {
+		return nil, err
+	}
+
+	// All LOC slab checkout in this migration is monthly-only.
+	razorpayPlanID := GetPlanID(mode, "monthly")
 
 	if razorpayPlanID == "" {
-		return nil, fmt.Errorf("razorpay plan ID not configured for %s in %s mode", planType, mode)
+		return nil, fmt.Errorf("razorpay monthly plan ID not configured in %s mode", mode)
 	}
 
 	// Create notes for the subscription
 	notes := map[string]string{
 		"owner_user_id": fmt.Sprintf("%d", ownerUserID),
 		"org_id":        fmt.Sprintf("%d", orgID),
-		"plan_type":     "team_" + planType, // Store as team_monthly or team_yearly
+		"plan_type":     persistedPlanCode.String(),
 	}
 
 	// Create subscription in Razorpay
@@ -68,9 +115,9 @@ func (s *SubscriptionService) CreateTeamSubscription(ownerUserID, orgID int, pla
 		return nil, fmt.Errorf("failed to create razorpay subscription: %w", err)
 	}
 
-	// Calculate license expiration (30 days for monthly, 365 days for yearly)
+	// Calculate license expiration for monthly cycle.
 	var licenseExpiresAt time.Time
-	dbPlanType := "team_" + planType // Store as team_monthly or team_yearly in DB
+	dbPlanType := persistedPlanCode.String()
 
 	// Calculate current period start and end
 	// For new subscriptions, Razorpay returns 0 for current_start/current_end
@@ -85,19 +132,9 @@ func (s *SubscriptionService) CreateTeamSubscription(ownerUserID, orgID int, pla
 	if sub.CurrentEnd > 0 {
 		currentPeriodEnd = time.Unix(sub.CurrentEnd, 0)
 	} else {
-		// Calculate based on plan type
-		if planType == "monthly" {
-			currentPeriodEnd = currentPeriodStart.AddDate(0, 1, 0) // 1 month
-		} else {
-			currentPeriodEnd = currentPeriodStart.AddDate(1, 0, 0) // 1 year
-		}
+		currentPeriodEnd = currentPeriodStart.AddDate(0, 1, 0) // 1 month
 	}
-
-	if planType == "monthly" {
-		licenseExpiresAt = currentPeriodEnd
-	} else {
-		licenseExpiresAt = currentPeriodEnd
-	}
+	licenseExpiresAt = currentPeriodEnd
 
 	store := storagepayment.NewSubscriptionStore(s.db)
 	err = store.CreateTeamSubscriptionRecord(storagepayment.CreateTeamSubscriptionRecordInput{
@@ -245,7 +282,31 @@ func (s *SubscriptionService) AssignLicense(subscriptionID string, userID, orgID
 	})
 }
 
+func verifyCheckoutSignature(req *PurchaseConfirmationRequest, mode string) error {
+	_, secretKey, err := GetRazorpayKeys(mode)
+	if err != nil {
+		return fmt.Errorf("failed to load Razorpay keys for signature verification: %w", err)
+	}
+
+	payload := req.RazorpayPaymentID + "|" + req.RazorpaySubscriptionID
+	mac := hmac.New(sha256.New, []byte(secretKey))
+	_, _ = mac.Write([]byte(payload))
+	expectedSignature := hex.EncodeToString(mac.Sum(nil))
+
+	provided := strings.ToLower(strings.TrimSpace(req.RazorpaySignature))
+	if provided == "" {
+		return fmt.Errorf("invalid razorpay signature")
+	}
+
+	if !hmac.Equal([]byte(expectedSignature), []byte(provided)) {
+		return fmt.Errorf("invalid razorpay signature")
+	}
+
+	return nil
+}
+
 // RevokeLicense removes a license from a user
+
 func (s *SubscriptionService) RevokeLicense(subscriptionID string, userID, orgID int) error {
 	store := storagepayment.NewSubscriptionStore(s.db)
 	return store.RevokeLicense(storagepayment.RevokeLicenseInput{
@@ -260,6 +321,10 @@ func (s *SubscriptionService) RevokeLicense(subscriptionID string, userID, orgID
 // This prevents race conditions where Razorpay webhooks arrive before the subscription
 // is recorded in our database
 func (s *SubscriptionService) ConfirmPurchase(req *PurchaseConfirmationRequest, mode string) error {
+	if err := verifyCheckoutSignature(req, mode); err != nil {
+		return err
+	}
+
 	// Fetch payment details from Razorpay to check if it's captured
 	payment, err := GetPaymentByID(mode, req.RazorpayPaymentID)
 	if err != nil {
@@ -275,15 +340,17 @@ func (s *SubscriptionService) ConfirmPurchase(req *PurchaseConfirmationRequest, 
 	// Get the subscription's internal ID and owner info
 	var dbSubscriptionID int64
 	var ownerUserID, orgID int
+	var persistedPlanType string
 	err = tx.QueryRow(`
-		SELECT id, owner_user_id, org_id
+		SELECT id, owner_user_id, org_id, plan_type
 		FROM subscriptions
 		WHERE razorpay_subscription_id = $1`,
 		req.RazorpaySubscriptionID,
-	).Scan(&dbSubscriptionID, &ownerUserID, &orgID)
+	).Scan(&dbSubscriptionID, &ownerUserID, &orgID, &persistedPlanType)
 	if err != nil {
 		return fmt.Errorf("subscription not found: %w", err)
 	}
+	resolvedPlanCode := normalizePersistedPlanCode(persistedPlanType)
 
 	// Update subscription with payment info
 	// Set payment_verified=TRUE if payment is captured
@@ -300,6 +367,35 @@ func (s *SubscriptionService) ConfirmPurchase(req *PurchaseConfirmationRequest, 
 	)
 	if err != nil {
 		return fmt.Errorf("failed to update subscription with payment info: %w", err)
+	}
+
+	if paymentVerified {
+		now := time.Now().UTC()
+		periodStart := time.Date(now.Year(), now.Month(), 1, 0, 0, 0, 0, time.UTC)
+		periodEnd := periodStart.AddDate(0, 1, 0)
+		_, err = tx.Exec(`
+			INSERT INTO org_billing_state (
+				org_id,
+				current_plan_code,
+				billing_period_start,
+				billing_period_end,
+				loc_used_month,
+				loc_blocked,
+				trial_readonly,
+				last_reset_at,
+				updated_at
+			) VALUES ($1, $2, $3, $4, 0, FALSE, FALSE, NOW(), NOW())
+			ON CONFLICT (org_id) DO UPDATE SET
+				current_plan_code = EXCLUDED.current_plan_code,
+				scheduled_plan_code = NULL,
+				scheduled_plan_effective_at = NULL,
+				trial_readonly = FALSE,
+				loc_blocked = FALSE,
+				updated_at = NOW()
+		`, orgID, resolvedPlanCode.String(), periodStart, periodEnd)
+		if err != nil {
+			return fmt.Errorf("failed to update org billing state for confirmed purchase: %w", err)
+		}
 	}
 
 	// Record in subscription_payments table for audit trail

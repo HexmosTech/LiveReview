@@ -1,7 +1,7 @@
-\restrict V121eZTgk6PeOGM8thspG8QWIdmbTQnbruY9gaNaPAsW9LNYIAJaTzSDeLF7ka8
+\restrict dbmate
 
--- Dumped from database version 15.14 (Debian 15.14-1.pgdg13+1)
--- Dumped by pg_dump version 15.14 (Ubuntu 15.14-1.pgdg22.04+1)
+-- Dumped from database version 15.17 (Debian 15.17-1.pgdg13+1)
+-- Dumped by pg_dump version 16.13 (Ubuntu 16.13-0ubuntu0.24.04.1)
 
 SET statement_timeout = 0;
 SET lock_timeout = 0;
@@ -35,22 +35,6 @@ CREATE TYPE public.learning_status AS ENUM (
 
 
 --
--- Name: river_job_state; Type: TYPE; Schema: public; Owner: -
---
-
-CREATE TYPE public.river_job_state AS ENUM (
-    'available',
-    'cancelled',
-    'completed',
-    'discarded',
-    'pending',
-    'retryable',
-    'running',
-    'scheduled'
-);
-
-
---
 -- Name: license_seat_assignments_set_updated_at(); Type: FUNCTION; Schema: public; Owner: -
 --
 
@@ -79,23 +63,30 @@ $$;
 
 
 --
--- Name: river_job_state_in_bitmask(bit, public.river_job_state); Type: FUNCTION; Schema: public; Owner: -
+-- Name: org_billing_state_set_updated_at(); Type: FUNCTION; Schema: public; Owner: -
 --
 
-CREATE FUNCTION public.river_job_state_in_bitmask(bitmask bit, state public.river_job_state) RETURNS boolean
-    LANGUAGE sql IMMUTABLE
+CREATE FUNCTION public.org_billing_state_set_updated_at() RETURNS trigger
+    LANGUAGE plpgsql
     AS $$
-    SELECT CASE state
-        WHEN 'available' THEN get_bit(bitmask, 7)
-        WHEN 'cancelled' THEN get_bit(bitmask, 6)
-        WHEN 'completed' THEN get_bit(bitmask, 5)
-        WHEN 'discarded' THEN get_bit(bitmask, 4)
-        WHEN 'pending'   THEN get_bit(bitmask, 3)
-        WHEN 'retryable' THEN get_bit(bitmask, 2)
-        WHEN 'running'   THEN get_bit(bitmask, 1)
-        WHEN 'scheduled' THEN get_bit(bitmask, 0)
-        ELSE 0
-    END = 1;
+BEGIN
+    NEW.updated_at = NOW();
+    RETURN NEW;
+END;
+$$;
+
+
+--
+-- Name: plan_catalog_set_updated_at(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.plan_catalog_set_updated_at() RETURNS trigger
+    LANGUAGE plpgsql
+    AS $$
+BEGIN
+    NEW.updated_at = NOW();
+    RETURN NEW;
+END;
 $$;
 
 
@@ -553,6 +544,145 @@ CREATE TABLE public.license_state (
 
 
 --
+-- Name: loc_lifecycle_log; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.loc_lifecycle_log (
+    id bigint NOT NULL,
+    org_id bigint NOT NULL,
+    event_type character varying(80) NOT NULL,
+    threshold_percent integer,
+    usage_ledger_id bigint,
+    plan_code character varying(64),
+    event_key character varying(255) NOT NULL,
+    payload jsonb DEFAULT '{}'::jsonb NOT NULL,
+    notified_email boolean DEFAULT false NOT NULL,
+    notified_at timestamp with time zone,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT chk_loc_lifecycle_threshold_range CHECK (((threshold_percent IS NULL) OR ((threshold_percent >= 0) AND (threshold_percent <= 100))))
+);
+
+
+--
+-- Name: loc_lifecycle_log_id_seq; Type: SEQUENCE; Schema: public; Owner: -
+--
+
+CREATE SEQUENCE public.loc_lifecycle_log_id_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+
+--
+-- Name: loc_lifecycle_log_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: -
+--
+
+ALTER SEQUENCE public.loc_lifecycle_log_id_seq OWNED BY public.loc_lifecycle_log.id;
+
+
+--
+-- Name: loc_usage_ledger; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.loc_usage_ledger (
+    id bigint NOT NULL,
+    org_id bigint NOT NULL,
+    review_id bigint,
+    user_id bigint,
+    operation_type character varying(64) NOT NULL,
+    trigger_source character varying(64) NOT NULL,
+    operation_id character varying(128) NOT NULL,
+    idempotency_key character varying(255) NOT NULL,
+    billable_loc bigint NOT NULL,
+    accounted_at timestamp with time zone DEFAULT now() NOT NULL,
+    billing_period_start timestamp with time zone NOT NULL,
+    billing_period_end timestamp with time zone NOT NULL,
+    status character varying(32) DEFAULT 'accounted'::character varying NOT NULL,
+    metadata jsonb DEFAULT '{}'::jsonb NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    provider character varying(64),
+    model character varying(128),
+    pricing_version character varying(64),
+    input_tokens bigint,
+    output_tokens bigint,
+    llm_cost_usd double precision,
+    CONSTRAINT chk_loc_usage_ledger_billable_positive CHECK ((billable_loc > 0)),
+    CONSTRAINT chk_loc_usage_ledger_cost_non_negative CHECK (((llm_cost_usd IS NULL) OR (llm_cost_usd >= (0)::double precision))),
+    CONSTRAINT chk_loc_usage_ledger_input_tokens_non_negative CHECK (((input_tokens IS NULL) OR (input_tokens >= 0))),
+    CONSTRAINT chk_loc_usage_ledger_output_tokens_non_negative CHECK (((output_tokens IS NULL) OR (output_tokens >= 0))),
+    CONSTRAINT chk_loc_usage_ledger_period_valid CHECK ((billing_period_end > billing_period_start)),
+    CONSTRAINT chk_loc_usage_ledger_status_valid CHECK (((status)::text = ANY ((ARRAY['accounted'::character varying, 'ignored'::character varying])::text[])))
+);
+
+
+--
+-- Name: loc_usage_ledger_id_seq; Type: SEQUENCE; Schema: public; Owner: -
+--
+
+CREATE SEQUENCE public.loc_usage_ledger_id_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+
+--
+-- Name: loc_usage_ledger_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: -
+--
+
+ALTER SEQUENCE public.loc_usage_ledger_id_seq OWNED BY public.loc_usage_ledger.id;
+
+
+--
+-- Name: org_billing_state; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.org_billing_state (
+    id bigint NOT NULL,
+    org_id bigint NOT NULL,
+    current_plan_code character varying(64) NOT NULL,
+    billing_period_start timestamp with time zone NOT NULL,
+    billing_period_end timestamp with time zone NOT NULL,
+    loc_used_month bigint DEFAULT 0 NOT NULL,
+    loc_blocked boolean DEFAULT false NOT NULL,
+    trial_started_at timestamp with time zone,
+    trial_ends_at timestamp with time zone,
+    trial_readonly boolean DEFAULT false NOT NULL,
+    scheduled_plan_code character varying(64),
+    scheduled_plan_effective_at timestamp with time zone,
+    last_reset_at timestamp with time zone DEFAULT now() NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT chk_org_billing_loc_used_non_negative CHECK ((loc_used_month >= 0)),
+    CONSTRAINT chk_org_billing_period_valid CHECK ((billing_period_end > billing_period_start)),
+    CONSTRAINT chk_org_billing_schedule_pair CHECK ((((scheduled_plan_code IS NULL) AND (scheduled_plan_effective_at IS NULL)) OR ((scheduled_plan_code IS NOT NULL) AND (scheduled_plan_effective_at IS NOT NULL)))),
+    CONSTRAINT chk_org_billing_trial_window_valid CHECK (((trial_ends_at IS NULL) OR (trial_started_at IS NULL) OR (trial_ends_at > trial_started_at)))
+);
+
+
+--
+-- Name: org_billing_state_id_seq; Type: SEQUENCE; Schema: public; Owner: -
+--
+
+CREATE SEQUENCE public.org_billing_state_id_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+
+--
+-- Name: org_billing_state_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: -
+--
+
+ALTER SEQUENCE public.org_billing_state_id_seq OWNED BY public.org_billing_state.id;
+
+
+--
 -- Name: orgs; Type: TABLE; Schema: public; Owner: -
 --
 
@@ -587,6 +717,51 @@ CREATE SEQUENCE public.orgs_id_seq
 --
 
 ALTER SEQUENCE public.orgs_id_seq OWNED BY public.orgs.id;
+
+
+--
+-- Name: plan_catalog; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.plan_catalog (
+    id bigint NOT NULL,
+    plan_code character varying(64) NOT NULL,
+    display_name character varying(120) NOT NULL,
+    active boolean DEFAULT true NOT NULL,
+    rank integer NOT NULL,
+    monthly_price_usd integer NOT NULL,
+    monthly_loc_limit bigint NOT NULL,
+    feature_flags jsonb DEFAULT '[]'::jsonb NOT NULL,
+    trial_enabled boolean DEFAULT false NOT NULL,
+    trial_days integer DEFAULT 0 NOT NULL,
+    envelope_show_price boolean DEFAULT true NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT chk_plan_catalog_loc_non_negative CHECK ((monthly_loc_limit >= 0)),
+    CONSTRAINT chk_plan_catalog_price_non_negative CHECK ((monthly_price_usd >= 0)),
+    CONSTRAINT chk_plan_catalog_rank_non_negative CHECK ((rank >= 0)),
+    CONSTRAINT chk_plan_catalog_trial_config CHECK ((((trial_enabled = true) AND (trial_days > 0)) OR (trial_enabled = false))),
+    CONSTRAINT chk_plan_catalog_trial_days_non_negative CHECK ((trial_days >= 0))
+);
+
+
+--
+-- Name: plan_catalog_id_seq; Type: SEQUENCE; Schema: public; Owner: -
+--
+
+CREATE SEQUENCE public.plan_catalog_id_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+
+--
+-- Name: plan_catalog_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: -
+--
+
+ALTER SEQUENCE public.plan_catalog_id_seq OWNED BY public.plan_catalog.id;
 
 
 --
@@ -781,129 +956,6 @@ CREATE SEQUENCE public.reviews_id_seq
 --
 
 ALTER SEQUENCE public.reviews_id_seq OWNED BY public.reviews.id;
-
-
---
--- Name: river_client; Type: TABLE; Schema: public; Owner: -
---
-
-CREATE UNLOGGED TABLE public.river_client (
-    id text NOT NULL,
-    created_at timestamp with time zone DEFAULT now() NOT NULL,
-    metadata jsonb DEFAULT '{}'::jsonb NOT NULL,
-    paused_at timestamp with time zone,
-    updated_at timestamp with time zone NOT NULL,
-    CONSTRAINT name_length CHECK (((char_length(id) > 0) AND (char_length(id) < 128)))
-);
-
-
---
--- Name: river_client_queue; Type: TABLE; Schema: public; Owner: -
---
-
-CREATE UNLOGGED TABLE public.river_client_queue (
-    river_client_id text NOT NULL,
-    name text NOT NULL,
-    created_at timestamp with time zone DEFAULT now() NOT NULL,
-    max_workers bigint DEFAULT 0 NOT NULL,
-    metadata jsonb DEFAULT '{}'::jsonb NOT NULL,
-    num_jobs_completed bigint DEFAULT 0 NOT NULL,
-    num_jobs_running bigint DEFAULT 0 NOT NULL,
-    updated_at timestamp with time zone NOT NULL,
-    CONSTRAINT name_length CHECK (((char_length(name) > 0) AND (char_length(name) < 128))),
-    CONSTRAINT num_jobs_completed_zero_or_positive CHECK ((num_jobs_completed >= 0)),
-    CONSTRAINT num_jobs_running_zero_or_positive CHECK ((num_jobs_running >= 0))
-);
-
-
---
--- Name: river_job; Type: TABLE; Schema: public; Owner: -
---
-
-CREATE TABLE public.river_job (
-    id bigint NOT NULL,
-    state public.river_job_state DEFAULT 'available'::public.river_job_state NOT NULL,
-    attempt smallint DEFAULT 0 NOT NULL,
-    max_attempts smallint NOT NULL,
-    attempted_at timestamp with time zone,
-    created_at timestamp with time zone DEFAULT now() NOT NULL,
-    finalized_at timestamp with time zone,
-    scheduled_at timestamp with time zone DEFAULT now() NOT NULL,
-    priority smallint DEFAULT 1 NOT NULL,
-    args jsonb NOT NULL,
-    attempted_by text[],
-    errors jsonb[],
-    kind text NOT NULL,
-    metadata jsonb DEFAULT '{}'::jsonb NOT NULL,
-    queue text DEFAULT 'default'::text NOT NULL,
-    tags character varying(255)[] DEFAULT '{}'::character varying[] NOT NULL,
-    unique_key bytea,
-    unique_states bit(8),
-    CONSTRAINT finalized_or_finalized_at_null CHECK ((((finalized_at IS NULL) AND (state <> ALL (ARRAY['cancelled'::public.river_job_state, 'completed'::public.river_job_state, 'discarded'::public.river_job_state]))) OR ((finalized_at IS NOT NULL) AND (state = ANY (ARRAY['cancelled'::public.river_job_state, 'completed'::public.river_job_state, 'discarded'::public.river_job_state]))))),
-    CONSTRAINT kind_length CHECK (((char_length(kind) > 0) AND (char_length(kind) < 128))),
-    CONSTRAINT max_attempts_is_positive CHECK ((max_attempts > 0)),
-    CONSTRAINT priority_in_range CHECK (((priority >= 1) AND (priority <= 4))),
-    CONSTRAINT queue_length CHECK (((char_length(queue) > 0) AND (char_length(queue) < 128)))
-);
-
-
---
--- Name: river_job_id_seq; Type: SEQUENCE; Schema: public; Owner: -
---
-
-CREATE SEQUENCE public.river_job_id_seq
-    START WITH 1
-    INCREMENT BY 1
-    NO MINVALUE
-    NO MAXVALUE
-    CACHE 1;
-
-
---
--- Name: river_job_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: -
---
-
-ALTER SEQUENCE public.river_job_id_seq OWNED BY public.river_job.id;
-
-
---
--- Name: river_leader; Type: TABLE; Schema: public; Owner: -
---
-
-CREATE UNLOGGED TABLE public.river_leader (
-    elected_at timestamp with time zone NOT NULL,
-    expires_at timestamp with time zone NOT NULL,
-    leader_id text NOT NULL,
-    name text DEFAULT 'default'::text NOT NULL,
-    CONSTRAINT leader_id_length CHECK (((char_length(leader_id) > 0) AND (char_length(leader_id) < 128))),
-    CONSTRAINT name_length CHECK ((name = 'default'::text))
-);
-
-
---
--- Name: river_migration; Type: TABLE; Schema: public; Owner: -
---
-
-CREATE TABLE public.river_migration (
-    line text NOT NULL,
-    version bigint NOT NULL,
-    created_at timestamp with time zone DEFAULT now() NOT NULL,
-    CONSTRAINT line_length CHECK (((char_length(line) > 0) AND (char_length(line) < 128))),
-    CONSTRAINT version_gte_1 CHECK ((version >= 1))
-);
-
-
---
--- Name: river_queue; Type: TABLE; Schema: public; Owner: -
---
-
-CREATE TABLE public.river_queue (
-    name text NOT NULL,
-    created_at timestamp with time zone DEFAULT now() NOT NULL,
-    metadata jsonb DEFAULT '{}'::jsonb NOT NULL,
-    paused_at timestamp with time zone,
-    updated_at timestamp with time zone NOT NULL
-);
 
 
 --
@@ -1195,27 +1247,6 @@ CREATE TABLE public.user_roles (
 
 
 --
--- Name: COLUMN user_roles.plan_type; Type: COMMENT; Schema: public; Owner: -
---
-
-COMMENT ON COLUMN public.user_roles.plan_type IS 'User plan in this org: free, team, enterprise';
-
-
---
--- Name: COLUMN user_roles.license_expires_at; Type: COMMENT; Schema: public; Owner: -
---
-
-COMMENT ON COLUMN public.user_roles.license_expires_at IS 'When the license expires for this user in this org';
-
-
---
--- Name: COLUMN user_roles.active_subscription_id; Type: COMMENT; Schema: public; Owner: -
---
-
-COMMENT ON COLUMN public.user_roles.active_subscription_id IS 'Reference to subscriptions table (future)';
-
-
---
 -- Name: users; Type: TABLE; Schema: public; Owner: -
 --
 
@@ -1358,10 +1389,38 @@ ALTER TABLE ONLY public.license_seat_assignments ALTER COLUMN id SET DEFAULT nex
 
 
 --
+-- Name: loc_lifecycle_log id; Type: DEFAULT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.loc_lifecycle_log ALTER COLUMN id SET DEFAULT nextval('public.loc_lifecycle_log_id_seq'::regclass);
+
+
+--
+-- Name: loc_usage_ledger id; Type: DEFAULT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.loc_usage_ledger ALTER COLUMN id SET DEFAULT nextval('public.loc_usage_ledger_id_seq'::regclass);
+
+
+--
+-- Name: org_billing_state id; Type: DEFAULT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.org_billing_state ALTER COLUMN id SET DEFAULT nextval('public.org_billing_state_id_seq'::regclass);
+
+
+--
 -- Name: orgs id; Type: DEFAULT; Schema: public; Owner: -
 --
 
 ALTER TABLE ONLY public.orgs ALTER COLUMN id SET DEFAULT nextval('public.orgs_id_seq'::regclass);
+
+
+--
+-- Name: plan_catalog id; Type: DEFAULT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.plan_catalog ALTER COLUMN id SET DEFAULT nextval('public.plan_catalog_id_seq'::regclass);
 
 
 --
@@ -1397,13 +1456,6 @@ ALTER TABLE ONLY public.review_events ALTER COLUMN id SET DEFAULT nextval('publi
 --
 
 ALTER TABLE ONLY public.reviews ALTER COLUMN id SET DEFAULT nextval('public.reviews_id_seq'::regclass);
-
-
---
--- Name: river_job id; Type: DEFAULT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.river_job ALTER COLUMN id SET DEFAULT nextval('public.river_job_id_seq'::regclass);
 
 
 --
@@ -1576,11 +1628,59 @@ ALTER TABLE ONLY public.license_state
 
 
 --
+-- Name: loc_lifecycle_log loc_lifecycle_log_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.loc_lifecycle_log
+    ADD CONSTRAINT loc_lifecycle_log_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: loc_usage_ledger loc_usage_ledger_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.loc_usage_ledger
+    ADD CONSTRAINT loc_usage_ledger_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: org_billing_state org_billing_state_org_id_key; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.org_billing_state
+    ADD CONSTRAINT org_billing_state_org_id_key UNIQUE (org_id);
+
+
+--
+-- Name: org_billing_state org_billing_state_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.org_billing_state
+    ADD CONSTRAINT org_billing_state_pkey PRIMARY KEY (id);
+
+
+--
 -- Name: orgs orgs_pkey; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
 ALTER TABLE ONLY public.orgs
     ADD CONSTRAINT orgs_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: plan_catalog plan_catalog_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.plan_catalog
+    ADD CONSTRAINT plan_catalog_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: plan_catalog plan_catalog_plan_code_key; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.plan_catalog
+    ADD CONSTRAINT plan_catalog_plan_code_key UNIQUE (plan_code);
 
 
 --
@@ -1629,54 +1729,6 @@ ALTER TABLE ONLY public.review_events
 
 ALTER TABLE ONLY public.reviews
     ADD CONSTRAINT reviews_pkey PRIMARY KEY (id);
-
-
---
--- Name: river_client river_client_pkey; Type: CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.river_client
-    ADD CONSTRAINT river_client_pkey PRIMARY KEY (id);
-
-
---
--- Name: river_client_queue river_client_queue_pkey; Type: CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.river_client_queue
-    ADD CONSTRAINT river_client_queue_pkey PRIMARY KEY (river_client_id, name);
-
-
---
--- Name: river_job river_job_pkey; Type: CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.river_job
-    ADD CONSTRAINT river_job_pkey PRIMARY KEY (id);
-
-
---
--- Name: river_leader river_leader_pkey; Type: CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.river_leader
-    ADD CONSTRAINT river_leader_pkey PRIMARY KEY (name);
-
-
---
--- Name: river_migration river_migration_pkey1; Type: CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.river_migration
-    ADD CONSTRAINT river_migration_pkey1 PRIMARY KEY (line, version);
-
-
---
--- Name: river_queue river_queue_pkey; Type: CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.river_queue
-    ADD CONSTRAINT river_queue_pkey PRIMARY KEY (name);
 
 
 --
@@ -1733,6 +1785,22 @@ ALTER TABLE ONLY public.subscriptions
 
 ALTER TABLE ONLY public.subscriptions
     ADD CONSTRAINT subscriptions_razorpay_subscription_id_key UNIQUE (razorpay_subscription_id);
+
+
+--
+-- Name: loc_lifecycle_log uq_loc_lifecycle_org_event_key; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.loc_lifecycle_log
+    ADD CONSTRAINT uq_loc_lifecycle_org_event_key UNIQUE (org_id, event_key);
+
+
+--
+-- Name: loc_usage_ledger uq_loc_usage_ledger_org_idempotency; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.loc_usage_ledger
+    ADD CONSTRAINT uq_loc_usage_ledger_org_idempotency UNIQUE (org_id, idempotency_key);
 
 
 --
@@ -2120,6 +2188,76 @@ CREATE INDEX idx_license_state_status ON public.license_state USING btree (statu
 
 
 --
+-- Name: idx_loc_lifecycle_log_email_pending; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_loc_lifecycle_log_email_pending ON public.loc_lifecycle_log USING btree (notified_email, created_at) WHERE (notified_email = false);
+
+
+--
+-- Name: idx_loc_lifecycle_log_event_type; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_loc_lifecycle_log_event_type ON public.loc_lifecycle_log USING btree (event_type);
+
+
+--
+-- Name: idx_loc_lifecycle_log_org_created; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_loc_lifecycle_log_org_created ON public.loc_lifecycle_log USING btree (org_id, created_at DESC);
+
+
+--
+-- Name: idx_loc_usage_ledger_operation; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_loc_usage_ledger_operation ON public.loc_usage_ledger USING btree (operation_type, trigger_source);
+
+
+--
+-- Name: idx_loc_usage_ledger_org_accounted_tokens; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_loc_usage_ledger_org_accounted_tokens ON public.loc_usage_ledger USING btree (org_id, accounted_at DESC) WHERE ((input_tokens IS NOT NULL) OR (output_tokens IS NOT NULL) OR (llm_cost_usd IS NOT NULL));
+
+
+--
+-- Name: idx_loc_usage_ledger_org_review; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_loc_usage_ledger_org_review ON public.loc_usage_ledger USING btree (org_id, review_id) WHERE (review_id IS NOT NULL);
+
+
+--
+-- Name: idx_loc_usage_ledger_org_time; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_loc_usage_ledger_org_time ON public.loc_usage_ledger USING btree (org_id, accounted_at DESC);
+
+
+--
+-- Name: idx_loc_usage_ledger_org_user; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_loc_usage_ledger_org_user ON public.loc_usage_ledger USING btree (org_id, user_id) WHERE (user_id IS NOT NULL);
+
+
+--
+-- Name: idx_org_billing_current_plan; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_org_billing_current_plan ON public.org_billing_state USING btree (current_plan_code);
+
+
+--
+-- Name: idx_org_billing_scheduled_effective; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_org_billing_scheduled_effective ON public.org_billing_state USING btree (scheduled_plan_effective_at) WHERE (scheduled_plan_effective_at IS NOT NULL);
+
+
+--
 -- Name: idx_orgs_active; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -2152,6 +2290,13 @@ CREATE INDEX idx_pac_org ON public.prompt_application_context USING btree (org_i
 --
 
 CREATE INDEX idx_pac_targeting ON public.prompt_application_context USING btree (org_id, ai_connector_id, integration_token_id, group_identifier, repository);
+
+
+--
+-- Name: idx_plan_catalog_active_rank; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_plan_catalog_active_rank ON public.plan_catalog USING btree (active, rank);
 
 
 --
@@ -2435,20 +2580,6 @@ CREATE INDEX idx_user_roles_user_org ON public.user_roles USING btree (user_id, 
 
 
 --
--- Name: idx_user_roles_user_org_plan; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX idx_user_roles_user_org_plan ON public.user_roles USING btree (user_id, org_id) INCLUDE (plan_type, license_expires_at);
-
-
---
--- Name: INDEX idx_user_roles_user_org_plan; Type: COMMENT; Schema: public; Owner: -
---
-
-COMMENT ON INDEX public.idx_user_roles_user_org_plan IS 'Covering index for subscription lookups - enables index-only scans for <2ms query time';
-
-
---
 -- Name: idx_users_created_by; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -2526,48 +2657,6 @@ CREATE INDEX idx_webhook_registry_provider_project ON public.webhook_registry US
 
 
 --
--- Name: river_job_args_index; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX river_job_args_index ON public.river_job USING gin (args);
-
-
---
--- Name: river_job_kind; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX river_job_kind ON public.river_job USING btree (kind);
-
-
---
--- Name: river_job_metadata_index; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX river_job_metadata_index ON public.river_job USING gin (metadata);
-
-
---
--- Name: river_job_prioritized_fetching_index; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX river_job_prioritized_fetching_index ON public.river_job USING btree (state, queue, priority, scheduled_at, id);
-
-
---
--- Name: river_job_state_and_finalized_at_index; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX river_job_state_and_finalized_at_index ON public.river_job USING btree (state, finalized_at) WHERE (finalized_at IS NOT NULL);
-
-
---
--- Name: river_job_unique_idx; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE UNIQUE INDEX river_job_unique_idx ON public.river_job USING btree (unique_key) WHERE ((unique_key IS NOT NULL) AND (unique_states IS NOT NULL) AND public.river_job_state_in_bitmask(unique_states, state));
-
-
---
 -- Name: ux_license_state_singleton; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -2586,6 +2675,20 @@ CREATE TRIGGER trg_license_seat_assignments_updated_at BEFORE UPDATE ON public.l
 --
 
 CREATE TRIGGER trg_license_state_updated_at BEFORE UPDATE ON public.license_state FOR EACH ROW EXECUTE FUNCTION public.license_state_set_updated_at();
+
+
+--
+-- Name: org_billing_state trg_org_billing_state_updated_at; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER trg_org_billing_state_updated_at BEFORE UPDATE ON public.org_billing_state FOR EACH ROW EXECUTE FUNCTION public.org_billing_state_set_updated_at();
+
+
+--
+-- Name: plan_catalog trg_plan_catalog_updated_at; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER trg_plan_catalog_updated_at BEFORE UPDATE ON public.plan_catalog FOR EACH ROW EXECUTE FUNCTION public.plan_catalog_set_updated_at();
 
 
 --
@@ -2717,6 +2820,78 @@ ALTER TABLE ONLY public.license_seat_assignments
 
 
 --
+-- Name: loc_lifecycle_log loc_lifecycle_log_org_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.loc_lifecycle_log
+    ADD CONSTRAINT loc_lifecycle_log_org_id_fkey FOREIGN KEY (org_id) REFERENCES public.orgs(id) ON DELETE CASCADE;
+
+
+--
+-- Name: loc_lifecycle_log loc_lifecycle_log_plan_code_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.loc_lifecycle_log
+    ADD CONSTRAINT loc_lifecycle_log_plan_code_fkey FOREIGN KEY (plan_code) REFERENCES public.plan_catalog(plan_code);
+
+
+--
+-- Name: loc_lifecycle_log loc_lifecycle_log_usage_ledger_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.loc_lifecycle_log
+    ADD CONSTRAINT loc_lifecycle_log_usage_ledger_id_fkey FOREIGN KEY (usage_ledger_id) REFERENCES public.loc_usage_ledger(id) ON DELETE SET NULL;
+
+
+--
+-- Name: loc_usage_ledger loc_usage_ledger_org_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.loc_usage_ledger
+    ADD CONSTRAINT loc_usage_ledger_org_id_fkey FOREIGN KEY (org_id) REFERENCES public.orgs(id) ON DELETE CASCADE;
+
+
+--
+-- Name: loc_usage_ledger loc_usage_ledger_review_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.loc_usage_ledger
+    ADD CONSTRAINT loc_usage_ledger_review_id_fkey FOREIGN KEY (review_id) REFERENCES public.reviews(id) ON DELETE SET NULL;
+
+
+--
+-- Name: loc_usage_ledger loc_usage_ledger_user_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.loc_usage_ledger
+    ADD CONSTRAINT loc_usage_ledger_user_id_fkey FOREIGN KEY (user_id) REFERENCES public.users(id) ON DELETE SET NULL;
+
+
+--
+-- Name: org_billing_state org_billing_state_current_plan_code_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.org_billing_state
+    ADD CONSTRAINT org_billing_state_current_plan_code_fkey FOREIGN KEY (current_plan_code) REFERENCES public.plan_catalog(plan_code);
+
+
+--
+-- Name: org_billing_state org_billing_state_org_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.org_billing_state
+    ADD CONSTRAINT org_billing_state_org_id_fkey FOREIGN KEY (org_id) REFERENCES public.orgs(id) ON DELETE CASCADE;
+
+
+--
+-- Name: org_billing_state org_billing_state_scheduled_plan_code_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.org_billing_state
+    ADD CONSTRAINT org_billing_state_scheduled_plan_code_fkey FOREIGN KEY (scheduled_plan_code) REFERENCES public.plan_catalog(plan_code);
+
+
+--
 -- Name: orgs orgs_created_by_user_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -2794,14 +2969,6 @@ ALTER TABLE ONLY public.review_events
 
 ALTER TABLE ONLY public.reviews
     ADD CONSTRAINT reviews_org_id_fkey FOREIGN KEY (org_id) REFERENCES public.orgs(id);
-
-
---
--- Name: river_client_queue river_client_queue_river_client_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.river_client_queue
-    ADD CONSTRAINT river_client_queue_river_client_id_fkey FOREIGN KEY (river_client_id) REFERENCES public.river_client(id) ON DELETE CASCADE;
 
 
 --
@@ -2952,7 +3119,7 @@ ALTER TABLE ONLY public.webhook_registry
 -- PostgreSQL database dump complete
 --
 
-\unrestrict V121eZTgk6PeOGM8thspG8QWIdmbTQnbruY9gaNaPAsW9LNYIAJaTzSDeLF7ka8
+\unrestrict dbmate
 
 
 --
@@ -2960,7 +3127,6 @@ ALTER TABLE ONLY public.webhook_registry
 --
 
 INSERT INTO public.schema_migrations (version) VALUES
-    ('20241208'),
     ('20250719000001'),
     ('20250719000002'),
     ('20250719000003'),
@@ -3005,4 +3171,12 @@ INSERT INTO public.schema_migrations (version) VALUES
     ('20251219135906'),
     ('20251222074428'),
     ('20251224132642'),
-    ('20260120122547');
+    ('20260120122547'),
+    ('20260327100000'),
+    ('20260327100100'),
+    ('20260327100200'),
+    ('20260327100300'),
+    ('20260328121000'),
+    ('20260328150000'),
+    ('20260328151000'),
+    ('20260330120000');

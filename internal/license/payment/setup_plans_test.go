@@ -16,13 +16,13 @@ func TestSetupPlans(t *testing.T) {
 
 	fmt.Printf("\n=== Setting up Razorpay Team plans in %s mode ===\n\n", mode)
 
-	// Create monthly plan
-	t.Log("Creating Team Monthly plan ($6/month)...")
+	// Create monthly base plan
+	t.Log("Creating LOC base monthly plan ($32/month)...")
 	monthlyPlan, err := CreatePlan(mode, "monthly")
 	if err != nil {
 		t.Fatalf("Failed to create monthly plan: %v", err)
 	}
-	t.Logf("✓ Team Monthly Plan Created")
+	t.Logf("✓ LOC Base Monthly Plan Created")
 	t.Logf("  ID: %s", monthlyPlan.ID)
 	t.Logf("  Amount: $%.2f/month", float64(monthlyPlan.Item.Amount)/100)
 	t.Logf("  Period: %s (interval: %d)", monthlyPlan.Period, monthlyPlan.Interval)

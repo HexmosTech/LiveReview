@@ -7,12 +7,14 @@ import (
 	"fmt"
 	"log"
 	"net/url"
+	"os"
 	"strings"
 	"time"
 
 	"github.com/labstack/echo/v4"
 	"github.com/livereview/internal/aiconnectors"
 	"github.com/livereview/internal/config"
+	"github.com/livereview/internal/license"
 	"github.com/livereview/internal/review"
 )
 
@@ -315,7 +317,7 @@ func (s *Server) createReviewService(token *IntegrationToken) (*review.Service, 
 }
 
 // getAIConfigFromDatabase retrieves AI configuration from ai_connectors table
-func (s *Server) getAIConfigFromDatabase(ctx context.Context, orgID int64) (review.AIConfig, error) {
+func (s *Server) getAIConfigFromDatabase(ctx context.Context, orgID int64, planCode license.PlanType) (review.AIConfig, error) {
 	// Create storage instance to query ai_connectors table
 	storage := aiconnectors.NewStorage(s.db)
 
@@ -325,24 +327,42 @@ func (s *Server) getAIConfigFromDatabase(ctx context.Context, orgID int64) (revi
 		return review.AIConfig{}, fmt.Errorf("failed to get AI connectors: %w", err)
 	}
 
-	// Find the first (highest priority) connector
-	if len(connectors) == 0 {
-		return review.AIConfig{}, fmt.Errorf("no AI connectors found for organization %d", orgID)
+	if planCode == "" {
+		planCode = license.PlanFree30K
 	}
 
-	// Use the first connector (lowest display_order)
-	connector := connectors[0]
+	// Free tier enforces BYOK strictly.
+	if planCode == license.PlanFree30K {
+		if len(connectors) == 0 {
+			return review.AIConfig{}, fmt.Errorf("free_30k requires BYOK connector setup for organization %d", orgID)
+		}
+		return buildBYOKAIConfig(connectors[0], "byok_required")
+	}
+
+	// Paid team defaults to hosted auto model when no BYOK connector is configured.
+	if planCode == license.PlanTeam32USD {
+		if len(connectors) > 0 {
+			return buildBYOKAIConfig(connectors[0], "byok_override")
+		}
+		return buildHostedAutoAIConfig()
+	}
+
+	// Fallback for other plans: prefer BYOK if present, else hosted-auto.
+	if len(connectors) > 0 {
+		return buildBYOKAIConfig(connectors[0], "byok_optional")
+	}
+	return buildHostedAutoAIConfig()
+
+}
+
+func buildBYOKAIConfig(connector *aiconnectors.ConnectorRecord, executionMode string) (review.AIConfig, error) {
+	if connector == nil {
+		return review.AIConfig{}, fmt.Errorf("connector is required for BYOK mode")
+	}
 
 	// Debug logging to see which connector is selected
 	fmt.Printf("[AI CONFIG] Selected connector: %s (%s) with display_order: %d\n",
 		connector.ConnectorName, connector.ProviderName, connector.DisplayOrder)
-
-	// Log all available connectors for debugging
-	fmt.Printf("[AI CONFIG] Available connectors:\n")
-	for i, c := range connectors {
-		fmt.Printf("  %d. %s (%s) - display_order: %d\n",
-			i+1, c.ConnectorName, c.ProviderName, c.DisplayOrder)
-	}
 
 	// Map provider_name to AI type for langchain
 	aiType := "langchain" // We always use langchain as the AI type
@@ -373,9 +393,11 @@ func (s *Server) getAIConfigFromDatabase(ctx context.Context, orgID int64) (revi
 
 	// Prepare configuration map with provider details
 	configMap := map[string]interface{}{
-		"provider_name":  connector.ProviderName,
-		"connector_name": connector.ConnectorName,
-		"display_order":  connector.DisplayOrder,
+		"provider_name":       connector.ProviderName,
+		"connector_name":      connector.ConnectorName,
+		"display_order":       connector.DisplayOrder,
+		"ai_execution_mode":   executionMode,
+		"ai_execution_source": "connector",
 	}
 
 	// Add base URL if available
@@ -404,14 +426,98 @@ func (s *Server) getAIConfigFromDatabase(ctx context.Context, orgID int64) (revi
 	}, nil
 }
 
+func buildHostedAutoAIConfig() (review.AIConfig, error) {
+	providerName := strings.TrimSpace(os.Getenv("LIVEREVIEW_HOSTED_AI_PROVIDER"))
+	if providerName == "" {
+		providerName = "gemini"
+	}
+
+	model := strings.TrimSpace(os.Getenv("LIVEREVIEW_HOSTED_AI_MODEL"))
+	if model == "" {
+		switch providerName {
+		case "openai":
+			model = "o4-mini"
+		case "deepseek":
+			model = "deepseek-chat"
+		case "openrouter":
+			model = "deepseek/deepseek-r1-0528:free"
+		case "claude":
+			model = "claude-haiku-4-5-20251001"
+		case "ollama":
+			model = "llama3.2:latest"
+		default:
+			model = "gemini-2.5-flash"
+		}
+	}
+
+	apiKey := ""
+	switch providerName {
+	case "gemini":
+		apiKey = strings.TrimSpace(os.Getenv("LIVEREVIEW_HOSTED_GEMINI_API_KEY"))
+		if apiKey == "" {
+			apiKey = strings.TrimSpace(os.Getenv("GEMINI_API_KEY"))
+		}
+	case "openai":
+		apiKey = strings.TrimSpace(os.Getenv("LIVEREVIEW_HOSTED_OPENAI_API_KEY"))
+		if apiKey == "" {
+			apiKey = strings.TrimSpace(os.Getenv("OPENAI_API_KEY"))
+		}
+	case "deepseek":
+		apiKey = strings.TrimSpace(os.Getenv("LIVEREVIEW_HOSTED_DEEPSEEK_API_KEY"))
+		if apiKey == "" {
+			apiKey = strings.TrimSpace(os.Getenv("DEEPSEEK_API_KEY"))
+		}
+	case "openrouter":
+		apiKey = strings.TrimSpace(os.Getenv("LIVEREVIEW_HOSTED_OPENROUTER_API_KEY"))
+		if apiKey == "" {
+			apiKey = strings.TrimSpace(os.Getenv("OPENROUTER_API_KEY"))
+		}
+	case "claude":
+		apiKey = strings.TrimSpace(os.Getenv("LIVEREVIEW_HOSTED_CLAUDE_API_KEY"))
+		if apiKey == "" {
+			apiKey = strings.TrimSpace(os.Getenv("ANTHROPIC_API_KEY"))
+		}
+	case "ollama":
+		// Ollama does not require API key.
+	default:
+		return review.AIConfig{}, fmt.Errorf("unsupported hosted auto provider: %s", providerName)
+	}
+
+	if providerName != "ollama" && apiKey == "" {
+		return review.AIConfig{}, fmt.Errorf("hosted auto provider '%s' is configured without API key; set LIVEREVIEW_HOSTED_*_API_KEY", providerName)
+	}
+
+	configMap := map[string]interface{}{
+		"provider_name":       providerName,
+		"connector_name":      "Hosted Auto",
+		"display_order":       -1,
+		"ai_execution_mode":   "hosted_auto",
+		"ai_execution_source": "platform",
+	}
+
+	baseURL := aiconnectors.ResolveBaseURLForProviderName(providerName, strings.TrimSpace(os.Getenv("LIVEREVIEW_HOSTED_AI_BASE_URL")))
+	if baseURL != "" {
+		configMap["base_url"] = baseURL
+	}
+
+	return review.AIConfig{
+		Type:        "langchain",
+		APIKey:      apiKey,
+		Model:       model,
+		Temperature: 0.4,
+		Config:      configMap,
+	}, nil
+}
+
 // buildReviewRequest creates a review request for the given parameters
 func (s *Server) buildReviewRequest(
 	token *IntegrationToken,
 	requestURL, reviewID, accessToken string,
 	orgID int64,
+	planCode license.PlanType,
 ) (*review.ReviewRequest, error) {
 	// Get AI configuration from database instead of config files
-	aiConfig, err := s.getAIConfigFromDatabase(context.Background(), orgID)
+	aiConfig, err := s.getAIConfigFromDatabase(context.Background(), orgID, planCode)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get AI configuration from database: %w", err)
 	}

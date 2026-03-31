@@ -247,7 +247,7 @@ func TestUnifiedProcessorV2(t *testing.T) {
 		}
 
 		// This will test the processing pipeline (might need mock AI service)
-		response, learning, err := processor.ProcessCommentReply(ctx, event, timeline, 0)
+		response, learning, _, err := processor.ProcessCommentReply(ctx, event, timeline, 0)
 
 		// Should not error even if AI service unavailable (fallback response)
 		assert.NoError(t, err)
@@ -816,7 +816,7 @@ func TestProcessingPipeline(t *testing.T) {
 			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 			defer cancel()
 
-			response, learning, err := processor.ProcessCommentReply(ctx, event, timeline, 0)
+			response, learning, _, err := processor.ProcessCommentReply(ctx, event, timeline, 0)
 			assert.NoError(t, err)
 			assert.NotEmpty(t, response)
 

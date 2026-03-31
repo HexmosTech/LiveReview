@@ -160,12 +160,12 @@ func (s *orchestratorUnifiedStub) CheckResponseWarrant(event UnifiedWebhookEvent
 	return true, ResponseScenarioV2{Type: "direct_mention"}
 }
 
-func (s *orchestratorUnifiedStub) ProcessCommentReply(ctx context.Context, event UnifiedWebhookEventV2, timeline *UnifiedTimelineV2, orgID int64) (string, *LearningMetadataV2, error) {
-	return s.reply, s.learning, nil
+func (s *orchestratorUnifiedStub) ProcessCommentReply(ctx context.Context, event UnifiedWebhookEventV2, timeline *UnifiedTimelineV2, orgID int64) (string, *LearningMetadataV2, *OperationUsageV2, error) {
+	return s.reply, s.learning, nil, nil
 }
 
-func (s *orchestratorUnifiedStub) ProcessFullReview(ctx context.Context, event UnifiedWebhookEventV2, timeline *UnifiedTimelineV2) ([]UnifiedReviewCommentV2, *LearningMetadataV2, error) {
-	return nil, nil, nil
+func (s *orchestratorUnifiedStub) ProcessFullReview(ctx context.Context, event UnifiedWebhookEventV2, timeline *UnifiedTimelineV2) ([]UnifiedReviewCommentV2, *LearningMetadataV2, *OperationUsageV2, error) {
+	return nil, nil, nil, nil
 }
 
 type stubLearningProcessor struct {

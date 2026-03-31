@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"math"
 	"net/http"
 	"os"
 	"strings"
@@ -241,9 +242,9 @@ func (p *UnifiedProcessorV2Impl) isCommentAuthoredByBot(event UnifiedWebhookEven
 }
 
 // ProcessCommentReply processes comment reply flow using original working logic
-func (p *UnifiedProcessorV2Impl) ProcessCommentReply(ctx context.Context, event UnifiedWebhookEventV2, timeline *UnifiedTimelineV2, orgID int64) (string, *LearningMetadataV2, error) {
+func (p *UnifiedProcessorV2Impl) ProcessCommentReply(ctx context.Context, event UnifiedWebhookEventV2, timeline *UnifiedTimelineV2, orgID int64) (string, *LearningMetadataV2, *OperationUsageV2, error) {
 	if event.Comment == nil {
-		return "", nil, fmt.Errorf("no comment in event for reply processing")
+		return "", nil, nil, fmt.Errorf("no comment in event for reply processing")
 	}
 
 	log.Printf("[INFO] Processing comment reply for %s provider using original contextual logic", event.Provider)
@@ -258,29 +259,64 @@ func (p *UnifiedProcessorV2Impl) ProcessCommentReply(ctx context.Context, event 
 			var err error
 			artifact, err = p.buildGitLabArtifactFromEvent(ctx, event, orgID)
 			if err != nil {
-				return "", nil, fmt.Errorf("failed to build GitLab artifact: %w", err)
+				return "", nil, nil, fmt.Errorf("failed to build GitLab artifact: %w", err)
 			}
 		case "github":
 			log.Printf("[DEBUG] Building GitHub artifact for contextual response")
 			var err error
 			artifact, err = p.buildGitHubArtifactFromEvent(ctx, event, orgID)
 			if err != nil {
-				return "", nil, fmt.Errorf("failed to build GitHub artifact: %w", err)
+				return "", nil, nil, fmt.Errorf("failed to build GitHub artifact: %w", err)
 			}
 		case "bitbucket":
 			log.Printf("[DEBUG] Building Bitbucket artifact for contextual response")
 			var err error
 			artifact, err = p.buildBitbucketArtifactFromEvent(ctx, event, orgID)
 			if err != nil {
-				return "", nil, fmt.Errorf("failed to build Bitbucket artifact: %w", err)
+				return "", nil, nil, fmt.Errorf("failed to build Bitbucket artifact: %w", err)
 			}
 		}
 	}
 
 	// Use the original sophisticated contextual response logic
-	response, learning := p.buildContextualResponseWithLearningV2(ctx, event, timeline, orgID, artifact)
+	response, learning, aiUsage := p.buildContextualResponseWithLearningV2(ctx, event, timeline, orgID, artifact)
+	billableLOC := calculateBillableLOCFromArtifactDiffs(artifact)
+	var usage *OperationUsageV2
+	if billableLOC > 0 {
+		usage = &OperationUsageV2{BillableLOC: billableLOC}
+		if aiUsage != nil {
+			usage.Provider = aiUsage.Provider
+			usage.Model = aiUsage.Model
+			usage.PricingVersion = aiUsage.PricingVersion
+			usage.InputTokens = aiUsage.InputTokens
+			usage.OutputTokens = aiUsage.OutputTokens
+			usage.CostUSD = aiUsage.CostUSD
+		}
+	}
 
-	return response, learning, nil
+	return response, learning, usage, nil
+}
+
+func calculateBillableLOCFromArtifactDiffs(artifact *mrmodel.UnifiedArtifact) int64 {
+	if artifact == nil || len(artifact.Diffs) == 0 {
+		return 0
+	}
+
+	var total int64
+	for _, diff := range artifact.Diffs {
+		if diff == nil {
+			continue
+		}
+		for _, hunk := range diff.Hunks {
+			for _, line := range hunk.Lines {
+				if line.LineType == "added" || line.LineType == "deleted" {
+					total++
+				}
+			}
+		}
+	}
+
+	return total
 }
 
 // buildCommentReplyPromptWithLearning creates LLM prompt with learning instructions
@@ -417,7 +453,7 @@ func (p *UnifiedProcessorV2Impl) buildCommentReplyPromptWithLearning(event Unifi
 }
 
 // buildContextualResponseWithLearningV2 creates response using LLM with learning instructions
-func (p *UnifiedProcessorV2Impl) buildContextualResponseWithLearningV2(ctx context.Context, event UnifiedWebhookEventV2, timeline *UnifiedTimelineV2, orgID int64, artifact *mrmodel.UnifiedArtifact) (string, *LearningMetadataV2) {
+func (p *UnifiedProcessorV2Impl) buildContextualResponseWithLearningV2(ctx context.Context, event UnifiedWebhookEventV2, timeline *UnifiedTimelineV2, orgID int64, artifact *mrmodel.UnifiedArtifact) (string, *LearningMetadataV2, *OperationUsageV2) {
 	prompt := p.buildCommentReplyPromptWithLearning(event, timeline, artifact)
 
 	var relevantLearnings []*learnings.Learning
@@ -454,13 +490,13 @@ func (p *UnifiedProcessorV2Impl) buildContextualResponseWithLearningV2(ctx conte
 		ctx = context.Background()
 	}
 
-	llmResponse, learning, err := p.generateLLMResponseWithLearning(ctx, prompt, event, orgID)
+	llmResponse, learning, usage, err := p.generateLLMResponseWithLearning(ctx, prompt, event, orgID)
 	if err != nil {
 		log.Printf("[ERROR] LLM generation failed: %v - cannot provide response", err)
-		return fmt.Sprintf("I'm sorry, I'm unable to generate a response right now. Please try again later. (Error: %v)", err), nil
+		return fmt.Sprintf("I'm sorry, I'm unable to generate a response right now. Please try again later. (Error: %v)", err), nil, nil
 	}
 
-	return llmResponse, learning
+	return llmResponse, learning, usage
 }
 
 func (p *UnifiedProcessorV2Impl) fetchRelevantLearnings(ctx context.Context, orgID int64, repoID string, changedFiles []string, title, description string) ([]*learnings.Learning, error) {
@@ -611,10 +647,10 @@ func min(a, b int) int {
 
 // ProcessFullReview processes full review flow when bot is assigned as reviewer
 // Extracted from triggerReviewFor* functions (to be implemented in future phases)
-func (p *UnifiedProcessorV2Impl) ProcessFullReview(ctx context.Context, event UnifiedWebhookEventV2, timeline *UnifiedTimelineV2) ([]UnifiedReviewCommentV2, *LearningMetadataV2, error) {
+func (p *UnifiedProcessorV2Impl) ProcessFullReview(ctx context.Context, event UnifiedWebhookEventV2, timeline *UnifiedTimelineV2) ([]UnifiedReviewCommentV2, *LearningMetadataV2, *OperationUsageV2, error) {
 	// TODO: Implement full review processing in Phase 7.2
 	// This will extract review logic from the monolithic handler
-	return nil, nil, fmt.Errorf("full review processing not yet implemented")
+	return nil, nil, nil, fmt.Errorf("full review processing not yet implemented")
 }
 
 // Helper methods (extracted from webhook_handler.go)
@@ -967,11 +1003,11 @@ func (p *UnifiedProcessorV2Impl) buildUnifiedPromptV2(event UnifiedWebhookEventV
 }
 
 // generateLLMResponseWithLearning generates LLM response and extracts learning
-func (p *UnifiedProcessorV2Impl) generateLLMResponseWithLearning(ctx context.Context, prompt string, event UnifiedWebhookEventV2, orgID int64) (string, *LearningMetadataV2, error) {
+func (p *UnifiedProcessorV2Impl) generateLLMResponseWithLearning(ctx context.Context, prompt string, event UnifiedWebhookEventV2, orgID int64) (string, *LearningMetadataV2, *OperationUsageV2, error) {
 	// Try to get LLM response
-	llmResponse, err := p.generateLLMResponseV2(ctx, prompt, orgID)
+	llmResponse, usage, err := p.generateLLMResponseV2(ctx, prompt, orgID)
 	if err != nil {
-		return "", nil, err
+		return "", nil, nil, err
 	}
 
 	// Extract learning from LLM response
@@ -979,25 +1015,33 @@ func (p *UnifiedProcessorV2Impl) generateLLMResponseWithLearning(ctx context.Con
 
 	// Clean response by removing learning block
 	cleanResponse := p.cleanResponseFromLearningBlock(llmResponse)
+	if usage != nil {
+		outputTokens := int64(estimateTokens(cleanResponse))
+		usage.OutputTokens = &outputTokens
+		if usage.InputTokens != nil {
+			cost := estimateUsageCostUSD(usage.Provider, *usage.InputTokens, outputTokens)
+			usage.CostUSD = &cost
+		}
+	}
 
-	return cleanResponse, learning, nil
+	return cleanResponse, learning, usage, nil
 }
 
 // generateLLMResponseV2 uses the actual AI connectors infrastructure
-func (p *UnifiedProcessorV2Impl) generateLLMResponseV2(ctx context.Context, prompt string, orgID int64) (string, error) {
+func (p *UnifiedProcessorV2Impl) generateLLMResponseV2(ctx context.Context, prompt string, orgID int64) (string, *OperationUsageV2, error) {
 	if p.server == nil || p.server.db == nil {
-		return "", fmt.Errorf("server or database not available")
+		return "", nil, fmt.Errorf("server or database not available")
 	}
 
 	// Get available AI connectors
 	storage := aiconnectors.NewStorage(p.server.db)
 	connectors, err := storage.GetAllConnectors(ctx, orgID)
 	if err != nil {
-		return "", fmt.Errorf("failed to get AI connectors: %w", err)
+		return "", nil, fmt.Errorf("failed to get AI connectors: %w", err)
 	}
 
 	if len(connectors) == 0 {
-		return "", fmt.Errorf("no AI connectors configured for organization %d", orgID)
+		return "", nil, fmt.Errorf("no AI connectors configured for organization %d", orgID)
 	}
 
 	// Use the first available connector (could be enhanced with priority logic)
@@ -1009,19 +1053,30 @@ func (p *UnifiedProcessorV2Impl) generateLLMResponseV2(ctx context.Context, prom
 	// Create connector client
 	client, err := aiconnectors.NewConnector(ctx, options)
 	if err != nil {
-		return "", fmt.Errorf("failed to create AI connector: %w", err)
+		return "", nil, fmt.Errorf("failed to create AI connector: %w", err)
 	}
 
 	// Generate response
 	response, err := client.Call(ctx, prompt)
 	if err != nil {
-		return "", fmt.Errorf("AI connector call failed: %w", err)
+		return "", nil, fmt.Errorf("AI connector call failed: %w", err)
 	}
 
 	response = p.applyPostOutputSanitization(ctx, response, connectorRecord.ProviderName)
+	model := strings.TrimSpace(options.ModelConfig.Model)
+	if model == "" {
+		model = aiconnectors.GetDefaultModel(options.Provider)
+	}
+	inputTokens := int64(estimateTokens(prompt))
+	usage := &OperationUsageV2{
+		Provider:       strings.TrimSpace(connectorRecord.ProviderName),
+		Model:          model,
+		PricingVersion: "v1_prompt_response_estimate",
+		InputTokens:    &inputTokens,
+	}
 
 	log.Printf("[DEBUG] Generated LLM response using %s connector", connectorRecord.ProviderName)
-	return response, nil
+	return response, usage, nil
 }
 
 func (p *UnifiedProcessorV2Impl) applyPostOutputSanitization(ctx context.Context, response string, providerName string) string {
@@ -1464,6 +1519,29 @@ func (p *UnifiedProcessorV2Impl) buildBitbucketArtifactFromEvent(ctx context.Con
 // estimateTokens provides rough token count estimate (1 token ≈ 4 characters for English)
 func estimateTokens(text string) int {
 	return len(text) / 4
+}
+
+func estimateUsageCostUSD(provider string, inputTokens, outputTokens int64) float64 {
+	inputRate, outputRate := providerTokenRates(provider)
+	costUSD := (float64(inputTokens) * inputRate) + (float64(outputTokens) * outputRate)
+	return math.Round(costUSD*1e6) / 1e6
+}
+
+func providerTokenRates(provider string) (float64, float64) {
+	switch strings.ToLower(strings.TrimSpace(provider)) {
+	case "openai":
+		return 0.000005, 0.000015
+	case "gemini", "googleai":
+		return 0.0000035, 0.0000105
+	case "claude", "anthropic":
+		return 0.000015, 0.000075
+	case "deepseek", "openrouter":
+		return 0.000001, 0.000002
+	case "ollama", "local":
+		return 0, 0
+	default:
+		return 0.000005, 0.000015
+	}
 }
 
 // formatArtifactForPromptWithBudget converts UnifiedArtifact to text for LLM prompt
