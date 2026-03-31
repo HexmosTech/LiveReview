@@ -410,6 +410,7 @@ func (h *RazorpayWebhookHandler) handleSubscriptionCharged(event *RazorpayWebhoo
 	if err != nil {
 		return fmt.Errorf("subscription not found: %s", sub.ID)
 	}
+	resolvedPlanCode := normalizePersistedPlanCode(planType)
 
 	fmt.Printf("[SUBSCRIPTION.CHARGED] Found internal subscription ID: %d\n", subscriptionID)
 
@@ -456,12 +457,48 @@ func (h *RazorpayWebhookHandler) handleSubscriptionCharged(event *RazorpayWebhoo
 			if err != nil {
 				return fmt.Errorf("failed to update subscription payment status: %w", err)
 			}
+
+			periodStart := time.Now().UTC()
+			periodEnd := periodStart.AddDate(0, 1, 0)
+			if sub.CurrentStart > 0 {
+				periodStart = time.Unix(sub.CurrentStart, 0).UTC()
+			}
+			if sub.CurrentEnd > 0 {
+				periodEnd = time.Unix(sub.CurrentEnd, 0).UTC()
+			}
+
+			_, err = tx.Exec(`
+				INSERT INTO org_billing_state (
+					org_id,
+					current_plan_code,
+					billing_period_start,
+					billing_period_end,
+					loc_used_month,
+					loc_blocked,
+					trial_readonly,
+					last_reset_at,
+					updated_at
+				) VALUES ($1, $2, $3, $4, 0, FALSE, FALSE, NOW(), NOW())
+				ON CONFLICT (org_id) DO UPDATE SET
+					current_plan_code = EXCLUDED.current_plan_code,
+					billing_period_start = EXCLUDED.billing_period_start,
+					billing_period_end = EXCLUDED.billing_period_end,
+					scheduled_plan_code = NULL,
+					scheduled_plan_effective_at = NULL,
+					trial_readonly = FALSE,
+					loc_blocked = FALSE,
+					updated_at = NOW()`,
+				orgID, resolvedPlanCode.String(), periodStart, periodEnd,
+			)
+			if err != nil {
+				return fmt.Errorf("failed to update org billing state after captured charge: %w", err)
+			}
 		}
 	}
 
 	// Extend license based on plan type
 	var newExpiry time.Time
-	if planType == "team_monthly" {
+	if resolvedPlanCode.GetLimits().MonthlyPriceUSD > 0 {
 		newExpiry = currentLicenseExpiry.AddDate(0, 1, 0)
 	} else {
 		newExpiry = currentLicenseExpiry.AddDate(1, 0, 0)

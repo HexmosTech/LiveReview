@@ -165,12 +165,16 @@ func (s *SubscriptionService) UpdateQuantity(subscriptionID string, quantity int
 	if err != nil {
 		return nil, fmt.Errorf("failed to update razorpay subscription: %w", err)
 	}
+	persistedScheduleChangeAt := scheduleChangeAt
+	if persistedScheduleChangeAt < 0 {
+		persistedScheduleChangeAt = 0
+	}
 
 	store := storagepayment.NewSubscriptionStore(s.db)
 	err = store.UpdateSubscriptionQuantityRecord(storagepayment.UpdateSubscriptionQuantityRecordInput{
 		SubscriptionID:      subscriptionID,
 		Quantity:            sub.Quantity,
-		ScheduleChangeAt:    scheduleChangeAt,
+		ScheduleChangeAt:    persistedScheduleChangeAt,
 		Status:              sub.Status,
 		HasScheduledChanges: sub.HasScheduledChanges,
 	})
