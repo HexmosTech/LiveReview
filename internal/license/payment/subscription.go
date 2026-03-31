@@ -8,6 +8,23 @@ import (
 	"net/http"
 )
 
+const scheduleChangeAtNowSentinel int64 = -1
+
+func buildUpdateSubscriptionRequest(quantity int, scheduleChangeAt int64) map[string]interface{} {
+	updateReq := map[string]interface{}{
+		"quantity":        quantity,
+		"customer_notify": 0,
+	}
+	if scheduleChangeAt == scheduleChangeAtNowSentinel {
+		// Razorpay expects explicit "now" for immediate/prorated changes.
+		updateReq["schedule_change_at"] = "now"
+	} else {
+		// Razorpay accepts cycle_end scheduling token for deferred quantity changes.
+		updateReq["schedule_change_at"] = "cycle_end"
+	}
+	return updateReq
+}
+
 // CreateSubscription creates a new subscription for a plan
 func CreateSubscription(mode, planID string, quantity int, notesMap map[string]string) (*RazorpaySubscription, error) {
 	accessKey, secretKey, err := GetRazorpayKeys(mode)
@@ -156,11 +173,7 @@ func UpdateSubscriptionQuantity(mode, subscriptionID string, quantity int, sched
 		return nil, err
 	}
 
-	updateReq := SubscriptionUpdateRequest{
-		Quantity:         quantity,
-		ScheduleChangeAt: scheduleChangeAt,
-		CustomerNotify:   0,
-	}
+	updateReq := buildUpdateSubscriptionRequest(quantity, scheduleChangeAt)
 
 	jsonData, err := json.Marshal(updateReq)
 	if err != nil {
@@ -189,7 +202,7 @@ func UpdateSubscriptionQuantity(mode, subscriptionID string, quantity int, sched
 	}
 
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("razorpay API error (status %d): %s", resp.StatusCode, string(body))
+		return nil, fmt.Errorf("razorpay API error (status %d): %s (request=%s)", resp.StatusCode, string(body), string(jsonData))
 	}
 
 	var subscription RazorpaySubscription

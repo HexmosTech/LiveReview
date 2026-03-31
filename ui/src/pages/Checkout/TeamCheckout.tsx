@@ -84,6 +84,12 @@ type APIVersionResponse = {
   subscriptionContractVersion?: string;
 };
 
+type ActivationProgress = {
+  state: 'idle' | 'checking' | 'applied' | 'delayed';
+  message: string;
+  lastCheckedAt?: string;
+};
+
 const RAZORPAY_THEME = {
   color: '#131C2F',
 };
@@ -113,6 +119,10 @@ const TeamCheckout: React.FC = () => {
   const [currentSubscriptionData, setCurrentSubscriptionData] = useState<any>(null);
   const [razorpayReady, setRazorpayReady] = useState(false);
   const [contractReady, setContractReady] = useState(false);
+  const [activationProgress, setActivationProgress] = useState<ActivationProgress>({
+    state: 'idle',
+    message: 'Payment submitted. Waiting for plan activation confirmation.',
+  });
 
   const selectedPlan = LOC_SLABS.find((slab) => slab.code === selectedPlanCode) || LOC_SLABS[0];
   const totalPrice = selectedPlan.monthlyPriceUSD;
@@ -178,6 +188,70 @@ const TeamCheckout: React.FC = () => {
       cleanupRazorpayOverlay();
     };
   }, []);
+
+  useEffect(() => {
+    if (!successInfo) {
+      setActivationProgress({
+        state: 'idle',
+        message: 'Payment submitted. Waiting for plan activation confirmation.',
+      });
+      return;
+    }
+
+    let cancelled = false;
+    let attempts = 0;
+    const maxAttempts = 24;
+
+    const checkActivation = async () => {
+      attempts += 1;
+      setActivationProgress({
+        state: 'checking',
+        message: 'Checking activation status...',
+        lastCheckedAt: new Date().toISOString(),
+      });
+
+      try {
+        const billing = await apiClient.get<any>('/billing/status');
+        const currentPlanCode = billing?.billing?.current_plan_code;
+        if (currentPlanCode === successInfo.planCode) {
+          if (!cancelled) {
+            setActivationProgress({
+              state: 'applied',
+              message: `Plan activation confirmed (${successInfo.planCode}).`,
+              lastCheckedAt: new Date().toISOString(),
+            });
+          }
+          return true;
+        }
+      } catch {
+        // Keep polling; transient failures are expected during post-payment transitions.
+      }
+
+      return false;
+    };
+
+    const intervalId = window.setInterval(async () => {
+      if (cancelled) return;
+      const applied = await checkActivation();
+      if (applied || attempts >= maxAttempts) {
+        window.clearInterval(intervalId);
+        if (!applied && !cancelled) {
+          setActivationProgress({
+            state: 'delayed',
+            message: 'Payment is captured, but plan activation is still syncing. You can monitor status in Subscription Settings.',
+            lastCheckedAt: new Date().toISOString(),
+          });
+        }
+      }
+    }, 5000);
+
+    checkActivation();
+
+    return () => {
+      cancelled = true;
+      window.clearInterval(intervalId);
+    };
+  }, [successInfo]);
 
   const handlePurchase = async () => {
     setIsProcessing(true);
@@ -493,30 +567,26 @@ const TeamCheckout: React.FC = () => {
           </div>
           <h1 className="text-3xl font-bold text-white mb-3">Payment Initiated Successfully! 🎉</h1>
           <p className="text-slate-300 mb-6">
-            Your subscription has been created and payment has been initiated. <strong>It may take a few minutes for the payment to be captured and reflected in your account.</strong>
+            Your subscription and payment have been created successfully.
           </p>
 
-          {/* Important Notice */}
-          <div className="bg-amber-900/20 border-2 border-amber-500/60 rounded-lg p-5 mb-8">
+          <div className="bg-slate-900/60 border border-slate-700 rounded-xl p-5 mb-6 text-left">
             <div className="flex items-start gap-3">
               <div className="flex-shrink-0 mt-0.5">
-                <svg className="w-6 h-6 text-amber-400" fill="currentColor" viewBox="0 0 20 20">
-                  <path fillRule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
-                </svg>
+                <span className={`inline-block h-3 w-3 rounded-full ${
+                  activationProgress.state === 'applied'
+                    ? 'bg-emerald-400'
+                    : activationProgress.state === 'delayed'
+                    ? 'bg-amber-400'
+                    : 'bg-blue-400'
+                }`} />
               </div>
               <div className="flex-1">
-                <h3 className="text-lg font-bold text-amber-300 mb-2">Important: Payment capture may take a few minutes</h3>
-                <p className="text-amber-100 text-sm leading-relaxed mb-3">
-                  Your LOC slab subscription has been created and payment initiation succeeded.
-                  Billing state may take a short time to reflect while payment capture confirms.
-                </p>
-                <p className="text-amber-100 text-sm leading-relaxed mb-3">
-                  <strong>Note:</strong> Payment capture can take a few minutes to process. If you see a "payment pending" message, 
-                  don't worry—just check back in 5-10 minutes.
-                </p>
-                <p className="text-amber-100 text-sm leading-relaxed">
-                  After confirmation, your organization's monthly LOC limit updates to the selected tier.
-                </p>
+                <h3 className="text-sm font-semibold text-white mb-1">Activation Status</h3>
+                <p className="text-sm text-slate-300">{activationProgress.message}</p>
+                {activationProgress.lastCheckedAt && (
+                  <p className="text-xs text-slate-400 mt-2">Last checked: {new Date(activationProgress.lastCheckedAt).toLocaleString()}</p>
+                )}
               </div>
             </div>
           </div>
@@ -555,10 +625,10 @@ const TeamCheckout: React.FC = () => {
           <div className="flex flex-col sm:flex-row gap-4 justify-center">
             <button
               type="button"
-              onClick={() => navigate('/subscribe')}
+              onClick={() => navigate('/settings#subscriptions')}
               className="flex-1 sm:flex-none px-8 py-4 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-lg transition-colors shadow-lg text-lg"
             >
-              Open Subscription Settings
+              View Activation in Subscription Settings
             </button>
             <button
               type="button"

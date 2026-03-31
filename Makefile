@@ -480,7 +480,7 @@ niceurl2:
 	}
 	@ssh root@master "PID=\$$( netstat -tulpn | grep :6544 | awk '{print \$$7}' | cut -d/ -f1 | head -n 1); [ -n \"\$$PID\" ] && kill -9 \$$PID || true" || true
 	@echo "Starting autossh reverse tunnel on remote port 6544 -> localhost:8081"
-	@AUTOSSH_GATETIME=0 AUTOSSH_POLL=60 AUTOSSH_FIRST_POLL=30 AUTOSSH_LOGLEVEL=6 autossh -M 20001 \
+	@AUTOSSH_GATETIME=0 AUTOSSH_POLL=60 AUTOSSH_FIRST_POLteL=30 AUTOSSH_LOGLEVEL=6 autossh -M 20001 \
 		-o ServerAliveInterval=30 \
 		-o ServerAliveCountMax=3 \
 		-o TCPKeepAlive=yes \

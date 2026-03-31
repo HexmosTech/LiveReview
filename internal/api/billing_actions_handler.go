@@ -473,16 +473,21 @@ func syncRazorpayTransitionWithDB(ctx context.Context, db *sql.DB, orgID int64, 
 		mode = "test"
 	}
 
-	if _, err := payment.GetSubscriptionByID(mode, active.RazorpaySubscriptionID); err != nil {
+	razorpaySub, err := payment.GetSubscriptionByID(mode, active.RazorpaySubscriptionID)
+	if err != nil {
 		return fmt.Errorf("fetch razorpay subscription: %w", err)
 	}
 
 	quantity := locPlanToQuantity(targetPlan)
 	scheduleAt := int64(0)
 	if immediate {
-		scheduleAt = time.Now().UTC().Unix()
+		scheduleAt = -1
 	} else {
-		scheduleAt = periodEnd.UTC().Unix()
+		if razorpaySub != nil && razorpaySub.CurrentEnd > 0 {
+			scheduleAt = razorpaySub.CurrentEnd
+		} else {
+			scheduleAt = periodEnd.UTC().Unix()
+		}
 	}
 
 	svc := payment.NewSubscriptionService(db)

@@ -173,41 +173,48 @@ const OverviewTab: React.FC<{ navigate: any }> = ({ navigate }) => {
   const [usageSummary, setUsageSummary] = useState<BillingUsageSummaryResponse | null>(null);
   const [usageOps, setUsageOps] = useState<BillingUsageOperationsResponse['operations']>([]);
   
-  // Read plan from current org (org-scoped), not from Auth.user
+  // Use billing status as source-of-truth; fall back to org-scoped plan only until billing loads.
   const rawPlanType = (currentOrg?.plan_type || 'free').toLowerCase();
-  const planType = rawPlanType === 'free' ? 'free_30k' : rawPlanType === 'team' ? 'team_32usd' : rawPlanType;
+  const fallbackPlanCode = rawPlanType === 'free' ? 'free_30k' : rawPlanType === 'team' ? 'team_32usd' : rawPlanType;
+  const currentPlanCode = billingStatus?.billing?.current_plan_code || fallbackPlanCode;
+  const currentPlan = billingStatus?.available_plans?.find((p) => p.plan_code === currentPlanCode) || null;
   const licenseExpiresAt = currentOrg?.license_expires_at;
-  const isTeamPlan = planType === 'team_32usd' || planType.includes('team');
-  const isFree = planType === 'free_30k' || planType === 'free';
+  const isFree = currentPlanCode === 'free_30k' || currentPlanCode === 'free';
+  const isTeamPlan = !isFree;
   const canManageBilling = isSuperAdmin || currentOrg?.role === 'owner' || currentOrg?.role === 'admin';
 
   // Fetch current subscription (org-scoped)
   useEffect(() => {
-    if (isTeamPlan && currentOrg?.id) {
-      setStatusLoading(true);
-      setPendingCancel(false);
-      setStatus('');
-      apiClient
-        .get('/subscriptions/current', {
-          headers: {
-            'X-Org-Context': currentOrg.id.toString(),
-          },
-        })
-        .then((data: any) => {
-          if (data) {
-            setSubscriptionId(data.subscription_id || null);
-            setPendingCancel(Boolean(data.cancel_at_period_end));
-            setStatus(data.status || '');
-            const expirySrc = data.cancel_at_period_end ? data.current_period_end : data.license_expires_at;
-            setDisplayExpiry(expirySrc || licenseExpiresAt || null);
-          }
-        })
-        .catch(err => console.error('Failed to fetch current subscription:', err))
-        .finally(() => setStatusLoading(false));
-    } else {
+    if (!currentOrg?.id) {
       setStatusLoading(false);
+      return;
     }
-  }, [isTeamPlan, currentOrg?.id, licenseExpiresAt]);
+
+    setStatusLoading(true);
+    setPendingCancel(false);
+    setStatus('');
+    apiClient
+      .get('/subscriptions/current', {
+        headers: {
+          'X-Org-Context': currentOrg.id.toString(),
+        },
+      })
+      .then((data: any) => {
+        if (data) {
+          setSubscriptionId(data.subscription_id || null);
+          setPendingCancel(Boolean(data.cancel_at_period_end));
+          setStatus(data.status || '');
+          const expirySrc = data.cancel_at_period_end ? data.current_period_end : data.license_expires_at;
+          setDisplayExpiry(expirySrc || licenseExpiresAt || null);
+        }
+      })
+      .catch(() => {
+        setSubscriptionId(null);
+        setPendingCancel(false);
+        setStatus('');
+      })
+      .finally(() => setStatusLoading(false));
+  }, [currentOrg?.id, licenseExpiresAt]);
 
   useEffect(() => {
     if (!currentOrg?.id) return;
@@ -284,12 +291,20 @@ const OverviewTab: React.FC<{ navigate: any }> = ({ navigate }) => {
 
   const getPlanDisplayName = (plan: string) => {
     const normalized = plan.toLowerCase();
-    if (normalized === 'team_32usd' || normalized === 'team' || normalized.includes('team')) return 'Team 32 USD';
+    if (normalized === 'team_32usd') return 'Team 32 USD (100k LOC)';
+    if (normalized === 'loc_200k') return 'Team 64 USD (200k LOC)';
+    if (normalized === 'loc_400k') return 'Team 128 USD (400k LOC)';
+    if (normalized === 'loc_800k') return 'Team 256 USD (800k LOC)';
+    if (normalized === 'loc_1600k') return 'Team 512 USD (1.6M LOC)';
+    if (normalized === 'loc_3200k') return 'Team 1024 USD (3.2M LOC)';
+    if (normalized === 'team' || normalized.includes('team')) return 'Team Plan';
     if (normalized === 'free_30k' || normalized === 'free') return 'Free 30k BYOK';
     return plan;
   };
 
-  const dailyLimit = isTeamPlan ? 'Unlimited' : 'Quota-based (30,000 LOC/month)';
+  const dailyLimit = isFree
+    ? 'Quota-based (30,000 LOC/month)'
+    : `Quota-based (${(currentPlan?.monthly_loc_limit || 100000).toLocaleString()} LOC/month)`;
 
   return (
     <div className="space-y-6">
@@ -331,7 +346,7 @@ const OverviewTab: React.FC<{ navigate: any }> = ({ navigate }) => {
         <div className="flex items-center justify-between mb-4">
           <div>
             <h3 className="text-md font-semibold text-white">Current Subscription</h3>
-            <p className="text-sm text-slate-400 mt-1">{getPlanDisplayName(planType)}</p>
+            <p className="text-sm text-slate-400 mt-1">{getPlanDisplayName(currentPlanCode)}</p>
           </div>
           <div className="flex items-center gap-2">
             <div className={`px-4 py-2 rounded-lg text-sm font-medium ${
