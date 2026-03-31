@@ -46,12 +46,12 @@ func (s *stubUnifiedProcessor) CheckResponseWarrant(coreprocessor.UnifiedWebhook
 	return true, coreprocessor.ResponseScenarioV2{Type: "comment_reply"}
 }
 
-func (s *stubUnifiedProcessor) ProcessCommentReply(context.Context, coreprocessor.UnifiedWebhookEventV2, *coreprocessor.UnifiedTimelineV2, int64) (string, *coreprocessor.LearningMetadataV2, error) {
-	return s.reply, nil, nil
+func (s *stubUnifiedProcessor) ProcessCommentReply(context.Context, coreprocessor.UnifiedWebhookEventV2, *coreprocessor.UnifiedTimelineV2, int64) (string, *coreprocessor.LearningMetadataV2, *OperationUsageV2, error) {
+	return s.reply, nil, nil, nil
 }
 
-func (s *stubUnifiedProcessor) ProcessFullReview(context.Context, coreprocessor.UnifiedWebhookEventV2, *coreprocessor.UnifiedTimelineV2) ([]coreprocessor.UnifiedReviewCommentV2, *coreprocessor.LearningMetadataV2, error) {
-	return nil, nil, fmt.Errorf("unexpected full review invocation")
+func (s *stubUnifiedProcessor) ProcessFullReview(context.Context, coreprocessor.UnifiedWebhookEventV2, *coreprocessor.UnifiedTimelineV2) ([]coreprocessor.UnifiedReviewCommentV2, *coreprocessor.LearningMetadataV2, *OperationUsageV2, error) {
+	return nil, nil, nil, fmt.Errorf("unexpected full review invocation")
 }
 
 func TestBitbucketCommentReplyPostingFromCapture(t *testing.T) {

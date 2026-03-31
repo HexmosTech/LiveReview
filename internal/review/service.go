@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"math"
 	"time"
 
 	neturl "net/url"
@@ -68,19 +69,27 @@ type AIConfig struct {
 
 // ReviewResult contains the results of a review process
 type ReviewResult struct {
-	ReviewID      string
-	Success       bool
-	Error         error
-	Summary       string
-	CommentsCount int
-	Comments      []*models.ReviewComment // Added to track actual comment details
-	Duration      time.Duration
+	ReviewID       string
+	Success        bool
+	Error          error
+	Summary        string
+	CommentsCount  int
+	Comments       []*models.ReviewComment // Added to track actual comment details
+	BillableLOC    int64
+	Provider       string
+	Model          string
+	PricingVersion string
+	InputTokens    *int64
+	OutputTokens   *int64
+	CostUSD        *float64
+	Duration       time.Duration
 }
 
 // ReviewWorkflowResult contains the full workflow result including MR details
 type ReviewWorkflowResult struct {
-	MRDetails *providers.MergeRequestDetails
-	Result    *models.ReviewResult
+	MRDetails   *providers.MergeRequestDetails
+	Result      *models.ReviewResult
+	BillableLOC int64
 }
 
 // ProviderFactory creates provider instances
@@ -305,6 +314,18 @@ func (s *Service) ProcessReview(ctx context.Context, request ReviewRequest) *Rev
 	result.Summary = reviewData.Result.Summary
 	result.CommentsCount = len(reviewData.Result.Comments)
 	result.Comments = reviewData.Result.Comments // Include actual comment details
+	result.BillableLOC = reviewData.BillableLOC
+	providerName := strings.TrimSpace(request.AI.Type)
+	if configuredProvider, ok := request.AI.Config["provider_name"].(string); ok && strings.TrimSpace(configuredProvider) != "" {
+		providerName = strings.TrimSpace(configuredProvider)
+	}
+	result.Provider = providerName
+	result.Model = request.AI.Model
+	result.PricingVersion = "v1_estimated"
+	inputTokens, outputTokens, costUSD := estimateUsageFromReviewResult(reviewData.BillableLOC, reviewData.Result)
+	result.InputTokens = &inputTokens
+	result.OutputTokens = &outputTokens
+	result.CostUSD = &costUSD
 	result.Duration = time.Since(start)
 
 	if s.logger != nil {
@@ -524,9 +545,56 @@ func (s *Service) executeReviewWorkflow(
 	log.Printf("[DEBUG] AI Review (batching) completed successfully with %d comments", len(result.Comments))
 
 	return &ReviewWorkflowResult{
-		MRDetails: mrDetails,
-		Result:    result,
+		MRDetails:   mrDetails,
+		Result:      result,
+		BillableLOC: calculateBillableLOCFromDiffs(changes),
 	}, nil
+}
+
+func calculateBillableLOCFromDiffs(diffs []*models.CodeDiff) int64 {
+	var total int64
+	for _, diff := range diffs {
+		if diff == nil {
+			continue
+		}
+		for _, hunk := range diff.Hunks {
+			for _, line := range strings.Split(hunk.Content, "\n") {
+				if len(line) == 0 {
+					continue
+				}
+				if strings.HasPrefix(line, "+++") || strings.HasPrefix(line, "---") || strings.HasPrefix(line, "@@") {
+					continue
+				}
+				if strings.HasPrefix(line, "+") || strings.HasPrefix(line, "-") {
+					total++
+				}
+			}
+		}
+	}
+	return total
+}
+
+func estimateUsageFromReviewResult(billableLOC int64, result *models.ReviewResult) (int64, int64, float64) {
+	inputTokens := billableLOC*6 + 220
+	if inputTokens < 0 {
+		inputTokens = 0
+	}
+
+	var outputTokens int64 = 80
+	if result != nil {
+		outputTokens += int64(len(result.Comments) * 120)
+		outputTokens += int64(len(result.Summary) / 4)
+	}
+	if outputTokens < 0 {
+		outputTokens = 0
+	}
+
+	inputRate := 0.000005  // $5 per 1M input tokens baseline
+	outputRate := 0.000015 // $15 per 1M output tokens baseline
+	costUSD := (float64(inputTokens) * inputRate) + (float64(outputTokens) * outputRate)
+	costUSD = math.Round(costUSD*1e6) / 1e6
+
+	return inputTokens, outputTokens, costUSD
 }
 
 // createBatchProcessor returns a batch processor with recommended settings for batching and retry

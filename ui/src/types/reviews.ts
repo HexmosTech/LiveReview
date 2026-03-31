@@ -95,6 +95,34 @@ export interface ReviewSummary {
   batchCount: number;
 }
 
+export interface ReviewAccountingOperation {
+  operationType: string;
+  triggerSource: string;
+  operationId: string;
+  idempotencyKey: string;
+  billableLoc: number;
+  accountedAt: string;
+  provider?: string;
+  model?: string;
+  pricingVersion?: string;
+  inputTokens?: number;
+  outputTokens?: number;
+  costUsd?: number;
+  metadata?: string;
+}
+
+export interface ReviewAccounting {
+  reviewId: number;
+  totalBillableLoc: number;
+  accountedOperations: number;
+  tokenTrackedOperations: number;
+  lastAccountedAt?: string;
+  totalInputTokens?: number;
+  totalOutputTokens?: number;
+  totalCostUsd?: number;
+  latestOperation?: ReviewAccountingOperation;
+}
+
 export interface ReviewsFilters {
   status?: ReviewStatus;
   provider?: string;
@@ -111,6 +139,8 @@ export interface CreateReviewResponse {
   message: string;
   url: string;
   reviewId: string;
+  ai_execution_mode?: string;
+  ai_execution_source?: string;
 }
 
 // API Error interface

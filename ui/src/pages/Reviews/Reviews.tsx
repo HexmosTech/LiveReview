@@ -37,6 +37,45 @@ const Reviews: React.FC = () => {
     
     const toTitleCase = (value: string): string => value.replace(/\b\w/g, char => char.toUpperCase());
 
+    const getExecutionBadge = (review: Review): { label: string; className: string } | null => {
+        const rawMode = typeof review.metadata?.ai_execution_mode === 'string'
+            ? review.metadata.ai_execution_mode.toLowerCase()
+            : '';
+        const rawPlanCode = typeof review.metadata?.plan_code === 'string'
+            ? review.metadata.plan_code.toLowerCase()
+            : '';
+
+        if (rawMode === 'hosted_auto') {
+            return {
+                label: 'Auto',
+                className: 'bg-emerald-900/60 text-emerald-200 border border-emerald-600/40'
+            };
+        }
+
+        if (rawMode === 'byok_required' || rawMode === 'byok_override' || rawMode === 'byok_optional') {
+            return {
+                label: 'BYOK',
+                className: 'bg-amber-900/60 text-amber-200 border border-amber-600/40'
+            };
+        }
+
+        if (rawPlanCode === 'free_30k' || rawPlanCode === 'free') {
+            return {
+                label: 'BYOK',
+                className: 'bg-amber-900/60 text-amber-200 border border-amber-600/40'
+            };
+        }
+
+        if (rawPlanCode === 'team_32usd' || rawPlanCode === 'team') {
+            return {
+                label: 'Auto',
+                className: 'bg-emerald-900/60 text-emerald-200 border border-emerald-600/40'
+            };
+        }
+
+        return null;
+    };
+
     // Helper function to extract MR/PR info from URL
     const extractMRInfo = (url: string): string => {
         try {
@@ -401,6 +440,7 @@ const Reviews: React.FC = () => {
                                     const cleanedRepository = review.repository ? review.repository.replace(/^https?:\/\//, '').replace(/\/$/, '') : '';
                                     const repoSegments = cleanedRepository.split('/').filter(Boolean);
                                     const repoShort = repoSegments.length ? repoSegments[repoSegments.length - 1] : '';
+                                    const executionBadge = getExecutionBadge(review);
                                     
                                     // Determine primary title based on review type
                                     let primaryTitle: string;
@@ -474,9 +514,16 @@ const Reviews: React.FC = () => {
                                                 </div>
                                             </td>
                                             <td className="px-6 py-4">
-                                                <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium text-white ${getStatusColor(review.status)}`}>
-                                                    {getStatusText(review.status)}
-                                                </span>
+                                                <div className="flex flex-wrap items-center gap-2">
+                                                    <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium text-white ${getStatusColor(review.status)}`}>
+                                                        {getStatusText(review.status)}
+                                                    </span>
+                                                    {executionBadge && (
+                                                        <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${executionBadge.className}`}>
+                                                            {executionBadge.label}
+                                                        </span>
+                                                    )}
+                                                </div>
                                             </td>
                                             <td className="px-6 py-4 text-slate-300">
                                                 <div className="font-medium text-white">{authorPrimary}</div>

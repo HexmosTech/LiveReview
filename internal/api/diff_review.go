@@ -15,9 +15,12 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/labstack/echo/v4"
 	"github.com/livereview/cmd/mrmodel/lib"
+	apimiddleware "github.com/livereview/internal/api/middleware"
+	"github.com/livereview/internal/license"
 	"github.com/livereview/internal/logging"
 	"github.com/livereview/internal/naming"
 	"github.com/livereview/internal/review"
@@ -78,15 +81,49 @@ func (s *Server) DiffReview(c echo.Context) error {
 
 	var req diffReviewRequest
 	if err := c.Bind(&req); err != nil {
-		return c.JSON(http.StatusBadRequest, map[string]string{"error": "invalid request body"})
+		return JSONErrorWithEnvelope(c, http.StatusBadRequest, "invalid request body")
 	}
 	if strings.TrimSpace(req.DiffZipBase64) == "" {
-		return c.JSON(http.StatusBadRequest, map[string]string{"error": "diff_zip_base64 is required"})
+		return JSONErrorWithEnvelope(c, http.StatusBadRequest, "diff_zip_base64 is required")
 	}
 
 	localDiffs, err := parseDiffZipBase64(req.DiffZipBase64)
 	if err != nil {
-		return c.JSON(http.StatusBadRequest, map[string]string{"error": fmt.Sprintf("failed to parse diff: %v", err)})
+		return JSONErrorWithEnvelope(c, http.StatusBadRequest, fmt.Sprintf("failed to parse diff: %v", err))
+	}
+	billableLOC := CalculateEffectiveDiffLOCFromLocalDiffs(localDiffs)
+	c.Set(EnvelopeOperationTypeContextKey, "diff_review")
+	c.Set(EnvelopeTriggerSourceContextKey, "api")
+	c.Set(EnvelopeOperationBillableLOCContextKey, billableLOC)
+
+	planCode := license.PlanFree30K
+	if planCtx, ok := c.Get(apimiddleware.PlanContextKey).(apimiddleware.PlanContext); ok && planCtx.PlanType != "" {
+		planCode = planCtx.PlanType
+	}
+
+	accountingService := license.NewLOCAccountingService(s.db)
+	preflightResult, err := accountingService.CheckPreflight(context.Background(), license.LOCPreflightInput{
+		OrgID:       orgID,
+		RequiredLOC: billableLOC,
+		PlanCode:    planCode,
+	})
+	if err != nil {
+		return JSONErrorWithEnvelope(c, http.StatusInternalServerError, fmt.Sprintf("failed quota preflight: %v", err))
+	}
+	applyPreflightToEnvelopeContext(c, preflightResult)
+
+	if preflightResult.Blocked {
+		errorCode := "quota_exceeded"
+		errorMessage := "monthly LOC quota exceeded for this operation"
+		if preflightResult.BlockReason == "trial_readonly" {
+			errorCode = "trial_readonly"
+			errorMessage = "trial period ended; review operations are read-only until plan update"
+		}
+		return JSONWithEnvelope(c, http.StatusForbidden, map[string]interface{}{
+			"error":        errorMessage,
+			"error_code":   errorCode,
+			"required_loc": billableLOC,
+		})
 	}
 
 	modelDiffs := convertLocalDiffs(localDiffs)
@@ -102,20 +139,37 @@ func (s *Server) DiffReview(c echo.Context) error {
 	rm := NewReviewManager(s.db)
 	log.Printf("[DiffReview] Creating review with: repoName=%s, userEmail=%s, orgID=%d, friendlyName=%s, authorName=%s, authorUsername=%s",
 		repoName, userEmail, orgID, friendlyName, authorName, authorUsername)
-	reviewRecord, err := rm.CreateReviewWithOrg(repoName, "", "", "", "cli_diff", userEmail, "cli", nil, map[string]interface{}{"source": "diff-review"}, orgID, friendlyName, authorName, authorUsername)
-	if err != nil {
-		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "failed to create review record"})
+	preflightMeta := map[string]interface{}{
+		"source":                 "diff-review",
+		"operation_billable_loc": billableLOC,
+		"loc_used_month":         preflightResult.LOCUsedMonth,
+		"loc_remaining_month":    preflightResult.LOCRemainingMonth,
+		"usage_percent":          preflightResult.UsagePercent,
+		"threshold_state":        preflightResult.ThresholdState,
+		"blocked":                preflightResult.Blocked,
+		"trial_readonly":         preflightResult.TrialReadOnly,
+		"billing_period_start":   preflightResult.BillingPeriodStart.Format(time.RFC3339),
+		"billing_period_end":     preflightResult.BillingPeriodEnd.Format(time.RFC3339),
+		"reset_at":               preflightResult.BillingPeriodEnd.Format(time.RFC3339),
 	}
+	reviewRecord, err := rm.CreateReviewWithOrg(repoName, "", "", "", "cli_diff", userEmail, "cli", nil, preflightMeta, orgID, friendlyName, authorName, authorUsername)
+	if err != nil {
+		return JSONErrorWithEnvelope(c, http.StatusInternalServerError, "failed to create review record")
+	}
+	operationID := fmt.Sprintf("diff-review:%d", reviewRecord.ID)
+	idempotencyKey := operationID
+	c.Set(EnvelopeOperationIDContextKey, operationID)
+	c.Set(EnvelopeIdempotencyKeyContextKey, idempotencyKey)
 
 	// Immediately mark as processing and persist preloaded changes for polling.
 	_ = rm.UpdateReviewStatus(reviewRecord.ID, "processing")
-	if err := rm.MergeReviewMetadata(reviewRecord.ID, map[string]interface{}{"preloaded_changes": modelDiffs}); err != nil {
+	if err := rm.MergeReviewMetadata(reviewRecord.ID, map[string]interface{}{"preloaded_changes": modelDiffs, "operation_billable_loc": billableLOC}); err != nil {
 		log.Printf("[WARN] failed to store preloaded_changes for review %d: %v", reviewRecord.ID, err)
 	}
 
-	aiConfig, err := s.getAIConfigFromDatabase(context.Background(), orgID)
+	aiConfig, err := s.getAIConfigFromDatabase(context.Background(), orgID, planCode)
 	if err != nil {
-		return c.JSON(http.StatusInternalServerError, map[string]string{"error": fmt.Sprintf("failed to load AI config: %v", err)})
+		return JSONErrorWithEnvelope(c, http.StatusInternalServerError, fmt.Sprintf("failed to load AI config: %v", err))
 	}
 
 	reviewRequest := review.ReviewRequest{
@@ -126,9 +180,9 @@ func (s *Server) DiffReview(c echo.Context) error {
 		PreloadedChanges: modelDiffs,
 	}
 
-	go s.runDiffReview(reviewRequest, rm, reviewRecord.ID, orgID)
+	go s.runDiffReview(reviewRequest, rm, reviewRecord.ID, orgID, billableLOC)
 
-	return c.JSON(http.StatusOK, map[string]interface{}{
+	return JSONWithEnvelope(c, http.StatusOK, map[string]interface{}{
 		"review_id":     fmt.Sprintf("%d", reviewRecord.ID),
 		"status":        "processing",
 		"friendly_name": friendlyName,
@@ -143,19 +197,34 @@ func (s *Server) GetDiffReviewStatus(c echo.Context) error {
 	reviewIDStr := c.Param("review_id")
 	reviewID, err := strconv.ParseInt(reviewIDStr, 10, 64)
 	if err != nil {
-		return c.JSON(http.StatusBadRequest, map[string]string{"error": "invalid review_id"})
+		return JSONErrorWithEnvelope(c, http.StatusBadRequest, "invalid review_id")
 	}
 
 	rm := NewReviewManager(s.db)
 	reviewRecord, err := rm.GetReview(reviewID)
 	if err != nil {
-		return c.JSON(http.StatusNotFound, map[string]string{"error": "review not found"})
+		return JSONErrorWithEnvelope(c, http.StatusNotFound, "review not found")
 	}
 
 	if reviewRecord.Status != "completed" {
 		meta := map[string]interface{}{}
 		if len(reviewRecord.Metadata) > 0 {
 			_ = json.Unmarshal(reviewRecord.Metadata, &meta)
+		}
+		applyEnvelopeUsageFromMetadata(c, meta)
+		if v, ok := readOperationBillableLOC(meta); ok {
+			c.Set(EnvelopeOperationTypeContextKey, "diff_review")
+			c.Set(EnvelopeTriggerSourceContextKey, "api")
+			c.Set(EnvelopeOperationBillableLOCContextKey, v)
+		}
+		if v, ok := readStringMeta(meta, "accounted_at"); ok {
+			c.Set(EnvelopeAccountedAtContextKey, v)
+		}
+		if v, ok := readStringMeta(meta, "operation_id"); ok {
+			c.Set(EnvelopeOperationIDContextKey, v)
+		}
+		if v, ok := readStringMeta(meta, "idempotency_key"); ok {
+			c.Set(EnvelopeIdempotencyKeyContextKey, v)
 		}
 
 		failureReason, _ := meta["failure_reason"].(string)
@@ -172,22 +241,37 @@ func (s *Server) GetDiffReviewStatus(c echo.Context) error {
 			response["message"] = failureReason
 		}
 
-		return c.JSON(http.StatusOK, response)
+		return JSONWithEnvelope(c, http.StatusOK, response)
 	}
 
 	meta := map[string]interface{}{}
 	if len(reviewRecord.Metadata) > 0 {
 		_ = json.Unmarshal(reviewRecord.Metadata, &meta)
 	}
+	applyEnvelopeUsageFromMetadata(c, meta)
+	if v, ok := readOperationBillableLOC(meta); ok {
+		c.Set(EnvelopeOperationTypeContextKey, "diff_review")
+		c.Set(EnvelopeTriggerSourceContextKey, "api")
+		c.Set(EnvelopeOperationBillableLOCContextKey, v)
+	}
+	if v, ok := readStringMeta(meta, "accounted_at"); ok {
+		c.Set(EnvelopeAccountedAtContextKey, v)
+	}
+	if v, ok := readStringMeta(meta, "operation_id"); ok {
+		c.Set(EnvelopeOperationIDContextKey, v)
+	}
+	if v, ok := readStringMeta(meta, "idempotency_key"); ok {
+		c.Set(EnvelopeIdempotencyKeyContextKey, v)
+	}
 
 	preloaded, err := decodePreloadedChanges(meta)
 	if err != nil {
-		return c.JSON(http.StatusInternalServerError, map[string]string{"error": fmt.Sprintf("failed to decode preloaded changes: %v", err)})
+		return JSONErrorWithEnvelope(c, http.StatusInternalServerError, fmt.Sprintf("failed to decode preloaded changes: %v", err))
 	}
 
 	result, err := decodeReviewResult(meta)
 	if err != nil {
-		return c.JSON(http.StatusInternalServerError, map[string]string{"error": fmt.Sprintf("failed to decode review result: %v", err)})
+		return JSONErrorWithEnvelope(c, http.StatusInternalServerError, fmt.Sprintf("failed to decode review result: %v", err))
 	}
 
 	files := buildDiffFiles(preloaded, result.Comments)
@@ -209,11 +293,11 @@ func (s *Server) GetDiffReviewStatus(c echo.Context) error {
 		response["ai_summary_title"] = aiSummaryTitle
 	}
 
-	return c.JSON(http.StatusOK, response)
+	return JSONWithEnvelope(c, http.StatusOK, response)
 }
 
 // runDiffReview executes the review asynchronously and persists results.
-func (s *Server) runDiffReview(request review.ReviewRequest, rm *ReviewManager, reviewID int64, orgID int64) {
+func (s *Server) runDiffReview(request review.ReviewRequest, rm *ReviewManager, reviewID int64, orgID int64, billableLOC int64) {
 	// Initialize logger with event sink for UI visibility
 	logger, err := logging.StartReviewLoggingWithIDs(fmt.Sprintf("%d", reviewID), reviewID, orgID)
 	if err != nil {
@@ -248,6 +332,35 @@ func (s *Server) runDiffReview(request review.ReviewRequest, rm *ReviewManager, 
 	if result != nil {
 		if result.Success {
 			status = "completed"
+			accountedAt := time.Now().UTC().Format(time.RFC3339)
+			accountingService := license.NewLOCAccountingService(s.db)
+			operationID := fmt.Sprintf("diff-review:%d", reviewID)
+			idempotencyKey := operationID
+			if err := accountingService.AccountSuccess(context.Background(), license.LOCAccountSuccessInput{
+				OrgID:          orgID,
+				ReviewID:       reviewID,
+				OperationType:  "diff_review",
+				TriggerSource:  "api",
+				OperationID:    operationID,
+				IdempotencyKey: idempotencyKey,
+				BillableLOC:    billableLOC,
+				Provider:       result.Provider,
+				Model:          result.Model,
+				PricingVersion: result.PricingVersion,
+				InputTokens:    result.InputTokens,
+				OutputTokens:   result.OutputTokens,
+				CostUSD:        result.CostUSD,
+			}); err != nil {
+				log.Printf("[WARN] failed success-only accounting for review %d: %v", reviewID, err)
+			} else {
+				meta := map[string]interface{}{"accounted_at": accountedAt, "operation_id": operationID, "idempotency_key": idempotencyKey}
+				for k, v := range aiExecutionMetadataFromConfig(request.AI.Config) {
+					meta[k] = v
+				}
+				if err := rm.MergeReviewMetadata(reviewID, meta); err != nil {
+					log.Printf("[WARN] failed to store accounted_at for review %d: %v", reviewID, err)
+				}
+			}
 			if logger != nil {
 				logger.LogSection("REVIEW COMPLETED")
 				logger.Log("Successfully generated %d comments", len(result.Comments))
@@ -572,4 +685,121 @@ func lineWithinHunks(line int, hunks []models.DiffHunk) bool {
 		}
 	}
 	return false
+}
+
+func readOperationBillableLOC(meta map[string]interface{}) (int64, bool) {
+	if meta == nil {
+		return 0, false
+	}
+	v, ok := meta["operation_billable_loc"]
+	if !ok {
+		return 0, false
+	}
+	switch n := v.(type) {
+	case float64:
+		return int64(n), true
+	case int64:
+		return n, true
+	case int:
+		return int64(n), true
+	default:
+		return 0, false
+	}
+}
+
+func readStringMeta(meta map[string]interface{}, key string) (string, bool) {
+	if meta == nil {
+		return "", false
+	}
+	v, ok := meta[key]
+	if !ok {
+		return "", false
+	}
+	s, ok := v.(string)
+	if !ok || strings.TrimSpace(s) == "" {
+		return "", false
+	}
+	return s, true
+}
+
+func applyPreflightToEnvelopeContext(c echo.Context, result license.LOCPreflightResult) {
+	c.Set(EnvelopeLOCUsedMonthContextKey, result.LOCUsedMonth)
+	c.Set(EnvelopeLOCRemainMonthContextKey, result.LOCRemainingMonth)
+	c.Set(EnvelopeUsagePercentContextKey, result.UsagePercent)
+	c.Set(EnvelopeThresholdStateContextKey, result.ThresholdState)
+	c.Set(EnvelopeBlockedContextKey, result.Blocked)
+	c.Set(EnvelopeTrialReadOnlyContextKey, result.TrialReadOnly)
+	c.Set(EnvelopeBillingPeriodStartContextKey, result.BillingPeriodStart.Format(time.RFC3339))
+	c.Set(EnvelopeBillingPeriodEndContextKey, result.BillingPeriodEnd.Format(time.RFC3339))
+	c.Set(EnvelopeResetAtContextKey, result.BillingPeriodEnd.Format(time.RFC3339))
+}
+
+func applyEnvelopeUsageFromMetadata(c echo.Context, meta map[string]interface{}) {
+	if v, ok := readInt64Meta(meta, "loc_used_month"); ok {
+		c.Set(EnvelopeLOCUsedMonthContextKey, v)
+	}
+	if v, ok := readInt64Meta(meta, "loc_remaining_month"); ok {
+		c.Set(EnvelopeLOCRemainMonthContextKey, v)
+	}
+	if v, ok := readIntMeta(meta, "usage_percent"); ok {
+		c.Set(EnvelopeUsagePercentContextKey, v)
+	}
+	if v, ok := readStringMeta(meta, "threshold_state"); ok {
+		c.Set(EnvelopeThresholdStateContextKey, v)
+	}
+	if v, ok := readBoolMeta(meta, "blocked"); ok {
+		c.Set(EnvelopeBlockedContextKey, v)
+	}
+	if v, ok := readBoolMeta(meta, "trial_readonly"); ok {
+		c.Set(EnvelopeTrialReadOnlyContextKey, v)
+	}
+	if v, ok := readStringMeta(meta, "billing_period_start"); ok {
+		c.Set(EnvelopeBillingPeriodStartContextKey, v)
+	}
+	if v, ok := readStringMeta(meta, "billing_period_end"); ok {
+		c.Set(EnvelopeBillingPeriodEndContextKey, v)
+	}
+	if v, ok := readStringMeta(meta, "reset_at"); ok {
+		c.Set(EnvelopeResetAtContextKey, v)
+	}
+}
+
+func readInt64Meta(meta map[string]interface{}, key string) (int64, bool) {
+	if meta == nil {
+		return 0, false
+	}
+	v, ok := meta[key]
+	if !ok {
+		return 0, false
+	}
+	switch n := v.(type) {
+	case float64:
+		return int64(n), true
+	case int64:
+		return n, true
+	case int:
+		return int64(n), true
+	default:
+		return 0, false
+	}
+}
+
+func readIntMeta(meta map[string]interface{}, key string) (int, bool) {
+	v, ok := readInt64Meta(meta, key)
+	if !ok {
+		return 0, false
+	}
+	return int(v), true
+}
+
+func readBoolMeta(meta map[string]interface{}, key string) (bool, bool) {
+	if meta == nil {
+		return false, false
+	}
+	v, ok := meta[key]
+	if !ok {
+		return false, false
+	}
+	b, ok := v.(bool)
+	return b, ok
 }

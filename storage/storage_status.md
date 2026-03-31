@@ -1,20 +1,22 @@
 # Storage Status
 
+Latest milestone batch note (MF-LOC-007): added LOC billing plan-change storage operations (immediate upgrade, scheduled downgrade, cancel/apply transitions) and lifecycle threshold/reset/trial event emission in LOC accounting store.
+
 | Operation | Status | Evidence |
 | --- | --- | --- |
 | payment.NewSubscriptionStore | moved | [NewSubscriptionStore](payment/subscription_store.go#L24) |
 | payment.CreateTeamSubscriptionRecord | moved | [CreateTeamSubscriptionRecord](payment/subscription_store.go#L43) |
 | payment.UpdateSubscriptionQuantityRecord | moved | [UpdateSubscriptionQuantityRecord](payment/subscription_store.go#L108) |
 | payment.CancelSubscriptionRecord | moved | [CancelSubscriptionRecord](payment/subscription_store.go#L176) |
-| payment.GetSubscriptionDetailsRow | moved | [GetSubscriptionDetailsRow](payment/subscription_store.go#L270) |
-| payment.AssignLicense | moved | [AssignLicense](payment/subscription_store.go#L301) |
-| payment.RevokeLicense | moved | [RevokeLicense](payment/subscription_store.go#L414) |
-| payment.GetUserIDByEmail | moved | [GetUserIDByEmail](payment/subscription_store.go#L494) |
-| payment.CreateShadowUser | moved | [CreateShadowUser](payment/subscription_store.go#L506) |
-| payment.CreateSelfHostedSubscriptionRecord | moved | [CreateSelfHostedSubscriptionRecord](payment/subscription_store.go#L534) |
-| payment.GetSelfHostedConfirmationSeed | moved | [GetSelfHostedConfirmationSeed](payment/subscription_store.go#L599) |
-| payment.PersistSelfHostedFallback | moved | [PersistSelfHostedFallback](payment/subscription_store.go#L636) |
-| payment.PersistSelfHostedJWT | moved | [PersistSelfHostedJWT](payment/subscription_store.go#L699) |
+| payment.GetSubscriptionDetailsRow | moved | [GetSubscriptionDetailsRow](payment/subscription_store.go#L306) |
+| payment.AssignLicense | moved | [AssignLicense](payment/subscription_store.go#L337) |
+| payment.RevokeLicense | moved | [RevokeLicense](payment/subscription_store.go#L450) |
+| payment.GetUserIDByEmail | moved | [GetUserIDByEmail](payment/subscription_store.go#L530) |
+| payment.CreateShadowUser | moved | [CreateShadowUser](payment/subscription_store.go#L542) |
+| payment.CreateSelfHostedSubscriptionRecord | moved | [CreateSelfHostedSubscriptionRecord](payment/subscription_store.go#L570) |
+| payment.GetSelfHostedConfirmationSeed | moved | [GetSelfHostedConfirmationSeed](payment/subscription_store.go#L635) |
+| payment.PersistSelfHostedFallback | moved | [PersistSelfHostedFallback](payment/subscription_store.go#L672) |
+| payment.PersistSelfHostedJWT | moved | [PersistSelfHostedJWT](payment/subscription_store.go#L735) |
 | jobqueue.NewWebhookStore | moved | [NewWebhookStore](jobqueue/webhook_store.go#L24) |
 | jobqueue.GetWebhookPublicEndpoint | moved | [GetWebhookPublicEndpoint](jobqueue/webhook_store.go#L33) |
 | jobqueue.GetWebhookRegistryID | moved | [GetWebhookRegistryID](jobqueue/webhook_store.go#L52) |
@@ -70,3 +72,26 @@
 | providersgitea.GetLatestWebhookSecret | moved | [GetLatestWebhookSecret](providers/gitea/token_store.go#L64) |
 | core.NewFileOpsStore | moved | [NewFileOpsStore](core/file_ops.go#L7) |
 | core.ReadFile | moved | [ReadFile](core/file_ops.go#L11) |
+| license.NewPlanCatalogFileStore | moved | [NewPlanCatalogFileStore](license/plan_catalog_file_store.go#L14) |
+| license.ReadPlanCatalogFile | moved | [ReadPlanCatalogFile](license/plan_catalog_file_store.go#L18) |
+| license.NewLOCAccountingStore | moved | [NewLOCAccountingStore](license/loc_accounting_store.go#L49) |
+| license.AccountSuccess | moved | [AccountSuccess](license/loc_accounting_store.go#L53) |
+| license.CheckQuotaPreflight | moved | [CheckQuotaPreflight](license/loc_accounting_store.go#L185) |
+| license.emitThresholdLifecycleEventsTx | moved | [emitThresholdLifecycleEventsTx](license/loc_accounting_store.go#L317) |
+| license.emitLifecycleEventTx | moved | [emitLifecycleEventTx](license/loc_accounting_store.go#L342) |
+| license.NewReviewAccountingStore | moved | [NewReviewAccountingStore](license/review_accounting_store.go#L40) |
+| license.GetReviewAccountingTotals | moved | [GetReviewAccountingTotals](license/review_accounting_store.go#L44) |
+| license.GetLatestReviewAccountingOperation | moved | [GetLatestReviewAccountingOperation](license/review_accounting_store.go#L109) |
+| license.NewOrgUsageStore | moved | [NewOrgUsageStore](license/org_usage_store.go#L41) |
+| license.GetCurrentPeriodSummary | moved | [GetCurrentPeriodSummary](license/org_usage_store.go#L45) |
+| license.ListCurrentPeriodOperations | moved | [ListCurrentPeriodOperations](license/org_usage_store.go#L102) |
+| payment.ListSubscriptionsByOrgID | moved | [ListSubscriptionsByOrgID](payment/subscription_store.go#L278) |
+| license.NewPlanChangeStore | moved | [NewPlanChangeStore](license/plan_change_store.go#L26) |
+| license.EnsureOrgBillingState | moved | [EnsureOrgBillingState](license/plan_change_store.go#L30) |
+| license.GetOrgBillingState | moved | [GetOrgBillingState](license/plan_change_store.go#L53) |
+| license.ApplyImmediatePlanUpgrade | moved | [ApplyImmediatePlanUpgrade](license/plan_change_store.go#L83) |
+| license.ScheduleDowngrade | moved | [ScheduleDowngrade](license/plan_change_store.go#L112) |
+| license.CancelScheduledDowngrade | moved | [CancelScheduledDowngrade](license/plan_change_store.go#L139) |
+| license.ListDueScheduledDowngrades | moved | [ListDueScheduledDowngrades](license/plan_change_store.go#L173) |
+| license.ApplyScheduledDowngrade | moved | [ApplyScheduledDowngrade](license/plan_change_store.go#L202) |
+| license.insertLifecycleEventTx | moved | [insertLifecycleEventTx](license/plan_change_store.go#L235) |

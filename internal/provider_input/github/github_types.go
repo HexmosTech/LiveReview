@@ -28,6 +28,9 @@ type GitHubV2PullRequest struct {
 	RequestedReviewers []GitHubV2User `json:"requested_reviewers"`
 	RequestedTeams     []GitHubV2Team `json:"requested_teams"`
 	Assignees          []GitHubV2User `json:"assignees"`
+	Additions          int            `json:"additions"`
+	Deletions          int            `json:"deletions"`
+	ChangedFiles       int            `json:"changed_files"`
 }
 
 // GitHubV2Repository represents a GitHub repository

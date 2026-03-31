@@ -149,6 +149,7 @@ func ConvertPullRequestReviewCommentEvent(body []byte) (*UnifiedWebhookEventV2, 
 				WebURL:    payload.PullRequest.User.HTMLURL,
 				AvatarURL: payload.PullRequest.User.AvatarURL,
 			},
+			Metadata: buildGitHubPROperationMetadata(payload.PullRequest),
 		},
 		Repository: UnifiedRepositoryV2{
 			ID:       fmt.Sprintf("%d", payload.Repository.ID),
@@ -266,6 +267,7 @@ func ConvertPullRequestReviewEvent(body []byte) (*UnifiedWebhookEventV2, error) 
 				Name:     payload.PullRequest.User.Login,
 				WebURL:   payload.PullRequest.User.HTMLURL,
 			},
+			Metadata: buildGitHubPROperationMetadata(payload.PullRequest),
 		},
 		Repository: UnifiedRepositoryV2{
 			ID:       fmt.Sprintf("%d", payload.Repository.ID),
@@ -348,6 +350,7 @@ func ConvertReviewerEvent(headers map[string]string, body []byte) (*UnifiedWebho
 				WebURL:    payload.PullRequest.User.HTMLURL,
 				AvatarURL: payload.PullRequest.User.AvatarURL,
 			},
+			Metadata: buildGitHubPROperationMetadata(payload.PullRequest),
 		},
 		Repository: UnifiedRepositoryV2{
 			ID:       fmt.Sprintf("%d", payload.Repository.ID),
@@ -383,4 +386,15 @@ func ConvertReviewerEvent(headers map[string]string, body []byte) (*UnifiedWebho
 	}
 
 	return event, nil
+}
+
+func buildGitHubPROperationMetadata(pr GitHubV2PullRequest) map[string]interface{} {
+	billableLOC := int64(pr.Additions + pr.Deletions)
+	if billableLOC <= 0 {
+		return nil
+	}
+
+	return map[string]interface{}{
+		"operation_billable_loc": billableLOC,
+	}
 }

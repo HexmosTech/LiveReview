@@ -5,10 +5,12 @@ import (
 	"net/http"
 	"os"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/labstack/echo/v4"
 	"github.com/livereview/internal/api/auth"
+	"github.com/livereview/internal/license"
 	"github.com/livereview/internal/license/payment"
 )
 
@@ -30,6 +32,14 @@ type SubscriptionsHandler struct {
 	db      *sql.DB
 }
 
+func resolveRazorpayMode() string {
+	mode := os.Getenv("RAZORPAY_MODE")
+	if mode == "" {
+		return "test"
+	}
+	return mode
+}
+
 // NewSubscriptionsHandler creates a new subscriptions handler
 func NewSubscriptionsHandler(db *sql.DB) *SubscriptionsHandler {
 	return &SubscriptionsHandler{
@@ -40,8 +50,52 @@ func NewSubscriptionsHandler(db *sql.DB) *SubscriptionsHandler {
 
 // CreateSubscriptionRequest represents the request to create a subscription
 type CreateSubscriptionRequest struct {
-	PlanType string `json:"plan_type"` // "monthly" or "yearly"
-	Quantity int    `json:"quantity"`  // Number of seats
+	PlanCode string `json:"plan_code"`
+	PlanType string `json:"plan_type"` // deprecated compatibility field
+	Quantity int    `json:"quantity"`  // deprecated compatibility field
+}
+
+func resolvePlanCodeFromRequest(req CreateSubscriptionRequest) (license.PlanType, error) {
+	if strings.TrimSpace(req.PlanCode) != "" {
+		planCode := license.PlanType(strings.TrimSpace(req.PlanCode))
+		if !planCode.IsValid() {
+			return "", echo.NewHTTPError(http.StatusBadRequest, "invalid plan_code")
+		}
+		if planCode.GetLimits().MonthlyPriceUSD <= 0 {
+			return "", echo.NewHTTPError(http.StatusBadRequest, "plan_code must be a paid LOC slab")
+		}
+		return planCode, nil
+	}
+
+	legacyPlanType := strings.ToLower(strings.TrimSpace(req.PlanType))
+	if legacyPlanType == "team_annual" || legacyPlanType == "team_yearly" || legacyPlanType == "annual" || legacyPlanType == "yearly" {
+		return "", echo.NewHTTPError(http.StatusBadRequest, "yearly billing is not supported for LOC slab checkout in this release")
+	}
+
+	if req.Quantity > 0 {
+		switch req.Quantity {
+		case 1:
+			return license.PlanTeam32USD, nil
+		case 2:
+			return license.PlanLOC200K, nil
+		case 4:
+			return license.PlanLOC400K, nil
+		case 8:
+			return license.PlanLOC800K, nil
+		case 16:
+			return license.PlanLOC1600K, nil
+		case 32:
+			return license.PlanLOC3200K, nil
+		default:
+			return "", echo.NewHTTPError(http.StatusBadRequest, "legacy quantity is unsupported; provide plan_code")
+		}
+	}
+
+	if legacyPlanType == "team_monthly" || legacyPlanType == "monthly" {
+		return license.PlanTeam32USD, nil
+	}
+
+	return "", echo.NewHTTPError(http.StatusBadRequest, "plan_code is required")
 }
 
 // CreateSubscription creates a new team subscription
@@ -83,33 +137,23 @@ func (h *SubscriptionsHandler) CreateSubscription(c echo.Context) error {
 		})
 	}
 
-	// Normalize plan type to internal values
-	switch req.PlanType {
-	case "team_monthly":
-		req.PlanType = "monthly"
-	case "team_annual", "team_yearly", "annual":
-		req.PlanType = "yearly"
-	}
-
-	// Validate plan type after normalization
-	if req.PlanType != "monthly" && req.PlanType != "yearly" {
-		return c.JSON(http.StatusBadRequest, map[string]string{
-			"error": "plan_type must be 'monthly', 'yearly', 'team_monthly', or 'team_annual'",
-		})
-	}
-
-	// Validate quantity
-	if req.Quantity < 1 {
-		return c.JSON(http.StatusBadRequest, map[string]string{
-			"error": "quantity must be at least 1",
-		})
+	planCode, err := resolvePlanCodeFromRequest(req)
+	if err != nil {
+		if httpErr, ok := err.(*echo.HTTPError); ok {
+			message := "invalid request"
+			if msg, ok := httpErr.Message.(string); ok && msg != "" {
+				message = msg
+			}
+			return c.JSON(httpErr.Code, map[string]string{"error": message})
+		}
+		return c.JSON(http.StatusBadRequest, map[string]string{"error": err.Error()})
 	}
 
 	// Determine mode (test vs live)
-	mode := "live" // Production mode
+	mode := resolveRazorpayMode()
 
 	// Create subscription
-	sub, err := h.service.CreateTeamSubscription(userID, int(orgID), req.PlanType, req.Quantity, mode)
+	sub, err := h.service.CreateTeamSubscription(userID, int(orgID), planCode.String(), mode)
 	if err != nil {
 		return c.JSON(http.StatusInternalServerError, map[string]string{
 			"error": err.Error(),
@@ -124,12 +168,16 @@ func (h *SubscriptionsHandler) CreateSubscription(c echo.Context) error {
 		})
 	}
 
+	limits := planCode.GetLimits()
 	response := map[string]interface{}{
 		"razorpay_subscription_id": sub.ID,
 		"razorpay_key_id":          keyID,
 		"status":                   sub.Status,
-		"quantity":                 req.Quantity,
-		"plan_type":                req.PlanType,
+		"quantity":                 sub.Quantity,
+		"plan_code":                planCode.String(),
+		"plan_type":                "monthly",
+		"monthly_loc_limit":        limits.MonthlyLOCLimit,
+		"monthly_price_usd":        limits.MonthlyPriceUSD,
 		"short_url":                sub.ShortURL,
 		"current_period_start":     sub.CurrentStart,
 		"current_period_end":       sub.CurrentEnd,
@@ -170,7 +218,7 @@ func (h *SubscriptionsHandler) UpdateQuantity(c echo.Context) error {
 	}
 
 	// Determine mode
-	mode := "live" // Production mode
+	mode := resolveRazorpayMode()
 
 	// Update quantity
 	sub, err := h.service.UpdateQuantity(subscriptionID, req.Quantity, req.ScheduleChangeAt, mode)
@@ -207,7 +255,7 @@ func (h *SubscriptionsHandler) CancelSubscription(c echo.Context) error {
 	}
 
 	// Determine mode
-	mode := "live" // Production mode
+	mode := resolveRazorpayMode()
 
 	// Cancel subscription
 	sub, err := h.service.CancelSubscription(subscriptionID, req.Immediate, mode)
@@ -774,12 +822,23 @@ func (h *SubscriptionsHandler) ConfirmPurchase(c echo.Context) error {
 			"error": "razorpay_payment_id is required",
 		})
 	}
+	if strings.TrimSpace(req.RazorpaySignature) == "" {
+		return c.JSON(http.StatusBadRequest, map[string]string{
+			"error": "razorpay_signature is required",
+		})
+	}
 
 	// Determine mode
-	mode := "live" // Production mode
+	mode := resolveRazorpayMode()
 
 	// Confirm purchase
 	if err := h.service.ConfirmPurchase(&req, mode); err != nil {
+		if strings.Contains(strings.ToLower(err.Error()), "invalid razorpay signature") {
+			return c.JSON(http.StatusBadRequest, map[string]string{
+				"error": err.Error(),
+			})
+		}
+
 		return c.JSON(http.StatusInternalServerError, map[string]string{
 			"error": err.Error(),
 		})
@@ -813,10 +872,7 @@ func (h *SubscriptionsHandler) CreateSelfHostedPurchase(c echo.Context) error {
 	}
 
 	// Read mode from environment: "test" or "live" (defaults to "test" for safety)
-	mode := os.Getenv("RAZORPAY_MODE")
-	if mode == "" {
-		mode = "test"
-	}
+	mode := resolveRazorpayMode()
 	result, err := h.service.CreateSelfHostedPurchase(req.Email, req.Quantity, mode)
 	if err != nil {
 		return c.JSON(http.StatusInternalServerError, map[string]string{
@@ -846,10 +902,7 @@ func (h *SubscriptionsHandler) ConfirmSelfHostedPurchase(c echo.Context) error {
 	}
 
 	// Read mode from environment: "test" or "live" (defaults to "test" for safety)
-	mode := os.Getenv("RAZORPAY_MODE")
-	if mode == "" {
-		mode = "test"
-	}
+	mode := resolveRazorpayMode()
 	licenseKey, err := h.service.ConfirmSelfHostedPurchase(req.SubscriptionID, req.PaymentID, mode)
 	if err != nil {
 		return c.JSON(http.StatusInternalServerError, map[string]string{

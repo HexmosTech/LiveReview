@@ -15,6 +15,16 @@ import { getConnectors, ConnectorResponse } from '../../api/connectors';
 import { ErrorBoundary } from '../../components/ErrorBoundary';
 import { UpgradePromptModal } from '../../components/Subscriptions';
 import { SafetyBanner } from '../../components/SafetyBanner/SafetyBanner';
+import apiClient from '../../api/apiClient';
+
+type QuotaStatusResponse = {
+  can_trigger_reviews: boolean;
+  envelope?: {
+    blocked?: boolean;
+    trial_readonly?: boolean;
+    usage_pct?: number;
+  };
+};
 
 const NewReview: React.FC = () => {
   const navigate = useNavigate();
@@ -27,6 +37,7 @@ const NewReview: React.FC = () => {
   const [showUpgradeModal, setShowUpgradeModal] = useState(false);
   const [upgradeReason, setUpgradeReason] = useState<'DAILY_LIMIT' | 'NOT_ORG_CREATOR'>('DAILY_LIMIT');
   const [limitInfo, setLimitInfo] = useState<{ used: number; limit: number }>({ used: 3, limit: 3 });
+  const [quotaStatus, setQuotaStatus] = useState<QuotaStatusResponse | null>(null);
 
   // Load connectors when component mounts
   useEffect(() => {
@@ -43,6 +54,13 @@ const NewReview: React.FC = () => {
     };
 
     fetchConnectors();
+  }, []);
+
+  useEffect(() => {
+    apiClient
+      .get<QuotaStatusResponse>('/quota/status')
+      .then((data) => setQuotaStatus(data))
+      .catch(() => setQuotaStatus(null));
   }, []);
 
   // Extract base URL from input URL
@@ -95,6 +113,15 @@ const NewReview: React.FC = () => {
       return;
     }
 
+    if (quotaStatus?.envelope?.trial_readonly) {
+      setError('Trial is read-only for this organization. Upgrade your plan to resume review creation.');
+      return;
+    }
+    if (quotaStatus?.envelope?.blocked || quotaStatus?.can_trigger_reviews === false) {
+      setError('Review creation is currently blocked by plan/quota limits. Upgrade or wait for usage reset.');
+      return;
+    }
+
     setLoading(true);
 
     try {
@@ -113,8 +140,8 @@ const NewReview: React.FC = () => {
       console.error('Error triggering review:', err);
       
       // Check for subscription limit errors (HTTP 402)
-      if (err.response?.status === 402 || err.statusCode === 402) {
-        const errorData = err.response?.data || err;
+      if (err?.status === 402) {
+        const errorData = err?.data || err;
         const errorCode = errorData.code;
         
         if (errorCode === 'DAILY_LIMIT_EXCEEDED') {
@@ -129,6 +156,13 @@ const NewReview: React.FC = () => {
           setShowUpgradeModal(true);
         } else {
           setError(errorData.message || err.message || 'Failed to trigger review. Please try again later.');
+        }
+      } else if (err?.status === 429) {
+        const trialReadOnly = Boolean(err?.data?.envelope?.trial_readonly);
+        if (trialReadOnly) {
+          setError('Trial is read-only for this organization. Upgrade your plan to resume review creation.');
+        } else {
+          setError(err?.data?.error || 'LOC quota exhausted for this billing period. Upgrade your plan or wait for reset.');
         }
       } else {
         setError(err.message || 'Failed to trigger review. Please try again later.');
@@ -181,6 +215,25 @@ const NewReview: React.FC = () => {
             <form onSubmit={handleSubmit}>
               {/* Safety Banner */}
               <SafetyBanner variant="detailed" className="mb-6" />
+
+              {(quotaStatus?.envelope?.trial_readonly || quotaStatus?.envelope?.blocked || quotaStatus?.can_trigger_reviews === false) && (
+                <Alert 
+                  variant="warning" 
+                  className="mb-4"
+                  icon={<Icons.Warning />}
+                >
+                  <div>
+                    <div className="font-medium text-amber-100">
+                      {quotaStatus?.envelope?.trial_readonly ? 'Trial Read-Only Active' : 'Review Creation Blocked'}
+                    </div>
+                    <div className="text-sm mt-1 text-amber-200/90">
+                      {quotaStatus?.envelope?.trial_readonly
+                        ? 'This organization is in trial read-only mode. Upgrade from Subscription Management to continue triggering reviews.'
+                        : 'Your organization has reached plan limits for review creation. Upgrade your plan or wait for quota reset.'}
+                    </div>
+                  </div>
+                </Alert>
+              )}
               
               <h3 className="text-lg font-medium text-white mb-4">Enter Merge/Pull Request URL</h3>
               
@@ -248,7 +301,13 @@ const NewReview: React.FC = () => {
                 <Button
                   type="submit"
                   variant="primary"
-                  disabled={loading || !url.trim()}
+                  disabled={
+                    loading ||
+                    !url.trim() ||
+                    Boolean(quotaStatus?.envelope?.blocked) ||
+                    Boolean(quotaStatus?.envelope?.trial_readonly) ||
+                    quotaStatus?.can_trigger_reviews === false
+                  }
                   isLoading={loading}
                 >
                   Start Review

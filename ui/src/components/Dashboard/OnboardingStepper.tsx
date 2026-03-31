@@ -180,7 +180,7 @@ export const OnboardingStepper: React.FC<OnboardingStepperProps> = ({
                 <>
                   <p className="mt-2 text-sm text-slate-300">Manual installation:</p>
                   <CodeBlock code="curl -fsSL https://hexmos.com/lrc-install.sh | bash" />
-                  <p className="mt-2 text-xs text-slate-400">Then configure with: echo 'api_key = \"your-api-key\"\napi_url = \"http://localhost:8888\"' > ~/.lrc.toml</p>
+                  <p className="mt-2 text-xs text-slate-400">Then configure with: echo 'api_key = \"your-api-key\"\napi_url = \"http://localhost:8888\"' &gt; ~/.lrc.toml</p>
                 </>
               )}
             </>

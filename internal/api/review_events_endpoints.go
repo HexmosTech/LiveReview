@@ -7,18 +7,49 @@ import (
 	"time"
 
 	"github.com/labstack/echo/v4"
+	storagelicense "github.com/livereview/storage/license"
 )
 
 // ReviewEventsHandler handles review events API endpoints
 type ReviewEventsHandler struct {
-	service *PollingEventService
+	service         *PollingEventService
+	accountingStore *storagelicense.ReviewAccountingStore
 }
 
 // NewReviewEventsHandler creates a new review events handler
 func NewReviewEventsHandler(db *sql.DB) *ReviewEventsHandler {
 	return &ReviewEventsHandler{
-		service: NewPollingEventService(db),
+		service:         NewPollingEventService(db),
+		accountingStore: storagelicense.NewReviewAccountingStore(db),
 	}
+}
+
+type reviewAccountingOperationResponse struct {
+	OperationType  string   `json:"operationType"`
+	TriggerSource  string   `json:"triggerSource"`
+	OperationID    string   `json:"operationId"`
+	IdempotencyKey string   `json:"idempotencyKey"`
+	BillableLOC    int64    `json:"billableLoc"`
+	AccountedAt    string   `json:"accountedAt"`
+	Provider       string   `json:"provider,omitempty"`
+	Model          string   `json:"model,omitempty"`
+	PricingVersion string   `json:"pricingVersion,omitempty"`
+	InputTokens    *int64   `json:"inputTokens,omitempty"`
+	OutputTokens   *int64   `json:"outputTokens,omitempty"`
+	CostUSD        *float64 `json:"costUsd,omitempty"`
+	Metadata       string   `json:"metadata,omitempty"`
+}
+
+type reviewAccountingResponse struct {
+	ReviewID            int64                              `json:"reviewId"`
+	TotalBillableLOC    int64                              `json:"totalBillableLoc"`
+	AccountedOperations int64                              `json:"accountedOperations"`
+	TokenTrackedOps     int64                              `json:"tokenTrackedOperations"`
+	LastAccountedAt     string                             `json:"lastAccountedAt,omitempty"`
+	TotalInputTokens    *int64                             `json:"totalInputTokens,omitempty"`
+	TotalOutputTokens   *int64                             `json:"totalOutputTokens,omitempty"`
+	TotalCostUSD        *float64                           `json:"totalCostUsd,omitempty"`
+	LatestOperation     *reviewAccountingOperationResponse `json:"latestOperation,omitempty"`
 }
 
 // GetReviewEvents handles GET /api/v1/reviews/{id}/events (polling endpoint)
@@ -151,4 +182,62 @@ func (h *ReviewEventsHandler) GetReviewSummary(c echo.Context) error {
 	}
 
 	return c.JSON(http.StatusOK, summary)
+}
+
+// GetReviewAccounting handles GET /api/v1/reviews/{id}/accounting
+func (h *ReviewEventsHandler) GetReviewAccounting(c echo.Context) error {
+	reviewIDStr := c.Param("id")
+	reviewID, err := strconv.ParseInt(reviewIDStr, 10, 64)
+	if err != nil {
+		return echo.NewHTTPError(http.StatusBadRequest, "Invalid review ID")
+	}
+
+	orgID, ok := c.Get("org_id").(int64)
+	if !ok {
+		return echo.NewHTTPError(http.StatusBadRequest, "Missing organization context")
+	}
+
+	totals, err := h.accountingStore.GetReviewAccountingTotals(c.Request().Context(), orgID, reviewID)
+	if err != nil {
+		return echo.NewHTTPError(http.StatusInternalServerError, "Failed to retrieve review accounting totals")
+	}
+
+	latestOperation, err := h.accountingStore.GetLatestReviewAccountingOperation(c.Request().Context(), orgID, reviewID)
+	if err != nil {
+		return echo.NewHTTPError(http.StatusInternalServerError, "Failed to retrieve latest review accounting operation")
+	}
+
+	response := reviewAccountingResponse{
+		ReviewID:            reviewID,
+		TotalBillableLOC:    totals.TotalBillableLOC,
+		AccountedOperations: totals.AccountedOperations,
+		TokenTrackedOps:     totals.TokenTrackedOps,
+		TotalInputTokens:    totals.TotalInputTokens,
+		TotalOutputTokens:   totals.TotalOutputTokens,
+		TotalCostUSD:        totals.TotalCostUSD,
+	}
+
+	if totals.LastAccountedAt != nil {
+		response.LastAccountedAt = totals.LastAccountedAt.UTC().Format(time.RFC3339)
+	}
+
+	if latestOperation != nil {
+		response.LatestOperation = &reviewAccountingOperationResponse{
+			OperationType:  latestOperation.OperationType,
+			TriggerSource:  latestOperation.TriggerSource,
+			OperationID:    latestOperation.OperationID,
+			IdempotencyKey: latestOperation.IdempotencyKey,
+			BillableLOC:    latestOperation.BillableLOC,
+			AccountedAt:    latestOperation.AccountedAt.UTC().Format(time.RFC3339),
+			Provider:       latestOperation.Provider,
+			Model:          latestOperation.Model,
+			PricingVersion: latestOperation.PricingVersion,
+			InputTokens:    latestOperation.InputTokens,
+			OutputTokens:   latestOperation.OutputTokens,
+			CostUSD:        latestOperation.CostUSD,
+			Metadata:       latestOperation.Metadata,
+		}
+	}
+
+	return c.JSON(http.StatusOK, response)
 }

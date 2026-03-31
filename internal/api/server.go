@@ -16,6 +16,7 @@ import (
 	"github.com/labstack/echo/v4"
 	"github.com/labstack/echo/v4/middleware"
 	"github.com/livereview/internal/api/auth"
+	apimiddleware "github.com/livereview/internal/api/middleware"
 	"github.com/livereview/internal/api/organizations"
 	"github.com/livereview/internal/api/users"
 	"github.com/livereview/internal/jobqueue"
@@ -120,6 +121,7 @@ type Server struct {
 	devMode              bool
 	_licenseSvc          interface{} // holds *license.Service lazily (typed in license.go)
 	licenseScheduler     *license.Scheduler
+	billingActionsCancel context.CancelFunc
 
 	// V2 Webhook Providers
 	gitlabProviderV2    *gitlabprovider.GitLabV2Provider
@@ -174,6 +176,14 @@ func NewServer(port int, versionInfo *VersionInfo) (*Server, error) {
 		return nil, fmt.Errorf("JWT_SECRET not found in .env file\n\nPlease add JWT_SECRET to your .env file:\nJWT_SECRET=your-secure-random-secret-key")
 	}
 
+	planCatalogPath := strings.TrimSpace(os.Getenv("LIVEREVIEW_PLAN_CATALOG_PATH"))
+	if planCatalogPath == "" {
+		planCatalogPath = license.DefaultPlanCatalogPath
+	}
+	if err := license.SyncPlanDefinitionsFromCatalog(planCatalogPath); err != nil {
+		return nil, fmt.Errorf("failed to sync plan catalog from %s: %w", planCatalogPath, err)
+	}
+
 	// Check if development mode is enabled (for test endpoints and debug features)
 	devMode := false
 	if devModeStr, exists := env["DEV_MODE"]; exists {
@@ -190,6 +200,10 @@ func NewServer(port int, versionInfo *VersionInfo) (*Server, error) {
 	db, err := sql.Open("postgres", dbURL)
 	if err != nil {
 		return nil, fmt.Errorf("failed to open database connection: %v", err)
+	}
+
+	if err := ensureRequiredBillingSchema(context.Background(), db); err != nil {
+		return nil, err
 	}
 
 	// Initialize job queue
@@ -329,6 +343,56 @@ func NewServer(port int, versionInfo *VersionInfo) (*Server, error) {
 	return server, nil
 }
 
+func ensureRequiredBillingSchema(ctx context.Context, db *sql.DB) error {
+	if db == nil {
+		return fmt.Errorf("billing schema preflight failed: missing db handle")
+	}
+
+	requiredTables := []string{
+		"plan_catalog",
+		"org_billing_state",
+		"loc_usage_ledger",
+	}
+
+	missing := make([]string, 0)
+	for _, table := range requiredTables {
+		var regClass sql.NullString
+		if err := db.QueryRowContext(ctx, "SELECT to_regclass($1)", "public."+table).Scan(&regClass); err != nil {
+			return fmt.Errorf("billing schema preflight failed: check table %s: %w", table, err)
+		}
+		if !regClass.Valid || strings.TrimSpace(regClass.String) == "" {
+			missing = append(missing, table)
+		}
+	}
+
+	if len(missing) > 0 {
+		return fmt.Errorf(
+			"billing schema preflight failed: missing required table(s): %s. Run dbmate up against this DATABASE_URL before starting API",
+			strings.Join(missing, ", "),
+		)
+	}
+
+	requiredPlanCodes := []string{license.PlanFree30K.String(), license.PlanTeam32USD.String()}
+	missingPlanCodes := make([]string, 0)
+	for _, planCode := range requiredPlanCodes {
+		var exists bool
+		if err := db.QueryRowContext(ctx, "SELECT EXISTS (SELECT 1 FROM plan_catalog WHERE plan_code = $1)", planCode).Scan(&exists); err != nil {
+			return fmt.Errorf("billing schema preflight failed: check required plan code %s: %w", planCode, err)
+		}
+		if !exists {
+			missingPlanCodes = append(missingPlanCodes, planCode)
+		}
+	}
+	if len(missingPlanCodes) > 0 {
+		return fmt.Errorf(
+			"billing schema preflight failed: missing required plan_catalog row(s): %s. Run dbmate up against this DATABASE_URL before starting API",
+			strings.Join(missingPlanCodes, ", "),
+		)
+	}
+
+	return nil
+}
+
 // validateConfiguration validates startup configuration and logs deployment mode
 func (s *Server) validateConfiguration() error {
 	log.Printf("[Config Validation] LIVEREVIEW_IS_CLOUD: %v", s.deploymentConfig.IsCloud)
@@ -392,6 +456,7 @@ func (s *Server) setupRoutes() {
 	// Diff review endpoints (protected by API key middleware)
 	diffReviewGroup := v1.Group("/diff-review")
 	diffReviewGroup.Use(APIKeyAuthMiddleware(s.db))
+	diffReviewGroup.Use(apimiddleware.BuildPlanContext())
 	diffReviewGroup.POST("", s.DiffReview)
 	diffReviewGroup.GET("/:review_id", s.GetDiffReviewStatus)
 
@@ -554,6 +619,7 @@ func (s *Server) setupRoutes() {
 	connectorGroup.Use(authMiddleware.BuildOrgContextFromHeader())
 	connectorGroup.Use(authMiddleware.ValidateOrgAccess())
 	connectorGroup.Use(authMiddleware.BuildPermissionContext())
+	connectorGroup.Use(apimiddleware.BuildPlanContext())
 
 	connectorGroup.GET("", s.GetConnectors)
 	connectorGroup.GET("/:id", s.GetConnector)
@@ -668,6 +734,7 @@ func (s *Server) setupRoutes() {
 	reviewsGroup.Use(authMiddleware.BuildOrgContextFromHeader())
 	reviewsGroup.Use(authMiddleware.ValidateOrgAccess())
 	reviewsGroup.Use(authMiddleware.BuildPermissionContext())
+	reviewsGroup.Use(apimiddleware.BuildPlanContext())
 
 	// Main reviews endpoints (with org scoping)
 	reviewsGroup.GET("", s.getReviews)
@@ -681,6 +748,7 @@ func (s *Server) setupRoutes() {
 	reviewsGroup.GET("/:id/events", reviewEventsHandler.GetReviewEvents)
 	reviewsGroup.GET("/:id/events/:type", reviewEventsHandler.GetReviewEventsByType)
 	reviewsGroup.GET("/:id/summary", reviewEventsHandler.GetReviewSummary)
+	reviewsGroup.GET("/:id/accounting", reviewEventsHandler.GetReviewAccounting)
 
 	// Subscription endpoints (organization scoped)
 	subscriptionsHandler := NewSubscriptionsHandler(s.db)
@@ -714,7 +782,22 @@ func (s *Server) setupRoutes() {
 	quotaGroup.Use(authMiddleware.BuildOrgContextFromHeader())
 	quotaGroup.Use(authMiddleware.ValidateOrgAccess())
 	quotaGroup.Use(authMiddleware.BuildPermissionContext())
+	quotaGroup.Use(apimiddleware.BuildPlanContext())
 	quotaGroup.GET("/status", quotaHandler.GetQuotaStatus)
+
+	// Billing actions endpoints (organization scoped)
+	billingActionsHandler := NewBillingActionsHandler(s.db)
+	billingGroup := v1.Group("/billing")
+	billingGroup.Use(authMiddleware.RequireAuth())
+	billingGroup.Use(authMiddleware.BuildOrgContextFromHeader())
+	billingGroup.Use(authMiddleware.ValidateOrgAccess())
+	billingGroup.Use(authMiddleware.BuildPermissionContext())
+	billingGroup.GET("/status", billingActionsHandler.GetBillingStatus)
+	billingGroup.GET("/usage/summary", billingActionsHandler.GetUsageSummary)
+	billingGroup.GET("/usage/operations", billingActionsHandler.GetUsageOperations)
+	billingGroup.POST("/upgrade", billingActionsHandler.UpgradePlan)
+	billingGroup.POST("/downgrade/schedule", billingActionsHandler.ScheduleDowngrade)
+	billingGroup.POST("/downgrade/cancel", billingActionsHandler.CancelScheduledDowngrade)
 
 	// Razorpay webhook endpoint (public - signature verified in handler)
 	webhookHandler := payment.NewRazorpayWebhookHandler(s.db, os.Getenv("RAZORPAY_WEBHOOK_SECRET"))
@@ -886,6 +969,13 @@ func (s *Server) Start() error {
 		}
 	}
 
+	if s.billingActionsCancel == nil {
+		billingCtx, cancel := context.WithCancel(context.Background())
+		s.billingActionsCancel = cancel
+		go runBillingTransitionScheduler(billingCtx, s.db, 1*time.Minute)
+		fmt.Println("Billing transition scheduler started")
+	}
+
 	// Wait for interrupt signal to gracefully shut down the server
 	quit := make(chan os.Signal, 1)
 	signal.Notify(quit, os.Interrupt)
@@ -920,6 +1010,12 @@ func (s *Server) Start() error {
 	if s.licenseScheduler != nil {
 		s.licenseScheduler.Stop()
 		fmt.Println("License scheduler stopped")
+	}
+
+	if s.billingActionsCancel != nil {
+		s.billingActionsCancel()
+		s.billingActionsCancel = nil
+		fmt.Println("Billing transition scheduler stopped")
 	}
 
 	return s.echo.Shutdown(ctx)
@@ -1364,7 +1460,9 @@ func (s *Server) validateConnectorOwnership(c echo.Context, connectorID int) (in
 // getVersion returns version information about the LiveReview API
 func (s *Server) getVersion(c echo.Context) error {
 	response := map[string]interface{}{
-		"apiVersion": "v1",
+		"apiVersion":                   "v1",
+		"subscriptionContractVersion":  "slab_plan_code_v1",
+		"billingTransitionSafetyLevel": "v1_compensation",
 	}
 
 	if s.versionInfo != nil {

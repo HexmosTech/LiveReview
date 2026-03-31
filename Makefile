@@ -1,5 +1,6 @@
-.PHONY: build run-review run-review-verbose test clean develop develop-reflex river-deps river-install river-migrate river-setup river-ui-install river-ui db-flip version version-bump version-patch version-minor version-major version-bump-dirty version-patch-dirty version-minor-dirty version-major-dirty version-bump-dry version-patch-dry version-minor-dry version-major-dry build-versioned docker-build docker-build-push docker-build-dry docker-interactive docker-interactive-push docker-interactive-dry docker-build docker-build-push docker-build-versioned docker-build-push-versioned docker-build-dry docker-build-push-dry docker-multiarch docker-multiarch-push docker-multiarch-dry docker-interactive-multiarch docker-interactive-multiarch-push cplrops vendor-prompts-encrypt vendor-prompts-build vendor-prompts-rebuild vendor-docker-build vendor-docker-build-dry vendor-docker-build-push vendor-docker-multiarch-dry vendor-docker-multiarch-push run logrun build-with-ui security-sbom security-sbom-cyclonedx security-sbom-spdx security-sbom-validate release-notes-init release-notes-check release-preflight release-gh
+.PHONY: build run-review run-review-verbose test clean develop develop-reflex river-deps river-install river-migrate river-setup river-ui-install river-ui db-flip version version-bump version-patch version-minor version-major version-bump-dirty version-patch-dirty version-minor-dirty version-major-dirty version-bump-dry version-patch-dry version-minor-dry version-major-dry build-versioned docker-build docker-build-push docker-build-dry docker-interactive docker-interactive-push docker-interactive-dry docker-build docker-build-push docker-build-versioned docker-build-push-versioned docker-build-dry docker-build-push-dry docker-multiarch docker-multiarch-push docker-multiarch-dry docker-interactive-multiarch docker-interactive-multiarch-push cplrops vendor-prompts-encrypt vendor-prompts-build vendor-prompts-rebuild vendor-docker-build vendor-docker-build-dry vendor-docker-build-push vendor-docker-multiarch-dry vendor-docker-multiarch-push run logrun api-with-migrations build-with-ui security-sbom security-sbom-cyclonedx security-sbom-spdx security-sbom-validate release-notes-init release-notes-check release-preflight release-gh
 .PHONY: upload-secrets download-secrets list-secrets-files legacy-secrets-clear
+.PHONY: razorpay-webhook-ensure razorpay-webhook-ensure-dry
 
 # Go parameters
 GOCMD=go
@@ -174,6 +175,10 @@ develop:
 develop-reflex:
 	which reflex || go install github.com/cespare/reflex@latest
 	reflex -r '\.go$$' -s -- sh -c 'go build -o $(BINARY_NAME) && ./$(BINARY_NAME) api'
+
+api-with-migrations:
+	dbmate up
+	go run livereview.go api
 
 run-review:
 	./$(BINARY_NAME) review --dry-run https://git.apps.hexmos.com/hexmos/liveapi/-/merge_requests/365
@@ -456,7 +461,9 @@ niceurl:
 	ssh root@master "PID=\$$( netstat -tulpn | grep :6543 | awk '{print \$$7}' | cut -d/ -f1 | head -n 1); [ -n \"\$$PID\" ] && kill -9 \$$PID || true" || true
 	ssh -R 6543:localhost:8081 root@master -N
 
-
+niceurl2:
+	ssh root@master "PID=\$$( netstat -tulpn | grep :6544 | awk '{print \$$7}' | cut -d/ -f1 | head -n 1); [ -n \"\$$PID\" ] && kill -9 \$$PID || true" || true
+	ssh -R 6544:localhost:8081 root@master -N
 
 build-with-ui:
 	@echo "🔨 Building for PRODUCTION deployment (is_cloud=true)"
@@ -623,3 +630,25 @@ release-preflight: release-notes-check
 check-status-doc:
 	chmod +x scripts/check-status-doc-links.sh
 	./scripts/check-status-doc-links.sh
+
+# Ensure Razorpay webhook exists for this deployment URL.
+# Usage:
+#   make razorpay-webhook-ensure BASE_URL=https://manual-talent2.apps.hexmos.com MODE=test
+#   make razorpay-webhook-ensure-dry BASE_URL=manual-talent2.apps.hexmos.com MODE=test
+razorpay-webhook-ensure:
+	@if [ -z "$(BASE_URL)" ]; then \
+		echo "❌ BASE_URL is required. Example: make razorpay-webhook-ensure BASE_URL=https://manual-talent2.apps.hexmos.com MODE=test"; \
+		exit 1; \
+	fi
+	@MODE_VALUE="$(MODE)"; \
+	if [ -z "$$MODE_VALUE" ]; then MODE_VALUE="$${RAZORPAY_MODE:-test}"; fi; \
+	python3 scripts/razorpay_webhook_ensure.py --base-url "$(BASE_URL)" --mode "$$MODE_VALUE" $(ARGS)
+
+razorpay-webhook-ensure-dry:
+	@if [ -z "$(BASE_URL)" ]; then \
+		echo "❌ BASE_URL is required. Example: make razorpay-webhook-ensure-dry BASE_URL=https://manual-talent2.apps.hexmos.com MODE=test"; \
+		exit 1; \
+	fi
+	@MODE_VALUE="$(MODE)"; \
+	if [ -z "$$MODE_VALUE" ]; then MODE_VALUE="$${RAZORPAY_MODE:-test}"; fi; \
+	python3 scripts/razorpay_webhook_ensure.py --base-url "$(BASE_URL)" --mode "$$MODE_VALUE" --dry-run $(ARGS)

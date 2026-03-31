@@ -4,7 +4,8 @@ import {
   ReviewsListResponse, 
   ReviewsFilters, 
   ReviewEventsResponse, 
-  ReviewSummary 
+  ReviewSummary,
+  ReviewAccounting
 } from '../types/reviews';
 
 export interface TriggerReviewRequest {
@@ -15,6 +16,8 @@ export interface TriggerReviewResponse {
   message: string;
   url: string;
   reviewId: string;
+  ai_execution_mode?: string;
+  ai_execution_source?: string;
 }
 
 /**
@@ -133,6 +136,20 @@ export const getReviewSummary = async (reviewId: number): Promise<ReviewSummary>
     return await apiClient.get<ReviewSummary>(`/api/v1/reviews/${reviewId}/summary`);
   } catch (error) {
     console.error('Error fetching review summary:', error);
+    throw error;
+  }
+};
+
+/**
+ * Get accounting details for a review
+ * @param reviewId The ID of the review
+ * @returns Promise with review accounting details
+ */
+export const getReviewAccounting = async (reviewId: number): Promise<ReviewAccounting> => {
+  try {
+    return await apiClient.get<ReviewAccounting>(`/api/v1/reviews/${reviewId}/accounting`);
+  } catch (error) {
+    console.error('Error fetching review accounting:', error);
     throw error;
   }
 };

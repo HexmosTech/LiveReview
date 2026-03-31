@@ -6,6 +6,7 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -13,6 +14,7 @@ import (
 
 	"github.com/livereview/internal/api/auth"
 	coreprocessor "github.com/livereview/internal/core_processor"
+	"github.com/livereview/internal/license"
 )
 
 // Phase 8: Webhook Orchestrator for coordinating provider and processing layers
@@ -239,6 +241,11 @@ func (wo *WebhookOrchestratorV2) processEventAsync(ctx context.Context, event *U
 		log.Printf("[WARN] Failed to fetch MR data, continuing with available data: %v", err)
 	}
 
+	if blocked, reason := wo.enforceWebhookPreflight(processingCtx, event, scenario.Type, orgID); blocked {
+		log.Printf("[INFO] Webhook operation blocked by preflight checks for event %s/%s: %s", event.EventType, event.Provider, reason)
+		return
+	}
+
 	// Phase 6: Build Timeline and Context
 	var timeline *UnifiedTimelineV2
 	var err error
@@ -273,7 +280,7 @@ func (wo *WebhookOrchestratorV2) processEventAsync(ctx context.Context, event *U
 	case "comment_reply":
 		wo.handleCommentReplyFlow(processingCtx, event, provider, timeline, orgID)
 	case "full_review":
-		wo.handleFullReviewFlow(processingCtx, event, provider, timeline)
+		wo.handleFullReviewFlow(processingCtx, event, provider, timeline, orgID)
 	case "emoji_only":
 		wo.handleEmojiOnlyFlow(processingCtx, event, provider)
 	// Map the actual scenario types from unified processor to comment reply flow
@@ -304,7 +311,7 @@ func (wo *WebhookOrchestratorV2) handleCommentReplyFlow(ctx context.Context, eve
 	log.Printf("[INFO] Processing comment reply flow for event %s/%s", event.EventType, event.Provider)
 
 	// Generate AI response
-	response, learning, err := wo.unifiedProcessor.ProcessCommentReply(ctx, *event, timeline, orgID)
+	response, learning, usage, err := wo.unifiedProcessor.ProcessCommentReply(ctx, *event, timeline, orgID)
 	if err != nil {
 		log.Printf("[ERROR] Failed to process comment reply: %v", err)
 		wo.postErrorResponse(provider, event, "Failed to generate AI response")
@@ -339,15 +346,19 @@ func (wo *WebhookOrchestratorV2) handleCommentReplyFlow(ctx context.Context, eve
 		return
 	}
 
+	if usage != nil && usage.BillableLOC > 0 {
+		wo.accountWebhookSuccess(ctx, orgID, event, usage, "webhook_comment_response")
+	}
+
 	log.Printf("[INFO] Comment reply posted successfully for event %s/%s", event.EventType, event.Provider)
 }
 
 // handleFullReviewFlow handles full review processing
-func (wo *WebhookOrchestratorV2) handleFullReviewFlow(ctx context.Context, event *UnifiedWebhookEventV2, provider WebhookProviderV2, timeline *UnifiedTimelineV2) {
+func (wo *WebhookOrchestratorV2) handleFullReviewFlow(ctx context.Context, event *UnifiedWebhookEventV2, provider WebhookProviderV2, timeline *UnifiedTimelineV2, orgID int64) {
 	log.Printf("[INFO] Processing full review flow for event %s/%s", event.EventType, event.Provider)
 
 	// Generate full review
-	reviewComments, learning, err := wo.unifiedProcessor.ProcessFullReview(ctx, *event, timeline)
+	reviewComments, learning, usage, err := wo.unifiedProcessor.ProcessFullReview(ctx, *event, timeline)
 	if err != nil {
 		log.Printf("[ERROR] Failed to process full review: %v", err)
 		wo.postErrorResponse(provider, event, "Failed to generate code review")
@@ -375,6 +386,10 @@ func (wo *WebhookOrchestratorV2) handleFullReviewFlow(ctx context.Context, event
 	if err := provider.PostFullReview(event, overallComment); err != nil {
 		log.Printf("[ERROR] Failed to post full review: %v", err)
 		return
+	}
+
+	if usage != nil && usage.BillableLOC > 0 {
+		wo.accountWebhookSuccess(ctx, orgID, event, usage, "webhook_full_review")
 	}
 
 	log.Printf("[INFO] Full review posted successfully for event %s/%s with %d comments",
@@ -529,6 +544,170 @@ func (wo *WebhookOrchestratorV2) selectAppropriateEmoji(commentBody string) stri
 
 	// Default
 	return "thumbsup"
+}
+
+func (wo *WebhookOrchestratorV2) enforceWebhookPreflight(ctx context.Context, event *UnifiedWebhookEventV2, scenarioType string, orgID int64) (bool, string) {
+	if wo == nil || wo.server == nil || wo.server.db == nil || event == nil || orgID <= 0 {
+		return false, ""
+	}
+
+	requiredLOC, ok := estimateWebhookRequiredLOC(event)
+	if !ok || requiredLOC <= 0 {
+		return false, ""
+	}
+
+	if _, ok := webhookOperationTypeFromScenario(scenarioType); !ok {
+		return false, ""
+	}
+
+	repoID := event.Repository.FullName
+	if repoID == "" {
+		repoID = event.Repository.Name
+	}
+
+	service := license.NewLOCAccountingService(wo.server.db)
+	result, err := service.CheckPreflight(ctx, license.LOCPreflightInput{
+		OrgID:       orgID,
+		RequiredLOC: requiredLOC,
+	})
+	if err != nil {
+		log.Printf("[WARN] LOC preflight check failed for webhook event %s/%s: %v", event.EventType, event.Provider, err)
+		return false, ""
+	}
+	if !result.Blocked {
+		return false, ""
+	}
+
+	return true, result.BlockReason
+}
+
+func (wo *WebhookOrchestratorV2) accountWebhookSuccess(ctx context.Context, orgID int64, event *UnifiedWebhookEventV2, usage *OperationUsageV2, operationType string) {
+	if wo == nil || wo.server == nil || wo.server.db == nil || event == nil || usage == nil || orgID <= 0 || usage.BillableLOC <= 0 {
+		return
+	}
+
+	service := license.NewLOCAccountingService(wo.server.db)
+	reviewID := extractWebhookReviewID(event)
+	if reviewID <= 0 {
+		log.Printf("[WARN] skipping webhook usage accounting because no stable review ID was found for event %s/%s", event.EventType, event.Provider)
+		return
+	}
+
+	operationID := buildWebhookOperationKey(event, operationType)
+	err := service.AccountSuccess(ctx, license.LOCAccountSuccessInput{
+		OrgID:          orgID,
+		ReviewID:       reviewID,
+		OperationType:  operationType,
+		TriggerSource:  "webhook",
+		OperationID:    operationID,
+		IdempotencyKey: operationID,
+		BillableLOC:    usage.BillableLOC,
+		Provider:       strings.TrimSpace(usage.Provider),
+		Model:          strings.TrimSpace(usage.Model),
+		PricingVersion: strings.TrimSpace(usage.PricingVersion),
+		InputTokens:    usage.InputTokens,
+		OutputTokens:   usage.OutputTokens,
+		CostUSD:        usage.CostUSD,
+	})
+	if err != nil {
+		log.Printf("[WARN] failed to account webhook usage for org=%d operation=%s: %v", orgID, operationType, err)
+	}
+}
+
+func extractWebhookReviewID(event *UnifiedWebhookEventV2) int64 {
+	if event == nil {
+		return 0
+	}
+
+	if event.Comment != nil {
+		if parsed, err := strconv.ParseInt(strings.TrimSpace(event.Comment.ID), 10, 64); err == nil && parsed > 0 {
+			return parsed
+		}
+	}
+
+	if event.MergeRequest != nil {
+		if parsed, err := strconv.ParseInt(strings.TrimSpace(event.MergeRequest.ID), 10, 64); err == nil && parsed > 0 {
+			return parsed
+		}
+		if event.MergeRequest.Number > 0 {
+			return int64(event.MergeRequest.Number)
+		}
+	}
+
+	return 0
+}
+
+func buildWebhookOperationKey(event *UnifiedWebhookEventV2, operationType string) string {
+	if event == nil {
+		return ""
+	}
+
+	repoID := event.Repository.FullName
+	if repoID == "" {
+		repoID = event.Repository.Name
+	}
+
+	mergeRequestID := ""
+	if event.MergeRequest != nil {
+		if event.MergeRequest.ID != "" {
+			mergeRequestID = event.MergeRequest.ID
+		} else if event.MergeRequest.Number > 0 {
+			mergeRequestID = strconv.Itoa(event.MergeRequest.Number)
+		}
+	}
+
+	commentID := ""
+	if event.Comment != nil {
+		commentID = event.Comment.ID
+	}
+
+	if mergeRequestID != "" {
+		return fmt.Sprintf("webhook:%s:%s:%s:%s:%s", event.Provider, operationType, repoID, mergeRequestID, commentID)
+	}
+
+	return fmt.Sprintf("webhook:%s:%s:%s:%s", event.Provider, operationType, repoID, event.Timestamp)
+}
+
+func webhookOperationTypeFromScenario(scenarioType string) (string, bool) {
+	switch scenarioType {
+	case "comment_reply", "bot_reply", "reply_to_bot", "direct_mention", "discussion_reply", "content_trigger":
+		return "webhook_comment_response", true
+	case "full_review":
+		return "webhook_full_review", true
+	default:
+		return "", false
+	}
+}
+
+func estimateWebhookRequiredLOC(event *UnifiedWebhookEventV2) (int64, bool) {
+	if event == nil || event.MergeRequest == nil || event.MergeRequest.Metadata == nil {
+		return 0, false
+	}
+	v, ok := event.MergeRequest.Metadata["operation_billable_loc"]
+	if !ok {
+		return 0, false
+	}
+
+	switch typed := v.(type) {
+	case int:
+		return int64(typed), true
+	case int64:
+		return typed, true
+	case int32:
+		return int64(typed), true
+	case float64:
+		return int64(typed), true
+	case float32:
+		return int64(typed), true
+	case string:
+		parsed, err := strconv.ParseInt(strings.TrimSpace(typed), 10, 64)
+		if err != nil {
+			return 0, false
+		}
+		return parsed, true
+	default:
+		return 0, false
+	}
 }
 
 // formatReviewComments formats review comments into a single overall comment

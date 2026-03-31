@@ -4,6 +4,16 @@ import (
 	"context"
 )
 
+type OperationUsageV2 struct {
+	BillableLOC    int64
+	Provider       string
+	Model          string
+	PricingVersion string
+	InputTokens    *int64
+	OutputTokens   *int64
+	CostUSD        *float64
+}
+
 // Phase 1.3: Interfaces with V2 naming for conflict-free migration
 // All interfaces use V2 suffix to prevent conflicts during migration
 
@@ -32,10 +42,10 @@ type UnifiedProcessorV2 interface {
 	CheckResponseWarrant(event UnifiedWebhookEventV2, botInfo *UnifiedBotUserInfoV2) (bool, ResponseScenarioV2)
 
 	// Process comment reply flow
-	ProcessCommentReply(ctx context.Context, event UnifiedWebhookEventV2, timeline *UnifiedTimelineV2, orgID int64) (string, *LearningMetadataV2, error)
+	ProcessCommentReply(ctx context.Context, event UnifiedWebhookEventV2, timeline *UnifiedTimelineV2, orgID int64) (string, *LearningMetadataV2, *OperationUsageV2, error)
 
 	// Process full review flow
-	ProcessFullReview(ctx context.Context, event UnifiedWebhookEventV2, timeline *UnifiedTimelineV2) ([]UnifiedReviewCommentV2, *LearningMetadataV2, error)
+	ProcessFullReview(ctx context.Context, event UnifiedWebhookEventV2, timeline *UnifiedTimelineV2) ([]UnifiedReviewCommentV2, *LearningMetadataV2, *OperationUsageV2, error)
 }
 
 // LearningProcessorV2 - Learning extraction and application interface
