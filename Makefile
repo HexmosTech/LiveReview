@@ -6,6 +6,24 @@ GOCMD=go
 GOBUILD=$(GOCMD) build
 GOCLEAN=$(GOCMD) clean
 GOTEST=$(GOCMD) test
+
+# Detect Go paths for binaries
+GOPATH_RAW := $(shell $(GOCMD) env GOPATH 2>/dev/null)
+ifeq ($(GOPATH_RAW),)
+  GOPATH_RAW := $(HOME)/go
+endif
+GOBIN := $(GOPATH_RAW)/bin
+
+# Dynamic user detection for sudo scenarios
+# If running with sudo, these will find the original user's paths
+ORIG_USER := $(shell echo $${SUDO_USER:-$$(whoami)})
+ORIG_HOME := $(shell getent passwd $(ORIG_USER) | cut -d: -f6)
+USER_GOBIN := $(ORIG_HOME)/go/bin
+
+# Centralized binary commands
+RIVER := $(shell which river 2>/dev/null || ls $(USER_GOBIN)/river 2>/dev/null || echo $(GOBIN)/river)
+RIVERUI := $(shell which riverui 2>/dev/null || ls $(USER_GOBIN)/riverui 2>/dev/null || echo $(GOBIN)/riverui)
+
 BINARY_NAME=livereview
 REQUIRED_GO_VERSION=$(shell awk '/^go /{print $$2; exit}' go.mod)
 REQUIRED_GO_SERIES=$(shell echo $(REQUIRED_GO_VERSION) | awk -F. '{print $$1"."$$2}')
@@ -151,7 +169,7 @@ run:
 		GOTOOLCHAIN=go$(REQUIRED_GO_VERSION) $(GOCMD) install github.com/go-delve/delve/cmd/dlv@latest; \
 	fi
 	which air || go install github.com/air-verse/air@latest
-	DLV_BIN_DIR=$$(go env GOBIN); if [ -z "$$DLV_BIN_DIR" ]; then DLV_BIN_DIR="$$(go env GOPATH)/bin"; fi; PATH="$$DLV_BIN_DIR:$$PATH" air
+	DLV_BIN_DIR=$$(go env GOBIN); if [ -z "$$DLV_BIN_DIR" ]; then DLV_BIN_DIR="$$(go env GOPATH)/bin"; fi; PATH="$$DLV_BIN_DIR:$$PATH" air 2>&1 | tee livereview.log
 
 logrun:
 	which air || go install github.com/air-verse/air@latest
@@ -169,7 +187,7 @@ develop:
 		GOTOOLCHAIN=go$(REQUIRED_GO_VERSION) $(GOCMD) install github.com/go-delve/delve/cmd/dlv@latest; \
 	fi
 	which air || go install github.com/air-verse/air@latest
-	DLV_BIN_DIR=$$(go env GOBIN); if [ -z "$$DLV_BIN_DIR" ]; then DLV_BIN_DIR="$$(go env GOPATH)/bin"; fi; PATH="$$DLV_BIN_DIR:$$PATH" air
+	DLV_BIN_DIR=$$(go env GOBIN); if [ -z "$$DLV_BIN_DIR" ]; then DLV_BIN_DIR="$$(go env GOPATH)/bin"; fi; PATH="$$DLV_BIN_DIR:$$PATH" air 2>&1 | tee livereview.log
 
 develop-reflex:
 	which reflex || go install github.com/cespare/reflex@latest
@@ -352,11 +370,11 @@ river-ui-install:
 	go install riverqueue.com/riverui/cmd/riverui@latest
 
 river-migrate:
-	river migrate-up --database-url "$(DATABASE_URL)"
+	$(RIVER) migrate-up --database-url "$(DATABASE_URL)"
 
 river-ui:
 	@echo "Starting River UI with DATABASE_URL: $(DATABASE_URL)"
-	DATABASE_URL="$(DATABASE_URL)" riverui
+	DATABASE_URL="$(DATABASE_URL)" $(RIVERUI)
 
 # 🚀 ONE COMMAND TO DO IT ALL - Install River dependencies, CLI tool, UI tool, and run migrations
 river-setup: river-deps river-install river-ui-install river-migrate
@@ -623,3 +641,7 @@ release-preflight: release-notes-check
 check-status-doc:
 	chmod +x scripts/check-status-doc-links.sh
 	./scripts/check-status-doc-links.sh
+
+debug-river:
+	@echo 'RIVER is: $(RIVER)'
+	@echo 'GOBIN is: $(GOBIN)'

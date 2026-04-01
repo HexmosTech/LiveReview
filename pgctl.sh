@@ -52,9 +52,6 @@ PG_CONTAINER_NAME="livereview_pg"
 PG_VERSION="15"
 PG_DATA_DIR="./.livereview_pgdata"
 
-# Ensure data dir exists
-mkdir -p "$PG_DATA_DIR"
-
 usage() {
   echo "Usage: $0 [--prod] {start|stop|status|logs|info|rm|reset|migrations|conn|shell}"
   echo ""
@@ -76,6 +73,9 @@ usage() {
 }
 
 start_pg() {
+  # Ensure data dir exists
+  mkdir -p "$PG_DATA_DIR"
+
   if docker ps -a --format '{{.Names}}' | grep -qw "$PG_CONTAINER_NAME"; then
     echo "Container already exists. Starting..."
     docker start "$PG_CONTAINER_NAME"
@@ -145,6 +145,7 @@ reset_pg() {
     echo "Running database migrations..."
     if command -v dbmate &> /dev/null; then
         dbmate up
+        make river-migrate
     else
         echo "dbmate not found, attempting to run via 'make river-migrate'"
         make river-migrate
