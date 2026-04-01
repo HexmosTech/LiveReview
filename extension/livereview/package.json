@@ -90,12 +90,12 @@
         "livereview.apiUrl": {
           "type": "string",
           "default": "https://livereview.hexmos.com",
-          "description": "LiveReview API URL (mirrored to ~/.lrc.toml)."
+          "description": "LiveReview API URL used by the extension. The extension does not write ~/.lrc.toml."
         },
         "livereview.apiKey": {
           "type": "string",
           "default": "",
-          "markdownDescription": "LiveReview API key (stored in plaintext in ~/.lrc.toml).",
+          "markdownDescription": "LiveReview API key used by the extension. The extension does not write ~/.lrc.toml.",
           "scope": "application"
         }
       }
