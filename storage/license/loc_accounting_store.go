@@ -76,12 +76,14 @@ func (s *LOCAccountingStore) AccountSuccess(ctx context.Context, rec AccountSucc
 	}
 
 	var currentUsed int64
+	var currentCycleLOCGrant int64
+	var currentCycleLOCGrantExpiresAt sql.NullTime
 	if err := tx.QueryRowContext(ctx, `
-		SELECT loc_used_month
+		SELECT loc_used_month, upgrade_loc_grant_current_cycle, upgrade_loc_grant_expires_at
 		FROM org_billing_state
 		WHERE org_id = $1
 		FOR UPDATE
-	`, rec.OrgID).Scan(&currentUsed); err != nil {
+	`, rec.OrgID).Scan(&currentUsed, &currentCycleLOCGrant, &currentCycleLOCGrantExpiresAt); err != nil {
 		return fmt.Errorf("lock org billing state: %w", err)
 	}
 
@@ -160,8 +162,12 @@ func (s *LOCAccountingStore) AccountSuccess(ctx context.Context, rec AccountSucc
 
 	if ledgerID != 0 {
 		newUsed := currentUsed + rec.BillableLOC
-		locBlocked := rec.MonthlyLOCLimit >= 0 && newUsed >= rec.MonthlyLOCLimit
-		if err := emitThresholdLifecycleEventsTx(ctx, tx, rec.OrgID, rec.PlanCode, rec.BillingPeriodStart, rec.MonthlyLOCLimit, currentUsed, newUsed); err != nil {
+		effectiveLimit := rec.MonthlyLOCLimit
+		if currentCycleLOCGrant > 0 && currentCycleLOCGrantExpiresAt.Valid && time.Now().UTC().Before(currentCycleLOCGrantExpiresAt.Time.UTC()) {
+			effectiveLimit += currentCycleLOCGrant
+		}
+		locBlocked := effectiveLimit >= 0 && newUsed >= effectiveLimit
+		if err := emitThresholdLifecycleEventsTx(ctx, tx, rec.OrgID, rec.PlanCode, rec.BillingPeriodStart, effectiveLimit, currentUsed, newUsed); err != nil {
 			return err
 		}
 
@@ -211,14 +217,16 @@ func (s *LOCAccountingStore) CheckQuotaPreflight(ctx context.Context, orgID int6
 	var currentPeriodStart time.Time
 	var currentPeriodEnd time.Time
 	var currentUsed int64
+	var currentCycleLOCGrant int64
+	var currentCycleLOCGrantExpiresAt sql.NullTime
 	var currentTrialReadOnly bool
 	var currentTrialEndsAt sql.NullTime
 	if err := tx.QueryRowContext(ctx, `
-		SELECT current_plan_code, billing_period_start, billing_period_end, loc_used_month, trial_readonly, trial_ends_at
+		SELECT current_plan_code, billing_period_start, billing_period_end, loc_used_month, upgrade_loc_grant_current_cycle, upgrade_loc_grant_expires_at, trial_readonly, trial_ends_at
 		FROM org_billing_state
 		WHERE org_id = $1
 		FOR UPDATE
-	`, orgID).Scan(&currentPlanCode, &currentPeriodStart, &currentPeriodEnd, &currentUsed, &currentTrialReadOnly, &currentTrialEndsAt); err != nil {
+	`, orgID).Scan(&currentPlanCode, &currentPeriodStart, &currentPeriodEnd, &currentUsed, &currentCycleLOCGrant, &currentCycleLOCGrantExpiresAt, &currentTrialReadOnly, &currentTrialEndsAt); err != nil {
 		return PreflightQuotaResult{}, fmt.Errorf("lock org billing state: %w", err)
 	}
 
@@ -235,6 +243,8 @@ func (s *LOCAccountingStore) CheckQuotaPreflight(ctx context.Context, orgID int6
 		currentPeriodStart = billingPeriodStart
 		currentPeriodEnd = billingPeriodEnd
 		currentUsed = 0
+		currentCycleLOCGrant = 0
+		currentCycleLOCGrantExpiresAt = sql.NullTime{}
 	}
 
 	if currentPlanCode != planCode {
@@ -251,7 +261,15 @@ func (s *LOCAccountingStore) CheckQuotaPreflight(ctx context.Context, orgID int6
 		}
 	}
 
-	locBlockedState := monthlyLOCLimit >= 0 && currentUsed >= monthlyLOCLimit
+	effectiveLimit := monthlyLOCLimit
+	if currentCycleLOCGrant > 0 && currentCycleLOCGrantExpiresAt.Valid && now.Before(currentCycleLOCGrantExpiresAt.Time.UTC()) {
+		effectiveLimit += currentCycleLOCGrant
+	} else {
+		currentCycleLOCGrant = 0
+		currentCycleLOCGrantExpiresAt = sql.NullTime{}
+	}
+
+	locBlockedState := effectiveLimit >= 0 && currentUsed >= effectiveLimit
 	if _, err := tx.ExecContext(ctx, `
 		UPDATE org_billing_state
 		SET current_plan_code = $1,
@@ -259,23 +277,25 @@ func (s *LOCAccountingStore) CheckQuotaPreflight(ctx context.Context, orgID int6
 		    billing_period_end = $3,
 		    loc_used_month = $4,
 		    loc_blocked = $5,
-		    trial_readonly = $6,
+		    upgrade_loc_grant_current_cycle = $6,
+		    upgrade_loc_grant_expires_at = $7,
+		    trial_readonly = $8,
 		    updated_at = NOW()
-		WHERE org_id = $7
-	`, currentPlanCode, currentPeriodStart, currentPeriodEnd, currentUsed, locBlockedState, trialReadOnly, orgID); err != nil {
+		WHERE org_id = $9
+	`, currentPlanCode, currentPeriodStart, currentPeriodEnd, currentUsed, locBlockedState, currentCycleLOCGrant, currentCycleLOCGrantExpiresAt, trialReadOnly, orgID); err != nil {
 		return PreflightQuotaResult{}, fmt.Errorf("update preflight state: %w", err)
 	}
 
 	remaining := int64(-1)
 	usagePercent := 0
 	blocked := false
-	if monthlyLOCLimit >= 0 {
-		remaining = monthlyLOCLimit - currentUsed
+	if effectiveLimit >= 0 {
+		remaining = effectiveLimit - currentUsed
 		if remaining < 0 {
 			remaining = 0
 		}
-		if monthlyLOCLimit > 0 {
-			usagePercent = int((currentUsed * 100) / monthlyLOCLimit)
+		if effectiveLimit > 0 {
+			usagePercent = int((currentUsed * 100) / effectiveLimit)
 			if usagePercent > 100 {
 				usagePercent = 100
 			}
@@ -305,7 +325,7 @@ func (s *LOCAccountingStore) CheckQuotaPreflight(ctx context.Context, orgID int6
 		BillingPeriodStart: currentPeriodStart,
 		BillingPeriodEnd:   currentPeriodEnd,
 		LOCUsedMonth:       currentUsed,
-		LOCLimitMonth:      monthlyLOCLimit,
+		LOCLimitMonth:      effectiveLimit,
 		LOCRemainingMonth:  remaining,
 		UsagePercent:       usagePercent,
 		TrialReadOnly:      trialReadOnly,

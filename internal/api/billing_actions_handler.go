@@ -2,10 +2,16 @@ package api
 
 import (
 	"context"
+	"crypto/hmac"
+	"crypto/sha256"
 	"database/sql"
+	"encoding/base64"
+	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log"
+	"math"
 	"net/http"
 	"os"
 	"sort"
@@ -13,6 +19,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/labstack/echo/v4"
 	"github.com/livereview/internal/api/auth"
 	"github.com/livereview/internal/license"
@@ -22,23 +29,997 @@ import (
 )
 
 type BillingActionsHandler struct {
-	store      *storagelicense.PlanChangeStore
-	usageStore *storagelicense.OrgUsageStore
-	db         *sql.DB
+	store               *storagelicense.PlanChangeStore
+	usageStore          *storagelicense.OrgUsageStore
+	paymentAttemptStore *storagepayment.UpgradePaymentAttemptStore
+	upgradeRequestStore *storagepayment.UpgradeRequestStore
+	db                  *sql.DB
 }
 
 var errRazorpayCheckoutRequired = errors.New("razorpay checkout required")
 
 func NewBillingActionsHandler(db *sql.DB) *BillingActionsHandler {
 	return &BillingActionsHandler{
-		store:      storagelicense.NewPlanChangeStore(db),
-		usageStore: storagelicense.NewOrgUsageStore(db),
-		db:         db,
+		store:               storagelicense.NewPlanChangeStore(db),
+		usageStore:          storagelicense.NewOrgUsageStore(db),
+		paymentAttemptStore: storagepayment.NewUpgradePaymentAttemptStore(db),
+		upgradeRequestStore: storagepayment.NewUpgradeRequestStore(db),
+		db:                  db,
 	}
 }
 
 type planChangeRequest struct {
 	TargetPlanCode string `json:"target_plan_code"`
+}
+
+type upgradePreparePaymentRequest struct {
+	TargetPlanCode   string `json:"target_plan_code"`
+	PreviewToken     string `json:"preview_token"`
+	UpgradeRequestID string `json:"upgrade_request_id"`
+}
+
+type upgradeExecuteRequest struct {
+	TargetPlanCode        string `json:"target_plan_code"`
+	PreviewToken          string `json:"preview_token"`
+	RazorpayOrderID       string `json:"razorpay_order_id"`
+	RazorpayPaymentID     string `json:"razorpay_payment_id"`
+	RazorpaySignature     string `json:"razorpay_signature"`
+	ExecuteIdempotencyKey string `json:"execute_idempotency_key"`
+	ModalVersion          string `json:"modal_version"`
+	ModalAcknowledgedAt   string `json:"modal_acknowledged_at"`
+	UpgradeRequestID      string `json:"upgrade_request_id"`
+}
+
+type signedUpgradePreview struct {
+	UpgradeRequestID        string `json:"upgrade_request_id"`
+	ActorUserID             int64  `json:"actor_user_id"`
+	OrgID                   int64  `json:"org_id"`
+	FromPlanCode            string `json:"from_plan_code"`
+	ToPlanCode              string `json:"to_plan_code"`
+	CycleStartUnix          int64  `json:"cycle_start_unix"`
+	CycleEndUnix            int64  `json:"cycle_end_unix"`
+	RemainingFractionBP     int64  `json:"remaining_fraction_bp"`
+	ImmediateChargeCents    int64  `json:"immediate_charge_cents"`
+	ImmediateChargeCurrency string `json:"immediate_charge_currency"`
+	ImmediateLOCGrant       int64  `json:"immediate_loc_grant"`
+	NextCyclePriceCents     int64  `json:"next_cycle_price_cents"`
+	NextCycleLOCLimit       int64  `json:"next_cycle_loc_limit"`
+	ExpiresAtUnix           int64  `json:"expires_at_unix"`
+}
+
+func resolveRazorpayModeForBilling() string {
+	mode := strings.TrimSpace(os.Getenv("RAZORPAY_MODE"))
+	if mode == "" {
+		return "test"
+	}
+	return mode
+}
+
+func previewTokenSecret() string {
+	return strings.TrimSpace(os.Getenv("JWT_SECRET"))
+}
+
+func signUpgradePreviewToken(data signedUpgradePreview) (string, error) {
+	secret := previewTokenSecret()
+	if secret == "" {
+		return "", fmt.Errorf("JWT_SECRET must be set for upgrade preview signing")
+	}
+
+	raw, err := json.Marshal(data)
+	if err != nil {
+		return "", fmt.Errorf("marshal preview token payload: %w", err)
+	}
+	encoded := base64.RawURLEncoding.EncodeToString(raw)
+
+	mac := hmac.New(sha256.New, []byte(secret))
+	_, _ = mac.Write([]byte(encoded))
+	signature := hex.EncodeToString(mac.Sum(nil))
+
+	return encoded + "." + signature, nil
+}
+
+func parseAndVerifyUpgradePreviewToken(token string) (signedUpgradePreview, error) {
+	parts := strings.Split(strings.TrimSpace(token), ".")
+	if len(parts) != 2 {
+		return signedUpgradePreview{}, fmt.Errorf("invalid preview token")
+	}
+
+	secret := previewTokenSecret()
+	if secret == "" {
+		return signedUpgradePreview{}, fmt.Errorf("JWT_SECRET must be set for upgrade preview verification")
+	}
+
+	mac := hmac.New(sha256.New, []byte(secret))
+	_, _ = mac.Write([]byte(parts[0]))
+	expected := hex.EncodeToString(mac.Sum(nil))
+	provided := strings.ToLower(strings.TrimSpace(parts[1]))
+	if !hmac.Equal([]byte(expected), []byte(provided)) {
+		return signedUpgradePreview{}, fmt.Errorf("invalid preview token signature")
+	}
+
+	raw, err := base64.RawURLEncoding.DecodeString(parts[0])
+	if err != nil {
+		return signedUpgradePreview{}, fmt.Errorf("decode preview token payload: %w", err)
+	}
+
+	var payload signedUpgradePreview
+	if err := json.Unmarshal(raw, &payload); err != nil {
+		return signedUpgradePreview{}, fmt.Errorf("unmarshal preview token payload: %w", err)
+	}
+
+	if payload.ExpiresAtUnix <= 0 || time.Now().UTC().Unix() > payload.ExpiresAtUnix {
+		return signedUpgradePreview{}, fmt.Errorf("preview token expired")
+	}
+
+	return payload, nil
+}
+
+func computeRemainingCycleFraction(cycleStart, cycleEnd, now time.Time) float64 {
+	if !cycleEnd.After(cycleStart) {
+		return 1
+	}
+
+	if now.Before(cycleStart) {
+		now = cycleStart
+	}
+	if !now.Before(cycleEnd) {
+		return 0
+	}
+
+	cycleSeconds := cycleEnd.Sub(cycleStart).Seconds()
+	remainingSeconds := cycleEnd.Sub(now).Seconds()
+	if cycleSeconds <= 0 || remainingSeconds <= 0 {
+		return 0
+	}
+
+	fraction := remainingSeconds / cycleSeconds
+	if fraction < 0 {
+		return 0
+	}
+	if fraction > 1 {
+		return 1
+	}
+	return fraction
+}
+
+func computeTargetProratedChargeCents(targetMonthlyUSD int, fraction float64) int64 {
+	targetMonthlyCents := int64(targetMonthlyUSD * 100)
+	if targetMonthlyCents <= 0 || fraction <= 0 {
+		return 0
+	}
+	charge := int64(math.Round(float64(targetMonthlyCents) * fraction))
+	if charge < 0 {
+		return 0
+	}
+	return charge
+}
+
+func computeTargetProratedLOCGrant(targetMonthlyLOC int, fraction float64) int64 {
+	if targetMonthlyLOC <= 0 || fraction <= 0 {
+		return 0
+	}
+	grant := int64(math.Round(float64(targetMonthlyLOC) * fraction))
+	if grant < 0 {
+		return 0
+	}
+	return grant
+}
+
+func (h *BillingActionsHandler) buildUpgradePreview(ctx context.Context, orgID int64, currentPlan, targetPlan license.PlanType, fallbackCycleStart, fallbackCycleEnd time.Time) (signedUpgradePreview, map[string]interface{}, error) {
+	if h.db == nil {
+		return signedUpgradePreview{}, nil, fmt.Errorf("missing db handle")
+	}
+
+	subStore := storagepayment.NewSubscriptionStore(h.db)
+	subscriptions, err := subStore.ListSubscriptionsByOrgID(int(orgID))
+	if err != nil {
+		return signedUpgradePreview{}, nil, fmt.Errorf("load org subscriptions: %w", err)
+	}
+	if len(subscriptions) == 0 {
+		return signedUpgradePreview{}, nil, fmt.Errorf("%w: organization has no active subscription", errRazorpayCheckoutRequired)
+	}
+
+	active := subscriptions[0]
+	for _, s := range subscriptions {
+		if strings.EqualFold(s.Status, "active") {
+			active = s
+			break
+		}
+	}
+	if strings.TrimSpace(active.RazorpaySubscriptionID) == "" {
+		return signedUpgradePreview{}, nil, fmt.Errorf("%w: no razorpay subscription id", errRazorpayCheckoutRequired)
+	}
+
+	mode := resolveRazorpayModeForBilling()
+
+	cycleStart := fallbackCycleStart.UTC()
+	cycleEnd := fallbackCycleEnd.UTC()
+	razorpaySub, err := payment.GetSubscriptionByID(mode, active.RazorpaySubscriptionID)
+	if err != nil {
+		return signedUpgradePreview{}, nil, fmt.Errorf("load razorpay subscription: %w", err)
+	}
+	if razorpaySub.CurrentStart > 0 {
+		cycleStart = time.Unix(razorpaySub.CurrentStart, 0).UTC()
+	}
+	if razorpaySub.CurrentEnd > 0 {
+		cycleEnd = time.Unix(razorpaySub.CurrentEnd, 0).UTC()
+	}
+
+	planID := strings.TrimSpace(razorpaySub.PlanID)
+	if planID == "" {
+		return signedUpgradePreview{}, nil, fmt.Errorf("razorpay subscription has empty plan_id")
+	}
+
+	razorpayPlan, err := payment.GetPlanByID(mode, planID)
+	if err != nil {
+		return signedUpgradePreview{}, nil, fmt.Errorf("load razorpay plan for currency resolution: %w", err)
+	}
+
+	chargeCurrency := strings.ToUpper(strings.TrimSpace(razorpayPlan.Item.Currency))
+	if chargeCurrency == "" {
+		return signedUpgradePreview{}, nil, fmt.Errorf("razorpay plan %s has empty currency", planID)
+	}
+
+	now := time.Now().UTC()
+	remainingFraction := computeRemainingCycleFraction(cycleStart, cycleEnd, now)
+	chargeCents := computeTargetProratedChargeCents(targetPlan.GetLimits().MonthlyPriceUSD, remainingFraction)
+	locGrant := computeTargetProratedLOCGrant(targetPlan.GetLimits().MonthlyLOCLimit, remainingFraction)
+
+	tokenPayload := signedUpgradePreview{
+		OrgID:                   orgID,
+		FromPlanCode:            currentPlan.String(),
+		ToPlanCode:              targetPlan.String(),
+		CycleStartUnix:          cycleStart.Unix(),
+		CycleEndUnix:            cycleEnd.Unix(),
+		RemainingFractionBP:     int64(math.Round(remainingFraction * 10000)),
+		ImmediateChargeCents:    chargeCents,
+		ImmediateChargeCurrency: chargeCurrency,
+		ImmediateLOCGrant:       locGrant,
+		NextCyclePriceCents:     int64(targetPlan.GetLimits().MonthlyPriceUSD * 100),
+		NextCycleLOCLimit:       int64(targetPlan.GetLimits().MonthlyLOCLimit),
+		ExpiresAtUnix:           now.Add(5 * time.Minute).Unix(),
+	}
+
+	preview := map[string]interface{}{
+		"from_plan_code":              currentPlan.String(),
+		"to_plan_code":                targetPlan.String(),
+		"cycle_start":                 cycleStart.Format(time.RFC3339),
+		"cycle_end":                   cycleEnd.Format(time.RFC3339),
+		"remaining_cycle_fraction":    math.Round(remainingFraction*10000) / 10000,
+		"immediate_charge_cents":      chargeCents,
+		"immediate_charge_currency":   chargeCurrency,
+		"immediate_loc_grant":         locGrant,
+		"next_cycle_price_cents":      tokenPayload.NextCyclePriceCents,
+		"next_cycle_loc_limit":        tokenPayload.NextCycleLOCLimit,
+		"charge_timing":               "immediate_one_time_order",
+		"plan_switch_timing":          "immediate",
+		"rounding_policy_money":       "nearest_cent_half_up",
+		"rounding_policy_loc":         "nearest_whole_loc",
+		"fraction_basis":              "exact_utc_seconds",
+		"current_cycle_duration_secs": cycleEnd.Sub(cycleStart).Seconds(),
+		"final_payable_cents":         chargeCents,
+	}
+
+	return tokenPayload, preview, nil
+}
+
+func (h *BillingActionsHandler) PreviewUpgrade(c echo.Context) error {
+	orgID, actorUserID, err := h.requirePlanManager(c)
+	if err != nil {
+		if httpErr, ok := err.(*echo.HTTPError); ok {
+			msg := fmt.Sprintf("%v", httpErr.Message)
+			if msg == "" {
+				msg = http.StatusText(httpErr.Code)
+			}
+			return JSONErrorWithEnvelope(c, httpErr.Code, msg)
+		}
+		return err
+	}
+
+	var req planChangeRequest
+	if err := c.Bind(&req); err != nil {
+		return JSONErrorWithEnvelope(c, http.StatusBadRequest, "invalid request body")
+	}
+
+	targetPlan := license.PlanType(strings.TrimSpace(req.TargetPlanCode))
+	if !targetPlan.IsValid() {
+		return JSONErrorWithEnvelope(c, http.StatusBadRequest, "invalid target_plan_code")
+	}
+
+	ctx := c.Request().Context()
+	if err := h.store.EnsureOrgBillingState(ctx, orgID, license.PlanFree30K.String()); err != nil {
+		return JSONErrorWithEnvelope(c, http.StatusInternalServerError, fmt.Sprintf("failed to initialize billing state: %v", err))
+	}
+
+	state, err := h.store.GetOrgBillingState(ctx, orgID)
+	if err != nil {
+		return JSONErrorWithEnvelope(c, http.StatusInternalServerError, fmt.Sprintf("failed to fetch billing state: %v", err))
+	}
+
+	currentPlan := license.PlanType(state.CurrentPlanCode)
+	if targetPlan.GetLimits().MonthlyLOCLimit <= currentPlan.GetLimits().MonthlyLOCLimit {
+		return JSONErrorWithEnvelope(c, http.StatusBadRequest, "target_plan_code must be a higher LOC tier for upgrade")
+	}
+
+	tokenPayload, preview, err := h.buildUpgradePreview(ctx, orgID, currentPlan, targetPlan, state.BillingPeriodStart, state.BillingPeriodEnd)
+	if err != nil {
+		if errors.Is(err, errRazorpayCheckoutRequired) {
+			return JSONWithEnvelope(c, http.StatusConflict, map[string]interface{}{
+				"message":           "organization requires paid checkout before upgrade",
+				"checkout_required": true,
+				"checkout_path":     "/checkout/team?period=monthly",
+			})
+		}
+		return JSONErrorWithEnvelope(c, http.StatusBadRequest, fmt.Sprintf("failed to build upgrade preview: %v", err))
+	}
+
+	requestUUID, err := uuid.NewV7()
+	if err != nil {
+		return JSONErrorWithEnvelope(c, http.StatusInternalServerError, fmt.Sprintf("failed to generate upgrade_request_id: %v", err))
+	}
+	tokenPayload.UpgradeRequestID = requestUUID.String()
+	tokenPayload.ActorUserID = actorUserID
+
+	previewToken, err := signUpgradePreviewToken(tokenPayload)
+	if err != nil {
+		return JSONErrorWithEnvelope(c, http.StatusInternalServerError, fmt.Sprintf("failed to sign preview token: %v", err))
+	}
+
+	if _, err := h.upgradeRequestStore.CreateUpgradeRequest(ctx, storagepayment.CreateUpgradeRequestInput{
+		UpgradeRequestID:    tokenPayload.UpgradeRequestID,
+		OrgID:               orgID,
+		ActorUserID:         actorUserID,
+		FromPlanCode:        tokenPayload.FromPlanCode,
+		ToPlanCode:          tokenPayload.ToPlanCode,
+		ExpectedAmountCents: tokenPayload.ImmediateChargeCents,
+		Currency:            tokenPayload.ImmediateChargeCurrency,
+		PreviewToken:        previewToken,
+	}); err != nil {
+		return JSONErrorWithEnvelope(c, http.StatusInternalServerError, fmt.Sprintf("failed to create upgrade request: %v", err))
+	}
+
+	return JSONWithEnvelope(c, http.StatusOK, map[string]interface{}{
+		"preview":            preview,
+		"preview_token":      previewToken,
+		"preview_expires_at": time.Unix(tokenPayload.ExpiresAtUnix, 0).UTC().Format(time.RFC3339),
+		"upgrade_request_id": tokenPayload.UpgradeRequestID,
+	})
+}
+
+func (h *BillingActionsHandler) PrepareUpgradePayment(c echo.Context) error {
+	orgID, _, err := h.requirePlanManager(c)
+	if err != nil {
+		if httpErr, ok := err.(*echo.HTTPError); ok {
+			msg := fmt.Sprintf("%v", httpErr.Message)
+			if msg == "" {
+				msg = http.StatusText(httpErr.Code)
+			}
+			return JSONErrorWithEnvelope(c, httpErr.Code, msg)
+		}
+		return err
+	}
+
+	var req upgradePreparePaymentRequest
+	if err := c.Bind(&req); err != nil {
+		return JSONErrorWithEnvelope(c, http.StatusBadRequest, "invalid request body")
+	}
+
+	payload, err := parseAndVerifyUpgradePreviewToken(req.PreviewToken)
+	if err != nil {
+		return JSONErrorWithEnvelope(c, http.StatusBadRequest, err.Error())
+	}
+
+	if payload.OrgID != orgID {
+		return JSONErrorWithEnvelope(c, http.StatusBadRequest, "preview token organization mismatch")
+	}
+
+	upgradeRequestID := strings.TrimSpace(payload.UpgradeRequestID)
+	if upgradeRequestID == "" {
+		return JSONErrorWithEnvelope(c, http.StatusBadRequest, "preview token missing upgrade_request_id")
+	}
+	if strings.TrimSpace(req.UpgradeRequestID) != "" && strings.TrimSpace(req.UpgradeRequestID) != upgradeRequestID {
+		return JSONErrorWithEnvelope(c, http.StatusBadRequest, "upgrade_request_id mismatch")
+	}
+
+	targetPlanCode := strings.TrimSpace(req.TargetPlanCode)
+	if targetPlanCode == "" {
+		targetPlanCode = payload.ToPlanCode
+	}
+	if payload.ToPlanCode != targetPlanCode {
+		return JSONErrorWithEnvelope(c, http.StatusBadRequest, "preview token target plan mismatch")
+	}
+
+	ctx := c.Request().Context()
+	upgradeRequest, err := h.upgradeRequestStore.GetUpgradeRequestByIDForOrg(ctx, orgID, upgradeRequestID)
+	if err != nil {
+		if errors.Is(err, storagepayment.ErrUpgradeRequestNotFound) {
+			return JSONErrorWithEnvelope(c, http.StatusBadRequest, "unknown upgrade_request_id")
+		}
+		return JSONErrorWithEnvelope(c, http.StatusInternalServerError, fmt.Sprintf("failed to load upgrade request: %v", err))
+	}
+
+	if upgradeRequest.FromPlanCode != payload.FromPlanCode || upgradeRequest.ToPlanCode != payload.ToPlanCode {
+		return JSONErrorWithEnvelope(c, http.StatusBadRequest, "upgrade request plan correlation mismatch")
+	}
+	if upgradeRequest.PreviewTokenSHA256 != storagepayment.HashUpgradePreviewToken(req.PreviewToken) {
+		return JSONErrorWithEnvelope(c, http.StatusBadRequest, "upgrade request preview token mismatch")
+	}
+
+	if err := h.store.EnsureOrgBillingState(ctx, orgID, license.PlanFree30K.String()); err != nil {
+		return JSONErrorWithEnvelope(c, http.StatusInternalServerError, fmt.Sprintf("failed to initialize billing state: %v", err))
+	}
+	state, err := h.store.GetOrgBillingState(ctx, orgID)
+	if err != nil {
+		return JSONErrorWithEnvelope(c, http.StatusInternalServerError, fmt.Sprintf("failed to fetch billing state: %v", err))
+	}
+
+	currentPlan := license.PlanType(state.CurrentPlanCode)
+	targetPlan := license.PlanType(payload.ToPlanCode)
+	if targetPlan.IsValid() &&
+		state.ScheduledPlanCode.Valid &&
+		strings.TrimSpace(state.ScheduledPlanCode.String) == targetPlan.String() &&
+		targetPlan.GetLimits().MonthlyLOCLimit > currentPlan.GetLimits().MonthlyLOCLimit {
+		currency := strings.ToUpper(strings.TrimSpace(payload.ImmediateChargeCurrency))
+		if currency == "" {
+			return JSONErrorWithEnvelope(c, http.StatusBadRequest, "preview token missing immediate charge currency")
+		}
+		return JSONWithEnvelope(c, http.StatusOK, map[string]interface{}{
+			"payment_required":          false,
+			"amount_cents":              int64(0),
+			"currency":                  currency,
+			"preview_token":             req.PreviewToken,
+			"upgrade_request_id":        upgradeRequestID,
+			"payment_already_collected": true,
+		})
+	}
+
+	mode := resolveRazorpayModeForBilling()
+	keyID, _, err := payment.GetRazorpayKeys(mode)
+	if err != nil {
+		return JSONErrorWithEnvelope(c, http.StatusInternalServerError, fmt.Sprintf("failed to load razorpay keys: %v", err))
+	}
+
+	currency := strings.ToUpper(strings.TrimSpace(payload.ImmediateChargeCurrency))
+	if currency == "" {
+		return JSONErrorWithEnvelope(c, http.StatusBadRequest, "preview token missing immediate charge currency")
+	}
+
+	if payload.ImmediateChargeCents <= 0 {
+		return JSONWithEnvelope(c, http.StatusOK, map[string]interface{}{
+			"payment_required":   false,
+			"amount_cents":       int64(0),
+			"currency":           currency,
+			"preview_token":      req.PreviewToken,
+			"upgrade_request_id": upgradeRequestID,
+		})
+	}
+
+	if upgradeRequest.RazorpayOrderID.Valid {
+		priorOrderID := strings.TrimSpace(upgradeRequest.RazorpayOrderID.String)
+		if priorOrderID != "" {
+			attempt, attemptErr := h.paymentAttemptStore.GetAttemptByOrgRequestAndOrder(ctx, orgID, upgradeRequestID, priorOrderID)
+			if attemptErr == nil {
+				if attempt.AmountCents == payload.ImmediateChargeCents &&
+					strings.EqualFold(strings.TrimSpace(attempt.Currency), currency) &&
+					strings.EqualFold(strings.TrimSpace(attempt.RazorpayMode), mode) {
+					return JSONWithEnvelope(c, http.StatusOK, map[string]interface{}{
+						"payment_required":   true,
+						"razorpay_key_id":    keyID,
+						"order_id":           attempt.RazorpayOrderID,
+						"amount_cents":       attempt.AmountCents,
+						"currency":           attempt.Currency,
+						"preview_token":      req.PreviewToken,
+						"upgrade_request_id": upgradeRequestID,
+					})
+				}
+			} else if !errors.Is(attemptErr, storagepayment.ErrUpgradePaymentAttemptNotFound) {
+				return JSONErrorWithEnvelope(c, http.StatusInternalServerError, fmt.Sprintf("failed to load existing upgrade payment attempt: %v", attemptErr))
+			}
+		}
+	}
+
+	receipt := fmt.Sprintf("upg_%d_%d", orgID, time.Now().UTC().Unix())
+	order, err := payment.CreateOrder(mode, payload.ImmediateChargeCents, currency, receipt, map[string]string{
+		"org_id":             fmt.Sprintf("%d", orgID),
+		"from_plan_code":     payload.FromPlanCode,
+		"to_plan_code":       payload.ToPlanCode,
+		"upgrade_request_id": upgradeRequestID,
+	})
+	if err != nil {
+		return JSONErrorWithEnvelope(c, http.StatusBadRequest, fmt.Sprintf("failed to create upgrade order: %v", err))
+	}
+
+	if _, err := h.upgradeRequestStore.MarkOrderPrepared(ctx, storagepayment.MarkUpgradeOrderPreparedInput{
+		UpgradeRequestID: upgradeRequestID,
+		OrgID:            orgID,
+		RazorpayMode:     mode,
+		RazorpayOrderID:  order.ID,
+		AmountCents:      payload.ImmediateChargeCents,
+		Currency:         currency,
+		Metadata: map[string]interface{}{
+			"preview_token_sha256": storagepayment.HashUpgradePreviewToken(req.PreviewToken),
+		},
+	}); err != nil {
+		return JSONErrorWithEnvelope(c, http.StatusInternalServerError, fmt.Sprintf("failed to persist upgrade request order correlation: %v", err))
+	}
+
+	if _, err := h.paymentAttemptStore.CreateUpgradePaymentAttempt(ctx, storagepayment.CreateUpgradePaymentAttemptInput{
+		OrgID:            orgID,
+		UpgradeRequestID: upgradeRequestID,
+		PreviewToken:     req.PreviewToken,
+		FromPlanCode:     payload.FromPlanCode,
+		ToPlanCode:       payload.ToPlanCode,
+		AmountCents:      payload.ImmediateChargeCents,
+		Currency:         currency,
+		RazorpayMode:     mode,
+		RazorpayOrderID:  order.ID,
+	}); err != nil {
+		return JSONErrorWithEnvelope(c, http.StatusInternalServerError, fmt.Sprintf("failed to persist upgrade payment attempt: %v", err))
+	}
+
+	return JSONWithEnvelope(c, http.StatusOK, map[string]interface{}{
+		"payment_required":   true,
+		"razorpay_key_id":    keyID,
+		"order_id":           order.ID,
+		"amount_cents":       order.Amount,
+		"currency":           order.Currency,
+		"preview_token":      req.PreviewToken,
+		"upgrade_request_id": upgradeRequestID,
+	})
+}
+
+func (h *BillingActionsHandler) ExecuteUpgrade(c echo.Context) error {
+	orgID, _, err := h.requirePlanManager(c)
+	if err != nil {
+		if httpErr, ok := err.(*echo.HTTPError); ok {
+			msg := fmt.Sprintf("%v", httpErr.Message)
+			if msg == "" {
+				msg = http.StatusText(httpErr.Code)
+			}
+			return JSONErrorWithEnvelope(c, httpErr.Code, msg)
+		}
+		return err
+	}
+
+	var req upgradeExecuteRequest
+	if err := c.Bind(&req); err != nil {
+		return JSONErrorWithEnvelope(c, http.StatusBadRequest, "invalid request body")
+	}
+
+	payload, err := parseAndVerifyUpgradePreviewToken(req.PreviewToken)
+	if err != nil {
+		return JSONErrorWithEnvelope(c, http.StatusBadRequest, err.Error())
+	}
+
+	if payload.OrgID != orgID {
+		return JSONErrorWithEnvelope(c, http.StatusBadRequest, "preview token organization mismatch")
+	}
+
+	upgradeRequestID := strings.TrimSpace(payload.UpgradeRequestID)
+	if upgradeRequestID == "" {
+		return JSONErrorWithEnvelope(c, http.StatusBadRequest, "preview token missing upgrade_request_id")
+	}
+	if strings.TrimSpace(req.UpgradeRequestID) != "" && strings.TrimSpace(req.UpgradeRequestID) != upgradeRequestID {
+		return JSONErrorWithEnvelope(c, http.StatusBadRequest, "upgrade_request_id mismatch")
+	}
+	if strings.TrimSpace(req.TargetPlanCode) != "" && strings.TrimSpace(req.TargetPlanCode) != payload.ToPlanCode {
+		return JSONErrorWithEnvelope(c, http.StatusBadRequest, "preview token target plan mismatch")
+	}
+
+	executeIdempotencyKey := strings.TrimSpace(req.ExecuteIdempotencyKey)
+	if executeIdempotencyKey == "" {
+		return JSONErrorWithEnvelope(c, http.StatusBadRequest, "execute_idempotency_key is required")
+	}
+
+	orderID := strings.TrimSpace(req.RazorpayOrderID)
+	paymentID := strings.TrimSpace(req.RazorpayPaymentID)
+	signature := strings.TrimSpace(req.RazorpaySignature)
+
+	ctx := c.Request().Context()
+	upgradeRequest, err := h.upgradeRequestStore.GetUpgradeRequestByIDForOrg(ctx, orgID, upgradeRequestID)
+	if err != nil {
+		if errors.Is(err, storagepayment.ErrUpgradeRequestNotFound) {
+			return JSONErrorWithEnvelope(c, http.StatusBadRequest, "unknown upgrade_request_id")
+		}
+		return JSONErrorWithEnvelope(c, http.StatusInternalServerError, fmt.Sprintf("failed to load upgrade request: %v", err))
+	}
+
+	if upgradeRequest.FromPlanCode != payload.FromPlanCode || upgradeRequest.ToPlanCode != payload.ToPlanCode {
+		return JSONErrorWithEnvelope(c, http.StatusBadRequest, "upgrade request plan correlation mismatch")
+	}
+	if upgradeRequest.PreviewTokenSHA256 != storagepayment.HashUpgradePreviewToken(req.PreviewToken) {
+		return JSONErrorWithEnvelope(c, http.StatusBadRequest, "upgrade request preview token mismatch")
+	}
+
+	if strings.EqualFold(upgradeRequest.CurrentStatus, storagepayment.UpgradeRequestStatusResolved) {
+		if applyErr := h.applyResolvedUpgradeRequest(ctx, upgradeRequest); applyErr != nil {
+			return JSONErrorWithEnvelope(c, http.StatusInternalServerError, fmt.Sprintf("failed to finalize resolved upgrade request: %v", applyErr))
+		}
+		return JSONWithEnvelope(c, http.StatusOK, map[string]interface{}{
+			"message":            "upgrade already resolved",
+			"idempotent_replay":  true,
+			"upgrade_request_id": upgradeRequestID,
+			"status":             storagepayment.UpgradeRequestStatusResolved,
+		})
+	}
+
+	if err := h.store.EnsureOrgBillingState(ctx, orgID, license.PlanFree30K.String()); err != nil {
+		return JSONErrorWithEnvelope(c, http.StatusInternalServerError, fmt.Sprintf("failed to initialize billing state: %v", err))
+	}
+	state, err := h.store.GetOrgBillingState(ctx, orgID)
+	if err != nil {
+		return JSONErrorWithEnvelope(c, http.StatusInternalServerError, fmt.Sprintf("failed to fetch billing state: %v", err))
+	}
+
+	if state.CurrentPlanCode != payload.FromPlanCode {
+		return JSONErrorWithEnvelope(c, http.StatusConflict, "current plan changed since preview; refresh preview")
+	}
+
+	currentPlan := license.PlanType(state.CurrentPlanCode)
+	targetPlan := license.PlanType(payload.ToPlanCode)
+	if !targetPlan.IsValid() {
+		return JSONErrorWithEnvelope(c, http.StatusBadRequest, "invalid target plan in preview token")
+	}
+	skipPaymentVerification := state.ScheduledPlanCode.Valid &&
+		strings.TrimSpace(state.ScheduledPlanCode.String) == targetPlan.String() &&
+		targetPlan.GetLimits().MonthlyLOCLimit > currentPlan.GetLimits().MonthlyLOCLimit
+
+	mode := resolveRazorpayModeForBilling()
+	var attempt storagepayment.UpgradePaymentAttempt
+	if payload.ImmediateChargeCents > 0 && !skipPaymentVerification {
+		if orderID == "" || paymentID == "" || signature == "" {
+			return JSONErrorWithEnvelope(c, http.StatusBadRequest, "razorpay_order_id, razorpay_payment_id, and razorpay_signature are required")
+		}
+
+		attempt, err = h.paymentAttemptStore.GetAttemptByOrgRequestAndOrder(ctx, orgID, upgradeRequestID, orderID)
+		if err != nil {
+			if errors.Is(err, storagepayment.ErrUpgradePaymentAttemptNotFound) {
+				return JSONErrorWithEnvelope(c, http.StatusBadRequest, "unknown upgrade payment attempt for provided order")
+			}
+			return JSONErrorWithEnvelope(c, http.StatusInternalServerError, fmt.Sprintf("failed to load upgrade payment attempt: %v", err))
+		}
+
+		if attempt.FromPlanCode != payload.FromPlanCode || attempt.ToPlanCode != payload.ToPlanCode {
+			return JSONErrorWithEnvelope(c, http.StatusBadRequest, "payment attempt plan correlation mismatch")
+		}
+		if attempt.AmountCents != payload.ImmediateChargeCents {
+			return JSONErrorWithEnvelope(c, http.StatusBadRequest, "payment attempt amount mismatch")
+		}
+		if !strings.EqualFold(strings.TrimSpace(attempt.Currency), strings.TrimSpace(payload.ImmediateChargeCurrency)) {
+			return JSONErrorWithEnvelope(c, http.StatusBadRequest, "payment attempt currency mismatch")
+		}
+
+		attempt, alreadyApplied, reserveErr := h.paymentAttemptStore.ReserveExecute(ctx, storagepayment.ReserveUpgradeExecuteInput{
+			OrgID:                 orgID,
+			UpgradeRequestID:      upgradeRequestID,
+			PreviewToken:          req.PreviewToken,
+			RazorpayOrderID:       orderID,
+			RazorpayPaymentID:     paymentID,
+			ExecuteIdempotencyKey: executeIdempotencyKey,
+		})
+		if reserveErr != nil {
+			if errors.Is(reserveErr, storagepayment.ErrUpgradePaymentAttemptNotFound) {
+				return JSONErrorWithEnvelope(c, http.StatusBadRequest, "unknown upgrade payment attempt for provided order")
+			}
+			if errors.Is(reserveErr, storagepayment.ErrUpgradePaymentAttemptIdempotencyMismatch) {
+				return JSONErrorWithEnvelope(c, http.StatusConflict, "execute idempotency key mismatch for this upgrade payment attempt")
+			}
+			return JSONErrorWithEnvelope(c, http.StatusInternalServerError, fmt.Sprintf("failed to reserve upgrade execute attempt: %v", reserveErr))
+		}
+		if alreadyApplied {
+			stored, decodeErr := storagepayment.DecodeUpgradeExecuteResponse(attempt.ExecuteResponse)
+			if decodeErr == nil && stored != nil {
+				return JSONWithEnvelope(c, http.StatusOK, stored)
+			}
+			return JSONWithEnvelope(c, http.StatusOK, map[string]interface{}{
+				"message":           "upgrade already executed",
+				"idempotent_replay": true,
+				"order_id":          orderID,
+				"payment_id":        paymentID,
+			})
+		}
+	}
+
+	if payload.ImmediateChargeCents > 0 && !skipPaymentVerification {
+		currency := strings.ToUpper(strings.TrimSpace(payload.ImmediateChargeCurrency))
+		if currency == "" {
+			return JSONErrorWithEnvelope(c, http.StatusBadRequest, "preview token missing immediate charge currency")
+		}
+
+		if err := payment.VerifyOrderPaymentSignature(mode, orderID, paymentID, signature); err != nil {
+			return JSONErrorWithEnvelope(c, http.StatusBadRequest, err.Error())
+		}
+
+		paid, err := payment.GetPaymentByID(mode, paymentID)
+		if err != nil {
+			return JSONErrorWithEnvelope(c, http.StatusBadRequest, fmt.Sprintf("failed to fetch payment: %v", err))
+		}
+		if strings.TrimSpace(paid.OrderID) != orderID {
+			return JSONErrorWithEnvelope(c, http.StatusBadRequest, "payment order mismatch")
+		}
+		if !paid.Captured.Bool() {
+			return JSONErrorWithEnvelope(c, http.StatusBadRequest, "payment is not captured")
+		}
+		if paid.Amount != payload.ImmediateChargeCents {
+			return JSONErrorWithEnvelope(c, http.StatusBadRequest, "payment amount mismatch")
+		}
+		if !strings.EqualFold(strings.TrimSpace(paid.Currency), currency) {
+			return JSONErrorWithEnvelope(c, http.StatusBadRequest, "payment currency mismatch")
+		}
+		if err := h.paymentAttemptStore.MarkPaymentCapturedByOrderID(ctx, orderID, paymentID); err != nil && !errors.Is(err, storagepayment.ErrUpgradePaymentAttemptNotFound) {
+			return JSONErrorWithEnvelope(c, http.StatusInternalServerError, fmt.Sprintf("failed to persist captured upgrade payment attempt: %v", err))
+		}
+	}
+
+	if err := h.syncRazorpayTransition(ctx, orgID, targetPlan, true, state.BillingPeriodEnd); err != nil {
+		_, _ = h.upgradeRequestStore.MarkUpgradeRequestFailed(ctx, storagepayment.MarkUpgradeRequestFailedInput{
+			UpgradeRequestID: upgradeRequestID,
+			FailureReason:    fmt.Sprintf("subscription update failed: %v", err),
+			Metadata: map[string]interface{}{
+				"stage": "sync_razorpay_transition",
+			},
+		})
+		return JSONErrorWithEnvelope(c, http.StatusBadRequest, fmt.Sprintf("razorpay immediate transition failed: %v", err))
+	}
+
+	activeSubscription, subErr := resolveActiveOrgSubscription(h.db, orgID)
+	if subErr != nil {
+		return JSONErrorWithEnvelope(c, http.StatusInternalServerError, fmt.Sprintf("failed to resolve active subscription for upgrade request: %v", subErr))
+	}
+
+	if _, err := h.upgradeRequestStore.MarkSubscriptionUpdateRequested(ctx, storagepayment.MarkUpgradeSubscriptionUpdateInput{
+		UpgradeRequestID:       upgradeRequestID,
+		LocalSubscriptionID:    activeSubscription.ID,
+		RazorpaySubscriptionID: activeSubscription.RazorpaySubscriptionID,
+		TargetQuantity:         locPlanToQuantity(targetPlan),
+		Metadata: map[string]interface{}{
+			"execute_idempotency_key": executeIdempotencyKey,
+			"razorpay_order_id":       orderID,
+			"razorpay_payment_id":     paymentID,
+			"modal_version":           strings.TrimSpace(req.ModalVersion),
+		},
+	}); err != nil && !errors.Is(err, storagepayment.ErrUpgradeRequestTransitionRejected) {
+		return JSONErrorWithEnvelope(c, http.StatusInternalServerError, fmt.Sprintf("failed to persist subscription update state: %v", err))
+	}
+
+	if payload.ImmediateChargeCents <= 0 || skipPaymentVerification {
+		_, _ = h.upgradeRequestStore.MarkPaymentCaptureConfirmed(ctx, storagepayment.MarkUpgradePaymentCaptureInput{
+			UpgradeRequestID:  upgradeRequestID,
+			RazorpayPaymentID: paymentID,
+			RazorpayOrderID:   orderID,
+			Metadata: map[string]interface{}{
+				"source": "execute_no_immediate_payment",
+			},
+		})
+	}
+
+	if _, recErr := h.reconcileUpgradeRequestNow(ctx, upgradeRequestID); recErr != nil {
+		log.Printf("[billing-upgrade] reconcile-now warning request=%s org=%d: %v", upgradeRequestID, orgID, recErr)
+	}
+
+	updatedRequest, err := h.upgradeRequestStore.GetUpgradeRequestByIDForOrg(ctx, orgID, upgradeRequestID)
+	if err != nil {
+		return JSONErrorWithEnvelope(c, http.StatusInternalServerError, fmt.Sprintf("failed to reload upgrade request status: %v", err))
+	}
+
+	if strings.EqualFold(updatedRequest.CurrentStatus, storagepayment.UpgradeRequestStatusResolved) {
+		if err := h.applyResolvedUpgradeRequest(ctx, updatedRequest); err != nil {
+			return JSONErrorWithEnvelope(c, http.StatusInternalServerError, fmt.Sprintf("failed to apply resolved upgrade request: %v", err))
+		}
+	}
+
+	responsePayload := map[string]interface{}{
+		"message":            "upgrade request accepted; waiting for deterministic confirmations",
+		"transition_mode":    "deterministic_process",
+		"plan_code":          targetPlan.String(),
+		"upgrade_request_id": upgradeRequestID,
+		"status":             updatedRequest.CurrentStatus,
+		"resolved":           strings.EqualFold(updatedRequest.CurrentStatus, storagepayment.UpgradeRequestStatusResolved),
+		"proration": map[string]interface{}{
+			"from_plan_code":           payload.FromPlanCode,
+			"to_plan_code":             payload.ToPlanCode,
+			"cycle_start":              time.Unix(payload.CycleStartUnix, 0).UTC().Format(time.RFC3339),
+			"cycle_end":                time.Unix(payload.CycleEndUnix, 0).UTC().Format(time.RFC3339),
+			"remaining_cycle_fraction": float64(payload.RemainingFractionBP) / 10000,
+			"charge_amount_cents":      payload.ImmediateChargeCents,
+			"charge_currency":          payload.ImmediateChargeCurrency,
+			"charge_status": func() string {
+				if payload.ImmediateChargeCents <= 0 {
+					return "skipped"
+				}
+				if skipPaymentVerification {
+					return "already_captured"
+				}
+				return "verification_pending"
+			}(),
+			"payment_id":             paymentID,
+			"order_id":               orderID,
+			"immediate_loc_grant":    payload.ImmediateLOCGrant,
+			"next_cycle_price_cents": payload.NextCyclePriceCents,
+			"next_cycle_loc_limit":   payload.NextCycleLOCLimit,
+		},
+	}
+
+	if payload.ImmediateChargeCents > 0 && !skipPaymentVerification {
+		if _, err := h.paymentAttemptStore.MarkExecuteApplied(ctx, storagepayment.MarkUpgradeExecuteAppliedInput{
+			RazorpayOrderID:       orderID,
+			RazorpayPaymentID:     paymentID,
+			ExecuteIdempotencyKey: executeIdempotencyKey,
+			ExecuteResponse:       responsePayload,
+		}); err != nil {
+			log.Printf("[billing-upgrade] warning: failed to persist execute_applied attempt org=%d order_id=%s: %v", orgID, orderID, err)
+		}
+	}
+
+	return JSONWithEnvelope(c, http.StatusOK, responsePayload)
+}
+
+type activeOrgSubscription struct {
+	ID                     int64
+	RazorpaySubscriptionID string
+	Quantity               int
+	Status                 string
+}
+
+func resolveActiveOrgSubscription(db *sql.DB, orgID int64) (activeOrgSubscription, error) {
+	var out activeOrgSubscription
+	err := db.QueryRow(`
+		SELECT id, razorpay_subscription_id, quantity, status
+		FROM subscriptions
+		WHERE org_id = $1
+		ORDER BY CASE WHEN status = 'active' THEN 0 ELSE 1 END, updated_at DESC, created_at DESC
+		LIMIT 1`, orgID).Scan(&out.ID, &out.RazorpaySubscriptionID, &out.Quantity, &out.Status)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return activeOrgSubscription{}, fmt.Errorf("no subscription found for org %d", orgID)
+		}
+		return activeOrgSubscription{}, fmt.Errorf("resolve active org subscription: %w", err)
+	}
+	return out, nil
+}
+
+func (h *BillingActionsHandler) applyResolvedUpgradeRequest(ctx context.Context, request storagepayment.UpgradeRequest) error {
+	if request.PlanGrantApplied {
+		return nil
+	}
+
+	if err := h.store.EnsureOrgBillingState(ctx, request.OrgID, license.PlanFree30K.String()); err != nil {
+		return fmt.Errorf("ensure org billing state before resolved apply: %w", err)
+	}
+
+	state, err := h.store.GetOrgBillingState(ctx, request.OrgID)
+	if err != nil {
+		return fmt.Errorf("load org billing state before resolved apply: %w", err)
+	}
+
+	if strings.TrimSpace(state.CurrentPlanCode) != strings.TrimSpace(request.ToPlanCode) {
+		payload := map[string]interface{}{
+			"upgrade_request_id":        request.UpgradeRequestID,
+			"from_plan_code":            request.FromPlanCode,
+			"to_plan_code":              request.ToPlanCode,
+			"expected_amount_cents":     request.ExpectedAmountCents,
+			"currency":                  request.Currency,
+			"payment_capture_confirmed": request.PaymentCaptureConfirmed,
+			"subscription_confirmed":    request.SubscriptionChangeConfirmed,
+			"resolved_at": func() string {
+				if request.ResolvedAt.Valid {
+					return request.ResolvedAt.Time.UTC().Format(time.RFC3339)
+				}
+				return ""
+			}(),
+		}
+		if err := h.store.ApplyImmediatePlanUpgrade(ctx, request.OrgID, request.ToPlanCode, request.ActorUserID, payload); err != nil {
+			return fmt.Errorf("apply resolved upgrade to org billing state: %w", err)
+		}
+	}
+
+	if _, err := h.upgradeRequestStore.MarkPlanGrantApplied(ctx, request.UpgradeRequestID, map[string]interface{}{
+		"source": "resolved_apply",
+	}); err != nil {
+		if !errors.Is(err, storagepayment.ErrUpgradeRequestTransitionRejected) {
+			return fmt.Errorf("mark plan grant applied on upgrade request: %w", err)
+		}
+	}
+
+	return nil
+}
+
+func (h *BillingActionsHandler) reconcileUpgradeRequestNow(ctx context.Context, upgradeRequestID string) (storagepayment.UpgradeRequest, error) {
+	request, err := h.upgradeRequestStore.GetUpgradeRequestByID(ctx, upgradeRequestID)
+	if err != nil {
+		return storagepayment.UpgradeRequest{}, err
+	}
+
+	mode := strings.TrimSpace(request.RazorpayMode.String)
+	if mode == "" {
+		mode = resolveRazorpayModeForBilling()
+	}
+
+	if !request.PaymentCaptureConfirmed && request.RazorpayPaymentID.Valid {
+		paymentID := strings.TrimSpace(request.RazorpayPaymentID.String)
+		if paymentID != "" {
+			paid, payErr := payment.GetPaymentByID(mode, paymentID)
+			if payErr == nil && paid.Captured.Bool() {
+				orderID := strings.TrimSpace(request.RazorpayOrderID.String)
+				if strings.TrimSpace(paid.OrderID) == orderID {
+					_, _ = h.upgradeRequestStore.MarkPaymentCaptureConfirmed(ctx, storagepayment.MarkUpgradePaymentCaptureInput{
+						UpgradeRequestID:  request.UpgradeRequestID,
+						RazorpayPaymentID: paymentID,
+						RazorpayOrderID:   orderID,
+						Metadata: map[string]interface{}{
+							"source": "reconciler_payment_lookup",
+						},
+					})
+				}
+			}
+		}
+	}
+
+	request, err = h.upgradeRequestStore.GetUpgradeRequestByID(ctx, upgradeRequestID)
+	if err != nil {
+		return storagepayment.UpgradeRequest{}, err
+	}
+
+	if !request.SubscriptionChangeConfirmed && request.RazorpaySubscriptionID.Valid && request.TargetQuantity.Valid {
+		targetQty := int(request.TargetQuantity.Int64)
+		if targetQty > 0 {
+			rzpSub, subErr := payment.GetSubscriptionByID(mode, strings.TrimSpace(request.RazorpaySubscriptionID.String))
+			if subErr == nil && rzpSub.Quantity >= targetQty {
+				_, _ = h.upgradeRequestStore.MarkSubscriptionChangeConfirmed(ctx, storagepayment.MarkUpgradeSubscriptionConfirmedInput{
+					UpgradeRequestID:       request.UpgradeRequestID,
+					RazorpaySubscriptionID: request.RazorpaySubscriptionID.String,
+					Metadata: map[string]interface{}{
+						"source":          "reconciler_subscription_lookup",
+						"quantity":        rzpSub.Quantity,
+						"target_quantity": targetQty,
+					},
+				})
+			}
+		}
+	}
+
+	request, err = h.upgradeRequestStore.GetUpgradeRequestByID(ctx, upgradeRequestID)
+	if err != nil {
+		return storagepayment.UpgradeRequest{}, err
+	}
+
+	if strings.EqualFold(request.CurrentStatus, storagepayment.UpgradeRequestStatusResolved) {
+		if err := h.applyResolvedUpgradeRequest(ctx, request); err != nil {
+			return storagepayment.UpgradeRequest{}, err
+		}
+		request, err = h.upgradeRequestStore.GetUpgradeRequestByID(ctx, upgradeRequestID)
+		if err != nil {
+			return storagepayment.UpgradeRequest{}, err
+		}
+	}
+
+	return request, nil
+}
+
+func (h *BillingActionsHandler) reconcilePendingUpgradeRequests(ctx context.Context, limit int) error {
+	requests, err := h.upgradeRequestStore.ListRequestsForReconciliation(ctx, limit, time.Now().UTC().Add(-5*time.Second))
+	if err != nil {
+		return err
+	}
+
+	for _, req := range requests {
+		if strings.EqualFold(req.CurrentStatus, storagepayment.UpgradeRequestStatusResolved) {
+			if err := h.applyResolvedUpgradeRequest(ctx, req); err != nil {
+				log.Printf("[upgrade-reconcile] apply-resolved failed request=%s org=%d: %v", req.UpgradeRequestID, req.OrgID, err)
+			}
+			continue
+		}
+
+		_, _ = h.upgradeRequestStore.MarkReconciliationRetrying(ctx, req.UpgradeRequestID, map[string]interface{}{"source": "scheduler_tick"})
+		if _, recErr := h.reconcileUpgradeRequestNow(ctx, req.UpgradeRequestID); recErr != nil {
+			log.Printf("[upgrade-reconcile] request=%s org=%d reconcile failed: %v", req.UpgradeRequestID, req.OrgID, recErr)
+			if time.Since(req.CreatedAt) > 30*time.Minute {
+				_, _ = h.upgradeRequestStore.MarkManualReviewRequired(ctx, req.UpgradeRequestID, recErr.Error(), map[string]interface{}{"source": "scheduler_timeout"})
+			}
+		}
+	}
+
+	return nil
 }
 
 func (h *BillingActionsHandler) GetBillingStatus(c echo.Context) error {
@@ -71,9 +1052,91 @@ func (h *BillingActionsHandler) GetBillingStatus(c echo.Context) error {
 	})
 }
 
-func (h *BillingActionsHandler) UpgradePlan(c echo.Context) error {
-	orgID, actorUserID, err := h.requirePlanManager(c)
+func (h *BillingActionsHandler) GetUpgradeRequestStatus(c echo.Context) error {
+	orgID, ok := auth.GetOrgIDFromContext(c)
+	if !ok || orgID <= 0 {
+		return JSONErrorWithEnvelope(c, http.StatusBadRequest, "organization context required")
+	}
+
+	ctx := c.Request().Context()
+	upgradeRequestID := strings.TrimSpace(c.QueryParam("upgrade_request_id"))
+
+	var request storagepayment.UpgradeRequest
+	var err error
+	if upgradeRequestID == "" {
+		request, err = h.upgradeRequestStore.GetLatestUpgradeRequestByOrg(ctx, orgID)
+	} else {
+		request, err = h.upgradeRequestStore.GetUpgradeRequestByIDForOrg(ctx, orgID, upgradeRequestID)
+	}
 	if err != nil {
+		if errors.Is(err, storagepayment.ErrUpgradeRequestNotFound) {
+			return JSONWithEnvelope(c, http.StatusOK, map[string]interface{}{
+				"request": nil,
+				"events":  []map[string]interface{}{},
+			})
+		}
+		return JSONErrorWithEnvelope(c, http.StatusInternalServerError, fmt.Sprintf("failed to load upgrade request status: %v", err))
+	}
+
+	events, err := h.upgradeRequestStore.ListUpgradeRequestEvents(ctx, request.UpgradeRequestID, 50)
+	if err != nil {
+		return JSONErrorWithEnvelope(c, http.StatusInternalServerError, fmt.Sprintf("failed to load upgrade request events: %v", err))
+	}
+
+	eventRows := make([]map[string]interface{}, 0, len(events))
+	for _, ev := range events {
+		row := map[string]interface{}{
+			"event_source": ev.EventSource,
+			"event_type":   ev.EventType,
+			"event_time":   ev.EventTime.UTC().Format(time.RFC3339),
+		}
+		if ev.FromStatus.Valid {
+			row["from_status"] = ev.FromStatus.String
+		}
+		if ev.ToStatus.Valid {
+			row["to_status"] = ev.ToStatus.String
+		}
+		if len(ev.EventPayload) > 0 {
+			var payload map[string]interface{}
+			if unmarshalErr := json.Unmarshal(ev.EventPayload, &payload); unmarshalErr == nil {
+				row["payload"] = payload
+			}
+		}
+		eventRows = append(eventRows, row)
+	}
+
+	response := map[string]interface{}{
+		"upgrade_request_id":               request.UpgradeRequestID,
+		"org_id":                           request.OrgID,
+		"from_plan_code":                   request.FromPlanCode,
+		"to_plan_code":                     request.ToPlanCode,
+		"expected_amount_cents":            request.ExpectedAmountCents,
+		"currency":                         request.Currency,
+		"status":                           request.CurrentStatus,
+		"payment_capture_confirmed":        request.PaymentCaptureConfirmed,
+		"subscription_change_confirmed":    request.SubscriptionChangeConfirmed,
+		"plan_grant_applied":               request.PlanGrantApplied,
+		"created_at":                       request.CreatedAt.UTC().Format(time.RFC3339),
+		"updated_at":                       request.UpdatedAt.UTC().Format(time.RFC3339),
+		"razorpay_order_id":                nullString(request.RazorpayOrderID),
+		"razorpay_payment_id":              nullString(request.RazorpayPaymentID),
+		"razorpay_subscription_id":         nullString(request.RazorpaySubscriptionID),
+		"local_subscription_id":            nullInt64(request.LocalSubscriptionID),
+		"target_quantity":                  nullInt64(request.TargetQuantity),
+		"payment_capture_confirmed_at":     nullTime(request.PaymentCaptureConfirmedAt),
+		"subscription_change_confirmed_at": nullTime(request.SubscriptionChangeConfirmedAt),
+		"plan_grant_applied_at":            nullTime(request.PlanGrantAppliedAt),
+		"resolved_at":                      nullTime(request.ResolvedAt),
+	}
+
+	return JSONWithEnvelope(c, http.StatusOK, map[string]interface{}{
+		"request": response,
+		"events":  eventRows,
+	})
+}
+
+func (h *BillingActionsHandler) UpgradePlan(c echo.Context) error {
+	if _, _, err := h.requirePlanManager(c); err != nil {
 		if httpErr, ok := err.(*echo.HTTPError); ok {
 			msg := fmt.Sprintf("%v", httpErr.Message)
 			if msg == "" {
@@ -84,62 +1147,7 @@ func (h *BillingActionsHandler) UpgradePlan(c echo.Context) error {
 		return err
 	}
 
-	var req planChangeRequest
-	if err := c.Bind(&req); err != nil {
-		return JSONErrorWithEnvelope(c, http.StatusBadRequest, "invalid request body")
-	}
-	targetPlan := license.PlanType(strings.TrimSpace(req.TargetPlanCode))
-	if !targetPlan.IsValid() {
-		return JSONErrorWithEnvelope(c, http.StatusBadRequest, "invalid target_plan_code")
-	}
-
-	ctx := c.Request().Context()
-	if err := h.store.EnsureOrgBillingState(ctx, orgID, license.PlanFree30K.String()); err != nil {
-		return JSONErrorWithEnvelope(c, http.StatusInternalServerError, fmt.Sprintf("failed to initialize billing state: %v", err))
-	}
-	state, err := h.store.GetOrgBillingState(ctx, orgID)
-	if err != nil {
-		return JSONErrorWithEnvelope(c, http.StatusInternalServerError, fmt.Sprintf("failed to fetch billing state: %v", err))
-	}
-
-	currentPlan := license.PlanType(state.CurrentPlanCode)
-	if targetPlan.GetLimits().MonthlyLOCLimit <= currentPlan.GetLimits().MonthlyLOCLimit {
-		return JSONErrorWithEnvelope(c, http.StatusBadRequest, "target_plan_code must be a higher LOC tier for upgrade")
-	}
-
-	payload := map[string]interface{}{
-		"from_plan_code": currentPlan.String(),
-		"to_plan_code":   targetPlan.String(),
-		"mode":           "immediate",
-		"proration":      "razorpay_scheduled",
-	}
-	if err := h.syncRazorpayTransition(ctx, orgID, targetPlan, true, state.BillingPeriodEnd); err != nil {
-		if errors.Is(err, errRazorpayCheckoutRequired) {
-			return JSONWithEnvelope(c, http.StatusConflict, map[string]interface{}{
-				"message":           "organization requires paid checkout before upgrade",
-				"checkout_required": true,
-				"checkout_path":     "/checkout/team?period=monthly",
-			})
-		}
-		return JSONErrorWithEnvelope(c, http.StatusBadRequest, fmt.Sprintf("razorpay transition failed: %v", err))
-	}
-	if err := h.store.ApplyImmediatePlanUpgrade(ctx, orgID, targetPlan.String(), actorUserID, payload); err != nil {
-		rollbackErr := h.syncRazorpayTransition(ctx, orgID, currentPlan, true, state.BillingPeriodEnd)
-		if rollbackErr != nil {
-			return JSONErrorWithEnvelope(
-				c,
-				http.StatusInternalServerError,
-				fmt.Sprintf("failed to upgrade plan after razorpay transition and rollback also failed (forward_err=%v rollback_err=%v)", err, rollbackErr),
-			)
-		}
-		return JSONErrorWithEnvelope(c, http.StatusInternalServerError, fmt.Sprintf("failed to upgrade plan and razorpay transition was rolled back: %v", err))
-	}
-
-	return JSONWithEnvelope(c, http.StatusOK, map[string]interface{}{
-		"message":       "plan upgraded successfully",
-		"plan_code":     targetPlan.String(),
-		"proration_job": "queued",
-	})
+	return JSONErrorWithEnvelope(c, http.StatusGone, "direct /billing/upgrade is deprecated; use /billing/upgrade/preview, /billing/upgrade/prepare-payment, and /billing/upgrade/execute")
 }
 
 func (h *BillingActionsHandler) ScheduleDowngrade(c echo.Context) error {
@@ -286,6 +1294,13 @@ func nullTime(v sql.NullTime) interface{} {
 	return v.Time.UTC().Format(time.RFC3339)
 }
 
+func nullInt64(v sql.NullInt64) interface{} {
+	if !v.Valid {
+		return nil
+	}
+	return v.Int64
+}
+
 func runBillingTransitionScheduler(ctx context.Context, db *sql.DB, interval time.Duration) {
 	if interval < 30*time.Second {
 		interval = 30 * time.Second
@@ -299,24 +1314,36 @@ func runBillingTransitionScheduler(ctx context.Context, db *sql.DB, interval tim
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			due, err := store.ListDueScheduledDowngrades(ctx, time.Now().UTC(), 100)
+			due, err := store.ListDueScheduledPlanChanges(ctx, time.Now().UTC(), 100)
 			if err != nil {
-				log.Printf("[billing-transition-scheduler] list due downgrades failed: %v", err)
+				log.Printf("[billing-transition-scheduler] list due plan changes failed: %v", err)
 				continue
 			}
+
+			handler := NewBillingActionsHandler(db)
 			for _, tr := range due {
 				transitionCtx, cancel := context.WithTimeout(ctx, 20*time.Second)
-				err := applyDueDowngradeWithRazorpay(transitionCtx, db, store, tr)
+				err := applyDueScheduledPlanChangeWithRazorpay(transitionCtx, db, store, tr)
 				cancel()
 				if err != nil {
 					log.Printf("[billing-transition-scheduler] org=%d target_plan=%s reconcile failed: %v", tr.OrgID, tr.TargetPlanCode, err)
 				}
 			}
+
+			reconcileCtx, cancel := context.WithTimeout(ctx, 25*time.Second)
+			if err := handler.reconcilePendingUpgradeRequests(reconcileCtx, 100); err != nil {
+				log.Printf("[billing-transition-scheduler] upgrade request reconciliation failed: %v", err)
+			}
+			cancel()
 		}
 	}
 }
 
 func applyDueDowngradeWithRazorpay(ctx context.Context, db *sql.DB, store *storagelicense.PlanChangeStore, tr storagelicense.DueTransition) error {
+	return applyDueScheduledPlanChangeWithRazorpay(ctx, db, store, tr)
+}
+
+func applyDueScheduledPlanChangeWithRazorpay(ctx context.Context, db *sql.DB, store *storagelicense.PlanChangeStore, tr storagelicense.DueTransition) error {
 	if db == nil {
 		return fmt.Errorf("missing db handle")
 	}
@@ -333,8 +1360,8 @@ func applyDueDowngradeWithRazorpay(ctx context.Context, db *sql.DB, store *stora
 		return err
 	}
 
-	if err := store.ApplyScheduledDowngrade(ctx, tr); err != nil {
-		return fmt.Errorf("apply scheduled downgrade: %w", err)
+	if err := store.ApplyScheduledPlanChange(ctx, tr); err != nil {
+		return fmt.Errorf("apply scheduled plan change: %w", err)
 	}
 
 	return nil
@@ -508,4 +1535,133 @@ func locPlanToQuantity(plan license.PlanType) int {
 		q = 1
 	}
 	return q
+}
+
+func computeProratedDeltaCents(fromMonthlyUSD, toMonthlyUSD int, cycleStart, cycleEnd, now time.Time) (int64, float64) {
+	deltaMonthlyCents := int64((toMonthlyUSD - fromMonthlyUSD) * 100)
+	if deltaMonthlyCents <= 0 {
+		return 0, 0
+	}
+
+	if !cycleEnd.After(cycleStart) {
+		return deltaMonthlyCents, 1
+	}
+
+	if now.Before(cycleStart) {
+		now = cycleStart
+	}
+	if !now.Before(cycleEnd) {
+		return deltaMonthlyCents, 1
+	}
+
+	cycleSeconds := cycleEnd.Sub(cycleStart).Seconds()
+	remainingSeconds := cycleEnd.Sub(now).Seconds()
+	if cycleSeconds <= 0 || remainingSeconds <= 0 {
+		return 0, 0
+	}
+
+	fraction := remainingSeconds / cycleSeconds
+	if fraction < 0 {
+		fraction = 0
+	}
+	if fraction > 1 {
+		fraction = 1
+	}
+
+	chargeCents := int64(math.Round(float64(deltaMonthlyCents) * fraction))
+	if chargeCents <= 0 {
+		chargeCents = 1
+	}
+
+	return chargeCents, fraction
+}
+
+func applyImmediateUpgradeProrationCharge(
+	ctx context.Context,
+	db *sql.DB,
+	orgID int64,
+	currentPlan license.PlanType,
+	targetPlan license.PlanType,
+	fallbackCycleStart time.Time,
+	fallbackCycleEnd time.Time,
+) (map[string]interface{}, error) {
+	if db == nil {
+		return nil, fmt.Errorf("missing db handle")
+	}
+
+	subStore := storagepayment.NewSubscriptionStore(db)
+	subscriptions, err := subStore.ListSubscriptionsByOrgID(int(orgID))
+	if err != nil {
+		return nil, fmt.Errorf("load org subscriptions: %w", err)
+	}
+	if len(subscriptions) == 0 {
+		return nil, fmt.Errorf("%w: organization has no active subscription", errRazorpayCheckoutRequired)
+	}
+
+	active := subscriptions[0]
+	for _, s := range subscriptions {
+		if strings.EqualFold(s.Status, "active") {
+			active = s
+			break
+		}
+	}
+	if strings.TrimSpace(active.RazorpaySubscriptionID) == "" {
+		return nil, fmt.Errorf("%w: no razorpay subscription id", errRazorpayCheckoutRequired)
+	}
+
+	mode := strings.TrimSpace(os.Getenv("RAZORPAY_MODE"))
+	if mode == "" {
+		mode = "test"
+	}
+
+	cycleStart := fallbackCycleStart.UTC()
+	cycleEnd := fallbackCycleEnd.UTC()
+	razorpaySub, err := payment.GetSubscriptionByID(mode, active.RazorpaySubscriptionID)
+	if err == nil {
+		if razorpaySub.CurrentStart > 0 {
+			cycleStart = time.Unix(razorpaySub.CurrentStart, 0).UTC()
+		}
+		if razorpaySub.CurrentEnd > 0 {
+			cycleEnd = time.Unix(razorpaySub.CurrentEnd, 0).UTC()
+		}
+	}
+
+	chargeCents, fraction := computeProratedDeltaCents(
+		currentPlan.GetLimits().MonthlyPriceUSD,
+		targetPlan.GetLimits().MonthlyPriceUSD,
+		cycleStart,
+		cycleEnd,
+		time.Now().UTC(),
+	)
+
+	details := map[string]interface{}{
+		"mode":                     "manual_prorated_addon",
+		"from_plan_code":           currentPlan.String(),
+		"to_plan_code":             targetPlan.String(),
+		"cycle_start":              cycleStart.Format(time.RFC3339),
+		"cycle_end":                cycleEnd.Format(time.RFC3339),
+		"remaining_cycle_fraction": math.Round(fraction*10000) / 10000,
+		"charge_amount_cents":      chargeCents,
+		"charge_currency":          "USD",
+	}
+
+	if chargeCents <= 0 {
+		details["charge_status"] = "skipped"
+		return details, nil
+	}
+
+	addon, err := payment.CreateSubscriptionAddon(mode, active.RazorpaySubscriptionID, payment.RazorpayAddonItem{
+		Name:        "LiveReview Prorated Upgrade",
+		Amount:      chargeCents,
+		Currency:    "USD",
+		Description: fmt.Sprintf("Prorated upgrade from %s to %s", currentPlan.String(), targetPlan.String()),
+	})
+	if err != nil {
+		return nil, fmt.Errorf("create prorated add-on charge: %w", err)
+	}
+
+	details["charge_status"] = "created"
+	details["addon_id"] = addon.ID
+
+	return details, nil
 }

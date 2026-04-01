@@ -3,7 +3,9 @@ package api
 import (
 	"context"
 	"database/sql"
+	"math"
 	"testing"
+	"time"
 
 	"github.com/livereview/internal/license"
 	storagelicense "github.com/livereview/storage/license"
@@ -67,5 +69,58 @@ func TestApplyDueDowngradeWithRazorpayRejectsInvalidPlan(t *testing.T) {
 	}
 	if err.Error() != "invalid target plan code: invalid_plan_code" {
 		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestComputeProratedDeltaCentsMidCycle(t *testing.T) {
+	cycleStart := time.Date(2026, 3, 1, 0, 0, 0, 0, time.UTC)
+	cycleEnd := cycleStart.AddDate(0, 1, 0)
+	now := cycleStart.Add(cycleEnd.Sub(cycleStart) / 2)
+
+	chargeCents, fraction := computeProratedDeltaCents(32, 64, cycleStart, cycleEnd, now)
+	if chargeCents != 1600 {
+		t.Fatalf("expected half-cycle delta 1600 cents, got %d", chargeCents)
+	}
+	if fraction < 0.49 || fraction > 0.51 {
+		t.Fatalf("expected fraction around 0.5, got %.4f", fraction)
+	}
+}
+
+func TestComputeProratedDeltaCentsNoUpgrade(t *testing.T) {
+	cycleStart := time.Date(2026, 3, 1, 0, 0, 0, 0, time.UTC)
+	cycleEnd := cycleStart.AddDate(0, 1, 0)
+
+	chargeCents, fraction := computeProratedDeltaCents(64, 32, cycleStart, cycleEnd, cycleStart)
+	if chargeCents != 0 {
+		t.Fatalf("expected zero charge for downgrade path, got %d", chargeCents)
+	}
+	if fraction != 0 {
+		t.Fatalf("expected zero fraction for non-upgrade, got %.4f", fraction)
+	}
+}
+
+func TestComputeRemainingCycleFractionUsesActualCycleWindow(t *testing.T) {
+	cycleStart := time.Date(2026, 3, 1, 0, 0, 0, 0, time.UTC)
+	cycleEnd := time.Date(2026, 4, 1, 0, 0, 0, 0, time.UTC) // 31-day cycle
+	now := time.Date(2026, 3, 24, 0, 0, 0, 0, time.UTC)
+
+	got := computeRemainingCycleFraction(cycleStart, cycleEnd, now)
+	want := cycleEnd.Sub(now).Seconds() / cycleEnd.Sub(cycleStart).Seconds()
+	if diff := math.Abs(got - want); diff > 0.000001 {
+		t.Fatalf("remaining fraction mismatch: got %.8f want %.8f", got, want)
+	}
+}
+
+func TestComputeTargetProratedChargeCentsTargetBased(t *testing.T) {
+	got := computeTargetProratedChargeCents(64, 8.0/30.0)
+	if got != 1707 {
+		t.Fatalf("expected target-based prorated charge 1707 cents, got %d", got)
+	}
+}
+
+func TestComputeTargetProratedLOCGrantNearestWhole(t *testing.T) {
+	got := computeTargetProratedLOCGrant(200000, 8.0/30.0)
+	if got != 53333 {
+		t.Fatalf("expected nearest whole loc grant 53333, got %d", got)
 	}
 }

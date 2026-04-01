@@ -656,10 +656,13 @@ CREATE TABLE public.org_billing_state (
     last_reset_at timestamp with time zone DEFAULT now() NOT NULL,
     created_at timestamp with time zone DEFAULT now() NOT NULL,
     updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    upgrade_loc_grant_current_cycle bigint DEFAULT 0 NOT NULL,
+    upgrade_loc_grant_expires_at timestamp with time zone,
     CONSTRAINT chk_org_billing_loc_used_non_negative CHECK ((loc_used_month >= 0)),
     CONSTRAINT chk_org_billing_period_valid CHECK ((billing_period_end > billing_period_start)),
     CONSTRAINT chk_org_billing_schedule_pair CHECK ((((scheduled_plan_code IS NULL) AND (scheduled_plan_effective_at IS NULL)) OR ((scheduled_plan_code IS NOT NULL) AND (scheduled_plan_effective_at IS NOT NULL)))),
-    CONSTRAINT chk_org_billing_trial_window_valid CHECK (((trial_ends_at IS NULL) OR (trial_started_at IS NULL) OR (trial_ends_at > trial_started_at)))
+    CONSTRAINT chk_org_billing_trial_window_valid CHECK (((trial_ends_at IS NULL) OR (trial_started_at IS NULL) OR (trial_ends_at > trial_started_at))),
+    CONSTRAINT chk_org_billing_upgrade_loc_grant_non_negative CHECK ((upgrade_loc_grant_current_cycle >= 0))
 );
 
 
@@ -1162,6 +1165,152 @@ ALTER SEQUENCE public.subscriptions_id_seq OWNED BY public.subscriptions.id;
 
 
 --
+-- Name: upgrade_payment_attempts; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.upgrade_payment_attempts (
+    id bigint NOT NULL,
+    org_id bigint NOT NULL,
+    preview_token_sha256 character(64) NOT NULL,
+    from_plan_code character varying(64) NOT NULL,
+    to_plan_code character varying(64) NOT NULL,
+    amount_cents bigint NOT NULL,
+    currency character varying(16) NOT NULL,
+    razorpay_mode character varying(16) NOT NULL,
+    razorpay_order_id character varying(255) NOT NULL,
+    razorpay_payment_id character varying(255),
+    status character varying(64) DEFAULT 'prepared'::character varying NOT NULL,
+    execute_idempotency_key character varying(255),
+    execute_response jsonb,
+    error_code character varying(128),
+    error_reason character varying(255),
+    error_description text,
+    error_source character varying(128),
+    error_step character varying(128),
+    prepared_at timestamp with time zone DEFAULT now() NOT NULL,
+    payment_failed_at timestamp with time zone,
+    payment_captured_at timestamp with time zone,
+    executed_at timestamp with time zone,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    upgrade_request_id character varying(36),
+    CONSTRAINT chk_upgrade_payment_attempts_amount_non_negative CHECK ((amount_cents >= 0)),
+    CONSTRAINT chk_upgrade_payment_attempts_status CHECK (((status)::text = ANY ((ARRAY['prepared'::character varying, 'payment_failed'::character varying, 'payment_captured'::character varying, 'execute_applied'::character varying])::text[])))
+);
+
+
+--
+-- Name: upgrade_payment_attempts_id_seq; Type: SEQUENCE; Schema: public; Owner: -
+--
+
+CREATE SEQUENCE public.upgrade_payment_attempts_id_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+
+--
+-- Name: upgrade_payment_attempts_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: -
+--
+
+ALTER SEQUENCE public.upgrade_payment_attempts_id_seq OWNED BY public.upgrade_payment_attempts.id;
+
+
+--
+-- Name: upgrade_request_events; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.upgrade_request_events (
+    id bigint NOT NULL,
+    upgrade_request_id character varying(36) NOT NULL,
+    org_id bigint NOT NULL,
+    event_source character varying(64) NOT NULL,
+    event_type character varying(64) NOT NULL,
+    from_status character varying(64),
+    to_status character varying(64),
+    event_payload jsonb,
+    event_time timestamp with time zone DEFAULT now() NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL
+);
+
+
+--
+-- Name: upgrade_request_events_id_seq; Type: SEQUENCE; Schema: public; Owner: -
+--
+
+CREATE SEQUENCE public.upgrade_request_events_id_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+
+--
+-- Name: upgrade_request_events_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: -
+--
+
+ALTER SEQUENCE public.upgrade_request_events_id_seq OWNED BY public.upgrade_request_events.id;
+
+
+--
+-- Name: upgrade_requests; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.upgrade_requests (
+    id bigint NOT NULL,
+    upgrade_request_id character varying(36) NOT NULL,
+    org_id bigint NOT NULL,
+    actor_user_id bigint NOT NULL,
+    from_plan_code character varying(64) NOT NULL,
+    to_plan_code character varying(64) NOT NULL,
+    expected_amount_cents bigint NOT NULL,
+    currency character varying(16) NOT NULL,
+    preview_token_sha256 character(64) NOT NULL,
+    razorpay_mode character varying(16),
+    razorpay_order_id character varying(255),
+    razorpay_payment_id character varying(255),
+    local_subscription_id bigint,
+    razorpay_subscription_id character varying(255),
+    target_quantity integer,
+    payment_capture_confirmed boolean DEFAULT false NOT NULL,
+    payment_capture_confirmed_at timestamp with time zone,
+    subscription_change_confirmed boolean DEFAULT false NOT NULL,
+    subscription_change_confirmed_at timestamp with time zone,
+    plan_grant_applied boolean DEFAULT false NOT NULL,
+    plan_grant_applied_at timestamp with time zone,
+    current_status character varying(64) DEFAULT 'created'::character varying NOT NULL,
+    failure_reason text,
+    resolved_at timestamp with time zone,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT chk_upgrade_requests_amount_non_negative CHECK ((expected_amount_cents >= 0)),
+    CONSTRAINT chk_upgrade_requests_status CHECK (((current_status)::text = ANY ((ARRAY['created'::character varying, 'payment_order_created'::character varying, 'waiting_for_capture'::character varying, 'payment_capture_confirmed'::character varying, 'subscription_update_requested'::character varying, 'waiting_for_subscription_confirm'::character varying, 'subscription_change_confirmed'::character varying, 'reconciliation_retrying'::character varying, 'manual_review_required'::character varying, 'resolved'::character varying, 'failed'::character varying])::text[])))
+);
+
+
+--
+-- Name: upgrade_requests_id_seq; Type: SEQUENCE; Schema: public; Owner: -
+--
+
+CREATE SEQUENCE public.upgrade_requests_id_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+
+--
+-- Name: upgrade_requests_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: -
+--
+
+ALTER SEQUENCE public.upgrade_requests_id_seq OWNED BY public.upgrade_requests.id;
+
+
+--
 -- Name: user_management_audit; Type: TABLE; Schema: public; Owner: -
 --
 
@@ -1480,6 +1629,27 @@ ALTER TABLE ONLY public.subscriptions ALTER COLUMN id SET DEFAULT nextval('publi
 
 
 --
+-- Name: upgrade_payment_attempts id; Type: DEFAULT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.upgrade_payment_attempts ALTER COLUMN id SET DEFAULT nextval('public.upgrade_payment_attempts_id_seq'::regclass);
+
+
+--
+-- Name: upgrade_request_events id; Type: DEFAULT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.upgrade_request_events ALTER COLUMN id SET DEFAULT nextval('public.upgrade_request_events_id_seq'::regclass);
+
+
+--
+-- Name: upgrade_requests id; Type: DEFAULT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.upgrade_requests ALTER COLUMN id SET DEFAULT nextval('public.upgrade_requests_id_seq'::regclass);
+
+
+--
 -- Name: user_management_audit id; Type: DEFAULT; Schema: public; Owner: -
 --
 
@@ -1785,6 +1955,46 @@ ALTER TABLE ONLY public.subscriptions
 
 ALTER TABLE ONLY public.subscriptions
     ADD CONSTRAINT subscriptions_razorpay_subscription_id_key UNIQUE (razorpay_subscription_id);
+
+
+--
+-- Name: upgrade_payment_attempts upgrade_payment_attempts_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.upgrade_payment_attempts
+    ADD CONSTRAINT upgrade_payment_attempts_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: upgrade_payment_attempts upgrade_payment_attempts_razorpay_order_id_key; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.upgrade_payment_attempts
+    ADD CONSTRAINT upgrade_payment_attempts_razorpay_order_id_key UNIQUE (razorpay_order_id);
+
+
+--
+-- Name: upgrade_request_events upgrade_request_events_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.upgrade_request_events
+    ADD CONSTRAINT upgrade_request_events_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: upgrade_requests upgrade_requests_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.upgrade_requests
+    ADD CONSTRAINT upgrade_requests_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: upgrade_requests upgrade_requests_upgrade_request_id_key; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.upgrade_requests
+    ADD CONSTRAINT upgrade_requests_upgrade_request_id_key UNIQUE (upgrade_request_id);
 
 
 --
@@ -2517,6 +2727,104 @@ CREATE INDEX idx_subscriptions_status ON public.subscriptions USING btree (statu
 
 
 --
+-- Name: idx_upgrade_payment_attempts_execute_key; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_upgrade_payment_attempts_execute_key ON public.upgrade_payment_attempts USING btree (execute_idempotency_key) WHERE (execute_idempotency_key IS NOT NULL);
+
+
+--
+-- Name: idx_upgrade_payment_attempts_order; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_upgrade_payment_attempts_order ON public.upgrade_payment_attempts USING btree (razorpay_order_id);
+
+
+--
+-- Name: idx_upgrade_payment_attempts_org_preview; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_upgrade_payment_attempts_org_preview ON public.upgrade_payment_attempts USING btree (org_id, preview_token_sha256);
+
+
+--
+-- Name: idx_upgrade_payment_attempts_payment; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_upgrade_payment_attempts_payment ON public.upgrade_payment_attempts USING btree (razorpay_payment_id) WHERE (razorpay_payment_id IS NOT NULL);
+
+
+--
+-- Name: idx_upgrade_payment_attempts_request; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_upgrade_payment_attempts_request ON public.upgrade_payment_attempts USING btree (upgrade_request_id) WHERE (upgrade_request_id IS NOT NULL);
+
+
+--
+-- Name: idx_upgrade_payment_attempts_status; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_upgrade_payment_attempts_status ON public.upgrade_payment_attempts USING btree (status);
+
+
+--
+-- Name: idx_upgrade_request_events_org_time; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_upgrade_request_events_org_time ON public.upgrade_request_events USING btree (org_id, event_time DESC);
+
+
+--
+-- Name: idx_upgrade_request_events_request_time; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_upgrade_request_events_request_time ON public.upgrade_request_events USING btree (upgrade_request_id, event_time DESC);
+
+
+--
+-- Name: idx_upgrade_requests_order; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_upgrade_requests_order ON public.upgrade_requests USING btree (razorpay_order_id) WHERE (razorpay_order_id IS NOT NULL);
+
+
+--
+-- Name: idx_upgrade_requests_org_created; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_upgrade_requests_org_created ON public.upgrade_requests USING btree (org_id, created_at DESC);
+
+
+--
+-- Name: idx_upgrade_requests_org_status; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_upgrade_requests_org_status ON public.upgrade_requests USING btree (org_id, current_status, updated_at DESC);
+
+
+--
+-- Name: idx_upgrade_requests_payment; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_upgrade_requests_payment ON public.upgrade_requests USING btree (razorpay_payment_id) WHERE (razorpay_payment_id IS NOT NULL);
+
+
+--
+-- Name: idx_upgrade_requests_pending_apply; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_upgrade_requests_pending_apply ON public.upgrade_requests USING btree (current_status, plan_grant_applied, updated_at) WHERE (((current_status)::text = 'resolved'::text) AND (plan_grant_applied = false));
+
+
+--
+-- Name: idx_upgrade_requests_subscription; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_upgrade_requests_subscription ON public.upgrade_requests USING btree (razorpay_subscription_id) WHERE (razorpay_subscription_id IS NOT NULL);
+
+
+--
 -- Name: idx_user_role_history_changed_by; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -2745,6 +3053,14 @@ ALTER TABLE ONLY public.auth_tokens
 
 ALTER TABLE ONLY public.dashboard_cache
     ADD CONSTRAINT dashboard_cache_org_id_fkey FOREIGN KEY (org_id) REFERENCES public.orgs(id);
+
+
+--
+-- Name: upgrade_payment_attempts fk_upgrade_payment_attempts_upgrade_request; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.upgrade_payment_attempts
+    ADD CONSTRAINT fk_upgrade_payment_attempts_upgrade_request FOREIGN KEY (upgrade_request_id) REFERENCES public.upgrade_requests(upgrade_request_id) ON DELETE SET NULL;
 
 
 --
@@ -2996,6 +3312,46 @@ ALTER TABLE ONLY public.subscriptions
 
 
 --
+-- Name: upgrade_request_events upgrade_request_events_org_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.upgrade_request_events
+    ADD CONSTRAINT upgrade_request_events_org_id_fkey FOREIGN KEY (org_id) REFERENCES public.orgs(id) ON DELETE CASCADE;
+
+
+--
+-- Name: upgrade_request_events upgrade_request_events_upgrade_request_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.upgrade_request_events
+    ADD CONSTRAINT upgrade_request_events_upgrade_request_id_fkey FOREIGN KEY (upgrade_request_id) REFERENCES public.upgrade_requests(upgrade_request_id) ON DELETE CASCADE;
+
+
+--
+-- Name: upgrade_requests upgrade_requests_actor_user_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.upgrade_requests
+    ADD CONSTRAINT upgrade_requests_actor_user_id_fkey FOREIGN KEY (actor_user_id) REFERENCES public.users(id);
+
+
+--
+-- Name: upgrade_requests upgrade_requests_local_subscription_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.upgrade_requests
+    ADD CONSTRAINT upgrade_requests_local_subscription_id_fkey FOREIGN KEY (local_subscription_id) REFERENCES public.subscriptions(id);
+
+
+--
+-- Name: upgrade_requests upgrade_requests_org_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.upgrade_requests
+    ADD CONSTRAINT upgrade_requests_org_id_fkey FOREIGN KEY (org_id) REFERENCES public.orgs(id) ON DELETE CASCADE;
+
+
+--
 -- Name: user_management_audit user_management_audit_org_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -3179,4 +3535,7 @@ INSERT INTO public.schema_migrations (version) VALUES
     ('20260328121000'),
     ('20260328150000'),
     ('20260328151000'),
-    ('20260330120000');
+    ('20260330120000'),
+    ('20260401153000'),
+    ('20260401195429'),
+    ('20260401204800');

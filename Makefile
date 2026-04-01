@@ -141,6 +141,7 @@ docker-interactive-dry:
 build-push: docker-build-push
 
 run:
+	pkill -9 livereview || true
 	@DLV_BIN_DIR=$$(go env GOBIN); \
 	if [ -z "$$DLV_BIN_DIR" ]; then DLV_BIN_DIR="$$(go env GOPATH)/bin"; fi; \
 	command -v dlv >/dev/null 2>&1 || { \

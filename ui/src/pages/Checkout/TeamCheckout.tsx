@@ -622,18 +622,18 @@ const TeamCheckout: React.FC = () => {
             </dl>
           </div>
 
-          <div className="flex flex-col sm:flex-row gap-4 justify-center">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <button
               type="button"
               onClick={() => navigate('/settings#subscriptions')}
-              className="flex-1 sm:flex-none px-8 py-4 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-lg transition-colors shadow-lg text-lg"
+              className="w-full inline-flex items-center justify-center px-5 py-3 bg-blue-600 hover:bg-blue-700 text-white font-semibold rounded-lg transition-colors shadow-lg"
             >
               View Activation in Subscription Settings
             </button>
             <button
               type="button"
               onClick={() => navigate('/dashboard')}
-              className="flex-1 sm:flex-none px-6 py-3 bg-slate-700 hover:bg-slate-600 text-white font-semibold rounded-lg transition-colors"
+              className="w-full inline-flex items-center justify-center px-5 py-3 bg-slate-700 hover:bg-slate-600 text-white font-semibold rounded-lg transition-colors"
             >
               Go to dashboard
             </button>

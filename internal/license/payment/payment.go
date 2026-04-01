@@ -2,11 +2,15 @@ package payment
 
 import (
 	"bytes"
+	"crypto/hmac"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
 	"os"
+	"strings"
 )
 
 const razorpayBaseURL = "https://api.razorpay.com/v1"
@@ -260,4 +264,146 @@ func GetPaymentByID(mode, paymentID string) (*RazorpayPayment, error) {
 	}
 
 	return &payment, nil
+}
+
+// CreateSubscriptionAddon creates a one-time add-on charge on an active subscription.
+func CreateSubscriptionAddon(mode, subscriptionID string, item RazorpayAddonItem) (*RazorpayAddon, error) {
+	accessKey, secretKey, err := GetRazorpayKeys(mode)
+	if err != nil {
+		return nil, err
+	}
+
+	type createAddonRequest struct {
+		Item RazorpayAddonItem `json:"item"`
+	}
+
+	reqBody := createAddonRequest{Item: item}
+	jsonData, err := json.Marshal(reqBody)
+	if err != nil {
+		return nil, fmt.Errorf("error marshaling add-on request: %w", err)
+	}
+
+	url := fmt.Sprintf("%s/subscriptions/%s/addons", razorpayBaseURL, subscriptionID)
+	req, err := http.NewRequest("POST", url, bytes.NewBuffer(jsonData))
+	if err != nil {
+		return nil, fmt.Errorf("error creating request: %w", err)
+	}
+
+	req.SetBasicAuth(accessKey, secretKey)
+	req.Header.Set("Content-Type", "application/json")
+
+	client := &http.Client{}
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("error making request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("error reading response: %w", err)
+	}
+
+	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
+		return nil, fmt.Errorf("razorpay API error (status %d): %s (request=%s)", resp.StatusCode, string(body), string(jsonData))
+	}
+
+	var addon RazorpayAddon
+	if err := json.Unmarshal(body, &addon); err != nil {
+		return nil, fmt.Errorf("error unmarshaling response: %w", err)
+	}
+
+	return &addon, nil
+}
+
+// CreateOrder creates a one-time order for Razorpay Checkout.
+func CreateOrder(mode string, amount int64, currency string, receipt string, notes map[string]string) (*RazorpayOrder, error) {
+	accessKey, secretKey, err := GetRazorpayKeys(mode)
+	if err != nil {
+		return nil, err
+	}
+
+	if amount <= 0 {
+		return nil, fmt.Errorf("order amount must be > 0")
+	}
+	if strings.TrimSpace(currency) == "" {
+		currency = "USD"
+	}
+
+	type createOrderRequest struct {
+		Amount   int64             `json:"amount"`
+		Currency string            `json:"currency"`
+		Receipt  string            `json:"receipt,omitempty"`
+		Notes    map[string]string `json:"notes,omitempty"`
+	}
+
+	reqBody := createOrderRequest{
+		Amount:   amount,
+		Currency: currency,
+		Receipt:  strings.TrimSpace(receipt),
+		Notes:    notes,
+	}
+
+	jsonData, err := json.Marshal(reqBody)
+	if err != nil {
+		return nil, fmt.Errorf("error marshaling order request: %w", err)
+	}
+
+	url := fmt.Sprintf("%s/orders", razorpayBaseURL)
+	req, err := http.NewRequest("POST", url, bytes.NewBuffer(jsonData))
+	if err != nil {
+		return nil, fmt.Errorf("error creating request: %w", err)
+	}
+
+	req.SetBasicAuth(accessKey, secretKey)
+	req.Header.Set("Content-Type", "application/json")
+
+	client := &http.Client{}
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("error making request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("error reading response: %w", err)
+	}
+
+	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
+		return nil, fmt.Errorf("razorpay API error (status %d): %s (request=%s)", resp.StatusCode, string(body), string(jsonData))
+	}
+
+	var order RazorpayOrder
+	if err := json.Unmarshal(body, &order); err != nil {
+		return nil, fmt.Errorf("error unmarshaling response: %w", err)
+	}
+
+	return &order, nil
+}
+
+// VerifyOrderPaymentSignature validates checkout signature for order-based payments.
+func VerifyOrderPaymentSignature(mode, orderID, paymentID, signature string) error {
+	_, secretKey, err := GetRazorpayKeys(mode)
+	if err != nil {
+		return err
+	}
+
+	trimmedOrderID := strings.TrimSpace(orderID)
+	trimmedPaymentID := strings.TrimSpace(paymentID)
+	provided := strings.ToLower(strings.TrimSpace(signature))
+	if trimmedOrderID == "" || trimmedPaymentID == "" || provided == "" {
+		return fmt.Errorf("order_id, payment_id and signature are required")
+	}
+
+	payload := trimmedOrderID + "|" + trimmedPaymentID
+	mac := hmac.New(sha256.New, []byte(secretKey))
+	_, _ = mac.Write([]byte(payload))
+	expected := hex.EncodeToString(mac.Sum(nil))
+
+	if !hmac.Equal([]byte(expected), []byte(provided)) {
+		return fmt.Errorf("invalid razorpay signature")
+	}
+
+	return nil
 }
