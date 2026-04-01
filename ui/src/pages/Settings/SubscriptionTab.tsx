@@ -8,6 +8,51 @@ import LicenseManagement from '../Licenses/LicenseManagement';
 import { CancelSubscriptionModal } from '../../components/Subscriptions';
 import apiClient from '../../api/apiClient';
 
+declare global {
+  interface Window {
+    Razorpay: any;
+  }
+}
+
+const ensureRazorpay = (): Promise<void> => {
+  if (typeof window !== 'undefined' && window.Razorpay) {
+    return Promise.resolve();
+  }
+  return new Promise((resolve, reject) => {
+    const script = document.createElement('script');
+    script.src = 'https://checkout.razorpay.com/v1/checkout.js';
+    script.async = true;
+    script.onload = () => resolve();
+    script.onerror = () => reject(new Error('Failed to load Razorpay'));
+    document.head.appendChild(script);
+  });
+};
+
+const ensureRazorpayStyles = () => {
+  if (document.getElementById('razorpay-custom-style')) return;
+  const style = document.createElement('style');
+  style.id = 'razorpay-custom-style';
+  style.textContent = `
+    body.razorpay-active {
+      overflow: hidden !important;
+    }
+
+    body.razorpay-active .razorpay-backdrop {
+      background: rgba(2, 6, 23, 0.86) !important;
+      backdrop-filter: blur(1px);
+    }
+
+    body.razorpay-active .razorpay-container {
+      background: rgba(2, 6, 23, 0.86) !important;
+    }
+  `;
+  document.head.appendChild(style);
+};
+
+const cleanupRazorpayOverlay = () => {
+  document.body.classList.remove('razorpay-active');
+};
+
 type BillingPlan = {
   plan_code: string;
   monthly_loc_limit: number;
@@ -67,6 +112,129 @@ type BillingUsageOperationsResponse = {
   limit: number;
   offset: number;
   count: number;
+};
+
+type UpgradeActionResponse = {
+  message?: string;
+  upgrade_request_id?: string;
+  status?: string;
+  resolved?: boolean;
+  plan_code?: string;
+  transition_mode?: string;
+  scheduled_plan_code?: string;
+  scheduled_plan_effective_at?: string;
+  proration?: {
+    from_plan_code?: string;
+    to_plan_code?: string;
+    cycle_start?: string;
+    cycle_end?: string;
+    remaining_cycle_fraction?: number;
+    charge_amount_cents?: number;
+    charge_currency?: string;
+    charge_status?: string;
+    order_id?: string;
+    payment_id?: string;
+    immediate_loc_grant?: number;
+    next_cycle_price_cents?: number;
+    next_cycle_loc_limit?: number;
+  };
+};
+
+type UpgradePreviewResponse = {
+  upgrade_request_id: string;
+  preview: {
+    from_plan_code: string;
+    to_plan_code: string;
+    cycle_start: string;
+    cycle_end: string;
+    remaining_cycle_fraction: number;
+    immediate_charge_cents: number;
+    immediate_charge_currency: string;
+    immediate_loc_grant: number;
+    next_cycle_price_cents: number;
+    next_cycle_loc_limit: number;
+    charge_timing: string;
+    plan_switch_timing: string;
+    final_payable_cents: number;
+  };
+  preview_token: string;
+  preview_expires_at: string;
+  checkout_required?: boolean;
+  checkout_path?: string;
+};
+
+type PrepareUpgradePaymentResponse = {
+  payment_required: boolean;
+  upgrade_request_id?: string;
+  razorpay_key_id?: string;
+  order_id?: string;
+  amount_cents?: number;
+  currency?: string;
+  preview_token: string;
+};
+
+type UpgradeRequestStatusResponse = {
+  request: {
+    upgrade_request_id: string;
+    status: string;
+    from_plan_code: string;
+    to_plan_code: string;
+    expected_amount_cents: number;
+    currency: string;
+    payment_capture_confirmed: boolean;
+    subscription_change_confirmed: boolean;
+    plan_grant_applied: boolean;
+    created_at: string;
+    updated_at: string;
+    razorpay_order_id?: string | null;
+    razorpay_payment_id?: string | null;
+    razorpay_subscription_id?: string | null;
+    payment_capture_confirmed_at?: string | null;
+    subscription_change_confirmed_at?: string | null;
+    plan_grant_applied_at?: string | null;
+    resolved_at?: string | null;
+  } | null;
+  events: Array<{
+    event_source: string;
+    event_type: string;
+    event_time: string;
+    from_status?: string;
+    to_status?: string;
+    payload?: Record<string, any>;
+  }>;
+};
+
+const buildUpgradeCheckoutFailureMessage = (response: any, prepared: PrepareUpgradePaymentResponse): string => {
+  const error = response?.error || {};
+  const description = error.description || 'Payment failed while processing upgrade';
+  const details = [
+    error.code ? `code=${error.code}` : '',
+    error.reason ? `reason=${error.reason}` : '',
+    error.source ? `source=${error.source}` : '',
+    error.step ? `step=${error.step}` : '',
+  ].filter(Boolean);
+
+  const key = String(prepared?.razorpay_key_id || '').trim();
+  const isTestMode = key.startsWith('rzp_test_');
+  const currency = String(prepared?.currency || 'USD').trim().toUpperCase();
+
+  if (!isTestMode) {
+    if (details.length === 0) {
+      return description;
+    }
+    return `${description} (${details.join(', ')})`;
+  }
+
+  const testHint =
+    currency === 'INR'
+      ? 'Test mode hint: use an INR success test card like 4100 2800 0000 1007 and complete OTP with 4-10 digits.'
+      : 'Test mode hint: use an international success test card like 4012 8888 8888 1881 (Visa) or 5555 5555 5555 4444 (Mastercard).';
+
+  if (details.length === 0) {
+    return `${description}. ${testHint}`;
+  }
+
+  return `${description} (${details.join(', ')}). ${testHint}`;
 };
 
 const SubscriptionTab: React.FC = () => {
@@ -172,6 +340,14 @@ const OverviewTab: React.FC<{ navigate: any }> = ({ navigate }) => {
   const [selectedDowngradePlan, setSelectedDowngradePlan] = useState('');
   const [usageSummary, setUsageSummary] = useState<BillingUsageSummaryResponse | null>(null);
   const [usageOps, setUsageOps] = useState<BillingUsageOperationsResponse['operations']>([]);
+  const [lastUpgradeResult, setLastUpgradeResult] = useState<UpgradeActionResponse | null>(null);
+  const [upgradePreview, setUpgradePreview] = useState<UpgradePreviewResponse | null>(null);
+  const [showUpgradeModal, setShowUpgradeModal] = useState(false);
+  const [upgradeCheckoutLoading, setUpgradeCheckoutLoading] = useState(false);
+  const [upgradeScriptReady, setUpgradeScriptReady] = useState(false);
+  const [activeUpgradeRequestID, setActiveUpgradeRequestID] = useState<string>('');
+  const [upgradeRequestStatus, setUpgradeRequestStatus] = useState<UpgradeRequestStatusResponse | null>(null);
+  const [upgradeRequestLoading, setUpgradeRequestLoading] = useState(false);
   
   // Use billing status as source-of-truth; fall back to org-scoped plan only until billing loads.
   const rawPlanType = (currentOrg?.plan_type || 'free').toLowerCase();
@@ -224,6 +400,54 @@ const OverviewTab: React.FC<{ navigate: any }> = ({ navigate }) => {
   }, [currentOrg?.id]);
 
   useEffect(() => {
+    const requestID = String(activeUpgradeRequestID || '').trim();
+    if (!requestID || !currentOrg?.id) {
+      return;
+    }
+
+    let cancelled = false;
+    let intervalId: any;
+
+    const tick = async () => {
+      if (cancelled) return;
+      await refreshUpgradeRequestStatus(requestID);
+    };
+
+    tick();
+    intervalId = setInterval(async () => {
+      if (cancelled) return;
+      await refreshUpgradeRequestStatus(requestID);
+    }, 5000);
+
+    return () => {
+      cancelled = true;
+      if (intervalId) {
+        clearInterval(intervalId);
+      }
+    };
+  }, [activeUpgradeRequestID, currentOrg?.id]);
+
+  useEffect(() => {
+    let mounted = true;
+    ensureRazorpay()
+      .then(() => {
+        if (mounted) {
+          ensureRazorpayStyles();
+          setUpgradeScriptReady(true);
+        }
+      })
+      .catch(() => {
+        if (mounted) {
+          setUpgradeScriptReady(false);
+        }
+      });
+    return () => {
+      mounted = false;
+      cleanupRazorpayOverlay();
+    };
+  }, []);
+
+  useEffect(() => {
     if (!billingStatus?.available_plans || !billingStatus?.billing?.current_plan_code) return;
     const current = billingStatus.available_plans.find((p) => p.plan_code === billingStatus.billing.current_plan_code);
     if (!current) return;
@@ -246,13 +470,17 @@ const OverviewTab: React.FC<{ navigate: any }> = ({ navigate }) => {
     window.location.reload();
   };
 
+  const orgScopedRequestOptions = currentOrg?.id
+    ? { headers: { 'X-Org-Context': currentOrg.id.toString() } }
+    : {};
+
   const refreshBilling = async () => {
     const emptyOpsResponse: BillingUsageOperationsResponse = { operations: [], limit: 10, offset: 0, count: 0 };
     const [billing, quota, summary, operations] = await Promise.all([
-      apiClient.get<BillingStatusResponse>('/billing/status'),
-      apiClient.get<QuotaStatusResponse>('/quota/status').catch((): null => null),
-      apiClient.get<BillingUsageSummaryResponse>('/billing/usage/summary').catch((): null => null),
-      apiClient.get<BillingUsageOperationsResponse>('/billing/usage/operations?limit=10&offset=0').catch((): BillingUsageOperationsResponse => emptyOpsResponse),
+      apiClient.get<BillingStatusResponse>('/billing/status', orgScopedRequestOptions),
+      apiClient.get<QuotaStatusResponse>('/quota/status', orgScopedRequestOptions).catch((): null => null),
+      apiClient.get<BillingUsageSummaryResponse>('/billing/usage/summary', orgScopedRequestOptions).catch((): null => null),
+      apiClient.get<BillingUsageOperationsResponse>('/billing/usage/operations?limit=10&offset=0', orgScopedRequestOptions).catch((): BillingUsageOperationsResponse => emptyOpsResponse),
     ]);
     setBillingStatus(billing);
     setQuotaStatus(quota);
@@ -260,26 +488,215 @@ const OverviewTab: React.FC<{ navigate: any }> = ({ navigate }) => {
     setUsageOps(operations.operations || []);
   };
 
-  const runBillingAction = async (mode: 'upgrade' | 'schedule_downgrade' | 'cancel_downgrade') => {
+  const refreshUpgradeRequestStatus = async (requestID?: string) => {
+    const effectiveRequestID = String(requestID || activeUpgradeRequestID || '').trim();
+    if (!effectiveRequestID) {
+      setUpgradeRequestStatus(null);
+      return;
+    }
+
+    setUpgradeRequestLoading(true);
+    try {
+      const status = await apiClient.get<UpgradeRequestStatusResponse>(
+        `/billing/upgrade/request-status?upgrade_request_id=${encodeURIComponent(effectiveRequestID)}`,
+        orgScopedRequestOptions
+      );
+      setUpgradeRequestStatus(status || null);
+      setBillingError(null);
+    } catch (err: any) {
+      setBillingError(err?.message || 'Failed to refresh upgrade request status');
+    } finally {
+      setUpgradeRequestLoading(false);
+    }
+  };
+
+  const runBillingAction = async (mode: 'schedule_downgrade' | 'cancel_downgrade') => {
     setActionLoading(true);
     setBillingError(null);
     try {
-      if (mode === 'upgrade') {
-        if (selectedUpgradePlan === 'team_32usd') {
-          navigate('/checkout/team?period=monthly');
-          return;
-        }
-        await apiClient.post('/billing/upgrade', { target_plan_code: selectedUpgradePlan });
-      } else if (mode === 'schedule_downgrade') {
-        await apiClient.post('/billing/downgrade/schedule', { target_plan_code: selectedDowngradePlan });
+      if (mode === 'schedule_downgrade') {
+        await apiClient.post('/billing/downgrade/schedule', { target_plan_code: selectedDowngradePlan }, orgScopedRequestOptions);
       } else {
-        await apiClient.post('/billing/downgrade/cancel', {});
+        await apiClient.post('/billing/downgrade/cancel', {}, orgScopedRequestOptions);
       }
       await refreshBilling();
     } catch (err: any) {
       setBillingError(err?.message || 'Billing action failed');
     } finally {
       setActionLoading(false);
+    }
+  };
+
+  const openUpgradePreview = async () => {
+    if (!selectedUpgradePlan) return;
+
+    setActionLoading(true);
+    setBillingError(null);
+    setLastUpgradeResult(null);
+    try {
+      if (isFree && selectedUpgradePlan === 'team_32usd') {
+        navigate('/checkout/team?period=monthly');
+        return;
+      }
+
+      const preview = await apiClient.post<UpgradePreviewResponse>(
+        '/billing/upgrade/preview',
+        {
+          target_plan_code: selectedUpgradePlan,
+        },
+        orgScopedRequestOptions
+      );
+
+      if (preview?.checkout_required) {
+        navigate(preview.checkout_path || '/checkout/team?period=monthly');
+        return;
+      }
+
+      setUpgradePreview(preview || null);
+      setActiveUpgradeRequestID(String(preview?.upgrade_request_id || '').trim());
+      if (preview?.upgrade_request_id) {
+        void refreshUpgradeRequestStatus(preview.upgrade_request_id);
+      }
+      setShowUpgradeModal(Boolean(preview?.preview_token));
+    } catch (err: any) {
+      if (err?.status === 404) {
+        setBillingError('Upgrade preview endpoint returned 404. Ensure API is redeployed with /billing/upgrade/preview route and this org context is valid.');
+      } else {
+        setBillingError(err?.message || 'Failed to preview upgrade charge');
+      }
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
+  const buildUpgradeExecuteIdempotencyKey = (orderId?: string, requestId?: string) => {
+    const orderPart = String(orderId || 'no_order').trim();
+    const requestPart = String(requestId || activeUpgradeRequestID || 'no_request').trim();
+    return `upgrade_execute_${requestPart}_${orderPart}`;
+  };
+
+  const executeUpgradeWithConfirmation = async (
+    payment: { orderId?: string; paymentId?: string; signature?: string },
+    executeIdempotencyKey: string
+  ) => {
+    if (!upgradePreview?.preview_token) {
+      throw new Error('Missing preview token');
+    }
+
+    const requestID = String(upgradePreview?.upgrade_request_id || activeUpgradeRequestID || '').trim();
+    if (!requestID) {
+      throw new Error('Missing upgrade_request_id');
+    }
+
+    const executeResult = await apiClient.post<UpgradeActionResponse>(
+      '/billing/upgrade/execute',
+      {
+        target_plan_code: selectedUpgradePlan,
+        upgrade_request_id: requestID,
+        preview_token: upgradePreview.preview_token,
+        razorpay_order_id: payment.orderId || '',
+        razorpay_payment_id: payment.paymentId || '',
+        razorpay_signature: payment.signature || '',
+        execute_idempotency_key: executeIdempotencyKey,
+        modal_version: 'upgrade_proration_v1',
+        modal_acknowledged_at: new Date().toISOString(),
+      },
+      orgScopedRequestOptions
+    );
+
+    setBillingError(null);
+    setLastUpgradeResult(executeResult || null);
+    setActiveUpgradeRequestID(String(executeResult?.upgrade_request_id || requestID).trim());
+    setShowUpgradeModal(false);
+    setUpgradePreview(null);
+    await refreshBilling();
+    await refreshUpgradeRequestStatus(String(executeResult?.upgrade_request_id || requestID).trim());
+  };
+
+  const confirmUpgrade = async () => {
+    if (!upgradePreview?.preview_token) return;
+
+    setUpgradeCheckoutLoading(true);
+    setBillingError(null);
+
+    try {
+      const prepared = await apiClient.post<PrepareUpgradePaymentResponse>(
+        '/billing/upgrade/prepare-payment',
+        {
+          target_plan_code: selectedUpgradePlan,
+          preview_token: upgradePreview.preview_token,
+          upgrade_request_id: String(upgradePreview?.upgrade_request_id || activeUpgradeRequestID || '').trim(),
+        },
+        orgScopedRequestOptions
+      );
+
+      const requestID = String(prepared?.upgrade_request_id || upgradePreview?.upgrade_request_id || activeUpgradeRequestID || '').trim();
+      if (requestID) {
+        setActiveUpgradeRequestID(requestID);
+      }
+
+      if (!prepared?.payment_required) {
+        await executeUpgradeWithConfirmation({}, buildUpgradeExecuteIdempotencyKey(undefined, requestID));
+        setUpgradeCheckoutLoading(false);
+        return;
+      }
+
+      if (!prepared.order_id || !prepared.razorpay_key_id || typeof prepared.amount_cents !== 'number') {
+        throw new Error('Payment preparation response is incomplete');
+      }
+
+      if (!upgradeScriptReady) {
+        await ensureRazorpay();
+        ensureRazorpayStyles();
+        setUpgradeScriptReady(true);
+      }
+
+      const options = {
+        key: prepared.razorpay_key_id,
+        order_id: prepared.order_id,
+        amount: prepared.amount_cents,
+        currency: prepared.currency || 'USD',
+        name: 'LiveReview Upgrade',
+        description: `Upgrade to ${getPlanDisplayName(selectedUpgradePlan)}`,
+        image: '/assets/logo-with-text.svg',
+        handler: async (razorpayResponse: any) => {
+          try {
+            const orderId = razorpayResponse?.razorpay_order_id || prepared.order_id;
+            await executeUpgradeWithConfirmation({
+              orderId,
+              paymentId: razorpayResponse?.razorpay_payment_id,
+              signature: razorpayResponse?.razorpay_signature,
+            }, buildUpgradeExecuteIdempotencyKey(orderId, requestID));
+          } catch (executeErr: any) {
+            setBillingError(executeErr?.message || 'Upgrade execution failed after payment');
+          } finally {
+            setUpgradeCheckoutLoading(false);
+            cleanupRazorpayOverlay();
+          }
+        },
+        modal: {
+          ondismiss: () => {
+            setUpgradeCheckoutLoading(false);
+            cleanupRazorpayOverlay();
+          },
+        },
+        theme: {
+          color: '#131C2F',
+        },
+      };
+
+      const rzp = new window.Razorpay(options);
+      document.body.classList.add('razorpay-active');
+      rzp.on('payment.failed', (response: any) => {
+        setBillingError(buildUpgradeCheckoutFailureMessage(response, prepared));
+        setUpgradeCheckoutLoading(false);
+        cleanupRazorpayOverlay();
+      });
+      rzp.open();
+    } catch (err: any) {
+      setBillingError(err?.message || 'Failed to start payment for upgrade');
+      setUpgradeCheckoutLoading(false);
+      cleanupRazorpayOverlay();
     }
   };
 
@@ -305,6 +722,68 @@ const OverviewTab: React.FC<{ navigate: any }> = ({ navigate }) => {
   const dailyLimit = isFree
     ? 'Quota-based (30,000 LOC/month)'
     : `Quota-based (${(currentPlan?.monthly_loc_limit || 100000).toLocaleString()} LOC/month)`;
+
+  const scheduledPlanCode = billingStatus?.billing?.scheduled_plan_code || '';
+  const scheduledPlan = billingStatus?.available_plans?.find((p) => p.plan_code === scheduledPlanCode);
+  const currentBillingPlan = billingStatus?.available_plans?.find((p) => p.plan_code === billingStatus?.billing?.current_plan_code);
+  const isScheduledUpgrade = Boolean(
+    scheduledPlan && currentBillingPlan && scheduledPlan.monthly_loc_limit > currentBillingPlan.monthly_loc_limit
+  );
+  const cancelScheduledLabel = isScheduledUpgrade ? 'Cancel Scheduled Upgrade' : 'Cancel Scheduled Downgrade';
+  const scheduledChangeLabel = isScheduledUpgrade ? 'Scheduled upgrade' : 'Scheduled downgrade';
+
+  const normalizedStatus = status.trim().toLowerCase();
+  const statusIsTerminal = ['cancelled', 'expired', 'halted', 'past_due', 'incomplete'].includes(normalizedStatus);
+  const statusBadgeLabel = statusLoading
+    ? 'LOADING'
+    : pendingCancel
+    ? 'PENDING EXPIRY'
+    : statusIsTerminal
+    ? normalizedStatus.replace('_', ' ').toUpperCase()
+    : isTeamPlan
+    ? 'TEAM ACTIVE'
+    : 'FREE PLAN';
+
+  const formatChargeUSD = (cents?: number) => {
+    if (typeof cents !== 'number') return null;
+    return `$${(cents / 100).toFixed(2)}`;
+  };
+
+  const requestStatus = upgradeRequestStatus?.request || null;
+  const timelineRows = requestStatus
+    ? [
+        {
+          id: 'request_created',
+          label: 'Upgrade request created',
+          done: Boolean(requestStatus.created_at),
+          at: requestStatus.created_at,
+        },
+        {
+          id: 'order_created',
+          label: 'One-time payment order created',
+          done: Boolean(requestStatus.razorpay_order_id),
+          at: requestStatus.updated_at,
+        },
+        {
+          id: 'payment_confirmed',
+          label: 'Payment capture confirmed',
+          done: Boolean(requestStatus.payment_capture_confirmed),
+          at: requestStatus.payment_capture_confirmed_at,
+        },
+        {
+          id: 'subscription_confirmed',
+          label: 'Subscription change confirmed',
+          done: Boolean(requestStatus.subscription_change_confirmed),
+          at: requestStatus.subscription_change_confirmed_at,
+        },
+        {
+          id: 'resolved',
+          label: 'Upgrade resolved and granted',
+          done: Boolean(requestStatus.plan_grant_applied),
+          at: requestStatus.plan_grant_applied_at || requestStatus.resolved_at,
+        },
+      ]
+    : [];
 
   return (
     <div className="space-y-6">
@@ -363,7 +842,7 @@ const OverviewTab: React.FC<{ navigate: any }> = ({ navigate }) => {
                   <span className="inline-block w-3 h-3 border-2 border-slate-500 border-t-transparent rounded-full animate-spin" aria-label="Loading status" />
                   Loading...
                 </span>
-              ) : pendingCancel ? 'PENDING EXPIRY' : (status || 'Active').toUpperCase()}
+              ) : statusBadgeLabel}
             </div>
             {subscriptionId && (isSuperAdmin || currentOrg?.role === 'owner') && (
               <button
@@ -611,6 +1090,69 @@ const OverviewTab: React.FC<{ navigate: any }> = ({ navigate }) => {
         <div className="bg-slate-800/60 border border-slate-700 rounded-lg p-6 space-y-4">
           <h3 className="text-md font-semibold text-white">Billing Actions</h3>
 
+          {requestStatus && (
+            <div className="bg-slate-900/50 border border-slate-700 rounded-lg p-4 space-y-3">
+              <div className="flex items-center justify-between gap-3">
+                <p className="text-sm text-slate-200 font-medium">Upgrade request timeline</p>
+                <span className="text-xs text-slate-400 font-mono">
+                  {requestStatus.upgrade_request_id}
+                </span>
+              </div>
+              <div className="space-y-2">
+                {timelineRows.map((row) => (
+                  <div key={row.id} className="flex items-center justify-between text-xs border border-slate-700 rounded px-3 py-2 bg-slate-950/50">
+                    <div className="flex items-center gap-2">
+                      <span className={`inline-flex h-2.5 w-2.5 rounded-full ${row.done ? 'bg-emerald-400' : 'bg-amber-400'}`} />
+                      <span className={row.done ? 'text-slate-100' : 'text-slate-300'}>{row.label}</span>
+                    </div>
+                    <span className="text-slate-400">{row.at ? formatDate(row.at) : 'Pending'}</span>
+                  </div>
+                ))}
+              </div>
+              <div className="text-xs text-slate-300 flex items-center justify-between gap-3">
+                <span>Current status: <span className="text-white font-semibold uppercase">{requestStatus.status.replace(/_/g, ' ')}</span></span>
+                <button
+                  type="button"
+                  onClick={() => refreshUpgradeRequestStatus(requestStatus.upgrade_request_id)}
+                  disabled={upgradeRequestLoading}
+                  className="px-2 py-1 rounded border border-slate-600 text-slate-200 hover:bg-slate-800 disabled:opacity-50"
+                >
+                  {upgradeRequestLoading ? 'Refreshing...' : 'Refresh'}
+                </button>
+              </div>
+            </div>
+          )}
+
+          {lastUpgradeResult?.proration && (
+            <div className="bg-blue-900/20 border border-blue-500/40 rounded-lg p-4 space-y-2">
+              <p className="text-sm text-blue-200 font-medium">Latest Upgrade Charge Summary</p>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-2 text-xs text-slate-200">
+                <p>From: <span className="text-white">{lastUpgradeResult.proration.from_plan_code || 'n/a'}</span></p>
+                <p>To: <span className="text-white">{lastUpgradeResult.proration.to_plan_code || lastUpgradeResult.plan_code || 'n/a'}</span></p>
+                <p>Charged now: <span className="text-white">{formatChargeUSD(lastUpgradeResult.proration.charge_amount_cents) || '$0.00'}</span></p>
+                <p>Status: <span className="text-white">{(lastUpgradeResult.proration.charge_status || 'unknown').toUpperCase()}</span></p>
+                {typeof lastUpgradeResult.proration.remaining_cycle_fraction === 'number' && (
+                  <p>Remaining cycle fraction: <span className="text-white">{(lastUpgradeResult.proration.remaining_cycle_fraction * 100).toFixed(2)}%</span></p>
+                )}
+                {typeof lastUpgradeResult.proration.immediate_loc_grant === 'number' && (
+                  <p>Immediate LOC grant: <span className="text-white">{lastUpgradeResult.proration.immediate_loc_grant.toLocaleString()}</span></p>
+                )}
+                {lastUpgradeResult.proration.order_id && (
+                  <p>Order ID: <span className="text-white font-mono">{lastUpgradeResult.proration.order_id}</span></p>
+                )}
+                {lastUpgradeResult.proration.payment_id && (
+                  <p>Payment ID: <span className="text-white font-mono">{lastUpgradeResult.proration.payment_id}</span></p>
+                )}
+                {lastUpgradeResult.proration.cycle_end && (
+                  <p>Cycle end: <span className="text-white">{formatDate(lastUpgradeResult.proration.cycle_end)}</span></p>
+                )}
+              </div>
+              <p className="text-xs text-slate-300">
+				Upgrade execution has started. Final grant happens after payment capture and subscription change confirmations complete.
+              </p>
+            </div>
+          )}
+
           {billingError && (
             <div className="bg-red-500/10 border border-red-500/40 rounded-lg p-3 text-sm text-red-200">
               {billingError}
@@ -619,12 +1161,12 @@ const OverviewTab: React.FC<{ navigate: any }> = ({ navigate }) => {
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div className="p-4 bg-slate-900/70 border border-slate-700 rounded-lg space-y-3">
-              <p className="text-sm text-slate-300 font-medium">Immediate Upgrade</p>
+              <p className="text-sm text-slate-300 font-medium">Upgrade With Proration Preview</p>
               <select
                 value={selectedUpgradePlan}
                 onChange={(e) => setSelectedUpgradePlan(e.target.value)}
                 className="w-full bg-slate-800 border border-slate-600 rounded px-3 py-2 text-sm text-white"
-                disabled={actionLoading}
+                disabled={actionLoading || upgradeCheckoutLoading}
               >
                 {billingStatus.available_plans
                   .filter((p) => {
@@ -639,10 +1181,10 @@ const OverviewTab: React.FC<{ navigate: any }> = ({ navigate }) => {
               </select>
               <button
                 className="w-full px-3 py-2 rounded bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-sm font-medium"
-                disabled={actionLoading || !selectedUpgradePlan}
-                onClick={() => runBillingAction('upgrade')}
+                disabled={actionLoading || upgradeCheckoutLoading || !selectedUpgradePlan}
+                onClick={openUpgradePreview}
               >
-                Upgrade Plan
+                Preview Upgrade Charge
               </button>
             </div>
 
@@ -678,7 +1220,7 @@ const OverviewTab: React.FC<{ navigate: any }> = ({ navigate }) => {
                   disabled={actionLoading}
                   onClick={() => runBillingAction('cancel_downgrade')}
                 >
-                  Cancel Scheduled Downgrade
+                  {cancelScheduledLabel}
                 </button>
               )}
             </div>
@@ -686,12 +1228,83 @@ const OverviewTab: React.FC<{ navigate: any }> = ({ navigate }) => {
 
           {billingStatus.billing.scheduled_plan_code && (
             <div className="text-sm text-slate-300 bg-slate-900/40 border border-slate-700 rounded-lg p-3">
-              Scheduled: <span className="text-white font-medium">{billingStatus.billing.scheduled_plan_code}</span>
+              {scheduledChangeLabel}: <span className="text-white font-medium">{billingStatus.billing.scheduled_plan_code}</span>
               {billingStatus.billing.scheduled_plan_effective_at && (
                 <span> effective {formatDate(billingStatus.billing.scheduled_plan_effective_at)}</span>
               )}
             </div>
           )}
+        </div>
+      )}
+
+      {showUpgradeModal && upgradePreview?.preview && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/80 p-4">
+          <div className="w-full max-w-2xl rounded-xl border border-slate-700 bg-slate-900 shadow-2xl">
+            <div className="border-b border-slate-700 px-6 py-4">
+              <h3 className="text-lg font-semibold text-white">Confirm Upgrade and Prorated Charge</h3>
+              <p className="mt-1 text-sm text-slate-300">
+				This charge applies now for the remaining current cycle. Upgrade grant is finalized after deterministic payment and subscription confirmations.
+              </p>
+            </div>
+
+            <div className="space-y-4 px-6 py-5 text-sm">
+              <div className="rounded-lg border border-slate-700 bg-slate-800/70 p-4 space-y-2 text-slate-200">
+                <p>Current plan: <span className="text-white">{getPlanDisplayName(upgradePreview.preview.from_plan_code)}</span></p>
+                <p>Target plan: <span className="text-white">{getPlanDisplayName(upgradePreview.preview.to_plan_code)}</span></p>
+                <p>Current cycle ends: <span className="text-white">{formatDate(upgradePreview.preview.cycle_end)}</span></p>
+              </div>
+
+              <div className="rounded-lg border border-blue-500/40 bg-blue-900/20 p-4 space-y-2 text-slate-100">
+                <p className="font-medium text-blue-200">Immediate one-time payment</p>
+                <p>
+                  Charge now: <span className="text-white font-semibold">{formatChargeUSD(upgradePreview.preview.immediate_charge_cents) || '$0.00'}</span>
+                  {' '}(remaining cycle {(upgradePreview.preview.remaining_cycle_fraction * 100).toFixed(2)}%)
+                </p>
+                <p>
+                  Formula: <span className="text-white">{formatChargeUSD(upgradePreview.preview.next_cycle_price_cents) || '$0.00'} × {(upgradePreview.preview.remaining_cycle_fraction * 100).toFixed(2)}%</span>
+                </p>
+                <p>
+                  Immediate LOC grant: <span className="text-white font-semibold">{upgradePreview.preview.immediate_loc_grant.toLocaleString()} LOC</span>
+                </p>
+              </div>
+
+              <div className="rounded-lg border border-emerald-500/40 bg-emerald-900/20 p-4 space-y-2 text-slate-100">
+                <p className="font-medium text-emerald-200">Next billing cycle</p>
+                <p>
+                  Recurring amount: <span className="text-white font-semibold">{formatChargeUSD(upgradePreview.preview.next_cycle_price_cents) || '$0.00'}/month</span>
+                </p>
+                <p>
+                  Monthly LOC limit: <span className="text-white font-semibold">{upgradePreview.preview.next_cycle_loc_limit.toLocaleString()} LOC</span>
+                </p>
+              </div>
+
+              <div className="rounded-lg border border-amber-500/40 bg-amber-900/20 p-3 text-xs text-amber-100">
+				By confirming, you authorize a one-time prorated payment now and start a tracked upgrade process that resolves after all confirmations.
+              </div>
+            </div>
+
+            <div className="flex items-center justify-end gap-3 border-t border-slate-700 px-6 py-4">
+              <button
+                type="button"
+                disabled={upgradeCheckoutLoading}
+                onClick={() => {
+                  setShowUpgradeModal(false);
+                  setUpgradePreview(null);
+                }}
+                className="rounded border border-slate-600 px-4 py-2 text-sm text-slate-200 hover:bg-slate-800 disabled:opacity-50"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                disabled={upgradeCheckoutLoading}
+                onClick={confirmUpgrade}
+                className="rounded bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-500 disabled:opacity-50"
+              >
+                {upgradeCheckoutLoading ? 'Processing...' : 'Confirm and Pay Now'}
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </div>

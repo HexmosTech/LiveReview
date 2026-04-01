@@ -85,6 +85,40 @@ type RazorpayPlanListResponse struct {
 	Items  []RazorpayPlan `json:"items"`
 }
 
+// RazorpayAddonItem represents the billable item on a subscription add-on.
+type RazorpayAddonItem struct {
+	Name        string `json:"name"`
+	Amount      int64  `json:"amount"`
+	Currency    string `json:"currency"`
+	Description string `json:"description,omitempty"`
+}
+
+// RazorpayAddon represents an add-on created against an active subscription.
+type RazorpayAddon struct {
+	ID             string            `json:"id"`
+	Entity         string            `json:"entity"`
+	SubscriptionID string            `json:"subscription_id"`
+	Status         string            `json:"status,omitempty"`
+	Item           RazorpayAddonItem `json:"item"`
+	CreatedAt      int64             `json:"created_at"`
+}
+
+// RazorpayOrder represents a one-time order used by Checkout.
+type RazorpayOrder struct {
+	ID          string          `json:"id"`
+	Entity      string          `json:"entity"`
+	Amount      int64           `json:"amount"`
+	AmountPaid  int64           `json:"amount_paid"`
+	AmountDue   int64           `json:"amount_due"`
+	Currency    string          `json:"currency"`
+	Receipt     string          `json:"receipt"`
+	Status      string          `json:"status"`
+	Attempts    int             `json:"attempts"`
+	Notes       json.RawMessage `json:"notes"`
+	CreatedAt   int64           `json:"created_at"`
+	Description string          `json:"description,omitempty"`
+}
+
 // RazorpayPayment represents a Razorpay payment entity
 type RazorpayPayment struct {
 	ID               string          `json:"id"`

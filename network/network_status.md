@@ -1,9 +1,11 @@
 # Network Status
 
-Latest milestone batch note (MF-051, MF-059, MF-073, MF-074, MF-076, MF-083, MF-LOC-001, MF-LOC-002, MF-LOC-003, MF-LOC-004, MF-LOC-005, MF-LOC-006, MF-LOC-007): no new network boundary operations were introduced; this batch added storage-backed plan transitions and API billing action wiring.
+Latest milestone batch note (MF-051, MF-059, MF-073, MF-074, MF-076, MF-083, MF-LOC-001, MF-LOC-002, MF-LOC-003, MF-LOC-004, MF-LOC-005, MF-LOC-006, MF-LOC-007, MF-PRORATION-001, MF-PRORATION-002, MF-PRORATION-003): outbound Razorpay surface remains unchanged for this slice; reliability hardening is focused on storage-backed payment-attempt correlation and webhook classification.
 
 | Operation | Status | Evidence |
 | --- | --- | --- |
+| payment.CreateSubscriptionAddon | added | [CreateSubscriptionAddon](../internal/license/payment/payment.go#L270) |
+| payment.CreateOrder | added | [CreateOrder](../internal/license/payment/payment.go#L320) |
 | payment.IssueSelfHostedJWTRequest | moved | [IssueSelfHostedJWTRequest](payment/fw_parse_client.go#L21) |
 | jobqueue.NewWebhookHTTPClient | moved | [NewWebhookHTTPClient](jobqueue/webhook_http_client.go#L16) |
 | jobqueue.NewRequest | moved | [NewRequest](jobqueue/webhook_http_client.go#L30) |

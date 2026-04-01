@@ -50,13 +50,11 @@ fi
 # Config for the "livereview" app
 PG_CONTAINER_NAME="livereview_pg"
 PG_VERSION="15"
-PG_DATA_DIR="./.livereview_pgdata"
-
-# Ensure data dir exists
-mkdir -p "$PG_DATA_DIR"
+PG_VOLUME_NAME="livereview_pgdata"
+LEGACY_PG_DATA_DIR="./.livereview_pgdata"
 
 usage() {
-  echo "Usage: $0 [--prod] {start|stop|status|logs|info|rm|reset|migrations|conn|shell}"
+  echo "Usage: $0 [--prod] {start|stop|status|logs|info|rm|reset|migrations|conn|shell|migrate-legacy-data}"
   echo ""
   echo "Options:"
   echo "  --prod    Use .env.prod instead of .env"
@@ -72,21 +70,54 @@ usage() {
   echo "  migrations  Setup dbmate"
   echo "  conn        Print connection string"
   echo "  shell       Open psql shell or run SQL with -c"
+  echo "  migrate-legacy-data  Copy data from $LEGACY_PG_DATA_DIR into Docker volume"
   exit 1
 }
 
+ensure_pg_volume() {
+  if ! docker volume inspect "$PG_VOLUME_NAME" >/dev/null 2>&1; then
+    echo "Creating Docker volume: $PG_VOLUME_NAME"
+    docker volume create "$PG_VOLUME_NAME" >/dev/null
+  fi
+}
+
+is_pg_volume_empty() {
+  docker run --rm -v "$PG_VOLUME_NAME":/volume postgres:"$PG_VERSION" sh -c '[ -z "$(ls -A /volume 2>/dev/null)" ]'
+}
+
+pg_data_mount_type() {
+  docker inspect --format '{{ range .Mounts }}{{ if eq .Destination "/var/lib/postgresql/data" }}{{ .Type }}{{ end }}{{ end }}' "$PG_CONTAINER_NAME"
+}
+
 start_pg() {
+  ensure_pg_volume
+
   if docker ps -a --format '{{.Names}}' | grep -qw "$PG_CONTAINER_NAME"; then
+    local mount_type
+    mount_type="$(pg_data_mount_type)"
+    if [ "$mount_type" != "volume" ]; then
+      echo "ERROR: Existing container $PG_CONTAINER_NAME uses legacy non-volume storage ($mount_type)."
+      echo "Run './pgctl.sh migrate-legacy-data', then './pgctl.sh rm', then './pgctl.sh start'."
+      exit 1
+    fi
+
     echo "Container already exists. Starting..."
+    docker update --restart unless-stopped "$PG_CONTAINER_NAME" >/dev/null
     docker start "$PG_CONTAINER_NAME"
   else
+    if [ -d "$LEGACY_PG_DATA_DIR" ] && is_pg_volume_empty; then
+      echo "WARNING: Legacy data directory found at $LEGACY_PG_DATA_DIR"
+      echo "Run './pgctl.sh migrate-legacy-data' before start if you need existing local data."
+    fi
+
     echo "Creating and starting new PostgreSQL container for livereview..."
     docker run -d \
       --name "$PG_CONTAINER_NAME" \
+      --restart unless-stopped \
       -e POSTGRES_USER="$PG_USER" \
       -e POSTGRES_PASSWORD="$PG_PASSWORD" \
       -e POSTGRES_DB="$PG_DB" \
-      -v "$PWD/$PG_DATA_DIR":/var/lib/postgresql/data \
+      -v "$PG_VOLUME_NAME":/var/lib/postgresql/data \
       -p "$PG_PORT":5432 \
       postgres:"$PG_VERSION"
   fi
@@ -116,12 +147,12 @@ info_pg() {
   echo "  User:     $PG_USER"
   echo "  Password: $PG_PASSWORD"
   echo "  Database: $PG_DB"
-  echo "  Data Dir: $PG_DATA_DIR"
+  echo "  Volume:   $PG_VOLUME_NAME"
   echo ""
 }
 
 rm_pg() {
-  echo "Stopping and removing container + volume (but NOT your local data dir)..."
+  echo "Stopping and removing container (Docker volume is preserved)..."
   docker rm -f "$PG_CONTAINER_NAME" || true
 }
 
@@ -132,9 +163,12 @@ reset_pg() {
   if [[ $REPLY =~ ^[Yy]$ ]]; then
     echo "Stopping and removing container..."
     docker rm -f "$PG_CONTAINER_NAME" || true
-    
-    echo "Removing data directory (requires sudo): $PG_DATA_DIR"
-    sudo rm -rf "$PG_DATA_DIR"
+
+    echo "Removing Docker volume: $PG_VOLUME_NAME"
+    docker volume rm -f "$PG_VOLUME_NAME" || true
+
+    echo "Creating Docker volume: $PG_VOLUME_NAME"
+    docker volume create "$PG_VOLUME_NAME" >/dev/null
     
     echo "Recreating database container..."
     start_pg
@@ -154,6 +188,36 @@ reset_pg() {
   else
     echo "Reset cancelled."
   fi
+}
+
+migrate_legacy_data() {
+  if [ ! -d "$LEGACY_PG_DATA_DIR" ]; then
+    echo "ERROR: Legacy data directory not found: $LEGACY_PG_DATA_DIR"
+    exit 1
+  fi
+
+  if docker ps --format '{{.Names}}' | grep -qw "$PG_CONTAINER_NAME"; then
+    echo "ERROR: $PG_CONTAINER_NAME is running. Stop it first with './pgctl.sh stop'."
+    exit 1
+  fi
+
+  ensure_pg_volume
+
+  if ! is_pg_volume_empty; then
+    echo "ERROR: Docker volume $PG_VOLUME_NAME is not empty."
+    echo "To replace existing volume data, run './pgctl.sh reset' and retry migration."
+    exit 1
+  fi
+
+  echo "Migrating data from $LEGACY_PG_DATA_DIR to Docker volume $PG_VOLUME_NAME..."
+  docker run --rm \
+    -v "$PWD/$LEGACY_PG_DATA_DIR":/from:ro \
+    -v "$PG_VOLUME_NAME":/to \
+    postgres:"$PG_VERSION" sh -c 'cp -a /from/. /to/'
+
+  docker run --rm -v "$PG_VOLUME_NAME":/to postgres:"$PG_VERSION" sh -c 'chown -R 999:999 /to && chmod 700 /to'
+
+  echo "Migration completed. Start PostgreSQL with './pgctl.sh start'."
 }
 
 setup_migrations() {
@@ -198,5 +262,6 @@ case "$cmd" in
   migrations) setup_migrations ;;
   conn) print_conn_string ;;
   shell) shell_pg "$@" ;;
+  migrate-legacy-data) migrate_legacy_data ;;
   *) usage ;;
 esac

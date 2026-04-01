@@ -1,6 +1,6 @@
 # Storage Status
 
-Latest milestone batch note (MF-LOC-007): added LOC billing plan-change storage operations (immediate upgrade, scheduled downgrade, cancel/apply transitions) and lifecycle threshold/reset/trial event emission in LOC accounting store.
+Latest milestone batch note (MF-LOC-007, MF-PRORATION-003): added LOC billing plan-change storage operations and a dedicated upgrade payment attempt store for order correlation, webhook failure/capture persistence, and execute idempotency state.
 
 | Operation | Status | Evidence |
 | --- | --- | --- |
@@ -76,9 +76,9 @@ Latest milestone batch note (MF-LOC-007): added LOC billing plan-change storage 
 | license.ReadPlanCatalogFile | moved | [ReadPlanCatalogFile](license/plan_catalog_file_store.go#L18) |
 | license.NewLOCAccountingStore | moved | [NewLOCAccountingStore](license/loc_accounting_store.go#L49) |
 | license.AccountSuccess | moved | [AccountSuccess](license/loc_accounting_store.go#L53) |
-| license.CheckQuotaPreflight | moved | [CheckQuotaPreflight](license/loc_accounting_store.go#L185) |
-| license.emitThresholdLifecycleEventsTx | moved | [emitThresholdLifecycleEventsTx](license/loc_accounting_store.go#L317) |
-| license.emitLifecycleEventTx | moved | [emitLifecycleEventTx](license/loc_accounting_store.go#L342) |
+| license.CheckQuotaPreflight | moved | [CheckQuotaPreflight](license/loc_accounting_store.go#L191) |
+| license.emitThresholdLifecycleEventsTx | moved | [emitThresholdLifecycleEventsTx](license/loc_accounting_store.go#L337) |
+| license.emitLifecycleEventTx | moved | [emitLifecycleEventTx](license/loc_accounting_store.go#L362) |
 | license.NewReviewAccountingStore | moved | [NewReviewAccountingStore](license/review_accounting_store.go#L40) |
 | license.GetReviewAccountingTotals | moved | [GetReviewAccountingTotals](license/review_accounting_store.go#L44) |
 | license.GetLatestReviewAccountingOperation | moved | [GetLatestReviewAccountingOperation](license/review_accounting_store.go#L109) |
@@ -86,12 +86,24 @@ Latest milestone batch note (MF-LOC-007): added LOC billing plan-change storage 
 | license.GetCurrentPeriodSummary | moved | [GetCurrentPeriodSummary](license/org_usage_store.go#L45) |
 | license.ListCurrentPeriodOperations | moved | [ListCurrentPeriodOperations](license/org_usage_store.go#L102) |
 | payment.ListSubscriptionsByOrgID | moved | [ListSubscriptionsByOrgID](payment/subscription_store.go#L278) |
-| license.NewPlanChangeStore | moved | [NewPlanChangeStore](license/plan_change_store.go#L26) |
-| license.EnsureOrgBillingState | moved | [EnsureOrgBillingState](license/plan_change_store.go#L30) |
-| license.GetOrgBillingState | moved | [GetOrgBillingState](license/plan_change_store.go#L53) |
-| license.ApplyImmediatePlanUpgrade | moved | [ApplyImmediatePlanUpgrade](license/plan_change_store.go#L83) |
-| license.ScheduleDowngrade | moved | [ScheduleDowngrade](license/plan_change_store.go#L112) |
-| license.CancelScheduledDowngrade | moved | [CancelScheduledDowngrade](license/plan_change_store.go#L139) |
-| license.ListDueScheduledDowngrades | moved | [ListDueScheduledDowngrades](license/plan_change_store.go#L173) |
-| license.ApplyScheduledDowngrade | moved | [ApplyScheduledDowngrade](license/plan_change_store.go#L202) |
-| license.insertLifecycleEventTx | moved | [insertLifecycleEventTx](license/plan_change_store.go#L235) |
+| payment.NewUpgradePaymentAttemptStore | added | [NewUpgradePaymentAttemptStore](payment/upgrade_payment_attempt_store.go#L88) |
+| payment.CreateUpgradePaymentAttempt | added | [CreateUpgradePaymentAttempt](payment/upgrade_payment_attempt_store.go#L97) |
+| payment.GetReusablePreparedAttempt | added | [GetReusablePreparedAttempt](payment/upgrade_payment_attempt_store.go#L132) |
+| payment.GetAttemptByOrgPreviewAndOrder | added | [GetAttemptByOrgPreviewAndOrder](payment/upgrade_payment_attempt_store.go#L159) |
+| payment.GetAttemptByOrderID | added | [GetAttemptByOrderID](payment/upgrade_payment_attempt_store.go#L185) |
+| payment.MarkPaymentCapturedByOrderID | added | [MarkPaymentCapturedByOrderID](payment/upgrade_payment_attempt_store.go#L241) |
+| payment.MarkPaymentFailedByOrderID | added | [MarkPaymentFailedByOrderID](payment/upgrade_payment_attempt_store.go#L263) |
+| payment.ReserveExecute | added | [ReserveExecute](payment/upgrade_payment_attempt_store.go#L295) |
+| payment.MarkExecuteApplied | added | [MarkExecuteApplied](payment/upgrade_payment_attempt_store.go#L386) |
+| license.NewPlanChangeStore | moved | [NewPlanChangeStore](license/plan_change_store.go#L28) |
+| license.EnsureOrgBillingState | moved | [EnsureOrgBillingState](license/plan_change_store.go#L32) |
+| license.GetOrgBillingState | moved | [GetOrgBillingState](license/plan_change_store.go#L55) |
+| license.ApplyImmediatePlanUpgrade | moved | [ApplyImmediatePlanUpgrade](license/plan_change_store.go#L89) |
+| license.ScheduleDowngrade | moved | [ScheduleDowngrade](license/plan_change_store.go#L120) |
+| license.ScheduleUpgradeWithCurrentCycleGrant | added | [ScheduleUpgradeWithCurrentCycleGrant](license/plan_change_store.go#L147) |
+| license.CancelScheduledDowngrade | moved | [CancelScheduledDowngrade](license/plan_change_store.go#L181) |
+| license.ListDueScheduledDowngrades | moved | [ListDueScheduledDowngrades](license/plan_change_store.go#L215) |
+| license.ListDueScheduledPlanChanges | added | [ListDueScheduledPlanChanges](license/plan_change_store.go#L219) |
+| license.ApplyScheduledDowngrade | moved | [ApplyScheduledDowngrade](license/plan_change_store.go#L248) |
+| license.ApplyScheduledPlanChange | added | [ApplyScheduledPlanChange](license/plan_change_store.go#L252) |
+| license.insertLifecycleEventTx | moved | [insertLifecycleEventTx](license/plan_change_store.go#L287) |

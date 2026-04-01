@@ -393,6 +393,8 @@ func (s *SubscriptionService) ConfirmPurchase(req *PurchaseConfirmationRequest, 
 				current_plan_code = EXCLUDED.current_plan_code,
 				scheduled_plan_code = NULL,
 				scheduled_plan_effective_at = NULL,
+				upgrade_loc_grant_current_cycle = 0,
+				upgrade_loc_grant_expires_at = NULL,
 				trial_readonly = FALSE,
 				loc_blocked = FALSE,
 				updated_at = NOW()

@@ -14,6 +14,8 @@ type OrgBillingState struct {
 	BillingPeriodStart       time.Time
 	BillingPeriodEnd         time.Time
 	LOCUsedMonth             int64
+	UpgradeLOCGrantCurrent   int64
+	UpgradeLOCGrantExpiresAt sql.NullTime
 	TrialReadOnly            bool
 	ScheduledPlanCode        sql.NullString
 	ScheduledPlanEffectiveAt sql.NullTime
@@ -59,6 +61,8 @@ func (s *PlanChangeStore) GetOrgBillingState(ctx context.Context, orgID int64) (
 			billing_period_start,
 			billing_period_end,
 			loc_used_month,
+			upgrade_loc_grant_current_cycle,
+			upgrade_loc_grant_expires_at,
 			trial_readonly,
 			scheduled_plan_code,
 			scheduled_plan_effective_at
@@ -70,6 +74,8 @@ func (s *PlanChangeStore) GetOrgBillingState(ctx context.Context, orgID int64) (
 		&row.BillingPeriodStart,
 		&row.BillingPeriodEnd,
 		&row.LOCUsedMonth,
+		&row.UpgradeLOCGrantCurrent,
+		&row.UpgradeLOCGrantExpiresAt,
 		&row.TrialReadOnly,
 		&row.ScheduledPlanCode,
 		&row.ScheduledPlanEffectiveAt,
@@ -92,6 +98,8 @@ func (s *PlanChangeStore) ApplyImmediatePlanUpgrade(ctx context.Context, orgID i
 		SET current_plan_code = $1,
 			scheduled_plan_code = NULL,
 			scheduled_plan_effective_at = NULL,
+			upgrade_loc_grant_current_cycle = 0,
+			upgrade_loc_grant_expires_at = NULL,
 			trial_readonly = FALSE,
 			updated_at = NOW()
 		WHERE org_id = $2
@@ -136,6 +144,40 @@ func (s *PlanChangeStore) ScheduleDowngrade(ctx context.Context, orgID int64, ta
 	return nil
 }
 
+func (s *PlanChangeStore) ScheduleUpgradeWithCurrentCycleGrant(ctx context.Context, orgID int64, targetPlanCode string, effectiveAt time.Time, currentCycleLOCGrant int64, actorUserID int64, payload map[string]interface{}) error {
+	if currentCycleLOCGrant < 0 {
+		currentCycleLOCGrant = 0
+	}
+
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin schedule upgrade tx: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	if _, err := tx.ExecContext(ctx, `
+		UPDATE org_billing_state
+		SET scheduled_plan_code = $1,
+			scheduled_plan_effective_at = $2,
+			upgrade_loc_grant_current_cycle = $3,
+			upgrade_loc_grant_expires_at = $2,
+			trial_readonly = FALSE,
+			updated_at = NOW()
+		WHERE org_id = $4
+	`, targetPlanCode, effectiveAt.UTC(), currentCycleLOCGrant, orgID); err != nil {
+		return fmt.Errorf("update scheduled upgrade: %w", err)
+	}
+
+	if err := insertLifecycleEventTx(ctx, tx, orgID, "plan_upgrade_scheduled", targetPlanCode, actorUserID, payload, fmt.Sprintf("plan-upgrade-scheduled:%d:%s:%d", orgID, targetPlanCode, effectiveAt.UTC().Unix())); err != nil {
+		return err
+	}
+
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit schedule upgrade tx: %w", err)
+	}
+	return nil
+}
+
 func (s *PlanChangeStore) CancelScheduledDowngrade(ctx context.Context, orgID int64, actorUserID int64, payload map[string]interface{}) error {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
@@ -171,6 +213,10 @@ type DueTransition struct {
 }
 
 func (s *PlanChangeStore) ListDueScheduledDowngrades(ctx context.Context, asOf time.Time, limit int) ([]DueTransition, error) {
+	return s.ListDueScheduledPlanChanges(ctx, asOf, limit)
+}
+
+func (s *PlanChangeStore) ListDueScheduledPlanChanges(ctx context.Context, asOf time.Time, limit int) ([]DueTransition, error) {
 	if limit <= 0 {
 		limit = 100
 	}
@@ -184,7 +230,7 @@ func (s *PlanChangeStore) ListDueScheduledDowngrades(ctx context.Context, asOf t
 		LIMIT $2
 	`, asOf.UTC(), limit)
 	if err != nil {
-		return nil, fmt.Errorf("list due scheduled downgrades: %w", err)
+		return nil, fmt.Errorf("list due scheduled plan changes: %w", err)
 	}
 	defer rows.Close()
 
@@ -192,7 +238,7 @@ func (s *PlanChangeStore) ListDueScheduledDowngrades(ctx context.Context, asOf t
 	for rows.Next() {
 		var d DueTransition
 		if err := rows.Scan(&d.OrgID, &d.FromPlanCode, &d.TargetPlanCode, &d.EffectiveAt); err != nil {
-			return nil, fmt.Errorf("scan due transition: %w", err)
+			return nil, fmt.Errorf("scan due plan change: %w", err)
 		}
 		out = append(out, d)
 	}
@@ -200,9 +246,13 @@ func (s *PlanChangeStore) ListDueScheduledDowngrades(ctx context.Context, asOf t
 }
 
 func (s *PlanChangeStore) ApplyScheduledDowngrade(ctx context.Context, tr DueTransition) error {
+	return s.ApplyScheduledPlanChange(ctx, tr)
+}
+
+func (s *PlanChangeStore) ApplyScheduledPlanChange(ctx context.Context, tr DueTransition) error {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
-		return fmt.Errorf("begin apply scheduled downgrade tx: %w", err)
+		return fmt.Errorf("begin apply scheduled plan change tx: %w", err)
 	}
 	defer func() { _ = tx.Rollback() }()
 
@@ -211,10 +261,12 @@ func (s *PlanChangeStore) ApplyScheduledDowngrade(ctx context.Context, tr DueTra
 		SET current_plan_code = $1,
 			scheduled_plan_code = NULL,
 			scheduled_plan_effective_at = NULL,
+			upgrade_loc_grant_current_cycle = 0,
+			upgrade_loc_grant_expires_at = NULL,
 			updated_at = NOW()
 		WHERE org_id = $2
 	`, tr.TargetPlanCode, tr.OrgID); err != nil {
-		return fmt.Errorf("apply scheduled downgrade: %w", err)
+		return fmt.Errorf("apply scheduled plan change: %w", err)
 	}
 
 	payload := map[string]interface{}{
@@ -222,12 +274,12 @@ func (s *PlanChangeStore) ApplyScheduledDowngrade(ctx context.Context, tr DueTra
 		"to_plan_code":   tr.TargetPlanCode,
 		"effective_at":   tr.EffectiveAt.UTC().Format(time.RFC3339),
 	}
-	if err := insertLifecycleEventTx(ctx, tx, tr.OrgID, "plan_downgrade_applied", tr.TargetPlanCode, 0, payload, fmt.Sprintf("plan-downgrade-applied:%d:%s:%d", tr.OrgID, tr.TargetPlanCode, tr.EffectiveAt.UTC().Unix())); err != nil {
+	if err := insertLifecycleEventTx(ctx, tx, tr.OrgID, "plan_change_applied", tr.TargetPlanCode, 0, payload, fmt.Sprintf("plan-change-applied:%d:%s:%d", tr.OrgID, tr.TargetPlanCode, tr.EffectiveAt.UTC().Unix())); err != nil {
 		return err
 	}
 
 	if err := tx.Commit(); err != nil {
-		return fmt.Errorf("commit apply scheduled downgrade tx: %w", err)
+		return fmt.Errorf("commit apply scheduled plan change tx: %w", err)
 	}
 	return nil
 }

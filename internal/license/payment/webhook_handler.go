@@ -1,18 +1,22 @@
 package payment
 
 import (
+	"context"
 	"crypto/hmac"
 	"crypto/sha256"
 	"crypto/subtle"
 	"database/sql"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/labstack/echo/v4"
+	storagepayment "github.com/livereview/storage/payment"
 )
 
 // RazorpayWebhookHandler handles Razorpay webhook events
@@ -375,7 +379,17 @@ func (h *RazorpayWebhookHandler) handleSubscriptionActivated(event *RazorpayWebh
 		return fmt.Errorf("failed to log event: %w", err)
 	}
 
-	return tx.Commit()
+	if err := tx.Commit(); err != nil {
+		return err
+	}
+
+	if handled, confirmErr := h.tryMarkUpgradeRequestSubscriptionConfirmed(sub.ID, event.Event, map[string]interface{}{"subscription_status": sub.Status}); confirmErr != nil {
+		fmt.Printf("[SUBSCRIPTION.ACTIVATED] ⚠ Failed to mark upgrade subscription confirmation for %s: %v\n", sub.ID, confirmErr)
+	} else if handled {
+		fmt.Printf("[SUBSCRIPTION.ACTIVATED] ✓ Upgrade request subscription confirmation recorded for %s\n", sub.ID)
+	}
+
+	return nil
 }
 
 // handleSubscriptionCharged handles successful subscription charges
@@ -485,6 +499,8 @@ func (h *RazorpayWebhookHandler) handleSubscriptionCharged(event *RazorpayWebhoo
 					billing_period_end = EXCLUDED.billing_period_end,
 					scheduled_plan_code = NULL,
 					scheduled_plan_effective_at = NULL,
+					upgrade_loc_grant_current_cycle = 0,
+					upgrade_loc_grant_expires_at = NULL,
 					trial_readonly = FALSE,
 					loc_blocked = FALSE,
 					updated_at = NOW()`,
@@ -562,7 +578,17 @@ func (h *RazorpayWebhookHandler) handleSubscriptionCharged(event *RazorpayWebhoo
 		return fmt.Errorf("failed to log event: %w", err)
 	}
 
-	return tx.Commit()
+	if err := tx.Commit(); err != nil {
+		return err
+	}
+
+	if handled, confirmErr := h.tryMarkUpgradeRequestSubscriptionConfirmed(sub.ID, event.Event, map[string]interface{}{"subscription_status": sub.Status}); confirmErr != nil {
+		fmt.Printf("[SUBSCRIPTION.CHARGED] ⚠ Failed to mark upgrade subscription confirmation for %s: %v\n", sub.ID, confirmErr)
+	} else if handled {
+		fmt.Printf("[SUBSCRIPTION.CHARGED] ✓ Upgrade request subscription confirmation recorded for %s\n", sub.ID)
+	}
+
+	return nil
 }
 
 // handleSubscriptionCancelled handles subscription cancellation
@@ -982,11 +1008,17 @@ func (h *RazorpayWebhookHandler) handlePaymentAuthorized(event *RazorpayWebhookE
 	fmt.Printf("[PAYMENT.AUTHORIZED] Payment ID: %s, Amount: %d %s\n",
 		payment.ID, payment.Amount, payment.Currency)
 
+	if handled, err := h.tryHandleUpgradeOrderPaymentAuthorized(payment, event); err != nil {
+		return err
+	} else if handled {
+		return nil
+	}
+
 	// Find subscription by invoice ID or order ID from payment notes
 	subscriptionID, err := h.findSubscriptionFromPayment(payment)
 	if err != nil {
-		fmt.Printf("[PAYMENT.AUTHORIZED] ✗ Failed to find subscription: %v\n", err)
-		return fmt.Errorf("failed to find subscription for payment %s: %w", payment.ID, err)
+		fmt.Printf("[PAYMENT.AUTHORIZED] ⚠ Could not find subscription for payment %s: %v (recording pending reconciliation)\n", payment.ID, err)
+		return h.logPaymentAuthorizedWithoutSubscription(payment, event)
 	}
 
 	fmt.Printf("[PAYMENT.AUTHORIZED] ✓ Payment authorized for subscription ID: %d (waiting for capture)\n", subscriptionID)
@@ -1052,6 +1084,52 @@ func (h *RazorpayWebhookHandler) handlePaymentAuthorized(event *RazorpayWebhookE
 	return tx.Commit()
 }
 
+func (h *RazorpayWebhookHandler) tryHandleUpgradeOrderPaymentAuthorized(payment *RazorpayPayment, event *RazorpayWebhookEvent) (bool, error) {
+	requestStore := storagepayment.NewUpgradeRequestStore(h.db)
+	request, err := h.lookupUpgradeRequestForPayment(context.Background(), requestStore, payment)
+	if err != nil {
+		if errors.Is(err, storagepayment.ErrUpgradeRequestNotFound) {
+			return false, nil
+		}
+		return false, fmt.Errorf("lookup upgrade request for authorized webhook: %w", err)
+	}
+
+	orderID := strings.TrimSpace(payment.OrderID)
+	if orderID != "" {
+		_, _ = h.db.Exec(`
+			UPDATE upgrade_payment_attempts
+			SET razorpay_payment_id = COALESCE(NULLIF($2, ''), razorpay_payment_id),
+			    updated_at = NOW()
+			WHERE razorpay_order_id = $1`,
+			orderID,
+			strings.TrimSpace(payment.ID),
+		)
+	}
+
+	metadata := map[string]interface{}{
+		"upgrade_request_id": request.UpgradeRequestID,
+		"payment_id":         payment.ID,
+		"order_id":           payment.OrderID,
+		"amount":             payment.Amount,
+		"currency":           payment.Currency,
+		"status":             payment.Status,
+		"event":              event.Event,
+	}
+	metadataJSON, _ := json.Marshal(metadata)
+	_, _ = h.db.Exec(`
+		INSERT INTO license_log (
+			user_id, org_id, event_type, description, metadata, created_at
+		) VALUES (NULL, $1, $2, $3, $4, NOW())`,
+		request.OrgID,
+		"upgrade_payment_authorized",
+		fmt.Sprintf("Upgrade payment %s authorized for request %s", payment.ID, request.UpgradeRequestID),
+		metadataJSON,
+	)
+
+	fmt.Printf("[PAYMENT.AUTHORIZED] ✓ Upgrade payment authorized (org=%d, request=%s, order=%s)\n", request.OrgID, request.UpgradeRequestID, payment.OrderID)
+	return true, nil
+}
+
 // handlePaymentCaptured handles payment capture events (money received!)
 func (h *RazorpayWebhookHandler) handlePaymentCaptured(event *RazorpayWebhookEvent) error {
 	fmt.Printf("[PAYMENT.CAPTURED] Processing payment capture...\n")
@@ -1065,11 +1143,17 @@ func (h *RazorpayWebhookHandler) handlePaymentCaptured(event *RazorpayWebhookEve
 	fmt.Printf("[PAYMENT.CAPTURED] Payment ID: %s, Amount: %d %s, Status: %s\n",
 		payment.ID, payment.Amount, payment.Currency, payment.Status)
 
+	if handled, err := h.tryHandleUpgradeOrderPaymentCaptured(payment, event); err != nil {
+		return err
+	} else if handled {
+		return nil
+	}
+
 	// Find subscription by invoice ID or order ID from payment notes
 	subscriptionID, err := h.findSubscriptionFromPayment(payment)
 	if err != nil {
-		fmt.Printf("[PAYMENT.CAPTURED] ✗ Failed to find subscription for payment %s: %v\n", payment.ID, err)
-		return fmt.Errorf("failed to find subscription for payment %s: %w", payment.ID, err)
+		fmt.Printf("[PAYMENT.CAPTURED] ⚠ Could not find subscription for payment %s: %v (recording pending reconciliation)\n", payment.ID, err)
+		return h.logPaymentCapturedWithoutSubscription(payment, event)
 	}
 
 	fmt.Printf("[PAYMENT.CAPTURED] Found subscription ID: %d\n", subscriptionID)
@@ -1169,6 +1253,12 @@ func (h *RazorpayWebhookHandler) handlePaymentFailed(event *RazorpayWebhookEvent
 
 	fmt.Printf("[PAYMENT.FAILED] Payment ID: %s, Error: %s - %s\n",
 		payment.ID, payment.ErrorCode, payment.ErrorDescription)
+
+	if handled, err := h.tryHandleUpgradeOrderPaymentFailure(payment, event); err != nil {
+		return err
+	} else if handled {
+		return nil
+	}
 
 	// Find subscription by invoice ID or order ID from payment notes
 	subscriptionID, err := h.findSubscriptionFromPayment(payment)
@@ -1348,6 +1438,284 @@ func (h *RazorpayWebhookHandler) findSubscriptionFromPayment(payment *RazorpayPa
 
 	return 0, fmt.Errorf("could not find subscription for payment %s (customer: %s, invoice: %s, order: %s)",
 		payment.ID, payment.CustomerID, payment.InvoiceID, payment.OrderID)
+}
+
+func (h *RazorpayWebhookHandler) tryHandleUpgradeOrderPaymentCaptured(payment *RazorpayPayment, event *RazorpayWebhookEvent) (bool, error) {
+	requestStore := storagepayment.NewUpgradeRequestStore(h.db)
+	request, err := h.lookupUpgradeRequestForPayment(context.Background(), requestStore, payment)
+	if err != nil {
+		if errors.Is(err, storagepayment.ErrUpgradeRequestNotFound) {
+			return false, nil
+		}
+		return false, fmt.Errorf("lookup upgrade request for captured webhook: %w", err)
+	}
+
+	orderID := strings.TrimSpace(payment.OrderID)
+	attemptStore := storagepayment.NewUpgradePaymentAttemptStore(h.db)
+	if orderID != "" {
+		if err := attemptStore.MarkPaymentCapturedByOrderID(context.Background(), orderID, payment.ID); err != nil {
+			if !errors.Is(err, storagepayment.ErrUpgradePaymentAttemptNotFound) {
+				return false, fmt.Errorf("mark upgrade payment attempt captured from webhook: %w", err)
+			}
+		}
+	}
+
+	if _, err := requestStore.MarkPaymentCaptureConfirmed(context.Background(), storagepayment.MarkUpgradePaymentCaptureInput{
+		UpgradeRequestID:  request.UpgradeRequestID,
+		RazorpayPaymentID: strings.TrimSpace(payment.ID),
+		RazorpayOrderID:   orderID,
+		Metadata: map[string]interface{}{
+			"source":     "webhook.payment.captured",
+			"event":      event.Event,
+			"amount":     payment.Amount,
+			"currency":   payment.Currency,
+			"payment_id": payment.ID,
+			"order_id":   payment.OrderID,
+			"status":     payment.Status,
+		},
+	}); err != nil && !errors.Is(err, storagepayment.ErrUpgradeRequestTransitionRejected) {
+		return false, fmt.Errorf("mark upgrade request payment captured from webhook: %w", err)
+	}
+
+	metadata := map[string]interface{}{
+		"upgrade_request_id": request.UpgradeRequestID,
+		"payment_id":         payment.ID,
+		"order_id":           payment.OrderID,
+		"amount":             payment.Amount,
+		"currency":           payment.Currency,
+		"status":             payment.Status,
+		"event":              event.Event,
+	}
+	metadataJSON, _ := json.Marshal(metadata)
+	_, _ = h.db.Exec(`
+		INSERT INTO license_log (
+			user_id, org_id, event_type, description, metadata, created_at
+		) VALUES (NULL, $1, $2, $3, $4, NOW())`,
+		request.OrgID,
+		"upgrade_payment_captured",
+		fmt.Sprintf("Upgrade payment %s captured for request %s", payment.ID, request.UpgradeRequestID),
+		metadataJSON,
+	)
+
+	fmt.Printf("[PAYMENT.CAPTURED] ✓ Upgrade payment captured (org=%d, request=%s, order=%s)\n", request.OrgID, request.UpgradeRequestID, payment.OrderID)
+	return true, nil
+}
+
+func (h *RazorpayWebhookHandler) tryHandleUpgradeOrderPaymentFailure(payment *RazorpayPayment, event *RazorpayWebhookEvent) (bool, error) {
+	requestStore := storagepayment.NewUpgradeRequestStore(h.db)
+	request, err := h.lookupUpgradeRequestForPayment(context.Background(), requestStore, payment)
+	if err != nil {
+		if errors.Is(err, storagepayment.ErrUpgradeRequestNotFound) {
+			return false, nil
+		}
+		return false, fmt.Errorf("lookup upgrade request for failed webhook: %w", err)
+	}
+
+	orderID := strings.TrimSpace(payment.OrderID)
+	attemptStore := storagepayment.NewUpgradePaymentAttemptStore(h.db)
+	if orderID != "" {
+		if err := attemptStore.MarkPaymentFailedByOrderID(context.Background(), storagepayment.MarkUpgradePaymentFailedInput{
+			RazorpayOrderID:   orderID,
+			RazorpayPaymentID: payment.ID,
+			ErrorCode:         payment.ErrorCode,
+			ErrorReason:       payment.ErrorReason,
+			ErrorDescription:  payment.ErrorDescription,
+			ErrorSource:       payment.ErrorSource,
+			ErrorStep:         payment.ErrorStep,
+		}); err != nil {
+			if !errors.Is(err, storagepayment.ErrUpgradePaymentAttemptNotFound) {
+				return false, fmt.Errorf("mark upgrade payment attempt failed from webhook: %w", err)
+			}
+		}
+	}
+
+	_, _ = requestStore.MarkUpgradeRequestFailed(context.Background(), storagepayment.MarkUpgradeRequestFailedInput{
+		UpgradeRequestID: request.UpgradeRequestID,
+		FailureReason:    fmt.Sprintf("payment_failed:%s:%s", strings.TrimSpace(payment.ErrorCode), strings.TrimSpace(payment.ErrorDescription)),
+		Metadata: map[string]interface{}{
+			"source":            "webhook.payment.failed",
+			"payment_id":        payment.ID,
+			"order_id":          payment.OrderID,
+			"error_code":        payment.ErrorCode,
+			"error_reason":      payment.ErrorReason,
+			"error_description": payment.ErrorDescription,
+			"error_source":      payment.ErrorSource,
+			"error_step":        payment.ErrorStep,
+		},
+	})
+
+	metadata := map[string]interface{}{
+		"upgrade_request_id": request.UpgradeRequestID,
+		"payment_id":         payment.ID,
+		"order_id":           payment.OrderID,
+		"amount":             payment.Amount,
+		"currency":           payment.Currency,
+		"status":             payment.Status,
+		"error_code":         payment.ErrorCode,
+		"error_reason":       payment.ErrorReason,
+		"error_description":  payment.ErrorDescription,
+		"error_source":       payment.ErrorSource,
+		"error_step":         payment.ErrorStep,
+		"event":              event.Event,
+	}
+	metadataJSON, _ := json.Marshal(metadata)
+	_, _ = h.db.Exec(`
+		INSERT INTO license_log (
+			user_id, org_id, event_type, description, metadata, created_at
+		) VALUES (NULL, $1, $2, $3, $4, NOW())`,
+		request.OrgID,
+		"upgrade_payment_failed",
+		fmt.Sprintf("Upgrade payment %s failed for request %s: %s", payment.ID, request.UpgradeRequestID, payment.ErrorDescription),
+		metadataJSON,
+	)
+
+	fmt.Printf("[PAYMENT.FAILED] ✓ Upgrade payment failure recorded (org=%d, request=%s, order=%s)\n", request.OrgID, request.UpgradeRequestID, payment.OrderID)
+	return true, nil
+}
+
+func (h *RazorpayWebhookHandler) lookupUpgradeRequestForPayment(ctx context.Context, requestStore *storagepayment.UpgradeRequestStore, payment *RazorpayPayment) (storagepayment.UpgradeRequest, error) {
+	if requestStore == nil {
+		requestStore = storagepayment.NewUpgradeRequestStore(h.db)
+	}
+
+	if notes := payment.GetPaymentNotesMap(); notes != nil {
+		if requestID := strings.TrimSpace(notes["upgrade_request_id"]); requestID != "" {
+			return requestStore.GetUpgradeRequestByID(ctx, requestID)
+		}
+	}
+
+	if orderID := strings.TrimSpace(payment.OrderID); orderID != "" {
+		request, err := requestStore.GetUpgradeRequestByOrderID(ctx, orderID)
+		if err == nil {
+			return request, nil
+		}
+		if !errors.Is(err, storagepayment.ErrUpgradeRequestNotFound) {
+			return storagepayment.UpgradeRequest{}, fmt.Errorf("lookup upgrade request by order id: %w", err)
+		}
+
+		// If request-level order correlation is missing, fall back to deterministic
+		// attempt-level order correlation to recover the owning upgrade request.
+		attemptStore := storagepayment.NewUpgradePaymentAttemptStore(h.db)
+		attempt, attemptErr := attemptStore.GetAttemptByOrderID(ctx, orderID)
+		if attemptErr != nil {
+			if errors.Is(attemptErr, storagepayment.ErrUpgradePaymentAttemptNotFound) {
+				return storagepayment.UpgradeRequest{}, storagepayment.ErrUpgradeRequestNotFound
+			}
+			return storagepayment.UpgradeRequest{}, fmt.Errorf("lookup upgrade payment attempt by order id: %w", attemptErr)
+		}
+
+		if !attempt.UpgradeRequestID.Valid || strings.TrimSpace(attempt.UpgradeRequestID.String) == "" {
+			return storagepayment.UpgradeRequest{}, storagepayment.ErrUpgradeRequestNotFound
+		}
+
+		requestID := strings.TrimSpace(attempt.UpgradeRequestID.String)
+		return requestStore.GetUpgradeRequestByID(ctx, requestID)
+	}
+
+	return storagepayment.UpgradeRequest{}, storagepayment.ErrUpgradeRequestNotFound
+}
+
+func (h *RazorpayWebhookHandler) tryMarkUpgradeRequestSubscriptionConfirmed(razorpaySubscriptionID string, eventName string, metadata map[string]interface{}) (bool, error) {
+	requestStore := storagepayment.NewUpgradeRequestStore(h.db)
+	request, err := requestStore.GetLatestPendingByRazorpaySubscriptionID(context.Background(), strings.TrimSpace(razorpaySubscriptionID))
+	if err != nil {
+		if errors.Is(err, storagepayment.ErrUpgradeRequestNotFound) {
+			return false, nil
+		}
+		return false, fmt.Errorf("load pending upgrade request by razorpay subscription id: %w", err)
+	}
+
+	payload := metadata
+	if payload == nil {
+		payload = map[string]interface{}{}
+	}
+	payload["source_event"] = eventName
+	payload["razorpay_subscription_id"] = strings.TrimSpace(razorpaySubscriptionID)
+
+	_, err = requestStore.MarkSubscriptionChangeConfirmed(context.Background(), storagepayment.MarkUpgradeSubscriptionConfirmedInput{
+		UpgradeRequestID:       request.UpgradeRequestID,
+		RazorpaySubscriptionID: strings.TrimSpace(razorpaySubscriptionID),
+		Metadata:               payload,
+	})
+	if err != nil && !errors.Is(err, storagepayment.ErrUpgradeRequestTransitionRejected) {
+		return false, err
+	}
+
+	return true, nil
+}
+
+func (h *RazorpayWebhookHandler) logPaymentCapturedWithoutSubscription(payment *RazorpayPayment, event *RazorpayWebhookEvent) error {
+	paymentDataJSON, _ := json.Marshal(payment)
+	metadata := map[string]interface{}{
+		"payment_id": payment.ID,
+		"amount":     payment.Amount,
+		"currency":   payment.Currency,
+		"status":     payment.Status,
+		"order_id":   payment.OrderID,
+		"invoice_id": payment.InvoiceID,
+		"event":      event.Event,
+	}
+	metadataJSON, _ := json.Marshal(metadata)
+
+	_, err := h.db.Exec(`
+		INSERT INTO license_log (
+			user_id, org_id, event_type, description, metadata, created_at
+		) VALUES (NULL, NULL, $1, $2, $3, NOW())`,
+		"payment_captured_pending_reconciliation",
+		fmt.Sprintf("Payment %s captured but subscription correlation pending", payment.ID),
+		metadataJSON,
+	)
+
+	_, _ = h.db.Exec(`
+		INSERT INTO subscription_payments (
+			subscription_id, razorpay_payment_id, razorpay_order_id, razorpay_invoice_id,
+			amount, currency, status, method, captured_at,
+			razorpay_data, created_at, updated_at
+		) VALUES (NULL, $1, $2, $3, $4, $5, $6, $7, NOW(), $8, NOW(), NOW())
+		ON CONFLICT (razorpay_payment_id) DO NOTHING`,
+		payment.ID, payment.OrderID, payment.InvoiceID,
+		payment.Amount, payment.Currency, payment.Status, payment.Method,
+		paymentDataJSON,
+	)
+
+	return err
+}
+
+func (h *RazorpayWebhookHandler) logPaymentAuthorizedWithoutSubscription(payment *RazorpayPayment, event *RazorpayWebhookEvent) error {
+	paymentDataJSON, _ := json.Marshal(payment)
+	metadata := map[string]interface{}{
+		"payment_id": payment.ID,
+		"amount":     payment.Amount,
+		"currency":   payment.Currency,
+		"status":     payment.Status,
+		"order_id":   payment.OrderID,
+		"invoice_id": payment.InvoiceID,
+		"event":      event.Event,
+	}
+	metadataJSON, _ := json.Marshal(metadata)
+
+	_, err := h.db.Exec(`
+		INSERT INTO license_log (
+			user_id, org_id, event_type, description, metadata, created_at
+		) VALUES (NULL, NULL, $1, $2, $3, NOW())`,
+		"payment_authorized_pending_reconciliation",
+		fmt.Sprintf("Payment %s authorized but subscription correlation pending", payment.ID),
+		metadataJSON,
+	)
+
+	_, _ = h.db.Exec(`
+		INSERT INTO subscription_payments (
+			subscription_id, razorpay_payment_id, razorpay_order_id, razorpay_invoice_id,
+			amount, currency, status, method, authorized_at,
+			razorpay_data, created_at, updated_at
+		) VALUES (NULL, $1, $2, $3, $4, $5, $6, $7, NOW(), $8, NOW(), NOW())
+		ON CONFLICT (razorpay_payment_id) DO NOTHING`,
+		payment.ID, payment.OrderID, payment.InvoiceID,
+		payment.Amount, payment.Currency, payment.Status, payment.Method,
+		paymentDataJSON,
+	)
+
+	return err
 }
 
 // logPaymentFailureWithoutSubscription logs payment failures when subscription can't be found
