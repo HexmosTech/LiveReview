@@ -266,6 +266,45 @@ func GetPaymentByID(mode, paymentID string) (*RazorpayPayment, error) {
 	return &payment, nil
 }
 
+// GetInvoiceByID fetches a specific invoice by ID from Razorpay.
+func GetInvoiceByID(mode, invoiceID string) (*RazorpayInvoice, error) {
+	accessKey, secretKey, err := GetRazorpayKeys(mode)
+	if err != nil {
+		return nil, err
+	}
+
+	url := fmt.Sprintf("%s/invoices/%s", razorpayBaseURL, invoiceID)
+	req, err := http.NewRequest("GET", url, nil)
+	if err != nil {
+		return nil, fmt.Errorf("error creating request: %w", err)
+	}
+
+	req.SetBasicAuth(accessKey, secretKey)
+
+	client := &http.Client{}
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("error making request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("error reading response: %w", err)
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("razorpay API error (status %d): %s", resp.StatusCode, string(body))
+	}
+
+	var invoice RazorpayInvoice
+	if err := json.Unmarshal(body, &invoice); err != nil {
+		return nil, fmt.Errorf("error unmarshaling response: %w", err)
+	}
+
+	return &invoice, nil
+}
+
 // CreateSubscriptionAddon creates a one-time add-on charge on an active subscription.
 func CreateSubscriptionAddon(mode, subscriptionID string, item RazorpayAddonItem) (*RazorpayAddon, error) {
 	accessKey, secretKey, err := GetRazorpayKeys(mode)

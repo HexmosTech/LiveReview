@@ -785,6 +785,43 @@ const OverviewTab: React.FC<{ navigate: any }> = ({ navigate }) => {
       ]
     : [];
 
+  const effectiveChargeStatus = (() => {
+    const localStatus = String(lastUpgradeResult?.proration?.charge_status || '').trim().toLowerCase();
+    if (requestStatus?.payment_capture_confirmed) {
+      return 'capture_confirmed';
+    }
+    if (requestStatus?.plan_grant_applied || String(requestStatus?.status || '').trim().toLowerCase() === 'resolved') {
+      return 'resolved';
+    }
+    return localStatus || 'unknown';
+  })();
+
+  const chargeStatusLabel = (() => {
+    switch (effectiveChargeStatus) {
+      case 'capture_confirmed':
+        return 'CAPTURE_CONFIRMED';
+      case 'resolved':
+        return 'RESOLVED';
+      case 'verification_pending':
+        return 'VERIFICATION_PENDING';
+      default:
+        return effectiveChargeStatus.toUpperCase();
+    }
+  })();
+
+  const chargeSummaryHint = (() => {
+    if (requestStatus?.plan_grant_applied || String(requestStatus?.status || '').trim().toLowerCase() === 'resolved') {
+      return 'Upgrade completed. Payment and subscription confirmations are done, and LOC grant has been applied.';
+    }
+    if (requestStatus?.payment_capture_confirmed && !requestStatus?.subscription_change_confirmed) {
+      return 'Payment is confirmed. Waiting for subscription change confirmation to finalize grant.';
+    }
+    if (!requestStatus?.payment_capture_confirmed) {
+      return 'Upgrade execution has started. Waiting for payment capture and subscription change confirmations.';
+    }
+    return 'Upgrade is in progress. Final grant happens after both confirmations complete.';
+  })();
+
   return (
     <div className="space-y-6">
       <div>
@@ -1130,7 +1167,7 @@ const OverviewTab: React.FC<{ navigate: any }> = ({ navigate }) => {
                 <p>From: <span className="text-white">{lastUpgradeResult.proration.from_plan_code || 'n/a'}</span></p>
                 <p>To: <span className="text-white">{lastUpgradeResult.proration.to_plan_code || lastUpgradeResult.plan_code || 'n/a'}</span></p>
                 <p>Charged now: <span className="text-white">{formatChargeUSD(lastUpgradeResult.proration.charge_amount_cents) || '$0.00'}</span></p>
-                <p>Status: <span className="text-white">{(lastUpgradeResult.proration.charge_status || 'unknown').toUpperCase()}</span></p>
+                <p>Status: <span className="text-white">{chargeStatusLabel}</span></p>
                 {typeof lastUpgradeResult.proration.remaining_cycle_fraction === 'number' && (
                   <p>Remaining cycle fraction: <span className="text-white">{(lastUpgradeResult.proration.remaining_cycle_fraction * 100).toFixed(2)}%</span></p>
                 )}
@@ -1147,9 +1184,7 @@ const OverviewTab: React.FC<{ navigate: any }> = ({ navigate }) => {
                   <p>Cycle end: <span className="text-white">{formatDate(lastUpgradeResult.proration.cycle_end)}</span></p>
                 )}
               </div>
-              <p className="text-xs text-slate-300">
-				Upgrade execution has started. Final grant happens after payment capture and subscription change confirmations complete.
-              </p>
+              <p className="text-xs text-slate-300">{chargeSummaryHint}</p>
             </div>
           )}
 

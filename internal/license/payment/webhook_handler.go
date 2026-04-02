@@ -12,6 +12,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"os"
 	"strings"
 	"time"
 
@@ -1370,38 +1371,83 @@ func (h *RazorpayWebhookHandler) extractPayment(event *RazorpayWebhookEvent) (*R
 
 // findSubscriptionFromPayment finds the subscription ID associated with a payment
 func (h *RazorpayWebhookHandler) findSubscriptionFromPayment(payment *RazorpayPayment) (int64, error) {
-	var subscriptionID int64
+	razorpayMode := strings.TrimSpace(os.Getenv("RAZORPAY_MODE"))
+	if razorpayMode == "" {
+		razorpayMode = "test"
+	}
+
+	findByQuery := func(query string, args ...interface{}) (int64, error) {
+		var id int64
+		err := h.db.QueryRow(query, args...).Scan(&id)
+		if err != nil {
+			return 0, err
+		}
+		return id, nil
+	}
 
 	// Try to find by invoice ID (most reliable for subscription payments)
 	if payment.InvoiceID != "" {
-		// Invoice ID typically contains the subscription ID in Razorpay
-		// We need to query subscriptions to find a match
-		err := h.db.QueryRow(`
-			SELECT id FROM subscriptions 
-			WHERE razorpay_data->>'invoice_id' = $1 
-			   OR razorpay_subscription_id IN (
-				SELECT jsonb_object_keys(razorpay_data->'invoices')
-				FROM subscriptions
-				WHERE razorpay_data->'invoices' ? $1
-			)
-			LIMIT 1`,
-			payment.InvoiceID,
-		).Scan(&subscriptionID)
-		if err == nil {
-			return subscriptionID, nil
+		if id, err := findByQuery(`
+			SELECT sp.subscription_id
+			FROM subscription_payments sp
+			WHERE sp.razorpay_invoice_id = $1
+			  AND sp.subscription_id IS NOT NULL
+			ORDER BY sp.updated_at DESC, sp.created_at DESC
+			LIMIT 1`, payment.InvoiceID); err == nil {
+			return id, nil
+		} else if !errors.Is(err, sql.ErrNoRows) {
+			fmt.Printf("[PAYMENT.CORRELATION] ⚠ invoice_id lookup via subscription_payments failed: %v\n", err)
+		}
+
+		if id, err := findByQuery(`
+			SELECT s.id
+			FROM subscriptions s
+			WHERE s.razorpay_data->>'invoice_id' = $1
+			LIMIT 1`, payment.InvoiceID); err == nil {
+			return id, nil
+		} else if !errors.Is(err, sql.ErrNoRows) {
+			fmt.Printf("[PAYMENT.CORRELATION] ⚠ invoice_id lookup via subscriptions.razorpay_data failed: %v\n", err)
+		}
+
+		if invoice, err := GetInvoiceByID(razorpayMode, payment.InvoiceID); err == nil {
+			if subID := strings.TrimSpace(invoice.SubscriptionID); subID != "" {
+				if id, lookupErr := findByQuery(`
+					SELECT s.id
+					FROM subscriptions s
+					WHERE s.razorpay_subscription_id = $1
+					LIMIT 1`, subID); lookupErr == nil {
+					return id, nil
+				} else if !errors.Is(lookupErr, sql.ErrNoRows) {
+					fmt.Printf("[PAYMENT.CORRELATION] ⚠ invoice subscription lookup failed: %v\n", lookupErr)
+				}
+			}
+		} else {
+			fmt.Printf("[PAYMENT.CORRELATION] ⚠ invoice API lookup failed for %s: %v\n", payment.InvoiceID, err)
 		}
 	}
 
 	// Try to find by order ID
 	if payment.OrderID != "" {
-		err := h.db.QueryRow(`
-			SELECT id FROM subscriptions 
-			WHERE razorpay_data->>'order_id' = $1
-			LIMIT 1`,
-			payment.OrderID,
-		).Scan(&subscriptionID)
-		if err == nil {
-			return subscriptionID, nil
+		if id, err := findByQuery(`
+			SELECT sp.subscription_id
+			FROM subscription_payments sp
+			WHERE sp.razorpay_order_id = $1
+			  AND sp.subscription_id IS NOT NULL
+			ORDER BY sp.updated_at DESC, sp.created_at DESC
+			LIMIT 1`, payment.OrderID); err == nil {
+			return id, nil
+		} else if !errors.Is(err, sql.ErrNoRows) {
+			fmt.Printf("[PAYMENT.CORRELATION] ⚠ order_id lookup via subscription_payments failed: %v\n", err)
+		}
+
+		if id, err := findByQuery(`
+			SELECT s.id
+			FROM subscriptions s
+			WHERE s.razorpay_data->>'order_id' = $1
+			LIMIT 1`, payment.OrderID); err == nil {
+			return id, nil
+		} else if !errors.Is(err, sql.ErrNoRows) {
+			fmt.Printf("[PAYMENT.CORRELATION] ⚠ order_id lookup via subscriptions.razorpay_data failed: %v\n", err)
 		}
 	}
 
@@ -1409,30 +1455,50 @@ func (h *RazorpayWebhookHandler) findSubscriptionFromPayment(payment *RazorpayPa
 	notes := payment.GetPaymentNotesMap()
 	if notes != nil {
 		if subID, ok := notes["subscription_id"]; ok {
-			err := h.db.QueryRow(`
-				SELECT id FROM subscriptions 
-				WHERE razorpay_subscription_id = $1
-				LIMIT 1`,
-				subID,
-			).Scan(&subscriptionID)
-			if err == nil {
-				return subscriptionID, nil
+			if id, err := findByQuery(`
+				SELECT s.id
+				FROM subscriptions s
+				WHERE s.razorpay_subscription_id = $1
+				LIMIT 1`, subID); err == nil {
+				return id, nil
+			} else if !errors.Is(err, sql.ErrNoRows) {
+				fmt.Printf("[PAYMENT.CORRELATION] ⚠ subscription_id note lookup failed: %v\n", err)
 			}
 		}
 	}
 
-	// Try to find by customer_id - get the most recent active subscription
+	// Try to find by customer_id in persisted payload fields.
 	if payment.CustomerID != "" {
-		err := h.db.QueryRow(`
-			SELECT id FROM subscriptions 
-			WHERE razorpay_customer_id = $1
-			  AND status IN ('active', 'authenticated')
-			ORDER BY created_at DESC
-			LIMIT 1`,
-			payment.CustomerID,
-		).Scan(&subscriptionID)
-		if err == nil {
-			return subscriptionID, nil
+		if id, err := findByQuery(`
+			SELECT s.id
+			FROM subscriptions s
+			WHERE (s.razorpay_data->>'customer_id' = $1 OR s.notes->>'customer_id' = $1)
+			ORDER BY
+				CASE WHEN lower(s.status) IN ('active', 'authenticated') THEN 0 ELSE 1 END,
+				s.updated_at DESC,
+				s.created_at DESC
+			LIMIT 1`, payment.CustomerID); err == nil {
+			return id, nil
+		} else if !errors.Is(err, sql.ErrNoRows) {
+			fmt.Printf("[PAYMENT.CORRELATION] ⚠ customer_id payload lookup failed: %v\n", err)
+		}
+	}
+
+	// Final fallback: match owner email to subscription owner if available.
+	if email := strings.TrimSpace(payment.Email); email != "" {
+		if id, err := findByQuery(`
+			SELECT s.id
+			FROM subscriptions s
+			JOIN users u ON u.id = s.owner_user_id
+			WHERE lower(u.email) = lower($1)
+			ORDER BY
+				CASE WHEN lower(s.status) IN ('active', 'authenticated') THEN 0 ELSE 1 END,
+				s.updated_at DESC,
+				s.created_at DESC
+			LIMIT 1`, email); err == nil {
+			return id, nil
+		} else if !errors.Is(err, sql.ErrNoRows) {
+			fmt.Printf("[PAYMENT.CORRELATION] ⚠ owner email lookup failed: %v\n", err)
 		}
 	}
 

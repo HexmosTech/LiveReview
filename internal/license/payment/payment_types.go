@@ -153,6 +153,17 @@ type RazorpayPayment struct {
 	CreatedAt        int64           `json:"created_at"`        // Unix timestamp
 }
 
+// RazorpayInvoice represents a Razorpay invoice entity.
+// Only fields required for webhook subscription correlation are included.
+type RazorpayInvoice struct {
+	ID             string `json:"id"`
+	Entity         string `json:"entity"`
+	SubscriptionID string `json:"subscription_id"`
+	OrderID        string `json:"order_id"`
+	CustomerID     string `json:"customer_id"`
+	Status         string `json:"status"`
+}
+
 // GetPaymentNotesMap parses the Notes field and returns it as a map
 func (p *RazorpayPayment) GetPaymentNotesMap() map[string]string {
 	if len(p.Notes) == 0 {
