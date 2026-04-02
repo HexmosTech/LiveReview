@@ -10,6 +10,9 @@ set -euo pipefail
 #   ./scripts/reset_license_state_for_org_user.sh --org-name "Hexmos01" --email "contortedexpression@gmail.com" --yes
 #   ./scripts/reset_license_state_for_org_user.sh --prod --org-name "Hexmos01" --email "contortedexpression@gmail.com" --yes
 
+# IMPORTANT: for clearing the personal org
+#  ./scripts/reset_license_state_for_org_user.sh --org-name "contortedexpression@gmail.com" --email "contortedexpression@gmail.com" --yes
+
 ENV_FILE=".env"
 DRY_RUN="false"
 AUTO_YES="false"
