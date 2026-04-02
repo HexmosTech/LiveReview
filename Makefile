@@ -490,6 +490,22 @@ niceurl2:
 		-o ConnectionAttempts=3 \
 		-R 6544:localhost:8081 root@master -N
 
+niceurl3:
+	@command -v autossh >/dev/null 2>&1 || { \
+		echo "autossh is not installed. Install it with: sudo apt install autossh"; \
+		exit 1; \
+	}
+	@ssh root@master "PID=\$$( netstat -tulpn | grep :6545 | awk '{print \$$7}' | cut -d/ -f1 | head -n 1); [ -n \"\$$PID\" ] && kill -9 \$$PID || true" || true
+	@echo "Starting autossh reverse tunnel on remote port 6545 -> localhost:8081"
+	@AUTOSSH_GATETIME=0 AUTOSSH_POLL=60 AUTOSSH_FIRST_POLteL=30 AUTOSSH_LOGLEVEL=6 autossh -M 20002 \
+		-o ServerAliveInterval=30 \
+		-o ServerAliveCountMax=3 \
+		-o TCPKeepAlive=yes \
+		-o ExitOnForwardFailure=yes \
+		-o ConnectTimeout=10 \
+		-o ConnectionAttempts=3 \
+		-R 6545:localhost:8081 root@master -N
+
 build-with-ui:
 	@echo "🔨 Building for PRODUCTION deployment (is_cloud=true)"
 	@if [ ! -f .env.prod ]; then \
