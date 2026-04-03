@@ -29,6 +29,7 @@ const TeamCheckout = React.lazy(() => import('./pages/Checkout/TeamCheckout'));
 const LicenseManagement = React.lazy(() => import('./pages/Licenses/LicenseManagement'));
 const LicenseAssignment = React.lazy(() => import('./pages/Licenses/LicenseAssignment'));
 const UserForm = React.lazy(() => import('./components/UserManagement/UserForm'));
+const BillingPortfolio = React.lazy(() => import('./pages/Admin/BillingPortfolio'));
 // import { usePostHog } from '@posthog/react'
 
 const Footer = () => (
@@ -162,6 +163,7 @@ const AppContent: React.FC = () => {
         if (path.startsWith('/reviews')) return 'reviews';
         if (path.startsWith('/git')) return 'git';
         if (path.startsWith('/ai')) return 'ai';
+        if (path.startsWith('/admin/billing-portfolio')) return 'admin-billing';
         if (path.startsWith('/settings')) return 'settings';
         return 'dashboard';
     };
@@ -218,8 +220,12 @@ const AppContent: React.FC = () => {
     }, [isAuthenticated, isSetupRequired, isLoading]);
 
     // Handle navigation
-    const handleNavigate = (page: string) => {
-        navigate(`/${page}`);
+    const handleNavigate = (target: string) => {
+        if (target.startsWith('/')) {
+            navigate(target);
+            return;
+        }
+        navigate(`/${target}`);
     };
 
     // Handle logout
@@ -313,9 +319,12 @@ const AppContent: React.FC = () => {
                                 <Route path="/ai/:provider/:action/:connectorId" element={<AIProviders />} />
                                 <Route path="/settings/*" element={<Settings />} />
                                 <Route path="/settings-subscriptions-overview" element={<Settings />} />
+                                <Route path="/settings-subscriptions-breakdown" element={<Settings />} />
                                 <Route path="/settings-subscriptions-assign" element={<Settings />} />
+                                <Route path="/settings-subscriptions-portfolio" element={<Settings />} />
                                 <Route path="/settings/users/add" element={<UserForm />} />
                                 <Route path="/settings/users/edit/:userId" element={<UserForm />} />
+                                <Route path="/admin/billing-portfolio" element={<BillingPortfolio />} />
                                 <Route path="/test-middleware" element={<MiddlewareTestPage />} />
                                 <Route path="/oauth-callback" element={<OAuthCallbackHandler />} />
                                 <Route path="*" element={<Navigate to="/" replace />} />

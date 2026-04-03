@@ -15,6 +15,7 @@ import (
 	"github.com/livereview/internal/api/auth"
 	coreprocessor "github.com/livereview/internal/core_processor"
 	"github.com/livereview/internal/license"
+	storagelicense "github.com/livereview/storage/license"
 )
 
 // Phase 8: Webhook Orchestrator for coordinating provider and processing layers
@@ -594,9 +595,12 @@ func (wo *WebhookOrchestratorV2) accountWebhookSuccess(ctx context.Context, orgI
 	}
 
 	operationID := buildWebhookOperationKey(event, operationType)
+	actorUserID, actorEmail := wo.resolveWebhookActor(ctx, orgID, event)
 	err := service.AccountSuccess(ctx, license.LOCAccountSuccessInput{
 		OrgID:          orgID,
 		ReviewID:       reviewID,
+		ActorUserID:    actorUserID,
+		ActorEmail:     actorEmail,
 		OperationType:  operationType,
 		TriggerSource:  "webhook",
 		OperationID:    operationID,
@@ -612,6 +616,42 @@ func (wo *WebhookOrchestratorV2) accountWebhookSuccess(ctx context.Context, orgI
 	if err != nil {
 		log.Printf("[WARN] failed to account webhook usage for org=%d operation=%s: %v", orgID, operationType, err)
 	}
+}
+
+func (wo *WebhookOrchestratorV2) resolveWebhookActor(ctx context.Context, orgID int64, event *UnifiedWebhookEventV2) (*int64, string) {
+	actorEmail := webhookActorEmail(event)
+	if actorEmail == "" || wo == nil || wo.server == nil || wo.server.db == nil || orgID <= 0 {
+		return nil, actorEmail
+	}
+
+	lookupStore := storagelicense.NewActorLookupStore(wo.server.db)
+	userID, err := lookupStore.ResolveOrgMemberUserIDByEmail(ctx, orgID, actorEmail)
+	if err != nil {
+		log.Printf("[WARN] failed to resolve webhook actor for org=%d email=%s: %v", orgID, actorEmail, err)
+		return nil, actorEmail
+	}
+
+	return userID, actorEmail
+}
+
+func webhookActorEmail(event *UnifiedWebhookEventV2) string {
+	if event == nil {
+		return ""
+	}
+	if email := strings.TrimSpace(event.Actor.Email); email != "" {
+		return email
+	}
+	if event.Comment != nil {
+		if email := strings.TrimSpace(event.Comment.Author.Email); email != "" {
+			return email
+		}
+	}
+	if event.MergeRequest != nil {
+		if email := strings.TrimSpace(event.MergeRequest.Author.Email); email != "" {
+			return email
+		}
+	}
+	return ""
 }
 
 func extractWebhookReviewID(event *UnifiedWebhookEventV2) int64 {

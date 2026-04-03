@@ -5,12 +5,15 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"time"
 )
 
 type AccountSuccessRecord struct {
 	OrgID              int64
 	ReviewID           int64
+	ActorUserID        *int64
+	ActorEmail         string
 	OperationType      string
 	TriggerSource      string
 	OperationID        string
@@ -106,6 +109,18 @@ func (s *LOCAccountingStore) AccountSuccess(ctx context.Context, rec AccountSucc
 	if rec.CostUSD != nil {
 		metadata["llm_cost_usd"] = *rec.CostUSD
 	}
+	actorKind := "unknown"
+	if rec.ActorEmail != "" {
+		metadata["actor_email"] = rec.ActorEmail
+	}
+	if rec.ActorUserID != nil && *rec.ActorUserID > 0 {
+		actorKind = "member"
+		metadata["actor_kind"] = "member"
+		metadata["actor_user_id"] = *rec.ActorUserID
+	} else if rec.ActorEmail != "" {
+		actorKind = "system"
+		metadata["actor_kind"] = "system"
+	}
 
 	metadataJSON, err := json.Marshal(metadata)
 	if err != nil {
@@ -117,6 +132,7 @@ func (s *LOCAccountingStore) AccountSuccess(ctx context.Context, rec AccountSucc
 		INSERT INTO loc_usage_ledger (
 			org_id,
 			review_id,
+			user_id,
 			operation_type,
 			trigger_source,
 			operation_id,
@@ -128,19 +144,22 @@ func (s *LOCAccountingStore) AccountSuccess(ctx context.Context, rec AccountSucc
 			input_tokens,
 			output_tokens,
 			llm_cost_usd,
+			actor_kind,
+			actor_email_snapshot,
 			accounted_at,
 			billing_period_start,
 			billing_period_end,
 			status,
 			metadata
 		) VALUES (
-			$1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,NOW(),$14,$15,'accounted',$16
+			$1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,NOW(),$17,$18,'accounted',$19
 		)
 		ON CONFLICT (org_id, idempotency_key) DO NOTHING
 		RETURNING id
 	`,
 		rec.OrgID,
 		rec.ReviewID,
+		nullUserID(rec.ActorUserID),
 		rec.OperationType,
 		rec.TriggerSource,
 		rec.OperationID,
@@ -152,6 +171,8 @@ func (s *LOCAccountingStore) AccountSuccess(ctx context.Context, rec AccountSucc
 		rec.InputTokens,
 		rec.OutputTokens,
 		rec.CostUSD,
+		nullIfEmpty(actorKind),
+		nullIfEmpty(strings.TrimSpace(rec.ActorEmail)),
 		rec.BillingPeriodStart,
 		rec.BillingPeriodEnd,
 		metadataJSON,
@@ -341,7 +362,7 @@ func emitThresholdLifecycleEventsTx(ctx context.Context, tx *sql.Tx, orgID int64
 
 	beforePct := int((beforeUsed * 100) / limit)
 	afterPct := int((afterUsed * 100) / limit)
-	for _, threshold := range []int{80, 90, 100} {
+	for _, threshold := range []int{80, 95, 100} {
 		if beforePct < threshold && afterPct >= threshold {
 			th := threshold
 			if err := emitLifecycleEventTx(ctx, tx, orgID, "usage_threshold_reached", &th, planCode, map[string]interface{}{
@@ -353,7 +374,126 @@ func emitThresholdLifecycleEventsTx(ctx context.Context, tx *sql.Tx, orgID int64
 			}, fmt.Sprintf("usage-threshold:%d:%s:%d", orgID, periodStart.UTC().Format("2006-01"), threshold)); err != nil {
 				return err
 			}
+
+			if threshold == 80 || threshold == 95 {
+				if err := enqueueQuotaThresholdNotificationsTx(ctx, tx, orgID, threshold, planCode, periodStart, beforeUsed, afterUsed, limit); err != nil {
+					return err
+				}
+			}
 		}
+	}
+
+	return nil
+}
+
+func enqueueQuotaThresholdNotificationsTx(ctx context.Context, tx *sql.Tx, orgID int64, threshold int, planCode string, periodStart time.Time, beforeUsed int64, afterUsed int64, limit int64) error {
+	recipientRows, err := tx.QueryContext(ctx, `
+		SELECT DISTINCT u.id, COALESCE(NULLIF(trim(u.email), ''), '') AS email
+		FROM user_roles ur
+		JOIN roles r ON r.id = ur.role_id
+		JOIN users u ON u.id = ur.user_id
+		WHERE ur.org_id = $1
+		  AND u.is_active = TRUE
+		  AND r.name IN ('owner', 'admin', 'super_admin')
+	`, orgID)
+	if err != nil {
+		return fmt.Errorf("load quota notification recipients: %w", err)
+	}
+	defer recipientRows.Close()
+
+	payload := map[string]interface{}{
+		"event_type":        fmt.Sprintf("quota_%d", threshold),
+		"org_id":            orgID,
+		"threshold_percent": threshold,
+		"usage_before":      beforeUsed,
+		"usage_after":       afterUsed,
+		"monthly_limit":     limit,
+		"period_start":      periodStart.UTC().Format(time.RFC3339),
+		"support_reference": fmt.Sprintf("quota-%d-%d-%s", threshold, orgID, periodStart.UTC().Format("2006-01")),
+		"plan_code":         planCode,
+		"triggered_at":      time.Now().UTC().Format(time.RFC3339),
+	}
+	payloadJSON, err := json.Marshal(payload)
+	if err != nil {
+		return fmt.Errorf("marshal quota notification payload: %w", err)
+	}
+
+	for recipientRows.Next() {
+		var userID int64
+		var email string
+		if err := recipientRows.Scan(&userID, &email); err != nil {
+			return fmt.Errorf("scan quota notification recipient: %w", err)
+		}
+
+		baseDedupe := fmt.Sprintf("quota_%d:%d:%s:%d", threshold, orgID, periodStart.UTC().Format("2006-01"), userID)
+		if _, err := tx.ExecContext(ctx, `
+			INSERT INTO billing_notification_outbox (
+				org_id,
+				event_type,
+				channel,
+				dedupe_key,
+				payload,
+				recipient_user_id,
+				status,
+				send_after,
+				created_at,
+				updated_at
+			) VALUES (
+				$1,
+				$2,
+				'in_app',
+				$3,
+				$4::jsonb,
+				$5,
+				'pending',
+				NOW(),
+				NOW(),
+				NOW()
+			)
+			ON CONFLICT (channel, dedupe_key) DO NOTHING
+		`, orgID, fmt.Sprintf("quota_%d", threshold), baseDedupe+":in_app", string(payloadJSON), userID); err != nil {
+			return fmt.Errorf("enqueue in_app quota notification: %w", err)
+		}
+
+		email = strings.TrimSpace(email)
+		if email == "" {
+			continue
+		}
+
+		if _, err := tx.ExecContext(ctx, `
+			INSERT INTO billing_notification_outbox (
+				org_id,
+				event_type,
+				channel,
+				dedupe_key,
+				payload,
+				recipient_user_id,
+				recipient_email,
+				status,
+				send_after,
+				created_at,
+				updated_at
+			) VALUES (
+				$1,
+				$2,
+				'email',
+				$3,
+				$4::jsonb,
+				$5,
+				$6,
+				'pending',
+				NOW(),
+				NOW(),
+				NOW()
+			)
+			ON CONFLICT (channel, dedupe_key) DO NOTHING
+		`, orgID, fmt.Sprintf("quota_%d", threshold), baseDedupe+":email", string(payloadJSON), userID, email); err != nil {
+			return fmt.Errorf("enqueue email quota notification: %w", err)
+		}
+	}
+
+	if err := recipientRows.Err(); err != nil {
+		return fmt.Errorf("iterate quota notification recipients: %w", err)
 	}
 
 	return nil
@@ -403,4 +543,11 @@ func nullIfEmpty(v string) interface{} {
 		return nil
 	}
 	return v
+}
+
+func nullUserID(userID *int64) interface{} {
+	if userID == nil || *userID <= 0 {
+		return nil
+	}
+	return *userID
 }

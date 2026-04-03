@@ -206,6 +206,31 @@ func (s *UpgradePaymentAttemptStore) GetAttemptByOrderID(ctx context.Context, ra
 	return attempt, nil
 }
 
+func (s *UpgradePaymentAttemptStore) GetLatestAttemptByUpgradeRequestID(ctx context.Context, upgradeRequestID string) (UpgradePaymentAttempt, error) {
+	query := `
+		SELECT
+			id, org_id, upgrade_request_id, preview_token_sha256, from_plan_code, to_plan_code,
+			amount_cents, currency, razorpay_mode, razorpay_order_id, razorpay_payment_id,
+			status, execute_idempotency_key, execute_response,
+			error_code, error_reason, error_description, error_source, error_step,
+			prepared_at, payment_failed_at, payment_captured_at, executed_at,
+			created_at, updated_at
+		FROM upgrade_payment_attempts
+		WHERE upgrade_request_id = $1
+		ORDER BY created_at DESC
+		LIMIT 1`
+
+	row := s.db.QueryRowContext(ctx, query, strings.TrimSpace(upgradeRequestID))
+	attempt, err := scanUpgradePaymentAttempt(row)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return UpgradePaymentAttempt{}, ErrUpgradePaymentAttemptNotFound
+		}
+		return UpgradePaymentAttempt{}, fmt.Errorf("query latest upgrade payment attempt by request id: %w", err)
+	}
+	return attempt, nil
+}
+
 func (s *UpgradePaymentAttemptStore) GetAttemptByOrgRequestAndOrder(ctx context.Context, orgID int64, upgradeRequestID string, razorpayOrderID string) (UpgradePaymentAttempt, error) {
 	query := `
 		SELECT

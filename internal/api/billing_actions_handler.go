@@ -31,6 +31,8 @@ import (
 type BillingActionsHandler struct {
 	store               *storagelicense.PlanChangeStore
 	usageStore          *storagelicense.OrgUsageStore
+	portfolioStore      *storagelicense.AdminBillingPortfolioStore
+	notificationStore   *storagepayment.BillingNotificationOutboxStore
 	paymentAttemptStore *storagepayment.UpgradePaymentAttemptStore
 	upgradeRequestStore *storagepayment.UpgradeRequestStore
 	db                  *sql.DB
@@ -42,6 +44,8 @@ func NewBillingActionsHandler(db *sql.DB) *BillingActionsHandler {
 	return &BillingActionsHandler{
 		store:               storagelicense.NewPlanChangeStore(db),
 		usageStore:          storagelicense.NewOrgUsageStore(db),
+		portfolioStore:      storagelicense.NewAdminBillingPortfolioStore(db),
+		notificationStore:   storagepayment.NewBillingNotificationOutboxStore(db),
 		paymentAttemptStore: storagepayment.NewUpgradePaymentAttemptStore(db),
 		upgradeRequestStore: storagepayment.NewUpgradeRequestStore(db),
 		db:                  db,
@@ -1014,7 +1018,15 @@ func (h *BillingActionsHandler) reconcilePendingUpgradeRequests(ctx context.Cont
 		if _, recErr := h.reconcileUpgradeRequestNow(ctx, req.UpgradeRequestID); recErr != nil {
 			log.Printf("[upgrade-reconcile] request=%s org=%d reconcile failed: %v", req.UpgradeRequestID, req.OrgID, recErr)
 			if time.Since(req.CreatedAt) > 30*time.Minute {
-				_, _ = h.upgradeRequestStore.MarkManualReviewRequired(ctx, req.UpgradeRequestID, recErr.Error(), map[string]interface{}{"source": "scheduler_timeout"})
+				updated, markErr := h.upgradeRequestStore.MarkManualReviewRequired(ctx, req.UpgradeRequestID, recErr.Error(), map[string]interface{}{"source": "scheduler_timeout"})
+				if markErr != nil {
+					log.Printf("[upgrade-reconcile] request=%s org=%d mark manual review failed: %v", req.UpgradeRequestID, req.OrgID, markErr)
+					continue
+				}
+				h.enqueueUpgradeFailureNotifications(ctx, updated, "manual_review_required", map[string]interface{}{
+					"source": "scheduler_timeout",
+					"error":  recErr.Error(),
+				})
 			}
 		}
 	}
@@ -1127,6 +1139,11 @@ func (h *BillingActionsHandler) GetUpgradeRequestStatus(c echo.Context) error {
 		"subscription_change_confirmed_at": nullTime(request.SubscriptionChangeConfirmedAt),
 		"plan_grant_applied_at":            nullTime(request.PlanGrantAppliedAt),
 		"resolved_at":                      nullTime(request.ResolvedAt),
+	}
+
+	customerState := h.buildCustomerUpgradeState(c.Request().Context(), request)
+	for key, value := range customerState {
+		response[key] = value
 	}
 
 	return JSONWithEnvelope(c, http.StatusOK, map[string]interface{}{
@@ -1335,6 +1352,12 @@ func runBillingTransitionScheduler(ctx context.Context, db *sql.DB, interval tim
 				log.Printf("[billing-transition-scheduler] upgrade request reconciliation failed: %v", err)
 			}
 			cancel()
+
+			dispatchCtx, cancel := context.WithTimeout(ctx, 20*time.Second)
+			if err := dispatchBillingNotificationOutboxBatch(dispatchCtx, db, 100); err != nil {
+				log.Printf("[billing-transition-scheduler] notification outbox dispatch finished with issues: %v", err)
+			}
+			cancel()
 		}
 	}
 }
@@ -1406,57 +1429,30 @@ func (h *BillingActionsHandler) GetUsageOperations(c echo.Context) error {
 		return JSONErrorWithEnvelope(c, http.StatusBadRequest, "organization context required")
 	}
 
-	limit := 25
-	if v := strings.TrimSpace(c.QueryParam("limit")); v != "" {
-		parsed, err := strconv.Atoi(v)
-		if err != nil || parsed <= 0 {
-			return JSONErrorWithEnvelope(c, http.StatusBadRequest, "invalid limit")
-		}
-		limit = parsed
+	permCtx := auth.GetPermissionContext(c)
+	if permCtx == nil || permCtx.User == nil || permCtx.User.ID <= 0 {
+		return JSONErrorWithEnvelope(c, http.StatusForbidden, "permission context required")
 	}
 
-	offset := 0
-	if v := strings.TrimSpace(c.QueryParam("offset")); v != "" {
-		parsed, err := strconv.Atoi(v)
-		if err != nil || parsed < 0 {
-			return JSONErrorWithEnvelope(c, http.StatusBadRequest, "invalid offset")
-		}
-		offset = parsed
+	limit, offset, err := usagePaginationFromQuery(c, 25)
+	if err != nil {
+		return JSONErrorWithEnvelope(c, http.StatusBadRequest, err.Error())
 	}
 
-	ops, err := h.usageStore.ListCurrentPeriodOperations(c.Request().Context(), orgID, limit, offset)
+	var scopedActorUserID *int64
+	if !(permCtx.IsOwner || permCtx.IsSuperAdmin || strings.EqualFold(permCtx.Role, "admin")) {
+		memberUserID := permCtx.User.ID
+		scopedActorUserID = &memberUserID
+	}
+
+	ops, err := h.usageStore.ListCurrentPeriodOperations(c.Request().Context(), orgID, scopedActorUserID, limit, offset)
 	if err != nil {
 		return JSONErrorWithEnvelope(c, http.StatusInternalServerError, fmt.Sprintf("failed to load usage operations: %v", err))
 	}
 
 	rows := make([]map[string]interface{}, 0, len(ops))
 	for _, op := range ops {
-		row := map[string]interface{}{
-			"operation_type": op.OperationType,
-			"trigger_source": op.TriggerSource,
-			"operation_id":   op.OperationID,
-			"billable_loc":   op.BillableLOC,
-			"accounted_at":   op.AccountedAt.Format(time.RFC3339),
-		}
-		if op.ReviewID.Valid {
-			row["review_id"] = op.ReviewID.Int64
-		}
-		if op.Provider.Valid {
-			row["provider"] = op.Provider.String
-		}
-		if op.Model.Valid {
-			row["model"] = op.Model.String
-		}
-		if op.InputTokens.Valid {
-			row["input_tokens"] = op.InputTokens.Int64
-		}
-		if op.OutputTokens.Valid {
-			row["output_tokens"] = op.OutputTokens.Int64
-		}
-		if op.CostUSD.Valid {
-			row["cost_usd"] = op.CostUSD.Float64
-		}
-		rows = append(rows, row)
+		rows = append(rows, usageOperationRow(op))
 	}
 
 	return JSONWithEnvelope(c, http.StatusOK, map[string]interface{}{
@@ -1465,6 +1461,541 @@ func (h *BillingActionsHandler) GetUsageOperations(c echo.Context) error {
 		"offset":     offset,
 		"count":      len(rows),
 	})
+}
+
+func (h *BillingActionsHandler) GetUsageMembers(c echo.Context) error {
+	orgID, ok := auth.GetOrgIDFromContext(c)
+	if !ok || orgID <= 0 {
+		return JSONErrorWithEnvelope(c, http.StatusBadRequest, "organization context required")
+	}
+
+	permCtx := auth.GetPermissionContext(c)
+	if permCtx == nil || permCtx.User == nil || permCtx.User.ID <= 0 {
+		return JSONErrorWithEnvelope(c, http.StatusForbidden, "permission context required")
+	}
+	if !isBillingManager(permCtx) {
+		return JSONErrorWithEnvelope(c, http.StatusForbidden, "only owner/admin can view member usage totals")
+	}
+
+	limit, offset, err := usagePaginationFromQuery(c, 25)
+	if err != nil {
+		return JSONErrorWithEnvelope(c, http.StatusBadRequest, err.Error())
+	}
+
+	items, err := h.usageStore.ListCurrentPeriodMemberUsage(c.Request().Context(), orgID, limit, offset)
+	if err != nil {
+		return JSONErrorWithEnvelope(c, http.StatusInternalServerError, fmt.Sprintf("failed to load member usage summary: %v", err))
+	}
+
+	rows := make([]map[string]interface{}, 0, len(items))
+	for _, item := range items {
+		rows = append(rows, usageMemberSummaryRow(item))
+	}
+
+	return JSONWithEnvelope(c, http.StatusOK, map[string]interface{}{
+		"members": rows,
+		"limit":   limit,
+		"offset":  offset,
+		"count":   len(rows),
+	})
+}
+
+func (h *BillingActionsHandler) GetMyUsage(c echo.Context) error {
+	orgID, ok := auth.GetOrgIDFromContext(c)
+	if !ok || orgID <= 0 {
+		return JSONErrorWithEnvelope(c, http.StatusBadRequest, "organization context required")
+	}
+
+	permCtx := auth.GetPermissionContext(c)
+	if permCtx == nil || permCtx.User == nil || permCtx.User.ID <= 0 {
+		return JSONErrorWithEnvelope(c, http.StatusForbidden, "permission context required")
+	}
+
+	item, err := h.usageStore.GetCurrentPeriodUsageForActor(c.Request().Context(), orgID, permCtx.User.ID)
+	if err != nil {
+		return JSONErrorWithEnvelope(c, http.StatusInternalServerError, fmt.Sprintf("failed to load member usage: %v", err))
+	}
+
+	return JSONWithEnvelope(c, http.StatusOK, map[string]interface{}{
+		"member": usageMemberSummaryRow(item),
+	})
+}
+
+func (h *BillingActionsHandler) GetMemberUsageOperations(c echo.Context) error {
+	orgID, ok := auth.GetOrgIDFromContext(c)
+	if !ok || orgID <= 0 {
+		return JSONErrorWithEnvelope(c, http.StatusBadRequest, "organization context required")
+	}
+
+	permCtx := auth.GetPermissionContext(c)
+	if permCtx == nil || permCtx.User == nil || permCtx.User.ID <= 0 {
+		return JSONErrorWithEnvelope(c, http.StatusForbidden, "permission context required")
+	}
+
+	memberID, err := strconv.ParseInt(strings.TrimSpace(c.Param("member_id")), 10, 64)
+	if err != nil || memberID <= 0 {
+		return JSONErrorWithEnvelope(c, http.StatusBadRequest, "invalid member_id")
+	}
+
+	if !isBillingManager(permCtx) && permCtx.User.ID != memberID {
+		return JSONErrorWithEnvelope(c, http.StatusForbidden, "members can only access their own usage operations")
+	}
+
+	limit, offset, err := usagePaginationFromQuery(c, 25)
+	if err != nil {
+		return JSONErrorWithEnvelope(c, http.StatusBadRequest, err.Error())
+	}
+
+	actorID := memberID
+	ops, err := h.usageStore.ListCurrentPeriodOperations(c.Request().Context(), orgID, &actorID, limit, offset)
+	if err != nil {
+		return JSONErrorWithEnvelope(c, http.StatusInternalServerError, fmt.Sprintf("failed to load member usage operations: %v", err))
+	}
+
+	rows := make([]map[string]interface{}, 0, len(ops))
+	for _, op := range ops {
+		rows = append(rows, usageOperationRow(op))
+	}
+
+	return JSONWithEnvelope(c, http.StatusOK, map[string]interface{}{
+		"member_id":  memberID,
+		"operations": rows,
+		"limit":      limit,
+		"offset":     offset,
+		"count":      len(rows),
+	})
+}
+
+func (h *BillingActionsHandler) GetAdminBillingPortfolioSummary(c echo.Context) error {
+	summary, err := h.portfolioStore.GetSummary(c.Request().Context())
+	if err != nil {
+		return JSONErrorWithEnvelope(c, http.StatusInternalServerError, fmt.Sprintf("failed to load billing portfolio summary: %v", err))
+	}
+
+	payload := map[string]interface{}{
+		"total_orgs":          summary.TotalOrgs,
+		"active_orgs":         summary.ActiveOrgs,
+		"total_billable_loc":  summary.TotalBillableLOC,
+		"total_operations":    summary.TotalOperations,
+		"net_collected_cents": summary.NetCollectedCents,
+		"failed_payments":     summary.FailedPayments,
+	}
+	if summary.LastAccountedAt.Valid {
+		payload["last_accounted_at"] = summary.LastAccountedAt.Time.UTC().Format(time.RFC3339)
+	}
+
+	return JSONWithEnvelope(c, http.StatusOK, payload)
+}
+
+func (h *BillingActionsHandler) ListAdminBillingPortfolioOrganizations(c echo.Context) error {
+	limit, offset, err := usagePaginationFromQuery(c, 25)
+	if err != nil {
+		return JSONErrorWithEnvelope(c, http.StatusBadRequest, err.Error())
+	}
+
+	items, err := h.portfolioStore.ListOrganizations(c.Request().Context(), limit, offset)
+	if err != nil {
+		return JSONErrorWithEnvelope(c, http.StatusInternalServerError, fmt.Sprintf("failed to load billing portfolio organizations: %v", err))
+	}
+
+	rows := make([]map[string]interface{}, 0, len(items))
+	for _, item := range items {
+		row := map[string]interface{}{
+			"org_id":              item.OrgID,
+			"org_name":            item.OrgName,
+			"current_plan_code":   nullString(item.CurrentPlanCode),
+			"loc_used_month":      nullInt64(item.LOCUsedMonth),
+			"loc_blocked":         boolValue(item.LOCBlocked),
+			"billing_period_end":  nullTime(item.BillingPeriodEnd),
+			"total_billable_loc":  item.TotalBillableLOC,
+			"operation_count":     item.OperationCount,
+			"last_accounted_at":   nullTime(item.LastAccountedAt),
+			"net_collected_cents": item.NetCollectedCents,
+			"failed_payments":     item.FailedPayments,
+		}
+		rows = append(rows, row)
+	}
+
+	return JSONWithEnvelope(c, http.StatusOK, map[string]interface{}{
+		"organizations": rows,
+		"limit":         limit,
+		"offset":        offset,
+		"count":         len(rows),
+	})
+}
+
+func (h *BillingActionsHandler) GetAdminOrganizationBillingMembers(c echo.Context) error {
+	orgID, err := strconv.ParseInt(strings.TrimSpace(c.Param("org_id")), 10, 64)
+	if err != nil || orgID <= 0 {
+		return JSONErrorWithEnvelope(c, http.StatusBadRequest, "invalid org_id")
+	}
+
+	exists, err := h.portfolioStore.OrganizationExists(c.Request().Context(), orgID)
+	if err != nil {
+		return JSONErrorWithEnvelope(c, http.StatusInternalServerError, fmt.Sprintf("failed to validate organization: %v", err))
+	}
+	if !exists {
+		return JSONErrorWithEnvelope(c, http.StatusNotFound, "organization not found")
+	}
+
+	if err := h.store.EnsureOrgBillingState(c.Request().Context(), orgID, license.PlanFree30K.String()); err != nil {
+		return JSONErrorWithEnvelope(c, http.StatusInternalServerError, fmt.Sprintf("failed to initialize billing state: %v", err))
+	}
+
+	limit, offset, err := usagePaginationFromQuery(c, 25)
+	if err != nil {
+		return JSONErrorWithEnvelope(c, http.StatusBadRequest, err.Error())
+	}
+
+	items, err := h.usageStore.ListCurrentPeriodMemberUsage(c.Request().Context(), orgID, limit, offset)
+	if err != nil {
+		return JSONErrorWithEnvelope(c, http.StatusInternalServerError, fmt.Sprintf("failed to load org member usage summary: %v", err))
+	}
+
+	rows := make([]map[string]interface{}, 0, len(items))
+	for _, item := range items {
+		rows = append(rows, usageMemberSummaryRow(item))
+	}
+
+	return JSONWithEnvelope(c, http.StatusOK, map[string]interface{}{
+		"org_id":  orgID,
+		"members": rows,
+		"limit":   limit,
+		"offset":  offset,
+		"count":   len(rows),
+	})
+}
+
+func (h *BillingActionsHandler) GetAdminOrganizationBillingUsage(c echo.Context) error {
+	orgID, err := strconv.ParseInt(strings.TrimSpace(c.Param("org_id")), 10, 64)
+	if err != nil || orgID <= 0 {
+		return JSONErrorWithEnvelope(c, http.StatusBadRequest, "invalid org_id")
+	}
+
+	exists, err := h.portfolioStore.OrganizationExists(c.Request().Context(), orgID)
+	if err != nil {
+		return JSONErrorWithEnvelope(c, http.StatusInternalServerError, fmt.Sprintf("failed to validate organization: %v", err))
+	}
+	if !exists {
+		return JSONErrorWithEnvelope(c, http.StatusNotFound, "organization not found")
+	}
+
+	if err := h.store.EnsureOrgBillingState(c.Request().Context(), orgID, license.PlanFree30K.String()); err != nil {
+		return JSONErrorWithEnvelope(c, http.StatusInternalServerError, fmt.Sprintf("failed to initialize billing state: %v", err))
+	}
+
+	opsLimit, opsOffset, err := usagePaginationFromQuery(c, 25)
+	if err != nil {
+		return JSONErrorWithEnvelope(c, http.StatusBadRequest, err.Error())
+	}
+
+	summary, err := h.usageStore.GetCurrentPeriodSummary(c.Request().Context(), orgID)
+	if err != nil {
+		return JSONErrorWithEnvelope(c, http.StatusInternalServerError, fmt.Sprintf("failed to load org usage summary: %v", err))
+	}
+
+	memberUsage, err := h.usageStore.ListCurrentPeriodMemberUsage(c.Request().Context(), orgID, 20, 0)
+	if err != nil {
+		return JSONErrorWithEnvelope(c, http.StatusInternalServerError, fmt.Sprintf("failed to load org member usage summary: %v", err))
+	}
+
+	ops, err := h.usageStore.ListCurrentPeriodOperations(c.Request().Context(), orgID, nil, opsLimit, opsOffset)
+	if err != nil {
+		return JSONErrorWithEnvelope(c, http.StatusInternalServerError, fmt.Sprintf("failed to load org usage operations: %v", err))
+	}
+
+	memberRows := make([]map[string]interface{}, 0, len(memberUsage))
+	for _, item := range memberUsage {
+		memberRows = append(memberRows, usageMemberSummaryRow(item))
+	}
+
+	operationRows := make([]map[string]interface{}, 0, len(ops))
+	for _, op := range ops {
+		operationRows = append(operationRows, usageOperationRow(op))
+	}
+
+	return JSONWithEnvelope(c, http.StatusOK, map[string]interface{}{
+		"org_id": orgID,
+		"summary": map[string]interface{}{
+			"period_start":         summary.PeriodStart.Format(time.RFC3339),
+			"period_end":           summary.PeriodEnd.Format(time.RFC3339),
+			"total_billable_loc":   summary.TotalBillableLOC,
+			"total_input_tokens":   summary.TotalInputTokens,
+			"total_output_tokens":  summary.TotalOutputTokens,
+			"total_tokens":         summary.TotalInputTokens + summary.TotalOutputTokens,
+			"total_cost_usd":       summary.TotalCostUSD,
+			"accounted_operations": summary.AccountedOps,
+			"token_tracked_ops":    summary.TokenTrackedOps,
+			"latest_accounted_at":  timeValue(summary.LatestAccountedAt),
+		},
+		"members": map[string]interface{}{
+			"items": memberRows,
+			"count": len(memberRows),
+		},
+		"operations": map[string]interface{}{
+			"items":  operationRows,
+			"limit":  opsLimit,
+			"offset": opsOffset,
+			"count":  len(operationRows),
+		},
+	})
+}
+
+func usagePaginationFromQuery(c echo.Context, defaultLimit int) (int, int, error) {
+	limit := defaultLimit
+	if limit <= 0 {
+		limit = 25
+	}
+	if v := strings.TrimSpace(c.QueryParam("limit")); v != "" {
+		parsed, err := strconv.Atoi(v)
+		if err != nil || parsed <= 0 {
+			return 0, 0, fmt.Errorf("invalid limit")
+		}
+		limit = parsed
+	}
+
+	offset := 0
+	if v := strings.TrimSpace(c.QueryParam("offset")); v != "" {
+		parsed, err := strconv.Atoi(v)
+		if err != nil || parsed < 0 {
+			return 0, 0, fmt.Errorf("invalid offset")
+		}
+		offset = parsed
+	}
+
+	return limit, offset, nil
+}
+
+func usageOperationRow(op storagelicense.OrgUsageOperation) map[string]interface{} {
+	row := map[string]interface{}{
+		"operation_type": op.OperationType,
+		"trigger_source": op.TriggerSource,
+		"operation_id":   op.OperationID,
+		"billable_loc":   op.BillableLOC,
+		"accounted_at":   op.AccountedAt.Format(time.RFC3339),
+	}
+	if op.ReviewID.Valid {
+		row["review_id"] = op.ReviewID.Int64
+	}
+	if op.UserID.Valid {
+		row["user_id"] = op.UserID.Int64
+	}
+	if op.ActorEmail.Valid {
+		row["actor_email"] = op.ActorEmail.String
+	}
+	if op.ActorKind.Valid {
+		row["actor_kind"] = op.ActorKind.String
+	}
+	if op.Provider.Valid {
+		row["provider"] = op.Provider.String
+	}
+	if op.Model.Valid {
+		row["model"] = op.Model.String
+	}
+	if op.InputTokens.Valid {
+		row["input_tokens"] = op.InputTokens.Int64
+	}
+	if op.OutputTokens.Valid {
+		row["output_tokens"] = op.OutputTokens.Int64
+	}
+	if op.CostUSD.Valid {
+		row["cost_usd"] = op.CostUSD.Float64
+	}
+	return row
+}
+
+func usageMemberSummaryRow(item storagelicense.OrgMemberUsageSummary) map[string]interface{} {
+	share := 0.0
+	if item.OrgTotalBillableLOC > 0 {
+		share = (float64(item.TotalBillableLOC) / float64(item.OrgTotalBillableLOC)) * 100.0
+	}
+
+	return map[string]interface{}{
+		"user_id":                nullInt64(item.UserID),
+		"actor_email":            nullString(item.ActorEmail),
+		"actor_kind":             item.ActorKind,
+		"total_billable_loc":     item.TotalBillableLOC,
+		"operation_count":        item.OperationCount,
+		"last_accounted_at":      nullTime(item.LastAccountedAt),
+		"org_total_billable_loc": item.OrgTotalBillableLOC,
+		"usage_share_percent":    share,
+	}
+}
+
+func isBillingManager(permCtx *auth.PermissionContext) bool {
+	if permCtx == nil {
+		return false
+	}
+	return permCtx.IsOwner || permCtx.IsSuperAdmin || strings.EqualFold(permCtx.Role, "admin")
+}
+
+func boolValue(v sql.NullBool) interface{} {
+	if !v.Valid {
+		return nil
+	}
+	return v.Bool
+}
+
+func timeValue(v *time.Time) interface{} {
+	if v == nil {
+		return nil
+	}
+	return v.UTC().Format(time.RFC3339)
+}
+
+func (h *BillingActionsHandler) enqueueUpgradeFailureNotifications(ctx context.Context, request storagepayment.UpgradeRequest, eventType string, metadata map[string]interface{}) {
+	if h.notificationStore == nil {
+		return
+	}
+
+	payload := map[string]interface{}{
+		"upgrade_request_id": request.UpgradeRequestID,
+		"org_id":             request.OrgID,
+		"from_plan_code":     request.FromPlanCode,
+		"to_plan_code":       request.ToPlanCode,
+		"status":             request.CurrentStatus,
+		"event_type":         strings.TrimSpace(eventType),
+		"support_reference":  request.UpgradeRequestID,
+		"triggered_at":       time.Now().UTC().Format(time.RFC3339),
+	}
+	for k, v := range metadata {
+		payload[k] = v
+	}
+
+	var recipientUserID *int64
+	if request.ActorUserID > 0 {
+		uid := request.ActorUserID
+		recipientUserID = &uid
+	}
+
+	base := fmt.Sprintf("%s:%s", strings.TrimSpace(eventType), strings.TrimSpace(request.UpgradeRequestID))
+	if _, err := h.notificationStore.Enqueue(ctx, storagepayment.CreateBillingNotificationInput{
+		OrgID:           request.OrgID,
+		EventType:       strings.TrimSpace(eventType),
+		Channel:         "in_app",
+		DedupeKey:       base + ":in_app",
+		Payload:         payload,
+		RecipientUserID: recipientUserID,
+	}); err != nil {
+		log.Printf("[billing-notify] enqueue in_app failed request=%s org=%d: %v", request.UpgradeRequestID, request.OrgID, err)
+	}
+
+	if recipientUserID == nil {
+		return
+	}
+
+	email, err := h.notificationStore.GetUserEmailByID(ctx, *recipientUserID)
+	if err != nil {
+		log.Printf("[billing-notify] resolve recipient email failed request=%s user=%d: %v", request.UpgradeRequestID, *recipientUserID, err)
+		return
+	}
+	if strings.TrimSpace(email) == "" {
+		return
+	}
+
+	if _, err := h.notificationStore.Enqueue(ctx, storagepayment.CreateBillingNotificationInput{
+		OrgID:           request.OrgID,
+		EventType:       strings.TrimSpace(eventType),
+		Channel:         "email",
+		DedupeKey:       base + ":email",
+		Payload:         payload,
+		RecipientUserID: recipientUserID,
+		RecipientEmail:  email,
+	}); err != nil {
+		log.Printf("[billing-notify] enqueue email failed request=%s org=%d: %v", request.UpgradeRequestID, request.OrgID, err)
+	}
+}
+
+func (h *BillingActionsHandler) buildCustomerUpgradeState(ctx context.Context, request storagepayment.UpgradeRequest) map[string]interface{} {
+	now := time.Now().UTC()
+	state := map[string]interface{}{
+		"customer_state": "processing",
+		"action_required": map[string]interface{}{
+			"type": "none",
+		},
+	}
+
+	status := strings.TrimSpace(strings.ToLower(request.CurrentStatus))
+	delayedConfirmationStatus := false
+	switch status {
+	case storagepayment.UpgradeRequestStatusCreated,
+		storagepayment.UpgradeRequestStatusPaymentOrderCreated,
+		storagepayment.UpgradeRequestStatusWaitingForCapture:
+		state["customer_state"] = "awaiting_payment"
+	case storagepayment.UpgradeRequestStatusPaymentCaptureConfirmed,
+		storagepayment.UpgradeRequestStatusSubscriptionUpdateRequested,
+		storagepayment.UpgradeRequestStatusWaitingForSubscription,
+		storagepayment.UpgradeRequestStatusSubscriptionConfirmed,
+		storagepayment.UpgradeRequestStatusReconciliationRetrying:
+		state["customer_state"] = "processing"
+		delayedConfirmationStatus = true
+	case storagepayment.UpgradeRequestStatusResolved:
+		state["customer_state"] = "completed"
+	case storagepayment.UpgradeRequestStatusFailed:
+		state["customer_state"] = "failed"
+		state["action_required"] = map[string]interface{}{
+			"type":                      "contact_support",
+			"sla_hours":                 24,
+			"support_sla_business_days": 3,
+		}
+	case storagepayment.UpgradeRequestStatusManualReviewRequired:
+		state["customer_state"] = "manual_review_required"
+		state["action_required"] = map[string]interface{}{
+			"type":                      "contact_support",
+			"sla_hours":                 24,
+			"support_sla_business_days": 3,
+		}
+	}
+
+	actionNeededAt := request.UpdatedAt.UTC()
+	attempt, err := h.paymentAttemptStore.GetLatestAttemptByUpgradeRequestID(ctx, request.UpgradeRequestID)
+	if err == nil {
+		if strings.EqualFold(strings.TrimSpace(attempt.Status), "payment_failed") {
+			state["customer_state"] = "payment_failed"
+			state["action_required"] = map[string]interface{}{
+				"type":                      "retry_payment",
+				"endpoint":                  "/api/v1/billing/upgrade/prepare-payment",
+				"sla_hours":                 24,
+				"support_sla_business_days": 3,
+			}
+			state["latest_payment_error"] = map[string]interface{}{
+				"code":        nullString(attempt.ErrorCode),
+				"reason":      nullString(attempt.ErrorReason),
+				"description": nullString(attempt.ErrorDescription),
+			}
+			if attempt.PaymentFailedAt.Valid {
+				actionNeededAt = attempt.PaymentFailedAt.Time.UTC()
+			} else {
+				actionNeededAt = request.UpdatedAt.UTC()
+			}
+		}
+	}
+
+	if delayedConfirmationStatus {
+		delayedThresholdAt := request.UpdatedAt.UTC().Add(10 * time.Minute)
+		if now.After(delayedThresholdAt) {
+			state["customer_state"] = "action_needed"
+			state["action_required"] = map[string]interface{}{
+				"type":                      "confirm_payment_and_contact_support",
+				"support_sla_business_days": 3,
+				"retry_endpoint":            "/api/v1/billing/upgrade/request-status",
+				"delay_minutes":             10,
+			}
+			actionNeededAt = delayedThresholdAt
+		}
+	}
+
+	state["action_needed_at"] = actionNeededAt.Format(time.RFC3339)
+	state["support_reference"] = request.UpgradeRequestID
+	state["support_context"] = map[string]interface{}{
+		"upgrade_request_id":        request.UpgradeRequestID,
+		"razorpay_order_id":         nullString(request.RazorpayOrderID),
+		"razorpay_payment_id":       nullString(request.RazorpayPaymentID),
+		"razorpay_subscription_id":  nullString(request.RazorpaySubscriptionID),
+		"dispute_sla_business_days": 3,
+	}
+
+	return state
 }
 
 func (h *BillingActionsHandler) syncRazorpayTransition(ctx context.Context, orgID int64, targetPlan license.PlanType, immediate bool, periodEnd time.Time) error {

@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import classNames from 'classnames';
 import { getDashboardData, DashboardData, refreshDashboardData } from '../../api/dashboard';
 import { 
     StatCard, 
@@ -19,6 +20,61 @@ import { PlanBadge } from './PlanBadge';
 import { handleUserLoginNotification } from '../../utils/userNotifications';
 import { getApiUrl } from '../../utils/apiUrl';
 import { useAppSelector } from '../../store/configureStore';
+import { isCloudMode } from '../../utils/deploymentMode';
+import apiClient from '../../api/apiClient';
+
+type DashboardBillingStatusResponse = {
+    billing: {
+        current_plan_code: string;
+        loc_used_month: number;
+    };
+    available_plans: Array<{
+        plan_code: string;
+        monthly_loc_limit: number;
+    }>;
+};
+
+type DashboardQuotaStatusResponse = {
+    envelope?: {
+        usage_pct?: number;
+        blocked?: boolean;
+        trial_readonly?: boolean;
+    };
+};
+
+type DashboardUpgradeStatusResponse = {
+    request: {
+        customer_state?: string;
+        support_reference?: string;
+        action_required?: {
+            type?: string;
+        };
+    } | null;
+};
+
+type DashboardBillingInsight = {
+    planCode: string;
+    locUsed: number;
+    locLimit: number;
+    usagePct: number;
+    blocked: boolean;
+    trialReadonly: boolean;
+    customerState: string;
+    supportReference: string;
+    actionRequiredType: string;
+};
+
+const dashboardPlanLabel = (planCode: string): string => {
+    const normalized = String(planCode || '').trim().toLowerCase();
+    if (normalized === 'free_30k' || normalized === 'free') return 'Free 30k';
+    if (normalized === 'team_32usd' || normalized === 'team') return 'Team 100k';
+    if (normalized === 'loc_200k') return 'Team 200k';
+    if (normalized === 'loc_400k') return 'Team 400k';
+    if (normalized === 'loc_800k') return 'Team 800k';
+    if (normalized === 'loc_1600k') return 'Team 1.6M';
+    if (normalized === 'loc_3200k') return 'Team 3.2M';
+    return planCode || 'Plan';
+};
 
 export const Dashboard: React.FC = () => {
     const navigate = useNavigate();
@@ -41,6 +97,7 @@ export const Dashboard: React.FC = () => {
     const [notificationSent, setNotificationSent] = useState(false);
     // Track dismissed connector progress notifications (session-only, not persisted)
     const [dismissedConnectors, setDismissedConnectors] = useState<Set<number>>(new Set());
+    const [billingInsight, setBillingInsight] = useState<DashboardBillingInsight | null>(null);
 
     // Handle user notification on first dashboard load
     useEffect(() => {
@@ -92,6 +149,54 @@ export const Dashboard: React.FC = () => {
             clearInterval(interval);
             window.removeEventListener('focus', onFocus);
             document.removeEventListener('visibilitychange', onVisibility);
+        };
+    }, []);
+
+    useEffect(() => {
+        if (!isCloudMode()) {
+            setBillingInsight(null);
+            return;
+        }
+
+        let cancelled = false;
+        const loadBillingInsight = async () => {
+            try {
+                const [billing, quota, upgrade] = await Promise.all([
+                    apiClient.get<DashboardBillingStatusResponse>('/billing/status'),
+                    apiClient.get<DashboardQuotaStatusResponse>('/quota/status').catch((): null => null),
+                    apiClient.get<DashboardUpgradeStatusResponse>('/billing/upgrade/request-status').catch((): null => null),
+                ]);
+
+                if (cancelled || !billing?.billing) return;
+
+                const planCode = String(billing.billing.current_plan_code || 'free_30k').trim();
+                const plan = (billing.available_plans || []).find((item) => item.plan_code === planCode);
+                const locUsed = Number(billing.billing.loc_used_month || 0);
+                const locLimit = Number(plan?.monthly_loc_limit || 0);
+                const fallbackPct = locLimit > 0 ? Math.min(100, Math.round((locUsed * 100) / locLimit)) : 0;
+
+                setBillingInsight({
+                    planCode,
+                    locUsed,
+                    locLimit,
+                    usagePct: Math.max(0, Math.round(quota?.envelope?.usage_pct ?? fallbackPct)),
+                    blocked: Boolean(quota?.envelope?.blocked),
+                    trialReadonly: Boolean(quota?.envelope?.trial_readonly),
+                    customerState: String(upgrade?.request?.customer_state || 'none').trim().toLowerCase(),
+                    supportReference: String(upgrade?.request?.support_reference || '').trim(),
+                    actionRequiredType: String(upgrade?.request?.action_required?.type || '').trim().toLowerCase(),
+                });
+            } catch {
+                if (!cancelled) setBillingInsight(null);
+            }
+        };
+
+        loadBillingInsight();
+        const intervalId = window.setInterval(loadBillingInsight, 60000);
+
+        return () => {
+            cancelled = true;
+            clearInterval(intervalId);
         };
     }, []);
 
@@ -236,6 +341,51 @@ export const Dashboard: React.FC = () => {
                         </Button>
                     </div>
                 </div>
+
+                {billingInsight && (
+                    <div className="mb-6 bg-slate-800/55 border border-slate-700 rounded-xl p-4">
+                        <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
+                            <div className="space-y-2">
+                                <p className="text-sm text-slate-300">
+                                    Billing status: <span className="text-white font-semibold">{dashboardPlanLabel(billingInsight.planCode)}</span>
+                                    {' • '}
+                                    Usage <span className="text-white font-semibold">{billingInsight.usagePct}%</span>
+                                </p>
+                                <div className="w-full lg:w-80 h-2 rounded-full bg-slate-700 overflow-hidden">
+                                    <div
+                                        className={classNames(
+                                            'h-full transition-all',
+                                            billingInsight.blocked || billingInsight.customerState === 'action_needed' || billingInsight.customerState === 'payment_failed'
+                                                ? 'bg-red-500'
+                                                : billingInsight.usagePct >= 80
+                                                ? 'bg-amber-500'
+                                                : 'bg-emerald-500'
+                                        )}
+                                        style={{ width: `${Math.max(0, Math.min(100, billingInsight.usagePct))}%` }}
+                                    />
+                                </div>
+                                <p className="text-xs text-slate-400">
+                                    {billingInsight.locUsed.toLocaleString()} / {billingInsight.locLimit > 0 ? billingInsight.locLimit.toLocaleString() : 'Unlimited'} LOC this period
+                                </p>
+                                {(billingInsight.customerState === 'action_needed' || billingInsight.customerState === 'payment_failed' || billingInsight.blocked || billingInsight.trialReadonly) && (
+                                    <p className="text-xs text-amber-200">
+                                        Action needed: {billingInsight.actionRequiredType || billingInsight.customerState.replace(/_/g, ' ')}
+                                        {billingInsight.supportReference ? ` • Ref ${billingInsight.supportReference}` : ''}
+                                    </p>
+                                )}
+                            </div>
+                            <div className="flex items-center gap-2">
+                                <Button
+                                    variant="outline"
+                                    onClick={() => navigate('/settings-subscriptions-overview')}
+                                    className="text-slate-200 border-slate-500"
+                                >
+                                    Open Billing Details
+                                </Button>
+                            </div>
+                        </div>
+                    </div>
+                )}
 
                 {/* Error state */}
                 {error && (

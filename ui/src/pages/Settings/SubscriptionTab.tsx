@@ -5,6 +5,7 @@ import { isCloudMode } from '../../utils/deploymentMode';
 import { useAppSelector } from '../../store/configureStore';
 import { useOrgContext } from '../../hooks/useOrgContext';
 import LicenseManagement from '../Licenses/LicenseManagement';
+import BillingPortfolio from '../Admin/BillingPortfolio';
 import { CancelSubscriptionModal } from '../../components/Subscriptions';
 import apiClient from '../../api/apiClient';
 
@@ -98,6 +99,9 @@ type BillingUsageSummaryResponse = {
 type BillingUsageOperationsResponse = {
   operations: Array<{
     review_id?: number;
+    user_id?: number;
+    actor_email?: string;
+    actor_kind?: string;
     operation_type: string;
     trigger_source: string;
     operation_id: string;
@@ -112,6 +116,28 @@ type BillingUsageOperationsResponse = {
   limit: number;
   offset: number;
   count: number;
+};
+
+type BillingUsageMemberSummary = {
+  user_id?: number | null;
+  actor_email?: string | null;
+  actor_kind: string;
+  total_billable_loc: number;
+  operation_count: number;
+  last_accounted_at?: string | null;
+  org_total_billable_loc: number;
+  usage_share_percent: number;
+};
+
+type BillingUsageMembersResponse = {
+  members: BillingUsageMemberSummary[];
+  limit: number;
+  offset: number;
+  count: number;
+};
+
+type BillingMyUsageResponse = {
+  member: BillingUsageMemberSummary;
 };
 
 type UpgradeActionResponse = {
@@ -177,6 +203,29 @@ type UpgradeRequestStatusResponse = {
   request: {
     upgrade_request_id: string;
     status: string;
+    customer_state?: string;
+    action_needed_at?: string;
+    action_required?: {
+      type?: string;
+      endpoint?: string;
+      retry_endpoint?: string;
+      sla_hours?: number;
+      support_sla_business_days?: number;
+      delay_minutes?: number;
+    };
+    latest_payment_error?: {
+      code?: string | null;
+      reason?: string | null;
+      description?: string | null;
+    };
+    support_reference?: string;
+    support_context?: {
+      upgrade_request_id?: string;
+      razorpay_order_id?: string | null;
+      razorpay_payment_id?: string | null;
+      razorpay_subscription_id?: string | null;
+      dispute_sla_business_days?: number;
+    };
     from_plan_code: string;
     to_plan_code: string;
     expected_amount_cents: number;
@@ -240,15 +289,18 @@ const buildUpgradeCheckoutFailureMessage = (response: any, prepared: PrepareUpgr
 const SubscriptionTab: React.FC = () => {
   const navigate = useNavigate();
   const { currentOrg, isSuperAdmin } = useOrgContext();
+  const canViewPortfolio = isSuperAdmin;
   
   // Initialize tab from URL path
-  const getInitialTab = (): 'overview' | 'assignments' => {
+  const getInitialTab = (): 'overview' | 'breakdown' | 'assignments' | 'portfolio' => {
     const hash = window.location.hash;
+    if (hash.includes('settings-subscriptions-portfolio')) return canViewPortfolio ? 'portfolio' : 'overview';
+    if (hash.includes('settings-subscriptions-breakdown')) return 'breakdown';
     if (hash.includes('settings-subscriptions-assign')) return 'assignments';
     return 'overview';
   };
   
-  const [activeTab, setActiveTab] = useState<'overview' | 'assignments'>(getInitialTab);
+  const [activeTab, setActiveTab] = useState<'overview' | 'breakdown' | 'assignments' | 'portfolio'>(getInitialTab);
 
   // Check if user can manage licenses (owner or super admin)
   const canManageLicenses = isSuperAdmin || currentOrg?.role === 'owner';
@@ -263,16 +315,26 @@ const SubscriptionTab: React.FC = () => {
   // Update tab when location changes
   useEffect(() => {
     const hash = window.location.hash;
-    if (hash.includes('settings-subscriptions-assign')) {
+    if (hash.includes('settings-subscriptions-portfolio')) {
+      setActiveTab(canViewPortfolio ? 'portfolio' : 'overview');
+    } else if (hash.includes('settings-subscriptions-breakdown')) {
+      setActiveTab('breakdown');
+    } else if (hash.includes('settings-subscriptions-assign')) {
       setActiveTab('assignments');
     } else if (hash.includes('settings-subscriptions-overview')) {
       setActiveTab('overview');
     }
-  }, [window.location.hash]);
+  }, [window.location.hash, canViewPortfolio]);
 
-  const handleTabChange = (tab: 'overview' | 'assignments') => {
+  const handleTabChange = (tab: 'overview' | 'breakdown' | 'assignments' | 'portfolio') => {
     setActiveTab(tab);
-    const route = tab === 'assignments' ? '/settings-subscriptions-assign' : '/settings-subscriptions-overview';
+    const routeMap: Record<'overview' | 'breakdown' | 'assignments' | 'portfolio', string> = {
+      overview: '/settings-subscriptions-overview',
+      breakdown: '/settings-subscriptions-breakdown',
+      assignments: '/settings-subscriptions-assign',
+      portfolio: '/settings-subscriptions-portfolio',
+    };
+    const route = routeMap[tab];
     navigate(route);
   };
 
@@ -296,6 +358,16 @@ const SubscriptionTab: React.FC = () => {
           >
             Overview
           </button>
+          <button
+            onClick={() => handleTabChange('breakdown')}
+            className={`px-4 py-3 text-sm font-medium transition-colors ${
+              activeTab === 'breakdown'
+                ? 'text-white border-b-2 border-blue-500'
+                : 'text-slate-400 hover:text-slate-300'
+            }`}
+          >
+            Breakdown
+          </button>
           {canManageLicenses && (
             <button
               onClick={() => handleTabChange('assignments')}
@@ -308,24 +380,41 @@ const SubscriptionTab: React.FC = () => {
               License Assignments
             </button>
           )}
+          {canViewPortfolio && (
+            <button
+              onClick={() => handleTabChange('portfolio')}
+              className={`px-4 py-3 text-sm font-medium transition-colors ${
+                activeTab === 'portfolio'
+                  ? 'text-white border-b-2 border-blue-500'
+                  : 'text-slate-400 hover:text-slate-300'
+              }`}
+            >
+              Portfolio
+            </button>
+          )}
         </div>
       </div>
 
       {/* Tab Content */}
       {activeTab === 'overview' ? (
-        <OverviewTab navigate={navigate} />
+        <OverviewTab navigate={navigate} mode="full" />
+      ) : activeTab === 'breakdown' ? (
+        <OverviewTab navigate={navigate} mode="breakdown" />
+      ) : activeTab === 'portfolio' ? (
+        canViewPortfolio ? <PortfolioTab /> : <OverviewTab navigate={navigate} mode="full" />
       ) : canManageLicenses ? (
         <AssignmentsTab />
       ) : (
-        <OverviewTab navigate={navigate} />
+        <OverviewTab navigate={navigate} mode="full" />
       )}
     </div>
   );
 };
 
 // Overview Tab Component
-const OverviewTab: React.FC<{ navigate: any }> = ({ navigate }) => {
+const OverviewTab: React.FC<{ navigate: any; mode?: 'full' | 'breakdown' }> = ({ navigate, mode = 'full' }) => {
   const { currentOrg, isSuperAdmin } = useOrgContext();
+  const isBreakdownMode = mode === 'breakdown';
   const [showCancelModal, setShowCancelModal] = useState(false);
   const [subscriptionId, setSubscriptionId] = useState<string | null>(null);
   const [pendingCancel, setPendingCancel] = useState(false);
@@ -340,6 +429,8 @@ const OverviewTab: React.FC<{ navigate: any }> = ({ navigate }) => {
   const [selectedDowngradePlan, setSelectedDowngradePlan] = useState('');
   const [usageSummary, setUsageSummary] = useState<BillingUsageSummaryResponse | null>(null);
   const [usageOps, setUsageOps] = useState<BillingUsageOperationsResponse['operations']>([]);
+  const [myUsage, setMyUsage] = useState<BillingUsageMemberSummary | null>(null);
+  const [usageMembers, setUsageMembers] = useState<BillingUsageMemberSummary[]>([]);
   const [lastUpgradeResult, setLastUpgradeResult] = useState<UpgradeActionResponse | null>(null);
   const [upgradePreview, setUpgradePreview] = useState<UpgradePreviewResponse | null>(null);
   const [showUpgradeModal, setShowUpgradeModal] = useState(false);
@@ -476,16 +567,23 @@ const OverviewTab: React.FC<{ navigate: any }> = ({ navigate }) => {
 
   const refreshBilling = async () => {
     const emptyOpsResponse: BillingUsageOperationsResponse = { operations: [], limit: 10, offset: 0, count: 0 };
-    const [billing, quota, summary, operations] = await Promise.all([
+    const emptyMembersResponse: BillingUsageMembersResponse = { members: [], limit: 10, offset: 0, count: 0 };
+    const [billing, quota, summary, operations, meUsage, members] = await Promise.all([
       apiClient.get<BillingStatusResponse>('/billing/status', orgScopedRequestOptions),
       apiClient.get<QuotaStatusResponse>('/quota/status', orgScopedRequestOptions).catch((): null => null),
       apiClient.get<BillingUsageSummaryResponse>('/billing/usage/summary', orgScopedRequestOptions).catch((): null => null),
       apiClient.get<BillingUsageOperationsResponse>('/billing/usage/operations?limit=10&offset=0', orgScopedRequestOptions).catch((): BillingUsageOperationsResponse => emptyOpsResponse),
+      apiClient.get<BillingMyUsageResponse>('/billing/usage/me', orgScopedRequestOptions).catch((): null => null),
+      canManageBilling
+        ? apiClient.get<BillingUsageMembersResponse>('/billing/usage/members?limit=10&offset=0', orgScopedRequestOptions).catch((): BillingUsageMembersResponse => emptyMembersResponse)
+        : Promise.resolve(emptyMembersResponse),
     ]);
     setBillingStatus(billing);
     setQuotaStatus(quota);
     setUsageSummary(summary);
     setUsageOps(operations.operations || []);
+    setMyUsage(meUsage?.member || null);
+    setUsageMembers(members.members || []);
   };
 
   const refreshUpgradeRequestStatus = async (requestID?: string) => {
@@ -825,12 +923,24 @@ const OverviewTab: React.FC<{ navigate: any }> = ({ navigate }) => {
   return (
     <div className="space-y-6">
       <div>
-        <h2 className="text-lg font-semibold text-white mb-2">Subscription Management</h2>
-        <p className="text-sm text-slate-400 mb-4">
-          Manage billing, quota limits, and AI execution mode
-        </p>
+        {isBreakdownMode ? (
+          <>
+            <h2 className="text-lg font-semibold text-white mb-2">Usage Breakdown</h2>
+            <p className="text-sm text-slate-400 mb-4">
+              Member-level consumption, operation history, and billing-period usage visibility.
+            </p>
+          </>
+        ) : (
+          <>
+            <h2 className="text-lg font-semibold text-white mb-2">Subscription Management</h2>
+            <p className="text-sm text-slate-400 mb-4">
+              Manage billing, quota limits, and AI execution mode
+            </p>
+          </>
+        )}
       </div>
 
+      {!isBreakdownMode && (
       <div className="bg-slate-800/50 border border-slate-700 rounded-lg p-4">
         <h3 className="text-sm font-semibold text-white mb-2">Plan execution model</h3>
         <div className="space-y-1 text-sm text-slate-300">
@@ -838,8 +948,9 @@ const OverviewTab: React.FC<{ navigate: any }> = ({ navigate }) => {
           <p><span className="text-slate-400">Team 32 USD:</span> Hosted Auto model is default; BYOK remains optional.</p>
         </div>
       </div>
+      )}
 
-      {(billingStatus?.billing?.trial_readonly || quotaStatus?.envelope?.trial_readonly) && (
+      {!isBreakdownMode && (billingStatus?.billing?.trial_readonly || quotaStatus?.envelope?.trial_readonly) && (
         <div className="bg-amber-500/10 border border-amber-400/40 rounded-lg p-4">
           <p className="text-amber-200 text-sm font-medium">Trial is now read-only</p>
           <p className="text-amber-100/90 text-sm mt-1">
@@ -848,7 +959,7 @@ const OverviewTab: React.FC<{ navigate: any }> = ({ navigate }) => {
         </div>
       )}
 
-      {(quotaStatus?.envelope?.blocked || quotaStatus?.can_trigger_reviews === false) && (
+      {!isBreakdownMode && (quotaStatus?.envelope?.blocked || quotaStatus?.can_trigger_reviews === false) && (
         <div className="bg-red-500/10 border border-red-400/40 rounded-lg p-4">
           <p className="text-red-200 text-sm font-medium">Quota blocked</p>
           <p className="text-red-100/90 text-sm mt-1">
@@ -858,6 +969,7 @@ const OverviewTab: React.FC<{ navigate: any }> = ({ navigate }) => {
       )}
 
       {/* Current Subscription Section */}
+      {!isBreakdownMode && (
       <div className="bg-slate-800/60 border border-slate-700 rounded-lg p-6">
         <div className="flex items-center justify-between mb-4">
           <div>
@@ -940,9 +1052,10 @@ const OverviewTab: React.FC<{ navigate: any }> = ({ navigate }) => {
           </div>
         </div>
       </div>
+      )}
 
       {/* Upgrade Section - only show for free users */}
-      {isFree && (
+      {!isBreakdownMode && isFree && (
         <div className="bg-gradient-to-r from-blue-900/40 to-purple-900/40 border border-blue-700/50 rounded-lg p-6">
           <h3 className="text-md font-semibold text-white mb-2">Upgrade to Team Subscription</h3>
           <p className="text-sm text-slate-300 mb-4">
@@ -984,7 +1097,7 @@ const OverviewTab: React.FC<{ navigate: any }> = ({ navigate }) => {
       )}
 
       {/* Team Subscription Benefits - show for team users */}
-      {isTeamPlan && (
+      {!isBreakdownMode && isTeamPlan && (
         <div className="bg-gradient-to-r from-blue-900/40 to-purple-900/40 border border-blue-700/50 rounded-lg p-6">
           <div className="flex items-center justify-between mb-2">
             <h3 className="text-md font-semibold text-white">Team Subscription Benefits</h3>
@@ -1030,7 +1143,7 @@ const OverviewTab: React.FC<{ navigate: any }> = ({ navigate }) => {
       )}
 
       {/* Cancel Subscription Modal */}
-      {subscriptionId && (
+      {!isBreakdownMode && subscriptionId && (
         <CancelSubscriptionModal
           isOpen={showCancelModal}
           onClose={() => setShowCancelModal(false)}
@@ -1041,12 +1154,18 @@ const OverviewTab: React.FC<{ navigate: any }> = ({ navigate }) => {
       )}
 
       {/* Billing History Placeholder */}
-      <div className="bg-slate-800/60 border border-slate-700 rounded-lg p-6">
+      {!isBreakdownMode && <div className="bg-slate-800/60 border border-slate-700 rounded-lg p-6">
         <h3 className="text-md font-semibold text-white mb-2">Billing History</h3>
         <p className="text-sm text-slate-400">
           {isFree ? 'No billing history available for free plan' : 'View your billing history in the License Assignments tab'}
         </p>
-      </div>
+      </div>}
+
+      {isBreakdownMode && !usageSummary && (
+        <div className="bg-slate-800/60 border border-slate-700 rounded-lg p-6">
+          <p className="text-sm text-slate-300">No usage breakdown data available yet for this billing period.</p>
+        </div>
+      )}
 
       {usageSummary && (
         <div className="bg-slate-800/60 border border-slate-700 rounded-lg p-6 space-y-4">
@@ -1086,6 +1205,61 @@ const OverviewTab: React.FC<{ navigate: any }> = ({ navigate }) => {
             </div>
           </div>
 
+          {myUsage && (
+            <div className="bg-slate-900/60 border border-slate-700 rounded-lg p-4">
+              <div className="flex items-center justify-between mb-2">
+                <p className="text-sm text-slate-300 font-medium">My Usage (Current Billing Period)</p>
+                <span className="text-xs text-slate-400">Share: {myUsage.usage_share_percent.toFixed(2)}%</span>
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-3 text-sm">
+                <div className="bg-slate-950/50 border border-slate-700 rounded p-3">
+                  <p className="text-slate-400">My LOC</p>
+                  <p className="text-white font-semibold">{myUsage.total_billable_loc.toLocaleString()}</p>
+                </div>
+                <div className="bg-slate-950/50 border border-slate-700 rounded p-3">
+                  <p className="text-slate-400">My Operations</p>
+                  <p className="text-white font-semibold">{myUsage.operation_count.toLocaleString()}</p>
+                </div>
+                <div className="bg-slate-950/50 border border-slate-700 rounded p-3">
+                  <p className="text-slate-400">Last Accounted</p>
+                  <p className="text-white font-semibold">{formatDate(myUsage.last_accounted_at) || 'N/A'}</p>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {canManageBilling && usageMembers.length > 0 && (
+            <div>
+              <p className="text-sm text-slate-300 mb-2">Team Usage Breakdown</p>
+              <div className="overflow-x-auto border border-slate-700 rounded-lg">
+                <table className="min-w-full text-xs text-left">
+                  <thead className="bg-slate-900/80 text-slate-300">
+                    <tr>
+                      <th className="px-3 py-2">Member</th>
+                      <th className="px-3 py-2">Type</th>
+                      <th className="px-3 py-2">LOC</th>
+                      <th className="px-3 py-2">Share</th>
+                      <th className="px-3 py-2">Operations</th>
+                      <th className="px-3 py-2">Last Accounted</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-700 bg-slate-950/40">
+                    {usageMembers.map((member) => (
+                      <tr key={`${member.user_id || member.actor_email || member.actor_kind}-${member.last_accounted_at || member.operation_count}`}>
+                        <td className="px-3 py-2 text-slate-100">{member.actor_email || 'System'}</td>
+                        <td className="px-3 py-2 text-slate-300">{member.actor_kind || 'unknown'}</td>
+                        <td className="px-3 py-2 text-white">{member.total_billable_loc.toLocaleString()}</td>
+                        <td className="px-3 py-2 text-white">{member.usage_share_percent.toFixed(2)}%</td>
+                        <td className="px-3 py-2 text-white">{member.operation_count.toLocaleString()}</td>
+                        <td className="px-3 py-2 text-slate-300">{formatDate(member.last_accounted_at) || 'N/A'}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+
           <div>
             <p className="text-sm text-slate-300 mb-2">Recent Operations</p>
             <div className="overflow-x-auto border border-slate-700 rounded-lg">
@@ -1093,6 +1267,7 @@ const OverviewTab: React.FC<{ navigate: any }> = ({ navigate }) => {
                 <thead className="bg-slate-900/80 text-slate-300">
                   <tr>
                     <th className="px-3 py-2">When</th>
+                    <th className="px-3 py-2">Actor</th>
                     <th className="px-3 py-2">Type</th>
                     <th className="px-3 py-2">LOC</th>
                     <th className="px-3 py-2">Tokens (In/Out)</th>
@@ -1103,12 +1278,16 @@ const OverviewTab: React.FC<{ navigate: any }> = ({ navigate }) => {
                 <tbody className="divide-y divide-slate-700 bg-slate-950/40">
                   {usageOps.length === 0 && (
                     <tr>
-                      <td colSpan={6} className="px-3 py-3 text-slate-400">No operations found in current billing period.</td>
+                      <td colSpan={7} className="px-3 py-3 text-slate-400">No operations found in current billing period.</td>
                     </tr>
                   )}
                   {usageOps.map((op) => (
                     <tr key={`${op.operation_id}-${op.accounted_at}`}>
                       <td className="px-3 py-2 text-slate-300">{formatDate(op.accounted_at)}</td>
+                      <td className="px-3 py-2 text-slate-200">
+                        {op.actor_email || (op.actor_kind === 'system' ? 'System' : 'Unknown')}
+                        {op.user_id ? <span className="text-slate-400"> (#{op.user_id})</span> : null}
+                      </td>
                       <td className="px-3 py-2 text-white">{op.operation_type}</td>
                       <td className="px-3 py-2 text-white">{op.billable_loc.toLocaleString()}</td>
                       <td className="px-3 py-2 text-white">{(op.input_tokens || 0).toLocaleString()} / {(op.output_tokens || 0).toLocaleString()}</td>
@@ -1123,7 +1302,7 @@ const OverviewTab: React.FC<{ navigate: any }> = ({ navigate }) => {
         </div>
       )}
 
-      {canManageBilling && billingStatus && (
+      {!isBreakdownMode && canManageBilling && billingStatus && (
         <div className="bg-slate-800/60 border border-slate-700 rounded-lg p-6 space-y-4">
           <h3 className="text-md font-semibold text-white">Billing Actions</h3>
 
@@ -1157,6 +1336,28 @@ const OverviewTab: React.FC<{ navigate: any }> = ({ navigate }) => {
                   {upgradeRequestLoading ? 'Refreshing...' : 'Refresh'}
                 </button>
               </div>
+              {requestStatus.customer_state && (
+                <div className="text-xs text-slate-300 bg-slate-950/60 border border-slate-700 rounded px-3 py-2 space-y-1">
+                  <p>
+                    Customer state: <span className="text-white font-semibold uppercase">{requestStatus.customer_state.replace(/_/g, ' ')}</span>
+                  </p>
+                  {requestStatus.action_required?.type && requestStatus.action_required.type !== 'none' && (
+                    <p>
+                      Action required: <span className="text-amber-300 font-medium">{requestStatus.action_required.type.replace(/_/g, ' ')}</span>
+                      {requestStatus.action_needed_at ? <span className="text-slate-400"> since {formatDate(requestStatus.action_needed_at)}</span> : null}
+                    </p>
+                  )}
+                  {requestStatus.support_context?.razorpay_order_id && (
+                    <p>Order ID: <span className="text-white font-mono">{requestStatus.support_context.razorpay_order_id}</span></p>
+                  )}
+                  {requestStatus.support_context?.razorpay_payment_id && (
+                    <p>Payment ID: <span className="text-white font-mono">{requestStatus.support_context.razorpay_payment_id}</span></p>
+                  )}
+                  {requestStatus.support_reference && (
+                    <p>Support ref: <span className="text-white font-mono">{requestStatus.support_reference}</span></p>
+                  )}
+                </div>
+              )}
             </div>
           )}
 
@@ -1272,7 +1473,7 @@ const OverviewTab: React.FC<{ navigate: any }> = ({ navigate }) => {
         </div>
       )}
 
-      {showUpgradeModal && upgradePreview?.preview && (
+      {!isBreakdownMode && showUpgradeModal && upgradePreview?.preview && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/80 p-4">
           <div className="w-full max-w-2xl rounded-xl border border-slate-700 bg-slate-900 shadow-2xl">
             <div className="border-b border-slate-700 px-6 py-4">
@@ -1344,6 +1545,10 @@ const OverviewTab: React.FC<{ navigate: any }> = ({ navigate }) => {
       )}
     </div>
   );
+};
+
+const PortfolioTab: React.FC = () => {
+  return <BillingPortfolio />;
 };
 
 // Assignments Tab Component
