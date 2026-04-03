@@ -59,3 +59,24 @@ func TestSanitizationPostflight_NeutralizesUnsafeMarkdownLinkWithWhitespaceLabel
 		t.Fatalf("expected unsafe markdown link with whitespace label to be neutralized, got: %s", out)
 	}
 }
+
+func TestSanitizationPostflight_PreservesComplexMarkdown(t *testing.T) {
+	input := "# Refactor Blocking LED Control to State Machines\n\n" +
+		"## Overview\n" +
+		"This change converts blocking LED blink operations to non-blocking, state-machine-driven tasks. " +
+		"It eliminates `delay()` calls that previously halted the task scheduler. " +
+		"New tasks now manage LED states using `millis()` timers and dedicated update functions.\n\n" +
+		"## Technical Highlights\n" +
+		"- **mcu/basic/TaskExample/src/taskLibrary.cpp**: Shifted LED control from blocking `delay()` to non-blocking `millis()` state machines.\n" +
+		"- **mcu/basic/TaskExample/src/taskLibrary.cpp**: Introduced new `Task` instances (`pulseTask`, `blink5Task`) for continuous LED state updates every 10ms.\n" +
+		"- **mcu/basic/TaskExample/src/taskLibrary.cpp**: Implemented global state variables (`pulseActive`, `blink5Active`) and dedicated update functions to manage LED sequences.\n" +
+		"- **mcu/basic/TaskExample/src/taskLibrary.cpp**: Split and renamed original `Callback` functions to `Callback25` and `Callback50` to trigger non-blocking sequences.\n\n" +
+		"## Impact\n" +
+		"- **Functionality**: The system can now execute multiple tasks concurrently without LED animations blocking the main loop.\n" +
+		"- **Risk**: Increased complexity in state management requires thorough testing of all LED pattern interactions and transitions."
+	out, _ := SanitizationPostflight(context.Background(), input)
+
+	if out != input {
+		t.Fatalf("expected input to be preserved during postflight, got: %s", out)
+	}
+}
