@@ -12,6 +12,8 @@ import (
 type LOCAccountSuccessInput struct {
 	OrgID          int64
 	ReviewID       int64
+	ActorUserID    *int64
+	ActorEmail     string
 	OperationType  string
 	TriggerSource  string
 	OperationID    string
@@ -91,6 +93,8 @@ func (s *LOCAccountingService) AccountSuccess(ctx context.Context, input LOCAcco
 	return s.store.AccountSuccess(ctx, storagelicense.AccountSuccessRecord{
 		OrgID:              input.OrgID,
 		ReviewID:           input.ReviewID,
+		ActorUserID:        input.ActorUserID,
+		ActorEmail:         input.ActorEmail,
 		OperationType:      input.OperationType,
 		TriggerSource:      input.TriggerSource,
 		OperationID:        input.OperationID,

@@ -300,6 +300,50 @@ ALTER SEQUENCE public.auth_tokens_id_seq OWNED BY public.auth_tokens.id;
 
 
 --
+-- Name: billing_notification_outbox; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.billing_notification_outbox (
+    id bigint NOT NULL,
+    org_id bigint NOT NULL,
+    event_type character varying(80) NOT NULL,
+    channel character varying(24) NOT NULL,
+    dedupe_key character varying(255) NOT NULL,
+    payload jsonb DEFAULT '{}'::jsonb NOT NULL,
+    recipient_user_id bigint,
+    recipient_email character varying(320),
+    status character varying(32) DEFAULT 'pending'::character varying NOT NULL,
+    retry_count integer DEFAULT 0 NOT NULL,
+    last_error text,
+    send_after timestamp with time zone DEFAULT now() NOT NULL,
+    sent_at timestamp with time zone,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT chk_billing_notification_outbox_channel CHECK (((channel)::text = ANY ((ARRAY['in_app'::character varying, 'email'::character varying])::text[]))),
+    CONSTRAINT chk_billing_notification_outbox_status CHECK (((status)::text = ANY ((ARRAY['pending'::character varying, 'processing'::character varying, 'sent'::character varying, 'failed'::character varying, 'cancelled'::character varying])::text[])))
+);
+
+
+--
+-- Name: billing_notification_outbox_id_seq; Type: SEQUENCE; Schema: public; Owner: -
+--
+
+CREATE SEQUENCE public.billing_notification_outbox_id_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+
+--
+-- Name: billing_notification_outbox_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: -
+--
+
+ALTER SEQUENCE public.billing_notification_outbox_id_seq OWNED BY public.billing_notification_outbox.id;
+
+
+--
 -- Name: dashboard_cache; Type: TABLE; Schema: public; Owner: -
 --
 
@@ -608,6 +652,9 @@ CREATE TABLE public.loc_usage_ledger (
     input_tokens bigint,
     output_tokens bigint,
     llm_cost_usd double precision,
+    actor_kind character varying(16),
+    actor_email_snapshot character varying(320),
+    CONSTRAINT chk_loc_usage_ledger_actor_kind CHECK (((actor_kind IS NULL) OR ((actor_kind)::text = ANY ((ARRAY['member'::character varying, 'system'::character varying, 'unknown'::character varying])::text[])))),
     CONSTRAINT chk_loc_usage_ledger_billable_positive CHECK ((billable_loc > 0)),
     CONSTRAINT chk_loc_usage_ledger_cost_non_negative CHECK (((llm_cost_usd IS NULL) OR (llm_cost_usd >= (0)::double precision))),
     CONSTRAINT chk_loc_usage_ledger_input_tokens_non_negative CHECK (((input_tokens IS NULL) OR (input_tokens >= 0))),
@@ -1286,7 +1333,11 @@ CREATE TABLE public.upgrade_requests (
     resolved_at timestamp with time zone,
     created_at timestamp with time zone DEFAULT now() NOT NULL,
     updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    customer_state character varying(64),
+    action_needed_at timestamp with time zone,
+    last_customer_state_change_at timestamp with time zone,
     CONSTRAINT chk_upgrade_requests_amount_non_negative CHECK ((expected_amount_cents >= 0)),
+    CONSTRAINT chk_upgrade_requests_customer_state CHECK (((customer_state IS NULL) OR ((customer_state)::text = ANY ((ARRAY['processing'::character varying, 'action_needed'::character varying, 'resolved'::character varying, 'failed'::character varying])::text[])))),
     CONSTRAINT chk_upgrade_requests_status CHECK (((current_status)::text = ANY ((ARRAY['created'::character varying, 'payment_order_created'::character varying, 'waiting_for_capture'::character varying, 'payment_capture_confirmed'::character varying, 'subscription_update_requested'::character varying, 'waiting_for_subscription_confirm'::character varying, 'subscription_change_confirmed'::character varying, 'reconciliation_retrying'::character varying, 'manual_review_required'::character varying, 'resolved'::character varying, 'failed'::character varying])::text[])))
 );
 
@@ -1510,6 +1561,13 @@ ALTER TABLE ONLY public.auth_tokens ALTER COLUMN id SET DEFAULT nextval('public.
 
 
 --
+-- Name: billing_notification_outbox id; Type: DEFAULT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.billing_notification_outbox ALTER COLUMN id SET DEFAULT nextval('public.billing_notification_outbox_id_seq'::regclass);
+
+
+--
 -- Name: instance_details id; Type: DEFAULT; Schema: public; Owner: -
 --
 
@@ -1715,6 +1773,14 @@ ALTER TABLE ONLY public.api_keys
 
 ALTER TABLE ONLY public.auth_tokens
     ADD CONSTRAINT auth_tokens_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: billing_notification_outbox billing_notification_outbox_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.billing_notification_outbox
+    ADD CONSTRAINT billing_notification_outbox_pkey PRIMARY KEY (id);
 
 
 --
@@ -1998,6 +2064,14 @@ ALTER TABLE ONLY public.upgrade_requests
 
 
 --
+-- Name: billing_notification_outbox uq_billing_notification_outbox_dedupe; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.billing_notification_outbox
+    ADD CONSTRAINT uq_billing_notification_outbox_dedupe UNIQUE (channel, dedupe_key);
+
+
+--
 -- Name: loc_lifecycle_log uq_loc_lifecycle_org_event_key; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -2237,6 +2311,20 @@ CREATE INDEX idx_auth_tokens_user_id ON public.auth_tokens USING btree (user_id)
 
 
 --
+-- Name: idx_billing_notification_outbox_org_created; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_billing_notification_outbox_org_created ON public.billing_notification_outbox USING btree (org_id, created_at DESC);
+
+
+--
+-- Name: idx_billing_notification_outbox_pending; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_billing_notification_outbox_pending ON public.billing_notification_outbox USING btree (status, send_after, created_at) WHERE ((status)::text = ANY ((ARRAY['pending'::character varying, 'failed'::character varying])::text[]));
+
+
+--
 -- Name: idx_chunks_appctx; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -2430,6 +2518,13 @@ CREATE INDEX idx_loc_usage_ledger_operation ON public.loc_usage_ledger USING btr
 --
 
 CREATE INDEX idx_loc_usage_ledger_org_accounted_tokens ON public.loc_usage_ledger USING btree (org_id, accounted_at DESC) WHERE ((input_tokens IS NOT NULL) OR (output_tokens IS NOT NULL) OR (llm_cost_usd IS NOT NULL));
+
+
+--
+-- Name: idx_loc_usage_ledger_org_period_user_time; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_loc_usage_ledger_org_period_user_time ON public.loc_usage_ledger USING btree (org_id, billing_period_start, user_id, accounted_at DESC) WHERE ((status)::text = 'accounted'::text);
 
 
 --
@@ -2783,6 +2878,13 @@ CREATE INDEX idx_upgrade_request_events_request_time ON public.upgrade_request_e
 
 
 --
+-- Name: idx_upgrade_requests_customer_state; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_upgrade_requests_customer_state ON public.upgrade_requests USING btree (org_id, customer_state, updated_at DESC) WHERE (customer_state IS NOT NULL);
+
+
+--
 -- Name: idx_upgrade_requests_order; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -3045,6 +3147,22 @@ ALTER TABLE ONLY public.api_keys
 
 ALTER TABLE ONLY public.auth_tokens
     ADD CONSTRAINT auth_tokens_user_id_fkey FOREIGN KEY (user_id) REFERENCES public.users(id) ON DELETE CASCADE;
+
+
+--
+-- Name: billing_notification_outbox billing_notification_outbox_org_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.billing_notification_outbox
+    ADD CONSTRAINT billing_notification_outbox_org_id_fkey FOREIGN KEY (org_id) REFERENCES public.orgs(id) ON DELETE CASCADE;
+
+
+--
+-- Name: billing_notification_outbox billing_notification_outbox_recipient_user_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.billing_notification_outbox
+    ADD CONSTRAINT billing_notification_outbox_recipient_user_id_fkey FOREIGN KEY (recipient_user_id) REFERENCES public.users(id) ON DELETE SET NULL;
 
 
 --
@@ -3538,4 +3656,7 @@ INSERT INTO public.schema_migrations (version) VALUES
     ('20260330120000'),
     ('20260401153000'),
     ('20260401195429'),
-    ('20260401204800');
+    ('20260401204800'),
+    ('20260403123000'),
+    ('20260403124500'),
+    ('20260403130000');

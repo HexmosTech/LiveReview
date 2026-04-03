@@ -51,6 +51,7 @@ func (s *Server) DiffReview(c echo.Context) error {
 	// Extract user and org context from middleware
 	orgID := c.Get("org_id").(int64)
 	userID := c.Get("user_id").(int64)
+	actorUserID := userID
 	log.Printf("[DiffReview] Extracted from context: userID=%d, orgID=%d", userID, orgID)
 
 	// Fetch user info for author tracking
@@ -180,7 +181,7 @@ func (s *Server) DiffReview(c echo.Context) error {
 		PreloadedChanges: modelDiffs,
 	}
 
-	go s.runDiffReview(reviewRequest, rm, reviewRecord.ID, orgID, billableLOC)
+	go s.runDiffReview(reviewRequest, rm, reviewRecord.ID, orgID, billableLOC, actorUserID, userEmail)
 
 	return JSONWithEnvelope(c, http.StatusOK, map[string]interface{}{
 		"review_id":     fmt.Sprintf("%d", reviewRecord.ID),
@@ -297,7 +298,7 @@ func (s *Server) GetDiffReviewStatus(c echo.Context) error {
 }
 
 // runDiffReview executes the review asynchronously and persists results.
-func (s *Server) runDiffReview(request review.ReviewRequest, rm *ReviewManager, reviewID int64, orgID int64, billableLOC int64) {
+func (s *Server) runDiffReview(request review.ReviewRequest, rm *ReviewManager, reviewID int64, orgID int64, billableLOC int64, actorUserID int64, actorEmail string) {
 	// Initialize logger with event sink for UI visibility
 	logger, err := logging.StartReviewLoggingWithIDs(fmt.Sprintf("%d", reviewID), reviewID, orgID)
 	if err != nil {
@@ -336,9 +337,16 @@ func (s *Server) runDiffReview(request review.ReviewRequest, rm *ReviewManager, 
 			accountingService := license.NewLOCAccountingService(s.db)
 			operationID := fmt.Sprintf("diff-review:%d", reviewID)
 			idempotencyKey := operationID
+			var actorUserIDPtr *int64
+			if actorUserID > 0 {
+				resolvedActorUserID := actorUserID
+				actorUserIDPtr = &resolvedActorUserID
+			}
 			if err := accountingService.AccountSuccess(context.Background(), license.LOCAccountSuccessInput{
 				OrgID:          orgID,
 				ReviewID:       reviewID,
+				ActorUserID:    actorUserIDPtr,
+				ActorEmail:     strings.TrimSpace(actorEmail),
 				OperationType:  "diff_review",
 				TriggerSource:  "api",
 				OperationID:    operationID,

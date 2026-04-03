@@ -28,6 +28,8 @@ type ReviewService struct {
 type reviewSetupContext struct {
 	orgID         int64
 	planCode      license.PlanType
+	actorUserID   *int64
+	actorEmail    string
 	review        *Review
 	reviewID      string
 	logger        *logging.ReviewLogger
@@ -238,6 +240,11 @@ func (s *Server) setupReviewContext(c echo.Context) (*reviewSetupContext, error)
 	if planCtx, ok := c.Get(apimiddleware.PlanContextKey).(apimiddleware.PlanContext); ok && planCtx.PlanType != "" {
 		ctx.planCode = planCtx.PlanType
 	}
+	if user, ok := c.Get("user").(*models.User); ok && user != nil {
+		userID := user.ID
+		ctx.actorUserID = &userID
+		ctx.actorEmail = strings.TrimSpace(user.Email)
+	}
 	log.Printf("[DEBUG] ✓ Organization ID: %d", orgID)
 
 	// Parse request body
@@ -254,12 +261,12 @@ func (s *Server) setupReviewContext(c echo.Context) (*reviewSetupContext, error)
 	log.Printf("[DEBUG] DATABASE RECORD CREATION: Creating review record...")
 	reviewManager := NewReviewManager(s.db)
 	review, err := reviewManager.CreateReviewWithOrg(
-		req.URL,   // repository (using URL as repository for now)
-		"",        // branch (will be populated during processing)
-		"",        // commit_hash (will be populated during processing)
-		req.URL,   // pr_mr_url
-		"manual",  // trigger_type
-		"",        // user_email (will be populated from JWT if available)
+		req.URL,  // repository (using URL as repository for now)
+		"",       // branch (will be populated during processing)
+		"",       // commit_hash (will be populated during processing)
+		req.URL,  // pr_mr_url
+		"manual", // trigger_type
+		ctx.actorEmail,
 		"unknown", // provider (will be determined during processing)
 		nil,       // connector_id
 		map[string]interface{}{
@@ -587,6 +594,8 @@ func (s *Server) launchBackgroundProcessing(ctx *reviewSetupContext) {
 				if err := accountingService.AccountSuccess(context.Background(), license.LOCAccountSuccessInput{
 					OrgID:          ctx.orgID,
 					ReviewID:       ctx.review.ID,
+					ActorUserID:    ctx.actorUserID,
+					ActorEmail:     ctx.actorEmail,
 					OperationType:  "manual_review",
 					TriggerSource:  "manual",
 					OperationID:    operationID,

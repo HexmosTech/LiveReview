@@ -1595,7 +1595,7 @@ func (h *RazorpayWebhookHandler) tryHandleUpgradeOrderPaymentFailure(payment *Ra
 		}
 	}
 
-	_, _ = requestStore.MarkUpgradeRequestFailed(context.Background(), storagepayment.MarkUpgradeRequestFailedInput{
+	updatedRequest, reqErr := requestStore.MarkUpgradeRequestFailed(context.Background(), storagepayment.MarkUpgradeRequestFailedInput{
 		UpgradeRequestID: request.UpgradeRequestID,
 		FailureReason:    fmt.Sprintf("payment_failed:%s:%s", strings.TrimSpace(payment.ErrorCode), strings.TrimSpace(payment.ErrorDescription)),
 		Metadata: map[string]interface{}{
@@ -1609,6 +1609,18 @@ func (h *RazorpayWebhookHandler) tryHandleUpgradeOrderPaymentFailure(payment *Ra
 			"error_step":        payment.ErrorStep,
 		},
 	})
+	if reqErr == nil {
+		h.enqueueUpgradeFailureNotifications(context.Background(), updatedRequest, map[string]interface{}{
+			"source":            "webhook.payment.failed",
+			"payment_id":        payment.ID,
+			"order_id":          payment.OrderID,
+			"error_code":        payment.ErrorCode,
+			"error_reason":      payment.ErrorReason,
+			"error_description": payment.ErrorDescription,
+			"error_source":      payment.ErrorSource,
+			"error_step":        payment.ErrorStep,
+		})
+	}
 
 	metadata := map[string]interface{}{
 		"upgrade_request_id": request.UpgradeRequestID,
@@ -1637,6 +1649,66 @@ func (h *RazorpayWebhookHandler) tryHandleUpgradeOrderPaymentFailure(payment *Ra
 
 	fmt.Printf("[PAYMENT.FAILED] ✓ Upgrade payment failure recorded (org=%d, request=%s, order=%s)\n", request.OrgID, request.UpgradeRequestID, payment.OrderID)
 	return true, nil
+}
+
+func (h *RazorpayWebhookHandler) enqueueUpgradeFailureNotifications(ctx context.Context, request storagepayment.UpgradeRequest, metadata map[string]interface{}) {
+	store := storagepayment.NewBillingNotificationOutboxStore(h.db)
+
+	payload := map[string]interface{}{
+		"upgrade_request_id": request.UpgradeRequestID,
+		"org_id":             request.OrgID,
+		"from_plan_code":     request.FromPlanCode,
+		"to_plan_code":       request.ToPlanCode,
+		"status":             request.CurrentStatus,
+		"event_type":         "upgrade_payment_failed",
+		"support_reference":  request.UpgradeRequestID,
+		"triggered_at":       time.Now().UTC().Format(time.RFC3339),
+	}
+	for k, v := range metadata {
+		payload[k] = v
+	}
+
+	var recipientUserID *int64
+	if request.ActorUserID > 0 {
+		uid := request.ActorUserID
+		recipientUserID = &uid
+	}
+
+	base := fmt.Sprintf("upgrade_payment_failed:%s", strings.TrimSpace(request.UpgradeRequestID))
+	if _, err := store.Enqueue(ctx, storagepayment.CreateBillingNotificationInput{
+		OrgID:           request.OrgID,
+		EventType:       "upgrade_payment_failed",
+		Channel:         "in_app",
+		DedupeKey:       base + ":in_app",
+		Payload:         payload,
+		RecipientUserID: recipientUserID,
+	}); err != nil {
+		fmt.Printf("[PAYMENT.FAILED] warning: enqueue in_app notification failed request=%s: %v\n", request.UpgradeRequestID, err)
+	}
+
+	if recipientUserID == nil {
+		return
+	}
+	email, err := store.GetUserEmailByID(ctx, *recipientUserID)
+	if err != nil {
+		fmt.Printf("[PAYMENT.FAILED] warning: resolve recipient email failed request=%s user=%d: %v\n", request.UpgradeRequestID, *recipientUserID, err)
+		return
+	}
+	if strings.TrimSpace(email) == "" {
+		return
+	}
+
+	if _, err := store.Enqueue(ctx, storagepayment.CreateBillingNotificationInput{
+		OrgID:           request.OrgID,
+		EventType:       "upgrade_payment_failed",
+		Channel:         "email",
+		DedupeKey:       base + ":email",
+		Payload:         payload,
+		RecipientUserID: recipientUserID,
+		RecipientEmail:  email,
+	}); err != nil {
+		fmt.Printf("[PAYMENT.FAILED] warning: enqueue email notification failed request=%s: %v\n", request.UpgradeRequestID, err)
+	}
 }
 
 func (h *RazorpayWebhookHandler) lookupUpgradeRequestForPayment(ctx context.Context, requestStore *storagepayment.UpgradeRequestStore, payment *RazorpayPayment) (storagepayment.UpgradeRequest, error) {

@@ -1,6 +1,6 @@
 # Storage Status
 
-Latest milestone batch note (MF-LOC-007, MF-PRORATION-003): added LOC billing plan-change storage operations and a dedicated upgrade payment attempt store for order correlation, webhook failure/capture persistence, and execute idempotency state.
+Latest milestone batch note (MF-LOC-007, MF-PRORATION-003, MF-ATTRIB-001, MF-ATTRIB-002, MF-PORTFOLIO-001, MF-NOTIFY-001): added member-attribution storage groundwork, member-usage rollups, payment-attempt lookup for customer state, superadmin billing portfolio storage views, and billing notification outbox persistence.
 
 | Operation | Status | Evidence |
 | --- | --- | --- |
@@ -74,27 +74,43 @@ Latest milestone batch note (MF-LOC-007, MF-PRORATION-003): added LOC billing pl
 | core.ReadFile | moved | [ReadFile](core/file_ops.go#L11) |
 | license.NewPlanCatalogFileStore | moved | [NewPlanCatalogFileStore](license/plan_catalog_file_store.go#L14) |
 | license.ReadPlanCatalogFile | moved | [ReadPlanCatalogFile](license/plan_catalog_file_store.go#L18) |
-| license.NewLOCAccountingStore | moved | [NewLOCAccountingStore](license/loc_accounting_store.go#L49) |
-| license.AccountSuccess | moved | [AccountSuccess](license/loc_accounting_store.go#L53) |
-| license.CheckQuotaPreflight | moved | [CheckQuotaPreflight](license/loc_accounting_store.go#L191) |
-| license.emitThresholdLifecycleEventsTx | moved | [emitThresholdLifecycleEventsTx](license/loc_accounting_store.go#L337) |
-| license.emitLifecycleEventTx | moved | [emitLifecycleEventTx](license/loc_accounting_store.go#L362) |
+| license.NewLOCAccountingStore | moved | [NewLOCAccountingStore](license/loc_accounting_store.go#L52) |
+| license.AccountSuccess | moved | [AccountSuccess](license/loc_accounting_store.go#L56) |
+| license.CheckQuotaPreflight | moved | [CheckQuotaPreflight](license/loc_accounting_store.go#L212) |
+| license.emitThresholdLifecycleEventsTx | moved | [emitThresholdLifecycleEventsTx](license/loc_accounting_store.go#L358) |
+| license.emitLifecycleEventTx | moved | [emitLifecycleEventTx](license/loc_accounting_store.go#L502) |
+| license.NewActorLookupStore | added | [NewActorLookupStore](license/actor_lookup_store.go#L15) |
+| license.ResolveOrgMemberUserIDByEmail | added | [ResolveOrgMemberUserIDByEmail](license/actor_lookup_store.go#L19) |
+| license.NewAdminBillingPortfolioStore | added | [NewAdminBillingPortfolioStore](license/admin_billing_portfolio_store.go#L38) |
+| license.GetSummary | added | [GetSummary](license/admin_billing_portfolio_store.go#L42) |
+| license.ListOrganizations | added | [ListOrganizations](license/admin_billing_portfolio_store.go#L88) |
+| license.OrganizationExists | added | [OrganizationExists](license/admin_billing_portfolio_store.go#L179) |
 | license.NewReviewAccountingStore | moved | [NewReviewAccountingStore](license/review_accounting_store.go#L40) |
 | license.GetReviewAccountingTotals | moved | [GetReviewAccountingTotals](license/review_accounting_store.go#L44) |
 | license.GetLatestReviewAccountingOperation | moved | [GetLatestReviewAccountingOperation](license/review_accounting_store.go#L109) |
-| license.NewOrgUsageStore | moved | [NewOrgUsageStore](license/org_usage_store.go#L41) |
-| license.GetCurrentPeriodSummary | moved | [GetCurrentPeriodSummary](license/org_usage_store.go#L45) |
-| license.ListCurrentPeriodOperations | moved | [ListCurrentPeriodOperations](license/org_usage_store.go#L102) |
+| license.NewOrgUsageStore | moved | [NewOrgUsageStore](license/org_usage_store.go#L54) |
+| license.GetCurrentPeriodSummary | moved | [GetCurrentPeriodSummary](license/org_usage_store.go#L58) |
+| license.ListCurrentPeriodOperations | moved | [ListCurrentPeriodOperations](license/org_usage_store.go#L115) |
+| license.ListCurrentPeriodMemberUsage | added | [ListCurrentPeriodMemberUsage](license/org_usage_store.go#L197) |
+| license.GetCurrentPeriodUsageForActor | added | [GetCurrentPeriodUsageForActor](license/org_usage_store.go#L272) |
 | payment.ListSubscriptionsByOrgID | moved | [ListSubscriptionsByOrgID](payment/subscription_store.go#L278) |
+| payment.NewBillingNotificationOutboxStore | added | [NewBillingNotificationOutboxStore](payment/billing_notification_outbox_store.go#L45) |
+| payment.Enqueue | added | [Enqueue](payment/billing_notification_outbox_store.go#L49) |
+| payment.GetUserEmailByID | added | [GetUserEmailByID](payment/billing_notification_outbox_store.go#L104) |
+| payment.ClaimDispatchBatch | added | [ClaimDispatchBatch](payment/billing_notification_outbox_store.go#L123) |
+| payment.MarkSent | added | [MarkSent](payment/billing_notification_outbox_store.go#L201) |
+| payment.MarkFailed | added | [MarkFailed](payment/billing_notification_outbox_store.go#L221) |
+| payment.MarkCancelled | added | [MarkCancelled](payment/billing_notification_outbox_store.go#L245) |
 | payment.NewUpgradePaymentAttemptStore | added | [NewUpgradePaymentAttemptStore](payment/upgrade_payment_attempt_store.go#L88) |
 | payment.CreateUpgradePaymentAttempt | added | [CreateUpgradePaymentAttempt](payment/upgrade_payment_attempt_store.go#L97) |
 | payment.GetReusablePreparedAttempt | added | [GetReusablePreparedAttempt](payment/upgrade_payment_attempt_store.go#L132) |
 | payment.GetAttemptByOrgPreviewAndOrder | added | [GetAttemptByOrgPreviewAndOrder](payment/upgrade_payment_attempt_store.go#L159) |
 | payment.GetAttemptByOrderID | added | [GetAttemptByOrderID](payment/upgrade_payment_attempt_store.go#L185) |
-| payment.MarkPaymentCapturedByOrderID | added | [MarkPaymentCapturedByOrderID](payment/upgrade_payment_attempt_store.go#L241) |
-| payment.MarkPaymentFailedByOrderID | added | [MarkPaymentFailedByOrderID](payment/upgrade_payment_attempt_store.go#L263) |
-| payment.ReserveExecute | added | [ReserveExecute](payment/upgrade_payment_attempt_store.go#L295) |
-| payment.MarkExecuteApplied | added | [MarkExecuteApplied](payment/upgrade_payment_attempt_store.go#L386) |
+| payment.GetLatestAttemptByUpgradeRequestID | added | [GetLatestAttemptByUpgradeRequestID](payment/upgrade_payment_attempt_store.go#L209) |
+| payment.MarkPaymentCapturedByOrderID | added | [MarkPaymentCapturedByOrderID](payment/upgrade_payment_attempt_store.go#L266) |
+| payment.MarkPaymentFailedByOrderID | added | [MarkPaymentFailedByOrderID](payment/upgrade_payment_attempt_store.go#L288) |
+| payment.ReserveExecute | added | [ReserveExecute](payment/upgrade_payment_attempt_store.go#L320) |
+| payment.MarkExecuteApplied | added | [MarkExecuteApplied](payment/upgrade_payment_attempt_store.go#L411) |
 | license.NewPlanChangeStore | moved | [NewPlanChangeStore](license/plan_change_store.go#L28) |
 | license.EnsureOrgBillingState | moved | [EnsureOrgBillingState](license/plan_change_store.go#L32) |
 | license.GetOrgBillingState | moved | [GetOrgBillingState](license/plan_change_store.go#L55) |

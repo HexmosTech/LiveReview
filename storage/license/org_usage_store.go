@@ -22,6 +22,9 @@ type OrgUsageSummary struct {
 
 type OrgUsageOperation struct {
 	ReviewID      sql.NullInt64
+	UserID        sql.NullInt64
+	ActorEmail    sql.NullString
+	ActorKind     sql.NullString
 	OperationType string
 	TriggerSource string
 	OperationID   string
@@ -32,6 +35,16 @@ type OrgUsageOperation struct {
 	OutputTokens  sql.NullInt64
 	CostUSD       sql.NullFloat64
 	AccountedAt   time.Time
+}
+
+type OrgMemberUsageSummary struct {
+	UserID              sql.NullInt64
+	ActorEmail          sql.NullString
+	ActorKind           string
+	TotalBillableLOC    int64
+	OperationCount      int64
+	LastAccountedAt     sql.NullTime
+	OrgTotalBillableLOC int64
 }
 
 type OrgUsageStore struct {
@@ -99,7 +112,7 @@ func (s *OrgUsageStore) GetCurrentPeriodSummary(ctx context.Context, orgID int64
 	return summary, nil
 }
 
-func (s *OrgUsageStore) ListCurrentPeriodOperations(ctx context.Context, orgID int64, limit, offset int) ([]OrgUsageOperation, error) {
+func (s *OrgUsageStore) ListCurrentPeriodOperations(ctx context.Context, orgID int64, actorUserID *int64, limit, offset int) ([]OrgUsageOperation, error) {
 	if limit <= 0 {
 		limit = 25
 	}
@@ -113,6 +126,9 @@ func (s *OrgUsageStore) ListCurrentPeriodOperations(ctx context.Context, orgID i
 	rows, err := s.db.QueryContext(ctx, `
 		SELECT
 			lul.review_id,
+			lul.user_id,
+			COALESCE(u.email, lul.actor_email_snapshot, lul.metadata->>'actor_email') AS actor_email,
+			COALESCE(NULLIF(lul.actor_kind, ''), NULLIF(lul.metadata->>'actor_kind', ''), CASE WHEN lul.user_id IS NULL THEN 'system' ELSE 'member' END) AS actor_kind,
 			lul.operation_type,
 			lul.trigger_source,
 			lul.operation_id,
@@ -132,13 +148,16 @@ func (s *OrgUsageStore) ListCurrentPeriodOperations(ctx context.Context, orgID i
 		FROM loc_usage_ledger lul
 		JOIN org_billing_state obs
 		  ON obs.org_id = lul.org_id
+		LEFT JOIN users u
+		  ON u.id = lul.user_id
 		WHERE lul.org_id = $1
 		  AND lul.status = 'accounted'
 		  AND lul.accounted_at >= obs.billing_period_start
 		  AND lul.accounted_at < obs.billing_period_end
+		  AND ($4::bigint IS NULL OR lul.user_id = $4)
 		ORDER BY lul.accounted_at DESC, lul.id DESC
 		LIMIT $2 OFFSET $3
-	`, orgID, limit, offset)
+	`, orgID, limit, offset, actorUserID)
 	if err != nil {
 		return nil, fmt.Errorf("list current period operations: %w", err)
 	}
@@ -149,6 +168,9 @@ func (s *OrgUsageStore) ListCurrentPeriodOperations(ctx context.Context, orgID i
 		var op OrgUsageOperation
 		if err := rows.Scan(
 			&op.ReviewID,
+			&op.UserID,
+			&op.ActorEmail,
+			&op.ActorKind,
 			&op.OperationType,
 			&op.TriggerSource,
 			&op.OperationID,
@@ -170,4 +192,133 @@ func (s *OrgUsageStore) ListCurrentPeriodOperations(ctx context.Context, orgID i
 	}
 
 	return ops, nil
+}
+
+func (s *OrgUsageStore) ListCurrentPeriodMemberUsage(ctx context.Context, orgID int64, limit, offset int) ([]OrgMemberUsageSummary, error) {
+	if limit <= 0 {
+		limit = 25
+	}
+	if limit > 200 {
+		limit = 200
+	}
+	if offset < 0 {
+		offset = 0
+	}
+
+	rows, err := s.db.QueryContext(ctx, `
+		WITH grouped AS (
+			SELECT
+				lul.user_id,
+				COALESCE(u.email, lul.actor_email_snapshot, lul.metadata->>'actor_email') AS actor_email,
+				COALESCE(NULLIF(lul.actor_kind, ''), NULLIF(lul.metadata->>'actor_kind', ''), CASE WHEN lul.user_id IS NULL THEN 'system' ELSE 'member' END) AS actor_kind,
+				SUM(lul.billable_loc) AS total_billable_loc,
+				COUNT(*) AS operation_count,
+				MAX(lul.accounted_at) AS last_accounted_at,
+				SUM(SUM(lul.billable_loc)) OVER () AS org_total_billable_loc
+			FROM loc_usage_ledger lul
+			JOIN org_billing_state obs
+			  ON obs.org_id = lul.org_id
+			LEFT JOIN users u
+			  ON u.id = lul.user_id
+			WHERE lul.org_id = $1
+			  AND lul.status = 'accounted'
+			  AND lul.accounted_at >= obs.billing_period_start
+			  AND lul.accounted_at < obs.billing_period_end
+			GROUP BY
+				lul.user_id,
+				COALESCE(u.email, lul.actor_email_snapshot, lul.metadata->>'actor_email'),
+				COALESCE(NULLIF(lul.actor_kind, ''), NULLIF(lul.metadata->>'actor_kind', ''), CASE WHEN lul.user_id IS NULL THEN 'system' ELSE 'member' END)
+		)
+		SELECT
+			user_id,
+			actor_email,
+			actor_kind,
+			total_billable_loc,
+			operation_count,
+			last_accounted_at,
+			org_total_billable_loc
+		FROM grouped
+		ORDER BY total_billable_loc DESC, operation_count DESC, actor_email ASC
+		LIMIT $2 OFFSET $3
+	`, orgID, limit, offset)
+	if err != nil {
+		return nil, fmt.Errorf("list current period member usage: %w", err)
+	}
+	defer rows.Close()
+
+	items := make([]OrgMemberUsageSummary, 0, limit)
+	for rows.Next() {
+		var item OrgMemberUsageSummary
+		if err := rows.Scan(
+			&item.UserID,
+			&item.ActorEmail,
+			&item.ActorKind,
+			&item.TotalBillableLOC,
+			&item.OperationCount,
+			&item.LastAccountedAt,
+			&item.OrgTotalBillableLOC,
+		); err != nil {
+			return nil, fmt.Errorf("scan current period member usage: %w", err)
+		}
+		items = append(items, item)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate current period member usage: %w", err)
+	}
+
+	return items, nil
+}
+
+func (s *OrgUsageStore) GetCurrentPeriodUsageForActor(ctx context.Context, orgID int64, actorUserID int64) (OrgMemberUsageSummary, error) {
+	var item OrgMemberUsageSummary
+	err := s.db.QueryRowContext(ctx, `
+		WITH totals AS (
+			SELECT COALESCE(SUM(lul.billable_loc), 0) AS org_total_billable_loc
+			FROM loc_usage_ledger lul
+			JOIN org_billing_state obs
+			  ON obs.org_id = lul.org_id
+			WHERE lul.org_id = $1
+			  AND lul.status = 'accounted'
+			  AND lul.accounted_at >= obs.billing_period_start
+			  AND lul.accounted_at < obs.billing_period_end
+		),
+		member_usage AS (
+			SELECT
+				SUM(lul.billable_loc) AS total_billable_loc,
+				COUNT(*) AS operation_count,
+				MAX(lul.accounted_at) AS last_accounted_at
+			FROM loc_usage_ledger lul
+			JOIN org_billing_state obs
+			  ON obs.org_id = lul.org_id
+			WHERE lul.org_id = $1
+			  AND lul.user_id = $2
+			  AND lul.status = 'accounted'
+			  AND lul.accounted_at >= obs.billing_period_start
+			  AND lul.accounted_at < obs.billing_period_end
+		)
+		SELECT
+			$2 AS user_id,
+			u.email AS actor_email,
+			'member' AS actor_kind,
+			COALESCE(mu.total_billable_loc, 0) AS total_billable_loc,
+			COALESCE(mu.operation_count, 0) AS operation_count,
+			mu.last_accounted_at,
+			COALESCE(t.org_total_billable_loc, 0) AS org_total_billable_loc
+		FROM totals t
+		LEFT JOIN member_usage mu ON TRUE
+		LEFT JOIN users u ON u.id = $2
+	`, orgID, actorUserID).Scan(
+		&item.UserID,
+		&item.ActorEmail,
+		&item.ActorKind,
+		&item.TotalBillableLOC,
+		&item.OperationCount,
+		&item.LastAccountedAt,
+		&item.OrgTotalBillableLOC,
+	)
+	if err != nil {
+		return OrgMemberUsageSummary{}, fmt.Errorf("get current period usage for actor: %w", err)
+	}
+
+	return item, nil
 }
