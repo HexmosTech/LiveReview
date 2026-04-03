@@ -16,7 +16,7 @@ require (
 )
 
 require (
-	github.com/aliengiraffe/deidentify v1.0.1
+	github.com/HexmosTech/deidentify v1.0.0
 	github.com/golang-jwt/jwt/v5 v5.3.0
 	github.com/google/go-cmp v0.7.0
 	github.com/jackc/pgx/v5 v5.9.1
@@ -159,5 +159,4 @@ require (
 	google.golang.org/protobuf v1.36.10 // indirect
 	gopkg.in/ini.v1 v1.67.0 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
-	modernc.org/sqlite v1.44.3 // indirect
 )

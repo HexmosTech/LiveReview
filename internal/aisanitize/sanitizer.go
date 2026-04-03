@@ -11,7 +11,7 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/aliengiraffe/deidentify"
+	"github.com/HexmosTech/deidentify"
 	"github.com/mdombrov-33/go-promptguard/detector"
 	"github.com/rs/zerolog/log"
 	"github.com/zricethezav/gitleaks/v8/detect"
@@ -310,7 +310,8 @@ func SanitizeNaturalLanguageFragment(ctx context.Context, input string) (string,
 		report.PIIRedactError = true
 	}
 	if deidentifier != nil && strings.TrimSpace(out) != "" {
-		redacted, err := deidentifier.Text(out)
+		// Skip names due to regex bug in name identification causing false positives
+		redacted, err := deidentifier.Text(out, deidentify.TextOptions{SkipNames: true})
 		if err == nil {
 			if redacted != out {
 				report.PIIRedacted = true
