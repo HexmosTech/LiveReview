@@ -901,12 +901,15 @@ const OverviewTab: React.FC<{ navigate: any; mode?: 'full' | 'breakdown' | 'cont
   );
   const cancelScheduledLabel = isScheduledUpgrade ? 'Cancel Scheduled Upgrade' : 'Cancel Scheduled Downgrade';
   const scheduledChangeLabel = isScheduledUpgrade ? 'Scheduled upgrade' : 'Scheduled downgrade';
+  const hasScheduledPlanChange = Boolean(scheduledPlanCode && scheduledPlanCode !== currentPlanCode && scheduledPlan);
+  const scheduledChangeTargetLabel = hasScheduledPlanChange ? getPlanDisplayName(scheduledPlanCode) : '';
+  const effectivePendingExpiry = displayExpiry || managedSubscription?.current_period_end || licenseExpiresAt || null;
 
   const normalizedStatus = status.trim().toLowerCase();
   const statusIsTerminal = ['cancelled', 'expired', 'halted', 'past_due', 'incomplete'].includes(normalizedStatus);
   const statusBadgeLabel = statusLoading
     ? 'LOADING'
-    : pendingCancel
+    : effectivePendingCancel
     ? 'PENDING EXPIRY'
     : statusIsTerminal
     ? normalizedStatus.replace('_', ' ').toUpperCase()
@@ -1087,7 +1090,7 @@ const OverviewTab: React.FC<{ navigate: any; mode?: 'full' | 'breakdown' | 'cont
           </div>
           <div className="flex items-center gap-2">
             <div className={`px-4 py-2 rounded-lg text-sm font-medium ${
-              pendingCancel
+              effectivePendingCancel
                 ? 'bg-amber-500/10 text-amber-400 border border-amber-500/40'
                 : statusLoading
                 ? 'bg-slate-700 text-slate-300 border border-slate-600'
@@ -1105,16 +1108,57 @@ const OverviewTab: React.FC<{ navigate: any; mode?: 'full' | 'breakdown' | 'cont
           </div>
         </div>
 
-        {pendingCancel && displayExpiry && (
+        {effectivePendingCancel && (
           <div className="mb-4 p-3 bg-slate-700/50 border border-slate-600 rounded-lg">
             <div className="flex items-start gap-3">
               <svg className="w-5 h-5 text-slate-400 mt-0.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
               </svg>
               <div>
-                <p className="text-slate-300 text-sm font-medium">Subscription Cancelled</p>
+                <p className="text-slate-300 text-sm font-medium">Cancellation Scheduled</p>
                 <p className="text-slate-400 text-sm mt-1">
-                  Your access will remain active until <span className="text-white">{formatDate(displayExpiry)}</span>. After this date, you will move to the free hobby plan and your team members will need a new subscription to continue access.
+                  {effectivePendingExpiry ? (
+                    <>
+                      Your current plan stays active until <span className="text-white">{formatDate(effectivePendingExpiry)}</span>. On the next billing cycle, it will switch to the free hobby plan and team member access will be removed.
+                    </>
+                  ) : (
+                    <>
+                      Your current plan stays active until the end of this billing cycle. On the next billing cycle, it will switch to the free hobby plan and team member access will be removed.
+                    </>
+                  )}
+                </p>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {!effectivePendingCancel && hasScheduledPlanChange && (
+          <div className={`mb-4 p-3 rounded-lg border ${isScheduledUpgrade ? 'bg-blue-900/20 border-blue-500/40' : 'bg-amber-900/20 border-amber-500/40'}`}>
+            <div className="flex items-start gap-3">
+              <svg className={`w-5 h-5 mt-0.5 flex-shrink-0 ${isScheduledUpgrade ? 'text-blue-300' : 'text-amber-300'}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+              </svg>
+              <div>
+                <p className={`text-sm font-medium ${isScheduledUpgrade ? 'text-blue-100' : 'text-amber-100'}`}>
+                  {isScheduledUpgrade ? 'Upgrade Scheduled' : 'Downgrade Scheduled'}
+                </p>
+                <p className={`text-sm mt-1 ${isScheduledUpgrade ? 'text-blue-100/80' : 'text-amber-100/80'}`}>
+                  {scheduledChangeTargetLabel ? (
+                    <>
+                      Your plan will change to <span className="text-white">{scheduledChangeTargetLabel}</span>
+                    </>
+                  ) : (
+                    <>
+                      A plan change is scheduled for your next billing cycle
+                    </>
+                  )}
+                  {billingStatus?.billing?.scheduled_plan_effective_at ? (
+                    <>
+                      {' '}on <span className="text-white">{formatDate(billingStatus.billing.scheduled_plan_effective_at)}</span>.
+                    </>
+                  ) : (
+                    <> at the next billing cycle.</>
+                  )}
                 </p>
               </div>
             </div>
