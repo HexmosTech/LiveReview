@@ -1426,42 +1426,55 @@ const OverviewTab: React.FC<{ navigate: any; mode?: 'full' | 'breakdown' | 'cont
           )}
 
           <div className="space-y-4">
-            <p className="text-xs uppercase tracking-wide text-slate-400">Upgrade Path</p>
             <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-3">
               {upgradeHierarchyPlans.map((plan) => {
                 const isCurrentCard = plan.plan_code === currentPlanCode;
                 const isSelectableUpgrade = plan.monthly_loc_limit > currentLocLimit;
-                return (
-                  <div
-                    key={plan.plan_code}
-                    className={`rounded-lg border p-4 text-left transition-colors ${
-                      isCurrentCard
-                        ? 'bg-emerald-900/20 border-emerald-400/50'
-                        : 'bg-slate-900/70 border-slate-700'
-                    }`}
-                  >
-                    <div className="flex items-center justify-between gap-2">
-                      <p className="text-sm font-semibold text-white">{getPlanDisplayName(plan.plan_code)}</p>
-                      {isCurrentCard ? (
-                        <span className="text-[10px] px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-300 border border-emerald-500/40">Current</span>
-                      ) : null}
+                const cardBaseClass = `rounded-lg border p-4 text-left transition-all duration-200 ${
+                  isCurrentCard
+                    ? 'bg-emerald-900/20 border-emerald-400/50'
+                    : 'bg-slate-900/70 border-slate-700'
+                }`;
+
+                if (!isSelectableUpgrade) {
+                  return (
+                    <div
+                      key={plan.plan_code}
+                      className={cardBaseClass}
+                    >
+                      <div className="flex items-center justify-between gap-2">
+                        <p className="text-sm font-semibold text-white">{getPlanDisplayName(plan.plan_code)}</p>
+                        {isCurrentCard ? (
+                          <span className="text-[10px] px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-300 border border-emerald-500/40">Current</span>
+                        ) : null}
+                      </div>
+                      <p className="mt-2 text-sm text-slate-300">{plan.monthly_loc_limit.toLocaleString()} LOC / month</p>
+                      <p className="text-sm text-slate-300">${plan.monthly_price_usd}/month</p>
                     </div>
-                    <p className="mt-2 text-sm text-slate-300">{plan.monthly_loc_limit.toLocaleString()} LOC / month</p>
-                    <p className="text-sm text-slate-300">${plan.monthly_price_usd}/month</p>
-                    {isSelectableUpgrade && (
-                      <button
-                        type="button"
-                        disabled={actionLoading || upgradeCheckoutLoading}
-                        onClick={() => {
-                          void openUpgradePreview(plan.plan_code);
-                        }}
-                        className="mt-3 px-3 py-1.5 rounded bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white text-xs font-medium"
-                        title={`Upgrade to ${getPlanDisplayName(plan.plan_code)}`}
-                      >
+                  );
+                }
+
+                return (
+                  <button
+                    key={plan.plan_code}
+                    type="button"
+                    disabled={actionLoading || upgradeCheckoutLoading}
+                    onClick={() => {
+                      void openUpgradePreview(plan.plan_code);
+                    }}
+                    title={`Upgrade to ${getPlanDisplayName(plan.plan_code)}`}
+                    className={`${cardBaseClass} relative overflow-hidden group hover:-translate-y-0.5 hover:bg-emerald-950/40 hover:border-emerald-300/70 hover:shadow-xl hover:shadow-emerald-950/45 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400/70 disabled:opacity-60 disabled:cursor-not-allowed`}
+                  >
+                    <div className="pointer-events-none absolute inset-0 opacity-0 transition-opacity duration-200 group-hover:opacity-100 bg-gradient-to-br from-emerald-500/15 via-emerald-500/5 to-transparent" />
+                    <div className="relative z-10">
+                      <p className="text-sm font-semibold text-white">{getPlanDisplayName(plan.plan_code)}</p>
+                      <p className="mt-2 text-sm text-slate-300">{plan.monthly_loc_limit.toLocaleString()} LOC / month</p>
+                      <p className="text-sm text-slate-300">${plan.monthly_price_usd}/month</p>
+                      <div className="mt-3 inline-flex px-3 py-1.5 rounded bg-emerald-600 text-white text-xs font-medium transition-colors group-hover:bg-emerald-500">
                         Upgrade
-                      </button>
-                    )}
-                  </div>
+                      </div>
+                    </div>
+                  </button>
                 );
               })}
             </div>
@@ -1542,31 +1555,34 @@ const OverviewTab: React.FC<{ navigate: any; mode?: 'full' | 'breakdown' | 'cont
 
               <div className="p-4 bg-slate-900/70 border border-slate-700 rounded-lg space-y-4">
                 <p className="text-sm text-slate-300 font-medium">Downgrade Plan</p>
+                <p className="text-xs text-slate-400">Downgrades are scheduled and take effect at the end of your current billing cycle.</p>
                 {billingStatus ? (
                 <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-3">
                   {downgradeOptions.map((plan) => {
                     return (
-                      <div
+                      <button
                         key={plan.plan_code}
-                        className="rounded-lg border p-4 text-left transition-colors bg-slate-950/50 border-slate-700"
+                        type="button"
+                        disabled={actionLoading}
+                        onClick={() => {
+                          setSelectedDowngradePlan(plan.plan_code);
+                          void runBillingAction('schedule_downgrade', plan.plan_code);
+                        }}
+                        title={`Downgrade to ${getPlanDisplayName(plan.plan_code)}`}
+                        className="relative overflow-hidden group rounded-lg border p-4 text-left transition-all duration-200 bg-slate-950/50 border-slate-700 hover:-translate-y-0.5 hover:bg-amber-950/30 hover:border-amber-300/70 hover:shadow-xl hover:shadow-amber-950/35 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400/70 disabled:opacity-60 disabled:cursor-not-allowed"
                       >
-                        <div className="flex items-center justify-between gap-2 mb-1">
-                          <p className="text-sm font-semibold text-white">{getPlanDisplayName(plan.plan_code)}</p>
+                        <div className="pointer-events-none absolute inset-0 opacity-0 transition-opacity duration-200 group-hover:opacity-100 bg-gradient-to-br from-amber-500/15 via-amber-500/5 to-transparent" />
+                        <div className="relative z-10">
+                          <div className="flex items-center justify-between gap-2 mb-1">
+                            <p className="text-sm font-semibold text-white">{getPlanDisplayName(plan.plan_code)}</p>
+                          </div>
+                          <p className="text-sm text-slate-300">{plan.monthly_loc_limit.toLocaleString()} LOC / month</p>
+                          <p className="text-sm text-slate-300">${plan.monthly_price_usd}/month</p>
+                          <div className="mt-3 inline-flex px-3 py-1.5 rounded bg-amber-600 text-white text-xs font-medium transition-colors group-hover:bg-amber-500">
+                            Downgrade
+                          </div>
                         </div>
-                        <p className="text-sm text-slate-300">{plan.monthly_loc_limit.toLocaleString()} LOC / month</p>
-                        <p className="text-sm text-slate-300">${plan.monthly_price_usd}/month</p>
-                        <button
-                          type="button"
-                          disabled={actionLoading}
-                          onClick={() => {
-                            setSelectedDowngradePlan(plan.plan_code);
-                            void runBillingAction('schedule_downgrade', plan.plan_code);
-                          }}
-                          className="mt-3 px-3 py-1.5 rounded bg-amber-600 hover:bg-amber-500 disabled:opacity-50 text-white text-xs font-medium"
-                        >
-                          Downgrade
-                        </button>
-                      </div>
+                      </button>
                     );
                   })}
                 </div>
