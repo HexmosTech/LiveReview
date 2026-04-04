@@ -146,7 +146,7 @@ type ManagedSubscription = {
 const SUBSCRIPTION_TAB_LABELS = {
   overview: 'Plan & Upgrade',
   breakdown: 'Usage',
-  assignments: 'Subscription Control',
+  assignments: 'Control',
 } as const;
 
 type SubscriptionTabKey = 'overview' | 'breakdown' | 'assignments';
