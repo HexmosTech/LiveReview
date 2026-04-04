@@ -154,9 +154,9 @@ const LicenseManagement: React.FC = () => {
                 <div className="mb-8">
                     <div className="flex items-center justify-between mb-4">
                         <div>
-                            <h1 className="text-3xl font-bold text-white mb-2">Subscription Management</h1>
+                            <h1 className="text-3xl font-bold text-white mb-2">Subscription Controls</h1>
                             <p className="text-slate-400">
-                                Manage your team subscriptions and seat assignments
+                                Manage payment links, renewal status, and cancellation actions
                                 {currentOrg && ` for ${currentOrg.name}`}
                             </p>
                         </div>
@@ -164,9 +164,16 @@ const LicenseManagement: React.FC = () => {
                             onClick={() => navigate('/subscribe')}
                             className="px-6 py-3 bg-blue-600 hover:bg-blue-700 text-white font-semibold rounded-lg transition-colors shadow-lg"
                         >
-                            Purchase Licenses
+                            Compare and Upgrade Plans
                         </button>
                     </div>
+                </div>
+
+                <div className="mb-6 p-4 bg-slate-900/50 border border-slate-700 rounded-lg">
+                    <p className="text-sm text-slate-200 font-medium">LOC plans are the primary billing model.</p>
+                    <p className="text-xs text-slate-400 mt-1">
+                        Member access assignment is still available for advanced access policies, but it is no longer the primary subscription concept.
+                    </p>
                 </div>
 
                 {/* Error State */}
@@ -184,9 +191,9 @@ const LicenseManagement: React.FC = () => {
                                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
                             </svg>
                         </div>
-                        <h3 className="text-xl font-semibold text-white mb-2">No Active Subscriptions</h3>
+                        <h3 className="text-xl font-semibold text-white mb-2">No Active Paid Plan</h3>
                         <p className="text-slate-400 mb-6">
-                            Get started by purchasing a Team plan to unlock unlimited reviews and team collaboration features.
+                            Choose a LOC plan to unlock higher monthly capacity and hosted AI defaults.
                         </p>
                         <button
                             onClick={() => navigate('/subscribe')}
@@ -195,7 +202,7 @@ const LicenseManagement: React.FC = () => {
                             <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
                             </svg>
-                            Purchase Team Plan
+                            Explore LOC Plans
                         </button>
                     </div>
                 )}
@@ -230,7 +237,7 @@ const LicenseManagement: React.FC = () => {
                                                     <span>Loading...</span>
                                                 </>
                                             ) : (
-                                                'Assign Seats'
+                                                'Open Advanced Access'
                                             )}
                                         </button>
                                     </div>
@@ -238,15 +245,15 @@ const LicenseManagement: React.FC = () => {
                                     {/* Stats Grid */}
                                     <div className="grid grid-cols-1 sm:grid-cols-4 gap-4 mt-6">
                                         <div className="bg-slate-900/60 border border-slate-700 rounded-lg p-4">
-                                            <div className="text-slate-400 text-xs mb-1">Total Seats</div>
+                                            <div className="text-slate-400 text-xs mb-1">Access Capacity (Advanced)</div>
                                             <div className="text-2xl font-bold text-white">{sub.quantity}</div>
                                         </div>
                                         <div className="bg-slate-900/60 border border-slate-700 rounded-lg p-4">
-                                            <div className="text-slate-400 text-xs mb-1">Assigned</div>
+                                            <div className="text-slate-400 text-xs mb-1">Assigned Access</div>
                                             <div className="text-2xl font-bold text-emerald-400">{sub.assigned_seats}</div>
                                         </div>
                                         <div className="bg-slate-900/60 border border-slate-700 rounded-lg p-4">
-                                            <div className="text-slate-400 text-xs mb-1">Available</div>
+                                            <div className="text-slate-400 text-xs mb-1">Available Access</div>
                                             <div className="text-2xl font-bold text-blue-400">{sub.quantity - sub.assigned_seats}</div>
                                         </div>
                                         <div className="bg-slate-900/60 border border-slate-700 rounded-lg p-4">

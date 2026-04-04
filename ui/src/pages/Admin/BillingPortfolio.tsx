@@ -72,7 +72,11 @@ const formatCurrency = (cents: number): string => {
   return `$${(Number(cents || 0) / 100).toFixed(2)}`;
 };
 
-const BillingPortfolio: React.FC = () => {
+type BillingPortfolioProps = {
+  embedded?: boolean;
+};
+
+const BillingPortfolio: React.FC<BillingPortfolioProps> = ({ embedded = false }) => {
   const navigate = useNavigate();
   const { isSuperAdmin } = useOrgContext();
 
@@ -147,11 +151,15 @@ const BillingPortfolio: React.FC = () => {
   }, [selectedOrgId]);
 
   if (!isSuperAdmin) {
+    if (embedded) {
+      return null;
+    }
+
     return (
       <div className="p-6">
         <div className="bg-slate-800/60 border border-slate-700 rounded-lg p-6">
           <h2 className="text-lg font-semibold text-white">Superadmin Access Required</h2>
-          <p className="text-slate-300 mt-2">This billing portfolio page is available only for superadmin users.</p>
+          <p className="text-slate-300 mt-2">This cross-organization usage view is available only for superadmin users.</p>
           <button
             className="mt-4 px-4 py-2 rounded bg-blue-600 hover:bg-blue-500 text-white"
             onClick={() => navigate('/dashboard')}
@@ -164,20 +172,36 @@ const BillingPortfolio: React.FC = () => {
   }
 
   return (
-    <div className="container mx-auto px-4 py-6 space-y-6">
+    <div className={embedded ? 'space-y-4' : 'container mx-auto px-4 py-6 space-y-6'}>
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-semibold text-white">Billing Portfolio</h1>
-          <p className="text-slate-300">Superadmin view for usage, payment health, and net collections.</p>
+          <h1 className={`${embedded ? 'text-md' : 'text-2xl'} font-semibold text-white`}>
+            {embedded ? 'All Organizations' : 'Usage (All Organizations)'}
+          </h1>
+          <p className="text-slate-300">Superadmin view for cross-organization plan posture and payment health.</p>
         </div>
-        <button
-          className="px-4 py-2 rounded bg-slate-700 hover:bg-slate-600 text-white"
-          onClick={loadPortfolio}
-          disabled={loading}
-        >
-          {loading ? 'Refreshing...' : 'Refresh'}
-        </button>
+        {!embedded && (
+          <button
+            className="px-4 py-2 rounded bg-slate-700 hover:bg-slate-600 text-white"
+            onClick={loadPortfolio}
+            disabled={loading}
+          >
+            {loading ? 'Refreshing...' : 'Refresh'}
+          </button>
+        )}
       </div>
+
+      {embedded && (
+        <div>
+          <button
+            className="px-3 py-1.5 rounded bg-slate-700 hover:bg-slate-600 text-white text-sm"
+            onClick={loadPortfolio}
+            disabled={loading}
+          >
+            {loading ? 'Refreshing...' : 'Refresh'}
+          </button>
+        </div>
+      )}
 
       {error && (
         <div className="bg-red-900/30 border border-red-600/40 rounded-lg p-3 text-red-200 text-sm">{error}</div>
@@ -185,23 +209,25 @@ const BillingPortfolio: React.FC = () => {
 
       {isEndpointUnavailable && (
         <div className="bg-slate-800/70 border border-slate-700 rounded-lg p-4">
-          <p className="text-sm text-slate-200 font-medium">Portfolio API is not available on the connected backend.</p>
+          <p className="text-sm text-slate-200 font-medium">Cross-organization usage API is not available on the connected backend.</p>
           <p className="text-xs text-slate-400 mt-1">
-            Global cross-organization portfolio metrics require the latest backend deployment that includes /admin/billing/portfolio routes.
+            This view needs backend routes under /admin/billing/portfolio.
           </p>
           <div className="mt-3 flex flex-wrap gap-2">
-            <button
-              className="px-3 py-2 rounded bg-blue-600 hover:bg-blue-500 text-white text-sm"
-              onClick={() => navigate('/settings-subscriptions-breakdown')}
-            >
-              Open Breakdown Tab
-            </button>
+            {!embedded && (
+              <button
+                className="px-3 py-2 rounded bg-blue-600 hover:bg-blue-500 text-white text-sm"
+                onClick={() => navigate('/settings-subscriptions-breakdown')}
+              >
+                Open Breakdown Tab
+              </button>
+            )}
             <button
               className="px-3 py-2 rounded bg-slate-700 hover:bg-slate-600 text-white text-sm"
               onClick={loadPortfolio}
               disabled={loading}
             >
-              {loading ? 'Retrying...' : 'Retry Portfolio'}
+              {loading ? 'Retrying...' : 'Retry Usage View'}
             </button>
           </div>
         </div>
@@ -209,18 +235,20 @@ const BillingPortfolio: React.FC = () => {
 
       {!loading && !summary && orgs.length === 0 && (
         <div className="bg-slate-800/60 border border-slate-700 rounded-lg p-4">
-          <p className="text-sm text-slate-200 font-medium">No portfolio data to display.</p>
+          <p className="text-sm text-slate-200 font-medium">No organization usage data to display.</p>
           <p className="text-xs text-slate-400 mt-1">
             {errorStatus === 404
-              ? 'This environment does not expose /admin/billing/portfolio APIs yet. Use Subscription settings for org-level billing details.'
-              : 'No organizations with billing portfolio data were returned.'}
+              ? 'This environment does not expose /admin/billing/portfolio APIs yet. Use the Usage tab for org-level details.'
+              : 'No organizations with usage rollup data were returned.'}
           </p>
-          <button
-            className="mt-3 px-3 py-2 rounded bg-blue-600 hover:bg-blue-500 text-white text-sm"
-            onClick={() => navigate('/settings-subscriptions-overview')}
-          >
-            Open Subscription Billing
-          </button>
+          {!embedded && (
+            <button
+              className="mt-3 px-3 py-2 rounded bg-blue-600 hover:bg-blue-500 text-white text-sm"
+              onClick={() => navigate('/settings-subscriptions-overview')}
+            >
+              Open Subscription Billing
+            </button>
+          )}
         </div>
       )}
 
@@ -235,7 +263,7 @@ const BillingPortfolio: React.FC = () => {
             <p className="text-white font-semibold text-lg">{summary.total_orgs}</p>
           </div>
           <div className="bg-slate-800/70 border border-slate-700 rounded p-3">
-            <p className="text-slate-400 text-xs">Billable LOC</p>
+            <p className="text-slate-400 text-xs">Total LOC Used</p>
             <p className="text-white font-semibold text-lg">{summary.total_billable_loc.toLocaleString()}</p>
           </div>
           <div className="bg-slate-800/70 border border-slate-700 rounded p-3">
@@ -243,11 +271,11 @@ const BillingPortfolio: React.FC = () => {
             <p className="text-white font-semibold text-lg">{summary.total_operations.toLocaleString()}</p>
           </div>
           <div className="bg-slate-800/70 border border-slate-700 rounded p-3">
-            <p className="text-slate-400 text-xs">Net Collected</p>
+            <p className="text-slate-400 text-xs">Net Collections</p>
             <p className="text-white font-semibold text-lg">{formatCurrency(summary.net_collected_cents)}</p>
           </div>
           <div className="bg-slate-800/70 border border-slate-700 rounded p-3">
-            <p className="text-slate-400 text-xs">Failed Payments</p>
+            <p className="text-slate-400 text-xs">Payment Issues</p>
             <p className="text-white font-semibold text-lg">{summary.failed_payments.toLocaleString()}</p>
           </div>
         </div>
@@ -261,7 +289,7 @@ const BillingPortfolio: React.FC = () => {
               <thead className="bg-slate-900/80 text-slate-300">
                 <tr>
                   <th className="px-3 py-2">Org</th>
-                  <th className="px-3 py-2">Plan</th>
+                  <th className="px-3 py-2">Current Plan</th>
                   <th className="px-3 py-2">LOC</th>
                   <th className="px-3 py-2">Net</th>
                   <th className="px-3 py-2">Failed</th>
@@ -336,7 +364,7 @@ const BillingPortfolio: React.FC = () => {
               </div>
 
               <div>
-                <p className="text-slate-300 text-sm mb-2">Recent Usage Operations</p>
+                <p className="text-slate-300 text-sm mb-2">Recent Operations</p>
                 <div className="overflow-x-auto border border-slate-700 rounded-lg">
                   <table className="min-w-full text-xs text-left">
                     <thead className="bg-slate-900/80 text-slate-300">
