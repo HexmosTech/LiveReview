@@ -417,7 +417,7 @@ const OverviewTab: React.FC<{ navigate: any; mode?: 'full' | 'breakdown' | 'cont
   const [status, setStatus] = useState<string>('');
   const [statusLoading, setStatusLoading] = useState(false);
   const [subscriptionLoading, setSubscriptionLoading] = useState(false);
-  const [billingLoading, setBillingLoading] = useState(false);
+  const [billingLoading, setBillingLoading] = useState(true);
   const [displayExpiry, setDisplayExpiry] = useState<string | null>(null);
   const [billingStatus, setBillingStatus] = useState<BillingStatusResponse | null>(null);
   const [quotaStatus, setQuotaStatus] = useState<QuotaStatusResponse | null>(null);
@@ -453,6 +453,7 @@ const OverviewTab: React.FC<{ navigate: any; mode?: 'full' | 'breakdown' | 'cont
     if (!currentOrg?.id) {
       setStatusLoading(false);
       setSubscriptionLoading(false);
+      setBillingLoading(false);
       return;
     }
 
@@ -512,6 +513,9 @@ const OverviewTab: React.FC<{ navigate: any; mode?: 'full' | 'breakdown' | 'cont
 
   useEffect(() => {
     if (!currentOrg?.id) return;
+    setBillingStatus(null);
+    setQuotaStatus(null);
+    setBillingLoading(true);
     refreshBilling().catch((err) => {
       setBillingError(err?.message || 'Failed to load billing status');
     });
@@ -1044,7 +1048,37 @@ const OverviewTab: React.FC<{ navigate: any; mode?: 'full' | 'breakdown' | 'cont
       )}
 
       {/* Current Plan Section */}
-      {isPlanUpgradeMode && (
+      {isPlanUpgradeMode && billingLoading && (
+      <div className="bg-slate-800/60 border border-slate-700 rounded-lg p-6 animate-pulse">
+        <div className="flex items-center justify-between mb-4">
+          <div className="space-y-2">
+            <div className="h-5 w-28 bg-slate-700 rounded" />
+            <div className="h-4 w-40 bg-slate-700 rounded" />
+          </div>
+          <div className="h-9 w-28 bg-slate-700 rounded-lg" />
+        </div>
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mb-4">
+          <div className="h-16 bg-slate-900/70 border border-slate-700 rounded" />
+          <div className="h-16 bg-slate-900/70 border border-slate-700 rounded" />
+          <div className="h-16 bg-slate-900/70 border border-slate-700 rounded" />
+        </div>
+        <div className="h-2 bg-slate-900 border border-slate-700 rounded mb-4" />
+        <div className="space-y-3">
+          <div className="h-4 bg-slate-900/70 border border-slate-700 rounded" />
+          <div className="h-4 bg-slate-900/70 border border-slate-700 rounded" />
+          <div className="h-4 bg-slate-900/70 border border-slate-700 rounded" />
+        </div>
+      </div>
+      )}
+
+      {isPlanUpgradeMode && !billingLoading && !billingStatus && (
+      <div className="bg-slate-800/60 border border-slate-700 rounded-lg p-6">
+        <h3 className="text-md font-semibold text-white">Current Plan</h3>
+        <p className="text-sm text-slate-400 mt-2">Unable to load current plan details right now.</p>
+      </div>
+      )}
+
+      {isPlanUpgradeMode && !billingLoading && billingStatus && (
       <div className="bg-slate-800/60 border border-slate-700 rounded-lg p-6">
         <div className="flex items-center justify-between mb-4">
           <div>
