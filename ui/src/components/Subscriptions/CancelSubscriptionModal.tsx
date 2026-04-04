@@ -200,21 +200,13 @@ export const CancelSubscriptionModal: React.FC<CancelSubscriptionModalProps> = (
                         <div className="flex items-center justify-end space-x-3 p-6 bg-slate-900/50 border-t border-slate-700 rounded-b-lg">
                             <button
                                 type="button"
-                                onClick={handleClose}
-                                disabled={isSubmitting}
-                                className="px-5 py-2.5 text-sm font-medium text-slate-300 bg-slate-700 hover:bg-slate-600 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                            >
-                                Keep Subscription
-                            </button>
-                            <button
-                                type="button"
                                 onClick={handleCancel}
                                 disabled={isSubmitting}
-                                className="px-5 py-2.5 text-sm font-medium text-white bg-red-600 hover:bg-red-700 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center space-x-2 min-w-[160px] justify-center"
+                                className="px-5 py-2.5 text-sm font-medium text-red-300 bg-red-500/10 border border-red-500/40 hover:bg-red-500/20 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center space-x-2 min-w-[160px] justify-center"
                             >
                                 {isSubmitting ? (
                                     <>
-                                        <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                                        <div className="w-4 h-4 border-2 border-red-300 border-t-transparent rounded-full animate-spin"></div>
                                         <span>Cancelling...</span>
                                     </>
                                 ) : (
@@ -225,6 +217,15 @@ export const CancelSubscriptionModal: React.FC<CancelSubscriptionModalProps> = (
                                         <span>Cancel Subscription</span>
                                     </>
                                 )}
+                            </button>
+                            <button
+                                type="button"
+                                onClick={handleClose}
+                                disabled={isSubmitting}
+                                autoFocus
+                                className="px-5 py-2.5 text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed min-w-[160px]"
+                            >
+                                Keep Subscription
                             </button>
                         </div>
                     </>
