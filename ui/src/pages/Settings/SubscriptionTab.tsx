@@ -2,9 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import moment from 'moment-timezone';
 import { isCloudMode } from '../../utils/deploymentMode';
-import { useAppSelector } from '../../store/configureStore';
 import { useOrgContext } from '../../hooks/useOrgContext';
-import LicenseManagement from '../Licenses/LicenseManagement';
 import BillingPortfolio from '../Admin/BillingPortfolio';
 import { CancelSubscriptionModal } from '../../components/Subscriptions';
 import apiClient from '../../api/apiClient';
@@ -135,6 +133,23 @@ type BillingUsageMembersResponse = {
   offset: number;
   count: number;
 };
+
+type ManagedSubscription = {
+  razorpay_subscription_id: string;
+  status: string;
+  cancel_at_period_end?: boolean;
+  current_period_end?: string;
+  license_expires_at?: string;
+  short_url?: string;
+};
+
+const SUBSCRIPTION_TAB_LABELS = {
+  overview: 'Plan & Upgrade',
+  breakdown: 'Usage',
+  assignments: 'Subscription Control',
+} as const;
+
+type SubscriptionTabKey = 'overview' | 'breakdown' | 'assignments';
 
 type BillingMyUsageResponse = {
   member: BillingUsageMemberSummary;
@@ -288,22 +303,18 @@ const buildUpgradeCheckoutFailureMessage = (response: any, prepared: PrepareUpgr
 
 const SubscriptionTab: React.FC = () => {
   const navigate = useNavigate();
-  const { currentOrg, isSuperAdmin } = useOrgContext();
-  const canViewPortfolio = isSuperAdmin;
+  const { currentOrg } = useOrgContext();
   
   // Initialize tab from URL path
-  const getInitialTab = (): 'overview' | 'breakdown' | 'assignments' | 'portfolio' => {
+  const getInitialTab = (): SubscriptionTabKey => {
     const hash = window.location.hash;
-    if (hash.includes('settings-subscriptions-portfolio')) return canViewPortfolio ? 'portfolio' : 'overview';
+    if (hash.includes('settings-subscriptions-portfolio')) return 'breakdown';
     if (hash.includes('settings-subscriptions-breakdown')) return 'breakdown';
     if (hash.includes('settings-subscriptions-assign')) return 'assignments';
     return 'overview';
   };
   
-  const [activeTab, setActiveTab] = useState<'overview' | 'breakdown' | 'assignments' | 'portfolio'>(getInitialTab);
-
-  // Check if user can manage licenses (owner or super admin)
-  const canManageLicenses = isSuperAdmin || currentOrg?.role === 'owner';
+  const [activeTab, setActiveTab] = useState<SubscriptionTabKey>(getInitialTab);
 
   useEffect(() => {
     // Redirect to license page if in self-hosted mode
@@ -316,7 +327,7 @@ const SubscriptionTab: React.FC = () => {
   useEffect(() => {
     const hash = window.location.hash;
     if (hash.includes('settings-subscriptions-portfolio')) {
-      setActiveTab(canViewPortfolio ? 'portfolio' : 'overview');
+      setActiveTab('breakdown');
     } else if (hash.includes('settings-subscriptions-breakdown')) {
       setActiveTab('breakdown');
     } else if (hash.includes('settings-subscriptions-assign')) {
@@ -324,15 +335,14 @@ const SubscriptionTab: React.FC = () => {
     } else if (hash.includes('settings-subscriptions-overview')) {
       setActiveTab('overview');
     }
-  }, [window.location.hash, canViewPortfolio]);
+  }, [window.location.hash]);
 
-  const handleTabChange = (tab: 'overview' | 'breakdown' | 'assignments' | 'portfolio') => {
+  const handleTabChange = (tab: SubscriptionTabKey) => {
     setActiveTab(tab);
-    const routeMap: Record<'overview' | 'breakdown' | 'assignments' | 'portfolio', string> = {
+    const routeMap: Record<SubscriptionTabKey, string> = {
       overview: '/settings-subscriptions-overview',
       breakdown: '/settings-subscriptions-breakdown',
       assignments: '/settings-subscriptions-assign',
-      portfolio: '/settings-subscriptions-portfolio',
     };
     const route = routeMap[tab];
     navigate(route);
@@ -356,7 +366,7 @@ const SubscriptionTab: React.FC = () => {
                 : 'text-slate-400 hover:text-slate-300'
             }`}
           >
-            Overview
+            {SUBSCRIPTION_TAB_LABELS.overview}
           </button>
           <button
             onClick={() => handleTabChange('breakdown')}
@@ -366,32 +376,18 @@ const SubscriptionTab: React.FC = () => {
                 : 'text-slate-400 hover:text-slate-300'
             }`}
           >
-            Breakdown
+            {SUBSCRIPTION_TAB_LABELS.breakdown}
           </button>
-          {canManageLicenses && (
-            <button
-              onClick={() => handleTabChange('assignments')}
-              className={`px-4 py-3 text-sm font-medium transition-colors ${
-                activeTab === 'assignments'
-                  ? 'text-white border-b-2 border-blue-500'
-                  : 'text-slate-400 hover:text-slate-300'
-              }`}
-            >
-              License Assignments
-            </button>
-          )}
-          {canViewPortfolio && (
-            <button
-              onClick={() => handleTabChange('portfolio')}
-              className={`px-4 py-3 text-sm font-medium transition-colors ${
-                activeTab === 'portfolio'
-                  ? 'text-white border-b-2 border-blue-500'
-                  : 'text-slate-400 hover:text-slate-300'
-              }`}
-            >
-              Portfolio
-            </button>
-          )}
+          <button
+            onClick={() => handleTabChange('assignments')}
+            className={`px-4 py-3 text-sm font-medium transition-colors ${
+              activeTab === 'assignments'
+                ? 'text-white border-b-2 border-blue-500'
+                : 'text-slate-400 hover:text-slate-300'
+            }`}
+          >
+            {SUBSCRIPTION_TAB_LABELS.assignments}
+          </button>
         </div>
       </div>
 
@@ -400,26 +396,28 @@ const SubscriptionTab: React.FC = () => {
         <OverviewTab navigate={navigate} mode="full" />
       ) : activeTab === 'breakdown' ? (
         <OverviewTab navigate={navigate} mode="breakdown" />
-      ) : activeTab === 'portfolio' ? (
-        canViewPortfolio ? <PortfolioTab /> : <OverviewTab navigate={navigate} mode="full" />
-      ) : canManageLicenses ? (
-        <AssignmentsTab />
       ) : (
-        <OverviewTab navigate={navigate} mode="full" />
+        <OverviewTab navigate={navigate} mode="controls" />
       )}
     </div>
   );
 };
 
 // Overview Tab Component
-const OverviewTab: React.FC<{ navigate: any; mode?: 'full' | 'breakdown' }> = ({ navigate, mode = 'full' }) => {
+const OverviewTab: React.FC<{ navigate: any; mode?: 'full' | 'breakdown' | 'controls' }> = ({ navigate, mode = 'full' }) => {
   const { currentOrg, isSuperAdmin } = useOrgContext();
   const isBreakdownMode = mode === 'breakdown';
+  const isControlsMode = mode === 'controls';
+  const isPlanUpgradeMode = mode === 'full';
   const [showCancelModal, setShowCancelModal] = useState(false);
   const [subscriptionId, setSubscriptionId] = useState<string | null>(null);
+  const [managedSubscription, setManagedSubscription] = useState<ManagedSubscription | null>(null);
   const [pendingCancel, setPendingCancel] = useState(false);
+  const [subscriptionManageURL, setSubscriptionManageURL] = useState('');
   const [status, setStatus] = useState<string>('');
   const [statusLoading, setStatusLoading] = useState(false);
+  const [subscriptionLoading, setSubscriptionLoading] = useState(false);
+  const [billingLoading, setBillingLoading] = useState(false);
   const [displayExpiry, setDisplayExpiry] = useState<string | null>(null);
   const [billingStatus, setBillingStatus] = useState<BillingStatusResponse | null>(null);
   const [quotaStatus, setQuotaStatus] = useState<QuotaStatusResponse | null>(null);
@@ -454,6 +452,7 @@ const OverviewTab: React.FC<{ navigate: any; mode?: 'full' | 'breakdown' }> = ({
   useEffect(() => {
     if (!currentOrg?.id) {
       setStatusLoading(false);
+      setSubscriptionLoading(false);
       return;
     }
 
@@ -470,6 +469,7 @@ const OverviewTab: React.FC<{ navigate: any; mode?: 'full' | 'breakdown' }> = ({
         if (data) {
           setSubscriptionId(data.subscription_id || null);
           setPendingCancel(Boolean(data.cancel_at_period_end));
+          setSubscriptionManageURL(String(data.short_url || ''));
           setStatus(data.status || '');
           const expirySrc = data.cancel_at_period_end ? data.current_period_end : data.license_expires_at;
           setDisplayExpiry(expirySrc || licenseExpiresAt || null);
@@ -478,9 +478,36 @@ const OverviewTab: React.FC<{ navigate: any; mode?: 'full' | 'breakdown' }> = ({
       .catch(() => {
         setSubscriptionId(null);
         setPendingCancel(false);
+        setSubscriptionManageURL('');
         setStatus('');
       })
       .finally(() => setStatusLoading(false));
+
+    setSubscriptionLoading(true);
+    apiClient
+      .get<{ subscriptions: ManagedSubscription[] }>('/subscriptions', {
+        headers: {
+          'X-Org-Context': currentOrg.id.toString(),
+        },
+      })
+      .then((response) => {
+        const subscriptions = Array.isArray(response?.subscriptions) ? response.subscriptions : [];
+        const prioritized = [...subscriptions].sort((a, b) => {
+          const score = (item: ManagedSubscription) => {
+            const normalized = String(item.status || '').toLowerCase();
+            if (normalized === 'active') return 0;
+            if (normalized === 'authenticated' || normalized === 'created') return 1;
+            if (normalized === 'halted') return 2;
+            return 3;
+          };
+          return score(a) - score(b);
+        });
+        setManagedSubscription(prioritized[0] || null);
+      })
+      .catch(() => {
+        setManagedSubscription(null);
+      })
+      .finally(() => setSubscriptionLoading(false));
   }, [currentOrg?.id, licenseExpiresAt]);
 
   useEffect(() => {
@@ -566,24 +593,29 @@ const OverviewTab: React.FC<{ navigate: any; mode?: 'full' | 'breakdown' }> = ({
     : {};
 
   const refreshBilling = async () => {
+    setBillingLoading(true);
     const emptyOpsResponse: BillingUsageOperationsResponse = { operations: [], limit: 10, offset: 0, count: 0 };
     const emptyMembersResponse: BillingUsageMembersResponse = { members: [], limit: 10, offset: 0, count: 0 };
-    const [billing, quota, summary, operations, meUsage, members] = await Promise.all([
-      apiClient.get<BillingStatusResponse>('/billing/status', orgScopedRequestOptions),
-      apiClient.get<QuotaStatusResponse>('/quota/status', orgScopedRequestOptions).catch((): null => null),
-      apiClient.get<BillingUsageSummaryResponse>('/billing/usage/summary', orgScopedRequestOptions).catch((): null => null),
-      apiClient.get<BillingUsageOperationsResponse>('/billing/usage/operations?limit=10&offset=0', orgScopedRequestOptions).catch((): BillingUsageOperationsResponse => emptyOpsResponse),
-      apiClient.get<BillingMyUsageResponse>('/billing/usage/me', orgScopedRequestOptions).catch((): null => null),
-      canManageBilling
-        ? apiClient.get<BillingUsageMembersResponse>('/billing/usage/members?limit=10&offset=0', orgScopedRequestOptions).catch((): BillingUsageMembersResponse => emptyMembersResponse)
-        : Promise.resolve(emptyMembersResponse),
-    ]);
-    setBillingStatus(billing);
-    setQuotaStatus(quota);
-    setUsageSummary(summary);
-    setUsageOps(operations.operations || []);
-    setMyUsage(meUsage?.member || null);
-    setUsageMembers(members.members || []);
+    try {
+      const [billing, quota, summary, operations, meUsage, members] = await Promise.all([
+        apiClient.get<BillingStatusResponse>('/billing/status', orgScopedRequestOptions),
+        apiClient.get<QuotaStatusResponse>('/quota/status', orgScopedRequestOptions).catch((): null => null),
+        apiClient.get<BillingUsageSummaryResponse>('/billing/usage/summary', orgScopedRequestOptions).catch((): null => null),
+        apiClient.get<BillingUsageOperationsResponse>('/billing/usage/operations?limit=10&offset=0', orgScopedRequestOptions).catch((): BillingUsageOperationsResponse => emptyOpsResponse),
+        apiClient.get<BillingMyUsageResponse>('/billing/usage/me', orgScopedRequestOptions).catch((): null => null),
+        canManageBilling
+          ? apiClient.get<BillingUsageMembersResponse>('/billing/usage/members?limit=10&offset=0', orgScopedRequestOptions).catch((): BillingUsageMembersResponse => emptyMembersResponse)
+          : Promise.resolve(emptyMembersResponse),
+      ]);
+      setBillingStatus(billing);
+      setQuotaStatus(quota);
+      setUsageSummary(summary);
+      setUsageOps(operations.operations || []);
+      setMyUsage(meUsage?.member || null);
+      setUsageMembers(members.members || []);
+    } finally {
+      setBillingLoading(false);
+    }
   };
 
   const refreshUpgradeRequestStatus = async (requestID?: string) => {
@@ -608,12 +640,16 @@ const OverviewTab: React.FC<{ navigate: any; mode?: 'full' | 'breakdown' }> = ({
     }
   };
 
-  const runBillingAction = async (mode: 'schedule_downgrade' | 'cancel_downgrade') => {
+  const runBillingAction = async (mode: 'schedule_downgrade' | 'cancel_downgrade', targetPlanCode?: string) => {
     setActionLoading(true);
     setBillingError(null);
     try {
       if (mode === 'schedule_downgrade') {
-        await apiClient.post('/billing/downgrade/schedule', { target_plan_code: selectedDowngradePlan }, orgScopedRequestOptions);
+        const effectivePlanCode = String(targetPlanCode || selectedDowngradePlan || '').trim();
+        if (!effectivePlanCode) {
+          throw new Error('Select a lower plan to continue.');
+        }
+        await apiClient.post('/billing/downgrade/schedule', { target_plan_code: effectivePlanCode }, orgScopedRequestOptions);
       } else {
         await apiClient.post('/billing/downgrade/cancel', {}, orgScopedRequestOptions);
       }
@@ -625,14 +661,17 @@ const OverviewTab: React.FC<{ navigate: any; mode?: 'full' | 'breakdown' }> = ({
     }
   };
 
-  const openUpgradePreview = async () => {
-    if (!selectedUpgradePlan) return;
+  const openUpgradePreview = async (targetPlanCode?: string) => {
+    const effectivePlanCode = String(targetPlanCode || selectedUpgradePlan || '').trim();
+    if (!effectivePlanCode) return;
+
+    setSelectedUpgradePlan(effectivePlanCode);
 
     setActionLoading(true);
     setBillingError(null);
     setLastUpgradeResult(null);
     try {
-      if (isFree && selectedUpgradePlan === 'team_32usd') {
+      if (isFree && effectivePlanCode === 'team_32usd') {
         navigate('/checkout/team?period=monthly');
         return;
       }
@@ -640,7 +679,7 @@ const OverviewTab: React.FC<{ navigate: any; mode?: 'full' | 'breakdown' }> = ({
       const preview = await apiClient.post<UpgradePreviewResponse>(
         '/billing/upgrade/preview',
         {
-          target_plan_code: selectedUpgradePlan,
+          target_plan_code: effectivePlanCode,
         },
         orgScopedRequestOptions
       );
@@ -658,9 +697,9 @@ const OverviewTab: React.FC<{ navigate: any; mode?: 'full' | 'breakdown' }> = ({
       setShowUpgradeModal(Boolean(preview?.preview_token));
     } catch (err: any) {
       if (err?.status === 404) {
-        setBillingError('Upgrade preview endpoint returned 404. Ensure API is redeployed with /billing/upgrade/preview route and this org context is valid.');
+        setBillingError('Upgrade endpoint returned 404. Ensure API is redeployed with /billing/upgrade/preview route and this org context is valid.');
       } else {
-        setBillingError(err?.message || 'Failed to preview upgrade charge');
+        setBillingError(err?.message || 'Failed to prepare upgrade charge');
       }
     } finally {
       setActionLoading(false);
@@ -821,6 +860,35 @@ const OverviewTab: React.FC<{ navigate: any; mode?: 'full' | 'breakdown' }> = ({
     ? 'Quota-based (30,000 LOC/month)'
     : `Quota-based (${(currentPlan?.monthly_loc_limit || 100000).toLocaleString()} LOC/month)`;
 
+  const currentLocLimit = currentPlan?.monthly_loc_limit || (isFree ? 30000 : 100000);
+  const currentLocUsed = usageSummary?.total_billable_loc || 0;
+  const currentLocRemaining = Math.max(0, currentLocLimit - currentLocUsed);
+  const currentLocUsagePercent = currentLocLimit > 0 ? Math.min(100, Math.round((currentLocUsed / currentLocLimit) * 100)) : 0;
+  const sortedPlansByLoc = [...(billingStatus?.available_plans || [])].sort((a, b) => a.monthly_loc_limit - b.monthly_loc_limit);
+  const currentPlanIndex = sortedPlansByLoc.findIndex((plan) => plan.plan_code === currentPlanCode);
+  const upgradeHierarchyPlans = currentPlanIndex >= 0 ? sortedPlansByLoc.slice(currentPlanIndex) : [];
+  const upgradeOptions = upgradeHierarchyPlans.filter((plan) => plan.plan_code !== currentPlanCode);
+  const downgradeOptions = currentPlanIndex > 0 ? sortedPlansByLoc.slice(0, currentPlanIndex).reverse() : [];
+  const effectiveSubscriptionId = subscriptionId || managedSubscription?.razorpay_subscription_id || null;
+  const effectivePendingCancel = pendingCancel || Boolean(managedSubscription?.cancel_at_period_end);
+  const effectiveSubscriptionManageURL = subscriptionManageURL || String(managedSubscription?.short_url || '');
+  const normalizedCurrentStatus = String(status || '').trim().toLowerCase();
+  const normalizedManagedStatus = String(managedSubscription?.status || '').trim().toLowerCase();
+  const currentCanCancel =
+    Boolean(subscriptionId) &&
+    !pendingCancel &&
+    (!normalizedCurrentStatus || normalizedCurrentStatus === 'active' || normalizedCurrentStatus === 'authenticated');
+  const managedCanCancel =
+    Boolean(managedSubscription?.razorpay_subscription_id) &&
+    !Boolean(managedSubscription?.cancel_at_period_end) &&
+    (!normalizedManagedStatus || normalizedManagedStatus === 'active' || normalizedManagedStatus === 'authenticated');
+  const cancelTargetSubscriptionId = currentCanCancel
+    ? subscriptionId
+    : managedCanCancel
+    ? managedSubscription?.razorpay_subscription_id || null
+    : null;
+  const canCancelEffectiveSubscription = Boolean(cancelTargetSubscriptionId);
+
   const scheduledPlanCode = billingStatus?.billing?.scheduled_plan_code || '';
   const scheduledPlan = billingStatus?.available_plans?.find((p) => p.plan_code === scheduledPlanCode);
   const currentBillingPlan = billingStatus?.available_plans?.find((p) => p.plan_code === billingStatus?.billing?.current_plan_code);
@@ -925,32 +993,39 @@ const OverviewTab: React.FC<{ navigate: any; mode?: 'full' | 'breakdown' }> = ({
       <div>
         {isBreakdownMode ? (
           <>
-            <h2 className="text-lg font-semibold text-white mb-2">Usage Breakdown</h2>
+            <h2 className="text-lg font-semibold text-white mb-2">Usage</h2>
             <p className="text-sm text-slate-400 mb-4">
-              Member-level consumption, operation history, and billing-period usage visibility.
+              Track your usage by member and operation for the current billing period.
+            </p>
+          </>
+        ) : isControlsMode ? (
+          <>
+            <h2 className="text-lg font-semibold text-white mb-2">Subscription Control</h2>
+            <p className="text-sm text-slate-400 mb-4">
+              Manage advanced access assignment, payment link, cancellation, and downgrade.
             </p>
           </>
         ) : (
           <>
-            <h2 className="text-lg font-semibold text-white mb-2">Subscription Management</h2>
+            <h2 className="text-lg font-semibold text-white mb-2">Plan and Upgrade</h2>
             <p className="text-sm text-slate-400 mb-4">
-              Manage billing, quota limits, and AI execution mode
+              See your current plan, understand LOC headroom, and upgrade quickly.
             </p>
           </>
         )}
       </div>
 
-      {!isBreakdownMode && (
+      {isPlanUpgradeMode && (
       <div className="bg-slate-800/50 border border-slate-700 rounded-lg p-4">
-        <h3 className="text-sm font-semibold text-white mb-2">Plan execution model</h3>
+        <h3 className="text-sm font-semibold text-white mb-2">AI Execution</h3>
         <div className="space-y-1 text-sm text-slate-300">
-          <p><span className="text-slate-400">Free 30k:</span> Bring your own AI key (BYOK) is required.</p>
-          <p><span className="text-slate-400">Team 32 USD:</span> Hosted Auto model is default; BYOK remains optional.</p>
+          <p><span className="text-slate-400">Free plan:</span> Bring your own AI key (BYOK) is required.</p>
+          <p><span className="text-slate-400">Paid LOC plans:</span> Hosted Auto is enabled by default, and BYOK remains optional.</p>
         </div>
       </div>
       )}
 
-      {!isBreakdownMode && (billingStatus?.billing?.trial_readonly || quotaStatus?.envelope?.trial_readonly) && (
+      {isPlanUpgradeMode && (billingStatus?.billing?.trial_readonly || quotaStatus?.envelope?.trial_readonly) && (
         <div className="bg-amber-500/10 border border-amber-400/40 rounded-lg p-4">
           <p className="text-amber-200 text-sm font-medium">Trial is now read-only</p>
           <p className="text-amber-100/90 text-sm mt-1">
@@ -959,7 +1034,7 @@ const OverviewTab: React.FC<{ navigate: any; mode?: 'full' | 'breakdown' }> = ({
         </div>
       )}
 
-      {!isBreakdownMode && (quotaStatus?.envelope?.blocked || quotaStatus?.can_trigger_reviews === false) && (
+      {isPlanUpgradeMode && (quotaStatus?.envelope?.blocked || quotaStatus?.can_trigger_reviews === false) && (
         <div className="bg-red-500/10 border border-red-400/40 rounded-lg p-4">
           <p className="text-red-200 text-sm font-medium">Quota blocked</p>
           <p className="text-red-100/90 text-sm mt-1">
@@ -968,12 +1043,12 @@ const OverviewTab: React.FC<{ navigate: any; mode?: 'full' | 'breakdown' }> = ({
         </div>
       )}
 
-      {/* Current Subscription Section */}
-      {!isBreakdownMode && (
+      {/* Current Plan Section */}
+      {isPlanUpgradeMode && (
       <div className="bg-slate-800/60 border border-slate-700 rounded-lg p-6">
         <div className="flex items-center justify-between mb-4">
           <div>
-            <h3 className="text-md font-semibold text-white">Current Subscription</h3>
+            <h3 className="text-md font-semibold text-white">Current Plan</h3>
             <p className="text-sm text-slate-400 mt-1">{getPlanDisplayName(currentPlanCode)}</p>
           </div>
           <div className="flex items-center gap-2">
@@ -993,14 +1068,6 @@ const OverviewTab: React.FC<{ navigate: any; mode?: 'full' | 'breakdown' }> = ({
                 </span>
               ) : statusBadgeLabel}
             </div>
-            {subscriptionId && (isSuperAdmin || currentOrg?.role === 'owner') && (
-              <button
-                onClick={() => navigate(`/subscribe/subscriptions/${subscriptionId}/assign`)}
-                className="px-3 py-1.5 text-xs font-medium bg-slate-700 hover:bg-slate-600 text-white rounded-lg border border-slate-600 transition-colors"
-              >
-                View Subscription Details
-              </button>
-            )}
           </div>
         </div>
 
@@ -1027,150 +1094,60 @@ const OverviewTab: React.FC<{ navigate: any; mode?: 'full' | 'breakdown' }> = ({
           </div>
         )}
 
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-3 text-sm mb-4">
+          <div className="bg-slate-900/70 border border-slate-700 rounded p-3">
+            <p className="text-slate-400">Plan Capacity</p>
+            <p className="text-white font-semibold">{currentLocLimit.toLocaleString()} LOC/month</p>
+          </div>
+          <div className="bg-slate-900/70 border border-slate-700 rounded p-3">
+            <p className="text-slate-400">Used This Period</p>
+            <p className="text-white font-semibold">{currentLocUsed.toLocaleString()} LOC</p>
+          </div>
+          <div className="bg-slate-900/70 border border-slate-700 rounded p-3">
+            <p className="text-slate-400">Remaining</p>
+            <p className="text-white font-semibold">{currentLocRemaining.toLocaleString()} LOC</p>
+          </div>
+        </div>
+
+        <div className="space-y-2 mb-4">
+          <div className="flex items-center justify-between text-xs text-slate-400">
+            <span>Current billing period usage</span>
+            <span>{currentLocUsagePercent}%</span>
+          </div>
+          <div className="h-2 rounded-full bg-slate-900 border border-slate-700 overflow-hidden">
+            <div className="h-full bg-blue-500" style={{ width: `${currentLocUsagePercent}%` }} />
+          </div>
+        </div>
+
         <div className="space-y-3 text-sm">
           <div className="flex justify-between items-center py-2 border-b border-slate-700">
-            <span className="text-slate-400">Daily Review Limit</span>
+            <span className="text-slate-400">Usage Policy</span>
             <span className="text-white font-medium">{dailyLimit}</span>
           </div>
           <div className="flex justify-between items-center py-2 border-b border-slate-700">
-            <span className="text-slate-400">AI-Powered Analysis</span>
-            <span className="text-emerald-400">✓ Included</span>
-          </div>
-          <div className="flex justify-between items-center py-2 border-b border-slate-700">
-            <span className="text-slate-400">AI Execution Mode</span>
-            <span className="text-white font-medium">{isTeamPlan ? 'Auto default (BYOK optional)' : 'BYOK required'}</span>
-          </div>
-          <div className="flex justify-between items-center py-2 border-b border-slate-700">
-            <span className="text-slate-400">Git Provider Integration</span>
-            <span className="text-emerald-400">✓ Included</span>
+            <span className="text-slate-400">AI Execution</span>
+            <span className="text-white font-medium">{isTeamPlan ? 'Hosted Auto (BYOK optional)' : 'BYOK required'}</span>
           </div>
           <div className="flex justify-between items-center py-2">
-            <span className="text-slate-400">Priority Support</span>
+            <span className="text-slate-400">Support</span>
             <span className={isTeamPlan ? 'text-emerald-400' : 'text-slate-500'}>
-              {isTeamPlan ? '✓ Included' : 'Not included'}
+              {isTeamPlan ? 'Priority support enabled' : 'Standard support'}
             </span>
           </div>
         </div>
       </div>
       )}
 
-      {/* Upgrade Section - only show for free users */}
-      {!isBreakdownMode && isFree && (
-        <div className="bg-gradient-to-r from-blue-900/40 to-purple-900/40 border border-blue-700/50 rounded-lg p-6">
-          <h3 className="text-md font-semibold text-white mb-2">Upgrade to Team Subscription</h3>
-          <p className="text-sm text-slate-300 mb-4">
-            Switch from BYOK to hosted Auto defaults with optional BYOK override and higher LOC capacity
-          </p>
-          <ul className="space-y-2 text-sm text-slate-300 mb-4">
-            <li className="flex items-center">
-              <svg className="w-4 h-4 text-emerald-400 mr-2" fill="currentColor" viewBox="0 0 20 20">
-                <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
-              </svg>
-              Unlimited daily reviews
-            </li>
-            <li className="flex items-center">
-              <svg className="w-4 h-4 text-emerald-400 mr-2" fill="currentColor" viewBox="0 0 20 20">
-                <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
-              </svg>
-              Priority support
-            </li>
-            <li className="flex items-center">
-              <svg className="w-4 h-4 text-emerald-400 mr-2" fill="currentColor" viewBox="0 0 20 20">
-                <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
-              </svg>
-              Advanced analytics
-            </li>
-            <li className="flex items-center">
-              <svg className="w-4 h-4 text-emerald-400 mr-2" fill="currentColor" viewBox="0 0 20 20">
-                <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
-              </svg>
-              Team collaboration features
-            </li>
-          </ul>
-          <button
-            onClick={() => navigate('/checkout/team?period=monthly')}
-            className="w-full px-4 py-2 text-sm rounded bg-blue-600 hover:bg-blue-500 text-white font-medium transition-colors"
-          >
-            Upgrade Now
-          </button>
-        </div>
-      )}
-
-      {/* Team Subscription Benefits - show for team users */}
-      {!isBreakdownMode && isTeamPlan && (
-        <div className="bg-gradient-to-r from-blue-900/40 to-purple-900/40 border border-blue-700/50 rounded-lg p-6">
-          <div className="flex items-center justify-between mb-2">
-            <h3 className="text-md font-semibold text-white">Team Subscription Benefits</h3>
-            {subscriptionId && !pendingCancel && (
-              <button
-                onClick={() => setShowCancelModal(true)}
-                className="px-3 py-1.5 text-xs font-medium text-red-300 bg-red-900/40 hover:bg-red-900/60 border border-red-500/30 hover:border-red-500/50 rounded-lg transition-colors"
-              >
-                Cancel Subscription
-              </button>
-            )}
-          </div>
-          <p className="text-sm text-slate-300 mb-4">
-            You're enjoying all premium features
-          </p>
-          <ul className="space-y-2 text-sm text-slate-300">
-            <li className="flex items-center">
-              <svg className="w-4 h-4 text-emerald-400 mr-2" fill="currentColor" viewBox="0 0 20 20">
-                <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
-              </svg>
-              Unlimited daily reviews
-            </li>
-            <li className="flex items-center">
-              <svg className="w-4 h-4 text-emerald-400 mr-2" fill="currentColor" viewBox="0 0 20 20">
-                <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
-              </svg>
-              Priority support
-            </li>
-            <li className="flex items-center">
-              <svg className="w-4 h-4 text-emerald-400 mr-2" fill="currentColor" viewBox="0 0 20 20">
-                <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
-              </svg>
-              Advanced analytics
-            </li>
-            <li className="flex items-center">
-              <svg className="w-4 h-4 text-emerald-400 mr-2" fill="currentColor" viewBox="0 0 20 20">
-                <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
-              </svg>
-              Team collaboration features
-            </li>
-          </ul>
-        </div>
-      )}
-
-      {/* Cancel Subscription Modal */}
-      {!isBreakdownMode && subscriptionId && (
-        <CancelSubscriptionModal
-          isOpen={showCancelModal}
-          onClose={() => setShowCancelModal(false)}
-          onSuccess={handleCancelSuccess}
-          subscriptionId={subscriptionId}
-          expiryDate={licenseExpiresAt}
-        />
-      )}
-
-      {/* Billing History Placeholder */}
-      {!isBreakdownMode && <div className="bg-slate-800/60 border border-slate-700 rounded-lg p-6">
-        <h3 className="text-md font-semibold text-white mb-2">Billing History</h3>
-        <p className="text-sm text-slate-400">
-          {isFree ? 'No billing history available for free plan' : 'View your billing history in the License Assignments tab'}
-        </p>
-      </div>}
-
       {isBreakdownMode && !usageSummary && (
         <div className="bg-slate-800/60 border border-slate-700 rounded-lg p-6">
-          <p className="text-sm text-slate-300">No usage breakdown data available yet for this billing period.</p>
+          <p className="text-sm text-slate-300">No usage data available yet for this billing period.</p>
         </div>
       )}
 
-      {usageSummary && (
-        <div className="bg-slate-800/60 border border-slate-700 rounded-lg p-6 space-y-4">
+      {isBreakdownMode && usageSummary && (
+        <div className="space-y-4">
           <div className="flex items-center justify-between">
-            <h3 className="text-md font-semibold text-white">Usage and Token Consumption</h3>
+            <h3 className="text-md font-semibold text-white">Billing Period</h3>
             <span className="text-xs text-slate-400">
               {formatDate(usageSummary.period_start)} to {formatDate(usageSummary.period_end)}
             </span>
@@ -1206,9 +1183,9 @@ const OverviewTab: React.FC<{ navigate: any; mode?: 'full' | 'breakdown' }> = ({
           </div>
 
           {myUsage && (
-            <div className="bg-slate-900/60 border border-slate-700 rounded-lg p-4">
+            <div>
               <div className="flex items-center justify-between mb-2">
-                <p className="text-sm text-slate-300 font-medium">My Usage (Current Billing Period)</p>
+                <p className="text-sm text-slate-300 font-medium">My Activity (Current Billing Period)</p>
                 <span className="text-xs text-slate-400">Share: {myUsage.usage_share_percent.toFixed(2)}%</span>
               </div>
               <div className="grid grid-cols-1 md:grid-cols-3 gap-3 text-sm">
@@ -1299,12 +1276,31 @@ const OverviewTab: React.FC<{ navigate: any; mode?: 'full' | 'breakdown' }> = ({
               </table>
             </div>
           </div>
+
+          {isSuperAdmin && (
+            <BillingPortfolio embedded />
+          )}
         </div>
       )}
 
-      {!isBreakdownMode && canManageBilling && billingStatus && (
+      {isPlanUpgradeMode && canManageBilling && (
         <div className="bg-slate-800/60 border border-slate-700 rounded-lg p-6 space-y-4">
-          <h3 className="text-md font-semibold text-white">Billing Actions</h3>
+          <h3 className="text-md font-semibold text-white">Upgrade Plan to Get More Usage</h3>
+          <p className="text-sm text-slate-400">Choose an upgrade option below. Downgrade and cancellation are in Subscription Control.</p>
+
+          {(billingLoading || statusLoading) && (
+            <div className="space-y-3 animate-pulse">
+              <div className="h-4 w-44 bg-slate-700 rounded" />
+              <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-3">
+                <div className="h-36 bg-slate-900/70 border border-slate-700 rounded-lg" />
+                <div className="h-36 bg-slate-900/70 border border-slate-700 rounded-lg" />
+                <div className="h-36 bg-slate-900/70 border border-slate-700 rounded-lg" />
+              </div>
+            </div>
+          )}
+
+          {!billingLoading && billingStatus && (
+            <>
 
           {requestStatus && (
             <div className="bg-slate-900/50 border border-slate-700 rounded-lg p-4 space-y-3">
@@ -1395,82 +1391,191 @@ const OverviewTab: React.FC<{ navigate: any; mode?: 'full' | 'breakdown' }> = ({
             </div>
           )}
 
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div className="p-4 bg-slate-900/70 border border-slate-700 rounded-lg space-y-3">
-              <p className="text-sm text-slate-300 font-medium">Upgrade With Proration Preview</p>
-              <select
-                value={selectedUpgradePlan}
-                onChange={(e) => setSelectedUpgradePlan(e.target.value)}
-                className="w-full bg-slate-800 border border-slate-600 rounded px-3 py-2 text-sm text-white"
-                disabled={actionLoading || upgradeCheckoutLoading}
-              >
-                {billingStatus.available_plans
-                  .filter((p) => {
-                    const current = billingStatus.available_plans.find((x) => x.plan_code === billingStatus.billing.current_plan_code);
-                    return current ? p.monthly_loc_limit > current.monthly_loc_limit : false;
-                  })
-                  .map((plan) => (
-                    <option key={plan.plan_code} value={plan.plan_code}>
-                      {plan.plan_code} ({plan.monthly_loc_limit.toLocaleString()} LOC / ${plan.monthly_price_usd})
-                    </option>
-                  ))}
-              </select>
-              <button
-                className="w-full px-3 py-2 rounded bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-sm font-medium"
-                disabled={actionLoading || upgradeCheckoutLoading || !selectedUpgradePlan}
-                onClick={openUpgradePreview}
-              >
-                Preview Upgrade Charge
-              </button>
+          <div className="space-y-4">
+            <p className="text-xs uppercase tracking-wide text-slate-400">Upgrade Path</p>
+            <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-3">
+              {upgradeHierarchyPlans.map((plan) => {
+                const isCurrentCard = plan.plan_code === currentPlanCode;
+                const isSelectableUpgrade = plan.monthly_loc_limit > currentLocLimit;
+                return (
+                  <div
+                    key={plan.plan_code}
+                    className={`rounded-lg border p-4 text-left transition-colors ${
+                      isCurrentCard
+                        ? 'bg-emerald-900/20 border-emerald-400/50'
+                        : 'bg-slate-900/70 border-slate-700'
+                    }`}
+                  >
+                    <div className="flex items-center justify-between gap-2">
+                      <p className="text-sm font-semibold text-white">{getPlanDisplayName(plan.plan_code)}</p>
+                      {isCurrentCard ? (
+                        <span className="text-[10px] px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-300 border border-emerald-500/40">Current</span>
+                      ) : null}
+                    </div>
+                    <p className="mt-2 text-sm text-slate-300">{plan.monthly_loc_limit.toLocaleString()} LOC / month</p>
+                    <p className="text-sm text-slate-300">${plan.monthly_price_usd}/month</p>
+                    {isSelectableUpgrade && (
+                      <button
+                        type="button"
+                        disabled={actionLoading || upgradeCheckoutLoading}
+                        onClick={() => {
+                          void openUpgradePreview(plan.plan_code);
+                        }}
+                        className="mt-3 px-3 py-1.5 rounded bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white text-xs font-medium"
+                        title={`Upgrade to ${getPlanDisplayName(plan.plan_code)}`}
+                      >
+                        Upgrade
+                      </button>
+                    )}
+                  </div>
+                );
+              })}
             </div>
-
-            <div className="p-4 bg-slate-900/70 border border-slate-700 rounded-lg space-y-3">
-              <p className="text-sm text-slate-300 font-medium">Schedule Downgrade</p>
-              <select
-                value={selectedDowngradePlan}
-                onChange={(e) => setSelectedDowngradePlan(e.target.value)}
-                className="w-full bg-slate-800 border border-slate-600 rounded px-3 py-2 text-sm text-white"
-                disabled={actionLoading}
-              >
-                {billingStatus.available_plans
-                  .filter((p) => {
-                    const current = billingStatus.available_plans.find((x) => x.plan_code === billingStatus.billing.current_plan_code);
-                    return current ? p.monthly_loc_limit < current.monthly_loc_limit : false;
-                  })
-                  .map((plan) => (
-                    <option key={plan.plan_code} value={plan.plan_code}>
-                      {plan.plan_code} ({plan.monthly_loc_limit.toLocaleString()} LOC / ${plan.monthly_price_usd})
-                    </option>
-                  ))}
-              </select>
-              <button
-                className="w-full px-3 py-2 rounded bg-amber-600 hover:bg-amber-500 disabled:opacity-50 text-sm font-medium"
-                disabled={actionLoading || !selectedDowngradePlan}
-                onClick={() => runBillingAction('schedule_downgrade')}
-              >
-                Schedule Downgrade
-              </button>
-              {billingStatus.billing.scheduled_plan_code && (
-                <button
-                  className="w-full px-3 py-2 rounded bg-slate-700 hover:bg-slate-600 disabled:opacity-50 text-sm font-medium"
-                  disabled={actionLoading}
-                  onClick={() => runBillingAction('cancel_downgrade')}
-                >
-                  {cancelScheduledLabel}
-                </button>
-              )}
-            </div>
+            {upgradeOptions.length === 0 && (
+              <div className="rounded-lg border border-slate-700 bg-slate-900/50 p-3 text-sm text-slate-300">
+                This organization is already on the highest available LOC plan.
+              </div>
+            )}
           </div>
-
-          {billingStatus.billing.scheduled_plan_code && (
-            <div className="text-sm text-slate-300 bg-slate-900/40 border border-slate-700 rounded-lg p-3">
-              {scheduledChangeLabel}: <span className="text-white font-medium">{billingStatus.billing.scheduled_plan_code}</span>
-              {billingStatus.billing.scheduled_plan_effective_at && (
-                <span> effective {formatDate(billingStatus.billing.scheduled_plan_effective_at)}</span>
-              )}
-            </div>
+          </>
           )}
         </div>
+      )}
+
+      {isControlsMode && (
+        <div className="space-y-4">
+
+          {!canManageBilling && (
+            <div className="bg-slate-900/50 border border-slate-700 rounded-lg p-3 text-sm text-slate-300">
+              Only organization owners, admins, or superadmins can change subscription controls.
+            </div>
+          )}
+
+          {(statusLoading || subscriptionLoading || billingLoading) && (
+            <div className="space-y-3 animate-pulse">
+              <div className="h-20 rounded-lg bg-slate-900/70 border border-slate-700" />
+              <div className="h-20 rounded-lg bg-slate-900/70 border border-slate-700" />
+              <div className="h-36 rounded-lg bg-slate-900/70 border border-slate-700" />
+            </div>
+          )}
+
+          {canManageBilling && !statusLoading && !subscriptionLoading && (
+            <>
+              {effectiveSubscriptionId && (
+                <div className="p-4 bg-slate-900/70 border border-slate-700 rounded-lg space-y-2">
+                  <p className="text-sm text-slate-300 font-medium">Advanced</p>
+                  <button
+                    type="button"
+                    onClick={() => navigate(`/subscribe/subscriptions/${effectiveSubscriptionId}/assign`)}
+                    className="text-xs text-slate-300 hover:text-white underline underline-offset-2"
+                  >
+                    Open advanced access assignment
+                  </button>
+                </div>
+              )}
+
+              <div className="p-4 bg-slate-900/70 border border-slate-700 rounded-lg space-y-3">
+                <p className="text-sm text-slate-300 font-medium">Subscription Link (Razorpay)</p>
+                {effectiveSubscriptionManageURL ? (
+                  <a
+                    href={effectiveSubscriptionManageURL}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center gap-2 text-sm text-slate-200 hover:text-white underline underline-offset-2"
+                  >
+                    Manage Payment
+                  </a>
+                ) : (
+                  <p className="text-xs text-slate-400">No Razorpay management link available for this subscription.</p>
+                )}
+              </div>
+
+              <div className="p-4 bg-slate-900/70 border border-slate-700 rounded-lg space-y-3">
+                <p className="text-sm text-slate-300 font-medium">Cancel Subscription</p>
+                {canCancelEffectiveSubscription ? (
+                  <button
+                    className="text-xs text-slate-300 hover:text-white underline underline-offset-2"
+                    onClick={() => setShowCancelModal(true)}
+                  >
+                    Cancel Subscription
+                  </button>
+                ) : (
+                  <p className="text-xs text-slate-400">
+                    {effectivePendingCancel ? 'Cancellation is already scheduled for period end.' : 'No active subscription cancellation action available.'}
+                  </p>
+                )}
+              </div>
+
+              <div className="p-4 bg-slate-900/70 border border-slate-700 rounded-lg space-y-4">
+                <p className="text-sm text-slate-300 font-medium">Downgrade Plan</p>
+                {billingStatus ? (
+                <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-3">
+                  {downgradeOptions.map((plan) => {
+                    return (
+                      <div
+                        key={plan.plan_code}
+                        className="rounded-lg border p-4 text-left transition-colors bg-slate-950/50 border-slate-700"
+                      >
+                        <div className="flex items-center justify-between gap-2 mb-1">
+                          <p className="text-sm font-semibold text-white">{getPlanDisplayName(plan.plan_code)}</p>
+                        </div>
+                        <p className="text-sm text-slate-300">{plan.monthly_loc_limit.toLocaleString()} LOC / month</p>
+                        <p className="text-sm text-slate-300">${plan.monthly_price_usd}/month</p>
+                        <button
+                          type="button"
+                          disabled={actionLoading}
+                          onClick={() => {
+                            setSelectedDowngradePlan(plan.plan_code);
+                            void runBillingAction('schedule_downgrade', plan.plan_code);
+                          }}
+                          className="mt-3 px-3 py-1.5 rounded bg-amber-600 hover:bg-amber-500 disabled:opacity-50 text-white text-xs font-medium"
+                        >
+                          Downgrade
+                        </button>
+                      </div>
+                    );
+                  })}
+                </div>
+                ) : (
+                  <p className="text-xs text-slate-400">Billing details are still loading.</p>
+                )}
+                {downgradeOptions.length === 0 && (
+                  <p className="text-xs text-slate-400">No lower plans available from the current plan.</p>
+                )}
+                <div className="flex flex-wrap items-center gap-3">
+                  {billingStatus?.billing?.scheduled_plan_code && (
+                    <button
+                      className="px-3 py-2 rounded bg-slate-700 hover:bg-slate-600 disabled:opacity-50 text-sm font-medium"
+                      disabled={actionLoading}
+                      onClick={() => runBillingAction('cancel_downgrade')}
+                    >
+                      {cancelScheduledLabel}
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              {billingStatus?.billing?.scheduled_plan_code && (
+                <div className="text-sm text-slate-300 bg-slate-900/40 border border-slate-700 rounded-lg p-3">
+                  {scheduledChangeLabel}: <span className="text-white font-medium">{billingStatus.billing.scheduled_plan_code}</span>
+                  {billingStatus.billing.scheduled_plan_effective_at && (
+                    <span> effective {formatDate(billingStatus.billing.scheduled_plan_effective_at)}</span>
+                  )}
+                </div>
+              )}
+            </>
+          )}
+        </div>
+      )}
+
+      {!isBreakdownMode && cancelTargetSubscriptionId && (
+        <CancelSubscriptionModal
+          isOpen={showCancelModal}
+          onClose={() => setShowCancelModal(false)}
+          onSuccess={handleCancelSuccess}
+          subscriptionId={cancelTargetSubscriptionId}
+          expiryDate={displayExpiry || managedSubscription?.current_period_end || licenseExpiresAt}
+        />
       )}
 
       {!isBreakdownMode && showUpgradeModal && upgradePreview?.preview && (
@@ -1543,19 +1648,6 @@ const OverviewTab: React.FC<{ navigate: any; mode?: 'full' | 'breakdown' }> = ({
           </div>
         </div>
       )}
-    </div>
-  );
-};
-
-const PortfolioTab: React.FC = () => {
-  return <BillingPortfolio />;
-};
-
-// Assignments Tab Component
-const AssignmentsTab: React.FC = () => {
-  return (
-    <div className="-mx-6 -my-6">
-      <LicenseManagement />
     </div>
   );
 };

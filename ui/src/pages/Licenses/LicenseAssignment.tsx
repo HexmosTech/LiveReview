@@ -315,9 +315,9 @@ const LicenseAssignment: React.FC = () => {
                     </button>
                     <div className="flex items-center justify-between">
                         <div>
-                            <h1 className="text-3xl font-bold text-white mb-2">Assign Team Licenses</h1>
+                            <h1 className="text-3xl font-bold text-white mb-2">Advanced Access Assignment</h1>
                             <p className="text-slate-400">
-                                Manage license assignments for your team {currentOrg && `in ${currentOrg.name}`}
+                                Manage optional access assignments for your team {currentOrg && `in ${currentOrg.name}`}
                             </p>
                         </div>
 
@@ -406,15 +406,15 @@ const LicenseAssignment: React.FC = () => {
                     </div>
                     <div className="grid grid-cols-1 sm:grid-cols-3 gap-6 mt-6 pt-6 border-t border-slate-700">
                         <div>
-                            <div className="text-slate-400 text-sm mb-1">Total Seats</div>
+                            <div className="text-slate-400 text-sm mb-1">Access Capacity</div>
                             <div className="text-2xl font-bold text-white">{subscription.quantity}</div>
                         </div>
                         <div>
-                            <div className="text-slate-400 text-sm mb-1">Assigned</div>
+                            <div className="text-slate-400 text-sm mb-1">Assigned Access</div>
                             <div className="text-2xl font-bold text-emerald-400">{subscription.assigned_seats}</div>
                         </div>
                         <div>
-                            <div className="text-slate-400 text-sm mb-1">Available</div>
+                            <div className="text-slate-400 text-sm mb-1">Available Access</div>
                             <div className="text-2xl font-bold text-blue-400">{availableSeats}</div>
                         </div>
                     </div>
@@ -479,7 +479,7 @@ const LicenseAssignment: React.FC = () => {
                     {availableSeats === 0 && !isCancelled && !isScheduledToCancel && (
                         <div className="mt-4 p-3 bg-orange-500/10 border border-orange-500/40 rounded-lg">
                             <p className="text-orange-300 text-sm">
-                                All seats are assigned. Increase your subscription quantity to assign more licenses.
+                                All access slots are assigned. Increase your subscription quantity to assign more users.
                             </p>
                         </div>
                     )}
@@ -492,7 +492,7 @@ const LicenseAssignment: React.FC = () => {
                             <div>
                                 <h2 className="text-xl font-semibold text-white">Team Members</h2>
                                 <p className="text-sm text-slate-400 mt-1">
-                                    Assign or revoke team licenses for organization members
+                                    Grant or revoke advanced access for organization members
                                 </p>
                             </div>
                             {selectedMembers.size > 0 && (
@@ -505,7 +505,7 @@ const LicenseAssignment: React.FC = () => {
                                         disabled={bulkProcessing}
                                         className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors text-sm font-medium disabled:opacity-50 disabled:cursor-not-allowed"
                                     >
-                                        {bulkProcessing ? 'Processing...' : 'Assign Selected'}
+                                        {bulkProcessing ? 'Processing...' : 'Grant Selected Access'}
                                     </button>
                                     <button
                                         onClick={handleBulkRevoke}
@@ -606,7 +606,7 @@ const LicenseAssignment: React.FC = () => {
                                                         disabled={isProcessingThis || availableSeats === 0 || bulkProcessing}
                                                         className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors text-sm font-medium disabled:opacity-50 disabled:cursor-not-allowed min-w-[100px]"
                                                     >
-                                                        {isProcessingThis ? 'Assigning...' : 'Assign License'}
+                                                        {isProcessingThis ? 'Assigning...' : 'Grant Access'}
                                                     </button>
                                                 )}
                                             </div>
