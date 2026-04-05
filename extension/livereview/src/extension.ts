@@ -8,6 +8,7 @@ import { ensureLatestExtension, ensureLatestLrc, type LrcUpdateStatus } from './
 
 const execFileAsync = util.promisify(execFile);
 const DEFAULT_API_URL = 'https://livereview.hexmos.com';
+const CONFIG_WRITE_DISABLED_MESSAGE = 'LiveReview: extension config-file writes are disabled. Manage ~/.lrc.toml manually (for example, run: lrc setup).';
 let cachedLrcPath: string | undefined;
 
 type ShellType = 'powershell' | 'cmd' | 'bash';
@@ -224,17 +225,12 @@ export async function activate(context: vscode.ExtensionContext) {
 		}
 	};
 
-	const writeLrcConfig = async (apiUrl: string, apiKey: string) => {
-		const body = [`api_key = "${apiKey}"`, `api_url = "${apiUrl}"`].join('\n') + '\n';
-		await fs.promises.writeFile(lrcConfigPath, body, { encoding: 'utf8' });
-	};
-
 	const syncSettingsFromFile = async () => {
 		const cfg = vscode.workspace.getConfiguration('livereview');
 		const existing = await readLrcConfig();
 
 		if (!existing) {
-			await writeLrcConfig(cfg.get<string>('apiUrl', DEFAULT_API_URL), cfg.get<string>('apiKey', ''));
+			logInfo(`${CONFIG_WRITE_DISABLED_MESSAGE} Config file not found at ${lrcConfigPath}.`);
 			return;
 		}
 
@@ -247,13 +243,6 @@ export async function activate(context: vscode.ExtensionContext) {
 		if (cfg.get<string>('apiKey') !== fileApiKey) {
 			await cfg.update('apiKey', fileApiKey, vscode.ConfigurationTarget.Global);
 		}
-	};
-
-	const syncFileFromSettings = async () => {
-		const cfg = vscode.workspace.getConfiguration('livereview');
-		const apiUrl = cfg.get<string>('apiUrl', DEFAULT_API_URL) || DEFAULT_API_URL;
-		const apiKey = cfg.get<string>('apiKey', '') || '';
-		await writeLrcConfig(apiUrl, apiKey);
 	};
 
 	const resolveLrcPath = async (): Promise<string> => {
@@ -978,7 +967,7 @@ export async function activate(context: vscode.ExtensionContext) {
 
 	context.subscriptions.push(vscode.workspace.onDidChangeConfiguration(event => {
 		if (event.affectsConfiguration('livereview.apiUrl') || event.affectsConfiguration('livereview.apiKey')) {
-			void syncFileFromSettings();
+			logInfo(CONFIG_WRITE_DISABLED_MESSAGE);
 		}
 	}));
 }

@@ -69,3 +69,4 @@ chats/
 
 security_issues/
 scripts/lr_sessions.py
+ui/bun.lock
