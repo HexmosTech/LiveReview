@@ -7,7 +7,7 @@
     "url": "https://hexmos.com/livereview"
   },
   "description": "AI Code Reviewer",
-  "version": "0.0.14",
+  "version": "0.0.15",
   "engines": {
     "vscode": "^1.70.0"
   },
@@ -90,12 +90,12 @@
         "livereview.apiUrl": {
           "type": "string",
           "default": "https://livereview.hexmos.com",
-          "description": "LiveReview API URL (mirrored to ~/.lrc.toml)."
+          "description": "LiveReview API URL used by the extension. The extension does not write ~/.lrc.toml."
         },
         "livereview.apiKey": {
           "type": "string",
           "default": "",
-          "markdownDescription": "LiveReview API key (stored in plaintext in ~/.lrc.toml).",
+          "markdownDescription": "LiveReview API key used by the extension. The extension does not write ~/.lrc.toml.",
           "scope": "application"
         }
       }
@@ -144,13 +144,16 @@
   "overrides": {
     "ajv@6": "6.14.0",
     "ajv@8": "8.18.0",
-    "brace-expansion@1": "1.1.12",
-    "brace-expansion@2": "2.0.2",
+    "brace-expansion@1": "1.1.13",
+    "brace-expansion@2": "2.0.3",
+    "brace-expansion@5": "5.0.5",
     "diff": "8.0.3",
     "flatted": "3.4.2",
     "js-yaml@4": "4.1.1",
     "minimatch@3": "3.1.4",
     "minimatch@9": "9.0.7",
-    "serialize-javascript": "7.0.4"
+    "picomatch@2": "2.3.2",
+    "picomatch@4": "4.0.4",
+    "serialize-javascript": "7.0.5"
   }
 }
