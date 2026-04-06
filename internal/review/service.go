@@ -518,6 +518,11 @@ func (s *Service) executeReviewWorkflow(
 		}, nil
 	}
 
+	// Compute billable LOC before AI providers format hunk content for prompting.
+	// Some providers rewrite hunk content in-place into table formats that are not
+	// suitable for unified-diff prefix counting.
+	billableLOC := calculateBillableLOCFromDiffs(changes)
+
 	// Review code using batching, structured output, and retry
 	if s.logger != nil {
 		s.logger.LogSection("AI CODE REVIEW")
@@ -547,7 +552,7 @@ func (s *Service) executeReviewWorkflow(
 	return &ReviewWorkflowResult{
 		MRDetails:   mrDetails,
 		Result:      result,
-		BillableLOC: calculateBillableLOCFromDiffs(changes),
+		BillableLOC: billableLOC,
 	}, nil
 }
 
