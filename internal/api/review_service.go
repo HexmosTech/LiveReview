@@ -586,6 +586,7 @@ func (s *Server) launchBackgroundProcessing(ctx *reviewSetupContext) {
 		rm := NewReviewManager(s.db)
 		if result != nil && result.Success {
 			_ = rm.UpdateReviewStatus(ctx.review.ID, "completed")
+			reviewID := ctx.review.ID
 
 			operationID := fmt.Sprintf("manual-review:%d", ctx.review.ID)
 			idempotencyKey := operationID
@@ -593,7 +594,7 @@ func (s *Server) launchBackgroundProcessing(ctx *reviewSetupContext) {
 				accountingService := license.NewLOCAccountingService(s.db)
 				if err := accountingService.AccountSuccess(context.Background(), license.LOCAccountSuccessInput{
 					OrgID:          ctx.orgID,
-					ReviewID:       ctx.review.ID,
+					ReviewID:       &reviewID,
 					ActorUserID:    ctx.actorUserID,
 					ActorEmail:     ctx.actorEmail,
 					OperationType:  "manual_review",

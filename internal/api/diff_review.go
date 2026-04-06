@@ -335,6 +335,7 @@ func (s *Server) runDiffReview(request review.ReviewRequest, rm *ReviewManager, 
 			status = "completed"
 			accountedAt := time.Now().UTC().Format(time.RFC3339)
 			accountingService := license.NewLOCAccountingService(s.db)
+			resolvedReviewID := reviewID
 			operationID := fmt.Sprintf("diff-review:%d", reviewID)
 			idempotencyKey := operationID
 			var actorUserIDPtr *int64
@@ -344,7 +345,7 @@ func (s *Server) runDiffReview(request review.ReviewRequest, rm *ReviewManager, 
 			}
 			if err := accountingService.AccountSuccess(context.Background(), license.LOCAccountSuccessInput{
 				OrgID:          orgID,
-				ReviewID:       reviewID,
+				ReviewID:       &resolvedReviewID,
 				ActorUserID:    actorUserIDPtr,
 				ActorEmail:     strings.TrimSpace(actorEmail),
 				OperationType:  "diff_review",

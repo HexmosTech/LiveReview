@@ -6,6 +6,7 @@ import (
 
 type OperationUsageV2 struct {
 	BillableLOC    int64
+	Chargeable     bool
 	Provider       string
 	Model          string
 	PricingVersion string

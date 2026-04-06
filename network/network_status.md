@@ -11,11 +11,12 @@ Latest milestone batch note (MF-051, MF-059, MF-073, MF-074, MF-076, MF-083, MF-
 | jobqueue.NewWebhookHTTPClient | moved | [NewWebhookHTTPClient](jobqueue/webhook_http_client.go#L16) |
 | jobqueue.NewRequest | moved | [NewRequest](jobqueue/webhook_http_client.go#L30) |
 | jobqueue.Do | moved | [Do](jobqueue/webhook_http_client.go#L45) |
-| providersgitea.NewHTTPClient | moved | [NewHTTPClient](providers/gitea/http_client_ops.go#L11) |
-| providersgitea.NewHTTPClientWithJar | moved | [NewHTTPClientWithJar](providers/gitea/http_client_ops.go#L18) |
-| providersgitea.NewRequest | moved | [NewRequest](providers/gitea/http_client_ops.go#L25) |
-| providersgitea.NewRequestWithContext | moved | [NewRequestWithContext](providers/gitea/http_client_ops.go#L33) |
-| providersgitea.Do | moved | [Do](providers/gitea/http_client_ops.go#L41) |
+| providersgitea.NewHTTPClient | moved | [NewHTTPClient](providers/gitea/http_client_ops.go#L12) |
+| providersgitea.NewHTTPClientWithJar | moved | [NewHTTPClientWithJar](providers/gitea/http_client_ops.go#L19) |
+| providersgitea.NewRequest | moved | [NewRequest](providers/gitea/http_client_ops.go#L26) |
+| providersgitea.NewRequestWithContext | moved | [NewRequestWithContext](providers/gitea/http_client_ops.go#L34) |
+| providersgitea.Do | moved | [Do](providers/gitea/http_client_ops.go#L42) |
+| providersgitea.FetchPatchContent | added | [FetchPatchContent](providers/gitea/http_client_ops.go#L52) |
 | providersgithub.NewHTTPClient | moved | [NewHTTPClient](providers/github/http_client_ops.go#L11) |
 | providersgithub.NewRequest | moved | [NewRequest](providers/github/http_client_ops.go#L18) |
 | providersgithub.NewRequestWithContext | moved | [NewRequestWithContext](providers/github/http_client_ops.go#L26) |

@@ -9,6 +9,7 @@ import (
 	"math"
 	"net/http"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 
@@ -17,11 +18,13 @@ import (
 	"github.com/livereview/internal/aisanitize"
 	coreprocessor "github.com/livereview/internal/core_processor"
 	"github.com/livereview/internal/learnings"
+	giteainput "github.com/livereview/internal/provider_input/gitea"
 	bitbucketmentions "github.com/livereview/internal/providers/bitbucket"
 	githubmentions "github.com/livereview/internal/providers/github"
 	gitlabmentions "github.com/livereview/internal/providers/gitlab"
 	gl "github.com/livereview/internal/providers/gitlab"
 	"github.com/livereview/internal/reviewmodel"
+	networkgitea "github.com/livereview/network/providers/gitea"
 )
 
 // Phase 7.1: Unified processor for provider-agnostic LLM processing
@@ -275,6 +278,13 @@ func (p *UnifiedProcessorV2Impl) ProcessCommentReply(ctx context.Context, event 
 			if err != nil {
 				return "", nil, nil, fmt.Errorf("failed to build Bitbucket artifact: %w", err)
 			}
+		case "gitea":
+			log.Printf("[DEBUG] Building Gitea artifact for contextual response")
+			var err error
+			artifact, err = p.buildGiteaArtifactFromEvent(ctx, event, orgID)
+			if err != nil {
+				return "", nil, nil, fmt.Errorf("failed to build Gitea artifact: %w", err)
+			}
 		}
 	}
 
@@ -282,15 +292,16 @@ func (p *UnifiedProcessorV2Impl) ProcessCommentReply(ctx context.Context, event 
 	response, learning, aiUsage := p.buildContextualResponseWithLearningV2(ctx, event, timeline, orgID, artifact)
 	billableLOC := calculateBillableLOCFromArtifactDiffs(artifact)
 	var usage *OperationUsageV2
-	if billableLOC > 0 {
-		usage = &OperationUsageV2{BillableLOC: billableLOC}
-		if aiUsage != nil {
-			usage.Provider = aiUsage.Provider
-			usage.Model = aiUsage.Model
-			usage.PricingVersion = aiUsage.PricingVersion
-			usage.InputTokens = aiUsage.InputTokens
-			usage.OutputTokens = aiUsage.OutputTokens
-			usage.CostUSD = aiUsage.CostUSD
+	if aiUsage != nil && billableLOC > 0 {
+		usage = &OperationUsageV2{
+			BillableLOC:    billableLOC,
+			Chargeable:     true,
+			Provider:       aiUsage.Provider,
+			Model:          aiUsage.Model,
+			PricingVersion: aiUsage.PricingVersion,
+			InputTokens:    aiUsage.InputTokens,
+			OutputTokens:   aiUsage.OutputTokens,
+			CostUSD:        aiUsage.CostUSD,
 		}
 	}
 
@@ -1069,6 +1080,7 @@ func (p *UnifiedProcessorV2Impl) generateLLMResponseV2(ctx context.Context, prom
 	}
 	inputTokens := int64(estimateTokens(prompt))
 	usage := &OperationUsageV2{
+		Chargeable:     true,
 		Provider:       strings.TrimSpace(connectorRecord.ProviderName),
 		Model:          model,
 		PricingVersion: "v1_prompt_response_estimate",
@@ -1514,6 +1526,106 @@ func (p *UnifiedProcessorV2Impl) buildBitbucketArtifactFromEvent(ctx context.Con
 		len(artifact.Timeline), len(artifact.Participants), len(artifact.Diffs))
 
 	return artifact, nil
+}
+
+// buildGiteaArtifactFromEvent builds UnifiedArtifact for Gitea webhook replies.
+// It fetches a PR patch and parses it into the canonical local diff representation
+// so LOC counting remains provider-agnostic.
+func (p *UnifiedProcessorV2Impl) buildGiteaArtifactFromEvent(ctx context.Context, event UnifiedWebhookEventV2, orgID int64) (*mrmodel.UnifiedArtifact, error) {
+	if p == nil || p.server == nil || p.server.DB() == nil {
+		return nil, fmt.Errorf("server database is unavailable")
+	}
+	if event.MergeRequest == nil {
+		return nil, fmt.Errorf("missing merge request payload")
+	}
+
+	var (
+		token *giteainput.IntegrationToken
+		err   error
+	)
+	if connectorID, ok := parseInt64MetadataValue(event.MergeRequest.Metadata, "connector_id"); ok && connectorID > 0 {
+		token, _, err = giteainput.FindIntegrationTokenByConnectorID(p.server.DB(), int(connectorID))
+		if err != nil {
+			log.Printf("[WARN] Gitea token lookup by connector_id failed for connector=%d org=%d: %v", connectorID, orgID, err)
+			return nil, fmt.Errorf("gitea integration token lookup failed (positive connector ID provided but lookup failed)")
+		}
+	} else {
+		token, _, err = giteainput.FindIntegrationTokenForGiteaRepo(p.server.DB(), event.Repository.FullName)
+		if err != nil {
+			log.Printf("[WARN] Gitea token lookup by repository failed for repo=%s org=%d: %v", event.Repository.FullName, orgID, err)
+			return nil, fmt.Errorf("gitea integration token lookup failed (connector ID not provided or lookup failed)")
+		}
+	}
+	log.Printf("[DEBUG] Building Gitea artifact for repo=%s org_id=%d", event.Repository.FullName, orgID)
+
+	patchURL := ""
+	if event.MergeRequest.Metadata != nil {
+		if rawPatchURL, ok := event.MergeRequest.Metadata["patch_url"].(string); ok {
+			patchURL = strings.TrimSpace(rawPatchURL)
+		}
+	}
+	if patchURL == "" && strings.TrimSpace(event.MergeRequest.WebURL) != "" {
+		patchURL = strings.TrimSpace(event.MergeRequest.WebURL) + ".patch"
+	}
+	if patchURL == "" {
+		return nil, fmt.Errorf("missing gitea patch URL")
+	}
+
+	client := networkgitea.NewHTTPClient(20 * time.Second)
+	patchContent, err := networkgitea.FetchPatchContent(ctx, client, patchURL, token.PatToken)
+	if err != nil {
+		return nil, fmt.Errorf("failed to fetch gitea patch: %w", err)
+	}
+
+	parser := mrmodel.NewLocalParser()
+	localDiffs, err := parser.Parse(patchContent)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse gitea patch: %w", err)
+	}
+
+	artifactDiffs := make([]*mrmodel.LocalCodeDiff, 0, len(localDiffs))
+	for i := range localDiffs {
+		diffCopy := localDiffs[i]
+		artifactDiffs = append(artifactDiffs, &diffCopy)
+	}
+
+	return &mrmodel.UnifiedArtifact{
+		Provider:     "gitea",
+		Diffs:        artifactDiffs,
+		Timeline:     []reviewmodel.TimelineItem{},
+		Participants: []reviewmodel.AuthorInfo{},
+	}, nil
+}
+
+func parseInt64MetadataValue(metadata map[string]interface{}, key string) (int64, bool) {
+	if metadata == nil || strings.TrimSpace(key) == "" {
+		return 0, false
+	}
+	value, ok := metadata[key]
+	if !ok {
+		return 0, false
+	}
+
+	switch typed := value.(type) {
+	case int:
+		return int64(typed), true
+	case int64:
+		return typed, true
+	case int32:
+		return int64(typed), true
+	case float64:
+		return int64(typed), true
+	case float32:
+		return int64(typed), true
+	case string:
+		parsed, err := strconv.ParseInt(strings.TrimSpace(typed), 10, 64)
+		if err != nil {
+			return 0, false
+		}
+		return parsed, true
+	default:
+		return 0, false
+	}
 }
 
 // estimateTokens provides rough token count estimate (1 token ≈ 4 characters for English)

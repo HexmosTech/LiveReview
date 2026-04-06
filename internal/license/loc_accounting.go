@@ -11,7 +11,7 @@ import (
 
 type LOCAccountSuccessInput struct {
 	OrgID          int64
-	ReviewID       int64
+	ReviewID       *int64
 	ActorUserID    *int64
 	ActorEmail     string
 	OperationType  string
@@ -60,9 +60,6 @@ func NewLOCAccountingService(db *sql.DB) *LOCAccountingService {
 func (s *LOCAccountingService) AccountSuccess(ctx context.Context, input LOCAccountSuccessInput) error {
 	if input.OrgID <= 0 {
 		return fmt.Errorf("org id must be > 0")
-	}
-	if input.ReviewID <= 0 {
-		return fmt.Errorf("review id must be > 0")
 	}
 	if input.BillableLOC <= 0 {
 		return nil

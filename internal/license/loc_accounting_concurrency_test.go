@@ -65,7 +65,7 @@ func TestLOCAccountingService_ConcurrentIdempotency(t *testing.T) {
 	// Concurrent duplicate idempotency calls should be counted once.
 	dup := LOCAccountSuccessInput{
 		OrgID:          orgID,
-		ReviewID:       reviewID,
+		ReviewID:       &reviewID,
 		OperationType:  "manual_review",
 		TriggerSource:  "manual",
 		OperationID:    prefix + "-dup-op",
@@ -98,9 +98,10 @@ func TestLOCAccountingService_ConcurrentIdempotency(t *testing.T) {
 		i := i
 		go func() {
 			defer wg.Done()
+			resolvedReviewID := reviewID
 			_ = svc.AccountSuccess(t.Context(), LOCAccountSuccessInput{
 				OrgID:          orgID,
-				ReviewID:       reviewID,
+				ReviewID:       &resolvedReviewID,
 				OperationType:  "manual_review",
 				TriggerSource:  "manual",
 				OperationID:    fmt.Sprintf("%s-uniq-op-%d", prefix, i),
