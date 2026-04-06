@@ -214,6 +214,19 @@ func (wo *WebhookOrchestratorV2) ProcessWebhookEvent(c echo.Context) error {
 	}
 
 	log.Printf("[DEBUG] Processing webhook for connector_id=%d, org_id=%d", connectorID, orgID)
+	if event.Repository.Metadata == nil {
+		event.Repository.Metadata = map[string]interface{}{}
+	}
+	event.Repository.Metadata["connector_id"] = connectorID
+	if event.MergeRequest != nil {
+		if event.MergeRequest.Metadata == nil {
+			event.MergeRequest.Metadata = map[string]interface{}{}
+		}
+		event.MergeRequest.Metadata["connector_id"] = connectorID
+		if strings.TrimSpace(event.Repository.ID) != "" {
+			event.MergeRequest.Metadata["repository_id"] = strings.TrimSpace(event.Repository.ID)
+		}
+	}
 
 	// Phase 4: Asynchronous Processing (return response quickly)
 	go wo.processEventAsync(context.Background(), event, provider, scenario, startTime, orgID)
@@ -339,6 +352,14 @@ func (wo *WebhookOrchestratorV2) handleCommentReplyFlow(ctx context.Context, eve
 		response = strings.TrimSpace(response) + "\n\n" + learningAck
 	}
 
+	if usage != nil && usage.Chargeable && usage.BillableLOC > 0 {
+		blocked, reason := wo.enforceWebhookPreflightWithRequiredLOC(ctx, orgID, usage.BillableLOC, "webhook_comment_response")
+		if blocked {
+			log.Printf("[INFO] Webhook comment reply blocked by definitive preflight for event %s/%s: %s", event.EventType, event.Provider, reason)
+			return
+		}
+	}
+
 	// Post the response
 	log.Printf("[DIAG] Calling provider.PostCommentReply with response_len=%d, event=%s/%s, comment_id=%s",
 		len(response), event.EventType, event.Provider, event.Comment.ID)
@@ -347,7 +368,7 @@ func (wo *WebhookOrchestratorV2) handleCommentReplyFlow(ctx context.Context, eve
 		return
 	}
 
-	if usage != nil && usage.BillableLOC > 0 {
+	if usage != nil && usage.Chargeable && usage.BillableLOC > 0 {
 		wo.accountWebhookSuccess(ctx, orgID, event, usage, "webhook_comment_response")
 	}
 
@@ -389,7 +410,7 @@ func (wo *WebhookOrchestratorV2) handleFullReviewFlow(ctx context.Context, event
 		return
 	}
 
-	if usage != nil && usage.BillableLOC > 0 {
+	if usage != nil && usage.Chargeable && usage.BillableLOC > 0 {
 		wo.accountWebhookSuccess(ctx, orgID, event, usage, "webhook_full_review")
 	}
 
@@ -557,22 +578,32 @@ func (wo *WebhookOrchestratorV2) enforceWebhookPreflight(ctx context.Context, ev
 		return false, ""
 	}
 
-	if _, ok := webhookOperationTypeFromScenario(scenarioType); !ok {
+	operationType, ok := webhookOperationTypeFromScenario(scenarioType)
+	if !ok {
 		return false, ""
 	}
 
-	repoID := event.Repository.FullName
-	if repoID == "" {
-		repoID = event.Repository.Name
+	return wo.enforceWebhookPreflightWithRequiredLOC(ctx, orgID, requiredLOC, operationType)
+}
+
+func (wo *WebhookOrchestratorV2) enforceWebhookPreflightWithRequiredLOC(ctx context.Context, orgID int64, requiredLOC int64, operationType string) (bool, string) {
+	if wo == nil || wo.server == nil || wo.server.db == nil || orgID <= 0 || requiredLOC <= 0 || strings.TrimSpace(operationType) == "" {
+		return false, ""
 	}
 
 	service := license.NewLOCAccountingService(wo.server.db)
+	planCode, err := wo.resolveOrgPlanCode(ctx, orgID)
+	if err != nil {
+		log.Printf("[ERROR] LOC preflight aborted for org=%d operation=%s: %v", orgID, operationType, err)
+		return true, "plan_resolution_error"
+	}
 	result, err := service.CheckPreflight(ctx, license.LOCPreflightInput{
 		OrgID:       orgID,
 		RequiredLOC: requiredLOC,
+		PlanCode:    planCode,
 	})
 	if err != nil {
-		log.Printf("[WARN] LOC preflight check failed for webhook event %s/%s: %v", event.EventType, event.Provider, err)
+		log.Printf("[WARN] LOC preflight check failed for org=%d operation=%s required_loc=%d: %v", orgID, operationType, requiredLOC, err)
 		return false, ""
 	}
 	if !result.Blocked {
@@ -583,22 +614,22 @@ func (wo *WebhookOrchestratorV2) enforceWebhookPreflight(ctx context.Context, ev
 }
 
 func (wo *WebhookOrchestratorV2) accountWebhookSuccess(ctx context.Context, orgID int64, event *UnifiedWebhookEventV2, usage *OperationUsageV2, operationType string) {
-	if wo == nil || wo.server == nil || wo.server.db == nil || event == nil || usage == nil || orgID <= 0 || usage.BillableLOC <= 0 {
+	if wo == nil || wo.server == nil || wo.server.db == nil || event == nil || usage == nil || orgID <= 0 || !usage.Chargeable || usage.BillableLOC <= 0 {
 		return
 	}
 
 	service := license.NewLOCAccountingService(wo.server.db)
-	reviewID := extractWebhookReviewID(event)
-	if reviewID <= 0 {
-		log.Printf("[WARN] skipping webhook usage accounting because no stable review ID was found for event %s/%s", event.EventType, event.Provider)
+	planCode, err := wo.resolveOrgPlanCode(ctx, orgID)
+	if err != nil {
+		log.Printf("[ERROR] skipping webhook accounting for org=%d operation=%s due plan resolution failure: %v", orgID, operationType, err)
 		return
 	}
 
 	operationID := buildWebhookOperationKey(event, operationType)
 	actorUserID, actorEmail := wo.resolveWebhookActor(ctx, orgID, event)
-	err := service.AccountSuccess(ctx, license.LOCAccountSuccessInput{
+	err = service.AccountSuccess(ctx, license.LOCAccountSuccessInput{
 		OrgID:          orgID,
-		ReviewID:       reviewID,
+		ReviewID:       nil,
 		ActorUserID:    actorUserID,
 		ActorEmail:     actorEmail,
 		OperationType:  operationType,
@@ -606,6 +637,7 @@ func (wo *WebhookOrchestratorV2) accountWebhookSuccess(ctx context.Context, orgI
 		OperationID:    operationID,
 		IdempotencyKey: operationID,
 		BillableLOC:    usage.BillableLOC,
+		PlanCode:       planCode,
 		Provider:       strings.TrimSpace(usage.Provider),
 		Model:          strings.TrimSpace(usage.Model),
 		PricingVersion: strings.TrimSpace(usage.PricingVersion),
@@ -616,6 +648,28 @@ func (wo *WebhookOrchestratorV2) accountWebhookSuccess(ctx context.Context, orgI
 	if err != nil {
 		log.Printf("[WARN] failed to account webhook usage for org=%d operation=%s: %v", orgID, operationType, err)
 	}
+}
+
+func (wo *WebhookOrchestratorV2) resolveOrgPlanCode(ctx context.Context, orgID int64) (license.PlanType, error) {
+	if wo == nil || wo.server == nil || wo.server.db == nil || orgID <= 0 {
+		return "", fmt.Errorf("plan resolution requires valid webhook orchestrator context")
+	}
+
+	store := storagelicense.NewPlanChangeStore(wo.server.db)
+	if err := store.EnsureOrgBillingState(ctx, orgID, license.PlanFree30K.String()); err != nil {
+		return "", fmt.Errorf("failed to ensure billing state for org=%d: %w", orgID, err)
+	}
+
+	state, err := store.GetOrgBillingState(ctx, orgID)
+	if err != nil {
+		return "", fmt.Errorf("failed to resolve current plan for org=%d: %w", orgID, err)
+	}
+
+	resolved := license.PlanType(strings.TrimSpace(state.CurrentPlanCode))
+	if !resolved.IsValid() {
+		return "", fmt.Errorf("invalid current plan code for org=%d", orgID)
+	}
+	return resolved, nil
 }
 
 func (wo *WebhookOrchestratorV2) resolveWebhookActor(ctx context.Context, orgID int64, event *UnifiedWebhookEventV2) (*int64, string) {

@@ -11,7 +11,7 @@ import (
 
 type AccountSuccessRecord struct {
 	OrgID              int64
-	ReviewID           int64
+	ReviewID           *int64
 	ActorUserID        *int64
 	ActorEmail         string
 	OperationType      string
@@ -158,7 +158,7 @@ func (s *LOCAccountingStore) AccountSuccess(ctx context.Context, rec AccountSucc
 		RETURNING id
 	`,
 		rec.OrgID,
-		rec.ReviewID,
+		nullReviewID(rec.ReviewID),
 		nullUserID(rec.ActorUserID),
 		rec.OperationType,
 		rec.TriggerSource,
@@ -550,4 +550,11 @@ func nullUserID(userID *int64) interface{} {
 		return nil
 	}
 	return *userID
+}
+
+func nullReviewID(reviewID *int64) interface{} {
+	if reviewID == nil || *reviewID <= 0 {
+		return nil
+	}
+	return *reviewID
 }

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strings"
 	"time"
 )
 
@@ -46,4 +47,37 @@ func Do(client *http.Client, req *http.Request) (*http.Response, error) {
 		return nil, fmt.Errorf("http request is nil")
 	}
 	return client.Do(req)
+}
+
+func FetchPatchContent(ctx context.Context, client *http.Client, patchURL string, token string) (string, error) {
+	patchURL = strings.TrimSpace(patchURL)
+	if patchURL == "" {
+		return "", fmt.Errorf("patch URL is empty")
+	}
+
+	req, err := NewRequestWithContext(ctx, http.MethodGet, patchURL, nil)
+	if err != nil {
+		return "", err
+	}
+	req.Header.Set("Accept", "text/plain")
+	if strings.TrimSpace(token) != "" {
+		req.Header.Set("Authorization", fmt.Sprintf("token %s", strings.TrimSpace(token)))
+	}
+
+	resp, err := Do(client, req)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return "", fmt.Errorf("failed to read patch response: %w", err)
+	}
+
+	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
+		return "", fmt.Errorf("patch request failed with status %d: %s", resp.StatusCode, string(body))
+	}
+
+	return string(body), nil
 }
