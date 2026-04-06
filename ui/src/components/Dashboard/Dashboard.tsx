@@ -76,6 +76,44 @@ const dashboardPlanLabel = (planCode: string): string => {
     return planCode || 'Plan';
 };
 
+const getConnectorWarningDismissStorageKey = (userId?: number | string): string => {
+    return userId ? `lr_hidden_connector_warnings_${userId}` : 'lr_hidden_connector_warnings';
+};
+
+const parseDismissedConnectorIds = (rawValue: string | null): Set<number> => {
+    if (!rawValue) return new Set<number>();
+
+    try {
+        const parsed = JSON.parse(rawValue);
+        if (!Array.isArray(parsed)) return new Set<number>();
+
+        const validIds = parsed
+            .map((item) => Number(item))
+            .filter((item) => Number.isInteger(item) && item > 0);
+
+        return new Set<number>(validIds);
+    } catch {
+        return new Set<number>();
+    }
+};
+
+const loadDismissedConnectorIds = (storageKey: string): Set<number> => {
+    try {
+        return parseDismissedConnectorIds(localStorage.getItem(storageKey));
+    } catch {
+        return new Set<number>();
+    }
+};
+
+const saveDismissedConnectorIds = (storageKey: string, connectorIds: Set<number>): void => {
+    try {
+        const sortedIds = Array.from(connectorIds).sort((a, b) => a - b);
+        localStorage.setItem(storageKey, JSON.stringify(sortedIds));
+    } catch {
+        // no-op: keep UI functional when localStorage is unavailable
+    }
+};
+
 export const Dashboard: React.FC = () => {
     const navigate = useNavigate();
     const user = useAppSelector(state => state.Auth.user);
@@ -95,9 +133,39 @@ export const Dashboard: React.FC = () => {
         }
     });
     const [notificationSent, setNotificationSent] = useState(false);
-    // Track dismissed connector progress notifications (session-only, not persisted)
+    // Track dismissed connector progress notifications for this tab session
     const [dismissedConnectors, setDismissedConnectors] = useState<Set<number>>(new Set());
+    // Track connector warnings explicitly hidden by the user across page reloads
+    const [persistedDismissedConnectors, setPersistedDismissedConnectors] = useState<Set<number>>(new Set());
     const [billingInsight, setBillingInsight] = useState<DashboardBillingInsight | null>(null);
+
+    useEffect(() => {
+        const storageKey = getConnectorWarningDismissStorageKey(user?.id);
+        setPersistedDismissedConnectors(loadDismissedConnectorIds(storageKey));
+    }, [user?.id]);
+
+    const dismissConnectorForSession = (connectorId: number): void => {
+        setDismissedConnectors((prev) => {
+            if (prev.has(connectorId)) return prev;
+
+            const updated = new Set(prev);
+            updated.add(connectorId);
+            return updated;
+        });
+    };
+
+    const dismissConnectorPermanently = (connectorId: number): void => {
+        dismissConnectorForSession(connectorId);
+
+        setPersistedDismissedConnectors((prev) => {
+            if (prev.has(connectorId)) return prev;
+
+            const updated = new Set(prev);
+            updated.add(connectorId);
+            saveDismissedConnectorIds(getConnectorWarningDismissStorageKey(user?.id), updated);
+            return updated;
+        });
+    };
 
     // Handle user notification on first dashboard load
     useEffect(() => {
@@ -231,7 +299,7 @@ export const Dashboard: React.FC = () => {
 
     // Get connectors that need setup attention (filter out dismissed ones)
     const connectorsNeedingSetup = (dashboardData?.connector_setup_progress || []).filter(
-        c => !dismissedConnectors.has(c.connector_id)
+        c => !dismissedConnectors.has(c.connector_id) && !persistedDismissedConnectors.has(c.connector_id)
     );
 
     // Helper to get phase variant for Alert
@@ -272,20 +340,14 @@ export const Dashboard: React.FC = () => {
                             <Alert 
                                 key={connector.connector_id}
                                 variant={getPhaseVariant(connector.phase)}
-                                onClose={() => {
-                                    setDismissedConnectors(prev => {
-                                        const newSet = new Set(Array.from(prev));
-                                        newSet.add(connector.connector_id);
-                                        return newSet;
-                                    });
-                                }}
+                                onClose={() => dismissConnectorForSession(connector.connector_id)}
                                 className="cursor-pointer hover:opacity-90"
                             >
                                 <div 
-                                    className="flex items-center justify-between"
+                                    className="flex w-full flex-col gap-3 sm:flex-row sm:items-center sm:justify-between"
                                     onClick={() => navigate(`/git/connector/${connector.connector_id}`)}
                                 >
-                                    <span>
+                                    <span className="sm:pr-4">
                                         {getPhaseMessage(
                                             connector.phase, 
                                             connector.connector_name, 
@@ -294,17 +356,30 @@ export const Dashboard: React.FC = () => {
                                             connector.connected_projects
                                         )}
                                     </span>
-                                    <Button 
-                                        variant="outline" 
-                                        size="sm"
-                                        className="ml-4 !border-current !text-current hover:opacity-80"
-                                        onClick={(e) => { 
-                                            e.stopPropagation(); 
-                                            navigate(`/git/connector/${connector.connector_id}`); 
-                                        }}
-                                    >
-                                        View Details
-                                    </Button>
+                                    <div className="flex flex-wrap items-center gap-2 sm:ml-4 sm:flex-nowrap">
+                                        <Button 
+                                            variant="ghost"
+                                            size="sm"
+                                            className="text-current hover:bg-black/10 hover:opacity-90"
+                                            onClick={(e) => {
+                                                e.stopPropagation();
+                                                dismissConnectorPermanently(connector.connector_id);
+                                            }}
+                                        >
+                                            Don&apos;t show again
+                                        </Button>
+                                        <Button 
+                                            variant="outline" 
+                                            size="sm"
+                                            className="!border-current !text-current hover:opacity-80"
+                                            onClick={(e) => { 
+                                                e.stopPropagation(); 
+                                                navigate(`/git/connector/${connector.connector_id}`); 
+                                            }}
+                                        >
+                                            View Details
+                                        </Button>
+                                    </div>
                                 </div>
                             </Alert>
                         ))}
