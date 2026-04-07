@@ -40,6 +40,13 @@ type SubscriptionService struct {
 	db *sql.DB
 }
 
+var ErrCancellationNotVerified = errors.New("cancellation not verified with razorpay")
+
+const (
+	cancelVerificationMaxAttempts = 5
+	cancelVerificationBaseDelay   = 600 * time.Millisecond
+)
+
 // NewSubscriptionService creates a new subscription service
 func NewSubscriptionService(db *sql.DB) *SubscriptionService {
 	return &SubscriptionService{db: db}
@@ -187,23 +194,195 @@ func (s *SubscriptionService) UpdateQuantity(subscriptionID string, quantity int
 
 // CancelSubscription cancels an existing subscription
 func (s *SubscriptionService) CancelSubscription(subscriptionID string, immediate bool, mode string) (*RazorpaySubscription, error) {
+	preCancelSub, err := GetSubscriptionByID(mode, subscriptionID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to fetch razorpay subscription before cancellation: %w", err)
+	}
+
 	// Cancel in Razorpay
 	sub, err := CancelSubscription(mode, subscriptionID, !immediate)
 	if err != nil {
 		return nil, fmt.Errorf("failed to cancel razorpay subscription: %w", err)
 	}
 
+	postCancelSub, verificationReason, err := verifyCancellationWithRetry(preCancelSub, sub, immediate, cancelVerificationMaxAttempts, func() (*RazorpaySubscription, error) {
+		postSub, getErr := GetSubscriptionByID(mode, subscriptionID)
+		if getErr != nil {
+			return nil, getErr
+		}
+
+		if immediate || hasCycleEndMarkerSignal(postSub) {
+			return postSub, nil
+		}
+
+		scheduledSub, scheduledErr := RetrieveScheduledChangesByID(mode, subscriptionID)
+		if scheduledErr == nil {
+			fmt.Printf("[SUBSCRIPTION.CANCEL] retrieve_scheduled_changes returned provider scheduled update for %s\n", subscriptionID)
+			return scheduledSub, nil
+		}
+
+		if errors.Is(scheduledErr, ErrNoPendingScheduledChange) {
+			fmt.Printf("[SUBSCRIPTION.CANCEL] retrieve_scheduled_changes reports no pending update for %s\n", subscriptionID)
+			return postSub, nil
+		}
+
+		fmt.Printf("[SUBSCRIPTION.CANCEL] retrieve_scheduled_changes failed for %s: %v\n", subscriptionID, scheduledErr)
+		return postSub, nil
+	}, time.Sleep)
+	if err != nil {
+		return nil, fmt.Errorf("failed to verify cancellation against razorpay: %w", err)
+	}
+
+	if verificationReason != "" {
+		return nil, fmt.Errorf("%w: %s", ErrCancellationNotVerified, verificationReason)
+	}
+
 	store := storagepayment.NewSubscriptionStore(s.db)
 	err = store.CancelSubscriptionRecord(storagepayment.CancelSubscriptionRecordInput{
 		SubscriptionID: subscriptionID,
 		Immediate:      immediate,
-		Status:         sub.Status,
+		Status:         postCancelSub.Status,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("failed to persist cancellation: %w", err)
 	}
 
-	return sub, nil
+	return postCancelSub, nil
+}
+
+func normalizeSubscriptionStatus(status string) string {
+	return strings.ToLower(strings.TrimSpace(status))
+}
+
+func hasTerminalCancellationSignal(sub *RazorpaySubscription) bool {
+	if sub == nil {
+		return false
+	}
+	status := normalizeSubscriptionStatus(sub.Status)
+	if status == "cancelled" || status == "completed" || status == "expired" {
+		return true
+	}
+	return sub.EndedAt > 0
+}
+
+func hasCycleEndMarkerSignal(sub *RazorpaySubscription) bool {
+	if sub == nil {
+		return false
+	}
+	if sub.HasScheduledChanges || sub.ChangeScheduledAt > 0 {
+		return true
+	}
+	return sub.CancelAtCycleEnd || sub.CancelAt > 0
+}
+
+func hasCycleEndDelta(pre, post *RazorpaySubscription) bool {
+	if pre == nil || post == nil {
+		return false
+	}
+	if pre.EndAt > 0 && post.EndAt > 0 && post.EndAt < pre.EndAt {
+		return true
+	}
+	if post.ChargeAt != 0 && pre.ChargeAt != post.ChargeAt {
+		return true
+	}
+	if pre.RemainingCount > 0 && post.RemainingCount > 0 && post.RemainingCount != pre.RemainingCount {
+		return true
+	}
+	if strings.TrimSpace(post.Status) != "" && normalizeSubscriptionStatus(pre.Status) != normalizeSubscriptionStatus(post.Status) {
+		return true
+	}
+	return false
+}
+
+func hasCycleEndCancellationSignal(pre, cancelResponse, post *RazorpaySubscription) bool {
+	if hasCycleEndMarkerSignal(cancelResponse) || hasCycleEndMarkerSignal(post) {
+		return true
+	}
+	if hasCycleEndDelta(pre, cancelResponse) || hasCycleEndDelta(pre, post) {
+		return true
+	}
+	return false
+}
+
+func safeSubscriptionStatus(sub *RazorpaySubscription) string {
+	if sub == nil {
+		return ""
+	}
+	return normalizeSubscriptionStatus(sub.Status)
+}
+
+func safeSubscriptionID(sub *RazorpaySubscription) string {
+	if sub == nil {
+		return ""
+	}
+	return strings.TrimSpace(sub.ID)
+}
+
+func cancellationVerified(preCancelSub, cancelResponseSub, postCancelSub *RazorpaySubscription, immediate bool) (bool, string) {
+	if immediate {
+		if hasTerminalCancellationSignal(cancelResponseSub) || hasTerminalCancellationSignal(postCancelSub) {
+			return true, ""
+		}
+		return false, "immediate cancellation did not yield terminal cancellation markers"
+	}
+
+	if hasTerminalCancellationSignal(cancelResponseSub) || hasTerminalCancellationSignal(postCancelSub) {
+		return true, ""
+	}
+	if hasCycleEndCancellationSignal(preCancelSub, cancelResponseSub, postCancelSub) {
+		return true, ""
+	}
+
+	return false, "cycle-end cancellation produced no verifiable provider-side state transition"
+}
+
+func verifyCancellationWithRetry(
+	preCancelSub, cancelResponseSub *RazorpaySubscription,
+	immediate bool,
+	maxAttempts int,
+	fetchPostCancel func() (*RazorpaySubscription, error),
+	sleepFn func(time.Duration),
+) (*RazorpaySubscription, string, error) {
+	if maxAttempts < 1 {
+		maxAttempts = 1
+	}
+
+	var lastFetchErr error
+	lastReason := "cycle-end cancellation produced no verifiable provider-side state transition"
+
+	for attempt := 1; attempt <= maxAttempts; attempt++ {
+		postCancelSub, err := fetchPostCancel()
+		if err != nil {
+			lastFetchErr = err
+			fmt.Printf("[SUBSCRIPTION.CANCEL] verification attempt %d/%d failed to fetch post-cancel state: %v\n", attempt, maxAttempts, err)
+		} else {
+			lastFetchErr = nil
+			if ok, reason := cancellationVerified(preCancelSub, cancelResponseSub, postCancelSub, immediate); ok {
+				fmt.Printf("[SUBSCRIPTION.CANCEL] verification attempt %d/%d succeeded (immediate=%t, cancel_status=%s, post_status=%s)\n", attempt, maxAttempts, immediate, safeSubscriptionStatus(cancelResponseSub), safeSubscriptionStatus(postCancelSub))
+				return postCancelSub, "", nil
+			} else {
+				lastReason = reason
+				fmt.Printf("[SUBSCRIPTION.CANCEL] verification attempt %d/%d not yet verified (immediate=%t, reason=%s, cancel_status=%s, post_status=%s)\n", attempt, maxAttempts, immediate, reason, safeSubscriptionStatus(cancelResponseSub), safeSubscriptionStatus(postCancelSub))
+			}
+		}
+
+		if attempt < maxAttempts && sleepFn != nil {
+			sleepFn(time.Duration(attempt) * cancelVerificationBaseDelay)
+		}
+	}
+
+	if lastFetchErr != nil {
+		return nil, "", lastFetchErr
+	}
+
+	fetchErrState := "none"
+	if cancelResponseSub != nil {
+		fmt.Printf("[SUBSCRIPTION.CANCEL] verification exhausted after %d attempts (immediate=%t, reason=%s, cancel_status=%s, cancel_id=%s, fetch_err=%s)\n", maxAttempts, immediate, lastReason, safeSubscriptionStatus(cancelResponseSub), safeSubscriptionID(cancelResponseSub), fetchErrState)
+	} else {
+		fmt.Printf("[SUBSCRIPTION.CANCEL] verification exhausted after %d attempts (immediate=%t, reason=%s, cancel_response=nil, fetch_err=%s)\n", maxAttempts, immediate, lastReason, fetchErrState)
+	}
+
+	return nil, lastReason, nil
 }
 
 // SubscriptionDetails holds subscription info from both DB and Razorpay
