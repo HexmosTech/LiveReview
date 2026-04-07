@@ -606,25 +606,28 @@ func (h *RazorpayWebhookHandler) handleSubscriptionCancelled(event *RazorpayWebh
 	defer tx.Rollback()
 
 	// Get subscription details
+	var subscriptionID int64
 	var ownerUserID, orgID int
 	err = tx.QueryRow(`
-		SELECT owner_user_id, org_id
+		SELECT id, owner_user_id, org_id
 		FROM subscriptions
 		WHERE razorpay_subscription_id = $1`,
 		sub.ID,
-	).Scan(&ownerUserID, &orgID)
+	).Scan(&subscriptionID, &ownerUserID, &orgID)
 	if err != nil {
 		return fmt.Errorf("subscription not found: %s", sub.ID)
 	}
+
+	pendingCancel := strings.EqualFold(strings.TrimSpace(sub.Status), "active")
 
 	// Update subscription status
 	_, err = tx.Exec(`
 		UPDATE subscriptions
 		SET status = $1,
-		    cancel_at_period_end = TRUE,
+		    cancel_at_period_end = $2,
 		    updated_at = NOW()
-		WHERE razorpay_subscription_id = $2`,
-		sub.Status, sub.ID,
+		WHERE razorpay_subscription_id = $3`,
+		sub.Status, pendingCancel, sub.ID,
 	)
 	if err != nil {
 		return fmt.Errorf("failed to update subscription: %w", err)
@@ -640,7 +643,7 @@ func (h *RazorpayWebhookHandler) handleSubscriptionCancelled(event *RazorpayWebh
 			    active_subscription_id = NULL,
 			    updated_at = NOW()
 			WHERE active_subscription_id = $1`,
-			sub.ID,
+			subscriptionID,
 		)
 		if err != nil {
 			return fmt.Errorf("failed to revert users to free plan: %w", err)
@@ -659,7 +662,7 @@ func (h *RazorpayWebhookHandler) handleSubscriptionCancelled(event *RazorpayWebh
 			user_id, org_id, event_type, description, metadata, created_at
 		) VALUES ($1, $2, $3, $4, $5, NOW())`,
 		ownerUserID, orgID, "subscription_cancelled",
-		"Subscription cancelled, users reverted to free plan",
+		"Subscription cancellation webhook processed",
 		metadataJSON,
 	)
 	if err != nil {
@@ -683,13 +686,14 @@ func (h *RazorpayWebhookHandler) handleSubscriptionCompleted(event *RazorpayWebh
 	defer tx.Rollback()
 
 	// Get subscription details
+	var subscriptionID int64
 	var ownerUserID, orgID int
 	err = tx.QueryRow(`
-		SELECT owner_user_id, org_id
+		SELECT id, owner_user_id, org_id
 		FROM subscriptions
 		WHERE razorpay_subscription_id = $1`,
 		sub.ID,
-	).Scan(&ownerUserID, &orgID)
+	).Scan(&subscriptionID, &ownerUserID, &orgID)
 	if err != nil {
 		return fmt.Errorf("subscription not found: %s", sub.ID)
 	}
@@ -714,7 +718,7 @@ func (h *RazorpayWebhookHandler) handleSubscriptionCompleted(event *RazorpayWebh
 		    active_subscription_id = NULL,
 		    updated_at = NOW()
 		WHERE active_subscription_id = $1`,
-		sub.ID,
+		subscriptionID,
 	)
 	if err != nil {
 		return fmt.Errorf("failed to revert users to free plan: %w", err)

@@ -21,6 +21,21 @@ export const CancelSubscriptionModal: React.FC<CancelSubscriptionModalProps> = (
     const [showSuccess, setShowSuccess] = useState(false);
     const [error, setError] = useState<string | null>(null);
 
+    const getFriendlyCancelError = (err: any): string => {
+        const rawMessage = String(err?.message || '').toLowerCase();
+        const isVerificationDelay =
+            err?.status === 409 ||
+            rawMessage.includes('could not be verified on razorpay yet') ||
+            rawMessage.includes('cancellation not verified with razorpay') ||
+            rawMessage.includes('verifiable scheduled-cancellation marker');
+
+        if (isVerificationDelay) {
+            return 'Cancellation is still being confirmed by Razorpay. No billing changes were applied yet. Please wait a few seconds and click Cancel Subscription again.';
+        }
+
+        return err?.message || 'Failed to cancel subscription';
+    };
+
     const formatDate = (dateString: string | null | undefined) => {
         if (!dateString) return 'the end of the current billing period';
         return new Date(dateString).toLocaleDateString('en-US', {
@@ -58,7 +73,7 @@ export const CancelSubscriptionModal: React.FC<CancelSubscriptionModalProps> = (
 
         } catch (error: any) {
             console.error('Failed to cancel subscription:', error);
-            setError(error.message || 'Failed to cancel subscription');
+            setError(getFriendlyCancelError(error));
         } finally {
             setIsSubmitting(false);
         }
@@ -145,6 +160,12 @@ export const CancelSubscriptionModal: React.FC<CancelSubscriptionModalProps> = (
                                     Are you sure you want to cancel your subscription?
                                 </p>
 
+                                {error && (
+                                    <p className="text-xs text-amber-200/90 bg-amber-900/20 border border-amber-500/30 rounded-lg px-3 py-2">
+                                        Billing changes below apply only after Razorpay confirms cancellation.
+                                    </p>
+                                )}
+
                                 {/* Important Information */}
                                 <div className="bg-amber-900/20 border border-amber-500/30 rounded-lg p-4 space-y-2">
                                     <div className="flex items-start space-x-2">
@@ -166,13 +187,7 @@ export const CancelSubscriptionModal: React.FC<CancelSubscriptionModalProps> = (
                                         </li>
                                         <li className="flex items-start">
                                             <span className="mr-2">•</span>
-                                            <span>After expiry, your plan will automatically revert to the Free (Hobby) plan (3 reviews per day)</span>
-                                        </li>
-                                        <li className="flex items-start">
-                                            <span className="mr-2 text-red-400">⚠</span>
-                                            <span className="text-amber-100">
-                                                <strong>Warning:</strong> On the Hobby plan, only the Organization Creator will have access. All other members will be blocked.
-                                            </span>
+                                            <span>After expiry, your plan will automatically revert to the Free plan</span>
                                         </li>
                                         <li className="flex items-start">
                                             <span className="mr-2">•</span>

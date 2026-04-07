@@ -2,6 +2,8 @@ package api
 
 import (
 	"database/sql"
+	"errors"
+	"fmt"
 	"net/http"
 	"os"
 	"strconv"
@@ -260,6 +262,12 @@ func (h *SubscriptionsHandler) CancelSubscription(c echo.Context) error {
 	// Cancel subscription
 	sub, err := h.service.CancelSubscription(subscriptionID, req.Immediate, mode)
 	if err != nil {
+		if errors.Is(err, payment.ErrCancellationNotVerified) {
+			fmt.Printf("[API.SUBSCRIPTIONS] cancel verification conflict subscription_id=%s immediate=%t mode=%s reason=%v\n", subscriptionID, req.Immediate, mode, err)
+			return c.JSON(http.StatusConflict, map[string]string{
+				"error": "Razorpay did not return a verifiable scheduled-cancellation marker for this subscription. No local billing changes were applied.",
+			})
+		}
 		return c.JSON(http.StatusInternalServerError, map[string]string{
 			"error": err.Error(),
 		})

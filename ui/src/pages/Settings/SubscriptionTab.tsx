@@ -214,6 +214,11 @@ type PrepareUpgradePaymentResponse = {
   preview_token: string;
 };
 
+type CreateSubscriptionCheckoutResponse = {
+  razorpay_subscription_id: string;
+  razorpay_key_id: string;
+};
+
 type UpgradeRequestStatusResponse = {
   request: {
     upgrade_request_id: string;
@@ -299,6 +304,19 @@ const buildUpgradeCheckoutFailureMessage = (response: any, prepared: PrepareUpgr
   }
 
   return `${description} (${details.join(', ')}). ${testHint}`;
+};
+
+const buildCheckoutPathWithPlan = (checkoutPath: string | undefined, planCode: string): string => {
+  const basePath = String(checkoutPath || '/checkout/team?period=monthly').trim();
+  const [pathOnly, query = ''] = basePath.split('?');
+  const params = new URLSearchParams(query);
+  if (!params.get('period')) {
+    params.set('period', 'monthly');
+  }
+  if (!params.get('plan')) {
+    params.set('plan', planCode);
+  }
+  return `${pathOnly}?${params.toString()}`;
 };
 
 const SubscriptionTab: React.FC = () => {
@@ -432,6 +450,7 @@ const OverviewTab: React.FC<{ navigate: any; mode?: 'full' | 'breakdown' | 'cont
   const [lastUpgradeResult, setLastUpgradeResult] = useState<UpgradeActionResponse | null>(null);
   const [upgradePreview, setUpgradePreview] = useState<UpgradePreviewResponse | null>(null);
   const [showUpgradeModal, setShowUpgradeModal] = useState(false);
+  const [showFreeCheckoutModal, setShowFreeCheckoutModal] = useState(false);
   const [upgradeCheckoutLoading, setUpgradeCheckoutLoading] = useState(false);
   const [upgradeScriptReady, setUpgradeScriptReady] = useState(false);
   const [activeUpgradeRequestID, setActiveUpgradeRequestID] = useState<string>('');
@@ -675,8 +694,10 @@ const OverviewTab: React.FC<{ navigate: any; mode?: 'full' | 'breakdown' | 'cont
     setBillingError(null);
     setLastUpgradeResult(null);
     try {
-      if (isFree && effectivePlanCode === 'team_32usd') {
-        navigate('/checkout/team?period=monthly');
+      if (isFree) {
+        setShowUpgradeModal(false);
+        setUpgradePreview(null);
+        setShowFreeCheckoutModal(true);
         return;
       }
 
@@ -689,7 +710,7 @@ const OverviewTab: React.FC<{ navigate: any; mode?: 'full' | 'breakdown' | 'cont
       );
 
       if (preview?.checkout_required) {
-        navigate(preview.checkout_path || '/checkout/team?period=monthly');
+        navigate(buildCheckoutPathWithPlan(preview.checkout_path, effectivePlanCode));
         return;
       }
 
@@ -700,6 +721,10 @@ const OverviewTab: React.FC<{ navigate: any; mode?: 'full' | 'breakdown' | 'cont
       }
       setShowUpgradeModal(Boolean(preview?.preview_token));
     } catch (err: any) {
+      if (err?.status === 409 && err?.data?.checkout_required) {
+        navigate(buildCheckoutPathWithPlan(err?.data?.checkout_path, effectivePlanCode));
+        return;
+      }
       if (err?.status === 404) {
         setBillingError('Upgrade endpoint returned 404. Ensure API is redeployed with /billing/upgrade/preview route and this org context is valid.');
       } else {
@@ -707,6 +732,104 @@ const OverviewTab: React.FC<{ navigate: any; mode?: 'full' | 'breakdown' | 'cont
       }
     } finally {
       setActionLoading(false);
+    }
+  };
+
+  const startFreeCheckoutFromSettings = async () => {
+    const effectivePlanCode = String(selectedUpgradePlan || '').trim();
+    if (!effectivePlanCode) {
+      setBillingError('Select an upgrade plan to continue.');
+      return;
+    }
+
+    setUpgradeCheckoutLoading(true);
+    setBillingError(null);
+
+    try {
+      if (!upgradeScriptReady) {
+        await ensureRazorpay();
+        ensureRazorpayStyles();
+        setUpgradeScriptReady(true);
+      }
+
+      const created = await apiClient.post<CreateSubscriptionCheckoutResponse>(
+        '/subscriptions',
+        { plan_code: effectivePlanCode },
+        orgScopedRequestOptions
+      );
+
+      if (!created?.razorpay_subscription_id || !created?.razorpay_key_id) {
+        throw new Error('Checkout initialization is incomplete. Please retry.');
+      }
+
+      const selectedPlanDetails = billingStatus?.available_plans?.find((plan) => plan.plan_code === effectivePlanCode);
+      const locLabel = selectedPlanDetails?.monthly_loc_limit
+        ? `${selectedPlanDetails.monthly_loc_limit.toLocaleString()} LOC/month`
+        : 'LOC/month';
+
+      const options = {
+        key: created.razorpay_key_id,
+        subscription_id: created.razorpay_subscription_id,
+        name: 'LiveReview LOC Plan',
+        description: `${getPlanDisplayName(effectivePlanCode)} (${locLabel})`,
+        image: '/assets/logo-with-text.svg',
+        handler: async (razorpayResponse: any) => {
+          try {
+            const paymentID = razorpayResponse?.razorpay_payment_id;
+            const signature = razorpayResponse?.razorpay_signature;
+            if (!paymentID || !signature) {
+              throw new Error('Payment confirmation payload is incomplete.');
+            }
+
+            await apiClient.post(
+              '/subscriptions/confirm-purchase',
+              {
+                razorpay_subscription_id: created.razorpay_subscription_id,
+                razorpay_payment_id: paymentID,
+                razorpay_signature: signature,
+              },
+              orgScopedRequestOptions
+            );
+
+            setShowFreeCheckoutModal(false);
+            await refreshBilling();
+          } catch (confirmErr: any) {
+            setBillingError(confirmErr?.message || 'Payment completed, but confirmation failed. Please retry.');
+          } finally {
+            setUpgradeCheckoutLoading(false);
+            cleanupRazorpayOverlay();
+          }
+        },
+        modal: {
+          ondismiss: () => {
+            setUpgradeCheckoutLoading(false);
+            cleanupRazorpayOverlay();
+          },
+        },
+        theme: {
+          color: '#131C2F',
+        },
+      };
+
+      const rzp = new window.Razorpay(options);
+      document.body.classList.add('razorpay-active');
+      rzp.on('payment.failed', (response: any) => {
+        setBillingError(
+          buildUpgradeCheckoutFailureMessage(response, {
+            payment_required: true,
+            razorpay_key_id: created.razorpay_key_id,
+            preview_token: '',
+            currency: 'USD',
+          })
+        );
+        setUpgradeCheckoutLoading(false);
+        cleanupRazorpayOverlay();
+      });
+      rzp.open();
+    } catch (err: any) {
+      setBillingError(err?.message || 'Failed to start checkout for selected plan');
+      setUpgradeCheckoutLoading(false);
+      cleanupRazorpayOverlay();
     }
   };
 
@@ -859,6 +982,10 @@ const OverviewTab: React.FC<{ navigate: any; mode?: 'full' | 'breakdown' | 'cont
     if (normalized === 'free_30k' || normalized === 'free') return 'Free 30k BYOK';
     return plan;
   };
+
+  const selectedFreeCheckoutPlan = billingStatus?.available_plans?.find((p) => p.plan_code === selectedUpgradePlan) || null;
+  const selectedFreeCheckoutPriceUSD = selectedFreeCheckoutPlan?.monthly_price_usd || 0;
+  const selectedFreeCheckoutLoc = selectedFreeCheckoutPlan?.monthly_loc_limit || 0;
 
   const dailyLimit = isFree
     ? 'Quota-based (30,000 LOC/month)'
@@ -1670,6 +1797,59 @@ const OverviewTab: React.FC<{ navigate: any; mode?: 'full' | 'breakdown' | 'cont
           subscriptionId={cancelTargetSubscriptionId}
           expiryDate={displayExpiry || managedSubscription?.current_period_end || licenseExpiresAt}
         />
+      )}
+
+      {!isBreakdownMode && showFreeCheckoutModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/80 p-4">
+          <div className="w-full max-w-2xl rounded-xl border border-slate-700 bg-slate-900 shadow-2xl">
+            <div className="border-b border-slate-700 px-6 py-4">
+              <h3 className="text-lg font-semibold text-white">Confirm New Paid Plan</h3>
+              <p className="mt-1 text-sm text-slate-300">
+                You are moving from Free 30k BYOK to a paid LOC slab. The recurring charge starts with this checkout authorization.
+              </p>
+            </div>
+
+            <div className="space-y-4 px-6 py-5 text-sm">
+              <div className="rounded-lg border border-slate-700 bg-slate-800/70 p-4 space-y-2 text-slate-200">
+                <p>Current plan: <span className="text-white">Free 30k BYOK</span></p>
+                <p>Target plan: <span className="text-white">{getPlanDisplayName(selectedUpgradePlan)}</span></p>
+              </div>
+
+              <div className="rounded-lg border border-blue-500/40 bg-blue-900/20 p-4 space-y-2 text-slate-100">
+                <p className="font-medium text-blue-200">Checkout summary</p>
+                <p>
+                  Recurring amount: <span className="text-white font-semibold">${selectedFreeCheckoutPriceUSD}/month</span>
+                </p>
+                <p>
+                  Included LOC: <span className="text-white font-semibold">{selectedFreeCheckoutLoc.toLocaleString()} LOC/month</span>
+                </p>
+              </div>
+
+              <div className="rounded-lg border border-amber-500/40 bg-amber-900/20 p-3 text-xs text-amber-100">
+                This flow opens Razorpay checkout now and activates your selected paid plan after payment confirmation.
+              </div>
+            </div>
+
+            <div className="flex items-center justify-end gap-3 border-t border-slate-700 px-6 py-4">
+              <button
+                type="button"
+                disabled={upgradeCheckoutLoading}
+                onClick={() => setShowFreeCheckoutModal(false)}
+                className="rounded border border-slate-600 px-4 py-2 text-sm text-slate-200 hover:bg-slate-800 disabled:opacity-50"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                disabled={upgradeCheckoutLoading}
+                onClick={startFreeCheckoutFromSettings}
+                className="rounded bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-500 disabled:opacity-50"
+              >
+                {upgradeCheckoutLoading ? 'Processing...' : 'Confirm and Pay Now'}
+              </button>
+            </div>
+          </div>
+        </div>
       )}
 
       {!isBreakdownMode && showUpgradeModal && upgradePreview?.preview && (
