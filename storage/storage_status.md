@@ -1,6 +1,6 @@
 # Storage Status
 
-Latest milestone batch note (MF-LOC-007, MF-PRORATION-003, MF-ATTRIB-001, MF-ATTRIB-002, MF-PORTFOLIO-001, MF-NOTIFY-001): added member-attribution storage groundwork, member-usage rollups, payment-attempt lookup for customer state, superadmin billing portfolio storage views, and billing notification outbox persistence.
+Latest milestone batch note (MF-LOC-007, MF-PRORATION-003, MF-ATTRIB-001, MF-ATTRIB-002, MF-PORTFOLIO-001, MF-NOTIFY-001, MF-DASHBOARD-LOG-001): added member-attribution storage groundwork, member-usage rollups, payment-attempt lookup for customer state, superadmin billing portfolio storage views, billing notification outbox persistence, and dashboard scheduler leader-lock storage operations.
 
 | Operation | Status | Evidence |
 | --- | --- | --- |
@@ -72,6 +72,9 @@ Latest milestone batch note (MF-LOC-007, MF-PRORATION-003, MF-ATTRIB-001, MF-ATT
 | providersgitea.GetLatestWebhookSecret | moved | [GetLatestWebhookSecret](providers/gitea/token_store.go#L64) |
 | core.NewFileOpsStore | moved | [NewFileOpsStore](core/file_ops.go#L7) |
 | core.ReadFile | moved | [ReadFile](core/file_ops.go#L11) |
+| core.NewSchedulerLockStore | added | [NewSchedulerLockStore](core/scheduler_lock_store.go#L19) |
+| core.TryAcquireDashboardRefreshLeaderLock | added | [TryAcquireDashboardRefreshLeaderLock](core/scheduler_lock_store.go#L23) |
+| core.ReleaseDashboardRefreshLeaderLock | added | [ReleaseDashboardRefreshLeaderLock](core/scheduler_lock_store.go#L58) |
 | license.NewPlanCatalogFileStore | moved | [NewPlanCatalogFileStore](license/plan_catalog_file_store.go#L14) |
 | license.ReadPlanCatalogFile | moved | [ReadPlanCatalogFile](license/plan_catalog_file_store.go#L18) |
 | license.NewLOCAccountingStore | moved | [NewLOCAccountingStore](license/loc_accounting_store.go#L52) |

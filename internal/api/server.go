@@ -31,6 +31,7 @@ import (
 	giteaoutput "github.com/livereview/internal/provider_output/gitea"
 	githuboutput "github.com/livereview/internal/provider_output/github"
 	gitlaboutput "github.com/livereview/internal/provider_output/gitlab"
+	"github.com/livereview/storage/core"
 	// Import FetchGitLabProfile
 )
 
@@ -213,7 +214,7 @@ func NewServer(port int, versionInfo *VersionInfo) (*Server, error) {
 	}
 
 	// Initialize dashboard manager
-	dashboardManager := NewDashboardManager(db)
+	dashboardManager := NewDashboardManager(db, core.NewSchedulerLockStore(db))
 
 	// Initialize auto webhook installer
 	autoWebhookInstaller := NewAutoWebhookInstaller(db, nil, jq) // server will be set later
