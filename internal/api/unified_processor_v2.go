@@ -1350,7 +1350,7 @@ func (p *UnifiedProcessorV2Impl) buildGitLabArtifactFromEvent(ctx context.Contex
 
 	// Look up GitLab PAT from integration_tokens table using base URL and org_id
 	query := `SELECT pat_token FROM integration_tokens 
-	          WHERE provider IN ('gitlab', 'GitLab', 'gitlab-self-hosted') 
+	          WHERE provider IN ('gitlab', 'GitLab', 'gitlab-self-hosted', 'gitlab-com') 
 	          AND RTRIM(provider_url, '/') = $1 
 	          AND org_id = $2
 	          LIMIT 1`
