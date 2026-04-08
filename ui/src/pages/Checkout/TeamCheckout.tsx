@@ -103,6 +103,15 @@ const LOC_SLABS: LOCSlab[] = [
   { code: 'loc_3200k', label: '3.2M LOC', locLimit: 3200000, monthlyPriceUSD: 1024 },
 ];
 
+const resolvePlanCodeFromQuery = (planCode: string | null): string => {
+  const normalized = String(planCode || '').trim().toLowerCase();
+  if (!normalized) {
+    return 'team_32usd';
+  }
+  const found = LOC_SLABS.find((slab) => slab.code.toLowerCase() === normalized);
+  return found?.code || 'team_32usd';
+};
+
 const TeamCheckout: React.FC = () => {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
@@ -110,7 +119,7 @@ const TeamCheckout: React.FC = () => {
   const { organizations: authOrgs } = useAppSelector((state) => state.Auth);
   
   const period = searchParams.get('period') || 'monthly';
-  const [selectedPlanCode, setSelectedPlanCode] = useState<string>('team_32usd');
+  const [selectedPlanCode, setSelectedPlanCode] = useState<string>(() => resolvePlanCodeFromQuery(searchParams.get('plan')));
   const [isProcessing, setIsProcessing] = useState<boolean>(false);
   const [isConfirming, setIsConfirming] = useState<boolean>(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
@@ -129,6 +138,11 @@ const TeamCheckout: React.FC = () => {
 
   // Get org ID - try currentOrgId first, then fall back to first auth org
   const orgId = currentOrgId || (authOrgs && authOrgs.length > 0 ? authOrgs[0].id : null);
+
+  useEffect(() => {
+    const requestedPlanCode = resolvePlanCodeFromQuery(searchParams.get('plan'));
+    setSelectedPlanCode((prev) => (prev === requestedPlanCode ? prev : requestedPlanCode));
+  }, [searchParams]);
 
   useEffect(() => {
     // Verify user is authenticated

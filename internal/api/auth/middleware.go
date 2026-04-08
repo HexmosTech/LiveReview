@@ -1,6 +1,7 @@
 package auth
 
 import (
+	"context"
 	"database/sql"
 	"fmt"
 	"net/http"
@@ -12,6 +13,7 @@ import (
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/labstack/echo/v4"
 	"github.com/livereview/pkg/models"
+	storagepayment "github.com/livereview/storage/payment"
 )
 
 // isCloudMode checks if LiveReview is running in cloud mode
@@ -181,9 +183,10 @@ func (am *AuthMiddleware) EnforceSubscriptionLimits() echo.MiddlewareFunc {
 
 			// Get org_id from context (set by BuildOrgContext or BuildOrgContextFromHeader)
 			orgID, hasOrgID := GetOrgIDFromContext(c)
+			reqCtx := c.Request().Context()
 			if !hasOrgID {
 				// If no org context, use default/first org for the user
-				err := am.db.QueryRow(`
+				err := am.db.QueryRowContext(reqCtx, `
 					SELECT org_id FROM user_roles 
 					WHERE user_id = $1 
 					ORDER BY created_at ASC LIMIT 1
@@ -201,13 +204,13 @@ func (am *AuthMiddleware) EnforceSubscriptionLimits() echo.MiddlewareFunc {
 			var planType sql.NullString
 			var licenseExpiresAt sql.NullTime
 			var isOrgCreator bool
-			var err error
 
-			if am.planStmt != nil {
-				err = am.planStmt.QueryRow(user.ID, orgID).Scan(&planType, &licenseExpiresAt, &isOrgCreator)
-			} else {
-				// Fallback to non-prepared query
-				err = am.db.QueryRow(`
+			loadPlanState := func() error {
+				if am.planStmt != nil {
+					return am.planStmt.QueryRowContext(reqCtx, user.ID, orgID).Scan(&planType, &licenseExpiresAt, &isOrgCreator)
+				}
+
+				return am.db.QueryRowContext(reqCtx, `
 					SELECT ur.plan_type, ur.license_expires_at, COALESCE((o.created_by_user_id = ur.user_id), true) as is_creator
 					FROM user_roles ur
 					JOIN orgs o ON ur.org_id = o.id
@@ -215,7 +218,7 @@ func (am *AuthMiddleware) EnforceSubscriptionLimits() echo.MiddlewareFunc {
 				`, user.ID, orgID).Scan(&planType, &licenseExpiresAt, &isOrgCreator)
 			}
 
-			if err != nil {
+			if err := loadPlanState(); err != nil {
 				if err == sql.ErrNoRows {
 					return echo.NewHTTPError(http.StatusForbidden, "no access to this organization")
 				}
@@ -239,7 +242,7 @@ func (am *AuthMiddleware) EnforceSubscriptionLimits() echo.MiddlewareFunc {
 			if isFreeTier && !isOrgCreator {
 				// Allow Super Admins to bypass this restriction
 				var isSuperAdmin bool
-				saErr := am.db.QueryRow(`
+				saErr := am.db.QueryRowContext(reqCtx, `
 					SELECT EXISTS(
 						SELECT 1 FROM user_roles ur
 						JOIN roles r ON ur.role_id = r.id
@@ -257,11 +260,39 @@ func (am *AuthMiddleware) EnforceSubscriptionLimits() echo.MiddlewareFunc {
 
 			// Check license expiration only for non-free plans.
 			if !isFreeTier && licenseExpiresAt.Valid && time.Now().After(licenseExpiresAt.Time) {
-				return echo.NewHTTPError(http.StatusPaymentRequired, map[string]interface{}{
-					"error":            "license expired",
-					"expired_at":       licenseExpiresAt.Time,
-					"upgrade_required": true,
-				})
+				reconcileCtx, cancel := context.WithTimeout(reqCtx, 3*time.Second)
+				reconciled, reconcileErr := am.reconcileExpiredSubscriptionForOrg(reconcileCtx, int(user.ID), int64(orgID))
+				cancel()
+				if reconcileErr != nil {
+					fmt.Printf("[Subscription] expiry reconciliation failed user=%d org=%d err=%v\n", user.ID, orgID, reconcileErr)
+					return echo.NewHTTPError(http.StatusInternalServerError, "failed to reconcile expired subscription")
+				}
+
+				if reconciled {
+					if err := loadPlanState(); err != nil {
+						fmt.Printf("[Subscription] plan reload after expiry reconciliation failed user=%d org=%d err=%v\n", user.ID, orgID, err)
+						return echo.NewHTTPError(http.StatusInternalServerError, "failed to refresh subscription state")
+					}
+
+					resolvedPlanType = "free"
+					if planType.Valid {
+						trimmedPlan := strings.TrimSpace(planType.String)
+						if trimmedPlan != "" {
+							resolvedPlanType = trimmedPlan
+						}
+					}
+
+					normalizedPlanType = strings.ToLower(strings.TrimSpace(resolvedPlanType))
+					isFreeTier = normalizedPlanType == "free" || normalizedPlanType == "free_30k"
+				}
+
+				if !isFreeTier {
+					return echo.NewHTTPError(http.StatusPaymentRequired, map[string]interface{}{
+						"error":            "license expired",
+						"expired_at":       licenseExpiresAt.Time,
+						"upgrade_required": true,
+					})
+				}
 			}
 
 			// Set plan info in context for downstream handlers
@@ -276,6 +307,19 @@ func (am *AuthMiddleware) EnforceSubscriptionLimits() echo.MiddlewareFunc {
 			return next(c)
 		}
 	}
+}
+
+func (am *AuthMiddleware) reconcileExpiredSubscriptionForOrg(ctx context.Context, userID int, orgID int64) (bool, error) {
+	store := storagepayment.NewSubscriptionStore(am.db)
+	reconciled, err := store.ReconcileExpiredPendingCancellationForOrg(ctx, orgID)
+	if err != nil {
+		return false, err
+	}
+	if reconciled {
+		return true, nil
+	}
+
+	return store.DowngradeExpiredRoleForUserOrg(ctx, userID, orgID)
 }
 
 // BuildOrgContextFromHeader middleware extracts org_id from X-Org-Context header and validates org exists
