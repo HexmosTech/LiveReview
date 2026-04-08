@@ -402,6 +402,21 @@ func (s *SubscriptionService) ConfirmPurchase(req *PurchaseConfirmationRequest, 
 		if err != nil {
 			return fmt.Errorf("failed to update org billing state for confirmed purchase: %w", err)
 		}
+
+		// Provision the managed AI connector ("LiveReview AI Model") for the organization
+		_, err = tx.Exec(`
+			INSERT INTO ai_connectors (
+				provider_name, api_key, connector_name, selected_model, display_order, org_id,
+				created_at, updated_at
+			)
+			SELECT 'livereview-default-ai', 'system_managed', 'LiveReview AI Model', 'default', 1, $1, NOW(), NOW()
+			WHERE NOT EXISTS (
+				SELECT 1 FROM ai_connectors WHERE org_id = $1 AND provider_name = 'livereview-default-ai'
+			)
+		`, orgID)
+		if err != nil {
+			return fmt.Errorf("failed to provision managed AI connector: %w", err)
+		}
 	}
 
 	// Record in subscription_payments table for audit trail

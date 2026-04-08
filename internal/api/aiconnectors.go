@@ -334,6 +334,12 @@ func (s *Server) UpdateAIConnector(c echo.Context) error {
 		})
 	}
 
+	if existingConnector.ProviderName == "livereview-default-ai" {
+		return c.JSON(http.StatusForbidden, map[string]string{
+			"error": "Managed AI connectors cannot be modified",
+		})
+	}
+
 	// Update connector fields
 	existingConnector.ProviderName = req.ProviderName
 	existingConnector.ApiKey = req.APIKey
@@ -449,9 +455,23 @@ func (s *Server) DeleteAIConnector(c echo.Context) error {
 	// Create a storage instance
 	storage := aiconnectors.NewStorage(s.db)
 
-	// Delete the connector
 	ctx := c.Request().Context()
 
+	// Get existing connector first to check if it's managed
+	existingConnector, err := storage.GetConnectorByID(ctx, orgID, connectorID)
+	if err != nil {
+		return c.JSON(http.StatusNotFound, map[string]string{
+			"error": "Connector not found",
+		})
+	}
+
+	if existingConnector.ProviderName == "livereview-default-ai" {
+		return c.JSON(http.StatusForbidden, map[string]string{
+			"error": "Managed AI connectors cannot be deleted",
+		})
+	}
+
+	// Delete the connector
 	if err := storage.DeleteConnector(ctx, orgID, connectorID); err != nil {
 		log.Error().Err(err).Int64("id", connectorID).Msg("Failed to delete connector")
 		return c.JSON(http.StatusInternalServerError, map[string]string{
