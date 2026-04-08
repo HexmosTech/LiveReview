@@ -31,6 +31,7 @@ import (
 	giteaoutput "github.com/livereview/internal/provider_output/gitea"
 	githuboutput "github.com/livereview/internal/provider_output/github"
 	gitlaboutput "github.com/livereview/internal/provider_output/gitlab"
+	"github.com/livereview/storage/core"
 	// Import FetchGitLabProfile
 )
 
@@ -213,7 +214,7 @@ func NewServer(port int, versionInfo *VersionInfo) (*Server, error) {
 	}
 
 	// Initialize dashboard manager
-	dashboardManager := NewDashboardManager(db)
+	dashboardManager := NewDashboardManager(db, core.NewSchedulerLockStore(db))
 
 	// Initialize auto webhook installer
 	autoWebhookInstaller := NewAutoWebhookInstaller(db, nil, jq) // server will be set later
@@ -757,13 +758,15 @@ func (s *Server) setupRoutes() {
 	subscriptionsGroup.Use(authMiddleware.BuildOrgContextFromHeader())
 	subscriptionsGroup.Use(authMiddleware.ValidateOrgAccess())
 	subscriptionsGroup.Use(authMiddleware.BuildPermissionContext())
+	subscriptionMutationLimiter := middleware.RateLimiter(middleware.NewRateLimiterMemoryStore(30))
 
 	subscriptionsGroup.POST("", subscriptionsHandler.CreateSubscription)
 	subscriptionsGroup.POST("/confirm-purchase", subscriptionsHandler.ConfirmPurchase)
 	subscriptionsGroup.GET("/:id", subscriptionsHandler.GetSubscription)
 	subscriptionsGroup.GET("/current", subscriptionsHandler.GetCurrentSubscription)
 	subscriptionsGroup.PATCH("/:id/quantity", subscriptionsHandler.UpdateQuantity)
-	subscriptionsGroup.POST("/:id/cancel", subscriptionsHandler.CancelSubscription)
+	subscriptionsGroup.POST("/:id/cancel", subscriptionsHandler.CancelSubscription, subscriptionMutationLimiter)
+	subscriptionsGroup.POST("/:id/keep-plan", subscriptionsHandler.KeepPlan, subscriptionMutationLimiter)
 	subscriptionsGroup.POST("/:id/assign", subscriptionsHandler.AssignLicense)
 	subscriptionsGroup.DELETE("/:id/users/:user_id", subscriptionsHandler.RevokeLicense)
 

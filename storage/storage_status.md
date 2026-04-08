@@ -1,22 +1,26 @@
 # Storage Status
 
-Latest milestone batch note (MF-LOC-007, MF-PRORATION-003, MF-ATTRIB-001, MF-ATTRIB-002, MF-PORTFOLIO-001, MF-NOTIFY-001): added member-attribution storage groundwork, member-usage rollups, payment-attempt lookup for customer state, superadmin billing portfolio storage views, and billing notification outbox persistence.
+Latest milestone batch note (MF-LOC-007, MF-PRORATION-003, MF-ATTRIB-001, MF-ATTRIB-002, MF-PORTFOLIO-001, MF-NOTIFY-001, MF-DASHBOARD-LOG-001, MF-EXPIRY-001): added member-attribution storage groundwork, member-usage rollups, payment-attempt lookup for customer state, superadmin billing portfolio storage views, billing notification outbox persistence, dashboard scheduler leader-lock storage operations, and automatic paid-plan expiry reconciliation persistence.
 
 | Operation | Status | Evidence |
 | --- | --- | --- |
-| payment.NewSubscriptionStore | moved | [NewSubscriptionStore](payment/subscription_store.go#L24) |
-| payment.CreateTeamSubscriptionRecord | moved | [CreateTeamSubscriptionRecord](payment/subscription_store.go#L43) |
-| payment.UpdateSubscriptionQuantityRecord | moved | [UpdateSubscriptionQuantityRecord](payment/subscription_store.go#L108) |
-| payment.CancelSubscriptionRecord | moved | [CancelSubscriptionRecord](payment/subscription_store.go#L176) |
-| payment.GetSubscriptionDetailsRow | moved | [GetSubscriptionDetailsRow](payment/subscription_store.go#L306) |
-| payment.AssignLicense | moved | [AssignLicense](payment/subscription_store.go#L337) |
-| payment.RevokeLicense | moved | [RevokeLicense](payment/subscription_store.go#L450) |
-| payment.GetUserIDByEmail | moved | [GetUserIDByEmail](payment/subscription_store.go#L530) |
-| payment.CreateShadowUser | moved | [CreateShadowUser](payment/subscription_store.go#L542) |
-| payment.CreateSelfHostedSubscriptionRecord | moved | [CreateSelfHostedSubscriptionRecord](payment/subscription_store.go#L570) |
-| payment.GetSelfHostedConfirmationSeed | moved | [GetSelfHostedConfirmationSeed](payment/subscription_store.go#L635) |
-| payment.PersistSelfHostedFallback | moved | [PersistSelfHostedFallback](payment/subscription_store.go#L672) |
-| payment.PersistSelfHostedJWT | moved | [PersistSelfHostedJWT](payment/subscription_store.go#L735) |
+| payment.NewSubscriptionStore | moved | [NewSubscriptionStore](payment/subscription_store.go#L26) |
+| payment.CreateTeamSubscriptionRecord | moved | [CreateTeamSubscriptionRecord](payment/subscription_store.go#L45) |
+| payment.UpdateSubscriptionQuantityRecord | moved | [UpdateSubscriptionQuantityRecord](payment/subscription_store.go#L110) |
+| payment.CancelSubscriptionRecord | moved | [CancelSubscriptionRecord](payment/subscription_store.go#L178) |
+| payment.ReconcileExpiredPendingCancellations | added | [ReconcileExpiredPendingCancellations](payment/subscription_store.go#L267) |
+| payment.ReconcileExpiredPendingCancellationForOrg | added | [ReconcileExpiredPendingCancellationForOrg](payment/subscription_store.go#L271) |
+| payment.DowngradeExpiredRoleForUserOrg | added | [DowngradeExpiredRoleForUserOrg](payment/subscription_store.go#L284) |
+| payment.KeepPlanRecord | added | [KeepPlanRecord](payment/subscription_store.go#L529) |
+| payment.GetSubscriptionDetailsRow | moved | [GetSubscriptionDetailsRow](payment/subscription_store.go#L674) |
+| payment.AssignLicense | moved | [AssignLicense](payment/subscription_store.go#L705) |
+| payment.RevokeLicense | moved | [RevokeLicense](payment/subscription_store.go#L818) |
+| payment.GetUserIDByEmail | moved | [GetUserIDByEmail](payment/subscription_store.go#L898) |
+| payment.CreateShadowUser | moved | [CreateShadowUser](payment/subscription_store.go#L910) |
+| payment.CreateSelfHostedSubscriptionRecord | moved | [CreateSelfHostedSubscriptionRecord](payment/subscription_store.go#L938) |
+| payment.GetSelfHostedConfirmationSeed | moved | [GetSelfHostedConfirmationSeed](payment/subscription_store.go#L1003) |
+| payment.PersistSelfHostedFallback | moved | [PersistSelfHostedFallback](payment/subscription_store.go#L1040) |
+| payment.PersistSelfHostedJWT | moved | [PersistSelfHostedJWT](payment/subscription_store.go#L1103) |
 | jobqueue.NewWebhookStore | moved | [NewWebhookStore](jobqueue/webhook_store.go#L24) |
 | jobqueue.GetWebhookPublicEndpoint | moved | [GetWebhookPublicEndpoint](jobqueue/webhook_store.go#L33) |
 | jobqueue.GetWebhookRegistryID | moved | [GetWebhookRegistryID](jobqueue/webhook_store.go#L52) |
@@ -72,6 +76,9 @@ Latest milestone batch note (MF-LOC-007, MF-PRORATION-003, MF-ATTRIB-001, MF-ATT
 | providersgitea.GetLatestWebhookSecret | moved | [GetLatestWebhookSecret](providers/gitea/token_store.go#L64) |
 | core.NewFileOpsStore | moved | [NewFileOpsStore](core/file_ops.go#L7) |
 | core.ReadFile | moved | [ReadFile](core/file_ops.go#L11) |
+| core.NewSchedulerLockStore | added | [NewSchedulerLockStore](core/scheduler_lock_store.go#L19) |
+| core.TryAcquireDashboardRefreshLeaderLock | added | [TryAcquireDashboardRefreshLeaderLock](core/scheduler_lock_store.go#L23) |
+| core.ReleaseDashboardRefreshLeaderLock | added | [ReleaseDashboardRefreshLeaderLock](core/scheduler_lock_store.go#L58) |
 | license.NewPlanCatalogFileStore | moved | [NewPlanCatalogFileStore](license/plan_catalog_file_store.go#L14) |
 | license.ReadPlanCatalogFile | moved | [ReadPlanCatalogFile](license/plan_catalog_file_store.go#L18) |
 | license.NewLOCAccountingStore | moved | [NewLOCAccountingStore](license/loc_accounting_store.go#L52) |
@@ -93,7 +100,7 @@ Latest milestone batch note (MF-LOC-007, MF-PRORATION-003, MF-ATTRIB-001, MF-ATT
 | license.ListCurrentPeriodOperations | moved | [ListCurrentPeriodOperations](license/org_usage_store.go#L115) |
 | license.ListCurrentPeriodMemberUsage | added | [ListCurrentPeriodMemberUsage](license/org_usage_store.go#L197) |
 | license.GetCurrentPeriodUsageForActor | added | [GetCurrentPeriodUsageForActor](license/org_usage_store.go#L272) |
-| payment.ListSubscriptionsByOrgID | moved | [ListSubscriptionsByOrgID](payment/subscription_store.go#L278) |
+| payment.ListSubscriptionsByOrgID | moved | [ListSubscriptionsByOrgID](payment/subscription_store.go#L646) |
 | payment.NewBillingNotificationOutboxStore | added | [NewBillingNotificationOutboxStore](payment/billing_notification_outbox_store.go#L45) |
 | payment.Enqueue | added | [Enqueue](payment/billing_notification_outbox_store.go#L49) |
 | payment.GetUserEmailByID | added | [GetUserEmailByID](payment/billing_notification_outbox_store.go#L104) |

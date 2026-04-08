@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import moment from 'moment-timezone';
 import { isCloudMode } from '../../utils/deploymentMode';
@@ -214,6 +214,27 @@ type PrepareUpgradePaymentResponse = {
   preview_token: string;
 };
 
+type CreateSubscriptionCheckoutResponse = {
+  razorpay_subscription_id: string;
+  razorpay_key_id: string;
+};
+
+type KeepPlanActionResult = {
+  ok: boolean;
+  statusCode?: number;
+  errorMessage?: string;
+};
+
+type ActionPreflightResult = {
+  proceed: boolean;
+  routeToBuyNew: boolean;
+};
+
+const isTerminalCancellationStatus = (rawStatus?: string | null): boolean => {
+  const normalized = String(rawStatus || '').trim().toLowerCase();
+  return normalized === 'cancelled' || normalized === 'expired' || normalized === 'completed';
+};
+
 type UpgradeRequestStatusResponse = {
   request: {
     upgrade_request_id: string;
@@ -299,6 +320,19 @@ const buildUpgradeCheckoutFailureMessage = (response: any, prepared: PrepareUpgr
   }
 
   return `${description} (${details.join(', ')}). ${testHint}`;
+};
+
+const buildCheckoutPathWithPlan = (checkoutPath: string | undefined, planCode: string): string => {
+  const basePath = String(checkoutPath || '/checkout/team?period=monthly').trim();
+  const [pathOnly, query = ''] = basePath.split('?');
+  const params = new URLSearchParams(query);
+  if (!params.get('period')) {
+    params.set('period', 'monthly');
+  }
+  if (!params.get('plan')) {
+    params.set('plan', planCode);
+  }
+  return `${pathOnly}?${params.toString()}`;
 };
 
 const SubscriptionTab: React.FC = () => {
@@ -422,7 +456,11 @@ const OverviewTab: React.FC<{ navigate: any; mode?: 'full' | 'breakdown' | 'cont
   const [billingStatus, setBillingStatus] = useState<BillingStatusResponse | null>(null);
   const [quotaStatus, setQuotaStatus] = useState<QuotaStatusResponse | null>(null);
   const [billingError, setBillingError] = useState<string | null>(null);
+  const [keepPlanError, setKeepPlanError] = useState<string | null>(null);
+  const [keepPlanSuccess, setKeepPlanSuccess] = useState<string | null>(null);
+  const [keepPlanLoading, setKeepPlanLoading] = useState(false);
   const [actionLoading, setActionLoading] = useState(false);
+  const [actionProgressMessage, setActionProgressMessage] = useState<string | null>(null);
   const [selectedUpgradePlan, setSelectedUpgradePlan] = useState('');
   const [selectedDowngradePlan, setSelectedDowngradePlan] = useState('');
   const [usageSummary, setUsageSummary] = useState<BillingUsageSummaryResponse | null>(null);
@@ -432,6 +470,7 @@ const OverviewTab: React.FC<{ navigate: any; mode?: 'full' | 'breakdown' | 'cont
   const [lastUpgradeResult, setLastUpgradeResult] = useState<UpgradeActionResponse | null>(null);
   const [upgradePreview, setUpgradePreview] = useState<UpgradePreviewResponse | null>(null);
   const [showUpgradeModal, setShowUpgradeModal] = useState(false);
+  const [showFreeCheckoutModal, setShowFreeCheckoutModal] = useState(false);
   const [upgradeCheckoutLoading, setUpgradeCheckoutLoading] = useState(false);
   const [upgradeScriptReady, setUpgradeScriptReady] = useState(false);
   const [activeUpgradeRequestID, setActiveUpgradeRequestID] = useState<string>('');
@@ -448,19 +487,23 @@ const OverviewTab: React.FC<{ navigate: any; mode?: 'full' | 'breakdown' | 'cont
   const isTeamPlan = !isFree;
   const canManageBilling = isSuperAdmin || currentOrg?.role === 'owner' || currentOrg?.role === 'admin';
 
-  // Fetch current subscription (org-scoped)
-  useEffect(() => {
+  const refreshSubscriptionState = useCallback(async () => {
     if (!currentOrg?.id) {
       setStatusLoading(false);
       setSubscriptionLoading(false);
-      setBillingLoading(false);
+      setSubscriptionId(null);
+      setManagedSubscription(null);
+      setPendingCancel(false);
+      setStatus('');
       return;
     }
 
     setStatusLoading(true);
+    setSubscriptionLoading(true);
     setPendingCancel(false);
     setStatus('');
-    apiClient
+
+    const currentSubscriptionPromise = apiClient
       .get('/subscriptions/current', {
         headers: {
           'X-Org-Context': currentOrg.id.toString(),
@@ -481,11 +524,9 @@ const OverviewTab: React.FC<{ navigate: any; mode?: 'full' | 'breakdown' | 'cont
         setPendingCancel(false);
         setSubscriptionManageURL('');
         setStatus('');
-      })
-      .finally(() => setStatusLoading(false));
+      });
 
-    setSubscriptionLoading(true);
-    apiClient
+    const managedSubscriptionsPromise = apiClient
       .get<{ subscriptions: ManagedSubscription[] }>('/subscriptions', {
         headers: {
           'X-Org-Context': currentOrg.id.toString(),
@@ -507,9 +548,20 @@ const OverviewTab: React.FC<{ navigate: any; mode?: 'full' | 'breakdown' | 'cont
       })
       .catch(() => {
         setManagedSubscription(null);
-      })
-      .finally(() => setSubscriptionLoading(false));
+      });
+
+    try {
+      await Promise.all([currentSubscriptionPromise, managedSubscriptionsPromise]);
+    } finally {
+      setStatusLoading(false);
+      setSubscriptionLoading(false);
+    }
   }, [currentOrg?.id, licenseExpiresAt]);
+
+  // Fetch current subscription (org-scoped)
+  useEffect(() => {
+    void refreshSubscriptionState();
+  }, [refreshSubscriptionState]);
 
   useEffect(() => {
     if (!currentOrg?.id) return;
@@ -592,11 +644,12 @@ const OverviewTab: React.FC<{ navigate: any; mode?: 'full' | 'breakdown' | 'cont
     window.location.reload();
   };
 
-  const orgScopedRequestOptions = currentOrg?.id
-    ? { headers: { 'X-Org-Context': currentOrg.id.toString() } }
-    : {};
+  const orgScopedRequestOptions = useMemo(
+    () => (currentOrg?.id ? { headers: { 'X-Org-Context': currentOrg.id.toString() } } : {}),
+    [currentOrg?.id]
+  );
 
-  const refreshBilling = async () => {
+  const refreshBilling = useCallback(async () => {
     setBillingLoading(true);
     const emptyOpsResponse: BillingUsageOperationsResponse = { operations: [], limit: 10, offset: 0, count: 0 };
     const emptyMembersResponse: BillingUsageMembersResponse = { members: [], limit: 10, offset: 0, count: 0 };
@@ -620,7 +673,20 @@ const OverviewTab: React.FC<{ navigate: any; mode?: 'full' | 'breakdown' | 'cont
     } finally {
       setBillingLoading(false);
     }
-  };
+  }, [canManageBilling, orgScopedRequestOptions]);
+
+  useEffect(() => {
+    if (!currentOrg?.id) return;
+
+    const intervalId = window.setInterval(() => {
+      void refreshSubscriptionState();
+      void refreshBilling();
+    }, 60_000);
+
+    return () => {
+      window.clearInterval(intervalId);
+    };
+  }, [currentOrg?.id, refreshBilling, refreshSubscriptionState]);
 
   const refreshUpgradeRequestStatus = async (requestID?: string) => {
     const effectiveRequestID = String(requestID || activeUpgradeRequestID || '').trim();
@@ -644,11 +710,129 @@ const OverviewTab: React.FC<{ navigate: any; mode?: 'full' | 'breakdown' | 'cont
     }
   };
 
+  const performKeepPlanAction = async (opts?: { suppressSuccessMessage?: boolean }): Promise<KeepPlanActionResult> => {
+    if (!effectiveSubscriptionId) {
+      return {
+        ok: false,
+        errorMessage: 'No active subscription available to keep.',
+      };
+    }
+
+    setKeepPlanLoading(true);
+    setKeepPlanError(null);
+    if (!opts?.suppressSuccessMessage) {
+      setKeepPlanSuccess(null);
+    }
+
+    try {
+      await apiClient.post(
+        `/subscriptions/${effectiveSubscriptionId}/keep-plan`,
+        {},
+        orgScopedRequestOptions
+      );
+
+      let refreshFailed = false;
+      try {
+        await refreshSubscriptionState();
+      } catch {
+        refreshFailed = true;
+      }
+      try {
+        await refreshBilling();
+      } catch {
+        refreshFailed = true;
+      }
+
+      if (refreshFailed) {
+        return {
+          ok: false,
+          errorMessage: 'Keep plan was applied, but billing data refresh failed. Please reload this page.',
+        };
+      }
+
+      if (!opts?.suppressSuccessMessage) {
+        setKeepPlanSuccess('Scheduled cancellation removed. Your current plan remains active.');
+      }
+
+      return { ok: true };
+    } catch (err: any) {
+      return {
+        ok: false,
+        statusCode: typeof err?.status === 'number' ? err.status : undefined,
+        errorMessage: err?.message || 'Failed to keep current plan',
+      };
+    } finally {
+      setKeepPlanLoading(false);
+    }
+  };
+
+  const runActionPreflight = async (action: 'upgrade' | 'schedule_downgrade'): Promise<ActionPreflightResult> => {
+    setKeepPlanError(null);
+    setKeepPlanSuccess(null);
+
+    if (effectiveTerminalCancellation) {
+      if (action === 'upgrade') {
+        setActionProgressMessage('Current subscription is already ended. Starting a new purchase flow.');
+        return { proceed: false, routeToBuyNew: true };
+      }
+
+      setActionProgressMessage(null);
+      setBillingError('Subscription is already cancelled or expired, so downgrade scheduling is unavailable.');
+      return { proceed: false, routeToBuyNew: false };
+    }
+
+    if (!effectivePendingCancel) {
+      return { proceed: true, routeToBuyNew: false };
+    }
+
+    if (!effectiveSubscriptionId) {
+      if (action === 'upgrade') {
+        setActionProgressMessage('No active paid subscription was found. Starting a new purchase flow.');
+        return { proceed: false, routeToBuyNew: true };
+      }
+
+      setActionProgressMessage(null);
+      setBillingError('No active subscription found for downgrade scheduling.');
+      return { proceed: false, routeToBuyNew: false };
+    }
+
+    setActionProgressMessage(
+      action === 'upgrade'
+        ? 'Reactivating current plan before upgrade...'
+        : 'Reactivating current plan before downgrade...'
+    );
+
+    const keepPlanResult = await performKeepPlanAction({ suppressSuccessMessage: true });
+    if (keepPlanResult.ok) {
+      setActionProgressMessage(null);
+      return { proceed: true, routeToBuyNew: false };
+    }
+
+    if (keepPlanResult.statusCode === 409) {
+      setActionProgressMessage(
+        action === 'upgrade'
+          ? 'Keep-plan confirmation is still propagating. Continuing with upgrade flow.'
+          : 'Keep-plan confirmation is still propagating. Continuing with downgrade flow.'
+      );
+      return { proceed: true, routeToBuyNew: false };
+    }
+
+    setActionProgressMessage(null);
+    setBillingError(keepPlanResult.errorMessage || 'Failed to reactivate current plan before continuing.');
+    return { proceed: false, routeToBuyNew: false };
+  };
+
   const runBillingAction = async (mode: 'schedule_downgrade' | 'cancel_downgrade', targetPlanCode?: string) => {
     setActionLoading(true);
     setBillingError(null);
+    setActionProgressMessage(null);
     try {
       if (mode === 'schedule_downgrade') {
+        const preflight = await runActionPreflight('schedule_downgrade');
+        if (!preflight.proceed) {
+          return;
+        }
+
         const effectivePlanCode = String(targetPlanCode || selectedDowngradePlan || '').trim();
         if (!effectivePlanCode) {
           throw new Error('Select a lower plan to continue.');
@@ -662,6 +846,18 @@ const OverviewTab: React.FC<{ navigate: any; mode?: 'full' | 'breakdown' | 'cont
       setBillingError(err?.message || 'Billing action failed');
     } finally {
       setActionLoading(false);
+      setActionProgressMessage(null);
+    }
+  };
+
+  const handleKeepPlan = async () => {
+    setActionProgressMessage(null);
+    setKeepPlanError(null);
+    setKeepPlanSuccess(null);
+
+    const keepPlanResult = await performKeepPlanAction();
+    if (!keepPlanResult.ok) {
+      setKeepPlanError(keepPlanResult.errorMessage || 'Failed to keep current plan');
     }
   };
 
@@ -673,10 +869,24 @@ const OverviewTab: React.FC<{ navigate: any; mode?: 'full' | 'breakdown' | 'cont
 
     setActionLoading(true);
     setBillingError(null);
+    setActionProgressMessage(null);
     setLastUpgradeResult(null);
     try {
-      if (isFree && effectivePlanCode === 'team_32usd') {
-        navigate('/checkout/team?period=monthly');
+      const preflight = await runActionPreflight('upgrade');
+      if (preflight.routeToBuyNew) {
+        setShowUpgradeModal(false);
+        setUpgradePreview(null);
+        setShowFreeCheckoutModal(true);
+        return;
+      }
+      if (!preflight.proceed) {
+        return;
+      }
+
+      if (isFree) {
+        setShowUpgradeModal(false);
+        setUpgradePreview(null);
+        setShowFreeCheckoutModal(true);
         return;
       }
 
@@ -689,7 +899,7 @@ const OverviewTab: React.FC<{ navigate: any; mode?: 'full' | 'breakdown' | 'cont
       );
 
       if (preview?.checkout_required) {
-        navigate(preview.checkout_path || '/checkout/team?period=monthly');
+        navigate(buildCheckoutPathWithPlan(preview.checkout_path, effectivePlanCode));
         return;
       }
 
@@ -700,6 +910,10 @@ const OverviewTab: React.FC<{ navigate: any; mode?: 'full' | 'breakdown' | 'cont
       }
       setShowUpgradeModal(Boolean(preview?.preview_token));
     } catch (err: any) {
+      if (err?.status === 409 && err?.data?.checkout_required) {
+        navigate(buildCheckoutPathWithPlan(err?.data?.checkout_path, effectivePlanCode));
+        return;
+      }
       if (err?.status === 404) {
         setBillingError('Upgrade endpoint returned 404. Ensure API is redeployed with /billing/upgrade/preview route and this org context is valid.');
       } else {
@@ -707,6 +921,105 @@ const OverviewTab: React.FC<{ navigate: any; mode?: 'full' | 'breakdown' | 'cont
       }
     } finally {
       setActionLoading(false);
+      setActionProgressMessage(null);
+    }
+  };
+
+  const startFreeCheckoutFromSettings = async () => {
+    const effectivePlanCode = String(selectedUpgradePlan || '').trim();
+    if (!effectivePlanCode) {
+      setBillingError('Select an upgrade plan to continue.');
+      return;
+    }
+
+    setUpgradeCheckoutLoading(true);
+    setBillingError(null);
+
+    try {
+      if (!upgradeScriptReady) {
+        await ensureRazorpay();
+        ensureRazorpayStyles();
+        setUpgradeScriptReady(true);
+      }
+
+      const created = await apiClient.post<CreateSubscriptionCheckoutResponse>(
+        '/subscriptions',
+        { plan_code: effectivePlanCode },
+        orgScopedRequestOptions
+      );
+
+      if (!created?.razorpay_subscription_id || !created?.razorpay_key_id) {
+        throw new Error('Checkout initialization is incomplete. Please retry.');
+      }
+
+      const selectedPlanDetails = billingStatus?.available_plans?.find((plan) => plan.plan_code === effectivePlanCode);
+      const locLabel = selectedPlanDetails?.monthly_loc_limit
+        ? `${selectedPlanDetails.monthly_loc_limit.toLocaleString()} LOC/month`
+        : 'LOC/month';
+
+      const options = {
+        key: created.razorpay_key_id,
+        subscription_id: created.razorpay_subscription_id,
+        name: 'LiveReview LOC Plan',
+        description: `${getPlanDisplayName(effectivePlanCode)} (${locLabel})`,
+        image: '/assets/logo-with-text.svg',
+        handler: async (razorpayResponse: any) => {
+          try {
+            const paymentID = razorpayResponse?.razorpay_payment_id;
+            const signature = razorpayResponse?.razorpay_signature;
+            if (!paymentID || !signature) {
+              throw new Error('Payment confirmation payload is incomplete.');
+            }
+
+            await apiClient.post(
+              '/subscriptions/confirm-purchase',
+              {
+                razorpay_subscription_id: created.razorpay_subscription_id,
+                razorpay_payment_id: paymentID,
+                razorpay_signature: signature,
+              },
+              orgScopedRequestOptions
+            );
+
+            setShowFreeCheckoutModal(false);
+            await refreshBilling();
+          } catch (confirmErr: any) {
+            setBillingError(confirmErr?.message || 'Payment completed, but confirmation failed. Please retry.');
+          } finally {
+            setUpgradeCheckoutLoading(false);
+            cleanupRazorpayOverlay();
+          }
+        },
+        modal: {
+          ondismiss: () => {
+            setUpgradeCheckoutLoading(false);
+            cleanupRazorpayOverlay();
+          },
+        },
+        theme: {
+          color: '#131C2F',
+        },
+      };
+
+      const rzp = new window.Razorpay(options);
+      document.body.classList.add('razorpay-active');
+      rzp.on('payment.failed', (response: any) => {
+        setBillingError(
+          buildUpgradeCheckoutFailureMessage(response, {
+            payment_required: true,
+            razorpay_key_id: created.razorpay_key_id,
+            preview_token: '',
+            currency: 'USD',
+          })
+        );
+        setUpgradeCheckoutLoading(false);
+        cleanupRazorpayOverlay();
+      });
+      rzp.open();
+    } catch (err: any) {
+      setBillingError(err?.message || 'Failed to start checkout for selected plan');
+      setUpgradeCheckoutLoading(false);
+      cleanupRazorpayOverlay();
     }
   };
 
@@ -860,6 +1173,10 @@ const OverviewTab: React.FC<{ navigate: any; mode?: 'full' | 'breakdown' | 'cont
     return plan;
   };
 
+  const selectedFreeCheckoutPlan = billingStatus?.available_plans?.find((p) => p.plan_code === selectedUpgradePlan) || null;
+  const selectedFreeCheckoutPriceUSD = selectedFreeCheckoutPlan?.monthly_price_usd || 0;
+  const selectedFreeCheckoutLoc = selectedFreeCheckoutPlan?.monthly_loc_limit || 0;
+
   const dailyLimit = isFree
     ? 'Quota-based (30,000 LOC/month)'
     : `Quota-based (${(currentPlan?.monthly_loc_limit || 100000).toLocaleString()} LOC/month)`;
@@ -878,6 +1195,9 @@ const OverviewTab: React.FC<{ navigate: any; mode?: 'full' | 'breakdown' | 'cont
   const effectiveSubscriptionManageURL = subscriptionManageURL || String(managedSubscription?.short_url || '');
   const normalizedCurrentStatus = String(status || '').trim().toLowerCase();
   const normalizedManagedStatus = String(managedSubscription?.status || '').trim().toLowerCase();
+  const effectiveTerminalCancellation =
+    isTerminalCancellationStatus(normalizedCurrentStatus) ||
+    isTerminalCancellationStatus(normalizedManagedStatus);
   const currentCanCancel =
     Boolean(subscriptionId) &&
     !pendingCancel &&
@@ -892,6 +1212,7 @@ const OverviewTab: React.FC<{ navigate: any; mode?: 'full' | 'breakdown' | 'cont
     ? managedSubscription?.razorpay_subscription_id || null
     : null;
   const canCancelEffectiveSubscription = Boolean(cancelTargetSubscriptionId);
+  const canKeepEffectivePlan = Boolean(effectivePendingCancel && effectiveSubscriptionId);
 
   const scheduledPlanCode = billingStatus?.billing?.scheduled_plan_code || '';
   const scheduledPlan = billingStatus?.available_plans?.find((p) => p.plan_code === scheduledPlanCode);
@@ -904,11 +1225,21 @@ const OverviewTab: React.FC<{ navigate: any; mode?: 'full' | 'breakdown' | 'cont
   const hasScheduledPlanChange = Boolean(scheduledPlanCode && scheduledPlanCode !== currentPlanCode && scheduledPlan);
   const scheduledChangeTargetLabel = hasScheduledPlanChange ? getPlanDisplayName(scheduledPlanCode) : '';
   const effectivePendingExpiry = displayExpiry || managedSubscription?.current_period_end || licenseExpiresAt || null;
+  const pendingExpiryElapsed = Boolean(
+    effectivePendingExpiry && moment(effectivePendingExpiry).isValid() && moment(effectivePendingExpiry).isBefore(moment())
+  );
 
   const normalizedStatus = status.trim().toLowerCase();
-  const statusIsTerminal = ['cancelled', 'expired', 'halted', 'past_due', 'incomplete'].includes(normalizedStatus);
+  const statusIsTerminal = ['cancelled', 'expired', 'halted', 'past_due', 'incomplete'].indexOf(normalizedStatus) >= 0;
+  const autoDowngradedToFree = !isTeamPlan && !effectivePendingCancel && (
+    normalizedStatus === 'expired' ||
+    normalizedManagedStatus === 'expired' ||
+    pendingExpiryElapsed
+  );
   const statusBadgeLabel = statusLoading
     ? 'LOADING'
+    : autoDowngradedToFree
+    ? 'AUTO-DOWNGRADED'
     : effectivePendingCancel
     ? 'PENDING EXPIRY'
     : statusIsTerminal
@@ -1050,6 +1381,15 @@ const OverviewTab: React.FC<{ navigate: any; mode?: 'full' | 'breakdown' | 'cont
         </div>
       )}
 
+      {isPlanUpgradeMode && autoDowngradedToFree && (
+        <div className="bg-sky-500/10 border border-sky-400/40 rounded-lg p-4">
+          <p className="text-sky-200 text-sm font-medium">Your paid plan ended and was automatically downgraded to Free</p>
+          <p className="text-sky-100/90 text-sm mt-1">
+            You can keep using free-plan features without interruption. Renew anytime from the upgrade options below to restore paid capacity.
+          </p>
+        </div>
+      )}
+
       {/* Current Plan Section */}
       {isPlanUpgradeMode && billingLoading && (
       <div className="bg-slate-800/60 border border-slate-700 rounded-lg p-6 animate-pulse">
@@ -1108,7 +1448,7 @@ const OverviewTab: React.FC<{ navigate: any; mode?: 'full' | 'breakdown' | 'cont
           </div>
         </div>
 
-        {effectivePendingCancel && (
+        {effectivePendingCancel && !autoDowngradedToFree && (
           <div className="mb-4 p-3 bg-slate-700/50 border border-slate-600 rounded-lg">
             <div className="flex items-start gap-3">
               <svg className="w-5 h-5 text-slate-400 mt-0.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -1469,6 +1809,22 @@ const OverviewTab: React.FC<{ navigate: any; mode?: 'full' | 'breakdown' | 'cont
             </div>
           )}
 
+          {actionProgressMessage && (
+            <div className="bg-sky-500/10 border border-sky-500/40 rounded-lg p-3 text-sm text-sky-100">
+              {actionProgressMessage}
+            </div>
+          )}
+
+          {(keepPlanError || keepPlanSuccess) && (
+            <div className={`rounded-lg border p-3 text-sm ${
+              keepPlanError
+                ? 'bg-red-500/10 border-red-500/40 text-red-200'
+                : 'bg-emerald-500/10 border-emerald-500/40 text-emerald-200'
+            }`}>
+              {keepPlanError || keepPlanSuccess}
+            </div>
+          )}
+
           <div className="space-y-4">
             <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-3">
               {upgradeHierarchyPlans.map((plan) => {
@@ -1494,6 +1850,18 @@ const OverviewTab: React.FC<{ navigate: any; mode?: 'full' | 'breakdown' | 'cont
                       </div>
                       <p className="mt-2 text-sm text-slate-300">{plan.monthly_loc_limit.toLocaleString()} LOC / month</p>
                       <p className="text-sm text-slate-300">${plan.monthly_price_usd}/month</p>
+                      {isCurrentCard && canKeepEffectivePlan && (
+                        <button
+                          type="button"
+                          disabled={keepPlanLoading || actionLoading || statusLoading || subscriptionLoading}
+                          onClick={() => {
+                            void handleKeepPlan();
+                          }}
+                          className="mt-3 inline-flex px-3 py-1.5 rounded bg-emerald-600 text-white text-xs font-medium transition-colors hover:bg-emerald-500 disabled:opacity-60 disabled:cursor-not-allowed"
+                        >
+                          {keepPlanLoading ? 'Keeping Plan...' : 'Keep Plan'}
+                        </button>
+                      )}
                     </div>
                   );
                 }
@@ -1502,7 +1870,7 @@ const OverviewTab: React.FC<{ navigate: any; mode?: 'full' | 'breakdown' | 'cont
                   <button
                     key={plan.plan_code}
                     type="button"
-                    disabled={actionLoading || upgradeCheckoutLoading}
+                    disabled={actionLoading || keepPlanLoading || upgradeCheckoutLoading}
                     onClick={() => {
                       void openUpgradePreview(plan.plan_code);
                     }}
@@ -1583,7 +1951,20 @@ const OverviewTab: React.FC<{ navigate: any; mode?: 'full' | 'breakdown' | 'cont
 
               <div className="p-4 bg-slate-900/70 border border-slate-700 rounded-lg space-y-3">
                 <p className="text-sm text-slate-300 font-medium">Cancel Subscription</p>
-                {canCancelEffectiveSubscription ? (
+                {canKeepEffectivePlan ? (
+                  <div className="space-y-2">
+                    <p className="text-xs text-slate-400">Cancellation is scheduled for period end.</p>
+                    <button
+                      className="text-xs text-slate-300 hover:text-white underline underline-offset-2 disabled:opacity-60 disabled:cursor-not-allowed"
+                      disabled={keepPlanLoading || actionLoading || statusLoading || subscriptionLoading}
+                      onClick={() => {
+                        void handleKeepPlan();
+                      }}
+                    >
+                      {keepPlanLoading ? 'Keeping Plan...' : 'Keep Plan'}
+                    </button>
+                  </div>
+                ) : canCancelEffectiveSubscription ? (
                   <button
                     className="text-xs text-slate-300 hover:text-white underline underline-offset-2"
                     onClick={() => setShowCancelModal(true)}
@@ -1594,6 +1975,18 @@ const OverviewTab: React.FC<{ navigate: any; mode?: 'full' | 'breakdown' | 'cont
                   <p className="text-xs text-slate-400">
                     {effectivePendingCancel ? 'Cancellation is already scheduled for period end.' : 'No active subscription cancellation action available.'}
                   </p>
+                )}
+                {keepPlanError && (
+                  <p className="text-xs text-red-300">{keepPlanError}</p>
+                )}
+                {keepPlanSuccess && (
+                  <p className="text-xs text-emerald-300">{keepPlanSuccess}</p>
+                )}
+                {billingError && (
+                  <p className="text-xs text-red-300">{billingError}</p>
+                )}
+                {actionProgressMessage && (
+                  <p className="text-xs text-sky-200">{actionProgressMessage}</p>
                 )}
               </div>
 
@@ -1607,7 +2000,7 @@ const OverviewTab: React.FC<{ navigate: any; mode?: 'full' | 'breakdown' | 'cont
                       <button
                         key={plan.plan_code}
                         type="button"
-                        disabled={actionLoading}
+                        disabled={actionLoading || keepPlanLoading}
                         onClick={() => {
                           setSelectedDowngradePlan(plan.plan_code);
                           void runBillingAction('schedule_downgrade', plan.plan_code);
@@ -1640,7 +2033,7 @@ const OverviewTab: React.FC<{ navigate: any; mode?: 'full' | 'breakdown' | 'cont
                   {billingStatus?.billing?.scheduled_plan_code && (
                     <button
                       className="px-3 py-2 rounded bg-slate-700 hover:bg-slate-600 disabled:opacity-50 text-sm font-medium"
-                      disabled={actionLoading}
+                      disabled={actionLoading || keepPlanLoading}
                       onClick={() => runBillingAction('cancel_downgrade')}
                     >
                       {cancelScheduledLabel}
@@ -1670,6 +2063,59 @@ const OverviewTab: React.FC<{ navigate: any; mode?: 'full' | 'breakdown' | 'cont
           subscriptionId={cancelTargetSubscriptionId}
           expiryDate={displayExpiry || managedSubscription?.current_period_end || licenseExpiresAt}
         />
+      )}
+
+      {!isBreakdownMode && showFreeCheckoutModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/80 p-4">
+          <div className="w-full max-w-2xl rounded-xl border border-slate-700 bg-slate-900 shadow-2xl">
+            <div className="border-b border-slate-700 px-6 py-4">
+              <h3 className="text-lg font-semibold text-white">Confirm New Paid Plan</h3>
+              <p className="mt-1 text-sm text-slate-300">
+                You are moving from Free 30k BYOK to a paid LOC slab. The recurring charge starts with this checkout authorization.
+              </p>
+            </div>
+
+            <div className="space-y-4 px-6 py-5 text-sm">
+              <div className="rounded-lg border border-slate-700 bg-slate-800/70 p-4 space-y-2 text-slate-200">
+                <p>Current plan: <span className="text-white">Free 30k BYOK</span></p>
+                <p>Target plan: <span className="text-white">{getPlanDisplayName(selectedUpgradePlan)}</span></p>
+              </div>
+
+              <div className="rounded-lg border border-blue-500/40 bg-blue-900/20 p-4 space-y-2 text-slate-100">
+                <p className="font-medium text-blue-200">Checkout summary</p>
+                <p>
+                  Recurring amount: <span className="text-white font-semibold">${selectedFreeCheckoutPriceUSD}/month</span>
+                </p>
+                <p>
+                  Included LOC: <span className="text-white font-semibold">{selectedFreeCheckoutLoc.toLocaleString()} LOC/month</span>
+                </p>
+              </div>
+
+              <div className="rounded-lg border border-amber-500/40 bg-amber-900/20 p-3 text-xs text-amber-100">
+                This flow opens Razorpay checkout now and activates your selected paid plan after payment confirmation.
+              </div>
+            </div>
+
+            <div className="flex items-center justify-end gap-3 border-t border-slate-700 px-6 py-4">
+              <button
+                type="button"
+                disabled={upgradeCheckoutLoading}
+                onClick={() => setShowFreeCheckoutModal(false)}
+                className="rounded border border-slate-600 px-4 py-2 text-sm text-slate-200 hover:bg-slate-800 disabled:opacity-50"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                disabled={upgradeCheckoutLoading}
+                onClick={startFreeCheckoutFromSettings}
+                className="rounded bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-500 disabled:opacity-50"
+              >
+                {upgradeCheckoutLoading ? 'Processing...' : 'Confirm and Pay Now'}
+              </button>
+            </div>
+          </div>
+        </div>
       )}
 
       {!isBreakdownMode && showUpgradeModal && upgradePreview?.preview && (
