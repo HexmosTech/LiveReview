@@ -619,6 +619,7 @@ func (s *Server) setupRoutes() {
 	connectorGroup.Use(authMiddleware.BuildOrgContextFromHeader())
 	connectorGroup.Use(authMiddleware.ValidateOrgAccess())
 	connectorGroup.Use(authMiddleware.BuildPermissionContext())
+	connectorGroup.Use(authMiddleware.EnforceSubscriptionLimits())
 	connectorGroup.Use(apimiddleware.BuildPlanContext())
 
 	connectorGroup.GET("", s.GetConnectors)
@@ -734,6 +735,7 @@ func (s *Server) setupRoutes() {
 	reviewsGroup.Use(authMiddleware.BuildOrgContextFromHeader())
 	reviewsGroup.Use(authMiddleware.ValidateOrgAccess())
 	reviewsGroup.Use(authMiddleware.BuildPermissionContext())
+	reviewsGroup.Use(authMiddleware.EnforceSubscriptionLimits())
 	reviewsGroup.Use(apimiddleware.BuildPlanContext())
 
 	// Main reviews endpoints (with org scoping)
@@ -782,6 +784,7 @@ func (s *Server) setupRoutes() {
 	quotaGroup.Use(authMiddleware.BuildOrgContextFromHeader())
 	quotaGroup.Use(authMiddleware.ValidateOrgAccess())
 	quotaGroup.Use(authMiddleware.BuildPermissionContext())
+	quotaGroup.Use(authMiddleware.EnforceSubscriptionLimits())
 	quotaGroup.Use(apimiddleware.BuildPlanContext())
 	quotaGroup.GET("/status", quotaHandler.GetQuotaStatus)
 

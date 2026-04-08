@@ -142,12 +142,13 @@ func (s *OrganizationService) GetUserOrganizations(userID int64, isSuperAdmin bo
 			       creator.email as creator_email,
 			       creator.first_name as creator_first_name,
 			       creator.last_name as creator_last_name,
-			       ur.plan_type,
-			       ur.license_expires_at
+			       obs.current_plan_code as plan_type,
+			       obs.billing_period_end as license_expires_at
 			FROM orgs o
 			LEFT JOIN user_roles ur ON o.id = ur.org_id AND ur.user_id = $1
 			LEFT JOIN roles r ON ur.role_id = r.id
 			LEFT JOIN users creator ON o.created_by_user_id = creator.id
+			LEFT JOIN org_billing_state obs ON o.id = obs.org_id
 			WHERE o.is_active = true AND o.name != 'Default Organization'
 			ORDER BY o.name ASC
 		`
@@ -161,12 +162,13 @@ func (s *OrganizationService) GetUserOrganizations(userID int64, isSuperAdmin bo
 			       creator.email as creator_email,
 			       creator.first_name as creator_first_name,
 			       creator.last_name as creator_last_name,
-			       ur.plan_type,
-			       ur.license_expires_at
+			       obs.current_plan_code as plan_type,
+			       obs.billing_period_end as license_expires_at
 			FROM orgs o
 			INNER JOIN user_roles ur ON o.id = ur.org_id
 			INNER JOIN roles r ON ur.role_id = r.id
 			LEFT JOIN users creator ON o.created_by_user_id = creator.id
+			LEFT JOIN org_billing_state obs ON o.id = obs.org_id
 			WHERE ur.user_id = $1 AND o.is_active = true AND o.name != 'Default Organization'
 			ORDER BY o.name ASC
 		`
@@ -244,10 +246,13 @@ func (s *OrganizationService) GetOrganizationByID(orgID int64, userID int64, isS
 		query = `
 			SELECT o.id, o.name, o.description, o.is_active, o.created_at, o.updated_at,
 			       o.created_by_user_id, o.settings, o.subscription_plan, o.max_users,
-			       COALESCE(r.name, 'super_admin') as role_name
+			       COALESCE(r.name, 'super_admin') as role_name,
+			       obs.current_plan_code as plan_type,
+			       obs.billing_period_end as license_expires_at
 			FROM orgs o
 			LEFT JOIN user_roles ur ON o.id = ur.org_id AND ur.user_id = $2
 			LEFT JOIN roles r ON ur.role_id = r.id
+			LEFT JOIN org_billing_state obs ON o.id = obs.org_id
 			WHERE o.id = $1
 		`
 		args = []interface{}{orgID, userID}
@@ -256,10 +261,13 @@ func (s *OrganizationService) GetOrganizationByID(orgID int64, userID int64, isS
 		query = `
 			SELECT o.id, o.name, o.description, o.is_active, o.created_at, o.updated_at,
 			       o.created_by_user_id, o.settings, o.subscription_plan, o.max_users,
-			       r.name as role_name
+			       r.name as role_name,
+			       obs.current_plan_code as plan_type,
+			       obs.billing_period_end as license_expires_at
 			FROM orgs o
 			INNER JOIN user_roles ur ON o.id = ur.org_id
 			INNER JOIN roles r ON ur.role_id = r.id
+			LEFT JOIN org_billing_state obs ON o.id = obs.org_id
 			WHERE o.id = $1 AND ur.user_id = $2
 		`
 		args = []interface{}{orgID, userID}
@@ -281,6 +289,8 @@ func (s *OrganizationService) GetOrganizationByID(orgID int64, userID int64, isS
 		&org.SubscriptionPlan,
 		&org.MaxUsers,
 		&org.RoleName,
+		&org.PlanType,
+		&org.LicenseExpiresAt,
 	)
 
 	if err != nil {
@@ -451,12 +461,15 @@ func (s *OrganizationService) GetOrganizationMembers(orgID int64, limit, offset 
 		SELECT u.id, u.email, u.first_name, u.last_name, u.is_active, u.last_login_at,
 		       u.created_at, u.updated_at, u.created_by_user_id, u.password_reset_required,
 		       r.name as role, r.id as role_id, ur.org_id,
-		       ur.plan_type, ur.license_expires_at, ur.active_subscription_id,
+		       obs.current_plan_code as plan_type,
+		       obs.billing_period_end as license_expires_at,
+		       ur.active_subscription_id,
 		       s.razorpay_subscription_id
 		FROM users u
 		INNER JOIN user_roles ur ON u.id = ur.user_id
 		INNER JOIN roles r ON ur.role_id = r.id
 		LEFT JOIN subscriptions s ON ur.active_subscription_id = s.id
+		LEFT JOIN org_billing_state obs ON ur.org_id = obs.org_id
 		WHERE ur.org_id = $1 AND u.is_active = true
 		ORDER BY u.email ASC
 		LIMIT $2 OFFSET $3

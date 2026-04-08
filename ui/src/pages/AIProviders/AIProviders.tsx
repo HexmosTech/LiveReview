@@ -1,12 +1,12 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate, useLocation, useParams } from 'react-router-dom';
-import { 
-    PageHeader, 
-    Card, 
-    Button, 
-    Icons, 
+import {
+    PageHeader,
+    Card,
+    Button,
+    Icons,
     Input,
-    Alert, 
+    Alert,
     Section,
     EmptyState,
     Spinner,
@@ -21,10 +21,10 @@ import { AIProvider, AIConnector } from './types';
 import { useProviderSelection, useConnectors, useFormState } from './hooks';
 
 // Components
-import { 
-    ProvidersList, 
-    ProviderDetail, 
-    ConnectorForm, 
+import {
+    ProvidersList,
+    ProviderDetail,
+    ConnectorForm,
     ConnectorsList,
     UsageTips
 } from './components';
@@ -35,17 +35,17 @@ import { generateFriendlyNameForProvider, getProviderDetails } from './utils/nam
 
 // Constant data
 const popularAIProviders: AIProvider[] = [
-    { 
+    {
         id: 'gemini',
-        name: 'Google Gemini', 
-        url: 'https://ai.google.dev/', 
+        name: 'Google Gemini',
+        url: 'https://ai.google.dev/',
         description: 'High quality, multimodal reasoning with balanced cost and performance.',
         icon: <Icons.Google />,
         apiKeyPlaceholder: 'gemini-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx',
         models: ['gemini-2.5-flash', 'gemini-2.5-flash-lite', 'gemini-2.5-pro', 'gemini-2.0-flash', 'gemini-2.0-flash-lite'],
         defaultModel: 'gemini-2.5-flash'
     },
-    { 
+    {
         id: 'deepseek',
         name: 'DeepSeek',
         url: 'https://platform.deepseek.com/',
@@ -56,10 +56,10 @@ const popularAIProviders: AIProvider[] = [
         defaultModel: 'deepseek-chat',
         baseURLPlaceholder: 'https://api.deepseek.com/v1'
     },
-    { 
+    {
         id: 'openrouter',
-        name: 'OpenRouter', 
-        url: 'https://openrouter.ai/', 
+        name: 'OpenRouter',
+        url: 'https://openrouter.ai/',
         description: 'Bring your own key and choose any OpenRouter model. Defaults to the free DeepSeek route.',
         icon: <Icons.AI />,
         apiKeyPlaceholder: 'sk-or-v1-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx',
@@ -67,10 +67,10 @@ const popularAIProviders: AIProvider[] = [
         defaultModel: 'deepseek/deepseek-r1-0528:free',
         baseURLPlaceholder: 'https://openrouter.ai/api/v1'
     },
-    { 
+    {
         id: 'ollama',
-        name: 'Ollama', 
-        url: 'https://ollama.ai/', 
+        name: 'Ollama',
+        url: 'https://ollama.ai/',
         description: 'Run models locally. Great for privacy & air‑gapped workflows.',
         icon: <Icons.Ollama />,
         apiKeyPlaceholder: 'Optional JWT token for authentication',
@@ -79,20 +79,20 @@ const popularAIProviders: AIProvider[] = [
         baseURLPlaceholder: 'http://localhost:11434/ollama/api',
         requiresBaseURL: true
     },
-    { 
+    {
         id: 'openai',
-        name: 'OpenAI', 
-        url: 'https://platform.openai.com/', 
+        name: 'OpenAI',
+        url: 'https://platform.openai.com/',
         description: 'Fast, strong reasoning via OpenAI models with broad model compatibility.',
         icon: <Icons.OpenAI />,
         apiKeyPlaceholder: 'sk-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx',
         models: ['o4-mini', 'gpt-4.1', 'gpt-4.1-mini', 'gpt-4o-mini', 'gpt-4o', 'o3-mini'],
         defaultModel: 'o4-mini'
     },
-    { 
+    {
         id: 'claude',
-        name: 'Anthropic Claude', 
-        url: 'https://www.anthropic.com/', 
+        name: 'Anthropic Claude',
+        url: 'https://www.anthropic.com/',
         description: 'Advanced reasoning & long context. Vote to prioritize deeper integration.',
         icon: <Icons.AI />,
         apiKeyPlaceholder: 'sk-ant-api03-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx',
@@ -115,14 +115,14 @@ const popularAIProviders: AIProvider[] = [
 
 const AIProviders: React.FC = () => {
     // Custom hooks
-    const { 
-        selectedProvider, 
-        setSelectedProvider, 
+    const {
+        selectedProvider,
+        setSelectedProvider,
         updateUrlFragment,
         isEditing,
         setIsEditing
     } = useProviderSelection(popularAIProviders);
-    
+
     const {
         connectors,
         isLoading,
@@ -133,7 +133,7 @@ const AIProviders: React.FC = () => {
         reorderConnectors,
         setError
     } = useConnectors();
-    
+
     const {
         formData,
         selectedConnector,
@@ -144,7 +144,7 @@ const AIProviders: React.FC = () => {
         setFormData,
         generateFriendlyName
     } = useFormState();
-    
+
     // Local state
     const [isSaved, setIsSaved] = useState(false);
     const [showDropdown, setShowDropdown] = useState(false);
@@ -155,13 +155,13 @@ const AIProviders: React.FC = () => {
         const meta = popularAIProviders.find(p => p.id === providerId);
         return meta?.defaultModel || '';
     };
-    
+
     // Calculate provider connector counts
     const connectorCounts = connectors.reduce((counts: Record<string, number>, connector) => {
         counts[connector.providerName] = (counts[connector.providerName] || 0) + 1;
         return counts;
     }, {});
-    
+
     // Close dropdown when clicking outside
     useEffect(() => {
         function handleClickOutside(event: MouseEvent) {
@@ -169,7 +169,7 @@ const AIProviders: React.FC = () => {
                 setShowDropdown(false);
             }
         }
-        
+
         document.addEventListener("mousedown", handleClickOutside);
         return () => {
             document.removeEventListener("mousedown", handleClickOutside);
@@ -181,7 +181,7 @@ const AIProviders: React.FC = () => {
         const params = new URLSearchParams(location.search);
         const action = params.get('action');
         const connectorId = params.get('connectorId');
-        
+
         if (action === 'edit' && connectorId) {
             // Find the connector to edit based on connectorId
             if (connectors.length > 0) {
@@ -194,7 +194,7 @@ const AIProviders: React.FC = () => {
             handleAddConnector();
         }
     }, [location.search, connectors.length]);
-    
+
     // Handle provider selection
     const handleSelectProvider = (providerId: string) => {
         setSelectedProvider(providerId);
@@ -202,61 +202,64 @@ const AIProviders: React.FC = () => {
         setShowDropdown(false);
         updateUrlFragment(providerId);
     };
-    
+
     // Handle adding a new connector
     const handleAddConnector = () => {
         setFormData({
             name: generateFriendlyNameForProvider(selectedProvider, popularAIProviders),
             apiKey: '',
-		providerType: selectedProvider === 'all' ? '' : selectedProvider,
-		selectedModel: getDefaultModelFor(selectedProvider === 'all' ? undefined : selectedProvider),
-		baseURL: ''
+            providerType: selectedProvider === 'all' ? '' : selectedProvider,
+            selectedModel: getDefaultModelFor(selectedProvider === 'all' ? undefined : selectedProvider),
+            baseURL: ''
         });
         setIsEditing(false);
         setSelectedConnector(null);
         updateUrlFragment(selectedProvider, 'add');
     };
-    
+
     // Handle selecting a provider from dropdown
     const handleSelectProviderToAdd = (providerId: string) => {
         setFormData({
             name: generateFriendlyNameForProvider(providerId, popularAIProviders),
             apiKey: '',
-		providerType: providerId,
-		selectedModel: getDefaultModelFor(providerId),
-		baseURL: ''
+            providerType: providerId,
+            selectedModel: getDefaultModelFor(providerId),
+            baseURL: ''
         });
         setIsEditing(false);
         setSelectedConnector(null);
         setShowDropdown(false);
         updateUrlFragment(providerId, 'add');
     };
-    
+
     // Handle editing a connector
     const handleEditConnector = (connector: AIConnector) => {
+        if (connector.providerName === 'livereview-default-ai') {
+            return; // Managed connectors are read-only
+        }
         setSelectedConnector(connector);
         setSelectedProvider(connector.providerName);
         setFormData({
             name: connector.name,
-		apiKey: connector.fullApiKey || connector.apiKey,
-		providerType: connector.providerName,
-		baseURL: connector.baseURL || connector.base_url || '',
-		selectedModel: connector.selectedModel || connector.selected_model || getDefaultModelFor(connector.providerName)
+            apiKey: connector.fullApiKey || connector.apiKey,
+            providerType: connector.providerName,
+            baseURL: connector.baseURL || connector.base_url || '',
+            selectedModel: connector.selectedModel || connector.selected_model || getDefaultModelFor(connector.providerName)
         });
         setIsEditing(true);
         updateUrlFragment(connector.providerName, 'edit', connector.id);
     };
-    
+
     // Handle save/update connector
     const handleSaveConnector = async () => {
         // Determine the provider to use
         const providerToUse = selectedProvider === 'all' ? formData.providerType : selectedProvider;
-        
+
         if (!providerToUse) {
             setError('Please select a provider');
             return;
         }
-        
+
         try {
             const success = await saveConnector(
                 providerToUse,
@@ -264,17 +267,17 @@ const AIProviders: React.FC = () => {
                 formData.name,
                 selectedConnector,
                 formData.baseURL,
-				formData.selectedModel || getDefaultModelFor(providerToUse)
+                formData.selectedModel || getDefaultModelFor(providerToUse)
             );
-            
+
             if (success) {
                 // Show success message
                 setIsSaved(true);
                 setTimeout(() => setIsSaved(false), 3000);
-                
+
                 // Reset form
                 resetForm();
-                
+
                 // Update URL to show the provider without any specific action
                 updateUrlFragment(providerToUse);
             }
@@ -282,7 +285,7 @@ const AIProviders: React.FC = () => {
             console.error('Error in handleSaveConnector:', error);
         }
     };
-    
+
     // Handle Ollama-specific save
     const handleSaveOllamaConnector = async (baseURL: string, jwtToken: string, selectedModel: string, name: string) => {
         try {
@@ -294,15 +297,15 @@ const AIProviders: React.FC = () => {
                 baseURL,
                 selectedModel
             );
-            
+
             if (success) {
                 // Show success message
                 setIsSaved(true);
                 setTimeout(() => setIsSaved(false), 3000);
-                
+
                 // Reset form
                 resetForm();
-                
+
                 // Update URL to show the provider without any specific action
                 updateUrlFragment('ollama');
             }
@@ -310,7 +313,7 @@ const AIProviders: React.FC = () => {
             console.error('Error in handleSaveOllamaConnector:', error);
         }
     };
-    
+
     // Handle generate name button
     const handleGenerateName = () => {
         const providerToUse = selectedProvider === 'all' ? formData.providerType : selectedProvider;
@@ -318,10 +321,10 @@ const AIProviders: React.FC = () => {
             setError('Please select a provider first');
             return;
         }
-        
+
         generateFriendlyName(providerToUse, popularAIProviders);
     };
-    
+
     // Handle provider type change in "all" view
     const handleProviderChange = (providerType: string) => {
         handleProviderTypeChange(providerType, popularAIProviders);
@@ -332,11 +335,11 @@ const AIProviders: React.FC = () => {
         if (!selectedConnector) {
             return;
         }
-        
+
         if (window.confirm(`Are you sure you want to delete the connector "${selectedConnector.name}"?`)) {
             try {
                 const success = await deleteConnector(selectedConnector.id);
-                
+
                 if (success) {
                     // Reset form and update URL
                     resetForm();
@@ -350,10 +353,10 @@ const AIProviders: React.FC = () => {
 
     return (
         <div className="container mx-auto px-4 py-8">
-            <PageHeader 
-                title="AI Providers" 
+            <PageHeader
+                title="AI Providers"
                 description={
-					"Configure and manage AI services for code review."
+                    "Configure and manage AI services for code review."
                 }
                 actions={<a href="https://github.com/HexmosTech/LiveReview/discussions/9" target="_blank" rel="noopener noreferrer"><Button variant="outline" size="sm">Vote / Request Provider</Button></a>}
             />
@@ -362,26 +365,26 @@ const AIProviders: React.FC = () => {
                 {/* Left panel for selecting providers */}
                 <div className="lg:col-span-1">
                     <Card title="AI Providers">
-                        <ProvidersList 
+                        <ProvidersList
                             providers={popularAIProviders}
                             selectedProvider={selectedProvider}
                             connectorCounts={connectorCounts}
                             onSelectProvider={handleSelectProvider}
                             totalConnectors={connectors.length}
                         />
-                        
+
                         {/* Provider Info - Show only for specific providers, not for "all" view */}
                         {selectedProvider !== 'all' && (
-                            <ProviderDetail 
+                            <ProviderDetail
                                 provider={popularAIProviders.find(p => p.id === selectedProvider)!}
                             />
                         )}
                     </Card>
-                    
+
                     {/* Usage Tips */}
                     <UsageTips />
                 </div>
-                
+
                 {/* Main content area - 2 columns */}
                 <div className="lg:col-span-2">
                     <div className="grid grid-cols-1 gap-6">
@@ -428,7 +431,7 @@ const AIProviders: React.FC = () => {
                                 )}
                             </>
                         )}
-                        
+
                         {/* Connectors List */}
                         <ConnectorsList
                             connectors={connectors}

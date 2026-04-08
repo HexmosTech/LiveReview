@@ -116,15 +116,21 @@ func NewStandardAIProviderFactory() *StandardAIProviderFactory {
 func (f *StandardAIProviderFactory) CreateAIProvider(ctx context.Context, config AIConfig, logger *logging.ReviewLogger) (ai.Provider, error) {
 	switch config.Type {
 	case "langchain":
-		// Extract provider information from config
+		// Extract provider information from config.
+		// For managed/livereview-default-ai connectors, 'ai_provider_type' contains the actual implementation backend (e.g. 'gemini').
 		providerName, _ := config.Config["provider_name"].(string)
+		providerType, ok := config.Config["ai_provider_type"].(string)
+		if !ok || providerType == "" {
+			providerType = providerName
+		}
+
 		baseURL, _ := config.Config["base_url"].(string)
-		baseURL = aiconnectors.ResolveBaseURLForProviderName(providerName, baseURL)
+		baseURL = aiconnectors.ResolveBaseURLForProviderName(providerType, baseURL)
 
 		// Set provider-specific token limits
-		maxTokens := f.getProviderMaxTokens(providerName)
+		maxTokens := f.getProviderMaxTokens(providerType)
 
-		log.Printf("[AI FACTORY] Creating %s provider with model: %s, max tokens: %d", providerName, config.Model, maxTokens)
+		log.Printf("[AI FACTORY] Creating %s (%s) provider with model: %s, max tokens: %d", providerName, providerType, config.Model, maxTokens)
 		if baseURL != "" {
 			log.Printf("[AI FACTORY] Using base URL: %s", baseURL)
 		}
@@ -135,20 +141,25 @@ func (f *StandardAIProviderFactory) CreateAIProvider(ctx context.Context, config
 			MaxTokens:      maxTokens,
 			Temperature:    config.Temperature,
 			TemperatureSet: true,
-			ProviderType:   providerName,
+			ProviderType:   providerType,
 			BaseURL:        baseURL,
 		}, logger), nil
 	default:
 		// Default to langchain for any unrecognized type
 		// Extract provider information from config
 		providerName, _ := config.Config["provider_name"].(string)
+		providerType, ok := config.Config["ai_provider_type"].(string)
+		if !ok || providerType == "" {
+			providerType = providerName
+		}
+
 		baseURL, _ := config.Config["base_url"].(string)
-		baseURL = aiconnectors.ResolveBaseURLForProviderName(providerName, baseURL)
+		baseURL = aiconnectors.ResolveBaseURLForProviderName(providerType, baseURL)
 
 		// Set provider-specific token limits
-		maxTokens := f.getProviderMaxTokens(providerName)
+		maxTokens := f.getProviderMaxTokens(providerType)
 
-		log.Printf("[AI FACTORY] Creating %s provider (fallback) with model: %s, max tokens: %d", providerName, config.Model, maxTokens)
+		log.Printf("[AI FACTORY] Creating %s (%s) provider (fallback) with model: %s, max tokens: %d", providerName, providerType, config.Model, maxTokens)
 		if baseURL != "" {
 			log.Printf("[AI FACTORY] Using base URL: %s", baseURL)
 		}
@@ -159,7 +170,7 @@ func (f *StandardAIProviderFactory) CreateAIProvider(ctx context.Context, config
 			MaxTokens:      maxTokens,
 			Temperature:    config.Temperature,
 			TemperatureSet: true,
-			ProviderType:   providerName,
+			ProviderType:   providerType,
 			BaseURL:        baseURL,
 		}, logger), nil
 	}
