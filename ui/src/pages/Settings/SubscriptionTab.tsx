@@ -219,6 +219,22 @@ type CreateSubscriptionCheckoutResponse = {
   razorpay_key_id: string;
 };
 
+type KeepPlanActionResult = {
+  ok: boolean;
+  statusCode?: number;
+  errorMessage?: string;
+};
+
+type ActionPreflightResult = {
+  proceed: boolean;
+  routeToBuyNew: boolean;
+};
+
+const isTerminalCancellationStatus = (rawStatus?: string | null): boolean => {
+  const normalized = String(rawStatus || '').trim().toLowerCase();
+  return normalized === 'cancelled' || normalized === 'expired' || normalized === 'completed';
+};
+
 type UpgradeRequestStatusResponse = {
   request: {
     upgrade_request_id: string;
@@ -444,6 +460,7 @@ const OverviewTab: React.FC<{ navigate: any; mode?: 'full' | 'breakdown' | 'cont
   const [keepPlanSuccess, setKeepPlanSuccess] = useState<string | null>(null);
   const [keepPlanLoading, setKeepPlanLoading] = useState(false);
   const [actionLoading, setActionLoading] = useState(false);
+  const [actionProgressMessage, setActionProgressMessage] = useState<string | null>(null);
   const [selectedUpgradePlan, setSelectedUpgradePlan] = useState('');
   const [selectedDowngradePlan, setSelectedDowngradePlan] = useState('');
   const [usageSummary, setUsageSummary] = useState<BillingUsageSummaryResponse | null>(null);
@@ -679,36 +696,19 @@ const OverviewTab: React.FC<{ navigate: any; mode?: 'full' | 'breakdown' | 'cont
     }
   };
 
-  const runBillingAction = async (mode: 'schedule_downgrade' | 'cancel_downgrade', targetPlanCode?: string) => {
-    setActionLoading(true);
-    setBillingError(null);
-    try {
-      if (mode === 'schedule_downgrade') {
-        const effectivePlanCode = String(targetPlanCode || selectedDowngradePlan || '').trim();
-        if (!effectivePlanCode) {
-          throw new Error('Select a lower plan to continue.');
-        }
-        await apiClient.post('/billing/downgrade/schedule', { target_plan_code: effectivePlanCode }, orgScopedRequestOptions);
-      } else {
-        await apiClient.post('/billing/downgrade/cancel', {}, orgScopedRequestOptions);
-      }
-      await refreshBilling();
-    } catch (err: any) {
-      setBillingError(err?.message || 'Billing action failed');
-    } finally {
-      setActionLoading(false);
-    }
-  };
-
-  const handleKeepPlan = async () => {
+  const performKeepPlanAction = async (opts?: { suppressSuccessMessage?: boolean }): Promise<KeepPlanActionResult> => {
     if (!effectiveSubscriptionId) {
-      setKeepPlanError('No active subscription available to keep.');
-      return;
+      return {
+        ok: false,
+        errorMessage: 'No active subscription available to keep.',
+      };
     }
 
     setKeepPlanLoading(true);
     setKeepPlanError(null);
-    setKeepPlanSuccess(null);
+    if (!opts?.suppressSuccessMessage) {
+      setKeepPlanSuccess(null);
+    }
 
     try {
       await apiClient.post(
@@ -728,16 +728,122 @@ const OverviewTab: React.FC<{ navigate: any; mode?: 'full' | 'breakdown' | 'cont
       } catch {
         refreshFailed = true;
       }
+
       if (refreshFailed) {
-        setKeepPlanError('Keep plan was applied, but billing data refresh failed. Please reload this page.');
-        return;
+        return {
+          ok: false,
+          errorMessage: 'Keep plan was applied, but billing data refresh failed. Please reload this page.',
+        };
       }
 
-      setKeepPlanSuccess('Scheduled cancellation removed. Your current plan remains active.');
+      if (!opts?.suppressSuccessMessage) {
+        setKeepPlanSuccess('Scheduled cancellation removed. Your current plan remains active.');
+      }
+
+      return { ok: true };
     } catch (err: any) {
-      setKeepPlanError(err?.message || 'Failed to keep current plan');
+      return {
+        ok: false,
+        statusCode: typeof err?.status === 'number' ? err.status : undefined,
+        errorMessage: err?.message || 'Failed to keep current plan',
+      };
     } finally {
       setKeepPlanLoading(false);
+    }
+  };
+
+  const runActionPreflight = async (action: 'upgrade' | 'schedule_downgrade'): Promise<ActionPreflightResult> => {
+    setKeepPlanError(null);
+    setKeepPlanSuccess(null);
+
+    if (effectiveTerminalCancellation) {
+      if (action === 'upgrade') {
+        setActionProgressMessage('Current subscription is already ended. Starting a new purchase flow.');
+        return { proceed: false, routeToBuyNew: true };
+      }
+
+      setActionProgressMessage(null);
+      setBillingError('Subscription is already cancelled or expired, so downgrade scheduling is unavailable.');
+      return { proceed: false, routeToBuyNew: false };
+    }
+
+    if (!effectivePendingCancel) {
+      return { proceed: true, routeToBuyNew: false };
+    }
+
+    if (!effectiveSubscriptionId) {
+      if (action === 'upgrade') {
+        setActionProgressMessage('No active paid subscription was found. Starting a new purchase flow.');
+        return { proceed: false, routeToBuyNew: true };
+      }
+
+      setActionProgressMessage(null);
+      setBillingError('No active subscription found for downgrade scheduling.');
+      return { proceed: false, routeToBuyNew: false };
+    }
+
+    setActionProgressMessage(
+      action === 'upgrade'
+        ? 'Reactivating current plan before upgrade...'
+        : 'Reactivating current plan before downgrade...'
+    );
+
+    const keepPlanResult = await performKeepPlanAction({ suppressSuccessMessage: true });
+    if (keepPlanResult.ok) {
+      setActionProgressMessage(null);
+      return { proceed: true, routeToBuyNew: false };
+    }
+
+    if (keepPlanResult.statusCode === 409) {
+      setActionProgressMessage(
+        action === 'upgrade'
+          ? 'Keep-plan confirmation is still propagating. Continuing with upgrade flow.'
+          : 'Keep-plan confirmation is still propagating. Continuing with downgrade flow.'
+      );
+      return { proceed: true, routeToBuyNew: false };
+    }
+
+    setActionProgressMessage(null);
+    setBillingError(keepPlanResult.errorMessage || 'Failed to reactivate current plan before continuing.');
+    return { proceed: false, routeToBuyNew: false };
+  };
+
+  const runBillingAction = async (mode: 'schedule_downgrade' | 'cancel_downgrade', targetPlanCode?: string) => {
+    setActionLoading(true);
+    setBillingError(null);
+    setActionProgressMessage(null);
+    try {
+      if (mode === 'schedule_downgrade') {
+        const preflight = await runActionPreflight('schedule_downgrade');
+        if (!preflight.proceed) {
+          return;
+        }
+
+        const effectivePlanCode = String(targetPlanCode || selectedDowngradePlan || '').trim();
+        if (!effectivePlanCode) {
+          throw new Error('Select a lower plan to continue.');
+        }
+        await apiClient.post('/billing/downgrade/schedule', { target_plan_code: effectivePlanCode }, orgScopedRequestOptions);
+      } else {
+        await apiClient.post('/billing/downgrade/cancel', {}, orgScopedRequestOptions);
+      }
+      await refreshBilling();
+    } catch (err: any) {
+      setBillingError(err?.message || 'Billing action failed');
+    } finally {
+      setActionLoading(false);
+      setActionProgressMessage(null);
+    }
+  };
+
+  const handleKeepPlan = async () => {
+    setActionProgressMessage(null);
+    setKeepPlanError(null);
+    setKeepPlanSuccess(null);
+
+    const keepPlanResult = await performKeepPlanAction();
+    if (!keepPlanResult.ok) {
+      setKeepPlanError(keepPlanResult.errorMessage || 'Failed to keep current plan');
     }
   };
 
@@ -749,8 +855,20 @@ const OverviewTab: React.FC<{ navigate: any; mode?: 'full' | 'breakdown' | 'cont
 
     setActionLoading(true);
     setBillingError(null);
+    setActionProgressMessage(null);
     setLastUpgradeResult(null);
     try {
+      const preflight = await runActionPreflight('upgrade');
+      if (preflight.routeToBuyNew) {
+        setShowUpgradeModal(false);
+        setUpgradePreview(null);
+        setShowFreeCheckoutModal(true);
+        return;
+      }
+      if (!preflight.proceed) {
+        return;
+      }
+
       if (isFree) {
         setShowUpgradeModal(false);
         setUpgradePreview(null);
@@ -789,6 +907,7 @@ const OverviewTab: React.FC<{ navigate: any; mode?: 'full' | 'breakdown' | 'cont
       }
     } finally {
       setActionLoading(false);
+      setActionProgressMessage(null);
     }
   };
 
@@ -1062,6 +1181,9 @@ const OverviewTab: React.FC<{ navigate: any; mode?: 'full' | 'breakdown' | 'cont
   const effectiveSubscriptionManageURL = subscriptionManageURL || String(managedSubscription?.short_url || '');
   const normalizedCurrentStatus = String(status || '').trim().toLowerCase();
   const normalizedManagedStatus = String(managedSubscription?.status || '').trim().toLowerCase();
+  const effectiveTerminalCancellation =
+    isTerminalCancellationStatus(normalizedCurrentStatus) ||
+    isTerminalCancellationStatus(normalizedManagedStatus);
   const currentCanCancel =
     Boolean(subscriptionId) &&
     !pendingCancel &&
@@ -1654,6 +1776,12 @@ const OverviewTab: React.FC<{ navigate: any; mode?: 'full' | 'breakdown' | 'cont
             </div>
           )}
 
+          {actionProgressMessage && (
+            <div className="bg-sky-500/10 border border-sky-500/40 rounded-lg p-3 text-sm text-sky-100">
+              {actionProgressMessage}
+            </div>
+          )}
+
           {(keepPlanError || keepPlanSuccess) && (
             <div className={`rounded-lg border p-3 text-sm ${
               keepPlanError
@@ -1709,7 +1837,7 @@ const OverviewTab: React.FC<{ navigate: any; mode?: 'full' | 'breakdown' | 'cont
                   <button
                     key={plan.plan_code}
                     type="button"
-                    disabled={actionLoading || upgradeCheckoutLoading}
+                    disabled={actionLoading || keepPlanLoading || upgradeCheckoutLoading}
                     onClick={() => {
                       void openUpgradePreview(plan.plan_code);
                     }}
@@ -1795,7 +1923,7 @@ const OverviewTab: React.FC<{ navigate: any; mode?: 'full' | 'breakdown' | 'cont
                     <p className="text-xs text-slate-400">Cancellation is scheduled for period end.</p>
                     <button
                       className="text-xs text-slate-300 hover:text-white underline underline-offset-2 disabled:opacity-60 disabled:cursor-not-allowed"
-                      disabled={keepPlanLoading || statusLoading || subscriptionLoading}
+                      disabled={keepPlanLoading || actionLoading || statusLoading || subscriptionLoading}
                       onClick={() => {
                         void handleKeepPlan();
                       }}
@@ -1821,6 +1949,12 @@ const OverviewTab: React.FC<{ navigate: any; mode?: 'full' | 'breakdown' | 'cont
                 {keepPlanSuccess && (
                   <p className="text-xs text-emerald-300">{keepPlanSuccess}</p>
                 )}
+                {billingError && (
+                  <p className="text-xs text-red-300">{billingError}</p>
+                )}
+                {actionProgressMessage && (
+                  <p className="text-xs text-sky-200">{actionProgressMessage}</p>
+                )}
               </div>
 
               <div className="p-4 bg-slate-900/70 border border-slate-700 rounded-lg space-y-4">
@@ -1833,7 +1967,7 @@ const OverviewTab: React.FC<{ navigate: any; mode?: 'full' | 'breakdown' | 'cont
                       <button
                         key={plan.plan_code}
                         type="button"
-                        disabled={actionLoading}
+                        disabled={actionLoading || keepPlanLoading}
                         onClick={() => {
                           setSelectedDowngradePlan(plan.plan_code);
                           void runBillingAction('schedule_downgrade', plan.plan_code);
@@ -1866,7 +2000,7 @@ const OverviewTab: React.FC<{ navigate: any; mode?: 'full' | 'breakdown' | 'cont
                   {billingStatus?.billing?.scheduled_plan_code && (
                     <button
                       className="px-3 py-2 rounded bg-slate-700 hover:bg-slate-600 disabled:opacity-50 text-sm font-medium"
-                      disabled={actionLoading}
+                      disabled={actionLoading || keepPlanLoading}
                       onClick={() => runBillingAction('cancel_downgrade')}
                     >
                       {cancelScheduledLabel}
