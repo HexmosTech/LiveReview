@@ -503,8 +503,9 @@ func (p *UnifiedProcessorV2Impl) buildContextualResponseWithLearningV2(ctx conte
 
 	llmResponse, learning, usage, err := p.generateLLMResponseWithLearning(ctx, prompt, event, orgID)
 	if err != nil {
-		log.Printf("[ERROR] LLM generation failed: %v - cannot provide response", err)
-		return fmt.Sprintf("I'm sorry, I'm unable to generate a response right now. Please try again later. (Error: %v)", err), nil, nil
+		log.Printf("[ERROR] LLM generation failed: %v", err)
+		// Return generic error to user to avoid exposing internal API errors
+		return "⚠️ Failed to generate AI response\nThis issue has been logged and will be investigated.", nil, nil
 	}
 
 	return llmResponse, learning, usage
@@ -1564,8 +1565,21 @@ func (p *UnifiedProcessorV2Impl) buildGiteaArtifactFromEvent(ctx context.Context
 			patchURL = strings.TrimSpace(rawPatchURL)
 		}
 	}
-	if patchURL == "" && strings.TrimSpace(event.MergeRequest.WebURL) != "" {
-		patchURL = strings.TrimSpace(event.MergeRequest.WebURL) + ".patch"
+	if patchURL == "" {
+		// Use provider URL and metadata to construct API patch URL reliably.
+		// We avoid brittle WebURL path manipulation by using known metadata.
+		baseURL := strings.TrimRight(token.ProviderURL, "/")
+		repoFullName := event.Repository.FullName
+		prNumber := event.MergeRequest.Number
+
+		if baseURL != "" && repoFullName != "" && prNumber > 0 {
+			patchURL = fmt.Sprintf("%s/api/v1/repos/%s/pulls/%d.patch",
+				baseURL, repoFullName, prNumber)
+		} else if webURL := strings.TrimSpace(event.MergeRequest.WebURL); webURL != "" {
+			// Fallback: Gitea supports appending .patch to the UI URL.
+			// This is a safe last-resort if API-specific metadata is incomplete.
+			patchURL = strings.TrimRight(webURL, "/") + ".patch"
+		}
 	}
 	if patchURL == "" {
 		return nil, fmt.Errorf("missing gitea patch URL")
