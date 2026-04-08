@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -34,6 +35,8 @@ type SubscriptionsHandler struct {
 	db      *sql.DB
 }
 
+var razorpaySubscriptionIDRegex = regexp.MustCompile(`^sub_[A-Za-z0-9]+$`)
+
 func resolveRazorpayMode() string {
 	mode := os.Getenv("RAZORPAY_MODE")
 	if mode == "" {
@@ -48,6 +51,27 @@ func NewSubscriptionsHandler(db *sql.DB) *SubscriptionsHandler {
 		service: payment.NewSubscriptionService(db),
 		db:      db,
 	}
+}
+
+func validateSubscriptionID(subscriptionID string) bool {
+	trimmed := strings.TrimSpace(subscriptionID)
+	if trimmed == "" {
+		return false
+	}
+	return razorpaySubscriptionIDRegex.MatchString(trimmed)
+}
+
+func requireBillingManagerPermission(c echo.Context) error {
+	permCtx := auth.GetPermissionContext(c)
+	if permCtx == nil {
+		return echo.NewHTTPError(http.StatusForbidden, "permission context required")
+	}
+
+	if permCtx.IsOwner || permCtx.IsSuperAdmin || strings.EqualFold(permCtx.Role, "admin") {
+		return nil
+	}
+
+	return echo.NewHTTPError(http.StatusForbidden, "only owner/admin can manage subscription cancellation")
 }
 
 // CreateSubscriptionRequest represents the request to create a subscription
@@ -242,10 +266,21 @@ type CancelSubscriptionRequest struct {
 func (h *SubscriptionsHandler) CancelSubscription(c echo.Context) error {
 	// Get subscription ID from URL
 	subscriptionID := c.Param("id")
-	if subscriptionID == "" {
+	if !validateSubscriptionID(subscriptionID) {
 		return c.JSON(http.StatusBadRequest, map[string]string{
-			"error": "subscription_id required",
+			"error": "valid subscription_id required",
 		})
+	}
+
+	if err := requireBillingManagerPermission(c); err != nil {
+		if httpErr, ok := err.(*echo.HTTPError); ok {
+			msg := fmt.Sprintf("%v", httpErr.Message)
+			if msg == "" {
+				msg = http.StatusText(httpErr.Code)
+			}
+			return c.JSON(httpErr.Code, map[string]string{"error": msg})
+		}
+		return c.JSON(http.StatusForbidden, map[string]string{"error": "forbidden"})
 	}
 
 	// Parse request
@@ -260,7 +295,7 @@ func (h *SubscriptionsHandler) CancelSubscription(c echo.Context) error {
 	mode := resolveRazorpayMode()
 
 	// Cancel subscription
-	sub, err := h.service.CancelSubscription(subscriptionID, req.Immediate, mode)
+	sub, err := h.service.CancelSubscriptionWithContext(c.Request().Context(), subscriptionID, req.Immediate, mode)
 	if err != nil {
 		if errors.Is(err, payment.ErrCancellationNotVerified) {
 			fmt.Printf("[API.SUBSCRIPTIONS] cancel verification conflict subscription_id=%s immediate=%t mode=%s reason=%v\n", subscriptionID, req.Immediate, mode, err)
@@ -268,6 +303,45 @@ func (h *SubscriptionsHandler) CancelSubscription(c echo.Context) error {
 				"error": "Razorpay did not return a verifiable scheduled-cancellation marker for this subscription. No local billing changes were applied.",
 			})
 		}
+		return c.JSON(http.StatusInternalServerError, map[string]string{
+			"error": err.Error(),
+		})
+	}
+
+	return c.JSON(http.StatusOK, sub)
+}
+
+// KeepPlan clears a scheduled cancellation so the current plan remains active.
+func (h *SubscriptionsHandler) KeepPlan(c echo.Context) error {
+	subscriptionID := c.Param("id")
+	if !validateSubscriptionID(subscriptionID) {
+		return c.JSON(http.StatusBadRequest, map[string]string{
+			"error": "valid subscription_id required",
+		})
+	}
+
+	if err := requireBillingManagerPermission(c); err != nil {
+		if httpErr, ok := err.(*echo.HTTPError); ok {
+			msg := fmt.Sprintf("%v", httpErr.Message)
+			if msg == "" {
+				msg = http.StatusText(httpErr.Code)
+			}
+			return c.JSON(httpErr.Code, map[string]string{"error": msg})
+		}
+		return c.JSON(http.StatusForbidden, map[string]string{"error": "forbidden"})
+	}
+
+	mode := resolveRazorpayMode()
+
+	sub, err := h.service.KeepPlanWithContext(c.Request().Context(), subscriptionID, mode)
+	if err != nil {
+		if errors.Is(err, payment.ErrKeepPlanNotVerified) {
+			fmt.Printf("[API.SUBSCRIPTIONS] keep-plan verification conflict subscription_id=%s mode=%s reason=%v\n", subscriptionID, mode, err)
+			return c.JSON(http.StatusConflict, map[string]string{
+				"error": "Keep plan could not be verified on Razorpay yet. No local billing changes were applied.",
+			})
+		}
+
 		return c.JSON(http.StatusInternalServerError, map[string]string{
 			"error": err.Error(),
 		})

@@ -6,6 +6,7 @@ Latest milestone batch note (MF-051, MF-059, MF-073, MF-074, MF-076, MF-083, MF-
 | --- | --- | --- |
 | payment.CreateSubscriptionAddon | added | [CreateSubscriptionAddon](../internal/license/payment/payment.go#L309) |
 | payment.CreateOrder | added | [CreateOrder](../internal/license/payment/payment.go#L359) |
+| payment.CancelScheduledChangesByID | added | [CancelScheduledChangesByID](../internal/license/payment/subscription.go#L290) |
 | payment.IssueSelfHostedJWTRequest | moved | [IssueSelfHostedJWTRequest](payment/fw_parse_client.go#L21) |
 | payment.SendBillingNotificationEmailPlaceholder | added | [SendBillingNotificationEmailPlaceholder](payment/billing_notification_sender.go#L18) |
 | jobqueue.NewWebhookHTTPClient | moved | [NewWebhookHTTPClient](jobqueue/webhook_http_client.go#L16) |

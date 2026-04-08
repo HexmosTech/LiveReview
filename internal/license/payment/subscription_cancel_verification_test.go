@@ -1,10 +1,12 @@
 package payment
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestSubscriptionCancelRequestJSONUsesBoolean(t *testing.T) {
@@ -53,17 +55,14 @@ func TestCancellationVerifiedCycleEndWithExplicitProviderMarker(t *testing.T) {
 	}
 }
 
-func TestCancellationVerifiedCycleEndWithCancelAPIAcknowledgementOnlyIsUnverified(t *testing.T) {
+func TestCancellationVerifiedCycleEndWithCancelAPIAcknowledgementOnlyIsVerified(t *testing.T) {
 	pre := &RazorpaySubscription{ID: "sub_123", Status: "active", EndAt: 2000, ChargeAt: 1500, RemainingCount: 5}
 	cancelResp := &RazorpaySubscription{ID: "sub_123", Status: "active"}
 	post := &RazorpaySubscription{ID: "sub_123", Status: "active", EndAt: 2000, ChargeAt: 1500, RemainingCount: 5}
 
 	ok, reason := cancellationVerified(pre, cancelResp, post, false)
-	if ok {
-		t.Fatalf("expected acknowledgement-only cycle-end cancellation to remain unverified")
-	}
-	if reason == "" {
-		t.Fatalf("expected non-empty verification failure reason")
+	if !ok {
+		t.Fatalf("expected acknowledgement-only cycle-end cancellation to verify, got reason: %s", reason)
 	}
 }
 
@@ -86,13 +85,13 @@ func TestVerifyCancellationWithRetrySucceedsAfterDelayedSignal(t *testing.T) {
 	cancelResp := &RazorpaySubscription{Status: "active"}
 
 	attempt := 0
-	post, reason, err := verifyCancellationWithRetry(pre, cancelResp, false, 4, func() (*RazorpaySubscription, error) {
+	post, reason, err := verifyCancellationWithRetry(context.Background(), pre, cancelResp, false, 4, func() (*RazorpaySubscription, error) {
 		attempt++
 		if attempt < 3 {
 			return &RazorpaySubscription{Status: "active", EndAt: 2000, ChargeAt: 1500, RemainingCount: 5}, nil
 		}
 		return &RazorpaySubscription{Status: "active", HasScheduledChanges: true}, nil
-	}, nil)
+	}, func(time.Duration) {})
 
 	if err != nil {
 		t.Fatalf("expected no fetch error, got: %v", err)
@@ -113,10 +112,10 @@ func TestVerifyCancellationWithRetryExhaustsAttempts(t *testing.T) {
 	cancelResp := &RazorpaySubscription{Status: "active", EndAt: 2000, ChargeAt: 1500, RemainingCount: 5}
 
 	attempt := 0
-	post, reason, err := verifyCancellationWithRetry(pre, cancelResp, false, 3, func() (*RazorpaySubscription, error) {
+	post, reason, err := verifyCancellationWithRetry(context.Background(), pre, cancelResp, false, 3, func() (*RazorpaySubscription, error) {
 		attempt++
 		return &RazorpaySubscription{Status: "active", EndAt: 2000, ChargeAt: 1500, RemainingCount: 5}, nil
-	}, nil)
+	}, func(time.Duration) {})
 
 	if err != nil {
 		t.Fatalf("expected no fetch error, got: %v", err)
@@ -137,9 +136,9 @@ func TestVerifyCancellationWithRetryReturnsFetchErrorAfterExhaustion(t *testing.
 	cancelResp := &RazorpaySubscription{Status: "active"}
 	wantErr := errors.New("temporary razorpay read failure")
 
-	post, reason, err := verifyCancellationWithRetry(pre, cancelResp, false, 2, func() (*RazorpaySubscription, error) {
+	post, reason, err := verifyCancellationWithRetry(context.Background(), pre, cancelResp, false, 2, func() (*RazorpaySubscription, error) {
 		return nil, wantErr
-	}, nil)
+	}, func(time.Duration) {})
 
 	if post != nil {
 		t.Fatalf("expected nil post-cancel subscription when fetch fails")
@@ -165,5 +164,99 @@ func TestIsNoPendingScheduledChangeError(t *testing.T) {
 
 	if isNoPendingScheduledChangeError(200, body) {
 		t.Fatalf("expected non-error status to be rejected")
+	}
+}
+
+func TestKeepPlanVerifiedWhenNoPendingAndMarkersCleared(t *testing.T) {
+	post := &RazorpaySubscription{Status: "active", CancelAtCycleEnd: false, CancelAt: 0}
+	ok, reason := keepPlanVerified(post, nil, ErrNoPendingScheduledChange)
+	if !ok {
+		t.Fatalf("expected keep plan to verify, got reason: %s", reason)
+	}
+}
+
+func TestKeepPlanVerifiedFailsWhenProviderStillHasScheduledChanges(t *testing.T) {
+	post := &RazorpaySubscription{Status: "active"}
+	scheduled := &RazorpaySubscription{Status: "active", HasScheduledChanges: true}
+	ok, reason := keepPlanVerified(post, scheduled, nil)
+	if ok {
+		t.Fatalf("expected keep plan verification to fail when scheduled changes are present")
+	}
+	if reason == "" {
+		t.Fatalf("expected failure reason when scheduled changes remain")
+	}
+}
+
+func TestKeepPlanVerifiedFailsWithTerminalState(t *testing.T) {
+	post := &RazorpaySubscription{Status: "cancelled", EndedAt: 1234}
+	ok, reason := keepPlanVerified(post, nil, ErrNoPendingScheduledChange)
+	if ok {
+		t.Fatalf("expected keep plan verification to fail for terminal state")
+	}
+	if reason == "" {
+		t.Fatalf("expected failure reason for terminal state")
+	}
+}
+
+func TestVerifyKeepPlanWithRetrySucceedsAfterNoPendingSignal(t *testing.T) {
+	attempt := 0
+	post, reason, err := verifyKeepPlanWithRetry(context.Background(), 4, func() (*RazorpaySubscription, error) {
+		attempt++
+		return &RazorpaySubscription{ID: "sub_keep", Status: "active"}, nil
+	}, func() (*RazorpaySubscription, error) {
+		if attempt < 3 {
+			return &RazorpaySubscription{ID: "sub_keep", HasScheduledChanges: true}, nil
+		}
+		return nil, ErrNoPendingScheduledChange
+	}, func(time.Duration) {})
+
+	if err != nil {
+		t.Fatalf("expected no fetch error, got: %v", err)
+	}
+	if reason != "" {
+		t.Fatalf("expected empty failure reason, got: %s", reason)
+	}
+	if post == nil || post.ID != "sub_keep" {
+		t.Fatalf("expected verified post keep-plan subscription")
+	}
+	if attempt != 3 {
+		t.Fatalf("expected 3 attempts before verification, got %d", attempt)
+	}
+}
+
+func TestVerifyKeepPlanWithRetryReturnsReasonWhenStillScheduled(t *testing.T) {
+	post, reason, err := verifyKeepPlanWithRetry(context.Background(), 2, func() (*RazorpaySubscription, error) {
+		return &RazorpaySubscription{ID: "sub_keep", Status: "active"}, nil
+	}, func() (*RazorpaySubscription, error) {
+		return &RazorpaySubscription{ID: "sub_keep", HasScheduledChanges: true}, nil
+	}, func(time.Duration) {})
+
+	if err != nil {
+		t.Fatalf("expected no fetch error, got: %v", err)
+	}
+	if post != nil {
+		t.Fatalf("expected nil post keep-plan subscription when verification exhausts")
+	}
+	if reason == "" {
+		t.Fatalf("expected non-empty verification failure reason")
+	}
+}
+
+func TestVerifyKeepPlanWithRetryReturnsFetchErrorAfterExhaustion(t *testing.T) {
+	wantErr := errors.New("temporary retrieve_scheduled_changes error")
+	post, reason, err := verifyKeepPlanWithRetry(context.Background(), 2, func() (*RazorpaySubscription, error) {
+		return &RazorpaySubscription{ID: "sub_keep", Status: "active"}, nil
+	}, func() (*RazorpaySubscription, error) {
+		return nil, wantErr
+	}, func(time.Duration) {})
+
+	if post != nil {
+		t.Fatalf("expected nil post keep-plan subscription when fetch fails")
+	}
+	if reason != "" {
+		t.Fatalf("expected empty reason when fetch error is returned, got: %s", reason)
+	}
+	if !errors.Is(err, wantErr) {
+		t.Fatalf("expected fetch error %v, got %v", wantErr, err)
 	}
 }

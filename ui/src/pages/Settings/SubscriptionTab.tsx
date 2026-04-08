@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import moment from 'moment-timezone';
 import { isCloudMode } from '../../utils/deploymentMode';
@@ -440,6 +440,9 @@ const OverviewTab: React.FC<{ navigate: any; mode?: 'full' | 'breakdown' | 'cont
   const [billingStatus, setBillingStatus] = useState<BillingStatusResponse | null>(null);
   const [quotaStatus, setQuotaStatus] = useState<QuotaStatusResponse | null>(null);
   const [billingError, setBillingError] = useState<string | null>(null);
+  const [keepPlanError, setKeepPlanError] = useState<string | null>(null);
+  const [keepPlanSuccess, setKeepPlanSuccess] = useState<string | null>(null);
+  const [keepPlanLoading, setKeepPlanLoading] = useState(false);
   const [actionLoading, setActionLoading] = useState(false);
   const [selectedUpgradePlan, setSelectedUpgradePlan] = useState('');
   const [selectedDowngradePlan, setSelectedDowngradePlan] = useState('');
@@ -467,19 +470,23 @@ const OverviewTab: React.FC<{ navigate: any; mode?: 'full' | 'breakdown' | 'cont
   const isTeamPlan = !isFree;
   const canManageBilling = isSuperAdmin || currentOrg?.role === 'owner' || currentOrg?.role === 'admin';
 
-  // Fetch current subscription (org-scoped)
-  useEffect(() => {
+  const refreshSubscriptionState = useCallback(async () => {
     if (!currentOrg?.id) {
       setStatusLoading(false);
       setSubscriptionLoading(false);
-      setBillingLoading(false);
+      setSubscriptionId(null);
+      setManagedSubscription(null);
+      setPendingCancel(false);
+      setStatus('');
       return;
     }
 
     setStatusLoading(true);
+    setSubscriptionLoading(true);
     setPendingCancel(false);
     setStatus('');
-    apiClient
+
+    const currentSubscriptionPromise = apiClient
       .get('/subscriptions/current', {
         headers: {
           'X-Org-Context': currentOrg.id.toString(),
@@ -500,11 +507,9 @@ const OverviewTab: React.FC<{ navigate: any; mode?: 'full' | 'breakdown' | 'cont
         setPendingCancel(false);
         setSubscriptionManageURL('');
         setStatus('');
-      })
-      .finally(() => setStatusLoading(false));
+      });
 
-    setSubscriptionLoading(true);
-    apiClient
+    const managedSubscriptionsPromise = apiClient
       .get<{ subscriptions: ManagedSubscription[] }>('/subscriptions', {
         headers: {
           'X-Org-Context': currentOrg.id.toString(),
@@ -526,9 +531,20 @@ const OverviewTab: React.FC<{ navigate: any; mode?: 'full' | 'breakdown' | 'cont
       })
       .catch(() => {
         setManagedSubscription(null);
-      })
-      .finally(() => setSubscriptionLoading(false));
+      });
+
+    try {
+      await Promise.all([currentSubscriptionPromise, managedSubscriptionsPromise]);
+    } finally {
+      setStatusLoading(false);
+      setSubscriptionLoading(false);
+    }
   }, [currentOrg?.id, licenseExpiresAt]);
+
+  // Fetch current subscription (org-scoped)
+  useEffect(() => {
+    void refreshSubscriptionState();
+  }, [refreshSubscriptionState]);
 
   useEffect(() => {
     if (!currentOrg?.id) return;
@@ -681,6 +697,47 @@ const OverviewTab: React.FC<{ navigate: any; mode?: 'full' | 'breakdown' | 'cont
       setBillingError(err?.message || 'Billing action failed');
     } finally {
       setActionLoading(false);
+    }
+  };
+
+  const handleKeepPlan = async () => {
+    if (!effectiveSubscriptionId) {
+      setKeepPlanError('No active subscription available to keep.');
+      return;
+    }
+
+    setKeepPlanLoading(true);
+    setKeepPlanError(null);
+    setKeepPlanSuccess(null);
+
+    try {
+      await apiClient.post(
+        `/subscriptions/${effectiveSubscriptionId}/keep-plan`,
+        {},
+        orgScopedRequestOptions
+      );
+
+      let refreshFailed = false;
+      try {
+        await refreshSubscriptionState();
+      } catch {
+        refreshFailed = true;
+      }
+      try {
+        await refreshBilling();
+      } catch {
+        refreshFailed = true;
+      }
+      if (refreshFailed) {
+        setKeepPlanError('Keep plan was applied, but billing data refresh failed. Please reload this page.');
+        return;
+      }
+
+      setKeepPlanSuccess('Scheduled cancellation removed. Your current plan remains active.');
+    } catch (err: any) {
+      setKeepPlanError(err?.message || 'Failed to keep current plan');
+    } finally {
+      setKeepPlanLoading(false);
     }
   };
 
@@ -1019,6 +1076,7 @@ const OverviewTab: React.FC<{ navigate: any; mode?: 'full' | 'breakdown' | 'cont
     ? managedSubscription?.razorpay_subscription_id || null
     : null;
   const canCancelEffectiveSubscription = Boolean(cancelTargetSubscriptionId);
+  const canKeepEffectivePlan = Boolean(effectivePendingCancel && effectiveSubscriptionId);
 
   const scheduledPlanCode = billingStatus?.billing?.scheduled_plan_code || '';
   const scheduledPlan = billingStatus?.available_plans?.find((p) => p.plan_code === scheduledPlanCode);
@@ -1033,7 +1091,7 @@ const OverviewTab: React.FC<{ navigate: any; mode?: 'full' | 'breakdown' | 'cont
   const effectivePendingExpiry = displayExpiry || managedSubscription?.current_period_end || licenseExpiresAt || null;
 
   const normalizedStatus = status.trim().toLowerCase();
-  const statusIsTerminal = ['cancelled', 'expired', 'halted', 'past_due', 'incomplete'].includes(normalizedStatus);
+  const statusIsTerminal = ['cancelled', 'expired', 'halted', 'past_due', 'incomplete'].indexOf(normalizedStatus) >= 0;
   const statusBadgeLabel = statusLoading
     ? 'LOADING'
     : effectivePendingCancel
@@ -1596,6 +1654,16 @@ const OverviewTab: React.FC<{ navigate: any; mode?: 'full' | 'breakdown' | 'cont
             </div>
           )}
 
+          {(keepPlanError || keepPlanSuccess) && (
+            <div className={`rounded-lg border p-3 text-sm ${
+              keepPlanError
+                ? 'bg-red-500/10 border-red-500/40 text-red-200'
+                : 'bg-emerald-500/10 border-emerald-500/40 text-emerald-200'
+            }`}>
+              {keepPlanError || keepPlanSuccess}
+            </div>
+          )}
+
           <div className="space-y-4">
             <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-3">
               {upgradeHierarchyPlans.map((plan) => {
@@ -1621,6 +1689,18 @@ const OverviewTab: React.FC<{ navigate: any; mode?: 'full' | 'breakdown' | 'cont
                       </div>
                       <p className="mt-2 text-sm text-slate-300">{plan.monthly_loc_limit.toLocaleString()} LOC / month</p>
                       <p className="text-sm text-slate-300">${plan.monthly_price_usd}/month</p>
+                      {isCurrentCard && canKeepEffectivePlan && (
+                        <button
+                          type="button"
+                          disabled={keepPlanLoading || actionLoading || statusLoading || subscriptionLoading}
+                          onClick={() => {
+                            void handleKeepPlan();
+                          }}
+                          className="mt-3 inline-flex px-3 py-1.5 rounded bg-emerald-600 text-white text-xs font-medium transition-colors hover:bg-emerald-500 disabled:opacity-60 disabled:cursor-not-allowed"
+                        >
+                          {keepPlanLoading ? 'Keeping Plan...' : 'Keep Plan'}
+                        </button>
+                      )}
                     </div>
                   );
                 }
@@ -1710,7 +1790,20 @@ const OverviewTab: React.FC<{ navigate: any; mode?: 'full' | 'breakdown' | 'cont
 
               <div className="p-4 bg-slate-900/70 border border-slate-700 rounded-lg space-y-3">
                 <p className="text-sm text-slate-300 font-medium">Cancel Subscription</p>
-                {canCancelEffectiveSubscription ? (
+                {canKeepEffectivePlan ? (
+                  <div className="space-y-2">
+                    <p className="text-xs text-slate-400">Cancellation is scheduled for period end.</p>
+                    <button
+                      className="text-xs text-slate-300 hover:text-white underline underline-offset-2 disabled:opacity-60 disabled:cursor-not-allowed"
+                      disabled={keepPlanLoading || statusLoading || subscriptionLoading}
+                      onClick={() => {
+                        void handleKeepPlan();
+                      }}
+                    >
+                      {keepPlanLoading ? 'Keeping Plan...' : 'Keep Plan'}
+                    </button>
+                  </div>
+                ) : canCancelEffectiveSubscription ? (
                   <button
                     className="text-xs text-slate-300 hover:text-white underline underline-offset-2"
                     onClick={() => setShowCancelModal(true)}
@@ -1721,6 +1814,12 @@ const OverviewTab: React.FC<{ navigate: any; mode?: 'full' | 'breakdown' | 'cont
                   <p className="text-xs text-slate-400">
                     {effectivePendingCancel ? 'Cancellation is already scheduled for period end.' : 'No active subscription cancellation action available.'}
                   </p>
+                )}
+                {keepPlanError && (
+                  <p className="text-xs text-red-300">{keepPlanError}</p>
+                )}
+                {keepPlanSuccess && (
+                  <p className="text-xs text-emerald-300">{keepPlanSuccess}</p>
                 )}
               </div>
 
