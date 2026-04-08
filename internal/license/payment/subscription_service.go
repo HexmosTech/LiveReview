@@ -1,6 +1,7 @@
 package payment
 
 import (
+	"context"
 	"crypto/hmac"
 	"crypto/rand"
 	"crypto/sha256"
@@ -41,6 +42,7 @@ type SubscriptionService struct {
 }
 
 var ErrCancellationNotVerified = errors.New("cancellation not verified with razorpay")
+var ErrKeepPlanNotVerified = errors.New("keep plan not verified with razorpay")
 
 const (
 	cancelVerificationMaxAttempts = 5
@@ -194,6 +196,14 @@ func (s *SubscriptionService) UpdateQuantity(subscriptionID string, quantity int
 
 // CancelSubscription cancels an existing subscription
 func (s *SubscriptionService) CancelSubscription(subscriptionID string, immediate bool, mode string) (*RazorpaySubscription, error) {
+	return s.CancelSubscriptionWithContext(context.Background(), subscriptionID, immediate, mode)
+}
+
+func (s *SubscriptionService) CancelSubscriptionWithContext(ctx context.Context, subscriptionID string, immediate bool, mode string) (*RazorpaySubscription, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+
 	preCancelSub, err := GetSubscriptionByID(mode, subscriptionID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to fetch razorpay subscription before cancellation: %w", err)
@@ -205,7 +215,7 @@ func (s *SubscriptionService) CancelSubscription(subscriptionID string, immediat
 		return nil, fmt.Errorf("failed to cancel razorpay subscription: %w", err)
 	}
 
-	postCancelSub, verificationReason, err := verifyCancellationWithRetry(preCancelSub, sub, immediate, cancelVerificationMaxAttempts, func() (*RazorpaySubscription, error) {
+	postCancelSub, verificationReason, err := verifyCancellationWithRetry(ctx, preCancelSub, sub, immediate, cancelVerificationMaxAttempts, func() (*RazorpaySubscription, error) {
 		postSub, getErr := GetSubscriptionByID(mode, subscriptionID)
 		if getErr != nil {
 			return nil, getErr
@@ -228,7 +238,7 @@ func (s *SubscriptionService) CancelSubscription(subscriptionID string, immediat
 
 		fmt.Printf("[SUBSCRIPTION.CANCEL] retrieve_scheduled_changes failed for %s: %v\n", subscriptionID, scheduledErr)
 		return postSub, nil
-	}, time.Sleep)
+	}, nil)
 	if err != nil {
 		return nil, fmt.Errorf("failed to verify cancellation against razorpay: %w", err)
 	}
@@ -248,6 +258,62 @@ func (s *SubscriptionService) CancelSubscription(subscriptionID string, immediat
 	}
 
 	return postCancelSub, nil
+}
+
+// KeepPlan clears a scheduled cancellation so the current paid plan continues.
+func (s *SubscriptionService) KeepPlan(subscriptionID string, mode string) (*RazorpaySubscription, error) {
+	return s.KeepPlanWithContext(context.Background(), subscriptionID, mode)
+}
+
+func (s *SubscriptionService) KeepPlanWithContext(ctx context.Context, subscriptionID string, mode string) (*RazorpaySubscription, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+
+	keepPlanResp, err := CancelScheduledChangesByID(mode, subscriptionID)
+	if err != nil && !errors.Is(err, ErrNoPendingScheduledChange) {
+		return nil, fmt.Errorf("failed to cancel scheduled razorpay changes: %w", err)
+	}
+
+	postKeepPlanSub, verificationReason, err := verifyKeepPlanWithRetry(ctx, cancelVerificationMaxAttempts, func() (*RazorpaySubscription, error) {
+		return GetSubscriptionByID(mode, subscriptionID)
+	}, func() (*RazorpaySubscription, error) {
+		return RetrieveScheduledChangesByID(mode, subscriptionID)
+	}, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to verify keep-plan against razorpay: %w", err)
+	}
+
+	if verificationReason != "" {
+		return nil, fmt.Errorf("%w: %s", ErrKeepPlanNotVerified, verificationReason)
+	}
+
+	persistStatus := ""
+	if keepPlanResp != nil {
+		persistStatus = strings.TrimSpace(keepPlanResp.Status)
+	}
+	if persistStatus == "" && postKeepPlanSub != nil {
+		persistStatus = strings.TrimSpace(postKeepPlanSub.Status)
+	}
+
+	store := storagepayment.NewSubscriptionStore(s.db)
+	err = store.KeepPlanRecord(ctx, storagepayment.KeepPlanRecordInput{
+		SubscriptionID: subscriptionID,
+		Status:         persistStatus,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to persist keep-plan action: %w", err)
+	}
+
+	if postKeepPlanSub != nil {
+		return postKeepPlanSub, nil
+	}
+
+	if keepPlanResp != nil {
+		return keepPlanResp, nil
+	}
+
+	return nil, fmt.Errorf("%w: no provider payload available after verification", ErrKeepPlanNotVerified)
 }
 
 func normalizeSubscriptionStatus(status string) string {
@@ -304,6 +370,29 @@ func hasCycleEndCancellationSignal(pre, cancelResponse, post *RazorpaySubscripti
 	return false
 }
 
+func isCancelAPIAcknowledgementSignal(pre, cancelResponse, post *RazorpaySubscription, immediate bool) bool {
+	if immediate || cancelResponse == nil {
+		return false
+	}
+
+	cancelID := safeSubscriptionID(cancelResponse)
+	if cancelID == "" {
+		return false
+	}
+
+	preID := safeSubscriptionID(pre)
+	if preID != "" && preID != cancelID {
+		return false
+	}
+
+	postID := safeSubscriptionID(post)
+	if postID != "" && postID != cancelID {
+		return false
+	}
+
+	return true
+}
+
 func safeSubscriptionStatus(sub *RazorpaySubscription) string {
 	if sub == nil {
 		return ""
@@ -332,11 +421,15 @@ func cancellationVerified(preCancelSub, cancelResponseSub, postCancelSub *Razorp
 	if hasCycleEndCancellationSignal(preCancelSub, cancelResponseSub, postCancelSub) {
 		return true, ""
 	}
+	if isCancelAPIAcknowledgementSignal(preCancelSub, cancelResponseSub, postCancelSub, immediate) {
+		return true, ""
+	}
 
 	return false, "cycle-end cancellation produced no verifiable provider-side state transition"
 }
 
 func verifyCancellationWithRetry(
+	ctx context.Context,
 	preCancelSub, cancelResponseSub *RazorpaySubscription,
 	immediate bool,
 	maxAttempts int,
@@ -346,11 +439,18 @@ func verifyCancellationWithRetry(
 	if maxAttempts < 1 {
 		maxAttempts = 1
 	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
 
 	var lastFetchErr error
 	lastReason := "cycle-end cancellation produced no verifiable provider-side state transition"
 
 	for attempt := 1; attempt <= maxAttempts; attempt++ {
+		if err := ctx.Err(); err != nil {
+			return nil, "", err
+		}
+
 		postCancelSub, err := fetchPostCancel()
 		if err != nil {
 			lastFetchErr = err
@@ -358,7 +458,15 @@ func verifyCancellationWithRetry(
 		} else {
 			lastFetchErr = nil
 			if ok, reason := cancellationVerified(preCancelSub, cancelResponseSub, postCancelSub, immediate); ok {
-				fmt.Printf("[SUBSCRIPTION.CANCEL] verification attempt %d/%d succeeded (immediate=%t, cancel_status=%s, post_status=%s)\n", attempt, maxAttempts, immediate, safeSubscriptionStatus(cancelResponseSub), safeSubscriptionStatus(postCancelSub))
+				verifiedByAckOnly := isCancelAPIAcknowledgementSignal(preCancelSub, cancelResponseSub, postCancelSub, immediate) &&
+					!hasCycleEndCancellationSignal(preCancelSub, cancelResponseSub, postCancelSub) &&
+					!hasTerminalCancellationSignal(cancelResponseSub) &&
+					!hasTerminalCancellationSignal(postCancelSub)
+				if verifiedByAckOnly {
+					fmt.Printf("[SUBSCRIPTION.CANCEL] verification succeeded from cancel API acknowledgement (immediate=%t, cancel_status=%s, cancel_id=%s)\n", immediate, safeSubscriptionStatus(cancelResponseSub), safeSubscriptionID(cancelResponseSub))
+				} else {
+					fmt.Printf("[SUBSCRIPTION.CANCEL] verification attempt %d/%d succeeded (immediate=%t, cancel_status=%s, post_status=%s)\n", attempt, maxAttempts, immediate, safeSubscriptionStatus(cancelResponseSub), safeSubscriptionStatus(postCancelSub))
+				}
 				return postCancelSub, "", nil
 			} else {
 				lastReason = reason
@@ -366,8 +474,19 @@ func verifyCancellationWithRetry(
 			}
 		}
 
-		if attempt < maxAttempts && sleepFn != nil {
-			sleepFn(time.Duration(attempt) * cancelVerificationBaseDelay)
+		if attempt < maxAttempts {
+			delay := time.Duration(attempt) * cancelVerificationBaseDelay
+			if sleepFn != nil {
+				sleepFn(delay)
+			} else {
+				timer := time.NewTimer(delay)
+				select {
+				case <-ctx.Done():
+					timer.Stop()
+					return nil, "", ctx.Err()
+				case <-timer.C:
+				}
+			}
 		}
 	}
 
@@ -381,6 +500,111 @@ func verifyCancellationWithRetry(
 	} else {
 		fmt.Printf("[SUBSCRIPTION.CANCEL] verification exhausted after %d attempts (immediate=%t, reason=%s, cancel_response=nil, fetch_err=%s)\n", maxAttempts, immediate, lastReason, fetchErrState)
 	}
+
+	return nil, lastReason, nil
+}
+
+func keepPlanVerified(postKeepPlanSub, scheduledSub *RazorpaySubscription, scheduledErr error) (bool, string) {
+	if scheduledErr == nil && scheduledSub != nil {
+		return false, "provider still reports scheduled changes"
+	}
+
+	if scheduledErr != nil && !errors.Is(scheduledErr, ErrNoPendingScheduledChange) {
+		return false, "unable to confirm scheduled-change removal from provider"
+	}
+
+	if postKeepPlanSub == nil {
+		return true, ""
+	}
+
+	if hasTerminalCancellationSignal(postKeepPlanSub) {
+		return false, "subscription is already terminally cancelled"
+	}
+
+	if postKeepPlanSub.CancelAtCycleEnd || postKeepPlanSub.CancelAt > 0 {
+		return false, "subscription still has cycle-end cancellation markers"
+	}
+
+	return true, ""
+}
+
+func verifyKeepPlanWithRetry(
+	ctx context.Context,
+	maxAttempts int,
+	fetchPostKeepPlanSub func() (*RazorpaySubscription, error),
+	fetchScheduledSub func() (*RazorpaySubscription, error),
+	sleepFn func(time.Duration),
+) (*RazorpaySubscription, string, error) {
+	if maxAttempts < 1 {
+		maxAttempts = 1
+	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
+
+	lastReason := "provider still reports scheduled changes"
+	var lastPostErr error
+	var lastScheduledErr error
+
+	for attempt := 1; attempt <= maxAttempts; attempt++ {
+		if err := ctx.Err(); err != nil {
+			return nil, "", err
+		}
+
+		postKeepPlanSub, postErr := fetchPostKeepPlanSub()
+		if postErr != nil {
+			lastPostErr = postErr
+			fmt.Printf("[SUBSCRIPTION.KEEP_PLAN] verification attempt %d/%d failed to fetch subscription: %v\n", attempt, maxAttempts, postErr)
+		} else {
+			lastPostErr = nil
+		}
+
+		scheduledSub, scheduledErr := fetchScheduledSub()
+		if scheduledErr != nil {
+			lastScheduledErr = scheduledErr
+		} else {
+			lastScheduledErr = nil
+		}
+
+		if postErr == nil {
+			if ok, reason := keepPlanVerified(postKeepPlanSub, scheduledSub, scheduledErr); ok {
+				fmt.Printf("[SUBSCRIPTION.KEEP_PLAN] verification attempt %d/%d succeeded (post_status=%s, sub_id=%s)\n", attempt, maxAttempts, safeSubscriptionStatus(postKeepPlanSub), safeSubscriptionID(postKeepPlanSub))
+				return postKeepPlanSub, "", nil
+			} else {
+				lastReason = reason
+				fmt.Printf("[SUBSCRIPTION.KEEP_PLAN] verification attempt %d/%d not yet verified (reason=%s, post_status=%s, scheduled_err=%v)\n", attempt, maxAttempts, reason, safeSubscriptionStatus(postKeepPlanSub), scheduledErr)
+			}
+		}
+
+		if attempt < maxAttempts {
+			delay := time.Duration(attempt) * cancelVerificationBaseDelay
+			if sleepFn != nil {
+				sleepFn(delay)
+			} else {
+				timer := time.NewTimer(delay)
+				select {
+				case <-ctx.Done():
+					timer.Stop()
+					return nil, "", ctx.Err()
+				case <-timer.C:
+				}
+			}
+		}
+	}
+
+	if lastPostErr != nil {
+		return nil, "", lastPostErr
+	}
+
+	if lastScheduledErr != nil && !errors.Is(lastScheduledErr, ErrNoPendingScheduledChange) {
+		return nil, "", lastScheduledErr
+	}
+
+	fetchErrState := "none"
+	if lastScheduledErr != nil {
+		fetchErrState = lastScheduledErr.Error()
+	}
+	fmt.Printf("[SUBSCRIPTION.KEEP_PLAN] verification exhausted after %d attempts (reason=%s, fetch_err=%s)\n", maxAttempts, lastReason, fetchErrState)
 
 	return nil, lastReason, nil
 }

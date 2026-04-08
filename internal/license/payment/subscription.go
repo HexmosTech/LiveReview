@@ -8,11 +8,14 @@ import (
 	"io"
 	"net/http"
 	"strings"
+	"time"
 )
 
 const scheduleChangeAtNowSentinel int64 = -1
 
 var ErrNoPendingScheduledChange = errors.New("no pending update for subscription")
+
+var razorpayHTTPClient = &http.Client{Timeout: 20 * time.Second}
 
 type razorpayAPIErrorResponse struct {
 	Error struct {
@@ -88,8 +91,7 @@ func CreateSubscription(mode, planID string, quantity int, notesMap map[string]s
 	req.SetBasicAuth(accessKey, secretKey)
 	req.Header.Set("Content-Type", "application/json")
 
-	client := &http.Client{}
-	resp, err := client.Do(req)
+	resp, err := razorpayHTTPClient.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("error making request: %w", err)
 	}
@@ -127,8 +129,7 @@ func GetAllSubscriptions(mode string) (*RazorpaySubscriptionListResponse, error)
 
 	req.SetBasicAuth(accessKey, secretKey)
 
-	client := &http.Client{}
-	resp, err := client.Do(req)
+	resp, err := razorpayHTTPClient.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("error making request: %w", err)
 	}
@@ -166,8 +167,7 @@ func GetSubscriptionByID(mode, subscriptionID string) (*RazorpaySubscription, er
 
 	req.SetBasicAuth(accessKey, secretKey)
 
-	client := &http.Client{}
-	resp, err := client.Do(req)
+	resp, err := razorpayHTTPClient.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("error making request: %w", err)
 	}
@@ -214,8 +214,7 @@ func UpdateSubscriptionQuantity(mode, subscriptionID string, quantity int, sched
 	req.SetBasicAuth(accessKey, secretKey)
 	req.Header.Set("Content-Type", "application/json")
 
-	client := &http.Client{}
-	resp, err := client.Do(req)
+	resp, err := razorpayHTTPClient.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("error making request: %w", err)
 	}
@@ -264,8 +263,7 @@ func CancelSubscription(mode, subscriptionID string, cancelAtCycleEnd bool) (*Ra
 	req.SetBasicAuth(accessKey, secretKey)
 	req.Header.Set("Content-Type", "application/json")
 
-	client := &http.Client{}
-	resp, err := client.Do(req)
+	resp, err := razorpayHTTPClient.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("error making request: %w", err)
 	}
@@ -277,6 +275,48 @@ func CancelSubscription(mode, subscriptionID string, cancelAtCycleEnd bool) (*Ra
 	}
 
 	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("razorpay API error (status %d): %s", resp.StatusCode, string(body))
+	}
+
+	var subscription RazorpaySubscription
+	if err := json.Unmarshal(body, &subscription); err != nil {
+		return nil, fmt.Errorf("error unmarshaling response: %w", err)
+	}
+
+	return &subscription, nil
+}
+
+// CancelScheduledChangesByID cancels a pending scheduled subscription update.
+func CancelScheduledChangesByID(mode, subscriptionID string) (*RazorpaySubscription, error) {
+	accessKey, secretKey, err := GetRazorpayKeys(mode)
+	if err != nil {
+		return nil, err
+	}
+
+	url := fmt.Sprintf("%s/subscriptions/%s/cancel_scheduled_changes", razorpayBaseURL, subscriptionID)
+	req, err := http.NewRequest("POST", url, nil)
+	if err != nil {
+		return nil, fmt.Errorf("error creating request: %w", err)
+	}
+
+	req.SetBasicAuth(accessKey, secretKey)
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := razorpayHTTPClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("error making request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("error reading response: %w", err)
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		if isNoPendingScheduledChangeError(resp.StatusCode, body) {
+			return nil, ErrNoPendingScheduledChange
+		}
 		return nil, fmt.Errorf("razorpay API error (status %d): %s", resp.StatusCode, string(body))
 	}
 
@@ -303,8 +343,7 @@ func RetrieveScheduledChangesByID(mode, subscriptionID string) (*RazorpaySubscri
 
 	req.SetBasicAuth(accessKey, secretKey)
 
-	client := &http.Client{}
-	resp, err := client.Do(req)
+	resp, err := razorpayHTTPClient.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("error making request: %w", err)
 	}

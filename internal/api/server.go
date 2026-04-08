@@ -758,13 +758,15 @@ func (s *Server) setupRoutes() {
 	subscriptionsGroup.Use(authMiddleware.BuildOrgContextFromHeader())
 	subscriptionsGroup.Use(authMiddleware.ValidateOrgAccess())
 	subscriptionsGroup.Use(authMiddleware.BuildPermissionContext())
+	subscriptionMutationLimiter := middleware.RateLimiter(middleware.NewRateLimiterMemoryStore(30))
 
 	subscriptionsGroup.POST("", subscriptionsHandler.CreateSubscription)
 	subscriptionsGroup.POST("/confirm-purchase", subscriptionsHandler.ConfirmPurchase)
 	subscriptionsGroup.GET("/:id", subscriptionsHandler.GetSubscription)
 	subscriptionsGroup.GET("/current", subscriptionsHandler.GetCurrentSubscription)
 	subscriptionsGroup.PATCH("/:id/quantity", subscriptionsHandler.UpdateQuantity)
-	subscriptionsGroup.POST("/:id/cancel", subscriptionsHandler.CancelSubscription)
+	subscriptionsGroup.POST("/:id/cancel", subscriptionsHandler.CancelSubscription, subscriptionMutationLimiter)
+	subscriptionsGroup.POST("/:id/keep-plan", subscriptionsHandler.KeepPlan, subscriptionMutationLimiter)
 	subscriptionsGroup.POST("/:id/assign", subscriptionsHandler.AssignLicense)
 	subscriptionsGroup.DELETE("/:id/users/:user_id", subscriptionsHandler.RevokeLicense)
 

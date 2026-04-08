@@ -1,10 +1,12 @@
 package payment
 
 import (
+	"context"
 	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/lib/pq"
@@ -246,6 +248,102 @@ func (s *SubscriptionStore) CancelSubscriptionRecord(input CancelSubscriptionRec
 	if err := tx.Commit(); err != nil {
 		return fmt.Errorf("failed to commit transaction: %w", err)
 	}
+	return nil
+}
+
+type KeepPlanRecordInput struct {
+	SubscriptionID string
+	Status         string
+}
+
+func (s *SubscriptionStore) KeepPlanRecord(ctx context.Context, input KeepPlanRecordInput) error {
+	trimmedSubscriptionID := strings.TrimSpace(input.SubscriptionID)
+	if trimmedSubscriptionID == "" {
+		return fmt.Errorf("subscription_id required")
+	}
+	input.SubscriptionID = trimmedSubscriptionID
+
+	trimmedStatus := strings.TrimSpace(input.Status)
+	if trimmedStatus != "" {
+		switch strings.ToLower(trimmedStatus) {
+		case "created", "authenticated", "active", "pending", "halted", "cancelled", "completed", "expired", "paused":
+			input.Status = trimmedStatus
+		default:
+			return fmt.Errorf("invalid subscription status: %s", trimmedStatus)
+		}
+	}
+
+	if ctx == nil {
+		ctx = context.Background()
+	}
+
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("failed to begin transaction: %w", err)
+	}
+	defer tx.Rollback()
+
+	var ownerUserID, orgID int
+	err = tx.QueryRowContext(ctx, `
+		SELECT owner_user_id, org_id
+		FROM subscriptions
+		WHERE razorpay_subscription_id = $1`,
+		input.SubscriptionID,
+	).Scan(&ownerUserID, &orgID)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return fmt.Errorf("%w: %s", ErrSubscriptionNotFound, input.SubscriptionID)
+		}
+		return fmt.Errorf("failed to get subscription details: %w", err)
+	}
+
+	if strings.TrimSpace(input.Status) != "" {
+		_, err = tx.ExecContext(ctx, `
+			UPDATE subscriptions
+			SET status = $1,
+			    cancel_at_period_end = false,
+			    updated_at = NOW()
+			WHERE razorpay_subscription_id = $2`,
+			input.Status, input.SubscriptionID,
+		)
+	} else {
+		_, err = tx.ExecContext(ctx, `
+			UPDATE subscriptions
+			SET cancel_at_period_end = false,
+			    updated_at = NOW()
+			WHERE razorpay_subscription_id = $1`,
+			input.SubscriptionID,
+		)
+	}
+	if err != nil {
+		return fmt.Errorf("failed to update subscription: %w", err)
+	}
+
+	metadata := map[string]interface{}{
+		"subscription_id": input.SubscriptionID,
+		"status":          input.Status,
+	}
+	metadataJSON, err := json.Marshal(metadata)
+	if err != nil {
+		return fmt.Errorf("failed to marshal log metadata: %w", err)
+	}
+
+	_, err = tx.ExecContext(ctx, `
+		INSERT INTO license_log (
+			user_id, org_id, event_type, description, metadata, created_at
+		) VALUES ($1, $2, $3, $4, $5, NOW())`,
+		ownerUserID, orgID, "subscription_keep_plan",
+		"Removed scheduled cancellation and kept current subscription plan",
+		metadataJSON,
+	)
+	if err != nil {
+		return fmt.Errorf("failed to log keep-plan action: %w", err)
+	}
+
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("failed to commit transaction: %w", err)
+	}
+
 	return nil
 }
 
