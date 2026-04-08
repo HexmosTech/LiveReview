@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import moment from 'moment-timezone';
 import { isCloudMode } from '../../utils/deploymentMode';
@@ -644,11 +644,12 @@ const OverviewTab: React.FC<{ navigate: any; mode?: 'full' | 'breakdown' | 'cont
     window.location.reload();
   };
 
-  const orgScopedRequestOptions = currentOrg?.id
-    ? { headers: { 'X-Org-Context': currentOrg.id.toString() } }
-    : {};
+  const orgScopedRequestOptions = useMemo(
+    () => (currentOrg?.id ? { headers: { 'X-Org-Context': currentOrg.id.toString() } } : {}),
+    [currentOrg?.id]
+  );
 
-  const refreshBilling = async () => {
+  const refreshBilling = useCallback(async () => {
     setBillingLoading(true);
     const emptyOpsResponse: BillingUsageOperationsResponse = { operations: [], limit: 10, offset: 0, count: 0 };
     const emptyMembersResponse: BillingUsageMembersResponse = { members: [], limit: 10, offset: 0, count: 0 };
@@ -672,7 +673,20 @@ const OverviewTab: React.FC<{ navigate: any; mode?: 'full' | 'breakdown' | 'cont
     } finally {
       setBillingLoading(false);
     }
-  };
+  }, [canManageBilling, orgScopedRequestOptions]);
+
+  useEffect(() => {
+    if (!currentOrg?.id) return;
+
+    const intervalId = window.setInterval(() => {
+      void refreshSubscriptionState();
+      void refreshBilling();
+    }, 60_000);
+
+    return () => {
+      window.clearInterval(intervalId);
+    };
+  }, [currentOrg?.id, refreshBilling, refreshSubscriptionState]);
 
   const refreshUpgradeRequestStatus = async (requestID?: string) => {
     const effectiveRequestID = String(requestID || activeUpgradeRequestID || '').trim();
@@ -1211,11 +1225,21 @@ const OverviewTab: React.FC<{ navigate: any; mode?: 'full' | 'breakdown' | 'cont
   const hasScheduledPlanChange = Boolean(scheduledPlanCode && scheduledPlanCode !== currentPlanCode && scheduledPlan);
   const scheduledChangeTargetLabel = hasScheduledPlanChange ? getPlanDisplayName(scheduledPlanCode) : '';
   const effectivePendingExpiry = displayExpiry || managedSubscription?.current_period_end || licenseExpiresAt || null;
+  const pendingExpiryElapsed = Boolean(
+    effectivePendingExpiry && moment(effectivePendingExpiry).isValid() && moment(effectivePendingExpiry).isBefore(moment())
+  );
 
   const normalizedStatus = status.trim().toLowerCase();
   const statusIsTerminal = ['cancelled', 'expired', 'halted', 'past_due', 'incomplete'].indexOf(normalizedStatus) >= 0;
+  const autoDowngradedToFree = !isTeamPlan && !effectivePendingCancel && (
+    normalizedStatus === 'expired' ||
+    normalizedManagedStatus === 'expired' ||
+    pendingExpiryElapsed
+  );
   const statusBadgeLabel = statusLoading
     ? 'LOADING'
+    : autoDowngradedToFree
+    ? 'AUTO-DOWNGRADED'
     : effectivePendingCancel
     ? 'PENDING EXPIRY'
     : statusIsTerminal
@@ -1357,6 +1381,15 @@ const OverviewTab: React.FC<{ navigate: any; mode?: 'full' | 'breakdown' | 'cont
         </div>
       )}
 
+      {isPlanUpgradeMode && autoDowngradedToFree && (
+        <div className="bg-sky-500/10 border border-sky-400/40 rounded-lg p-4">
+          <p className="text-sky-200 text-sm font-medium">Your paid plan ended and was automatically downgraded to Free</p>
+          <p className="text-sky-100/90 text-sm mt-1">
+            You can keep using free-plan features without interruption. Renew anytime from the upgrade options below to restore paid capacity.
+          </p>
+        </div>
+      )}
+
       {/* Current Plan Section */}
       {isPlanUpgradeMode && billingLoading && (
       <div className="bg-slate-800/60 border border-slate-700 rounded-lg p-6 animate-pulse">
@@ -1415,7 +1448,7 @@ const OverviewTab: React.FC<{ navigate: any; mode?: 'full' | 'breakdown' | 'cont
           </div>
         </div>
 
-        {effectivePendingCancel && (
+        {effectivePendingCancel && !autoDowngradedToFree && (
           <div className="mb-4 p-3 bg-slate-700/50 border border-slate-600 rounded-lg">
             <div className="flex items-start gap-3">
               <svg className="w-5 h-5 text-slate-400 mt-0.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
