@@ -457,6 +457,7 @@ func (s *Server) setupRoutes() {
 	// Diff review endpoints (protected by API key middleware)
 	diffReviewGroup := v1.Group("/diff-review")
 	diffReviewGroup.Use(APIKeyAuthMiddleware(s.db))
+	diffReviewGroup.Use(apimiddleware.BuildOrgBillingPlanContext(s.db))
 	diffReviewGroup.Use(apimiddleware.BuildPlanContext())
 	diffReviewGroup.POST("", s.DiffReview)
 	diffReviewGroup.GET("/:review_id", s.GetDiffReviewStatus)
@@ -620,6 +621,7 @@ func (s *Server) setupRoutes() {
 	connectorGroup.Use(authMiddleware.BuildOrgContextFromHeader())
 	connectorGroup.Use(authMiddleware.ValidateOrgAccess())
 	connectorGroup.Use(authMiddleware.BuildPermissionContext())
+	connectorGroup.Use(apimiddleware.BuildOrgBillingPlanContext(s.db))
 	connectorGroup.Use(apimiddleware.BuildPlanContext())
 
 	connectorGroup.GET("", s.GetConnectors)
@@ -735,6 +737,7 @@ func (s *Server) setupRoutes() {
 	reviewsGroup.Use(authMiddleware.BuildOrgContextFromHeader())
 	reviewsGroup.Use(authMiddleware.ValidateOrgAccess())
 	reviewsGroup.Use(authMiddleware.BuildPermissionContext())
+	reviewsGroup.Use(apimiddleware.BuildOrgBillingPlanContext(s.db))
 	reviewsGroup.Use(apimiddleware.BuildPlanContext())
 
 	// Main reviews endpoints (with org scoping)
@@ -785,6 +788,7 @@ func (s *Server) setupRoutes() {
 	quotaGroup.Use(authMiddleware.BuildOrgContextFromHeader())
 	quotaGroup.Use(authMiddleware.ValidateOrgAccess())
 	quotaGroup.Use(authMiddleware.BuildPermissionContext())
+	quotaGroup.Use(apimiddleware.BuildOrgBillingPlanContext(s.db))
 	quotaGroup.Use(apimiddleware.BuildPlanContext())
 	quotaGroup.GET("/status", quotaHandler.GetQuotaStatus)
 
@@ -795,6 +799,8 @@ func (s *Server) setupRoutes() {
 	billingGroup.Use(authMiddleware.BuildOrgContextFromHeader())
 	billingGroup.Use(authMiddleware.ValidateOrgAccess())
 	billingGroup.Use(authMiddleware.BuildPermissionContext())
+	billingGroup.Use(apimiddleware.BuildOrgBillingPlanContext(s.db))
+	billingGroup.Use(apimiddleware.BuildPlanContext())
 	billingGroup.GET("/status", billingActionsHandler.GetBillingStatus)
 	billingGroup.GET("/usage/summary", billingActionsHandler.GetUsageSummary)
 	billingGroup.GET("/usage/me", billingActionsHandler.GetMyUsage)
