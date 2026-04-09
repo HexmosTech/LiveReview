@@ -1,10 +1,12 @@
 package payment
 
 import (
+	"context"
 	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/lib/pq"
@@ -246,6 +248,372 @@ func (s *SubscriptionStore) CancelSubscriptionRecord(input CancelSubscriptionRec
 	if err := tx.Commit(); err != nil {
 		return fmt.Errorf("failed to commit transaction: %w", err)
 	}
+	return nil
+}
+
+type KeepPlanRecordInput struct {
+	SubscriptionID string
+	Status         string
+}
+
+type ExpiryReconciliationResult struct {
+	SubscriptionID         int64
+	RazorpaySubscriptionID string
+	OwnerUserID            int
+	OrgID                  int64
+	CurrentPeriodEnd       time.Time
+}
+
+func (s *SubscriptionStore) ReconcileExpiredPendingCancellations(ctx context.Context, limit int) ([]ExpiryReconciliationResult, error) {
+	return s.reconcileExpiredSubscriptions(ctx, nil, limit)
+}
+
+func (s *SubscriptionStore) ReconcileExpiredPendingCancellationForOrg(ctx context.Context, orgID int64) (bool, error) {
+	if orgID <= 0 {
+		return false, fmt.Errorf("org_id must be > 0")
+	}
+
+	results, err := s.reconcileExpiredSubscriptions(ctx, &orgID, 5)
+	if err != nil {
+		return false, err
+	}
+
+	return len(results) > 0, nil
+}
+
+func (s *SubscriptionStore) DowngradeExpiredRoleForUserOrg(ctx context.Context, userID int, orgID int64) (bool, error) {
+	if userID <= 0 {
+		return false, fmt.Errorf("user_id must be > 0")
+	}
+	if orgID <= 0 {
+		return false, fmt.Errorf("org_id must be > 0")
+	}
+	if ctx == nil {
+		return false, fmt.Errorf("context is required")
+	}
+
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return false, fmt.Errorf("begin expired role downgrade tx: %w", err)
+	}
+	defer tx.Rollback()
+
+	var activeSubscriptionID sql.NullInt64
+	err = tx.QueryRowContext(ctx, `
+		SELECT active_subscription_id
+		FROM user_roles
+		WHERE user_id = $1
+		  AND org_id = $2
+		  AND license_expires_at IS NOT NULL
+		  AND license_expires_at <= NOW()
+		  AND LOWER(TRIM(COALESCE(plan_type, ''))) NOT IN ('free', 'free_30k')
+		FOR UPDATE
+	`, userID, orgID).Scan(&activeSubscriptionID)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			if commitErr := tx.Commit(); commitErr != nil {
+				return false, fmt.Errorf("commit empty expired role downgrade tx: %w", commitErr)
+			}
+			return false, nil
+		}
+		return false, fmt.Errorf("select expired role for downgrade: %w", err)
+	}
+
+	if _, err := tx.ExecContext(ctx, `
+		UPDATE user_roles
+		SET plan_type = 'free',
+		    license_expires_at = NULL,
+		    active_subscription_id = NULL,
+		    updated_at = NOW()
+		WHERE user_id = $1 AND org_id = $2
+	`, userID, orgID); err != nil {
+		return false, fmt.Errorf("downgrade expired user role to free: %w", err)
+	}
+
+	if activeSubscriptionID.Valid {
+		if _, err := tx.ExecContext(ctx, `
+			UPDATE subscriptions
+			SET status = 'expired',
+			    updated_at = NOW()
+			WHERE id = $1
+			  AND current_period_end IS NOT NULL
+			  AND current_period_end <= NOW()
+		`, activeSubscriptionID.Int64); err != nil {
+			return false, fmt.Errorf("update expired subscription status from user role downgrade: %w", err)
+		}
+	}
+
+	if _, err := tx.ExecContext(ctx, `
+		UPDATE org_billing_state
+		SET current_plan_code = 'free_30k',
+		    scheduled_plan_code = NULL,
+		    scheduled_plan_effective_at = NULL,
+		    upgrade_loc_grant_current_cycle = 0,
+		    upgrade_loc_grant_expires_at = NULL,
+		    trial_readonly = FALSE,
+		    loc_blocked = FALSE,
+		    updated_at = NOW()
+		WHERE org_id = $1
+	`, orgID); err != nil {
+		return false, fmt.Errorf("align org billing state from expired user role downgrade: %w", err)
+	}
+
+	metadata := map[string]interface{}{
+		"user_id": userID,
+		"org_id":  orgID,
+		"reason":  "user_role_expired_fallback",
+	}
+	metadataJSON, marshalErr := json.Marshal(metadata)
+	if marshalErr != nil {
+		return false, fmt.Errorf("marshal user role expiry fallback metadata: %w", marshalErr)
+	}
+
+	if _, err := tx.ExecContext(ctx, `
+		INSERT INTO license_log (
+			user_id, org_id, event_type, description, metadata, created_at
+		) VALUES ($1, $2, $3, $4, $5, NOW())
+	`, userID, orgID, "subscription_expired_auto_reconcile", "Expired paid role auto-reconciled to free plan", metadataJSON); err != nil {
+		return false, fmt.Errorf("insert user role expiry fallback license log: %w", err)
+	}
+
+	if err := tx.Commit(); err != nil {
+		return false, fmt.Errorf("commit expired role downgrade tx: %w", err)
+	}
+
+	return true, nil
+}
+
+func (s *SubscriptionStore) reconcileExpiredSubscriptions(ctx context.Context, orgID *int64, limit int) ([]ExpiryReconciliationResult, error) {
+	if ctx == nil {
+		return nil, fmt.Errorf("context is required")
+	}
+	if limit <= 0 {
+		limit = 100
+	}
+	if limit > 500 {
+		limit = 500
+	}
+
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, fmt.Errorf("begin expiry reconciliation tx: %w", err)
+	}
+	defer tx.Rollback()
+
+	query := `
+		SELECT s.id, s.razorpay_subscription_id, s.owner_user_id, s.org_id, s.current_period_end
+		FROM subscriptions s
+		WHERE s.current_period_end IS NOT NULL
+		  AND s.current_period_end <= NOW()
+		  AND (s.cancel_at_period_end = TRUE OR LOWER(TRIM(COALESCE(s.status, ''))) IN ('expired', 'cancelled', 'completed', 'halted'))
+		  AND EXISTS (
+			SELECT 1
+			FROM user_roles ur
+			WHERE ur.active_subscription_id = s.id
+			  AND LOWER(TRIM(COALESCE(ur.plan_type, ''))) NOT IN ('free', 'free_30k')
+		  )`
+
+	args := make([]interface{}, 0, 2)
+	if orgID != nil {
+		query += `
+		  AND s.org_id = $1`
+		args = append(args, *orgID)
+	}
+
+	query += `
+		ORDER BY s.current_period_end ASC
+		LIMIT $` + fmt.Sprintf("%d", len(args)+1) + `
+		FOR UPDATE SKIP LOCKED`
+	args = append(args, limit)
+
+	rows, err := tx.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("query due expired subscriptions: %w", err)
+	}
+	defer rows.Close()
+
+	results := make([]ExpiryReconciliationResult, 0, limit)
+	subscriptionIDs := make([]int64, 0, limit)
+	orgIDs := make([]int64, 0, limit)
+
+	for rows.Next() {
+		var item ExpiryReconciliationResult
+		if err := rows.Scan(
+			&item.SubscriptionID,
+			&item.RazorpaySubscriptionID,
+			&item.OwnerUserID,
+			&item.OrgID,
+			&item.CurrentPeriodEnd,
+		); err != nil {
+			return nil, fmt.Errorf("scan due expired subscription row: %w", err)
+		}
+
+		results = append(results, item)
+		subscriptionIDs = append(subscriptionIDs, item.SubscriptionID)
+		orgIDs = append(orgIDs, item.OrgID)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate due expired subscription rows: %w", err)
+	}
+
+	if len(results) == 0 {
+		if err := tx.Commit(); err != nil {
+			return nil, fmt.Errorf("commit empty expiry reconciliation tx: %w", err)
+		}
+		return results, nil
+	}
+
+	if _, err := tx.ExecContext(ctx, `
+		UPDATE subscriptions
+		SET status = 'expired',
+		    updated_at = NOW()
+		WHERE id = ANY($1)
+	`, pq.Array(subscriptionIDs)); err != nil {
+		return nil, fmt.Errorf("update subscriptions to expired: %w", err)
+	}
+
+	if _, err := tx.ExecContext(ctx, `
+		UPDATE user_roles
+		SET plan_type = 'free',
+		    license_expires_at = NULL,
+		    active_subscription_id = NULL,
+		    updated_at = NOW()
+		WHERE active_subscription_id = ANY($1)
+	`, pq.Array(subscriptionIDs)); err != nil {
+		return nil, fmt.Errorf("downgrade expired subscription users to free: %w", err)
+	}
+
+	if _, err := tx.ExecContext(ctx, `
+		UPDATE org_billing_state
+		SET current_plan_code = 'free_30k',
+		    scheduled_plan_code = NULL,
+		    scheduled_plan_effective_at = NULL,
+		    upgrade_loc_grant_current_cycle = 0,
+		    upgrade_loc_grant_expires_at = NULL,
+		    trial_readonly = FALSE,
+		    loc_blocked = FALSE,
+		    updated_at = NOW()
+		WHERE org_id = ANY($1)
+	`, pq.Array(orgIDs)); err != nil {
+		return nil, fmt.Errorf("align org billing state after expiry reconciliation: %w", err)
+	}
+
+	for _, item := range results {
+		metadata := map[string]interface{}{
+			"subscription_id":    item.RazorpaySubscriptionID,
+			"status":             "expired",
+			"reason":             "auto_reconcile_period_end",
+			"current_period_end": item.CurrentPeriodEnd.UTC().Format(time.RFC3339),
+		}
+		metadataJSON, marshalErr := json.Marshal(metadata)
+		if marshalErr != nil {
+			return nil, fmt.Errorf("marshal expiry reconciliation metadata: %w", marshalErr)
+		}
+
+		if _, err := tx.ExecContext(ctx, `
+			INSERT INTO license_log (
+				user_id, org_id, event_type, description, metadata, created_at
+			) VALUES ($1, $2, $3, $4, $5, NOW())
+		`, item.OwnerUserID, item.OrgID, "subscription_expired_auto_reconcile", "Subscription auto-reconciled to free plan after period-end expiry", metadataJSON); err != nil {
+			return nil, fmt.Errorf("insert expiry reconciliation license log: %w", err)
+		}
+	}
+
+	if err := tx.Commit(); err != nil {
+		return nil, fmt.Errorf("commit expiry reconciliation tx: %w", err)
+	}
+
+	return results, nil
+}
+
+func (s *SubscriptionStore) KeepPlanRecord(ctx context.Context, input KeepPlanRecordInput) error {
+	trimmedSubscriptionID := strings.TrimSpace(input.SubscriptionID)
+	if trimmedSubscriptionID == "" {
+		return fmt.Errorf("subscription_id required")
+	}
+	input.SubscriptionID = trimmedSubscriptionID
+
+	trimmedStatus := strings.TrimSpace(input.Status)
+	if trimmedStatus != "" {
+		switch strings.ToLower(trimmedStatus) {
+		case "created", "authenticated", "active", "pending", "halted", "cancelled", "completed", "expired", "paused":
+			input.Status = trimmedStatus
+		default:
+			return fmt.Errorf("invalid subscription status: %s", trimmedStatus)
+		}
+	}
+
+	if ctx == nil {
+		ctx = context.Background()
+	}
+
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("failed to begin transaction: %w", err)
+	}
+	defer tx.Rollback()
+
+	var ownerUserID, orgID int
+	err = tx.QueryRowContext(ctx, `
+		SELECT owner_user_id, org_id
+		FROM subscriptions
+		WHERE razorpay_subscription_id = $1`,
+		input.SubscriptionID,
+	).Scan(&ownerUserID, &orgID)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return fmt.Errorf("%w: %s", ErrSubscriptionNotFound, input.SubscriptionID)
+		}
+		return fmt.Errorf("failed to get subscription details: %w", err)
+	}
+
+	if strings.TrimSpace(input.Status) != "" {
+		_, err = tx.ExecContext(ctx, `
+			UPDATE subscriptions
+			SET status = $1,
+			    cancel_at_period_end = false,
+			    updated_at = NOW()
+			WHERE razorpay_subscription_id = $2`,
+			input.Status, input.SubscriptionID,
+		)
+	} else {
+		_, err = tx.ExecContext(ctx, `
+			UPDATE subscriptions
+			SET cancel_at_period_end = false,
+			    updated_at = NOW()
+			WHERE razorpay_subscription_id = $1`,
+			input.SubscriptionID,
+		)
+	}
+	if err != nil {
+		return fmt.Errorf("failed to update subscription: %w", err)
+	}
+
+	metadata := map[string]interface{}{
+		"subscription_id": input.SubscriptionID,
+		"status":          input.Status,
+	}
+	metadataJSON, err := json.Marshal(metadata)
+	if err != nil {
+		return fmt.Errorf("failed to marshal log metadata: %w", err)
+	}
+
+	_, err = tx.ExecContext(ctx, `
+		INSERT INTO license_log (
+			user_id, org_id, event_type, description, metadata, created_at
+		) VALUES ($1, $2, $3, $4, $5, NOW())`,
+		ownerUserID, orgID, "subscription_keep_plan",
+		"Removed scheduled cancellation and kept current subscription plan",
+		metadataJSON,
+	)
+	if err != nil {
+		return fmt.Errorf("failed to log keep-plan action: %w", err)
+	}
+
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("failed to commit transaction: %w", err)
+	}
+
 	return nil
 }
 

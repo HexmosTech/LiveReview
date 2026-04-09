@@ -1323,6 +1323,7 @@ func runBillingTransitionScheduler(ctx context.Context, db *sql.DB, interval tim
 		interval = 30 * time.Second
 	}
 	store := storagelicense.NewPlanChangeStore(db)
+	subscriptionStore := storagepayment.NewSubscriptionStore(db)
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
 
@@ -1331,6 +1332,15 @@ func runBillingTransitionScheduler(ctx context.Context, db *sql.DB, interval tim
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
+			expiryCtx, cancel := context.WithTimeout(ctx, 20*time.Second)
+			expired, expiryErr := subscriptionStore.ReconcileExpiredPendingCancellations(expiryCtx, 100)
+			cancel()
+			if expiryErr != nil {
+				log.Printf("[billing-transition-scheduler] reconcile expired subscriptions failed: %v", expiryErr)
+			} else if len(expired) > 0 {
+				log.Printf("[billing-transition-scheduler] auto-reconciled %d expired subscription(s)", len(expired))
+			}
+
 			due, err := store.ListDueScheduledPlanChanges(ctx, time.Now().UTC(), 100)
 			if err != nil {
 				log.Printf("[billing-transition-scheduler] list due plan changes failed: %v", err)
