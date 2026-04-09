@@ -4,10 +4,14 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"net/http"
+	"os"
+	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/labstack/echo/v4"
@@ -101,7 +105,60 @@ type SystemStatus struct {
 	LastHealthCheck time.Time `json:"last_health_check"`
 }
 
-const dashboardCacheTTL = 5 * time.Minute
+const (
+	dashboardCacheTTL         = 5 * time.Minute
+	dashboardRefreshInterval  = 5 * time.Minute
+	dashboardDBQueryTimeout   = 15 * time.Second
+	dashboardLockReleaseAfter = 2 * time.Second
+	dashboardTriggerStartup   = "startup"
+	dashboardTriggerTicker    = "ticker"
+	dashboardTriggerCacheMiss = "cache_miss"
+	dashboardTriggerManual    = "manual"
+)
+
+type dashboardLeaderLockStore interface {
+	TryAcquireDashboardRefreshLeaderLock(ctx context.Context) (bool, error)
+	ReleaseDashboardRefreshLeaderLock(ctx context.Context) error
+}
+
+type dashboardLogLevel int
+
+const (
+	dashboardLogLevelOff dashboardLogLevel = iota
+	dashboardLogLevelErrorsOnly
+	dashboardLogLevelMinimal
+	dashboardLogLevelVerbose
+)
+
+func parseDashboardLogLevel(raw string) dashboardLogLevel {
+	switch strings.ToLower(strings.TrimSpace(raw)) {
+	case "off":
+		return dashboardLogLevelOff
+	case "errors_only":
+		return dashboardLogLevelErrorsOnly
+	case "minimal", "":
+		return dashboardLogLevelMinimal
+	case "verbose":
+		return dashboardLogLevelVerbose
+	default:
+		return dashboardLogLevelMinimal
+	}
+}
+
+func (l dashboardLogLevel) String() string {
+	switch l {
+	case dashboardLogLevelOff:
+		return "off"
+	case dashboardLogLevelErrorsOnly:
+		return "errors_only"
+	case dashboardLogLevelMinimal:
+		return "minimal"
+	case dashboardLogLevelVerbose:
+		return "verbose"
+	default:
+		return "minimal"
+	}
+}
 
 // DashboardManager handles dashboard data updates and retrieval
 type DashboardManager struct {
@@ -110,42 +167,160 @@ type DashboardManager struct {
 	cancel context.CancelFunc
 	mu     sync.RWMutex
 	cache  map[int64]DashboardData
+
+	lockStore dashboardLeaderLockStore
+	instance  string
+	logLevel  dashboardLogLevel
+
+	refreshInProgress atomic.Bool
+	refreshCycleID    uint64
 }
 
 // NewDashboardManager creates a new dashboard manager
-func NewDashboardManager(db *sql.DB) *DashboardManager {
+func NewDashboardManager(db *sql.DB, lockStore dashboardLeaderLockStore) *DashboardManager {
 	ctx, cancel := context.WithCancel(context.Background())
 	return &DashboardManager{
-		db:     db,
-		ctx:    ctx,
-		cancel: cancel,
-		cache:  make(map[int64]DashboardData),
+		db:        db,
+		ctx:       ctx,
+		cancel:    cancel,
+		cache:     make(map[int64]DashboardData),
+		lockStore: lockStore,
+		instance:  dashboardInstanceID(),
+		logLevel:  parseDashboardLogLevel(os.Getenv("DASHBOARD_LOG_LEVEL")),
 	}
+}
+
+func dashboardInstanceID() string {
+	if hostname := strings.TrimSpace(os.Getenv("HOSTNAME")); hostname != "" {
+		return hostname
+	}
+	return fmt.Sprintf("pid-%d", os.Getpid())
+}
+
+func dashboardAPIURL() string {
+	if configuredURL := strings.TrimSpace(os.Getenv("LIVEREVIEW_API_URL")); configuredURL != "" {
+		return configuredURL
+	}
+
+	port := getEnvInt("LIVEREVIEW_BACKEND_PORT", 8888)
+	return fmt.Sprintf("http://localhost:%d", port)
+}
+
+func (dm *DashboardManager) shouldLog(level dashboardLogLevel) bool {
+	return dm.logLevel >= level
+}
+
+func (dm *DashboardManager) logErrorf(format string, args ...interface{}) {
+	if dm.shouldLog(dashboardLogLevelErrorsOnly) {
+		log.Printf(format, args...)
+	}
+}
+
+func (dm *DashboardManager) logMinimalf(format string, args ...interface{}) {
+	if dm.shouldLog(dashboardLogLevelMinimal) {
+		log.Printf(format, args...)
+	}
+}
+
+func (dm *DashboardManager) logVerbosef(format string, args ...interface{}) {
+	if dm.shouldLog(dashboardLogLevelVerbose) {
+		log.Printf(format, args...)
+	}
+}
+
+func (dm *DashboardManager) canRunPeriodicAllOrgRefresh(ctx context.Context, trigger string) bool {
+	leader, err := dm.lockStore.TryAcquireDashboardRefreshLeaderLock(ctx)
+	if err != nil {
+		dm.logErrorf("[dashboard] refresh lock error trigger=%s instance=%s err=%v", trigger, dm.instance, err)
+		return false
+	}
+	if !leader {
+		dm.logVerbosef("[dashboard] refresh skipped trigger=%s instance=%s reason=not_leader", trigger, dm.instance)
+		return false
+	}
+	return true
+}
+
+func (dm *DashboardManager) beginRefreshCycle(trigger string) (uint64, bool) {
+	if !dm.refreshInProgress.CompareAndSwap(false, true) {
+		dm.logMinimalf("[dashboard] refresh skipped trigger=%s instance=%s reason=in_progress", trigger, dm.instance)
+		return 0, false
+	}
+	return atomic.AddUint64(&dm.refreshCycleID, 1), true
+}
+
+func (dm *DashboardManager) endRefreshCycle() {
+	dm.refreshInProgress.Store(false)
+}
+
+func (dm *DashboardManager) releaseLeaderLock(ctx context.Context, trigger string) error {
+	releaseCtx, cancel := context.WithTimeout(ctx, dashboardLockReleaseAfter)
+	defer cancel()
+
+	releaseErr := dm.lockStore.ReleaseDashboardRefreshLeaderLock(releaseCtx)
+	if errors.Is(releaseErr, context.Canceled) || errors.Is(releaseErr, context.DeadlineExceeded) {
+		fallbackCtx, fallbackCancel := context.WithTimeout(context.Background(), dashboardLockReleaseAfter)
+		defer fallbackCancel()
+		return dm.lockStore.ReleaseDashboardRefreshLeaderLock(fallbackCtx)
+	}
+
+	return releaseErr
+}
+
+func (dm *DashboardManager) runRefreshCycle(ctx context.Context, trigger string) (retErr error) {
+	defer func() {
+		releaseErr := dm.releaseLeaderLock(ctx, trigger)
+		if releaseErr != nil {
+			dm.logErrorf("[dashboard] refresh lock release failed trigger=%s instance=%s err=%v", trigger, dm.instance, releaseErr)
+			if retErr == nil {
+				retErr = fmt.Errorf("failed to release dashboard leader lock: %w", releaseErr)
+			}
+		}
+	}()
+
+	cycleID, ok := dm.beginRefreshCycle(trigger)
+	if !ok {
+		return nil
+	}
+	defer dm.endRefreshCycle()
+
+	startedAt := time.Now()
+	err := dm.updateDashboardData(ctx, trigger, cycleID)
+	durationMs := time.Since(startedAt).Milliseconds()
+
+	if err != nil {
+		dm.logErrorf("[dashboard] refresh failed cycle=%d trigger=%s instance=%s duration_ms=%d err=%v", cycleID, trigger, dm.instance, durationMs, err)
+		return err
+	}
+
+	dm.logMinimalf("[dashboard] refresh complete cycle=%d trigger=%s instance=%s duration_ms=%d", cycleID, trigger, dm.instance, durationMs)
+	return nil
 }
 
 // Start begins the background dashboard data collection
 func (dm *DashboardManager) Start() {
-	log.Println("Starting dashboard manager...")
+	dm.logMinimalf("[dashboard] manager started instance=%s log_level=%s", dm.instance, dm.logLevel.String())
 
-	// Initial update
-	if err := dm.updateDashboardData(dm.ctx); err != nil {
-		log.Printf("Error in initial dashboard update: %v", err)
+	if dm.canRunPeriodicAllOrgRefresh(dm.ctx, dashboardTriggerStartup) {
+		if err := dm.runRefreshCycle(dm.ctx, dashboardTriggerStartup); err != nil {
+			dm.logErrorf("[dashboard] initial refresh failed instance=%s err=%v", dm.instance, err)
+		}
 	}
 
-	// Start periodic updates every 5 minutes
-	ticker := time.NewTicker(5 * time.Minute)
+	ticker := time.NewTicker(dashboardRefreshInterval)
 	go func() {
 		defer ticker.Stop()
 		for {
 			select {
 			case <-dm.ctx.Done():
-				log.Println("Dashboard manager stopped")
+				dm.logMinimalf("[dashboard] manager stopped instance=%s", dm.instance)
 				return
 			case <-ticker.C:
-				if err := dm.updateDashboardData(dm.ctx); err != nil {
-					log.Printf("Error updating dashboard data: %v", err)
-				} else {
-					log.Println("Dashboard data updated successfully")
+				if !dm.canRunPeriodicAllOrgRefresh(dm.ctx, dashboardTriggerTicker) {
+					continue
+				}
+				if err := dm.runRefreshCycle(dm.ctx, dashboardTriggerTicker); err != nil {
+					dm.logErrorf("[dashboard] periodic refresh failed instance=%s err=%v", dm.instance, err)
 				}
 			}
 		}
@@ -154,36 +329,56 @@ func (dm *DashboardManager) Start() {
 
 // Stop stops the dashboard manager
 func (dm *DashboardManager) Stop() {
-	log.Println("Stopping dashboard manager...")
+	dm.logMinimalf("[dashboard] manager stopping instance=%s", dm.instance)
 	dm.cancel()
 }
 
 // updateDashboardData collects and updates dashboard metrics
-func (dm *DashboardManager) updateDashboardData(ctx context.Context) error {
-	log.Println("Refreshing dashboard cache for all organizations...")
+func (dm *DashboardManager) updateDashboardData(ctx context.Context, trigger string, cycleID uint64) error {
+	start := time.Now()
+	dm.logMinimalf("[dashboard] refresh start cycle=%d trigger=%s instance=%s", cycleID, trigger, dm.instance)
 
 	orgIDs, err := dm.getAllOrgIDs(ctx)
 	if err != nil {
 		return fmt.Errorf("failed to list organizations: %w", err)
 	}
 
+	successCount := 0
+	failureCount := 0
+
 	for _, orgID := range orgIDs {
-		data, buildErr := dm.buildDashboardData(ctx, orgID)
+		data, buildErr := dm.buildDashboardData(ctx, orgID, trigger, cycleID)
 		if buildErr != nil {
-			log.Printf("Error building dashboard data for org %d: %v", orgID, buildErr)
+			dm.logErrorf("[dashboard] org refresh failed cycle=%d trigger=%s org_id=%d err=%v", cycleID, trigger, orgID, buildErr)
+			failureCount++
 			continue
 		}
 
 		dm.mu.Lock()
 		dm.cache[orgID] = data
 		dm.mu.Unlock()
+		successCount++
 	}
+
+	dm.logMinimalf(
+		"[dashboard] refresh summary cycle=%d trigger=%s instance=%s org_total=%d org_success=%d org_failed=%d duration_ms=%d",
+		cycleID,
+		trigger,
+		dm.instance,
+		len(orgIDs),
+		successCount,
+		failureCount,
+		time.Since(start).Milliseconds(),
+	)
 
 	return nil
 }
 
 func (dm *DashboardManager) getAllOrgIDs(ctx context.Context) ([]int64, error) {
-	rows, err := dm.db.QueryContext(ctx, `SELECT id FROM orgs`)
+	queryCtx, cancel := context.WithTimeout(ctx, dashboardDBQueryTimeout)
+	defer cancel()
+
+	rows, err := dm.db.QueryContext(queryCtx, `SELECT id FROM orgs`)
 	if err != nil {
 		return nil, err
 	}
@@ -209,38 +404,58 @@ func (dm *DashboardManager) getAllOrgIDs(ctx context.Context) ([]int64, error) {
 	return ids, nil
 }
 
-func (dm *DashboardManager) buildDashboardData(ctx context.Context, orgID int64) (DashboardData, error) {
+func (dm *DashboardManager) buildDashboardData(ctx context.Context, orgID int64, trigger string, cycleID uint64) (DashboardData, error) {
+	startedAt := time.Now()
 	data := DashboardData{
 		LastUpdated: time.Now(),
 	}
 
 	if err := dm.collectStatistics(ctx, &data, orgID); err != nil {
-		log.Printf("Error collecting statistics for org %d: %v", orgID, err)
+		dm.logErrorf("[dashboard] collect statistics failed org_id=%d err=%v", orgID, err)
 	}
 
 	if err := dm.collectWebhookHealth(ctx, &data, orgID); err != nil {
-		log.Printf("Error collecting webhook health for org %d: %v", orgID, err)
+		dm.logErrorf("[dashboard] collect webhook_health failed org_id=%d err=%v", orgID, err)
 	}
 
 	if err := dm.collectConnectorSetupProgress(ctx, &data, orgID); err != nil {
-		log.Printf("Error collecting connector setup progress for org %d: %v", orgID, err)
+		dm.logErrorf("[dashboard] collect connector_setup failed org_id=%d err=%v", orgID, err)
 	}
 
 	if err := dm.collectOnboardingData(ctx, &data, orgID); err != nil {
-		log.Printf("Error collecting onboarding data for org %d: %v", orgID, err)
+		dm.logErrorf("[dashboard] collect onboarding failed org_id=%d err=%v", orgID, err)
 	}
 
 	if err := dm.collectRecentActivity(ctx, &data, orgID); err != nil {
-		log.Printf("Error collecting recent activity for org %d: %v", orgID, err)
+		dm.logErrorf("[dashboard] collect recent_activity failed org_id=%d err=%v", orgID, err)
 	}
 
 	if err := dm.collectPerformanceMetrics(ctx, &data, orgID); err != nil {
-		log.Printf("Error collecting performance metrics for org %d: %v", orgID, err)
+		dm.logErrorf("[dashboard] collect performance_metrics failed org_id=%d err=%v", orgID, err)
 	}
 
 	if err := dm.collectSystemStatus(&data); err != nil {
-		log.Printf("Error collecting system status for org %d: %v", orgID, err)
+		dm.logErrorf("[dashboard] collect system_status failed org_id=%d err=%v", orgID, err)
 	}
+
+	webhookConnectors := 0
+	if data.WebhookHealth != nil {
+		webhookConnectors = data.WebhookHealth.TotalConnectors
+	}
+
+	dm.logMinimalf(
+		"[dashboard] org refresh complete cycle=%d trigger=%s org_id=%d reviews=%d comments=%d providers=%d connectors=%d webhook_connectors=%d activities=%d duration_ms=%d",
+		cycleID,
+		trigger,
+		orgID,
+		data.TotalReviews,
+		data.TotalComments,
+		data.ConnectedProviders,
+		data.ActiveAIConnectors,
+		webhookConnectors,
+		len(data.RecentActivity),
+		time.Since(startedAt).Milliseconds(),
+	)
 
 	return data, nil
 }
@@ -254,7 +469,7 @@ func (dm *DashboardManager) GetDashboardDataForOrg(ctx context.Context, orgID in
 	}
 	dm.mu.RUnlock()
 
-	data, err := dm.buildDashboardData(ctx, orgID)
+	data, err := dm.buildDashboardData(ctx, orgID, dashboardTriggerCacheMiss, 0)
 	if err != nil {
 		return DashboardData{}, err
 	}
@@ -267,7 +482,7 @@ func (dm *DashboardManager) GetDashboardDataForOrg(ctx context.Context, orgID in
 }
 
 func (dm *DashboardManager) RefreshOrgDashboard(ctx context.Context, orgID int64) (DashboardData, error) {
-	data, err := dm.buildDashboardData(ctx, orgID)
+	data, err := dm.buildDashboardData(ctx, orgID, dashboardTriggerManual, 0)
 	if err != nil {
 		return DashboardData{}, err
 	}
@@ -281,7 +496,10 @@ func (dm *DashboardManager) RefreshOrgDashboard(ctx context.Context, orgID int64
 
 // collectStatistics gathers basic statistics
 func (dm *DashboardManager) collectStatistics(ctx context.Context, data *DashboardData, orgID int64) error {
-	log.Println("Starting statistics collection...")
+	dm.logVerbosef("[dashboard] collector start name=statistics org_id=%d", orgID)
+
+	ctx, cancel := context.WithTimeout(ctx, dashboardDBQueryTimeout)
+	defer cancel()
 
 	// Count total AI reviews directly from reviews table
 	err := dm.db.QueryRowContext(ctx,
@@ -289,10 +507,10 @@ func (dm *DashboardManager) collectStatistics(ctx context.Context, data *Dashboa
 		orgID,
 	).Scan(&data.TotalReviews)
 	if err != nil {
-		log.Printf("Error counting AI reviews from recent_activity: %v", err)
+		dm.logErrorf("[dashboard] statistics count_reviews_failed org_id=%d err=%v", orgID, err)
 		data.TotalReviews = 0
 	} else {
-		log.Printf("Found %d AI reviews from reviews table", data.TotalReviews)
+		dm.logVerbosef("[dashboard] statistics reviews org_id=%d value=%d", orgID, data.TotalReviews)
 	}
 
 	// Count total comments from review completion events
@@ -304,10 +522,10 @@ func (dm *DashboardManager) collectStatistics(ctx context.Context, data *Dashboa
 		orgID,
 	).Scan(&data.TotalComments)
 	if err != nil {
-		log.Printf("Error counting AI comments from review_events: %v", err)
+		dm.logErrorf("[dashboard] statistics count_comments_failed org_id=%d err=%v", orgID, err)
 		data.TotalComments = 0
 	} else {
-		log.Printf("Found %d AI comments from review completion events", data.TotalComments)
+		dm.logVerbosef("[dashboard] statistics comments org_id=%d value=%d", orgID, data.TotalComments)
 	}
 
 	// Count connected Git providers correctly
@@ -316,10 +534,10 @@ func (dm *DashboardManager) collectStatistics(ctx context.Context, data *Dashboa
 		orgID,
 	).Scan(&data.ConnectedProviders)
 	if err != nil {
-		log.Printf("Error counting git providers: %v", err)
+		dm.logErrorf("[dashboard] statistics count_providers_failed org_id=%d err=%v", orgID, err)
 		data.ConnectedProviders = 0
 	} else {
-		log.Printf("Found %d integration tokens", data.ConnectedProviders)
+		dm.logVerbosef("[dashboard] statistics providers org_id=%d value=%d", orgID, data.ConnectedProviders)
 	}
 
 	// Count active AI connectors correctly
@@ -328,13 +546,14 @@ func (dm *DashboardManager) collectStatistics(ctx context.Context, data *Dashboa
 		orgID,
 	).Scan(&data.ActiveAIConnectors)
 	if err != nil {
-		log.Printf("Error counting AI connectors: %v", err)
+		dm.logErrorf("[dashboard] statistics count_connectors_failed org_id=%d err=%v", orgID, err)
 		data.ActiveAIConnectors = 0
 	} else {
-		log.Printf("Found %d AI connectors", data.ActiveAIConnectors)
+		dm.logVerbosef("[dashboard] statistics connectors org_id=%d value=%d", orgID, data.ActiveAIConnectors)
 	}
 
-	log.Printf("Statistics collection complete: reviews=%d, comments=%d, providers=%d, ai_connectors=%d",
+	dm.logVerbosef("[dashboard] collector complete name=statistics org_id=%d reviews=%d comments=%d providers=%d ai_connectors=%d",
+		orgID,
 		data.TotalReviews, data.TotalComments, data.ConnectedProviders, data.ActiveAIConnectors)
 
 	return nil
@@ -342,7 +561,10 @@ func (dm *DashboardManager) collectStatistics(ctx context.Context, data *Dashboa
 
 // collectWebhookHealth gathers webhook health information across all connectors
 func (dm *DashboardManager) collectWebhookHealth(ctx context.Context, data *DashboardData, orgID int64) error {
-	log.Println("Starting webhook health collection...")
+	dm.logVerbosef("[dashboard] collector start name=webhook_health org_id=%d", orgID)
+
+	ctx, cancel := context.WithTimeout(ctx, dashboardDBQueryTimeout)
+	defer cancel()
 
 	// Get all connectors and their projects_cache
 	rows, err := dm.db.QueryContext(ctx, `
@@ -351,7 +573,7 @@ func (dm *DashboardManager) collectWebhookHealth(ctx context.Context, data *Dash
 		WHERE it.org_id = $1
 	`, orgID)
 	if err != nil {
-		log.Printf("Error querying connectors for webhook health: %v", err)
+		dm.logErrorf("[dashboard] webhook_health connectors_query_failed org_id=%d err=%v", orgID, err)
 		return err
 	}
 	defer rows.Close()
@@ -364,7 +586,7 @@ func (dm *DashboardManager) collectWebhookHealth(ctx context.Context, data *Dash
 		var connectorID int64
 		var projectsCacheRaw []byte
 		if err := rows.Scan(&connectorID, &projectsCacheRaw); err != nil {
-			log.Printf("Error scanning connector row: %v", err)
+			dm.logErrorf("[dashboard] webhook_health connector_scan_failed org_id=%d err=%v", orgID, err)
 			continue
 		}
 
@@ -382,6 +604,11 @@ func (dm *DashboardManager) collectWebhookHealth(ctx context.Context, data *Dash
 		}
 	}
 
+	if err := rows.Err(); err != nil {
+		dm.logErrorf("[dashboard] webhook_health rows_iteration_failed org_id=%d err=%v", orgID, err)
+		return err
+	}
+
 	if totalConnectors == 0 {
 		// No connectors, no webhook health to report
 		data.WebhookHealth = nil
@@ -397,7 +624,7 @@ func (dm *DashboardManager) collectWebhookHealth(ctx context.Context, data *Dash
 		WHERE it.org_id = $1 AND (wr.status = 'manual' OR wr.status = 'active' OR wr.status = 'automatic')
 	`, orgID).Scan(&connectedProjects)
 	if err != nil {
-		log.Printf("Error counting connected projects: %v", err)
+		dm.logErrorf("[dashboard] webhook_health connected_projects_failed org_id=%d err=%v", orgID, err)
 		connectedProjects = 0
 	}
 
@@ -414,7 +641,7 @@ func (dm *DashboardManager) collectWebhookHealth(ctx context.Context, data *Dash
 		)
 	`, orgID).Scan(&setupRequiredConnectors)
 	if err != nil {
-		log.Printf("Error counting setup required connectors: %v", err)
+		dm.logErrorf("[dashboard] webhook_health setup_required_failed org_id=%d err=%v", orgID, err)
 		setupRequiredConnectors = 0
 	}
 
@@ -434,7 +661,7 @@ func (dm *DashboardManager) collectWebhookHealth(ctx context.Context, data *Dash
 		LIMIT 1
 	`, orgID).Scan(&mostRecentConnectorID, &mostRecentConnectorName)
 	if err != nil && err != sql.ErrNoRows {
-		log.Printf("Error finding most recent connector needing setup: %v", err)
+		dm.logErrorf("[dashboard] webhook_health most_recent_setup_connector_failed org_id=%d err=%v", orgID, err)
 	}
 
 	unconnectedProjects := totalProjects - connectedProjects
@@ -479,7 +706,8 @@ func (dm *DashboardManager) collectWebhookHealth(ctx context.Context, data *Dash
 
 	data.WebhookHealth = webhookHealth
 
-	log.Printf("Webhook health collection complete: connectors=%d, projects=%d, connected=%d, health=%.1f%%",
+	dm.logVerbosef("[dashboard] collector complete name=webhook_health org_id=%d connectors=%d projects=%d connected=%d health=%.1f",
+		orgID,
 		totalConnectors, totalProjects, connectedProjects, healthPercent)
 
 	return nil
@@ -487,7 +715,10 @@ func (dm *DashboardManager) collectWebhookHealth(ctx context.Context, data *Dash
 
 // collectConnectorSetupProgress gathers setup progress for connectors that need attention
 func (dm *DashboardManager) collectConnectorSetupProgress(ctx context.Context, data *DashboardData, orgID int64) error {
-	log.Println("Starting connector setup progress collection...")
+	dm.logVerbosef("[dashboard] collector start name=connector_setup_progress org_id=%d", orgID)
+
+	ctx, cancel := context.WithTimeout(ctx, dashboardDBQueryTimeout)
+	defer cancel()
 
 	// Get all connectors created in the last 10 minutes or that need attention
 	// This ensures users see the progress even for fast auto-installations
@@ -509,7 +740,7 @@ func (dm *DashboardManager) collectConnectorSetupProgress(ctx context.Context, d
 		ORDER BY it.created_at DESC
 	`, orgID)
 	if err != nil {
-		log.Printf("Error querying connectors for setup progress: %v", err)
+		dm.logErrorf("[dashboard] connector_setup_progress query_failed org_id=%d err=%v", orgID, err)
 		return err
 	}
 	defer rows.Close()
@@ -525,7 +756,7 @@ func (dm *DashboardManager) collectConnectorSetupProgress(ctx context.Context, d
 		var createdAt time.Time
 
 		if err := rows.Scan(&connectorID, &connectorName, &provider, &projectsCacheRaw, &createdAt, &connectedCount); err != nil {
-			log.Printf("Error scanning connector row for setup progress: %v", err)
+			dm.logErrorf("[dashboard] connector_setup_progress scan_failed org_id=%d err=%v", orgID, err)
 			continue
 		}
 
@@ -578,19 +809,26 @@ func (dm *DashboardManager) collectConnectorSetupProgress(ctx context.Context, d
 		}
 	}
 
+	if err := rows.Err(); err != nil {
+		dm.logErrorf("[dashboard] connector_setup_progress rows_iteration_failed org_id=%d err=%v", orgID, err)
+		return err
+	}
+
 	data.ConnectorSetupProgress = progressList
 
-	log.Printf("Connector setup progress collection complete: %d connectors need attention", len(progressList))
+	dm.logVerbosef("[dashboard] collector complete name=connector_setup_progress org_id=%d connectors_needing_attention=%d", orgID, len(progressList))
 
 	return nil
 }
 
 // collectOnboardingData gathers onboarding-specific information
 func (dm *DashboardManager) collectOnboardingData(ctx context.Context, data *DashboardData, orgID int64) error {
-	log.Println("Starting onboarding data collection...")
+	dm.logVerbosef("[dashboard] collector start name=onboarding org_id=%d", orgID)
 
-	// Get API URL from environment or use default
-	data.APIUrl = "http://localhost:8888" // TODO: Get from config
+	ctx, cancel := context.WithTimeout(ctx, dashboardDBQueryTimeout)
+	defer cancel()
+
+	data.APIUrl = dashboardAPIURL()
 
 	// Get the first user with owner role in this org to find their onboarding API key
 	var userID int64
@@ -609,13 +847,13 @@ func (dm *DashboardManager) collectOnboardingData(ctx context.Context, data *Das
 	).Scan(&userID, &onboardingKey, &lastCLIUsed)
 
 	if err != nil && err != sql.ErrNoRows {
-		log.Printf("Error querying onboarding data: %v", err)
+		dm.logErrorf("[dashboard] onboarding query_failed org_id=%d err=%v", orgID, err)
 		return err
 	}
 
 	// If user exists but has no onboarding API key, generate one
 	if err == nil && (!onboardingKey.Valid || onboardingKey.String == "") {
-		log.Printf("Generating onboarding API key for existing user %d", userID)
+		dm.logVerbosef("[dashboard] onboarding generating_api_key org_id=%d user_id=%d", orgID, userID)
 		apiKeyManager := NewAPIKeyManager(dm.db)
 		// Create API key in api_keys table and get the plain key back
 		_, newKey, genErr := apiKeyManager.CreateAPIKey(userID, orgID, "Onboarding API Key", []string{}, nil)
@@ -625,12 +863,12 @@ func (dm *DashboardManager) collectOnboardingData(ctx context.Context, data *Das
 				newKey, userID)
 			if updateErr == nil {
 				onboardingKey = sql.NullString{String: newKey, Valid: true}
-				log.Printf("Generated onboarding API key for user %d", userID)
+				dm.logVerbosef("[dashboard] onboarding generated_api_key org_id=%d user_id=%d", orgID, userID)
 			} else {
-				log.Printf("Failed to update onboarding API key: %v", updateErr)
+				dm.logErrorf("[dashboard] onboarding update_api_key_failed org_id=%d user_id=%d err=%v", orgID, userID, updateErr)
 			}
 		} else {
-			log.Printf("Failed to generate API key: %v", genErr)
+			dm.logErrorf("[dashboard] onboarding generate_api_key_failed org_id=%d user_id=%d err=%v", orgID, userID, genErr)
 		}
 	}
 
@@ -642,7 +880,8 @@ func (dm *DashboardManager) collectOnboardingData(ctx context.Context, data *Das
 	// Check if CLI has been used
 	data.CLIInstalled = lastCLIUsed.Valid
 
-	log.Printf("Onboarding data collected: has_api_key=%v, cli_installed=%v",
+	dm.logVerbosef("[dashboard] collector complete name=onboarding org_id=%d has_api_key=%v cli_installed=%v",
+		orgID,
 		data.OnboardingAPIKey != "", data.CLIInstalled)
 
 	return nil
@@ -650,7 +889,10 @@ func (dm *DashboardManager) collectOnboardingData(ctx context.Context, data *Das
 
 // collectRecentActivity gathers recent activity data
 func (dm *DashboardManager) collectRecentActivity(ctx context.Context, data *DashboardData, orgID int64) error {
-	log.Println("Starting recent activity collection...")
+	dm.logVerbosef("[dashboard] collector start name=recent_activity org_id=%d", orgID)
+
+	ctx, cancel := context.WithTimeout(ctx, dashboardDBQueryTimeout)
+	defer cancel()
 
 	// Initialize with empty slice instead of nil
 	data.RecentActivity = []ActivityItem{}
@@ -681,8 +923,8 @@ func (dm *DashboardManager) collectRecentActivity(ctx context.Context, data *Das
 		orgID,
 	)
 	if err != nil {
-		log.Printf("Error querying recent activity: %v", err)
-		return nil
+		dm.logErrorf("[dashboard] recent_activity query_failed org_id=%d err=%v", orgID, err)
+		return err
 	}
 	defer rows.Close()
 
@@ -693,7 +935,7 @@ func (dm *DashboardManager) collectRecentActivity(ctx context.Context, data *Das
 		var eventDataBytes []byte
 		var createdAt time.Time
 		if err := rows.Scan(&id, &activityType, &eventDataBytes, &createdAt); err != nil {
-			log.Printf("Error scanning recent_activity row: %v", err)
+			dm.logErrorf("[dashboard] recent_activity scan_failed org_id=%d err=%v", orgID, err)
 			continue
 		}
 
@@ -735,14 +977,22 @@ func (dm *DashboardManager) collectRecentActivity(ctx context.Context, data *Das
 		})
 	}
 
+	if err := rows.Err(); err != nil {
+		dm.logErrorf("[dashboard] recent_activity rows_iteration_failed org_id=%d err=%v", orgID, err)
+		return err
+	}
+
 	data.RecentActivity = activities
-	log.Printf("Collected %d recent activities (new system)", len(activities))
+	dm.logVerbosef("[dashboard] collector complete name=recent_activity org_id=%d activities=%d", orgID, len(activities))
 	return nil
 }
 
 // collectPerformanceMetrics gathers performance data
 func (dm *DashboardManager) collectPerformanceMetrics(ctx context.Context, data *DashboardData, orgID int64) error {
-	log.Println("Starting performance metrics collection...")
+	dm.logVerbosef("[dashboard] collector start name=performance_metrics org_id=%d", orgID)
+
+	ctx, cancel := context.WithTimeout(ctx, dashboardDBQueryTimeout)
+	defer cancel()
 
 	// Calculate reviews this week using reviews table
 	err := dm.db.QueryRowContext(ctx,
@@ -752,10 +1002,10 @@ func (dm *DashboardManager) collectPerformanceMetrics(ctx context.Context, data 
 		orgID,
 	).Scan(&data.PerformanceMetrics.ReviewsThisWeek)
 	if err != nil {
-		log.Printf("Error counting weekly reviews from recent_activity: %v", err)
+		dm.logErrorf("[dashboard] performance_metrics weekly_reviews_failed org_id=%d err=%v", orgID, err)
 		data.PerformanceMetrics.ReviewsThisWeek = 0
 	} else {
-		log.Printf("Found %d AI reviews this week from reviews table", data.PerformanceMetrics.ReviewsThisWeek)
+		dm.logVerbosef("[dashboard] performance_metrics weekly_reviews org_id=%d value=%d", orgID, data.PerformanceMetrics.ReviewsThisWeek)
 	}
 
 	// Calculate comments this week
@@ -768,7 +1018,7 @@ func (dm *DashboardManager) collectPerformanceMetrics(ctx context.Context, data 
 		orgID,
 	).Scan(&data.PerformanceMetrics.CommentsThisWeek)
 	if err != nil {
-		log.Printf("Error counting weekly AI comments from review_events: %v", err)
+		dm.logErrorf("[dashboard] performance_metrics weekly_comments_failed org_id=%d err=%v", orgID, err)
 		data.PerformanceMetrics.CommentsThisWeek = 0
 	}
 
@@ -779,7 +1029,8 @@ func (dm *DashboardManager) collectPerformanceMetrics(ctx context.Context, data 
 	// Set average response time
 	data.PerformanceMetrics.AvgResponseTime = 2.3
 
-	log.Printf("Performance metrics: reviews_week=%d, comments_week=%d, success_rate=%.1f%%, avg_time=%.1fs",
+	dm.logVerbosef("[dashboard] collector complete name=performance_metrics org_id=%d reviews_week=%d comments_week=%d success_rate=%.1f%% avg_time=%.1f",
+		orgID,
 		data.PerformanceMetrics.ReviewsThisWeek, data.PerformanceMetrics.CommentsThisWeek,
 		data.PerformanceMetrics.SuccessRate, data.PerformanceMetrics.AvgResponseTime)
 
@@ -824,7 +1075,7 @@ func (s *Server) GetDashboardData(c echo.Context) error {
 
 // RefreshDashboardData manually triggers a dashboard data update
 func (s *Server) RefreshDashboardData(c echo.Context) error {
-	log.Println("Manual dashboard refresh triggered")
+	s.dashboardManager.logVerbosef("[dashboard] manual refresh requested")
 
 	orgIDVal := c.Get("org_id")
 	orgID, ok := orgIDVal.(int64)

@@ -6,7 +6,10 @@ import "encoding/json"
 type RazorpaySubscription struct {
 	ID                  string          `json:"id,omitempty"`
 	PlanID              string          `json:"plan_id"`
-	Status              string          `json:"status,omitempty"`          // created, authenticated, active, pending, halted, cancelled, completed, expired, paused
+	Status              string          `json:"status,omitempty"`    // created, authenticated, active, pending, halted, cancelled, completed, expired, paused
+	EndedAt             int64           `json:"ended_at,omitempty"`  // Unix timestamp when cancelled/completed
+	CancelAt            int64           `json:"cancel_at,omitempty"` // Unix timestamp when scheduled cancellation takes effect
+	CancelAtCycleEnd    bool            `json:"cancel_at_cycle_end,omitempty"`
 	Quantity            int             `json:"quantity,omitempty"`        // Number of subscriptions (e.g., number of users)
 	TotalCount          int             `json:"total_count,omitempty"`     // Number of billing cycles, 0 for infinite
 	CustomerNotify      bool            `json:"customer_notify,omitempty"` // Whether to notify customer
@@ -59,5 +62,5 @@ type SubscriptionUpdateRequest struct {
 
 // SubscriptionCancelRequest represents a request to cancel a subscription
 type SubscriptionCancelRequest struct {
-	CancelAtCycleEnd int `json:"cancel_at_cycle_end"` // 1 for end of cycle, 0 for immediate
+	CancelAtCycleEnd bool `json:"cancel_at_cycle_end"` // true for end of cycle, false for immediate
 }

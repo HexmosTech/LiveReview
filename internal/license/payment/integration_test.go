@@ -3,6 +3,7 @@ package payment
 import (
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"testing"
 	"time"
 
@@ -342,8 +343,35 @@ func TestSubscriptionIntegration(t *testing.T) {
 				t.Skipf("Skipping cancellation; subscription status %s cannot be cancelled in test mode", sub.Status)
 			}
 
+			var beforeStatus string
+			var beforeCancelAtPeriodEnd bool
+			err := db.QueryRow(`
+				SELECT status, cancel_at_period_end FROM subscriptions
+				WHERE razorpay_subscription_id = $1`,
+				sub.ID,
+			).Scan(&beforeStatus, &beforeCancelAtPeriodEnd)
+			if err != nil {
+				t.Fatalf("Failed to query pre-cancel status: %v", err)
+			}
+
 			canceledSub, err := service.CancelSubscription(sub.ID, false, "test")
 			if err != nil {
+				if errors.Is(err, ErrCancellationNotVerified) {
+					var afterStatus string
+					var afterCancelAtPeriodEnd bool
+					checkErr := db.QueryRow(`
+						SELECT status, cancel_at_period_end FROM subscriptions
+						WHERE razorpay_subscription_id = $1`,
+						sub.ID,
+					).Scan(&afterStatus, &afterCancelAtPeriodEnd)
+					if checkErr != nil {
+						t.Fatalf("Failed to query post-failed-cancel status: %v", checkErr)
+					}
+					if afterStatus != beforeStatus || afterCancelAtPeriodEnd != beforeCancelAtPeriodEnd {
+						t.Fatalf("expected no DB mutation on unverified cancellation, before=(%s,%t) after=(%s,%t)", beforeStatus, beforeCancelAtPeriodEnd, afterStatus, afterCancelAtPeriodEnd)
+					}
+					t.Skipf("Cancellation not verifiable in test environment; DB unchanged as expected: %v", err)
+				}
 				t.Fatalf("Failed to cancel subscription: %v", err)
 			}
 
@@ -352,20 +380,24 @@ func TestSubscriptionIntegration(t *testing.T) {
 
 			// Verify status in DB
 			var dbStatus string
+			var dbCancelAtPeriodEnd bool
 			err = db.QueryRow(`
-				SELECT status FROM subscriptions
+				SELECT status, cancel_at_period_end FROM subscriptions
 				WHERE razorpay_subscription_id = $1`,
 				sub.ID,
-			).Scan(&dbStatus)
+			).Scan(&dbStatus, &dbCancelAtPeriodEnd)
 
 			if err != nil {
 				t.Fatalf("Failed to query status: %v", err)
 			}
-			if dbStatus != "cancelled" {
-				t.Errorf("Expected status 'cancelled', got %s", dbStatus)
+			if dbStatus != canceledSub.Status {
+				t.Errorf("Expected status '%s', got %s", canceledSub.Status, dbStatus)
+			}
+			if !dbCancelAtPeriodEnd {
+				t.Errorf("Expected cancel_at_period_end=true for non-immediate cancellation")
 			}
 
-			t.Logf("✓ DB status updated to cancelled")
+			t.Logf("✓ DB cancellation state persisted")
 
 			// Verify user still has team plan (not immediate cancellation)
 			var userPlanType string
