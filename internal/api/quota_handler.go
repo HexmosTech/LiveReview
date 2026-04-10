@@ -3,8 +3,11 @@ package api
 import (
 	"database/sql"
 	"net/http"
+	"strings"
 
 	"github.com/labstack/echo/v4"
+	"github.com/livereview/internal/api/plancode"
+	"github.com/livereview/internal/license"
 	"github.com/livereview/pkg/models"
 )
 
@@ -45,12 +48,6 @@ func (h *QuotaStatusHandler) GetQuotaStatus(c echo.Context) error {
 		return JSONErrorWithEnvelope(c, http.StatusUnauthorized, "user authentication required")
 	}
 
-	// Get plan type and daily limit from context (set by middleware)
-	planType, _ := c.Get("plan_type").(string)
-	if planType == "" {
-		planType = "free"
-	}
-
 	dailyLimitPtr, _ := c.Get("daily_review_limit").(*int)
 
 	// Check if user is org creator
@@ -78,19 +75,20 @@ func (h *QuotaStatusHandler) GetQuotaStatus(c echo.Context) error {
 	}
 
 	envelope := BuildEnvelopeFromContext(c)
+	contextPlanType, _ := c.Get("plan_type").(string)
+	planType := resolveQuotaPlanType(envelope.PlanCode, contextPlanType)
+
+	isFreeTier := isQuotaFreePlan(planType)
 	status := QuotaStatus{
-		PlanType:     envelope.PlanCode,
+		PlanType:     planType,
 		DailyLimit:   dailyLimitPtr,
 		DailyUsed:    dailyUsed,
 		IsOrgCreator: isOrgCreator,
 		Envelope:     envelope,
 	}
-	if status.PlanType == "" {
-		status.PlanType = planType
-	}
 
 	// Determine if user can trigger reviews
-	if planType == "free" {
+	if isFreeTier {
 		// On free plan, only org creator can trigger reviews AND must be under daily limit
 		status.CanTriggerReviews = isOrgCreator && (dailyLimitPtr == nil || dailyUsed < *dailyLimitPtr)
 	} else {
@@ -99,19 +97,25 @@ func (h *QuotaStatusHandler) GetQuotaStatus(c echo.Context) error {
 	}
 
 	// Determine if user can activate members
-	status.CanActivateMembers = planType == "team"
+	status.CanActivateMembers = !isFreeTier
 
-	// If on team plan, get subscription seat information
-	if planType == "team" {
+	// If on paid plans, get subscription seat information.
+	if !isFreeTier {
 		var seatsTotal, seatsAssigned int
 		err := h.db.QueryRow(`
 			SELECT s.quantity, 
-			       COALESCE((SELECT COUNT(*) FROM user_roles ur WHERE ur.active_subscription_id = s.id AND ur.plan_type = 'team'), 0) as assigned_seats
+			       COALESCE((
+					SELECT COUNT(*)
+					FROM user_roles ur
+					WHERE ur.active_subscription_id = s.id
+					  AND LOWER(TRIM(COALESCE(ur.plan_type, ''))) NOT IN ('free', 'free_30k')
+				), 0) as assigned_seats
 			FROM subscriptions s
-			JOIN user_roles ur ON ur.active_subscription_id = s.id
-			WHERE ur.user_id = $1 AND ur.org_id = $2 AND ur.plan_type = 'team'
+			WHERE s.org_id = $1
+			  AND s.status IN ('active', 'authenticated')
+			ORDER BY s.updated_at DESC, s.created_at DESC
 			LIMIT 1
-		`, user.ID, orgID).Scan(&seatsTotal, &seatsAssigned)
+		`, orgID).Scan(&seatsTotal, &seatsAssigned)
 
 		if err == nil {
 			status.SeatsTotal = &seatsTotal
@@ -122,4 +126,21 @@ func (h *QuotaStatusHandler) GetQuotaStatus(c echo.Context) error {
 	}
 
 	return c.JSON(http.StatusOK, status)
+}
+
+func resolveQuotaPlanType(envelopePlanCode string, contextPlanType string) string {
+	if strings.TrimSpace(envelopePlanCode) != "" {
+		return plancode.NormalizePlanTypeCode(envelopePlanCode)
+	}
+
+	if strings.TrimSpace(contextPlanType) != "" {
+		return plancode.NormalizePlanTypeCode(contextPlanType)
+	}
+
+	return plancode.NormalizePlanTypeCode("")
+}
+
+func isQuotaFreePlan(planCode string) bool {
+	normalized := plancode.NormalizePlanTypeCode(planCode)
+	return normalized == string(license.PlanFree)
 }
