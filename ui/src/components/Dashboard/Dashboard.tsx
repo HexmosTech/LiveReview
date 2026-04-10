@@ -2,13 +2,13 @@ import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import classNames from 'classnames';
 import { getDashboardData, DashboardData, refreshDashboardData } from '../../api/dashboard';
-import { 
-    StatCard, 
-    Section, 
-    PageHeader, 
-    Card, 
-    EmptyState, 
-    Button, 
+import {
+    StatCard,
+    Section,
+    PageHeader,
+    Card,
+    EmptyState,
+    Button,
     Icons,
     Tooltip,
     Alert,
@@ -117,7 +117,7 @@ const saveDismissedConnectorIds = (storageKey: string, connectorIds: Set<number>
 export const Dashboard: React.FC = () => {
     const navigate = useNavigate();
     const user = useAppSelector(state => state.Auth.user);
-    
+
     // Dashboard data state
     const [dashboardData, setDashboardData] = useState<DashboardData | null>(null);
     const [isLoading, setIsLoading] = useState(true);
@@ -125,11 +125,11 @@ export const Dashboard: React.FC = () => {
     const [isSyncing, setIsSyncing] = useState(false);
     const [hideStepper, setHideStepper] = useState<boolean>(() => {
         // Scope localStorage to user ID so each user has their own onboarding state
-        try { 
+        try {
             const key = user?.id ? `lr_hide_get_started_${user.id}` : 'lr_hide_get_started';
-            return localStorage.getItem(key) === '1'; 
-        } catch { 
-            return false; 
+            return localStorage.getItem(key) === '1';
+        } catch {
+            return false;
         }
     });
     const [notificationSent, setNotificationSent] = useState(false);
@@ -203,10 +203,10 @@ export const Dashboard: React.FC = () => {
         };
 
         loadDashboardData();
-        
+
         // Refresh data every 5 minutes
         const interval = setInterval(loadDashboardData, 5 * 60 * 1000);
-        
+
         // Also refresh when the tab regains focus or becomes visible (handy after New Review)
         const onFocus = () => { loadDashboardData(); };
         const onVisibility = () => { if (document.visibilityState === 'visible') loadDashboardData(); };
@@ -284,7 +284,7 @@ export const Dashboard: React.FC = () => {
     const apiKey = dashboardData?.onboarding_api_key || '';
     // Get API URL - use the shared utility that correctly handles the UI/API port difference
     const apiUrl = getApiUrl();
-    const installCommand = apiKey 
+    const installCommand = apiKey
         ? `curl -fsSL https://hexmos.com/lrc-install.sh | LRC_API_KEY="${apiKey}" LRC_API_URL="${apiUrl}" bash`
         : '';
     const installCommandWindows = apiKey
@@ -337,27 +337,27 @@ export const Dashboard: React.FC = () => {
                 {connectorsNeedingSetup.length > 0 && (
                     <div className="mb-6 space-y-3">
                         {connectorsNeedingSetup.map((connector) => (
-                            <Alert 
+                            <Alert
                                 key={connector.connector_id}
                                 variant={getPhaseVariant(connector.phase)}
                                 onClose={() => dismissConnectorForSession(connector.connector_id)}
                                 className="cursor-pointer hover:opacity-90"
                             >
-                                <div 
+                                <div
                                     className="flex w-full flex-col gap-3 sm:flex-row sm:items-center sm:justify-between"
                                     onClick={() => navigate(`/git/connector/${connector.connector_id}`)}
                                 >
                                     <span className="sm:pr-4">
                                         {getPhaseMessage(
-                                            connector.phase, 
-                                            connector.connector_name, 
-                                            connector.provider, 
-                                            connector.total_projects, 
+                                            connector.phase,
+                                            connector.connector_name,
+                                            connector.provider,
+                                            connector.total_projects,
                                             connector.connected_projects
                                         )}
                                     </span>
                                     <div className="flex flex-wrap items-center gap-2 sm:ml-4 sm:flex-nowrap">
-                                        <Button 
+                                        <Button
                                             variant="ghost"
                                             size="sm"
                                             className="text-current hover:bg-black/10 hover:opacity-90"
@@ -368,13 +368,13 @@ export const Dashboard: React.FC = () => {
                                         >
                                             Don&apos;t show again
                                         </Button>
-                                        <Button 
-                                            variant="outline" 
+                                        <Button
+                                            variant="outline"
                                             size="sm"
                                             className="!border-current !text-current hover:opacity-80"
-                                            onClick={(e) => { 
-                                                e.stopPropagation(); 
-                                                navigate(`/git/connector/${connector.connector_id}`); 
+                                            onClick={(e) => {
+                                                e.stopPropagation();
+                                                navigate(`/git/connector/${connector.connector_id}`);
                                             }}
                                         >
                                             View Details
@@ -396,8 +396,8 @@ export const Dashboard: React.FC = () => {
                             Monitor your code review activity and connected services
                             {dashboardData && (
                                 <span className="text-xs text-slate-400 ml-2">
-                                    Last updated: <HumanizedTimestamp 
-                                        timestamp={dashboardData.last_updated} 
+                                    Last updated: <HumanizedTimestamp
+                                        timestamp={dashboardData.last_updated}
                                         className="text-slate-400"
                                     />
                                 </span>
@@ -405,8 +405,8 @@ export const Dashboard: React.FC = () => {
                         </p>
                     </div>
                     <div className="hidden sm:flex gap-3">
-                        <Button 
-                            variant="primary" 
+                        <Button
+                            variant="primary"
                             icon={<Icons.Add />}
                             onClick={() => navigate('/reviews/new')}
                             className="shadow-xl hover:shadow-2xl transition-all duration-300 hover:scale-105 bg-gradient-to-r from-blue-600 to-blue-700 hover:from-blue-500 hover:to-blue-600"
@@ -416,6 +416,48 @@ export const Dashboard: React.FC = () => {
                         </Button>
                     </div>
                 </div>
+
+                {/* LOC Quota Warning/Blocked Banners */}
+                {billingInsight && billingInsight.blocked && (
+                    <Alert variant="error" className="mb-4">
+                        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+                            <div>
+                                <span className="font-semibold text-red-100">⛔ Monthly LOC Quota Exceeded</span>
+                                <span className="text-sm text-red-200 ml-2">
+                                    ({billingInsight.locUsed.toLocaleString()} / {billingInsight.locLimit > 0 ? billingInsight.locLimit.toLocaleString() : 'N/A'} LOC). Reviews are blocked until quota resets or you upgrade.
+                                </span>
+                            </div>
+                            <Button
+                                variant="primary"
+                                size="sm"
+                                onClick={() => navigate('/subscribe')}
+                                className="!bg-red-600 hover:!bg-red-500 flex-shrink-0"
+                            >
+                                Upgrade Now
+                            </Button>
+                        </div>
+                    </Alert>
+                )}
+                {billingInsight && !billingInsight.blocked && billingInsight.usagePct >= 90 && (
+                    <Alert variant="warning" className="mb-4">
+                        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+                            <div>
+                                <span className="font-semibold text-amber-100">⚠️ LOC Usage Nearing Limit</span>
+                                <span className="text-sm text-amber-200 ml-2">
+                                    You've used {billingInsight.locUsed.toLocaleString()} of {billingInsight.locLimit > 0 ? billingInsight.locLimit.toLocaleString() : 'N/A'} LOC ({billingInsight.usagePct}%). Upgrade to avoid interruption.
+                                </span>
+                            </div>
+                            <Button
+                                variant="primary"
+                                size="sm"
+                                onClick={() => navigate('/settings-subscriptions-overview')}
+                                className="!bg-amber-600 hover:!bg-amber-500 flex-shrink-0"
+                            >
+                                Upgrade Plan
+                            </Button>
+                        </div>
+                    </Alert>
+                )}
 
                 {billingInsight && (
                     <div className="mb-6 bg-slate-800/55 border border-slate-700 rounded-xl p-4">
@@ -432,9 +474,11 @@ export const Dashboard: React.FC = () => {
                                             'h-full transition-all',
                                             billingInsight.blocked || billingInsight.customerState === 'action_needed' || billingInsight.customerState === 'payment_failed'
                                                 ? 'bg-red-500'
-                                                : billingInsight.usagePct >= 80
-                                                ? 'bg-amber-500'
-                                                : 'bg-emerald-500'
+                                                : billingInsight.usagePct >= 90
+                                                    ? 'bg-amber-500'
+                                                    : billingInsight.usagePct >= 80
+                                                        ? 'bg-amber-500'
+                                                        : 'bg-emerald-500'
                                         )}
                                         style={{ width: `${Math.max(0, Math.min(100, billingInsight.usagePct))}%` }}
                                     />
@@ -486,8 +530,8 @@ export const Dashboard: React.FC = () => {
                 )}
 
                 {/* Floating Action Button for mobile */}
-                <Button 
-                    variant="primary" 
+                <Button
+                    variant="primary"
                     icon={<Icons.Add />}
                     onClick={() => navigate('/reviews/new')}
                     className="fixed bottom-6 right-6 sm:hidden z-40 rounded-full w-14 h-14 shadow-xl hover:shadow-2xl transition-all duration-300 hover:scale-110 bg-gradient-to-r from-blue-600 to-blue-700 hover:from-blue-500 hover:to-blue-600"
@@ -506,12 +550,12 @@ export const Dashboard: React.FC = () => {
                         onConfigureAI={() => navigate('/ai')}
                         onNewReview={() => navigate('/reviews/new')}
                         userId={user?.id}
-                        onDismiss={() => { 
-                            setHideStepper(true); 
-                            try { 
+                        onDismiss={() => {
+                            setHideStepper(true);
+                            try {
                                 const key = user?.id ? `lr_hide_get_started_${user.id}` : 'lr_hide_get_started';
-                                localStorage.setItem(key, '1'); 
-                            } catch {} 
+                                localStorage.setItem(key, '1');
+                            } catch { }
                         }}
                         className="mb-6"
                     />
@@ -519,13 +563,13 @@ export const Dashboard: React.FC = () => {
 
                 {/* Main Statistics Grid - Improved density and alignment */}
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
-                    <StatCard 
+                    <StatCard
                         variant="primary"
-                        title="AI Reviews" 
-                        value={codeReviews} 
+                        title="AI Reviews"
+                        value={codeReviews}
                         icon={
                             <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
-                                <path d="M14.72,8.79l-4.29,4.3L8.78,11.44a1,1,0,1,0-1.41,1.41l2.35,2.36a1,1,0,0,0,.71.29,1,1,0,0,0,.7-.29l5-5a1,1,0,0,0,0-1.42A1,1,0,0,0,14.72,8.79ZM12,2A10,10,0,1,0,22,12,10,10,0,0,0,12,2Zm0,18a8,8,0,1,1,8-8A8,8,0,0,1,12,20Z"/>
+                                <path d="M14.72,8.79l-4.29,4.3L8.78,11.44a1,1,0,1,0-1.41,1.41l2.35,2.36a1,1,0,0,0,.71.29,1,1,0,0,0,.7-.29l5-5a1,1,0,0,0,0-1.42A1,1,0,0,0,14.72,8.79ZM12,2A10,10,0,1,0,22,12,10,10,0,0,0,12,2Zm0,18a8,8,0,1,1,8-8A8,8,0,0,1,12,20Z" />
                             </svg>
                         }
                         description="Reviews generated"
@@ -533,13 +577,13 @@ export const Dashboard: React.FC = () => {
                         emptyCtaLabel="Start one now"
                         onEmptyCta={() => navigate('/reviews/new')}
                     />
-                    <StatCard 
+                    <StatCard
                         variant="primary"
-                        title="AI Comments" 
-                        value={aiComments} 
+                        title="AI Comments"
+                        value={aiComments}
                         icon={
                             <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
-                                <path d="M12,2A10,10,0,0,0,2,12a9.89,9.89,0,0,0,2.26,6.33l-2,2a1,1,0,0,0-.21,1.09A1,1,0,0,0,3,22h9A10,10,0,0,0,12,2Zm0,18H5.41l.93-.93a1,1,0,0,0,0-1.41A8,8,0,1,1,12,20Z"/>
+                                <path d="M12,2A10,10,0,0,0,2,12a9.89,9.89,0,0,0,2.26,6.33l-2,2a1,1,0,0,0-.21,1.09A1,1,0,0,0,3,22h9A10,10,0,0,0,12,2Zm0,18H5.41l.93-.93a1,1,0,0,0,0-1.41A8,8,0,1,1,12,20Z" />
                             </svg>
                         }
                         description="Comments generated"
@@ -548,9 +592,9 @@ export const Dashboard: React.FC = () => {
                         onEmptyCta={() => navigate('/reviews/new')}
                     />
                     <div className="relative group">
-                        <StatCard 
-                            title="Git Providers" 
-                            value={connectedProviders} 
+                        <StatCard
+                            title="Git Providers"
+                            value={connectedProviders}
                             icon={<Icons.Git />}
                             description="Connected services"
                             emptyNote="No Git providers connected."
@@ -561,9 +605,9 @@ export const Dashboard: React.FC = () => {
                         />
                     </div>
                     <div className="relative group">
-                        <StatCard 
-                            title="AI Providers" 
-                            value={aiConnectors} 
+                        <StatCard
+                            title="AI Providers"
+                            value={aiConnectors}
                             icon={<Icons.AI />}
                             description="Connected AI backends"
                             emptyNote="No AI providers configured."
@@ -576,31 +620,31 @@ export const Dashboard: React.FC = () => {
                 </div>
 
                 {/* Main Content Grid */}
-                                <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
                     <div className="lg:col-span-2">
                         <RecentActivity className="h-fit" />
                     </div>
 
                     <div className="space-y-6">
-                                                {isEmpty && (
-                                                    <Card title="Get Started" subtitle="Connect a provider or configure AI to begin">
-                                                        <div className="space-y-2">
-                                                            <Button variant="outline" icon={<Icons.Git />} onClick={() => navigate('/git')} className='mr-2'>
-                                                                Connect Git Provider
-                                                            </Button>
-                                                            <Button variant="outline" icon={<Icons.AI />} onClick={() => navigate('/ai')} className='mr-2'>
-                                                                Configure AI Service
-                                                            </Button>
-                                                            <Button variant="outline" icon={<Icons.Settings />} onClick={() => navigate('/settings')} className='mr-2'>
-                                                                Review Settings
-                                                            </Button>
-                                                        </div>
-                                                    </Card>
-                                                )}
+                        {isEmpty && (
+                            <Card title="Get Started" subtitle="Connect a provider or configure AI to begin">
+                                <div className="space-y-2">
+                                    <Button variant="outline" icon={<Icons.Git />} onClick={() => navigate('/git')} className='mr-2'>
+                                        Connect Git Provider
+                                    </Button>
+                                    <Button variant="outline" icon={<Icons.AI />} onClick={() => navigate('/ai')} className='mr-2'>
+                                        Configure AI Service
+                                    </Button>
+                                    <Button variant="outline" icon={<Icons.Settings />} onClick={() => navigate('/settings')} className='mr-2'>
+                                        Review Settings
+                                    </Button>
+                                </div>
+                            </Card>
+                        )}
 
                         {/* Performance Summary */}
-                        <Card 
-                            title="This Week" 
+                        <Card
+                            title="This Week"
                             subtitle="Review performance summary"
                             className="h-fit"
                         >
@@ -622,8 +666,8 @@ export const Dashboard: React.FC = () => {
                                     <span className="text-sm font-medium text-white">{dashboardData?.performance_metrics?.success_rate_percentage?.toFixed(1) || '100'}%</span>
                                 </div>
                                 <div className="pt-2 border-t border-slate-700">
-                                    <Button 
-                                        variant="ghost" 
+                                    <Button
+                                        variant="ghost"
                                         size="sm"
                                         className="w-full text-blue-300 hover:text-blue-200"
                                     >
@@ -633,21 +677,21 @@ export const Dashboard: React.FC = () => {
                             </div>
                         </Card>
 
-                                                {/* Improved empty state for metrics */}
-                                                {isEmpty && (
-                                                    <Card className="h-fit" title="No data yet" subtitle="Run your first review to see stats here.">
-                                                        <EmptyState
-                                                            icon={<Icons.EmptyState />}
-                                                            title="Nothing to show yet"
-                                                            description="Once you run a review, you'll see activity, comments and trends here."
-                                                            action={
-                                                                <Button variant="primary" icon={<Icons.Add />} onClick={() => navigate('/reviews/new')}>
-                                                                    New Review
-                                                                </Button>
-                                                            }
-                                                        />
-                                                    </Card>
-                                                )}
+                        {/* Improved empty state for metrics */}
+                        {isEmpty && (
+                            <Card className="h-fit" title="No data yet" subtitle="Run your first review to see stats here.">
+                                <EmptyState
+                                    icon={<Icons.EmptyState />}
+                                    title="Nothing to show yet"
+                                    description="Once you run a review, you'll see activity, comments and trends here."
+                                    action={
+                                        <Button variant="primary" icon={<Icons.Add />} onClick={() => navigate('/reviews/new')}>
+                                            New Review
+                                        </Button>
+                                    }
+                                />
+                            </Card>
+                        )}
                     </div>
                 </div>
             </main>

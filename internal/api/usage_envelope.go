@@ -142,6 +142,11 @@ func BuildEnvelopeFromContext(c echo.Context) PlanUsageEnvelope {
 		envelope.TrialReadOnly = trialReadOnly
 	}
 
+	// Populate upgrade URL when usage is at warning/blocked thresholds
+	if envelope.Blocked || envelope.TrialReadOnly || envelope.ThresholdState == "90" || envelope.ThresholdState == "100" {
+		envelope.UpgradeURL = "/settings-subscriptions-overview"
+	}
+
 	return envelope
 }
 
