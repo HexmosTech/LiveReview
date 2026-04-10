@@ -572,11 +572,145 @@ func (p *BitbucketProvider) Name() string {
 }
 
 func (p *BitbucketProvider) PostComment(ctx context.Context, mrID string, comment *models.ReviewComment) error {
-	return fmt.Errorf("not implemented")
+	log.Printf("[DEBUG] BitbucketProvider.PostComment called with mrID: '%s', FilePath: '%s', Line: %d", mrID, comment.FilePath, comment.Line)
+
+	// mrID format: workspace/repo/prNumber
+	parts := strings.Split(mrID, "/")
+	if len(parts) != 3 {
+		return fmt.Errorf("invalid Bitbucket PR ID format: expected 'workspace/repo/number', got '%s'", mrID)
+	}
+	workspace := parts[0]
+	repo := parts[1]
+	prNumber := parts[2]
+
+	if comment.FilePath != "" && comment.Line > 0 {
+		return p.postLineComment(ctx, workspace, repo, prNumber, comment)
+	}
+	return p.postGeneralComment(ctx, workspace, repo, prNumber, comment)
+}
+
+// formatBitbucketComment formats a comment for Bitbucket, including severity and suggestions.
+func formatBitbucketComment(comment *models.ReviewComment) string {
+	body := comment.Content
+	if comment.Severity != "" {
+		body = fmt.Sprintf("**Severity: %s**\n\n%s", comment.Severity, body)
+	}
+	if len(comment.Suggestions) > 0 {
+		body += "\n\n**Suggestions:**\n"
+		for i, s := range comment.Suggestions {
+			body += fmt.Sprintf("%d. %s\n", i+1, s)
+		}
+	}
+	return body
+}
+
+func (p *BitbucketProvider) postGeneralComment(ctx context.Context, workspace, repo, prNumber string, comment *models.ReviewComment) error {
+	apiURL := fmt.Sprintf("https://api.bitbucket.org/2.0/repositories/%s/%s/pullrequests/%s/comments", workspace, repo, prNumber)
+
+	payload := map[string]interface{}{
+		"content": map[string]string{
+			"raw": formatBitbucketComment(comment),
+		},
+	}
+
+	data, err := json.Marshal(payload)
+	if err != nil {
+		return fmt.Errorf("failed to marshal comment payload: %w", err)
+	}
+
+	req, err := http.NewRequestWithContext(ctx, "POST", apiURL, bytes.NewReader(data))
+	if err != nil {
+		return fmt.Errorf("failed to create request: %w", err)
+	}
+
+	auth := base64.StdEncoding.EncodeToString([]byte(p.email + ":" + p.token))
+	req.Header.Set("Authorization", "Basic "+auth)
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Accept", "application/json")
+
+	resp, err := p.httpClient.Do(req)
+	if err != nil {
+		return fmt.Errorf("failed to post general comment: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusCreated {
+		body, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("Bitbucket general comment failed: %s, response: %s", resp.Status, string(body))
+	}
+
+	log.Printf("[DEBUG] BitbucketProvider: Successfully posted general comment on PR %s/%s/%s", workspace, repo, prNumber)
+	return nil
+}
+
+func (p *BitbucketProvider) postLineComment(ctx context.Context, workspace, repo, prNumber string, comment *models.ReviewComment) error {
+	apiURL := fmt.Sprintf("https://api.bitbucket.org/2.0/repositories/%s/%s/pullrequests/%s/comments", workspace, repo, prNumber)
+
+	// Bitbucket inline comments use the "inline" object with "path" and "to" (new line)
+	// or "from" (old line) for deleted lines.
+	inlinePayload := map[string]interface{}{
+		"path": comment.FilePath,
+		"to":   comment.Line,
+	}
+	if comment.IsDeletedLine {
+		// For deleted lines, use "from" instead of "to"
+		inlinePayload = map[string]interface{}{
+			"path": comment.FilePath,
+			"from": comment.Line,
+		}
+	}
+
+	payload := map[string]interface{}{
+		"content": map[string]string{
+			"raw": formatBitbucketComment(comment),
+		},
+		"inline": inlinePayload,
+	}
+
+	data, err := json.Marshal(payload)
+	if err != nil {
+		return fmt.Errorf("failed to marshal inline comment payload: %w", err)
+	}
+
+	req, err := http.NewRequestWithContext(ctx, "POST", apiURL, bytes.NewReader(data))
+	if err != nil {
+		return fmt.Errorf("failed to create request: %w", err)
+	}
+
+	auth := base64.StdEncoding.EncodeToString([]byte(p.email + ":" + p.token))
+	req.Header.Set("Authorization", "Basic "+auth)
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Accept", "application/json")
+
+	resp, err := p.httpClient.Do(req)
+	if err != nil {
+		return fmt.Errorf("failed to post inline comment: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusCreated {
+		body, _ := io.ReadAll(resp.Body)
+		// If the line is not part of the diff, Bitbucket returns 400/422.
+		// Fall back to a general comment rather than failing the whole review.
+		if resp.StatusCode == http.StatusBadRequest || resp.StatusCode == http.StatusUnprocessableEntity {
+			log.Printf("[WARN] BitbucketProvider: Inline comment rejected for %s:%d (%s) — falling back to general comment. Response: %s",
+				comment.FilePath, comment.Line, resp.Status, string(body))
+			return p.postGeneralComment(ctx, workspace, repo, prNumber, comment)
+		}
+		return fmt.Errorf("Bitbucket inline comment failed: %s, response: %s", resp.Status, string(body))
+	}
+
+	log.Printf("[DEBUG] BitbucketProvider: Successfully posted inline comment on %s:%d", comment.FilePath, comment.Line)
+	return nil
 }
 
 func (p *BitbucketProvider) PostComments(ctx context.Context, mrID string, comments []*models.ReviewComment) error {
-	return fmt.Errorf("not implemented")
+	for _, comment := range comments {
+		if err := p.PostComment(ctx, mrID, comment); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func (p *BitbucketProvider) Configure(config map[string]interface{}) error {

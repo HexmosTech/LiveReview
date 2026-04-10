@@ -53,8 +53,15 @@ func (f *StandardProviderFactory) CreateProvider(ctx context.Context, config Pro
 		log.Printf("[DEBUG] Creating Bitbucket provider")
 		apiToken, _ := config.Config["pat_token"].(string)
 		email, _ := config.Config["email"].(string)
-		log.Printf("[DEBUG] Bitbucket token exists: %v, email: %s", len(apiToken) > 0, email)
-		provider, err := bitbucket.NewBitbucketProvider(apiToken, email, "")
+		// Prefer the explicit repo_url from the config map (PR URL set by the API
+		// layer), fall back to the provider base URL. An empty string would cause
+		// ParseBitbucketURL to fail immediately.
+		repoURL, _ := config.Config["repo_url"].(string)
+		if repoURL == "" {
+			repoURL = config.URL
+		}
+		log.Printf("[DEBUG] Bitbucket token exists: %v, email: %s, repoURL: %s", len(apiToken) > 0, email, repoURL)
+		provider, err := bitbucket.NewBitbucketProvider(apiToken, email, repoURL)
 		if err != nil {
 			return nil, fmt.Errorf("failed to create bitbucket provider: %w", err)
 		}

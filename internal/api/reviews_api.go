@@ -541,6 +541,8 @@ func (s *Server) buildReviewRequest(
 					providerConfigMap["email"] = email
 				}
 			}
+			// Pass the full PR URL so the factory can parse workspace/repo from it
+			providerConfigMap["repo_url"] = requestURL
 		} else if strings.HasPrefix(token.Provider, "gitea") {
 			pat, user, pass := decodePATPayload(token.PatToken)
 			if pat == "" {
