@@ -15,34 +15,34 @@ import (
 	rm "github.com/livereview/internal/reviewmodel"
 )
 
-func (m *MrModelImpl) FetchBitbucketData(provider interface{}, prID string, prURL string) (details *providers.MergeRequestDetails, diffs string, commits interface{}, comments interface{}, err error) {
+func (m *MrModelImpl) FetchBitbucketData(ctx context.Context, provider interface{}, prID string, prURL string) (details *providers.MergeRequestDetails, diffs string, commits interface{}, comments interface{}, err error) {
 	// Type assertion for Bitbucket provider
 	bbProvider, ok := provider.(interface {
 		GetMergeRequestDetails(ctx context.Context, prURL string) (*providers.MergeRequestDetails, error)
-		GetPullRequestDiff(prID string) (string, error)
-		GetPullRequestCommits(prID string) ([]bitbucket.BitbucketCommit, error)
-		GetPullRequestComments(prID string) ([]bitbucket.BitbucketComment, error)
+		GetPullRequestDiff(ctx context.Context, prID string) (string, error)
+		GetPullRequestCommits(ctx context.Context, prID string) ([]bitbucket.BitbucketCommit, error)
+		GetPullRequestComments(ctx context.Context, prID string) ([]bitbucket.BitbucketComment, error)
 	})
 	if !ok {
 		return nil, "", nil, nil, fmt.Errorf("invalid Bitbucket provider")
 	}
 
-	details, err = bbProvider.GetMergeRequestDetails(context.Background(), prURL)
+	details, err = bbProvider.GetMergeRequestDetails(ctx, prURL)
 	if err != nil {
 		return nil, "", nil, nil, fmt.Errorf("GetMergeRequestDetails failed: %w", err)
 	}
 
-	diffs, err = bbProvider.GetPullRequestDiff(prID)
+	diffs, err = bbProvider.GetPullRequestDiff(ctx, prID)
 	if err != nil {
 		return nil, "", nil, nil, fmt.Errorf("failed to get MR changes: %w", err)
 	}
 
-	commits, err = bbProvider.GetPullRequestCommits(prID)
+	commits, err = bbProvider.GetPullRequestCommits(ctx, prID)
 	if err != nil {
 		return nil, "", nil, nil, fmt.Errorf("GetPullRequestCommits failed: %w", err)
 	}
 
-	comments, err = bbProvider.GetPullRequestComments(prID)
+	comments, err = bbProvider.GetPullRequestComments(ctx, prID)
 	if err != nil {
 		return nil, "", nil, nil, fmt.Errorf("GetPullRequestComments failed: %w", err)
 	}
@@ -51,7 +51,7 @@ func (m *MrModelImpl) FetchBitbucketData(provider interface{}, prID string, prUR
 }
 
 func (m *MrModelImpl) BuildBitbucketArtifact(provider *bitbucket.BitbucketProvider, prID, prURL, outDir string) (*UnifiedArtifact, error) {
-	details, diffs, commitsIface, commentsIface, err := m.FetchBitbucketData(provider, prID, prURL)
+	details, diffs, commitsIface, commentsIface, err := m.FetchBitbucketData(context.Background(), provider, prID, prURL)
 	if err != nil {
 		return nil, err
 	}
