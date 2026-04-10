@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/livereview/internal/providers"
+	networkbitbucket "github.com/livereview/network/providers/bitbucket"
 	"github.com/livereview/pkg/models"
 	"golang.org/x/time/rate"
 )
@@ -93,7 +94,7 @@ func NewBitbucketProvider(token, email, repoURL string) (*BitbucketProvider, err
 		repoURL:     repoURL,
 		workspace:   workspace,
 		repoSlug:    repoSlug,
-		httpClient:  &http.Client{Timeout: 10 * time.Second},
+		httpClient:  networkbitbucket.NewHTTPClient(10 * time.Second),
 		RateLimiter: rate.NewLimiter(rate.Every(1*time.Second), 5), // 5 requests per second
 	}, nil
 }
@@ -134,7 +135,7 @@ func (p *BitbucketProvider) GetMergeRequestDetails(ctx context.Context, prURL st
 	apiURL := fmt.Sprintf("https://api.bitbucket.org/2.0/repositories/%s/%s/pullrequests/%s", p.workspace, p.repoSlug, prID)
 	log.Printf("[DEBUG] BitbucketProvider: API URL: %s", apiURL)
 
-	req, err := http.NewRequestWithContext(ctx, "GET", apiURL, nil)
+	req, err := networkbitbucket.NewRequestWithContext(ctx, "GET", apiURL, nil)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create request: %w", err)
 	}
@@ -144,7 +145,7 @@ func (p *BitbucketProvider) GetMergeRequestDetails(ctx context.Context, prURL st
 	req.Header.Set("Authorization", "Basic "+auth)
 	req.Header.Set("Accept", "application/json")
 
-	resp, err := p.httpClient.Do(req)
+	resp, err := networkbitbucket.Do(p.httpClient, req)
 	if err != nil {
 		return nil, fmt.Errorf("failed to fetch PR details: %w", err)
 	}
@@ -240,7 +241,7 @@ func (p *BitbucketProvider) GetMergeRequestChanges(ctx context.Context, prID str
 
 	log.Printf("[DEBUG] BitbucketProvider: Diff API URL: %s", apiURL)
 
-	req, err := http.NewRequestWithContext(ctx, "GET", apiURL, nil)
+	req, err := networkbitbucket.NewRequestWithContext(ctx, "GET", apiURL, nil)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create request: %w", err)
 	}
@@ -250,7 +251,7 @@ func (p *BitbucketProvider) GetMergeRequestChanges(ctx context.Context, prID str
 	req.Header.Set("Authorization", "Basic "+auth)
 	req.Header.Set("Accept", "text/plain")
 
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := networkbitbucket.Do(http.DefaultClient, req)
 	if err != nil {
 		return nil, fmt.Errorf("failed to fetch PR diff: %w", err)
 	}
@@ -303,7 +304,7 @@ func (p *BitbucketProvider) GetMergeRequestChangesAsText(ctx context.Context, pr
 
 	log.Printf("[DEBUG] BitbucketProvider: Diff API URL: %s", apiURL)
 
-	req, err := http.NewRequestWithContext(ctx, "GET", apiURL, nil)
+	req, err := networkbitbucket.NewRequestWithContext(ctx, "GET", apiURL, nil)
 	if err != nil {
 		return "", fmt.Errorf("failed to create request: %w", err)
 	}
@@ -313,7 +314,7 @@ func (p *BitbucketProvider) GetMergeRequestChangesAsText(ctx context.Context, pr
 	req.Header.Set("Authorization", "Basic "+auth)
 	req.Header.Set("Accept", "text/plain")
 
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := networkbitbucket.Do(http.DefaultClient, req)
 	if err != nil {
 		return "", fmt.Errorf("failed to fetch PR diff: %w", err)
 	}
@@ -333,9 +334,9 @@ func (p *BitbucketProvider) GetMergeRequestChangesAsText(ctx context.Context, pr
 	return string(diffContent), nil
 }
 
-func (p *BitbucketProvider) GetPullRequestCommits(prID string) ([]BitbucketCommit, error) {
+func (p *BitbucketProvider) GetPullRequestCommits(ctx context.Context, prID string) ([]BitbucketCommit, error) {
 	apiURL := fmt.Sprintf("https://api.bitbucket.org/2.0/repositories/%s/%s/pullrequests/%s/commits", p.workspace, p.repoSlug, prID)
-	body, err := p.doRequest(apiURL, "GET", nil)
+	body, err := p.doRequest(ctx, apiURL, "GET", nil)
 	if err != nil {
 		return nil, fmt.Errorf("failed to fetch PR commits: %w", err)
 	}
@@ -351,9 +352,9 @@ func (p *BitbucketProvider) GetPullRequestCommits(prID string) ([]BitbucketCommi
 	return response.Values, nil
 }
 
-func (p *BitbucketProvider) GetPullRequestComments(prID string) ([]BitbucketComment, error) {
+func (p *BitbucketProvider) GetPullRequestComments(ctx context.Context, prID string) ([]BitbucketComment, error) {
 	apiURL := fmt.Sprintf("https://api.bitbucket.org/2.0/repositories/%s/%s/pullrequests/%s/comments?sort=-created_on", p.workspace, p.repoSlug, prID)
-	body, err := p.doRequest(apiURL, "GET", nil)
+	body, err := p.doRequest(ctx, apiURL, "GET", nil)
 	if err != nil {
 		return nil, fmt.Errorf("failed to fetch PR comments: %w", err)
 	}
@@ -369,9 +370,9 @@ func (p *BitbucketProvider) GetPullRequestComments(prID string) ([]BitbucketComm
 	return response.Values, nil
 }
 
-func (p *BitbucketProvider) GetPullRequestDiff(prID string) (string, error) {
+func (p *BitbucketProvider) GetPullRequestDiff(ctx context.Context, prID string) (string, error) {
 	apiURL := fmt.Sprintf("https://api.bitbucket.org/2.0/repositories/%s/%s/pullrequests/%s/diff", p.workspace, p.repoSlug, prID)
-	body, err := p.doRequest(apiURL, "GET", nil)
+	body, err := p.doRequest(ctx, apiURL, "GET", nil)
 	if err != nil {
 		return "", fmt.Errorf("failed to fetch PR diff: %w", err)
 	}
@@ -379,7 +380,7 @@ func (p *BitbucketProvider) GetPullRequestDiff(prID string) (string, error) {
 	return string(body), nil
 }
 
-func (p *BitbucketProvider) doRequest(apiURL, method string, payload interface{}) ([]byte, error) {
+func (p *BitbucketProvider) doRequest(ctx context.Context, apiURL, method string, payload interface{}) ([]byte, error) {
 	var body io.Reader
 	if payload != nil {
 		data, err := json.Marshal(payload)
@@ -389,7 +390,7 @@ func (p *BitbucketProvider) doRequest(apiURL, method string, payload interface{}
 		body = bytes.NewReader(data)
 	}
 
-	req, err := http.NewRequest(method, apiURL, body)
+	req, err := networkbitbucket.NewRequestWithContext(ctx, method, apiURL, body)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create request: %w", err)
 	}
@@ -400,7 +401,7 @@ func (p *BitbucketProvider) doRequest(apiURL, method string, payload interface{}
 	req.Header.Set("Accept", "application/json")
 	req.Header.Set("Content-Type", "application/json")
 
-	resp, err := p.httpClient.Do(req)
+	resp, err := networkbitbucket.Do(p.httpClient, req)
 	if err != nil {
 		return nil, fmt.Errorf("failed to execute request: %w", err)
 	}
@@ -618,17 +619,7 @@ func (p *BitbucketProvider) postGeneralComment(ctx context.Context, workspace, r
 		return fmt.Errorf("failed to marshal comment payload: %w", err)
 	}
 
-	req, err := http.NewRequestWithContext(ctx, "POST", apiURL, bytes.NewReader(data))
-	if err != nil {
-		return fmt.Errorf("failed to create request: %w", err)
-	}
-
-	auth := base64.StdEncoding.EncodeToString([]byte(p.email + ":" + p.token))
-	req.Header.Set("Authorization", "Basic "+auth)
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Accept", "application/json")
-
-	resp, err := p.httpClient.Do(req)
+	resp, err := networkbitbucket.PostCommentAPI(ctx, p.httpClient, apiURL, p.email, p.token, data)
 	if err != nil {
 		return fmt.Errorf("failed to post general comment: %w", err)
 	}
@@ -672,17 +663,7 @@ func (p *BitbucketProvider) postLineComment(ctx context.Context, workspace, repo
 		return fmt.Errorf("failed to marshal inline comment payload: %w", err)
 	}
 
-	req, err := http.NewRequestWithContext(ctx, "POST", apiURL, bytes.NewReader(data))
-	if err != nil {
-		return fmt.Errorf("failed to create request: %w", err)
-	}
-
-	auth := base64.StdEncoding.EncodeToString([]byte(p.email + ":" + p.token))
-	req.Header.Set("Authorization", "Basic "+auth)
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Accept", "application/json")
-
-	resp, err := p.httpClient.Do(req)
+	resp, err := networkbitbucket.PostCommentAPI(ctx, p.httpClient, apiURL, p.email, p.token, data)
 	if err != nil {
 		return fmt.Errorf("failed to post inline comment: %w", err)
 	}
@@ -691,11 +672,10 @@ func (p *BitbucketProvider) postLineComment(ctx context.Context, workspace, repo
 	if resp.StatusCode != http.StatusCreated {
 		body, _ := io.ReadAll(resp.Body)
 		// If the line is not part of the diff, Bitbucket returns 400/422.
-		// Fall back to a general comment rather than failing the whole review.
+		// Rule 1: We do not use fallback implementations. Return an error explicitly.
 		if resp.StatusCode == http.StatusBadRequest || resp.StatusCode == http.StatusUnprocessableEntity {
-			log.Printf("[WARN] BitbucketProvider: Inline comment rejected for %s:%d (%s) — falling back to general comment. Response: %s",
+			return fmt.Errorf("Bitbucket inline comment rejected for %s:%d (%s): %s",
 				comment.FilePath, comment.Line, resp.Status, string(body))
-			return p.postGeneralComment(ctx, workspace, repo, prNumber, comment)
 		}
 		return fmt.Errorf("Bitbucket inline comment failed: %s, response: %s", resp.Status, string(body))
 	}
