@@ -1056,10 +1056,11 @@ func (p *UnifiedProcessorV2Impl) generateLLMResponseV2(ctx context.Context, prom
 		return "", nil, fmt.Errorf("no AI connectors configured for organization %d", orgID)
 	}
 
+	// Use the first available connector (could be enhanced with priority logic)
 	connectorRecord := connectors[0]
 	var options aiconnectors.ConnectorOptions
 
-	if connectorRecord.ProviderName == "livereview-default-ai" {
+	if connectorRecord.ProviderName == aidefault.ProviderName {
 		tier := connectorRecord.GetSelectedModel()
 		if tier == "" {
 			tier = "default"
