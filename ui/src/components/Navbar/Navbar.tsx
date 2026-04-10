@@ -54,16 +54,16 @@ type NavbarUsageMembersResponse = {
 const UpgradeBadge: React.FC = () => {
     const navigate = useNavigate();
     const { currentOrg } = useOrgContext();
-    
+
     // Only show in cloud mode
     if (!isCloudMode()) {
         return null;
     }
-    
+
     // Get plan from current org
     const planType = currentOrg?.plan_type || 'free';
     const isTeamPlan = planType === 'team';
-    
+
     if (isTeamPlan) {
         // Show Team Plan badge that navigates to subscription settings
         return (
@@ -78,7 +78,7 @@ const UpgradeBadge: React.FC = () => {
             </button>
         );
     }
-    
+
     // Show Upgrade button for free plan
     return (
         <button
@@ -233,8 +233,8 @@ const BillingChip: React.FC = () => {
     const toneClass = chip?.blocked || chip?.customerState === 'action_needed' || chip?.customerState === 'payment_failed'
         ? 'bg-red-900/35 border-red-500/50 text-red-100 hover:bg-red-900/50'
         : chip && chip.usagePct >= 80
-        ? 'bg-amber-900/35 border-amber-500/50 text-amber-100 hover:bg-amber-900/50'
-        : 'bg-emerald-900/25 border-emerald-500/40 text-emerald-100 hover:bg-emerald-900/40';
+            ? 'bg-amber-900/35 border-amber-500/50 text-amber-100 hover:bg-amber-900/50'
+            : 'bg-emerald-900/25 border-emerald-500/40 text-emerald-100 hover:bg-emerald-900/40';
 
     return (
         <div
@@ -260,6 +260,35 @@ const BillingChip: React.FC = () => {
                     <p className="text-[11px] text-slate-400 mt-1">
                         Scope: organization usage in current billing period. Attribution is charged to the triggering actor.
                     </p>
+                    {/* LOC Warning / Blocked Banner */}
+                    {chip.blocked && (
+                        <div className="mt-2 rounded bg-red-950/60 border border-red-500/60 p-2 text-[11px]">
+                            <p className="text-red-200 font-semibold">⛔ Monthly LOC Quota Exceeded</p>
+                            <p className="text-red-300/90 mt-0.5">
+                                You've used {chip.locUsed.toLocaleString()} of {chip.locLimit > 0 ? chip.locLimit.toLocaleString() : 'N/A'} LOC. Reviews are blocked until quota resets.
+                            </p>
+                            <button
+                                onClick={(e) => { e.stopPropagation(); navigate('/settings-subscriptions-overview'); }}
+                                className="mt-2 w-full py-1 bg-red-600 hover:bg-red-500 rounded text-red-50 font-semibold transition-colors"
+                            >
+                                Upgrade Now
+                            </button>
+                        </div>
+                    )}
+                    {!chip.blocked && chip.usagePct >= 90 && (
+                        <div className="mt-2 rounded bg-amber-950/50 border border-amber-500/50 p-2 text-[11px]">
+                            <p className="text-amber-200 font-semibold">⚠️ LOC Usage Nearing Limit</p>
+                            <p className="text-amber-300/90 mt-0.5">
+                                You've used {chip.locUsed.toLocaleString()} of {chip.locLimit > 0 ? chip.locLimit.toLocaleString() : 'N/A'} LOC ({chip.usagePct}%). Upgrade to avoid interruption.
+                            </p>
+                            <button
+                                onClick={(e) => { e.stopPropagation(); navigate('/settings-subscriptions-overview'); }}
+                                className="mt-1 w-full py-1 bg-amber-600 hover:bg-amber-500 rounded text-amber-50 font-semibold transition-colors"
+                            >
+                                Upgrade Plan
+                            </button>
+                        </div>
+                    )}
                     <div className="mt-2 rounded bg-blue-950/40 border border-blue-700/50 p-2 text-[11px]">
                         <p className="text-blue-200 font-medium">Usage resets on {formatResetAt(chip.resetAt)}</p>
                         <p className="text-blue-300/80 mt-0.5">Local timezone. New cycle usage starts immediately after this time.</p>
@@ -334,8 +363,8 @@ const baseNavLinks: NavLink[] = [
 ];
 
 const testNavLink: NavLink = {
-    name: 'Test Middleware', 
-    key: 'test-middleware', 
+    name: 'Test Middleware',
+    key: 'test-middleware',
     icon: (
         <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
@@ -375,7 +404,7 @@ export const Navbar: React.FC<NavbarProps> = ({ title, activePage = 'dashboard',
         <nav className="bg-slate-900/95 backdrop-blur-sm shadow-lg border-b border-slate-700/60 sticky top-0 z-50">
             <div className="container mx-auto px-4 py-3 flex justify-between items-center">
                 <div className="flex items-center">
-                    <Link 
+                    <Link
                         to="/"
                         onClick={() => handleNavClick('dashboard')}
                         className="cursor-pointer transition-transform hover:scale-105"
@@ -385,7 +414,7 @@ export const Navbar: React.FC<NavbarProps> = ({ title, activePage = 'dashboard',
                         <img src="assets/logo-horizontal.svg" alt="LiveReview Logo" className="h-10 w-auto mr-3" />
                     </Link>
                 </div>
-                
+
                 {/* Mobile menu button */}
                 <div className="md:hidden">
                     <Button
@@ -404,16 +433,16 @@ export const Navbar: React.FC<NavbarProps> = ({ title, activePage = 'dashboard',
                         )}
                     />
                 </div>
-                
+
                 {/* Desktop menu */}
                 <div className="hidden md:flex items-center space-x-2">
                     {/* Organization Selector */}
-                    <OrganizationSelector 
+                    <OrganizationSelector
                         position="navbar"
                         size="sm"
                         className="mr-4"
                     />
-                    
+
                     {navLinks.map(link => (
                         <Button
                             key={link.key}
@@ -422,8 +451,8 @@ export const Navbar: React.FC<NavbarProps> = ({ title, activePage = 'dashboard',
                             icon={link.icon}
                             className={classNames(
                                 'text-sm font-medium transition-all duration-200',
-                                activePage === link.key 
-                                    ? 'bg-blue-600 text-white shadow-lg' 
+                                activePage === link.key
+                                    ? 'bg-blue-600 text-white shadow-lg'
                                     : 'text-slate-300 hover:text-white hover:bg-slate-700/60'
                             )}
                             as={Link}
@@ -433,10 +462,10 @@ export const Navbar: React.FC<NavbarProps> = ({ title, activePage = 'dashboard',
                         </Button>
                     ))}
                     <BillingChip />
-                    
+
                     {/* Upgrade / Manage Licenses */}
                     <UpgradeBadge />
-                    
+
                     {/* Logout button */}
                     {onLogout && (
                         <Button
@@ -452,13 +481,13 @@ export const Navbar: React.FC<NavbarProps> = ({ title, activePage = 'dashboard',
                     )}
                 </div>
             </div>
-            
+
             {/* Mobile menu dropdown */}
             {isOpen && (
                 <div className="md:hidden px-4 py-3 space-y-2 bg-slate-800/95 border-t border-slate-700/60 backdrop-blur-sm">
                     {/* Mobile Organization Selector */}
                     <div className="mb-3">
-                        <OrganizationSelector 
+                        <OrganizationSelector
                             position="sidebar"
                             size="sm"
                         />
@@ -466,7 +495,7 @@ export const Navbar: React.FC<NavbarProps> = ({ title, activePage = 'dashboard',
                     <div className="mb-3">
                         <BillingChip />
                     </div>
-                    
+
                     {navLinks.map(link => (
                         <Button
                             key={link.key}
@@ -475,8 +504,8 @@ export const Navbar: React.FC<NavbarProps> = ({ title, activePage = 'dashboard',
                             icon={link.icon}
                             className={classNames(
                                 'w-full justify-start text-sm font-medium',
-                                activePage === link.key 
-                                    ? 'bg-blue-600 text-white' 
+                                activePage === link.key
+                                    ? 'bg-blue-600 text-white'
                                     : 'text-slate-300 hover:text-white hover:bg-slate-700/60'
                             )}
                             iconPosition="left"
@@ -486,12 +515,12 @@ export const Navbar: React.FC<NavbarProps> = ({ title, activePage = 'dashboard',
                             {link.name}
                         </Button>
                     ))}
-                    
+
                     {/* Mobile Upgrade/Manage Licenses */}
                     <div className="pt-2 border-t border-slate-700">
                         <UpgradeBadge />
                     </div>
-                    
+
                     {/* Mobile logout button */}
                     {onLogout && (
                         <Button
