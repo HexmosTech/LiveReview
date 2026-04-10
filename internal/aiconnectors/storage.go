@@ -347,6 +347,39 @@ func maskAPIKey(apiKey string) string {
 	return apiKey[:4] + "..." + apiKey[len(apiKey)-4:]
 }
 
+// GetSystemManagedConfig retrieves the master configuration for the managed AI tier from system_default_ai_configs
+func (s *Storage) GetSystemManagedConfig(ctx context.Context, tier string) (ConnectorOptions, error) {
+	query := `
+		SELECT provider_name, model_name, master_api_key
+		FROM system_default_ai_configs
+		WHERE tier_name = $1 AND is_active = true
+		LIMIT 1
+	`
+
+	var provider, model, apiKey string
+	var err error
+	if s.store != nil {
+		err = s.store.QueryRowContext(ctx, query, tier).Scan(&provider, &model, &apiKey)
+	} else {
+		return ConnectorOptions{}, fmt.Errorf("storage store not initialized")
+	}
+
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return ConnectorOptions{}, fmt.Errorf("no active system default AI config found for tier: %s", tier)
+		}
+		return ConnectorOptions{}, fmt.Errorf("failed to query system default AI config: %w", err)
+	}
+
+	return ConnectorOptions{
+		Provider: Provider(provider),
+		APIKey:   apiKey,
+		ModelConfig: ModelConfig{
+			Model: model,
+		},
+	}, nil
+}
+
 // GetMaxDisplayOrder returns the maximum display_order value in the database
 func (s *Storage) GetMaxDisplayOrder(ctx context.Context, orgID int64) (int, error) {
 	query := `SELECT COALESCE(MAX(display_order), 0) FROM ai_connectors WHERE org_id = $1`

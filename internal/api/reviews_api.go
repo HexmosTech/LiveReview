@@ -13,6 +13,7 @@ import (
 
 	"github.com/labstack/echo/v4"
 	"github.com/livereview/internal/aiconnectors"
+	"github.com/livereview/internal/aidefault"
 	"github.com/livereview/internal/config"
 	"github.com/livereview/internal/license"
 	"github.com/livereview/internal/review"
@@ -331,18 +332,30 @@ func (s *Server) getAIConfigFromDatabase(ctx context.Context, orgID int64, planC
 		planCode = license.PlanFree30K
 	}
 
-	// Free tier enforces BYOK strictly.
+	// Free tier enforces BYOK strictly (system default AI provider is not available).
 	if planCode == license.PlanFree30K {
-		if len(connectors) == 0 {
-			return review.AIConfig{}, fmt.Errorf("free_30k requires BYOK connector setup for organization %d", orgID)
+		var byokConnector *aiconnectors.ConnectorRecord
+		for _, c := range connectors {
+			if c.ProviderName != aidefault.ProviderName {
+				byokConnector = c
+				break
+			}
 		}
-		return buildBYOKAIConfig(connectors[0], "byok_required")
+
+		if byokConnector == nil {
+			return review.AIConfig{}, fmt.Errorf("the Free plan requires you to configure your own LLM API key (BYOK) for your organization.")
+		}
+		return buildBYOKAIConfig(byokConnector, "byok_required")
 	}
 
 	// Paid team defaults to hosted auto model when no BYOK connector is configured.
 	if planCode == license.PlanTeam32USD {
 		if len(connectors) > 0 {
-			return buildBYOKAIConfig(connectors[0], "byok_override")
+			connector := connectors[0]
+			if connector.ProviderName == aidefault.ProviderName {
+				return buildDefaultAIConfig(ctx, s.db, connector)
+			}
+			return buildBYOKAIConfig(connector, "byok_override")
 		}
 		return buildHostedAutoAIConfig()
 	}
@@ -352,7 +365,35 @@ func (s *Server) getAIConfigFromDatabase(ctx context.Context, orgID int64, planC
 		return buildBYOKAIConfig(connectors[0], "byok_optional")
 	}
 	return buildHostedAutoAIConfig()
+}
 
+func buildDefaultAIConfig(ctx context.Context, db *sql.DB, record *aiconnectors.ConnectorRecord) (review.AIConfig, error) {
+	tier := record.GetSelectedModel()
+	if tier == "" {
+		tier = "default"
+	}
+	options, err := aidefault.ResolveConnectorOptions(ctx, db, tier)
+	if err != nil {
+		return review.AIConfig{}, fmt.Errorf("failed to resolve managed AI options for tier %s: %w", tier, err)
+	}
+
+	// Build AIConfig from resolved options
+	configMap := map[string]interface{}{
+		"provider_name":       record.ProviderName,
+		"ai_provider_type":    string(options.Provider),
+		"connector_name":      record.ConnectorName,
+		"display_order":       record.DisplayOrder,
+		"ai_execution_mode":   "managed_default",
+		"ai_execution_source": "internal",
+	}
+
+	return review.AIConfig{
+		Type:        "langchain",
+		APIKey:      options.APIKey,
+		Model:       options.ModelConfig.Model,
+		Temperature: 0.4,
+		Config:      configMap,
+	}, nil
 }
 
 func buildBYOKAIConfig(connector *aiconnectors.ConnectorRecord, executionMode string) (review.AIConfig, error) {
