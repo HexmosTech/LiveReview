@@ -15,6 +15,7 @@ import (
 
 	mrmodel "github.com/livereview/cmd/mrmodel/lib"
 	"github.com/livereview/internal/aiconnectors"
+	"github.com/livereview/internal/aidefault"
 	"github.com/livereview/internal/aisanitize"
 	coreprocessor "github.com/livereview/internal/core_processor"
 	"github.com/livereview/internal/learnings"
@@ -1058,22 +1059,35 @@ func (p *UnifiedProcessorV2Impl) generateLLMResponseV2(ctx context.Context, prom
 
 	// Use the first available connector (could be enhanced with priority logic)
 	connectorRecord := connectors[0]
+	var options aiconnectors.ConnectorOptions
 
-	// Create connector options
-	options := connectorRecord.GetConnectorOptions()
+	if connectorRecord.ProviderName == aidefault.ProviderName {
+		tier := connectorRecord.GetSelectedModel()
+		if tier == "" {
+			tier = "default"
+		}
+		var resolveErr error
+		options, resolveErr = aidefault.ResolveConnectorOptions(ctx, p.server.db, tier)
+		if resolveErr != nil {
+			return "", nil, fmt.Errorf("failed to resolve managed AI options for tier %s: %w", tier, resolveErr)
+		}
+	} else {
+		options = connectorRecord.GetConnectorOptions()
+	}
 
 	// Create connector client
 	client, err := aiconnectors.NewConnector(ctx, options)
 	if err != nil {
-		return "", nil, fmt.Errorf("failed to create AI connector: %w", err)
+		return "", nil, fmt.Errorf("failed to create AI connector for %s: %w", connectorRecord.ProviderName, err)
 	}
 
 	// Generate response
 	response, err := client.Call(ctx, prompt)
 	if err != nil {
-		return "", nil, fmt.Errorf("AI connector call failed: %w", err)
+		return "", nil, fmt.Errorf("AI connector call failed for %s: %w", connectorRecord.ProviderName, err)
 	}
 
+	// Success!
 	response = p.applyPostOutputSanitization(ctx, response, connectorRecord.ProviderName)
 	model := strings.TrimSpace(options.ModelConfig.Model)
 	if model == "" {
