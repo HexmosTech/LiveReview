@@ -332,18 +332,18 @@ func (s *Server) getAIConfigFromDatabase(ctx context.Context, orgID int64, planC
 		planCode = license.PlanFree30K
 	}
 
-	// Free tier enforces BYOK strictly (system_managed AI is not available).
+	// Free tier enforces BYOK strictly (system default AI provider is not available).
 	if planCode == license.PlanFree30K {
 		var byokConnector *aiconnectors.ConnectorRecord
 		for _, c := range connectors {
-			if c.ProviderName != "livereview-default-ai" && c.ApiKey != "system_managed" {
+			if c.ProviderName != aidefault.ProviderName {
 				byokConnector = c
 				break
 			}
 		}
 
 		if byokConnector == nil {
-			return review.AIConfig{}, fmt.Errorf("the Free plan (PlanFree30K) requires you to configure your own Gemini/AI key (BYOK) for organization %d. Managed AI is not available in the Free tier.", orgID)
+			return review.AIConfig{}, fmt.Errorf("the Free plan requires you to configure your own LLM API key (BYOK) for your organization.")
 		}
 		return buildBYOKAIConfig(byokConnector, "byok_required")
 	}
@@ -352,7 +352,7 @@ func (s *Server) getAIConfigFromDatabase(ctx context.Context, orgID int64, planC
 	if planCode == license.PlanTeam32USD {
 		if len(connectors) > 0 {
 			connector := connectors[0]
-			if connector.ProviderName == "livereview-default-ai" {
+			if connector.ProviderName == aidefault.ProviderName {
 				return buildDefaultAIConfig(ctx, s.db, connector)
 			}
 			return buildBYOKAIConfig(connector, "byok_override")

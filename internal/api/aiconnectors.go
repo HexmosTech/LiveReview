@@ -11,6 +11,7 @@ import (
 
 	"github.com/labstack/echo/v4"
 	"github.com/livereview/internal/aiconnectors"
+	"github.com/livereview/internal/aidefault"
 	"github.com/rs/zerolog/log"
 )
 
@@ -334,7 +335,7 @@ func (s *Server) UpdateAIConnector(c echo.Context) error {
 		})
 	}
 
-	if existingConnector.ProviderName == "livereview-default-ai" {
+	if existingConnector.ProviderName == aidefault.ProviderName {
 		return c.JSON(http.StatusForbidden, map[string]string{
 			"error": "Managed AI connectors cannot be modified",
 		})
@@ -465,7 +466,7 @@ func (s *Server) DeleteAIConnector(c echo.Context) error {
 		})
 	}
 
-	if existingConnector.ProviderName == "livereview-default-ai" {
+	if existingConnector.ProviderName == aidefault.ProviderName {
 		return c.JSON(http.StatusForbidden, map[string]string{
 			"error": "Managed AI connectors cannot be deleted",
 		})

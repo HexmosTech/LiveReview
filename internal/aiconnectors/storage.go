@@ -357,12 +357,10 @@ func (s *Storage) GetSystemManagedConfig(ctx context.Context, tier string) (Conn
 	`
 
 	var provider, model, apiKey string
-	// Handle cases where we're using the mock/low-level store vs raw db
 	var err error
 	if s.store != nil {
 		err = s.store.QueryRowContext(ctx, query, tier).Scan(&provider, &model, &apiKey)
 	} else {
-		// Fallback for simple database handles (unlikely in this architecture but safe)
 		return ConnectorOptions{}, fmt.Errorf("storage store not initialized")
 	}
 
