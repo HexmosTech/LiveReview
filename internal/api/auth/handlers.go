@@ -144,10 +144,10 @@ func (h *AuthHandlers) Login(c echo.Context) error {
 	var licenseExpiresAt *time.Time
 	if isCloudMode() && len(organizations) > 0 {
 		err = h.db.QueryRow(`
-			SELECT plan_type, license_expires_at
-			FROM user_roles
-			WHERE user_id = $1 AND org_id = $2`,
-			user.ID, organizations[0].ID,
+			SELECT obs.current_plan_code, obs.billing_period_end
+			FROM org_billing_state obs
+			WHERE obs.org_id = $1`,
+			organizations[0].ID,
 		).Scan(&planType, &licenseExpiresAt)
 		if err != nil && err != sql.ErrNoRows {
 			// Log error but don't fail - just use default free plan
@@ -265,10 +265,10 @@ func (h *AuthHandlers) Me(c echo.Context) error {
 	var licenseExpiresAt *time.Time
 	if isCloudMode() && len(organizations) > 0 {
 		err = h.db.QueryRow(`
-			SELECT plan_type, license_expires_at
-			FROM user_roles
-			WHERE user_id = $1 AND org_id = $2`,
-			user.ID, organizations[0].ID,
+			SELECT obs.current_plan_code, obs.billing_period_end
+			FROM org_billing_state obs
+			WHERE obs.org_id = $1`,
+			organizations[0].ID,
 		).Scan(&planType, &licenseExpiresAt)
 		if err != nil && err != sql.ErrNoRows {
 			// Log error but don't fail - just use default free plan
@@ -552,10 +552,11 @@ func (h *AuthHandlers) CheckSetupStatus(c echo.Context) error {
 // Helper method to get user's organizations and roles
 func (h *AuthHandlers) getUserOrganizations(userID int64) ([]OrgInfo, error) {
 	rows, err := h.db.Query(`
-		SELECT o.id, o.name, r.name, ur.plan_type, ur.license_expires_at, o.created_by_user_id
+		SELECT o.id, o.name, r.name, obs.current_plan_code, obs.billing_period_end, o.created_by_user_id
 		FROM orgs o
 		JOIN user_roles ur ON o.id = ur.org_id
 		JOIN roles r ON ur.role_id = r.id
+		LEFT JOIN org_billing_state obs ON o.id = obs.org_id
 		WHERE ur.user_id = $1
 		ORDER BY o.name
 	`, userID)
