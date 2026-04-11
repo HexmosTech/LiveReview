@@ -20,37 +20,35 @@ import {
   ReviewEventType 
 } from '../../types/reviews';
 
+const ACCOUNTING_REFRESH_INTERVAL_MS = 15000;
+
+const hasAccountingDetails = (value: ReviewAccounting | null): boolean => {
+        if (!value) {
+                return false;
+        }
+
+        return value.accountedOperations > 0 ||
+                value.totalBillableLoc > 0 ||
+                value.tokenTrackedOperations > 0 ||
+                !!value.latestOperation;
+};
+
 const ReviewDetail: React.FC = () => {
     const { id } = useParams<{ id: string }>();
     const navigate = useNavigate();
     const reviewId = parseInt(id || '0', 10);
 
     // Helper functions to map event data to new format
-    const mapEventType = (type: ReviewEventType) => {
-        switch (type) {
-            case 'status': return 'started';
-            case 'log': return 'progress';
-            case 'batch': return 'batch_complete';
-            case 'artifact': return 'completed';
-            case 'completion': return 'completed';
-            default: return 'progress';
-        }
-    };
+    const mapEventType = (type: ReviewEventType) => type;
 
-    const mapEventLevel = (level: ReviewEventLevel) => {
-        switch (level) {
-            case 'error': return 'error';
-            case 'warn': return 'warning';
-            case 'debug': return 'info';
-            case 'info': return 'info';
-            default: return 'info';
-        }
-    };
+    const mapEventLevel = (level: ReviewEventLevel) => level;
     const [review, setReview] = useState<Review | null>(null);
     const [events, setEvents] = useState<ReviewEvent[]>([]);
     const [summary, setSummary] = useState<ReviewSummary | null>(null);
     const [accounting, setAccounting] = useState<ReviewAccounting | null>(null);
     const [accountingError, setAccountingError] = useState<string | null>(null);
+    const [accountingErrorTone, setAccountingErrorTone] = useState<'info' | 'warning'>('info');
+    const [accountingRouteUnavailable, setAccountingRouteUnavailable] = useState(false);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
     const [pollingEnabled, setPollingEnabled] = useState(true);
@@ -100,6 +98,40 @@ const ReviewDetail: React.FC = () => {
         }
     };
 
+    const fetchAccountingDetails = useCallback(async (currentReviewId: number, reviewStatus?: Review['status']) => {
+        try {
+            const accountingData = await getReviewAccounting(currentReviewId);
+            setAccounting(accountingData);
+            setAccountingRouteUnavailable(false);
+
+            if (hasAccountingDetails(accountingData)) {
+                setAccountingError(null);
+            } else {
+                setAccountingErrorTone('info');
+                setAccountingError('Accounting details are being prepared. This panel auto-refreshes every 15 seconds and updates when data becomes available.');
+            }
+        } catch (accountingErr) {
+            console.warn('Accounting endpoint unavailable:', accountingErr);
+            setAccounting(null);
+
+            const status = (accountingErr as any)?.status;
+            if (status === 404) {
+                setAccountingRouteUnavailable(true);
+                setAccountingErrorTone('warning');
+                setAccountingError('Accounting details are unavailable on this server route.');
+                return;
+            }
+
+            setAccountingRouteUnavailable(false);
+            setAccountingErrorTone('info');
+            if (reviewStatus === 'created' || reviewStatus === 'in_progress') {
+                setAccountingError('Accounting details are not ready yet. This panel retries every 15 seconds and will update automatically.');
+            } else {
+                setAccountingError('Accounting details are temporarily unavailable. This panel retries every 15 seconds.');
+            }
+        }
+    }, []);
+
     // Fetch review details
     const fetchReviewDetails = useCallback(async () => {
         if (!id) return;
@@ -107,6 +139,7 @@ const ReviewDetail: React.FC = () => {
             setLoading(true);
             setError(null);
             setAccountingError(null);
+            setAccountingRouteUnavailable(false);
             
             const reviewId = parseInt(id, 10);
             if (isNaN(reviewId)) {
@@ -122,21 +155,7 @@ const ReviewDetail: React.FC = () => {
 
             setReview(reviewData);
             setSummary(summaryData);
-
-            try {
-                const accountingData = await getReviewAccounting(reviewId);
-                setAccounting(accountingData);
-            } catch (accountingErr) {
-                console.warn('Accounting endpoint unavailable:', accountingErr);
-                setAccounting(null);
-
-                const status = (accountingErr as any)?.status;
-                if (status === 404) {
-                    setAccountingError('Accounting details are unavailable on this server route.');
-                } else {
-                    setAccountingError('Accounting details could not be loaded right now.');
-                }
-            }
+            await fetchAccountingDetails(reviewId, reviewData.status);
             
             const newEvents = (eventsData?.events as ReviewEvent[] | undefined) || [];
             setEvents(newEvents);
@@ -153,7 +172,7 @@ const ReviewDetail: React.FC = () => {
         } finally {
             setLoading(false);
         }
-    }, [id]);
+    }, [id, fetchAccountingDetails]);
 
 
 
@@ -180,6 +199,50 @@ const ReviewDetail: React.FC = () => {
     useEffect(() => {
         fetchReviewDetails();
     }, [fetchReviewDetails]);
+
+    // Poll accounting so the panel auto-updates once usage records land.
+    useEffect(() => {
+        if (!id || !pollingEnabled || accountingRouteUnavailable) {
+            if (pollingIntervalRef.current) {
+                clearInterval(pollingIntervalRef.current);
+                pollingIntervalRef.current = null;
+            }
+            return;
+        }
+
+        const currentReviewId = parseInt(id, 10);
+        if (isNaN(currentReviewId)) {
+            return;
+        }
+
+        const shouldPollAccounting =
+            review?.status === 'created' ||
+            review?.status === 'in_progress' ||
+            !hasAccountingDetails(accounting);
+
+        if (!shouldPollAccounting) {
+            if (pollingIntervalRef.current) {
+                clearInterval(pollingIntervalRef.current);
+                pollingIntervalRef.current = null;
+            }
+            return;
+        }
+
+        if (pollingIntervalRef.current) {
+            clearInterval(pollingIntervalRef.current);
+        }
+
+        pollingIntervalRef.current = setInterval(() => {
+            void fetchAccountingDetails(currentReviewId, review?.status);
+        }, ACCOUNTING_REFRESH_INTERVAL_MS);
+
+        return () => {
+            if (pollingIntervalRef.current) {
+                clearInterval(pollingIntervalRef.current);
+                pollingIntervalRef.current = null;
+            }
+        };
+    }, [id, pollingEnabled, accountingRouteUnavailable, review?.status, accounting, fetchAccountingDetails]);
     
     if (loading) {
         return (
@@ -241,6 +304,10 @@ const ReviewDetail: React.FC = () => {
     const aiExecutionSource = typeof review.metadata?.ai_execution_source === 'string' ? review.metadata.ai_execution_source : '';
     const aiExecutionProvider = typeof review.metadata?.ai_provider_name === 'string' ? review.metadata.ai_provider_name : '';
     const aiExecutionConnector = typeof review.metadata?.ai_connector_name === 'string' ? review.metadata.ai_connector_name : '';
+
+    const accountingBannerClass = accountingErrorTone === 'warning'
+        ? 'mb-4 rounded-md border border-amber-700 bg-amber-900/30 p-3 text-xs text-amber-200'
+        : 'mb-4 rounded-md border border-sky-700 bg-sky-900/30 p-3 text-xs text-sky-200';
 
     return (
         <div className="container mx-auto px-4 py-8">
@@ -336,14 +403,16 @@ const ReviewDetail: React.FC = () => {
             <div className="bg-slate-800 rounded-lg p-4 border border-slate-700 mb-6">
                 <div className="flex items-center justify-between mb-4">
                     <h2 className="text-lg font-semibold text-white">Accounting</h2>
-                    {accounting?.lastAccountedAt && (
+                    {accounting?.lastAccountedAt ? (
                         <span className="text-xs text-slate-400">
                             Last accounted {formatRelativeTime(accounting.lastAccountedAt)}
                         </span>
+                    ) : (
+                        <span className="text-xs text-slate-400">Auto-refresh every 15s</span>
                     )}
                 </div>
                 {accountingError && (
-                    <div className="mb-4 rounded-md border border-amber-700 bg-amber-900/30 p-3 text-xs text-amber-200">
+                    <div className={accountingBannerClass}>
                         {accountingError}
                     </div>
                 )}
@@ -400,13 +469,13 @@ const ReviewDetail: React.FC = () => {
                         initialEvents={events.map(event => ({
                             id: event.id.toString(),
                             timestamp: event.time,
-                            eventType: mapEventType(event.type) as 'started' | 'progress' | 'batch_complete' | 'retry' | 'json_repair' | 'timeout' | 'error' | 'completed',
+                            eventType: mapEventType(event.type) as 'log' | 'status' | 'batch' | 'artifact' | 'completion' | 'retry' | 'json_repair' | 'timeout' | 'started' | 'progress' | 'batch_complete' | 'error' | 'completed',
                             message: formatEventData(event),
                             details: {
                                 batchId: event.batchId,
                                 ...event.data
                             },
-                            severity: mapEventLevel(event.level) as 'info' | 'success' | 'warning' | 'error'
+                            severity: mapEventLevel(event.level) as 'info' | 'success' | 'warning' | 'warn' | 'error' | 'debug'
                         }))}
                         isLive={review?.status === 'in_progress'}
                     />
