@@ -1,10 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { 
-  Card, 
-  PageHeader, 
-  Input, 
-  Button, 
+import {
+  Card,
+  PageHeader,
+  Input,
+  Button,
   Icons,
   Alert,
   Spinner,
@@ -22,7 +22,13 @@ type QuotaStatusResponse = {
   envelope?: {
     blocked?: boolean;
     trial_readonly?: boolean;
-    usage_pct?: number;
+    usage_percent?: number;
+    threshold_state?: string;
+    loc_used_month?: number;
+    loc_limit_month?: number;
+    loc_remaining_month?: number;
+    billing_period_end?: string;
+    upgrade_url?: string;
   };
 };
 
@@ -76,11 +82,11 @@ const NewReview: React.FC = () => {
   // Check if base URL is in connectors
   const isUrlSupported = (url: string): boolean => {
     if (!url) return false;
-    
+
     const baseUrl = extractBaseUrl(url);
     if (!baseUrl) return false;
-    
-    return connectors.some(connector => 
+
+    return connectors.some(connector =>
       connector.provider_url && connector.provider_url.includes(baseUrl)
     );
   };
@@ -127,23 +133,23 @@ const NewReview: React.FC = () => {
     try {
       const request: TriggerReviewRequest = { url };
       const response = await triggerReview(request);
-      
+
       setSuccess(`Review successfully triggered! Review ID: ${response.reviewId}`);
       setUrl('');
-      
+
       // Navigate directly to the new review's detail page
       setTimeout(() => {
         navigate(`/reviews/${response.reviewId}`);
       }, 1500);
-      
+
     } catch (err: any) {
       console.error('Error triggering review:', err);
-      
+
       // Check for subscription limit errors (HTTP 402)
       if (err?.status === 402) {
         const errorData = err?.data || err;
         const errorCode = errorData.code;
-        
+
         if (errorCode === 'DAILY_LIMIT_EXCEEDED') {
           setLimitInfo({
             used: errorData.used || 3,
@@ -157,6 +163,10 @@ const NewReview: React.FC = () => {
         } else {
           setError(errorData.message || err.message || 'Failed to trigger review. Please try again later.');
         }
+      } else if (err?.status === 403) {
+        // LOC quota exceeded (from new backend enforcement)
+        const errorData = err?.data || err;
+        setError(errorData.error || 'Monthly LOC quota exceeded. Upgrade your plan or wait for reset.');
       } else if (err?.status === 429) {
         const trialReadOnly = Boolean(err?.data?.envelope?.trial_readonly);
         if (trialReadOnly) {
@@ -216,40 +226,71 @@ const NewReview: React.FC = () => {
               {/* Safety Banner */}
               <SafetyBanner variant="detailed" className="mb-6" />
 
-              {(quotaStatus?.envelope?.trial_readonly || quotaStatus?.envelope?.blocked || quotaStatus?.can_trigger_reviews === false) && (
-                <Alert 
-                  variant="warning" 
+              <h3 className="text-lg font-medium text-white mb-4">Enter Merge/Pull Request URL</h3>
+
+              {/* LOC 90% Warning Banner */}
+              {!quotaStatus?.envelope?.blocked && !quotaStatus?.envelope?.trial_readonly && quotaStatus?.envelope?.threshold_state === '90' && (
+                <Alert
+                  variant="warning"
                   className="mb-4"
                   icon={<Icons.Warning />}
                 >
                   <div>
-                    <div className="font-medium text-amber-100">
-                      {quotaStatus?.envelope?.trial_readonly ? 'Trial Read-Only Active' : 'Review Creation Blocked'}
-                    </div>
+                    <div className="font-medium text-amber-100">LOC Usage Nearing Limit</div>
                     <div className="text-sm mt-1 text-amber-200/90">
-                      {quotaStatus?.envelope?.trial_readonly
-                        ? 'This organization is in trial read-only mode. Upgrade from Subscription Management to continue triggering reviews.'
-                        : 'Your organization has reached plan limits for review creation. Upgrade your plan or wait for quota reset.'}
+                      You've used {(quotaStatus.envelope.loc_used_month ?? 0).toLocaleString()} of {(quotaStatus.envelope.loc_limit_month ?? 0).toLocaleString()} LOC this month ({quotaStatus.envelope.usage_percent ?? 0}%). Upgrade to avoid interruption.
                     </div>
+                    <button
+                      type="button"
+                      onClick={() => navigate(quotaStatus.envelope?.upgrade_url || '/settings-subscriptions-overview')}
+                      className="mt-2 px-3 py-1 bg-amber-600 hover:bg-amber-500 text-white text-xs font-semibold rounded transition-colors"
+                    >
+                      Upgrade Plan
+                    </button>
                   </div>
                 </Alert>
               )}
-              
-              <h3 className="text-lg font-medium text-white mb-4">Enter Merge/Pull Request URL</h3>
-              
+
+              {/* Blocked / Trial Read-Only Banner */}
+              {(quotaStatus?.envelope?.trial_readonly || quotaStatus?.envelope?.blocked || quotaStatus?.can_trigger_reviews === false) && (
+                <Alert
+                  variant="error"
+                  className="mb-4"
+                  icon={<Icons.Error />}
+                >
+                  <div>
+                    <div className="font-medium text-red-100">
+                      {quotaStatus?.envelope?.trial_readonly ? 'Trial Read-Only Active' : 'Monthly LOC Quota Exceeded'}
+                    </div>
+                    <div className="text-sm mt-1 text-red-200/90">
+                      {quotaStatus?.envelope?.trial_readonly
+                        ? 'This organization is in trial read-only mode. Upgrade from Subscription Management to continue triggering reviews.'
+                        : `You've used ${(quotaStatus?.envelope?.loc_used_month ?? 0).toLocaleString()} of ${(quotaStatus?.envelope?.loc_limit_month ?? 0).toLocaleString()} LOC this month. Reviews are blocked until your quota resets${quotaStatus?.envelope?.billing_period_end ? ` on ${new Date(quotaStatus.envelope.billing_period_end).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}` : ''} or you upgrade your plan.`}
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => navigate(quotaStatus?.envelope?.upgrade_url || '/settings-subscriptions-overview')}
+                      className="mt-2 px-3 py-1 bg-red-600 hover:bg-red-500 text-white text-xs font-semibold rounded transition-colors"
+                    >
+                      Upgrade Now
+                    </button>
+                  </div>
+                </Alert>
+              )}
+
               {error && (
-                <Alert 
-                  variant="error" 
+                <Alert
+                  variant="error"
                   className="mb-4"
                   icon={<Icons.Error />}
                 >
                   {error}
                 </Alert>
               )}
-              
+
               {success && (
-                <Alert 
-                  variant="success" 
+                <Alert
+                  variant="success"
                   className="mb-4"
                   icon={<Icons.Success />}
                 >
@@ -259,7 +300,7 @@ const NewReview: React.FC = () => {
                   </div>
                 </Alert>
               )}
-              
+
               <div className="mb-4">
                 <Input
                   label="URL"
@@ -273,7 +314,7 @@ const NewReview: React.FC = () => {
                   helperText="Enter the URL of the merge/pull request to start a review"
                 />
               </div>
-              
+
               {/* URL Examples */}
               <div className="mb-6 p-4 bg-slate-700 rounded-lg">
                 <h4 className="text-sm font-medium text-white mb-2">Supported URL Examples:</h4>
@@ -288,7 +329,7 @@ const NewReview: React.FC = () => {
                   </p>
                 </div>
               </div>
-              
+
               <div className="flex justify-end space-x-3">
                 <Button
                   type="button"
