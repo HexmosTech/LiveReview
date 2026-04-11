@@ -591,13 +591,13 @@ func (wo *WebhookOrchestratorV2) enforceWebhookPreflightWithRequiredLOC(ctx cont
 		return false, ""
 	}
 
-	service := license.NewLOCAccountingService(wo.server.db)
+	quotaModule := license.NewQuotaModule(wo.server.db)
 	planCode, err := wo.resolveOrgPlanCode(ctx, orgID)
 	if err != nil {
 		log.Printf("[ERROR] LOC preflight aborted for org=%d operation=%s: %v", orgID, operationType, err)
 		return true, "plan_resolution_error"
 	}
-	result, err := service.CheckPreflight(ctx, license.LOCPreflightInput{
+	result, err := quotaModule.PreflightCheck(ctx, license.QuotaPreflightInput{
 		OrgID:       orgID,
 		RequiredLOC: requiredLOC,
 		PlanCode:    planCode,
@@ -618,7 +618,7 @@ func (wo *WebhookOrchestratorV2) accountWebhookSuccess(ctx context.Context, orgI
 		return
 	}
 
-	service := license.NewLOCAccountingService(wo.server.db)
+	quotaModule := license.NewQuotaModule(wo.server.db)
 	planCode, err := wo.resolveOrgPlanCode(ctx, orgID)
 	if err != nil {
 		log.Printf("[ERROR] skipping webhook accounting for org=%d operation=%s due plan resolution failure: %v", orgID, operationType, err)
@@ -627,7 +627,28 @@ func (wo *WebhookOrchestratorV2) accountWebhookSuccess(ctx context.Context, orgI
 
 	operationID := buildWebhookOperationKey(event, operationType)
 	actorUserID, actorEmail := wo.resolveWebhookActor(ctx, orgID, event)
-	err = service.AccountSuccess(ctx, license.LOCAccountSuccessInput{
+	_, err = quotaModule.RecordBatch(ctx, license.QuotaRecordBatchInput{
+		OrgID:          orgID,
+		ReviewID:       nil,
+		OperationType:  operationType,
+		TriggerSource:  "webhook",
+		OperationID:    operationID,
+		IdempotencyKey: operationID,
+		BatchIndex:     1,
+		Batch: license.QuotaBatchInput{
+			PlanCode:                 planCode,
+			Provider:                 strings.TrimSpace(usage.Provider),
+			RawLOCBatch:              usage.BillableLOC,
+			ProviderTotalInputTokens: usage.InputTokens,
+			OutputTokensBatch:        usage.OutputTokens,
+		},
+	})
+	if err != nil {
+		log.Printf("[WARN] failed to record webhook quota batch for org=%d operation=%s: %v", orgID, operationType, err)
+		return
+	}
+
+	_, err = quotaModule.FinalizeOperation(ctx, license.QuotaFinalizeInput{
 		OrgID:          orgID,
 		ReviewID:       nil,
 		ActorUserID:    actorUserID,
@@ -636,14 +657,9 @@ func (wo *WebhookOrchestratorV2) accountWebhookSuccess(ctx context.Context, orgI
 		TriggerSource:  "webhook",
 		OperationID:    operationID,
 		IdempotencyKey: operationID,
-		BillableLOC:    usage.BillableLOC,
-		PlanCode:       planCode,
 		Provider:       strings.TrimSpace(usage.Provider),
 		Model:          strings.TrimSpace(usage.Model),
-		PricingVersion: strings.TrimSpace(usage.PricingVersion),
-		InputTokens:    usage.InputTokens,
-		OutputTokens:   usage.OutputTokens,
-		CostUSD:        usage.CostUSD,
+		BatchFallback:  nil,
 	})
 	if err != nil {
 		log.Printf("[WARN] failed to account webhook usage for org=%d operation=%s: %v", orgID, operationType, err)
