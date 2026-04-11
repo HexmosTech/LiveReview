@@ -50,8 +50,8 @@ func (m *MrModelImpl) FetchBitbucketData(ctx context.Context, provider interface
 	return details, diffs, commits, comments, nil
 }
 
-func (m *MrModelImpl) BuildBitbucketArtifact(provider *bitbucket.BitbucketProvider, prID, prURL, outDir string) (*UnifiedArtifact, error) {
-	details, diffs, commitsIface, commentsIface, err := m.FetchBitbucketData(context.Background(), provider, prID, prURL)
+func (m *MrModelImpl) BuildBitbucketArtifact(ctx context.Context, provider *bitbucket.BitbucketProvider, prID, prURL, outDir string) (*UnifiedArtifact, error) {
+	details, diffs, commitsIface, commentsIface, err := m.FetchBitbucketData(ctx, provider, prID, prURL)
 	if err != nil {
 		return nil, err
 	}
