@@ -26,9 +26,9 @@ type BitbucketProfile struct {
 
 // FetchBitbucketProfile fetches the user profile from Bitbucket using Atlassian API token
 func FetchBitbucketProfile(email, apiToken string) (*BitbucketProfile, error) {
-	const bitbucketUserAPI = "https://api.bitbucket.org/2.0/user"
+	const bitbucketBaseAPI = "https://api.bitbucket.org"
 	client := networkbitbucket.NewHTTPClient(15 * time.Second)
-	resp, err := networkbitbucket.FetchUserProfile(context.Background(), client, bitbucketUserAPI, email, apiToken)
+	resp, err := networkbitbucket.FetchUserProfile(context.Background(), client, bitbucketBaseAPI, email, apiToken)
 	if err != nil {
 		return nil, fmt.Errorf("cannot connect to Bitbucket - please verify your internet connection")
 	}
@@ -66,9 +66,9 @@ func FetchBitbucketProfile(email, apiToken string) (*BitbucketProfile, error) {
 
 // ValidateBitbucketToken validates a Bitbucket API token by making a simple API call
 func ValidateBitbucketToken(email, apiToken string) error {
-	const bitbucketUserAPI = "https://api.bitbucket.org/2.0/user"
+	const bitbucketBaseAPI = "https://api.bitbucket.org"
 	client := networkbitbucket.NewHTTPClient(15 * time.Second)
-	resp, err := networkbitbucket.FetchUserProfile(context.Background(), client, bitbucketUserAPI, email, apiToken)
+	resp, err := networkbitbucket.FetchUserProfile(context.Background(), client, bitbucketBaseAPI, email, apiToken)
 	if err != nil {
 		return fmt.Errorf("cannot connect to Bitbucket API")
 	}

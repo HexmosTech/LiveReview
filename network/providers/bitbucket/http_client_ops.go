@@ -3,10 +3,10 @@ package bitbucket
 import (
 	"bytes"
 	"context"
-	"encoding/base64"
 	"fmt"
 	"io"
 	"net/http"
+	"strings"
 	"time"
 )
 
@@ -44,10 +44,7 @@ func PostCommentAPI(ctx context.Context, client *http.Client, apiURL, email, tok
 		return nil, fmt.Errorf("failed to create request: %w", err)
 	}
 
-	// Bitbucket Basic Auth encoding
-	authBytes := []byte(email + ":" + token)
-	authStr := "Basic " + base64.StdEncoding.EncodeToString(authBytes)
-	req.Header.Set("Authorization", authStr)
+	req.SetBasicAuth(email, token)
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Accept", "application/json")
 
@@ -56,7 +53,13 @@ func PostCommentAPI(ctx context.Context, client *http.Client, apiURL, email, tok
 
 // FetchUserProfile fetches the authenticated user's profile from Bitbucket.
 // Callers must close resp.Body when err is nil.
-func FetchUserProfile(ctx context.Context, client *http.Client, apiURL, email, token string) (*http.Response, error) {
+func FetchUserProfile(ctx context.Context, client *http.Client, baseURL, email, token string) (*http.Response, error) {
+	if baseURL == "" {
+		baseURL = "https://api.bitbucket.org"
+	}
+	baseURL = strings.TrimRight(baseURL, "/")
+	apiURL := fmt.Sprintf("%s/2.0/user", baseURL)
+
 	req, err := NewRequestWithContext(ctx, "GET", apiURL, nil)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create user profile request: %w", err)
