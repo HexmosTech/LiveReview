@@ -74,9 +74,25 @@ func (h *QuotaStatusHandler) GetQuotaStatus(c echo.Context) error {
 		dailyUsed = 0 // Default to 0 if query fails
 	}
 
-	envelope := BuildEnvelopeFromContext(c)
 	contextPlanType, _ := c.Get("plan_type").(string)
-	planType := resolveQuotaPlanType(envelope.PlanCode, contextPlanType)
+
+	// Temporarily build envelope to determine the exact plan code
+	envelopeTmp := BuildEnvelopeFromContext(c)
+	planType := resolveQuotaPlanType(envelopeTmp.PlanCode, contextPlanType)
+
+	// Call CheckPreflight with 0 RequiredLOC to just get the current threshold/blocking state
+	accountingService := license.NewLOCAccountingService(h.db)
+	preflightResult, err := accountingService.CheckPreflight(c.Request().Context(), license.LOCPreflightInput{
+		OrgID:       orgID,
+		RequiredLOC: 0,
+		PlanCode:    license.PlanType(planType),
+	})
+	if err == nil {
+		applyPreflightToEnvelopeContext(c, preflightResult)
+	}
+
+	// Now build the final envelope with the preflight state included
+	envelope := BuildEnvelopeFromContext(c)
 
 	isFreeTier := isQuotaFreePlan(planType)
 	status := QuotaStatus{
@@ -92,8 +108,8 @@ func (h *QuotaStatusHandler) GetQuotaStatus(c echo.Context) error {
 		// On free plan, only org creator can trigger reviews AND must be under daily limit
 		status.CanTriggerReviews = isOrgCreator && (dailyLimitPtr == nil || dailyUsed < *dailyLimitPtr)
 	} else {
-		// On team plan, all members can trigger unlimited reviews
-		status.CanTriggerReviews = true
+		// On team plan, all members can trigger unlimited reviews UNLESS LOC blocked
+		status.CanTriggerReviews = !envelope.Blocked && !envelope.TrialReadOnly
 	}
 
 	// Determine if user can activate members

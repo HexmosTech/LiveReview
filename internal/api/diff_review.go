@@ -124,6 +124,7 @@ func (s *Server) DiffReview(c echo.Context) error {
 			"error":        errorMessage,
 			"error_code":   errorCode,
 			"required_loc": billableLOC,
+			"upgrade_url":  "/settings-subscriptions-overview",
 		})
 	}
 

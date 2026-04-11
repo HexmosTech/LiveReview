@@ -338,7 +338,7 @@ const buildCheckoutPathWithPlan = (checkoutPath: string | undefined, planCode: s
 const SubscriptionTab: React.FC = () => {
   const navigate = useNavigate();
   const { currentOrg } = useOrgContext();
-  
+
   // Initialize tab from URL path
   const getInitialTab = (): SubscriptionTabKey => {
     const hash = window.location.hash;
@@ -347,7 +347,7 @@ const SubscriptionTab: React.FC = () => {
     if (hash.includes('settings-subscriptions-assign')) return 'assignments';
     return 'overview';
   };
-  
+
   const [activeTab, setActiveTab] = useState<SubscriptionTabKey>(getInitialTab);
 
   useEffect(() => {
@@ -394,31 +394,28 @@ const SubscriptionTab: React.FC = () => {
         <div className="flex space-x-1">
           <button
             onClick={() => handleTabChange('overview')}
-            className={`px-4 py-3 text-sm font-medium transition-colors ${
-              activeTab === 'overview'
+            className={`px-4 py-3 text-sm font-medium transition-colors ${activeTab === 'overview'
                 ? 'text-white border-b-2 border-blue-500'
                 : 'text-slate-400 hover:text-slate-300'
-            }`}
+              }`}
           >
             {SUBSCRIPTION_TAB_LABELS.overview}
           </button>
           <button
             onClick={() => handleTabChange('breakdown')}
-            className={`px-4 py-3 text-sm font-medium transition-colors ${
-              activeTab === 'breakdown'
+            className={`px-4 py-3 text-sm font-medium transition-colors ${activeTab === 'breakdown'
                 ? 'text-white border-b-2 border-blue-500'
                 : 'text-slate-400 hover:text-slate-300'
-            }`}
+              }`}
           >
             {SUBSCRIPTION_TAB_LABELS.breakdown}
           </button>
           <button
             onClick={() => handleTabChange('assignments')}
-            className={`px-4 py-3 text-sm font-medium transition-colors ${
-              activeTab === 'assignments'
+            className={`px-4 py-3 text-sm font-medium transition-colors ${activeTab === 'assignments'
                 ? 'text-white border-b-2 border-blue-500'
                 : 'text-slate-400 hover:text-slate-300'
-            }`}
+              }`}
           >
             {SUBSCRIPTION_TAB_LABELS.assignments}
           </button>
@@ -476,7 +473,7 @@ const OverviewTab: React.FC<{ navigate: any; mode?: 'full' | 'breakdown' | 'cont
   const [activeUpgradeRequestID, setActiveUpgradeRequestID] = useState<string>('');
   const [upgradeRequestStatus, setUpgradeRequestStatus] = useState<UpgradeRequestStatusResponse | null>(null);
   const [upgradeRequestLoading, setUpgradeRequestLoading] = useState(false);
-  
+
   // Use billing status as source-of-truth; fall back to org-scoped plan only until billing loads.
   const rawPlanType = (currentOrg?.plan_type || 'free').toLowerCase();
   const fallbackPlanCode = rawPlanType === 'free' ? 'free_30k' : rawPlanType === 'team' ? 'team_32usd' : rawPlanType;
@@ -1182,7 +1179,7 @@ const OverviewTab: React.FC<{ navigate: any; mode?: 'full' | 'breakdown' | 'cont
     : `Quota-based (${(currentPlan?.monthly_loc_limit || 100000).toLocaleString()} LOC/month)`;
 
   const currentLocLimit = currentPlan?.monthly_loc_limit || (isFree ? 30000 : 100000);
-  const currentLocUsed = usageSummary?.total_billable_loc || 0;
+  const currentLocUsed = billingStatus?.billing?.loc_used_month || 0;
   const currentLocRemaining = Math.max(0, currentLocLimit - currentLocUsed);
   const currentLocUsagePercent = currentLocLimit > 0 ? Math.min(100, Math.round((currentLocUsed / currentLocLimit) * 100)) : 0;
   const sortedPlansByLoc = [...(billingStatus?.available_plans || [])].sort((a, b) => a.monthly_loc_limit - b.monthly_loc_limit);
@@ -1209,8 +1206,8 @@ const OverviewTab: React.FC<{ navigate: any; mode?: 'full' | 'breakdown' | 'cont
   const cancelTargetSubscriptionId = currentCanCancel
     ? subscriptionId
     : managedCanCancel
-    ? managedSubscription?.razorpay_subscription_id || null
-    : null;
+      ? managedSubscription?.razorpay_subscription_id || null
+      : null;
   const canCancelEffectiveSubscription = Boolean(cancelTargetSubscriptionId);
   const canKeepEffectivePlan = Boolean(effectivePendingCancel && effectiveSubscriptionId);
 
@@ -1239,14 +1236,14 @@ const OverviewTab: React.FC<{ navigate: any; mode?: 'full' | 'breakdown' | 'cont
   const statusBadgeLabel = statusLoading
     ? 'LOADING'
     : autoDowngradedToFree
-    ? 'AUTO-DOWNGRADED'
-    : effectivePendingCancel
-    ? 'PENDING EXPIRY'
-    : statusIsTerminal
-    ? normalizedStatus.replace('_', ' ').toUpperCase()
-    : isTeamPlan
-    ? 'TEAM ACTIVE'
-    : 'FREE PLAN';
+      ? 'AUTO-DOWNGRADED'
+      : effectivePendingCancel
+        ? 'PENDING EXPIRY'
+        : statusIsTerminal
+          ? normalizedStatus.replace('_', ' ').toUpperCase()
+          : isTeamPlan
+            ? 'TEAM ACTIVE'
+            : 'FREE PLAN';
 
   const formatChargeUSD = (cents?: number) => {
     if (typeof cents !== 'number') return null;
@@ -1256,37 +1253,37 @@ const OverviewTab: React.FC<{ navigate: any; mode?: 'full' | 'breakdown' | 'cont
   const requestStatus = upgradeRequestStatus?.request || null;
   const timelineRows = requestStatus
     ? [
-        {
-          id: 'request_created',
-          label: 'Upgrade request created',
-          done: Boolean(requestStatus.created_at),
-          at: requestStatus.created_at,
-        },
-        {
-          id: 'order_created',
-          label: 'One-time payment order created',
-          done: Boolean(requestStatus.razorpay_order_id),
-          at: requestStatus.updated_at,
-        },
-        {
-          id: 'payment_confirmed',
-          label: 'Payment capture confirmed',
-          done: Boolean(requestStatus.payment_capture_confirmed),
-          at: requestStatus.payment_capture_confirmed_at,
-        },
-        {
-          id: 'subscription_confirmed',
-          label: 'Subscription change confirmed',
-          done: Boolean(requestStatus.subscription_change_confirmed),
-          at: requestStatus.subscription_change_confirmed_at,
-        },
-        {
-          id: 'resolved',
-          label: 'Upgrade resolved and granted',
-          done: Boolean(requestStatus.plan_grant_applied),
-          at: requestStatus.plan_grant_applied_at || requestStatus.resolved_at,
-        },
-      ]
+      {
+        id: 'request_created',
+        label: 'Upgrade request created',
+        done: Boolean(requestStatus.created_at),
+        at: requestStatus.created_at,
+      },
+      {
+        id: 'order_created',
+        label: 'One-time payment order created',
+        done: Boolean(requestStatus.razorpay_order_id),
+        at: requestStatus.updated_at,
+      },
+      {
+        id: 'payment_confirmed',
+        label: 'Payment capture confirmed',
+        done: Boolean(requestStatus.payment_capture_confirmed),
+        at: requestStatus.payment_capture_confirmed_at,
+      },
+      {
+        id: 'subscription_confirmed',
+        label: 'Subscription change confirmed',
+        done: Boolean(requestStatus.subscription_change_confirmed),
+        at: requestStatus.subscription_change_confirmed_at,
+      },
+      {
+        id: 'resolved',
+        label: 'Upgrade resolved and granted',
+        done: Boolean(requestStatus.plan_grant_applied),
+        at: requestStatus.plan_grant_applied_at || requestStatus.resolved_at,
+      },
+    ]
     : [];
 
   const effectiveChargeStatus = (() => {
@@ -1354,13 +1351,13 @@ const OverviewTab: React.FC<{ navigate: any; mode?: 'full' | 'breakdown' | 'cont
       </div>
 
       {isPlanUpgradeMode && (
-      <div className="bg-slate-800/50 border border-slate-700 rounded-lg p-4">
-        <h3 className="text-sm font-semibold text-white mb-2">AI Execution</h3>
-        <div className="space-y-1 text-sm text-slate-300">
-          <p><span className="text-slate-400">Free plan:</span> Bring your own AI key (BYOK) is required.</p>
-          <p><span className="text-slate-400">Paid LOC plans:</span> Hosted Auto is enabled by default, and BYOK remains optional.</p>
+        <div className="bg-slate-800/50 border border-slate-700 rounded-lg p-4">
+          <h3 className="text-sm font-semibold text-white mb-2">AI Execution</h3>
+          <div className="space-y-1 text-sm text-slate-300">
+            <p><span className="text-slate-400">Free plan:</span> Bring your own AI key (BYOK) is required.</p>
+            <p><span className="text-slate-400">Paid LOC plans:</span> Hosted Auto is enabled by default, and BYOK remains optional.</p>
+          </div>
         </div>
-      </div>
       )}
 
       {isPlanUpgradeMode && (billingStatus?.billing?.trial_readonly || quotaStatus?.envelope?.trial_readonly) && (
@@ -1374,10 +1371,16 @@ const OverviewTab: React.FC<{ navigate: any; mode?: 'full' | 'breakdown' | 'cont
 
       {isPlanUpgradeMode && (quotaStatus?.envelope?.blocked || quotaStatus?.can_trigger_reviews === false) && (
         <div className="bg-red-500/10 border border-red-400/40 rounded-lg p-4">
-          <p className="text-red-200 text-sm font-medium">Quota blocked</p>
+          <p className="text-red-200 text-sm font-medium">⛔ Monthly LOC Quota Exceeded</p>
           <p className="text-red-100/90 text-sm mt-1">
-            This organization has reached its current usage limit. Upgrade now or wait for the next billing period.
+            You've used {currentLocUsed.toLocaleString()} of {currentLocLimit.toLocaleString()} LOC this month. Reviews are blocked until your quota resets{billingStatus?.billing?.billing_period_end ? ` on ${new Date(billingStatus.billing.billing_period_end).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}` : ''} or you upgrade your plan.
           </p>
+          <button
+            onClick={() => navigate('/subscribe')}
+            className="mt-2 px-3 py-1.5 bg-red-600 hover:bg-red-500 text-white text-xs font-semibold rounded transition-colors"
+          >
+            Upgrade Now
+          </button>
         </div>
       )}
 
@@ -1392,168 +1395,177 @@ const OverviewTab: React.FC<{ navigate: any; mode?: 'full' | 'breakdown' | 'cont
 
       {/* Current Plan Section */}
       {isPlanUpgradeMode && billingLoading && (
-      <div className="bg-slate-800/60 border border-slate-700 rounded-lg p-6 animate-pulse">
-        <div className="flex items-center justify-between mb-4">
-          <div className="space-y-2">
-            <div className="h-5 w-28 bg-slate-700 rounded" />
-            <div className="h-4 w-40 bg-slate-700 rounded" />
+        <div className="bg-slate-800/60 border border-slate-700 rounded-lg p-6 animate-pulse">
+          <div className="flex items-center justify-between mb-4">
+            <div className="space-y-2">
+              <div className="h-5 w-28 bg-slate-700 rounded" />
+              <div className="h-4 w-40 bg-slate-700 rounded" />
+            </div>
+            <div className="h-9 w-28 bg-slate-700 rounded-lg" />
           </div>
-          <div className="h-9 w-28 bg-slate-700 rounded-lg" />
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mb-4">
+            <div className="h-16 bg-slate-900/70 border border-slate-700 rounded" />
+            <div className="h-16 bg-slate-900/70 border border-slate-700 rounded" />
+            <div className="h-16 bg-slate-900/70 border border-slate-700 rounded" />
+          </div>
+          <div className="h-2 bg-slate-900 border border-slate-700 rounded mb-4" />
+          <div className="space-y-3">
+            <div className="h-4 bg-slate-900/70 border border-slate-700 rounded" />
+            <div className="h-4 bg-slate-900/70 border border-slate-700 rounded" />
+            <div className="h-4 bg-slate-900/70 border border-slate-700 rounded" />
+          </div>
         </div>
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mb-4">
-          <div className="h-16 bg-slate-900/70 border border-slate-700 rounded" />
-          <div className="h-16 bg-slate-900/70 border border-slate-700 rounded" />
-          <div className="h-16 bg-slate-900/70 border border-slate-700 rounded" />
-        </div>
-        <div className="h-2 bg-slate-900 border border-slate-700 rounded mb-4" />
-        <div className="space-y-3">
-          <div className="h-4 bg-slate-900/70 border border-slate-700 rounded" />
-          <div className="h-4 bg-slate-900/70 border border-slate-700 rounded" />
-          <div className="h-4 bg-slate-900/70 border border-slate-700 rounded" />
-        </div>
-      </div>
       )}
 
       {isPlanUpgradeMode && !billingLoading && !billingStatus && (
-      <div className="bg-slate-800/60 border border-slate-700 rounded-lg p-6">
-        <h3 className="text-md font-semibold text-white">Current Plan</h3>
-        <p className="text-sm text-slate-400 mt-2">Unable to load current plan details right now.</p>
-      </div>
+        <div className="bg-slate-800/60 border border-slate-700 rounded-lg p-6">
+          <h3 className="text-md font-semibold text-white">Current Plan</h3>
+          <p className="text-sm text-slate-400 mt-2">Unable to load current plan details right now.</p>
+        </div>
       )}
 
       {isPlanUpgradeMode && !billingLoading && billingStatus && (
-      <div className="bg-slate-800/60 border border-slate-700 rounded-lg p-6">
-        <div className="flex items-center justify-between mb-4">
-          <div>
-            <h3 className="text-md font-semibold text-white">Current Plan</h3>
-            <p className="text-sm text-slate-400 mt-1">{getPlanDisplayName(currentPlanCode)}</p>
-          </div>
-          <div className="flex items-center gap-2">
-            <div className={`px-4 py-2 rounded-lg text-sm font-medium ${
-              effectivePendingCancel
-                ? 'bg-amber-500/10 text-amber-400 border border-amber-500/40'
-                : statusLoading
-                ? 'bg-slate-700 text-slate-300 border border-slate-600'
-                : isTeamPlan
-                ? 'bg-blue-900/40 text-blue-300'
-                : 'bg-emerald-900/40 text-emerald-300'
-            }`}>
-              {statusLoading ? (
-                <span className="flex items-center gap-2">
-                  <span className="inline-block w-3 h-3 border-2 border-slate-500 border-t-transparent rounded-full animate-spin" aria-label="Loading status" />
-                  Loading...
-                </span>
-              ) : statusBadgeLabel}
+        <div className="bg-slate-800/60 border border-slate-700 rounded-lg p-6">
+          <div className="flex items-center justify-between mb-4">
+            <div>
+              <h3 className="text-md font-semibold text-white">Current Plan</h3>
+              <p className="text-sm text-slate-400 mt-1">{getPlanDisplayName(currentPlanCode)}</p>
             </div>
-          </div>
-        </div>
-
-        {effectivePendingCancel && !autoDowngradedToFree && (
-          <div className="mb-4 p-3 bg-slate-700/50 border border-slate-600 rounded-lg">
-            <div className="flex items-start gap-3">
-              <svg className="w-5 h-5 text-slate-400 mt-0.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-              </svg>
-              <div>
-                <p className="text-slate-300 text-sm font-medium">Cancellation Scheduled</p>
-                <p className="text-slate-400 text-sm mt-1">
-                  {effectivePendingExpiry ? (
-                    <>
-                      Your current plan stays active until <span className="text-white">{formatDate(effectivePendingExpiry)}</span>. On the next billing cycle, it will switch to the free hobby plan and team member access will be removed.
-                    </>
-                  ) : (
-                    <>
-                      Your current plan stays active until the end of this billing cycle. On the next billing cycle, it will switch to the free hobby plan and team member access will be removed.
-                    </>
-                  )}
-                </p>
+            <div className="flex items-center gap-2">
+              <div className={`px-4 py-2 rounded-lg text-sm font-medium ${effectivePendingCancel
+                  ? 'bg-amber-500/10 text-amber-400 border border-amber-500/40'
+                  : statusLoading
+                    ? 'bg-slate-700 text-slate-300 border border-slate-600'
+                    : isTeamPlan
+                      ? 'bg-blue-900/40 text-blue-300'
+                      : 'bg-emerald-900/40 text-emerald-300'
+                }`}>
+                {statusLoading ? (
+                  <span className="flex items-center gap-2">
+                    <span className="inline-block w-3 h-3 border-2 border-slate-500 border-t-transparent rounded-full animate-spin" aria-label="Loading status" />
+                    Loading...
+                  </span>
+                ) : statusBadgeLabel}
               </div>
             </div>
           </div>
-        )}
 
-        {!effectivePendingCancel && hasScheduledPlanChange && (
-          <div className={`mb-4 p-3 rounded-lg border ${isScheduledUpgrade ? 'bg-blue-900/20 border-blue-500/40' : 'bg-amber-900/20 border-amber-500/40'}`}>
-            <div className="flex items-start gap-3">
-              <svg className={`w-5 h-5 mt-0.5 flex-shrink-0 ${isScheduledUpgrade ? 'text-blue-300' : 'text-amber-300'}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
-              </svg>
-              <div>
-                <p className={`text-sm font-medium ${isScheduledUpgrade ? 'text-blue-100' : 'text-amber-100'}`}>
-                  {isScheduledUpgrade ? 'Upgrade Scheduled' : 'Downgrade Scheduled'}
-                </p>
-                <p className={`text-sm mt-1 ${isScheduledUpgrade ? 'text-blue-100/80' : 'text-amber-100/80'}`}>
-                  {scheduledChangeTargetLabel ? (
-                    <>
-                      Your plan will change to <span className="text-white">{scheduledChangeTargetLabel}</span>
-                    </>
-                  ) : (
-                    <>
-                      A plan change is scheduled for your next billing cycle
-                    </>
-                  )}
-                  {billingStatus?.billing?.scheduled_plan_effective_at ? (
-                    <>
-                      {' '}on <span className="text-white">{formatDate(billingStatus.billing.scheduled_plan_effective_at)}</span>.
-                    </>
-                  ) : (
-                    <> at the next billing cycle.</>
-                  )}
-                </p>
+          {effectivePendingCancel && !autoDowngradedToFree && (
+            <div className="mb-4 p-3 bg-slate-700/50 border border-slate-600 rounded-lg">
+              <div className="flex items-start gap-3">
+                <svg className="w-5 h-5 text-slate-400 mt-0.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+                <div>
+                  <p className="text-slate-300 text-sm font-medium">Cancellation Scheduled</p>
+                  <p className="text-slate-400 text-sm mt-1">
+                    {effectivePendingExpiry ? (
+                      <>
+                        Your current plan stays active until <span className="text-white">{formatDate(effectivePendingExpiry)}</span>. On the next billing cycle, it will switch to the free hobby plan and team member access will be removed.
+                      </>
+                    ) : (
+                      <>
+                        Your current plan stays active until the end of this billing cycle. On the next billing cycle, it will switch to the free hobby plan and team member access will be removed.
+                      </>
+                    )}
+                  </p>
+                </div>
               </div>
             </div>
-          </div>
-        )}
+          )}
 
-        {isTeamPlan && (displayExpiry || licenseExpiresAt) && (
-          <div className="mb-4 p-3 bg-slate-900/60 border border-slate-700 rounded-lg">
-            <div className="text-slate-400 text-xs mb-1">License Expires</div>
-            <div className="text-white font-medium">{formatDate(displayExpiry || licenseExpiresAt)}</div>
-          </div>
-        )}
+          {!effectivePendingCancel && hasScheduledPlanChange && (
+            <div className={`mb-4 p-3 rounded-lg border ${isScheduledUpgrade ? 'bg-blue-900/20 border-blue-500/40' : 'bg-amber-900/20 border-amber-500/40'}`}>
+              <div className="flex items-start gap-3">
+                <svg className={`w-5 h-5 mt-0.5 flex-shrink-0 ${isScheduledUpgrade ? 'text-blue-300' : 'text-amber-300'}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+                <div>
+                  <p className={`text-sm font-medium ${isScheduledUpgrade ? 'text-blue-100' : 'text-amber-100'}`}>
+                    {isScheduledUpgrade ? 'Upgrade Scheduled' : 'Downgrade Scheduled'}
+                  </p>
+                  <p className={`text-sm mt-1 ${isScheduledUpgrade ? 'text-blue-100/80' : 'text-amber-100/80'}`}>
+                    {scheduledChangeTargetLabel ? (
+                      <>
+                        Your plan will change to <span className="text-white">{scheduledChangeTargetLabel}</span>
+                      </>
+                    ) : (
+                      <>
+                        A plan change is scheduled for your next billing cycle
+                      </>
+                    )}
+                    {billingStatus?.billing?.scheduled_plan_effective_at ? (
+                      <>
+                        {' '}on <span className="text-white">{formatDate(billingStatus.billing.scheduled_plan_effective_at)}</span>.
+                      </>
+                    ) : (
+                      <> at the next billing cycle.</>
+                    )}
+                  </p>
+                </div>
+              </div>
+            </div>
+          )}
 
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-3 text-sm mb-4">
-          <div className="bg-slate-900/70 border border-slate-700 rounded p-3">
-            <p className="text-slate-400">Plan Capacity</p>
-            <p className="text-white font-semibold">{currentLocLimit.toLocaleString()} LOC/month</p>
+          {isTeamPlan && (displayExpiry || licenseExpiresAt) && (
+            <div className="mb-4 p-3 bg-slate-900/60 border border-slate-700 rounded-lg">
+              <div className="text-slate-400 text-xs mb-1">License Expires</div>
+              <div className="text-white font-medium">{formatDate(displayExpiry || licenseExpiresAt)}</div>
+            </div>
+          )}
+
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-3 text-sm mb-4">
+            <div className="bg-slate-900/70 border border-slate-700 rounded p-3">
+              <p className="text-slate-400">Plan Capacity</p>
+              <p className="text-white font-semibold">{currentLocLimit.toLocaleString()} LOC/month</p>
+            </div>
+            <div className="bg-slate-900/70 border border-slate-700 rounded p-3">
+              <p className="text-slate-400">Org Usage This Period</p>
+              <p className="text-white font-semibold">{currentLocUsed.toLocaleString()} LOC</p>
+            </div>
+            <div className="bg-slate-900/70 border border-slate-700 rounded p-3">
+              <p className="text-slate-400">My Usage This Period</p>
+              <p className="text-white font-semibold">{(myUsage?.total_billable_loc || 0).toLocaleString()} LOC</p>
+            </div>
+            <div className="bg-slate-900/70 border border-slate-700 rounded p-3">
+              <p className="text-slate-400">Remaining</p>
+              <p className="text-white font-semibold">{currentLocRemaining.toLocaleString()} LOC</p>
+            </div>
           </div>
-          <div className="bg-slate-900/70 border border-slate-700 rounded p-3">
-            <p className="text-slate-400">Used This Period</p>
-            <p className="text-white font-semibold">{currentLocUsed.toLocaleString()} LOC</p>
+
+          <div className="space-y-2 mb-4">
+            <div className="flex items-center justify-between text-xs text-slate-400">
+              <span>Current billing period usage</span>
+              <span className={`font-medium ${currentLocUsagePercent >= 100 ? 'text-red-400' : currentLocUsagePercent >= 90 ? 'text-amber-400' : ''}`}>
+                {currentLocUsagePercent}%{currentLocUsagePercent >= 100 ? ' — BLOCKED' : ''}
+              </span>
+            </div>
+            <div className="h-2.5 rounded-full bg-slate-900 border border-slate-700 overflow-hidden">
+              <div
+                className={`h-full transition-all duration-500 ${currentLocUsagePercent >= 100 ? 'bg-red-500' : currentLocUsagePercent >= 90 ? 'bg-amber-500' : 'bg-blue-500'
+                  }`}
+                style={{ width: `${Math.min(100, currentLocUsagePercent)}%` }}
+              />
+            </div>
           </div>
-          <div className="bg-slate-900/70 border border-slate-700 rounded p-3">
-            <p className="text-slate-400">Remaining</p>
-            <p className="text-white font-semibold">{currentLocRemaining.toLocaleString()} LOC</p>
+
+          <div className="space-y-3 text-sm">
+            <div className="flex justify-between items-center py-2 border-b border-slate-700">
+              <span className="text-slate-400">Usage Policy</span>
+              <span className="text-white font-medium">{dailyLimit}</span>
+            </div>
+            <div className="flex justify-between items-center py-2 border-b border-slate-700">
+              <span className="text-slate-400">AI Execution</span>
+              <span className="text-white font-medium">{isTeamPlan ? 'Hosted Auto (BYOK optional)' : 'BYOK required'}</span>
+            </div>
+            <div className="flex justify-between items-center py-2">
+              <span className="text-slate-400">Support</span>
+              <span className={isTeamPlan ? 'text-emerald-400' : 'text-slate-500'}>
+                {isTeamPlan ? 'Priority support enabled' : 'Standard support'}
+              </span>
+            </div>
           </div>
         </div>
-
-        <div className="space-y-2 mb-4">
-          <div className="flex items-center justify-between text-xs text-slate-400">
-            <span>Current billing period usage</span>
-            <span>{currentLocUsagePercent}%</span>
-          </div>
-          <div className="h-2 rounded-full bg-slate-900 border border-slate-700 overflow-hidden">
-            <div className="h-full bg-blue-500" style={{ width: `${currentLocUsagePercent}%` }} />
-          </div>
-        </div>
-
-        <div className="space-y-3 text-sm">
-          <div className="flex justify-between items-center py-2 border-b border-slate-700">
-            <span className="text-slate-400">Usage Policy</span>
-            <span className="text-white font-medium">{dailyLimit}</span>
-          </div>
-          <div className="flex justify-between items-center py-2 border-b border-slate-700">
-            <span className="text-slate-400">AI Execution</span>
-            <span className="text-white font-medium">{isTeamPlan ? 'Hosted Auto (BYOK optional)' : 'BYOK required'}</span>
-          </div>
-          <div className="flex justify-between items-center py-2">
-            <span className="text-slate-400">Support</span>
-            <span className={isTeamPlan ? 'text-emerald-400' : 'text-slate-500'}>
-              {isTeamPlan ? 'Priority support enabled' : 'Standard support'}
-            </span>
-          </div>
-        </div>
-      </div>
       )}
 
       {isBreakdownMode && !usageSummary && (
@@ -1720,183 +1732,181 @@ const OverviewTab: React.FC<{ navigate: any; mode?: 'full' | 'breakdown' | 'cont
           {!billingLoading && billingStatus && (
             <>
 
-          {requestStatus && (
-            <div className="bg-slate-900/50 border border-slate-700 rounded-lg p-4 space-y-3">
-              <div className="flex items-center justify-between gap-3">
-                <p className="text-sm text-slate-200 font-medium">Upgrade request timeline</p>
-                <span className="text-xs text-slate-400 font-mono">
-                  {requestStatus.upgrade_request_id}
-                </span>
-              </div>
-              <div className="space-y-2">
-                {timelineRows.map((row) => (
-                  <div key={row.id} className="flex items-center justify-between text-xs border border-slate-700 rounded px-3 py-2 bg-slate-950/50">
-                    <div className="flex items-center gap-2">
-                      <span className={`inline-flex h-2.5 w-2.5 rounded-full ${row.done ? 'bg-emerald-400' : 'bg-amber-400'}`} />
-                      <span className={row.done ? 'text-slate-100' : 'text-slate-300'}>{row.label}</span>
-                    </div>
-                    <span className="text-slate-400">{row.at ? formatDate(row.at) : 'Pending'}</span>
+              {requestStatus && (
+                <div className="bg-slate-900/50 border border-slate-700 rounded-lg p-4 space-y-3">
+                  <div className="flex items-center justify-between gap-3">
+                    <p className="text-sm text-slate-200 font-medium">Upgrade request timeline</p>
+                    <span className="text-xs text-slate-400 font-mono">
+                      {requestStatus.upgrade_request_id}
+                    </span>
                   </div>
-                ))}
-              </div>
-              <div className="text-xs text-slate-300 flex items-center justify-between gap-3">
-                <span>Current status: <span className="text-white font-semibold uppercase">{requestStatus.status.replace(/_/g, ' ')}</span></span>
-                <button
-                  type="button"
-                  onClick={() => refreshUpgradeRequestStatus(requestStatus.upgrade_request_id)}
-                  disabled={upgradeRequestLoading}
-                  className="px-2 py-1 rounded border border-slate-600 text-slate-200 hover:bg-slate-800 disabled:opacity-50"
-                >
-                  {upgradeRequestLoading ? 'Refreshing...' : 'Refresh'}
-                </button>
-              </div>
-              {requestStatus.customer_state && (
-                <div className="text-xs text-slate-300 bg-slate-950/60 border border-slate-700 rounded px-3 py-2 space-y-1">
-                  <p>
-                    Customer state: <span className="text-white font-semibold uppercase">{requestStatus.customer_state.replace(/_/g, ' ')}</span>
-                  </p>
-                  {requestStatus.action_required?.type && requestStatus.action_required.type !== 'none' && (
-                    <p>
-                      Action required: <span className="text-amber-300 font-medium">{requestStatus.action_required.type.replace(/_/g, ' ')}</span>
-                      {requestStatus.action_needed_at ? <span className="text-slate-400"> since {formatDate(requestStatus.action_needed_at)}</span> : null}
-                    </p>
-                  )}
-                  {requestStatus.support_context?.razorpay_order_id && (
-                    <p>Order ID: <span className="text-white font-mono">{requestStatus.support_context.razorpay_order_id}</span></p>
-                  )}
-                  {requestStatus.support_context?.razorpay_payment_id && (
-                    <p>Payment ID: <span className="text-white font-mono">{requestStatus.support_context.razorpay_payment_id}</span></p>
-                  )}
-                  {requestStatus.support_reference && (
-                    <p>Support ref: <span className="text-white font-mono">{requestStatus.support_reference}</span></p>
+                  <div className="space-y-2">
+                    {timelineRows.map((row) => (
+                      <div key={row.id} className="flex items-center justify-between text-xs border border-slate-700 rounded px-3 py-2 bg-slate-950/50">
+                        <div className="flex items-center gap-2">
+                          <span className={`inline-flex h-2.5 w-2.5 rounded-full ${row.done ? 'bg-emerald-400' : 'bg-amber-400'}`} />
+                          <span className={row.done ? 'text-slate-100' : 'text-slate-300'}>{row.label}</span>
+                        </div>
+                        <span className="text-slate-400">{row.at ? formatDate(row.at) : 'Pending'}</span>
+                      </div>
+                    ))}
+                  </div>
+                  <div className="text-xs text-slate-300 flex items-center justify-between gap-3">
+                    <span>Current status: <span className="text-white font-semibold uppercase">{requestStatus.status.replace(/_/g, ' ')}</span></span>
+                    <button
+                      type="button"
+                      onClick={() => refreshUpgradeRequestStatus(requestStatus.upgrade_request_id)}
+                      disabled={upgradeRequestLoading}
+                      className="px-2 py-1 rounded border border-slate-600 text-slate-200 hover:bg-slate-800 disabled:opacity-50"
+                    >
+                      {upgradeRequestLoading ? 'Refreshing...' : 'Refresh'}
+                    </button>
+                  </div>
+                  {requestStatus.customer_state && (
+                    <div className="text-xs text-slate-300 bg-slate-950/60 border border-slate-700 rounded px-3 py-2 space-y-1">
+                      <p>
+                        Customer state: <span className="text-white font-semibold uppercase">{requestStatus.customer_state.replace(/_/g, ' ')}</span>
+                      </p>
+                      {requestStatus.action_required?.type && requestStatus.action_required.type !== 'none' && (
+                        <p>
+                          Action required: <span className="text-amber-300 font-medium">{requestStatus.action_required.type.replace(/_/g, ' ')}</span>
+                          {requestStatus.action_needed_at ? <span className="text-slate-400"> since {formatDate(requestStatus.action_needed_at)}</span> : null}
+                        </p>
+                      )}
+                      {requestStatus.support_context?.razorpay_order_id && (
+                        <p>Order ID: <span className="text-white font-mono">{requestStatus.support_context.razorpay_order_id}</span></p>
+                      )}
+                      {requestStatus.support_context?.razorpay_payment_id && (
+                        <p>Payment ID: <span className="text-white font-mono">{requestStatus.support_context.razorpay_payment_id}</span></p>
+                      )}
+                      {requestStatus.support_reference && (
+                        <p>Support ref: <span className="text-white font-mono">{requestStatus.support_reference}</span></p>
+                      )}
+                    </div>
                   )}
                 </div>
               )}
-            </div>
-          )}
 
-          {lastUpgradeResult?.proration && (
-            <div className="bg-blue-900/20 border border-blue-500/40 rounded-lg p-4 space-y-2">
-              <p className="text-sm text-blue-200 font-medium">Latest Upgrade Charge Summary</p>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-2 text-xs text-slate-200">
-                <p>From: <span className="text-white">{lastUpgradeResult.proration.from_plan_code || 'n/a'}</span></p>
-                <p>To: <span className="text-white">{lastUpgradeResult.proration.to_plan_code || lastUpgradeResult.plan_code || 'n/a'}</span></p>
-                <p>Charged now: <span className="text-white">{formatChargeUSD(lastUpgradeResult.proration.charge_amount_cents) || '$0.00'}</span></p>
-                <p>Status: <span className="text-white">{chargeStatusLabel}</span></p>
-                {typeof lastUpgradeResult.proration.remaining_cycle_fraction === 'number' && (
-                  <p>Remaining cycle fraction: <span className="text-white">{(lastUpgradeResult.proration.remaining_cycle_fraction * 100).toFixed(2)}%</span></p>
-                )}
-                {typeof lastUpgradeResult.proration.immediate_loc_grant === 'number' && (
-                  <p>Immediate LOC grant: <span className="text-white">{lastUpgradeResult.proration.immediate_loc_grant.toLocaleString()}</span></p>
-                )}
-                {lastUpgradeResult.proration.order_id && (
-                  <p>Order ID: <span className="text-white font-mono">{lastUpgradeResult.proration.order_id}</span></p>
-                )}
-                {lastUpgradeResult.proration.payment_id && (
-                  <p>Payment ID: <span className="text-white font-mono">{lastUpgradeResult.proration.payment_id}</span></p>
-                )}
-                {lastUpgradeResult.proration.cycle_end && (
-                  <p>Cycle end: <span className="text-white">{formatDate(lastUpgradeResult.proration.cycle_end)}</span></p>
-                )}
-              </div>
-              <p className="text-xs text-slate-300">{chargeSummaryHint}</p>
-            </div>
-          )}
+              {lastUpgradeResult?.proration && (
+                <div className="bg-blue-900/20 border border-blue-500/40 rounded-lg p-4 space-y-2">
+                  <p className="text-sm text-blue-200 font-medium">Latest Upgrade Charge Summary</p>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-2 text-xs text-slate-200">
+                    <p>From: <span className="text-white">{lastUpgradeResult.proration.from_plan_code || 'n/a'}</span></p>
+                    <p>To: <span className="text-white">{lastUpgradeResult.proration.to_plan_code || lastUpgradeResult.plan_code || 'n/a'}</span></p>
+                    <p>Charged now: <span className="text-white">{formatChargeUSD(lastUpgradeResult.proration.charge_amount_cents) || '$0.00'}</span></p>
+                    <p>Status: <span className="text-white">{chargeStatusLabel}</span></p>
+                    {typeof lastUpgradeResult.proration.remaining_cycle_fraction === 'number' && (
+                      <p>Remaining cycle fraction: <span className="text-white">{(lastUpgradeResult.proration.remaining_cycle_fraction * 100).toFixed(2)}%</span></p>
+                    )}
+                    {typeof lastUpgradeResult.proration.immediate_loc_grant === 'number' && (
+                      <p>Immediate LOC grant: <span className="text-white">{lastUpgradeResult.proration.immediate_loc_grant.toLocaleString()}</span></p>
+                    )}
+                    {lastUpgradeResult.proration.order_id && (
+                      <p>Order ID: <span className="text-white font-mono">{lastUpgradeResult.proration.order_id}</span></p>
+                    )}
+                    {lastUpgradeResult.proration.payment_id && (
+                      <p>Payment ID: <span className="text-white font-mono">{lastUpgradeResult.proration.payment_id}</span></p>
+                    )}
+                    {lastUpgradeResult.proration.cycle_end && (
+                      <p>Cycle end: <span className="text-white">{formatDate(lastUpgradeResult.proration.cycle_end)}</span></p>
+                    )}
+                  </div>
+                  <p className="text-xs text-slate-300">{chargeSummaryHint}</p>
+                </div>
+              )}
 
-          {billingError && (
-            <div className="bg-red-500/10 border border-red-500/40 rounded-lg p-3 text-sm text-red-200">
-              {billingError}
-            </div>
-          )}
+              {billingError && (
+                <div className="bg-red-500/10 border border-red-500/40 rounded-lg p-3 text-sm text-red-200">
+                  {billingError}
+                </div>
+              )}
 
-          {actionProgressMessage && (
-            <div className="bg-sky-500/10 border border-sky-500/40 rounded-lg p-3 text-sm text-sky-100">
-              {actionProgressMessage}
-            </div>
-          )}
+              {actionProgressMessage && (
+                <div className="bg-sky-500/10 border border-sky-500/40 rounded-lg p-3 text-sm text-sky-100">
+                  {actionProgressMessage}
+                </div>
+              )}
 
-          {(keepPlanError || keepPlanSuccess) && (
-            <div className={`rounded-lg border p-3 text-sm ${
-              keepPlanError
-                ? 'bg-red-500/10 border-red-500/40 text-red-200'
-                : 'bg-emerald-500/10 border-emerald-500/40 text-emerald-200'
-            }`}>
-              {keepPlanError || keepPlanSuccess}
-            </div>
-          )}
+              {(keepPlanError || keepPlanSuccess) && (
+                <div className={`rounded-lg border p-3 text-sm ${keepPlanError
+                    ? 'bg-red-500/10 border-red-500/40 text-red-200'
+                    : 'bg-emerald-500/10 border-emerald-500/40 text-emerald-200'
+                  }`}>
+                  {keepPlanError || keepPlanSuccess}
+                </div>
+              )}
 
-          <div className="space-y-4">
-            <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-3">
-              {upgradeHierarchyPlans.map((plan) => {
-                const isCurrentCard = plan.plan_code === currentPlanCode;
-                const isSelectableUpgrade = plan.monthly_loc_limit > currentLocLimit;
-                const cardBaseClass = `rounded-lg border p-4 text-left transition-all duration-200 ${
-                  isCurrentCard
-                    ? 'bg-emerald-900/20 border-emerald-400/50'
-                    : 'bg-slate-900/70 border-slate-700'
-                }`;
+              <div className="space-y-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-3">
+                  {upgradeHierarchyPlans.map((plan) => {
+                    const isCurrentCard = plan.plan_code === currentPlanCode;
+                    const isSelectableUpgrade = plan.monthly_loc_limit > currentLocLimit;
+                    const cardBaseClass = `rounded-lg border p-4 text-left transition-all duration-200 ${isCurrentCard
+                        ? 'bg-emerald-900/20 border-emerald-400/50'
+                        : 'bg-slate-900/70 border-slate-700'
+                      }`;
 
-                if (!isSelectableUpgrade) {
-                  return (
-                    <div
-                      key={plan.plan_code}
-                      className={cardBaseClass}
-                    >
-                      <div className="flex items-center justify-between gap-2">
-                        <p className="text-sm font-semibold text-white">{getPlanDisplayName(plan.plan_code)}</p>
-                        {isCurrentCard ? (
-                          <span className="text-[10px] px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-300 border border-emerald-500/40">Current</span>
-                        ) : null}
-                      </div>
-                      <p className="mt-2 text-sm text-slate-300">{plan.monthly_loc_limit.toLocaleString()} LOC / month</p>
-                      <p className="text-sm text-slate-300">${plan.monthly_price_usd}/month</p>
-                      {isCurrentCard && canKeepEffectivePlan && (
-                        <button
-                          type="button"
-                          disabled={keepPlanLoading || actionLoading || statusLoading || subscriptionLoading}
-                          onClick={() => {
-                            void handleKeepPlan();
-                          }}
-                          className="mt-3 inline-flex px-3 py-1.5 rounded bg-emerald-600 text-white text-xs font-medium transition-colors hover:bg-emerald-500 disabled:opacity-60 disabled:cursor-not-allowed"
+                    if (!isSelectableUpgrade) {
+                      return (
+                        <div
+                          key={plan.plan_code}
+                          className={cardBaseClass}
                         >
-                          {keepPlanLoading ? 'Keeping Plan...' : 'Keep Plan'}
-                        </button>
-                      )}
-                    </div>
-                  );
-                }
+                          <div className="flex items-center justify-between gap-2">
+                            <p className="text-sm font-semibold text-white">{getPlanDisplayName(plan.plan_code)}</p>
+                            {isCurrentCard ? (
+                              <span className="text-[10px] px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-300 border border-emerald-500/40">Current</span>
+                            ) : null}
+                          </div>
+                          <p className="mt-2 text-sm text-slate-300">{plan.monthly_loc_limit.toLocaleString()} LOC / month</p>
+                          <p className="text-sm text-slate-300">${plan.monthly_price_usd}/month</p>
+                          {isCurrentCard && canKeepEffectivePlan && (
+                            <button
+                              type="button"
+                              disabled={keepPlanLoading || actionLoading || statusLoading || subscriptionLoading}
+                              onClick={() => {
+                                void handleKeepPlan();
+                              }}
+                              className="mt-3 inline-flex px-3 py-1.5 rounded bg-emerald-600 text-white text-xs font-medium transition-colors hover:bg-emerald-500 disabled:opacity-60 disabled:cursor-not-allowed"
+                            >
+                              {keepPlanLoading ? 'Keeping Plan...' : 'Keep Plan'}
+                            </button>
+                          )}
+                        </div>
+                      );
+                    }
 
-                return (
-                  <button
-                    key={plan.plan_code}
-                    type="button"
-                    disabled={actionLoading || keepPlanLoading || upgradeCheckoutLoading}
-                    onClick={() => {
-                      void openUpgradePreview(plan.plan_code);
-                    }}
-                    title={`Upgrade to ${getPlanDisplayName(plan.plan_code)}`}
-                    className={`${cardBaseClass} relative overflow-hidden group hover:-translate-y-0.5 hover:bg-emerald-950/40 hover:border-emerald-300/70 hover:shadow-xl hover:shadow-emerald-950/45 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400/70 disabled:opacity-60 disabled:cursor-not-allowed`}
-                  >
-                    <div className="pointer-events-none absolute inset-0 opacity-0 transition-opacity duration-200 group-hover:opacity-100 bg-gradient-to-br from-emerald-500/15 via-emerald-500/5 to-transparent" />
-                    <div className="relative z-10">
-                      <p className="text-sm font-semibold text-white">{getPlanDisplayName(plan.plan_code)}</p>
-                      <p className="mt-2 text-sm text-slate-300">{plan.monthly_loc_limit.toLocaleString()} LOC / month</p>
-                      <p className="text-sm text-slate-300">${plan.monthly_price_usd}/month</p>
-                      <div className="mt-3 inline-flex px-3 py-1.5 rounded bg-emerald-600 text-white text-xs font-medium transition-colors group-hover:bg-emerald-500">
-                        Upgrade
-                      </div>
-                    </div>
-                  </button>
-                );
-              })}
-            </div>
-            {upgradeOptions.length === 0 && (
-              <div className="rounded-lg border border-slate-700 bg-slate-900/50 p-3 text-sm text-slate-300">
-                This organization is already on the highest available LOC plan.
+                    return (
+                      <button
+                        key={plan.plan_code}
+                        type="button"
+                        disabled={actionLoading || keepPlanLoading || upgradeCheckoutLoading}
+                        onClick={() => {
+                          void openUpgradePreview(plan.plan_code);
+                        }}
+                        title={`Upgrade to ${getPlanDisplayName(plan.plan_code)}`}
+                        className={`${cardBaseClass} relative overflow-hidden group hover:-translate-y-0.5 hover:bg-emerald-950/40 hover:border-emerald-300/70 hover:shadow-xl hover:shadow-emerald-950/45 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400/70 disabled:opacity-60 disabled:cursor-not-allowed`}
+                      >
+                        <div className="pointer-events-none absolute inset-0 opacity-0 transition-opacity duration-200 group-hover:opacity-100 bg-gradient-to-br from-emerald-500/15 via-emerald-500/5 to-transparent" />
+                        <div className="relative z-10">
+                          <p className="text-sm font-semibold text-white">{getPlanDisplayName(plan.plan_code)}</p>
+                          <p className="mt-2 text-sm text-slate-300">{plan.monthly_loc_limit.toLocaleString()} LOC / month</p>
+                          <p className="text-sm text-slate-300">${plan.monthly_price_usd}/month</p>
+                          <div className="mt-3 inline-flex px-3 py-1.5 rounded bg-emerald-600 text-white text-xs font-medium transition-colors group-hover:bg-emerald-500">
+                            Upgrade
+                          </div>
+                        </div>
+                      </button>
+                    );
+                  })}
+                </div>
+                {upgradeOptions.length === 0 && (
+                  <div className="rounded-lg border border-slate-700 bg-slate-900/50 p-3 text-sm text-slate-300">
+                    This organization is already on the highest available LOC plan.
+                  </div>
+                )}
               </div>
-            )}
-          </div>
-          </>
+            </>
           )}
         </div>
       )}
@@ -1994,35 +2004,35 @@ const OverviewTab: React.FC<{ navigate: any; mode?: 'full' | 'breakdown' | 'cont
                 <p className="text-sm text-slate-300 font-medium">Downgrade Plan</p>
                 <p className="text-xs text-slate-400">Downgrades are scheduled and take effect at the end of your current billing cycle.</p>
                 {billingStatus ? (
-                <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-3">
-                  {downgradeOptions.map((plan) => {
-                    return (
-                      <button
-                        key={plan.plan_code}
-                        type="button"
-                        disabled={actionLoading || keepPlanLoading}
-                        onClick={() => {
-                          setSelectedDowngradePlan(plan.plan_code);
-                          void runBillingAction('schedule_downgrade', plan.plan_code);
-                        }}
-                        title={`Downgrade to ${getPlanDisplayName(plan.plan_code)}`}
-                        className="relative overflow-hidden group rounded-lg border p-4 text-left transition-all duration-200 bg-slate-950/50 border-slate-700 hover:-translate-y-0.5 hover:bg-amber-950/30 hover:border-amber-300/70 hover:shadow-xl hover:shadow-amber-950/35 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400/70 disabled:opacity-60 disabled:cursor-not-allowed"
-                      >
-                        <div className="pointer-events-none absolute inset-0 opacity-0 transition-opacity duration-200 group-hover:opacity-100 bg-gradient-to-br from-amber-500/15 via-amber-500/5 to-transparent" />
-                        <div className="relative z-10">
-                          <div className="flex items-center justify-between gap-2 mb-1">
-                            <p className="text-sm font-semibold text-white">{getPlanDisplayName(plan.plan_code)}</p>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-3">
+                    {downgradeOptions.map((plan) => {
+                      return (
+                        <button
+                          key={plan.plan_code}
+                          type="button"
+                          disabled={actionLoading || keepPlanLoading}
+                          onClick={() => {
+                            setSelectedDowngradePlan(plan.plan_code);
+                            void runBillingAction('schedule_downgrade', plan.plan_code);
+                          }}
+                          title={`Downgrade to ${getPlanDisplayName(plan.plan_code)}`}
+                          className="relative overflow-hidden group rounded-lg border p-4 text-left transition-all duration-200 bg-slate-950/50 border-slate-700 hover:-translate-y-0.5 hover:bg-amber-950/30 hover:border-amber-300/70 hover:shadow-xl hover:shadow-amber-950/35 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400/70 disabled:opacity-60 disabled:cursor-not-allowed"
+                        >
+                          <div className="pointer-events-none absolute inset-0 opacity-0 transition-opacity duration-200 group-hover:opacity-100 bg-gradient-to-br from-amber-500/15 via-amber-500/5 to-transparent" />
+                          <div className="relative z-10">
+                            <div className="flex items-center justify-between gap-2 mb-1">
+                              <p className="text-sm font-semibold text-white">{getPlanDisplayName(plan.plan_code)}</p>
+                            </div>
+                            <p className="text-sm text-slate-300">{plan.monthly_loc_limit.toLocaleString()} LOC / month</p>
+                            <p className="text-sm text-slate-300">${plan.monthly_price_usd}/month</p>
+                            <div className="mt-3 inline-flex px-3 py-1.5 rounded bg-amber-600 text-white text-xs font-medium transition-colors group-hover:bg-amber-500">
+                              Downgrade
+                            </div>
                           </div>
-                          <p className="text-sm text-slate-300">{plan.monthly_loc_limit.toLocaleString()} LOC / month</p>
-                          <p className="text-sm text-slate-300">${plan.monthly_price_usd}/month</p>
-                          <div className="mt-3 inline-flex px-3 py-1.5 rounded bg-amber-600 text-white text-xs font-medium transition-colors group-hover:bg-amber-500">
-                            Downgrade
-                          </div>
-                        </div>
-                      </button>
-                    );
-                  })}
-                </div>
+                        </button>
+                      );
+                    })}
+                  </div>
                 ) : (
                   <p className="text-xs text-slate-400">Billing details are still loading.</p>
                 )}
@@ -2124,7 +2134,7 @@ const OverviewTab: React.FC<{ navigate: any; mode?: 'full' | 'breakdown' | 'cont
             <div className="border-b border-slate-700 px-6 py-4">
               <h3 className="text-lg font-semibold text-white">Confirm Upgrade and Prorated Charge</h3>
               <p className="mt-1 text-sm text-slate-300">
-				This charge applies now for the remaining current cycle. Upgrade grant is finalized after deterministic payment and subscription confirmations.
+                This charge applies now for the remaining current cycle. Upgrade grant is finalized after deterministic payment and subscription confirmations.
               </p>
             </div>
 
@@ -2160,7 +2170,7 @@ const OverviewTab: React.FC<{ navigate: any; mode?: 'full' | 'breakdown' | 'cont
               </div>
 
               <div className="rounded-lg border border-amber-500/40 bg-amber-900/20 p-3 text-xs text-amber-100">
-				By confirming, you authorize a one-time prorated payment now and start a tracked upgrade process that resolves after all confirmations.
+                By confirming, you authorize a one-time prorated payment now and start a tracked upgrade process that resolves after all confirmations.
               </div>
             </div>
 
