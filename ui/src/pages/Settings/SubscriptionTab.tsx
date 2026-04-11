@@ -1179,7 +1179,7 @@ const OverviewTab: React.FC<{ navigate: any; mode?: 'full' | 'breakdown' | 'cont
     : `Quota-based (${(currentPlan?.monthly_loc_limit || 100000).toLocaleString()} LOC/month)`;
 
   const currentLocLimit = currentPlan?.monthly_loc_limit || (isFree ? 30000 : 100000);
-  const currentLocUsed = usageSummary?.total_billable_loc || 0;
+  const currentLocUsed = billingStatus?.billing?.loc_used_month || 0;
   const currentLocRemaining = Math.max(0, currentLocLimit - currentLocUsed);
   const currentLocUsagePercent = currentLocLimit > 0 ? Math.min(100, Math.round((currentLocUsed / currentLocLimit) * 100)) : 0;
   const sortedPlansByLoc = [...(billingStatus?.available_plans || [])].sort((a, b) => a.monthly_loc_limit - b.monthly_loc_limit);
@@ -1514,14 +1514,18 @@ const OverviewTab: React.FC<{ navigate: any; mode?: 'full' | 'breakdown' | 'cont
             </div>
           )}
 
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-3 text-sm mb-4">
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-3 text-sm mb-4">
             <div className="bg-slate-900/70 border border-slate-700 rounded p-3">
               <p className="text-slate-400">Plan Capacity</p>
               <p className="text-white font-semibold">{currentLocLimit.toLocaleString()} LOC/month</p>
             </div>
             <div className="bg-slate-900/70 border border-slate-700 rounded p-3">
-              <p className="text-slate-400">Used This Period</p>
+              <p className="text-slate-400">Org Usage This Period</p>
               <p className="text-white font-semibold">{currentLocUsed.toLocaleString()} LOC</p>
+            </div>
+            <div className="bg-slate-900/70 border border-slate-700 rounded p-3">
+              <p className="text-slate-400">My Usage This Period</p>
+              <p className="text-white font-semibold">{(myUsage?.total_billable_loc || 0).toLocaleString()} LOC</p>
             </div>
             <div className="bg-slate-900/70 border border-slate-700 rounded p-3">
               <p className="text-slate-400">Remaining</p>

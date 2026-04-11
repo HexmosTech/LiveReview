@@ -386,37 +386,6 @@ export const Dashboard: React.FC = () => {
                     </div>
                 )}
 
-                {/* Header with aligned content and prominent CTA */}
-                <div className="flex flex-col gap-3 sm:flex-row sm:justify-between sm:items-center mb-6">
-                    <div className="mb-4 sm:mb-0">
-                        <div className="flex items-center gap-2">
-                            <h1 className="text-2xl font-bold text-white">Dashboard</h1>
-                        </div>
-                        <p className="mt-1 text-base text-slate-300">
-                            Monitor your code review activity and connected services
-                            {dashboardData && (
-                                <span className="text-xs text-slate-400 ml-2">
-                                    Last updated: <HumanizedTimestamp
-                                        timestamp={dashboardData.last_updated}
-                                        className="text-slate-400"
-                                    />
-                                </span>
-                            )}
-                        </p>
-                    </div>
-                    <div className="hidden sm:flex gap-3">
-                        <Button
-                            variant="primary"
-                            icon={<Icons.Add />}
-                            onClick={() => navigate('/reviews/new')}
-                            className="shadow-xl hover:shadow-2xl transition-all duration-300 hover:scale-105 bg-gradient-to-r from-blue-600 to-blue-700 hover:from-blue-500 hover:to-blue-600"
-                            title="Safe review - no comments posted"
-                        >
-                            New Review
-                        </Button>
-                    </div>
-                </div>
-
                 {/* LOC Quota Warning/Blocked Banners */}
                 {billingInsight && billingInsight.blocked && (
                     <Alert variant="error" className="mb-4">
@@ -458,6 +427,37 @@ export const Dashboard: React.FC = () => {
                         </div>
                     </Alert>
                 )}
+
+                {/* Header with aligned content and prominent CTA */}
+                <div className="flex flex-col gap-3 sm:flex-row sm:justify-between sm:items-center mb-6">
+                    <div className="mb-4 sm:mb-0">
+                        <div className="flex items-center gap-2">
+                            <h1 className="text-2xl font-bold text-white">Dashboard</h1>
+                        </div>
+                        <p className="mt-1 text-base text-slate-300">
+                            Monitor your code review activity and connected services
+                            {dashboardData && (
+                                <span className="text-xs text-slate-400 ml-2">
+                                    Last updated: <HumanizedTimestamp
+                                        timestamp={dashboardData.last_updated}
+                                        className="text-slate-400"
+                                    />
+                                </span>
+                            )}
+                        </p>
+                    </div>
+                    <div className="hidden sm:flex gap-3">
+                        <Button
+                            variant="primary"
+                            icon={<Icons.Add />}
+                            onClick={() => navigate('/reviews/new')}
+                            className="shadow-xl hover:shadow-2xl transition-all duration-300 hover:scale-105 bg-gradient-to-r from-blue-600 to-blue-700 hover:from-blue-500 hover:to-blue-600"
+                            title="Safe review - no comments posted"
+                        >
+                            New Review
+                        </Button>
+                    </div>
+                </div>
 
                 {billingInsight && (
                     <div className="mb-6 bg-slate-800/55 border border-slate-700 rounded-xl p-4">
