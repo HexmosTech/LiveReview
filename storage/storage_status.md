@@ -1,6 +1,6 @@
 # Storage Status
 
-Latest milestone batch note (MF-LOC-007, MF-PRORATION-003, MF-ATTRIB-001, MF-ATTRIB-002, MF-PORTFOLIO-001, MF-NOTIFY-001, MF-DASHBOARD-LOG-001, MF-EXPIRY-001): added member-attribution storage groundwork, member-usage rollups, payment-attempt lookup for customer state, superadmin billing portfolio storage views, billing notification outbox persistence, dashboard scheduler leader-lock storage operations, and automatic paid-plan expiry reconciliation persistence.
+Latest milestone batch note (MF-LOC-007, MF-LOC-008, MF-PRORATION-003, MF-ATTRIB-001, MF-ATTRIB-002, MF-PORTFOLIO-001, MF-NOTIFY-001, MF-DASHBOARD-LOG-001, MF-EXPIRY-001): added member-attribution storage groundwork, member-usage rollups, payment-attempt lookup for customer state, superadmin billing portfolio storage views, billing notification outbox persistence, dashboard scheduler leader-lock storage operations, automatic paid-plan expiry reconciliation persistence, and quota policy + batch settlement + operation aggregate storage operations.
 
 | Operation | Status | Evidence |
 | --- | --- | --- |
@@ -81,6 +81,11 @@ Latest milestone batch note (MF-LOC-007, MF-PRORATION-003, MF-ATTRIB-001, MF-ATT
 | core.ReleaseDashboardRefreshLeaderLock | added | [ReleaseDashboardRefreshLeaderLock](core/scheduler_lock_store.go#L58) |
 | license.NewPlanCatalogFileStore | moved | [NewPlanCatalogFileStore](license/plan_catalog_file_store.go#L14) |
 | license.ReadPlanCatalogFile | moved | [ReadPlanCatalogFile](license/plan_catalog_file_store.go#L18) |
+| license.NewQuotaStore | added | [NewQuotaStore](license/quota_store.go#L106) |
+| license.ResolvePolicy | added | [ResolvePolicy](license/quota_store.go#L110) |
+| license.UpsertBatchSettlement | added | [UpsertBatchSettlement](license/quota_store.go#L165) |
+| license.BuildAggregateFromBatches | added | [BuildAggregateFromBatches](license/quota_store.go#L260) |
+| license.UpsertOperationAggregate | added | [UpsertOperationAggregate](license/quota_store.go#L311) |
 | license.NewLOCAccountingStore | moved | [NewLOCAccountingStore](license/loc_accounting_store.go#L52) |
 | license.AccountSuccess | moved | [AccountSuccess](license/loc_accounting_store.go#L56) |
 | license.CheckQuotaPreflight | moved | [CheckQuotaPreflight](license/loc_accounting_store.go#L212) |

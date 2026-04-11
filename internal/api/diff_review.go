@@ -102,8 +102,8 @@ func (s *Server) DiffReview(c echo.Context) error {
 		planCode = planCtx.PlanType
 	}
 
-	accountingService := license.NewLOCAccountingService(s.db)
-	preflightResult, err := accountingService.CheckPreflight(context.Background(), license.LOCPreflightInput{
+	quotaModule := license.NewQuotaModule(s.db)
+	preflightResult, err := quotaModule.PreflightCheck(context.Background(), license.QuotaPreflightInput{
 		OrgID:       orgID,
 		RequiredLOC: billableLOC,
 		PlanCode:    planCode,
@@ -182,7 +182,7 @@ func (s *Server) DiffReview(c echo.Context) error {
 		PreloadedChanges: modelDiffs,
 	}
 
-	go s.runDiffReview(reviewRequest, rm, reviewRecord.ID, orgID, billableLOC, actorUserID, userEmail)
+	go s.runDiffReview(reviewRequest, rm, reviewRecord.ID, orgID, billableLOC, actorUserID, userEmail, planCode)
 
 	return JSONWithEnvelope(c, http.StatusOK, map[string]interface{}{
 		"review_id":     fmt.Sprintf("%d", reviewRecord.ID),
@@ -299,7 +299,7 @@ func (s *Server) GetDiffReviewStatus(c echo.Context) error {
 }
 
 // runDiffReview executes the review asynchronously and persists results.
-func (s *Server) runDiffReview(request review.ReviewRequest, rm *ReviewManager, reviewID int64, orgID int64, billableLOC int64, actorUserID int64, actorEmail string) {
+func (s *Server) runDiffReview(request review.ReviewRequest, rm *ReviewManager, reviewID int64, orgID int64, billableLOC int64, actorUserID int64, actorEmail string, planCode license.PlanType) {
 	// Initialize logger with event sink for UI visibility
 	logger, err := logging.StartReviewLoggingWithIDs(fmt.Sprintf("%d", reviewID), reviewID, orgID)
 	if err != nil {
@@ -335,7 +335,6 @@ func (s *Server) runDiffReview(request review.ReviewRequest, rm *ReviewManager, 
 		if result.Success {
 			status = "completed"
 			accountedAt := time.Now().UTC().Format(time.RFC3339)
-			accountingService := license.NewLOCAccountingService(s.db)
 			resolvedReviewID := reviewID
 			operationID := fmt.Sprintf("diff-review:%d", reviewID)
 			idempotencyKey := operationID
@@ -344,31 +343,63 @@ func (s *Server) runDiffReview(request review.ReviewRequest, rm *ReviewManager, 
 				resolvedActorUserID := actorUserID
 				actorUserIDPtr = &resolvedActorUserID
 			}
-			if err := accountingService.AccountSuccess(context.Background(), license.LOCAccountSuccessInput{
+			quotaModule := license.NewQuotaModule(s.db)
+			_, err := quotaModule.RecordBatch(context.Background(), license.QuotaRecordBatchInput{
 				OrgID:          orgID,
 				ReviewID:       &resolvedReviewID,
-				ActorUserID:    actorUserIDPtr,
-				ActorEmail:     strings.TrimSpace(actorEmail),
 				OperationType:  "diff_review",
 				TriggerSource:  "api",
 				OperationID:    operationID,
 				IdempotencyKey: idempotencyKey,
-				BillableLOC:    billableLOC,
-				Provider:       result.Provider,
-				Model:          result.Model,
-				PricingVersion: result.PricingVersion,
-				InputTokens:    result.InputTokens,
-				OutputTokens:   result.OutputTokens,
-				CostUSD:        result.CostUSD,
-			}); err != nil {
-				log.Printf("[WARN] failed success-only accounting for review %d: %v", reviewID, err)
+				BatchIndex:     1,
+				Batch: license.QuotaBatchInput{
+					PlanCode:                 planCode,
+					Provider:                 result.Provider,
+					RawLOCBatch:              billableLOC,
+					ProviderTotalInputTokens: result.InputTokens,
+					OutputTokensBatch:        result.OutputTokens,
+				},
+			})
+			if err != nil {
+				log.Printf("[WARN] failed batch accounting for review %d: %v", reviewID, err)
 			} else {
-				meta := map[string]interface{}{"accounted_at": accountedAt, "operation_id": operationID, "idempotency_key": idempotencyKey}
-				for k, v := range aiExecutionMetadataFromConfig(request.AI.Config) {
-					meta[k] = v
-				}
-				if err := rm.MergeReviewMetadata(reviewID, meta); err != nil {
-					log.Printf("[WARN] failed to store accounted_at for review %d: %v", reviewID, err)
+				finalized, err := quotaModule.FinalizeOperation(context.Background(), license.QuotaFinalizeInput{
+					OrgID:          orgID,
+					ReviewID:       &resolvedReviewID,
+					ActorUserID:    actorUserIDPtr,
+					ActorEmail:     strings.TrimSpace(actorEmail),
+					OperationType:  "diff_review",
+					TriggerSource:  "api",
+					OperationID:    operationID,
+					IdempotencyKey: idempotencyKey,
+					Provider:       result.Provider,
+					Model:          result.Model,
+					BatchFallback:  nil,
+				})
+				if err != nil {
+					log.Printf("[WARN] failed final accounting for review %d: %v", reviewID, err)
+				} else {
+					meta := map[string]interface{}{
+						"accounted_at":           accountedAt,
+						"operation_id":           operationID,
+						"idempotency_key":        idempotencyKey,
+						"operation_raw_loc":      finalized.RawLOCTotal,
+						"operation_billable_loc": finalized.EffectiveLOCTotal,
+						"operation_extra_loc":    finalized.ExtraEffectiveLOCTotal,
+						"context_tokens":         finalized.ContextTokensTotal,
+						"allowed_context_tokens": finalized.AllowedContextTokensTotal,
+						"extra_context_tokens":   finalized.ExtraContextTokensTotal,
+						"input_cost_usd":         finalized.InputCostUSDTotal,
+						"output_cost_usd":        finalized.OutputCostUSDTotal,
+						"total_cost_usd":         finalized.TotalCostUSDTotal,
+						"pricing_version":        finalized.PricingVersion,
+					}
+					for k, v := range aiExecutionMetadataFromConfig(request.AI.Config) {
+						meta[k] = v
+					}
+					if err := rm.MergeReviewMetadata(reviewID, meta); err != nil {
+						log.Printf("[WARN] failed to store accounted_at for review %d: %v", reviewID, err)
+					}
 				}
 			}
 			if logger != nil {

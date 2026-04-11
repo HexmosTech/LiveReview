@@ -35,6 +35,22 @@ CREATE TYPE public.learning_status AS ENUM (
 
 
 --
+-- Name: river_job_state; Type: TYPE; Schema: public; Owner: -
+--
+
+CREATE TYPE public.river_job_state AS ENUM (
+    'available',
+    'cancelled',
+    'completed',
+    'discarded',
+    'pending',
+    'retryable',
+    'running',
+    'scheduled'
+);
+
+
+--
 -- Name: license_seat_assignments_set_updated_at(); Type: FUNCTION; Schema: public; Owner: -
 --
 
@@ -87,6 +103,69 @@ BEGIN
     NEW.updated_at = NOW();
     RETURN NEW;
 END;
+$$;
+
+
+--
+-- Name: quota_batch_settlements_set_updated_at(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.quota_batch_settlements_set_updated_at() RETURNS trigger
+    LANGUAGE plpgsql
+    AS $$
+BEGIN
+    NEW.updated_at = NOW();
+    RETURN NEW;
+END;
+$$;
+
+
+--
+-- Name: quota_operation_aggregates_set_updated_at(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.quota_operation_aggregates_set_updated_at() RETURNS trigger
+    LANGUAGE plpgsql
+    AS $$
+BEGIN
+    NEW.updated_at = NOW();
+    RETURN NEW;
+END;
+$$;
+
+
+--
+-- Name: quota_policy_catalog_set_updated_at(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.quota_policy_catalog_set_updated_at() RETURNS trigger
+    LANGUAGE plpgsql
+    AS $$
+BEGIN
+    NEW.updated_at = NOW();
+    RETURN NEW;
+END;
+$$;
+
+
+--
+-- Name: river_job_state_in_bitmask(bit, public.river_job_state); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.river_job_state_in_bitmask(bitmask bit, state public.river_job_state) RETURNS boolean
+    LANGUAGE sql IMMUTABLE
+    AS $$
+    SELECT CASE state
+        WHEN 'available' THEN get_bit(bitmask, 7)
+        WHEN 'cancelled' THEN get_bit(bitmask, 6)
+        WHEN 'completed' THEN get_bit(bitmask, 5)
+        WHEN 'discarded' THEN get_bit(bitmask, 4)
+        WHEN 'pending'   THEN get_bit(bitmask, 3)
+        WHEN 'retryable' THEN get_bit(bitmask, 2)
+        WHEN 'running'   THEN get_bit(bitmask, 1)
+        WHEN 'scheduled' THEN get_bit(bitmask, 0)
+        ELSE 0
+    END = 1;
 $$;
 
 
@@ -893,6 +972,197 @@ ALTER SEQUENCE public.prompt_chunks_id_seq OWNED BY public.prompt_chunks.id;
 
 
 --
+-- Name: quota_batch_settlements; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.quota_batch_settlements (
+    id bigint NOT NULL,
+    org_id bigint NOT NULL,
+    review_id bigint,
+    operation_type character varying(64) NOT NULL,
+    trigger_source character varying(64) NOT NULL,
+    operation_id character varying(128) NOT NULL,
+    idempotency_key character varying(255) NOT NULL,
+    batch_index integer NOT NULL,
+    plan_code character varying(64) NOT NULL,
+    policy_provider_key character varying(64) NOT NULL,
+    pricing_version character varying(64) NOT NULL,
+    raw_loc_batch bigint NOT NULL,
+    effective_loc_batch bigint NOT NULL,
+    extra_effective_loc_batch bigint NOT NULL,
+    diff_input_tokens_batch bigint NOT NULL,
+    context_chars_batch bigint NOT NULL,
+    context_tokens_batch bigint NOT NULL,
+    allowed_context_tokens_batch bigint NOT NULL,
+    extra_context_tokens_batch bigint NOT NULL,
+    provider_total_input_tokens_batch bigint NOT NULL,
+    output_tokens_batch bigint NOT NULL,
+    input_cost_usd_batch double precision NOT NULL,
+    output_cost_usd_batch double precision NOT NULL,
+    total_cost_usd_batch double precision NOT NULL,
+    context_tokens_per_loc_allowance double precision NOT NULL,
+    accounted_at timestamp with time zone DEFAULT now() NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT chk_quota_batch_allowed_context_tokens_non_negative CHECK ((allowed_context_tokens_batch >= 0)),
+    CONSTRAINT chk_quota_batch_context_allowance_non_negative CHECK ((context_tokens_per_loc_allowance >= (0)::double precision)),
+    CONSTRAINT chk_quota_batch_context_chars_non_negative CHECK ((context_chars_batch >= 0)),
+    CONSTRAINT chk_quota_batch_context_tokens_non_negative CHECK ((context_tokens_batch >= 0)),
+    CONSTRAINT chk_quota_batch_diff_tokens_non_negative CHECK ((diff_input_tokens_batch >= 0)),
+    CONSTRAINT chk_quota_batch_effective_loc_non_negative CHECK ((effective_loc_batch >= 0)),
+    CONSTRAINT chk_quota_batch_extra_context_tokens_non_negative CHECK ((extra_context_tokens_batch >= 0)),
+    CONSTRAINT chk_quota_batch_extra_loc_non_negative CHECK ((extra_effective_loc_batch >= 0)),
+    CONSTRAINT chk_quota_batch_index_positive CHECK ((batch_index > 0)),
+    CONSTRAINT chk_quota_batch_input_cost_non_negative CHECK ((input_cost_usd_batch >= (0)::double precision)),
+    CONSTRAINT chk_quota_batch_output_cost_non_negative CHECK ((output_cost_usd_batch >= (0)::double precision)),
+    CONSTRAINT chk_quota_batch_output_tokens_non_negative CHECK ((output_tokens_batch >= 0)),
+    CONSTRAINT chk_quota_batch_provider_input_tokens_non_negative CHECK ((provider_total_input_tokens_batch >= 0)),
+    CONSTRAINT chk_quota_batch_raw_loc_non_negative CHECK ((raw_loc_batch >= 0)),
+    CONSTRAINT chk_quota_batch_total_cost_non_negative CHECK ((total_cost_usd_batch >= (0)::double precision))
+);
+
+
+--
+-- Name: quota_batch_settlements_id_seq; Type: SEQUENCE; Schema: public; Owner: -
+--
+
+CREATE SEQUENCE public.quota_batch_settlements_id_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+
+--
+-- Name: quota_batch_settlements_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: -
+--
+
+ALTER SEQUENCE public.quota_batch_settlements_id_seq OWNED BY public.quota_batch_settlements.id;
+
+
+--
+-- Name: quota_operation_aggregates; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.quota_operation_aggregates (
+    id bigint NOT NULL,
+    org_id bigint NOT NULL,
+    review_id bigint,
+    operation_type character varying(64) NOT NULL,
+    trigger_source character varying(64) NOT NULL,
+    operation_id character varying(128) NOT NULL,
+    idempotency_key character varying(255) NOT NULL,
+    plan_code character varying(64) NOT NULL,
+    provider character varying(64),
+    model character varying(128),
+    pricing_version character varying(64) NOT NULL,
+    batch_count integer NOT NULL,
+    raw_loc_total bigint NOT NULL,
+    effective_loc_total bigint NOT NULL,
+    extra_effective_loc_total bigint NOT NULL,
+    diff_input_tokens_total bigint NOT NULL,
+    context_chars_total bigint NOT NULL,
+    context_tokens_total bigint NOT NULL,
+    allowed_context_tokens_total bigint NOT NULL,
+    extra_context_tokens_total bigint NOT NULL,
+    provider_total_input_tokens_total bigint NOT NULL,
+    output_tokens_total bigint NOT NULL,
+    input_cost_usd_total double precision NOT NULL,
+    output_cost_usd_total double precision NOT NULL,
+    total_cost_usd_total double precision NOT NULL,
+    finalized_at timestamp with time zone DEFAULT now() NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT chk_quota_operation_allowed_context_tokens_non_negative CHECK ((allowed_context_tokens_total >= 0)),
+    CONSTRAINT chk_quota_operation_batch_count_positive CHECK ((batch_count > 0)),
+    CONSTRAINT chk_quota_operation_context_chars_non_negative CHECK ((context_chars_total >= 0)),
+    CONSTRAINT chk_quota_operation_context_tokens_non_negative CHECK ((context_tokens_total >= 0)),
+    CONSTRAINT chk_quota_operation_diff_tokens_non_negative CHECK ((diff_input_tokens_total >= 0)),
+    CONSTRAINT chk_quota_operation_effective_loc_non_negative CHECK ((effective_loc_total >= 0)),
+    CONSTRAINT chk_quota_operation_extra_context_tokens_non_negative CHECK ((extra_context_tokens_total >= 0)),
+    CONSTRAINT chk_quota_operation_extra_loc_non_negative CHECK ((extra_effective_loc_total >= 0)),
+    CONSTRAINT chk_quota_operation_input_cost_non_negative CHECK ((input_cost_usd_total >= (0)::double precision)),
+    CONSTRAINT chk_quota_operation_output_cost_non_negative CHECK ((output_cost_usd_total >= (0)::double precision)),
+    CONSTRAINT chk_quota_operation_output_tokens_non_negative CHECK ((output_tokens_total >= 0)),
+    CONSTRAINT chk_quota_operation_provider_input_tokens_non_negative CHECK ((provider_total_input_tokens_total >= 0)),
+    CONSTRAINT chk_quota_operation_raw_loc_non_negative CHECK ((raw_loc_total >= 0)),
+    CONSTRAINT chk_quota_operation_total_cost_non_negative CHECK ((total_cost_usd_total >= (0)::double precision))
+);
+
+
+--
+-- Name: quota_operation_aggregates_id_seq; Type: SEQUENCE; Schema: public; Owner: -
+--
+
+CREATE SEQUENCE public.quota_operation_aggregates_id_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+
+--
+-- Name: quota_operation_aggregates_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: -
+--
+
+ALTER SEQUENCE public.quota_operation_aggregates_id_seq OWNED BY public.quota_operation_aggregates.id;
+
+
+--
+-- Name: quota_policy_catalog; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.quota_policy_catalog (
+    id bigint NOT NULL,
+    plan_code character varying(64) NOT NULL,
+    provider_key character varying(64) NOT NULL,
+    input_chars_per_loc integer NOT NULL,
+    output_chars_per_loc integer NOT NULL,
+    chars_per_token integer NOT NULL,
+    loc_budget_ratio double precision NOT NULL,
+    context_budget_ratio double precision NOT NULL,
+    ops_reserved_ratio double precision NOT NULL,
+    input_cost_per_million_tokens_usd double precision NOT NULL,
+    output_cost_per_million_tokens_usd double precision NOT NULL,
+    rounding_scale integer DEFAULT 6 NOT NULL,
+    active boolean DEFAULT true NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT chk_quota_policy_chars_per_token_positive CHECK ((chars_per_token > 0)),
+    CONSTRAINT chk_quota_policy_context_budget_ratio CHECK (((context_budget_ratio >= (0)::double precision) AND (context_budget_ratio <= (1)::double precision))),
+    CONSTRAINT chk_quota_policy_input_chars_positive CHECK ((input_chars_per_loc > 0)),
+    CONSTRAINT chk_quota_policy_input_rate_non_negative CHECK ((input_cost_per_million_tokens_usd >= (0)::double precision)),
+    CONSTRAINT chk_quota_policy_loc_budget_ratio CHECK (((loc_budget_ratio >= (0)::double precision) AND (loc_budget_ratio <= (1)::double precision))),
+    CONSTRAINT chk_quota_policy_ops_reserved_ratio CHECK (((ops_reserved_ratio >= (0)::double precision) AND (ops_reserved_ratio <= (1)::double precision))),
+    CONSTRAINT chk_quota_policy_output_chars_positive CHECK ((output_chars_per_loc > 0)),
+    CONSTRAINT chk_quota_policy_output_rate_non_negative CHECK ((output_cost_per_million_tokens_usd >= (0)::double precision)),
+    CONSTRAINT chk_quota_policy_ratio_sum CHECK ((abs((((loc_budget_ratio + context_budget_ratio) + ops_reserved_ratio) - (1.0)::double precision)) <= (0.000001)::double precision)),
+    CONSTRAINT chk_quota_policy_rounding_scale CHECK (((rounding_scale >= 0) AND (rounding_scale <= 12)))
+);
+
+
+--
+-- Name: quota_policy_catalog_id_seq; Type: SEQUENCE; Schema: public; Owner: -
+--
+
+CREATE SEQUENCE public.quota_policy_catalog_id_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+
+--
+-- Name: quota_policy_catalog_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: -
+--
+
+ALTER SEQUENCE public.quota_policy_catalog_id_seq OWNED BY public.quota_policy_catalog.id;
+
+
+--
 -- Name: recent_activity; Type: TABLE; Schema: public; Owner: -
 --
 
@@ -1006,6 +1276,129 @@ CREATE SEQUENCE public.reviews_id_seq
 --
 
 ALTER SEQUENCE public.reviews_id_seq OWNED BY public.reviews.id;
+
+
+--
+-- Name: river_client; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE UNLOGGED TABLE public.river_client (
+    id text NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    metadata jsonb DEFAULT '{}'::jsonb NOT NULL,
+    paused_at timestamp with time zone,
+    updated_at timestamp with time zone NOT NULL,
+    CONSTRAINT name_length CHECK (((char_length(id) > 0) AND (char_length(id) < 128)))
+);
+
+
+--
+-- Name: river_client_queue; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE UNLOGGED TABLE public.river_client_queue (
+    river_client_id text NOT NULL,
+    name text NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    max_workers bigint DEFAULT 0 NOT NULL,
+    metadata jsonb DEFAULT '{}'::jsonb NOT NULL,
+    num_jobs_completed bigint DEFAULT 0 NOT NULL,
+    num_jobs_running bigint DEFAULT 0 NOT NULL,
+    updated_at timestamp with time zone NOT NULL,
+    CONSTRAINT name_length CHECK (((char_length(name) > 0) AND (char_length(name) < 128))),
+    CONSTRAINT num_jobs_completed_zero_or_positive CHECK ((num_jobs_completed >= 0)),
+    CONSTRAINT num_jobs_running_zero_or_positive CHECK ((num_jobs_running >= 0))
+);
+
+
+--
+-- Name: river_job; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.river_job (
+    id bigint NOT NULL,
+    state public.river_job_state DEFAULT 'available'::public.river_job_state NOT NULL,
+    attempt smallint DEFAULT 0 NOT NULL,
+    max_attempts smallint NOT NULL,
+    attempted_at timestamp with time zone,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    finalized_at timestamp with time zone,
+    scheduled_at timestamp with time zone DEFAULT now() NOT NULL,
+    priority smallint DEFAULT 1 NOT NULL,
+    args jsonb NOT NULL,
+    attempted_by text[],
+    errors jsonb[],
+    kind text NOT NULL,
+    metadata jsonb DEFAULT '{}'::jsonb NOT NULL,
+    queue text DEFAULT 'default'::text NOT NULL,
+    tags character varying(255)[] DEFAULT '{}'::character varying[] NOT NULL,
+    unique_key bytea,
+    unique_states bit(8),
+    CONSTRAINT finalized_or_finalized_at_null CHECK ((((finalized_at IS NULL) AND (state <> ALL (ARRAY['cancelled'::public.river_job_state, 'completed'::public.river_job_state, 'discarded'::public.river_job_state]))) OR ((finalized_at IS NOT NULL) AND (state = ANY (ARRAY['cancelled'::public.river_job_state, 'completed'::public.river_job_state, 'discarded'::public.river_job_state]))))),
+    CONSTRAINT kind_length CHECK (((char_length(kind) > 0) AND (char_length(kind) < 128))),
+    CONSTRAINT max_attempts_is_positive CHECK ((max_attempts > 0)),
+    CONSTRAINT priority_in_range CHECK (((priority >= 1) AND (priority <= 4))),
+    CONSTRAINT queue_length CHECK (((char_length(queue) > 0) AND (char_length(queue) < 128)))
+);
+
+
+--
+-- Name: river_job_id_seq; Type: SEQUENCE; Schema: public; Owner: -
+--
+
+CREATE SEQUENCE public.river_job_id_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+
+--
+-- Name: river_job_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: -
+--
+
+ALTER SEQUENCE public.river_job_id_seq OWNED BY public.river_job.id;
+
+
+--
+-- Name: river_leader; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE UNLOGGED TABLE public.river_leader (
+    elected_at timestamp with time zone NOT NULL,
+    expires_at timestamp with time zone NOT NULL,
+    leader_id text NOT NULL,
+    name text DEFAULT 'default'::text NOT NULL,
+    CONSTRAINT leader_id_length CHECK (((char_length(leader_id) > 0) AND (char_length(leader_id) < 128))),
+    CONSTRAINT name_length CHECK ((name = 'default'::text))
+);
+
+
+--
+-- Name: river_migration; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.river_migration (
+    line text NOT NULL,
+    version bigint NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT line_length CHECK (((char_length(line) > 0) AND (char_length(line) < 128))),
+    CONSTRAINT version_gte_1 CHECK ((version >= 1))
+);
+
+
+--
+-- Name: river_queue; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.river_queue (
+    name text NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    metadata jsonb DEFAULT '{}'::jsonb NOT NULL,
+    paused_at timestamp with time zone,
+    updated_at timestamp with time zone NOT NULL
+);
 
 
 --
@@ -1209,6 +1602,42 @@ CREATE SEQUENCE public.subscriptions_id_seq
 --
 
 ALTER SEQUENCE public.subscriptions_id_seq OWNED BY public.subscriptions.id;
+
+
+--
+-- Name: system_default_ai_configs; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.system_default_ai_configs (
+    id integer NOT NULL,
+    tier_name character varying(64) NOT NULL,
+    provider_name character varying(64) NOT NULL,
+    model_name character varying(128) NOT NULL,
+    master_api_key text NOT NULL,
+    is_active boolean DEFAULT true,
+    created_at timestamp with time zone DEFAULT CURRENT_TIMESTAMP,
+    updated_at timestamp with time zone DEFAULT CURRENT_TIMESTAMP
+);
+
+
+--
+-- Name: system_default_ai_configs_id_seq; Type: SEQUENCE; Schema: public; Owner: -
+--
+
+CREATE SEQUENCE public.system_default_ai_configs_id_seq
+    AS integer
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+
+--
+-- Name: system_default_ai_configs_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: -
+--
+
+ALTER SEQUENCE public.system_default_ai_configs_id_seq OWNED BY public.system_default_ai_configs.id;
 
 
 --
@@ -1645,6 +2074,27 @@ ALTER TABLE ONLY public.prompt_chunks ALTER COLUMN id SET DEFAULT nextval('publi
 
 
 --
+-- Name: quota_batch_settlements id; Type: DEFAULT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.quota_batch_settlements ALTER COLUMN id SET DEFAULT nextval('public.quota_batch_settlements_id_seq'::regclass);
+
+
+--
+-- Name: quota_operation_aggregates id; Type: DEFAULT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.quota_operation_aggregates ALTER COLUMN id SET DEFAULT nextval('public.quota_operation_aggregates_id_seq'::regclass);
+
+
+--
+-- Name: quota_policy_catalog id; Type: DEFAULT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.quota_policy_catalog ALTER COLUMN id SET DEFAULT nextval('public.quota_policy_catalog_id_seq'::regclass);
+
+
+--
 -- Name: recent_activity id; Type: DEFAULT; Schema: public; Owner: -
 --
 
@@ -1666,6 +2116,13 @@ ALTER TABLE ONLY public.reviews ALTER COLUMN id SET DEFAULT nextval('public.revi
 
 
 --
+-- Name: river_job id; Type: DEFAULT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.river_job ALTER COLUMN id SET DEFAULT nextval('public.river_job_id_seq'::regclass);
+
+
+--
 -- Name: roles id; Type: DEFAULT; Schema: public; Owner: -
 --
 
@@ -1684,6 +2141,13 @@ ALTER TABLE ONLY public.subscription_payments ALTER COLUMN id SET DEFAULT nextva
 --
 
 ALTER TABLE ONLY public.subscriptions ALTER COLUMN id SET DEFAULT nextval('public.subscriptions_id_seq'::regclass);
+
+
+--
+-- Name: system_default_ai_configs id; Type: DEFAULT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.system_default_ai_configs ALTER COLUMN id SET DEFAULT nextval('public.system_default_ai_configs_id_seq'::regclass);
 
 
 --
@@ -1944,6 +2408,30 @@ ALTER TABLE ONLY public.prompt_chunks
 
 
 --
+-- Name: quota_batch_settlements quota_batch_settlements_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.quota_batch_settlements
+    ADD CONSTRAINT quota_batch_settlements_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: quota_operation_aggregates quota_operation_aggregates_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.quota_operation_aggregates
+    ADD CONSTRAINT quota_operation_aggregates_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: quota_policy_catalog quota_policy_catalog_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.quota_policy_catalog
+    ADD CONSTRAINT quota_policy_catalog_pkey PRIMARY KEY (id);
+
+
+--
 -- Name: recent_activity recent_activity_pkey; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -1965,6 +2453,54 @@ ALTER TABLE ONLY public.review_events
 
 ALTER TABLE ONLY public.reviews
     ADD CONSTRAINT reviews_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: river_client river_client_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.river_client
+    ADD CONSTRAINT river_client_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: river_client_queue river_client_queue_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.river_client_queue
+    ADD CONSTRAINT river_client_queue_pkey PRIMARY KEY (river_client_id, name);
+
+
+--
+-- Name: river_job river_job_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.river_job
+    ADD CONSTRAINT river_job_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: river_leader river_leader_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.river_leader
+    ADD CONSTRAINT river_leader_pkey PRIMARY KEY (name);
+
+
+--
+-- Name: river_migration river_migration_pkey1; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.river_migration
+    ADD CONSTRAINT river_migration_pkey1 PRIMARY KEY (line, version);
+
+
+--
+-- Name: river_queue river_queue_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.river_queue
+    ADD CONSTRAINT river_queue_pkey PRIMARY KEY (name);
 
 
 --
@@ -2021,6 +2557,22 @@ ALTER TABLE ONLY public.subscriptions
 
 ALTER TABLE ONLY public.subscriptions
     ADD CONSTRAINT subscriptions_razorpay_subscription_id_key UNIQUE (razorpay_subscription_id);
+
+
+--
+-- Name: system_default_ai_configs system_default_ai_configs_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.system_default_ai_configs
+    ADD CONSTRAINT system_default_ai_configs_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: system_default_ai_configs system_default_ai_configs_tier_name_key; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.system_default_ai_configs
+    ADD CONSTRAINT system_default_ai_configs_tier_name_key UNIQUE (tier_name);
 
 
 --
@@ -2085,6 +2637,30 @@ ALTER TABLE ONLY public.loc_lifecycle_log
 
 ALTER TABLE ONLY public.loc_usage_ledger
     ADD CONSTRAINT uq_loc_usage_ledger_org_idempotency UNIQUE (org_id, idempotency_key);
+
+
+--
+-- Name: quota_batch_settlements uq_quota_batch_settlements_dedupe; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.quota_batch_settlements
+    ADD CONSTRAINT uq_quota_batch_settlements_dedupe UNIQUE (org_id, idempotency_key, batch_index);
+
+
+--
+-- Name: quota_operation_aggregates uq_quota_operation_aggregates_dedupe; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.quota_operation_aggregates
+    ADD CONSTRAINT uq_quota_operation_aggregates_dedupe UNIQUE (org_id, idempotency_key);
+
+
+--
+-- Name: quota_policy_catalog uq_quota_policy_catalog_plan_provider; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.quota_policy_catalog
+    ADD CONSTRAINT uq_quota_policy_catalog_plan_provider UNIQUE (plan_code, provider_key);
 
 
 --
@@ -2605,6 +3181,34 @@ CREATE INDEX idx_plan_catalog_active_rank ON public.plan_catalog USING btree (ac
 
 
 --
+-- Name: idx_quota_batch_settlements_org_idempotency; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_quota_batch_settlements_org_idempotency ON public.quota_batch_settlements USING btree (org_id, idempotency_key);
+
+
+--
+-- Name: idx_quota_batch_settlements_org_time; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_quota_batch_settlements_org_time ON public.quota_batch_settlements USING btree (org_id, accounted_at DESC);
+
+
+--
+-- Name: idx_quota_operation_aggregates_org_time; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_quota_operation_aggregates_org_time ON public.quota_operation_aggregates USING btree (org_id, finalized_at DESC);
+
+
+--
+-- Name: idx_quota_policy_catalog_lookup; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_quota_policy_catalog_lookup ON public.quota_policy_catalog USING btree (plan_code, provider_key) WHERE (active = true);
+
+
+--
 -- Name: idx_recent_activity_created_at; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -3067,6 +3671,48 @@ CREATE INDEX idx_webhook_registry_provider_project ON public.webhook_registry US
 
 
 --
+-- Name: river_job_args_index; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX river_job_args_index ON public.river_job USING gin (args);
+
+
+--
+-- Name: river_job_kind; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX river_job_kind ON public.river_job USING btree (kind);
+
+
+--
+-- Name: river_job_metadata_index; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX river_job_metadata_index ON public.river_job USING gin (metadata);
+
+
+--
+-- Name: river_job_prioritized_fetching_index; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX river_job_prioritized_fetching_index ON public.river_job USING btree (state, queue, priority, scheduled_at, id);
+
+
+--
+-- Name: river_job_state_and_finalized_at_index; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX river_job_state_and_finalized_at_index ON public.river_job USING btree (state, finalized_at) WHERE (finalized_at IS NOT NULL);
+
+
+--
+-- Name: river_job_unique_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX river_job_unique_idx ON public.river_job USING btree (unique_key) WHERE ((unique_key IS NOT NULL) AND (unique_states IS NOT NULL) AND public.river_job_state_in_bitmask(unique_states, state));
+
+
+--
 -- Name: ux_license_state_singleton; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -3099,6 +3745,27 @@ CREATE TRIGGER trg_org_billing_state_updated_at BEFORE UPDATE ON public.org_bill
 --
 
 CREATE TRIGGER trg_plan_catalog_updated_at BEFORE UPDATE ON public.plan_catalog FOR EACH ROW EXECUTE FUNCTION public.plan_catalog_set_updated_at();
+
+
+--
+-- Name: quota_batch_settlements trg_quota_batch_settlements_updated_at; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER trg_quota_batch_settlements_updated_at BEFORE UPDATE ON public.quota_batch_settlements FOR EACH ROW EXECUTE FUNCTION public.quota_batch_settlements_set_updated_at();
+
+
+--
+-- Name: quota_operation_aggregates trg_quota_operation_aggregates_updated_at; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER trg_quota_operation_aggregates_updated_at BEFORE UPDATE ON public.quota_operation_aggregates FOR EACH ROW EXECUTE FUNCTION public.quota_operation_aggregates_set_updated_at();
+
+
+--
+-- Name: quota_policy_catalog trg_quota_policy_catalog_updated_at; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER trg_quota_policy_catalog_updated_at BEFORE UPDATE ON public.quota_policy_catalog FOR EACH ROW EXECUTE FUNCTION public.quota_policy_catalog_set_updated_at();
 
 
 --
@@ -3374,6 +4041,62 @@ ALTER TABLE ONLY public.prompt_chunks
 
 
 --
+-- Name: quota_batch_settlements quota_batch_settlements_org_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.quota_batch_settlements
+    ADD CONSTRAINT quota_batch_settlements_org_id_fkey FOREIGN KEY (org_id) REFERENCES public.orgs(id) ON DELETE CASCADE;
+
+
+--
+-- Name: quota_batch_settlements quota_batch_settlements_plan_code_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.quota_batch_settlements
+    ADD CONSTRAINT quota_batch_settlements_plan_code_fkey FOREIGN KEY (plan_code) REFERENCES public.plan_catalog(plan_code);
+
+
+--
+-- Name: quota_batch_settlements quota_batch_settlements_review_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.quota_batch_settlements
+    ADD CONSTRAINT quota_batch_settlements_review_id_fkey FOREIGN KEY (review_id) REFERENCES public.reviews(id) ON DELETE SET NULL;
+
+
+--
+-- Name: quota_operation_aggregates quota_operation_aggregates_org_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.quota_operation_aggregates
+    ADD CONSTRAINT quota_operation_aggregates_org_id_fkey FOREIGN KEY (org_id) REFERENCES public.orgs(id) ON DELETE CASCADE;
+
+
+--
+-- Name: quota_operation_aggregates quota_operation_aggregates_plan_code_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.quota_operation_aggregates
+    ADD CONSTRAINT quota_operation_aggregates_plan_code_fkey FOREIGN KEY (plan_code) REFERENCES public.plan_catalog(plan_code);
+
+
+--
+-- Name: quota_operation_aggregates quota_operation_aggregates_review_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.quota_operation_aggregates
+    ADD CONSTRAINT quota_operation_aggregates_review_id_fkey FOREIGN KEY (review_id) REFERENCES public.reviews(id) ON DELETE SET NULL;
+
+
+--
+-- Name: quota_policy_catalog quota_policy_catalog_plan_code_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.quota_policy_catalog
+    ADD CONSTRAINT quota_policy_catalog_plan_code_fkey FOREIGN KEY (plan_code) REFERENCES public.plan_catalog(plan_code) ON DELETE CASCADE;
+
+
+--
 -- Name: recent_activity recent_activity_org_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -3403,6 +4126,14 @@ ALTER TABLE ONLY public.review_events
 
 ALTER TABLE ONLY public.reviews
     ADD CONSTRAINT reviews_org_id_fkey FOREIGN KEY (org_id) REFERENCES public.orgs(id);
+
+
+--
+-- Name: river_client_queue river_client_queue_river_client_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.river_client_queue
+    ADD CONSTRAINT river_client_queue_river_client_id_fkey FOREIGN KEY (river_client_id) REFERENCES public.river_client(id) ON DELETE CASCADE;
 
 
 --
@@ -3659,4 +4390,6 @@ INSERT INTO public.schema_migrations (version) VALUES
     ('20260401204800'),
     ('20260403123000'),
     ('20260403124500'),
-    ('20260403130000');
+    ('20260403130000'),
+    ('20260403151832'),
+    ('20260411170000');
