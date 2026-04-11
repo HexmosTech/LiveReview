@@ -1415,34 +1415,53 @@ func (p *LangchainProvider) lineInHunk(lineNumber int, hunk models.DiffHunk) boo
 // lineIsDeleted analyzes hunk content to determine if a line is deleted
 func (p *LangchainProvider) lineIsDeleted(lineNumber int, hunk models.DiffHunk) bool {
 	lines := strings.Split(hunk.Content, "\n")
-	oldLine := hunk.OldStartLine
-	newLine := hunk.NewStartLine
 
 	for _, line := range lines {
+		// Skip table header rows and blank lines
+		if strings.HasPrefix(line, "OLD") || strings.HasPrefix(line, "---") || line == "" {
+			continue
+		}
+		// Skip raw hunk headers that may still be present
 		if strings.HasPrefix(line, "@@") {
-			continue // Skip hunk header
+			continue
 		}
 
-		if strings.HasPrefix(line, "-") {
-			if oldLine == lineNumber {
-				return true
+		// Parse formatted table row: "OLD | NEW | CONTENT"
+		// Columns are separated by " | "
+		parts := strings.SplitN(line, " | ", 3)
+		if len(parts) == 3 {
+			oldStr := strings.TrimSpace(parts[0])
+			newStr := strings.TrimSpace(parts[1])
+
+			if oldStr == "" && newStr == "" {
+				continue
 			}
-			oldLine++
-		} else if strings.HasPrefix(line, "+") {
-			newLine++
-		} else {
-			// Context line
-			if oldLine == lineNumber || newLine == lineNumber {
-				return false // Context lines are not deleted
+
+			oldNum, oldErr := strconv.Atoi(oldStr)
+			newNum, newErr := strconv.Atoi(newStr)
+
+			if oldErr == nil && newErr != nil {
+				// Deleted line: OLD is numeric, NEW is blank
+				if oldNum == lineNumber {
+					return true
+				}
+			} else if oldErr != nil && newErr == nil {
+				// Added line: OLD is blank, NEW is numeric
+				if newNum == lineNumber {
+					return false
+				}
+			} else if oldErr == nil && newErr == nil {
+				// Context line: both present
+				if oldNum == lineNumber || newNum == lineNumber {
+					return false
+				}
 			}
-			oldLine++
-			newLine++
+			continue
 		}
 	}
 
 	return false
 }
-
 // Helper functions for logging
 func truncateString(s string, maxLen int) string {
 	if len(s) <= maxLen {
@@ -1559,14 +1578,14 @@ func (p *LangchainProvider) logLLMErrorDetails(err error, batchID string) {
 		baseMsg := fmt.Sprintf("%s (cause %d): type=%T msg=%v", prefix, depth, current, current)
 		fmt.Printf("[LANGCHAIN ERROR DETAIL] %s\n", baseMsg)
 		if p.logger != nil {
-			p.logger.Log(baseMsg)
+			p.logger.Log("%s", baseMsg)
 		}
 
 		if extra := describeStructuredError(current); extra != "" {
 			detailMsg := fmt.Sprintf("%s (cause %d) detail: %s", prefix, depth, extra)
 			fmt.Printf("[LANGCHAIN ERROR DETAIL] %s\n", detailMsg)
 			if p.logger != nil {
-				p.logger.Log(detailMsg)
+				p.logger.Log("%s", detailMsg)
 			}
 		}
 	}
