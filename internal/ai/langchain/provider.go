@@ -1433,9 +1433,6 @@ func (p *LangchainProvider) lineIsDeleted(lineNumber int, hunk models.DiffHunk) 
 			oldStr := strings.TrimSpace(parts[0])
 			newStr := strings.TrimSpace(parts[1])
 
-			if oldStr == "" && newStr == "" {
-				continue
-			}
 
 			oldNum, oldErr := strconv.Atoi(oldStr)
 			newNum, newErr := strconv.Atoi(newStr)
