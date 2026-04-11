@@ -1417,47 +1417,57 @@ func (p *LangchainProvider) lineIsDeleted(lineNumber int, hunk models.DiffHunk) 
 	lines := strings.Split(hunk.Content, "\n")
 
 	for _, line := range lines {
-		// Skip table header rows and blank lines
-		if strings.HasPrefix(line, "OLD") || strings.HasPrefix(line, "---") || line == "" {
-			continue
-		}
-		// Skip raw hunk headers that may still be present
-		if strings.HasPrefix(line, "@@") {
+		// Skip table header rows, blank lines, and raw hunk headers
+		if strings.HasPrefix(line, "OLD") || strings.HasPrefix(line, "---") || strings.HasPrefix(line, "@@") || line == "" {
 			continue
 		}
 
-		// Parse formatted table row: "OLD | NEW | CONTENT"
-		// Columns are separated by " | "
-		parts := strings.SplitN(line, " | ", 3)
-		if len(parts) == 3 {
-			oldStr := strings.TrimSpace(parts[0])
-			newStr := strings.TrimSpace(parts[1])
+		oldNum, newNum, _, isDeleted, isAdded, err := parseHunkLine(line)
+		if err != nil {
+			continue
+		}
 
-
-			oldNum, oldErr := strconv.Atoi(oldStr)
-			newNum, newErr := strconv.Atoi(newStr)
-
-			if oldErr == nil && newErr != nil {
-				// Deleted line: OLD is numeric, NEW is blank
-				if oldNum == lineNumber {
-					return true
-				}
-			} else if oldErr != nil && newErr == nil {
-				// Added line: OLD is blank, NEW is numeric
-				if newNum == lineNumber {
-					return false
-				}
-			} else if oldErr == nil && newErr == nil {
-				// Context line: both present
-				if oldNum == lineNumber || newNum == lineNumber {
-					return false
-				}
+		if isDeleted {
+			if oldNum == lineNumber {
+				return true
 			}
-			continue
+		} else if isAdded {
+			if newNum == lineNumber {
+				return false
+			}
+		} else {
+			// Context line
+			if oldNum == lineNumber || newNum == lineNumber {
+				return false
+			}
 		}
 	}
 
 	return false
+}
+
+// parseHunkLine parses a formatted table row "OLD | NEW | CONTENT"
+func parseHunkLine(line string) (oldNum int, newNum int, content string, isDeleted bool, isAdded bool, err error) {
+	parts := strings.SplitN(line, " | ", 3)
+	if len(parts) != 3 {
+		return 0, 0, "", false, false, fmt.Errorf("invalid table row format")
+	}
+
+	oldStr := strings.TrimSpace(parts[0])
+	newStr := strings.TrimSpace(parts[1])
+	content = parts[2]
+
+	var oldErr, newErr error
+	oldNum, oldErr = strconv.Atoi(oldStr)
+	newNum, newErr = strconv.Atoi(newStr)
+
+	if oldErr == nil && newErr != nil {
+		isDeleted = true
+	} else if oldErr != nil && newErr == nil {
+		isAdded = true
+	}
+
+	return oldNum, newNum, content, isDeleted, isAdded, nil
 }
 // Helper functions for logging
 func truncateString(s string, maxLen int) string {
