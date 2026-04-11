@@ -672,10 +672,11 @@ func (p *BitbucketProvider) postLineComment(ctx context.Context, workspace, repo
 	if resp.StatusCode != http.StatusCreated {
 		body, _ := io.ReadAll(resp.Body)
 		// If the line is not part of the diff, Bitbucket returns 400/422.
-		// Rule 1: We do not use fallback implementations. Return an error explicitly.
+		// Fall back to a general comment rather than failing the whole review.
 		if resp.StatusCode == http.StatusBadRequest || resp.StatusCode == http.StatusUnprocessableEntity {
-			return fmt.Errorf("Bitbucket inline comment rejected for %s:%d (%s): %s",
+			log.Printf("[WARN] BitbucketProvider: Inline comment rejected for %s:%d (%s) — falling back to general comment. Response: %s",
 				comment.FilePath, comment.Line, resp.Status, string(body))
+			return p.postGeneralComment(ctx, workspace, repo, prNumber, comment)
 		}
 		return fmt.Errorf("Bitbucket inline comment failed: %s, response: %s", resp.Status, string(body))
 	}
