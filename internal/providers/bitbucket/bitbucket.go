@@ -3,7 +3,6 @@ package bitbucket
 import (
 	"bytes"
 	"context"
-	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -99,6 +98,19 @@ func NewBitbucketProvider(token, email, repoURL string) (*BitbucketProvider, err
 	}, nil
 }
 
+var mrIDRegex = regexp.MustCompile(`^(?:https?://[^/]+/)?([^/]+)/([^/]+)/(?:pull-requests/)?(\d+)(?:/.*)?$`)
+
+// extractMRIDComponents explicitly parses an mrID/prID using a regex
+// to reliably extract the workspace, repository, and pull request number.
+func extractMRIDComponents(id string) (workspace, repo, prNum string, err error) {
+	id = strings.TrimSpace(id)
+	matches := mrIDRegex.FindStringSubmatch(id)
+	if len(matches) != 4 {
+		return "", "", "", fmt.Errorf("invalid Bitbucket PR identifier format: expected 'workspace/repo/number' or a valid URL, got '%s'", id)
+	}
+	return matches[1], matches[2], matches[3], nil
+}
+
 func ParseBitbucketURL(urlStr string) (string, string, string, error) {
 	if urlStr == "" {
 		return "", "", "", fmt.Errorf("repository URL is empty")
@@ -141,8 +153,7 @@ func (p *BitbucketProvider) GetMergeRequestDetails(ctx context.Context, prURL st
 	}
 
 	// Set Basic Auth header
-	auth := base64.StdEncoding.EncodeToString([]byte(p.email + ":" + p.token))
-	req.Header.Set("Authorization", "Basic "+auth)
+	req.SetBasicAuth(p.email, p.token)
 	req.Header.Set("Accept", "application/json")
 
 	resp, err := networkbitbucket.Do(p.httpClient, req)
@@ -226,15 +237,11 @@ func (p *BitbucketProvider) GetMergeRequestDetails(ctx context.Context, prURL st
 func (p *BitbucketProvider) GetMergeRequestChanges(ctx context.Context, prID string) ([]*models.CodeDiff, error) {
 	log.Printf("[DEBUG] BitbucketProvider.GetMergeRequestChanges called with prID: %s", prID)
 
-	// Parse prID which should be in format "workspace/repo/prNumber"
-	parts := strings.Split(prID, "/")
-	if len(parts) != 3 {
-		return nil, fmt.Errorf("invalid Bitbucket PR ID format: expected 'workspace/repo/number', got '%s'", prID)
+	// Use regex-based parser for robustness
+	workspace, repo, prNumber, err := extractMRIDComponents(prID)
+	if err != nil {
+		return nil, err
 	}
-
-	workspace := parts[0]
-	repo := parts[1]
-	prNumber := parts[2]
 
 	// Bitbucket API v2.0 endpoint for pull request diff
 	apiURL := fmt.Sprintf("https://api.bitbucket.org/2.0/repositories/%s/%s/pullrequests/%s/diff", workspace, repo, prNumber)
@@ -247,8 +254,7 @@ func (p *BitbucketProvider) GetMergeRequestChanges(ctx context.Context, prID str
 	}
 
 	// Set Basic Auth header
-	auth := base64.StdEncoding.EncodeToString([]byte(p.email + ":" + p.token))
-	req.Header.Set("Authorization", "Basic "+auth)
+	req.SetBasicAuth(p.email, p.token)
 	req.Header.Set("Accept", "text/plain")
 
 	resp, err := networkbitbucket.Do(http.DefaultClient, req)
@@ -289,15 +295,11 @@ func (p *BitbucketProvider) GetMergeRequestChanges(ctx context.Context, prID str
 func (p *BitbucketProvider) GetMergeRequestChangesAsText(ctx context.Context, prID string) (string, error) {
 	log.Printf("[DEBUG] BitbucketProvider.GetMergeRequestChangesAsText called with prID: %s", prID)
 
-	// Parse prID which should be in format "workspace/repo/prNumber"
-	parts := strings.Split(prID, "/")
-	if len(parts) != 3 {
-		return "", fmt.Errorf("invalid Bitbucket PR ID format: expected 'workspace/repo/number', got '%s'", prID)
+	// Use regex-based parser for robustness
+	workspace, repo, prNumber, err := extractMRIDComponents(prID)
+	if err != nil {
+		return "", err
 	}
-
-	workspace := parts[0]
-	repo := parts[1]
-	prNumber := parts[2]
 
 	// Bitbucket API v2.0 endpoint for pull request diff
 	apiURL := fmt.Sprintf("https://api.bitbucket.org/2.0/repositories/%s/%s/pullrequests/%s/diff", workspace, repo, prNumber)
@@ -310,8 +312,7 @@ func (p *BitbucketProvider) GetMergeRequestChangesAsText(ctx context.Context, pr
 	}
 
 	// Set Basic Auth header
-	auth := base64.StdEncoding.EncodeToString([]byte(p.email + ":" + p.token))
-	req.Header.Set("Authorization", "Basic "+auth)
+	req.SetBasicAuth(p.email, p.token)
 	req.Header.Set("Accept", "text/plain")
 
 	resp, err := networkbitbucket.Do(http.DefaultClient, req)
@@ -396,8 +397,7 @@ func (p *BitbucketProvider) doRequest(ctx context.Context, apiURL, method string
 	}
 
 	// Set Basic Auth header
-	auth := base64.StdEncoding.EncodeToString([]byte(p.email + ":" + p.token))
-	req.Header.Set("Authorization", "Basic "+auth)
+	req.SetBasicAuth(p.email, p.token)
 	req.Header.Set("Accept", "application/json")
 	req.Header.Set("Content-Type", "application/json")
 
@@ -575,14 +575,10 @@ func (p *BitbucketProvider) Name() string {
 func (p *BitbucketProvider) PostComment(ctx context.Context, mrID string, comment *models.ReviewComment) error {
 	log.Printf("[DEBUG] BitbucketProvider.PostComment called with mrID: '%s', FilePath: '%s', Line: %d", mrID, comment.FilePath, comment.Line)
 
-	// mrID format: workspace/repo/prNumber
-	parts := strings.Split(mrID, "/")
-	if len(parts) != 3 {
-		return fmt.Errorf("invalid Bitbucket PR ID format: expected 'workspace/repo/number', got '%s'", mrID)
+	workspace, repo, prNumber, err := extractMRIDComponents(mrID)
+	if err != nil {
+		return err
 	}
-	workspace := parts[0]
-	repo := parts[1]
-	prNumber := parts[2]
 
 	if comment.FilePath != "" && comment.Line > 0 {
 		return p.postLineComment(ctx, workspace, repo, prNumber, comment)
