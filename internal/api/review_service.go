@@ -152,6 +152,29 @@ func (s *Server) TriggerReviewV2(c echo.Context) error {
 		return c.JSON(http.StatusBadRequest, ErrorResponse{Error: err.Error()})
 	}
 
+	quotaModule := license.NewQuotaModule(s.db)
+	quotaPreflight, err := quotaModule.PreflightCheck(c.Request().Context(), license.QuotaPreflightInput{
+		OrgID:       ctx.orgID,
+		RequiredLOC: 1,
+		PlanCode:    ctx.planCode,
+	})
+	if err != nil {
+		return c.JSON(http.StatusInternalServerError, ErrorResponse{Error: fmt.Sprintf("failed quota preflight: %v", err)})
+	}
+	if quotaPreflight.Blocked {
+		errorCode := "quota_exceeded"
+		errorMessage := "monthly LOC quota exceeded for this operation"
+		if quotaPreflight.BlockReason == "trial_readonly" {
+			errorCode = "trial_readonly"
+			errorMessage = "trial period ended; review operations are read-only until plan update"
+		}
+		return JSONWithEnvelope(c, http.StatusForbidden, map[string]interface{}{
+			"error":        errorMessage,
+			"error_code":   errorCode,
+			"required_loc": 1,
+		})
+	}
+
 	// Phase 2: Prepare authentication (URL validation, token lookup, OAuth refresh)
 	if err := s.prepareAuthentication(ctx); err != nil {
 		return c.JSON(http.StatusBadRequest, ErrorResponse{Error: err.Error()})
@@ -591,37 +614,62 @@ func (s *Server) launchBackgroundProcessing(ctx *reviewSetupContext) {
 			operationID := fmt.Sprintf("manual-review:%d", ctx.review.ID)
 			idempotencyKey := operationID
 			if result.BillableLOC > 0 {
-				accountingService := license.NewLOCAccountingService(s.db)
-				if err := accountingService.AccountSuccess(context.Background(), license.LOCAccountSuccessInput{
+				quotaModule := license.NewQuotaModule(s.db)
+				_, err := quotaModule.RecordBatch(context.Background(), license.QuotaRecordBatchInput{
 					OrgID:          ctx.orgID,
 					ReviewID:       &reviewID,
-					ActorUserID:    ctx.actorUserID,
-					ActorEmail:     ctx.actorEmail,
 					OperationType:  "manual_review",
 					TriggerSource:  "manual",
 					OperationID:    operationID,
 					IdempotencyKey: idempotencyKey,
-					BillableLOC:    result.BillableLOC,
-					PlanCode:       ctx.planCode,
-					Provider:       result.Provider,
-					Model:          result.Model,
-					PricingVersion: result.PricingVersion,
-					InputTokens:    result.InputTokens,
-					OutputTokens:   result.OutputTokens,
-					CostUSD:        result.CostUSD,
-				}); err != nil {
-					log.Printf("[WARN] Manual review accounting failed for review %d: %v", ctx.review.ID, err)
+					BatchIndex:     1,
+					Batch: license.QuotaBatchInput{
+						PlanCode:                 ctx.planCode,
+						Provider:                 result.Provider,
+						RawLOCBatch:              result.BillableLOC,
+						ProviderTotalInputTokens: result.InputTokens,
+						OutputTokensBatch:        result.OutputTokens,
+					},
+				})
+				if err != nil {
+					log.Printf("[WARN] Manual review batch accounting failed for review %d: %v", ctx.review.ID, err)
 				} else {
-					meta := map[string]interface{}{
-						"operation_billable_loc": result.BillableLOC,
-						"operation_id":           operationID,
-						"idempotency_key":        idempotencyKey,
-						"accounted_at":           time.Now().UTC().Format(time.RFC3339),
+					finalized, err := quotaModule.FinalizeOperation(context.Background(), license.QuotaFinalizeInput{
+						OrgID:          ctx.orgID,
+						ReviewID:       &reviewID,
+						ActorUserID:    ctx.actorUserID,
+						ActorEmail:     ctx.actorEmail,
+						OperationType:  "manual_review",
+						TriggerSource:  "manual",
+						OperationID:    operationID,
+						IdempotencyKey: idempotencyKey,
+						Provider:       result.Provider,
+						Model:          result.Model,
+						BatchFallback:  nil,
+					})
+					if err != nil {
+						log.Printf("[WARN] Manual review accounting finalization failed for review %d: %v", ctx.review.ID, err)
+					} else {
+						meta := map[string]interface{}{
+							"operation_raw_loc":      finalized.RawLOCTotal,
+							"operation_billable_loc": finalized.EffectiveLOCTotal,
+							"operation_extra_loc":    finalized.ExtraEffectiveLOCTotal,
+							"context_tokens":         finalized.ContextTokensTotal,
+							"allowed_context_tokens": finalized.AllowedContextTokensTotal,
+							"extra_context_tokens":   finalized.ExtraContextTokensTotal,
+							"input_cost_usd":         finalized.InputCostUSDTotal,
+							"output_cost_usd":        finalized.OutputCostUSDTotal,
+							"total_cost_usd":         finalized.TotalCostUSDTotal,
+							"pricing_version":        finalized.PricingVersion,
+							"operation_id":           operationID,
+							"idempotency_key":        idempotencyKey,
+							"accounted_at":           time.Now().UTC().Format(time.RFC3339),
+						}
+						for k, v := range aiExecutionMetadataFromConfig(ctx.request.AI.Config) {
+							meta[k] = v
+						}
+						_ = rm.MergeReviewMetadata(ctx.review.ID, meta)
 					}
-					for k, v := range aiExecutionMetadataFromConfig(ctx.request.AI.Config) {
-						meta[k] = v
-					}
-					_ = rm.MergeReviewMetadata(ctx.review.ID, meta)
 				}
 			}
 		} else {
