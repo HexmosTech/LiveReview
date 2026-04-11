@@ -53,3 +53,16 @@ func PostCommentAPI(ctx context.Context, client *http.Client, apiURL, email, tok
 
 	return Do(client, req)
 }
+
+// FetchUserProfile fetches the authenticated user's profile from Bitbucket.
+// Callers must close resp.Body when err is nil.
+func FetchUserProfile(ctx context.Context, client *http.Client, apiURL, email, token string) (*http.Response, error) {
+	req, err := NewRequestWithContext(ctx, "GET", apiURL, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create user profile request: %w", err)
+	}
+	req.SetBasicAuth(email, token)
+	req.Header.Set("Accept", "application/json")
+	req.Header.Set("User-Agent", "LiveReview/1.0")
+	return Do(client, req)
+}
