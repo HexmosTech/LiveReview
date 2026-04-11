@@ -1542,7 +1542,7 @@ func (p *UnifiedProcessorV2Impl) buildBitbucketArtifactFromEvent(ctx context.Con
 	mrModel.EnableArtifactWriting = false // Don't write to disk
 
 	// Build Bitbucket artifact (following cli.go pattern)
-	artifact, err := mrModel.BuildBitbucketArtifact(provider, prID, prURL, "")
+	artifact, err := mrModel.BuildBitbucketArtifact(ctx, provider, prID, prURL, "")
 	if err != nil {
 		return nil, fmt.Errorf("failed to build Bitbucket artifact: %w", err)
 	}
