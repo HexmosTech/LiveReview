@@ -131,6 +131,45 @@ func TestReviewEventsRepo(t *testing.T) {
 		assert.Equal(t, 1, counts["log"])
 	})
 
+	t.Run("ListEventsDeterministicOrderingWithEqualTimestamp", func(t *testing.T) {
+		_, err := db.ExecContext(ctx, "DELETE FROM public.review_events WHERE review_id = $1", reviewID)
+		require.NoError(t, err)
+
+		sharedTs := now.Add(2 * time.Minute)
+
+		firstPayload, err := json.Marshal(EventData{Message: strPtr("first event")})
+		require.NoError(t, err)
+		secondPayload, err := json.Marshal(EventData{Message: strPtr("second event")})
+		require.NoError(t, err)
+
+		firstEvent := &ReviewEvent{
+			ReviewID:  reviewID,
+			OrgID:     orgID,
+			Timestamp: sharedTs,
+			EventType: "log",
+			Level:     strPtr("info"),
+			Data:      firstPayload,
+		}
+		secondEvent := &ReviewEvent{
+			ReviewID:  reviewID,
+			OrgID:     orgID,
+			Timestamp: sharedTs,
+			EventType: "log",
+			Level:     strPtr("info"),
+			Data:      secondPayload,
+		}
+
+		require.NoError(t, repo.InsertEvent(ctx, firstEvent))
+		require.NoError(t, repo.InsertEvent(ctx, secondEvent))
+
+		events, err := repo.ListEvents(ctx, reviewID, orgID, &ListEventsCursor{Limit: 10})
+		require.NoError(t, err)
+		require.Len(t, events, 2)
+
+		assert.Equal(t, firstEvent.ID, events[0].ID)
+		assert.Equal(t, secondEvent.ID, events[1].ID)
+	})
+
 	// Clean up test data
 	t.Cleanup(func() {
 		_, _ = db.ExecContext(ctx, "DELETE FROM public.review_events WHERE review_id = $1", reviewID)

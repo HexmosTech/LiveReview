@@ -138,8 +138,8 @@ func (r *ReviewEventsRepo) ListEvents(ctx context.Context, reviewID, orgID int64
 		args = append(args, *cursor.Since)
 	}
 
-	// Order by timestamp
-	baseQuery += " ORDER BY ts ASC"
+	// Order by timestamp with ID tie-breaker for deterministic playback.
+	baseQuery += " ORDER BY ts ASC, id ASC"
 
 	// Add limit
 	limit := 100 // default

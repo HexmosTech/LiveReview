@@ -19,7 +19,7 @@ export default function ReviewEventsPage({
   reviewId, 
   initialEvents, 
   isLive = false, 
-  pollingInterval = 30000, // 30 seconds instead of 2 seconds
+  pollingInterval = 5000,
   className 
 }: ReviewEventsPageProps) {
   const [currentView, setCurrentView] = useState<ViewMode>('progress');
@@ -106,7 +106,7 @@ export default function ReviewEventsPage({
               const fileCount = eventData.fileCount || 0;
               message = `Batch ${event.batchId || 'unknown'} started: processing ${fileCount} file${fileCount !== 1 ? 's' : ''}`;
             } else if (eventData.status === 'completed') {
-              const commentCount = eventData.fileCount || 0; // fileCount contains commentCount for completed batches
+              const commentCount = eventData.commentCount ?? eventData.fileCount ?? 0;
               message = `Batch ${event.batchId || 'unknown'} completed: generated ${commentCount} comment${commentCount !== 1 ? 's' : ''}`;
             } else {
               message = `Batch ${event.batchId || 'unknown'}: ${eventData.status || 'unknown status'}`;
