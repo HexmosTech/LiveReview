@@ -125,8 +125,8 @@ export const Button: React.FC<ButtonProps> = ({
 interface CardProps {
   children: ReactNode;
   className?: string;
-  title?: string;
-  subtitle?: string;
+  title?: ReactNode;
+  subtitle?: ReactNode;
   footer?: ReactNode;
   badge?: string;
   badgeColor?: string;
