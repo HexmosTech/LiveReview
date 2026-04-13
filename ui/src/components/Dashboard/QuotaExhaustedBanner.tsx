@@ -15,7 +15,7 @@ export const QuotaExhaustedBanner: React.FC<QuotaExhaustedBannerProps> = ({
     onUpgrade,
 }) => {
     return (
-        <div className="border-l-4 border-amber-500 bg-slate-800/90 rounded-xl border border-slate-700/50 p-5 mb-6 shadow-lg shadow-black/20 backdrop-blur-sm">
+        <div className="border-l-4 border-l-amber-500 border-t border-r border-b border-slate-700/50 bg-slate-800/90 rounded-xl p-5 mb-6 shadow-lg shadow-black/20 backdrop-blur-sm">
             <div className="flex items-start gap-4">
                 {/* Icon Section */}
                 <div className="flex-shrink-0 w-9 h-9 rounded-full bg-amber-500/10 flex items-center justify-center border border-amber-500/20">
