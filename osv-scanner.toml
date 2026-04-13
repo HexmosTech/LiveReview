@@ -1,0 +1,7 @@
+[[IgnoredVulns]]
+id = "GO-2026-4771"
+reason = "Upstream maintainer indicates this report is not exploitable in practice for pgx in this context; tracked at https://github.com/jackc/pgx/issues/2530"
+
+[[IgnoredVulns]]
+id = "GO-2026-4772"
+reason = "Companion pgx advisory covered by the same maintainer rationale; tracked at https://github.com/jackc/pgx/issues/2530"

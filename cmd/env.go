@@ -48,11 +48,29 @@ func CheckRequiredConfig(isCloud bool) *ConfigCheckResult {
 			)
 		case "live":
 			requiredVars = append(requiredVars,
+				"LIVEREVIEW_PRICING_PROFILE",
+			)
+
+			pricingProfile := strings.ToLower(strings.TrimSpace(os.Getenv("LIVEREVIEW_PRICING_PROFILE")))
+			requiredVars = append(requiredVars,
 				"RAZORPAY_LIVE_KEY",
 				"RAZORPAY_LIVE_SECRET",
-				"RAZORPAY_LIVE_MONTHLY_PLAN_ID",
-				"RAZORPAY_LIVE_YEARLY_PLAN_ID",
 			)
+
+			switch pricingProfile {
+			case "actual":
+				requiredVars = append(requiredVars,
+					"RAZORPAY_LIVE_ACTUAL_MONTHLY_PLAN_ID",
+					"RAZORPAY_LIVE_ACTUAL_YEARLY_PLAN_ID",
+				)
+			case "low_pricing_test":
+				requiredVars = append(requiredVars,
+					"RAZORPAY_LIVE_LOW_PRICING_MONTHLY_PLAN_ID",
+					"RAZORPAY_LIVE_LOW_PRICING_YEARLY_PLAN_ID",
+				)
+			default:
+				result.Warnings = append(result.Warnings, "LIVEREVIEW_PRICING_PROFILE should be set to actual or low_pricing_test when RAZORPAY_MODE=live")
+			}
 		default:
 			result.Warnings = append(result.Warnings, "RAZORPAY_MODE should be set to test or live")
 		}
