@@ -30,10 +30,10 @@ export const QuotaExhaustedBanner: React.FC<QuotaExhaustedBannerProps> = ({
                         You've reached your monthly limit
                     </p>
                     <p className="text-sm text-slate-400 mb-4 leading-relaxed">
-                        Your team used all <strong className="text-slate-100 italic">{locLimit.toLocaleString()} LOC</strong> this month. 
+                        Your team used all <strong className="text-slate-100 italic">{locLimit.toLocaleString()} LOC</strong> this month.
                         Upgrade to a higher tier and continue reviewing code without any interruption to your workflow.
                     </p>
-                    <Button 
+                    <Button
                         variant="primary"
                         onClick={onUpgrade}
                         className="!bg-amber-600 hover:!bg-amber-500 text-white text-sm font-medium px-5 py-2 rounded-lg transition-colors border-none shadow-md shadow-amber-900/20"
