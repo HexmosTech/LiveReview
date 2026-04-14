@@ -1415,34 +1415,60 @@ func (p *LangchainProvider) lineInHunk(lineNumber int, hunk models.DiffHunk) boo
 // lineIsDeleted analyzes hunk content to determine if a line is deleted
 func (p *LangchainProvider) lineIsDeleted(lineNumber int, hunk models.DiffHunk) bool {
 	lines := strings.Split(hunk.Content, "\n")
-	oldLine := hunk.OldStartLine
-	newLine := hunk.NewStartLine
 
 	for _, line := range lines {
-		if strings.HasPrefix(line, "@@") {
-			continue // Skip hunk header
+		// Skip table header rows, blank lines, and raw hunk headers
+		if strings.HasPrefix(line, "OLD") || strings.HasPrefix(line, "---") || strings.HasPrefix(line, "@@") || line == "" {
+			continue
 		}
 
-		if strings.HasPrefix(line, "-") {
-			if oldLine == lineNumber {
+		oldNum, newNum, _, isDeleted, isAdded, err := parseHunkLine(line)
+		if err != nil {
+			continue
+		}
+
+		if isDeleted {
+			if oldNum == lineNumber {
 				return true
 			}
-			oldLine++
-		} else if strings.HasPrefix(line, "+") {
-			newLine++
+		} else if isAdded {
+			if newNum == lineNumber {
+				return false
+			}
 		} else {
 			// Context line
-			if oldLine == lineNumber || newLine == lineNumber {
-				return false // Context lines are not deleted
+			if oldNum == lineNumber || newNum == lineNumber {
+				return false
 			}
-			oldLine++
-			newLine++
 		}
 	}
 
 	return false
 }
 
+// parseHunkLine parses a formatted table row "OLD | NEW | CONTENT"
+func parseHunkLine(line string) (oldNum int, newNum int, content string, isDeleted bool, isAdded bool, err error) {
+	parts := strings.SplitN(line, " | ", 3)
+	if len(parts) != 3 {
+		return 0, 0, "", false, false, fmt.Errorf("invalid table row format")
+	}
+
+	oldStr := strings.TrimSpace(parts[0])
+	newStr := strings.TrimSpace(parts[1])
+	content = parts[2]
+
+	var oldErr, newErr error
+	oldNum, oldErr = strconv.Atoi(oldStr)
+	newNum, newErr = strconv.Atoi(newStr)
+
+	if oldErr == nil && newErr != nil {
+		isDeleted = true
+	} else if oldErr != nil && newErr == nil {
+		isAdded = true
+	}
+
+	return oldNum, newNum, content, isDeleted, isAdded, nil
+}
 // Helper functions for logging
 func truncateString(s string, maxLen int) string {
 	if len(s) <= maxLen {
@@ -1559,14 +1585,14 @@ func (p *LangchainProvider) logLLMErrorDetails(err error, batchID string) {
 		baseMsg := fmt.Sprintf("%s (cause %d): type=%T msg=%v", prefix, depth, current, current)
 		fmt.Printf("[LANGCHAIN ERROR DETAIL] %s\n", baseMsg)
 		if p.logger != nil {
-			p.logger.Log(baseMsg)
+			p.logger.Log("%s", baseMsg)
 		}
 
 		if extra := describeStructuredError(current); extra != "" {
 			detailMsg := fmt.Sprintf("%s (cause %d) detail: %s", prefix, depth, extra)
 			fmt.Printf("[LANGCHAIN ERROR DETAIL] %s\n", detailMsg)
 			if p.logger != nil {
-				p.logger.Log(detailMsg)
+				p.logger.Log("%s", detailMsg)
 			}
 		}
 	}

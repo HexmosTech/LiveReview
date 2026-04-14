@@ -125,6 +125,16 @@ const ManualGiteaConnector: React.FC = () => {
                                             <li>Scopes: repository read (and PR read if available)</li>
                                             <li>Use a dedicated service user (recommended)</li>
                                         </ul>
+                                        <div className="pt-1">
+                                            <a
+                                                href="https://github.com/HexmosTech/LiveReview/wiki/Gitea"
+                                                target="_blank"
+                                                rel="noopener noreferrer"
+                                                className="text-blue-400 hover:text-blue-300 underline text-xs font-medium"
+                                            >
+                                                Open full guide ↗
+                                            </a>
+                                        </div>
                                     </div>
                                 </Popover>
                             </div>
