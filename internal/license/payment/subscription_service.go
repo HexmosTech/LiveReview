@@ -21,20 +21,59 @@ import (
 	"golang.org/x/crypto/bcrypt"
 )
 
-// GetPlanID returns the appropriate Razorpay plan ID based on mode and plan type
-// Reads from environment variables for easy test/prod switching
-func GetPlanID(mode, planType string) string {
-	if mode == "test" {
+const (
+	PricingProfileActual         = "actual"
+	PricingProfileLowPricingTest = "low_pricing_test"
+)
+
+// ResolvePricingProfile validates the active pricing profile for live mode.
+func ResolvePricingProfile() (string, error) {
+	profile := strings.ToLower(strings.TrimSpace(os.Getenv("LIVEREVIEW_PRICING_PROFILE")))
+	switch profile {
+	case PricingProfileActual, PricingProfileLowPricingTest:
+		return profile, nil
+	default:
+		return "", fmt.Errorf("LIVEREVIEW_PRICING_PROFILE must be set to '%s' or '%s'", PricingProfileActual, PricingProfileLowPricingTest)
+	}
+}
+
+// GetPlanID returns the appropriate Razorpay plan ID based on mode and pricing profile.
+func GetPlanID(mode, planType string) (string, error) {
+	planType = strings.ToLower(strings.TrimSpace(planType))
+	if planType != "monthly" && planType != "yearly" {
+		return "", fmt.Errorf("invalid plan type: %s", planType)
+	}
+
+	mode = strings.ToLower(strings.TrimSpace(mode))
+	switch mode {
+	case "test":
 		if planType == "monthly" {
-			return os.Getenv("RAZORPAY_TEST_MONTHLY_PLAN_ID")
+			return strings.TrimSpace(os.Getenv("RAZORPAY_TEST_MONTHLY_PLAN_ID")), nil
 		}
-		return os.Getenv("RAZORPAY_TEST_YEARLY_PLAN_ID")
+		return strings.TrimSpace(os.Getenv("RAZORPAY_TEST_YEARLY_PLAN_ID")), nil
+	case "live":
+		profile, err := ResolvePricingProfile()
+		if err != nil {
+			return "", err
+		}
+
+		switch profile {
+		case PricingProfileActual:
+			if planType == "monthly" {
+				return strings.TrimSpace(os.Getenv("RAZORPAY_LIVE_ACTUAL_MONTHLY_PLAN_ID")), nil
+			}
+			return strings.TrimSpace(os.Getenv("RAZORPAY_LIVE_ACTUAL_YEARLY_PLAN_ID")), nil
+		case PricingProfileLowPricingTest:
+			if planType == "monthly" {
+				return strings.TrimSpace(os.Getenv("RAZORPAY_LIVE_LOW_PRICING_MONTHLY_PLAN_ID")), nil
+			}
+			return strings.TrimSpace(os.Getenv("RAZORPAY_LIVE_LOW_PRICING_YEARLY_PLAN_ID")), nil
+		default:
+			return "", fmt.Errorf("unsupported pricing profile: %s", profile)
+		}
+	default:
+		return "", fmt.Errorf("invalid mode: %s (must be 'test' or 'live')", mode)
 	}
-	// live mode
-	if planType == "monthly" {
-		return os.Getenv("RAZORPAY_LIVE_MONTHLY_PLAN_ID")
-	}
-	return os.Getenv("RAZORPAY_LIVE_YEARLY_PLAN_ID")
 }
 
 // SubscriptionService handles business logic for subscriptions, wrapping the payment package
@@ -106,7 +145,10 @@ func (s *SubscriptionService) CreateTeamSubscription(ownerUserID, orgID int, pla
 	}
 
 	// All LOC slab checkout in this migration is monthly-only.
-	razorpayPlanID := GetPlanID(mode, "monthly")
+	razorpayPlanID, err := GetPlanID(mode, "monthly")
+	if err != nil {
+		return nil, err
+	}
 
 	if razorpayPlanID == "" {
 		return nil, fmt.Errorf("razorpay monthly plan ID not configured in %s mode", mode)
@@ -916,7 +958,10 @@ func (s *SubscriptionService) getOrCreateShadowUser(email string) (int64, error)
 // CreateSelfHostedPurchase creates a self-hosted purchase without requiring full user/org setup
 func (s *SubscriptionService) CreateSelfHostedPurchase(email string, quantity int, mode string) (*SelfHostedPurchaseResponse, error) {
 	// Use the annual plan for self-hosted, get the correct one based on mode
-	razorpayPlanID := GetPlanID(mode, "yearly")
+	razorpayPlanID, err := GetPlanID(mode, "yearly")
+	if err != nil {
+		return nil, err
+	}
 
 	if quantity < 1 {
 		quantity = 1
