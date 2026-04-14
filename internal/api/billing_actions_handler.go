@@ -92,9 +92,9 @@ type signedUpgradePreview struct {
 }
 
 func resolveRazorpayModeForBilling() string {
-	mode := strings.TrimSpace(os.Getenv("RAZORPAY_MODE"))
+	mode := strings.ToLower(strings.TrimSpace(os.Getenv("RAZORPAY_MODE")))
 	if mode == "" {
-		return "test"
+		return "live"
 	}
 	return mode
 }
@@ -186,8 +186,7 @@ func computeRemainingCycleFraction(cycleStart, cycleEnd, now time.Time) float64 
 	return fraction
 }
 
-func computeTargetProratedChargeCents(targetMonthlyUSD int, fraction float64) int64 {
-	targetMonthlyCents := int64(targetMonthlyUSD * 100)
+func computeTargetProratedChargeCents(targetMonthlyCents int64, fraction float64) int64 {
 	if targetMonthlyCents <= 0 || fraction <= 0 {
 		return 0
 	}
@@ -249,24 +248,33 @@ func (h *BillingActionsHandler) buildUpgradePreview(ctx context.Context, orgID i
 		cycleEnd = time.Unix(razorpaySub.CurrentEnd, 0).UTC()
 	}
 
-	planID := strings.TrimSpace(razorpaySub.PlanID)
-	if planID == "" {
-		return signedUpgradePreview{}, nil, fmt.Errorf("razorpay subscription has empty plan_id")
-	}
-
-	razorpayPlan, err := payment.GetPlanByID(mode, planID)
+	effectiveMonthlyPlanID, err := payment.GetPlanID(mode, "monthly")
 	if err != nil {
-		return signedUpgradePreview{}, nil, fmt.Errorf("load razorpay plan for currency resolution: %w", err)
+		return signedUpgradePreview{}, nil, fmt.Errorf("resolve monthly plan id: %w", err)
+	}
+	effectiveMonthlyPlanID = strings.TrimSpace(effectiveMonthlyPlanID)
+	if effectiveMonthlyPlanID == "" {
+		return signedUpgradePreview{}, nil, fmt.Errorf("monthly plan id is empty for mode=%s", mode)
 	}
 
-	chargeCurrency := strings.ToUpper(strings.TrimSpace(razorpayPlan.Item.Currency))
+	effectiveMonthlyPlan, err := payment.GetPlanByID(mode, effectiveMonthlyPlanID)
+	if err != nil {
+		return signedUpgradePreview{}, nil, fmt.Errorf("load razorpay monthly plan for pricing profile: %w", err)
+	}
+
+	targetMonthlyCents := int64(locPlanToQuantity(targetPlan)) * int64(effectiveMonthlyPlan.Item.Amount)
+	if targetMonthlyCents <= 0 {
+		return signedUpgradePreview{}, nil, fmt.Errorf("computed target monthly cents must be positive for plan=%s", targetPlan)
+	}
+
+	chargeCurrency := strings.ToUpper(strings.TrimSpace(effectiveMonthlyPlan.Item.Currency))
 	if chargeCurrency == "" {
-		return signedUpgradePreview{}, nil, fmt.Errorf("razorpay plan %s has empty currency", planID)
+		return signedUpgradePreview{}, nil, fmt.Errorf("razorpay plan %s has empty currency", effectiveMonthlyPlanID)
 	}
 
 	now := time.Now().UTC()
 	remainingFraction := computeRemainingCycleFraction(cycleStart, cycleEnd, now)
-	chargeCents := computeTargetProratedChargeCents(targetPlan.GetLimits().MonthlyPriceUSD, remainingFraction)
+	chargeCents := computeTargetProratedChargeCents(targetMonthlyCents, remainingFraction)
 	locGrant := computeTargetProratedLOCGrant(targetPlan.GetLimits().MonthlyLOCLimit, remainingFraction)
 
 	tokenPayload := signedUpgradePreview{
@@ -279,7 +287,7 @@ func (h *BillingActionsHandler) buildUpgradePreview(ctx context.Context, orgID i
 		ImmediateChargeCents:    chargeCents,
 		ImmediateChargeCurrency: chargeCurrency,
 		ImmediateLOCGrant:       locGrant,
-		NextCyclePriceCents:     int64(targetPlan.GetLimits().MonthlyPriceUSD * 100),
+		NextCyclePriceCents:     targetMonthlyCents,
 		NextCycleLOCLimit:       int64(targetPlan.GetLimits().MonthlyLOCLimit),
 		ExpiresAtUnix:           now.Add(5 * time.Minute).Unix(),
 	}
@@ -1044,6 +1052,16 @@ func (h *BillingActionsHandler) GetBillingStatus(c echo.Context) error {
 		return JSONErrorWithEnvelope(c, http.StatusInternalServerError, fmt.Sprintf("failed to initialize billing state: %v", err))
 	}
 
+	mode := resolveRazorpayModeForBilling()
+	pricingProfile := ""
+	if mode == "live" {
+		profile, err := payment.ResolvePricingProfile()
+		if err != nil {
+			return JSONErrorWithEnvelope(c, http.StatusInternalServerError, fmt.Sprintf("invalid pricing profile configuration: %v", err))
+		}
+		pricingProfile = profile
+	}
+
 	state, err := h.store.GetOrgBillingState(c.Request().Context(), orgID)
 	if err != nil {
 		return JSONErrorWithEnvelope(c, http.StatusInternalServerError, fmt.Sprintf("failed to fetch billing state: %v", err))
@@ -1053,6 +1071,8 @@ func (h *BillingActionsHandler) GetBillingStatus(c echo.Context) error {
 	return JSONWithEnvelope(c, http.StatusOK, map[string]interface{}{
 		"billing": map[string]interface{}{
 			"current_plan_code":           state.CurrentPlanCode,
+			"razorpay_mode":               mode,
+			"pricing_profile":             pricingProfile,
 			"billing_period_start":        state.BillingPeriodStart.Format(time.RFC3339),
 			"billing_period_end":          state.BillingPeriodEnd.Format(time.RFC3339),
 			"loc_used_month":              state.LOCUsedMonth,

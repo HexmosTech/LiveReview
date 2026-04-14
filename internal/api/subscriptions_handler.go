@@ -38,9 +38,9 @@ type SubscriptionsHandler struct {
 var razorpaySubscriptionIDRegex = regexp.MustCompile(`^sub_[A-Za-z0-9]+$`)
 
 func resolveRazorpayMode() string {
-	mode := os.Getenv("RAZORPAY_MODE")
+	mode := strings.ToLower(strings.TrimSpace(os.Getenv("RAZORPAY_MODE")))
 	if mode == "" {
-		return "test"
+		return "live"
 	}
 	return mode
 }

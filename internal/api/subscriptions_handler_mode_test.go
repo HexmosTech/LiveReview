@@ -2,10 +2,10 @@ package api
 
 import "testing"
 
-func TestResolveRazorpayModeDefaultsToTest(t *testing.T) {
+func TestResolveRazorpayModeDefaultsToLive(t *testing.T) {
 	t.Setenv("RAZORPAY_MODE", "")
-	if got := resolveRazorpayMode(); got != "test" {
-		t.Fatalf("resolveRazorpayMode() = %q, want test", got)
+	if got := resolveRazorpayMode(); got != "live" {
+		t.Fatalf("resolveRazorpayMode() = %q, want live", got)
 	}
 }
 
