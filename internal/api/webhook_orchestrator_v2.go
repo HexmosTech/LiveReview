@@ -881,7 +881,7 @@ func (wo *WebhookOrchestratorV2) postQuotaExhaustedResponse(provider WebhookProv
 	}
 
 	quotaMessage := fmt.Sprintf(
-		"⚠️ **Monthly LOC Limit Reached**\n\n"+
+		"⚠️ **You've reached your monthly limit**\n\n"+
 			"%s"+
 			"Upgrade to a higher plan to continue reviewing code without any interruption to your workflow.\n\n"+
 			"👉 [Upgrade Plan](%s)\n",
