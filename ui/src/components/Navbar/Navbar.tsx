@@ -232,7 +232,21 @@ const BillingChip: React.FC = () => {
                             </button>
                         </div>
                     )}
-                    {!chip.blocked && chip.usagePct >= 90 && (
+                    {!chip.blocked && chip.usagePct >= 100 && (
+                        <div className="mt-2 rounded bg-amber-950/50 border border-amber-500/50 p-2 text-[11px]">
+                            <p className="text-amber-200 font-semibold">LOC Usage Exhausted</p>
+                            <p className="text-amber-300/90 mt-0.5">
+                                You've used {chip.locUsed.toLocaleString()} of {chip.locLimit > 0 ? chip.locLimit.toLocaleString() : 'N/A'} LOC ({chip.usagePct}%). Please upgrade to continue.
+                            </p>
+                                <button
+                                    onClick={(e) => { e.stopPropagation(); navigate('/settings-subscriptions-overview'); }}
+                                    className="w-full py-1 bg-amber-600 hover:bg-amber-500 rounded text-amber-50 font-semibold transition-colors"
+                                >
+                                    Upgrade Plan
+                                </button>
+                        </div>
+                    )}
+                    {!chip.blocked && chip.usagePct >= 90 && chip.usagePct < 100 && (
                         <div className="mt-2 rounded bg-amber-950/50 border border-amber-500/50 p-2 text-[11px]">
                             <p className="text-amber-200 font-semibold">⚠️ LOC Usage Nearing Limit</p>
                             <p className="text-amber-300/90 mt-0.5">
