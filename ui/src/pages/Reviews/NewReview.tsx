@@ -16,6 +16,8 @@ import { ErrorBoundary } from '../../components/ErrorBoundary';
 import { UpgradePromptModal } from '../../components/Subscriptions';
 import { SafetyBanner } from '../../components/SafetyBanner/SafetyBanner';
 import apiClient from '../../api/apiClient';
+import { QuotaExhaustedBanner } from '../../components/Dashboard/QuotaExhaustedBanner';
+import { QuotaWarningBanner } from '../../components/Dashboard/QuotaWarningBanner';
 
 type QuotaStatusResponse = {
   can_trigger_reviews: boolean;
@@ -229,26 +231,22 @@ const NewReview: React.FC = () => {
               <h3 className="text-lg font-medium text-white mb-4">Enter Merge/Pull Request URL</h3>
 
               {/* LOC 90% Warning Banner */}
-              {!quotaStatus?.envelope?.blocked && !quotaStatus?.envelope?.trial_readonly && quotaStatus?.envelope?.threshold_state === '90' && (
-                <Alert
-                  variant="warning"
-                  className="mb-4"
-                  icon={<Icons.Warning />}
-                >
-                  <div>
-                    <div className="font-medium text-amber-100">LOC Usage Nearing Limit</div>
-                    <div className="text-sm mt-1 text-amber-200/90">
-                      You've used {(quotaStatus.envelope.loc_used_month ?? 0).toLocaleString()} of {(quotaStatus.envelope.loc_limit_month ?? 0).toLocaleString()} LOC this month ({quotaStatus.envelope.usage_percent ?? 0}%). Upgrade to avoid interruption.
-                    </div>
-                    <button
-                      type="button"
-                      onClick={() => navigate(quotaStatus.envelope?.upgrade_url || '/settings-subscriptions-overview')}
-                      className="mt-2 px-3 py-1 bg-amber-600 hover:bg-amber-500 text-white text-xs font-semibold rounded transition-colors"
-                    >
-                      Upgrade Plan
-                    </button>
-                  </div>
-                </Alert>
+              {/* LOC 100% Exhausted Banner */}
+              {!quotaStatus?.envelope?.blocked && !quotaStatus?.envelope?.trial_readonly && (quotaStatus?.envelope?.usage_percent ?? 0) >= 100 && (
+                <QuotaExhaustedBanner
+                  locUsed={quotaStatus.envelope?.loc_used_month ?? 0}
+                  locLimit={quotaStatus.envelope?.loc_limit_month ?? 0}
+                  usagePct={quotaStatus.envelope?.usage_percent ?? 0}
+                  onUpgrade={() => navigate(quotaStatus.envelope?.upgrade_url || '/settings-subscriptions-overview')}
+                />
+              )}
+              {!quotaStatus?.envelope?.blocked && !quotaStatus?.envelope?.trial_readonly && quotaStatus?.envelope?.threshold_state === '90' && (quotaStatus?.envelope?.usage_percent ?? 0) < 100 && (
+                <QuotaWarningBanner
+                  locUsed={quotaStatus.envelope?.loc_used_month ?? 0}
+                  locLimit={quotaStatus.envelope?.loc_limit_month ?? 0}
+                  usagePct={quotaStatus.envelope?.usage_percent ?? 0}
+                  onUpgrade={() => navigate(quotaStatus.envelope?.upgrade_url || '/settings-subscriptions-overview')}
+                />
               )}
 
               {/* Blocked / Trial Read-Only Banner */}
@@ -347,6 +345,7 @@ const NewReview: React.FC = () => {
                     !url.trim() ||
                     Boolean(quotaStatus?.envelope?.blocked) ||
                     Boolean(quotaStatus?.envelope?.trial_readonly) ||
+                    (quotaStatus?.envelope?.usage_percent ?? 0) >= 100 ||
                     quotaStatus?.can_trigger_reviews === false
                   }
                   isLoading={loading}

@@ -17,6 +17,8 @@ import { HumanizedTimestamp } from '../HumanizedTimestamp/HumanizedTimestamp';
 import RecentActivity from './RecentActivity';
 import { OnboardingStepper } from './OnboardingStepper';
 import { PlanBadge } from './PlanBadge';
+import { QuotaExhaustedBanner } from './QuotaExhaustedBanner';
+import { QuotaWarningBanner } from './QuotaWarningBanner';
 import { handleUserLoginNotification } from '../../utils/userNotifications';
 import { getApiUrl } from '../../utils/apiUrl';
 import { useAppSelector } from '../../store/configureStore';
@@ -407,25 +409,21 @@ export const Dashboard: React.FC = () => {
                         </div>
                     </Alert>
                 )}
-                {billingInsight && !billingInsight.blocked && billingInsight.usagePct >= 90 && (
-                    <Alert variant="warning" className="mb-4">
-                        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
-                            <div>
-                                <span className="font-semibold text-amber-100">⚠️ LOC Usage Nearing Limit</span>
-                                <span className="text-sm text-amber-200 ml-2">
-                                    You've used {billingInsight.locUsed.toLocaleString()} of {billingInsight.locLimit > 0 ? billingInsight.locLimit.toLocaleString() : 'N/A'} LOC ({billingInsight.usagePct}%). Upgrade to avoid interruption.
-                                </span>
-                            </div>
-                            <Button
-                                variant="primary"
-                                size="sm"
-                                onClick={() => navigate('/settings-subscriptions-overview')}
-                                className="!bg-amber-600 hover:!bg-amber-500 flex-shrink-0"
-                            >
-                                Upgrade Plan
-                            </Button>
-                        </div>
-                    </Alert>
+                {billingInsight && !billingInsight.blocked && billingInsight.usagePct >= 100 && (
+                    <QuotaExhaustedBanner
+                        locUsed={billingInsight.locUsed}
+                        locLimit={billingInsight.locLimit}
+                        usagePct={billingInsight.usagePct}
+                        onUpgrade={() => navigate('/settings-subscriptions-overview')}
+                    />
+                )}
+                {billingInsight && !billingInsight.blocked && billingInsight.usagePct >= 90 && billingInsight.usagePct < 100 && (
+                    <QuotaWarningBanner
+                        locUsed={billingInsight.locUsed}
+                        locLimit={billingInsight.locLimit}
+                        usagePct={billingInsight.usagePct}
+                        onUpgrade={() => navigate('/settings-subscriptions-overview')}
+                    />
                 )}
 
                 {/* Header with aligned content and prominent CTA */}
