@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { Routes, Route, useNavigate } from 'react-router-dom';
+import classNames from 'classnames';
 import { formatDistanceToNow, format } from 'date-fns';
 import ConnectorForm from '../../components/Connector/ConnectorForm';
 import ProviderSelection from '../../components/Connector/ProviderSelection';
@@ -14,9 +15,11 @@ import {
     Badge,
     Avatar,
     Spinner,
-    Tooltip
+    Tooltip,
+    Alert
 } from '../../components/UIPrimitives';
 import { getConnectors, ConnectorResponse, deleteConnector, WebhookStatusSummary } from '../../api/connectors';
+import { useOrgContext } from '../../hooks/useOrgContext';
 import ConnectorDetails from './ConnectorDetails';
 
 // Spec for GitProviderKit
@@ -67,6 +70,8 @@ const GitProvidersList: React.FC = () => {
     const dispatch = useAppDispatch();
     const navigate = useNavigate();
     const storeConnectors = useAppSelector((state) => state.Connector.connectors);
+    const { isFreePlan, isSuperAdmin } = useOrgContext();
+    const isReadOnly = isFreePlan && !isSuperAdmin;
     
     // Use redux state only for connectors
     const [isLoading, setIsLoading] = useState<boolean>(true);
@@ -231,7 +236,12 @@ const GitProvidersList: React.FC = () => {
             />
             
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-                <div>
+                <div className={classNames(isReadOnly && "opacity-60 pointer-events-none")}>
+                    {isReadOnly && (
+                        <Alert variant="info" className="mb-4">
+                            Connectors are read-only on the Free plan. Upgrade to add or remove providers.
+                        </Alert>
+                    )}
                     <ProviderSelection />
                     
                     {/* Brand Showcase */}
@@ -334,9 +344,9 @@ const GitProvidersList: React.FC = () => {
                                                         variant="outline"
                                                         size="sm"
                                                         onClick={() => handleDeleteConnector(connector.id, connector.name)}
-                                                        disabled={isLoading}
-                                                        title="Delete connector"
-                                                        className="!px-2.5 !text-red-400 hover:!text-red-300 hover:!border-red-400"
+                                                        disabled={isLoading || isReadOnly}
+                                                        title={isReadOnly ? "Upgrade to delete connectors" : "Delete connector"}
+                                                        className="!px-2.5 !text-red-400 hover:!text-red-300 hover:!border-red-400 disabled:opacity-50"
                                                     >
                                                         <Icons.Delete />
                                                     </Button>

@@ -18,6 +18,7 @@ import { SafetyBanner } from '../../components/SafetyBanner/SafetyBanner';
 import apiClient from '../../api/apiClient';
 import { QuotaExhaustedBanner } from '../../components/Dashboard/QuotaExhaustedBanner';
 import { QuotaWarningBanner } from '../../components/Dashboard/QuotaWarningBanner';
+import { useOrgContext } from '../../hooks/useOrgContext';
 
 type QuotaStatusResponse = {
   can_trigger_reviews: boolean;
@@ -36,6 +37,8 @@ type QuotaStatusResponse = {
 
 const NewReview: React.FC = () => {
   const navigate = useNavigate();
+  const { isFreePlan, isSuperAdmin } = useOrgContext();
+  const isReadOnly = isFreePlan && !isSuperAdmin;
   const [url, setUrl] = useState('');
   const [connectors, setConnectors] = useState<ConnectorResponse[]>([]);
   const [loading, setLoading] = useState(false);
@@ -249,8 +252,8 @@ const NewReview: React.FC = () => {
                 />
               )}
 
-              {/* Blocked / Trial Read-Only Banner */}
-              {(quotaStatus?.envelope?.trial_readonly || quotaStatus?.envelope?.blocked || quotaStatus?.can_trigger_reviews === false) && (
+              {/* Blocked / Trial Read-Only / Free Plan Read-Only Banner */}
+              {(isReadOnly || quotaStatus?.envelope?.trial_readonly || quotaStatus?.envelope?.blocked || quotaStatus?.can_trigger_reviews === false) && (
                 <Alert
                   variant="error"
                   className="mb-4"
@@ -258,12 +261,14 @@ const NewReview: React.FC = () => {
                 >
                   <div>
                     <div className="font-medium text-red-100">
-                      {quotaStatus?.envelope?.trial_readonly ? 'Trial Read-Only Active' : 'Monthly LOC Quota Exceeded'}
+                      {isReadOnly ? 'Free Plan Read-Only Mode' : (quotaStatus?.envelope?.trial_readonly ? 'Trial Read-Only Active' : 'Monthly LOC Quota Exceeded')}
                     </div>
                     <div className="text-sm mt-1 text-red-200/90">
-                      {quotaStatus?.envelope?.trial_readonly
-                        ? 'This organization is in trial read-only mode. Upgrade from Subscription Management to continue triggering reviews.'
-                        : `You've used ${(quotaStatus?.envelope?.loc_used_month ?? 0).toLocaleString()} of ${(quotaStatus?.envelope?.loc_limit_month ?? 0).toLocaleString()} LOC this month. Reviews are blocked until your quota resets${quotaStatus?.envelope?.billing_period_end ? ` on ${new Date(quotaStatus.envelope.billing_period_end).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}` : ''} or you upgrade your plan.`}
+                      {isReadOnly 
+                        ? 'Review creation is not available on the Free plan. Upgrade to a paid plan to start using AI code reviews.'
+                        : (quotaStatus?.envelope?.trial_readonly
+                          ? 'This organization is in trial read-only mode. Upgrade from Subscription Management to continue triggering reviews.'
+                          : `You've used ${(quotaStatus?.envelope?.loc_used_month ?? 0).toLocaleString()} of ${(quotaStatus?.envelope?.loc_limit_month ?? 0).toLocaleString()} LOC this month. Reviews are blocked until your quota resets${quotaStatus?.envelope?.billing_period_end ? ` on ${new Date(quotaStatus.envelope.billing_period_end).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}` : ''} or you upgrade your plan.`)}
                     </div>
                     <button
                       type="button"
@@ -343,6 +348,7 @@ const NewReview: React.FC = () => {
                   disabled={
                     loading ||
                     !url.trim() ||
+                    isReadOnly ||
                     Boolean(quotaStatus?.envelope?.blocked) ||
                     Boolean(quotaStatus?.envelope?.trial_readonly) ||
                     (quotaStatus?.envelope?.usage_percent ?? 0) >= 100 ||

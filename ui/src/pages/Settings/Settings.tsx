@@ -262,7 +262,7 @@ const Settings = () => {
     const location = useLocation();
     const navigate = useNavigate();
     const { domain } = useAppSelector((state) => state.Settings);
-    const { isSuperAdmin, canManageCurrentOrg, currentOrg } = useOrgContext();
+    const { isSuperAdmin, canManageCurrentOrg, currentOrg, isFreePlan } = useOrgContext();
     const canAccessPrompts = isSuperAdmin || (currentOrg && ['owner', 'member'].includes(currentOrg.role));
     
     // Check if we're on a subscription sub-route
@@ -298,9 +298,9 @@ const Settings = () => {
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 7a4 4 0 10-4 4v1a1 1 0 001 1h1v1a1 1 0 001 1h1l3 3 3-3-3-3v-2a4 4 0 00-4-4z" />
             </svg>
         ) }] : []),
-        ...(canAccessPrompts ? [{ id: 'prompts', name: 'Prompts', icon: <Icons.AI /> }] : []),
+        ...(canAccessPrompts && !(isFreePlan && !isSuperAdmin) ? [{ id: 'prompts', name: 'Prompts', icon: <Icons.AI /> }] : []),
         // Learnings tab visible to all org members
-        ...((isSuperAdmin || currentOrg) ? [{ id: 'learnings', name: 'Learnings', icon: <Icons.List /> }] : []),
+        ...((isSuperAdmin || currentOrg) && !(isFreePlan && !isSuperAdmin) ? [{ id: 'learnings', name: 'Learnings', icon: <Icons.List /> }] : []),
         // API Keys tab visible to all org members
         ...((isSuperAdmin || currentOrg) ? [{ 
             id: 'api-keys', 
@@ -312,7 +312,7 @@ const Settings = () => {
             )
         }] : []),
         // User Management tab visible to all org members (read-only for non-owners)
-        ...((isSuperAdmin || currentOrg) ? [{ 
+        ...((isSuperAdmin || currentOrg) && !(isFreePlan && !isSuperAdmin) ? [{ 
             id: 'users', 
             name: 'User Management', 
             icon: (
