@@ -625,16 +625,30 @@ func (h *SubscriptionsHandler) GetCurrentSubscription(c echo.Context) error {
 		return c.JSON(http.StatusBadRequest, map[string]string{"error": "organization context required"})
 	}
 
-	// Fetch user's active subscription id and plan for this org
-	var planType sql.NullString
-	var licenseExpiresAt sql.NullTime
+	// Choose the strongest current subscription pointer for this user/org.
+	// This avoids leaking stale canceled-role rows after replacement cutovers.
 	var activeSubID sql.NullInt64
 	err := h.db.QueryRow(`
-		SELECT ur.plan_type, ur.license_expires_at, ur.active_subscription_id
+		SELECT ur.active_subscription_id
 		FROM user_roles ur
-		WHERE ur.user_id = $1 AND ur.org_id = $2
+		JOIN subscriptions s ON s.id = ur.active_subscription_id AND s.org_id = ur.org_id
+		WHERE ur.user_id = $1
+		  AND ur.org_id = $2
+		  AND ur.active_subscription_id IS NOT NULL
+		ORDER BY
+			CASE
+				WHEN LOWER(TRIM(COALESCE(s.status, ''))) IN ('active', 'authenticated', 'created', 'pending', 'halted')
+				     AND COALESCE(s.cancel_at_period_end, FALSE) = FALSE THEN 0
+				WHEN LOWER(TRIM(COALESCE(s.status, ''))) IN ('active', 'authenticated', 'created', 'pending', 'halted') THEN 1
+				WHEN COALESCE(s.cancel_at_period_end, FALSE) = FALSE
+				     AND LOWER(TRIM(COALESCE(s.status, ''))) NOT IN ('cancelled', 'expired', 'completed') THEN 2
+				WHEN COALESCE(s.cancel_at_period_end, FALSE) = FALSE THEN 3
+				ELSE 4
+			END,
+			s.updated_at DESC,
+			ur.updated_at DESC
 		LIMIT 1
-	`, user.ID, orgID).Scan(&planType, &licenseExpiresAt, &activeSubID)
+	`, user.ID, orgID).Scan(&activeSubID)
 
 	if err == sql.ErrNoRows {
 		return c.JSON(http.StatusOK, map[string]interface{}{
@@ -695,6 +709,36 @@ func (h *SubscriptionsHandler) GetCurrentSubscription(c echo.Context) error {
 	}
 	if err != nil {
 		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "failed to load subscription"})
+	}
+
+	// Defensive fallback for replacement-cutover drift: if selected pointer is cancellation-scheduled,
+	// prefer an org-level non-cancelled subscription with a healthy status.
+	if sub.CancelAtPeriodEnd {
+		fallbackErr := h.db.QueryRow(`
+			SELECT s.id, s.razorpay_subscription_id, s.status, s.cancel_at_period_end,
+			       s.current_period_end, s.license_expires_at, s.plan_type, s.quantity,
+			       COALESCE((SELECT COUNT(*) FROM user_roles ur WHERE ur.active_subscription_id = s.id AND ur.plan_type = 'team'), 0) as assigned_seats,
+			       s.short_url
+			FROM subscriptions s
+			WHERE s.org_id = $1
+			  AND COALESCE(s.cancel_at_period_end, FALSE) = FALSE
+			ORDER BY
+				CASE
+					WHEN LOWER(TRIM(COALESCE(s.status, ''))) IN ('active', 'authenticated', 'created', 'pending', 'halted') THEN 0
+					WHEN LOWER(TRIM(COALESCE(s.status, ''))) IN ('cancelled', 'expired', 'completed') THEN 2
+					ELSE 1
+				END,
+				s.updated_at DESC,
+				s.created_at DESC
+			LIMIT 1
+		`, orgID).Scan(
+			&sub.ID, &sub.RZPID, &sub.Status, &sub.CancelAtPeriodEnd,
+			&sub.CurrentPeriodEnd, &sub.LicenseExpiresAt, &sub.PlanType, &sub.Quantity,
+			&sub.AssignedSeats, &sub.ShortURL,
+		)
+		if fallbackErr != nil && fallbackErr != sql.ErrNoRows {
+			c.Logger().Warnf("GetCurrentSubscription: org-level fallback failed for org_id=%d: %v", orgID, fallbackErr)
+		}
 	}
 
 	return c.JSON(http.StatusOK, map[string]interface{}{

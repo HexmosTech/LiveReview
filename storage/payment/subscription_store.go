@@ -854,8 +854,13 @@ func (s *SubscriptionStore) RepointOrgActiveSubscription(ctx context.Context, in
 		SET active_subscription_id = $1,
 		    updated_at = NOW()
 		WHERE org_id = $2
-		  AND plan_type = 'team'
-		  AND active_subscription_id = $3`,
+		  AND (
+			active_subscription_id = $3
+			OR (
+				active_subscription_id IS NULL
+				AND role_id = (SELECT id FROM roles WHERE name = 'owner')
+			)
+		  )`,
 		input.ReplacementLocalSubscriptionID,
 		input.OrgID,
 		input.OldLocalSubscriptionID,

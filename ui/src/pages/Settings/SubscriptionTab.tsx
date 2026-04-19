@@ -537,6 +537,7 @@ const OverviewTab: React.FC<{ navigate: any; mode?: 'full' | 'breakdown' | 'cont
     setPendingCancel(false);
     setStatus('');
 
+    let currentSubscriptionData: any = null;
     const currentSubscriptionPromise = apiClient
       .get('/subscriptions/current', {
         headers: {
@@ -544,22 +545,13 @@ const OverviewTab: React.FC<{ navigate: any; mode?: 'full' | 'breakdown' | 'cont
         },
       })
       .then((data: any) => {
-        if (data) {
-          setSubscriptionId(data.subscription_id || null);
-          setPendingCancel(Boolean(data.cancel_at_period_end));
-          setSubscriptionManageURL(String(data.short_url || ''));
-          setStatus(data.status || '');
-          const expirySrc = data.cancel_at_period_end ? data.current_period_end : data.license_expires_at;
-          setDisplayExpiry(expirySrc || licenseExpiresAt || null);
-        }
+        currentSubscriptionData = data || null;
       })
       .catch(() => {
-        setSubscriptionId(null);
-        setPendingCancel(false);
-        setSubscriptionManageURL('');
-        setStatus('');
+        currentSubscriptionData = null;
       });
 
+    let managedSubscriptions: ManagedSubscription[] = [];
     const managedSubscriptionsPromise = apiClient
       .get<{ subscriptions: ManagedSubscription[] }>('/subscriptions', {
         headers: {
@@ -567,25 +559,55 @@ const OverviewTab: React.FC<{ navigate: any; mode?: 'full' | 'breakdown' | 'cont
         },
       })
       .then((response) => {
-        const subscriptions = Array.isArray(response?.subscriptions) ? response.subscriptions : [];
-        const prioritized = [...subscriptions].sort((a, b) => {
-          const score = (item: ManagedSubscription) => {
-            const normalized = String(item.status || '').toLowerCase();
-            if (normalized === 'active') return 0;
-            if (normalized === 'authenticated' || normalized === 'created') return 1;
-            if (normalized === 'halted') return 2;
-            return 3;
-          };
-          return score(a) - score(b);
-        });
-        setManagedSubscription(prioritized[0] || null);
+        managedSubscriptions = Array.isArray(response?.subscriptions) ? response.subscriptions : [];
       })
       .catch(() => {
-        setManagedSubscription(null);
+        managedSubscriptions = [];
       });
 
     try {
       await Promise.all([currentSubscriptionPromise, managedSubscriptionsPromise]);
+
+      if (currentSubscriptionData) {
+        setSubscriptionId(currentSubscriptionData.subscription_id || null);
+        setPendingCancel(Boolean(currentSubscriptionData.cancel_at_period_end));
+        setSubscriptionManageURL(String(currentSubscriptionData.short_url || ''));
+        setStatus(currentSubscriptionData.status || '');
+        const expirySrc = currentSubscriptionData.cancel_at_period_end
+          ? currentSubscriptionData.current_period_end
+          : currentSubscriptionData.license_expires_at;
+        setDisplayExpiry(expirySrc || licenseExpiresAt || null);
+      } else {
+        setSubscriptionId(null);
+        setPendingCancel(false);
+        setSubscriptionManageURL('');
+        setStatus('');
+      }
+
+      const score = (item: ManagedSubscription) => {
+        const normalized = String(item.status || '').toLowerCase();
+        let base = 3;
+        if (normalized === 'active') base = 0;
+        else if (normalized === 'authenticated' || normalized === 'created') base = 1;
+        else if (normalized === 'halted') base = 2;
+
+        // Strongly prefer non-cancelled subscriptions in control mode fallback selection.
+        const cancelPenalty = item.cancel_at_period_end ? 10 : 0;
+        return base + cancelPenalty;
+      };
+      const prioritized = [...managedSubscriptions].sort((a, b) => score(a) - score(b));
+
+      let selectedManaged: ManagedSubscription | null = null;
+      const currentSubscriptionID = String(currentSubscriptionData?.subscription_id || '').trim();
+      if (currentSubscriptionID !== '') {
+        selectedManaged = prioritized.find(
+          (item) => String(item.razorpay_subscription_id || '').trim() === currentSubscriptionID,
+        ) || null;
+      }
+      if (!selectedManaged) {
+        selectedManaged = prioritized[0] || null;
+      }
+      setManagedSubscription(selectedManaged);
     } finally {
       setStatusLoading(false);
       setSubscriptionLoading(false);
@@ -1249,21 +1271,36 @@ const OverviewTab: React.FC<{ navigate: any; mode?: 'full' | 'breakdown' | 'cont
   const upgradeHierarchyPlans = currentPlanIndex >= 0 ? sortedPlansByLoc.slice(currentPlanIndex) : [];
   const upgradeOptions = upgradeHierarchyPlans.filter((plan) => plan.plan_code !== currentPlanCode);
   const downgradeOptions = currentPlanIndex > 0 ? sortedPlansByLoc.slice(0, currentPlanIndex).reverse() : [];
-  const useManagedFallback = isControlsMode;
-  const effectiveSubscriptionId = subscriptionId || (useManagedFallback ? managedSubscription?.razorpay_subscription_id || null : null);
-  const effectivePendingCancel = pendingCancel || (useManagedFallback && Boolean(managedSubscription?.cancel_at_period_end));
-  const effectiveSubscriptionManageURL = subscriptionManageURL || (useManagedFallback ? String(managedSubscription?.short_url || '') : '');
+  const hasCurrentSubscription = Boolean(subscriptionId);
+  const normalizedCurrentSubscriptionID = String(subscriptionId || '').trim();
+  const normalizedManagedSubscriptionID = String(managedSubscription?.razorpay_subscription_id || '').trim();
+  const managedMatchesCurrentSubscription = Boolean(
+    hasCurrentSubscription &&
+    normalizedCurrentSubscriptionID !== '' &&
+    normalizedCurrentSubscriptionID === normalizedManagedSubscriptionID,
+  );
+  const allowManagedFallback = Boolean(isControlsMode && (!hasCurrentSubscription || managedMatchesCurrentSubscription));
+  const effectiveSubscriptionId = hasCurrentSubscription
+    ? subscriptionId
+    : allowManagedFallback
+      ? managedSubscription?.razorpay_subscription_id || null
+      : null;
+  const effectivePendingCancel = hasCurrentSubscription
+    ? pendingCancel
+    : allowManagedFallback && Boolean(managedSubscription?.cancel_at_period_end);
+  const effectiveSubscriptionManageURL = subscriptionManageURL || (allowManagedFallback ? String(managedSubscription?.short_url || '') : '');
   const normalizedCurrentStatus = String(status || '').trim().toLowerCase();
-  const normalizedManagedStatus = useManagedFallback ? String(managedSubscription?.status || '').trim().toLowerCase() : '';
+  const normalizedManagedStatus = allowManagedFallback ? String(managedSubscription?.status || '').trim().toLowerCase() : '';
   const effectiveTerminalCancellation =
     isTerminalCancellationStatus(normalizedCurrentStatus) ||
-    (useManagedFallback && isTerminalCancellationStatus(normalizedManagedStatus));
+    (!hasCurrentSubscription && allowManagedFallback && isTerminalCancellationStatus(normalizedManagedStatus));
   const currentCanCancel =
-    Boolean(subscriptionId) &&
+    hasCurrentSubscription &&
     !pendingCancel &&
     (!normalizedCurrentStatus || normalizedCurrentStatus === 'active' || normalizedCurrentStatus === 'authenticated');
   const managedCanCancel =
-    useManagedFallback &&
+    !hasCurrentSubscription &&
+    allowManagedFallback &&
     Boolean(managedSubscription?.razorpay_subscription_id) &&
     !Boolean(managedSubscription?.cancel_at_period_end) &&
     (!normalizedManagedStatus || normalizedManagedStatus === 'active' || normalizedManagedStatus === 'authenticated');
@@ -1285,7 +1322,11 @@ const OverviewTab: React.FC<{ navigate: any; mode?: 'full' | 'breakdown' | 'cont
   const scheduledChangeLabel = isScheduledUpgrade ? 'Scheduled upgrade' : 'Scheduled downgrade';
   const hasScheduledPlanChange = Boolean(scheduledPlanCode && scheduledPlanCode !== currentPlanCode && scheduledPlan);
   const scheduledChangeTargetLabel = hasScheduledPlanChange ? getPlanDisplayName(scheduledPlanCode) : '';
-  const effectivePendingExpiry = displayExpiry || (useManagedFallback ? managedSubscription?.current_period_end : null) || licenseExpiresAt || null;
+  const effectivePendingExpiry =
+    displayExpiry ||
+    ((!hasCurrentSubscription && allowManagedFallback) ? managedSubscription?.current_period_end : null) ||
+    licenseExpiresAt ||
+    null;
   const pendingExpiryElapsed = Boolean(
     effectivePendingExpiry && moment(effectivePendingExpiry).isValid() && moment(effectivePendingExpiry).isBefore(moment())
   );
@@ -1294,7 +1335,7 @@ const OverviewTab: React.FC<{ navigate: any; mode?: 'full' | 'breakdown' | 'cont
   const statusIsTerminal = ['cancelled', 'expired', 'halted', 'past_due', 'incomplete'].indexOf(normalizedStatus) >= 0;
   const autoDowngradedToFree = !isTeamPlan && !effectivePendingCancel && (
     normalizedStatus === 'expired' ||
-    (useManagedFallback && normalizedManagedStatus === 'expired') ||
+    (!hasCurrentSubscription && allowManagedFallback && normalizedManagedStatus === 'expired') ||
     pendingExpiryElapsed
   );
   const statusBadgeLabel = statusLoading
