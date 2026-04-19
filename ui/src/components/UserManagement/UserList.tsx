@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import classNames from 'classnames';
-import { Button, Tooltip } from '../UIPrimitives';
+import { Button, Tooltip, Popover } from '../UIPrimitives';
 import { Member } from '../../api/users';
 import { useOrgContext } from '../../hooks/useOrgContext';
 
@@ -223,11 +223,24 @@ export const UserList: React.FC<UserListProps> = ({
                             <th className="px-6 py-3 text-center text-xs font-medium text-slate-400 uppercase tracking-wider">
                                 <div className="flex items-center justify-center gap-1">
                                     git-lrc Access
-                                    <Tooltip content="On the Free plan, reviews can only be triggered via the git-lrc CLI by the org owner. Dashboard triggers require Premium." position="top">
-                                        <svg className="w-4 h-4 text-slate-500 hover:text-slate-300 transition-colors cursor-help cursor-pointer" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                                        </svg>
-                                    </Tooltip>
+                                    {isFreePlan && (
+                                        <Popover 
+                                            hover={true} 
+                                            align="center"
+                                            trigger={
+                                                <svg className="w-4 h-4 text-slate-500 hover:text-slate-300 transition-colors cursor-help cursor-pointer" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                                                </svg>
+                                            }
+                                        >
+                                            <p>
+                                                On the Free plan, reviews can only be triggered via the git-lrc CLI by the org owner. Dashboard triggers require Premium.{' '}
+                                                <a href="/#/settings-subscriptions-overview" className="text-blue-300 hover:text-blue-200 underline">
+                                                    Upgrade to Premium
+                                                </a>
+                                            </p>
+                                        </Popover>
+                                    )}
                                 </div>
                             </th>
                             {isSuperAdminView && (

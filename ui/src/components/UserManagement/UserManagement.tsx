@@ -35,12 +35,12 @@ export const UserManagement: React.FC<UserManagementProps> = ({
 
     // Load users
     const loadUsers = useCallback(async () => {
-        console.log('[UserManagement] loadUsers called', { 
-            orgId: currentOrg?.id, 
-            isSuperAdminView, 
-            isSuperAdmin 
+        console.log('[UserManagement] loadUsers called', {
+            orgId: currentOrg?.id,
+            isSuperAdminView,
+            isSuperAdmin
         });
-        
+
         if (isSuperAdminView && !isSuperAdmin) {
             setError('Access denied: Super admin privileges required');
             return;
@@ -54,7 +54,7 @@ export const UserManagement: React.FC<UserManagementProps> = ({
 
         setLoading(true);
         setError(null);
-        
+
         try {
             if (isSuperAdminView) {
                 // TODO: Implement super admin user fetching
@@ -116,7 +116,7 @@ export const UserManagement: React.FC<UserManagementProps> = ({
                         {isSuperAdminView ? 'All Users (Super Admin)' : 'User Management'}
                     </h2>
                     <p className="text-slate-400 mt-1">
-                        {isSuperAdminView 
+                        {isSuperAdminView
                             ? 'Manage users across all organizations'
                             : `Manage users in ${currentOrg?.name || 'your organization'}`
                         }
@@ -126,15 +126,15 @@ export const UserManagement: React.FC<UserManagementProps> = ({
                             Organization created on {new Date(currentOrg.created_at).toLocaleDateString()}
                             {currentOrg.creator_email && (
                                 <> by {
-                                    currentOrg.creator_first_name && currentOrg.creator_last_name 
-                                        ? `${currentOrg.creator_first_name} ${currentOrg.creator_last_name}` 
+                                    currentOrg.creator_first_name && currentOrg.creator_last_name
+                                        ? `${currentOrg.creator_first_name} ${currentOrg.creator_last_name}`
                                         : currentOrg.creator_email
                                 }</>
                             )}
                         </p>
                     )}
                 </div>
-                
+
                 {canManageUsers && (
                     <Button
                         variant="primary"
@@ -166,15 +166,9 @@ export const UserManagement: React.FC<UserManagementProps> = ({
                         </svg>
                         <div className="flex-1">
                             <h3 className="text-blue-200 font-semibold mb-1">Free Plan Limitations</h3>
-                            <p className="text-blue-100/80 text-sm mb-2">
-                                On the Free plan, only the organization creator can trigger reviews via the git-lrc CLI. Dashboard triggers require Premium. 
-                                Added members cannot trigger reviews.
-                            </p>
                             <p className="text-blue-100/80 text-sm">
-                                <Link to="/subscribe" className="text-blue-300 hover:text-blue-200 underline font-medium">
-                                    Upgrade to Team Plan
-                                </Link>
-                                {' '}to give all team members full access with unlimited reviews.
+                                On the Free plan, only the organization creator can trigger reviews via the git-lrc CLI. Dashboard triggers require Premium.
+                                Added members cannot trigger reviews. <a href="/#/settings-subscriptions-overview" className="text-blue-300 hover:text-blue-200 underline font-medium">Upgrade to Premium</a> to give all members full access.
                             </p>
                         </div>
                     </div>
@@ -189,7 +183,7 @@ export const UserManagement: React.FC<UserManagementProps> = ({
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L3.732 16.5c-.77.833.192 2.5 1.732 2.5z" />
                         </svg>
                         <p className="text-yellow-300">
-                            You can view users in this organization but don't have permission to manage them. 
+                            You can view users in this organization but don't have permission to manage them.
                             Contact an organization owner for management capabilities.
                         </p>
                     </div>
