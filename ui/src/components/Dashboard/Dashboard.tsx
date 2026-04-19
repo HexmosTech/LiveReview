@@ -23,6 +23,8 @@ import { handleUserLoginNotification } from '../../utils/userNotifications';
 import { getApiUrl } from '../../utils/apiUrl';
 import { useAppSelector } from '../../store/configureStore';
 import { isCloudMode } from '../../utils/deploymentMode';
+import { useOrgContext } from '../../hooks/useOrgContext';
+import LicenseUpgradeDialog from '../License/LicenseUpgradeDialog';
 import apiClient from '../../api/apiClient';
 
 type DashboardBillingStatusResponse = {
@@ -119,6 +121,7 @@ const saveDismissedConnectorIds = (storageKey: string, connectorIds: Set<number>
 export const Dashboard: React.FC = () => {
     const navigate = useNavigate();
     const user = useAppSelector(state => state.Auth.user);
+    const { isFreePlan } = useOrgContext();
 
     // Dashboard data state
     const [dashboardData, setDashboardData] = useState<DashboardData | null>(null);
@@ -137,6 +140,7 @@ export const Dashboard: React.FC = () => {
     const [notificationSent, setNotificationSent] = useState(false);
     // Track dismissed connector progress notifications for this tab session
     const [dismissedConnectors, setDismissedConnectors] = useState<Set<number>>(new Set());
+    const [showUpgradeDialog, setShowUpgradeDialog] = useState(false);
     // Track connector warnings explicitly hidden by the user across page reloads
     const [persistedDismissedConnectors, setPersistedDismissedConnectors] = useState<Set<number>>(new Set());
     const [billingInsight, setBillingInsight] = useState<DashboardBillingInsight | null>(null);
@@ -332,6 +336,14 @@ export const Dashboard: React.FC = () => {
         }
     };
 
+    const handleNewReviewClick = () => {
+        if (isFreePlan) {
+            setShowUpgradeDialog(true);
+        } else {
+            navigate('/reviews/new');
+        }
+    };
+
     return (
         <div className="min-h-screen">
             <main className="container mx-auto px-4 py-6">
@@ -448,9 +460,9 @@ export const Dashboard: React.FC = () => {
                         <Button
                             variant="primary"
                             icon={<Icons.Add />}
-                            onClick={() => navigate('/reviews/new')}
-                            className="shadow-xl hover:shadow-2xl transition-all duration-300 hover:scale-105 bg-gradient-to-r from-blue-600 to-blue-700 hover:from-blue-500 hover:to-blue-600"
-                            title="Safe review - no comments posted"
+                            onClick={handleNewReviewClick}
+                            className="shadow-xl transition-all duration-300 hover:shadow-2xl hover:scale-105 bg-gradient-to-r from-blue-600 to-blue-700 hover:from-blue-500 hover:to-blue-600"
+                            title={isFreePlan ? "Upgrade your plan to create reviews" : "Safe review - no comments posted"}
                         >
                             New Review
                         </Button>
@@ -531,10 +543,10 @@ export const Dashboard: React.FC = () => {
                 <Button
                     variant="primary"
                     icon={<Icons.Add />}
-                    onClick={() => navigate('/reviews/new')}
-                    className="fixed bottom-6 right-6 sm:hidden z-40 rounded-full w-14 h-14 shadow-xl hover:shadow-2xl transition-all duration-300 hover:scale-110 bg-gradient-to-r from-blue-600 to-blue-700 hover:from-blue-500 hover:to-blue-600"
-                    aria-label="New Review (Safe - no comments posted)"
-                    title="Safe review - no comments posted"
+                    onClick={handleNewReviewClick}
+                    className="fixed bottom-6 right-6 sm:hidden z-40 rounded-full w-14 h-14 shadow-xl transition-all duration-300 hover:shadow-2xl hover:scale-110 bg-gradient-to-r from-blue-600 to-blue-700 hover:from-blue-500 hover:to-blue-600"
+                    aria-label={isFreePlan ? "Review creation locked" : "New Review (Safe - no comments posted)"}
+                    title={isFreePlan ? "Upgrade your plan to create reviews" : "Safe review - no comments posted"}
                 />
 
                 {/* Get Started stepper – stays visible until the user manually dismisses it */}
@@ -548,6 +560,8 @@ export const Dashboard: React.FC = () => {
                         onConfigureAI={() => navigate('/ai')}
                         onNewReview={() => navigate('/reviews/new')}
                         userId={user?.id}
+                        isFreePlan={isFreePlan}
+                        onUpgrade={() => setShowUpgradeDialog(true)}
                         onDismiss={() => {
                             setHideStepper(true);
                             try {
@@ -692,6 +706,15 @@ export const Dashboard: React.FC = () => {
                         )}
                     </div>
                 </div>
+
+                {/* Upgrade Modal */}
+                <LicenseUpgradeDialog
+                    open={showUpgradeDialog}
+                    onClose={() => setShowUpgradeDialog(false)}
+                    requiredTier="team"
+                    featureName="Review Creation From Dashboard"
+                    featureDescription="Unlock AI-powered code reviews by upgrading to a paid plan. Your current plan is read-only."
+                />
             </main>
         </div>
     );

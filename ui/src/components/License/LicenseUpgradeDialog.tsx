@@ -17,25 +17,41 @@ interface LicenseUpgradeDialogProps {
 
 interface FeatureRow {
   feature: string;
-  community: boolean;
-  team: boolean;
+  individual: boolean;
+  premium: boolean;
   enterprise: boolean;
 }
 
 const FEATURE_COMPARISON: FeatureRow[] = [
-  { feature: 'Basic Code Reviews', community: true, team: true, enterprise: true },
-  { feature: 'Git Provider Integration', community: true, team: true, enterprise: true },
-  { feature: 'AI Provider Configuration', community: true, team: true, enterprise: true },
-  { feature: 'Dashboard & Analytics', community: true, team: true, enterprise: true },
-  { feature: 'Prompt Customization', community: false, team: true, enterprise: true },
-  { feature: 'Learnings Management', community: false, team: true, enterprise: true },
-  { feature: 'Multiple API Keys', community: false, team: true, enterprise: true },
-  { feature: 'Team Management (>3 users)', community: false, team: true, enterprise: true },
-  { feature: 'Priority Support', community: false, team: true, enterprise: true },
-  { feature: 'SSO / SAML', community: false, team: false, enterprise: true },
-  { feature: 'Audit Logs', community: false, team: false, enterprise: true },
-  { feature: 'Compliance Reports', community: false, team: false, enterprise: true },
-  { feature: 'Custom Integrations', community: false, team: false, enterprise: true },
+  // Productivity
+  { feature: 'Unlimited reviews', individual: true, premium: true, enterprise: true },
+  { feature: 'Unlimited projects', individual: true, premium: true, enterprise: true },
+  { feature: 'Unlimited team members', individual: false, premium: true, enterprise: true },
+  { feature: 'Discuss/Debate with AI', individual: false, premium: true, enterprise: true },
+  { feature: 'Engineering Insights', individual: false, premium: true, enterprise: true },
+
+  // AI & Models
+  { feature: 'Bring your own AI Keys', individual: true, premium: true, enterprise: true },
+  { feature: 'Cloud AI Models', individual: false, premium: true, enterprise: true },
+  { feature: 'Local AI (Ollama)', individual: false, premium: false, enterprise: true },
+  { feature: 'Self-hosted AI', individual: false, premium: false, enterprise: true },
+
+  // Integrations
+  { feature: 'Participate in PR Threads', individual: false, premium: true, enterprise: true },
+  { feature: 'Full API Access', individual: false, premium: true, enterprise: true },
+  { feature: 'Git-Native CLI (git-lrc)', individual: true, premium: true, enterprise: true },
+  { feature: 'VS Code Extension', individual: true, premium: true, enterprise: true },
+
+  // Security & Ops
+  { feature: 'Support for multiple organizations', individual: false, premium: false, enterprise: true },
+  { feature: 'SSO & Directory Sync', individual: false, premium: false, enterprise: true },
+  { feature: 'Self-hosted Option', individual: false, premium: false, enterprise: true },
+  { feature: 'Custom Domain', individual: false, premium: false, enterprise: true },
+  { feature: 'Full Data Privacy', individual: false, premium: false, enterprise: true },
+
+  // Support
+  { feature: 'Priority Support', individual: false, premium: true, enterprise: true },
+  { feature: 'Dedicated SLA', individual: false, premium: false, enterprise: true },
 ];
 
 const CheckIcon: React.FC<{ className?: string }> = ({ className }) => (
@@ -86,7 +102,7 @@ const LicenseUpgradeDialog: React.FC<LicenseUpgradeDialogProps> = ({
     <div className={`fixed inset-0 z-50 flex items-center justify-center p-4 transition-opacity duration-200 ${mounted ? 'opacity-100' : 'opacity-0'}`}>
       {/* Backdrop */}
       <div className="absolute inset-0 bg-black/70 backdrop-blur-sm" onClick={onClose} />
-      
+
       {/* Dialog */}
       <div className={`relative w-full max-w-4xl bg-gradient-to-b from-slate-800 to-slate-900 rounded-2xl border border-slate-700 shadow-2xl overflow-hidden transform transition-all duration-200 ${mounted ? 'opacity-100 scale-100' : 'opacity-0 scale-95'}`}>
         {/* Header with gradient */}
@@ -100,7 +116,7 @@ const LicenseUpgradeDialog: React.FC<LicenseUpgradeDialogProps> = ({
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
             </svg>
           </button>
-          
+
           <div className="flex items-center gap-4">
             <div className="w-14 h-14 rounded-xl bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center shadow-lg">
               <svg className="w-7 h-7 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -111,14 +127,10 @@ const LicenseUpgradeDialog: React.FC<LicenseUpgradeDialogProps> = ({
               <h2 className="text-2xl font-bold text-white">Upgrade to Unlock</h2>
               <p className="text-slate-300 mt-1">
                 <span className="font-semibold text-blue-400">{featureName}</span> requires a{' '}
-                <span className="font-semibold text-purple-400">{TIER_DISPLAY_NAMES[requiredTier]}</span> license or above
+                <span className="font-semibold text-purple-400">{TIER_DISPLAY_NAMES[requiredTier]}</span> plan or above
               </p>
             </div>
           </div>
-          
-          {featureDescription && (
-            <p className="mt-4 text-slate-400 text-sm max-w-2xl">{featureDescription}</p>
-          )}
         </div>
 
         {/* Comparison Table */}
@@ -129,12 +141,12 @@ const LicenseUpgradeDialog: React.FC<LicenseUpgradeDialogProps> = ({
                 <tr className="border-b border-slate-700">
                   <th className="text-left py-4 px-4 text-slate-300 font-medium">Feature</th>
                   <th className="text-center py-4 px-4 min-w-[100px]">
-                    <div className="text-slate-300 font-medium">Community</div>
+                    <div className="text-slate-300 font-medium">Individual</div>
                     <div className="text-sm text-slate-500">Free</div>
                   </th>
                   <th className="text-center py-4 px-4 min-w-[100px]">
                     <div className="relative">
-                      <div className="text-blue-400 font-bold">Team</div>
+                      <div className="text-blue-400 font-bold">Premium</div>
                       <div className="text-sm text-blue-300/70">Recommended</div>
                       {requiredTier === 'team' && (
                         <div className="absolute -top-2 -right-2 w-4 h-4 bg-blue-500 rounded-full animate-pulse" />
@@ -149,11 +161,10 @@ const LicenseUpgradeDialog: React.FC<LicenseUpgradeDialogProps> = ({
               </thead>
               <tbody>
                 {FEATURE_COMPARISON.map((row) => (
-                  <tr 
-                    key={row.feature} 
-                    className={`border-b border-slate-800 transition-colors ${
-                      row.feature === featureName ? 'bg-blue-500/10' : 'hover:bg-slate-800/50'
-                    }`}
+                  <tr
+                    key={row.feature}
+                    className={`border-b border-slate-800 transition-colors ${row.feature === featureName ? 'bg-blue-500/10' : 'hover:bg-slate-800/50'
+                      }`}
                   >
                     <td className="py-3 px-4 text-slate-200 text-sm">
                       {row.feature}
@@ -164,10 +175,10 @@ const LicenseUpgradeDialog: React.FC<LicenseUpgradeDialogProps> = ({
                       )}
                     </td>
                     <td className="py-3 px-4 text-center">
-                      {row.community ? <CheckIcon /> : <XIcon />}
+                      {row.individual ? <CheckIcon /> : <XIcon />}
                     </td>
                     <td className="py-3 px-4 text-center">
-                      {row.team ? <CheckIcon className="w-5 h-5 text-blue-400" /> : <XIcon />}
+                      {row.premium ? <CheckIcon className="w-5 h-5 text-blue-400" /> : <XIcon />}
                     </td>
                     <td className="py-3 px-4 text-center">
                       {row.enterprise ? <CheckIcon className="w-5 h-5 text-purple-400" /> : <XIcon />}
@@ -183,7 +194,7 @@ const LicenseUpgradeDialog: React.FC<LicenseUpgradeDialogProps> = ({
         <div className="px-6 py-5 bg-slate-800/50 border-t border-slate-700">
           <div className="flex flex-col sm:flex-row items-center justify-between gap-4">
             <p className="text-slate-400 text-sm">
-              Unlock the full potential of LiveReview for your team
+              Unlock the full potential of LiveReview Premium
             </p>
             <div className="flex items-center gap-3">
               <button
@@ -193,15 +204,13 @@ const LicenseUpgradeDialog: React.FC<LicenseUpgradeDialogProps> = ({
                 Maybe Later
               </button>
               <a
-                href="https://hexmos.com/livereview/selfhosted-access/"
-                target="_blank"
-                rel="noopener noreferrer"
+                href="#/settings-subscriptions-overview"
                 className="px-5 py-2.5 text-sm font-medium rounded-lg bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-500 hover:to-purple-500 text-white transition-all shadow-lg hover:shadow-xl hover:shadow-purple-500/25 flex items-center gap-2"
               >
                 <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
                 </svg>
-                Get License
+                Upgrade Plan
               </a>
             </div>
           </div>

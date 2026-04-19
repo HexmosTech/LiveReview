@@ -262,7 +262,7 @@ const Settings = () => {
     const location = useLocation();
     const navigate = useNavigate();
     const { domain } = useAppSelector((state) => state.Settings);
-    const { isSuperAdmin, canManageCurrentOrg, currentOrg } = useOrgContext();
+    const { isSuperAdmin, canManageCurrentOrg, currentOrg, isFreePlan } = useOrgContext();
     const canAccessPrompts = isSuperAdmin || (currentOrg && ['owner', 'member'].includes(currentOrg.role));
     
     // Check if we're on a subscription sub-route
