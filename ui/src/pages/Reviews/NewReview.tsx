@@ -19,6 +19,7 @@ import apiClient from '../../api/apiClient';
 import { QuotaExhaustedBanner } from '../../components/Dashboard/QuotaExhaustedBanner';
 import { QuotaWarningBanner } from '../../components/Dashboard/QuotaWarningBanner';
 import { useOrgContext } from '../../hooks/useOrgContext';
+import LicenseUpgradeDialog from '../../components/License/LicenseUpgradeDialog';
 
 type QuotaStatusResponse = {
   can_trigger_reviews: boolean;
@@ -49,6 +50,7 @@ const NewReview: React.FC = () => {
   const [upgradeReason, setUpgradeReason] = useState<'DAILY_LIMIT' | 'NOT_ORG_CREATOR'>('DAILY_LIMIT');
   const [limitInfo, setLimitInfo] = useState<{ used: number; limit: number }>({ used: 3, limit: 3 });
   const [quotaStatus, setQuotaStatus] = useState<QuotaStatusResponse | null>(null);
+  const [showPlanUpgradeDialog, setShowPlanUpgradeDialog] = useState(false);
 
   // Load connectors when component mounts
   useEffect(() => {
@@ -99,6 +101,10 @@ const NewReview: React.FC = () => {
   // Handle form submission
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (isReadOnly) {
+      setShowPlanUpgradeDialog(true);
+      return;
+    }
     setError(null);
     setSuccess(null);
 
@@ -348,7 +354,6 @@ const NewReview: React.FC = () => {
                   disabled={
                     loading ||
                     !url.trim() ||
-                    isReadOnly ||
                     Boolean(quotaStatus?.envelope?.blocked) ||
                     Boolean(quotaStatus?.envelope?.trial_readonly) ||
                     (quotaStatus?.envelope?.usage_percent ?? 0) >= 100 ||
@@ -370,6 +375,15 @@ const NewReview: React.FC = () => {
           reason={upgradeReason}
           currentCount={limitInfo.used}
           limit={limitInfo.limit}
+        />
+        
+        {/* Plan Upgrade Dialog */}
+        <LicenseUpgradeDialog
+          open={showPlanUpgradeDialog}
+          onClose={() => setShowPlanUpgradeDialog(false)}
+          requiredTier="team"
+          featureName="Review Creation from Dashboard"
+          featureDescription="Upgrade to a paid plan to trigger new AI code reviews. Free plans are read-only."
         />
       </div>
     </ErrorBoundary>
