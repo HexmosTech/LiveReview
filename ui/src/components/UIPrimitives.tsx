@@ -1009,7 +1009,7 @@ export const Spinner: React.FC<SpinnerProps> = ({
 // ===== TOOLTIP COMPONENT =====
 interface TooltipProps {
   children: ReactNode;
-  content: string;
+  content: ReactNode;
   position?: 'top' | 'bottom' | 'left' | 'right' | 'top-left' | 'top-right' | 'bottom-left' | 'bottom-right' | 'auto';
   className?: string;
 }

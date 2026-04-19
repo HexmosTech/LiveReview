@@ -135,5 +135,6 @@ export const useOrgContext = () => {
         hasOrganizations: userOrganizations.length > 0,
         canCreateOrgs: isSuperAdmin,
                 canManageCurrentOrg: currentOrg?.role === 'owner' || isSuperAdmin,
+        isFreePlan: currentOrg?.plan_type === 'free_30k',
     };
 };
