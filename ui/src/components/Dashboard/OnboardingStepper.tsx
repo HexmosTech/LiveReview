@@ -15,6 +15,7 @@ interface OnboardingStepperProps {
   className?: string;
   userId?: number | string; // For scoping localStorage to user
   isFreePlan?: boolean;
+  onUpgrade?: () => void;
 }
 
 const Step: React.FC<{
@@ -83,6 +84,7 @@ export const OnboardingStepper: React.FC<OnboardingStepperProps> = ({
   className,
   userId,
   isFreePlan = false,
+  onUpgrade,
 }) => {
   const allSet = hasCLI && hasAIProvider;
   const [collapsed, setCollapsed] = useState<boolean>(() => {
@@ -120,11 +122,16 @@ export const OnboardingStepper: React.FC<OnboardingStepperProps> = ({
                 variant="primary" 
                 size="sm" 
                 icon={<Icons.Add />} 
-                onClick={onNewReview}
-                disabled={isFreePlan}
+                onClick={() => {
+                  if (isFreePlan && onUpgrade) {
+                    onUpgrade();
+                  } else {
+                    onNewReview();
+                  }
+                }}
                 title={isFreePlan ? "Upgrade your plan to create reviews" : undefined}
             >
-              {isFreePlan ? "Create Review (Locked)" : "New Review"}
+              New Review
             </Button>
           )}
           <Button
@@ -171,11 +178,16 @@ export const OnboardingStepper: React.FC<OnboardingStepperProps> = ({
                 size="sm" 
                 variant="outline" 
                 icon={<Icons.AI />} 
-                onClick={onConfigureAI}
-                disabled={isFreePlan}
+                onClick={() => {
+                  if (isFreePlan && onUpgrade) {
+                    onUpgrade();
+                  } else {
+                    onConfigureAI();
+                  }
+                }}
                 title={isFreePlan ? "Upgrade your plan to configure AI" : undefined}
               >
-                {isFreePlan ? "Configure (Locked)" : "Configure"}
+                Configure
               </Button>
             )
           }

@@ -18,6 +18,7 @@ import {
     Tooltip,
     Alert
 } from '../../components/UIPrimitives';
+import LicenseUpgradeDialog from '../../components/License/LicenseUpgradeDialog';
 import { getConnectors, ConnectorResponse, deleteConnector, WebhookStatusSummary } from '../../api/connectors';
 import { useOrgContext } from '../../hooks/useOrgContext';
 import ConnectorDetails from './ConnectorDetails';
@@ -72,6 +73,7 @@ const GitProvidersList: React.FC = () => {
     const storeConnectors = useAppSelector((state) => state.Connector.connectors);
     const { isFreePlan, isSuperAdmin } = useOrgContext();
     const isReadOnly = isFreePlan && !isSuperAdmin;
+    const [showUpgradeDialog, setShowUpgradeDialog] = useState(false);
     
     // Use redux state only for connectors
     const [isLoading, setIsLoading] = useState<boolean>(true);
@@ -236,13 +238,20 @@ const GitProvidersList: React.FC = () => {
             />
             
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-                <div className={classNames(isReadOnly && "opacity-60 pointer-events-none")}>
+                <div 
+                    className={classNames(isReadOnly && "cursor-pointer")}
+                    onClick={() => {
+                        if (isReadOnly) setShowUpgradeDialog(true);
+                    }}
+                >
                     {isReadOnly && (
                         <Alert variant="info" className="mb-4">
-                            Connectors are read-only on the Free plan. Upgrade to add or remove providers.
+                            Connectors are read-only on the Free plan. Click to see upgrade options.
                         </Alert>
                     )}
-                    <ProviderSelection />
+                    <div className={classNames(isReadOnly && "pointer-events-none")}>
+                        <ProviderSelection />
+                    </div>
                     
                     {/* Brand Showcase */}
                     <div className="mt-6 card-brand rounded-lg bg-slate-700 border border-slate-600 p-5 shadow-md">
@@ -343,10 +352,17 @@ const GitProvidersList: React.FC = () => {
                                                     <Button
                                                         variant="outline"
                                                         size="sm"
-                                                        onClick={() => handleDeleteConnector(connector.id, connector.name)}
-                                                        disabled={isLoading || isReadOnly}
+                                                        onClick={(e) => {
+                                                            e.stopPropagation();
+                                                            if (isReadOnly) {
+                                                                setShowUpgradeDialog(true);
+                                                            } else {
+                                                                handleDeleteConnector(connector.id, connector.name);
+                                                            }
+                                                        }}
+                                                        disabled={isLoading}
                                                         title={isReadOnly ? "Upgrade to delete connectors" : "Delete connector"}
-                                                        className="!px-2.5 !text-red-400 hover:!text-red-300 hover:!border-red-400 disabled:opacity-50"
+                                                        className="!px-2.5 !text-red-400 hover:!text-red-300 hover:!border-red-400"
                                                     >
                                                         <Icons.Delete />
                                                     </Button>
@@ -360,6 +376,15 @@ const GitProvidersList: React.FC = () => {
                     </Card>
                 </div>
             </div>
+            
+            {/* Upgrade Modal */}
+            <LicenseUpgradeDialog
+                open={showUpgradeDialog}
+                onClose={() => setShowUpgradeDialog(false)}
+                requiredTier="team"
+                featureName="Git Provider Management"
+                featureDescription="Upgrade to a paid plan to add, remove, and manage your Git provider configurations."
+            />
         </div>
     );
 };
