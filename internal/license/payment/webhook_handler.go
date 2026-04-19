@@ -1581,9 +1581,27 @@ func (h *RazorpayWebhookHandler) tryHandleUpgradeOrderPaymentFailure(payment *Ra
 		return false, fmt.Errorf("lookup upgrade request for failed webhook: %w", err)
 	}
 
+	if strings.EqualFold(request.CurrentStatus, storagepayment.UpgradeRequestStatusResolved) {
+		fmt.Printf("[PAYMENT.FAILED] ignoring failed payment for already resolved upgrade (org=%d, request=%s, order=%s)\n", request.OrgID, request.UpgradeRequestID, payment.OrderID)
+		return true, nil
+	}
+
 	orderID := strings.TrimSpace(payment.OrderID)
 	attemptStore := storagepayment.NewUpgradePaymentAttemptStore(h.db)
 	if orderID != "" {
+		attempt, attemptErr := attemptStore.GetAttemptByOrderID(context.Background(), orderID)
+		if attemptErr != nil {
+			if !errors.Is(attemptErr, storagepayment.ErrUpgradePaymentAttemptNotFound) {
+				return false, fmt.Errorf("load upgrade payment attempt before marking failed: %w", attemptErr)
+			}
+		} else {
+			attemptStatus := strings.ToLower(strings.TrimSpace(attempt.Status))
+			if attemptStatus == "payment_captured" || attemptStatus == "execute_applied" {
+				fmt.Printf("[PAYMENT.FAILED] ignoring stale failed payment event for already successful attempt (org=%d, request=%s, order=%s, status=%s)\n", request.OrgID, request.UpgradeRequestID, orderID, attemptStatus)
+				return true, nil
+			}
+		}
+
 		if err := attemptStore.MarkPaymentFailedByOrderID(context.Background(), storagepayment.MarkUpgradePaymentFailedInput{
 			RazorpayOrderID:   orderID,
 			RazorpayPaymentID: payment.ID,
@@ -1597,33 +1615,6 @@ func (h *RazorpayWebhookHandler) tryHandleUpgradeOrderPaymentFailure(payment *Ra
 				return false, fmt.Errorf("mark upgrade payment attempt failed from webhook: %w", err)
 			}
 		}
-	}
-
-	updatedRequest, reqErr := requestStore.MarkUpgradeRequestFailed(context.Background(), storagepayment.MarkUpgradeRequestFailedInput{
-		UpgradeRequestID: request.UpgradeRequestID,
-		FailureReason:    fmt.Sprintf("payment_failed:%s:%s", strings.TrimSpace(payment.ErrorCode), strings.TrimSpace(payment.ErrorDescription)),
-		Metadata: map[string]interface{}{
-			"source":            "webhook.payment.failed",
-			"payment_id":        payment.ID,
-			"order_id":          payment.OrderID,
-			"error_code":        payment.ErrorCode,
-			"error_reason":      payment.ErrorReason,
-			"error_description": payment.ErrorDescription,
-			"error_source":      payment.ErrorSource,
-			"error_step":        payment.ErrorStep,
-		},
-	})
-	if reqErr == nil {
-		h.enqueueUpgradeFailureNotifications(context.Background(), updatedRequest, map[string]interface{}{
-			"source":            "webhook.payment.failed",
-			"payment_id":        payment.ID,
-			"order_id":          payment.OrderID,
-			"error_code":        payment.ErrorCode,
-			"error_reason":      payment.ErrorReason,
-			"error_description": payment.ErrorDescription,
-			"error_source":      payment.ErrorSource,
-			"error_step":        payment.ErrorStep,
-		})
 	}
 
 	metadata := map[string]interface{}{
@@ -1646,12 +1637,12 @@ func (h *RazorpayWebhookHandler) tryHandleUpgradeOrderPaymentFailure(payment *Ra
 			user_id, org_id, event_type, description, metadata, created_at
 		) VALUES (NULL, $1, $2, $3, $4, NOW())`,
 		request.OrgID,
-		"upgrade_payment_failed",
-		fmt.Sprintf("Upgrade payment %s failed for request %s: %s", payment.ID, request.UpgradeRequestID, payment.ErrorDescription),
+		"upgrade_payment_attempt_failed",
+		fmt.Sprintf("Upgrade payment attempt %s failed for request %s: %s", payment.ID, request.UpgradeRequestID, payment.ErrorDescription),
 		metadataJSON,
 	)
 
-	fmt.Printf("[PAYMENT.FAILED] ✓ Upgrade payment failure recorded (org=%d, request=%s, order=%s)\n", request.OrgID, request.UpgradeRequestID, payment.OrderID)
+	fmt.Printf("[PAYMENT.FAILED] ✓ Upgrade payment attempt failure recorded (org=%d, request=%s, order=%s); request left non-terminal for retries/reconciliation\n", request.OrgID, request.UpgradeRequestID, payment.OrderID)
 	return true, nil
 }
 

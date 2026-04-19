@@ -24,7 +24,20 @@ import (
 const (
 	PricingProfileActual         = "actual"
 	PricingProfileLowPricingTest = "low_pricing_test"
+	CurrencyUSD                  = "USD"
+	CurrencyINR                  = "INR"
 )
+
+// NormalizeCurrency validates and returns a supported billing currency.
+func NormalizeCurrency(raw string) (string, error) {
+	currency := strings.ToUpper(strings.TrimSpace(raw))
+	switch currency {
+	case CurrencyUSD, CurrencyINR:
+		return currency, nil
+	default:
+		return "", fmt.Errorf("unsupported currency %q (allowed: %s, %s)", raw, CurrencyUSD, CurrencyINR)
+	}
+}
 
 // ResolvePricingProfile validates the active pricing profile for live mode.
 func ResolvePricingProfile() (string, error) {
@@ -37,20 +50,35 @@ func ResolvePricingProfile() (string, error) {
 	}
 }
 
-// GetPlanID returns the appropriate Razorpay plan ID based on mode and pricing profile.
-func GetPlanID(mode, planType string) (string, error) {
+// GetPlanID returns the appropriate Razorpay plan ID based on mode, pricing profile, and currency.
+func GetPlanID(mode, planType, currency string) (string, error) {
 	planType = strings.ToLower(strings.TrimSpace(planType))
 	if planType != "monthly" && planType != "yearly" {
 		return "", fmt.Errorf("invalid plan type: %s", planType)
 	}
 
+	normalizedCurrency, err := NormalizeCurrency(currency)
+	if err != nil {
+		return "", err
+	}
+
 	mode = strings.ToLower(strings.TrimSpace(mode))
 	switch mode {
 	case "test":
-		if planType == "monthly" {
-			return strings.TrimSpace(os.Getenv("RAZORPAY_TEST_MONTHLY_PLAN_ID")), nil
+		switch normalizedCurrency {
+		case CurrencyUSD:
+			if planType == "monthly" {
+				return strings.TrimSpace(os.Getenv("RAZORPAY_TEST_MONTHLY_PLAN_ID_USD")), nil
+			}
+			return strings.TrimSpace(os.Getenv("RAZORPAY_TEST_YEARLY_PLAN_ID_USD")), nil
+		case CurrencyINR:
+			if planType == "monthly" {
+				return strings.TrimSpace(os.Getenv("RAZORPAY_TEST_MONTHLY_PLAN_ID_INR")), nil
+			}
+			return strings.TrimSpace(os.Getenv("RAZORPAY_TEST_YEARLY_PLAN_ID_INR")), nil
+		default:
+			return "", fmt.Errorf("unsupported test currency: %s", normalizedCurrency)
 		}
-		return strings.TrimSpace(os.Getenv("RAZORPAY_TEST_YEARLY_PLAN_ID")), nil
 	case "live":
 		profile, err := ResolvePricingProfile()
 		if err != nil {
@@ -59,15 +87,35 @@ func GetPlanID(mode, planType string) (string, error) {
 
 		switch profile {
 		case PricingProfileActual:
-			if planType == "monthly" {
-				return strings.TrimSpace(os.Getenv("RAZORPAY_LIVE_ACTUAL_MONTHLY_PLAN_ID")), nil
+			switch normalizedCurrency {
+			case CurrencyUSD:
+				if planType == "monthly" {
+					return strings.TrimSpace(os.Getenv("RAZORPAY_LIVE_ACTUAL_MONTHLY_PLAN_ID_USD")), nil
+				}
+				return strings.TrimSpace(os.Getenv("RAZORPAY_LIVE_ACTUAL_YEARLY_PLAN_ID_USD")), nil
+			case CurrencyINR:
+				if planType == "monthly" {
+					return strings.TrimSpace(os.Getenv("RAZORPAY_LIVE_ACTUAL_MONTHLY_PLAN_ID_INR")), nil
+				}
+				return strings.TrimSpace(os.Getenv("RAZORPAY_LIVE_ACTUAL_YEARLY_PLAN_ID_INR")), nil
+			default:
+				return "", fmt.Errorf("unsupported live currency: %s", normalizedCurrency)
 			}
-			return strings.TrimSpace(os.Getenv("RAZORPAY_LIVE_ACTUAL_YEARLY_PLAN_ID")), nil
 		case PricingProfileLowPricingTest:
-			if planType == "monthly" {
-				return strings.TrimSpace(os.Getenv("RAZORPAY_LIVE_LOW_PRICING_MONTHLY_PLAN_ID")), nil
+			switch normalizedCurrency {
+			case CurrencyUSD:
+				if planType == "monthly" {
+					return strings.TrimSpace(os.Getenv("RAZORPAY_LIVE_LOW_PRICING_MONTHLY_PLAN_ID_USD")), nil
+				}
+				return strings.TrimSpace(os.Getenv("RAZORPAY_LIVE_LOW_PRICING_YEARLY_PLAN_ID_USD")), nil
+			case CurrencyINR:
+				if planType == "monthly" {
+					return strings.TrimSpace(os.Getenv("RAZORPAY_LIVE_LOW_PRICING_MONTHLY_PLAN_ID_INR")), nil
+				}
+				return strings.TrimSpace(os.Getenv("RAZORPAY_LIVE_LOW_PRICING_YEARLY_PLAN_ID_INR")), nil
+			default:
+				return "", fmt.Errorf("unsupported live currency: %s", normalizedCurrency)
 			}
-			return strings.TrimSpace(os.Getenv("RAZORPAY_LIVE_LOW_PRICING_YEARLY_PLAN_ID")), nil
 		default:
 			return "", fmt.Errorf("unsupported pricing profile: %s", profile)
 		}
@@ -130,7 +178,7 @@ func normalizePersistedPlanCode(raw string) license.PlanType {
 }
 
 // CreateTeamSubscription creates a new monthly LOC slab subscription via Razorpay and persists to DB.
-func (s *SubscriptionService) CreateTeamSubscription(ownerUserID, orgID int, planCode string, mode string) (*RazorpaySubscription, error) {
+func (s *SubscriptionService) CreateTeamSubscription(ownerUserID, orgID int, planCode string, mode, currency string) (*RazorpaySubscription, error) {
 	persistedPlanCode := license.PlanType(strings.TrimSpace(planCode))
 	if !persistedPlanCode.IsValid() {
 		return nil, fmt.Errorf("invalid plan_code: %s", planCode)
@@ -139,13 +187,18 @@ func (s *SubscriptionService) CreateTeamSubscription(ownerUserID, orgID int, pla
 		return nil, fmt.Errorf("plan_code must be a paid LOC slab: %s", planCode)
 	}
 
+	resolvedCurrency, err := NormalizeCurrency(currency)
+	if err != nil {
+		return nil, err
+	}
+
 	quantity, err := planCodeToMonthlyQuantity(persistedPlanCode)
 	if err != nil {
 		return nil, err
 	}
 
 	// All LOC slab checkout in this migration is monthly-only.
-	razorpayPlanID, err := GetPlanID(mode, "monthly")
+	razorpayPlanID, err := GetPlanID(mode, "monthly", resolvedCurrency)
 	if err != nil {
 		return nil, err
 	}
@@ -159,6 +212,7 @@ func (s *SubscriptionService) CreateTeamSubscription(ownerUserID, orgID int, pla
 		"owner_user_id": fmt.Sprintf("%d", ownerUserID),
 		"org_id":        fmt.Sprintf("%d", orgID),
 		"plan_type":     persistedPlanCode.String(),
+		"currency":      resolvedCurrency,
 	}
 
 	// Create subscription in Razorpay
@@ -958,7 +1012,7 @@ func (s *SubscriptionService) getOrCreateShadowUser(email string) (int64, error)
 // CreateSelfHostedPurchase creates a self-hosted purchase without requiring full user/org setup
 func (s *SubscriptionService) CreateSelfHostedPurchase(email string, quantity int, mode string) (*SelfHostedPurchaseResponse, error) {
 	// Use the annual plan for self-hosted, get the correct one based on mode
-	razorpayPlanID, err := GetPlanID(mode, "yearly")
+	razorpayPlanID, err := GetPlanID(mode, "yearly", CurrencyUSD)
 	if err != nil {
 		return nil, err
 	}
