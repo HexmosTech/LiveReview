@@ -336,6 +336,14 @@ export const Dashboard: React.FC = () => {
         }
     };
 
+    const handleNewReviewClick = () => {
+        if (isFreePlan) {
+            setShowUpgradeDialog(true);
+        } else {
+            navigate('/reviews/new');
+        }
+    };
+
     return (
         <div className="min-h-screen">
             <main className="container mx-auto px-4 py-6">
@@ -452,13 +460,7 @@ export const Dashboard: React.FC = () => {
                         <Button
                             variant="primary"
                             icon={<Icons.Add />}
-                            onClick={() => {
-                                if (isFreePlan) {
-                                    setShowUpgradeDialog(true);
-                                } else {
-                                    navigate('/reviews/new');
-                                }
-                            }}
+                            onClick={handleNewReviewClick}
                             className="shadow-xl transition-all duration-300 hover:shadow-2xl hover:scale-105 bg-gradient-to-r from-blue-600 to-blue-700 hover:from-blue-500 hover:to-blue-600"
                             title={isFreePlan ? "Upgrade your plan to create reviews" : "Safe review - no comments posted"}
                         >
@@ -541,13 +543,7 @@ export const Dashboard: React.FC = () => {
                 <Button
                     variant="primary"
                     icon={<Icons.Add />}
-                    onClick={() => {
-                        if (isFreePlan) {
-                            setShowUpgradeDialog(true);
-                        } else {
-                            navigate('/reviews/new');
-                        }
-                    }}
+                    onClick={handleNewReviewClick}
                     className="fixed bottom-6 right-6 sm:hidden z-40 rounded-full w-14 h-14 shadow-xl transition-all duration-300 hover:shadow-2xl hover:scale-110 bg-gradient-to-r from-blue-600 to-blue-700 hover:from-blue-500 hover:to-blue-600"
                     aria-label={isFreePlan ? "Review creation locked" : "New Review (Safe - no comments posted)"}
                     title={isFreePlan ? "Upgrade your plan to create reviews" : "Safe review - no comments posted"}
