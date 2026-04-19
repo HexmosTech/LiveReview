@@ -7,6 +7,35 @@ import BillingPortfolio from '../Admin/BillingPortfolio';
 import { CancelSubscriptionModal } from '../../components/Subscriptions';
 import apiClient from '../../api/apiClient';
 
+type PurchaseCurrency = 'USD' | 'INR';
+
+const SUPPORTED_PURCHASE_CURRENCIES: PurchaseCurrency[] = ['USD', 'INR'];
+
+const normalizePurchaseCurrency = (raw?: string | null): PurchaseCurrency | null => {
+  const normalized = String(raw || '').trim().toUpperCase();
+  if (normalized === 'USD' || normalized === 'INR') {
+    return normalized;
+  }
+  return null;
+};
+
+const fallbackPurchaseCurrencyFromLocale = (): PurchaseCurrency => {
+  const locale = String((typeof navigator !== 'undefined' ? navigator.language : '') || '').trim().toUpperCase().replace('_', '-');
+  if (locale.includes('-IN')) {
+    return 'INR';
+  }
+  return 'USD';
+};
+
+const formatMinorAmount = (amountMinor: number, currency: PurchaseCurrency): string => (
+  new Intl.NumberFormat(undefined, {
+    style: 'currency',
+    currency,
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  }).format(amountMinor / 100)
+);
+
 declare global {
   interface Window {
     Razorpay: any;
@@ -62,6 +91,8 @@ type BillingPlan = {
 type BillingStatusResponse = {
   billing: {
     current_plan_code: string;
+    default_purchase_currency?: string;
+    supported_purchase_currencies?: string[];
     billing_period_start: string;
     billing_period_end: string;
     loc_used_month: number;
@@ -322,7 +353,7 @@ const buildUpgradeCheckoutFailureMessage = (response: any, prepared: PrepareUpgr
   return `${description} (${details.join(', ')}). ${testHint}`;
 };
 
-const buildCheckoutPathWithPlan = (checkoutPath: string | undefined, planCode: string): string => {
+const buildCheckoutPathWithPlan = (checkoutPath: string | undefined, planCode: string, currency?: PurchaseCurrency): string => {
   const basePath = String(checkoutPath || '/checkout/team?period=monthly').trim();
   const [pathOnly, query = ''] = basePath.split('?');
   const params = new URLSearchParams(query);
@@ -331,6 +362,10 @@ const buildCheckoutPathWithPlan = (checkoutPath: string | undefined, planCode: s
   }
   if (!params.get('plan')) {
     params.set('plan', planCode);
+  }
+  const normalizedCurrency = normalizePurchaseCurrency(currency || '');
+  if (normalizedCurrency) {
+    params.set('currency', normalizedCurrency);
   }
   return `${pathOnly}?${params.toString()}`;
 };
@@ -460,6 +495,8 @@ const OverviewTab: React.FC<{ navigate: any; mode?: 'full' | 'breakdown' | 'cont
   const [actionProgressMessage, setActionProgressMessage] = useState<string | null>(null);
   const [selectedUpgradePlan, setSelectedUpgradePlan] = useState('');
   const [selectedDowngradePlan, setSelectedDowngradePlan] = useState('');
+  const [purchaseCurrency, setPurchaseCurrency] = useState<PurchaseCurrency>(fallbackPurchaseCurrencyFromLocale());
+  const [purchaseCurrencyInitialized, setPurchaseCurrencyInitialized] = useState(false);
   const [usageSummary, setUsageSummary] = useState<BillingUsageSummaryResponse | null>(null);
   const [usageOps, setUsageOps] = useState<BillingUsageOperationsResponse['operations']>([]);
   const [myUsage, setMyUsage] = useState<BillingUsageMemberSummary | null>(null);
@@ -636,6 +673,20 @@ const OverviewTab: React.FC<{ navigate: any; mode?: 'full' | 'breakdown' | 'cont
     }
   }, [billingStatus, selectedUpgradePlan, selectedDowngradePlan]);
 
+  useEffect(() => {
+    setPurchaseCurrency(fallbackPurchaseCurrencyFromLocale());
+    setPurchaseCurrencyInitialized(false);
+  }, [currentOrg?.id]);
+
+  useEffect(() => {
+    if (purchaseCurrencyInitialized || !billingStatus?.billing) return;
+    const backendDefault = normalizePurchaseCurrency(billingStatus.billing.default_purchase_currency);
+    if (backendDefault) {
+      setPurchaseCurrency(backendDefault);
+    }
+    setPurchaseCurrencyInitialized(true);
+  }, [billingStatus?.billing, purchaseCurrencyInitialized]);
+
   const handleCancelSuccess = () => {
     // Reload the page to reflect updated subscription status
     window.location.reload();
@@ -782,22 +833,17 @@ const OverviewTab: React.FC<{ navigate: any; mode?: 'full' | 'breakdown' | 'cont
       return { proceed: true, routeToBuyNew: false };
     }
 
-    if (!effectiveSubscriptionId) {
-      if (action === 'upgrade') {
-        setActionProgressMessage('No active paid subscription was found. Starting a new purchase flow.');
-        return { proceed: false, routeToBuyNew: true };
-      }
+    if (action === 'upgrade') {
+      return { proceed: true, routeToBuyNew: false };
+    }
 
+    if (!effectiveSubscriptionId) {
       setActionProgressMessage(null);
       setBillingError('No active subscription found for downgrade scheduling.');
       return { proceed: false, routeToBuyNew: false };
     }
 
-    setActionProgressMessage(
-      action === 'upgrade'
-        ? 'Reactivating current plan before upgrade...'
-        : 'Reactivating current plan before downgrade...'
-    );
+    setActionProgressMessage('Reactivating current plan before downgrade...');
 
     const keepPlanResult = await performKeepPlanAction({ suppressSuccessMessage: true });
     if (keepPlanResult.ok) {
@@ -806,11 +852,7 @@ const OverviewTab: React.FC<{ navigate: any; mode?: 'full' | 'breakdown' | 'cont
     }
 
     if (keepPlanResult.statusCode === 409) {
-      setActionProgressMessage(
-        action === 'upgrade'
-          ? 'Keep-plan confirmation is still propagating. Continuing with upgrade flow.'
-          : 'Keep-plan confirmation is still propagating. Continuing with downgrade flow.'
-      );
+      setActionProgressMessage('Keep-plan confirmation is still propagating. Continuing with downgrade flow.');
       return { proceed: true, routeToBuyNew: false };
     }
 
@@ -858,9 +900,10 @@ const OverviewTab: React.FC<{ navigate: any; mode?: 'full' | 'breakdown' | 'cont
     }
   };
 
-  const openUpgradePreview = async (targetPlanCode?: string) => {
+  const openUpgradePreview = async (targetPlanCode?: string, currencyOverride?: PurchaseCurrency) => {
     const effectivePlanCode = String(targetPlanCode || selectedUpgradePlan || '').trim();
     if (!effectivePlanCode) return;
+    const effectiveCurrency = currencyOverride || purchaseCurrency;
 
     setSelectedUpgradePlan(effectivePlanCode);
 
@@ -891,12 +934,13 @@ const OverviewTab: React.FC<{ navigate: any; mode?: 'full' | 'breakdown' | 'cont
         '/billing/upgrade/preview',
         {
           target_plan_code: effectivePlanCode,
+          currency: effectiveCurrency,
         },
         orgScopedRequestOptions
       );
 
       if (preview?.checkout_required) {
-        navigate(buildCheckoutPathWithPlan(preview.checkout_path, effectivePlanCode));
+        navigate(buildCheckoutPathWithPlan(preview.checkout_path, effectivePlanCode, effectiveCurrency));
         return;
       }
 
@@ -908,7 +952,7 @@ const OverviewTab: React.FC<{ navigate: any; mode?: 'full' | 'breakdown' | 'cont
       setShowUpgradeModal(Boolean(preview?.preview_token));
     } catch (err: any) {
       if (err?.status === 409 && err?.data?.checkout_required) {
-        navigate(buildCheckoutPathWithPlan(err?.data?.checkout_path, effectivePlanCode));
+        navigate(buildCheckoutPathWithPlan(err?.data?.checkout_path, effectivePlanCode, effectiveCurrency));
         return;
       }
       if (err?.status === 404) {
@@ -941,7 +985,7 @@ const OverviewTab: React.FC<{ navigate: any; mode?: 'full' | 'breakdown' | 'cont
 
       const created = await apiClient.post<CreateSubscriptionCheckoutResponse>(
         '/subscriptions',
-        { plan_code: effectivePlanCode },
+        { plan_code: effectivePlanCode, currency: purchaseCurrency },
         orgScopedRequestOptions
       );
 
@@ -1006,7 +1050,7 @@ const OverviewTab: React.FC<{ navigate: any; mode?: 'full' | 'breakdown' | 'cont
             payment_required: true,
             razorpay_key_id: created.razorpay_key_id,
             preview_token: '',
-            currency: 'USD',
+            currency: purchaseCurrency,
           })
         );
         setUpgradeCheckoutLoading(false);
@@ -1173,6 +1217,24 @@ const OverviewTab: React.FC<{ navigate: any; mode?: 'full' | 'breakdown' | 'cont
   const selectedFreeCheckoutPlan = billingStatus?.available_plans?.find((p) => p.plan_code === selectedUpgradePlan) || null;
   const selectedFreeCheckoutPriceUSD = selectedFreeCheckoutPlan?.monthly_price_usd || 0;
   const selectedFreeCheckoutLoc = selectedFreeCheckoutPlan?.monthly_loc_limit || 0;
+  const availablePurchaseCurrencies = useMemo(() => {
+    const backendCurrencies = (billingStatus?.billing?.supported_purchase_currencies || [])
+      .map((raw) => normalizePurchaseCurrency(raw))
+      .filter((value): value is PurchaseCurrency => value !== null);
+    if (backendCurrencies.length === 0) {
+      return SUPPORTED_PURCHASE_CURRENCIES;
+    }
+    return Array.from(new Set(backendCurrencies));
+  }, [billingStatus?.billing?.supported_purchase_currencies]);
+
+  useEffect(() => {
+    if (availablePurchaseCurrencies.length === 0) {
+      return;
+    }
+    if (!availablePurchaseCurrencies.includes(purchaseCurrency)) {
+      setPurchaseCurrency(availablePurchaseCurrencies[0]);
+    }
+  }, [availablePurchaseCurrencies, purchaseCurrency]);
 
   const dailyLimit = isFree
     ? 'Quota-based (30,000 LOC/month)'
@@ -1187,19 +1249,21 @@ const OverviewTab: React.FC<{ navigate: any; mode?: 'full' | 'breakdown' | 'cont
   const upgradeHierarchyPlans = currentPlanIndex >= 0 ? sortedPlansByLoc.slice(currentPlanIndex) : [];
   const upgradeOptions = upgradeHierarchyPlans.filter((plan) => plan.plan_code !== currentPlanCode);
   const downgradeOptions = currentPlanIndex > 0 ? sortedPlansByLoc.slice(0, currentPlanIndex).reverse() : [];
-  const effectiveSubscriptionId = subscriptionId || managedSubscription?.razorpay_subscription_id || null;
-  const effectivePendingCancel = pendingCancel || Boolean(managedSubscription?.cancel_at_period_end);
-  const effectiveSubscriptionManageURL = subscriptionManageURL || String(managedSubscription?.short_url || '');
+  const useManagedFallback = isControlsMode;
+  const effectiveSubscriptionId = subscriptionId || (useManagedFallback ? managedSubscription?.razorpay_subscription_id || null : null);
+  const effectivePendingCancel = pendingCancel || (useManagedFallback && Boolean(managedSubscription?.cancel_at_period_end));
+  const effectiveSubscriptionManageURL = subscriptionManageURL || (useManagedFallback ? String(managedSubscription?.short_url || '') : '');
   const normalizedCurrentStatus = String(status || '').trim().toLowerCase();
-  const normalizedManagedStatus = String(managedSubscription?.status || '').trim().toLowerCase();
+  const normalizedManagedStatus = useManagedFallback ? String(managedSubscription?.status || '').trim().toLowerCase() : '';
   const effectiveTerminalCancellation =
     isTerminalCancellationStatus(normalizedCurrentStatus) ||
-    isTerminalCancellationStatus(normalizedManagedStatus);
+    (useManagedFallback && isTerminalCancellationStatus(normalizedManagedStatus));
   const currentCanCancel =
     Boolean(subscriptionId) &&
     !pendingCancel &&
     (!normalizedCurrentStatus || normalizedCurrentStatus === 'active' || normalizedCurrentStatus === 'authenticated');
   const managedCanCancel =
+    useManagedFallback &&
     Boolean(managedSubscription?.razorpay_subscription_id) &&
     !Boolean(managedSubscription?.cancel_at_period_end) &&
     (!normalizedManagedStatus || normalizedManagedStatus === 'active' || normalizedManagedStatus === 'authenticated');
@@ -1209,7 +1273,7 @@ const OverviewTab: React.FC<{ navigate: any; mode?: 'full' | 'breakdown' | 'cont
       ? managedSubscription?.razorpay_subscription_id || null
       : null;
   const canCancelEffectiveSubscription = Boolean(cancelTargetSubscriptionId);
-  const canKeepEffectivePlan = Boolean(effectivePendingCancel && effectiveSubscriptionId);
+  const canKeepEffectivePlan = Boolean(isControlsMode && effectivePendingCancel && effectiveSubscriptionId);
 
   const scheduledPlanCode = billingStatus?.billing?.scheduled_plan_code || '';
   const scheduledPlan = billingStatus?.available_plans?.find((p) => p.plan_code === scheduledPlanCode);
@@ -1221,7 +1285,7 @@ const OverviewTab: React.FC<{ navigate: any; mode?: 'full' | 'breakdown' | 'cont
   const scheduledChangeLabel = isScheduledUpgrade ? 'Scheduled upgrade' : 'Scheduled downgrade';
   const hasScheduledPlanChange = Boolean(scheduledPlanCode && scheduledPlanCode !== currentPlanCode && scheduledPlan);
   const scheduledChangeTargetLabel = hasScheduledPlanChange ? getPlanDisplayName(scheduledPlanCode) : '';
-  const effectivePendingExpiry = displayExpiry || managedSubscription?.current_period_end || licenseExpiresAt || null;
+  const effectivePendingExpiry = displayExpiry || (useManagedFallback ? managedSubscription?.current_period_end : null) || licenseExpiresAt || null;
   const pendingExpiryElapsed = Boolean(
     effectivePendingExpiry && moment(effectivePendingExpiry).isValid() && moment(effectivePendingExpiry).isBefore(moment())
   );
@@ -1230,7 +1294,7 @@ const OverviewTab: React.FC<{ navigate: any; mode?: 'full' | 'breakdown' | 'cont
   const statusIsTerminal = ['cancelled', 'expired', 'halted', 'past_due', 'incomplete'].indexOf(normalizedStatus) >= 0;
   const autoDowngradedToFree = !isTeamPlan && !effectivePendingCancel && (
     normalizedStatus === 'expired' ||
-    normalizedManagedStatus === 'expired' ||
+    (useManagedFallback && normalizedManagedStatus === 'expired') ||
     pendingExpiryElapsed
   );
   const statusBadgeLabel = statusLoading
@@ -1245,9 +1309,10 @@ const OverviewTab: React.FC<{ navigate: any; mode?: 'full' | 'breakdown' | 'cont
             ? 'TEAM ACTIVE'
             : 'FREE PLAN';
 
-  const formatChargeUSD = (cents?: number) => {
-    if (typeof cents !== 'number') return null;
-    return `$${(cents / 100).toFixed(2)}`;
+  const formatChargeAmount = (amountMinor?: number, rawCurrency?: string | null) => {
+    if (typeof amountMinor !== 'number') return null;
+    const normalizedCurrency = normalizePurchaseCurrency(rawCurrency) || purchaseCurrency;
+    return formatMinorAmount(amountMinor, normalizedCurrency);
   };
 
   const requestStatus = upgradeRequestStatus?.request || null;
@@ -1793,7 +1858,7 @@ const OverviewTab: React.FC<{ navigate: any; mode?: 'full' | 'breakdown' | 'cont
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-2 text-xs text-slate-200">
                     <p>From: <span className="text-white">{lastUpgradeResult.proration.from_plan_code || 'n/a'}</span></p>
                     <p>To: <span className="text-white">{lastUpgradeResult.proration.to_plan_code || lastUpgradeResult.plan_code || 'n/a'}</span></p>
-                    <p>Charged now: <span className="text-white">{formatChargeUSD(lastUpgradeResult.proration.charge_amount_cents) || '$0.00'}</span></p>
+                    <p>Charged now: <span className="text-white">{formatChargeAmount(lastUpgradeResult.proration.charge_amount_cents, lastUpgradeResult.proration.charge_currency) || formatMinorAmount(0, purchaseCurrency)}</span></p>
                     <p>Status: <span className="text-white">{chargeStatusLabel}</span></p>
                     {typeof lastUpgradeResult.proration.remaining_cycle_fraction === 'number' && (
                       <p>Remaining cycle fraction: <span className="text-white">{(lastUpgradeResult.proration.remaining_cycle_fraction * 100).toFixed(2)}%</span></p>
@@ -1860,18 +1925,6 @@ const OverviewTab: React.FC<{ navigate: any; mode?: 'full' | 'breakdown' | 'cont
                           </div>
                           <p className="mt-2 text-sm text-slate-300">{plan.monthly_loc_limit.toLocaleString()} LOC / month</p>
                           <p className="text-sm text-slate-300">${plan.monthly_price_usd}/month</p>
-                          {isCurrentCard && canKeepEffectivePlan && (
-                            <button
-                              type="button"
-                              disabled={keepPlanLoading || actionLoading || statusLoading || subscriptionLoading}
-                              onClick={() => {
-                                void handleKeepPlan();
-                              }}
-                              className="mt-3 inline-flex px-3 py-1.5 rounded bg-emerald-600 text-white text-xs font-medium transition-colors hover:bg-emerald-500 disabled:opacity-60 disabled:cursor-not-allowed"
-                            >
-                              {keepPlanLoading ? 'Keeping Plan...' : 'Keep Plan'}
-                            </button>
-                          )}
                         </div>
                       );
                     }
@@ -2091,10 +2144,35 @@ const OverviewTab: React.FC<{ navigate: any; mode?: 'full' | 'breakdown' | 'cont
                 <p>Target plan: <span className="text-white">{getPlanDisplayName(selectedUpgradePlan)}</span></p>
               </div>
 
+              <div className="rounded-lg border border-slate-700 bg-slate-800/70 p-4 space-y-2 text-slate-200">
+                <label htmlFor="new-plan-currency" className="text-xs uppercase tracking-wide text-slate-300">Billing currency</label>
+                <select
+                  id="new-plan-currency"
+                  value={purchaseCurrency}
+                  disabled={upgradeCheckoutLoading}
+                  onChange={(event) => {
+                    const nextCurrency = normalizePurchaseCurrency(event.target.value);
+                    if (!nextCurrency || nextCurrency === purchaseCurrency) {
+                      return;
+                    }
+                    setPurchaseCurrency(nextCurrency);
+                  }}
+                  className="w-full rounded border border-slate-600 bg-slate-900 px-3 py-2 text-sm text-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                >
+                  {availablePurchaseCurrencies.map((currency) => (
+                    <option key={currency} value={currency}>{currency}</option>
+                  ))}
+                </select>
+                <p className="text-xs text-slate-400">Default currency is selected from your region (IN defaults to INR, others default to USD).</p>
+              </div>
+
               <div className="rounded-lg border border-blue-500/40 bg-blue-900/20 p-4 space-y-2 text-slate-100">
                 <p className="font-medium text-blue-200">Checkout summary</p>
                 <p>
-                  Recurring amount: <span className="text-white font-semibold">${selectedFreeCheckoutPriceUSD}/month</span>
+                  Recurring amount (USD reference): <span className="text-white font-semibold">${selectedFreeCheckoutPriceUSD}/month</span>
+                </p>
+                <p>
+                  Checkout currency: <span className="text-white font-semibold">{purchaseCurrency}</span>
                 </p>
                 <p>
                   Included LOC: <span className="text-white font-semibold">{selectedFreeCheckoutLoc.toLocaleString()} LOC/month</span>
@@ -2145,14 +2223,37 @@ const OverviewTab: React.FC<{ navigate: any; mode?: 'full' | 'breakdown' | 'cont
                 <p>Current cycle ends: <span className="text-white">{formatDate(upgradePreview.preview.cycle_end)}</span></p>
               </div>
 
+              <div className="rounded-lg border border-slate-700 bg-slate-800/70 p-4 space-y-2 text-slate-200">
+                <label htmlFor="upgrade-currency" className="text-xs uppercase tracking-wide text-slate-300">Billing currency</label>
+                <select
+                  id="upgrade-currency"
+                  value={purchaseCurrency}
+                  disabled={upgradeCheckoutLoading || actionLoading}
+                  onChange={(event) => {
+                    const nextCurrency = normalizePurchaseCurrency(event.target.value);
+                    if (!nextCurrency || nextCurrency === purchaseCurrency) {
+                      return;
+                    }
+                    setPurchaseCurrency(nextCurrency);
+                    void openUpgradePreview(selectedUpgradePlan || upgradePreview.preview.to_plan_code, nextCurrency);
+                  }}
+                  className="w-full rounded border border-slate-600 bg-slate-900 px-3 py-2 text-sm text-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                >
+                  {availablePurchaseCurrencies.map((currency) => (
+                    <option key={currency} value={currency}>{currency}</option>
+                  ))}
+                </select>
+                <p className="text-xs text-slate-400">Default currency is selected from your region (IN defaults to INR, others default to USD).</p>
+              </div>
+
               <div className="rounded-lg border border-blue-500/40 bg-blue-900/20 p-4 space-y-2 text-slate-100">
                 <p className="font-medium text-blue-200">Immediate one-time payment</p>
                 <p>
-                  Charge now: <span className="text-white font-semibold">{formatChargeUSD(upgradePreview.preview.immediate_charge_cents) || '$0.00'}</span>
+                  Charge now: <span className="text-white font-semibold">{formatChargeAmount(upgradePreview.preview.immediate_charge_cents, upgradePreview.preview.immediate_charge_currency) || formatMinorAmount(0, purchaseCurrency)}</span>
                   {' '}(remaining cycle {(upgradePreview.preview.remaining_cycle_fraction * 100).toFixed(2)}%)
                 </p>
                 <p>
-                  Formula: <span className="text-white">{formatChargeUSD(upgradePreview.preview.next_cycle_price_cents) || '$0.00'} × {(upgradePreview.preview.remaining_cycle_fraction * 100).toFixed(2)}%</span>
+                  Formula: <span className="text-white">{formatChargeAmount(upgradePreview.preview.next_cycle_price_cents, upgradePreview.preview.immediate_charge_currency) || formatMinorAmount(0, purchaseCurrency)} × {(upgradePreview.preview.remaining_cycle_fraction * 100).toFixed(2)}%</span>
                 </p>
                 <p>
                   Immediate LOC grant: <span className="text-white font-semibold">{upgradePreview.preview.immediate_loc_grant.toLocaleString()} LOC</span>
@@ -2162,7 +2263,7 @@ const OverviewTab: React.FC<{ navigate: any; mode?: 'full' | 'breakdown' | 'cont
               <div className="rounded-lg border border-emerald-500/40 bg-emerald-900/20 p-4 space-y-2 text-slate-100">
                 <p className="font-medium text-emerald-200">Next billing cycle</p>
                 <p>
-                  Recurring amount: <span className="text-white font-semibold">{formatChargeUSD(upgradePreview.preview.next_cycle_price_cents) || '$0.00'}/month</span>
+                  Recurring amount: <span className="text-white font-semibold">{formatChargeAmount(upgradePreview.preview.next_cycle_price_cents, upgradePreview.preview.immediate_charge_currency) || formatMinorAmount(0, purchaseCurrency)}/month</span>
                 </p>
                 <p>
                   Monthly LOC limit: <span className="text-white font-semibold">{upgradePreview.preview.next_cycle_loc_limit.toLocaleString()} LOC</span>

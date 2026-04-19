@@ -643,6 +643,26 @@ type OrgSubscriptionRow struct {
 	CurrentPeriodEnd       time.Time
 }
 
+func (s *SubscriptionStore) GetLatestCapturedPaymentMethodBySubscriptionID(ctx context.Context, subscriptionDBID int64) (string, error) {
+	var paymentMethod sql.NullString
+	err := s.db.QueryRowContext(ctx, `
+		SELECT method
+		FROM subscription_payments
+		WHERE subscription_id = $1
+		  AND (captured = TRUE OR LOWER(status) = 'captured')
+		ORDER BY COALESCE(captured_at, created_at) DESC, created_at DESC
+		LIMIT 1
+	`, subscriptionDBID).Scan(&paymentMethod)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return "", nil
+		}
+		return "", fmt.Errorf("failed to fetch latest captured payment method for subscription %d: %w", subscriptionDBID, err)
+	}
+
+	return strings.TrimSpace(paymentMethod.String), nil
+}
+
 func (s *SubscriptionStore) ListSubscriptionsByOrgID(orgID int) ([]OrgSubscriptionRow, error) {
 	rows, err := s.db.Query(`
 		SELECT razorpay_subscription_id, status, plan_type, quantity, current_period_end
@@ -807,6 +827,49 @@ func (s *SubscriptionStore) AssignLicense(input AssignLicenseInput) error {
 	}
 
 	return nil
+}
+
+type RepointOrgActiveSubscriptionInput struct {
+	OrgID                          int64
+	OldLocalSubscriptionID         int64
+	ReplacementLocalSubscriptionID int64
+}
+
+func (s *SubscriptionStore) RepointOrgActiveSubscription(ctx context.Context, input RepointOrgActiveSubscriptionInput) (int64, error) {
+	if input.OrgID <= 0 {
+		return 0, fmt.Errorf("invalid org id: %d", input.OrgID)
+	}
+	if input.OldLocalSubscriptionID <= 0 {
+		return 0, fmt.Errorf("invalid old subscription id: %d", input.OldLocalSubscriptionID)
+	}
+	if input.ReplacementLocalSubscriptionID <= 0 {
+		return 0, fmt.Errorf("invalid replacement subscription id: %d", input.ReplacementLocalSubscriptionID)
+	}
+	if input.OldLocalSubscriptionID == input.ReplacementLocalSubscriptionID {
+		return 0, nil
+	}
+
+	result, err := s.db.ExecContext(ctx, `
+		UPDATE user_roles
+		SET active_subscription_id = $1,
+		    updated_at = NOW()
+		WHERE org_id = $2
+		  AND plan_type = 'team'
+		  AND active_subscription_id = $3`,
+		input.ReplacementLocalSubscriptionID,
+		input.OrgID,
+		input.OldLocalSubscriptionID,
+	)
+	if err != nil {
+		return 0, fmt.Errorf("repoint org active subscriptions: %w", err)
+	}
+
+	rowsUpdated, err := result.RowsAffected()
+	if err != nil {
+		return 0, fmt.Errorf("read repoint row count: %w", err)
+	}
+
+	return rowsUpdated, nil
 }
 
 type RevokeLicenseInput struct {

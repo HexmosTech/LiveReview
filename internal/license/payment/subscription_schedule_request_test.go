@@ -26,3 +26,20 @@ func TestBuildUpdateSubscriptionRequestOmitScheduleAt(t *testing.T) {
 		t.Fatalf("expected schedule_change_at='cycle_end', got %#v", req["schedule_change_at"])
 	}
 }
+
+func TestBuildCreateSubscriptionRequestWithoutStartAt(t *testing.T) {
+	req := buildCreateSubscriptionRequest("plan_test", 2, map[string]string{"k": "v"}, 0)
+
+	if _, ok := req["start_at"]; ok {
+		t.Fatalf("did not expect start_at in request when startAt is zero")
+	}
+}
+
+func TestBuildCreateSubscriptionRequestWithStartAt(t *testing.T) {
+	const startAt = int64(1777573800)
+	req := buildCreateSubscriptionRequest("plan_test", 2, map[string]string{"k": "v"}, startAt)
+
+	if got, ok := req["start_at"].(int64); !ok || got != startAt {
+		t.Fatalf("expected start_at=%d, got %#v", startAt, req["start_at"])
+	}
+}

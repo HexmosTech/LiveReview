@@ -3,6 +3,7 @@ package api
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"math"
 	"testing"
 	"time"
@@ -122,5 +123,38 @@ func TestComputeTargetProratedLOCGrantNearestWhole(t *testing.T) {
 	got := computeTargetProratedLOCGrant(200000, 8.0/30.0)
 	if got != 53333 {
 		t.Fatalf("expected nearest whole loc grant 53333, got %d", got)
+	}
+}
+
+func TestIsUPIPaymentMethod(t *testing.T) {
+	tests := []struct {
+		name          string
+		paymentMethod string
+		want          bool
+	}{
+		{name: "upi method is detected", paymentMethod: "upi", want: true},
+		{name: "upi method is case-insensitive", paymentMethod: " UPI ", want: true},
+		{name: "card method is not upi", paymentMethod: "card", want: false},
+		{name: "empty method is not upi", paymentMethod: "", want: false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := isUPIPaymentMethod(tt.paymentMethod)
+			if got != tt.want {
+				t.Fatalf("isUPIPaymentMethod(%q) = %v, want %v", tt.paymentMethod, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestIsRazorpayUPISubscriptionUpdateError(t *testing.T) {
+	err := errors.New("update razorpay subscription quantity: failed to update razorpay subscription: razorpay API error (status 400): {\"error\":{\"code\":\"BAD_REQUEST_ERROR\",\"description\":\"subscriptions cannot be updated when payment mode is upi\"}}")
+	if !isRazorpayUPISubscriptionUpdateError(err) {
+		t.Fatalf("expected UPI subscription update error to be detected")
+	}
+
+	if isRazorpayUPISubscriptionUpdateError(errors.New("razorpay API error (status 400): unknown request")) {
+		t.Fatalf("expected non-UPI error to not be detected")
 	}
 }

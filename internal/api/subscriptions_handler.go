@@ -79,6 +79,7 @@ type CreateSubscriptionRequest struct {
 	PlanCode string `json:"plan_code"`
 	PlanType string `json:"plan_type"` // deprecated compatibility field
 	Quantity int    `json:"quantity"`  // deprecated compatibility field
+	Currency string `json:"currency,omitempty"`
 }
 
 func resolvePlanCodeFromRequest(req CreateSubscriptionRequest) (license.PlanType, error) {
@@ -177,9 +178,13 @@ func (h *SubscriptionsHandler) CreateSubscription(c echo.Context) error {
 
 	// Determine mode (test vs live)
 	mode := resolveRazorpayMode()
+	resolvedCurrency, err := resolvePurchaseCurrency(req.Currency, c.Request())
+	if err != nil {
+		return c.JSON(http.StatusBadRequest, map[string]string{"error": currencyErrorMessage(err)})
+	}
 
 	// Create subscription
-	sub, err := h.service.CreateTeamSubscription(userID, int(orgID), planCode.String(), mode)
+	sub, err := h.service.CreateTeamSubscription(userID, int(orgID), planCode.String(), mode, resolvedCurrency)
 	if err != nil {
 		return c.JSON(http.StatusInternalServerError, map[string]string{
 			"error": err.Error(),
@@ -202,6 +207,7 @@ func (h *SubscriptionsHandler) CreateSubscription(c echo.Context) error {
 		"quantity":                 sub.Quantity,
 		"plan_code":                planCode.String(),
 		"plan_type":                "monthly",
+		"currency":                 resolvedCurrency,
 		"monthly_loc_limit":        limits.MonthlyLOCLimit,
 		"monthly_price_usd":        limits.MonthlyPriceUSD,
 		"short_url":                sub.ShortURL,
@@ -715,7 +721,19 @@ func (h *SubscriptionsHandler) ListUserSubscriptions(c echo.Context) error {
 		})
 	}
 
-	c.Logger().Infof("ListUserSubscriptions: fetching subscriptions for user_id=%d email=%s", user.ID, user.Email)
+	var orgID int64
+	switch v := c.Get("org_id").(type) {
+	case int64:
+		orgID = v
+	case int:
+		orgID = int64(v)
+	}
+
+	if orgID > 0 {
+		c.Logger().Infof("ListUserSubscriptions: fetching subscriptions for user_id=%d email=%s org_id=%d", user.ID, user.Email, orgID)
+	} else {
+		c.Logger().Infof("ListUserSubscriptions: fetching subscriptions for user_id=%d email=%s", user.ID, user.Email)
+	}
 
 	// Query subscriptions owned by the user with calculated assigned_seats from user_roles
 	// Only return subscriptions that are active or have assigned seats
@@ -729,9 +747,10 @@ func (h *SubscriptionsHandler) ListUserSubscriptions(c echo.Context) error {
 			s.created_at, s.updated_at, s.cancel_at_period_end, s.short_url
 		FROM subscriptions s
 		WHERE s.owner_user_id = $1
+		  AND ($2 = 0 OR s.org_id = $2)
 		  AND (s.status IN ('created', 'authenticated', 'active') OR EXISTS (SELECT 1 FROM user_roles ur WHERE ur.active_subscription_id = s.id))
 		ORDER BY s.created_at DESC
-	`, user.ID)
+	`, user.ID, orgID)
 	if err != nil {
 		c.Logger().Errorf("ListUserSubscriptions: failed to execute query for user_id=%d: %v", user.ID, err)
 		return c.JSON(http.StatusInternalServerError, map[string]string{

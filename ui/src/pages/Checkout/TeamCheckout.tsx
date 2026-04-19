@@ -71,7 +71,10 @@ type PaymentFailure = {
   planLabel: string;
   locLimit: number;
   total: number;
+  currency?: PurchaseCurrency;
 };
+
+type PurchaseCurrency = 'USD' | 'INR';
 
 type LOCSlab = {
   code: string;
@@ -103,6 +106,22 @@ const LOC_SLABS: LOCSlab[] = [
   { code: 'loc_3200k', label: '3.2M LOC', locLimit: 3200000, monthlyPriceUSD: 1024 },
 ];
 
+const normalizePurchaseCurrency = (raw?: string | null): PurchaseCurrency | null => {
+  const normalized = String(raw || '').trim().toUpperCase();
+  if (normalized === 'USD' || normalized === 'INR') {
+    return normalized;
+  }
+  return null;
+};
+
+const fallbackPurchaseCurrencyFromLocale = (): PurchaseCurrency => {
+  const locale = String((typeof navigator !== 'undefined' ? navigator.language : '') || '').trim().toUpperCase().replace('_', '-');
+  if (locale.includes('-IN')) {
+    return 'INR';
+  }
+  return 'USD';
+};
+
 const resolvePlanCodeFromQuery = (planCode: string | null): string => {
   const normalized = String(planCode || '').trim().toLowerCase();
   if (!normalized) {
@@ -120,6 +139,10 @@ const TeamCheckout: React.FC = () => {
   
   const period = searchParams.get('period') || 'monthly';
   const [selectedPlanCode, setSelectedPlanCode] = useState<string>(() => resolvePlanCodeFromQuery(searchParams.get('plan')));
+  const [selectedCurrency, setSelectedCurrency] = useState<PurchaseCurrency>(() => {
+    const queryCurrency = normalizePurchaseCurrency(searchParams.get('currency'));
+    return queryCurrency || fallbackPurchaseCurrencyFromLocale();
+  });
   const [isProcessing, setIsProcessing] = useState<boolean>(false);
   const [isConfirming, setIsConfirming] = useState<boolean>(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
@@ -142,6 +165,10 @@ const TeamCheckout: React.FC = () => {
   useEffect(() => {
     const requestedPlanCode = resolvePlanCodeFromQuery(searchParams.get('plan'));
     setSelectedPlanCode((prev) => (prev === requestedPlanCode ? prev : requestedPlanCode));
+    const requestedCurrency = normalizePurchaseCurrency(searchParams.get('currency'));
+    if (requestedCurrency) {
+      setSelectedCurrency((prev) => (prev === requestedCurrency ? prev : requestedCurrency));
+    }
   }, [searchParams]);
 
   useEffect(() => {
@@ -304,6 +331,7 @@ const TeamCheckout: React.FC = () => {
         // Use apiClient which automatically adds X-Org-Context from Redux store
         data = await apiClient.post('/subscriptions', {
           plan_code: selectedPlan.code,
+          currency: selectedCurrency,
         });
       } catch (err: any) {
         // Fall back to direct fetch with explicit headers if org context error occurs
@@ -317,6 +345,7 @@ const TeamCheckout: React.FC = () => {
             },
             body: JSON.stringify({
               plan_code: selectedPlan.code,
+              currency: selectedCurrency,
             }),
           });
 
@@ -616,8 +645,12 @@ const TeamCheckout: React.FC = () => {
                 <dd className="text-white font-semibold">{successInfo.locLimit.toLocaleString()}</dd>
               </div>
               <div className="flex justify-between text-slate-300">
-                <dt>Total</dt>
+                <dt>Reference price (USD)</dt>
                 <dd className="text-white font-semibold">${successInfo.total}</dd>
+              </div>
+              <div className="flex justify-between text-slate-300">
+                <dt>Checkout currency</dt>
+                <dd className="text-white font-semibold">{selectedCurrency}</dd>
               </div>
               <div className="flex justify-between text-slate-300">
                 <dt>Billing</dt>

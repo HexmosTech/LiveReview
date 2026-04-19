@@ -35,6 +35,7 @@ type BillingActionsHandler struct {
 	notificationStore   *storagepayment.BillingNotificationOutboxStore
 	paymentAttemptStore *storagepayment.UpgradePaymentAttemptStore
 	upgradeRequestStore *storagepayment.UpgradeRequestStore
+	replacementStore    *storagepayment.UpgradeReplacementCutoverStore
 	db                  *sql.DB
 }
 
@@ -48,12 +49,14 @@ func NewBillingActionsHandler(db *sql.DB) *BillingActionsHandler {
 		notificationStore:   storagepayment.NewBillingNotificationOutboxStore(db),
 		paymentAttemptStore: storagepayment.NewUpgradePaymentAttemptStore(db),
 		upgradeRequestStore: storagepayment.NewUpgradeRequestStore(db),
+		replacementStore:    storagepayment.NewUpgradeReplacementCutoverStore(db),
 		db:                  db,
 	}
 }
 
 type planChangeRequest struct {
 	TargetPlanCode string `json:"target_plan_code"`
+	Currency       string `json:"currency,omitempty"`
 }
 
 type upgradePreparePaymentRequest struct {
@@ -208,7 +211,7 @@ func computeTargetProratedLOCGrant(targetMonthlyLOC int, fraction float64) int64
 	return grant
 }
 
-func (h *BillingActionsHandler) buildUpgradePreview(ctx context.Context, orgID int64, currentPlan, targetPlan license.PlanType, fallbackCycleStart, fallbackCycleEnd time.Time) (signedUpgradePreview, map[string]interface{}, error) {
+func (h *BillingActionsHandler) buildUpgradePreview(ctx context.Context, orgID int64, currentPlan, targetPlan license.PlanType, fallbackCycleStart, fallbackCycleEnd time.Time, currency string) (signedUpgradePreview, map[string]interface{}, error) {
 	if h.db == nil {
 		return signedUpgradePreview{}, nil, fmt.Errorf("missing db handle")
 	}
@@ -248,7 +251,7 @@ func (h *BillingActionsHandler) buildUpgradePreview(ctx context.Context, orgID i
 		cycleEnd = time.Unix(razorpaySub.CurrentEnd, 0).UTC()
 	}
 
-	effectiveMonthlyPlanID, err := payment.GetPlanID(mode, "monthly")
+	effectiveMonthlyPlanID, err := payment.GetPlanID(mode, "monthly", currency)
 	if err != nil {
 		return signedUpgradePreview{}, nil, fmt.Errorf("resolve monthly plan id: %w", err)
 	}
@@ -270,6 +273,9 @@ func (h *BillingActionsHandler) buildUpgradePreview(ctx context.Context, orgID i
 	chargeCurrency := strings.ToUpper(strings.TrimSpace(effectiveMonthlyPlan.Item.Currency))
 	if chargeCurrency == "" {
 		return signedUpgradePreview{}, nil, fmt.Errorf("razorpay plan %s has empty currency", effectiveMonthlyPlanID)
+	}
+	if !strings.EqualFold(chargeCurrency, currency) {
+		return signedUpgradePreview{}, nil, fmt.Errorf("razorpay plan currency mismatch: expected %s got %s", currency, chargeCurrency)
 	}
 
 	now := time.Now().UTC()
@@ -338,6 +344,11 @@ func (h *BillingActionsHandler) PreviewUpgrade(c echo.Context) error {
 		return JSONErrorWithEnvelope(c, http.StatusBadRequest, "invalid target_plan_code")
 	}
 
+	resolvedCurrency, err := resolvePurchaseCurrency(req.Currency, c.Request())
+	if err != nil {
+		return JSONErrorWithEnvelope(c, http.StatusBadRequest, currencyErrorMessage(err))
+	}
+
 	ctx := c.Request().Context()
 	if err := h.store.EnsureOrgBillingState(ctx, orgID, license.PlanFree30K.String()); err != nil {
 		return JSONErrorWithEnvelope(c, http.StatusInternalServerError, fmt.Sprintf("failed to initialize billing state: %v", err))
@@ -353,7 +364,7 @@ func (h *BillingActionsHandler) PreviewUpgrade(c echo.Context) error {
 		return JSONErrorWithEnvelope(c, http.StatusBadRequest, "target_plan_code must be a higher LOC tier for upgrade")
 	}
 
-	tokenPayload, preview, err := h.buildUpgradePreview(ctx, orgID, currentPlan, targetPlan, state.BillingPeriodStart, state.BillingPeriodEnd)
+	tokenPayload, preview, err := h.buildUpgradePreview(ctx, orgID, currentPlan, targetPlan, state.BillingPeriodStart, state.BillingPeriodEnd, resolvedCurrency)
 	if err != nil {
 		if errors.Is(err, errRazorpayCheckoutRequired) {
 			return JSONWithEnvelope(c, http.StatusConflict, map[string]interface{}{
@@ -677,6 +688,7 @@ func (h *BillingActionsHandler) ExecuteUpgrade(c echo.Context) error {
 		targetPlan.GetLimits().MonthlyLOCLimit > currentPlan.GetLimits().MonthlyLOCLimit
 
 	mode := resolveRazorpayModeForBilling()
+	paymentMethod := ""
 	var attempt storagepayment.UpgradePaymentAttempt
 	if payload.ImmediateChargeCents > 0 && !skipPaymentVerification {
 		if orderID == "" || paymentID == "" || signature == "" {
@@ -758,12 +770,95 @@ func (h *BillingActionsHandler) ExecuteUpgrade(c echo.Context) error {
 		if !strings.EqualFold(strings.TrimSpace(paid.Currency), currency) {
 			return JSONErrorWithEnvelope(c, http.StatusBadRequest, "payment currency mismatch")
 		}
+		paymentMethod = strings.TrimSpace(paid.Method)
 		if err := h.paymentAttemptStore.MarkPaymentCapturedByOrderID(ctx, orderID, paymentID); err != nil && !errors.Is(err, storagepayment.ErrUpgradePaymentAttemptNotFound) {
 			return JSONErrorWithEnvelope(c, http.StatusInternalServerError, fmt.Sprintf("failed to persist captured upgrade payment attempt: %v", err))
 		}
 	}
 
-	if err := h.syncRazorpayTransition(ctx, orgID, targetPlan, true, state.BillingPeriodEnd); err != nil {
+	applyImmediateTransition := true
+	if payload.ImmediateChargeCents > 0 && !skipPaymentVerification {
+		applyImmediateTransition = !isUPIPaymentMethod(paymentMethod)
+	}
+
+	if err := h.syncRazorpayTransition(ctx, orgID, targetPlan, applyImmediateTransition, state.BillingPeriodEnd); err != nil {
+		if isRazorpayUPISubscriptionUpdateError(err) {
+			if payload.ImmediateChargeCents > 0 && !skipPaymentVerification {
+				_, _ = h.upgradeRequestStore.MarkPaymentCaptureConfirmed(ctx, storagepayment.MarkUpgradePaymentCaptureInput{
+					UpgradeRequestID:  upgradeRequestID,
+					RazorpayPaymentID: paymentID,
+					RazorpayOrderID:   orderID,
+					Metadata: map[string]interface{}{
+						"source":         "execute_sync_failure_upi",
+						"payment_method": paymentMethod,
+					},
+				})
+			}
+
+			latestRequest, loadErr := h.upgradeRequestStore.GetUpgradeRequestByIDForOrg(ctx, orgID, upgradeRequestID)
+			if loadErr != nil {
+				return JSONErrorWithEnvelope(c, http.StatusInternalServerError, fmt.Sprintf("failed to reload upgrade request for replacement cutover: %v", loadErr))
+			}
+
+			updatedRequest, cutoverErr := h.processUPIReplacementCutover(ctx, latestRequest, targetPlan, mode)
+			if cutoverErr != nil {
+				_, _ = h.upgradeRequestStore.MarkReconciliationRetrying(ctx, upgradeRequestID, map[string]interface{}{
+					"source":           "execute_upi_replacement_retry",
+					"payment_method":   paymentMethod,
+					"retry_after_secs": 120,
+					"error":            cutoverErr.Error(),
+				})
+
+				responsePayload := map[string]interface{}{
+					"message":            "payment captured; scheduling replacement subscription cutover in progress",
+					"upgrade_request_id": upgradeRequestID,
+					"status":             storagepayment.UpgradeRequestStatusReconciliationRetrying,
+					"reason_code":        "upi_replacement_cutover_pending",
+				}
+
+				if payload.ImmediateChargeCents > 0 && !skipPaymentVerification {
+					if _, err := h.paymentAttemptStore.MarkExecuteApplied(ctx, storagepayment.MarkUpgradeExecuteAppliedInput{
+						RazorpayOrderID:       orderID,
+						RazorpayPaymentID:     paymentID,
+						ExecuteIdempotencyKey: executeIdempotencyKey,
+						ExecuteResponse:       responsePayload,
+					}); err != nil {
+						log.Printf("[billing-upgrade] warning: failed to persist execute_applied attempt org=%d order_id=%s: %v", orgID, orderID, err)
+					}
+				}
+
+				return JSONWithEnvelope(c, http.StatusAccepted, responsePayload)
+			}
+
+			if strings.EqualFold(updatedRequest.CurrentStatus, storagepayment.UpgradeRequestStatusResolved) {
+				if err := h.applyResolvedUpgradeRequest(ctx, updatedRequest); err != nil {
+					return JSONErrorWithEnvelope(c, http.StatusInternalServerError, fmt.Sprintf("failed to apply resolved replacement upgrade request: %v", err))
+				}
+			}
+
+			responsePayload := map[string]interface{}{
+				"message":            "upgrade request accepted; replacement subscription cutover scheduled",
+				"transition_mode":    "replacement_subscription_cutover",
+				"plan_code":          targetPlan.String(),
+				"upgrade_request_id": upgradeRequestID,
+				"status":             updatedRequest.CurrentStatus,
+				"resolved":           strings.EqualFold(updatedRequest.CurrentStatus, storagepayment.UpgradeRequestStatusResolved),
+			}
+
+			if payload.ImmediateChargeCents > 0 && !skipPaymentVerification {
+				if _, err := h.paymentAttemptStore.MarkExecuteApplied(ctx, storagepayment.MarkUpgradeExecuteAppliedInput{
+					RazorpayOrderID:       orderID,
+					RazorpayPaymentID:     paymentID,
+					ExecuteIdempotencyKey: executeIdempotencyKey,
+					ExecuteResponse:       responsePayload,
+				}); err != nil {
+					log.Printf("[billing-upgrade] warning: failed to persist execute_applied attempt org=%d order_id=%s: %v", orgID, orderID, err)
+				}
+			}
+
+			return JSONWithEnvelope(c, http.StatusOK, responsePayload)
+		}
+
 		_, _ = h.upgradeRequestStore.MarkUpgradeRequestFailed(ctx, storagepayment.MarkUpgradeRequestFailedInput{
 			UpgradeRequestID: upgradeRequestID,
 			FailureReason:    fmt.Sprintf("subscription update failed: %v", err),
@@ -868,19 +963,34 @@ func (h *BillingActionsHandler) ExecuteUpgrade(c echo.Context) error {
 
 type activeOrgSubscription struct {
 	ID                     int64
+	OwnerUserID            int64
+	OrgID                  int64
 	RazorpaySubscriptionID string
+	RazorpayPlanID         string
 	Quantity               int
 	Status                 string
+	CurrentPeriodStart     time.Time
+	CurrentPeriodEnd       time.Time
 }
 
 func resolveActiveOrgSubscription(db *sql.DB, orgID int64) (activeOrgSubscription, error) {
 	var out activeOrgSubscription
 	err := db.QueryRow(`
-		SELECT id, razorpay_subscription_id, quantity, status
+		SELECT id, owner_user_id, org_id, razorpay_subscription_id, razorpay_plan_id, quantity, status, current_period_start, current_period_end
 		FROM subscriptions
 		WHERE org_id = $1
 		ORDER BY CASE WHEN status = 'active' THEN 0 ELSE 1 END, updated_at DESC, created_at DESC
-		LIMIT 1`, orgID).Scan(&out.ID, &out.RazorpaySubscriptionID, &out.Quantity, &out.Status)
+		LIMIT 1`, orgID).Scan(
+		&out.ID,
+		&out.OwnerUserID,
+		&out.OrgID,
+		&out.RazorpaySubscriptionID,
+		&out.RazorpayPlanID,
+		&out.Quantity,
+		&out.Status,
+		&out.CurrentPeriodStart,
+		&out.CurrentPeriodEnd,
+	)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return activeOrgSubscription{}, fmt.Errorf("no subscription found for org %d", orgID)
@@ -972,6 +1082,26 @@ func (h *BillingActionsHandler) reconcileUpgradeRequestNow(ctx context.Context, 
 		return storagepayment.UpgradeRequest{}, err
 	}
 
+	targetPlan := license.PlanType(request.ToPlanCode)
+	if targetPlan.IsValid() {
+		cutover, cutoverErr := h.replacementStore.GetByUpgradeRequestID(ctx, request.UpgradeRequestID)
+		if cutoverErr == nil {
+			if !strings.EqualFold(cutover.Status, storagepayment.UpgradeReplacementCutoverStatusCompleted) &&
+				!strings.EqualFold(cutover.Status, storagepayment.UpgradeReplacementCutoverStatusManualReviewRequired) {
+				if _, err := h.processUPIReplacementCutover(ctx, request, targetPlan, mode); err != nil {
+					return storagepayment.UpgradeRequest{}, fmt.Errorf("process upi replacement cutover: %w", err)
+				}
+			}
+		} else if !errors.Is(cutoverErr, storagepayment.ErrUpgradeReplacementCutoverNotFound) {
+			return storagepayment.UpgradeRequest{}, fmt.Errorf("load replacement cutover for reconciliation: %w", cutoverErr)
+		}
+	}
+
+	request, err = h.upgradeRequestStore.GetUpgradeRequestByID(ctx, upgradeRequestID)
+	if err != nil {
+		return storagepayment.UpgradeRequest{}, err
+	}
+
 	if !request.SubscriptionChangeConfirmed && request.RazorpaySubscriptionID.Valid && request.TargetQuantity.Valid {
 		targetQty := int(request.TargetQuantity.Int64)
 		if targetQty > 0 {
@@ -1026,6 +1156,9 @@ func (h *BillingActionsHandler) reconcilePendingUpgradeRequests(ctx context.Cont
 		if _, recErr := h.reconcileUpgradeRequestNow(ctx, req.UpgradeRequestID); recErr != nil {
 			log.Printf("[upgrade-reconcile] request=%s org=%d reconcile failed: %v", req.UpgradeRequestID, req.OrgID, recErr)
 			if time.Since(req.CreatedAt) > 30*time.Minute {
+				if _, cutoverErr := h.replacementStore.GetByUpgradeRequestID(ctx, req.UpgradeRequestID); cutoverErr == nil {
+					_, _ = h.replacementStore.MarkManualReviewRequired(ctx, req.UpgradeRequestID, recErr.Error())
+				}
 				updated, markErr := h.upgradeRequestStore.MarkManualReviewRequired(ctx, req.UpgradeRequestID, recErr.Error(), map[string]interface{}{"source": "scheduler_timeout"})
 				if markErr != nil {
 					log.Printf("[upgrade-reconcile] request=%s org=%d mark manual review failed: %v", req.UpgradeRequestID, req.OrgID, markErr)
@@ -1068,17 +1201,20 @@ func (h *BillingActionsHandler) GetBillingStatus(c echo.Context) error {
 	}
 
 	plans := getSortedLOCPlans()
+	defaultPurchaseCurrency := defaultPurchaseCurrencyForRequest(c.Request())
 	return JSONWithEnvelope(c, http.StatusOK, map[string]interface{}{
 		"billing": map[string]interface{}{
-			"current_plan_code":           state.CurrentPlanCode,
-			"razorpay_mode":               mode,
-			"pricing_profile":             pricingProfile,
-			"billing_period_start":        state.BillingPeriodStart.Format(time.RFC3339),
-			"billing_period_end":          state.BillingPeriodEnd.Format(time.RFC3339),
-			"loc_used_month":              state.LOCUsedMonth,
-			"trial_readonly":              state.TrialReadOnly,
-			"scheduled_plan_code":         nullString(state.ScheduledPlanCode),
-			"scheduled_plan_effective_at": nullTime(state.ScheduledPlanEffectiveAt),
+			"current_plan_code":             state.CurrentPlanCode,
+			"razorpay_mode":                 mode,
+			"pricing_profile":               pricingProfile,
+			"default_purchase_currency":     defaultPurchaseCurrency,
+			"supported_purchase_currencies": supportedPurchaseCurrencies(),
+			"billing_period_start":          state.BillingPeriodStart.Format(time.RFC3339),
+			"billing_period_end":            state.BillingPeriodEnd.Format(time.RFC3339),
+			"loc_used_month":                state.LOCUsedMonth,
+			"trial_readonly":                state.TrialReadOnly,
+			"scheduled_plan_code":           nullString(state.ScheduledPlanCode),
+			"scheduled_plan_effective_at":   nullTime(state.ScheduledPlanEffectiveAt),
 		},
 		"available_plans": plans,
 	})
@@ -1945,6 +2081,26 @@ func (h *BillingActionsHandler) buildCustomerUpgradeState(ctx context.Context, r
 		},
 	}
 
+	cutover, cutoverErr := h.replacementStore.GetByUpgradeRequestID(ctx, request.UpgradeRequestID)
+	hasCutover := cutoverErr == nil
+	cutoverPending := hasCutover &&
+		!strings.EqualFold(cutover.Status, storagepayment.UpgradeReplacementCutoverStatusCompleted) &&
+		!strings.EqualFold(cutover.Status, storagepayment.UpgradeReplacementCutoverStatusManualReviewRequired)
+	if hasCutover {
+		state["fulfillment_strategy"] = "replacement_subscription_cutover"
+		state["replacement_cutover"] = map[string]interface{}{
+			"status":           cutover.Status,
+			"cutover_at":       cutover.CutoverAt.UTC().Format(time.RFC3339),
+			"target_plan_code": cutover.TargetPlanCode,
+			"target_quantity":  cutover.TargetQuantity,
+			"retry_count":      cutover.RetryCount,
+			"next_retry_at":    nullTime(cutover.NextRetryAt),
+			"last_error":       nullString(cutover.LastError),
+		}
+	} else if !errors.Is(cutoverErr, storagepayment.ErrUpgradeReplacementCutoverNotFound) {
+		log.Printf("[billing-upgrade] warning: load replacement cutover state request=%s org=%d: %v", request.UpgradeRequestID, request.OrgID, cutoverErr)
+	}
+
 	status := strings.TrimSpace(strings.ToLower(request.CurrentStatus))
 	delayedConfirmationStatus := false
 	switch status {
@@ -2001,7 +2157,7 @@ func (h *BillingActionsHandler) buildCustomerUpgradeState(ctx context.Context, r
 		}
 	}
 
-	if delayedConfirmationStatus {
+	if delayedConfirmationStatus && !cutoverPending {
 		delayedThresholdAt := request.UpdatedAt.UTC().Add(10 * time.Minute)
 		if now.After(delayedThresholdAt) {
 			state["customer_state"] = "action_needed"
@@ -2013,6 +2169,15 @@ func (h *BillingActionsHandler) buildCustomerUpgradeState(ctx context.Context, r
 			}
 			actionNeededAt = delayedThresholdAt
 		}
+	}
+
+	if cutoverPending {
+		state["customer_state"] = "processing"
+		state["action_required"] = map[string]interface{}{
+			"type":           "wait_for_cutover",
+			"retry_endpoint": "/api/v1/billing/upgrade/request-status",
+		}
+		actionNeededAt = cutover.CutoverAt.UTC()
 	}
 
 	state["action_needed_at"] = actionNeededAt.Format(time.RFC3339)
@@ -2030,6 +2195,227 @@ func (h *BillingActionsHandler) buildCustomerUpgradeState(ctx context.Context, r
 
 func (h *BillingActionsHandler) syncRazorpayTransition(ctx context.Context, orgID int64, targetPlan license.PlanType, immediate bool, periodEnd time.Time) error {
 	return syncRazorpayTransitionWithDB(ctx, h.db, orgID, targetPlan, immediate, periodEnd)
+}
+
+func isUPIPaymentMethod(paymentMethod string) bool {
+	return strings.EqualFold(strings.TrimSpace(paymentMethod), "upi")
+}
+
+func isRazorpayUPISubscriptionUpdateError(err error) bool {
+	if err == nil {
+		return false
+	}
+	message := strings.ToLower(strings.TrimSpace(err.Error()))
+	return strings.Contains(message, "subscriptions cannot be updated when payment mode is upi")
+}
+
+func (h *BillingActionsHandler) processUPIReplacementCutover(
+	ctx context.Context,
+	request storagepayment.UpgradeRequest,
+	targetPlan license.PlanType,
+	mode string,
+) (storagepayment.UpgradeRequest, error) {
+	activeSubscription, err := resolveActiveOrgSubscription(h.db, request.OrgID)
+	if err != nil {
+		return storagepayment.UpgradeRequest{}, fmt.Errorf("resolve active subscription for replacement cutover: %w", err)
+	}
+
+	cutoverAt := activeSubscription.CurrentPeriodEnd.UTC()
+	if cutoverAt.IsZero() {
+		cutoverAt = time.Now().UTC().Add(30 * 24 * time.Hour)
+	}
+
+	cutover, err := h.replacementStore.CreateOrGetPending(ctx, storagepayment.CreateUpgradeReplacementCutoverInput{
+		UpgradeRequestID:          request.UpgradeRequestID,
+		OrgID:                     request.OrgID,
+		OwnerUserID:               activeSubscription.OwnerUserID,
+		OldLocalSubscriptionID:    activeSubscription.ID,
+		OldRazorpaySubscriptionID: activeSubscription.RazorpaySubscriptionID,
+		TargetPlanCode:            targetPlan.String(),
+		TargetQuantity:            locPlanToQuantity(targetPlan),
+		Currency:                  request.Currency,
+		CutoverAt:                 cutoverAt,
+	})
+	if err != nil {
+		return storagepayment.UpgradeRequest{}, err
+	}
+
+	if strings.EqualFold(cutover.Status, storagepayment.UpgradeReplacementCutoverStatusCompleted) {
+		updated, err := h.upgradeRequestStore.GetUpgradeRequestByID(ctx, request.UpgradeRequestID)
+		if err != nil {
+			return storagepayment.UpgradeRequest{}, fmt.Errorf("reload completed replacement cutover request: %w", err)
+		}
+		return updated, nil
+	}
+	if strings.EqualFold(cutover.Status, storagepayment.UpgradeReplacementCutoverStatusManualReviewRequired) {
+		return storagepayment.UpgradeRequest{}, fmt.Errorf("replacement cutover requires manual review")
+	}
+
+	cutover, err = h.provisionUPIReplacementCutover(ctx, cutover, mode)
+	if err != nil {
+		_, _ = h.replacementStore.MarkRetryPending(ctx, request.UpgradeRequestID, err.Error(), time.Now().UTC().Add(2*time.Minute))
+		return storagepayment.UpgradeRequest{}, err
+	}
+
+	localReplacementID := int64(0)
+	if cutover.ReplacementLocalSubscriptionID.Valid {
+		localReplacementID = cutover.ReplacementLocalSubscriptionID.Int64
+	}
+	replacementRazorpaySubscriptionID := strings.TrimSpace(cutover.ReplacementRazorpaySubscriptionID.String)
+	if _, err := h.upgradeRequestStore.MarkSubscriptionUpdateRequested(ctx, storagepayment.MarkUpgradeSubscriptionUpdateInput{
+		UpgradeRequestID:       request.UpgradeRequestID,
+		LocalSubscriptionID:    localReplacementID,
+		RazorpaySubscriptionID: replacementRazorpaySubscriptionID,
+		TargetQuantity:         cutover.TargetQuantity,
+		Metadata: map[string]interface{}{
+			"source":             "upi_replacement_cutover",
+			"fulfillment_mode":   "replacement_subscription_cutover",
+			"old_subscription":   cutover.OldRazorpaySubscriptionID,
+			"replacement_sub_id": replacementRazorpaySubscriptionID,
+			"cutover_at":         cutover.CutoverAt.UTC().Format(time.RFC3339),
+		},
+	}); err != nil && !errors.Is(err, storagepayment.ErrUpgradeRequestTransitionRejected) {
+		return storagepayment.UpgradeRequest{}, fmt.Errorf("mark subscription update requested for replacement cutover: %w", err)
+	}
+
+	if _, err := h.upgradeRequestStore.MarkSubscriptionChangeConfirmed(ctx, storagepayment.MarkUpgradeSubscriptionConfirmedInput{
+		UpgradeRequestID:       request.UpgradeRequestID,
+		RazorpaySubscriptionID: replacementRazorpaySubscriptionID,
+		Metadata: map[string]interface{}{
+			"source":           "upi_replacement_cutover",
+			"fulfillment_mode": "replacement_subscription_cutover",
+			"cutover_at":       cutover.CutoverAt.UTC().Format(time.RFC3339),
+		},
+	}); err != nil && !errors.Is(err, storagepayment.ErrUpgradeRequestTransitionRejected) {
+		return storagepayment.UpgradeRequest{}, fmt.Errorf("mark subscription confirmed for replacement cutover: %w", err)
+	}
+
+	_, _ = h.replacementStore.MarkCompleted(ctx, request.UpgradeRequestID)
+
+	updated, err := h.upgradeRequestStore.GetUpgradeRequestByID(ctx, request.UpgradeRequestID)
+	if err != nil {
+		return storagepayment.UpgradeRequest{}, fmt.Errorf("reload upgrade request after replacement cutover: %w", err)
+	}
+
+	return updated, nil
+}
+
+func (h *BillingActionsHandler) provisionUPIReplacementCutover(
+	ctx context.Context,
+	cutover storagepayment.UpgradeReplacementCutover,
+	mode string,
+) (storagepayment.UpgradeReplacementCutover, error) {
+	current := cutover
+	subStore := storagepayment.NewSubscriptionStore(h.db)
+
+	if !current.ReplacementRazorpaySubscriptionID.Valid || strings.TrimSpace(current.ReplacementRazorpaySubscriptionID.String) == "" {
+		planID, err := payment.GetPlanID(mode, "monthly", current.Currency)
+		if err != nil {
+			return storagepayment.UpgradeReplacementCutover{}, fmt.Errorf("resolve replacement monthly plan id: %w", err)
+		}
+		planID = strings.TrimSpace(planID)
+		if planID == "" {
+			return storagepayment.UpgradeReplacementCutover{}, fmt.Errorf("replacement monthly plan id is empty for mode=%s currency=%s", mode, current.Currency)
+		}
+
+		notes := map[string]string{
+			"org_id":             strconv.FormatInt(current.OrgID, 10),
+			"owner_user_id":      strconv.FormatInt(current.OwnerUserID, 10),
+			"upgrade_request_id": current.UpgradeRequestID,
+			"target_plan_code":   current.TargetPlanCode,
+			"cutover_at":         current.CutoverAt.UTC().Format(time.RFC3339),
+			"flow":               "replacement_subscription_cutover",
+		}
+
+		replacementSub, err := payment.CreateSubscriptionAt(mode, planID, current.TargetQuantity, notes, current.CutoverAt.UTC().Unix())
+		if err != nil {
+			return storagepayment.UpgradeReplacementCutover{}, fmt.Errorf("create replacement subscription: %w", err)
+		}
+
+		periodStart := current.CutoverAt.UTC()
+		if replacementSub.CurrentStart > 0 {
+			periodStart = time.Unix(replacementSub.CurrentStart, 0).UTC()
+		}
+		periodEnd := periodStart.AddDate(0, 1, 0)
+		if replacementSub.CurrentEnd > 0 {
+			periodEnd = time.Unix(replacementSub.CurrentEnd, 0).UTC()
+		}
+
+		if err := subStore.CreateTeamSubscriptionRecord(storagepayment.CreateTeamSubscriptionRecordInput{
+			SubscriptionID:     replacementSub.ID,
+			OwnerUserID:        int(current.OwnerUserID),
+			OrgID:              int(current.OrgID),
+			DBPlanType:         current.TargetPlanCode,
+			Quantity:           current.TargetQuantity,
+			Status:             replacementSub.Status,
+			RazorpayPlanID:     planID,
+			CurrentPeriodStart: periodStart,
+			CurrentPeriodEnd:   periodEnd,
+			LicenseExpiresAt:   periodEnd,
+			ShortURL:           replacementSub.ShortURL,
+			Notes:              notes,
+		}); err != nil {
+			return storagepayment.UpgradeReplacementCutover{}, fmt.Errorf("persist replacement subscription record: %w", err)
+		}
+
+		replacementDetails, err := subStore.GetSubscriptionDetailsRow(replacementSub.ID)
+		if err != nil {
+			return storagepayment.UpgradeReplacementCutover{}, fmt.Errorf("load replacement subscription record: %w", err)
+		}
+
+		current, err = h.replacementStore.MarkReplacementProvisioned(ctx, storagepayment.MarkReplacementProvisionedInput{
+			UpgradeRequestID:                  current.UpgradeRequestID,
+			ReplacementLocalSubscriptionID:    replacementDetails.ID,
+			ReplacementRazorpaySubscriptionID: replacementSub.ID,
+		})
+		if err != nil {
+			return storagepayment.UpgradeReplacementCutover{}, fmt.Errorf("mark replacement cutover provisioned: %w", err)
+		}
+	}
+
+	if current.ReplacementLocalSubscriptionID.Valid && current.OldLocalSubscriptionID > 0 {
+		if _, err := subStore.RepointOrgActiveSubscription(ctx, storagepayment.RepointOrgActiveSubscriptionInput{
+			OrgID:                          current.OrgID,
+			OldLocalSubscriptionID:         current.OldLocalSubscriptionID,
+			ReplacementLocalSubscriptionID: current.ReplacementLocalSubscriptionID.Int64,
+		}); err != nil {
+			return storagepayment.UpgradeReplacementCutover{}, fmt.Errorf("repoint active subscription to replacement: %w", err)
+		}
+	}
+
+	if !current.OldCancellationScheduled {
+		svc := payment.NewSubscriptionService(h.db)
+		if _, err := svc.CancelSubscriptionWithContext(ctx, current.OldRazorpaySubscriptionID, false, mode); err != nil {
+			return storagepayment.UpgradeReplacementCutover{}, fmt.Errorf("schedule old subscription cancellation at cycle end: %w", err)
+		}
+
+		var err error
+		current, err = h.replacementStore.MarkOldCancellationScheduled(ctx, current.UpgradeRequestID)
+		if err != nil {
+			return storagepayment.UpgradeReplacementCutover{}, fmt.Errorf("mark old cancellation scheduled: %w", err)
+		}
+	}
+
+	return current, nil
+}
+
+func (h *BillingActionsHandler) isUpgradeBlockedByRecurringPaymentMethod(ctx context.Context, orgID int64) (bool, string, error) {
+	activeSub, err := resolveActiveOrgSubscription(h.db, orgID)
+	if err != nil {
+		return false, "", err
+	}
+
+	subStore := storagepayment.NewSubscriptionStore(h.db)
+	paymentMethod, err := subStore.GetLatestCapturedPaymentMethodBySubscriptionID(ctx, activeSub.ID)
+	if err != nil {
+		return false, "", err
+	}
+
+	if isUPIPaymentMethod(paymentMethod) {
+		return true, strings.ToLower(strings.TrimSpace(paymentMethod)), nil
+	}
+
+	return false, strings.TrimSpace(paymentMethod), nil
 }
 
 func syncRazorpayTransitionWithDB(ctx context.Context, db *sql.DB, orgID int64, targetPlan license.PlanType, immediate bool, periodEnd time.Time) error {
@@ -2085,7 +2471,6 @@ func syncRazorpayTransitionWithDB(ctx context.Context, db *sql.DB, orgID int64, 
 
 	return nil
 }
-
 func locPlanToQuantity(plan license.PlanType) int {
 	limits := plan.GetLimits()
 	if limits.MonthlyPriceUSD <= 0 {
