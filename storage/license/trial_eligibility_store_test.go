@@ -1,6 +1,10 @@
 package license
 
-import "testing"
+import (
+	"context"
+	"strings"
+	"testing"
+)
 
 func TestNormalizeTrialEligibilityEmail(t *testing.T) {
 	normalized, err := NormalizeTrialEligibilityEmail("  User+Alias@Example.COM  ")
@@ -14,6 +18,28 @@ func TestNormalizeTrialEligibilityEmail(t *testing.T) {
 
 func TestNormalizeTrialEligibilityEmailRejectsBlank(t *testing.T) {
 	if _, err := NormalizeTrialEligibilityEmail("   "); err == nil {
+		t.Fatalf("expected error for blank email")
+	}
+}
+
+func TestGetTrialEligibilityByEmailRejectsMissingDB(t *testing.T) {
+	store := &TrialEligibilityStore{}
+	_, found, err := store.GetTrialEligibilityByEmail(context.Background(), "user@example.com")
+	if err == nil {
+		t.Fatalf("expected error for missing db handle")
+	}
+	if !strings.Contains(err.Error(), "missing db handle") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if found {
+		t.Fatalf("found = true, want false")
+	}
+}
+
+func TestGetTrialEligibilityByEmailRejectsBlankEmail(t *testing.T) {
+	store := &TrialEligibilityStore{}
+	_, _, err := store.GetTrialEligibilityByEmail(context.Background(), "   ")
+	if err == nil {
 		t.Fatalf("expected error for blank email")
 	}
 }

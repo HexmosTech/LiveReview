@@ -1205,6 +1205,7 @@ func (h *BillingActionsHandler) GetBillingStatus(c echo.Context) error {
 		trialActive = now.Before(state.TrialEndsAt.Time.UTC())
 	}
 	trialCanCancel := trialActive && !state.TrialReadOnly
+	trialEligibility := h.buildTrialEligibilityView(c.Request().Context(), c, now)
 
 	plans := getSortedLOCPlans()
 	defaultPurchaseCurrency := defaultPurchaseCurrencyForRequest(c.Request())
@@ -1223,11 +1224,69 @@ func (h *BillingActionsHandler) GetBillingStatus(c echo.Context) error {
 			"trial_ends_at":                 nullTime(state.TrialEndsAt),
 			"trial_readonly":                state.TrialReadOnly,
 			"trial_can_cancel":              trialCanCancel,
+			"trial_eligibility":             trialEligibility,
 			"scheduled_plan_code":           nullString(state.ScheduledPlanCode),
 			"scheduled_plan_effective_at":   nullTime(state.ScheduledPlanEffectiveAt),
 		},
 		"available_plans": plans,
 	})
+}
+
+func (h *BillingActionsHandler) buildTrialEligibilityView(ctx context.Context, c echo.Context, now time.Time) map[string]interface{} {
+	view := map[string]interface{}{
+		"status":   "unknown",
+		"eligible": false,
+		"reason":   "user_context_missing",
+	}
+
+	permCtx := auth.GetPermissionContext(c)
+	if permCtx == nil || permCtx.User == nil {
+		return view
+	}
+
+	email := strings.TrimSpace(permCtx.User.Email)
+	if email == "" {
+		view["reason"] = "user_email_missing"
+		return view
+	}
+
+	trialStore := storagelicense.NewTrialEligibilityStore(h.db)
+	state, found, err := trialStore.GetTrialEligibilityByEmail(ctx, email)
+	if err != nil {
+		view["reason"] = "eligibility_lookup_failed"
+		return view
+	}
+
+	if !found {
+		view["status"] = "eligible"
+		view["eligible"] = true
+		view["reason"] = "first_paid_purchase_trial_available"
+		return view
+	}
+
+	view["consumed_at"] = nullTime(state.ConsumedAt)
+	view["first_plan_code"] = nullString(state.FirstPlanCode)
+	view["first_org_id"] = nullInt64(state.FirstOrgID)
+
+	if state.Consumed {
+		view["status"] = "already_used"
+		view["eligible"] = false
+		view["reason"] = "trial_already_consumed"
+		return view
+	}
+
+	if state.ReservationToken.Valid && state.ReservationExpires.Valid && now.Before(state.ReservationExpires.Time.UTC()) {
+		view["status"] = "reserved"
+		view["eligible"] = true
+		view["reason"] = "trial_reservation_in_progress"
+		view["reservation_expires_at"] = nullTime(state.ReservationExpires)
+		return view
+	}
+
+	view["status"] = "eligible"
+	view["eligible"] = true
+	view["reason"] = "first_paid_purchase_trial_available"
+	return view
 }
 
 func (h *BillingActionsHandler) GetUpgradeRequestStatus(c echo.Context) error {
