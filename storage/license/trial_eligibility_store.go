@@ -67,6 +67,43 @@ func NormalizeTrialEligibilityEmail(email string) (string, error) {
 	return normalized, nil
 }
 
+func (s *TrialEligibilityStore) GetTrialEligibilityByEmail(ctx context.Context, email string) (TrialEligibilityState, bool, error) {
+	if s == nil || s.db == nil {
+		return TrialEligibilityState{}, false, fmt.Errorf("missing db handle")
+	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
+
+	normalizedEmail, err := NormalizeTrialEligibilityEmail(email)
+	if err != nil {
+		return TrialEligibilityState{}, false, err
+	}
+
+	state, err := scanTrialEligibility(s.db.QueryRowContext(ctx, `
+		SELECT id,
+		       normalized_email,
+		       first_user_id,
+		       first_org_id,
+		       first_subscription_id,
+		       first_plan_code,
+		       reservation_token,
+		       reservation_expires_at,
+		       consumed,
+		       consumed_at
+		FROM trial_eligibility
+		WHERE normalized_email = $1
+		LIMIT 1`, normalizedEmail))
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return TrialEligibilityState{}, false, nil
+		}
+		return TrialEligibilityState{}, false, fmt.Errorf("get trial eligibility by email: %w", err)
+	}
+
+	return state, true, nil
+}
+
 func (s *TrialEligibilityStore) ReserveFirstPurchaseTrial(ctx context.Context, input ReserveFirstPurchaseTrialInput) (TrialEligibilityState, error) {
 	if s == nil || s.db == nil {
 		return TrialEligibilityState{}, fmt.Errorf("missing db handle")

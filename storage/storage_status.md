@@ -96,10 +96,11 @@ Latest milestone batch note (MF-LOC-007, MF-LOC-008, MF-PRORATION-003, MF-ATTRIB
 | license.ResolveOrgMemberUserIDByEmail | added | [ResolveOrgMemberUserIDByEmail](license/actor_lookup_store.go#L19) |
 | license.NewTrialEligibilityStore | added | [NewTrialEligibilityStore](license/trial_eligibility_store.go#L58) |
 | license.NormalizeTrialEligibilityEmail | added | [NormalizeTrialEligibilityEmail](license/trial_eligibility_store.go#L62) |
-| license.ReserveFirstPurchaseTrial | added | [ReserveFirstPurchaseTrial](license/trial_eligibility_store.go#L70) |
-| license.ConsumeReservedTrial | added | [ConsumeReservedTrial](license/trial_eligibility_store.go#L134) |
-| license.ConsumeReservedTrialTx | added | [ConsumeReservedTrialTx](license/trial_eligibility_store.go#L157) |
-| license.ReleaseTrialReservation | added | [ReleaseTrialReservation](license/trial_eligibility_store.go#L224) |
+| license.GetTrialEligibilityByEmail | added | [GetTrialEligibilityByEmail](license/trial_eligibility_store.go#L70) |
+| license.ReserveFirstPurchaseTrial | added | [ReserveFirstPurchaseTrial](license/trial_eligibility_store.go#L107) |
+| license.ConsumeReservedTrial | added | [ConsumeReservedTrial](license/trial_eligibility_store.go#L171) |
+| license.ConsumeReservedTrialTx | added | [ConsumeReservedTrialTx](license/trial_eligibility_store.go#L194) |
+| license.ReleaseTrialReservation | added | [ReleaseTrialReservation](license/trial_eligibility_store.go#L261) |
 | license.NewAdminBillingPortfolioStore | added | [NewAdminBillingPortfolioStore](license/admin_billing_portfolio_store.go#L38) |
 | license.GetSummary | added | [GetSummary](license/admin_billing_portfolio_store.go#L42) |
 | license.ListOrganizations | added | [ListOrganizations](license/admin_billing_portfolio_store.go#L88) |

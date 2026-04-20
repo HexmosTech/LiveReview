@@ -137,6 +137,8 @@ var ErrKeepPlanNotVerified = errors.New("keep plan not verified with razorpay")
 const (
 	cancelVerificationMaxAttempts = 5
 	cancelVerificationBaseDelay   = 600 * time.Millisecond
+	confirmFetchMaxAttempts       = 4
+	confirmFetchBaseDelay         = 400 * time.Millisecond
 )
 
 // NewSubscriptionService creates a new subscription service
@@ -253,6 +255,26 @@ func (s *SubscriptionService) CreateTeamSubscription(ownerUserID, orgID int, pla
 		return nil, fmt.Errorf("razorpay monthly plan ID not configured in %s mode", mode)
 	}
 
+	resolvedPlan, err := GetPlanByID(mode, razorpayPlanID)
+	if err != nil {
+		return nil, fmt.Errorf("load razorpay monthly plan details: %w", err)
+	}
+
+	planCurrency := strings.ToUpper(strings.TrimSpace(resolvedPlan.Item.Currency))
+	if planCurrency == "" {
+		return nil, fmt.Errorf("razorpay plan %s returned empty currency", razorpayPlanID)
+	}
+	if !strings.EqualFold(planCurrency, resolvedCurrency) {
+		return nil, fmt.Errorf("razorpay plan currency mismatch: expected %s got %s", resolvedCurrency, planCurrency)
+	}
+
+	planUnitMinor := int64(resolvedPlan.Item.Amount)
+	if planUnitMinor <= 0 {
+		return nil, fmt.Errorf("razorpay plan %s returned invalid amount %d", razorpayPlanID, resolvedPlan.Item.Amount)
+	}
+
+	recurringMinor := planUnitMinor * int64(quantity)
+
 	ctx := context.Background()
 	ownerEmail, err := s.lookupUserEmail(ctx, ownerUserID)
 	if err != nil {
@@ -298,6 +320,21 @@ func (s *SubscriptionService) CreateTeamSubscription(ownerUserID, orgID int, pla
 		trialStartAtUnix, trialWindowStartUnix, trialWindowEndUnix = computeTrialWindow(time.Now().UTC(), firstPurchaseTrialDays)
 	}
 
+	fmt.Printf(
+		"[PAYMENT.SUBSCRIPTION] create_team_subscription_prepare org_id=%d owner_user_id=%d plan_code=%s mode=%s currency=%s plan_id=%s quantity=%d plan_unit_minor=%d recurring_minor=%d trial_applied=%t trial_start_at=%d\n",
+		orgID,
+		ownerUserID,
+		persistedPlanCode.String(),
+		mode,
+		resolvedCurrency,
+		razorpayPlanID,
+		quantity,
+		planUnitMinor,
+		recurringMinor,
+		trialApplied,
+		trialStartAtUnix,
+	)
+
 	// Create notes for the subscription
 	notes := map[string]string{
 		"owner_user_id": fmt.Sprintf("%d", ownerUserID),
@@ -325,6 +362,18 @@ func (s *SubscriptionService) CreateTeamSubscription(ownerUserID, orgID int, pla
 		}
 		return nil, fmt.Errorf("failed to create razorpay subscription: %w", err)
 	}
+
+	fmt.Printf(
+		"[PAYMENT.SUBSCRIPTION] create_team_subscription_created org_id=%d owner_user_id=%d plan_code=%s razorpay_subscription_id=%s status=%s recurring_minor=%d currency=%s trial_applied=%t\n",
+		orgID,
+		ownerUserID,
+		persistedPlanCode.String(),
+		sub.ID,
+		sub.Status,
+		recurringMinor,
+		resolvedCurrency,
+		trialApplied,
+	)
 
 	// Calculate license expiration for monthly cycle.
 	var licenseExpiresAt time.Time
@@ -372,6 +421,11 @@ func (s *SubscriptionService) CreateTeamSubscription(ownerUserID, orgID int, pla
 		sub.TrialStartsAt = trialWindowStartUnix
 		sub.TrialEndsAt = trialWindowEndUnix
 	}
+	sub.PlanCurrency = planCurrency
+	sub.PlanUnitMinor = planUnitMinor
+	sub.RecurringMinor = recurringMinor
+	sub.RecurringCurrency = resolvedCurrency
+	sub.CheckoutAuthorizationMayApply = trialApplied
 
 	return sub, nil
 }
@@ -921,6 +975,115 @@ func verifyCheckoutSignature(req *PurchaseConfirmationRequest, mode string) erro
 	return nil
 }
 
+func extractTrialConfirmationDetails(sub *RazorpaySubscription, now time.Time) (bool, string, string, time.Time, time.Time) {
+	if sub == nil {
+		return false, "", "", time.Time{}, time.Time{}
+	}
+
+	notes := sub.GetNotesMap()
+	if notes == nil || !isTrueTrialNote(notes["trial_applied"]) {
+		return false, "", "", time.Time{}, time.Time{}
+	}
+
+	trialStartAt, ok := parseTrialUnixNote(notes["trial_window_start_unix"])
+	if !ok {
+		trialStartAt = now.UTC()
+	}
+
+	trialEndAt, ok := parseTrialUnixNote(notes["trial_window_end_unix"])
+	if !ok && sub.StartAt > 0 {
+		trialEndAt = time.Unix(sub.StartAt, 0).UTC()
+		ok = true
+	}
+	if !ok {
+		trialEndAt = trialStartAt.AddDate(0, 0, firstPurchaseTrialDays)
+	}
+	if !trialEndAt.After(trialStartAt) {
+		trialEndAt = trialStartAt.AddDate(0, 0, firstPurchaseTrialDays)
+	}
+
+	return true,
+		strings.TrimSpace(notes["trial_email"]),
+		strings.TrimSpace(notes["trial_reservation_token"]),
+		trialStartAt,
+		trialEndAt
+}
+
+func shouldRetryConfirmProviderRead(err error) bool {
+	if err == nil {
+		return false
+	}
+
+	msg := strings.ToLower(err.Error())
+	if strings.Contains(msg, "status 400") || strings.Contains(msg, "status 401") || strings.Contains(msg, "status 403") {
+		return false
+	}
+
+	return true
+}
+
+func fetchRazorpayWithRetry[T any](
+	ctx context.Context,
+	op string,
+	maxAttempts int,
+	baseDelay time.Duration,
+	fetch func() (*T, error),
+	sleepFn func(time.Duration),
+) (*T, error) {
+	if maxAttempts < 1 {
+		maxAttempts = 1
+	}
+	if baseDelay <= 0 {
+		baseDelay = 250 * time.Millisecond
+	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
+
+	var lastErr error
+	for attempt := 1; attempt <= maxAttempts; attempt++ {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+
+		result, err := fetch()
+		if err == nil {
+			if attempt > 1 {
+				fmt.Printf("[PURCHASE.CONFIRM] %s fetch succeeded on attempt %d/%d\n", op, attempt, maxAttempts)
+			}
+			return result, nil
+		}
+
+		lastErr = err
+		retryable := shouldRetryConfirmProviderRead(err)
+		if !retryable {
+			fmt.Printf("[PURCHASE.CONFIRM] %s fetch failed with non-retryable error on attempt %d/%d: %v\n", op, attempt, maxAttempts, err)
+			return nil, err
+		}
+		if attempt == maxAttempts {
+			fmt.Printf("[PURCHASE.CONFIRM] %s fetch exhausted after %d attempts: %v\n", op, maxAttempts, err)
+			return nil, err
+		}
+
+		delay := time.Duration(attempt) * baseDelay
+		fmt.Printf("[PURCHASE.CONFIRM] %s fetch attempt %d/%d failed: %v (retrying in %s)\n", op, attempt, maxAttempts, err, delay)
+		if sleepFn != nil {
+			sleepFn(delay)
+			continue
+		}
+
+		timer := time.NewTimer(delay)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return nil, ctx.Err()
+		case <-timer.C:
+		}
+	}
+
+	return nil, lastErr
+}
+
 // RevokeLicense removes a license from a user
 
 func (s *SubscriptionService) RevokeLicense(subscriptionID string, userID, orgID int) error {
@@ -941,11 +1104,25 @@ func (s *SubscriptionService) ConfirmPurchase(req *PurchaseConfirmationRequest, 
 		return err
 	}
 
+	now := time.Now().UTC()
+	ctx := context.Background()
+
 	// Fetch payment details from Razorpay to check if it's captured
-	payment, err := GetPaymentByID(mode, req.RazorpayPaymentID)
+	payment, err := fetchRazorpayWithRetry(ctx, "payment", confirmFetchMaxAttempts, confirmFetchBaseDelay, func() (*RazorpayPayment, error) {
+		return GetPaymentByID(mode, req.RazorpayPaymentID)
+	}, nil)
 	if err != nil {
 		return fmt.Errorf("failed to fetch payment from Razorpay: %w", err)
 	}
+
+	checkoutSubscription, err := fetchRazorpayWithRetry(ctx, "subscription", confirmFetchMaxAttempts, confirmFetchBaseDelay, func() (*RazorpaySubscription, error) {
+		return GetSubscriptionByID(mode, req.RazorpaySubscriptionID)
+	}, nil)
+	if err != nil {
+		return fmt.Errorf("failed to fetch subscription from Razorpay: %w", err)
+	}
+
+	trialAppliedFromNotes, trialEmailFromNotes, trialReservationToken, trialStartedAt, trialEndsAt := extractTrialConfirmationDetails(checkoutSubscription, now)
 
 	tx, err := s.db.Begin()
 	if err != nil {
@@ -968,27 +1145,77 @@ func (s *SubscriptionService) ConfirmPurchase(req *PurchaseConfirmationRequest, 
 	}
 	resolvedPlanCode := normalizePersistedPlanCode(persistedPlanType)
 
+	resolvedSubscriptionStatus := strings.TrimSpace(checkoutSubscription.Status)
+
 	// Update subscription with payment info
 	// Set payment_verified=TRUE if payment is captured
 	paymentVerified := bool(payment.Captured)
 	_, err = tx.Exec(`
 		UPDATE subscriptions
-		SET last_payment_id = $1,
-		    last_payment_status = $2,
+		SET status = CASE WHEN NULLIF($1, '') IS NULL THEN status ELSE $1 END,
+		    last_payment_id = $2,
+		    last_payment_status = $3,
 		    last_payment_received_at = NOW(),
-		    payment_verified = $3,
+		    payment_verified = $4,
 		    updated_at = NOW()
-		WHERE id = $4`,
-		payment.ID, payment.Status, paymentVerified, dbSubscriptionID,
+		WHERE id = $5`,
+		resolvedSubscriptionStatus, payment.ID, payment.Status, paymentVerified, dbSubscriptionID,
 	)
 	if err != nil {
 		return fmt.Errorf("failed to update subscription with payment info: %w", err)
 	}
 
-	if paymentVerified {
-		now := time.Now().UTC()
+	if trialAppliedFromNotes {
+		trialEmail := strings.TrimSpace(trialEmailFromNotes)
+		if trialEmail == "" {
+			trialEmail, err = s.lookupUserEmail(context.Background(), ownerUserID)
+			if err != nil {
+				return fmt.Errorf("resolve trial email for confirmation: %w", err)
+			}
+		}
+
+		normalizedEmail, normErr := storagelicense.NormalizeTrialEligibilityEmail(trialEmail)
+		if normErr != nil {
+			return fmt.Errorf("normalize trial email for confirmation: %w", normErr)
+		}
+
+		if trialReservationToken != "" {
+			trialStore := storagelicense.NewTrialEligibilityStore(s.db)
+			ownerUserIDInt64 := int64(ownerUserID)
+			orgIDInt64 := int64(orgID)
+			firstSubscriptionID := dbSubscriptionID
+			_, consumeErr := trialStore.ConsumeReservedTrialTx(context.Background(), tx, storagelicense.ConsumeReservedTrialInput{
+				Email:               normalizedEmail,
+				ReservationToken:    trialReservationToken,
+				FirstUserID:         &ownerUserIDInt64,
+				FirstOrgID:          &orgIDInt64,
+				FirstSubscriptionID: &firstSubscriptionID,
+				FirstPlanCode:       resolvedPlanCode.String(),
+				ConsumedAt:          now,
+			})
+			if consumeErr != nil && !errors.Is(consumeErr, storagelicense.ErrTrialEligibilityReservationMismatch) && !errors.Is(consumeErr, storagelicense.ErrTrialEligibilityNotFound) {
+				return fmt.Errorf("consume trial eligibility during confirmation: %w", consumeErr)
+			}
+		}
+	}
+
+	if paymentVerified || trialAppliedFromNotes {
 		periodStart := time.Date(now.Year(), now.Month(), 1, 0, 0, 0, 0, time.UTC)
 		periodEnd := periodStart.AddDate(0, 1, 0)
+		if checkoutSubscription.CurrentStart > 0 {
+			periodStart = time.Unix(checkoutSubscription.CurrentStart, 0).UTC()
+		}
+		if checkoutSubscription.CurrentEnd > 0 {
+			periodEnd = time.Unix(checkoutSubscription.CurrentEnd, 0).UTC()
+		}
+
+		var trialStartedAtValue interface{}
+		var trialEndsAtValue interface{}
+		if trialAppliedFromNotes {
+			trialStartedAtValue = trialStartedAt
+			trialEndsAtValue = trialEndsAt
+		}
+
 		_, err = tx.Exec(`
 			INSERT INTO org_billing_state (
 				org_id,
@@ -997,12 +1224,23 @@ func (s *SubscriptionService) ConfirmPurchase(req *PurchaseConfirmationRequest, 
 				billing_period_end,
 				loc_used_month,
 				loc_blocked,
+				trial_started_at,
+				trial_ends_at,
 				trial_readonly,
 				last_reset_at,
 				updated_at
-			) VALUES ($1, $2, $3, $4, 0, FALSE, FALSE, NOW(), NOW())
+			) VALUES ($1, $2, $3, $4, 0, FALSE, $5, $6, FALSE, NOW(), NOW())
 			ON CONFLICT (org_id) DO UPDATE SET
 				current_plan_code = EXCLUDED.current_plan_code,
+				billing_period_start = EXCLUDED.billing_period_start,
+				billing_period_end = EXCLUDED.billing_period_end,
+				trial_started_at = COALESCE(org_billing_state.trial_started_at, EXCLUDED.trial_started_at),
+				trial_ends_at = CASE
+					WHEN EXCLUDED.trial_ends_at IS NULL THEN org_billing_state.trial_ends_at
+					WHEN org_billing_state.trial_ends_at IS NULL THEN EXCLUDED.trial_ends_at
+					WHEN org_billing_state.trial_ends_at < EXCLUDED.trial_ends_at THEN EXCLUDED.trial_ends_at
+					ELSE org_billing_state.trial_ends_at
+				END,
 				scheduled_plan_code = NULL,
 				scheduled_plan_effective_at = NULL,
 				upgrade_loc_grant_current_cycle = 0,
@@ -1010,7 +1248,7 @@ func (s *SubscriptionService) ConfirmPurchase(req *PurchaseConfirmationRequest, 
 				trial_readonly = FALSE,
 				loc_blocked = FALSE,
 				updated_at = NOW()
-		`, orgID, resolvedPlanCode.String(), periodStart, periodEnd)
+		`, orgID, resolvedPlanCode.String(), periodStart, periodEnd, trialStartedAtValue, trialEndsAtValue)
 		if err != nil {
 			return fmt.Errorf("failed to update org billing state for confirmed purchase: %w", err)
 		}
@@ -1048,11 +1286,18 @@ func (s *SubscriptionService) ConfirmPurchase(req *PurchaseConfirmationRequest, 
 
 	// Log to license_log
 	metadata := map[string]interface{}{
-		"subscription_id": req.RazorpaySubscriptionID,
-		"payment_id":      payment.ID,
-		"amount":          payment.Amount,
-		"status":          payment.Status,
-		"captured":        payment.Captured,
+		"subscription_id":     req.RazorpaySubscriptionID,
+		"payment_id":          payment.ID,
+		"amount":              payment.Amount,
+		"status":              payment.Status,
+		"captured":            payment.Captured,
+		"resolved_plan_code":  resolvedPlanCode.String(),
+		"subscription_status": resolvedSubscriptionStatus,
+		"trial_applied":       trialAppliedFromNotes,
+	}
+	if trialAppliedFromNotes {
+		metadata["trial_starts_at"] = trialStartedAt.Format(time.RFC3339)
+		metadata["trial_ends_at"] = trialEndsAt.Format(time.RFC3339)
 	}
 	metadataJSON, _ := json.Marshal(metadata)
 	_, err = tx.Exec(`
