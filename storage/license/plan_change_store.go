@@ -16,6 +16,8 @@ type OrgBillingState struct {
 	LOCUsedMonth             int64
 	UpgradeLOCGrantCurrent   int64
 	UpgradeLOCGrantExpiresAt sql.NullTime
+	TrialStartedAt           sql.NullTime
+	TrialEndsAt              sql.NullTime
 	TrialReadOnly            bool
 	ScheduledPlanCode        sql.NullString
 	ScheduledPlanEffectiveAt sql.NullTime
@@ -63,6 +65,8 @@ func (s *PlanChangeStore) GetOrgBillingState(ctx context.Context, orgID int64) (
 			loc_used_month,
 			upgrade_loc_grant_current_cycle,
 			upgrade_loc_grant_expires_at,
+			trial_started_at,
+			trial_ends_at,
 			trial_readonly,
 			scheduled_plan_code,
 			scheduled_plan_effective_at
@@ -76,6 +80,8 @@ func (s *PlanChangeStore) GetOrgBillingState(ctx context.Context, orgID int64) (
 		&row.LOCUsedMonth,
 		&row.UpgradeLOCGrantCurrent,
 		&row.UpgradeLOCGrantExpiresAt,
+		&row.TrialStartedAt,
+		&row.TrialEndsAt,
 		&row.TrialReadOnly,
 		&row.ScheduledPlanCode,
 		&row.ScheduledPlanEffectiveAt,

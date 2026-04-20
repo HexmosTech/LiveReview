@@ -1199,6 +1199,12 @@ func (h *BillingActionsHandler) GetBillingStatus(c echo.Context) error {
 	if err != nil {
 		return JSONErrorWithEnvelope(c, http.StatusInternalServerError, fmt.Sprintf("failed to fetch billing state: %v", err))
 	}
+	now := time.Now().UTC()
+	trialActive := false
+	if state.TrialEndsAt.Valid {
+		trialActive = now.Before(state.TrialEndsAt.Time.UTC())
+	}
+	trialCanCancel := trialActive && !state.TrialReadOnly
 
 	plans := getSortedLOCPlans()
 	defaultPurchaseCurrency := defaultPurchaseCurrencyForRequest(c.Request())
@@ -1212,7 +1218,11 @@ func (h *BillingActionsHandler) GetBillingStatus(c echo.Context) error {
 			"billing_period_start":          state.BillingPeriodStart.Format(time.RFC3339),
 			"billing_period_end":            state.BillingPeriodEnd.Format(time.RFC3339),
 			"loc_used_month":                state.LOCUsedMonth,
+			"trial_active":                  trialActive,
+			"trial_started_at":              nullTime(state.TrialStartedAt),
+			"trial_ends_at":                 nullTime(state.TrialEndsAt),
 			"trial_readonly":                state.TrialReadOnly,
+			"trial_can_cancel":              trialCanCancel,
 			"scheduled_plan_code":           nullString(state.ScheduledPlanCode),
 			"scheduled_plan_effective_at":   nullTime(state.ScheduledPlanEffectiveAt),
 		},

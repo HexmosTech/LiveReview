@@ -13,10 +13,12 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 
 	"github.com/labstack/echo/v4"
+	storagelicense "github.com/livereview/storage/license"
 	storagepayment "github.com/livereview/storage/payment"
 )
 
@@ -117,6 +119,126 @@ func (h *RazorpayWebhookHandler) verifySignature(body []byte, signature string) 
 	return subtle.ConstantTimeCompare([]byte(signature), []byte(expectedSignature)) == 1
 }
 
+func parseTrialUnixNote(raw string) (time.Time, bool) {
+	trimmed := strings.TrimSpace(raw)
+	if trimmed == "" {
+		return time.Time{}, false
+	}
+	value, err := strconv.ParseInt(trimmed, 10, 64)
+	if err != nil || value <= 0 {
+		return time.Time{}, false
+	}
+	return time.Unix(value, 0).UTC(), true
+}
+
+func isTrueTrialNote(raw string) bool {
+	switch strings.ToLower(strings.TrimSpace(raw)) {
+	case "true", "1", "yes", "y":
+		return true
+	default:
+		return false
+	}
+}
+
+func (h *RazorpayWebhookHandler) consumeTrialEligibilityTx(ctx context.Context, tx *sql.Tx, sub *RazorpaySubscription, ownerUserID, orgID int, subscriptionID int64, resolvedPlanCode string) error {
+	notes := sub.GetNotesMap()
+	if notes == nil || !isTrueTrialNote(notes["trial_applied"]) {
+		return nil
+	}
+
+	normalizedEmail, err := storagelicense.NormalizeTrialEligibilityEmail(notes["trial_email"])
+	if err != nil {
+		return fmt.Errorf("invalid trial email note for subscription %s: %w", sub.ID, err)
+	}
+
+	reservationToken := strings.TrimSpace(notes["trial_reservation_token"])
+	if reservationToken == "" {
+		return fmt.Errorf("missing trial reservation token for subscription %s", sub.ID)
+	}
+
+	now := time.Now().UTC()
+	trialStartAt, ok := parseTrialUnixNote(notes["trial_window_start_unix"])
+	if !ok {
+		trialStartAt = now
+	}
+
+	trialEndAt, ok := parseTrialUnixNote(notes["trial_window_end_unix"])
+	if !ok && sub.StartAt > 0 {
+		trialEndAt = time.Unix(sub.StartAt, 0).UTC()
+		ok = true
+	}
+	if !ok {
+		trialEndAt = trialStartAt.AddDate(0, 0, firstPurchaseTrialDays)
+	}
+
+	trialStore := storagelicense.NewTrialEligibilityStore(h.db)
+	ownerUserIDInt64 := int64(ownerUserID)
+	orgIDInt64 := int64(orgID)
+	consumed, err := trialStore.ConsumeReservedTrialTx(ctx, tx, storagelicense.ConsumeReservedTrialInput{
+		Email:               normalizedEmail,
+		ReservationToken:    reservationToken,
+		FirstUserID:         &ownerUserIDInt64,
+		FirstOrgID:          &orgIDInt64,
+		FirstSubscriptionID: &subscriptionID,
+		FirstPlanCode:       resolvedPlanCode,
+		ConsumedAt:          now,
+	})
+	if err != nil {
+		return fmt.Errorf("consume trial eligibility for subscription %s: %w", sub.ID, err)
+	}
+	if !consumed {
+		return nil
+	}
+
+	periodStart := time.Date(now.Year(), now.Month(), 1, 0, 0, 0, 0, time.UTC)
+	periodEnd := periodStart.AddDate(0, 1, 0)
+	if sub.CurrentStart > 0 {
+		periodStart = time.Unix(sub.CurrentStart, 0).UTC()
+	}
+	if sub.CurrentEnd > 0 {
+		periodEnd = time.Unix(sub.CurrentEnd, 0).UTC()
+	}
+
+	_, err = tx.ExecContext(ctx, `
+		INSERT INTO org_billing_state (
+			org_id,
+			current_plan_code,
+			billing_period_start,
+			billing_period_end,
+			loc_used_month,
+			loc_blocked,
+			trial_started_at,
+			trial_ends_at,
+			trial_readonly,
+			last_reset_at,
+			updated_at
+		) VALUES ($1, $2, $3, $4, 0, FALSE, $5, $6, FALSE, NOW(), NOW())
+		ON CONFLICT (org_id) DO UPDATE SET
+			current_plan_code = EXCLUDED.current_plan_code,
+			billing_period_start = EXCLUDED.billing_period_start,
+			billing_period_end = EXCLUDED.billing_period_end,
+			trial_started_at = COALESCE(org_billing_state.trial_started_at, EXCLUDED.trial_started_at),
+			trial_ends_at = CASE
+				WHEN org_billing_state.trial_ends_at IS NULL THEN EXCLUDED.trial_ends_at
+				WHEN org_billing_state.trial_ends_at < EXCLUDED.trial_ends_at THEN EXCLUDED.trial_ends_at
+				ELSE org_billing_state.trial_ends_at
+			END,
+			trial_readonly = FALSE,
+			updated_at = NOW()`,
+		orgID,
+		resolvedPlanCode,
+		periodStart,
+		periodEnd,
+		trialStartAt,
+		trialEndAt,
+	)
+	if err != nil {
+		return fmt.Errorf("upsert org trial window for subscription %s: %w", sub.ID, err)
+	}
+
+	return nil
+}
+
 // processEvent routes events to appropriate handlers
 func (h *RazorpayWebhookHandler) processEvent(event *RazorpayWebhookEvent) error {
 	switch event.Event {
@@ -186,15 +308,17 @@ func (h *RazorpayWebhookHandler) handleSubscriptionAuthenticated(event *Razorpay
 	// Get subscription details
 	var subscriptionID int64
 	var ownerUserID, orgID int
+	var planType string
 	err = tx.QueryRow(`
-		SELECT id, owner_user_id, org_id
+		SELECT id, owner_user_id, org_id, plan_type
 		FROM subscriptions
 		WHERE razorpay_subscription_id = $1`,
 		sub.ID,
-	).Scan(&subscriptionID, &ownerUserID, &orgID)
+	).Scan(&subscriptionID, &ownerUserID, &orgID, &planType)
 	if err != nil {
 		return fmt.Errorf("subscription not found: %s", sub.ID)
 	}
+	resolvedPlanCode := normalizePersistedPlanCode(planType)
 
 	// Update subscription status
 	_, err = tx.Exec(`
@@ -257,6 +381,10 @@ func (h *RazorpayWebhookHandler) handleSubscriptionAuthenticated(event *Razorpay
 		return fmt.Errorf("failed to log event: %w", err)
 	}
 
+	if err := h.consumeTrialEligibilityTx(context.Background(), tx, sub, ownerUserID, orgID, subscriptionID, resolvedPlanCode.String()); err != nil {
+		return err
+	}
+
 	if err := tx.Commit(); err != nil {
 		return err
 	}
@@ -306,6 +434,7 @@ func (h *RazorpayWebhookHandler) handleSubscriptionActivated(event *RazorpayWebh
 	if err != nil {
 		return fmt.Errorf("subscription not found: %s", sub.ID)
 	}
+	resolvedPlanCode := normalizePersistedPlanCode(planType)
 
 	// Update subscription status
 	updateQuery := `
@@ -378,6 +507,10 @@ func (h *RazorpayWebhookHandler) handleSubscriptionActivated(event *RazorpayWebh
 	)
 	if err != nil {
 		return fmt.Errorf("failed to log event: %w", err)
+	}
+
+	if err := h.consumeTrialEligibilityTx(context.Background(), tx, sub, ownerUserID, orgID, subscriptionID, resolvedPlanCode.String()); err != nil {
+		return err
 	}
 
 	if err := tx.Commit(); err != nil {

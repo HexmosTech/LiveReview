@@ -8,8 +8,10 @@ Latest milestone batch note (MF-051, MF-059, MF-073, MF-074, MF-076, MF-083, MF-
 | payment.CreateOrder | added | [CreateOrder](../internal/license/payment/payment.go#L359) |
 | payment.CreateSubscriptionAt | added | [CreateSubscriptionAt](../internal/license/payment/subscription.go#L78) |
 | payment.CancelScheduledChangesByID | added | [CancelScheduledChangesByID](../internal/license/payment/subscription.go#L295) |
-| api.GetCurrentSubscription | updated | [GetCurrentSubscription](../internal/api/subscriptions_handler.go#L605) |
-| api.ListUserSubscriptions | updated | [ListUserSubscriptions](../internal/api/subscriptions_handler.go#L758) |
+| api.CreateSubscription | updated | [CreateSubscription](../internal/api/subscriptions_handler.go#L129) |
+| api.GetBillingStatus | updated | [GetBillingStatus](../internal/api/billing_actions_handler.go#L1178) |
+| api.GetCurrentSubscription | updated | [GetCurrentSubscription](../internal/api/subscriptions_handler.go#L613) |
+| api.ListUserSubscriptions | updated | [ListUserSubscriptions](../internal/api/subscriptions_handler.go#L766) |
 | payment.IssueSelfHostedJWTRequest | moved | [IssueSelfHostedJWTRequest](payment/fw_parse_client.go#L21) |
 | payment.SendBillingNotificationEmailPlaceholder | added | [SendBillingNotificationEmailPlaceholder](payment/billing_notification_sender.go#L18) |
 | jobqueue.NewWebhookHTTPClient | moved | [NewWebhookHTTPClient](jobqueue/webhook_http_client.go#L16) |

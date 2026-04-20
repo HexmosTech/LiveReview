@@ -26,6 +26,7 @@ type QuotaStatusResponse = {
   envelope?: {
     blocked?: boolean;
     trial_readonly?: boolean;
+    trial_ends_at?: string;
     usage_percent?: number;
     threshold_state?: string;
     loc_used_month?: number;
@@ -34,6 +35,38 @@ type QuotaStatusResponse = {
     billing_period_end?: string;
     upgrade_url?: string;
   };
+};
+
+type TrialBillingStatusResponse = {
+  billing?: {
+    trial_active?: boolean;
+    trial_ends_at?: string | null;
+    trial_can_cancel?: boolean;
+  };
+};
+
+const formatTrialEndsAt = (value?: string | null): string | null => {
+  const raw = String(value || '').trim();
+  if (!raw) return null;
+  const date = new Date(raw);
+  if (Number.isNaN(date.getTime())) return null;
+  return date.toLocaleString(undefined, {
+    year: 'numeric',
+    month: 'short',
+    day: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit',
+  });
+};
+
+const trialDaysRemaining = (value?: string | null): number | null => {
+  const raw = String(value || '').trim();
+  if (!raw) return null;
+  const end = new Date(raw);
+  if (Number.isNaN(end.getTime())) return null;
+  const diffMs = end.getTime() - Date.now();
+  if (diffMs <= 0) return 0;
+  return Math.max(1, Math.ceil(diffMs / (24 * 60 * 60 * 1000)));
 };
 
 const NewReview: React.FC = () => {
@@ -50,6 +83,7 @@ const NewReview: React.FC = () => {
   const [upgradeReason, setUpgradeReason] = useState<'DAILY_LIMIT' | 'NOT_ORG_CREATOR'>('DAILY_LIMIT');
   const [limitInfo, setLimitInfo] = useState<{ used: number; limit: number }>({ used: 3, limit: 3 });
   const [quotaStatus, setQuotaStatus] = useState<QuotaStatusResponse | null>(null);
+  const [trialBilling, setTrialBilling] = useState<TrialBillingStatusResponse | null>(null);
   const [showPlanUpgradeDialog, setShowPlanUpgradeDialog] = useState(false);
 
   // Load connectors when component mounts
@@ -70,11 +104,18 @@ const NewReview: React.FC = () => {
   }, []);
 
   useEffect(() => {
-    apiClient
-      .get<QuotaStatusResponse>('/quota/status')
-      .then((data) => setQuotaStatus(data))
-      .catch(() => setQuotaStatus(null));
+    Promise.all([
+      apiClient.get<QuotaStatusResponse>('/quota/status').catch((): null => null),
+      apiClient.get<TrialBillingStatusResponse>('/billing/status').catch((): null => null),
+    ]).then(([quota, billing]) => {
+      setQuotaStatus(quota);
+      setTrialBilling(billing);
+    });
   }, []);
+
+  const effectiveTrialEndsAt = String(trialBilling?.billing?.trial_ends_at || quotaStatus?.envelope?.trial_ends_at || '').trim();
+  const activeTrialDaysLeft = trialDaysRemaining(effectiveTrialEndsAt);
+  const activeTrialLabel = formatTrialEndsAt(effectiveTrialEndsAt);
 
   // Extract base URL from input URL
   const extractBaseUrl = (url: string): string => {
@@ -256,6 +297,28 @@ const NewReview: React.FC = () => {
                   usagePct={quotaStatus.envelope?.usage_percent ?? 0}
                   onUpgrade={() => navigate(quotaStatus.envelope?.upgrade_url || '/settings-subscriptions-overview')}
                 />
+              )}
+
+              {trialBilling?.billing?.trial_active && !quotaStatus?.envelope?.trial_readonly && (
+                <Alert variant="info" className="mb-4" icon={<Icons.Info />}>
+                  <div>
+                    <div className="font-medium text-blue-100">
+                      Trial active{typeof activeTrialDaysLeft === 'number' ? ` - ${activeTrialDaysLeft} day${activeTrialDaysLeft === 1 ? '' : 's'} left` : ''}
+                    </div>
+                    <div className="text-sm mt-1 text-blue-200/90">
+                      {activeTrialLabel
+                        ? `Your trial ends on ${activeTrialLabel}.`
+                        : 'Your trial is active and end time is being synchronized.'}
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => navigate(trialBilling?.billing?.trial_can_cancel ? '/settings-subscriptions-assign' : '/settings-subscriptions-overview')}
+                      className="mt-2 px-3 py-1 bg-blue-600 hover:bg-blue-500 text-white text-xs font-semibold rounded transition-colors"
+                    >
+                      {trialBilling?.billing?.trial_can_cancel ? 'Cancel Trial Now' : 'View Trial Details'}
+                    </button>
+                  </div>
+                </Alert>
               )}
 
               {/* Blocked / Trial Read-Only / Free Plan Read-Only Banner */}

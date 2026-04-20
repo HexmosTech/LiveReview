@@ -96,7 +96,11 @@ type BillingStatusResponse = {
     billing_period_start: string;
     billing_period_end: string;
     loc_used_month: number;
+    trial_active?: boolean;
+    trial_started_at?: string | null;
+    trial_ends_at?: string | null;
     trial_readonly: boolean;
+    trial_can_cancel?: boolean;
     scheduled_plan_code?: string | null;
     scheduled_plan_effective_at?: string | null;
   };
@@ -108,6 +112,7 @@ type QuotaStatusResponse = {
   envelope?: {
     blocked?: boolean;
     trial_readonly?: boolean;
+    trial_ends_at?: string;
     usage_pct?: number;
   };
 };
@@ -476,6 +481,7 @@ const OverviewTab: React.FC<{ navigate: any; mode?: 'full' | 'breakdown' | 'cont
   const isControlsMode = mode === 'controls';
   const isPlanUpgradeMode = mode === 'full';
   const [showCancelModal, setShowCancelModal] = useState(false);
+  const [cancelImmediate, setCancelImmediate] = useState(false);
   const [subscriptionId, setSubscriptionId] = useState<string | null>(null);
   const [managedSubscription, setManagedSubscription] = useState<ManagedSubscription | null>(null);
   const [pendingCancel, setPendingCancel] = useState(false);
@@ -1223,6 +1229,22 @@ const OverviewTab: React.FC<{ navigate: any; mode?: 'full' | 'breakdown' | 'cont
     return moment.tz(dateString, userTimezone).format('MMM D, YYYY, h:mm A z');
   };
 
+  const getTrialDaysRemaining = (trialEndISO: string | null | undefined): number | null => {
+    const raw = String(trialEndISO || '').trim();
+    if (!raw) {
+      return null;
+    }
+    const trialEnd = moment(raw);
+    if (!trialEnd.isValid()) {
+      return null;
+    }
+    const now = moment();
+    if (!trialEnd.isAfter(now)) {
+      return 0;
+    }
+    return Math.max(1, Math.ceil((trialEnd.valueOf() - now.valueOf()) / (24 * 60 * 60 * 1000)));
+  };
+
   const getPlanDisplayName = (plan: string) => {
     const normalized = plan.toLowerCase();
     if (normalized === 'team_32usd') return 'Team 32 USD (100k LOC)';
@@ -1266,6 +1288,10 @@ const OverviewTab: React.FC<{ navigate: any; mode?: 'full' | 'breakdown' | 'cont
   const currentLocUsed = billingStatus?.billing?.loc_used_month || 0;
   const currentLocRemaining = Math.max(0, currentLocLimit - currentLocUsed);
   const currentLocUsagePercent = currentLocLimit > 0 ? Math.min(100, Math.round((currentLocUsed / currentLocLimit) * 100)) : 0;
+  const trialActive = Boolean(billingStatus?.billing?.trial_active);
+  const trialStartsAt = billingStatus?.billing?.trial_started_at || null;
+  const trialEndsAt = billingStatus?.billing?.trial_ends_at || quotaStatus?.envelope?.trial_ends_at || null;
+  const trialDaysRemaining = getTrialDaysRemaining(trialEndsAt);
   const sortedPlansByLoc = [...(billingStatus?.available_plans || [])].sort((a, b) => a.monthly_loc_limit - b.monthly_loc_limit);
   const currentPlanIndex = sortedPlansByLoc.findIndex((plan) => plan.plan_code === currentPlanCode);
   const upgradeHierarchyPlans = currentPlanIndex >= 0 ? sortedPlansByLoc.slice(currentPlanIndex) : [];
@@ -1311,6 +1337,13 @@ const OverviewTab: React.FC<{ navigate: any; mode?: 'full' | 'breakdown' | 'cont
       : null;
   const canCancelEffectiveSubscription = Boolean(cancelTargetSubscriptionId);
   const canKeepEffectivePlan = Boolean(isControlsMode && effectivePendingCancel && effectiveSubscriptionId);
+  const trialCanCancel = Boolean(
+    canManageBilling &&
+    billingStatus?.billing?.trial_can_cancel &&
+    cancelTargetSubscriptionId &&
+    !effectivePendingCancel &&
+    !effectiveTerminalCancellation
+  );
 
   const scheduledPlanCode = billingStatus?.billing?.scheduled_plan_code || '';
   const scheduledPlan = billingStatus?.available_plans?.find((p) => p.plan_code === scheduledPlanCode);
@@ -1346,9 +1379,16 @@ const OverviewTab: React.FC<{ navigate: any; mode?: 'full' | 'breakdown' | 'cont
         ? 'PENDING EXPIRY'
         : statusIsTerminal
           ? normalizedStatus.replace('_', ' ').toUpperCase()
-          : isTeamPlan
+          : trialActive
+            ? 'TRIAL ACTIVE'
+            : isTeamPlan
             ? 'TEAM ACTIVE'
             : 'FREE PLAN';
+
+  const openCancelDialog = (immediate: boolean) => {
+    setCancelImmediate(immediate);
+    setShowCancelModal(true);
+  };
 
   const formatChargeAmount = (amountMinor?: number, rawCurrency?: string | null) => {
     if (typeof amountMinor !== 'number') return null;
@@ -1542,7 +1582,9 @@ const OverviewTab: React.FC<{ navigate: any; mode?: 'full' | 'breakdown' | 'cont
                   ? 'bg-amber-500/10 text-amber-400 border border-amber-500/40'
                   : statusLoading
                     ? 'bg-slate-700 text-slate-300 border border-slate-600'
-                    : isTeamPlan
+                    : trialActive
+                      ? 'bg-sky-900/40 text-sky-200 border border-sky-500/40'
+                      : isTeamPlan
                       ? 'bg-blue-900/40 text-blue-300'
                       : 'bg-emerald-900/40 text-emerald-300'
                 }`}>
@@ -1555,6 +1597,37 @@ const OverviewTab: React.FC<{ navigate: any; mode?: 'full' | 'breakdown' | 'cont
               </div>
             </div>
           </div>
+
+          {trialActive && (
+            <div className="mb-4 p-3 bg-sky-900/20 border border-sky-500/40 rounded-lg">
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <p className="text-sky-100 text-sm font-medium">
+                    Trial is active{typeof trialDaysRemaining === 'number' ? ` - ${trialDaysRemaining} day${trialDaysRemaining === 1 ? '' : 's'} left` : ''}
+                  </p>
+                  <p className="text-sky-100/90 text-sm mt-1">
+                    {trialEndsAt ? (
+                      <>
+                        Ends on <span className="text-white">{formatDate(trialEndsAt)}</span>
+                        {trialStartsAt ? <> (started {formatDate(trialStartsAt)})</> : null}.
+                      </>
+                    ) : (
+                      'Trial end date is being synchronized. Refresh in a moment to see precise timing.'
+                    )}
+                  </p>
+                </div>
+                {trialCanCancel && (
+                  <button
+                    type="button"
+                    onClick={() => openCancelDialog(true)}
+                    className="shrink-0 px-3 py-1.5 rounded bg-red-600 hover:bg-red-500 text-white text-xs font-semibold transition-colors"
+                  >
+                    Cancel Trial Now
+                  </button>
+                )}
+              </div>
+            </div>
+          )}
 
           {effectivePendingCancel && !autoDowngradedToFree && (
             <div className="mb-4 p-3 bg-slate-700/50 border border-slate-600 rounded-lg">
@@ -2055,7 +2128,20 @@ const OverviewTab: React.FC<{ navigate: any; mode?: 'full' | 'breakdown' | 'cont
 
               <div className="p-4 bg-slate-900/70 border border-slate-700 rounded-lg space-y-3">
                 <p className="text-sm text-slate-300 font-medium">Cancel Subscription</p>
-                {canKeepEffectivePlan ? (
+                {trialCanCancel ? (
+                  <div className="space-y-2">
+                    <p className="text-xs text-slate-400">
+                      Trial ends on {trialEndsAt ? formatDate(trialEndsAt) : 'the configured trial end date'}.
+                    </p>
+                    <button
+                      className="text-xs text-red-300 hover:text-red-200 underline underline-offset-2 disabled:opacity-60 disabled:cursor-not-allowed"
+                      disabled={keepPlanLoading || actionLoading || statusLoading || subscriptionLoading}
+                      onClick={() => openCancelDialog(true)}
+                    >
+                      Cancel Trial Now (Immediate)
+                    </button>
+                  </div>
+                ) : canKeepEffectivePlan ? (
                   <div className="space-y-2">
                     <p className="text-xs text-slate-400">Cancellation is scheduled for period end.</p>
                     <button
@@ -2071,7 +2157,7 @@ const OverviewTab: React.FC<{ navigate: any; mode?: 'full' | 'breakdown' | 'cont
                 ) : canCancelEffectiveSubscription ? (
                   <button
                     className="text-xs text-slate-300 hover:text-white underline underline-offset-2"
-                    onClick={() => setShowCancelModal(true)}
+                    onClick={() => openCancelDialog(false)}
                   >
                     Cancel Subscription
                   </button>
@@ -2162,10 +2248,14 @@ const OverviewTab: React.FC<{ navigate: any; mode?: 'full' | 'breakdown' | 'cont
       {!isBreakdownMode && cancelTargetSubscriptionId && (
         <CancelSubscriptionModal
           isOpen={showCancelModal}
-          onClose={() => setShowCancelModal(false)}
+          onClose={() => {
+            setShowCancelModal(false);
+            setCancelImmediate(false);
+          }}
           onSuccess={handleCancelSuccess}
           subscriptionId={cancelTargetSubscriptionId}
-          expiryDate={displayExpiry || managedSubscription?.current_period_end || licenseExpiresAt}
+          expiryDate={cancelImmediate ? trialEndsAt : (displayExpiry || managedSubscription?.current_period_end || licenseExpiresAt)}
+          immediate={cancelImmediate}
         />
       )}
 

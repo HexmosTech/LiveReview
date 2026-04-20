@@ -29,8 +29,12 @@ type RazorpaySubscription struct {
 	OfferID             string          `json:"offer_id,omitempty"`
 	Entity              string          `json:"entity,omitempty"`
 	// Internal fields
-	Mode     string            `json:"-"` // "test" or "live"
-	NotesMap map[string]string `json:"-"` // For sending as object when creating
+	Mode          string            `json:"-"` // "test" or "live"
+	NotesMap      map[string]string `json:"-"` // For sending as object when creating
+	TrialApplied  bool              `json:"-"`
+	TrialDays     int               `json:"-"`
+	TrialStartsAt int64             `json:"-"`
+	TrialEndsAt   int64             `json:"-"`
 }
 
 // GetNotesMap parses the Notes field and returns it as a map

@@ -770,6 +770,9 @@ func applyPreflightToEnvelopeContext(c echo.Context, result license.LOCPreflight
 	c.Set(EnvelopeThresholdStateContextKey, result.ThresholdState)
 	c.Set(EnvelopeBlockedContextKey, result.Blocked)
 	c.Set(EnvelopeTrialReadOnlyContextKey, result.TrialReadOnly)
+	if result.TrialEndsAt != nil {
+		c.Set(EnvelopeTrialEndsAtContextKey, result.TrialEndsAt.UTC().Format(time.RFC3339))
+	}
 	c.Set(EnvelopeBillingPeriodStartContextKey, result.BillingPeriodStart.Format(time.RFC3339))
 	c.Set(EnvelopeBillingPeriodEndContextKey, result.BillingPeriodEnd.Format(time.RFC3339))
 	c.Set(EnvelopeResetAtContextKey, result.BillingPeriodEnd.Format(time.RFC3339))
@@ -793,6 +796,9 @@ func applyEnvelopeUsageFromMetadata(c echo.Context, meta map[string]interface{})
 	}
 	if v, ok := readBoolMeta(meta, "trial_readonly"); ok {
 		c.Set(EnvelopeTrialReadOnlyContextKey, v)
+	}
+	if v, ok := readStringMeta(meta, "trial_ends_at"); ok {
+		c.Set(EnvelopeTrialEndsAtContextKey, v)
 	}
 	if v, ok := readStringMeta(meta, "billing_period_start"); ok {
 		c.Set(EnvelopeBillingPeriodStartContextKey, v)

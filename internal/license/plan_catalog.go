@@ -65,7 +65,7 @@ func DefaultPlanCatalog() PlanCatalog {
 				MonthlyPriceUSD:    32,
 				MonthlyLOCLimit:    100000,
 				FeatureFlags:       []string{"hosted_auto_model", "usage_envelope_v1", "byok_optional"},
-				TrialPolicy:        PlanTrialPolicy{Enabled: false, Days: 0},
+				TrialPolicy:        PlanTrialPolicy{Enabled: true, Days: 7},
 				EnvelopeVisibility: PlanEnvelopeVisibility{ShowPrice: true},
 			},
 			{
@@ -76,7 +76,7 @@ func DefaultPlanCatalog() PlanCatalog {
 				MonthlyPriceUSD:    64,
 				MonthlyLOCLimit:    200000,
 				FeatureFlags:       []string{"hosted_auto_model", "usage_envelope_v1", "byok_optional"},
-				TrialPolicy:        PlanTrialPolicy{Enabled: false, Days: 0},
+				TrialPolicy:        PlanTrialPolicy{Enabled: true, Days: 7},
 				EnvelopeVisibility: PlanEnvelopeVisibility{ShowPrice: true},
 			},
 			{
@@ -87,7 +87,7 @@ func DefaultPlanCatalog() PlanCatalog {
 				MonthlyPriceUSD:    128,
 				MonthlyLOCLimit:    400000,
 				FeatureFlags:       []string{"hosted_auto_model", "usage_envelope_v1", "byok_optional"},
-				TrialPolicy:        PlanTrialPolicy{Enabled: false, Days: 0},
+				TrialPolicy:        PlanTrialPolicy{Enabled: true, Days: 7},
 				EnvelopeVisibility: PlanEnvelopeVisibility{ShowPrice: true},
 			},
 			{
@@ -98,7 +98,7 @@ func DefaultPlanCatalog() PlanCatalog {
 				MonthlyPriceUSD:    256,
 				MonthlyLOCLimit:    800000,
 				FeatureFlags:       []string{"hosted_auto_model", "usage_envelope_v1", "byok_optional"},
-				TrialPolicy:        PlanTrialPolicy{Enabled: false, Days: 0},
+				TrialPolicy:        PlanTrialPolicy{Enabled: true, Days: 7},
 				EnvelopeVisibility: PlanEnvelopeVisibility{ShowPrice: true},
 			},
 			{
@@ -109,7 +109,7 @@ func DefaultPlanCatalog() PlanCatalog {
 				MonthlyPriceUSD:    512,
 				MonthlyLOCLimit:    1600000,
 				FeatureFlags:       []string{"hosted_auto_model", "usage_envelope_v1", "byok_optional"},
-				TrialPolicy:        PlanTrialPolicy{Enabled: false, Days: 0},
+				TrialPolicy:        PlanTrialPolicy{Enabled: true, Days: 7},
 				EnvelopeVisibility: PlanEnvelopeVisibility{ShowPrice: true},
 			},
 			{
@@ -120,7 +120,7 @@ func DefaultPlanCatalog() PlanCatalog {
 				MonthlyPriceUSD:    1024,
 				MonthlyLOCLimit:    3200000,
 				FeatureFlags:       []string{"hosted_auto_model", "usage_envelope_v1", "byok_optional"},
-				TrialPolicy:        PlanTrialPolicy{Enabled: false, Days: 0},
+				TrialPolicy:        PlanTrialPolicy{Enabled: true, Days: 7},
 				EnvelopeVisibility: PlanEnvelopeVisibility{ShowPrice: true},
 			},
 		},

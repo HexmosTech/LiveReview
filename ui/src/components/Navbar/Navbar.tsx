@@ -13,6 +13,9 @@ type NavbarBillingStatusResponse = {
         current_plan_code: string;
         billing_period_end?: string;
         loc_used_month: number;
+        trial_active?: boolean;
+        trial_ends_at?: string | null;
+        trial_can_cancel?: boolean;
     };
     available_plans: Array<{
         plan_code: string;
@@ -76,6 +79,30 @@ const formatResetAt = (value?: string): string => {
     }).format(date);
 };
 
+const trialDaysRemaining = (value?: string | null): number | null => {
+    const raw = String(value || '').trim();
+    if (!raw) return null;
+    const end = new Date(raw);
+    if (Number.isNaN(end.getTime())) return null;
+    const diffMs = end.getTime() - Date.now();
+    if (diffMs <= 0) return 0;
+    return Math.max(1, Math.ceil(diffMs / (24 * 60 * 60 * 1000)));
+};
+
+const formatTrialEndsAt = (value?: string | null): string => {
+    const raw = String(value || '').trim();
+    if (!raw) return 'Not available';
+    const date = new Date(raw);
+    if (Number.isNaN(date.getTime())) return 'Not available';
+    return new Intl.DateTimeFormat(undefined, {
+        year: 'numeric',
+        month: 'short',
+        day: 'numeric',
+        hour: 'numeric',
+        minute: '2-digit',
+    }).format(date);
+};
+
 const BillingChip: React.FC = () => {
     const navigate = useNavigate();
     const { currentOrg, isSuperAdmin } = useOrgContext();
@@ -95,6 +122,10 @@ const BillingChip: React.FC = () => {
         mySharePct: number;
         topMembers: Array<{ label: string; loc: number; share: number; kind: string }>;
         canViewTeamBreakdown: boolean;
+        trialActive: boolean;
+        trialEndsAt: string;
+        trialDaysLeft: number | null;
+        trialCanCancel: boolean;
     } | null>(null);
 
     useEffect(() => {
@@ -149,6 +180,10 @@ const BillingChip: React.FC = () => {
                     mySharePct: Number(myUsage?.member?.usage_share_percent || 0),
                     topMembers,
                     canViewTeamBreakdown,
+                    trialActive: Boolean(billing.billing.trial_active),
+                    trialEndsAt: String(billing.billing.trial_ends_at || '').trim(),
+                    trialDaysLeft: trialDaysRemaining(billing.billing.trial_ends_at),
+                    trialCanCancel: Boolean(billing.billing.trial_can_cancel),
                 });
             } catch {
                 if (!cancelled) setChip(null);
@@ -189,6 +224,8 @@ const BillingChip: React.FC = () => {
 
     const toneClass = chip?.blocked || chip?.customerState === 'action_needed' || chip?.customerState === 'payment_failed'
         ? 'bg-red-900/35 border-red-500/50 text-red-100 hover:bg-red-900/50'
+        : chip?.trialActive
+            ? 'bg-sky-900/35 border-sky-500/50 text-sky-100 hover:bg-sky-900/50'
         : chip && chip.usagePct >= 80
             ? 'bg-amber-900/35 border-amber-500/50 text-amber-100 hover:bg-amber-900/50'
             : 'bg-emerald-900/25 border-emerald-500/40 text-emerald-100 hover:bg-emerald-900/40';
@@ -209,7 +246,7 @@ const BillingChip: React.FC = () => {
                 onFocus={openPopup}
                 onBlur={closePopupSoon}
             >
-                {loading ? 'Billing...' : chip ? `${planLabel(chip.planCode)} ${chip.usagePct}%` : 'Billing'}
+                {loading ? 'Billing...' : chip ? (chip.trialActive ? `Trial ${chip.trialDaysLeft ?? '?'}d left` : `${planLabel(chip.planCode)} ${chip.usagePct}%`) : 'Billing'}
             </button>
             {chip && isOpen && (
                 <div className="pointer-events-auto absolute left-1/2 top-full z-50 mt-1 w-80 -translate-x-1/2 rounded-lg border border-slate-600 bg-slate-900/95 p-3 opacity-100 transition-all duration-150">
@@ -217,6 +254,23 @@ const BillingChip: React.FC = () => {
                     <p className="text-[11px] text-slate-400 mt-1">
                         Scope: organization usage in current billing period. Attribution is charged to the triggering actor.
                     </p>
+                    {chip.trialActive && (
+                        <div className="mt-2 rounded bg-sky-950/50 border border-sky-500/50 p-2 text-[11px]">
+                            <p className="text-sky-200 font-semibold">
+                                Trial active {typeof chip.trialDaysLeft === 'number' ? `- ${chip.trialDaysLeft} day${chip.trialDaysLeft === 1 ? '' : 's'} left` : ''}
+                            </p>
+                            <p className="text-sky-300/90 mt-0.5">Ends on {formatTrialEndsAt(chip.trialEndsAt)}</p>
+                            <button
+                                onClick={(e) => {
+                                    e.stopPropagation();
+                                    navigate('/settings-subscriptions-assign');
+                                }}
+                                className="mt-1 w-full py-1 bg-sky-600 hover:bg-sky-500 rounded text-sky-50 font-semibold transition-colors"
+                            >
+                                {chip.trialCanCancel ? 'Cancel Trial Now' : 'Open Trial Details'}
+                            </button>
+                        </div>
+                    )}
                     {/* LOC Warning / Blocked Banner */}
                     {chip.blocked && (
                         <div className="mt-2 rounded bg-red-950/60 border border-red-500/60 p-2 text-[11px]">

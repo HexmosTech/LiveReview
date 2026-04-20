@@ -169,6 +169,20 @@ CREATE FUNCTION public.river_job_state_in_bitmask(bitmask bit, state public.rive
 $$;
 
 
+--
+-- Name: trial_eligibility_set_updated_at(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.trial_eligibility_set_updated_at() RETURNS trigger
+    LANGUAGE plpgsql
+    AS $$
+BEGIN
+	NEW.updated_at = NOW();
+	RETURN NEW;
+END;
+$$;
+
+
 SET default_tablespace = '';
 
 SET default_table_access_method = heap;
@@ -1641,6 +1655,51 @@ ALTER SEQUENCE public.system_default_ai_configs_id_seq OWNED BY public.system_de
 
 
 --
+-- Name: trial_eligibility; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.trial_eligibility (
+    id bigint NOT NULL,
+    normalized_email character varying(255) NOT NULL,
+    first_user_id bigint,
+    first_org_id bigint,
+    first_subscription_id bigint,
+    first_plan_code character varying(64),
+    reservation_token character varying(128),
+    reservation_expires_at timestamp with time zone,
+    reserved_user_id bigint,
+    reserved_org_id bigint,
+    reserved_plan_code character varying(64),
+    consumed boolean DEFAULT false NOT NULL,
+    consumed_at timestamp with time zone,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT chk_trial_eligibility_consumed_window CHECK ((((consumed = true) AND (consumed_at IS NOT NULL)) OR (consumed = false))),
+    CONSTRAINT chk_trial_eligibility_email_lowercase CHECK (((normalized_email)::text = lower((normalized_email)::text))),
+    CONSTRAINT chk_trial_eligibility_reservation_pair CHECK ((((reservation_token IS NULL) AND (reservation_expires_at IS NULL)) OR ((reservation_token IS NOT NULL) AND (reservation_expires_at IS NOT NULL))))
+);
+
+
+--
+-- Name: trial_eligibility_id_seq; Type: SEQUENCE; Schema: public; Owner: -
+--
+
+CREATE SEQUENCE public.trial_eligibility_id_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+
+--
+-- Name: trial_eligibility_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: -
+--
+
+ALTER SEQUENCE public.trial_eligibility_id_seq OWNED BY public.trial_eligibility.id;
+
+
+--
 -- Name: upgrade_payment_attempts; Type: TABLE; Schema: public; Owner: -
 --
 
@@ -1692,6 +1751,57 @@ CREATE SEQUENCE public.upgrade_payment_attempts_id_seq
 --
 
 ALTER SEQUENCE public.upgrade_payment_attempts_id_seq OWNED BY public.upgrade_payment_attempts.id;
+
+
+--
+-- Name: upgrade_replacement_cutovers; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.upgrade_replacement_cutovers (
+    id bigint NOT NULL,
+    upgrade_request_id character varying(36) NOT NULL,
+    org_id bigint NOT NULL,
+    owner_user_id bigint NOT NULL,
+    old_local_subscription_id bigint NOT NULL,
+    old_razorpay_subscription_id character varying(255) NOT NULL,
+    replacement_local_subscription_id bigint,
+    replacement_razorpay_subscription_id character varying(255),
+    target_plan_code character varying(64) NOT NULL,
+    target_quantity integer NOT NULL,
+    currency character varying(16) NOT NULL,
+    cutover_at timestamp with time zone NOT NULL,
+    old_cancellation_scheduled boolean DEFAULT false NOT NULL,
+    status character varying(64) DEFAULT 'pending_provisioning'::character varying NOT NULL,
+    retry_count integer DEFAULT 0 NOT NULL,
+    next_retry_at timestamp with time zone,
+    last_error text,
+    last_attempted_at timestamp with time zone,
+    resolved_at timestamp with time zone,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT chk_upgrade_replacement_cutovers_retry_non_negative CHECK ((retry_count >= 0)),
+    CONSTRAINT chk_upgrade_replacement_cutovers_status CHECK (((status)::text = ANY ((ARRAY['pending_provisioning'::character varying, 'replacement_created'::character varying, 'old_cancellation_scheduled'::character varying, 'retry_pending'::character varying, 'manual_review_required'::character varying, 'completed'::character varying])::text[]))),
+    CONSTRAINT chk_upgrade_replacement_cutovers_target_quantity_positive CHECK ((target_quantity > 0))
+);
+
+
+--
+-- Name: upgrade_replacement_cutovers_id_seq; Type: SEQUENCE; Schema: public; Owner: -
+--
+
+CREATE SEQUENCE public.upgrade_replacement_cutovers_id_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+
+--
+-- Name: upgrade_replacement_cutovers_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: -
+--
+
+ALTER SEQUENCE public.upgrade_replacement_cutovers_id_seq OWNED BY public.upgrade_replacement_cutovers.id;
 
 
 --
@@ -2151,10 +2261,24 @@ ALTER TABLE ONLY public.system_default_ai_configs ALTER COLUMN id SET DEFAULT ne
 
 
 --
+-- Name: trial_eligibility id; Type: DEFAULT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.trial_eligibility ALTER COLUMN id SET DEFAULT nextval('public.trial_eligibility_id_seq'::regclass);
+
+
+--
 -- Name: upgrade_payment_attempts id; Type: DEFAULT; Schema: public; Owner: -
 --
 
 ALTER TABLE ONLY public.upgrade_payment_attempts ALTER COLUMN id SET DEFAULT nextval('public.upgrade_payment_attempts_id_seq'::regclass);
+
+
+--
+-- Name: upgrade_replacement_cutovers id; Type: DEFAULT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.upgrade_replacement_cutovers ALTER COLUMN id SET DEFAULT nextval('public.upgrade_replacement_cutovers_id_seq'::regclass);
 
 
 --
@@ -2576,6 +2700,22 @@ ALTER TABLE ONLY public.system_default_ai_configs
 
 
 --
+-- Name: trial_eligibility trial_eligibility_normalized_email_key; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.trial_eligibility
+    ADD CONSTRAINT trial_eligibility_normalized_email_key UNIQUE (normalized_email);
+
+
+--
+-- Name: trial_eligibility trial_eligibility_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.trial_eligibility
+    ADD CONSTRAINT trial_eligibility_pkey PRIMARY KEY (id);
+
+
+--
 -- Name: upgrade_payment_attempts upgrade_payment_attempts_pkey; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -2589,6 +2729,22 @@ ALTER TABLE ONLY public.upgrade_payment_attempts
 
 ALTER TABLE ONLY public.upgrade_payment_attempts
     ADD CONSTRAINT upgrade_payment_attempts_razorpay_order_id_key UNIQUE (razorpay_order_id);
+
+
+--
+-- Name: upgrade_replacement_cutovers upgrade_replacement_cutovers_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.upgrade_replacement_cutovers
+    ADD CONSTRAINT upgrade_replacement_cutovers_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: upgrade_replacement_cutovers upgrade_replacement_cutovers_upgrade_request_id_key; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.upgrade_replacement_cutovers
+    ADD CONSTRAINT upgrade_replacement_cutovers_upgrade_request_id_key UNIQUE (upgrade_request_id);
 
 
 --
@@ -3426,6 +3582,20 @@ CREATE INDEX idx_subscriptions_status ON public.subscriptions USING btree (statu
 
 
 --
+-- Name: idx_trial_eligibility_consumed; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_trial_eligibility_consumed ON public.trial_eligibility USING btree (consumed, consumed_at DESC);
+
+
+--
+-- Name: idx_trial_eligibility_reservation_expires; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_trial_eligibility_reservation_expires ON public.trial_eligibility USING btree (reservation_expires_at) WHERE (reservation_expires_at IS NOT NULL);
+
+
+--
 -- Name: idx_upgrade_payment_attempts_execute_key; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -3465,6 +3635,27 @@ CREATE INDEX idx_upgrade_payment_attempts_request ON public.upgrade_payment_atte
 --
 
 CREATE INDEX idx_upgrade_payment_attempts_status ON public.upgrade_payment_attempts USING btree (status);
+
+
+--
+-- Name: idx_upgrade_replacement_cutovers_cutover_at; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_upgrade_replacement_cutovers_cutover_at ON public.upgrade_replacement_cutovers USING btree (cutover_at, status);
+
+
+--
+-- Name: idx_upgrade_replacement_cutovers_next_retry; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_upgrade_replacement_cutovers_next_retry ON public.upgrade_replacement_cutovers USING btree (next_retry_at) WHERE (next_retry_at IS NOT NULL);
+
+
+--
+-- Name: idx_upgrade_replacement_cutovers_org_status; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_upgrade_replacement_cutovers_org_status ON public.upgrade_replacement_cutovers USING btree (org_id, status, updated_at DESC);
 
 
 --
@@ -3766,6 +3957,13 @@ CREATE TRIGGER trg_quota_operation_aggregates_updated_at BEFORE UPDATE ON public
 --
 
 CREATE TRIGGER trg_quota_policy_catalog_updated_at BEFORE UPDATE ON public.quota_policy_catalog FOR EACH ROW EXECUTE FUNCTION public.quota_policy_catalog_set_updated_at();
+
+
+--
+-- Name: trial_eligibility trg_trial_eligibility_updated_at; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER trg_trial_eligibility_updated_at BEFORE UPDATE ON public.trial_eligibility FOR EACH ROW EXECUTE FUNCTION public.trial_eligibility_set_updated_at();
 
 
 --
@@ -4161,6 +4359,86 @@ ALTER TABLE ONLY public.subscriptions
 
 
 --
+-- Name: trial_eligibility trial_eligibility_first_org_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.trial_eligibility
+    ADD CONSTRAINT trial_eligibility_first_org_id_fkey FOREIGN KEY (first_org_id) REFERENCES public.orgs(id) ON DELETE SET NULL;
+
+
+--
+-- Name: trial_eligibility trial_eligibility_first_subscription_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.trial_eligibility
+    ADD CONSTRAINT trial_eligibility_first_subscription_id_fkey FOREIGN KEY (first_subscription_id) REFERENCES public.subscriptions(id) ON DELETE SET NULL;
+
+
+--
+-- Name: trial_eligibility trial_eligibility_first_user_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.trial_eligibility
+    ADD CONSTRAINT trial_eligibility_first_user_id_fkey FOREIGN KEY (first_user_id) REFERENCES public.users(id);
+
+
+--
+-- Name: trial_eligibility trial_eligibility_reserved_org_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.trial_eligibility
+    ADD CONSTRAINT trial_eligibility_reserved_org_id_fkey FOREIGN KEY (reserved_org_id) REFERENCES public.orgs(id) ON DELETE SET NULL;
+
+
+--
+-- Name: trial_eligibility trial_eligibility_reserved_user_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.trial_eligibility
+    ADD CONSTRAINT trial_eligibility_reserved_user_id_fkey FOREIGN KEY (reserved_user_id) REFERENCES public.users(id);
+
+
+--
+-- Name: upgrade_replacement_cutovers upgrade_replacement_cutovers_old_local_subscription_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.upgrade_replacement_cutovers
+    ADD CONSTRAINT upgrade_replacement_cutovers_old_local_subscription_id_fkey FOREIGN KEY (old_local_subscription_id) REFERENCES public.subscriptions(id) ON DELETE RESTRICT;
+
+
+--
+-- Name: upgrade_replacement_cutovers upgrade_replacement_cutovers_org_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.upgrade_replacement_cutovers
+    ADD CONSTRAINT upgrade_replacement_cutovers_org_id_fkey FOREIGN KEY (org_id) REFERENCES public.orgs(id) ON DELETE CASCADE;
+
+
+--
+-- Name: upgrade_replacement_cutovers upgrade_replacement_cutovers_owner_user_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.upgrade_replacement_cutovers
+    ADD CONSTRAINT upgrade_replacement_cutovers_owner_user_id_fkey FOREIGN KEY (owner_user_id) REFERENCES public.users(id) ON DELETE RESTRICT;
+
+
+--
+-- Name: upgrade_replacement_cutovers upgrade_replacement_cutovers_replacement_local_subscriptio_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.upgrade_replacement_cutovers
+    ADD CONSTRAINT upgrade_replacement_cutovers_replacement_local_subscriptio_fkey FOREIGN KEY (replacement_local_subscription_id) REFERENCES public.subscriptions(id) ON DELETE SET NULL;
+
+
+--
+-- Name: upgrade_replacement_cutovers upgrade_replacement_cutovers_upgrade_request_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.upgrade_replacement_cutovers
+    ADD CONSTRAINT upgrade_replacement_cutovers_upgrade_request_id_fkey FOREIGN KEY (upgrade_request_id) REFERENCES public.upgrade_requests(upgrade_request_id) ON DELETE CASCADE;
+
+
+--
 -- Name: upgrade_request_events upgrade_request_events_org_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -4392,4 +4670,6 @@ INSERT INTO public.schema_migrations (version) VALUES
     ('20260403124500'),
     ('20260403130000'),
     ('20260403151832'),
-    ('20260411170000');
+    ('20260411170000'),
+    ('20260419193000'),
+    ('20260420140334');

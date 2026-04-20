@@ -8,6 +8,7 @@ export interface CancelSubscriptionModalProps {
     onSuccess?: () => void;
     subscriptionId: string;
     expiryDate: string | null | undefined;
+    immediate?: boolean;
 }
 
 export const CancelSubscriptionModal: React.FC<CancelSubscriptionModalProps> = ({
@@ -16,6 +17,7 @@ export const CancelSubscriptionModal: React.FC<CancelSubscriptionModalProps> = (
     onSuccess,
     subscriptionId,
     expiryDate,
+    immediate = false,
 }) => {
     const [isSubmitting, setIsSubmitting] = useState(false);
     const [showSuccess, setShowSuccess] = useState(false);
@@ -52,7 +54,7 @@ export const CancelSubscriptionModal: React.FC<CancelSubscriptionModalProps> = (
 
         try {
             await apiClient.post(`/subscriptions/${subscriptionId}/cancel`, {
-                immediate: false, // Cancel at end of billing cycle
+                immediate,
             });
 
             // Show success message
@@ -110,7 +112,9 @@ export const CancelSubscriptionModal: React.FC<CancelSubscriptionModalProps> = (
                             </div>
                             <div>
                                 <h3 className="text-lg font-semibold text-white mb-1">Subscription Cancelled</h3>
-                                <p className="text-sm text-slate-400">Your subscription will not renew</p>
+                                <p className="text-sm text-slate-400">
+                                    {immediate ? 'Your trial has ended immediately' : 'Your subscription will not renew'}
+                                </p>
                             </div>
                         </div>
                     </div>
@@ -125,7 +129,7 @@ export const CancelSubscriptionModal: React.FC<CancelSubscriptionModalProps> = (
                                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
                                 </svg>
                             </div>
-                            <h2 className="text-xl font-semibold text-white">Cancel Subscription</h2>
+                            <h2 className="text-xl font-semibold text-white">{immediate ? 'Cancel Trial' : 'Cancel Subscription'}</h2>
                         </div>
                         <button
                             onClick={handleClose}
@@ -157,7 +161,7 @@ export const CancelSubscriptionModal: React.FC<CancelSubscriptionModalProps> = (
 
                             <div className="space-y-3">
                                 <p className="text-slate-300">
-                                    Are you sure you want to cancel your subscription?
+                                    {immediate ? 'Are you sure you want to cancel your trial immediately?' : 'Are you sure you want to cancel your subscription?'}
                                 </p>
 
                                 {error && (
@@ -177,18 +181,33 @@ export const CancelSubscriptionModal: React.FC<CancelSubscriptionModalProps> = (
                                         </div>
                                     </div>
                                     <ul className="ml-7 space-y-2 text-sm text-amber-100">
-                                        <li className="flex items-start">
-                                            <span className="mr-2">•</span>
-                                            <span>Your subscription will remain active until <strong className="font-semibold">{formatDate(expiryDate)}</strong></span>
-                                        </li>
-                                        <li className="flex items-start">
-                                            <span className="mr-2">•</span>
-                                            <span>You'll continue to have full access until the end of your current billing period</span>
-                                        </li>
-                                        <li className="flex items-start">
-                                            <span className="mr-2">•</span>
-                                            <span>After expiry, your plan will automatically revert to the Free plan</span>
-                                        </li>
+                                        {immediate ? (
+                                            <>
+                                                <li className="flex items-start">
+                                                    <span className="mr-2">•</span>
+                                                    <span>Your trial access ends immediately</span>
+                                                </li>
+                                                <li className="flex items-start">
+                                                    <span className="mr-2">•</span>
+                                                    <span>Your organization will move to the Free plan right away</span>
+                                                </li>
+                                            </>
+                                        ) : (
+                                            <>
+                                                <li className="flex items-start">
+                                                    <span className="mr-2">•</span>
+                                                    <span>Your subscription will remain active until <strong className="font-semibold">{formatDate(expiryDate)}</strong></span>
+                                                </li>
+                                                <li className="flex items-start">
+                                                    <span className="mr-2">•</span>
+                                                    <span>You'll continue to have full access until the end of your current billing period</span>
+                                                </li>
+                                                <li className="flex items-start">
+                                                    <span className="mr-2">•</span>
+                                                    <span>After expiry, your plan will automatically revert to the Free plan</span>
+                                                </li>
+                                            </>
+                                        )}
                                         <li className="flex items-start">
                                             <span className="mr-2">•</span>
                                             <span>No further charges will be made</span>
@@ -204,7 +223,7 @@ export const CancelSubscriptionModal: React.FC<CancelSubscriptionModalProps> = (
                                         </svg>
                                         <div className="text-sm text-blue-200">
                                             <p className="mb-1"><strong className="font-semibold">Keep your team productive!</strong></p>
-                                            <p>With unlimited reviews and priority support, your team can maintain velocity. You can always resubscribe later if you change your mind.</p>
+                                            <p>{immediate ? 'You can keep using your trial until it ends if you are still evaluating.' : 'With unlimited reviews and priority support, your team can maintain velocity. You can always resubscribe later if you change your mind.'}</p>
                                         </div>
                                     </div>
                                 </div>
@@ -222,14 +241,14 @@ export const CancelSubscriptionModal: React.FC<CancelSubscriptionModalProps> = (
                                 {isSubmitting ? (
                                     <>
                                         <div className="w-4 h-4 border-2 border-red-300 border-t-transparent rounded-full animate-spin"></div>
-                                        <span>Cancelling...</span>
+                                        <span>{immediate ? 'Cancelling trial...' : 'Cancelling...'}</span>
                                     </>
                                 ) : (
                                     <>
                                         <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
                                         </svg>
-                                        <span>Cancel Subscription</span>
+                                        <span>{immediate ? 'Cancel Trial Now' : 'Cancel Subscription'}</span>
                                     </>
                                 )}
                             </button>
@@ -240,7 +259,7 @@ export const CancelSubscriptionModal: React.FC<CancelSubscriptionModalProps> = (
                                 autoFocus
                                 className="px-5 py-2.5 text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed min-w-[160px]"
                             >
-                                Keep Subscription
+                                {immediate ? 'Keep Trial Active' : 'Keep Subscription'}
                             </button>
                         </div>
                     </>
