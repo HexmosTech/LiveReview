@@ -221,12 +221,52 @@ func (s *SubscriptionStore) CancelSubscriptionRecord(input CancelSubscriptionRec
 		if err != nil {
 			return fmt.Errorf("failed to update user_roles: %w", err)
 		}
+
+		now := time.Now().UTC()
+		periodStart := time.Date(now.Year(), now.Month(), 1, 0, 0, 0, 0, time.UTC)
+		periodEnd := periodStart.AddDate(0, 1, 0)
+
+		_, err = tx.Exec(`
+			INSERT INTO org_billing_state (
+				org_id,
+				current_plan_code,
+				billing_period_start,
+				billing_period_end,
+				loc_used_month,
+				loc_blocked,
+				trial_started_at,
+				trial_ends_at,
+				trial_readonly,
+				last_reset_at,
+				updated_at
+			) VALUES ($1, 'free_30k', $2, $3, 0, FALSE, NULL, NULL, FALSE, NOW(), NOW())
+			ON CONFLICT (org_id) DO UPDATE SET
+				current_plan_code = 'free_30k',
+				billing_period_start = $2,
+				billing_period_end = $3,
+				scheduled_plan_code = NULL,
+				scheduled_plan_effective_at = NULL,
+				upgrade_loc_grant_current_cycle = 0,
+				upgrade_loc_grant_expires_at = NULL,
+				trial_started_at = NULL,
+				trial_ends_at = NULL,
+				trial_readonly = FALSE,
+				loc_blocked = FALSE,
+				updated_at = NOW()`,
+			orgID,
+			periodStart,
+			periodEnd,
+		)
+		if err != nil {
+			return fmt.Errorf("failed to reset org billing state on immediate cancellation: %w", err)
+		}
 	}
 
 	metadata := map[string]interface{}{
-		"subscription_id": input.SubscriptionID,
-		"immediate":       input.Immediate,
-		"status":          input.Status,
+		"subscription_id":          input.SubscriptionID,
+		"immediate":                input.Immediate,
+		"status":                   input.Status,
+		"org_billing_state_synced": input.Immediate,
 	}
 	metadataJSON, err := json.Marshal(metadata)
 	if err != nil {
@@ -350,6 +390,8 @@ func (s *SubscriptionStore) DowngradeExpiredRoleForUserOrg(ctx context.Context, 
 		    scheduled_plan_effective_at = NULL,
 		    upgrade_loc_grant_current_cycle = 0,
 		    upgrade_loc_grant_expires_at = NULL,
+		    trial_started_at = NULL,
+		    trial_ends_at = NULL,
 		    trial_readonly = FALSE,
 		    loc_blocked = FALSE,
 		    updated_at = NOW()
@@ -490,6 +532,8 @@ func (s *SubscriptionStore) reconcileExpiredSubscriptions(ctx context.Context, o
 		    scheduled_plan_effective_at = NULL,
 		    upgrade_loc_grant_current_cycle = 0,
 		    upgrade_loc_grant_expires_at = NULL,
+		    trial_started_at = NULL,
+		    trial_ends_at = NULL,
 		    trial_readonly = FALSE,
 		    loc_blocked = FALSE,
 		    updated_at = NOW()

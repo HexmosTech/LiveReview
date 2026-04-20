@@ -1,6 +1,6 @@
 # Network Status
 
-Latest milestone batch note (MF-051, MF-059, MF-073, MF-074, MF-076, MF-083, MF-LOC-001, MF-LOC-002, MF-LOC-003, MF-LOC-004, MF-LOC-005, MF-LOC-006, MF-LOC-007, MF-LOC-008, MF-PRORATION-001, MF-PRORATION-002, MF-PRORATION-003, MF-ATTRIB-001, MF-ATTRIB-002, MF-PORTFOLIO-001, MF-NOTIFY-001, MF-NOTIFY-002, MF-DASHBOARD-LOG-001, MF-EXPIRY-001, MF-UPI-UPGRADE-001, MF-UPI-UPGRADE-002, MF-UPI-UPGRADE-003, MF-UPI-UPGRADE-004): added replacement-cutover current-subscription fallback selection and kept org-scoped subscription listing on the settings API path.
+Latest milestone batch note (MF-051, MF-059, MF-073, MF-074, MF-076, MF-083, MF-LOC-001, MF-LOC-002, MF-LOC-003, MF-LOC-004, MF-LOC-005, MF-LOC-006, MF-LOC-007, MF-LOC-008, MF-PRORATION-001, MF-PRORATION-002, MF-PRORATION-003, MF-ATTRIB-001, MF-ATTRIB-002, MF-PORTFOLIO-001, MF-NOTIFY-001, MF-NOTIFY-002, MF-DASHBOARD-LOG-001, MF-EXPIRY-001, MF-UPI-UPGRADE-001, MF-UPI-UPGRADE-002, MF-UPI-UPGRADE-003, MF-UPI-UPGRADE-004, MF-TRIAL-CANCEL-001): added replacement-cutover current-subscription fallback selection, kept org-scoped subscription listing on the settings API path, and tracked trial-immediate cancellation endpoint behavior used by settings controls.
 
 | Operation | Status | Evidence |
 | --- | --- | --- |
@@ -9,6 +9,7 @@ Latest milestone batch note (MF-051, MF-059, MF-073, MF-074, MF-076, MF-083, MF-
 | payment.CreateSubscriptionAt | added | [CreateSubscriptionAt](../internal/license/payment/subscription.go#L78) |
 | payment.CancelScheduledChangesByID | added | [CancelScheduledChangesByID](../internal/license/payment/subscription.go#L295) |
 | api.CreateSubscription | updated | [CreateSubscription](../internal/api/subscriptions_handler.go#L129) |
+| api.CancelSubscription | updated | [CancelSubscription](../internal/api/subscriptions_handler.go#L287) |
 | api.GetBillingStatus | updated | [GetBillingStatus](../internal/api/billing_actions_handler.go#L1178) |
 | api.GetCurrentSubscription | updated | [GetCurrentSubscription](../internal/api/subscriptions_handler.go#L620) |
 | api.ListUserSubscriptions | updated | [ListUserSubscriptions](../internal/api/subscriptions_handler.go#L773) |
