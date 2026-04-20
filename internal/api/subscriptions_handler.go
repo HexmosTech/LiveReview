@@ -213,6 +213,14 @@ func (h *SubscriptionsHandler) CreateSubscription(c echo.Context) error {
 		"short_url":                sub.ShortURL,
 		"current_period_start":     sub.CurrentStart,
 		"current_period_end":       sub.CurrentEnd,
+		"trial_applied":            sub.TrialApplied,
+		"trial_days":               sub.TrialDays,
+	}
+	if sub.TrialStartsAt > 0 {
+		response["trial_started_at"] = time.Unix(sub.TrialStartsAt, 0).UTC().Format(time.RFC3339)
+	}
+	if sub.TrialEndsAt > 0 {
+		response["trial_ends_at"] = time.Unix(sub.TrialEndsAt, 0).UTC().Format(time.RFC3339)
 	}
 
 	return c.JSON(http.StatusCreated, response)

@@ -17,6 +17,7 @@ import (
 	"github.com/livereview/internal/aidefault"
 	"github.com/livereview/internal/license"
 	networkpayment "github.com/livereview/network/payment"
+	storagelicense "github.com/livereview/storage/license"
 	storagepayment "github.com/livereview/storage/payment"
 	"golang.org/x/crypto/bcrypt"
 )
@@ -26,6 +27,7 @@ const (
 	PricingProfileLowPricingTest = "low_pricing_test"
 	CurrencyUSD                  = "USD"
 	CurrencyINR                  = "INR"
+	firstPurchaseTrialDays       = 7
 )
 
 // NormalizeCurrency validates and returns a supported billing currency.
@@ -177,6 +179,50 @@ func normalizePersistedPlanCode(raw string) license.PlanType {
 	}
 }
 
+func generateTrialReservationToken() (string, error) {
+	b := make([]byte, 16)
+	if _, err := rand.Read(b); err != nil {
+		return "", fmt.Errorf("generate trial reservation token: %w", err)
+	}
+	return hex.EncodeToString(b), nil
+}
+
+func computeTrialWindow(now time.Time, days int) (int64, int64, int64) {
+	trialStart := now.UTC()
+	if days <= 0 {
+		days = firstPurchaseTrialDays
+	}
+	trialEnd := trialStart.AddDate(0, 0, days)
+	return trialEnd.Unix(), trialStart.Unix(), trialEnd.Unix()
+}
+
+func (s *SubscriptionService) lookupUserEmail(ctx context.Context, userID int) (string, error) {
+	if userID <= 0 {
+		return "", fmt.Errorf("owner user id must be > 0")
+	}
+
+	var email sql.NullString
+	err := s.db.QueryRowContext(ctx, `
+		SELECT email
+		FROM users
+		WHERE id = $1
+		LIMIT 1`, userID,
+	).Scan(&email)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return "", fmt.Errorf("owner user not found: %d", userID)
+		}
+		return "", fmt.Errorf("query owner user email: %w", err)
+	}
+
+	trimmed := strings.TrimSpace(email.String)
+	if trimmed == "" {
+		return "", fmt.Errorf("owner user email is empty for user id: %d", userID)
+	}
+
+	return trimmed, nil
+}
+
 // CreateTeamSubscription creates a new monthly LOC slab subscription via Razorpay and persists to DB.
 func (s *SubscriptionService) CreateTeamSubscription(ownerUserID, orgID int, planCode string, mode, currency string) (*RazorpaySubscription, error) {
 	persistedPlanCode := license.PlanType(strings.TrimSpace(planCode))
@@ -207,17 +253,76 @@ func (s *SubscriptionService) CreateTeamSubscription(ownerUserID, orgID int, pla
 		return nil, fmt.Errorf("razorpay monthly plan ID not configured in %s mode", mode)
 	}
 
+	ctx := context.Background()
+	ownerEmail, err := s.lookupUserEmail(ctx, ownerUserID)
+	if err != nil {
+		return nil, err
+	}
+
+	normalizedEmail, err := storagelicense.NormalizeTrialEligibilityEmail(ownerEmail)
+	if err != nil {
+		return nil, err
+	}
+
+	trialStore := storagelicense.NewTrialEligibilityStore(s.db)
+	trialReservationToken, err := generateTrialReservationToken()
+	if err != nil {
+		return nil, err
+	}
+
+	ownerUserIDInt64 := int64(ownerUserID)
+	orgIDInt64 := int64(orgID)
+	reservationState, err := trialStore.ReserveFirstPurchaseTrial(ctx, storagelicense.ReserveFirstPurchaseTrialInput{
+		Email:            normalizedEmail,
+		ReservationToken: trialReservationToken,
+		ReservationTTL:   30 * time.Minute,
+		ReservedUserID:   &ownerUserIDInt64,
+		ReservedOrgID:    &orgIDInt64,
+		ReservedPlanCode: persistedPlanCode.String(),
+	})
+	if err != nil {
+		if errors.Is(err, storagelicense.ErrTrialEligibilityConsumed) {
+			reservationState.Consumed = true
+		} else if errors.Is(err, storagelicense.ErrTrialEligibilityReserved) {
+			return nil, fmt.Errorf("trial eligibility reservation already in progress for this email; retry shortly")
+		} else {
+			return nil, fmt.Errorf("reserve trial eligibility: %w", err)
+		}
+	}
+
+	trialApplied := !reservationState.Consumed
+	var trialStartAtUnix int64
+	var trialWindowStartUnix int64
+	var trialWindowEndUnix int64
+	if trialApplied {
+		trialStartAtUnix, trialWindowStartUnix, trialWindowEndUnix = computeTrialWindow(time.Now().UTC(), firstPurchaseTrialDays)
+	}
+
 	// Create notes for the subscription
 	notes := map[string]string{
 		"owner_user_id": fmt.Sprintf("%d", ownerUserID),
 		"org_id":        fmt.Sprintf("%d", orgID),
 		"plan_type":     persistedPlanCode.String(),
 		"currency":      resolvedCurrency,
+		"trial_applied": fmt.Sprintf("%t", trialApplied),
+		"trial_email":   normalizedEmail,
+	}
+	if trialApplied {
+		notes["trial_days"] = fmt.Sprintf("%d", firstPurchaseTrialDays)
+		notes["trial_reservation_token"] = trialReservationToken
+		notes["trial_window_start_unix"] = fmt.Sprintf("%d", trialWindowStartUnix)
+		notes["trial_window_end_unix"] = fmt.Sprintf("%d", trialWindowEndUnix)
 	}
 
 	// Create subscription in Razorpay
-	sub, err := CreateSubscription(mode, razorpayPlanID, quantity, notes)
+	sub, err := CreateSubscriptionAt(mode, razorpayPlanID, quantity, notes, trialStartAtUnix)
 	if err != nil {
+		if trialApplied {
+			_ = trialStore.ReleaseTrialReservation(ctx, storagelicense.ReleaseTrialReservationInput{
+				Email:            normalizedEmail,
+				ReservationToken: trialReservationToken,
+			})
+		}
 		return nil, fmt.Errorf("failed to create razorpay subscription: %w", err)
 	}
 
@@ -259,6 +364,13 @@ func (s *SubscriptionService) CreateTeamSubscription(ownerUserID, orgID int, pla
 	})
 	if err != nil {
 		return nil, fmt.Errorf("failed to persist subscription: %w", err)
+	}
+
+	sub.TrialApplied = trialApplied
+	if trialApplied {
+		sub.TrialDays = firstPurchaseTrialDays
+		sub.TrialStartsAt = trialWindowStartUnix
+		sub.TrialEndsAt = trialWindowEndUnix
 	}
 
 	return sub, nil
