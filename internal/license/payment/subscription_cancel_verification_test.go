@@ -2,6 +2,7 @@ package payment
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"errors"
 	"strings"
@@ -55,14 +56,17 @@ func TestCancellationVerifiedCycleEndWithExplicitProviderMarker(t *testing.T) {
 	}
 }
 
-func TestCancellationVerifiedCycleEndWithCancelAPIAcknowledgementOnlyIsVerified(t *testing.T) {
+func TestCancellationVerifiedCycleEndWithCancelAPIAcknowledgementOnlyIsNotVerified(t *testing.T) {
 	pre := &RazorpaySubscription{ID: "sub_123", Status: "active", EndAt: 2000, ChargeAt: 1500, RemainingCount: 5}
 	cancelResp := &RazorpaySubscription{ID: "sub_123", Status: "active"}
 	post := &RazorpaySubscription{ID: "sub_123", Status: "active", EndAt: 2000, ChargeAt: 1500, RemainingCount: 5}
 
 	ok, reason := cancellationVerified(pre, cancelResp, post, false)
-	if !ok {
-		t.Fatalf("expected acknowledgement-only cycle-end cancellation to verify, got reason: %s", reason)
+	if ok {
+		t.Fatalf("expected acknowledgement-only cycle-end cancellation to remain unverified")
+	}
+	if reason == "" {
+		t.Fatalf("expected non-empty reason when only cancel API acknowledgement is present")
 	}
 }
 
@@ -148,6 +152,80 @@ func TestVerifyCancellationWithRetryReturnsFetchErrorAfterExhaustion(t *testing.
 	}
 	if !errors.Is(err, wantErr) {
 		t.Fatalf("expected fetch error %v, got %v", wantErr, err)
+	}
+}
+
+func TestResolveCancelAtPeriodEndAfterCharge(t *testing.T) {
+	now := time.Now().UTC()
+
+	tests := []struct {
+		name                      string
+		existingCancelAtPeriodEnd bool
+		existingCurrentPeriodEnd  sql.NullTime
+		sub                       *RazorpaySubscription
+		wantCancelAtPeriodEnd     bool
+		wantReason                string
+	}{
+		{
+			name:                      "provider marker keeps pending cancel",
+			existingCancelAtPeriodEnd: false,
+			existingCurrentPeriodEnd:  sql.NullTime{Time: now, Valid: true},
+			sub:                       &RazorpaySubscription{CurrentEnd: now.Add(24 * time.Hour).Unix(), CancelAtCycleEnd: true},
+			wantCancelAtPeriodEnd:     true,
+			wantReason:                "provider_cycle_end_marker",
+		},
+		{
+			name:                      "no local pending cancel stays cleared",
+			existingCancelAtPeriodEnd: false,
+			existingCurrentPeriodEnd:  sql.NullTime{Time: now, Valid: true},
+			sub:                       &RazorpaySubscription{CurrentEnd: now.Add(24 * time.Hour).Unix()},
+			wantCancelAtPeriodEnd:     false,
+			wantReason:                "no_local_pending_cancellation",
+		},
+		{
+			name:                      "missing provider end preserves pending cancel",
+			existingCancelAtPeriodEnd: true,
+			existingCurrentPeriodEnd:  sql.NullTime{Time: now, Valid: true},
+			sub:                       &RazorpaySubscription{CurrentEnd: 0},
+			wantCancelAtPeriodEnd:     true,
+			wantReason:                "preserve_pending_cancellation_missing_provider_period_end",
+		},
+		{
+			name:                      "missing local end preserves pending cancel",
+			existingCancelAtPeriodEnd: true,
+			existingCurrentPeriodEnd:  sql.NullTime{Valid: false},
+			sub:                       &RazorpaySubscription{CurrentEnd: now.Add(24 * time.Hour).Unix()},
+			wantCancelAtPeriodEnd:     true,
+			wantReason:                "preserve_pending_cancellation_missing_local_period_end",
+		},
+		{
+			name:                      "cycle advancement without marker clears pending cancel",
+			existingCancelAtPeriodEnd: true,
+			existingCurrentPeriodEnd:  sql.NullTime{Time: now, Valid: true},
+			sub:                       &RazorpaySubscription{CurrentEnd: now.Add(24 * time.Hour).Unix()},
+			wantCancelAtPeriodEnd:     false,
+			wantReason:                "cleared_pending_cancellation_cycle_advanced_without_marker",
+		},
+		{
+			name:                      "no cycle advancement preserves pending cancel",
+			existingCancelAtPeriodEnd: true,
+			existingCurrentPeriodEnd:  sql.NullTime{Time: now.Add(24 * time.Hour), Valid: true},
+			sub:                       &RazorpaySubscription{CurrentEnd: now.Unix()},
+			wantCancelAtPeriodEnd:     true,
+			wantReason:                "preserve_pending_cancellation_no_cycle_advance",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			gotCancelAtPeriodEnd, gotReason := resolveCancelAtPeriodEndAfterCharge(tt.existingCancelAtPeriodEnd, tt.existingCurrentPeriodEnd, tt.sub)
+			if gotCancelAtPeriodEnd != tt.wantCancelAtPeriodEnd {
+				t.Fatalf("unexpected cancel_at_period_end: want %t, got %t", tt.wantCancelAtPeriodEnd, gotCancelAtPeriodEnd)
+			}
+			if gotReason != tt.wantReason {
+				t.Fatalf("unexpected reason: want %q, got %q", tt.wantReason, gotReason)
+			}
+		})
 	}
 }
 

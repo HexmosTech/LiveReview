@@ -1,27 +1,28 @@
 # Storage Status
 
-Latest milestone batch note (MF-LOC-007, MF-LOC-008, MF-PRORATION-003, MF-ATTRIB-001, MF-ATTRIB-002, MF-PORTFOLIO-001, MF-NOTIFY-001, MF-DASHBOARD-LOG-001, MF-EXPIRY-001): added member-attribution storage groundwork, member-usage rollups, payment-attempt lookup for customer state, superadmin billing portfolio storage views, billing notification outbox persistence, dashboard scheduler leader-lock storage operations, automatic paid-plan expiry reconciliation persistence, and quota policy + batch settlement + operation aggregate storage operations.
+Latest milestone batch note (MF-LOC-007, MF-LOC-008, MF-PRORATION-003, MF-ATTRIB-001, MF-ATTRIB-002, MF-PORTFOLIO-001, MF-NOTIFY-001, MF-DASHBOARD-LOG-001, MF-EXPIRY-001, MF-CANCEL-VERIFY-001, MF-CANCEL-PROJECTION-001): added member-attribution storage groundwork, member-usage rollups, payment-attempt lookup for customer state, superadmin billing portfolio storage views, billing notification outbox persistence, dashboard scheduler leader-lock storage operations, automatic paid-plan expiry reconciliation persistence, quota policy + batch settlement + operation aggregate storage operations, and a shared transaction-level org free-plan projection helper used by terminal subscription webhook flows.
 
 | Operation | Status | Evidence |
 | --- | --- | --- |
 | payment.NewSubscriptionStore | moved | [NewSubscriptionStore](payment/subscription_store.go#L26) |
 | payment.CreateTeamSubscriptionRecord | moved | [CreateTeamSubscriptionRecord](payment/subscription_store.go#L45) |
 | payment.UpdateSubscriptionQuantityRecord | moved | [UpdateSubscriptionQuantityRecord](payment/subscription_store.go#L110) |
-| payment.CancelSubscriptionRecord | moved | [CancelSubscriptionRecord](payment/subscription_store.go#L178) |
-| payment.ReconcileExpiredPendingCancellations | added | [ReconcileExpiredPendingCancellations](payment/subscription_store.go#L267) |
-| payment.ReconcileExpiredPendingCancellationForOrg | added | [ReconcileExpiredPendingCancellationForOrg](payment/subscription_store.go#L271) |
-| payment.DowngradeExpiredRoleForUserOrg | added | [DowngradeExpiredRoleForUserOrg](payment/subscription_store.go#L284) |
-| payment.KeepPlanRecord | added | [KeepPlanRecord](payment/subscription_store.go#L529) |
-| payment.GetSubscriptionDetailsRow | moved | [GetSubscriptionDetailsRow](payment/subscription_store.go#L694) |
-| payment.AssignLicense | moved | [AssignLicense](payment/subscription_store.go#L725) |
-| payment.RepointOrgActiveSubscription | added | [RepointOrgActiveSubscription](payment/subscription_store.go#L838) |
-| payment.RevokeLicense | moved | [RevokeLicense](payment/subscription_store.go#L886) |
-| payment.GetUserIDByEmail | moved | [GetUserIDByEmail](payment/subscription_store.go#L966) |
-| payment.CreateShadowUser | moved | [CreateShadowUser](payment/subscription_store.go#L978) |
-| payment.CreateSelfHostedSubscriptionRecord | moved | [CreateSelfHostedSubscriptionRecord](payment/subscription_store.go#L1006) |
-| payment.GetSelfHostedConfirmationSeed | moved | [GetSelfHostedConfirmationSeed](payment/subscription_store.go#L1071) |
-| payment.PersistSelfHostedFallback | moved | [PersistSelfHostedFallback](payment/subscription_store.go#L1108) |
-| payment.PersistSelfHostedJWT | moved | [PersistSelfHostedJWT](payment/subscription_store.go#L1171) |
+| payment.SyncOrgBillingStateToFreeTx | added | [SyncOrgBillingStateToFreeTx](payment/subscription_store.go#L179) |
+| payment.CancelSubscriptionRecord | moved | [CancelSubscriptionRecord](payment/subscription_store.go#L237) |
+| payment.ReconcileExpiredPendingCancellations | added | [ReconcileExpiredPendingCancellations](payment/subscription_store.go#L332) |
+| payment.ReconcileExpiredPendingCancellationForOrg | added | [ReconcileExpiredPendingCancellationForOrg](payment/subscription_store.go#L336) |
+| payment.DowngradeExpiredRoleForUserOrg | added | [DowngradeExpiredRoleForUserOrg](payment/subscription_store.go#L349) |
+| payment.KeepPlanRecord | added | [KeepPlanRecord](payment/subscription_store.go#L598) |
+| payment.GetSubscriptionDetailsRow | moved | [GetSubscriptionDetailsRow](payment/subscription_store.go#L763) |
+| payment.AssignLicense | moved | [AssignLicense](payment/subscription_store.go#L794) |
+| payment.RepointOrgActiveSubscription | added | [RepointOrgActiveSubscription](payment/subscription_store.go#L907) |
+| payment.RevokeLicense | moved | [RevokeLicense](payment/subscription_store.go#L955) |
+| payment.GetUserIDByEmail | moved | [GetUserIDByEmail](payment/subscription_store.go#L1035) |
+| payment.CreateShadowUser | moved | [CreateShadowUser](payment/subscription_store.go#L1047) |
+| payment.CreateSelfHostedSubscriptionRecord | moved | [CreateSelfHostedSubscriptionRecord](payment/subscription_store.go#L1075) |
+| payment.GetSelfHostedConfirmationSeed | moved | [GetSelfHostedConfirmationSeed](payment/subscription_store.go#L1140) |
+| payment.PersistSelfHostedFallback | moved | [PersistSelfHostedFallback](payment/subscription_store.go#L1177) |
+| payment.PersistSelfHostedJWT | moved | [PersistSelfHostedJWT](payment/subscription_store.go#L1240) |
 | jobqueue.NewWebhookStore | moved | [NewWebhookStore](jobqueue/webhook_store.go#L24) |
 | jobqueue.GetWebhookPublicEndpoint | moved | [GetWebhookPublicEndpoint](jobqueue/webhook_store.go#L33) |
 | jobqueue.GetWebhookRegistryID | moved | [GetWebhookRegistryID](jobqueue/webhook_store.go#L52) |
@@ -96,10 +97,11 @@ Latest milestone batch note (MF-LOC-007, MF-LOC-008, MF-PRORATION-003, MF-ATTRIB
 | license.ResolveOrgMemberUserIDByEmail | added | [ResolveOrgMemberUserIDByEmail](license/actor_lookup_store.go#L19) |
 | license.NewTrialEligibilityStore | added | [NewTrialEligibilityStore](license/trial_eligibility_store.go#L58) |
 | license.NormalizeTrialEligibilityEmail | added | [NormalizeTrialEligibilityEmail](license/trial_eligibility_store.go#L62) |
-| license.ReserveFirstPurchaseTrial | added | [ReserveFirstPurchaseTrial](license/trial_eligibility_store.go#L70) |
-| license.ConsumeReservedTrial | added | [ConsumeReservedTrial](license/trial_eligibility_store.go#L134) |
-| license.ConsumeReservedTrialTx | added | [ConsumeReservedTrialTx](license/trial_eligibility_store.go#L157) |
-| license.ReleaseTrialReservation | added | [ReleaseTrialReservation](license/trial_eligibility_store.go#L224) |
+| license.GetTrialEligibilityByEmail | added | [GetTrialEligibilityByEmail](license/trial_eligibility_store.go#L70) |
+| license.ReserveFirstPurchaseTrial | added | [ReserveFirstPurchaseTrial](license/trial_eligibility_store.go#L107) |
+| license.ConsumeReservedTrial | added | [ConsumeReservedTrial](license/trial_eligibility_store.go#L171) |
+| license.ConsumeReservedTrialTx | added | [ConsumeReservedTrialTx](license/trial_eligibility_store.go#L194) |
+| license.ReleaseTrialReservation | added | [ReleaseTrialReservation](license/trial_eligibility_store.go#L261) |
 | license.NewAdminBillingPortfolioStore | added | [NewAdminBillingPortfolioStore](license/admin_billing_portfolio_store.go#L38) |
 | license.GetSummary | added | [GetSummary](license/admin_billing_portfolio_store.go#L42) |
 | license.ListOrganizations | added | [ListOrganizations](license/admin_billing_portfolio_store.go#L88) |
@@ -112,8 +114,8 @@ Latest milestone batch note (MF-LOC-007, MF-LOC-008, MF-PRORATION-003, MF-ATTRIB
 | license.ListCurrentPeriodOperations | moved | [ListCurrentPeriodOperations](license/org_usage_store.go#L115) |
 | license.ListCurrentPeriodMemberUsage | added | [ListCurrentPeriodMemberUsage](license/org_usage_store.go#L197) |
 | license.GetCurrentPeriodUsageForActor | added | [GetCurrentPeriodUsageForActor](license/org_usage_store.go#L272) |
-| payment.GetLatestCapturedPaymentMethodBySubscriptionID | added | [GetLatestCapturedPaymentMethodBySubscriptionID](payment/subscription_store.go#L646) |
-| payment.ListSubscriptionsByOrgID | moved | [ListSubscriptionsByOrgID](payment/subscription_store.go#L666) |
+| payment.GetLatestCapturedPaymentMethodBySubscriptionID | added | [GetLatestCapturedPaymentMethodBySubscriptionID](payment/subscription_store.go#L715) |
+| payment.ListSubscriptionsByOrgID | moved | [ListSubscriptionsByOrgID](payment/subscription_store.go#L735) |
 | payment.NewBillingNotificationOutboxStore | added | [NewBillingNotificationOutboxStore](payment/billing_notification_outbox_store.go#L45) |
 | payment.Enqueue | added | [Enqueue](payment/billing_notification_outbox_store.go#L49) |
 | payment.GetUserEmailByID | added | [GetUserEmailByID](payment/billing_notification_outbox_store.go#L104) |

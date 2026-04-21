@@ -5,10 +5,14 @@ import (
 	"database/sql"
 	"errors"
 	"math"
+	"net/http/httptest"
 	"testing"
 	"time"
 
+	"github.com/labstack/echo/v4"
+	"github.com/livereview/internal/api/auth"
 	"github.com/livereview/internal/license"
+	"github.com/livereview/pkg/models"
 	storagelicense "github.com/livereview/storage/license"
 )
 
@@ -156,5 +160,55 @@ func TestIsRazorpayUPISubscriptionUpdateError(t *testing.T) {
 
 	if isRazorpayUPISubscriptionUpdateError(errors.New("razorpay API error (status 400): unknown request")) {
 		t.Fatalf("expected non-UPI error to not be detected")
+	}
+}
+
+func TestBuildTrialEligibilityViewMissingContext(t *testing.T) {
+	h := &BillingActionsHandler{}
+	e := echo.New()
+	req := httptest.NewRequest("GET", "/", nil)
+	rec := httptest.NewRecorder()
+	c := e.NewContext(req, rec)
+
+	view := h.buildTrialEligibilityView(context.Background(), c, time.Now().UTC())
+	if got := view["status"]; got != "unknown" {
+		t.Fatalf("status = %v, want unknown", got)
+	}
+	if got := view["reason"]; got != "user_context_missing" {
+		t.Fatalf("reason = %v, want user_context_missing", got)
+	}
+}
+
+func TestBuildTrialEligibilityViewBlankEmail(t *testing.T) {
+	h := &BillingActionsHandler{}
+	e := echo.New()
+	req := httptest.NewRequest("GET", "/", nil)
+	rec := httptest.NewRecorder()
+	c := e.NewContext(req, rec)
+	c.Set(string(auth.PermissionContextKey), &auth.PermissionContext{User: &models.User{Email: "   "}})
+
+	view := h.buildTrialEligibilityView(context.Background(), c, time.Now().UTC())
+	if got := view["status"]; got != "unknown" {
+		t.Fatalf("status = %v, want unknown", got)
+	}
+	if got := view["reason"]; got != "user_email_missing" {
+		t.Fatalf("reason = %v, want user_email_missing", got)
+	}
+}
+
+func TestBuildTrialEligibilityViewLookupFailure(t *testing.T) {
+	h := &BillingActionsHandler{}
+	e := echo.New()
+	req := httptest.NewRequest("GET", "/", nil)
+	rec := httptest.NewRecorder()
+	c := e.NewContext(req, rec)
+	c.Set(string(auth.PermissionContextKey), &auth.PermissionContext{User: &models.User{Email: "trial@example.com"}})
+
+	view := h.buildTrialEligibilityView(context.Background(), c, time.Now().UTC())
+	if got := view["status"]; got != "unknown" {
+		t.Fatalf("status = %v, want unknown", got)
+	}
+	if got := view["reason"]; got != "eligibility_lookup_failed" {
+		t.Fatalf("reason = %v, want eligibility_lookup_failed", got)
 	}
 }
