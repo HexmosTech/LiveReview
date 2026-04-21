@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import moment from 'moment-timezone';
 import { isCloudMode } from '../../utils/deploymentMode';
@@ -532,6 +532,7 @@ const OverviewTab: React.FC<{ navigate: any; mode?: 'full' | 'breakdown' | 'cont
   const [activeUpgradeRequestID, setActiveUpgradeRequestID] = useState<string>('');
   const [upgradeRequestStatus, setUpgradeRequestStatus] = useState<UpgradeRequestStatusResponse | null>(null);
   const [upgradeRequestLoading, setUpgradeRequestLoading] = useState(false);
+  const freeCheckoutInFlightRef = useRef(false);
 
   // Use billing status as source-of-truth; fall back to org-scoped plan only until billing loads.
   const rawPlanType = (currentOrg?.plan_type || 'free').toLowerCase();
@@ -1011,11 +1012,17 @@ const OverviewTab: React.FC<{ navigate: any; mode?: 'full' | 'breakdown' | 'cont
   };
 
   const startFreeCheckoutFromSettings = async () => {
+    if (freeCheckoutInFlightRef.current) {
+      return;
+    }
+
     const effectivePlanCode = String(selectedUpgradePlan || '').trim();
     if (!effectivePlanCode) {
       setBillingError('Select an upgrade plan to continue.');
       return;
     }
+
+    freeCheckoutInFlightRef.current = true;
 
     setUpgradeCheckoutLoading(true);
     setBillingError(null);
@@ -1097,12 +1104,14 @@ const OverviewTab: React.FC<{ navigate: any; mode?: 'full' | 'breakdown' | 'cont
           } catch (confirmErr: any) {
             setBillingError(confirmErr?.message || 'Payment completed, but confirmation failed. Please retry.');
           } finally {
+            freeCheckoutInFlightRef.current = false;
             setUpgradeCheckoutLoading(false);
             cleanupRazorpayOverlay();
           }
         },
         modal: {
           ondismiss: () => {
+            freeCheckoutInFlightRef.current = false;
             setUpgradeCheckoutLoading(false);
             cleanupRazorpayOverlay();
           },
@@ -1123,12 +1132,14 @@ const OverviewTab: React.FC<{ navigate: any; mode?: 'full' | 'breakdown' | 'cont
             currency: purchaseCurrency,
           })
         );
+        freeCheckoutInFlightRef.current = false;
         setUpgradeCheckoutLoading(false);
         cleanupRazorpayOverlay();
       });
       rzp.open();
     } catch (err: any) {
       setBillingError(err?.message || 'Failed to start checkout for selected plan');
+      freeCheckoutInFlightRef.current = false;
       setUpgradeCheckoutLoading(false);
       cleanupRazorpayOverlay();
     }
