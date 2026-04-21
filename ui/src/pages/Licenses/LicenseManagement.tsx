@@ -4,6 +4,7 @@ import moment from 'moment-timezone';
 import { useOrgContext } from '../../hooks/useOrgContext';
 import apiClient from '../../api/apiClient';
 import { CancelSubscriptionModal } from '../../components/Subscriptions';
+import { getSubscriptionBadgeClassByLabel, getSubscriptionStatusLabel } from '../../utils/subscriptionStatus';
 
 type Subscription = {
     id: number;
@@ -110,27 +111,15 @@ const LicenseManagement: React.FC = () => {
     };
 
     const getStatusBadge = (status: string, sub: Subscription) => {
-        const styles: Record<string, string> = {
-            active: 'bg-emerald-500/10 text-emerald-400 border-emerald-500/40',
-            created: 'bg-blue-500/10 text-blue-400 border-blue-500/40',
-            authenticated: 'bg-blue-500/10 text-blue-400 border-blue-500/40',
-            pending: 'bg-yellow-500/10 text-yellow-400 border-yellow-500/40',
-            halted: 'bg-orange-500/10 text-orange-400 border-orange-500/40',
-            cancelled: 'bg-slate-500/10 text-slate-400 border-slate-500/40',
-            expired: 'bg-red-500/10 text-red-400 border-red-500/40',
-        };
-
-        if (status === 'active' && sub.cancel_at_period_end) {
-            return (
-                <span className="px-2 py-1 text-xs font-semibold rounded border bg-amber-500/10 text-amber-400 border-amber-500/40">
-                    PENDING EXPIRY
-                </span>
-            );
-        }
-
+        const label = getSubscriptionStatusLabel({
+            status,
+            pendingCancel: Boolean(sub.cancel_at_period_end),
+            isTeamPlan: true,
+        });
+        const badgeClasses = getSubscriptionBadgeClassByLabel(label);
         return (
-            <span className={`px-2 py-1 text-xs font-semibold rounded border ${styles[status] || styles.pending}`}>
-                {status.toUpperCase()}
+            <span className={`px-2 py-1 text-xs font-semibold rounded border ${badgeClasses}`}>
+                {label}
             </span>
         );
     };

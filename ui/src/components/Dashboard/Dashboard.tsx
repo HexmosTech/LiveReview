@@ -31,10 +31,19 @@ type DashboardBillingStatusResponse = {
     billing: {
         current_plan_code: string;
         loc_used_month: number;
+        trial_active?: boolean;
+        trial_ends_at?: string | null;
+        trial_eligibility?: {
+            status?: 'eligible' | 'already_used' | 'reserved' | 'unknown';
+            eligible?: boolean;
+            reason?: string;
+            consumed_at?: string | null;
+        };
     };
     available_plans: Array<{
         plan_code: string;
         monthly_loc_limit: number;
+        trial_days?: number;
     }>;
 };
 
@@ -63,6 +72,11 @@ type DashboardBillingInsight = {
     usagePct: number;
     blocked: boolean;
     trialReadonly: boolean;
+    trialActive: boolean;
+    trialEndsAt: string;
+    trialEligibleForFirstPaidPurchase: boolean;
+    trialEligibilityStatus: string;
+    trialPolicyDays: number;
     customerState: string;
     supportReference: string;
     actionRequiredType: string;
@@ -248,6 +262,14 @@ export const Dashboard: React.FC = () => {
                 const locUsed = Number(billing.billing.loc_used_month || 0);
                 const locLimit = Number(plan?.monthly_loc_limit || 0);
                 const fallbackPct = locLimit > 0 ? Math.min(100, Math.round((locUsed * 100) / locLimit)) : 0;
+                const trialPolicyDays = (billing.available_plans || []).reduce((max, item) => {
+                    const days = Number(item.trial_days || 0);
+                    if (days <= 0) {
+                        return max;
+                    }
+                    return Math.max(max, days);
+                }, 0);
+                const trialEligibilityStatus = String(billing.billing.trial_eligibility?.status || 'unknown').trim().toLowerCase();
 
                 setBillingInsight({
                     planCode,
@@ -256,6 +278,11 @@ export const Dashboard: React.FC = () => {
                     usagePct: Math.max(0, Math.round(quota?.envelope?.usage_pct ?? fallbackPct)),
                     blocked: Boolean(quota?.envelope?.blocked),
                     trialReadonly: Boolean(quota?.envelope?.trial_readonly),
+                    trialActive: Boolean(billing.billing.trial_active),
+                    trialEndsAt: String(billing.billing.trial_ends_at || '').trim(),
+                    trialEligibleForFirstPaidPurchase: Boolean(billing.billing.trial_eligibility?.eligible),
+                    trialEligibilityStatus,
+                    trialPolicyDays: trialPolicyDays > 0 ? trialPolicyDays : 7,
                     customerState: String(upgrade?.request?.customer_state || 'none').trim().toLowerCase(),
                     supportReference: String(upgrade?.request?.support_reference || '').trim(),
                     actionRequiredType: String(upgrade?.request?.action_required?.type || '').trim().toLowerCase(),
@@ -343,6 +370,8 @@ export const Dashboard: React.FC = () => {
             navigate('/reviews/new');
         }
     };
+
+    const dashboardOnFreePlan = String(billingInsight?.planCode || '').trim().toLowerCase() === 'free_30k' || String(billingInsight?.planCode || '').trim().toLowerCase() === 'free';
 
     return (
         <div className="min-h-screen">
@@ -496,6 +525,25 @@ export const Dashboard: React.FC = () => {
                                 <p className="text-xs text-slate-400">
                                     {billingInsight.locUsed.toLocaleString()} / {billingInsight.locLimit > 0 ? billingInsight.locLimit.toLocaleString() : 'Unlimited'} LOC this period
                                 </p>
+                                {billingInsight.trialActive && (
+                                    <p className="text-xs text-sky-200">
+                                        Trial active: ends {billingInsight.trialEndsAt ? new Date(billingInsight.trialEndsAt).toLocaleString() : 'when synchronization completes'}.
+                                    </p>
+                                )}
+                                {!billingInsight.trialActive && dashboardOnFreePlan && (
+                                    <p className={`text-xs ${billingInsight.trialEligibleForFirstPaidPurchase
+                                        ? 'text-sky-200'
+                                        : billingInsight.trialEligibilityStatus === 'already_used'
+                                            ? 'text-slate-300'
+                                            : 'text-amber-200'
+                                        }`}>
+                                        {billingInsight.trialEligibleForFirstPaidPurchase
+                                            ? `First paid purchase includes ${billingInsight.trialPolicyDays}-day trial on any paid LOC plan.`
+                                            : billingInsight.trialEligibilityStatus === 'already_used'
+                                                ? 'First paid trial already used for this email. New paid purchases bill immediately.'
+                                                : 'Trial eligibility is being synchronized and will be confirmed at checkout.'}
+                                    </p>
+                                )}
                                 {(billingInsight.customerState === 'action_needed' || billingInsight.customerState === 'payment_failed' || billingInsight.blocked || billingInsight.trialReadonly) && (
                                     <p className="text-xs text-amber-200">
                                         Action needed: {billingInsight.actionRequiredType || billingInsight.customerState.replace(/_/g, ' ')}

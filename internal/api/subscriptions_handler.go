@@ -201,20 +201,27 @@ func (h *SubscriptionsHandler) CreateSubscription(c echo.Context) error {
 
 	limits := planCode.GetLimits()
 	response := map[string]interface{}{
-		"razorpay_subscription_id": sub.ID,
-		"razorpay_key_id":          keyID,
-		"status":                   sub.Status,
-		"quantity":                 sub.Quantity,
-		"plan_code":                planCode.String(),
-		"plan_type":                "monthly",
-		"currency":                 resolvedCurrency,
-		"monthly_loc_limit":        limits.MonthlyLOCLimit,
-		"monthly_price_usd":        limits.MonthlyPriceUSD,
-		"short_url":                sub.ShortURL,
-		"current_period_start":     sub.CurrentStart,
-		"current_period_end":       sub.CurrentEnd,
-		"trial_applied":            sub.TrialApplied,
-		"trial_days":               sub.TrialDays,
+		"razorpay_subscription_id":         sub.ID,
+		"razorpay_key_id":                  keyID,
+		"status":                           sub.Status,
+		"quantity":                         sub.Quantity,
+		"plan_code":                        planCode.String(),
+		"plan_type":                        "monthly",
+		"currency":                         resolvedCurrency,
+		"monthly_loc_limit":                limits.MonthlyLOCLimit,
+		"monthly_price_usd":                limits.MonthlyPriceUSD,
+		"short_url":                        sub.ShortURL,
+		"current_period_start":             sub.CurrentStart,
+		"current_period_end":               sub.CurrentEnd,
+		"trial_applied":                    sub.TrialApplied,
+		"trial_days":                       sub.TrialDays,
+		"plan_unit_amount_minor":           sub.PlanUnitMinor,
+		"expected_recurring_amount_minor":  sub.RecurringMinor,
+		"expected_recurring_currency":      sub.RecurringCurrency,
+		"checkout_authorization_may_apply": sub.CheckoutAuthorizationMayApply,
+	}
+	if sub.CheckoutAuthorizationMayApply {
+		response["checkout_authorization_note"] = "Razorpay may show a small authorization amount while setting up trial checkout. Recurring billing starts after trial ends."
 	}
 	if sub.TrialStartsAt > 0 {
 		response["trial_started_at"] = time.Unix(sub.TrialStartsAt, 0).UTC().Format(time.RFC3339)

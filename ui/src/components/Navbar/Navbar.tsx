@@ -16,10 +16,17 @@ type NavbarBillingStatusResponse = {
         trial_active?: boolean;
         trial_ends_at?: string | null;
         trial_can_cancel?: boolean;
+        trial_eligibility?: {
+            status?: 'eligible' | 'already_used' | 'reserved' | 'unknown';
+            eligible?: boolean;
+            reason?: string;
+            consumed_at?: string | null;
+        };
     };
     available_plans: Array<{
         plan_code: string;
         monthly_loc_limit: number;
+        trial_days?: number;
     }>;
 };
 
@@ -126,6 +133,10 @@ const BillingChip: React.FC = () => {
         trialEndsAt: string;
         trialDaysLeft: number | null;
         trialCanCancel: boolean;
+        trialEligibleForFirstPaidPurchase: boolean;
+        trialEligibilityStatus: string;
+        trialPolicyDays: number;
+        isFreePlan: boolean;
     } | null>(null);
 
     useEffect(() => {
@@ -166,6 +177,16 @@ const BillingChip: React.FC = () => {
                         share: Number(member.usage_share_percent || 0),
                         kind: String(member.actor_kind || 'unknown').trim(),
                     }));
+                const trialPolicyDays = (billing.available_plans || []).reduce((max, item) => {
+                    const trialDays = Number(item.trial_days || 0);
+                    if (trialDays <= 0) {
+                        return max;
+                    }
+                    return Math.max(max, trialDays);
+                }, 0);
+                const trialEligibilityStatus = String(billing.billing.trial_eligibility?.status || 'unknown').trim().toLowerCase();
+                const trialEligibleForFirstPaidPurchase = Boolean(billing.billing.trial_eligibility?.eligible);
+                const isFreePlan = String(planCode).trim().toLowerCase() === 'free_30k' || String(planCode).trim().toLowerCase() === 'free';
 
                 setChip({
                     planCode,
@@ -184,6 +205,10 @@ const BillingChip: React.FC = () => {
                     trialEndsAt: String(billing.billing.trial_ends_at || '').trim(),
                     trialDaysLeft: trialDaysRemaining(billing.billing.trial_ends_at),
                     trialCanCancel: Boolean(billing.billing.trial_can_cancel),
+                    trialEligibleForFirstPaidPurchase,
+                    trialEligibilityStatus,
+                    trialPolicyDays: trialPolicyDays > 0 ? trialPolicyDays : 7,
+                    isFreePlan,
                 });
             } catch {
                 if (!cancelled) setChip(null);
@@ -229,6 +254,19 @@ const BillingChip: React.FC = () => {
         : chip && chip.usagePct >= 80
             ? 'bg-amber-900/35 border-amber-500/50 text-amber-100 hover:bg-amber-900/50'
             : 'bg-emerald-900/25 border-emerald-500/40 text-emerald-100 hover:bg-emerald-900/40';
+    const showFirstPaidTrialBadge = Boolean(chip && !chip.trialActive && chip.isFreePlan && chip.trialPolicyDays > 0);
+    const firstPaidTrialBadgeText = chip?.trialEligibleForFirstPaidPurchase
+        ? `Free ${chip.trialPolicyDays}-Day Trial Included`
+        : chip?.trialEligibilityStatus === 'already_used'
+            ? 'Trial already used'
+            : chip?.trialEligibilityStatus === 'reserved'
+                ? 'Trial reservation in progress'
+                : `Up to ${chip?.trialPolicyDays || 7}-day trial`;
+    const firstPaidTrialBadgeClass = chip?.trialEligibleForFirstPaidPurchase
+        ? 'border-sky-400/50 bg-sky-900/35 text-sky-100'
+        : chip?.trialEligibilityStatus === 'already_used'
+            ? 'border-slate-600 bg-slate-800 text-slate-300'
+            : 'border-amber-400/50 bg-amber-900/30 text-amber-100';
 
     return (
         <div
@@ -278,12 +316,19 @@ const BillingChip: React.FC = () => {
                             <p className="text-red-300/90 mt-0.5">
                                 You've used {chip.locUsed.toLocaleString()} of {chip.locLimit > 0 ? chip.locLimit.toLocaleString() : 'N/A'} LOC. Reviews are blocked until quota resets.
                             </p>
-                            <button
-                                onClick={(e) => { e.stopPropagation(); navigate('/settings-subscriptions-overview'); }}
-                                className="mt-2 w-full py-1 bg-red-600 hover:bg-red-500 rounded text-red-50 font-semibold transition-colors"
-                            >
-                                Upgrade Now
-                            </button>
+                            <div className="mt-2 flex items-center gap-2">
+                                <button
+                                    onClick={(e) => { e.stopPropagation(); navigate('/settings-subscriptions-overview'); }}
+                                    className="flex-1 py-1 bg-red-600 hover:bg-red-500 rounded text-red-50 font-semibold transition-colors"
+                                >
+                                    Upgrade Now
+                                </button>
+                                {showFirstPaidTrialBadge && (
+                                    <span className={`inline-flex items-center rounded border px-2 py-1 text-[10px] font-semibold uppercase tracking-wide ${firstPaidTrialBadgeClass}`}>
+                                        {firstPaidTrialBadgeText}
+                                    </span>
+                                )}
+                            </div>
                         </div>
                     )}
                     {!chip.blocked && chip.usagePct >= 100 && (
@@ -292,12 +337,19 @@ const BillingChip: React.FC = () => {
                             <p className="text-amber-300/90 mt-0.5">
                                 You've used {chip.locUsed.toLocaleString()} of {chip.locLimit > 0 ? chip.locLimit.toLocaleString() : 'N/A'} LOC ({chip.usagePct}%). Please upgrade to continue.
                             </p>
+                            <div className="mt-1 flex items-center gap-2">
                                 <button
                                     onClick={(e) => { e.stopPropagation(); navigate('/settings-subscriptions-overview'); }}
-                                    className="w-full py-1 bg-amber-600 hover:bg-amber-500 rounded text-amber-50 font-semibold transition-colors"
+                                    className="flex-1 py-1 bg-amber-600 hover:bg-amber-500 rounded text-amber-50 font-semibold transition-colors"
                                 >
                                     Upgrade Plan
                                 </button>
+                                {showFirstPaidTrialBadge && (
+                                    <span className={`inline-flex items-center rounded border px-2 py-1 text-[10px] font-semibold uppercase tracking-wide ${firstPaidTrialBadgeClass}`}>
+                                        {firstPaidTrialBadgeText}
+                                    </span>
+                                )}
+                            </div>
                         </div>
                     )}
                     {!chip.blocked && chip.usagePct >= 90 && chip.usagePct < 100 && (
@@ -306,12 +358,19 @@ const BillingChip: React.FC = () => {
                             <p className="text-amber-300/90 mt-0.5">
                                 You've used {chip.locUsed.toLocaleString()} of {chip.locLimit > 0 ? chip.locLimit.toLocaleString() : 'N/A'} LOC ({chip.usagePct}%). Upgrade to avoid interruption.
                             </p>
-                            <button
-                                onClick={(e) => { e.stopPropagation(); navigate('/settings-subscriptions-overview'); }}
-                                className="mt-1 w-full py-1 bg-amber-600 hover:bg-amber-500 rounded text-amber-50 font-semibold transition-colors"
-                            >
-                                Upgrade Plan
-                            </button>
+                            <div className="mt-1 flex items-center gap-2">
+                                <button
+                                    onClick={(e) => { e.stopPropagation(); navigate('/settings-subscriptions-overview'); }}
+                                    className="flex-1 py-1 bg-amber-600 hover:bg-amber-500 rounded text-amber-50 font-semibold transition-colors"
+                                >
+                                    Upgrade Plan
+                                </button>
+                                {showFirstPaidTrialBadge && (
+                                    <span className={`inline-flex items-center rounded border px-2 py-1 text-[10px] font-semibold uppercase tracking-wide ${firstPaidTrialBadgeClass}`}>
+                                        {firstPaidTrialBadgeText}
+                                    </span>
+                                )}
+                            </div>
                         </div>
                     )}
                     <div className="mt-2 rounded bg-blue-950/40 border border-blue-700/50 p-2 text-[11px]">
@@ -358,12 +417,19 @@ const BillingChip: React.FC = () => {
                         </div>
                     )}
                     {!chip.blocked && chip.usagePct < 90 && (
-                        <button
-                            onClick={(e) => { e.stopPropagation(); navigate('/settings-subscriptions-overview'); }}
-                            className="mt-3 w-full py-1.5 bg-blue-600 hover:bg-blue-500 rounded text-white text-xs font-semibold transition-colors shadow-sm"
-                        >
-                            Upgrade Plan
-                        </button>
+                        <div className="mt-3 flex items-center gap-2">
+                            <button
+                                onClick={(e) => { e.stopPropagation(); navigate('/settings-subscriptions-overview'); }}
+                                className="flex-1 py-1.5 bg-blue-600 hover:bg-blue-500 rounded text-white text-xs font-semibold transition-colors shadow-sm"
+                            >
+                                Upgrade Plan
+                            </button>
+                            {showFirstPaidTrialBadge && (
+                                <span className={`inline-flex items-center rounded border px-2 py-1 text-[10px] font-semibold uppercase tracking-wide ${firstPaidTrialBadgeClass}`}>
+                                    {firstPaidTrialBadgeText}
+                                </span>
+                            )}
+                        </div>
                     )}
                 </div>
             )}

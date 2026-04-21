@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import moment from 'moment-timezone';
 import { isCloudMode } from '../../utils/deploymentMode';
@@ -6,6 +6,7 @@ import { useOrgContext } from '../../hooks/useOrgContext';
 import BillingPortfolio from '../Admin/BillingPortfolio';
 import { CancelSubscriptionModal } from '../../components/Subscriptions';
 import apiClient from '../../api/apiClient';
+import { getSubscriptionStatusLabel, isTerminalSubscriptionStatus } from '../../utils/subscriptionStatus';
 
 type PurchaseCurrency = 'USD' | 'INR';
 
@@ -88,6 +89,16 @@ type BillingPlan = {
   trial_days: number;
 };
 
+type TrialEligibilitySummary = {
+  status?: 'eligible' | 'already_used' | 'reserved' | 'unknown';
+  eligible?: boolean;
+  reason?: string;
+  consumed_at?: string | null;
+  reservation_expires_at?: string | null;
+  first_plan_code?: string | null;
+  first_org_id?: number | null;
+};
+
 type BillingStatusResponse = {
   billing: {
     current_plan_code: string;
@@ -101,6 +112,7 @@ type BillingStatusResponse = {
     trial_ends_at?: string | null;
     trial_readonly: boolean;
     trial_can_cancel?: boolean;
+    trial_eligibility?: TrialEligibilitySummary;
     scheduled_plan_code?: string | null;
     scheduled_plan_effective_at?: string | null;
   };
@@ -253,6 +265,15 @@ type PrepareUpgradePaymentResponse = {
 type CreateSubscriptionCheckoutResponse = {
   razorpay_subscription_id: string;
   razorpay_key_id: string;
+  trial_applied?: boolean;
+  trial_days?: number;
+  trial_started_at?: string;
+  trial_ends_at?: string;
+  plan_unit_amount_minor?: number;
+  expected_recurring_amount_minor?: number;
+  expected_recurring_currency?: string;
+  checkout_authorization_may_apply?: boolean;
+  checkout_authorization_note?: string;
 };
 
 type KeepPlanActionResult = {
@@ -264,11 +285,6 @@ type KeepPlanActionResult = {
 type ActionPreflightResult = {
   proceed: boolean;
   routeToBuyNew: boolean;
-};
-
-const isTerminalCancellationStatus = (rawStatus?: string | null): boolean => {
-  const normalized = String(rawStatus || '').trim().toLowerCase();
-  return normalized === 'cancelled' || normalized === 'expired' || normalized === 'completed';
 };
 
 type UpgradeRequestStatusResponse = {
@@ -516,6 +532,7 @@ const OverviewTab: React.FC<{ navigate: any; mode?: 'full' | 'breakdown' | 'cont
   const [activeUpgradeRequestID, setActiveUpgradeRequestID] = useState<string>('');
   const [upgradeRequestStatus, setUpgradeRequestStatus] = useState<UpgradeRequestStatusResponse | null>(null);
   const [upgradeRequestLoading, setUpgradeRequestLoading] = useState(false);
+  const freeCheckoutInFlightRef = useRef(false);
 
   // Use billing status as source-of-truth; fall back to org-scoped plan only until billing loads.
   const rawPlanType = (currentOrg?.plan_type || 'free').toLowerCase();
@@ -995,11 +1012,17 @@ const OverviewTab: React.FC<{ navigate: any; mode?: 'full' | 'breakdown' | 'cont
   };
 
   const startFreeCheckoutFromSettings = async () => {
+    if (freeCheckoutInFlightRef.current) {
+      return;
+    }
+
     const effectivePlanCode = String(selectedUpgradePlan || '').trim();
     if (!effectivePlanCode) {
       setBillingError('Select an upgrade plan to continue.');
       return;
     }
+
+    freeCheckoutInFlightRef.current = true;
 
     setUpgradeCheckoutLoading(true);
     setBillingError(null);
@@ -1025,12 +1048,38 @@ const OverviewTab: React.FC<{ navigate: any; mode?: 'full' | 'breakdown' | 'cont
       const locLabel = selectedPlanDetails?.monthly_loc_limit
         ? `${selectedPlanDetails.monthly_loc_limit.toLocaleString()} LOC/month`
         : 'LOC/month';
+      const expectedRecurringCurrency = normalizePurchaseCurrency(created?.expected_recurring_currency || '') || purchaseCurrency;
+      const expectedRecurringAmountText = typeof created?.expected_recurring_amount_minor === 'number'
+        ? `${formatMinorAmount(created.expected_recurring_amount_minor, expectedRecurringCurrency)}/month`
+        : null;
+      const checkoutDescription = created?.trial_applied && Number(created?.trial_days || 0) > 0
+        ? `${getPlanDisplayName(effectivePlanCode)} (${locLabel}) - ${created.trial_days}-day trial included`
+        : `${getPlanDisplayName(effectivePlanCode)} (${locLabel})`;
+
+      if (created?.trial_applied && created?.trial_ends_at) {
+        setActionProgressMessage(
+          `Trial will activate after confirmation and run until ${formatDate(created.trial_ends_at) || created.trial_ends_at}. ` +
+          `${expectedRecurringAmountText ? `Recurring billing starts at ${expectedRecurringAmountText}. ` : ''}` +
+          `${created?.checkout_authorization_note || 'Razorpay may show a small setup authorization amount while trial is active.'}`
+        );
+      } else if (created?.trial_applied && Number(created?.trial_days || 0) > 0) {
+        setActionProgressMessage(
+          `${created.trial_days}-day trial will activate after payment confirmation. ` +
+          `${expectedRecurringAmountText ? `Recurring billing starts at ${expectedRecurringAmountText}. ` : ''}` +
+          `${created?.checkout_authorization_note || 'Razorpay may show a small setup authorization amount while trial is active.'}`
+        );
+      } else {
+        setActionProgressMessage(
+          `Checkout initialized. ${expectedRecurringAmountText ? `Recurring billing is ${expectedRecurringAmountText}. ` : ''}` +
+          'Billing starts after payment confirmation.'
+        );
+      }
 
       const options = {
         key: created.razorpay_key_id,
         subscription_id: created.razorpay_subscription_id,
         name: 'LiveReview LOC Plan',
-        description: `${getPlanDisplayName(effectivePlanCode)} (${locLabel})`,
+        description: checkoutDescription,
         image: '/assets/logo-with-text.svg',
         handler: async (razorpayResponse: any) => {
           try {
@@ -1055,12 +1104,14 @@ const OverviewTab: React.FC<{ navigate: any; mode?: 'full' | 'breakdown' | 'cont
           } catch (confirmErr: any) {
             setBillingError(confirmErr?.message || 'Payment completed, but confirmation failed. Please retry.');
           } finally {
+            freeCheckoutInFlightRef.current = false;
             setUpgradeCheckoutLoading(false);
             cleanupRazorpayOverlay();
           }
         },
         modal: {
           ondismiss: () => {
+            freeCheckoutInFlightRef.current = false;
             setUpgradeCheckoutLoading(false);
             cleanupRazorpayOverlay();
           },
@@ -1081,12 +1132,14 @@ const OverviewTab: React.FC<{ navigate: any; mode?: 'full' | 'breakdown' | 'cont
             currency: purchaseCurrency,
           })
         );
+        freeCheckoutInFlightRef.current = false;
         setUpgradeCheckoutLoading(false);
         cleanupRazorpayOverlay();
       });
       rzp.open();
     } catch (err: any) {
       setBillingError(err?.message || 'Failed to start checkout for selected plan');
+      freeCheckoutInFlightRef.current = false;
       setUpgradeCheckoutLoading(false);
       cleanupRazorpayOverlay();
     }
@@ -1292,7 +1345,33 @@ const OverviewTab: React.FC<{ navigate: any; mode?: 'full' | 'breakdown' | 'cont
   const trialStartsAt = billingStatus?.billing?.trial_started_at || null;
   const trialEndsAt = billingStatus?.billing?.trial_ends_at || quotaStatus?.envelope?.trial_ends_at || null;
   const trialDaysRemaining = getTrialDaysRemaining(trialEndsAt);
+  const trialEligibility = billingStatus?.billing?.trial_eligibility;
+  const trialEligibilityStatus = String(trialEligibility?.status || 'unknown').trim().toLowerCase();
+  const trialEligibleForFirstPaidPurchase = Boolean(trialEligibility?.eligible);
   const sortedPlansByLoc = [...(billingStatus?.available_plans || [])].sort((a, b) => a.monthly_loc_limit - b.monthly_loc_limit);
+  const maxPaidTrialDays = sortedPlansByLoc.reduce((max, plan) => {
+    if (plan.monthly_price_usd <= 0) {
+      return max;
+    }
+    return Math.max(max, Number(plan.trial_days || 0));
+  }, 0);
+  const firstPaidTrialDays = maxPaidTrialDays > 0 ? maxPaidTrialDays : 7;
+  const selectedFreeCheckoutTrialDays = Number(selectedFreeCheckoutPlan?.trial_days || 0);
+  const freeCheckoutTrialMessage = (() => {
+    if (selectedFreeCheckoutTrialDays <= 0) {
+      return 'This paid plan has no trial period configured. Billing starts immediately after payment confirmation.';
+    }
+    if (trialEligibleForFirstPaidPurchase) {
+      return `Your first paid purchase is eligible for a ${selectedFreeCheckoutTrialDays}-day trial. Billing starts when that trial window ends.`;
+    }
+    if (trialEligibilityStatus === 'already_used') {
+      return 'This email already used its one-time first-paid trial. Billing starts immediately after payment confirmation.';
+    }
+    if (trialEligibilityStatus === 'reserved') {
+      return 'A trial reservation is currently in progress for this email. Complete checkout now to claim it.';
+    }
+    return `Trial eligibility is verified at checkout. This plan supports up to ${selectedFreeCheckoutTrialDays} trial days for first paid purchases.`;
+  })();
   const currentPlanIndex = sortedPlansByLoc.findIndex((plan) => plan.plan_code === currentPlanCode);
   const upgradeHierarchyPlans = currentPlanIndex >= 0 ? sortedPlansByLoc.slice(currentPlanIndex) : [];
   const upgradeOptions = upgradeHierarchyPlans.filter((plan) => plan.plan_code !== currentPlanCode);
@@ -1318,8 +1397,8 @@ const OverviewTab: React.FC<{ navigate: any; mode?: 'full' | 'breakdown' | 'cont
   const normalizedCurrentStatus = String(status || '').trim().toLowerCase();
   const normalizedManagedStatus = allowManagedFallback ? String(managedSubscription?.status || '').trim().toLowerCase() : '';
   const effectiveTerminalCancellation =
-    isTerminalCancellationStatus(normalizedCurrentStatus) ||
-    (!hasCurrentSubscription && allowManagedFallback && isTerminalCancellationStatus(normalizedManagedStatus));
+    isTerminalSubscriptionStatus(normalizedCurrentStatus) ||
+    (!hasCurrentSubscription && allowManagedFallback && isTerminalSubscriptionStatus(normalizedManagedStatus));
   const currentCanCancel =
     hasCurrentSubscription &&
     !pendingCancel &&
@@ -1365,25 +1444,19 @@ const OverviewTab: React.FC<{ navigate: any; mode?: 'full' | 'breakdown' | 'cont
   );
 
   const normalizedStatus = status.trim().toLowerCase();
-  const statusIsTerminal = ['cancelled', 'expired', 'halted', 'past_due', 'incomplete'].indexOf(normalizedStatus) >= 0;
   const autoDowngradedToFree = !isTeamPlan && !effectivePendingCancel && (
     normalizedStatus === 'expired' ||
     (!hasCurrentSubscription && allowManagedFallback && normalizedManagedStatus === 'expired') ||
     pendingExpiryElapsed
   );
-  const statusBadgeLabel = statusLoading
-    ? 'LOADING'
-    : autoDowngradedToFree
-      ? 'AUTO-DOWNGRADED'
-      : effectivePendingCancel
-        ? 'PENDING EXPIRY'
-        : statusIsTerminal
-          ? normalizedStatus.replace('_', ' ').toUpperCase()
-          : trialActive
-            ? 'TRIAL ACTIVE'
-            : isTeamPlan
-            ? 'TEAM ACTIVE'
-            : 'FREE PLAN';
+  const statusBadgeLabel = getSubscriptionStatusLabel({
+    status,
+    pendingCancel: effectivePendingCancel,
+    statusLoading,
+    trialActive,
+    isTeamPlan,
+    autoDowngradedToFree,
+  });
 
   const openCancelDialog = (immediate: boolean) => {
     setCancelImmediate(immediate);
@@ -2005,6 +2078,15 @@ const OverviewTab: React.FC<{ navigate: any; mode?: 'full' | 'breakdown' | 'cont
                   {upgradeHierarchyPlans.map((plan) => {
                     const isCurrentCard = plan.plan_code === currentPlanCode;
                     const isSelectableUpgrade = plan.monthly_loc_limit > currentLocLimit;
+                    const planTrialDays = Number(plan.trial_days || firstPaidTrialDays || 0);
+                    const showsFirstPaidTrialCopy = isFree && plan.monthly_price_usd > 0 && planTrialDays > 0;
+                    const firstPaidTrialCardBadgeText = trialEligibleForFirstPaidPurchase
+                      ? `Free ${planTrialDays}-Day Trial Included`
+                      : trialEligibilityStatus === 'already_used'
+                        ? 'Trial already used'
+                        : trialEligibilityStatus === 'reserved'
+                          ? 'Trial reservation in progress'
+                          : `Up to ${planTrialDays}-day trial`;
                     const cardBaseClass = `rounded-lg border p-4 text-left transition-all duration-200 ${isCurrentCard
                       ? 'bg-emerald-900/20 border-emerald-400/50'
                       : 'bg-slate-900/70 border-slate-700'
@@ -2044,8 +2126,20 @@ const OverviewTab: React.FC<{ navigate: any; mode?: 'full' | 'breakdown' | 'cont
                           <p className="text-sm font-semibold text-white">{getPlanDisplayName(plan.plan_code)}</p>
                           <p className="mt-2 text-sm text-slate-300">{plan.monthly_loc_limit.toLocaleString()} LOC / month</p>
                           <p className="text-sm text-slate-300">${plan.monthly_price_usd}/month</p>
-                          <div className="mt-3 inline-flex px-3 py-1.5 rounded bg-emerald-600 text-white text-xs font-medium transition-colors group-hover:bg-emerald-500">
-                            Upgrade
+                          <div className="mt-3 flex flex-wrap items-center gap-2">
+                            <div className="inline-flex px-3 py-1.5 rounded bg-emerald-600 text-white text-xs font-medium transition-colors group-hover:bg-emerald-500">
+                              Upgrade
+                            </div>
+                            {showsFirstPaidTrialCopy && (
+                              <span className={`inline-flex items-center rounded border px-2 py-1 text-[10px] font-semibold uppercase tracking-wide ${trialEligibleForFirstPaidPurchase
+                                  ? 'border-sky-400/50 bg-sky-900/35 text-sky-100'
+                                  : trialEligibilityStatus === 'already_used'
+                                    ? 'border-slate-600 bg-slate-800 text-slate-300'
+                                    : 'border-amber-400/50 bg-amber-900/30 text-amber-100'
+                                }`}>
+                                {firstPaidTrialCardBadgeText}
+                              </span>
+                            )}
                           </div>
                         </div>
                       </button>
@@ -2250,7 +2344,7 @@ const OverviewTab: React.FC<{ navigate: any; mode?: 'full' | 'breakdown' | 'cont
             <div className="border-b border-slate-700 px-6 py-4">
               <h3 className="text-lg font-semibold text-white">Confirm New Paid Plan</h3>
               <p className="mt-1 text-sm text-slate-300">
-                You are moving from Free 30k BYOK to a paid LOC slab. The recurring charge starts with this checkout authorization.
+                You are moving from Free 30k BYOK to a paid LOC slab. {freeCheckoutTrialMessage}
               </p>
             </div>
 
@@ -2293,10 +2387,15 @@ const OverviewTab: React.FC<{ navigate: any; mode?: 'full' | 'breakdown' | 'cont
                 <p>
                   Included LOC: <span className="text-white font-semibold">{selectedFreeCheckoutLoc.toLocaleString()} LOC/month</span>
                 </p>
+                {selectedFreeCheckoutTrialDays > 0 && (
+                  <p>
+                    Trial policy: <span className="text-white font-semibold">{trialEligibleForFirstPaidPurchase ? `${selectedFreeCheckoutTrialDays} days before recurring billing` : 'Not available for this email'}</span>
+                  </p>
+                )}
               </div>
 
               <div className="rounded-lg border border-amber-500/40 bg-amber-900/20 p-3 text-xs text-amber-100">
-                This flow opens Razorpay checkout now and activates your selected paid plan after payment confirmation.
+                This flow opens Razorpay checkout now and activates your selected paid plan after payment confirmation. Trial eligibility, if available, is enforced by backend policy at checkout time. During trial setup, Razorpay may show a small authorization amount to validate the payment method; recurring billing starts after trial ends.
               </div>
             </div>
 

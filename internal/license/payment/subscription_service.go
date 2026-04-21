@@ -137,6 +137,8 @@ var ErrKeepPlanNotVerified = errors.New("keep plan not verified with razorpay")
 const (
 	cancelVerificationMaxAttempts = 5
 	cancelVerificationBaseDelay   = 600 * time.Millisecond
+	confirmFetchMaxAttempts       = 4
+	confirmFetchBaseDelay         = 400 * time.Millisecond
 )
 
 // NewSubscriptionService creates a new subscription service
@@ -223,6 +225,277 @@ func (s *SubscriptionService) lookupUserEmail(ctx context.Context, userID int) (
 	return trimmed, nil
 }
 
+func (s *SubscriptionService) findRecentPendingTrialCheckout(
+	ctx context.Context,
+	ownerUserID,
+	orgID int,
+	planCode,
+	normalizedEmail,
+	reservationToken,
+	expectedCurrency,
+	expectedPlanID string,
+) (*RazorpaySubscription, error) {
+	if s == nil || s.db == nil {
+		return nil, fmt.Errorf("missing db handle")
+	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
+
+	trimmedPlanCode := strings.TrimSpace(planCode)
+	trimmedEmail := strings.ToLower(strings.TrimSpace(normalizedEmail))
+	trimmedToken := strings.TrimSpace(reservationToken)
+	trimmedCurrency := strings.ToUpper(strings.TrimSpace(expectedCurrency))
+	trimmedPlanID := strings.TrimSpace(expectedPlanID)
+
+	if trimmedPlanCode == "" || trimmedEmail == "" || trimmedCurrency == "" || trimmedPlanID == "" {
+		return nil, fmt.Errorf("plan code, normalized email, expected currency, and expected plan id are required")
+	}
+
+	args := []interface{}{ownerUserID, orgID, trimmedPlanCode, trimmedEmail, trimmedCurrency, trimmedPlanID}
+	query := `
+		SELECT razorpay_subscription_id,
+		       status,
+		       short_url,
+		       notes,
+		       quantity
+		FROM subscriptions
+		WHERE owner_user_id = $1
+		  AND org_id = $2
+		  AND plan_type = $3
+		  AND LOWER(TRIM(COALESCE(notes::jsonb ->> 'trial_email', ''))) = $4
+		  AND UPPER(TRIM(COALESCE(notes::jsonb ->> 'currency', ''))) = $5
+		  AND TRIM(COALESCE(razorpay_plan_id, '')) = $6
+		  AND LOWER(TRIM(COALESCE(status, ''))) IN ('created', 'authenticated', 'active', 'pending')`
+
+	if trimmedToken != "" {
+		query += `
+		  AND TRIM(COALESCE(notes::jsonb ->> 'trial_reservation_token', '')) = $7`
+		args = append(args, trimmedToken)
+	}
+
+	query += `
+		ORDER BY created_at DESC
+		LIMIT 1`
+
+	var sub RazorpaySubscription
+	var notesBytes []byte
+	err := s.db.QueryRowContext(ctx, query, args...).Scan(&sub.ID, &sub.Status, &sub.ShortURL, &notesBytes, &sub.Quantity)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("query recent pending trial checkout: %w", err)
+	}
+	if len(notesBytes) > 0 {
+		sub.Notes = json.RawMessage(notesBytes)
+	}
+
+	return &sub, nil
+}
+
+func (s *SubscriptionService) recoverReservedTrialCheckout(
+	ctx context.Context,
+	ownerUserID int,
+	orgID int,
+	planCode string,
+	normalizedEmail string,
+	reservationState storagelicense.TrialEligibilityState,
+	expectedCurrency string,
+	expectedPlanID string,
+	mode string,
+) (*RazorpaySubscription, error) {
+	reservationToken := ""
+	if reservationState.ReservationToken.Valid {
+		reservationToken = reservationState.ReservationToken.String
+	}
+
+	localSub, err := s.findRecentPendingTrialCheckout(
+		ctx,
+		ownerUserID,
+		orgID,
+		planCode,
+		normalizedEmail,
+		reservationToken,
+		expectedCurrency,
+		expectedPlanID,
+	)
+	if err != nil {
+		return nil, err
+	}
+	if localSub == nil {
+		return nil, nil
+	}
+
+	providerSub, providerErr := GetSubscriptionByID(mode, localSub.ID)
+	if providerErr != nil {
+		fmt.Printf("[PAYMENT.SUBSCRIPTION] reuse_pending_trial_checkout_provider_lookup_failed org_id=%d owner_user_id=%d sub_id=%s err=%v\n", orgID, ownerUserID, localSub.ID, providerErr)
+		return localSub, nil
+	}
+
+	if strings.TrimSpace(providerSub.PlanID) != strings.TrimSpace(expectedPlanID) {
+		fmt.Printf("[PAYMENT.SUBSCRIPTION] skip_reuse_pending_trial_checkout_plan_mismatch org_id=%d owner_user_id=%d sub_id=%s expected_plan_id=%s got_plan_id=%s\n", orgID, ownerUserID, localSub.ID, strings.TrimSpace(expectedPlanID), strings.TrimSpace(providerSub.PlanID))
+		return nil, nil
+	}
+
+	if len(providerSub.Notes) == 0 && len(localSub.Notes) > 0 {
+		providerSub.Notes = localSub.Notes
+	}
+	if strings.TrimSpace(providerSub.Status) == "" && strings.TrimSpace(localSub.Status) != "" {
+		providerSub.Status = localSub.Status
+	}
+	if strings.TrimSpace(providerSub.ShortURL) == "" && strings.TrimSpace(localSub.ShortURL) != "" {
+		providerSub.ShortURL = localSub.ShortURL
+	}
+	if providerSub.Quantity <= 0 && localSub.Quantity > 0 {
+		providerSub.Quantity = localSub.Quantity
+	}
+
+	return providerSub, nil
+}
+
+func isPendingCheckoutStatus(status string) bool {
+	switch strings.ToLower(strings.TrimSpace(status)) {
+	case "created", "authenticated", "active", "pending":
+		return true
+	default:
+		return false
+	}
+}
+
+func findProviderPendingTrialCheckoutByReservation(mode, normalizedEmail, reservationToken, expectedCurrency, expectedPlanID string) (*RazorpaySubscription, error) {
+	trimmedToken := strings.TrimSpace(reservationToken)
+	trimmedEmail := strings.ToLower(strings.TrimSpace(normalizedEmail))
+	trimmedCurrency := strings.ToUpper(strings.TrimSpace(expectedCurrency))
+	trimmedPlanID := strings.TrimSpace(expectedPlanID)
+
+	if trimmedToken == "" || trimmedEmail == "" || trimmedCurrency == "" || trimmedPlanID == "" {
+		return nil, nil
+	}
+
+	subList, err := GetAllSubscriptions(mode)
+	if err != nil {
+		return nil, fmt.Errorf("list subscriptions for trial reservation recovery: %w", err)
+	}
+	if subList == nil || len(subList.Items) == 0 {
+		return nil, nil
+	}
+
+	for idx := range subList.Items {
+		item := subList.Items[idx]
+		if !isPendingCheckoutStatus(item.Status) {
+			continue
+		}
+		if strings.TrimSpace(item.PlanID) != trimmedPlanID {
+			continue
+		}
+
+		notes := item.GetNotesMap()
+		if notes == nil {
+			continue
+		}
+
+		noteToken := strings.TrimSpace(notes["trial_reservation_token"])
+		noteEmail := strings.ToLower(strings.TrimSpace(notes["trial_email"]))
+		noteCurrency := strings.ToUpper(strings.TrimSpace(notes["currency"]))
+		if noteToken != trimmedToken || noteEmail != trimmedEmail || noteCurrency != trimmedCurrency {
+			continue
+		}
+
+		copied := item
+		return &copied, nil
+	}
+
+	return nil, nil
+}
+
+func (s *SubscriptionService) ensureRecoveredCheckoutPersisted(
+	ctx context.Context,
+	sub *RazorpaySubscription,
+	ownerUserID,
+	orgID,
+	quantity int,
+	dbPlanType,
+	razorpayPlanID string,
+) error {
+	if s == nil || s.db == nil {
+		return fmt.Errorf("missing db handle")
+	}
+	if sub == nil {
+		return fmt.Errorf("subscription payload is required")
+	}
+
+	trimmedSubID := strings.TrimSpace(sub.ID)
+	if trimmedSubID == "" {
+		return fmt.Errorf("subscription id is required")
+	}
+
+	if ctx == nil {
+		ctx = context.Background()
+	}
+
+	var existingID int64
+	err := s.db.QueryRowContext(ctx, `
+		SELECT id
+		FROM subscriptions
+		WHERE razorpay_subscription_id = $1
+		LIMIT 1`, trimmedSubID,
+	).Scan(&existingID)
+	if err == nil {
+		return nil
+	}
+	if !errors.Is(err, sql.ErrNoRows) {
+		return fmt.Errorf("check recovered subscription persistence: %w", err)
+	}
+
+	notes := sub.GetNotesMap()
+	if notes == nil {
+		notes = map[string]string{}
+	}
+
+	persistQuantity := sub.Quantity
+	if persistQuantity <= 0 {
+		persistQuantity = quantity
+	}
+
+	currentPeriodStart := time.Now().UTC()
+	if sub.CurrentStart > 0 {
+		currentPeriodStart = time.Unix(sub.CurrentStart, 0).UTC()
+	}
+	currentPeriodEnd := currentPeriodStart.AddDate(0, 1, 0)
+	if sub.CurrentEnd > 0 {
+		currentPeriodEnd = time.Unix(sub.CurrentEnd, 0).UTC()
+	}
+
+	persistStatus := strings.TrimSpace(sub.Status)
+	if persistStatus == "" {
+		persistStatus = "created"
+	}
+
+	store := storagepayment.NewSubscriptionStore(s.db)
+	if err := store.CreateTeamSubscriptionRecord(storagepayment.CreateTeamSubscriptionRecordInput{
+		SubscriptionID:     trimmedSubID,
+		OwnerUserID:        ownerUserID,
+		OrgID:              orgID,
+		DBPlanType:         dbPlanType,
+		Quantity:           persistQuantity,
+		Status:             persistStatus,
+		RazorpayPlanID:     razorpayPlanID,
+		CurrentPeriodStart: currentPeriodStart,
+		CurrentPeriodEnd:   currentPeriodEnd,
+		LicenseExpiresAt:   currentPeriodEnd,
+		ShortURL:           strings.TrimSpace(sub.ShortURL),
+		Notes:              notes,
+	}); err != nil {
+		if strings.Contains(strings.ToLower(err.Error()), "duplicate key") || strings.Contains(strings.ToLower(err.Error()), "unique") {
+			return nil
+		}
+		return fmt.Errorf("persist recovered trial checkout: %w", err)
+	}
+
+	return nil
+}
+
 // CreateTeamSubscription creates a new monthly LOC slab subscription via Razorpay and persists to DB.
 func (s *SubscriptionService) CreateTeamSubscription(ownerUserID, orgID int, planCode string, mode, currency string) (*RazorpaySubscription, error) {
 	persistedPlanCode := license.PlanType(strings.TrimSpace(planCode))
@@ -253,6 +526,26 @@ func (s *SubscriptionService) CreateTeamSubscription(ownerUserID, orgID int, pla
 		return nil, fmt.Errorf("razorpay monthly plan ID not configured in %s mode", mode)
 	}
 
+	resolvedPlan, err := GetPlanByID(mode, razorpayPlanID)
+	if err != nil {
+		return nil, fmt.Errorf("load razorpay monthly plan details: %w", err)
+	}
+
+	planCurrency := strings.ToUpper(strings.TrimSpace(resolvedPlan.Item.Currency))
+	if planCurrency == "" {
+		return nil, fmt.Errorf("razorpay plan %s returned empty currency", razorpayPlanID)
+	}
+	if !strings.EqualFold(planCurrency, resolvedCurrency) {
+		return nil, fmt.Errorf("razorpay plan currency mismatch: expected %s got %s", resolvedCurrency, planCurrency)
+	}
+
+	planUnitMinor := int64(resolvedPlan.Item.Amount)
+	if planUnitMinor <= 0 {
+		return nil, fmt.Errorf("razorpay plan %s returned invalid amount %d", razorpayPlanID, resolvedPlan.Item.Amount)
+	}
+
+	recurringMinor := planUnitMinor * int64(quantity)
+
 	ctx := context.Background()
 	ownerEmail, err := s.lookupUserEmail(ctx, ownerUserID)
 	if err != nil {
@@ -280,11 +573,113 @@ func (s *SubscriptionService) CreateTeamSubscription(ownerUserID, orgID int, pla
 		ReservedOrgID:    &orgIDInt64,
 		ReservedPlanCode: persistedPlanCode.String(),
 	})
+	reserveInput := storagelicense.ReserveFirstPurchaseTrialInput{
+		Email:            normalizedEmail,
+		ReservationToken: trialReservationToken,
+		ReservationTTL:   30 * time.Minute,
+		ReservedUserID:   &ownerUserIDInt64,
+		ReservedOrgID:    &orgIDInt64,
+		ReservedPlanCode: persistedPlanCode.String(),
+	}
 	if err != nil {
 		if errors.Is(err, storagelicense.ErrTrialEligibilityConsumed) {
 			reservationState.Consumed = true
 		} else if errors.Is(err, storagelicense.ErrTrialEligibilityReserved) {
-			return nil, fmt.Errorf("trial eligibility reservation already in progress for this email; retry shortly")
+			recoveredSub, recoverErr := s.recoverReservedTrialCheckout(
+				ctx,
+				ownerUserID,
+				orgID,
+				persistedPlanCode.String(),
+				normalizedEmail,
+				reservationState,
+				resolvedCurrency,
+				razorpayPlanID,
+				mode,
+			)
+			if recoverErr != nil {
+				return nil, fmt.Errorf("recover reserved trial checkout: %w", recoverErr)
+			}
+			if recoveredSub != nil {
+				if persistErr := s.ensureRecoveredCheckoutPersisted(ctx, recoveredSub, ownerUserID, orgID, quantity, persistedPlanCode.String(), razorpayPlanID); persistErr != nil {
+					return nil, fmt.Errorf("ensure recovered checkout persisted: %w", persistErr)
+				}
+
+				now := time.Now().UTC()
+				trialAppliedFromNotes, _, _, trialStartedAt, trialEndsAt := extractTrialConfirmationDetails(recoveredSub, now)
+				recoveredSub.TrialApplied = trialAppliedFromNotes
+				if recoveredSub.TrialApplied {
+					recoveredSub.TrialDays = firstPurchaseTrialDays
+					recoveredSub.TrialStartsAt = trialStartedAt.Unix()
+					recoveredSub.TrialEndsAt = trialEndsAt.Unix()
+				}
+				recoveredSub.PlanCurrency = planCurrency
+				recoveredSub.PlanUnitMinor = planUnitMinor
+				recoveredSub.RecurringMinor = recurringMinor
+				recoveredSub.RecurringCurrency = resolvedCurrency
+				recoveredSub.CheckoutAuthorizationMayApply = recoveredSub.TrialApplied
+
+				fmt.Printf("[PAYMENT.SUBSCRIPTION] reusing_pending_trial_checkout org_id=%d owner_user_id=%d plan_code=%s subscription_id=%s\n", orgID, ownerUserID, persistedPlanCode.String(), recoveredSub.ID)
+				return recoveredSub, nil
+			}
+
+			providerRecoveredSub, providerRecoverErr := findProviderPendingTrialCheckoutByReservation(
+				mode,
+				normalizedEmail,
+				reservationState.ReservationToken.String,
+				resolvedCurrency,
+				razorpayPlanID,
+			)
+			if providerRecoverErr != nil {
+				return nil, fmt.Errorf("recover provider trial checkout: %w", providerRecoverErr)
+			}
+			if providerRecoveredSub != nil {
+				if persistErr := s.ensureRecoveredCheckoutPersisted(ctx, providerRecoveredSub, ownerUserID, orgID, quantity, persistedPlanCode.String(), razorpayPlanID); persistErr != nil {
+					return nil, fmt.Errorf("ensure provider recovered checkout persisted: %w", persistErr)
+				}
+
+				now := time.Now().UTC()
+				trialAppliedFromNotes, _, _, trialStartedAt, trialEndsAt := extractTrialConfirmationDetails(providerRecoveredSub, now)
+				providerRecoveredSub.TrialApplied = trialAppliedFromNotes
+				if providerRecoveredSub.TrialApplied {
+					providerRecoveredSub.TrialDays = firstPurchaseTrialDays
+					providerRecoveredSub.TrialStartsAt = trialStartedAt.Unix()
+					providerRecoveredSub.TrialEndsAt = trialEndsAt.Unix()
+				}
+				providerRecoveredSub.PlanCurrency = planCurrency
+				providerRecoveredSub.PlanUnitMinor = planUnitMinor
+				providerRecoveredSub.RecurringMinor = recurringMinor
+				providerRecoveredSub.RecurringCurrency = resolvedCurrency
+				providerRecoveredSub.CheckoutAuthorizationMayApply = providerRecoveredSub.TrialApplied
+
+				fmt.Printf("[PAYMENT.SUBSCRIPTION] reusing_provider_pending_trial_checkout org_id=%d owner_user_id=%d plan_code=%s subscription_id=%s\n", orgID, ownerUserID, persistedPlanCode.String(), providerRecoveredSub.ID)
+				return providerRecoveredSub, nil
+			}
+
+			staleToken := strings.TrimSpace(reservationState.ReservationToken.String)
+			if staleToken != "" {
+				releaseErr := trialStore.ReleaseTrialReservation(ctx, storagelicense.ReleaseTrialReservationInput{
+					Email:            normalizedEmail,
+					ReservationToken: staleToken,
+				})
+				if releaseErr != nil && !errors.Is(releaseErr, storagelicense.ErrTrialEligibilityReservationMismatch) {
+					return nil, fmt.Errorf("release stale trial reservation: %w", releaseErr)
+				}
+
+				reservationState, err = trialStore.ReserveFirstPurchaseTrial(ctx, reserveInput)
+				if err != nil {
+					if errors.Is(err, storagelicense.ErrTrialEligibilityConsumed) {
+						reservationState.Consumed = true
+					} else if errors.Is(err, storagelicense.ErrTrialEligibilityReserved) {
+						return nil, fmt.Errorf("trial eligibility reservation already in progress for this email; retry shortly")
+					} else {
+						return nil, fmt.Errorf("reserve trial eligibility after stale release: %w", err)
+					}
+				}
+
+				fmt.Printf("[PAYMENT.SUBSCRIPTION] reset_stale_trial_reservation org_id=%d owner_user_id=%d plan_code=%s\n", orgID, ownerUserID, persistedPlanCode.String())
+			} else {
+				return nil, fmt.Errorf("trial eligibility reservation already in progress for this email; retry shortly")
+			}
 		} else {
 			return nil, fmt.Errorf("reserve trial eligibility: %w", err)
 		}
@@ -297,6 +692,21 @@ func (s *SubscriptionService) CreateTeamSubscription(ownerUserID, orgID int, pla
 	if trialApplied {
 		trialStartAtUnix, trialWindowStartUnix, trialWindowEndUnix = computeTrialWindow(time.Now().UTC(), firstPurchaseTrialDays)
 	}
+
+	fmt.Printf(
+		"[PAYMENT.SUBSCRIPTION] create_team_subscription_prepare org_id=%d owner_user_id=%d plan_code=%s mode=%s currency=%s plan_id=%s quantity=%d plan_unit_minor=%d recurring_minor=%d trial_applied=%t trial_start_at=%d\n",
+		orgID,
+		ownerUserID,
+		persistedPlanCode.String(),
+		mode,
+		resolvedCurrency,
+		razorpayPlanID,
+		quantity,
+		planUnitMinor,
+		recurringMinor,
+		trialApplied,
+		trialStartAtUnix,
+	)
 
 	// Create notes for the subscription
 	notes := map[string]string{
@@ -325,6 +735,18 @@ func (s *SubscriptionService) CreateTeamSubscription(ownerUserID, orgID int, pla
 		}
 		return nil, fmt.Errorf("failed to create razorpay subscription: %w", err)
 	}
+
+	fmt.Printf(
+		"[PAYMENT.SUBSCRIPTION] create_team_subscription_created org_id=%d owner_user_id=%d plan_code=%s razorpay_subscription_id=%s status=%s recurring_minor=%d currency=%s trial_applied=%t\n",
+		orgID,
+		ownerUserID,
+		persistedPlanCode.String(),
+		sub.ID,
+		sub.Status,
+		recurringMinor,
+		resolvedCurrency,
+		trialApplied,
+	)
 
 	// Calculate license expiration for monthly cycle.
 	var licenseExpiresAt time.Time
@@ -363,6 +785,12 @@ func (s *SubscriptionService) CreateTeamSubscription(ownerUserID, orgID int, pla
 		Notes:              notes,
 	})
 	if err != nil {
+		if trialApplied {
+			_ = trialStore.ReleaseTrialReservation(ctx, storagelicense.ReleaseTrialReservationInput{
+				Email:            normalizedEmail,
+				ReservationToken: trialReservationToken,
+			})
+		}
 		return nil, fmt.Errorf("failed to persist subscription: %w", err)
 	}
 
@@ -372,6 +800,11 @@ func (s *SubscriptionService) CreateTeamSubscription(ownerUserID, orgID int, pla
 		sub.TrialStartsAt = trialWindowStartUnix
 		sub.TrialEndsAt = trialWindowEndUnix
 	}
+	sub.PlanCurrency = planCurrency
+	sub.PlanUnitMinor = planUnitMinor
+	sub.RecurringMinor = recurringMinor
+	sub.RecurringCurrency = resolvedCurrency
+	sub.CheckoutAuthorizationMayApply = trialApplied
 
 	return sub, nil
 }
@@ -579,29 +1012,6 @@ func hasCycleEndCancellationSignal(pre, cancelResponse, post *RazorpaySubscripti
 	return false
 }
 
-func isCancelAPIAcknowledgementSignal(pre, cancelResponse, post *RazorpaySubscription, immediate bool) bool {
-	if immediate || cancelResponse == nil {
-		return false
-	}
-
-	cancelID := safeSubscriptionID(cancelResponse)
-	if cancelID == "" {
-		return false
-	}
-
-	preID := safeSubscriptionID(pre)
-	if preID != "" && preID != cancelID {
-		return false
-	}
-
-	postID := safeSubscriptionID(post)
-	if postID != "" && postID != cancelID {
-		return false
-	}
-
-	return true
-}
-
 func safeSubscriptionStatus(sub *RazorpaySubscription) string {
 	if sub == nil {
 		return ""
@@ -630,10 +1040,6 @@ func cancellationVerified(preCancelSub, cancelResponseSub, postCancelSub *Razorp
 	if hasCycleEndCancellationSignal(preCancelSub, cancelResponseSub, postCancelSub) {
 		return true, ""
 	}
-	if isCancelAPIAcknowledgementSignal(preCancelSub, cancelResponseSub, postCancelSub, immediate) {
-		return true, ""
-	}
-
 	return false, "cycle-end cancellation produced no verifiable provider-side state transition"
 }
 
@@ -667,15 +1073,7 @@ func verifyCancellationWithRetry(
 		} else {
 			lastFetchErr = nil
 			if ok, reason := cancellationVerified(preCancelSub, cancelResponseSub, postCancelSub, immediate); ok {
-				verifiedByAckOnly := isCancelAPIAcknowledgementSignal(preCancelSub, cancelResponseSub, postCancelSub, immediate) &&
-					!hasCycleEndCancellationSignal(preCancelSub, cancelResponseSub, postCancelSub) &&
-					!hasTerminalCancellationSignal(cancelResponseSub) &&
-					!hasTerminalCancellationSignal(postCancelSub)
-				if verifiedByAckOnly {
-					fmt.Printf("[SUBSCRIPTION.CANCEL] verification succeeded from cancel API acknowledgement (immediate=%t, cancel_status=%s, cancel_id=%s)\n", immediate, safeSubscriptionStatus(cancelResponseSub), safeSubscriptionID(cancelResponseSub))
-				} else {
-					fmt.Printf("[SUBSCRIPTION.CANCEL] verification attempt %d/%d succeeded (immediate=%t, cancel_status=%s, post_status=%s)\n", attempt, maxAttempts, immediate, safeSubscriptionStatus(cancelResponseSub), safeSubscriptionStatus(postCancelSub))
-				}
+				fmt.Printf("[SUBSCRIPTION.CANCEL] verification attempt %d/%d succeeded (immediate=%t, cancel_status=%s, post_status=%s)\n", attempt, maxAttempts, immediate, safeSubscriptionStatus(cancelResponseSub), safeSubscriptionStatus(postCancelSub))
 				return postCancelSub, "", nil
 			} else {
 				lastReason = reason
@@ -921,6 +1319,115 @@ func verifyCheckoutSignature(req *PurchaseConfirmationRequest, mode string) erro
 	return nil
 }
 
+func extractTrialConfirmationDetails(sub *RazorpaySubscription, now time.Time) (bool, string, string, time.Time, time.Time) {
+	if sub == nil {
+		return false, "", "", time.Time{}, time.Time{}
+	}
+
+	notes := sub.GetNotesMap()
+	if notes == nil || !isTrueTrialNote(notes["trial_applied"]) {
+		return false, "", "", time.Time{}, time.Time{}
+	}
+
+	trialStartAt, ok := parseTrialUnixNote(notes["trial_window_start_unix"])
+	if !ok {
+		trialStartAt = now.UTC()
+	}
+
+	trialEndAt, ok := parseTrialUnixNote(notes["trial_window_end_unix"])
+	if !ok && sub.StartAt > 0 {
+		trialEndAt = time.Unix(sub.StartAt, 0).UTC()
+		ok = true
+	}
+	if !ok {
+		trialEndAt = trialStartAt.AddDate(0, 0, firstPurchaseTrialDays)
+	}
+	if !trialEndAt.After(trialStartAt) {
+		trialEndAt = trialStartAt.AddDate(0, 0, firstPurchaseTrialDays)
+	}
+
+	return true,
+		strings.TrimSpace(notes["trial_email"]),
+		strings.TrimSpace(notes["trial_reservation_token"]),
+		trialStartAt,
+		trialEndAt
+}
+
+func shouldRetryConfirmProviderRead(err error) bool {
+	if err == nil {
+		return false
+	}
+
+	msg := strings.ToLower(err.Error())
+	if strings.Contains(msg, "status 400") || strings.Contains(msg, "status 401") || strings.Contains(msg, "status 403") {
+		return false
+	}
+
+	return true
+}
+
+func fetchRazorpayWithRetry[T any](
+	ctx context.Context,
+	op string,
+	maxAttempts int,
+	baseDelay time.Duration,
+	fetch func() (*T, error),
+	sleepFn func(time.Duration),
+) (*T, error) {
+	if maxAttempts < 1 {
+		maxAttempts = 1
+	}
+	if baseDelay <= 0 {
+		baseDelay = 250 * time.Millisecond
+	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
+
+	var lastErr error
+	for attempt := 1; attempt <= maxAttempts; attempt++ {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+
+		result, err := fetch()
+		if err == nil {
+			if attempt > 1 {
+				fmt.Printf("[PURCHASE.CONFIRM] %s fetch succeeded on attempt %d/%d\n", op, attempt, maxAttempts)
+			}
+			return result, nil
+		}
+
+		lastErr = err
+		retryable := shouldRetryConfirmProviderRead(err)
+		if !retryable {
+			fmt.Printf("[PURCHASE.CONFIRM] %s fetch failed with non-retryable error on attempt %d/%d: %v\n", op, attempt, maxAttempts, err)
+			return nil, err
+		}
+		if attempt == maxAttempts {
+			fmt.Printf("[PURCHASE.CONFIRM] %s fetch exhausted after %d attempts: %v\n", op, maxAttempts, err)
+			return nil, err
+		}
+
+		delay := time.Duration(attempt) * baseDelay
+		fmt.Printf("[PURCHASE.CONFIRM] %s fetch attempt %d/%d failed: %v (retrying in %s)\n", op, attempt, maxAttempts, err, delay)
+		if sleepFn != nil {
+			sleepFn(delay)
+			continue
+		}
+
+		timer := time.NewTimer(delay)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return nil, ctx.Err()
+		case <-timer.C:
+		}
+	}
+
+	return nil, lastErr
+}
+
 // RevokeLicense removes a license from a user
 
 func (s *SubscriptionService) RevokeLicense(subscriptionID string, userID, orgID int) error {
@@ -941,11 +1448,25 @@ func (s *SubscriptionService) ConfirmPurchase(req *PurchaseConfirmationRequest, 
 		return err
 	}
 
+	now := time.Now().UTC()
+	ctx := context.Background()
+
 	// Fetch payment details from Razorpay to check if it's captured
-	payment, err := GetPaymentByID(mode, req.RazorpayPaymentID)
+	payment, err := fetchRazorpayWithRetry(ctx, "payment", confirmFetchMaxAttempts, confirmFetchBaseDelay, func() (*RazorpayPayment, error) {
+		return GetPaymentByID(mode, req.RazorpayPaymentID)
+	}, nil)
 	if err != nil {
 		return fmt.Errorf("failed to fetch payment from Razorpay: %w", err)
 	}
+
+	checkoutSubscription, err := fetchRazorpayWithRetry(ctx, "subscription", confirmFetchMaxAttempts, confirmFetchBaseDelay, func() (*RazorpaySubscription, error) {
+		return GetSubscriptionByID(mode, req.RazorpaySubscriptionID)
+	}, nil)
+	if err != nil {
+		return fmt.Errorf("failed to fetch subscription from Razorpay: %w", err)
+	}
+
+	trialAppliedFromNotes, trialEmailFromNotes, trialReservationToken, trialStartedAt, trialEndsAt := extractTrialConfirmationDetails(checkoutSubscription, now)
 
 	tx, err := s.db.Begin()
 	if err != nil {
@@ -968,27 +1489,77 @@ func (s *SubscriptionService) ConfirmPurchase(req *PurchaseConfirmationRequest, 
 	}
 	resolvedPlanCode := normalizePersistedPlanCode(persistedPlanType)
 
+	resolvedSubscriptionStatus := strings.TrimSpace(checkoutSubscription.Status)
+
 	// Update subscription with payment info
 	// Set payment_verified=TRUE if payment is captured
 	paymentVerified := bool(payment.Captured)
 	_, err = tx.Exec(`
 		UPDATE subscriptions
-		SET last_payment_id = $1,
-		    last_payment_status = $2,
+		SET status = CASE WHEN NULLIF($1, '') IS NULL THEN status ELSE $1 END,
+		    last_payment_id = $2,
+		    last_payment_status = $3,
 		    last_payment_received_at = NOW(),
-		    payment_verified = $3,
+		    payment_verified = $4,
 		    updated_at = NOW()
-		WHERE id = $4`,
-		payment.ID, payment.Status, paymentVerified, dbSubscriptionID,
+		WHERE id = $5`,
+		resolvedSubscriptionStatus, payment.ID, payment.Status, paymentVerified, dbSubscriptionID,
 	)
 	if err != nil {
 		return fmt.Errorf("failed to update subscription with payment info: %w", err)
 	}
 
-	if paymentVerified {
-		now := time.Now().UTC()
+	if trialAppliedFromNotes {
+		trialEmail := strings.TrimSpace(trialEmailFromNotes)
+		if trialEmail == "" {
+			trialEmail, err = s.lookupUserEmail(context.Background(), ownerUserID)
+			if err != nil {
+				return fmt.Errorf("resolve trial email for confirmation: %w", err)
+			}
+		}
+
+		normalizedEmail, normErr := storagelicense.NormalizeTrialEligibilityEmail(trialEmail)
+		if normErr != nil {
+			return fmt.Errorf("normalize trial email for confirmation: %w", normErr)
+		}
+
+		if trialReservationToken != "" {
+			trialStore := storagelicense.NewTrialEligibilityStore(s.db)
+			ownerUserIDInt64 := int64(ownerUserID)
+			orgIDInt64 := int64(orgID)
+			firstSubscriptionID := dbSubscriptionID
+			_, consumeErr := trialStore.ConsumeReservedTrialTx(context.Background(), tx, storagelicense.ConsumeReservedTrialInput{
+				Email:               normalizedEmail,
+				ReservationToken:    trialReservationToken,
+				FirstUserID:         &ownerUserIDInt64,
+				FirstOrgID:          &orgIDInt64,
+				FirstSubscriptionID: &firstSubscriptionID,
+				FirstPlanCode:       resolvedPlanCode.String(),
+				ConsumedAt:          now,
+			})
+			if consumeErr != nil && !errors.Is(consumeErr, storagelicense.ErrTrialEligibilityReservationMismatch) && !errors.Is(consumeErr, storagelicense.ErrTrialEligibilityNotFound) {
+				return fmt.Errorf("consume trial eligibility during confirmation: %w", consumeErr)
+			}
+		}
+	}
+
+	if paymentVerified || trialAppliedFromNotes {
 		periodStart := time.Date(now.Year(), now.Month(), 1, 0, 0, 0, 0, time.UTC)
 		periodEnd := periodStart.AddDate(0, 1, 0)
+		if checkoutSubscription.CurrentStart > 0 {
+			periodStart = time.Unix(checkoutSubscription.CurrentStart, 0).UTC()
+		}
+		if checkoutSubscription.CurrentEnd > 0 {
+			periodEnd = time.Unix(checkoutSubscription.CurrentEnd, 0).UTC()
+		}
+
+		var trialStartedAtValue interface{}
+		var trialEndsAtValue interface{}
+		if trialAppliedFromNotes {
+			trialStartedAtValue = trialStartedAt
+			trialEndsAtValue = trialEndsAt
+		}
+
 		_, err = tx.Exec(`
 			INSERT INTO org_billing_state (
 				org_id,
@@ -997,12 +1568,23 @@ func (s *SubscriptionService) ConfirmPurchase(req *PurchaseConfirmationRequest, 
 				billing_period_end,
 				loc_used_month,
 				loc_blocked,
+				trial_started_at,
+				trial_ends_at,
 				trial_readonly,
 				last_reset_at,
 				updated_at
-			) VALUES ($1, $2, $3, $4, 0, FALSE, FALSE, NOW(), NOW())
+			) VALUES ($1, $2, $3, $4, 0, FALSE, $5, $6, FALSE, NOW(), NOW())
 			ON CONFLICT (org_id) DO UPDATE SET
 				current_plan_code = EXCLUDED.current_plan_code,
+				billing_period_start = EXCLUDED.billing_period_start,
+				billing_period_end = EXCLUDED.billing_period_end,
+				trial_started_at = COALESCE(org_billing_state.trial_started_at, EXCLUDED.trial_started_at),
+				trial_ends_at = CASE
+					WHEN EXCLUDED.trial_ends_at IS NULL THEN org_billing_state.trial_ends_at
+					WHEN org_billing_state.trial_ends_at IS NULL THEN EXCLUDED.trial_ends_at
+					WHEN org_billing_state.trial_ends_at < EXCLUDED.trial_ends_at THEN EXCLUDED.trial_ends_at
+					ELSE org_billing_state.trial_ends_at
+				END,
 				scheduled_plan_code = NULL,
 				scheduled_plan_effective_at = NULL,
 				upgrade_loc_grant_current_cycle = 0,
@@ -1010,7 +1592,7 @@ func (s *SubscriptionService) ConfirmPurchase(req *PurchaseConfirmationRequest, 
 				trial_readonly = FALSE,
 				loc_blocked = FALSE,
 				updated_at = NOW()
-		`, orgID, resolvedPlanCode.String(), periodStart, periodEnd)
+		`, orgID, resolvedPlanCode.String(), periodStart, periodEnd, trialStartedAtValue, trialEndsAtValue)
 		if err != nil {
 			return fmt.Errorf("failed to update org billing state for confirmed purchase: %w", err)
 		}
@@ -1059,11 +1641,18 @@ func (s *SubscriptionService) ConfirmPurchase(req *PurchaseConfirmationRequest, 
 
 	// Log to license_log
 	metadata := map[string]interface{}{
-		"subscription_id": req.RazorpaySubscriptionID,
-		"payment_id":      payment.ID,
-		"amount":          payment.Amount,
-		"status":          payment.Status,
-		"captured":        payment.Captured,
+		"subscription_id":     req.RazorpaySubscriptionID,
+		"payment_id":          payment.ID,
+		"amount":              payment.Amount,
+		"status":              payment.Status,
+		"captured":            payment.Captured,
+		"resolved_plan_code":  resolvedPlanCode.String(),
+		"subscription_status": resolvedSubscriptionStatus,
+		"trial_applied":       trialAppliedFromNotes,
+	}
+	if trialAppliedFromNotes {
+		metadata["trial_starts_at"] = trialStartedAt.Format(time.RFC3339)
+		metadata["trial_ends_at"] = trialEndsAt.Format(time.RFC3339)
 	}
 	metadataJSON, _ := json.Marshal(metadata)
 	_, err = tx.Exec(`
