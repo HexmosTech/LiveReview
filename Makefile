@@ -521,7 +521,7 @@ build-with-ui:
 	fi
 	rm $(BINARY_NAME) || true
 	cd ui/ && npm install && set -a && . ./.env.prod && set +a && LIVEREVIEW_BUILD_MODE=prod NODE_ENV=production npm run build:obfuscated && cd ..
-	go build livereview.go
+	env -u GOROOT go build livereview.go
 	@echo "✅ Production build complete. Binary ready for raw-deploy."
 
 raw-deploy: build-with-ui
