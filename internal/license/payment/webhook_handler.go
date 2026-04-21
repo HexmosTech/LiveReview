@@ -549,16 +549,22 @@ func (h *RazorpayWebhookHandler) handleSubscriptionCharged(event *RazorpayWebhoo
 	var ownerUserID, orgID int
 	var planType string
 	var currentLicenseExpiry time.Time
+	var existingCancelAtPeriodEnd bool
+	var existingCurrentPeriodEnd sql.NullTime
 	err = tx.QueryRow(`
-		SELECT id, owner_user_id, org_id, plan_type, license_expires_at
+		SELECT id, owner_user_id, org_id, plan_type, license_expires_at, cancel_at_period_end, current_period_end
 		FROM subscriptions
 		WHERE razorpay_subscription_id = $1`,
 		sub.ID,
-	).Scan(&subscriptionID, &ownerUserID, &orgID, &planType, &currentLicenseExpiry)
+	).Scan(&subscriptionID, &ownerUserID, &orgID, &planType, &currentLicenseExpiry, &existingCancelAtPeriodEnd, &existingCurrentPeriodEnd)
 	if err != nil {
 		return fmt.Errorf("subscription not found: %s", sub.ID)
 	}
 	resolvedPlanCode := normalizePersistedPlanCode(planType)
+	nextCancelAtPeriodEnd, cancelResolutionReason := resolveCancelAtPeriodEndAfterCharge(existingCancelAtPeriodEnd, existingCurrentPeriodEnd, sub)
+	if existingCancelAtPeriodEnd && !nextCancelAtPeriodEnd {
+		fmt.Printf("[SUBSCRIPTION.CHARGED] pending cancellation cleared by charged reconciliation (reason=%s, subscription_id=%s)\n", cancelResolutionReason, sub.ID)
+	}
 
 	fmt.Printf("[SUBSCRIPTION.CHARGED] Found internal subscription ID: %d\n", subscriptionID)
 
@@ -654,21 +660,21 @@ func (h *RazorpayWebhookHandler) handleSubscriptionCharged(event *RazorpayWebhoo
 		newExpiry = currentLicenseExpiry.AddDate(1, 0, 0)
 	}
 
-	// Update subscription with new expiry
-	// Also set status to 'active' (in case it was halted) and clear cancel_at_period_end (renewal = not cancelled)
+	// Update subscription with new expiry. cancel_at_period_end resolution is marker-aware.
 	_, err = tx.Exec(`
 		UPDATE subscriptions
 		SET license_expires_at = $1,
 		    current_period_start = $2,
 		    current_period_end = $3,
 		    status = 'active',
-		    cancel_at_period_end = FALSE,
+		    cancel_at_period_end = $5,
 		    updated_at = NOW()
 		WHERE id = $4`,
 		newExpiry,
 		time.Unix(sub.CurrentStart, 0),
 		time.Unix(sub.CurrentEnd, 0),
 		subscriptionID,
+		nextCancelAtPeriodEnd,
 	)
 	if err != nil {
 		return fmt.Errorf("failed to update subscription: %w", err)
@@ -690,9 +696,13 @@ func (h *RazorpayWebhookHandler) handleSubscriptionCharged(event *RazorpayWebhoo
 
 	// Log the event
 	metadata := map[string]interface{}{
-		"subscription_id": sub.ID,
-		"new_expiry":      newExpiry,
-		"event":           event.Event,
+		"subscription_id":                sub.ID,
+		"new_expiry":                     newExpiry,
+		"event":                          event.Event,
+		"cancel_at_period_end_before":    existingCancelAtPeriodEnd,
+		"cancel_at_period_end_after":     nextCancelAtPeriodEnd,
+		"cancel_resolution_reason":       cancelResolutionReason,
+		"provider_cycle_end_marker_seen": hasCycleEndMarkerSignal(sub),
 	}
 	if payment != nil {
 		metadata["payment_id"] = payment.ID
@@ -725,12 +735,38 @@ func (h *RazorpayWebhookHandler) handleSubscriptionCharged(event *RazorpayWebhoo
 	return nil
 }
 
+func resolveCancelAtPeriodEndAfterCharge(existingCancelAtPeriodEnd bool, existingCurrentPeriodEnd sql.NullTime, sub *RazorpaySubscription) (bool, string) {
+	if hasCycleEndMarkerSignal(sub) {
+		return true, "provider_cycle_end_marker"
+	}
+
+	if !existingCancelAtPeriodEnd {
+		return false, "no_local_pending_cancellation"
+	}
+
+	if sub == nil || sub.CurrentEnd <= 0 {
+		return true, "preserve_pending_cancellation_missing_provider_period_end"
+	}
+
+	if !existingCurrentPeriodEnd.Valid {
+		return true, "preserve_pending_cancellation_missing_local_period_end"
+	}
+
+	providerCurrentPeriodEnd := time.Unix(sub.CurrentEnd, 0).UTC()
+	if providerCurrentPeriodEnd.After(existingCurrentPeriodEnd.Time.UTC()) {
+		return false, "cleared_pending_cancellation_cycle_advanced_without_marker"
+	}
+
+	return true, "preserve_pending_cancellation_no_cycle_advance"
+}
+
 // handleSubscriptionCancelled handles subscription cancellation
 func (h *RazorpayWebhookHandler) handleSubscriptionCancelled(event *RazorpayWebhookEvent) error {
 	sub, err := h.extractSubscription(event)
 	if err != nil {
 		return err
 	}
+	ctx := context.Background()
 
 	tx, err := h.db.Begin()
 	if err != nil {
@@ -781,6 +817,11 @@ func (h *RazorpayWebhookHandler) handleSubscriptionCancelled(event *RazorpayWebh
 		if err != nil {
 			return fmt.Errorf("failed to revert users to free plan: %w", err)
 		}
+
+		err = storagepayment.SyncOrgBillingStateToFreeTx(ctx, tx, orgID, time.Now().UTC())
+		if err != nil {
+			return fmt.Errorf("failed to sync org billing state after terminal cancellation: %w", err)
+		}
 	}
 
 	// Log the event
@@ -811,6 +852,7 @@ func (h *RazorpayWebhookHandler) handleSubscriptionCompleted(event *RazorpayWebh
 	if err != nil {
 		return err
 	}
+	ctx := context.Background()
 
 	tx, err := h.db.Begin()
 	if err != nil {
@@ -835,6 +877,7 @@ func (h *RazorpayWebhookHandler) handleSubscriptionCompleted(event *RazorpayWebh
 	_, err = tx.Exec(`
 		UPDATE subscriptions
 		SET status = $1,
+		    cancel_at_period_end = FALSE,
 		    updated_at = NOW()
 		WHERE razorpay_subscription_id = $2`,
 		sub.Status, sub.ID,
@@ -855,6 +898,11 @@ func (h *RazorpayWebhookHandler) handleSubscriptionCompleted(event *RazorpayWebh
 	)
 	if err != nil {
 		return fmt.Errorf("failed to revert users to free plan: %w", err)
+	}
+
+	err = storagepayment.SyncOrgBillingStateToFreeTx(ctx, tx, orgID, time.Now().UTC())
+	if err != nil {
+		return fmt.Errorf("failed to sync org billing state after completion: %w", err)
 	}
 
 	// Log the event
@@ -901,6 +949,7 @@ func (h *RazorpayWebhookHandler) handleSubscriptionHalted(event *RazorpayWebhook
 	if err != nil {
 		return err
 	}
+	ctx := context.Background()
 
 	fmt.Printf("[SUBSCRIPTION.HALTED] Processing halted subscription: %s\n", sub.ID)
 
@@ -936,6 +985,7 @@ func (h *RazorpayWebhookHandler) handleSubscriptionHalted(event *RazorpayWebhook
 		_, err = tx.Exec(`
 			UPDATE subscriptions
 			SET status = 'expired',
+			    cancel_at_period_end = FALSE,
 			    updated_at = NOW()
 			WHERE razorpay_subscription_id = $1`,
 			sub.ID,
@@ -956,6 +1006,11 @@ func (h *RazorpayWebhookHandler) handleSubscriptionHalted(event *RazorpayWebhook
 		)
 		if err != nil {
 			return fmt.Errorf("failed to revert users to free plan: %w", err)
+		}
+
+		err = storagepayment.SyncOrgBillingStateToFreeTx(ctx, tx, orgID, time.Now().UTC())
+		if err != nil {
+			return fmt.Errorf("failed to sync org billing state for expired halted subscription: %w", err)
 		}
 
 		rowsAffected, _ := result.RowsAffected()
@@ -2030,6 +2085,7 @@ func (h *RazorpayWebhookHandler) handleSubscriptionExpired(event *RazorpayWebhoo
 	if err != nil {
 		return err
 	}
+	ctx := context.Background()
 
 	fmt.Printf("[SUBSCRIPTION.EXPIRED] Processing expiration for subscription: %s\n", sub.ID)
 
@@ -2055,6 +2111,7 @@ func (h *RazorpayWebhookHandler) handleSubscriptionExpired(event *RazorpayWebhoo
 	_, err = tx.Exec(`
 		UPDATE subscriptions
 		SET status = 'expired',
+		    cancel_at_period_end = FALSE,
 		    updated_at = NOW()
 		WHERE razorpay_subscription_id = $1`,
 		sub.ID,
@@ -2079,6 +2136,11 @@ func (h *RazorpayWebhookHandler) handleSubscriptionExpired(event *RazorpayWebhoo
 	)
 	if err != nil {
 		return fmt.Errorf("failed to revert users to free plan: %w", err)
+	}
+
+	err = storagepayment.SyncOrgBillingStateToFreeTx(ctx, tx, orgID, time.Now().UTC())
+	if err != nil {
+		return fmt.Errorf("failed to sync org billing state after expiry: %w", err)
 	}
 
 	rowsAffected, _ := result.RowsAffected()

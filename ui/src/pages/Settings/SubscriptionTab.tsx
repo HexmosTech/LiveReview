@@ -6,6 +6,7 @@ import { useOrgContext } from '../../hooks/useOrgContext';
 import BillingPortfolio from '../Admin/BillingPortfolio';
 import { CancelSubscriptionModal } from '../../components/Subscriptions';
 import apiClient from '../../api/apiClient';
+import { getSubscriptionStatusLabel, isTerminalSubscriptionStatus } from '../../utils/subscriptionStatus';
 
 type PurchaseCurrency = 'USD' | 'INR';
 
@@ -284,11 +285,6 @@ type KeepPlanActionResult = {
 type ActionPreflightResult = {
   proceed: boolean;
   routeToBuyNew: boolean;
-};
-
-const isTerminalCancellationStatus = (rawStatus?: string | null): boolean => {
-  const normalized = String(rawStatus || '').trim().toLowerCase();
-  return normalized === 'cancelled' || normalized === 'expired' || normalized === 'completed';
 };
 
 type UpgradeRequestStatusResponse = {
@@ -1390,8 +1386,8 @@ const OverviewTab: React.FC<{ navigate: any; mode?: 'full' | 'breakdown' | 'cont
   const normalizedCurrentStatus = String(status || '').trim().toLowerCase();
   const normalizedManagedStatus = allowManagedFallback ? String(managedSubscription?.status || '').trim().toLowerCase() : '';
   const effectiveTerminalCancellation =
-    isTerminalCancellationStatus(normalizedCurrentStatus) ||
-    (!hasCurrentSubscription && allowManagedFallback && isTerminalCancellationStatus(normalizedManagedStatus));
+    isTerminalSubscriptionStatus(normalizedCurrentStatus) ||
+    (!hasCurrentSubscription && allowManagedFallback && isTerminalSubscriptionStatus(normalizedManagedStatus));
   const currentCanCancel =
     hasCurrentSubscription &&
     !pendingCancel &&
@@ -1437,25 +1433,19 @@ const OverviewTab: React.FC<{ navigate: any; mode?: 'full' | 'breakdown' | 'cont
   );
 
   const normalizedStatus = status.trim().toLowerCase();
-  const statusIsTerminal = ['cancelled', 'expired', 'halted', 'past_due', 'incomplete'].indexOf(normalizedStatus) >= 0;
   const autoDowngradedToFree = !isTeamPlan && !effectivePendingCancel && (
     normalizedStatus === 'expired' ||
     (!hasCurrentSubscription && allowManagedFallback && normalizedManagedStatus === 'expired') ||
     pendingExpiryElapsed
   );
-  const statusBadgeLabel = statusLoading
-    ? 'LOADING'
-    : autoDowngradedToFree
-      ? 'AUTO-DOWNGRADED'
-      : effectivePendingCancel
-        ? 'PENDING EXPIRY'
-        : statusIsTerminal
-          ? normalizedStatus.replace('_', ' ').toUpperCase()
-          : trialActive
-            ? 'TRIAL ACTIVE'
-            : isTeamPlan
-            ? 'TEAM ACTIVE'
-            : 'FREE PLAN';
+  const statusBadgeLabel = getSubscriptionStatusLabel({
+    status,
+    pendingCancel: effectivePendingCancel,
+    statusLoading,
+    trialActive,
+    isTeamPlan,
+    autoDowngradedToFree,
+  });
 
   const openCancelDialog = (immediate: boolean) => {
     setCancelImmediate(immediate);

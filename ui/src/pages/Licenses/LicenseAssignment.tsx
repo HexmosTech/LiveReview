@@ -5,6 +5,7 @@ import { useOrgContext } from '../../hooks/useOrgContext';
 import apiClient from '../../api/apiClient';
 import toast from 'react-hot-toast';
 import { CancelSubscriptionModal, UpgradePromptModal } from '../../components/Subscriptions';
+import { getSubscriptionBadgeClassByLabel, getSubscriptionStatusLabel } from '../../utils/subscriptionStatus';
 
 type Subscription = {
     id: number;
@@ -298,6 +299,12 @@ const LicenseAssignment: React.FC = () => {
     const isScheduledToCancel = subscription.cancel_at_period_end;
     const isActive = subscription.status === 'active';
     const isHalted = subscription.status === 'halted';
+    const statusBadgeLabel = getSubscriptionStatusLabel({
+        status: subscription.status,
+        pendingCancel: isScheduledToCancel,
+        isTeamPlan: isActive && !isScheduledToCancel,
+    });
+    const statusBadgeClass = getSubscriptionBadgeClassByLabel(statusBadgeLabel);
 
     return (
         <div className="min-h-screen bg-gradient-to-b from-slate-900 to-slate-800 py-8 px-4">
@@ -357,13 +364,8 @@ const LicenseAssignment: React.FC = () => {
                             </div>
 
                             {/* Status Badge */}
-                            <span className={`px-3 py-1 rounded-full text-xs font-semibold border ${isActive && !isScheduledToCancel
-                                ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/40'
-                                : isScheduledToCancel
-                                    ? 'bg-amber-500/10 text-amber-400 border-amber-500/40'
-                                    : 'bg-slate-500/10 text-slate-400 border-slate-500/40'
-                                }`}>
-                                {isScheduledToCancel ? 'PENDING EXPIRY' : subscription.status.toUpperCase()}
+                            <span className={`px-3 py-1 rounded-full text-xs font-semibold border ${statusBadgeClass}`}>
+                                {statusBadgeLabel}
                             </span>
                         </div>
 
