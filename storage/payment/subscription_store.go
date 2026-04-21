@@ -175,6 +175,65 @@ type CancelSubscriptionRecordInput struct {
 	Status         string
 }
 
+// SyncOrgBillingStateToFreeTx projects org billing state to the free plan within an existing transaction.
+func SyncOrgBillingStateToFreeTx(ctx context.Context, tx *sql.Tx, orgID int, now time.Time) error {
+	if tx == nil {
+		return fmt.Errorf("transaction is required")
+	}
+	if orgID <= 0 {
+		return fmt.Errorf("org_id must be > 0")
+	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
+
+	if now.IsZero() {
+		now = time.Now().UTC()
+	} else {
+		now = now.UTC()
+	}
+
+	periodStart := time.Date(now.Year(), now.Month(), 1, 0, 0, 0, 0, time.UTC)
+	periodEnd := periodStart.AddDate(0, 1, 0)
+
+	_, err := tx.ExecContext(ctx, `
+		INSERT INTO org_billing_state (
+			org_id,
+			current_plan_code,
+			billing_period_start,
+			billing_period_end,
+			loc_used_month,
+			loc_blocked,
+			trial_started_at,
+			trial_ends_at,
+			trial_readonly,
+			last_reset_at,
+			updated_at
+		) VALUES ($1, 'free_30k', $2, $3, 0, FALSE, NULL, NULL, FALSE, NOW(), NOW())
+		ON CONFLICT (org_id) DO UPDATE SET
+			current_plan_code = 'free_30k',
+			billing_period_start = $2,
+			billing_period_end = $3,
+			scheduled_plan_code = NULL,
+			scheduled_plan_effective_at = NULL,
+			upgrade_loc_grant_current_cycle = 0,
+			upgrade_loc_grant_expires_at = NULL,
+			trial_started_at = NULL,
+			trial_ends_at = NULL,
+			trial_readonly = FALSE,
+			loc_blocked = FALSE,
+			updated_at = NOW()`,
+		orgID,
+		periodStart,
+		periodEnd,
+	)
+	if err != nil {
+		return fmt.Errorf("sync org billing state to free: %w", err)
+	}
+
+	return nil
+}
+
 func (s *SubscriptionStore) CancelSubscriptionRecord(input CancelSubscriptionRecordInput) error {
 	tx, err := s.db.Begin()
 	if err != nil {
@@ -222,41 +281,7 @@ func (s *SubscriptionStore) CancelSubscriptionRecord(input CancelSubscriptionRec
 			return fmt.Errorf("failed to update user_roles: %w", err)
 		}
 
-		now := time.Now().UTC()
-		periodStart := time.Date(now.Year(), now.Month(), 1, 0, 0, 0, 0, time.UTC)
-		periodEnd := periodStart.AddDate(0, 1, 0)
-
-		_, err = tx.Exec(`
-			INSERT INTO org_billing_state (
-				org_id,
-				current_plan_code,
-				billing_period_start,
-				billing_period_end,
-				loc_used_month,
-				loc_blocked,
-				trial_started_at,
-				trial_ends_at,
-				trial_readonly,
-				last_reset_at,
-				updated_at
-			) VALUES ($1, 'free_30k', $2, $3, 0, FALSE, NULL, NULL, FALSE, NOW(), NOW())
-			ON CONFLICT (org_id) DO UPDATE SET
-				current_plan_code = 'free_30k',
-				billing_period_start = $2,
-				billing_period_end = $3,
-				scheduled_plan_code = NULL,
-				scheduled_plan_effective_at = NULL,
-				upgrade_loc_grant_current_cycle = 0,
-				upgrade_loc_grant_expires_at = NULL,
-				trial_started_at = NULL,
-				trial_ends_at = NULL,
-				trial_readonly = FALSE,
-				loc_blocked = FALSE,
-				updated_at = NOW()`,
-			orgID,
-			periodStart,
-			periodEnd,
-		)
+		err = SyncOrgBillingStateToFreeTx(context.Background(), tx, orgID, time.Now().UTC())
 		if err != nil {
 			return fmt.Errorf("failed to reset org billing state on immediate cancellation: %w", err)
 		}

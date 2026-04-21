@@ -633,29 +633,6 @@ func hasCycleEndCancellationSignal(pre, cancelResponse, post *RazorpaySubscripti
 	return false
 }
 
-func isCancelAPIAcknowledgementSignal(pre, cancelResponse, post *RazorpaySubscription, immediate bool) bool {
-	if immediate || cancelResponse == nil {
-		return false
-	}
-
-	cancelID := safeSubscriptionID(cancelResponse)
-	if cancelID == "" {
-		return false
-	}
-
-	preID := safeSubscriptionID(pre)
-	if preID != "" && preID != cancelID {
-		return false
-	}
-
-	postID := safeSubscriptionID(post)
-	if postID != "" && postID != cancelID {
-		return false
-	}
-
-	return true
-}
-
 func safeSubscriptionStatus(sub *RazorpaySubscription) string {
 	if sub == nil {
 		return ""
@@ -684,10 +661,6 @@ func cancellationVerified(preCancelSub, cancelResponseSub, postCancelSub *Razorp
 	if hasCycleEndCancellationSignal(preCancelSub, cancelResponseSub, postCancelSub) {
 		return true, ""
 	}
-	if isCancelAPIAcknowledgementSignal(preCancelSub, cancelResponseSub, postCancelSub, immediate) {
-		return true, ""
-	}
-
 	return false, "cycle-end cancellation produced no verifiable provider-side state transition"
 }
 
@@ -721,15 +694,7 @@ func verifyCancellationWithRetry(
 		} else {
 			lastFetchErr = nil
 			if ok, reason := cancellationVerified(preCancelSub, cancelResponseSub, postCancelSub, immediate); ok {
-				verifiedByAckOnly := isCancelAPIAcknowledgementSignal(preCancelSub, cancelResponseSub, postCancelSub, immediate) &&
-					!hasCycleEndCancellationSignal(preCancelSub, cancelResponseSub, postCancelSub) &&
-					!hasTerminalCancellationSignal(cancelResponseSub) &&
-					!hasTerminalCancellationSignal(postCancelSub)
-				if verifiedByAckOnly {
-					fmt.Printf("[SUBSCRIPTION.CANCEL] verification succeeded from cancel API acknowledgement (immediate=%t, cancel_status=%s, cancel_id=%s)\n", immediate, safeSubscriptionStatus(cancelResponseSub), safeSubscriptionID(cancelResponseSub))
-				} else {
-					fmt.Printf("[SUBSCRIPTION.CANCEL] verification attempt %d/%d succeeded (immediate=%t, cancel_status=%s, post_status=%s)\n", attempt, maxAttempts, immediate, safeSubscriptionStatus(cancelResponseSub), safeSubscriptionStatus(postCancelSub))
-				}
+				fmt.Printf("[SUBSCRIPTION.CANCEL] verification attempt %d/%d succeeded (immediate=%t, cancel_status=%s, post_status=%s)\n", attempt, maxAttempts, immediate, safeSubscriptionStatus(cancelResponseSub), safeSubscriptionStatus(postCancelSub))
 				return postCancelSub, "", nil
 			} else {
 				lastReason = reason
