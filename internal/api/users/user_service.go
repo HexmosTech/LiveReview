@@ -130,6 +130,12 @@ func (us *UserService) CreateUserInOrg(orgID, createdByUserID int64, req CreateU
 }
 
 func (us *UserService) sendInvitation(user *UserWithRole, invitedByUserID int64) {
+	defer func() {
+		if r := recover(); r != nil {
+			log.Printf("[Invitation] Critical: panic recovered in invitation flow: %v\n", r)
+		}
+	}()
+
 	invitedByName := us.getInvitedByUserName(invitedByUserID)
 	
 	invitedToName := user.Email

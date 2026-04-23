@@ -8,8 +8,6 @@ import (
 	"net/http"
 	"os"
 	"time"
-
-	"github.com/livereview/internal/license"
 )
 
 type InvitationParams struct {
@@ -27,17 +25,13 @@ func getParseAppID() string {
 	return "impressionserver"
 }
 
-func getParseInvitationURL() string {
-	if url := os.Getenv("FW_PARSE_INVITATION_URL"); url != "" {
-		return url
-	}
-	// Fallback to license config base + parse functions path
-	return fmt.Sprintf("%s/parse/functions/userInvitation", license.LoadConfig().APIBase)
-}
-
 // SendInvitationEmail sends an invitation email via the Parse Cloud Function
 func SendInvitationEmail(params InvitationParams) error {
-	apiURL := getParseInvitationURL()
+	apiURL := os.Getenv("FW_PARSE_INVITATION_URL")
+	if apiURL == "" {
+		return nil
+	}
+
 	appID := getParseAppID()
 
 	fmt.Printf("[Invitation] Calling Parse invitation API at: %s for %s\n", apiURL, params.InvitedToEmail)
