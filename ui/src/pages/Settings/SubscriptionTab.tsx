@@ -451,8 +451,8 @@ const SubscriptionTab: React.FC = () => {
           <button
             onClick={() => handleTabChange('overview')}
             className={`px-4 py-3 text-sm font-medium transition-colors ${activeTab === 'overview'
-                ? 'text-white border-b-2 border-blue-500'
-                : 'text-slate-400 hover:text-slate-300'
+              ? 'text-white border-b-2 border-blue-500'
+              : 'text-slate-400 hover:text-slate-300'
               }`}
           >
             {SUBSCRIPTION_TAB_LABELS.overview}
@@ -460,8 +460,8 @@ const SubscriptionTab: React.FC = () => {
           <button
             onClick={() => handleTabChange('breakdown')}
             className={`px-4 py-3 text-sm font-medium transition-colors ${activeTab === 'breakdown'
-                ? 'text-white border-b-2 border-blue-500'
-                : 'text-slate-400 hover:text-slate-300'
+              ? 'text-white border-b-2 border-blue-500'
+              : 'text-slate-400 hover:text-slate-300'
               }`}
           >
             {SUBSCRIPTION_TAB_LABELS.breakdown}
@@ -469,8 +469,8 @@ const SubscriptionTab: React.FC = () => {
           <button
             onClick={() => handleTabChange('assignments')}
             className={`px-4 py-3 text-sm font-medium transition-colors ${activeTab === 'assignments'
-                ? 'text-white border-b-2 border-blue-500'
-                : 'text-slate-400 hover:text-slate-300'
+              ? 'text-white border-b-2 border-blue-500'
+              : 'text-slate-400 hover:text-slate-300'
               }`}
           >
             {SUBSCRIPTION_TAB_LABELS.assignments}
@@ -1588,21 +1588,6 @@ const OverviewTab: React.FC<{ navigate: any; mode?: 'full' | 'breakdown' | 'cont
         </div>
       )}
 
-      {isPlanUpgradeMode && (quotaStatus?.envelope?.blocked || quotaStatus?.can_trigger_reviews === false) && (
-        <div className="bg-red-500/10 border border-red-400/40 rounded-lg p-4">
-          <p className="text-red-200 text-sm font-medium">⛔ Monthly LOC Quota Exceeded</p>
-          <p className="text-red-100/90 text-sm mt-1">
-            You've used {currentLocUsed.toLocaleString()} of {currentLocLimit.toLocaleString()} LOC this month. Reviews are blocked until your quota resets{billingStatus?.billing?.billing_period_end ? ` on ${new Date(billingStatus.billing.billing_period_end).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}` : ''} or you upgrade your plan.
-          </p>
-          <button
-            onClick={() => navigate('/subscribe')}
-            className="mt-2 px-3 py-1.5 bg-red-600 hover:bg-red-500 text-white text-xs font-semibold rounded transition-colors"
-          >
-            Upgrade Now
-          </button>
-        </div>
-      )}
-
       {isPlanUpgradeMode && autoDowngradedToFree && (
         <div className="bg-sky-500/10 border border-sky-400/40 rounded-lg p-4">
           <p className="text-sky-200 text-sm font-medium">Your paid plan ended and was automatically downgraded to Free</p>
@@ -2081,8 +2066,8 @@ const OverviewTab: React.FC<{ navigate: any; mode?: 'full' | 'breakdown' | 'cont
 
               {(keepPlanError || keepPlanSuccess) && (
                 <div className={`rounded-lg border p-3 text-sm ${keepPlanError
-                    ? 'bg-red-500/10 border-red-500/40 text-red-200'
-                    : 'bg-emerald-500/10 border-emerald-500/40 text-emerald-200'
+                  ? 'bg-red-500/10 border-red-500/40 text-red-200'
+                  : 'bg-emerald-500/10 border-emerald-500/40 text-emerald-200'
                   }`}>
                   {keepPlanError || keepPlanSuccess}
                 </div>
@@ -2103,8 +2088,8 @@ const OverviewTab: React.FC<{ navigate: any; mode?: 'full' | 'breakdown' | 'cont
                           ? 'Trial reservation in progress'
                           : `Up to ${planTrialDays}-day trial`;
                     const cardBaseClass = `rounded-lg border p-4 text-left transition-all duration-200 ${isCurrentCard
-                        ? 'bg-emerald-900/20 border-emerald-400/50'
-                        : 'bg-slate-900/70 border-slate-700'
+                      ? 'bg-emerald-900/20 border-emerald-400/50'
+                      : 'bg-slate-900/70 border-slate-700'
                       }`;
 
                     if (!isSelectableUpgrade) {
