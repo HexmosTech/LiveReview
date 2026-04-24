@@ -1598,18 +1598,29 @@ func (s *SubscriptionService) ConfirmPurchase(req *PurchaseConfirmationRequest, 
 		}
 
 		// Provision the default AI connector ("LiveReview AI Model") for the organization
-		_, err = tx.Exec(fmt.Sprintf(`
-			INSERT INTO ai_connectors (
-				provider_name, api_key, connector_name, selected_model, display_order, org_id,
-				created_at, updated_at
-			)
-			SELECT '%s', 'system_managed', 'LiveReview AI Model', 'default', 1, $1, NOW(), NOW()
-			WHERE NOT EXISTS (
-				SELECT 1 FROM ai_connectors WHERE org_id = $1 AND provider_name = '%s'
-			)
-		`, aidefault.ProviderName, aidefault.ProviderName), orgID)
+		var exists bool
+		err = tx.QueryRow(fmt.Sprintf(`SELECT EXISTS(SELECT 1 FROM ai_connectors WHERE org_id = $1 AND provider_name = '%s')`, aidefault.ProviderName), orgID).Scan(&exists)
 		if err != nil {
-			return fmt.Errorf("failed to provision managed AI connector: %w", err)
+			return fmt.Errorf("failed to check managed AI connector existence: %w", err)
+		}
+
+		if !exists {
+			// Shift existing connectors down to make room at display_order = 1
+			_, err = tx.Exec(`UPDATE ai_connectors SET display_order = display_order + 1 WHERE org_id = $1`, orgID)
+			if err != nil {
+				return fmt.Errorf("failed to shift existing AI connectors: %w", err)
+			}
+
+			// Insert the default connector at position 1
+			_, err = tx.Exec(fmt.Sprintf(`
+				INSERT INTO ai_connectors (
+					provider_name, api_key, connector_name, selected_model, display_order, org_id,
+					created_at, updated_at
+				) VALUES ('%s', 'system_managed', 'LiveReview AI Model', 'default', 1, $1, NOW(), NOW())
+			`, aidefault.ProviderName), orgID)
+			if err != nil {
+				return fmt.Errorf("failed to provision managed AI connector: %w", err)
+			}
 		}
 	}
 

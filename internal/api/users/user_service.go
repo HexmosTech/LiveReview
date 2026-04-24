@@ -4,12 +4,16 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"log"
 	"strings"
 	"time"
 
+	"github.com/livereview/network/email"
 	storageusers "github.com/livereview/storage/users"
 	"golang.org/x/crypto/bcrypt"
 )
+
+const defaultProductionURL = "https://livereview.hexmos.com"
 
 // UserService handles core user management operations
 type UserService struct {
@@ -114,7 +118,65 @@ func (us *UserService) CreateUserInOrg(orgID, createdByUserID int64, req CreateU
 	}
 
 	// Get the created user with role
-	return us.GetUserInOrg(orgID, userID)
+	user, err := us.GetUserInOrg(orgID, userID)
+	if err != nil {
+		return nil, err
+	}
+
+	// Send invitation email asynchronously
+	go us.sendInvitation(user, createdByUserID)
+
+	return user, nil
+}
+
+func (us *UserService) sendInvitation(user *UserWithRole, invitedByUserID int64) {
+	defer func() {
+		if r := recover(); r != nil {
+			log.Printf("[Invitation] Critical: panic recovered in invitation flow: %v\n", r)
+		}
+	}()
+
+	invitedByName := us.getInvitedByUserName(invitedByUserID)
+	
+	invitedToName := user.Email
+	if user.FirstName != nil && *user.FirstName != "" {
+		invitedToName = *user.FirstName
+	}
+
+	err := email.SendInvitationEmail(email.InvitationParams{
+		AppName:        "LiveReview",
+		InvitedToName:  invitedToName,
+		InvitedToEmail: user.Email,
+		InvitedByName:  invitedByName,
+		URL:            defaultProductionURL,
+	})
+	if err != nil {
+		log.Printf("[Invitation] Error: failed to send invitation email to %s: %v\n", user.Email, err)
+	}
+}
+
+func (us *UserService) getInvitedByUserName(userID int64) string {
+	var firstName, lastName sql.NullString
+	err := us.store.QueryRow("SELECT first_name, last_name FROM users WHERE id = $1", userID).Scan(&firstName, &lastName)
+	if err != nil {
+		return "An Admin"
+	}
+
+	name := ""
+	if firstName.Valid {
+		name = firstName.String
+	}
+	if lastName.Valid {
+		if name != "" {
+			name += " "
+		}
+		name += lastName.String
+	}
+
+	if name == "" {
+		return "An Admin"
+	}
+	return name
 }
 
 // GetUserInOrg gets a user in a specific organization with their role
