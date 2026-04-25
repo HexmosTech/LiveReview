@@ -1,10 +1,13 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
-	"net/http"
+	"time"
+
+	networkbitbucket "github.com/livereview/network/providers/bitbucket"
 )
 
 // BitbucketProfile represents the user profile info fetched from Bitbucket
@@ -23,33 +26,20 @@ type BitbucketProfile struct {
 
 // FetchBitbucketProfile fetches the user profile from Bitbucket using Atlassian API token
 func FetchBitbucketProfile(email, apiToken string) (*BitbucketProfile, error) {
-	// First, let's try a simpler endpoint to test authentication
-	url := "https://api.bitbucket.org/2.0/user"
-	client := &http.Client{}
-	req, err := http.NewRequest("GET", url, nil)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create request - please check the request format")
-	}
-
-	// Use Basic Auth with email and Atlassian API token
-	req.SetBasicAuth(email, apiToken)
-	req.Header.Set("Accept", "application/json")
-	req.Header.Set("User-Agent", "LiveReview/1.0")
-
-	resp, err := client.Do(req)
+	const bitbucketBaseAPI = "https://api.bitbucket.org"
+	client := networkbitbucket.NewHTTPClient(15 * time.Second)
+	resp, err := networkbitbucket.FetchUserProfile(context.Background(), client, bitbucketBaseAPI, email, apiToken)
 	if err != nil {
 		return nil, fmt.Errorf("cannot connect to Bitbucket - please verify your internet connection")
 	}
 	defer resp.Body.Close()
 
-	// Read response body for debugging
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read response body")
 	}
 
 	if resp.StatusCode != 200 {
-		// Log the actual response for debugging
 		fmt.Printf("Bitbucket API response status: %d\n", resp.StatusCode)
 		fmt.Printf("Bitbucket API response body: %s\n", string(body))
 
@@ -76,25 +66,14 @@ func FetchBitbucketProfile(email, apiToken string) (*BitbucketProfile, error) {
 
 // ValidateBitbucketToken validates a Bitbucket API token by making a simple API call
 func ValidateBitbucketToken(email, apiToken string) error {
-	// Use the same endpoint as profile fetching for consistency
-	url := "https://api.bitbucket.org/2.0/user"
-	client := &http.Client{}
-	req, err := http.NewRequest("GET", url, nil)
-	if err != nil {
-		return fmt.Errorf("failed to create validation request")
-	}
-
-	req.SetBasicAuth(email, apiToken)
-	req.Header.Set("Accept", "application/json")
-	req.Header.Set("User-Agent", "LiveReview/1.0")
-
-	resp, err := client.Do(req)
+	const bitbucketBaseAPI = "https://api.bitbucket.org"
+	client := networkbitbucket.NewHTTPClient(15 * time.Second)
+	resp, err := networkbitbucket.FetchUserProfile(context.Background(), client, bitbucketBaseAPI, email, apiToken)
 	if err != nil {
 		return fmt.Errorf("cannot connect to Bitbucket API")
 	}
 	defer resp.Body.Close()
 
-	// Read response body for debugging
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
 		fmt.Printf("Failed to read validation response body: %v\n", err)

@@ -572,7 +572,12 @@ func (p *BitbucketV2Provider) PostCommentReply(event *UnifiedWebhookEventV2, con
 		return fmt.Errorf("bitbucket email missing in integration token metadata; cannot authenticate")
 	}
 
-	return p.output.PostCommentReply(workspace, repository, fmt.Sprintf("%d", prNumber), event.Comment.InReplyToID, content, email, token.PatToken)
+	replyTo := event.Comment.DiscussionID
+	if replyTo == nil || *replyTo == "" {
+		replyTo = &event.Comment.ID
+	}
+	
+	return p.output.PostCommentReply(workspace, repository, fmt.Sprintf("%d", prNumber), replyTo, content, email, token.PatToken)
 }
 
 // PostEmojiReaction posts an emoji reaction

@@ -3,7 +3,6 @@ package bitbucket
 import (
 	"bytes"
 	"context"
-	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -16,6 +15,7 @@ import (
 	"time"
 
 	"github.com/livereview/internal/providers"
+	networkbitbucket "github.com/livereview/network/providers/bitbucket"
 	"github.com/livereview/pkg/models"
 	"golang.org/x/time/rate"
 )
@@ -93,9 +93,22 @@ func NewBitbucketProvider(token, email, repoURL string) (*BitbucketProvider, err
 		repoURL:     repoURL,
 		workspace:   workspace,
 		repoSlug:    repoSlug,
-		httpClient:  &http.Client{Timeout: 10 * time.Second},
+		httpClient:  networkbitbucket.NewHTTPClient(10 * time.Second),
 		RateLimiter: rate.NewLimiter(rate.Every(1*time.Second), 5), // 5 requests per second
 	}, nil
+}
+
+var mrIDRegex = regexp.MustCompile(`^(?:https?://[^/]+/)?([^/]+)/([^/]+)/(?:pull-requests/)?(\d+)(?:/.*)?$`)
+
+// extractMRIDComponents explicitly parses an mrID/prID using a regex
+// to reliably extract the workspace, repository, and pull request number.
+func extractMRIDComponents(id string) (workspace, repo, prNum string, err error) {
+	id = strings.TrimSpace(id)
+	matches := mrIDRegex.FindStringSubmatch(id)
+	if len(matches) != 4 {
+		return "", "", "", fmt.Errorf("invalid Bitbucket PR identifier format: expected 'workspace/repo/number' or a valid URL, got '%s'", id)
+	}
+	return matches[1], matches[2], matches[3], nil
 }
 
 func ParseBitbucketURL(urlStr string) (string, string, string, error) {
@@ -134,17 +147,16 @@ func (p *BitbucketProvider) GetMergeRequestDetails(ctx context.Context, prURL st
 	apiURL := fmt.Sprintf("https://api.bitbucket.org/2.0/repositories/%s/%s/pullrequests/%s", p.workspace, p.repoSlug, prID)
 	log.Printf("[DEBUG] BitbucketProvider: API URL: %s", apiURL)
 
-	req, err := http.NewRequestWithContext(ctx, "GET", apiURL, nil)
+	req, err := networkbitbucket.NewRequestWithContext(ctx, "GET", apiURL, nil)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create request: %w", err)
 	}
 
 	// Set Basic Auth header
-	auth := base64.StdEncoding.EncodeToString([]byte(p.email + ":" + p.token))
-	req.Header.Set("Authorization", "Basic "+auth)
+	req.SetBasicAuth(p.email, p.token)
 	req.Header.Set("Accept", "application/json")
 
-	resp, err := p.httpClient.Do(req)
+	resp, err := networkbitbucket.Do(p.httpClient, req)
 	if err != nil {
 		return nil, fmt.Errorf("failed to fetch PR details: %w", err)
 	}
@@ -225,32 +237,27 @@ func (p *BitbucketProvider) GetMergeRequestDetails(ctx context.Context, prURL st
 func (p *BitbucketProvider) GetMergeRequestChanges(ctx context.Context, prID string) ([]*models.CodeDiff, error) {
 	log.Printf("[DEBUG] BitbucketProvider.GetMergeRequestChanges called with prID: %s", prID)
 
-	// Parse prID which should be in format "workspace/repo/prNumber"
-	parts := strings.Split(prID, "/")
-	if len(parts) != 3 {
-		return nil, fmt.Errorf("invalid Bitbucket PR ID format: expected 'workspace/repo/number', got '%s'", prID)
+	// Use regex-based parser for robustness
+	workspace, repo, prNumber, err := extractMRIDComponents(prID)
+	if err != nil {
+		return nil, err
 	}
-
-	workspace := parts[0]
-	repo := parts[1]
-	prNumber := parts[2]
 
 	// Bitbucket API v2.0 endpoint for pull request diff
 	apiURL := fmt.Sprintf("https://api.bitbucket.org/2.0/repositories/%s/%s/pullrequests/%s/diff", workspace, repo, prNumber)
 
 	log.Printf("[DEBUG] BitbucketProvider: Diff API URL: %s", apiURL)
 
-	req, err := http.NewRequestWithContext(ctx, "GET", apiURL, nil)
+	req, err := networkbitbucket.NewRequestWithContext(ctx, "GET", apiURL, nil)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create request: %w", err)
 	}
 
 	// Set Basic Auth header
-	auth := base64.StdEncoding.EncodeToString([]byte(p.email + ":" + p.token))
-	req.Header.Set("Authorization", "Basic "+auth)
+	req.SetBasicAuth(p.email, p.token)
 	req.Header.Set("Accept", "text/plain")
 
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := networkbitbucket.Do(http.DefaultClient, req)
 	if err != nil {
 		return nil, fmt.Errorf("failed to fetch PR diff: %w", err)
 	}
@@ -288,32 +295,27 @@ func (p *BitbucketProvider) GetMergeRequestChanges(ctx context.Context, prID str
 func (p *BitbucketProvider) GetMergeRequestChangesAsText(ctx context.Context, prID string) (string, error) {
 	log.Printf("[DEBUG] BitbucketProvider.GetMergeRequestChangesAsText called with prID: %s", prID)
 
-	// Parse prID which should be in format "workspace/repo/prNumber"
-	parts := strings.Split(prID, "/")
-	if len(parts) != 3 {
-		return "", fmt.Errorf("invalid Bitbucket PR ID format: expected 'workspace/repo/number', got '%s'", prID)
+	// Use regex-based parser for robustness
+	workspace, repo, prNumber, err := extractMRIDComponents(prID)
+	if err != nil {
+		return "", err
 	}
-
-	workspace := parts[0]
-	repo := parts[1]
-	prNumber := parts[2]
 
 	// Bitbucket API v2.0 endpoint for pull request diff
 	apiURL := fmt.Sprintf("https://api.bitbucket.org/2.0/repositories/%s/%s/pullrequests/%s/diff", workspace, repo, prNumber)
 
 	log.Printf("[DEBUG] BitbucketProvider: Diff API URL: %s", apiURL)
 
-	req, err := http.NewRequestWithContext(ctx, "GET", apiURL, nil)
+	req, err := networkbitbucket.NewRequestWithContext(ctx, "GET", apiURL, nil)
 	if err != nil {
 		return "", fmt.Errorf("failed to create request: %w", err)
 	}
 
 	// Set Basic Auth header
-	auth := base64.StdEncoding.EncodeToString([]byte(p.email + ":" + p.token))
-	req.Header.Set("Authorization", "Basic "+auth)
+	req.SetBasicAuth(p.email, p.token)
 	req.Header.Set("Accept", "text/plain")
 
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := networkbitbucket.Do(http.DefaultClient, req)
 	if err != nil {
 		return "", fmt.Errorf("failed to fetch PR diff: %w", err)
 	}
@@ -333,9 +335,9 @@ func (p *BitbucketProvider) GetMergeRequestChangesAsText(ctx context.Context, pr
 	return string(diffContent), nil
 }
 
-func (p *BitbucketProvider) GetPullRequestCommits(prID string) ([]BitbucketCommit, error) {
+func (p *BitbucketProvider) GetPullRequestCommits(ctx context.Context, prID string) ([]BitbucketCommit, error) {
 	apiURL := fmt.Sprintf("https://api.bitbucket.org/2.0/repositories/%s/%s/pullrequests/%s/commits", p.workspace, p.repoSlug, prID)
-	body, err := p.doRequest(apiURL, "GET", nil)
+	body, err := p.doRequest(ctx, apiURL, "GET", nil)
 	if err != nil {
 		return nil, fmt.Errorf("failed to fetch PR commits: %w", err)
 	}
@@ -351,9 +353,9 @@ func (p *BitbucketProvider) GetPullRequestCommits(prID string) ([]BitbucketCommi
 	return response.Values, nil
 }
 
-func (p *BitbucketProvider) GetPullRequestComments(prID string) ([]BitbucketComment, error) {
+func (p *BitbucketProvider) GetPullRequestComments(ctx context.Context, prID string) ([]BitbucketComment, error) {
 	apiURL := fmt.Sprintf("https://api.bitbucket.org/2.0/repositories/%s/%s/pullrequests/%s/comments?sort=-created_on", p.workspace, p.repoSlug, prID)
-	body, err := p.doRequest(apiURL, "GET", nil)
+	body, err := p.doRequest(ctx, apiURL, "GET", nil)
 	if err != nil {
 		return nil, fmt.Errorf("failed to fetch PR comments: %w", err)
 	}
@@ -369,9 +371,9 @@ func (p *BitbucketProvider) GetPullRequestComments(prID string) ([]BitbucketComm
 	return response.Values, nil
 }
 
-func (p *BitbucketProvider) GetPullRequestDiff(prID string) (string, error) {
+func (p *BitbucketProvider) GetPullRequestDiff(ctx context.Context, prID string) (string, error) {
 	apiURL := fmt.Sprintf("https://api.bitbucket.org/2.0/repositories/%s/%s/pullrequests/%s/diff", p.workspace, p.repoSlug, prID)
-	body, err := p.doRequest(apiURL, "GET", nil)
+	body, err := p.doRequest(ctx, apiURL, "GET", nil)
 	if err != nil {
 		return "", fmt.Errorf("failed to fetch PR diff: %w", err)
 	}
@@ -379,7 +381,7 @@ func (p *BitbucketProvider) GetPullRequestDiff(prID string) (string, error) {
 	return string(body), nil
 }
 
-func (p *BitbucketProvider) doRequest(apiURL, method string, payload interface{}) ([]byte, error) {
+func (p *BitbucketProvider) doRequest(ctx context.Context, apiURL, method string, payload interface{}) ([]byte, error) {
 	var body io.Reader
 	if payload != nil {
 		data, err := json.Marshal(payload)
@@ -389,18 +391,17 @@ func (p *BitbucketProvider) doRequest(apiURL, method string, payload interface{}
 		body = bytes.NewReader(data)
 	}
 
-	req, err := http.NewRequest(method, apiURL, body)
+	req, err := networkbitbucket.NewRequestWithContext(ctx, method, apiURL, body)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create request: %w", err)
 	}
 
 	// Set Basic Auth header
-	auth := base64.StdEncoding.EncodeToString([]byte(p.email + ":" + p.token))
-	req.Header.Set("Authorization", "Basic "+auth)
+	req.SetBasicAuth(p.email, p.token)
 	req.Header.Set("Accept", "application/json")
 	req.Header.Set("Content-Type", "application/json")
 
-	resp, err := p.httpClient.Do(req)
+	resp, err := networkbitbucket.Do(p.httpClient, req)
 	if err != nil {
 		return nil, fmt.Errorf("failed to execute request: %w", err)
 	}
@@ -572,11 +573,121 @@ func (p *BitbucketProvider) Name() string {
 }
 
 func (p *BitbucketProvider) PostComment(ctx context.Context, mrID string, comment *models.ReviewComment) error {
-	return fmt.Errorf("not implemented")
+	log.Printf("[DEBUG] BitbucketProvider.PostComment called with mrID: '%s', FilePath: '%s', Line: %d", mrID, comment.FilePath, comment.Line)
+
+	workspace, repo, prNumber, err := extractMRIDComponents(mrID)
+	if err != nil {
+		return err
+	}
+
+	if comment.FilePath != "" && comment.Line > 0 {
+		return p.postLineComment(ctx, workspace, repo, prNumber, comment)
+	}
+	return p.postGeneralComment(ctx, workspace, repo, prNumber, comment)
+}
+
+// formatBitbucketComment formats a comment for Bitbucket, including severity and suggestions.
+func formatBitbucketComment(comment *models.ReviewComment) string {
+	body := comment.Content
+	if comment.Severity != "" {
+		body = fmt.Sprintf("**Severity: %s**\n\n%s", comment.Severity, body)
+	}
+	if len(comment.Suggestions) > 0 {
+		body += "\n\n**Suggestions:**\n"
+		for i, s := range comment.Suggestions {
+			body += fmt.Sprintf("%d. %s\n", i+1, s)
+		}
+	}
+	return body
+}
+
+func (p *BitbucketProvider) postGeneralComment(ctx context.Context, workspace, repo, prNumber string, comment *models.ReviewComment) error {
+	apiURL := fmt.Sprintf("https://api.bitbucket.org/2.0/repositories/%s/%s/pullrequests/%s/comments", workspace, repo, prNumber)
+
+	payload := map[string]interface{}{
+		"content": map[string]string{
+			"raw": formatBitbucketComment(comment),
+		},
+	}
+
+	data, err := json.Marshal(payload)
+	if err != nil {
+		return fmt.Errorf("failed to marshal comment payload: %w", err)
+	}
+
+	resp, err := networkbitbucket.PostCommentAPI(ctx, p.httpClient, apiURL, p.email, p.token, data)
+	if err != nil {
+		return fmt.Errorf("failed to post general comment: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusCreated {
+		body, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("Bitbucket general comment failed: %s, response: %s", resp.Status, string(body))
+	}
+
+	log.Printf("[DEBUG] BitbucketProvider: Successfully posted general comment on PR %s/%s/%s", workspace, repo, prNumber)
+	return nil
+}
+
+func (p *BitbucketProvider) postLineComment(ctx context.Context, workspace, repo, prNumber string, comment *models.ReviewComment) error {
+	apiURL := fmt.Sprintf("https://api.bitbucket.org/2.0/repositories/%s/%s/pullrequests/%s/comments", workspace, repo, prNumber)
+
+	// Bitbucket inline comments use the "inline" object with "path" and "to" (new line)
+	// or "from" (old line) for deleted lines.
+	inlinePayload := map[string]interface{}{
+		"path": comment.FilePath,
+		"to":   comment.Line,
+	}
+	if comment.IsDeletedLine {
+		// For deleted lines, use "from" instead of "to"
+		inlinePayload = map[string]interface{}{
+			"path": comment.FilePath,
+			"from": comment.Line,
+		}
+	}
+
+	payload := map[string]interface{}{
+		"content": map[string]string{
+			"raw": formatBitbucketComment(comment),
+		},
+		"inline": inlinePayload,
+	}
+
+	data, err := json.Marshal(payload)
+	if err != nil {
+		return fmt.Errorf("failed to marshal inline comment payload: %w", err)
+	}
+
+	resp, err := networkbitbucket.PostCommentAPI(ctx, p.httpClient, apiURL, p.email, p.token, data)
+	if err != nil {
+		return fmt.Errorf("failed to post inline comment: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusCreated {
+		body, _ := io.ReadAll(resp.Body)
+		// If the line is not part of the diff, Bitbucket returns 400/422.
+		// Fall back to a general comment rather than failing the whole review.
+		if resp.StatusCode == http.StatusBadRequest || resp.StatusCode == http.StatusUnprocessableEntity {
+			log.Printf("[WARN] BitbucketProvider: Inline comment rejected for %s:%d (%s) — falling back to general comment. Response: %s",
+				comment.FilePath, comment.Line, resp.Status, string(body))
+			return p.postGeneralComment(ctx, workspace, repo, prNumber, comment)
+		}
+		return fmt.Errorf("Bitbucket inline comment failed: %s, response: %s", resp.Status, string(body))
+	}
+
+	log.Printf("[DEBUG] BitbucketProvider: Successfully posted inline comment on %s:%d", comment.FilePath, comment.Line)
+	return nil
 }
 
 func (p *BitbucketProvider) PostComments(ctx context.Context, mrID string, comments []*models.ReviewComment) error {
-	return fmt.Errorf("not implemented")
+	for _, comment := range comments {
+		if err := p.PostComment(ctx, mrID, comment); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func (p *BitbucketProvider) Configure(config map[string]interface{}) error {
