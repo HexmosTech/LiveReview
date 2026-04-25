@@ -28,8 +28,8 @@ export const TIER_ORDER: Record<LicenseTier, number> = {
  * Display names for tiers
  */
 export const TIER_DISPLAY_NAMES: Record<LicenseTier, string> = {
-  community: 'Community',
-  team: 'Team',
+  community: 'Free',
+  team: 'Premium',
   enterprise: 'Enterprise',
 };
 

@@ -38,9 +38,9 @@ type SubscriptionsHandler struct {
 var razorpaySubscriptionIDRegex = regexp.MustCompile(`^sub_[A-Za-z0-9]+$`)
 
 func resolveRazorpayMode() string {
-	mode := os.Getenv("RAZORPAY_MODE")
+	mode := strings.ToLower(strings.TrimSpace(os.Getenv("RAZORPAY_MODE")))
 	if mode == "" {
-		return "test"
+		return "live"
 	}
 	return mode
 }
@@ -79,6 +79,7 @@ type CreateSubscriptionRequest struct {
 	PlanCode string `json:"plan_code"`
 	PlanType string `json:"plan_type"` // deprecated compatibility field
 	Quantity int    `json:"quantity"`  // deprecated compatibility field
+	Currency string `json:"currency,omitempty"`
 }
 
 func resolvePlanCodeFromRequest(req CreateSubscriptionRequest) (license.PlanType, error) {
@@ -177,9 +178,13 @@ func (h *SubscriptionsHandler) CreateSubscription(c echo.Context) error {
 
 	// Determine mode (test vs live)
 	mode := resolveRazorpayMode()
+	resolvedCurrency, err := resolvePurchaseCurrency(req.Currency, c.Request())
+	if err != nil {
+		return c.JSON(http.StatusBadRequest, map[string]string{"error": currencyErrorMessage(err)})
+	}
 
 	// Create subscription
-	sub, err := h.service.CreateTeamSubscription(userID, int(orgID), planCode.String(), mode)
+	sub, err := h.service.CreateTeamSubscription(userID, int(orgID), planCode.String(), mode, resolvedCurrency)
 	if err != nil {
 		return c.JSON(http.StatusInternalServerError, map[string]string{
 			"error": err.Error(),
@@ -196,17 +201,33 @@ func (h *SubscriptionsHandler) CreateSubscription(c echo.Context) error {
 
 	limits := planCode.GetLimits()
 	response := map[string]interface{}{
-		"razorpay_subscription_id": sub.ID,
-		"razorpay_key_id":          keyID,
-		"status":                   sub.Status,
-		"quantity":                 sub.Quantity,
-		"plan_code":                planCode.String(),
-		"plan_type":                "monthly",
-		"monthly_loc_limit":        limits.MonthlyLOCLimit,
-		"monthly_price_usd":        limits.MonthlyPriceUSD,
-		"short_url":                sub.ShortURL,
-		"current_period_start":     sub.CurrentStart,
-		"current_period_end":       sub.CurrentEnd,
+		"razorpay_subscription_id":         sub.ID,
+		"razorpay_key_id":                  keyID,
+		"status":                           sub.Status,
+		"quantity":                         sub.Quantity,
+		"plan_code":                        planCode.String(),
+		"plan_type":                        "monthly",
+		"currency":                         resolvedCurrency,
+		"monthly_loc_limit":                limits.MonthlyLOCLimit,
+		"monthly_price_usd":                limits.MonthlyPriceUSD,
+		"short_url":                        sub.ShortURL,
+		"current_period_start":             sub.CurrentStart,
+		"current_period_end":               sub.CurrentEnd,
+		"trial_applied":                    sub.TrialApplied,
+		"trial_days":                       sub.TrialDays,
+		"plan_unit_amount_minor":           sub.PlanUnitMinor,
+		"expected_recurring_amount_minor":  sub.RecurringMinor,
+		"expected_recurring_currency":      sub.RecurringCurrency,
+		"checkout_authorization_may_apply": sub.CheckoutAuthorizationMayApply,
+	}
+	if sub.CheckoutAuthorizationMayApply {
+		response["checkout_authorization_note"] = "Razorpay may show a small authorization amount while setting up trial checkout. Recurring billing starts after trial ends."
+	}
+	if sub.TrialStartsAt > 0 {
+		response["trial_started_at"] = time.Unix(sub.TrialStartsAt, 0).UTC().Format(time.RFC3339)
+	}
+	if sub.TrialEndsAt > 0 {
+		response["trial_ends_at"] = time.Unix(sub.TrialEndsAt, 0).UTC().Format(time.RFC3339)
 	}
 
 	return c.JSON(http.StatusCreated, response)
@@ -619,16 +640,30 @@ func (h *SubscriptionsHandler) GetCurrentSubscription(c echo.Context) error {
 		return c.JSON(http.StatusBadRequest, map[string]string{"error": "organization context required"})
 	}
 
-	// Fetch user's active subscription id and plan for this org
-	var planType sql.NullString
-	var licenseExpiresAt sql.NullTime
+	// Choose the strongest current subscription pointer for this user/org.
+	// This avoids leaking stale canceled-role rows after replacement cutovers.
 	var activeSubID sql.NullInt64
 	err := h.db.QueryRow(`
-		SELECT ur.plan_type, ur.license_expires_at, ur.active_subscription_id
+		SELECT ur.active_subscription_id
 		FROM user_roles ur
-		WHERE ur.user_id = $1 AND ur.org_id = $2
+		JOIN subscriptions s ON s.id = ur.active_subscription_id AND s.org_id = ur.org_id
+		WHERE ur.user_id = $1
+		  AND ur.org_id = $2
+		  AND ur.active_subscription_id IS NOT NULL
+		ORDER BY
+			CASE
+				WHEN LOWER(TRIM(COALESCE(s.status, ''))) IN ('active', 'authenticated', 'created', 'pending', 'halted')
+				     AND COALESCE(s.cancel_at_period_end, FALSE) = FALSE THEN 0
+				WHEN LOWER(TRIM(COALESCE(s.status, ''))) IN ('active', 'authenticated', 'created', 'pending', 'halted') THEN 1
+				WHEN COALESCE(s.cancel_at_period_end, FALSE) = FALSE
+				     AND LOWER(TRIM(COALESCE(s.status, ''))) NOT IN ('cancelled', 'expired', 'completed') THEN 2
+				WHEN COALESCE(s.cancel_at_period_end, FALSE) = FALSE THEN 3
+				ELSE 4
+			END,
+			s.updated_at DESC,
+			ur.updated_at DESC
 		LIMIT 1
-	`, user.ID, orgID).Scan(&planType, &licenseExpiresAt, &activeSubID)
+	`, user.ID, orgID).Scan(&activeSubID)
 
 	if err == sql.ErrNoRows {
 		return c.JSON(http.StatusOK, map[string]interface{}{
@@ -691,6 +726,36 @@ func (h *SubscriptionsHandler) GetCurrentSubscription(c echo.Context) error {
 		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "failed to load subscription"})
 	}
 
+	// Defensive fallback for replacement-cutover drift: if selected pointer is cancellation-scheduled,
+	// prefer an org-level non-cancelled subscription with a healthy status.
+	if sub.CancelAtPeriodEnd {
+		fallbackErr := h.db.QueryRow(`
+			SELECT s.id, s.razorpay_subscription_id, s.status, s.cancel_at_period_end,
+			       s.current_period_end, s.license_expires_at, s.plan_type, s.quantity,
+			       COALESCE((SELECT COUNT(*) FROM user_roles ur WHERE ur.active_subscription_id = s.id AND ur.plan_type = 'team'), 0) as assigned_seats,
+			       s.short_url
+			FROM subscriptions s
+			WHERE s.org_id = $1
+			  AND COALESCE(s.cancel_at_period_end, FALSE) = FALSE
+			ORDER BY
+				CASE
+					WHEN LOWER(TRIM(COALESCE(s.status, ''))) IN ('active', 'authenticated', 'created', 'pending', 'halted') THEN 0
+					WHEN LOWER(TRIM(COALESCE(s.status, ''))) IN ('cancelled', 'expired', 'completed') THEN 2
+					ELSE 1
+				END,
+				s.updated_at DESC,
+				s.created_at DESC
+			LIMIT 1
+		`, orgID).Scan(
+			&sub.ID, &sub.RZPID, &sub.Status, &sub.CancelAtPeriodEnd,
+			&sub.CurrentPeriodEnd, &sub.LicenseExpiresAt, &sub.PlanType, &sub.Quantity,
+			&sub.AssignedSeats, &sub.ShortURL,
+		)
+		if fallbackErr != nil && fallbackErr != sql.ErrNoRows {
+			c.Logger().Warnf("GetCurrentSubscription: org-level fallback failed for org_id=%d: %v", orgID, fallbackErr)
+		}
+	}
+
 	return c.JSON(http.StatusOK, map[string]interface{}{
 		"plan_type":            sub.PlanType,
 		"status":               sub.Status,
@@ -715,7 +780,19 @@ func (h *SubscriptionsHandler) ListUserSubscriptions(c echo.Context) error {
 		})
 	}
 
-	c.Logger().Infof("ListUserSubscriptions: fetching subscriptions for user_id=%d email=%s", user.ID, user.Email)
+	var orgID int64
+	switch v := c.Get("org_id").(type) {
+	case int64:
+		orgID = v
+	case int:
+		orgID = int64(v)
+	}
+
+	if orgID > 0 {
+		c.Logger().Infof("ListUserSubscriptions: fetching subscriptions for user_id=%d email=%s org_id=%d", user.ID, user.Email, orgID)
+	} else {
+		c.Logger().Infof("ListUserSubscriptions: fetching subscriptions for user_id=%d email=%s", user.ID, user.Email)
+	}
 
 	// Query subscriptions owned by the user with calculated assigned_seats from user_roles
 	// Only return subscriptions that are active or have assigned seats
@@ -729,9 +806,10 @@ func (h *SubscriptionsHandler) ListUserSubscriptions(c echo.Context) error {
 			s.created_at, s.updated_at, s.cancel_at_period_end, s.short_url
 		FROM subscriptions s
 		WHERE s.owner_user_id = $1
+		  AND ($2 = 0 OR s.org_id = $2)
 		  AND (s.status IN ('created', 'authenticated', 'active') OR EXISTS (SELECT 1 FROM user_roles ur WHERE ur.active_subscription_id = s.id))
 		ORDER BY s.created_at DESC
-	`, user.ID)
+	`, user.ID, orgID)
 	if err != nil {
 		c.Logger().Errorf("ListUserSubscriptions: failed to execute query for user_id=%d: %v", user.ID, err)
 		return c.JSON(http.StatusInternalServerError, map[string]string{

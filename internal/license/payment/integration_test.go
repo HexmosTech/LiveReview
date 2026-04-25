@@ -69,7 +69,7 @@ func TestSubscriptionIntegration(t *testing.T) {
 
 	// Test 1: Create subscription
 	t.Run("CreateSubscription", func(t *testing.T) {
-		sub, err := service.CreateTeamSubscription(userID, orgID, "loc_400k", "test")
+		sub, err := service.CreateTeamSubscription(userID, orgID, "loc_400k", "test", CurrencyUSD)
 		if err != nil {
 			t.Fatalf("Failed to create subscription: %v", err)
 		}
@@ -444,6 +444,10 @@ func TestWebhookProcessing(t *testing.T) {
 	// Create test subscription in DB
 	var userID, orgID int = 1, 1 // Use existing user/org
 	subscriptionID := "test_sub_webhook_" + time.Now().Format("20060102150405")
+	testPlanID, err := GetPlanID("test", "monthly", CurrencyUSD)
+	if err != nil {
+		t.Fatalf("Failed to resolve test monthly plan ID: %v", err)
+	}
 
 	_, err = db.Exec(`
 		INSERT INTO subscriptions (
@@ -452,7 +456,7 @@ func TestWebhookProcessing(t *testing.T) {
 			license_expires_at, created_at, updated_at
 		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, NOW(), NOW())`,
 		subscriptionID, userID, orgID, "team_monthly",
-		5, 0, "created", GetPlanID("test", "monthly"),
+		5, 0, "created", testPlanID,
 		time.Now().AddDate(0, 1, 0),
 	)
 	if err != nil {

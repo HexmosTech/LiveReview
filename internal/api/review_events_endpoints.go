@@ -88,6 +88,18 @@ func (h *ReviewEventsHandler) GetReviewEvents(c echo.Context) error {
 		return echo.NewHTTPError(http.StatusInternalServerError, "Failed to retrieve events")
 	}
 
+	var reviewStatus *string
+	var statusValue string
+	statusErr := h.service.repo.db.QueryRowContext(
+		c.Request().Context(),
+		`SELECT status FROM reviews WHERE id = $1 AND org_id = $2`,
+		reviewID,
+		orgID,
+	).Scan(&statusValue)
+	if statusErr == nil {
+		reviewStatus = &statusValue
+	}
+
 	// Ensure events is a non-nil slice so JSON encodes to []
 	if events == nil {
 		events = make([]*ReviewEvent, 0)
@@ -101,6 +113,10 @@ func (h *ReviewEventsHandler) GetReviewEvents(c echo.Context) error {
 			"count":    len(events),
 			"limit":    limit,
 		},
+	}
+
+	if reviewStatus != nil {
+		response["meta"].(map[string]interface{})["status"] = *reviewStatus
 	}
 
 	if since != nil {

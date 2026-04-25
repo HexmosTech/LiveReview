@@ -255,8 +255,9 @@ func (wo *WebhookOrchestratorV2) processEventAsync(ctx context.Context, event *U
 		log.Printf("[WARN] Failed to fetch MR data, continuing with available data: %v", err)
 	}
 
-	if blocked, reason := wo.enforceWebhookPreflight(processingCtx, event, scenario.Type, orgID); blocked {
+	if blocked, reason, locUsed, locLimit := wo.enforceWebhookPreflight(processingCtx, event, scenario.Type, orgID); blocked {
 		log.Printf("[INFO] Webhook operation blocked by preflight checks for event %s/%s: %s", event.EventType, event.Provider, reason)
+		wo.postQuotaExhaustedResponse(provider, event, locUsed, locLimit)
 		return
 	}
 
@@ -353,9 +354,10 @@ func (wo *WebhookOrchestratorV2) handleCommentReplyFlow(ctx context.Context, eve
 	}
 
 	if usage != nil && usage.Chargeable && usage.BillableLOC > 0 {
-		blocked, reason := wo.enforceWebhookPreflightWithRequiredLOC(ctx, orgID, usage.BillableLOC, "webhook_comment_response")
+		blocked, reason, locUsed, locLimit := wo.enforceWebhookPreflightWithRequiredLOC(ctx, orgID, usage.BillableLOC, "webhook_comment_response")
 		if blocked {
 			log.Printf("[INFO] Webhook comment reply blocked by definitive preflight for event %s/%s: %s", event.EventType, event.Provider, reason)
+			wo.postQuotaExhaustedResponse(provider, event, locUsed, locLimit)
 			return
 		}
 	}
@@ -568,34 +570,34 @@ func (wo *WebhookOrchestratorV2) selectAppropriateEmoji(commentBody string) stri
 	return "thumbsup"
 }
 
-func (wo *WebhookOrchestratorV2) enforceWebhookPreflight(ctx context.Context, event *UnifiedWebhookEventV2, scenarioType string, orgID int64) (bool, string) {
+func (wo *WebhookOrchestratorV2) enforceWebhookPreflight(ctx context.Context, event *UnifiedWebhookEventV2, scenarioType string, orgID int64) (bool, string, int64, int64) {
 	if wo == nil || wo.server == nil || wo.server.db == nil || event == nil || orgID <= 0 {
-		return false, ""
+		return false, "", 0, 0
 	}
 
 	requiredLOC, ok := estimateWebhookRequiredLOC(event)
 	if !ok || requiredLOC <= 0 {
-		return false, ""
+		return false, "", 0, 0
 	}
 
 	operationType, ok := webhookOperationTypeFromScenario(scenarioType)
 	if !ok {
-		return false, ""
+		return false, "", 0, 0
 	}
 
 	return wo.enforceWebhookPreflightWithRequiredLOC(ctx, orgID, requiredLOC, operationType)
 }
 
-func (wo *WebhookOrchestratorV2) enforceWebhookPreflightWithRequiredLOC(ctx context.Context, orgID int64, requiredLOC int64, operationType string) (bool, string) {
+func (wo *WebhookOrchestratorV2) enforceWebhookPreflightWithRequiredLOC(ctx context.Context, orgID int64, requiredLOC int64, operationType string) (bool, string, int64, int64) {
 	if wo == nil || wo.server == nil || wo.server.db == nil || orgID <= 0 || requiredLOC <= 0 || strings.TrimSpace(operationType) == "" {
-		return false, ""
+		return false, "", 0, 0
 	}
 
 	quotaModule := license.NewQuotaModule(wo.server.db)
 	planCode, err := wo.resolveOrgPlanCode(ctx, orgID)
 	if err != nil {
 		log.Printf("[ERROR] LOC preflight aborted for org=%d operation=%s: %v", orgID, operationType, err)
-		return true, "plan_resolution_error"
+		return true, "plan_resolution_error", 0, 0
 	}
 	result, err := quotaModule.PreflightCheck(ctx, license.QuotaPreflightInput{
 		OrgID:       orgID,
@@ -604,13 +606,13 @@ func (wo *WebhookOrchestratorV2) enforceWebhookPreflightWithRequiredLOC(ctx cont
 	})
 	if err != nil {
 		log.Printf("[WARN] LOC preflight check failed for org=%d operation=%s required_loc=%d: %v", orgID, operationType, requiredLOC, err)
-		return false, ""
+		return false, "", 0, 0
 	}
 	if !result.Blocked {
-		return false, ""
+		return false, "", 0, 0
 	}
 
-	return true, result.BlockReason
+	return true, result.BlockReason, result.LOCUsedMonth, result.LOCLimitMonth
 }
 
 func (wo *WebhookOrchestratorV2) accountWebhookSuccess(ctx context.Context, orgID int64, event *UnifiedWebhookEventV2, usage *OperationUsageV2, operationType string) {
@@ -851,6 +853,63 @@ func (wo *WebhookOrchestratorV2) postErrorResponse(provider WebhookProviderV2, e
 	if err := provider.PostCommentReply(event, errorResponse); err != nil {
 		log.Printf("[ERROR] Failed to post error response: %v", err)
 	}
+}
+
+// postQuotaExhaustedResponse posts a user-friendly LOC quota exhaustion message
+// back to the PR as a comment reply, so the user knows why the bot didn't respond.
+func (wo *WebhookOrchestratorV2) postQuotaExhaustedResponse(provider WebhookProviderV2, event *UnifiedWebhookEventV2, locUsed int64, locLimit int64) {
+	if provider == nil || event == nil {
+		return
+	}
+
+	upgradeURL := "/settings-subscriptions-overview"
+	if wo.server != nil {
+		if prodURL, err := wo.server.GetProductionURLDirectly(); err == nil && strings.TrimSpace(prodURL) != "" {
+			upgradeURL = strings.TrimRight(prodURL, "/") + upgradeURL
+		}
+	}
+
+	// Build usage detail line if quota data is available
+	usageLine := ""
+	if locLimit > 0 {
+		usageLine = fmt.Sprintf(
+			"Your team has used all %s allocated lines of code for this month. ",
+			formatNumber(locLimit),
+		)
+	} else {
+		usageLine = "Your team has used all allocated lines of code for this month. "
+	}
+
+	quotaMessage := fmt.Sprintf(
+		"⚠️ **You've reached your monthly limit**\n\n"+
+			"%s"+
+			"Upgrade to a higher plan to continue reviewing code without any interruption to your workflow.\n\n"+
+			"👉 [Upgrade Plan](%s)\n",
+		usageLine, upgradeURL,
+	)
+
+	if err := provider.PostCommentReply(event, quotaMessage); err != nil {
+		log.Printf("[ERROR] Failed to post quota exhausted response: %v", err)
+	}
+}
+
+// formatNumber formats an int64 with comma separators (e.g. 100000 -> "100,000")
+func formatNumber(n int64) string {
+	if n < 0 {
+		return "-" + formatNumber(-n)
+	}
+	s := strconv.FormatInt(n, 10)
+	if len(s) <= 3 {
+		return s
+	}
+	var result []byte
+	for i, c := range s {
+		if i > 0 && (len(s)-i)%3 == 0 {
+			result = append(result, ',')
+		}
+		result = append(result, byte(c))
+	}
+	return string(result)
 }
 
 // handleUnknownWebhook handles webhooks that couldn't be routed to any provider

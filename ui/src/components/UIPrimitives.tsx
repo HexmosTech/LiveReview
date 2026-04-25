@@ -125,8 +125,8 @@ export const Button: React.FC<ButtonProps> = ({
 interface CardProps {
   children: ReactNode;
   className?: string;
-  title?: string;
-  subtitle?: string;
+  title?: ReactNode;
+  subtitle?: ReactNode;
   footer?: ReactNode;
   badge?: string;
   badgeColor?: string;
@@ -1009,7 +1009,7 @@ export const Spinner: React.FC<SpinnerProps> = ({
 // ===== TOOLTIP COMPONENT =====
 interface TooltipProps {
   children: ReactNode;
-  content: string;
+  content: ReactNode;
   position?: 'top' | 'bottom' | 'left' | 'right' | 'top-left' | 'top-right' | 'bottom-left' | 'bottom-right' | 'auto';
   className?: string;
 }

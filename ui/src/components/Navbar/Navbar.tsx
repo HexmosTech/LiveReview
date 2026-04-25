@@ -13,10 +13,20 @@ type NavbarBillingStatusResponse = {
         current_plan_code: string;
         billing_period_end?: string;
         loc_used_month: number;
+        trial_active?: boolean;
+        trial_ends_at?: string | null;
+        trial_can_cancel?: boolean;
+        trial_eligibility?: {
+            status?: 'eligible' | 'already_used' | 'reserved' | 'unknown';
+            eligible?: boolean;
+            reason?: string;
+            consumed_at?: string | null;
+        };
     };
     available_plans: Array<{
         plan_code: string;
         monthly_loc_limit: number;
+        trial_days?: number;
     }>;
 };
 
@@ -50,49 +60,6 @@ type NavbarUsageMembersResponse = {
     }>;
 };
 
-// Upgrade/Plan Badge Component for Navbar
-const UpgradeBadge: React.FC = () => {
-    const navigate = useNavigate();
-    const { currentOrg } = useOrgContext();
-    
-    // Only show in cloud mode
-    if (!isCloudMode()) {
-        return null;
-    }
-    
-    // Get plan from current org
-    const planType = currentOrg?.plan_type || 'free';
-    const isTeamPlan = planType === 'team';
-    
-    if (isTeamPlan) {
-        // Show Team Plan badge that navigates to subscription settings
-        return (
-            <button
-                onClick={() => navigate('/settings-subscriptions-overview')}
-                className="relative ml-2 px-4 py-2 bg-gradient-to-r from-amber-600 to-yellow-600 hover:from-amber-500 hover:to-yellow-500 text-white text-sm font-bold rounded-lg transition-all duration-200 shadow-lg hover:shadow-xl flex items-center gap-2"
-            >
-                <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
-                    <path d="M9 6a3 3 0 11-6 0 3 3 0 016 0zM17 6a3 3 0 11-6 0 3 3 0 016 0zM12.93 17c.046-.327.07-.66.07-1a6.97 6.97 0 00-1.5-4.33A5 5 0 0119 16v1h-6.07zM6 11a5 5 0 015 5v1H1v-1a5 5 0 015-5z" />
-                </svg>
-                Team Plan
-            </button>
-        );
-    }
-    
-    // Show Upgrade button for free plan
-    return (
-        <button
-            onClick={() => navigate('/subscribe')}
-            className="relative ml-2 px-4 py-2 bg-gradient-to-r from-yellow-500 to-orange-500 hover:from-yellow-400 hover:to-orange-400 text-slate-900 text-sm font-bold rounded-lg transition-all duration-200 shadow-lg hover:shadow-xl transform hover:scale-105 flex items-center gap-2"
-        >
-            <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
-                <path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z" />
-            </svg>
-            Upgrade
-        </button>
-    );
-};
-
 const planLabel = (planCode: string): string => {
     const normalized = String(planCode || '').trim().toLowerCase();
     if (normalized === 'free_30k' || normalized === 'free') return 'Free 30k';
@@ -106,6 +73,30 @@ const planLabel = (planCode: string): string => {
 };
 
 const formatResetAt = (value?: string): string => {
+    const raw = String(value || '').trim();
+    if (!raw) return 'Not available';
+    const date = new Date(raw);
+    if (Number.isNaN(date.getTime())) return 'Not available';
+    return new Intl.DateTimeFormat(undefined, {
+        year: 'numeric',
+        month: 'short',
+        day: 'numeric',
+        hour: 'numeric',
+        minute: '2-digit',
+    }).format(date);
+};
+
+const trialDaysRemaining = (value?: string | null): number | null => {
+    const raw = String(value || '').trim();
+    if (!raw) return null;
+    const end = new Date(raw);
+    if (Number.isNaN(end.getTime())) return null;
+    const diffMs = end.getTime() - Date.now();
+    if (diffMs <= 0) return 0;
+    return Math.max(1, Math.ceil(diffMs / (24 * 60 * 60 * 1000)));
+};
+
+const formatTrialEndsAt = (value?: string | null): string => {
     const raw = String(value || '').trim();
     if (!raw) return 'Not available';
     const date = new Date(raw);
@@ -138,6 +129,14 @@ const BillingChip: React.FC = () => {
         mySharePct: number;
         topMembers: Array<{ label: string; loc: number; share: number; kind: string }>;
         canViewTeamBreakdown: boolean;
+        trialActive: boolean;
+        trialEndsAt: string;
+        trialDaysLeft: number | null;
+        trialCanCancel: boolean;
+        trialEligibleForFirstPaidPurchase: boolean;
+        trialEligibilityStatus: string;
+        trialPolicyDays: number;
+        isFreePlan: boolean;
     } | null>(null);
 
     useEffect(() => {
@@ -178,6 +177,16 @@ const BillingChip: React.FC = () => {
                         share: Number(member.usage_share_percent || 0),
                         kind: String(member.actor_kind || 'unknown').trim(),
                     }));
+                const trialPolicyDays = (billing.available_plans || []).reduce((max, item) => {
+                    const trialDays = Number(item.trial_days || 0);
+                    if (trialDays <= 0) {
+                        return max;
+                    }
+                    return Math.max(max, trialDays);
+                }, 0);
+                const trialEligibilityStatus = String(billing.billing.trial_eligibility?.status || 'unknown').trim().toLowerCase();
+                const trialEligibleForFirstPaidPurchase = Boolean(billing.billing.trial_eligibility?.eligible);
+                const isFreePlan = String(planCode).trim().toLowerCase() === 'free_30k' || String(planCode).trim().toLowerCase() === 'free';
 
                 setChip({
                     planCode,
@@ -192,6 +201,14 @@ const BillingChip: React.FC = () => {
                     mySharePct: Number(myUsage?.member?.usage_share_percent || 0),
                     topMembers,
                     canViewTeamBreakdown,
+                    trialActive: Boolean(billing.billing.trial_active),
+                    trialEndsAt: String(billing.billing.trial_ends_at || '').trim(),
+                    trialDaysLeft: trialDaysRemaining(billing.billing.trial_ends_at),
+                    trialCanCancel: Boolean(billing.billing.trial_can_cancel),
+                    trialEligibleForFirstPaidPurchase,
+                    trialEligibilityStatus,
+                    trialPolicyDays: trialPolicyDays > 0 ? trialPolicyDays : 7,
+                    isFreePlan,
                 });
             } catch {
                 if (!cancelled) setChip(null);
@@ -232,9 +249,24 @@ const BillingChip: React.FC = () => {
 
     const toneClass = chip?.blocked || chip?.customerState === 'action_needed' || chip?.customerState === 'payment_failed'
         ? 'bg-red-900/35 border-red-500/50 text-red-100 hover:bg-red-900/50'
+        : chip?.trialActive
+            ? 'bg-sky-900/35 border-sky-500/50 text-sky-100 hover:bg-sky-900/50'
         : chip && chip.usagePct >= 80
-        ? 'bg-amber-900/35 border-amber-500/50 text-amber-100 hover:bg-amber-900/50'
-        : 'bg-emerald-900/25 border-emerald-500/40 text-emerald-100 hover:bg-emerald-900/40';
+            ? 'bg-amber-900/35 border-amber-500/50 text-amber-100 hover:bg-amber-900/50'
+            : 'bg-emerald-900/25 border-emerald-500/40 text-emerald-100 hover:bg-emerald-900/40';
+    const showFirstPaidTrialBadge = Boolean(chip && !chip.trialActive && chip.isFreePlan && chip.trialPolicyDays > 0);
+    const firstPaidTrialBadgeText = chip?.trialEligibleForFirstPaidPurchase
+        ? `Free ${chip.trialPolicyDays}-Day Trial Included`
+        : chip?.trialEligibilityStatus === 'already_used'
+            ? 'Trial already used'
+            : chip?.trialEligibilityStatus === 'reserved'
+                ? 'Trial reservation in progress'
+                : `Up to ${chip?.trialPolicyDays || 7}-day trial`;
+    const firstPaidTrialBadgeClass = chip?.trialEligibleForFirstPaidPurchase
+        ? 'border-sky-400/50 bg-sky-900/35 text-sky-100'
+        : chip?.trialEligibilityStatus === 'already_used'
+            ? 'border-slate-600 bg-slate-800 text-slate-300'
+            : 'border-amber-400/50 bg-amber-900/30 text-amber-100';
 
     return (
         <div
@@ -252,7 +284,7 @@ const BillingChip: React.FC = () => {
                 onFocus={openPopup}
                 onBlur={closePopupSoon}
             >
-                {loading ? 'Billing...' : chip ? `${planLabel(chip.planCode)} ${chip.usagePct}%` : 'Billing'}
+                {loading ? 'Billing...' : chip ? (chip.trialActive ? `Trial ${chip.trialDaysLeft ?? '?'}d left` : `${planLabel(chip.planCode)} ${chip.usagePct}%`) : 'Billing'}
             </button>
             {chip && isOpen && (
                 <div className="pointer-events-auto absolute left-1/2 top-full z-50 mt-1 w-80 -translate-x-1/2 rounded-lg border border-slate-600 bg-slate-900/95 p-3 opacity-100 transition-all duration-150">
@@ -260,6 +292,87 @@ const BillingChip: React.FC = () => {
                     <p className="text-[11px] text-slate-400 mt-1">
                         Scope: organization usage in current billing period. Attribution is charged to the triggering actor.
                     </p>
+                    {chip.trialActive && (
+                        <div className="mt-2 rounded bg-sky-950/50 border border-sky-500/50 p-2 text-[11px]">
+                            <p className="text-sky-200 font-semibold">
+                                Trial active {typeof chip.trialDaysLeft === 'number' ? `- ${chip.trialDaysLeft} day${chip.trialDaysLeft === 1 ? '' : 's'} left` : ''}
+                            </p>
+                            <p className="text-sky-300/90 mt-0.5">Ends on {formatTrialEndsAt(chip.trialEndsAt)}</p>
+                            <button
+                                onClick={(e) => {
+                                    e.stopPropagation();
+                                    navigate('/settings-subscriptions-assign');
+                                }}
+                                className="mt-1 w-full py-1 bg-sky-600 hover:bg-sky-500 rounded text-sky-50 font-semibold transition-colors"
+                            >
+                                {chip.trialCanCancel ? 'Cancel Trial Now' : 'Open Trial Details'}
+                            </button>
+                        </div>
+                    )}
+                    {/* LOC Warning / Blocked Banner */}
+                    {chip.blocked && (
+                        <div className="mt-2 rounded bg-red-950/60 border border-red-500/60 p-2 text-[11px]">
+                            <p className="text-red-200 font-semibold">⛔ Monthly LOC Quota Exceeded</p>
+                            <p className="text-red-300/90 mt-0.5">
+                                You've used {chip.locUsed.toLocaleString()} of {chip.locLimit > 0 ? chip.locLimit.toLocaleString() : 'N/A'} LOC. Reviews are blocked until quota resets.
+                            </p>
+                            <div className="mt-2 flex items-center gap-2">
+                                <button
+                                    onClick={(e) => { e.stopPropagation(); navigate('/settings-subscriptions-overview'); }}
+                                    className="flex-1 py-1 bg-red-600 hover:bg-red-500 rounded text-red-50 font-semibold transition-colors"
+                                >
+                                    Upgrade Now
+                                </button>
+                                {showFirstPaidTrialBadge && (
+                                    <span className={`inline-flex items-center rounded border px-2 py-1 text-[10px] font-semibold uppercase tracking-wide ${firstPaidTrialBadgeClass}`}>
+                                        {firstPaidTrialBadgeText}
+                                    </span>
+                                )}
+                            </div>
+                        </div>
+                    )}
+                    {!chip.blocked && chip.usagePct >= 100 && (
+                        <div className="mt-2 rounded bg-amber-950/50 border border-amber-500/50 p-2 text-[11px]">
+                            <p className="text-amber-200 font-semibold">LOC Usage Exhausted</p>
+                            <p className="text-amber-300/90 mt-0.5">
+                                You've used {chip.locUsed.toLocaleString()} of {chip.locLimit > 0 ? chip.locLimit.toLocaleString() : 'N/A'} LOC ({chip.usagePct}%). Please upgrade to continue.
+                            </p>
+                            <div className="mt-1 flex items-center gap-2">
+                                <button
+                                    onClick={(e) => { e.stopPropagation(); navigate('/settings-subscriptions-overview'); }}
+                                    className="flex-1 py-1 bg-amber-600 hover:bg-amber-500 rounded text-amber-50 font-semibold transition-colors"
+                                >
+                                    Upgrade Plan
+                                </button>
+                                {showFirstPaidTrialBadge && (
+                                    <span className={`inline-flex items-center rounded border px-2 py-1 text-[10px] font-semibold uppercase tracking-wide ${firstPaidTrialBadgeClass}`}>
+                                        {firstPaidTrialBadgeText}
+                                    </span>
+                                )}
+                            </div>
+                        </div>
+                    )}
+                    {!chip.blocked && chip.usagePct >= 90 && chip.usagePct < 100 && (
+                        <div className="mt-2 rounded bg-amber-950/50 border border-amber-500/50 p-2 text-[11px]">
+                            <p className="text-amber-200 font-semibold">⚠️ LOC Usage Nearing Limit</p>
+                            <p className="text-amber-300/90 mt-0.5">
+                                You've used {chip.locUsed.toLocaleString()} of {chip.locLimit > 0 ? chip.locLimit.toLocaleString() : 'N/A'} LOC ({chip.usagePct}%). Upgrade to avoid interruption.
+                            </p>
+                            <div className="mt-1 flex items-center gap-2">
+                                <button
+                                    onClick={(e) => { e.stopPropagation(); navigate('/settings-subscriptions-overview'); }}
+                                    className="flex-1 py-1 bg-amber-600 hover:bg-amber-500 rounded text-amber-50 font-semibold transition-colors"
+                                >
+                                    Upgrade Plan
+                                </button>
+                                {showFirstPaidTrialBadge && (
+                                    <span className={`inline-flex items-center rounded border px-2 py-1 text-[10px] font-semibold uppercase tracking-wide ${firstPaidTrialBadgeClass}`}>
+                                        {firstPaidTrialBadgeText}
+                                    </span>
+                                )}
+                            </div>
+                        </div>
+                    )}
                     <div className="mt-2 rounded bg-blue-950/40 border border-blue-700/50 p-2 text-[11px]">
                         <p className="text-blue-200 font-medium">Usage resets on {formatResetAt(chip.resetAt)}</p>
                         <p className="text-blue-300/80 mt-0.5">Local timezone. New cycle usage starts immediately after this time.</p>
@@ -303,6 +416,21 @@ const BillingChip: React.FC = () => {
                             </div>
                         </div>
                     )}
+                    {!chip.blocked && chip.usagePct < 90 && (
+                        <div className="mt-3 flex items-center gap-2">
+                            <button
+                                onClick={(e) => { e.stopPropagation(); navigate('/settings-subscriptions-overview'); }}
+                                className="flex-1 py-1.5 bg-blue-600 hover:bg-blue-500 rounded text-white text-xs font-semibold transition-colors shadow-sm"
+                            >
+                                Upgrade Plan
+                            </button>
+                            {showFirstPaidTrialBadge && (
+                                <span className={`inline-flex items-center rounded border px-2 py-1 text-[10px] font-semibold uppercase tracking-wide ${firstPaidTrialBadgeClass}`}>
+                                    {firstPaidTrialBadgeText}
+                                </span>
+                            )}
+                        </div>
+                    )}
                 </div>
             )}
         </div>
@@ -334,8 +462,8 @@ const baseNavLinks: NavLink[] = [
 ];
 
 const testNavLink: NavLink = {
-    name: 'Test Middleware', 
-    key: 'test-middleware', 
+    name: 'Test Middleware',
+    key: 'test-middleware',
     icon: (
         <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
@@ -375,7 +503,7 @@ export const Navbar: React.FC<NavbarProps> = ({ title, activePage = 'dashboard',
         <nav className="bg-slate-900/95 backdrop-blur-sm shadow-lg border-b border-slate-700/60 sticky top-0 z-50">
             <div className="container mx-auto px-4 py-3 flex justify-between items-center">
                 <div className="flex items-center">
-                    <Link 
+                    <Link
                         to="/"
                         onClick={() => handleNavClick('dashboard')}
                         className="cursor-pointer transition-transform hover:scale-105"
@@ -385,7 +513,7 @@ export const Navbar: React.FC<NavbarProps> = ({ title, activePage = 'dashboard',
                         <img src="assets/logo-horizontal.svg" alt="LiveReview Logo" className="h-10 w-auto mr-3" />
                     </Link>
                 </div>
-                
+
                 {/* Mobile menu button */}
                 <div className="md:hidden">
                     <Button
@@ -404,16 +532,16 @@ export const Navbar: React.FC<NavbarProps> = ({ title, activePage = 'dashboard',
                         )}
                     />
                 </div>
-                
+
                 {/* Desktop menu */}
                 <div className="hidden md:flex items-center space-x-2">
                     {/* Organization Selector */}
-                    <OrganizationSelector 
+                    <OrganizationSelector
                         position="navbar"
                         size="sm"
                         className="mr-4"
                     />
-                    
+
                     {navLinks.map(link => (
                         <Button
                             key={link.key}
@@ -422,8 +550,8 @@ export const Navbar: React.FC<NavbarProps> = ({ title, activePage = 'dashboard',
                             icon={link.icon}
                             className={classNames(
                                 'text-sm font-medium transition-all duration-200',
-                                activePage === link.key 
-                                    ? 'bg-blue-600 text-white shadow-lg' 
+                                activePage === link.key
+                                    ? 'bg-blue-600 text-white shadow-lg'
                                     : 'text-slate-300 hover:text-white hover:bg-slate-700/60'
                             )}
                             as={Link}
@@ -433,10 +561,7 @@ export const Navbar: React.FC<NavbarProps> = ({ title, activePage = 'dashboard',
                         </Button>
                     ))}
                     <BillingChip />
-                    
-                    {/* Upgrade / Manage Licenses */}
-                    <UpgradeBadge />
-                    
+
                     {/* Logout button */}
                     {onLogout && (
                         <Button
@@ -452,13 +577,13 @@ export const Navbar: React.FC<NavbarProps> = ({ title, activePage = 'dashboard',
                     )}
                 </div>
             </div>
-            
+
             {/* Mobile menu dropdown */}
             {isOpen && (
                 <div className="md:hidden px-4 py-3 space-y-2 bg-slate-800/95 border-t border-slate-700/60 backdrop-blur-sm">
                     {/* Mobile Organization Selector */}
                     <div className="mb-3">
-                        <OrganizationSelector 
+                        <OrganizationSelector
                             position="sidebar"
                             size="sm"
                         />
@@ -466,7 +591,7 @@ export const Navbar: React.FC<NavbarProps> = ({ title, activePage = 'dashboard',
                     <div className="mb-3">
                         <BillingChip />
                     </div>
-                    
+
                     {navLinks.map(link => (
                         <Button
                             key={link.key}
@@ -475,8 +600,8 @@ export const Navbar: React.FC<NavbarProps> = ({ title, activePage = 'dashboard',
                             icon={link.icon}
                             className={classNames(
                                 'w-full justify-start text-sm font-medium',
-                                activePage === link.key 
-                                    ? 'bg-blue-600 text-white' 
+                                activePage === link.key
+                                    ? 'bg-blue-600 text-white'
                                     : 'text-slate-300 hover:text-white hover:bg-slate-700/60'
                             )}
                             iconPosition="left"
@@ -486,12 +611,7 @@ export const Navbar: React.FC<NavbarProps> = ({ title, activePage = 'dashboard',
                             {link.name}
                         </Button>
                     ))}
-                    
-                    {/* Mobile Upgrade/Manage Licenses */}
-                    <div className="pt-2 border-t border-slate-700">
-                        <UpgradeBadge />
-                    </div>
-                    
+
                     {/* Mobile logout button */}
                     {onLogout && (
                         <Button

@@ -175,6 +175,65 @@ type CancelSubscriptionRecordInput struct {
 	Status         string
 }
 
+// SyncOrgBillingStateToFreeTx projects org billing state to the free plan within an existing transaction.
+func SyncOrgBillingStateToFreeTx(ctx context.Context, tx *sql.Tx, orgID int, now time.Time) error {
+	if tx == nil {
+		return fmt.Errorf("transaction is required")
+	}
+	if orgID <= 0 {
+		return fmt.Errorf("org_id must be > 0")
+	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
+
+	if now.IsZero() {
+		now = time.Now().UTC()
+	} else {
+		now = now.UTC()
+	}
+
+	periodStart := time.Date(now.Year(), now.Month(), 1, 0, 0, 0, 0, time.UTC)
+	periodEnd := periodStart.AddDate(0, 1, 0)
+
+	_, err := tx.ExecContext(ctx, `
+		INSERT INTO org_billing_state (
+			org_id,
+			current_plan_code,
+			billing_period_start,
+			billing_period_end,
+			loc_used_month,
+			loc_blocked,
+			trial_started_at,
+			trial_ends_at,
+			trial_readonly,
+			last_reset_at,
+			updated_at
+		) VALUES ($1, 'free_30k', $2, $3, 0, FALSE, NULL, NULL, FALSE, NOW(), NOW())
+		ON CONFLICT (org_id) DO UPDATE SET
+			current_plan_code = 'free_30k',
+			billing_period_start = $2,
+			billing_period_end = $3,
+			scheduled_plan_code = NULL,
+			scheduled_plan_effective_at = NULL,
+			upgrade_loc_grant_current_cycle = 0,
+			upgrade_loc_grant_expires_at = NULL,
+			trial_started_at = NULL,
+			trial_ends_at = NULL,
+			trial_readonly = FALSE,
+			loc_blocked = FALSE,
+			updated_at = NOW()`,
+		orgID,
+		periodStart,
+		periodEnd,
+	)
+	if err != nil {
+		return fmt.Errorf("sync org billing state to free: %w", err)
+	}
+
+	return nil
+}
+
 func (s *SubscriptionStore) CancelSubscriptionRecord(input CancelSubscriptionRecordInput) error {
 	tx, err := s.db.Begin()
 	if err != nil {
@@ -221,12 +280,18 @@ func (s *SubscriptionStore) CancelSubscriptionRecord(input CancelSubscriptionRec
 		if err != nil {
 			return fmt.Errorf("failed to update user_roles: %w", err)
 		}
+
+		err = SyncOrgBillingStateToFreeTx(context.Background(), tx, orgID, time.Now().UTC())
+		if err != nil {
+			return fmt.Errorf("failed to reset org billing state on immediate cancellation: %w", err)
+		}
 	}
 
 	metadata := map[string]interface{}{
-		"subscription_id": input.SubscriptionID,
-		"immediate":       input.Immediate,
-		"status":          input.Status,
+		"subscription_id":          input.SubscriptionID,
+		"immediate":                input.Immediate,
+		"status":                   input.Status,
+		"org_billing_state_synced": input.Immediate,
 	}
 	metadataJSON, err := json.Marshal(metadata)
 	if err != nil {
@@ -350,6 +415,8 @@ func (s *SubscriptionStore) DowngradeExpiredRoleForUserOrg(ctx context.Context, 
 		    scheduled_plan_effective_at = NULL,
 		    upgrade_loc_grant_current_cycle = 0,
 		    upgrade_loc_grant_expires_at = NULL,
+		    trial_started_at = NULL,
+		    trial_ends_at = NULL,
 		    trial_readonly = FALSE,
 		    loc_blocked = FALSE,
 		    updated_at = NOW()
@@ -490,6 +557,8 @@ func (s *SubscriptionStore) reconcileExpiredSubscriptions(ctx context.Context, o
 		    scheduled_plan_effective_at = NULL,
 		    upgrade_loc_grant_current_cycle = 0,
 		    upgrade_loc_grant_expires_at = NULL,
+		    trial_started_at = NULL,
+		    trial_ends_at = NULL,
 		    trial_readonly = FALSE,
 		    loc_blocked = FALSE,
 		    updated_at = NOW()
@@ -641,6 +710,26 @@ type OrgSubscriptionRow struct {
 	PlanType               string
 	Quantity               int
 	CurrentPeriodEnd       time.Time
+}
+
+func (s *SubscriptionStore) GetLatestCapturedPaymentMethodBySubscriptionID(ctx context.Context, subscriptionDBID int64) (string, error) {
+	var paymentMethod sql.NullString
+	err := s.db.QueryRowContext(ctx, `
+		SELECT method
+		FROM subscription_payments
+		WHERE subscription_id = $1
+		  AND (captured = TRUE OR LOWER(status) = 'captured')
+		ORDER BY COALESCE(captured_at, created_at) DESC, created_at DESC
+		LIMIT 1
+	`, subscriptionDBID).Scan(&paymentMethod)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return "", nil
+		}
+		return "", fmt.Errorf("failed to fetch latest captured payment method for subscription %d: %w", subscriptionDBID, err)
+	}
+
+	return strings.TrimSpace(paymentMethod.String), nil
 }
 
 func (s *SubscriptionStore) ListSubscriptionsByOrgID(orgID int) ([]OrgSubscriptionRow, error) {
@@ -807,6 +896,54 @@ func (s *SubscriptionStore) AssignLicense(input AssignLicenseInput) error {
 	}
 
 	return nil
+}
+
+type RepointOrgActiveSubscriptionInput struct {
+	OrgID                          int64
+	OldLocalSubscriptionID         int64
+	ReplacementLocalSubscriptionID int64
+}
+
+func (s *SubscriptionStore) RepointOrgActiveSubscription(ctx context.Context, input RepointOrgActiveSubscriptionInput) (int64, error) {
+	if input.OrgID <= 0 {
+		return 0, fmt.Errorf("invalid org id: %d", input.OrgID)
+	}
+	if input.OldLocalSubscriptionID <= 0 {
+		return 0, fmt.Errorf("invalid old subscription id: %d", input.OldLocalSubscriptionID)
+	}
+	if input.ReplacementLocalSubscriptionID <= 0 {
+		return 0, fmt.Errorf("invalid replacement subscription id: %d", input.ReplacementLocalSubscriptionID)
+	}
+	if input.OldLocalSubscriptionID == input.ReplacementLocalSubscriptionID {
+		return 0, nil
+	}
+
+	result, err := s.db.ExecContext(ctx, `
+		UPDATE user_roles
+		SET active_subscription_id = $1,
+		    updated_at = NOW()
+		WHERE org_id = $2
+		  AND (
+			active_subscription_id = $3
+			OR (
+				active_subscription_id IS NULL
+				AND role_id = (SELECT id FROM roles WHERE name = 'owner')
+			)
+		  )`,
+		input.ReplacementLocalSubscriptionID,
+		input.OrgID,
+		input.OldLocalSubscriptionID,
+	)
+	if err != nil {
+		return 0, fmt.Errorf("repoint org active subscriptions: %w", err)
+	}
+
+	rowsUpdated, err := result.RowsAffected()
+	if err != nil {
+		return 0, fmt.Errorf("read repoint row count: %w", err)
+	}
+
+	return rowsUpdated, nil
 }
 
 type RevokeLicenseInput struct {
