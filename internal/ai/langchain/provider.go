@@ -1417,8 +1417,12 @@ func (p *LangchainProvider) lineIsDeleted(lineNumber int, hunk models.DiffHunk) 
 	lines := strings.Split(hunk.Content, "\n")
 
 	for _, line := range lines {
-		// Skip table header rows, blank lines, and raw hunk headers
-		if strings.HasPrefix(line, "OLD") || strings.HasPrefix(line, "---") || strings.HasPrefix(line, "@@") || line == "" {
+		// Skip table header rows, blank lines, raw hunk headers, and the
+		// fixed separator row "----|-----|--------".
+		// NOTE: do NOT use strings.HasPrefix(line, "---") here — that would
+		// incorrectly swallow table rows whose CONTENT column starts with
+		// "---" (e.g. deleted lines containing "---old-value").
+		if strings.HasPrefix(line, "OLD") || line == "----|-----|--------" || strings.HasPrefix(line, "@@") || line == "" {
 			continue
 		}
 
@@ -1465,6 +1469,11 @@ func parseHunkLine(line string) (oldNum int, newNum int, content string, isDelet
 		isDeleted = true
 	} else if oldErr != nil && newErr == nil {
 		isAdded = true
+	} else if oldErr != nil && newErr != nil {
+		// Neither column is a valid integer — this is not a recognisable row.
+		// Return an error so the caller skips it rather than treating it as a
+		// phantom context line at position 0.
+		return 0, 0, "", false, false, fmt.Errorf("unparseable table row: both OLD=%q and NEW=%q are non-numeric", oldStr, newStr)
 	}
 
 	return oldNum, newNum, content, isDeleted, isAdded, nil
