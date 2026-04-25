@@ -53,29 +53,34 @@ func buildUpdateSubscriptionRequest(quantity int, scheduleChangeAt int64) map[st
 	return updateReq
 }
 
+func buildCreateSubscriptionRequest(planID string, quantity int, notesMap map[string]string, startAt int64) map[string]interface{} {
+	createReq := map[string]interface{}{
+		"plan_id":         strings.TrimSpace(planID),
+		"quantity":        quantity,
+		"total_count":     12,
+		"customer_notify": 0,
+	}
+	if len(notesMap) > 0 {
+		createReq["notes"] = notesMap
+	}
+	if startAt > 0 {
+		createReq["start_at"] = startAt
+	}
+	return createReq
+}
+
 // CreateSubscription creates a new subscription for a plan
 func CreateSubscription(mode, planID string, quantity int, notesMap map[string]string) (*RazorpaySubscription, error) {
+	return CreateSubscriptionAt(mode, planID, quantity, notesMap, 0)
+}
+
+// CreateSubscriptionAt creates a new subscription and optionally schedules activation at a future unix timestamp.
+func CreateSubscriptionAt(mode, planID string, quantity int, notesMap map[string]string, startAt int64) (*RazorpaySubscription, error) {
 	accessKey, secretKey, err := GetRazorpayKeys(mode)
 	if err != nil {
 		return nil, err
 	}
-
-	// Create subscription request
-	type createSubscriptionRequest struct {
-		PlanID         string            `json:"plan_id"`
-		Quantity       int               `json:"quantity"`
-		TotalCount     int               `json:"total_count"`     // 0 for infinite
-		CustomerNotify int               `json:"customer_notify"` // 1 to notify customer
-		Notes          map[string]string `json:"notes,omitempty"`
-	}
-
-	reqBody := createSubscriptionRequest{
-		PlanID:         planID,
-		Quantity:       quantity,
-		TotalCount:     12, // Default to 12 billing cycles (1 year for monthly, 12 years for yearly)
-		CustomerNotify: 0,  // Don't notify in test mode
-		Notes:          notesMap,
-	}
+	reqBody := buildCreateSubscriptionRequest(planID, quantity, notesMap, startAt)
 
 	jsonData, err := json.Marshal(reqBody)
 	if err != nil {

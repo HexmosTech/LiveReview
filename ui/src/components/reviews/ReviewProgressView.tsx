@@ -403,7 +403,13 @@ export default function ReviewProgressView({ reviewId, events, isLive = false, c
           markCompleted(countFromDetails);
         }
         if (severityIsError(event.severity)) {
-          markFailed();
+          substage.resiliencyEvents.push({
+            type: 'circuit_breaker',
+            details: event.message,
+            attempt: event.details?.attempt,
+            resolved: false
+          });
+          markInProgress();
         }
       }
 
@@ -423,7 +429,7 @@ export default function ReviewProgressView({ reviewId, events, isLive = false, c
         markInProgress();
       }
 
-      if (event.eventType === 'error' || severityIsError(event.severity)) {
+      if (event.eventType === 'error') {
         substage.resiliencyEvents.push({
           type: 'circuit_breaker',
           details: event.message,
@@ -472,7 +478,11 @@ export default function ReviewProgressView({ reviewId, events, isLive = false, c
         stage.startTime = stage.startTime ?? event.timestamp;
       }
 
-      if (severityIsError(event.severity) && stage.status !== 'completed') {
+      const isTerminalStageError =
+        event.eventType === 'error' ||
+        (event.eventType === 'log' && message.includes('stage error:'));
+
+      if (isTerminalStageError && stage.status !== 'completed') {
         stage.status = 'failed';
         stage.endTime = event.timestamp;
       }
@@ -589,7 +599,11 @@ export default function ReviewProgressView({ reviewId, events, isLive = false, c
       const previousStage = stageMap.get(orderedKeys[index - 1])!;
 
       if (previousStage.status !== 'completed') {
-        if (currentStage.status === 'completed') {
+        const preserveTerminalFinalization =
+          currentStage.key === 'finalization' &&
+          currentStage.events.some(event => event.eventType === 'completion' || event.eventType === 'completed');
+
+        if (currentStage.status === 'completed' && !preserveTerminalFinalization) {
           currentStage.status = currentStage.events.length > 0 ? 'in-progress' : 'pending';
           currentStage.endTime = undefined;
         }
@@ -748,7 +762,7 @@ export default function ReviewProgressView({ reviewId, events, isLive = false, c
             <span className="text-slate-300">
               <span className="font-medium">Stage status:</span>{' '}
               <span className="text-slate-400">
-                {stages.filter(s => s.status === 'completed').length} completed, {stages.filter(s => s.status === 'in-progress').length} in progress, {stages.filter(s => s.status === 'pending').length} pending
+                {stages.filter(s => s.status === 'completed').length} completed, {stages.filter(s => s.status === 'in-progress').length} in progress, {stages.filter(s => s.status === 'pending').length} pending, {stages.filter(s => s.status === 'failed').length} failed
               </span>
             </span>
             {isLive && <span className="text-green-400 font-medium">● Live</span>}

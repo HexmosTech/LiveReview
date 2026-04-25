@@ -1,6 +1,7 @@
 .PHONY: build run-review run-review-verbose test clean develop develop-reflex river-deps river-install river-migrate river-setup river-ui-install river-ui db-flip version version-bump version-patch version-minor version-major version-bump-dirty version-patch-dirty version-minor-dirty version-major-dirty version-bump-dry version-patch-dry version-minor-dry version-major-dry build-versioned docker-build docker-build-push docker-build-dry docker-interactive docker-interactive-push docker-interactive-dry docker-build docker-build-push docker-build-versioned docker-build-push-versioned docker-build-dry docker-build-push-dry docker-multiarch docker-multiarch-push docker-multiarch-dry docker-interactive-multiarch docker-interactive-multiarch-push cplrops vendor-prompts-encrypt vendor-prompts-build vendor-prompts-rebuild vendor-docker-build vendor-docker-build-dry vendor-docker-build-push vendor-docker-multiarch-dry vendor-docker-multiarch-push run logrun api-with-migrations build-with-ui security-sbom security-sbom-cyclonedx security-sbom-spdx security-sbom-validate release-notes-init release-notes-check release-preflight release-gh niceurl niceurl2
 .PHONY: upload-secrets download-secrets list-secrets-files legacy-secrets-clear
 .PHONY: razorpay-webhook-ensure razorpay-webhook-ensure-dry
+.PHONY: raw-deploy raw-deploy-low-pricing raw-deploy-backend raw-deploy-backend-low-pricing
 
 # Go parameters
 GOCMD=go
@@ -15,7 +16,12 @@ GOVULNCHECK_CMD=GOTOOLCHAIN=go$(REQUIRED_GO_VERSION) $(GOCMD) run -a golang.org/
 GH_REPO=HexmosTech/LiveReview
 GH=/usr/bin/gh
 GHSM_SCRIPT=scripts/ghsm.py
-LEGACY_ENV_VARS=DATABASE_URL JWT_SECRET LIVEREVIEW_BACKEND_PORT LIVEREVIEW_FRONTEND_PORT LIVEREVIEW_REVERSE_PROXY LIVEREVIEW_IS_CLOUD CLOUD_JWT_SECRET FW_PARSE_ADMIN_SECRET RAZORPAY_MODE RAZORPAY_WEBHOOK_SECRET RAZORPAY_TEST_KEY RAZORPAY_TEST_SECRET RAZORPAY_TEST_MONTHLY_PLAN_ID RAZORPAY_TEST_YEARLY_PLAN_ID RAZORPAY_LIVE_KEY RAZORPAY_LIVE_SECRET RAZORPAY_LIVE_MONTHLY_PLAN_ID RAZORPAY_LIVE_YEARLY_PLAN_ID DISCORD_SIGNUP_WEBHOOK_URL OVSX_PAT
+LEGACY_ENV_VARS=DATABASE_URL JWT_SECRET LIVEREVIEW_BACKEND_PORT LIVEREVIEW_FRONTEND_PORT LIVEREVIEW_REVERSE_PROXY LIVEREVIEW_IS_CLOUD CLOUD_JWT_SECRET FW_PARSE_ADMIN_SECRET RAZORPAY_MODE LIVEREVIEW_PRICING_PROFILE RAZORPAY_WEBHOOK_SECRET RAZORPAY_TEST_KEY RAZORPAY_TEST_SECRET RAZORPAY_TEST_MONTHLY_PLAN_ID_USD RAZORPAY_TEST_YEARLY_PLAN_ID_USD RAZORPAY_TEST_MONTHLY_PLAN_ID_INR RAZORPAY_TEST_YEARLY_PLAN_ID_INR RAZORPAY_LIVE_KEY RAZORPAY_LIVE_SECRET RAZORPAY_LIVE_ACTUAL_MONTHLY_PLAN_ID_USD RAZORPAY_LIVE_ACTUAL_YEARLY_PLAN_ID_USD RAZORPAY_LIVE_ACTUAL_MONTHLY_PLAN_ID_INR RAZORPAY_LIVE_ACTUAL_YEARLY_PLAN_ID_INR RAZORPAY_LIVE_LOW_PRICING_MONTHLY_PLAN_ID_USD RAZORPAY_LIVE_LOW_PRICING_YEARLY_PLAN_ID_USD RAZORPAY_LIVE_LOW_PRICING_MONTHLY_PLAN_ID_INR RAZORPAY_LIVE_LOW_PRICING_YEARLY_PLAN_ID_INR DISCORD_SIGNUP_WEBHOOK_URL OVSX_PAT
+DEPLOY_ACTUAL_ENV_FILE=.env.prod
+DEPLOY_LOW_PRICING_ENV_FILE=.env.prod.low-pricing
+DEPLOY_PLAN_CATALOG_FILE=config/plan_catalog.json
+DEPLOY_HOST=master
+DEPLOY_PATH=/root/public_lr
 SYFT_CMD=syft
 SBOM_DIR=security_issues/sbom
 SBOM_VERSION?=$(shell git describe --tags --exact-match 2>/dev/null || git describe --tags --abbrev=0 2>/dev/null || echo dev)
@@ -26,6 +32,7 @@ SBOM_UI_SPDX=$(SBOM_DIR)/livereview-ui-$(SBOM_VERSION)-spdx.json
 RELEASE_NOTES_DIR=docs/releases
 RELEASE_NOTES_TEMPLATE=$(RELEASE_NOTES_DIR)/_template.md
 RELEASE_GH_SCRIPT=scripts/release_gh.py
+OSV_SCANNER_CONFIG=osv-scanner.toml
 
 # Load environment variables from .env file
 include .env
@@ -229,7 +236,7 @@ security-osv:
 	@dated_report="security_issues/osv-scanner-$(shell date +%d-%m-%Y).json"; \
 		latest_report="security_issues/osv-scanner-latest.json"; \
 		status=0; \
-		osv-scanner scan source --recursive --format json --no-call-analysis=go \
+		osv-scanner scan source --recursive --format json --config $(OSV_SCANNER_CONFIG) --no-call-analysis=go \
 			--experimental-exclude=debug \
 			--experimental-exclude=scripts \
 			--experimental-exclude=tests \
@@ -514,7 +521,7 @@ build-with-ui:
 	fi
 	rm $(BINARY_NAME) || true
 	cd ui/ && npm install && set -a && . ./.env.prod && set +a && LIVEREVIEW_BUILD_MODE=prod NODE_ENV=production npm run build:obfuscated && cd ..
-	go build livereview.go
+	env -u GOROOT go build livereview.go
 	@echo "✅ Production build complete. Binary ready for raw-deploy."
 
 raw-deploy: build-with-ui
@@ -523,12 +530,90 @@ raw-deploy: build-with-ui
 		echo "❌ ERROR: livereview binary not found! Run 'make build-with-ui' first."; \
 		exit 1; \
 	fi
-	ssh master "cd /root/public_lr && mv ./livereview ./livereview.bak || true"
-	rsync -avz ./livereview db-ready.sh ecosystem.config.js deps.sh master:/root/public_lr/
-	rsync -avz ./.env.prod master:/root/public_lr/.env
-	rsync -avz ./db/ master:/root/public_lr/db/
-	ssh master "cd /root/public_lr && chmod a+x db-ready.sh && ./db-ready.sh"
-	ssh master "cd /root/public_lr && pm2 reload ecosystem.config.js"
+	@if [ ! -f ./$(DEPLOY_PLAN_CATALOG_FILE) ]; then \
+		echo "❌ ERROR: $(DEPLOY_PLAN_CATALOG_FILE) not found"; \
+		exit 1; \
+	fi
+	@if [ ! -f $(DEPLOY_ACTUAL_ENV_FILE) ]; then \
+		echo "❌ ERROR: $(DEPLOY_ACTUAL_ENV_FILE) not found"; \
+		exit 1; \
+	fi
+	@MODE_VALUE=$$(awk -F= '/^RAZORPAY_MODE=/{print $$2}' $(DEPLOY_ACTUAL_ENV_FILE) | tail -n 1 | tr -d "'\"[:space:]"); \
+	if [ "$$MODE_VALUE" != "live" ]; then \
+		echo "❌ ERROR: raw-deploy requires RAZORPAY_MODE=live in $(DEPLOY_ACTUAL_ENV_FILE)"; \
+		exit 1; \
+	fi; \
+	PROFILE_VALUE=$$(awk -F= '/^LIVEREVIEW_PRICING_PROFILE=/{print $$2}' $(DEPLOY_ACTUAL_ENV_FILE) | tail -n 1 | tr -d "'\"[:space:]"); \
+	if [ "$$PROFILE_VALUE" != "actual" ]; then \
+		echo "❌ ERROR: raw-deploy requires LIVEREVIEW_PRICING_PROFILE=actual in $(DEPLOY_ACTUAL_ENV_FILE)"; \
+		exit 1; \
+	fi; \
+	MONTHLY_PLAN_ID_USD=$$(awk -F= '/^RAZORPAY_LIVE_ACTUAL_MONTHLY_PLAN_ID_USD=/{print $$2}' $(DEPLOY_ACTUAL_ENV_FILE) | tail -n 1 | tr -d "'\"[:space:]"); \
+	YEARLY_PLAN_ID_USD=$$(awk -F= '/^RAZORPAY_LIVE_ACTUAL_YEARLY_PLAN_ID_USD=/{print $$2}' $(DEPLOY_ACTUAL_ENV_FILE) | tail -n 1 | tr -d "'\"[:space:]"); \
+	MONTHLY_PLAN_ID_INR=$$(awk -F= '/^RAZORPAY_LIVE_ACTUAL_MONTHLY_PLAN_ID_INR=/{print $$2}' $(DEPLOY_ACTUAL_ENV_FILE) | tail -n 1 | tr -d "'\"[:space:]"); \
+	YEARLY_PLAN_ID_INR=$$(awk -F= '/^RAZORPAY_LIVE_ACTUAL_YEARLY_PLAN_ID_INR=/{print $$2}' $(DEPLOY_ACTUAL_ENV_FILE) | tail -n 1 | tr -d "'\"[:space:]"); \
+	if [ -z "$$MONTHLY_PLAN_ID_USD" ] || [ -z "$$YEARLY_PLAN_ID_USD" ] || [ -z "$$MONTHLY_PLAN_ID_INR" ] || [ -z "$$YEARLY_PLAN_ID_INR" ]; then \
+		echo "❌ ERROR: raw-deploy requires RAZORPAY_LIVE_ACTUAL_*_PLAN_ID_{USD,INR} in $(DEPLOY_ACTUAL_ENV_FILE)"; \
+		exit 1; \
+	fi
+	ssh $(DEPLOY_HOST) "cd $(DEPLOY_PATH) && mv ./livereview ./livereview.bak || true"
+	rsync -avz ./livereview db-ready.sh ecosystem.config.js deps.sh $(DEPLOY_HOST):$(DEPLOY_PATH)/
+	rsync -avz ./$(DEPLOY_ACTUAL_ENV_FILE) $(DEPLOY_HOST):$(DEPLOY_PATH)/.env
+	ssh $(DEPLOY_HOST) "mkdir -p $(DEPLOY_PATH)/config"
+	rsync -avz ./$(DEPLOY_PLAN_CATALOG_FILE) $(DEPLOY_HOST):$(DEPLOY_PATH)/$(DEPLOY_PLAN_CATALOG_FILE)
+	rsync -avz ./db/ $(DEPLOY_HOST):$(DEPLOY_PATH)/db/
+	ssh $(DEPLOY_HOST) "cd $(DEPLOY_PATH) && chmod a+x db-ready.sh && ./db-ready.sh"
+	ssh $(DEPLOY_HOST) "cd $(DEPLOY_PATH) && pm2 reload ecosystem.config.js"
+	@echo "✅ Production deployment complete!"
+
+raw-deploy-low-pricing: build-with-ui
+	@echo "🚀 Deploying to production server with LOW pricing profile..."
+	@if [ ! -f ./livereview ]; then \
+		echo "❌ ERROR: livereview binary not found! Run 'make build-with-ui' first."; \
+		exit 1; \
+	fi
+	@if [ ! -f ./$(DEPLOY_PLAN_CATALOG_FILE) ]; then \
+		echo "❌ ERROR: $(DEPLOY_PLAN_CATALOG_FILE) not found"; \
+		exit 1; \
+	fi
+	@if [ ! -f $(DEPLOY_LOW_PRICING_ENV_FILE) ]; then \
+		echo "❌ ERROR: $(DEPLOY_LOW_PRICING_ENV_FILE) not found"; \
+		exit 1; \
+	fi
+	@MODE_VALUE=$$(awk -F= '/^RAZORPAY_MODE=/{print $$2}' $(DEPLOY_LOW_PRICING_ENV_FILE) | tail -n 1 | tr -d "'\"[:space:]"); \
+	if [ "$$MODE_VALUE" != "live" ]; then \
+		echo "❌ ERROR: raw-deploy-low-pricing requires RAZORPAY_MODE=live in $(DEPLOY_LOW_PRICING_ENV_FILE)"; \
+		exit 1; \
+	fi; \
+	PROFILE_VALUE=$$(awk -F= '/^LIVEREVIEW_PRICING_PROFILE=/{print $$2}' $(DEPLOY_LOW_PRICING_ENV_FILE) | tail -n 1 | tr -d "'\"[:space:]"); \
+	if [ "$$PROFILE_VALUE" != "low_pricing_test" ]; then \
+		echo "❌ ERROR: raw-deploy-low-pricing requires LIVEREVIEW_PRICING_PROFILE=low_pricing_test in $(DEPLOY_LOW_PRICING_ENV_FILE)"; \
+		exit 1; \
+	fi; \
+	ACTUAL_MONTHLY_PLAN_ID_USD=$$(awk -F= '/^RAZORPAY_LIVE_ACTUAL_MONTHLY_PLAN_ID_USD=/{print $$2}' $(DEPLOY_LOW_PRICING_ENV_FILE) | tail -n 1 | tr -d "'\"[:space:]"); \
+	ACTUAL_YEARLY_PLAN_ID_USD=$$(awk -F= '/^RAZORPAY_LIVE_ACTUAL_YEARLY_PLAN_ID_USD=/{print $$2}' $(DEPLOY_LOW_PRICING_ENV_FILE) | tail -n 1 | tr -d "'\"[:space:]"); \
+	ACTUAL_MONTHLY_PLAN_ID_INR=$$(awk -F= '/^RAZORPAY_LIVE_ACTUAL_MONTHLY_PLAN_ID_INR=/{print $$2}' $(DEPLOY_LOW_PRICING_ENV_FILE) | tail -n 1 | tr -d "'\"[:space:]"); \
+	ACTUAL_YEARLY_PLAN_ID_INR=$$(awk -F= '/^RAZORPAY_LIVE_ACTUAL_YEARLY_PLAN_ID_INR=/{print $$2}' $(DEPLOY_LOW_PRICING_ENV_FILE) | tail -n 1 | tr -d "'\"[:space:]"); \
+	MONTHLY_PLAN_ID_USD=$$(awk -F= '/^RAZORPAY_LIVE_LOW_PRICING_MONTHLY_PLAN_ID_USD=/{print $$2}' $(DEPLOY_LOW_PRICING_ENV_FILE) | tail -n 1 | tr -d "'\"[:space:]"); \
+	YEARLY_PLAN_ID_USD=$$(awk -F= '/^RAZORPAY_LIVE_LOW_PRICING_YEARLY_PLAN_ID_USD=/{print $$2}' $(DEPLOY_LOW_PRICING_ENV_FILE) | tail -n 1 | tr -d "'\"[:space:]"); \
+	MONTHLY_PLAN_ID_INR=$$(awk -F= '/^RAZORPAY_LIVE_LOW_PRICING_MONTHLY_PLAN_ID_INR=/{print $$2}' $(DEPLOY_LOW_PRICING_ENV_FILE) | tail -n 1 | tr -d "'\"[:space:]"); \
+	YEARLY_PLAN_ID_INR=$$(awk -F= '/^RAZORPAY_LIVE_LOW_PRICING_YEARLY_PLAN_ID_INR=/{print $$2}' $(DEPLOY_LOW_PRICING_ENV_FILE) | tail -n 1 | tr -d "'\"[:space:]"); \
+	if [ -z "$$MONTHLY_PLAN_ID_USD" ] || [ -z "$$YEARLY_PLAN_ID_USD" ] || [ -z "$$MONTHLY_PLAN_ID_INR" ] || [ -z "$$YEARLY_PLAN_ID_INR" ]; then \
+		echo "❌ ERROR: raw-deploy-low-pricing requires RAZORPAY_LIVE_LOW_PRICING_*_PLAN_ID_{USD,INR} in $(DEPLOY_LOW_PRICING_ENV_FILE)"; \
+		exit 1; \
+	fi; \
+	if [ "$$MONTHLY_PLAN_ID_USD" = "$$ACTUAL_MONTHLY_PLAN_ID_USD" ] || [ "$$YEARLY_PLAN_ID_USD" = "$$ACTUAL_YEARLY_PLAN_ID_USD" ] || [ "$$MONTHLY_PLAN_ID_INR" = "$$ACTUAL_MONTHLY_PLAN_ID_INR" ] || [ "$$YEARLY_PLAN_ID_INR" = "$$ACTUAL_YEARLY_PLAN_ID_INR" ]; then \
+		echo "❌ ERROR: raw-deploy-low-pricing requires low-pricing Razorpay plan IDs to differ from actual profile IDs for both USD and INR in $(DEPLOY_LOW_PRICING_ENV_FILE)"; \
+		exit 1; \
+	fi
+	ssh $(DEPLOY_HOST) "cd $(DEPLOY_PATH) && mv ./livereview ./livereview.bak || true"
+	rsync -avz ./livereview db-ready.sh ecosystem.config.js deps.sh $(DEPLOY_HOST):$(DEPLOY_PATH)/
+	rsync -avz ./$(DEPLOY_LOW_PRICING_ENV_FILE) $(DEPLOY_HOST):$(DEPLOY_PATH)/.env
+	ssh $(DEPLOY_HOST) "mkdir -p $(DEPLOY_PATH)/config"
+	rsync -avz ./$(DEPLOY_PLAN_CATALOG_FILE) $(DEPLOY_HOST):$(DEPLOY_PATH)/$(DEPLOY_PLAN_CATALOG_FILE)
+	rsync -avz ./db/ $(DEPLOY_HOST):$(DEPLOY_PATH)/db/
+	ssh $(DEPLOY_HOST) "cd $(DEPLOY_PATH) && chmod a+x db-ready.sh && ./db-ready.sh"
+	ssh $(DEPLOY_HOST) "cd $(DEPLOY_PATH) && pm2 reload ecosystem.config.js"
 	@echo "✅ Production deployment complete!"
 
 raw-deploy-backend:
@@ -538,12 +623,91 @@ raw-deploy-backend:
 		echo "❌ ERROR: livereview binary not found! Run 'make build-with-ui' first."; \
 		exit 1; \
 	fi
-	ssh master "cd /root/public_lr && mv ./livereview ./livereview.bak || true"
-	rsync -avz ./livereview db-ready.sh ecosystem.config.js deps.sh master:/root/public_lr/
-	rsync -avz ./.env.prod master:/root/public_lr/.env
-	rsync -avz ./db/ master:/root/public_lr/db/
-	ssh master "cd /root/public_lr && chmod a+x db-ready.sh && ./db-ready.sh"
-	ssh master "cd /root/public_lr && pm2 reload ecosystem.config.js"
+	@if [ ! -f ./$(DEPLOY_PLAN_CATALOG_FILE) ]; then \
+		echo "❌ ERROR: $(DEPLOY_PLAN_CATALOG_FILE) not found"; \
+		exit 1; \
+	fi
+	@if [ ! -f $(DEPLOY_ACTUAL_ENV_FILE) ]; then \
+		echo "❌ ERROR: $(DEPLOY_ACTUAL_ENV_FILE) not found"; \
+		exit 1; \
+	fi
+	@MODE_VALUE=$$(awk -F= '/^RAZORPAY_MODE=/{print $$2}' $(DEPLOY_ACTUAL_ENV_FILE) | tail -n 1 | tr -d "'\"[:space:]"); \
+	if [ "$$MODE_VALUE" != "live" ]; then \
+		echo "❌ ERROR: raw-deploy-backend requires RAZORPAY_MODE=live in $(DEPLOY_ACTUAL_ENV_FILE)"; \
+		exit 1; \
+	fi; \
+	PROFILE_VALUE=$$(awk -F= '/^LIVEREVIEW_PRICING_PROFILE=/{print $$2}' $(DEPLOY_ACTUAL_ENV_FILE) | tail -n 1 | tr -d "'\"[:space:]"); \
+	if [ "$$PROFILE_VALUE" != "actual" ]; then \
+		echo "❌ ERROR: raw-deploy-backend requires LIVEREVIEW_PRICING_PROFILE=actual in $(DEPLOY_ACTUAL_ENV_FILE)"; \
+		exit 1; \
+	fi; \
+	MONTHLY_PLAN_ID_USD=$$(awk -F= '/^RAZORPAY_LIVE_ACTUAL_MONTHLY_PLAN_ID_USD=/{print $$2}' $(DEPLOY_ACTUAL_ENV_FILE) | tail -n 1 | tr -d "'\"[:space:]"); \
+	YEARLY_PLAN_ID_USD=$$(awk -F= '/^RAZORPAY_LIVE_ACTUAL_YEARLY_PLAN_ID_USD=/{print $$2}' $(DEPLOY_ACTUAL_ENV_FILE) | tail -n 1 | tr -d "'\"[:space:]"); \
+	MONTHLY_PLAN_ID_INR=$$(awk -F= '/^RAZORPAY_LIVE_ACTUAL_MONTHLY_PLAN_ID_INR=/{print $$2}' $(DEPLOY_ACTUAL_ENV_FILE) | tail -n 1 | tr -d "'\"[:space:]"); \
+	YEARLY_PLAN_ID_INR=$$(awk -F= '/^RAZORPAY_LIVE_ACTUAL_YEARLY_PLAN_ID_INR=/{print $$2}' $(DEPLOY_ACTUAL_ENV_FILE) | tail -n 1 | tr -d "'\"[:space:]"); \
+	if [ -z "$$MONTHLY_PLAN_ID_USD" ] || [ -z "$$YEARLY_PLAN_ID_USD" ] || [ -z "$$MONTHLY_PLAN_ID_INR" ] || [ -z "$$YEARLY_PLAN_ID_INR" ]; then \
+		echo "❌ ERROR: raw-deploy-backend requires RAZORPAY_LIVE_ACTUAL_*_PLAN_ID_{USD,INR} in $(DEPLOY_ACTUAL_ENV_FILE)"; \
+		exit 1; \
+	fi
+	ssh $(DEPLOY_HOST) "cd $(DEPLOY_PATH) && mv ./livereview ./livereview.bak || true"
+	rsync -avz ./livereview db-ready.sh ecosystem.config.js deps.sh $(DEPLOY_HOST):$(DEPLOY_PATH)/
+	rsync -avz ./$(DEPLOY_ACTUAL_ENV_FILE) $(DEPLOY_HOST):$(DEPLOY_PATH)/.env
+	ssh $(DEPLOY_HOST) "mkdir -p $(DEPLOY_PATH)/config"
+	rsync -avz ./$(DEPLOY_PLAN_CATALOG_FILE) $(DEPLOY_HOST):$(DEPLOY_PATH)/$(DEPLOY_PLAN_CATALOG_FILE)
+	rsync -avz ./db/ $(DEPLOY_HOST):$(DEPLOY_PATH)/db/
+	ssh $(DEPLOY_HOST) "cd $(DEPLOY_PATH) && chmod a+x db-ready.sh && ./db-ready.sh"
+	ssh $(DEPLOY_HOST) "cd $(DEPLOY_PATH) && pm2 reload ecosystem.config.js"
+	@echo "✅ Production deployment complete!"
+
+raw-deploy-backend-low-pricing:
+	@echo "🚀 Deploying backend with LOW pricing profile..."
+	go build livereview.go
+	@if [ ! -f ./livereview ]; then \
+		echo "❌ ERROR: livereview binary not found! Run 'make build-with-ui' first."; \
+		exit 1; \
+	fi
+	@if [ ! -f ./$(DEPLOY_PLAN_CATALOG_FILE) ]; then \
+		echo "❌ ERROR: $(DEPLOY_PLAN_CATALOG_FILE) not found"; \
+		exit 1; \
+	fi
+	@if [ ! -f $(DEPLOY_LOW_PRICING_ENV_FILE) ]; then \
+		echo "❌ ERROR: $(DEPLOY_LOW_PRICING_ENV_FILE) not found"; \
+		exit 1; \
+	fi
+	@MODE_VALUE=$$(awk -F= '/^RAZORPAY_MODE=/{print $$2}' $(DEPLOY_LOW_PRICING_ENV_FILE) | tail -n 1 | tr -d "'\"[:space:]"); \
+	if [ "$$MODE_VALUE" != "live" ]; then \
+		echo "❌ ERROR: raw-deploy-backend-low-pricing requires RAZORPAY_MODE=live in $(DEPLOY_LOW_PRICING_ENV_FILE)"; \
+		exit 1; \
+	fi; \
+	PROFILE_VALUE=$$(awk -F= '/^LIVEREVIEW_PRICING_PROFILE=/{print $$2}' $(DEPLOY_LOW_PRICING_ENV_FILE) | tail -n 1 | tr -d "'\"[:space:]"); \
+	if [ "$$PROFILE_VALUE" != "low_pricing_test" ]; then \
+		echo "❌ ERROR: raw-deploy-backend-low-pricing requires LIVEREVIEW_PRICING_PROFILE=low_pricing_test in $(DEPLOY_LOW_PRICING_ENV_FILE)"; \
+		exit 1; \
+	fi; \
+	ACTUAL_MONTHLY_PLAN_ID_USD=$$(awk -F= '/^RAZORPAY_LIVE_ACTUAL_MONTHLY_PLAN_ID_USD=/{print $$2}' $(DEPLOY_LOW_PRICING_ENV_FILE) | tail -n 1 | tr -d "'\"[:space:]"); \
+	ACTUAL_YEARLY_PLAN_ID_USD=$$(awk -F= '/^RAZORPAY_LIVE_ACTUAL_YEARLY_PLAN_ID_USD=/{print $$2}' $(DEPLOY_LOW_PRICING_ENV_FILE) | tail -n 1 | tr -d "'\"[:space:]"); \
+	ACTUAL_MONTHLY_PLAN_ID_INR=$$(awk -F= '/^RAZORPAY_LIVE_ACTUAL_MONTHLY_PLAN_ID_INR=/{print $$2}' $(DEPLOY_LOW_PRICING_ENV_FILE) | tail -n 1 | tr -d "'\"[:space:]"); \
+	ACTUAL_YEARLY_PLAN_ID_INR=$$(awk -F= '/^RAZORPAY_LIVE_ACTUAL_YEARLY_PLAN_ID_INR=/{print $$2}' $(DEPLOY_LOW_PRICING_ENV_FILE) | tail -n 1 | tr -d "'\"[:space:]"); \
+	MONTHLY_PLAN_ID_USD=$$(awk -F= '/^RAZORPAY_LIVE_LOW_PRICING_MONTHLY_PLAN_ID_USD=/{print $$2}' $(DEPLOY_LOW_PRICING_ENV_FILE) | tail -n 1 | tr -d "'\"[:space:]"); \
+	YEARLY_PLAN_ID_USD=$$(awk -F= '/^RAZORPAY_LIVE_LOW_PRICING_YEARLY_PLAN_ID_USD=/{print $$2}' $(DEPLOY_LOW_PRICING_ENV_FILE) | tail -n 1 | tr -d "'\"[:space:]"); \
+	MONTHLY_PLAN_ID_INR=$$(awk -F= '/^RAZORPAY_LIVE_LOW_PRICING_MONTHLY_PLAN_ID_INR=/{print $$2}' $(DEPLOY_LOW_PRICING_ENV_FILE) | tail -n 1 | tr -d "'\"[:space:]"); \
+	YEARLY_PLAN_ID_INR=$$(awk -F= '/^RAZORPAY_LIVE_LOW_PRICING_YEARLY_PLAN_ID_INR=/{print $$2}' $(DEPLOY_LOW_PRICING_ENV_FILE) | tail -n 1 | tr -d "'\"[:space:]"); \
+	if [ -z "$$MONTHLY_PLAN_ID_USD" ] || [ -z "$$YEARLY_PLAN_ID_USD" ] || [ -z "$$MONTHLY_PLAN_ID_INR" ] || [ -z "$$YEARLY_PLAN_ID_INR" ]; then \
+		echo "❌ ERROR: raw-deploy-backend-low-pricing requires RAZORPAY_LIVE_LOW_PRICING_*_PLAN_ID_{USD,INR} in $(DEPLOY_LOW_PRICING_ENV_FILE)"; \
+		exit 1; \
+	fi; \
+	if [ "$$MONTHLY_PLAN_ID_USD" = "$$ACTUAL_MONTHLY_PLAN_ID_USD" ] || [ "$$YEARLY_PLAN_ID_USD" = "$$ACTUAL_YEARLY_PLAN_ID_USD" ] || [ "$$MONTHLY_PLAN_ID_INR" = "$$ACTUAL_MONTHLY_PLAN_ID_INR" ] || [ "$$YEARLY_PLAN_ID_INR" = "$$ACTUAL_YEARLY_PLAN_ID_INR" ]; then \
+		echo "❌ ERROR: raw-deploy-backend-low-pricing requires low-pricing Razorpay plan IDs to differ from actual profile IDs for both USD and INR in $(DEPLOY_LOW_PRICING_ENV_FILE)"; \
+		exit 1; \
+	fi
+	ssh $(DEPLOY_HOST) "cd $(DEPLOY_PATH) && mv ./livereview ./livereview.bak || true"
+	rsync -avz ./livereview db-ready.sh ecosystem.config.js deps.sh $(DEPLOY_HOST):$(DEPLOY_PATH)/
+	rsync -avz ./$(DEPLOY_LOW_PRICING_ENV_FILE) $(DEPLOY_HOST):$(DEPLOY_PATH)/.env
+	ssh $(DEPLOY_HOST) "mkdir -p $(DEPLOY_PATH)/config"
+	rsync -avz ./$(DEPLOY_PLAN_CATALOG_FILE) $(DEPLOY_HOST):$(DEPLOY_PATH)/$(DEPLOY_PLAN_CATALOG_FILE)
+	rsync -avz ./db/ $(DEPLOY_HOST):$(DEPLOY_PATH)/db/
+	ssh $(DEPLOY_HOST) "cd $(DEPLOY_PATH) && chmod a+x db-ready.sh && ./db-ready.sh"
+	ssh $(DEPLOY_HOST) "cd $(DEPLOY_PATH) && pm2 reload ecosystem.config.js"
 	@echo "✅ Production deployment complete!"
 
 # Deploy nginx config to production server
@@ -682,7 +846,7 @@ razorpay-webhook-ensure:
 		exit 1; \
 	fi
 	@MODE_VALUE="$(MODE)"; \
-	if [ -z "$$MODE_VALUE" ]; then MODE_VALUE="$${RAZORPAY_MODE:-test}"; fi; \
+	if [ -z "$$MODE_VALUE" ]; then MODE_VALUE="$${RAZORPAY_MODE:-live}"; fi; \
 	python3 scripts/razorpay_webhook_ensure.py --base-url "$(BASE_URL)" --mode "$$MODE_VALUE" $(ARGS)
 
 razorpay-webhook-ensure-dry:
@@ -691,5 +855,5 @@ razorpay-webhook-ensure-dry:
 		exit 1; \
 	fi
 	@MODE_VALUE="$(MODE)"; \
-	if [ -z "$$MODE_VALUE" ]; then MODE_VALUE="$${RAZORPAY_MODE:-test}"; fi; \
+	if [ -z "$$MODE_VALUE" ]; then MODE_VALUE="$${RAZORPAY_MODE:-live}"; fi; \
 	python3 scripts/razorpay_webhook_ensure.py --base-url "$(BASE_URL)" --mode "$$MODE_VALUE" --dry-run $(ARGS)

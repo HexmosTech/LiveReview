@@ -17,6 +17,8 @@ import (
 	"github.com/livereview/pkg/models"
 )
 
+const defaultUpgradeURL = "/settings-subscriptions-overview"
+
 // ReviewService encapsulates the review orchestration logic
 type ReviewService struct {
 	reviewService   *reviewpkg.Service
@@ -144,6 +146,43 @@ func (s *Server) TriggerReviewV2(c echo.Context) error {
 	// Check daily review limit for free plan users BEFORE creating any DB records
 	if err := s.checkDailyReviewLimit(c); err != nil {
 		return err // Already formatted as JSON response
+	}
+
+	// LOC Quota preflight check — block before creating any DB records
+	orgID, orgOK := c.Get("org_id").(int64)
+	planCode := license.PlanFree30K
+	if planCtx, ok := c.Get(apimiddleware.PlanContextKey).(apimiddleware.PlanContext); ok && planCtx.PlanType != "" {
+		planCode = planCtx.PlanType
+	}
+	if orgOK && orgID > 0 {
+		accountingService := license.NewLOCAccountingService(s.db)
+		preflightResult, pfErr := accountingService.CheckPreflight(context.Background(), license.LOCPreflightInput{
+			OrgID:       orgID,
+			RequiredLOC: 0, // unknown at this point, just check current state
+			PlanCode:    planCode,
+		})
+		if pfErr != nil {
+			log.Printf("[WARN] LOC preflight check failed for org=%d: %v", orgID, pfErr)
+		} else {
+			applyPreflightToEnvelopeContext(c, preflightResult)
+			if preflightResult.Blocked {
+				errorCode := "quota_exceeded"
+				errorMessage := fmt.Sprintf("Monthly LOC quota exceeded (%d/%d). Reviews are blocked until your quota resets on %s or you upgrade your plan.",
+					preflightResult.LOCUsedMonth, preflightResult.LOCLimitMonth,
+					preflightResult.BillingPeriodEnd.Format("Jan 2, 2006"))
+				if preflightResult.BlockReason == "trial_readonly" {
+					errorCode = "trial_readonly"
+					errorMessage = "Trial period ended; review operations are read-only until plan update"
+				}
+				log.Printf("[INFO] TriggerReviewV2: LOC quota blocked for org=%d, used=%d, limit=%d",
+					orgID, preflightResult.LOCUsedMonth, preflightResult.LOCLimitMonth)
+				return JSONWithEnvelope(c, http.StatusForbidden, map[string]interface{}{
+					"error":       errorMessage,
+					"error_code":  errorCode,
+					"upgrade_url": defaultUpgradeURL,
+				})
+			}
+		}
 	}
 
 	// Phase 1: Setup review context (org_id, parse request, create DB record, init logger)

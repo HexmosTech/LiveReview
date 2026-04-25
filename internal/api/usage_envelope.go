@@ -23,6 +23,7 @@ const (
 	EnvelopeThresholdStateContextKey       = "envelope_threshold_state"
 	EnvelopeBlockedContextKey              = "envelope_blocked"
 	EnvelopeTrialReadOnlyContextKey        = "envelope_trial_readonly"
+	EnvelopeTrialEndsAtContextKey          = "envelope_trial_ends_at"
 )
 
 // PlanUsageEnvelope is the standardized payload for plan and usage transparency.
@@ -46,6 +47,7 @@ type PlanUsageEnvelope struct {
 	ThresholdState string `json:"threshold_state,omitempty"`
 	Blocked        bool   `json:"blocked"`
 	TrialReadOnly  bool   `json:"trial_readonly"`
+	TrialEndsAt    string `json:"trial_ends_at,omitempty"`
 
 	OperationType        string `json:"operation_type,omitempty"`
 	TriggerSource        string `json:"trigger_source,omitempty"`
@@ -140,6 +142,14 @@ func BuildEnvelopeFromContext(c echo.Context) PlanUsageEnvelope {
 	}
 	if trialReadOnly, ok := c.Get(EnvelopeTrialReadOnlyContextKey).(bool); ok {
 		envelope.TrialReadOnly = trialReadOnly
+	}
+	if trialEndsAt, ok := c.Get(EnvelopeTrialEndsAtContextKey).(string); ok {
+		envelope.TrialEndsAt = trialEndsAt
+	}
+
+	// Populate upgrade URL when usage is at warning/blocked thresholds
+	if envelope.Blocked || envelope.TrialReadOnly || envelope.ThresholdState == "90" || envelope.ThresholdState == "100" {
+		envelope.UpgradeURL = "/settings-subscriptions-overview"
 	}
 
 	return envelope

@@ -13,10 +13,12 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 
 	"github.com/labstack/echo/v4"
+	storagelicense "github.com/livereview/storage/license"
 	storagepayment "github.com/livereview/storage/payment"
 )
 
@@ -117,6 +119,126 @@ func (h *RazorpayWebhookHandler) verifySignature(body []byte, signature string) 
 	return subtle.ConstantTimeCompare([]byte(signature), []byte(expectedSignature)) == 1
 }
 
+func parseTrialUnixNote(raw string) (time.Time, bool) {
+	trimmed := strings.TrimSpace(raw)
+	if trimmed == "" {
+		return time.Time{}, false
+	}
+	value, err := strconv.ParseInt(trimmed, 10, 64)
+	if err != nil || value <= 0 {
+		return time.Time{}, false
+	}
+	return time.Unix(value, 0).UTC(), true
+}
+
+func isTrueTrialNote(raw string) bool {
+	switch strings.ToLower(strings.TrimSpace(raw)) {
+	case "true", "1", "yes", "y":
+		return true
+	default:
+		return false
+	}
+}
+
+func (h *RazorpayWebhookHandler) consumeTrialEligibilityTx(ctx context.Context, tx *sql.Tx, sub *RazorpaySubscription, ownerUserID, orgID int, subscriptionID int64, resolvedPlanCode string) error {
+	notes := sub.GetNotesMap()
+	if notes == nil || !isTrueTrialNote(notes["trial_applied"]) {
+		return nil
+	}
+
+	normalizedEmail, err := storagelicense.NormalizeTrialEligibilityEmail(notes["trial_email"])
+	if err != nil {
+		return fmt.Errorf("invalid trial email note for subscription %s: %w", sub.ID, err)
+	}
+
+	reservationToken := strings.TrimSpace(notes["trial_reservation_token"])
+	if reservationToken == "" {
+		return fmt.Errorf("missing trial reservation token for subscription %s", sub.ID)
+	}
+
+	now := time.Now().UTC()
+	trialStartAt, ok := parseTrialUnixNote(notes["trial_window_start_unix"])
+	if !ok {
+		trialStartAt = now
+	}
+
+	trialEndAt, ok := parseTrialUnixNote(notes["trial_window_end_unix"])
+	if !ok && sub.StartAt > 0 {
+		trialEndAt = time.Unix(sub.StartAt, 0).UTC()
+		ok = true
+	}
+	if !ok {
+		trialEndAt = trialStartAt.AddDate(0, 0, firstPurchaseTrialDays)
+	}
+
+	trialStore := storagelicense.NewTrialEligibilityStore(h.db)
+	ownerUserIDInt64 := int64(ownerUserID)
+	orgIDInt64 := int64(orgID)
+	consumed, err := trialStore.ConsumeReservedTrialTx(ctx, tx, storagelicense.ConsumeReservedTrialInput{
+		Email:               normalizedEmail,
+		ReservationToken:    reservationToken,
+		FirstUserID:         &ownerUserIDInt64,
+		FirstOrgID:          &orgIDInt64,
+		FirstSubscriptionID: &subscriptionID,
+		FirstPlanCode:       resolvedPlanCode,
+		ConsumedAt:          now,
+	})
+	if err != nil {
+		return fmt.Errorf("consume trial eligibility for subscription %s: %w", sub.ID, err)
+	}
+	if !consumed {
+		return nil
+	}
+
+	periodStart := time.Date(now.Year(), now.Month(), 1, 0, 0, 0, 0, time.UTC)
+	periodEnd := periodStart.AddDate(0, 1, 0)
+	if sub.CurrentStart > 0 {
+		periodStart = time.Unix(sub.CurrentStart, 0).UTC()
+	}
+	if sub.CurrentEnd > 0 {
+		periodEnd = time.Unix(sub.CurrentEnd, 0).UTC()
+	}
+
+	_, err = tx.ExecContext(ctx, `
+		INSERT INTO org_billing_state (
+			org_id,
+			current_plan_code,
+			billing_period_start,
+			billing_period_end,
+			loc_used_month,
+			loc_blocked,
+			trial_started_at,
+			trial_ends_at,
+			trial_readonly,
+			last_reset_at,
+			updated_at
+		) VALUES ($1, $2, $3, $4, 0, FALSE, $5, $6, FALSE, NOW(), NOW())
+		ON CONFLICT (org_id) DO UPDATE SET
+			current_plan_code = EXCLUDED.current_plan_code,
+			billing_period_start = EXCLUDED.billing_period_start,
+			billing_period_end = EXCLUDED.billing_period_end,
+			trial_started_at = COALESCE(org_billing_state.trial_started_at, EXCLUDED.trial_started_at),
+			trial_ends_at = CASE
+				WHEN org_billing_state.trial_ends_at IS NULL THEN EXCLUDED.trial_ends_at
+				WHEN org_billing_state.trial_ends_at < EXCLUDED.trial_ends_at THEN EXCLUDED.trial_ends_at
+				ELSE org_billing_state.trial_ends_at
+			END,
+			trial_readonly = FALSE,
+			updated_at = NOW()`,
+		orgID,
+		resolvedPlanCode,
+		periodStart,
+		periodEnd,
+		trialStartAt,
+		trialEndAt,
+	)
+	if err != nil {
+		return fmt.Errorf("upsert org trial window for subscription %s: %w", sub.ID, err)
+	}
+
+	return nil
+}
+
 // processEvent routes events to appropriate handlers
 func (h *RazorpayWebhookHandler) processEvent(event *RazorpayWebhookEvent) error {
 	switch event.Event {
@@ -186,15 +308,17 @@ func (h *RazorpayWebhookHandler) handleSubscriptionAuthenticated(event *Razorpay
 	// Get subscription details
 	var subscriptionID int64
 	var ownerUserID, orgID int
+	var planType string
 	err = tx.QueryRow(`
-		SELECT id, owner_user_id, org_id
+		SELECT id, owner_user_id, org_id, plan_type
 		FROM subscriptions
 		WHERE razorpay_subscription_id = $1`,
 		sub.ID,
-	).Scan(&subscriptionID, &ownerUserID, &orgID)
+	).Scan(&subscriptionID, &ownerUserID, &orgID, &planType)
 	if err != nil {
 		return fmt.Errorf("subscription not found: %s", sub.ID)
 	}
+	resolvedPlanCode := normalizePersistedPlanCode(planType)
 
 	// Update subscription status
 	_, err = tx.Exec(`
@@ -257,6 +381,10 @@ func (h *RazorpayWebhookHandler) handleSubscriptionAuthenticated(event *Razorpay
 		return fmt.Errorf("failed to log event: %w", err)
 	}
 
+	if err := h.consumeTrialEligibilityTx(context.Background(), tx, sub, ownerUserID, orgID, subscriptionID, resolvedPlanCode.String()); err != nil {
+		return err
+	}
+
 	if err := tx.Commit(); err != nil {
 		return err
 	}
@@ -306,6 +434,7 @@ func (h *RazorpayWebhookHandler) handleSubscriptionActivated(event *RazorpayWebh
 	if err != nil {
 		return fmt.Errorf("subscription not found: %s", sub.ID)
 	}
+	resolvedPlanCode := normalizePersistedPlanCode(planType)
 
 	// Update subscription status
 	updateQuery := `
@@ -380,6 +509,10 @@ func (h *RazorpayWebhookHandler) handleSubscriptionActivated(event *RazorpayWebh
 		return fmt.Errorf("failed to log event: %w", err)
 	}
 
+	if err := h.consumeTrialEligibilityTx(context.Background(), tx, sub, ownerUserID, orgID, subscriptionID, resolvedPlanCode.String()); err != nil {
+		return err
+	}
+
 	if err := tx.Commit(); err != nil {
 		return err
 	}
@@ -416,16 +549,22 @@ func (h *RazorpayWebhookHandler) handleSubscriptionCharged(event *RazorpayWebhoo
 	var ownerUserID, orgID int
 	var planType string
 	var currentLicenseExpiry time.Time
+	var existingCancelAtPeriodEnd bool
+	var existingCurrentPeriodEnd sql.NullTime
 	err = tx.QueryRow(`
-		SELECT id, owner_user_id, org_id, plan_type, license_expires_at
+		SELECT id, owner_user_id, org_id, plan_type, license_expires_at, cancel_at_period_end, current_period_end
 		FROM subscriptions
 		WHERE razorpay_subscription_id = $1`,
 		sub.ID,
-	).Scan(&subscriptionID, &ownerUserID, &orgID, &planType, &currentLicenseExpiry)
+	).Scan(&subscriptionID, &ownerUserID, &orgID, &planType, &currentLicenseExpiry, &existingCancelAtPeriodEnd, &existingCurrentPeriodEnd)
 	if err != nil {
 		return fmt.Errorf("subscription not found: %s", sub.ID)
 	}
 	resolvedPlanCode := normalizePersistedPlanCode(planType)
+	nextCancelAtPeriodEnd, cancelResolutionReason := resolveCancelAtPeriodEndAfterCharge(existingCancelAtPeriodEnd, existingCurrentPeriodEnd, sub)
+	if existingCancelAtPeriodEnd && !nextCancelAtPeriodEnd {
+		fmt.Printf("[SUBSCRIPTION.CHARGED] pending cancellation cleared by charged reconciliation (reason=%s, subscription_id=%s)\n", cancelResolutionReason, sub.ID)
+	}
 
 	fmt.Printf("[SUBSCRIPTION.CHARGED] Found internal subscription ID: %d\n", subscriptionID)
 
@@ -521,21 +660,21 @@ func (h *RazorpayWebhookHandler) handleSubscriptionCharged(event *RazorpayWebhoo
 		newExpiry = currentLicenseExpiry.AddDate(1, 0, 0)
 	}
 
-	// Update subscription with new expiry
-	// Also set status to 'active' (in case it was halted) and clear cancel_at_period_end (renewal = not cancelled)
+	// Update subscription with new expiry. cancel_at_period_end resolution is marker-aware.
 	_, err = tx.Exec(`
 		UPDATE subscriptions
 		SET license_expires_at = $1,
 		    current_period_start = $2,
 		    current_period_end = $3,
 		    status = 'active',
-		    cancel_at_period_end = FALSE,
+		    cancel_at_period_end = $5,
 		    updated_at = NOW()
 		WHERE id = $4`,
 		newExpiry,
 		time.Unix(sub.CurrentStart, 0),
 		time.Unix(sub.CurrentEnd, 0),
 		subscriptionID,
+		nextCancelAtPeriodEnd,
 	)
 	if err != nil {
 		return fmt.Errorf("failed to update subscription: %w", err)
@@ -557,9 +696,13 @@ func (h *RazorpayWebhookHandler) handleSubscriptionCharged(event *RazorpayWebhoo
 
 	// Log the event
 	metadata := map[string]interface{}{
-		"subscription_id": sub.ID,
-		"new_expiry":      newExpiry,
-		"event":           event.Event,
+		"subscription_id":                sub.ID,
+		"new_expiry":                     newExpiry,
+		"event":                          event.Event,
+		"cancel_at_period_end_before":    existingCancelAtPeriodEnd,
+		"cancel_at_period_end_after":     nextCancelAtPeriodEnd,
+		"cancel_resolution_reason":       cancelResolutionReason,
+		"provider_cycle_end_marker_seen": hasCycleEndMarkerSignal(sub),
 	}
 	if payment != nil {
 		metadata["payment_id"] = payment.ID
@@ -592,12 +735,38 @@ func (h *RazorpayWebhookHandler) handleSubscriptionCharged(event *RazorpayWebhoo
 	return nil
 }
 
+func resolveCancelAtPeriodEndAfterCharge(existingCancelAtPeriodEnd bool, existingCurrentPeriodEnd sql.NullTime, sub *RazorpaySubscription) (bool, string) {
+	if hasCycleEndMarkerSignal(sub) {
+		return true, "provider_cycle_end_marker"
+	}
+
+	if !existingCancelAtPeriodEnd {
+		return false, "no_local_pending_cancellation"
+	}
+
+	if sub == nil || sub.CurrentEnd <= 0 {
+		return true, "preserve_pending_cancellation_missing_provider_period_end"
+	}
+
+	if !existingCurrentPeriodEnd.Valid {
+		return true, "preserve_pending_cancellation_missing_local_period_end"
+	}
+
+	providerCurrentPeriodEnd := time.Unix(sub.CurrentEnd, 0).UTC()
+	if providerCurrentPeriodEnd.After(existingCurrentPeriodEnd.Time.UTC()) {
+		return false, "cleared_pending_cancellation_cycle_advanced_without_marker"
+	}
+
+	return true, "preserve_pending_cancellation_no_cycle_advance"
+}
+
 // handleSubscriptionCancelled handles subscription cancellation
 func (h *RazorpayWebhookHandler) handleSubscriptionCancelled(event *RazorpayWebhookEvent) error {
 	sub, err := h.extractSubscription(event)
 	if err != nil {
 		return err
 	}
+	ctx := context.Background()
 
 	tx, err := h.db.Begin()
 	if err != nil {
@@ -648,6 +817,11 @@ func (h *RazorpayWebhookHandler) handleSubscriptionCancelled(event *RazorpayWebh
 		if err != nil {
 			return fmt.Errorf("failed to revert users to free plan: %w", err)
 		}
+
+		err = storagepayment.SyncOrgBillingStateToFreeTx(ctx, tx, orgID, time.Now().UTC())
+		if err != nil {
+			return fmt.Errorf("failed to sync org billing state after terminal cancellation: %w", err)
+		}
 	}
 
 	// Log the event
@@ -678,6 +852,7 @@ func (h *RazorpayWebhookHandler) handleSubscriptionCompleted(event *RazorpayWebh
 	if err != nil {
 		return err
 	}
+	ctx := context.Background()
 
 	tx, err := h.db.Begin()
 	if err != nil {
@@ -702,6 +877,7 @@ func (h *RazorpayWebhookHandler) handleSubscriptionCompleted(event *RazorpayWebh
 	_, err = tx.Exec(`
 		UPDATE subscriptions
 		SET status = $1,
+		    cancel_at_period_end = FALSE,
 		    updated_at = NOW()
 		WHERE razorpay_subscription_id = $2`,
 		sub.Status, sub.ID,
@@ -722,6 +898,11 @@ func (h *RazorpayWebhookHandler) handleSubscriptionCompleted(event *RazorpayWebh
 	)
 	if err != nil {
 		return fmt.Errorf("failed to revert users to free plan: %w", err)
+	}
+
+	err = storagepayment.SyncOrgBillingStateToFreeTx(ctx, tx, orgID, time.Now().UTC())
+	if err != nil {
+		return fmt.Errorf("failed to sync org billing state after completion: %w", err)
 	}
 
 	// Log the event
@@ -768,6 +949,7 @@ func (h *RazorpayWebhookHandler) handleSubscriptionHalted(event *RazorpayWebhook
 	if err != nil {
 		return err
 	}
+	ctx := context.Background()
 
 	fmt.Printf("[SUBSCRIPTION.HALTED] Processing halted subscription: %s\n", sub.ID)
 
@@ -803,6 +985,7 @@ func (h *RazorpayWebhookHandler) handleSubscriptionHalted(event *RazorpayWebhook
 		_, err = tx.Exec(`
 			UPDATE subscriptions
 			SET status = 'expired',
+			    cancel_at_period_end = FALSE,
 			    updated_at = NOW()
 			WHERE razorpay_subscription_id = $1`,
 			sub.ID,
@@ -823,6 +1006,11 @@ func (h *RazorpayWebhookHandler) handleSubscriptionHalted(event *RazorpayWebhook
 		)
 		if err != nil {
 			return fmt.Errorf("failed to revert users to free plan: %w", err)
+		}
+
+		err = storagepayment.SyncOrgBillingStateToFreeTx(ctx, tx, orgID, time.Now().UTC())
+		if err != nil {
+			return fmt.Errorf("failed to sync org billing state for expired halted subscription: %w", err)
 		}
 
 		rowsAffected, _ := result.RowsAffected()
@@ -1581,9 +1769,27 @@ func (h *RazorpayWebhookHandler) tryHandleUpgradeOrderPaymentFailure(payment *Ra
 		return false, fmt.Errorf("lookup upgrade request for failed webhook: %w", err)
 	}
 
+	if strings.EqualFold(request.CurrentStatus, storagepayment.UpgradeRequestStatusResolved) {
+		fmt.Printf("[PAYMENT.FAILED] ignoring failed payment for already resolved upgrade (org=%d, request=%s, order=%s)\n", request.OrgID, request.UpgradeRequestID, payment.OrderID)
+		return true, nil
+	}
+
 	orderID := strings.TrimSpace(payment.OrderID)
 	attemptStore := storagepayment.NewUpgradePaymentAttemptStore(h.db)
 	if orderID != "" {
+		attempt, attemptErr := attemptStore.GetAttemptByOrderID(context.Background(), orderID)
+		if attemptErr != nil {
+			if !errors.Is(attemptErr, storagepayment.ErrUpgradePaymentAttemptNotFound) {
+				return false, fmt.Errorf("load upgrade payment attempt before marking failed: %w", attemptErr)
+			}
+		} else {
+			attemptStatus := strings.ToLower(strings.TrimSpace(attempt.Status))
+			if attemptStatus == "payment_captured" || attemptStatus == "execute_applied" {
+				fmt.Printf("[PAYMENT.FAILED] ignoring stale failed payment event for already successful attempt (org=%d, request=%s, order=%s, status=%s)\n", request.OrgID, request.UpgradeRequestID, orderID, attemptStatus)
+				return true, nil
+			}
+		}
+
 		if err := attemptStore.MarkPaymentFailedByOrderID(context.Background(), storagepayment.MarkUpgradePaymentFailedInput{
 			RazorpayOrderID:   orderID,
 			RazorpayPaymentID: payment.ID,
@@ -1597,33 +1803,6 @@ func (h *RazorpayWebhookHandler) tryHandleUpgradeOrderPaymentFailure(payment *Ra
 				return false, fmt.Errorf("mark upgrade payment attempt failed from webhook: %w", err)
 			}
 		}
-	}
-
-	updatedRequest, reqErr := requestStore.MarkUpgradeRequestFailed(context.Background(), storagepayment.MarkUpgradeRequestFailedInput{
-		UpgradeRequestID: request.UpgradeRequestID,
-		FailureReason:    fmt.Sprintf("payment_failed:%s:%s", strings.TrimSpace(payment.ErrorCode), strings.TrimSpace(payment.ErrorDescription)),
-		Metadata: map[string]interface{}{
-			"source":            "webhook.payment.failed",
-			"payment_id":        payment.ID,
-			"order_id":          payment.OrderID,
-			"error_code":        payment.ErrorCode,
-			"error_reason":      payment.ErrorReason,
-			"error_description": payment.ErrorDescription,
-			"error_source":      payment.ErrorSource,
-			"error_step":        payment.ErrorStep,
-		},
-	})
-	if reqErr == nil {
-		h.enqueueUpgradeFailureNotifications(context.Background(), updatedRequest, map[string]interface{}{
-			"source":            "webhook.payment.failed",
-			"payment_id":        payment.ID,
-			"order_id":          payment.OrderID,
-			"error_code":        payment.ErrorCode,
-			"error_reason":      payment.ErrorReason,
-			"error_description": payment.ErrorDescription,
-			"error_source":      payment.ErrorSource,
-			"error_step":        payment.ErrorStep,
-		})
 	}
 
 	metadata := map[string]interface{}{
@@ -1646,12 +1825,12 @@ func (h *RazorpayWebhookHandler) tryHandleUpgradeOrderPaymentFailure(payment *Ra
 			user_id, org_id, event_type, description, metadata, created_at
 		) VALUES (NULL, $1, $2, $3, $4, NOW())`,
 		request.OrgID,
-		"upgrade_payment_failed",
-		fmt.Sprintf("Upgrade payment %s failed for request %s: %s", payment.ID, request.UpgradeRequestID, payment.ErrorDescription),
+		"upgrade_payment_attempt_failed",
+		fmt.Sprintf("Upgrade payment attempt %s failed for request %s: %s", payment.ID, request.UpgradeRequestID, payment.ErrorDescription),
 		metadataJSON,
 	)
 
-	fmt.Printf("[PAYMENT.FAILED] ✓ Upgrade payment failure recorded (org=%d, request=%s, order=%s)\n", request.OrgID, request.UpgradeRequestID, payment.OrderID)
+	fmt.Printf("[PAYMENT.FAILED] ✓ Upgrade payment attempt failure recorded (org=%d, request=%s, order=%s); request left non-terminal for retries/reconciliation\n", request.OrgID, request.UpgradeRequestID, payment.OrderID)
 	return true, nil
 }
 
@@ -1906,6 +2085,7 @@ func (h *RazorpayWebhookHandler) handleSubscriptionExpired(event *RazorpayWebhoo
 	if err != nil {
 		return err
 	}
+	ctx := context.Background()
 
 	fmt.Printf("[SUBSCRIPTION.EXPIRED] Processing expiration for subscription: %s\n", sub.ID)
 
@@ -1931,6 +2111,7 @@ func (h *RazorpayWebhookHandler) handleSubscriptionExpired(event *RazorpayWebhoo
 	_, err = tx.Exec(`
 		UPDATE subscriptions
 		SET status = 'expired',
+		    cancel_at_period_end = FALSE,
 		    updated_at = NOW()
 		WHERE razorpay_subscription_id = $1`,
 		sub.ID,
@@ -1955,6 +2136,11 @@ func (h *RazorpayWebhookHandler) handleSubscriptionExpired(event *RazorpayWebhoo
 	)
 	if err != nil {
 		return fmt.Errorf("failed to revert users to free plan: %w", err)
+	}
+
+	err = storagepayment.SyncOrgBillingStateToFreeTx(ctx, tx, orgID, time.Now().UTC())
+	if err != nil {
+		return fmt.Errorf("failed to sync org billing state after expiry: %w", err)
 	}
 
 	rowsAffected, _ := result.RowsAffected()

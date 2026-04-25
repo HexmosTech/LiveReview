@@ -14,6 +14,8 @@ interface OnboardingStepperProps {
   onDismiss?: () => void;
   className?: string;
   userId?: number | string; // For scoping localStorage to user
+  isFreePlan?: boolean;
+  onUpgrade?: () => void;
 }
 
 const Step: React.FC<{
@@ -81,6 +83,8 @@ export const OnboardingStepper: React.FC<OnboardingStepperProps> = ({
   onDismiss,
   className,
   userId,
+  isFreePlan = false,
+  onUpgrade,
 }) => {
   const allSet = hasCLI && hasAIProvider;
   const [collapsed, setCollapsed] = useState<boolean>(() => {
@@ -114,7 +118,19 @@ export const OnboardingStepper: React.FC<OnboardingStepperProps> = ({
         </div>
         <div className="flex items-center gap-2 sm:gap-3 flex-wrap justify-start lg:justify-end">
           {allSet && collapsed && (
-            <Button variant="primary" size="sm" icon={<Icons.Add />} onClick={onNewReview}>
+            <Button 
+                variant="primary" 
+                size="sm" 
+                icon={<Icons.Add />} 
+                onClick={() => {
+                  if (isFreePlan && onUpgrade) {
+                    onUpgrade();
+                  } else {
+                    onNewReview();
+                  }
+                }}
+                title={isFreePlan ? "Upgrade your plan to create reviews" : undefined}
+            >
               New Review
             </Button>
           )}
@@ -158,7 +174,19 @@ export const OnboardingStepper: React.FC<OnboardingStepperProps> = ({
           done={hasAIProvider}
           action={
             !hasAIProvider && (
-              <Button size="sm" variant="outline" icon={<Icons.AI />} onClick={onConfigureAI}>
+              <Button 
+                size="sm" 
+                variant="outline" 
+                icon={<Icons.AI />} 
+                onClick={() => {
+                  if (isFreePlan && onUpgrade) {
+                    onUpgrade();
+                  } else {
+                    onConfigureAI();
+                  }
+                }}
+                title={isFreePlan ? "Upgrade your plan to configure AI" : undefined}
+              >
                 Configure
               </Button>
             )

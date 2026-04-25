@@ -483,18 +483,64 @@ func findSubstring(text, sub string) int {
 
 // findBatchID extracts batch ID from text
 func findBatchID(text string) string {
-	// Look for "batch" followed by number or dash-number
+	// Accept only canonical batch tokens (batch-<digits> / batch_<digits>)
+	// to avoid treating arbitrary stream content as batch identifiers.
 	words := splitWords(text)
-	for i, word := range words {
-		wordLower := toLower(word)
-		if wordLower == "batch" && i+1 < len(words) {
-			return words[i+1]
-		}
-		if startsWithBatch(wordLower) && len(word) > 5 {
-			return word[6:] // remove "batch-"
+	for _, word := range words {
+		if batchID := normalizeBatchToken(word); batchID != "" {
+			return batchID
 		}
 	}
 	return ""
+}
+
+func normalizeBatchToken(word string) string {
+	cleaned := trimToken(word)
+	if cleaned == "" {
+		return ""
+	}
+
+	lower := toLower(cleaned)
+	var suffix string
+	if startsWithBatch(lower) {
+		suffix = lower[6:]
+	} else if startsWithBatchUnderscore(lower) {
+		suffix = lower[6:]
+	} else {
+		return ""
+	}
+
+	if suffix == "" || !isDigits(suffix) {
+		return ""
+	}
+
+	return "batch-" + suffix
+}
+
+func trimToken(s string) string {
+	start := 0
+	end := len(s)
+
+	for start < end && isTokenPunctuation(s[start]) {
+		start++
+	}
+	for end > start && isTokenPunctuation(s[end-1]) {
+		end--
+	}
+
+	if start >= end {
+		return ""
+	}
+	return s[start:end]
+}
+
+func isTokenPunctuation(c byte) bool {
+	switch c {
+	case ',', '.', ':', ';', '!', '?', ')', '(', ']', '[', '}', '{', '\'', '"', '`':
+		return true
+	default:
+		return false
+	}
 }
 
 // Helper functions for string processing
@@ -532,6 +578,22 @@ func toLower(s string) string {
 
 func startsWithBatch(s string) bool {
 	return len(s) >= 6 && s[:6] == "batch-"
+}
+
+func startsWithBatchUnderscore(s string) bool {
+	return len(s) >= 6 && s[:6] == "batch_"
+}
+
+func isDigits(s string) bool {
+	if s == "" {
+		return false
+	}
+	for i := 0; i < len(s); i++ {
+		if s[i] < '0' || s[i] > '9' {
+			return false
+		}
+	}
+	return true
 }
 
 // truncateString truncates a string to maxLen characters

@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import moment from 'moment-timezone';
 import { isCloudMode } from '../../utils/deploymentMode';
@@ -6,6 +6,36 @@ import { useOrgContext } from '../../hooks/useOrgContext';
 import BillingPortfolio from '../Admin/BillingPortfolio';
 import { CancelSubscriptionModal } from '../../components/Subscriptions';
 import apiClient from '../../api/apiClient';
+import { getSubscriptionStatusLabel, isTerminalSubscriptionStatus } from '../../utils/subscriptionStatus';
+
+type PurchaseCurrency = 'USD' | 'INR';
+
+const SUPPORTED_PURCHASE_CURRENCIES: PurchaseCurrency[] = ['USD', 'INR'];
+
+const normalizePurchaseCurrency = (raw?: string | null): PurchaseCurrency | null => {
+  const normalized = String(raw || '').trim().toUpperCase();
+  if (normalized === 'USD' || normalized === 'INR') {
+    return normalized;
+  }
+  return null;
+};
+
+const fallbackPurchaseCurrencyFromLocale = (): PurchaseCurrency => {
+  const locale = String((typeof navigator !== 'undefined' ? navigator.language : '') || '').trim().toUpperCase().replace('_', '-');
+  if (locale.includes('-IN')) {
+    return 'INR';
+  }
+  return 'USD';
+};
+
+const formatMinorAmount = (amountMinor: number, currency: PurchaseCurrency): string => (
+  new Intl.NumberFormat(undefined, {
+    style: 'currency',
+    currency,
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  }).format(amountMinor / 100)
+);
 
 declare global {
   interface Window {
@@ -59,13 +89,30 @@ type BillingPlan = {
   trial_days: number;
 };
 
+type TrialEligibilitySummary = {
+  status?: 'eligible' | 'already_used' | 'reserved' | 'unknown';
+  eligible?: boolean;
+  reason?: string;
+  consumed_at?: string | null;
+  reservation_expires_at?: string | null;
+  first_plan_code?: string | null;
+  first_org_id?: number | null;
+};
+
 type BillingStatusResponse = {
   billing: {
     current_plan_code: string;
+    default_purchase_currency?: string;
+    supported_purchase_currencies?: string[];
     billing_period_start: string;
     billing_period_end: string;
     loc_used_month: number;
+    trial_active?: boolean;
+    trial_started_at?: string | null;
+    trial_ends_at?: string | null;
     trial_readonly: boolean;
+    trial_can_cancel?: boolean;
+    trial_eligibility?: TrialEligibilitySummary;
     scheduled_plan_code?: string | null;
     scheduled_plan_effective_at?: string | null;
   };
@@ -77,6 +124,7 @@ type QuotaStatusResponse = {
   envelope?: {
     blocked?: boolean;
     trial_readonly?: boolean;
+    trial_ends_at?: string;
     usage_pct?: number;
   };
 };
@@ -217,6 +265,15 @@ type PrepareUpgradePaymentResponse = {
 type CreateSubscriptionCheckoutResponse = {
   razorpay_subscription_id: string;
   razorpay_key_id: string;
+  trial_applied?: boolean;
+  trial_days?: number;
+  trial_started_at?: string;
+  trial_ends_at?: string;
+  plan_unit_amount_minor?: number;
+  expected_recurring_amount_minor?: number;
+  expected_recurring_currency?: string;
+  checkout_authorization_may_apply?: boolean;
+  checkout_authorization_note?: string;
 };
 
 type KeepPlanActionResult = {
@@ -228,11 +285,6 @@ type KeepPlanActionResult = {
 type ActionPreflightResult = {
   proceed: boolean;
   routeToBuyNew: boolean;
-};
-
-const isTerminalCancellationStatus = (rawStatus?: string | null): boolean => {
-  const normalized = String(rawStatus || '').trim().toLowerCase();
-  return normalized === 'cancelled' || normalized === 'expired' || normalized === 'completed';
 };
 
 type UpgradeRequestStatusResponse = {
@@ -322,7 +374,7 @@ const buildUpgradeCheckoutFailureMessage = (response: any, prepared: PrepareUpgr
   return `${description} (${details.join(', ')}). ${testHint}`;
 };
 
-const buildCheckoutPathWithPlan = (checkoutPath: string | undefined, planCode: string): string => {
+const buildCheckoutPathWithPlan = (checkoutPath: string | undefined, planCode: string, currency?: PurchaseCurrency): string => {
   const basePath = String(checkoutPath || '/checkout/team?period=monthly').trim();
   const [pathOnly, query = ''] = basePath.split('?');
   const params = new URLSearchParams(query);
@@ -332,13 +384,17 @@ const buildCheckoutPathWithPlan = (checkoutPath: string | undefined, planCode: s
   if (!params.get('plan')) {
     params.set('plan', planCode);
   }
+  const normalizedCurrency = normalizePurchaseCurrency(currency || '');
+  if (normalizedCurrency) {
+    params.set('currency', normalizedCurrency);
+  }
   return `${pathOnly}?${params.toString()}`;
 };
 
 const SubscriptionTab: React.FC = () => {
   const navigate = useNavigate();
   const { currentOrg } = useOrgContext();
-  
+
   // Initialize tab from URL path
   const getInitialTab = (): SubscriptionTabKey => {
     const hash = window.location.hash;
@@ -347,7 +403,7 @@ const SubscriptionTab: React.FC = () => {
     if (hash.includes('settings-subscriptions-assign')) return 'assignments';
     return 'overview';
   };
-  
+
   const [activeTab, setActiveTab] = useState<SubscriptionTabKey>(getInitialTab);
 
   useEffect(() => {
@@ -394,31 +450,28 @@ const SubscriptionTab: React.FC = () => {
         <div className="flex space-x-1">
           <button
             onClick={() => handleTabChange('overview')}
-            className={`px-4 py-3 text-sm font-medium transition-colors ${
-              activeTab === 'overview'
-                ? 'text-white border-b-2 border-blue-500'
-                : 'text-slate-400 hover:text-slate-300'
-            }`}
+            className={`px-4 py-3 text-sm font-medium transition-colors ${activeTab === 'overview'
+              ? 'text-white border-b-2 border-blue-500'
+              : 'text-slate-400 hover:text-slate-300'
+              }`}
           >
             {SUBSCRIPTION_TAB_LABELS.overview}
           </button>
           <button
             onClick={() => handleTabChange('breakdown')}
-            className={`px-4 py-3 text-sm font-medium transition-colors ${
-              activeTab === 'breakdown'
-                ? 'text-white border-b-2 border-blue-500'
-                : 'text-slate-400 hover:text-slate-300'
-            }`}
+            className={`px-4 py-3 text-sm font-medium transition-colors ${activeTab === 'breakdown'
+              ? 'text-white border-b-2 border-blue-500'
+              : 'text-slate-400 hover:text-slate-300'
+              }`}
           >
             {SUBSCRIPTION_TAB_LABELS.breakdown}
           </button>
           <button
             onClick={() => handleTabChange('assignments')}
-            className={`px-4 py-3 text-sm font-medium transition-colors ${
-              activeTab === 'assignments'
-                ? 'text-white border-b-2 border-blue-500'
-                : 'text-slate-400 hover:text-slate-300'
-            }`}
+            className={`px-4 py-3 text-sm font-medium transition-colors ${activeTab === 'assignments'
+              ? 'text-white border-b-2 border-blue-500'
+              : 'text-slate-400 hover:text-slate-300'
+              }`}
           >
             {SUBSCRIPTION_TAB_LABELS.assignments}
           </button>
@@ -444,6 +497,7 @@ const OverviewTab: React.FC<{ navigate: any; mode?: 'full' | 'breakdown' | 'cont
   const isControlsMode = mode === 'controls';
   const isPlanUpgradeMode = mode === 'full';
   const [showCancelModal, setShowCancelModal] = useState(false);
+  const [cancelImmediate, setCancelImmediate] = useState(false);
   const [subscriptionId, setSubscriptionId] = useState<string | null>(null);
   const [managedSubscription, setManagedSubscription] = useState<ManagedSubscription | null>(null);
   const [pendingCancel, setPendingCancel] = useState(false);
@@ -463,6 +517,8 @@ const OverviewTab: React.FC<{ navigate: any; mode?: 'full' | 'breakdown' | 'cont
   const [actionProgressMessage, setActionProgressMessage] = useState<string | null>(null);
   const [selectedUpgradePlan, setSelectedUpgradePlan] = useState('');
   const [selectedDowngradePlan, setSelectedDowngradePlan] = useState('');
+  const [purchaseCurrency, setPurchaseCurrency] = useState<PurchaseCurrency>(fallbackPurchaseCurrencyFromLocale());
+  const [purchaseCurrencyInitialized, setPurchaseCurrencyInitialized] = useState(false);
   const [usageSummary, setUsageSummary] = useState<BillingUsageSummaryResponse | null>(null);
   const [usageOps, setUsageOps] = useState<BillingUsageOperationsResponse['operations']>([]);
   const [myUsage, setMyUsage] = useState<BillingUsageMemberSummary | null>(null);
@@ -476,7 +532,8 @@ const OverviewTab: React.FC<{ navigate: any; mode?: 'full' | 'breakdown' | 'cont
   const [activeUpgradeRequestID, setActiveUpgradeRequestID] = useState<string>('');
   const [upgradeRequestStatus, setUpgradeRequestStatus] = useState<UpgradeRequestStatusResponse | null>(null);
   const [upgradeRequestLoading, setUpgradeRequestLoading] = useState(false);
-  
+  const freeCheckoutInFlightRef = useRef(false);
+
   // Use billing status as source-of-truth; fall back to org-scoped plan only until billing loads.
   const rawPlanType = (currentOrg?.plan_type || 'free').toLowerCase();
   const fallbackPlanCode = rawPlanType === 'free' ? 'free_30k' : rawPlanType === 'team' ? 'team_32usd' : rawPlanType;
@@ -503,6 +560,7 @@ const OverviewTab: React.FC<{ navigate: any; mode?: 'full' | 'breakdown' | 'cont
     setPendingCancel(false);
     setStatus('');
 
+    let currentSubscriptionData: any = null;
     const currentSubscriptionPromise = apiClient
       .get('/subscriptions/current', {
         headers: {
@@ -510,22 +568,13 @@ const OverviewTab: React.FC<{ navigate: any; mode?: 'full' | 'breakdown' | 'cont
         },
       })
       .then((data: any) => {
-        if (data) {
-          setSubscriptionId(data.subscription_id || null);
-          setPendingCancel(Boolean(data.cancel_at_period_end));
-          setSubscriptionManageURL(String(data.short_url || ''));
-          setStatus(data.status || '');
-          const expirySrc = data.cancel_at_period_end ? data.current_period_end : data.license_expires_at;
-          setDisplayExpiry(expirySrc || licenseExpiresAt || null);
-        }
+        currentSubscriptionData = data || null;
       })
       .catch(() => {
-        setSubscriptionId(null);
-        setPendingCancel(false);
-        setSubscriptionManageURL('');
-        setStatus('');
+        currentSubscriptionData = null;
       });
 
+    let managedSubscriptions: ManagedSubscription[] = [];
     const managedSubscriptionsPromise = apiClient
       .get<{ subscriptions: ManagedSubscription[] }>('/subscriptions', {
         headers: {
@@ -533,25 +582,55 @@ const OverviewTab: React.FC<{ navigate: any; mode?: 'full' | 'breakdown' | 'cont
         },
       })
       .then((response) => {
-        const subscriptions = Array.isArray(response?.subscriptions) ? response.subscriptions : [];
-        const prioritized = [...subscriptions].sort((a, b) => {
-          const score = (item: ManagedSubscription) => {
-            const normalized = String(item.status || '').toLowerCase();
-            if (normalized === 'active') return 0;
-            if (normalized === 'authenticated' || normalized === 'created') return 1;
-            if (normalized === 'halted') return 2;
-            return 3;
-          };
-          return score(a) - score(b);
-        });
-        setManagedSubscription(prioritized[0] || null);
+        managedSubscriptions = Array.isArray(response?.subscriptions) ? response.subscriptions : [];
       })
       .catch(() => {
-        setManagedSubscription(null);
+        managedSubscriptions = [];
       });
 
     try {
       await Promise.all([currentSubscriptionPromise, managedSubscriptionsPromise]);
+
+      if (currentSubscriptionData) {
+        setSubscriptionId(currentSubscriptionData.subscription_id || null);
+        setPendingCancel(Boolean(currentSubscriptionData.cancel_at_period_end));
+        setSubscriptionManageURL(String(currentSubscriptionData.short_url || ''));
+        setStatus(currentSubscriptionData.status || '');
+        const expirySrc = currentSubscriptionData.cancel_at_period_end
+          ? currentSubscriptionData.current_period_end
+          : currentSubscriptionData.license_expires_at;
+        setDisplayExpiry(expirySrc || licenseExpiresAt || null);
+      } else {
+        setSubscriptionId(null);
+        setPendingCancel(false);
+        setSubscriptionManageURL('');
+        setStatus('');
+      }
+
+      const score = (item: ManagedSubscription) => {
+        const normalized = String(item.status || '').toLowerCase();
+        let base = 3;
+        if (normalized === 'active') base = 0;
+        else if (normalized === 'authenticated' || normalized === 'created') base = 1;
+        else if (normalized === 'halted') base = 2;
+
+        // Strongly prefer non-cancelled subscriptions in control mode fallback selection.
+        const cancelPenalty = item.cancel_at_period_end ? 10 : 0;
+        return base + cancelPenalty;
+      };
+      const prioritized = [...managedSubscriptions].sort((a, b) => score(a) - score(b));
+
+      let selectedManaged: ManagedSubscription | null = null;
+      const currentSubscriptionID = String(currentSubscriptionData?.subscription_id || '').trim();
+      if (currentSubscriptionID !== '') {
+        selectedManaged = prioritized.find(
+          (item) => String(item.razorpay_subscription_id || '').trim() === currentSubscriptionID,
+        ) || null;
+      }
+      if (!selectedManaged) {
+        selectedManaged = prioritized[0] || null;
+      }
+      setManagedSubscription(selectedManaged);
     } finally {
       setStatusLoading(false);
       setSubscriptionLoading(false);
@@ -638,6 +717,20 @@ const OverviewTab: React.FC<{ navigate: any; mode?: 'full' | 'breakdown' | 'cont
       setSelectedDowngradePlan(downgrades[0].plan_code);
     }
   }, [billingStatus, selectedUpgradePlan, selectedDowngradePlan]);
+
+  useEffect(() => {
+    setPurchaseCurrency(fallbackPurchaseCurrencyFromLocale());
+    setPurchaseCurrencyInitialized(false);
+  }, [currentOrg?.id]);
+
+  useEffect(() => {
+    if (purchaseCurrencyInitialized || !billingStatus?.billing) return;
+    const backendDefault = normalizePurchaseCurrency(billingStatus.billing.default_purchase_currency);
+    if (backendDefault) {
+      setPurchaseCurrency(backendDefault);
+    }
+    setPurchaseCurrencyInitialized(true);
+  }, [billingStatus?.billing, purchaseCurrencyInitialized]);
 
   const handleCancelSuccess = () => {
     // Reload the page to reflect updated subscription status
@@ -785,22 +878,17 @@ const OverviewTab: React.FC<{ navigate: any; mode?: 'full' | 'breakdown' | 'cont
       return { proceed: true, routeToBuyNew: false };
     }
 
-    if (!effectiveSubscriptionId) {
-      if (action === 'upgrade') {
-        setActionProgressMessage('No active paid subscription was found. Starting a new purchase flow.');
-        return { proceed: false, routeToBuyNew: true };
-      }
+    if (action === 'upgrade') {
+      return { proceed: true, routeToBuyNew: false };
+    }
 
+    if (!effectiveSubscriptionId) {
       setActionProgressMessage(null);
       setBillingError('No active subscription found for downgrade scheduling.');
       return { proceed: false, routeToBuyNew: false };
     }
 
-    setActionProgressMessage(
-      action === 'upgrade'
-        ? 'Reactivating current plan before upgrade...'
-        : 'Reactivating current plan before downgrade...'
-    );
+    setActionProgressMessage('Reactivating current plan before downgrade...');
 
     const keepPlanResult = await performKeepPlanAction({ suppressSuccessMessage: true });
     if (keepPlanResult.ok) {
@@ -809,11 +897,7 @@ const OverviewTab: React.FC<{ navigate: any; mode?: 'full' | 'breakdown' | 'cont
     }
 
     if (keepPlanResult.statusCode === 409) {
-      setActionProgressMessage(
-        action === 'upgrade'
-          ? 'Keep-plan confirmation is still propagating. Continuing with upgrade flow.'
-          : 'Keep-plan confirmation is still propagating. Continuing with downgrade flow.'
-      );
+      setActionProgressMessage('Keep-plan confirmation is still propagating. Continuing with downgrade flow.');
       return { proceed: true, routeToBuyNew: false };
     }
 
@@ -861,9 +945,10 @@ const OverviewTab: React.FC<{ navigate: any; mode?: 'full' | 'breakdown' | 'cont
     }
   };
 
-  const openUpgradePreview = async (targetPlanCode?: string) => {
+  const openUpgradePreview = async (targetPlanCode?: string, currencyOverride?: PurchaseCurrency) => {
     const effectivePlanCode = String(targetPlanCode || selectedUpgradePlan || '').trim();
     if (!effectivePlanCode) return;
+    const effectiveCurrency = currencyOverride || purchaseCurrency;
 
     setSelectedUpgradePlan(effectivePlanCode);
 
@@ -894,12 +979,13 @@ const OverviewTab: React.FC<{ navigate: any; mode?: 'full' | 'breakdown' | 'cont
         '/billing/upgrade/preview',
         {
           target_plan_code: effectivePlanCode,
+          currency: effectiveCurrency,
         },
         orgScopedRequestOptions
       );
 
       if (preview?.checkout_required) {
-        navigate(buildCheckoutPathWithPlan(preview.checkout_path, effectivePlanCode));
+        navigate(buildCheckoutPathWithPlan(preview.checkout_path, effectivePlanCode, effectiveCurrency));
         return;
       }
 
@@ -911,7 +997,7 @@ const OverviewTab: React.FC<{ navigate: any; mode?: 'full' | 'breakdown' | 'cont
       setShowUpgradeModal(Boolean(preview?.preview_token));
     } catch (err: any) {
       if (err?.status === 409 && err?.data?.checkout_required) {
-        navigate(buildCheckoutPathWithPlan(err?.data?.checkout_path, effectivePlanCode));
+        navigate(buildCheckoutPathWithPlan(err?.data?.checkout_path, effectivePlanCode, effectiveCurrency));
         return;
       }
       if (err?.status === 404) {
@@ -926,11 +1012,17 @@ const OverviewTab: React.FC<{ navigate: any; mode?: 'full' | 'breakdown' | 'cont
   };
 
   const startFreeCheckoutFromSettings = async () => {
+    if (freeCheckoutInFlightRef.current) {
+      return;
+    }
+
     const effectivePlanCode = String(selectedUpgradePlan || '').trim();
     if (!effectivePlanCode) {
       setBillingError('Select an upgrade plan to continue.');
       return;
     }
+
+    freeCheckoutInFlightRef.current = true;
 
     setUpgradeCheckoutLoading(true);
     setBillingError(null);
@@ -944,7 +1036,7 @@ const OverviewTab: React.FC<{ navigate: any; mode?: 'full' | 'breakdown' | 'cont
 
       const created = await apiClient.post<CreateSubscriptionCheckoutResponse>(
         '/subscriptions',
-        { plan_code: effectivePlanCode },
+        { plan_code: effectivePlanCode, currency: purchaseCurrency },
         orgScopedRequestOptions
       );
 
@@ -956,12 +1048,38 @@ const OverviewTab: React.FC<{ navigate: any; mode?: 'full' | 'breakdown' | 'cont
       const locLabel = selectedPlanDetails?.monthly_loc_limit
         ? `${selectedPlanDetails.monthly_loc_limit.toLocaleString()} LOC/month`
         : 'LOC/month';
+      const expectedRecurringCurrency = normalizePurchaseCurrency(created?.expected_recurring_currency || '') || purchaseCurrency;
+      const expectedRecurringAmountText = typeof created?.expected_recurring_amount_minor === 'number'
+        ? `${formatMinorAmount(created.expected_recurring_amount_minor, expectedRecurringCurrency)}/month`
+        : null;
+      const checkoutDescription = created?.trial_applied && Number(created?.trial_days || 0) > 0
+        ? `${getPlanDisplayName(effectivePlanCode)} (${locLabel}) - ${created.trial_days}-day trial included`
+        : `${getPlanDisplayName(effectivePlanCode)} (${locLabel})`;
+
+      if (created?.trial_applied && created?.trial_ends_at) {
+        setActionProgressMessage(
+          `Trial will activate after confirmation and run until ${formatDate(created.trial_ends_at) || created.trial_ends_at}. ` +
+          `${expectedRecurringAmountText ? `Recurring billing starts at ${expectedRecurringAmountText}. ` : ''}` +
+          `${created?.checkout_authorization_note || 'Razorpay may show a small setup authorization amount while trial is active.'}`
+        );
+      } else if (created?.trial_applied && Number(created?.trial_days || 0) > 0) {
+        setActionProgressMessage(
+          `${created.trial_days}-day trial will activate after payment confirmation. ` +
+          `${expectedRecurringAmountText ? `Recurring billing starts at ${expectedRecurringAmountText}. ` : ''}` +
+          `${created?.checkout_authorization_note || 'Razorpay may show a small setup authorization amount while trial is active.'}`
+        );
+      } else {
+        setActionProgressMessage(
+          `Checkout initialized. ${expectedRecurringAmountText ? `Recurring billing is ${expectedRecurringAmountText}. ` : ''}` +
+          'Billing starts after payment confirmation.'
+        );
+      }
 
       const options = {
         key: created.razorpay_key_id,
         subscription_id: created.razorpay_subscription_id,
         name: 'LiveReview LOC Plan',
-        description: `${getPlanDisplayName(effectivePlanCode)} (${locLabel})`,
+        description: checkoutDescription,
         image: '/assets/logo-with-text.svg',
         handler: async (razorpayResponse: any) => {
           try {
@@ -986,12 +1104,14 @@ const OverviewTab: React.FC<{ navigate: any; mode?: 'full' | 'breakdown' | 'cont
           } catch (confirmErr: any) {
             setBillingError(confirmErr?.message || 'Payment completed, but confirmation failed. Please retry.');
           } finally {
+            freeCheckoutInFlightRef.current = false;
             setUpgradeCheckoutLoading(false);
             cleanupRazorpayOverlay();
           }
         },
         modal: {
           ondismiss: () => {
+            freeCheckoutInFlightRef.current = false;
             setUpgradeCheckoutLoading(false);
             cleanupRazorpayOverlay();
           },
@@ -1009,15 +1129,17 @@ const OverviewTab: React.FC<{ navigate: any; mode?: 'full' | 'breakdown' | 'cont
             payment_required: true,
             razorpay_key_id: created.razorpay_key_id,
             preview_token: '',
-            currency: 'USD',
+            currency: purchaseCurrency,
           })
         );
+        freeCheckoutInFlightRef.current = false;
         setUpgradeCheckoutLoading(false);
         cleanupRazorpayOverlay();
       });
       rzp.open();
     } catch (err: any) {
       setBillingError(err?.message || 'Failed to start checkout for selected plan');
+      freeCheckoutInFlightRef.current = false;
       setUpgradeCheckoutLoading(false);
       cleanupRazorpayOverlay();
     }
@@ -1160,6 +1282,22 @@ const OverviewTab: React.FC<{ navigate: any; mode?: 'full' | 'breakdown' | 'cont
     return moment.tz(dateString, userTimezone).format('MMM D, YYYY, h:mm A z');
   };
 
+  const getTrialDaysRemaining = (trialEndISO: string | null | undefined): number | null => {
+    const raw = String(trialEndISO || '').trim();
+    if (!raw) {
+      return null;
+    }
+    const trialEnd = moment(raw);
+    if (!trialEnd.isValid()) {
+      return null;
+    }
+    const now = moment();
+    if (!trialEnd.isAfter(now)) {
+      return 0;
+    }
+    return Math.max(1, Math.ceil((trialEnd.valueOf() - now.valueOf()) / (24 * 60 * 60 * 1000)));
+  };
+
   const getPlanDisplayName = (plan: string) => {
     const normalized = plan.toLowerCase();
     if (normalized === 'team_32usd') return 'Team 32 USD (100k LOC)';
@@ -1176,43 +1314,115 @@ const OverviewTab: React.FC<{ navigate: any; mode?: 'full' | 'breakdown' | 'cont
   const selectedFreeCheckoutPlan = billingStatus?.available_plans?.find((p) => p.plan_code === selectedUpgradePlan) || null;
   const selectedFreeCheckoutPriceUSD = selectedFreeCheckoutPlan?.monthly_price_usd || 0;
   const selectedFreeCheckoutLoc = selectedFreeCheckoutPlan?.monthly_loc_limit || 0;
+  const availablePurchaseCurrencies = useMemo(() => {
+    const backendCurrencies = (billingStatus?.billing?.supported_purchase_currencies || [])
+      .map((raw) => normalizePurchaseCurrency(raw))
+      .filter((value): value is PurchaseCurrency => value !== null);
+    if (backendCurrencies.length === 0) {
+      return SUPPORTED_PURCHASE_CURRENCIES;
+    }
+    return Array.from(new Set(backendCurrencies));
+  }, [billingStatus?.billing?.supported_purchase_currencies]);
+
+  useEffect(() => {
+    if (availablePurchaseCurrencies.length === 0) {
+      return;
+    }
+    if (!availablePurchaseCurrencies.includes(purchaseCurrency)) {
+      setPurchaseCurrency(availablePurchaseCurrencies[0]);
+    }
+  }, [availablePurchaseCurrencies, purchaseCurrency]);
 
   const dailyLimit = isFree
     ? 'Quota-based (30,000 LOC/month)'
     : `Quota-based (${(currentPlan?.monthly_loc_limit || 100000).toLocaleString()} LOC/month)`;
 
   const currentLocLimit = currentPlan?.monthly_loc_limit || (isFree ? 30000 : 100000);
-  const currentLocUsed = usageSummary?.total_billable_loc || 0;
+  const currentLocUsed = billingStatus?.billing?.loc_used_month || 0;
   const currentLocRemaining = Math.max(0, currentLocLimit - currentLocUsed);
   const currentLocUsagePercent = currentLocLimit > 0 ? Math.min(100, Math.round((currentLocUsed / currentLocLimit) * 100)) : 0;
+  const trialActive = Boolean(billingStatus?.billing?.trial_active);
+  const trialStartsAt = billingStatus?.billing?.trial_started_at || null;
+  const trialEndsAt = billingStatus?.billing?.trial_ends_at || quotaStatus?.envelope?.trial_ends_at || null;
+  const trialDaysRemaining = getTrialDaysRemaining(trialEndsAt);
+  const trialEligibility = billingStatus?.billing?.trial_eligibility;
+  const trialEligibilityStatus = String(trialEligibility?.status || 'unknown').trim().toLowerCase();
+  const trialEligibleForFirstPaidPurchase = Boolean(trialEligibility?.eligible);
   const sortedPlansByLoc = [...(billingStatus?.available_plans || [])].sort((a, b) => a.monthly_loc_limit - b.monthly_loc_limit);
+  const maxPaidTrialDays = sortedPlansByLoc.reduce((max, plan) => {
+    if (plan.monthly_price_usd <= 0) {
+      return max;
+    }
+    return Math.max(max, Number(plan.trial_days || 0));
+  }, 0);
+  const firstPaidTrialDays = maxPaidTrialDays > 0 ? maxPaidTrialDays : 7;
+  const selectedFreeCheckoutTrialDays = Number(selectedFreeCheckoutPlan?.trial_days || 0);
+  const freeCheckoutTrialMessage = (() => {
+    if (selectedFreeCheckoutTrialDays <= 0) {
+      return 'This paid plan has no trial period configured. Billing starts immediately after payment confirmation.';
+    }
+    if (trialEligibleForFirstPaidPurchase) {
+      return `Your first paid purchase is eligible for a ${selectedFreeCheckoutTrialDays}-day trial. Billing starts when that trial window ends.`;
+    }
+    if (trialEligibilityStatus === 'already_used') {
+      return 'This email already used its one-time first-paid trial. Billing starts immediately after payment confirmation.';
+    }
+    if (trialEligibilityStatus === 'reserved') {
+      return 'A trial reservation is currently in progress for this email. Complete checkout now to claim it.';
+    }
+    return `Trial eligibility is verified at checkout. This plan supports up to ${selectedFreeCheckoutTrialDays} trial days for first paid purchases.`;
+  })();
   const currentPlanIndex = sortedPlansByLoc.findIndex((plan) => plan.plan_code === currentPlanCode);
   const upgradeHierarchyPlans = currentPlanIndex >= 0 ? sortedPlansByLoc.slice(currentPlanIndex) : [];
   const upgradeOptions = upgradeHierarchyPlans.filter((plan) => plan.plan_code !== currentPlanCode);
   const downgradeOptions = currentPlanIndex > 0 ? sortedPlansByLoc.slice(0, currentPlanIndex).reverse() : [];
-  const effectiveSubscriptionId = subscriptionId || managedSubscription?.razorpay_subscription_id || null;
-  const effectivePendingCancel = pendingCancel || Boolean(managedSubscription?.cancel_at_period_end);
-  const effectiveSubscriptionManageURL = subscriptionManageURL || String(managedSubscription?.short_url || '');
+  const hasCurrentSubscription = Boolean(subscriptionId);
+  const normalizedCurrentSubscriptionID = String(subscriptionId || '').trim();
+  const normalizedManagedSubscriptionID = String(managedSubscription?.razorpay_subscription_id || '').trim();
+  const managedMatchesCurrentSubscription = Boolean(
+    hasCurrentSubscription &&
+    normalizedCurrentSubscriptionID !== '' &&
+    normalizedCurrentSubscriptionID === normalizedManagedSubscriptionID,
+  );
+  const allowManagedFallback = Boolean(isControlsMode && (!hasCurrentSubscription || managedMatchesCurrentSubscription));
+  const effectiveSubscriptionId = hasCurrentSubscription
+    ? subscriptionId
+    : allowManagedFallback
+      ? managedSubscription?.razorpay_subscription_id || null
+      : null;
+  const effectivePendingCancel = hasCurrentSubscription
+    ? pendingCancel
+    : allowManagedFallback && Boolean(managedSubscription?.cancel_at_period_end);
+  const effectiveSubscriptionManageURL = subscriptionManageURL || (allowManagedFallback ? String(managedSubscription?.short_url || '') : '');
   const normalizedCurrentStatus = String(status || '').trim().toLowerCase();
-  const normalizedManagedStatus = String(managedSubscription?.status || '').trim().toLowerCase();
+  const normalizedManagedStatus = allowManagedFallback ? String(managedSubscription?.status || '').trim().toLowerCase() : '';
   const effectiveTerminalCancellation =
-    isTerminalCancellationStatus(normalizedCurrentStatus) ||
-    isTerminalCancellationStatus(normalizedManagedStatus);
+    isTerminalSubscriptionStatus(normalizedCurrentStatus) ||
+    (!hasCurrentSubscription && allowManagedFallback && isTerminalSubscriptionStatus(normalizedManagedStatus));
   const currentCanCancel =
-    Boolean(subscriptionId) &&
+    hasCurrentSubscription &&
     !pendingCancel &&
     (!normalizedCurrentStatus || normalizedCurrentStatus === 'active' || normalizedCurrentStatus === 'authenticated');
   const managedCanCancel =
+    !hasCurrentSubscription &&
+    allowManagedFallback &&
     Boolean(managedSubscription?.razorpay_subscription_id) &&
     !Boolean(managedSubscription?.cancel_at_period_end) &&
     (!normalizedManagedStatus || normalizedManagedStatus === 'active' || normalizedManagedStatus === 'authenticated');
   const cancelTargetSubscriptionId = currentCanCancel
     ? subscriptionId
     : managedCanCancel
-    ? managedSubscription?.razorpay_subscription_id || null
-    : null;
+      ? managedSubscription?.razorpay_subscription_id || null
+      : null;
   const canCancelEffectiveSubscription = Boolean(cancelTargetSubscriptionId);
-  const canKeepEffectivePlan = Boolean(effectivePendingCancel && effectiveSubscriptionId);
+  const canKeepEffectivePlan = Boolean(isControlsMode && effectivePendingCancel && effectiveSubscriptionId);
+  const trialCanCancel = Boolean(
+    canManageBilling &&
+    billingStatus?.billing?.trial_can_cancel &&
+    cancelTargetSubscriptionId &&
+    !effectivePendingCancel &&
+    !effectiveTerminalCancellation
+  );
 
   const scheduledPlanCode = billingStatus?.billing?.scheduled_plan_code || '';
   const scheduledPlan = billingStatus?.available_plans?.find((p) => p.plan_code === scheduledPlanCode);
@@ -1224,69 +1434,75 @@ const OverviewTab: React.FC<{ navigate: any; mode?: 'full' | 'breakdown' | 'cont
   const scheduledChangeLabel = isScheduledUpgrade ? 'Scheduled upgrade' : 'Scheduled downgrade';
   const hasScheduledPlanChange = Boolean(scheduledPlanCode && scheduledPlanCode !== currentPlanCode && scheduledPlan);
   const scheduledChangeTargetLabel = hasScheduledPlanChange ? getPlanDisplayName(scheduledPlanCode) : '';
-  const effectivePendingExpiry = displayExpiry || managedSubscription?.current_period_end || licenseExpiresAt || null;
+  const effectivePendingExpiry =
+    displayExpiry ||
+    ((!hasCurrentSubscription && allowManagedFallback) ? managedSubscription?.current_period_end : null) ||
+    licenseExpiresAt ||
+    null;
   const pendingExpiryElapsed = Boolean(
     effectivePendingExpiry && moment(effectivePendingExpiry).isValid() && moment(effectivePendingExpiry).isBefore(moment())
   );
 
   const normalizedStatus = status.trim().toLowerCase();
-  const statusIsTerminal = ['cancelled', 'expired', 'halted', 'past_due', 'incomplete'].indexOf(normalizedStatus) >= 0;
   const autoDowngradedToFree = !isTeamPlan && !effectivePendingCancel && (
     normalizedStatus === 'expired' ||
-    normalizedManagedStatus === 'expired' ||
+    (!hasCurrentSubscription && allowManagedFallback && normalizedManagedStatus === 'expired') ||
     pendingExpiryElapsed
   );
-  const statusBadgeLabel = statusLoading
-    ? 'LOADING'
-    : autoDowngradedToFree
-    ? 'AUTO-DOWNGRADED'
-    : effectivePendingCancel
-    ? 'PENDING EXPIRY'
-    : statusIsTerminal
-    ? normalizedStatus.replace('_', ' ').toUpperCase()
-    : isTeamPlan
-    ? 'TEAM ACTIVE'
-    : 'FREE PLAN';
+  const statusBadgeLabel = getSubscriptionStatusLabel({
+    status,
+    pendingCancel: effectivePendingCancel,
+    statusLoading,
+    trialActive,
+    isTeamPlan,
+    autoDowngradedToFree,
+  });
 
-  const formatChargeUSD = (cents?: number) => {
-    if (typeof cents !== 'number') return null;
-    return `$${(cents / 100).toFixed(2)}`;
+  const openCancelDialog = (immediate: boolean) => {
+    setCancelImmediate(immediate);
+    setShowCancelModal(true);
+  };
+
+  const formatChargeAmount = (amountMinor?: number, rawCurrency?: string | null) => {
+    if (typeof amountMinor !== 'number') return null;
+    const normalizedCurrency = normalizePurchaseCurrency(rawCurrency) || purchaseCurrency;
+    return formatMinorAmount(amountMinor, normalizedCurrency);
   };
 
   const requestStatus = upgradeRequestStatus?.request || null;
   const timelineRows = requestStatus
     ? [
-        {
-          id: 'request_created',
-          label: 'Upgrade request created',
-          done: Boolean(requestStatus.created_at),
-          at: requestStatus.created_at,
-        },
-        {
-          id: 'order_created',
-          label: 'One-time payment order created',
-          done: Boolean(requestStatus.razorpay_order_id),
-          at: requestStatus.updated_at,
-        },
-        {
-          id: 'payment_confirmed',
-          label: 'Payment capture confirmed',
-          done: Boolean(requestStatus.payment_capture_confirmed),
-          at: requestStatus.payment_capture_confirmed_at,
-        },
-        {
-          id: 'subscription_confirmed',
-          label: 'Subscription change confirmed',
-          done: Boolean(requestStatus.subscription_change_confirmed),
-          at: requestStatus.subscription_change_confirmed_at,
-        },
-        {
-          id: 'resolved',
-          label: 'Upgrade resolved and granted',
-          done: Boolean(requestStatus.plan_grant_applied),
-          at: requestStatus.plan_grant_applied_at || requestStatus.resolved_at,
-        },
-      ]
+      {
+        id: 'request_created',
+        label: 'Upgrade request created',
+        done: Boolean(requestStatus.created_at),
+        at: requestStatus.created_at,
+      },
+      {
+        id: 'order_created',
+        label: 'One-time payment order created',
+        done: Boolean(requestStatus.razorpay_order_id),
+        at: requestStatus.updated_at,
+      },
+      {
+        id: 'payment_confirmed',
+        label: 'Payment capture confirmed',
+        done: Boolean(requestStatus.payment_capture_confirmed),
+        at: requestStatus.payment_capture_confirmed_at,
+      },
+      {
+        id: 'subscription_confirmed',
+        label: 'Subscription change confirmed',
+        done: Boolean(requestStatus.subscription_change_confirmed),
+        at: requestStatus.subscription_change_confirmed_at,
+      },
+      {
+        id: 'resolved',
+        label: 'Upgrade resolved and granted',
+        done: Boolean(requestStatus.plan_grant_applied),
+        at: requestStatus.plan_grant_applied_at || requestStatus.resolved_at,
+      },
+    ]
     : [];
 
   const effectiveChargeStatus = (() => {
@@ -1354,13 +1570,13 @@ const OverviewTab: React.FC<{ navigate: any; mode?: 'full' | 'breakdown' | 'cont
       </div>
 
       {isPlanUpgradeMode && (
-      <div className="bg-slate-800/50 border border-slate-700 rounded-lg p-4">
-        <h3 className="text-sm font-semibold text-white mb-2">AI Execution</h3>
-        <div className="space-y-1 text-sm text-slate-300">
-          <p><span className="text-slate-400">Free plan:</span> Bring your own AI key (BYOK) is required.</p>
-          <p><span className="text-slate-400">Paid LOC plans:</span> Hosted Auto is enabled by default, and BYOK remains optional.</p>
+        <div className="bg-slate-800/50 border border-slate-700 rounded-lg p-4">
+          <h3 className="text-sm font-semibold text-white mb-2">AI Execution</h3>
+          <div className="space-y-1 text-sm text-slate-300">
+            <p><span className="text-slate-400">Free plan:</span> Bring your own AI key (BYOK) is required.</p>
+            <p><span className="text-slate-400">Paid LOC plans:</span> Hosted Auto is enabled by default, and BYOK remains optional.</p>
+          </div>
         </div>
-      </div>
       )}
 
       {isPlanUpgradeMode && (billingStatus?.billing?.trial_readonly || quotaStatus?.envelope?.trial_readonly) && (
@@ -1368,15 +1584,6 @@ const OverviewTab: React.FC<{ navigate: any; mode?: 'full' | 'breakdown' | 'cont
           <p className="text-amber-200 text-sm font-medium">Trial is now read-only</p>
           <p className="text-amber-100/90 text-sm mt-1">
             Review creation is blocked until the organization is moved to a paid LOC plan.
-          </p>
-        </div>
-      )}
-
-      {isPlanUpgradeMode && (quotaStatus?.envelope?.blocked || quotaStatus?.can_trigger_reviews === false) && (
-        <div className="bg-red-500/10 border border-red-400/40 rounded-lg p-4">
-          <p className="text-red-200 text-sm font-medium">Quota blocked</p>
-          <p className="text-red-100/90 text-sm mt-1">
-            This organization has reached its current usage limit. Upgrade now or wait for the next billing period.
           </p>
         </div>
       )}
@@ -1392,168 +1599,210 @@ const OverviewTab: React.FC<{ navigate: any; mode?: 'full' | 'breakdown' | 'cont
 
       {/* Current Plan Section */}
       {isPlanUpgradeMode && billingLoading && (
-      <div className="bg-slate-800/60 border border-slate-700 rounded-lg p-6 animate-pulse">
-        <div className="flex items-center justify-between mb-4">
-          <div className="space-y-2">
-            <div className="h-5 w-28 bg-slate-700 rounded" />
-            <div className="h-4 w-40 bg-slate-700 rounded" />
+        <div className="bg-slate-800/60 border border-slate-700 rounded-lg p-6 animate-pulse">
+          <div className="flex items-center justify-between mb-4">
+            <div className="space-y-2">
+              <div className="h-5 w-28 bg-slate-700 rounded" />
+              <div className="h-4 w-40 bg-slate-700 rounded" />
+            </div>
+            <div className="h-9 w-28 bg-slate-700 rounded-lg" />
           </div>
-          <div className="h-9 w-28 bg-slate-700 rounded-lg" />
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mb-4">
+            <div className="h-16 bg-slate-900/70 border border-slate-700 rounded" />
+            <div className="h-16 bg-slate-900/70 border border-slate-700 rounded" />
+            <div className="h-16 bg-slate-900/70 border border-slate-700 rounded" />
+          </div>
+          <div className="h-2 bg-slate-900 border border-slate-700 rounded mb-4" />
+          <div className="space-y-3">
+            <div className="h-4 bg-slate-900/70 border border-slate-700 rounded" />
+            <div className="h-4 bg-slate-900/70 border border-slate-700 rounded" />
+            <div className="h-4 bg-slate-900/70 border border-slate-700 rounded" />
+          </div>
         </div>
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mb-4">
-          <div className="h-16 bg-slate-900/70 border border-slate-700 rounded" />
-          <div className="h-16 bg-slate-900/70 border border-slate-700 rounded" />
-          <div className="h-16 bg-slate-900/70 border border-slate-700 rounded" />
-        </div>
-        <div className="h-2 bg-slate-900 border border-slate-700 rounded mb-4" />
-        <div className="space-y-3">
-          <div className="h-4 bg-slate-900/70 border border-slate-700 rounded" />
-          <div className="h-4 bg-slate-900/70 border border-slate-700 rounded" />
-          <div className="h-4 bg-slate-900/70 border border-slate-700 rounded" />
-        </div>
-      </div>
       )}
 
       {isPlanUpgradeMode && !billingLoading && !billingStatus && (
-      <div className="bg-slate-800/60 border border-slate-700 rounded-lg p-6">
-        <h3 className="text-md font-semibold text-white">Current Plan</h3>
-        <p className="text-sm text-slate-400 mt-2">Unable to load current plan details right now.</p>
-      </div>
+        <div className="bg-slate-800/60 border border-slate-700 rounded-lg p-6">
+          <h3 className="text-md font-semibold text-white">Current Plan</h3>
+          <p className="text-sm text-slate-400 mt-2">Unable to load current plan details right now.</p>
+        </div>
       )}
 
       {isPlanUpgradeMode && !billingLoading && billingStatus && (
-      <div className="bg-slate-800/60 border border-slate-700 rounded-lg p-6">
-        <div className="flex items-center justify-between mb-4">
-          <div>
-            <h3 className="text-md font-semibold text-white">Current Plan</h3>
-            <p className="text-sm text-slate-400 mt-1">{getPlanDisplayName(currentPlanCode)}</p>
-          </div>
-          <div className="flex items-center gap-2">
-            <div className={`px-4 py-2 rounded-lg text-sm font-medium ${
-              effectivePendingCancel
-                ? 'bg-amber-500/10 text-amber-400 border border-amber-500/40'
-                : statusLoading
-                ? 'bg-slate-700 text-slate-300 border border-slate-600'
-                : isTeamPlan
-                ? 'bg-blue-900/40 text-blue-300'
-                : 'bg-emerald-900/40 text-emerald-300'
-            }`}>
-              {statusLoading ? (
-                <span className="flex items-center gap-2">
-                  <span className="inline-block w-3 h-3 border-2 border-slate-500 border-t-transparent rounded-full animate-spin" aria-label="Loading status" />
-                  Loading...
-                </span>
-              ) : statusBadgeLabel}
+        <div className="bg-slate-800/60 border border-slate-700 rounded-lg p-6">
+          <div className="flex items-center justify-between mb-4">
+            <div>
+              <h3 className="text-md font-semibold text-white">Current Plan</h3>
+              <p className="text-sm text-slate-400 mt-1">{getPlanDisplayName(currentPlanCode)}</p>
             </div>
-          </div>
-        </div>
-
-        {effectivePendingCancel && !autoDowngradedToFree && (
-          <div className="mb-4 p-3 bg-slate-700/50 border border-slate-600 rounded-lg">
-            <div className="flex items-start gap-3">
-              <svg className="w-5 h-5 text-slate-400 mt-0.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-              </svg>
-              <div>
-                <p className="text-slate-300 text-sm font-medium">Cancellation Scheduled</p>
-                <p className="text-slate-400 text-sm mt-1">
-                  {effectivePendingExpiry ? (
-                    <>
-                      Your current plan stays active until <span className="text-white">{formatDate(effectivePendingExpiry)}</span>. On the next billing cycle, it will switch to the free hobby plan and team member access will be removed.
-                    </>
-                  ) : (
-                    <>
-                      Your current plan stays active until the end of this billing cycle. On the next billing cycle, it will switch to the free hobby plan and team member access will be removed.
-                    </>
-                  )}
-                </p>
+            <div className="flex items-center gap-2">
+              <div className={`px-4 py-2 rounded-lg text-sm font-medium ${effectivePendingCancel
+                  ? 'bg-amber-500/10 text-amber-400 border border-amber-500/40'
+                  : statusLoading
+                    ? 'bg-slate-700 text-slate-300 border border-slate-600'
+                    : trialActive
+                      ? 'bg-sky-900/40 text-sky-200 border border-sky-500/40'
+                      : isTeamPlan
+                      ? 'bg-blue-900/40 text-blue-300'
+                      : 'bg-emerald-900/40 text-emerald-300'
+                }`}>
+                {statusLoading ? (
+                  <span className="flex items-center gap-2">
+                    <span className="inline-block w-3 h-3 border-2 border-slate-500 border-t-transparent rounded-full animate-spin" aria-label="Loading status" />
+                    Loading...
+                  </span>
+                ) : statusBadgeLabel}
               </div>
             </div>
           </div>
-        )}
 
-        {!effectivePendingCancel && hasScheduledPlanChange && (
-          <div className={`mb-4 p-3 rounded-lg border ${isScheduledUpgrade ? 'bg-blue-900/20 border-blue-500/40' : 'bg-amber-900/20 border-amber-500/40'}`}>
-            <div className="flex items-start gap-3">
-              <svg className={`w-5 h-5 mt-0.5 flex-shrink-0 ${isScheduledUpgrade ? 'text-blue-300' : 'text-amber-300'}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
-              </svg>
-              <div>
-                <p className={`text-sm font-medium ${isScheduledUpgrade ? 'text-blue-100' : 'text-amber-100'}`}>
-                  {isScheduledUpgrade ? 'Upgrade Scheduled' : 'Downgrade Scheduled'}
-                </p>
-                <p className={`text-sm mt-1 ${isScheduledUpgrade ? 'text-blue-100/80' : 'text-amber-100/80'}`}>
-                  {scheduledChangeTargetLabel ? (
-                    <>
-                      Your plan will change to <span className="text-white">{scheduledChangeTargetLabel}</span>
-                    </>
-                  ) : (
-                    <>
-                      A plan change is scheduled for your next billing cycle
-                    </>
-                  )}
-                  {billingStatus?.billing?.scheduled_plan_effective_at ? (
-                    <>
-                      {' '}on <span className="text-white">{formatDate(billingStatus.billing.scheduled_plan_effective_at)}</span>.
-                    </>
-                  ) : (
-                    <> at the next billing cycle.</>
-                  )}
-                </p>
+          {trialActive && (
+            <div className="mb-4 p-3 bg-sky-900/20 border border-sky-500/40 rounded-lg">
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <p className="text-sky-100 text-sm font-medium">
+                    Trial is active{typeof trialDaysRemaining === 'number' ? ` - ${trialDaysRemaining} day${trialDaysRemaining === 1 ? '' : 's'} left` : ''}
+                  </p>
+                  <p className="text-sky-100/90 text-sm mt-1">
+                    {trialEndsAt ? (
+                      <>
+                        Ends on <span className="text-white">{formatDate(trialEndsAt)}</span>
+                        {trialStartsAt ? <> (started {formatDate(trialStartsAt)})</> : null}.
+                      </>
+                    ) : (
+                      'Trial end date is being synchronized. Refresh in a moment to see precise timing.'
+                    )}
+                  </p>
+                </div>
+                {trialCanCancel && (
+                  <button
+                    type="button"
+                    onClick={() => openCancelDialog(true)}
+                    className="shrink-0 px-3 py-1.5 rounded bg-red-600 hover:bg-red-500 text-white text-xs font-semibold transition-colors"
+                  >
+                    Cancel Trial Now
+                  </button>
+                )}
               </div>
             </div>
-          </div>
-        )}
+          )}
 
-        {isTeamPlan && (displayExpiry || licenseExpiresAt) && (
-          <div className="mb-4 p-3 bg-slate-900/60 border border-slate-700 rounded-lg">
-            <div className="text-slate-400 text-xs mb-1">License Expires</div>
-            <div className="text-white font-medium">{formatDate(displayExpiry || licenseExpiresAt)}</div>
-          </div>
-        )}
+          {effectivePendingCancel && !autoDowngradedToFree && (
+            <div className="mb-4 p-3 bg-slate-700/50 border border-slate-600 rounded-lg">
+              <div className="flex items-start gap-3">
+                <svg className="w-5 h-5 text-slate-400 mt-0.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+                <div>
+                  <p className="text-slate-300 text-sm font-medium">Cancellation Scheduled</p>
+                  <p className="text-slate-400 text-sm mt-1">
+                    {effectivePendingExpiry ? (
+                      <>
+                        Your current plan stays active until <span className="text-white">{formatDate(effectivePendingExpiry)}</span>. On the next billing cycle, it will switch to the free hobby plan and team member access will be removed.
+                      </>
+                    ) : (
+                      <>
+                        Your current plan stays active until the end of this billing cycle. On the next billing cycle, it will switch to the free hobby plan and team member access will be removed.
+                      </>
+                    )}
+                  </p>
+                </div>
+              </div>
+            </div>
+          )}
 
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-3 text-sm mb-4">
-          <div className="bg-slate-900/70 border border-slate-700 rounded p-3">
-            <p className="text-slate-400">Plan Capacity</p>
-            <p className="text-white font-semibold">{currentLocLimit.toLocaleString()} LOC/month</p>
+          {!effectivePendingCancel && hasScheduledPlanChange && (
+            <div className={`mb-4 p-3 rounded-lg border ${isScheduledUpgrade ? 'bg-blue-900/20 border-blue-500/40' : 'bg-amber-900/20 border-amber-500/40'}`}>
+              <div className="flex items-start gap-3">
+                <svg className={`w-5 h-5 mt-0.5 flex-shrink-0 ${isScheduledUpgrade ? 'text-blue-300' : 'text-amber-300'}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+                <div>
+                  <p className={`text-sm font-medium ${isScheduledUpgrade ? 'text-blue-100' : 'text-amber-100'}`}>
+                    {isScheduledUpgrade ? 'Upgrade Scheduled' : 'Downgrade Scheduled'}
+                  </p>
+                  <p className={`text-sm mt-1 ${isScheduledUpgrade ? 'text-blue-100/80' : 'text-amber-100/80'}`}>
+                    {scheduledChangeTargetLabel ? (
+                      <>
+                        Your plan will change to <span className="text-white">{scheduledChangeTargetLabel}</span>
+                      </>
+                    ) : (
+                      <>
+                        A plan change is scheduled for your next billing cycle
+                      </>
+                    )}
+                    {billingStatus?.billing?.scheduled_plan_effective_at ? (
+                      <>
+                        {' '}on <span className="text-white">{formatDate(billingStatus.billing.scheduled_plan_effective_at)}</span>.
+                      </>
+                    ) : (
+                      <> at the next billing cycle.</>
+                    )}
+                  </p>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {isTeamPlan && (displayExpiry || licenseExpiresAt) && (
+            <div className="mb-4 p-3 bg-slate-900/60 border border-slate-700 rounded-lg">
+              <div className="text-slate-400 text-xs mb-1">License Expires</div>
+              <div className="text-white font-medium">{formatDate(displayExpiry || licenseExpiresAt)}</div>
+            </div>
+          )}
+
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-3 text-sm mb-4">
+            <div className="bg-slate-900/70 border border-slate-700 rounded p-3">
+              <p className="text-slate-400">Plan Capacity</p>
+              <p className="text-white font-semibold">{currentLocLimit.toLocaleString()} LOC/month</p>
+            </div>
+            <div className="bg-slate-900/70 border border-slate-700 rounded p-3">
+              <p className="text-slate-400">Org Usage This Period</p>
+              <p className="text-white font-semibold">{currentLocUsed.toLocaleString()} LOC</p>
+            </div>
+            <div className="bg-slate-900/70 border border-slate-700 rounded p-3">
+              <p className="text-slate-400">My Usage This Period</p>
+              <p className="text-white font-semibold">{(myUsage?.total_billable_loc || 0).toLocaleString()} LOC</p>
+            </div>
+            <div className="bg-slate-900/70 border border-slate-700 rounded p-3">
+              <p className="text-slate-400">Remaining</p>
+              <p className="text-white font-semibold">{currentLocRemaining.toLocaleString()} LOC</p>
+            </div>
           </div>
-          <div className="bg-slate-900/70 border border-slate-700 rounded p-3">
-            <p className="text-slate-400">Used This Period</p>
-            <p className="text-white font-semibold">{currentLocUsed.toLocaleString()} LOC</p>
+
+          <div className="space-y-2 mb-4">
+            <div className="flex items-center justify-between text-xs text-slate-400">
+              <span>Current billing period usage</span>
+              <span className={`font-medium ${currentLocUsagePercent >= 100 ? 'text-red-400' : currentLocUsagePercent >= 90 ? 'text-amber-400' : ''}`}>
+                {currentLocUsagePercent}%{currentLocUsagePercent >= 100 ? ' — BLOCKED' : ''}
+              </span>
+            </div>
+            <div className="h-2.5 rounded-full bg-slate-900 border border-slate-700 overflow-hidden">
+              <div
+                className={`h-full transition-all duration-500 ${currentLocUsagePercent >= 100 ? 'bg-red-500' : currentLocUsagePercent >= 90 ? 'bg-amber-500' : 'bg-blue-500'
+                  }`}
+                style={{ width: `${Math.min(100, currentLocUsagePercent)}%` }}
+              />
+            </div>
           </div>
-          <div className="bg-slate-900/70 border border-slate-700 rounded p-3">
-            <p className="text-slate-400">Remaining</p>
-            <p className="text-white font-semibold">{currentLocRemaining.toLocaleString()} LOC</p>
+
+          <div className="space-y-3 text-sm">
+            <div className="flex justify-between items-center py-2 border-b border-slate-700">
+              <span className="text-slate-400">Usage Policy</span>
+              <span className="text-white font-medium">{dailyLimit}</span>
+            </div>
+            <div className="flex justify-between items-center py-2 border-b border-slate-700">
+              <span className="text-slate-400">AI Execution</span>
+              <span className="text-white font-medium">{isTeamPlan ? 'Hosted Auto (BYOK optional)' : 'BYOK required'}</span>
+            </div>
+            <div className="flex justify-between items-center py-2">
+              <span className="text-slate-400">Support</span>
+              <span className={isTeamPlan ? 'text-emerald-400' : 'text-slate-500'}>
+                {isTeamPlan ? 'Priority support enabled' : 'Standard support'}
+              </span>
+            </div>
           </div>
         </div>
-
-        <div className="space-y-2 mb-4">
-          <div className="flex items-center justify-between text-xs text-slate-400">
-            <span>Current billing period usage</span>
-            <span>{currentLocUsagePercent}%</span>
-          </div>
-          <div className="h-2 rounded-full bg-slate-900 border border-slate-700 overflow-hidden">
-            <div className="h-full bg-blue-500" style={{ width: `${currentLocUsagePercent}%` }} />
-          </div>
-        </div>
-
-        <div className="space-y-3 text-sm">
-          <div className="flex justify-between items-center py-2 border-b border-slate-700">
-            <span className="text-slate-400">Usage Policy</span>
-            <span className="text-white font-medium">{dailyLimit}</span>
-          </div>
-          <div className="flex justify-between items-center py-2 border-b border-slate-700">
-            <span className="text-slate-400">AI Execution</span>
-            <span className="text-white font-medium">{isTeamPlan ? 'Hosted Auto (BYOK optional)' : 'BYOK required'}</span>
-          </div>
-          <div className="flex justify-between items-center py-2">
-            <span className="text-slate-400">Support</span>
-            <span className={isTeamPlan ? 'text-emerald-400' : 'text-slate-500'}>
-              {isTeamPlan ? 'Priority support enabled' : 'Standard support'}
-            </span>
-          </div>
-        </div>
-      </div>
       )}
 
       {isBreakdownMode && !usageSummary && (
@@ -1720,183 +1969,190 @@ const OverviewTab: React.FC<{ navigate: any; mode?: 'full' | 'breakdown' | 'cont
           {!billingLoading && billingStatus && (
             <>
 
-          {requestStatus && (
-            <div className="bg-slate-900/50 border border-slate-700 rounded-lg p-4 space-y-3">
-              <div className="flex items-center justify-between gap-3">
-                <p className="text-sm text-slate-200 font-medium">Upgrade request timeline</p>
-                <span className="text-xs text-slate-400 font-mono">
-                  {requestStatus.upgrade_request_id}
-                </span>
-              </div>
-              <div className="space-y-2">
-                {timelineRows.map((row) => (
-                  <div key={row.id} className="flex items-center justify-between text-xs border border-slate-700 rounded px-3 py-2 bg-slate-950/50">
-                    <div className="flex items-center gap-2">
-                      <span className={`inline-flex h-2.5 w-2.5 rounded-full ${row.done ? 'bg-emerald-400' : 'bg-amber-400'}`} />
-                      <span className={row.done ? 'text-slate-100' : 'text-slate-300'}>{row.label}</span>
-                    </div>
-                    <span className="text-slate-400">{row.at ? formatDate(row.at) : 'Pending'}</span>
+              {requestStatus && (
+                <div className="bg-slate-900/50 border border-slate-700 rounded-lg p-4 space-y-3">
+                  <div className="flex items-center justify-between gap-3">
+                    <p className="text-sm text-slate-200 font-medium">Upgrade request timeline</p>
+                    <span className="text-xs text-slate-400 font-mono">
+                      {requestStatus.upgrade_request_id}
+                    </span>
                   </div>
-                ))}
-              </div>
-              <div className="text-xs text-slate-300 flex items-center justify-between gap-3">
-                <span>Current status: <span className="text-white font-semibold uppercase">{requestStatus.status.replace(/_/g, ' ')}</span></span>
-                <button
-                  type="button"
-                  onClick={() => refreshUpgradeRequestStatus(requestStatus.upgrade_request_id)}
-                  disabled={upgradeRequestLoading}
-                  className="px-2 py-1 rounded border border-slate-600 text-slate-200 hover:bg-slate-800 disabled:opacity-50"
-                >
-                  {upgradeRequestLoading ? 'Refreshing...' : 'Refresh'}
-                </button>
-              </div>
-              {requestStatus.customer_state && (
-                <div className="text-xs text-slate-300 bg-slate-950/60 border border-slate-700 rounded px-3 py-2 space-y-1">
-                  <p>
-                    Customer state: <span className="text-white font-semibold uppercase">{requestStatus.customer_state.replace(/_/g, ' ')}</span>
-                  </p>
-                  {requestStatus.action_required?.type && requestStatus.action_required.type !== 'none' && (
-                    <p>
-                      Action required: <span className="text-amber-300 font-medium">{requestStatus.action_required.type.replace(/_/g, ' ')}</span>
-                      {requestStatus.action_needed_at ? <span className="text-slate-400"> since {formatDate(requestStatus.action_needed_at)}</span> : null}
-                    </p>
-                  )}
-                  {requestStatus.support_context?.razorpay_order_id && (
-                    <p>Order ID: <span className="text-white font-mono">{requestStatus.support_context.razorpay_order_id}</span></p>
-                  )}
-                  {requestStatus.support_context?.razorpay_payment_id && (
-                    <p>Payment ID: <span className="text-white font-mono">{requestStatus.support_context.razorpay_payment_id}</span></p>
-                  )}
-                  {requestStatus.support_reference && (
-                    <p>Support ref: <span className="text-white font-mono">{requestStatus.support_reference}</span></p>
+                  <div className="space-y-2">
+                    {timelineRows.map((row) => (
+                      <div key={row.id} className="flex items-center justify-between text-xs border border-slate-700 rounded px-3 py-2 bg-slate-950/50">
+                        <div className="flex items-center gap-2">
+                          <span className={`inline-flex h-2.5 w-2.5 rounded-full ${row.done ? 'bg-emerald-400' : 'bg-amber-400'}`} />
+                          <span className={row.done ? 'text-slate-100' : 'text-slate-300'}>{row.label}</span>
+                        </div>
+                        <span className="text-slate-400">{row.at ? formatDate(row.at) : 'Pending'}</span>
+                      </div>
+                    ))}
+                  </div>
+                  <div className="text-xs text-slate-300 flex items-center justify-between gap-3">
+                    <span>Current status: <span className="text-white font-semibold uppercase">{requestStatus.status.replace(/_/g, ' ')}</span></span>
+                    <button
+                      type="button"
+                      onClick={() => refreshUpgradeRequestStatus(requestStatus.upgrade_request_id)}
+                      disabled={upgradeRequestLoading}
+                      className="px-2 py-1 rounded border border-slate-600 text-slate-200 hover:bg-slate-800 disabled:opacity-50"
+                    >
+                      {upgradeRequestLoading ? 'Refreshing...' : 'Refresh'}
+                    </button>
+                  </div>
+                  {requestStatus.customer_state && (
+                    <div className="text-xs text-slate-300 bg-slate-950/60 border border-slate-700 rounded px-3 py-2 space-y-1">
+                      <p>
+                        Customer state: <span className="text-white font-semibold uppercase">{requestStatus.customer_state.replace(/_/g, ' ')}</span>
+                      </p>
+                      {requestStatus.action_required?.type && requestStatus.action_required.type !== 'none' && (
+                        <p>
+                          Action required: <span className="text-amber-300 font-medium">{requestStatus.action_required.type.replace(/_/g, ' ')}</span>
+                          {requestStatus.action_needed_at ? <span className="text-slate-400"> since {formatDate(requestStatus.action_needed_at)}</span> : null}
+                        </p>
+                      )}
+                      {requestStatus.support_context?.razorpay_order_id && (
+                        <p>Order ID: <span className="text-white font-mono">{requestStatus.support_context.razorpay_order_id}</span></p>
+                      )}
+                      {requestStatus.support_context?.razorpay_payment_id && (
+                        <p>Payment ID: <span className="text-white font-mono">{requestStatus.support_context.razorpay_payment_id}</span></p>
+                      )}
+                      {requestStatus.support_reference && (
+                        <p>Support ref: <span className="text-white font-mono">{requestStatus.support_reference}</span></p>
+                      )}
+                    </div>
                   )}
                 </div>
               )}
-            </div>
-          )}
 
-          {lastUpgradeResult?.proration && (
-            <div className="bg-blue-900/20 border border-blue-500/40 rounded-lg p-4 space-y-2">
-              <p className="text-sm text-blue-200 font-medium">Latest Upgrade Charge Summary</p>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-2 text-xs text-slate-200">
-                <p>From: <span className="text-white">{lastUpgradeResult.proration.from_plan_code || 'n/a'}</span></p>
-                <p>To: <span className="text-white">{lastUpgradeResult.proration.to_plan_code || lastUpgradeResult.plan_code || 'n/a'}</span></p>
-                <p>Charged now: <span className="text-white">{formatChargeUSD(lastUpgradeResult.proration.charge_amount_cents) || '$0.00'}</span></p>
-                <p>Status: <span className="text-white">{chargeStatusLabel}</span></p>
-                {typeof lastUpgradeResult.proration.remaining_cycle_fraction === 'number' && (
-                  <p>Remaining cycle fraction: <span className="text-white">{(lastUpgradeResult.proration.remaining_cycle_fraction * 100).toFixed(2)}%</span></p>
-                )}
-                {typeof lastUpgradeResult.proration.immediate_loc_grant === 'number' && (
-                  <p>Immediate LOC grant: <span className="text-white">{lastUpgradeResult.proration.immediate_loc_grant.toLocaleString()}</span></p>
-                )}
-                {lastUpgradeResult.proration.order_id && (
-                  <p>Order ID: <span className="text-white font-mono">{lastUpgradeResult.proration.order_id}</span></p>
-                )}
-                {lastUpgradeResult.proration.payment_id && (
-                  <p>Payment ID: <span className="text-white font-mono">{lastUpgradeResult.proration.payment_id}</span></p>
-                )}
-                {lastUpgradeResult.proration.cycle_end && (
-                  <p>Cycle end: <span className="text-white">{formatDate(lastUpgradeResult.proration.cycle_end)}</span></p>
-                )}
-              </div>
-              <p className="text-xs text-slate-300">{chargeSummaryHint}</p>
-            </div>
-          )}
+              {lastUpgradeResult?.proration && (
+                <div className="bg-blue-900/20 border border-blue-500/40 rounded-lg p-4 space-y-2">
+                  <p className="text-sm text-blue-200 font-medium">Latest Upgrade Charge Summary</p>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-2 text-xs text-slate-200">
+                    <p>From: <span className="text-white">{lastUpgradeResult.proration.from_plan_code || 'n/a'}</span></p>
+                    <p>To: <span className="text-white">{lastUpgradeResult.proration.to_plan_code || lastUpgradeResult.plan_code || 'n/a'}</span></p>
+                    <p>Charged now: <span className="text-white">{formatChargeAmount(lastUpgradeResult.proration.charge_amount_cents, lastUpgradeResult.proration.charge_currency) || formatMinorAmount(0, purchaseCurrency)}</span></p>
+                    <p>Status: <span className="text-white">{chargeStatusLabel}</span></p>
+                    {typeof lastUpgradeResult.proration.remaining_cycle_fraction === 'number' && (
+                      <p>Remaining cycle fraction: <span className="text-white">{(lastUpgradeResult.proration.remaining_cycle_fraction * 100).toFixed(2)}%</span></p>
+                    )}
+                    {typeof lastUpgradeResult.proration.immediate_loc_grant === 'number' && (
+                      <p>Immediate LOC grant: <span className="text-white">{lastUpgradeResult.proration.immediate_loc_grant.toLocaleString()}</span></p>
+                    )}
+                    {lastUpgradeResult.proration.order_id && (
+                      <p>Order ID: <span className="text-white font-mono">{lastUpgradeResult.proration.order_id}</span></p>
+                    )}
+                    {lastUpgradeResult.proration.payment_id && (
+                      <p>Payment ID: <span className="text-white font-mono">{lastUpgradeResult.proration.payment_id}</span></p>
+                    )}
+                    {lastUpgradeResult.proration.cycle_end && (
+                      <p>Cycle end: <span className="text-white">{formatDate(lastUpgradeResult.proration.cycle_end)}</span></p>
+                    )}
+                  </div>
+                  <p className="text-xs text-slate-300">{chargeSummaryHint}</p>
+                </div>
+              )}
 
-          {billingError && (
-            <div className="bg-red-500/10 border border-red-500/40 rounded-lg p-3 text-sm text-red-200">
-              {billingError}
-            </div>
-          )}
+              {billingError && (
+                <div className="bg-red-500/10 border border-red-500/40 rounded-lg p-3 text-sm text-red-200">
+                  {billingError}
+                </div>
+              )}
 
-          {actionProgressMessage && (
-            <div className="bg-sky-500/10 border border-sky-500/40 rounded-lg p-3 text-sm text-sky-100">
-              {actionProgressMessage}
-            </div>
-          )}
+              {actionProgressMessage && (
+                <div className="bg-sky-500/10 border border-sky-500/40 rounded-lg p-3 text-sm text-sky-100">
+                  {actionProgressMessage}
+                </div>
+              )}
 
-          {(keepPlanError || keepPlanSuccess) && (
-            <div className={`rounded-lg border p-3 text-sm ${
-              keepPlanError
-                ? 'bg-red-500/10 border-red-500/40 text-red-200'
-                : 'bg-emerald-500/10 border-emerald-500/40 text-emerald-200'
-            }`}>
-              {keepPlanError || keepPlanSuccess}
-            </div>
-          )}
+              {(keepPlanError || keepPlanSuccess) && (
+                <div className={`rounded-lg border p-3 text-sm ${keepPlanError
+                  ? 'bg-red-500/10 border-red-500/40 text-red-200'
+                  : 'bg-emerald-500/10 border-emerald-500/40 text-emerald-200'
+                  }`}>
+                  {keepPlanError || keepPlanSuccess}
+                </div>
+              )}
 
-          <div className="space-y-4">
-            <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-3">
-              {upgradeHierarchyPlans.map((plan) => {
-                const isCurrentCard = plan.plan_code === currentPlanCode;
-                const isSelectableUpgrade = plan.monthly_loc_limit > currentLocLimit;
-                const cardBaseClass = `rounded-lg border p-4 text-left transition-all duration-200 ${
-                  isCurrentCard
-                    ? 'bg-emerald-900/20 border-emerald-400/50'
-                    : 'bg-slate-900/70 border-slate-700'
-                }`;
+              <div className="space-y-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-3">
+                  {upgradeHierarchyPlans.map((plan) => {
+                    const isCurrentCard = plan.plan_code === currentPlanCode;
+                    const isSelectableUpgrade = plan.monthly_loc_limit > currentLocLimit;
+                    const planTrialDays = Number(plan.trial_days || firstPaidTrialDays || 0);
+                    const showsFirstPaidTrialCopy = isFree && plan.monthly_price_usd > 0 && planTrialDays > 0;
+                    const firstPaidTrialCardBadgeText = trialEligibleForFirstPaidPurchase
+                      ? `Free ${planTrialDays}-Day Trial Included`
+                      : trialEligibilityStatus === 'already_used'
+                        ? 'Trial already used'
+                        : trialEligibilityStatus === 'reserved'
+                          ? 'Trial reservation in progress'
+                          : `Up to ${planTrialDays}-day trial`;
+                    const cardBaseClass = `rounded-lg border p-4 text-left transition-all duration-200 ${isCurrentCard
+                      ? 'bg-emerald-900/20 border-emerald-400/50'
+                      : 'bg-slate-900/70 border-slate-700'
+                      }`;
 
-                if (!isSelectableUpgrade) {
-                  return (
-                    <div
-                      key={plan.plan_code}
-                      className={cardBaseClass}
-                    >
-                      <div className="flex items-center justify-between gap-2">
-                        <p className="text-sm font-semibold text-white">{getPlanDisplayName(plan.plan_code)}</p>
-                        {isCurrentCard ? (
-                          <span className="text-[10px] px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-300 border border-emerald-500/40">Current</span>
-                        ) : null}
-                      </div>
-                      <p className="mt-2 text-sm text-slate-300">{plan.monthly_loc_limit.toLocaleString()} LOC / month</p>
-                      <p className="text-sm text-slate-300">${plan.monthly_price_usd}/month</p>
-                      {isCurrentCard && canKeepEffectivePlan && (
-                        <button
-                          type="button"
-                          disabled={keepPlanLoading || actionLoading || statusLoading || subscriptionLoading}
-                          onClick={() => {
-                            void handleKeepPlan();
-                          }}
-                          className="mt-3 inline-flex px-3 py-1.5 rounded bg-emerald-600 text-white text-xs font-medium transition-colors hover:bg-emerald-500 disabled:opacity-60 disabled:cursor-not-allowed"
+                    if (!isSelectableUpgrade) {
+                      return (
+                        <div
+                          key={plan.plan_code}
+                          className={cardBaseClass}
                         >
-                          {keepPlanLoading ? 'Keeping Plan...' : 'Keep Plan'}
-                        </button>
-                      )}
-                    </div>
-                  );
-                }
+                          <div className="flex items-center justify-between gap-2">
+                            <p className="text-sm font-semibold text-white">{getPlanDisplayName(plan.plan_code)}</p>
+                            {isCurrentCard ? (
+                              <span className="text-[10px] px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-300 border border-emerald-500/40">Current</span>
+                            ) : null}
+                          </div>
+                          <p className="mt-2 text-sm text-slate-300">{plan.monthly_loc_limit.toLocaleString()} LOC / month</p>
+                          <p className="text-sm text-slate-300">${plan.monthly_price_usd}/month</p>
+                        </div>
+                      );
+                    }
 
-                return (
-                  <button
-                    key={plan.plan_code}
-                    type="button"
-                    disabled={actionLoading || keepPlanLoading || upgradeCheckoutLoading}
-                    onClick={() => {
-                      void openUpgradePreview(plan.plan_code);
-                    }}
-                    title={`Upgrade to ${getPlanDisplayName(plan.plan_code)}`}
-                    className={`${cardBaseClass} relative overflow-hidden group hover:-translate-y-0.5 hover:bg-emerald-950/40 hover:border-emerald-300/70 hover:shadow-xl hover:shadow-emerald-950/45 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400/70 disabled:opacity-60 disabled:cursor-not-allowed`}
-                  >
-                    <div className="pointer-events-none absolute inset-0 opacity-0 transition-opacity duration-200 group-hover:opacity-100 bg-gradient-to-br from-emerald-500/15 via-emerald-500/5 to-transparent" />
-                    <div className="relative z-10">
-                      <p className="text-sm font-semibold text-white">{getPlanDisplayName(plan.plan_code)}</p>
-                      <p className="mt-2 text-sm text-slate-300">{plan.monthly_loc_limit.toLocaleString()} LOC / month</p>
-                      <p className="text-sm text-slate-300">${plan.monthly_price_usd}/month</p>
-                      <div className="mt-3 inline-flex px-3 py-1.5 rounded bg-emerald-600 text-white text-xs font-medium transition-colors group-hover:bg-emerald-500">
-                        Upgrade
-                      </div>
-                    </div>
-                  </button>
-                );
-              })}
-            </div>
-            {upgradeOptions.length === 0 && (
-              <div className="rounded-lg border border-slate-700 bg-slate-900/50 p-3 text-sm text-slate-300">
-                This organization is already on the highest available LOC plan.
+                    return (
+                      <button
+                        key={plan.plan_code}
+                        type="button"
+                        disabled={actionLoading || keepPlanLoading || upgradeCheckoutLoading}
+                        onClick={() => {
+                          void openUpgradePreview(plan.plan_code);
+                        }}
+                        title={`Upgrade to ${getPlanDisplayName(plan.plan_code)}`}
+                        className={`${cardBaseClass} relative overflow-hidden group hover:-translate-y-0.5 hover:bg-emerald-950/40 hover:border-emerald-300/70 hover:shadow-xl hover:shadow-emerald-950/45 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400/70 disabled:opacity-60 disabled:cursor-not-allowed`}
+                      >
+                        <div className="pointer-events-none absolute inset-0 opacity-0 transition-opacity duration-200 group-hover:opacity-100 bg-gradient-to-br from-emerald-500/15 via-emerald-500/5 to-transparent" />
+                        <div className="relative z-10">
+                          <p className="text-sm font-semibold text-white">{getPlanDisplayName(plan.plan_code)}</p>
+                          <p className="mt-2 text-sm text-slate-300">{plan.monthly_loc_limit.toLocaleString()} LOC / month</p>
+                          <p className="text-sm text-slate-300">${plan.monthly_price_usd}/month</p>
+                          <div className="mt-3 flex flex-wrap items-center gap-2">
+                            <div className="inline-flex px-3 py-1.5 rounded bg-emerald-600 text-white text-xs font-medium transition-colors group-hover:bg-emerald-500">
+                              Upgrade
+                            </div>
+                            {showsFirstPaidTrialCopy && (
+                              <span className={`inline-flex items-center rounded border px-2 py-1 text-[10px] font-semibold uppercase tracking-wide ${trialEligibleForFirstPaidPurchase
+                                  ? 'border-sky-400/50 bg-sky-900/35 text-sky-100'
+                                  : trialEligibilityStatus === 'already_used'
+                                    ? 'border-slate-600 bg-slate-800 text-slate-300'
+                                    : 'border-amber-400/50 bg-amber-900/30 text-amber-100'
+                                }`}>
+                                {firstPaidTrialCardBadgeText}
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                      </button>
+                    );
+                  })}
+                </div>
+                {upgradeOptions.length === 0 && (
+                  <div className="rounded-lg border border-slate-700 bg-slate-900/50 p-3 text-sm text-slate-300">
+                    This organization is already on the highest available LOC plan.
+                  </div>
+                )}
               </div>
-            )}
-          </div>
-          </>
+            </>
           )}
         </div>
       )}
@@ -1951,7 +2207,20 @@ const OverviewTab: React.FC<{ navigate: any; mode?: 'full' | 'breakdown' | 'cont
 
               <div className="p-4 bg-slate-900/70 border border-slate-700 rounded-lg space-y-3">
                 <p className="text-sm text-slate-300 font-medium">Cancel Subscription</p>
-                {canKeepEffectivePlan ? (
+                {trialCanCancel ? (
+                  <div className="space-y-2">
+                    <p className="text-xs text-slate-400">
+                      Trial ends on {trialEndsAt ? formatDate(trialEndsAt) : 'the configured trial end date'}.
+                    </p>
+                    <button
+                      className="text-xs text-red-300 hover:text-red-200 underline underline-offset-2 disabled:opacity-60 disabled:cursor-not-allowed"
+                      disabled={keepPlanLoading || actionLoading || statusLoading || subscriptionLoading}
+                      onClick={() => openCancelDialog(true)}
+                    >
+                      Cancel Trial Now (Immediate)
+                    </button>
+                  </div>
+                ) : canKeepEffectivePlan ? (
                   <div className="space-y-2">
                     <p className="text-xs text-slate-400">Cancellation is scheduled for period end.</p>
                     <button
@@ -1967,7 +2236,7 @@ const OverviewTab: React.FC<{ navigate: any; mode?: 'full' | 'breakdown' | 'cont
                 ) : canCancelEffectiveSubscription ? (
                   <button
                     className="text-xs text-slate-300 hover:text-white underline underline-offset-2"
-                    onClick={() => setShowCancelModal(true)}
+                    onClick={() => openCancelDialog(false)}
                   >
                     Cancel Subscription
                   </button>
@@ -1994,35 +2263,35 @@ const OverviewTab: React.FC<{ navigate: any; mode?: 'full' | 'breakdown' | 'cont
                 <p className="text-sm text-slate-300 font-medium">Downgrade Plan</p>
                 <p className="text-xs text-slate-400">Downgrades are scheduled and take effect at the end of your current billing cycle.</p>
                 {billingStatus ? (
-                <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-3">
-                  {downgradeOptions.map((plan) => {
-                    return (
-                      <button
-                        key={plan.plan_code}
-                        type="button"
-                        disabled={actionLoading || keepPlanLoading}
-                        onClick={() => {
-                          setSelectedDowngradePlan(plan.plan_code);
-                          void runBillingAction('schedule_downgrade', plan.plan_code);
-                        }}
-                        title={`Downgrade to ${getPlanDisplayName(plan.plan_code)}`}
-                        className="relative overflow-hidden group rounded-lg border p-4 text-left transition-all duration-200 bg-slate-950/50 border-slate-700 hover:-translate-y-0.5 hover:bg-amber-950/30 hover:border-amber-300/70 hover:shadow-xl hover:shadow-amber-950/35 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400/70 disabled:opacity-60 disabled:cursor-not-allowed"
-                      >
-                        <div className="pointer-events-none absolute inset-0 opacity-0 transition-opacity duration-200 group-hover:opacity-100 bg-gradient-to-br from-amber-500/15 via-amber-500/5 to-transparent" />
-                        <div className="relative z-10">
-                          <div className="flex items-center justify-between gap-2 mb-1">
-                            <p className="text-sm font-semibold text-white">{getPlanDisplayName(plan.plan_code)}</p>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-3">
+                    {downgradeOptions.map((plan) => {
+                      return (
+                        <button
+                          key={plan.plan_code}
+                          type="button"
+                          disabled={actionLoading || keepPlanLoading}
+                          onClick={() => {
+                            setSelectedDowngradePlan(plan.plan_code);
+                            void runBillingAction('schedule_downgrade', plan.plan_code);
+                          }}
+                          title={`Downgrade to ${getPlanDisplayName(plan.plan_code)}`}
+                          className="relative overflow-hidden group rounded-lg border p-4 text-left transition-all duration-200 bg-slate-950/50 border-slate-700 hover:-translate-y-0.5 hover:bg-amber-950/30 hover:border-amber-300/70 hover:shadow-xl hover:shadow-amber-950/35 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400/70 disabled:opacity-60 disabled:cursor-not-allowed"
+                        >
+                          <div className="pointer-events-none absolute inset-0 opacity-0 transition-opacity duration-200 group-hover:opacity-100 bg-gradient-to-br from-amber-500/15 via-amber-500/5 to-transparent" />
+                          <div className="relative z-10">
+                            <div className="flex items-center justify-between gap-2 mb-1">
+                              <p className="text-sm font-semibold text-white">{getPlanDisplayName(plan.plan_code)}</p>
+                            </div>
+                            <p className="text-sm text-slate-300">{plan.monthly_loc_limit.toLocaleString()} LOC / month</p>
+                            <p className="text-sm text-slate-300">${plan.monthly_price_usd}/month</p>
+                            <div className="mt-3 inline-flex px-3 py-1.5 rounded bg-amber-600 text-white text-xs font-medium transition-colors group-hover:bg-amber-500">
+                              Downgrade
+                            </div>
                           </div>
-                          <p className="text-sm text-slate-300">{plan.monthly_loc_limit.toLocaleString()} LOC / month</p>
-                          <p className="text-sm text-slate-300">${plan.monthly_price_usd}/month</p>
-                          <div className="mt-3 inline-flex px-3 py-1.5 rounded bg-amber-600 text-white text-xs font-medium transition-colors group-hover:bg-amber-500">
-                            Downgrade
-                          </div>
-                        </div>
-                      </button>
-                    );
-                  })}
-                </div>
+                        </button>
+                      );
+                    })}
+                  </div>
                 ) : (
                   <p className="text-xs text-slate-400">Billing details are still loading.</p>
                 )}
@@ -2058,10 +2327,14 @@ const OverviewTab: React.FC<{ navigate: any; mode?: 'full' | 'breakdown' | 'cont
       {!isBreakdownMode && cancelTargetSubscriptionId && (
         <CancelSubscriptionModal
           isOpen={showCancelModal}
-          onClose={() => setShowCancelModal(false)}
+          onClose={() => {
+            setShowCancelModal(false);
+            setCancelImmediate(false);
+          }}
           onSuccess={handleCancelSuccess}
           subscriptionId={cancelTargetSubscriptionId}
-          expiryDate={displayExpiry || managedSubscription?.current_period_end || licenseExpiresAt}
+          expiryDate={cancelImmediate ? trialEndsAt : (displayExpiry || managedSubscription?.current_period_end || licenseExpiresAt)}
+          immediate={cancelImmediate}
         />
       )}
 
@@ -2071,7 +2344,7 @@ const OverviewTab: React.FC<{ navigate: any; mode?: 'full' | 'breakdown' | 'cont
             <div className="border-b border-slate-700 px-6 py-4">
               <h3 className="text-lg font-semibold text-white">Confirm New Paid Plan</h3>
               <p className="mt-1 text-sm text-slate-300">
-                You are moving from Free 30k BYOK to a paid LOC slab. The recurring charge starts with this checkout authorization.
+                You are moving from Free 30k BYOK to a paid LOC slab. {freeCheckoutTrialMessage}
               </p>
             </div>
 
@@ -2081,18 +2354,48 @@ const OverviewTab: React.FC<{ navigate: any; mode?: 'full' | 'breakdown' | 'cont
                 <p>Target plan: <span className="text-white">{getPlanDisplayName(selectedUpgradePlan)}</span></p>
               </div>
 
+              <div className="rounded-lg border border-slate-700 bg-slate-800/70 p-4 space-y-2 text-slate-200">
+                <label htmlFor="new-plan-currency" className="text-xs uppercase tracking-wide text-slate-300">Billing currency</label>
+                <select
+                  id="new-plan-currency"
+                  value={purchaseCurrency}
+                  disabled={upgradeCheckoutLoading}
+                  onChange={(event) => {
+                    const nextCurrency = normalizePurchaseCurrency(event.target.value);
+                    if (!nextCurrency || nextCurrency === purchaseCurrency) {
+                      return;
+                    }
+                    setPurchaseCurrency(nextCurrency);
+                  }}
+                  className="w-full rounded border border-slate-600 bg-slate-900 px-3 py-2 text-sm text-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                >
+                  {availablePurchaseCurrencies.map((currency) => (
+                    <option key={currency} value={currency}>{currency}</option>
+                  ))}
+                </select>
+                <p className="text-xs text-slate-400">Default currency is selected from your region (IN defaults to INR, others default to USD).</p>
+              </div>
+
               <div className="rounded-lg border border-blue-500/40 bg-blue-900/20 p-4 space-y-2 text-slate-100">
                 <p className="font-medium text-blue-200">Checkout summary</p>
                 <p>
-                  Recurring amount: <span className="text-white font-semibold">${selectedFreeCheckoutPriceUSD}/month</span>
+                  Recurring amount (USD reference): <span className="text-white font-semibold">${selectedFreeCheckoutPriceUSD}/month</span>
+                </p>
+                <p>
+                  Checkout currency: <span className="text-white font-semibold">{purchaseCurrency}</span>
                 </p>
                 <p>
                   Included LOC: <span className="text-white font-semibold">{selectedFreeCheckoutLoc.toLocaleString()} LOC/month</span>
                 </p>
+                {selectedFreeCheckoutTrialDays > 0 && (
+                  <p>
+                    Trial policy: <span className="text-white font-semibold">{trialEligibleForFirstPaidPurchase ? `${selectedFreeCheckoutTrialDays} days before recurring billing` : 'Not available for this email'}</span>
+                  </p>
+                )}
               </div>
 
               <div className="rounded-lg border border-amber-500/40 bg-amber-900/20 p-3 text-xs text-amber-100">
-                This flow opens Razorpay checkout now and activates your selected paid plan after payment confirmation.
+                This flow opens Razorpay checkout now and activates your selected paid plan after payment confirmation. Trial eligibility, if available, is enforced by backend policy at checkout time. During trial setup, Razorpay may show a small authorization amount to validate the payment method; recurring billing starts after trial ends.
               </div>
             </div>
 
@@ -2124,7 +2427,7 @@ const OverviewTab: React.FC<{ navigate: any; mode?: 'full' | 'breakdown' | 'cont
             <div className="border-b border-slate-700 px-6 py-4">
               <h3 className="text-lg font-semibold text-white">Confirm Upgrade and Prorated Charge</h3>
               <p className="mt-1 text-sm text-slate-300">
-				This charge applies now for the remaining current cycle. Upgrade grant is finalized after deterministic payment and subscription confirmations.
+                This charge applies now for the remaining current cycle. Upgrade grant is finalized after deterministic payment and subscription confirmations.
               </p>
             </div>
 
@@ -2135,14 +2438,37 @@ const OverviewTab: React.FC<{ navigate: any; mode?: 'full' | 'breakdown' | 'cont
                 <p>Current cycle ends: <span className="text-white">{formatDate(upgradePreview.preview.cycle_end)}</span></p>
               </div>
 
+              <div className="rounded-lg border border-slate-700 bg-slate-800/70 p-4 space-y-2 text-slate-200">
+                <label htmlFor="upgrade-currency" className="text-xs uppercase tracking-wide text-slate-300">Billing currency</label>
+                <select
+                  id="upgrade-currency"
+                  value={purchaseCurrency}
+                  disabled={upgradeCheckoutLoading || actionLoading}
+                  onChange={(event) => {
+                    const nextCurrency = normalizePurchaseCurrency(event.target.value);
+                    if (!nextCurrency || nextCurrency === purchaseCurrency) {
+                      return;
+                    }
+                    setPurchaseCurrency(nextCurrency);
+                    void openUpgradePreview(selectedUpgradePlan || upgradePreview.preview.to_plan_code, nextCurrency);
+                  }}
+                  className="w-full rounded border border-slate-600 bg-slate-900 px-3 py-2 text-sm text-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                >
+                  {availablePurchaseCurrencies.map((currency) => (
+                    <option key={currency} value={currency}>{currency}</option>
+                  ))}
+                </select>
+                <p className="text-xs text-slate-400">Default currency is selected from your region (IN defaults to INR, others default to USD).</p>
+              </div>
+
               <div className="rounded-lg border border-blue-500/40 bg-blue-900/20 p-4 space-y-2 text-slate-100">
                 <p className="font-medium text-blue-200">Immediate one-time payment</p>
                 <p>
-                  Charge now: <span className="text-white font-semibold">{formatChargeUSD(upgradePreview.preview.immediate_charge_cents) || '$0.00'}</span>
+                  Charge now: <span className="text-white font-semibold">{formatChargeAmount(upgradePreview.preview.immediate_charge_cents, upgradePreview.preview.immediate_charge_currency) || formatMinorAmount(0, purchaseCurrency)}</span>
                   {' '}(remaining cycle {(upgradePreview.preview.remaining_cycle_fraction * 100).toFixed(2)}%)
                 </p>
                 <p>
-                  Formula: <span className="text-white">{formatChargeUSD(upgradePreview.preview.next_cycle_price_cents) || '$0.00'} × {(upgradePreview.preview.remaining_cycle_fraction * 100).toFixed(2)}%</span>
+                  Formula: <span className="text-white">{formatChargeAmount(upgradePreview.preview.next_cycle_price_cents, upgradePreview.preview.immediate_charge_currency) || formatMinorAmount(0, purchaseCurrency)} × {(upgradePreview.preview.remaining_cycle_fraction * 100).toFixed(2)}%</span>
                 </p>
                 <p>
                   Immediate LOC grant: <span className="text-white font-semibold">{upgradePreview.preview.immediate_loc_grant.toLocaleString()} LOC</span>
@@ -2152,7 +2478,7 @@ const OverviewTab: React.FC<{ navigate: any; mode?: 'full' | 'breakdown' | 'cont
               <div className="rounded-lg border border-emerald-500/40 bg-emerald-900/20 p-4 space-y-2 text-slate-100">
                 <p className="font-medium text-emerald-200">Next billing cycle</p>
                 <p>
-                  Recurring amount: <span className="text-white font-semibold">{formatChargeUSD(upgradePreview.preview.next_cycle_price_cents) || '$0.00'}/month</span>
+                  Recurring amount: <span className="text-white font-semibold">{formatChargeAmount(upgradePreview.preview.next_cycle_price_cents, upgradePreview.preview.immediate_charge_currency) || formatMinorAmount(0, purchaseCurrency)}/month</span>
                 </p>
                 <p>
                   Monthly LOC limit: <span className="text-white font-semibold">{upgradePreview.preview.next_cycle_loc_limit.toLocaleString()} LOC</span>
@@ -2160,7 +2486,7 @@ const OverviewTab: React.FC<{ navigate: any; mode?: 'full' | 'breakdown' | 'cont
               </div>
 
               <div className="rounded-lg border border-amber-500/40 bg-amber-900/20 p-3 text-xs text-amber-100">
-				By confirming, you authorize a one-time prorated payment now and start a tracked upgrade process that resolves after all confirmations.
+                By confirming, you authorize a one-time prorated payment now and start a tracked upgrade process that resolves after all confirmations.
               </div>
             </div>
 

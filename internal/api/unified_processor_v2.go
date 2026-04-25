@@ -493,9 +493,11 @@ func (p *UnifiedProcessorV2Impl) buildContextualResponseWithLearningV2(ctx conte
 	prompt = p.appendLearningsToPrompt(prompt, relevantLearnings)
 
 	// write the prompt into a file for debugging
-	err := os.WriteFile("debug_prompt.txt", []byte(prompt), 0644)
-	if err != nil {
-		log.Printf("[WARN] Failed to write debug prompt to file: %v", err)
+	if false {
+		err := os.WriteFile("debug_prompt.txt", []byte(prompt), 0644)
+		if err != nil {
+			log.Printf("[WARN] Failed to write debug prompt to file: %v", err)
+		}
 	}
 
 	if ctx == nil {

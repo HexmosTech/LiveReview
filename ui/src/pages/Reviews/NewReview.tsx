@@ -1,10 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { 
-  Card, 
-  PageHeader, 
-  Input, 
-  Button, 
+import {
+  Card,
+  PageHeader,
+  Input,
+  Button,
   Icons,
   Alert,
   Spinner,
@@ -16,18 +16,63 @@ import { ErrorBoundary } from '../../components/ErrorBoundary';
 import { UpgradePromptModal } from '../../components/Subscriptions';
 import { SafetyBanner } from '../../components/SafetyBanner/SafetyBanner';
 import apiClient from '../../api/apiClient';
+import { QuotaExhaustedBanner } from '../../components/Dashboard/QuotaExhaustedBanner';
+import { QuotaWarningBanner } from '../../components/Dashboard/QuotaWarningBanner';
+import { useOrgContext } from '../../hooks/useOrgContext';
+import LicenseUpgradeDialog from '../../components/License/LicenseUpgradeDialog';
 
 type QuotaStatusResponse = {
   can_trigger_reviews: boolean;
   envelope?: {
     blocked?: boolean;
     trial_readonly?: boolean;
-    usage_pct?: number;
+    trial_ends_at?: string;
+    usage_percent?: number;
+    threshold_state?: string;
+    loc_used_month?: number;
+    loc_limit_month?: number;
+    loc_remaining_month?: number;
+    billing_period_end?: string;
+    upgrade_url?: string;
   };
+};
+
+type TrialBillingStatusResponse = {
+  billing?: {
+    trial_active?: boolean;
+    trial_ends_at?: string | null;
+    trial_can_cancel?: boolean;
+  };
+};
+
+const formatTrialEndsAt = (value?: string | null): string | null => {
+  const raw = String(value || '').trim();
+  if (!raw) return null;
+  const date = new Date(raw);
+  if (Number.isNaN(date.getTime())) return null;
+  return date.toLocaleString(undefined, {
+    year: 'numeric',
+    month: 'short',
+    day: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit',
+  });
+};
+
+const trialDaysRemaining = (value?: string | null): number | null => {
+  const raw = String(value || '').trim();
+  if (!raw) return null;
+  const end = new Date(raw);
+  if (Number.isNaN(end.getTime())) return null;
+  const diffMs = end.getTime() - Date.now();
+  if (diffMs <= 0) return 0;
+  return Math.max(1, Math.ceil(diffMs / (24 * 60 * 60 * 1000)));
 };
 
 const NewReview: React.FC = () => {
   const navigate = useNavigate();
+  const { isFreePlan, isSuperAdmin } = useOrgContext();
+  const isReadOnly = isFreePlan && !isSuperAdmin;
   const [url, setUrl] = useState('');
   const [connectors, setConnectors] = useState<ConnectorResponse[]>([]);
   const [loading, setLoading] = useState(false);
@@ -38,6 +83,8 @@ const NewReview: React.FC = () => {
   const [upgradeReason, setUpgradeReason] = useState<'DAILY_LIMIT' | 'NOT_ORG_CREATOR'>('DAILY_LIMIT');
   const [limitInfo, setLimitInfo] = useState<{ used: number; limit: number }>({ used: 3, limit: 3 });
   const [quotaStatus, setQuotaStatus] = useState<QuotaStatusResponse | null>(null);
+  const [trialBilling, setTrialBilling] = useState<TrialBillingStatusResponse | null>(null);
+  const [showPlanUpgradeDialog, setShowPlanUpgradeDialog] = useState(false);
 
   // Load connectors when component mounts
   useEffect(() => {
@@ -57,11 +104,18 @@ const NewReview: React.FC = () => {
   }, []);
 
   useEffect(() => {
-    apiClient
-      .get<QuotaStatusResponse>('/quota/status')
-      .then((data) => setQuotaStatus(data))
-      .catch(() => setQuotaStatus(null));
+    Promise.all([
+      apiClient.get<QuotaStatusResponse>('/quota/status').catch((): null => null),
+      apiClient.get<TrialBillingStatusResponse>('/billing/status').catch((): null => null),
+    ]).then(([quota, billing]) => {
+      setQuotaStatus(quota);
+      setTrialBilling(billing);
+    });
   }, []);
+
+  const effectiveTrialEndsAt = String(trialBilling?.billing?.trial_ends_at || quotaStatus?.envelope?.trial_ends_at || '').trim();
+  const activeTrialDaysLeft = trialDaysRemaining(effectiveTrialEndsAt);
+  const activeTrialLabel = formatTrialEndsAt(effectiveTrialEndsAt);
 
   // Extract base URL from input URL
   const extractBaseUrl = (url: string): string => {
@@ -76,11 +130,11 @@ const NewReview: React.FC = () => {
   // Check if base URL is in connectors
   const isUrlSupported = (url: string): boolean => {
     if (!url) return false;
-    
+
     const baseUrl = extractBaseUrl(url);
     if (!baseUrl) return false;
-    
-    return connectors.some(connector => 
+
+    return connectors.some(connector =>
       connector.provider_url && connector.provider_url.includes(baseUrl)
     );
   };
@@ -88,6 +142,10 @@ const NewReview: React.FC = () => {
   // Handle form submission
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (isReadOnly) {
+      setShowPlanUpgradeDialog(true);
+      return;
+    }
     setError(null);
     setSuccess(null);
 
@@ -127,23 +185,23 @@ const NewReview: React.FC = () => {
     try {
       const request: TriggerReviewRequest = { url };
       const response = await triggerReview(request);
-      
+
       setSuccess(`Review successfully triggered! Review ID: ${response.reviewId}`);
       setUrl('');
-      
+
       // Navigate directly to the new review's detail page
       setTimeout(() => {
         navigate(`/reviews/${response.reviewId}`);
       }, 1500);
-      
+
     } catch (err: any) {
       console.error('Error triggering review:', err);
-      
+
       // Check for subscription limit errors (HTTP 402)
       if (err?.status === 402) {
         const errorData = err?.data || err;
         const errorCode = errorData.code;
-        
+
         if (errorCode === 'DAILY_LIMIT_EXCEEDED') {
           setLimitInfo({
             used: errorData.used || 3,
@@ -157,6 +215,10 @@ const NewReview: React.FC = () => {
         } else {
           setError(errorData.message || err.message || 'Failed to trigger review. Please try again later.');
         }
+      } else if (err?.status === 403) {
+        // LOC quota exceeded (from new backend enforcement)
+        const errorData = err?.data || err;
+        setError(errorData.error || 'Monthly LOC quota exceeded. Upgrade your plan or wait for reset.');
       } else if (err?.status === 429) {
         const trialReadOnly = Boolean(err?.data?.envelope?.trial_readonly);
         if (trialReadOnly) {
@@ -216,40 +278,91 @@ const NewReview: React.FC = () => {
               {/* Safety Banner */}
               <SafetyBanner variant="detailed" className="mb-6" />
 
-              {(quotaStatus?.envelope?.trial_readonly || quotaStatus?.envelope?.blocked || quotaStatus?.can_trigger_reviews === false) && (
-                <Alert 
-                  variant="warning" 
-                  className="mb-4"
-                  icon={<Icons.Warning />}
-                >
+              <h3 className="text-lg font-medium text-white mb-4">Enter Merge/Pull Request URL</h3>
+
+              {/* LOC 90% Warning Banner */}
+              {/* LOC 100% Exhausted Banner */}
+              {!quotaStatus?.envelope?.blocked && !quotaStatus?.envelope?.trial_readonly && (quotaStatus?.envelope?.usage_percent ?? 0) >= 100 && (
+                <QuotaExhaustedBanner
+                  locUsed={quotaStatus.envelope?.loc_used_month ?? 0}
+                  locLimit={quotaStatus.envelope?.loc_limit_month ?? 0}
+                  usagePct={quotaStatus.envelope?.usage_percent ?? 0}
+                  onUpgrade={() => navigate(quotaStatus.envelope?.upgrade_url || '/settings-subscriptions-overview')}
+                />
+              )}
+              {!quotaStatus?.envelope?.blocked && !quotaStatus?.envelope?.trial_readonly && quotaStatus?.envelope?.threshold_state === '90' && (quotaStatus?.envelope?.usage_percent ?? 0) < 100 && (
+                <QuotaWarningBanner
+                  locUsed={quotaStatus.envelope?.loc_used_month ?? 0}
+                  locLimit={quotaStatus.envelope?.loc_limit_month ?? 0}
+                  usagePct={quotaStatus.envelope?.usage_percent ?? 0}
+                  onUpgrade={() => navigate(quotaStatus.envelope?.upgrade_url || '/settings-subscriptions-overview')}
+                />
+              )}
+
+              {trialBilling?.billing?.trial_active && !quotaStatus?.envelope?.trial_readonly && (
+                <Alert variant="info" className="mb-4" icon={<Icons.Info />}>
                   <div>
-                    <div className="font-medium text-amber-100">
-                      {quotaStatus?.envelope?.trial_readonly ? 'Trial Read-Only Active' : 'Review Creation Blocked'}
+                    <div className="font-medium text-blue-100">
+                      Trial active{typeof activeTrialDaysLeft === 'number' ? ` - ${activeTrialDaysLeft} day${activeTrialDaysLeft === 1 ? '' : 's'} left` : ''}
                     </div>
-                    <div className="text-sm mt-1 text-amber-200/90">
-                      {quotaStatus?.envelope?.trial_readonly
-                        ? 'This organization is in trial read-only mode. Upgrade from Subscription Management to continue triggering reviews.'
-                        : 'Your organization has reached plan limits for review creation. Upgrade your plan or wait for quota reset.'}
+                    <div className="text-sm mt-1 text-blue-200/90">
+                      {activeTrialLabel
+                        ? `Your trial ends on ${activeTrialLabel}.`
+                        : 'Your trial is active and end time is being synchronized.'}
                     </div>
+                    <button
+                      type="button"
+                      onClick={() => navigate(trialBilling?.billing?.trial_can_cancel ? '/settings-subscriptions-assign' : '/settings-subscriptions-overview')}
+                      className="mt-2 px-3 py-1 bg-blue-600 hover:bg-blue-500 text-white text-xs font-semibold rounded transition-colors"
+                    >
+                      {trialBilling?.billing?.trial_can_cancel ? 'Cancel Trial Now' : 'View Trial Details'}
+                    </button>
                   </div>
                 </Alert>
               )}
-              
-              <h3 className="text-lg font-medium text-white mb-4">Enter Merge/Pull Request URL</h3>
-              
+
+              {/* Blocked / Trial Read-Only / Free Plan Read-Only Banner */}
+              {(isReadOnly || quotaStatus?.envelope?.trial_readonly || quotaStatus?.envelope?.blocked || quotaStatus?.can_trigger_reviews === false) && (
+                <Alert
+                  variant="error"
+                  className="mb-4"
+                  icon={<Icons.Error />}
+                >
+                  <div>
+                    <div className="font-medium text-red-100">
+                      {isReadOnly ? 'Free Plan Read-Only Mode' : (quotaStatus?.envelope?.trial_readonly ? 'Trial Read-Only Active' : 'Monthly LOC Quota Exceeded')}
+                    </div>
+                    <div className="text-sm mt-1 text-red-200/90">
+                      {isReadOnly 
+                        ? 'Review creation is not available on the Free plan. Upgrade to a paid plan to start using AI code reviews.'
+                        : (quotaStatus?.envelope?.trial_readonly
+                          ? 'This organization is in trial read-only mode. Upgrade from Subscription Management to continue triggering reviews.'
+                          : `You've used ${(quotaStatus?.envelope?.loc_used_month ?? 0).toLocaleString()} of ${(quotaStatus?.envelope?.loc_limit_month ?? 0).toLocaleString()} LOC this month. Reviews are blocked until your quota resets${quotaStatus?.envelope?.billing_period_end ? ` on ${new Date(quotaStatus.envelope.billing_period_end).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}` : ''} or you upgrade your plan.`)}
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => navigate(quotaStatus?.envelope?.upgrade_url || '/settings-subscriptions-overview')}
+                      className="mt-2 px-3 py-1 bg-red-600 hover:bg-red-500 text-white text-xs font-semibold rounded transition-colors"
+                    >
+                      Upgrade Now
+                    </button>
+                  </div>
+                </Alert>
+              )}
+
               {error && (
-                <Alert 
-                  variant="error" 
+                <Alert
+                  variant="error"
                   className="mb-4"
                   icon={<Icons.Error />}
                 >
                   {error}
                 </Alert>
               )}
-              
+
               {success && (
-                <Alert 
-                  variant="success" 
+                <Alert
+                  variant="success"
                   className="mb-4"
                   icon={<Icons.Success />}
                 >
@@ -259,7 +372,7 @@ const NewReview: React.FC = () => {
                   </div>
                 </Alert>
               )}
-              
+
               <div className="mb-4">
                 <Input
                   label="URL"
@@ -273,7 +386,7 @@ const NewReview: React.FC = () => {
                   helperText="Enter the URL of the merge/pull request to start a review"
                 />
               </div>
-              
+
               {/* URL Examples */}
               <div className="mb-6 p-4 bg-slate-700 rounded-lg">
                 <h4 className="text-sm font-medium text-white mb-2">Supported URL Examples:</h4>
@@ -288,7 +401,7 @@ const NewReview: React.FC = () => {
                   </p>
                 </div>
               </div>
-              
+
               <div className="flex justify-end space-x-3">
                 <Button
                   type="button"
@@ -306,6 +419,7 @@ const NewReview: React.FC = () => {
                     !url.trim() ||
                     Boolean(quotaStatus?.envelope?.blocked) ||
                     Boolean(quotaStatus?.envelope?.trial_readonly) ||
+                    (quotaStatus?.envelope?.usage_percent ?? 0) >= 100 ||
                     quotaStatus?.can_trigger_reviews === false
                   }
                   isLoading={loading}
@@ -324,6 +438,15 @@ const NewReview: React.FC = () => {
           reason={upgradeReason}
           currentCount={limitInfo.used}
           limit={limitInfo.limit}
+        />
+        
+        {/* Plan Upgrade Dialog */}
+        <LicenseUpgradeDialog
+          open={showPlanUpgradeDialog}
+          onClose={() => setShowPlanUpgradeDialog(false)}
+          requiredTier="team"
+          featureName="Review Creation from Dashboard"
+          featureDescription="Upgrade to a paid plan to trigger new AI code reviews. Free plans are read-only."
         />
       </div>
     </ErrorBoundary>
