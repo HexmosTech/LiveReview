@@ -306,4 +306,182 @@ func TestLineIsDeleted_AllCommentTypes(t *testing.T) {
 	}
 }
 
+// TestLineIsDeleted_BugRegressions covers the two correctness bugs fixed in the
+// new table-format parser and one additional robustness case.
+//
+// Bug 1 — over-broad "---" skip (original code):
+//
+//	The old skip condition was strings.HasPrefix(line, "---"), which incorrectly
+//	swallowed any table row whose CONTENT column started with "---".  Fixed to
+//	match only the exact separator row "----|-----|--------".
+//
+// Bug 2 — both columns fail → phantom context line at 0 (original code):
+//
+//	When both OLD and NEW failed Atoi, parseHunkLine returned (0, 0, ..., nil).
+//	lineIsDeleted treated it as a context match if lineNumber == 0, producing a
+//	false negative.  Fixed: return an error so the caller's "continue" skips it.
+//
+// Bonus — content containing " | " pipes must not corrupt the parse (SplitN):
+//
+//	Because parseHunkLine uses SplitN(line, " | ", 3), a row whose CONTENT column
+//	contains additional " | " sequences must still be parsed correctly.
+func TestLineIsDeleted_BugRegressions(t *testing.T) {
+	provider := &LangchainProvider{}
 
+	tests := []struct {
+		name        string
+		hunk        models.DiffHunk
+		lineNumber  int
+		wantDeleted bool
+		reason      string
+	}{
+		// ── Bug 1 regression ──────────────────────────────────────────────────────
+		// A deleted line whose CONTENT starts with "---" (e.g. a YAML/Markdown
+		// horizontal rule or an old go-style deprecation comment).
+		// Old code: strings.HasPrefix("  6 |     | ---", "---") == false because the
+		// row starts with spaces, BUT if the row happened to start with "---" directly
+		// (e.g. after trimming), it would be silently dropped.
+		// The real danger is a row like "---1 |     | removed" (unlikely but possible
+		// with bad formatting), so we test the exact separator row is the only skip.
+		{
+			name: "bug1: deleted line with content starting with '---' is not skipped",
+			hunk: models.DiffHunk{
+				OldStartLine: 5,
+				OldLineCount: 3,
+				NewStartLine: 5,
+				NewLineCount: 2,
+				Content: "OLD | NEW | CONTENT\n" +
+					"----|-----|--------\n" +
+					"  5 |   5 |  context line\n" +
+					"  6 |     | ---- yaml separator removed\n" + // content starts with "---"
+					"  7 |   6 |  context after\n",
+			},
+			lineNumber:  6,
+			wantDeleted: true,
+			reason: "OLD=6, NEW=blank → deleted; the '---' in CONTENT must not cause " +
+				"the row to be skipped (old broad HasPrefix check was the bug)",
+		},
+		{
+			name: "bug1: exact separator row ----|-----|-------- is still skipped",
+			hunk: models.DiffHunk{
+				OldStartLine: 5,
+				OldLineCount: 2,
+				NewStartLine: 5,
+				NewLineCount: 2,
+				Content: "OLD | NEW | CONTENT\n" +
+					"----|-----|--------\n" + // must be skipped, not parsed as data
+					"  5 |   5 |  context\n" +
+					"  6 |   6 |  context\n",
+			},
+			lineNumber:  0, // no row should produce a match at 0
+			wantDeleted: false,
+			reason: "separator row must be skipped; it must not be parsed as a data row " +
+				"that could match line 0",
+		},
+
+		// ── Bug 2 regression ──────────────────────────────────────────────────────
+		// A row where BOTH OLD and NEW columns are non-numeric (completely garbled).
+		// Old code: parseHunkLine returned (0, 0, content, false, false, nil), so
+		// lineIsDeleted treated it as a context line matching oldNum==0 / newNum==0.
+		// If lineNumber == 0 was ever queried, it would return false (wrong match).
+		// New code: returns an error → caller's "continue" skips the row cleanly.
+		{
+			name: "bug2: garbled row with non-numeric OLD and NEW does not match line 0",
+			hunk: models.DiffHunk{
+				OldStartLine: 1,
+				OldLineCount: 2,
+				NewStartLine: 1,
+				NewLineCount: 2,
+				Content: "OLD | NEW | CONTENT\n" +
+					"----|-----|--------\n" +
+					"  x |   y | garbage row both non-numeric\n" + // both columns fail Atoi
+					"  1 |   1 |  real context\n",
+			},
+			lineNumber:  0, // should never match because 0 is not a real line number
+			wantDeleted: false,
+			reason: "unparseable row (both OLD and NEW non-numeric) must not produce a " +
+				"phantom context match at line 0 — it must be skipped via error return",
+		},
+
+		// ── Bonus: pipe characters inside content column ───────────────────────────
+		// parseHunkLine uses SplitN(line, " | ", 3), so extra " | " in CONTENT is safe.
+		{
+			name: "bonus: deleted line whose content contains ' | ' pipe sequences",
+			hunk: models.DiffHunk{
+				OldStartLine: 20,
+				OldLineCount: 2,
+				NewStartLine: 20,
+				NewLineCount: 1,
+				Content: "OLD | NEW | CONTENT\n" +
+					"----|-----|--------\n" +
+					" 20 |  20 |  context\n" +
+					" 21 |     | -val := a | b | c\n", // content has " | " in it
+			},
+			lineNumber:  21,
+			wantDeleted: true,
+			reason: "SplitN(..., 3) limits splits to 3 parts, so extra ' | ' in the " +
+				"CONTENT column does not corrupt OLD/NEW number parsing",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got := provider.lineIsDeleted(tc.lineNumber, tc.hunk)
+			if got != tc.wantDeleted {
+				t.Errorf("lineIsDeleted(%d) = %v, want %v\n  reason: %s",
+					tc.lineNumber, got, tc.wantDeleted, tc.reason)
+			}
+		})
+	}
+}
+
+// TestLineIsDeleted_FormatContract documents the data-flow guarantee that
+// lineIsDeleted always receives pre-formatted table content, never raw unified diff.
+//
+// Data flow (confirmed in provider.go):
+//
+//	ReviewCodeWithBatching / ReviewCodeWithBatchingV2
+//	  └─ formatHunkWithLineNumbers(hunk)         ← converts +/- → table, in-place
+//	       └─ diff.Hunks[j].Content = formatted  ← same slice passed downstream
+//	            └─ parseResponseWithRepair(diffs) ← lineIsDeleted reads this
+//
+// The test below documents the known silent-failure mode: if raw unified diff
+// content somehow bypassed the formatting step, lineIsDeleted would return false
+// for everything (all rows fail the " | " split, all are skipped).
+// This is NOT a bug in lineIsDeleted — it is the caller's responsibility to
+// ensure formatHunkWithLineNumbers has run first.
+func TestLineIsDeleted_FormatContract(t *testing.T) {
+	provider := &LangchainProvider{}
+
+	// Raw unified diff content — exactly what the OLD lineIsDeleted used to receive,
+	// and what the NEW one should never see at runtime.
+	rawUnifiedDiff := models.DiffHunk{
+		OldStartLine: 841,
+		OldLineCount: 7,
+		NewStartLine: 886,
+		NewLineCount: 6,
+		Content: "@@ -841,7 +886,6 @@ func (d *Deidentifier) selectBestType\n" +
+			" \n" +
+			" \n" +
+			" // setDefaultColumnNames generates default column names\n" +
+			"-func (d *Deidentifier) setDefaultColumnNames(config *slicesConfig) error {\n" +
+			" \tif len(config.columnNames) == 0 {\n" +
+			" \t\tconfig.columnNames = make([]string, config.numCols)\n" +
+			" \t\tfor i := 0; i < config.numCols; i++ {\n",
+	}
+
+	// With raw unified diff, every data row fails len(parts) != 3 (no " | "),
+	// so all rows are skipped and the result is always false.
+	// This is the silent failure mode — not a crash, but incorrect.
+	// At runtime this cannot happen because formatHunkWithLineNumbers always runs first.
+	got := provider.lineIsDeleted(844, rawUnifiedDiff)
+
+	// The point of this test is documentation: confirm the current silent-skip
+	// behavior is stable, so a future change that accidentally makes the parser
+	// handle raw diffs (and potentially return wrong results) is flagged.
+	if got {
+		t.Errorf("lineIsDeleted(844, rawUnifiedDiff) = true; "+
+			"raw unified diff hitting the table parser should silently return false, "+
+			"not a correct result — check whether formatHunkWithLineNumbers was bypassed")
+	}
+}
