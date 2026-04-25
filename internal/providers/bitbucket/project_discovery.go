@@ -22,228 +22,179 @@ type BitbucketRepositoryBasic struct {
 type BitbucketWorkspaceBasic struct {
 	Slug string `json:"slug"`
 	Name string `json:"name"`
+	// The new /user/workspaces API might return a nested workspace object depending on token type
+	Workspace *struct {
+		Slug string `json:"slug"`
+		Name string `json:"name"`
+	} `json:"workspace"`
 }
 
-// BitbucketAPIResponse represents the paginated response structure from Bitbucket API
+// BitbucketAPIResponse represents the paginated response for repositories
 type BitbucketAPIResponse struct {
 	Values []BitbucketRepositoryBasic `json:"values"`
 	Next   string                     `json:"next"`
 }
 
-// BitbucketWorkspaceAPIResponse represents the paginated response structure for workspaces
+// BitbucketWorkspaceAPIResponse represents the paginated response for workspaces
 type BitbucketWorkspaceAPIResponse struct {
 	Values []BitbucketWorkspaceBasic `json:"values"`
 	Next   string                    `json:"next"`
 }
 
-// DiscoverProjectsBitbucket fetches all repositories accessible with the given credentials from Bitbucket
+// DiscoverProjectsBitbucket fetches all repositories accessible with the given credentials.
+//
+// Migration from deprecated APIs (CHANGE-2770):
+//   - Removed: GET /2.0/repositories         → replaced by /user/workspaces + /repositories/{workspace}
+//   - Removed: GET /2.0/workspaces            → replaced by GET /2.0/user/workspaces
+//   - Removed: GET /2.0/user/permissions/workspaces → replaced by GET /2.0/user/workspaces
 func DiscoverProjectsBitbucket(baseURL, email, apiToken string) ([]string, error) {
-	var allRepositories []string
-
-	// Create HTTP client
 	client := &http.Client{}
 
-	// Bitbucket API base URL - always use the cloud API
 	apiBaseURL := "https://api.bitbucket.org/2.0"
 	if baseURL != "" && baseURL != "https://bitbucket.org" {
-		// For Bitbucket Server (on-premise), the API is typically at /rest/api/1.0
-		// Note: This implementation focuses on Bitbucket Cloud
-		return nil, fmt.Errorf("bitbucket Server is not currently supported, only Bitbucket Cloud")
+		return nil, fmt.Errorf("only Bitbucket Cloud is supported (not Bitbucket Server)")
 	}
 
-	// Try to get repositories directly from the user's accessible repositories
-	// This approach works without requiring workspace enumeration permissions
-	userRepos, err := getUserAccessibleRepositories(client, apiBaseURL, email, apiToken)
+	// Step 1: list all accessible workspaces using the new /user/workspaces endpoint.
+	workspaces, err := getUserWorkspaces(client, apiBaseURL, email, apiToken)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get user accessible repositories: %w", err)
+		return nil, fmt.Errorf("failed to list workspaces: %w", err)
 	}
 
-	allRepositories = append(allRepositories, userRepos...)
+	// Step 2: for each workspace, list repositories using /repositories/{workspace}.
+	seen := make(map[string]struct{})
+	var all []string
+	for _, ws := range workspaces {
+		slug := ws.Slug
+		if slug == "" && ws.Workspace != nil {
+			slug = ws.Workspace.Slug
+		}
 
-	// If we have workspace permissions, try to get additional workspace repositories
-	// This is optional and will fail silently if permissions are missing
-	workspaces, err := getAccessibleWorkspaces(client, apiBaseURL, email, apiToken)
-	if err != nil {
-		// Log the warning but don't fail - workspace enumeration requires additional permissions
-		fmt.Printf("Warning: Could not enumerate workspaces (may require read:workspace:bitbucket scope): %v\n", err)
-	} else {
-		// For each workspace, get all repositories
-		for _, workspace := range workspaces {
-			repos, err := getWorkspaceRepositories(client, apiBaseURL, email, apiToken, workspace.Slug)
-			if err != nil {
-				// Log the error but continue with other workspaces
-				fmt.Printf("Warning: failed to get repositories for workspace %s: %v\n", workspace.Slug, err)
-				continue
-			}
+		fmt.Printf("[DEBUG] Extracted workspace slug: %q from object: %+v\n", slug, ws)
+		if slug == "" {
+			continue // Skip if we couldn't parse the slug
+		}
 
-			// Add only repositories that aren't already in our list
-			for _, repo := range repos {
-				found := false
-				for _, existingRepo := range allRepositories {
-					if existingRepo == repo {
-						found = true
-						break
-					}
-				}
-				if !found {
-					allRepositories = append(allRepositories, repo)
-				}
+		repos, err := getWorkspaceRepositories(client, apiBaseURL, email, apiToken, slug)
+		if err != nil {
+			fmt.Printf("Warning: failed to get repositories for workspace %s: %v\n", slug, err)
+			continue
+		}
+		for _, r := range repos {
+			if _, ok := seen[r]; !ok {
+				seen[r] = struct{}{}
+				all = append(all, r)
 			}
 		}
 	}
-
-	return allRepositories, nil
+	return all, nil
 }
 
-// getAccessibleWorkspaces fetches all workspaces the user has access to
-func getAccessibleWorkspaces(client *http.Client, apiBaseURL, email, apiToken string) ([]BitbucketWorkspaceBasic, error) {
-	var allWorkspaces []BitbucketWorkspaceBasic
-	nextURL := fmt.Sprintf("%s/workspaces", apiBaseURL)
+// DiscoverProjectsBitbucketForWorkspaces lists repositories for a set of known workspace slugs,
+// bypassing workspace enumeration entirely. Useful as a fallback when the workspace slug is
+// already known (e.g. derived from a past review URL) but enumeration fails.
+func DiscoverProjectsBitbucketForWorkspaces(baseURL, email, apiToken string, workspaces []string) ([]string, error) {
+	client := &http.Client{}
+	apiBaseURL := "https://api.bitbucket.org/2.0"
+	if baseURL != "" && baseURL != "https://bitbucket.org" {
+		return nil, fmt.Errorf("only Bitbucket Cloud is supported (not Bitbucket Server)")
+	}
+
+	seen := make(map[string]struct{})
+	var all []string
+	for _, ws := range workspaces {
+		repos, err := getWorkspaceRepositories(client, apiBaseURL, email, apiToken, ws)
+		if err != nil {
+			fmt.Printf("Warning: failed to get repositories for workspace %s: %v\n", ws, err)
+			continue
+		}
+		for _, r := range repos {
+			if _, ok := seen[r]; !ok {
+				seen[r] = struct{}{}
+				all = append(all, r)
+			}
+		}
+	}
+	return all, nil
+}
+
+// getUserWorkspaces calls GET /2.0/user/workspaces — the new public API announced alongside
+// CHANGE-2770, replacing both the deprecated GET /2.0/workspaces and
+// GET /2.0/user/permissions/workspaces endpoints.
+func getUserWorkspaces(client *http.Client, apiBaseURL, email, apiToken string) ([]BitbucketWorkspaceBasic, error) {
+	var all []BitbucketWorkspaceBasic
+	nextURL := fmt.Sprintf("%s/user/workspaces", apiBaseURL)
 
 	for nextURL != "" {
-		// Create request
 		req, err := http.NewRequest("GET", nextURL, nil)
 		if err != nil {
 			return nil, fmt.Errorf("failed to create request: %w", err)
 		}
-
-		// Add authentication and headers
 		req.SetBasicAuth(email, apiToken)
 		req.Header.Add("Accept", "application/json")
 		req.Header.Add("User-Agent", "LiveReview/1.0")
 
-		// Execute request
 		resp, err := client.Do(req)
 		if err != nil {
 			return nil, fmt.Errorf("failed to execute request: %w", err)
 		}
 		defer resp.Body.Close()
 
-		// Check for errors
 		if resp.StatusCode != http.StatusOK {
 			body, _ := io.ReadAll(resp.Body)
-			return nil, fmt.Errorf("API request failed with status %d: %s", resp.StatusCode, string(body))
+			return nil, fmt.Errorf("GET /user/workspaces failed (status %d): %s", resp.StatusCode, string(body))
 		}
 
-		// Parse response
 		var response BitbucketWorkspaceAPIResponse
 		if err := json.NewDecoder(resp.Body).Decode(&response); err != nil {
-			return nil, fmt.Errorf("failed to decode response: %w", err)
+			return nil, fmt.Errorf("failed to decode workspace response: %w", err)
 		}
 
-		// Add workspaces to result
-		allWorkspaces = append(allWorkspaces, response.Values...)
-
-		// Set next URL for pagination
+		all = append(all, response.Values...)
 		nextURL = response.Next
 	}
 
-	return allWorkspaces, nil
+	return all, nil
 }
 
-// getWorkspaceRepositories fetches all repositories from a specific workspace
+// getWorkspaceRepositories fetches all repositories from a specific workspace using
+// GET /2.0/repositories/{workspace} — the current non-deprecated, workspace-scoped endpoint.
 func getWorkspaceRepositories(client *http.Client, apiBaseURL, email, apiToken, workspace string) ([]string, error) {
 	var repositories []string
-	nextURL := fmt.Sprintf("%s/repositories/%s", apiBaseURL, url.PathEscape(workspace))
 
-	// Add query parameters for pagination and filtering
 	params := url.Values{}
-	params.Add("pagelen", "100") // Maximum allowed by Bitbucket API
-	params.Add("role", "member") // Only repositories where user is a member
-	nextURL += "?" + params.Encode()
+	params.Set("pagelen", "100")
+	params.Set("role", "member")
+	nextURL := fmt.Sprintf("%s/repositories/%s?%s", apiBaseURL, url.PathEscape(workspace), params.Encode())
 
 	for nextURL != "" {
-		// Create request
 		req, err := http.NewRequest("GET", nextURL, nil)
 		if err != nil {
 			return nil, fmt.Errorf("failed to create request: %w", err)
 		}
-
-		// Add authentication and headers
 		req.SetBasicAuth(email, apiToken)
 		req.Header.Add("Accept", "application/json")
 		req.Header.Add("User-Agent", "LiveReview/1.0")
 
-		// Execute request
 		resp, err := client.Do(req)
 		if err != nil {
 			return nil, fmt.Errorf("failed to execute request: %w", err)
 		}
 		defer resp.Body.Close()
 
-		// Check for errors
 		if resp.StatusCode != http.StatusOK {
 			body, _ := io.ReadAll(resp.Body)
-			return nil, fmt.Errorf("API request failed with status %d: %s", resp.StatusCode, string(body))
+			return nil, fmt.Errorf("GET /repositories/%s failed (status %d): %s", workspace, resp.StatusCode, string(body))
 		}
 
-		// Parse response
 		var response BitbucketAPIResponse
 		if err := json.NewDecoder(resp.Body).Decode(&response); err != nil {
-			return nil, fmt.Errorf("failed to decode response: %w", err)
+			return nil, fmt.Errorf("failed to decode repository response: %w", err)
 		}
 
-		// Add repositories to result
 		for _, repo := range response.Values {
 			repositories = append(repositories, repo.FullName)
 		}
-
-		// Set next URL for pagination
-		nextURL = response.Next
-	}
-
-	return repositories, nil
-}
-
-// getUserAccessibleRepositories fetches all repositories the user has access to
-// This uses a more comprehensive approach that works without workspace enumeration
-func getUserAccessibleRepositories(client *http.Client, apiBaseURL, email, apiToken string) ([]string, error) {
-	var repositories []string
-	nextURL := fmt.Sprintf("%s/repositories", apiBaseURL)
-
-	// Add query parameters for pagination and filtering
-	params := url.Values{}
-	params.Add("pagelen", "100") // Maximum allowed by Bitbucket API
-	params.Add("role", "member") // Only repositories where user is a member
-	nextURL += "?" + params.Encode()
-
-	for nextURL != "" {
-		// Create request
-		req, err := http.NewRequest("GET", nextURL, nil)
-		if err != nil {
-			return nil, fmt.Errorf("failed to create request: %w", err)
-		}
-
-		// Add authentication and headers
-		req.SetBasicAuth(email, apiToken)
-		req.Header.Add("Accept", "application/json")
-		req.Header.Add("User-Agent", "LiveReview/1.0")
-
-		// Execute request
-		resp, err := client.Do(req)
-		if err != nil {
-			return nil, fmt.Errorf("failed to execute request: %w", err)
-		}
-		defer resp.Body.Close()
-
-		// Check for errors
-		if resp.StatusCode != http.StatusOK {
-			body, _ := io.ReadAll(resp.Body)
-			return nil, fmt.Errorf("API request failed with status %d: %s", resp.StatusCode, string(body))
-		}
-
-		// Parse response
-		var response BitbucketAPIResponse
-		if err := json.NewDecoder(resp.Body).Decode(&response); err != nil {
-			return nil, fmt.Errorf("failed to decode response: %w", err)
-		}
-
-		// Add repositories to result
-		for _, repo := range response.Values {
-			repositories = append(repositories, repo.FullName)
-		}
-
-		// Set next URL for pagination (Bitbucket uses URL-based pagination)
 		nextURL = response.Next
 	}
 
