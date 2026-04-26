@@ -45,11 +45,8 @@ type BitbucketWorkspaceAPIResponse struct {
 }
 
 // DiscoverProjectsBitbucket fetches all repositories accessible with the given credentials.
-//
-// Migration from deprecated APIs (CHANGE-2770):
-//   - Removed: GET /2.0/repositories         → replaced by /user/workspaces + /repositories/{workspace}
-//   - Removed: GET /2.0/workspaces            → replaced by GET /2.0/user/workspaces
-//   - Removed: GET /2.0/user/permissions/workspaces → replaced by GET /2.0/user/workspaces
+// For details on the multi-step API flow due to Atlassian deprecations,
+// see docs/integrations/bitbucket/api-CHANGE-2770.md
 func DiscoverProjectsBitbucket(baseURL, email, apiToken string) ([]string, error) {
 	client := &http.Client{}
 
@@ -121,9 +118,9 @@ func DiscoverProjectsBitbucketForWorkspaces(baseURL, email, apiToken string, wor
 	return all, nil
 }
 
-// getUserWorkspaces calls GET /2.0/user/workspaces — the new public API announced alongside
-// CHANGE-2770, replacing both the deprecated GET /2.0/workspaces and
-// GET /2.0/user/permissions/workspaces endpoints.
+// getUserWorkspaces calls GET /2.0/user/workspaces to list all accessible workspaces.
+// For details on the multi-step API flow due to Atlassian deprecations,
+// see docs/integrations/bitbucket/api-CHANGE-2770.md
 func getUserWorkspaces(client *http.Client, apiBaseURL, email, apiToken string) ([]BitbucketWorkspaceBasic, error) {
 	var all []BitbucketWorkspaceBasic
 	nextURL := fmt.Sprintf("%s/user/workspaces", apiBaseURL)
