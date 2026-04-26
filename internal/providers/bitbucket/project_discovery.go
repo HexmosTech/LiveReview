@@ -1,11 +1,14 @@
 package bitbucket
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
 	"net/url"
+
+	networkbitbucket "github.com/livereview/network/providers/bitbucket"
 )
 
 // BitbucketRepositoryBasic represents basic repository information from Bitbucket API
@@ -124,31 +127,26 @@ func DiscoverProjectsBitbucketForWorkspaces(baseURL, email, apiToken string, wor
 func getUserWorkspaces(client *http.Client, apiBaseURL, email, apiToken string) ([]BitbucketWorkspaceBasic, error) {
 	var all []BitbucketWorkspaceBasic
 	nextURL := fmt.Sprintf("%s/user/workspaces", apiBaseURL)
+	ctx := context.Background()
 
 	for nextURL != "" {
-		req, err := http.NewRequest("GET", nextURL, nil)
+		resp, err := networkbitbucket.FetchUserWorkspacesPage(ctx, client, nextURL, email, apiToken)
 		if err != nil {
-			return nil, fmt.Errorf("failed to create request: %w", err)
+			return nil, err
 		}
-		req.SetBasicAuth(email, apiToken)
-		req.Header.Add("Accept", "application/json")
-		req.Header.Add("User-Agent", "LiveReview/1.0")
-
-		resp, err := client.Do(req)
-		if err != nil {
-			return nil, fmt.Errorf("failed to execute request: %w", err)
-		}
-		defer resp.Body.Close()
 
 		if resp.StatusCode != http.StatusOK {
 			body, _ := io.ReadAll(resp.Body)
+			resp.Body.Close()
 			return nil, fmt.Errorf("GET /user/workspaces failed (status %d): %s", resp.StatusCode, string(body))
 		}
 
 		var response BitbucketWorkspaceAPIResponse
 		if err := json.NewDecoder(resp.Body).Decode(&response); err != nil {
+			resp.Body.Close()
 			return nil, fmt.Errorf("failed to decode workspace response: %w", err)
 		}
+		resp.Body.Close()
 
 		all = append(all, response.Values...)
 		nextURL = response.Next
@@ -166,31 +164,26 @@ func getWorkspaceRepositories(client *http.Client, apiBaseURL, email, apiToken, 
 	params.Set("pagelen", "100")
 	params.Set("role", "member")
 	nextURL := fmt.Sprintf("%s/repositories/%s?%s", apiBaseURL, url.PathEscape(workspace), params.Encode())
+	ctx := context.Background()
 
 	for nextURL != "" {
-		req, err := http.NewRequest("GET", nextURL, nil)
+		resp, err := networkbitbucket.FetchWorkspaceRepositoriesPage(ctx, client, nextURL, email, apiToken)
 		if err != nil {
-			return nil, fmt.Errorf("failed to create request: %w", err)
+			return nil, err
 		}
-		req.SetBasicAuth(email, apiToken)
-		req.Header.Add("Accept", "application/json")
-		req.Header.Add("User-Agent", "LiveReview/1.0")
-
-		resp, err := client.Do(req)
-		if err != nil {
-			return nil, fmt.Errorf("failed to execute request: %w", err)
-		}
-		defer resp.Body.Close()
 
 		if resp.StatusCode != http.StatusOK {
 			body, _ := io.ReadAll(resp.Body)
+			resp.Body.Close()
 			return nil, fmt.Errorf("GET /repositories/%s failed (status %d): %s", workspace, resp.StatusCode, string(body))
 		}
 
 		var response BitbucketAPIResponse
 		if err := json.NewDecoder(resp.Body).Decode(&response); err != nil {
+			resp.Body.Close()
 			return nil, fmt.Errorf("failed to decode repository response: %w", err)
 		}
+		resp.Body.Close()
 
 		for _, repo := range response.Values {
 			repositories = append(repositories, repo.FullName)

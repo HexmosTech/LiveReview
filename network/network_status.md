@@ -13,8 +13,8 @@ Latest milestone batch note (MF-051, MF-059, MF-073, MF-074, MF-076, MF-083, MF-
 | api.GetBillingStatus | updated | [GetBillingStatus](../internal/api/billing_actions_handler.go#L1178) |
 | api.GetCurrentSubscription | updated | [GetCurrentSubscription](../internal/api/subscriptions_handler.go#L620) |
 | api.ListUserSubscriptions | updated | [ListUserSubscriptions](../internal/api/subscriptions_handler.go#L773) |
-| payment.cancellationVerified | updated | [cancellationVerified](../internal/license/payment/subscription_service.go#L650) |
-| payment.verifyCancellationWithRetry | updated | [verifyCancellationWithRetry](../internal/license/payment/subscription_service.go#L667) |
+| payment.cancellationVerified | updated | [cancellationVerified](../internal/license/payment/subscription_service.go#L1029) |
+| payment.verifyCancellationWithRetry | updated | [verifyCancellationWithRetry](../internal/license/payment/subscription_service.go#L1046) |
 | payment.handleSubscriptionCharged | updated | [handleSubscriptionCharged](../internal/license/payment/webhook_handler.go#L530) |
 | payment.resolveCancelAtPeriodEndAfterCharge | added | [resolveCancelAtPeriodEndAfterCharge](../internal/license/payment/webhook_handler.go#L738) |
 | payment.handleSubscriptionCancelled | updated | [handleSubscriptionCancelled](../internal/license/payment/webhook_handler.go#L764) |
@@ -46,6 +46,8 @@ Latest milestone batch note (MF-051, MF-059, MF-073, MF-074, MF-076, MF-083, MF-
 | providersbitbucket.Do | moved | [Do](providers/bitbucket/http_client_ops.go#L29) |
 | providersbitbucket.PostCommentAPI | added | [PostCommentAPI](providers/bitbucket/http_client_ops.go#L40) |
 | providersbitbucket.FetchUserProfile | added | [FetchUserProfile](providers/bitbucket/http_client_ops.go#L56) |
+| providersbitbucket.FetchUserWorkspacesPage | added | [FetchUserWorkspacesPage](providers/bitbucket/http_client_ops.go#L75) |
+| providersbitbucket.FetchWorkspaceRepositoriesPage | added | [FetchWorkspaceRepositoriesPage](providers/bitbucket/http_client_ops.go#L90) |
 | aiconnectors.NewHTTPClient | moved | [NewHTTPClient](aiconnectors/http_client_ops.go#L11) |
 | aiconnectors.NewRequestWithContext | moved | [NewRequestWithContext](aiconnectors/http_client_ops.go#L18) |
 | aiconnectors.Do | moved | [Do](aiconnectors/http_client_ops.go#L26) |
