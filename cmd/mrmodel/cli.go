@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"errors"
 	"flag"
 	"fmt"
@@ -238,7 +239,7 @@ func runBitbucket(args []string) error {
 		return fmt.Errorf("bitbucket provider creation failed: %w", errProv)
 	}
 
-	unifiedArtifact, err := mrModel.BuildBitbucketArtifact(provider, prID, prURL, *outDir)
+	unifiedArtifact, err := mrModel.BuildBitbucketArtifact(context.Background(), provider, prID, prURL, *outDir)
 	if err != nil {
 		return err
 	}
