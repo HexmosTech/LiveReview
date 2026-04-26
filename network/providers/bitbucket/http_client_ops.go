@@ -69,3 +69,33 @@ func FetchUserProfile(ctx context.Context, client *http.Client, baseURL, email, 
 	req.Header.Set("User-Agent", "LiveReview/1.0")
 	return Do(client, req)
 }
+
+// FetchUserWorkspacesPage executes the HTTP GET request to fetch a page of accessible workspaces.
+// Callers must close resp.Body when err is nil.
+func FetchUserWorkspacesPage(ctx context.Context, client *http.Client, nextURL, email, token string) (*http.Response, error) {
+	req, err := NewRequestWithContext(ctx, "GET", nextURL, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create workspaces request: %w", err)
+	}
+
+	req.SetBasicAuth(email, token)
+	req.Header.Add("Accept", "application/json")
+	req.Header.Add("User-Agent", "LiveReview/1.0")
+
+	return Do(client, req)
+}
+
+// FetchWorkspaceRepositoriesPage executes the HTTP GET request to fetch a page of repositories for a workspace.
+// Callers must close resp.Body when err is nil.
+func FetchWorkspaceRepositoriesPage(ctx context.Context, client *http.Client, nextURL, email, token string) (*http.Response, error) {
+	req, err := NewRequestWithContext(ctx, "GET", nextURL, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create repositories request: %w", err)
+	}
+
+	req.SetBasicAuth(email, token)
+	req.Header.Add("Accept", "application/json")
+	req.Header.Add("User-Agent", "LiveReview/1.0")
+
+	return Do(client, req)
+}
