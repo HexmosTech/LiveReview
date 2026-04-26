@@ -506,8 +506,9 @@ func (p *UnifiedProcessorV2Impl) buildContextualResponseWithLearningV2(ctx conte
 
 	llmResponse, learning, usage, err := p.generateLLMResponseWithLearning(ctx, prompt, event, orgID)
 	if err != nil {
-		log.Printf("[ERROR] LLM generation failed: %v - cannot provide response", err)
-		return fmt.Sprintf("I'm sorry, I'm unable to generate a response right now. Please try again later. (Error: %v)", err), nil, nil
+		log.Printf("[ERROR] LLM generation failed: %v", err)
+		// Return generic error to user to avoid exposing internal API errors
+		return "⚠️ Failed to generate AI response\nThis issue has been logged and will be investigated.", nil, nil
 	}
 
 	return llmResponse, learning, usage
@@ -1366,7 +1367,7 @@ func (p *UnifiedProcessorV2Impl) buildGitLabArtifactFromEvent(ctx context.Contex
 
 	// Look up GitLab PAT from integration_tokens table using base URL and org_id
 	query := `SELECT pat_token FROM integration_tokens 
-	          WHERE provider IN ('gitlab', 'GitLab', 'gitlab-self-hosted') 
+	          WHERE provider IN ('gitlab', 'GitLab', 'gitlab-self-hosted', 'gitlab-com') 
 	          AND RTRIM(provider_url, '/') = $1 
 	          AND org_id = $2
 	          LIMIT 1`
@@ -1505,22 +1506,32 @@ func (p *UnifiedProcessorV2Impl) buildBitbucketArtifactFromEvent(ctx context.Con
 	log.Printf("[DEBUG] Constructed Bitbucket PR URL: %s (org_id=%d)", prURL, orgID)
 
 	// Look up Bitbucket credentials from integration_tokens table, filtered by org_id
-	query := `SELECT pat_token FROM integration_tokens 
+	// Also fetch metadata to extract the email associated with this token
+	query := `SELECT pat_token, COALESCE(metadata, '{}') FROM integration_tokens 
 	          WHERE provider IN ('bitbucket', 'Bitbucket') 
 	          AND org_id = $1
 	          LIMIT 1`
 
-	var patToken string
-	err := p.server.DB().QueryRow(query, orgID).Scan(&patToken)
+	var patToken, metadataJSON string
+	err := p.server.DB().QueryRow(query, orgID).Scan(&patToken, &metadataJSON)
 	if err != nil {
 		return nil, fmt.Errorf("failed to find Bitbucket PAT for org %d: %w", orgID, err)
 	}
 
 	log.Printf("[DEBUG] Found Bitbucket PAT for org %d", orgID)
 
-	// Bitbucket provider needs email - use default for bot
-	// In production, this could come from metadata or config
-	botEmail := "livereviewbot@gmail.com"
+	// Extract email from metadata (set during token registration) — required for Basic Auth
+	var tokenMetadata map[string]interface{}
+	if metadataJSON != "" && metadataJSON != "{}" {
+		if jsonErr := json.Unmarshal([]byte(metadataJSON), &tokenMetadata); jsonErr != nil {
+			log.Printf("[WARN] Failed to parse Bitbucket token metadata for org %d: %v", orgID, jsonErr)
+		}
+	}
+	botEmail, _ := tokenMetadata["email"].(string)
+	if botEmail == "" {
+		return nil, fmt.Errorf("Bitbucket token for org %d is missing 'email' in metadata; re-connect the integration", orgID)
+	}
+	log.Printf("[DEBUG] Using Bitbucket email from token metadata: %s", botEmail)
 
 	// Create Bitbucket provider (following cli.go pattern)
 	provider, err := bitbucketmentions.NewBitbucketProvider(patToken, botEmail, prURL)
@@ -1533,7 +1544,7 @@ func (p *UnifiedProcessorV2Impl) buildBitbucketArtifactFromEvent(ctx context.Con
 	mrModel.EnableArtifactWriting = false // Don't write to disk
 
 	// Build Bitbucket artifact (following cli.go pattern)
-	artifact, err := mrModel.BuildBitbucketArtifact(provider, prID, prURL, "")
+	artifact, err := mrModel.BuildBitbucketArtifact(ctx, provider, prID, prURL, "")
 	if err != nil {
 		return nil, fmt.Errorf("failed to build Bitbucket artifact: %w", err)
 	}
@@ -1580,8 +1591,21 @@ func (p *UnifiedProcessorV2Impl) buildGiteaArtifactFromEvent(ctx context.Context
 			patchURL = strings.TrimSpace(rawPatchURL)
 		}
 	}
-	if patchURL == "" && strings.TrimSpace(event.MergeRequest.WebURL) != "" {
-		patchURL = strings.TrimSpace(event.MergeRequest.WebURL) + ".patch"
+	if patchURL == "" {
+		// Use provider URL and metadata to construct API patch URL reliably.
+		// We avoid brittle WebURL path manipulation by using known metadata.
+		baseURL := strings.TrimRight(token.ProviderURL, "/")
+		repoFullName := event.Repository.FullName
+		prNumber := event.MergeRequest.Number
+
+		if baseURL != "" && repoFullName != "" && prNumber > 0 {
+			patchURL = fmt.Sprintf("%s/api/v1/repos/%s/pulls/%d.patch",
+				baseURL, repoFullName, prNumber)
+		} else if webURL := strings.TrimSpace(event.MergeRequest.WebURL); webURL != "" {
+			// Fallback: Gitea supports appending .patch to the UI URL.
+			// This is a safe last-resort if API-specific metadata is incomplete.
+			patchURL = strings.TrimRight(webURL, "/") + ".patch"
+		}
 	}
 	if patchURL == "" {
 		return nil, fmt.Errorf("missing gitea patch URL")

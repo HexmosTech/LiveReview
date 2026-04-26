@@ -41,9 +41,11 @@ Latest milestone batch note (MF-051, MF-059, MF-073, MF-074, MF-076, MF-083, MF-
 | providersgitlab.NewRequestWithContext | moved | [NewRequestWithContext](providers/gitlab/http_client_ops.go#L29) |
 | providersgitlab.Do | moved | [Do](providers/gitlab/http_client_ops.go#L37) |
 | providersgitlab.ParseURL | moved | [ParseURL](providers/gitlab/http_client_ops.go#L47) |
-| providersbitbucket.NewHTTPClient | moved | [NewHTTPClient](providers/bitbucket/http_client_ops.go#L11) |
-| providersbitbucket.NewRequestWithContext | moved | [NewRequestWithContext](providers/bitbucket/http_client_ops.go#L18) |
-| providersbitbucket.Do | moved | [Do](providers/bitbucket/http_client_ops.go#L27) |
+| providersbitbucket.NewHTTPClient | moved | [NewHTTPClient](providers/bitbucket/http_client_ops.go#L13) |
+| providersbitbucket.NewRequestWithContext | moved | [NewRequestWithContext](providers/bitbucket/http_client_ops.go#L20) |
+| providersbitbucket.Do | moved | [Do](providers/bitbucket/http_client_ops.go#L29) |
+| providersbitbucket.PostCommentAPI | added | [PostCommentAPI](providers/bitbucket/http_client_ops.go#L40) |
+| providersbitbucket.FetchUserProfile | added | [FetchUserProfile](providers/bitbucket/http_client_ops.go#L56) |
 | aiconnectors.NewHTTPClient | moved | [NewHTTPClient](aiconnectors/http_client_ops.go#L11) |
 | aiconnectors.NewRequestWithContext | moved | [NewRequestWithContext](aiconnectors/http_client_ops.go#L18) |
 | aiconnectors.Do | moved | [Do](aiconnectors/http_client_ops.go#L26) |
