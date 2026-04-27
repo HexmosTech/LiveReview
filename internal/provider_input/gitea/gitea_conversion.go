@@ -80,13 +80,26 @@ func ConvertGiteaPullRequestReviewCommentEvent(body []byte) (*UnifiedWebhookEven
 		return nil, fmt.Errorf("failed to parse Gitea PR review comment webhook: %w", err)
 	}
 
-	if payload.Action != "created" {
+	if payload.Action != "created" && payload.Action != "reviewed" {
 		log.Printf("[DEBUG] Ignoring Gitea pull_request_review_comment action: %s", payload.Action)
 		return nil, fmt.Errorf("pull_request_review_comment event ignored (action=%s)", payload.Action)
 	}
 
 	if payload.Comment == nil {
-		return nil, fmt.Errorf("comment is nil in payload")
+		if payload.Action == "reviewed" && payload.Review != nil {
+			// Fallback to review content if it's a review event and comment is not explicitly provided
+			payload.Comment = &GiteaV2Comment{
+				ID:        payload.Review.ID,
+				HTMLURL:   payload.Review.HTMLURL,
+				User:      payload.Review.User,
+				Body:      payload.Review.Content,
+				CreatedAt: payload.Review.CreatedAt,
+				UpdatedAt: payload.Review.UpdatedAt,
+				ReviewID:  payload.Review.ID,
+			}
+		} else {
+			return nil, fmt.Errorf("comment is nil in payload")
+		}
 	}
 	if payload.PullRequest == nil {
 		return nil, fmt.Errorf("pull_request is nil in payload")

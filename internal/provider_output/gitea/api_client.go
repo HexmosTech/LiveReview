@@ -57,8 +57,8 @@ func NewAPIClientWithHTTPClient(httpClient *http.Client) *APIClient {
 
 // PostCommentReply posts a reply to an existing Gitea comment thread.
 func (c *APIClient) PostCommentReply(event *UnifiedWebhookEventV2, token, replyText string) error {
-	log.Printf("[DEBUG] APIClient.PostCommentReply: comment_id=%s, has_position=%v, reply_len=%d",
-		event.Comment.ID, event.Comment.Position != nil, len(replyText))
+	log.Printf("[DEBUG] APIClient.PostCommentReply: comment_id=%s, has_position=%v, web_url=%s, reply_len=%d",
+		event.Comment.ID, event.Comment.Position != nil, event.Comment.WebURL, len(replyText))
 
 	if event == nil || event.Comment == nil || event.MergeRequest == nil {
 		return fmt.Errorf("invalid event for comment reply")
@@ -97,10 +97,25 @@ func (c *APIClient) PostCommentReply(event *UnifiedWebhookEventV2, token, replyT
 		}
 	}
 
-	// If webhook lacks review context but we have comment_id, fetch from API
-	// Gitea webhooks for replies to inline comments don't include position/review_id
-	if reviewID == 0 && event.Comment.ID != "" {
-		log.Printf("[DEBUG] Webhook lacks review context (review_id=0), attempting metadata enrichment for comment_id=%s", event.Comment.ID)
+	// Smart Heuristic: Fetch the timeline to see if this comment is likely a reply to an inline discussion.
+	// Since Gitea webhooks are identical for general vs discussion-reply, we check the PR timeline.
+	isLikelyInlineReply := false
+	if event.MergeRequest.Number > 0 {
+		log.Printf("[DEBUG] Fetching timeline to determine if comment %s is an inline reply", event.Comment.ID)
+		timeline, err := c.fetchTimeline(baseURL, owner, repo, event.MergeRequest.Number, token)
+		if err != nil {
+			log.Printf("[WARN] Failed to fetch timeline for heuristic: %v, falling back to greedy enrichment", err)
+			isLikelyInlineReply = true // Fallback to current behavior
+		} else {
+			isLikelyInlineReply = c.checkIfCommentIsInlineReply(event.Comment.ID, timeline)
+			log.Printf("[DEBUG] Timeline heuristic result for comment %s: isLikelyInlineReply=%v", event.Comment.ID, isLikelyInlineReply)
+		}
+	}
+
+	needsEnrichment := event.Comment.Position == nil && event.MergeRequest.Number > 0 && isLikelyInlineReply
+	
+	if needsEnrichment && event.Comment.ID != "" {
+		log.Printf("[DEBUG] Webhook identified as inline reply (via timeline), attempting metadata enrichment for comment_id=%s in PR %d", event.Comment.ID, event.MergeRequest.Number)
 		// Use username/password to create temporary PAT for API call if PAT is invalid
 		enrichToken := token
 		if creds.Username != "" && creds.Password != "" {
@@ -144,8 +159,31 @@ func (c *APIClient) PostCommentReply(event *UnifiedWebhookEventV2, token, replyT
 		return c.postInlineCommentReply(baseURL, owner, repo, event, replyText, reviewID, creds.Username, creds.Password)
 	}
 
-	// General comment on issue/PR
-	return c.postGeneralComment(baseURL, owner, repo, event.MergeRequest.Number, token, replyText)
+	// General comment on issue/PR: quote the original comment and tag the author
+	var quotedBody strings.Builder
+	author := event.Comment.Author.Username
+	body := strings.TrimSpace(event.Comment.Body)
+
+	if author != "" {
+		quotedBody.WriteString(fmt.Sprintf("@%s\n", author))
+	}
+	if body != "" {
+		for _, line := range strings.Split(body, "\n") {
+			quotedBody.WriteString("> " + line + "\n")
+		}
+	} else {
+		// Fallback for mentions where body might be empty in webhook
+		quotedBody.WriteString("> [mention]\n")
+	}
+
+	if quotedBody.Len() > 0 {
+		quotedBody.WriteString("\n")
+	}
+
+	formattedReply := quotedBody.String() + strings.TrimSpace(replyText)
+	log.Printf("[DEBUG] Gitea posting general comment: author=%s, body_len=%d", author, len(body))
+
+	return c.postGeneralComment(baseURL, owner, repo, event.MergeRequest.Number, token, formattedReply)
 }
 
 // postGeneralComment posts a general comment to an issue or PR
@@ -834,4 +872,72 @@ func mapReactionToGitea(reaction string) string {
 
 	// Return as-is if not in map
 	return reaction
+}
+
+func (c *APIClient) fetchTimeline(baseURL, owner, repo string, prNumber int, token string) ([]map[string]interface{}, error) {
+	url := fmt.Sprintf("%s/api/v1/repos/%s/%s/issues/%d/timeline", baseURL, owner, repo, prNumber)
+	req, err := http.NewRequest("GET", url, nil)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Authorization", "token "+token)
+	
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("failed to fetch timeline: status %d", resp.StatusCode)
+	}
+	
+	var timeline []map[string]interface{}
+	if err := json.NewDecoder(resp.Body).Decode(&timeline); err != nil {
+		return nil, err
+	}
+	
+	return timeline, nil
+}
+
+func (c *APIClient) checkIfCommentIsInlineReply(commentID string, timeline []map[string]interface{}) bool {
+	targetID, _ := strconv.ParseInt(commentID, 10, 64)
+	
+	for _, item := range timeline {
+		// More robust ID extraction
+		var id int64
+		switch v := item["id"].(type) {
+		case float64:
+			id = int64(v)
+		case int64:
+			id = v
+		case string:
+			id, _ = strconv.ParseInt(v, 10, 64)
+		}
+		
+		if id != 0 {
+			log.Printf("[DEBUG] Timeline heuristic: comparing current id %d with target %d", id, targetID)
+		}
+
+		if id == targetID {
+			// Found our comment. Log everything about it.
+			itemJSON, _ := json.Marshal(item)
+			log.Printf("[DEBUG] Timeline heuristic: Found comment %s in timeline: %s", commentID, string(itemJSON))
+			
+			// Trust the "Golden Marker" explicitly.
+			if rid, ok := item["review_id"].(float64); ok && rid > 0 {
+				log.Printf("[DEBUG] Timeline heuristic: comment %s has review_id %.0f -> INLINE", commentID, rid)
+				return true
+			}
+			
+			// If review_id is 0 and it's a "comment" type, it's definitely a General Comment.
+			log.Printf("[DEBUG] Timeline heuristic: comment %s has review_id 0 -> GENERAL", commentID)
+			return false
+		}
+	}
+	
+	// If we reach here, the comment wasn't found in the timeline. 
+	// This often happens for inline replies (review comments).
+	log.Printf("[DEBUG] Timeline heuristic: comment %s NOT FOUND in timeline, assuming it MIGHT be inline", commentID)
+	return true
 }

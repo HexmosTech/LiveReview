@@ -269,15 +269,41 @@ func (p *Provider) fetchDiffAsUnified(ctx context.Context, apiBase, owner, repo,
 	return parseUnifiedDiff(string(body)), nil
 }
 
+// formatGiteaComment creates a consistently formatted comment for Gitea
+// with severity information and suggestions properly formatted
+func formatGiteaComment(ctx context.Context, comment *models.ReviewComment) string {
+	safeContent, _ := aisanitize.SanitizationPostflight(ctx, comment.Content)
+
+	safeSuggestions := make([]string, 0, len(comment.Suggestions))
+	for _, suggestion := range comment.Suggestions {
+		safeSuggestion, _ := aisanitize.SanitizationPostflight(ctx, suggestion)
+		safeSuggestions = append(safeSuggestions, safeSuggestion)
+	}
+
+	formattedComment := safeContent
+	if comment.Severity != "" {
+		formattedComment = fmt.Sprintf("**Severity: %s**\n\n%s", comment.Severity, formattedComment)
+	}
+
+	if len(safeSuggestions) > 0 {
+		formattedComment += "\n\n**Suggestions:**\n"
+		for i, suggestion := range safeSuggestions {
+			formattedComment += fmt.Sprintf("%d. %s\n", i+1, suggestion)
+		}
+	}
+
+	return formattedComment
+}
+
 // PostComment posts a comment on a PR. Supports inline (file/line) comments and general comments.
 func (p *Provider) PostComment(ctx context.Context, prID string, comment *models.ReviewComment) error {
 	if comment == nil {
 		return fmt.Errorf("comment is required")
 	}
 
-	safeContent, _ := aisanitize.SanitizationPostflight(ctx, comment.Content)
+	formattedContent := formatGiteaComment(ctx, comment)
 	safeComment := *comment
-	safeComment.Content = safeContent
+	safeComment.Content = formattedContent
 
 	parts := strings.Split(prID, "/")
 	if len(parts) != 3 {

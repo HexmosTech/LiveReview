@@ -97,10 +97,10 @@ func (p *GiteaV2Provider) ConvertCommentEvent(headers map[string]string, body []
 
 	switch eventType {
 	case "issue_comment":
-		log.Printf("[DEBUG] Processing Gitea issue_comment event")
+		log.Printf("[DEBUG] Processing Gitea issue_comment event. Raw body: %s", string(body))
 		event, err = ConvertGiteaIssueCommentEvent(body)
 	case "pull_request_comment", "pull_request_review_comment":
-		log.Printf("[DEBUG] Processing Gitea pull_request_review_comment event")
+		log.Printf("[DEBUG] Processing Gitea pull_request_review_comment event. Raw body: %s", string(body))
 		event, err = ConvertGiteaPullRequestReviewCommentEvent(body)
 	case "pull_request":
 		log.Printf("[DEBUG] Processing Gitea pull_request event")
