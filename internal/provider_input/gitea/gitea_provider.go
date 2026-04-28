@@ -12,6 +12,7 @@ import (
 	"log"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 	"time"
 
@@ -97,10 +98,9 @@ func (p *GiteaV2Provider) ConvertCommentEvent(headers map[string]string, body []
 
 	switch eventType {
 	case "issue_comment":
-		log.Printf("[DEBUG] Processing Gitea issue_comment event. Raw body: %s", string(body))
 		event, err = ConvertGiteaIssueCommentEvent(body)
 	case "pull_request_comment", "pull_request_review_comment":
-		log.Printf("[DEBUG] Processing Gitea pull_request_review_comment event. Raw body: %s", string(body))
+		log.Printf("[DEBUG] Processing Gitea pull_request_review_comment event")
 		event, err = ConvertGiteaPullRequestReviewCommentEvent(body)
 	case "pull_request":
 		log.Printf("[DEBUG] Processing Gitea pull_request event")
@@ -133,7 +133,7 @@ func (p *GiteaV2Provider) FetchMergeRequestData(event *UnifiedWebhookEventV2) er
 		return fmt.Errorf("no merge request in event")
 	}
 
-	_, baseURL, err := FindIntegrationTokenForGiteaRepo(p.db, event.Repository.FullName)
+	token, baseURL, err := FindIntegrationTokenForGiteaRepo(p.db, event.Repository.FullName)
 	if err != nil {
 		return fmt.Errorf("failed to get Gitea token: %w", err)
 	}
@@ -152,14 +152,89 @@ func (p *GiteaV2Provider) FetchMergeRequestData(event *UnifiedWebhookEventV2) er
 
 	log.Printf("[INFO] Fetching PR data for Gitea PR %s/%s#%d (base_url=%s)", owner, repo, prNumber, baseURL)
 
-	// For now, just log and return success
-	// Full implementation will be added in next iteration
 	if event.MergeRequest.Metadata == nil {
 		event.MergeRequest.Metadata = map[string]interface{}{}
 	}
 	event.MergeRequest.Metadata["repository_full_name"] = event.Repository.FullName
 	event.MergeRequest.Metadata["pull_request_number"] = event.MergeRequest.Number
 	event.MergeRequest.Metadata["base_url"] = baseURL
+
+	// Enrichment logic for Gitea 'reviewed' events
+	// These events often have empty bodies but carry inline mentions in the review's comments
+	if event.Comment != nil && event.Comment.Metadata != nil {
+		log.Printf("[DEBUG] Gitea enrichment check: action=%v, metadata=%+v", event.Comment.Metadata["action"], event.Comment.Metadata)
+		if event.Comment.Metadata["action"] == "reviewed" {
+			reviewIDRaw := event.Comment.Metadata["review_id"]
+			log.Printf("[DEBUG] Gitea enrichment: found 'reviewed' action, reviewIDRaw=%v (type %T)", reviewIDRaw, reviewIDRaw)
+			var reviewID int64
+			switch v := reviewIDRaw.(type) {
+			case int64:
+				reviewID = v
+			case int:
+				reviewID = int64(v)
+			case float64:
+				reviewID = int64(v)
+			}
+			log.Printf("[DEBUG] Gitea enrichment: reviewID=%d", reviewID)
+
+			// Fallback: If reviewID is 0, try to fetch the latest review from the API
+			if reviewID == 0 {
+				log.Printf("[INFO] Gitea enrichment: reviewID missing, fetching latest review for PR #%d", prNumber)
+				latestReview, err := p.fetchLatestReview(baseURL, token.PatToken, owner, repo, prNumber)
+				if err != nil {
+					log.Printf("[WARN] Failed to fetch latest review for enrichment: %v", err)
+				} else if latestReview != nil {
+					reviewID = latestReview.ID
+					log.Printf("[INFO] Gitea enrichment: found latest review ID %d", reviewID)
+				}
+			}
+
+		if reviewID > 0 {
+			log.Printf("[DEBUG] Gitea enrichment: fetching comments for review %d", reviewID)
+			comments, err := p.fetchReviewComments(baseURL, token.PatToken, owner, repo, prNumber, reviewID)
+			if err != nil {
+				log.Printf("[WARN] Failed to fetch review comments for enrichment: %v", err)
+			} else {
+				// Get bot info to know what mention to look for
+				botInfo, _ := p.GetBotUserInfo(event.Repository)
+				mentionName := "livereview"
+				if botInfo != nil && botInfo.Username != "" {
+					mentionName = botInfo.Username
+				}
+
+				mentionPattern := "@" + strings.ToLower(mentionName)
+				log.Printf("[DEBUG] Gitea enrichment: scanning %d comments for mention '%s'", len(comments), mentionPattern)
+
+				for _, c := range comments {
+					if strings.Contains(strings.ToLower(c.Body), mentionPattern) {
+						log.Printf("[INFO] Gitea enrichment: found mention in inline comment %d, promoting it", c.ID)
+						// Update the event's comment to be this inline comment
+						event.Comment.ID = strconv.FormatInt(c.ID, 10)
+						event.Comment.Body = c.Body
+						event.Comment.CreatedAt = c.CreatedAt
+						event.Comment.UpdatedAt = c.UpdatedAt
+						
+						// Save the review ID so the output client knows how to route this
+						if event.Comment.Metadata == nil {
+							event.Comment.Metadata = map[string]interface{}{}
+						}
+						event.Comment.Metadata["review_id"] = reviewID
+
+						// Add position info so LR knows which file/line we are talking about
+						if c.Path != "" {
+							event.Comment.Position = &coreprocessor.UnifiedPositionV2{
+								FilePath:   c.Path,
+								LineNumber: c.Line,
+								LineType:   convertGiteaSideToLineType(c.Side),
+							}
+						}
+						break // Take the first mention we find
+					}
+					}
+				}
+			}
+		}
+	}
 
 	return nil
 }
@@ -572,6 +647,41 @@ func (p *GiteaV2Provider) fetchReviewComments(baseURL, token, owner, repo string
 	}
 
 	return comments, nil
+}
+
+func (p *GiteaV2Provider) fetchLatestReview(baseURL, token, owner, repo string, prNumber int) (*GiteaReview, error) {
+	apiURL := fmt.Sprintf("%s/api/v1/repos/%s/%s/pulls/%d/reviews", baseURL, owner, repo, prNumber)
+
+	req, err := networkgitea.NewRequestWithContext(context.Background(), "GET", apiURL, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create request: %w", err)
+	}
+
+	req.Header.Set("Authorization", "token "+token)
+	req.Header.Set("Accept", "application/json")
+
+	resp, err := p.botUserHTTPClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("failed to fetch reviews: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("gitea API returned status %d", resp.StatusCode)
+	}
+
+	var reviews []GiteaReview
+	if err := json.NewDecoder(resp.Body).Decode(&reviews); err != nil {
+		return nil, fmt.Errorf("failed to decode reviews: %w", err)
+	}
+
+	if len(reviews) == 0 {
+		return nil, nil
+	}
+
+	// Reviews are usually returned in chronological order or ID order. 
+	// We want the most recent one.
+	return &reviews[len(reviews)-1], nil
 }
 
 func extractRepoFullNameFromMetadata(metadata map[string]interface{}) (string, error) {

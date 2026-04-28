@@ -85,6 +85,16 @@ func (p *UnifiedProcessorV2Impl) CheckResponseWarrant(event UnifiedWebhookEventV
 
 	commentBody := strings.TrimSpace(event.Comment.Body)
 	if commentBody == "" {
+		// Gitea Special Case: 'reviewed' action often has empty body but carries inline comments
+		if event.Provider == "gitea" && event.Comment.Metadata != nil && event.Comment.Metadata["action"] == "reviewed" {
+			log.Printf("[DEBUG] Empty body for Gitea 'reviewed' action; allowing warrant for review scan")
+			return true, ResponseScenarioV2{
+				Type:       "review_submission",
+				Reason:     "Gitea review submission (requires scan of inline comments)",
+				Confidence: 0.5, // Low confidence until we find a mention in the scan
+				Metadata:   map[string]interface{}{"action": "reviewed"},
+			}
+		}
 		return hardFailure("comment body empty; cannot evaluate warrant", "event.comment.body")
 	}
 
@@ -1599,7 +1609,7 @@ func (p *UnifiedProcessorV2Impl) buildGiteaArtifactFromEvent(ctx context.Context
 		prNumber := event.MergeRequest.Number
 
 		if baseURL != "" && repoFullName != "" && prNumber > 0 {
-			patchURL = fmt.Sprintf("%s/api/v1/repos/%s/pulls/%d.patch",
+			patchURL = fmt.Sprintf("%s/%s/pulls/%d.patch",
 				baseURL, repoFullName, prNumber)
 		} else if webURL := strings.TrimSpace(event.MergeRequest.WebURL); webURL != "" {
 			// Fallback: Gitea supports appending .patch to the UI URL.

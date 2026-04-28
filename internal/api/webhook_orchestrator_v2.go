@@ -308,8 +308,8 @@ func (wo *WebhookOrchestratorV2) processEventAsync(ctx context.Context, event *U
 	case "discussion_reply":
 		log.Printf("[INFO] Discussion reply scenario - handling as comment reply")
 		wo.handleCommentReplyFlow(processingCtx, event, provider, timeline, orgID)
-	case "content_trigger":
-		log.Printf("[INFO] Content trigger scenario - handling as comment reply")
+	case "content_trigger", "review_submission":
+		log.Printf("[INFO] %s scenario - handling as comment reply", scenario.Type)
 		wo.handleCommentReplyFlow(processingCtx, event, provider, timeline, orgID)
 	default:
 		log.Printf("[WARN] Unknown response scenario: %s", scenario.Type)
@@ -324,6 +324,11 @@ func (wo *WebhookOrchestratorV2) processEventAsync(ctx context.Context, event *U
 // handleCommentReplyFlow handles comment reply processing
 func (wo *WebhookOrchestratorV2) handleCommentReplyFlow(ctx context.Context, event *UnifiedWebhookEventV2, provider WebhookProviderV2, timeline *UnifiedTimelineV2, orgID int64) {
 	log.Printf("[INFO] Processing comment reply flow for event %s/%s", event.EventType, event.Provider)
+
+	if event.Comment == nil || strings.TrimSpace(event.Comment.Body) == "" {
+		log.Printf("[INFO] Skipping comment reply flow: comment body is empty (even after potential enrichment)")
+		return
+	}
 
 	// Generate AI response
 	response, learning, usage, err := wo.unifiedProcessor.ProcessCommentReply(ctx, *event, timeline, orgID)
