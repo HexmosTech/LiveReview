@@ -121,6 +121,11 @@ func ConvertGiteaPullRequestReviewCommentEvent(body []byte) (*UnifiedWebhookEven
 		Actor:        convertGiteaUserToUnified(payload.Sender),
 	}
 
+	// Tag the action in metadata so the processor knows how to handle empty summaries
+	if event.Comment != nil && event.Comment.Metadata != nil {
+		event.Comment.Metadata["action"] = payload.Action
+	}
+
 	return event, nil
 }
 
