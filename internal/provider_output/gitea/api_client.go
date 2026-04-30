@@ -57,8 +57,8 @@ func NewAPIClientWithHTTPClient(httpClient *http.Client) *APIClient {
 
 // PostCommentReply posts a reply to an existing Gitea comment thread.
 func (c *APIClient) PostCommentReply(event *UnifiedWebhookEventV2, token, replyText string) error {
-	log.Printf("[DEBUG] APIClient.PostCommentReply: comment_id=%s, has_position=%v, web_url=%s, reply_len=%d",
-		event.Comment.ID, event.Comment.Position != nil, event.Comment.WebURL, len(replyText))
+	log.Printf("[DEBUG] APIClient.PostCommentReply: comment_id=%s, has_position=%v, reply_len=%d",
+		event.Comment.ID, event.Comment.Position != nil, len(replyText))
 
 	if event == nil || event.Comment == nil || event.MergeRequest == nil {
 		return fmt.Errorf("invalid event for comment reply")
@@ -97,25 +97,14 @@ func (c *APIClient) PostCommentReply(event *UnifiedWebhookEventV2, token, replyT
 		}
 	}
 
-	// Smart Heuristic: Fetch the timeline to see if this comment is likely a reply to an inline discussion.
-	// Since Gitea webhooks are identical for general vs discussion-reply, we check the PR timeline.
-	isLikelyInlineReply := false
-	if event.MergeRequest.Number > 0 {
-		log.Printf("[DEBUG] Fetching timeline to determine if comment %s is an inline reply", event.Comment.ID)
-		timeline, err := c.fetchTimeline(baseURL, owner, repo, event.MergeRequest.Number, token)
-		if err != nil {
-			log.Printf("[WARN] Failed to fetch timeline for heuristic: %v, falling back to greedy enrichment", err)
-			isLikelyInlineReply = true // Fallback to current behavior
-		} else {
-			isLikelyInlineReply = c.checkIfCommentIsInlineReply(event.Comment.ID, timeline)
-			log.Printf("[DEBUG] Timeline heuristic result for comment %s: isLikelyInlineReply=%v", event.Comment.ID, isLikelyInlineReply)
-		}
-	}
+	// Always enrich when reviewID==0: Gitea sends identical issue_comment webhooks for
+	// true general PR comments AND inline thread replies. The only way to distinguish
+	// them is via the API. enrichCommentMetadata is a no-op (leaves Position nil) when
+	// the comment is not found in any review → falls through to general comment path.
+	var replyCommentID int64
+	if reviewID == 0 && event.Comment.ID != "" {
+		log.Printf("[DEBUG] reviewID=0, attempting enrichment for comment_id=%s", event.Comment.ID)
 
-	needsEnrichment := event.Comment.Position == nil && event.MergeRequest.Number > 0 && isLikelyInlineReply
-	
-	if needsEnrichment && event.Comment.ID != "" {
-		log.Printf("[DEBUG] Webhook identified as inline reply (via timeline), attempting metadata enrichment for comment_id=%s in PR %d", event.Comment.ID, event.MergeRequest.Number)
 		// Use username/password to create temporary PAT for API call if PAT is invalid
 		enrichToken := token
 		if creds.Username != "" && creds.Password != "" {
@@ -132,15 +121,26 @@ func (c *APIClient) PostCommentReply(event *UnifiedWebhookEventV2, token, replyT
 		} else {
 			log.Printf("[DEBUG] Metadata enrichment completed")
 		}
-		// Re-extract review_id after enrichment
+		// Re-extract review_id and reply_comment_id after enrichment
 		if event.Comment.Metadata != nil {
 			if rid, ok := event.Comment.Metadata["review_id"].(int64); ok && rid > 0 {
 				reviewID = rid
-				log.Printf("[DEBUG] Extracted review_id after enrichment: %d", reviewID)
 			} else if ridFloat, ok := event.Comment.Metadata["review_id"].(float64); ok && ridFloat > 0 {
 				reviewID = int64(ridFloat)
-				log.Printf("[DEBUG] Extracted review_id after enrichment (float): %d", reviewID)
 			}
+			if rcid, ok := event.Comment.Metadata["reply_comment_id"].(int64); ok && rcid > 0 {
+				replyCommentID = rcid
+			} else if rcidFloat, ok := event.Comment.Metadata["reply_comment_id"].(float64); ok && rcidFloat > 0 {
+				replyCommentID = int64(rcidFloat)
+			}
+			log.Printf("[DEBUG] Extracted after enrichment: review_id=%d, reply_comment_id=%d", reviewID, replyCommentID)
+		}
+	} else if event.Comment.Metadata != nil {
+		// Even if reviewID was present, try to get replyCommentID from metadata
+		if rcid, ok := event.Comment.Metadata["reply_comment_id"].(int64); ok && rcid > 0 {
+			replyCommentID = rcid
+		} else if rcidFloat, ok := event.Comment.Metadata["reply_comment_id"].(float64); ok && rcidFloat > 0 {
+			replyCommentID = int64(rcidFloat)
 		}
 	}
 
@@ -156,32 +156,24 @@ func (c *APIClient) PostCommentReply(event *UnifiedWebhookEventV2, token, replyT
 	// Route based on whether this is a review comment or general comment
 	if reviewID > 0 && event.Comment.Position != nil {
 		// Inline review comment - use multipart form
-		return c.postInlineCommentReply(baseURL, owner, repo, event, replyText, reviewID, creds.Username, creds.Password)
+		return c.postInlineCommentReply(baseURL, owner, repo, event, replyText, reviewID, replyCommentID, creds.Username, creds.Password)
 	}
 
 	// General comment on issue/PR: quote the original comment and tag the author
 	var quotedBody strings.Builder
-	author := event.Comment.Author.Username
-	body := strings.TrimSpace(event.Comment.Body)
-
-	if author != "" {
-		quotedBody.WriteString(fmt.Sprintf("@%s\n", author))
+	if event.Comment.Author.Username != "" {
+		quotedBody.WriteString(fmt.Sprintf("@%s\n", event.Comment.Author.Username))
 	}
-	if body != "" {
-		for _, line := range strings.Split(body, "\n") {
+	if event.Comment.Body != "" {
+		for _, line := range strings.Split(strings.TrimSpace(event.Comment.Body), "\n") {
 			quotedBody.WriteString("> " + line + "\n")
 		}
-	} else {
-		// Fallback for mentions where body might be empty in webhook
-		quotedBody.WriteString("> [mention]\n")
 	}
-
 	if quotedBody.Len() > 0 {
 		quotedBody.WriteString("\n")
 	}
 
 	formattedReply := quotedBody.String() + strings.TrimSpace(replyText)
-	log.Printf("[DEBUG] Gitea posting general comment: author=%s, body_len=%d", author, len(body))
 
 	return c.postGeneralComment(baseURL, owner, repo, event.MergeRequest.Number, token, formattedReply)
 }
@@ -202,7 +194,7 @@ func (c *APIClient) postGeneralComment(baseURL, owner, repo string, prNumber int
 }
 
 // postInlineCommentReply posts a reply to an inline code review comment using multipart form.
-func (c *APIClient) postInlineCommentReply(baseURL, owner, repo string, event *UnifiedWebhookEventV2, replyText string, reviewID int64, username, password string) error {
+func (c *APIClient) postInlineCommentReply(baseURL, owner, repo string, event *UnifiedWebhookEventV2, replyText string, reviewID, replyCommentID int64, username, password string) error {
 	if username == "" || password == "" {
 		return fmt.Errorf("inline comment reply requires username/password credentials")
 	}
@@ -219,7 +211,7 @@ func (c *APIClient) postInlineCommentReply(baseURL, owner, repo string, event *U
 		return fmt.Errorf("inline comment reply requires valid line number (got: %d)", event.Comment.Position.LineNumber)
 	}
 
-	return c.postInlineCommentReplyMultipart(baseURL, owner, repo, event.MergeRequest.Number, event, replyText, reviewID, username, password)
+	return c.postInlineCommentReplyMultipart(baseURL, owner, repo, event.MergeRequest.Number, event, replyText, reviewID, replyCommentID, username, password)
 }
 
 // enrichCommentMetadata fetches review context by scanning all reviews in the PR.
@@ -227,7 +219,11 @@ func (c *APIClient) postInlineCommentReply(baseURL, owner, repo string, event *U
 // We scan all reviews to find the inline comment being replied to and extract its context.
 func (c *APIClient) enrichCommentMetadata(baseURL, owner, repo string, event *UnifiedWebhookEventV2, token string) error {
 	prNumber := event.MergeRequest.Number
-	log.Printf("[DIAG] enrichCommentMetadata ENTRY: pr=%d, comment_id=%s", prNumber, event.Comment.ID)
+	targetID, parseErr := strconv.ParseInt(event.Comment.ID, 10, 64)
+	if parseErr != nil {
+		return fmt.Errorf("invalid comment ID %q: %w", event.Comment.ID, parseErr)
+	}
+	log.Printf("[DIAG] enrichCommentMetadata ENTRY: pr=%d, target_comment_id=%d", prNumber, targetID)
 
 	// Fetch all reviews for this PR
 	reviewsURL := fmt.Sprintf("%s/api/v1/repos/%s/%s/pulls/%d/reviews", baseURL, owner, repo, prNumber)
@@ -265,20 +261,26 @@ func (c *APIClient) enrichCommentMetadata(baseURL, owner, repo string, event *Un
 		return fmt.Errorf("failed to decode reviews: %w", err)
 	}
 
-	log.Printf("[DIAG] Found %d reviews, scanning for inline comments", len(reviews))
+	log.Printf("[DIAG] Found %d reviews, scanning for target comment %d", len(reviews), targetID)
 
-	// Scan each review's comments to find the most recent inline comment
-	var latestComment map[string]interface{}
-	latestTime := ""
-	totalCommentsScanned := 0
-	inlineCommentsFound := 0
+	// Build full index: commentID → {reviewID, path, position, originalPosition, line}
+	// Gitea sets position=0 when a comment becomes "outdated" (new commits pushed),
+	// but original_position retains the original diff position and is always non-zero.
+	type entry struct {
+		ReviewID         int64
+		Path             string
+		Position         float64 // current diff position (0 when outdated)
+		OriginalPosition float64 // original diff position (always set for inline comments)
+		Line             float64 // actual file line (null in this Gitea version)
+		InReplyTo        int64   // ID of the comment being replied to (null in this Gitea version)
+	}
+	index := make(map[int64]entry)
+	// reviewRootComment tracks the LOWEST comment ID per review.
+	// Gitea's multipart form `reply` field expects this root comment ID, not the review ID.
+	// Using the review ID creates a new thread; using the root comment ID appends to the thread.
+	reviewRootComment := make(map[int64]int64) // reviewID → root comment ID
 
 	for _, review := range reviews {
-		if review.CommentsCount == 0 {
-			log.Printf("[DIAG] Review %d has no comments, skipping", review.ID)
-			continue
-		}
-
 		commentsURL := fmt.Sprintf("%s/api/v1/repos/%s/%s/pulls/%d/reviews/%d/comments",
 			baseURL, owner, repo, prNumber, review.ID)
 		log.Printf("[DIAG] Fetching comments from review %d: %s", review.ID, commentsURL)
@@ -311,68 +313,207 @@ func (c *APIClient) enrichCommentMetadata(baseURL, owner, repo string, event *Un
 		cresp.Body.Close()
 
 		log.Printf("[DIAG] Review %d has %d comments", review.ID, len(comments))
-		totalCommentsScanned += len(comments)
-
-		// Find latest inline comment (has path and position) - matching Python script logic
 		for _, cmt := range comments {
+			id, _ := cmt["id"].(float64)
 			path, _ := cmt["path"].(string)
 			position, _ := cmt["position"].(float64)
-			created, _ := cmt["created_at"].(string)
-			cmtID, _ := cmt["id"].(float64)
+			originalPosition, _ := cmt["original_position"].(float64)
+			line, _ := cmt["line"].(float64)
+			originalLine, _ := cmt["original_line"].(float64)
+			if line == 0 {
+				line = originalLine
+			}
+			inReplyTo, _ := cmt["in_reply_to"].(float64)
+			prReviewID, _ := cmt["pull_request_review_id"].(float64)
+			rid := int64(prReviewID)
+			if rid == 0 {
+				rid = review.ID
+			}
 
-			log.Printf("[DIAG] Comment %.0f: path=%s, position=%.0f, created=%s", cmtID, path, position, created)
+			// Extract side information for LineType determination
+			side, _ := cmt["side"].(string)
+			if side == "" {
+				side = "RIGHT" // default to new side
+			}
 
-			// Python script: filter by path only, position is used for form submission
-			if path != "" && position > 0 {
-				inlineCommentsFound++
-				if created > latestTime {
-					log.Printf("[DIAG] New latest inline comment: %.0f (prev_time=%s, new_time=%s)", cmtID, latestTime, created)
-					latestComment = cmt
-					latestTime = created
+			index[int64(id)] = entry{
+				ReviewID:         rid,
+				Path:             path,
+				Position:         position,
+				OriginalPosition: originalPosition,
+				Line:             line,
+				InReplyTo:        int64(inReplyTo),
+			}
+
+			// Store side information for LineType determination
+			if event.Comment.ID == fmt.Sprintf("%.0f", id) {
+				log.Printf("[DEBUG] Found target comment in API response: side=%s, path=%s, position=%.0f", side, path, position)
+				event.Comment.Metadata["original_side"] = side
+			}
+			// Track the lowest comment ID per review (= thread root for the reply field)
+			cmtID := int64(id)
+			if existing, ok := reviewRootComment[rid]; !ok || cmtID < existing {
+				reviewRootComment[rid] = cmtID
+			}
+			log.Printf("[DIAG] Indexed comment %.0f: review_id=%d, path=%s, pos=%.0f, orig_pos=%.0f, line=%.0f, in_reply_to=%.0f",
+				id, rid, path, position, originalPosition, line, inReplyTo)
+		}
+	}
+
+	// NOTE: The flat /pulls/{index}/comments endpoint returns 404 on this Gitea instance
+	// (confirmed — not a PAT scope issue, the endpoint is not accessible).
+	// We rely entirely on per-review /reviews/{id}/comments which gives us original_position.
+
+	// Step 1: Is our target comment in any review at all?
+	target, found := index[targetID]
+	if !found {
+		log.Printf("[DIAG] Comment %d not found in any review → true general PR comment, no enrichment", targetID)
+		return nil
+	}
+	log.Printf("[DIAG] Target comment %d found in reviews: review_id=%d, path=%s, position=%.0f, line=%.0f",
+		targetID, target.ReviewID, target.Path, target.Position, target.Line)
+
+	// effectiveLine returns the best position to use for the multipart reply form.
+	// Priority: position (current diff pos) → original_position (pre-outdated pos) → line (file line).
+	// Gitea sets position=0 when commits are pushed after the comment, but original_position
+	// retains the value needed to correctly anchor the multipart reply to the right thread.
+	effectiveLine := func(e entry) float64 {
+		if e.Position > 0 {
+			return e.Position
+		}
+		if e.OriginalPosition > 0 {
+			return e.OriginalPosition
+		}
+		return e.Line
+	}
+
+	// Step 2: If target itself has an inline anchor, use it directly.
+	if ef := effectiveLine(target); ef > 0 {
+		event.Comment.Metadata["review_id"] = target.ReviewID
+		if rootCmtID, ok := reviewRootComment[target.ReviewID]; ok {
+			event.Comment.Metadata["reply_comment_id"] = rootCmtID
+		}
+		// Determine LineType: Use position=0 to identify deleted lines (more reliable than Gitea's side field)
+		lineType := "new" // default for new lines
+		if target.Position == 0 && target.OriginalPosition > 0 {
+			// position=0 means the line was deleted/modified after the comment was made
+			// This indicates a deleted line
+			lineType = "old"
+			log.Printf("[DEBUG] Detected deleted line: position=0, original_position=%.0f -> LineType=old", target.OriginalPosition)
+		} else {
+			log.Printf("[DEBUG] Detected new/modified line: position=%.0f -> LineType=new", target.Position)
+		}
+
+		event.Comment.Position = &UnifiedPositionV2{
+			FilePath:   target.Path,
+			LineNumber: int(ef),
+			LineType:   lineType,
+		}
+
+		log.Printf("[DEBUG] Set comment position: path=%s, line=%d, lineType=%s", target.Path, int(ef), lineType)
+		log.Printf("[DIAG] EXIT: target has anchor, review_id=%d, reply_comment_id=%v, path=%s, line=%d",
+			target.ReviewID, event.Comment.Metadata["reply_comment_id"], target.Path, int(ef))
+		return nil
+	}
+
+	// Step 3: Target has no anchor (position=0, line=0). Trace the InReplyTo chain.
+	log.Printf("[DIAG] Step 3: Tracing InReplyTo chain for comment %d", targetID)
+	currID := targetID
+	visited := make(map[int64]bool)
+	effectiveReviewID := target.ReviewID
+
+	for currID != 0 && !visited[currID] {
+		visited[currID] = true
+		curr, exists := index[currID]
+		if !exists {
+			log.Printf("[DIAG] Trace broke at comment %d (not in index)", currID)
+			break
+		}
+
+		// Update effectiveReviewID as we climb the chain (prefer non-zero)
+		if curr.ReviewID > 0 {
+			effectiveReviewID = curr.ReviewID
+		}
+
+		if ef := effectiveLine(curr); ef > 0 {
+			event.Comment.Metadata["review_id"] = curr.ReviewID
+			if rootCmtID, ok := reviewRootComment[curr.ReviewID]; ok {
+				event.Comment.Metadata["reply_comment_id"] = rootCmtID
+			}
+			event.Comment.Position = &UnifiedPositionV2{
+				FilePath:   curr.Path,
+				LineNumber: int(ef),
+				LineType:   "new",
+			}
+			log.Printf("[DIAG] EXIT: traced to anchor at comment %d, review_id=%d, reply_comment_id=%v, path=%s, line=%d",
+				currID, curr.ReviewID, event.Comment.Metadata["reply_comment_id"], curr.Path, int(ef))
+			return nil
+		}
+		currID = curr.InReplyTo
+	}
+
+	// Step 4: Fallback - if no chain found, use the closest review heuristic.
+	// We use effectiveReviewID to constrain the search to the correct discussion thread
+	// when multiple discussions exist on the same file path.
+	log.Printf("[DIAG] Step 4: Fallback to closest-review heuristic for comment %d (effectiveReviewID=%d)", targetID, effectiveReviewID)
+	if target.Path != "" {
+		type candidate struct {
+			cmtID    int64
+			reviewID int64
+			line     float64
+		}
+		var candidates []candidate
+		for cmtID, e := range index {
+			ef := effectiveLine(e)
+			// Constraint: same path AND (we don't know the review OR it matches exactly)
+			if e.Path == target.Path && ef > 0 {
+				if effectiveReviewID == 0 || e.ReviewID == effectiveReviewID {
+					candidates = append(candidates, candidate{cmtID, e.ReviewID, ef})
 				}
-			} else {
-				log.Printf("[DIAG] Comment %.0f is not inline (no path or position=0)", cmtID)
+			}
+		}
+		log.Printf("[DIAG] Candidates with anchor on path=%s and reviewID=%d: %d", target.Path, effectiveReviewID, len(candidates))
+
+		if len(candidates) > 0 {
+			// Pick closest review_id ≤ effectiveReviewID (or closest overall if all are later).
+			var best *candidate
+			for i := range candidates {
+				c := &candidates[i]
+				if effectiveReviewID == 0 || c.reviewID <= effectiveReviewID {
+					if best == nil || c.reviewID > best.reviewID {
+						best = c
+					}
+				}
+			}
+			if best == nil {
+				// Fallback: pick the one with lowest review_id overall
+				for i := range candidates {
+					c := &candidates[i]
+					if best == nil || c.reviewID < best.reviewID {
+						best = c
+					}
+				}
+			}
+			if best != nil {
+				e := index[best.cmtID]
+				ef := effectiveLine(e)
+				event.Comment.Metadata["review_id"] = e.ReviewID
+				if rootCmtID, ok := reviewRootComment[e.ReviewID]; ok {
+					event.Comment.Metadata["reply_comment_id"] = rootCmtID
+				}
+				event.Comment.Position = &UnifiedPositionV2{
+					FilePath:   e.Path,
+					LineNumber: int(ef),
+					LineType:   "new",
+				}
+				log.Printf("[DIAG] EXIT: fallback to candidate %d, review_id=%d, reply_comment_id=%v, path=%s, line=%d",
+					best.cmtID, e.ReviewID, event.Comment.Metadata["reply_comment_id"], e.Path, int(ef))
+				return nil
 			}
 		}
 	}
 
-	log.Printf("[DIAG] Scan complete: total_comments=%d, inline_comments=%d, latest_found=%v",
-		totalCommentsScanned, inlineCommentsFound, latestComment != nil)
-
-	if latestComment == nil {
-		log.Printf("[DEBUG] No inline review comments found in PR %d", prNumber)
-		return nil
-	}
-
-	// Populate metadata from the latest inline comment (use position field like Python script)
-	reviewID, _ := latestComment["pull_request_review_id"].(float64)
-	path, _ := latestComment["path"].(string)
-	position, _ := latestComment["position"].(float64)
-	cmtID, _ := latestComment["id"].(float64)
-
-	log.Printf("[DIAG] Using latest inline comment: id=%.0f, review_id=%.0f, path=%s, position=%.0f",
-		cmtID, reviewID, path, position)
-
-	// Populate review_id into event metadata for routing decision
-	if reviewID > 0 {
-		if event.Comment.Metadata == nil {
-			event.Comment.Metadata = make(map[string]interface{})
-		}
-		event.Comment.Metadata["review_id"] = int64(reviewID)
-		log.Printf("[DIAG] Populated review_id in metadata: %.0f", reviewID)
-	}
-
-	if path != "" && position > 0 {
-		event.Comment.Position = &UnifiedPositionV2{
-			FilePath:   path,
-			LineNumber: int(position),
-			LineType:   "new",
-		}
-		log.Printf("[DIAG] Populated position: path=%s, position=%.0f", path, position)
-	}
-
-	log.Printf("[DIAG] enrichCommentMetadata EXIT: SUCCESS (review_id=%.0f, has_position=%v)",
-		reviewID, event.Comment.Position != nil)
+	log.Printf("[DIAG] Comment %d in review but no inline position found → routing as general comment", targetID)
 	return nil
 }
 
@@ -658,9 +799,9 @@ func (c *APIClient) postToGiteaAPI(apiURL, token string, requestBody interface{}
 
 // postInlineCommentReplyMultipart emulates the browser form submission used by Gitea when replying inline.
 // Requires username/password (from packed connector) to obtain session + CSRF.
-func (c *APIClient) postInlineCommentReplyMultipart(baseURL, owner, repo string, prNumber int, event *UnifiedWebhookEventV2, replyText string, reviewID int64, username, password string) error {
-	log.Printf("[DIAG] postInlineCommentReplyMultipart ENTRY: baseURL=%s, owner=%s, repo=%s, prNumber=%d, reviewID=%d, replyTextLen=%d",
-		baseURL, owner, repo, prNumber, reviewID, len(replyText))
+func (c *APIClient) postInlineCommentReplyMultipart(baseURL, owner, repo string, prNumber int, event *UnifiedWebhookEventV2, replyText string, reviewID, replyCommentID int64, username, password string) error {
+	log.Printf("[DIAG] postInlineCommentReplyMultipart ENTRY: baseURL=%s, owner=%s, repo=%s, prNumber=%d, reviewID=%d, replyCommentID=%d, replyTextLen=%d",
+		baseURL, owner, repo, prNumber, reviewID, replyCommentID, len(replyText))
 	log.Printf("[DIAG] Event comment ID=%s, author=%s", event.Comment.ID, event.Comment.Author.Username)
 	if username == "" || password == "" {
 		return fmt.Errorf("multipart fallback requires username/password in connector token")
@@ -722,28 +863,46 @@ func (c *APIClient) postInlineCommentReplyMultipart(baseURL, owner, repo string,
 	// Position validated in postInlineCommentReply
 	line := strconv.Itoa(event.Comment.Position.LineNumber)
 	path := event.Comment.Position.FilePath
-	commit := ""
-	if sha, ok := event.MergeRequest.Metadata["head_sha"].(string); ok {
-		commit = sha
+
+	// Determine side based on line type: 'previous' for deleted lines, 'proposed' for new lines
+	side := "proposed" // default for new lines
+
+	// Debug logging to understand the data structure
+	log.Printf("[DEBUG] Comment position data: LineType=%s, LineNumber=%d, FilePath=%s",
+		event.Comment.Position.LineType, event.Comment.Position.LineNumber, event.Comment.Position.FilePath)
+
+	if event.Comment.Position.Metadata != nil {
+		if originalSide, exists := event.Comment.Position.Metadata["original_side"]; exists {
+			log.Printf("[DEBUG] Original Gitea side from metadata: %v", originalSide)
+		}
 	}
 
-	log.Printf("[DEBUG] Posting inline reply: line=%s, path=%s, reviewID=%d", line, path, reviewID)
+	if event.Comment.Position.LineType == "old" {
+		side = "previous" // for deleted lines
+		log.Printf("[DEBUG] Detected deleted line, setting side=previous")
+	} else {
+		log.Printf("[DEBUG] Using default side=proposed for lineType=%s", event.Comment.Position.LineType)
+	}
 
-	// Build multipart form mirroring the working curl
+	log.Printf("[DEBUG] Final inline reply: line=%s, path=%s, reviewID=%d, replyCommentID=%d, side=%s, lineType=%s",
+		line, path, reviewID, replyCommentID, side, event.Comment.Position.LineType)
+
+	// Build multipart form mirroring the working Python implementation exactly
 	var buf bytes.Buffer
 	mw := multipart.NewWriter(&buf)
+
 	fields := map[string]string{
 		"_csrf":            csrf,
 		"origin":           "timeline",
-		"latest_commit_id": commit,
-		"side":             "proposed",
+		"latest_commit_id": "", // Empty string matches working Python implementation
+		"side":             side,
 		"line":             line,
 		"path":             path,
 		"diff_start_cid":   "",
 		"diff_end_cid":     "",
 		"diff_base_cid":    "",
 		"content":          replyText,
-		"reply":            strconv.FormatInt(reviewID, 10),
+		"reply":            strconv.FormatInt(reviewID, 10), // Use reviewID, not replyCommentID
 		"single_review":    "true",
 	}
 	for k, v := range fields {
@@ -872,72 +1031,4 @@ func mapReactionToGitea(reaction string) string {
 
 	// Return as-is if not in map
 	return reaction
-}
-
-func (c *APIClient) fetchTimeline(baseURL, owner, repo string, prNumber int, token string) ([]map[string]interface{}, error) {
-	url := fmt.Sprintf("%s/api/v1/repos/%s/%s/issues/%d/timeline", baseURL, owner, repo, prNumber)
-	req, err := http.NewRequest("GET", url, nil)
-	if err != nil {
-		return nil, err
-	}
-	req.Header.Set("Authorization", "token "+token)
-	
-	resp, err := c.httpClient.Do(req)
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-	
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("failed to fetch timeline: status %d", resp.StatusCode)
-	}
-	
-	var timeline []map[string]interface{}
-	if err := json.NewDecoder(resp.Body).Decode(&timeline); err != nil {
-		return nil, err
-	}
-	
-	return timeline, nil
-}
-
-func (c *APIClient) checkIfCommentIsInlineReply(commentID string, timeline []map[string]interface{}) bool {
-	targetID, _ := strconv.ParseInt(commentID, 10, 64)
-	
-	for _, item := range timeline {
-		// More robust ID extraction
-		var id int64
-		switch v := item["id"].(type) {
-		case float64:
-			id = int64(v)
-		case int64:
-			id = v
-		case string:
-			id, _ = strconv.ParseInt(v, 10, 64)
-		}
-		
-		if id != 0 {
-			log.Printf("[DEBUG] Timeline heuristic: comparing current id %d with target %d", id, targetID)
-		}
-
-		if id == targetID {
-			// Found our comment. Log everything about it.
-			itemJSON, _ := json.Marshal(item)
-			log.Printf("[DEBUG] Timeline heuristic: Found comment %s in timeline: %s", commentID, string(itemJSON))
-			
-			// Trust the "Golden Marker" explicitly.
-			if rid, ok := item["review_id"].(float64); ok && rid > 0 {
-				log.Printf("[DEBUG] Timeline heuristic: comment %s has review_id %.0f -> INLINE", commentID, rid)
-				return true
-			}
-			
-			// If review_id is 0 and it's a "comment" type, it's definitely a General Comment.
-			log.Printf("[DEBUG] Timeline heuristic: comment %s has review_id 0 -> GENERAL", commentID)
-			return false
-		}
-	}
-	
-	// If we reach here, the comment wasn't found in the timeline. 
-	// This often happens for inline replies (review comments).
-	log.Printf("[DEBUG] Timeline heuristic: comment %s NOT FOUND in timeline, assuming it MIGHT be inline", commentID)
-	return true
 }

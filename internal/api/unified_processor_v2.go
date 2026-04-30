@@ -1596,25 +1596,28 @@ func (p *UnifiedProcessorV2Impl) buildGiteaArtifactFromEvent(ctx context.Context
 	log.Printf("[DEBUG] Building Gitea artifact for repo=%s org_id=%d", event.Repository.FullName, orgID)
 
 	patchURL := ""
-	if event.MergeRequest.Metadata != nil {
-		if rawPatchURL, ok := event.MergeRequest.Metadata["patch_url"].(string); ok {
-			patchURL = strings.TrimSpace(rawPatchURL)
-		}
-	}
-	if patchURL == "" {
-		// Use provider URL and metadata to construct API patch URL reliably.
-		// We avoid brittle WebURL path manipulation by using known metadata.
-		baseURL := strings.TrimRight(token.ProviderURL, "/")
-		repoFullName := event.Repository.FullName
-		prNumber := event.MergeRequest.Number
+	// Construct the official API patch URL which reliably accepts PAT authentication.
+	// We prioritize this over the UI-based patch_url often found in webhook metadata.
+	baseURL := strings.TrimRight(token.ProviderURL, "/")
+	repoFullName := event.Repository.FullName
+	prNumber := event.MergeRequest.Number
 
-		if baseURL != "" && repoFullName != "" && prNumber > 0 {
-			patchURL = fmt.Sprintf("%s/%s/pulls/%d.patch",
-				baseURL, repoFullName, prNumber)
-		} else if webURL := strings.TrimSpace(event.MergeRequest.WebURL); webURL != "" {
-			// Fallback: Gitea supports appending .patch to the UI URL.
-			// This is a safe last-resort if API-specific metadata is incomplete.
-			patchURL = strings.TrimRight(webURL, "/") + ".patch"
+	if baseURL != "" && repoFullName != "" && prNumber > 0 {
+		patchURL = fmt.Sprintf("%s/api/v1/repos/%s/pulls/%d.patch",
+			baseURL, repoFullName, prNumber)
+	}
+
+	// Fallback to metadata or web URL if API URL construction is not possible
+	if patchURL == "" {
+		if event.MergeRequest.Metadata != nil {
+			if rawPatchURL, ok := event.MergeRequest.Metadata["patch_url"].(string); ok {
+				patchURL = strings.TrimSpace(rawPatchURL)
+			}
+		}
+		if patchURL == "" {
+			if webURL := strings.TrimSpace(event.MergeRequest.WebURL); webURL != "" {
+				patchURL = strings.TrimRight(webURL, "/") + ".patch"
+			}
 		}
 	}
 	if patchURL == "" {
@@ -1622,6 +1625,7 @@ func (p *UnifiedProcessorV2Impl) buildGiteaArtifactFromEvent(ctx context.Context
 	}
 
 	client := networkgitea.NewHTTPClient(20 * time.Second)
+	log.Printf("[DEBUG] Fetching Gitea patch from URL: %s", patchURL)
 	patchContent, err := networkgitea.FetchPatchContent(ctx, client, patchURL, token.PatToken)
 	if err != nil {
 		return nil, fmt.Errorf("failed to fetch gitea patch: %w", err)
