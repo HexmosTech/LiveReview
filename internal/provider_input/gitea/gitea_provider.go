@@ -38,7 +38,6 @@ type GiteaOutputClient interface {
 	PostReviewComments(mr UnifiedMergeRequestV2, token string, comments []UnifiedReviewCommentV2) error
 }
 
-// GiteaV2Provider implements webhook provider behaviour for Gitea.
 type GiteaV2Provider struct {
 	db                *sql.DB
 	output            GiteaOutputClient
@@ -189,47 +188,47 @@ func (p *GiteaV2Provider) FetchMergeRequestData(event *UnifiedWebhookEventV2) er
 				}
 			}
 
-		if reviewID > 0 {
-			log.Printf("[DEBUG] Gitea enrichment: fetching comments for review %d", reviewID)
-			comments, err := p.fetchReviewComments(baseURL, token.PatToken, owner, repo, prNumber, reviewID)
-			if err != nil {
-				log.Printf("[WARN] Failed to fetch review comments for enrichment: %v", err)
-			} else {
-				// Get bot info to know what mention to look for
-				botInfo, _ := p.GetBotUserInfo(event.Repository)
-				mentionName := "livereview"
-				if botInfo != nil && botInfo.Username != "" {
-					mentionName = botInfo.Username
-				}
-
-				mentionPattern := "@" + strings.ToLower(mentionName)
-				log.Printf("[DEBUG] Gitea enrichment: scanning %d comments for mention '%s'", len(comments), mentionPattern)
-
-				for _, c := range comments {
-					if strings.Contains(strings.ToLower(c.Body), mentionPattern) {
-						log.Printf("[INFO] Gitea enrichment: found mention in inline comment %d, promoting it", c.ID)
-						// Update the event's comment to be this inline comment
-						event.Comment.ID = strconv.FormatInt(c.ID, 10)
-						event.Comment.Body = c.Body
-						event.Comment.CreatedAt = c.CreatedAt
-						event.Comment.UpdatedAt = c.UpdatedAt
-						
-						// Save the review ID so the output client knows how to route this
-						if event.Comment.Metadata == nil {
-							event.Comment.Metadata = map[string]interface{}{}
-						}
-						event.Comment.Metadata["review_id"] = reviewID
-
-						// Add position info so LR knows which file/line we are talking about
-						if c.Path != "" {
-							event.Comment.Position = &coreprocessor.UnifiedPositionV2{
-								FilePath:   c.Path,
-								LineNumber: c.Line,
-								LineType:   convertGiteaSideToLineType(c.Side),
-							}
-						}
-						break // Take the first mention we find
+			if reviewID > 0 {
+				log.Printf("[DEBUG] Gitea enrichment: fetching comments for review %d", reviewID)
+				comments, err := p.fetchReviewComments(baseURL, token.PatToken, owner, repo, prNumber, reviewID)
+				if err != nil {
+					log.Printf("[WARN] Failed to fetch review comments for enrichment: %v", err)
+				} else {
+					// Get bot info to know what mention to look for
+					botInfo, _ := p.GetBotUserInfo(event.Repository)
+					mentionName := "livereview"
+					if botInfo != nil && botInfo.Username != "" {
+						mentionName = botInfo.Username
 					}
+
+					mentionPattern := "@" + strings.ToLower(mentionName)
+					log.Printf("[DEBUG] Gitea enrichment: scanning %d comments for mention '%s'", len(comments), mentionPattern)
+
+					for _, c := range comments {
+						if strings.Contains(strings.ToLower(c.Body), mentionPattern) {
+							log.Printf("[INFO] Gitea enrichment: found mention in inline comment %d, promoting it", c.ID)
+							// Update the event's comment to be this inline comment
+							event.Comment.ID = strconv.FormatInt(c.ID, 10)
+							event.Comment.Body = c.Body
+							event.Comment.CreatedAt = c.CreatedAt
+							event.Comment.UpdatedAt = c.UpdatedAt
+
+							// Save the review ID so the output client knows how to route this
+							if event.Comment.Metadata == nil {
+								event.Comment.Metadata = map[string]interface{}{}
+							}
+							event.Comment.Metadata["review_id"] = reviewID
+
+							// Add position info so LR knows which file/line we are talking about
+							if c.Path != "" {
+								event.Comment.Position = &coreprocessor.UnifiedPositionV2{
+									FilePath:   c.Path,
+									LineNumber: c.Line,
+									LineType:   convertGiteaSideToLineType(c.Side),
+								}
+							}
+							break // Take the first mention we find
+						}
 					}
 				}
 			}
@@ -679,7 +678,7 @@ func (p *GiteaV2Provider) fetchLatestReview(baseURL, token, owner, repo string, 
 		return nil, nil
 	}
 
-	// Reviews are usually returned in chronological order or ID order. 
+	// Reviews are usually returned in chronological order or ID order.
 	// We want the most recent one.
 	return &reviews[len(reviews)-1], nil
 }
