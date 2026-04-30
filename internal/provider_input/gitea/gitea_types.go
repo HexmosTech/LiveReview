@@ -201,6 +201,7 @@ type GiteaReviewComment struct {
 	Line      int          `json:"line"`
 	Side      string       `json:"side"` // LEFT or RIGHT
 	CommitID  string       `json:"commit_id"`
+	DiffHunk  string       `json:"diff_hunk"`
 	CreatedAt string       `json:"created_at"`
 	UpdatedAt string       `json:"updated_at"`
 }

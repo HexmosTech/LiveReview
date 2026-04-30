@@ -12,6 +12,7 @@ import (
 	"log"
 	"net/http"
 	"net/url"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -221,9 +222,18 @@ func (p *GiteaV2Provider) FetchMergeRequestData(event *UnifiedWebhookEventV2) er
 
 							// Add position info so LR knows which file/line we are talking about
 							if c.Path != "" {
+								// 1. Try the direct line field first
+								lineNumber := c.Line
+
+								// 2. If Gitea gave us 0, calculate it from the diff_hunk
+								if lineNumber == 0 && c.DiffHunk != "" {
+									lineNumber = getExactLineFromHunk(c.DiffHunk, c.Side)
+									log.Printf("[DEBUG] Extracted exact line %d from diff_hunk for comment %d", lineNumber, c.ID)
+								}
+
 								event.Comment.Position = &coreprocessor.UnifiedPositionV2{
 									FilePath:   c.Path,
-									LineNumber: c.Line,
+									LineNumber: lineNumber, // This will now correctly be 11
 									LineType:   convertGiteaSideToLineType(c.Side),
 								}
 							}
@@ -746,6 +756,50 @@ func (p *GiteaV2Provider) ValidateWebhookSignature(connectorID int64, headers ma
 
 	log.Printf("[DEBUG] Gitea webhook signature validated successfully for connector_id=%d", connectorID)
 	return true
+}
+
+// getExactLineFromHunk calculates the exact line number from Gitea's diff_hunk
+func getExactLineFromHunk(hunk, side string) int {
+	if hunk == "" {
+		return 0
+	}
+
+	// Match @@ -oldStart,oldCount +newStart,newCount @@
+	re := regexp.MustCompile(`@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@`)
+	matches := re.FindStringSubmatch(hunk)
+	if len(matches) < 3 {
+		return 0
+	}
+
+	var oldStart, newStart int
+	fmt.Sscanf(matches[1], "%d", &oldStart)
+	fmt.Sscanf(matches[2], "%d", &newStart)
+
+	newLine := newStart - 1
+	oldLine := oldStart - 1
+
+	lines := strings.Split(hunk, "\n")
+
+	// Skip the first line (the @@ header) and count the actual code lines
+	for i := 1; i < len(lines); i++ {
+		line := lines[i]
+		if strings.HasPrefix(line, "+") {
+			newLine++
+		} else if strings.HasPrefix(line, "-") {
+			oldLine++
+		} else { // context lines
+			newLine++
+			oldLine++
+		}
+	}
+
+	// If the comment is on the old code (left side), return the old line
+	if strings.ToUpper(side) == "LEFT" || strings.ToLower(side) == "previous" {
+		return oldLine
+	}
+
+	// Otherwise, return the new line (this is what will give you 11)
+	return newLine
 }
 
 // IntegrationToken represents a token from the database
