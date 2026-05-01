@@ -37,6 +37,39 @@ const formatMinorAmount = (amountMinor: number, currency: PurchaseCurrency): str
   }).format(amountMinor / 100)
 );
 
+type BillingPlanPrice = {
+  unit_amount_minor: number;
+  recurring_minor: number;
+  currency: string;
+};
+
+const getResolvedPlanPrice = (plan?: BillingPlan | null, currency?: PurchaseCurrency | null): BillingPlanPrice | null => {
+  if (!plan || !currency) {
+    return null;
+  }
+  const raw = plan.prices?.[currency];
+  if (!raw || typeof raw.recurring_minor !== 'number' || typeof raw.unit_amount_minor !== 'number') {
+    return null;
+  }
+  return raw;
+};
+
+const formatResolvedPlanRecurringAmount = (plan?: BillingPlan | null, currency?: PurchaseCurrency | null): string | null => {
+  const resolved = getResolvedPlanPrice(plan, currency);
+  if (!resolved) {
+    return null;
+  }
+  return `${formatMinorAmount(resolved.recurring_minor, currency!)}/month`;
+};
+
+const getResolvedPlanError = (plan?: BillingPlan | null, currency?: PurchaseCurrency | null): string | null => {
+  if (!plan || !currency) {
+    return null;
+  }
+  const error = plan.resolution_errors?.[currency];
+  return typeof error === 'string' && error.trim() !== '' ? error : null;
+};
+
 declare global {
   interface Window {
     Razorpay: any;
@@ -87,6 +120,8 @@ type BillingPlan = {
   monthly_loc_limit: number;
   monthly_price_usd: number;
   trial_days: number;
+  prices?: Partial<Record<PurchaseCurrency, BillingPlanPrice>>;
+  resolution_errors?: Partial<Record<string, string>>;
 };
 
 type TrialEligibilitySummary = {
@@ -102,6 +137,9 @@ type TrialEligibilitySummary = {
 type BillingStatusResponse = {
   billing: {
     current_plan_code: string;
+    razorpay_mode?: string;
+    pricing_profile?: string;
+    current_plan_currency?: string;
     default_purchase_currency?: string;
     supported_purchase_currencies?: string[];
     billing_period_start: string;
@@ -539,10 +577,12 @@ const OverviewTab: React.FC<{ navigate: any; mode?: 'full' | 'breakdown' | 'cont
   const fallbackPlanCode = rawPlanType === 'free' ? 'free_30k' : rawPlanType === 'team' ? 'team_32usd' : rawPlanType;
   const currentPlanCode = billingStatus?.billing?.current_plan_code || fallbackPlanCode;
   const currentPlan = billingStatus?.available_plans?.find((p) => p.plan_code === currentPlanCode) || null;
+  const currentPlanCurrency = normalizePurchaseCurrency(billingStatus?.billing?.current_plan_currency);
   const licenseExpiresAt = currentOrg?.license_expires_at;
   const isFree = currentPlanCode === 'free_30k' || currentPlanCode === 'free';
   const isTeamPlan = !isFree;
   const canManageBilling = isSuperAdmin || currentOrg?.role === 'owner' || currentOrg?.role === 'admin';
+  const effectivePlanDisplayCurrency: PurchaseCurrency = (!isFree && currentPlanCurrency) ? currentPlanCurrency : purchaseCurrency;
 
   const refreshSubscriptionState = useCallback(async () => {
     if (!currentOrg?.id) {
@@ -731,6 +771,15 @@ const OverviewTab: React.FC<{ navigate: any; mode?: 'full' | 'breakdown' | 'cont
     }
     setPurchaseCurrencyInitialized(true);
   }, [billingStatus?.billing, purchaseCurrencyInitialized]);
+
+  useEffect(() => {
+    if (isFree) {
+      return;
+    }
+    if (currentPlanCurrency && currentPlanCurrency !== purchaseCurrency) {
+      setPurchaseCurrency(currentPlanCurrency);
+    }
+  }, [currentPlanCurrency, isFree, purchaseCurrency]);
 
   const handleCancelSuccess = () => {
     // Reload the page to reflect updated subscription status
@@ -948,7 +997,7 @@ const OverviewTab: React.FC<{ navigate: any; mode?: 'full' | 'breakdown' | 'cont
   const openUpgradePreview = async (targetPlanCode?: string, currencyOverride?: PurchaseCurrency) => {
     const effectivePlanCode = String(targetPlanCode || selectedUpgradePlan || '').trim();
     if (!effectivePlanCode) return;
-    const effectiveCurrency = currencyOverride || purchaseCurrency;
+    const effectiveCurrency = (!isFree && currentPlanCurrency) ? currentPlanCurrency : (currencyOverride || purchaseCurrency);
 
     setSelectedUpgradePlan(effectivePlanCode);
 
@@ -1312,8 +1361,12 @@ const OverviewTab: React.FC<{ navigate: any; mode?: 'full' | 'breakdown' | 'cont
   };
 
   const selectedFreeCheckoutPlan = billingStatus?.available_plans?.find((p) => p.plan_code === selectedUpgradePlan) || null;
-  const selectedFreeCheckoutPriceUSD = selectedFreeCheckoutPlan?.monthly_price_usd || 0;
   const selectedFreeCheckoutLoc = selectedFreeCheckoutPlan?.monthly_loc_limit || 0;
+  const selectedFreeCheckoutRecurringAmount = formatResolvedPlanRecurringAmount(selectedFreeCheckoutPlan, purchaseCurrency);
+  const selectedFreeCheckoutPriceError = getResolvedPlanError(selectedFreeCheckoutPlan, purchaseCurrency);
+  const activeRazorpayMode = String(billingStatus?.billing?.razorpay_mode || '').trim().toLowerCase();
+  const activePricingProfile = String(billingStatus?.billing?.pricing_profile || '').trim().toLowerCase();
+  const lowPricingProfileActive = activeRazorpayMode === 'live' && activePricingProfile === 'low_pricing_test';
   const availablePurchaseCurrencies = useMemo(() => {
     const backendCurrencies = (billingStatus?.billing?.supported_purchase_currencies || [])
       .map((raw) => normalizePurchaseCurrency(raw))
@@ -2074,12 +2127,20 @@ const OverviewTab: React.FC<{ navigate: any; mode?: 'full' | 'breakdown' | 'cont
               )}
 
               <div className="space-y-4">
+                {lowPricingProfileActive && (
+                  <div className="rounded-lg border border-amber-500/40 bg-amber-900/20 p-4 text-sm text-amber-100">
+                    Live Razorpay is currently running with the <span className="font-semibold text-amber-50">low_pricing_test</span> pricing profile on this deployment. Checkout will keep using that low-pricing plan set until the deployment is switched back to the <span className="font-semibold text-amber-50">actual</span> profile.
+                  </div>
+                )}
+
                 <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-3">
                   {upgradeHierarchyPlans.map((plan) => {
                     const isCurrentCard = plan.plan_code === currentPlanCode;
                     const isSelectableUpgrade = plan.monthly_loc_limit > currentLocLimit;
                     const planTrialDays = Number(plan.trial_days || firstPaidTrialDays || 0);
                     const showsFirstPaidTrialCopy = isFree && plan.monthly_price_usd > 0 && planTrialDays > 0;
+                    const resolvedPlanAmount = formatResolvedPlanRecurringAmount(plan, effectivePlanDisplayCurrency);
+                    const resolvedPlanError = getResolvedPlanError(plan, effectivePlanDisplayCurrency);
                     const firstPaidTrialCardBadgeText = trialEligibleForFirstPaidPurchase
                       ? `Free ${planTrialDays}-Day Trial Included`
                       : trialEligibilityStatus === 'already_used'
@@ -2105,7 +2166,10 @@ const OverviewTab: React.FC<{ navigate: any; mode?: 'full' | 'breakdown' | 'cont
                             ) : null}
                           </div>
                           <p className="mt-2 text-sm text-slate-300">{plan.monthly_loc_limit.toLocaleString()} LOC / month</p>
-                          <p className="text-sm text-slate-300">${plan.monthly_price_usd}/month</p>
+                          <p className="text-sm text-slate-300">{plan.monthly_price_usd <= 0 ? 'Free' : (resolvedPlanAmount || 'Provider price unavailable')}</p>
+                          {resolvedPlanError && (
+                            <p className="mt-2 text-xs text-amber-300">{resolvedPlanError}</p>
+                          )}
                         </div>
                       );
                     }
@@ -2125,7 +2189,10 @@ const OverviewTab: React.FC<{ navigate: any; mode?: 'full' | 'breakdown' | 'cont
                         <div className="relative z-10">
                           <p className="text-sm font-semibold text-white">{getPlanDisplayName(plan.plan_code)}</p>
                           <p className="mt-2 text-sm text-slate-300">{plan.monthly_loc_limit.toLocaleString()} LOC / month</p>
-                          <p className="text-sm text-slate-300">${plan.monthly_price_usd}/month</p>
+                          <p className="text-sm text-slate-300">{resolvedPlanAmount || 'Provider price unavailable'}</p>
+                          {resolvedPlanError && (
+                            <p className="mt-2 text-xs text-amber-300">{resolvedPlanError}</p>
+                          )}
                           <div className="mt-3 flex flex-wrap items-center gap-2">
                             <div className="inline-flex px-3 py-1.5 rounded bg-emerald-600 text-white text-xs font-medium transition-colors group-hover:bg-emerald-500">
                               Upgrade
@@ -2283,7 +2350,10 @@ const OverviewTab: React.FC<{ navigate: any; mode?: 'full' | 'breakdown' | 'cont
                               <p className="text-sm font-semibold text-white">{getPlanDisplayName(plan.plan_code)}</p>
                             </div>
                             <p className="text-sm text-slate-300">{plan.monthly_loc_limit.toLocaleString()} LOC / month</p>
-                            <p className="text-sm text-slate-300">${plan.monthly_price_usd}/month</p>
+                              <p className="text-sm text-slate-300">{formatResolvedPlanRecurringAmount(plan, effectivePlanDisplayCurrency) || 'Provider price unavailable'}</p>
+                              {getResolvedPlanError(plan, effectivePlanDisplayCurrency) && (
+                                <p className="mt-2 text-xs text-amber-300">{getResolvedPlanError(plan, effectivePlanDisplayCurrency)}</p>
+                              )}
                             <div className="mt-3 inline-flex px-3 py-1.5 rounded bg-amber-600 text-white text-xs font-medium transition-colors group-hover:bg-amber-500">
                               Downgrade
                             </div>
@@ -2376,10 +2446,22 @@ const OverviewTab: React.FC<{ navigate: any; mode?: 'full' | 'breakdown' | 'cont
                 <p className="text-xs text-slate-400">Default currency is selected from your region (IN defaults to INR, others default to USD).</p>
               </div>
 
+              {selectedFreeCheckoutPriceError && (
+                <div className="rounded-lg border border-amber-500/40 bg-amber-900/20 p-3 text-xs text-amber-100">
+                  Provider-backed pricing could not be resolved for {purchaseCurrency}: {selectedFreeCheckoutPriceError}
+                </div>
+              )}
+
+              {lowPricingProfileActive && (
+                <div className="rounded-lg border border-amber-500/40 bg-amber-900/20 p-3 text-xs text-amber-100">
+                  This deployment is using the live <span className="font-semibold text-amber-50">low_pricing_test</span> Razorpay profile. The checkout popup will therefore use the low-pricing plan amount, even if the standard catalog on this page still shows the normal USD ladder.
+                </div>
+              )}
+
               <div className="rounded-lg border border-blue-500/40 bg-blue-900/20 p-4 space-y-2 text-slate-100">
                 <p className="font-medium text-blue-200">Checkout summary</p>
                 <p>
-                  Recurring amount (USD reference): <span className="text-white font-semibold">${selectedFreeCheckoutPriceUSD}/month</span>
+                  Recurring amount: <span className="text-white font-semibold">{selectedFreeCheckoutRecurringAmount || 'Provider price unavailable'}</span>
                 </p>
                 <p>
                   Checkout currency: <span className="text-white font-semibold">{purchaseCurrency}</span>
@@ -2442,11 +2524,15 @@ const OverviewTab: React.FC<{ navigate: any; mode?: 'full' | 'breakdown' | 'cont
                 <label htmlFor="upgrade-currency" className="text-xs uppercase tracking-wide text-slate-300">Billing currency</label>
                 <select
                   id="upgrade-currency"
-                  value={purchaseCurrency}
+                  value={effectivePlanDisplayCurrency}
                   disabled={upgradeCheckoutLoading || actionLoading}
                   onChange={(event) => {
                     const nextCurrency = normalizePurchaseCurrency(event.target.value);
-                    if (!nextCurrency || nextCurrency === purchaseCurrency) {
+                    if (!nextCurrency || nextCurrency === effectivePlanDisplayCurrency) {
+                      return;
+                    }
+                    if (currentPlanCurrency) {
+                      setBillingError(`Paid plan changes stay on the current subscription currency (${currentPlanCurrency}) until cross-currency replacement flow is implemented.`);
                       return;
                     }
                     setPurchaseCurrency(nextCurrency);
@@ -2454,11 +2540,15 @@ const OverviewTab: React.FC<{ navigate: any; mode?: 'full' | 'breakdown' | 'cont
                   }}
                   className="w-full rounded border border-slate-600 bg-slate-900 px-3 py-2 text-sm text-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
                 >
-                  {availablePurchaseCurrencies.map((currency) => (
+                  {(currentPlanCurrency ? [currentPlanCurrency] : availablePurchaseCurrencies).map((currency) => (
                     <option key={currency} value={currency}>{currency}</option>
                   ))}
                 </select>
-                <p className="text-xs text-slate-400">Default currency is selected from your region (IN defaults to INR, others default to USD).</p>
+                <p className="text-xs text-slate-400">
+                  {currentPlanCurrency
+                    ? `Existing paid subscription changes stay on ${currentPlanCurrency}. Cross-currency paid replacement flow is not implemented yet.`
+                    : 'Default currency is selected from your region (IN defaults to INR, others default to USD).'}
+                </p>
               </div>
 
               <div className="rounded-lg border border-blue-500/40 bg-blue-900/20 p-4 space-y-2 text-slate-100">
