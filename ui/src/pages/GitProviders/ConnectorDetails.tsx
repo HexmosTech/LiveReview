@@ -987,7 +987,7 @@ const ConnectorDetails: React.FC = () => {
                                     {repositoryAccess.error}
                                 </p>
                             </div>
-                        ) : repositoryAccess && repositoryAccess.projects.length > 0 ? (
+                        ) : repositoryAccess && (repositoryAccess.projects?.length || 0) > 0 ? (
                             <div className="space-y-6">
                                 {/* Repository Summary */}
                                 <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
