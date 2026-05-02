@@ -14,6 +14,7 @@ import (
 
 	"github.com/livereview/internal/aisanitize"
 	"github.com/livereview/internal/providers"
+	networkgitea "github.com/livereview/network/providers/gitea"
 	"github.com/livereview/pkg/models"
 )
 
@@ -50,7 +51,7 @@ func NewProvider(cfg Config) (*Provider, error) {
 		token:      tok,
 		username:   user,
 		password:   pass,
-		httpClient: &http.Client{},
+		httpClient: networkgitea.NewHTTPClient(0),
 	}, nil
 }
 
@@ -104,7 +105,7 @@ func (p *Provider) Configure(config map[string]interface{}) error {
 	p.baseURL = NormalizeGiteaBaseURL(base)
 	p.token = token
 	if p.httpClient == nil {
-		p.httpClient = &http.Client{}
+		p.httpClient = networkgitea.NewHTTPClient(0)
 	}
 	p.session = nil // reset session on reconfigure
 	return nil
@@ -118,13 +119,13 @@ func (p *Provider) GetMergeRequestDetails(ctx context.Context, mrURL string) (*p
 	}
 
 	apiURL := fmt.Sprintf("%s/api/v1/repos/%s/%s/pulls/%d", apiBase, owner, repo, index)
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, apiURL, nil)
+	req, err := networkgitea.NewRequestWithContext(ctx, http.MethodGet, apiURL, nil)
 	if err != nil {
 		return nil, fmt.Errorf("failed to build request: %w", err)
 	}
 	p.applyAuthHeaders(req)
 
-	resp, err := p.httpClient.Do(req)
+	resp, err := networkgitea.Do(p.httpClient, req)
 	if err != nil {
 		return nil, fmt.Errorf("failed to fetch pull request: %w", err)
 	}
@@ -199,13 +200,13 @@ func (p *Provider) GetMergeRequestChanges(ctx context.Context, prID string) ([]*
 
 	// Fallback to files endpoint if unified diff is unavailable
 	apiURL := fmt.Sprintf("%s/api/v1/repos/%s/%s/pulls/%s/files", apiBase, owner, repo, number)
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, apiURL, nil)
+	req, err := networkgitea.NewRequestWithContext(ctx, http.MethodGet, apiURL, nil)
 	if err != nil {
 		return nil, fmt.Errorf("failed to build request: %w", err)
 	}
 	p.applyAuthHeaders(req)
 
-	resp, err := p.httpClient.Do(req)
+	resp, err := networkgitea.Do(p.httpClient, req)
 	if err != nil {
 		return nil, fmt.Errorf("failed to fetch pull request files: %w", err)
 	}
@@ -244,13 +245,13 @@ func (p *Provider) GetMergeRequestChanges(ctx context.Context, prID string) ([]*
 func (p *Provider) fetchDiffAsUnified(ctx context.Context, apiBase, owner, repo, number string) ([]*models.CodeDiff, error) {
 	// Gitea supports /repos/{owner}/{repo}/pulls/{index}.diff or .patch
 	apiURL := fmt.Sprintf("%s/api/v1/repos/%s/%s/pulls/%s.diff", apiBase, owner, repo, number)
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, apiURL, nil)
+	req, err := networkgitea.NewRequestWithContext(ctx, http.MethodGet, apiURL, nil)
 	if err != nil {
 		return nil, fmt.Errorf("failed to build diff request: %w", err)
 	}
 	p.applyAuthHeaders(req)
 
-	resp, err := p.httpClient.Do(req)
+	resp, err := networkgitea.Do(p.httpClient, req)
 	if err != nil {
 		return nil, fmt.Errorf("failed to fetch diff: %w", err)
 	}
@@ -338,14 +339,14 @@ func (p *Provider) PostComment(ctx context.Context, prID string, comment *models
 	payload := map[string]string{"body": safeComment.Content}
 	body, _ := json.Marshal(payload)
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, apiURL, strings.NewReader(string(body)))
+	req, err := networkgitea.NewRequestWithContext(ctx, http.MethodPost, apiURL, strings.NewReader(string(body)))
 	if err != nil {
 		return fmt.Errorf("failed to build request: %w", err)
 	}
 	p.applyAuthHeaders(req)
 	req.Header.Set("Content-Type", "application/json")
 
-	resp, err := p.httpClient.Do(req)
+	resp, err := networkgitea.Do(p.httpClient, req)
 	if err != nil {
 		return fmt.Errorf("failed to post comment: %w", err)
 	}
@@ -400,14 +401,14 @@ func (p *Provider) postInlineViaSession(ctx context.Context, apiBase, owner, rep
 	form.Set("content", comment.Content)
 	form.Set("single_review", "true")
 
-	postReq, err := http.NewRequestWithContext(ctx, http.MethodPost, commentURL, strings.NewReader(form.Encode()))
+	postReq, err := networkgitea.NewRequestWithContext(ctx, http.MethodPost, commentURL, strings.NewReader(form.Encode()))
 	if err != nil {
 		return fmt.Errorf("failed to build session inline comment request: %w", err)
 	}
 	postReq.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	postReq.Header.Set("X-CSRF-Token", p.session.csrf)
 
-	resp, err := p.session.client.Do(postReq)
+	resp, err := networkgitea.Do(p.session.client, postReq)
 	if err != nil {
 		return fmt.Errorf("failed to post inline via session: %w", err)
 	}
@@ -417,7 +418,7 @@ func (p *Provider) postInlineViaSession(ctx context.Context, apiBase, owner, rep
 		if err := p.relogin(ctx); err != nil {
 			return fmt.Errorf("session relogin failed: %w", err)
 		}
-		resp, err = p.session.client.Do(postReq)
+		resp, err = networkgitea.Do(p.session.client, postReq)
 		if err != nil {
 			return fmt.Errorf("failed to post inline after relogin: %w", err)
 		}
@@ -449,14 +450,14 @@ func (p *Provider) ensureSession(ctx context.Context) error {
 		return fmt.Errorf("session credentials not provided for Gitea inline fallback")
 	}
 	jar, _ := cookiejar.New(nil)
-	cli := &http.Client{Jar: jar}
+	cli := networkgitea.NewHTTPClientWithJar(0, jar)
 
 	loginURL := fmt.Sprintf("%s/user/login", p.baseURL)
-	getReq, err := http.NewRequestWithContext(ctx, http.MethodGet, loginURL, nil)
+	getReq, err := networkgitea.NewRequestWithContext(ctx, http.MethodGet, loginURL, nil)
 	if err != nil {
 		return fmt.Errorf("failed to build login GET: %w", err)
 	}
-	resp, err := cli.Do(getReq)
+	resp, err := networkgitea.Do(cli, getReq)
 	if err != nil {
 		return fmt.Errorf("failed to fetch login page: %w", err)
 	}
@@ -476,13 +477,13 @@ func (p *Provider) ensureSession(ctx context.Context) error {
 	form.Set("password", p.password)
 	form.Set("remember", "on")
 
-	postReq, err := http.NewRequestWithContext(ctx, http.MethodPost, loginURL, strings.NewReader(form.Encode()))
+	postReq, err := networkgitea.NewRequestWithContext(ctx, http.MethodPost, loginURL, strings.NewReader(form.Encode()))
 	if err != nil {
 		return fmt.Errorf("failed to build login POST: %w", err)
 	}
 	postReq.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 
-	resp, err = cli.Do(postReq)
+	resp, err = networkgitea.Do(cli, postReq)
 	if err != nil {
 		return fmt.Errorf("failed to execute login POST: %w", err)
 	}
@@ -553,13 +554,13 @@ func cookieValue(jar http.CookieJar, rawURL, name string) string {
 
 func (p *Provider) fetchPullRequest(ctx context.Context, owner, repo, number string) (*pullRequest, error) {
 	apiURL := fmt.Sprintf("%s/api/v1/repos/%s/%s/pulls/%s", p.baseURL, owner, repo, number)
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, apiURL, nil)
+	req, err := networkgitea.NewRequestWithContext(ctx, http.MethodGet, apiURL, nil)
 	if err != nil {
 		return nil, fmt.Errorf("failed to build pull request request: %w", err)
 	}
 	p.applyAuthHeaders(req)
 
-	resp, err := p.httpClient.Do(req)
+	resp, err := networkgitea.Do(p.httpClient, req)
 	if err != nil {
 		return nil, fmt.Errorf("failed to fetch pull request: %w", err)
 	}
