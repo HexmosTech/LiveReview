@@ -25,6 +25,8 @@ import (
 	gitlabmentions "github.com/livereview/internal/providers/gitlab"
 	gl "github.com/livereview/internal/providers/gitlab"
 	"github.com/livereview/internal/reviewmodel"
+	networkbitbucket "github.com/livereview/network/providers/bitbucket"
+	networkgithub "github.com/livereview/network/providers/github"
 	networkgitea "github.com/livereview/network/providers/gitea"
 )
 
@@ -724,7 +726,7 @@ func (p *UnifiedProcessorV2Impl) checkGitHubParentCommentAuthor(event UnifiedWeb
 		apiURL = fmt.Sprintf("https://api.github.com/repos/%s/issues/comments/%s", repoFullName, parentID)
 	}
 
-	req, err := http.NewRequest("GET", apiURL, nil)
+	req, err := networkgithub.NewRequest(http.MethodGet, apiURL, nil)
 	if err != nil {
 		return false, err
 	}
@@ -733,8 +735,8 @@ func (p *UnifiedProcessorV2Impl) checkGitHubParentCommentAuthor(event UnifiedWeb
 	req.Header.Set("Accept", "application/vnd.github.v3+json")
 	req.Header.Set("User-Agent", "LiveReview-Bot")
 
-	client := &http.Client{Timeout: 30 * time.Second}
-	resp, err := client.Do(req)
+	client := networkgithub.NewHTTPClient(30 * time.Second)
+	resp, err := networkgithub.Do(client, req)
 	if err != nil {
 		return false, err
 	}
@@ -821,7 +823,7 @@ func (p *UnifiedProcessorV2Impl) checkBitbucketParentCommentAuthor(event Unified
 	}
 
 	apiURL := fmt.Sprintf("https://api.bitbucket.org/2.0/repositories/%s/%s/pullrequests/%s/comments/%s", workspace, repository, prNumber, parentID)
-	req, err := http.NewRequest("GET", apiURL, nil)
+	req, err := networkbitbucket.NewRequestWithContext(context.Background(), http.MethodGet, apiURL, nil)
 	if err != nil {
 		return false, err
 	}
@@ -829,8 +831,8 @@ func (p *UnifiedProcessorV2Impl) checkBitbucketParentCommentAuthor(event Unified
 	req.SetBasicAuth(email, token.PatToken)
 	req.Header.Set("Accept", "application/json")
 
-	client := &http.Client{Timeout: 10 * time.Second}
-	resp, err := client.Do(req)
+	client := networkbitbucket.NewHTTPClient(10 * time.Second)
+	resp, err := networkbitbucket.Do(client, req)
 	if err != nil {
 		return false, err
 	}

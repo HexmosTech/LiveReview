@@ -222,19 +222,22 @@ func (p *GiteaV2Provider) FetchMergeRequestData(event *UnifiedWebhookEventV2) er
 
 							// Add position info so LR knows which file/line we are talking about
 							if c.Path != "" {
-								// 1. Try the direct line field first
+								// 1. Try the direct line field first; start with the side Gitea provides
 								lineNumber := c.Line
+								lineType := convertGiteaSideToLineType(c.Side)
 
-								// 2. If Gitea gave us 0, calculate it from the diff_hunk
+								// 2. If Gitea gave us 0, calculate both line number AND side from the diff_hunk.
+								// Gitea omits `side` for many comment types (deleted lines in particular),
+								// so we infer it from whether the last real line in the hunk is a deletion.
 								if lineNumber == 0 && c.DiffHunk != "" {
-									lineNumber = getExactLineFromHunk(c.DiffHunk, c.Side)
-									log.Printf("[DEBUG] Extracted exact line %d from diff_hunk for comment %d", lineNumber, c.ID)
+									lineNumber, lineType = getExactLineFromHunk(c.DiffHunk, c.Side)
+									log.Printf("[DEBUG] Extracted exact line %d (lineType=%s) from diff_hunk for comment %d", lineNumber, lineType, c.ID)
 								}
 
 								event.Comment.Position = &coreprocessor.UnifiedPositionV2{
 									FilePath:   c.Path,
-									LineNumber: lineNumber, // This will now correctly be 11
-									LineType:   convertGiteaSideToLineType(c.Side),
+									LineNumber: lineNumber,
+									LineType:   lineType,
 								}
 							}
 							break // Take the first mention we find
@@ -669,7 +672,7 @@ func (p *GiteaV2Provider) fetchLatestReview(baseURL, token, owner, repo string, 
 	req.Header.Set("Authorization", "token "+token)
 	req.Header.Set("Accept", "application/json")
 
-	resp, err := p.botUserHTTPClient.Do(req)
+	resp, err := networkgitea.Do(p.botUserHTTPClient, req)
 	if err != nil {
 		return nil, fmt.Errorf("failed to fetch reviews: %w", err)
 	}
@@ -758,48 +761,92 @@ func (p *GiteaV2Provider) ValidateWebhookSignature(connectorID int64, headers ma
 	return true
 }
 
-// getExactLineFromHunk calculates the exact line number from Gitea's diff_hunk
-func getExactLineFromHunk(hunk, side string) int {
+// getExactLineFromHunk calculates the exact line number AND line type from Gitea's diff_hunk.
+// The hunk header format is: @@ -oldStart[,oldCount] +newStart[,newCount] @@[optional context]
+// Returns (lineNumber, lineType) where lineType is "old" or "new".
+// When side is empty (Gitea omits it for many comment types), lineType is inferred from
+// whether the last real code line in the hunk is a deletion (-) or not.
+func getExactLineFromHunk(hunk, side string) (int, string) {
 	if hunk == "" {
-		return 0
+		return 0, "new"
 	}
 
-	// Match @@ -oldStart,oldCount +newStart,newCount @@
-	re := regexp.MustCompile(`@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@`)
+	log.Printf("[DEBUG] getExactLineFromHunk: input side=%q, hunk=%q", side, hunk)
+
+	// Flexible regex: allows any whitespace between tokens and ignores optional trailing context
+	// after the closing @@. Handles both "@@ -6,2 +6,4 @@" and "@@ -6 +6 @@ funcName" etc.
+	re := regexp.MustCompile(`@@\s*-(\d+)(?:,\d+)?\s+\+(\d+)(?:,\d+)?\s*@@`)
 	matches := re.FindStringSubmatch(hunk)
 	if len(matches) < 3 {
-		return 0
+		log.Printf("[DEBUG] getExactLineFromHunk: regex did not match hunk header")
+		return 0, "new"
 	}
 
 	var oldStart, newStart int
 	fmt.Sscanf(matches[1], "%d", &oldStart)
 	fmt.Sscanf(matches[2], "%d", &newStart)
+	log.Printf("[DEBUG] getExactLineFromHunk: oldStart=%d newStart=%d", oldStart, newStart)
 
 	newLine := newStart - 1
 	oldLine := oldStart - 1
 
-	lines := strings.Split(hunk, "\n")
+	// Normalize \r\n to \n before splitting to handle Windows-style line endings
+	normalized := strings.ReplaceAll(hunk, "\r\n", "\n")
+	lines := strings.Split(normalized, "\n")
 
-	// Skip the first line (the @@ header) and count the actual code lines
+	// Skip the first line (the @@ header) and count the actual code lines.
+	// NOTE: Gitea's diff_hunk always ends with a trailing \n, so Split produces a
+	// trailing "" entry. We must count it (context +1) as it provides the offset to
+	// land on the actual commented line. BUT we must NOT let it overwrite
+	// lastRealLineType — the trailing empty is not a real code line, and overwriting
+	// would hide that the actual last line was a deletion, causing wrong side inference.
+	lastRealLineType := "context"
 	for i := 1; i < len(lines); i++ {
-		line := lines[i]
+		line := strings.TrimRight(lines[i], "\r") // strip any stray \r
+		var prefix string
 		if strings.HasPrefix(line, "+") {
 			newLine++
+			lastRealLineType = "added"
+			prefix = "+"
 		} else if strings.HasPrefix(line, "-") {
 			oldLine++
-		} else { // context lines
+			lastRealLineType = "deleted"
+			prefix = "-"
+		} else { // context lines AND trailing empty: both bump both counters
 			newLine++
 			oldLine++
+			if line != "" { // only real context lines update the type
+				lastRealLineType = "context"
+			}
+			prefix = " "
 		}
+		log.Printf("[DEBUG] getExactLineFromHunk: line[%d] prefix=%q content=%q → newLine=%d oldLine=%d lastRealLineType=%s",
+			i, prefix, line, newLine, oldLine, lastRealLineType)
 	}
 
-	// If the comment is on the old code (left side), return the old line
+	log.Printf("[DEBUG] getExactLineFromHunk: final newLine=%d oldLine=%d lastRealLineType=%s side=%q",
+		newLine, oldLine, lastRealLineType, side)
+
+	// Explicit side wins.
 	if strings.ToUpper(side) == "LEFT" || strings.ToLower(side) == "previous" {
-		return oldLine
+		log.Printf("[DEBUG] getExactLineFromHunk: explicit LEFT/previous → oldLine=%d", oldLine)
+		return oldLine, "old"
+	}
+	if strings.ToUpper(side) == "RIGHT" || strings.ToLower(side) == "proposed" {
+		log.Printf("[DEBUG] getExactLineFromHunk: explicit RIGHT/proposed → newLine=%d", newLine)
+		return newLine, "new"
 	}
 
-	// Otherwise, return the new line (this is what will give you 11)
-	return newLine
+	// side is empty/unknown (Gitea omits it for many comment types).
+	// Infer from the last real code line in the hunk:
+	//   - ends on a deleted line  → comment is on old side → return oldLine, "old"
+	//   - ends on added/context   → comment is on new side → return newLine, "new"
+	if lastRealLineType == "deleted" {
+		log.Printf("[DEBUG] getExactLineFromHunk: inferred old side (lastRealLineType=deleted) → oldLine=%d", oldLine)
+		return oldLine, "old"
+	}
+	log.Printf("[DEBUG] getExactLineFromHunk: inferred new side (lastRealLineType=%s) → newLine=%d", lastRealLineType, newLine)
+	return newLine, "new"
 }
 
 // IntegrationToken represents a token from the database
