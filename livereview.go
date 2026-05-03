@@ -9,6 +9,8 @@ import (
 
 	"github.com/livereview/cmd"
 )
+//go:generate typed -config typed.yaml
+//go:generate go run ./internal/api/docs/spec.go
 
 //go:embed ui/dist/*
 var uiAssets embed.FS
@@ -46,7 +48,7 @@ func main() {
 			cmd.ConfigCommand(),
 			cmd.APICommand(),
 			cmd.UICommand(uiAssets),
-		},
+		},3
 	}
 
 	err := app.Run(os.Args)
