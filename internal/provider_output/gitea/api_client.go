@@ -803,6 +803,10 @@ func (c *APIClient) postToGiteaAPI(apiURL, token string, requestBody interface{}
 
 // postInlineCommentReplyMultipart emulates the browser form submission used by Gitea when replying inline.
 // Requires username/password (from packed connector) to obtain session + CSRF.
+//
+// replyCommentID is accepted for diagnostic logging and future use (e.g. an in_reply_to field if
+// Gitea's API exposes one). It is intentionally NOT written to the multipart form: Gitea's web UI
+// uses the review-level ID (reviewID) in the "reply" field for thread attachment, not the comment ID.
 func (c *APIClient) postInlineCommentReplyMultipart(baseURL, owner, repo string, prNumber int, event *UnifiedWebhookEventV2, replyText string, reviewID, replyCommentID int64, username, password string) error {
 	log.Printf("[DIAG] postInlineCommentReplyMultipart ENTRY: baseURL=%s, owner=%s, repo=%s, prNumber=%d, reviewID=%d, replyCommentID=%d, replyTextLen=%d",
 		baseURL, owner, repo, prNumber, reviewID, replyCommentID, len(replyText))
