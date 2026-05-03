@@ -101,6 +101,10 @@ func (c *APIClient) PostCommentReply(event *UnifiedWebhookEventV2, token, replyT
 	// true general PR comments AND inline thread replies. The only way to distinguish
 	// them is via the API. enrichCommentMetadata is a no-op (leaves Position nil) when
 	// the comment is not found in any review → falls through to general comment path.
+	// replyCommentID identifies the specific comment being replied to within a review thread.
+	// It is collected here for completeness and potential future use (e.g. an in_reply_to field
+	// if Gitea's API exposes one), but is not currently written into the multipart form because
+	// Gitea's web UI uses the review-level ID (reviewID) for thread attachment, not the comment ID.
 	var replyCommentID int64
 	if reviewID == 0 && event.Comment.ID != "" {
 		log.Printf("[DEBUG] reviewID=0, attempting enrichment for comment_id=%s", event.Comment.ID)
@@ -902,7 +906,10 @@ func (c *APIClient) postInlineCommentReplyMultipart(baseURL, owner, repo string,
 		"diff_end_cid":     "",
 		"diff_base_cid":    "",
 		"content":          replyText,
-		"reply":            strconv.FormatInt(reviewID, 10), // Use reviewID, not replyCommentID
+		// "reply" is Gitea's internal web-form field for attaching a comment to a review thread.
+		// It expects the review-level ID (reviewID), NOT the individual comment ID (replyCommentID).
+		// Using replyCommentID here would attach the reply to the wrong thread or cause a 404.
+		"reply": strconv.FormatInt(reviewID, 10),
 		"single_review":    "true",
 	}
 	for k, v := range fields {
