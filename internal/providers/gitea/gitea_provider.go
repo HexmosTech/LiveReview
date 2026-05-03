@@ -11,6 +11,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/livereview/internal/aisanitize"
 	"github.com/livereview/internal/providers"
@@ -51,7 +52,7 @@ func NewProvider(cfg Config) (*Provider, error) {
 		token:      tok,
 		username:   user,
 		password:   pass,
-		httpClient: networkgitea.NewHTTPClient(0),
+		httpClient: networkgitea.NewHTTPClient(30 * time.Second),
 	}, nil
 }
 
@@ -105,7 +106,7 @@ func (p *Provider) Configure(config map[string]interface{}) error {
 	p.baseURL = NormalizeGiteaBaseURL(base)
 	p.token = token
 	if p.httpClient == nil {
-		p.httpClient = networkgitea.NewHTTPClient(0)
+		p.httpClient = networkgitea.NewHTTPClient(30 * time.Second)
 	}
 	p.session = nil // reset session on reconfigure
 	return nil
@@ -450,7 +451,7 @@ func (p *Provider) ensureSession(ctx context.Context) error {
 		return fmt.Errorf("session credentials not provided for Gitea inline fallback")
 	}
 	jar, _ := cookiejar.New(nil)
-	cli := networkgitea.NewHTTPClientWithJar(0, jar)
+	cli := networkgitea.NewHTTPClientWithJar(30*time.Second, jar)
 
 	loginURL := fmt.Sprintf("%s/user/login", p.baseURL)
 	getReq, err := networkgitea.NewRequestWithContext(ctx, http.MethodGet, loginURL, nil)
