@@ -28,14 +28,14 @@ import (
 	"github.com/livereview/storage/archive"
 )
 
-// diffReviewRequest models the incoming POST payload for diff reviews.
-type diffReviewRequest struct {
+// DiffReviewRequest models the incoming POST payload for diff reviews.
+type DiffReviewRequest struct {
 	DiffZipBase64 string `json:"diff_zip_base64"`
 	RepoName      string `json:"repo_name"`
 }
 
-// diffReviewResult holds persisted review output that is safe to marshal.
-type diffReviewResult struct {
+// DiffReviewResult holds persisted review output that is safe to marshal.
+type DiffReviewResult struct {
 	Summary  string                  `json:"summary"`
 	Comments []*models.ReviewComment `json:"comments"`
 }
@@ -80,7 +80,8 @@ func (s *Server) DiffReview(c echo.Context) error {
 		log.Printf("[DiffReview] ERROR fetching user: %v", err)
 	}
 
-	var req diffReviewRequest
+	var req DiffReviewRequest
+
 	if err := c.Bind(&req); err != nil {
 		return JSONErrorWithEnvelope(c, http.StatusBadRequest, "invalid request body")
 	}
@@ -432,7 +433,7 @@ func (s *Server) runDiffReview(request review.ReviewRequest, rm *ReviewManager, 
 		log.Printf("[WARN] failed to update review status for %d: %v", reviewID, err)
 	}
 
-	payload := diffReviewResult{Summary: summary, Comments: comments}
+	payload := DiffReviewResult{Summary: summary, Comments: comments}
 	meta := map[string]interface{}{"review_result": payload}
 	if failureReason != "" {
 		meta["failure_reason"] = failureReason
@@ -655,18 +656,18 @@ func decodePreloadedChanges(meta map[string]interface{}) ([]models.CodeDiff, err
 	return diffs, nil
 }
 
-func decodeReviewResult(meta map[string]interface{}) (diffReviewResult, error) {
+func decodeReviewResult(meta map[string]interface{}) (DiffReviewResult, error) {
 	raw, ok := meta["review_result"]
 	if !ok {
-		return diffReviewResult{}, fmt.Errorf("review_result missing")
+		return DiffReviewResult{}, fmt.Errorf("review_result missing")
 	}
 	data, err := json.Marshal(raw)
 	if err != nil {
-		return diffReviewResult{}, err
+		return DiffReviewResult{}, err
 	}
-	var res diffReviewResult
+	var res DiffReviewResult
 	if err := json.Unmarshal(data, &res); err != nil {
-		return diffReviewResult{}, err
+		return DiffReviewResult{}, err
 	}
 	return res, nil
 }

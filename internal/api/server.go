@@ -869,14 +869,29 @@ func (s *Server) HandleCreatePATIntegrationToken(c echo.Context) error {
 	return response
 }
 
+type ValidateGitLabProfileRequest struct {
+	BaseURL string `json:"base_url"`
+	PAT     string `json:"pat"`
+}
+
+type ValidateGitHubProfileRequest struct {
+	PAT string `json:"pat"`
+}
+
+type ValidateBitbucketProfileRequest struct {
+	Email    string `json:"email"`
+	ApiToken string `json:"api_token"`
+}
+
+type ValidateGiteaProfileRequest struct {
+	BaseURL string `json:"base_url"`
+	PAT     string `json:"pat"`
+}
+
 // ValidateGitLabProfile validates GitLab PAT and base URL by fetching user profile
 func (s *Server) ValidateGitLabProfile(c echo.Context) error {
 	fmt.Println("Reached ValidateGitlabProfile")
-	type reqBody struct {
-		BaseURL string `json:"base_url"`
-		PAT     string `json:"pat"`
-	}
-	var body reqBody
+	var body ValidateGitLabProfileRequest
 	if err := c.Bind(&body); err != nil {
 		return c.JSON(http.StatusBadRequest, map[string]string{"error": "Invalid request body"})
 	}
@@ -892,10 +907,7 @@ func (s *Server) ValidateGitLabProfile(c echo.Context) error {
 
 // ValidateGitHubProfile validates GitHub PAT by fetching user profile
 func (s *Server) ValidateGitHubProfile(c echo.Context) error {
-	type reqBody struct {
-		PAT string `json:"pat"`
-	}
-	var body reqBody
+	var body ValidateGitHubProfileRequest
 	if err := c.Bind(&body); err != nil {
 		return c.JSON(http.StatusBadRequest, map[string]string{"error": "Invalid request body"})
 	}
@@ -911,11 +923,7 @@ func (s *Server) ValidateGitHubProfile(c echo.Context) error {
 
 // ValidateBitbucketProfile validates Bitbucket API Token by fetching user profile
 func (s *Server) ValidateBitbucketProfile(c echo.Context) error {
-	type reqBody struct {
-		Email    string `json:"email"`
-		ApiToken string `json:"api_token"`
-	}
-	var body reqBody
+	var body ValidateBitbucketProfileRequest
 	if err := c.Bind(&body); err != nil {
 		return c.JSON(http.StatusBadRequest, map[string]string{"error": "Invalid request body"})
 	}
@@ -933,11 +941,7 @@ func (s *Server) ValidateBitbucketProfile(c echo.Context) error {
 
 // ValidateGiteaProfile validates Gitea PAT + base URL by fetching user profile
 func (s *Server) ValidateGiteaProfile(c echo.Context) error {
-	type reqBody struct {
-		BaseURL string `json:"base_url"`
-		PAT     string `json:"pat"`
-	}
-	var body reqBody
+	var body ValidateGiteaProfileRequest
 	if err := c.Bind(&body); err != nil {
 		return c.JSON(http.StatusBadRequest, map[string]string{"error": "Invalid request body"})
 	}
