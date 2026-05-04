@@ -23,7 +23,11 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
-      - run: go install github.com/google/osv-scanner/v2/cmd/osv-scanner@latest
+      - name: Install osv-scanner
+        run: |
+          curl -fsSL https://github.com/google/osv-scanner/releases/latest/download/osv-scanner_linux_amd64 -o /usr/local/bin/osv-scanner
+          chmod +x /usr/local/bin/osv-scanner
+          osv-scanner --version
       - run: mkdir -p security_issues
       - run: osv-scanner scan source --recursive --format json --config osv-scanner.toml --no-call-analysis=go --experimental-exclude=debug --experimental-exclude=scripts --experimental-exclude=tests --experimental-exclude=.livereview_pgdata --experimental-exclude=.lrdata --experimental-exclude=livereview_pgdata --experimental-exclude=lrdata . > security_issues/osv-scanner-ci.json
       - uses: actions/upload-artifact@v4
