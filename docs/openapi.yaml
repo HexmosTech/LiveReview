@@ -1793,6 +1793,7 @@ components:
         - Dirty
       type: object
     api.WebhookHealthSummary:
+      nullable: true
       properties:
         connected_projects:
           type: integer
@@ -1826,6 +1827,7 @@ components:
         - setup_required_connectors
       type: object
     api.WebhookStatusSummary:
+      nullable: true
       properties:
         automatic:
           type: integer
@@ -2040,6 +2042,7 @@ components:
         - RefreshTokenDuration
       type: object
     auth.UserInfo:
+      nullable: true
       properties:
         created_at:
           format: date-time
@@ -2193,7 +2196,6 @@ components:
         - IsBot
       type: object
     core_processor.UnifiedCommentV2:
-      nullable: true
       properties:
         Author:
           $ref: '#/components/schemas/core_processor.UnifiedUserV2'
@@ -2240,7 +2242,6 @@ components:
         - Email
       type: object
     core_processor.UnifiedCommitV2:
-      nullable: true
       properties:
         Author:
           $ref: '#/components/schemas/core_processor.UnifiedCommitAuthorV2'
@@ -2305,7 +2306,6 @@ components:
         - TargetBranch
       type: object
     core_processor.UnifiedMergeRequestV2:
-      nullable: true
       properties:
         Assignees:
           items:
@@ -2782,6 +2782,7 @@ components:
         - UpdatedAt
       type: object
     models.Org:
+      nullable: true
       properties:
         created_at:
           format: date-time
@@ -2946,6 +2947,7 @@ components:
         - Summary
       type: object
     models.Role:
+      nullable: true
       properties:
         created_at:
           format: date-time
@@ -2965,6 +2967,7 @@ components:
         - updated_at
       type: object
     models.User:
+      nullable: true
       properties:
         created_at:
           format: date-time
@@ -5811,12 +5814,12 @@ paths:
       operationId: ChangeUserRole
       parameters:
         - in: path
-          name: user_id
+          name: org_id
           required: true
           schema:
             type: string
         - in: path
-          name: org_id
+          name: user_id
           required: true
           schema:
             type: string
@@ -6106,12 +6109,12 @@ paths:
       operationId: CreatePromptChunk
       parameters:
         - in: path
-          name: key
+          name: var
           required: true
           schema:
             type: string
         - in: path
-          name: var
+          name: key
           required: true
           schema:
             type: string
@@ -6356,12 +6359,12 @@ paths:
       operationId: GetReviewEventsByType
       parameters:
         - in: path
-          name: id
+          name: type
           required: true
           schema:
             type: string
         - in: path
-          name: type
+          name: id
           required: true
           schema:
             type: string
@@ -6712,12 +6715,12 @@ paths:
       operationId: RevokeLicense
       parameters:
         - in: path
-          name: user_id
+          name: id
           required: true
           schema:
             type: string
         - in: path
-          name: id
+          name: user_id
           required: true
           schema:
             type: string
