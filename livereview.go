@@ -48,7 +48,7 @@ func main() {
 			cmd.ConfigCommand(),
 			cmd.APICommand(),
 			cmd.UICommand(uiAssets),
-		},3
+		},
 	}
 
 	err := app.Run(os.Args)

@@ -30,23 +30,13 @@ import (
 
 // DiffReviewRequest models the incoming POST payload for diff reviews.
 type DiffReviewRequest struct {
-	ReviewID           int64            `json:"reviewId"`
-	ConnectorID        int64            `json:"connectorId"`
-	HeadSha            string           `json:"head_sha"`
-	BaseSha            string           `json:"base_sha"`
-	Repository         string           `json:"repository"`
-	PrMrNumber         string           `json:"pr_mr_number"`
-	PrMrUrl            string           `json:"pr_mr_url"`
-	OrgID              int64            `json:"org_id"`
-	AISummaryTitle     string           `json:"ai_summary_title"`
-	AuthorName         string           `json:"author_name"`
-	AuthorUsername     string           `json:"author_username"`
-	EffectiveCodeDiffs []models.CodeDiff `json:"effective_code_diffs"`
+	DiffZipBase64 string `json:"diff_zip_base64"`
+	RepoName      string `json:"repo_name"`
 }
 
 // DiffReviewResult holds persisted review output that is safe to marshal.
 type DiffReviewResult struct {
-	Summary  string                 `json:"summary"`
+	Summary  string                  `json:"summary"`
 	Comments []*models.ReviewComment `json:"comments"`
 }
 
@@ -90,10 +80,8 @@ func (s *Server) DiffReview(c echo.Context) error {
 		log.Printf("[DiffReview] ERROR fetching user: %v", err)
 	}
 
-	var req struct {
-		DiffZipBase64 string `json:"diff_zip_base64"`
-		RepoName      string `json:"repo_name"`
-	}
+	var req DiffReviewRequest
+
 	if err := c.Bind(&req); err != nil {
 		return JSONErrorWithEnvelope(c, http.StatusBadRequest, "invalid request body")
 	}
