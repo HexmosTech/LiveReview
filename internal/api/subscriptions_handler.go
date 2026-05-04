@@ -17,6 +17,18 @@ import (
 	"github.com/livereview/internal/license/payment"
 )
 
+type SubscriptionResponse struct {
+	ID                     int64      `json:"id"`
+	OrgID                  int64      `json:"org_id"`
+	PlanType               string     `json:"plan_type"`
+	Status                 string     `json:"status"`
+	CurrentPeriodEnd       *time.Time `json:"current_period_end"`
+	Quantity               int        `json:"quantity"`
+	CancelAtPeriodEnd      bool       `json:"cancel_at_period_end"`
+	LicenseExpiresAt       *time.Time `json:"license_expires_at"`
+	RazorpaySubscriptionID *string    `json:"razorpay_subscription_id,omitempty"`
+}
+
 // SubscriptionsHandler handles subscription-related API endpoints
 //
 // Timestamp Handling:

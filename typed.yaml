@@ -1,0 +1,29 @@
+input:
+  title: "LiveReview API"
+  version: "1.0.0"
+  servers:
+    - url: http://localhost:8888
+  routes-provider-ctor: NewDocsBuilder
+  routes-provider-pkg: "github.com/livereview/internal/api"
+  api-prefix: /api/v1
+  handlers:
+    - path: ./internal/api
+      recursive: false
+    - path: ./internal/api/handlers
+      recursive: true
+    - path: ./internal/api/auth
+      recursive: true
+    - path: ./internal/api/organizations
+      recursive: true
+    - path: ./internal/api/users
+      recursive: true
+
+  models:
+    - path: ./pkg/models
+      recursive: true
+
+output:
+  path: ./internal/api/docs/spec.go
+  spec-path: ./docs/openapi.yaml
+
+debug: true

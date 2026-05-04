@@ -1,0 +1,7010 @@
+components:
+  schemas:
+    AnonStruct1:
+      properties:
+        avatar:
+          $ref: '#/components/schemas/AnonStruct2'
+      required:
+        - avatar
+      type: object
+    AnonStruct2:
+      properties:
+        href:
+          type: string
+      required:
+        - href
+      type: object
+    api.AIComment:
+      properties:
+        comment_type:
+          type: string
+        content: {}
+        created_at:
+          format: date-time
+          type: string
+        file_path:
+          nullable: true
+          type: string
+        id:
+          format: int64
+          type: integer
+        line_number:
+          nullable: true
+          type: integer
+        org_id:
+          format: int64
+          type: integer
+        review_id:
+          format: int64
+          type: integer
+      required:
+        - id
+        - review_id
+        - comment_type
+        - created_at
+        - org_id
+      type: object
+    api.AIConnectorCreateRequest:
+      properties:
+        api_key:
+          type: string
+        base_url:
+          type: string
+        connector_name:
+          type: string
+        display_order:
+          type: integer
+        provider_name:
+          type: string
+        selected_model:
+          type: string
+      required:
+        - provider_name
+        - api_key
+        - connector_name
+        - base_url,omitempty
+        - selected_model,omitempty
+        - display_order
+      type: object
+    api.AIConnectorKeyValidationRequest:
+      properties:
+        api_key:
+          type: string
+        base_url:
+          type: string
+        model:
+          type: string
+        provider:
+          type: string
+      required:
+        - provider
+        - api_key
+        - base_url,omitempty
+        - model,omitempty
+      type: object
+    api.AIConnectorKeyValidationResponse:
+      properties:
+        message:
+          type: string
+        valid:
+          type: boolean
+      required:
+        - valid
+        - message,omitempty
+      type: object
+    api.AIConnectorResponse:
+      properties:
+        api_key:
+          type: string
+        api_key_preview:
+          type: string
+        base_url:
+          type: string
+        connector_name:
+          type: string
+        created_at:
+          type: string
+        display_order:
+          type: integer
+        id:
+          format: int64
+          type: integer
+        org_id:
+          format: int64
+          type: integer
+        provider_name:
+          type: string
+        selected_model:
+          type: string
+        updated_at:
+          type: string
+      required:
+        - id
+        - provider_name
+        - connector_name
+        - display_order
+        - org_id
+        - created_at
+        - updated_at
+        - api_key_preview
+        - base_url,omitempty
+        - selected_model,omitempty
+        - api_key,omitempty
+      type: object
+    api.APIKey:
+      nullable: true
+      properties:
+        created_at:
+          format: date-time
+          type: string
+        expires_at:
+          format: date-time
+          nullable: true
+          type: string
+        id:
+          format: int64
+          type: integer
+        key_prefix:
+          type: string
+        label:
+          type: string
+        last_used_at:
+          format: date-time
+          nullable: true
+          type: string
+        org_id:
+          format: int64
+          type: integer
+        revoked_at:
+          format: date-time
+          nullable: true
+          type: string
+        scopes: {}
+        user_id:
+          format: int64
+          type: integer
+      required:
+        - id
+        - user_id
+        - org_id
+        - KeyHash
+        - key_prefix
+        - label
+        - created_at
+      type: object
+    api.ActivityEntry:
+      properties:
+        activity_type:
+          type: string
+        created_at:
+          format: date-time
+          type: string
+        event_data: {}
+        id:
+          type: integer
+      required:
+        - id
+        - activity_type
+        - created_at
+      type: object
+    api.ActivityItem:
+      properties:
+        action:
+          type: string
+        id:
+          type: integer
+        repository:
+          type: string
+        time_ago:
+          type: string
+        timestamp:
+          format: date-time
+          type: string
+        type:
+          type: string
+      required:
+        - id
+        - action
+        - repository
+        - timestamp
+        - time_ago
+        - type
+      type: object
+    api.AssignLicenseRequest:
+      properties:
+        user_id:
+          type: integer
+      required:
+        - user_id
+      type: object
+    api.BitbucketProfile:
+      properties:
+        account_id:
+          type: string
+        display_name:
+          type: string
+        links:
+          $ref: '#/components/schemas/AnonStruct1'
+        location:
+          type: string
+        nickname:
+          type: string
+        website:
+          type: string
+      required:
+        - account_id
+        - display_name
+        - nickname
+        - website
+        - location
+        - links
+      type: object
+    api.CachedProjectData:
+      properties:
+        cached_at:
+          format: date-time
+          type: string
+        error:
+          type: string
+        project_count:
+          type: integer
+        projects:
+          items:
+            type: string
+          type: array
+      required:
+        - project_count
+        - cached_at
+        - error,omitempty
+      type: object
+    api.CancelSubscriptionRequest:
+      properties:
+        immediate:
+          type: boolean
+      required:
+        - immediate
+      type: object
+    api.CatalogEntry:
+      properties:
+        build_id:
+          type: string
+        prompt_key:
+          type: string
+        provider:
+          type: string
+        variables:
+          items:
+            type: string
+          type: array
+      required:
+        - prompt_key
+        - provider
+        - build_id
+      type: object
+    api.ChunkDTO:
+      properties:
+        allow_markdown:
+          type: boolean
+        body:
+          type: string
+        created_by:
+          format: int64
+          nullable: true
+          type: integer
+        enabled:
+          type: boolean
+        id:
+          format: int64
+          type: integer
+        redact_on_log:
+          type: boolean
+        sequence_index:
+          type: integer
+        title:
+          type: string
+        type:
+          type: string
+        updated_by:
+          format: int64
+          nullable: true
+          type: integer
+      required:
+        - id
+        - type
+        - title
+        - body
+        - sequence_index
+        - enabled
+        - allow_markdown
+        - redact_on_log
+      type: object
+    api.CompleteConnectorResponse:
+      properties:
+        access_token:
+          type: string
+        client_secret:
+          $ref: '#/components/schemas/sql.NullString'
+        code:
+          $ref: '#/components/schemas/sql.NullString'
+        connection_name:
+          type: string
+        created_at:
+          format: date-time
+          type: string
+        expires_at:
+          $ref: '#/components/schemas/sql.NullTime'
+        id:
+          format: int64
+          type: integer
+        metadata: {}
+        provider:
+          type: string
+        provider_app_id:
+          type: string
+        provider_url:
+          type: string
+        refresh_token:
+          $ref: '#/components/schemas/sql.NullString'
+        scope:
+          $ref: '#/components/schemas/sql.NullString'
+        token_type:
+          $ref: '#/components/schemas/sql.NullString'
+        updated_at:
+          format: date-time
+          type: string
+      required:
+        - id
+        - provider
+        - provider_app_id
+        - access_token
+        - refresh_token
+        - token_type
+        - scope
+        - expires_at
+        - created_at
+        - updated_at
+        - code
+        - connection_name
+        - provider_url
+        - client_secret
+      type: object
+    api.ConnectorDetails:
+      properties:
+        ID:
+          type: integer
+        Metadata:
+          additionalProperties: {}
+          type: object
+        PATToken:
+          type: string
+        Provider:
+          type: string
+        ProviderURL:
+          type: string
+      required:
+        - ID
+        - Provider
+        - ProviderURL
+        - PATToken
+      type: object
+    api.ConnectorResponse:
+      properties:
+        connection_name:
+          type: string
+        created_at:
+          format: date-time
+          type: string
+        id:
+          format: int64
+          type: integer
+        metadata: {}
+        provider:
+          type: string
+        provider_app_id:
+          type: string
+        provider_url:
+          type: string
+        updated_at:
+          format: date-time
+          type: string
+        webhook_status:
+          $ref: '#/components/schemas/api.WebhookStatusSummary'
+      required:
+        - id
+        - provider
+        - provider_app_id
+        - connection_name
+        - provider_url
+        - created_at
+        - updated_at
+      type: object
+    api.ConnectorSetupProgress:
+      properties:
+        connected_projects:
+          type: integer
+        connector_id:
+          format: int64
+          type: integer
+        connector_name:
+          type: string
+        message:
+          type: string
+        phase:
+          type: string
+        provider:
+          type: string
+        total_projects:
+          type: integer
+      required:
+        - connector_id
+        - connector_name
+        - provider
+        - phase
+        - total_projects
+        - connected_projects
+        - message
+      type: object
+    api.CreateAPIKeyRequest:
+      properties:
+        expires_at:
+          nullable: true
+          type: string
+        label:
+          type: string
+        scopes:
+          items:
+            type: string
+          type: array
+      required:
+        - label
+      type: object
+    api.CreateAPIKeyResponse:
+      properties:
+        api_key:
+          $ref: '#/components/schemas/api.APIKey'
+        plain_key:
+          type: string
+      required:
+        - plain_key
+      type: object
+    api.CreateChunkRequest:
+      properties:
+        ai_connector_id:
+          format: int64
+          nullable: true
+          type: integer
+        allow_markdown:
+          nullable: true
+          type: boolean
+        body:
+          type: string
+        enabled:
+          nullable: true
+          type: boolean
+        integration_token_id:
+          format: int64
+          nullable: true
+          type: integer
+        redact_on_log:
+          nullable: true
+          type: boolean
+        repository:
+          nullable: true
+          type: string
+        sequence_index:
+          nullable: true
+          type: integer
+        title:
+          type: string
+        type:
+          type: string
+      required:
+        - type
+        - title
+        - body
+      type: object
+    api.CreateSubscriptionRequest:
+      properties:
+        currency:
+          type: string
+        plan_code:
+          type: string
+        plan_type:
+          type: string
+        quantity:
+          type: integer
+      required:
+        - plan_code
+        - plan_type
+        - quantity
+        - currency,omitempty
+      type: object
+    api.DashboardData:
+      properties:
+        active_ai_connectors:
+          type: integer
+        api_url:
+          type: string
+        cli_installed:
+          type: boolean
+        connected_providers:
+          type: integer
+        connector_setup_progress:
+          items:
+            $ref: '#/components/schemas/api.ConnectorSetupProgress'
+          type: array
+        last_updated:
+          format: date-time
+          type: string
+        onboarding_api_key:
+          type: string
+        performance_metrics:
+          $ref: '#/components/schemas/api.PerformanceMetrics'
+        recent_activity:
+          items:
+            $ref: '#/components/schemas/api.ActivityItem'
+          type: array
+        system_status:
+          $ref: '#/components/schemas/api.SystemStatus'
+        total_comments:
+          type: integer
+        total_reviews:
+          type: integer
+        webhook_health:
+          $ref: '#/components/schemas/api.WebhookHealthSummary'
+      required:
+        - total_reviews
+        - total_comments
+        - connected_providers
+        - active_ai_connectors
+        - onboarding_api_key,omitempty
+        - api_url
+        - cli_installed
+        - performance_metrics
+        - system_status
+        - last_updated
+      type: object
+    api.DeploymentConfig:
+      properties:
+        BackendPort:
+          type: integer
+        FrontendPort:
+          type: integer
+        IsCloud:
+          type: boolean
+        Mode:
+          type: string
+        ReverseProxy:
+          type: boolean
+        WebhooksEnabled:
+          type: boolean
+      required:
+        - BackendPort
+        - FrontendPort
+        - ReverseProxy
+        - IsCloud
+        - Mode
+        - WebhooksEnabled
+      type: object
+    api.DiffReviewRequest:
+      properties:
+        diff_zip_base64:
+          type: string
+        repo_name:
+          type: string
+      required:
+        - diff_zip_base64
+        - repo_name
+      type: object
+    api.DiffReviewResult:
+      properties:
+        comments:
+          items:
+            $ref: '#/components/schemas/models.ReviewComment'
+          type: array
+        summary:
+          type: string
+      required:
+        - summary
+      type: object
+    api.ErrorResponse:
+      properties:
+        error:
+          type: string
+      required:
+        - error
+      type: object
+    api.EventData:
+      properties:
+        actualDuration:
+          nullable: true
+          type: string
+        attempt:
+          nullable: true
+          type: integer
+        avgResponseTime:
+          nullable: true
+          type: string
+        commentCount:
+          nullable: true
+          type: integer
+        comments: {}
+        commentsLost:
+          nullable: true
+          type: integer
+        configuredTimeout:
+          nullable: true
+          type: string
+        delay:
+          nullable: true
+          type: string
+        durationMs:
+          format: int64
+          nullable: true
+          type: integer
+        errorSummary:
+          nullable: true
+          type: string
+        fieldsRecovered:
+          nullable: true
+          type: integer
+        fileCount:
+          nullable: true
+          type: integer
+        finishedAt:
+          nullable: true
+          type: string
+        jsonRepairs:
+          nullable: true
+          type: integer
+        kind:
+          nullable: true
+          type: string
+        message:
+          nullable: true
+          type: string
+        nextAttempt:
+          nullable: true
+          type: string
+        operation:
+          nullable: true
+          type: string
+        originalSize:
+          nullable: true
+          type: integer
+        previewHead:
+          nullable: true
+          type: string
+        previewTail:
+          nullable: true
+          type: string
+        reason:
+          nullable: true
+          type: string
+        repairStrategies:
+          items:
+            type: string
+          nullable: true
+          type: array
+        repairTime:
+          nullable: true
+          type: string
+        repairedSize:
+          nullable: true
+          type: integer
+        resultSummary:
+          nullable: true
+          type: string
+        retries:
+          nullable: true
+          type: integer
+        sizeBytes:
+          format: int64
+          nullable: true
+          type: integer
+        startedAt:
+          nullable: true
+          type: string
+        status:
+          nullable: true
+          type: string
+        successful:
+          nullable: true
+          type: integer
+        tokenEstimate:
+          nullable: true
+          type: integer
+        totalRequests:
+          nullable: true
+          type: integer
+        url:
+          nullable: true
+          type: string
+      required:
+        - comments,omitempty
+      type: object
+    api.FetchOllamaModelsRequest:
+      properties:
+        base_url:
+          type: string
+        jwt_token:
+          type: string
+      required:
+        - base_url
+        - jwt_token,omitempty
+      type: object
+    api.IntegrationToken:
+      properties:
+        AccessToken:
+          type: string
+        ClientID:
+          type: string
+        ClientSecret:
+          $ref: '#/components/schemas/sql.NullString'
+        ExpiresAt:
+          $ref: '#/components/schemas/sql.NullTime'
+        ID:
+          format: int64
+          type: integer
+        Metadata:
+          additionalProperties: {}
+          type: object
+        OrgID:
+          format: int64
+          type: integer
+        PatToken:
+          type: string
+        Provider:
+          type: string
+        ProviderURL:
+          type: string
+        RefreshToken:
+          $ref: '#/components/schemas/sql.NullString'
+        TokenType:
+          type: string
+      required:
+        - ID
+        - Provider
+        - AccessToken
+        - RefreshToken
+        - ExpiresAt
+        - ClientID
+        - ClientSecret
+        - ProviderURL
+        - TokenType
+        - PatToken
+        - OrgID
+      type: object
+    api.LicenseStatusResponse:
+      properties:
+        activeUsers:
+          nullable: true
+          type: integer
+        appName:
+          nullable: true
+          type: string
+        assignedSeats:
+          nullable: true
+          type: integer
+        expiresAt:
+          nullable: true
+          type: string
+        lastValidatedAt:
+          nullable: true
+          type: string
+        lastValidationCode:
+          nullable: true
+          type: string
+        seatCount:
+          nullable: true
+          type: integer
+        status:
+          type: string
+        subject:
+          nullable: true
+          type: string
+        unlimited:
+          type: boolean
+      required:
+        - status
+        - unlimited
+      type: object
+    api.ListEventsCursor:
+      properties:
+        limit:
+          type: integer
+        since:
+          format: date-time
+          nullable: true
+          type: string
+      required:
+        - limit
+      type: object
+    api.OperationUsageV2:
+      properties:
+        BillableLOC:
+          format: int64
+          type: integer
+        Chargeable:
+          type: boolean
+        CostUSD:
+          format: double
+          nullable: true
+          type: number
+        InputTokens:
+          format: int64
+          nullable: true
+          type: integer
+        Model:
+          type: string
+        OutputTokens:
+          format: int64
+          nullable: true
+          type: integer
+        PricingVersion:
+          type: string
+        Provider:
+          type: string
+      required:
+        - BillableLOC
+        - Chargeable
+        - Provider
+        - Model
+        - PricingVersion
+      type: object
+    api.PasswordRequest:
+      properties:
+        force:
+          type: boolean
+        old_password:
+          type: string
+        password:
+          type: string
+      required:
+        - password
+        - old_password,omitempty
+        - force,omitempty
+      type: object
+    api.PasswordResponse:
+      properties:
+        message:
+          type: string
+        success:
+          type: boolean
+      required:
+        - success
+        - message
+      type: object
+    api.PasswordStatusResponse:
+      properties:
+        is_set:
+          type: boolean
+        message:
+          type: string
+      required:
+        - is_set
+        - message
+      type: object
+    api.PasswordVerifyRequest:
+      properties:
+        password:
+          type: string
+      required:
+        - password
+      type: object
+    api.PasswordVerifyResponse:
+      properties:
+        message:
+          type: string
+        valid:
+          type: boolean
+      required:
+        - valid
+        - message
+      type: object
+    api.PerformanceMetrics:
+      properties:
+        avg_response_time_seconds:
+          format: double
+          type: number
+        comments_this_week:
+          type: integer
+        reviews_this_week:
+          type: integer
+        success_rate_percentage:
+          format: double
+          type: number
+      required:
+        - avg_response_time_seconds
+        - reviews_this_week
+        - comments_this_week
+        - success_rate_percentage
+      type: object
+    api.PlanChangeRequest:
+      properties:
+        currency:
+          type: string
+        target_plan_code:
+          type: string
+      required:
+        - target_plan_code
+        - currency,omitempty
+      type: object
+    api.PlanUsageEnvelope:
+      properties:
+        accounted_at:
+          type: string
+        billing_period_end:
+          type: string
+        billing_period_start:
+          type: string
+        blocked:
+          type: boolean
+        envelope_version:
+          type: string
+        idempotency_key:
+          type: string
+        loc_limit_month:
+          format: int64
+          nullable: true
+          type: integer
+        loc_remaining_month:
+          format: int64
+          nullable: true
+          type: integer
+        loc_used_month:
+          format: int64
+          nullable: true
+          type: integer
+        operation_billable_loc:
+          format: int64
+          nullable: true
+          type: integer
+        operation_id:
+          type: string
+        operation_type:
+          type: string
+        plan_code:
+          type: string
+        plan_name:
+          type: string
+        plan_rank:
+          type: integer
+        price_usd:
+          nullable: true
+          type: integer
+        reset_at:
+          type: string
+        threshold_state:
+          type: string
+        trial_ends_at:
+          type: string
+        trial_readonly:
+          type: boolean
+        trigger_source:
+          type: string
+        upgrade_url:
+          type: string
+        usage_percent:
+          nullable: true
+          type: integer
+      required:
+        - envelope_version
+        - plan_code
+        - plan_name
+        - plan_rank
+        - billing_period_start,omitempty
+        - billing_period_end,omitempty
+        - reset_at,omitempty
+        - threshold_state,omitempty
+        - blocked
+        - trial_readonly
+        - trial_ends_at,omitempty
+        - operation_type,omitempty
+        - trigger_source,omitempty
+        - operation_id,omitempty
+        - idempotency_key,omitempty
+        - accounted_at,omitempty
+        - upgrade_url,omitempty
+      type: object
+    api.ProductionURLRequest:
+      properties:
+        url:
+          type: string
+      required:
+        - url
+      type: object
+    api.ProductionURLResponse:
+      properties:
+        message:
+          type: string
+        success:
+          type: boolean
+        url:
+          type: string
+      required:
+        - url
+        - success
+        - message
+      type: object
+    api.ProjectWithStatus:
+      properties:
+        last_verified:
+          format: date-time
+          nullable: true
+          type: string
+        project_path:
+          type: string
+        updated_at:
+          format: date-time
+          type: string
+        webhook_id:
+          type: string
+        webhook_status:
+          type: string
+      required:
+        - project_path
+        - webhook_status
+        - webhook_id,omitempty
+        - updated_at
+      type: object
+    api.QuotaStatus:
+      properties:
+        can_activate_members:
+          type: boolean
+        can_trigger_reviews:
+          type: boolean
+        daily_limit:
+          nullable: true
+          type: integer
+        daily_used:
+          type: integer
+        envelope:
+          $ref: '#/components/schemas/api.PlanUsageEnvelope'
+        is_org_creator:
+          type: boolean
+        plan_type:
+          type: string
+        seats_assigned:
+          nullable: true
+          type: integer
+        seats_available:
+          nullable: true
+          type: integer
+        seats_total:
+          nullable: true
+          type: integer
+      required:
+        - plan_type
+        - daily_used
+        - can_activate_members
+        - is_org_creator
+        - can_trigger_reviews
+        - envelope
+      type: object
+    api.RenderPreviewResponse:
+      properties:
+        build_id:
+          type: string
+        prompt:
+          type: string
+        provider:
+          type: string
+      required:
+        - prompt
+        - build_id
+        - provider
+      type: object
+    api.ReorderRequest:
+      properties:
+        ai_connector_id:
+          format: int64
+          nullable: true
+          type: integer
+        integration_token_id:
+          format: int64
+          nullable: true
+          type: integer
+        ordered_ids:
+          items:
+            format: int64
+            type: integer
+          type: array
+        repository:
+          nullable: true
+          type: string
+      type: object
+    api.RepositoryAccessResponse:
+      properties:
+        base_url:
+          type: string
+        connector_id:
+          type: integer
+        error:
+          type: string
+        project_count:
+          type: integer
+        projects:
+          items:
+            type: string
+          type: array
+        projects_with_status:
+          items:
+            $ref: '#/components/schemas/api.ProjectWithStatus'
+          type: array
+        provider:
+          type: string
+        updated_at:
+          format: date-time
+          type: string
+      required:
+        - connector_id
+        - provider
+        - base_url
+        - project_count
+        - error,omitempty
+        - updated_at
+      type: object
+    api.Review:
+      properties:
+        author_name:
+          nullable: true
+          type: string
+        author_username:
+          nullable: true
+          type: string
+        branch:
+          type: string
+        commit_hash:
+          type: string
+        completed_at:
+          format: date-time
+          nullable: true
+          type: string
+        connector_id:
+          format: int64
+          nullable: true
+          type: integer
+        created_at:
+          format: date-time
+          type: string
+        friendly_name:
+          nullable: true
+          type: string
+        id:
+          format: int64
+          type: integer
+        metadata: {}
+        mr_title:
+          nullable: true
+          type: string
+        pr_mr_url:
+          type: string
+        provider:
+          type: string
+        repository:
+          type: string
+        started_at:
+          format: date-time
+          nullable: true
+          type: string
+        status:
+          type: string
+        trigger_type:
+          type: string
+        user_email:
+          type: string
+      required:
+        - id
+        - repository
+        - branch
+        - commit_hash
+        - pr_mr_url
+        - status
+        - trigger_type
+        - user_email
+        - provider
+        - created_at
+      type: object
+    api.ReviewAccountingOperationResponse:
+      nullable: true
+      properties:
+        accountedAt:
+          type: string
+        billableLoc:
+          format: int64
+          type: integer
+        costUsd:
+          format: double
+          nullable: true
+          type: number
+        idempotencyKey:
+          type: string
+        inputTokens:
+          format: int64
+          nullable: true
+          type: integer
+        metadata:
+          type: string
+        model:
+          type: string
+        operationId:
+          type: string
+        operationType:
+          type: string
+        outputTokens:
+          format: int64
+          nullable: true
+          type: integer
+        pricingVersion:
+          type: string
+        provider:
+          type: string
+        triggerSource:
+          type: string
+      required:
+        - operationType
+        - triggerSource
+        - operationId
+        - idempotencyKey
+        - billableLoc
+        - accountedAt
+        - provider,omitempty
+        - model,omitempty
+        - pricingVersion,omitempty
+        - metadata,omitempty
+      type: object
+    api.ReviewAccountingResponse:
+      properties:
+        accountedOperations:
+          format: int64
+          type: integer
+        lastAccountedAt:
+          type: string
+        latestOperation:
+          $ref: '#/components/schemas/api.ReviewAccountingOperationResponse'
+        reviewId:
+          format: int64
+          type: integer
+        tokenTrackedOperations:
+          format: int64
+          type: integer
+        totalBillableLoc:
+          format: int64
+          type: integer
+        totalCostUsd:
+          format: double
+          nullable: true
+          type: number
+        totalInputTokens:
+          format: int64
+          nullable: true
+          type: integer
+        totalOutputTokens:
+          format: int64
+          nullable: true
+          type: integer
+      required:
+        - reviewId
+        - totalBillableLoc
+        - accountedOperations
+        - tokenTrackedOperations
+        - lastAccountedAt,omitempty
+      type: object
+    api.ReviewEvent:
+      properties:
+        batchId:
+          nullable: true
+          type: string
+        data: {}
+        id:
+          format: int64
+          type: integer
+        level:
+          nullable: true
+          type: string
+        orgId:
+          format: int64
+          type: integer
+        reviewId:
+          format: int64
+          type: integer
+        time:
+          format: date-time
+          type: string
+        type:
+          type: string
+      required:
+        - id
+        - reviewId
+        - orgId
+        - time
+        - type
+      type: object
+    api.ReviewMetadataUpdate:
+      properties:
+        AuthorName:
+          nullable: true
+          type: string
+        AuthorUsername:
+          nullable: true
+          type: string
+        Branch:
+          nullable: true
+          type: string
+        MRTitle:
+          nullable: true
+          type: string
+        Provider:
+          nullable: true
+          type: string
+        Repository:
+          nullable: true
+          type: string
+      type: object
+    api.ReviewResponse:
+      properties:
+        aiSummaryTitle:
+          nullable: true
+          type: string
+        authorName:
+          nullable: true
+          type: string
+        authorUsername:
+          nullable: true
+          type: string
+        branch:
+          nullable: true
+          type: string
+        commitHash:
+          nullable: true
+          type: string
+        completedAt:
+          format: date-time
+          nullable: true
+          type: string
+        connectorId:
+          format: int64
+          nullable: true
+          type: integer
+        createdAt:
+          format: date-time
+          type: string
+        friendlyName:
+          nullable: true
+          type: string
+        id:
+          format: int64
+          type: integer
+        metadata:
+          additionalProperties: {}
+          type: object
+        mrTitle:
+          nullable: true
+          type: string
+        orgId:
+          format: int64
+          type: integer
+        prMrUrl:
+          nullable: true
+          type: string
+        provider:
+          nullable: true
+          type: string
+        repository:
+          type: string
+        startedAt:
+          format: date-time
+          nullable: true
+          type: string
+        status:
+          type: string
+        triggerType:
+          type: string
+        userEmail:
+          nullable: true
+          type: string
+      required:
+        - id
+        - repository
+        - status
+        - triggerType
+        - createdAt
+        - orgId
+      type: object
+    api.ReviewSummary:
+      properties:
+        batchCount:
+          type: integer
+        currentStatus:
+          type: string
+        eventCounts:
+          additionalProperties:
+            type: integer
+          type: object
+        lastActivity:
+          format: date-time
+          type: string
+        reviewId:
+          format: int64
+          type: integer
+      required:
+        - reviewId
+        - currentStatus
+        - lastActivity
+        - batchCount
+      type: object
+    api.ReviewsListResponse:
+      properties:
+        hasNext:
+          type: boolean
+        hasPrevious:
+          type: boolean
+        page:
+          type: integer
+        perPage:
+          type: integer
+        reviews:
+          items:
+            $ref: '#/components/schemas/api.ReviewResponse'
+          type: array
+        total:
+          type: integer
+        totalPages:
+          type: integer
+      required:
+        - total
+        - page
+        - perPage
+        - totalPages
+        - hasNext
+        - hasPrevious
+      type: object
+    api.SeatAssignment:
+      properties:
+        assigned_at:
+          format: date-time
+          type: string
+        assigned_by_email:
+          nullable: true
+          type: string
+        assigned_by_user_id:
+          format: int64
+          nullable: true
+          type: integer
+        email:
+          type: string
+        first_name:
+          nullable: true
+          type: string
+        id:
+          format: int64
+          type: integer
+        is_active:
+          type: boolean
+        last_name:
+          nullable: true
+          type: string
+        user_id:
+          format: int64
+          type: integer
+      required:
+        - id
+        - user_id
+        - email
+        - assigned_at
+        - is_active
+      type: object
+    api.SeatAssignmentListResponse:
+      properties:
+        assigned_seats:
+          type: integer
+        assignments:
+          items:
+            $ref: '#/components/schemas/api.SeatAssignment'
+          type: array
+        available_seats:
+          type: integer
+        total_seats:
+          type: integer
+        unlimited:
+          type: boolean
+      required:
+        - total_seats
+        - assigned_seats
+        - available_seats
+        - unlimited
+      type: object
+    api.Server:
+      properties:
+        _licenseSvc: {}
+      type: object
+    api.SignedUpgradePreview:
+      properties:
+        actor_user_id:
+          format: int64
+          type: integer
+        current_plan_currency:
+          type: string
+        cycle_end_unix:
+          format: int64
+          type: integer
+        cycle_start_unix:
+          format: int64
+          type: integer
+        expires_at_unix:
+          format: int64
+          type: integer
+        from_plan_code:
+          type: string
+        immediate_charge_cents:
+          format: int64
+          type: integer
+        immediate_charge_currency:
+          type: string
+        immediate_loc_grant:
+          format: int64
+          type: integer
+        next_cycle_loc_limit:
+          format: int64
+          type: integer
+        next_cycle_price_cents:
+          format: int64
+          type: integer
+        org_id:
+          format: int64
+          type: integer
+        remaining_fraction_bp:
+          format: int64
+          type: integer
+        to_plan_code:
+          type: string
+        upgrade_request_id:
+          type: string
+      required:
+        - upgrade_request_id
+        - actor_user_id
+        - org_id
+        - from_plan_code
+        - to_plan_code
+        - current_plan_currency,omitempty
+        - cycle_start_unix
+        - cycle_end_unix
+        - remaining_fraction_bp
+        - immediate_charge_cents
+        - immediate_charge_currency
+        - immediate_loc_grant
+        - next_cycle_price_cents
+        - next_cycle_loc_limit
+        - expires_at_unix
+      type: object
+    api.SubscriptionResponse:
+      properties:
+        cancel_at_period_end:
+          type: boolean
+        current_period_end:
+          format: date-time
+          nullable: true
+          type: string
+        id:
+          format: int64
+          type: integer
+        license_expires_at:
+          format: date-time
+          nullable: true
+          type: string
+        org_id:
+          format: int64
+          type: integer
+        plan_type:
+          type: string
+        quantity:
+          type: integer
+        razorpay_subscription_id:
+          nullable: true
+          type: string
+        status:
+          type: string
+      required:
+        - id
+        - org_id
+        - plan_type
+        - status
+        - quantity
+        - cancel_at_period_end
+      type: object
+    api.SystemStatus:
+      properties:
+        api_health:
+          type: string
+        database_health:
+          type: string
+        job_queue_health:
+          type: string
+        last_health_check:
+          format: date-time
+          type: string
+      required:
+        - job_queue_health
+        - database_health
+        - api_health
+        - last_health_check
+      type: object
+    api.TriggerReviewRequest:
+      properties:
+        url:
+          type: string
+      required:
+        - url
+      type: object
+    api.TriggerReviewResponse:
+      properties:
+        message:
+          type: string
+        reviewId:
+          type: string
+        url:
+          type: string
+      required:
+        - message
+        - url
+        - reviewId
+      type: object
+    api.UnassignedUser:
+      properties:
+        email:
+          type: string
+        first_name:
+          nullable: true
+          type: string
+        id:
+          format: int64
+          type: integer
+        is_active:
+          type: boolean
+        last_name:
+          nullable: true
+          type: string
+        role:
+          nullable: true
+          type: string
+      required:
+        - id
+        - email
+        - is_active
+      type: object
+    api.UpdateQuantityRequest:
+      properties:
+        quantity:
+          type: integer
+        schedule_change_at:
+          format: int64
+          type: integer
+      required:
+        - quantity
+        - schedule_change_at,omitempty
+      type: object
+    api.UpgradeExecuteRequest:
+      properties:
+        execute_idempotency_key:
+          type: string
+        modal_acknowledged_at:
+          type: string
+        modal_version:
+          type: string
+        preview_token:
+          type: string
+        razorpay_order_id:
+          type: string
+        razorpay_payment_id:
+          type: string
+        razorpay_signature:
+          type: string
+        target_plan_code:
+          type: string
+        upgrade_request_id:
+          type: string
+      required:
+        - target_plan_code
+        - preview_token
+        - razorpay_order_id
+        - razorpay_payment_id
+        - razorpay_signature
+        - execute_idempotency_key
+        - modal_version
+        - modal_acknowledged_at
+        - upgrade_request_id
+      type: object
+    api.UpgradePreparePaymentRequest:
+      properties:
+        preview_token:
+          type: string
+        target_plan_code:
+          type: string
+        upgrade_request_id:
+          type: string
+      required:
+        - target_plan_code
+        - preview_token
+        - upgrade_request_id
+      type: object
+    api.ValidateBitbucketProfileRequest:
+      properties:
+        api_token:
+          type: string
+        email:
+          type: string
+      required:
+        - email
+        - api_token
+      type: object
+    api.ValidateGitHubProfileRequest:
+      properties:
+        pat:
+          type: string
+      required:
+        - pat
+      type: object
+    api.ValidateGitLabProfileRequest:
+      properties:
+        base_url:
+          type: string
+        pat:
+          type: string
+      required:
+        - base_url
+        - pat
+      type: object
+    api.ValidateGiteaProfileRequest:
+      properties:
+        base_url:
+          type: string
+        pat:
+          type: string
+      required:
+        - base_url
+        - pat
+      type: object
+    api.VariableEntry:
+      properties:
+        chunks:
+          items:
+            $ref: '#/components/schemas/api.ChunkDTO'
+          type: array
+        name:
+          type: string
+      required:
+        - name
+      type: object
+    api.VersionInfo:
+      properties:
+        BuildTime:
+          type: string
+        Dirty:
+          type: boolean
+        GitCommit:
+          type: string
+        Version:
+          type: string
+      required:
+        - Version
+        - GitCommit
+        - BuildTime
+        - Dirty
+      type: object
+    api.WebhookHealthSummary:
+      nullable: true
+      properties:
+        connected_projects:
+          type: integer
+        health_percent:
+          format: double
+          type: number
+        health_status:
+          type: string
+        most_recent_connector_needing_setup_id:
+          format: int64
+          nullable: true
+          type: integer
+        most_recent_connector_needing_setup_name:
+          nullable: true
+          type: string
+        setup_required_connectors:
+          type: integer
+        total_connectors:
+          type: integer
+        total_projects:
+          type: integer
+        unconnected_projects:
+          type: integer
+      required:
+        - total_connectors
+        - total_projects
+        - connected_projects
+        - unconnected_projects
+        - health_percent
+        - health_status
+        - setup_required_connectors
+      type: object
+    api.WebhookStatusSummary:
+      nullable: true
+      properties:
+        automatic:
+          type: integer
+        health_percent:
+          format: double
+          type: number
+        health_status:
+          type: string
+        manual:
+          type: integer
+        total_projects:
+          type: integer
+        unconnected:
+          type: integer
+      required:
+        - total_projects
+        - unconnected
+        - manual
+        - automatic
+        - health_percent
+        - health_status
+      type: object
+    auth.ChangePasswordRequest:
+      properties:
+        current_password:
+          type: string
+        new_password:
+          type: string
+      required:
+        - current_password
+        - new_password
+      type: object
+    auth.EnsureCloudUserRequest:
+      properties:
+        email:
+          type: string
+        first_name:
+          type: string
+        last_name:
+          type: string
+        source:
+          type: string
+      required:
+        - email
+        - first_name
+        - last_name
+        - source,omitempty
+      type: object
+    auth.JWTClaims:
+      properties:
+        aud:
+          items:
+            type: string
+          type: array
+        current_org_id:
+          format: int64
+          type: integer
+        email:
+          type: string
+        exp:
+          $ref: '#/components/schemas/jwt.NumericDate'
+        iat:
+          $ref: '#/components/schemas/jwt.NumericDate'
+        iss:
+          type: string
+        jti:
+          type: string
+        license_expires_at:
+          format: int64
+          nullable: true
+          type: integer
+        nbf:
+          $ref: '#/components/schemas/jwt.NumericDate'
+        plan_type:
+          type: string
+        sub:
+          type: string
+        subscription_id:
+          format: int64
+          nullable: true
+          type: integer
+        token_hash:
+          type: string
+        user_id:
+          format: int64
+          type: integer
+      required:
+        - user_id
+        - email
+        - token_hash
+        - current_org_id,omitempty
+        - plan_type,omitempty
+        - RegisteredClaims
+      type: object
+    auth.LoginRequest:
+      properties:
+        email:
+          type: string
+        password:
+          type: string
+      required:
+        - email
+        - password
+      type: object
+    auth.LoginResponse:
+      properties:
+        organizations:
+          items:
+            $ref: '#/components/schemas/auth.OrgInfo'
+          type: array
+        tokens:
+          $ref: '#/components/schemas/auth.TokenPair'
+        user:
+          $ref: '#/components/schemas/auth.UserInfo'
+      type: object
+    auth.OrgInfo:
+      properties:
+        created_by_user_id:
+          format: int64
+          nullable: true
+          type: integer
+        id:
+          format: int64
+          type: integer
+        license_expires_at:
+          format: date-time
+          nullable: true
+          type: string
+        name:
+          type: string
+        plan_type:
+          nullable: true
+          type: string
+        role:
+          type: string
+      required:
+        - id
+        - name
+        - role
+      type: object
+    auth.PermissionContext:
+      properties:
+        current_org:
+          $ref: '#/components/schemas/models.Org'
+        is_member:
+          type: boolean
+        is_owner:
+          type: boolean
+        is_super_admin:
+          type: boolean
+        org_id:
+          format: int64
+          type: integer
+        role:
+          type: string
+        user:
+          $ref: '#/components/schemas/models.User'
+      required:
+        - role,omitempty
+        - is_super_admin
+        - is_owner
+        - is_member
+        - org_id,omitempty
+      type: object
+    auth.RefreshRequest:
+      properties:
+        refresh_token:
+          type: string
+      required:
+        - refresh_token
+      type: object
+    auth.SetupAdminRequest:
+      properties:
+        email:
+          type: string
+        org_name:
+          type: string
+        password:
+          type: string
+      required:
+        - email
+        - password
+        - org_name
+      type: object
+    auth.TokenPair:
+      properties:
+        access_token:
+          type: string
+        expires_at:
+          format: date-time
+          type: string
+        refresh_token:
+          type: string
+        token_type:
+          type: string
+      required:
+        - access_token
+        - refresh_token
+        - expires_at
+        - token_type
+      type: object
+    auth.TokenService:
+      properties:
+        AccessTokenDuration:
+          format: int64
+          type: integer
+        RefreshTokenDuration:
+          format: int64
+          type: integer
+      required:
+        - AccessTokenDuration
+        - RefreshTokenDuration
+      type: object
+    auth.UserInfo:
+      nullable: true
+      properties:
+        created_at:
+          format: date-time
+          type: string
+        email:
+          type: string
+        id:
+          format: int64
+          type: integer
+        license_expires_at:
+          format: date-time
+          nullable: true
+          type: string
+        plan_type:
+          type: string
+        updated_at:
+          format: date-time
+          type: string
+      required:
+        - id
+        - email
+        - created_at
+        - updated_at
+        - plan_type,omitempty
+      type: object
+    core_processor.AIConnectorV2:
+      properties:
+        APIKey:
+          type: string
+        Active:
+          type: boolean
+        BaseURL:
+          type: string
+        CreatedAt:
+          type: string
+        ID:
+          format: int64
+          type: integer
+        MaxTokens:
+          type: integer
+        Model:
+          type: string
+        Name:
+          type: string
+        Provider:
+          type: string
+        Temperature:
+          format: double
+          type: number
+        UpdatedAt:
+          type: string
+      required:
+        - ID
+        - Name
+        - Provider
+        - Model
+        - APIKey
+        - BaseURL
+        - Temperature
+        - MaxTokens
+        - Active
+        - CreatedAt
+        - UpdatedAt
+      type: object
+    core_processor.CommentContextV2:
+      properties:
+        CodeContext:
+          type: string
+        MRContext:
+          $ref: '#/components/schemas/core_processor.UnifiedMRContextV2'
+        Metadata:
+          additionalProperties: {}
+          type: object
+        RelatedComments:
+          items:
+            $ref: '#/components/schemas/core_processor.UnifiedCommentV2'
+          type: array
+        Timeline:
+          $ref: '#/components/schemas/core_processor.UnifiedTimelineV2'
+      required:
+        - MRContext
+        - Timeline
+        - CodeContext
+      type: object
+    core_processor.LearningMetadataV2:
+      properties:
+        Confidence:
+          format: double
+          type: number
+        Content:
+          type: string
+        Context:
+          type: string
+        Metadata:
+          additionalProperties: {}
+          type: object
+        OrgID:
+          format: int64
+          type: integer
+        Tags:
+          items:
+            type: string
+          type: array
+        Type:
+          type: string
+      required:
+        - Type
+        - Content
+        - Context
+        - Confidence
+        - OrgID
+      type: object
+    core_processor.ResponseScenarioV2:
+      properties:
+        Confidence:
+          format: double
+          type: number
+        Metadata:
+          additionalProperties: {}
+          type: object
+        Reason:
+          type: string
+        Type:
+          type: string
+      required:
+        - Type
+        - Reason
+        - Confidence
+      type: object
+    core_processor.UnifiedBotUserInfoV2:
+      properties:
+        IsBot:
+          type: boolean
+        Metadata:
+          additionalProperties: {}
+          type: object
+        Name:
+          type: string
+        Permissions:
+          items:
+            type: string
+          type: array
+        UserID:
+          type: string
+        Username:
+          type: string
+      required:
+        - UserID
+        - Username
+        - Name
+        - IsBot
+      type: object
+    core_processor.UnifiedCommentV2:
+      properties:
+        Author:
+          $ref: '#/components/schemas/core_processor.UnifiedUserV2'
+        Body:
+          type: string
+        CreatedAt:
+          type: string
+        DiscussionID:
+          nullable: true
+          type: string
+        ID:
+          type: string
+        InReplyToID:
+          nullable: true
+          type: string
+        Metadata:
+          additionalProperties: {}
+          type: object
+        Position:
+          $ref: '#/components/schemas/core_processor.UnifiedPositionV2'
+        System:
+          type: boolean
+        UpdatedAt:
+          type: string
+        WebURL:
+          type: string
+      required:
+        - ID
+        - Body
+        - Author
+        - CreatedAt
+        - UpdatedAt
+        - WebURL
+        - System
+      type: object
+    core_processor.UnifiedCommitAuthorV2:
+      properties:
+        Email:
+          type: string
+        Name:
+          type: string
+      required:
+        - Name
+        - Email
+      type: object
+    core_processor.UnifiedCommitV2:
+      properties:
+        Author:
+          $ref: '#/components/schemas/core_processor.UnifiedCommitAuthorV2'
+        Message:
+          type: string
+        SHA:
+          type: string
+        Timestamp:
+          type: string
+        WebURL:
+          type: string
+      required:
+        - SHA
+        - Message
+        - Author
+        - Timestamp
+        - WebURL
+      type: object
+    core_processor.UnifiedFileChangeV2:
+      properties:
+        Additions:
+          type: integer
+        ChangeType:
+          type: string
+        Deletions:
+          type: integer
+        FilePath:
+          type: string
+        Metadata:
+          additionalProperties: {}
+          type: object
+        Patch:
+          type: string
+      required:
+        - FilePath
+        - ChangeType
+        - Additions
+        - Deletions
+        - Patch
+      type: object
+    core_processor.UnifiedMRContextV2:
+      properties:
+        Changes:
+          items:
+            $ref: '#/components/schemas/core_processor.UnifiedFileChangeV2'
+          type: array
+        MergeRequest:
+          $ref: '#/components/schemas/core_processor.UnifiedMergeRequestV2'
+        Metadata:
+          additionalProperties: {}
+          type: object
+        Repository:
+          $ref: '#/components/schemas/core_processor.UnifiedRepositoryV2'
+        SourceBranch:
+          type: string
+        TargetBranch:
+          type: string
+      required:
+        - Repository
+        - MergeRequest
+        - SourceBranch
+        - TargetBranch
+      type: object
+    core_processor.UnifiedMergeRequestV2:
+      properties:
+        Assignees:
+          items:
+            $ref: '#/components/schemas/core_processor.UnifiedUserV2'
+          type: array
+        Author:
+          $ref: '#/components/schemas/core_processor.UnifiedUserV2'
+        CreatedAt:
+          type: string
+        Description:
+          type: string
+        ID:
+          type: string
+        Labels:
+          items:
+            type: string
+          type: array
+        Metadata:
+          additionalProperties: {}
+          type: object
+        Number:
+          type: integer
+        Reviewers:
+          items:
+            $ref: '#/components/schemas/core_processor.UnifiedUserV2'
+          type: array
+        SourceBranch:
+          type: string
+        State:
+          type: string
+        TargetBranch:
+          type: string
+        Title:
+          type: string
+        UpdatedAt:
+          type: string
+        WebURL:
+          type: string
+      required:
+        - ID
+        - Number
+        - Title
+        - Description
+        - State
+        - Author
+        - SourceBranch
+        - TargetBranch
+        - WebURL
+        - CreatedAt
+        - UpdatedAt
+      type: object
+    core_processor.UnifiedPositionV2:
+      nullable: true
+      properties:
+        EndLine:
+          nullable: true
+          type: integer
+        FilePath:
+          type: string
+        LineNumber:
+          type: integer
+        LineType:
+          type: string
+        Metadata:
+          additionalProperties: {}
+          type: object
+        StartLine:
+          nullable: true
+          type: integer
+      required:
+        - FilePath
+        - LineNumber
+        - LineType
+      type: object
+    core_processor.UnifiedRepositoryV2:
+      properties:
+        CloneURL:
+          type: string
+        DefaultBranch:
+          type: string
+        FullName:
+          type: string
+        ID:
+          type: string
+        Metadata:
+          additionalProperties: {}
+          type: object
+        Name:
+          type: string
+        Owner:
+          $ref: '#/components/schemas/core_processor.UnifiedUserV2'
+        WebURL:
+          type: string
+      required:
+        - ID
+        - Name
+        - FullName
+        - WebURL
+        - CloneURL
+        - DefaultBranch
+        - Owner
+      type: object
+    core_processor.UnifiedReviewCommentV2:
+      properties:
+        Category:
+          type: string
+        Content:
+          type: string
+        FilePath:
+          type: string
+        LineNumber:
+          type: integer
+        Metadata:
+          additionalProperties: {}
+          type: object
+        Position:
+          $ref: '#/components/schemas/core_processor.UnifiedPositionV2'
+        Severity:
+          type: string
+      required:
+        - FilePath
+        - LineNumber
+        - Content
+        - Severity
+        - Category
+      type: object
+    core_processor.UnifiedReviewerChangeV2:
+      nullable: true
+      properties:
+        Action:
+          type: string
+        BotAssigned:
+          type: boolean
+        BotRemoved:
+          type: boolean
+        ChangedBy:
+          $ref: '#/components/schemas/core_processor.UnifiedUserV2'
+        CurrentReviewers:
+          items:
+            $ref: '#/components/schemas/core_processor.UnifiedUserV2'
+          type: array
+        PreviousReviewers:
+          items:
+            $ref: '#/components/schemas/core_processor.UnifiedUserV2'
+          type: array
+      required:
+        - Action
+        - BotAssigned
+        - BotRemoved
+        - ChangedBy
+      type: object
+    core_processor.UnifiedTimelineItemV2:
+      properties:
+        Comment:
+          $ref: '#/components/schemas/core_processor.UnifiedCommentV2'
+        Commit:
+          $ref: '#/components/schemas/core_processor.UnifiedCommitV2'
+        ReviewChange:
+          $ref: '#/components/schemas/core_processor.UnifiedReviewerChangeV2'
+        Timestamp:
+          type: string
+        Type:
+          type: string
+      required:
+        - Type
+        - Timestamp
+      type: object
+    core_processor.UnifiedTimelineV2:
+      properties:
+        Items:
+          items:
+            $ref: '#/components/schemas/core_processor.UnifiedTimelineItemV2'
+          type: array
+      type: object
+    core_processor.UnifiedUserV2:
+      properties:
+        AvatarURL:
+          type: string
+        Email:
+          type: string
+        ID:
+          type: string
+        Metadata:
+          additionalProperties: {}
+          type: object
+        Name:
+          type: string
+        Username:
+          type: string
+        WebURL:
+          type: string
+      required:
+        - ID
+        - Username
+        - Name
+        - Email
+        - AvatarURL
+        - WebURL
+      type: object
+    core_processor.UnifiedWebhookEventV2:
+      properties:
+        Actor:
+          $ref: '#/components/schemas/core_processor.UnifiedUserV2'
+        Comment:
+          $ref: '#/components/schemas/core_processor.UnifiedCommentV2'
+        EventType:
+          type: string
+        MergeRequest:
+          $ref: '#/components/schemas/core_processor.UnifiedMergeRequestV2'
+        Provider:
+          type: string
+        Repository:
+          $ref: '#/components/schemas/core_processor.UnifiedRepositoryV2'
+        ReviewerChange:
+          $ref: '#/components/schemas/core_processor.UnifiedReviewerChangeV2'
+        Timestamp:
+          type: string
+      required:
+        - EventType
+        - Provider
+        - Timestamp
+        - Repository
+        - Actor
+      type: object
+    gitea.GiteaProfile:
+      properties:
+        avatar_url:
+          type: string
+        email:
+          type: string
+        full_name:
+          type: string
+        id:
+          format: int64
+          type: integer
+        login:
+          type: string
+      required:
+        - id
+        - login
+        - full_name
+        - email
+        - avatar_url
+      type: object
+    github.GitHubProfile:
+      properties:
+        avatar_url:
+          type: string
+        company:
+          type: string
+        email:
+          type: string
+        id:
+          type: integer
+        location:
+          type: string
+        login:
+          type: string
+        name:
+          type: string
+      required:
+        - id
+        - login
+        - name
+        - email
+        - avatar_url
+        - company
+        - location
+      type: object
+    gitlab.GitLabProfile:
+      properties:
+        avatar_url:
+          type: string
+        email:
+          type: string
+        id:
+          type: integer
+        name:
+          type: string
+        username:
+          type: string
+      required:
+        - id
+        - username
+        - name
+        - email
+        - avatar_url
+      type: object
+    gitlab.GitLabTokenRequest:
+      properties:
+        Code:
+          type: string
+        ConnectionName:
+          type: string
+        GitlabClientID:
+          type: string
+        GitlabClientSecret:
+          type: string
+        GitlabURL:
+          type: string
+        RedirectURI:
+          type: string
+      required:
+        - Code
+        - GitlabURL
+        - GitlabClientID
+        - GitlabClientSecret
+        - RedirectURI
+        - ConnectionName
+      type: object
+    learnings.Learning:
+      properties:
+        body:
+          type: string
+        confidence:
+          type: integer
+        created_at:
+          format: date-time
+          type: string
+        embedding:
+          format: byte
+          type: string
+        id:
+          type: string
+        org_id:
+          format: int64
+          type: integer
+        repo_id:
+          type: string
+        scope:
+          type: string
+        short_id:
+          type: string
+        simhash:
+          format: int64
+          type: integer
+        source_context:
+          $ref: '#/components/schemas/learnings.SourceContext'
+        source_urls:
+          items:
+            type: string
+          type: array
+        status:
+          type: string
+        tags:
+          items:
+            type: string
+          type: array
+        title:
+          type: string
+        updated_at:
+          format: date-time
+          type: string
+      required:
+        - id
+        - short_id
+        - org_id
+        - scope
+        - repo_id,omitempty
+        - title
+        - body
+        - status
+        - confidence
+        - simhash
+        - created_at
+        - updated_at
+      type: object
+    learnings.SourceContext:
+      nullable: true
+      properties:
+        comment_id:
+          type: string
+        commit_sha:
+          type: string
+        file_path:
+          type: string
+        line_end:
+          type: integer
+        line_start:
+          type: integer
+        mr_number:
+          type: integer
+        pr_number:
+          type: integer
+        provider:
+          type: string
+        repository:
+          type: string
+        thread_id:
+          type: string
+      required:
+        - provider
+        - repository
+        - pr_number
+        - mr_number
+        - commit_sha
+        - file_path
+        - line_start
+        - line_end
+        - thread_id
+        - comment_id
+      type: object
+    models.CodeDiff:
+      properties:
+        CommitID:
+          type: string
+        FilePath:
+          type: string
+        FileType:
+          type: string
+        Hunks:
+          items:
+            $ref: '#/components/schemas/models.DiffHunk'
+          type: array
+        IsDeleted:
+          type: boolean
+        IsNew:
+          type: boolean
+        IsRenamed:
+          type: boolean
+        NewContent:
+          type: string
+        OldContent:
+          type: string
+        OldFilePath:
+          type: string
+      required:
+        - FilePath
+        - OldContent
+        - NewContent
+        - CommitID
+        - FileType
+        - IsDeleted
+        - IsNew
+        - IsRenamed
+        - OldFilePath
+      type: object
+    models.DiffHunk:
+      properties:
+        Content:
+          type: string
+        NewLineCount:
+          type: integer
+        NewStartLine:
+          type: integer
+        OldLineCount:
+          type: integer
+        OldStartLine:
+          type: integer
+      required:
+        - OldStartLine
+        - OldLineCount
+        - NewStartLine
+        - NewLineCount
+        - Content
+      type: object
+    models.InstanceDetails:
+      properties:
+        AdminPassword:
+          type: string
+        CreatedAt:
+          type: string
+        DomainName:
+          type: string
+        ID:
+          type: integer
+        UpdatedAt:
+          type: string
+      required:
+        - ID
+        - DomainName
+        - AdminPassword
+        - CreatedAt
+        - UpdatedAt
+      type: object
+    models.Org:
+      nullable: true
+      properties:
+        created_at:
+          format: date-time
+          type: string
+        created_by_user_id:
+          format: int64
+          nullable: true
+          type: integer
+        description:
+          nullable: true
+          type: string
+        id:
+          format: int64
+          type: integer
+        is_active:
+          type: boolean
+        max_users:
+          nullable: true
+          type: integer
+        name:
+          type: string
+        settings:
+          type: string
+        subscription_plan:
+          nullable: true
+          type: string
+        updated_at:
+          format: date-time
+          type: string
+      required:
+        - id
+        - name
+        - is_active
+        - created_at
+        - updated_at
+        - settings,omitempty
+      type: object
+    models.OrgAnalytics:
+      properties:
+        members_by_role:
+          additionalProperties:
+            format: int64
+            type: integer
+          type: object
+        org_id:
+          format: int64
+          type: integer
+        recent_activity:
+          format: int64
+          type: integer
+        total_members:
+          format: int64
+          type: integer
+      required:
+        - org_id
+        - total_members
+        - recent_activity
+      type: object
+    models.OrgWithRole:
+      properties:
+        created_at:
+          format: date-time
+          type: string
+        created_by_user_id:
+          format: int64
+          nullable: true
+          type: integer
+        creator_email:
+          nullable: true
+          type: string
+        creator_first_name:
+          nullable: true
+          type: string
+        creator_last_name:
+          nullable: true
+          type: string
+        description:
+          nullable: true
+          type: string
+        id:
+          format: int64
+          type: integer
+        is_active:
+          type: boolean
+        license_expires_at:
+          format: date-time
+          nullable: true
+          type: string
+        max_users:
+          nullable: true
+          type: integer
+        name:
+          type: string
+        plan_type:
+          nullable: true
+          type: string
+        role_name:
+          type: string
+        settings:
+          type: string
+        subscription_plan:
+          nullable: true
+          type: string
+        updated_at:
+          format: date-time
+          type: string
+      required:
+        - Org
+        - role_name
+      type: object
+    models.ReviewComment:
+      nullable: true
+      properties:
+        Category:
+          type: string
+        Confidence:
+          format: double
+          type: number
+        Content:
+          type: string
+        FilePath:
+          type: string
+        IsDeletedLine:
+          type: boolean
+        IsInternal:
+          type: boolean
+        Line:
+          type: integer
+        Severity:
+          enum:
+            - info
+            - warning
+            - critical
+          type: string
+        Suggestions:
+          items:
+            type: string
+          type: array
+      required:
+        - FilePath
+        - Line
+        - Content
+        - Severity
+        - Confidence
+        - Category
+        - IsDeletedLine
+        - IsInternal
+      type: object
+    models.ReviewResult:
+      properties:
+        Comments:
+          items:
+            $ref: '#/components/schemas/models.ReviewComment'
+          type: array
+        InternalComments:
+          items:
+            $ref: '#/components/schemas/models.ReviewComment'
+          type: array
+        Summary:
+          type: string
+      required:
+        - Summary
+      type: object
+    models.Role:
+      nullable: true
+      properties:
+        created_at:
+          format: date-time
+          type: string
+        id:
+          format: int64
+          type: integer
+        name:
+          type: string
+        updated_at:
+          format: date-time
+          type: string
+      required:
+        - id
+        - name
+        - created_at
+        - updated_at
+      type: object
+    models.User:
+      nullable: true
+      properties:
+        created_at:
+          format: date-time
+          type: string
+        created_by_user_id:
+          format: int64
+          nullable: true
+          type: integer
+        email:
+          type: string
+        first_name:
+          nullable: true
+          type: string
+        id:
+          format: int64
+          type: integer
+        is_active:
+          type: boolean
+        last_login_at:
+          format: date-time
+          nullable: true
+          type: string
+        last_name:
+          nullable: true
+          type: string
+        password_reset_required:
+          type: boolean
+        updated_at:
+          format: date-time
+          type: string
+      required:
+        - id
+        - email
+        - PasswordHash
+        - is_active
+        - created_at
+        - updated_at
+        - password_reset_required
+      type: object
+    models.UserOrgInfo:
+      properties:
+        joined_at:
+          format: date-time
+          type: string
+        org:
+          $ref: '#/components/schemas/models.Org'
+        role:
+          $ref: '#/components/schemas/models.Role'
+        user:
+          $ref: '#/components/schemas/models.User'
+      required:
+        - joined_at
+      type: object
+    models.UserProfile:
+      properties:
+        email:
+          type: string
+        first_name:
+          nullable: true
+          type: string
+        id:
+          format: int64
+          type: integer
+        last_name:
+          nullable: true
+          type: string
+      required:
+        - id
+        - email
+      type: object
+    models.UserRole:
+      properties:
+        created_at:
+          format: date-time
+          type: string
+        org_id:
+          format: int64
+          type: integer
+        role_id:
+          format: int64
+          type: integer
+        updated_at:
+          format: date-time
+          type: string
+        user_id:
+          format: int64
+          type: integer
+      required:
+        - user_id
+        - role_id
+        - org_id
+        - created_at
+        - updated_at
+      type: object
+    models.UserWithRole:
+      properties:
+        active_subscription_id:
+          format: int64
+          nullable: true
+          type: integer
+        created_at:
+          format: date-time
+          type: string
+        created_by_user_id:
+          format: int64
+          nullable: true
+          type: integer
+        email:
+          type: string
+        first_name:
+          nullable: true
+          type: string
+        id:
+          format: int64
+          type: integer
+        is_active:
+          type: boolean
+        last_login_at:
+          format: date-time
+          nullable: true
+          type: string
+        last_name:
+          nullable: true
+          type: string
+        license_expires_at:
+          format: date-time
+          nullable: true
+          type: string
+        org_id:
+          format: int64
+          type: integer
+        password_reset_required:
+          type: boolean
+        plan_type:
+          type: string
+        razorpay_subscription_id:
+          nullable: true
+          type: string
+        role:
+          type: string
+        role_id:
+          format: int64
+          type: integer
+        updated_at:
+          format: date-time
+          type: string
+      required:
+        - User
+        - role
+        - role_id
+        - org_id
+        - plan_type
+      type: object
+    payment.PurchaseConfirmationRequest:
+      properties:
+        razorpay_payment_id:
+          type: string
+        razorpay_signature:
+          type: string
+        razorpay_subscription_id:
+          type: string
+      required:
+        - razorpay_subscription_id
+        - razorpay_payment_id
+        - razorpay_signature
+      type: object
+    payment.RazorpaySubscription:
+      properties:
+        auth_attempts:
+          type: integer
+        cancel_at:
+          format: int64
+          type: integer
+        cancel_at_cycle_end:
+          type: boolean
+        change_scheduled_at:
+          format: int64
+          type: integer
+        charge_at:
+          format: int64
+          type: integer
+        created_at:
+          format: int64
+          type: integer
+        current_end:
+          format: int64
+          type: integer
+        current_start:
+          format: int64
+          type: integer
+        customer_notify:
+          type: boolean
+        end_at:
+          format: int64
+          type: integer
+        ended_at:
+          format: int64
+          type: integer
+        entity:
+          type: string
+        has_scheduled_changes:
+          type: boolean
+        id:
+          type: string
+        notes: {}
+        offer_id:
+          type: string
+        paid_count:
+          type: integer
+        plan_id:
+          type: string
+        quantity:
+          type: integer
+        remaining_count:
+          type: integer
+        short_url:
+          type: string
+        start_at:
+          format: int64
+          type: integer
+        status:
+          type: string
+        total_count:
+          type: integer
+      required:
+        - id,omitempty
+        - plan_id
+        - status,omitempty
+        - ended_at,omitempty
+        - cancel_at,omitempty
+        - cancel_at_cycle_end,omitempty
+        - quantity,omitempty
+        - total_count,omitempty
+        - customer_notify,omitempty
+        - start_at,omitempty
+        - end_at,omitempty
+        - created_at,omitempty
+        - charge_at,omitempty
+        - auth_attempts,omitempty
+        - paid_count,omitempty
+        - remaining_count,omitempty
+        - current_start,omitempty
+        - current_end,omitempty
+        - short_url,omitempty
+        - has_scheduled_changes,omitempty
+        - change_scheduled_at,omitempty
+        - offer_id,omitempty
+        - entity,omitempty
+        - Mode
+        - TrialApplied
+        - TrialDays
+        - TrialStartsAt
+        - TrialEndsAt
+        - PlanCurrency
+        - PlanUnitMinor
+        - RecurringMinor
+        - RecurringCurrency
+        - CheckoutAuthorizationMayApply
+      type: object
+    payment.SelfHostedPurchaseResponse:
+      properties:
+        license_key:
+          type: string
+        short_url:
+          type: string
+        subscription_id:
+          type: string
+      required:
+        - subscription_id
+        - short_url
+        - license_key,omitempty
+      type: object
+    sql.NullString:
+      properties:
+        String:
+          type: string
+        Valid:
+          type: boolean
+      required:
+        - String
+        - Valid
+      type: object
+    sql.NullTime:
+      properties:
+        Time:
+          format: date-time
+          type: string
+        Valid:
+          type: boolean
+      required:
+        - Time
+        - Valid
+      type: object
+    users.ChangePasswordRequest:
+      properties:
+        current_password:
+          type: string
+        new_password:
+          type: string
+      required:
+        - current_password
+        - new_password
+      type: object
+    users.CreateUserRequest:
+      properties:
+        email:
+          type: string
+        first_name:
+          type: string
+        last_name:
+          type: string
+        password:
+          type: string
+        role_id:
+          format: int64
+          type: integer
+      required:
+        - email
+        - password
+        - first_name
+        - last_name
+        - role_id
+      type: object
+    users.GlobalUserWithOrg:
+      properties:
+        created_at:
+          format: date-time
+          type: string
+        created_by_user_id:
+          format: int64
+          nullable: true
+          type: integer
+        deactivated_at:
+          format: date-time
+          nullable: true
+          type: string
+        deactivated_by_user_id:
+          format: int64
+          nullable: true
+          type: integer
+        email:
+          type: string
+        first_name:
+          nullable: true
+          type: string
+        id:
+          format: int64
+          type: integer
+        is_active:
+          type: boolean
+        last_login_at:
+          format: date-time
+          nullable: true
+          type: string
+        last_name:
+          nullable: true
+          type: string
+        org_id:
+          format: int64
+          type: integer
+        org_name:
+          type: string
+        password_reset_required:
+          type: boolean
+        role:
+          type: string
+        role_id:
+          format: int64
+          type: integer
+        updated_at:
+          format: date-time
+          type: string
+      required:
+        - UserWithRole
+        - org_name
+      type: object
+    users.OrgUserCount:
+      properties:
+        org_name:
+          type: string
+        user_count:
+          type: integer
+      required:
+        - org_name
+        - user_count
+      type: object
+    users.RoleUserCount:
+      properties:
+        role_name:
+          type: string
+        user_count:
+          type: integer
+      required:
+        - role_name
+        - user_count
+      type: object
+    users.UpdateProfileRequest:
+      properties:
+        email:
+          nullable: true
+          type: string
+        first_name:
+          nullable: true
+          type: string
+        last_name:
+          nullable: true
+          type: string
+      type: object
+    users.UpdateUserRequest:
+      properties:
+        first_name:
+          nullable: true
+          type: string
+        is_active:
+          nullable: true
+          type: boolean
+        last_name:
+          nullable: true
+          type: string
+        role_id:
+          format: int64
+          nullable: true
+          type: integer
+      type: object
+    users.UserAnalytics:
+      properties:
+        active_users:
+          type: integer
+        total_users:
+          type: integer
+        users_by_org:
+          items:
+            $ref: '#/components/schemas/users.OrgUserCount'
+          type: array
+        users_by_role:
+          items:
+            $ref: '#/components/schemas/users.RoleUserCount'
+          type: array
+        users_needing_password_reset:
+          type: integer
+      required:
+        - total_users
+        - active_users
+        - users_needing_password_reset
+      type: object
+    users.UserAuditEntry:
+      properties:
+        action:
+          type: string
+        created_at:
+          format: date-time
+          type: string
+        details:
+          additionalProperties: {}
+          type: object
+        id:
+          format: int64
+          type: integer
+        performed_by_email:
+          type: string
+      required:
+        - id
+        - action
+        - created_at
+        - performed_by_email
+      type: object
+    users.UserOrgRole:
+      properties:
+        org_id:
+          format: int64
+          type: integer
+        org_name:
+          type: string
+        role:
+          type: string
+        role_id:
+          format: int64
+          type: integer
+      required:
+        - org_id
+        - org_name
+        - role
+        - role_id
+      type: object
+    users.UserProfile:
+      properties:
+        created_at:
+          format: date-time
+          type: string
+        email:
+          type: string
+        first_name:
+          nullable: true
+          type: string
+        id:
+          format: int64
+          type: integer
+        is_active:
+          type: boolean
+        last_login_at:
+          format: date-time
+          nullable: true
+          type: string
+        last_name:
+          nullable: true
+          type: string
+        license_expires_at:
+          format: date-time
+          nullable: true
+          type: string
+        plan_type:
+          nullable: true
+          type: string
+        updated_at:
+          format: date-time
+          type: string
+      required:
+        - id
+        - email
+        - is_active
+        - created_at
+        - updated_at
+      type: object
+    users.UserWithRole:
+      properties:
+        created_at:
+          format: date-time
+          type: string
+        created_by_user_id:
+          format: int64
+          nullable: true
+          type: integer
+        deactivated_at:
+          format: date-time
+          nullable: true
+          type: string
+        deactivated_by_user_id:
+          format: int64
+          nullable: true
+          type: integer
+        email:
+          type: string
+        first_name:
+          nullable: true
+          type: string
+        id:
+          format: int64
+          type: integer
+        is_active:
+          type: boolean
+        last_login_at:
+          format: date-time
+          nullable: true
+          type: string
+        last_name:
+          nullable: true
+          type: string
+        org_id:
+          format: int64
+          type: integer
+        password_reset_required:
+          type: boolean
+        role:
+          type: string
+        role_id:
+          format: int64
+          type: integer
+        updated_at:
+          format: date-time
+          type: string
+      required:
+        - id
+        - email
+        - is_active
+        - created_at
+        - updated_at
+        - password_reset_required
+        - role
+        - role_id
+        - org_id
+      type: object
+info:
+  title: LiveReview API
+  version: 1.0.0
+openapi: 3.0.0
+paths:
+  /api/v1/activities:
+    get:
+      description: GetRecentActivities handles the API endpoint for fetching recent activities
+      operationId: GetRecentActivities
+      parameters:
+        - in: query
+          name: limit
+          required: true
+          schema:
+            type: string
+        - in: query
+          name: offset
+          required: true
+          schema:
+            type: string
+      responses:
+        "400":
+          content:
+            application/json:
+              schema:
+                additionalProperties:
+                  type: string
+                type: object
+          description: Bad Request
+        "500":
+          content:
+            application/json:
+              schema:
+                additionalProperties:
+                  type: string
+                type: object
+          description: Internal Server Error
+      tags:
+        - Activities
+  /api/v1/admin/analytics/users:
+    get:
+      description: GetUserAnalytics handles getting user analytics (super admin only)
+      operationId: GetUserAnalytics
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/users.UserAnalytics'
+          description: OK
+      tags:
+        - Admin
+  /api/v1/admin/billing/portfolio/orgs:
+    get:
+      operationId: ListAdminBillingPortfolioOrganizations
+      responses: null
+      tags:
+        - Admin
+  /api/v1/admin/billing/portfolio/orgs/{org_id}/members:
+    get:
+      operationId: GetAdminOrganizationBillingMembers
+      parameters:
+        - in: path
+          name: org_id
+          required: true
+          schema:
+            type: string
+      responses: null
+      tags:
+        - Admin
+  /api/v1/admin/billing/portfolio/orgs/{org_id}/usage:
+    get:
+      operationId: GetAdminOrganizationBillingUsage
+      parameters:
+        - in: path
+          name: org_id
+          required: true
+          schema:
+            type: string
+      responses: null
+      tags:
+        - Admin
+  /api/v1/admin/billing/portfolio/summary:
+    get:
+      operationId: GetAdminBillingPortfolioSummary
+      responses: null
+      tags:
+        - Admin
+  /api/v1/admin/organizations/{org_id}:
+    delete:
+      description: DeactivateOrganization soft-deletes an organization (super admin only)
+      operationId: DeactivateOrganization
+      parameters:
+        - in: path
+          name: org_id
+          required: true
+          schema:
+            format: int64
+            type: integer
+      responses: null
+      tags:
+        - Admin
+  /api/v1/admin/orgs/{org_id}/users:
+    post:
+      description: CreateUserInAnyOrg handles creating a user in any organization (super admin only)
+      operationId: CreateUserInAnyOrg
+      parameters:
+        - in: path
+          name: org_id
+          required: true
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/users.CreateUserRequest'
+      responses:
+        "201":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/users.UserWithRole'
+          description: Created
+      tags:
+        - Admin
+  /api/v1/admin/users:
+    get:
+      description: ListAllUsers handles listing all users across all organizations (super admin only)
+      operationId: ListAllUsers
+      parameters:
+        - in: query
+          name: offset
+          required: true
+          schema:
+            type: string
+        - in: query
+          name: limit
+          required: true
+          schema:
+            type: string
+      responses: null
+      tags:
+        - Admin
+  /api/v1/admin/users/{user_id}/org:
+    put:
+      description: TransferUserToOrg handles transferring a user to a different organization (super admin only)
+      operationId: TransferUserToOrg
+      parameters:
+        - in: path
+          name: user_id
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/users.UserWithRole'
+          description: OK
+      tags:
+        - Admin
+  /api/v1/aiconnectors:
+    get:
+      description: GetAIConnectors handles requests to get all AI connectors
+      operationId: GetAIConnectors
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                items:
+                  $ref: '#/components/schemas/api.AIConnectorResponse'
+                type: array
+          description: OK
+        "400":
+          content:
+            application/json:
+              schema:
+                additionalProperties:
+                  type: string
+                type: object
+          description: Bad Request
+        "500":
+          content:
+            application/json:
+              schema:
+                additionalProperties:
+                  type: string
+                type: object
+          description: Internal Server Error
+      tags:
+        - Aiconnectors
+    post:
+      description: CreateAIConnector handles requests to create a new AI connector
+      operationId: CreateAIConnector
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/api.AIConnectorCreateRequest'
+      responses:
+        "201":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/api.AIConnectorResponse'
+          description: Created
+        "400":
+          content:
+            application/json:
+              schema:
+                additionalProperties:
+                  type: string
+                type: object
+          description: Bad Request
+        "500":
+          content:
+            application/json:
+              schema:
+                additionalProperties:
+                  type: string
+                type: object
+          description: Internal Server Error
+      tags:
+        - Aiconnectors
+  /api/v1/aiconnectors/{id}:
+    delete:
+      description: DeleteAIConnector handles requests to delete an AI connector by ID
+      operationId: DeleteAIConnector
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                additionalProperties:
+                  type: string
+                type: object
+          description: OK
+        "400":
+          content:
+            application/json:
+              schema:
+                additionalProperties:
+                  type: string
+                type: object
+          description: Bad Request
+        "403":
+          content:
+            application/json:
+              schema:
+                additionalProperties:
+                  type: string
+                type: object
+          description: Forbidden
+        "404":
+          content:
+            application/json:
+              schema:
+                additionalProperties:
+                  type: string
+                type: object
+          description: Not Found
+        "500":
+          content:
+            application/json:
+              schema:
+                additionalProperties:
+                  type: string
+                type: object
+          description: Internal Server Error
+      tags:
+        - Aiconnectors
+    put:
+      description: UpdateAIConnector handles requests to update an existing AI connector
+      operationId: UpdateAIConnector
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/api.AIConnectorCreateRequest'
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/api.AIConnectorResponse'
+          description: OK
+        "400":
+          content:
+            application/json:
+              schema:
+                additionalProperties:
+                  type: string
+                type: object
+          description: Bad Request
+        "403":
+          content:
+            application/json:
+              schema:
+                additionalProperties:
+                  type: string
+                type: object
+          description: Forbidden
+        "404":
+          content:
+            application/json:
+              schema:
+                additionalProperties:
+                  type: string
+                type: object
+          description: Not Found
+        "500":
+          content:
+            application/json:
+              schema:
+                additionalProperties:
+                  type: string
+                type: object
+          description: Internal Server Error
+      tags:
+        - Aiconnectors
+  /api/v1/aiconnectors/ollama/models:
+    post:
+      description: FetchOllamaModels handles requests to fetch available models from an Ollama instance
+      operationId: FetchOllamaModels
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/api.FetchOllamaModelsRequest'
+      responses:
+        "400":
+          content:
+            application/json:
+              schema:
+                additionalProperties:
+                  type: string
+                type: object
+          description: Bad Request
+      tags:
+        - Aiconnectors
+  /api/v1/aiconnectors/reorder:
+    put:
+      description: ReorderAIConnectors handles requests to reorder AI connectors
+      operationId: ReorderAIConnectors
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                additionalProperties:
+                  type: string
+                type: object
+          description: OK
+        "400":
+          content:
+            application/json:
+              schema:
+                additionalProperties:
+                  type: string
+                type: object
+          description: Bad Request
+        "500":
+          content:
+            application/json:
+              schema:
+                additionalProperties:
+                  type: string
+                type: object
+          description: Internal Server Error
+      tags:
+        - Aiconnectors
+  /api/v1/aiconnectors/validate-key:
+    post:
+      description: ValidateAIConnectorKey handles requests to validate an AI provider API key
+      operationId: ValidateAIConnectorKey
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/api.AIConnectorKeyValidationRequest'
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/api.AIConnectorKeyValidationResponse'
+          description: OK
+        "400":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/api.AIConnectorKeyValidationResponse'
+          description: Bad Request
+        "500":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/api.AIConnectorKeyValidationResponse'
+          description: Internal Server Error
+      tags:
+        - Aiconnectors
+  /api/v1/auth/change-password:
+    post:
+      description: ChangePassword handles changing the current user's password
+      operationId: ChangePassword
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/users.ChangePasswordRequest'
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                additionalProperties:
+                  type: string
+                type: object
+          description: OK
+      tags:
+        - Auth
+  /api/v1/auth/ensure-cloud-user:
+    post:
+      description: |-
+        EnsureCloudUser ensures that a user and a personal organization exist, assigning super_admin role.
+        Idempotent: if user/org/role mapping already exist, it returns success without changes.
+      operationId: EnsureCloudUser
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/auth.EnsureCloudUserRequest'
+      responses:
+        "400":
+          content:
+            application/json:
+              schema:
+                additionalProperties:
+                  type: string
+                type: object
+          description: Bad Request
+        "401":
+          content:
+            application/json:
+              schema:
+                additionalProperties:
+                  type: string
+                type: object
+          description: Unauthorized
+        "403":
+          content:
+            application/json:
+              schema:
+                additionalProperties:
+                  type: string
+                type: object
+          description: Forbidden
+        "500":
+          content:
+            application/json:
+              schema:
+                additionalProperties:
+                  type: string
+                type: object
+          description: Internal Server Error
+      tags:
+        - Auth
+  /api/v1/auth/login:
+    post:
+      description: Login handles user authentication with email/password
+      operationId: Login
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/auth.LoginRequest'
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/auth.LoginResponse'
+          description: OK
+        "400":
+          content:
+            application/json:
+              schema:
+                additionalProperties:
+                  type: string
+                type: object
+          description: Bad Request
+        "401":
+          content:
+            application/json:
+              schema:
+                additionalProperties:
+                  type: string
+                type: object
+          description: Unauthorized
+        "500":
+          content:
+            application/json:
+              schema:
+                additionalProperties:
+                  type: string
+                type: object
+          description: Internal Server Error
+      tags:
+        - Auth
+  /api/v1/auth/logout:
+    post:
+      description: Logout handles user logout (revokes tokens)
+      operationId: Logout
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                additionalProperties:
+                  type: string
+                type: object
+          description: OK
+        "400":
+          content:
+            application/json:
+              schema:
+                additionalProperties:
+                  type: string
+                type: object
+          description: Bad Request
+        "401":
+          content:
+            application/json:
+              schema:
+                additionalProperties:
+                  type: string
+                type: object
+          description: Unauthorized
+        "500":
+          content:
+            application/json:
+              schema:
+                additionalProperties:
+                  type: string
+                type: object
+          description: Internal Server Error
+      tags:
+        - Auth
+  /api/v1/auth/me:
+    get:
+      description: Me returns information about the currently authenticated user
+      operationId: Me
+      responses:
+        "401":
+          content:
+            application/json:
+              schema:
+                additionalProperties:
+                  type: string
+                type: object
+          description: Unauthorized
+        "500":
+          content:
+            application/json:
+              schema:
+                additionalProperties:
+                  type: string
+                type: object
+          description: Internal Server Error
+      tags:
+        - Auth
+  /api/v1/auth/refresh:
+    post:
+      description: RefreshToken handles token refresh using a valid refresh token
+      operationId: RefreshToken
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/auth.RefreshRequest'
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/auth.TokenPair'
+          description: OK
+        "400":
+          content:
+            application/json:
+              schema:
+                additionalProperties:
+                  type: string
+                type: object
+          description: Bad Request
+        "401":
+          content:
+            application/json:
+              schema:
+                additionalProperties:
+                  type: string
+                type: object
+          description: Unauthorized
+      tags:
+        - Auth
+  /api/v1/auth/setup:
+    post:
+      description: SetupAdmin handles initial admin user setup (replaces legacy password system)
+      operationId: SetupAdmin
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/auth.SetupAdminRequest'
+      responses:
+        "400":
+          content:
+            application/json:
+              schema:
+                additionalProperties:
+                  type: string
+                type: object
+          description: Bad Request
+        "500":
+          content:
+            application/json:
+              schema:
+                additionalProperties:
+                  type: string
+                type: object
+          description: Internal Server Error
+      tags:
+        - Auth
+  /api/v1/auth/setup-status:
+    get:
+      description: CheckSetupStatus checks if initial setup is needed
+      operationId: CheckSetupStatus
+      responses:
+        "500":
+          content:
+            application/json:
+              schema:
+                additionalProperties:
+                  type: string
+                type: object
+          description: Internal Server Error
+      tags:
+        - Auth
+  /api/v1/billing/downgrade/cancel:
+    post:
+      operationId: CancelScheduledDowngrade
+      responses: null
+      tags:
+        - Billing
+  /api/v1/billing/downgrade/schedule:
+    post:
+      operationId: ScheduleDowngrade
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/api.PlanChangeRequest'
+      responses: null
+      tags:
+        - Billing
+  /api/v1/billing/status:
+    get:
+      operationId: GetBillingStatus
+      responses: null
+      tags:
+        - Billing
+  /api/v1/billing/upgrade:
+    post:
+      operationId: UpgradePlan
+      responses: null
+      tags:
+        - Billing
+  /api/v1/billing/upgrade/execute:
+    post:
+      operationId: ExecuteUpgrade
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/api.UpgradeExecuteRequest'
+      responses: null
+      tags:
+        - Billing
+  /api/v1/billing/upgrade/prepare-payment:
+    post:
+      operationId: PrepareUpgradePayment
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/api.UpgradePreparePaymentRequest'
+      responses: null
+      tags:
+        - Billing
+  /api/v1/billing/upgrade/preview:
+    post:
+      operationId: PreviewUpgrade
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/api.PlanChangeRequest'
+      responses: null
+      tags:
+        - Billing
+  /api/v1/billing/upgrade/request-status:
+    get:
+      operationId: GetUpgradeRequestStatus
+      parameters:
+        - in: query
+          name: upgrade_request_id
+          required: true
+          schema:
+            type: string
+      responses: null
+      tags:
+        - Billing
+  /api/v1/billing/usage/me:
+    get:
+      operationId: GetMyUsage
+      responses: null
+      tags:
+        - Billing
+  /api/v1/billing/usage/members:
+    get:
+      operationId: GetUsageMembers
+      responses: null
+      tags:
+        - Billing
+  /api/v1/billing/usage/members/{member_id}/operations:
+    get:
+      operationId: GetMemberUsageOperations
+      parameters:
+        - in: path
+          name: member_id
+          required: true
+          schema:
+            type: string
+      responses: null
+      tags:
+        - Billing
+  /api/v1/billing/usage/operations:
+    get:
+      operationId: GetUsageOperations
+      responses: null
+      tags:
+        - Billing
+  /api/v1/billing/usage/summary:
+    get:
+      operationId: GetUsageSummary
+      responses: null
+      tags:
+        - Billing
+  /api/v1/bitbucket-hook/{connector_id}:
+    post:
+      description: WebhookOrchestratorV2Handler handles webhooks using the V2 orchestrator (full processing pipeline)
+      operationId: WebhookOrchestratorV2Handler
+      parameters:
+        - in: path
+          name: connector_id
+          required: true
+          schema:
+            type: string
+      responses:
+        "500":
+          content:
+            application/json:
+              schema:
+                additionalProperties:
+                  type: string
+                type: object
+          description: Internal Server Error
+      tags:
+        - Bitbucket-Hook
+  /api/v1/bitbucket/validate-profile:
+    post:
+      description: ValidateBitbucketProfile validates Bitbucket API Token by fetching user profile
+      operationId: ValidateBitbucketProfile
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/api.ValidateBitbucketProfileRequest'
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/api.BitbucketProfile'
+          description: OK
+        "400":
+          content:
+            application/json:
+              schema:
+                additionalProperties:
+                  type: string
+                type: object
+          description: Bad Request
+      tags:
+        - Bitbucket
+  /api/v1/connectors:
+    get:
+      description: GetConnectors returns all integration tokens (connectors) for the current organization
+      operationId: GetConnectors
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                items:
+                  $ref: '#/components/schemas/api.ConnectorResponse'
+                type: array
+          description: OK
+        "400":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/api.ErrorResponse'
+          description: Bad Request
+        "500":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/api.ErrorResponse'
+          description: Internal Server Error
+      tags:
+        - Connectors
+  /api/v1/connectors/{connectorId}/disable-manual-trigger:
+    post:
+      description: DisableManualTriggerForAllProjects handles disabling manual trigger for all projects for a connector
+      operationId: DisableManualTriggerForAllProjects
+      parameters:
+        - in: path
+          name: connectorId
+          required: true
+          schema:
+            type: string
+      responses:
+        "400":
+          content:
+            application/json:
+              schema:
+                additionalProperties:
+                  type: string
+                type: object
+          description: Bad Request
+        "500":
+          content:
+            application/json:
+              schema:
+                additionalProperties:
+                  type: string
+                type: object
+          description: Internal Server Error
+      tags:
+        - Connectors
+  /api/v1/connectors/{connectorId}/enable-manual-trigger:
+    post:
+      description: EnableManualTriggerForAllProjects handles enabling manual trigger for all projects for a connector
+      operationId: EnableManualTriggerForAllProjects
+      parameters:
+        - in: path
+          name: connectorId
+          required: true
+          schema:
+            type: string
+      responses:
+        "400":
+          content:
+            application/json:
+              schema:
+                additionalProperties:
+                  type: string
+                type: object
+          description: Bad Request
+        "500":
+          content:
+            application/json:
+              schema:
+                additionalProperties:
+                  type: string
+                type: object
+          description: Internal Server Error
+      tags:
+        - Connectors
+  /api/v1/connectors/{connectorId}/repository-access:
+    get:
+      description: |-
+        GetRepositoryAccess fetches repository access information for a connector
+        Query Parameters:
+          - refresh: Set to "true" to force refresh the cached data (optional)
+        //
+        Example usage:
+          - GET /api/repository-access/{connectorId} - Returns cached data if available
+          - GET /api/repository-access/{connectorId}?refresh=true - Forces fresh data fetch and updates cache
+      operationId: GetRepositoryAccess
+      parameters:
+        - in: path
+          name: connectorId
+          required: true
+          schema:
+            type: string
+        - in: query
+          name: refresh
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/api.RepositoryAccessResponse'
+          description: OK
+        "400":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/api.ErrorResponse'
+          description: Bad Request
+        "404":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/api.ErrorResponse'
+          description: Not Found
+        "500":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/api.ErrorResponse'
+          description: Internal Server Error
+      tags:
+        - Connectors
+  /api/v1/connectors/{id}:
+    delete:
+      description: DeleteConnector handles deletion of a git provider connection
+      operationId: DeleteConnector
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                additionalProperties:
+                  type: string
+                type: object
+          description: OK
+        "404":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/api.ErrorResponse'
+          description: Not Found
+        "500":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/api.ErrorResponse'
+          description: Internal Server Error
+      tags:
+        - Connectors
+    get:
+      description: GetConnector handles fetching a single git provider connection by ID
+      operationId: GetConnector
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/api.ConnectorResponse'
+          description: OK
+        "400":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/api.ErrorResponse'
+          description: Bad Request
+        "404":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/api.ErrorResponse'
+          description: Not Found
+        "500":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/api.ErrorResponse'
+          description: Internal Server Error
+      tags:
+        - Connectors
+  /api/v1/connectors/trigger-review:
+    post:
+      description: TriggerReviewV2 handles the request to trigger a code review using the new decoupled architecture
+      operationId: TriggerReviewV2
+      responses:
+        "400":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/api.ErrorResponse'
+          description: Bad Request
+        "500":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/api.ErrorResponse'
+          description: Internal Server Error
+      tags:
+        - Connectors
+  /api/v1/dashboard:
+    get:
+      description: GetDashboardData retrieves the cached dashboard data
+      operationId: GetDashboardData
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/api.DashboardData'
+          description: OK
+        "400":
+          content:
+            application/json:
+              schema:
+                additionalProperties:
+                  type: string
+                type: object
+          description: Bad Request
+        "500":
+          content:
+            application/json:
+              schema:
+                additionalProperties:
+                  type: string
+                type: object
+          description: Internal Server Error
+      tags:
+        - Dashboard
+  /api/v1/dashboard/refresh:
+    post:
+      description: RefreshDashboardData manually triggers a dashboard data update
+      operationId: RefreshDashboardData
+      responses:
+        "400":
+          content:
+            application/json:
+              schema:
+                additionalProperties:
+                  type: string
+                type: object
+          description: Bad Request
+        "500":
+          content:
+            application/json:
+              schema:
+                additionalProperties:
+                  type: string
+                type: object
+          description: Internal Server Error
+      tags:
+        - Dashboard
+  /api/v1/diff-review:
+    post:
+      description: DiffReview accepts a base64-encoded ZIP containing a unified diff and triggers a review.
+      operationId: DiffReview
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/api.DiffReviewRequest'
+      responses: null
+      tags:
+        - Diff-Review
+  /api/v1/diff-review/{id}/events:
+    get:
+      description: GetReviewEvents handles GET /api/v1/reviews/{id}/events (polling endpoint)
+      operationId: GetReviewEvents
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+        - in: query
+          name: since
+          required: true
+          schema:
+            type: string
+        - in: query
+          name: limit
+          required: true
+          schema:
+            type: string
+      responses: null
+      tags:
+        - Diff-Review
+  /api/v1/diff-review/{id}/events/{type}:
+    get:
+      description: GetReviewEventsByType handles GET /api/v1/reviews/{id}/events/{type}
+      operationId: GetReviewEventsByType
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+        - in: path
+          name: type
+          required: true
+          schema:
+            type: string
+        - in: query
+          name: limit
+          required: true
+          schema:
+            type: string
+      responses: null
+      tags:
+        - Diff-Review
+  /api/v1/diff-review/{id}/summary:
+    get:
+      description: GetReviewSummary handles GET /api/v1/reviews/{id}/summary
+      operationId: GetReviewSummary
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/api.ReviewSummary'
+          description: OK
+      tags:
+        - Diff-Review
+  /api/v1/diff-review/{review_id}:
+    get:
+      description: GetDiffReviewStatus returns processing status or completed results for a diff review.
+      operationId: GetDiffReviewStatus
+      parameters:
+        - in: path
+          name: review_id
+          required: true
+          schema:
+            type: string
+      responses: null
+      tags:
+        - Diff-Review
+  /api/v1/diff-review/cli-used:
+    post:
+      description: TrackCLIUsage updates the last_cli_used_at timestamp for a user
+      operationId: TrackCLIUsage
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                additionalProperties:
+                  type: string
+                type: object
+          description: OK
+        "401":
+          content:
+            application/json:
+              schema:
+                additionalProperties:
+                  type: string
+                type: object
+          description: Unauthorized
+        "500":
+          content:
+            application/json:
+              schema:
+                additionalProperties:
+                  type: string
+                type: object
+          description: Internal Server Error
+      tags:
+        - Diff-Review
+  /api/v1/gitea-hook/{connector_id}:
+    post:
+      description: WebhookOrchestratorV2Handler handles webhooks using the V2 orchestrator (full processing pipeline)
+      operationId: WebhookOrchestratorV2Handler
+      parameters:
+        - in: path
+          name: connector_id
+          required: true
+          schema:
+            type: string
+      responses:
+        "500":
+          content:
+            application/json:
+              schema:
+                additionalProperties:
+                  type: string
+                type: object
+          description: Internal Server Error
+      tags:
+        - Gitea-Hook
+  /api/v1/gitea/validate-profile:
+    post:
+      description: ValidateGiteaProfile validates Gitea PAT + base URL by fetching user profile
+      operationId: ValidateGiteaProfile
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/api.ValidateGiteaProfileRequest'
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/gitea.GiteaProfile'
+          description: OK
+        "400":
+          content:
+            application/json:
+              schema:
+                additionalProperties:
+                  type: string
+                type: object
+          description: Bad Request
+      tags:
+        - Gitea
+  /api/v1/github-hook/{connector_id}:
+    post:
+      description: WebhookOrchestratorV2Handler handles webhooks using the V2 orchestrator (full processing pipeline)
+      operationId: WebhookOrchestratorV2Handler
+      parameters:
+        - in: path
+          name: connector_id
+          required: true
+          schema:
+            type: string
+      responses:
+        "500":
+          content:
+            application/json:
+              schema:
+                additionalProperties:
+                  type: string
+                type: object
+          description: Internal Server Error
+      tags:
+        - Github-Hook
+  /api/v1/github/validate-profile:
+    post:
+      description: ValidateGitHubProfile validates GitHub PAT by fetching user profile
+      operationId: ValidateGitHubProfile
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/api.ValidateGitHubProfileRequest'
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/github.GitHubProfile'
+          description: OK
+        "400":
+          content:
+            application/json:
+              schema:
+                additionalProperties:
+                  type: string
+                type: object
+          description: Bad Request
+      tags:
+        - Github
+  /api/v1/gitlab-hook/{connector_id}:
+    post:
+      description: WebhookOrchestratorV2Handler handles webhooks using the V2 orchestrator (full processing pipeline)
+      operationId: WebhookOrchestratorV2Handler
+      parameters:
+        - in: path
+          name: connector_id
+          required: true
+          schema:
+            type: string
+      responses:
+        "500":
+          content:
+            application/json:
+              schema:
+                additionalProperties:
+                  type: string
+                type: object
+          description: Internal Server Error
+      tags:
+        - Gitlab-Hook
+  /api/v1/gitlab/refresh:
+    post:
+      description: GitLabRefreshToken refreshes an expired GitLab token via HTTP handler
+      operationId: GitLabRefreshToken
+      responses:
+        "400":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/api.ErrorResponse'
+          description: Bad Request
+        "404":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/api.ErrorResponse'
+          description: Not Found
+        "500":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/api.ErrorResponse'
+          description: Internal Server Error
+      tags:
+        - Gitlab
+  /api/v1/gitlab/token:
+    post:
+      description: GitLabHandleCodeExchange handles the exchange of authorization code for access token
+      operationId: GitLabHandleCodeExchange
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/gitlab.GitLabTokenRequest'
+          application/xml:
+            schema:
+              $ref: '#/components/schemas/gitlab.GitLabTokenRequest'
+      responses:
+        "400":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/api.ErrorResponse'
+          description: Bad Request
+        "500":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/api.ErrorResponse'
+          description: Internal Server Error
+      tags:
+        - Gitlab
+  /api/v1/gitlab/validate-profile:
+    post:
+      description: ValidateGitLabProfile validates GitLab PAT and base URL by fetching user profile
+      operationId: ValidateGitLabProfile
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/api.ValidateGitLabProfileRequest'
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/gitlab.GitLabProfile'
+          description: OK
+        "400":
+          content:
+            application/json:
+              schema:
+                additionalProperties:
+                  type: string
+                type: object
+          description: Bad Request
+      tags:
+        - Gitlab
+  /api/v1/integration_tokens/pat:
+    post:
+      description: Handler for creating PAT integration token, delegates to pat_token.go
+      operationId: HandleCreatePATIntegrationToken
+      responses:
+        "400":
+          content:
+            application/json:
+              schema:
+                additionalProperties:
+                  type: string
+                type: object
+          description: Bad Request
+        "500":
+          content:
+            application/json:
+              schema:
+                additionalProperties:
+                  type: string
+                type: object
+          description: Internal Server Error
+      tags:
+        - Integration_tokens
+  /api/v1/learnings:
+    get:
+      operationId: List
+      parameters:
+        - in: query
+          name: page
+          required: true
+          schema:
+            type: string
+        - in: query
+          name: limit
+          required: true
+          schema:
+            type: string
+        - in: query
+          name: search
+          required: true
+          schema:
+            type: string
+        - in: query
+          name: include_archived
+          required: true
+          schema:
+            type: string
+      responses: null
+      tags:
+        - Learnings
+    post:
+      operationId: Upsert
+      responses: null
+      tags:
+        - Learnings
+  /api/v1/learnings/{id}:
+    delete:
+      operationId: Delete
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                additionalProperties:
+                  type: string
+                type: object
+          description: OK
+      tags:
+        - Learnings
+    get:
+      operationId: Get
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/learnings.Learning'
+          description: OK
+      tags:
+        - Learnings
+    put:
+      operationId: Update
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/learnings.Learning'
+          description: OK
+      tags:
+        - Learnings
+  /api/v1/learnings/apply-action-from-reply:
+    post:
+      operationId: ApplyActionFromReply
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                additionalProperties:
+                  type: string
+                type: object
+          description: OK
+      tags:
+        - Learnings
+  /api/v1/license/delete:
+    delete:
+      operationId: handleLicenseDelete
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                additionalProperties:
+                  type: string
+                type: object
+          description: OK
+        "500":
+          content:
+            application/json:
+              schema:
+                additionalProperties:
+                  type: string
+                type: object
+          description: Internal Server Error
+      tags:
+        - License
+  /api/v1/license/refresh:
+    post:
+      operationId: handleLicenseRefresh
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/api.LicenseStatusResponse'
+          description: OK
+      tags:
+        - License
+  /api/v1/license/seats:
+    get:
+      description: handleListSeatAssignments lists all current seat assignments
+      operationId: handleListSeatAssignments
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/api.SeatAssignmentListResponse'
+          description: OK
+        "400":
+          content:
+            application/json:
+              schema:
+                additionalProperties:
+                  type: string
+                type: object
+          description: Bad Request
+        "500":
+          content:
+            application/json:
+              schema:
+                additionalProperties:
+                  type: string
+                type: object
+          description: Internal Server Error
+      tags:
+        - License
+  /api/v1/license/seats/{user_id}:
+    delete:
+      description: handleRevokeSeat revokes a license seat from a user
+      operationId: handleRevokeSeat
+      parameters:
+        - in: path
+          name: user_id
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                additionalProperties:
+                  type: string
+                type: object
+          description: OK
+        "400":
+          content:
+            application/json:
+              schema:
+                additionalProperties:
+                  type: string
+                type: object
+          description: Bad Request
+        "404":
+          content:
+            application/json:
+              schema:
+                additionalProperties:
+                  type: string
+                type: object
+          description: Not Found
+        "500":
+          content:
+            application/json:
+              schema:
+                additionalProperties:
+                  type: string
+                type: object
+          description: Internal Server Error
+      tags:
+        - License
+  /api/v1/license/seats/assign:
+    post:
+      description: handleAssignSeat assigns a license seat to a user
+      operationId: handleAssignSeat
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                additionalProperties:
+                  type: string
+                type: object
+          description: OK
+        "400":
+          content:
+            application/json:
+              schema:
+                additionalProperties:
+                  type: string
+                type: object
+          description: Bad Request
+        "401":
+          content:
+            application/json:
+              schema:
+                additionalProperties:
+                  type: string
+                type: object
+          description: Unauthorized
+        "500":
+          content:
+            application/json:
+              schema:
+                additionalProperties:
+                  type: string
+                type: object
+          description: Internal Server Error
+      tags:
+        - License
+  /api/v1/license/seats/assign-bulk:
+    post:
+      description: handleBulkAssignSeats assigns seats to multiple users
+      operationId: handleBulkAssignSeats
+      responses:
+        "400":
+          content:
+            application/json:
+              schema:
+                additionalProperties:
+                  type: string
+                type: object
+          description: Bad Request
+        "401":
+          content:
+            application/json:
+              schema:
+                additionalProperties:
+                  type: string
+                type: object
+          description: Unauthorized
+        "500":
+          content:
+            application/json:
+              schema:
+                additionalProperties:
+                  type: string
+                type: object
+          description: Internal Server Error
+      tags:
+        - License
+  /api/v1/license/seats/revoke-bulk:
+    post:
+      description: handleBulkRevokeSeats revokes seats from multiple users
+      operationId: handleBulkRevokeSeats
+      responses:
+        "400":
+          content:
+            application/json:
+              schema:
+                additionalProperties:
+                  type: string
+                type: object
+          description: Bad Request
+        "500":
+          content:
+            application/json:
+              schema:
+                additionalProperties:
+                  type: string
+                type: object
+          description: Internal Server Error
+      tags:
+        - License
+  /api/v1/license/seats/unassigned:
+    get:
+      description: handleListUnassignedUsers lists all active users without a seat assignment
+      operationId: handleListUnassignedUsers
+      responses:
+        "400":
+          content:
+            application/json:
+              schema:
+                additionalProperties:
+                  type: string
+                type: object
+          description: Bad Request
+        "500":
+          content:
+            application/json:
+              schema:
+                additionalProperties:
+                  type: string
+                type: object
+          description: Internal Server Error
+      tags:
+        - License
+  /api/v1/license/status:
+    get:
+      operationId: handleLicenseStatus
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/api.LicenseStatusResponse'
+          description: OK
+        "500":
+          content:
+            application/json:
+              schema:
+                additionalProperties:
+                  type: string
+                type: object
+          description: Internal Server Error
+      tags:
+        - License
+  /api/v1/license/update:
+    post:
+      operationId: handleLicenseUpdate
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/api.LicenseStatusResponse'
+          description: OK
+        "400":
+          content:
+            application/json:
+              schema:
+                additionalProperties:
+                  type: string
+                type: object
+          description: Bad Request
+      tags:
+        - License
+  /api/v1/onboarding/clear-api-key:
+    post:
+      description: ClearOnboardingAPIKey clears the onboarding API key for a user
+      operationId: ClearOnboardingAPIKey
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                additionalProperties:
+                  type: string
+                type: object
+          description: OK
+        "401":
+          content:
+            application/json:
+              schema:
+                additionalProperties:
+                  type: string
+                type: object
+          description: Unauthorized
+        "500":
+          content:
+            application/json:
+              schema:
+                additionalProperties:
+                  type: string
+                type: object
+          description: Internal Server Error
+      tags:
+        - Onboarding
+  /api/v1/organizations:
+    get:
+      description: GetUserOrganizations returns all organizations the user has access to
+      operationId: GetUserOrganizations
+      responses: null
+      tags:
+        - Organizations
+    post:
+      description: CreateOrganization creates a new organization (available to all authenticated users)
+      operationId: CreateOrganization
+      responses: null
+      tags:
+        - Organizations
+  /api/v1/organizations/{org_id}:
+    get:
+      description: GetOrganization returns details for a specific organization
+      operationId: GetOrganization
+      parameters:
+        - in: path
+          name: org_id
+          required: true
+          schema:
+            format: int64
+            type: integer
+      responses: null
+      tags:
+        - Organizations
+  /api/v1/orgs/{org_id}:
+    put:
+      description: UpdateOrganization updates organization details
+      operationId: UpdateOrganization
+      parameters:
+        - in: path
+          name: org_id
+          required: true
+          schema:
+            format: int64
+            type: integer
+      responses: null
+      tags:
+        - Orgs
+  /api/v1/orgs/{org_id}/analytics:
+    get:
+      description: GetOrganizationAnalytics returns analytics for an organization
+      operationId: GetOrganizationAnalytics
+      parameters:
+        - in: path
+          name: org_id
+          required: true
+          schema:
+            format: int64
+            type: integer
+      responses: null
+      tags:
+        - Orgs
+  /api/v1/orgs/{org_id}/api-keys:
+    get:
+      description: ListAPIKeysHandler handles GET /api/v1/api-keys
+      operationId: ListAPIKeysHandler
+      parameters:
+        - in: path
+          name: org_id
+          required: true
+          schema:
+            type: string
+      responses:
+        "500":
+          content:
+            application/json:
+              schema:
+                additionalProperties:
+                  type: string
+                type: object
+          description: Internal Server Error
+      tags:
+        - Orgs
+    post:
+      description: CreateAPIKeyHandler handles POST /api/v1/api-keys
+      operationId: CreateAPIKeyHandler
+      parameters:
+        - in: path
+          name: org_id
+          required: true
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/api.CreateAPIKeyRequest'
+      responses:
+        "201":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/api.CreateAPIKeyResponse'
+          description: Created
+        "400":
+          content:
+            application/json:
+              schema:
+                additionalProperties:
+                  type: string
+                type: object
+          description: Bad Request
+        "500":
+          content:
+            application/json:
+              schema:
+                additionalProperties:
+                  type: string
+                type: object
+          description: Internal Server Error
+      tags:
+        - Orgs
+  /api/v1/orgs/{org_id}/api-keys/{id}:
+    delete:
+      description: DeleteAPIKeyHandler handles DELETE /api/v1/api-keys/:id
+      operationId: DeleteAPIKeyHandler
+      parameters:
+        - in: path
+          name: org_id
+          required: true
+          schema:
+            type: string
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                additionalProperties:
+                  type: string
+                type: object
+          description: OK
+        "400":
+          content:
+            application/json:
+              schema:
+                additionalProperties:
+                  type: string
+                type: object
+          description: Bad Request
+        "404":
+          content:
+            application/json:
+              schema:
+                additionalProperties:
+                  type: string
+                type: object
+          description: Not Found
+        "500":
+          content:
+            application/json:
+              schema:
+                additionalProperties:
+                  type: string
+                type: object
+          description: Internal Server Error
+      tags:
+        - Orgs
+  /api/v1/orgs/{org_id}/api-keys/{id}/revoke:
+    post:
+      description: RevokeAPIKeyHandler handles POST /api/v1/api-keys/:id/revoke
+      operationId: RevokeAPIKeyHandler
+      parameters:
+        - in: path
+          name: org_id
+          required: true
+          schema:
+            type: string
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                additionalProperties:
+                  type: string
+                type: object
+          description: OK
+        "400":
+          content:
+            application/json:
+              schema:
+                additionalProperties:
+                  type: string
+                type: object
+          description: Bad Request
+        "404":
+          content:
+            application/json:
+              schema:
+                additionalProperties:
+                  type: string
+                type: object
+          description: Not Found
+        "500":
+          content:
+            application/json:
+              schema:
+                additionalProperties:
+                  type: string
+                type: object
+          description: Internal Server Error
+      tags:
+        - Orgs
+  /api/v1/orgs/{org_id}/members:
+    get:
+      description: GetOrganizationMembers returns members of an organization with pagination
+      operationId: GetOrganizationMembers
+      parameters:
+        - in: path
+          name: org_id
+          required: true
+          schema:
+            format: int64
+            type: integer
+        - in: query
+          name: page
+          required: true
+          schema:
+            type: string
+        - in: query
+          name: limit
+          required: true
+          schema:
+            type: string
+      responses: null
+      tags:
+        - Orgs
+  /api/v1/orgs/{org_id}/members/{user_id}/role:
+    put:
+      description: ChangeUserRole handles changing a user's role in an organization
+      operationId: ChangeUserRole
+      parameters:
+        - in: path
+          name: org_id
+          required: true
+          schema:
+            type: string
+        - in: path
+          name: user_id
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/users.UserWithRole'
+          description: OK
+      tags:
+        - Orgs
+  /api/v1/orgs/{org_id}/users:
+    get:
+      description: GetOrganizationMembers returns members of an organization with pagination
+      operationId: GetOrganizationMembers
+      parameters:
+        - in: path
+          name: org_id
+          required: true
+          schema:
+            format: int64
+            type: integer
+        - in: query
+          name: page
+          required: true
+          schema:
+            type: string
+        - in: query
+          name: limit
+          required: true
+          schema:
+            type: string
+      responses: null
+      tags:
+        - Orgs
+    post:
+      description: CreateUser handles creating a new user in an organization
+      operationId: CreateUser
+      parameters:
+        - in: path
+          name: org_id
+          required: true
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/users.CreateUserRequest'
+      responses:
+        "201":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/users.UserWithRole'
+          description: Created
+      tags:
+        - Orgs
+  /api/v1/orgs/{org_id}/users/{user_id}:
+    delete:
+      description: DeactivateUser handles deactivating a user in an organization
+      operationId: DeactivateUser
+      parameters:
+        - in: path
+          name: org_id
+          required: true
+          schema:
+            type: string
+        - in: path
+          name: user_id
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                additionalProperties:
+                  type: string
+                type: object
+          description: OK
+      tags:
+        - Orgs
+    get:
+      description: GetUser handles getting a specific user in an organization
+      operationId: GetUser
+      parameters:
+        - in: path
+          name: org_id
+          required: true
+          schema:
+            type: string
+        - in: path
+          name: user_id
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/users.UserWithRole'
+          description: OK
+      tags:
+        - Orgs
+    put:
+      description: UpdateUser handles updating a user in an organization
+      operationId: UpdateUser
+      parameters:
+        - in: path
+          name: org_id
+          required: true
+          schema:
+            type: string
+        - in: path
+          name: user_id
+          required: true
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/users.UpdateUserRequest'
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/users.UserWithRole'
+          description: OK
+      tags:
+        - Orgs
+  /api/v1/orgs/{org_id}/users/{user_id}/audit-log:
+    get:
+      description: GetUserAuditLog handles getting the audit log for a user
+      operationId: GetUserAuditLog
+      parameters:
+        - in: path
+          name: org_id
+          required: true
+          schema:
+            type: string
+        - in: path
+          name: user_id
+          required: true
+          schema:
+            type: string
+        - in: query
+          name: offset
+          required: true
+          schema:
+            type: string
+        - in: query
+          name: limit
+          required: true
+          schema:
+            type: string
+      responses: null
+      tags:
+        - Orgs
+  /api/v1/orgs/{org_id}/users/{user_id}/force-password-reset:
+    post:
+      description: ForcePasswordReset forces a user to reset their password on next login
+      operationId: ForcePasswordReset
+      parameters:
+        - in: path
+          name: org_id
+          required: true
+          schema:
+            type: string
+        - in: path
+          name: user_id
+          required: true
+          schema:
+            type: string
+      responses: null
+      tags:
+        - Orgs
+  /api/v1/orgs/{org_id}/users/{user_id}/role:
+    put:
+      description: ChangeUserRole handles changing a user's role in an organization
+      operationId: ChangeUserRole
+      parameters:
+        - in: path
+          name: org_id
+          required: true
+          schema:
+            type: string
+        - in: path
+          name: user_id
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/users.UserWithRole'
+          description: OK
+      tags:
+        - Orgs
+  /api/v1/password:
+    post:
+      description: |-
+        SetAdminPassword sets the admin password for the instance
+        If an admin password already exists, it returns an error unless Force is true
+      operationId: SetAdminPassword
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/api.PasswordRequest'
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/api.PasswordResponse'
+          description: OK
+        "400":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/api.ErrorResponse'
+          description: Bad Request
+        "409":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/api.ErrorResponse'
+          description: Conflict
+        "500":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/api.ErrorResponse'
+          description: Internal Server Error
+      tags:
+        - Password
+    put:
+      description: |-
+        ResetAdminPassword resets the admin password
+        Requires the old password for verification and a new password
+      operationId: ResetAdminPassword
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/api.PasswordRequest'
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/api.PasswordResponse'
+          description: OK
+        "400":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/api.ErrorResponse'
+          description: Bad Request
+        "401":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/api.ErrorResponse'
+          description: Unauthorized
+        "404":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/api.ErrorResponse'
+          description: Not Found
+        "500":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/api.ErrorResponse'
+          description: Internal Server Error
+      tags:
+        - Password
+  /api/v1/password/status:
+    get:
+      description: CheckAdminPasswordStatus checks if an admin password has been set
+      operationId: CheckAdminPasswordStatus
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/api.PasswordStatusResponse'
+          description: OK
+        "500":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/api.ErrorResponse'
+          description: Internal Server Error
+      tags:
+        - Password
+  /api/v1/password/verify:
+    post:
+      description: VerifyAdminPassword verifies if the provided password matches the stored admin password
+      operationId: VerifyAdminPassword
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/api.PasswordVerifyRequest'
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/api.PasswordVerifyResponse'
+          description: OK
+        "400":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/api.ErrorResponse'
+          description: Bad Request
+        "401":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/api.PasswordVerifyResponse'
+          description: Unauthorized
+        "404":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/api.PasswordVerifyResponse'
+          description: Not Found
+        "500":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/api.ErrorResponse'
+          description: Internal Server Error
+      tags:
+        - Password
+  /api/v1/production-url:
+    get:
+      description: GetProductionURL retrieves the livereview_prod_url from instance_details
+      operationId: GetProductionURL
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/api.ProductionURLResponse'
+          description: OK
+        "500":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/api.ErrorResponse'
+          description: Internal Server Error
+      tags:
+        - Production-Url
+    put:
+      description: UpdateProductionURL updates the livereview_prod_url in instance_details
+      operationId: UpdateProductionURL
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/api.ProductionURLRequest'
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/api.ProductionURLResponse'
+          description: OK
+        "400":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/api.ErrorResponse'
+          description: Bad Request
+        "500":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/api.ErrorResponse'
+          description: Internal Server Error
+      tags:
+        - Production-Url
+  /api/v1/prompts/{key}/render:
+    get:
+      description: |-
+        GET /api/v1/prompts/:key/render
+        Query: ai_connector_id, integration_token_id, repository
+      operationId: RenderPromptPreview
+      parameters:
+        - in: path
+          name: key
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/api.RenderPreviewResponse'
+          description: OK
+        "400":
+          content:
+            application/json:
+              schema:
+                additionalProperties:
+                  type: string
+                type: object
+          description: Bad Request
+        "500":
+          content:
+            application/json:
+              schema:
+                additionalProperties:
+                  type: string
+                type: object
+          description: Internal Server Error
+      tags:
+        - Prompts
+  /api/v1/prompts/{key}/variables:
+    get:
+      description: GET /api/v1/prompts/:key/variables
+      operationId: GetPromptVariables
+      parameters:
+        - in: path
+          name: key
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                additionalProperties: {}
+                type: object
+          description: OK
+        "400":
+          content:
+            application/json:
+              schema:
+                additionalProperties:
+                  type: string
+                type: object
+          description: Bad Request
+        "404":
+          content:
+            application/json:
+              schema:
+                additionalProperties:
+                  type: string
+                type: object
+          description: Not Found
+        "500":
+          content:
+            application/json:
+              schema:
+                additionalProperties:
+                  type: string
+                type: object
+          description: Internal Server Error
+      tags:
+        - Prompts
+  /api/v1/prompts/{key}/variables/{var}/chunks:
+    post:
+      description: POST /api/v1/prompts/:key/variables/:var/chunks
+      operationId: CreatePromptChunk
+      parameters:
+        - in: path
+          name: var
+          required: true
+          schema:
+            type: string
+        - in: path
+          name: key
+          required: true
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/api.CreateChunkRequest'
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                additionalProperties: {}
+                type: object
+          description: OK
+        "400":
+          content:
+            application/json:
+              schema:
+                additionalProperties:
+                  type: string
+                type: object
+          description: Bad Request
+        "403":
+          content:
+            application/json:
+              schema:
+                additionalProperties:
+                  type: string
+                type: object
+          description: Forbidden
+        "500":
+          content:
+            application/json:
+              schema:
+                additionalProperties:
+                  type: string
+                type: object
+          description: Internal Server Error
+      tags:
+        - Prompts
+  /api/v1/prompts/{key}/variables/{var}/reorder:
+    post:
+      description: POST /api/v1/prompts/:key/variables/:var/reorder
+      operationId: ReorderPromptChunks
+      parameters:
+        - in: path
+          name: key
+          required: true
+          schema:
+            type: string
+        - in: path
+          name: var
+          required: true
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/api.ReorderRequest'
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                additionalProperties:
+                  type: string
+                type: object
+          description: OK
+        "400":
+          content:
+            application/json:
+              schema:
+                additionalProperties:
+                  type: string
+                type: object
+          description: Bad Request
+        "403":
+          content:
+            application/json:
+              schema:
+                additionalProperties:
+                  type: string
+                type: object
+          description: Forbidden
+        "500":
+          content:
+            application/json:
+              schema:
+                additionalProperties:
+                  type: string
+                type: object
+          description: Internal Server Error
+      tags:
+        - Prompts
+  /api/v1/prompts/catalog:
+    get:
+      description: GET /api/v1/prompts/catalog
+      operationId: GetPromptsCatalog
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                additionalProperties: {}
+                type: object
+          description: OK
+      tags:
+        - Prompts
+  /api/v1/quota/status:
+    get:
+      description: GetQuotaStatus returns the current quota status for the user's organization
+      operationId: GetQuotaStatus
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/api.QuotaStatus'
+          description: OK
+      tags:
+        - Quota
+  /api/v1/reviews:
+    get:
+      description: getReviews handles GET /api/v1/reviews with filtering and pagination
+      operationId: getReviews
+      parameters:
+        - in: query
+          name: page
+          required: true
+          schema:
+            type: string
+        - in: query
+          name: per_page
+          required: true
+          schema:
+            type: string
+        - in: query
+          name: status
+          required: true
+          schema:
+            type: string
+        - in: query
+          name: provider
+          required: true
+          schema:
+            type: string
+        - in: query
+          name: search
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/api.ReviewsListResponse'
+          description: OK
+      tags:
+        - Reviews
+    post:
+      description: createReview handles POST /api/v1/reviews (trigger review creation)
+      operationId: createReview
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                additionalProperties:
+                  type: string
+                type: object
+          description: OK
+      tags:
+        - Reviews
+  /api/v1/reviews/{id}:
+    get:
+      description: getReviewByID handles GET /api/v1/reviews/:id
+      operationId: getReviewByID
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/api.ReviewResponse'
+          description: OK
+      tags:
+        - Reviews
+  /api/v1/reviews/{id}/accounting:
+    get:
+      description: GetReviewAccounting handles GET /api/v1/reviews/{id}/accounting
+      operationId: GetReviewAccounting
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/api.ReviewAccountingResponse'
+          description: OK
+      tags:
+        - Reviews
+  /api/v1/reviews/{id}/events:
+    get:
+      description: GetReviewEvents handles GET /api/v1/reviews/{id}/events (polling endpoint)
+      operationId: GetReviewEvents
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+        - in: query
+          name: since
+          required: true
+          schema:
+            type: string
+        - in: query
+          name: limit
+          required: true
+          schema:
+            type: string
+      responses: null
+      tags:
+        - Reviews
+  /api/v1/reviews/{id}/events/{type}:
+    get:
+      description: GetReviewEventsByType handles GET /api/v1/reviews/{id}/events/{type}
+      operationId: GetReviewEventsByType
+      parameters:
+        - in: path
+          name: type
+          required: true
+          schema:
+            type: string
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+        - in: query
+          name: limit
+          required: true
+          schema:
+            type: string
+      responses: null
+      tags:
+        - Reviews
+  /api/v1/reviews/{id}/summary:
+    get:
+      description: GetReviewSummary handles GET /api/v1/reviews/{id}/summary
+      operationId: GetReviewSummary
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/api.ReviewSummary'
+          description: OK
+      tags:
+        - Reviews
+  /api/v1/subscriptions:
+    get:
+      description: ListUserSubscriptions lists all subscriptions owned by the authenticated user
+      operationId: ListUserSubscriptions
+      responses:
+        "401":
+          content:
+            application/json:
+              schema:
+                additionalProperties:
+                  type: string
+                type: object
+          description: Unauthorized
+        "500":
+          content:
+            application/json:
+              schema:
+                additionalProperties:
+                  type: string
+                type: object
+          description: Internal Server Error
+      tags:
+        - Subscriptions
+    post:
+      description: CreateSubscription creates a new team subscription
+      operationId: CreateSubscription
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/api.CreateSubscriptionRequest'
+      responses:
+        "400":
+          content:
+            application/json:
+              schema:
+                additionalProperties:
+                  type: string
+                type: object
+          description: Bad Request
+        "401":
+          content:
+            application/json:
+              schema:
+                additionalProperties:
+                  type: string
+                type: object
+          description: Unauthorized
+        "500":
+          content:
+            application/json:
+              schema:
+                additionalProperties:
+                  type: string
+                type: object
+          description: Internal Server Error
+      tags:
+        - Subscriptions
+  /api/v1/subscriptions/{id}:
+    get:
+      description: GetSubscription retrieves subscription details
+      operationId: GetSubscription
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/api.SubscriptionResponse'
+          description: OK
+        "400":
+          content:
+            application/json:
+              schema:
+                additionalProperties:
+                  type: string
+                type: object
+          description: Bad Request
+        "404":
+          content:
+            application/json:
+              schema:
+                additionalProperties:
+                  type: string
+                type: object
+          description: Not Found
+        "500":
+          content:
+            application/json:
+              schema:
+                additionalProperties:
+                  type: string
+                type: object
+          description: Internal Server Error
+      tags:
+        - Subscriptions
+  /api/v1/subscriptions/{id}/assign:
+    post:
+      description: AssignLicense assigns a license from a subscription to a user
+      operationId: AssignLicense
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/api.AssignLicenseRequest'
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                additionalProperties:
+                  type: string
+                type: object
+          description: OK
+        "400":
+          content:
+            application/json:
+              schema:
+                additionalProperties:
+                  type: string
+                type: object
+          description: Bad Request
+        "401":
+          content:
+            application/json:
+              schema:
+                additionalProperties:
+                  type: string
+                type: object
+          description: Unauthorized
+        "403":
+          content:
+            application/json:
+              schema:
+                additionalProperties:
+                  type: string
+                type: object
+          description: Forbidden
+        "404":
+          content:
+            application/json:
+              schema:
+                additionalProperties:
+                  type: string
+                type: object
+          description: Not Found
+        "500":
+          content:
+            application/json:
+              schema:
+                additionalProperties:
+                  type: string
+                type: object
+          description: Internal Server Error
+      tags:
+        - Subscriptions
+  /api/v1/subscriptions/{id}/cancel:
+    post:
+      description: CancelSubscription cancels a subscription
+      operationId: CancelSubscription
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/api.CancelSubscriptionRequest'
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/payment.RazorpaySubscription'
+          description: OK
+        "400":
+          content:
+            application/json:
+              schema:
+                additionalProperties:
+                  type: string
+                type: object
+          description: Bad Request
+        "403":
+          content:
+            application/json:
+              schema:
+                additionalProperties:
+                  type: string
+                type: object
+          description: Forbidden
+        "409":
+          content:
+            application/json:
+              schema:
+                additionalProperties:
+                  type: string
+                type: object
+          description: Conflict
+        "500":
+          content:
+            application/json:
+              schema:
+                additionalProperties:
+                  type: string
+                type: object
+          description: Internal Server Error
+      tags:
+        - Subscriptions
+  /api/v1/subscriptions/{id}/keep-plan:
+    post:
+      description: KeepPlan clears a scheduled cancellation so the current plan remains active.
+      operationId: KeepPlan
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/payment.RazorpaySubscription'
+          description: OK
+        "400":
+          content:
+            application/json:
+              schema:
+                additionalProperties:
+                  type: string
+                type: object
+          description: Bad Request
+        "403":
+          content:
+            application/json:
+              schema:
+                additionalProperties:
+                  type: string
+                type: object
+          description: Forbidden
+        "409":
+          content:
+            application/json:
+              schema:
+                additionalProperties:
+                  type: string
+                type: object
+          description: Conflict
+        "500":
+          content:
+            application/json:
+              schema:
+                additionalProperties:
+                  type: string
+                type: object
+          description: Internal Server Error
+      tags:
+        - Subscriptions
+  /api/v1/subscriptions/{id}/quantity:
+    patch:
+      description: UpdateQuantity updates the quantity of a subscription
+      operationId: UpdateQuantity
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/api.UpdateQuantityRequest'
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/payment.RazorpaySubscription'
+          description: OK
+        "400":
+          content:
+            application/json:
+              schema:
+                additionalProperties:
+                  type: string
+                type: object
+          description: Bad Request
+        "500":
+          content:
+            application/json:
+              schema:
+                additionalProperties:
+                  type: string
+                type: object
+          description: Internal Server Error
+      tags:
+        - Subscriptions
+  /api/v1/subscriptions/{id}/users/{user_id}:
+    delete:
+      description: RevokeLicense revokes a license from a user
+      operationId: RevokeLicense
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+        - in: path
+          name: user_id
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                additionalProperties:
+                  type: string
+                type: object
+          description: OK
+        "400":
+          content:
+            application/json:
+              schema:
+                additionalProperties:
+                  type: string
+                type: object
+          description: Bad Request
+        "401":
+          content:
+            application/json:
+              schema:
+                additionalProperties:
+                  type: string
+                type: object
+          description: Unauthorized
+        "403":
+          content:
+            application/json:
+              schema:
+                additionalProperties:
+                  type: string
+                type: object
+          description: Forbidden
+        "404":
+          content:
+            application/json:
+              schema:
+                additionalProperties:
+                  type: string
+                type: object
+          description: Not Found
+        "500":
+          content:
+            application/json:
+              schema:
+                additionalProperties:
+                  type: string
+                type: object
+          description: Internal Server Error
+      tags:
+        - Subscriptions
+  /api/v1/subscriptions/confirm-purchase:
+    post:
+      description: |-
+        ConfirmPurchase is called by the frontend immediately after a successful purchase
+        to pre-populate the database with subscription and payment relationship.
+        This prevents race conditions where Razorpay webhooks arrive before the subscription
+        is properly recorded in our database.
+      operationId: ConfirmPurchase
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/payment.PurchaseConfirmationRequest'
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                additionalProperties:
+                  type: string
+                type: object
+          description: OK
+        "400":
+          content:
+            application/json:
+              schema:
+                additionalProperties:
+                  type: string
+                type: object
+          description: Bad Request
+        "500":
+          content:
+            application/json:
+              schema:
+                additionalProperties:
+                  type: string
+                type: object
+          description: Internal Server Error
+      tags:
+        - Subscriptions
+  /api/v1/subscriptions/current:
+    get:
+      description: GetCurrentSubscription returns the active subscription for the requesting user/org context
+      operationId: GetCurrentSubscription
+      responses:
+        "400":
+          content:
+            application/json:
+              schema:
+                additionalProperties:
+                  type: string
+                type: object
+          description: Bad Request
+        "401":
+          content:
+            application/json:
+              schema:
+                additionalProperties:
+                  type: string
+                type: object
+          description: Unauthorized
+        "500":
+          content:
+            application/json:
+              schema:
+                additionalProperties:
+                  type: string
+                type: object
+          description: Internal Server Error
+      tags:
+        - Subscriptions
+  /api/v1/subscriptions/selfhosted/confirm:
+    post:
+      description: ConfirmSelfHostedPurchase confirms a self-hosted purchase and generates license
+      operationId: ConfirmSelfHostedPurchase
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                additionalProperties:
+                  type: string
+                type: object
+          description: OK
+        "400":
+          content:
+            application/json:
+              schema:
+                additionalProperties:
+                  type: string
+                type: object
+          description: Bad Request
+        "500":
+          content:
+            application/json:
+              schema:
+                additionalProperties:
+                  type: string
+                type: object
+          description: Internal Server Error
+      tags:
+        - Subscriptions
+  /api/v1/subscriptions/selfhosted/purchase:
+    post:
+      description: CreateSelfHostedPurchase creates a self-hosted purchase (no auth required)
+      operationId: CreateSelfHostedPurchase
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/payment.SelfHostedPurchaseResponse'
+          description: OK
+        "400":
+          content:
+            application/json:
+              schema:
+                additionalProperties:
+                  type: string
+                type: object
+          description: Bad Request
+        "500":
+          content:
+            application/json:
+              schema:
+                additionalProperties:
+                  type: string
+                type: object
+          description: Internal Server Error
+      tags:
+        - Subscriptions
+  /api/v1/system/info:
+    get:
+      description: getSystemInfo returns system configuration information
+      operationId: getSystemInfo
+      responses: null
+      tags:
+        - System
+  /api/v1/ui-config:
+    get:
+      description: getUIConfig returns deployment configuration for the frontend
+      operationId: getUIConfig
+      responses: null
+      tags:
+        - Ui-Config
+  /api/v1/users/password:
+    put:
+      description: ChangePassword handles changing the current user's password
+      operationId: ChangePassword
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/users.ChangePasswordRequest'
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                additionalProperties:
+                  type: string
+                type: object
+          description: OK
+      tags:
+        - Users
+  /api/v1/users/profile:
+    get:
+      description: GetProfile handles getting the current user's profile
+      operationId: GetProfile
+      responses: null
+      tags:
+        - Users
+    put:
+      description: UpdateProfile handles updating the current user's profile
+      operationId: UpdateProfile
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/users.UpdateProfileRequest'
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/users.UserProfile'
+          description: OK
+      tags:
+        - Users
+  /api/v1/webhook/{connector_id}:
+    post:
+      description: WebhookOrchestratorV2Handler handles webhooks using the V2 orchestrator (full processing pipeline)
+      operationId: WebhookOrchestratorV2Handler
+      parameters:
+        - in: path
+          name: connector_id
+          required: true
+          schema:
+            type: string
+      responses:
+        "500":
+          content:
+            application/json:
+              schema:
+                additionalProperties:
+                  type: string
+                type: object
+          description: Internal Server Error
+      tags:
+        - Webhook
+  /api/v1/webhooks/gitlab/comments/{connector_id}:
+    post:
+      description: WebhookOrchestratorV2Handler handles webhooks using the V2 orchestrator (full processing pipeline)
+      operationId: WebhookOrchestratorV2Handler
+      parameters:
+        - in: path
+          name: connector_id
+          required: true
+          schema:
+            type: string
+      responses:
+        "500":
+          content:
+            application/json:
+              schema:
+                additionalProperties:
+                  type: string
+                type: object
+          description: Internal Server Error
+      tags:
+        - Webhooks
+servers:
+  - url: http://localhost:8888

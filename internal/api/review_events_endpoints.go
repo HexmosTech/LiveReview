@@ -24,7 +24,7 @@ func NewReviewEventsHandler(db *sql.DB) *ReviewEventsHandler {
 	}
 }
 
-type reviewAccountingOperationResponse struct {
+type ReviewAccountingOperationResponse struct {
 	OperationType  string   `json:"operationType"`
 	TriggerSource  string   `json:"triggerSource"`
 	OperationID    string   `json:"operationId"`
@@ -40,7 +40,7 @@ type reviewAccountingOperationResponse struct {
 	Metadata       string   `json:"metadata,omitempty"`
 }
 
-type reviewAccountingResponse struct {
+type ReviewAccountingResponse struct {
 	ReviewID            int64                              `json:"reviewId"`
 	TotalBillableLOC    int64                              `json:"totalBillableLoc"`
 	AccountedOperations int64                              `json:"accountedOperations"`
@@ -49,7 +49,7 @@ type reviewAccountingResponse struct {
 	TotalInputTokens    *int64                             `json:"totalInputTokens,omitempty"`
 	TotalOutputTokens   *int64                             `json:"totalOutputTokens,omitempty"`
 	TotalCostUSD        *float64                           `json:"totalCostUsd,omitempty"`
-	LatestOperation     *reviewAccountingOperationResponse `json:"latestOperation,omitempty"`
+	LatestOperation     *ReviewAccountingOperationResponse `json:"latestOperation,omitempty"`
 }
 
 // GetReviewEvents handles GET /api/v1/reviews/{id}/events (polling endpoint)
@@ -223,7 +223,7 @@ func (h *ReviewEventsHandler) GetReviewAccounting(c echo.Context) error {
 		return echo.NewHTTPError(http.StatusInternalServerError, "Failed to retrieve latest review accounting operation")
 	}
 
-	response := reviewAccountingResponse{
+	response := ReviewAccountingResponse{
 		ReviewID:            reviewID,
 		TotalBillableLOC:    totals.TotalBillableLOC,
 		AccountedOperations: totals.AccountedOperations,
@@ -238,7 +238,7 @@ func (h *ReviewEventsHandler) GetReviewAccounting(c echo.Context) error {
 	}
 
 	if latestOperation != nil {
-		response.LatestOperation = &reviewAccountingOperationResponse{
+		response.LatestOperation = &ReviewAccountingOperationResponse{
 			OperationType:  latestOperation.OperationType,
 			TriggerSource:  latestOperation.TriggerSource,
 			OperationID:    latestOperation.OperationID,
