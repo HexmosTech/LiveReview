@@ -83,6 +83,7 @@ type SignedUpgradePreview struct {
 	OrgID                   int64  `json:"org_id"`
 	FromPlanCode            string `json:"from_plan_code"`
 	ToPlanCode              string `json:"to_plan_code"`
+	CurrentPlanCurrency     string `json:"current_plan_currency,omitempty"`
 	CycleStartUnix          int64  `json:"cycle_start_unix"`
 	CycleEndUnix            int64  `json:"cycle_end_unix"`
 	RemainingFractionBP     int64  `json:"remaining_fraction_bp"`
@@ -161,6 +162,145 @@ func parseAndVerifyUpgradePreviewToken(token string) (SignedUpgradePreview, erro
 	return payload, nil
 }
 
+type resolvedPlanPrice struct {
+	Currency        string
+	UnitAmountMinor int64
+	RecurringMinor  int64
+}
+
+type resolvedBasePlanPrice struct {
+	Currency        string
+	UnitAmountMinor int64
+}
+
+func resolveCurrentSubscriptionCurrency(mode string, active storagepayment.OrgSubscriptionRow) (string, error) {
+	if strings.TrimSpace(active.RazorpaySubscriptionID) == "" {
+		return "", fmt.Errorf("missing active razorpay subscription id")
+	}
+
+	razorpaySub, err := payment.GetSubscriptionByID(mode, active.RazorpaySubscriptionID)
+	if err != nil {
+		return "", fmt.Errorf("load razorpay subscription: %w", err)
+	}
+	planID := strings.TrimSpace(razorpaySub.PlanID)
+	if planID == "" {
+		return "", fmt.Errorf("razorpay subscription %s has empty plan id", active.RazorpaySubscriptionID)
+	}
+	plan, err := payment.GetPlanByID(mode, planID)
+	if err != nil {
+		return "", fmt.Errorf("load razorpay subscription plan %s: %w", planID, err)
+	}
+	planCurrency := strings.ToUpper(strings.TrimSpace(plan.Item.Currency))
+	if planCurrency == "" {
+		return "", fmt.Errorf("razorpay plan %s has empty currency", planID)
+	}
+	return planCurrency, nil
+}
+
+func resolveBaseMonthlyPlanPrice(mode string, currency string) (resolvedBasePlanPrice, error) {
+	resolvedCurrency, err := payment.NormalizeCurrency(currency)
+	if err != nil {
+		return resolvedBasePlanPrice{}, err
+	}
+
+	planID, err := payment.GetPlanID(mode, "monthly", resolvedCurrency)
+	if err != nil {
+		return resolvedBasePlanPrice{}, fmt.Errorf("resolve monthly plan id: %w", err)
+	}
+	planID = strings.TrimSpace(planID)
+	if planID == "" {
+		return resolvedBasePlanPrice{}, fmt.Errorf("monthly plan id is empty for mode=%s currency=%s", mode, resolvedCurrency)
+	}
+
+	resolvedPlan, err := payment.GetPlanByID(mode, planID)
+	if err != nil {
+		return resolvedBasePlanPrice{}, fmt.Errorf("load razorpay monthly plan for pricing profile: %w", err)
+	}
+
+	planCurrency := strings.ToUpper(strings.TrimSpace(resolvedPlan.Item.Currency))
+	if planCurrency == "" {
+		return resolvedBasePlanPrice{}, fmt.Errorf("razorpay plan %s has empty currency", planID)
+	}
+	if !strings.EqualFold(planCurrency, resolvedCurrency) {
+		return resolvedBasePlanPrice{}, fmt.Errorf("razorpay plan currency mismatch: expected %s got %s", resolvedCurrency, planCurrency)
+	}
+	if resolvedPlan.Item.Amount <= 0 {
+		return resolvedBasePlanPrice{}, fmt.Errorf("razorpay plan %s returned invalid amount %d", planID, resolvedPlan.Item.Amount)
+	}
+
+	return resolvedBasePlanPrice{
+		Currency:        planCurrency,
+		UnitAmountMinor: int64(resolvedPlan.Item.Amount),
+	}, nil
+}
+
+func resolvePlanPriceForCurrency(mode string, planCode license.PlanType, currency string) (resolvedPlanPrice, error) {
+	basePrice, err := resolveBaseMonthlyPlanPrice(mode, currency)
+	if err != nil {
+		return resolvedPlanPrice{}, err
+	}
+
+	recurringMinor := int64(locPlanToQuantity(planCode)) * basePrice.UnitAmountMinor
+	if recurringMinor <= 0 {
+		return resolvedPlanPrice{}, fmt.Errorf("computed recurring amount must be positive for plan=%s", planCode)
+	}
+
+	return resolvedPlanPrice{
+		Currency:        basePrice.Currency,
+		UnitAmountMinor: basePrice.UnitAmountMinor,
+		RecurringMinor:  recurringMinor,
+	}, nil
+}
+
+func getSortedLOCPlansWithResolvedPricing(mode string, supportedCurrencies []string) []map[string]interface{} {
+	basePrices := make(map[string]resolvedBasePlanPrice, len(supportedCurrencies))
+	errorsByCurrency := make(map[string]interface{})
+	for _, rawCurrency := range supportedCurrencies {
+		resolvedCurrency, err := payment.NormalizeCurrency(rawCurrency)
+		if err != nil {
+			errorsByCurrency[strings.ToUpper(strings.TrimSpace(rawCurrency))] = err.Error()
+			continue
+		}
+		resolvedBasePrice, err := resolveBaseMonthlyPlanPrice(mode, resolvedCurrency)
+		if err != nil {
+			errorsByCurrency[resolvedCurrency] = err.Error()
+			continue
+		}
+		basePrices[resolvedCurrency] = resolvedBasePrice
+	}
+
+	items := make([]map[string]interface{}, 0, len(license.PlanDefinitions))
+	for code, limits := range license.PlanDefinitions {
+		item := map[string]interface{}{
+			"plan_code":         code.String(),
+			"monthly_loc_limit": limits.MonthlyLOCLimit,
+			"monthly_price_usd": limits.MonthlyPriceUSD,
+			"trial_days":        limits.TrialDays,
+		}
+		if limits.MonthlyPriceUSD > 0 {
+			prices := make(map[string]interface{}, len(basePrices))
+			for resolvedCurrency, basePrice := range basePrices {
+				prices[resolvedCurrency] = map[string]interface{}{
+					"unit_amount_minor": basePrice.UnitAmountMinor,
+					"recurring_minor":   int64(locPlanToQuantity(code)) * basePrice.UnitAmountMinor,
+					"currency":          basePrice.Currency,
+				}
+			}
+			item["prices"] = prices
+			if len(errorsByCurrency) > 0 {
+				item["resolution_errors"] = errorsByCurrency
+			}
+		}
+		items = append(items, item)
+	}
+	sort.Slice(items, func(i, j int) bool {
+		li, _ := items[i]["monthly_loc_limit"].(int)
+		lj, _ := items[j]["monthly_loc_limit"].(int)
+		return li < lj
+	})
+	return items
+}
+
 func computeRemainingCycleFraction(cycleStart, cycleEnd, now time.Time) float64 {
 	if !cycleEnd.After(cycleStart) {
 		return 1
@@ -237,6 +377,17 @@ func (h *BillingActionsHandler) buildUpgradePreview(ctx context.Context, orgID i
 	}
 
 	mode := resolveRazorpayModeForBilling()
+	currentPlanCurrency, err := resolveCurrentSubscriptionCurrency(mode, active)
+	if err != nil {
+		return SignedUpgradePreview{}, nil, err
+	}
+	resolvedCurrency, err := payment.NormalizeCurrency(currency)
+	if err != nil {
+		return SignedUpgradePreview{}, nil, err
+	}
+	if currentPlanCurrency != "" && !strings.EqualFold(currentPlanCurrency, resolvedCurrency) {
+		return SignedUpgradePreview{}, nil, fmt.Errorf("cross-currency paid plan changes are not supported yet: current subscription is %s and requested currency is %s", currentPlanCurrency, resolvedCurrency)
+	}
 
 	cycleStart := fallbackCycleStart.UTC()
 	cycleEnd := fallbackCycleEnd.UTC()
@@ -251,32 +402,12 @@ func (h *BillingActionsHandler) buildUpgradePreview(ctx context.Context, orgID i
 		cycleEnd = time.Unix(razorpaySub.CurrentEnd, 0).UTC()
 	}
 
-	effectiveMonthlyPlanID, err := payment.GetPlanID(mode, "monthly", currency)
+	resolvedPrice, err := resolvePlanPriceForCurrency(mode, targetPlan, resolvedCurrency)
 	if err != nil {
-		return SignedUpgradePreview{}, nil, fmt.Errorf("resolve monthly plan id: %w", err)
+		return SignedUpgradePreview{}, nil, err
 	}
-	effectiveMonthlyPlanID = strings.TrimSpace(effectiveMonthlyPlanID)
-	if effectiveMonthlyPlanID == "" {
-		return SignedUpgradePreview{}, nil, fmt.Errorf("monthly plan id is empty for mode=%s", mode)
-	}
-
-	effectiveMonthlyPlan, err := payment.GetPlanByID(mode, effectiveMonthlyPlanID)
-	if err != nil {
-		return SignedUpgradePreview{}, nil, fmt.Errorf("load razorpay monthly plan for pricing profile: %w", err)
-	}
-
-	targetMonthlyCents := int64(locPlanToQuantity(targetPlan)) * int64(effectiveMonthlyPlan.Item.Amount)
-	if targetMonthlyCents <= 0 {
-		return SignedUpgradePreview{}, nil, fmt.Errorf("computed target monthly cents must be positive for plan=%s", targetPlan)
-	}
-
-	chargeCurrency := strings.ToUpper(strings.TrimSpace(effectiveMonthlyPlan.Item.Currency))
-	if chargeCurrency == "" {
-		return SignedUpgradePreview{}, nil, fmt.Errorf("razorpay plan %s has empty currency", effectiveMonthlyPlanID)
-	}
-	if !strings.EqualFold(chargeCurrency, currency) {
-		return SignedUpgradePreview{}, nil, fmt.Errorf("razorpay plan currency mismatch: expected %s got %s", currency, chargeCurrency)
-	}
+	targetMonthlyCents := resolvedPrice.RecurringMinor
+	chargeCurrency := resolvedPrice.Currency
 
 	now := time.Now().UTC()
 	remainingFraction := computeRemainingCycleFraction(cycleStart, cycleEnd, now)
@@ -287,6 +418,7 @@ func (h *BillingActionsHandler) buildUpgradePreview(ctx context.Context, orgID i
 		OrgID:                   orgID,
 		FromPlanCode:            currentPlan.String(),
 		ToPlanCode:              targetPlan.String(),
+		CurrentPlanCurrency:     currentPlanCurrency,
 		CycleStartUnix:          cycleStart.Unix(),
 		CycleEndUnix:            cycleEnd.Unix(),
 		RemainingFractionBP:     int64(math.Round(remainingFraction * 10000)),
@@ -301,6 +433,7 @@ func (h *BillingActionsHandler) buildUpgradePreview(ctx context.Context, orgID i
 	preview := map[string]interface{}{
 		"from_plan_code":              currentPlan.String(),
 		"to_plan_code":                targetPlan.String(),
+		"current_plan_currency":       currentPlanCurrency,
 		"cycle_start":                 cycleStart.Format(time.RFC3339),
 		"cycle_end":                   cycleEnd.Format(time.RFC3339),
 		"remaining_cycle_fraction":    math.Round(remainingFraction*10000) / 10000,
@@ -1207,15 +1340,34 @@ func (h *BillingActionsHandler) GetBillingStatus(c echo.Context) error {
 	trialCanCancel := trialActive && !state.TrialReadOnly
 	trialEligibility := h.buildTrialEligibilityView(c.Request().Context(), c, now)
 
-	plans := getSortedLOCPlans()
+	supportedCurrencies := supportedPurchaseCurrencies()
+	plans := getSortedLOCPlansWithResolvedPricing(mode, supportedCurrencies)
 	defaultPurchaseCurrency := defaultPurchaseCurrencyForRequest(c.Request())
+	currentPlanCurrency := ""
+	subStore := storagepayment.NewSubscriptionStore(h.db)
+	subscriptions, listErr := subStore.ListSubscriptionsByOrgID(int(orgID))
+	if listErr == nil {
+		active := storagepayment.OrgSubscriptionRow{}
+		for _, sub := range subscriptions {
+			if strings.EqualFold(sub.Status, "active") {
+				active = sub
+				break
+			}
+		}
+		if strings.TrimSpace(active.RazorpaySubscriptionID) != "" {
+			if resolvedCurrentPlanCurrency, currencyErr := resolveCurrentSubscriptionCurrency(mode, active); currencyErr == nil {
+				currentPlanCurrency = resolvedCurrentPlanCurrency
+			}
+		}
+	}
 	return JSONWithEnvelope(c, http.StatusOK, map[string]interface{}{
 		"billing": map[string]interface{}{
 			"current_plan_code":             state.CurrentPlanCode,
 			"razorpay_mode":                 mode,
 			"pricing_profile":               pricingProfile,
+			"current_plan_currency":         currentPlanCurrency,
 			"default_purchase_currency":     defaultPurchaseCurrency,
-			"supported_purchase_currencies": supportedPurchaseCurrencies(),
+			"supported_purchase_currencies": supportedCurrencies,
 			"billing_period_start":          state.BillingPeriodStart.Format(time.RFC3339),
 			"billing_period_end":            state.BillingPeriodEnd.Format(time.RFC3339),
 			"loc_used_month":                state.LOCUsedMonth,

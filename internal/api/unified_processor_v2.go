@@ -25,6 +25,8 @@ import (
 	gitlabmentions "github.com/livereview/internal/providers/gitlab"
 	gl "github.com/livereview/internal/providers/gitlab"
 	"github.com/livereview/internal/reviewmodel"
+	networkbitbucket "github.com/livereview/network/providers/bitbucket"
+	networkgithub "github.com/livereview/network/providers/github"
 	networkgitea "github.com/livereview/network/providers/gitea"
 )
 
@@ -85,6 +87,16 @@ func (p *UnifiedProcessorV2Impl) CheckResponseWarrant(event UnifiedWebhookEventV
 
 	commentBody := strings.TrimSpace(event.Comment.Body)
 	if commentBody == "" {
+		// Gitea Special Case: 'reviewed' action often has empty body but carries inline comments
+		if event.Provider == "gitea" && event.Comment.Metadata != nil && event.Comment.Metadata["action"] == "reviewed" {
+			log.Printf("[DEBUG] Empty body for Gitea 'reviewed' action; allowing warrant for review scan")
+			return true, ResponseScenarioV2{
+				Type:       "review_submission",
+				Reason:     "Gitea review submission (requires scan of inline comments)",
+				Confidence: 0.5, // Low confidence until we find a mention in the scan
+				Metadata:   map[string]interface{}{"action": "reviewed"},
+			}
+		}
 		return hardFailure("comment body empty; cannot evaluate warrant", "event.comment.body")
 	}
 
@@ -714,7 +726,7 @@ func (p *UnifiedProcessorV2Impl) checkGitHubParentCommentAuthor(event UnifiedWeb
 		apiURL = fmt.Sprintf("https://api.github.com/repos/%s/issues/comments/%s", repoFullName, parentID)
 	}
 
-	req, err := http.NewRequest("GET", apiURL, nil)
+	req, err := networkgithub.NewRequest(http.MethodGet, apiURL, nil)
 	if err != nil {
 		return false, err
 	}
@@ -723,8 +735,8 @@ func (p *UnifiedProcessorV2Impl) checkGitHubParentCommentAuthor(event UnifiedWeb
 	req.Header.Set("Accept", "application/vnd.github.v3+json")
 	req.Header.Set("User-Agent", "LiveReview-Bot")
 
-	client := &http.Client{Timeout: 30 * time.Second}
-	resp, err := client.Do(req)
+	client := networkgithub.NewHTTPClient(30 * time.Second)
+	resp, err := networkgithub.Do(client, req)
 	if err != nil {
 		return false, err
 	}
@@ -811,7 +823,7 @@ func (p *UnifiedProcessorV2Impl) checkBitbucketParentCommentAuthor(event Unified
 	}
 
 	apiURL := fmt.Sprintf("https://api.bitbucket.org/2.0/repositories/%s/%s/pullrequests/%s/comments/%s", workspace, repository, prNumber, parentID)
-	req, err := http.NewRequest("GET", apiURL, nil)
+	req, err := networkbitbucket.NewRequestWithContext(context.Background(), http.MethodGet, apiURL, nil)
 	if err != nil {
 		return false, err
 	}
@@ -819,8 +831,8 @@ func (p *UnifiedProcessorV2Impl) checkBitbucketParentCommentAuthor(event Unified
 	req.SetBasicAuth(email, token.PatToken)
 	req.Header.Set("Accept", "application/json")
 
-	client := &http.Client{Timeout: 10 * time.Second}
-	resp, err := client.Do(req)
+	client := networkbitbucket.NewHTTPClient(10 * time.Second)
+	resp, err := networkbitbucket.Do(client, req)
 	if err != nil {
 		return false, err
 	}
@@ -1586,25 +1598,28 @@ func (p *UnifiedProcessorV2Impl) buildGiteaArtifactFromEvent(ctx context.Context
 	log.Printf("[DEBUG] Building Gitea artifact for repo=%s org_id=%d", event.Repository.FullName, orgID)
 
 	patchURL := ""
-	if event.MergeRequest.Metadata != nil {
-		if rawPatchURL, ok := event.MergeRequest.Metadata["patch_url"].(string); ok {
-			patchURL = strings.TrimSpace(rawPatchURL)
-		}
-	}
-	if patchURL == "" {
-		// Use provider URL and metadata to construct API patch URL reliably.
-		// We avoid brittle WebURL path manipulation by using known metadata.
-		baseURL := strings.TrimRight(token.ProviderURL, "/")
-		repoFullName := event.Repository.FullName
-		prNumber := event.MergeRequest.Number
+	// Construct the official API patch URL which reliably accepts PAT authentication.
+	// We prioritize this over the UI-based patch_url often found in webhook metadata.
+	baseURL := strings.TrimRight(token.ProviderURL, "/")
+	repoFullName := event.Repository.FullName
+	prNumber := event.MergeRequest.Number
 
-		if baseURL != "" && repoFullName != "" && prNumber > 0 {
-			patchURL = fmt.Sprintf("%s/api/v1/repos/%s/pulls/%d.patch",
-				baseURL, repoFullName, prNumber)
-		} else if webURL := strings.TrimSpace(event.MergeRequest.WebURL); webURL != "" {
-			// Fallback: Gitea supports appending .patch to the UI URL.
-			// This is a safe last-resort if API-specific metadata is incomplete.
-			patchURL = strings.TrimRight(webURL, "/") + ".patch"
+	if baseURL != "" && repoFullName != "" && prNumber > 0 {
+		patchURL = fmt.Sprintf("%s/api/v1/repos/%s/pulls/%d.patch",
+			baseURL, repoFullName, prNumber)
+	}
+
+	// Fallback to metadata or web URL if API URL construction is not possible
+	if patchURL == "" {
+		if event.MergeRequest.Metadata != nil {
+			if rawPatchURL, ok := event.MergeRequest.Metadata["patch_url"].(string); ok {
+				patchURL = strings.TrimSpace(rawPatchURL)
+			}
+		}
+		if patchURL == "" {
+			if webURL := strings.TrimSpace(event.MergeRequest.WebURL); webURL != "" {
+				patchURL = strings.TrimRight(webURL, "/") + ".patch"
+			}
 		}
 	}
 	if patchURL == "" {
@@ -1612,6 +1627,7 @@ func (p *UnifiedProcessorV2Impl) buildGiteaArtifactFromEvent(ctx context.Context
 	}
 
 	client := networkgitea.NewHTTPClient(20 * time.Second)
+	log.Printf("[DEBUG] Fetching Gitea patch from URL: %s", patchURL)
 	patchContent, err := networkgitea.FetchPatchContent(ctx, client, patchURL, token.PatToken)
 	if err != nil {
 		return nil, fmt.Errorf("failed to fetch gitea patch: %w", err)

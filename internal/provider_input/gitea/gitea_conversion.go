@@ -80,13 +80,26 @@ func ConvertGiteaPullRequestReviewCommentEvent(body []byte) (*UnifiedWebhookEven
 		return nil, fmt.Errorf("failed to parse Gitea PR review comment webhook: %w", err)
 	}
 
-	if payload.Action != "created" {
+	if payload.Action != "created" && payload.Action != "reviewed" {
 		log.Printf("[DEBUG] Ignoring Gitea pull_request_review_comment action: %s", payload.Action)
 		return nil, fmt.Errorf("pull_request_review_comment event ignored (action=%s)", payload.Action)
 	}
 
 	if payload.Comment == nil {
-		return nil, fmt.Errorf("comment is nil in payload")
+		if payload.Action == "reviewed" && payload.Review != nil {
+			// Fallback to review content if it's a review event and comment is not explicitly provided
+			payload.Comment = &GiteaV2Comment{
+				ID:        payload.Review.ID,
+				HTMLURL:   payload.Review.HTMLURL,
+				User:      payload.Review.User,
+				Body:      payload.Review.Content,
+				CreatedAt: payload.Review.CreatedAt,
+				UpdatedAt: payload.Review.UpdatedAt,
+				ReviewID:  payload.Review.ID,
+			}
+		} else {
+			return nil, fmt.Errorf("comment is nil in payload")
+		}
 	}
 	if payload.PullRequest == nil {
 		return nil, fmt.Errorf("pull_request is nil in payload")
@@ -106,6 +119,11 @@ func ConvertGiteaPullRequestReviewCommentEvent(body []byte) (*UnifiedWebhookEven
 		MergeRequest: convertGiteaPullRequestToUnified(payload.PullRequest),
 		Repository:   convertGiteaRepositoryToUnified(payload.Repository),
 		Actor:        convertGiteaUserToUnified(payload.Sender),
+	}
+
+	// Tag the action in metadata so the processor knows how to handle empty summaries
+	if event.Comment != nil && event.Comment.Metadata != nil {
+		event.Comment.Metadata["action"] = payload.Action
 	}
 
 	return event, nil
@@ -182,6 +200,13 @@ func convertGiteaCommentToUnified(comment *GiteaV2Comment) *UnifiedCommentV2 {
 		}
 
 		unified.Metadata["comment_type"] = "review_comment"
+	} else if comment.ReviewID > 0 || comment.InReplyTo > 0 {
+		// No path/position, but associated with a review or replying to a review comment.
+		// This happens when a user clicks "Reply" inside an inline review discussion —
+		// Gitea fires an issue_comment event, but the reply belongs to the review thread.
+		unified.Metadata["comment_type"] = "review_reply"
+		log.Printf("[DEBUG] Gitea comment %d tagged as review_reply: review_id=%d, in_reply_to=%d",
+			comment.ID, comment.ReviewID, comment.InReplyTo)
 	} else {
 		unified.Metadata["comment_type"] = "issue_comment"
 	}
@@ -190,6 +215,7 @@ func convertGiteaCommentToUnified(comment *GiteaV2Comment) *UnifiedCommentV2 {
 	if comment.InReplyTo > 0 {
 		inReplyTo := strconv.FormatInt(comment.InReplyTo, 10)
 		unified.InReplyToID = &inReplyTo
+		unified.Metadata["in_reply_to"] = comment.InReplyTo
 	}
 
 	// Review context
@@ -287,12 +313,16 @@ func convertGiteaUserToUnified(user *GiteaV2User) UnifiedUserV2 {
 // Gitea uses "LEFT" (old/base) and "RIGHT" (new/head)
 // Unified types use "old", "new", "context"
 func convertGiteaSideToLineType(side string) string {
+	log.Printf("[DEBUG] convertGiteaSideToLineType: input side='%s'", side)
+	result := "new" // Default to new side
 	switch strings.ToUpper(side) {
 	case "LEFT":
-		return "old"
+		result = "old"
 	case "RIGHT":
-		return "new"
+		result = "new"
 	default:
-		return "new" // Default to new side
+		result = "new" // Default to new side
 	}
+	log.Printf("[DEBUG] convertGiteaSideToLineType: result='%s' for input='%s'", result, side)
+	return result
 }

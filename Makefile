@@ -1,6 +1,6 @@
 .PHONY: build run-review run-review-verbose test clean develop develop-reflex river-deps river-install river-migrate river-setup river-ui-install river-ui db-flip version version-bump version-patch version-minor version-major version-bump-dirty version-patch-dirty version-minor-dirty version-major-dirty version-bump-dry version-patch-dry version-minor-dry version-major-dry build-versioned docker-build docker-build-push docker-build-dry docker-interactive docker-interactive-push docker-interactive-dry docker-build docker-build-push docker-build-versioned docker-build-push-versioned docker-build-dry docker-build-push-dry docker-multiarch docker-multiarch-push docker-multiarch-dry docker-interactive-multiarch docker-interactive-multiarch-push cplrops vendor-prompts-encrypt vendor-prompts-build vendor-prompts-rebuild vendor-docker-build vendor-docker-build-dry vendor-docker-build-push vendor-docker-multiarch-dry vendor-docker-multiarch-push run logrun api-with-migrations build-with-ui security-sbom security-sbom-cyclonedx security-sbom-spdx security-sbom-validate release-notes-init release-notes-check release-preflight release-gh niceurl niceurl2
 .PHONY: upload-secrets download-secrets list-secrets-files legacy-secrets-clear generate-spec
-.PHONY: razorpay-webhook-ensure razorpay-webhook-ensure-dry
+.PHONY: razorpay-webhook-ensure razorpay-webhook-ensure-dry razorpay-verify-plans razorpay-verify-plans-low-pricing
 .PHONY: raw-deploy raw-deploy-low-pricing raw-deploy-backend raw-deploy-backend-low-pricing
 
 # Go parameters
@@ -567,7 +567,7 @@ raw-deploy: build-with-ui
 	rsync -avz ./$(DEPLOY_PLAN_CATALOG_FILE) $(DEPLOY_HOST):$(DEPLOY_PATH)/$(DEPLOY_PLAN_CATALOG_FILE)
 	rsync -avz ./db/ $(DEPLOY_HOST):$(DEPLOY_PATH)/db/
 	ssh $(DEPLOY_HOST) "cd $(DEPLOY_PATH) && chmod a+x db-ready.sh && ./db-ready.sh"
-	ssh $(DEPLOY_HOST) "cd $(DEPLOY_PATH) && pm2 reload ecosystem.config.js"
+	ssh $(DEPLOY_HOST) "cd $(DEPLOY_PATH) && pm2 reload ecosystem.config.js --update-env"
 	@echo "✅ Production deployment complete!"
 
 raw-deploy-low-pricing: build-with-ui
@@ -617,7 +617,7 @@ raw-deploy-low-pricing: build-with-ui
 	rsync -avz ./$(DEPLOY_PLAN_CATALOG_FILE) $(DEPLOY_HOST):$(DEPLOY_PATH)/$(DEPLOY_PLAN_CATALOG_FILE)
 	rsync -avz ./db/ $(DEPLOY_HOST):$(DEPLOY_PATH)/db/
 	ssh $(DEPLOY_HOST) "cd $(DEPLOY_PATH) && chmod a+x db-ready.sh && ./db-ready.sh"
-	ssh $(DEPLOY_HOST) "cd $(DEPLOY_PATH) && pm2 reload ecosystem.config.js"
+	ssh $(DEPLOY_HOST) "cd $(DEPLOY_PATH) && pm2 reload ecosystem.config.js --update-env"
 	@echo "✅ Production deployment complete!"
 
 raw-deploy-backend:
@@ -660,7 +660,7 @@ raw-deploy-backend:
 	rsync -avz ./$(DEPLOY_PLAN_CATALOG_FILE) $(DEPLOY_HOST):$(DEPLOY_PATH)/$(DEPLOY_PLAN_CATALOG_FILE)
 	rsync -avz ./db/ $(DEPLOY_HOST):$(DEPLOY_PATH)/db/
 	ssh $(DEPLOY_HOST) "cd $(DEPLOY_PATH) && chmod a+x db-ready.sh && ./db-ready.sh"
-	ssh $(DEPLOY_HOST) "cd $(DEPLOY_PATH) && pm2 reload ecosystem.config.js"
+	ssh $(DEPLOY_HOST) "cd $(DEPLOY_PATH) && pm2 reload ecosystem.config.js --update-env"
 	@echo "✅ Production deployment complete!"
 
 raw-deploy-backend-low-pricing:
@@ -711,7 +711,7 @@ raw-deploy-backend-low-pricing:
 	rsync -avz ./$(DEPLOY_PLAN_CATALOG_FILE) $(DEPLOY_HOST):$(DEPLOY_PATH)/$(DEPLOY_PLAN_CATALOG_FILE)
 	rsync -avz ./db/ $(DEPLOY_HOST):$(DEPLOY_PATH)/db/
 	ssh $(DEPLOY_HOST) "cd $(DEPLOY_PATH) && chmod a+x db-ready.sh && ./db-ready.sh"
-	ssh $(DEPLOY_HOST) "cd $(DEPLOY_PATH) && pm2 reload ecosystem.config.js"
+	ssh $(DEPLOY_HOST) "cd $(DEPLOY_PATH) && pm2 reload ecosystem.config.js --update-env"
 	@echo "✅ Production deployment complete!"
 
 # Deploy nginx config to production server
@@ -861,3 +861,9 @@ razorpay-webhook-ensure-dry:
 	@MODE_VALUE="$(MODE)"; \
 	if [ -z "$$MODE_VALUE" ]; then MODE_VALUE="$${RAZORPAY_MODE:-live}"; fi; \
 	python3 scripts/razorpay_webhook_ensure.py --base-url "$(BASE_URL)" --mode "$$MODE_VALUE" --dry-run $(ARGS)
+
+razorpay-verify-plans:
+	@bash ./scripts/verify-razorpay-plans.sh $(DEPLOY_ACTUAL_ENV_FILE)
+
+razorpay-verify-plans-low-pricing:
+	@bash ./scripts/verify-razorpay-plans.sh $(DEPLOY_LOW_PRICING_ENV_FILE)
