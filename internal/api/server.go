@@ -1630,7 +1630,7 @@ func (s *Server) DisableManualTriggerForAllProjects(c echo.Context) error {
 	var queueErrors []string
 
 	for _, projectPath := range repositoryData.Projects {
-		err := s.jobQueue.QueueWebhookRemovalJob(ctx, connectorId, projectPath, provider, providerURL, patToken)
+		err := s.jobQueue.QueueWebhookRemovalJob(ctx, connectorId, projectPath, provider, providerURL, patToken, false)
 		if err != nil {
 			queueErrors = append(queueErrors, fmt.Sprintf("Failed to queue removal job for %s: %v", projectPath, err))
 		} else {

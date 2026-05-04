@@ -33,6 +33,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/livereview/internal/providers/gitea"
 	networkjobqueue "github.com/livereview/network/jobqueue"
@@ -153,11 +154,12 @@ type WebhookInstallWorker struct {
 
 // WebhookRemovalJobArgs represents the arguments for a webhook removal job
 type WebhookRemovalJobArgs struct {
-	ConnectorID int    `json:"connector_id"`
-	ProjectPath string `json:"project_path"`
-	Provider    string `json:"provider"`
-	BaseURL     string `json:"base_url"`
-	PAT         string `json:"pat"`
+	ConnectorID        int    `json:"connector_id"`
+	ProjectPath        string `json:"project_path"`
+	Provider           string `json:"provider"`
+	BaseURL            string `json:"base_url"`
+	PAT                string `json:"pat"`
+	SkipRegistryUpdate bool   `json:"skip_registry_update"`
 }
 
 // Kind returns the job kind for River
@@ -1413,11 +1415,13 @@ func (w *WebhookRemovalWorker) handleGitLabWebhookRemoval(ctx context.Context, a
 
 	log.Printf("Successfully removed webhooks for project %s", args.ProjectPath)
 
-	// Update the webhook registry to mark as unconnected
-	err = w.updateWebhookRegistryForRemoval(ctx, args, projectID)
-	if err != nil {
-		log.Printf("Failed to update webhook registry for project %s: %v", args.ProjectPath, err)
-		return fmt.Errorf("failed to update webhook registry: %w", err)
+	// Update the webhook registry to mark as unconnected, unless skipped
+	if !args.SkipRegistryUpdate {
+		err = w.updateWebhookRegistryForRemoval(ctx, args, projectID)
+		if err != nil {
+			log.Printf("Failed to update webhook registry for project %s: %v", args.ProjectPath, err)
+			return fmt.Errorf("failed to update webhook registry: %w", err)
+		}
 	}
 
 	return nil
@@ -1443,11 +1447,13 @@ func (w *WebhookRemovalWorker) handleGitHubWebhookRemoval(ctx context.Context, a
 
 	log.Printf("Successfully removed webhooks for GitHub repository %s/%s", owner, repo)
 
-	// Update the webhook registry to mark as unconnected
-	err = w.updateWebhookRegistryForGitHubRemoval(ctx, args)
-	if err != nil {
-		log.Printf("Failed to update webhook registry for GitHub repository %s/%s: %v", owner, repo, err)
-		return fmt.Errorf("failed to update webhook registry: %w", err)
+	// Update the webhook registry to mark as unconnected, unless skipped
+	if !args.SkipRegistryUpdate {
+		err = w.updateWebhookRegistryForGitHubRemoval(ctx, args)
+		if err != nil {
+			log.Printf("Failed to update webhook registry for GitHub repository %s/%s: %v", owner, repo, err)
+			return fmt.Errorf("failed to update webhook registry: %w", err)
+		}
 	}
 
 	return nil
@@ -1653,6 +1659,10 @@ func (w *WebhookRemovalWorker) updateWebhookRegistryForRemoval(ctx context.Conte
 			IntegrationTokenID: args.ConnectorID,
 		})
 		if err != nil {
+			if isForeignKeyError(err) {
+				log.Printf("Ignoring foreign key error for project %s (connector likely deleted)", args.ProjectPath)
+				return nil
+			}
 			return fmt.Errorf("failed to insert GitLab removal registry: %w", err)
 		}
 
@@ -1671,6 +1681,10 @@ func (w *WebhookRemovalWorker) updateWebhookRegistryForRemoval(ctx context.Conte
 			UpdatedAt:      now,
 		})
 		if err != nil {
+			if isForeignKeyError(err) {
+				log.Printf("Ignoring foreign key error for project %s (connector likely deleted)", args.ProjectPath)
+				return nil
+			}
 			return fmt.Errorf("failed to update GitLab removal registry: %w", err)
 		}
 
@@ -1820,6 +1834,10 @@ func (w *WebhookRemovalWorker) updateWebhookRegistryForGitHubRemoval(ctx context
 			IntegrationTokenID: args.ConnectorID,
 		})
 		if err != nil {
+			if isForeignKeyError(err) {
+				log.Printf("Ignoring foreign key error for GitHub repository %s (connector likely deleted)", args.ProjectPath)
+				return nil
+			}
 			return fmt.Errorf("failed to insert GitHub removal registry: %w", err)
 		}
 
@@ -1838,6 +1856,10 @@ func (w *WebhookRemovalWorker) updateWebhookRegistryForGitHubRemoval(ctx context
 			UpdatedAt:      now,
 		})
 		if err != nil {
+			if isForeignKeyError(err) {
+				log.Printf("Ignoring foreign key error for GitHub repository %s (connector likely deleted)", args.ProjectPath)
+				return nil
+			}
 			return fmt.Errorf("failed to update GitHub removal registry: %w", err)
 		}
 
@@ -1873,10 +1895,12 @@ func (w *WebhookRemovalWorker) handleBitbucketWebhookRemoval(ctx context.Context
 		// Don't return error here - we still want to update the registry
 	}
 
-	// Update the webhook_registry to mark as removed
-	err = w.updateWebhookRegistryForBitbucketRemoval(ctx, args)
-	if err != nil {
-		return fmt.Errorf("failed to update webhook registry: %w", err)
+	// Update the webhook_registry to mark as removed, unless skipped
+	if !args.SkipRegistryUpdate {
+		err = w.updateWebhookRegistryForBitbucketRemoval(ctx, args)
+		if err != nil {
+			return fmt.Errorf("failed to update webhook registry: %w", err)
+		}
 	}
 
 	log.Printf("Bitbucket webhook removal completed for repository: %s/%s", workspace, repo)
@@ -2048,6 +2072,10 @@ func (w *WebhookRemovalWorker) updateWebhookRegistryForBitbucketRemoval(ctx cont
 			IntegrationTokenID: args.ConnectorID,
 		})
 		if err != nil {
+			if isForeignKeyError(err) {
+				log.Printf("Ignoring foreign key error for Bitbucket repository %s (connector likely deleted)", args.ProjectPath)
+				return nil
+			}
 			return fmt.Errorf("failed to insert Bitbucket removal registry: %w", err)
 		}
 
@@ -2066,6 +2094,10 @@ func (w *WebhookRemovalWorker) updateWebhookRegistryForBitbucketRemoval(ctx cont
 			UpdatedAt:      now,
 		})
 		if err != nil {
+			if isForeignKeyError(err) {
+				log.Printf("Ignoring foreign key error for Bitbucket repository %s (connector likely deleted)", args.ProjectPath)
+				return nil
+			}
 			return fmt.Errorf("failed to update Bitbucket removal registry: %w", err)
 		}
 
@@ -2095,8 +2127,10 @@ func (w *WebhookRemovalWorker) handleGiteaWebhookRemoval(ctx context.Context, ar
 		// continue to registry update even on API failure
 	}
 
-	if err := w.updateWebhookRegistryForGiteaRemoval(ctx, args); err != nil {
-		return fmt.Errorf("failed to update webhook registry: %w", err)
+	if !args.SkipRegistryUpdate {
+		if err := w.updateWebhookRegistryForGiteaRemoval(ctx, args); err != nil {
+			return fmt.Errorf("failed to update webhook registry: %w", err)
+		}
 	}
 
 	log.Printf("Gitea webhook removal completed for repository: %s/%s", owner, repo)
@@ -2225,6 +2259,10 @@ func (w *WebhookRemovalWorker) updateWebhookRegistryForGiteaRemoval(ctx context.
 			IntegrationTokenID: args.ConnectorID,
 		})
 		if err != nil {
+			if isForeignKeyError(err) {
+				log.Printf("Ignoring foreign key error for Gitea repository %s (connector likely deleted)", args.ProjectPath)
+				return nil
+			}
 			return fmt.Errorf("failed to insert Gitea removal registry: %w", err)
 		}
 
@@ -2245,11 +2283,23 @@ func (w *WebhookRemovalWorker) updateWebhookRegistryForGiteaRemoval(ctx context.
 		UpdatedAt:      now,
 	})
 	if err != nil {
+		if isForeignKeyError(err) {
+			log.Printf("Ignoring foreign key error for Gitea repository %s (connector likely deleted)", args.ProjectPath)
+			return nil
+		}
 		return fmt.Errorf("failed to update Gitea removal registry: %w", err)
 	}
 
 	log.Printf("Updated webhook_registry entry for Gitea repository %s with status '%s'", args.ProjectPath, status)
 	return nil
+}
+
+func isForeignKeyError(err error) bool {
+	var pgErr *pgconn.PgError
+	if errors.As(err, &pgErr) {
+		return pgErr.Code == "23503"
+	}
+	return false
 }
 
 // JobQueue manages the River job queue
@@ -2329,13 +2379,14 @@ func (jq *JobQueue) QueueWebhookInstallJob(ctx context.Context, connectorID int,
 }
 
 // QueueWebhookRemovalJob queues a webhook removal job
-func (jq *JobQueue) QueueWebhookRemovalJob(ctx context.Context, connectorID int, projectPath, provider, baseURL, pat string) error {
+func (jq *JobQueue) QueueWebhookRemovalJob(ctx context.Context, connectorID int, projectPath, provider, baseURL, pat string, skipRegistryUpdate bool) error {
 	args := WebhookRemovalJobArgs{
-		ConnectorID: connectorID,
-		ProjectPath: projectPath,
-		Provider:    provider,
-		BaseURL:     baseURL,
-		PAT:         pat,
+		ConnectorID:        connectorID,
+		ProjectPath:        projectPath,
+		Provider:           provider,
+		BaseURL:            baseURL,
+		PAT:                pat,
+		SkipRegistryUpdate: skipRegistryUpdate,
 	}
 
 	_, err := jq.client.Insert(ctx, args, nil)
