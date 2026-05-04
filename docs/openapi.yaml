@@ -587,47 +587,13 @@ components:
       type: object
     api.DiffReviewRequest:
       properties:
-        ai_summary_title:
+        diff_zip_base64:
           type: string
-        author_name:
+        repo_name:
           type: string
-        author_username:
-          type: string
-        base_sha:
-          type: string
-        connectorId:
-          format: int64
-          type: integer
-        effective_code_diffs:
-          items:
-            $ref: '#/components/schemas/models.CodeDiff'
-          type: array
-        head_sha:
-          type: string
-        org_id:
-          format: int64
-          type: integer
-        pr_mr_number:
-          type: string
-        pr_mr_url:
-          type: string
-        repository:
-          type: string
-        reviewId:
-          format: int64
-          type: integer
       required:
-        - reviewId
-        - connectorId
-        - head_sha
-        - base_sha
-        - repository
-        - pr_mr_number
-        - pr_mr_url
-        - org_id
-        - ai_summary_title
-        - author_name
-        - author_username
+        - diff_zip_base64
+        - repo_name
       type: object
     api.DiffReviewResult:
       properties:
@@ -1288,20 +1254,20 @@ components:
       type: object
     api.ReviewAccountingResponse:
       properties:
-        accounted_operations:
+        accountedOperations:
           format: int64
           type: integer
         lastAccountedAt:
           type: string
-        latest_operation:
+        latestOperation:
           $ref: '#/components/schemas/api.ReviewAccountingOperationResponse'
-        review_id:
+        reviewId:
           format: int64
           type: integer
         tokenTrackedOperations:
           format: int64
           type: integer
-        total_billable_loc:
+        totalBillableLoc:
           format: int64
           type: integer
         totalCostUsd:
@@ -1317,9 +1283,9 @@ components:
           nullable: true
           type: integer
       required:
-        - review_id
-        - total_billable_loc
-        - accounted_operations
+        - reviewId
+        - totalBillableLoc
+        - accountedOperations
         - tokenTrackedOperations
         - lastAccountedAt,omitempty
       type: object
@@ -2071,6 +2037,7 @@ components:
         - RefreshTokenDuration
       type: object
     auth.UserInfo:
+      nullable: true
       properties:
         created_at:
           format: date-time
@@ -2336,7 +2303,6 @@ components:
         - TargetBranch
       type: object
     core_processor.UnifiedMergeRequestV2:
-      nullable: true
       properties:
         Assignees:
           items:
@@ -2464,7 +2430,6 @@ components:
         - Category
       type: object
     core_processor.UnifiedReviewerChangeV2:
-      nullable: true
       properties:
         Action:
           type: string
@@ -2997,7 +2962,6 @@ components:
         - updated_at
       type: object
     models.User:
-      nullable: true
       properties:
         created_at:
           format: date-time
@@ -3997,13 +3961,13 @@ paths:
         - Aiconnectors
   /api/v1/auth/change-password:
     post:
-      description: ChangePassword handles password changes (useful for temp passwords)
+      description: ChangePassword handles changing the current user's password
       operationId: ChangePassword
       requestBody:
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/auth.ChangePasswordRequest'
+              $ref: '#/components/schemas/users.ChangePasswordRequest'
       responses:
         "200":
           content:
@@ -4013,30 +3977,6 @@ paths:
                   type: string
                 type: object
           description: OK
-        "400":
-          content:
-            application/json:
-              schema:
-                additionalProperties:
-                  type: string
-                type: object
-          description: Bad Request
-        "401":
-          content:
-            application/json:
-              schema:
-                additionalProperties:
-                  type: string
-                type: object
-          description: Unauthorized
-        "500":
-          content:
-            application/json:
-              schema:
-                additionalProperties:
-                  type: string
-                type: object
-          description: Internal Server Error
       tags:
         - Auth
   /api/v1/auth/ensure-cloud-user:
@@ -4701,6 +4641,11 @@ paths:
     post:
       description: DiffReview accepts a base64-encoded ZIP containing a unified diff and triggers a review.
       operationId: DiffReview
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/api.DiffReviewRequest'
       responses: null
       tags:
         - Diff-Review
@@ -5863,12 +5808,12 @@ paths:
       operationId: ChangeUserRole
       parameters:
         - in: path
-          name: org_id
+          name: user_id
           required: true
           schema:
             type: string
         - in: path
-          name: user_id
+          name: org_id
           required: true
           schema:
             type: string
@@ -6971,13 +6916,13 @@ paths:
         - Ui-Config
   /api/v1/users/password:
     put:
-      description: ChangePassword handles password changes (useful for temp passwords)
+      description: ChangePassword handles changing the current user's password
       operationId: ChangePassword
       requestBody:
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/auth.ChangePasswordRequest'
+              $ref: '#/components/schemas/users.ChangePasswordRequest'
       responses:
         "200":
           content:
@@ -6987,30 +6932,6 @@ paths:
                   type: string
                 type: object
           description: OK
-        "400":
-          content:
-            application/json:
-              schema:
-                additionalProperties:
-                  type: string
-                type: object
-          description: Bad Request
-        "401":
-          content:
-            application/json:
-              schema:
-                additionalProperties:
-                  type: string
-                type: object
-          description: Unauthorized
-        "500":
-          content:
-            application/json:
-              schema:
-                additionalProperties:
-                  type: string
-                type: object
-          description: Internal Server Error
       tags:
         - Users
   /api/v1/users/profile:

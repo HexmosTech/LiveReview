@@ -41,15 +41,15 @@ type ReviewAccountingOperationResponse struct {
 }
 
 type ReviewAccountingResponse struct {
-	ReviewID            int64                              `json:"review_id"`
-	TotalBillableLOC    int64                              `json:"total_billable_loc"`
-	AccountedOperations int64                              `json:"accounted_operations"`
+	ReviewID            int64                              `json:"reviewId"`
+	TotalBillableLOC    int64                              `json:"totalBillableLoc"`
+	AccountedOperations int64                              `json:"accountedOperations"`
 	TokenTrackedOps     int64                              `json:"tokenTrackedOperations"`
 	LastAccountedAt     string                             `json:"lastAccountedAt,omitempty"`
 	TotalInputTokens    *int64                             `json:"totalInputTokens,omitempty"`
 	TotalOutputTokens   *int64                             `json:"totalOutputTokens,omitempty"`
 	TotalCostUSD        *float64                           `json:"totalCostUsd,omitempty"`
-	LatestOperation     *ReviewAccountingOperationResponse `json:"latest_operation"`
+	LatestOperation     *ReviewAccountingOperationResponse `json:"latestOperation,omitempty"`
 }
 
 // GetReviewEvents handles GET /api/v1/reviews/{id}/events (polling endpoint)
