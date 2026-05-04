@@ -33,7 +33,6 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/livereview/internal/providers/gitea"
 	networkjobqueue "github.com/livereview/network/jobqueue"
@@ -1659,10 +1658,6 @@ func (w *WebhookRemovalWorker) updateWebhookRegistryForRemoval(ctx context.Conte
 			IntegrationTokenID: args.ConnectorID,
 		})
 		if err != nil {
-			if isForeignKeyError(err) {
-				log.Printf("Ignoring foreign key error for project %s (connector likely deleted)", args.ProjectPath)
-				return nil
-			}
 			return fmt.Errorf("failed to insert GitLab removal registry: %w", err)
 		}
 
@@ -1681,10 +1676,6 @@ func (w *WebhookRemovalWorker) updateWebhookRegistryForRemoval(ctx context.Conte
 			UpdatedAt:      now,
 		})
 		if err != nil {
-			if isForeignKeyError(err) {
-				log.Printf("Ignoring foreign key error for project %s (connector likely deleted)", args.ProjectPath)
-				return nil
-			}
 			return fmt.Errorf("failed to update GitLab removal registry: %w", err)
 		}
 
@@ -1834,10 +1825,6 @@ func (w *WebhookRemovalWorker) updateWebhookRegistryForGitHubRemoval(ctx context
 			IntegrationTokenID: args.ConnectorID,
 		})
 		if err != nil {
-			if isForeignKeyError(err) {
-				log.Printf("Ignoring foreign key error for GitHub repository %s (connector likely deleted)", args.ProjectPath)
-				return nil
-			}
 			return fmt.Errorf("failed to insert GitHub removal registry: %w", err)
 		}
 
@@ -1856,10 +1843,6 @@ func (w *WebhookRemovalWorker) updateWebhookRegistryForGitHubRemoval(ctx context
 			UpdatedAt:      now,
 		})
 		if err != nil {
-			if isForeignKeyError(err) {
-				log.Printf("Ignoring foreign key error for GitHub repository %s (connector likely deleted)", args.ProjectPath)
-				return nil
-			}
 			return fmt.Errorf("failed to update GitHub removal registry: %w", err)
 		}
 
@@ -2072,10 +2055,6 @@ func (w *WebhookRemovalWorker) updateWebhookRegistryForBitbucketRemoval(ctx cont
 			IntegrationTokenID: args.ConnectorID,
 		})
 		if err != nil {
-			if isForeignKeyError(err) {
-				log.Printf("Ignoring foreign key error for Bitbucket repository %s (connector likely deleted)", args.ProjectPath)
-				return nil
-			}
 			return fmt.Errorf("failed to insert Bitbucket removal registry: %w", err)
 		}
 
@@ -2094,10 +2073,6 @@ func (w *WebhookRemovalWorker) updateWebhookRegistryForBitbucketRemoval(ctx cont
 			UpdatedAt:      now,
 		})
 		if err != nil {
-			if isForeignKeyError(err) {
-				log.Printf("Ignoring foreign key error for Bitbucket repository %s (connector likely deleted)", args.ProjectPath)
-				return nil
-			}
 			return fmt.Errorf("failed to update Bitbucket removal registry: %w", err)
 		}
 
@@ -2259,10 +2234,6 @@ func (w *WebhookRemovalWorker) updateWebhookRegistryForGiteaRemoval(ctx context.
 			IntegrationTokenID: args.ConnectorID,
 		})
 		if err != nil {
-			if isForeignKeyError(err) {
-				log.Printf("Ignoring foreign key error for Gitea repository %s (connector likely deleted)", args.ProjectPath)
-				return nil
-			}
 			return fmt.Errorf("failed to insert Gitea removal registry: %w", err)
 		}
 
@@ -2283,23 +2254,11 @@ func (w *WebhookRemovalWorker) updateWebhookRegistryForGiteaRemoval(ctx context.
 		UpdatedAt:      now,
 	})
 	if err != nil {
-		if isForeignKeyError(err) {
-			log.Printf("Ignoring foreign key error for Gitea repository %s (connector likely deleted)", args.ProjectPath)
-			return nil
-		}
 		return fmt.Errorf("failed to update Gitea removal registry: %w", err)
 	}
 
 	log.Printf("Updated webhook_registry entry for Gitea repository %s with status '%s'", args.ProjectPath, status)
 	return nil
-}
-
-func isForeignKeyError(err error) bool {
-	var pgErr *pgconn.PgError
-	if errors.As(err, &pgErr) {
-		return pgErr.Code == "23503"
-	}
-	return false
 }
 
 // JobQueue manages the River job queue
