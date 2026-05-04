@@ -153,11 +153,12 @@ type WebhookInstallWorker struct {
 
 // WebhookRemovalJobArgs represents the arguments for a webhook removal job
 type WebhookRemovalJobArgs struct {
-	ConnectorID int    `json:"connector_id"`
-	ProjectPath string `json:"project_path"`
-	Provider    string `json:"provider"`
-	BaseURL     string `json:"base_url"`
-	PAT         string `json:"pat"`
+	ConnectorID        int    `json:"connector_id"`
+	ProjectPath        string `json:"project_path"`
+	Provider           string `json:"provider"`
+	BaseURL            string `json:"base_url"`
+	PAT                string `json:"pat"`
+	SkipRegistryUpdate bool   `json:"skip_registry_update"`
 }
 
 // Kind returns the job kind for River
@@ -1413,11 +1414,13 @@ func (w *WebhookRemovalWorker) handleGitLabWebhookRemoval(ctx context.Context, a
 
 	log.Printf("Successfully removed webhooks for project %s", args.ProjectPath)
 
-	// Update the webhook registry to mark as unconnected
-	err = w.updateWebhookRegistryForRemoval(ctx, args, projectID)
-	if err != nil {
-		log.Printf("Failed to update webhook registry for project %s: %v", args.ProjectPath, err)
-		return fmt.Errorf("failed to update webhook registry: %w", err)
+	// Update the webhook registry to mark as unconnected, unless skipped
+	if !args.SkipRegistryUpdate {
+		err = w.updateWebhookRegistryForRemoval(ctx, args, projectID)
+		if err != nil {
+			log.Printf("Failed to update webhook registry for project %s: %v", args.ProjectPath, err)
+			return fmt.Errorf("failed to update webhook registry: %w", err)
+		}
 	}
 
 	return nil
@@ -1443,11 +1446,13 @@ func (w *WebhookRemovalWorker) handleGitHubWebhookRemoval(ctx context.Context, a
 
 	log.Printf("Successfully removed webhooks for GitHub repository %s/%s", owner, repo)
 
-	// Update the webhook registry to mark as unconnected
-	err = w.updateWebhookRegistryForGitHubRemoval(ctx, args)
-	if err != nil {
-		log.Printf("Failed to update webhook registry for GitHub repository %s/%s: %v", owner, repo, err)
-		return fmt.Errorf("failed to update webhook registry: %w", err)
+	// Update the webhook registry to mark as unconnected, unless skipped
+	if !args.SkipRegistryUpdate {
+		err = w.updateWebhookRegistryForGitHubRemoval(ctx, args)
+		if err != nil {
+			log.Printf("Failed to update webhook registry for GitHub repository %s/%s: %v", owner, repo, err)
+			return fmt.Errorf("failed to update webhook registry: %w", err)
+		}
 	}
 
 	return nil
@@ -1873,10 +1878,12 @@ func (w *WebhookRemovalWorker) handleBitbucketWebhookRemoval(ctx context.Context
 		// Don't return error here - we still want to update the registry
 	}
 
-	// Update the webhook_registry to mark as removed
-	err = w.updateWebhookRegistryForBitbucketRemoval(ctx, args)
-	if err != nil {
-		return fmt.Errorf("failed to update webhook registry: %w", err)
+	// Update the webhook_registry to mark as removed, unless skipped
+	if !args.SkipRegistryUpdate {
+		err = w.updateWebhookRegistryForBitbucketRemoval(ctx, args)
+		if err != nil {
+			return fmt.Errorf("failed to update webhook registry: %w", err)
+		}
 	}
 
 	log.Printf("Bitbucket webhook removal completed for repository: %s/%s", workspace, repo)
@@ -2095,8 +2102,10 @@ func (w *WebhookRemovalWorker) handleGiteaWebhookRemoval(ctx context.Context, ar
 		// continue to registry update even on API failure
 	}
 
-	if err := w.updateWebhookRegistryForGiteaRemoval(ctx, args); err != nil {
-		return fmt.Errorf("failed to update webhook registry: %w", err)
+	if !args.SkipRegistryUpdate {
+		if err := w.updateWebhookRegistryForGiteaRemoval(ctx, args); err != nil {
+			return fmt.Errorf("failed to update webhook registry: %w", err)
+		}
 	}
 
 	log.Printf("Gitea webhook removal completed for repository: %s/%s", owner, repo)
@@ -2329,13 +2338,14 @@ func (jq *JobQueue) QueueWebhookInstallJob(ctx context.Context, connectorID int,
 }
 
 // QueueWebhookRemovalJob queues a webhook removal job
-func (jq *JobQueue) QueueWebhookRemovalJob(ctx context.Context, connectorID int, projectPath, provider, baseURL, pat string) error {
+func (jq *JobQueue) QueueWebhookRemovalJob(ctx context.Context, connectorID int, projectPath, provider, baseURL, pat string, skipRegistryUpdate bool) error {
 	args := WebhookRemovalJobArgs{
-		ConnectorID: connectorID,
-		ProjectPath: projectPath,
-		Provider:    provider,
-		BaseURL:     baseURL,
-		PAT:         pat,
+		ConnectorID:        connectorID,
+		ProjectPath:        projectPath,
+		Provider:           provider,
+		BaseURL:            baseURL,
+		PAT:                pat,
+		SkipRegistryUpdate: skipRegistryUpdate,
 	}
 
 	_, err := jq.client.Insert(ctx, args, nil)
