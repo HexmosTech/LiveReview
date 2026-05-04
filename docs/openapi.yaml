@@ -132,6 +132,7 @@ components:
         - api_key,omitempty
       type: object
     api.APIKey:
+      nullable: true
       properties:
         created_at:
           format: date-time
@@ -1206,6 +1207,7 @@ components:
         - created_at
       type: object
     api.ReviewAccountingOperationResponse:
+      nullable: true
       properties:
         accountedAt:
           type: string
@@ -1522,6 +1524,8 @@ components:
         actor_user_id:
           format: int64
           type: integer
+        current_plan_currency:
+          type: string
         cycle_end_unix:
           format: int64
           type: integer
@@ -1563,6 +1567,7 @@ components:
         - org_id
         - from_plan_code
         - to_plan_code
+        - current_plan_currency,omitempty
         - cycle_start_unix
         - cycle_end_unix
         - remaining_fraction_bp
@@ -1788,7 +1793,6 @@ components:
         - Dirty
       type: object
     api.WebhookHealthSummary:
-      nullable: true
       properties:
         connected_projects:
           type: integer
@@ -1822,7 +1826,6 @@ components:
         - setup_required_connectors
       type: object
     api.WebhookStatusSummary:
-      nullable: true
       properties:
         automatic:
           type: integer
@@ -2037,7 +2040,6 @@ components:
         - RefreshTokenDuration
       type: object
     auth.UserInfo:
-      nullable: true
       properties:
         created_at:
           format: date-time
@@ -2303,6 +2305,7 @@ components:
         - TargetBranch
       type: object
     core_processor.UnifiedMergeRequestV2:
+      nullable: true
       properties:
         Assignees:
           items:
@@ -2430,6 +2433,7 @@ components:
         - Category
       type: object
     core_processor.UnifiedReviewerChangeV2:
+      nullable: true
       properties:
         Action:
           type: string
@@ -2942,7 +2946,6 @@ components:
         - Summary
       type: object
     models.Role:
-      nullable: true
       properties:
         created_at:
           format: date-time
@@ -6709,12 +6712,12 @@ paths:
       operationId: RevokeLicense
       parameters:
         - in: path
-          name: id
+          name: user_id
           required: true
           schema:
             type: string
         - in: path
-          name: user_id
+          name: id
           required: true
           schema:
             type: string
