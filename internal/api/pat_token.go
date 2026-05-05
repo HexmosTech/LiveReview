@@ -22,14 +22,14 @@ func HandleCreatePATIntegrationToken(db *sql.DB, c echo.Context) error {
 
 // CreatePATIntegrationToken creates a PAT integration token and returns the ID
 func CreatePATIntegrationToken(db *sql.DB, c echo.Context) (int64, int64, error) {
-	type reqBody struct {
+	type CreatePATIntegrationTokenRequest struct {
 		Name     string                 `json:"name"` // connector_name
 		Type     string                 `json:"type"` // provider
 		URL      string                 `json:"url"`  // provider_url
 		PATToken string                 `json:"pat_token"`
 		Metadata map[string]interface{} `json:"metadata"`
 	}
-	var body reqBody
+	var body CreatePATIntegrationTokenRequest
 	if err := c.Bind(&body); err != nil {
 		return 0, 0, fmt.Errorf("invalid request body: %w", err)
 	}

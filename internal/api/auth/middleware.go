@@ -138,16 +138,20 @@ type AuthMiddleware struct {
 // NewAuthMiddleware creates a new auth middleware
 func NewAuthMiddleware(tokenService *TokenService, db *sql.DB) *AuthMiddleware {
 	// Prepare statement for subscription plan lookups (performance optimization)
-	stmt, err := db.Prepare(`
-		SELECT obs.current_plan_code, obs.billing_period_end, COALESCE((o.created_by_user_id = ur.user_id), true) as is_creator
-		FROM user_roles ur
-		JOIN orgs o ON ur.org_id = o.id
-		JOIN org_billing_state obs ON o.id = obs.org_id
-		WHERE ur.user_id = $1 AND ur.org_id = $2
-	`)
-	if err != nil {
-		// Log warning but don't fail - will fall back to non-prepared queries
-		fmt.Printf("[Warning] Failed to prepare plan query: %v\n", err)
+	var stmt *sql.Stmt
+	var err error
+	if db != nil {
+		stmt, err = db.Prepare(`
+			SELECT obs.current_plan_code, obs.billing_period_end, COALESCE((o.created_by_user_id = ur.user_id), true) as is_creator
+			FROM user_roles ur
+			JOIN orgs o ON ur.org_id = o.id
+			JOIN org_billing_state obs ON o.id = obs.org_id
+			WHERE ur.user_id = $1 AND ur.org_id = $2
+		`)
+		if err != nil {
+			// Log warning but don't fail - will fall back to non-prepared queries
+			fmt.Printf("[Warning] Failed to prepare plan query: %v\n", err)
+		}
 	}
 
 	return &AuthMiddleware{

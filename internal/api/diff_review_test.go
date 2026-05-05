@@ -384,7 +384,7 @@ func TestDiffReviewHandlerStoresReviewResult(t *testing.T) {
 
 	// Marshal and unmarshal to convert to proper type
 	resultJSON, _ := json.Marshal(metadata["review_result"])
-	var resultData diffReviewResult
+	var resultData DiffReviewResult
 	if err := json.Unmarshal(resultJSON, &resultData); err != nil {
 		t.Fatalf("failed to unmarshal review_result: %v", err)
 	}
@@ -516,7 +516,7 @@ func TestDiffReviewPollingWithCompletedStatus(t *testing.T) {
 	json.Unmarshal(preloadedJSON, &preloaded)
 
 	reviewResultJSON, _ := json.Marshal(metadata["review_result"])
-	var reviewResult diffReviewResult
+	var reviewResult DiffReviewResult
 	json.Unmarshal(reviewResultJSON, &reviewResult)
 
 	files := buildDiffFiles(modelsSlice(preloaded), reviewResult.Comments)
