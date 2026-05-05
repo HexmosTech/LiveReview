@@ -446,7 +446,56 @@ func (s *Server) GetConnector(c echo.Context) error {
 
 // DeleteConnector handles deletion of a git provider connection
 func (s *Server) DeleteConnector(c echo.Context) error {
-	id := c.Param("id")
+	idStr := c.Param("id")
+	id, err := strconv.Atoi(idStr)
+	if err != nil {
+		return c.JSON(http.StatusBadRequest, ErrorResponse{
+			Error: "Invalid connector ID",
+		})
+	}
+
+	// Validate connector ownership
+	if _, err := s.validateConnectorOwnership(c, id); err != nil {
+		return err
+	}
+
+	// Fetch connector details for webhook removal
+	var provider, providerURL, patToken string
+	query := `
+		SELECT provider, provider_url, pat_token
+		FROM integration_tokens
+		WHERE id = $1
+	`
+	err = s.db.QueryRow(query, id).Scan(&provider, &providerURL, &patToken)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return c.JSON(http.StatusNotFound, ErrorResponse{
+				Error: "Connector not found",
+			})
+		}
+		log.Printf("Failed to fetch connector details for deletion: %v", err)
+		return c.JSON(http.StatusInternalServerError, ErrorResponse{
+			Error: "Database error: " + err.Error(),
+		})
+	}
+
+	// Fetch projects to queue webhook removal
+	repositoryData, err := s.fetchAndCacheRepositoryData(id, false, false)
+	if err != nil {
+		log.Printf("Failed to fetch repository data for connector %d during deletion: %v", id, err)
+		// We log the error but proceed with connector deletion so the user isn't permanently blocked
+	} else if repositoryData.Error != "" {
+		log.Printf("Repository access error during deletion of connector %d: %s", id, repositoryData.Error)
+		// Again, proceed to delete the connector
+	} else {
+		// Queue webhook removal jobs for each project
+		ctx := c.Request().Context()
+		for _, projectPath := range repositoryData.Projects {
+			if err := s.jobQueue.QueueWebhookRemovalJob(ctx, id, projectPath, provider, providerURL, patToken, true); err != nil {
+				log.Printf("Failed to queue webhook removal job for %s: %v", projectPath, err)
+			}
+		}
+	}
 
 	// Execute the delete query
 	result, err := s.db.Exec(`
@@ -455,7 +504,7 @@ func (s *Server) DeleteConnector(c echo.Context) error {
 	`, id)
 
 	if err != nil {
-		log.Printf("Failed to delete connector with ID %s: %v", id, err)
+		log.Printf("Failed to delete connector with ID %d: %v", id, err)
 		return c.JSON(http.StatusInternalServerError, ErrorResponse{
 			Error: "Database error: " + err.Error(),
 		})

@@ -15,7 +15,7 @@ import (
 
 // Prompts API — Phase 7 endpoints
 
-type catalogEntry struct {
+type CatalogEntry struct {
 	PromptKey string   `json:"prompt_key"`
 	Provider  string   `json:"provider"`
 	BuildID   string   `json:"build_id"`
@@ -25,7 +25,7 @@ type catalogEntry struct {
 // GET /api/v1/prompts/catalog
 func (s *Server) GetPromptsCatalog(c echo.Context) error {
 	pack := vendorpack.New()
-	entries := []catalogEntry{}
+	entries := []CatalogEntry{}
 	listed := pack.List()
 	// In dev builds without vendor pack, add registry_stub templates to catalog
 	if len(listed) == 0 {
@@ -72,7 +72,7 @@ func (s *Server) GetPromptsCatalog(c echo.Context) error {
 				}
 			}
 		}
-		entries = append(entries, catalogEntry{
+		entries = append(entries, CatalogEntry{
 			PromptKey: t.PromptKey,
 			Provider:  t.Provider,
 			BuildID:   t.BuildID,
@@ -82,7 +82,7 @@ func (s *Server) GetPromptsCatalog(c echo.Context) error {
 	return c.JSON(http.StatusOK, map[string]any{"catalog": entries})
 }
 
-type renderPreviewResponse struct {
+type RenderPreviewResponse struct {
 	Prompt   string `json:"prompt"`
 	BuildID  string `json:"build_id"`
 	Provider string `json:"provider"`
@@ -107,14 +107,14 @@ func (s *Server) RenderPromptPreview(c echo.Context) error {
 		return c.JSON(http.StatusInternalServerError, map[string]string{"error": err.Error()})
 	}
 
-	return c.JSON(http.StatusOK, renderPreviewResponse{
+	return c.JSON(http.StatusOK, RenderPreviewResponse{
 		Prompt:   out,
 		BuildID:  pack.ActiveBuildID(),
 		Provider: provider,
 	})
 }
 
-type chunkDTO struct {
+type ChunkDTO struct {
 	ID            int64  `json:"id"`
 	Type          string `json:"type"`
 	Title         string `json:"title"`
@@ -127,9 +127,9 @@ type chunkDTO struct {
 	UpdatedBy     *int64 `json:"updated_by,omitempty"`
 }
 
-type variableEntry struct {
+type VariableEntry struct {
 	Name   string     `json:"name"`
-	Chunks []chunkDTO `json:"chunks"`
+	Chunks []ChunkDTO `json:"chunks"`
 }
 
 // GET /api/v1/prompts/:key/variables
@@ -185,15 +185,15 @@ func (s *Server) GetPromptVariables(c echo.Context) error {
 		return c.JSON(http.StatusInternalServerError, map[string]string{"error": err.Error()})
 	}
 
-	varsOut := make([]variableEntry, 0, len(varNames))
+	varsOut := make([]VariableEntry, 0, len(varNames))
 	for _, v := range varNames {
 		chunks, err := mgr.ListChunks(c.Request().Context(), pc.OrgID, appCtxID, key, v)
 		if err != nil {
 			return c.JSON(http.StatusInternalServerError, map[string]string{"error": err.Error()})
 		}
-		dto := make([]chunkDTO, 0, len(chunks))
+		dto := make([]ChunkDTO, 0, len(chunks))
 		for _, ch := range chunks {
-			dto = append(dto, chunkDTO{
+			dto = append(dto, ChunkDTO{
 				ID:            ch.ID,
 				Type:          ch.Type,
 				Title:         ch.Title,
@@ -206,7 +206,7 @@ func (s *Server) GetPromptVariables(c echo.Context) error {
 				UpdatedBy:     ch.UpdatedBy,
 			})
 		}
-		varsOut = append(varsOut, variableEntry{Name: v, Chunks: dto})
+		varsOut = append(varsOut, VariableEntry{Name: v, Chunks: dto})
 	}
 
 	return c.JSON(http.StatusOK, map[string]any{
@@ -216,7 +216,7 @@ func (s *Server) GetPromptVariables(c echo.Context) error {
 	})
 }
 
-type createChunkRequest struct {
+type CreateChunkRequest struct {
 	Type               string  `json:"type"`
 	Title              string  `json:"title"`
 	Body               string  `json:"body"`
@@ -235,7 +235,7 @@ func (s *Server) CreatePromptChunk(c echo.Context) error {
 	key := c.Param("key")
 	variable := c.Param("var")
 
-	var req createChunkRequest
+	var req CreateChunkRequest
 	if err := c.Bind(&req); err != nil {
 		return c.JSON(http.StatusBadRequest, map[string]string{"error": "invalid request body"})
 	}
@@ -295,7 +295,7 @@ func (s *Server) CreatePromptChunk(c echo.Context) error {
 		if err := mgr.UpdateChunk(c.Request().Context(), ch); err != nil {
 			return c.JSON(http.StatusInternalServerError, map[string]string{"error": err.Error()})
 		}
-		return c.JSON(http.StatusOK, map[string]any{"chunk": chunkDTO{
+		return c.JSON(http.StatusOK, map[string]any{"chunk": ChunkDTO{
 			ID:            ch.ID,
 			Type:          ch.Type,
 			Title:         ch.Title,
@@ -334,7 +334,7 @@ func (s *Server) CreatePromptChunk(c echo.Context) error {
 		return c.JSON(http.StatusInternalServerError, map[string]string{"error": err.Error()})
 	}
 	ch.ID = id
-	return c.JSON(http.StatusOK, map[string]any{"chunk": chunkDTO{
+	return c.JSON(http.StatusOK, map[string]any{"chunk": ChunkDTO{
 		ID:            ch.ID,
 		Type:          ch.Type,
 		Title:         ch.Title,
@@ -348,7 +348,7 @@ func (s *Server) CreatePromptChunk(c echo.Context) error {
 	}})
 }
 
-type reorderRequest struct {
+type ReorderRequest struct {
 	OrderedIDs         []int64 `json:"ordered_ids"`
 	AIConnectorID      *int64  `json:"ai_connector_id"`
 	IntegrationTokenID *int64  `json:"integration_token_id"`
@@ -365,7 +365,7 @@ func (s *Server) ReorderPromptChunks(c echo.Context) error {
 		return c.JSON(http.StatusForbidden, map[string]string{"error": "owner or super admin required"})
 	}
 
-	var req reorderRequest
+	var req ReorderRequest
 	if err := c.Bind(&req); err != nil {
 		return c.JSON(http.StatusBadRequest, map[string]string{"error": "invalid request body"})
 	}
@@ -426,7 +426,7 @@ func (s *Server) parsePromptContextWithBody(c echo.Context, orgID int64, body an
 		return ctxSel, provider, err
 	}
 	switch t := body.(type) {
-	case *createChunkRequest:
+	case *CreateChunkRequest:
 		if t.AIConnectorID != nil {
 			ctxSel.AIConnectorID = t.AIConnectorID
 			if p, err2 := s.lookupProvider(c.Request().Context(), *t.AIConnectorID); err2 == nil && p != "" {
@@ -439,7 +439,7 @@ func (s *Server) parsePromptContextWithBody(c echo.Context, orgID int64, body an
 		if t.Repository != nil {
 			ctxSel.Repository = t.Repository
 		}
-	case *reorderRequest:
+	case *ReorderRequest:
 		if t.AIConnectorID != nil {
 			ctxSel.AIConnectorID = t.AIConnectorID
 			if p, err2 := s.lookupProvider(c.Request().Context(), *t.AIConnectorID); err2 == nil && p != "" {

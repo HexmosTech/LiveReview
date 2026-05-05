@@ -54,18 +54,18 @@ func NewBillingActionsHandler(db *sql.DB) *BillingActionsHandler {
 	}
 }
 
-type planChangeRequest struct {
+type PlanChangeRequest struct {
 	TargetPlanCode string `json:"target_plan_code"`
 	Currency       string `json:"currency,omitempty"`
 }
 
-type upgradePreparePaymentRequest struct {
+type UpgradePreparePaymentRequest struct {
 	TargetPlanCode   string `json:"target_plan_code"`
 	PreviewToken     string `json:"preview_token"`
 	UpgradeRequestID string `json:"upgrade_request_id"`
 }
 
-type upgradeExecuteRequest struct {
+type UpgradeExecuteRequest struct {
 	TargetPlanCode        string `json:"target_plan_code"`
 	PreviewToken          string `json:"preview_token"`
 	RazorpayOrderID       string `json:"razorpay_order_id"`
@@ -77,7 +77,7 @@ type upgradeExecuteRequest struct {
 	UpgradeRequestID      string `json:"upgrade_request_id"`
 }
 
-type signedUpgradePreview struct {
+type SignedUpgradePreview struct {
 	UpgradeRequestID        string `json:"upgrade_request_id"`
 	ActorUserID             int64  `json:"actor_user_id"`
 	OrgID                   int64  `json:"org_id"`
@@ -107,7 +107,7 @@ func previewTokenSecret() string {
 	return strings.TrimSpace(os.Getenv("JWT_SECRET"))
 }
 
-func signUpgradePreviewToken(data signedUpgradePreview) (string, error) {
+func signUpgradePreviewToken(data SignedUpgradePreview) (string, error) {
 	secret := previewTokenSecret()
 	if secret == "" {
 		return "", fmt.Errorf("JWT_SECRET must be set for upgrade preview signing")
@@ -126,15 +126,15 @@ func signUpgradePreviewToken(data signedUpgradePreview) (string, error) {
 	return encoded + "." + signature, nil
 }
 
-func parseAndVerifyUpgradePreviewToken(token string) (signedUpgradePreview, error) {
+func parseAndVerifyUpgradePreviewToken(token string) (SignedUpgradePreview, error) {
 	parts := strings.Split(strings.TrimSpace(token), ".")
 	if len(parts) != 2 {
-		return signedUpgradePreview{}, fmt.Errorf("invalid preview token")
+		return SignedUpgradePreview{}, fmt.Errorf("invalid preview token")
 	}
 
 	secret := previewTokenSecret()
 	if secret == "" {
-		return signedUpgradePreview{}, fmt.Errorf("JWT_SECRET must be set for upgrade preview verification")
+		return SignedUpgradePreview{}, fmt.Errorf("JWT_SECRET must be set for upgrade preview verification")
 	}
 
 	mac := hmac.New(sha256.New, []byte(secret))
@@ -142,21 +142,21 @@ func parseAndVerifyUpgradePreviewToken(token string) (signedUpgradePreview, erro
 	expected := hex.EncodeToString(mac.Sum(nil))
 	provided := strings.ToLower(strings.TrimSpace(parts[1]))
 	if !hmac.Equal([]byte(expected), []byte(provided)) {
-		return signedUpgradePreview{}, fmt.Errorf("invalid preview token signature")
+		return SignedUpgradePreview{}, fmt.Errorf("invalid preview token signature")
 	}
 
 	raw, err := base64.RawURLEncoding.DecodeString(parts[0])
 	if err != nil {
-		return signedUpgradePreview{}, fmt.Errorf("decode preview token payload: %w", err)
+		return SignedUpgradePreview{}, fmt.Errorf("decode preview token payload: %w", err)
 	}
 
-	var payload signedUpgradePreview
+	var payload SignedUpgradePreview
 	if err := json.Unmarshal(raw, &payload); err != nil {
-		return signedUpgradePreview{}, fmt.Errorf("unmarshal preview token payload: %w", err)
+		return SignedUpgradePreview{}, fmt.Errorf("unmarshal preview token payload: %w", err)
 	}
 
 	if payload.ExpiresAtUnix <= 0 || time.Now().UTC().Unix() > payload.ExpiresAtUnix {
-		return signedUpgradePreview{}, fmt.Errorf("preview token expired")
+		return SignedUpgradePreview{}, fmt.Errorf("preview token expired")
 	}
 
 	return payload, nil
@@ -351,18 +351,18 @@ func computeTargetProratedLOCGrant(targetMonthlyLOC int, fraction float64) int64
 	return grant
 }
 
-func (h *BillingActionsHandler) buildUpgradePreview(ctx context.Context, orgID int64, currentPlan, targetPlan license.PlanType, fallbackCycleStart, fallbackCycleEnd time.Time, currency string) (signedUpgradePreview, map[string]interface{}, error) {
+func (h *BillingActionsHandler) buildUpgradePreview(ctx context.Context, orgID int64, currentPlan, targetPlan license.PlanType, fallbackCycleStart, fallbackCycleEnd time.Time, currency string) (SignedUpgradePreview, map[string]interface{}, error) {
 	if h.db == nil {
-		return signedUpgradePreview{}, nil, fmt.Errorf("missing db handle")
+		return SignedUpgradePreview{}, nil, fmt.Errorf("missing db handle")
 	}
 
 	subStore := storagepayment.NewSubscriptionStore(h.db)
 	subscriptions, err := subStore.ListSubscriptionsByOrgID(int(orgID))
 	if err != nil {
-		return signedUpgradePreview{}, nil, fmt.Errorf("load org subscriptions: %w", err)
+		return SignedUpgradePreview{}, nil, fmt.Errorf("load org subscriptions: %w", err)
 	}
 	if len(subscriptions) == 0 {
-		return signedUpgradePreview{}, nil, fmt.Errorf("%w: organization has no active subscription", errRazorpayCheckoutRequired)
+		return SignedUpgradePreview{}, nil, fmt.Errorf("%w: organization has no active subscription", errRazorpayCheckoutRequired)
 	}
 
 	active := subscriptions[0]
@@ -373,27 +373,27 @@ func (h *BillingActionsHandler) buildUpgradePreview(ctx context.Context, orgID i
 		}
 	}
 	if strings.TrimSpace(active.RazorpaySubscriptionID) == "" {
-		return signedUpgradePreview{}, nil, fmt.Errorf("%w: no razorpay subscription id", errRazorpayCheckoutRequired)
+		return SignedUpgradePreview{}, nil, fmt.Errorf("%w: no razorpay subscription id", errRazorpayCheckoutRequired)
 	}
 
 	mode := resolveRazorpayModeForBilling()
 	currentPlanCurrency, err := resolveCurrentSubscriptionCurrency(mode, active)
 	if err != nil {
-		return signedUpgradePreview{}, nil, err
+		return SignedUpgradePreview{}, nil, err
 	}
 	resolvedCurrency, err := payment.NormalizeCurrency(currency)
 	if err != nil {
-		return signedUpgradePreview{}, nil, err
+		return SignedUpgradePreview{}, nil, err
 	}
 	if currentPlanCurrency != "" && !strings.EqualFold(currentPlanCurrency, resolvedCurrency) {
-		return signedUpgradePreview{}, nil, fmt.Errorf("cross-currency paid plan changes are not supported yet: current subscription is %s and requested currency is %s", currentPlanCurrency, resolvedCurrency)
+		return SignedUpgradePreview{}, nil, fmt.Errorf("cross-currency paid plan changes are not supported yet: current subscription is %s and requested currency is %s", currentPlanCurrency, resolvedCurrency)
 	}
 
 	cycleStart := fallbackCycleStart.UTC()
 	cycleEnd := fallbackCycleEnd.UTC()
 	razorpaySub, err := payment.GetSubscriptionByID(mode, active.RazorpaySubscriptionID)
 	if err != nil {
-		return signedUpgradePreview{}, nil, fmt.Errorf("load razorpay subscription: %w", err)
+		return SignedUpgradePreview{}, nil, fmt.Errorf("load razorpay subscription: %w", err)
 	}
 	if razorpaySub.CurrentStart > 0 {
 		cycleStart = time.Unix(razorpaySub.CurrentStart, 0).UTC()
@@ -404,7 +404,7 @@ func (h *BillingActionsHandler) buildUpgradePreview(ctx context.Context, orgID i
 
 	resolvedPrice, err := resolvePlanPriceForCurrency(mode, targetPlan, resolvedCurrency)
 	if err != nil {
-		return signedUpgradePreview{}, nil, err
+		return SignedUpgradePreview{}, nil, err
 	}
 	targetMonthlyCents := resolvedPrice.RecurringMinor
 	chargeCurrency := resolvedPrice.Currency
@@ -414,7 +414,7 @@ func (h *BillingActionsHandler) buildUpgradePreview(ctx context.Context, orgID i
 	chargeCents := computeTargetProratedChargeCents(targetMonthlyCents, remainingFraction)
 	locGrant := computeTargetProratedLOCGrant(targetPlan.GetLimits().MonthlyLOCLimit, remainingFraction)
 
-	tokenPayload := signedUpgradePreview{
+	tokenPayload := SignedUpgradePreview{
 		OrgID:                   orgID,
 		FromPlanCode:            currentPlan.String(),
 		ToPlanCode:              targetPlan.String(),
@@ -467,7 +467,7 @@ func (h *BillingActionsHandler) PreviewUpgrade(c echo.Context) error {
 		return err
 	}
 
-	var req planChangeRequest
+	var req PlanChangeRequest
 	if err := c.Bind(&req); err != nil {
 		return JSONErrorWithEnvelope(c, http.StatusBadRequest, "invalid request body")
 	}
@@ -555,7 +555,7 @@ func (h *BillingActionsHandler) PrepareUpgradePayment(c echo.Context) error {
 		return err
 	}
 
-	var req upgradePreparePaymentRequest
+	var req UpgradePreparePaymentRequest
 	if err := c.Bind(&req); err != nil {
 		return JSONErrorWithEnvelope(c, http.StatusBadRequest, "invalid request body")
 	}
@@ -737,7 +737,7 @@ func (h *BillingActionsHandler) ExecuteUpgrade(c echo.Context) error {
 		return err
 	}
 
-	var req upgradeExecuteRequest
+	var req UpgradeExecuteRequest
 	if err := c.Bind(&req); err != nil {
 		return JSONErrorWithEnvelope(c, http.StatusBadRequest, "invalid request body")
 	}
@@ -1557,7 +1557,7 @@ func (h *BillingActionsHandler) ScheduleDowngrade(c echo.Context) error {
 		return err
 	}
 
-	var req planChangeRequest
+	var req PlanChangeRequest
 	if err := c.Bind(&req); err != nil {
 		return JSONErrorWithEnvelope(c, http.StatusBadRequest, "invalid request body")
 	}
