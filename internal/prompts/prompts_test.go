@@ -54,6 +54,9 @@ func TestPromptBuilder_BuildCodeReviewPrompt(t *testing.T) {
 	assert.Contains(t, prompt, "ISSUE DETECTION FOCUS AREAS")
 	assert.Contains(t, prompt, "COMMENT CLASSIFICATION")
 	assert.Contains(t, prompt, "CRITICAL: LINE NUMBER REFERENCES")
+	assert.Contains(t, prompt, "Escalate severity to critical")
+	assert.Contains(t, prompt, "Info comments should be rare")
+	assert.Contains(t, prompt, "default to zero external comments")
 	assert.Contains(t, prompt, "# Code Changes")
 
 	// Verify it contains file information
@@ -265,6 +268,12 @@ func TestTemplateConstants(t *testing.T) {
 	assert.Contains(t, JSONStructureExample, "filePath")
 	assert.Contains(t, JSONStructureExample, "lineNumber")
 	assert.Contains(t, JSONStructureExample, "isInternal")
+	assert.Contains(t, CommentRequirements, "data corruption")
+	assert.Contains(t, CommentRequirements, "wrong information shown to users")
+	assert.Contains(t, CommentRequirements, "Do not use info for readability-only suggestions on small local refactors")
+	assert.Contains(t, ReviewGuidelines, "parameter renames, constant extraction, placeholder constants, doc-comment/style nits")
+	assert.Contains(t, CommentClassification, "If you are deciding between an external info comment and omission, omit it.")
+	assert.Contains(t, CommentClassification, "If a diff is a trivial refactor with no behavioral change, prefer zero external comments.")
 }
 
 // Benchmark test for large diffs
