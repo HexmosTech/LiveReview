@@ -31,6 +31,11 @@ const (
 - Be specific and concise - avoid wordiness, passive voice, and meandering explanations
 - Avoid unnecessary praise or filler comments
 - Avoid commenting on simplistic or obvious things (imports, blank space changes, etc.)
+- Escalate severity to critical when the plausible impact includes data corruption, data deletion, lost updates, wrong permissions, wrong billing/accounting state, or wrong user-visible information
+- Treat race conditions, missing async cleanup, and stale-state bugs as critical when they can silently overwrite data, drop data, or show incorrect state
+- Info comments should be rare; if a point is mostly explanatory, speculative, obvious, or better captured in the file summary, omit it or mark it internal instead
+- For trivial refactors that preserve behavior, default to zero external comments
+- Omit external comments for parameter renames, constant extraction, placeholder constants, doc-comment/style nits, and readability-only suggestions unless they create a real bug or concrete maintenance risk
 - Technical file summaries must explain the why/intent/architecture for substantive changes and should call out data model or interface impacts`
 
 	// CommentRequirements specifies what each comment should include
@@ -39,6 +44,12 @@ const (
 - Line number
 - Severity (info, warning, critical)
 - Clear suggestions for improvement
+
+Severity rules:
+- critical = plausible destructive or silently incorrect impact, including data corruption, data deletion, lost updates, auth/permission mistakes, wrong billing state, or wrong information shown to users
+- warning = concrete issue with meaningful risk, but the likely impact is contained and not destructive or silently incorrect
+- info = rare; use only for non-obvious, line-specific, actionable guidance that is not already better captured in the file summary
+- Do not use info for readability-only suggestions on small local refactors
 
 Focus on correctness, security, maintainability, performance, cloud cost risks, and code quality.`
 )
@@ -92,6 +103,8 @@ You must actively scan for the following categories of issues. This list is non-
 - Unhandled promise rejections or missing error handling
 - Type mismatches and unsafe type coercion
 - Race conditions, deadlocks, and concurrency bugs
+- Missing effect cleanup, cancellation, or lifecycle guards for async work that can outlive the current request/component
+- Stale-state bugs that can show wrong information, overwrite newer state, or drop user actions
 - Unreachable or dead code
 
 **Performance & Resources**
@@ -135,11 +148,16 @@ const (
   * Purely informational with no actionable insight
   * Low-value praise ("good practice", "nice naming")
   * Detailed technical analysis better suited for synthesis
+	* Explanatory context, speculation, or summary material that does not need a line-level comment
+	* Parameter renames, constant extraction, placeholder constants, doc-comment nits, style nits, or readability-only suggestions without a real bug or concrete maintenance risk
 - Set "isInternal": false for comments that are:
   * Security vulnerabilities or bugs
   * Performance issues
   * Maintainability concerns with clear suggestions
   * Important architectural decisions that need visibility
+	* Rare info comments only when they are non-obvious, actionable now, line-specific, and not better suited to the file summary
+If you are deciding between an external info comment and omission, omit it.
+If a diff is a trivial refactor with no behavioral change, prefer zero external comments.
 Only post comments that add real value to the developer!`
 )
 
