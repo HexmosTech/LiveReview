@@ -167,19 +167,19 @@ func (s *Server) TriggerReviewV2(c echo.Context) error {
 			applyPreflightToEnvelopeContext(c, preflightResult)
 			if preflightResult.Blocked {
 				errorCode := "quota_exceeded"
-				errorMessage := fmt.Sprintf("Monthly LOC quota exceeded (%d/%d). Reviews are blocked until your quota resets on %s or you upgrade your plan.",
-					preflightResult.LOCUsedMonth, preflightResult.LOCLimitMonth,
-					preflightResult.BillingPeriodEnd.Format("Jan 2, 2006"))
+				errorMessage := "monthly LOC quota exceeded for this organization"
 				if preflightResult.BlockReason == "trial_readonly" {
 					errorCode = "trial_readonly"
-					errorMessage = "Trial period ended; review operations are read-only until plan update"
+					errorMessage = "trial period ended; review operations are read-only until plan update"
 				}
 				log.Printf("[INFO] TriggerReviewV2: LOC quota blocked for org=%d, used=%d, limit=%d",
 					orgID, preflightResult.LOCUsedMonth, preflightResult.LOCLimitMonth)
 				return JSONWithEnvelope(c, http.StatusForbidden, map[string]interface{}{
-					"error":       errorMessage,
-					"error_code":  errorCode,
-					"upgrade_url": defaultUpgradeURL,
+					"error":         errorMessage,
+					"error_code":    errorCode,
+					"loc_remaining": preflightResult.LOCRemainingMonth,
+					"usage_percent": preflightResult.UsagePercent,
+					"upgrade_url":   defaultUpgradeURL,
 				})
 			}
 		}
@@ -208,9 +208,12 @@ func (s *Server) TriggerReviewV2(c echo.Context) error {
 			errorMessage = "trial period ended; review operations are read-only until plan update"
 		}
 		return JSONWithEnvelope(c, http.StatusForbidden, map[string]interface{}{
-			"error":        errorMessage,
-			"error_code":   errorCode,
-			"required_loc": 1,
+			"error":         errorMessage,
+			"error_code":    errorCode,
+			"required_loc":  1,
+			"loc_remaining": quotaPreflight.LOCRemainingMonth,
+			"usage_percent": quotaPreflight.UsagePercent,
+			"upgrade_url":   defaultUpgradeURL,
 		})
 	}
 
