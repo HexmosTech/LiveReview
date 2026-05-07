@@ -116,16 +116,21 @@ func (s *Server) DiffReview(c echo.Context) error {
 
 	if preflightResult.Blocked {
 		errorCode := "quota_exceeded"
-		errorMessage := "monthly LOC quota exceeded for this operation"
+		errorMessage := fmt.Sprintf("Operation requires %d LOC, but you only have %d remaining this month. Upgrade your plan to continue.",
+			billableLOC, preflightResult.LOCRemainingMonth)
 		if preflightResult.BlockReason == "trial_readonly" {
 			errorCode = "trial_readonly"
-			errorMessage = "trial period ended; review operations are read-only until plan update"
+			errorMessage = "Trial period ended; review operations are read-only until plan update"
 		}
+		log.Printf("[INFO] DiffReview: LOC quota blocked for org=%d, req=%d, remaining=%d",
+			orgID, billableLOC, preflightResult.LOCRemainingMonth)
 		return JSONWithEnvelope(c, http.StatusForbidden, map[string]interface{}{
-			"error":        errorMessage,
-			"error_code":   errorCode,
-			"required_loc": billableLOC,
-			"upgrade_url":  "/settings-subscriptions-overview",
+			"error":         errorMessage,
+			"error_code":    errorCode,
+			"required_loc":  billableLOC,
+			"loc_remaining": preflightResult.LOCRemainingMonth,
+			"usage_percent": preflightResult.UsagePercent,
+			"upgrade_url":   defaultUpgradeURL,
 		})
 	}
 

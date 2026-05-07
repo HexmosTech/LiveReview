@@ -27,10 +27,11 @@ func getParseAppID() string {
 
 // SendInvitationEmail sends an invitation email via the Parse Cloud Function
 func SendInvitationEmail(params InvitationParams) error {
-	apiURL := os.Getenv("FW_PARSE_INVITATION_URL")
-	if apiURL == "" {
+	baseURL := os.Getenv("FW_PARSE_BASE_URL")
+	if baseURL == "" {
 		return nil
 	}
+	apiURL := fmt.Sprintf("%s/parse/functions/userInvitation", baseURL)
 
 	appID := getParseAppID()
 
