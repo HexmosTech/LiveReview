@@ -652,7 +652,7 @@ func (s *Service) postReviewResults(
 		FilePath: "",
 		Line:     0,
 		Content:  result.Summary,
-		Severity: models.SeverityInfo,
+		Severity: "", // Summary doesn't need a severity header
 		Category: "summary",
 	}
 	summaryComment.Content = appendLearningAcknowledgment(summaryComment.Content)
