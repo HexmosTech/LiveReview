@@ -49,9 +49,9 @@ func (c *APIClient) PostCommentReply(event *UnifiedWebhookEventV2, token, replyT
 
 	apiURL := fmt.Sprintf("https://api.github.com/repos/%s/issues/%d/comments",
 		event.Repository.FullName, event.MergeRequest.Number)
-	requestBody := map[string]interface{}{
-		"body": replyText,
-	}
+
+	requestBody := make(map[string]interface{})
+	requestBody["body"] = replyText
 
 	if event.Comment.Position != nil {
 		replyTarget := event.Comment.ID
@@ -66,21 +66,20 @@ func (c *APIClient) PostCommentReply(event *UnifiedWebhookEventV2, token, replyT
 			} else {
 				apiURL = fmt.Sprintf("https://api.github.com/repos/%s/pulls/%d/comments",
 					event.Repository.FullName, event.MergeRequest.Number)
-				requestBody = map[string]interface{}{
-					"body":        replyText,
-					"in_reply_to": inReplyToInt,
-				}
+				requestBody["in_reply_to"] = inReplyToInt
 			}
 		}
-	} else if event.Comment.InReplyToID != nil && *event.Comment.InReplyToID != "" {
-		inReplyToInt, err := strconv.Atoi(*event.Comment.InReplyToID)
-		if err != nil {
-			log.Printf("[WARN] Failed to convert in_reply_to ID to integer: %v, using issue comment endpoint without thread linkage", err)
-		} else {
-			requestBody = map[string]interface{}{
-				"body":        replyText,
-				"in_reply_to": inReplyToInt,
+	} else {
+		// For general comments (Position == nil), GitHub doesn't support threaded replies via API for issue comments.
+		// Prefix the reply with a blockquote of the original comment body to indicate what we are replying to.
+		bodyText := strings.TrimSpace(event.Comment.Body)
+		if bodyText != "" {
+			var quoted strings.Builder
+			for _, line := range strings.Split(bodyText, "\n") {
+				quoted.WriteString("> " + line + "\n")
 			}
+			quoted.WriteString("\n\n")
+			requestBody["body"] = quoted.String() + replyText
 		}
 	}
 
