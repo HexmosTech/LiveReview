@@ -65,11 +65,18 @@ const ConnectorForm: React.FC<ConnectorFormProps> = ({
     const usesCustomModel = !!currentModelValue && !providerModels.includes(currentModelValue);
     const shouldShowCustomModelInput = customModelMode || usesCustomModel;
 
+    // Sync custom mode when provider changes or model becomes valid
     React.useEffect(() => {
-        if (!usesCustomModel) {
+        setCustomModelMode(false);
+    }, [currentProvider]);
+
+    React.useEffect(() => {
+        // Auto-exit custom mode only if the model matches a standard one and is non-empty.
+        // This prevents the input from disappearing while the user is actively typing.
+        if (!usesCustomModel && formData.selectedModel !== '') {
             setCustomModelMode(false);
         }
-    }, [currentProvider, usesCustomModel]);
+    }, [usesCustomModel, formData.selectedModel]);
     
     // Validation rules
     const isValidForm = () => {
@@ -199,7 +206,7 @@ const ConnectorForm: React.FC<ConnectorFormProps> = ({
                         <select
                             name="selectedModel"
                             className="block w-full bg-slate-700 border border-slate-600 text-white rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                            value={usesCustomModel ? '__custom__' : currentModelValue}
+                            value={shouldShowCustomModelInput ? '__custom__' : currentModelValue}
                             onChange={(e) => {
                                 const { value } = e.target;
                                 if (value === '__custom__') {

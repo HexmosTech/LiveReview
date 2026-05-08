@@ -837,9 +837,6 @@ func (wo *WebhookOrchestratorV2) formatReviewComments(comments []UnifiedReviewCo
 
 	for i, comment := range comments {
 		result += fmt.Sprintf("**%d. %s**", i+1, comment.FilePath)
-		if comment.Severity != "" {
-			result += fmt.Sprintf(" (%s)", comment.Severity)
-		}
 		result += "\n"
 		if comment.LineNumber > 0 {
 			result += fmt.Sprintf("   Line %d: ", comment.LineNumber)
