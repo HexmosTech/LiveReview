@@ -529,6 +529,8 @@ API_SPEC_INPUTS := typed.yaml $(shell find internal/api pkg/models -name "*.go" 
 
 docs/openapi.yaml internal/api/docs/spec.go: $(API_SPEC_INPUTS)
 	@echo "🔄 Generating API specification..."
+	@mkdir -p docs internal/api/docs
+	@chmod 755 docs internal/api/docs
 	typed -config typed.yaml
 	go run internal/api/docs/spec.go
 
