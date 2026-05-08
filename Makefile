@@ -524,9 +524,15 @@ build-with-ui:
 	env -u GOROOT go build livereview.go
 	@echo "✅ Production build complete. Binary ready for raw-deploy."
 
-generate-spec:
+# Define API source files for spec generation
+API_SPEC_INPUTS := typed.yaml $(shell find internal/api pkg/models -name "*.go" | grep -v "internal/api/docs/spec.go")
+
+docs/openapi.yaml internal/api/docs/spec.go: $(API_SPEC_INPUTS)
+	@echo "🔄 Generating API specification..."
 	typed -config typed.yaml
 	go run internal/api/docs/spec.go
+
+generate-spec: docs/openapi.yaml
 
 raw-deploy: build-with-ui
 	@echo "🚀 Deploying to production server..."

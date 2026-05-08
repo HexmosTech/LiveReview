@@ -132,7 +132,6 @@ components:
         - api_key,omitempty
       type: object
     api.APIKey:
-      nullable: true
       properties:
         created_at:
           format: date-time
@@ -1207,7 +1206,6 @@ components:
         - created_at
       type: object
     api.ReviewAccountingOperationResponse:
-      nullable: true
       properties:
         accountedAt:
           type: string
@@ -1793,7 +1791,6 @@ components:
         - Dirty
       type: object
     api.WebhookHealthSummary:
-      nullable: true
       properties:
         connected_projects:
           type: integer
@@ -1827,7 +1824,6 @@ components:
         - setup_required_connectors
       type: object
     api.WebhookStatusSummary:
-      nullable: true
       properties:
         automatic:
           type: integer
@@ -2013,6 +2009,7 @@ components:
         - org_name
       type: object
     auth.TokenPair:
+      nullable: true
       properties:
         access_token:
           type: string
@@ -2196,6 +2193,7 @@ components:
         - IsBot
       type: object
     core_processor.UnifiedCommentV2:
+      nullable: true
       properties:
         Author:
           $ref: '#/components/schemas/core_processor.UnifiedUserV2'
@@ -2782,7 +2780,6 @@ components:
         - UpdatedAt
       type: object
     models.Org:
-      nullable: true
       properties:
         created_at:
           format: date-time
@@ -3967,13 +3964,13 @@ paths:
         - Aiconnectors
   /api/v1/auth/change-password:
     post:
-      description: ChangePassword handles changing the current user's password
+      description: ChangePassword handles password changes (useful for temp passwords)
       operationId: ChangePassword
       requestBody:
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/users.ChangePasswordRequest'
+              $ref: '#/components/schemas/auth.ChangePasswordRequest'
       responses:
         "200":
           content:
@@ -3983,6 +3980,30 @@ paths:
                   type: string
                 type: object
           description: OK
+        "400":
+          content:
+            application/json:
+              schema:
+                additionalProperties:
+                  type: string
+                type: object
+          description: Bad Request
+        "401":
+          content:
+            application/json:
+              schema:
+                additionalProperties:
+                  type: string
+                type: object
+          description: Unauthorized
+        "500":
+          content:
+            application/json:
+              schema:
+                additionalProperties:
+                  type: string
+                type: object
+          description: Internal Server Error
       tags:
         - Auth
   /api/v1/auth/ensure-cloud-user:
@@ -4522,6 +4543,12 @@ paths:
                   type: string
                 type: object
           description: OK
+        "400":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/api.ErrorResponse'
+          description: Bad Request
         "404":
           content:
             application/json:
@@ -5616,26 +5643,22 @@ paths:
         - Orgs
   /api/v1/orgs/{org_id}/members/{user_id}/role:
     put:
-      description: ChangeUserRole handles changing a user's role in an organization
+      description: ChangeUserRole changes a user's role in an organization
       operationId: ChangeUserRole
       parameters:
         - in: path
           name: org_id
           required: true
           schema:
-            type: string
+            format: int64
+            type: integer
         - in: path
           name: user_id
           required: true
           schema:
-            type: string
-      responses:
-        "200":
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/users.UserWithRole'
-          description: OK
+            format: int64
+            type: integer
+      responses: null
       tags:
         - Orgs
   /api/v1/orgs/{org_id}/users:
@@ -5691,12 +5714,12 @@ paths:
       operationId: DeactivateUser
       parameters:
         - in: path
-          name: org_id
+          name: user_id
           required: true
           schema:
             type: string
         - in: path
-          name: user_id
+          name: org_id
           required: true
           schema:
             type: string
@@ -5810,26 +5833,22 @@ paths:
         - Orgs
   /api/v1/orgs/{org_id}/users/{user_id}/role:
     put:
-      description: ChangeUserRole handles changing a user's role in an organization
+      description: ChangeUserRole changes a user's role in an organization
       operationId: ChangeUserRole
       parameters:
         - in: path
           name: org_id
           required: true
           schema:
-            type: string
+            format: int64
+            type: integer
         - in: path
           name: user_id
           required: true
           schema:
-            type: string
-      responses:
-        "200":
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/users.UserWithRole'
-          description: OK
+            format: int64
+            type: integer
+      responses: null
       tags:
         - Orgs
   /api/v1/password:
@@ -6109,12 +6128,12 @@ paths:
       operationId: CreatePromptChunk
       parameters:
         - in: path
-          name: var
+          name: key
           required: true
           schema:
             type: string
         - in: path
-          name: key
+          name: var
           required: true
           schema:
             type: string
@@ -6163,12 +6182,12 @@ paths:
       operationId: ReorderPromptChunks
       parameters:
         - in: path
-          name: key
+          name: var
           required: true
           schema:
             type: string
         - in: path
-          name: var
+          name: key
           required: true
           schema:
             type: string
@@ -6359,12 +6378,12 @@ paths:
       operationId: GetReviewEventsByType
       parameters:
         - in: path
-          name: type
+          name: id
           required: true
           schema:
             type: string
         - in: path
-          name: id
+          name: type
           required: true
           schema:
             type: string
@@ -6922,13 +6941,13 @@ paths:
         - Ui-Config
   /api/v1/users/password:
     put:
-      description: ChangePassword handles changing the current user's password
+      description: ChangePassword handles password changes (useful for temp passwords)
       operationId: ChangePassword
       requestBody:
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/users.ChangePasswordRequest'
+              $ref: '#/components/schemas/auth.ChangePasswordRequest'
       responses:
         "200":
           content:
@@ -6938,6 +6957,30 @@ paths:
                   type: string
                 type: object
           description: OK
+        "400":
+          content:
+            application/json:
+              schema:
+                additionalProperties:
+                  type: string
+                type: object
+          description: Bad Request
+        "401":
+          content:
+            application/json:
+              schema:
+                additionalProperties:
+                  type: string
+                type: object
+          description: Unauthorized
+        "500":
+          content:
+            application/json:
+              schema:
+                additionalProperties:
+                  type: string
+                type: object
+          description: Internal Server Error
       tags:
         - Users
   /api/v1/users/profile:
