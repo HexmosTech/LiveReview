@@ -70,3 +70,6 @@ chats/
 security_issues/
 scripts/lr_sessions.py
 ui/bun.lock
+
+# openapi spec generation
+internal/api/docs/spec.go
