@@ -17,6 +17,7 @@ import (
 	"github.com/labstack/echo/v4/middleware"
 	"github.com/livereview/internal/api/auth"
 	apimiddleware "github.com/livereview/internal/api/middleware"
+	"github.com/livereview/internal/api/mcp"
 	"github.com/livereview/internal/api/organizations"
 	"github.com/livereview/internal/api/users"
 	"github.com/livereview/internal/jobqueue"
@@ -139,6 +140,7 @@ type Server struct {
 	webhookOrchestratorV2 *WebhookOrchestratorV2
 
 	learningsService *learnings.Service
+	mcpService       *mcp.MCPService
 }
 
 // NewServer creates a new API server
@@ -312,6 +314,7 @@ func NewServer(port int, versionInfo *VersionInfo) (*Server, error) {
 		devMode:              devMode,
 		gitlabAuthService:    gitlabprovider.NewAuthService(db, triggerAutoInstall),
 		learningsService:     learningsSvc,
+		mcpService:           mcp.NewMCPService(fmt.Sprintf("http://localhost:%d", port)),
 	}
 
 	// Initialize V2 webhook providers
@@ -442,6 +445,10 @@ func (s *Server) setupRoutes() {
 	// Version endpoint
 	s.echo.GET("/api/version", s.getVersion)
 
+	// MCP endpoint
+	s.echo.GET("/api/v1/mcp", s.HandleMCP)
+	s.echo.POST("/api/v1/mcp/message", s.HandleMCP)
+
 	// API v1 group
 	v1 := s.echo.Group("/api/v1")
 
@@ -453,6 +460,10 @@ func (s *Server) setupRoutes() {
 	public.POST("/auth/refresh", s.authHandlers.RefreshToken)
 	public.GET("/auth/setup-status", s.authHandlers.CheckSetupStatus)
 	public.POST("/auth/setup", s.authHandlers.SetupAdmin)
+
+	// MCP Authorization endpoints
+	public.POST("/auth/mcp/initiate", s.authHandlers.InitiateMCPAuth)
+	public.GET("/auth/mcp/poll/:request_id", s.authHandlers.PollMCPAuth)
 
 	// Diff review endpoints (protected by API key middleware)
 	diffReviewGroup := v1.Group("/diff-review")
@@ -493,6 +504,9 @@ func (s *Server) setupRoutes() {
 	protected.GET("/auth/me", s.authHandlers.Me)
 	protected.POST("/auth/logout", s.authHandlers.Logout)
 	protected.POST("/auth/change-password", s.authHandlers.ChangePassword)
+
+	// MCP Authorization completion
+	protected.POST("/auth/mcp/complete", s.authHandlers.CompleteMCPAuth)
 
 	// Clear onboarding API key
 	protected.POST("/onboarding/clear-api-key", s.ClearOnboardingAPIKey)
@@ -1733,4 +1747,15 @@ func (s *Server) WebhookOrchestratorV2Handler(c echo.Context) error {
 	}
 
 	return s.webhookOrchestratorV2.ProcessWebhookEvent(c)
+}
+
+// HandleMCP handles MCP (Model Context Protocol) requests
+func (s *Server) HandleMCP(c echo.Context) error {
+	if s.mcpService == nil {
+		return c.JSON(http.StatusInternalServerError, map[string]string{
+			"error": "MCP service not initialized",
+		})
+	}
+	s.mcpService.GetHandler().ServeHTTP(c.Response().Writer, c.Request())
+	return nil
 }

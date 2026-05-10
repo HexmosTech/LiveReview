@@ -143,6 +143,13 @@ func (s *Server) checkDailyReviewLimit(c echo.Context) error {
 func (s *Server) TriggerReviewV2(c echo.Context) error {
 	log.Printf("[DEBUG] TriggerReviewV2: Starting review request handling")
 
+
+	// Parse request body for openapi.yaml AST generator
+	var req TriggerReviewRequest
+	if err := c.Bind(&req); err != nil {
+		return c.JSON(http.StatusBadRequest, ErrorResponse{Error: "invalid request format"})
+	}
+
 	// Check daily review limit for free plan users BEFORE creating any DB records
 	if err := s.checkDailyReviewLimit(c); err != nil {
 		return err // Already formatted as JSON response
@@ -186,7 +193,7 @@ func (s *Server) TriggerReviewV2(c echo.Context) error {
 	}
 
 	// Phase 1: Setup review context (org_id, parse request, create DB record, init logger)
-	ctx, err := s.setupReviewContext(c)
+	ctx, err := s.setupReviewContext(c, req)
 	if err != nil {
 		return c.JSON(http.StatusBadRequest, ErrorResponse{Error: err.Error()})
 	}
@@ -285,7 +292,7 @@ func optionalString(value string) *string {
 }
 
 // setupReviewContext extracts org_id, parses request, creates DB record, initializes logger
-func (s *Server) setupReviewContext(c echo.Context) (*reviewSetupContext, error) {
+func (s *Server) setupReviewContext(c echo.Context, req TriggerReviewRequest) (*reviewSetupContext, error) {
 	ctx := &reviewSetupContext{}
 
 	log.Printf("[DEBUG] FRONTEND TRIGGER-REVIEW STARTED")
@@ -312,13 +319,7 @@ func (s *Server) setupReviewContext(c echo.Context) (*reviewSetupContext, error)
 	}
 	log.Printf("[DEBUG] ✓ Organization ID: %d", orgID)
 
-	// Parse request body
-	log.Printf("[DEBUG] REQUEST PARSING: Parsing request body...")
-	req, err := parseTriggerReviewRequest(c)
-	if err != nil {
-		log.Printf("[ERROR] Failed to parse request: %v", err)
-		return nil, fmt.Errorf("invalid request format: %w", err)
-	}
+	// Use passed parsed request
 	ctx.requestURL = req.URL
 	log.Printf("[DEBUG] ✓ Request parsed successfully - MR/PR URL: %s", req.URL)
 
