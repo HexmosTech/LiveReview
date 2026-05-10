@@ -30,6 +30,7 @@ const LicenseManagement = React.lazy(() => import('./pages/Licenses/LicenseManag
 const LicenseAssignment = React.lazy(() => import('./pages/Licenses/LicenseAssignment'));
 const UserForm = React.lazy(() => import('./components/UserManagement/UserForm'));
 const BillingPortfolio = React.lazy(() => import('./pages/Admin/BillingPortfolio'));
+const MCPAuth = React.lazy(() => import('./pages/Auth/MCPAuth'));
 // import { usePostHog } from '@posthog/react'
 
 const Footer = () => (
@@ -327,6 +328,7 @@ const AppContent: React.FC = () => {
                                 <Route path="/admin/billing-portfolio" element={<BillingPortfolio />} />
                                 <Route path="/test-middleware" element={<MiddlewareTestPage />} />
                                 <Route path="/oauth-callback" element={<OAuthCallbackHandler />} />
+                                <Route path="/auth/mcp" element={<MCPAuth />} />
                                 <Route path="*" element={<Navigate to="/" replace />} />
                             </Routes>
                         </Suspense>

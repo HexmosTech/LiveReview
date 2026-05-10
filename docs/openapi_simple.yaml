@@ -1885,9 +1885,11 @@ components:
         email:
           type: string
         exp:
-          $ref: '#/components/schemas/jwt.NumericDate'
+          format: int64
+          type: integer
         iat:
-          $ref: '#/components/schemas/jwt.NumericDate'
+          format: int64
+          type: integer
         iss:
           type: string
         jti:
@@ -1897,7 +1899,8 @@ components:
           nullable: true
           type: integer
         nbf:
-          $ref: '#/components/schemas/jwt.NumericDate'
+          format: int64
+          type: integer
         plan_type:
           type: string
         sub:
@@ -2026,7 +2029,6 @@ components:
         - org_name
       type: object
     auth.TokenPair:
-      nullable: true
       properties:
         access_token:
           type: string
@@ -2056,7 +2058,6 @@ components:
         - RefreshTokenDuration
       type: object
     auth.UserInfo:
-      nullable: true
       properties:
         created_at:
           format: date-time
@@ -2210,7 +2211,6 @@ components:
         - IsBot
       type: object
     core_processor.UnifiedCommentV2:
-      nullable: true
       properties:
         Author:
           $ref: '#/components/schemas/core_processor.UnifiedUserV2'
@@ -2257,6 +2257,7 @@ components:
         - Email
       type: object
     core_processor.UnifiedCommitV2:
+      nullable: true
       properties:
         Author:
           $ref: '#/components/schemas/core_processor.UnifiedCommitAuthorV2'
@@ -2321,7 +2322,6 @@ components:
         - TargetBranch
       type: object
     core_processor.UnifiedMergeRequestV2:
-      nullable: true
       properties:
         Assignees:
           items:
@@ -2963,6 +2963,7 @@ components:
         - Summary
       type: object
     models.Role:
+      nullable: true
       properties:
         created_at:
           format: date-time
@@ -3571,7 +3572,9 @@ openapi: 3.0.0
 paths:
   /api/v1/activities:
     get:
-      description: GetRecentActivities handles the API endpoint for fetching recent activities
+      description: >-
+        GetRecentActivities handles the API endpoint for fetching recent
+        activities
       operationId: GetRecentActivities
       parameters:
         - in: query
@@ -3585,7 +3588,7 @@ paths:
           schema:
             type: string
       responses:
-        "400":
+        '400':
           content:
             application/json:
               schema:
@@ -3593,7 +3596,7 @@ paths:
                   type: string
                 type: object
           description: Bad Request
-        "500":
+        '500':
           content:
             application/json:
               schema:
@@ -3608,7 +3611,7 @@ paths:
       description: GetUserAnalytics handles getting user analytics (super admin only)
       operationId: GetUserAnalytics
       responses:
-        "200":
+        '200':
           content:
             application/json:
               schema:
@@ -3668,7 +3671,9 @@ paths:
         - Admin
   /api/v1/admin/orgs/{org_id}/users:
     post:
-      description: CreateUserInAnyOrg handles creating a user in any organization (super admin only)
+      description: >-
+        CreateUserInAnyOrg handles creating a user in any organization (super
+        admin only)
       operationId: CreateUserInAnyOrg
       parameters:
         - in: path
@@ -3682,7 +3687,7 @@ paths:
             schema:
               $ref: '#/components/schemas/users.CreateUserRequest'
       responses:
-        "201":
+        '201':
           content:
             application/json:
               schema:
@@ -3692,7 +3697,9 @@ paths:
         - Admin
   /api/v1/admin/users:
     get:
-      description: ListAllUsers handles listing all users across all organizations (super admin only)
+      description: >-
+        ListAllUsers handles listing all users across all organizations (super
+        admin only)
       operationId: ListAllUsers
       parameters:
         - in: query
@@ -3710,7 +3717,9 @@ paths:
         - Admin
   /api/v1/admin/users/{user_id}/org:
     put:
-      description: TransferUserToOrg handles transferring a user to a different organization (super admin only)
+      description: >-
+        TransferUserToOrg handles transferring a user to a different
+        organization (super admin only)
       operationId: TransferUserToOrg
       parameters:
         - in: path
@@ -3719,7 +3728,7 @@ paths:
           schema:
             type: string
       responses:
-        "200":
+        '200':
           content:
             application/json:
               schema:
@@ -3732,7 +3741,7 @@ paths:
       description: GetAIConnectors handles requests to get all AI connectors
       operationId: GetAIConnectors
       responses:
-        "200":
+        '200':
           content:
             application/json:
               schema:
@@ -3740,7 +3749,7 @@ paths:
                   $ref: '#/components/schemas/api.AIConnectorResponse'
                 type: array
           description: OK
-        "400":
+        '400':
           content:
             application/json:
               schema:
@@ -3748,7 +3757,7 @@ paths:
                   type: string
                 type: object
           description: Bad Request
-        "500":
+        '500':
           content:
             application/json:
               schema:
@@ -3767,13 +3776,13 @@ paths:
             schema:
               $ref: '#/components/schemas/api.AIConnectorCreateRequest'
       responses:
-        "201":
+        '201':
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/api.AIConnectorResponse'
           description: Created
-        "400":
+        '400':
           content:
             application/json:
               schema:
@@ -3781,7 +3790,7 @@ paths:
                   type: string
                 type: object
           description: Bad Request
-        "500":
+        '500':
           content:
             application/json:
               schema:
@@ -3802,7 +3811,7 @@ paths:
           schema:
             type: string
       responses:
-        "200":
+        '200':
           content:
             application/json:
               schema:
@@ -3810,7 +3819,7 @@ paths:
                   type: string
                 type: object
           description: OK
-        "400":
+        '400':
           content:
             application/json:
               schema:
@@ -3818,7 +3827,7 @@ paths:
                   type: string
                 type: object
           description: Bad Request
-        "403":
+        '403':
           content:
             application/json:
               schema:
@@ -3826,7 +3835,7 @@ paths:
                   type: string
                 type: object
           description: Forbidden
-        "404":
+        '404':
           content:
             application/json:
               schema:
@@ -3834,7 +3843,7 @@ paths:
                   type: string
                 type: object
           description: Not Found
-        "500":
+        '500':
           content:
             application/json:
               schema:
@@ -3859,13 +3868,13 @@ paths:
             schema:
               $ref: '#/components/schemas/api.AIConnectorCreateRequest'
       responses:
-        "200":
+        '200':
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/api.AIConnectorResponse'
           description: OK
-        "400":
+        '400':
           content:
             application/json:
               schema:
@@ -3873,7 +3882,7 @@ paths:
                   type: string
                 type: object
           description: Bad Request
-        "403":
+        '403':
           content:
             application/json:
               schema:
@@ -3881,7 +3890,7 @@ paths:
                   type: string
                 type: object
           description: Forbidden
-        "404":
+        '404':
           content:
             application/json:
               schema:
@@ -3889,7 +3898,7 @@ paths:
                   type: string
                 type: object
           description: Not Found
-        "500":
+        '500':
           content:
             application/json:
               schema:
@@ -3901,7 +3910,9 @@ paths:
         - Aiconnectors
   /api/v1/aiconnectors/ollama/models:
     post:
-      description: FetchOllamaModels handles requests to fetch available models from an Ollama instance
+      description: >-
+        FetchOllamaModels handles requests to fetch available models from an
+        Ollama instance
       operationId: FetchOllamaModels
       requestBody:
         content:
@@ -3909,7 +3920,7 @@ paths:
             schema:
               $ref: '#/components/schemas/api.FetchOllamaModelsRequest'
       responses:
-        "400":
+        '400':
           content:
             application/json:
               schema:
@@ -3924,7 +3935,7 @@ paths:
       description: ReorderAIConnectors handles requests to reorder AI connectors
       operationId: ReorderAIConnectors
       responses:
-        "200":
+        '200':
           content:
             application/json:
               schema:
@@ -3932,7 +3943,7 @@ paths:
                   type: string
                 type: object
           description: OK
-        "400":
+        '400':
           content:
             application/json:
               schema:
@@ -3940,7 +3951,7 @@ paths:
                   type: string
                 type: object
           description: Bad Request
-        "500":
+        '500':
           content:
             application/json:
               schema:
@@ -3952,7 +3963,9 @@ paths:
         - Aiconnectors
   /api/v1/aiconnectors/validate-key:
     post:
-      description: ValidateAIConnectorKey handles requests to validate an AI provider API key
+      description: >-
+        ValidateAIConnectorKey handles requests to validate an AI provider API
+        key
       operationId: ValidateAIConnectorKey
       requestBody:
         content:
@@ -3960,19 +3973,19 @@ paths:
             schema:
               $ref: '#/components/schemas/api.AIConnectorKeyValidationRequest'
       responses:
-        "200":
+        '200':
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/api.AIConnectorKeyValidationResponse'
           description: OK
-        "400":
+        '400':
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/api.AIConnectorKeyValidationResponse'
           description: Bad Request
-        "500":
+        '500':
           content:
             application/json:
               schema:
@@ -3990,7 +4003,7 @@ paths:
             schema:
               $ref: '#/components/schemas/auth.ChangePasswordRequest'
       responses:
-        "200":
+        '200':
           content:
             application/json:
               schema:
@@ -3998,7 +4011,7 @@ paths:
                   type: string
                 type: object
           description: OK
-        "400":
+        '400':
           content:
             application/json:
               schema:
@@ -4006,7 +4019,7 @@ paths:
                   type: string
                 type: object
           description: Bad Request
-        "401":
+        '401':
           content:
             application/json:
               schema:
@@ -4014,7 +4027,7 @@ paths:
                   type: string
                 type: object
           description: Unauthorized
-        "500":
+        '500':
           content:
             application/json:
               schema:
@@ -4026,9 +4039,10 @@ paths:
         - Auth
   /api/v1/auth/ensure-cloud-user:
     post:
-      description: |-
-        EnsureCloudUser ensures that a user and a personal organization exist, assigning super_admin role.
-        Idempotent: if user/org/role mapping already exist, it returns success without changes.
+      description: >-
+        EnsureCloudUser ensures that a user and a personal organization exist,
+        assigning super_admin role. Idempotent: if user/org/role mapping already
+        exist, it returns success without changes.
       operationId: EnsureCloudUser
       requestBody:
         content:
@@ -4036,7 +4050,7 @@ paths:
             schema:
               $ref: '#/components/schemas/auth.EnsureCloudUserRequest'
       responses:
-        "400":
+        '400':
           content:
             application/json:
               schema:
@@ -4044,7 +4058,7 @@ paths:
                   type: string
                 type: object
           description: Bad Request
-        "401":
+        '401':
           content:
             application/json:
               schema:
@@ -4052,7 +4066,7 @@ paths:
                   type: string
                 type: object
           description: Unauthorized
-        "403":
+        '403':
           content:
             application/json:
               schema:
@@ -4060,7 +4074,7 @@ paths:
                   type: string
                 type: object
           description: Forbidden
-        "500":
+        '500':
           content:
             application/json:
               schema:
@@ -4080,13 +4094,13 @@ paths:
             schema:
               $ref: '#/components/schemas/auth.LoginRequest'
       responses:
-        "200":
+        '200':
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/auth.LoginResponse'
           description: OK
-        "400":
+        '400':
           content:
             application/json:
               schema:
@@ -4094,7 +4108,7 @@ paths:
                   type: string
                 type: object
           description: Bad Request
-        "401":
+        '401':
           content:
             application/json:
               schema:
@@ -4102,7 +4116,7 @@ paths:
                   type: string
                 type: object
           description: Unauthorized
-        "500":
+        '500':
           content:
             application/json:
               schema:
@@ -4117,7 +4131,7 @@ paths:
       description: Logout handles user logout (revokes tokens)
       operationId: Logout
       responses:
-        "200":
+        '200':
           content:
             application/json:
               schema:
@@ -4125,7 +4139,7 @@ paths:
                   type: string
                 type: object
           description: OK
-        "400":
+        '400':
           content:
             application/json:
               schema:
@@ -4133,7 +4147,7 @@ paths:
                   type: string
                 type: object
           description: Bad Request
-        "401":
+        '401':
           content:
             application/json:
               schema:
@@ -4141,7 +4155,7 @@ paths:
                   type: string
                 type: object
           description: Unauthorized
-        "500":
+        '500':
           content:
             application/json:
               schema:
@@ -4153,9 +4167,7 @@ paths:
         - Auth
   /api/v1/auth/mcp/complete:
     post:
-      description: |-
-        CompleteMCPAuth is called by the UI after successful login
-        This route should be protected by RequireAuth middleware
+      description: CompleteMCPAuth is called by the UI after successful login.
       operationId: CompleteMCPAuth
       parameters:
         - in: query
@@ -4169,7 +4181,7 @@ paths:
             schema:
               $ref: '#/components/schemas/auth.TokenPair'
       responses:
-        "200":
+        '200':
           content:
             application/json:
               schema:
@@ -4184,7 +4196,7 @@ paths:
       description: InitiateMCPAuth creates a new pending auth request
       operationId: InitiateMCPAuth
       responses:
-        "200":
+        '200':
           content:
             application/json:
               schema:
@@ -4205,13 +4217,13 @@ paths:
           schema:
             type: string
       responses:
-        "200":
+        '200':
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/auth.MCPAuthRequest'
           description: OK
-        "202":
+        '202':
           content:
             application/json:
               schema:
@@ -4226,7 +4238,7 @@ paths:
       description: Me returns information about the currently authenticated user
       operationId: Me
       responses:
-        "401":
+        '401':
           content:
             application/json:
               schema:
@@ -4234,7 +4246,7 @@ paths:
                   type: string
                 type: object
           description: Unauthorized
-        "500":
+        '500':
           content:
             application/json:
               schema:
@@ -4254,13 +4266,13 @@ paths:
             schema:
               $ref: '#/components/schemas/auth.RefreshRequest'
       responses:
-        "200":
+        '200':
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/auth.TokenPair'
           description: OK
-        "400":
+        '400':
           content:
             application/json:
               schema:
@@ -4268,7 +4280,7 @@ paths:
                   type: string
                 type: object
           description: Bad Request
-        "401":
+        '401':
           content:
             application/json:
               schema:
@@ -4280,7 +4292,9 @@ paths:
         - Auth
   /api/v1/auth/setup:
     post:
-      description: SetupAdmin handles initial admin user setup (replaces legacy password system)
+      description: >-
+        SetupAdmin handles initial admin user setup (replaces legacy password
+        system)
       operationId: SetupAdmin
       requestBody:
         content:
@@ -4288,7 +4302,7 @@ paths:
             schema:
               $ref: '#/components/schemas/auth.SetupAdminRequest'
       responses:
-        "400":
+        '400':
           content:
             application/json:
               schema:
@@ -4296,7 +4310,7 @@ paths:
                   type: string
                 type: object
           description: Bad Request
-        "500":
+        '500':
           content:
             application/json:
               schema:
@@ -4311,7 +4325,7 @@ paths:
       description: CheckSetupStatus checks if initial setup is needed
       operationId: CheckSetupStatus
       responses:
-        "500":
+        '500':
           content:
             application/json:
               schema:
@@ -4433,7 +4447,9 @@ paths:
         - Billing
   /api/v1/bitbucket-hook/{connector_id}:
     post:
-      description: WebhookOrchestratorV2Handler handles webhooks using the V2 orchestrator (full processing pipeline)
+      description: >-
+        WebhookOrchestratorV2Handler handles webhooks using the V2 orchestrator
+        (full processing pipeline)
       operationId: WebhookOrchestratorV2Handler
       parameters:
         - in: path
@@ -4442,7 +4458,7 @@ paths:
           schema:
             type: string
       responses:
-        "500":
+        '500':
           content:
             application/json:
               schema:
@@ -4454,7 +4470,9 @@ paths:
         - Bitbucket-Hook
   /api/v1/bitbucket/validate-profile:
     post:
-      description: ValidateBitbucketProfile validates Bitbucket API Token by fetching user profile
+      description: >-
+        ValidateBitbucketProfile validates Bitbucket API Token by fetching user
+        profile
       operationId: ValidateBitbucketProfile
       requestBody:
         content:
@@ -4462,13 +4480,13 @@ paths:
             schema:
               $ref: '#/components/schemas/api.ValidateBitbucketProfileRequest'
       responses:
-        "200":
+        '200':
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/api.BitbucketProfile'
           description: OK
-        "400":
+        '400':
           content:
             application/json:
               schema:
@@ -4480,10 +4498,12 @@ paths:
         - Bitbucket
   /api/v1/connectors:
     get:
-      description: GetConnectors returns all integration tokens (connectors) for the current organization
+      description: >-
+        GetConnectors returns all integration tokens (connectors) for the
+        current organization
       operationId: GetConnectors
       responses:
-        "200":
+        '200':
           content:
             application/json:
               schema:
@@ -4491,13 +4511,13 @@ paths:
                   $ref: '#/components/schemas/api.ConnectorResponse'
                 type: array
           description: OK
-        "400":
+        '400':
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/api.ErrorResponse'
           description: Bad Request
-        "500":
+        '500':
           content:
             application/json:
               schema:
@@ -4507,7 +4527,9 @@ paths:
         - Connectors
   /api/v1/connectors/{connectorId}/disable-manual-trigger:
     post:
-      description: DisableManualTriggerForAllProjects handles disabling manual trigger for all projects for a connector
+      description: >-
+        DisableManualTriggerForAllProjects handles disabling manual trigger for
+        all projects for a connector
       operationId: DisableManualTriggerForAllProjects
       parameters:
         - in: path
@@ -4516,7 +4538,7 @@ paths:
           schema:
             type: string
       responses:
-        "400":
+        '400':
           content:
             application/json:
               schema:
@@ -4524,7 +4546,7 @@ paths:
                   type: string
                 type: object
           description: Bad Request
-        "500":
+        '500':
           content:
             application/json:
               schema:
@@ -4536,7 +4558,9 @@ paths:
         - Connectors
   /api/v1/connectors/{connectorId}/enable-manual-trigger:
     post:
-      description: EnableManualTriggerForAllProjects handles enabling manual trigger for all projects for a connector
+      description: >-
+        EnableManualTriggerForAllProjects handles enabling manual trigger for
+        all projects for a connector
       operationId: EnableManualTriggerForAllProjects
       parameters:
         - in: path
@@ -4545,7 +4569,7 @@ paths:
           schema:
             type: string
       responses:
-        "400":
+        '400':
           content:
             application/json:
               schema:
@@ -4553,7 +4577,7 @@ paths:
                   type: string
                 type: object
           description: Bad Request
-        "500":
+        '500':
           content:
             application/json:
               schema:
@@ -4565,14 +4589,13 @@ paths:
         - Connectors
   /api/v1/connectors/{connectorId}/repository-access:
     get:
-      description: |-
-        GetRepositoryAccess fetches repository access information for a connector
-        Query Parameters:
-          - refresh: Set to "true" to force refresh the cached data (optional)
-        //
-        Example usage:
-          - GET /api/repository-access/{connectorId} - Returns cached data if available
-          - GET /api/repository-access/{connectorId}?refresh=true - Forces fresh data fetch and updates cache
+      description: >-
+        GetRepositoryAccess fetches repository access information for a
+        connector Query Parameters:   - refresh: Set to "true" to force refresh
+        the cached data (optional) // Example usage:   - GET
+        /api/repository-access/{connectorId} - Returns cached data if
+        available   - GET /api/repository-access/{connectorId}?refresh=true -
+        Forces fresh data fetch and updates cache
       operationId: GetRepositoryAccess
       parameters:
         - in: path
@@ -4586,25 +4609,25 @@ paths:
           schema:
             type: string
       responses:
-        "200":
+        '200':
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/api.RepositoryAccessResponse'
           description: OK
-        "400":
+        '400':
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/api.ErrorResponse'
           description: Bad Request
-        "404":
+        '404':
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/api.ErrorResponse'
           description: Not Found
-        "500":
+        '500':
           content:
             application/json:
               schema:
@@ -4623,7 +4646,7 @@ paths:
           schema:
             type: string
       responses:
-        "200":
+        '200':
           content:
             application/json:
               schema:
@@ -4631,19 +4654,19 @@ paths:
                   type: string
                 type: object
           description: OK
-        "400":
+        '400':
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/api.ErrorResponse'
           description: Bad Request
-        "404":
+        '404':
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/api.ErrorResponse'
           description: Not Found
-        "500":
+        '500':
           content:
             application/json:
               schema:
@@ -4661,25 +4684,25 @@ paths:
           schema:
             type: string
       responses:
-        "200":
+        '200':
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/api.ConnectorResponse'
           description: OK
-        "400":
+        '400':
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/api.ErrorResponse'
           description: Bad Request
-        "404":
+        '404':
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/api.ErrorResponse'
           description: Not Found
-        "500":
+        '500':
           content:
             application/json:
               schema:
@@ -4689,7 +4712,9 @@ paths:
         - Connectors
   /api/v1/connectors/trigger-review:
     post:
-      description: TriggerReviewV2 handles the request to trigger a code review using the new decoupled architecture
+      description: >-
+        TriggerReviewV2 handles the request to trigger a code review using the
+        new decoupled architecture
       operationId: TriggerReviewV2
       requestBody:
         content:
@@ -4697,13 +4722,13 @@ paths:
             schema:
               $ref: '#/components/schemas/api.TriggerReviewRequest'
       responses:
-        "400":
+        '400':
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/api.ErrorResponse'
           description: Bad Request
-        "500":
+        '500':
           content:
             application/json:
               schema:
@@ -4716,13 +4741,13 @@ paths:
       description: GetDashboardData retrieves the cached dashboard data
       operationId: GetDashboardData
       responses:
-        "200":
+        '200':
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/api.DashboardData'
           description: OK
-        "400":
+        '400':
           content:
             application/json:
               schema:
@@ -4730,7 +4755,7 @@ paths:
                   type: string
                 type: object
           description: Bad Request
-        "500":
+        '500':
           content:
             application/json:
               schema:
@@ -4745,7 +4770,7 @@ paths:
       description: RefreshDashboardData manually triggers a dashboard data update
       operationId: RefreshDashboardData
       responses:
-        "400":
+        '400':
           content:
             application/json:
               schema:
@@ -4753,7 +4778,7 @@ paths:
                   type: string
                 type: object
           description: Bad Request
-        "500":
+        '500':
           content:
             application/json:
               schema:
@@ -4765,7 +4790,9 @@ paths:
         - Dashboard
   /api/v1/diff-review:
     post:
-      description: DiffReview accepts a base64-encoded ZIP containing a unified diff and triggers a review.
+      description: >-
+        DiffReview accepts a base64-encoded ZIP containing a unified diff and
+        triggers a review.
       operationId: DiffReview
       requestBody:
         content:
@@ -4777,7 +4804,9 @@ paths:
         - Diff-Review
   /api/v1/diff-review/{id}/events:
     get:
-      description: GetReviewEvents handles GET /api/v1/reviews/{id}/events (polling endpoint)
+      description: >-
+        GetReviewEvents handles GET /api/v1/reviews/{id}/events (polling
+        endpoint)
       operationId: GetReviewEvents
       parameters:
         - in: path
@@ -4832,7 +4861,7 @@ paths:
           schema:
             type: string
       responses:
-        "200":
+        '200':
           content:
             application/json:
               schema:
@@ -4842,7 +4871,9 @@ paths:
         - Diff-Review
   /api/v1/diff-review/{review_id}:
     get:
-      description: GetDiffReviewStatus returns processing status or completed results for a diff review.
+      description: >-
+        GetDiffReviewStatus returns processing status or completed results for a
+        diff review.
       operationId: GetDiffReviewStatus
       parameters:
         - in: path
@@ -4858,7 +4889,7 @@ paths:
       description: TrackCLIUsage updates the last_cli_used_at timestamp for a user
       operationId: TrackCLIUsage
       responses:
-        "200":
+        '200':
           content:
             application/json:
               schema:
@@ -4866,7 +4897,7 @@ paths:
                   type: string
                 type: object
           description: OK
-        "401":
+        '401':
           content:
             application/json:
               schema:
@@ -4874,7 +4905,7 @@ paths:
                   type: string
                 type: object
           description: Unauthorized
-        "500":
+        '500':
           content:
             application/json:
               schema:
@@ -4886,7 +4917,9 @@ paths:
         - Diff-Review
   /api/v1/gitea-hook/{connector_id}:
     post:
-      description: WebhookOrchestratorV2Handler handles webhooks using the V2 orchestrator (full processing pipeline)
+      description: >-
+        WebhookOrchestratorV2Handler handles webhooks using the V2 orchestrator
+        (full processing pipeline)
       operationId: WebhookOrchestratorV2Handler
       parameters:
         - in: path
@@ -4895,7 +4928,7 @@ paths:
           schema:
             type: string
       responses:
-        "500":
+        '500':
           content:
             application/json:
               schema:
@@ -4907,7 +4940,9 @@ paths:
         - Gitea-Hook
   /api/v1/gitea/validate-profile:
     post:
-      description: ValidateGiteaProfile validates Gitea PAT + base URL by fetching user profile
+      description: >-
+        ValidateGiteaProfile validates Gitea PAT + base URL by fetching user
+        profile
       operationId: ValidateGiteaProfile
       requestBody:
         content:
@@ -4915,13 +4950,13 @@ paths:
             schema:
               $ref: '#/components/schemas/api.ValidateGiteaProfileRequest'
       responses:
-        "200":
+        '200':
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/gitea.GiteaProfile'
           description: OK
-        "400":
+        '400':
           content:
             application/json:
               schema:
@@ -4933,7 +4968,9 @@ paths:
         - Gitea
   /api/v1/github-hook/{connector_id}:
     post:
-      description: WebhookOrchestratorV2Handler handles webhooks using the V2 orchestrator (full processing pipeline)
+      description: >-
+        WebhookOrchestratorV2Handler handles webhooks using the V2 orchestrator
+        (full processing pipeline)
       operationId: WebhookOrchestratorV2Handler
       parameters:
         - in: path
@@ -4942,7 +4979,7 @@ paths:
           schema:
             type: string
       responses:
-        "500":
+        '500':
           content:
             application/json:
               schema:
@@ -4962,13 +4999,13 @@ paths:
             schema:
               $ref: '#/components/schemas/api.ValidateGitHubProfileRequest'
       responses:
-        "200":
+        '200':
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/github.GitHubProfile'
           description: OK
-        "400":
+        '400':
           content:
             application/json:
               schema:
@@ -4980,7 +5017,9 @@ paths:
         - Github
   /api/v1/gitlab-hook/{connector_id}:
     post:
-      description: WebhookOrchestratorV2Handler handles webhooks using the V2 orchestrator (full processing pipeline)
+      description: >-
+        WebhookOrchestratorV2Handler handles webhooks using the V2 orchestrator
+        (full processing pipeline)
       operationId: WebhookOrchestratorV2Handler
       parameters:
         - in: path
@@ -4989,7 +5028,7 @@ paths:
           schema:
             type: string
       responses:
-        "500":
+        '500':
           content:
             application/json:
               schema:
@@ -5004,19 +5043,19 @@ paths:
       description: GitLabRefreshToken refreshes an expired GitLab token via HTTP handler
       operationId: GitLabRefreshToken
       responses:
-        "400":
+        '400':
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/api.ErrorResponse'
           description: Bad Request
-        "404":
+        '404':
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/api.ErrorResponse'
           description: Not Found
-        "500":
+        '500':
           content:
             application/json:
               schema:
@@ -5026,7 +5065,9 @@ paths:
         - Gitlab
   /api/v1/gitlab/token:
     post:
-      description: GitLabHandleCodeExchange handles the exchange of authorization code for access token
+      description: >-
+        GitLabHandleCodeExchange handles the exchange of authorization code for
+        access token
       operationId: GitLabHandleCodeExchange
       requestBody:
         content:
@@ -5037,13 +5078,13 @@ paths:
             schema:
               $ref: '#/components/schemas/gitlab.GitLabTokenRequest'
       responses:
-        "400":
+        '400':
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/api.ErrorResponse'
           description: Bad Request
-        "500":
+        '500':
           content:
             application/json:
               schema:
@@ -5053,7 +5094,9 @@ paths:
         - Gitlab
   /api/v1/gitlab/validate-profile:
     post:
-      description: ValidateGitLabProfile validates GitLab PAT and base URL by fetching user profile
+      description: >-
+        ValidateGitLabProfile validates GitLab PAT and base URL by fetching user
+        profile
       operationId: ValidateGitLabProfile
       requestBody:
         content:
@@ -5061,13 +5104,13 @@ paths:
             schema:
               $ref: '#/components/schemas/api.ValidateGitLabProfileRequest'
       responses:
-        "200":
+        '200':
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/gitlab.GitLabProfile'
           description: OK
-        "400":
+        '400':
           content:
             application/json:
               schema:
@@ -5082,7 +5125,7 @@ paths:
       description: Handler for creating PAT integration token, delegates to pat_token.go
       operationId: HandleCreatePATIntegrationToken
       responses:
-        "400":
+        '400':
           content:
             application/json:
               schema:
@@ -5090,7 +5133,7 @@ paths:
                   type: string
                 type: object
           description: Bad Request
-        "500":
+        '500':
           content:
             application/json:
               schema:
@@ -5142,7 +5185,7 @@ paths:
           schema:
             type: string
       responses:
-        "200":
+        '200':
           content:
             application/json:
               schema:
@@ -5161,7 +5204,7 @@ paths:
           schema:
             type: string
       responses:
-        "200":
+        '200':
           content:
             application/json:
               schema:
@@ -5178,7 +5221,7 @@ paths:
           schema:
             type: string
       responses:
-        "200":
+        '200':
           content:
             application/json:
               schema:
@@ -5190,7 +5233,7 @@ paths:
     post:
       operationId: ApplyActionFromReply
       responses:
-        "200":
+        '200':
           content:
             application/json:
               schema:
@@ -5204,7 +5247,7 @@ paths:
     delete:
       operationId: handleLicenseDelete
       responses:
-        "200":
+        '200':
           content:
             application/json:
               schema:
@@ -5212,7 +5255,7 @@ paths:
                   type: string
                 type: object
           description: OK
-        "500":
+        '500':
           content:
             application/json:
               schema:
@@ -5226,7 +5269,7 @@ paths:
     post:
       operationId: handleLicenseRefresh
       responses:
-        "200":
+        '200':
           content:
             application/json:
               schema:
@@ -5239,13 +5282,13 @@ paths:
       description: handleListSeatAssignments lists all current seat assignments
       operationId: handleListSeatAssignments
       responses:
-        "200":
+        '200':
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/api.SeatAssignmentListResponse'
           description: OK
-        "400":
+        '400':
           content:
             application/json:
               schema:
@@ -5253,7 +5296,7 @@ paths:
                   type: string
                 type: object
           description: Bad Request
-        "500":
+        '500':
           content:
             application/json:
               schema:
@@ -5274,7 +5317,7 @@ paths:
           schema:
             type: string
       responses:
-        "200":
+        '200':
           content:
             application/json:
               schema:
@@ -5282,7 +5325,7 @@ paths:
                   type: string
                 type: object
           description: OK
-        "400":
+        '400':
           content:
             application/json:
               schema:
@@ -5290,7 +5333,7 @@ paths:
                   type: string
                 type: object
           description: Bad Request
-        "404":
+        '404':
           content:
             application/json:
               schema:
@@ -5298,7 +5341,7 @@ paths:
                   type: string
                 type: object
           description: Not Found
-        "500":
+        '500':
           content:
             application/json:
               schema:
@@ -5313,7 +5356,7 @@ paths:
       description: handleAssignSeat assigns a license seat to a user
       operationId: handleAssignSeat
       responses:
-        "200":
+        '200':
           content:
             application/json:
               schema:
@@ -5321,7 +5364,7 @@ paths:
                   type: string
                 type: object
           description: OK
-        "400":
+        '400':
           content:
             application/json:
               schema:
@@ -5329,7 +5372,7 @@ paths:
                   type: string
                 type: object
           description: Bad Request
-        "401":
+        '401':
           content:
             application/json:
               schema:
@@ -5337,7 +5380,7 @@ paths:
                   type: string
                 type: object
           description: Unauthorized
-        "500":
+        '500':
           content:
             application/json:
               schema:
@@ -5352,7 +5395,7 @@ paths:
       description: handleBulkAssignSeats assigns seats to multiple users
       operationId: handleBulkAssignSeats
       responses:
-        "400":
+        '400':
           content:
             application/json:
               schema:
@@ -5360,7 +5403,7 @@ paths:
                   type: string
                 type: object
           description: Bad Request
-        "401":
+        '401':
           content:
             application/json:
               schema:
@@ -5368,7 +5411,7 @@ paths:
                   type: string
                 type: object
           description: Unauthorized
-        "500":
+        '500':
           content:
             application/json:
               schema:
@@ -5383,7 +5426,7 @@ paths:
       description: handleBulkRevokeSeats revokes seats from multiple users
       operationId: handleBulkRevokeSeats
       responses:
-        "400":
+        '400':
           content:
             application/json:
               schema:
@@ -5391,7 +5434,7 @@ paths:
                   type: string
                 type: object
           description: Bad Request
-        "500":
+        '500':
           content:
             application/json:
               schema:
@@ -5403,10 +5446,12 @@ paths:
         - License
   /api/v1/license/seats/unassigned:
     get:
-      description: handleListUnassignedUsers lists all active users without a seat assignment
+      description: >-
+        handleListUnassignedUsers lists all active users without a seat
+        assignment
       operationId: handleListUnassignedUsers
       responses:
-        "400":
+        '400':
           content:
             application/json:
               schema:
@@ -5414,7 +5459,7 @@ paths:
                   type: string
                 type: object
           description: Bad Request
-        "500":
+        '500':
           content:
             application/json:
               schema:
@@ -5428,13 +5473,13 @@ paths:
     get:
       operationId: handleLicenseStatus
       responses:
-        "200":
+        '200':
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/api.LicenseStatusResponse'
           description: OK
-        "500":
+        '500':
           content:
             application/json:
               schema:
@@ -5448,13 +5493,13 @@ paths:
     post:
       operationId: handleLicenseUpdate
       responses:
-        "200":
+        '200':
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/api.LicenseStatusResponse'
           description: OK
-        "400":
+        '400':
           content:
             application/json:
               schema:
@@ -5464,42 +5509,12 @@ paths:
           description: Bad Request
       tags:
         - License
-  /api/v1/mcp:
-    get:
-      description: HandleMCP handles MCP (Model Context Protocol) requests
-      operationId: HandleMCP
-      responses:
-        "500":
-          content:
-            application/json:
-              schema:
-                additionalProperties:
-                  type: string
-                type: object
-          description: Internal Server Error
-      tags:
-        - Mcp
-  /api/v1/mcp/message:
-    post:
-      description: HandleMCP handles MCP (Model Context Protocol) requests
-      operationId: HandleMCP
-      responses:
-        "500":
-          content:
-            application/json:
-              schema:
-                additionalProperties:
-                  type: string
-                type: object
-          description: Internal Server Error
-      tags:
-        - Mcp
   /api/v1/onboarding/clear-api-key:
     post:
       description: ClearOnboardingAPIKey clears the onboarding API key for a user
       operationId: ClearOnboardingAPIKey
       responses:
-        "200":
+        '200':
           content:
             application/json:
               schema:
@@ -5507,7 +5522,7 @@ paths:
                   type: string
                 type: object
           description: OK
-        "401":
+        '401':
           content:
             application/json:
               schema:
@@ -5515,7 +5530,7 @@ paths:
                   type: string
                 type: object
           description: Unauthorized
-        "500":
+        '500':
           content:
             application/json:
               schema:
@@ -5533,7 +5548,9 @@ paths:
       tags:
         - Organizations
     post:
-      description: CreateOrganization creates a new organization (available to all authenticated users)
+      description: >-
+        CreateOrganization creates a new organization (available to all
+        authenticated users)
       operationId: CreateOrganization
       responses: null
       tags:
@@ -5591,7 +5608,7 @@ paths:
           schema:
             type: string
       responses:
-        "500":
+        '500':
           content:
             application/json:
               schema:
@@ -5616,13 +5633,13 @@ paths:
             schema:
               $ref: '#/components/schemas/api.CreateAPIKeyRequest'
       responses:
-        "201":
+        '201':
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/api.CreateAPIKeyResponse'
           description: Created
-        "400":
+        '400':
           content:
             application/json:
               schema:
@@ -5630,7 +5647,7 @@ paths:
                   type: string
                 type: object
           description: Bad Request
-        "500":
+        '500':
           content:
             application/json:
               schema:
@@ -5646,17 +5663,17 @@ paths:
       operationId: DeleteAPIKeyHandler
       parameters:
         - in: path
-          name: org_id
-          required: true
-          schema:
-            type: string
-        - in: path
           name: id
           required: true
           schema:
             type: string
+        - in: path
+          name: org_id
+          required: true
+          schema:
+            type: string
       responses:
-        "200":
+        '200':
           content:
             application/json:
               schema:
@@ -5664,7 +5681,7 @@ paths:
                   type: string
                 type: object
           description: OK
-        "400":
+        '400':
           content:
             application/json:
               schema:
@@ -5672,7 +5689,7 @@ paths:
                   type: string
                 type: object
           description: Bad Request
-        "404":
+        '404':
           content:
             application/json:
               schema:
@@ -5680,7 +5697,7 @@ paths:
                   type: string
                 type: object
           description: Not Found
-        "500":
+        '500':
           content:
             application/json:
               schema:
@@ -5706,7 +5723,7 @@ paths:
           schema:
             type: string
       responses:
-        "200":
+        '200':
           content:
             application/json:
               schema:
@@ -5714,7 +5731,7 @@ paths:
                   type: string
                 type: object
           description: OK
-        "400":
+        '400':
           content:
             application/json:
               schema:
@@ -5722,7 +5739,7 @@ paths:
                   type: string
                 type: object
           description: Bad Request
-        "404":
+        '404':
           content:
             application/json:
               schema:
@@ -5730,7 +5747,7 @@ paths:
                   type: string
                 type: object
           description: Not Found
-        "500":
+        '500':
           content:
             application/json:
               schema:
@@ -5742,7 +5759,9 @@ paths:
         - Orgs
   /api/v1/orgs/{org_id}/members:
     get:
-      description: GetOrganizationMembers returns members of an organization with pagination
+      description: >-
+        GetOrganizationMembers returns members of an organization with
+        pagination
       operationId: GetOrganizationMembers
       parameters:
         - in: path
@@ -5766,27 +5785,33 @@ paths:
         - Orgs
   /api/v1/orgs/{org_id}/members/{user_id}/role:
     put:
-      description: ChangeUserRole changes a user's role in an organization
+      description: ChangeUserRole handles changing a user's role in an organization
       operationId: ChangeUserRole
       parameters:
         - in: path
           name: org_id
           required: true
           schema:
-            format: int64
-            type: integer
+            type: string
         - in: path
           name: user_id
           required: true
           schema:
-            format: int64
-            type: integer
-      responses: null
+            type: string
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/users.UserWithRole'
+          description: OK
       tags:
         - Orgs
   /api/v1/orgs/{org_id}/users:
     get:
-      description: GetOrganizationMembers returns members of an organization with pagination
+      description: >-
+        GetOrganizationMembers returns members of an organization with
+        pagination
       operationId: GetOrganizationMembers
       parameters:
         - in: path
@@ -5823,7 +5848,7 @@ paths:
             schema:
               $ref: '#/components/schemas/users.CreateUserRequest'
       responses:
-        "201":
+        '201':
           content:
             application/json:
               schema:
@@ -5847,7 +5872,7 @@ paths:
           schema:
             type: string
       responses:
-        "200":
+        '200':
           content:
             application/json:
               schema:
@@ -5872,7 +5897,7 @@ paths:
           schema:
             type: string
       responses:
-        "200":
+        '200':
           content:
             application/json:
               schema:
@@ -5885,12 +5910,12 @@ paths:
       operationId: UpdateUser
       parameters:
         - in: path
-          name: org_id
+          name: user_id
           required: true
           schema:
             type: string
         - in: path
-          name: user_id
+          name: org_id
           required: true
           schema:
             type: string
@@ -5900,7 +5925,7 @@ paths:
             schema:
               $ref: '#/components/schemas/users.UpdateUserRequest'
       responses:
-        "200":
+        '200':
           content:
             application/json:
               schema:
@@ -5914,12 +5939,12 @@ paths:
       operationId: GetUserAuditLog
       parameters:
         - in: path
-          name: org_id
+          name: user_id
           required: true
           schema:
             type: string
         - in: path
-          name: user_id
+          name: org_id
           required: true
           schema:
             type: string
@@ -5942,12 +5967,12 @@ paths:
       operationId: ForcePasswordReset
       parameters:
         - in: path
-          name: user_id
+          name: org_id
           required: true
           schema:
             type: string
         - in: path
-          name: org_id
+          name: user_id
           required: true
           schema:
             type: string
@@ -5956,29 +5981,33 @@ paths:
         - Orgs
   /api/v1/orgs/{org_id}/users/{user_id}/role:
     put:
-      description: ChangeUserRole changes a user's role in an organization
+      description: ChangeUserRole handles changing a user's role in an organization
       operationId: ChangeUserRole
       parameters:
         - in: path
           name: org_id
           required: true
           schema:
-            format: int64
-            type: integer
+            type: string
         - in: path
           name: user_id
           required: true
           schema:
-            format: int64
-            type: integer
-      responses: null
+            type: string
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/users.UserWithRole'
+          description: OK
       tags:
         - Orgs
   /api/v1/password:
     post:
-      description: |-
-        SetAdminPassword sets the admin password for the instance
-        If an admin password already exists, it returns an error unless Force is true
+      description: >-
+        SetAdminPassword sets the admin password for the instance If an admin
+        password already exists, it returns an error unless Force is true
       operationId: SetAdminPassword
       requestBody:
         content:
@@ -5986,25 +6015,25 @@ paths:
             schema:
               $ref: '#/components/schemas/api.PasswordRequest'
       responses:
-        "200":
+        '200':
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/api.PasswordResponse'
           description: OK
-        "400":
+        '400':
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/api.ErrorResponse'
           description: Bad Request
-        "409":
+        '409':
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/api.ErrorResponse'
           description: Conflict
-        "500":
+        '500':
           content:
             application/json:
               schema:
@@ -6013,9 +6042,9 @@ paths:
       tags:
         - Password
     put:
-      description: |-
-        ResetAdminPassword resets the admin password
-        Requires the old password for verification and a new password
+      description: >-
+        ResetAdminPassword resets the admin password Requires the old password
+        for verification and a new password
       operationId: ResetAdminPassword
       requestBody:
         content:
@@ -6023,31 +6052,31 @@ paths:
             schema:
               $ref: '#/components/schemas/api.PasswordRequest'
       responses:
-        "200":
+        '200':
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/api.PasswordResponse'
           description: OK
-        "400":
+        '400':
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/api.ErrorResponse'
           description: Bad Request
-        "401":
+        '401':
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/api.ErrorResponse'
           description: Unauthorized
-        "404":
+        '404':
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/api.ErrorResponse'
           description: Not Found
-        "500":
+        '500':
           content:
             application/json:
               schema:
@@ -6060,13 +6089,13 @@ paths:
       description: CheckAdminPasswordStatus checks if an admin password has been set
       operationId: CheckAdminPasswordStatus
       responses:
-        "200":
+        '200':
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/api.PasswordStatusResponse'
           description: OK
-        "500":
+        '500':
           content:
             application/json:
               schema:
@@ -6076,7 +6105,9 @@ paths:
         - Password
   /api/v1/password/verify:
     post:
-      description: VerifyAdminPassword verifies if the provided password matches the stored admin password
+      description: >-
+        VerifyAdminPassword verifies if the provided password matches the stored
+        admin password
       operationId: VerifyAdminPassword
       requestBody:
         content:
@@ -6084,31 +6115,31 @@ paths:
             schema:
               $ref: '#/components/schemas/api.PasswordVerifyRequest'
       responses:
-        "200":
+        '200':
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/api.PasswordVerifyResponse'
           description: OK
-        "400":
+        '400':
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/api.ErrorResponse'
           description: Bad Request
-        "401":
+        '401':
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/api.PasswordVerifyResponse'
           description: Unauthorized
-        "404":
+        '404':
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/api.PasswordVerifyResponse'
           description: Not Found
-        "500":
+        '500':
           content:
             application/json:
               schema:
@@ -6121,13 +6152,13 @@ paths:
       description: GetProductionURL retrieves the livereview_prod_url from instance_details
       operationId: GetProductionURL
       responses:
-        "200":
+        '200':
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/api.ProductionURLResponse'
           description: OK
-        "500":
+        '500':
           content:
             application/json:
               schema:
@@ -6144,19 +6175,19 @@ paths:
             schema:
               $ref: '#/components/schemas/api.ProductionURLRequest'
       responses:
-        "200":
+        '200':
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/api.ProductionURLResponse'
           description: OK
-        "400":
+        '400':
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/api.ErrorResponse'
           description: Bad Request
-        "500":
+        '500':
           content:
             application/json:
               schema:
@@ -6166,9 +6197,9 @@ paths:
         - Production-Url
   /api/v1/prompts/{key}/render:
     get:
-      description: |-
-        GET /api/v1/prompts/:key/render
-        Query: ai_connector_id, integration_token_id, repository
+      description: >-
+        GET /api/v1/prompts/:key/render Query: ai_connector_id,
+        integration_token_id, repository
       operationId: RenderPromptPreview
       parameters:
         - in: path
@@ -6177,13 +6208,13 @@ paths:
           schema:
             type: string
       responses:
-        "200":
+        '200':
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/api.RenderPreviewResponse'
           description: OK
-        "400":
+        '400':
           content:
             application/json:
               schema:
@@ -6191,7 +6222,7 @@ paths:
                   type: string
                 type: object
           description: Bad Request
-        "500":
+        '500':
           content:
             application/json:
               schema:
@@ -6212,14 +6243,14 @@ paths:
           schema:
             type: string
       responses:
-        "200":
+        '200':
           content:
             application/json:
               schema:
                 additionalProperties: {}
                 type: object
           description: OK
-        "400":
+        '400':
           content:
             application/json:
               schema:
@@ -6227,7 +6258,7 @@ paths:
                   type: string
                 type: object
           description: Bad Request
-        "404":
+        '404':
           content:
             application/json:
               schema:
@@ -6235,7 +6266,7 @@ paths:
                   type: string
                 type: object
           description: Not Found
-        "500":
+        '500':
           content:
             application/json:
               schema:
@@ -6266,14 +6297,14 @@ paths:
             schema:
               $ref: '#/components/schemas/api.CreateChunkRequest'
       responses:
-        "200":
+        '200':
           content:
             application/json:
               schema:
                 additionalProperties: {}
                 type: object
           description: OK
-        "400":
+        '400':
           content:
             application/json:
               schema:
@@ -6281,7 +6312,7 @@ paths:
                   type: string
                 type: object
           description: Bad Request
-        "403":
+        '403':
           content:
             application/json:
               schema:
@@ -6289,7 +6320,7 @@ paths:
                   type: string
                 type: object
           description: Forbidden
-        "500":
+        '500':
           content:
             application/json:
               schema:
@@ -6305,12 +6336,12 @@ paths:
       operationId: ReorderPromptChunks
       parameters:
         - in: path
-          name: key
+          name: var
           required: true
           schema:
             type: string
         - in: path
-          name: var
+          name: key
           required: true
           schema:
             type: string
@@ -6320,7 +6351,7 @@ paths:
             schema:
               $ref: '#/components/schemas/api.ReorderRequest'
       responses:
-        "200":
+        '200':
           content:
             application/json:
               schema:
@@ -6328,7 +6359,7 @@ paths:
                   type: string
                 type: object
           description: OK
-        "400":
+        '400':
           content:
             application/json:
               schema:
@@ -6336,7 +6367,7 @@ paths:
                   type: string
                 type: object
           description: Bad Request
-        "403":
+        '403':
           content:
             application/json:
               schema:
@@ -6344,7 +6375,7 @@ paths:
                   type: string
                 type: object
           description: Forbidden
-        "500":
+        '500':
           content:
             application/json:
               schema:
@@ -6359,7 +6390,7 @@ paths:
       description: GET /api/v1/prompts/catalog
       operationId: GetPromptsCatalog
       responses:
-        "200":
+        '200':
           content:
             application/json:
               schema:
@@ -6370,10 +6401,12 @@ paths:
         - Prompts
   /api/v1/quota/status:
     get:
-      description: GetQuotaStatus returns the current quota status for the user's organization
+      description: >-
+        GetQuotaStatus returns the current quota status for the user's
+        organization
       operationId: GetQuotaStatus
       responses:
-        "200":
+        '200':
           content:
             application/json:
               schema:
@@ -6412,7 +6445,7 @@ paths:
           schema:
             type: string
       responses:
-        "200":
+        '200':
           content:
             application/json:
               schema:
@@ -6424,7 +6457,7 @@ paths:
       description: createReview handles POST /api/v1/reviews (trigger review creation)
       operationId: createReview
       responses:
-        "200":
+        '200':
           content:
             application/json:
               schema:
@@ -6445,7 +6478,7 @@ paths:
           schema:
             type: string
       responses:
-        "200":
+        '200':
           content:
             application/json:
               schema:
@@ -6464,7 +6497,7 @@ paths:
           schema:
             type: string
       responses:
-        "200":
+        '200':
           content:
             application/json:
               schema:
@@ -6474,7 +6507,9 @@ paths:
         - Reviews
   /api/v1/reviews/{id}/events:
     get:
-      description: GetReviewEvents handles GET /api/v1/reviews/{id}/events (polling endpoint)
+      description: >-
+        GetReviewEvents handles GET /api/v1/reviews/{id}/events (polling
+        endpoint)
       operationId: GetReviewEvents
       parameters:
         - in: path
@@ -6529,7 +6564,7 @@ paths:
           schema:
             type: string
       responses:
-        "200":
+        '200':
           content:
             application/json:
               schema:
@@ -6539,10 +6574,12 @@ paths:
         - Reviews
   /api/v1/subscriptions:
     get:
-      description: ListUserSubscriptions lists all subscriptions owned by the authenticated user
+      description: >-
+        ListUserSubscriptions lists all subscriptions owned by the authenticated
+        user
       operationId: ListUserSubscriptions
       responses:
-        "401":
+        '401':
           content:
             application/json:
               schema:
@@ -6550,7 +6587,7 @@ paths:
                   type: string
                 type: object
           description: Unauthorized
-        "500":
+        '500':
           content:
             application/json:
               schema:
@@ -6569,7 +6606,7 @@ paths:
             schema:
               $ref: '#/components/schemas/api.CreateSubscriptionRequest'
       responses:
-        "400":
+        '400':
           content:
             application/json:
               schema:
@@ -6577,7 +6614,7 @@ paths:
                   type: string
                 type: object
           description: Bad Request
-        "401":
+        '401':
           content:
             application/json:
               schema:
@@ -6585,7 +6622,7 @@ paths:
                   type: string
                 type: object
           description: Unauthorized
-        "500":
+        '500':
           content:
             application/json:
               schema:
@@ -6606,13 +6643,13 @@ paths:
           schema:
             type: string
       responses:
-        "200":
+        '200':
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/api.SubscriptionResponse'
           description: OK
-        "400":
+        '400':
           content:
             application/json:
               schema:
@@ -6620,7 +6657,7 @@ paths:
                   type: string
                 type: object
           description: Bad Request
-        "404":
+        '404':
           content:
             application/json:
               schema:
@@ -6628,7 +6665,7 @@ paths:
                   type: string
                 type: object
           description: Not Found
-        "500":
+        '500':
           content:
             application/json:
               schema:
@@ -6654,7 +6691,7 @@ paths:
             schema:
               $ref: '#/components/schemas/api.AssignLicenseRequest'
       responses:
-        "200":
+        '200':
           content:
             application/json:
               schema:
@@ -6662,7 +6699,7 @@ paths:
                   type: string
                 type: object
           description: OK
-        "400":
+        '400':
           content:
             application/json:
               schema:
@@ -6670,7 +6707,7 @@ paths:
                   type: string
                 type: object
           description: Bad Request
-        "401":
+        '401':
           content:
             application/json:
               schema:
@@ -6678,7 +6715,7 @@ paths:
                   type: string
                 type: object
           description: Unauthorized
-        "403":
+        '403':
           content:
             application/json:
               schema:
@@ -6686,7 +6723,7 @@ paths:
                   type: string
                 type: object
           description: Forbidden
-        "404":
+        '404':
           content:
             application/json:
               schema:
@@ -6694,7 +6731,7 @@ paths:
                   type: string
                 type: object
           description: Not Found
-        "500":
+        '500':
           content:
             application/json:
               schema:
@@ -6720,13 +6757,13 @@ paths:
             schema:
               $ref: '#/components/schemas/api.CancelSubscriptionRequest'
       responses:
-        "200":
+        '200':
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/payment.RazorpaySubscription'
           description: OK
-        "400":
+        '400':
           content:
             application/json:
               schema:
@@ -6734,7 +6771,7 @@ paths:
                   type: string
                 type: object
           description: Bad Request
-        "403":
+        '403':
           content:
             application/json:
               schema:
@@ -6742,7 +6779,7 @@ paths:
                   type: string
                 type: object
           description: Forbidden
-        "409":
+        '409':
           content:
             application/json:
               schema:
@@ -6750,7 +6787,7 @@ paths:
                   type: string
                 type: object
           description: Conflict
-        "500":
+        '500':
           content:
             application/json:
               schema:
@@ -6762,7 +6799,9 @@ paths:
         - Subscriptions
   /api/v1/subscriptions/{id}/keep-plan:
     post:
-      description: KeepPlan clears a scheduled cancellation so the current plan remains active.
+      description: >-
+        KeepPlan clears a scheduled cancellation so the current plan remains
+        active.
       operationId: KeepPlan
       parameters:
         - in: path
@@ -6771,13 +6810,13 @@ paths:
           schema:
             type: string
       responses:
-        "200":
+        '200':
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/payment.RazorpaySubscription'
           description: OK
-        "400":
+        '400':
           content:
             application/json:
               schema:
@@ -6785,7 +6824,7 @@ paths:
                   type: string
                 type: object
           description: Bad Request
-        "403":
+        '403':
           content:
             application/json:
               schema:
@@ -6793,7 +6832,7 @@ paths:
                   type: string
                 type: object
           description: Forbidden
-        "409":
+        '409':
           content:
             application/json:
               schema:
@@ -6801,7 +6840,7 @@ paths:
                   type: string
                 type: object
           description: Conflict
-        "500":
+        '500':
           content:
             application/json:
               schema:
@@ -6827,13 +6866,13 @@ paths:
             schema:
               $ref: '#/components/schemas/api.UpdateQuantityRequest'
       responses:
-        "200":
+        '200':
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/payment.RazorpaySubscription'
           description: OK
-        "400":
+        '400':
           content:
             application/json:
               schema:
@@ -6841,7 +6880,7 @@ paths:
                   type: string
                 type: object
           description: Bad Request
-        "500":
+        '500':
           content:
             application/json:
               schema:
@@ -6867,7 +6906,7 @@ paths:
           schema:
             type: string
       responses:
-        "200":
+        '200':
           content:
             application/json:
               schema:
@@ -6875,7 +6914,7 @@ paths:
                   type: string
                 type: object
           description: OK
-        "400":
+        '400':
           content:
             application/json:
               schema:
@@ -6883,7 +6922,7 @@ paths:
                   type: string
                 type: object
           description: Bad Request
-        "401":
+        '401':
           content:
             application/json:
               schema:
@@ -6891,7 +6930,7 @@ paths:
                   type: string
                 type: object
           description: Unauthorized
-        "403":
+        '403':
           content:
             application/json:
               schema:
@@ -6899,7 +6938,7 @@ paths:
                   type: string
                 type: object
           description: Forbidden
-        "404":
+        '404':
           content:
             application/json:
               schema:
@@ -6907,7 +6946,7 @@ paths:
                   type: string
                 type: object
           description: Not Found
-        "500":
+        '500':
           content:
             application/json:
               schema:
@@ -6919,11 +6958,11 @@ paths:
         - Subscriptions
   /api/v1/subscriptions/confirm-purchase:
     post:
-      description: |-
-        ConfirmPurchase is called by the frontend immediately after a successful purchase
-        to pre-populate the database with subscription and payment relationship.
-        This prevents race conditions where Razorpay webhooks arrive before the subscription
-        is properly recorded in our database.
+      description: >-
+        ConfirmPurchase is called by the frontend immediately after a successful
+        purchase to pre-populate the database with subscription and payment
+        relationship. This prevents race conditions where Razorpay webhooks
+        arrive before the subscription is properly recorded in our database.
       operationId: ConfirmPurchase
       requestBody:
         content:
@@ -6931,7 +6970,7 @@ paths:
             schema:
               $ref: '#/components/schemas/payment.PurchaseConfirmationRequest'
       responses:
-        "200":
+        '200':
           content:
             application/json:
               schema:
@@ -6939,7 +6978,7 @@ paths:
                   type: string
                 type: object
           description: OK
-        "400":
+        '400':
           content:
             application/json:
               schema:
@@ -6947,7 +6986,7 @@ paths:
                   type: string
                 type: object
           description: Bad Request
-        "500":
+        '500':
           content:
             application/json:
               schema:
@@ -6959,10 +6998,12 @@ paths:
         - Subscriptions
   /api/v1/subscriptions/current:
     get:
-      description: GetCurrentSubscription returns the active subscription for the requesting user/org context
+      description: >-
+        GetCurrentSubscription returns the active subscription for the
+        requesting user/org context
       operationId: GetCurrentSubscription
       responses:
-        "400":
+        '400':
           content:
             application/json:
               schema:
@@ -6970,7 +7011,7 @@ paths:
                   type: string
                 type: object
           description: Bad Request
-        "401":
+        '401':
           content:
             application/json:
               schema:
@@ -6978,7 +7019,7 @@ paths:
                   type: string
                 type: object
           description: Unauthorized
-        "500":
+        '500':
           content:
             application/json:
               schema:
@@ -6990,10 +7031,12 @@ paths:
         - Subscriptions
   /api/v1/subscriptions/selfhosted/confirm:
     post:
-      description: ConfirmSelfHostedPurchase confirms a self-hosted purchase and generates license
+      description: >-
+        ConfirmSelfHostedPurchase confirms a self-hosted purchase and generates
+        license
       operationId: ConfirmSelfHostedPurchase
       responses:
-        "200":
+        '200':
           content:
             application/json:
               schema:
@@ -7001,7 +7044,7 @@ paths:
                   type: string
                 type: object
           description: OK
-        "400":
+        '400':
           content:
             application/json:
               schema:
@@ -7009,7 +7052,7 @@ paths:
                   type: string
                 type: object
           description: Bad Request
-        "500":
+        '500':
           content:
             application/json:
               schema:
@@ -7021,16 +7064,18 @@ paths:
         - Subscriptions
   /api/v1/subscriptions/selfhosted/purchase:
     post:
-      description: CreateSelfHostedPurchase creates a self-hosted purchase (no auth required)
+      description: >-
+        CreateSelfHostedPurchase creates a self-hosted purchase (no auth
+        required)
       operationId: CreateSelfHostedPurchase
       responses:
-        "200":
+        '200':
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/payment.SelfHostedPurchaseResponse'
           description: OK
-        "400":
+        '400':
           content:
             application/json:
               schema:
@@ -7038,7 +7083,7 @@ paths:
                   type: string
                 type: object
           description: Bad Request
-        "500":
+        '500':
           content:
             application/json:
               schema:
@@ -7072,7 +7117,7 @@ paths:
             schema:
               $ref: '#/components/schemas/auth.ChangePasswordRequest'
       responses:
-        "200":
+        '200':
           content:
             application/json:
               schema:
@@ -7080,7 +7125,7 @@ paths:
                   type: string
                 type: object
           description: OK
-        "400":
+        '400':
           content:
             application/json:
               schema:
@@ -7088,7 +7133,7 @@ paths:
                   type: string
                 type: object
           description: Bad Request
-        "401":
+        '401':
           content:
             application/json:
               schema:
@@ -7096,7 +7141,7 @@ paths:
                   type: string
                 type: object
           description: Unauthorized
-        "500":
+        '500':
           content:
             application/json:
               schema:
@@ -7122,7 +7167,7 @@ paths:
             schema:
               $ref: '#/components/schemas/users.UpdateProfileRequest'
       responses:
-        "200":
+        '200':
           content:
             application/json:
               schema:
@@ -7132,7 +7177,9 @@ paths:
         - Users
   /api/v1/webhook/{connector_id}:
     post:
-      description: WebhookOrchestratorV2Handler handles webhooks using the V2 orchestrator (full processing pipeline)
+      description: >-
+        WebhookOrchestratorV2Handler handles webhooks using the V2 orchestrator
+        (full processing pipeline)
       operationId: WebhookOrchestratorV2Handler
       parameters:
         - in: path
@@ -7141,7 +7188,7 @@ paths:
           schema:
             type: string
       responses:
-        "500":
+        '500':
           content:
             application/json:
               schema:
@@ -7153,7 +7200,9 @@ paths:
         - Webhook
   /api/v1/webhooks/gitlab/comments/{connector_id}:
     post:
-      description: WebhookOrchestratorV2Handler handles webhooks using the V2 orchestrator (full processing pipeline)
+      description: >-
+        WebhookOrchestratorV2Handler handles webhooks using the V2 orchestrator
+        (full processing pipeline)
       operationId: WebhookOrchestratorV2Handler
       parameters:
         - in: path
@@ -7162,7 +7211,7 @@ paths:
           schema:
             type: string
       responses:
-        "500":
+        '500':
           content:
             application/json:
               schema:
