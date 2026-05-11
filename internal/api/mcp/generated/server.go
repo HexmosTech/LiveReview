@@ -15,6 +15,10 @@ func NewMCPServer() *server.MCPServer {
 		server.WithLogging(),
 	)
 
+	// Register all tools
+
+	// Register all tools
+
 	RegisterAllTools(s)
 
 	return s
@@ -23,6 +27,7 @@ func NewMCPServer() *server.MCPServer {
 func RegisterAllTools(s *server.MCPServer) {
 
 	// Register all tools
+
 	s.AddTool(mcptools.NewApplyActionFromReplyMCPTool(), mcptools.ApplyActionFromReplyHandler)
 	s.AddTool(mcptools.NewAssignLicenseMCPTool(), mcptools.AssignLicenseHandler)
 	s.AddTool(mcptools.NewCancelScheduledDowngradeMCPTool(), mcptools.CancelScheduledDowngradeHandler)
@@ -161,5 +166,4 @@ func RegisterAllTools(s *server.MCPServer) {
 	s.AddTool(mcptools.NewHandleListSeatAssignmentsMCPTool(), mcptools.HandleListSeatAssignmentsHandler)
 	s.AddTool(mcptools.NewHandleListUnassignedUsersMCPTool(), mcptools.HandleListUnassignedUsersHandler)
 	s.AddTool(mcptools.NewHandleRevokeSeatMCPTool(), mcptools.HandleRevokeSeatHandler)
-
 }

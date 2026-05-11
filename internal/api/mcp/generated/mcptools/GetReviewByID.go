@@ -35,41 +35,41 @@ The template shows a possible response, including its status code and content ty
 ## Response Structure
 
 - Structure (Type: object):
-  - **aiSummaryTitle** (Type: string, nullable):
+  - **authorName** (Type: string, nullable):
       - Nullable: true
-  - **provider** (Type: string, nullable):
-      - Nullable: true
-  - **userEmail** (Type: string, nullable):
-      - Nullable: true
-  - **branch** (Type: string, nullable):
-      - Nullable: true
-  - **id** (Type: integer, int64):
-  - **triggerType** (Type: string):
-  - **repository** (Type: string):
-  - **orgId** (Type: integer, int64):
   - **prMrUrl** (Type: string, nullable):
-      - Nullable: true
-  - **status** (Type: string):
-  - **commitHash** (Type: string, nullable):
       - Nullable: true
   - **completedAt** (Type: string, date-time, nullable):
       - Nullable: true
+  - **startedAt** (Type: string, date-time, nullable):
+      - Nullable: true
+  - **id** (Type: integer, int64):
+  - **provider** (Type: string, nullable):
+      - Nullable: true
   - **authorUsername** (Type: string, nullable):
       - Nullable: true
-  - **authorName** (Type: string, nullable):
+  - **commitHash** (Type: string, nullable):
       - Nullable: true
-  - **metadata** (Type: object):
-    - **Additional Properties**:
-      - **property value** (Type: unknown):
-  - **mrTitle** (Type: string, nullable):
+  - **userEmail** (Type: string, nullable):
       - Nullable: true
-  - **createdAt** (Type: string, date-time):
-  - **friendlyName** (Type: string, nullable):
+  - **aiSummaryTitle** (Type: string, nullable):
       - Nullable: true
   - **connectorId** (Type: integer, int64, nullable):
       - Nullable: true
-  - **startedAt** (Type: string, date-time, nullable):
+  - **triggerType** (Type: string):
+  - **mrTitle** (Type: string, nullable):
       - Nullable: true
+  - **friendlyName** (Type: string, nullable):
+      - Nullable: true
+  - **repository** (Type: string):
+  - **createdAt** (Type: string, date-time):
+  - **metadata** (Type: object):
+    - **Additional Properties**:
+      - **property value** (Type: unknown):
+  - **orgId** (Type: integer, int64):
+  - **branch** (Type: string, nullable):
+      - Nullable: true
+  - **status** (Type: string):
 `
 
 // NewGetReviewByIDMCPTool creates the MCP Tool instance for GetReviewByID
