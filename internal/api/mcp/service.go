@@ -11,7 +11,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/livereview/internal/api/mcp/generated/mcptools"
+	"github.com/livereview/internal/api/mcp/generated"
 	"github.com/livereview/internal/api/mcp/shared"
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
@@ -88,10 +88,8 @@ func (s *MCPService) registerCustomTools() {
 }
 
 func (s *MCPService) registerGeneratedTools() {
-	s.MCPServer.AddTool(mcptools.NewDiffReviewMCPTool(), mcptools.DiffReviewHandler)
-	s.MCPServer.AddTool(mcptools.NewGetReviewByIDMCPTool(), mcptools.GetReviewByIDHandler)
-	s.MCPServer.AddTool(mcptools.NewGetReviewsMCPTool(), mcptools.GetReviewsHandler)
-	s.MCPServer.AddTool(mcptools.NewTriggerReviewV2MCPTool(), mcptools.TriggerReviewV2Handler)
+	// Register all tools from the generated mcpgen package
+	mcpgen.RegisterAllTools(s.MCPServer)
 }
 
 func (s *MCPService) loginHandler(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
