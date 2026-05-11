@@ -2,7 +2,6 @@ package mcptools
 
 import (
 	"context"
-
 	"github.com/livereview/internal/api/mcp/shared"
 	"github.com/mark3labs/mcp-go/mcp"
 )
@@ -39,6 +38,9 @@ func NewDiffReviewMCPTool() mcp.Tool {
 }
 
 // DiffReviewHandler is the handler function for the DiffReview tool.
+// This function is automatically generated. Users should implement the actual
+// logic within this function body to integrate with backend APIs.
+// You can generate types, http client and helpers for parsing request params to facilitate the implementation.
 func DiffReviewHandler(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	return shared.GlobalProxy.CallAPI(ctx, "POST", "/api/v1/diff-review", request.Params.Arguments)
 }
