@@ -8,7 +8,7 @@ tmp_dir = "tmp"
 [build]
 # Just plain old shell command. You could use `make` as well.
 # Build with debug symbols enabled for delve debugger
-cmd = "make generate-spec && CGO_ENABLED=0 go build -gcflags='all=-N -l' -o ./tmp/livereview ."
+cmd = "make generate-openapi-and-mcp  && CGO_ENABLED=0 go build -gcflags='all=-N -l' -o ./tmp/livereview ."
 # Binary file yields from `cmd`.
 bin = "tmp/livereview"
 # Customize binary - run through delve for debugging
@@ -16,13 +16,13 @@ full_bin = "dlv exec ./tmp/livereview --listen=127.0.0.1:2345 --headless=true --
 # Watch these filename extensions.
 include_ext = ["go", "tpl", "tmpl", "html", "yaml"]
 # Ignore these filename extensions or directories.
-exclude_dir = ["assets", "tmp", "vendor", "ui/node_modules", "livereview_pgdata", "lrdata"]
+exclude_dir = ["assets", "tmp", "vendor", "ui/node_modules", "livereview_pgdata", "lrdata","docs","internal/api/mcp/generated","internal/api/docs/spec.go"]
 # Watch these directories if you specified.
 include_dir = []
 # Exclude files.
 exclude_file = []
 # Exclude specific regular expressions.
-exclude_regex = ["_test.go"]
+exclude_regex = ["_test.go", "internal/api/docs/spec.go", "internal/api/mcp/generated/server.go"]
 # Exclude unchanged files.
 exclude_unchanged = true
 # Increase build delay to avoid rapid rebuilds during debugging

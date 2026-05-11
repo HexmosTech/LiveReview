@@ -527,14 +527,38 @@ build-with-ui:
 # Define API source files for spec generation
 API_SPEC_INPUTS := typed.yaml $(shell find internal/api pkg/models -name "*.go" | grep -v "internal/api/docs/spec.go")
 
+# -------------------------------------------------------------------
+# OpenAPI Spec Generation
+# -------------------------------------------------------------------
+
+
 docs/openapi.yaml internal/api/docs/spec.go: $(API_SPEC_INPUTS)
 	@echo "🔄 Generating API specification..."
 	@mkdir -p docs internal/api/docs
 	@chmod 755 docs internal/api/docs
-	typed -config typed.yaml
-	go run internal/api/docs/spec.go
+	@typed -config typed.yaml > /dev/null 2>&1
+	@go run internal/api/docs/spec.go > /dev/null 2>&1
 
 generate-spec: docs/openapi.yaml
+
+# -------------------------------------------------------------------
+# MCP Tool Generation
+# -----------------------------------------------------------------
+
+generate-mcp-tools:
+	@echo "🔄 Generating MCP tools..."
+	@mkdir -p internal/api/mcp/generated
+	mcpgen -input docs/final_spec.yaml -output internal/api/mcp/generated
+	@bash scripts/openapi-mcp/register-tools.sh
+
+
+
+# -------------------------------------------------------------------
+# Generate OpenAPI and MCP
+# -------------------------------------------------------------------
+
+generate-openapi-and-mcp: generate-spec generate-mcp-tools
+	@echo "✅ OpenAPI spec and MCP tools generated"
 
 raw-deploy: build-with-ui
 	@echo "🚀 Deploying to production server..."
