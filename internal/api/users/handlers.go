@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"net/http"
 	"strconv"
+	"strings"
 
 	"github.com/labstack/echo/v4"
 	"github.com/livereview/internal/api/auth"
@@ -21,6 +22,21 @@ func NewUserHandlers(userService *UserService, db *sql.DB) *UserHandlers {
 		userService: userService,
 		db:          db,
 	}
+}
+
+// CheckUser handles checking if a user exists by email
+func (uh *UserHandlers) CheckUser(c echo.Context) error {
+	email := c.QueryParam("email")
+	if email == "" {
+		return c.JSON(http.StatusBadRequest, map[string]string{"error": "Email is required"})
+	}
+
+	result, err := uh.userService.CheckUserByEmail(email)
+	if err != nil {
+		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "Failed to check user"})
+	}
+
+	return c.JSON(http.StatusOK, result)
 }
 
 // CreateUser handles creating a new user in an organization
@@ -42,7 +58,7 @@ func (uh *UserHandlers) CreateUser(c echo.Context) error {
 	// Create user
 	user, err := uh.userService.CreateUserInOrg(permCtx.OrgID, permCtx.User.ID, req)
 	if err != nil {
-		if err.Error() == "user with email "+req.Email+" already exists" {
+		if strings.Contains(err.Error(), "already exists") || strings.Contains(err.Error(), "already a member") {
 			return echo.NewHTTPError(http.StatusConflict, err.Error())
 		}
 		return echo.NewHTTPError(http.StatusInternalServerError, "Failed to create user")
@@ -369,7 +385,7 @@ func (uh *UserHandlers) CreateUserInAnyOrg(c echo.Context) error {
 	// Create user in target organization
 	createdUser, err := uh.userService.CreateUserInAnyOrg(orgID, user.ID, req)
 	if err != nil {
-		if err.Error() == "user with email "+req.Email+" already exists" {
+		if strings.Contains(err.Error(), "already exists") || strings.Contains(err.Error(), "already a member") {
 			return echo.NewHTTPError(http.StatusConflict, err.Error())
 		}
 		if err.Error() == "organization with ID "+orgIDStr+" does not exist" {

@@ -1,5 +1,16 @@
 import apiClient from './apiClient';
 
+export interface UserCheckResponse {
+  exists: boolean;
+  id?: number;
+  first_name?: string;
+  last_name?: string;
+}
+
+export const checkUserByEmail = async (orgId: string, email: string): Promise<UserCheckResponse> => {
+  return apiClient.get<UserCheckResponse>(`/orgs/${orgId}/users/check?email=${encodeURIComponent(email)}`);
+};
+
 // --- TypeScript Interfaces ---
 
 export interface Member {
