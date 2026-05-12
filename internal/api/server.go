@@ -525,6 +525,7 @@ func (s *Server) setupRoutes() {
 
 	// User management in organization
 	orgGroup.GET("/users", s.orgHandlers.GetOrganizationMembers)
+	orgGroup.GET("/users/check", s.userHandlers.CheckUser)
 	orgGroup.POST("/users", s.userHandlers.CreateUser)
 	orgGroup.GET("/users/:user_id", s.userHandlers.GetUser)
 	orgGroup.PUT("/users/:user_id", s.userHandlers.UpdateUser)
