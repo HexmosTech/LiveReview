@@ -149,7 +149,7 @@ const UserForm: React.FC = () => {
       return [
         { value: 'member', label: 'Member' },
         { value: 'owner', label: 'Owner' },
-        { value: 'super_admin', label: 'Super Admin' },
+        // { value: 'super_admin', label: 'Super Admin' },
       ];
     }
     if (currentUserRole === 'owner') {
