@@ -35,41 +35,41 @@ The template shows a possible response, including its status code and content ty
 ## Response Structure
 
 - Structure (Type: object):
-  - **authorName** (Type: string, nullable):
+  - **status** (Type: string):
+  - **mrTitle** (Type: string, nullable):
       - Nullable: true
   - **prMrUrl** (Type: string, nullable):
       - Nullable: true
-  - **completedAt** (Type: string, date-time, nullable):
+  - **aiSummaryTitle** (Type: string, nullable):
       - Nullable: true
   - **startedAt** (Type: string, date-time, nullable):
       - Nullable: true
   - **id** (Type: integer, int64):
-  - **provider** (Type: string, nullable):
+  - **completedAt** (Type: string, date-time, nullable):
       - Nullable: true
+  - **connectorId** (Type: integer, int64, nullable):
+      - Nullable: true
+  - **branch** (Type: string, nullable):
+      - Nullable: true
+  - **repository** (Type: string):
+  - **authorName** (Type: string, nullable):
+      - Nullable: true
+  - **friendlyName** (Type: string, nullable):
+      - Nullable: true
+  - **orgId** (Type: integer, int64):
+  - **createdAt** (Type: string, date-time):
   - **authorUsername** (Type: string, nullable):
       - Nullable: true
   - **commitHash** (Type: string, nullable):
       - Nullable: true
-  - **userEmail** (Type: string, nullable):
-      - Nullable: true
-  - **aiSummaryTitle** (Type: string, nullable):
-      - Nullable: true
-  - **connectorId** (Type: integer, int64, nullable):
+  - **provider** (Type: string, nullable):
       - Nullable: true
   - **triggerType** (Type: string):
-  - **mrTitle** (Type: string, nullable):
+  - **userEmail** (Type: string, nullable):
       - Nullable: true
-  - **friendlyName** (Type: string, nullable):
-      - Nullable: true
-  - **repository** (Type: string):
-  - **createdAt** (Type: string, date-time):
   - **metadata** (Type: object):
     - **Additional Properties**:
       - **property value** (Type: unknown):
-  - **orgId** (Type: integer, int64):
-  - **branch** (Type: string, nullable):
-      - Nullable: true
-  - **status** (Type: string):
 `
 
 // NewGetReviewByIDMCPTool creates the MCP Tool instance for GetReviewByID

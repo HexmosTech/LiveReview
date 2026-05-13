@@ -7,7 +7,6 @@ import (
 	"io"
 	"log"
 	"net/http"
-	"os"
 	"strings"
 	"time"
 
@@ -49,6 +48,13 @@ func NewMCPService(baseURL string) *MCPService {
 		server.WithSSEEndpoint("/"),
 		server.WithMessageEndpoint("/message"),
 		server.WithUseFullURLForMessageEndpoint(true),
+        server.WithSSEContextFunc(server.SSEContextFunc(func(ctx context.Context, r *http.Request) context.Context {
+            key := r.Header.Get("X-API-Key")
+            if key != "" {
+                ctx = context.WithValue(ctx, "livereview_api_key", key)
+            }
+            return ctx
+        })),
 	)
 
 	s.registerCustomTools()
@@ -85,6 +91,11 @@ func (s *MCPService) registerCustomTools() {
 		mcp.WithDescription("Set the active organization context for LiveReview API calls."),
 		mcp.WithInteger("org_id", mcp.Description("The ID of the organization to select.")),
 	), s.selectOrganizationHandler)
+
+	// Register get_me for testing authentication and /me endpoint access
+	s.MCPServer.AddTool(mcp.NewTool("get_me",
+		mcp.WithDescription("Call /api/v1/auth/me to verify authentication and connectivity."),
+	), s.authMeHandler)
 }
 
 func (s *MCPService) registerGeneratedTools() {
@@ -157,7 +168,7 @@ func (s *MCPService) checkLoginStatusHandler(ctx context.Context, request mcp.Ca
 		}
 
 		if data.Status == "completed" {
-			s.Store.SetToken(data.TokenPair.AccessToken, data.TokenPair.RefreshToken)
+			// s.Store.SetToken(data.TokenPair.AccessToken, data.TokenPair.RefreshToken)
 			return mcp.NewToolResultText("✅ Login successful! Your session is now preserved."), nil
 		}
 	}
@@ -222,8 +233,12 @@ func (s *MCPService) selectOrganizationHandler(ctx context.Context, request mcp.
 		return mcp.NewToolResultError("org_id is required"), nil
 	}
 
-	s.Store.SetOrgID(int(orgID))
+	// s.Store.SetOrgID(int(orgID))
 	return mcp.NewToolResultText(fmt.Sprintf("✅ Organization context set to ID: `%d`. All subsequent calls will use this context.", int(orgID))), nil
+}
+
+func (s *MCPService) authMeHandler(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	return s.rawCallAPI(ctx, "GET", "/api/v1/auth/me", nil)
 }
 
 // CallAPI is the main proxy method called by generated tool handlers.
@@ -274,24 +289,25 @@ func (s *MCPService) rawCallAPI(ctx context.Context, method, path string, argume
 		req.Header.Set("Content-Type", "application/json")
 	}
 
-	// Inject Auth Headers
-	token := s.Store.GetAccessToken()
-	apiKey := os.Getenv("LIVEREVIEW_API_KEY")
-
-	if token != "" {
-		req.Header.Set("Authorization", "Bearer "+token)
-	} else if apiKey != "" {
-		req.Header.Set("X-API-Key", apiKey)
-		req.Header.Set("Authorization", "Bearer "+apiKey)
+	// Inject API Key from MCP config environment
+	// Get API key from mcp-remote header (passed via context)
+	apiKey, ok := ctx.Value("livereview_api_key").(string)
+	if !ok || apiKey == "" {
+		return mcp.NewToolResultError("missing LIVEREVIEW_API_KEY (set it in your Claude/Cursor MCP config)"), nil
 	}
+	req.Header.Set("X-API-Key", apiKey)
 
-	orgID := s.Store.GetOrgID()
+	orgID := 0
 	if orgID != 0 {
 		req.Header.Set("X-Org-Context", fmt.Sprintf("%d", orgID))
 	}
 
-	log.Printf("[MCP Proxy] %s %s", method, fullURL)
+	log.Printf("[MCP Proxy] %s %s %s", method, fullURL,apiKey)
 
+	log.Println("=== OUTGOING HEADERS ===")
+	for k, v := range req.Header {
+		log.Printf("%s: %v\n", k, v)
+	}
 	resp, err := client.Do(req)
 	if err != nil {
 		return mcp.NewToolResultError(fmt.Sprintf("API call failed: %v", err)), nil
