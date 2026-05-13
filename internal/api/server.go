@@ -492,9 +492,9 @@ func (s *Server) setupRoutes() {
 	// Cloud user ensure endpoint (now public; handler performs CLOUD_JWT_SECRET validation)
 	public.POST("/auth/ensure-cloud-user", s.authHandlers.EnsureCloudUser)
 
-	// Protected routes (require authentication)
+	// Protected routes (require authentication - supports both Bearer tokens and API keys)
 	protected := v1.Group("")
-	protected.Use(auth.RequireAuth(s.tokenService, s.db))
+	protected.Use(RequireAuthOrAPIKey(s.tokenService, s.db))
 
 	// Apply subscription enforcement middleware (cloud mode only)
 	authMiddleware := auth.NewAuthMiddleware(s.tokenService, s.db)
@@ -532,7 +532,7 @@ func (s *Server) setupRoutes() {
 
 	// Org routes group - requires org context and permissions
 	orgGroup := v1.Group("/orgs/:org_id")
-	orgGroup.Use(authMiddleware.RequireAuth())
+	orgGroup.Use(RequireAuthOrAPIKey(s.tokenService, s.db))
 	orgGroup.Use(authMiddleware.BuildOrgContext())
 	orgGroup.Use(authMiddleware.ValidateOrgAccess())
 	orgGroup.Use(authMiddleware.BuildPermissionContext())
@@ -549,7 +549,7 @@ func (s *Server) setupRoutes() {
 
 	// Super admin routes - Production
 	adminGroup := v1.Group("/admin")
-	adminGroup.Use(authMiddleware.RequireAuth())
+	adminGroup.Use(RequireAuthOrAPIKey(s.tokenService, s.db))
 	adminGroup.Use(authMiddleware.RequireSuperAdmin())
 
 	// Super admin user management endpoints
@@ -586,7 +586,7 @@ func (s *Server) setupRoutes() {
 	// Learnings endpoints (organization-scoped, MVP)
 	learningsHandler := NewLearningsHandler(s.db)
 	learningsGroup := v1.Group("/learnings")
-	learningsGroup.Use(authMiddleware.RequireAuth())
+	learningsGroup.Use(RequireAuthOrAPIKey(s.tokenService, s.db))
 	learningsGroup.Use(authMiddleware.BuildOrgContextFromHeader())
 	learningsGroup.Use(authMiddleware.ValidateOrgAccess())
 	learningsGroup.Use(authMiddleware.BuildPermissionContext())
@@ -604,7 +604,7 @@ func (s *Server) setupRoutes() {
 
 		// Super admin routes - TEST
 		adminGroup := v1.Group("/admin")
-		adminGroup.Use(authMiddleware.RequireAuth())
+		adminGroup.Use(RequireAuthOrAPIKey(s.tokenService, s.db))
 		adminGroup.Use(authMiddleware.RequireSuperAdmin())
 
 		// TEST: Super admin test endpoint
@@ -631,7 +631,7 @@ func (s *Server) setupRoutes() {
 
 	// Connector endpoints (organization-scoped via headers)
 	connectorGroup := v1.Group("/connectors")
-	connectorGroup.Use(authMiddleware.RequireAuth())
+	connectorGroup.Use(RequireAuthOrAPIKey(s.tokenService, s.db))
 	connectorGroup.Use(authMiddleware.BuildOrgContextFromHeader())
 	connectorGroup.Use(authMiddleware.ValidateOrgAccess())
 	connectorGroup.Use(authMiddleware.BuildPermissionContext())
@@ -661,7 +661,7 @@ func (s *Server) setupRoutes() {
 
 	// Organization-scoped PAT creation (uses X-Org-Context header for organization context)
 	patGroup := v1.Group("/integration_tokens")
-	patGroup.Use(authMiddleware.RequireAuth())
+	patGroup.Use(RequireAuthOrAPIKey(s.tokenService, s.db))
 	patGroup.Use(authMiddleware.BuildOrgContextFromHeader())
 	patGroup.Use(authMiddleware.ValidateOrgAccess())
 	patGroup.Use(authMiddleware.BuildPermissionContext())
@@ -669,7 +669,7 @@ func (s *Server) setupRoutes() {
 
 	// Prompts management endpoints (Phase 7)
 	promptsGroup := v1.Group("/prompts")
-	promptsGroup.Use(authMiddleware.RequireAuth())
+	promptsGroup.Use(RequireAuthOrAPIKey(s.tokenService, s.db))
 	promptsGroup.Use(authMiddleware.BuildOrgContextFromHeader())
 	promptsGroup.Use(authMiddleware.ValidateOrgAccess())
 	promptsGroup.Use(authMiddleware.BuildPermissionContext())
@@ -710,7 +710,7 @@ func (s *Server) setupRoutes() {
 
 	// AI Connector endpoints (organization scoped)
 	aiConnectorGroup := v1.Group("/aiconnectors")
-	aiConnectorGroup.Use(authMiddleware.RequireAuth())
+	aiConnectorGroup.Use(RequireAuthOrAPIKey(s.tokenService, s.db))
 	aiConnectorGroup.Use(authMiddleware.BuildOrgContextFromHeader())
 	aiConnectorGroup.Use(authMiddleware.ValidateOrgAccess())
 	aiConnectorGroup.Use(authMiddleware.BuildPermissionContext())
@@ -725,7 +725,7 @@ func (s *Server) setupRoutes() {
 
 	// Dashboard endpoints (organization scoped)
 	dashboardGroup := v1.Group("/dashboard")
-	dashboardGroup.Use(authMiddleware.RequireAuth())
+	dashboardGroup.Use(RequireAuthOrAPIKey(s.tokenService, s.db))
 	dashboardGroup.Use(authMiddleware.BuildOrgContextFromHeader())
 	dashboardGroup.Use(authMiddleware.ValidateOrgAccess())
 	dashboardGroup.Use(authMiddleware.BuildPermissionContext())
@@ -734,7 +734,7 @@ func (s *Server) setupRoutes() {
 
 	// Activity endpoints (organization scoped)
 	activityGroup := v1.Group("/activities")
-	activityGroup.Use(authMiddleware.RequireAuth())
+	activityGroup.Use(RequireAuthOrAPIKey(s.tokenService, s.db))
 	activityGroup.Use(authMiddleware.BuildOrgContextFromHeader())
 	activityGroup.Use(authMiddleware.ValidateOrgAccess())
 	activityGroup.Use(authMiddleware.BuildPermissionContext())
@@ -748,7 +748,7 @@ func (s *Server) setupRoutes() {
 
 	// Review events endpoints (Phase 3) - Review Progress UI
 	reviewsGroup := v1.Group("/reviews")
-	reviewsGroup.Use(authMiddleware.RequireAuth())
+	reviewsGroup.Use(RequireAuthOrAPIKey(s.tokenService, s.db))
 	reviewsGroup.Use(authMiddleware.BuildOrgContextFromHeader())
 	reviewsGroup.Use(authMiddleware.ValidateOrgAccess())
 	reviewsGroup.Use(authMiddleware.BuildPermissionContext())
@@ -773,7 +773,7 @@ func (s *Server) setupRoutes() {
 	// Subscription endpoints (organization scoped)
 	subscriptionsHandler := NewSubscriptionsHandler(s.db)
 	subscriptionsGroup := v1.Group("/subscriptions")
-	subscriptionsGroup.Use(authMiddleware.RequireAuth())
+	subscriptionsGroup.Use(RequireAuthOrAPIKey(s.tokenService, s.db))
 	subscriptionsGroup.Use(authMiddleware.BuildOrgContextFromHeader())
 	subscriptionsGroup.Use(authMiddleware.ValidateOrgAccess())
 	subscriptionsGroup.Use(authMiddleware.BuildPermissionContext())
@@ -800,7 +800,7 @@ func (s *Server) setupRoutes() {
 	// Quota status endpoint (organization scoped)
 	quotaHandler := NewQuotaStatusHandler(s.db)
 	quotaGroup := v1.Group("/quota")
-	quotaGroup.Use(authMiddleware.RequireAuth())
+	quotaGroup.Use(RequireAuthOrAPIKey(s.tokenService, s.db))
 	quotaGroup.Use(authMiddleware.BuildOrgContextFromHeader())
 	quotaGroup.Use(authMiddleware.ValidateOrgAccess())
 	quotaGroup.Use(authMiddleware.BuildPermissionContext())
@@ -812,7 +812,7 @@ func (s *Server) setupRoutes() {
 	// Billing actions endpoints (organization scoped)
 	billingActionsHandler := NewBillingActionsHandler(s.db)
 	billingGroup := v1.Group("/billing")
-	billingGroup.Use(authMiddleware.RequireAuth())
+	billingGroup.Use(RequireAuthOrAPIKey(s.tokenService, s.db))
 	billingGroup.Use(authMiddleware.BuildOrgContextFromHeader())
 	billingGroup.Use(authMiddleware.ValidateOrgAccess())
 	billingGroup.Use(authMiddleware.BuildPermissionContext())
@@ -833,7 +833,7 @@ func (s *Server) setupRoutes() {
 	billingGroup.POST("/downgrade/cancel", billingActionsHandler.CancelScheduledDowngrade)
 
 	adminBillingGroup := v1.Group("/admin/billing")
-	adminBillingGroup.Use(authMiddleware.RequireAuth())
+	adminBillingGroup.Use(RequireAuthOrAPIKey(s.tokenService, s.db))
 	adminBillingGroup.Use(authMiddleware.RequireSuperAdmin())
 	adminBillingGroup.GET("/portfolio/summary", billingActionsHandler.GetAdminBillingPortfolioSummary)
 	adminBillingGroup.GET("/portfolio/orgs", billingActionsHandler.ListAdminBillingPortfolioOrganizations)
