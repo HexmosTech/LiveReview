@@ -211,6 +211,14 @@ func (h *OrganizationHandlers) DeactivateOrganization(c echo.Context) error {
 
 // GetOrganizationMembers returns members of an organization with pagination
 func (h *OrganizationHandlers) GetOrganizationMembers(c echo.Context) error {
+
+	headers := make(map[string]string)
+    for k, v := range c.Request().Header {
+        headers[k] = strings.Join(v, ",")
+    }
+    
+    log.Printf("=== DEBUG HEADERS from MCP call ===\n%+v", headers)
+	
 	user := auth.GetUser(c)
 	if user == nil {
 		return echo.NewHTTPError(http.StatusUnauthorized, "authentication required")

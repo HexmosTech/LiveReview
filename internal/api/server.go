@@ -12,12 +12,12 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	mcpserver "github.com/BrunoKrugel/echo-mcp"
 
 	"github.com/labstack/echo/v4"
 	"github.com/labstack/echo/v4/middleware"
 	"github.com/livereview/internal/api/auth"
 	apimiddleware "github.com/livereview/internal/api/middleware"
-	"github.com/livereview/internal/api/mcp"
 	"github.com/livereview/internal/api/organizations"
 	"github.com/livereview/internal/api/users"
 	"github.com/livereview/internal/jobqueue"
@@ -140,7 +140,6 @@ type Server struct {
 	webhookOrchestratorV2 *WebhookOrchestratorV2
 
 	learningsService *learnings.Service
-	mcpService       *mcp.MCPService
 }
 
 // NewServer creates a new API server
@@ -314,7 +313,6 @@ func NewServer(port int, versionInfo *VersionInfo) (*Server, error) {
 		devMode:              devMode,
 		gitlabAuthService:    gitlabprovider.NewAuthService(db, triggerAutoInstall),
 		learningsService:     learningsSvc,
-		mcpService:           mcp.NewMCPService(fmt.Sprintf("http://localhost:%d", port)),
 	}
 
 	// Initialize V2 webhook providers
@@ -343,6 +341,16 @@ func NewServer(port int, versionInfo *VersionInfo) (*Server, error) {
 
 	// Setup routes
 	server.setupRoutes()
+	for _, r := range e.Routes() {
+    log.Printf("LOGAPI - %s %s", r.Method, r.Path)
+}
+	mcp := mcpserver.New(e)
+	mcp.RegisterEndpoints([]string{
+	"/api/v1/auth/me",
+	"/api/v1/connectors/trigger-review",
+		// add important ones
+	})
+    mcp.Mount("/mcp")
 
 	return server, nil
 }
@@ -446,8 +454,6 @@ func (s *Server) setupRoutes() {
 	s.echo.GET("/api/version", s.getVersion)
 
 	// MCP endpoint
-	s.echo.GET("/api/v1/mcp", s.HandleMCP)
-	s.echo.POST("/api/v1/mcp/message", s.HandleMCP)
 
 	// API v1 group
 	v1 := s.echo.Group("/api/v1")
@@ -1749,13 +1755,3 @@ func (s *Server) WebhookOrchestratorV2Handler(c echo.Context) error {
 	return s.webhookOrchestratorV2.ProcessWebhookEvent(c)
 }
 
-// HandleMCP handles MCP (Model Context Protocol) requests
-func (s *Server) HandleMCP(c echo.Context) error {
-	if s.mcpService == nil {
-		return c.JSON(http.StatusInternalServerError, map[string]string{
-			"error": "MCP service not initialized",
-		})
-	}
-	s.mcpService.GetHandler().ServeHTTP(c.Response().Writer, c.Request())
-	return nil
-}
