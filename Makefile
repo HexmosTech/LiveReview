@@ -10,9 +10,10 @@ GOCLEAN=$(GOCMD) clean
 GOTEST=$(GOCMD) test
 BINARY_NAME=livereview
 REQUIRED_GO_VERSION=$(shell awk '/^go /{print $$2; exit}' go.mod)
+REQUIRED_GO_TOOLCHAIN_VER=$(shell echo $(REQUIRED_GO_VERSION) | awk -F. '{if (NF==2) print $$0".0"; else print $$0}')
 REQUIRED_GO_SERIES=$(shell echo $(REQUIRED_GO_VERSION) | awk -F. '{print $$1"."$$2}')
 GOVULNCHECK_VERSION=v1.1.4
-GOVULNCHECK_CMD=GOTOOLCHAIN=go$(REQUIRED_GO_VERSION) $(GOCMD) run -a golang.org/x/vuln/cmd/govulncheck@$(GOVULNCHECK_VERSION)
+GOVULNCHECK_CMD=GOTOOLCHAIN=go$(REQUIRED_GO_TOOLCHAIN_VER) $(GOCMD) run -a golang.org/x/vuln/cmd/govulncheck@$(GOVULNCHECK_VERSION)
 GH_REPO=HexmosTech/LiveReview
 GH=/usr/bin/gh
 GHSM_SCRIPT=scripts/ghsm.py
@@ -153,11 +154,11 @@ run:
 	if [ -z "$$DLV_BIN_DIR" ]; then DLV_BIN_DIR="$$(go env GOPATH)/bin"; fi; \
 	command -v dlv >/dev/null 2>&1 || { \
 		echo "Installing Delve with Go $(REQUIRED_GO_VERSION)..."; \
-		GOTOOLCHAIN=go$(REQUIRED_GO_VERSION) $(GOCMD) install github.com/go-delve/delve/cmd/dlv@latest; \
+		GOTOOLCHAIN=go$(REQUIRED_GO_TOOLCHAIN_VER) $(GOCMD) install github.com/go-delve/delve/cmd/dlv@latest; \
 	}; \
 	if ! go version -m "$$DLV_BIN_DIR/dlv" 2>/dev/null | grep -q "go$(REQUIRED_GO_SERIES)"; then \
 		echo "Rebuilding Delve with Go $(REQUIRED_GO_VERSION) for DWARFv5+ compatibility..."; \
-		GOTOOLCHAIN=go$(REQUIRED_GO_VERSION) $(GOCMD) install github.com/go-delve/delve/cmd/dlv@latest; \
+		GOTOOLCHAIN=go$(REQUIRED_GO_TOOLCHAIN_VER) $(GOCMD) install github.com/go-delve/delve/cmd/dlv@latest; \
 	fi
 	which air || go install github.com/air-verse/air@latest
 	DLV_BIN_DIR=$$(go env GOBIN); if [ -z "$$DLV_BIN_DIR" ]; then DLV_BIN_DIR="$$(go env GOPATH)/bin"; fi; PATH="$$DLV_BIN_DIR:$$PATH" air
@@ -171,11 +172,11 @@ develop:
 	if [ -z "$$DLV_BIN_DIR" ]; then DLV_BIN_DIR="$$(go env GOPATH)/bin"; fi; \
 	command -v dlv >/dev/null 2>&1 || { \
 		echo "Installing Delve with Go $(REQUIRED_GO_VERSION)..."; \
-		GOTOOLCHAIN=go$(REQUIRED_GO_VERSION) $(GOCMD) install github.com/go-delve/delve/cmd/dlv@latest; \
+		GOTOOLCHAIN=go$(REQUIRED_GO_TOOLCHAIN_VER) $(GOCMD) install github.com/go-delve/delve/cmd/dlv@latest; \
 	}; \
 	if ! go version -m "$$DLV_BIN_DIR/dlv" 2>/dev/null | grep -q "go$(REQUIRED_GO_SERIES)"; then \
 		echo "Rebuilding Delve with Go $(REQUIRED_GO_VERSION) for DWARFv5+ compatibility..."; \
-		GOTOOLCHAIN=go$(REQUIRED_GO_VERSION) $(GOCMD) install github.com/go-delve/delve/cmd/dlv@latest; \
+		GOTOOLCHAIN=go$(REQUIRED_GO_TOOLCHAIN_VER) $(GOCMD) install github.com/go-delve/delve/cmd/dlv@latest; \
 	fi
 	which air || go install github.com/air-verse/air@latest
 	DLV_BIN_DIR=$$(go env GOBIN); if [ -z "$$DLV_BIN_DIR" ]; then DLV_BIN_DIR="$$(go env GOPATH)/bin"; fi; PATH="$$DLV_BIN_DIR:$$PATH" air
@@ -557,7 +558,7 @@ generate-mcp-tools:
 # Generate OpenAPI and MCP
 # -------------------------------------------------------------------
 
-generate-openapi-and-mcp: generate-spec generate-mcp-tools
+generate-openapi-and-mcp: generate-spec
 	@echo "✅ OpenAPI spec and MCP tools generated"
 
 raw-deploy: build-with-ui
