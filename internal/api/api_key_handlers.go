@@ -207,7 +207,6 @@ func RequireAuthOrAPIKey(tokenService *auth.TokenService, db *sql.DB) echo.Middl
 				c.Request().Header.Get("Authorization"),
 			)
 
-			
 			// First, try API key authentication
 			apiKey := c.Request().Header.Get("X-API-Key")
 			if apiKey != "" {
@@ -255,6 +254,7 @@ func RequireAuthOrAPIKey(tokenService *auth.TokenService, db *sql.DB) echo.Middl
 				// Set user and org context (same as APIKeyAuthMiddleware)
 				c.Set(string(auth.UserContextKey), user)
 				c.Set("user_id", keyRecord.UserID)
+				c.Request().Header.Set("X-Org-Context", strconv.FormatInt(keyRecord.OrgID, 10))
 				c.Set("org_id", keyRecord.OrgID)
 				c.Set("api_key_id", keyRecord.ID)
 

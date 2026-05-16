@@ -12,6 +12,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
 	mcpserver "github.com/BrunoKrugel/echo-mcp"
 
 	"github.com/labstack/echo/v4"
@@ -342,15 +343,15 @@ func NewServer(port int, versionInfo *VersionInfo) (*Server, error) {
 	// Setup routes
 	server.setupRoutes()
 	for _, r := range e.Routes() {
-    log.Printf("LOGAPI - %s %s", r.Method, r.Path)
-}
+		log.Printf("LOGAPI - %s %s", r.Method, r.Path)
+	}
 	mcp := mcpserver.New(e)
 	mcp.RegisterEndpoints([]string{
-	"/api/v1/auth/me",
-	"/api/v1/connectors/trigger-review",
+		"/api/v1/auth/me",
+		"/api/v1/connectors/trigger-review",
 		// add important ones
 	})
-    mcp.Mount("/mcp")
+	mcp.Mount("/api/mcp")
 
 	return server, nil
 }
@@ -1754,4 +1755,3 @@ func (s *Server) WebhookOrchestratorV2Handler(c echo.Context) error {
 
 	return s.webhookOrchestratorV2.ProcessWebhookEvent(c)
 }
-
