@@ -27,7 +27,6 @@ require (
 	github.com/kaptinlin/jsonrepair v0.2.3
 	github.com/labstack/echo/v4 v4.15.1
 	github.com/lib/pq v1.10.9
-	github.com/mark3labs/mcp-go v0.52.0
 	github.com/mdombrov-33/go-promptguard v0.4.0
 	github.com/riverqueue/river v0.32.0
 	github.com/riverqueue/river/riverdriver/riverpgxv5 v0.32.0
@@ -94,7 +93,6 @@ require (
 	github.com/go-openapi/swag/yamlutils v0.25.5 // indirect
 	github.com/google/generative-ai-go v0.20.1 // indirect
 	github.com/google/go-querystring v1.1.0 // indirect
-	github.com/google/jsonschema-go v0.4.2 // indirect
 	github.com/google/s2a-go v0.1.9 // indirect
 	github.com/googleapis/enterprise-certificate-proxy v0.3.4 // indirect
 	github.com/googleapis/gax-go/v2 v2.14.1 // indirect
@@ -168,7 +166,6 @@ require (
 	github.com/woodsbury/decimal128 v1.3.0 // indirect
 	github.com/xo/terminfo v0.0.0-20220910002029-abceb7e1c41e // indirect
 	github.com/xrash/smetrics v0.0.0-20201216005158-039620a65673 // indirect
-	github.com/yosida95/uritemplate/v3 v3.0.2 // indirect
 	go.opentelemetry.io/auto/sdk v1.2.1 // indirect
 	go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc v0.54.0 // indirect
 	go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp v0.61.0 // indirect
