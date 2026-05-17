@@ -16,6 +16,7 @@
    <a href="#features">Features</a> |
    <a href="#cli">CLI</a> |
    <a href="#ide-extensions">Extensions</a> |
+   <a href="#mcp-server">MCP Server</a> |
    <a href="#self-hosted-tiers">Tiers</a> |
    <a href="#comparisons">Comparisons</a>
 </p>
@@ -183,6 +184,60 @@ Get instant AI code reviews without leaving your editor. Available for VSCode, C
 | **VSCode** | [Visual Studio Marketplace](https://marketplace.visualstudio.com/items?itemName=Hexmos.livereview) |
 | **Cursor** | [Open VSX Registry](https://open-vsx.org/extension/hexmos/livereview) |
 | **Antigravity** | [Open VSX Registry](https://open-vsx.org/extension/hexmos/livereview) |
+
+---
+
+<a id="mcp-server"></a>
+
+## Model Context Protocol (MCP) Server
+
+Integrate LiveReview natively into your favorite AI-powered IDEs and clients, including Cursor, Claude Desktop, Windsurf, and VS Code.
+
+### Getting your API Key
+
+1. Go to LiveReview
+2. Click on Settings
+3. Navigate to API Keys
+4. Generate and copy a new API key
+
+
+
+### Configuration
+
+Add the following block to your MCP client's configuration file:
+
+- For eg: Claude Desktop: claude_desktop_config.json
+- Other clients: Check the client's documentation for the equivalent file.
+
+```json
+{
+  "mcpServers": {
+    "livereview": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "mcp-remote",
+        "https://livereview.hexmos.com/api/mcp",
+        "--header",
+        "X-API-KEY: ${LIVEREVIEW_API_KEY}"
+      ],
+      "env": {  
+        "LIVEREVIEW_API_KEY": "<YOUR_LIVEREVIEW_API_KEY>"  
+      }                       
+    }
+  }
+}
+```
+
+Replace `<YOUR_LIVEREVIEW_API_KEY>` with your actual LiveReview API key.
+
+
+### What you can do
+
+Once connected, you can ask your AI assistant questions like:
+- "LiveReview: Review this PR: https://github.com/user/your-repo/pull/123"
+- "Get the PR review status"
+- "Get information about me"
 
 ---
 
