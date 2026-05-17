@@ -11,6 +11,15 @@ import (
 	"github.com/livereview/internal/providers/gitea"
 )
 
+// CreatePATRequest represents the request to create a PAT integration token
+type CreatePATRequest struct {
+	Name     string                 `json:"name" jsonschema:"description=Display name for the connection (e.g. 'My GitHub')"`
+	Type     string                 `json:"type" jsonschema:"description=Provider type (github, gitlab, bitbucket, gitea)"`
+	URL      string                 `json:"url" jsonschema:"description=Provider base URL (e.g. 'https://github.com')"`
+	PATToken string                 `json:"pat_token" jsonschema:"description=Personal Access Token from the provider"`
+	Metadata map[string]interface{} `json:"metadata,omitempty" jsonschema:"description=Optional provider-specific metadata"`
+}
+
 // Handler for creating PAT integration token
 func HandleCreatePATIntegrationToken(db *sql.DB, c echo.Context) error {
 	connectorID, _, err := CreatePATIntegrationToken(db, c)
@@ -22,14 +31,7 @@ func HandleCreatePATIntegrationToken(db *sql.DB, c echo.Context) error {
 
 // CreatePATIntegrationToken creates a PAT integration token and returns the ID
 func CreatePATIntegrationToken(db *sql.DB, c echo.Context) (int64, int64, error) {
-	type CreatePATIntegrationTokenRequest struct {
-		Name     string                 `json:"name"` // connector_name
-		Type     string                 `json:"type"` // provider
-		URL      string                 `json:"url"`  // provider_url
-		PATToken string                 `json:"pat_token"`
-		Metadata map[string]interface{} `json:"metadata"`
-	}
-	var body CreatePATIntegrationTokenRequest
+	var body CreatePATRequest
 	if err := c.Bind(&body); err != nil {
 		return 0, 0, fmt.Errorf("invalid request body: %w", err)
 	}

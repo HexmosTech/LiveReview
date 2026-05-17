@@ -346,10 +346,16 @@ func NewServer(port int, versionInfo *VersionInfo) (*Server, error) {
 		log.Printf("LOGAPI - %s %s", r.Method, r.Path)
 	}
 	mcp := mcpserver.New(e)
+	mcp.RegisterSchema("POST", "/api/v1/connectors/trigger-review", nil, TriggerReviewRequest{})
+	mcp.RegisterSchema("POST", "/api/v1/integration_tokens/pat", nil, CreatePATRequest{})
+	mcp.RegisterSchema("POST", "/api/v1/diff-review", nil, DiffReviewRequest{})
+	mcp.RegisterSchema("GET", "/api/v1/diff-review/:review_id", nil, nil)
 	mcp.RegisterEndpoints([]string{
 		"/api/v1/auth/me",
 		"/api/v1/connectors/trigger-review",
-		// add important ones
+		"/api/v1/integration_tokens/pat",
+		"/api/v1/diff-review",
+		"/api/v1/diff-review/:review_id",
 	})
 	mcp.Mount("/api/mcp")
 
