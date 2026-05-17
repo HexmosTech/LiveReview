@@ -348,21 +348,16 @@ func NewServer(port int, versionInfo *VersionInfo) (*Server, error) {
 	mcp := mcpserver.New(e)
 	mcp.RegisterSchema("POST", "/api/v1/connectors/trigger-review", nil, TriggerReviewRequest{})
 	mcp.RegisterSchema("POST", "/api/v1/integration_tokens/pat", nil, CreatePATRequest{})
-	mcp.RegisterSchema("POST", "/api/v1/diff-review", nil, DiffReviewRequest{})
-	mcp.RegisterSchema("POST", "/api/v1/diff-review/raw", nil, RawDiffReviewRequest{})
-	mcp.RegisterSchema("GET", "/api/v1/diff-review/:review_id", nil, nil)
+	mcp.RegisterSchema("GET", "/api/v1/diff-review/local-instructions", nil, nil)
 	mcp.RegisterSchema("POST", "/api/v1/billing/upgrade/preview", nil, PlanChangeRequest{})
 	mcp.RegisterSchema("POST", "/api/v1/aiconnectors", nil, AIConnectorCreateRequest{})
 	mcp.RegisterSchema("POST", "/api/v1/aiconnectors/validate-key", nil, AIConnectorKeyValidationRequest{})
-
 
 	mcp.RegisterEndpoints([]string{
 		"/api/v1/auth/me",
 		"/api/v1/connectors/trigger-review",
 		"/api/v1/integration_tokens/pat",
-		"/api/v1/diff-review",
-		"/api/v1/diff-review/raw",
-		"/api/v1/diff-review/:review_id",
+		"/api/v1/diff-review/local-instructions",
 		"/api/v1/quota/status",
 		"/api/v1/billing/status",
 		"/api/v1/billing/usage/summary",
@@ -502,7 +497,7 @@ func (s *Server) setupRoutes() {
 	diffReviewGroup.Use(apimiddleware.BuildOrgBillingPlanContext(s.db))
 	diffReviewGroup.Use(apimiddleware.BuildPlanContext())
 	diffReviewGroup.POST("", s.DiffReview)
-	diffReviewGroup.POST("/raw", s.RawDiffReview)
+	diffReviewGroup.GET("/local-instructions", s.GetLocalReviewInstructions)
 	diffReviewGroup.GET("/:review_id", s.GetDiffReviewStatus)
 
 	// Review events endpoints (alternative API key-based access for CLI)

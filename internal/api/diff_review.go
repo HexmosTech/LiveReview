@@ -39,12 +39,6 @@ type DiffReviewResult struct {
 	Comments []*models.ReviewComment `json:"comments"`
 }
 
-// RawDiffReviewRequest models the incoming POST payload for raw diff reviews.
-type RawDiffReviewRequest struct {
-	RawDiff  string `json:"raw_diff"`
-	RepoName string `json:"repo_name"`
-}
-
 const (
 	maxExtractedFileBytes  = 25 << 20  // 25 MiB per extracted file
 	maxExtractedTotalBytes = 200 << 20 // 200 MiB across all extracted files
@@ -63,25 +57,6 @@ func (s *Server) DiffReview(c echo.Context) error {
 	localDiffs, err := parseDiffZipBase64(req.DiffZipBase64)
 	if err != nil {
 		return JSONErrorWithEnvelope(c, http.StatusBadRequest, fmt.Sprintf("failed to parse diff: %v", err))
-	}
-
-	return s.performDiffReview(c, localDiffs, req.RepoName)
-}
-
-// RawDiffReview accepts a raw unified diff string and triggers a review.
-func (s *Server) RawDiffReview(c echo.Context) error {
-	var req RawDiffReviewRequest
-	if err := c.Bind(&req); err != nil {
-		return JSONErrorWithEnvelope(c, http.StatusBadRequest, "invalid request body")
-	}
-	if strings.TrimSpace(req.RawDiff) == "" {
-		return JSONErrorWithEnvelope(c, http.StatusBadRequest, "raw_diff is required")
-	}
-
-	parser := lib.NewLocalParser()
-	localDiffs, err := parser.Parse(req.RawDiff)
-	if err != nil {
-		return JSONErrorWithEnvelope(c, http.StatusBadRequest, fmt.Sprintf("failed to parse raw diff: %v", err))
 	}
 
 	return s.performDiffReview(c, localDiffs, req.RepoName)
@@ -332,6 +307,20 @@ func (s *Server) GetDiffReviewStatus(c echo.Context) error {
 	}
 
 	return JSONWithEnvelope(c, http.StatusOK, response)
+}
+
+// GetLocalReviewInstructions returns instructions for the AI agent on how to trigger a local review via the terminal.
+func (s *Server) GetLocalReviewInstructions(c echo.Context) error {
+	instructions := `To review the user's local code, you MUST execute the following bash command in their local terminal:
+    git-lrc review --output=json
+	DO NOT ask the user for the code. DO NOT try to use the diff-review/raw tool for local changes. Simply execute the terminal command above. The command will automatically handle the git diff, zip the payload, and submit it to the cloud. When the command finishes, it will print the AI review comments as a JSON string to standard output. Read that JSON output and summarize the comments for the user.
+
+	If git-lrc is not installed, please refer to https://github.com/HexmosTech/git-lrc#get-started for installation instructions to configure git-lrc.`
+
+	return c.JSON(http.StatusOK, map[string]string{
+		"instruction":      instructions,
+		"required_command": "git-lrc review --output=json",
+	})
 }
 
 // runDiffReview executes the review asynchronously and persists results.
