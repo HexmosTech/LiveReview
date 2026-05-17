@@ -34,7 +34,6 @@ type DiffReviewRequest struct {
 	RepoName      string `json:"repo_name"`
 }
 
-// DiffReviewResult holds persisted review output that is safe to marshal.
 type DiffReviewResult struct {
 	Summary  string                  `json:"summary"`
 	Comments []*models.ReviewComment `json:"comments"`
@@ -47,6 +46,24 @@ const (
 
 // DiffReview accepts a base64-encoded ZIP containing a unified diff and triggers a review.
 func (s *Server) DiffReview(c echo.Context) error {
+	var req DiffReviewRequest
+	if err := c.Bind(&req); err != nil {
+		return JSONErrorWithEnvelope(c, http.StatusBadRequest, "invalid request body")
+	}
+	if strings.TrimSpace(req.DiffZipBase64) == "" {
+		return JSONErrorWithEnvelope(c, http.StatusBadRequest, "diff_zip_base64 is required")
+	}
+
+	localDiffs, err := parseDiffZipBase64(req.DiffZipBase64)
+	if err != nil {
+		return JSONErrorWithEnvelope(c, http.StatusBadRequest, fmt.Sprintf("failed to parse diff: %v", err))
+	}
+
+	return s.performDiffReview(c, localDiffs, req.RepoName)
+}
+
+// performDiffReview contains the shared logic for executing a diff review
+func (s *Server) performDiffReview(c echo.Context, localDiffs []lib.LocalCodeDiff, reqRepoName string) error {
 	// API key authentication is handled by middleware
 	// Extract user and org context from middleware
 	orgID := c.Get("org_id").(int64)
@@ -80,19 +97,6 @@ func (s *Server) DiffReview(c echo.Context) error {
 		log.Printf("[DiffReview] ERROR fetching user: %v", err)
 	}
 
-	var req DiffReviewRequest
-
-	if err := c.Bind(&req); err != nil {
-		return JSONErrorWithEnvelope(c, http.StatusBadRequest, "invalid request body")
-	}
-	if strings.TrimSpace(req.DiffZipBase64) == "" {
-		return JSONErrorWithEnvelope(c, http.StatusBadRequest, "diff_zip_base64 is required")
-	}
-
-	localDiffs, err := parseDiffZipBase64(req.DiffZipBase64)
-	if err != nil {
-		return JSONErrorWithEnvelope(c, http.StatusBadRequest, fmt.Sprintf("failed to parse diff: %v", err))
-	}
 	billableLOC := CalculateEffectiveDiffLOCFromLocalDiffs(localDiffs)
 	c.Set(EnvelopeOperationTypeContextKey, "diff_review")
 	c.Set(EnvelopeTriggerSourceContextKey, "api")
@@ -135,7 +139,7 @@ func (s *Server) DiffReview(c echo.Context) error {
 	}
 
 	modelDiffs := convertLocalDiffs(localDiffs)
-	repoName := strings.TrimSpace(req.RepoName)
+	repoName := strings.TrimSpace(reqRepoName)
 	if repoName == "" {
 		repoName = "cli-diff"
 	}
@@ -191,10 +195,11 @@ func (s *Server) DiffReview(c echo.Context) error {
 	go s.runDiffReview(reviewRequest, rm, reviewRecord.ID, orgID, billableLOC, actorUserID, userEmail, planCode)
 
 	return JSONWithEnvelope(c, http.StatusOK, map[string]interface{}{
-		"review_id":     fmt.Sprintf("%d", reviewRecord.ID),
-		"status":        "processing",
-		"friendly_name": friendlyName,
-		"user_email":    userEmail,
+		"review_id":             fmt.Sprintf("%d", reviewRecord.ID),
+		"status":                "processing",
+		"friendly_name":         friendlyName,
+		"user_email":            userEmail,
+		"mcp_agent_instruction": "The review has started processing. You MUST call the GET /api/v1/diff-review/:review_id tool every few seconds using this review_id until the status returns 'completed'. Do not ask the user to wait, just poll the status tool yourself.",
 	})
 }
 
@@ -302,6 +307,20 @@ func (s *Server) GetDiffReviewStatus(c echo.Context) error {
 	}
 
 	return JSONWithEnvelope(c, http.StatusOK, response)
+}
+
+// GetLocalReviewInstructions returns instructions for the AI agent on how to trigger a local review via the terminal.
+func (s *Server) GetLocalReviewInstructions(c echo.Context) error {
+	instructions := `To review the user's local code, you MUST execute the following bash command in their local terminal:
+    git-lrc review --output=json
+	DO NOT ask the user for the code. DO NOT try to use the diff-review/raw tool for local changes. Simply execute the terminal command above. The command will automatically handle the git diff, zip the payload, and submit it to the cloud. When the command finishes, it will print the AI review comments as a JSON string to standard output. Read that JSON output and summarize the comments for the user.
+
+	If git-lrc is not installed, please refer to https://github.com/HexmosTech/git-lrc#get-started for installation instructions to configure git-lrc.`
+
+	return c.JSON(http.StatusOK, map[string]string{
+		"instruction":      instructions,
+		"required_command": "git-lrc review --output=json",
+	})
 }
 
 // runDiffReview executes the review asynchronously and persists results.
