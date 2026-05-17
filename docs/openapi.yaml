@@ -695,12 +695,12 @@ paths:
       operationId: GetReviewEventsByType
       parameters:
         - in: path
-          name: id
+          name: type
           required: true
           schema:
             type: string
         - in: path
-          name: type
+          name: id
           required: true
           schema:
             type: string
