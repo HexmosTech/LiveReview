@@ -356,7 +356,22 @@ func NewServer(port int, versionInfo *VersionInfo) (*Server, error) {
 		"/api/v1/integration_tokens/pat",
 		"/api/v1/diff-review",
 		"/api/v1/diff-review/:review_id",
+		"/api/v1/quota/status",
+		"/api/v1/billing/status",
+		"/api/v1/billing/usage/summary",
+		"/api/v1/billing/usage/members",
+		"/api/v1/billing/usage/operations",
+		"/api/v1/billing/upgrade/preview",
+		"/api/v1/reviews",
+		"/api/v1/connectors",
+		"/api/v1/aiconnectors",
+		"/api/v1/aiconnectors/validate-key",
 	})
+
+	mcp.RegisterSchema("POST", "/api/v1/connectors/trigger-review", nil, TriggerReviewRequest{})
+	mcp.RegisterSchema("POST", "/api/v1/billing/upgrade/preview", nil, PlanChangeRequest{})
+	mcp.RegisterSchema("POST", "/api/v1/aiconnectors", nil, AIConnectorCreateRequest{})
+	mcp.RegisterSchema("POST", "/api/v1/aiconnectors/validate-key", nil, AIConnectorKeyValidationRequest{})
 	mcp.Mount("/api/mcp")
 
 	return server, nil
