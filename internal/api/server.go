@@ -342,9 +342,6 @@ func NewServer(port int, versionInfo *VersionInfo) (*Server, error) {
 
 	// Setup routes
 	server.setupRoutes()
-	for _, r := range e.Routes() {
-		log.Printf("LOGAPI - %s %s", r.Method, r.Path)
-	}
 	mcp := mcpserver.New(e)
 	mcp.RegisterSchema("POST", "/api/v1/connectors/trigger-review", nil, TriggerReviewRequest{})
 	mcp.RegisterSchema("POST", "/api/v1/integration_tokens/pat", nil, CreatePATRequest{})
@@ -367,11 +364,11 @@ func NewServer(port int, versionInfo *VersionInfo) (*Server, error) {
 		"/api/v1/aiconnectors",
 		"/api/v1/aiconnectors/validate-key",
 	})
-
-	mcp.RegisterSchema("POST", "/api/v1/connectors/trigger-review", nil, TriggerReviewRequest{})
+	mcp.RegisterSchema("GET", "/api/v1/reviews", nil, ReviewsQuery{})
 	mcp.RegisterSchema("POST", "/api/v1/billing/upgrade/preview", nil, PlanChangeRequest{})
 	mcp.RegisterSchema("POST", "/api/v1/aiconnectors", nil, AIConnectorCreateRequest{})
 	mcp.RegisterSchema("POST", "/api/v1/aiconnectors/validate-key", nil, AIConnectorKeyValidationRequest{})
+
 	mcp.Mount("/api/mcp")
 
 	return server, nil
@@ -1116,6 +1113,14 @@ type ReviewResponse struct {
 	CompletedAt    *time.Time             `json:"completedAt,omitempty"`
 	Metadata       map[string]interface{} `json:"metadata,omitempty"`
 	OrgID          int64                  `json:"orgId"`
+}
+
+type ReviewsQuery struct {
+	Page     int    `form:"page" query:"page" json:"page,omitempty" jsonschema:"description=Page number for pagination"`
+	PerPage  int    `form:"per_page" query:"per_page" json:"per_page,omitempty" jsonschema:"description=Number of items per page"`
+	Status   string `form:"status" query:"status" json:"status,omitempty" jsonschema:"description=Filter reviews by status (e.g. pending, completed, failed)"`
+	Provider string `form:"provider" query:"provider" json:"provider,omitempty" jsonschema:"description=Filter reviews by Git provider (e.g. github, gitlab)"`
+	Search   string `form:"search" query:"search" json:"search,omitempty" jsonschema:"description=Search pattern for repository name, MR title, or author"`
 }
 
 type ReviewsListResponse struct {
