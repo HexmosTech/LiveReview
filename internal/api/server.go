@@ -349,6 +349,8 @@ func NewServer(port int, versionInfo *VersionInfo) (*Server, error) {
 	mcp.RegisterSchema("POST", "/api/v1/billing/upgrade/preview", nil, PlanChangeRequest{})
 	mcp.RegisterSchema("POST", "/api/v1/aiconnectors", nil, AIConnectorCreateRequest{})
 	mcp.RegisterSchema("POST", "/api/v1/aiconnectors/validate-key", nil, AIConnectorKeyValidationRequest{})
+	mcp.RegisterSchema("GET", "/api/v1/reviews/:id", nil, nil)
+	mcp.RegisterSchema("GET", "/api/v1/reviews/:id/events", nil, nil)
 
 	mcp.RegisterEndpoints([]string{
 		"/api/v1/auth/me",
@@ -362,6 +364,8 @@ func NewServer(port int, versionInfo *VersionInfo) (*Server, error) {
 		"/api/v1/billing/usage/operations",
 		"/api/v1/billing/upgrade/preview",
 		"/api/v1/reviews",
+		"/api/v1/reviews/:id",
+		"/api/v1/reviews/:id/events",
 		"/api/v1/connectors",
 		"/api/v1/aiconnectors",
 		"/api/v1/aiconnectors/validate-key",
