@@ -303,12 +303,7 @@ func (am *AuthMiddleware) EnforceSubscriptionLimits() echo.MiddlewareFunc {
 
 			// Set plan info in context for downstream handlers
 			c.Set("plan_type", resolvedPlanType)
-			if isFreeTier {
-				dailyLimit := 3
-				c.Set("daily_review_limit", &dailyLimit)
-			} else {
-				c.Set("daily_review_limit", (*int)(nil)) // unlimited
-			}
+			c.Set("daily_review_limit", (*int)(nil)) // unlimited
 
 			return next(c)
 		}
