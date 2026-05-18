@@ -137,7 +137,11 @@ func (s *Service) ProcessReview(ctx context.Context, request ReviewRequest) *Rev
 		} else {
 			aiConnectorName = request.AI.Type
 		}
-		s.logger.Log("AI Provider: %s (model: %s)", aiConnectorName, request.AI.Model)
+		if aiConnectorName == "livereview-default-ai" {
+			s.logger.Log("AI Provider: %s", aiConnectorName)
+		} else {
+			s.logger.Log("AI Provider: %s (model: %s)", aiConnectorName, request.AI.Model)
+		}
 		s.logger.Log("Start time: %s", start.Format("2006-01-02 15:04:05.000"))
 	}
 
