@@ -25,6 +25,7 @@ import (
 
 	"github.com/livereview/internal/batch"
 	"github.com/livereview/internal/logging"
+	"github.com/livereview/internal/aidefault"
 	"github.com/livereview/internal/prompts"
 	vendorpack "github.com/livereview/internal/prompts/vendor"
 	"github.com/livereview/pkg/models"
@@ -612,6 +613,13 @@ func (p *LangchainProvider) getModelName() string {
 	}
 }
 
+func (p *LangchainProvider) getLoggedModelName() string {
+	if p.providerName == aidefault.ProviderName {
+		return aidefault.ProviderName
+	}
+	return p.modelName
+}
+
 // ReviewCode is the legacy method for backwards compatibility
 func (p *LangchainProvider) ReviewCode(ctx context.Context, diffs []*models.CodeDiff) (*models.ReviewResult, error) {
 	// Convert to the newer batch-based approach
@@ -702,11 +710,7 @@ func (p *LangchainProvider) reviewCodeBatchFormatted(ctx context.Context, diffs 
 
 	// Log request to global logger and emit batch started event
 	if p.logger != nil {
-		logModel := p.modelName
-		if p.providerName == "livereview-default-ai" {
-			logModel = "livereview-default-ai"
-		}
-		p.logger.LogRequest(batchId, logModel, prompt)
+		p.logger.LogRequest(batchId, p.getLoggedModelName(), prompt)
 		p.logger.Log("Processing batch %s with %d diffs", batchId, len(diffs))
 		// Emit batch event so UI can show progress
 		p.logger.EmitBatchStart(batchId, len(diffs))
@@ -738,12 +742,8 @@ func (p *LangchainProvider) reviewCodeBatchFormatted(ctx context.Context, diffs 
 
 	// Call the LLM with streaming
 	fmt.Printf("[LANGCHAIN REQUEST] Calling LLM for batch %s with streaming...\n", batchId)
-	logModel := p.modelName
-	if p.providerName == "livereview-default-ai" {
-		logModel = "livereview-default-ai"
-	}
 	fmt.Printf("[LANGCHAIN DEBUG] Provider type: %s, Model: %s, Base URL: %s\n",
-		p.providerType, logModel, p.baseURL)
+		p.providerType, p.getLoggedModelName(), p.baseURL)
 
 	// Create a timeout context
 	// For Ollama, some setups (reverse proxies) buffer SSE and models can be slow to start.
@@ -959,12 +959,8 @@ func (p *LangchainProvider) reviewCodeBatchFormatted(ctx context.Context, diffs 
 			p.logger.LogError(fmt.Sprintf("LLM call batch %s", batchId), err)
 		}
 		fmt.Printf("\n[LANGCHAIN ERROR] LLM call failed for batch %s: %v\n", batchId, err)
-		logModel := p.modelName
-		if p.providerName == "livereview-default-ai" {
-			logModel = "livereview-default-ai"
-		}
 		fmt.Printf("[LANGCHAIN ERROR] Provider: %s, Model: %s, Base URL: %s\n",
-			p.providerType, logModel, p.baseURL)
+			p.providerType, p.getLoggedModelName(), p.baseURL)
 		p.logLLMErrorDetails(err, batchId)
 
 		// Fallback for Ollama: retry once without streaming (some reverse proxies buffer/block streams)
