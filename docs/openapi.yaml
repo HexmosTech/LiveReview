@@ -5702,12 +5702,12 @@ paths:
       operationId: DeactivateUser
       parameters:
         - in: path
-          name: org_id
+          name: user_id
           required: true
           schema:
             type: string
         - in: path
-          name: user_id
+          name: org_id
           required: true
           schema:
             type: string
@@ -6160,12 +6160,12 @@ paths:
       operationId: CreatePromptChunk
       parameters:
         - in: path
-          name: var
+          name: key
           required: true
           schema:
             type: string
         - in: path
-          name: key
+          name: var
           required: true
           schema:
             type: string
