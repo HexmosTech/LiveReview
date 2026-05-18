@@ -4695,12 +4695,12 @@ paths:
       operationId: GetReviewEventsByType
       parameters:
         - in: path
-          name: id
+          name: type
           required: true
           schema:
             type: string
         - in: path
-          name: type
+          name: id
           required: true
           schema:
             type: string
@@ -5702,12 +5702,12 @@ paths:
       operationId: DeactivateUser
       parameters:
         - in: path
-          name: user_id
+          name: org_id
           required: true
           schema:
             type: string
         - in: path
-          name: org_id
+          name: user_id
           required: true
           schema:
             type: string
@@ -5727,12 +5727,12 @@ paths:
       operationId: GetUser
       parameters:
         - in: path
-          name: org_id
+          name: user_id
           required: true
           schema:
             type: string
         - in: path
-          name: user_id
+          name: org_id
           required: true
           schema:
             type: string
@@ -5750,12 +5750,12 @@ paths:
       operationId: UpdateUser
       parameters:
         - in: path
-          name: org_id
+          name: user_id
           required: true
           schema:
             type: string
         - in: path
-          name: user_id
+          name: org_id
           required: true
           schema:
             type: string
@@ -5825,12 +5825,12 @@ paths:
       operationId: ChangeUserRole
       parameters:
         - in: path
-          name: user_id
+          name: org_id
           required: true
           schema:
             type: string
         - in: path
-          name: org_id
+          name: user_id
           required: true
           schema:
             type: string
@@ -6160,12 +6160,12 @@ paths:
       operationId: CreatePromptChunk
       parameters:
         - in: path
-          name: key
+          name: var
           required: true
           schema:
             type: string
         - in: path
-          name: var
+          name: key
           required: true
           schema:
             type: string
@@ -7019,6 +7019,47 @@ paths:
     post:
       description: WebhookOrchestratorV2Handler handles webhooks using the V2 orchestrator (full processing pipeline)
       operationId: WebhookOrchestratorV2Handler
+      parameters:
+        - in: path
+          name: connector_id
+          required: true
+          schema:
+            type: string
+      responses:
+        "500":
+          content:
+            application/json:
+              schema:
+                additionalProperties:
+                  type: string
+                type: object
+          description: Internal Server Error
+      tags:
+        - Webhook
+  /api/v1/webhooks/gitlab/comments/{connector_id}:
+    post:
+      description: WebhookOrchestratorV2Handler handles webhooks using the V2 orchestrator (full processing pipeline)
+      operationId: WebhookOrchestratorV2Handler
+      parameters:
+        - in: path
+          name: connector_id
+          required: true
+          schema:
+            type: string
+      responses:
+        "500":
+          content:
+            application/json:
+              schema:
+                additionalProperties:
+                  type: string
+                type: object
+          description: Internal Server Error
+      tags:
+        - Webhooks
+servers:
+  - url: http://localhost:8888
+V2Handler
       parameters:
         - in: path
           name: connector_id
