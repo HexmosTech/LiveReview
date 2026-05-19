@@ -1,7 +1,7 @@
 package middleware
 
 import (
-	"database/sql"
+
 	"net/http"
 	"os"
 	"strings"
@@ -58,65 +58,6 @@ func EnforcePlan(requiredFeature string) echo.MiddlewareFunc {
 	}
 }
 
-// CheckReviewLimit enforces daily review limits based on plan
-func CheckReviewLimit(db *sql.DB) echo.MiddlewareFunc {
-	return func(next echo.HandlerFunc) echo.HandlerFunc {
-		return func(c echo.Context) error {
-			// CRITICAL: Only enforce limits in cloud mode
-			// In self-hosted mode, skip all subscription/plan checks
-			if !isCloudMode() {
-				return next(c)
-			}
-
-			// Get JWT claims from context
-			claims, ok := c.Get("claims").(*auth.JWTClaims)
-			if !ok {
-				return echo.NewHTTPError(http.StatusUnauthorized, "Invalid or missing authentication")
-			}
-
-			// Check license expiration first
-			if claims.LicenseExpiresAt != nil {
-				expiryTime := time.Unix(*claims.LicenseExpiresAt, 0)
-				if time.Now().After(expiryTime) {
-					return echo.NewHTTPError(http.StatusPaymentRequired,
-						"Your license has expired. Please renew to continue.")
-				}
-			}
-
-			// Get plan limits
-			planType := license.PlanType(claims.PlanType)
-			limits := planType.GetLimits()
-
-			// If unlimited reviews, skip the check
-			if limits.MaxReviewsPerDay == -1 {
-				return next(c)
-			}
-
-			// Count today's reviews for this user in this org
-			var reviewCount int
-			err := db.QueryRow(`
-				SELECT COUNT(*) 
-				FROM reviews 
-				WHERE created_by_user_id = $1 
-				AND org_id = $2
-				AND created_at >= CURRENT_DATE
-			`, claims.UserID, claims.CurrentOrgID).Scan(&reviewCount)
-
-			if err != nil {
-				return echo.NewHTTPError(http.StatusInternalServerError,
-					"Failed to check review limit")
-			}
-
-			// Check if limit exceeded
-			if reviewCount >= limits.MaxReviewsPerDay {
-				return echo.NewHTTPError(http.StatusTooManyRequests,
-					"Daily review limit reached. Upgrade to Team plan for unlimited reviews.")
-			}
-
-			return next(c)
-		}
-	}
-}
 
 // RequirePlan ensures user has at least the specified plan level
 func RequirePlan(minPlan license.PlanType) echo.MiddlewareFunc {

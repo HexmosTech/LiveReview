@@ -29,6 +29,7 @@ func getParseAppID() string {
 func SendInvitationEmail(params InvitationParams) error {
 	baseURL := os.Getenv("FW_PARSE_BASE_URL")
 	if baseURL == "" {
+		fmt.Println("[Invitation] FW_PARSE_BASE_URL not set, skipping invitation");
 		return nil
 	}
 	apiURL := fmt.Sprintf("%s/parse/functions/userInvitation", baseURL)

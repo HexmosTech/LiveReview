@@ -19,7 +19,7 @@ require (
 	github.com/BrunoKrugel/echo-mcp v0.1.11
 	github.com/HexmosTech/deidentify v1.0.0
 	github.com/d1vbyz3r0/typed v0.2.3
-	github.com/getkin/kin-openapi v0.137.0
+	github.com/getkin/kin-openapi v0.138.0
 	github.com/golang-jwt/jwt/v5 v5.3.0
 	github.com/google/go-cmp v0.7.0
 	github.com/google/uuid v1.6.0
@@ -34,8 +34,8 @@ require (
 	github.com/stretchr/testify v1.11.1
 	github.com/tmc/langchaingo v0.1.14
 	github.com/zricethezav/gitleaks/v8 v8.30.1
-	golang.org/x/crypto v0.49.0
-	golang.org/x/time v0.15.0
+	golang.org/x/crypto v0.50.0
+	golang.org/x/time v0.11.0
 )
 
 require (
@@ -179,11 +179,11 @@ require (
 	golang.org/x/arch v0.25.0 // indirect
 	golang.org/x/exp v0.0.0-20251023183803-a4bb9ffd2546 // indirect
 	golang.org/x/mod v0.34.0 // indirect
-	golang.org/x/net v0.52.0 // indirect
+	golang.org/x/net v0.53.0 // indirect
 	golang.org/x/oauth2 v0.34.0 // indirect
 	golang.org/x/sync v0.20.0 // indirect
-	golang.org/x/sys v0.42.0 // indirect
-	golang.org/x/text v0.35.0 // indirect
+	golang.org/x/sys v0.43.0 // indirect
+	golang.org/x/text v0.36.0 // indirect
 	golang.org/x/tools v0.43.0 // indirect
 	google.golang.org/api v0.218.0 // indirect
 	google.golang.org/genproto v0.0.0-20241118233622-e639e219e697 // indirect

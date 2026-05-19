@@ -359,7 +359,7 @@ func TestDiffReviewHandlerStoresReviewResult(t *testing.T) {
 	review, _ := mockRM.CreateReviewWithOrg("test-repo", "", "", "", "cli_diff", "", "cli", nil, map[string]interface{}{}, 1, "", "", "")
 
 	// Simulate completion with review result
-	result := diffReviewResult{
+	result := DiffReviewResult{
 		Summary: "Test summary",
 		Comments: []*models.ReviewComment{
 			{FilePath: "test.go", Line: 10, Content: "test comment", Severity: models.SeverityInfo, Category: "test"},
@@ -486,7 +486,7 @@ func TestDiffReviewPollingWithCompletedStatus(t *testing.T) {
 	mockRM.MergeReviewMetadata(review.ID, map[string]interface{}{"preloaded_changes": modelDiffs})
 
 	// Simulate completion with results
-	result := diffReviewResult{
+	result := DiffReviewResult{
 		Summary: "Completed review",
 		Comments: []*models.ReviewComment{
 			{FilePath: "file.go", Line: 1, Content: "looks good", Severity: models.SeverityInfo, Category: "general"},

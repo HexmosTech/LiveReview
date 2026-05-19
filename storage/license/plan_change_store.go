@@ -275,6 +275,12 @@ func (s *PlanChangeStore) ApplyScheduledPlanChange(ctx context.Context, tr DueTr
 		return fmt.Errorf("apply scheduled plan change: %w", err)
 	}
 
+	if tr.TargetPlanCode == "free_30k" {
+		if _, err := tx.ExecContext(ctx, `DELETE FROM ai_connectors WHERE org_id = $1 AND provider_name = 'livereview-default-ai'`, tr.OrgID); err != nil {
+			return fmt.Errorf("remove default ai connector on scheduled downgrade to free: %w", err)
+		}
+	}
+
 	payload := map[string]interface{}{
 		"from_plan_code": tr.FromPlanCode,
 		"to_plan_code":   tr.TargetPlanCode,

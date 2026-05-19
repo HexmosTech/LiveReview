@@ -150,6 +150,7 @@ func (f *StandardAIProviderFactory) CreateAIProvider(ctx context.Context, config
 			TemperatureSet: true,
 			ProviderType:   providerType,
 			BaseURL:        baseURL,
+			ProviderName:   providerName,
 		}, logger), nil
 	default:
 		// Default to langchain for any unrecognized type
@@ -179,6 +180,7 @@ func (f *StandardAIProviderFactory) CreateAIProvider(ctx context.Context, config
 			TemperatureSet: true,
 			ProviderType:   providerType,
 			BaseURL:        baseURL,
+			ProviderName:   providerName,
 		}, logger), nil
 	}
 }
