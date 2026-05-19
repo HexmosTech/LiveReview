@@ -105,6 +105,10 @@ func (s *Server) TriggerReviewV2(c echo.Context) error {
 	}
 
 	// Phase 1: Setup review context (org_id, parse request, create DB record, init logger)
+	var req TriggerReviewRequest
+	if err := c.Bind(&req); err != nil {
+		return c.JSON(http.StatusBadRequest, ErrorResponse{Error: "invalid request body: " + err.Error()})
+	}
 	ctx, err := s.setupReviewContext(c, req)
 	if err != nil {
 		return c.JSON(http.StatusBadRequest, ErrorResponse{Error: err.Error()})

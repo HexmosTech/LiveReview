@@ -35,7 +35,7 @@ require (
 	github.com/tmc/langchaingo v0.1.14
 	github.com/zricethezav/gitleaks/v8 v8.30.1
 	golang.org/x/crypto v0.50.0
-	golang.org/x/time v0.11.0
+	golang.org/x/time v0.15.0
 )
 
 require (
