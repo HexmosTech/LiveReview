@@ -349,8 +349,19 @@ func NewServer(port int, versionInfo *VersionInfo) (*Server, error) {
 	mcp.RegisterSchema("POST", "/api/v1/billing/upgrade/preview", nil, PlanChangeRequest{})
 	mcp.RegisterSchema("POST", "/api/v1/aiconnectors", nil, AIConnectorCreateRequest{})
 	mcp.RegisterSchema("POST", "/api/v1/aiconnectors/validate-key", nil, AIConnectorKeyValidationRequest{})
+	mcp.RegisterSchema("GET", "/api/v1/reviews", nil, ReviewsQuery{})
 	mcp.RegisterSchema("GET", "/api/v1/reviews/:id", nil, nil)
 	mcp.RegisterSchema("GET", "/api/v1/reviews/:id/events", nil, nil)
+	mcp.RegisterSchema("GET", "/api/v1/reviews/:id/summary", nil, nil)
+	mcp.RegisterSchema("GET", "/api/v1/reviews/:id/accounting", nil, nil)
+	mcp.RegisterSchema("GET", "/api/v1/learnings", nil, LearningsQuery{})
+	mcp.RegisterSchema("POST", "/api/v1/learnings", nil, UpsertLearningRequest{})
+	mcp.RegisterSchema("GET", "/api/v1/learnings/:id", nil, nil)
+	mcp.RegisterSchema("PUT", "/api/v1/learnings/:id", nil, UpdateLearningRequest{})
+	mcp.RegisterSchema("DELETE", "/api/v1/learnings/:id", nil, nil)
+	mcp.RegisterSchema("GET", "/api/v1/prompts/catalog", nil, nil)
+	mcp.RegisterSchema("GET", "/api/v1/prompts/:key/variables", nil, RenderPromptQuery{})
+	mcp.RegisterSchema("GET", "/api/v1/prompts/:key/render", nil, RenderPromptQuery{})
 
 	mcp.RegisterEndpoints([]string{
 		"/api/v1/auth/me",
@@ -366,14 +377,17 @@ func NewServer(port int, versionInfo *VersionInfo) (*Server, error) {
 		"/api/v1/reviews",
 		"/api/v1/reviews/:id",
 		"/api/v1/reviews/:id/events",
+		"/api/v1/reviews/:id/summary",
+		"/api/v1/reviews/:id/accounting",
+		"/api/v1/learnings",
+		"/api/v1/learnings/:id",
+		"/api/v1/prompts/catalog",
+		"/api/v1/prompts/:key/variables",
+		"/api/v1/prompts/:key/render",
 		"/api/v1/connectors",
 		"/api/v1/aiconnectors",
 		"/api/v1/aiconnectors/validate-key",
 	})
-	mcp.RegisterSchema("GET", "/api/v1/reviews", nil, ReviewsQuery{})
-	mcp.RegisterSchema("POST", "/api/v1/billing/upgrade/preview", nil, PlanChangeRequest{})
-	mcp.RegisterSchema("POST", "/api/v1/aiconnectors", nil, AIConnectorCreateRequest{})
-	mcp.RegisterSchema("POST", "/api/v1/aiconnectors/validate-key", nil, AIConnectorKeyValidationRequest{})
 
 	mcp.Mount("/api/mcp")
 
@@ -1138,6 +1152,35 @@ type ReviewsListResponse struct {
 	TotalPages  int              `json:"totalPages"`
 	HasNext     bool             `json:"hasNext"`
 	HasPrevious bool             `json:"hasPrevious"`
+}
+
+type LearningsQuery struct {
+	Page            int    `form:"page" query:"page" json:"page,omitempty" jsonschema:"description=Page number for pagination"`
+	Limit           int    `form:"limit" query:"limit" json:"limit,omitempty" jsonschema:"description=Number of items per page (default: 20)"`
+	Search          string `form:"search" query:"search" json:"search,omitempty" jsonschema:"description=Search keyword for learning title or body"`
+	IncludeArchived bool   `form:"include_archived" query:"include_archived" json:"include_archived,omitempty" jsonschema:"description=Include archived learnings"`
+}
+
+type UpsertLearningRequest struct {
+	Title     string   `json:"title" jsonschema:"required,description=The title of the learning rule"`
+	Body      string   `json:"body" jsonschema:"required,description=The body of the learning containing code rules or comments"`
+	Tags      []string `json:"tags,omitempty" jsonschema:"description=Tags for categorization"`
+	Scope     string   `json:"scope_kind" jsonschema:"required,enum=org,enum=repo,description=Scope of the learning (must be either 'org' for organization-wide or 'repo' for repository-specific)"`
+	RepoID    string   `json:"repo_id,omitempty" jsonschema:"description=Specific repository ID (required if scope_kind is 'repo')"`
+}
+
+type UpdateLearningRequest struct {
+	Title     *string   `json:"title,omitempty" jsonschema:"description=Updated title"`
+	Body      *string   `json:"body,omitempty" jsonschema:"description=Updated body/instructions"`
+	Tags      *[]string `json:"tags,omitempty" jsonschema:"description=Updated tags"`
+	ScopeKind *string   `json:"scope_kind,omitempty" jsonschema:"enum=org,enum=repo,description=Updated scope kind (must be either 'org' or 'repo')"`
+	RepoID    *string   `json:"repo_id,omitempty" jsonschema:"description=Updated repository ID"`
+}
+
+type RenderPromptQuery struct {
+	AIConnectorID      int64  `form:"ai_connector_id" query:"ai_connector_id" json:"ai_connector_id,omitempty" jsonschema:"description=AI connector ID"`
+	IntegrationTokenID int64  `form:"integration_token_id" query:"integration_token_id" json:"integration_token_id,omitempty" jsonschema:"description=Integration token/connector ID"`
+	Repository         string `form:"repository" query:"repository" json:"repository,omitempty" jsonschema:"description=Repository name"`
 }
 
 // getReviews handles GET /api/v1/reviews with filtering and pagination

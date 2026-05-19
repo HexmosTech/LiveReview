@@ -88,13 +88,7 @@ func (h *LearningsHandler) Upsert(c echo.Context) error {
 	if !ok {
 		return echo.NewHTTPError(http.StatusBadRequest, "Missing organization context")
 	}
-	var body struct {
-		Title  string   `json:"title"`
-		Body   string   `json:"body"`
-		Tags   []string `json:"tags"`
-		Scope  string   `json:"scope_kind"`
-		RepoID string   `json:"repo_id"`
-	}
+	var body UpsertLearningRequest
 	if err := c.Bind(&body); err != nil {
 		return echo.NewHTTPError(http.StatusBadRequest, "invalid body")
 	}
