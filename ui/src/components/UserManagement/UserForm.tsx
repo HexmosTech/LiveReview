@@ -5,7 +5,7 @@ import * as z from 'zod';
 import { useNavigate, useParams } from 'react-router-dom';
 import toast from 'react-hot-toast';
 import { useOrgContext } from '../../hooks/useOrgContext';
-import { createOrgUser, fetchOrgUser, updateOrgUser, Member } from '../../api/users';
+import { createOrgUser, fetchOrgUser, updateOrgUser, Member, checkUserByEmail } from '../../api/users';
 import { Button, Input, Select } from '../UIPrimitives';
 import { useAppDispatch } from '../../store/configureStore';
 import { loadUserOrganizations } from '../../store/Organizations/reducer';
@@ -13,8 +13,8 @@ import { UpgradePromptModal } from '../Subscriptions';
 
 const baseSchema = z.object({
   email: z.string().email({ message: 'Invalid email address' }),
-  firstName: z.string().min(1, { message: 'First name is required' }),
-  lastName: z.string().min(1, { message: 'Last name is required' }),
+  firstName: z.string().optional(),
+  lastName: z.string().optional(),
   role: z.enum(['member', 'owner', 'super_admin']),
   password: z.string().optional(),
   password_confirmation: z.string().optional(),
@@ -31,9 +31,34 @@ const UserForm: React.FC = () => {
 
   const isEditMode = !!userId;
 
+  const [existsGlobally, setExistsGlobally] = useState(false);
+  const [checkingEmail, setCheckingEmail] = useState(false);
+
   const userSchema = baseSchema.refine(
     (data) => {
-      if (!isEditMode) {
+      if (!isEditMode && !existsGlobally) {
+        return data.firstName && data.firstName.length > 0;
+      }
+      return true;
+    },
+    {
+      message: 'First name is required for new users',
+      path: ['firstName'],
+    }
+  ).refine(
+    (data) => {
+      if (!isEditMode && !existsGlobally) {
+        return data.lastName && data.lastName.length > 0;
+      }
+      return true;
+    },
+    {
+      message: 'Last name is required for new users',
+      path: ['lastName'],
+    }
+  ).refine(
+    (data) => {
+      if (!isEditMode && !existsGlobally) {
         return data.password && data.password.length >= 8;
       }
       return true;
@@ -44,7 +69,7 @@ const UserForm: React.FC = () => {
     }
   ).refine(
     (data) => {
-      if (!isEditMode) {
+      if (!isEditMode && !existsGlobally) {
         return data.password === data.password_confirmation;
       }
       return true;
@@ -64,12 +89,39 @@ const UserForm: React.FC = () => {
     handleSubmit,
     formState: { errors, isSubmitting },
     reset,
+    watch,
+    setValue,
+    trigger,
   } = useForm<UserFormData>({
     resolver: zodResolver(userSchema),
     defaultValues: {
       role: 'member',
     },
   });
+
+  const emailValue = watch('email');
+
+  const handleEmailCheck = async () => {
+    if (!currentOrgId || isEditMode || !emailValue || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(emailValue)) {
+      return;
+    }
+
+    setCheckingEmail(true);
+    try {
+      const result = await checkUserByEmail(currentOrgId.toString(), emailValue);
+      setExistsGlobally(result.exists);
+      if (result.exists) {
+        setValue('firstName', result.first_name || '');
+        setValue('lastName', result.last_name || '');
+        // Clear password errors if any
+        trigger();
+      }
+    } catch (error) {
+      console.error('Failed to check email', error);
+    } finally {
+      setCheckingEmail(false);
+    }
+  };
 
   useEffect(() => {
     if (userId && currentOrgId) {
@@ -97,7 +149,7 @@ const UserForm: React.FC = () => {
       return [
         { value: 'member', label: 'Member' },
         { value: 'owner', label: 'Owner' },
-        { value: 'super_admin', label: 'Super Admin' },
+        // { value: 'super_admin', label: 'Super Admin' },
       ];
     }
     if (currentUserRole === 'owner') {
@@ -138,14 +190,14 @@ const UserForm: React.FC = () => {
         toast.success(`User ${updatedUser.email} updated successfully!`);
         dispatch(loadUserOrganizations());
       } else {
-        if (!data.password) {
+        if (!existsGlobally && !data.password) {
           toast.error('Password is required for new users.');
           return;
         }
         const newUser = await createOrgUser(currentOrgId.toString(), {
           email: data.email,
-          first_name: data.firstName,
-          last_name: data.lastName,
+          first_name: data.firstName || '',
+          last_name: data.lastName || '',
           role_id: roleNameToId(data.role),
           password: data.password,
         });
@@ -191,26 +243,43 @@ const UserForm: React.FC = () => {
             id="email"
             type="email"
             {...register('email')}
+            onBlur={handleEmailCheck}
             error={errors.email?.message}
             required
             disabled={isEditMode}
+            icon={checkingEmail ? (
+              <svg className="animate-spin h-5 w-5 text-blue-500" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+              </svg>
+            ) : undefined}
+            iconPosition="right"
           />
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            <Input
-              label="First Name"
-              id="firstName"
-              {...register('firstName')}
-              error={errors.firstName?.message}
-              required
-            />
-            <Input
-              label="Last Name"
-              id="lastName"
-              {...register('lastName')}
-              error={errors.lastName?.message}
-              required
-            />
-          </div>
+          
+          {existsGlobally && !isEditMode && (
+            <div className="bg-blue-900/30 border border-blue-500/50 p-4 rounded-md text-blue-200 text-sm">
+              This user already has a LiveReview account. Please select a role.
+            </div>
+          )}
+
+          {!existsGlobally && (
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              <Input
+                label="First Name"
+                id="firstName"
+                {...register('firstName')}
+                error={errors.firstName?.message}
+                required
+              />
+              <Input
+                label="Last Name"
+                id="lastName"
+                {...register('lastName')}
+                error={errors.lastName?.message}
+                required
+              />
+            </div>
+          )}
 
           <Select
             label="Role"
@@ -221,7 +290,7 @@ const UserForm: React.FC = () => {
             required
           />
 
-          {!isEditMode && (
+          {!isEditMode && !existsGlobally && (
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
               <Input
                 label="Password"

@@ -11,6 +11,7 @@ import (
 	"strings"
 
 	"github.com/livereview/internal/ai"
+	"github.com/livereview/internal/aidefault"
 	"github.com/livereview/internal/batch"
 	"github.com/livereview/internal/logging"
 	"github.com/livereview/internal/providers"
@@ -137,7 +138,11 @@ func (s *Service) ProcessReview(ctx context.Context, request ReviewRequest) *Rev
 		} else {
 			aiConnectorName = request.AI.Type
 		}
-		s.logger.Log("AI Provider: %s (model: %s)", aiConnectorName, request.AI.Model)
+		if aiConnectorName == aidefault.ProviderName {
+			s.logger.Log("AI Provider: %s", aiConnectorName)
+		} else {
+			s.logger.Log("AI Provider: %s (model: %s)", aiConnectorName, request.AI.Model)
+		}
 		s.logger.Log("Start time: %s", start.Format("2006-01-02 15:04:05.000"))
 	}
 

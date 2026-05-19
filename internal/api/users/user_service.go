@@ -49,7 +49,7 @@ type UserWithRole struct {
 // CreateUserRequest represents the request to create a new user
 type CreateUserRequest struct {
 	Email     string `json:"email" validate:"required,email"`
-	Password  string `json:"password" validate:"required,min=8"`
+	Password  string `json:"password" validate:"omitempty,min=8"`
 	FirstName string `json:"first_name"`
 	LastName  string `json:"last_name"`
 	RoleID    int64  `json:"role_id" validate:"required"`
@@ -65,35 +65,53 @@ type UpdateUserRequest struct {
 
 // CreateUserInOrg creates a new user in the specified organization
 func (us *UserService) CreateUserInOrg(orgID, createdByUserID int64, req CreateUserRequest) (*UserWithRole, error) {
-	// Hash password
-	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(req.Password), bcrypt.DefaultCost)
-	if err != nil {
-		return nil, fmt.Errorf("failed to hash password: %w", err)
+	var hashedPassword []byte
+	var err error
+	if req.Password != "" {
+		// Hash password
+		hashedPassword, err = bcrypt.GenerateFromPassword([]byte(req.Password), bcrypt.DefaultCost)
+		if err != nil {
+			return nil, fmt.Errorf("failed to hash password: %w", err)
+		}
 	}
 
 	var userID int64
 	err = us.store.WithTx(func(tx *sql.Tx) error {
-		// Check if email already exists
+		// Check if email already exists globally
 		var existingUserID int64
 		err := us.store.TxQueryRow(tx, "SELECT id FROM users WHERE email = $1", req.Email).Scan(&existingUserID)
-		if err != sql.ErrNoRows {
-			if err == nil {
-				return fmt.Errorf("user with email %s already exists", req.Email)
+		
+		if err == nil {
+			// User exists globally. Check if they are already in THIS organization.
+			var existsInOrg bool
+			err = us.store.TxQueryRow(tx, "SELECT EXISTS(SELECT 1 FROM user_roles WHERE user_id = $1 AND org_id = $2)", existingUserID, orgID).Scan(&existsInOrg)
+			if err != nil {
+				return fmt.Errorf("failed to check existing user role: %w", err)
 			}
+			if existsInOrg {
+				return fmt.Errorf("user with email %s is already a member of this organization", req.Email)
+			}
+
+			// Link existing user to this organization
+			userID = existingUserID
+		} else if err == sql.ErrNoRows {
+			if len(hashedPassword) == 0 {
+				return fmt.Errorf("password is required for new users")
+			}
+			// Create new user globally
+			err = us.store.TxQueryRow(tx, `
+				INSERT INTO users (email, password_hash, first_name, last_name, created_by_user_id, password_reset_required, created_at, updated_at)
+				VALUES ($1, $2, $3, $4, $5, true, NOW(), NOW())
+				RETURNING id
+			`, req.Email, string(hashedPassword), req.FirstName, req.LastName, createdByUserID).Scan(&userID)
+			if err != nil {
+				return fmt.Errorf("failed to create user: %w", err)
+			}
+		} else {
 			return fmt.Errorf("failed to check existing email: %w", err)
 		}
 
-		// Create user
-		err = us.store.TxQueryRow(tx, `
-			INSERT INTO users (email, password_hash, first_name, last_name, created_by_user_id, password_reset_required, created_at, updated_at)
-			VALUES ($1, $2, $3, $4, $5, true, NOW(), NOW())
-			RETURNING id
-		`, req.Email, string(hashedPassword), req.FirstName, req.LastName, createdByUserID).Scan(&userID)
-		if err != nil {
-			return fmt.Errorf("failed to create user: %w", err)
-		}
-
-		// Add user role
+		// Add user role in this organization
 		_, err = us.store.TxExec(tx, `
 			INSERT INTO user_roles (user_id, org_id, role_id, created_at, updated_at)
 			VALUES ($1, $2, $3, NOW(), NOW())
@@ -106,6 +124,7 @@ func (us *UserService) CreateUserInOrg(orgID, createdByUserID int64, req CreateU
 		err = us.addUserAuditLog(tx, orgID, userID, createdByUserID, "created", map[string]interface{}{
 			"role_id": req.RoleID,
 			"email":   req.Email,
+			"note":    "user linked to organization (existing global user)",
 		})
 		if err != nil {
 			return fmt.Errorf("failed to add audit log: %w", err)
@@ -177,6 +196,31 @@ func (us *UserService) getInvitedByUserName(userID int64) string {
 		return "An Admin"
 	}
 	return name
+}
+
+// CheckUserByEmail checks if a user exists globally and returns basic info
+func (us *UserService) CheckUserByEmail(email string) (*UserCheckResponse, error) {
+	var id int64
+	var firstName, lastName sql.NullString
+	err := us.store.QueryRow(`
+		SELECT id, first_name, last_name FROM users WHERE email = $1
+	`, email).Scan(&id, &firstName, &lastName)
+
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return &UserCheckResponse{
+				Exists: false,
+			}, nil
+		}
+		return nil, fmt.Errorf("failed to check user: %w", err)
+	}
+
+	return &UserCheckResponse{
+		Exists:    true,
+		ID:        id,
+		FirstName: firstName.String,
+		LastName:  lastName.String,
+	}, nil
 }
 
 // GetUserInOrg gets a user in a specific organization with their role
@@ -700,4 +744,12 @@ type OrgUserCount struct {
 type RoleUserCount struct {
 	RoleName  string `json:"role_name"`
 	UserCount int    `json:"user_count"`
+}
+
+// UserCheckResponse represents the response for checking user existence
+type UserCheckResponse struct {
+	Exists    bool   `json:"exists"`
+	ID        int64  `json:"id,omitempty"`
+	FirstName string `json:"first_name,omitempty"`
+	LastName  string `json:"last_name,omitempty"`
 }

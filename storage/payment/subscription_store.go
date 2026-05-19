@@ -231,6 +231,10 @@ func SyncOrgBillingStateToFreeTx(ctx context.Context, tx *sql.Tx, orgID int, now
 		return fmt.Errorf("sync org billing state to free: %w", err)
 	}
 
+	if _, err := tx.ExecContext(ctx, `DELETE FROM ai_connectors WHERE org_id = $1 AND provider_name = 'livereview-default-ai'`, orgID); err != nil {
+		return fmt.Errorf("remove default ai connector on downgrade to free: %w", err)
+	}
+
 	return nil
 }
 
@@ -425,6 +429,10 @@ func (s *SubscriptionStore) DowngradeExpiredRoleForUserOrg(ctx context.Context, 
 		return false, fmt.Errorf("align org billing state from expired user role downgrade: %w", err)
 	}
 
+	if _, err := tx.ExecContext(ctx, `DELETE FROM ai_connectors WHERE org_id = $1 AND provider_name = 'livereview-default-ai'`, orgID); err != nil {
+		return false, fmt.Errorf("remove default ai connector from expired user role downgrade: %w", err)
+	}
+
 	metadata := map[string]interface{}{
 		"user_id": userID,
 		"org_id":  orgID,
@@ -565,6 +573,13 @@ func (s *SubscriptionStore) reconcileExpiredSubscriptions(ctx context.Context, o
 		WHERE org_id = ANY($1)
 	`, pq.Array(orgIDs)); err != nil {
 		return nil, fmt.Errorf("align org billing state after expiry reconciliation: %w", err)
+	}
+
+	if _, err := tx.ExecContext(ctx, `
+		DELETE FROM ai_connectors
+		WHERE org_id = ANY($1) AND provider_name = 'livereview-default-ai'
+	`, pq.Array(orgIDs)); err != nil {
+		return nil, fmt.Errorf("remove default ai connectors after expiry reconciliation: %w", err)
 	}
 
 	for _, item := range results {
