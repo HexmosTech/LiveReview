@@ -345,7 +345,7 @@ func NewServer(port int, versionInfo *VersionInfo) (*Server, error) {
 	mcp := mcpserver.New(e)
 	mcp.RegisterSchema("POST", "/api/v1/connectors/trigger-review", nil, TriggerReviewRequest{})
 	mcp.RegisterSchema("POST", "/api/v1/integration_tokens/pat", nil, CreatePATRequest{})
-	mcp.RegisterSchema("GET", "/api/v1/diff-review/local-instructions", nil, nil)
+	mcp.RegisterSchema("GET", "/api/v1/diff-review/trigger-local-review", nil, nil)
 	mcp.RegisterSchema("POST", "/api/v1/billing/upgrade/preview", nil, PlanChangeRequest{})
 	mcp.RegisterSchema("POST", "/api/v1/aiconnectors", nil, AIConnectorCreateRequest{})
 	mcp.RegisterSchema("POST", "/api/v1/aiconnectors/validate-key", nil, AIConnectorKeyValidationRequest{})
@@ -367,7 +367,7 @@ func NewServer(port int, versionInfo *VersionInfo) (*Server, error) {
 		"/api/v1/auth/me",
 		"/api/v1/connectors/trigger-review",
 		"/api/v1/integration_tokens/pat",
-		"/api/v1/diff-review/local-instructions",
+		"/api/v1/diff-review/trigger-local-review",
 		"/api/v1/quota/status",
 		"/api/v1/billing/status",
 		"/api/v1/billing/usage/summary",
@@ -516,7 +516,7 @@ func (s *Server) setupRoutes() {
 	diffReviewGroup.Use(apimiddleware.BuildOrgBillingPlanContext(s.db))
 	diffReviewGroup.Use(apimiddleware.BuildPlanContext())
 	diffReviewGroup.POST("", s.DiffReview)
-	diffReviewGroup.GET("/local-instructions", s.GetLocalReviewInstructions)
+	diffReviewGroup.GET("/trigger-local-review", s.TriggerLocalReview)
 	diffReviewGroup.GET("/:review_id", s.GetDiffReviewStatus)
 
 	// Review events endpoints (alternative API key-based access for CLI)
@@ -585,6 +585,7 @@ func (s *Server) setupRoutes() {
 
 	// User management in organization
 	orgGroup.GET("/users", s.orgHandlers.GetOrganizationMembers)
+	orgGroup.GET("/users/check", s.userHandlers.CheckUser)
 	orgGroup.POST("/users", s.userHandlers.CreateUser)
 	orgGroup.GET("/users/:user_id", s.userHandlers.GetUser)
 	orgGroup.PUT("/users/:user_id", s.userHandlers.UpdateUser)
