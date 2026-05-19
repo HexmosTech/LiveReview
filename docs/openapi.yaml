@@ -2046,7 +2046,6 @@ components:
         - org_name
       type: object
     auth.TokenPair:
-      nullable: true
       properties:
         access_token:
           type: string
@@ -2392,7 +2391,6 @@ components:
         - UpdatedAt
       type: object
     core_processor.UnifiedPositionV2:
-      nullable: true
       properties:
         EndLine:
           nullable: true
@@ -2467,7 +2465,6 @@ components:
         - Category
       type: object
     core_processor.UnifiedReviewerChangeV2:
-      nullable: true
       properties:
         Action:
           type: string
@@ -2708,7 +2705,6 @@ components:
         - updated_at
       type: object
     learnings.SourceContext:
-      nullable: true
       properties:
         comment_id:
           type: string
@@ -2927,7 +2923,6 @@ components:
         - role_name
       type: object
     models.ReviewComment:
-      nullable: true
       properties:
         Category:
           type: string
@@ -2980,7 +2975,6 @@ components:
         - Summary
       type: object
     models.Role:
-      nullable: true
       properties:
         created_at:
           format: date-time
@@ -3000,7 +2994,6 @@ components:
         - updated_at
       type: object
     models.User:
-      nullable: true
       properties:
         created_at:
           format: date-time
@@ -3466,6 +3459,23 @@ components:
         - action
         - created_at
         - performed_by_email
+      type: object
+    users.UserCheckResponse:
+      properties:
+        exists:
+          type: boolean
+        first_name:
+          type: string
+        id:
+          format: int64
+          type: integer
+        last_name:
+          type: string
+      required:
+        - exists
+        - id,omitempty
+        - first_name,omitempty
+        - last_name,omitempty
       type: object
     users.UserOrgRole:
       properties:
@@ -4000,13 +4010,13 @@ paths:
         - Aiconnectors
   /api/v1/auth/change-password:
     post:
-      description: ChangePassword handles password changes (useful for temp passwords)
+      description: ChangePassword handles changing the current user's password
       operationId: ChangePassword
       requestBody:
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/auth.ChangePasswordRequest'
+              $ref: '#/components/schemas/users.ChangePasswordRequest'
       responses:
         "200":
           content:
@@ -4016,30 +4026,6 @@ paths:
                   type: string
                 type: object
           description: OK
-        "400":
-          content:
-            application/json:
-              schema:
-                additionalProperties:
-                  type: string
-                type: object
-          description: Bad Request
-        "401":
-          content:
-            application/json:
-              schema:
-                additionalProperties:
-                  type: string
-                type: object
-          description: Unauthorized
-        "500":
-          content:
-            application/json:
-              schema:
-                additionalProperties:
-                  type: string
-                type: object
-          description: Internal Server Error
       tags:
         - Auth
   /api/v1/auth/ensure-cloud-user:
@@ -5769,22 +5755,26 @@ paths:
         - Orgs
   /api/v1/orgs/{org_id}/members/{user_id}/role:
     put:
-      description: ChangeUserRole changes a user's role in an organization
+      description: ChangeUserRole handles changing a user's role in an organization
       operationId: ChangeUserRole
       parameters:
         - in: path
           name: org_id
           required: true
           schema:
-            format: int64
-            type: integer
+            type: string
         - in: path
           name: user_id
           required: true
           schema:
-            format: int64
-            type: integer
-      responses: null
+            type: string
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/users.UserWithRole'
+          description: OK
       tags:
         - Orgs
   /api/v1/orgs/{org_id}/users:
@@ -5865,12 +5855,12 @@ paths:
       operationId: GetUser
       parameters:
         - in: path
-          name: org_id
+          name: user_id
           required: true
           schema:
             type: string
         - in: path
-          name: user_id
+          name: org_id
           required: true
           schema:
             type: string
@@ -5959,22 +5949,66 @@ paths:
         - Orgs
   /api/v1/orgs/{org_id}/users/{user_id}/role:
     put:
-      description: ChangeUserRole changes a user's role in an organization
+      description: ChangeUserRole handles changing a user's role in an organization
       operationId: ChangeUserRole
       parameters:
         - in: path
           name: org_id
           required: true
           schema:
-            format: int64
-            type: integer
+            type: string
         - in: path
           name: user_id
           required: true
           schema:
-            format: int64
-            type: integer
-      responses: null
+            type: string
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/users.UserWithRole'
+          description: OK
+      tags:
+        - Orgs
+  /api/v1/orgs/{org_id}/users/check:
+    get:
+      description: CheckUser handles checking if a user exists by email
+      operationId: CheckUser
+      parameters:
+        - in: path
+          name: org_id
+          required: true
+          schema:
+            type: string
+        - in: query
+          name: email
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/users.UserCheckResponse'
+          description: OK
+        "400":
+          content:
+            application/json:
+              schema:
+                additionalProperties:
+                  type: string
+                type: object
+          description: Bad Request
+        "500":
+          content:
+            application/json:
+              schema:
+                additionalProperties:
+                  type: string
+                type: object
+          description: Internal Server Error
       tags:
         - Orgs
   /api/v1/password:
@@ -7067,13 +7101,13 @@ paths:
         - Ui-Config
   /api/v1/users/password:
     put:
-      description: ChangePassword handles password changes (useful for temp passwords)
+      description: ChangePassword handles changing the current user's password
       operationId: ChangePassword
       requestBody:
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/auth.ChangePasswordRequest'
+              $ref: '#/components/schemas/users.ChangePasswordRequest'
       responses:
         "200":
           content:
@@ -7083,30 +7117,6 @@ paths:
                   type: string
                 type: object
           description: OK
-        "400":
-          content:
-            application/json:
-              schema:
-                additionalProperties:
-                  type: string
-                type: object
-          description: Bad Request
-        "401":
-          content:
-            application/json:
-              schema:
-                additionalProperties:
-                  type: string
-                type: object
-          description: Unauthorized
-        "500":
-          content:
-            application/json:
-              schema:
-                additionalProperties:
-                  type: string
-                type: object
-          description: Internal Server Error
       tags:
         - Users
   /api/v1/users/profile:
@@ -7137,6 +7147,47 @@ paths:
     post:
       description: WebhookOrchestratorV2Handler handles webhooks using the V2 orchestrator (full processing pipeline)
       operationId: WebhookOrchestratorV2Handler
+      parameters:
+        - in: path
+          name: connector_id
+          required: true
+          schema:
+            type: string
+      responses:
+        "500":
+          content:
+            application/json:
+              schema:
+                additionalProperties:
+                  type: string
+                type: object
+          description: Internal Server Error
+      tags:
+        - Webhook
+  /api/v1/webhooks/gitlab/comments/{connector_id}:
+    post:
+      description: WebhookOrchestratorV2Handler handles webhooks using the V2 orchestrator (full processing pipeline)
+      operationId: WebhookOrchestratorV2Handler
+      parameters:
+        - in: path
+          name: connector_id
+          required: true
+          schema:
+            type: string
+      responses:
+        "500":
+          content:
+            application/json:
+              schema:
+                additionalProperties:
+                  type: string
+                type: object
+          description: Internal Server Error
+      tags:
+        - Webhooks
+servers:
+  - url: http://localhost:8888
+V2Handler
       parameters:
         - in: path
           name: connector_id
