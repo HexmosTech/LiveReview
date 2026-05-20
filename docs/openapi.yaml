@@ -7095,7 +7095,7 @@ paths:
                   type: string
                 type: object
           description: internal Server Error
-      tags:
+      tags
         - Webhooks
 servers:
   - url: http://localhost:8888
