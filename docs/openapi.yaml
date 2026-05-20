@@ -7094,7 +7094,7 @@ paths:
                 additionalProperties:
                   type: string
                 type: object
-          description: Internal Server Error
+          description: internal Server Error
       tags:
         - Webhooks
 servers:
