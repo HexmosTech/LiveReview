@@ -33,6 +33,7 @@ import (
 	giteaoutput "github.com/livereview/internal/provider_output/gitea"
 	githuboutput "github.com/livereview/internal/provider_output/github"
 	gitlaboutput "github.com/livereview/internal/provider_output/gitlab"
+	"github.com/livereview/internal/aiconnectors"
 	"github.com/livereview/storage/core"
 	// Import FetchGitLabProfile
 )
@@ -349,6 +350,7 @@ func NewServer(port int, versionInfo *VersionInfo) (*Server, error) {
 	mcp.RegisterSchema("POST", "/api/v1/billing/upgrade/preview", nil, PlanChangeRequest{})
 	mcp.RegisterSchema("POST", "/api/v1/aiconnectors", nil, AIConnectorCreateRequest{})
 	mcp.RegisterSchema("POST", "/api/v1/aiconnectors/validate-key", nil, AIConnectorKeyValidationRequest{})
+	mcp.RegisterSchema("PUT", "/api/v1/aiconnectors/reorder", nil, []aiconnectors.DisplayOrderUpdate{})
 	mcp.RegisterSchema("GET", "/api/v1/reviews/:id", nil, nil)
 	mcp.RegisterSchema("GET", "/api/v1/reviews/:id/events", nil, nil)
 
@@ -369,6 +371,7 @@ func NewServer(port int, versionInfo *VersionInfo) (*Server, error) {
 		"/api/v1/connectors",
 		"/api/v1/aiconnectors",
 		"/api/v1/aiconnectors/validate-key",
+		"/api/v1/aiconnectors/reorder",
 	})
 	mcp.RegisterSchema("GET", "/api/v1/reviews", nil, ReviewsQuery{})
 	mcp.RegisterSchema("POST", "/api/v1/billing/upgrade/preview", nil, PlanChangeRequest{})
