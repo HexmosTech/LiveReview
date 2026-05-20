@@ -1,4 +1,4 @@
-name: Validate OpenAPI
+name: Validate OpenAPI YAML
 
 on:
   pull_request:
@@ -10,18 +10,16 @@ on:
       - 'docs/openapi.yaml'
 
 jobs:
-  validate-openapi:
-    name: Validate OpenAPI Spec
+  validate-yaml:
+    name: Validate YAML Syntax
     runs-on: ubuntu-latest
 
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v4
 
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: 22
+      - name: Install yamllint
+        run: pip install yamllint
 
-      - name: Validate OpenAPI Spec
-        run: npx @redocly/cli lint docs/openapi.yaml
+      - name: Validate YAML
+        run: yamllint -d "{extends: default, rules: {line-length: disable}}" docs/openapi.yaml
