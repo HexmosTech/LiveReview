@@ -8,7 +8,8 @@ on:
   push:
     paths:
       - 'docs/openapi.yaml'
-
+permissions:
+  contents: read
 jobs:
   validate-yaml:
     name: Validate YAML Syntax
