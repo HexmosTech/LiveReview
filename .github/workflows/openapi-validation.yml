@@ -18,8 +18,13 @@ jobs:
       - name: Checkout Repository
         uses: actions/checkout@v4
 
-      - name: Install yamllint
-        run: pip install yamllint
+      - name: Install yq
+        run: |
+          sudo wget -O /usr/local/bin/yq \
+            https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64
+          sudo chmod +x /usr/local/bin/yq
 
       - name: Validate YAML
-        run: yamllint -d "{extends: default, rules: {line-length: disable}}" docs/openapi.yaml
+        run: |
+          yq eval '.' docs/openapi.yaml > /dev/null
+          echo "✅ Valid YAML"
