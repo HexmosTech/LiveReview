@@ -1,0 +1,27 @@
+name: Validate OpenAPI
+
+on:
+  pull_request:
+    paths:
+      - 'docs/openapi.yaml'
+
+  push:
+    paths:
+      - 'docs/openapi.yaml'
+
+jobs:
+  validate-openapi:
+    name: Validate OpenAPI Spec
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Validate OpenAPI Spec
+        run: npx @redocly/cli lint docs/openapi.yaml
