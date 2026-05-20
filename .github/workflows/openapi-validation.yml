@@ -4,10 +4,6 @@ on:
   pull_request:
     paths:
       - 'docs/openapi.yaml'
-
-  push:
-    paths:
-      - 'docs/openapi.yaml'
 permissions:
   contents: read
 jobs:
