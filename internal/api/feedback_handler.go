@@ -52,8 +52,8 @@ func (h *FeedbackHandler) SubmitFeedback(c echo.Context) error {
 	if req.SourceType == "" {
 		req.SourceType = "comment"
 	}
-	if req.SourceType != "comment" && req.SourceType != "pr_level" && req.SourceType != "slideshow" {
-		return c.JSON(http.StatusBadRequest, map[string]string{"error": "source_type must be 'comment', 'pr_level', or 'slideshow'"})
+	if req.SourceType != "comment" && req.SourceType != "pr_level" && req.SourceType != "slideshow" && req.SourceType != "general" {
+		return c.JSON(http.StatusBadRequest, map[string]string{"error": "source_type must be 'comment', 'pr_level', 'slideshow', or 'general'"})
 	}
 
 	if req.ReviewID != nil {

@@ -1,4 +1,4 @@
-\restrict dO5oAdxzRsx3dUkUG5WeuBmz4x81zIc9pXzgCQvnALPmn1uN58CVv8WWg7QEbhW
+\restrict anSYBH9t8UbforiiJZ5gMlI42AnQUeSn1gSuyq1AkSvE615Agr3aFj3hnIpg6Yn
 
 -- Dumped from database version 14.22 (Ubuntu 14.22-0ubuntu0.22.04.1)
 -- Dumped by pg_dump version 14.22 (Ubuntu 14.22-0ubuntu0.22.04.1)
@@ -1265,7 +1265,7 @@ CREATE TABLE public.review_feedback (
     lrc_version character varying(50),
     created_at timestamp with time zone DEFAULT now(),
     retracted_at timestamp with time zone,
-    CONSTRAINT review_feedback_source_check CHECK (((source_type)::text = ANY ((ARRAY['comment'::character varying, 'pr_level'::character varying, 'slideshow'::character varying])::text[]))),
+    CONSTRAINT review_feedback_source_check CHECK (((source_type)::text = ANY ((ARRAY['comment'::character varying, 'pr_level'::character varying, 'slideshow'::character varying, 'general'::character varying])::text[]))),
     CONSTRAINT review_feedback_vote_check CHECK (((vote_type)::text = ANY ((ARRAY['up'::character varying, 'down'::character varying])::text[])))
 );
 
@@ -4713,7 +4713,7 @@ ALTER TABLE ONLY public.webhook_registry
 -- PostgreSQL database dump complete
 --
 
-\unrestrict dO5oAdxzRsx3dUkUG5WeuBmz4x81zIc9pXzgCQvnALPmn1uN58CVv8WWg7QEbhW
+\unrestrict anSYBH9t8UbforiiJZ5gMlI42AnQUeSn1gSuyq1AkSvE615Agr3aFj3hnIpg6Yn
 
 
 --
@@ -4785,4 +4785,5 @@ INSERT INTO public.schema_migrations (version) VALUES
     ('20260419193000'),
     ('20260420140334'),
     ('20260521120000'),
-    ('20260521140000');
+    ('20260521140000'),
+    ('20260522120000');
