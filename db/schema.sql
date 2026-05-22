@@ -1,7 +1,7 @@
-\restrict dbmate
+\restrict anSYBH9t8UbforiiJZ5gMlI42AnQUeSn1gSuyq1AkSvE615Agr3aFj3hnIpg6Yn
 
--- Dumped from database version 15.17 (Debian 15.17-1.pgdg13+1)
--- Dumped by pg_dump version 16.13 (Ubuntu 16.13-0ubuntu0.24.04.1)
+-- Dumped from database version 14.22 (Ubuntu 14.22-0ubuntu0.22.04.1)
+-- Dumped by pg_dump version 14.22 (Ubuntu 14.22-0ubuntu0.22.04.1)
 
 SET statement_timeout = 0;
 SET lock_timeout = 0;
@@ -1246,6 +1246,50 @@ ALTER SEQUENCE public.review_events_id_seq OWNED BY public.review_events.id;
 
 
 --
+-- Name: review_feedback; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.review_feedback (
+    id bigint NOT NULL,
+    org_id bigint DEFAULT 1 NOT NULL,
+    review_id bigint,
+    ai_comment_id bigint,
+    vote_type character varying(10) NOT NULL,
+    tags text[],
+    feedback_text text,
+    comment_content text,
+    code_excerpt text,
+    file_path text,
+    severity character varying(50),
+    source_type character varying(20) DEFAULT 'comment'::character varying NOT NULL,
+    lrc_version character varying(50),
+    created_at timestamp with time zone DEFAULT now(),
+    retracted_at timestamp with time zone,
+    CONSTRAINT review_feedback_source_check CHECK (((source_type)::text = ANY ((ARRAY['comment'::character varying, 'pr_level'::character varying, 'slideshow'::character varying, 'general'::character varying])::text[]))),
+    CONSTRAINT review_feedback_vote_check CHECK (((vote_type)::text = ANY ((ARRAY['up'::character varying, 'down'::character varying])::text[])))
+);
+
+
+--
+-- Name: review_feedback_id_seq; Type: SEQUENCE; Schema: public; Owner: -
+--
+
+CREATE SEQUENCE public.review_feedback_id_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+
+--
+-- Name: review_feedback_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: -
+--
+
+ALTER SEQUENCE public.review_feedback_id_seq OWNED BY public.review_feedback.id;
+
+
+--
 -- Name: reviews; Type: TABLE; Schema: public; Owner: -
 --
 
@@ -2219,6 +2263,13 @@ ALTER TABLE ONLY public.review_events ALTER COLUMN id SET DEFAULT nextval('publi
 
 
 --
+-- Name: review_feedback id; Type: DEFAULT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.review_feedback ALTER COLUMN id SET DEFAULT nextval('public.review_feedback_id_seq'::regclass);
+
+
+--
 -- Name: reviews id; Type: DEFAULT; Schema: public; Owner: -
 --
 
@@ -2569,6 +2620,14 @@ ALTER TABLE ONLY public.recent_activity
 
 ALTER TABLE ONLY public.review_events
     ADD CONSTRAINT review_events_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: review_feedback review_feedback_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.review_feedback
+    ADD CONSTRAINT review_feedback_pkey PRIMARY KEY (id);
 
 
 --
@@ -3432,6 +3491,34 @@ CREATE INDEX idx_review_events_review_ts ON public.review_events USING btree (re
 --
 
 CREATE INDEX idx_review_events_type ON public.review_events USING btree (review_id, event_type, ts DESC);
+
+
+--
+-- Name: idx_review_feedback_created_at; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_review_feedback_created_at ON public.review_feedback USING btree (created_at DESC);
+
+
+--
+-- Name: idx_review_feedback_org_id; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_review_feedback_org_id ON public.review_feedback USING btree (org_id);
+
+
+--
+-- Name: idx_review_feedback_review_id; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_review_feedback_review_id ON public.review_feedback USING btree (review_id) WHERE (review_id IS NOT NULL);
+
+
+--
+-- Name: idx_review_feedback_vote_type; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_review_feedback_vote_type ON public.review_feedback USING btree (vote_type);
 
 
 --
@@ -4319,6 +4406,30 @@ ALTER TABLE ONLY public.review_events
 
 
 --
+-- Name: review_feedback review_feedback_ai_comment_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.review_feedback
+    ADD CONSTRAINT review_feedback_ai_comment_id_fkey FOREIGN KEY (ai_comment_id) REFERENCES public.ai_comments(id) ON DELETE SET NULL;
+
+
+--
+-- Name: review_feedback review_feedback_org_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.review_feedback
+    ADD CONSTRAINT review_feedback_org_id_fkey FOREIGN KEY (org_id) REFERENCES public.orgs(id);
+
+
+--
+-- Name: review_feedback review_feedback_review_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.review_feedback
+    ADD CONSTRAINT review_feedback_review_id_fkey FOREIGN KEY (review_id) REFERENCES public.reviews(id) ON DELETE SET NULL;
+
+
+--
 -- Name: reviews reviews_org_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -4602,7 +4713,7 @@ ALTER TABLE ONLY public.webhook_registry
 -- PostgreSQL database dump complete
 --
 
-\unrestrict dbmate
+\unrestrict anSYBH9t8UbforiiJZ5gMlI42AnQUeSn1gSuyq1AkSvE615Agr3aFj3hnIpg6Yn
 
 
 --
@@ -4672,4 +4783,7 @@ INSERT INTO public.schema_migrations (version) VALUES
     ('20260403151832'),
     ('20260411170000'),
     ('20260419193000'),
-    ('20260420140334');
+    ('20260420140334'),
+    ('20260521120000'),
+    ('20260521140000'),
+    ('20260522120000');
