@@ -532,6 +532,14 @@ func (s *Server) setupRoutes() {
 	// CLI usage tracking (protected by API key)
 	diffReviewGroup.POST("/cli-used", s.TrackCLIUsage)
 
+	// Feedback endpoints — protected by API key (proxied through git-lrc local server)
+	feedbackHandler := NewFeedbackHandler(s.db)
+	feedbackGroup := v1.Group("/feedback")
+	feedbackGroup.Use(APIKeyAuthMiddleware(s.db))
+	feedbackGroup.POST("", feedbackHandler.SubmitFeedback)
+	feedbackGroup.GET("/impact-stats", feedbackHandler.ImpactStats)
+	feedbackGroup.PATCH("/:id/retract", feedbackHandler.RetractFeedback)
+
 	// Clear onboarding API key (protected by auth)
 
 	// System info endpoints (public)
