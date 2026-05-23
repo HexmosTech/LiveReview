@@ -322,6 +322,7 @@ func (s *Server) runDiffReview(request review.ReviewRequest, rm *ReviewManager, 
 		// Attach event sink so logs go to review_events table for UI
 		eventSink := NewDatabaseEventSink(s.db)
 		logger.SetEventSink(eventSink)
+		defer logger.Close()
 		logger.LogSection("CLI DIFF REVIEW STARTED")
 		logger.Log("Review ID: %d", reviewID)
 		logger.Log("Organization ID: %d", orgID)
@@ -416,6 +417,7 @@ func (s *Server) runDiffReview(request review.ReviewRequest, rm *ReviewManager, 
 			}
 			if logger != nil {
 				logger.LogSection("REVIEW COMPLETED")
+				logger.Log("Review ID: %d", reviewID)
 				logger.Log("Successfully generated %d comments", len(result.Comments))
 			}
 		} else {
