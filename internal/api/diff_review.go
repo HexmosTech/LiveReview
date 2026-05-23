@@ -202,6 +202,11 @@ func (s *Server) DiffReview(c echo.Context) error {
 func (s *Server) GetDiffReviewStatus(c echo.Context) error {
 	// API key authentication is handled by middleware
 
+	orgID, ok := c.Get("org_id").(int64)
+	if !ok || orgID == 0 {
+		return JSONErrorWithEnvelope(c, http.StatusUnauthorized, "missing org context")
+	}
+
 	reviewIDStr := c.Param("review_id")
 	reviewID, err := strconv.ParseInt(reviewIDStr, 10, 64)
 	if err != nil {
@@ -209,7 +214,7 @@ func (s *Server) GetDiffReviewStatus(c echo.Context) error {
 	}
 
 	rm := NewReviewManager(s.db)
-	reviewRecord, err := rm.GetReview(reviewID)
+	reviewRecord, err := rm.GetReviewForOrg(reviewID, orgID)
 	if err != nil {
 		return JSONErrorWithEnvelope(c, http.StatusNotFound, "review not found")
 	}
