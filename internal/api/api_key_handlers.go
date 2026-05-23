@@ -146,7 +146,7 @@ func APIKeyAuthMiddleware(db *sql.DB) echo.MiddlewareFunc {
 			}
 
 			manager := NewAPIKeyManager(db)
-			keyRecord, err := manager.ValidateAPIKey(apiKey)
+			keyRecord, _, err := manager.ValidateAPIKey(apiKey)
 			if err != nil {
 				switch {
 				case errors.Is(err, ErrLiveReviewAPIKeyInvalid):
@@ -211,7 +211,7 @@ func RequireAuthOrAPIKey(tokenService *auth.TokenService, db *sql.DB) echo.Middl
 			apiKey := c.Request().Header.Get("X-API-Key")
 			if apiKey != "" {
 				manager := NewAPIKeyManager(db)
-				keyRecord, err := manager.ValidateAPIKey(apiKey)
+				keyRecord, user, err := manager.ValidateAPIKey(apiKey)
 				if err != nil {
 					// API key present but invalid - return error
 					switch {
@@ -236,16 +236,6 @@ func RequireAuthOrAPIKey(tokenService *auth.TokenService, db *sql.DB) echo.Middl
 							"error_code": "LIVE_REVIEW_API_KEY_VALIDATION_FAILED",
 						})
 					}
-				}
-
-				// Fetch user from database
-				user := &models.User{}
-				err = db.QueryRow(`
-					SELECT id, email, password_hash, created_at, updated_at
-					FROM users WHERE id = $1
-				`, keyRecord.UserID).Scan(&user.ID, &user.Email, &user.PasswordHash, &user.CreatedAt, &user.UpdatedAt)
-				if err != nil {
-					return c.JSON(http.StatusUnauthorized, map[string]string{"error": "User not found"})
 				}
 
 				// Update last used timestamp (async to not slow down request)

@@ -3611,20 +3611,8 @@ paths:
             type: string
       responses:
         "400":
-          content:
-            application/json:
-              schema:
-                additionalProperties:
-                  type: string
-                type: object
           description: Bad Request
         "500":
-          content:
-            application/json:
-              schema:
-                additionalProperties:
-                  type: string
-                type: object
           description: Internal Server Error
       tags:
         - Activities
@@ -3634,10 +3622,6 @@ paths:
       operationId: GetUserAnalytics
       responses:
         "200":
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/users.UserAnalytics'
           description: OK
       tags:
         - Admin
@@ -3701,17 +3685,8 @@ paths:
           required: true
           schema:
             type: string
-      requestBody:
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/users.CreateUserRequest'
       responses:
         "201":
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/users.UserWithRole'
           description: Created
       tags:
         - Admin
@@ -3745,10 +3720,6 @@ paths:
             type: string
       responses:
         "200":
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/users.UserWithRole'
           description: OK
       tags:
         - Admin
@@ -3758,61 +3729,22 @@ paths:
       operationId: GetAIConnectors
       responses:
         "200":
-          content:
-            application/json:
-              schema:
-                items:
-                  $ref: '#/components/schemas/api.AIConnectorResponse'
-                type: array
           description: OK
         "400":
-          content:
-            application/json:
-              schema:
-                additionalProperties:
-                  type: string
-                type: object
           description: Bad Request
         "500":
-          content:
-            application/json:
-              schema:
-                additionalProperties:
-                  type: string
-                type: object
           description: Internal Server Error
       tags:
         - Aiconnectors
     post:
       description: CreateAIConnector handles requests to create a new AI connector
       operationId: CreateAIConnector
-      requestBody:
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/api.AIConnectorCreateRequest'
       responses:
         "201":
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/api.AIConnectorResponse'
           description: Created
         "400":
-          content:
-            application/json:
-              schema:
-                additionalProperties:
-                  type: string
-                type: object
           description: Bad Request
         "500":
-          content:
-            application/json:
-              schema:
-                additionalProperties:
-                  type: string
-                type: object
           description: Internal Server Error
       tags:
         - Aiconnectors
@@ -3828,44 +3760,14 @@ paths:
             type: string
       responses:
         "200":
-          content:
-            application/json:
-              schema:
-                additionalProperties:
-                  type: string
-                type: object
           description: OK
         "400":
-          content:
-            application/json:
-              schema:
-                additionalProperties:
-                  type: string
-                type: object
           description: Bad Request
         "403":
-          content:
-            application/json:
-              schema:
-                additionalProperties:
-                  type: string
-                type: object
           description: Forbidden
         "404":
-          content:
-            application/json:
-              schema:
-                additionalProperties:
-                  type: string
-                type: object
           description: Not Found
         "500":
-          content:
-            application/json:
-              schema:
-                additionalProperties:
-                  type: string
-                type: object
           description: Internal Server Error
       tags:
         - Aiconnectors
@@ -3878,49 +3780,16 @@ paths:
           required: true
           schema:
             type: string
-      requestBody:
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/api.AIConnectorCreateRequest'
       responses:
         "200":
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/api.AIConnectorResponse'
           description: OK
         "400":
-          content:
-            application/json:
-              schema:
-                additionalProperties:
-                  type: string
-                type: object
           description: Bad Request
         "403":
-          content:
-            application/json:
-              schema:
-                additionalProperties:
-                  type: string
-                type: object
           description: Forbidden
         "404":
-          content:
-            application/json:
-              schema:
-                additionalProperties:
-                  type: string
-                type: object
           description: Not Found
         "500":
-          content:
-            application/json:
-              schema:
-                additionalProperties:
-                  type: string
-                type: object
           description: Internal Server Error
       tags:
         - Aiconnectors
@@ -3928,19 +3797,8 @@ paths:
     post:
       description: FetchOllamaModels handles requests to fetch available models from an Ollama instance
       operationId: FetchOllamaModels
-      requestBody:
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/api.FetchOllamaModelsRequest'
       responses:
         "400":
-          content:
-            application/json:
-              schema:
-                additionalProperties:
-                  type: string
-                type: object
           description: Bad Request
       tags:
         - Aiconnectors
@@ -3950,28 +3808,10 @@ paths:
       operationId: ReorderAIConnectors
       responses:
         "200":
-          content:
-            application/json:
-              schema:
-                additionalProperties:
-                  type: string
-                type: object
           description: OK
         "400":
-          content:
-            application/json:
-              schema:
-                additionalProperties:
-                  type: string
-                type: object
           description: Bad Request
         "500":
-          content:
-            application/json:
-              schema:
-                additionalProperties:
-                  type: string
-                type: object
           description: Internal Server Error
       tags:
         - Aiconnectors
@@ -3979,50 +3819,28 @@ paths:
     post:
       description: ValidateAIConnectorKey handles requests to validate an AI provider API key
       operationId: ValidateAIConnectorKey
-      requestBody:
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/api.AIConnectorKeyValidationRequest'
       responses:
         "200":
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/api.AIConnectorKeyValidationResponse'
           description: OK
         "400":
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/api.AIConnectorKeyValidationResponse'
           description: Bad Request
         "500":
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/api.AIConnectorKeyValidationResponse'
           description: Internal Server Error
       tags:
         - Aiconnectors
   /api/v1/auth/change-password:
     post:
-      description: ChangePassword handles changing the current user's password
+      description: ChangePassword handles password changes (useful for temp passwords)
       operationId: ChangePassword
-      requestBody:
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/users.ChangePasswordRequest'
       responses:
         "200":
-          content:
-            application/json:
-              schema:
-                additionalProperties:
-                  type: string
-                type: object
           description: OK
+        "400":
+          description: Bad Request
+        "401":
+          description: Unauthorized
+        "500":
+          description: Internal Server Error
       tags:
         - Auth
   /api/v1/auth/ensure-cloud-user:
@@ -4031,43 +3849,14 @@ paths:
         EnsureCloudUser ensures that a user and a personal organization exist, assigning super_admin role.
         Idempotent: if user/org/role mapping already exist, it returns success without changes.
       operationId: EnsureCloudUser
-      requestBody:
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/auth.EnsureCloudUserRequest'
       responses:
         "400":
-          content:
-            application/json:
-              schema:
-                additionalProperties:
-                  type: string
-                type: object
           description: Bad Request
         "401":
-          content:
-            application/json:
-              schema:
-                additionalProperties:
-                  type: string
-                type: object
           description: Unauthorized
         "403":
-          content:
-            application/json:
-              schema:
-                additionalProperties:
-                  type: string
-                type: object
           description: Forbidden
         "500":
-          content:
-            application/json:
-              schema:
-                additionalProperties:
-                  type: string
-                type: object
           description: Internal Server Error
       tags:
         - Auth
@@ -4075,41 +3864,14 @@ paths:
     post:
       description: Login handles user authentication with email/password
       operationId: Login
-      requestBody:
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/auth.LoginRequest'
       responses:
         "200":
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/auth.LoginResponse'
           description: OK
         "400":
-          content:
-            application/json:
-              schema:
-                additionalProperties:
-                  type: string
-                type: object
           description: Bad Request
         "401":
-          content:
-            application/json:
-              schema:
-                additionalProperties:
-                  type: string
-                type: object
           description: Unauthorized
         "500":
-          content:
-            application/json:
-              schema:
-                additionalProperties:
-                  type: string
-                type: object
           description: Internal Server Error
       tags:
         - Auth
@@ -4119,36 +3881,12 @@ paths:
       operationId: Logout
       responses:
         "200":
-          content:
-            application/json:
-              schema:
-                additionalProperties:
-                  type: string
-                type: object
           description: OK
         "400":
-          content:
-            application/json:
-              schema:
-                additionalProperties:
-                  type: string
-                type: object
           description: Bad Request
         "401":
-          content:
-            application/json:
-              schema:
-                additionalProperties:
-                  type: string
-                type: object
           description: Unauthorized
         "500":
-          content:
-            application/json:
-              schema:
-                additionalProperties:
-                  type: string
-                type: object
           description: Internal Server Error
       tags:
         - Auth
@@ -4228,20 +3966,8 @@ paths:
       operationId: Me
       responses:
         "401":
-          content:
-            application/json:
-              schema:
-                additionalProperties:
-                  type: string
-                type: object
           description: Unauthorized
         "500":
-          content:
-            application/json:
-              schema:
-                additionalProperties:
-                  type: string
-                type: object
           description: Internal Server Error
       tags:
         - Auth
@@ -4249,33 +3975,12 @@ paths:
     post:
       description: RefreshToken handles token refresh using a valid refresh token
       operationId: RefreshToken
-      requestBody:
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/auth.RefreshRequest'
       responses:
         "200":
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/auth.TokenPair'
           description: OK
         "400":
-          content:
-            application/json:
-              schema:
-                additionalProperties:
-                  type: string
-                type: object
           description: Bad Request
         "401":
-          content:
-            application/json:
-              schema:
-                additionalProperties:
-                  type: string
-                type: object
           description: Unauthorized
       tags:
         - Auth
@@ -4283,27 +3988,10 @@ paths:
     post:
       description: SetupAdmin handles initial admin user setup (replaces legacy password system)
       operationId: SetupAdmin
-      requestBody:
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/auth.SetupAdminRequest'
       responses:
         "400":
-          content:
-            application/json:
-              schema:
-                additionalProperties:
-                  type: string
-                type: object
           description: Bad Request
         "500":
-          content:
-            application/json:
-              schema:
-                additionalProperties:
-                  type: string
-                type: object
           description: Internal Server Error
       tags:
         - Auth
@@ -4313,12 +4001,6 @@ paths:
       operationId: CheckSetupStatus
       responses:
         "500":
-          content:
-            application/json:
-              schema:
-                additionalProperties:
-                  type: string
-                type: object
           description: Internal Server Error
       tags:
         - Auth
@@ -4331,11 +4013,6 @@ paths:
   /api/v1/billing/downgrade/schedule:
     post:
       operationId: ScheduleDowngrade
-      requestBody:
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/api.PlanChangeRequest'
       responses: null
       tags:
         - Billing
@@ -4354,33 +4031,18 @@ paths:
   /api/v1/billing/upgrade/execute:
     post:
       operationId: ExecuteUpgrade
-      requestBody:
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/api.UpgradeExecuteRequest'
       responses: null
       tags:
         - Billing
   /api/v1/billing/upgrade/prepare-payment:
     post:
       operationId: PrepareUpgradePayment
-      requestBody:
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/api.UpgradePreparePaymentRequest'
       responses: null
       tags:
         - Billing
   /api/v1/billing/upgrade/preview:
     post:
       operationId: PreviewUpgrade
-      requestBody:
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/api.PlanChangeRequest'
       responses: null
       tags:
         - Billing
@@ -4444,12 +4106,6 @@ paths:
             type: string
       responses:
         "500":
-          content:
-            application/json:
-              schema:
-                additionalProperties:
-                  type: string
-                type: object
           description: Internal Server Error
       tags:
         - Bitbucket-Hook
@@ -4457,25 +4113,10 @@ paths:
     post:
       description: ValidateBitbucketProfile validates Bitbucket API Token by fetching user profile
       operationId: ValidateBitbucketProfile
-      requestBody:
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/api.ValidateBitbucketProfileRequest'
       responses:
         "200":
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/api.BitbucketProfile'
           description: OK
         "400":
-          content:
-            application/json:
-              schema:
-                additionalProperties:
-                  type: string
-                type: object
           description: Bad Request
       tags:
         - Bitbucket
@@ -4485,24 +4126,10 @@ paths:
       operationId: GetConnectors
       responses:
         "200":
-          content:
-            application/json:
-              schema:
-                items:
-                  $ref: '#/components/schemas/api.ConnectorResponse'
-                type: array
           description: OK
         "400":
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/api.ErrorResponse'
           description: Bad Request
         "500":
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/api.ErrorResponse'
           description: Internal Server Error
       tags:
         - Connectors
@@ -4518,20 +4145,8 @@ paths:
             type: string
       responses:
         "400":
-          content:
-            application/json:
-              schema:
-                additionalProperties:
-                  type: string
-                type: object
           description: Bad Request
         "500":
-          content:
-            application/json:
-              schema:
-                additionalProperties:
-                  type: string
-                type: object
           description: Internal Server Error
       tags:
         - Connectors
@@ -4547,20 +4162,8 @@ paths:
             type: string
       responses:
         "400":
-          content:
-            application/json:
-              schema:
-                additionalProperties:
-                  type: string
-                type: object
           description: Bad Request
         "500":
-          content:
-            application/json:
-              schema:
-                additionalProperties:
-                  type: string
-                type: object
           description: Internal Server Error
       tags:
         - Connectors
@@ -4588,28 +4191,12 @@ paths:
             type: string
       responses:
         "200":
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/api.RepositoryAccessResponse'
           description: OK
         "400":
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/api.ErrorResponse'
           description: Bad Request
         "404":
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/api.ErrorResponse'
           description: Not Found
         "500":
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/api.ErrorResponse'
           description: Internal Server Error
       tags:
         - Connectors
@@ -4625,30 +4212,12 @@ paths:
             type: string
       responses:
         "200":
-          content:
-            application/json:
-              schema:
-                additionalProperties:
-                  type: string
-                type: object
           description: OK
         "400":
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/api.ErrorResponse'
           description: Bad Request
         "404":
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/api.ErrorResponse'
           description: Not Found
         "500":
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/api.ErrorResponse'
           description: Internal Server Error
       tags:
         - Connectors
@@ -4663,28 +4232,12 @@ paths:
             type: string
       responses:
         "200":
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/api.ConnectorResponse'
           description: OK
         "400":
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/api.ErrorResponse'
           description: Bad Request
         "404":
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/api.ErrorResponse'
           description: Not Found
         "500":
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/api.ErrorResponse'
           description: Internal Server Error
       tags:
         - Connectors
@@ -4699,16 +4252,8 @@ paths:
               $ref: '#/components/schemas/api.TriggerReviewRequest'
       responses:
         "400":
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/api.ErrorResponse'
           description: Bad Request
         "500":
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/api.ErrorResponse'
           description: Internal Server Error
       tags:
         - Connectors
@@ -4718,26 +4263,10 @@ paths:
       operationId: GetDashboardData
       responses:
         "200":
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/api.DashboardData'
           description: OK
         "400":
-          content:
-            application/json:
-              schema:
-                additionalProperties:
-                  type: string
-                type: object
           description: Bad Request
         "500":
-          content:
-            application/json:
-              schema:
-                additionalProperties:
-                  type: string
-                type: object
           description: Internal Server Error
       tags:
         - Dashboard
@@ -4747,20 +4276,8 @@ paths:
       operationId: RefreshDashboardData
       responses:
         "400":
-          content:
-            application/json:
-              schema:
-                additionalProperties:
-                  type: string
-                type: object
           description: Bad Request
         "500":
-          content:
-            application/json:
-              schema:
-                additionalProperties:
-                  type: string
-                type: object
           description: Internal Server Error
       tags:
         - Dashboard
@@ -4768,11 +4285,6 @@ paths:
     post:
       description: DiffReview accepts a base64-encoded ZIP containing a unified diff and triggers a review.
       operationId: DiffReview
-      requestBody:
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/api.DiffReviewRequest'
       responses: null
       tags:
         - Diff-Review
@@ -4834,10 +4346,6 @@ paths:
             type: string
       responses:
         "200":
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/api.ReviewSummary'
           description: OK
       tags:
         - Diff-Review
@@ -4860,28 +4368,10 @@ paths:
       operationId: TrackCLIUsage
       responses:
         "200":
-          content:
-            application/json:
-              schema:
-                additionalProperties:
-                  type: string
-                type: object
           description: OK
         "401":
-          content:
-            application/json:
-              schema:
-                additionalProperties:
-                  type: string
-                type: object
           description: Unauthorized
         "500":
-          content:
-            application/json:
-              schema:
-                additionalProperties:
-                  type: string
-                type: object
           description: Internal Server Error
       tags:
         - Diff-Review
@@ -4912,12 +4402,6 @@ paths:
             type: string
       responses:
         "500":
-          content:
-            application/json:
-              schema:
-                additionalProperties:
-                  type: string
-                type: object
           description: Internal Server Error
       tags:
         - Gitea-Hook
@@ -4925,25 +4409,10 @@ paths:
     post:
       description: ValidateGiteaProfile validates Gitea PAT + base URL by fetching user profile
       operationId: ValidateGiteaProfile
-      requestBody:
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/api.ValidateGiteaProfileRequest'
       responses:
         "200":
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/gitea.GiteaProfile'
           description: OK
         "400":
-          content:
-            application/json:
-              schema:
-                additionalProperties:
-                  type: string
-                type: object
           description: Bad Request
       tags:
         - Gitea
@@ -4959,12 +4428,6 @@ paths:
             type: string
       responses:
         "500":
-          content:
-            application/json:
-              schema:
-                additionalProperties:
-                  type: string
-                type: object
           description: Internal Server Error
       tags:
         - Github-Hook
@@ -4972,25 +4435,10 @@ paths:
     post:
       description: ValidateGitHubProfile validates GitHub PAT by fetching user profile
       operationId: ValidateGitHubProfile
-      requestBody:
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/api.ValidateGitHubProfileRequest'
       responses:
         "200":
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/github.GitHubProfile'
           description: OK
         "400":
-          content:
-            application/json:
-              schema:
-                additionalProperties:
-                  type: string
-                type: object
           description: Bad Request
       tags:
         - Github
@@ -5006,12 +4454,6 @@ paths:
             type: string
       responses:
         "500":
-          content:
-            application/json:
-              schema:
-                additionalProperties:
-                  type: string
-                type: object
           description: Internal Server Error
       tags:
         - Gitlab-Hook
@@ -5021,22 +4463,10 @@ paths:
       operationId: GitLabRefreshToken
       responses:
         "400":
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/api.ErrorResponse'
           description: Bad Request
         "404":
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/api.ErrorResponse'
           description: Not Found
         "500":
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/api.ErrorResponse'
           description: Internal Server Error
       tags:
         - Gitlab
@@ -5044,26 +4474,10 @@ paths:
     post:
       description: GitLabHandleCodeExchange handles the exchange of authorization code for access token
       operationId: GitLabHandleCodeExchange
-      requestBody:
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/gitlab.GitLabTokenRequest'
-          application/xml:
-            schema:
-              $ref: '#/components/schemas/gitlab.GitLabTokenRequest'
       responses:
         "400":
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/api.ErrorResponse'
           description: Bad Request
         "500":
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/api.ErrorResponse'
           description: Internal Server Error
       tags:
         - Gitlab
@@ -5071,25 +4485,10 @@ paths:
     post:
       description: ValidateGitLabProfile validates GitLab PAT and base URL by fetching user profile
       operationId: ValidateGitLabProfile
-      requestBody:
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/api.ValidateGitLabProfileRequest'
       responses:
         "200":
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/gitlab.GitLabProfile'
           description: OK
         "400":
-          content:
-            application/json:
-              schema:
-                additionalProperties:
-                  type: string
-                type: object
           description: Bad Request
       tags:
         - Gitlab
@@ -5099,20 +4498,8 @@ paths:
       operationId: HandleCreatePATIntegrationToken
       responses:
         "400":
-          content:
-            application/json:
-              schema:
-                additionalProperties:
-                  type: string
-                type: object
           description: Bad Request
         "500":
-          content:
-            application/json:
-              schema:
-                additionalProperties:
-                  type: string
-                type: object
           description: Internal Server Error
       tags:
         - Integration_tokens
@@ -5159,12 +4546,6 @@ paths:
             type: string
       responses:
         "200":
-          content:
-            application/json:
-              schema:
-                additionalProperties:
-                  type: string
-                type: object
           description: OK
       tags:
         - Learnings
@@ -5178,10 +4559,6 @@ paths:
             type: string
       responses:
         "200":
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/learnings.Learning'
           description: OK
       tags:
         - Learnings
@@ -5195,10 +4572,6 @@ paths:
             type: string
       responses:
         "200":
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/learnings.Learning'
           description: OK
       tags:
         - Learnings
@@ -5207,12 +4580,6 @@ paths:
       operationId: ApplyActionFromReply
       responses:
         "200":
-          content:
-            application/json:
-              schema:
-                additionalProperties:
-                  type: string
-                type: object
           description: OK
       tags:
         - Learnings
@@ -5221,20 +4588,8 @@ paths:
       operationId: handleLicenseDelete
       responses:
         "200":
-          content:
-            application/json:
-              schema:
-                additionalProperties:
-                  type: string
-                type: object
           description: OK
         "500":
-          content:
-            application/json:
-              schema:
-                additionalProperties:
-                  type: string
-                type: object
           description: Internal Server Error
       tags:
         - License
@@ -5243,10 +4598,6 @@ paths:
       operationId: handleLicenseRefresh
       responses:
         "200":
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/api.LicenseStatusResponse'
           description: OK
       tags:
         - License
@@ -5256,26 +4607,10 @@ paths:
       operationId: handleListSeatAssignments
       responses:
         "200":
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/api.SeatAssignmentListResponse'
           description: OK
         "400":
-          content:
-            application/json:
-              schema:
-                additionalProperties:
-                  type: string
-                type: object
           description: Bad Request
         "500":
-          content:
-            application/json:
-              schema:
-                additionalProperties:
-                  type: string
-                type: object
           description: Internal Server Error
       tags:
         - License
@@ -5291,36 +4626,12 @@ paths:
             type: string
       responses:
         "200":
-          content:
-            application/json:
-              schema:
-                additionalProperties:
-                  type: string
-                type: object
           description: OK
         "400":
-          content:
-            application/json:
-              schema:
-                additionalProperties:
-                  type: string
-                type: object
           description: Bad Request
         "404":
-          content:
-            application/json:
-              schema:
-                additionalProperties:
-                  type: string
-                type: object
           description: Not Found
         "500":
-          content:
-            application/json:
-              schema:
-                additionalProperties:
-                  type: string
-                type: object
           description: Internal Server Error
       tags:
         - License
@@ -5330,36 +4641,12 @@ paths:
       operationId: handleAssignSeat
       responses:
         "200":
-          content:
-            application/json:
-              schema:
-                additionalProperties:
-                  type: string
-                type: object
           description: OK
         "400":
-          content:
-            application/json:
-              schema:
-                additionalProperties:
-                  type: string
-                type: object
           description: Bad Request
         "401":
-          content:
-            application/json:
-              schema:
-                additionalProperties:
-                  type: string
-                type: object
           description: Unauthorized
         "500":
-          content:
-            application/json:
-              schema:
-                additionalProperties:
-                  type: string
-                type: object
           description: Internal Server Error
       tags:
         - License
@@ -5369,28 +4656,10 @@ paths:
       operationId: handleBulkAssignSeats
       responses:
         "400":
-          content:
-            application/json:
-              schema:
-                additionalProperties:
-                  type: string
-                type: object
           description: Bad Request
         "401":
-          content:
-            application/json:
-              schema:
-                additionalProperties:
-                  type: string
-                type: object
           description: Unauthorized
         "500":
-          content:
-            application/json:
-              schema:
-                additionalProperties:
-                  type: string
-                type: object
           description: Internal Server Error
       tags:
         - License
@@ -5400,20 +4669,8 @@ paths:
       operationId: handleBulkRevokeSeats
       responses:
         "400":
-          content:
-            application/json:
-              schema:
-                additionalProperties:
-                  type: string
-                type: object
           description: Bad Request
         "500":
-          content:
-            application/json:
-              schema:
-                additionalProperties:
-                  type: string
-                type: object
           description: Internal Server Error
       tags:
         - License
@@ -5423,20 +4680,8 @@ paths:
       operationId: handleListUnassignedUsers
       responses:
         "400":
-          content:
-            application/json:
-              schema:
-                additionalProperties:
-                  type: string
-                type: object
           description: Bad Request
         "500":
-          content:
-            application/json:
-              schema:
-                additionalProperties:
-                  type: string
-                type: object
           description: Internal Server Error
       tags:
         - License
@@ -5445,18 +4690,8 @@ paths:
       operationId: handleLicenseStatus
       responses:
         "200":
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/api.LicenseStatusResponse'
           description: OK
         "500":
-          content:
-            application/json:
-              schema:
-                additionalProperties:
-                  type: string
-                type: object
           description: Internal Server Error
       tags:
         - License
@@ -5465,18 +4700,8 @@ paths:
       operationId: handleLicenseUpdate
       responses:
         "200":
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/api.LicenseStatusResponse'
           description: OK
         "400":
-          content:
-            application/json:
-              schema:
-                additionalProperties:
-                  type: string
-                type: object
           description: Bad Request
       tags:
         - License
@@ -5486,28 +4711,10 @@ paths:
       operationId: ClearOnboardingAPIKey
       responses:
         "200":
-          content:
-            application/json:
-              schema:
-                additionalProperties:
-                  type: string
-                type: object
           description: OK
         "401":
-          content:
-            application/json:
-              schema:
-                additionalProperties:
-                  type: string
-                type: object
           description: Unauthorized
         "500":
-          content:
-            application/json:
-              schema:
-                additionalProperties:
-                  type: string
-                type: object
           description: Internal Server Error
       tags:
         - Onboarding
@@ -5578,12 +4785,6 @@ paths:
             type: string
       responses:
         "500":
-          content:
-            application/json:
-              schema:
-                additionalProperties:
-                  type: string
-                type: object
           description: Internal Server Error
       tags:
         - Orgs
@@ -5596,33 +4797,12 @@ paths:
           required: true
           schema:
             type: string
-      requestBody:
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/api.CreateAPIKeyRequest'
       responses:
         "201":
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/api.CreateAPIKeyResponse'
           description: Created
         "400":
-          content:
-            application/json:
-              schema:
-                additionalProperties:
-                  type: string
-                type: object
           description: Bad Request
         "500":
-          content:
-            application/json:
-              schema:
-                additionalProperties:
-                  type: string
-                type: object
           description: Internal Server Error
       tags:
         - Orgs
@@ -5643,36 +4823,12 @@ paths:
             type: string
       responses:
         "200":
-          content:
-            application/json:
-              schema:
-                additionalProperties:
-                  type: string
-                type: object
           description: OK
         "400":
-          content:
-            application/json:
-              schema:
-                additionalProperties:
-                  type: string
-                type: object
           description: Bad Request
         "404":
-          content:
-            application/json:
-              schema:
-                additionalProperties:
-                  type: string
-                type: object
           description: Not Found
         "500":
-          content:
-            application/json:
-              schema:
-                additionalProperties:
-                  type: string
-                type: object
           description: Internal Server Error
       tags:
         - Orgs
@@ -5693,36 +4849,12 @@ paths:
             type: string
       responses:
         "200":
-          content:
-            application/json:
-              schema:
-                additionalProperties:
-                  type: string
-                type: object
           description: OK
         "400":
-          content:
-            application/json:
-              schema:
-                additionalProperties:
-                  type: string
-                type: object
           description: Bad Request
         "404":
-          content:
-            application/json:
-              schema:
-                additionalProperties:
-                  type: string
-                type: object
           description: Not Found
         "500":
-          content:
-            application/json:
-              schema:
-                additionalProperties:
-                  type: string
-                type: object
           description: Internal Server Error
       tags:
         - Orgs
@@ -5752,26 +4884,22 @@ paths:
         - Orgs
   /api/v1/orgs/{org_id}/members/{user_id}/role:
     put:
-      description: ChangeUserRole handles changing a user's role in an organization
+      description: ChangeUserRole changes a user's role in an organization
       operationId: ChangeUserRole
       parameters:
         - in: path
           name: org_id
           required: true
           schema:
-            type: string
+            format: int64
+            type: integer
         - in: path
           name: user_id
           required: true
           schema:
-            type: string
-      responses:
-        "200":
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/users.UserWithRole'
-          description: OK
+            format: int64
+            type: integer
+      responses: null
       tags:
         - Orgs
   /api/v1/orgs/{org_id}/users:
@@ -5807,17 +4935,8 @@ paths:
           required: true
           schema:
             type: string
-      requestBody:
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/users.CreateUserRequest'
       responses:
         "201":
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/users.UserWithRole'
           description: Created
       tags:
         - Orgs
@@ -5838,12 +4957,6 @@ paths:
             type: string
       responses:
         "200":
-          content:
-            application/json:
-              schema:
-                additionalProperties:
-                  type: string
-                type: object
           description: OK
       tags:
         - Orgs
@@ -5863,10 +4976,6 @@ paths:
             type: string
       responses:
         "200":
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/users.UserWithRole'
           description: OK
       tags:
         - Orgs
@@ -5884,17 +4993,13 @@ paths:
           required: true
           schema:
             type: string
-      requestBody:
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/users.UpdateUserRequest'
+        - in: path
+          name: user_id
+          required: true
+          schema:
+            type: string
       responses:
         "200":
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/users.UserWithRole'
           description: OK
       tags:
         - Orgs
@@ -5946,26 +5051,22 @@ paths:
         - Orgs
   /api/v1/orgs/{org_id}/users/{user_id}/role:
     put:
-      description: ChangeUserRole handles changing a user's role in an organization
+      description: ChangeUserRole changes a user's role in an organization
       operationId: ChangeUserRole
       parameters:
         - in: path
           name: org_id
           required: true
           schema:
-            type: string
+            format: int64
+            type: integer
         - in: path
           name: user_id
           required: true
           schema:
-            type: string
-      responses:
-        "200":
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/users.UserWithRole'
-          description: OK
+            format: int64
+            type: integer
+      responses: null
       tags:
         - Orgs
   /api/v1/orgs/{org_id}/users/check:
@@ -5985,26 +5086,10 @@ paths:
             type: string
       responses:
         "200":
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/users.UserCheckResponse'
           description: OK
         "400":
-          content:
-            application/json:
-              schema:
-                additionalProperties:
-                  type: string
-                type: object
           description: Bad Request
         "500":
-          content:
-            application/json:
-              schema:
-                additionalProperties:
-                  type: string
-                type: object
           description: Internal Server Error
       tags:
         - Orgs
@@ -6014,35 +5099,14 @@ paths:
         SetAdminPassword sets the admin password for the instance
         If an admin password already exists, it returns an error unless Force is true
       operationId: SetAdminPassword
-      requestBody:
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/api.PasswordRequest'
       responses:
         "200":
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/api.PasswordResponse'
           description: OK
         "400":
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/api.ErrorResponse'
           description: Bad Request
         "409":
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/api.ErrorResponse'
           description: Conflict
         "500":
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/api.ErrorResponse'
           description: Internal Server Error
       tags:
         - Password
@@ -6051,41 +5115,16 @@ paths:
         ResetAdminPassword resets the admin password
         Requires the old password for verification and a new password
       operationId: ResetAdminPassword
-      requestBody:
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/api.PasswordRequest'
       responses:
         "200":
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/api.PasswordResponse'
           description: OK
         "400":
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/api.ErrorResponse'
           description: Bad Request
         "401":
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/api.ErrorResponse'
           description: Unauthorized
         "404":
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/api.ErrorResponse'
           description: Not Found
         "500":
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/api.ErrorResponse'
           description: Internal Server Error
       tags:
         - Password
@@ -6095,16 +5134,8 @@ paths:
       operationId: CheckAdminPasswordStatus
       responses:
         "200":
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/api.PasswordStatusResponse'
           description: OK
         "500":
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/api.ErrorResponse'
           description: Internal Server Error
       tags:
         - Password
@@ -6112,41 +5143,16 @@ paths:
     post:
       description: VerifyAdminPassword verifies if the provided password matches the stored admin password
       operationId: VerifyAdminPassword
-      requestBody:
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/api.PasswordVerifyRequest'
       responses:
         "200":
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/api.PasswordVerifyResponse'
           description: OK
         "400":
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/api.ErrorResponse'
           description: Bad Request
         "401":
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/api.PasswordVerifyResponse'
           description: Unauthorized
         "404":
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/api.PasswordVerifyResponse'
           description: Not Found
         "500":
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/api.ErrorResponse'
           description: Internal Server Error
       tags:
         - Password
@@ -6156,45 +5162,20 @@ paths:
       operationId: GetProductionURL
       responses:
         "200":
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/api.ProductionURLResponse'
           description: OK
         "500":
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/api.ErrorResponse'
           description: Internal Server Error
       tags:
         - Production-Url
     put:
       description: UpdateProductionURL updates the livereview_prod_url in instance_details
       operationId: UpdateProductionURL
-      requestBody:
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/api.ProductionURLRequest'
       responses:
         "200":
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/api.ProductionURLResponse'
           description: OK
         "400":
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/api.ErrorResponse'
           description: Bad Request
         "500":
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/api.ErrorResponse'
           description: Internal Server Error
       tags:
         - Production-Url
@@ -6212,26 +5193,10 @@ paths:
             type: string
       responses:
         "200":
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/api.RenderPreviewResponse'
           description: OK
         "400":
-          content:
-            application/json:
-              schema:
-                additionalProperties:
-                  type: string
-                type: object
           description: Bad Request
         "500":
-          content:
-            application/json:
-              schema:
-                additionalProperties:
-                  type: string
-                type: object
           description: Internal Server Error
       tags:
         - Prompts
@@ -6247,35 +5212,12 @@ paths:
             type: string
       responses:
         "200":
-          content:
-            application/json:
-              schema:
-                additionalProperties: {}
-                type: object
           description: OK
         "400":
-          content:
-            application/json:
-              schema:
-                additionalProperties:
-                  type: string
-                type: object
           description: Bad Request
         "404":
-          content:
-            application/json:
-              schema:
-                additionalProperties:
-                  type: string
-                type: object
           description: Not Found
         "500":
-          content:
-            application/json:
-              schema:
-                additionalProperties:
-                  type: string
-                type: object
           description: Internal Server Error
       tags:
         - Prompts
@@ -6294,42 +5236,19 @@ paths:
           required: true
           schema:
             type: string
-      requestBody:
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/api.CreateChunkRequest'
+        - in: path
+          name: var
+          required: true
+          schema:
+            type: string
       responses:
         "200":
-          content:
-            application/json:
-              schema:
-                additionalProperties: {}
-                type: object
           description: OK
         "400":
-          content:
-            application/json:
-              schema:
-                additionalProperties:
-                  type: string
-                type: object
           description: Bad Request
         "403":
-          content:
-            application/json:
-              schema:
-                additionalProperties:
-                  type: string
-                type: object
           description: Forbidden
         "500":
-          content:
-            application/json:
-              schema:
-                additionalProperties:
-                  type: string
-                type: object
           description: Internal Server Error
       tags:
         - Prompts
@@ -6348,43 +5267,14 @@ paths:
           required: true
           schema:
             type: string
-      requestBody:
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/api.ReorderRequest'
       responses:
         "200":
-          content:
-            application/json:
-              schema:
-                additionalProperties:
-                  type: string
-                type: object
           description: OK
         "400":
-          content:
-            application/json:
-              schema:
-                additionalProperties:
-                  type: string
-                type: object
           description: Bad Request
         "403":
-          content:
-            application/json:
-              schema:
-                additionalProperties:
-                  type: string
-                type: object
           description: Forbidden
         "500":
-          content:
-            application/json:
-              schema:
-                additionalProperties:
-                  type: string
-                type: object
           description: Internal Server Error
       tags:
         - Prompts
@@ -6394,11 +5284,6 @@ paths:
       operationId: GetPromptsCatalog
       responses:
         "200":
-          content:
-            application/json:
-              schema:
-                additionalProperties: {}
-                type: object
           description: OK
       tags:
         - Prompts
@@ -6408,10 +5293,6 @@ paths:
       operationId: GetQuotaStatus
       responses:
         "200":
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/api.QuotaStatus'
           description: OK
       tags:
         - Quota
@@ -6447,10 +5328,6 @@ paths:
             type: string
       responses:
         "200":
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/api.ReviewsListResponse'
           description: OK
       tags:
         - Reviews
@@ -6459,12 +5336,6 @@ paths:
       operationId: createReview
       responses:
         "200":
-          content:
-            application/json:
-              schema:
-                additionalProperties:
-                  type: string
-                type: object
           description: OK
       tags:
         - Reviews
@@ -6480,10 +5351,6 @@ paths:
             type: string
       responses:
         "200":
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/api.ReviewResponse'
           description: OK
       tags:
         - Reviews
@@ -6499,10 +5366,6 @@ paths:
             type: string
       responses:
         "200":
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/api.ReviewAccountingResponse'
           description: OK
       tags:
         - Reviews
@@ -6564,10 +5427,6 @@ paths:
             type: string
       responses:
         "200":
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/api.ReviewSummary'
           description: OK
       tags:
         - Reviews
@@ -6577,55 +5436,20 @@ paths:
       operationId: ListUserSubscriptions
       responses:
         "401":
-          content:
-            application/json:
-              schema:
-                additionalProperties:
-                  type: string
-                type: object
           description: Unauthorized
         "500":
-          content:
-            application/json:
-              schema:
-                additionalProperties:
-                  type: string
-                type: object
           description: Internal Server Error
       tags:
         - Subscriptions
     post:
       description: CreateSubscription creates a new team subscription
       operationId: CreateSubscription
-      requestBody:
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/api.CreateSubscriptionRequest'
       responses:
         "400":
-          content:
-            application/json:
-              schema:
-                additionalProperties:
-                  type: string
-                type: object
           description: Bad Request
         "401":
-          content:
-            application/json:
-              schema:
-                additionalProperties:
-                  type: string
-                type: object
           description: Unauthorized
         "500":
-          content:
-            application/json:
-              schema:
-                additionalProperties:
-                  type: string
-                type: object
           description: Internal Server Error
       tags:
         - Subscriptions
@@ -6641,34 +5465,12 @@ paths:
             type: string
       responses:
         "200":
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/api.SubscriptionResponse'
           description: OK
         "400":
-          content:
-            application/json:
-              schema:
-                additionalProperties:
-                  type: string
-                type: object
           description: Bad Request
         "404":
-          content:
-            application/json:
-              schema:
-                additionalProperties:
-                  type: string
-                type: object
           description: Not Found
         "500":
-          content:
-            application/json:
-              schema:
-                additionalProperties:
-                  type: string
-                type: object
           description: Internal Server Error
       tags:
         - Subscriptions
@@ -6682,59 +5484,18 @@ paths:
           required: true
           schema:
             type: string
-      requestBody:
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/api.AssignLicenseRequest'
       responses:
         "200":
-          content:
-            application/json:
-              schema:
-                additionalProperties:
-                  type: string
-                type: object
           description: OK
         "400":
-          content:
-            application/json:
-              schema:
-                additionalProperties:
-                  type: string
-                type: object
           description: Bad Request
         "401":
-          content:
-            application/json:
-              schema:
-                additionalProperties:
-                  type: string
-                type: object
           description: Unauthorized
         "403":
-          content:
-            application/json:
-              schema:
-                additionalProperties:
-                  type: string
-                type: object
           description: Forbidden
         "404":
-          content:
-            application/json:
-              schema:
-                additionalProperties:
-                  type: string
-                type: object
           description: Not Found
         "500":
-          content:
-            application/json:
-              schema:
-                additionalProperties:
-                  type: string
-                type: object
           description: Internal Server Error
       tags:
         - Subscriptions
@@ -6748,49 +5509,16 @@ paths:
           required: true
           schema:
             type: string
-      requestBody:
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/api.CancelSubscriptionRequest'
       responses:
         "200":
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/payment.RazorpaySubscription'
           description: OK
         "400":
-          content:
-            application/json:
-              schema:
-                additionalProperties:
-                  type: string
-                type: object
           description: Bad Request
         "403":
-          content:
-            application/json:
-              schema:
-                additionalProperties:
-                  type: string
-                type: object
           description: Forbidden
         "409":
-          content:
-            application/json:
-              schema:
-                additionalProperties:
-                  type: string
-                type: object
           description: Conflict
         "500":
-          content:
-            application/json:
-              schema:
-                additionalProperties:
-                  type: string
-                type: object
           description: Internal Server Error
       tags:
         - Subscriptions
@@ -6806,42 +5534,14 @@ paths:
             type: string
       responses:
         "200":
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/payment.RazorpaySubscription'
           description: OK
         "400":
-          content:
-            application/json:
-              schema:
-                additionalProperties:
-                  type: string
-                type: object
           description: Bad Request
         "403":
-          content:
-            application/json:
-              schema:
-                additionalProperties:
-                  type: string
-                type: object
           description: Forbidden
         "409":
-          content:
-            application/json:
-              schema:
-                additionalProperties:
-                  type: string
-                type: object
           description: Conflict
         "500":
-          content:
-            application/json:
-              schema:
-                additionalProperties:
-                  type: string
-                type: object
           description: Internal Server Error
       tags:
         - Subscriptions
@@ -6855,33 +5555,12 @@ paths:
           required: true
           schema:
             type: string
-      requestBody:
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/api.UpdateQuantityRequest'
       responses:
         "200":
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/payment.RazorpaySubscription'
           description: OK
         "400":
-          content:
-            application/json:
-              schema:
-                additionalProperties:
-                  type: string
-                type: object
           description: Bad Request
         "500":
-          content:
-            application/json:
-              schema:
-                additionalProperties:
-                  type: string
-                type: object
           description: Internal Server Error
       tags:
         - Subscriptions
@@ -6902,52 +5581,16 @@ paths:
             type: string
       responses:
         "200":
-          content:
-            application/json:
-              schema:
-                additionalProperties:
-                  type: string
-                type: object
           description: OK
         "400":
-          content:
-            application/json:
-              schema:
-                additionalProperties:
-                  type: string
-                type: object
           description: Bad Request
         "401":
-          content:
-            application/json:
-              schema:
-                additionalProperties:
-                  type: string
-                type: object
           description: Unauthorized
         "403":
-          content:
-            application/json:
-              schema:
-                additionalProperties:
-                  type: string
-                type: object
           description: Forbidden
         "404":
-          content:
-            application/json:
-              schema:
-                additionalProperties:
-                  type: string
-                type: object
           description: Not Found
         "500":
-          content:
-            application/json:
-              schema:
-                additionalProperties:
-                  type: string
-                type: object
           description: Internal Server Error
       tags:
         - Subscriptions
@@ -6959,35 +5602,12 @@ paths:
         This prevents race conditions where Razorpay webhooks arrive before the subscription
         is properly recorded in our database.
       operationId: ConfirmPurchase
-      requestBody:
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/payment.PurchaseConfirmationRequest'
       responses:
         "200":
-          content:
-            application/json:
-              schema:
-                additionalProperties:
-                  type: string
-                type: object
           description: OK
         "400":
-          content:
-            application/json:
-              schema:
-                additionalProperties:
-                  type: string
-                type: object
           description: Bad Request
         "500":
-          content:
-            application/json:
-              schema:
-                additionalProperties:
-                  type: string
-                type: object
           description: Internal Server Error
       tags:
         - Subscriptions
@@ -6997,28 +5617,10 @@ paths:
       operationId: GetCurrentSubscription
       responses:
         "400":
-          content:
-            application/json:
-              schema:
-                additionalProperties:
-                  type: string
-                type: object
           description: Bad Request
         "401":
-          content:
-            application/json:
-              schema:
-                additionalProperties:
-                  type: string
-                type: object
           description: Unauthorized
         "500":
-          content:
-            application/json:
-              schema:
-                additionalProperties:
-                  type: string
-                type: object
           description: Internal Server Error
       tags:
         - Subscriptions
@@ -7028,28 +5630,10 @@ paths:
       operationId: ConfirmSelfHostedPurchase
       responses:
         "200":
-          content:
-            application/json:
-              schema:
-                additionalProperties:
-                  type: string
-                type: object
           description: OK
         "400":
-          content:
-            application/json:
-              schema:
-                additionalProperties:
-                  type: string
-                type: object
           description: Bad Request
         "500":
-          content:
-            application/json:
-              schema:
-                additionalProperties:
-                  type: string
-                type: object
           description: Internal Server Error
       tags:
         - Subscriptions
@@ -7059,26 +5643,10 @@ paths:
       operationId: CreateSelfHostedPurchase
       responses:
         "200":
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/payment.SelfHostedPurchaseResponse'
           description: OK
         "400":
-          content:
-            application/json:
-              schema:
-                additionalProperties:
-                  type: string
-                type: object
           description: Bad Request
         "500":
-          content:
-            application/json:
-              schema:
-                additionalProperties:
-                  type: string
-                type: object
           description: Internal Server Error
       tags:
         - Subscriptions
@@ -7098,22 +5666,17 @@ paths:
         - Ui-Config
   /api/v1/users/password:
     put:
-      description: ChangePassword handles changing the current user's password
+      description: ChangePassword handles password changes (useful for temp passwords)
       operationId: ChangePassword
-      requestBody:
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/users.ChangePasswordRequest'
       responses:
         "200":
-          content:
-            application/json:
-              schema:
-                additionalProperties:
-                  type: string
-                type: object
           description: OK
+        "400":
+          description: Bad Request
+        "401":
+          description: Unauthorized
+        "500":
+          description: Internal Server Error
       tags:
         - Users
   /api/v1/users/profile:
@@ -7126,17 +5689,8 @@ paths:
     put:
       description: UpdateProfile handles updating the current user's profile
       operationId: UpdateProfile
-      requestBody:
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/users.UpdateProfileRequest'
       responses:
         "200":
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/users.UserProfile'
           description: OK
       tags:
         - Users
@@ -7152,12 +5706,6 @@ paths:
             type: string
       responses:
         "500":
-          content:
-            application/json:
-              schema:
-                additionalProperties:
-                  type: string
-                type: object
           description: Internal Server Error
       tags:
         - Webhook
