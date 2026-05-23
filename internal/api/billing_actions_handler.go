@@ -534,12 +534,23 @@ func (h *BillingActionsHandler) PreviewUpgrade(c echo.Context) error {
 		return JSONErrorWithEnvelope(c, http.StatusInternalServerError, fmt.Sprintf("failed to create upgrade request: %v", err))
 	}
 
-	return JSONWithEnvelope(c, http.StatusOK, map[string]interface{}{
+	payload := map[string]interface{}{
 		"preview":            preview,
 		"preview_token":      previewToken,
 		"preview_expires_at": time.Unix(tokenPayload.ExpiresAtUnix, 0).UTC().Format(time.RFC3339),
 		"upgrade_request_id": tokenPayload.UpgradeRequestID,
-	})
+	}
+	if isMCPRequest(c) {
+		payload["mcp_context"] = map[string]any{
+			"upgrade_guidance": "To upgrade your plan, go to the subscriptions page.",
+			"link": map[string]string{
+				"url":   "https://livereview.hexmos.com/#/settings#subscriptions",
+				"label": "Open Subscriptions Page",
+			},
+		}
+	}
+
+	return JSONWithEnvelope(c, http.StatusOK, payload)
 }
 
 func (h *BillingActionsHandler) PrepareUpgradePayment(c echo.Context) error {
@@ -1360,7 +1371,7 @@ func (h *BillingActionsHandler) GetBillingStatus(c echo.Context) error {
 			}
 		}
 	}
-	return JSONWithEnvelope(c, http.StatusOK, map[string]interface{}{
+	payload := map[string]interface{}{
 		"billing": map[string]interface{}{
 			"current_plan_code":             state.CurrentPlanCode,
 			"razorpay_mode":                 mode,
@@ -1381,7 +1392,17 @@ func (h *BillingActionsHandler) GetBillingStatus(c echo.Context) error {
 			"scheduled_plan_effective_at":   nullTime(state.ScheduledPlanEffectiveAt),
 		},
 		"available_plans": plans,
-	})
+	}
+	if isMCPRequest(c) {
+		payload["mcp_context"] = map[string]any{
+			"upgrade_guidance": "To upgrade your plan, go to the subscriptions page.",
+			"link": map[string]string{
+				"url":   "https://livereview.hexmos.com/#/settings#subscriptions",
+				"label": "Open Subscriptions Page",
+			},
+		}
+	}
+	return JSONWithEnvelope(c, http.StatusOK, payload)
 }
 
 func (h *BillingActionsHandler) buildTrialEligibilityView(ctx context.Context, c echo.Context, now time.Time) map[string]interface{} {

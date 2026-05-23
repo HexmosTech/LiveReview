@@ -17,6 +17,7 @@ import (
 
 	"github.com/labstack/echo/v4"
 	"github.com/labstack/echo/v4/middleware"
+	"github.com/livereview/internal/aiconnectors"
 	"github.com/livereview/internal/api/auth"
 	apimiddleware "github.com/livereview/internal/api/middleware"
 	"github.com/livereview/internal/api/organizations"
@@ -33,7 +34,6 @@ import (
 	giteaoutput "github.com/livereview/internal/provider_output/gitea"
 	githuboutput "github.com/livereview/internal/provider_output/github"
 	gitlaboutput "github.com/livereview/internal/provider_output/gitlab"
-	"github.com/livereview/internal/aiconnectors"
 	"github.com/livereview/storage/core"
 	// Import FetchGitLabProfile
 )
@@ -102,6 +102,13 @@ func getDeploymentConfig() *DeploymentConfig {
 	}
 
 	return config
+}
+
+func isMCPRequest(c echo.Context) bool {
+	if c == nil || c.Request() == nil {
+		return false
+	}
+	return c.Request().Header.Get("X-MCP-Request") == "true"
 }
 
 // Server represents the API server
@@ -1166,11 +1173,11 @@ type LearningsQuery struct {
 }
 
 type UpsertLearningRequest struct {
-	Title     string   `json:"title" jsonschema:"required,description=The title of the learning rule"`
-	Body      string   `json:"body" jsonschema:"required,description=The body of the learning containing code rules or comments"`
-	Tags      []string `json:"tags,omitempty" jsonschema:"description=Tags for categorization"`
-	Scope     string   `json:"scope_kind" jsonschema:"required,enum=org,enum=repo,description=Scope of the learning (must be either 'org' for organization-wide or 'repo' for repository-specific)"`
-	RepoID    string   `json:"repo_id,omitempty" jsonschema:"description=Specific repository ID (required if scope_kind is 'repo')"`
+	Title  string   `json:"title" jsonschema:"required,description=The title of the learning rule"`
+	Body   string   `json:"body" jsonschema:"required,description=The body of the learning containing code rules or comments"`
+	Tags   []string `json:"tags,omitempty" jsonschema:"description=Tags for categorization"`
+	Scope  string   `json:"scope_kind" jsonschema:"required,enum=org,enum=repo,description=Scope of the learning (must be either 'org' for organization-wide or 'repo' for repository-specific)"`
+	RepoID string   `json:"repo_id,omitempty" jsonschema:"description=Specific repository ID (required if scope_kind is 'repo')"`
 }
 
 type UpdateLearningRequest struct {
