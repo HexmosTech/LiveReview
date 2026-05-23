@@ -274,7 +274,8 @@ func (s *Server) GetDiffReviewStatus(c echo.Context) error {
 
 	preloaded, err := decodePreloadedChanges(meta)
 	if err != nil {
-		return JSONErrorWithEnvelope(c, http.StatusInternalServerError, fmt.Sprintf("failed to decode preloaded changes: %v", err))
+		log.Printf("[WARN] preloaded_changes unavailable for review %d, serving without code context: %v", reviewID, err)
+		preloaded = nil
 	}
 
 	result, err := decodeReviewResult(meta)
@@ -434,10 +435,6 @@ func (s *Server) runDiffReview(request review.ReviewRequest, rm *ReviewManager, 
 		}
 	}
 
-	if err := rm.UpdateReviewStatus(reviewID, status); err != nil {
-		log.Printf("[WARN] failed to update review status for %d: %v", reviewID, err)
-	}
-
 	payload := DiffReviewResult{Summary: summary, Comments: comments}
 	meta := map[string]interface{}{"review_result": payload}
 	if failureReason != "" {
@@ -445,6 +442,10 @@ func (s *Server) runDiffReview(request review.ReviewRequest, rm *ReviewManager, 
 	}
 	if err := rm.MergeReviewMetadata(reviewID, meta); err != nil {
 		log.Printf("[WARN] failed to persist review_result for %d: %v", reviewID, err)
+	}
+
+	if err := rm.UpdateReviewStatus(reviewID, status); err != nil {
+		log.Printf("[WARN] failed to update review status for %d: %v", reviewID, err)
 	}
 
 	// Persist AI summary title for later display (extract first heading only)
