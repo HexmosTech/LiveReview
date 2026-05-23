@@ -397,6 +397,7 @@ func NewServer(port int, versionInfo *VersionInfo) (*Server, error) {
 		"/api/v1/aiconnectors",
 		"/api/v1/aiconnectors/validate-key",
 		"/api/v1/aiconnectors/reorder",
+		"/api/v1/mcp-api-integration-guide",
 	})
 
 	mcp.Mount("/api/mcp")
@@ -552,6 +553,7 @@ func (s *Server) setupRoutes() {
 	// System info endpoints (public)
 	public.GET("/system/info", s.getSystemInfo)
 	public.GET("/ui-config", s.getUIConfig)
+	public.GET("/mcp-api-integration-guide", s.APIIntegrationHelper)
 
 	// Cloud user ensure endpoint (now public; handler performs CLOUD_JWT_SECRET validation)
 	public.POST("/auth/ensure-cloud-user", s.authHandlers.EnsureCloudUser)
@@ -1625,6 +1627,27 @@ func (s *Server) getVersion(c echo.Context) error {
 	}
 
 	return c.JSON(http.StatusOK, response)
+}
+
+// @Summary      LiveReview API Integration Guide
+// @Description  This tool provides instructions on how to integrate the LiveReview API into your codebase using MCP. It explains API key usage, base URL selection, OpenAPI specs location, and how to use tools for schema information. For getting the accurate API paths, refer to the OpenAPI spec. Use this tool if you need to know how to integrate an API.
+// @Tags         integration
+// @Produce      json
+// @Success      200  {object}  map[string]interface{}
+// @Router       /api/v1/mcp-api-integration-guide [get]
+func (s *Server) APIIntegrationHelper(c echo.Context) error {
+	specContent := "OpenAPI specification could not be loaded directly. Please check the public documentation."
+	if data, err := os.ReadFile("docs/openapi.yaml"); err == nil {
+		specContent = string(data)
+	}
+
+	return c.JSON(http.StatusOK, map[string]interface{}{
+		"message":            "Welcome to the LiveReview API Integration Guide!",
+		"base_url":           "Use https://livereview.hexmos.com as the default Base URL for all API requests. IMPORTANT: Please ask the user in the beginning whether they want to use livereview.hexmos.com or a different Base URL (e.g., for a self-hosted instance).",
+		"authentication":     "To authenticate requests, you MUST use the 'X-API-KEY' header and pass your API key. Do not use Bearer token authentication for API integration.",
+		"schema_information": "Check the available MCP tools for specific schema information of individual endpoints. They provide the required parameters and payload structures.",
+		"openapi_spec":       specContent,
+	})
 }
 
 // EnableManualTriggerForAllProjects handles enabling manual trigger for all projects for a connector
