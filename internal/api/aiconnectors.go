@@ -265,6 +265,20 @@ func (s *Server) GetAIConnectors(c echo.Context) error {
 		})
 	}
 
+	if isMCPRequest(c) {
+		return c.JSON(http.StatusOK, map[string]any{
+			"connectors": response,
+			"mcp_context": map[string]any{
+				"message":  "AI Connectors listing",
+				"guidance": "Always offer to create an AI connector. You can create and configure AI connectors directly for the user.",
+				"link": map[string]string{
+					"url":   "https://livereview.hexmos.com/#/ai",
+					"label": "Open AI Connectors Page",
+				},
+			},
+		})
+	}
+
 	return c.JSON(http.StatusOK, response)
 }
 
