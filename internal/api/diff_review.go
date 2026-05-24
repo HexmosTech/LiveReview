@@ -202,6 +202,11 @@ func (s *Server) DiffReview(c echo.Context) error {
 func (s *Server) GetDiffReviewStatus(c echo.Context) error {
 	// API key authentication is handled by middleware
 
+	orgID, ok := c.Get("org_id").(int64)
+	if !ok || orgID == 0 {
+		return JSONErrorWithEnvelope(c, http.StatusUnauthorized, "missing org context")
+	}
+
 	reviewIDStr := c.Param("review_id")
 	reviewID, err := strconv.ParseInt(reviewIDStr, 10, 64)
 	if err != nil {
@@ -209,7 +214,7 @@ func (s *Server) GetDiffReviewStatus(c echo.Context) error {
 	}
 
 	rm := NewReviewManager(s.db)
-	reviewRecord, err := rm.GetReview(reviewID)
+	reviewRecord, err := rm.GetReviewForOrg(reviewID, orgID)
 	if err != nil {
 		return JSONErrorWithEnvelope(c, http.StatusNotFound, "review not found")
 	}
@@ -274,7 +279,8 @@ func (s *Server) GetDiffReviewStatus(c echo.Context) error {
 
 	preloaded, err := decodePreloadedChanges(meta)
 	if err != nil {
-		return JSONErrorWithEnvelope(c, http.StatusInternalServerError, fmt.Sprintf("failed to decode preloaded changes: %v", err))
+		log.Printf("[WARN] preloaded_changes unavailable for review %d, serving without code context: %v", reviewID, err)
+		preloaded = nil
 	}
 
 	result, err := decodeReviewResult(meta)
@@ -316,6 +322,7 @@ func (s *Server) runDiffReview(request review.ReviewRequest, rm *ReviewManager, 
 		// Attach event sink so logs go to review_events table for UI
 		eventSink := NewDatabaseEventSink(s.db)
 		logger.SetEventSink(eventSink)
+		defer logger.Close()
 		logger.LogSection("CLI DIFF REVIEW STARTED")
 		logger.Log("Review ID: %d", reviewID)
 		logger.Log("Organization ID: %d", orgID)
@@ -410,6 +417,7 @@ func (s *Server) runDiffReview(request review.ReviewRequest, rm *ReviewManager, 
 			}
 			if logger != nil {
 				logger.LogSection("REVIEW COMPLETED")
+				logger.Log("Review ID: %d", reviewID)
 				logger.Log("Successfully generated %d comments", len(result.Comments))
 			}
 		} else {
@@ -434,10 +442,6 @@ func (s *Server) runDiffReview(request review.ReviewRequest, rm *ReviewManager, 
 		}
 	}
 
-	if err := rm.UpdateReviewStatus(reviewID, status); err != nil {
-		log.Printf("[WARN] failed to update review status for %d: %v", reviewID, err)
-	}
-
 	payload := DiffReviewResult{Summary: summary, Comments: comments}
 	meta := map[string]interface{}{"review_result": payload}
 	if failureReason != "" {
@@ -445,6 +449,10 @@ func (s *Server) runDiffReview(request review.ReviewRequest, rm *ReviewManager, 
 	}
 	if err := rm.MergeReviewMetadata(reviewID, meta); err != nil {
 		log.Printf("[WARN] failed to persist review_result for %d: %v", reviewID, err)
+	}
+
+	if err := rm.UpdateReviewStatus(reviewID, status); err != nil {
+		log.Printf("[WARN] failed to update review status for %d: %v", reviewID, err)
 	}
 
 	// Persist AI summary title for later display (extract first heading only)
