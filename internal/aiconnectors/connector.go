@@ -33,6 +33,7 @@ const (
 	ProviderCohere     Provider = "cohere"
 	ProviderOllama     Provider = "ollama"
 	ProviderOpenRouter Provider = "openrouter"
+	ProviderCerebras   Provider = "cerebras"
 	ProviderLocalModel Provider = "local"
 )
 
@@ -86,6 +87,8 @@ func NewConnector(ctx context.Context, options ConnectorOptions) (*Connector, er
 		model, err = createOllamaModel(ctx, options)
 	case ProviderOpenRouter:
 		model, err = createOpenRouterModel(ctx, options)
+	case ProviderCerebras:
+		model, err = createOpenAIModel(ctx, options)
 	default:
 		return nil, fmt.Errorf("unsupported provider: %s", options.Provider)
 	}
@@ -162,6 +165,8 @@ func ValidateAPIKey(ctx context.Context, provider Provider, apiKey string, baseU
 			options.ModelConfig.Model = "llama3"
 		case ProviderOpenRouter:
 			options.ModelConfig.Model = "deepseek/deepseek-r1-0528:free"
+		case ProviderCerebras:
+			options.ModelConfig.Model = "llama3.1-8b"
 		default:
 			log.Error().Str("provider", string(provider)).Msg("Unsupported provider")
 			return false, fmt.Errorf("unsupported provider: %s", provider)
@@ -294,7 +299,7 @@ func trimTrailingSlash(s string) string {
 
 // Helper functions to create models for specific providers
 
-func createOpenAIModel(ctx context.Context, options ConnectorOptions) (llms.Model, error) {
+func createOpenAIModel(_ context.Context, options ConnectorOptions) (llms.Model, error) {
 	// The OpenAI library doesn't have all the options we want to set directly as constructor options
 	// We'll just use the basic options available
 	opts := []openai.Option{
@@ -310,7 +315,7 @@ func createOpenAIModel(ctx context.Context, options ConnectorOptions) (llms.Mode
 	return openai.New(opts...)
 }
 
-func createDeepSeekModel(ctx context.Context, options ConnectorOptions) (llms.Model, error) {
+func createDeepSeekModel(_ context.Context, options ConnectorOptions) (llms.Model, error) {
 	baseURL := ResolveBaseURL(ProviderDeepSeek, options.BaseURL)
 
 	opts := []openai.Option{
@@ -352,7 +357,7 @@ func createGeminiModel(ctx context.Context, options ConnectorOptions) (llms.Mode
 	return model, nil
 }
 
-func createAnthropicModel(ctx context.Context, options ConnectorOptions) (llms.Model, error) {
+func createAnthropicModel(_ context.Context, options ConnectorOptions) (llms.Model, error) {
 	opts := []anthropic.Option{
 		anthropic.WithToken(options.APIKey),
 		anthropic.WithModel(options.ModelConfig.Model),
@@ -361,7 +366,7 @@ func createAnthropicModel(ctx context.Context, options ConnectorOptions) (llms.M
 	return anthropic.New(opts...)
 }
 
-func createCohereModel(ctx context.Context, options ConnectorOptions) (llms.Model, error) {
+func createCohereModel(_ context.Context, options ConnectorOptions) (llms.Model, error) {
 	opts := []cohere.Option{
 		cohere.WithToken(options.APIKey),
 		cohere.WithModel(options.ModelConfig.Model),
@@ -375,7 +380,7 @@ func createCohereModel(ctx context.Context, options ConnectorOptions) (llms.Mode
 	return cohere.New(opts...)
 }
 
-func createOllamaModel(ctx context.Context, options ConnectorOptions) (llms.Model, error) {
+func createOllamaModel(_ context.Context, options ConnectorOptions) (llms.Model, error) {
 	// Set default server URL if not provided
 	if options.BaseURL == "" {
 		options.BaseURL = "http://localhost:11434"
@@ -392,7 +397,7 @@ func createOllamaModel(ctx context.Context, options ConnectorOptions) (llms.Mode
 	return ollama.New(opts...)
 }
 
-func createOpenRouterModel(ctx context.Context, options ConnectorOptions) (llms.Model, error) {
+func createOpenRouterModel(_ context.Context, options ConnectorOptions) (llms.Model, error) {
 	baseURL := ResolveBaseURL(ProviderOpenRouter, options.BaseURL)
 
 	httpClient := networkaiconnectors.NewHTTPClient(5 * time.Minute)
@@ -503,7 +508,7 @@ func (c *Connector) Call(ctx context.Context, input string, options ...llms.Call
 
 func isCloudProviderProvider(provider Provider) bool {
 	switch provider {
-	case ProviderOpenAI, ProviderDeepSeek, ProviderGemini, ProviderClaude, ProviderOpenRouter:
+	case ProviderOpenAI, ProviderDeepSeek, ProviderGemini, ProviderClaude, ProviderOpenRouter, ProviderCerebras:
 		return true
 	default:
 		return false
@@ -520,13 +525,6 @@ func (c *Connector) GetModel() string {
 	return c.options.ModelConfig.Model
 }
 
-// Helper function to get minimum of two integers
-func min(a, b int) int {
-	if a < b {
-		return a
-	}
-	return b
-}
 
 // truncateString limits string length for safe logging.
 func truncateString(s string, maxLen int) string {

@@ -330,6 +330,8 @@ func (p *LangchainProvider) MaxTokensPerBatch() int {
 			return 16000 // DeepSeek chat/reasoner models
 		case "openrouter":
 			return 8000 // OpenRouter models commonly cap around 8k; stay conservative
+		case "cerebras":
+			return 8000 // Safe default token limit for Cerebras
 		case "anthropic":
 			return 20000 // Claude models
 		default:
@@ -370,6 +372,9 @@ func (p *LangchainProvider) initializeLLM() error {
 		p.baseURL = aiconnectors.ResolveBaseURLForProviderName(p.providerType, p.baseURL)
 		return p.initializeOpenAILLM()
 	case "openrouter":
+		p.baseURL = aiconnectors.ResolveBaseURLForProviderName(p.providerType, p.baseURL)
+		return p.initializeOpenAILLM()
+	case "cerebras":
 		p.baseURL = aiconnectors.ResolveBaseURLForProviderName(p.providerType, p.baseURL)
 		return p.initializeOpenAILLM()
 	case "anthropic", "claude":
@@ -604,6 +609,8 @@ func (p *LangchainProvider) getModelName() string {
 		return "deepseek-chat"
 	case "openrouter":
 		return "deepseek/deepseek-r1-0528:free"
+	case "cerebras":
+		return "llama3.1-8b"
 	case "anthropic", "claude":
 		return "claude-haiku-4-5-20251001"
 	case "ollama":

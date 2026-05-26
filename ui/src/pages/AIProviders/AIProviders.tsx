@@ -68,6 +68,17 @@ const popularAIProviders: AIProvider[] = [
         baseURLPlaceholder: 'https://openrouter.ai/api/v1'
     },
     {
+        id: 'cerebras',
+        name: 'Cerebras',
+        url: 'https://cerebras.ai/',
+        description: 'Lightning fast AI inference with Llama models.',
+        icon: <Icons.AI />,
+        apiKeyPlaceholder: 'csk-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx',
+        models: ['llama3.1-8b', 'llama3.3-70b'],
+        defaultModel: 'llama3.1-8b',
+        baseURLPlaceholder: 'https://api.cerebras.ai/v1'
+    },
+    {
         id: 'ollama',
         name: 'Ollama',
         url: 'https://ollama.ai/',

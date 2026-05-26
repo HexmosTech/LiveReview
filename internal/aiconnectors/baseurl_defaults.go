@@ -9,6 +9,8 @@ func DefaultBaseURL(provider Provider) string {
 		return "https://openrouter.ai/api/v1"
 	case ProviderDeepSeek:
 		return "https://api.deepseek.com/v1"
+	case ProviderCerebras:
+		return "https://api.cerebras.ai/v1"
 	default:
 		return ""
 	}
@@ -21,6 +23,8 @@ func DefaultBaseURLForProviderName(providerName string) string {
 		return DefaultBaseURL(ProviderOpenRouter)
 	case string(ProviderDeepSeek):
 		return DefaultBaseURL(ProviderDeepSeek)
+	case string(ProviderCerebras):
+		return DefaultBaseURL(ProviderCerebras)
 	default:
 		return ""
 	}
