@@ -165,10 +165,15 @@ const authSlice = createSlice({
         localStorage.setItem('accessToken', action.payload.tokens.access_token);
         localStorage.setItem('refreshToken', action.payload.tokens.refresh_token);
         
-        // Set the first organization as current to avoid API calls without org context
+        // Set the first organization as current to avoid API calls without org context,
+        // but preserve any valid previously selected organization from localStorage.
         if (action.payload.organizations && action.payload.organizations.length > 0) {
-          const firstOrg = action.payload.organizations[0];
-          localStorage.setItem('currentOrgId', firstOrg.id.toString());
+          const storedOrgId = localStorage.getItem('currentOrgId');
+          const hasValidStoredOrg = storedOrgId && action.payload.organizations.some(org => org.id.toString() === storedOrgId);
+          if (!hasValidStoredOrg) {
+            const firstOrg = action.payload.organizations[0];
+            localStorage.setItem('currentOrgId', firstOrg.id.toString());
+          }
         }
       })
       .addCase(setupAdmin.rejected, (state, action) => {
@@ -191,10 +196,15 @@ const authSlice = createSlice({
         localStorage.setItem('accessToken', action.payload.tokens.access_token);
         localStorage.setItem('refreshToken', action.payload.tokens.refresh_token);
         
-        // Set the first organization as current to avoid API calls without org context
+        // Set the first organization as current to avoid API calls without org context,
+        // but preserve any valid previously selected organization from localStorage.
         if (action.payload.organizations && action.payload.organizations.length > 0) {
-          const firstOrg = action.payload.organizations[0];
-          localStorage.setItem('currentOrgId', firstOrg.id.toString());
+          const storedOrgId = localStorage.getItem('currentOrgId');
+          const hasValidStoredOrg = storedOrgId && action.payload.organizations.some(org => org.id.toString() === storedOrgId);
+          if (!hasValidStoredOrg) {
+            const firstOrg = action.payload.organizations[0];
+            localStorage.setItem('currentOrgId', firstOrg.id.toString());
+          }
         }
       })
       .addCase(login.rejected, (state, action) => {
