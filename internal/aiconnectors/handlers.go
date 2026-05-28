@@ -83,7 +83,8 @@ func validateAPIKeyHandler(c echo.Context) error {
 		Msg("Validating API key")
 
 	// Validate the API key
-	valid, err := ValidateAPIKey(context.Background(), req.Provider, req.APIKey, req.BaseURL, req.Model)
+	db, _ := c.Get("db").(*sql.DB)
+	valid, err := ValidateAPIKey(context.Background(), db, req.Provider, req.APIKey, req.BaseURL, req.Model)
 	if err != nil {
 		log.Error().Err(err).Msg("Error validating API key")
 		return c.JSON(http.StatusInternalServerError, ValidateAPIKeyResponse{
