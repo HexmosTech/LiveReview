@@ -592,25 +592,7 @@ func (p *LangchainProvider) initializeAnthropicLLM() error {
 }
 
 func (p *LangchainProvider) getModelName() string {
-	if p.modelName != "" {
-		return p.modelName
-	}
-
-	// Provider-specific defaults to avoid accidental cross-provider model names.
-	switch strings.ToLower(p.providerType) {
-	case "openai":
-		return "o4-mini"
-	case "deepseek":
-		return "deepseek-chat"
-	case "openrouter":
-		return "deepseek/deepseek-r1-0528:free"
-	case "anthropic", "claude":
-		return "claude-haiku-4-5-20251001"
-	case "ollama":
-		return "llama3"
-	default:
-		return "gemini-2.5-flash"
-	}
+	return p.modelName
 }
 
 func (p *LangchainProvider) getLoggedModelName() string {

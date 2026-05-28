@@ -43,6 +43,7 @@ const ConnectorForm: React.FC<ConnectorFormProps> = ({
 }) => {
     const [customModelMode, setCustomModelMode] = React.useState(false);
     const [dynamicModels, setDynamicModels] = React.useState<string[]>([]);
+    const [apiDefaultModel, setApiDefaultModel] = React.useState<string>('');
     const [loadingModels, setLoadingModels] = React.useState(false);
     const [searchQuery, setSearchQuery] = React.useState('');
     const [isOpen, setIsOpen] = React.useState(false);
@@ -81,6 +82,7 @@ const ConnectorForm: React.FC<ConnectorFormProps> = ({
     React.useEffect(() => {
         if (!currentProvider || isOllama) {
             setDynamicModels([]);
+            setApiDefaultModel('');
             return;
         }
 
@@ -94,19 +96,26 @@ const ConnectorForm: React.FC<ConnectorFormProps> = ({
                     const modelIds = data.models.map((m: any) => m.model_id);
                     setDynamicModels(modelIds);
 
+                    const defaultModelObj = data.models.find((m: any) => m.is_default);
+                    const defaultModel = defaultModelObj ? defaultModelObj.model_id : (modelIds[0] || '');
+                    if (defaultModelObj) {
+                        setApiDefaultModel(defaultModelObj.model_id);
+                    } else if (modelIds.length > 0) {
+                        setApiDefaultModel(modelIds[0]);
+                    }
+
                     // If no model is currently selected, find the default and select it
                     if (!formData.selectedModel || formData.selectedModel === '') {
-                        const defaultModelObj = data.models.find((m: any) => m.is_default);
-                        const defaultModel = defaultModelObj ? defaultModelObj.model_id : (modelIds[0] || '');
                         if (defaultModel) {
                             updateSelectedModel(defaultModel);
                         }
                     }
                 }
             } catch (err) {
-                console.error('Failed to load dynamic models, using static fallback:', err);
+                console.error('Failed to load dynamic models:', err);
                 if (isMounted) {
                     setDynamicModels([]);
+                    setApiDefaultModel('');
                 }
             } finally {
                 if (isMounted) {
@@ -121,8 +130,8 @@ const ConnectorForm: React.FC<ConnectorFormProps> = ({
         };
     }, [currentProvider]);
 
-    const providerModels = dynamicModels.length > 0 ? dynamicModels : (providerDetails?.models || []);
-    const currentModelValue = formData.selectedModel || providerDetails?.defaultModel || '';
+    const providerModels = dynamicModels;
+    const currentModelValue = formData.selectedModel || apiDefaultModel || '';
     const usesCustomModel = !!currentModelValue && !providerModels.includes(currentModelValue);
     const shouldShowCustomModelInput = customModelMode || usesCustomModel;
 
@@ -137,6 +146,7 @@ const ConnectorForm: React.FC<ConnectorFormProps> = ({
     React.useEffect(() => {
         setCustomModelMode(false);
         setSearchQuery('');
+        setApiDefaultModel('');
     }, [currentProvider]);
 
     React.useEffect(() => {
@@ -272,7 +282,7 @@ const ConnectorForm: React.FC<ConnectorFormProps> = ({
                 />
 
                 {/* Model field for providers that require an explicit model */}
-                {providerDetails && (providerModels.length > 0 || providerDetails.defaultModel) && (
+                {providerDetails && !isOllama && (
                     <div className="space-y-1 relative z-[50]">
                         <div className="flex justify-between items-center">
                             <label className="block text-sm font-medium text-slate-300">Model</label>
@@ -282,15 +292,26 @@ const ConnectorForm: React.FC<ConnectorFormProps> = ({
                         <div ref={dropdownRef} className={`relative w-full ${isOpen ? 'z-[100]' : 'z-0'}`}>
                             <button
                                 type="button"
-                                className="w-full bg-slate-700 border border-slate-600 text-white rounded-md px-3 py-2 text-left flex justify-between items-center focus:outline-none focus:ring-2 focus:ring-blue-500 cursor-pointer"
+                                className="w-full bg-slate-700 border border-slate-600 text-white rounded-md px-3 py-2 text-left flex justify-between items-center focus:outline-none focus:ring-2 focus:ring-blue-500 cursor-pointer disabled:cursor-not-allowed disabled:opacity-80"
                                 onClick={() => setIsOpen(!isOpen)}
+                                disabled={loadingModels}
                             >
-                                <span className="truncate">
-                                    {shouldShowCustomModelInput
-                                        ? 'Custom model…'
-                                        : currentModelValue
-                                            ? `${currentModelValue}${currentModelValue === providerDetails.defaultModel ? ' (Default)' : ''}`
-                                            : 'Select a model'}
+                                <span className="truncate flex items-center">
+                                    {loadingModels && (
+                                        <svg className="animate-spin -ml-1 mr-2.5 h-4 w-4 text-blue-400" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                                            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                                            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                                        </svg>
+                                    )}
+                                    <span className="truncate">
+                                        {loadingModels
+                                            ? 'Loading models...'
+                                            : shouldShowCustomModelInput
+                                                ? 'Custom model…'
+                                                : currentModelValue
+                                                    ? `${currentModelValue}${currentModelValue === apiDefaultModel ? ' (Default)' : ''}`
+                                                    : 'Select a model'}
+                                    </span>
                                 </span>
                                 <span className="text-slate-400 ml-2">
                                     {isOpen ? '▲' : '▼'}
@@ -314,48 +335,60 @@ const ConnectorForm: React.FC<ConnectorFormProps> = ({
 
                                     {/* Options List */}
                                     <div className="py-1">
-                                        {filteredModels.map((model: string) => {
-                                            const isSelected = !shouldShowCustomModelInput && currentModelValue === model;
-                                            return (
+                                        {loadingModels ? (
+                                            <div className="flex items-center justify-center py-6 text-slate-400 space-x-2">
+                                                <svg className="animate-spin h-5 w-5 text-indigo-500" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                                                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                                                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                                                </svg>
+                                                <span>Loading models...</span>
+                                            </div>
+                                        ) : (
+                                            <>
+                                                {filteredModels.map((model: string) => {
+                                                    const isSelected = !shouldShowCustomModelInput && currentModelValue === model;
+                                                    return (
+                                                        <button
+                                                            key={model}
+                                                            type="button"
+                                                            className={`w-full text-left px-3 py-2 text-sm hover:bg-indigo-600 hover:text-white transition-colors flex justify-between items-center ${isSelected ? 'bg-slate-700 text-indigo-400 font-medium' : 'text-slate-200'
+                                                                }`}
+                                                            onClick={() => {
+                                                                setCustomModelMode(false);
+                                                                updateSelectedModel(model);
+                                                                setIsOpen(false);
+                                                                setSearchQuery('');
+                                                            }}
+                                                        >
+                                                            <span className="truncate">{model}</span>
+                                                            {model === apiDefaultModel && (
+                                                                <span className="text-[10px] bg-slate-700 text-slate-300 px-1.5 py-0.5 rounded">Default</span>
+                                                            )}
+                                                        </button>
+                                                    );
+                                                })}
+
+                                                {/* Custom Model Option */}
                                                 <button
-                                                    key={model}
                                                     type="button"
-                                                    className={`w-full text-left px-3 py-2 text-sm hover:bg-indigo-600 hover:text-white transition-colors flex justify-between items-center ${isSelected ? 'bg-slate-700 text-indigo-400 font-medium' : 'text-slate-200'
+                                                    className={`w-full text-left px-3 py-2 text-sm border-t border-slate-700 hover:bg-indigo-600 hover:text-white transition-colors flex justify-between items-center ${shouldShowCustomModelInput ? 'bg-slate-700 text-indigo-400 font-medium' : 'text-slate-200'
                                                         }`}
                                                     onClick={() => {
-                                                        setCustomModelMode(false);
-                                                        updateSelectedModel(model);
+                                                        setCustomModelMode(true);
+                                                        if (!usesCustomModel) {
+                                                            updateSelectedModel('');
+                                                        }
                                                         setIsOpen(false);
                                                         setSearchQuery('');
                                                     }}
                                                 >
-                                                    <span className="truncate">{model}</span>
-                                                    {model === providerDetails.defaultModel && (
-                                                        <span className="text-[10px] bg-slate-700 text-slate-300 px-1.5 py-0.5 rounded">Default</span>
-                                                    )}
+                                                    <span>Custom model…</span>
                                                 </button>
-                                            );
-                                        })}
 
-                                        {/* Custom Model Option */}
-                                        <button
-                                            type="button"
-                                            className={`w-full text-left px-3 py-2 text-sm border-t border-slate-700 hover:bg-indigo-600 hover:text-white transition-colors flex justify-between items-center ${shouldShowCustomModelInput ? 'bg-slate-700 text-indigo-400 font-medium' : 'text-slate-200'
-                                                }`}
-                                            onClick={() => {
-                                                setCustomModelMode(true);
-                                                if (!usesCustomModel) {
-                                                    updateSelectedModel('');
-                                                }
-                                                setIsOpen(false);
-                                                setSearchQuery('');
-                                            }}
-                                        >
-                                            <span>Custom model…</span>
-                                        </button>
-
-                                        {filteredModels.length === 0 && (
-                                            <div className="px-3 py-2 text-sm text-slate-500 italic">No matching models found</div>
+                                                {filteredModels.length === 0 && (
+                                                    <div className="px-3 py-2 text-sm text-slate-500 italic">No matching models found</div>
+                                                )}
+                                            </>
                                         )}
                                     </div>
                                 </div>

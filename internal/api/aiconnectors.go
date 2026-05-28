@@ -63,6 +63,7 @@ func (s *Server) ValidateAIConnectorKey(c echo.Context) error {
 	// Validate the API key
 	valid, err := aiconnectors.ValidateAPIKey(
 		context.Background(),
+		s.db,
 		aiconnectors.Provider(req.Provider),
 		req.APIKey,
 		req.BaseURL,
