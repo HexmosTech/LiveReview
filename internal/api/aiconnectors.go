@@ -188,7 +188,7 @@ func (s *Server) CreateAIConnector(c echo.Context) error {
 	// Use provided model or provider default
 	selectedModel := req.SelectedModel
 	if selectedModel == "" {
-		selectedModel = aiconnectors.GetDefaultModel(aiconnectors.Provider(req.ProviderName))
+		selectedModel = storage.GetDefaultModel(ctx, aiconnectors.Provider(req.ProviderName))
 	}
 
 	// Create a connector record
@@ -355,7 +355,7 @@ func (s *Server) UpdateAIConnector(c echo.Context) error {
 
 	selectedModel := req.SelectedModel
 	if selectedModel == "" {
-		selectedModel = aiconnectors.GetDefaultModel(aiconnectors.Provider(req.ProviderName))
+		selectedModel = storage.GetDefaultModel(ctx, aiconnectors.Provider(req.ProviderName))
 	}
 	if selectedModel != "" {
 		existingConnector.SelectedModel = sql.NullString{String: selectedModel, Valid: true}
@@ -539,3 +539,60 @@ func (s *Server) FetchOllamaModels(c echo.Context) error {
 		"count":  len(modelNames),
 	})
 }
+
+// AIProviderModelResponse represents the response structure for provider models
+type AIProviderModelResponse struct {
+	ModelID   string `json:"model_id"`
+	Name      string `json:"name"`
+	IsDefault bool   `json:"is_default"`
+}
+
+// GetAIProviderModels handles requests to get all active models for a specific AI provider
+func (s *Server) GetAIProviderModels(c echo.Context) error {
+	provider := c.Param("provider")
+	if provider == "" {
+		return c.JSON(http.StatusBadRequest, map[string]string{
+			"error": "Provider is required",
+		})
+	}
+
+	ctx := c.Request().Context()
+	query := `
+		SELECT model_id, name, is_default 
+		FROM ai_models 
+		WHERE provider = $1 AND is_active = true 
+		ORDER BY name ASC
+	`
+	rows, err := s.db.QueryContext(ctx, query, provider)
+	if err != nil {
+		log.Error().Err(err).Str("provider", provider).Msg("Failed to query AI models")
+		return c.JSON(http.StatusInternalServerError, map[string]string{
+			"error": "Failed to query AI models: " + err.Error(),
+		})
+	}
+	defer rows.Close()
+
+	models := make([]AIProviderModelResponse, 0)
+	for rows.Next() {
+		var m AIProviderModelResponse
+		if err := rows.Scan(&m.ModelID, &m.Name, &m.IsDefault); err != nil {
+			log.Error().Err(err).Msg("Failed to scan AI model row")
+			return c.JSON(http.StatusInternalServerError, map[string]string{
+				"error": "Failed to scan AI model row: " + err.Error(),
+			})
+		}
+		models = append(models, m)
+	}
+
+	if err := rows.Err(); err != nil {
+		return c.JSON(http.StatusInternalServerError, map[string]string{
+			"error": "Database rows iteration error: " + err.Error(),
+		})
+	}
+
+	return c.JSON(http.StatusOK, map[string]interface{}{
+		"models": models,
+		"count":  len(models),
+	})
+}
+
