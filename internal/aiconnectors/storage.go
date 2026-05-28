@@ -34,12 +34,14 @@ type ConnectorRecord struct {
 // Storage provides methods to store and retrieve connectors
 type Storage struct {
 	store *storageaiconnectors.ConnectorStore
+	db    *sql.DB
 }
 
 // NewStorage creates a new storage instance
 func NewStorage(db *sql.DB) *Storage {
 	return &Storage{
 		store: storageaiconnectors.NewConnectorStore(db),
+		db:    db,
 	}
 }
 
@@ -268,7 +270,7 @@ func (s *Storage) DeleteConnector(ctx context.Context, orgID int64, id int64) er
 }
 
 // GetConnectorOptions creates ConnectorOptions from a ConnectorRecord
-func (r *ConnectorRecord) GetConnectorOptions() ConnectorOptions {
+func (s *Storage) GetConnectorOptions(ctx context.Context, r *ConnectorRecord) ConnectorOptions {
 	selectedModel := r.GetSelectedModel()
 	log.Debug().
 		Str("provider", r.ProviderName).
@@ -288,7 +290,7 @@ func (r *ConnectorRecord) GetConnectorOptions() ConnectorOptions {
 
 	// Use default model if not specified
 	if options.ModelConfig.Model == "" {
-		defaultModel := GetDefaultModel(r.Provider)
+		defaultModel := s.GetDefaultModel(ctx, r.Provider)
 		log.Warn().
 			Str("provider", r.ProviderName).
 			Str("default_model", defaultModel).
@@ -302,6 +304,75 @@ func (r *ConnectorRecord) GetConnectorOptions() ConnectorOptions {
 	}
 
 	return options
+}
+
+// GetProviderModels returns the available models for a provider
+func (s *Storage) GetProviderModels(ctx context.Context, provider Provider) []string {
+	if provider == ProviderOllama {
+		return []string{"llama3", "mistral", "codellama", "neural-chat"}
+	}
+
+	if s.db == nil {
+		return []string{}
+	}
+
+	query := `
+		SELECT model_id 
+		FROM ai_models 
+		WHERE provider = $1 AND is_active = true 
+		ORDER BY name ASC
+	`
+	rows, err := s.db.QueryContext(ctx, query, string(provider))
+	if err != nil {
+		log.Error().Err(err).Str("provider", string(provider)).Msg("Failed to query provider models")
+		return []string{}
+	}
+	defer rows.Close()
+
+	var models []string
+	for rows.Next() {
+		var m string
+		if err := rows.Scan(&m); err == nil {
+			models = append(models, m)
+		}
+	}
+
+	return models
+}
+
+// GetDefaultModel returns the default model for a provider
+func (s *Storage) GetDefaultModel(ctx context.Context, provider Provider) string {
+	if provider == ProviderOllama {
+		return "llama3"
+	}
+
+	if s.db == nil {
+		return ""
+	}
+
+	var modelID string
+	query := `
+		SELECT model_id 
+		FROM ai_models 
+		WHERE provider = $1 AND is_active = true AND is_default = true 
+		LIMIT 1
+	`
+	err := s.db.QueryRowContext(ctx, query, string(provider)).Scan(&modelID)
+	if err != nil {
+		// Fallback: try fetching the first active model from database
+		queryFallback := `
+			SELECT model_id 
+			FROM ai_models 
+			WHERE provider = $1 AND is_active = true 
+			ORDER BY name ASC 
+			LIMIT 1
+		`
+		errFallback := s.db.QueryRowContext(ctx, queryFallback, string(provider)).Scan(&modelID)
+		if errFallback != nil {
+			return ""
+		}
+	}
+	return modelID
 }
 
 // Helper methods to get string values from sql.NullString fields
