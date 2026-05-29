@@ -1,0 +1,9 @@
+services:
+  mcp-test:
+    build:
+      context: .
+      dockerfile: Dockerfile.mcp-test
+    env_file:
+      - .env.mcp-test
+    ports:
+      - "8888:8888"

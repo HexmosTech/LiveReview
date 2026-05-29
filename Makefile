@@ -163,6 +163,11 @@ run:
 	which air || go install github.com/air-verse/air@latest
 	DLV_BIN_DIR=$$(go env GOBIN); if [ -z "$$DLV_BIN_DIR" ]; then DLV_BIN_DIR="$$(go env GOPATH)/bin"; fi; PATH="$$DLV_BIN_DIR:$$PATH" air
 
+
+# Disable Typed OpenAPI schema generation for CI (GitHub Actions, no extra deps required)
+run-skip-typed:
+	SKIP_TYPED_GEN=1 $(MAKE) run
+
 logrun:
 	which air || go install github.com/air-verse/air@latest
 	bash -c 'set -o pipefail; air 2>&1 | tee "logrun-$$(date +%Y%m%d-%H%M%S).log"'
@@ -537,8 +542,8 @@ docs/openapi.yaml internal/api/docs/spec.go: $(API_SPEC_INPUTS)
 	@echo "🔄 Generating API specification..."
 	@mkdir -p docs internal/api/docs
 	@chmod 755 docs internal/api/docs
-	@typed -config typed.yaml > /dev/null 2>&1
-	@go run internal/api/docs/spec.go > /dev/null 2>&1
+	@typed -config typed.yaml > /tmp/lr_typed_build.log 2>&1 || (echo "❌ Typed generation failed. Logs:" && cat /tmp/lr_typed_build.log && exit 1)
+	@go run internal/api/docs/spec.go > /tmp/lr_spec_build.log 2>&1 || (echo "❌ OpenAPI spec generation failed. Logs:" && cat /tmp/lr_spec_build.log && exit 1)
 
 generate-spec: docs/openapi.yaml
 

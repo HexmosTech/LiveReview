@@ -3,7 +3,6 @@ package api
 import (
 	"database/sql"
 	"errors"
-	"log"
 	"net/http"
 	"os"
 	"strconv"
@@ -190,22 +189,6 @@ func APIKeyAuthMiddleware(db *sql.DB) echo.MiddlewareFunc {
 func RequireAuthOrAPIKey(tokenService *auth.TokenService, db *sql.DB) echo.MiddlewareFunc {
 	return func(next echo.HandlerFunc) echo.HandlerFunc {
 		return func(c echo.Context) error {
-
-			// DEBUG: log all incoming headers
-			headers := make(map[string]string)
-			for k, v := range c.Request().Header {
-				headers[k] = strings.Join(v, ",")
-			}
-
-			log.Printf("=== MIDDLEWARE HEADERS ===\n%+v\n", headers)
-
-			// DEBUG: specifically log API key lookup
-			log.Printf(
-				"X-API-Key=%q | X-API-KEY=%q | Authorization=%q",
-				c.Request().Header.Get("X-API-Key"),
-				c.Request().Header.Get("X-API-KEY"),
-				c.Request().Header.Get("Authorization"),
-			)
 
 			// First, try API key authentication
 			apiKey := c.Request().Header.Get("X-API-Key")
