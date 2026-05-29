@@ -347,9 +347,14 @@ func createGeminiModel(ctx context.Context, options ConnectorOptions) (llms.Mode
 }
 
 func createAnthropicModel(ctx context.Context, options ConnectorOptions) (llms.Model, error) {
+	modelName := options.ModelConfig.Model
+	if strings.Contains(modelName, ".") {
+		modelName = strings.ReplaceAll(modelName, ".", "-")
+	}
+
 	opts := []anthropic.Option{
 		anthropic.WithToken(options.APIKey),
-		anthropic.WithModel(options.ModelConfig.Model),
+		anthropic.WithModel(modelName),
 	}
 
 	return anthropic.New(opts...)

@@ -575,12 +575,17 @@ func (p *LangchainProvider) initializeAnthropicLLM() error {
 		return fmt.Errorf("API key is required for Anthropic")
 	}
 
-	options := []anthropic.Option{
-		anthropic.WithToken(p.apiKey),
-		anthropic.WithModel(p.getModelName()),
+	modelName := p.getModelName()
+	if strings.Contains(modelName, ".") {
+		modelName = strings.ReplaceAll(modelName, ".", "-")
 	}
 
-	fmt.Printf("[LANGCHAIN INIT] Initializing Anthropic LLM with model: %s\n", p.getModelName())
+	options := []anthropic.Option{
+		anthropic.WithToken(p.apiKey),
+		anthropic.WithModel(modelName),
+	}
+
+	fmt.Printf("[LANGCHAIN INIT] Initializing Anthropic LLM with model: %s\n", modelName)
 
 	llm, err := anthropic.New(options...)
 	if err != nil {
