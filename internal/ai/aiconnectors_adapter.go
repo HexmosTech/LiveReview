@@ -48,7 +48,7 @@ func (a *AIConnectorsAdapter) ReviewCode(ctx context.Context, diffs []*models.Co
 	connector := connectors[0]
 
 	// Create connector options
-	options := connector.GetConnectorOptions()
+	options := a.storage.GetConnectorOptions(ctx, connector)
 
 	// Override model if specified
 	if a.model != "" {

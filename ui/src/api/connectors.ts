@@ -304,3 +304,22 @@ export const disableManualTriggerForAllProjects = async (connectorId: string): P
     throw error;
   }
 };
+
+/**
+ * Fetch dynamic models list from backend for a specific provider
+ * @param provider The provider id (e.g. 'openai', 'gemini', 'claude')
+ * @returns Promise with models response
+ */
+export const getAIProviderModels = async (
+  provider: string
+): Promise<{ models: Array<{ model_id: string; name: string; is_default: boolean }>; count: number }> => {
+  try {
+    return await apiClient.get<{ models: Array<{ model_id: string; name: string; is_default: boolean }>; count: number }>(
+      `/api/v1/aiconnectors/providers/${provider}/models`
+    );
+  } catch (error) {
+    console.error(`Error fetching models for ${provider}:`, error);
+    throw error;
+  }
+};
+

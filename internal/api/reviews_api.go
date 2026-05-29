@@ -345,7 +345,7 @@ func (s *Server) getAIConfigFromDatabase(ctx context.Context, orgID int64, planC
 		if byokConnector == nil {
 			return review.AIConfig{}, fmt.Errorf("the Free plan requires you to configure your own LLM API key (BYOK) for your organization.")
 		}
-		return buildBYOKAIConfig(byokConnector, "byok_required")
+		return s.buildBYOKAIConfig(ctx, byokConnector, "byok_required")
 	}
 
 	// Paid team defaults to hosted auto model when no BYOK connector is configured.
@@ -355,16 +355,16 @@ func (s *Server) getAIConfigFromDatabase(ctx context.Context, orgID int64, planC
 			if connector.ProviderName == aidefault.ProviderName {
 				return buildDefaultAIConfig(ctx, s.db, connector)
 			}
-			return buildBYOKAIConfig(connector, "byok_override")
+			return s.buildBYOKAIConfig(ctx, connector, "byok_override")
 		}
-		return buildHostedAutoAIConfig()
+		return s.buildHostedAutoAIConfig(ctx)
 	}
 
 	// Fallback for other plans: prefer BYOK if present, else hosted-auto.
 	if len(connectors) > 0 {
-		return buildBYOKAIConfig(connectors[0], "byok_optional")
+		return s.buildBYOKAIConfig(ctx, connectors[0], "byok_optional")
 	}
-	return buildHostedAutoAIConfig()
+	return s.buildHostedAutoAIConfig(ctx)
 }
 
 func buildDefaultAIConfig(ctx context.Context, db *sql.DB, record *aiconnectors.ConnectorRecord) (review.AIConfig, error) {
@@ -396,7 +396,7 @@ func buildDefaultAIConfig(ctx context.Context, db *sql.DB, record *aiconnectors.
 	}, nil
 }
 
-func buildBYOKAIConfig(connector *aiconnectors.ConnectorRecord, executionMode string) (review.AIConfig, error) {
+func (s *Server) buildBYOKAIConfig(ctx context.Context, connector *aiconnectors.ConnectorRecord, executionMode string) (review.AIConfig, error) {
 	if connector == nil {
 		return review.AIConfig{}, fmt.Errorf("connector is required for BYOK mode")
 	}
@@ -413,22 +413,11 @@ func buildBYOKAIConfig(connector *aiconnectors.ConnectorRecord, executionMode st
 	if connector.SelectedModel.Valid && connector.SelectedModel.String != "" {
 		model = connector.SelectedModel.String
 	} else {
-		// Default models based on provider
-		switch connector.ProviderName {
-		case "ollama":
-			model = "llama3.2:latest" // Default Ollama model
-		case "gemini":
-			model = "gemini-2.5-flash" // Default Gemini model
-		case "openai":
-			model = "o4-mini" // Default OpenAI model
-		case "deepseek":
-			model = "deepseek-chat" // Default DeepSeek model
-		case "openrouter":
-			model = "deepseek/deepseek-r1-0528:free" // Default OpenRouter model
-		case "claude":
-			model = "claude-haiku-4-5-20251001" // Default Anthropic model
-		default:
-			model = "gemini-2.5-flash" // Default fallback
+		// Use storage to fetch default model dynamically
+		storage := aiconnectors.NewStorage(s.db)
+		model = storage.GetDefaultModel(ctx, connector.Provider)
+		if model == "" {
+			return review.AIConfig{}, fmt.Errorf("no active default model configured in database for provider %s", connector.ProviderName)
 		}
 	}
 
@@ -467,7 +456,7 @@ func buildBYOKAIConfig(connector *aiconnectors.ConnectorRecord, executionMode st
 	}, nil
 }
 
-func buildHostedAutoAIConfig() (review.AIConfig, error) {
+func (s *Server) buildHostedAutoAIConfig(ctx context.Context) (review.AIConfig, error) {
 	providerName := strings.TrimSpace(os.Getenv("LIVEREVIEW_HOSTED_AI_PROVIDER"))
 	if providerName == "" {
 		providerName = "gemini"
@@ -475,19 +464,10 @@ func buildHostedAutoAIConfig() (review.AIConfig, error) {
 
 	model := strings.TrimSpace(os.Getenv("LIVEREVIEW_HOSTED_AI_MODEL"))
 	if model == "" {
-		switch providerName {
-		case "openai":
-			model = "o4-mini"
-		case "deepseek":
-			model = "deepseek-chat"
-		case "openrouter":
-			model = "deepseek/deepseek-r1-0528:free"
-		case "claude":
-			model = "claude-haiku-4-5-20251001"
-		case "ollama":
-			model = "llama3.2:latest"
-		default:
-			model = "gemini-2.5-flash"
+		storage := aiconnectors.NewStorage(s.db)
+		model = storage.GetDefaultModel(ctx, aiconnectors.Provider(providerName))
+		if model == "" {
+			return review.AIConfig{}, fmt.Errorf("no active default model configured in database for hosted provider %s", providerName)
 		}
 	}
 
