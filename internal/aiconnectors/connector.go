@@ -346,19 +346,59 @@ func createGeminiModel(ctx context.Context, options ConnectorOptions) (llms.Mode
 	return model, nil
 }
 
+// AnthropicSanitizingTransport strips the deprecated temperature parameter from Anthropic requests for specific models.
+type AnthropicSanitizingTransport struct {
+	Base http.RoundTripper
+}
+
+func (t *AnthropicSanitizingTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	if t.Base == nil {
+		t.Base = http.DefaultTransport
+	}
+
+	if req.Method == http.MethodPost && req.Body != nil {
+		bodyBytes, err := io.ReadAll(req.Body)
+		if err == nil {
+			req.Body = io.NopCloser(bytes.NewBuffer(bodyBytes))
+
+			var payload map[string]interface{}
+			if err := json.Unmarshal(bodyBytes, &payload); err == nil {
+				if model, ok := payload["model"].(string); ok && (strings.Contains(model, "opus-4-") || strings.Contains(model, "opus-4.")) {
+					delete(payload, "temperature")
+
+					newBody, err := json.Marshal(payload)
+					if err == nil {
+						req.Body = io.NopCloser(bytes.NewBuffer(newBody))
+						req.ContentLength = int64(len(newBody))
+						req.Header.Set("Content-Length", fmt.Sprintf("%d", len(newBody)))
+					}
+				}
+			}
+		}
+	}
+
+	return t.Base.RoundTrip(req)
+}
+
 func createAnthropicModel(ctx context.Context, options ConnectorOptions) (llms.Model, error) {
 	modelName := options.ModelConfig.Model
 	if strings.Contains(modelName, ".") {
 		modelName = strings.ReplaceAll(modelName, ".", "-")
 	}
 
+	httpClient := &http.Client{
+		Transport: &AnthropicSanitizingTransport{Base: http.DefaultTransport},
+	}
+
 	opts := []anthropic.Option{
 		anthropic.WithToken(options.APIKey),
 		anthropic.WithModel(modelName),
+		anthropic.WithHTTPClient(httpClient),
 	}
 
 	return anthropic.New(opts...)
 }
+
 
 func createCohereModel(ctx context.Context, options ConnectorOptions) (llms.Model, error) {
 	opts := []cohere.Option{
