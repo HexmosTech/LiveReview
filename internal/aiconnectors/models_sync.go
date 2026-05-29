@@ -60,11 +60,11 @@ type MappedModel struct {
 
 // Default models mapped by provider for setting default selection flag in DB
 var defaultProviderModels = map[string]string{
-	"openai":     "o4-mini",
-	"claude":     "claude-sonnet-4",
+	"openai":     "gpt-mini-latest",
+	"claude":     "claude-sonnet-4.6",
 	"gemini":     "gemini-2.5-flash",
 	"deepseek":   "deepseek-v4-flash",
-	"cohere":     "command-r",
+	"cohere":     "command-a",
 	"openrouter": "deepseek/deepseek-v4-flash",
 }
 
