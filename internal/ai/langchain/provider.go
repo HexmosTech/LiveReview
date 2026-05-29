@@ -580,9 +580,14 @@ func (p *LangchainProvider) initializeAnthropicLLM() error {
 		modelName = strings.ReplaceAll(modelName, ".", "-")
 	}
 
+	httpClient := &http.Client{
+		Transport: &aiconnectors.AnthropicSanitizingTransport{Base: http.DefaultTransport},
+	}
+
 	options := []anthropic.Option{
 		anthropic.WithToken(p.apiKey),
 		anthropic.WithModel(modelName),
+		anthropic.WithHTTPClient(httpClient),
 	}
 
 	fmt.Printf("[LANGCHAIN INIT] Initializing Anthropic LLM with model: %s\n", modelName)
