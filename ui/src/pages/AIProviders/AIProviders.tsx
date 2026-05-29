@@ -41,9 +41,7 @@ const popularAIProviders: AIProvider[] = [
         url: 'https://ai.google.dev/',
         description: 'High quality, multimodal reasoning with balanced cost and performance.',
         icon: <Icons.Google />,
-        apiKeyPlaceholder: 'gemini-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx',
-        models: ['gemini-2.5-flash', 'gemini-2.5-flash-lite', 'gemini-2.5-pro', 'gemini-2.0-flash', 'gemini-2.0-flash-lite'],
-        defaultModel: 'gemini-2.5-flash'
+        apiKeyPlaceholder: 'gemini-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx'
     },
     {
         id: 'deepseek',
@@ -52,8 +50,6 @@ const popularAIProviders: AIProvider[] = [
         description: 'Native DeepSeek connector with chat as default and R1 available for deeper reasoning.',
         icon: <Icons.AI />,
         apiKeyPlaceholder: 'sk-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx',
-        models: ['deepseek-chat', 'deepseek-r1'],
-        defaultModel: 'deepseek-chat',
         baseURLPlaceholder: 'https://api.deepseek.com/v1'
     },
     {
@@ -63,8 +59,6 @@ const popularAIProviders: AIProvider[] = [
         description: 'Bring your own key and choose any OpenRouter model. Defaults to the free DeepSeek route.',
         icon: <Icons.AI />,
         apiKeyPlaceholder: 'sk-or-v1-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx',
-        models: ['deepseek/deepseek-r1-0528:free'],
-        defaultModel: 'deepseek/deepseek-r1-0528:free',
         baseURLPlaceholder: 'https://openrouter.ai/api/v1'
     },
     {
@@ -85,8 +79,6 @@ const popularAIProviders: AIProvider[] = [
         description: 'Run models locally. Great for privacy & air‑gapped workflows.',
         icon: <Icons.Ollama />,
         apiKeyPlaceholder: 'Optional JWT token for authentication',
-        models: ['llama3', 'llama3.1', 'codellama', 'mistral', 'gemma'],
-        defaultModel: 'llama3',
         baseURLPlaceholder: 'http://localhost:11434/ollama/api',
         requiresBaseURL: true
     },
@@ -96,9 +88,7 @@ const popularAIProviders: AIProvider[] = [
         url: 'https://platform.openai.com/',
         description: 'Fast, strong reasoning via OpenAI models with broad model compatibility.',
         icon: <Icons.OpenAI />,
-        apiKeyPlaceholder: 'sk-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx',
-        models: ['o4-mini', 'gpt-4.1', 'gpt-4.1-mini', 'gpt-4o-mini', 'gpt-4o', 'o3-mini'],
-        defaultModel: 'o4-mini'
+        apiKeyPlaceholder: 'sk-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx'
     },
     {
         id: 'claude',
@@ -106,21 +96,7 @@ const popularAIProviders: AIProvider[] = [
         url: 'https://www.anthropic.com/',
         description: 'Advanced reasoning & long context. Vote to prioritize deeper integration.',
         icon: <Icons.AI />,
-        apiKeyPlaceholder: 'sk-ant-api03-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx',
-        models: [
-            'claude-haiku-4-5-20251001',
-            'claude-opus-4-1-20250805',
-            'claude-opus-4-20250514',
-            'claude-opus-4-5-20251101',
-            'claude-opus-4-6',
-            'claude-sonnet-4-20250514',
-            'claude-sonnet-4-5-20250929',
-            'claude-sonnet-4-6',
-            'claude-3-opus-20240229',
-            'claude-3-sonnet-20240229',
-            'claude-3-haiku-20240307',
-        ],
-        defaultModel: 'claude-haiku-4-5-20251001'
+        apiKeyPlaceholder: 'sk-ant-api03-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx'
     },
 ];
 
