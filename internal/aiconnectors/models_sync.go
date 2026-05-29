@@ -211,18 +211,15 @@ func SyncOpenRouterModels(ctx context.Context, db *sql.DB) error {
 			})
 		}
 
-		// 2. Also map supported models (and free/popular models) to the openrouter provider
-		// We include any openai, gemini, claude, deepseek, or cohere models in the OpenRouter options.
-		if provider != "" || id == "deepseek/deepseek-r1-0528:free" {
-			isDefault := defaultProviderModels["openrouter"] == id
-			mappedModels = append(mappedModels, MappedModel{
-				ModelID:   id, // For OpenRouter, we use the full OpenRouter ID
-				Provider:  "openrouter",
-				Name:      fmt.Sprintf("OpenRouter: %s", name),
-				IsDefault: isDefault,
-				Metadata:  model.RawJSON,
-			})
-		}
+		// 2. Map ALL eligible synced models to the openrouter provider without any prefix restrictions
+		isDefault := defaultProviderModels["openrouter"] == id
+		mappedModels = append(mappedModels, MappedModel{
+			ModelID:   id, // For OpenRouter, we use the full OpenRouter ID
+			Provider:  "openrouter",
+			Name:      fmt.Sprintf("OpenRouter: %s", name),
+			IsDefault: isDefault,
+			Metadata:  model.RawJSON,
+		})
 	}
 
 	if len(mappedModels) == 0 {
