@@ -1,9 +1,9 @@
 import React from 'react';
 import { AIProvider, ConnectorFormData, AIConnector } from '../types';
-import { 
-    Card, 
-    Button, 
-    Icons, 
+import {
+    Card,
+    Button,
+    Icons,
     Input,
     Alert
 } from '../../../components/UIPrimitives';
@@ -42,6 +42,12 @@ const ConnectorForm: React.FC<ConnectorFormProps> = ({
     setError
 }) => {
     const [customModelMode, setCustomModelMode] = React.useState(false);
+    const [dynamicModels, setDynamicModels] = React.useState<string[]>([]);
+    const [apiDefaultModel, setApiDefaultModel] = React.useState<string>('');
+    const [loadingModels, setLoadingModels] = React.useState(false);
+    const [searchQuery, setSearchQuery] = React.useState('');
+    const [isOpen, setIsOpen] = React.useState(false);
+    const dropdownRef = React.useRef<HTMLDivElement>(null);
 
     const getProviderDetails = (providerId: string) => {
         return providers.find(p => p.id === providerId) || providers[0];
@@ -56,18 +62,91 @@ const ConnectorForm: React.FC<ConnectorFormProps> = ({
         } as React.ChangeEvent<HTMLInputElement>);
     };
 
+    // Close dropdown on click outside
+    React.useEffect(() => {
+        const handleClickOutside = (event: MouseEvent) => {
+            if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
+                setIsOpen(false);
+            }
+        };
+        document.addEventListener('mousedown', handleClickOutside);
+        return () => document.removeEventListener('mousedown', handleClickOutside);
+    }, []);
+
     // Check if current provider requires API key
     const currentProvider = selectedProvider === 'all' ? formData.providerType : selectedProvider;
     const providerDetails = currentProvider ? getProviderDetails(currentProvider) : null;
     const isOllama = providerDetails?.id === 'ollama';
-    const providerModels = providerDetails?.models || [];
-    const currentModelValue = formData.selectedModel || providerDetails?.defaultModel || '';
+
+    // Fetch dynamic models on provider change
+    React.useEffect(() => {
+        if (!currentProvider || isOllama) {
+            setDynamicModels([]);
+            setApiDefaultModel('');
+            return;
+        }
+
+        let isMounted = true;
+        const fetchModels = async () => {
+            setLoadingModels(true);
+            try {
+                const { getAIProviderModels } = await import('../../../api/connectors');
+                const data = await getAIProviderModels(currentProvider);
+                if (isMounted) {
+                    const modelIds = data.models.map((m: any) => m.model_id);
+                    setDynamicModels(modelIds);
+
+                    const defaultModelObj = data.models.find((m: any) => m.is_default);
+                    const defaultModel = defaultModelObj ? defaultModelObj.model_id : (modelIds[0] || '');
+                    if (defaultModelObj) {
+                        setApiDefaultModel(defaultModelObj.model_id);
+                    } else if (modelIds.length > 0) {
+                        setApiDefaultModel(modelIds[0]);
+                    }
+
+                    // If no model is currently selected, find the default and select it
+                    if (!formData.selectedModel || formData.selectedModel === '') {
+                        if (defaultModel) {
+                            updateSelectedModel(defaultModel);
+                        }
+                    }
+                }
+            } catch (err) {
+                console.error('Failed to load dynamic models:', err);
+                if (isMounted) {
+                    setDynamicModels([]);
+                    setApiDefaultModel('');
+                }
+            } finally {
+                if (isMounted) {
+                    setLoadingModels(false);
+                }
+            }
+        };
+
+        fetchModels();
+        return () => {
+            isMounted = false;
+        };
+    }, [currentProvider]);
+
+    const providerModels = dynamicModels;
+    const currentModelValue = formData.selectedModel || apiDefaultModel || '';
     const usesCustomModel = !!currentModelValue && !providerModels.includes(currentModelValue);
     const shouldShowCustomModelInput = customModelMode || usesCustomModel;
+
+    const filteredModels = React.useMemo(() => {
+        if (!searchQuery) return providerModels;
+        return providerModels.filter((model: string) =>
+            model.toLowerCase().includes(searchQuery.toLowerCase())
+        );
+    }, [providerModels, searchQuery]);
 
     // Sync custom mode when provider changes or model becomes valid
     React.useEffect(() => {
         setCustomModelMode(false);
+        setSearchQuery('');
+        setApiDefaultModel('');
     }, [currentProvider]);
 
     React.useEffect(() => {
@@ -77,46 +156,49 @@ const ConnectorForm: React.FC<ConnectorFormProps> = ({
             setCustomModelMode(false);
         }
     }, [usesCustomModel, formData.selectedModel]);
-    
+
     // Validation rules
     const isValidForm = () => {
         if (!formData.name) return false;
         if (selectedProvider === 'all' && !formData.providerType) return false;
-        
+
         // For Ollama, require baseURL but make API key optional
         if (isOllama) {
             return !!formData.baseURL;
         }
-        
+
         if (providerDetails?.id === 'openrouter' && !formData.selectedModel) {
             return false;
         }
-		
+
         // For other providers, require API key
         return !!formData.apiKey;
     };
 
     return (
-        <Card title={
-            isEditing 
-                ? `Edit ${getProviderDetails(selectedProvider).name} Connector` 
-                : selectedProvider === 'all'
-                    ? "Add New Connector" 
-                    : `Add ${getProviderDetails(selectedProvider).name} Connector`
-        }>
+        <Card
+            className={isOpen ? 'relative z-[100]' : 'relative z-10'}
+            title={
+                isEditing
+                    ? `Edit ${getProviderDetails(selectedProvider).name} Connector`
+                    : selectedProvider === 'all'
+                        ? "Add New Connector"
+                        : `Add ${getProviderDetails(selectedProvider).name} Connector`
+            }
+        >
             {isSaved && (
-                <Alert 
-                    variant="success" 
+                <Alert
+                    variant="success"
                     icon={<Icons.Success />}
                     className="mb-4"
                 >
                     {selectedProvider === 'all' ? 'AI' : getProviderDetails(selectedProvider).name} connector {isEditing ? 'updated' : 'saved'} successfully!
                 </Alert>
             )}
-            
+
             {error && (
-                <Alert 
-                    variant="error" 
+                <Alert
+                    variant="error"
                     icon={<Icons.Error />}
                     className="mb-4"
                     onClose={() => setError(null)}
@@ -124,7 +206,7 @@ const ConnectorForm: React.FC<ConnectorFormProps> = ({
                     {error}
                 </Alert>
             )}
-            
+
             <div className="space-y-5">
                 <div className="flex items-center">
                     <div className="mr-4">
@@ -138,7 +220,7 @@ const ConnectorForm: React.FC<ConnectorFormProps> = ({
                                 <h3 className="text-lg font-medium text-white">
                                     Select Provider
                                 </h3>
-                                <select 
+                                <select
                                     className="block w-full bg-slate-700 border border-slate-600 text-white rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
                                     value={formData.providerType || ''}
                                     onChange={(e) => onProviderTypeChange(e.target.value)}
@@ -163,7 +245,7 @@ const ConnectorForm: React.FC<ConnectorFormProps> = ({
                         )}
                     </div>
                 </div>
-                
+
                 <div className="flex space-x-2">
                     <Input
                         label="Connector Name"
@@ -182,7 +264,7 @@ const ConnectorForm: React.FC<ConnectorFormProps> = ({
                         Generate
                     </Button>
                 </div>
-                
+
                 <Input
                     label={isOllama ? "API Key (Optional)" : "API Key"}
                     name="apiKey"
@@ -200,33 +282,118 @@ const ConnectorForm: React.FC<ConnectorFormProps> = ({
                 />
 
                 {/* Model field for providers that require an explicit model */}
-                {providerDetails && (providerDetails.models?.length || providerDetails.defaultModel) && (
-                    <div className="space-y-1">
-                        <label className="block text-sm font-medium text-slate-300">Model</label>
-                        <select
-                            name="selectedModel"
-                            className="block w-full bg-slate-700 border border-slate-600 text-white rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                            value={shouldShowCustomModelInput ? '__custom__' : currentModelValue}
-                            onChange={(e) => {
-                                const { value } = e.target;
-                                if (value === '__custom__') {
-                                    setCustomModelMode(true);
-                                    if (!usesCustomModel) {
-                                        updateSelectedModel('');
-                                    }
-                                    return;
-                                }
-                                setCustomModelMode(false);
-                                updateSelectedModel(value);
-                            }}
-                        >
-                            {providerDetails.models?.map((model: string) => (
-                                <option key={model} value={model}>
-                                    {model}{model === providerDetails.defaultModel ? ' (Default)' : ''}
-                                </option>
-                            ))}
-                            <option value="__custom__">Custom model…</option>
-                        </select>
+                {providerDetails && !isOllama && (
+                    <div className="space-y-1 relative z-[50]">
+                        <div className="flex justify-between items-center">
+                            <label className="block text-sm font-medium text-slate-300">Model</label>
+                            {loadingModels && <span className="text-xs text-blue-400 animate-pulse">Syncing models from server...</span>}
+                        </div>
+                        {/* Custom Searchable Select Dropdown */}
+                        <div ref={dropdownRef} className={`relative w-full ${isOpen ? 'z-[100]' : 'z-0'}`}>
+                            <button
+                                type="button"
+                                className="w-full bg-slate-700 border border-slate-600 text-white rounded-md px-3 py-2 text-left flex justify-between items-center focus:outline-none focus:ring-2 focus:ring-blue-500 cursor-pointer disabled:cursor-not-allowed disabled:opacity-80"
+                                onClick={() => setIsOpen(!isOpen)}
+                                disabled={loadingModels}
+                            >
+                                <span className="truncate flex items-center">
+                                    {loadingModels && (
+                                        <svg className="animate-spin -ml-1 mr-2.5 h-4 w-4 text-blue-400" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                                            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                                            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                                        </svg>
+                                    )}
+                                    <span className="truncate">
+                                        {loadingModels
+                                            ? 'Loading models...'
+                                            : shouldShowCustomModelInput
+                                                ? 'Custom model…'
+                                                : currentModelValue
+                                                    ? `${currentModelValue}${currentModelValue === apiDefaultModel ? ' (Default)' : ''}`
+                                                    : 'Select a model'}
+                                    </span>
+                                </span>
+                                <span className="text-slate-400 ml-2">
+                                    {isOpen ? '▲' : '▼'}
+                                </span>
+                            </button>
+
+                            {isOpen && (
+                                <div className="absolute z-[999] mt-1 w-full bg-slate-800 border border-slate-700 rounded-md shadow-2xl max-h-80 overflow-y-auto focus:outline-none">
+                                    {/* Search Input inside the dropdown menu */}
+                                    <div className="sticky top-0 p-2 bg-slate-800 border-b border-slate-700 z-10">
+                                        <input
+                                            type="text"
+                                            placeholder="Search model name..."
+                                            value={searchQuery}
+                                            onChange={(e) => setSearchQuery(e.target.value)}
+                                            className="block w-full bg-slate-900 border border-slate-700 text-white rounded px-2.5 py-1 text-sm focus:outline-none focus:ring-1 focus:ring-blue-500"
+                                            autoFocus
+                                            onClick={(e) => e.stopPropagation()} // Prevent closing dropdown on clicking input
+                                        />
+                                    </div>
+
+                                    {/* Options List */}
+                                    <div className="py-1">
+                                        {loadingModels ? (
+                                            <div className="flex items-center justify-center py-6 text-slate-400 space-x-2">
+                                                <svg className="animate-spin h-5 w-5 text-indigo-500" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                                                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                                                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                                                </svg>
+                                                <span>Loading models...</span>
+                                            </div>
+                                        ) : (
+                                            <>
+                                                {filteredModels.map((model: string) => {
+                                                    const isSelected = !shouldShowCustomModelInput && currentModelValue === model;
+                                                    return (
+                                                        <button
+                                                            key={model}
+                                                            type="button"
+                                                            className={`w-full text-left px-3 py-2 text-sm hover:bg-indigo-600 hover:text-white transition-colors flex justify-between items-center ${isSelected ? 'bg-slate-700 text-indigo-400 font-medium' : 'text-slate-200'
+                                                                }`}
+                                                            onClick={() => {
+                                                                setCustomModelMode(false);
+                                                                updateSelectedModel(model);
+                                                                setIsOpen(false);
+                                                                setSearchQuery('');
+                                                            }}
+                                                        >
+                                                            <span className="truncate">{model}</span>
+                                                            {model === apiDefaultModel && (
+                                                                <span className="text-[10px] bg-slate-700 text-slate-300 px-1.5 py-0.5 rounded">Default</span>
+                                                            )}
+                                                        </button>
+                                                    );
+                                                })}
+
+                                                {/* Custom Model Option */}
+                                                <button
+                                                    type="button"
+                                                    className={`w-full text-left px-3 py-2 text-sm border-t border-slate-700 hover:bg-indigo-600 hover:text-white transition-colors flex justify-between items-center ${shouldShowCustomModelInput ? 'bg-slate-700 text-indigo-400 font-medium' : 'text-slate-200'
+                                                        }`}
+                                                    onClick={() => {
+                                                        setCustomModelMode(true);
+                                                        if (!usesCustomModel) {
+                                                            updateSelectedModel('');
+                                                        }
+                                                        setIsOpen(false);
+                                                        setSearchQuery('');
+                                                    }}
+                                                >
+                                                    <span>Custom model…</span>
+                                                </button>
+
+                                                {filteredModels.length === 0 && (
+                                                    <div className="px-3 py-2 text-sm text-slate-500 italic">No matching models found</div>
+                                                )}
+                                            </>
+                                        )}
+                                    </div>
+                                </div>
+                            )}
+                        </div>
                         {shouldShowCustomModelInput && (
                             <Input
                                 label="Custom Model ID"
@@ -243,24 +410,24 @@ const ConnectorForm: React.FC<ConnectorFormProps> = ({
                 )}
 
                 {/* Base URL field for providers that support it (like Ollama) */}
-                {((selectedProvider !== 'all' && getProviderDetails(selectedProvider).requiresBaseURL) || 
-                  (selectedProvider === 'all' && formData.providerType && getProviderDetails(formData.providerType).requiresBaseURL)) && (
-                    <Input
-                        label="Base URL"
-                        name="baseURL"
-                        value={formData.baseURL || ''}
-                        onChange={onInputChange}
-                        placeholder={
-                            selectedProvider === 'all' && formData.providerType
-                                ? getProviderDetails(formData.providerType).baseURLPlaceholder
-                                : selectedProvider !== 'all'
-                                    ? getProviderDetails(selectedProvider).baseURLPlaceholder
-                                    : 'Enter base URL'
-                        }
-                        helperText="The full API endpoint for your Ollama server (e.g., http://localhost:11434/ollama/api)"
-                    />
-                )}
-                
+                {((selectedProvider !== 'all' && getProviderDetails(selectedProvider).requiresBaseURL) ||
+                    (selectedProvider === 'all' && formData.providerType && getProviderDetails(formData.providerType).requiresBaseURL)) && (
+                        <Input
+                            label="Base URL"
+                            name="baseURL"
+                            value={formData.baseURL || ''}
+                            onChange={onInputChange}
+                            placeholder={
+                                selectedProvider === 'all' && formData.providerType
+                                    ? getProviderDetails(formData.providerType).baseURLPlaceholder
+                                    : selectedProvider !== 'all'
+                                        ? getProviderDetails(selectedProvider).baseURLPlaceholder
+                                        : 'Enter base URL'
+                            }
+                            helperText="The full API endpoint for your Ollama server (e.g., http://localhost:11434/ollama/api)"
+                        />
+                    )}
+
                 <div className="flex space-x-3">
                     <Button
                         variant="primary"

@@ -575,12 +575,17 @@ func (p *LangchainProvider) initializeAnthropicLLM() error {
 		return fmt.Errorf("API key is required for Anthropic")
 	}
 
-	options := []anthropic.Option{
-		anthropic.WithToken(p.apiKey),
-		anthropic.WithModel(p.getModelName()),
+	modelName := p.getModelName()
+	if strings.Contains(modelName, ".") {
+		modelName = strings.ReplaceAll(modelName, ".", "-")
 	}
 
-	fmt.Printf("[LANGCHAIN INIT] Initializing Anthropic LLM with model: %s\n", p.getModelName())
+	options := []anthropic.Option{
+		anthropic.WithToken(p.apiKey),
+		anthropic.WithModel(modelName),
+	}
+
+	fmt.Printf("[LANGCHAIN INIT] Initializing Anthropic LLM with model: %s\n", modelName)
 
 	llm, err := anthropic.New(options...)
 	if err != nil {
@@ -592,25 +597,7 @@ func (p *LangchainProvider) initializeAnthropicLLM() error {
 }
 
 func (p *LangchainProvider) getModelName() string {
-	if p.modelName != "" {
-		return p.modelName
-	}
-
-	// Provider-specific defaults to avoid accidental cross-provider model names.
-	switch strings.ToLower(p.providerType) {
-	case "openai":
-		return "o4-mini"
-	case "deepseek":
-		return "deepseek-chat"
-	case "openrouter":
-		return "deepseek/deepseek-r1-0528:free"
-	case "anthropic", "claude":
-		return "claude-haiku-4-5-20251001"
-	case "ollama":
-		return "llama3"
-	default:
-		return "gemini-2.5-flash"
-	}
+	return p.modelName
 }
 
 func (p *LangchainProvider) getLoggedModelName() string {
