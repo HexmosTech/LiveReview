@@ -2,7 +2,7 @@
 # Creates a lightweight container with UI + Backend
 
 # Stage 1: Build React UI
-FROM node:18-alpine AS ui-builder
+FROM node:20-alpine AS ui-builder
 WORKDIR /app/ui
 
 # Copy package files and install dependencies
@@ -26,7 +26,7 @@ RUN echo "✅ Verifying UI build output..." && \
     echo "UI build completed successfully"
 
 # Stage 2: Build Go binary with embedded UI
-FROM golang:1.24-alpine AS go-builder
+FROM golang:1.25-alpine AS go-builder
 
 # Platform arguments for multi-arch builds
 ARG TARGETPLATFORM
