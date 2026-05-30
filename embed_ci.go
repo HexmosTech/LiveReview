@@ -4,4 +4,4 @@ package main
 
 import "embed"
 
-var embeddedFiles embed.FS
+var uiAssets embed.FS
