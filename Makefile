@@ -43,6 +43,11 @@ build:
 	rm $(BINARY_NAME) || true
 	$(GOBUILD) -o $(BINARY_NAME)
 
+# Minimal CI build
+build-ci:
+	rm -f $(BINARY_NAME)
+	SKIP_TYPED_GEN=1 $(GOBUILD) -o $(BINARY_NAME) livereview.go
+
 # Vendor prompts: encrypt plaintext templates and generate embedded assets
 # Usage examples:
 #   make vendor-prompts-encrypt                       # default output dir
