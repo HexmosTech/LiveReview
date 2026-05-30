@@ -34,7 +34,6 @@ import (
 	giteaoutput "github.com/livereview/internal/provider_output/gitea"
 	githuboutput "github.com/livereview/internal/provider_output/github"
 	gitlaboutput "github.com/livereview/internal/provider_output/gitlab"
-	"github.com/livereview/internal/aiconnectors"
 	"github.com/livereview/storage/core"
 	// Import FetchGitLabProfile
 )
