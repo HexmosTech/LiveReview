@@ -34,6 +34,7 @@ import (
 	giteaoutput "github.com/livereview/internal/provider_output/gitea"
 	githuboutput "github.com/livereview/internal/provider_output/github"
 	gitlaboutput "github.com/livereview/internal/provider_output/gitlab"
+	"github.com/livereview/internal/aiconnectors"
 	"github.com/livereview/storage/core"
 	// Import FetchGitLabProfile
 )
@@ -133,6 +134,7 @@ type Server struct {
 	_licenseSvc          interface{} // holds *license.Service lazily (typed in license.go)
 	licenseScheduler     *license.Scheduler
 	billingActionsCancel context.CancelFunc
+	modelSyncCancel      context.CancelFunc
 
 	// V2 Webhook Providers
 	gitlabProviderV2    *gitlabprovider.GitLabV2Provider
@@ -802,6 +804,7 @@ func (s *Server) setupRoutes() {
 	aiConnectorGroup.PUT("/reorder", s.ReorderAIConnectors)
 	aiConnectorGroup.DELETE("/:id", s.DeleteAIConnector)
 	aiConnectorGroup.POST("/ollama/models", s.FetchOllamaModels)
+	aiConnectorGroup.GET("/providers/:provider/models", s.GetAIProviderModels)
 
 	// Dashboard endpoints (organization scoped)
 	dashboardGroup := v1.Group("/dashboard")
@@ -1101,6 +1104,13 @@ func (s *Server) Start() error {
 		fmt.Println("Billing transition scheduler started")
 	}
 
+	if s.modelSyncCancel == nil {
+		syncCtx, cancel := context.WithCancel(context.Background())
+		s.modelSyncCancel = cancel
+		aiconnectors.RunOpenRouterModelSyncScheduler(syncCtx, s.db, 24*time.Hour)
+		fmt.Println("Dynamic AI models sync scheduler started")
+	}
+
 	// Wait for interrupt signal to gracefully shut down the server
 	quit := make(chan os.Signal, 1)
 	signal.Notify(quit, os.Interrupt)
@@ -1141,6 +1151,12 @@ func (s *Server) Start() error {
 		s.billingActionsCancel()
 		s.billingActionsCancel = nil
 		fmt.Println("Billing transition scheduler stopped")
+	}
+
+	if s.modelSyncCancel != nil {
+		s.modelSyncCancel()
+		s.modelSyncCancel = nil
+		fmt.Println("Dynamic AI models sync scheduler stopped")
 	}
 
 	return s.echo.Shutdown(ctx)

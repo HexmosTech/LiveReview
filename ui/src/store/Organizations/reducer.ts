@@ -149,7 +149,9 @@ const organizationsSlice = createSlice({
             
             const orgs = action.payload;
             if (orgs && orgs.length > 0) {
-                const storedOrgId = state.currentOrgId; // Use state's currentOrgId which was initialized from storage
+                const localStorageOrgIdStr = localStorage.getItem('currentOrgId');
+                const localStorageOrgId = localStorageOrgIdStr ? parseInt(localStorageOrgIdStr, 10) : null;
+                const storedOrgId = state.currentOrgId || localStorageOrgId;
                 let orgToSelect = storedOrgId ? orgs.find(o => o.id === storedOrgId) : undefined;
 
                 if (!orgToSelect) {
@@ -179,7 +181,9 @@ const organizationsSlice = createSlice({
 
                 const orgs = action.payload;
                 if (orgs && orgs.length > 0) {
-                    const storedOrgId = state.currentOrgId; // Use state's currentOrgId which was initialized from storage
+                    const localStorageOrgIdStr = localStorage.getItem('currentOrgId');
+                    const localStorageOrgId = localStorageOrgIdStr ? parseInt(localStorageOrgIdStr, 10) : null;
+                    const storedOrgId = state.currentOrgId || localStorageOrgId;
                     let orgToSelect = storedOrgId ? orgs.find(o => o.id === storedOrgId) : undefined;
 
                     if (!orgToSelect) {
@@ -288,7 +292,9 @@ const organizationsSlice = createSlice({
                         state.userOrganizations = action.payload.organizations;
                         
                         const orgs = action.payload.organizations;
-                        const storedOrgId = state.currentOrgId;
+                        const localStorageOrgIdStr = localStorage.getItem('currentOrgId');
+                        const localStorageOrgId = localStorageOrgIdStr ? parseInt(localStorageOrgIdStr, 10) : null;
+                        const storedOrgId = state.currentOrgId || localStorageOrgId;
                         let orgToSelect = storedOrgId ? orgs.find((o: Organization) => o.id === storedOrgId) : undefined;
 
                         if (!orgToSelect) {

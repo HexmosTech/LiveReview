@@ -18,7 +18,7 @@ func NewFeedbackHandler(db *sql.DB) *FeedbackHandler {
 	return &FeedbackHandler{db: db, store: feedbackstorage.NewFeedbackStore(db)}
 }
 
-type submitFeedbackRequest struct {
+type SubmitFeedbackRequest struct {
 	ReviewID       *int64   `json:"review_id"`
 	AICommentID    *int64   `json:"ai_comment_id"`
 	VoteType       string   `json:"vote_type"`
@@ -41,7 +41,7 @@ func (h *FeedbackHandler) SubmitFeedback(c echo.Context) error {
 		return c.JSON(http.StatusUnauthorized, map[string]string{"error": "unauthorized"})
 	}
 
-	var req submitFeedbackRequest
+	var req SubmitFeedbackRequest
 	if err := c.Bind(&req); err != nil {
 		return c.JSON(http.StatusBadRequest, map[string]string{"error": "invalid request body"})
 	}
@@ -101,7 +101,7 @@ func (h *FeedbackHandler) SubmitFeedback(c echo.Context) error {
 	})
 }
 
-type impactStatsResponse struct {
+type ImpactStatsResponse struct {
 	TotalReviews int64 `json:"total_reviews"`
 	IssuesFound  int64 `json:"issues_found"`
 	BugsCaught   int64 `json:"bugs_caught"`
@@ -160,7 +160,7 @@ func (h *FeedbackHandler) ImpactStats(c echo.Context) error {
 		orgID = 1
 	}
 
-	var stats impactStatsResponse
+	var stats ImpactStatsResponse
 	err := h.db.QueryRowContext(c.Request().Context(), `
 		SELECT
 			COUNT(DISTINCT r.id),

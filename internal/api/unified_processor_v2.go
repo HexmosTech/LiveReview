@@ -1086,7 +1086,7 @@ func (p *UnifiedProcessorV2Impl) generateLLMResponseV2(ctx context.Context, prom
 			return "", nil, fmt.Errorf("failed to resolve managed AI options for tier %s: %w", tier, resolveErr)
 		}
 	} else {
-		options = connectorRecord.GetConnectorOptions()
+		options = storage.GetConnectorOptions(ctx, connectorRecord)
 	}
 
 	// Create connector client
@@ -1105,7 +1105,7 @@ func (p *UnifiedProcessorV2Impl) generateLLMResponseV2(ctx context.Context, prom
 	response = p.applyPostOutputSanitization(ctx, response, connectorRecord.ProviderName)
 	model := strings.TrimSpace(options.ModelConfig.Model)
 	if model == "" {
-		model = aiconnectors.GetDefaultModel(options.Provider)
+		model = storage.GetDefaultModel(ctx, options.Provider)
 	}
 	inputTokens := int64(estimateTokens(prompt))
 	usage := &OperationUsageV2{
