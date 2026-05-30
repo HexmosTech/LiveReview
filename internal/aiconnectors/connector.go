@@ -3,6 +3,7 @@ package aiconnectors
 import (
 	"bytes"
 	"context"
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -102,7 +103,7 @@ func NewConnector(ctx context.Context, options ConnectorOptions) (*Connector, er
 }
 
 // ValidateAPIKey validates the provided API key against the provider
-func ValidateAPIKey(ctx context.Context, provider Provider, apiKey string, baseURL string, model string) (bool, error) {
+func ValidateAPIKey(ctx context.Context, db *sql.DB, provider Provider, apiKey string, baseURL string, model string) (bool, error) {
 	log.Debug().
 		Str("provider", string(provider)).
 		Str("api_key_masked", maskAPIKey(apiKey)).
@@ -127,7 +128,13 @@ func ValidateAPIKey(ctx context.Context, provider Provider, apiKey string, baseU
 	// the official API flow and avoid client-library endpoint mismatches.
 	if provider == ProviderOpenAI {
 		if model == "" {
-			model = "o4-mini"
+			if db != nil {
+				storage := NewStorage(db)
+				model = storage.GetDefaultModel(ctx, provider)
+			}
+			if model == "" {
+				return false, fmt.Errorf("no active default model configured in database for provider: %s", provider)
+			}
 		}
 		return validateOpenAIKeyViaResponses(ctx, apiKey, baseURL, model)
 	}
@@ -146,25 +153,12 @@ func ValidateAPIKey(ctx context.Context, provider Provider, apiKey string, baseU
 	// Set default model based on provider
 	options.ModelConfig.Model = model
 	if options.ModelConfig.Model == "" {
-		switch provider {
-		case ProviderOpenAI:
-			options.ModelConfig.Model = "o4-mini"
-		case ProviderDeepSeek:
-			options.ModelConfig.Model = "deepseek-chat"
-		case ProviderGemini:
-			options.ModelConfig.Model = "gemini-2.5-flash"
-			log.Debug().Msg("Using Gemini 2.5 Flash model for validation")
-		case ProviderClaude:
-			options.ModelConfig.Model = "claude-haiku-4-5-20251001"
-		case ProviderCohere:
-			options.ModelConfig.Model = "command"
-		case ProviderOllama:
-			options.ModelConfig.Model = "llama3"
-		case ProviderOpenRouter:
-			options.ModelConfig.Model = "deepseek/deepseek-r1-0528:free"
-		default:
-			log.Error().Str("provider", string(provider)).Msg("Unsupported provider")
-			return false, fmt.Errorf("unsupported provider: %s", provider)
+		if db != nil {
+			storage := NewStorage(db)
+			options.ModelConfig.Model = storage.GetDefaultModel(ctx, provider)
+		}
+		if options.ModelConfig.Model == "" {
+			return false, fmt.Errorf("no active default model configured in database for provider: %s", provider)
 		}
 	}
 
@@ -352,14 +346,59 @@ func createGeminiModel(ctx context.Context, options ConnectorOptions) (llms.Mode
 	return model, nil
 }
 
+// AnthropicSanitizingTransport strips the deprecated temperature parameter from Anthropic requests for specific models.
+type AnthropicSanitizingTransport struct {
+	Base http.RoundTripper
+}
+
+func (t *AnthropicSanitizingTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	if t.Base == nil {
+		t.Base = http.DefaultTransport
+	}
+
+	if req.Method == http.MethodPost && req.Body != nil {
+		bodyBytes, err := io.ReadAll(req.Body)
+		if err == nil {
+			req.Body = io.NopCloser(bytes.NewBuffer(bodyBytes))
+
+			var payload map[string]interface{}
+			if err := json.Unmarshal(bodyBytes, &payload); err == nil {
+				if model, ok := payload["model"].(string); ok && (strings.Contains(model, "opus-4-") || strings.Contains(model, "opus-4.")) {
+					delete(payload, "temperature")
+
+					newBody, err := json.Marshal(payload)
+					if err == nil {
+						req.Body = io.NopCloser(bytes.NewBuffer(newBody))
+						req.ContentLength = int64(len(newBody))
+						req.Header.Set("Content-Length", fmt.Sprintf("%d", len(newBody)))
+					}
+				}
+			}
+		}
+	}
+
+	return t.Base.RoundTrip(req)
+}
+
 func createAnthropicModel(ctx context.Context, options ConnectorOptions) (llms.Model, error) {
+	modelName := options.ModelConfig.Model
+	if strings.Contains(modelName, ".") {
+		modelName = strings.ReplaceAll(modelName, ".", "-")
+	}
+
+	httpClient := &http.Client{
+		Transport: &AnthropicSanitizingTransport{Base: http.DefaultTransport},
+	}
+
 	opts := []anthropic.Option{
 		anthropic.WithToken(options.APIKey),
-		anthropic.WithModel(options.ModelConfig.Model),
+		anthropic.WithModel(modelName),
+		anthropic.WithHTTPClient(httpClient),
 	}
 
 	return anthropic.New(opts...)
 }
+
 
 func createCohereModel(ctx context.Context, options ConnectorOptions) (llms.Model, error) {
 	opts := []cohere.Option{

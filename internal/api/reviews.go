@@ -221,6 +221,59 @@ func (rm *ReviewManager) GetReview(reviewID int64) (*Review, error) {
 	return &review, nil
 }
 
+// GetReviewForOrg retrieves a review by ID scoped to a specific org.
+// Returns an error if the review does not exist or belongs to a different org.
+func (rm *ReviewManager) GetReviewForOrg(reviewID int64, orgID int64) (*Review, error) {
+	query := `
+		SELECT id, repository, branch, commit_hash, pr_mr_url, connector_id,
+		       status, trigger_type, user_email, provider, mr_title, friendly_name, author_name, author_username,
+		       created_at, started_at, completed_at, metadata
+		FROM reviews
+		WHERE id = $1 AND org_id = $2
+	`
+
+	var review Review
+	var mrTitle, friendlyName, authorName, authorUsername sql.NullString
+	err := rm.store.QueryRow(query, reviewID, orgID).Scan(
+		&review.ID,
+		&review.Repository,
+		&review.Branch,
+		&review.CommitHash,
+		&review.PrMrURL,
+		&review.ConnectorID,
+		&review.Status,
+		&review.TriggerType,
+		&review.UserEmail,
+		&review.Provider,
+		&mrTitle,
+		&friendlyName,
+		&authorName,
+		&authorUsername,
+		&review.CreatedAt,
+		&review.StartedAt,
+		&review.CompletedAt,
+		&review.Metadata,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get review: %w", err)
+	}
+
+	if mrTitle.Valid {
+		review.MRTitle = &mrTitle.String
+	}
+	if friendlyName.Valid {
+		review.FriendlyName = &friendlyName.String
+	}
+	if authorName.Valid {
+		review.AuthorName = &authorName.String
+	}
+	if authorUsername.Valid {
+		review.AuthorUsername = &authorUsername.String
+	}
+
+	return &review, nil
+}
+
 // ReviewMetadataUpdate describes optional fields that can be updated on a review record.
 type ReviewMetadataUpdate struct {
 	Repository     *string
