@@ -154,9 +154,13 @@ type Server struct {
 // NewServer creates a new API server
 func NewServer(port int, versionInfo *VersionInfo) (*Server, error) {
 	// Load environment variables from .env file
-	env, err := loadEnvFile(".env")
-	if err != nil {
-		return nil, fmt.Errorf("error loading .env file: %v\n\nPlease create a .env file with DATABASE_URL like:\nDATABASE_URL=postgres://username:password@localhost:5432/dbname?sslmode=disable", err)
+	env := map[string]string{}
+
+	// Try loading .env, but don't fail if missing
+	if loadedEnv, err := loadEnvFile(".env"); err == nil {
+		env = loadedEnv
+	} else {
+		fmt.Println("No .env file found, using environment variables")
 	}
 
 	// print env variables
@@ -175,17 +179,26 @@ func NewServer(port int, versionInfo *VersionInfo) (*Server, error) {
 		port = deploymentConfig.BackendPort
 	}
 
-	// Get database URL
-	dbURL, ok := env["DATABASE_URL"]
-	if !ok || dbURL == "" {
-		return nil, fmt.Errorf("DATABASE_URL not found in .env file\n\nPlease add DATABASE_URL to your .env file:\nDATABASE_URL=postgres://username:password@localhost:5432/dbname?sslmode=disable")
+	dbURL := env["DATABASE_URL"]
+	if dbURL == "" {
+		dbURL = os.Getenv("DATABASE_URL")
+	}
+	if dbURL == "" {
+		return nil, fmt.Errorf(
+			"DATABASE_URL not found. Set it in .env or environment variables",
+		)
 	}
 
-	// Get JWT secret key (required for new auth system)
-	jwtSecret, ok := env["JWT_SECRET"]
-	if !ok || jwtSecret == "" {
-		return nil, fmt.Errorf("JWT_SECRET not found in .env file\n\nPlease add JWT_SECRET to your .env file:\nJWT_SECRET=your-secure-random-secret-key")
+	jwtSecret := env["JWT_SECRET"]
+	if jwtSecret == "" {
+		jwtSecret = os.Getenv("JWT_SECRET")
 	}
+	if jwtSecret == "" {
+		return nil, fmt.Errorf(
+			"JWT_SECRET not found. Set it in .env or environment variables",
+		)
+	}
+		
 
 	planCatalogPath := strings.TrimSpace(os.Getenv("LIVEREVIEW_PLAN_CATALOG_PATH"))
 	if planCatalogPath == "" {
@@ -202,7 +215,7 @@ func NewServer(port int, versionInfo *VersionInfo) (*Server, error) {
 	}
 
 	// Validate database connection
-	err = validateDatabaseConnection(dbURL)
+	err := validateDatabaseConnection(dbURL)
 	if err != nil {
 		return nil, err
 	}
