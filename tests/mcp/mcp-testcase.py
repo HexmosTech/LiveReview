@@ -18,6 +18,11 @@ from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
 
 
+total_input_tokens = 0
+total_output_tokens = 0
+
+
+
 # ==========================================================
 # CONFIG
 # ==========================================================
@@ -36,7 +41,7 @@ LIVEREVIEW_API_KEY = os.getenv("LIVEREVIEW_API_KEY_TR")
 
 if not TOKENROUTER_API_KEY:
     print(
-        "Error: TOKENROUTER_API_KEY environment variable not set",
+        "❌ ERROR: TOKENROUTER_API_KEY environment variable not set",
         file=sys.stderr,
     )
     sys.exit(1)
@@ -198,11 +203,9 @@ async def load_available_tools(session, filesystem_session):
     tools = livereview_tools + filesystem_tools
 
     print(
-        f"Connected to "
-        f"{len(livereview_tools)} "
-        f"LiveReview tools + "
-        f"{len(filesystem_tools)} "
-        f"filesystem tools",
+        f"🔌 CONNECTED: "
+        f"{len(livereview_tools)} LiveReview tools + "
+        f"{len(filesystem_tools)} filesystem tools",
         file=sys.stderr,
     )
     return (livereview_tools, filesystem_tools, tools)
@@ -298,7 +301,7 @@ def load_testcase_content(file_path):
     if not file_path:
         return ""
 
-    print(f"\n\n=== RUNNING TESTCASE: " f"{file_path} ===", file=sys.stderr)
+    print(f"\n\n▶️  RUNNING TESTCASE: {Path(file_path).name}", file=sys.stderr)
 
     md_content = Path(file_path).read_text(encoding="utf-8")
 
@@ -311,7 +314,7 @@ def load_testcase_content(file_path):
 
         if val is None:
             print(
-                f"Warning: " f"Environment variable " f"'{var_name}' " f"not found",
+                f"⚠️  WARNING: Environment variable '{var_name}' not found",
                 file=sys.stderr,
             )
 
@@ -402,17 +405,23 @@ async def call_model_with_retry(
 
         except asyncio.TimeoutError:
             print(
-                f"❌ MODEL CALL TIMED OUT "
-                f"({timeout}s) - attempt "
-                f"{model_attempt}/"
-                f"{max_retries}",
+                f"⏳ TIMEOUT: Model call timed out ({timeout}s) - Attempt {model_attempt}/{max_retries}",
                 file=sys.stderr,
             )
 
             if model_attempt == max_retries:
                 aborted = True
                 break
-
+    global total_input_tokens, total_output_tokens
+    if response and hasattr(response, 'usage') and response.usage:
+        usage = response.usage
+        total_input_tokens += response.usage.prompt_tokens or 0
+        total_output_tokens += response.usage.completion_tokens or 0
+        print(f"📊 TOKEN USAGE - Model: {model}", file=sys.stderr)
+        print(f"   Input (prompt) tokens      : {usage.prompt_tokens}", file=sys.stderr)
+        print(f"   Output (completion) tokens : {usage.completion_tokens}", file=sys.stderr)
+        print(f"   Total tokens               : {usage.total_tokens}", file=sys.stderr)
+        
     return {
         "response": response,
         "aborted": aborted,
@@ -429,15 +438,11 @@ async def execute_agent_loop(
     livereview_tool_names,
     hello_mode,
 ):
-    print("\n=== EXECUTING TESTCASE (Agent Loop) ===", file=sys.stderr)
-
     tool_outputs_log = []
     aborted = False
 
     for iteration in range(MAX_TOOL_ITERATIONS):
-        print(f"\n--- Iteration {iteration+1} ---", file=sys.stderr)
-
-        print(f"Messages count: {len(messages)}", file=sys.stderr)
+        print(f"\n🔄 ITERATION: {iteration+1} | 📨 MESSAGES: {len(messages)}", file=sys.stderr)
 
         model_result = await call_model_with_retry(
             client=client,
@@ -453,11 +458,8 @@ async def execute_agent_loop(
 
         response_message = model_result["response"].choices[0].message
 
-        print("Model responded", file=sys.stderr)
-
-        print(
-            f"Tool calls: " f"{len(response_message.tool_calls or [])}", file=sys.stderr
-        )
+        tool_calls_count = len(response_message.tool_calls or [])
+        print(f"🤖 MODEL RESPONDED | 🛠️  TOOL CALLS: {tool_calls_count}", file=sys.stderr)
 
         if not response_message.tool_calls:
             final_text = response_message.content or ""
@@ -542,7 +544,7 @@ async def run_single_testcase(file_path, context):
     # -----------------------------------------
     # AGENT LOOP (Multi-turn)
     # -----------------------------------------
-    print("\n=== EXECUTING TESTCASE (Agent Loop) ===", file=sys.stderr)
+    print(f"\n🔄 STARTING AGENT LOOP for {Path(file_path).name}", file=sys.stderr)
 
     agent_result = await execute_agent_loop(
         client=client,
@@ -567,7 +569,7 @@ async def run_single_testcase(file_path, context):
     # -----------------------------------------
     if not hello_mode and file_path:
         print(
-            f"Building deterministic JSON output for " f"{Path(file_path).name}",
+            f"\n📝 JSON: Building deterministic JSON output for {Path(file_path).name}",
             file=sys.stderr,
         )
 
@@ -587,7 +589,7 @@ async def run_single_testcase(file_path, context):
 # =========================================================
 
 
-def save_test_results(all_test_results):
+def save_test_results(all_test_results, input_tokens, output_tokens):
     passed_count = sum(1 for t in all_test_results if t.get("passed", False))
 
     failed_count = len(all_test_results) - passed_count
@@ -598,6 +600,11 @@ def save_test_results(all_test_results):
             "passed_count": passed_count,
             "failed_count": failed_count,
             "overall_status": ("PASSED" if failed_count == 0 else "FAILED"),
+            "token_consumption": {
+                "input_tokens": input_tokens,
+                "output_tokens": output_tokens,
+                "total_tokens": input_tokens + output_tokens,
+            }
         },
         "tests": all_test_results,
     }
@@ -614,9 +621,7 @@ def save_test_results(all_test_results):
     )
 
     print(
-        f"\n✅ Final test suite results "
-        f"successfully written to: "
-        f"{output_file.name}",
+        f"\n✅ SUCCESS: Final test suite results successfully written to {output_file.name}",
         file=sys.stderr,
     )
 
@@ -699,11 +704,19 @@ async def main():
             if result:
                 all_test_results.append(result)
 
+
+        print("\n" + "="*60, file=sys.stderr)
+        print("🏁 FINAL TOKEN CONSUMPTION", file=sys.stderr)
+        print(f"   Input (prompt) tokens      : {total_input_tokens}", file=sys.stderr)
+        print(f"   Output (completion) tokens : {total_output_tokens}", file=sys.stderr)
+        print(f"   Grand Total Tokens         : {total_input_tokens + total_output_tokens}", file=sys.stderr)
+        print("="*60, file=sys.stderr)
+
         # -----------------------------------------
         # SAVE FINAL TEST RESULTS
         # -----------------------------------------
         if not hello_mode:
-            save_test_results(all_test_results)
+            save_test_results(all_test_results, total_input_tokens, total_output_tokens)
 
 
 if __name__ == "__main__":
