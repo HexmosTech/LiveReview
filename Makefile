@@ -36,7 +36,7 @@ RELEASE_GH_SCRIPT=scripts/release_gh.py
 OSV_SCANNER_CONFIG=osv-scanner.toml
 
 # Load environment variables from .env file
-include .env
+-include .env
 export
 
 build:
