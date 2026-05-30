@@ -40,7 +40,7 @@ jobs:
           pip install -r tests/mcp/requirements.txt
 
       - name: Build LiveReview
-        run: make build
+        run: make build-ci
 
       - name: Start MCP server
         run: |
