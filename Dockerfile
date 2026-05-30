@@ -127,6 +127,7 @@ COPY --from=go-builder /go/bin/riverui /usr/local/bin/riverui
 COPY --from=go-builder /app/livereview /app/livereview
 COPY --from=go-builder /app/livereview.toml /app/livereview.toml
 COPY --from=go-builder /app/db/migrations/ /app/db/migrations/
+COPY --from=go-builder /app/config/ /app/config/
 
 # Copy the startup script
 COPY docker-entrypoint.sh /app/docker-entrypoint.sh
