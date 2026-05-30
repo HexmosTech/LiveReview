@@ -46,7 +46,7 @@ build:
 # Minimal CI build
 build-ci:
 	rm -f $(BINARY_NAME)
-	SKIP_TYPED_GEN=1 $(GOBUILD) -o $(BINARY_NAME) livereview.go
+	SKIP_TYPED_GEN=1 go build -tags=ci -o livereview .
 
 # Vendor prompts: encrypt plaintext templates and generate embedded assets
 # Usage examples:
