@@ -91,7 +91,7 @@ FILESYSTEM_MCP_CONFIG = {
     "args": [
         "-y",
         "@modelcontextprotocol/server-filesystem",
-        "/home/rtp/Projects/LiveReview/tests/mcp",
+        str(BASE_DIR),
     ],
 }
 # =========================================================
