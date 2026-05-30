@@ -90,7 +90,13 @@ jobs:
           print(json.dumps(result, indent=2))
           sys.exit(1)
           EOF
-
+      - name: Upload MCP Test Results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: mcp-test-results
+          path: tests/mcp/test_results.json
+          retention-days: 30
       - name: Print server logs on failure
         if: failure()
         run: cat server.log || true
