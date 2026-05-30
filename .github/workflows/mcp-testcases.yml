@@ -1,0 +1,11 @@
+name: MCP Integration Test
+
+on:
+  workflow_dispatch:
+
+jobs:
+  mcp-test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Placeholder
+        run: echo "MCP Integration Test - Placeholder on master"
