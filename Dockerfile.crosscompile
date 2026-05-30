@@ -130,6 +130,7 @@ COPY --from=builder /out/riverui /usr/local/bin/riverui
 COPY --from=builder /out/livereview /app/livereview
 COPY --from=builder /app/livereview.toml /app/livereview.toml
 COPY --from=builder /app/db/migrations/ /app/db/migrations/
+COPY --from=builder /app/config/ /app/config/
 
 # Copy the startup script
 COPY docker-entrypoint.sh /app/docker-entrypoint.sh
