@@ -19,10 +19,17 @@ func BuildOrgBillingPlanContext(db *sql.DB) echo.MiddlewareFunc {
 				return next(c)
 			}
 
+			// Set plan_type to "enterprise" for self-hosted instances
+			if !isCloudMode() {
+				c.Set("plan_type", "enterprise")
+				return next(c)
+			}
+
 			orgID, ok := readOrgIDFromContext(c)
 			if !ok {
 				return next(c)
 			}
+
 
 			var currentPlanCode sql.NullString
 			err := db.QueryRowContext(c.Request().Context(), `

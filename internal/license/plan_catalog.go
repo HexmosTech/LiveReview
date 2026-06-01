@@ -123,6 +123,17 @@ func DefaultPlanCatalog() PlanCatalog {
 				TrialPolicy:        PlanTrialPolicy{Enabled: true, Days: 7},
 				EnvelopeVisibility: PlanEnvelopeVisibility{ShowPrice: true},
 			},
+			{
+				Code:               PlanEnterprise,
+				DisplayName:        "Enterprise",
+				Active:             true,
+				Rank:               70,
+				MonthlyPriceUSD:    0,
+				MonthlyLOCLimit:    3200000,
+				FeatureFlags:       []string{"hosted_auto_model", "usage_envelope_v1", "byok_optional"},
+				TrialPolicy:        PlanTrialPolicy{Enabled: false, Days: 0},
+				EnvelopeVisibility: PlanEnvelopeVisibility{ShowPrice: false},
+			},
 		},
 	}
 }

@@ -142,6 +142,22 @@ var PlanDefinitions = map[PlanType]PlanLimits{
 			"priority_support",
 		},
 	},
+	PlanEnterprise: {
+		PlanType:         PlanEnterprise,
+		MaxReviewsPerDay: -1,
+		MaxOrganizations: -1,
+		MaxUsers:         -1,
+		MonthlyLOCLimit:  3200000,
+		MonthlyPriceUSD:  0,
+		TrialDays:        0,
+		Features: []string{
+			"unlimited_reviews",
+			"multiple_orgs",
+			"hosted_auto_model",
+			"email_support",
+			"priority_support",
+		},
+	},
 }
 
 // GetLimits returns the PlanLimits for a given plan type
