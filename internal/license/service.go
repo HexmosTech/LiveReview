@@ -115,7 +115,7 @@ func (s *Service) PerformOnlineValidation(ctx context.Context, force bool) (*Lic
 				newStatus = StatusMissing
 			case fails >= 3 && st.Status == StatusWarning: // escalate to grace on 3rd consecutive failure total
 				newStatus = StatusGrace
-				graceStart = sql.NullTime{Time: time.Now(), Valid: true}
+				graceStart = sql.NullTime{Time: licenseNow(), Valid: true}
 			case fails >= 1 && st.Status == StatusActive:
 				newStatus = StatusWarning
 			}
@@ -162,7 +162,7 @@ func (s *Service) expireIfGraceExceeded(ctx context.Context) error {
 		return nil
 	}
 	deadline := st.GraceStartedAt.Add(time.Duration(s.cfg.GraceDays) * 24 * time.Hour)
-	if time.Now().After(deadline) {
+	if licenseNow().After(deadline) {
 		return s.store.UpdateValidationResult(ctx, false, nil, StatusExpired, nil, st.ValidationFailures, &sql.NullTime{Valid: false})
 	}
 	return nil
