@@ -231,11 +231,10 @@ func (s *OrganizationService) GetUserOrganizations(userID int64, isSuperAdmin bo
 			org.CreatorLastName = &creatorLastName.String
 		}
 
-		// Override plan type for self-hosted instances
+		// Set plan type to enterprise for self-hosted instances
 		if !middleware.IsCloudMode() {
 			planType := "enterprise"
 			org.PlanType = &planType
-			
 		}
 
 		orgs = append(orgs, &org)
@@ -318,7 +317,7 @@ func (s *OrganizationService) GetOrganizationByID(orgID int64, userID int64, isS
 		org.Settings = "{}"
 	}
 
-	// Override plan type for self-hosted instances
+	// Set plan type to enterprise for self-hosted instances
 	if !middleware.IsCloudMode() {
 		planType := "enterprise"
 		org.PlanType = &planType

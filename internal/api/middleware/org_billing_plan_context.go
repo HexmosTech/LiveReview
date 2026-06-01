@@ -30,7 +30,6 @@ func BuildOrgBillingPlanContext(db *sql.DB) echo.MiddlewareFunc {
 				return next(c)
 			}
 
-
 			var currentPlanCode sql.NullString
 			err := db.QueryRowContext(c.Request().Context(), `
 				SELECT current_plan_code
