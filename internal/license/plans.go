@@ -147,7 +147,7 @@ var PlanDefinitions = map[PlanType]PlanLimits{
 		MaxReviewsPerDay: -1,
 		MaxOrganizations: -1,
 		MaxUsers:         -1,
-		MonthlyLOCLimit:  3200000,
+		MonthlyLOCLimit:  -1,
 		MonthlyPriceUSD:  0,
 		TrialDays:        0,
 		Features: []string{
