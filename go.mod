@@ -1,6 +1,6 @@
 module github.com/livereview
 
-go 1.25.10
+go 1.25.11
 
 require (
 	github.com/knadh/koanf/parsers/toml v0.1.0
