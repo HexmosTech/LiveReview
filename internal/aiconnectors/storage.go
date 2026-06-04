@@ -345,6 +345,9 @@ func (s *Storage) GetDefaultModel(ctx context.Context, provider Provider) string
 	if provider == ProviderOllama {
 		return "llama3"
 	}
+	if provider == ProviderAnthropicCompatible {
+		provider = ProviderClaude
+	}
 
 	if s.db == nil {
 		return ""
