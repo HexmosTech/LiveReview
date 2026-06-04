@@ -330,7 +330,7 @@ func (p *LangchainProvider) MaxTokensPerBatch() int {
 			return 16000 // DeepSeek chat/reasoner models
 		case "openrouter":
 			return 8000 // OpenRouter models commonly cap around 8k; stay conservative
-		case "anthropic":
+		case "anthropic", "anthropic-compatible":
 			return 20000 // Claude models
 		default:
 			return 8000 // Conservative default for unknown providers
@@ -372,7 +372,7 @@ func (p *LangchainProvider) initializeLLM() error {
 	case "openrouter":
 		p.baseURL = aiconnectors.ResolveBaseURLForProviderName(p.providerType, p.baseURL)
 		return p.initializeOpenAILLM()
-	case "anthropic", "claude":
+	case "anthropic", "claude", "anthropic-compatible":
 		return p.initializeAnthropicLLM()
 	default:
 		// Logger accessed via p.logger
@@ -589,8 +589,11 @@ func (p *LangchainProvider) initializeAnthropicLLM() error {
 		anthropic.WithModel(modelName),
 		anthropic.WithHTTPClient(httpClient),
 	}
+	if p.baseURL != "" {
+		options = append(options, anthropic.WithBaseURL(p.baseURL))
+	}
 
-	fmt.Printf("[LANGCHAIN INIT] Initializing Anthropic LLM with model: %s\n", modelName)
+	fmt.Printf("[LANGCHAIN INIT] Initializing Anthropic LLM with model: %s, base URL: %s\n", modelName, p.baseURL)
 
 	llm, err := anthropic.New(options...)
 	if err != nil {
@@ -843,13 +846,16 @@ func (p *LangchainProvider) reviewCodeBatchFormatted(ctx context.Context, diffs 
 		}
 	}()
 
-	// Determine if we should force non-streaming mode for Ollama (useful behind proxies)
-	forceNonStreaming := strings.EqualFold(p.providerType, "ollama") && strings.EqualFold(os.Getenv("LIVEREVIEW_OLLAMA_FORCE_NON_STREAMING"), "true")
+	// Determine if we should force non-streaming mode
+	// Ollama: opt-in via env var (useful behind proxies)
+	// anthropic-compatible: always non-streaming (ClaudeAPI SSE delivers 0 chunks via langchaingo streaming path)
+	forceNonStreaming := (strings.EqualFold(p.providerType, "ollama") && strings.EqualFold(os.Getenv("LIVEREVIEW_OLLAMA_FORCE_NON_STREAMING"), "true")) ||
+		strings.EqualFold(p.providerType, "anthropic-compatible")
 
 	startTime := time.Now()
 	effectiveTemp := p.effectiveTemperature()
 	if forceNonStreaming {
-		fmt.Printf("[STREAM DISABLED] Forcing non-streaming mode for Ollama due to env override.\n")
+		fmt.Printf("[STREAM DISABLED] Forcing non-streaming mode for %s.\n", p.providerType)
 		// Run a single non-streaming request under the same timeout
 		// Progress ticker to show waiting updates while the request is in flight
 		waitingDone := make(chan struct{})
@@ -862,25 +868,44 @@ func (p *LangchainProvider) reviewCodeBatchFormatted(ctx context.Context, diffs 
 					return
 				case <-ticker.C:
 					waited := time.Since(startTime)
-					fmt.Printf("[WAIT] Still waiting for Ollama response... elapsed=%v\n", waited)
+					fmt.Printf("[WAIT] Still waiting for %s response... elapsed=%v\n", p.providerType, waited)
 					if p.logger != nil {
-						p.logger.Log("Waiting for Ollama response... elapsed=%v (non-streaming)", waited)
+						p.logger.Log("Waiting for %s response... elapsed=%v (non-streaming)", p.providerType, waited)
 					}
 				}
 			}
 		}()
-		out, callErr := llms.GenerateFromSinglePrompt(
+		maxTok := p.maxTokens
+		if maxTok <= 0 {
+			// For anthropic-compatible (e.g. ClaudeAPI), extended thinking is enabled by default
+			// and consumes tokens from the max_tokens budget. Opus models need more headroom.
+			if strings.EqualFold(p.providerType, "anthropic-compatible") {
+				maxTok = 16000
+			} else {
+				maxTok = 8000
+			}
+		}
+		genResp, callErr := p.llm.GenerateContent(
 			timeoutCtx,
-			p.llm,
-			prompt,
+			[]llms.MessageContent{{
+				Role:  llms.ChatMessageTypeHuman,
+				Parts: []llms.ContentPart{llms.TextContent{Text: prompt}},
+			}},
 			llms.WithTemperature(effectiveTemp),
+			llms.WithMaxTokens(maxTok),
 		)
 		close(waitingDone)
 		if callErr != nil {
 			err = callErr
 		} else {
-			responseBuilder.WriteString(out)
-			// simulate chunk count for logging
+			// Find first non-empty text choice — thinking blocks appear as choices with Content=""
+			// and the actual text follows as a later choice.
+			for _, choice := range genResp.Choices {
+				if choice.Content != "" {
+					responseBuilder.WriteString(choice.Content)
+					break
+				}
+			}
 			totalChunks = 1
 		}
 	} else {
