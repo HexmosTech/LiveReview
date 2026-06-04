@@ -7,8 +7,8 @@ import (
 	"time"
 
 	"github.com/labstack/echo/v4"
-	"github.com/livereview/internal/api/auth"
 	"github.com/livereview/internal/license"
+	"github.com/livereview/pkg/models"
 )
 
 // seatCountCache caches the active user count to avoid excessive DB queries
@@ -155,8 +155,7 @@ func EnforceSelfHostedLicense(db *sql.DB, licenseService *license.Service) echo.
 				return next(c)
 			}
 
-			// Get JWT claims from context (set by auth middleware)
-			claims, ok := c.Get("claims").(*auth.JWTClaims)
+			userID, ok := selfHostedLicenseUserID(c)
 			if !ok {
 				return echo.NewHTTPError(http.StatusUnauthorized, "Invalid or missing authentication")
 			}
@@ -186,7 +185,7 @@ func EnforceSelfHostedLicense(db *sql.DB, licenseService *license.Service) echo.
 			// Check seat count limit (only if license has seat limit)
 			if !state.Unlimited && state.SeatCount != nil && *state.SeatCount > 0 {
 				// Check if user is admin/owner - they bypass seat limits and assignment requirements
-				isAdmin, err := isAdminOrOwner(db, claims.UserID)
+				isAdmin, err := isAdminOrOwner(db, userID)
 				if err != nil {
 					// Log error but don't block - fail open for admin check
 					c.Logger().Errorf("Failed to check admin status: %v", err)
@@ -194,7 +193,7 @@ func EnforceSelfHostedLicense(db *sql.DB, licenseService *license.Service) echo.
 
 				if !isAdmin {
 					// Check if user has an assigned seat
-					hasAssignment, err := seatAssignCache.hasAssignedSeat(db, claims.UserID)
+					hasAssignment, err := seatAssignCache.hasAssignedSeat(db, userID)
 					if err != nil {
 						c.Logger().Errorf("Failed to check seat assignment: %v", err)
 						return echo.NewHTTPError(http.StatusInternalServerError,
@@ -225,6 +224,23 @@ func EnforceSelfHostedLicense(db *sql.DB, licenseService *license.Service) echo.
 			return next(c)
 		}
 	}
+}
+
+func selfHostedLicenseUserID(c echo.Context) (int64, bool) {
+	if user, ok := c.Get("user").(*models.User); ok && user != nil && user.ID > 0 {
+		return user.ID, true
+	}
+
+	switch value := c.Get("user_id").(type) {
+	case int64:
+		return value, value > 0
+	case int:
+		return int64(value), value > 0
+	case float64:
+		return int64(value), value > 0
+	}
+
+	return 0, false
 }
 
 // GetActiveUserCount returns the cached count of active users.
