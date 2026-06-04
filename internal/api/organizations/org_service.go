@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 
+	"github.com/livereview/internal/api/middleware"
 	"github.com/livereview/pkg/models"
 )
 
@@ -230,6 +231,12 @@ func (s *OrganizationService) GetUserOrganizations(userID int64, isSuperAdmin bo
 			org.CreatorLastName = &creatorLastName.String
 		}
 
+		// Set plan type to enterprise for self-hosted instances
+		if !middleware.IsCloudMode() {
+			planType := "enterprise"
+			org.PlanType = &planType
+		}
+
 		orgs = append(orgs, &org)
 	}
 
@@ -308,6 +315,12 @@ func (s *OrganizationService) GetOrganizationByID(orgID int64, userID int64, isS
 		org.Settings = settings.String
 	} else {
 		org.Settings = "{}"
+	}
+
+	// Set plan type to enterprise for self-hosted instances
+	if !middleware.IsCloudMode() {
+		planType := "enterprise"
+		org.PlanType = &planType
 	}
 
 	return &org, nil

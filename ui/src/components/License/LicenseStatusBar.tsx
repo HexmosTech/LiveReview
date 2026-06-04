@@ -13,7 +13,7 @@ export interface LicenseStatusBarProps {
 // Map license status to styles & human labels
 const STATUS_STYLES: Record<string, { label: string; bg: string; fg: string; accent: string; description?: string; upsellText?: string; } > = {
   active: { label: 'Licensed', bg: 'bg-emerald-900/40', fg: 'text-emerald-300', accent: 'bg-emerald-500', description: 'License valid' },
-  missing: { label: 'Community Edition', bg: 'bg-blue-900/40', fg: 'text-blue-300', accent: 'bg-blue-500', description: 'Free tier', upsellText: 'Unlock Team features' },
+  missing: { label: 'License Missing', bg: 'bg-red-900/40', fg: 'text-red-300', accent: 'bg-red-500', description: 'Get License to continue', upsellText: 'Upgrade now' },
   warning: { label: 'Network Warning', bg: 'bg-yellow-900/40', fg: 'text-yellow-300', accent: 'bg-yellow-500', description: 'Recent validation failures' },
   grace: { label: 'Grace Period', bg: 'bg-orange-900/40', fg: 'text-orange-300', accent: 'bg-orange-500', description: 'Connectivity issues persist; days remaining limited' },
   expired: { label: 'License Expired', bg: 'bg-red-900/40', fg: 'text-red-300', accent: 'bg-red-500', description: 'Renew to continue', upsellText: 'Renew now' },
