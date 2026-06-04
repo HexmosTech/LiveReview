@@ -1,4 +1,4 @@
-\restrict anSYBH9t8UbforiiJZ5gMlI42AnQUeSn1gSuyq1AkSvE615Agr3aFj3hnIpg6Yn
+\restrict 5j42kSOAclS9gH7M4nfj1b5ibOlParLbh4bORLlbi5Zw5KKfVl5kOzdpvDTVZAO
 
 -- Dumped from database version 14.22 (Ubuntu 14.22-0ubuntu0.22.04.1)
 -- Dumped by pg_dump version 14.22 (Ubuntu 14.22-0ubuntu0.22.04.1)
@@ -48,6 +48,20 @@ CREATE TYPE public.river_job_state AS ENUM (
     'running',
     'scheduled'
 );
+
+
+--
+-- Name: ai_models_set_updated_at(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.ai_models_set_updated_at() RETURNS trigger
+    LANGUAGE plpgsql
+    AS $$
+BEGIN
+    NEW.updated_at = NOW();
+    RETURN NEW;
+END;
+$$;
 
 
 --
@@ -266,6 +280,43 @@ CREATE SEQUENCE public.ai_connectors_id_seq
 --
 
 ALTER SEQUENCE public.ai_connectors_id_seq OWNED BY public.ai_connectors.id;
+
+
+--
+-- Name: ai_models; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.ai_models (
+    id integer NOT NULL,
+    model_id character varying(255) NOT NULL,
+    provider character varying(50) NOT NULL,
+    name character varying(255) NOT NULL,
+    is_active boolean DEFAULT true,
+    is_default boolean DEFAULT false,
+    metadata jsonb,
+    created_at timestamp without time zone DEFAULT now(),
+    updated_at timestamp without time zone DEFAULT now()
+);
+
+
+--
+-- Name: ai_models_id_seq; Type: SEQUENCE; Schema: public; Owner: -
+--
+
+CREATE SEQUENCE public.ai_models_id_seq
+    AS integer
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+
+--
+-- Name: ai_models_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: -
+--
+
+ALTER SEQUENCE public.ai_models_id_seq OWNED BY public.ai_models.id;
 
 
 --
@@ -2130,6 +2181,13 @@ ALTER TABLE ONLY public.ai_connectors ALTER COLUMN id SET DEFAULT nextval('publi
 
 
 --
+-- Name: ai_models id; Type: DEFAULT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.ai_models ALTER COLUMN id SET DEFAULT nextval('public.ai_models_id_seq'::regclass);
+
+
+--
 -- Name: api_keys id; Type: DEFAULT; Schema: public; Owner: -
 --
 
@@ -2388,6 +2446,22 @@ ALTER TABLE ONLY public.ai_comments
 
 ALTER TABLE ONLY public.ai_connectors
     ADD CONSTRAINT ai_connectors_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: ai_models ai_models_model_id_key; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.ai_models
+    ADD CONSTRAINT ai_models_model_id_key UNIQUE (model_id);
+
+
+--
+-- Name: ai_models ai_models_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.ai_models
+    ADD CONSTRAINT ai_models_pkey PRIMARY KEY (id);
 
 
 --
@@ -2994,6 +3068,13 @@ CREATE INDEX idx_ai_connectors_org_provider ON public.ai_connectors USING btree 
 --
 
 CREATE INDEX idx_ai_connectors_provider_name ON public.ai_connectors USING btree (provider_name);
+
+
+--
+-- Name: idx_ai_models_provider; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_ai_models_provider ON public.ai_models USING btree (provider);
 
 
 --
@@ -3998,6 +4079,13 @@ CREATE UNIQUE INDEX ux_license_state_singleton ON public.license_state USING btr
 
 
 --
+-- Name: ai_models trg_ai_models_updated_at; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER trg_ai_models_updated_at BEFORE UPDATE ON public.ai_models FOR EACH ROW EXECUTE FUNCTION public.ai_models_set_updated_at();
+
+
+--
 -- Name: license_seat_assignments trg_license_seat_assignments_updated_at; Type: TRIGGER; Schema: public; Owner: -
 --
 
@@ -4713,7 +4801,7 @@ ALTER TABLE ONLY public.webhook_registry
 -- PostgreSQL database dump complete
 --
 
-\unrestrict anSYBH9t8UbforiiJZ5gMlI42AnQUeSn1gSuyq1AkSvE615Agr3aFj3hnIpg6Yn
+\unrestrict 5j42kSOAclS9gH7M4nfj1b5ibOlParLbh4bORLlbi5Zw5KKfVl5kOzdpvDTVZAO
 
 
 --
@@ -4786,4 +4874,5 @@ INSERT INTO public.schema_migrations (version) VALUES
     ('20260420140334'),
     ('20260521120000'),
     ('20260521140000'),
-    ('20260522120000');
+    ('20260522120000'),
+    ('20260527120000');

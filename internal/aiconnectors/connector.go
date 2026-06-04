@@ -27,14 +27,15 @@ type Provider string
 
 const (
 	// Provider types
-	ProviderOpenAI     Provider = "openai"
-	ProviderDeepSeek   Provider = "deepseek"
-	ProviderGemini     Provider = "gemini"
-	ProviderClaude     Provider = "claude"
-	ProviderCohere     Provider = "cohere"
-	ProviderOllama     Provider = "ollama"
-	ProviderOpenRouter Provider = "openrouter"
-	ProviderLocalModel Provider = "local"
+	ProviderOpenAI              Provider = "openai"
+	ProviderDeepSeek            Provider = "deepseek"
+	ProviderGemini              Provider = "gemini"
+	ProviderClaude              Provider = "claude"
+	ProviderAnthropicCompatible Provider = "anthropic-compatible"
+	ProviderCohere              Provider = "cohere"
+	ProviderOllama              Provider = "ollama"
+	ProviderOpenRouter          Provider = "openrouter"
+	ProviderLocalModel          Provider = "local"
 )
 
 // ModelConfig contains the configuration for a specific model
@@ -79,7 +80,7 @@ func NewConnector(ctx context.Context, options ConnectorOptions) (*Connector, er
 		model, err = createDeepSeekModel(ctx, options)
 	case ProviderGemini:
 		model, err = createGeminiModel(ctx, options)
-	case ProviderClaude:
+	case ProviderClaude, ProviderAnthropicCompatible:
 		model, err = createAnthropicModel(ctx, options)
 	case ProviderCohere:
 		model, err = createCohereModel(ctx, options)
@@ -395,6 +396,9 @@ func createAnthropicModel(ctx context.Context, options ConnectorOptions) (llms.M
 		anthropic.WithModel(modelName),
 		anthropic.WithHTTPClient(httpClient),
 	}
+	if options.BaseURL != "" {
+		opts = append(opts, anthropic.WithBaseURL(options.BaseURL))
+	}
 
 	return anthropic.New(opts...)
 }
@@ -542,7 +546,7 @@ func (c *Connector) Call(ctx context.Context, input string, options ...llms.Call
 
 func isCloudProviderProvider(provider Provider) bool {
 	switch provider {
-	case ProviderOpenAI, ProviderDeepSeek, ProviderGemini, ProviderClaude, ProviderOpenRouter:
+	case ProviderOpenAI, ProviderDeepSeek, ProviderGemini, ProviderClaude, ProviderAnthropicCompatible, ProviderOpenRouter:
 		return true
 	default:
 		return false
