@@ -608,6 +608,78 @@ func (p *LangchainProvider) getModelName() string {
 	return p.modelName
 }
 
+// callAnthropicDirect makes a direct non-streaming POST to the Anthropic messages API.
+// Used for anthropic-compatible providers (e.g. ClaudeAPI) to avoid langchaingo's internal
+// streaming path, which hangs for models that don't use extended thinking (e.g. haiku).
+func (p *LangchainProvider) callAnthropicDirect(ctx context.Context, prompt string, maxTokens int, temperature float64) (string, error) {
+	baseURL := p.baseURL
+	if baseURL == "" {
+		baseURL = "https://api.anthropic.com/v1"
+	}
+
+	modelName := p.getModelName()
+
+	type message struct {
+		Role    string `json:"role"`
+		Content string `json:"content"`
+	}
+	reqPayload := map[string]interface{}{
+		"model":      modelName,
+		"max_tokens": maxTokens,
+		"messages":   []message{{Role: "user", Content: prompt}},
+	}
+	// opus-4 models don't accept a temperature parameter
+	if !strings.Contains(strings.ToLower(modelName), "opus-4") {
+		reqPayload["temperature"] = temperature
+	}
+
+	bodyBytes, err := json.Marshal(reqPayload)
+	if err != nil {
+		return "", fmt.Errorf("marshal request: %w", err)
+	}
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, baseURL+"/messages", bytes.NewBuffer(bodyBytes))
+	if err != nil {
+		return "", fmt.Errorf("build request: %w", err)
+	}
+	req.Header.Set("x-api-key", p.apiKey)
+	req.Header.Set("anthropic-version", "2023-06-01")
+	req.Header.Set("content-type", "application/json")
+
+	httpClient := &http.Client{}
+	resp, err := httpClient.Do(req)
+	if err != nil {
+		return "", fmt.Errorf("http call: %w", err)
+	}
+	defer resp.Body.Close()
+
+	respBytes, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return "", fmt.Errorf("read response: %w", err)
+	}
+	if resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("API error %d: %s", resp.StatusCode, truncateString(string(respBytes), 500))
+	}
+
+	var result struct {
+		Content []struct {
+			Type string `json:"type"`
+			Text string `json:"text"`
+		} `json:"content"`
+		StopReason string `json:"stop_reason"`
+	}
+	if err := json.Unmarshal(respBytes, &result); err != nil {
+		return "", fmt.Errorf("unmarshal response: %w", err)
+	}
+
+	for _, block := range result.Content {
+		if block.Type == "text" && block.Text != "" {
+			return block.Text, nil
+		}
+	}
+	return "", fmt.Errorf("no text block in response (stop_reason=%s, blocks=%d)", result.StopReason, len(result.Content))
+}
+
 func (p *LangchainProvider) getLoggedModelName() string {
 	if p.providerName == aidefault.ProviderName {
 		return aidefault.ProviderName
@@ -856,8 +928,6 @@ func (p *LangchainProvider) reviewCodeBatchFormatted(ctx context.Context, diffs 
 	effectiveTemp := p.effectiveTemperature()
 	if forceNonStreaming {
 		fmt.Printf("[STREAM DISABLED] Forcing non-streaming mode for %s.\n", p.providerType)
-		// Run a single non-streaming request under the same timeout
-		// Progress ticker to show waiting updates while the request is in flight
 		waitingDone := make(chan struct{})
 		go func() {
 			ticker := time.NewTicker(10 * time.Second)
@@ -877,37 +947,41 @@ func (p *LangchainProvider) reviewCodeBatchFormatted(ctx context.Context, diffs 
 		}()
 		maxTok := p.maxTokens
 		if maxTok <= 0 {
-			// For anthropic-compatible (e.g. ClaudeAPI), extended thinking is enabled by default
-			// and consumes tokens from the max_tokens budget. Opus models need more headroom.
+			// anthropic-compatible: extended thinking on sonnet/opus consumes token budget;
+			// use 16000 to leave headroom for the actual text response.
 			if strings.EqualFold(p.providerType, "anthropic-compatible") {
 				maxTok = 16000
 			} else {
 				maxTok = 8000
 			}
 		}
-		genResp, callErr := p.llm.GenerateContent(
-			timeoutCtx,
-			[]llms.MessageContent{{
-				Role:  llms.ChatMessageTypeHuman,
-				Parts: []llms.ContentPart{llms.TextContent{Text: prompt}},
-			}},
-			llms.WithTemperature(effectiveTemp),
-			llms.WithMaxTokens(maxTok),
-		)
+
+		var callErr error
+		if strings.EqualFold(p.providerType, "anthropic-compatible") {
+			// Use direct HTTP POST (stream:false) to avoid langchaingo's internal streaming,
+			// which hangs for models without extended thinking (e.g. haiku) on ClaudeAPI.
+			var text string
+			text, callErr = p.callAnthropicDirect(timeoutCtx, prompt, maxTok, effectiveTemp)
+			if callErr == nil {
+				responseBuilder.WriteString(text)
+			}
+		} else {
+			var out string
+			out, callErr = llms.GenerateFromSinglePrompt(
+				timeoutCtx,
+				p.llm,
+				prompt,
+				llms.WithTemperature(effectiveTemp),
+			)
+			if callErr == nil {
+				responseBuilder.WriteString(out)
+			}
+		}
 		close(waitingDone)
 		if callErr != nil {
 			err = callErr
-		} else {
-			// Find first non-empty text choice — thinking blocks appear as choices with Content=""
-			// and the actual text follows as a later choice.
-			for _, choice := range genResp.Choices {
-				if choice.Content != "" {
-					responseBuilder.WriteString(choice.Content)
-					break
-				}
-			}
-			totalChunks = 1
 		}
+		totalChunks = 1
 	} else {
 		// DEBUGGING: Save the exact prompt to a file for curl testing
 		promptFile := fmt.Sprintf("/tmp/livereview_prompt_%s.txt", batchId)
