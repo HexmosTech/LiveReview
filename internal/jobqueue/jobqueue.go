@@ -2293,6 +2293,7 @@ func NewJobQueue(databaseURL string, db *sql.DB) (*JobQueue, error) {
 
 	river.AddWorker(workers, &WebhookInstallWorker{pool: pool, config: config, store: store, httpClient: httpClient})
 	river.AddWorker(workers, &WebhookRemovalWorker{pool: pool, config: config, store: store, httpClient: httpClient})
+	river.AddWorker(workers, &DiffReviewWorker{db: db, pool: pool})
 
 	client, err := river.NewClient(riverpgxv5.New(pool), &river.Config{
 		Queues:  config.RiverQueueConfig(),
@@ -2353,5 +2354,14 @@ func (jq *JobQueue) QueueWebhookRemovalJob(ctx context.Context, connectorID int,
 		return fmt.Errorf("failed to queue webhook removal job: %w", err)
 	}
 
+	return nil
+}
+
+// QueueReviewJob enqueues a new diff review job to the "review" queue.
+func (jq *JobQueue) QueueReviewJob(ctx context.Context, args DiffReviewJobArgs) error {
+	_, err := jq.client.Insert(ctx, args, &river.InsertOpts{Queue: "review"})
+	if err != nil {
+		return fmt.Errorf("failed to queue review job: %w", err)
+	}
 	return nil
 }
