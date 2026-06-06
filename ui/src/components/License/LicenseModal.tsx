@@ -72,7 +72,7 @@ export const LicenseModal: React.FC<Props> = ({ open, onClose, strictMode }) => 
               <p className="mt-2 text-md text-slate-400">
                 Don't have a Licence?{' '}
                 <a
-                  href="https://hexmos.com/livereview/access-livereview"
+                  href="https://hexmos.com/livereview/selfhosted-access"
                   target="_blank"
                   rel="noreferrer"
                   className="underline text-blue-300 hover:text-blue-200"

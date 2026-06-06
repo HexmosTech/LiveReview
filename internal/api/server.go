@@ -15,6 +15,7 @@ import (
 
 	"github.com/labstack/echo/v4"
 	"github.com/labstack/echo/v4/middleware"
+	"github.com/livereview/internal/aiconnectors"
 	"github.com/livereview/internal/api/auth"
 	apimiddleware "github.com/livereview/internal/api/middleware"
 	"github.com/livereview/internal/api/organizations"
@@ -31,7 +32,6 @@ import (
 	giteaoutput "github.com/livereview/internal/provider_output/gitea"
 	githuboutput "github.com/livereview/internal/provider_output/github"
 	gitlaboutput "github.com/livereview/internal/provider_output/gitlab"
-	"github.com/livereview/internal/aiconnectors"
 	"github.com/livereview/storage/core"
 	// Import FetchGitLabProfile
 )
@@ -497,6 +497,7 @@ func (s *Server) setupRoutes() {
 
 	// Apply subscription enforcement middleware (cloud mode only)
 	authMiddleware := auth.NewAuthMiddleware(s.tokenService, s.db)
+	selfHostedLicenseMiddleware := apimiddleware.EnforceSelfHostedLicense(s.db, s.licenseService())
 	protected.Use(authMiddleware.EnforceSubscriptionLimits())
 
 	// User management endpoints
@@ -642,7 +643,7 @@ func (s *Server) setupRoutes() {
 	connectorGroup.GET("/:connectorId/repository-access", s.GetRepositoryAccess)
 	connectorGroup.POST("/:connectorId/enable-manual-trigger", s.EnableManualTriggerForAllProjects)
 	connectorGroup.POST("/:connectorId/disable-manual-trigger", s.DisableManualTriggerForAllProjects)
-	connectorGroup.POST("/trigger-review", s.TriggerReviewV2)
+	connectorGroup.POST("/trigger-review", s.TriggerReviewV2, selfHostedLicenseMiddleware)
 
 	// GitLab profile validation endpoint
 	v1.POST("/gitlab/validate-profile", s.ValidateGitLabProfile)

@@ -330,9 +330,7 @@ func (p *LangchainProvider) MaxTokensPerBatch() int {
 			return 16000 // DeepSeek chat/reasoner models
 		case "openrouter":
 			return 8000 // OpenRouter models commonly cap around 8k; stay conservative
-		case "cerebras":
-			return 8000 // Safe default token limit for Cerebras
-		case "anthropic":
+		case "anthropic", "anthropic-compatible":
 			return 20000 // Claude models
 		default:
 			return 8000 // Conservative default for unknown providers
@@ -374,10 +372,7 @@ func (p *LangchainProvider) initializeLLM() error {
 	case "openrouter":
 		p.baseURL = aiconnectors.ResolveBaseURLForProviderName(p.providerType, p.baseURL)
 		return p.initializeOpenAILLM()
-	case "cerebras":
-		p.baseURL = aiconnectors.ResolveBaseURLForProviderName(p.providerType, p.baseURL)
-		return p.initializeOpenAILLM()
-	case "anthropic", "claude":
+	case "anthropic", "claude", "anthropic-compatible":
 		return p.initializeAnthropicLLM()
 	default:
 		// Logger accessed via p.logger
@@ -585,12 +580,20 @@ func (p *LangchainProvider) initializeAnthropicLLM() error {
 		modelName = strings.ReplaceAll(modelName, ".", "-")
 	}
 
+	httpClient := &http.Client{
+		Transport: &aiconnectors.AnthropicSanitizingTransport{Base: http.DefaultTransport},
+	}
+
 	options := []anthropic.Option{
 		anthropic.WithToken(p.apiKey),
 		anthropic.WithModel(modelName),
+		anthropic.WithHTTPClient(httpClient),
+	}
+	if p.baseURL != "" {
+		options = append(options, anthropic.WithBaseURL(p.baseURL))
 	}
 
-	fmt.Printf("[LANGCHAIN INIT] Initializing Anthropic LLM with model: %s\n", modelName)
+	fmt.Printf("[LANGCHAIN INIT] Initializing Anthropic LLM with model: %s, base URL: %s\n", modelName, p.baseURL)
 
 	llm, err := anthropic.New(options...)
 	if err != nil {
@@ -603,6 +606,78 @@ func (p *LangchainProvider) initializeAnthropicLLM() error {
 
 func (p *LangchainProvider) getModelName() string {
 	return p.modelName
+}
+
+// callAnthropicDirect makes a direct non-streaming POST to the Anthropic messages API.
+// Used for anthropic-compatible providers (e.g. ClaudeAPI) to avoid langchaingo's internal
+// streaming path, which hangs for models that don't use extended thinking (e.g. haiku).
+func (p *LangchainProvider) callAnthropicDirect(ctx context.Context, prompt string, maxTokens int, temperature float64) (string, error) {
+	baseURL := p.baseURL
+	if baseURL == "" {
+		baseURL = "https://api.anthropic.com/v1"
+	}
+
+	modelName := p.getModelName()
+
+	type message struct {
+		Role    string `json:"role"`
+		Content string `json:"content"`
+	}
+	reqPayload := map[string]interface{}{
+		"model":      modelName,
+		"max_tokens": maxTokens,
+		"messages":   []message{{Role: "user", Content: prompt}},
+	}
+	// opus-4 models don't accept a temperature parameter
+	if !strings.Contains(strings.ToLower(modelName), "opus-4") {
+		reqPayload["temperature"] = temperature
+	}
+
+	bodyBytes, err := json.Marshal(reqPayload)
+	if err != nil {
+		return "", fmt.Errorf("marshal request: %w", err)
+	}
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, baseURL+"/messages", bytes.NewBuffer(bodyBytes))
+	if err != nil {
+		return "", fmt.Errorf("build request: %w", err)
+	}
+	req.Header.Set("x-api-key", p.apiKey)
+	req.Header.Set("anthropic-version", "2023-06-01")
+	req.Header.Set("content-type", "application/json")
+
+	httpClient := &http.Client{}
+	resp, err := httpClient.Do(req)
+	if err != nil {
+		return "", fmt.Errorf("http call: %w", err)
+	}
+	defer resp.Body.Close()
+
+	respBytes, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return "", fmt.Errorf("read response: %w", err)
+	}
+	if resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("API error %d: %s", resp.StatusCode, truncateString(string(respBytes), 500))
+	}
+
+	var result struct {
+		Content []struct {
+			Type string `json:"type"`
+			Text string `json:"text"`
+		} `json:"content"`
+		StopReason string `json:"stop_reason"`
+	}
+	if err := json.Unmarshal(respBytes, &result); err != nil {
+		return "", fmt.Errorf("unmarshal response: %w", err)
+	}
+
+	for _, block := range result.Content {
+		if block.Type == "text" && block.Text != "" {
+			return block.Text, nil
+		}
+	}
+	return "", fmt.Errorf("no text block in response (stop_reason=%s, blocks=%d)", result.StopReason, len(result.Content))
 }
 
 func (p *LangchainProvider) getLoggedModelName() string {
@@ -843,15 +918,16 @@ func (p *LangchainProvider) reviewCodeBatchFormatted(ctx context.Context, diffs 
 		}
 	}()
 
-	// Determine if we should force non-streaming mode for Ollama (useful behind proxies)
-	forceNonStreaming := strings.EqualFold(p.providerType, "ollama") && strings.EqualFold(os.Getenv("LIVEREVIEW_OLLAMA_FORCE_NON_STREAMING"), "true")
+	// Determine if we should force non-streaming mode
+	// Ollama: opt-in via env var (useful behind proxies)
+	// anthropic-compatible: always non-streaming (ClaudeAPI SSE delivers 0 chunks via langchaingo streaming path)
+	forceNonStreaming := (strings.EqualFold(p.providerType, "ollama") && strings.EqualFold(os.Getenv("LIVEREVIEW_OLLAMA_FORCE_NON_STREAMING"), "true")) ||
+		strings.EqualFold(p.providerType, "anthropic-compatible")
 
 	startTime := time.Now()
 	effectiveTemp := p.effectiveTemperature()
 	if forceNonStreaming {
-		fmt.Printf("[STREAM DISABLED] Forcing non-streaming mode for Ollama due to env override.\n")
-		// Run a single non-streaming request under the same timeout
-		// Progress ticker to show waiting updates while the request is in flight
+		fmt.Printf("[STREAM DISABLED] Forcing non-streaming mode for %s.\n", p.providerType)
 		waitingDone := make(chan struct{})
 		go func() {
 			ticker := time.NewTicker(10 * time.Second)
@@ -862,27 +938,50 @@ func (p *LangchainProvider) reviewCodeBatchFormatted(ctx context.Context, diffs 
 					return
 				case <-ticker.C:
 					waited := time.Since(startTime)
-					fmt.Printf("[WAIT] Still waiting for Ollama response... elapsed=%v\n", waited)
+					fmt.Printf("[WAIT] Still waiting for %s response... elapsed=%v\n", p.providerType, waited)
 					if p.logger != nil {
-						p.logger.Log("Waiting for Ollama response... elapsed=%v (non-streaming)", waited)
+						p.logger.Log("Waiting for %s response... elapsed=%v (non-streaming)", p.providerType, waited)
 					}
 				}
 			}
 		}()
-		out, callErr := llms.GenerateFromSinglePrompt(
-			timeoutCtx,
-			p.llm,
-			prompt,
-			llms.WithTemperature(effectiveTemp),
-		)
+		maxTok := p.maxTokens
+		if maxTok <= 0 {
+			// anthropic-compatible: extended thinking on sonnet/opus consumes token budget;
+			// use 16000 to leave headroom for the actual text response.
+			if strings.EqualFold(p.providerType, "anthropic-compatible") {
+				maxTok = 16000
+			} else {
+				maxTok = 8000
+			}
+		}
+
+		var callErr error
+		if strings.EqualFold(p.providerType, "anthropic-compatible") {
+			// Use direct HTTP POST (stream:false) to avoid langchaingo's internal streaming,
+			// which hangs for models without extended thinking (e.g. haiku) on ClaudeAPI.
+			var text string
+			text, callErr = p.callAnthropicDirect(timeoutCtx, prompt, maxTok, effectiveTemp)
+			if callErr == nil {
+				responseBuilder.WriteString(text)
+			}
+		} else {
+			var out string
+			out, callErr = llms.GenerateFromSinglePrompt(
+				timeoutCtx,
+				p.llm,
+				prompt,
+				llms.WithTemperature(effectiveTemp),
+			)
+			if callErr == nil {
+				responseBuilder.WriteString(out)
+			}
+		}
 		close(waitingDone)
 		if callErr != nil {
 			err = callErr
-		} else {
-			responseBuilder.WriteString(out)
-			// simulate chunk count for logging
-			totalChunks = 1
 		}
+		totalChunks = 1
 	} else {
 		// DEBUGGING: Save the exact prompt to a file for curl testing
 		promptFile := fmt.Sprintf("/tmp/livereview_prompt_%s.txt", batchId)

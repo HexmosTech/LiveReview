@@ -144,9 +144,8 @@ func (m *QuotaModule) BuildBatchSettlement(input QuotaBatchInput) (QuotaBatchSet
 		return QuotaBatchSettlement{}, err
 	}
 
-	if policy.MonthlyLOCLimit < 0 {
-		return QuotaBatchSettlement{}, fmt.Errorf("plan %s has no finite LOC limit", policy.PlanCode)
-	}
+	// Allow unlimited LOC (represented by negative value, e.g. -1) for enterprise plans.
+	// Downstream calculations guard on > 0 where a finite limit is required.
 	if policy.InputCharsPerLOC <= 0 || policy.CharsPerToken <= 0 {
 		return QuotaBatchSettlement{}, fmt.Errorf("invalid token conversion policy for plan=%s provider=%s", policy.PlanCode, policy.ProviderKey)
 	}
