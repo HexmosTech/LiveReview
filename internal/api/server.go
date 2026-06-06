@@ -984,15 +984,6 @@ func (s *Server) Start() error {
 	}
 	fmt.Println("Press Ctrl+C to stop the server")
 
-	// Start job queue workers
-	ctx := context.Background()
-	go func() {
-		if err := s.jobQueue.Start(ctx); err != nil {
-			fmt.Printf("Error starting job queue: %v\n", err)
-		}
-	}()
-	fmt.Println("Job queue workers started")
-
 	// Start dashboard manager
 	s.dashboardManager.Start()
 	fmt.Println("Dashboard manager started")
