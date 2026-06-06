@@ -865,9 +865,13 @@ class LiveReviewOps:
         cmd += [
             *labels,
             *tags,
-            '--push' if push else '--load',
+            *(['--push'] if push else []),
             '.'
         ]
+        
+        if not push:
+            print(f"⚠️  Multi-arch build (no push): image will be built and cached in buildx builder")
+            print(f"   To push to registry: make docker-multiarch-push")
         
         # Run with retries for push operations (network can be flaky)
         if push:
