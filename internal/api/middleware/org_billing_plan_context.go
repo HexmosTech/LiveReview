@@ -8,20 +8,30 @@ import (
 
 	"github.com/labstack/echo/v4"
 	"github.com/livereview/internal/api/plancode"
+	"github.com/livereview/internal/license"
 )
 
 // BuildOrgBillingPlanContext populates plan_type from org_billing_state.current_plan_code
 // using org_id already attached by upstream middleware.
-func BuildOrgBillingPlanContext(db *sql.DB) echo.MiddlewareFunc {
+func BuildOrgBillingPlanContext(db *sql.DB, licenseSvc *license.Service) echo.MiddlewareFunc {
 	return func(next echo.HandlerFunc) echo.HandlerFunc {
 		return func(c echo.Context) error {
 			if db == nil {
 				return next(c)
 			}
 
-			// Set plan_type to "enterprise" for self-hosted instances
+			// Set plan_type based on license status for self-hosted instances
 			if !isCloudMode() {
-				c.Set("plan_type", "enterprise")
+				if licenseSvc != nil {
+					state, err := licenseSvc.LoadOrInit(c.Request().Context())
+					if err == nil && !state.IsTerminal() && !state.IsMissing() {
+						c.Set("plan_type", "enterprise")
+					} else {
+						c.Set("plan_type", "free_30k")
+					}
+				} else {
+					c.Set("plan_type", "free_30k")
+				}
 				return next(c)
 			}
 

@@ -241,10 +241,6 @@ export const Dashboard: React.FC = () => {
     }, []);
 
     useEffect(() => {
-        if (!isCloudMode()) {
-            setBillingInsight(null);
-            return;
-        }
 
         let cancelled = false;
         const loadBillingInsight = async () => {
@@ -258,6 +254,13 @@ export const Dashboard: React.FC = () => {
                 if (cancelled || !billing?.billing) return;
 
                 const planCode = String(billing.billing.current_plan_code || 'free_30k').trim();
+                
+                // Hide billing insight for self-hosted enterprise (licensed)
+                if (!isCloudMode() && planCode === 'enterprise') {
+                    setBillingInsight(null);
+                    return;
+                }
+
                 const plan = (billing.available_plans || []).find((item) => item.plan_code === planCode);
                 const locUsed = Number(billing.billing.loc_used_month || 0);
                 const locLimit = Number(plan?.monthly_loc_limit || 0);
@@ -439,14 +442,16 @@ export const Dashboard: React.FC = () => {
                                     ({billingInsight.locUsed.toLocaleString()} / {billingInsight.locLimit > 0 ? billingInsight.locLimit.toLocaleString() : 'N/A'} LOC). Reviews are blocked until quota resets or you upgrade.
                                 </span>
                             </div>
-                            <Button
-                                variant="primary"
-                                size="sm"
-                                onClick={() => navigate('/subscribe')}
-                                className="!bg-red-600 hover:!bg-red-500 flex-shrink-0"
-                            >
-                                Upgrade Now
-                            </Button>
+                            {isCloudMode() && (
+                                <Button
+                                    variant="primary"
+                                    size="sm"
+                                    onClick={() => navigate('/subscribe')}
+                                    className="!bg-red-600 hover:!bg-red-500 flex-shrink-0"
+                                >
+                                    Upgrade Now
+                                </Button>
+                            )}
                         </div>
                     </Alert>
                 )}
@@ -455,7 +460,7 @@ export const Dashboard: React.FC = () => {
                         locUsed={billingInsight.locUsed}
                         locLimit={billingInsight.locLimit}
                         usagePct={billingInsight.usagePct}
-                        onUpgrade={() => navigate('/settings-subscriptions-overview')}
+                        onUpgrade={isCloudMode() ? () => navigate('/settings-subscriptions-overview') : undefined}
                     />
                 )}
                 {billingInsight && !billingInsight.blocked && billingInsight.usagePct >= 90 && billingInsight.usagePct < 100 && (
@@ -463,7 +468,7 @@ export const Dashboard: React.FC = () => {
                         locUsed={billingInsight.locUsed}
                         locLimit={billingInsight.locLimit}
                         usagePct={billingInsight.usagePct}
-                        onUpgrade={() => navigate('/settings-subscriptions-overview')}
+                        onUpgrade={isCloudMode() ? () => navigate('/settings-subscriptions-overview') : undefined}
                     />
                 )}
 
@@ -551,15 +556,17 @@ export const Dashboard: React.FC = () => {
                                     </p>
                                 )}
                             </div>
-                            <div className="flex items-center gap-2">
-                                <Button
-                                    variant="outline"
-                                    onClick={() => navigate('/settings-subscriptions-overview')}
-                                    className="text-slate-200 border-slate-500"
-                                >
-                                    Open Billing Details
-                                </Button>
-                            </div>
+                            {isCloudMode() && (
+                                <div className="flex items-center gap-2">
+                                    <Button
+                                        variant="outline"
+                                        onClick={() => navigate('/settings-subscriptions-overview')}
+                                        className="text-slate-200 border-slate-500"
+                                    >
+                                        Open Billing Details
+                                    </Button>
+                                </div>
+                            )}
                         </div>
                     </div>
                 )}

@@ -166,24 +166,11 @@ func EnforceSelfHostedLicense(db *sql.DB, licenseService *license.Service) echo.
 				return echo.NewHTTPError(http.StatusInternalServerError, "Failed to validate license")
 			}
 
-			// Block if license is missing, expired, or invalid
-			if state.Status == "missing" {
-				return echo.NewHTTPError(http.StatusPaymentRequired,
-					"No license found. Please enter a valid license to continue.")
-			}
-
-			if state.Status == "expired" {
-				return echo.NewHTTPError(http.StatusPaymentRequired,
-					"Your license has expired. Please renew to continue using LiveReview.")
-			}
-
-			if state.Status == "invalid" {
-				return echo.NewHTTPError(http.StatusPaymentRequired,
-					"Your license is invalid. Please enter a valid license.")
-			}
-
-			// Check seat count limit (only if license has seat limit)
-			if !state.Unlimited && state.SeatCount != nil && *state.SeatCount > 0 {
+			// Only check seat count limit if the license is active/valid
+			// Unlicensed/expired/invalid users will fall back to free plan (1 seat)
+			if !state.IsTerminal() && !state.IsMissing() {
+				// Check seat count limit (only if license has seat limit)
+				if !state.Unlimited && state.SeatCount != nil && *state.SeatCount > 0 {
 				// Check if user is admin/owner - they bypass seat limits and assignment requirements
 				isAdmin, err := isAdminOrOwner(db, userID)
 				if err != nil {
@@ -219,6 +206,7 @@ func EnforceSelfHostedLicense(db *sql.DB, licenseService *license.Service) echo.
 							"License seat limit exceeded. Please upgrade your license or deactivate unused users.")
 					}
 				}
+			}
 			}
 
 			return next(c)
