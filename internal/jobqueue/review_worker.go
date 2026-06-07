@@ -16,6 +16,7 @@ import (
 	"github.com/livereview/internal/diffutil"
 	"github.com/livereview/internal/license"
 	"github.com/livereview/internal/logging"
+	"github.com/livereview/internal/mockllm"
 	"github.com/livereview/internal/review"
 	"github.com/livereview/pkg/models"
 	"github.com/riverqueue/river"
@@ -45,6 +46,11 @@ type DiffReviewWorker struct {
 	river.WorkerDefaults[DiffReviewJobArgs]
 	db   *sql.DB
 	pool *pgxpool.Pool
+}
+
+// Timeout overrides the default River 60s timeout to allow longer AI reviews.
+func (w *DiffReviewWorker) Timeout(job *river.Job[DiffReviewJobArgs]) time.Duration {
+	return 10 * time.Minute
 }
 
 // Work implements the River Worker interface to execute the full review pipeline.
@@ -142,9 +148,14 @@ func (w *DiffReviewWorker) Work(ctx context.Context, job *river.Job[DiffReviewJo
 	}
 
 	// 8. Execute AI Review Engine
+	var aiFactory review.AIProviderFactory = review.NewStandardAIProviderFactory()
+	if mockllm.IsMockAIEnabled() {
+		aiFactory = &mockllm.MockAIProviderFactory{}
+	}
+
 	result := review.NewService(
 		review.NewStandardProviderFactory(),
-		review.NewStandardAIProviderFactory(),
+		aiFactory,
 		review.DefaultReviewConfig(),
 	).ProcessReview(ctx, reviewRequest)
 
