@@ -16,7 +16,6 @@ import (
 	"github.com/livereview/internal/diffutil"
 	"github.com/livereview/internal/license"
 	"github.com/livereview/internal/logging"
-	"github.com/livereview/internal/mockllm"
 	"github.com/livereview/internal/review"
 	"github.com/livereview/pkg/models"
 	"github.com/riverqueue/river"
@@ -149,8 +148,8 @@ func (w *DiffReviewWorker) Work(ctx context.Context, job *river.Job[DiffReviewJo
 
 	// 8. Execute AI Review Engine
 	var aiFactory review.AIProviderFactory = review.NewStandardAIProviderFactory()
-	if mockllm.IsMockAIEnabled() {
-		aiFactory = &mockllm.MockAIProviderFactory{}
+	if mockFactory, ok := getMockAIFactory(); ok {
+		aiFactory = mockFactory
 	}
 
 	result := review.NewService(

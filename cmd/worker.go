@@ -49,6 +49,9 @@ func WorkerCommand() *cli.Command {
 			if err != nil {
 				return fmt.Errorf("failed to open database connection: %w", err)
 			}
+			db.SetMaxOpenConns(25)
+			db.SetMaxIdleConns(10)
+			db.SetConnMaxLifetime(5 * time.Minute)
 			defer db.Close()
 
 			// Ping database to verify connection

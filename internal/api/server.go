@@ -204,6 +204,9 @@ func NewServer(port int, versionInfo *VersionInfo) (*Server, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to open database connection: %v", err)
 	}
+	db.SetMaxOpenConns(25)
+	db.SetMaxIdleConns(10)
+	db.SetConnMaxLifetime(5 * time.Minute)
 
 	if err := ensureRequiredBillingSchema(context.Background(), db); err != nil {
 		return nil, err
@@ -255,11 +258,12 @@ func NewServer(port int, versionInfo *VersionInfo) (*Server, error) {
 			if strings.HasPrefix(origin, "http://localhost:") {
 				return true, nil
 			}
-			// Allow hexmos.com and all subdomains
-			if origin == "https://hexmos.com" || origin == "http://hexmos.com" {
+			// Allow hexmos.com / hexmos.site and all subdomains
+			if origin == "https://hexmos.com" || origin == "http://hexmos.com" ||
+				origin == "https://hexmos.site" || origin == "http://hexmos.site" {
 				return true, nil
 			}
-			if strings.HasSuffix(origin, ".hexmos.com") {
+			if strings.HasSuffix(origin, ".hexmos.com") || strings.HasSuffix(origin, ".hexmos.site") {
 				return true, nil
 			}
 			return false, nil
