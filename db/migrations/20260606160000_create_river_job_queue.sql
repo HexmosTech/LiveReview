@@ -16,6 +16,7 @@ CREATE TYPE river_job_state AS ENUM(
   'cancelled',
   'completed',
   'discarded',
+  'pending',
   'retryable',
   'running',
   'scheduled'
