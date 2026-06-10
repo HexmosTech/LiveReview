@@ -2,9 +2,7 @@ package users
 
 import (
 	"errors"
-	"log"
 	"net/http"
-	"strings"
 
 	"github.com/labstack/echo/v4"
 	"github.com/livereview/internal/api/auth"
@@ -25,15 +23,6 @@ func NewProfileHandlers(profileService *ProfileService) *ProfileHandlers {
 
 // GetProfile handles getting the current user's profile
 func (ph *ProfileHandlers) GetProfile(c echo.Context) error {
-
-	
-	headers := make(map[string]string)
-    for k, v := range c.Request().Header {
-        headers[k] = strings.Join(v, ",")
-    }
-    
-    log.Printf("=== DEBUG HEADERS from MCP call ===\n%+v", headers)
-	
 	// Get user from auth context
 	user := auth.GetUser(c)
 	if user == nil {
