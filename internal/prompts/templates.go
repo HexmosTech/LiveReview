@@ -43,6 +43,10 @@ const (
 - File path
 - Line number
 - Severity (info, warning, critical)
+	- Confidence (high, medium, low)
+	- Type (bug, risk, optimization, code smell, best practice, technical debt)
+	- Category
+	- Subcategory
 - Clear suggestions for improvement
 
 Severity rules:
@@ -76,6 +80,10 @@ const (
 			"lineNumber": 42,
 			"content": "Description of the issue",
 			"severity": "info|warning|critical",
+			"confidence": "high|medium|low",
+			"type": "bug|risk|optimization|code smell|best practice|technical debt",
+			"category": "Security|Reliability|Correctness|Performance|Cost|Scalability|Maintainability|Architecture|Developer Experience|Compliance & Governance",
+			"subcategory": "specific taxonomy subcategory",
 			"suggestions": ["Specific improvement suggestion 1", "Specific improvement suggestion 2"],
 			"isInternal": false
 		}
