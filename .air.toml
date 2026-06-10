@@ -16,7 +16,7 @@ full_bin = "dlv exec ./tmp/livereview --listen=127.0.0.1:2345 --headless=true --
 # Watch these filename extensions.
 include_ext = ["go", "tpl", "tmpl", "html", "yaml"]
 # Ignore these filename extensions or directories.
-exclude_dir = ["assets", "tmp", "vendor", "ui/node_modules", "livereview_pgdata", "lrdata"]
+exclude_dir = ["assets", "tmp", "vendor", "ui/node_modules", "livereview_pgdata", "lrdata","docs", "internal/api/mcp/generated", "internal/api/docs/spec.go"]
 # Watch these directories if you specified.
 include_dir = []
 # Exclude files.
