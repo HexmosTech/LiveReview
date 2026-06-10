@@ -23,9 +23,9 @@ import (
 	"github.com/tmc/langchaingo/llms/ollama"
 	"github.com/tmc/langchaingo/llms/openai"
 
+	"github.com/livereview/internal/aidefault"
 	"github.com/livereview/internal/batch"
 	"github.com/livereview/internal/logging"
-	"github.com/livereview/internal/aidefault"
 	"github.com/livereview/internal/prompts"
 	vendorpack "github.com/livereview/internal/prompts/vendor"
 	"github.com/livereview/pkg/models"
@@ -255,7 +255,7 @@ type Config struct {
 	TemperatureSet bool    `json:"temperature_set"`
 	ProviderType   string  `json:"provider_type"` // NEW: "gemini", "ollama", "openai", etc.
 	BaseURL        string  `json:"base_url"`      // NEW: For custom endpoints like Ollama
-	ProviderName   string  `json:"provider_name"`  // NEW: Provider name (e.g. "livereview-default-ai")
+	ProviderName   string  `json:"provider_name"` // NEW: Provider name (e.g. "livereview-default-ai")
 }
 
 // New creates a new langchain-based AI provider
@@ -1323,6 +1323,10 @@ func (p *LangchainProvider) parseResponse(response string, diffs []models.CodeDi
 		LineNumber  int      `json:"lineNumber"`
 		Content     string   `json:"content"`
 		Severity    string   `json:"severity"`
+		Confidence  string   `json:"confidence"`
+		Type        string   `json:"type"`
+		Category    string   `json:"category"`
+		Subcategory string   `json:"subcategory"`
 		Suggestions []string `json:"suggestions"`
 		IsInternal  bool     `json:"isInternal"`
 	}
@@ -1392,8 +1396,11 @@ func (p *LangchainProvider) parseResponse(response string, diffs []models.CodeDi
 			Line:          comment.LineNumber,
 			Content:       comment.Content,
 			Severity:      severity,
+			Confidence:    comment.Confidence,
+			Type:          comment.Type,
 			Suggestions:   comment.Suggestions,
-			Category:      "review",
+			Category:      comment.Category,
+			Subcategory:   comment.Subcategory,
 			IsInternal:    comment.IsInternal,
 			IsDeletedLine: isDeletedLine,
 		}
@@ -1580,6 +1587,7 @@ func parseHunkLine(line string) (oldNum int, newNum int, content string, isDelet
 
 	return oldNum, newNum, content, isDeleted, isAdded, nil
 }
+
 // Helper functions for logging
 func truncateString(s string, maxLen int) string {
 	if len(s) <= maxLen {
