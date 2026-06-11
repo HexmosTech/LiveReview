@@ -4,10 +4,10 @@ max_count = 30
 
 [delay]
 min = "5s"
-max = "60s"
+max = "15s"
 
 [failure]
-rate = 0.30
+rate = 0.40
 
 [batch]
 max_tokens_per_batch = 8500

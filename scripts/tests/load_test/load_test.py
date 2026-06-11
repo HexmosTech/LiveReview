@@ -3,6 +3,8 @@ import os
 import sys
 import time
 import random
+import json
+import sqlite3
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 # Add the script's directory to sys.path so modules can be imported
@@ -13,7 +15,39 @@ if script_dir not in sys.path:
 # Import modular helper functions
 from config import get_api_key, get_api_url
 from diff_utils import make_zip_from_test_repo, make_zip_from_samples
-from api_client import submit_review, check_status, fetch_and_save_logs
+from api_client import submit_review, check_status, fetch_review_events
+
+def init_db(db_path):
+    conn = sqlite3.connect(db_path)
+    cursor = conn.cursor()
+    cursor.execute("PRAGMA foreign_keys = ON;")
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS tests (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        test_name TEXT UNIQUE,
+        total_time REAL,
+        parallel_reviews_count INTEGER,
+        success_reviews INTEGER,
+        failed_reviews INTEGER,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    );
+    """)
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS reviews (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        test_id INTEGER,
+        review_id TEXT,
+        status TEXT,
+        time_taken REAL,
+        avg_poll_latency REAL,
+        first_comment_offset REAL,
+        logs TEXT,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (test_id) REFERENCES tests(id) ON DELETE CASCADE
+    );
+    """)
+    conn.commit()
+    return conn
 
 def main():
     print("🚀 LiveReview Async Queue Concurrency Load Tester")
@@ -24,11 +58,7 @@ def main():
     nouns = ["hawk", "river", "forest", "mountain", "whale", "panda", "tiger", "eagle", "cloud", "storm", "valley", "desert", "ocean", "star", "wolf"]
     test_name = f"{random.choice(adjectives)}-{random.choice(nouns)}-{random.randint(10, 99)}"
     
-    logs_dir = os.path.join(script_dir, "logs", test_name)
-    os.makedirs(logs_dir, exist_ok=True)
-    
-    print(f"[+] Started test run: {test_name}")
-    print(f"[+] Logs will be saved under: {logs_dir}\n")
+    print(f"[+] Started test run: {test_name}\n")
     
     # 1. Read API Key
     api_key = get_api_key()
@@ -64,6 +94,7 @@ def main():
     review_durations = {}
     review_statuses = {}
     review_first_comment_offsets = {}
+    review_raw_events = {}
 
     print(f"[+] Submitting {num_jobs} reviews to {api_url}/api/v1/diff-review...")
     with ThreadPoolExecutor(max_workers=10) as executor:
@@ -118,8 +149,9 @@ def main():
             review_durations[r_id] = duration
             review_statuses[r_id] = status
             print(f"  [✓] Review {r_id} finished with status: {status} ({len(pending_ids)} remaining)")
-            fc_offset = fetch_and_save_logs(api_url, api_key, r_id, logs_dir)
+            events, fc_offset = fetch_review_events(api_url, api_key, r_id)
             review_first_comment_offsets[r_id] = fc_offset
+            review_raw_events[r_id] = events
             
         if pending_ids:
             time.sleep(1.0)
@@ -155,16 +187,42 @@ def main():
         summary_lines.append(f"{r_id:<12} | {status:<12} | {format_duration(duration):<10} | {avg_poll_str:<16} | {fc_offset_str}")
         
     summary_content = "\n".join(summary_lines)
-    summary_file_path = os.path.join(logs_dir, "summary.txt")
-    with open(summary_file_path, "w", encoding="utf-8") as f:
-        f.write(summary_content)
+    print("\n" + summary_content)
     
     print("\n================================================")
     print(f"🏆 LOAD TEST COMPLETED")
     print(f"  • Total Reviews: {len(review_ids)}")
     print(f"  • Total Time:    {format_duration(total_elapsed)}")
     print(f"  • Avg Job Time:  {format_duration(total_elapsed / len(review_ids))}")
-    print(f"  • Wrote summary: {summary_file_path}")
+    
+    # Save to SQLite
+    db_path = os.path.join(script_dir, "load_test.db")
+    try:
+        conn = init_db(db_path)
+        cursor = conn.cursor()
+        cursor.execute("""
+        INSERT INTO tests (test_name, total_time, parallel_reviews_count, success_reviews, failed_reviews)
+        VALUES (?, ?, ?, ?, ?)
+        """, (test_name, total_elapsed, num_jobs, success_count, failed_count))
+        test_id = cursor.lastrowid
+        
+        for r_id in review_ids:
+            status = review_statuses.get(r_id, "unknown")
+            duration = review_durations.get(r_id, 0.0)
+            latencies = review_poll_latencies.get(r_id, [])
+            avg_poll = sum(latencies) / len(latencies) if latencies else 0.0
+            fc_offset = review_first_comment_offsets.get(r_id)
+            events = review_raw_events.get(r_id, [])
+            cursor.execute("""
+            INSERT INTO reviews (test_id, review_id, status, time_taken, avg_poll_latency, first_comment_offset, logs)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+            """, (test_id, r_id, status, duration, avg_poll, fc_offset, json.dumps(events)))
+            
+        conn.commit()
+        conn.close()
+        print(f"  • SQLite DB:     {db_path}")
+    except Exception as e:
+        print(f"[-] Failed to save results to SQLite: {e}", file=sys.stderr)
     print("================================================")
 
 if __name__ == "__main__":

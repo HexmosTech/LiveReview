@@ -59,7 +59,7 @@ def parse_iso_time(t_str):
     except Exception:
         return None
 
-def fetch_and_save_logs(api_url, api_key, review_id, logs_dir):
+def fetch_review_events(api_url, api_key, review_id):
     url = f"{api_url}/api/v1/diff-review/{review_id}/events?limit=1000"
     headers = {
         "X-API-Key": api_key,
@@ -75,13 +75,9 @@ def fetch_and_save_logs(api_url, api_key, review_id, logs_dir):
             start_time = None
             first_comment_time = None
             
-            # Format logs
-            logs_lines = []
-            for i, event in enumerate(events):
+            for event in events:
                 event_type = event.get("type", "")
-                event_level = event.get("level") or "info"
                 event_time_str = event.get("time", "")
-                batch_id = event.get("batchId")
                 data = event.get("data") or {}
 
                 if isinstance(data, str):
@@ -114,59 +110,9 @@ def fetch_and_save_logs(api_url, api_key, review_id, logs_dir):
                         if has_comments and first_comment_time is None:
                             first_comment_time = event_time
 
-                message = ""
-                if event_type == "log":
-                    message = data.get("message") or ""
-                elif event_type == "batch":
-                    status = data.get("status", "")
-                    if status == "processing":
-                        file_count = data.get("fileCount", 0)
-                        message = f"Batch {batch_id or 'unknown'} started: processing {file_count} file{'s' if file_count != 1 else ''}"
-                    elif status == "completed":
-                        comment_count = data.get("commentCount")
-                        if comment_count is None:
-                            comment_count = data.get("fileCount")
-                        if comment_count is None:
-                            comment_count = 0
-                        message = f"Batch {batch_id or 'unknown'} completed: generated {comment_count} comment{'s' if comment_count != 1 else ''}"
-                    else:
-                        message = f"Batch {batch_id or 'unknown'}: {status or 'unknown status'}"
-                elif event_type == "status":
-                    message = f"Status: {data.get('status') or 'unknown'}"
-                elif event_type == "artifact":
-                    message = f"Generated: {data.get('kind') or 'artifact'}" if data.get("url") else f"Artifact: {data.get('kind') or 'unknown'}"
-                elif event_type == "completion":
-                    comment_count = data.get("commentCount", 0)
-                    message = data.get("resultSummary") or f"Process completed with {comment_count} comment{'s' if comment_count != 1 else ''}"
-                else:
-                    message = data.get("message") or json.dumps(data)
-
-                details = ""
-                details_dict = {}
-                for k, v in data.items():
-                    if k in ("message", "resultSummary") or v is None:
-                        continue
-                    details_dict[k] = v
-                if batch_id:
-                    details_dict["batchId"] = batch_id
-
-                if details_dict:
-                    details = "\n  Details: " + json.dumps(details_dict, indent=2).replace("\n", "\n  ")
-
-                header = f"[{i + 1}] {event_time_str} - {event_type.upper()} - {event_level.upper()}"
-                logs_lines.append(f"{header}\n  {message}{details}")
-
-            log_content = "\n\n".join(logs_lines)
-            
-            # Write to log file
-            log_file_path = os.path.join(logs_dir, f"{review_id}.log")
-            with open(log_file_path, "w", encoding="utf-8") as f:
-                f.write(log_content)
-            print(f"  [✓] Wrote logs to {log_file_path}")
-            
             if start_time and first_comment_time:
-                return (first_comment_time - start_time).total_seconds()
-            return None
+                return events, (first_comment_time - start_time).total_seconds()
+            return events, None
     except Exception as e:
-        print(f"  [-] Failed to fetch/save events for review {review_id}: {e}", file=sys.stderr)
-        return None
+        print(f"  [-] Failed to fetch events for review {review_id}: {e}", file=sys.stderr)
+        return [], None

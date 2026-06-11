@@ -12,3 +12,8 @@ dependencies = [
     "urllib3>=2.6.3",
     "werkzeug>=3.1.6",
 ]
+
+[tool.uv.workspace]
+members = [
+    "tests/load_test",
+]
