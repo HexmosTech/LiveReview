@@ -245,14 +245,6 @@ func (h *AuthHandlers) Logout(c echo.Context) error {
 // Me returns information about the currently authenticated user
 func (h *AuthHandlers) Me(c echo.Context) error {
 	// Get user from context (set by middleware)
-
-	headers := make(map[string]string)
-    for k, v := range c.Request().Header {
-        headers[k] = strings.Join(v, ",")
-    }
-    
-    log.Printf("=== DEBUG HEADERS from MCP call ===\n%+v", headers)
-	
 	user, ok := c.Get("user").(*models.User)
 	if !ok {
 		return c.JSON(http.StatusUnauthorized, map[string]string{

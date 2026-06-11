@@ -531,10 +531,6 @@ func (s *Server) setupRoutes() {
 	public.GET("/auth/setup-status", s.authHandlers.CheckSetupStatus)
 	public.POST("/auth/setup", s.authHandlers.SetupAdmin)
 
-	// MCP Authorization endpoints
-	public.POST("/auth/mcp/initiate", s.authHandlers.InitiateMCPAuth)
-	public.GET("/auth/mcp/poll/:request_id", s.authHandlers.PollMCPAuth)
-
 	// Diff review endpoints (protected by API key middleware)
 	diffReviewGroup := v1.Group("/diff-review")
 	diffReviewGroup.Use(APIKeyAuthMiddleware(s.db))
@@ -585,9 +581,6 @@ func (s *Server) setupRoutes() {
 	protected.GET("/auth/me", s.authHandlers.Me)
 	protected.POST("/auth/logout", s.authHandlers.Logout)
 	protected.POST("/auth/change-password", s.authHandlers.ChangePassword)
-
-	// MCP Authorization completion
-	protected.POST("/auth/mcp/complete", s.authHandlers.CompleteMCPAuth)
 
 	// Clear onboarding API key
 	protected.POST("/onboarding/clear-api-key", s.ClearOnboardingAPIKey)
