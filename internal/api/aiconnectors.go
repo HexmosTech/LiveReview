@@ -152,6 +152,12 @@ func (s *Server) CreateAIConnector(c echo.Context) error {
 		})
 	}
 
+	if req.ProviderName == "atlas" && !s.deploymentConfig.AtlasEnabled {
+		return c.JSON(http.StatusBadRequest, map[string]string{
+			"error": "Atlas Cloud provider is disabled",
+		})
+	}
+
 	// API key is optional for Ollama, required for other providers
 	if req.APIKey == "" && req.ProviderName != "ollama" {
 		return c.JSON(http.StatusBadRequest, map[string]string{

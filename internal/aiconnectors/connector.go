@@ -35,6 +35,7 @@ const (
 	ProviderCohere              Provider = "cohere"
 	ProviderOllama              Provider = "ollama"
 	ProviderOpenRouter          Provider = "openrouter"
+	ProviderAtlas               Provider = "atlas"
 	ProviderLocalModel          Provider = "local"
 )
 
@@ -88,6 +89,8 @@ func NewConnector(ctx context.Context, options ConnectorOptions) (*Connector, er
 		model, err = createOllamaModel(ctx, options)
 	case ProviderOpenRouter:
 		model, err = createOpenRouterModel(ctx, options)
+	case ProviderAtlas:
+		model, err = createAtlasModel(ctx, options)
 	default:
 		return nil, fmt.Errorf("unsupported provider: %s", options.Provider)
 	}
@@ -482,6 +485,51 @@ func (t *openRouterLoggingTransport) RoundTrip(req *http.Request) (*http.Respons
 	return resp, err
 }
 
+func createAtlasModel(ctx context.Context, options ConnectorOptions) (llms.Model, error) {
+	baseURL := ResolveBaseURL(ProviderAtlas, options.BaseURL)
+
+	httpClient := networkaiconnectors.NewHTTPClient(5 * time.Minute)
+	httpClient.Transport = &atlasLoggingTransport{base: http.DefaultTransport}
+
+	opts := []openai.Option{
+		openai.WithModel(options.ModelConfig.Model),
+		openai.WithToken(options.APIKey),
+		openai.WithBaseURL(baseURL),
+		openai.WithHTTPClient(httpClient),
+	}
+
+	return openai.New(opts...)
+}
+
+type atlasLoggingTransport struct {
+	base http.RoundTripper
+}
+
+func (t *atlasLoggingTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	if t.base == nil {
+		t.base = http.DefaultTransport
+	}
+
+	resp, err := t.base.RoundTrip(req)
+	if err != nil {
+		log.Error().Err(err).Msg("Atlas Cloud request failed before response")
+		return resp, err
+	}
+
+	if resp != nil && resp.StatusCode >= 400 {
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, 8192))
+		resp.Body.Close()
+		resp.Body = io.NopCloser(bytes.NewBuffer(body))
+		log.Error().
+			Str("url", req.URL.String()).
+			Int("status", resp.StatusCode).
+			Str("body", truncateString(string(body), 1200)).
+			Msg("Atlas Cloud HTTP error")
+	}
+
+	return resp, err
+}
+
 // Call calls the LLM with the given input and returns the response
 func (c *Connector) Call(ctx context.Context, input string, options ...llms.CallOption) (string, error) {
 	log.Debug().
@@ -546,7 +594,7 @@ func (c *Connector) Call(ctx context.Context, input string, options ...llms.Call
 
 func isCloudProviderProvider(provider Provider) bool {
 	switch provider {
-	case ProviderOpenAI, ProviderDeepSeek, ProviderGemini, ProviderClaude, ProviderAnthropicCompatible, ProviderOpenRouter:
+	case ProviderOpenAI, ProviderDeepSeek, ProviderGemini, ProviderClaude, ProviderAnthropicCompatible, ProviderOpenRouter, ProviderAtlas:
 		return true
 	default:
 		return false

@@ -80,6 +80,15 @@ const popularAIProviders: AIProvider[] = [
         apiKeyPlaceholder: 'sk-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx'
     },
     {
+        id: 'atlas',
+        name: 'Atlas Cloud',
+        url: 'https://atlascloud.ai/',
+        description: 'OpenAI-compatible AI cloud engine. Choose from a selection of models including DeepSeek.',
+        icon: <Icons.AI />,
+        apiKeyPlaceholder: 'ac_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx',
+        baseURLPlaceholder: 'https://api.atlascloud.ai/v1'
+    },
+    {
         id: 'claude',
         name: 'Anthropic Claude',
         url: 'https://www.anthropic.com/',
@@ -121,16 +130,44 @@ const AIProviders: React.FC = () => {
         generateFriendlyName
     } = useFormState();
 
-    // Local state
-    const [isSaved, setIsSaved] = useState(false);
-    const [showDropdown, setShowDropdown] = useState(false);
-    const dropdownRef = useRef<HTMLDivElement>(null);
+	// Local state
+	const [isSaved, setIsSaved] = useState(false);
+	const [showDropdown, setShowDropdown] = useState(false);
+	const dropdownRef = useRef<HTMLDivElement>(null);
+	const [isAtlasEnabled, setIsAtlasEnabled] = useState(true);
 
-    const getDefaultModelFor = (providerId?: string) => {
-        if (!providerId) return '';
-        const meta = popularAIProviders.find(p => p.id === providerId);
-        return meta?.defaultModel || '';
-    };
+	useEffect(() => {
+		const fetchUIConfig = async () => {
+			try {
+				const response = await fetch('/api/v1/ui-config');
+				if (response.ok) {
+					const data = await response.json();
+					if (data.isAtlasEnabled !== undefined) {
+						setIsAtlasEnabled(data.isAtlasEnabled);
+					}
+				}
+			} catch (err) {
+				console.error('Failed to fetch UI config:', err);
+			}
+		};
+		fetchUIConfig();
+	}, []);
+
+	const filteredProviders = React.useMemo(() => {
+		return popularAIProviders.filter(
+			(p) =>
+				p.id !== 'atlas' ||
+				isAtlasEnabled ||
+				selectedProvider === 'atlas' ||
+				formData.providerType === 'atlas'
+		);
+	}, [isAtlasEnabled, selectedProvider, formData.providerType]);
+
+	const getDefaultModelFor = (providerId?: string) => {
+		if (!providerId) return '';
+		const meta = popularAIProviders.find((p) => p.id === providerId);
+		return meta?.defaultModel || '';
+	};
 
     // Calculate provider connector counts
     const connectorCounts = connectors.reduce((counts: Record<string, number>, connector) => {
@@ -342,7 +379,7 @@ const AIProviders: React.FC = () => {
                 <div className="lg:col-span-1">
                     <Card title="AI Providers">
                         <ProvidersList
-                            providers={popularAIProviders}
+                            providers={filteredProviders}
                             selectedProvider={selectedProvider}
                             connectorCounts={connectorCounts}
                             onSelectProvider={handleSelectProvider}
@@ -389,7 +426,7 @@ const AIProviders: React.FC = () => {
                                 ) : (
                                     /* Regular form for other providers */
                                     <ConnectorForm
-                                        providers={popularAIProviders}
+                                        providers={filteredProviders}
                                         selectedProvider={selectedProvider}
                                         formData={formData}
                                         isEditing={isEditing}
@@ -411,7 +448,7 @@ const AIProviders: React.FC = () => {
                         {/* Connectors List */}
                         <ConnectorsList
                             connectors={connectors}
-                            providers={popularAIProviders}
+                            providers={filteredProviders}
                             selectedProvider={selectedProvider}
                             isLoading={isLoading}
                             error={error}
