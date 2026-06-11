@@ -2,7 +2,6 @@ name: MCP Integration Test
 
 on:
   workflow_dispatch: {}
-  pull_request:
   push:
     branches:
       - main
