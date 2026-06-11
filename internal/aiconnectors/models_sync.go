@@ -69,12 +69,19 @@ var defaultProviderModels = map[string]string{
 	"atlas":      "deepseek-ai/deepseek-v4-flash",
 }
 
-// RunOpenRouterModelSyncScheduler starts the dynamic model catalog sync scheduler
-func RunOpenRouterModelSyncScheduler(ctx context.Context, db *sql.DB, interval time.Duration) {
-	// Initial sync immediately on boot
-	if err := SyncOpenRouterModels(ctx, db); err != nil {
-		log.Error().Err(err).Msg("OpenRouter models sync failed")
+// RunAIModelSyncScheduler starts the dynamic model catalog sync scheduler for all dynamic providers
+func RunAIModelSyncScheduler(ctx context.Context, db *sql.DB, interval time.Duration) {
+	runSyncs := func() {
+		if err := SyncOpenRouterModels(ctx, db); err != nil {
+			log.Error().Err(err).Msg("OpenRouter models sync failed")
+		}
+		if err := SyncAtlasModels(ctx, db); err != nil {
+			log.Error().Err(err).Msg("Atlas Cloud models sync failed")
+		}
 	}
+
+	// Initial sync immediately on boot
+	runSyncs()
 
 	ticker := time.NewTicker(interval)
 	go func() {
@@ -84,9 +91,7 @@ func RunOpenRouterModelSyncScheduler(ctx context.Context, db *sql.DB, interval t
 			case <-ctx.Done():
 				return
 			case <-ticker.C:
-				if err := SyncOpenRouterModels(ctx, db); err != nil {
-					log.Error().Err(err).Msg("OpenRouter models sync failed")
-				}
+				runSyncs()
 			}
 		}
 	}()
@@ -295,28 +300,7 @@ type AtlasResponse struct {
 	Data []AtlasModel `json:"data"`
 }
 
-// RunAtlasModelSyncScheduler starts the dynamic model catalog sync scheduler for Atlas Cloud
-func RunAtlasModelSyncScheduler(ctx context.Context, db *sql.DB, interval time.Duration) {
-	// Initial sync immediately on boot
-	if err := SyncAtlasModels(ctx, db); err != nil {
-		log.Error().Err(err).Msg("Atlas Cloud models sync failed")
-	}
 
-	ticker := time.NewTicker(interval)
-	go func() {
-		defer ticker.Stop()
-		for {
-			select {
-			case <-ctx.Done():
-				return
-			case <-ticker.C:
-				if err := SyncAtlasModels(ctx, db); err != nil {
-					log.Error().Err(err).Msg("Atlas Cloud models sync failed")
-				}
-			}
-		}
-	}()
-}
 
 // SyncAtlasModels fetches the latest models from Atlas Cloud and upserts them
 func SyncAtlasModels(ctx context.Context, db *sql.DB) error {
