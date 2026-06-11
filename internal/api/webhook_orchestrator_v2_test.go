@@ -138,7 +138,7 @@ func TestOrchestratorConfiguration(t *testing.T) {
 	// Test default configuration
 	stats := orchestrator.GetProcessingStats()
 	assert.Equal(t, 30, stats["processing_timeout_sec"])
-	assert.Equal(t, 3, stats["providers_registered"])
+	assert.Equal(t, 4, stats["providers_registered"])
 
 	providerNames := stats["provider_names"].([]string)
 	assert.Contains(t, providerNames, "gitlab")

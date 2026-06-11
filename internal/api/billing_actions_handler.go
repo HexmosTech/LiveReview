@@ -1343,6 +1343,11 @@ func (h *BillingActionsHandler) GetBillingStatus(c echo.Context) error {
 	if err != nil {
 		return JSONErrorWithEnvelope(c, http.StatusInternalServerError, fmt.Sprintf("failed to fetch billing state: %v", err))
 	}
+
+	// Override plan code from context (especially important for self-hosted dynamic plans)
+	if ctxPlan, ok := c.Get("plan_type").(string); ok && ctxPlan != "" {
+		state.CurrentPlanCode = ctxPlan
+	}
 	now := time.Now().UTC()
 	trialActive := false
 	if state.TrialEndsAt.Valid {

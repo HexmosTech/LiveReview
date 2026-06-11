@@ -538,17 +538,40 @@ build-with-ui:
 # Define API source files for spec generation
 API_SPEC_INPUTS := typed.yaml $(shell find internal/api pkg/models -name "*.go" | grep -v "internal/api/docs/spec.go")
 
-# -------------------------------------------------------------------
-# OpenAPI Spec Generation
-# -------------------------------------------------------------------
 
+# Typed configuration
+TYPED_VERSION=latest
+TYPED_BIN_DIR=$(shell go env GOBIN)
+ifeq ($(TYPED_BIN_DIR),)
+TYPED_BIN_DIR=$(shell go env GOPATH)/bin
+endif
 
-docs/openapi.yaml internal/api/docs/spec.go: $(API_SPEC_INPUTS)
+typed-install:
+	@PATH="$(TYPED_BIN_DIR):$$PATH" command -v typed >/dev/null 2>&1 || { \
+		echo "⚙️  'typed' not found."; \
+		echo "   Installing the OpenAPI spec generation tool used to generate docs/openapi.yaml..."; \
+		GOTOOLCHAIN=go$(REQUIRED_GO_VERSION) go install github.com/d1vbyz3r0/typed/cmd/typed@$(TYPED_VERSION) || exit 1; \
+		echo "✅ typed installed successfully."; \
+	}
+
+	@PATH="$(TYPED_BIN_DIR):$$PATH" typed --help >/dev/null 2>&1 || { \
+		echo "❌ Unable to access 'typed'."; \
+		echo "   'typed' is required to generate the OpenAPI specification (docs/openapi.yaml)."; \
+		echo "   Please install it manually using the official installation commands:"; \
+		echo ""; \
+		echo "   go install github.com/d1vbyz3r0/typed/cmd/typed@latest"; \
+		echo "   go get github.com/d1vbyz3r0/typed@latest"; \
+		echo ""; \
+		exit 1; \
+	}
+
+docs/openapi.yaml internal/api/docs/spec.go: $(API_SPEC_INPUTS) typed-install
 	@echo "🔄 Generating API specification..."
 	@mkdir -p docs internal/api/docs
 	@chmod 755 docs internal/api/docs
-	@typed -config typed.yaml > /tmp/lr_typed_build.log 2>&1 || (echo "❌ Typed generation failed. Logs:" && cat /tmp/lr_typed_build.log && exit 1)
+	@PATH="$(TYPED_BIN_DIR):$$PATH" typed -config typed.yaml > /tmp/lr_typed_build.log 2>&1 || (echo "❌ Typed generation failed. Logs:" && cat /tmp/lr_typed_build.log && exit 1)
 	@go run internal/api/docs/spec.go > /tmp/lr_spec_build.log 2>&1 || (echo "❌ OpenAPI spec generation failed. Logs:" && cat /tmp/lr_spec_build.log && exit 1)
+
 
 generate-spec: docs/openapi.yaml
 

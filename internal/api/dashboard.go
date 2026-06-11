@@ -301,8 +301,6 @@ func (dm *DashboardManager) runRefreshCycle(ctx context.Context, trigger string)
 func (dm *DashboardManager) Start() {
 	dm.logMinimalf("[dashboard] manager started instance=%s log_level=%s", dm.instance, dm.logLevel.String())
 
-	// Run the initial startup refresh in the background so it does not block
-	// the HTTP server from starting up.
 	go func() {
 		if dm.canRunPeriodicAllOrgRefresh(dm.ctx, dashboardTriggerStartup) {
 			if err := dm.runRefreshCycle(dm.ctx, dashboardTriggerStartup); err != nil {

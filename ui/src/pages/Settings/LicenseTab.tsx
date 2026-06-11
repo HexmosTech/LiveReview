@@ -77,7 +77,8 @@ const LicenseTab: React.FC = () => {
           >
             Overview
           </button>
-          <button
+          {/* Commented out seat management */}
+          {/* <button
             onClick={() => handleTabChange('assignments')}
             className={`px-4 py-3 text-sm font-medium transition-colors ${
               activeTab === 'assignments'
@@ -91,7 +92,7 @@ const LicenseTab: React.FC = () => {
                 ({license.assignedSeats}/{license.seatCount})
               </span>
             )}
-          </button>
+          </button> */}
         </div>
       </div>
 
