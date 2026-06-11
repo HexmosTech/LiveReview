@@ -205,10 +205,16 @@ const LicenseUpgradeDialog: React.FC<LicenseUpgradeDialogProps> = ({
               </button>
               <a
                 href="#/settings-subscriptions-overview"
+                onClick={onClose}
                 className="px-5 py-2.5 text-sm font-medium rounded-lg bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-500 hover:to-purple-500 text-white transition-all shadow-lg hover:shadow-xl hover:shadow-purple-500/25 flex items-center gap-2"
               >
                 <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M13 10V3L4 14h7v7l9-11h-7z"
+                  />
                 </svg>
                 Upgrade Plan
               </a>

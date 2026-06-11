@@ -7,6 +7,7 @@ import { useSystemInfo } from '../../hooks/useSystemInfo';
 import { useOrgContext } from '../../hooks/useOrgContext';
 import { isCloudMode } from '../../utils/deploymentMode';
 import apiClient from '../../api/apiClient';
+import { useAppSelector } from '../../store/configureStore';
 
 type NavbarBillingStatusResponse = {
     billing: {
@@ -31,9 +32,15 @@ type NavbarBillingStatusResponse = {
 };
 
 type NavbarQuotaStatusResponse = {
+    plan_type?: string;
     envelope?: {
         usage_pct?: number;
         blocked?: boolean;
+        loc_used_month?: number;
+        loc_limit_month?: number;
+        billing_period_end?: string;
+        reset_at?: string;
+        plan_code?: string;
     };
 };
 
@@ -70,6 +77,19 @@ const planLabel = (planCode: string): string => {
     if (normalized === 'loc_1600k') return 'Team 1.6M';
     if (normalized === 'loc_3200k') return 'Team 3.2M';
     return planCode || 'Plan';
+};
+
+const normalizePlanCode = (planCode?: string | null): string => {
+    return String(planCode || '').trim().toLowerCase();
+};
+
+const isFreeLOCPlan = (planCode?: string | null): boolean => {
+    const normalized = normalizePlanCode(planCode);
+    return normalized === 'free' || normalized === 'free_30k';
+};
+
+const isLicensedSelfHostedStatus = (status?: string): boolean => {
+    return ['active', 'warning', 'grace'].includes(normalizePlanCode(status));
 };
 
 const formatResetAt = (value?: string): string => {
@@ -113,6 +133,7 @@ const formatTrialEndsAt = (value?: string | null): string => {
 const BillingChip: React.FC = () => {
     const navigate = useNavigate();
     const { currentOrg, isSuperAdmin } = useOrgContext();
+    const license = useAppSelector((state) => state.License);
     const [loading, setLoading] = useState(false);
     const [isOpen, setIsOpen] = useState(false);
     const closeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -140,7 +161,11 @@ const BillingChip: React.FC = () => {
     } | null>(null);
 
     useEffect(() => {
-        if (!isCloudMode() || !currentOrg?.id) {
+        if (!currentOrg?.id) {
+            setChip(null);
+            return;
+        }
+        if (!isCloudMode() && license.loadedOnce && isLicensedSelfHostedStatus(license.status)) {
             setChip(null);
             return;
         }
@@ -150,6 +175,62 @@ const BillingChip: React.FC = () => {
             setLoading(true);
             try {
                 const canViewTeamBreakdown = isSuperAdmin || ['owner', 'admin', 'super_admin'].includes(String(currentOrg?.role || '').toLowerCase());
+
+                if (!isCloudMode()) {
+                    if (license.loadedOnce && isLicensedSelfHostedStatus(license.status)) {
+                        setChip(null);
+                        return;
+                    }
+
+                    const [quota, myUsage] = await Promise.all([
+                        apiClient.get<NavbarQuotaStatusResponse>('/quota/status').catch((): null => null),
+                        apiClient.get<NavbarMyUsageResponse>('/billing/usage/me').catch((): null => null),
+                    ]);
+
+                    if (cancelled) return;
+
+                    if (!quota?.envelope) {
+                        setChip(null);
+                        return;
+                    }
+
+                    const planCode = license.loadedOnce && ['missing', 'invalid', 'expired'].includes(license.status)
+                        ? 'free_30k'
+                        : quota.envelope.plan_code || quota.plan_type || currentOrg?.plan_type || '';
+                    const locLimit = quota.envelope.loc_limit_month ?? 30000;
+
+                    if (!isFreeLOCPlan(planCode) && locLimit !== 30000) {
+                        setChip(null);
+                        return;
+                    }
+
+                    const locUsed = quota.envelope.loc_used_month ?? 0;
+                    const usagePct = locLimit > 0 ? Math.min(100, Math.round((locUsed * 100) / locLimit)) : 0;
+                    setChip({
+                        planCode: 'free_30k',
+                        usagePct,
+                        customerState: 'none',
+                        blocked: Boolean(quota.envelope.blocked),
+                        locUsed,
+                        locLimit,
+                        resetAt: quota.envelope.billing_period_end ?? quota.envelope.reset_at ?? '',
+                        myUsageLoc: Number(myUsage?.member?.total_billable_loc || 0),
+                        myOperationCount: Number(myUsage?.member?.operation_count || 0),
+                        mySharePct: Number(myUsage?.member?.usage_share_percent || 0),
+                        topMembers: [],
+                        canViewTeamBreakdown: false,
+                        trialActive: false,
+                        trialEndsAt: '',
+                        trialDaysLeft: null,
+                        trialCanCancel: false,
+                        trialEligibleForFirstPaidPurchase: false,
+                        trialEligibilityStatus: 'unknown',
+                        trialPolicyDays: 7,
+                        isFreePlan: true,
+                    });
+                    return;
+                }
+
                 const [billing, quota, upgrade, myUsage, teamUsage] = await Promise.all([
                     apiClient.get<NavbarBillingStatusResponse>('/billing/status'),
                     apiClient.get<NavbarQuotaStatusResponse>('/quota/status').catch((): null => null),
@@ -160,11 +241,19 @@ const BillingChip: React.FC = () => {
                         : Promise.resolve(null),
                 ]);
 
-                if (cancelled || !billing?.billing) return;
+                if (cancelled) return;
+
+                if (!billing?.billing) {
+                    setChip(null);
+                    return;
+                }
+
                 const planCode = billing.billing.current_plan_code || 'free_30k';
-                const plan = (billing.available_plans || []).find((item) => item.plan_code === planCode);
-                const locUsed = Number(billing.billing.loc_used_month || 0);
-                const locLimit = Number(plan?.monthly_loc_limit || 0);
+                const availablePlans: NavbarBillingStatusResponse['available_plans'] = billing.available_plans || [];
+                const plan = availablePlans.find((item) => item.plan_code === planCode);
+                const locUsed = Number(billing.billing.loc_used_month || quota?.envelope?.loc_used_month || 0);
+                const locLimit = Number(plan?.monthly_loc_limit || quota?.envelope?.loc_limit_month || 0);
+
                 const fallbackPct = plan && plan.monthly_loc_limit > 0
                     ? Math.min(100, Math.round((locUsed * 100) / Number(plan.monthly_loc_limit || 1)))
                     : 0;
@@ -177,7 +266,7 @@ const BillingChip: React.FC = () => {
                         share: Number(member.usage_share_percent || 0),
                         kind: String(member.actor_kind || 'unknown').trim(),
                     }));
-                const trialPolicyDays = (billing.available_plans || []).reduce((max, item) => {
+                const trialPolicyDays = availablePlans.reduce((max: number, item) => {
                     const trialDays = Number(item.trial_days || 0);
                     if (trialDays <= 0) {
                         return max;
@@ -225,7 +314,7 @@ const BillingChip: React.FC = () => {
                 closeTimerRef.current = null;
             }
         };
-    }, [currentOrg?.id]);
+    }, [currentOrg?.id, currentOrg?.plan_type, license.loadedOnce, license.status]);
 
     const openPopup = () => {
         if (closeTimerRef.current) {
@@ -245,7 +334,7 @@ const BillingChip: React.FC = () => {
         }, 220);
     };
 
-    if (!isCloudMode() || !currentOrg?.id) return null;
+    if (!currentOrg?.id || (!isCloudMode() && !chip)) return null;
 
     const toneClass = chip?.blocked || chip?.customerState === 'action_needed' || chip?.customerState === 'payment_failed'
         ? 'bg-red-900/35 border-red-500/50 text-red-100 hover:bg-red-900/50'
@@ -254,7 +343,7 @@ const BillingChip: React.FC = () => {
         : chip && chip.usagePct >= 80
             ? 'bg-amber-900/35 border-amber-500/50 text-amber-100 hover:bg-amber-900/50'
             : 'bg-emerald-900/25 border-emerald-500/40 text-emerald-100 hover:bg-emerald-900/40';
-    const showFirstPaidTrialBadge = Boolean(chip && !chip.trialActive && chip.isFreePlan && chip.trialPolicyDays > 0);
+    const showFirstPaidTrialBadge = isCloudMode() && Boolean(chip && !chip.trialActive && chip.isFreePlan && chip.trialPolicyDays > 0);
     const firstPaidTrialBadgeText = chip?.trialEligibleForFirstPaidPurchase
         ? `Free ${chip.trialPolicyDays}-Day Trial Included`
         : chip?.trialEligibilityStatus === 'already_used'
@@ -275,10 +364,11 @@ const BillingChip: React.FC = () => {
             onMouseLeave={closePopupSoon}
         >
             <button
-                onClick={() => navigate('/settings-subscriptions-overview')}
+                onClick={() => { if (isCloudMode()) navigate('/settings-subscriptions-overview') }}
                 className={classNames(
                     'px-3 py-2 rounded-lg border text-xs font-semibold transition-colors',
                     toneClass,
+                    isCloudMode() ? 'cursor-pointer' : 'cursor-default'
                 )}
                 title="Open billing and usage details"
                 onFocus={openPopup}
@@ -317,12 +407,14 @@ const BillingChip: React.FC = () => {
                                 You've used {chip.locUsed.toLocaleString()} of {chip.locLimit > 0 ? chip.locLimit.toLocaleString() : 'N/A'} LOC. Reviews are blocked until quota resets.
                             </p>
                             <div className="mt-2 flex items-center gap-2">
-                                <button
-                                    onClick={(e) => { e.stopPropagation(); navigate('/settings-subscriptions-overview'); }}
-                                    className="flex-1 py-1 bg-red-600 hover:bg-red-500 rounded text-red-50 font-semibold transition-colors"
-                                >
-                                    Upgrade Now
-                                </button>
+                                {isCloudMode() && (
+                                    <button
+                                        onClick={(e) => { e.stopPropagation(); navigate('/settings-subscriptions-overview'); }}
+                                        className="flex-1 py-1 bg-red-600 hover:bg-red-500 rounded text-red-50 font-semibold transition-colors"
+                                    >
+                                        Upgrade Now
+                                    </button>
+                                )}
                                 {showFirstPaidTrialBadge && (
                                     <span className={`inline-flex items-center rounded border px-2 py-1 text-[10px] font-semibold uppercase tracking-wide ${firstPaidTrialBadgeClass}`}>
                                         {firstPaidTrialBadgeText}
@@ -338,12 +430,14 @@ const BillingChip: React.FC = () => {
                                 You've used {chip.locUsed.toLocaleString()} of {chip.locLimit > 0 ? chip.locLimit.toLocaleString() : 'N/A'} LOC ({chip.usagePct}%). Please upgrade to continue.
                             </p>
                             <div className="mt-1 flex items-center gap-2">
-                                <button
-                                    onClick={(e) => { e.stopPropagation(); navigate('/settings-subscriptions-overview'); }}
-                                    className="flex-1 py-1 bg-amber-600 hover:bg-amber-500 rounded text-amber-50 font-semibold transition-colors"
-                                >
-                                    Upgrade Plan
-                                </button>
+                                {isCloudMode() && (
+                                    <button
+                                        onClick={(e) => { e.stopPropagation(); navigate('/settings-subscriptions-overview'); }}
+                                        className="flex-1 py-1 bg-amber-600 hover:bg-amber-500 rounded text-amber-50 font-semibold transition-colors"
+                                    >
+                                        Upgrade Plan
+                                    </button>
+                                )}
                                 {showFirstPaidTrialBadge && (
                                     <span className={`inline-flex items-center rounded border px-2 py-1 text-[10px] font-semibold uppercase tracking-wide ${firstPaidTrialBadgeClass}`}>
                                         {firstPaidTrialBadgeText}
@@ -359,12 +453,14 @@ const BillingChip: React.FC = () => {
                                 You've used {chip.locUsed.toLocaleString()} of {chip.locLimit > 0 ? chip.locLimit.toLocaleString() : 'N/A'} LOC ({chip.usagePct}%). Upgrade to avoid interruption.
                             </p>
                             <div className="mt-1 flex items-center gap-2">
-                                <button
-                                    onClick={(e) => { e.stopPropagation(); navigate('/settings-subscriptions-overview'); }}
-                                    className="flex-1 py-1 bg-amber-600 hover:bg-amber-500 rounded text-amber-50 font-semibold transition-colors"
-                                >
-                                    Upgrade Plan
-                                </button>
+                                {isCloudMode() && (
+                                    <button
+                                        onClick={(e) => { e.stopPropagation(); navigate('/settings-subscriptions-overview'); }}
+                                        className="flex-1 py-1 bg-amber-600 hover:bg-amber-500 rounded text-amber-50 font-semibold transition-colors"
+                                    >
+                                        Upgrade Plan
+                                    </button>
+                                )}
                                 {showFirstPaidTrialBadge && (
                                     <span className={`inline-flex items-center rounded border px-2 py-1 text-[10px] font-semibold uppercase tracking-wide ${firstPaidTrialBadgeClass}`}>
                                         {firstPaidTrialBadgeText}
@@ -418,12 +514,14 @@ const BillingChip: React.FC = () => {
                     )}
                     {!chip.blocked && chip.usagePct < 90 && (
                         <div className="mt-3 flex items-center gap-2">
-                            <button
-                                onClick={(e) => { e.stopPropagation(); navigate('/settings-subscriptions-overview'); }}
-                                className="flex-1 py-1.5 bg-blue-600 hover:bg-blue-500 rounded text-white text-xs font-semibold transition-colors shadow-sm"
-                            >
-                                Upgrade Plan
-                            </button>
+                            {isCloudMode() && (
+                                <button
+                                    onClick={(e) => { e.stopPropagation(); navigate('/settings-subscriptions-overview'); }}
+                                    className="flex-1 py-1.5 bg-blue-600 hover:bg-blue-500 rounded text-white text-xs font-semibold transition-colors shadow-sm"
+                                >
+                                    Upgrade Plan
+                                </button>
+                            )}
                             {showFirstPaidTrialBadge && (
                                 <span className={`inline-flex items-center rounded border px-2 py-1 text-[10px] font-semibold uppercase tracking-wide ${firstPaidTrialBadgeClass}`}>
                                     {firstPaidTrialBadgeText}

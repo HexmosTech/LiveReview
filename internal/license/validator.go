@@ -48,7 +48,7 @@ func ValidateOfflineJWT(tokenStr string, pub *ParsedPublicKey) (jwt.MapClaims, e
 	if expRaw, ok := claims["exp"]; ok {
 		switch v := expRaw.(type) {
 		case float64:
-			if time.Unix(int64(v), 0).Before(time.Now()) {
+			if time.Unix(int64(v), 0).Before(licenseNow()) {
 				return nil, ErrLicenseExpired
 			}
 		}

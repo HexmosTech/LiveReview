@@ -7,8 +7,8 @@ import (
 	"time"
 
 	"github.com/labstack/echo/v4"
-	"github.com/livereview/internal/api/auth"
 	"github.com/livereview/internal/license"
+	"github.com/livereview/pkg/models"
 )
 
 // seatCountCache caches the active user count to avoid excessive DB queries
@@ -155,8 +155,7 @@ func EnforceSelfHostedLicense(db *sql.DB, licenseService *license.Service) echo.
 				return next(c)
 			}
 
-			// Get JWT claims from context (set by auth middleware)
-			claims, ok := c.Get("claims").(*auth.JWTClaims)
+			userID, ok := selfHostedLicenseUserID(c)
 			if !ok {
 				return echo.NewHTTPError(http.StatusUnauthorized, "Invalid or missing authentication")
 			}
@@ -167,26 +166,13 @@ func EnforceSelfHostedLicense(db *sql.DB, licenseService *license.Service) echo.
 				return echo.NewHTTPError(http.StatusInternalServerError, "Failed to validate license")
 			}
 
-			// Block if license is missing, expired, or invalid
-			if state.Status == "missing" {
-				return echo.NewHTTPError(http.StatusPaymentRequired,
-					"No license found. Please enter a valid license to continue.")
-			}
-
-			if state.Status == "expired" {
-				return echo.NewHTTPError(http.StatusPaymentRequired,
-					"Your license has expired. Please renew to continue using LiveReview.")
-			}
-
-			if state.Status == "invalid" {
-				return echo.NewHTTPError(http.StatusPaymentRequired,
-					"Your license is invalid. Please enter a valid license.")
-			}
-
-			// Check seat count limit (only if license has seat limit)
-			if !state.Unlimited && state.SeatCount != nil && *state.SeatCount > 0 {
+			// Only check seat count limit if the license is active/valid
+			// Unlicensed/expired/invalid users will fall back to free plan (1 seat)
+			if !state.IsTerminal() && !state.IsMissing() {
+				// Check seat count limit (only if license has seat limit)
+				if !state.Unlimited && state.SeatCount != nil && *state.SeatCount > 0 {
 				// Check if user is admin/owner - they bypass seat limits and assignment requirements
-				isAdmin, err := isAdminOrOwner(db, claims.UserID)
+				isAdmin, err := isAdminOrOwner(db, userID)
 				if err != nil {
 					// Log error but don't block - fail open for admin check
 					c.Logger().Errorf("Failed to check admin status: %v", err)
@@ -194,7 +180,7 @@ func EnforceSelfHostedLicense(db *sql.DB, licenseService *license.Service) echo.
 
 				if !isAdmin {
 					// Check if user has an assigned seat
-					hasAssignment, err := seatAssignCache.hasAssignedSeat(db, claims.UserID)
+					hasAssignment, err := seatAssignCache.hasAssignedSeat(db, userID)
 					if err != nil {
 						c.Logger().Errorf("Failed to check seat assignment: %v", err)
 						return echo.NewHTTPError(http.StatusInternalServerError,
@@ -221,10 +207,28 @@ func EnforceSelfHostedLicense(db *sql.DB, licenseService *license.Service) echo.
 					}
 				}
 			}
+			}
 
 			return next(c)
 		}
 	}
+}
+
+func selfHostedLicenseUserID(c echo.Context) (int64, bool) {
+	if user, ok := c.Get("user").(*models.User); ok && user != nil && user.ID > 0 {
+		return user.ID, true
+	}
+
+	switch value := c.Get("user_id").(type) {
+	case int64:
+		return value, value > 0
+	case int:
+		return int64(value), value > 0
+	case float64:
+		return int64(value), value > 0
+	}
+
+	return 0, false
 }
 
 // GetActiveUserCount returns the cached count of active users.

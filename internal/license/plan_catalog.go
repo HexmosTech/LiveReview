@@ -123,6 +123,17 @@ func DefaultPlanCatalog() PlanCatalog {
 				TrialPolicy:        PlanTrialPolicy{Enabled: true, Days: 7},
 				EnvelopeVisibility: PlanEnvelopeVisibility{ShowPrice: true},
 			},
+			{
+				Code:               PlanEnterprise,
+				DisplayName:        "Enterprise",
+				Active:             true,
+				Rank:               70,
+				MonthlyPriceUSD:    0,
+				MonthlyLOCLimit:    -1,
+				FeatureFlags:       []string{"hosted_auto_model", "usage_envelope_v1", "byok_optional"},
+				TrialPolicy:        PlanTrialPolicy{Enabled: false, Days: 0},
+				EnvelopeVisibility: PlanEnvelopeVisibility{ShowPrice: false},
+			},
 		},
 	}
 }
@@ -169,8 +180,11 @@ func ValidatePlanCatalog(catalog PlanCatalog) error {
 		if plan.MonthlyPriceUSD < 0 {
 			return fmt.Errorf("monthly price must be >= 0 for plan: %s", plan.Code)
 		}
-		if plan.MonthlyLOCLimit < 0 {
-			return fmt.Errorf("monthly LOC limit must be >= 0 for plan: %s", plan.Code)
+		if plan.MonthlyLOCLimit < -1 {
+			return fmt.Errorf("monthly LOC limit must be >= -1 for plan: %s", plan.Code)
+		}
+		if plan.MonthlyLOCLimit == -1 && plan.Code != PlanEnterprise {
+			return fmt.Errorf("monthly LOC limit may only be unlimited (-1) for enterprise plan: %s", plan.Code)
 		}
 		if plan.Rank < 0 {
 			return fmt.Errorf("rank must be >= 0 for plan: %s", plan.Code)
