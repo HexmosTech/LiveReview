@@ -80,6 +80,15 @@ const popularAIProviders: AIProvider[] = [
         apiKeyPlaceholder: 'sk-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx'
     },
     {
+        id: 'atlas',
+        name: 'Atlas Cloud',
+        url: 'https://atlascloud.ai/',
+        description: 'OpenAI-compatible AI cloud engine. Choose from a selection of models including DeepSeek.',
+        icon: <Icons.AI />,
+        apiKeyPlaceholder: 'ac_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx',
+        baseURLPlaceholder: 'https://api.atlascloud.ai/v1'
+    },
+    {
         id: 'claude',
         name: 'Anthropic Claude',
         url: 'https://www.anthropic.com/',
@@ -121,16 +130,16 @@ const AIProviders: React.FC = () => {
         generateFriendlyName
     } = useFormState();
 
-    // Local state
-    const [isSaved, setIsSaved] = useState(false);
-    const [showDropdown, setShowDropdown] = useState(false);
-    const dropdownRef = useRef<HTMLDivElement>(null);
+	// Local state
+	const [isSaved, setIsSaved] = useState(false);
+	const [showDropdown, setShowDropdown] = useState(false);
+	const dropdownRef = useRef<HTMLDivElement>(null);
 
-    const getDefaultModelFor = (providerId?: string) => {
-        if (!providerId) return '';
-        const meta = popularAIProviders.find(p => p.id === providerId);
-        return meta?.defaultModel || '';
-    };
+	const getDefaultModelFor = (providerId?: string) => {
+		if (!providerId) return '';
+		const meta = popularAIProviders.find((p) => p.id === providerId);
+		return meta?.defaultModel || '';
+	};
 
     // Calculate provider connector counts
     const connectorCounts = connectors.reduce((counts: Record<string, number>, connector) => {

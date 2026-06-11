@@ -48,6 +48,11 @@ func (s mockStmt) Query(args []driver.Value) (driver.Rows, error) {
 			},
 		}, nil
 	}
+	if provider == "atlas" {
+		return &mockRows{
+			rows: []driver.Value{"deepseek-ai/DeepSeek-V3", "deepseek-ai/DeepSeek-R1"},
+		}, nil
+	}
 	return &mockRows{}, nil
 }
 
@@ -144,5 +149,23 @@ func TestConnectorRecordGetConnectorOptionsDefaultsOpenAIModel(t *testing.T) {
 	opts := storage.GetConnectorOptions(context.Background(), record)
 	if opts.ModelConfig.Model != "o4-mini" {
 		t.Fatalf("expected default OpenAI model o4-mini, got %q", opts.ModelConfig.Model)
+	}
+}
+
+func TestGetDefaultModelAtlas(t *testing.T) {
+	storage := NewStorage(testDB)
+	if got := storage.GetDefaultModel(context.Background(), ProviderAtlas); got != "deepseek-ai/DeepSeek-V3" {
+		t.Fatalf("expected Atlas default model deepseek-ai/DeepSeek-V3, got %q", got)
+	}
+}
+
+func TestGetProviderModelsAtlasIncludesDeepSeekV3(t *testing.T) {
+	storage := NewStorage(testDB)
+	models := storage.GetProviderModels(context.Background(), ProviderAtlas)
+	if len(models) == 0 {
+		t.Fatal("expected Atlas model list to be non-empty")
+	}
+	if models[0] != "deepseek-ai/DeepSeek-V3" {
+		t.Fatalf("expected first Atlas model to be deepseek-ai/DeepSeek-V3, got %q", models[0])
 	}
 }
