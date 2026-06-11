@@ -23,9 +23,9 @@ import (
 	"github.com/tmc/langchaingo/llms/ollama"
 	"github.com/tmc/langchaingo/llms/openai"
 
+	"github.com/livereview/internal/aidefault"
 	"github.com/livereview/internal/batch"
 	"github.com/livereview/internal/logging"
-	"github.com/livereview/internal/aidefault"
 	"github.com/livereview/internal/prompts"
 	vendorpack "github.com/livereview/internal/prompts/vendor"
 	"github.com/livereview/pkg/models"
@@ -255,7 +255,7 @@ type Config struct {
 	TemperatureSet bool    `json:"temperature_set"`
 	ProviderType   string  `json:"provider_type"` // NEW: "gemini", "ollama", "openai", etc.
 	BaseURL        string  `json:"base_url"`      // NEW: For custom endpoints like Ollama
-	ProviderName   string  `json:"provider_name"`  // NEW: Provider name (e.g. "livereview-default-ai")
+	ProviderName   string  `json:"provider_name"` // NEW: Provider name (e.g. "livereview-default-ai")
 }
 
 // New creates a new langchain-based AI provider
@@ -370,6 +370,9 @@ func (p *LangchainProvider) initializeLLM() error {
 		p.baseURL = aiconnectors.ResolveBaseURLForProviderName(p.providerType, p.baseURL)
 		return p.initializeOpenAILLM()
 	case "openrouter":
+		p.baseURL = aiconnectors.ResolveBaseURLForProviderName(p.providerType, p.baseURL)
+		return p.initializeOpenAILLM()
+	case "atlas":
 		p.baseURL = aiconnectors.ResolveBaseURLForProviderName(p.providerType, p.baseURL)
 		return p.initializeOpenAILLM()
 	case "anthropic", "claude", "anthropic-compatible":
@@ -508,6 +511,33 @@ func (t *openRouterLoggingTransport) RoundTrip(req *http.Request) (*http.Respons
 	return resp, err
 }
 
+// atlasLoggingTransport logs HTTP error bodies for Atlas Cloud.
+type atlasLoggingTransport struct {
+	base http.RoundTripper
+}
+
+func (t *atlasLoggingTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	if t.base == nil {
+		t.base = http.DefaultTransport
+	}
+
+	resp, err := t.base.RoundTrip(req)
+	if err != nil {
+		fmt.Printf("[ATLAS HTTP ERROR] request failed: %v\n", err)
+		return resp, err
+	}
+
+	if resp != nil && resp.StatusCode >= 400 {
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, 8192))
+		resp.Body.Close()
+		resp.Body = io.NopCloser(bytes.NewBuffer(body))
+		fmt.Printf("[ATLAS HTTP ERROR] status=%s url=%s body=%s\n",
+			resp.Status, req.URL.String(), truncateString(string(body), 1200))
+	}
+
+	return resp, err
+}
+
 func (p *LangchainProvider) initializeGeminiLLM() error {
 	if p.apiKey == "" {
 		return fmt.Errorf("API key is required for Gemini")
@@ -554,6 +584,12 @@ func (p *LangchainProvider) initializeOpenAILLM() error {
 	if strings.EqualFold(p.providerType, "openrouter") {
 		client := &http.Client{
 			Transport: &openRouterLoggingTransport{base: http.DefaultTransport},
+			Timeout:   5 * time.Minute,
+		}
+		options = append(options, openai.WithHTTPClient(client))
+	} else if strings.EqualFold(p.providerType, "atlas") {
+		client := &http.Client{
+			Transport: &atlasLoggingTransport{base: http.DefaultTransport},
 			Timeout:   5 * time.Minute,
 		}
 		options = append(options, openai.WithHTTPClient(client))
@@ -1580,6 +1616,7 @@ func parseHunkLine(line string) (oldNum int, newNum int, content string, isDelet
 
 	return oldNum, newNum, content, isDeleted, isAdded, nil
 }
+
 // Helper functions for logging
 func truncateString(s string, maxLen int) string {
 	if len(s) <= maxLen {
