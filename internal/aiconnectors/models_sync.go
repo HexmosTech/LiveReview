@@ -66,7 +66,7 @@ var defaultProviderModels = map[string]string{
 	"deepseek":   "deepseek-v4-flash",
 	"cohere":     "command-a",
 	"openrouter": "deepseek/deepseek-v4-flash",
-	"atlas":      "deepseek/deepseek-v4-flash",
+	"atlas":      "deepseek-ai/deepseek-v4-flash",
 }
 
 // RunOpenRouterModelSyncScheduler starts the dynamic model catalog sync scheduler

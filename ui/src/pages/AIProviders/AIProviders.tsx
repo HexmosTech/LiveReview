@@ -134,34 +134,6 @@ const AIProviders: React.FC = () => {
 	const [isSaved, setIsSaved] = useState(false);
 	const [showDropdown, setShowDropdown] = useState(false);
 	const dropdownRef = useRef<HTMLDivElement>(null);
-	const [isAtlasEnabled, setIsAtlasEnabled] = useState(true);
-
-	useEffect(() => {
-		const fetchUIConfig = async () => {
-			try {
-				const response = await fetch('/api/v1/ui-config');
-				if (response.ok) {
-					const data = await response.json();
-					if (data.isAtlasEnabled !== undefined) {
-						setIsAtlasEnabled(data.isAtlasEnabled);
-					}
-				}
-			} catch (err) {
-				console.error('Failed to fetch UI config:', err);
-			}
-		};
-		fetchUIConfig();
-	}, []);
-
-	const filteredProviders = React.useMemo(() => {
-		return popularAIProviders.filter(
-			(p) =>
-				p.id !== 'atlas' ||
-				isAtlasEnabled ||
-				selectedProvider === 'atlas' ||
-				formData.providerType === 'atlas'
-		);
-	}, [isAtlasEnabled, selectedProvider, formData.providerType]);
 
 	const getDefaultModelFor = (providerId?: string) => {
 		if (!providerId) return '';
@@ -379,7 +351,7 @@ const AIProviders: React.FC = () => {
                 <div className="lg:col-span-1">
                     <Card title="AI Providers">
                         <ProvidersList
-                            providers={filteredProviders}
+                            providers={popularAIProviders}
                             selectedProvider={selectedProvider}
                             connectorCounts={connectorCounts}
                             onSelectProvider={handleSelectProvider}
@@ -426,7 +398,7 @@ const AIProviders: React.FC = () => {
                                 ) : (
                                     /* Regular form for other providers */
                                     <ConnectorForm
-                                        providers={filteredProviders}
+                                        providers={popularAIProviders}
                                         selectedProvider={selectedProvider}
                                         formData={formData}
                                         isEditing={isEditing}
@@ -448,7 +420,7 @@ const AIProviders: React.FC = () => {
                         {/* Connectors List */}
                         <ConnectorsList
                             connectors={connectors}
-                            providers={filteredProviders}
+                            providers={popularAIProviders}
                             selectedProvider={selectedProvider}
                             isLoading={isLoading}
                             error={error}
