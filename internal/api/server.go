@@ -1025,8 +1025,7 @@ func (s *Server) Start() error {
 	if s.modelSyncCancel == nil {
 		syncCtx, cancel := context.WithCancel(context.Background())
 		s.modelSyncCancel = cancel
-		aiconnectors.RunOpenRouterModelSyncScheduler(syncCtx, s.db, 24*time.Hour)
-		aiconnectors.RunAtlasModelSyncScheduler(syncCtx, s.db, 24*time.Hour)
+		aiconnectors.RunAIModelSyncScheduler(syncCtx, s.db, 24*time.Hour)
 	}
 
 	// Wait for interrupt signal to gracefully shut down the server
