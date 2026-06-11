@@ -34,6 +34,7 @@ type DiffReviewRequest struct {
 	RepoName      string `json:"repo_name"`
 }
 
+// DiffReviewResult holds persisted review output that is safe to marshal.
 type DiffReviewResult struct {
 	Summary  string                  `json:"summary"`
 	Comments []*models.ReviewComment `json:"comments"`
