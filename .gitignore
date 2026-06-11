@@ -74,5 +74,3 @@ ui/bun.lock
 
 # openapi spec generation
 internal/api/docs/spec.go
-# tool generation - temp-ignore
-internal/api/mcp/generated/mcptools/*

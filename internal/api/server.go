@@ -161,7 +161,10 @@ func NewServer(port int, versionInfo *VersionInfo) (*Server, error) {
 	if loadedEnv, err := loadEnvFile(".env"); err == nil {
 		env = loadedEnv
 	} else {
-		fmt.Println("No .env file found, using environment variables")
+		fmt.Printf(
+			"error loading .env file: %v\n\nUsing environment variables instead.\nIf needed, create a .env file with DATABASE_URL like:\nDATABASE_URL=postgres://username:password@localhost:5432/dbname?sslmode=disable\n",
+		err,
+	)
 	}
 
 	// print env variables
@@ -186,7 +189,9 @@ func NewServer(port int, versionInfo *VersionInfo) (*Server, error) {
 	}
 	if dbURL == "" {
 		return nil, fmt.Errorf(
-			"DATABASE_URL not found. Set it in .env or environment variables",
+			"DATABASE_URL not found in .env file or environment variables\n\n" +
+				"Please add DATABASE_URL to your .env file or export it as an environment variable:\n" +
+				"DATABASE_URL=postgres://username:password@localhost:5432/dbname?sslmode=disable",
 		)
 	}
 
@@ -196,7 +201,9 @@ func NewServer(port int, versionInfo *VersionInfo) (*Server, error) {
 	}
 	if jwtSecret == "" {
 		return nil, fmt.Errorf(
-			"JWT_SECRET not found. Set it in .env or environment variables",
+			"JWT_SECRET not found in .env file or environment variables\n\n" +
+				"Please add JWT_SECRET to your .env file or export it as an environment variable:\n" +
+				"JWT_SECRET=your-secure-random-secret-key",
 		)
 	}
 		
@@ -516,8 +523,6 @@ func (s *Server) setupRoutes() {
 
 	// Version endpoint
 	s.echo.GET("/api/version", s.getVersion)
-
-	// MCP endpoint
 
 	// API v1 group
 	v1 := s.echo.Group("/api/v1")
