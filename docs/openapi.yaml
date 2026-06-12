@@ -1272,12 +1272,12 @@ paths:
       operationId: DeleteAPIKeyHandler
       parameters:
         - in: path
-          name: id
+          name: org_id
           required: true
           schema:
             type: string
         - in: path
-          name: org_id
+          name: id
           required: true
           schema:
             type: string
