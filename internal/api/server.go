@@ -52,6 +52,7 @@ type DeploymentConfig struct {
 	IsCloud         bool   // cloud vs self-hosted deployment
 	Mode            string // derived: "demo" or "production"
 	WebhooksEnabled bool   // derived: based on mode
+	AtlasEnabled    bool   // enable/disable Atlas Cloud provider
 }
 
 // getEnvInt retrieves an integer environment variable with a default value
@@ -88,6 +89,7 @@ func getDeploymentConfig() *DeploymentConfig {
 		FrontendPort: getEnvInt("LIVEREVIEW_FRONTEND_PORT", 8081),
 		ReverseProxy: getEnvBool("LIVEREVIEW_REVERSE_PROXY", false),
 		IsCloud:      getEnvBool("LIVEREVIEW_IS_CLOUD", false),
+		AtlasEnabled: getEnvBool("LIVEREVIEW_ATLAS_ENABLED", true),
 	}
 
 	// Auto-configure derived values
@@ -1054,8 +1056,7 @@ func (s *Server) Start() error {
 	if s.modelSyncCancel == nil {
 		syncCtx, cancel := context.WithCancel(context.Background())
 		s.modelSyncCancel = cancel
-		aiconnectors.RunOpenRouterModelSyncScheduler(syncCtx, s.db, 24*time.Hour)
-		fmt.Println("Dynamic AI models sync scheduler started")
+		aiconnectors.RunAIModelSyncScheduler(syncCtx, s.db, 24*time.Hour)
 	}
 
 	// Wait for interrupt signal to gracefully shut down the server
@@ -1773,9 +1774,10 @@ func (s *Server) getSystemInfo(c echo.Context) error {
 // getUIConfig returns deployment configuration for the frontend
 func (s *Server) getUIConfig(c echo.Context) error {
 	config := map[string]interface{}{
-		"isCloud": s.deploymentConfig.IsCloud,
-		"version": s.versionInfo.Version,
-		"mode":    s.deploymentConfig.Mode,
+		"isCloud":        s.deploymentConfig.IsCloud,
+		"version":        s.versionInfo.Version,
+		"mode":           s.deploymentConfig.Mode,
+		"isAtlasEnabled": s.deploymentConfig.AtlasEnabled,
 	}
 	return c.JSON(http.StatusOK, config)
 }
