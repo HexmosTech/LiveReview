@@ -43,8 +43,8 @@ const (
 - File path
 - Line number
 - Severity (info, warning, critical)
-	- Confidence (high, medium, low)
-	- Type (bug, risk, optimization, code smell, best practice, technical debt)
+	- Confidence (High, Medium, Low)
+	- Type (Bug, Risk, Optimization, Code Smell, Best Practice, Technical Debt)
 	- Category
 	- Subcategory
 - Clear suggestions for improvement
@@ -80,14 +80,43 @@ const (
 			"lineNumber": 42,
 			"content": "Description of the issue",
 			"severity": "info|warning|critical",
-			"confidence": "high|medium|low",
-			"type": "bug|risk|optimization|code smell|best practice|technical debt",
-			"category": "Security|Reliability|Correctness|Performance|Cost|Scalability|Maintainability|Architecture|Developer Experience|Compliance & Governance",
-			"subcategory": "specific taxonomy subcategory",
+			"confidence": "High|Medium|Low",
+			"type": "Bug|Risk|Optimization|Code Smell|Best Practice|Technical Debt",
+			"category": "one of the 10 categories from TAXONOMY CLASSIFICATION RULES",
+			"subcategory": "one of the allowed subcategories for that category from TAXONOMY CLASSIFICATION RULES",
 			"suggestions": ["Specific improvement suggestion 1", "Specific improvement suggestion 2"],
 			"isInternal": false
 		}
 	]
+}
+` + "```"
+)
+
+// Taxonomy classification rules
+const (
+	// TaxonomyClassificationRules enforces a fixed, closed category/subcategory taxonomy.
+	// The model MUST classify every comment using exactly one category and exactly one
+	// subcategory taken verbatim from the list under that category — no other values allowed.
+	TaxonomyClassificationRules = `TAXONOMY CLASSIFICATION RULES:
+- "category" MUST be exactly one of the 10 top-level keys in the taxonomy below, verbatim
+- "subcategory" MUST be exactly one of the values listed under the chosen category, verbatim
+- Never invent a new category or subcategory, never use a subcategory from a different category's list, and never put a subcategory's name in "category"
+- Pick the single best-fitting category, then the single best-fitting subcategory from that category's list. If a finding spans multiple concerns, choose the most dominant one
+- "UI/UX" and "Accessibility" are valid under both "Maintainability" and "Developer Experience". Use "Maintainability" for issues with the UI code itself (structure, duplication, hardcoded styling); use "Developer Experience" for issues affecting the end user's experience of the UI (usability, consistency, responsiveness, a11y)
+
+TAXONOMY (category -> allowed subcategories):
+` + "```json" + `
+{
+  "Security": ["Authentication", "Authorization", "Secrets Management", "Input Validation", "Injection Vulnerabilities", "Cryptography", "Dependency Vulnerabilities", "Data Exposure", "Session Management", "Security Logging & Auditing"],
+  "Reliability": ["Error Handling", "Fault Tolerance", "Retry Logic", "Timeout Management", "Resilience Patterns", "Availability Risks", "Data Integrity", "Race Conditions", "Resource Cleanup", "Failure Recovery"],
+  "Correctness": ["Logic Errors", "Edge Cases", "Data Validation", "State Management", "Concurrency Bugs", "Business Rule Violations", "Numerical Accuracy", "Null Handling", "Type Safety", "API Contract Violations"],
+  "Performance": ["Database Efficiency", "Algorithmic Complexity", "Memory Usage", "CPU Utilization", "Network Efficiency", "Caching", "Concurrency", "Resource Contention", "Rendering Performance", "Startup Performance"],
+  "Cost": ["Cloud Resource Waste", "Infrastructure Overprovisioning", "Storage Optimization", "Database Cost Optimization", "Excessive API Usage", "Third-Party Service Costs", "Redundant Computation", "LLM Token Consumption", "Caching Opportunities", "Data Transfer Costs"],
+  "Scalability": ["Horizontal Scaling", "Vertical Scaling", "Distributed Systems", "Load Balancing", "Capacity Planning", "Bottleneck Risks", "Concurrency Limits", "Service Growth Constraints", "Database Scaling", "Queue Backpressure"],
+  "Maintainability": ["Code Complexity", "Readability", "Documentation", "Code Duplication", "Dead Code", "Naming Quality", "Testability", "Technical Debt", "Refactoring Opportunities", "Configuration Management", "UI/UX", "Accessibility"],
+  "Architecture": ["Separation of Concerns", "Modularity", "Coupling", "Cohesion", "Layering Violations", "Dependency Management", "Service Boundaries", "Domain Modeling", "API Design", "Extensibility"],
+  "Developer Experience": ["Testing", "CI/CD", "Build System", "Local Development", "Debuggability", "Observability", "Deployment Process", "Automation", "Developer Tooling", "Documentation Quality", "UI/UX", "Accessibility"],
+  "Compliance & Governance": ["Privacy", "Regulatory Compliance", "Auditability", "Data Retention", "Data Residency", "Licensing", "Policy Enforcement", "Access Controls", "Change Management", "Governance Standards"]
 }
 ` + "```"
 )

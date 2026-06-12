@@ -556,7 +556,7 @@ const baseNavLinks: NavLink[] = [
     { name: 'Reviews', key: 'reviews', icon: <Icons.Reviews />, path: '/reviews' },
     { name: 'Git Providers', key: 'git', icon: <Icons.Git />, path: '/git', requiresOwnerOrAdmin: true },
     { name: 'AI Providers', key: 'ai', icon: <Icons.AI />, path: '/ai', requiresOwnerOrAdmin: true },
-    { name: 'Impact Report', key: 'reports', icon: <Icons.Reports />, path: '/reports', requiresOwnerOrAdmin: true },
+    { name: 'Reports', key: 'reports', icon: <Icons.Reports />, path: '/reports', requiresOwnerOrAdmin: true },
     { name: 'Settings', key: 'settings', icon: <Icons.Settings />, path: '/settings' },
 ];
 
