@@ -47,6 +47,14 @@ Latest milestone batch note (MF-LOC-007, MF-LOC-008, MF-PRORATION-003, MF-ATTRIB
 | reviews.QueryRow | moved | [QueryRow](reviews/review_store.go#L13) |
 | reviews.Exec | moved | [Exec](reviews/review_store.go#L17) |
 | reviews.Query | moved | [Query](reviews/review_store.go#L21) |
+| reviews.NewTaxonomyReportStore | added | [NewTaxonomyReportStore](reviews/taxonomy_report_store.go#L17) |
+| reviews.buildWhereClause | added | [buildWhereClause](reviews/taxonomy_report_store.go#L108) |
+| reviews.GetSummary | added | [GetSummary](reviews/taxonomy_report_store.go#L230) |
+| reviews.GetDistribution | added | [GetDistribution](reviews/taxonomy_report_store.go#L269) |
+| reviews.GetTrend | added | [GetTrend](reviews/taxonomy_report_store.go#L322) |
+| reviews.GetBreakdown | added | [GetBreakdown](reviews/taxonomy_report_store.go#L360) |
+| reviews.ListFindings | updated | [ListFindings](reviews/taxonomy_report_store.go#L420) |
+| reviews.GetCategorySubcategoryRelations | added | [GetCategorySubcategoryRelations](reviews/taxonomy_report_store.go#L538) |
 | aiconnectors.NewConnectorStore | moved | [NewConnectorStore](aiconnectors/connector_store.go#L18) |
 | aiconnectors.QueryRowContext | moved | [QueryRowContext](aiconnectors/connector_store.go#L22) |
 | aiconnectors.QueryContext | moved | [QueryContext](aiconnectors/connector_store.go#L26) |
