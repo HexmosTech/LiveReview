@@ -167,7 +167,7 @@ const ConnectorForm: React.FC<ConnectorFormProps> = ({
             return !!formData.baseURL;
         }
 
-        if (providerDetails?.id === 'openrouter' && !formData.selectedModel) {
+        if ((providerDetails?.id === 'openrouter' || providerDetails?.id === 'atlas') && !formData.selectedModel) {
             return false;
         }
 
@@ -404,7 +404,7 @@ const ConnectorForm: React.FC<ConnectorFormProps> = ({
                             />
                         )}
                         <p className="text-xs text-slate-400">
-                            {providerDetails.id === 'openrouter' ? 'OpenRouter model ID (defaults to free DeepSeek route)' : 'Select a model or enter a custom model ID'}
+                            {providerDetails.id === 'openrouter' ? 'OpenRouter model ID (defaults to free DeepSeek route)' : providerDetails.id === 'atlas' ? 'Atlas Cloud model ID (defaults to DeepSeek-V3)' : 'Select a model or enter a custom model ID'}
                         </p>
                     </div>
                 )}
