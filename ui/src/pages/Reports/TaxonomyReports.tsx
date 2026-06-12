@@ -431,6 +431,7 @@ const TaxonomyReports: React.FC = () => {
   const [loading, setLoading] = useState(false);
   const [exportingDataset, setExportingDataset] = useState<string | null>(null);
   const [showExportDialog, setShowExportDialog] = useState(false);
+  const [showTrendModal, setShowTrendModal] = useState(false);
   const [exportPreview, setExportPreview] = useState<ExportPreview | null>(null);
   const [selectedDatasets, setSelectedDatasets] = useState<Record<DatasetName, boolean>>({
     findings: true,
@@ -1011,6 +1012,12 @@ const TaxonomyReports: React.FC = () => {
     );
   };
 
+  const ExpandIcon = () => (
+    <svg xmlns="http://www.w3.org/2000/svg" className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+      <path strokeLinecap="round" strokeLinejoin="round" d="M4 8V4m0 0h4M4 4l5 5m11-1V4m0 0h-4m4 0l-5 5M4 16v4m0 0h4m-4 0l5-5m11 5l-5-5m5 5v-4m0 4h-4" />
+    </svg>
+  );
+
   const TrendAreaChart = ({
     rows,
     height = 120,
@@ -1270,7 +1277,16 @@ const TaxonomyReports: React.FC = () => {
 
             {/* Quality momentum */}
             <div className="bg-slate-800/70 border border-slate-700 rounded-lg p-4">
-              <p className="text-slate-400 text-xs uppercase tracking-widest mb-2">Finding Volume</p>
+              <div className="flex items-center justify-between mb-2">
+                <p className="text-slate-400 text-xs uppercase tracking-widest">Finding Volume</p>
+                <button
+                  className="text-slate-400 hover:text-white transition-colors"
+                  title="Expand chart"
+                  onClick={() => setShowTrendModal(true)}
+                >
+                  <ExpandIcon />
+                </button>
+              </div>
               <TrendAreaChart rows={filledTrend} height={170} showBrush={false} showLegend={false} />
             </div>
           </div>
@@ -1607,7 +1623,16 @@ const TaxonomyReports: React.FC = () => {
           <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
             {/* Trend chart */}
             <div className="bg-slate-800/60 border border-slate-700 rounded-lg p-4">
-              <h3 className="text-white font-semibold mb-4 text-sm">Finding Volume by {filters.grain || 'day'}</h3>
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="text-white font-semibold text-sm">Finding Volume by {filters.grain || 'day'}</h3>
+                <button
+                  className="text-slate-400 hover:text-white transition-colors"
+                  title="Expand chart"
+                  onClick={() => setShowTrendModal(true)}
+                >
+                  <ExpandIcon />
+                </button>
+              </div>
               <TrendAreaChart rows={filledTrend} height={250} showBrush={true} showLegend={true} />
             </div>
 
@@ -1828,6 +1853,18 @@ const TaxonomyReports: React.FC = () => {
                 className="px-3 py-1.5 rounded bg-blue-600 hover:bg-blue-500 text-white text-xs"
               >{exportingDataset ? 'Exporting…' : 'Export selected'}</button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {showTrendModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
+          <div className="w-full max-w-5xl bg-slate-900 border border-slate-700 rounded-lg p-5 space-y-4">
+            <div className="flex items-center justify-between">
+              <h3 className="text-white text-lg font-semibold">Finding Volume by {filters.grain || 'day'}</h3>
+              <button className="text-slate-400 hover:text-white text-sm" onClick={() => setShowTrendModal(false)}>Close</button>
+            </div>
+            <TrendAreaChart rows={filledTrend} height={500} showBrush={true} showLegend={true} />
           </div>
         </div>
       )}
