@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { ColumnDef, flexRender, getCoreRowModel, useReactTable } from '@tanstack/react-table';
 import { Area, AreaChart, Brush, CartesianGrid, Legend, Line, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 import apiClient from '../../api/apiClient';
@@ -346,6 +347,43 @@ const emptyFilters = (): Filters => ({
   grain: 'day',
 });
 
+// ---- URL <-> filter state sync ---------------------------------------------
+
+const filtersToParams = (f: Filters, mode: 'overview' | 'explore'): URLSearchParams => {
+  const p = new URLSearchParams();
+  if (mode === 'explore') p.set('mode', 'explore');
+  if (f.since) p.set('since', f.since);
+  if (f.until) p.set('until', f.until);
+  if (f.severity) p.set('severity', f.severity);
+  if (f.confidence) p.set('confidence', f.confidence);
+  if (f.issueType) p.set('type', f.issueType);
+  if (f.category) p.set('category', f.category);
+  if (f.subcategory) p.set('subcategory', f.subcategory);
+  if (f.repository) p.set('repository', f.repository);
+  if (f.provider) p.set('provider', f.provider);
+  if (f.orgId) p.set('org_id', f.orgId);
+  if (f.grain && f.grain !== 'day') p.set('grain', f.grain);
+  return p;
+};
+
+const paramsToFilters = (sp: URLSearchParams): { filters: Filters; mode: 'overview' | 'explore' } => {
+  const defaults = emptyFilters();
+  const filters: Filters = {
+    since: sp.get('since') || defaults.since,
+    until: sp.get('until') || defaults.until,
+    severity: sp.get('severity') || '',
+    confidence: sp.get('confidence') || '',
+    issueType: sp.get('type') || '',
+    category: sp.get('category') || '',
+    subcategory: sp.get('subcategory') || '',
+    repository: sp.get('repository') || '',
+    provider: sp.get('provider') || '',
+    orgId: sp.get('org_id') || '',
+    grain: sp.get('grain') || 'day',
+  };
+  return { filters, mode: sp.get('mode') === 'explore' ? 'explore' : 'overview' };
+};
+
 const DATASETS = [
   'findings',
   'severity_distribution',
@@ -360,9 +398,10 @@ type DatasetName = typeof DATASETS[number];
 
 const TaxonomyReports: React.FC = () => {
   const { isSuperAdmin } = useOrgContext();
-  const [mode, setMode] = useState<'overview' | 'explore'>('overview');
+  const [searchParams, setSearchParams] = useSearchParams();
+  const [mode, setMode] = useState<'overview' | 'explore'>(() => paramsToFilters(searchParams).mode);
 
-  const [filters, setFilters] = useState<Filters>(emptyFilters());
+  const [filters, setFilters] = useState<Filters>(() => paramsToFilters(searchParams).filters);
   const [summary, setSummary] = useState<Summary | null>(null);
   const [severityDist, setSeverityDist] = useState<DistRow[]>([]);
   const [categoryDist, setCategoryDist] = useState<DistRow[]>([]);
@@ -405,6 +444,10 @@ const TaxonomyReports: React.FC = () => {
   const [error, setError] = useState('');
   const [expandedCategories, setExpandedCategories] = useState<Record<string, boolean>>({});
   const [previewDataset, setPreviewDataset] = useState<DatasetName>('findings');
+  const findingsExplorerRef = useRef<HTMLDivElement | null>(null);
+  const filtersRef = useRef<Filters>(filters);
+  const didInitialLoadRef = useRef(false);
+  const pendingScrollRef = useRef(false);
 
   const severityOptions: MultiOption[] = useMemo(() => [
     { value: 'Critical', label: 'Critical' },
@@ -526,10 +569,36 @@ const TaxonomyReports: React.FC = () => {
     }
   }, [baseEndpoint, findingsColumnFilters, findingsSortBy, findingsSortDir]);
 
-  useEffect(() => { load(filters, 0); }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  // Sync filters/mode from the URL on mount and whenever it changes (e.g. browser back/forward).
+  useEffect(() => {
+    const { filters: f, mode: m } = paramsToFilters(searchParams);
+    setMode(m);
+    const changed = !didInitialLoadRef.current || JSON.stringify(f) !== JSON.stringify(filtersRef.current);
+    setFilters(f);
+    filtersRef.current = f;
+    if (changed) {
+      load(f, 0);
+    }
+    didInitialLoadRef.current = true;
+  }, [searchParams, load]);
 
-  const handleApply = () => { load(filters, 0); };
-  const handleReset = () => { const f = emptyFilters(); setFilters(f); load(f, 0); };
+  // Push the given filters/mode into the URL; the effect above picks up the change and reloads.
+  const navigateToView = useCallback((nextFilters: Filters, nextMode: 'overview' | 'explore') => {
+    setSearchParams(filtersToParams(nextFilters, nextMode));
+  }, [setSearchParams]);
+
+  // Once loading settles after a drill-down, scroll the findings explorer into view.
+  useEffect(() => {
+    if (pendingScrollRef.current && !loading) {
+      pendingScrollRef.current = false;
+      requestAnimationFrame(() => {
+        findingsExplorerRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      });
+    }
+  }, [loading]);
+
+  const handleApply = () => { navigateToView(filters, mode); };
+  const handleReset = () => { const f = emptyFilters(); setFilters(f); navigateToView(f, mode); };
 
   const applyFindingsQuery = () => {
     load(filters, 0, { sortBy: findingsSortBy, sortDir: findingsSortDir, columnFilters: findingsColumnFilters });
@@ -598,8 +667,9 @@ const TaxonomyReports: React.FC = () => {
     const now = new Date();
     const until = dateToInput(now);
     const since = days === 'all' ? '' : dateToInput(new Date(Date.now() - days * 24 * 60 * 60 * 1000));
-    setFilters((prev) => ({ ...prev, since, until }));
-    load({ ...filters, since, until }, 0);
+    const next = { ...filters, since, until };
+    setFilters(next);
+    navigateToView(next, mode);
   };
 
   const loadExportPreview = useCallback(async () => {
@@ -1014,11 +1084,11 @@ const TaxonomyReports: React.FC = () => {
 
       <div className="flex gap-2">
         <button
-          onClick={() => setMode('overview')}
+          onClick={() => { setMode('overview'); navigateToView(filters, 'overview'); }}
           className={`px-3 py-1.5 rounded text-xs border ${mode === 'overview' ? 'bg-slate-700 border-slate-500 text-white' : 'bg-slate-900 border-slate-700 text-slate-300'}`}
         >Executive Overview</button>
         <button
-          onClick={() => setMode('explore')}
+          onClick={() => { setMode('explore'); navigateToView(filters, 'explore'); }}
           className={`px-3 py-1.5 rounded text-xs border ${mode === 'explore' ? 'bg-slate-700 border-slate-500 text-white' : 'bg-slate-900 border-slate-700 text-slate-300'}`}
         >Exploration</button>
       </div>
@@ -1211,7 +1281,7 @@ const TaxonomyReports: React.FC = () => {
               <h3 className="text-white font-semibold text-sm">Findings by Category</h3>
               <button
                 className="text-blue-400 hover:text-blue-300 text-xs"
-                onClick={() => setMode('explore')}
+                onClick={() => { setMode('explore'); navigateToView(filters, 'explore'); }}
               >Explore all →</button>
             </div>
             {categoryDist.length === 0 ? (
@@ -1225,8 +1295,10 @@ const TaxonomyReports: React.FC = () => {
                     <button
                       key={row.value}
                       onClick={() => {
-                        setFilters((prev) => ({ ...prev, category: row.value, subcategory: '' }));
+                        const next = { ...filters, category: row.value, subcategory: '' };
+                        setFilters(next);
                         setMode('explore');
+                        navigateToView(next, 'explore');
                       }}
                       className="w-full text-left group"
                     >
@@ -1332,7 +1404,10 @@ const TaxonomyReports: React.FC = () => {
                 <div className="space-y-0.5">
                   {categoryDist.map((catRow) => {
                     const subs = relationMap.get(catRow.value) || [];
-                    const subDist = subcategoryDist.filter((s) => subs.includes(s.value));
+                    const subDist = relations
+                      .filter((r) => r.category === catRow.value)
+                      .map((r) => ({ dimension: 'subcategory', value: r.subcategory, count: r.count }))
+                      .sort((a, b) => b.count - a.count);
                     const isExpanded = !!expandedCategories[catRow.value];
                     const catMax = Math.max(1, categoryDist[0]?.count || 1);
                     const barW = Math.max(2, Math.round((catRow.count / catMax) * 100));
@@ -1379,12 +1454,10 @@ const TaxonomyReports: React.FC = () => {
                                 <button
                                   key={sub.value}
                                   onClick={() => {
-                                    const nextSub = new Set(parseMulti(filters.subcategory));
-                                    if (nextSub.has(sub.value)) nextSub.delete(sub.value);
-                                    else nextSub.add(sub.value);
-                                    const nextCats = new Set(parseMulti(filters.category));
-                                    nextCats.add(catRow.value);
-                                    setFilters((prev) => ({ ...prev, category: Array.from(nextCats).join(','), subcategory: Array.from(nextSub).join(',') }));
+                                    const nextFilters: Filters = { ...filters, category: catRow.value, subcategory: sub.value };
+                                    setFilters(nextFilters);
+                                    pendingScrollRef.current = true;
+                                    navigateToView(nextFilters, mode);
                                   }}
                                   className={`w-full text-left rounded px-2 py-1 text-xs ${isSubActive ? 'bg-blue-900/30 text-blue-300' : 'hover:bg-slate-700/30 text-slate-300'}`}
                                 >
@@ -1411,7 +1484,7 @@ const TaxonomyReports: React.FC = () => {
           </div>
 
       {/* Findings explorer */}
-      <div className="bg-slate-800/60 border border-slate-700 rounded-lg p-4">
+      <div ref={findingsExplorerRef} className="bg-slate-800/60 border border-slate-700 rounded-lg p-4">
         <div className="flex items-center justify-between mb-3">
           <h3 className="text-white font-semibold text-sm">
             Findings Explorer
