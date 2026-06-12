@@ -66,8 +66,8 @@ func parseTaxonomyFilter(c echo.Context, orgID int64) (storagereports.TaxonomyFi
 			if err != nil {
 				return f, fmt.Errorf("invalid since: must be RFC3339 or YYYY-MM-DD")
 			}
-			// Date-only "since" should start at local day boundary.
-			t = time.Date(t.Year(), t.Month(), t.Day(), 0, 0, 0, 0, t.Location())
+			// Date-only boundaries are interpreted in UTC for consistent cross-host behavior.
+			t = time.Date(t.Year(), t.Month(), t.Day(), 0, 0, 0, 0, time.UTC)
 		}
 		f.Since = t
 	}
@@ -79,7 +79,7 @@ func parseTaxonomyFilter(c echo.Context, orgID int64) (storagereports.TaxonomyFi
 				return f, fmt.Errorf("invalid until: must be RFC3339 or YYYY-MM-DD")
 			}
 			// Date-only "until" should include the entire day, and SQL uses "< until".
-			t = time.Date(t.Year(), t.Month(), t.Day(), 0, 0, 0, 0, t.Location()).Add(24 * time.Hour)
+			t = time.Date(t.Year(), t.Month(), t.Day(), 0, 0, 0, 0, time.UTC).Add(24 * time.Hour)
 		}
 		f.Until = t
 	}
@@ -217,16 +217,10 @@ func (h *TaxonomyReportHandler) GetOrgTaxonomyTrend(c echo.Context) error {
 	if err != nil {
 		return JSONErrorWithEnvelope(c, http.StatusBadRequest, fmt.Sprintf("trend query failed: %v", err))
 	}
-	fmt.Printf("[HANDLER] GetOrgTaxonomyTrend: received %d rows from store\n", len(rows))
-	if len(rows) > 0 {
-		fmt.Printf("[HANDLER] First row: %+v\n", rows[0])
-	}
-	payload := map[string]interface{}{
+	return JSONWithEnvelope(c, http.StatusOK, map[string]interface{}{
 		"grain": grain,
 		"rows":  rows,
-	}
-	fmt.Printf("[HANDLER] Payload before JSONWithEnvelope: %+v\n", payload)
-	return JSONWithEnvelope(c, http.StatusOK, payload)
+	})
 }
 
 // GetOrgTaxonomyBreakdown returns per-repo/provider finding counts for the current org.
@@ -302,7 +296,10 @@ func (h *TaxonomyReportHandler) GetOrgTaxonomyExportPreview(c echo.Context) erro
 
 // GetAdminTaxonomySummary returns global KPI summary (super-admin).
 func (h *TaxonomyReportHandler) GetAdminTaxonomySummary(c echo.Context) error {
-	orgID := parseOptionalOrgID(c)
+	orgID, err := parseOptionalOrgID(c)
+	if err != nil {
+		return JSONErrorWithEnvelope(c, http.StatusBadRequest, err.Error())
+	}
 	f, err := parseTaxonomyFilter(c, orgID)
 	if err != nil {
 		return JSONErrorWithEnvelope(c, http.StatusBadRequest, err.Error())
@@ -327,7 +324,10 @@ func (h *TaxonomyReportHandler) GetAdminTaxonomySummary(c echo.Context) error {
 
 // GetAdminTaxonomyDistribution returns global distribution (super-admin).
 func (h *TaxonomyReportHandler) GetAdminTaxonomyDistribution(c echo.Context) error {
-	orgID := parseOptionalOrgID(c)
+	orgID, err := parseOptionalOrgID(c)
+	if err != nil {
+		return JSONErrorWithEnvelope(c, http.StatusBadRequest, err.Error())
+	}
 	dimension := strings.TrimSpace(c.Param("dimension"))
 	f, err := parseTaxonomyFilter(c, orgID)
 	if err != nil {
@@ -345,7 +345,10 @@ func (h *TaxonomyReportHandler) GetAdminTaxonomyDistribution(c echo.Context) err
 
 // GetAdminTaxonomyTrend returns global trend (super-admin).
 func (h *TaxonomyReportHandler) GetAdminTaxonomyTrend(c echo.Context) error {
-	orgID := parseOptionalOrgID(c)
+	orgID, err := parseOptionalOrgID(c)
+	if err != nil {
+		return JSONErrorWithEnvelope(c, http.StatusBadRequest, err.Error())
+	}
 	grain := strings.TrimSpace(c.QueryParam("grain"))
 	if grain == "" {
 		grain = "day"
@@ -366,7 +369,10 @@ func (h *TaxonomyReportHandler) GetAdminTaxonomyTrend(c echo.Context) error {
 
 // GetAdminTaxonomyBreakdown returns global org/repo/provider breakdown (super-admin).
 func (h *TaxonomyReportHandler) GetAdminTaxonomyBreakdown(c echo.Context) error {
-	orgID := parseOptionalOrgID(c)
+	orgID, err := parseOptionalOrgID(c)
+	if err != nil {
+		return JSONErrorWithEnvelope(c, http.StatusBadRequest, err.Error())
+	}
 	f, err := parseTaxonomyFilter(c, orgID)
 	if err != nil {
 		return JSONErrorWithEnvelope(c, http.StatusBadRequest, err.Error())
@@ -380,7 +386,10 @@ func (h *TaxonomyReportHandler) GetAdminTaxonomyBreakdown(c echo.Context) error 
 
 // ListAdminTaxonomyFindings returns paginated global finding rows (super-admin).
 func (h *TaxonomyReportHandler) ListAdminTaxonomyFindings(c echo.Context) error {
-	orgID := parseOptionalOrgID(c)
+	orgID, err := parseOptionalOrgID(c)
+	if err != nil {
+		return JSONErrorWithEnvelope(c, http.StatusBadRequest, err.Error())
+	}
 	f, err := parseTaxonomyFilter(c, orgID)
 	if err != nil {
 		return JSONErrorWithEnvelope(c, http.StatusBadRequest, err.Error())
@@ -403,7 +412,10 @@ func (h *TaxonomyReportHandler) ListAdminTaxonomyFindings(c echo.Context) error 
 
 // GetAdminTaxonomyRelations returns category -> subcategory relation rows (super-admin).
 func (h *TaxonomyReportHandler) GetAdminTaxonomyRelations(c echo.Context) error {
-	orgID := parseOptionalOrgID(c)
+	orgID, err := parseOptionalOrgID(c)
+	if err != nil {
+		return JSONErrorWithEnvelope(c, http.StatusBadRequest, err.Error())
+	}
 	f, err := parseTaxonomyFilter(c, orgID)
 	if err != nil {
 		return JSONErrorWithEnvelope(c, http.StatusBadRequest, err.Error())
@@ -417,7 +429,10 @@ func (h *TaxonomyReportHandler) GetAdminTaxonomyRelations(c echo.Context) error 
 
 // GetAdminTaxonomyExportPreview returns row estimates for each export dataset (super-admin).
 func (h *TaxonomyReportHandler) GetAdminTaxonomyExportPreview(c echo.Context) error {
-	orgID := parseOptionalOrgID(c)
+	orgID, err := parseOptionalOrgID(c)
+	if err != nil {
+		return JSONErrorWithEnvelope(c, http.StatusBadRequest, err.Error())
+	}
 	return h.getExportPreview(c, orgID, true)
 }
 
@@ -427,7 +442,7 @@ func (h *TaxonomyReportHandler) GetAdminTaxonomyExportPreview(c echo.Context) er
 func (h *TaxonomyReportHandler) ExportOrgTaxonomyCSV(c echo.Context) error {
 	orgID, ok := auth.GetOrgIDFromContext(c)
 	if !ok {
-		return c.JSON(http.StatusUnauthorized, map[string]string{"error": "org context required"})
+		return JSONErrorWithEnvelope(c, http.StatusUnauthorized, "org context required")
 	}
 	dataset := strings.TrimSpace(c.QueryParam("dataset"))
 	return h.streamCSV(c, orgID, dataset, false)
@@ -437,21 +452,27 @@ func (h *TaxonomyReportHandler) ExportOrgTaxonomyCSV(c echo.Context) error {
 func (h *TaxonomyReportHandler) ExportOrgTaxonomyXLSX(c echo.Context) error {
 	orgID, ok := auth.GetOrgIDFromContext(c)
 	if !ok {
-		return c.JSON(http.StatusUnauthorized, map[string]string{"error": "org context required"})
+		return JSONErrorWithEnvelope(c, http.StatusUnauthorized, "org context required")
 	}
 	return h.streamXLSX(c, orgID, false)
 }
 
 // ExportAdminTaxonomyCSV streams a CSV export for super-admin.
 func (h *TaxonomyReportHandler) ExportAdminTaxonomyCSV(c echo.Context) error {
-	orgID := parseOptionalOrgID(c)
+	orgID, err := parseOptionalOrgID(c)
+	if err != nil {
+		return JSONErrorWithEnvelope(c, http.StatusBadRequest, err.Error())
+	}
 	dataset := strings.TrimSpace(c.QueryParam("dataset"))
 	return h.streamCSV(c, orgID, dataset, true)
 }
 
 // ExportAdminTaxonomyXLSX streams a multi-sheet xlsx export for super-admin.
 func (h *TaxonomyReportHandler) ExportAdminTaxonomyXLSX(c echo.Context) error {
-	orgID := parseOptionalOrgID(c)
+	orgID, err := parseOptionalOrgID(c)
+	if err != nil {
+		return JSONErrorWithEnvelope(c, http.StatusBadRequest, err.Error())
+	}
 	return h.streamXLSX(c, orgID, true)
 }
 
@@ -459,42 +480,54 @@ func (h *TaxonomyReportHandler) ExportAdminTaxonomyXLSX(c echo.Context) error {
 // dataset: findings | category_distribution | severity_distribution | trend | breakdown
 func (h *TaxonomyReportHandler) streamCSV(c echo.Context, orgID int64, dataset string, includeOrgName bool) error {
 	if dataset == "" {
-		dataset = "findings"
+		return JSONErrorWithEnvelope(c, http.StatusBadRequest, "dataset is required")
+	}
+	allowedDatasets := map[string]bool{
+		"findings":              true,
+		"category_distribution": true,
+		"severity_distribution": true,
+		"trend":                 true,
+		"breakdown":             true,
+	}
+	if !allowedDatasets[dataset] {
+		return JSONErrorWithEnvelope(c, http.StatusBadRequest, "invalid dataset")
 	}
 
 	f, err := parseTaxonomyFilter(c, orgID)
 	if err != nil {
-		return c.JSON(http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return JSONErrorWithEnvelope(c, http.StatusBadRequest, "invalid filter parameters")
 	}
 
 	grain := strings.TrimSpace(c.QueryParam("grain"))
 	if grain == "" {
 		grain = "day"
 	}
-
-	filename := fmt.Sprintf("livereview-impact-report-%s-%s.csv", dataset, time.Now().UTC().Format("20060102"))
-	c.Response().Header().Set("Content-Type", "text/csv; charset=utf-8")
-	c.Response().Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename="%s"`, filename))
-	c.Response().Header().Set("Cache-Control", "no-store")
-	c.Response().WriteHeader(http.StatusOK)
-
-	w := csv.NewWriter(c.Response())
+	buf := bytes.NewBuffer(nil)
+	w := csv.NewWriter(buf)
 
 	ctx := c.Request().Context()
+	writeCSVRow := func(row []string) error {
+		if err := w.Write(row); err != nil {
+			return err
+		}
+		return nil
+	}
 
 	switch dataset {
 	case "findings":
-		_ = w.Write([]string{
+		if err := writeCSVRow([]string{
 			"comment_id", "review_id", "org_id", "repository", "provider",
 			"file_path", "line_number", "severity", "confidence", "type",
 			"category", "subcategory", "content", "created_at",
-		})
+		}); err != nil {
+			return fmt.Errorf("csv write header failed: %w", err)
+		}
 		limit := 5000
 		offset := 0
 		for {
 			rows, _, err2 := h.store.ListFindings(ctx, f, limit, offset, storagereports.TaxonomyFindingsOptions{})
 			if err2 != nil {
-				break
+				return fmt.Errorf("csv findings query failed: %w", err2)
 			}
 			for _, r := range rows {
 				fp := ""
@@ -505,7 +538,7 @@ func (h *TaxonomyReportHandler) streamCSV(c echo.Context, orgID int64, dataset s
 				if r.LineNumber != nil {
 					ln = strconv.Itoa(*r.LineNumber)
 				}
-				_ = w.Write([]string{
+				if err := writeCSVRow([]string{
 					strconv.FormatInt(r.CommentID, 10),
 					strconv.FormatInt(r.ReviewID, 10),
 					strconv.FormatInt(r.OrgID, 10),
@@ -514,7 +547,9 @@ func (h *TaxonomyReportHandler) streamCSV(c echo.Context, orgID int64, dataset s
 					r.Severity, r.Confidence, r.IssueType,
 					r.Category, r.Subcategory,
 					r.Content, r.CreatedAt,
-				})
+				}); err != nil {
+					return fmt.Errorf("csv findings write failed: %w", err)
+				}
 			}
 			if len(rows) < limit {
 				break
@@ -523,71 +558,98 @@ func (h *TaxonomyReportHandler) streamCSV(c echo.Context, orgID int64, dataset s
 		}
 
 	case "category_distribution":
-		_ = w.Write([]string{"dimension", "value", "count"})
+		if err := writeCSVRow([]string{"dimension", "value", "count"}); err != nil {
+			return fmt.Errorf("csv write header failed: %w", err)
+		}
 		for _, dim := range []string{"category", "subcategory"} {
 			rows, err2 := h.store.GetDistribution(ctx, dim, f)
 			if err2 != nil {
-				break
+				return fmt.Errorf("csv category distribution query failed: %w", err2)
 			}
 			for _, r := range rows {
-				_ = w.Write([]string{r.Dimension, r.Value, strconv.FormatInt(r.Count, 10)})
+				if err := writeCSVRow([]string{r.Dimension, r.Value, strconv.FormatInt(r.Count, 10)}); err != nil {
+					return fmt.Errorf("csv category distribution write failed: %w", err)
+				}
 			}
 		}
 
 	case "severity_distribution":
-		_ = w.Write([]string{"dimension", "value", "count"})
+		if err := writeCSVRow([]string{"dimension", "value", "count"}); err != nil {
+			return fmt.Errorf("csv write header failed: %w", err)
+		}
 		for _, dim := range []string{"severity", "confidence", "type"} {
 			rows, err2 := h.store.GetDistribution(ctx, dim, f)
 			if err2 != nil {
-				break
+				return fmt.Errorf("csv severity distribution query failed: %w", err2)
 			}
 			for _, r := range rows {
-				_ = w.Write([]string{r.Dimension, r.Value, strconv.FormatInt(r.Count, 10)})
+				if err := writeCSVRow([]string{r.Dimension, r.Value, strconv.FormatInt(r.Count, 10)}); err != nil {
+					return fmt.Errorf("csv severity distribution write failed: %w", err)
+				}
 			}
 		}
 
 	case "trend":
-		_ = w.Write([]string{"bucket", "findings_count", "reviews_count"})
+		if err := writeCSVRow([]string{"bucket", "findings_count", "reviews_count"}); err != nil {
+			return fmt.Errorf("csv write header failed: %w", err)
+		}
 		rows, err2 := h.store.GetTrend(ctx, grain, f)
-		if err2 == nil {
-			for _, r := range rows {
-				_ = w.Write([]string{r.Bucket, strconv.FormatInt(r.Count, 10), strconv.FormatInt(r.ReviewCount, 10)})
+		if err2 != nil {
+			return fmt.Errorf("csv trend query failed: %w", err2)
+		}
+		for _, r := range rows {
+			if err := writeCSVRow([]string{r.Bucket, strconv.FormatInt(r.Count, 10), strconv.FormatInt(r.ReviewCount, 10)}); err != nil {
+				return fmt.Errorf("csv trend write failed: %w", err)
 			}
 		}
 
 	case "breakdown":
-		_ = w.Write([]string{"org_id", "org_name", "repository", "provider", "findings_count", "reviews_count"})
+		if err := writeCSVRow([]string{"org_id", "org_name", "repository", "provider", "findings_count", "reviews_count"}); err != nil {
+			return fmt.Errorf("csv write header failed: %w", err)
+		}
 		rows, err2 := h.store.GetBreakdown(ctx, f, includeOrgName)
-		if err2 == nil {
-			for _, r := range rows {
-				oid := ""
-				if r.OrgID != nil {
-					oid = strconv.FormatInt(*r.OrgID, 10)
-				}
-				oname := ""
-				if r.OrgName != nil {
-					oname = *r.OrgName
-				}
-				_ = w.Write([]string{oid, oname, r.Repository, r.Provider, strconv.FormatInt(r.Count, 10), strconv.FormatInt(r.ReviewCount, 10)})
+		if err2 != nil {
+			return fmt.Errorf("csv breakdown query failed: %w", err2)
+		}
+		for _, r := range rows {
+			oid := ""
+			if r.OrgID != nil {
+				oid = strconv.FormatInt(*r.OrgID, 10)
+			}
+			oname := ""
+			if r.OrgName != nil {
+				oname = *r.OrgName
+			}
+			if err := writeCSVRow([]string{oid, oname, r.Repository, r.Provider, strconv.FormatInt(r.Count, 10), strconv.FormatInt(r.ReviewCount, 10)}); err != nil {
+				return fmt.Errorf("csv breakdown write failed: %w", err)
 			}
 		}
-
-	default:
-		_ = w.Write([]string{"error"})
-		_ = w.Write([]string{fmt.Sprintf("unknown dataset %q; valid: findings, category_distribution, severity_distribution, trend, breakdown", dataset)})
 	}
 
 	w.Flush()
+	if err := w.Error(); err != nil {
+		return fmt.Errorf("csv flush failed: %w", err)
+	}
+
+	filename := fmt.Sprintf("livereview-impact-report-%s-%s.csv", dataset, time.Now().UTC().Format("20060102"))
+	c.Response().Header().Set("Content-Type", "text/csv; charset=utf-8")
+	c.Response().Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename="%s"`, filename))
+	c.Response().Header().Set("Cache-Control", "no-store")
+	c.Response().WriteHeader(http.StatusOK)
+	if _, err := c.Response().Write(buf.Bytes()); err != nil {
+		return err
+	}
 	return nil
 }
 
-func parseDatasets(raw string) []string {
+func parseDatasets(raw string) ([]string, error) {
 	if strings.TrimSpace(raw) == "" {
-		return []string{"findings", "severity_distribution", "category_distribution", "trend", "breakdown"}
+		return []string{"findings", "severity_distribution", "category_distribution", "trend", "breakdown"}, nil
 	}
 	parts := strings.Split(raw, ",")
 	seen := map[string]bool{}
 	out := make([]string, 0, len(parts))
+	unknown := make([]string, 0)
 	for _, p := range parts {
 		ds := strings.TrimSpace(p)
 		if ds == "" || seen[ds] {
@@ -597,31 +659,41 @@ func parseDatasets(raw string) []string {
 		case "findings", "severity_distribution", "category_distribution", "trend", "breakdown":
 			out = append(out, ds)
 			seen[ds] = true
+		default:
+			unknown = append(unknown, ds)
 		}
 	}
-	if len(out) == 0 {
-		return []string{"findings"}
+	if len(unknown) > 0 {
+		return nil, fmt.Errorf("invalid datasets: %s", strings.Join(unknown, ", "))
 	}
-	return out
+	if len(out) == 0 {
+		return nil, fmt.Errorf("datasets is required")
+	}
+	return out, nil
 }
 
 func (h *TaxonomyReportHandler) streamXLSX(c echo.Context, orgID int64, includeOrgName bool) error {
 	f, err := parseTaxonomyFilter(c, orgID)
 	if err != nil {
-		return c.JSON(http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return JSONErrorWithEnvelope(c, http.StatusBadRequest, "invalid filter parameters")
 	}
 	grain := strings.TrimSpace(c.QueryParam("grain"))
 	if grain == "" {
 		grain = "day"
 	}
-	datasets := parseDatasets(c.QueryParam("datasets"))
+	datasets, err := parseDatasets(c.QueryParam("datasets"))
+	if err != nil {
+		return JSONErrorWithEnvelope(c, http.StatusBadRequest, err.Error())
+	}
 
 	wb := excelize.NewFile()
 	defer wb.Close()
 	// Remove default empty sheet; we add one sheet per dataset.
 	defaultSheet := wb.GetSheetName(0)
 	if defaultSheet != "" {
-		_ = wb.DeleteSheet(defaultSheet)
+		if err := wb.DeleteSheet(defaultSheet); err != nil {
+			return JSONErrorWithEnvelope(c, http.StatusInternalServerError, "xlsx setup failed")
+		}
 	}
 
 	ctx := c.Request().Context()
@@ -631,14 +703,21 @@ func (h *TaxonomyReportHandler) streamXLSX(c echo.Context, orgID int64, includeO
 		if len(sheetName) > 31 {
 			sheetName = sheetName[:31]
 		}
-		_, _ = wb.NewSheet(sheetName)
+		if _, err := wb.NewSheet(sheetName); err != nil {
+			return JSONErrorWithEnvelope(c, http.StatusInternalServerError, "xlsx sheet creation failed")
+		}
 
 		switch ds {
 		case "findings":
 			headers := []string{"comment_id", "review_id", "org_id", "repository", "provider", "file_path", "line_number", "severity", "confidence", "type", "category", "subcategory", "content", "created_at"}
 			for i, hcol := range headers {
-				cell, _ := excelize.CoordinatesToCellName(i+1, 1)
-				_ = wb.SetCellValue(sheetName, cell, hcol)
+				cell, err := excelize.CoordinatesToCellName(i+1, 1)
+				if err != nil {
+					return JSONErrorWithEnvelope(c, http.StatusInternalServerError, "xlsx coordinate generation failed")
+				}
+				if err := wb.SetCellValue(sheetName, cell, hcol); err != nil {
+					return JSONErrorWithEnvelope(c, http.StatusInternalServerError, "xlsx write failed")
+				}
 			}
 			limit := 5000
 			offset := 0
@@ -646,7 +725,7 @@ func (h *TaxonomyReportHandler) streamXLSX(c echo.Context, orgID int64, includeO
 			for {
 				rows, _, err2 := h.store.ListFindings(ctx, f, limit, offset, storagereports.TaxonomyFindingsOptions{})
 				if err2 != nil {
-					break
+					return JSONErrorWithEnvelope(c, http.StatusInternalServerError, "xlsx findings query failed")
 				}
 				for _, r := range rows {
 					line := ""
@@ -659,8 +738,13 @@ func (h *TaxonomyReportHandler) streamXLSX(c echo.Context, orgID int64, includeO
 					}
 					vals := []interface{}{r.CommentID, r.ReviewID, r.OrgID, r.Repository, r.Provider, filePath, line, r.Severity, r.Confidence, r.IssueType, r.Category, r.Subcategory, r.Content, r.CreatedAt}
 					for col, v := range vals {
-						cell, _ := excelize.CoordinatesToCellName(col+1, rowNum)
-						_ = wb.SetCellValue(sheetName, cell, v)
+						cell, err := excelize.CoordinatesToCellName(col+1, rowNum)
+						if err != nil {
+							return JSONErrorWithEnvelope(c, http.StatusInternalServerError, "xlsx coordinate generation failed")
+						}
+						if err := wb.SetCellValue(sheetName, cell, v); err != nil {
+							return JSONErrorWithEnvelope(c, http.StatusInternalServerError, "xlsx write failed")
+						}
 					}
 					rowNum++
 				}
@@ -673,19 +757,30 @@ func (h *TaxonomyReportHandler) streamXLSX(c echo.Context, orgID int64, includeO
 		case "severity_distribution":
 			headers := []string{"dimension", "value", "count"}
 			for i, hcol := range headers {
-				cell, _ := excelize.CoordinatesToCellName(i+1, 1)
-				_ = wb.SetCellValue(sheetName, cell, hcol)
+				cell, err := excelize.CoordinatesToCellName(i+1, 1)
+				if err != nil {
+					return JSONErrorWithEnvelope(c, http.StatusInternalServerError, "xlsx coordinate generation failed")
+				}
+				if err := wb.SetCellValue(sheetName, cell, hcol); err != nil {
+					return JSONErrorWithEnvelope(c, http.StatusInternalServerError, "xlsx write failed")
+				}
 			}
 			rowNum := 2
 			for _, dim := range []string{"severity", "confidence", "type"} {
 				rows, err2 := h.store.GetDistribution(ctx, dim, f)
 				if err2 != nil {
-					continue
+					return JSONErrorWithEnvelope(c, http.StatusInternalServerError, "xlsx severity distribution query failed")
 				}
 				for _, r := range rows {
-					_ = wb.SetCellValue(sheetName, fmt.Sprintf("A%d", rowNum), r.Dimension)
-					_ = wb.SetCellValue(sheetName, fmt.Sprintf("B%d", rowNum), r.Value)
-					_ = wb.SetCellValue(sheetName, fmt.Sprintf("C%d", rowNum), r.Count)
+					if err := wb.SetCellValue(sheetName, fmt.Sprintf("A%d", rowNum), r.Dimension); err != nil {
+						return JSONErrorWithEnvelope(c, http.StatusInternalServerError, "xlsx write failed")
+					}
+					if err := wb.SetCellValue(sheetName, fmt.Sprintf("B%d", rowNum), r.Value); err != nil {
+						return JSONErrorWithEnvelope(c, http.StatusInternalServerError, "xlsx write failed")
+					}
+					if err := wb.SetCellValue(sheetName, fmt.Sprintf("C%d", rowNum), r.Count); err != nil {
+						return JSONErrorWithEnvelope(c, http.StatusInternalServerError, "xlsx write failed")
+					}
 					rowNum++
 				}
 			}
@@ -693,19 +788,30 @@ func (h *TaxonomyReportHandler) streamXLSX(c echo.Context, orgID int64, includeO
 		case "category_distribution":
 			headers := []string{"dimension", "value", "count"}
 			for i, hcol := range headers {
-				cell, _ := excelize.CoordinatesToCellName(i+1, 1)
-				_ = wb.SetCellValue(sheetName, cell, hcol)
+				cell, err := excelize.CoordinatesToCellName(i+1, 1)
+				if err != nil {
+					return JSONErrorWithEnvelope(c, http.StatusInternalServerError, "xlsx coordinate generation failed")
+				}
+				if err := wb.SetCellValue(sheetName, cell, hcol); err != nil {
+					return JSONErrorWithEnvelope(c, http.StatusInternalServerError, "xlsx write failed")
+				}
 			}
 			rowNum := 2
 			for _, dim := range []string{"category", "subcategory"} {
 				rows, err2 := h.store.GetDistribution(ctx, dim, f)
 				if err2 != nil {
-					continue
+					return JSONErrorWithEnvelope(c, http.StatusInternalServerError, "xlsx category distribution query failed")
 				}
 				for _, r := range rows {
-					_ = wb.SetCellValue(sheetName, fmt.Sprintf("A%d", rowNum), r.Dimension)
-					_ = wb.SetCellValue(sheetName, fmt.Sprintf("B%d", rowNum), r.Value)
-					_ = wb.SetCellValue(sheetName, fmt.Sprintf("C%d", rowNum), r.Count)
+					if err := wb.SetCellValue(sheetName, fmt.Sprintf("A%d", rowNum), r.Dimension); err != nil {
+						return JSONErrorWithEnvelope(c, http.StatusInternalServerError, "xlsx write failed")
+					}
+					if err := wb.SetCellValue(sheetName, fmt.Sprintf("B%d", rowNum), r.Value); err != nil {
+						return JSONErrorWithEnvelope(c, http.StatusInternalServerError, "xlsx write failed")
+					}
+					if err := wb.SetCellValue(sheetName, fmt.Sprintf("C%d", rowNum), r.Count); err != nil {
+						return JSONErrorWithEnvelope(c, http.StatusInternalServerError, "xlsx write failed")
+					}
 					rowNum++
 				}
 			}
@@ -713,41 +819,71 @@ func (h *TaxonomyReportHandler) streamXLSX(c echo.Context, orgID int64, includeO
 		case "trend":
 			headers := []string{"bucket", "findings_count", "reviews_count"}
 			for i, hcol := range headers {
-				cell, _ := excelize.CoordinatesToCellName(i+1, 1)
-				_ = wb.SetCellValue(sheetName, cell, hcol)
+				cell, err := excelize.CoordinatesToCellName(i+1, 1)
+				if err != nil {
+					return JSONErrorWithEnvelope(c, http.StatusInternalServerError, "xlsx coordinate generation failed")
+				}
+				if err := wb.SetCellValue(sheetName, cell, hcol); err != nil {
+					return JSONErrorWithEnvelope(c, http.StatusInternalServerError, "xlsx write failed")
+				}
 			}
 			rows, err2 := h.store.GetTrend(ctx, grain, f)
-			if err2 == nil {
-				for i, r := range rows {
-					_ = wb.SetCellValue(sheetName, fmt.Sprintf("A%d", i+2), r.Bucket)
-					_ = wb.SetCellValue(sheetName, fmt.Sprintf("B%d", i+2), r.Count)
-					_ = wb.SetCellValue(sheetName, fmt.Sprintf("C%d", i+2), r.ReviewCount)
+			if err2 != nil {
+				return JSONErrorWithEnvelope(c, http.StatusInternalServerError, "xlsx trend query failed")
+			}
+			for i, r := range rows {
+				if err := wb.SetCellValue(sheetName, fmt.Sprintf("A%d", i+2), r.Bucket); err != nil {
+					return JSONErrorWithEnvelope(c, http.StatusInternalServerError, "xlsx write failed")
+				}
+				if err := wb.SetCellValue(sheetName, fmt.Sprintf("B%d", i+2), r.Count); err != nil {
+					return JSONErrorWithEnvelope(c, http.StatusInternalServerError, "xlsx write failed")
+				}
+				if err := wb.SetCellValue(sheetName, fmt.Sprintf("C%d", i+2), r.ReviewCount); err != nil {
+					return JSONErrorWithEnvelope(c, http.StatusInternalServerError, "xlsx write failed")
 				}
 			}
 
 		case "breakdown":
 			headers := []string{"org_id", "org_name", "repository", "provider", "findings_count", "reviews_count"}
 			for i, hcol := range headers {
-				cell, _ := excelize.CoordinatesToCellName(i+1, 1)
-				_ = wb.SetCellValue(sheetName, cell, hcol)
+				cell, err := excelize.CoordinatesToCellName(i+1, 1)
+				if err != nil {
+					return JSONErrorWithEnvelope(c, http.StatusInternalServerError, "xlsx coordinate generation failed")
+				}
+				if err := wb.SetCellValue(sheetName, cell, hcol); err != nil {
+					return JSONErrorWithEnvelope(c, http.StatusInternalServerError, "xlsx write failed")
+				}
 			}
 			rows, err2 := h.store.GetBreakdown(ctx, f, includeOrgName)
-			if err2 == nil {
-				for i, r := range rows {
-					orgIDVal := ""
-					if r.OrgID != nil {
-						orgIDVal = strconv.FormatInt(*r.OrgID, 10)
-					}
-					orgNameVal := ""
-					if r.OrgName != nil {
-						orgNameVal = *r.OrgName
-					}
-					_ = wb.SetCellValue(sheetName, fmt.Sprintf("A%d", i+2), orgIDVal)
-					_ = wb.SetCellValue(sheetName, fmt.Sprintf("B%d", i+2), orgNameVal)
-					_ = wb.SetCellValue(sheetName, fmt.Sprintf("C%d", i+2), r.Repository)
-					_ = wb.SetCellValue(sheetName, fmt.Sprintf("D%d", i+2), r.Provider)
-					_ = wb.SetCellValue(sheetName, fmt.Sprintf("E%d", i+2), r.Count)
-					_ = wb.SetCellValue(sheetName, fmt.Sprintf("F%d", i+2), r.ReviewCount)
+			if err2 != nil {
+				return JSONErrorWithEnvelope(c, http.StatusInternalServerError, "xlsx breakdown query failed")
+			}
+			for i, r := range rows {
+				orgIDVal := ""
+				if r.OrgID != nil {
+					orgIDVal = strconv.FormatInt(*r.OrgID, 10)
+				}
+				orgNameVal := ""
+				if r.OrgName != nil {
+					orgNameVal = *r.OrgName
+				}
+				if err := wb.SetCellValue(sheetName, fmt.Sprintf("A%d", i+2), orgIDVal); err != nil {
+					return JSONErrorWithEnvelope(c, http.StatusInternalServerError, "xlsx write failed")
+				}
+				if err := wb.SetCellValue(sheetName, fmt.Sprintf("B%d", i+2), orgNameVal); err != nil {
+					return JSONErrorWithEnvelope(c, http.StatusInternalServerError, "xlsx write failed")
+				}
+				if err := wb.SetCellValue(sheetName, fmt.Sprintf("C%d", i+2), r.Repository); err != nil {
+					return JSONErrorWithEnvelope(c, http.StatusInternalServerError, "xlsx write failed")
+				}
+				if err := wb.SetCellValue(sheetName, fmt.Sprintf("D%d", i+2), r.Provider); err != nil {
+					return JSONErrorWithEnvelope(c, http.StatusInternalServerError, "xlsx write failed")
+				}
+				if err := wb.SetCellValue(sheetName, fmt.Sprintf("E%d", i+2), r.Count); err != nil {
+					return JSONErrorWithEnvelope(c, http.StatusInternalServerError, "xlsx write failed")
+				}
+				if err := wb.SetCellValue(sheetName, fmt.Sprintf("F%d", i+2), r.ReviewCount); err != nil {
+					return JSONErrorWithEnvelope(c, http.StatusInternalServerError, "xlsx write failed")
 				}
 			}
 		}
@@ -755,7 +891,7 @@ func (h *TaxonomyReportHandler) streamXLSX(c echo.Context, orgID int64, includeO
 
 	buf := bytes.NewBuffer(nil)
 	if err := wb.Write(buf); err != nil {
-		return c.JSON(http.StatusInternalServerError, map[string]string{"error": fmt.Sprintf("xlsx generation failed: %v", err)})
+		return JSONErrorWithEnvelope(c, http.StatusInternalServerError, "xlsx generation failed")
 	}
 
 	filename := fmt.Sprintf("livereview-impact-report-export-%s.xlsx", time.Now().UTC().Format("20060102"))
@@ -763,21 +899,23 @@ func (h *TaxonomyReportHandler) streamXLSX(c echo.Context, orgID int64, includeO
 	c.Response().Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename="%s"`, filename))
 	c.Response().Header().Set("Cache-Control", "no-store")
 	c.Response().WriteHeader(http.StatusOK)
-	_, _ = c.Response().Write(buf.Bytes())
+	if _, err := c.Response().Write(buf.Bytes()); err != nil {
+		return err
+	}
 	return nil
 }
 
 // parseOptionalOrgID reads an optional ?org_id= query param. Returns 0 if absent.
-func parseOptionalOrgID(c echo.Context) int64 {
+func parseOptionalOrgID(c echo.Context) (int64, error) {
 	v := strings.TrimSpace(c.QueryParam("org_id"))
 	if v == "" {
-		return 0
+		return 0, nil
 	}
 	id, err := strconv.ParseInt(v, 10, 64)
 	if err != nil || id <= 0 {
-		return 0
+		return 0, fmt.Errorf("invalid org_id")
 	}
-	return id
+	return id, nil
 }
 
 func (h *TaxonomyReportHandler) getExportPreview(c echo.Context, orgID int64, includeOrgName bool) error {

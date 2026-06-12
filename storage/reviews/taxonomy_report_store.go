@@ -228,11 +228,7 @@ JOIN LATERAL jsonb_array_elements(rc.comments_json) AS c(comment) ON true
 
 // GetSummary returns aggregate KPIs for the given filter.
 func (s *TaxonomyReportStore) GetSummary(ctx context.Context, f TaxonomyFilter) (*TaxonomySummary, error) {
-	fmt.Printf("[DEBUG] GetSummary called with filter={OrgID:%d, Since:%v, Until:%v, Repository:%q, Provider:%q, Severity:%q, Confidence:%q, IssueType:%q, Category:%q, Subcategory:%q}\n",
-		f.OrgID, f.Since, f.Until, f.Repository, f.Provider, f.Severity, f.Confidence, f.IssueType, f.Category, f.Subcategory)
-
 	where, args := s.buildWhereClause(f, 1)
-	fmt.Printf("[DEBUG] GetSummary buildWhereClause returned: where=%q, args=%v\n", where, args)
 
 	q := fmt.Sprintf(`
 SELECT
@@ -250,8 +246,6 @@ SELECT
 WHERE %s
 `, findingSeverityExpr, findingSeverityExpr, findingSeverityExpr, findingSeverityExpr, findingSeverityExpr, findingConfidenceExpr, findingConfidenceExpr, findingConfidenceExpr, baseFrom, where)
 
-	fmt.Printf("[DEBUG] Executing summary query with args: %v\n", args)
-
 	var row TaxonomySummary
 	err := s.db.QueryRowContext(ctx, q, args...).Scan(
 		&row.TotalFindings,
@@ -268,7 +262,6 @@ WHERE %s
 	if err != nil {
 		return nil, fmt.Errorf("taxonomy summary query: %w", err)
 	}
-	fmt.Printf("[DEBUG] GetSummary result: TotalFindings=%d, TotalReviews=%d\n", row.TotalFindings, row.TotalReviews)
 	return &row, nil
 }
 
@@ -333,11 +326,7 @@ func (s *TaxonomyReportStore) GetTrend(ctx context.Context, grain string, f Taxo
 		return nil, fmt.Errorf("invalid grain %q", grain)
 	}
 
-	fmt.Printf("[DEBUG] GetTrend called with grain=%q, filter={OrgID:%d, Since:%v, Until:%v, Repository:%q, Provider:%q, Severity:%q, Confidence:%q, IssueType:%q, Category:%q, Subcategory:%q}\n",
-		grain, f.OrgID, f.Since, f.Until, f.Repository, f.Provider, f.Severity, f.Confidence, f.IssueType, f.Category, f.Subcategory)
-
 	where, args := s.buildWhereClause(f, 1)
-	fmt.Printf("[DEBUG] buildWhereClause returned: where=%q, args=%v\n", where, args)
 
 	// Use date_trunc with a literal interval value safely via a fixed string (no user input).
 	q := fmt.Sprintf(`
@@ -351,8 +340,6 @@ GROUP BY bucket
 ORDER BY bucket ASC
 `, grain, baseFrom, where)
 
-	fmt.Printf("[DEBUG] Executing trend query:\n%s\nWith args: %v\n", q, args)
-
 	rows, err := s.db.QueryContext(ctx, q, args...)
 	if err != nil {
 		return nil, fmt.Errorf("taxonomy trend query: %w", err)
@@ -360,17 +347,13 @@ ORDER BY bucket ASC
 	defer rows.Close()
 
 	var out []TaxonomyTrendRow
-	rowCount := 0
 	for rows.Next() {
 		var r TaxonomyTrendRow
 		if err := rows.Scan(&r.Bucket, &r.Count, &r.ReviewCount); err != nil {
 			return nil, fmt.Errorf("taxonomy trend scan: %w", err)
 		}
-		fmt.Printf("[DEBUG] Scanned trend row: bucket=%q, count=%d, review_count=%d\n", r.Bucket, r.Count, r.ReviewCount)
 		out = append(out, r)
-		rowCount++
 	}
-	fmt.Printf("[DEBUG] GetTrend completed: scanned %d rows, returning %d rows. Final result: %+v\n", rowCount, len(out), out)
 	return out, rows.Err()
 }
 
@@ -379,33 +362,38 @@ ORDER BY bucket ASC
 func (s *TaxonomyReportStore) GetBreakdown(ctx context.Context, f TaxonomyFilter, includeOrgName bool) ([]TaxonomyBreakdownRow, error) {
 	where, args := s.buildWhereClause(f, 1)
 
-	orgCols := "NULL::bigint, NULL::text"
-	joinOrgs := ""
+	q := ""
 	if includeOrgName {
-		orgCols = "rc.org_id, o.name"
-		joinOrgs = "LEFT JOIN orgs o ON o.id = rc.org_id"
-	}
-
-	q := fmt.Sprintf(`
+		q = fmt.Sprintf(`
 SELECT
-  %s,
+  rc.org_id,
+	o.name,
 	COALESCE(rc.repository, ''),
 	COALESCE(rc.provider, ''),
 	COUNT(*) AS count,
 	COUNT(DISTINCT rc.id) AS review_count
 %s
-%s
+LEFT JOIN orgs o ON o.id = rc.org_id
 WHERE %s
-GROUP BY rc.org_id, o_name, rc.repository, rc.provider
+GROUP BY rc.org_id, o.name, rc.repository, rc.provider
 ORDER BY count DESC
 LIMIT 200
-`, orgCols, baseFrom, joinOrgs, where)
-
-	// Replace the placeholder GROUP BY alias for the org name column.
-	if includeOrgName {
-		q = strings.Replace(q, "o_name", "o.name", 1)
+`, baseFrom, where)
 	} else {
-		q = strings.Replace(q, "o_name", "1", 1)
+		q = fmt.Sprintf(`
+SELECT
+  NULL::bigint,
+	NULL::text,
+	COALESCE(rc.repository, ''),
+	COALESCE(rc.provider, ''),
+	COUNT(*) AS count,
+	COUNT(DISTINCT rc.id) AS review_count
+%s
+WHERE %s
+GROUP BY rc.repository, rc.provider
+ORDER BY count DESC
+LIMIT 200
+`, baseFrom, where)
 	}
 
 	rows, err := s.db.QueryContext(ctx, q, args...)
