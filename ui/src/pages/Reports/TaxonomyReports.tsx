@@ -4,6 +4,7 @@ import { ColumnDef, flexRender, getCoreRowModel, useReactTable } from '@tanstack
 import { Area, AreaChart, Brush, CartesianGrid, Legend, Line, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 import apiClient from '../../api/apiClient';
 import { useOrgContext } from '../../hooks/useOrgContext';
+import { Spinner } from '../../components/UIPrimitives';
 
 type MultiOption = { value: string; label: string };
 
@@ -1500,7 +1501,15 @@ const TaxonomyReports: React.FC = () => {
           </div>
 
       {/* Findings explorer */}
-      <div ref={findingsExplorerRef} className="bg-slate-800/60 border border-slate-700 rounded-lg p-4">
+      <div ref={findingsExplorerRef} className="relative bg-slate-800/60 border border-slate-700 rounded-lg p-4">
+        {loading && (
+          <div className="absolute inset-0 z-10 flex items-center justify-center bg-slate-900/60 rounded-lg">
+            <div className="flex items-center gap-2 text-slate-300 text-sm">
+              <Spinner size="sm" />
+              Loading findings…
+            </div>
+          </div>
+        )}
         <div className="flex items-center justify-between mb-3">
           <h3 className="text-white font-semibold text-sm">
             Findings Explorer
