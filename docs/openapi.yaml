@@ -338,17 +338,11 @@ paths:
         - Aiconnectors
   /api/v1/auth/change-password:
     post:
-      description: ChangePassword handles password changes (useful for temp passwords)
+      description: ChangePassword handles changing the current user's password
       operationId: ChangePassword
       responses:
         "200":
           description: OK
-        "400":
-          description: Bad Request
-        "401":
-          description: Unauthorized
-        "500":
-          description: Internal Server Error
       tags:
         - Auth
   /api/v1/auth/ensure-cloud-user:
@@ -1688,12 +1682,12 @@ paths:
       operationId: CreatePromptChunk
       parameters:
         - in: path
-          name: key
+          name: var
           required: true
           schema:
             type: string
         - in: path
-          name: var
+          name: key
           required: true
           schema:
             type: string
@@ -1714,12 +1708,12 @@ paths:
       operationId: ReorderPromptChunks
       parameters:
         - in: path
-          name: var
+          name: key
           required: true
           schema:
             type: string
         - in: path
-          name: key
+          name: var
           required: true
           schema:
             type: string
@@ -1782,9 +1776,7 @@ paths:
           required: true
           schema:
             type: string
-      responses:
-        "401":
-          description: Unauthorized
+      responses: null
       tags:
         - Reports
   /api/v1/reports/taxonomy/export/preview:
@@ -1798,9 +1790,7 @@ paths:
     get:
       description: ExportOrgTaxonomyXLSX streams a multi-sheet xlsx export for the current org.
       operationId: ExportOrgTaxonomyXLSX
-      responses:
-        "401":
-          description: Unauthorized
+      responses: null
       tags:
         - Reports
   /api/v1/reports/taxonomy/findings:
@@ -2207,17 +2197,11 @@ paths:
         - Ui-Config
   /api/v1/users/password:
     put:
-      description: ChangePassword handles password changes (useful for temp passwords)
+      description: ChangePassword handles changing the current user's password
       operationId: ChangePassword
       responses:
         "200":
           description: OK
-        "400":
-          description: Bad Request
-        "401":
-          description: Unauthorized
-        "500":
-          description: Internal Server Error
       tags:
         - Users
   /api/v1/users/profile:

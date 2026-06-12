@@ -1,8 +1,6 @@
 package api
 
 import (
-	"fmt"
-
 	"github.com/labstack/echo/v4"
 	apimiddleware "github.com/livereview/internal/api/middleware"
 )
@@ -166,19 +164,7 @@ func JSONWithEnvelope(c echo.Context, code int, payload map[string]interface{}) 
 	if _, exists := payload["envelope"]; !exists {
 		payload["envelope"] = BuildEnvelopeFromContext(c)
 	}
-	fmt.Printf("[JSONWithEnvelope] About to marshal payload with keys: %v\n", getKeys(payload))
-	if rows, ok := payload["rows"]; ok {
-		fmt.Printf("[JSONWithEnvelope] 'rows' type: %T, value preview: %+v\n", rows, rows)
-	}
 	return c.JSON(code, payload)
-}
-
-func getKeys(m map[string]interface{}) []string {
-	var keys []string
-	for k := range m {
-		keys = append(keys, k)
-	}
-	return keys
 }
 
 // JSONErrorWithEnvelope standardizes envelope-aware error payloads.
