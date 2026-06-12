@@ -100,6 +100,87 @@ paths:
           description: Created
       tags:
         - Admin
+  /api/v1/admin/reports/taxonomy/breakdown:
+    get:
+      description: GetAdminTaxonomyBreakdown returns global org/repo/provider breakdown (super-admin).
+      operationId: GetAdminTaxonomyBreakdown
+      responses: null
+      tags:
+        - Admin
+  /api/v1/admin/reports/taxonomy/distribution/{dimension}:
+    get:
+      description: GetAdminTaxonomyDistribution returns global distribution (super-admin).
+      operationId: GetAdminTaxonomyDistribution
+      parameters:
+        - in: path
+          name: dimension
+          required: true
+          schema:
+            type: string
+      responses: null
+      tags:
+        - Admin
+  /api/v1/admin/reports/taxonomy/export:
+    get:
+      description: ExportAdminTaxonomyCSV streams a CSV export for super-admin.
+      operationId: ExportAdminTaxonomyCSV
+      parameters:
+        - in: query
+          name: dataset
+          required: true
+          schema:
+            type: string
+      responses: null
+      tags:
+        - Admin
+  /api/v1/admin/reports/taxonomy/export/preview:
+    get:
+      description: GetAdminTaxonomyExportPreview returns row estimates for each export dataset (super-admin).
+      operationId: GetAdminTaxonomyExportPreview
+      responses: null
+      tags:
+        - Admin
+  /api/v1/admin/reports/taxonomy/export/xlsx:
+    get:
+      description: ExportAdminTaxonomyXLSX streams a multi-sheet xlsx export for super-admin.
+      operationId: ExportAdminTaxonomyXLSX
+      responses: null
+      tags:
+        - Admin
+  /api/v1/admin/reports/taxonomy/findings:
+    get:
+      description: ListAdminTaxonomyFindings returns paginated global finding rows (super-admin).
+      operationId: ListAdminTaxonomyFindings
+      responses: null
+      tags:
+        - Admin
+  /api/v1/admin/reports/taxonomy/relations:
+    get:
+      description: GetAdminTaxonomyRelations returns category -> subcategory relation rows (super-admin).
+      operationId: GetAdminTaxonomyRelations
+      responses: null
+      tags:
+        - Admin
+  /api/v1/admin/reports/taxonomy/summary:
+    get:
+      description: GetAdminTaxonomySummary returns global KPI summary (super-admin).
+      operationId: GetAdminTaxonomySummary
+      responses: null
+      tags:
+        - Admin
+  /api/v1/admin/reports/taxonomy/trend:
+    get:
+      description: GetAdminTaxonomyTrend returns global trend (super-admin).
+      operationId: GetAdminTaxonomyTrend
+      parameters:
+        - in: query
+          name: grain
+          required: true
+          schema:
+            type: string
+      responses: null
+      tags:
+        - Admin
   /api/v1/admin/users:
     get:
       description: ListAllUsers handles listing all users across all organizations (super admin only)
@@ -1633,12 +1714,12 @@ paths:
       operationId: ReorderPromptChunks
       parameters:
         - in: path
-          name: key
+          name: var
           required: true
           schema:
             type: string
         - in: path
-          name: var
+          name: key
           required: true
           schema:
             type: string
@@ -1671,6 +1752,91 @@ paths:
           description: OK
       tags:
         - Quota
+  /api/v1/reports/taxonomy/breakdown:
+    get:
+      description: GetOrgTaxonomyBreakdown returns per-repo/provider finding counts for the current org.
+      operationId: GetOrgTaxonomyBreakdown
+      responses: null
+      tags:
+        - Reports
+  /api/v1/reports/taxonomy/distribution/{dimension}:
+    get:
+      description: GetOrgTaxonomyDistribution returns per-value counts for one taxonomy dimension.
+      operationId: GetOrgTaxonomyDistribution
+      parameters:
+        - in: path
+          name: dimension
+          required: true
+          schema:
+            type: string
+      responses: null
+      tags:
+        - Reports
+  /api/v1/reports/taxonomy/export:
+    get:
+      description: ExportOrgTaxonomyCSV streams a CSV of raw findings for the current org.
+      operationId: ExportOrgTaxonomyCSV
+      parameters:
+        - in: query
+          name: dataset
+          required: true
+          schema:
+            type: string
+      responses:
+        "401":
+          description: Unauthorized
+      tags:
+        - Reports
+  /api/v1/reports/taxonomy/export/preview:
+    get:
+      description: GetOrgTaxonomyExportPreview returns row estimates for each export dataset.
+      operationId: GetOrgTaxonomyExportPreview
+      responses: null
+      tags:
+        - Reports
+  /api/v1/reports/taxonomy/export/xlsx:
+    get:
+      description: ExportOrgTaxonomyXLSX streams a multi-sheet xlsx export for the current org.
+      operationId: ExportOrgTaxonomyXLSX
+      responses:
+        "401":
+          description: Unauthorized
+      tags:
+        - Reports
+  /api/v1/reports/taxonomy/findings:
+    get:
+      description: ListOrgTaxonomyFindings returns paginated raw finding rows for the current org.
+      operationId: ListOrgTaxonomyFindings
+      responses: null
+      tags:
+        - Reports
+  /api/v1/reports/taxonomy/relations:
+    get:
+      description: GetOrgTaxonomyRelations returns category -> subcategory relation rows.
+      operationId: GetOrgTaxonomyRelations
+      responses: null
+      tags:
+        - Reports
+  /api/v1/reports/taxonomy/summary:
+    get:
+      description: GetOrgTaxonomySummary returns KPI summary for the caller's current org.
+      operationId: GetOrgTaxonomySummary
+      responses: null
+      tags:
+        - Reports
+  /api/v1/reports/taxonomy/trend:
+    get:
+      description: GetOrgTaxonomyTrend returns finding counts bucketed by time grain.
+      operationId: GetOrgTaxonomyTrend
+      parameters:
+        - in: query
+          name: grain
+          required: true
+          schema:
+            type: string
+      responses: null
+      tags:
+        - Reports
   /api/v1/reviews:
     get:
       description: getReviews handles GET /api/v1/reviews with filtering and pagination
