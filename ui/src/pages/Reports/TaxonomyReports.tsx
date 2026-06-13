@@ -1244,16 +1244,16 @@ const TaxonomyReports: React.FC = () => {
                 className="bg-slate-900 border border-slate-600 rounded px-2 py-1 text-white text-xs" />
             </div>
           )}
-          <div className="flex items-end justify-end gap-2 md:col-span-2 xl:col-span-2">
-            <button onClick={handleReset} disabled={loading}
-              className="px-3 py-1.5 rounded bg-slate-700 hover:bg-slate-600 text-white text-xs min-w-24">
-              Reset
-            </button>
-            <button onClick={handleApply} disabled={loading}
-              className="px-4 py-1.5 rounded bg-blue-600 hover:bg-blue-500 text-white text-xs font-medium min-w-28">
-              {loading ? 'Loading…' : 'Apply'}
-            </button>
-          </div>
+        </div>
+        <div className="flex items-center justify-end gap-2 mt-2">
+          <button onClick={handleReset} disabled={loading}
+            className="px-3 py-1.5 rounded bg-slate-700 hover:bg-slate-600 text-white text-xs min-w-24">
+            Reset
+          </button>
+          <button onClick={handleApply} disabled={loading}
+            className="px-4 py-1.5 rounded bg-blue-600 hover:bg-blue-500 text-white text-xs font-medium min-w-28">
+            {loading ? 'Loading…' : 'Apply'}
+          </button>
         </div>
       </div>
 
