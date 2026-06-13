@@ -4922,12 +4922,12 @@ paths:
       operationId: GetReviewEventsByType
       parameters:
         - in: path
-          name: type
+          name: id
           required: true
           schema:
             type: string
         - in: path
-          name: id
+          name: type
           required: true
           schema:
             type: string
@@ -5965,22 +5965,26 @@ paths:
         - Orgs
   /api/v1/orgs/{org_id}/members/{user_id}/role:
     put:
-      description: ChangeUserRole changes a user's role in an organization
+      description: ChangeUserRole handles changing a user's role in an organization
       operationId: ChangeUserRole
       parameters:
-        - in: path
-          name: user_id
-          required: true
-          schema:
-            format: int64
-            type: integer
         - in: path
           name: org_id
           required: true
           schema:
-            format: int64
-            type: integer
-      responses: null
+            type: string
+        - in: path
+          name: user_id
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/users.UserWithRole'
+          description: OK
       tags:
         - Orgs
   /api/v1/orgs/{org_id}/users:
@@ -6061,12 +6065,12 @@ paths:
       operationId: GetUser
       parameters:
         - in: path
-          name: org_id
+          name: user_id
           required: true
           schema:
             type: string
         - in: path
-          name: user_id
+          name: org_id
           required: true
           schema:
             type: string
@@ -6084,12 +6088,12 @@ paths:
       operationId: UpdateUser
       parameters:
         - in: path
-          name: user_id
+          name: org_id
           required: true
           schema:
             type: string
         - in: path
-          name: org_id
+          name: user_id
           required: true
           schema:
             type: string
@@ -6113,12 +6117,12 @@ paths:
       operationId: GetUserAuditLog
       parameters:
         - in: path
-          name: user_id
+          name: org_id
           required: true
           schema:
             type: string
         - in: path
-          name: org_id
+          name: user_id
           required: true
           schema:
             type: string
@@ -6155,22 +6159,26 @@ paths:
         - Orgs
   /api/v1/orgs/{org_id}/users/{user_id}/role:
     put:
-      description: ChangeUserRole changes a user's role in an organization
+      description: ChangeUserRole handles changing a user's role in an organization
       operationId: ChangeUserRole
       parameters:
-        - in: path
-          name: user_id
-          required: true
-          schema:
-            format: int64
-            type: integer
         - in: path
           name: org_id
           required: true
           schema:
-            format: int64
-            type: integer
-      responses: null
+            type: string
+        - in: path
+          name: user_id
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/users.UserWithRole'
+          description: OK
       tags:
         - Orgs
   /api/v1/orgs/{org_id}/users/check:
@@ -7177,12 +7185,12 @@ paths:
       operationId: RevokeLicense
       parameters:
         - in: path
-          name: id
+          name: user_id
           required: true
           schema:
             type: string
         - in: path
-          name: user_id
+          name: id
           required: true
           schema:
             type: string
