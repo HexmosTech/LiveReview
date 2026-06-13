@@ -35,7 +35,9 @@ export const fetchAIConnectors = async (): Promise<AIConnector[]> => {
             },
             models: connector.models || [],
             selectedModel: connector.selected_model || '',
-            isActive: connector.is_active !== false // Default to true if not specified
+            isActive: connector.is_active !== false, // Default to true if not specified
+            gcpProjectID: connector.gcp_project_id || '',
+            gcpLocation: connector.gcp_location || ''
         }));
         
         console.log('Transformed AI connectors:', aiConnectors);
@@ -53,11 +55,13 @@ export const fetchAIConnectors = async (): Promise<AIConnector[]> => {
 export const validateAIProviderKey = async (
     providerId: string, 
     apiKey: string,
-    model?: string
+    model?: string,
+    gcpProjectID?: string,
+    gcpLocation?: string
 ): Promise<ValidationResult> => {
     try {
         console.log(`Validating API key for provider: ${providerId}`);
-		const result = await validateAPIKey(providerId, apiKey, undefined, model);
+		const result = await validateAPIKey(providerId, apiKey, undefined, model, gcpProjectID, gcpLocation);
         console.log('Validation result:', result);
         return result;
     } catch (error) {

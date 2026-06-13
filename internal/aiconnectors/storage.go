@@ -20,6 +20,8 @@ type ConnectorRecord struct {
 	ConnectorName string         `json:"connector_name"` // Maps to connector_name in DB
 	BaseURL       sql.NullString `json:"base_url"`       // Base URL for providers like Ollama
 	SelectedModel sql.NullString `json:"selected_model"` // Selected model for the connector
+	GCPProjectID  sql.NullString `json:"gcp_project_id"`  // GCP project ID for Gemini Enterprise
+	GCPLocation   sql.NullString `json:"gcp_location"`    // GCP region/location for Gemini Enterprise
 	DisplayOrder  int            `json:"display_order"`
 	OrgID         int64          `json:"org_id"`
 	CreatedAt     time.Time      `json:"created_at"`
@@ -49,10 +51,10 @@ func NewStorage(db *sql.DB) *Storage {
 func (s *Storage) CreateConnector(ctx context.Context, orgID int64, connector *ConnectorRecord) error {
 	query := `
 	INSERT INTO ai_connectors (
-		provider_name, api_key, connector_name, base_url, selected_model, display_order, org_id,
+		provider_name, api_key, connector_name, base_url, selected_model, gcp_project_id, gcp_location, display_order, org_id,
 		created_at, updated_at
 	) VALUES (
-		$1, $2, $3, $4, $5, $6, $7,
+		$1, $2, $3, $4, $5, $6, $7, $8, $9,
 		NOW(), NOW()
 	) RETURNING id, created_at, updated_at
 	`
@@ -78,12 +80,25 @@ func (s *Storage) CreateConnector(ctx context.Context, orgID int64, connector *C
 		selectedModel = nil
 	}
 
+	var gcpProjectID, gcpLocation interface{}
+	if connector.GCPProjectID.Valid && connector.GCPProjectID.String != "" {
+		gcpProjectID = connector.GCPProjectID.String
+	} else {
+		gcpProjectID = nil
+	}
+
+	if connector.GCPLocation.Valid && connector.GCPLocation.String != "" {
+		gcpLocation = connector.GCPLocation.String
+	} else {
+		gcpLocation = nil
+	}
+
 	connector.OrgID = orgID
 
 	err := s.store.QueryRowContext(
 		ctx, query,
 		connector.ProviderName, connector.ApiKey, connector.ConnectorName,
-		baseURL, selectedModel, connector.DisplayOrder, connector.OrgID,
+		baseURL, selectedModel, gcpProjectID, gcpLocation, connector.DisplayOrder, connector.OrgID,
 	).Scan(&connector.ID, &connector.CreatedAt, &connector.UpdatedAt)
 
 	if err != nil {
@@ -99,7 +114,7 @@ func (s *Storage) CreateConnector(ctx context.Context, orgID int64, connector *C
 // GetConnectorByID retrieves a connector by ID
 func (s *Storage) GetConnectorByID(ctx context.Context, orgID int64, id int64) (*ConnectorRecord, error) {
 	query := `
-	SELECT id, provider_name, api_key, connector_name, base_url, selected_model, display_order,
+	SELECT id, provider_name, api_key, connector_name, base_url, selected_model, gcp_project_id, gcp_location, display_order,
 	       org_id, created_at, updated_at
 	FROM ai_connectors
 	WHERE id = $1 AND org_id = $2
@@ -108,7 +123,7 @@ func (s *Storage) GetConnectorByID(ctx context.Context, orgID int64, id int64) (
 	var connector ConnectorRecord
 	err := s.store.QueryRowContext(ctx, query, id, orgID).Scan(
 		&connector.ID, &connector.ProviderName, &connector.ApiKey, &connector.ConnectorName,
-		&connector.BaseURL, &connector.SelectedModel, &connector.DisplayOrder,
+		&connector.BaseURL, &connector.SelectedModel, &connector.GCPProjectID, &connector.GCPLocation, &connector.DisplayOrder,
 		&connector.OrgID, &connector.CreatedAt, &connector.UpdatedAt,
 	)
 
@@ -128,7 +143,7 @@ func (s *Storage) GetConnectorByID(ctx context.Context, orgID int64, id int64) (
 // GetConnectorsByProvider retrieves all connectors for a specific provider
 func (s *Storage) GetConnectorsByProvider(ctx context.Context, orgID int64, provider Provider) ([]*ConnectorRecord, error) {
 	query := `
-	SELECT id, provider_name, api_key, connector_name, base_url, selected_model, display_order,
+	SELECT id, provider_name, api_key, connector_name, base_url, selected_model, gcp_project_id, gcp_location, display_order,
 	       org_id, created_at, updated_at
 	FROM ai_connectors
 	WHERE provider_name = $1 AND org_id = $2
@@ -146,7 +161,7 @@ func (s *Storage) GetConnectorsByProvider(ctx context.Context, orgID int64, prov
 		var connector ConnectorRecord
 		err := rows.Scan(
 			&connector.ID, &connector.ProviderName, &connector.ApiKey, &connector.ConnectorName,
-			&connector.BaseURL, &connector.SelectedModel, &connector.DisplayOrder,
+			&connector.BaseURL, &connector.SelectedModel, &connector.GCPProjectID, &connector.GCPLocation, &connector.DisplayOrder,
 			&connector.OrgID, &connector.CreatedAt, &connector.UpdatedAt,
 		)
 		if err != nil {
@@ -169,7 +184,7 @@ func (s *Storage) GetConnectorsByProvider(ctx context.Context, orgID int64, prov
 // GetAllConnectors retrieves all connectors
 func (s *Storage) GetAllConnectors(ctx context.Context, orgID int64) ([]*ConnectorRecord, error) {
 	query := `
-	SELECT id, provider_name, api_key, connector_name, base_url, selected_model, display_order,
+	SELECT id, provider_name, api_key, connector_name, base_url, selected_model, gcp_project_id, gcp_location, display_order,
 	       org_id, created_at, updated_at
 	FROM ai_connectors
 	WHERE org_id = $1
@@ -187,7 +202,7 @@ func (s *Storage) GetAllConnectors(ctx context.Context, orgID int64) ([]*Connect
 		var connector ConnectorRecord
 		err := rows.Scan(
 			&connector.ID, &connector.ProviderName, &connector.ApiKey, &connector.ConnectorName,
-			&connector.BaseURL, &connector.SelectedModel, &connector.DisplayOrder,
+			&connector.BaseURL, &connector.SelectedModel, &connector.GCPProjectID, &connector.GCPLocation, &connector.DisplayOrder,
 			&connector.OrgID, &connector.CreatedAt, &connector.UpdatedAt,
 		)
 		if err != nil {
@@ -211,9 +226,9 @@ func (s *Storage) GetAllConnectors(ctx context.Context, orgID int64) ([]*Connect
 func (s *Storage) UpdateConnector(ctx context.Context, connector *ConnectorRecord) error {
 	query := `
 	UPDATE ai_connectors
-	SET provider_name = $1, api_key = $2, connector_name = $3, base_url = $4, selected_model = $5, display_order = $6,
+	SET provider_name = $1, api_key = $2, connector_name = $3, base_url = $4, selected_model = $5, gcp_project_id = $6, gcp_location = $7, display_order = $8,
 	    updated_at = NOW()
-	WHERE id = $7 AND org_id = $8
+	WHERE id = $9 AND org_id = $10
 	RETURNING updated_at
 	`
 
@@ -231,10 +246,23 @@ func (s *Storage) UpdateConnector(ctx context.Context, connector *ConnectorRecor
 		selectedModel = nil
 	}
 
+	var gcpProjectID, gcpLocation interface{}
+	if connector.GCPProjectID.Valid && connector.GCPProjectID.String != "" {
+		gcpProjectID = connector.GCPProjectID.String
+	} else {
+		gcpProjectID = nil
+	}
+
+	if connector.GCPLocation.Valid && connector.GCPLocation.String != "" {
+		gcpLocation = connector.GCPLocation.String
+	} else {
+		gcpLocation = nil
+	}
+
 	err := s.store.QueryRowContext(
 		ctx, query,
 		connector.ProviderName, connector.ApiKey, connector.ConnectorName,
-		baseURL, selectedModel, connector.DisplayOrder,
+		baseURL, selectedModel, gcpProjectID, gcpLocation, connector.DisplayOrder,
 		connector.ID, connector.OrgID,
 	).Scan(&connector.UpdatedAt)
 
@@ -280,9 +308,11 @@ func (s *Storage) GetConnectorOptions(ctx context.Context, r *ConnectorRecord) C
 		Msg("GetConnectorOptions extracting model from record")
 
 	options := ConnectorOptions{
-		Provider: r.Provider,
-		APIKey:   r.ApiKey,
-		BaseURL:  r.BaseURL.String, // Extract string from sql.NullString
+		Provider:     r.Provider,
+		APIKey:       r.ApiKey,
+		BaseURL:      r.BaseURL.String, // Extract string from sql.NullString
+		GCPProjectID: r.GCPProjectID.String,
+		GCPLocation:  r.GCPLocation.String,
 		ModelConfig: ModelConfig{
 			Model: selectedModel, // Use helper method
 		},
@@ -310,6 +340,9 @@ func (s *Storage) GetConnectorOptions(ctx context.Context, r *ConnectorRecord) C
 func (s *Storage) GetProviderModels(ctx context.Context, provider Provider) []string {
 	if provider == ProviderOllama {
 		return []string{"llama3", "mistral", "codellama", "neural-chat"}
+	}
+	if provider == ProviderGeminiEnterprise {
+		provider = ProviderGemini
 	}
 
 	if s.db == nil {
@@ -344,6 +377,9 @@ func (s *Storage) GetProviderModels(ctx context.Context, provider Provider) []st
 func (s *Storage) GetDefaultModel(ctx context.Context, provider Provider) string {
 	if provider == ProviderOllama {
 		return "llama3"
+	}
+	if provider == ProviderGeminiEnterprise {
+		provider = ProviderGemini
 	}
 	if provider == ProviderAnthropicCompatible {
 		provider = ProviderClaude
@@ -410,6 +446,8 @@ func (r *ConnectorRecord) ToAPIResponse() map[string]interface{} {
 		"is_active":       r.IsActive,
 		"base_url":        r.GetBaseURL(),
 		"selected_model":  r.GetSelectedModel(),
+		"gcp_project_id":  r.GCPProjectID.String,
+		"gcp_location":    r.GCPLocation.String,
 	}
 }
 

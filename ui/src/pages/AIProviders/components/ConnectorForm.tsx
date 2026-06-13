@@ -62,6 +62,45 @@ const ConnectorForm: React.FC<ConnectorFormProps> = ({
         } as React.ChangeEvent<HTMLInputElement>);
     };
 
+    const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+        const file = e.target.files?.[0];
+        if (!file) return;
+
+        // Limit file size to 1MB to prevent memory issues with massive files
+        if (file.size > 1024 * 1024) {
+            setError('File is too large. Please upload a valid service account JSON under 1MB.');
+            return;
+        }
+
+        const reader = new FileReader();
+        reader.onload = (event) => {
+            const content = event.target?.result as string;
+            try {
+                const parsed = JSON.parse(content);
+                onInputChange({
+                    target: {
+                        name: 'apiKey',
+                        value: content,
+                    },
+                } as React.ChangeEvent<HTMLInputElement>);
+
+                // Auto-fill project ID if available in JSON
+                if (parsed.project_id) {
+                    onInputChange({
+                        target: {
+                            name: 'gcpProjectID',
+                            value: parsed.project_id,
+                        },
+                    } as React.ChangeEvent<HTMLInputElement>);
+                }
+                setError(null);
+            } catch (err) {
+                setError('Invalid JSON file. Please upload a valid Google Service Account JSON.');
+            }
+        };
+        reader.readAsText(file);
+    };
+
     // Close dropdown on click outside
     React.useEffect(() => {
         const handleClickOutside = (event: MouseEvent) => {
@@ -77,6 +116,76 @@ const ConnectorForm: React.FC<ConnectorFormProps> = ({
     const currentProvider = selectedProvider === 'all' ? formData.providerType : selectedProvider;
     const providerDetails = currentProvider ? getProviderDetails(currentProvider) : null;
     const isOllama = providerDetails?.id === 'ollama';
+
+    const renderCredentialsInput = () => {
+        if (currentProvider === 'gemini-enterprise') {
+            return (
+                <div className="space-y-1">
+                    <label className="block text-sm font-medium text-slate-300">
+                        Service Account JSON
+                    </label>
+                    <div className="flex items-center justify-between border border-dashed border-slate-600 bg-slate-700/50 hover:bg-slate-700/80 rounded-lg p-4 transition-all duration-200">
+                        <div className="flex items-center space-x-3">
+                            <div className="p-2 bg-blue-600/10 rounded-lg text-blue-400">
+                                <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                                </svg>
+                            </div>
+                            <div>
+                                <h4 className="text-sm font-medium text-white">
+                                    {formData.apiKey ? "Service Account JSON Loaded" : "Upload Credentials File"}
+                                </h4>
+                                <p className="text-xs text-slate-400">
+                                    {formData.apiKey 
+                                        ? `Valid Google Cloud service account JSON configured (${(formData.apiKey.length / 1024).toFixed(2)} KB)`
+                                        : "Upload the Google Cloud IAM Service Account JSON keyfile"
+                                    }
+                                </p>
+                            </div>
+                        </div>
+                        <div>
+                            <label className="cursor-pointer">
+                                <span className="inline-flex items-center px-4 py-2 border border-slate-500 bg-transparent text-sm font-medium rounded-lg text-blue-300 hover:bg-slate-700 hover:text-blue-200 transition-colors focus-within:ring-2 focus-within:ring-offset-2 focus-within:ring-blue-500">
+                                    {formData.apiKey ? "Replace File" : "Choose File"}
+                                </span>
+                                <input
+                                    type="file"
+                                    accept=".json"
+                                    onChange={handleFileChange}
+                                    className="sr-only"
+                                />
+                            </label>
+                        </div>
+                    </div>
+                    <p className="text-xs text-slate-400 mt-2 leading-relaxed">
+                        Follow this guide to <a href="https://developers.google.com/workspace/guides/create-credentials#service-account" target="_blank" rel="noopener noreferrer" className="text-blue-400 hover:underline">create a service account JSON file</a> and assign the <strong>Agent Platform user</strong> role.
+                    </p>
+                </div>
+            );
+        }
+
+        return (
+            <Input
+                label={isOllama ? "API Key (Optional)" : "API Key"}
+                name="apiKey"
+                type="password"
+                value={formData.apiKey}
+                onChange={onInputChange}
+                placeholder={
+                    selectedProvider === 'all' && formData.providerType
+                        ? getProviderDetails(formData.providerType).apiKeyPlaceholder
+                        : selectedProvider !== 'all'
+                            ? getProviderDetails(selectedProvider).apiKeyPlaceholder
+                            : 'Enter API key'
+                }
+                helperText={
+                    isOllama
+                        ? "Optional JWT token for Ollama authentication"
+                        : "Your API key will be stored securely"
+                }
+            />
+        );
+    };
 
     // Fetch dynamic models on provider change
     React.useEffect(() => {
@@ -165,6 +274,11 @@ const ConnectorForm: React.FC<ConnectorFormProps> = ({
         // For Ollama, require baseURL but make API key optional
         if (isOllama) {
             return !!formData.baseURL;
+        }
+
+        if (currentProvider === 'gemini-enterprise') {
+            // Require API Key (Service Account JSON), GCP Project ID and Location.
+            return !!formData.apiKey && !!formData.gcpProjectID && !!formData.gcpLocation;
         }
 
         if ((providerDetails?.id === 'openrouter' || providerDetails?.id === 'atlas') && !formData.selectedModel) {
@@ -265,21 +379,26 @@ const ConnectorForm: React.FC<ConnectorFormProps> = ({
                     </Button>
                 </div>
 
-                <Input
-                    label={isOllama ? "API Key (Optional)" : "API Key"}
-                    name="apiKey"
-                    type="password"
-                    value={formData.apiKey}
-                    onChange={onInputChange}
-                    placeholder={
-                        selectedProvider === 'all' && formData.providerType
-                            ? getProviderDetails(formData.providerType).apiKeyPlaceholder
-                            : selectedProvider !== 'all'
-                                ? getProviderDetails(selectedProvider).apiKeyPlaceholder
-                                : 'Enter API key'
-                    }
-                    helperText={isOllama ? "Optional JWT token for Ollama authentication" : "Your API key will be stored securely"}
-                />
+                {renderCredentialsInput()}
+
+                {currentProvider === 'gemini-enterprise' && (
+                    <>
+                        <Input
+                            label="GCP Project ID"
+                            name="gcpProjectID"
+                            value={formData.gcpProjectID || ''}
+                            onChange={onInputChange}
+                            placeholder="e.g. my-gcp-project-id"
+                        />
+                        <Input
+                            label="GCP Location (Region)"
+                            name="gcpLocation"
+                            value={formData.gcpLocation || ''}
+                            onChange={onInputChange}
+                            placeholder="e.g. us-central1, europe-west9"
+                        />
+                    </>
+                )}
 
                 {/* Model field for providers that require an explicit model */}
                 {providerDetails && !isOllama && (
