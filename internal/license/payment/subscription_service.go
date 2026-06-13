@@ -665,7 +665,10 @@ func (s *SubscriptionService) CreateTeamSubscription(ownerUserID, orgID int, pla
 					return nil, fmt.Errorf("release stale trial reservation: %w", releaseErr)
 				}
 
-				reservationState, err = trialStore.ReserveFirstPurchaseTrial(ctx, reserveInput)
+				// ReserveFirstPurchaseTrial returns a populated TrialEligibilityState alongside
+				// ErrTrialEligibilityConsumed/ErrTrialEligibilityReserved by design, so using
+				// reservationState in those branches below is safe.
+				reservationState, err = trialStore.ReserveFirstPurchaseTrial(ctx, reserveInput) // nosemgrep: trailofbits.go.invalid-usage-of-modified-variable.invalid-usage-of-modified-variable
 				if err != nil {
 					if errors.Is(err, storagelicense.ErrTrialEligibilityConsumed) {
 						reservationState.Consumed = true

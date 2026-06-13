@@ -334,7 +334,7 @@ export const getAIProviderModels = async (
       `/api/v1/aiconnectors/providers/${provider}/models`
     );
   } catch (error) {
-    console.error(`Error fetching models for ${provider}:`, error);
+    console.error('Error fetching models for provider:', provider, error);
     throw error;
   }
 };
