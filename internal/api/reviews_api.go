@@ -430,6 +430,13 @@ func (s *Server) buildBYOKAIConfig(ctx context.Context, connector *aiconnectors.
 		"ai_execution_source": "connector",
 	}
 
+	if connector.GCPProjectID.Valid && connector.GCPProjectID.String != "" {
+		configMap["gcp_project_id"] = connector.GCPProjectID.String
+	}
+	if connector.GCPLocation.Valid && connector.GCPLocation.String != "" {
+		configMap["gcp_location"] = connector.GCPLocation.String
+	}
+
 	// Add base URL if available
 	baseURL := ""
 	if connector.BaseURL.Valid && connector.BaseURL.String != "" {

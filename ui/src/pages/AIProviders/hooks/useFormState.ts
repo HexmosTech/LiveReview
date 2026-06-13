@@ -21,24 +21,26 @@ export const useFormState = (
 
     const handleInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
         const { name, value } = e.target;
-        setFormData({
-            ...formData,
+        setFormData(prev => ({
+            ...prev,
             [name]: value
-        });
+        }));
     };
 
     const handleProviderTypeChange = (providerType: string, providers: any[]) => {
         const providerMeta = providers.find((p: any) => p.id === providerType);
         const defaultModel = providerMeta?.defaultModel || '';
-        setFormData({
-            ...formData,
+        setFormData(prev => ({
+            ...prev,
             providerType,
-            name: formData.name || generateFriendlyNameForProvider(providerType, providers),
+            name: prev.name || generateFriendlyNameForProvider(providerType, providers),
             // Reset model selection when provider changes
             selectedModel: defaultModel,
             // Reset base URL when provider changes to non-Ollama
-            baseURL: providerType === 'ollama' ? formData.baseURL : ''
-        });
+            baseURL: providerType === 'ollama' ? prev.baseURL : '',
+            gcpProjectID: providerType === 'gemini-enterprise' ? prev.gcpProjectID : '',
+            gcpLocation: providerType === 'gemini-enterprise' ? prev.gcpLocation : ''
+        }));
     };
 
     const resetForm = () => {
@@ -47,16 +49,18 @@ export const useFormState = (
             apiKey: '',
             providerType: '',
             baseURL: '',
-            selectedModel: ''
+            selectedModel: '',
+            gcpProjectID: '',
+            gcpLocation: ''
         });
         setSelectedConnector(null);
     };
 
     const generateFriendlyName = (providerId: string, providers: any[]) => {
-        setFormData({
-            ...formData,
+        setFormData(prev => ({
+            ...prev,
             name: generateFriendlyNameForProvider(providerId, providers)
-        });
+        }));
     };
 
     return {
