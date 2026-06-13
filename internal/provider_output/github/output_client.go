@@ -127,8 +127,8 @@ func (c *APIClient) PostReviewComments(mr UnifiedMergeRequestV2, token string, c
 			owner, repo, mr.Number)
 
 		requestBody := map[string]interface{}{
-			"body": fmt.Sprintf("**%s** (%s)\n\n%s",
-				comment.Severity, comment.Category, comment.Content),
+			"body": fmt.Sprintf("**%s** | confidence=%s | type=%s | category=%s | subcategory=%s\n\n%s",
+				comment.Severity, comment.Confidence, comment.Type, comment.Category, comment.Subcategory, comment.Content),
 			"path":      comment.FilePath,
 			"line":      comment.LineNumber,
 			"side":      "RIGHT",

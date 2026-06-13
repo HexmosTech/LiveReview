@@ -722,10 +722,13 @@ func filterCommentsForFile(filePath string, hunks []models.DiffHunk, comments []
 			log.Printf("[WARN] comment line %d is out of range for file %s", comment.Line, filePath)
 		}
 		matched = append(matched, map[string]interface{}{
-			"line":     comment.Line,
-			"content":  comment.Content,
-			"severity": string(comment.Severity),
-			"category": comment.Category,
+			"line":        comment.Line,
+			"content":     comment.Content,
+			"severity":    string(comment.Severity),
+			"confidence":  comment.Confidence,
+			"type":        comment.Type,
+			"category":    comment.Category,
+			"subcategory": comment.Subcategory,
 		})
 	}
 	return matched

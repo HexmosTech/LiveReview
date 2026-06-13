@@ -19,8 +19,10 @@ jobs:
 
       - name: Check if OpenAPI YAML changed
         id: changed
+        env:
+          BASE_REF: ${{ github.base_ref }}
         run: |
-          if git diff --name-only origin/${{ github.base_ref }}...HEAD | grep -q "^docs/openapi.yaml$"; then
+          if git diff --name-only "origin/$BASE_REF"...HEAD | grep -q "^docs/openapi.yaml$"; then
             echo "changed=true" >> $GITHUB_OUTPUT
           else
             echo "changed=false" >> $GITHUB_OUTPUT
