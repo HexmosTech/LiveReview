@@ -134,8 +134,13 @@ func (f *StandardAIProviderFactory) CreateAIProvider(ctx context.Context, config
 		baseURL, _ := config.Config["base_url"].(string)
 		baseURL = aiconnectors.ResolveBaseURLForProviderName(providerType, baseURL)
 
-		gcpProjectID, _ := config.Config["gcp_project_id"].(string)
-		gcpLocation, _ := config.Config["gcp_location"].(string)
+		var gcpProjectID, gcpLocation string
+		if val, ok := config.Config["gcp_project_id"].(string); ok {
+			gcpProjectID = val
+		}
+		if val, ok := config.Config["gcp_location"].(string); ok {
+			gcpLocation = val
+		}
 
 		// Set provider-specific token limits
 		maxTokens := f.getProviderMaxTokens(providerType)
@@ -169,8 +174,13 @@ func (f *StandardAIProviderFactory) CreateAIProvider(ctx context.Context, config
 		baseURL, _ := config.Config["base_url"].(string)
 		baseURL = aiconnectors.ResolveBaseURLForProviderName(providerType, baseURL)
 
-		gcpProjectID, _ := config.Config["gcp_project_id"].(string)
-		gcpLocation, _ := config.Config["gcp_location"].(string)
+		var gcpProjectID, gcpLocation string
+		if val, ok := config.Config["gcp_project_id"].(string); ok {
+			gcpProjectID = val
+		}
+		if val, ok := config.Config["gcp_location"].(string); ok {
+			gcpLocation = val
+		}
 
 		// Set provider-specific token limits
 		maxTokens := f.getProviderMaxTokens(providerType)

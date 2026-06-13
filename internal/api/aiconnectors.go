@@ -70,8 +70,8 @@ func (s *Server) ValidateAIConnectorKey(c echo.Context) error {
 		req.APIKey,
 		req.BaseURL,
 		req.Model,
-		req.GCPProjectID,
-		req.GCPLocation,
+		strings.TrimSpace(req.GCPProjectID),
+		strings.TrimSpace(req.GCPLocation),
 	)
 
 	if err != nil {
@@ -213,8 +213,8 @@ func (s *Server) CreateAIConnector(c echo.Context) error {
 		ConnectorName: req.ConnectorName,
 		BaseURL:       sql.NullString{String: req.BaseURL, Valid: req.BaseURL != ""},
 		SelectedModel: sql.NullString{String: selectedModel, Valid: selectedModel != ""},
-		GCPProjectID:  sql.NullString{String: req.GCPProjectID, Valid: req.GCPProjectID != ""},
-		GCPLocation:   sql.NullString{String: req.GCPLocation, Valid: req.GCPLocation != ""},
+		GCPProjectID:  sql.NullString{String: strings.TrimSpace(req.GCPProjectID), Valid: strings.TrimSpace(req.GCPProjectID) != ""},
+		GCPLocation:   sql.NullString{String: strings.TrimSpace(req.GCPLocation), Valid: strings.TrimSpace(req.GCPLocation) != ""},
 		DisplayOrder:  nextOrder, // Auto-assign next order
 		OrgID:         orgID,
 	}
@@ -373,8 +373,8 @@ func (s *Server) UpdateAIConnector(c echo.Context) error {
 
 	// Update provider-specific fields if provided
 	existingConnector.BaseURL = sql.NullString{String: req.BaseURL, Valid: req.BaseURL != ""}
-	existingConnector.GCPProjectID = sql.NullString{String: req.GCPProjectID, Valid: req.GCPProjectID != ""}
-	existingConnector.GCPLocation = sql.NullString{String: req.GCPLocation, Valid: req.GCPLocation != ""}
+	existingConnector.GCPProjectID = sql.NullString{String: strings.TrimSpace(req.GCPProjectID), Valid: strings.TrimSpace(req.GCPProjectID) != ""}
+	existingConnector.GCPLocation = sql.NullString{String: strings.TrimSpace(req.GCPLocation), Valid: strings.TrimSpace(req.GCPLocation) != ""}
 
 	selectedModel := req.SelectedModel
 	if selectedModel == "" {

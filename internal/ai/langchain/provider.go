@@ -599,7 +599,9 @@ func (p *LangchainProvider) initializeVertexLLM() error {
 		opts = append(opts, googleai.WithCredentialsJSON([]byte(p.apiKey)))
 	}
 
-	fmt.Printf("[LANGCHAIN INIT] Initializing Vertex LLM (Gemini Enterprise) with model: %s, project: %s, location: %s\n", p.getModelName(), p.gcpProjectID, p.gcpLocation)
+	if p.logger != nil {
+		p.logger.Log("[LANGCHAIN INIT] Initializing Vertex LLM (Gemini Enterprise) with model: %s, project: %s, location: %s", p.getModelName(), p.gcpProjectID, p.gcpLocation)
+	}
 
 	llm, err := vertex.New(context.Background(), opts...)
 	if err != nil {
