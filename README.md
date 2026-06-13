@@ -235,10 +235,41 @@ Replace `<YOUR_LIVEREVIEW_API_KEY>` with your actual LiveReview API key.
 
 ### What you can do
 
-Once connected, you can ask your AI assistant questions like:
-- "LiveReview: Review this PR: https://github.com/user/your-repo/pull/123"
-- "Get the PR review status"
-- "Get information about me"
+Once connected to the MCP server, You can ask your assistant to interact with LiveReview.
+
+#### Code Reviews
+| Tool | Description | Example Prompt |
+|------|-------------|----------------|
+| `post_api_v1_connectors_trigger-review` | Trigger a new code review for a repo URL | *"Trigger a review for https://github.com/user/repo/pull/123"* |
+| `get_api_v1_reviews` | List recent reviews | *"List our recent completed reviews"* |
+| `get_api_v1_reviews_id_summary` | Get the AI summary and insights for a specific review | *"Summarize the review ID xyz"* |
+| `get_api_v1_reviews_id_accounting` | Get the token and LOC accounting for a review | *"Show the token usage for review ID xyz"* |
+
+#### Learnings & Prompts
+| Tool | Description | Example Prompt |
+|------|-------------|----------------|
+| `get_api_v1_learnings` | List existing team learnings | *"List our team's active learnings"* |
+| `get_api_v1_learnings_id` | Get details of a specific learning | *"Show details for learning ID abc"* |
+| `put_api_v1_learnings_id` | Update an existing learning | *"Update learning ID abc to enforce snake_case"* |
+| `get_api_v1_prompts_catalog` | List available prompt catalogs | *"Show the catalog of prompt rules"* |
+| `get_api_v1_prompts_key_variables` | Get required variables for a prompt template | *"What variables does the base prompt need?"* |
+| `get_api_v1_prompts_key_render` | Render a prompt preview with provided variables | *"Render the prompt key 'system' with..."* |
+
+#### Billing & Quotas
+| Tool | Description | Example Prompt |
+|------|-------------|----------------|
+| `get_api_v1_billing_status` | Check current billing status of the organization | *"What is our current billing status?"* |
+| `get_api_v1_quota_status` | Check current LOC status and quota | *"How much LOC quota do we have left?"* |
+| `get_api_v1_billing_usage_summary` | Get billing usage summary | *"Show a summary of our billing usage"* |
+| `get_api_v1_billing_usage_operations` | Get recent billable review operations | *"List the most recent billable operations"* |
+| `get_api_v1_billing_usage_members` | Get member-wise LOC usage information | *"Show the usage broken down by team member"* |
+| `post_api_v1_billing_upgrade_preview` | Generate an upgrade preview for a target plan | *"Preview the cost of upgrading to team_32usd"* |
+
+#### Integrations
+| Tool | Description | Example Prompt |
+|------|-------------|----------------|
+| `get_api_v1_connectors` | List configured Git connectors | *"List our configured Git connectors"* |
+| `get_api_v1_aiconnectors` | List configured AI provider connections | *"Which AI providers are currently active?"* |
 
 ---
 
