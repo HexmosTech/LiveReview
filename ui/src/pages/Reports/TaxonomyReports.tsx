@@ -3,6 +3,7 @@ import { useSearchParams } from 'react-router-dom';
 import { ColumnDef, flexRender, getCoreRowModel, useReactTable } from '@tanstack/react-table';
 import { Area, AreaChart, Brush, CartesianGrid, Legend, Line, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 import apiClient from '../../api/apiClient';
+import { useAppSelector } from '../../store/configureStore';
 import { useOrgContext } from '../../hooks/useOrgContext';
 import { Spinner } from '../../components/UIPrimitives';
 import { generateImpactReportPdf } from './pdfExport';
@@ -421,6 +422,7 @@ type DatasetName = typeof DATASETS[number];
 
 const TaxonomyReports: React.FC = () => {
   const { isSuperAdmin, currentOrg } = useOrgContext();
+  const userEmail = useAppSelector((state) => state.Auth.user?.email) || '';
   const [searchParams, setSearchParams] = useSearchParams();
   const [mode, setMode] = useState<'overview' | 'explore'>(() => paramsToFilters(searchParams).mode);
 
@@ -841,7 +843,7 @@ const TaxonomyReports: React.FC = () => {
         breakdown,
         filters,
         orgName: currentOrg?.name || '',
-        riskScore,
+        userEmail,
         avgFindingsPerReview,
         reposCovered,
         coveragePeriodLabel,
@@ -1001,11 +1003,6 @@ const TaxonomyReports: React.FC = () => {
     [trend, filters.since, filters.until, filters.grain],
   );
   const topBreakdown = breakdown.slice(0, 5);
-  const riskScore = useMemo(() => {
-    if (!summary || summary.total_findings === 0) return 0;
-    const weighted = summary.critical_count * 4 + summary.medium_count;
-    return Math.round((weighted / (summary.total_findings * 4)) * 100);
-  }, [summary]);
   const avgFindingsPerReview = useMemo(() => {
     if (!summary || summary.total_reviews === 0) return 0;
     return Math.round((summary.total_findings / summary.total_reviews) * 10) / 10;
@@ -1273,31 +1270,21 @@ const TaxonomyReports: React.FC = () => {
 
       {/* KPI Summary */}
       {summary && (
-        <>
-          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
-            <StatCard label="Total Findings" value={summary.total_findings} />
-            <StatCard label="Reviews Performed" value={summary.total_reviews} />
-            <StatCard label="Avg Findings / Review" value={avgFindingsPerReview} />
-            <StatCard label="Repos Covered" value={reposCovered} />
-            <StatCard label="Period Covered" value={coveragePeriodLabel} />
-          </div>
-          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
-            <StatCard label="Critical" value={summary.critical_count} />
-            <StatCard label="Medium / Warning" value={summary.medium_count} />
-            <StatCard label="Info" value={summary.info_count} />
-            <StatCard label="High Confidence" value={summary.high_confidence_count} />
-            <StatCard label="Med Confidence" value={summary.medium_confidence_count} />
-            <StatCard label="Low Confidence" value={summary.low_confidence_count} />
-          </div>
-        </>
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
+          <StatCard label="Total Findings" value={summary.total_findings} />
+          <StatCard label="Reviews Performed" value={summary.total_reviews} />
+          <StatCard label="Avg Findings / Review" value={avgFindingsPerReview} />
+          <StatCard label="Repos Covered" value={reposCovered} />
+          <StatCard label="Period Covered" value={coveragePeriodLabel} />
+        </div>
       )}
 
       {mode === 'overview' && summary && (
         <>
           {/* Executive summary strip */}
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-            {/* Critical + Warnings alert cards side-by-side */}
-            <div className="grid grid-cols-2 gap-3">
+            {/* Critical + Warnings + Info alert cards */}
+            <div className="grid grid-cols-3 gap-3">
               <div className={`rounded-lg p-4 border ${summary.critical_count > 0 ? 'bg-red-900/30 border-red-700' : 'bg-slate-800/70 border-slate-700'}`}>
                 <p className="text-red-300 text-xs uppercase tracking-widest mb-1">Critical</p>
                 <p className={`text-3xl font-bold ${summary.critical_count > 0 ? 'text-red-300' : 'text-slate-500'}`}>{summary.critical_count.toLocaleString()}</p>
@@ -1310,6 +1297,13 @@ const TaxonomyReports: React.FC = () => {
                 <p className={`text-3xl font-bold ${summary.medium_count > 0 ? 'text-yellow-300' : 'text-slate-500'}`}>{summary.medium_count.toLocaleString()}</p>
                 {summary.total_findings > 0 && (
                   <p className="text-yellow-400/70 text-[11px] mt-1">{Math.round((summary.medium_count / summary.total_findings) * 100)}% of total</p>
+                )}
+              </div>
+              <div className={`rounded-lg p-4 border ${summary.info_count > 0 ? 'bg-blue-900/20 border-blue-700/60' : 'bg-slate-800/70 border-slate-700'}`}>
+                <p className="text-blue-300 text-xs uppercase tracking-widest mb-1">Info</p>
+                <p className={`text-3xl font-bold ${summary.info_count > 0 ? 'text-blue-300' : 'text-slate-500'}`}>{summary.info_count.toLocaleString()}</p>
+                {summary.total_findings > 0 && (
+                  <p className="text-blue-400/70 text-[11px] mt-1">{Math.round((summary.info_count / summary.total_findings) * 100)}% of total</p>
                 )}
               </div>
             </div>
@@ -1354,6 +1348,13 @@ const TaxonomyReports: React.FC = () => {
               </div>
               <TrendAreaChart rows={filledTrend} height={170} showBrush={false} showLegend={false} />
             </div>
+          </div>
+
+          {/* Confidence breakdown */}
+          <div className="grid grid-cols-3 gap-3">
+            <StatCard label="High Confidence" value={summary.high_confidence_count} />
+            <StatCard label="Med Confidence" value={summary.medium_confidence_count} />
+            <StatCard label="Low Confidence" value={summary.low_confidence_count} />
           </div>
 
           {/* Category breakdown bars (click to explore) */}
