@@ -1,5 +1,5 @@
 .PHONY: build run-review run-review-verbose test clean develop develop-reflex river-deps river-install river-migrate river-setup river-ui-install river-ui db-flip version version-bump version-patch version-minor version-major version-bump-dirty version-patch-dirty version-minor-dirty version-major-dirty version-bump-dry version-patch-dry version-minor-dry version-major-dry build-versioned docker-build docker-build-push docker-build-dry docker-interactive docker-interactive-push docker-interactive-dry docker-build docker-build-push docker-build-versioned docker-build-push-versioned docker-build-dry docker-build-push-dry docker-multiarch docker-multiarch-push docker-multiarch-dry docker-interactive-multiarch docker-interactive-multiarch-push cplrops vendor-prompts-encrypt vendor-prompts-build vendor-prompts-rebuild vendor-docker-build vendor-docker-build-dry vendor-docker-build-push vendor-docker-multiarch-dry vendor-docker-multiarch-push run logrun api-with-migrations build-with-ui security-sbom security-sbom-cyclonedx security-sbom-spdx security-sbom-validate release-notes-init release-notes-check release-preflight release-gh niceurl niceurl2
-.PHONY: upload-secrets download-secrets list-secrets-files legacy-secrets-clear generate-spec
+.PHONY: upload-secrets download-secrets list-secrets-files legacy-secrets-clear generate-openapi
 .PHONY: razorpay-webhook-ensure razorpay-webhook-ensure-dry razorpay-verify-plans razorpay-verify-plans-low-pricing
 .PHONY: raw-deploy raw-deploy-low-pricing raw-deploy-backend raw-deploy-backend-low-pricing
 
@@ -169,7 +169,7 @@ run:
 	DLV_BIN_DIR=$$(go env GOBIN); if [ -z "$$DLV_BIN_DIR" ]; then DLV_BIN_DIR="$$(go env GOPATH)/bin"; fi; PATH="$$DLV_BIN_DIR:$$PATH" air
 
 
-# Disable Typed OpenAPI schema generation for CI (GitHub Actions, no extra deps required)
+# Disable Typed OpenAPI schema generation for CI
 run-skip-typed:
 	SKIP_TYPED_GEN=1 $(MAKE) run
 
@@ -573,26 +573,7 @@ docs/openapi.yaml internal/api/docs/spec.go: $(API_SPEC_INPUTS) typed-install
 	@go run internal/api/docs/spec.go > /tmp/lr_spec_build.log 2>&1 || (echo "❌ OpenAPI spec generation failed. Logs:" && cat /tmp/lr_spec_build.log && exit 1)
 
 
-generate-spec: docs/openapi.yaml
-
-# -------------------------------------------------------------------
-# MCP Tool Generation
-# -----------------------------------------------------------------
-
-generate-mcp-tools:
-	@echo "🔄 Generating MCP tools..."
-	@mkdir -p internal/api/mcp/generated
-	mcpgen -input docs/final_spec.yaml -output internal/api/mcp/generated
-	@bash scripts/openapi-mcp/register-tools.sh
-
-
-
-# -------------------------------------------------------------------
-# Generate OpenAPI and MCP
-# -------------------------------------------------------------------
-
-generate-openapi-and-mcp: generate-spec
-	@echo "✅ OpenAPI spec and MCP tools generated"
+generate-openapi: docs/openapi.yaml
 
 raw-deploy: build-with-ui
 	@echo "🚀 Deploying to production server..."
