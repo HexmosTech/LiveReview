@@ -5,12 +5,13 @@ import { Area, AreaChart, Brush, CartesianGrid, Legend, Line, ResponsiveContaine
 import apiClient from '../../api/apiClient';
 import { useOrgContext } from '../../hooks/useOrgContext';
 import { Spinner } from '../../components/UIPrimitives';
+import { generateImpactReportPdf } from './pdfExport';
 
 type MultiOption = { value: string; label: string };
 
 // ---- types ----------------------------------------------------------------
 
-type Summary = {
+export type Summary = {
   total_findings: number;
   total_reviews: number;
   critical_count: number;
@@ -23,9 +24,9 @@ type Summary = {
   low_confidence_count: number;
 };
 
-type DistRow = { dimension: string; value: string; count: number };
+export type DistRow = { dimension: string; value: string; count: number };
 type TrendRow = { bucket: string; count: number; review_count: number };
-type BreakdownRow = {
+export type BreakdownRow = {
   org_id?: number;
   org_name?: string;
   repository: string;
@@ -76,7 +77,7 @@ type ExportPreview = {
   breakdown: number;
 };
 
-type Filters = {
+export type Filters = {
   since: string;
   until: string;
   severity: string;
@@ -111,6 +112,27 @@ const confidenceBadge = (s: string) => {
 const formatDate = (v?: string) => {
   if (!v) return 'N/A';
   try { return new Date(v).toLocaleString(); } catch { return v; }
+};
+
+// Renders the since/until filter range as a human-friendly duration (e.g. "3 months", "1 year 2 months").
+export const humanizeDateRange = (since: string, until: string): string => {
+  if (!since && !until) return 'All time';
+
+  const start = since ? new Date(since) : null;
+  const end = until ? new Date(until) : new Date();
+  if (!start || Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) return 'All time';
+
+  const days = Math.max(0, Math.round((end.getTime() - start.getTime()) / (24 * 60 * 60 * 1000)));
+  if (days === 0) return '1 day';
+  if (days < 30) return `${days} day${days === 1 ? '' : 's'}`;
+
+  const months = Math.round(days / 30.44);
+  if (months < 12) return `${months} month${months === 1 ? '' : 's'}`;
+
+  const years = Math.floor(months / 12);
+  const remMonths = months % 12;
+  if (remMonths === 0) return `${years} year${years === 1 ? '' : 's'}`;
+  return `${years} year${years === 1 ? '' : 's'} ${remMonths} month${remMonths === 1 ? '' : 's'}`;
 };
 
 const parseMulti = (v: string): string[] =>
@@ -168,7 +190,7 @@ const trendKey = (d: Date): string => {
   return `${y}-${m}-${dd}`;
 };
 
-type FilledTrendRow = { bucket: string; count: number; review_count: number; key: string };
+export type FilledTrendRow = { bucket: string; count: number; review_count: number; key: string };
 
 const buildFullRangeTrend = (rows: TrendRow[], since: string, until: string, grain: string): FilledTrendRow[] => {
   if (rows.length === 0 && !since && !until) return [];
@@ -398,7 +420,7 @@ type DatasetName = typeof DATASETS[number];
 // ---- component -------------------------------------------------------------
 
 const TaxonomyReports: React.FC = () => {
-  const { isSuperAdmin } = useOrgContext();
+  const { isSuperAdmin, currentOrg } = useOrgContext();
   const [searchParams, setSearchParams] = useSearchParams();
   const [mode, setMode] = useState<'overview' | 'explore'>(() => paramsToFilters(searchParams).mode);
 
@@ -432,7 +454,9 @@ const TaxonomyReports: React.FC = () => {
   const [loading, setLoading] = useState(false);
   const [exportingDataset, setExportingDataset] = useState<string | null>(null);
   const [showExportDialog, setShowExportDialog] = useState(false);
+  const [exportTab, setExportTab] = useState<'pdf' | 'raw'>('pdf');
   const [showTrendModal, setShowTrendModal] = useState(false);
+  const [generatingPdf, setGeneratingPdf] = useState(false);
   const [exportPreview, setExportPreview] = useState<ExportPreview | null>(null);
   const [selectedDatasets, setSelectedDatasets] = useState<Record<DatasetName, boolean>>({
     findings: true,
@@ -453,9 +477,7 @@ const TaxonomyReports: React.FC = () => {
 
   const severityOptions: MultiOption[] = useMemo(() => [
     { value: 'Critical', label: 'Critical' },
-    { value: 'High', label: 'High' },
-    { value: 'Medium', label: 'Medium' },
-    { value: 'Low', label: 'Low' },
+    { value: 'Warning', label: 'Medium / Warning' },
     { value: 'Info', label: 'Info' },
   ], []);
   const confidenceOptions: MultiOption[] = useMemo(() => [
@@ -807,6 +829,31 @@ const TaxonomyReports: React.FC = () => {
     }
   };
 
+  const runPdfExport = () => {
+    if (!summary) return;
+    try {
+      setGeneratingPdf(true);
+      setError('');
+      generateImpactReportPdf({
+        summary,
+        filledTrend,
+        categoryDist,
+        breakdown,
+        filters,
+        orgName: currentOrg?.name || '',
+        riskScore,
+        avgFindingsPerReview,
+        reposCovered,
+        coveragePeriodLabel,
+        isSuperAdmin,
+      });
+    } catch (err: any) {
+      setError(err?.message || 'Failed to generate PDF report');
+    } finally {
+      setGeneratingPdf(false);
+    }
+  };
+
   const toggleExpandedRow = (commentID: number) => {
     setExpandedRows((prev) => ({ ...prev, [commentID]: !prev[commentID] }));
   };
@@ -956,9 +1003,21 @@ const TaxonomyReports: React.FC = () => {
   const topBreakdown = breakdown.slice(0, 5);
   const riskScore = useMemo(() => {
     if (!summary || summary.total_findings === 0) return 0;
-    const weighted = summary.critical_count * 4 + summary.high_count * 2 + summary.medium_count;
-    return Math.round((weighted / summary.total_findings) * 100);
+    const weighted = summary.critical_count * 4 + summary.medium_count;
+    return Math.round((weighted / (summary.total_findings * 4)) * 100);
   }, [summary]);
+  const avgFindingsPerReview = useMemo(() => {
+    if (!summary || summary.total_reviews === 0) return 0;
+    return Math.round((summary.total_findings / summary.total_reviews) * 10) / 10;
+  }, [summary]);
+  const reposCovered = useMemo(
+    () => new Set(breakdown.map((r) => r.repository).filter(Boolean)).size,
+    [breakdown],
+  );
+  const coveragePeriodLabel = useMemo(
+    () => humanizeDateRange(filters.since, filters.until),
+    [filters.since, filters.until],
+  );
 
   // ---- render helpers ------------------------------------------------------
 
@@ -1081,11 +1140,11 @@ const TaxonomyReports: React.FC = () => {
         </div>
         <div className="flex gap-2 flex-wrap">
           <button
-            onClick={() => setShowExportDialog(true)}
+            onClick={() => { setExportTab('pdf'); setShowExportDialog(true); }}
             disabled={loading}
             className="px-3 py-1.5 rounded bg-blue-700 hover:bg-blue-600 text-white text-xs border border-blue-500"
           >
-            Export Data
+            Export
           </button>
         </div>
       </div>
@@ -1214,18 +1273,23 @@ const TaxonomyReports: React.FC = () => {
 
       {/* KPI Summary */}
       {summary && (
-        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 xl:grid-cols-10 gap-3">
-          <StatCard label="Total Findings" value={summary.total_findings} />
-          <StatCard label="Reviews Performed" value={summary.total_reviews} />
-          <StatCard label="Critical" value={summary.critical_count} />
-          <StatCard label="High / Error" value={summary.high_count} />
-          <StatCard label="Medium / Warning" value={summary.medium_count} />
-          <StatCard label="Low" value={summary.low_count} />
-          <StatCard label="Info" value={summary.info_count} />
-          <StatCard label="High Confidence" value={summary.high_confidence_count} />
-          <StatCard label="Med Confidence" value={summary.medium_confidence_count} />
-          <StatCard label="Low Confidence" value={summary.low_confidence_count} />
-        </div>
+        <>
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
+            <StatCard label="Total Findings" value={summary.total_findings} />
+            <StatCard label="Reviews Performed" value={summary.total_reviews} />
+            <StatCard label="Avg Findings / Review" value={avgFindingsPerReview} />
+            <StatCard label="Repos Covered" value={reposCovered} />
+            <StatCard label="Period Covered" value={coveragePeriodLabel} />
+          </div>
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
+            <StatCard label="Critical" value={summary.critical_count} />
+            <StatCard label="Medium / Warning" value={summary.medium_count} />
+            <StatCard label="Info" value={summary.info_count} />
+            <StatCard label="High Confidence" value={summary.high_confidence_count} />
+            <StatCard label="Med Confidence" value={summary.medium_confidence_count} />
+            <StatCard label="Low Confidence" value={summary.low_confidence_count} />
+          </div>
+        </>
       )}
 
       {mode === 'overview' && summary && (
@@ -1241,11 +1305,11 @@ const TaxonomyReports: React.FC = () => {
                   <p className="text-red-400/70 text-[11px] mt-1">{Math.round((summary.critical_count / summary.total_findings) * 100)}% of total</p>
                 )}
               </div>
-              <div className={`rounded-lg p-4 border ${summary.medium_count + summary.high_count > 0 ? 'bg-yellow-900/20 border-yellow-700/60' : 'bg-slate-800/70 border-slate-700'}`}>
+              <div className={`rounded-lg p-4 border ${summary.medium_count > 0 ? 'bg-yellow-900/20 border-yellow-700/60' : 'bg-slate-800/70 border-slate-700'}`}>
                 <p className="text-yellow-300 text-xs uppercase tracking-widest mb-1">Warnings</p>
-                <p className={`text-3xl font-bold ${summary.medium_count + summary.high_count > 0 ? 'text-yellow-300' : 'text-slate-500'}`}>{(summary.medium_count + summary.high_count).toLocaleString()}</p>
+                <p className={`text-3xl font-bold ${summary.medium_count > 0 ? 'text-yellow-300' : 'text-slate-500'}`}>{summary.medium_count.toLocaleString()}</p>
                 {summary.total_findings > 0 && (
-                  <p className="text-yellow-400/70 text-[11px] mt-1">{Math.round(((summary.medium_count + summary.high_count) / summary.total_findings) * 100)}% of total</p>
+                  <p className="text-yellow-400/70 text-[11px] mt-1">{Math.round((summary.medium_count / summary.total_findings) * 100)}% of total</p>
                 )}
               </div>
             </div>
@@ -1345,25 +1409,11 @@ const TaxonomyReports: React.FC = () => {
                     title={`Critical: ${summary.critical_count}`}
                   />
                 )}
-                {summary.high_count > 0 && (
-                  <div
-                    className="bg-orange-500"
-                    style={{ width: `${(summary.high_count / summary.total_findings) * 100}%` }}
-                    title={`High: ${summary.high_count}`}
-                  />
-                )}
                 {summary.medium_count > 0 && (
                   <div
                     className="bg-yellow-500"
                     style={{ width: `${(summary.medium_count / summary.total_findings) * 100}%` }}
-                    title={`Medium: ${summary.medium_count}`}
-                  />
-                )}
-                {summary.low_count > 0 && (
-                  <div
-                    className="bg-blue-500"
-                    style={{ width: `${(summary.low_count / summary.total_findings) * 100}%` }}
-                    title={`Low: ${summary.low_count}`}
+                    title={`Medium / Warning: ${summary.medium_count}`}
                   />
                 )}
                 {summary.info_count > 0 && (
@@ -1377,9 +1427,7 @@ const TaxonomyReports: React.FC = () => {
               <div className="flex gap-4 mt-2 flex-wrap">
                 {[
                   { label: 'Critical', count: summary.critical_count, color: 'bg-red-600' },
-                  { label: 'High', count: summary.high_count, color: 'bg-orange-500' },
-                  { label: 'Medium', count: summary.medium_count, color: 'bg-yellow-500' },
-                  { label: 'Low', count: summary.low_count, color: 'bg-blue-500' },
+                  { label: 'Medium / Warning', count: summary.medium_count, color: 'bg-yellow-500' },
                   { label: 'Info', count: summary.info_count, color: 'bg-slate-500' },
                 ].filter((x) => x.count > 0).map(({ label, count, color }) => (
                   <div key={label} className="flex items-center gap-1 text-xs">
@@ -1685,10 +1733,59 @@ const TaxonomyReports: React.FC = () => {
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
           <div className="w-full max-w-3xl bg-slate-900 border border-slate-700 rounded-lg p-5 space-y-4">
             <div className="flex items-center justify-between">
-              <h3 className="text-white text-lg font-semibold">Export Data</h3>
+              <h3 className="text-white text-lg font-semibold">Export Report</h3>
               <button className="text-slate-400 hover:text-white text-sm" onClick={() => setShowExportDialog(false)}>Close</button>
             </div>
 
+            <div className="flex gap-2 border-b border-slate-700 pb-2">
+              <button
+                onClick={() => setExportTab('pdf')}
+                className={`px-3 py-1.5 rounded text-xs border ${exportTab === 'pdf' ? 'bg-emerald-700 border-emerald-500 text-white' : 'bg-slate-900 border-slate-700 text-slate-300 hover:text-white'}`}
+              >
+                Executive Summary (PDF)
+              </button>
+              <button
+                onClick={() => setExportTab('raw')}
+                className={`px-3 py-1.5 rounded text-xs border ${exportTab === 'raw' ? 'bg-blue-700 border-blue-500 text-white' : 'bg-slate-900 border-slate-700 text-slate-300 hover:text-white'}`}
+              >
+                Raw Data (CSV / XLSX)
+              </button>
+            </div>
+
+            {exportTab === 'pdf' && (
+              <div className="space-y-4">
+                <p className="text-slate-300 text-sm">
+                  A polished, presentation-ready PDF summarizing this report's findings -- ideal for sharing with
+                  leadership or stakeholders.
+                </p>
+                <div className="bg-slate-800/60 border border-slate-700 rounded-lg p-4">
+                  <p className="text-slate-400 text-xs font-medium mb-2">Includes</p>
+                  <ul className="text-slate-300 text-sm space-y-1 list-disc list-inside">
+                    <li>Coverage overview (findings, reviews, repos, period covered)</li>
+                    <li>Risk score and severity breakdown</li>
+                    <li>Key takeaways and quality trend narrative</li>
+                    <li>Finding volume trend chart</li>
+                    <li>Findings by category and by repository / provider</li>
+                  </ul>
+                </div>
+                <div className="flex justify-end gap-2">
+                  <button
+                    onClick={() => setShowExportDialog(false)}
+                    className="px-3 py-1.5 rounded bg-slate-700 hover:bg-slate-600 text-white text-xs"
+                  >Cancel</button>
+                  <button
+                    onClick={runPdfExport}
+                    disabled={loading || generatingPdf || !summary}
+                    className="px-3 py-1.5 rounded bg-emerald-700 hover:bg-emerald-600 text-white text-xs border border-emerald-500 disabled:opacity-40"
+                  >
+                    {generatingPdf ? 'Generating…' : 'Generate PDF Report'}
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {exportTab === 'raw' && (
+            <>
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-3">
               <div className="space-y-2 lg:col-span-1">
                 <p className="text-slate-400 text-xs font-medium">Datasets / Sheets</p>
@@ -1862,6 +1959,8 @@ const TaxonomyReports: React.FC = () => {
                 className="px-3 py-1.5 rounded bg-blue-600 hover:bg-blue-500 text-white text-xs"
               >{exportingDataset ? 'Exporting…' : 'Export selected'}</button>
             </div>
+            </>
+            )}
           </div>
         </div>
       )}
