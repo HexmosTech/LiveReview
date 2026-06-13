@@ -230,6 +230,9 @@ JOIN LATERAL jsonb_array_elements(rc.comments_json) AS c(comment) ON true
 func (s *TaxonomyReportStore) GetSummary(ctx context.Context, f TaxonomyFilter) (*TaxonomySummary, error) {
 	where, args := s.buildWhereClause(f, 1)
 
+	// Sprintf only splices in hardcoded column expressions and $N placeholders;
+	// all user-supplied values flow through args as bind parameters.
+	// nosemgrep: go.lang.security.audit.database.string-formatted-query.string-formatted-query
 	q := fmt.Sprintf(`
 SELECT
   COUNT(*)                                                                          AS total_findings,
@@ -482,9 +485,13 @@ func (s *TaxonomyReportStore) ListFindings(ctx context.Context, f TaxonomyFilter
 	if strings.EqualFold(strings.TrimSpace(opts.SortDirection), "asc") {
 		sortDirection = "ASC"
 	}
-	orderBy := fmt.Sprintf("%s %s, rc.created_at DESC, rc.id DESC", sortExpr, sortDirection)
+	// sortExpr is a hardcoded column expression from allowedSortExprs (or the fixed
+	// default) and sortDirection is restricted to "ASC"/"DESC" above.
+	orderBy := fmt.Sprintf("%s %s, rc.created_at DESC, rc.id DESC", sortExpr, sortDirection) // nosemgrep: go.lang.security.audit.database.string-formatted-query.string-formatted-query
 
-	countQ := fmt.Sprintf(`SELECT COUNT(*) %s WHERE %s`, baseFrom, combinedWhere)
+	// baseFrom is a fixed query fragment and combinedWhere only contains hardcoded column
+	// expressions plus $N placeholders; user-supplied values flow through args as bind parameters.
+	countQ := fmt.Sprintf(`SELECT COUNT(*) %s WHERE %s`, baseFrom, combinedWhere) // nosemgrep: go.lang.security.audit.database.string-formatted-query.string-formatted-query
 	var total int64
 	if err := s.db.QueryRowContext(ctx, countQ, args...).Scan(&total); err != nil {
 		return nil, 0, fmt.Errorf("taxonomy findings count: %w", err)

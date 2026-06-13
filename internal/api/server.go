@@ -362,7 +362,9 @@ func ensureRequiredBillingSchema(ctx context.Context, db *sql.DB) error {
 	missing := make([]string, 0)
 	for _, table := range requiredTables {
 		var regClass sql.NullString
-		if err := db.QueryRowContext(ctx, "SELECT to_regclass($1)", "public."+table).Scan(&regClass); err != nil {
+		// table comes from the hardcoded requiredTables list above and is passed as a bind
+		// parameter, not interpolated into the query string.
+		if err := db.QueryRowContext(ctx, "SELECT to_regclass($1)", "public."+table).Scan(&regClass); err != nil { // nosemgrep: go.lang.security.audit.sqli.gosql-sqli.gosql-sqli
 			return fmt.Errorf("billing schema preflight failed: check table %s: %w", table, err)
 		}
 		if !regClass.Valid || strings.TrimSpace(regClass.String) == "" {
