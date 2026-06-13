@@ -196,11 +196,14 @@ type UnifiedFileChangeV2 struct {
 
 // UnifiedReviewCommentV2 - Review comment for full review flow
 type UnifiedReviewCommentV2 struct {
-	FilePath   string
-	LineNumber int
-	Content    string
-	Severity   string
-	Category   string
-	Position   *UnifiedPositionV2
-	Metadata   map[string]interface{}
+	FilePath    string
+	LineNumber  int
+	Content     string
+	Severity    string
+	Confidence  string
+	Type        string
+	Category    string
+	Subcategory string
+	Position    *UnifiedPositionV2
+	Metadata    map[string]interface{}
 }

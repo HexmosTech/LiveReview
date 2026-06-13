@@ -44,6 +44,14 @@ const popularAIProviders: AIProvider[] = [
         apiKeyPlaceholder: 'gemini-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx'
     },
     {
+        id: 'gemini-enterprise',
+        name: 'Gemini Enterprise',
+        url: 'https://cloud.google.com/vertex-ai',
+        description: 'Enterprise-grade LLM services via GCP Vertex AI with IAM authentication.',
+        icon: <Icons.Google />,
+        apiKeyPlaceholder: 'Paste Service Account JSON content here'
+    },
+    {
         id: 'deepseek',
         name: 'DeepSeek',
         url: 'https://platform.deepseek.com/',
@@ -91,6 +99,15 @@ const popularAIProviders: AIProvider[] = [
         apiKeyPlaceholder: 'sk-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx'
     },
     {
+        id: 'atlas',
+        name: 'Atlas Cloud',
+        url: 'https://atlascloud.ai/',
+        description: 'OpenAI-compatible AI cloud engine. Choose from a selection of models including DeepSeek.',
+        icon: <Icons.AI />,
+        apiKeyPlaceholder: 'ac_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx',
+        baseURLPlaceholder: 'https://api.atlascloud.ai/v1'
+    },
+    {
         id: 'claude',
         name: 'Anthropic Claude',
         url: 'https://www.anthropic.com/',
@@ -132,16 +149,16 @@ const AIProviders: React.FC = () => {
         generateFriendlyName
     } = useFormState();
 
-    // Local state
-    const [isSaved, setIsSaved] = useState(false);
-    const [showDropdown, setShowDropdown] = useState(false);
-    const dropdownRef = useRef<HTMLDivElement>(null);
+	// Local state
+	const [isSaved, setIsSaved] = useState(false);
+	const [showDropdown, setShowDropdown] = useState(false);
+	const dropdownRef = useRef<HTMLDivElement>(null);
 
-    const getDefaultModelFor = (providerId?: string) => {
-        if (!providerId) return '';
-        const meta = popularAIProviders.find(p => p.id === providerId);
-        return meta?.defaultModel || '';
-    };
+	const getDefaultModelFor = (providerId?: string) => {
+		if (!providerId) return '';
+		const meta = popularAIProviders.find((p) => p.id === providerId);
+		return meta?.defaultModel || '';
+	};
 
     // Calculate provider connector counts
     const connectorCounts = connectors.reduce((counts: Record<string, number>, connector) => {
@@ -197,7 +214,9 @@ const AIProviders: React.FC = () => {
             apiKey: '',
             providerType: selectedProvider === 'all' ? '' : selectedProvider,
             selectedModel: getDefaultModelFor(selectedProvider === 'all' ? undefined : selectedProvider),
-            baseURL: ''
+            baseURL: '',
+            gcpProjectID: '',
+            gcpLocation: ''
         });
         setIsEditing(false);
         setSelectedConnector(null);
@@ -211,7 +230,9 @@ const AIProviders: React.FC = () => {
             apiKey: '',
             providerType: providerId,
             selectedModel: getDefaultModelFor(providerId),
-            baseURL: ''
+            baseURL: '',
+            gcpProjectID: '',
+            gcpLocation: ''
         });
         setIsEditing(false);
         setSelectedConnector(null);
@@ -231,7 +252,9 @@ const AIProviders: React.FC = () => {
             apiKey: connector.fullApiKey || connector.apiKey,
             providerType: connector.providerName,
             baseURL: connector.baseURL || connector.base_url || '',
-            selectedModel: connector.selectedModel || connector.selected_model || getDefaultModelFor(connector.providerName)
+            selectedModel: connector.selectedModel || connector.selected_model || getDefaultModelFor(connector.providerName),
+            gcpProjectID: connector.gcpProjectID || connector.gcp_project_id || '',
+            gcpLocation: connector.gcpLocation || connector.gcp_location || ''
         });
         setIsEditing(true);
         updateUrlFragment(connector.providerName, 'edit', connector.id);
@@ -254,7 +277,9 @@ const AIProviders: React.FC = () => {
                 formData.name,
                 selectedConnector,
                 formData.baseURL,
-                formData.selectedModel || getDefaultModelFor(providerToUse)
+                formData.selectedModel || getDefaultModelFor(providerToUse),
+                formData.gcpProjectID,
+                formData.gcpLocation
             );
 
             if (success) {

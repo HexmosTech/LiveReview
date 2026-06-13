@@ -17,6 +17,9 @@ Latest milestone batch note (MF-051, MF-059, MF-073, MF-074, MF-076, MF-083, MF-
 
 | api.GetCurrentSubscription | updated | [GetCurrentSubscription](../internal/api/subscriptions_handler.go#L620) |
 | api.ListUserSubscriptions | updated | [ListUserSubscriptions](../internal/api/subscriptions_handler.go#L773) |
+| api.parseFindingsOptions | added | [parseFindingsOptions](../internal/api/taxonomy_report_handler.go#L115) |
+| api.ListOrgTaxonomyFindings | updated | [ListOrgTaxonomyFindings](../internal/api/taxonomy_report_handler.go#L244) |
+| api.ListAdminTaxonomyFindings | updated | [ListAdminTaxonomyFindings](../internal/api/taxonomy_report_handler.go#L388) |
 | providerinputgitea.fetchLatestReview | updated | [fetchLatestReview](../internal/provider_input/gitea/gitea_provider.go#L664) |
 | providersgitea.GetMergeRequestDetails | updated | [GetMergeRequestDetails](../internal/providers/gitea/gitea_provider.go#L116) |
 | providersgitea.GetMergeRequestChanges | updated | [GetMergeRequestChanges](../internal/providers/gitea/gitea_provider.go#L182) |
