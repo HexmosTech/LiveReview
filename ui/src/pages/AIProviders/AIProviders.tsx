@@ -44,6 +44,14 @@ const popularAIProviders: AIProvider[] = [
         apiKeyPlaceholder: 'gemini-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx'
     },
     {
+        id: 'gemini-enterprise',
+        name: 'Gemini Enterprise',
+        url: 'https://cloud.google.com/vertex-ai',
+        description: 'Enterprise-grade LLM services via GCP Vertex AI with IAM authentication.',
+        icon: <Icons.Google />,
+        apiKeyPlaceholder: 'Paste Service Account JSON content here'
+    },
+    {
         id: 'deepseek',
         name: 'DeepSeek',
         url: 'https://platform.deepseek.com/',
@@ -195,7 +203,9 @@ const AIProviders: React.FC = () => {
             apiKey: '',
             providerType: selectedProvider === 'all' ? '' : selectedProvider,
             selectedModel: getDefaultModelFor(selectedProvider === 'all' ? undefined : selectedProvider),
-            baseURL: ''
+            baseURL: '',
+            gcpProjectID: '',
+            gcpLocation: ''
         });
         setIsEditing(false);
         setSelectedConnector(null);
@@ -209,7 +219,9 @@ const AIProviders: React.FC = () => {
             apiKey: '',
             providerType: providerId,
             selectedModel: getDefaultModelFor(providerId),
-            baseURL: ''
+            baseURL: '',
+            gcpProjectID: '',
+            gcpLocation: ''
         });
         setIsEditing(false);
         setSelectedConnector(null);
@@ -229,7 +241,9 @@ const AIProviders: React.FC = () => {
             apiKey: connector.fullApiKey || connector.apiKey,
             providerType: connector.providerName,
             baseURL: connector.baseURL || connector.base_url || '',
-            selectedModel: connector.selectedModel || connector.selected_model || getDefaultModelFor(connector.providerName)
+            selectedModel: connector.selectedModel || connector.selected_model || getDefaultModelFor(connector.providerName),
+            gcpProjectID: connector.gcpProjectID || connector.gcp_project_id || '',
+            gcpLocation: connector.gcpLocation || connector.gcp_location || ''
         });
         setIsEditing(true);
         updateUrlFragment(connector.providerName, 'edit', connector.id);
@@ -252,7 +266,9 @@ const AIProviders: React.FC = () => {
                 formData.name,
                 selectedConnector,
                 formData.baseURL,
-                formData.selectedModel || getDefaultModelFor(providerToUse)
+                formData.selectedModel || getDefaultModelFor(providerToUse),
+                formData.gcpProjectID,
+                formData.gcpLocation
             );
 
             if (success) {
