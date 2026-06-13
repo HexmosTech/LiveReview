@@ -59,12 +59,21 @@ const ConnectorCard: React.FC<ConnectorCardProps> = ({
                                     </Badge>
                                 )}
                             </div>
-                            {!isManaged && (
+                            {!isManaged && connector.providerName !== 'gemini-enterprise' && (
                                 <p className="text-sm text-slate-300 truncate">
                                     API Key: {connector.apiKey && connector.apiKey.length > 4
                                         ? '••••••••' + connector.apiKey.slice(-4)
                                         : (connector.apiKey ? connector.apiKey : 'Not set')}
                                 </p>
+                            )}
+                            {connector.providerName === 'gemini-enterprise' && (
+                                <>
+                                    {connector.gcpProjectID && (
+                                        <p className="text-sm text-slate-300 truncate">
+                                            Project ID: {connector.gcpProjectID}
+                                        </p>
+                                    )}
+                                </>
                             )}
                             {(connector.selectedModel || connector.selected_model) && (
                                 <p className="text-sm text-slate-300 truncate">
