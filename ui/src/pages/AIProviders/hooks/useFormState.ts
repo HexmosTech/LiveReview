@@ -33,7 +33,7 @@ export const useFormState = (
         setFormData(prev => ({
             ...prev,
             providerType,
-            name: prev.name || generateFriendlyNameForProvider(providerType, providers),
+            name: (prev?.name || '').trim() || generateFriendlyNameForProvider(providerType, providers),
             // Reset model selection when provider changes
             selectedModel: defaultModel,
             // Reset base URL when provider changes to non-Ollama
