@@ -134,6 +134,14 @@ func (f *StandardAIProviderFactory) CreateAIProvider(ctx context.Context, config
 		baseURL, _ := config.Config["base_url"].(string)
 		baseURL = aiconnectors.ResolveBaseURLForProviderName(providerType, baseURL)
 
+		var gcpProjectID, gcpLocation string
+		if val, ok := config.Config["gcp_project_id"].(string); ok {
+			gcpProjectID = val
+		}
+		if val, ok := config.Config["gcp_location"].(string); ok {
+			gcpLocation = val
+		}
+
 		// Set provider-specific token limits
 		maxTokens := f.getProviderMaxTokens(providerType)
 
@@ -151,6 +159,8 @@ func (f *StandardAIProviderFactory) CreateAIProvider(ctx context.Context, config
 			ProviderType:   providerType,
 			BaseURL:        baseURL,
 			ProviderName:   providerName,
+			GCPProjectID:   gcpProjectID,
+			GCPLocation:    gcpLocation,
 		}, logger), nil
 	default:
 		// Default to langchain for any unrecognized type
@@ -163,6 +173,14 @@ func (f *StandardAIProviderFactory) CreateAIProvider(ctx context.Context, config
 
 		baseURL, _ := config.Config["base_url"].(string)
 		baseURL = aiconnectors.ResolveBaseURLForProviderName(providerType, baseURL)
+
+		var gcpProjectID, gcpLocation string
+		if val, ok := config.Config["gcp_project_id"].(string); ok {
+			gcpProjectID = val
+		}
+		if val, ok := config.Config["gcp_location"].(string); ok {
+			gcpLocation = val
+		}
 
 		// Set provider-specific token limits
 		maxTokens := f.getProviderMaxTokens(providerType)
@@ -181,6 +199,8 @@ func (f *StandardAIProviderFactory) CreateAIProvider(ctx context.Context, config
 			ProviderType:   providerType,
 			BaseURL:        baseURL,
 			ProviderName:   providerName,
+			GCPProjectID:   gcpProjectID,
+			GCPLocation:    gcpLocation,
 		}, logger), nil
 	}
 }
@@ -190,7 +210,7 @@ func (f *StandardAIProviderFactory) getProviderMaxTokens(providerName string) in
 	switch strings.ToLower(providerName) {
 	case "ollama":
 		return 8000 // Conservative limit for Ollama models
-	case "gemini", "googleai":
+	case "gemini", "googleai", "gemini-enterprise":
 		return 30000 // Gemini can handle larger batches
 	case "openai":
 		return 16000 // OpenAI models like GPT-3.5/4 can handle decent batches

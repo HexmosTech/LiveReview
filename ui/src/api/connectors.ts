@@ -123,7 +123,9 @@ export const validateAIProviderKey = async (
   provider: string,
   apiKey: string,
   baseURL?: string,
-  model?: string
+  model?: string,
+  gcpProjectID?: string,
+  gcpLocation?: string
 ): Promise<{ valid: boolean; message: string }> => {
   try {
     const response = await apiClient.post<{ valid: boolean; message: string }>(
@@ -133,6 +135,8 @@ export const validateAIProviderKey = async (
         api_key: apiKey,
         base_url: baseURL,
         model,
+        gcp_project_id: gcpProjectID,
+        gcp_location: gcpLocation,
       }
     );
     return response;
@@ -150,6 +154,8 @@ export const validateAIProviderKey = async (
  * @param displayOrder Order to display in the UI (lower numbers first)
  * @param baseURL Optional base URL for the API (for custom endpoints)
  * @param selectedModel Optional selected model for the connector
+ * @param gcpProjectID Optional GCP Project ID (for Gemini Enterprise)
+ * @param gcpLocation Optional GCP Location/Region (for Gemini Enterprise)
  * @returns Promise with the created connector
  */
 export const createAIConnector = async (
@@ -158,7 +164,9 @@ export const createAIConnector = async (
   connectorName: string,
   displayOrder: number = 0,
   baseURL?: string,
-  selectedModel?: string
+  selectedModel?: string,
+  gcpProjectID?: string,
+  gcpLocation?: string
 ): Promise<any> => {
   try {
     const response = await apiClient.post(
@@ -170,6 +178,8 @@ export const createAIConnector = async (
         display_order: displayOrder,
         base_url: baseURL,
         selected_model: selectedModel,
+        gcp_project_id: gcpProjectID,
+        gcp_location: gcpLocation,
       }
     );
     return response;
@@ -188,6 +198,8 @@ export const createAIConnector = async (
  * @param displayOrder Order to display in the UI (lower numbers first)
  * @param baseURL Optional base URL for the API (for custom endpoints)
  * @param selectedModel Optional selected model for the connector
+ * @param gcpProjectID Optional GCP Project ID (for Gemini Enterprise)
+ * @param gcpLocation Optional GCP Location/Region (for Gemini Enterprise)
  * @returns Promise with the updated connector
  */
 export const updateAIConnector = async (
@@ -197,7 +209,9 @@ export const updateAIConnector = async (
   connectorName: string,
   displayOrder: number = 0,
   baseURL?: string,
-  selectedModel?: string
+  selectedModel?: string,
+  gcpProjectID?: string,
+  gcpLocation?: string
 ): Promise<any> => {
   try {
     const response = await apiClient.put(
@@ -209,6 +223,8 @@ export const updateAIConnector = async (
         display_order: displayOrder,
         base_url: baseURL,
         selected_model: selectedModel,
+        gcp_project_id: gcpProjectID,
+        gcp_location: gcpLocation,
       }
     );
     return response;
