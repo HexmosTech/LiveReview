@@ -18,6 +18,10 @@ func (p *GeminiProvider) parseJSONResponse(response string, diffs []*models.Code
 		LineNumber  int      `json:"lineNumber"`
 		Content     string   `json:"content"`
 		Severity    string   `json:"severity"`
+		Confidence  string   `json:"confidence"`
+		Type        string   `json:"type"`
+		Category    string   `json:"category"`
+		Subcategory string   `json:"subcategory"`
 		Suggestions []string `json:"suggestions"`
 		IsInternal  bool     `json:"isInternal"`
 	}
@@ -80,8 +84,11 @@ func (p *GeminiProvider) parseJSONResponse(response string, diffs []*models.Code
 			Line:        comment.LineNumber,
 			Content:     comment.Content,
 			Severity:    severity,
+			Confidence:  comment.Confidence,
+			Type:        comment.Type,
 			Suggestions: comment.Suggestions,
-			Category:    "review",
+			Category:    comment.Category,
+			Subcategory: comment.Subcategory,
 			IsInternal:  comment.IsInternal,
 		}
 
