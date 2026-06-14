@@ -14,6 +14,7 @@ import (
 	"github.com/livereview/internal/aidefault"
 	"github.com/livereview/internal/batch"
 	"github.com/livereview/internal/logging"
+	"github.com/livereview/internal/prompts"
 	"github.com/livereview/internal/providers"
 	"github.com/livereview/pkg/models"
 )
@@ -49,6 +50,10 @@ type ReviewRequest struct {
 	Provider         ProviderConfig
 	AI               AIConfig
 	PreloadedChanges []*models.CodeDiff
+	// RepoRules holds the concatenated .lrc/rules/*.md instruction bundle
+	// (see internal/lrcconfig) to inject into the AI prompt as a
+	// "# Repository Rules" section. Empty when the repo has no .lrc/rules.
+	RepoRules string
 }
 
 // ProviderConfig contains provider-specific configuration
@@ -356,6 +361,10 @@ func (s *Service) executeReviewWorkflow(
 	request ReviewRequest,
 ) (*ReviewWorkflowResult, error) {
 
+	if strings.TrimSpace(request.RepoRules) != "" {
+		ctx = prompts.WithRepoRules(ctx, request.RepoRules)
+	}
+
 	var mrDetails *providers.MergeRequestDetails
 	var changes []*models.CodeDiff
 
@@ -503,6 +512,24 @@ func (s *Service) executeReviewWorkflow(
 		if s.logger != nil {
 			s.logger.EmitStageCompleted("Analysis", fmt.Sprintf("Retrieved %d changed files from merge request", len(changes)))
 		}
+
+		// TODO(repo-rules): once providers implement lrcconfig.RepoConfigProvider,
+		// fetch .lrc/ at mrDetails' head ref and run it through the same
+		// lrcconfig pipeline used for CLI reviews (LoadIgnorePatterns ->
+		// FilterDiffs -> BuildRulesBundle -> prompts.WithRepoRules), e.g.:
+		//
+		//   if rcp, ok := provider.(lrcconfig.RepoConfigProvider); ok {
+		//       if bundle, found, err := rcp.GetRepoConfigBundle(ctx, mrDetails.SourceBranch); err == nil && found {
+		//           patterns, _ := lrcconfig.LoadIgnorePatterns(bundle)
+		//           changes, _ = lrcconfig.FilterDiffs(changes, patterns)
+		//           rulesText, _, _ := lrcconfig.BuildRulesBundle(bundle)
+		//           ctx = prompts.WithRepoRules(ctx, rulesText)
+		//       }
+		//   }
+		//
+		// Open questions: cache .lrc/ fetches per repo+ref to avoid an extra
+		// API call on every review, and decide which ref to use when .lrc/
+		// only exists on the default branch (not mrDetails.SourceBranch).
 	}
 
 	// Check if there are no changes to review
