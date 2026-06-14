@@ -31,6 +31,24 @@ func TestBuildRulesBundle(t *testing.T) {
 	}
 }
 
+func TestBuildRulesBundleInstructionsFirst(t *testing.T) {
+	b := Bundle{Files: map[string][]byte{
+		"rules/README.md":       []byte("should be excluded"),
+		"rules/design.md":       []byte("Use hexagonal architecture."),
+		"rules/INSTRUCTIONS.md": []byte("Read this first."),
+	}}
+
+	text, _, issues := BuildRulesBundle(b)
+	if len(issues) != 0 {
+		t.Fatalf("unexpected issues: %v", issues)
+	}
+
+	want := "## rules/INSTRUCTIONS.md\n\nRead this first.\n\n## rules/design.md\n\nUse hexagonal architecture."
+	if text != want {
+		t.Fatalf("unexpected bundle text:\ngot:  %q\nwant: %q", text, want)
+	}
+}
+
 func TestBuildRulesBundleEmpty(t *testing.T) {
 	text, charCount, issues := BuildRulesBundle(Bundle{})
 	if text != "" || charCount != 0 || issues != nil {
