@@ -26,6 +26,7 @@ const CharLimit = 3000
 
 const rulesPrefix = "rules/"
 const rulesReadmePath = rulesPrefix + "README.md"
+const rulesInstructionsPath = rulesPrefix + "INSTRUCTIONS.md"
 const ignorePath = "ignore"
 
 // Issue describes a problem found while processing a Bundle.
@@ -41,17 +42,19 @@ type Bundle struct {
 	Files map[string][]byte
 }
 
-// BuildRulesBundle concatenates rules/*.md (lexicographic order, direct
-// children only), excluding rules/README.md and skipping empty/whitespace-only
-// files. Each included file is preceded by a "## rules/<name>.md" header.
-// Returns the concatenated text, its character count, and a warning-level
-// Issue if the result exceeds CharLimit. Exceeding CharLimit never fails the
-// review here (see CharLimit) — callers truncate the text and surface the
-// warning; git-lrc's internal/lrcrules package treats the same condition as
-// an error for its offline `lrc config check`, where failing fast is
-// appropriate.
+// BuildRulesBundle concatenates rules/*.md (direct children only),
+// excluding rules/README.md and skipping empty/whitespace-only files.
+// rules/INSTRUCTIONS.md, if present and non-empty, is placed first as the
+// entry point; every other file follows in lexicographic order. Each
+// included file is preceded by a "## rules/<name>.md" header. Returns the
+// concatenated text, its character count, and a warning-level Issue if the
+// result exceeds CharLimit. Exceeding CharLimit never fails the review here
+// (see CharLimit) — callers truncate the text and surface the warning;
+// git-lrc's internal/lrcrules package treats the same condition as an error
+// for its offline `lrc config check`, where failing fast is appropriate.
 func BuildRulesBundle(b Bundle) (string, int, []Issue) {
 	var names []string
+	hasInstructions := false
 	for path := range b.Files {
 		if path == rulesReadmePath {
 			continue
@@ -62,9 +65,16 @@ func BuildRulesBundle(b Bundle) (string, int, []Issue) {
 		if strings.Contains(strings.TrimPrefix(path, rulesPrefix), "/") {
 			continue // skip nested directories, only direct children of rules/
 		}
+		if path == rulesInstructionsPath {
+			hasInstructions = true
+			continue
+		}
 		names = append(names, path)
 	}
 	sort.Strings(names)
+	if hasInstructions {
+		names = append([]string{rulesInstructionsPath}, names...)
+	}
 
 	var out strings.Builder
 	for _, path := range names {
