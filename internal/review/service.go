@@ -53,6 +53,8 @@ type ReviewRequest struct {
 	// RepoRules holds the concatenated .lrc/rules/*.md instruction bundle
 	// (see internal/lrcconfig) to inject into the AI prompt as a
 	// "# Repository Rules" section. Empty when the repo has no .lrc/rules.
+	// Callers don't need to pre-trim this: prompts.BuildRepoRulesSection
+	// trims it (and omits the section entirely if it's blank).
 	RepoRules string
 }
 

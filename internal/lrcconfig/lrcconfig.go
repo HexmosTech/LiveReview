@@ -14,14 +14,17 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/livereview/cmd/mrmodel/lib"
 	gitignore "github.com/sabhiram/go-gitignore"
 )
 
-// CharLimit is the maximum size (in characters) of the concatenated rules
-// bundle injected into the AI prompt. Bundles exceeding this are truncated
-// (with a warning), never causing the review to fail.
+// CharLimit is the maximum size, in bytes (UTF-8), of the concatenated rules
+// bundle injected into the AI prompt. It is measured via len() on the bundle
+// text, matching git-lrc's internal/lrcrules.CharLimit, so multi-byte
+// characters count for more than one toward the limit. Bundles exceeding
+// this are truncated (with a warning), never causing the review to fail.
 const CharLimit = 3000
 
 const rulesPrefix = "rules/"
@@ -153,15 +156,20 @@ func FilterDiffs(diffs []lib.LocalCodeDiff, patterns []string) ([]lib.LocalCodeD
 	return kept, excluded
 }
 
-// TruncateAtLineBoundary truncates text to at most limit characters,
-// breaking at the last newline before the limit so headers/sections aren't
-// cut mid-line.
+// TruncateAtLineBoundary truncates text to at most limit bytes, breaking at
+// the last newline before the limit so headers/sections aren't cut mid-line.
+// limit is a byte count (UTF-8), matching CharLimit. If no newline is found
+// before the limit, the cut point is moved back to the nearest UTF-8 rune
+// boundary so the result is never invalid UTF-8.
 func TruncateAtLineBoundary(text string, limit int) string {
 	if len(text) <= limit {
 		return text
 	}
 	cut := strings.LastIndex(text[:limit], "\n")
 	if cut <= 0 {
+		for limit > 0 && !utf8.RuneStart(text[limit]) {
+			limit--
+		}
 		return text[:limit]
 	}
 	return text[:cut]
