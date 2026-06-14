@@ -98,20 +98,13 @@ func (s *Server) DiffReview(c echo.Context) error {
 
 	// Apply .lrc/ignore (if present) before computing billable LOC, so
 	// ignored files affect neither the AI input nor billing.
+	var excludedFiles []string
 	if ignorePatterns, _ := lrcconfig.LoadIgnorePatterns(lrcBundle); len(ignorePatterns) > 0 {
 		filtered, excluded := lrcconfig.FilterDiffs(localDiffs, ignorePatterns)
-		if len(filtered) == 0 && len(localDiffs) > 0 {
-			// A pattern that matches every file in the diff is almost
-			// certainly a misconfiguration (e.g. a stray "*" or "***" in
-			// .lrc/ignore) — applying it would silently zero out the
-			// review's billable LOC and AI input. Skip .lrc/ignore for
-			// this review rather than reviewing nothing.
-			log.Printf("[WARN] .lrc/ignore would exclude all %d file(s) in this diff; ignoring .lrc/ignore for this review", len(localDiffs))
-		} else {
-			localDiffs = filtered
-			if len(excluded) > 0 {
-				log.Printf("[DiffReview] .lrc/ignore excluded %d file(s): %v", len(excluded), excluded)
-			}
+		localDiffs = filtered
+		excludedFiles = excluded
+		if len(excluded) > 0 {
+			log.Printf("[DiffReview] .lrc/ignore excluded %d file(s): %v", len(excluded), excluded)
 		}
 	}
 
@@ -201,8 +194,29 @@ func (s *Server) DiffReview(c echo.Context) error {
 
 	// Immediately mark as processing and persist preloaded changes for polling.
 	_ = rm.UpdateReviewStatus(reviewRecord.ID, "processing")
-	if err := rm.MergeReviewMetadata(reviewRecord.ID, map[string]interface{}{"preloaded_changes": modelDiffs, "operation_billable_loc": billableLOC}); err != nil {
+	if err := rm.MergeReviewMetadata(reviewRecord.ID, map[string]interface{}{"preloaded_changes": modelDiffs, "operation_billable_loc": billableLOC, "excluded_files": excludedFiles}); err != nil {
 		log.Printf("[WARN] failed to store preloaded_changes for review %d: %v", reviewRecord.ID, err)
+	}
+
+	// If .lrc/ignore excluded every changed file, there's nothing for the AI
+	// to review — complete immediately rather than running an empty review.
+	if len(localDiffs) == 0 && len(excludedFiles) > 0 {
+		summary := fmt.Sprintf("All %d changed file(s) excluded by .lrc/ignore: %s",
+			len(excludedFiles), strings.Join(excludedFiles, ", "))
+		if err := rm.MergeReviewMetadata(reviewRecord.ID, map[string]interface{}{
+			"review_result": DiffReviewResult{Summary: summary, Comments: nil},
+		}); err != nil {
+			log.Printf("[WARN] failed to store review_result for review %d: %v", reviewRecord.ID, err)
+		}
+		if err := rm.UpdateReviewStatus(reviewRecord.ID, "completed"); err != nil {
+			log.Printf("[WARN] failed to mark review %d completed: %v", reviewRecord.ID, err)
+		}
+		return JSONWithEnvelope(c, http.StatusOK, map[string]interface{}{
+			"review_id":     fmt.Sprintf("%d", reviewRecord.ID),
+			"status":        "processing",
+			"friendly_name": friendlyName,
+			"user_email":    userEmail,
+		})
 	}
 
 	aiConfig, err := s.getAIConfigFromDatabase(context.Background(), orgID, planCode)
@@ -326,6 +340,10 @@ func (s *Server) GetDiffReviewStatus(c echo.Context) error {
 		"review_id": fmt.Sprintf("%d", reviewRecord.ID),
 		"summary":   result.Summary,
 		"files":     files,
+	}
+
+	if excluded, ok := meta["excluded_files"].([]interface{}); ok && len(excluded) > 0 {
+		response["excluded_files"] = excluded
 	}
 
 	// Include friendly_name if available
