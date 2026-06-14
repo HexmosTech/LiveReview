@@ -12,6 +12,7 @@ func PlaintextTemplates() []PlaintextTemplate {
 			IssueDetectionChecklist + "\n\n" +
 			CommentRequirements + "\n\n" +
 			JSONStructureExample + "\n\n" +
+			TaxonomyClassificationRules + "\n\n" +
 			CommentClassification + "\n\n" +
 			LineNumberInstructions + "\n\n" +
 			"{{VAR:style_guide}}\n\n{{VAR:security_guidelines}}"},

@@ -18,6 +18,7 @@ import (
 	"github.com/tmc/langchaingo/llms/anthropic"
 	"github.com/tmc/langchaingo/llms/cohere"
 	"github.com/tmc/langchaingo/llms/googleai" // Use googleai instead of gemini
+	"github.com/tmc/langchaingo/llms/googleai/vertex"
 	"github.com/tmc/langchaingo/llms/ollama"
 	"github.com/tmc/langchaingo/llms/openai"
 )
@@ -30,11 +31,13 @@ const (
 	ProviderOpenAI              Provider = "openai"
 	ProviderDeepSeek            Provider = "deepseek"
 	ProviderGemini              Provider = "gemini"
+	ProviderGeminiEnterprise    Provider = "gemini-enterprise"
 	ProviderClaude              Provider = "claude"
 	ProviderAnthropicCompatible Provider = "anthropic-compatible"
 	ProviderCohere              Provider = "cohere"
 	ProviderOllama              Provider = "ollama"
 	ProviderOpenRouter          Provider = "openrouter"
+	ProviderAtlas               Provider = "atlas"
 	ProviderLocalModel          Provider = "local"
 )
 
@@ -49,10 +52,12 @@ type ModelConfig struct {
 
 // ConnectorOptions contains options for creating a connector
 type ConnectorOptions struct {
-	Provider    Provider    `json:"provider"`
-	APIKey      string      `json:"api_key"`
-	BaseURL     string      `json:"base_url,omitempty"`
-	ModelConfig ModelConfig `json:"model_config,omitempty"`
+	Provider     Provider    `json:"provider"`
+	APIKey       string      `json:"api_key"`
+	BaseURL      string      `json:"base_url,omitempty"`
+	ModelConfig  ModelConfig `json:"model_config,omitempty"`
+	GCPProjectID string      `json:"gcp_project_id,omitempty"`
+	GCPLocation  string      `json:"gcp_location,omitempty"`
 }
 
 // Connector represents a connection to an AI provider
@@ -80,6 +85,8 @@ func NewConnector(ctx context.Context, options ConnectorOptions) (*Connector, er
 		model, err = createDeepSeekModel(ctx, options)
 	case ProviderGemini:
 		model, err = createGeminiModel(ctx, options)
+	case ProviderGeminiEnterprise:
+		model, err = createGeminiEnterpriseModel(ctx, options)
 	case ProviderClaude, ProviderAnthropicCompatible:
 		model, err = createAnthropicModel(ctx, options)
 	case ProviderCohere:
@@ -88,6 +95,8 @@ func NewConnector(ctx context.Context, options ConnectorOptions) (*Connector, er
 		model, err = createOllamaModel(ctx, options)
 	case ProviderOpenRouter:
 		model, err = createOpenRouterModel(ctx, options)
+	case ProviderAtlas:
+		model, err = createAtlasModel(ctx, options)
 	default:
 		return nil, fmt.Errorf("unsupported provider: %s", options.Provider)
 	}
@@ -104,7 +113,7 @@ func NewConnector(ctx context.Context, options ConnectorOptions) (*Connector, er
 }
 
 // ValidateAPIKey validates the provided API key against the provider
-func ValidateAPIKey(ctx context.Context, db *sql.DB, provider Provider, apiKey string, baseURL string, model string) (bool, error) {
+func ValidateAPIKey(ctx context.Context, db *sql.DB, provider Provider, apiKey string, baseURL string, model string, gcpProjectID string, gcpLocation string) (bool, error) {
 	log.Debug().
 		Str("provider", string(provider)).
 		Str("api_key_masked", maskAPIKey(apiKey)).
@@ -142,9 +151,11 @@ func ValidateAPIKey(ctx context.Context, db *sql.DB, provider Provider, apiKey s
 
 	// Create temporary options with minimum configuration
 	options := ConnectorOptions{
-		Provider: provider,
-		APIKey:   apiKey,
-		BaseURL:  baseURL,
+		Provider:     provider,
+		APIKey:       apiKey,
+		BaseURL:      baseURL,
+		GCPProjectID: gcpProjectID,
+		GCPLocation:  gcpLocation,
 		ModelConfig: ModelConfig{
 			Temperature: 0.7,
 			MaxTokens:   100,
@@ -197,7 +208,7 @@ func ValidateAPIKey(ctx context.Context, db *sql.DB, provider Provider, apiKey s
 	generateOptions = append(generateOptions, llms.WithMaxTokens(10))
 
 	// For Gemini, explicitly specify the model in the call
-	if provider == ProviderGemini {
+	if provider == ProviderGemini || provider == ProviderGeminiEnterprise {
 		generateOptions = append(generateOptions, llms.WithModel(options.ModelConfig.Model))
 		log.Debug().Str("model", options.ModelConfig.Model).Msg("Explicitly setting model for Gemini call")
 	}
@@ -482,6 +493,51 @@ func (t *openRouterLoggingTransport) RoundTrip(req *http.Request) (*http.Respons
 	return resp, err
 }
 
+func createAtlasModel(ctx context.Context, options ConnectorOptions) (llms.Model, error) {
+	baseURL := ResolveBaseURL(ProviderAtlas, options.BaseURL)
+
+	httpClient := networkaiconnectors.NewHTTPClient(5 * time.Minute)
+	httpClient.Transport = &atlasLoggingTransport{base: http.DefaultTransport}
+
+	opts := []openai.Option{
+		openai.WithModel(options.ModelConfig.Model),
+		openai.WithToken(options.APIKey),
+		openai.WithBaseURL(baseURL),
+		openai.WithHTTPClient(httpClient),
+	}
+
+	return openai.New(opts...)
+}
+
+type atlasLoggingTransport struct {
+	base http.RoundTripper
+}
+
+func (t *atlasLoggingTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	if t.base == nil {
+		t.base = http.DefaultTransport
+	}
+
+	resp, err := t.base.RoundTrip(req)
+	if err != nil {
+		log.Error().Err(err).Msg("Atlas Cloud request failed before response")
+		return resp, err
+	}
+
+	if resp != nil && resp.StatusCode >= 400 {
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, 8192))
+		resp.Body.Close()
+		resp.Body = io.NopCloser(bytes.NewBuffer(body))
+		log.Error().
+			Str("url", req.URL.String()).
+			Int("status", resp.StatusCode).
+			Str("body", truncateString(string(body), 1200)).
+			Msg("Atlas Cloud HTTP error")
+	}
+
+	return resp, err
+}
+
 // Call calls the LLM with the given input and returns the response
 func (c *Connector) Call(ctx context.Context, input string, options ...llms.CallOption) (string, error) {
 	log.Debug().
@@ -546,7 +602,7 @@ func (c *Connector) Call(ctx context.Context, input string, options ...llms.Call
 
 func isCloudProviderProvider(provider Provider) bool {
 	switch provider {
-	case ProviderOpenAI, ProviderDeepSeek, ProviderGemini, ProviderClaude, ProviderAnthropicCompatible, ProviderOpenRouter:
+	case ProviderOpenAI, ProviderDeepSeek, ProviderGemini, ProviderGeminiEnterprise, ProviderClaude, ProviderAnthropicCompatible, ProviderOpenRouter, ProviderAtlas:
 		return true
 	default:
 		return false
@@ -583,3 +639,35 @@ func truncateString(s string, maxLen int) string {
 func contains(s, substr string) bool {
 	return strings.Contains(strings.ToLower(s), strings.ToLower(substr))
 }
+
+func createGeminiEnterpriseModel(ctx context.Context, options ConnectorOptions) (llms.Model, error) {
+	log.Debug().
+		Str("project", options.GCPProjectID).
+		Str("location", options.GCPLocation).
+		Str("model", options.ModelConfig.Model).
+		Msg("Creating Gemini Enterprise (Vertex AI) model with options")
+
+	opts := []googleai.Option{
+		googleai.WithCloudProject(options.GCPProjectID),
+		googleai.WithCloudLocation(options.GCPLocation),
+		googleai.WithDefaultModel(options.ModelConfig.Model),
+	}
+
+	if options.APIKey != "" {
+		opts = append(opts, googleai.WithCredentialsJSON([]byte(options.APIKey)))
+	}
+
+	model, err := vertex.New(ctx, opts...)
+	if err != nil {
+		log.Error().Err(err).
+			Str("project", options.GCPProjectID).
+			Str("location", options.GCPLocation).
+			Str("model", options.ModelConfig.Model).
+			Msg("Failed to create Gemini Enterprise model")
+		return nil, fmt.Errorf("failed to create Gemini Enterprise model: %w", err)
+	}
+
+	log.Debug().Msg("Gemini Enterprise model created successfully")
+	return model, nil
+}
+

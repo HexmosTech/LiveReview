@@ -111,7 +111,9 @@ def razorpay_request(method: str, path: str, creds: RazorpayCredentials, payload
     req.add_header("Content-Type", "application/json")
 
     try:
-        with request.urlopen(req, timeout=30) as resp:
+        # url is built from the hardcoded RAZORPAY_API_BASE and a caller-supplied API path
+        # constant (e.g. "/v1/webhooks"), not from untrusted input.
+        with request.urlopen(req, timeout=30) as resp:  # nosemgrep: python.lang.security.audit.dynamic-urllib-use-detected.dynamic-urllib-use-detected
             data = resp.read().decode("utf-8")
     except error.HTTPError as exc:
         err_body = exc.read().decode("utf-8", errors="replace")

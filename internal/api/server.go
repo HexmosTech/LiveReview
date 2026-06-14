@@ -52,6 +52,7 @@ type DeploymentConfig struct {
 	IsCloud         bool   // cloud vs self-hosted deployment
 	Mode            string // derived: "demo" or "production"
 	WebhooksEnabled bool   // derived: based on mode
+	AtlasEnabled    bool   // enable/disable Atlas Cloud provider
 }
 
 // getEnvInt retrieves an integer environment variable with a default value
@@ -88,6 +89,7 @@ func getDeploymentConfig() *DeploymentConfig {
 		FrontendPort: getEnvInt("LIVEREVIEW_FRONTEND_PORT", 8081),
 		ReverseProxy: getEnvBool("LIVEREVIEW_REVERSE_PROXY", false),
 		IsCloud:      getEnvBool("LIVEREVIEW_IS_CLOUD", false),
+		AtlasEnabled: getEnvBool("LIVEREVIEW_ATLAS_ENABLED", true),
 	}
 
 	// Auto-configure derived values
@@ -364,7 +366,9 @@ func ensureRequiredBillingSchema(ctx context.Context, db *sql.DB) error {
 	missing := make([]string, 0)
 	for _, table := range requiredTables {
 		var regClass sql.NullString
-		if err := db.QueryRowContext(ctx, "SELECT to_regclass($1)", "public."+table).Scan(&regClass); err != nil {
+		// table comes from the hardcoded requiredTables list above and is passed as a bind
+		// parameter, not interpolated into the query string.
+		if err := db.QueryRowContext(ctx, "SELECT to_regclass($1)", "public."+table).Scan(&regClass); err != nil { // nosemgrep: go.lang.security.audit.sqli.gosql-sqli.gosql-sqli
 			return fmt.Errorf("billing schema preflight failed: check table %s: %w", table, err)
 		}
 		if !regClass.Valid || strings.TrimSpace(regClass.String) == "" {
@@ -843,6 +847,37 @@ func (s *Server) setupRoutes() {
 	adminBillingGroup.GET("/portfolio/orgs/:org_id/members", billingActionsHandler.GetAdminOrganizationBillingMembers)
 	adminBillingGroup.GET("/portfolio/orgs/:org_id/usage", billingActionsHandler.GetAdminOrganizationBillingUsage)
 
+	// Taxonomy report endpoints (org-scoped: owner/admin)
+	taxonomyHandler := NewTaxonomyReportHandler(s.db)
+	reportsGroup := v1.Group("/reports/taxonomy")
+	reportsGroup.Use(authMiddleware.RequireAuth())
+	reportsGroup.Use(authMiddleware.BuildOrgContextFromHeader())
+	reportsGroup.Use(authMiddleware.ValidateOrgAccess())
+	reportsGroup.Use(authMiddleware.BuildPermissionContext())
+	reportsGroup.GET("/summary", taxonomyHandler.GetOrgTaxonomySummary)
+	reportsGroup.GET("/distribution/:dimension", taxonomyHandler.GetOrgTaxonomyDistribution)
+	reportsGroup.GET("/trend", taxonomyHandler.GetOrgTaxonomyTrend)
+	reportsGroup.GET("/breakdown", taxonomyHandler.GetOrgTaxonomyBreakdown)
+	reportsGroup.GET("/findings", taxonomyHandler.ListOrgTaxonomyFindings)
+	reportsGroup.GET("/relations", taxonomyHandler.GetOrgTaxonomyRelations)
+	reportsGroup.GET("/export/preview", taxonomyHandler.GetOrgTaxonomyExportPreview)
+	reportsGroup.GET("/export", taxonomyHandler.ExportOrgTaxonomyCSV)
+	reportsGroup.GET("/export/xlsx", taxonomyHandler.ExportOrgTaxonomyXLSX)
+
+	// Taxonomy report endpoints (super-admin global)
+	adminReportsGroup := v1.Group("/admin/reports/taxonomy")
+	adminReportsGroup.Use(authMiddleware.RequireAuth())
+	adminReportsGroup.Use(authMiddleware.RequireSuperAdmin())
+	adminReportsGroup.GET("/summary", taxonomyHandler.GetAdminTaxonomySummary)
+	adminReportsGroup.GET("/distribution/:dimension", taxonomyHandler.GetAdminTaxonomyDistribution)
+	adminReportsGroup.GET("/trend", taxonomyHandler.GetAdminTaxonomyTrend)
+	adminReportsGroup.GET("/breakdown", taxonomyHandler.GetAdminTaxonomyBreakdown)
+	adminReportsGroup.GET("/findings", taxonomyHandler.ListAdminTaxonomyFindings)
+	adminReportsGroup.GET("/relations", taxonomyHandler.GetAdminTaxonomyRelations)
+	adminReportsGroup.GET("/export/preview", taxonomyHandler.GetAdminTaxonomyExportPreview)
+	adminReportsGroup.GET("/export", taxonomyHandler.ExportAdminTaxonomyCSV)
+	adminReportsGroup.GET("/export/xlsx", taxonomyHandler.ExportAdminTaxonomyXLSX)
+
 	// Razorpay webhook endpoint (public - signature verified in handler)
 	webhookHandler := payment.NewRazorpayWebhookHandler(s.db, os.Getenv("RAZORPAY_WEBHOOK_SECRET"))
 	v1.POST("/webhooks/razorpay", webhookHandler.HandleWebhook)
@@ -1018,8 +1053,7 @@ func (s *Server) Start() error {
 	if s.modelSyncCancel == nil {
 		syncCtx, cancel := context.WithCancel(context.Background())
 		s.modelSyncCancel = cancel
-		aiconnectors.RunOpenRouterModelSyncScheduler(syncCtx, s.db, 24*time.Hour)
-		fmt.Println("Dynamic AI models sync scheduler started")
+		aiconnectors.RunAIModelSyncScheduler(syncCtx, s.db, 24*time.Hour)
 	}
 
 	// Wait for interrupt signal to gracefully shut down the server
@@ -1737,9 +1771,10 @@ func (s *Server) getSystemInfo(c echo.Context) error {
 // getUIConfig returns deployment configuration for the frontend
 func (s *Server) getUIConfig(c echo.Context) error {
 	config := map[string]interface{}{
-		"isCloud": s.deploymentConfig.IsCloud,
-		"version": s.versionInfo.Version,
-		"mode":    s.deploymentConfig.Mode,
+		"isCloud":        s.deploymentConfig.IsCloud,
+		"version":        s.versionInfo.Version,
+		"mode":           s.deploymentConfig.Mode,
+		"isAtlasEnabled": s.deploymentConfig.AtlasEnabled,
 	}
 	return c.JSON(http.StatusOK, config)
 }

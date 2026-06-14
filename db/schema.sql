@@ -1,7 +1,7 @@
-\restrict 5j42kSOAclS9gH7M4nfj1b5ibOlParLbh4bORLlbi5Zw5KKfVl5kOzdpvDTVZAO
+\restrict dbmate
 
--- Dumped from database version 14.22 (Ubuntu 14.22-0ubuntu0.22.04.1)
--- Dumped by pg_dump version 14.22 (Ubuntu 14.22-0ubuntu0.22.04.1)
+-- Dumped from database version 15.17 (Debian 15.17-1.pgdg13+1)
+-- Dumped by pg_dump version 16.13 (Ubuntu 16.13-0ubuntu0.24.04.1)
 
 SET statement_timeout = 0;
 SET lock_timeout = 0;
@@ -4801,7 +4801,7 @@ ALTER TABLE ONLY public.webhook_registry
 -- PostgreSQL database dump complete
 --
 
-\unrestrict 5j42kSOAclS9gH7M4nfj1b5ibOlParLbh4bORLlbi5Zw5KKfVl5kOzdpvDTVZAO
+\unrestrict dbmate
 
 
 --

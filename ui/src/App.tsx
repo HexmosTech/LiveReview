@@ -30,6 +30,7 @@ const LicenseManagement = React.lazy(() => import('./pages/Licenses/LicenseManag
 const LicenseAssignment = React.lazy(() => import('./pages/Licenses/LicenseAssignment'));
 const UserForm = React.lazy(() => import('./components/UserManagement/UserForm'));
 const BillingPortfolio = React.lazy(() => import('./pages/Admin/BillingPortfolio'));
+const TaxonomyReports = React.lazy(() => import('./pages/Reports/TaxonomyReports'));
 // import { usePostHog } from '@posthog/react'
 
 const Footer = () => (
@@ -164,6 +165,7 @@ const AppContent: React.FC = () => {
         if (path.startsWith('/git')) return 'git';
         if (path.startsWith('/ai')) return 'ai';
         if (path.startsWith('/admin/billing-portfolio')) return 'admin-billing';
+        if (path.startsWith('/reports')) return 'reports';
         if (path.startsWith('/settings')) return 'settings';
         return 'dashboard';
     };
@@ -325,6 +327,7 @@ const AppContent: React.FC = () => {
                                 <Route path="/settings/users/add" element={<UserForm />} />
                                 <Route path="/settings/users/edit/:userId" element={<UserForm />} />
                                 <Route path="/admin/billing-portfolio" element={<BillingPortfolio />} />
+                                <Route path="/reports/*" element={<TaxonomyReports />} />
                                 <Route path="/test-middleware" element={<MiddlewareTestPage />} />
                                 <Route path="/oauth-callback" element={<OAuthCallbackHandler />} />
                                 <Route path="*" element={<Navigate to="/" replace />} />
