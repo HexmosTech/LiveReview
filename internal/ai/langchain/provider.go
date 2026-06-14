@@ -20,12 +20,13 @@ import (
 	"github.com/tmc/langchaingo/llms"
 	"github.com/tmc/langchaingo/llms/anthropic"
 	"github.com/tmc/langchaingo/llms/googleai"
+	"github.com/tmc/langchaingo/llms/googleai/vertex"
 	"github.com/tmc/langchaingo/llms/ollama"
 	"github.com/tmc/langchaingo/llms/openai"
 
+	"github.com/livereview/internal/aidefault"
 	"github.com/livereview/internal/batch"
 	"github.com/livereview/internal/logging"
-	"github.com/livereview/internal/aidefault"
 	"github.com/livereview/internal/prompts"
 	vendorpack "github.com/livereview/internal/prompts/vendor"
 	"github.com/livereview/pkg/models"
@@ -43,6 +44,8 @@ type LangchainProvider struct {
 	baseURL        string                // NEW: Base URL for custom endpoints
 	logger         *logging.ReviewLogger // Logger for this review
 	providerName   string                // NEW: Provider name (e.g. "livereview-default-ai")
+	gcpProjectID   string
+	gcpLocation    string
 }
 
 type aiResponseFileSummary struct {
@@ -255,7 +258,9 @@ type Config struct {
 	TemperatureSet bool    `json:"temperature_set"`
 	ProviderType   string  `json:"provider_type"` // NEW: "gemini", "ollama", "openai", etc.
 	BaseURL        string  `json:"base_url"`      // NEW: For custom endpoints like Ollama
-	ProviderName   string  `json:"provider_name"`  // NEW: Provider name (e.g. "livereview-default-ai")
+	ProviderName   string  `json:"provider_name"` // NEW: Provider name (e.g. "livereview-default-ai")
+	GCPProjectID   string  `json:"gcp_project_id"`
+	GCPLocation    string  `json:"gcp_location"`
 }
 
 // New creates a new langchain-based AI provider
@@ -270,6 +275,8 @@ func New(config Config, logger *logging.ReviewLogger) *LangchainProvider {
 		baseURL:        config.BaseURL,      // NEW
 		logger:         logger,              // NEW: Thread logger through
 		providerName:   config.ProviderName, // NEW
+		gcpProjectID:   config.GCPProjectID,
+		gcpLocation:    config.GCPLocation,
 	}
 }
 
@@ -353,6 +360,12 @@ func (p *LangchainProvider) Configure(config map[string]interface{}) error {
 		p.temperature = temperature
 		p.temperatureSet = true
 	}
+	if gcpProjectID, ok := config["gcp_project_id"].(string); ok {
+		p.gcpProjectID = gcpProjectID
+	}
+	if gcpLocation, ok := config["gcp_location"].(string); ok {
+		p.gcpLocation = gcpLocation
+	}
 
 	// Initialize the LLM
 	return p.initializeLLM()
@@ -364,12 +377,17 @@ func (p *LangchainProvider) initializeLLM() error {
 		return p.initializeOllamaLLM()
 	case "google", "googleai", "gemini":
 		return p.initializeGeminiLLM()
+	case "vertex", "gemini-enterprise":
+		return p.initializeVertexLLM()
 	case "openai":
 		return p.initializeOpenAILLM()
 	case "deepseek":
 		p.baseURL = aiconnectors.ResolveBaseURLForProviderName(p.providerType, p.baseURL)
 		return p.initializeOpenAILLM()
 	case "openrouter":
+		p.baseURL = aiconnectors.ResolveBaseURLForProviderName(p.providerType, p.baseURL)
+		return p.initializeOpenAILLM()
+	case "atlas":
 		p.baseURL = aiconnectors.ResolveBaseURLForProviderName(p.providerType, p.baseURL)
 		return p.initializeOpenAILLM()
 	case "anthropic", "claude", "anthropic-compatible":
@@ -508,6 +526,33 @@ func (t *openRouterLoggingTransport) RoundTrip(req *http.Request) (*http.Respons
 	return resp, err
 }
 
+// atlasLoggingTransport logs HTTP error bodies for Atlas Cloud.
+type atlasLoggingTransport struct {
+	base http.RoundTripper
+}
+
+func (t *atlasLoggingTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	if t.base == nil {
+		t.base = http.DefaultTransport
+	}
+
+	resp, err := t.base.RoundTrip(req)
+	if err != nil {
+		fmt.Printf("[ATLAS HTTP ERROR] request failed: %v\n", err)
+		return resp, err
+	}
+
+	if resp != nil && resp.StatusCode >= 400 {
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, 8192))
+		resp.Body.Close()
+		resp.Body = io.NopCloser(bytes.NewBuffer(body))
+		fmt.Printf("[ATLAS HTTP ERROR] status=%s url=%s body=%s\n",
+			resp.Status, req.URL.String(), truncateString(string(body), 1200))
+	}
+
+	return resp, err
+}
+
 func (p *LangchainProvider) initializeGeminiLLM() error {
 	if p.apiKey == "" {
 		return fmt.Errorf("API key is required for Gemini")
@@ -537,6 +582,36 @@ func (p *LangchainProvider) initializeGeminiLLM() error {
 	return nil
 }
 
+func (p *LangchainProvider) initializeVertexLLM() error {
+	opts := []googleai.Option{
+		googleai.WithCloudProject(p.gcpProjectID),
+		googleai.WithCloudLocation(p.gcpLocation),
+		googleai.WithDefaultModel(p.getModelName()),
+	}
+
+	maxTokens := p.maxTokens
+	if maxTokens <= 0 {
+		maxTokens = 8192
+	}
+	opts = append(opts, googleai.WithDefaultMaxTokens(maxTokens))
+
+	if p.apiKey != "" {
+		opts = append(opts, googleai.WithCredentialsJSON([]byte(p.apiKey)))
+	}
+
+	if p.logger != nil {
+		p.logger.Log("[LANGCHAIN INIT] Initializing Vertex LLM (Gemini Enterprise) with model: %s, project: %s, location: %s", p.getModelName(), p.gcpProjectID, p.gcpLocation)
+	}
+
+	llm, err := vertex.New(context.Background(), opts...)
+	if err != nil {
+		return fmt.Errorf("failed to initialize Vertex LLM: %w", err)
+	}
+
+	p.llm = llm
+	return nil
+}
+
 func (p *LangchainProvider) initializeOpenAILLM() error {
 	if p.apiKey == "" {
 		return fmt.Errorf("API key is required for OpenAI")
@@ -554,6 +629,12 @@ func (p *LangchainProvider) initializeOpenAILLM() error {
 	if strings.EqualFold(p.providerType, "openrouter") {
 		client := &http.Client{
 			Transport: &openRouterLoggingTransport{base: http.DefaultTransport},
+			Timeout:   5 * time.Minute,
+		}
+		options = append(options, openai.WithHTTPClient(client))
+	} else if strings.EqualFold(p.providerType, "atlas") {
+		client := &http.Client{
+			Transport: &atlasLoggingTransport{base: http.DefaultTransport},
 			Timeout:   5 * time.Minute,
 		}
 		options = append(options, openai.WithHTTPClient(client))
@@ -1323,6 +1404,10 @@ func (p *LangchainProvider) parseResponse(response string, diffs []models.CodeDi
 		LineNumber  int      `json:"lineNumber"`
 		Content     string   `json:"content"`
 		Severity    string   `json:"severity"`
+		Confidence  string   `json:"confidence"`
+		Type        string   `json:"type"`
+		Category    string   `json:"category"`
+		Subcategory string   `json:"subcategory"`
 		Suggestions []string `json:"suggestions"`
 		IsInternal  bool     `json:"isInternal"`
 	}
@@ -1392,8 +1477,11 @@ func (p *LangchainProvider) parseResponse(response string, diffs []models.CodeDi
 			Line:          comment.LineNumber,
 			Content:       comment.Content,
 			Severity:      severity,
+			Confidence:    comment.Confidence,
+			Type:          comment.Type,
 			Suggestions:   comment.Suggestions,
-			Category:      "review",
+			Category:      comment.Category,
+			Subcategory:   comment.Subcategory,
 			IsInternal:    comment.IsInternal,
 			IsDeletedLine: isDeletedLine,
 		}
@@ -1580,6 +1668,7 @@ func parseHunkLine(line string) (oldNum int, newNum int, content string, isDelet
 
 	return oldNum, newNum, content, isDeleted, isAdded, nil
 }
+
 // Helper functions for logging
 func truncateString(s string, maxLen int) string {
 	if len(s) <= maxLen {
