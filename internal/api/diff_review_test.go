@@ -164,9 +164,9 @@ func TestDiffReviewContractExample(t *testing.T) {
 	encoded := base64.StdEncoding.EncodeToString(buf.Bytes())
 
 	// Parse the payload using the same helper the handler uses.
-	localDiffs, err := parseDiffZipBase64(encoded)
+	localDiffs, _, err := parseDiffZipPayload(encoded)
 	if err != nil {
-		t.Fatalf("parseDiffZipBase64 failed: %v", err)
+		t.Fatalf("parseDiffZipPayload failed: %v", err)
 	}
 	if len(localDiffs) != 1 {
 		t.Fatalf("expected 1 local diff, got %d", len(localDiffs))
@@ -200,6 +200,96 @@ func TestDiffReviewContractExample(t *testing.T) {
 	pretty, _ := json.MarshalIndent(response, "", "  ")
 	t.Logf("Example client payload (base64 zip length=%d): %s", len(encoded), encoded)
 	t.Logf("Example handler response:\n%s", string(pretty))
+}
+
+// TestParseDiffZipPayloadExtractsLRCBundle verifies that .lrc/** entries in
+// the zip are collected into an lrcconfig.Bundle keyed relative to .lrc/,
+// while diff.txt is still parsed as before.
+func TestParseDiffZipPayloadExtractsLRCBundle(t *testing.T) {
+	diff := "diff --git a/foo.txt b/foo.txt\n" +
+		"--- a/foo.txt\n" +
+		"+++ b/foo.txt\n" +
+		"@@ -0,0 +1,1 @@\n" +
+		"+hello\n"
+
+	var buf bytes.Buffer
+	zw := zip.NewWriter(&buf)
+	mustWrite(t, zw, "diff.txt", diff)
+	mustWrite(t, zw, ".lrc/rules/security.md", "No secrets in logs.")
+	mustWrite(t, zw, ".lrc/rules/README.md", "entry-point doc")
+	mustWrite(t, zw, ".lrc/ignore", "*.log\n")
+	if err := zw.Close(); err != nil {
+		t.Fatalf("failed to close zip: %v", err)
+	}
+
+	encoded := base64.StdEncoding.EncodeToString(buf.Bytes())
+
+	localDiffs, bundle, err := parseDiffZipPayload(encoded)
+	if err != nil {
+		t.Fatalf("parseDiffZipPayload failed: %v", err)
+	}
+	if len(localDiffs) != 1 {
+		t.Fatalf("expected 1 local diff, got %d", len(localDiffs))
+	}
+
+	wantFiles := map[string]string{
+		"rules/security.md": "No secrets in logs.",
+		"rules/README.md":   "entry-point doc",
+		"ignore":            "*.log\n",
+	}
+	if len(bundle.Files) != len(wantFiles) {
+		t.Fatalf("bundle.Files = %v, want keys %v", bundle.Files, wantFiles)
+	}
+	for path, want := range wantFiles {
+		got, ok := bundle.Files[path]
+		if !ok {
+			t.Fatalf("expected bundle to contain %q, got %v", path, bundle.Files)
+		}
+		if string(got) != want {
+			t.Fatalf("bundle.Files[%q] = %q, want %q", path, string(got), want)
+		}
+	}
+}
+
+// TestParseDiffZipPayloadNoLRC verifies backward compatibility: a zip
+// containing only diff.txt yields an empty Bundle.
+func TestParseDiffZipPayloadNoLRC(t *testing.T) {
+	diff := "diff --git a/foo.txt b/foo.txt\n" +
+		"--- a/foo.txt\n" +
+		"+++ b/foo.txt\n" +
+		"@@ -0,0 +1,1 @@\n" +
+		"+hello\n"
+
+	var buf bytes.Buffer
+	zw := zip.NewWriter(&buf)
+	mustWrite(t, zw, "diff.txt", diff)
+	if err := zw.Close(); err != nil {
+		t.Fatalf("failed to close zip: %v", err)
+	}
+
+	encoded := base64.StdEncoding.EncodeToString(buf.Bytes())
+
+	localDiffs, bundle, err := parseDiffZipPayload(encoded)
+	if err != nil {
+		t.Fatalf("parseDiffZipPayload failed: %v", err)
+	}
+	if len(localDiffs) != 1 {
+		t.Fatalf("expected 1 local diff, got %d", len(localDiffs))
+	}
+	if len(bundle.Files) != 0 {
+		t.Fatalf("expected empty bundle, got %v", bundle.Files)
+	}
+}
+
+func mustWrite(t *testing.T, zw *zip.Writer, name, content string) {
+	t.Helper()
+	w, err := zw.Create(name)
+	if err != nil {
+		t.Fatalf("failed to create zip entry %q: %v", name, err)
+	}
+	if _, err := w.Write([]byte(content)); err != nil {
+		t.Fatalf("failed to write zip entry %q: %v", name, err)
+	}
 }
 
 // modelsSlice converts []*models.CodeDiff to []models.CodeDiff for helper compatibility.
@@ -306,7 +396,7 @@ func TestDiffReviewHandlerStoresPreloadedChanges(t *testing.T) {
 	zw.Close()
 
 	encoded := base64.StdEncoding.EncodeToString(buf.Bytes())
-	localDiffs, _ := parseDiffZipBase64(encoded)
+	localDiffs, _, _ := parseDiffZipPayload(encoded)
 	modelDiffs := convertLocalDiffs(localDiffs)
 
 	// Create review via mock
@@ -480,7 +570,7 @@ func TestDiffReviewPollingWithCompletedStatus(t *testing.T) {
 	w.Write([]byte(diff))
 	zw.Close()
 	encoded := base64.StdEncoding.EncodeToString(buf.Bytes())
-	localDiffs, _ := parseDiffZipBase64(encoded)
+	localDiffs, _, _ := parseDiffZipPayload(encoded)
 	modelDiffs := convertLocalDiffs(localDiffs)
 
 	mockRM.MergeReviewMetadata(review.ID, map[string]interface{}{"preloaded_changes": modelDiffs})

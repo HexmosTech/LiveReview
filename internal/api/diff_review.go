@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"log"
 	"net/http"
 	"os"
@@ -22,6 +23,7 @@ import (
 	apimiddleware "github.com/livereview/internal/api/middleware"
 	"github.com/livereview/internal/license"
 	"github.com/livereview/internal/logging"
+	"github.com/livereview/internal/lrcconfig"
 	"github.com/livereview/internal/naming"
 	"github.com/livereview/internal/review"
 	"github.com/livereview/pkg/models"
@@ -89,10 +91,38 @@ func (s *Server) DiffReview(c echo.Context) error {
 		return JSONErrorWithEnvelope(c, http.StatusBadRequest, "diff_zip_base64 is required")
 	}
 
-	localDiffs, err := parseDiffZipBase64(req.DiffZipBase64)
+	localDiffs, lrcBundle, err := parseDiffZipPayload(req.DiffZipBase64)
 	if err != nil {
 		return JSONErrorWithEnvelope(c, http.StatusBadRequest, fmt.Sprintf("failed to parse diff: %v", err))
 	}
+
+	// Apply .lrc/ignore (if present) before computing billable LOC, so
+	// ignored files affect neither the AI input nor billing.
+	if ignorePatterns, _ := lrcconfig.LoadIgnorePatterns(lrcBundle); len(ignorePatterns) > 0 {
+		filtered, excluded := lrcconfig.FilterDiffs(localDiffs, ignorePatterns)
+		if len(filtered) == 0 && len(localDiffs) > 0 {
+			// A pattern that matches every file in the diff is almost
+			// certainly a misconfiguration (e.g. a stray "*" or "***" in
+			// .lrc/ignore) — applying it would silently zero out the
+			// review's billable LOC and AI input. Skip .lrc/ignore for
+			// this review rather than reviewing nothing.
+			log.Printf("[WARN] .lrc/ignore would exclude all %d file(s) in this diff; ignoring .lrc/ignore for this review", len(localDiffs))
+		} else {
+			localDiffs = filtered
+			if len(excluded) > 0 {
+				log.Printf("[DiffReview] .lrc/ignore excluded %d file(s): %v", len(excluded), excluded)
+			}
+		}
+	}
+
+	// Build the Repository Rules bundle for prompt injection, truncating
+	// (with a warning) rather than failing the review if oversized.
+	repoRules, rulesCharCount, rulesIssues := lrcconfig.BuildRulesBundle(lrcBundle)
+	if rulesCharCount > lrcconfig.CharLimit {
+		log.Printf("[WARN] .lrc rules bundle (%d chars) exceeds limit (%d), truncating: %v", rulesCharCount, lrcconfig.CharLimit, rulesIssues)
+		repoRules = lrcconfig.TruncateAtLineBoundary(repoRules, lrcconfig.CharLimit)
+	}
+
 	billableLOC := CalculateEffectiveDiffLOCFromLocalDiffs(localDiffs)
 	c.Set(EnvelopeOperationTypeContextKey, "diff_review")
 	c.Set(EnvelopeTriggerSourceContextKey, "api")
@@ -186,6 +216,7 @@ func (s *Server) DiffReview(c echo.Context) error {
 		Provider:         review.ProviderConfig{Type: "cli", URL: "", Token: "", Config: map[string]interface{}{}},
 		AI:               aiConfig,
 		PreloadedChanges: modelDiffs,
+		RepoRules:        repoRules,
 	}
 
 	go s.runDiffReview(reviewRequest, rm, reviewRecord.ID, orgID, billableLOC, actorUserID, userEmail, planCode)
@@ -480,18 +511,20 @@ func extractFirstHeading(markdown string) string {
 	return ""
 }
 
-// parseDiffZipBase64 decodes the client payload (base64 zip containing a unified diff)
-// into parsed local diffs without touching the database. This is used by the handler
-// and contract-style unit tests to keep the input/output surface consistent.
-func parseDiffZipBase64(encoded string) ([]lib.LocalCodeDiff, error) {
+// parseDiffZipPayload decodes the client payload (base64 zip containing a
+// unified diff, plus an optional raw .lrc/ tree) into parsed local diffs and
+// an lrcconfig.Bundle, without touching the database. This is used by the
+// handler and contract-style unit tests to keep the input/output surface
+// consistent.
+func parseDiffZipPayload(encoded string) ([]lib.LocalCodeDiff, lrcconfig.Bundle, error) {
 	zipBytes, err := base64.StdEncoding.DecodeString(encoded)
 	if err != nil {
-		return nil, fmt.Errorf("failed to decode diff_zip_base64: %w", err)
+		return nil, lrcconfig.Bundle{}, fmt.Errorf("failed to decode diff_zip_base64: %w", err)
 	}
 
 	tempDir, err := archive.DiffReviewCreateTempWorkspace()
 	if err != nil {
-		return nil, fmt.Errorf("failed to create temp workspace: %w", err)
+		return nil, lrcconfig.Bundle{}, fmt.Errorf("failed to create temp workspace: %w", err)
 	}
 	defer func() {
 		if cleanupErr := archive.DiffReviewRemoveWorkspace(tempDir); cleanupErr != nil {
@@ -501,29 +534,82 @@ func parseDiffZipBase64(encoded string) ([]lib.LocalCodeDiff, error) {
 
 	zipPath := filepath.Join(tempDir, "diff.zip")
 	if err := archive.DiffReviewWriteUploadedZip(zipPath, zipBytes); err != nil {
-		return nil, fmt.Errorf("failed to persist uploaded zip: %w", err)
+		return nil, lrcconfig.Bundle{}, fmt.Errorf("failed to persist uploaded zip: %w", err)
 	}
 
 	extractedFiles, err := extractZip(zipPath, tempDir)
 	if err != nil {
-		return nil, fmt.Errorf("failed to extract zip: %w", err)
+		return nil, lrcconfig.Bundle{}, fmt.Errorf("failed to extract zip: %w", err)
 	}
 	if len(extractedFiles) == 0 {
-		return nil, fmt.Errorf("zip archive contained no files")
+		return nil, lrcconfig.Bundle{}, fmt.Errorf("zip archive contained no files")
 	}
 
 	diffContent, err := archive.DiffReviewReadExtractedDiff(extractedFiles[0])
 	if err != nil {
-		return nil, fmt.Errorf("failed to read extracted diff: %w", err)
+		return nil, lrcconfig.Bundle{}, fmt.Errorf("failed to read extracted diff: %w", err)
 	}
 
 	parser := lib.NewLocalParser()
 	localDiffs, err := parser.Parse(string(diffContent))
 	if err != nil {
-		return nil, fmt.Errorf("failed to parse diff: %w", err)
+		return nil, lrcconfig.Bundle{}, fmt.Errorf("failed to parse diff: %w", err)
 	}
 
-	return localDiffs, nil
+	bundle, err := collectLRCBundle(tempDir)
+	if err != nil {
+		log.Printf("[WARN] failed to read .lrc/ bundle: %v", err)
+		bundle = lrcconfig.Bundle{}
+	}
+
+	return localDiffs, bundle, nil
+}
+
+// collectLRCBundle reads the .lrc/ tree extracted under tempDir (if any)
+// into an lrcconfig.Bundle keyed by path relative to .lrc/.
+func collectLRCBundle(tempDir string) (lrcconfig.Bundle, error) {
+	lrcDir := filepath.Join(tempDir, ".lrc")
+	info, err := os.Stat(lrcDir)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return lrcconfig.Bundle{}, nil
+		}
+		return lrcconfig.Bundle{}, err
+	}
+	if !info.IsDir() {
+		return lrcconfig.Bundle{}, nil
+	}
+
+	bundle := lrcconfig.Bundle{Files: map[string][]byte{}}
+	walkErr := filepath.WalkDir(lrcDir, func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if d.IsDir() {
+			return nil
+		}
+		// Only ever read plain files: extractZip never writes symlinks or
+		// other special files, but skip them defensively rather than
+		// following a symlink that somehow ended up here.
+		if !d.Type().IsRegular() {
+			return nil
+		}
+		rel, err := filepath.Rel(lrcDir, path)
+		if err != nil {
+			return err
+		}
+		content, err := os.ReadFile(path)
+		if err != nil {
+			return err
+		}
+		bundle.Files[filepath.ToSlash(rel)] = content
+		return nil
+	})
+	if walkErr != nil {
+		return lrcconfig.Bundle{}, walkErr
+	}
+
+	return bundle, nil
 }
 
 func extractZip(zipPath, dest string) ([]string, error) {
