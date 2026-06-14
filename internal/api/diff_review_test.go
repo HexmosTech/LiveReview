@@ -5,9 +5,12 @@ import (
 	"bytes"
 	"encoding/base64"
 	"encoding/json"
+	"fmt"
+	"strings"
 	"testing"
 
 	"github.com/livereview/cmd/mrmodel/lib"
+	"github.com/livereview/internal/lrcconfig"
 	"github.com/livereview/pkg/models"
 )
 
@@ -629,4 +632,162 @@ func TestDiffReviewPollingWithCompletedStatus(t *testing.T) {
 	}
 
 	t.Logf("✓ polling returns completed status with full results")
+}
+
+// TestDiffReviewAllFilesExcludedCompletesImmediately verifies that when
+// .lrc/ignore excludes every changed file, the review is completed with zero
+// comments and a summary explaining the exclusion — mirroring the handler's
+// short-circuit so the AI is never invoked for an empty diff.
+func TestDiffReviewAllFilesExcludedCompletesImmediately(t *testing.T) {
+	mockRM := newMockReviewManager()
+
+	diff := "diff --git a/main.go b/main.go\n--- a/main.go\n+++ b/main.go\n@@ -1,0 +1,1 @@\n+code\n"
+	var buf bytes.Buffer
+	zw := zip.NewWriter(&buf)
+	mustWrite(t, zw, "diff.txt", diff)
+	mustWrite(t, zw, ".lrc/ignore", "main.go\n")
+	if err := zw.Close(); err != nil {
+		t.Fatalf("failed to close zip: %v", err)
+	}
+	encoded := base64.StdEncoding.EncodeToString(buf.Bytes())
+
+	localDiffs, bundle, err := parseDiffZipPayload(encoded)
+	if err != nil {
+		t.Fatalf("parseDiffZipPayload failed: %v", err)
+	}
+
+	ignorePatterns, _ := lrcconfig.LoadIgnorePatterns(bundle)
+	if len(ignorePatterns) == 0 {
+		t.Fatalf("expected ignore patterns to be loaded")
+	}
+	filtered, excluded := lrcconfig.FilterDiffs(localDiffs, ignorePatterns)
+	if len(filtered) != 0 {
+		t.Fatalf("expected all diffs to be excluded, got %d", len(filtered))
+	}
+	if len(excluded) != 1 || excluded[0] != "main.go" {
+		t.Fatalf("expected excluded=[main.go], got %v", excluded)
+	}
+
+	review, _ := mockRM.CreateReviewWithOrg("test-repo", "", "", "", "cli_diff", "", "cli", nil, map[string]interface{}{}, 1, "", "", "")
+	modelDiffs := convertLocalDiffs(filtered)
+	mockRM.MergeReviewMetadata(review.ID, map[string]interface{}{
+		"preloaded_changes":      modelDiffs,
+		"operation_billable_loc": int64(0),
+		"excluded_files":         excluded,
+	})
+
+	// Mirrors the handler's short-circuit for an empty post-filter diff.
+	summary := fmt.Sprintf("All %d changed file(s) excluded by .lrc/ignore: %s", len(excluded), strings.Join(excluded, ", "))
+	mockRM.MergeReviewMetadata(review.ID, map[string]interface{}{
+		"review_result": DiffReviewResult{Summary: summary, Comments: nil},
+	})
+	mockRM.UpdateReviewStatus(review.ID, "completed")
+
+	storedReview, _ := mockRM.GetReview(review.ID)
+	if storedReview.Status != "completed" {
+		t.Fatalf("expected status completed, got %s", storedReview.Status)
+	}
+
+	var metadata map[string]interface{}
+	if err := json.Unmarshal(storedReview.Metadata, &metadata); err != nil {
+		t.Fatalf("failed to unmarshal metadata: %v", err)
+	}
+
+	reviewResultJSON, _ := json.Marshal(metadata["review_result"])
+	var reviewResult DiffReviewResult
+	if err := json.Unmarshal(reviewResultJSON, &reviewResult); err != nil {
+		t.Fatalf("failed to unmarshal review_result: %v", err)
+	}
+
+	if !strings.Contains(reviewResult.Summary, "main.go") {
+		t.Fatalf("expected summary to mention main.go, got %q", reviewResult.Summary)
+	}
+	if len(reviewResult.Comments) != 0 {
+		t.Fatalf("expected zero comments, got %d", len(reviewResult.Comments))
+	}
+
+	files := buildDiffFiles(modelsSlice(modelDiffs), reviewResult.Comments)
+	if len(files) != 0 {
+		t.Fatalf("expected zero files in response, got %d", len(files))
+	}
+
+	t.Logf("✓ all-excluded diff completes immediately with no AI call")
+}
+
+// TestDiffReviewPartialExclusionExposesExcludedFiles verifies that when
+// .lrc/ignore excludes some (but not all) changed files, the excluded file is
+// dropped from the AI-facing diffs/response files but recorded in
+// excluded_files metadata for the UI.
+func TestDiffReviewPartialExclusionExposesExcludedFiles(t *testing.T) {
+	mockRM := newMockReviewManager()
+
+	diff := "diff --git a/main.go b/main.go\n--- a/main.go\n+++ b/main.go\n@@ -1,0 +1,1 @@\n+code\n" +
+		"diff --git a/other.go b/other.go\n--- a/other.go\n+++ b/other.go\n@@ -1,0 +1,1 @@\n+code\n"
+	var buf bytes.Buffer
+	zw := zip.NewWriter(&buf)
+	mustWrite(t, zw, "diff.txt", diff)
+	mustWrite(t, zw, ".lrc/ignore", "main.go\n")
+	if err := zw.Close(); err != nil {
+		t.Fatalf("failed to close zip: %v", err)
+	}
+	encoded := base64.StdEncoding.EncodeToString(buf.Bytes())
+
+	localDiffs, bundle, err := parseDiffZipPayload(encoded)
+	if err != nil {
+		t.Fatalf("parseDiffZipPayload failed: %v", err)
+	}
+	if len(localDiffs) != 2 {
+		t.Fatalf("expected 2 local diffs, got %d", len(localDiffs))
+	}
+
+	ignorePatterns, _ := lrcconfig.LoadIgnorePatterns(bundle)
+	filtered, excluded := lrcconfig.FilterDiffs(localDiffs, ignorePatterns)
+	if len(filtered) != 1 || filtered[0].NewPath != "other.go" {
+		t.Fatalf("expected only other.go to remain, got %v", filtered)
+	}
+	if len(excluded) != 1 || excluded[0] != "main.go" {
+		t.Fatalf("expected excluded=[main.go], got %v", excluded)
+	}
+
+	review, _ := mockRM.CreateReviewWithOrg("test-repo", "", "", "", "cli_diff", "", "cli", nil, map[string]interface{}{}, 1, "", "", "")
+	modelDiffs := convertLocalDiffs(filtered)
+	mockRM.MergeReviewMetadata(review.ID, map[string]interface{}{
+		"preloaded_changes": modelDiffs,
+		"excluded_files":    excluded,
+	})
+	mockRM.MergeReviewMetadata(review.ID, map[string]interface{}{
+		"review_result": DiffReviewResult{Summary: "Reviewed other.go", Comments: nil},
+	})
+	mockRM.UpdateReviewStatus(review.ID, "completed")
+
+	storedReview, _ := mockRM.GetReview(review.ID)
+	var metadata map[string]interface{}
+	if err := json.Unmarshal(storedReview.Metadata, &metadata); err != nil {
+		t.Fatalf("failed to unmarshal metadata: %v", err)
+	}
+
+	preloadedJSON, _ := json.Marshal(metadata["preloaded_changes"])
+	var preloaded []*models.CodeDiff
+	if err := json.Unmarshal(preloadedJSON, &preloaded); err != nil {
+		t.Fatalf("failed to unmarshal preloaded_changes: %v", err)
+	}
+
+	reviewResultJSON, _ := json.Marshal(metadata["review_result"])
+	var reviewResult DiffReviewResult
+	if err := json.Unmarshal(reviewResultJSON, &reviewResult); err != nil {
+		t.Fatalf("failed to unmarshal review_result: %v", err)
+	}
+
+	files := buildDiffFiles(modelsSlice(preloaded), reviewResult.Comments)
+	if len(files) != 1 || files[0]["file_path"] != "other.go" {
+		t.Fatalf("expected only other.go in files, got %v", files)
+	}
+
+	// Mirrors GetDiffReviewStatus's excluded_files response field.
+	excludedMeta, ok := metadata["excluded_files"].([]interface{})
+	if !ok || len(excludedMeta) != 1 || excludedMeta[0] != "main.go" {
+		t.Fatalf("expected excluded_files=[main.go] in metadata, got %v", metadata["excluded_files"])
+	}
+
+	t.Logf("✓ partially-excluded diff drops main.go from files but records it in excluded_files")
 }
