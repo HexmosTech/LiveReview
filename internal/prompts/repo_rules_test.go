@@ -6,10 +6,11 @@ import (
 )
 
 func TestRepoRulesRoundTrip(t *testing.T) {
-	ctx := WithRepoRules(context.Background(), "## rules/security.md\n\nNo secrets in logs.\n")
+	rules := "## rules/security.md\n\nNo secrets in logs.\n"
+	ctx := WithRepoRules(context.Background(), rules)
 
-	if got := RepoRulesFromContext(ctx); got != "## rules/security.md\n\nNo secrets in logs.\n" {
-		t.Fatalf("RepoRulesFromContext = %q, want round-tripped rules", got)
+	if got := RepoRulesFromContext(ctx); got != rules {
+		t.Fatalf("RepoRulesFromContext = %q, want %q", got, rules)
 	}
 
 	want := "# Repository Rules\n\n## rules/security.md\n\nNo secrets in logs.\n\n"

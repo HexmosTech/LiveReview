@@ -99,7 +99,11 @@ func (s *Server) DiffReview(c echo.Context) error {
 	// Apply .lrc/ignore (if present) before computing billable LOC, so
 	// ignored files affect neither the AI input nor billing.
 	var excludedFiles []string
-	if ignorePatterns, _ := lrcconfig.LoadIgnorePatterns(lrcBundle); len(ignorePatterns) > 0 {
+	ignorePatterns, ignoreIssues := lrcconfig.LoadIgnorePatterns(lrcBundle)
+	if len(ignoreIssues) > 0 {
+		log.Printf("[WARN] .lrc/ignore: %v", ignoreIssues)
+	}
+	if len(ignorePatterns) > 0 {
 		filtered, excluded := lrcconfig.FilterDiffs(localDiffs, ignorePatterns)
 		localDiffs = filtered
 		excludedFiles = excluded
@@ -202,7 +206,7 @@ func (s *Server) DiffReview(c echo.Context) error {
 	// to review — complete immediately rather than running an empty review.
 	if len(localDiffs) == 0 && len(excludedFiles) > 0 {
 		summary := fmt.Sprintf("All %d changed file(s) excluded by .lrc/ignore: %s",
-			len(excludedFiles), strings.Join(excludedFiles, ", "))
+			len(excludedFiles), formatExcludedFiles(excludedFiles))
 		if err := rm.MergeReviewMetadata(reviewRecord.ID, map[string]interface{}{
 			"review_result": DiffReviewResult{Summary: summary, Comments: nil},
 		}); err != nil {
@@ -583,8 +587,22 @@ func parseDiffZipPayload(encoded string) ([]lib.LocalCodeDiff, lrcconfig.Bundle,
 	return localDiffs, bundle, nil
 }
 
+// maxExcludedFilesListed caps how many .lrc/ignore-excluded file paths are
+// named in a review summary before the rest are collapsed into "and N more",
+// so a large ignore list doesn't produce an unreadable summary.
+const maxExcludedFilesListed = 10
+
+func formatExcludedFiles(excluded []string) string {
+	if len(excluded) <= maxExcludedFilesListed {
+		return strings.Join(excluded, ", ")
+	}
+	shown := excluded[:maxExcludedFilesListed]
+	return fmt.Sprintf("%s, and %d more", strings.Join(shown, ", "), len(excluded)-maxExcludedFilesListed)
+}
+
 // collectLRCBundle reads the .lrc/ tree extracted under tempDir (if any)
-// into an lrcconfig.Bundle keyed by path relative to .lrc/.
+// into an lrcconfig.Bundle keyed by path relative to .lrc/, with map keys
+// using "/" separators (via filepath.ToSlash) regardless of host OS.
 func collectLRCBundle(tempDir string) (lrcconfig.Bundle, error) {
 	lrcDir := filepath.Join(tempDir, ".lrc")
 	info, err := os.Stat(lrcDir)
