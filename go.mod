@@ -31,8 +31,10 @@ require (
 	github.com/riverqueue/river v0.32.0
 	github.com/riverqueue/river/riverdriver/riverpgxv5 v0.32.0
 	github.com/rs/zerolog v1.34.0
+	github.com/sabhiram/go-gitignore v0.0.0-20210923224102-525f6e181f06
 	github.com/stretchr/testify v1.11.1
 	github.com/tmc/langchaingo v0.1.14
+	github.com/xuri/excelize/v2 v2.10.0
 	github.com/zricethezav/gitleaks/v8 v8.30.1
 	golang.org/x/crypto v0.52.0
 	golang.org/x/time v0.15.0
@@ -134,6 +136,8 @@ require (
 	github.com/pkg/errors v0.9.1 // indirect
 	github.com/pkoukk/tiktoken-go v0.1.6 // indirect
 	github.com/pmezard/go-difflib v1.0.1-0.20181226105442-5d4384ee4fb2 // indirect
+	github.com/richardlehane/mscfb v1.0.4 // indirect
+	github.com/richardlehane/msoleps v1.0.4 // indirect
 	github.com/riverqueue/river/riverdriver v0.32.0 // indirect
 	github.com/riverqueue/river/rivershared v0.32.0 // indirect
 	github.com/riverqueue/river/rivertype v0.32.0 // indirect
@@ -158,6 +162,7 @@ require (
 	github.com/tidwall/pretty v1.2.1 // indirect
 	github.com/tidwall/sjson v1.2.5 // indirect
 	github.com/twitchyliquid64/golang-asm v0.15.1 // indirect
+	github.com/tiendc/go-deepcopy v1.7.1 // indirect
 	github.com/ulikunitz/xz v0.5.15 // indirect
 	github.com/valyala/bytebufferpool v1.0.0 // indirect
 	github.com/valyala/fasttemplate v1.2.2 // indirect
@@ -166,6 +171,8 @@ require (
 	github.com/woodsbury/decimal128 v1.3.0 // indirect
 	github.com/xo/terminfo v0.0.0-20220910002029-abceb7e1c41e // indirect
 	github.com/xrash/smetrics v0.0.0-20201216005158-039620a65673 // indirect
+	github.com/xuri/efp v0.0.1 // indirect
+	github.com/xuri/nfp v0.0.2-0.20250530014748-2ddeb826f9a9 // indirect
 	go.opentelemetry.io/auto/sdk v1.2.1 // indirect
 	go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc v0.54.0 // indirect
 	go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp v0.61.0 // indirect

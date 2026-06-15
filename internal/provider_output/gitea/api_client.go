@@ -738,7 +738,8 @@ func (c *APIClient) PostReviewComments(mr UnifiedMergeRequestV2, token string, c
 		}
 
 		requestBody := map[string]interface{}{
-			"body": fmt.Sprintf("**%s** (%s)\n\n%s", comment.Severity, comment.Category, comment.Content),
+			"body": fmt.Sprintf("**%s** | confidence=%s | type=%s | category=%s | subcategory=%s\n\n%s",
+				comment.Severity, comment.Confidence, comment.Type, comment.Category, comment.Subcategory, comment.Content),
 			"path": comment.FilePath,
 			"line": comment.LineNumber,
 			"side": side,
@@ -913,8 +914,8 @@ func (c *APIClient) postInlineCommentReplyMultipart(baseURL, owner, repo string,
 		// "reply" is Gitea's internal web-form field for attaching a comment to a review thread.
 		// It expects the review-level ID (reviewID), NOT the individual comment ID (replyCommentID).
 		// Using replyCommentID here would attach the reply to the wrong thread or cause a 404.
-		"reply": strconv.FormatInt(reviewID, 10),
-		"single_review":    "true",
+		"reply":         strconv.FormatInt(reviewID, 10),
+		"single_review": "true",
 	}
 	for k, v := range fields {
 		fw, ferr := mw.CreateFormField(k)

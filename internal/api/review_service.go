@@ -317,7 +317,7 @@ func (s *Server) prepareAuthentication(ctx *reviewSetupContext) error {
 		ctx.logger.LogSection("INTEGRATION TOKEN")
 		ctx.logger.Log("Finding integration token...")
 	}
-	token, err := s.findIntegrationToken(baseURL)
+	token, err := s.findIntegrationToken(baseURL, ctx.orgID)
 	if err != nil {
 		if ctx.logger != nil {
 			ctx.logger.LogError("Failed to find integration token", err)

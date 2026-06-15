@@ -22,7 +22,9 @@ interface UseConnectorsResult {
         name: string,
         existingConnector?: AIConnector | null,
         baseURL?: string,
-        selectedModel?: string
+        selectedModel?: string,
+        gcpProjectID?: string,
+        gcpLocation?: string
     ) => Promise<boolean>;
     deleteConnector: (connectorId: string) => Promise<boolean>;
     reorderConnectors: (newOrder: AIConnector[]) => Promise<boolean>;
@@ -62,7 +64,9 @@ export const useConnectors = (): UseConnectorsResult => {
         name: string,
         existingConnector?: AIConnector | null,
         baseURL?: string,
-        selectedModel?: string
+        selectedModel?: string,
+        gcpProjectID?: string,
+        gcpLocation?: string
     ): Promise<boolean> => {
         try {
             setIsLoading(true);
@@ -71,7 +75,7 @@ export const useConnectors = (): UseConnectorsResult => {
             if (providerId !== 'ollama') {
                 // First validate the API key for non-Ollama providers
                 try {
-				const validationResult = await validateAIProviderKey(providerId, apiKey, selectedModel);
+				const validationResult = await validateAIProviderKey(providerId, apiKey, selectedModel, gcpProjectID, gcpLocation);
                     
                     if (!validationResult.valid) {
                         setError(`API key validation failed: ${validationResult.message}`);
@@ -97,7 +101,9 @@ export const useConnectors = (): UseConnectorsResult => {
                         name,
                         existingConnector.displayOrder,
                         baseURL,
-                        selectedModel
+                        selectedModel,
+                        gcpProjectID,
+                        gcpLocation
                     );
                     console.log('Connector updated:', result);
                     
@@ -111,7 +117,9 @@ export const useConnectors = (): UseConnectorsResult => {
                     name,
                     displayOrder,
                     baseURL,
-                    selectedModel
+                    selectedModel,
+                    gcpProjectID,
+                    gcpLocation
                 );                    console.log('Connector created:', result);
                     
                     // After creating, refresh the connector list

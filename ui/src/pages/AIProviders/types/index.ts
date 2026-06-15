@@ -38,6 +38,10 @@ export interface AIConnector {
     // Legacy field names for backward compatibility
     base_url?: string; 
     selected_model?: string;
+    gcpProjectID?: string;
+    gcpLocation?: string;
+    gcp_project_id?: string;
+    gcp_location?: string;
 }
 
 export interface ConnectorFormData {
@@ -46,6 +50,8 @@ export interface ConnectorFormData {
     providerType: string;
     baseURL?: string; // Base URL for providers like Ollama
     selectedModel?: string; // Selected model for the connector
+    gcpProjectID?: string;
+    gcpLocation?: string;
 }
 
 export interface ValidationResult {

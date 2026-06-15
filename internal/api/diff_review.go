@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"log"
 	"net/http"
 	"os"
@@ -22,6 +23,7 @@ import (
 	apimiddleware "github.com/livereview/internal/api/middleware"
 	"github.com/livereview/internal/license"
 	"github.com/livereview/internal/logging"
+	"github.com/livereview/internal/lrcconfig"
 	"github.com/livereview/internal/naming"
 	"github.com/livereview/internal/review"
 	"github.com/livereview/pkg/models"
@@ -47,24 +49,6 @@ const (
 
 // DiffReview accepts a base64-encoded ZIP containing a unified diff and triggers a review.
 func (s *Server) DiffReview(c echo.Context) error {
-	var req DiffReviewRequest
-	if err := c.Bind(&req); err != nil {
-		return JSONErrorWithEnvelope(c, http.StatusBadRequest, "invalid request body")
-	}
-	if strings.TrimSpace(req.DiffZipBase64) == "" {
-		return JSONErrorWithEnvelope(c, http.StatusBadRequest, "diff_zip_base64 is required")
-	}
-
-	localDiffs, err := parseDiffZipBase64(req.DiffZipBase64)
-	if err != nil {
-		return JSONErrorWithEnvelope(c, http.StatusBadRequest, fmt.Sprintf("failed to parse diff: %v", err))
-	}
-
-	return s.performDiffReview(c, localDiffs, req.RepoName)
-}
-
-// performDiffReview contains the shared logic for executing a diff review
-func (s *Server) performDiffReview(c echo.Context, localDiffs []lib.LocalCodeDiff, reqRepoName string) error {
 	// API key authentication is handled by middleware
 	// Extract user and org context from middleware
 	orgID := c.Get("org_id").(int64)
@@ -96,6 +80,44 @@ func (s *Server) performDiffReview(c echo.Context, localDiffs []lib.LocalCodeDif
 		log.Printf("[DiffReview] Built author info: authorName='%s', authorUsername='%s'", authorName, authorUsername)
 	} else {
 		log.Printf("[DiffReview] ERROR fetching user: %v", err)
+	}
+
+	var req DiffReviewRequest
+
+	if err := c.Bind(&req); err != nil {
+		return JSONErrorWithEnvelope(c, http.StatusBadRequest, "invalid request body")
+	}
+	if strings.TrimSpace(req.DiffZipBase64) == "" {
+		return JSONErrorWithEnvelope(c, http.StatusBadRequest, "diff_zip_base64 is required")
+	}
+
+	localDiffs, lrcBundle, err := parseDiffZipPayload(req.DiffZipBase64)
+	if err != nil {
+		return JSONErrorWithEnvelope(c, http.StatusBadRequest, fmt.Sprintf("failed to parse diff: %v", err))
+	}
+
+	// Apply .lrc/ignore (if present) before computing billable LOC, so
+	// ignored files affect neither the AI input nor billing.
+	var excludedFiles []string
+	ignorePatterns, ignoreIssues := lrcconfig.LoadIgnorePatterns(lrcBundle)
+	if len(ignoreIssues) > 0 {
+		log.Printf("[WARN] .lrc/ignore: %v", ignoreIssues)
+	}
+	if len(ignorePatterns) > 0 {
+		filtered, excluded := lrcconfig.FilterDiffs(localDiffs, ignorePatterns)
+		localDiffs = filtered
+		excludedFiles = excluded
+		if len(excluded) > 0 {
+			log.Printf("[DiffReview] .lrc/ignore excluded %d file(s): %v", len(excluded), excluded)
+		}
+	}
+
+	// Build the Repository Rules bundle for prompt injection, truncating
+	// (with a warning) rather than failing the review if oversized.
+	repoRules, rulesCharCount, rulesIssues := lrcconfig.BuildRulesBundle(lrcBundle)
+	if rulesCharCount > lrcconfig.CharLimit {
+		log.Printf("[WARN] .lrc rules bundle (%d chars) exceeds limit (%d), truncating: %v", rulesCharCount, lrcconfig.CharLimit, rulesIssues)
+		repoRules = lrcconfig.TruncateAtLineBoundary(repoRules, lrcconfig.CharLimit)
 	}
 
 	billableLOC := CalculateEffectiveDiffLOCFromLocalDiffs(localDiffs)
@@ -140,7 +162,7 @@ func (s *Server) performDiffReview(c echo.Context, localDiffs []lib.LocalCodeDif
 	}
 
 	modelDiffs := convertLocalDiffs(localDiffs)
-	repoName := strings.TrimSpace(reqRepoName)
+	repoName := strings.TrimSpace(req.RepoName)
 	if repoName == "" {
 		repoName = "cli-diff"
 	}
@@ -176,8 +198,29 @@ func (s *Server) performDiffReview(c echo.Context, localDiffs []lib.LocalCodeDif
 
 	// Immediately mark as processing and persist preloaded changes for polling.
 	_ = rm.UpdateReviewStatus(reviewRecord.ID, "processing")
-	if err := rm.MergeReviewMetadata(reviewRecord.ID, map[string]interface{}{"preloaded_changes": modelDiffs, "operation_billable_loc": billableLOC}); err != nil {
+	if err := rm.MergeReviewMetadata(reviewRecord.ID, map[string]interface{}{"preloaded_changes": modelDiffs, "operation_billable_loc": billableLOC, "excluded_files": excludedFiles}); err != nil {
 		log.Printf("[WARN] failed to store preloaded_changes for review %d: %v", reviewRecord.ID, err)
+	}
+
+	// If .lrc/ignore excluded every changed file, there's nothing for the AI
+	// to review — complete immediately rather than running an empty review.
+	if len(localDiffs) == 0 && len(excludedFiles) > 0 {
+		summary := fmt.Sprintf("All %d changed file(s) excluded by .lrc/ignore: %s",
+			len(excludedFiles), formatExcludedFiles(excludedFiles))
+		if err := rm.MergeReviewMetadata(reviewRecord.ID, map[string]interface{}{
+			"review_result": DiffReviewResult{Summary: summary, Comments: nil},
+		}); err != nil {
+			log.Printf("[WARN] failed to store review_result for review %d: %v", reviewRecord.ID, err)
+		}
+		if err := rm.UpdateReviewStatus(reviewRecord.ID, "completed"); err != nil {
+			log.Printf("[WARN] failed to mark review %d completed: %v", reviewRecord.ID, err)
+		}
+		return JSONWithEnvelope(c, http.StatusOK, map[string]interface{}{
+			"review_id":     fmt.Sprintf("%d", reviewRecord.ID),
+			"status":        "processing",
+			"friendly_name": friendlyName,
+			"user_email":    userEmail,
+		})
 	}
 
 	aiConfig, err := s.getAIConfigFromDatabase(context.Background(), orgID, planCode)
@@ -191,18 +234,20 @@ func (s *Server) performDiffReview(c echo.Context, localDiffs []lib.LocalCodeDif
 		Provider:         review.ProviderConfig{Type: "cli", URL: "", Token: "", Config: map[string]interface{}{}},
 		AI:               aiConfig,
 		PreloadedChanges: modelDiffs,
+		RepoRules:        repoRules,
 	}
 
 	go s.runDiffReview(reviewRequest, rm, reviewRecord.ID, orgID, billableLOC, actorUserID, userEmail, planCode)
 
 	return JSONWithEnvelope(c, http.StatusOK, map[string]interface{}{
-		"review_id":             fmt.Sprintf("%d", reviewRecord.ID),
-		"status":                "processing",
-		"friendly_name":         friendlyName,
-		"user_email":            userEmail,
+		"review_id":     fmt.Sprintf("%d", reviewRecord.ID),
+		"status":        "processing",
+		"friendly_name": friendlyName,
+		"user_email":    userEmail,
 		"mcp_agent_instruction": "The review has started processing. You MUST call the GET /api/v1/diff-review/:review_id tool every few seconds using this review_id until the status returns 'completed'. Do not ask the user to wait, just poll the status tool yourself.",
 	})
 }
+
 
 // GetDiffReviewStatus returns processing status or completed results for a diff review.
 func (s *Server) GetDiffReviewStatus(c echo.Context) error {
@@ -301,6 +346,10 @@ func (s *Server) GetDiffReviewStatus(c echo.Context) error {
 		"review_id": fmt.Sprintf("%d", reviewRecord.ID),
 		"summary":   result.Summary,
 		"files":     files,
+	}
+
+	if excluded, ok := meta["excluded_files"].([]interface{}); ok && len(excluded) > 0 {
+		response["excluded_files"] = excluded
 	}
 
 	// Include friendly_name if available
@@ -506,18 +555,20 @@ func extractFirstHeading(markdown string) string {
 	return ""
 }
 
-// parseDiffZipBase64 decodes the client payload (base64 zip containing a unified diff)
-// into parsed local diffs without touching the database. This is used by the handler
-// and contract-style unit tests to keep the input/output surface consistent.
-func parseDiffZipBase64(encoded string) ([]lib.LocalCodeDiff, error) {
+// parseDiffZipPayload decodes the client payload (base64 zip containing a
+// unified diff, plus an optional raw .lrc/ tree) into parsed local diffs and
+// an lrcconfig.Bundle, without touching the database. This is used by the
+// handler and contract-style unit tests to keep the input/output surface
+// consistent.
+func parseDiffZipPayload(encoded string) ([]lib.LocalCodeDiff, lrcconfig.Bundle, error) {
 	zipBytes, err := base64.StdEncoding.DecodeString(encoded)
 	if err != nil {
-		return nil, fmt.Errorf("failed to decode diff_zip_base64: %w", err)
+		return nil, lrcconfig.Bundle{}, fmt.Errorf("failed to decode diff_zip_base64: %w", err)
 	}
 
 	tempDir, err := archive.DiffReviewCreateTempWorkspace()
 	if err != nil {
-		return nil, fmt.Errorf("failed to create temp workspace: %w", err)
+		return nil, lrcconfig.Bundle{}, fmt.Errorf("failed to create temp workspace: %w", err)
 	}
 	defer func() {
 		if cleanupErr := archive.DiffReviewRemoveWorkspace(tempDir); cleanupErr != nil {
@@ -527,29 +578,96 @@ func parseDiffZipBase64(encoded string) ([]lib.LocalCodeDiff, error) {
 
 	zipPath := filepath.Join(tempDir, "diff.zip")
 	if err := archive.DiffReviewWriteUploadedZip(zipPath, zipBytes); err != nil {
-		return nil, fmt.Errorf("failed to persist uploaded zip: %w", err)
+		return nil, lrcconfig.Bundle{}, fmt.Errorf("failed to persist uploaded zip: %w", err)
 	}
 
 	extractedFiles, err := extractZip(zipPath, tempDir)
 	if err != nil {
-		return nil, fmt.Errorf("failed to extract zip: %w", err)
+		return nil, lrcconfig.Bundle{}, fmt.Errorf("failed to extract zip: %w", err)
 	}
 	if len(extractedFiles) == 0 {
-		return nil, fmt.Errorf("zip archive contained no files")
+		return nil, lrcconfig.Bundle{}, fmt.Errorf("zip archive contained no files")
 	}
 
 	diffContent, err := archive.DiffReviewReadExtractedDiff(extractedFiles[0])
 	if err != nil {
-		return nil, fmt.Errorf("failed to read extracted diff: %w", err)
+		return nil, lrcconfig.Bundle{}, fmt.Errorf("failed to read extracted diff: %w", err)
 	}
 
 	parser := lib.NewLocalParser()
 	localDiffs, err := parser.Parse(string(diffContent))
 	if err != nil {
-		return nil, fmt.Errorf("failed to parse diff: %w", err)
+		return nil, lrcconfig.Bundle{}, fmt.Errorf("failed to parse diff: %w", err)
 	}
 
-	return localDiffs, nil
+	bundle, err := collectLRCBundle(tempDir)
+	if err != nil {
+		log.Printf("[WARN] failed to read .lrc/ bundle: %v", err)
+		bundle = lrcconfig.Bundle{}
+	}
+
+	return localDiffs, bundle, nil
+}
+
+// maxExcludedFilesListed caps how many .lrc/ignore-excluded file paths are
+// named in a review summary before the rest are collapsed into "and N more",
+// so a large ignore list doesn't produce an unreadable summary.
+const maxExcludedFilesListed = 10
+
+func formatExcludedFiles(excluded []string) string {
+	if len(excluded) <= maxExcludedFilesListed {
+		return strings.Join(excluded, ", ")
+	}
+	shown := excluded[:maxExcludedFilesListed]
+	return fmt.Sprintf("%s, and %d more", strings.Join(shown, ", "), len(excluded)-maxExcludedFilesListed)
+}
+
+// collectLRCBundle reads the .lrc/ tree extracted under tempDir (if any)
+// into an lrcconfig.Bundle keyed by path relative to .lrc/, with map keys
+// using "/" separators (via filepath.ToSlash) regardless of host OS.
+func collectLRCBundle(tempDir string) (lrcconfig.Bundle, error) {
+	lrcDir := filepath.Join(tempDir, ".lrc")
+	info, err := os.Stat(lrcDir)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return lrcconfig.Bundle{}, nil
+		}
+		return lrcconfig.Bundle{}, err
+	}
+	if !info.IsDir() {
+		return lrcconfig.Bundle{}, nil
+	}
+
+	bundle := lrcconfig.Bundle{Files: map[string][]byte{}}
+	walkErr := filepath.WalkDir(lrcDir, func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if d.IsDir() {
+			return nil
+		}
+		// Only ever read plain files: extractZip never writes symlinks or
+		// other special files, but skip them defensively rather than
+		// following a symlink that somehow ended up here.
+		if !d.Type().IsRegular() {
+			return nil
+		}
+		rel, err := filepath.Rel(lrcDir, path)
+		if err != nil {
+			return err
+		}
+		content, err := os.ReadFile(path)
+		if err != nil {
+			return err
+		}
+		bundle.Files[filepath.ToSlash(rel)] = content
+		return nil
+	})
+	if walkErr != nil {
+		return lrcconfig.Bundle{}, walkErr
+	}
+
+	return bundle, nil
 }
 
 func extractZip(zipPath, dest string) ([]string, error) {
@@ -748,10 +866,13 @@ func filterCommentsForFile(filePath string, hunks []models.DiffHunk, comments []
 			log.Printf("[WARN] comment line %d is out of range for file %s", comment.Line, filePath)
 		}
 		matched = append(matched, map[string]interface{}{
-			"line":     comment.Line,
-			"content":  comment.Content,
-			"severity": string(comment.Severity),
-			"category": comment.Category,
+			"line":        comment.Line,
+			"content":     comment.Content,
+			"severity":    string(comment.Severity),
+			"confidence":  comment.Confidence,
+			"type":        comment.Type,
+			"category":    comment.Category,
+			"subcategory": comment.Subcategory,
 		})
 	}
 	return matched

@@ -133,7 +133,9 @@ def http_json(
 
 	req = urllib.request.Request(url=url, method=method.upper(), headers=req_headers, data=body_bytes)
 	try:
-		with urllib.request.urlopen(req, timeout=timeout) as resp:
+		# url is built from an operator-supplied --base-url CLI argument for this local
+		# dev/test script, not from untrusted web input.
+		with urllib.request.urlopen(req, timeout=timeout) as resp:  # nosemgrep: python.lang.security.audit.dynamic-urllib-use-detected.dynamic-urllib-use-detected
 			raw = resp.read().decode("utf-8")
 			return resp.getcode(), json.loads(raw) if raw else {}
 	except urllib.error.HTTPError as err:

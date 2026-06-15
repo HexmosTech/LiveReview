@@ -8,7 +8,7 @@ tmp_dir = "tmp"
 [build]
 # Just plain old shell command. You could use `make` as well.
 # Build with debug symbols enabled for delve debugger
-cmd = "if [ -z \"${SKIP_TYPED_GEN}\" ]; then make generate-openapi; fi && CGO_ENABLED=0 go build -gcflags='all=-N -l' -o ./tmp/livereview ."
+cmd = "if [ -z \"${SKIP_TYPED_GEN}\" ]; then make generate-openapi; fi && CGO_ENABLED=0 env -u GOROOT go build -gcflags='all=-N -l' -o ./tmp/livereview ."
 # Binary file yields from `cmd`.
 bin = "tmp/livereview"
 # Customize binary - run through delve for debugging
