@@ -17,10 +17,12 @@ import (
 
 // AIConnectorKeyValidationRequest represents the request for API key validation
 type AIConnectorKeyValidationRequest struct {
-	Provider string `json:"provider"`
-	APIKey   string `json:"api_key"`
-	BaseURL  string `json:"base_url,omitempty"`
-	Model    string `json:"model,omitempty"`
+	Provider     string `json:"provider"`
+	APIKey       string `json:"api_key"`
+	BaseURL      string `json:"base_url,omitempty"`
+	Model        string `json:"model,omitempty"`
+	GCPProjectID string `json:"gcp_project_id,omitempty"`
+	GCPLocation  string `json:"gcp_location,omitempty"`
 }
 
 // AIConnectorKeyValidationResponse represents the response for API key validation
@@ -68,6 +70,8 @@ func (s *Server) ValidateAIConnectorKey(c echo.Context) error {
 		req.APIKey,
 		req.BaseURL,
 		req.Model,
+		strings.TrimSpace(req.GCPProjectID),
+		strings.TrimSpace(req.GCPLocation),
 	)
 
 	if err != nil {
@@ -104,6 +108,8 @@ type AIConnectorCreateRequest struct {
 	ConnectorName string `json:"connector_name"`
 	BaseURL       string `json:"base_url,omitempty"`
 	SelectedModel string `json:"selected_model,omitempty"`
+	GCPProjectID  string `json:"gcp_project_id,omitempty"`
+	GCPLocation   string `json:"gcp_location,omitempty"`
 	DisplayOrder  int    `json:"display_order"`
 }
 
@@ -119,6 +125,8 @@ type AIConnectorResponse struct {
 	APIKeyPreview string `json:"api_key_preview"`
 	BaseURL       string `json:"base_url,omitempty"`
 	SelectedModel string `json:"selected_model,omitempty"`
+	GCPProjectID  string `json:"gcp_project_id,omitempty"`
+	GCPLocation   string `json:"gcp_location,omitempty"`
 	APIKey        string `json:"api_key,omitempty"` // Full API key for editing (only when requested)
 }
 
@@ -205,6 +213,8 @@ func (s *Server) CreateAIConnector(c echo.Context) error {
 		ConnectorName: req.ConnectorName,
 		BaseURL:       sql.NullString{String: req.BaseURL, Valid: req.BaseURL != ""},
 		SelectedModel: sql.NullString{String: selectedModel, Valid: selectedModel != ""},
+		GCPProjectID:  sql.NullString{String: strings.TrimSpace(req.GCPProjectID), Valid: strings.TrimSpace(req.GCPProjectID) != ""},
+		GCPLocation:   sql.NullString{String: strings.TrimSpace(req.GCPLocation), Valid: strings.TrimSpace(req.GCPLocation) != ""},
 		DisplayOrder:  nextOrder, // Auto-assign next order
 		OrgID:         orgID,
 	}
@@ -227,6 +237,10 @@ func (s *Server) CreateAIConnector(c echo.Context) error {
 		CreatedAt:     connector.CreatedAt.Format(time.RFC3339),
 		UpdatedAt:     connector.UpdatedAt.Format(time.RFC3339),
 		APIKeyPreview: getMaskedKey(connector.ApiKey),
+		BaseURL:       connector.GetBaseURL(),
+		SelectedModel: connector.GetSelectedModel(),
+		GCPProjectID:  connector.GCPProjectID.String,
+		GCPLocation:   connector.GCPLocation.String,
 	})
 }
 
@@ -268,6 +282,8 @@ func (s *Server) GetAIConnectors(c echo.Context) error {
 			APIKeyPreview: getMaskedKey(connector.ApiKey),
 			BaseURL:       connector.GetBaseURL(),
 			SelectedModel: connector.GetSelectedModel(),
+			GCPProjectID:  connector.GCPProjectID.String,
+			GCPLocation:   connector.GCPLocation.String,
 			APIKey:        connector.ApiKey, // Include full API key for editing
 		})
 	}
@@ -370,9 +386,9 @@ func (s *Server) UpdateAIConnector(c echo.Context) error {
 	existingConnector.OrgID = orgID
 
 	// Update provider-specific fields if provided
-	if req.BaseURL != "" {
-		existingConnector.BaseURL = sql.NullString{String: req.BaseURL, Valid: true}
-	}
+	existingConnector.BaseURL = sql.NullString{String: req.BaseURL, Valid: req.BaseURL != ""}
+	existingConnector.GCPProjectID = sql.NullString{String: strings.TrimSpace(req.GCPProjectID), Valid: strings.TrimSpace(req.GCPProjectID) != ""}
+	existingConnector.GCPLocation = sql.NullString{String: strings.TrimSpace(req.GCPLocation), Valid: strings.TrimSpace(req.GCPLocation) != ""}
 
 	selectedModel := req.SelectedModel
 	if selectedModel == "" {
@@ -402,6 +418,8 @@ func (s *Server) UpdateAIConnector(c echo.Context) error {
 		APIKeyPreview: getMaskedKey(existingConnector.ApiKey),
 		BaseURL:       existingConnector.GetBaseURL(),
 		SelectedModel: existingConnector.GetSelectedModel(),
+		GCPProjectID:  existingConnector.GCPProjectID.String,
+		GCPLocation:   existingConnector.GCPLocation.String,
 		APIKey:        existingConnector.ApiKey,
 	})
 }
@@ -577,6 +595,11 @@ func (s *Server) GetAIProviderModels(c echo.Context) error {
 		})
 	}
 
+	dbProvider := provider
+	if dbProvider == "gemini-enterprise" {
+		dbProvider = "gemini"
+	}
+
 	ctx := c.Request().Context()
 	query := `
 		SELECT model_id, name, is_default 
@@ -584,7 +607,7 @@ func (s *Server) GetAIProviderModels(c echo.Context) error {
 		WHERE provider = $1 AND is_active = true 
 		ORDER BY name ASC
 	`
-	rows, err := s.db.QueryContext(ctx, query, provider)
+	rows, err := s.db.QueryContext(ctx, query, dbProvider)
 	if err != nil {
 		log.Error().Err(err).Str("provider", provider).Msg("Failed to query AI models")
 		return c.JSON(http.StatusInternalServerError, map[string]string{

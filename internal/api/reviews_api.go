@@ -81,13 +81,11 @@ func maskToken(token string) string {
 }
 
 // findIntegrationToken queries the database to find an integration token for the given base URL
-func (s *Server) findIntegrationToken(baseURL string) (*IntegrationToken, error) {
-	log.Printf("[DEBUG] findIntegrationToken: Looking for integration token with base URL: %s", baseURL)
-
+func (s *Server) findIntegrationToken(baseURL string, orgID int64) (*IntegrationToken, error) {
 	sqlQuery := `
 		SELECT id, provider, access_token, refresh_token, expires_at, provider_app_id, client_secret, provider_url, token_type, pat_token, COALESCE(metadata, '{}')
 		FROM integration_tokens
-		WHERE provider_url LIKE '%' || $1 || '%'
+		WHERE provider_url LIKE '%' || $1 || '%' AND org_id = $2
 		ORDER BY created_at DESC
 		LIMIT 1
 	`
@@ -95,7 +93,7 @@ func (s *Server) findIntegrationToken(baseURL string) (*IntegrationToken, error)
 
 	token := &IntegrationToken{}
 	var metadataJSON string
-	err := s.db.QueryRow(sqlQuery, baseURL).Scan(
+	err := s.db.QueryRow(sqlQuery, baseURL, orgID).Scan(
 		&token.ID, &token.Provider, &token.AccessToken, &token.RefreshToken,
 		&token.ExpiresAt, &token.ClientID, &token.ClientSecret, &token.ProviderURL,
 		&token.TokenType, &token.PatToken, &metadataJSON,
@@ -428,6 +426,13 @@ func (s *Server) buildBYOKAIConfig(ctx context.Context, connector *aiconnectors.
 		"display_order":       connector.DisplayOrder,
 		"ai_execution_mode":   executionMode,
 		"ai_execution_source": "connector",
+	}
+
+	if connector.GCPProjectID.Valid && connector.GCPProjectID.String != "" {
+		configMap["gcp_project_id"] = connector.GCPProjectID.String
+	}
+	if connector.GCPLocation.Valid && connector.GCPLocation.String != "" {
+		configMap["gcp_location"] = connector.GCPLocation.String
 	}
 
 	// Add base URL if available

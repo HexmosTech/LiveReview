@@ -320,6 +320,15 @@ func runReviewProcess(
 			fmt.Printf("  File Path: '%s'\n", comment.FilePath)
 			fmt.Printf("  Line Number: %d\n", comment.Line)
 			fmt.Printf("  Severity: %s\n", comment.Severity)
+			if comment.Confidence != "" {
+				fmt.Printf("  Confidence: %s\n", comment.Confidence)
+			}
+			if comment.Type != "" {
+				fmt.Printf("  Type: %s\n", comment.Type)
+			}
+			if comment.Subcategory != "" {
+				fmt.Printf("  Subcategory: %s\n", comment.Subcategory)
+			}
 			fmt.Printf("  Content begins: %s\n",
 				comment.Content[:int(math.Min(50, float64(len(comment.Content))))])
 			fmt.Printf("  Number of suggestions: %d\n", len(comment.Suggestions))
@@ -375,6 +384,15 @@ func runReviewProcess(
 			fmt.Printf("\n--- Comment %d ---\n", i+1)
 			fmt.Printf("File: %s, Line: %d\n", comment.FilePath, comment.Line)
 			fmt.Printf("Severity: %s\n", comment.Severity)
+			if comment.Confidence != "" {
+				fmt.Printf("Confidence: %s\n", comment.Confidence)
+			}
+			if comment.Type != "" {
+				fmt.Printf("Type: %s\n", comment.Type)
+			}
+			if comment.Subcategory != "" {
+				fmt.Printf("Subcategory: %s\n", comment.Subcategory)
+			}
 
 			// Print the content (which shouldn't have suggestions in it anymore)
 			fmt.Printf("%s\n", comment.Content)

@@ -4,7 +4,8 @@
 .PHONY: raw-deploy raw-deploy-low-pricing raw-deploy-backend raw-deploy-backend-low-pricing
 
 # Go parameters
-GOCMD=go
+GOENV=env -u GOROOT
+GOCMD=$(GOENV) go
 GOBUILD=$(GOCMD) build
 GOCLEAN=$(GOCMD) clean
 GOTEST=$(GOCMD) test
@@ -155,18 +156,18 @@ build-push: docker-build-push
 
 run:
 	pkill -9 livereview || true
-	@DLV_BIN_DIR=$$(go env GOBIN); \
-	if [ -z "$$DLV_BIN_DIR" ]; then DLV_BIN_DIR="$$(go env GOPATH)/bin"; fi; \
+	@DLV_BIN_DIR=$$($(GOCMD) env GOBIN); \
+	if [ -z "$$DLV_BIN_DIR" ]; then DLV_BIN_DIR="$$($(GOCMD) env GOPATH)/bin"; fi; \
 	command -v dlv >/dev/null 2>&1 || { \
 		echo "Installing Delve with Go $(REQUIRED_GO_VERSION)..."; \
 		GOTOOLCHAIN=go$(REQUIRED_GO_TOOLCHAIN_VER) $(GOCMD) install github.com/go-delve/delve/cmd/dlv@latest; \
 	}; \
-	if ! go version -m "$$DLV_BIN_DIR/dlv" 2>/dev/null | grep -q "go$(REQUIRED_GO_SERIES)"; then \
+	if ! $(GOCMD) version -m "$$DLV_BIN_DIR/dlv" 2>/dev/null | grep -q "go$(REQUIRED_GO_SERIES)"; then \
 		echo "Rebuilding Delve with Go $(REQUIRED_GO_VERSION) for DWARFv5+ compatibility..."; \
 		GOTOOLCHAIN=go$(REQUIRED_GO_TOOLCHAIN_VER) $(GOCMD) install github.com/go-delve/delve/cmd/dlv@latest; \
 	fi
-	which air || go install github.com/air-verse/air@latest
-	DLV_BIN_DIR=$$(go env GOBIN); if [ -z "$$DLV_BIN_DIR" ]; then DLV_BIN_DIR="$$(go env GOPATH)/bin"; fi; PATH="$$DLV_BIN_DIR:$$PATH" air
+	which air || $(GOCMD) install github.com/air-verse/air@latest
+	DLV_BIN_DIR=$$($(GOCMD) env GOBIN); if [ -z "$$DLV_BIN_DIR" ]; then DLV_BIN_DIR="$$($(GOCMD) env GOPATH)/bin"; fi; PATH="$$DLV_BIN_DIR:$$PATH" air
 
 
 # Disable Typed OpenAPI schema generation for CI
@@ -174,30 +175,30 @@ run-skip-typed:
 	SKIP_TYPED_GEN=1 $(MAKE) run
 
 logrun:
-	which air || go install github.com/air-verse/air@latest
+	which air || $(GOCMD) install github.com/air-verse/air@latest
 	bash -c 'set -o pipefail; air 2>&1 | tee "logrun-$$(date +%Y%m%d-%H%M%S).log"'
 
 develop:
-	@DLV_BIN_DIR=$$(go env GOBIN); \
-	if [ -z "$$DLV_BIN_DIR" ]; then DLV_BIN_DIR="$$(go env GOPATH)/bin"; fi; \
+	@DLV_BIN_DIR=$$($(GOCMD) env GOBIN); \
+	if [ -z "$$DLV_BIN_DIR" ]; then DLV_BIN_DIR="$$($(GOCMD) env GOPATH)/bin"; fi; \
 	command -v dlv >/dev/null 2>&1 || { \
 		echo "Installing Delve with Go $(REQUIRED_GO_VERSION)..."; \
 		GOTOOLCHAIN=go$(REQUIRED_GO_TOOLCHAIN_VER) $(GOCMD) install github.com/go-delve/delve/cmd/dlv@latest; \
 	}; \
-	if ! go version -m "$$DLV_BIN_DIR/dlv" 2>/dev/null | grep -q "go$(REQUIRED_GO_SERIES)"; then \
+	if ! $(GOCMD) version -m "$$DLV_BIN_DIR/dlv" 2>/dev/null | grep -q "go$(REQUIRED_GO_SERIES)"; then \
 		echo "Rebuilding Delve with Go $(REQUIRED_GO_VERSION) for DWARFv5+ compatibility..."; \
 		GOTOOLCHAIN=go$(REQUIRED_GO_TOOLCHAIN_VER) $(GOCMD) install github.com/go-delve/delve/cmd/dlv@latest; \
 	fi
-	which air || go install github.com/air-verse/air@latest
-	DLV_BIN_DIR=$$(go env GOBIN); if [ -z "$$DLV_BIN_DIR" ]; then DLV_BIN_DIR="$$(go env GOPATH)/bin"; fi; PATH="$$DLV_BIN_DIR:$$PATH" air
+	which air || $(GOCMD) install github.com/air-verse/air@latest
+	DLV_BIN_DIR=$$($(GOCMD) env GOBIN); if [ -z "$$DLV_BIN_DIR" ]; then DLV_BIN_DIR="$$($(GOCMD) env GOPATH)/bin"; fi; PATH="$$DLV_BIN_DIR:$$PATH" air
 
 develop-reflex:
-	which reflex || go install github.com/cespare/reflex@latest
-	reflex -r '\.go$$' -s -- sh -c 'go build -o $(BINARY_NAME) && ./$(BINARY_NAME) api'
+	which reflex || $(GOCMD) install github.com/cespare/reflex@latest
+	reflex -r '\.go$$' -s -- sh -c '$(GOENV) go build -o $(BINARY_NAME) && ./$(BINARY_NAME) api'
 
 api-with-migrations:
 	dbmate up
-	go run livereview.go api
+	$(GOCMD) run livereview.go api
 
 run-review:
 	./$(BINARY_NAME) review --dry-run https://git.apps.hexmos.com/hexmos/liveapi/-/merge_requests/365
@@ -366,14 +367,14 @@ clean:
 
 # River queue setup commands
 river-deps:
-	go get github.com/riverqueue/river
-	go get github.com/riverqueue/river/riverdriver/riverpgxv5
+	$(GOCMD) get github.com/riverqueue/river
+	$(GOCMD) get github.com/riverqueue/river/riverdriver/riverpgxv5
 
 river-install:
-	go install github.com/riverqueue/river/cmd/river@latest
+	$(GOCMD) install github.com/riverqueue/river/cmd/river@latest
 
 river-ui-install:
-	go install riverqueue.com/riverui/cmd/riverui@latest
+	$(GOCMD) install riverqueue.com/riverui/cmd/riverui@latest
 
 river-migrate:
 	river migrate-up --database-url "$(DATABASE_URL)"
@@ -532,7 +533,7 @@ build-with-ui:
 	fi
 	rm $(BINARY_NAME) || true
 	cd ui/ && npm install && set -a && . ./.env.prod && set +a && LIVEREVIEW_BUILD_MODE=prod NODE_ENV=production npm run build:obfuscated && cd ..
-	env -u GOROOT go build livereview.go
+	$(GOBUILD) livereview.go
 	@echo "✅ Production build complete. Binary ready for raw-deploy."
 
 # Define API source files for spec generation
@@ -570,7 +571,7 @@ docs/openapi.yaml internal/api/docs/spec.go: $(API_SPEC_INPUTS) typed-install
 	@mkdir -p docs internal/api/docs
 	@chmod 755 docs internal/api/docs
 	@PATH="$(TYPED_BIN_DIR):$$PATH" typed -config typed.yaml > /tmp/lr_typed_build.log 2>&1 || (echo "❌ Typed generation failed. Logs:" && cat /tmp/lr_typed_build.log && exit 1)
-	@go run internal/api/docs/spec.go > /tmp/lr_spec_build.log 2>&1 || (echo "❌ OpenAPI spec generation failed. Logs:" && cat /tmp/lr_spec_build.log && exit 1)
+	@$(GOCMD) run internal/api/docs/spec.go > /tmp/lr_spec_build.log 2>&1 || (echo "❌ OpenAPI spec generation failed. Logs:" && cat /tmp/lr_spec_build.log && exit 1)
 
 
 generate-openapi: docs/openapi.yaml
@@ -669,7 +670,7 @@ raw-deploy-low-pricing: build-with-ui
 
 raw-deploy-backend:
 	@echo "🚀 Deploying to production server..."
-	go build livereview.go
+	$(GOBUILD) livereview.go
 	@if [ ! -f ./livereview ]; then \
 		echo "❌ ERROR: livereview binary not found! Run 'make build-with-ui' first."; \
 		exit 1; \
@@ -712,7 +713,7 @@ raw-deploy-backend:
 
 raw-deploy-backend-low-pricing:
 	@echo "🚀 Deploying backend with LOW pricing profile..."
-	go build livereview.go
+	$(GOBUILD) livereview.go
 	@if [ ! -f ./livereview ]; then \
 		echo "❌ ERROR: livereview binary not found! Run 'make build-with-ui' first."; \
 		exit 1; \
@@ -776,7 +777,7 @@ pm2-logs:
 	ssh master "tail -n $$LOG_LINES ~/.pm2/logs/livereview-api-out.log ~/.pm2/logs/livereview-api-error.log ~/.pm2/logs/livereview-ui-out.log ~/.pm2/logs/livereview-ui-error.log"
 
 run-selfhosted:
-	which air || go install github.com/air-verse/air@latest
+	which air || $(GOCMD) install github.com/air-verse/air@latest
 	air -- --env-file .env.selfhosted
 
 # Upload tracked env files (.env, .env.prod, ui/.env.prod) to GitHub repo variables.

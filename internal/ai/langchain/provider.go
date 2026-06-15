@@ -20,6 +20,7 @@ import (
 	"github.com/tmc/langchaingo/llms"
 	"github.com/tmc/langchaingo/llms/anthropic"
 	"github.com/tmc/langchaingo/llms/googleai"
+	"github.com/tmc/langchaingo/llms/googleai/vertex"
 	"github.com/tmc/langchaingo/llms/ollama"
 	"github.com/tmc/langchaingo/llms/openai"
 
@@ -43,6 +44,8 @@ type LangchainProvider struct {
 	baseURL        string                // NEW: Base URL for custom endpoints
 	logger         *logging.ReviewLogger // Logger for this review
 	providerName   string                // NEW: Provider name (e.g. "livereview-default-ai")
+	gcpProjectID   string
+	gcpLocation    string
 }
 
 type aiResponseFileSummary struct {
@@ -256,6 +259,8 @@ type Config struct {
 	ProviderType   string  `json:"provider_type"` // NEW: "gemini", "ollama", "openai", etc.
 	BaseURL        string  `json:"base_url"`      // NEW: For custom endpoints like Ollama
 	ProviderName   string  `json:"provider_name"` // NEW: Provider name (e.g. "livereview-default-ai")
+	GCPProjectID   string  `json:"gcp_project_id"`
+	GCPLocation    string  `json:"gcp_location"`
 }
 
 // New creates a new langchain-based AI provider
@@ -270,6 +275,8 @@ func New(config Config, logger *logging.ReviewLogger) *LangchainProvider {
 		baseURL:        config.BaseURL,      // NEW
 		logger:         logger,              // NEW: Thread logger through
 		providerName:   config.ProviderName, // NEW
+		gcpProjectID:   config.GCPProjectID,
+		gcpLocation:    config.GCPLocation,
 	}
 }
 
@@ -353,6 +360,12 @@ func (p *LangchainProvider) Configure(config map[string]interface{}) error {
 		p.temperature = temperature
 		p.temperatureSet = true
 	}
+	if gcpProjectID, ok := config["gcp_project_id"].(string); ok {
+		p.gcpProjectID = gcpProjectID
+	}
+	if gcpLocation, ok := config["gcp_location"].(string); ok {
+		p.gcpLocation = gcpLocation
+	}
 
 	// Initialize the LLM
 	return p.initializeLLM()
@@ -364,6 +377,8 @@ func (p *LangchainProvider) initializeLLM() error {
 		return p.initializeOllamaLLM()
 	case "google", "googleai", "gemini":
 		return p.initializeGeminiLLM()
+	case "vertex", "gemini-enterprise":
+		return p.initializeVertexLLM()
 	case "openai":
 		return p.initializeOpenAILLM()
 	case "deepseek":
@@ -561,6 +576,36 @@ func (p *LangchainProvider) initializeGeminiLLM() error {
 	llm, err := googleai.New(context.Background(), opts...)
 	if err != nil {
 		return fmt.Errorf("failed to initialize Gemini LLM: %w", err)
+	}
+
+	p.llm = llm
+	return nil
+}
+
+func (p *LangchainProvider) initializeVertexLLM() error {
+	opts := []googleai.Option{
+		googleai.WithCloudProject(p.gcpProjectID),
+		googleai.WithCloudLocation(p.gcpLocation),
+		googleai.WithDefaultModel(p.getModelName()),
+	}
+
+	maxTokens := p.maxTokens
+	if maxTokens <= 0 {
+		maxTokens = 8192
+	}
+	opts = append(opts, googleai.WithDefaultMaxTokens(maxTokens))
+
+	if p.apiKey != "" {
+		opts = append(opts, googleai.WithCredentialsJSON([]byte(p.apiKey)))
+	}
+
+	if p.logger != nil {
+		p.logger.Log("[LANGCHAIN INIT] Initializing Vertex LLM (Gemini Enterprise) with model: %s, project: %s, location: %s", p.getModelName(), p.gcpProjectID, p.gcpLocation)
+	}
+
+	llm, err := vertex.New(context.Background(), opts...)
+	if err != nil {
+		return fmt.Errorf("failed to initialize Vertex LLM: %w", err)
 	}
 
 	p.llm = llm
@@ -809,7 +854,7 @@ func (p *LangchainProvider) reviewCodeBatchFormatted(ctx context.Context, diffs 
 	for i := range diffs {
 		diffPointers[i] = &diffs[i]
 	}
-	prompt := base + "\n\n" + prompts.BuildCodeChangesSectionWithContext(ctx, diffPointers)
+	prompt := base + "\n\n" + prompts.BuildRepoRulesSection(ctx) + prompts.BuildCodeChangesSectionWithContext(ctx, diffPointers)
 
 	// Log request to global logger and emit batch started event
 	if p.logger != nil {
@@ -1359,6 +1404,10 @@ func (p *LangchainProvider) parseResponse(response string, diffs []models.CodeDi
 		LineNumber  int      `json:"lineNumber"`
 		Content     string   `json:"content"`
 		Severity    string   `json:"severity"`
+		Confidence  string   `json:"confidence"`
+		Type        string   `json:"type"`
+		Category    string   `json:"category"`
+		Subcategory string   `json:"subcategory"`
 		Suggestions []string `json:"suggestions"`
 		IsInternal  bool     `json:"isInternal"`
 	}
@@ -1428,8 +1477,11 @@ func (p *LangchainProvider) parseResponse(response string, diffs []models.CodeDi
 			Line:          comment.LineNumber,
 			Content:       comment.Content,
 			Severity:      severity,
+			Confidence:    comment.Confidence,
+			Type:          comment.Type,
 			Suggestions:   comment.Suggestions,
-			Category:      "review",
+			Category:      comment.Category,
+			Subcategory:   comment.Subcategory,
 			IsInternal:    comment.IsInternal,
 			IsDeletedLine: isDeletedLine,
 		}
