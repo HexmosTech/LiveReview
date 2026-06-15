@@ -4,15 +4,12 @@ import (
 	"database/sql"
 	"errors"
 	"net/http"
-	"os"
 	"strconv"
 	"strings"
 	"time"
 
-	"github.com/golang-jwt/jwt/v5"
 	"github.com/labstack/echo/v4"
 	"github.com/livereview/internal/api/auth"
-	"github.com/livereview/pkg/models"
 )
 
 // CreateAPIKeyRequest represents the request body for creating an API key
@@ -256,7 +253,7 @@ func RequireAuthOrAPIKey(tokenService *auth.TokenService, db *sql.DB) echo.Middl
 			user, err := tokenService.ValidateAccessToken(tokenString)
 			if err != nil {
 				// Fallback: validate with CLOUD_JWT_SECRET for verification-stage tokens
-				fallbackUser, ferr := validateWithCloudSecret(tokenString, db)
+				fallbackUser, ferr := auth.ValidateWithCloudSecret(tokenString, db)
 				if ferr != nil {
 					return c.JSON(http.StatusUnauthorized, map[string]string{
 						"error": "Invalid or expired token",
@@ -275,57 +272,3 @@ func RequireAuthOrAPIKey(tokenService *auth.TokenService, db *sql.DB) echo.Middl
 	}
 }
 
-// validateWithCloudSecret attempts to validate a JWT using CLOUD_JWT_SECRET without DB token checks
-// This is a copy of the function from auth/middleware.go to avoid circular dependencies
-func validateWithCloudSecret(tokenString string, db *sql.DB) (*models.User, error) {
-	secret := os.Getenv("CLOUD_JWT_SECRET")
-	if strings.TrimSpace(secret) == "" {
-		return nil, errors.New("CLOUD_JWT_SECRET not configured")
-	}
-
-	token, err := jwt.ParseWithClaims(tokenString, &auth.JWTClaims{}, func(token *jwt.Token) (interface{}, error) {
-		if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
-			return nil, errors.New("unexpected signing method")
-		}
-		return []byte(secret), nil
-	})
-	if err != nil || !token.Valid {
-		if err == nil {
-			err = errors.New("invalid token")
-		}
-		return nil, err
-	}
-
-	claims, ok := token.Claims.(*auth.JWTClaims)
-	if !ok {
-		return nil, errors.New("invalid token claims")
-	}
-
-	// Try resolving user by ID first
-	user := &models.User{}
-	if claims.UserID != 0 {
-		err = db.QueryRow(`
-			SELECT id, email, password_hash, created_at, updated_at
-			FROM users WHERE id = $1
-		`, claims.UserID).Scan(&user.ID, &user.Email, &user.PasswordHash, &user.CreatedAt, &user.UpdatedAt)
-		if err == nil {
-			return user, nil
-		}
-		if err != sql.ErrNoRows {
-			return nil, err
-		}
-	}
-
-	// Fallback: resolve by email if present
-	if strings.TrimSpace(claims.Email) != "" {
-		err = db.QueryRow(`
-			SELECT id, email, password_hash, created_at, updated_at
-			FROM users WHERE email = $1
-		`, claims.Email).Scan(&user.ID, &user.Email, &user.PasswordHash, &user.CreatedAt, &user.UpdatedAt)
-		if err == nil {
-			return user, nil
-		}
-	}
-
-	return nil, errors.New("user not found for cloud jwt")
-}
