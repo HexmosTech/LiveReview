@@ -3,6 +3,7 @@ package cmd
 import (
 	"context"
 	"fmt"
+	"log"
 	"os"
 	"os/signal"
 	"syscall"
@@ -29,7 +30,7 @@ func WorkerCommand() *cli.Command {
 				if err := LoadEnvFile(envFile); err != nil {
 					return fmt.Errorf("failed to load env file %s: %w", envFile, err)
 				}
-				fmt.Printf("Loaded environment from %s\n", envFile)
+				log.Printf("Loaded environment from %s", envFile)
 			}
 
 			// Load .env if not loaded already and exists
@@ -43,8 +44,8 @@ func WorkerCommand() *cli.Command {
 				Dirty:     false,
 			}
 
-						// Create server instance optimized for background workers (no Echo routing initialized)
-			fmt.Println("Initializing api worker context and job queue...")
+			// Create server instance optimized for background workers (no Echo routing initialized)
+			log.Println("Initializing api worker context and job queue...")
 			server, err := api.WorkerContext(versionInfo)
 			if err != nil {
 				return fmt.Errorf("failed to initialize worker server context: %w", err)
@@ -56,32 +57,33 @@ func WorkerCommand() *cli.Command {
 			signal.Notify(stop, os.Interrupt, syscall.SIGTERM)
 
 			// Start the job queue workers
-			fmt.Println("Starting background job queue workers...")
+			log.Println("Starting background job queue workers...")
 			workerCtx, workerCancel := context.WithCancel(context.Background())
 			defer workerCancel()
 
 			go func() {
 				if err := jq.Start(workerCtx); err != nil {
-					fmt.Printf("Error running job queue: %v\n", err)
+					log.Printf("Error running job queue: %v", err)
 					stop <- syscall.SIGTERM
 				}
 			}()
 
-			fmt.Println("Background worker running. Press Ctrl+C to stop.")
+			log.Println("Background worker running. Press Ctrl+C to stop.")
 
 			<-stop
-			fmt.Println("Stopping background worker gracefully...")
+			log.Println("Stopping background worker gracefully...")
 
 			// Graceful shutdown with timeout
 			shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 10*time.Second)
 			defer shutdownCancel()
 
 			if err := jq.Stop(shutdownCtx); err != nil {
-				fmt.Printf("Error stopping job queue: %v\n", err)
+				log.Printf("Error stopping job queue: %v", err)
 			}
 
-			fmt.Println("Background worker stopped.")
+			log.Println("Background worker stopped.")
 			return nil
 		},
 	}
 }
+

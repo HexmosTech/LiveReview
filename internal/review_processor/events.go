@@ -491,20 +491,7 @@ func (s *PollingEventService) CreateStatusEvent(ctx context.Context, reviewID, o
 		}
 	}
 
-	dataJSON, err := json.Marshal(data)
-	if err != nil {
-		return fmt.Errorf("failed to marshal status event data: %w", err)
-	}
-
-	event := &ReviewEvent{
-		ReviewID:  reviewID,
-		OrgID:     orgID,
-		EventType: "status",
-		Level:     stringPtr("info"),
-		Data:      dataJSON,
-	}
-
-	return s.EmitEvent(ctx, event)
+	return s.repo.createTypedEvent(ctx, reviewID, orgID, "status", "info", nil, data)
 }
 
 // CreateLogEvent creates a log message event
@@ -513,21 +500,7 @@ func (s *PollingEventService) CreateLogEvent(ctx context.Context, reviewID, orgI
 		Message: &message,
 	}
 
-	dataJSON, err := json.Marshal(data)
-	if err != nil {
-		return fmt.Errorf("failed to marshal log event data: %w", err)
-	}
-
-	event := &ReviewEvent{
-		ReviewID:  reviewID,
-		OrgID:     orgID,
-		EventType: "log",
-		Level:     &level,
-		BatchID:   batchID,
-		Data:      dataJSON,
-	}
-
-	return s.EmitEvent(ctx, event)
+	return s.repo.createTypedEvent(ctx, reviewID, orgID, "log", level, batchID, data)
 }
 
 // CreateBatchEvent creates a batch progress event
@@ -554,21 +527,7 @@ func (s *PollingEventService) CreateBatchEvent(ctx context.Context, reviewID, or
 		data.FinishedAt = &finishedAtStr
 	}
 
-	dataJSON, err := json.Marshal(data)
-	if err != nil {
-		return fmt.Errorf("failed to marshal batch event data: %w", err)
-	}
-
-	event := &ReviewEvent{
-		ReviewID:  reviewID,
-		OrgID:     orgID,
-		EventType: "batch",
-		Level:     stringPtr("info"),
-		BatchID:   &batchID,
-		Data:      dataJSON,
-	}
-
-	return s.EmitEvent(ctx, event)
+	return s.repo.createTypedEvent(ctx, reviewID, orgID, "batch", "info", &batchID, data)
 }
 
 // CreateArtifactEvent creates an artifact reference event
@@ -581,21 +540,7 @@ func (s *PollingEventService) CreateArtifactEvent(ctx context.Context, reviewID,
 		PreviewTail: previewTail,
 	}
 
-	dataJSON, err := json.Marshal(data)
-	if err != nil {
-		return fmt.Errorf("failed to marshal artifact event data: %w", err)
-	}
-
-	event := &ReviewEvent{
-		ReviewID:  reviewID,
-		OrgID:     orgID,
-		EventType: "artifact",
-		Level:     stringPtr("info"),
-		BatchID:   batchID,
-		Data:      dataJSON,
-	}
-
-	return s.EmitEvent(ctx, event)
+	return s.repo.createTypedEvent(ctx, reviewID, orgID, "artifact", "info", batchID, data)
 }
 
 // CreateCompletionEvent creates a review completion event
@@ -606,20 +551,7 @@ func (s *PollingEventService) CreateCompletionEvent(ctx context.Context, reviewI
 		ErrorSummary:  errorSummary,
 	}
 
-	dataJSON, err := json.Marshal(data)
-	if err != nil {
-		return fmt.Errorf("failed to marshal completion event data: %w", err)
-	}
-
-	event := &ReviewEvent{
-		ReviewID:  reviewID,
-		OrgID:     orgID,
-		EventType: "completion",
-		Level:     stringPtr("info"),
-		Data:      dataJSON,
-	}
-
-	return s.EmitEvent(ctx, event)
+	return s.repo.createTypedEvent(ctx, reviewID, orgID, "completion", "info", nil, data)
 }
 
 // GetReviewSummary creates a summary of recent review activity for display

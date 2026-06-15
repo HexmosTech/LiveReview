@@ -2372,6 +2372,7 @@ func (jq *JobQueue) QueueWebhookRemovalJob(ctx context.Context, connectorID int,
 func (jq *JobQueue) QueueReviewJob(ctx context.Context, args DiffReviewJobArgs) error {
 	_, err := jq.client.Insert(ctx, args, &river.InsertOpts{Queue: "review"})
 	if err != nil {
+		log.Printf("[ERROR] Failed to queue review job: %v", err)
 		return fmt.Errorf("failed to queue review job: %w", err)
 	}
 	return nil
@@ -2387,6 +2388,7 @@ func (jq *JobQueue) QueueWebhookReviewJob(ctx context.Context, orgID int64, conn
 	}
 	_, err := jq.client.Insert(ctx, args, &river.InsertOpts{Queue: "review"})
 	if err != nil {
+		log.Printf("[ERROR] Failed to queue webhook review job: %v", err)
 		return fmt.Errorf("failed to queue webhook review job: %w", err)
 	}
 	return nil
@@ -2404,7 +2406,9 @@ func (jq *JobQueue) QueueManualReviewJob(ctx context.Context, orgID int64, planC
 	}
 	_, err := jq.client.Insert(ctx, args, &river.InsertOpts{Queue: "review"})
 	if err != nil {
+		log.Printf("[ERROR] Failed to queue manual review job: %v", err)
 		return fmt.Errorf("failed to queue manual review job: %w", err)
 	}
 	return nil
 }
+
