@@ -2,17 +2,14 @@ package cmd
 
 import (
 	"context"
-	"database/sql"
 	"fmt"
 	"os"
 	"os/signal"
-	"strings"
 	"syscall"
 	"time"
 
 	_ "github.com/lib/pq"
-	"github.com/livereview/internal/jobqueue"
-	"github.com/livereview/internal/license"
+	"github.com/livereview/internal/api"
 	"github.com/urfave/cli/v2"
 )
 
@@ -38,44 +35,21 @@ func WorkerCommand() *cli.Command {
 			// Load .env if not loaded already and exists
 			_ = LoadEnvFile(".env")
 
-			// Check database URL
-			dbURL := os.Getenv("DATABASE_URL")
-			if dbURL == "" {
-				return fmt.Errorf("DATABASE_URL environment variable is not set")
+			// Create version info from global variables
+			versionInfo := &api.VersionInfo{
+				Version:   Version,
+				GitCommit: GitCommit,
+				BuildTime: BuildTime,
+				Dirty:     false,
 			}
 
-			// Open database connection
-			db, err := sql.Open("postgres", dbURL)
+						// Create server instance optimized for background workers (no Echo routing initialized)
+			fmt.Println("Initializing api worker context and job queue...")
+			server, err := api.WorkerContext(versionInfo)
 			if err != nil {
-				return fmt.Errorf("failed to open database connection: %w", err)
+				return fmt.Errorf("failed to initialize worker server context: %w", err)
 			}
-			db.SetMaxOpenConns(25)
-			db.SetMaxIdleConns(10)
-			db.SetConnMaxLifetime(5 * time.Minute)
-			defer db.Close()
-
-			// Ping database to verify connection
-			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-			defer cancel()
-			if err := db.PingContext(ctx); err != nil {
-				return fmt.Errorf("failed to connect to database: %w", err)
-			}
-
-			// Sync plan definitions
-			planCatalogPath := strings.TrimSpace(os.Getenv("LIVEREVIEW_PLAN_CATALOG_PATH"))
-			if planCatalogPath == "" {
-				planCatalogPath = license.DefaultPlanCatalogPath
-			}
-			if err := license.SyncPlanDefinitionsFromCatalog(planCatalogPath); err != nil {
-				return fmt.Errorf("failed to sync plan catalog from %s: %w", planCatalogPath, err)
-			}
-
-			// Initialize job queue
-			fmt.Println("Initializing job queue...")
-			jq, err := jobqueue.NewJobQueue(dbURL, db)
-			if err != nil {
-				return fmt.Errorf("failed to initialize job queue: %w", err)
-			}
+			jq := server.GetJobQueue()
 
 			// Handle OS signals for graceful shutdown
 			stop := make(chan os.Signal, 1)

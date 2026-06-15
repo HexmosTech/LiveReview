@@ -23,6 +23,7 @@ import (
 	"github.com/livereview/internal/jobqueue"
 	"github.com/livereview/internal/learnings"
 	"github.com/livereview/internal/license"
+	reviewprocessor "github.com/livereview/internal/review_processor"
 	"github.com/livereview/internal/license/payment"
 	bitbucketprovider "github.com/livereview/internal/provider_input/bitbucket"
 	giteaprovider "github.com/livereview/internal/provider_input/gitea"
@@ -145,8 +146,8 @@ type Server struct {
 	learningsService *learnings.Service
 }
 
-// NewServer creates a new API server
-func NewServer(port int, versionInfo *VersionInfo) (*Server, error) {
+// appContext initializes the core backend database, configurations, queues, and provider subsystems
+func appContext(port int, versionInfo *VersionInfo) (*Server, error) {
 	// Load environment variables from .env file
 	env, err := loadEnvFile(".env")
 	if err != nil {
@@ -249,10 +250,78 @@ func NewServer(port int, versionInfo *VersionInfo) (*Server, error) {
 	// Start token cleanup scheduler
 	tokenService.StartCleanupScheduler()
 
+	triggerAutoInstall := func(integrationID int) {
+		if autoWebhookInstaller != nil {
+			autoWebhookInstaller.TriggerAutoInstallation(integrationID)
+		}
+	}
+
+	learningsSvc := learnings.NewService(learnings.NewPostgresStore(db))
+
+	server := &Server{
+		port:                 port,
+		db:                   db,
+		jobQueue:             jq,
+		dashboardManager:     dashboardManager,
+		autoWebhookInstaller: autoWebhookInstaller,
+		versionInfo:          versionInfo,
+		deploymentConfig:     deploymentConfig,
+		authHandlers:         authHandlers,
+		tokenService:         tokenService,
+		userHandlers:         userHandlers,
+		userService:          userService,
+		profileHandlers:      profileHandlers,
+		orgHandlers:          orgHandlers,
+		orgService:           orgService,
+		testHandlers:         testHandlers,
+		devMode:              devMode,
+		gitlabAuthService:    gitlabprovider.NewAuthService(db, triggerAutoInstall),
+		learningsService:     learningsSvc,
+	}
+
+	// Initialize V2 webhook providers
+	server.gitlabProviderV2 = gitlabprovider.NewGitLabV2Provider(db, gitlaboutput.NewAPIClient())
+	server.githubProviderV2 = githubprovider.NewGitHubV2Provider(db, githuboutput.NewAPIClient())
+	server.bitbucketProviderV2 = bitbucketprovider.NewBitbucketV2Provider(db, bitbucketoutput.NewAPIClient())
+	server.giteaProviderV2 = giteaprovider.NewGiteaV2Provider(db, giteaoutput.NewAPIClient())
+
+	// Initialize V2 webhook registry
+	server.webhookRegistryV2 = NewWebhookProviderRegistry(server)
+
+	// Initialize V2 webhook orchestrator
+	server.webhookOrchestratorV2 = NewWebhookOrchestratorV2(server)
+
+	// Register webhook orchestrator callback with reviewprocessor
+	reviewprocessor.RegisterWebhookReviewHandler(func(ctx context.Context, db *sql.DB, orgID int64, connectorID int64, eventJSON string, scenarioType string) error {
+		return server.webhookOrchestratorV2.ProcessAsync(ctx, orgID, connectorID, eventJSON, scenarioType)
+	})
+
+	// Set the server reference in auto webhook installer (circular dependency)
+	autoWebhookInstaller.server = server
+
+	if err := BackfillRecentActivityOrgIDs(db); err != nil {
+		log.Printf("Failed to backfill recent activity org IDs: %v", err)
+	}
+
+	// Validate configuration before starting server
+	if err := server.validateConfiguration(); err != nil {
+		return nil, fmt.Errorf("configuration validation failed: %w", err)
+	}
+
+	return server, nil
+}
+
+// NewServer creates a new API server with HTTP routing and middlewares initialized
+func NewServer(port int, versionInfo *VersionInfo) (*Server, error) {
+	server, err := appContext(port, versionInfo)
+	if err != nil {
+		return nil, err
+	}
+
 	e := echo.New()
+	e.HideBanner = true
 
 	// Middleware
-	// e.Use(middleware.Logger()) // Disabled to reduce log noise
 	e.Use(middleware.Recover())
 	e.Use(middleware.CORSWithConfig(middleware.CORSConfig{
 		AllowOriginFunc: func(origin string) (bool, error) {
@@ -287,69 +356,20 @@ func NewServer(port int, versionInfo *VersionInfo) (*Server, error) {
 	// Add database to context
 	e.Use(func(next echo.HandlerFunc) echo.HandlerFunc {
 		return func(c echo.Context) error {
-			c.Set("db", db)
+			c.Set("db", server.db)
 			return next(c)
 		}
 	})
 
-	triggerAutoInstall := func(integrationID int) {
-		if autoWebhookInstaller != nil {
-			autoWebhookInstaller.TriggerAutoInstallation(integrationID)
-		}
-	}
-
-	learningsSvc := learnings.NewService(learnings.NewPostgresStore(db))
-
-	server := &Server{
-		echo:                 e,
-		port:                 port,
-		db:                   db,
-		jobQueue:             jq,
-		dashboardManager:     dashboardManager,
-		autoWebhookInstaller: autoWebhookInstaller,
-		versionInfo:          versionInfo,
-		deploymentConfig:     deploymentConfig,
-		authHandlers:         authHandlers,
-		tokenService:         tokenService,
-		userHandlers:         userHandlers,
-		userService:          userService,
-		profileHandlers:      profileHandlers,
-		orgHandlers:          orgHandlers,
-		orgService:           orgService,
-		testHandlers:         testHandlers,
-		devMode:              devMode,
-		gitlabAuthService:    gitlabprovider.NewAuthService(db, triggerAutoInstall),
-		learningsService:     learningsSvc,
-	}
-
-	// Initialize V2 webhook providers
-	server.gitlabProviderV2 = gitlabprovider.NewGitLabV2Provider(db, gitlaboutput.NewAPIClient())
-	server.githubProviderV2 = githubprovider.NewGitHubV2Provider(db, githuboutput.NewAPIClient())
-	server.bitbucketProviderV2 = bitbucketprovider.NewBitbucketV2Provider(db, bitbucketoutput.NewAPIClient())
-	server.giteaProviderV2 = giteaprovider.NewGiteaV2Provider(db, giteaoutput.NewAPIClient())
-
-	// Initialize V2 webhook registry
-	server.webhookRegistryV2 = NewWebhookProviderRegistry(server)
-
-	// Initialize V2 webhook orchestrator
-	server.webhookOrchestratorV2 = NewWebhookOrchestratorV2(server)
-
-	// Set the server reference in auto webhook installer (circular dependency)
-	autoWebhookInstaller.server = server
-
-	if err := BackfillRecentActivityOrgIDs(db); err != nil {
-		log.Printf("Failed to backfill recent activity org IDs: %v", err)
-	}
-
-	// Validate configuration before starting server
-	if err := server.validateConfiguration(); err != nil {
-		return nil, fmt.Errorf("configuration validation failed: %w", err)
-	}
-
-	// Setup routes
+	server.echo = e
 	server.setupRoutes()
 
 	return server, nil
+}
+
+// WorkerContext creates a new Server instance optimized for running background workers (no Echo router initialized)
+func WorkerContext(versionInfo *VersionInfo) (*Server, error) {
+	return appContext(0, versionInfo)
 }
 
 func ensureRequiredBillingSchema(ctx context.Context, db *sql.DB) error {
@@ -1789,4 +1809,9 @@ func (s *Server) WebhookOrchestratorV2Handler(c echo.Context) error {
 	}
 
 	return s.webhookOrchestratorV2.ProcessWebhookEvent(c)
+}
+
+// GetJobQueue returns the initialized job queue
+func (s *Server) GetJobQueue() *jobqueue.JobQueue {
+	return s.jobQueue
 }

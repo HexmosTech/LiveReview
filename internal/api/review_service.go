@@ -2,6 +2,7 @@ package api
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log"
 	"net/http"
@@ -152,8 +153,11 @@ func (s *Server) TriggerReviewV2(c echo.Context) error {
 	// Phase 5: Track activity (log the trigger event)
 	s.trackActivity(ctx)
 
-	// Phase 6: Launch background processing (goroutine with completion callback)
-	s.launchBackgroundProcessing(ctx)
+	// Phase 6: Launch background processing via River job queue
+	if err := s.launchBackgroundProcessing(ctx); err != nil {
+		log.Printf("[ERROR] TriggerReviewV2: Failed to queue manual review: %v", err)
+		return c.JSON(http.StatusInternalServerError, ErrorResponse{Error: fmt.Sprintf("failed to queue review: %v", err)})
+	}
 
 	// Return success response immediately
 	if ctx.logger != nil {
@@ -286,12 +290,6 @@ func (s *Server) setupReviewContext(c echo.Context) (*reviewSetupContext, error)
 		logger.Log("Organization ID: %d", orgID)
 		logger.Log("MR/PR URL: %s", req.URL)
 	}
-
-	// Immediately mark review as in progress (sets started_at)
-	go func() {
-		rm := NewReviewManager(s.db)
-		_ = rm.UpdateReviewStatus(review.ID, "in_progress")
-	}()
 
 	return ctx, nil
 }
@@ -537,111 +535,150 @@ func (s *Server) trackActivity(ctx *reviewSetupContext) {
 	}()
 }
 
-// launchBackgroundProcessing starts the review goroutine with completion callback
-func (s *Server) launchBackgroundProcessing(ctx *reviewSetupContext) {
-	// Set up completion callback
-	completionCallback := func(result interface{}) {
-		if ctx.logger != nil {
-			ctx.logger.LogSection("REVIEW COMPLETION CALLBACK")
-			ctx.logger.Log("Review processing completed")
-		}
-		log.Printf("[INFO] TriggerReviewV2: Review processing completed for %s", ctx.reviewID)
-	}
-
-	// Process review asynchronously using a goroutine
+// launchBackgroundProcessing enqueues the review request into the River job queue
+func (s *Server) launchBackgroundProcessing(ctx *reviewSetupContext) error {
 	if ctx.logger != nil {
-		ctx.logger.LogSection("BACKGROUND PROCESSING")
-		ctx.logger.Log("Starting review process in background goroutine...")
-		ctx.logger.Log("⚠ Note: Detailed review processing logs will continue in this file")
+		ctx.logger.LogSection("BACKGROUND QUEUEING")
+		ctx.logger.Log("Enqueuing review process into River job queue...")
 	}
-	log.Printf("[DEBUG] TriggerReviewV2: Starting review process in background")
-	go func() {
-		if ctx.logger != nil {
-			ctx.logger.LogSection("GOROUTINE EXECUTION")
-			ctx.logger.Log("=== Background processing started ===")
-			ctx.logger.Log("Calling reviewService.ProcessReview...")
-		}
-		result := ctx.reviewService.ProcessReview(context.Background(), *ctx.request)
-		if ctx.logger != nil {
-			ctx.logger.Log("ProcessReview returned, calling completion callback...")
-		}
-		completionCallback(result)
-		// Update review status based on result
-		rm := NewReviewManager(s.db)
-		if result != nil && result.Success {
-			_ = rm.UpdateReviewStatus(ctx.review.ID, "completed")
-			reviewID := ctx.review.ID
+	log.Printf("[DEBUG] TriggerReviewV2: Queueing review process in River")
 
-			operationID := fmt.Sprintf("manual-review:%d", ctx.review.ID)
-			idempotencyKey := operationID
-			if result.BillableLOC > 0 {
-				quotaModule := license.NewQuotaModule(s.db)
-				_, err := quotaModule.RecordBatch(context.Background(), license.QuotaRecordBatchInput{
-					OrgID:          ctx.orgID,
+	requestJSONBytes, err := json.Marshal(ctx.request)
+	if err != nil {
+		return fmt.Errorf("marshal review request: %w", err)
+	}
+
+	err = s.jobQueue.QueueManualReviewJob(context.Background(), ctx.orgID, string(ctx.planCode), ctx.actorUserID, ctx.actorEmail, ctx.review.ID, string(requestJSONBytes))
+	if err != nil {
+		return fmt.Errorf("queue manual review job: %w", err)
+	}
+
+	if ctx.logger != nil {
+		ctx.logger.Log("✓ Successfully enqueued manual review job")
+		ctx.logger.Close()
+	}
+	return nil
+}
+
+// ProcessManualReview implements jobqueue.ManualReviewProcessor.
+func (s *Server) ProcessManualReview(ctx context.Context, orgID int64, planCode string, actorUserID *int64, actorEmail string, reviewID int64, requestJSON string) error {
+	var request reviewpkg.ReviewRequest
+	if err := json.Unmarshal([]byte(requestJSON), &request); err != nil {
+		log.Printf("[ERROR] ProcessManualReview: Failed to unmarshal review request: %v", err)
+		return fmt.Errorf("failed to unmarshal review request: %w", err)
+	}
+
+	// Recreate reviewService instance based on the provider config URL
+	token := &IntegrationToken{
+		Provider:    request.Provider.Type,
+		ProviderURL: request.Provider.URL,
+	}
+	reviewService, err := s.createReviewService(token)
+	if err != nil {
+		log.Printf("[ERROR] ProcessManualReview: Failed to create review service: %v", err)
+		return fmt.Errorf("failed to create review service: %w", err)
+	}
+
+	reviewIDStr := fmt.Sprintf("%d", reviewID)
+	logger, err := logging.StartReviewLoggingWithIDs(reviewIDStr, reviewID, orgID)
+	if err != nil {
+		log.Printf("[WARN] ProcessManualReview: Failed to start logging: %v", err)
+	}
+
+	if logger != nil {
+		eventSink := NewDatabaseEventSink(s.db)
+		logger.SetEventSink(eventSink)
+		logger.LogSection("REVIEW PROCESSING STARTED VIA QUEUE")
+		logger.Log("Review ID: %d", reviewID)
+		logger.Log("Organization ID: %d", orgID)
+	}
+
+	// Update review status to in_progress
+	rm := NewReviewManager(s.db)
+	_ = rm.UpdateReviewStatus(reviewID, "in_progress")
+
+	// Call ProcessReview
+	result := reviewService.ProcessReview(ctx, request)
+
+	if logger != nil {
+		logger.LogSection("REVIEW COMPLETION CALLBACK")
+		logger.Log("Review processing completed")
+	}
+
+	if result != nil && result.Success {
+		_ = rm.UpdateReviewStatus(reviewID, "completed")
+
+		operationID := fmt.Sprintf("manual-review:%d", reviewID)
+		idempotencyKey := operationID
+		if result.BillableLOC > 0 {
+			quotaModule := license.NewQuotaModule(s.db)
+			_, err := quotaModule.RecordBatch(ctx, license.QuotaRecordBatchInput{
+				OrgID:          orgID,
+				ReviewID:       &reviewID,
+				OperationType:  "manual_review",
+				TriggerSource:  "manual",
+				OperationID:    operationID,
+				IdempotencyKey: idempotencyKey,
+				BatchIndex:     1,
+				Batch: license.QuotaBatchInput{
+					PlanCode:                 license.PlanType(planCode),
+					Provider:                 result.Provider,
+					RawLOCBatch:              result.BillableLOC,
+					ProviderTotalInputTokens: result.InputTokens,
+					OutputTokensBatch:        result.OutputTokens,
+				},
+			})
+			if err != nil {
+				log.Printf("[WARN] Manual review batch accounting failed for review %d: %v", reviewID, err)
+			} else {
+				finalized, err := quotaModule.FinalizeOperation(ctx, license.QuotaFinalizeInput{
+					OrgID:          orgID,
 					ReviewID:       &reviewID,
+					ActorUserID:    actorUserID,
+					ActorEmail:     actorEmail,
 					OperationType:  "manual_review",
 					TriggerSource:  "manual",
 					OperationID:    operationID,
 					IdempotencyKey: idempotencyKey,
-					BatchIndex:     1,
-					Batch: license.QuotaBatchInput{
-						PlanCode:                 ctx.planCode,
-						Provider:                 result.Provider,
-						RawLOCBatch:              result.BillableLOC,
-						ProviderTotalInputTokens: result.InputTokens,
-						OutputTokensBatch:        result.OutputTokens,
-					},
+					Provider:       result.Provider,
+					Model:          result.Model,
+					BatchFallback:  nil,
 				})
 				if err != nil {
-					log.Printf("[WARN] Manual review batch accounting failed for review %d: %v", ctx.review.ID, err)
+					log.Printf("[WARN] Manual review accounting finalization failed for review %d: %v", reviewID, err)
 				} else {
-					finalized, err := quotaModule.FinalizeOperation(context.Background(), license.QuotaFinalizeInput{
-						OrgID:          ctx.orgID,
-						ReviewID:       &reviewID,
-						ActorUserID:    ctx.actorUserID,
-						ActorEmail:     ctx.actorEmail,
-						OperationType:  "manual_review",
-						TriggerSource:  "manual",
-						OperationID:    operationID,
-						IdempotencyKey: idempotencyKey,
-						Provider:       result.Provider,
-						Model:          result.Model,
-						BatchFallback:  nil,
-					})
-					if err != nil {
-						log.Printf("[WARN] Manual review accounting finalization failed for review %d: %v", ctx.review.ID, err)
-					} else {
-						meta := map[string]interface{}{
-							"operation_raw_loc":      finalized.RawLOCTotal,
-							"operation_billable_loc": finalized.EffectiveLOCTotal,
-							"operation_extra_loc":    finalized.ExtraEffectiveLOCTotal,
-							"context_tokens":         finalized.ContextTokensTotal,
-							"allowed_context_tokens": finalized.AllowedContextTokensTotal,
-							"extra_context_tokens":   finalized.ExtraContextTokensTotal,
-							"input_cost_usd":         finalized.InputCostUSDTotal,
-							"output_cost_usd":        finalized.OutputCostUSDTotal,
-							"total_cost_usd":         finalized.TotalCostUSDTotal,
-							"pricing_version":        finalized.PricingVersion,
-							"operation_id":           operationID,
-							"idempotency_key":        idempotencyKey,
-							"accounted_at":           time.Now().UTC().Format(time.RFC3339),
-						}
-						for k, v := range aiExecutionMetadataFromConfig(ctx.request.AI.Config) {
-							meta[k] = v
-						}
-						_ = rm.MergeReviewMetadata(ctx.review.ID, meta)
+					meta := map[string]interface{}{
+						"operation_raw_loc":      finalized.RawLOCTotal,
+						"operation_billable_loc": finalized.EffectiveLOCTotal,
+						"operation_extra_loc":    finalized.ExtraEffectiveLOCTotal,
+						"context_tokens":         finalized.ContextTokensTotal,
+						"allowed_context_tokens": finalized.AllowedContextTokensTotal,
+						"extra_context_tokens":   finalized.ExtraContextTokensTotal,
+						"input_cost_usd":         finalized.InputCostUSDTotal,
+						"output_cost_usd":        finalized.OutputCostUSDTotal,
+						"total_cost_usd":         finalized.TotalCostUSDTotal,
+						"pricing_version":        finalized.PricingVersion,
+						"operation_id":           operationID,
+						"idempotency_key":        idempotencyKey,
+						"accounted_at":           time.Now().UTC().Format(time.RFC3339),
 					}
+					for k, v := range aiExecutionMetadataFromConfig(request.AI.Config) {
+						meta[k] = v
+					}
+					_ = rm.MergeReviewMetadata(reviewID, meta)
 				}
 			}
-		} else {
-			_ = rm.UpdateReviewStatus(ctx.review.ID, "failed")
 		}
-		if ctx.logger != nil {
-			ctx.logger.Log("=== Background processing completed ===")
-			// Close the logger now that all processing is done
-			ctx.logger.Close()
-		}
-	}()
+	} else {
+		_ = rm.UpdateReviewStatus(reviewID, "failed")
+	}
+
+	if logger != nil {
+		logger.Log("=== Background processing completed ===")
+		logger.Close()
+	}
+
+	return nil
 }
 
 func aiExecutionMetadataFromConfig(config map[string]interface{}) map[string]interface{} {

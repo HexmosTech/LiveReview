@@ -3,7 +3,6 @@ package jobqueue
 import (
 	"context"
 	"database/sql"
-	"encoding/json"
 	"fmt"
 	"log"
 	"os"
@@ -17,9 +16,80 @@ import (
 	"github.com/livereview/internal/license"
 	"github.com/livereview/internal/logging"
 	"github.com/livereview/internal/review"
+	reviewprocessor "github.com/livereview/internal/review_processor"
 	"github.com/livereview/pkg/models"
 	"github.com/riverqueue/river"
 )
+
+// WebhookReviewJobArgs represents the arguments for an asynchronous webhook review job.
+type WebhookReviewJobArgs struct {
+	OrgID        int64  `json:"org_id"`
+	ConnectorID  int64  `json:"connector_id"`
+	EventJSON    string `json:"event_json"`
+	ScenarioType string `json:"scenario_type"`
+}
+
+// Kind returns the job kind for River routing.
+func (WebhookReviewJobArgs) Kind() string {
+	return "webhook_review"
+}
+
+// WebhookReviewWorker handles async webhook reviews.
+type WebhookReviewWorker struct {
+	river.WorkerDefaults[WebhookReviewJobArgs]
+	jq *JobQueue
+}
+
+// Timeout overrides the default River 60s timeout to allow longer AI reviews.
+func (w *WebhookReviewWorker) Timeout(job *river.Job[WebhookReviewJobArgs]) time.Duration {
+	return 10 * time.Minute
+}
+
+// Work implements the River Worker interface.
+func (w *WebhookReviewWorker) Work(ctx context.Context, job *river.Job[WebhookReviewJobArgs]) error {
+	args := job.Args
+	if w.jq == nil || w.jq.db == nil {
+		log.Printf("[ERROR] Database connection not available on JobQueue")
+		return fmt.Errorf("database connection not available")
+	}
+	return reviewprocessor.ProcessWebhookReview(ctx, w.jq.db, args.OrgID, args.ConnectorID, args.EventJSON, args.ScenarioType)
+}
+
+// ManualReviewJobArgs represents the arguments for an asynchronous manual dashboard review job.
+type ManualReviewJobArgs struct {
+	OrgID       int64  `json:"org_id"`
+	PlanCode    string `json:"plan_code"`
+	ActorUserID *int64 `json:"actor_user_id,omitempty"`
+	ActorEmail  string `json:"actor_email"`
+	ReviewID    int64  `json:"review_id"`
+	RequestJSON string `json:"request_json"`
+}
+
+// Kind returns the job kind for River routing.
+func (ManualReviewJobArgs) Kind() string {
+	return "manual_review"
+}
+
+// ManualReviewWorker handles async manual reviews.
+type ManualReviewWorker struct {
+	river.WorkerDefaults[ManualReviewJobArgs]
+	jq *JobQueue
+}
+
+// Timeout overrides the default River 60s timeout to allow longer AI reviews.
+func (w *ManualReviewWorker) Timeout(job *river.Job[ManualReviewJobArgs]) time.Duration {
+	return 10 * time.Minute
+}
+
+// Work implements the River Worker interface.
+func (w *ManualReviewWorker) Work(ctx context.Context, job *river.Job[ManualReviewJobArgs]) error {
+	args := job.Args
+	if w.jq == nil || w.jq.db == nil {
+		log.Printf("[ERROR] Database connection not available on JobQueue")
+		return fmt.Errorf("database connection not available")
+	}
+	return reviewprocessor.ProcessManualReview(ctx, w.jq.db, args.OrgID, args.PlanCode, args.ActorUserID, args.ActorEmail, args.ReviewID, args.RequestJSON)
+}
 
 // DiffReviewJobArgs represents the arguments for an asynchronous diff review job.
 // The raw base64 ZIP payload is passed directly in the job args and stored in
@@ -62,7 +132,7 @@ func (w *DiffReviewWorker) Work(ctx context.Context, job *river.Job[DiffReviewJo
 		log.Printf("[ERROR] Failed to start logging for review %d: %v", args.ReviewID, err)
 	}
 
-	eventSink := newWorkerEventSink(w.db)
+	eventSink := reviewprocessor.NewDatabaseEventSink(w.db)
 	if logger != nil {
 		logger.SetEventSink(eventSink)
 		defer logger.Close()
@@ -116,7 +186,8 @@ func (w *DiffReviewWorker) Work(ctx context.Context, job *river.Job[DiffReviewJo
 
 	// 5. Convert diffs and persist preloaded_changes for UI polling
 	modelDiffs := diffutil.ConvertLocalDiffs(localDiffs)
-	if err := w.mergeReviewMetadata(ctx, args.ReviewID, map[string]interface{}{
+	rm := reviewprocessor.NewReviewManager(w.db)
+	if err := rm.MergeReviewMetadata(args.ReviewID, map[string]interface{}{
 		"preloaded_changes":      modelDiffs,
 		"operation_billable_loc": billableLOC,
 	}); err != nil {
@@ -124,7 +195,7 @@ func (w *DiffReviewWorker) Work(ctx context.Context, job *river.Job[DiffReviewJo
 	}
 
 	// 6. Transition status to in_progress
-	_ = w.updateReviewStatus(ctx, args.ReviewID, "in_progress")
+	_ = rm.UpdateReviewStatus(args.ReviewID, "in_progress")
 
 	// 7. Load AI Configuration
 	aiConfig, err := w.getAIConfigFromDatabase(ctx, args.OrgID, planCode)
@@ -230,7 +301,7 @@ func (w *DiffReviewWorker) Work(ctx context.Context, job *river.Job[DiffReviewJo
 					for k, v := range aiExecutionMetadataFromConfig(reviewRequest.AI.Config) {
 						meta[k] = v
 					}
-					if err := w.mergeReviewMetadata(ctx, args.ReviewID, meta); err != nil {
+					if err := rm.MergeReviewMetadata(args.ReviewID, meta); err != nil {
 						log.Printf("[WARN] failed to store accounted_at for review %d: %v", args.ReviewID, err)
 					}
 				}
@@ -273,11 +344,11 @@ func (w *DiffReviewWorker) Work(ctx context.Context, job *river.Job[DiffReviewJo
 	if failureReason != "" {
 		meta["failure_reason"] = failureReason
 	}
-	if err := w.mergeReviewMetadata(ctx, args.ReviewID, meta); err != nil {
+	if err := rm.MergeReviewMetadata(args.ReviewID, meta); err != nil {
 		log.Printf("[WARN] failed to persist review_result for %d: %v", args.ReviewID, err)
 	}
 
-	if err := w.updateReviewStatus(ctx, args.ReviewID, status); err != nil {
+	if err := rm.UpdateReviewStatus(args.ReviewID, status); err != nil {
 		log.Printf("[WARN] failed to update review status for %d: %v", args.ReviewID, err)
 	}
 
@@ -285,7 +356,7 @@ func (w *DiffReviewWorker) Work(ctx context.Context, job *river.Job[DiffReviewJo
 	if summary != "" {
 		title := extractFirstHeading(summary)
 		if title != "" {
-			if err := w.mergeReviewMetadata(ctx, args.ReviewID, map[string]interface{}{"ai_summary_title": title}); err != nil {
+			if err := rm.MergeReviewMetadata(args.ReviewID, map[string]interface{}{"ai_summary_title": title}); err != nil {
 				log.Printf("[WARN] failed to persist ai_summary_title for %d: %v", args.ReviewID, err)
 			}
 		}
@@ -298,14 +369,15 @@ func (w *DiffReviewWorker) Work(ctx context.Context, job *river.Job[DiffReviewJo
 }
 
 // handleFailure marks the review as failed and emits failure events.
-func (w *DiffReviewWorker) handleFailure(ctx context.Context, args DiffReviewJobArgs, logger *logging.ReviewLogger, eventSink *workerEventSink, failureReason string, errorCode string) {
+func (w *DiffReviewWorker) handleFailure(ctx context.Context, args DiffReviewJobArgs, logger *logging.ReviewLogger, eventSink logging.EventSink, failureReason string, errorCode string) {
 	if logger != nil {
 		logger.LogSection("REVIEW FAILED")
 		logger.Log("Review processing encountered errors: %s", failureReason)
 	}
 
-	_ = w.updateReviewStatus(ctx, args.ReviewID, "failed")
-	_ = w.mergeReviewMetadata(ctx, args.ReviewID, map[string]interface{}{
+	rm := reviewprocessor.NewReviewManager(w.db)
+	_ = rm.UpdateReviewStatus(args.ReviewID, "failed")
+	_ = rm.MergeReviewMetadata(args.ReviewID, map[string]interface{}{
 		"failure_reason": failureReason,
 		"error_code":     errorCode,
 	})
@@ -313,55 +385,7 @@ func (w *DiffReviewWorker) handleFailure(ctx context.Context, args DiffReviewJob
 	_ = eventSink.EmitCompletionEvent(ctx, args.ReviewID, args.OrgID, "", 0, failureReason)
 }
 
-// --- DB helpers (direct SQL, no dependency on api package) ---
 
-func (w *DiffReviewWorker) updateReviewStatus(ctx context.Context, reviewID int64, status string) error {
-	var query string
-	var args []interface{}
-
-	switch status {
-	case "in_progress":
-		query = `UPDATE reviews SET status = $1, started_at = NOW() WHERE id = $2`
-		args = []interface{}{status, reviewID}
-	case "completed", "failed":
-		query = `UPDATE reviews SET status = $1, completed_at = NOW() WHERE id = $2`
-		args = []interface{}{status, reviewID}
-	default:
-		query = `UPDATE reviews SET status = $1 WHERE id = $2`
-		args = []interface{}{status, reviewID}
-	}
-
-	_, err := w.db.ExecContext(ctx, query, args...)
-	return err
-}
-
-func (w *DiffReviewWorker) mergeReviewMetadata(ctx context.Context, reviewID int64, updates map[string]interface{}) error {
-	if len(updates) == 0 {
-		return nil
-	}
-
-	var currentJSON []byte
-	if err := w.db.QueryRowContext(ctx, `SELECT COALESCE(metadata, '{}') FROM reviews WHERE id = $1`, reviewID).Scan(&currentJSON); err != nil {
-		return fmt.Errorf("failed to load review metadata: %w", err)
-	}
-
-	existing := map[string]interface{}{}
-	if len(currentJSON) > 0 {
-		_ = json.Unmarshal(currentJSON, &existing)
-	}
-
-	for k, v := range updates {
-		existing[k] = v
-	}
-
-	merged, err := json.Marshal(existing)
-	if err != nil {
-		return fmt.Errorf("failed to marshal merged metadata: %w", err)
-	}
-
-	_, err = w.db.ExecContext(ctx, `UPDATE reviews SET metadata = $1 WHERE id = $2`, merged, reviewID)
-	return err
-}
 
 // --- AI Config helpers (replicated from api/reviews_api.go) ---
 
@@ -590,90 +614,4 @@ func extractFirstHeading(markdown string) string {
 	return ""
 }
 
-// --- Lightweight event sink (implements logging.EventSink via direct SQL) ---
 
-// workerEventSink implements logging.EventSink using direct SQL inserts
-// into the review_events table, avoiding circular dependency on the api package.
-type workerEventSink struct {
-	db *sql.DB
-}
-
-func newWorkerEventSink(db *sql.DB) *workerEventSink {
-	return &workerEventSink{db: db}
-}
-
-func (s *workerEventSink) EmitStatusEvent(ctx context.Context, reviewID, orgID int64, status string) error {
-	data := map[string]interface{}{"status": status}
-	return s.insertEvent(ctx, reviewID, orgID, "status", "info", nil, data)
-}
-
-func (s *workerEventSink) EmitLogEvent(ctx context.Context, reviewID, orgID int64, level, message, batchID string) error {
-	var batchIDPtr *string
-	if batchID != "" {
-		batchIDPtr = &batchID
-	}
-	data := map[string]interface{}{"message": message}
-	return s.insertEvent(ctx, reviewID, orgID, "log", level, batchIDPtr, data)
-}
-
-func (s *workerEventSink) EmitBatchEvent(ctx context.Context, reviewID, orgID int64, batchID, status string, tokenEstimate, fileCount int, comments interface{}) error {
-	data := map[string]interface{}{"status": status}
-	if tokenEstimate > 0 {
-		data["tokenEstimate"] = tokenEstimate
-	}
-	if fileCount > 0 {
-		data["fileCount"] = fileCount
-	}
-	if comments != nil {
-		data["comments"] = comments
-	}
-	return s.insertEvent(ctx, reviewID, orgID, "batch", "info", &batchID, data)
-}
-
-func (s *workerEventSink) EmitArtifactEvent(ctx context.Context, reviewID, orgID int64, kind, url, batchID string, sizeBytes int64, previewHead, previewTail string) error {
-	var batchIDPtr *string
-	if batchID != "" {
-		batchIDPtr = &batchID
-	}
-	data := map[string]interface{}{"kind": kind, "url": url}
-	if sizeBytes > 0 {
-		data["sizeBytes"] = sizeBytes
-	}
-	if previewHead != "" {
-		data["previewHead"] = previewHead
-	}
-	if previewTail != "" {
-		data["previewTail"] = previewTail
-	}
-	return s.insertEvent(ctx, reviewID, orgID, "artifact", "info", batchIDPtr, data)
-}
-
-func (s *workerEventSink) EmitCompletionEvent(ctx context.Context, reviewID, orgID int64, resultSummary string, commentCount int, errorSummary string) error {
-	level := "info"
-	data := map[string]interface{}{}
-	if resultSummary != "" {
-		data["resultSummary"] = resultSummary
-	}
-	if commentCount > 0 {
-		data["commentCount"] = commentCount
-	}
-	if errorSummary != "" {
-		level = "error"
-		data["errorSummary"] = errorSummary
-	}
-	return s.insertEvent(ctx, reviewID, orgID, "completion", level, nil, data)
-}
-
-func (s *workerEventSink) insertEvent(ctx context.Context, reviewID, orgID int64, eventType, level string, batchID *string, data interface{}) error {
-	dataJSON, err := json.Marshal(data)
-	if err != nil {
-		return fmt.Errorf("failed to marshal event data: %w", err)
-	}
-
-	_, err = s.db.ExecContext(ctx,
-		`INSERT INTO public.review_events (review_id, org_id, ts, event_type, level, batch_id, data)
-		 VALUES ($1, $2, NOW(), $3, $4, $5, $6)`,
-		reviewID, orgID, eventType, level, batchID, dataJSON,
-	)
-	return err
-}
