@@ -13,6 +13,7 @@ import (
 	"strings"
 
 	"github.com/livereview/cmd/mrmodel/lib"
+	"github.com/livereview/internal/lrcconfig"
 	"github.com/livereview/pkg/models"
 	"github.com/livereview/storage/archive"
 )
@@ -40,16 +41,16 @@ func CalculateEffectiveDiffLOCFromLocalDiffs(localDiffs []lib.LocalCodeDiff) int
 }
 
 // ParseDiffZipBase64 decodes the client payload (base64 zip containing a unified diff)
-// into parsed local diffs without touching the database.
-func ParseDiffZipBase64(encoded string) ([]lib.LocalCodeDiff, error) {
+// and returns the parsed local diffs and raw .lrc/ configuration files bundle.
+func ParseDiffZipBase64(encoded string) ([]lib.LocalCodeDiff, lrcconfig.Bundle, error) {
 	zipBytes, err := base64.StdEncoding.DecodeString(encoded)
 	if err != nil {
-		return nil, fmt.Errorf("failed to decode diff_zip_base64: %w", err)
+		return nil, lrcconfig.Bundle{}, fmt.Errorf("failed to decode diff_zip_base64: %w", err)
 	}
 
 	tempDir, err := archive.DiffReviewCreateTempWorkspace()
 	if err != nil {
-		return nil, fmt.Errorf("failed to create temp workspace: %w", err)
+		return nil, lrcconfig.Bundle{}, fmt.Errorf("failed to create temp workspace: %w", err)
 	}
 	defer func() {
 		if cleanupErr := archive.DiffReviewRemoveWorkspace(tempDir); cleanupErr != nil {
@@ -59,29 +60,96 @@ func ParseDiffZipBase64(encoded string) ([]lib.LocalCodeDiff, error) {
 
 	zipPath := filepath.Join(tempDir, "diff.zip")
 	if err := archive.DiffReviewWriteUploadedZip(zipPath, zipBytes); err != nil {
-		return nil, fmt.Errorf("failed to persist uploaded zip: %w", err)
+		return nil, lrcconfig.Bundle{}, fmt.Errorf("failed to persist uploaded zip: %w", err)
 	}
 
 	extractedFiles, err := extractZip(zipPath, tempDir)
 	if err != nil {
-		return nil, fmt.Errorf("failed to extract zip: %w", err)
+		return nil, lrcconfig.Bundle{}, fmt.Errorf("failed to extract zip: %w", err)
 	}
 	if len(extractedFiles) == 0 {
-		return nil, fmt.Errorf("zip archive contained no files")
+		return nil, lrcconfig.Bundle{}, fmt.Errorf("zip archive contained no files")
 	}
 
 	diffContent, err := archive.DiffReviewReadExtractedDiff(extractedFiles[0])
 	if err != nil {
-		return nil, fmt.Errorf("failed to read extracted diff: %w", err)
+		return nil, lrcconfig.Bundle{}, fmt.Errorf("failed to read extracted diff: %w", err)
 	}
 
 	parser := lib.NewLocalParser()
 	localDiffs, err := parser.Parse(string(diffContent))
 	if err != nil {
-		return nil, fmt.Errorf("failed to parse diff: %w", err)
+		return nil, lrcconfig.Bundle{}, fmt.Errorf("failed to parse diff: %w", err)
 	}
 
-	return localDiffs, nil
+	bundle, err := collectLRCBundle(tempDir)
+	if err != nil {
+		log.Printf("[WARN] failed to read .lrc/ bundle: %v", err)
+		bundle = lrcconfig.Bundle{}
+	}
+
+	return localDiffs, bundle, nil
+}
+
+// collectLRCBundle reads the .lrc/ tree extracted under tempDir (if any)
+// into an lrcconfig.Bundle keyed by path relative to .lrc/, with map keys
+// using "/" separators (via filepath.ToSlash) regardless of host OS.
+func collectLRCBundle(tempDir string) (lrcconfig.Bundle, error) {
+	lrcDir := filepath.Join(tempDir, ".lrc")
+	info, err := os.Stat(lrcDir)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return lrcconfig.Bundle{}, nil
+		}
+		return lrcconfig.Bundle{}, err
+	}
+	if !info.IsDir() {
+		return lrcconfig.Bundle{}, nil
+	}
+
+	bundle := lrcconfig.Bundle{Files: map[string][]byte{}}
+	walkErr := filepath.WalkDir(lrcDir, func(path string, d os.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if d.IsDir() {
+			return nil
+		}
+		// Only ever read plain files: extractZip never writes symlinks or
+		// other special files, but skip them defensively rather than
+		// following a symlink that somehow ended up here.
+		if !d.Type().IsRegular() {
+			return nil
+		}
+		rel, err := filepath.Rel(lrcDir, path)
+		if err != nil {
+			return err
+		}
+		content, err := os.ReadFile(path)
+		if err != nil {
+			return err
+		}
+		bundle.Files[filepath.ToSlash(rel)] = content
+		return nil
+	})
+	if walkErr != nil {
+		return lrcconfig.Bundle{}, walkErr
+	}
+
+	return bundle, nil
+}
+
+// maxExcludedFilesListed caps how many .lrc/ignore-excluded file paths are
+// named in a review summary before the rest are collapsed into "and N more",
+// so a large ignore list doesn't produce an unreadable summary.
+const maxExcludedFilesListed = 10
+
+func FormatExcludedFiles(excluded []string) string {
+	if len(excluded) <= maxExcludedFilesListed {
+		return strings.Join(excluded, ", ")
+	}
+	shown := excluded[:maxExcludedFilesListed]
+	return fmt.Sprintf("%s, and %d more", strings.Join(shown, ", "), len(excluded)-maxExcludedFilesListed)
 }
 
 func extractZip(zipPath, dest string) ([]string, error) {
