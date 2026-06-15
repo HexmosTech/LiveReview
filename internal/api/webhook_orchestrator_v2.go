@@ -2,6 +2,7 @@ package api
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"log"
@@ -228,8 +229,23 @@ func (wo *WebhookOrchestratorV2) ProcessWebhookEvent(c echo.Context) error {
 		}
 	}
 
-	// Phase 4: Asynchronous Processing (return response quickly)
-	go wo.processEventAsync(context.Background(), event, provider, scenario, startTime, orgID)
+	// Serialize the event to JSON
+	eventJSONBytes, err := json.Marshal(event)
+	if err != nil {
+		log.Printf("[ERROR] Failed to marshal webhook event: %v", err)
+		return c.JSON(http.StatusInternalServerError, map[string]string{
+			"error": "Internal serialization error",
+		})
+	}
+
+	// Phase 4: Asynchronous Processing via River job queue
+	err = wo.server.jobQueue.QueueWebhookReviewJob(c.Request().Context(), orgID, int64(connectorID), string(eventJSONBytes), scenario.Type)
+	if err != nil {
+		log.Printf("[ERROR] Failed to queue webhook review job: %v", err)
+		return c.JSON(http.StatusInternalServerError, map[string]string{
+			"error": "Failed to queue webhook review job",
+		})
+	}
 
 	// Return success immediately - processing continues asynchronously
 	return c.JSON(http.StatusOK, map[string]string{
@@ -241,6 +257,29 @@ func (wo *WebhookOrchestratorV2) ProcessWebhookEvent(c echo.Context) error {
 		"processing":    "async",
 		"response_time": fmt.Sprintf("%.2fms", float64(time.Since(startTime).Nanoseconds())/1e6),
 	})
+}
+
+// ProcessAsync implements jobqueue.WebhookProcessor interface.
+func (wo *WebhookOrchestratorV2) ProcessAsync(ctx context.Context, orgID int64, connectorID int64, eventJSON string, scenarioType string) error {
+	var event UnifiedWebhookEventV2
+	if err := json.Unmarshal([]byte(eventJSON), &event); err != nil {
+		log.Printf("[ERROR] Failed to unmarshal webhook event in job queue worker: %v", err)
+		return fmt.Errorf("unmarshal webhook event: %w", err)
+	}
+
+	provider, ok := wo.providerRegistry.providers[event.Provider]
+	if !ok {
+		log.Printf("[ERROR] Provider not found for queued webhook review: %s", event.Provider)
+		return fmt.Errorf("provider not found: %s", event.Provider)
+	}
+
+	scenario := ResponseScenarioV2{
+		Type: scenarioType,
+	}
+
+	// Run async processing
+	wo.processEventAsync(ctx, &event, provider, scenario, time.Now(), orgID)
+	return nil
 }
 
 // processEventAsync handles the complete event processing pipeline asynchronously

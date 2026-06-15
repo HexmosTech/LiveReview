@@ -207,3 +207,15 @@ type UnifiedReviewCommentV2 struct {
 	Position    *UnifiedPositionV2
 	Metadata    map[string]interface{}
 }
+
+// OperationUsageV2 represents AI model/tokens/LOC usage details for webhook requests.
+type OperationUsageV2 struct {
+	BillableLOC    int64
+	Chargeable     bool
+	Provider       string
+	Model          string
+	PricingVersion string
+	InputTokens    *int64
+	OutputTokens   *int64
+	CostUSD        *float64
+}
