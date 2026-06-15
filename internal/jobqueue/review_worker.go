@@ -15,6 +15,7 @@ import (
 	"github.com/livereview/internal/diffutil"
 	"github.com/livereview/internal/license"
 	"github.com/livereview/internal/logging"
+	"github.com/livereview/internal/lrcconfig"
 	"github.com/livereview/internal/review"
 	reviewprocessor "github.com/livereview/internal/review_processor"
 	"github.com/livereview/pkg/models"
@@ -146,14 +147,73 @@ func (w *DiffReviewWorker) Work(ctx context.Context, job *river.Job[DiffReviewJo
 	if logger != nil {
 		logger.Log("Decompressing and parsing diff files...")
 	}
-	localDiffs, err := diffutil.ParseDiffZipBase64(args.DiffZipBase64)
+	localDiffs, lrcBundle, err := diffutil.ParseDiffZipBase64(args.DiffZipBase64)
 	if err != nil {
 		w.handleFailure(ctx, args, logger, eventSink, fmt.Sprintf("failed to parse diff: %v", err), "failed_to_parse_zip")
 		return nil // Return nil so River marks job succeeded; business-level failure already handled.
 	}
 
+	// 2b. Apply .lrc/ignore (if present) before computing billable LOC, so
+	// ignored files affect neither the AI input nor billing.
+	var excludedFiles []string
+	ignorePatterns, ignoreIssues := lrcconfig.LoadIgnorePatterns(lrcBundle)
+	if len(ignoreIssues) > 0 && logger != nil {
+		logger.Log("[WARN] .lrc/ignore: %v", ignoreIssues)
+	}
+	if len(ignorePatterns) > 0 {
+		filtered, excluded := lrcconfig.FilterDiffs(localDiffs, ignorePatterns)
+		localDiffs = filtered
+		excludedFiles = excluded
+		if len(excluded) > 0 && logger != nil {
+			logger.Log("Excluded %d files by .lrc/ignore: %v", len(excluded), excluded)
+		}
+	}
+
+	// 2c. Build the Repository Rules bundle for prompt injection, truncating
+	// (with a warning) rather than failing the review if oversized.
+	repoRules, rulesCharCount, rulesIssues := lrcconfig.BuildRulesBundle(lrcBundle)
+	if rulesCharCount > lrcconfig.CharLimit {
+		if logger != nil {
+			logger.Log("[WARN] .lrc rules bundle (%d chars) exceeds limit (%d), truncating: %v", rulesCharCount, lrcconfig.CharLimit, rulesIssues)
+		}
+		repoRules = lrcconfig.TruncateAtLineBoundary(repoRules, lrcconfig.CharLimit)
+	}
+
 	// 3. Calculate Lines of Code
 	billableLOC := diffutil.CalculateEffectiveDiffLOCFromLocalDiffs(localDiffs)
+
+	// 5. Convert diffs and persist preloaded_changes for UI polling
+	modelDiffs := diffutil.ConvertLocalDiffs(localDiffs)
+	rm := reviewprocessor.NewReviewManager(w.db)
+	if err := rm.MergeReviewMetadata(args.ReviewID, map[string]interface{}{
+		"preloaded_changes":      modelDiffs,
+		"operation_billable_loc": billableLOC,
+		"excluded_files":         excludedFiles,
+	}); err != nil {
+		log.Printf("[WARN] failed to store preloaded_changes for review %d: %v", args.ReviewID, err)
+	}
+
+	// If .lrc/ignore excluded every changed file, there's nothing for the AI
+	// to review — complete immediately rather than running an empty review.
+	if len(localDiffs) == 0 && len(excludedFiles) > 0 {
+		summary := fmt.Sprintf("All %d changed file(s) excluded by .lrc/ignore: %s",
+			len(excludedFiles), diffutil.FormatExcludedFiles(excludedFiles))
+		if err := rm.MergeReviewMetadata(args.ReviewID, map[string]interface{}{
+			"review_result": map[string]interface{}{
+				"summary":  summary,
+				"comments": nil,
+			},
+		}); err != nil {
+			log.Printf("[WARN] failed to store review_result for review %d: %v", args.ReviewID, err)
+		}
+		if err := rm.UpdateReviewStatus(args.ReviewID, "completed"); err != nil {
+			log.Printf("[WARN] failed to mark review %d completed: %v", args.ReviewID, err)
+		}
+		if logger != nil {
+			logger.Log("All files ignored. Completed review immediately.")
+		}
+		return nil
+	}
 
 	// 4. Quota Preflight Check
 	planCode := license.PlanType(args.PlanCode)
@@ -184,16 +244,6 @@ func (w *DiffReviewWorker) Work(ctx context.Context, job *river.Job[DiffReviewJo
 		return nil
 	}
 
-	// 5. Convert diffs and persist preloaded_changes for UI polling
-	modelDiffs := diffutil.ConvertLocalDiffs(localDiffs)
-	rm := reviewprocessor.NewReviewManager(w.db)
-	if err := rm.MergeReviewMetadata(args.ReviewID, map[string]interface{}{
-		"preloaded_changes":      modelDiffs,
-		"operation_billable_loc": billableLOC,
-	}); err != nil {
-		log.Printf("[WARN] failed to store preloaded_changes for review %d: %v", args.ReviewID, err)
-	}
-
 	// 6. Transition status to in_progress
 	_ = rm.UpdateReviewStatus(args.ReviewID, "in_progress")
 
@@ -210,6 +260,7 @@ func (w *DiffReviewWorker) Work(ctx context.Context, job *river.Job[DiffReviewJo
 		Provider:         review.ProviderConfig{Type: "cli", URL: "", Token: "", Config: map[string]interface{}{}},
 		AI:               aiConfig,
 		PreloadedChanges: modelDiffs,
+		RepoRules:        repoRules,
 	}
 
 	if logger != nil {

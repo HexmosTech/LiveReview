@@ -30,11 +30,6 @@ type DiffReviewResult struct {
 	Comments []*models.ReviewComment `json:"comments"`
 }
 
-const (
-	maxExtractedFileBytes  = 25 << 20  // 25 MiB per extracted file
-	maxExtractedTotalBytes = 200 << 20 // 200 MiB across all extracted files
-)
-
 // DiffReview accepts a base64-encoded ZIP containing a unified diff and triggers a review.
 // Authentication is handled by middleware. This handler creates the review record,
 // marks it as processing, and enqueues the job for async execution by the worker.
@@ -228,6 +223,10 @@ func (s *Server) GetDiffReviewStatus(c echo.Context) error {
 		"files":     files,
 	}
 
+	if excluded, ok := meta["excluded_files"].([]interface{}); ok && len(excluded) > 0 {
+		response["excluded_files"] = excluded
+	}
+
 	// Include friendly_name if available
 	if reviewRecord.FriendlyName != nil {
 		response["friendly_name"] = *reviewRecord.FriendlyName
@@ -240,23 +239,6 @@ func (s *Server) GetDiffReviewStatus(c echo.Context) error {
 
 	return JSONWithEnvelope(c, http.StatusOK, response)
 }
-
-
-
-// extractFirstHeading extracts the first markdown heading (# ...) from a markdown text
-func extractFirstHeading(markdown string) string {
-	lines := strings.Split(markdown, "\n")
-	for _, line := range lines {
-		trimmed := strings.TrimSpace(line)
-		if strings.HasPrefix(trimmed, "#") {
-			// Remove the # characters and leading/trailing whitespace
-			heading := strings.TrimSpace(strings.TrimLeft(trimmed, "#"))
-			return heading
-		}
-	}
-	return ""
-}
-
 
 func decodePreloadedChanges(meta map[string]interface{}) ([]models.CodeDiff, error) {
 	raw, ok := meta["preloaded_changes"]
