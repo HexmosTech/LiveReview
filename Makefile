@@ -11,7 +11,7 @@ GOCLEAN=$(GOCMD) clean
 GOTEST=$(GOCMD) test
 BINARY_NAME=livereview
 REQUIRED_GO_VERSION=$(shell awk '/^go /{print $$2; exit}' go.mod)
-REQUIRED_GO_TOOLCHAIN_VER=$(shell echo $(REQUIRED_GO_VERSION) | awk -F. '{if (NF==2) print $$0".0"; else print $$0}')
+REQUIRED_GO_TOOLCHAIN_VER=$(shell go version | awk '{print substr($$3,3)}')
 REQUIRED_GO_SERIES=$(shell echo $(REQUIRED_GO_VERSION) | awk -F. '{print $$1"."$$2}')
 GOVULNCHECK_VERSION=v1.1.4
 GOVULNCHECK_CMD=GOTOOLCHAIN=go$(REQUIRED_GO_TOOLCHAIN_VER) $(GOCMD) run -a golang.org/x/vuln/cmd/govulncheck@$(GOVULNCHECK_VERSION)
