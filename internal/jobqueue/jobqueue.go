@@ -2294,15 +2294,20 @@ func NewJobQueue(databaseURL string, db *sql.DB) (*JobQueue, error) {
 
 	webhookWorker := &WebhookReviewWorker{}
 	manualWorker := &ManualReviewWorker{}
+	diffWorker := &DiffReviewWorker{db: db, pool: pool}
 	river.AddWorker(workers, &WebhookInstallWorker{pool: pool, config: config, store: store, httpClient: httpClient})
 	river.AddWorker(workers, &WebhookRemovalWorker{pool: pool, config: config, store: store, httpClient: httpClient})
-	river.AddWorker(workers, &DiffReviewWorker{db: db, pool: pool})
+	river.AddWorker(workers, diffWorker)
 	river.AddWorker(workers, webhookWorker)
 	river.AddWorker(workers, manualWorker)
+	river.AddWorker(workers, &UpdateOrgUsageWorker{db: db, pool: pool})
 
 	client, err := river.NewClient(riverpgxv5.New(pool), &river.Config{
-		Queues:  config.RiverQueueConfig(),
-		Workers: workers,
+		Queues:                      config.RiverQueueConfig(),
+		Workers:                     workers,
+		CompletedJobRetentionPeriod: 365 * 24 * time.Hour,
+		CancelledJobRetentionPeriod: 365 * 24 * time.Hour,
+		DiscardedJobRetentionPeriod: 365 * 24 * time.Hour,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("failed to create River client: %w", err)
@@ -2316,6 +2321,7 @@ func NewJobQueue(databaseURL string, db *sql.DB) (*JobQueue, error) {
 	}
 	webhookWorker.jq = jq
 	manualWorker.jq = jq
+	diffWorker.jq = jq
 
 	return jq, nil
 }
@@ -2341,7 +2347,7 @@ func (jq *JobQueue) QueueWebhookInstallJob(ctx context.Context, connectorID int,
 		PAT:         pat,
 	}
 
-	_, err := jq.client.Insert(ctx, args, nil)
+	_, err := jq.client.Insert(ctx, args, &river.InsertOpts{MaxAttempts: 5})
 	if err != nil {
 		return fmt.Errorf("failed to queue webhook install job: %w", err)
 	}
@@ -2360,7 +2366,7 @@ func (jq *JobQueue) QueueWebhookRemovalJob(ctx context.Context, connectorID int,
 		SkipRegistryUpdate: skipRegistryUpdate,
 	}
 
-	_, err := jq.client.Insert(ctx, args, nil)
+	_, err := jq.client.Insert(ctx, args, &river.InsertOpts{MaxAttempts: 5})
 	if err != nil {
 		return fmt.Errorf("failed to queue webhook removal job: %w", err)
 	}
@@ -2370,7 +2376,7 @@ func (jq *JobQueue) QueueWebhookRemovalJob(ctx context.Context, connectorID int,
 
 // QueueReviewJob enqueues a new diff review job to the "review" queue.
 func (jq *JobQueue) QueueReviewJob(ctx context.Context, args DiffReviewJobArgs) error {
-	_, err := jq.client.Insert(ctx, args, &river.InsertOpts{Queue: "review"})
+	_, err := jq.client.Insert(ctx, args, &river.InsertOpts{Queue: "review", MaxAttempts: 5})
 	if err != nil {
 		log.Printf("[ERROR] Failed to queue review job: %v", err)
 		return fmt.Errorf("failed to queue review job: %w", err)
@@ -2386,7 +2392,7 @@ func (jq *JobQueue) QueueWebhookReviewJob(ctx context.Context, orgID int64, conn
 		EventJSON:    eventJSON,
 		ScenarioType: scenarioType,
 	}
-	_, err := jq.client.Insert(ctx, args, &river.InsertOpts{Queue: "review"})
+	_, err := jq.client.Insert(ctx, args, &river.InsertOpts{Queue: "review", MaxAttempts: 5})
 	if err != nil {
 		log.Printf("[ERROR] Failed to queue webhook review job: %v", err)
 		return fmt.Errorf("failed to queue webhook review job: %w", err)
@@ -2404,10 +2410,20 @@ func (jq *JobQueue) QueueManualReviewJob(ctx context.Context, orgID int64, planC
 		ReviewID:    reviewID,
 		RequestJSON: requestJSON,
 	}
-	_, err := jq.client.Insert(ctx, args, &river.InsertOpts{Queue: "review"})
+	_, err := jq.client.Insert(ctx, args, &river.InsertOpts{Queue: "review", MaxAttempts: 5})
 	if err != nil {
 		log.Printf("[ERROR] Failed to queue manual review job: %v", err)
 		return fmt.Errorf("failed to queue manual review job: %w", err)
+	}
+	return nil
+}
+
+// QueueUpdateOrgUsageJob enqueues a new organization usage finalization job.
+func (jq *JobQueue) QueueUpdateOrgUsageJob(ctx context.Context, args UpdateOrgUsageJobArgs) error {
+	_, err := jq.client.Insert(ctx, args, &river.InsertOpts{MaxAttempts: 5})
+	if err != nil {
+		log.Printf("[ERROR] Failed to queue update org usage job: %v", err)
+		return fmt.Errorf("failed to queue update org usage job: %w", err)
 	}
 	return nil
 }

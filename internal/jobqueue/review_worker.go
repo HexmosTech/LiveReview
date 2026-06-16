@@ -89,7 +89,26 @@ func (w *ManualReviewWorker) Work(ctx context.Context, job *river.Job[ManualRevi
 		log.Printf("[ERROR] Database connection not available on JobQueue")
 		return fmt.Errorf("database connection not available")
 	}
-	return reviewprocessor.ProcessManualReview(ctx, w.jq.db, args.OrgID, args.PlanCode, args.ActorUserID, args.ActorEmail, args.ReviewID, args.RequestJSON)
+	return reviewprocessor.ProcessManualReview(ctx, w.jq.db, args.OrgID, args.PlanCode, args.ActorUserID, args.ActorEmail, args.ReviewID, args.RequestJSON,
+		func(ctx context.Context, model string, batch license.QuotaBatchInput, extraMeta map[string]interface{}) error {
+			operationID := fmt.Sprintf("manual-review:%d", args.ReviewID)
+			idempotencyKey := operationID
+			return w.jq.QueueUpdateOrgUsageJob(ctx, UpdateOrgUsageJobArgs{
+				OrgID:          args.OrgID,
+				ReviewID:       &args.ReviewID,
+				ActorUserID:    args.ActorUserID,
+				ActorEmail:     args.ActorEmail,
+				OperationType:  "manual_review",
+				TriggerSource:  "manual",
+				OperationID:    operationID,
+				IdempotencyKey: idempotencyKey,
+				Provider:       batch.Provider,
+				Model:          model,
+				Batch:          batch,
+				ExtraMeta:      extraMeta,
+			})
+		},
+	)
 }
 
 // DiffReviewJobArgs represents the arguments for an asynchronous diff review job.
@@ -116,6 +135,7 @@ type DiffReviewWorker struct {
 	river.WorkerDefaults[DiffReviewJobArgs]
 	db   *sql.DB
 	pool *pgxpool.Pool
+	jq   *JobQueue
 }
 
 // Timeout overrides the default River 60s timeout to allow longer AI reviews.
@@ -288,7 +308,6 @@ func (w *DiffReviewWorker) Work(ctx context.Context, job *river.Job[DiffReviewJo
 	if result != nil {
 		if result.Success {
 			status = "completed"
-			accountedAt := time.Now().UTC().Format(time.RFC3339)
 			resolvedReviewID := args.ReviewID
 			operationID := fmt.Sprintf("diff-review:%d", args.ReviewID)
 			idempotencyKey := operationID
@@ -298,15 +317,23 @@ func (w *DiffReviewWorker) Work(ctx context.Context, job *river.Job[DiffReviewJo
 				actorUserIDPtr = &resolvedActorUserID
 			}
 
-			// 9. Quota Accounting (Billing)
-			_, err = quotaModule.RecordBatch(ctx, license.QuotaRecordBatchInput{
+			// Queue the billing update, batch recording, and metadata calculations asynchronously
+			extraMeta := make(map[string]any)
+			for k, v := range aiExecutionMetadataFromConfig(reviewRequest.AI.Config) {
+				extraMeta[k] = v
+			}
+
+			err = w.jq.QueueUpdateOrgUsageJob(ctx, UpdateOrgUsageJobArgs{
 				OrgID:          args.OrgID,
 				ReviewID:       &resolvedReviewID,
+				ActorUserID:    actorUserIDPtr,
+				ActorEmail:     strings.TrimSpace(args.ActorEmail),
 				OperationType:  "diff_review",
 				TriggerSource:  args.TriggerSource,
 				OperationID:    operationID,
 				IdempotencyKey: idempotencyKey,
-				BatchIndex:     1,
+				Provider:       result.Provider,
+				Model:          result.Model,
 				Batch: license.QuotaBatchInput{
 					PlanCode:                 planCode,
 					Provider:                 result.Provider,
@@ -314,48 +341,10 @@ func (w *DiffReviewWorker) Work(ctx context.Context, job *river.Job[DiffReviewJo
 					ProviderTotalInputTokens: result.InputTokens,
 					OutputTokensBatch:        result.OutputTokens,
 				},
+				ExtraMeta:      extraMeta,
 			})
 			if err != nil {
-				log.Printf("[WARN] failed batch accounting for review %d: %v", args.ReviewID, err)
-			} else {
-				finalized, err := quotaModule.FinalizeOperation(ctx, license.QuotaFinalizeInput{
-					OrgID:          args.OrgID,
-					ReviewID:       &resolvedReviewID,
-					ActorUserID:    actorUserIDPtr,
-					ActorEmail:     strings.TrimSpace(args.ActorEmail),
-					OperationType:  "diff_review",
-					TriggerSource:  args.TriggerSource,
-					OperationID:    operationID,
-					IdempotencyKey: idempotencyKey,
-					Provider:       result.Provider,
-					Model:          result.Model,
-					BatchFallback:  nil,
-				})
-				if err != nil {
-					log.Printf("[WARN] failed final accounting for review %d: %v", args.ReviewID, err)
-				} else {
-					meta := map[string]interface{}{
-						"accounted_at":           accountedAt,
-						"operation_id":           operationID,
-						"idempotency_key":        idempotencyKey,
-						"operation_raw_loc":      finalized.RawLOCTotal,
-						"operation_billable_loc": finalized.EffectiveLOCTotal,
-						"operation_extra_loc":    finalized.ExtraEffectiveLOCTotal,
-						"context_tokens":         finalized.ContextTokensTotal,
-						"allowed_context_tokens": finalized.AllowedContextTokensTotal,
-						"extra_context_tokens":   finalized.ExtraContextTokensTotal,
-						"input_cost_usd":         finalized.InputCostUSDTotal,
-						"output_cost_usd":        finalized.OutputCostUSDTotal,
-						"total_cost_usd":         finalized.TotalCostUSDTotal,
-						"pricing_version":        finalized.PricingVersion,
-					}
-					for k, v := range aiExecutionMetadataFromConfig(reviewRequest.AI.Config) {
-						meta[k] = v
-					}
-					if err := rm.MergeReviewMetadata(args.ReviewID, meta); err != nil {
-						log.Printf("[WARN] failed to store accounted_at for review %d: %v", args.ReviewID, err)
-					}
-				}
+				log.Printf("[WARN] failed to queue billing finalization for review %d: %v", args.ReviewID, err)
 			}
 
 			if logger != nil {
