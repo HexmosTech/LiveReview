@@ -12,6 +12,7 @@ import (
 	"github.com/labstack/echo/v4"
 	apimiddleware "github.com/livereview/internal/api/middleware"
 	"github.com/livereview/internal/config"
+	"github.com/livereview/internal/jobqueue"
 	"github.com/livereview/internal/license"
 	"github.com/livereview/internal/logging"
 	reviewpkg "github.com/livereview/internal/review"
@@ -611,15 +612,22 @@ func (s *Server) ProcessManualReview(ctx context.Context, orgID int64, planCode 
 		operationID := fmt.Sprintf("manual-review:%d", reviewID)
 		idempotencyKey := operationID
 		if result.BillableLOC > 0 {
-			quotaModule := license.NewQuotaModule(s.db)
-			_, err := quotaModule.RecordBatch(ctx, license.QuotaRecordBatchInput{
+			extraMeta := make(map[string]any)
+			for k, v := range aiExecutionMetadataFromConfig(request.AI.Config) {
+				extraMeta[k] = v
+			}
+
+			err = s.jobQueue.QueueUpdateOrgUsageJob(ctx, jobqueue.UpdateOrgUsageJobArgs{
 				OrgID:          orgID,
 				ReviewID:       &reviewID,
+				ActorUserID:    actorUserID,
+				ActorEmail:     actorEmail,
 				OperationType:  "manual_review",
 				TriggerSource:  "manual",
 				OperationID:    operationID,
 				IdempotencyKey: idempotencyKey,
-				BatchIndex:     1,
+				Provider:       result.Provider,
+				Model:          result.Model,
 				Batch: license.QuotaBatchInput{
 					PlanCode:                 license.PlanType(planCode),
 					Provider:                 result.Provider,
@@ -627,46 +635,10 @@ func (s *Server) ProcessManualReview(ctx context.Context, orgID int64, planCode 
 					ProviderTotalInputTokens: result.InputTokens,
 					OutputTokensBatch:        result.OutputTokens,
 				},
+				ExtraMeta:      extraMeta,
 			})
 			if err != nil {
-				log.Printf("[WARN] Manual review batch accounting failed for review %d: %v", reviewID, err)
-			} else {
-				finalized, err := quotaModule.FinalizeOperation(ctx, license.QuotaFinalizeInput{
-					OrgID:          orgID,
-					ReviewID:       &reviewID,
-					ActorUserID:    actorUserID,
-					ActorEmail:     actorEmail,
-					OperationType:  "manual_review",
-					TriggerSource:  "manual",
-					OperationID:    operationID,
-					IdempotencyKey: idempotencyKey,
-					Provider:       result.Provider,
-					Model:          result.Model,
-					BatchFallback:  nil,
-				})
-				if err != nil {
-					log.Printf("[WARN] Manual review accounting finalization failed for review %d: %v", reviewID, err)
-				} else {
-					meta := map[string]interface{}{
-						"operation_raw_loc":      finalized.RawLOCTotal,
-						"operation_billable_loc": finalized.EffectiveLOCTotal,
-						"operation_extra_loc":    finalized.ExtraEffectiveLOCTotal,
-						"context_tokens":         finalized.ContextTokensTotal,
-						"allowed_context_tokens": finalized.AllowedContextTokensTotal,
-						"extra_context_tokens":   finalized.ExtraContextTokensTotal,
-						"input_cost_usd":         finalized.InputCostUSDTotal,
-						"output_cost_usd":        finalized.OutputCostUSDTotal,
-						"total_cost_usd":         finalized.TotalCostUSDTotal,
-						"pricing_version":        finalized.PricingVersion,
-						"operation_id":           operationID,
-						"idempotency_key":        idempotencyKey,
-						"accounted_at":           time.Now().UTC().Format(time.RFC3339),
-					}
-					for k, v := range aiExecutionMetadataFromConfig(request.AI.Config) {
-						meta[k] = v
-					}
-					_ = rm.MergeReviewMetadata(reviewID, meta)
-				}
+				log.Printf("[WARN] Manual review billing finalization queue failed for review %d: %v", reviewID, err)
 			}
 		}
 	} else {

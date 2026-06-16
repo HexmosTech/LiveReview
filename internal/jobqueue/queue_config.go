@@ -155,7 +155,7 @@ func DefaultQueueConfig() *QueueConfig {
 		MaxWorkers: 10, // Start with 10, increase if you have many projects and good network
 
 		// Retry settings - River default is 25 retries over ~3 days
-		MaxRetries: 25,
+		MaxRetries: 5,
 		RetryPolicy: RetryPolicy{
 			InitialInterval: 1 * time.Second, // Start retrying quickly
 			MaxInterval:     1 * time.Hour,   // Don't wait more than 1 hour between retries
