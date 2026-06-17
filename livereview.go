@@ -1,7 +1,6 @@
 package main
 
 import (
-	"embed"
 	"fmt"
 	"os"
 
@@ -11,9 +10,6 @@ import (
 )
 //go:generate typed -config typed.yaml
 //go:generate go run ./internal/api/docs/spec.go
-
-//go:embed ui/dist/*
-var uiAssets embed.FS
 
 // Version information (set by build-time ldflags)
 var (

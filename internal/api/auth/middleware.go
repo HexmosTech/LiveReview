@@ -56,7 +56,7 @@ func RequireAuth(tokenService *TokenService, db *sql.DB) echo.MiddlewareFunc {
 			user, err := tokenService.ValidateAccessToken(tokenString)
 			if err != nil {
 				// Fallback: validate with CLOUD_JWT_SECRET for verification-stage tokens
-				fallbackUser, ferr := validateWithCloudSecret(tokenString, db)
+				fallbackUser, ferr := ValidateWithCloudSecret(tokenString, db)
 				if ferr != nil {
 					return echo.NewHTTPError(http.StatusUnauthorized, "Invalid or expired token")
 				}
@@ -73,9 +73,9 @@ func RequireAuth(tokenService *TokenService, db *sql.DB) echo.MiddlewareFunc {
 	}
 }
 
-// validateWithCloudSecret attempts to validate a JWT using CLOUD_JWT_SECRET without DB token checks.
+// ValidateWithCloudSecret attempts to validate a JWT using CLOUD_JWT_SECRET without DB token checks.
 // If valid, it resolves the user from DB using claims (by ID first, then email).
-func validateWithCloudSecret(tokenString string, db *sql.DB) (*models.User, error) {
+func ValidateWithCloudSecret(tokenString string, db *sql.DB) (*models.User, error) {
 	secret := os.Getenv("CLOUD_JWT_SECRET")
 	if strings.TrimSpace(secret) == "" {
 		return nil, fmt.Errorf("CLOUD_JWT_SECRET not configured")

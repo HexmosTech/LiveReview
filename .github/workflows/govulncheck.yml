@@ -20,9 +20,26 @@ jobs:
       statuses: write
     steps:
       - uses: actions/checkout@v4
+      - name: Read Go toolchain version
+        id: go-version
+        shell: bash
+        run: |
+          TOOLCHAIN=$(grep '^toolchain ' go.mod | awk '{print $2}' | sed 's/^go//')
+
+          if [ -z "$TOOLCHAIN" ]; then
+            TOOLCHAIN=$(grep '^go ' go.mod | awk '{print $2}')
+          fi
+
+          if [ -z "$TOOLCHAIN" ]; then
+            echo "Failed to determine Go version from go.mod"
+            exit 1
+          fi
+
+          echo "version=$TOOLCHAIN" >> "$GITHUB_OUTPUT"
       - uses: actions/setup-go@v5
         with:
-          go-version-file: go.mod
+          go-version: ${{ steps.go-version.outputs.version }}
+          check-latest: true
       - name: Ensure optional Make env file exists
         run: touch .env
       - name: Run govulncheck via Makefile target

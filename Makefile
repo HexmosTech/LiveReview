@@ -1,5 +1,5 @@
 .PHONY: build build-prod run-review run-review-verbose test clean develop develop-reflex river-deps river-install river-migrate river-setup river-ui-install river-ui db-flip version version-bump version-patch version-minor version-major version-bump-dirty version-patch-dirty version-minor-dirty version-major-dirty version-bump-dry version-patch-dry version-minor-dry version-major-dry build-versioned docker-build docker-build-push docker-build-dry docker-interactive docker-interactive-push docker-interactive-dry docker-build docker-build-push docker-build-versioned docker-build-push-versioned docker-build-dry docker-build-push-dry docker-multiarch docker-multiarch-push docker-multiarch-dry docker-interactive-multiarch docker-interactive-multiarch-push cplrops vendor-prompts-encrypt vendor-prompts-build vendor-prompts-rebuild vendor-docker-build vendor-docker-build-dry vendor-docker-build-push vendor-docker-multiarch-dry vendor-docker-multiarch-push run logrun api-with-migrations build-with-ui security-sbom security-sbom-cyclonedx security-sbom-spdx security-sbom-validate release-notes-init release-notes-check release-preflight release-gh niceurl niceurl2 run-api run-worker
-.PHONY: upload-secrets download-secrets list-secrets-files legacy-secrets-clear generate-spec
+.PHONY: upload-secrets download-secrets list-secrets-files legacy-secrets-clear generate-openapi
 .PHONY: razorpay-webhook-ensure razorpay-webhook-ensure-dry razorpay-verify-plans razorpay-verify-plans-low-pricing
 .PHONY: raw-deploy raw-deploy-low-pricing raw-deploy-backend raw-deploy-backend-low-pricing build-staging-with-ui raw-deploy-staging stop-staging
 
@@ -11,9 +11,10 @@ GOCLEAN=$(GOCMD) clean
 GOTEST=$(GOCMD) test
 BINARY_NAME=livereview
 REQUIRED_GO_VERSION=$(shell awk '/^go /{print $$2; exit}' go.mod)
+REQUIRED_GO_TOOLCHAIN_VER=$(shell go version | awk '{print substr($$3,3)}')
 REQUIRED_GO_SERIES=$(shell echo $(REQUIRED_GO_VERSION) | awk -F. '{print $$1"."$$2}')
 GOVULNCHECK_VERSION=v1.1.4
-GOVULNCHECK_CMD=GOTOOLCHAIN=go$(REQUIRED_GO_VERSION) $(GOCMD) run -a golang.org/x/vuln/cmd/govulncheck@$(GOVULNCHECK_VERSION)
+GOVULNCHECK_CMD=GOTOOLCHAIN=go$(REQUIRED_GO_TOOLCHAIN_VER) $(GOCMD) run -a golang.org/x/vuln/cmd/govulncheck@$(GOVULNCHECK_VERSION)
 GH_REPO=HexmosTech/LiveReview
 GH=/usr/bin/gh
 GHSM_SCRIPT=scripts/ghsm.py
@@ -36,7 +37,7 @@ RELEASE_GH_SCRIPT=scripts/release_gh.py
 OSV_SCANNER_CONFIG=osv-scanner.toml
 
 # Load environment variables from .env file
-include .env
+-include .env
 export
 
 build:
@@ -46,6 +47,10 @@ build:
 build-prod:
 	rm $(BINARY_NAME) || true
 	$(GOBUILD) -tags production -o $(BINARY_NAME)
+# Minimal CI build
+build-ci:
+	rm -f $(BINARY_NAME)
+	SKIP_TYPED_GEN=1 go build -tags=ci -o livereview .
 
 # Vendor prompts: encrypt plaintext templates and generate embedded assets
 # Usage examples:
@@ -158,14 +163,19 @@ run:
 	if [ -z "$$DLV_BIN_DIR" ]; then DLV_BIN_DIR="$$($(GOCMD) env GOPATH)/bin"; fi; \
 	command -v dlv >/dev/null 2>&1 || { \
 		echo "Installing Delve with Go $(REQUIRED_GO_VERSION)..."; \
-		GOTOOLCHAIN=go$(REQUIRED_GO_VERSION) $(GOCMD) install github.com/go-delve/delve/cmd/dlv@latest; \
+		GOTOOLCHAIN=go$(REQUIRED_GO_TOOLCHAIN_VER) $(GOCMD) install github.com/go-delve/delve/cmd/dlv@latest; \
 	}; \
 	if ! $(GOCMD) version -m "$$DLV_BIN_DIR/dlv" 2>/dev/null | grep -q "go$(REQUIRED_GO_SERIES)"; then \
 		echo "Rebuilding Delve with Go $(REQUIRED_GO_VERSION) for DWARFv5+ compatibility..."; \
-		GOTOOLCHAIN=go$(REQUIRED_GO_VERSION) $(GOCMD) install github.com/go-delve/delve/cmd/dlv@latest; \
+		GOTOOLCHAIN=go$(REQUIRED_GO_TOOLCHAIN_VER) $(GOCMD) install github.com/go-delve/delve/cmd/dlv@latest; \
 	fi
 	which air || $(GOCMD) install github.com/air-verse/air@latest
 	DLV_BIN_DIR=$$($(GOCMD) env GOBIN); if [ -z "$$DLV_BIN_DIR" ]; then DLV_BIN_DIR="$$($(GOCMD) env GOPATH)/bin"; fi; PATH="$$DLV_BIN_DIR:$$PATH" air
+
+
+# Disable Typed OpenAPI schema generation for CI
+run-skip-typed:
+	SKIP_TYPED_GEN=1 $(MAKE) run
 
 logrun:
 	which air || $(GOCMD) install github.com/air-verse/air@latest
@@ -176,11 +186,11 @@ develop:
 	if [ -z "$$DLV_BIN_DIR" ]; then DLV_BIN_DIR="$$($(GOCMD) env GOPATH)/bin"; fi; \
 	command -v dlv >/dev/null 2>&1 || { \
 		echo "Installing Delve with Go $(REQUIRED_GO_VERSION)..."; \
-		GOTOOLCHAIN=go$(REQUIRED_GO_VERSION) $(GOCMD) install github.com/go-delve/delve/cmd/dlv@latest; \
+		GOTOOLCHAIN=go$(REQUIRED_GO_TOOLCHAIN_VER) $(GOCMD) install github.com/go-delve/delve/cmd/dlv@latest; \
 	}; \
 	if ! $(GOCMD) version -m "$$DLV_BIN_DIR/dlv" 2>/dev/null | grep -q "go$(REQUIRED_GO_SERIES)"; then \
 		echo "Rebuilding Delve with Go $(REQUIRED_GO_VERSION) for DWARFv5+ compatibility..."; \
-		GOTOOLCHAIN=go$(REQUIRED_GO_VERSION) $(GOCMD) install github.com/go-delve/delve/cmd/dlv@latest; \
+		GOTOOLCHAIN=go$(REQUIRED_GO_TOOLCHAIN_VER) $(GOCMD) install github.com/go-delve/delve/cmd/dlv@latest; \
 	fi
 	which air || $(GOCMD) install github.com/air-verse/air@latest
 	DLV_BIN_DIR=$$($(GOCMD) env GOBIN); if [ -z "$$DLV_BIN_DIR" ]; then DLV_BIN_DIR="$$($(GOCMD) env GOPATH)/bin"; fi; PATH="$$DLV_BIN_DIR:$$PATH" air
@@ -521,7 +531,7 @@ niceurl3:
 		echo "autossh is not installed. Install it with: sudo apt install autossh"; \
 		exit 1; \
 	}
-	@ssh root@master-do 'PID=$$(netstat -tulpn | grep :6545 | awk '\''{print $$7}'\'' | cut -d/ -f1 | head -n 1); [ -n "$$PID" ] && kill -9 $$PID || true' || true
+	@ssh root@master "PID=\$$( netstat -tulpn | grep :6545 | awk '{print \$$7}' | cut -d/ -f1 | head -n 1); [ -n \"\$$PID\" ] && kill -9 \$$PID || true" || true
 	@echo "Starting autossh reverse tunnel on remote port 6545 -> localhost:8081"
 	@AUTOSSH_GATETIME=0 AUTOSSH_POLL=60 AUTOSSH_FIRST_POLL=30 AUTOSSH_LOGLEVEL=6 autossh -M 20002 \
 		-o ServerAliveInterval=30 \
@@ -530,7 +540,7 @@ niceurl3:
 		-o ExitOnForwardFailure=yes \
 		-o ConnectTimeout=10 \
 		-o ConnectionAttempts=3 \
-		-R 6545:localhost:8081 root@master-do -N
+		-R 6545:localhost:8081 root@master -N
 
 build-with-ui:
 	@echo "🔨 Building for PRODUCTION deployment (is_cloud=true)"
@@ -581,7 +591,7 @@ docs/openapi.yaml internal/api/docs/spec.go: $(API_SPEC_INPUTS) typed-install
 	@$(GOCMD) run internal/api/docs/spec.go > /tmp/lr_spec_build.log 2>&1 || (echo "❌ OpenAPI spec generation failed. Logs:" && cat /tmp/lr_spec_build.log && exit 1)
 
 
-generate-spec: docs/openapi.yaml
+generate-openapi: docs/openapi.yaml
 
 raw-deploy: build-with-ui
 	@echo "🚀 Deploying to production server..."

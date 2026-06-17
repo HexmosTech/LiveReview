@@ -1,11 +1,107 @@
 name: MCP Integration Test
 
 on:
-  workflow_dispatch:
+  workflow_dispatch: {}
+  push:
+    branches:
+      - main
+      - master
 
 jobs:
   mcp-test:
     runs-on: ubuntu-latest
+
+    env:
+      DATABASE_URL: ${{ secrets.DATABASE_URL }}
+      JWT_SECRET: ${{ secrets.JWT_SECRET }}
+      TOKENROUTER_API_KEY: ${{ secrets.TOKENROUTER_API_KEY }}
+      LIVEREVIEW_API_KEY_TR: ${{ secrets.LIVEREVIEW_API_KEY_TR }}
+
     steps:
-      - name: Placeholder
-        run: echo "MCP Integration Test - Placeholder on master"
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Install Python dependencies
+        run: |
+          pip install -r tests/mcp/requirements.txt
+
+      - name: Build LiveReview
+        run: make build-ci
+
+      - name: Start MCP server
+        run: |
+          nohup ./livereview api > server.log 2>&1 &
+          echo $! > server.pid
+
+      - name: Wait for server startup
+        run: |
+          for i in {1..30}; do
+            response=$(curl -s http://localhost:8888/health || true)
+
+            if echo "$response" | grep -q '"status":"healthy"\|"status": "healthy"'; then
+              echo "Server is healthy"
+              exit 0
+            fi
+
+            echo "Waiting for server to start..."
+            sleep 2
+          done
+
+          echo "Server failed to become healthy"
+          cat server.log
+          exit 1
+
+      - name: Run MCP test script
+        run: |
+          python tests/mcp/mcp-testcase.py
+
+      - name: Check MCP test result
+        run: |
+          python - <<EOF
+          import json
+          import sys
+
+          with open("tests/mcp/test_results.json") as f:
+              result = json.load(f)
+
+          status = result.get("suite_summary", {}).get("overall_status")
+
+          print(f"Overall Status: {status}")
+
+          if status == "PASSED":
+              print("MCP test passed")
+              sys.exit(0)
+
+          print("MCP test failed")
+          print(json.dumps(result, indent=2))
+          sys.exit(1)
+          EOF
+      - name: Upload MCP Test Results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: mcp-test-results
+          path: tests/mcp/test_results.json
+          retention-days: 30
+      - name: Print server logs on failure
+        if: failure()
+        run: cat server.log || true
+
+      - name: Cleanup
+        if: always()
+        run: |
+          kill $(cat server.pid) || true
+

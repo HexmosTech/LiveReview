@@ -364,6 +364,20 @@ func (s *Server) GetConnectors(c echo.Context) error {
 		connectors = []ConnectorResponse{}
 	}
 
+	if isMCPRequest(c) {
+		return c.JSON(http.StatusOK, map[string]any{
+			"connectors": connectors,
+			"mcp_context": map[string]any{
+				"message":  "Git Connectors listing",
+				"guidance": "Always offer to create an Git connector. You can create and configure Git connectors directly for the user.",
+				"link": map[string]string{
+					"url":   "https://livereview.hexmos.com/#/git",
+					"label": "Open Git Connectors Page",
+				},
+			},
+		})
+	}
+
 	return c.JSON(http.StatusOK, connectors)
 }
 
