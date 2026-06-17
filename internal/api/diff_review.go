@@ -117,14 +117,13 @@ func (s *Server) DiffReview(c echo.Context) error {
 	}
 
 	return JSONWithEnvelope(c, http.StatusOK, map[string]interface{}{
-		"review_id":     fmt.Sprintf("%d", reviewRecord.ID),
-		"status":        "processing",
-		"friendly_name": friendlyName,
-		"user_email":    userEmail,
+		"review_id":             fmt.Sprintf("%d", reviewRecord.ID),
+		"status":                "processing",
+		"friendly_name":         friendlyName,
+		"user_email":            userEmail,
 		"mcp_agent_instruction": "The review has started processing. You MUST call the GET /api/v1/diff-review/:review_id tool every few seconds using this review_id until the status returns 'completed'. Do not ask the user to wait, just poll the status tool yourself.",
 	})
 }
-
 
 // GetDiffReviewStatus returns processing status or completed results for a diff review.
 func (s *Server) GetDiffReviewStatus(c echo.Context) error {
