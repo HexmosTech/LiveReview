@@ -29,7 +29,7 @@
   },
   "homepage": "https://github.com/vannizhang/react-redux-boilerplate",
   "devDependencies": {
-    "@babel/core": "^7.26.10",
+    "@babel/core": "^7.29.6",
     "@babel/plugin-bugfix-safari-rest-destructuring-rhs-array": "^7.29.3",
     "@babel/plugin-transform-runtime": "^7.11.5",
     "@babel/preset-env": "^7.25.3",
@@ -126,10 +126,7 @@
     "brace-expansion@5": "5.0.6",
     "cookie": "0.7.2",
     "flatted": "3.4.2",
-    "form-data@4": "4.0.4",
     "glob@10": "10.5.0",
-    "js-yaml@3": "3.14.2",
-    "js-yaml@4": "4.1.1",
     "lodash": "4.18.1",
     "minimatch@3": "3.1.4",
     "minimatch@9": "9.0.7",
@@ -145,11 +142,19 @@
     "serialize-javascript": "7.0.5",
     "svgo": "3.3.3",
     "follow-redirects": "1.16.0",
-    "dompurify": "^3.4.0",
     "@protobufjs/utf8": "^1.1.1",
-    "protobufjs": "^7.5.6",
     "uuid": "14.0.0",
     "postcss": "^8.5.10",
-    "react-router-dom": "$react-router-dom"
+    "react-router-dom": "$react-router-dom",
+    "js-yaml": "^4.2.0",
+    "js-yaml@3": "^4.2.0",
+    "js-yaml@4": "^4.2.0",
+    "form-data": "^4.0.6",
+    "form-data@4": "^4.0.6",
+    "protobufjs": "^7.6.3",
+    "ws": "^8.21.0",
+    "launch-editor": "^2.14.1",
+    "@opentelemetry/core": "^2.8.0",
+    "dompurify": "^3.4.9"
   }
 }
