@@ -309,7 +309,7 @@ func (dm *DashboardManager) Start() {
 		}
 	}()
 
-
+	
 	ticker := time.NewTicker(dashboardRefreshInterval)
 	go func() {
 		defer ticker.Stop()

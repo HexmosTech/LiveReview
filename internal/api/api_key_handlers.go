@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/labstack/echo/v4"
@@ -141,7 +142,7 @@ func APIKeyAuthMiddleware(db *sql.DB) echo.MiddlewareFunc {
 			}
 
 			manager := NewAPIKeyManager(db)
-			keyRecord, err := manager.ValidateAPIKey(apiKey)
+			keyRecord, _, err := manager.ValidateAPIKey(apiKey)
 			if err != nil {
 				switch {
 				case errors.Is(err, ErrLiveReviewAPIKeyInvalid):
@@ -179,3 +180,95 @@ func APIKeyAuthMiddleware(db *sql.DB) echo.MiddlewareFunc {
 		}
 	}
 }
+
+// RequireAuthOrAPIKey creates authentication middleware that supports both Bearer tokens and API keys
+// This allows endpoints to accept either authentication method without breaking existing Bearer auth
+func RequireAuthOrAPIKey(tokenService *auth.TokenService, db *sql.DB) echo.MiddlewareFunc {
+	return func(next echo.HandlerFunc) echo.HandlerFunc {
+		return func(c echo.Context) error {
+
+			// First, try API key authentication
+			apiKey := c.Request().Header.Get("X-API-Key")
+			if apiKey != "" {
+				manager := NewAPIKeyManager(db)
+				keyRecord, user, err := manager.ValidateAPIKey(apiKey)
+				if err != nil {
+					// API key present but invalid - return error
+					switch {
+					case errors.Is(err, ErrLiveReviewAPIKeyInvalid):
+						return c.JSON(http.StatusUnauthorized, map[string]string{
+							"error":      "API key is invalid",
+							"error_code": "LIVE_REVIEW_API_KEY_INVALID",
+						})
+					case errors.Is(err, ErrLiveReviewAPIKeyRevoked):
+						return c.JSON(http.StatusUnauthorized, map[string]string{
+							"error":      "API key is revoked",
+							"error_code": "LIVE_REVIEW_API_KEY_REVOKED",
+						})
+					case errors.Is(err, ErrLiveReviewAPIKeyExpired):
+						return c.JSON(http.StatusUnauthorized, map[string]string{
+							"error":      "API key is expired",
+							"error_code": "LIVE_REVIEW_API_KEY_EXPIRED",
+						})
+					default:
+						return c.JSON(http.StatusUnauthorized, map[string]string{
+							"error":      "API key validation failed",
+							"error_code": "LIVE_REVIEW_API_KEY_VALIDATION_FAILED",
+						})
+					}
+				}
+
+				// Update last used timestamp (async to not slow down request)
+				go manager.UpdateLastUsed(keyRecord.ID)
+
+				// Set user and org context (same as APIKeyAuthMiddleware)
+				c.Set(string(auth.UserContextKey), user)
+				c.Set("user_id", keyRecord.UserID)
+				c.Request().Header.Set("X-Org-Context", strconv.FormatInt(keyRecord.OrgID, 10))
+				c.Set("org_id", keyRecord.OrgID)
+				c.Set("api_key_id", keyRecord.ID)
+
+				return next(c)
+			}
+
+			// Fall back to Bearer token authentication (existing logic)
+			authHeader := c.Request().Header.Get("Authorization")
+			if authHeader == "" {
+				return c.JSON(http.StatusUnauthorized, map[string]string{
+					"error": "Authorization header or API key required",
+				})
+			}
+
+			// Check Bearer token format
+			tokenParts := strings.Split(authHeader, " ")
+			if len(tokenParts) != 2 || tokenParts[0] != "Bearer" {
+				return c.JSON(http.StatusUnauthorized, map[string]string{
+					"error": "Invalid authorization header format",
+				})
+			}
+
+			tokenString := tokenParts[1]
+
+			// Validate token using the existing RequireAuth logic
+			user, err := tokenService.ValidateAccessToken(tokenString)
+			if err != nil {
+				// Fallback: validate with CLOUD_JWT_SECRET for verification-stage tokens
+				fallbackUser, ferr := auth.ValidateWithCloudSecret(tokenString, db)
+				if ferr != nil {
+					return c.JSON(http.StatusUnauthorized, map[string]string{
+						"error": "Invalid or expired token",
+					})
+				}
+				// Add user to context and continue
+				c.Set(string(auth.UserContextKey), fallbackUser)
+				return next(c)
+			}
+
+			// Add user to context
+			c.Set(string(auth.UserContextKey), user)
+
+			return next(c)
+		}
+	}
+}
+
