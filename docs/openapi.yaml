@@ -4344,6 +4344,49 @@ paths:
           description: Internal Server Error
       tags:
         - Auth
+  /api/v1/auth/mcp/complete:
+    post:
+      description: |-
+        CompleteMCPAuth is called by the UI after successful login
+        This route should be protected by RequireAuth middleware
+      operationId: CompleteMCPAuth
+      parameters:
+        - in: query
+          name: id
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: OK
+      tags:
+        - Auth
+  /api/v1/auth/mcp/initiate:
+    post:
+      description: InitiateMCPAuth creates a new pending auth request
+      operationId: InitiateMCPAuth
+      responses:
+        "200":
+          description: OK
+      tags:
+        - Auth
+  /api/v1/auth/mcp/poll/{request_id}:
+    get:
+      description: PollMCPAuth allows the MCP server to check for completion
+      operationId: PollMCPAuth
+      parameters:
+        - in: path
+          name: request_id
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: OK
+        "202":
+          description: Accepted
+      tags:
+        - Auth
   /api/v1/auth/me:
     get:
       description: Me returns information about the currently authenticated user
@@ -5000,6 +5043,15 @@ paths:
                   type: string
                 type: object
           description: Internal Server Error
+      tags:
+        - Diff-Review
+  /api/v1/diff-review/trigger-local-review:
+    get:
+      description: TriggerLocalReview returns instructions for the AI agent on how to trigger a local review via the terminal.
+      operationId: TriggerLocalReview
+      responses:
+        "200":
+          description: OK
       tags:
         - Diff-Review
   /api/v1/feedback:
@@ -5693,6 +5745,19 @@ paths:
           description: Bad Request
       tags:
         - License
+  /api/v1/mcp-api-integration-guide:
+    get:
+      description: |-
+        @Summary      LiveReview API Integration Guide
+        @Description  This tool provides instructions on how to integrate the LiveReview API into your codebase using MCP. It explains API key usage, base URL selection, OpenAPI specs location, and how to use tools for schema information. For getting the accurate API paths, refer to the OpenAPI spec. Use this tool if you need to know how to integrate an API.
+        @Tags         integration
+        @Produce      json
+        @Success      200  {object}  map[string]interface{}
+        @Router       /api/v1/mcp-api-integration-guide [get]
+      operationId: APIIntegrationHelper
+      responses: null
+      tags:
+        - Mcp-Api-Integration-Guide
   /api/v1/onboarding/clear-api-key:
     post:
       description: ClearOnboardingAPIKey clears the onboarding API key for a user
@@ -5845,12 +5910,12 @@ paths:
       operationId: DeleteAPIKeyHandler
       parameters:
         - in: path
-          name: org_id
+          name: id
           required: true
           schema:
             type: string
         - in: path
-          name: id
+          name: org_id
           required: true
           schema:
             type: string
@@ -6145,12 +6210,12 @@ paths:
       operationId: ForcePasswordReset
       parameters:
         - in: path
-          name: org_id
+          name: user_id
           required: true
           schema:
             type: string
         - in: path
-          name: user_id
+          name: org_id
           required: true
           schema:
             type: string
@@ -6498,12 +6563,12 @@ paths:
       operationId: CreatePromptChunk
       parameters:
         - in: path
-          name: key
+          name: var
           required: true
           schema:
             type: string
         - in: path
-          name: var
+          name: key
           required: true
           schema:
             type: string

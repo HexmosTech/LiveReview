@@ -52,6 +52,7 @@ cmd/lrc/lrc
 .env.production
 .env.selfhosted
 .env.backup
+tests/mcp/.env
 !.env.example
 !.env.selfhosted.example
 !.env.test.example

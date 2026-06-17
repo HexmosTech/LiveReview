@@ -1,6 +1,7 @@
 <img src="./assets/gfx/png/logo-with-text.png" height=80 />
 
-<a href="https://github.com/HexmosTech/LiveReview/actions/workflows/gitleaks.yml" target="_blank" rel="noopener noreferrer"><img alt="gitleaks.yml" title="gitleaks.yml: Secret scanning workflow" src="https://github.com/HexmosTech/LiveReview/actions/workflows/gitleaks.yml/badge.svg"></a>&nbsp;<a href="https://github.com/HexmosTech/LiveReview/actions/workflows/osv-scanner.yml" target="_blank" rel="noopener noreferrer"><img alt="osv-scanner.yml" title="osv-scanner.yml: Dependency vulnerability scan" src="https://github.com/HexmosTech/LiveReview/actions/workflows/osv-scanner.yml/badge.svg"></a>&nbsp;<a href="https://github.com/HexmosTech/LiveReview/actions/workflows/govulncheck.yml" target="_blank" rel="noopener noreferrer"><img alt="govulncheck.yml" title="govulncheck.yml: Go vulnerability check" src="https://github.com/HexmosTech/LiveReview/actions/workflows/govulncheck.yml/badge.svg"></a>&nbsp;<a href="https://github.com/HexmosTech/LiveReview/actions/workflows/semgrep.yml" target="_blank" rel="noopener noreferrer"><img alt="semgrep.yml" title="semgrep.yml: Static analysis security scan" src="https://github.com/HexmosTech/LiveReview/actions/workflows/semgrep.yml/badge.svg"></a>&nbsp;<img alt="dependabot-enabled" title="dependabot-enabled: Automated dependency updates are enabled" src="./assets/gfx/dependabot-enabled.svg">&nbsp;
+<a href="https://github.com/HexmosTech/LiveReview/actions/workflows/gitleaks.yml" target="_blank" rel="noopener noreferrer"><img alt="gitleaks.yml" title="gitleaks.yml: Secret scanning workflow" src="https://github.com/HexmosTech/LiveReview/actions/workflows/gitleaks.yml/badge.svg"></a>&nbsp;<a href="https://github.com/HexmosTech/LiveReview/actions/workflows/osv-scanner.yml" target="_blank" rel="noopener noreferrer"><img alt="osv-scanner.yml" title="osv-scanner.yml: Dependency vulnerability scan" src="https://github.com/HexmosTech/LiveReview/actions/workflows/osv-scanner.yml/badge.svg"></a>&nbsp;<a href="https://github.com/HexmosTech/LiveReview/actions/workflows/govulncheck.yml" target="_blank" rel="noopener noreferrer"><img alt="govulncheck.yml" title="govulncheck.yml: Go vulnerability check" src="https://github.com/HexmosTech/LiveReview/actions/workflows/govulncheck.yml/badge.svg"></a>&nbsp;<a href="https://github.com/HexmosTech/LiveReview/actions/workflows/semgrep.yml" target="_blank" rel="noopener noreferrer"><img alt="semgrep.yml" title="semgrep.yml: Static analysis security scan" src="https://github.com/HexmosTech/LiveReview/actions/workflows/semgrep.yml/badge.svg"></a>&nbsp;<img alt="dependabot-enabled" title="dependabot-enabled: Automated dependency updates are enabled" src="./assets/gfx/dependabot-enabled.svg">&nbsp;<a href="https://github.com/HexmosTech/LiveReview/actions/workflows/mcp-testcases.yml" target="_blank" rel="noopener noreferrer"><img alt="mcp-testcases.yml" title="mcp-testcases.yml: MCP integration test suite" src="https://github.com/HexmosTech/LiveReview/actions/workflows/mcp-testcases.yml/badge.svg"></a>
+
 
 # AI Code Review with Teeth.
 
@@ -16,6 +17,7 @@
    <a href="#features">Features</a> |
    <a href="#cli">CLI</a> |
    <a href="#ide-extensions">Extensions</a> |
+   <a href="#mcp-server">MCP Server</a> |
    <a href="#self-hosted-tiers">Tiers</a> |
    <a href="#comparisons">Comparisons</a>
 </p>
@@ -183,6 +185,91 @@ Get instant AI code reviews without leaving your editor. Available for VSCode, C
 | **VSCode** | [Visual Studio Marketplace](https://marketplace.visualstudio.com/items?itemName=Hexmos.livereview) |
 | **Cursor** | [Open VSX Registry](https://open-vsx.org/extension/hexmos/livereview) |
 | **Antigravity** | [Open VSX Registry](https://open-vsx.org/extension/hexmos/livereview) |
+
+---
+
+<a id="mcp-server"></a>
+
+## Model Context Protocol (MCP) Server
+
+Integrate LiveReview natively into your favorite AI-powered IDEs and clients, including Cursor, Claude Desktop, Windsurf, and VS Code.
+
+### Getting your API Key
+
+1. Go to LiveReview
+2. Click on Settings
+3. Navigate to API Keys
+4. Generate and copy a new API key
+
+
+
+### Configuration
+
+Add the following block to your MCP client's configuration file:
+
+- For eg: Claude Desktop: claude_desktop_config.json
+- Other clients: Check the client's documentation for the equivalent file.
+
+```json
+{
+  "mcpServers": {
+    "livereview": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "mcp-remote",
+        "https://livereview.hexmos.com/api/mcp",
+        "--header",
+        "X-API-KEY: ${LIVEREVIEW_API_KEY}"
+      ],
+      "env": {  
+        "LIVEREVIEW_API_KEY": "<YOUR_LIVEREVIEW_API_KEY>"  
+      }                       
+    }
+  }
+}
+```
+
+Replace `<YOUR_LIVEREVIEW_API_KEY>` with your actual LiveReview API key.
+
+
+### What you can do
+
+Once connected to the MCP server, You can ask your assistant to interact with LiveReview.
+
+#### Code Reviews
+| Tool | Description | Example Prompt |
+|------|-------------|----------------|
+| `post_api_v1_connectors_trigger-review` | Trigger a new code review for a repo URL | *"Trigger a review for https://github.com/user/repo/pull/123"* |
+| `get_api_v1_reviews` | List recent reviews | *"List our recent completed reviews"* |
+| `get_api_v1_reviews_id_summary` | Get the AI summary and insights for a specific review | *"Summarize the review ID xyz"* |
+| `get_api_v1_reviews_id_accounting` | Get the token and LOC accounting for a review | *"Show the token usage for review ID xyz"* |
+
+#### Learnings & Prompts
+| Tool | Description | Example Prompt |
+|------|-------------|----------------|
+| `get_api_v1_learnings` | List existing team learnings | *"List our team's active learnings"* |
+| `get_api_v1_learnings_id` | Get details of a specific learning | *"Show details for learning ID abc"* |
+| `put_api_v1_learnings_id` | Update an existing learning | *"Update learning ID abc to enforce snake_case"* |
+| `get_api_v1_prompts_catalog` | List available prompt catalogs | *"Show the catalog of prompt rules"* |
+| `get_api_v1_prompts_key_variables` | Get required variables for a prompt template | *"What variables does the base prompt need?"* |
+| `get_api_v1_prompts_key_render` | Render a prompt preview with provided variables | *"Render the prompt key 'system' with..."* |
+
+#### Billing & Quotas
+| Tool | Description | Example Prompt |
+|------|-------------|----------------|
+| `get_api_v1_billing_status` | Check current billing status of the organization | *"What is our current billing status?"* |
+| `get_api_v1_quota_status` | Check current LOC status and quota | *"How much LOC quota do we have left?"* |
+| `get_api_v1_billing_usage_summary` | Get billing usage summary | *"Show a summary of our billing usage"* |
+| `get_api_v1_billing_usage_operations` | Get recent billable review operations | *"List the most recent billable operations"* |
+| `get_api_v1_billing_usage_members` | Get member-wise LOC usage information | *"Show the usage broken down by team member"* |
+| `post_api_v1_billing_upgrade_preview` | Generate an upgrade preview for a target plan | *"Preview the cost of upgrading to team_32usd"* |
+
+#### Integrations
+| Tool | Description | Example Prompt |
+|------|-------------|----------------|
+| `get_api_v1_connectors` | List configured Git connectors | *"List our configured Git connectors"* |
+| `get_api_v1_aiconnectors` | List configured AI provider connections | *"Which AI providers are currently active?"* |
 
 ---
 
