@@ -360,28 +360,19 @@ func (rm *ReviewManager) MergeReviewMetadata(reviewID int64, updates map[string]
 		return nil
 	}
 
-	var currentJSON []byte
-	if err := rm.store.QueryRow(`SELECT COALESCE(metadata, '{}') FROM reviews WHERE id = $1`, reviewID).Scan(&currentJSON); err != nil {
-		return fmt.Errorf("failed to load review metadata: %w", err)
-	}
-
-	existing := map[string]interface{}{}
-	if len(currentJSON) > 0 {
-		// Ignore errors and fall back to empty map on malformed JSON
-		_ = json.Unmarshal(currentJSON, &existing)
-	}
-
-	for k, v := range updates {
-		existing[k] = v
-	}
-
-	merged, err := json.Marshal(existing)
+	merged, err := json.Marshal(updates)
 	if err != nil {
-		return fmt.Errorf("failed to marshal merged metadata: %w", err)
+		return fmt.Errorf("failed to marshal updates metadata: %w", err)
 	}
 
-	if _, err := rm.store.Exec(`UPDATE reviews SET metadata = $1 WHERE id = $2`, merged, reviewID); err != nil {
-		return fmt.Errorf("failed to update review metadata: %w", err)
+	query := `
+		UPDATE reviews
+		SET metadata = COALESCE(metadata, '{}'::jsonb) || $1::jsonb
+		WHERE id = $2
+	`
+
+	if _, err := rm.store.Exec(query, merged, reviewID); err != nil {
+		return fmt.Errorf("failed to merge review metadata: %w", err)
 	}
 
 	return nil
