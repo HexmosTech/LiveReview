@@ -642,6 +642,10 @@ func (s *Server) setupRoutes() {
 	adminGroup.PUT("/users/:user_id/org", s.userHandlers.TransferUserToOrg)
 	adminGroup.GET("/analytics/users", s.userHandlers.GetUserAnalytics)
 
+	// Super admin tools catalog endpoints (called by lr-tools deployer after Lambda deployment)
+	adminGroup.POST("/tools", s.UpsertAvailableTool)
+	adminGroup.GET("/tools", s.ListAvailableTools)
+
 	// Organization management endpoints
 	// User organization access (get their orgs) - needs permission context to detect super admin
 	protectedOrgsGroup := protected.Group("")
@@ -660,6 +664,10 @@ func (s *Server) setupRoutes() {
 	orgGroup.GET("/api-keys", s.ListAPIKeysHandler)
 	orgGroup.POST("/api-keys/:id/revoke", s.RevokeAPIKeyHandler)
 	orgGroup.DELETE("/api-keys/:id", s.DeleteAPIKeyHandler)
+
+	// Third-party tools endpoints within org context
+	orgGroup.GET("/tools", s.ListOrgTools)
+	orgGroup.PUT("/tools/:tool_id", s.UpdateOrgTool)
 
 	// Organization creation - available to all authenticated users
 	protectedOrgsGroup.POST("/organizations", s.orgHandlers.CreateOrganization)

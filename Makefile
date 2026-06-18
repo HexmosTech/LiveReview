@@ -538,6 +538,7 @@ build-with-ui:
 
 # Define API source files for spec generation
 API_SPEC_INPUTS := typed.yaml $(shell find internal/api pkg/models -name "*.go" | grep -v "internal/api/docs/spec.go")
+TYPED_VERSION := v0.2.3
 
 
 # Typed configuration
