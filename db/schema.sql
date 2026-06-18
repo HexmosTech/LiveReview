@@ -1,7 +1,7 @@
 \restrict dbmate
 
 -- Dumped from database version 15.17 (Debian 15.17-1.pgdg13+1)
--- Dumped by pg_dump version 16.13 (Ubuntu 16.13-0ubuntu0.24.04.1)
+-- Dumped by pg_dump version 16.14 (Ubuntu 16.14-0ubuntu0.24.04.1)
 
 SET statement_timeout = 0;
 SET lock_timeout = 0;
@@ -251,7 +251,9 @@ CREATE TABLE public.ai_connectors (
     connector_name character varying(128),
     base_url text,
     selected_model text,
-    org_id bigint DEFAULT 1 NOT NULL
+    org_id bigint DEFAULT 1 NOT NULL,
+    gcp_project_id text,
+    gcp_location text
 );
 
 
@@ -441,6 +443,40 @@ CREATE SEQUENCE public.auth_tokens_id_seq
 --
 
 ALTER SEQUENCE public.auth_tokens_id_seq OWNED BY public.auth_tokens.id;
+
+
+--
+-- Name: available_tools; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.available_tools (
+    id bigint NOT NULL,
+    name text NOT NULL,
+    description text NOT NULL,
+    lambda_arn text NOT NULL,
+    multiplier numeric(6,2) DEFAULT 1.0 NOT NULL,
+    use_case text DEFAULT ''::text NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL
+);
+
+
+--
+-- Name: available_tools_id_seq; Type: SEQUENCE; Schema: public; Owner: -
+--
+
+CREATE SEQUENCE public.available_tools_id_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+
+--
+-- Name: available_tools_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: -
+--
+
+ALTER SEQUENCE public.available_tools_id_seq OWNED BY public.available_tools.id;
 
 
 --
@@ -874,6 +910,19 @@ CREATE SEQUENCE public.org_billing_state_id_seq
 --
 
 ALTER SEQUENCE public.org_billing_state_id_seq OWNED BY public.org_billing_state.id;
+
+
+--
+-- Name: org_tools; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.org_tools (
+    org_id bigint NOT NULL,
+    tool_id bigint NOT NULL,
+    enabled boolean DEFAULT false NOT NULL,
+    config_json jsonb DEFAULT '{}'::jsonb NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL
+);
 
 
 --
@@ -2202,6 +2251,13 @@ ALTER TABLE ONLY public.auth_tokens ALTER COLUMN id SET DEFAULT nextval('public.
 
 
 --
+-- Name: available_tools id; Type: DEFAULT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.available_tools ALTER COLUMN id SET DEFAULT nextval('public.available_tools_id_seq'::regclass);
+
+
+--
 -- Name: billing_notification_outbox id; Type: DEFAULT; Schema: public; Owner: -
 --
 
@@ -2489,6 +2545,22 @@ ALTER TABLE ONLY public.auth_tokens
 
 
 --
+-- Name: available_tools available_tools_name_key; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.available_tools
+    ADD CONSTRAINT available_tools_name_key UNIQUE (name);
+
+
+--
+-- Name: available_tools available_tools_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.available_tools
+    ADD CONSTRAINT available_tools_pkey PRIMARY KEY (id);
+
+
+--
 -- Name: billing_notification_outbox billing_notification_outbox_pkey; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -2606,6 +2678,14 @@ ALTER TABLE ONLY public.org_billing_state
 
 ALTER TABLE ONLY public.org_billing_state
     ADD CONSTRAINT org_billing_state_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: org_tools org_tools_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.org_tools
+    ADD CONSTRAINT org_tools_pkey PRIMARY KEY (org_id, tool_id);
 
 
 --
@@ -3432,6 +3512,13 @@ CREATE INDEX idx_org_billing_current_plan ON public.org_billing_state USING btre
 --
 
 CREATE INDEX idx_org_billing_scheduled_effective ON public.org_billing_state USING btree (scheduled_plan_effective_at) WHERE (scheduled_plan_effective_at IS NOT NULL);
+
+
+--
+-- Name: idx_org_tools_org_id; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_org_tools_org_id ON public.org_tools USING btree (org_id);
 
 
 --
@@ -4366,6 +4453,22 @@ ALTER TABLE ONLY public.org_billing_state
 
 
 --
+-- Name: org_tools org_tools_org_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.org_tools
+    ADD CONSTRAINT org_tools_org_id_fkey FOREIGN KEY (org_id) REFERENCES public.orgs(id) ON DELETE CASCADE;
+
+
+--
+-- Name: org_tools org_tools_tool_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.org_tools
+    ADD CONSTRAINT org_tools_tool_id_fkey FOREIGN KEY (tool_id) REFERENCES public.available_tools(id) ON DELETE CASCADE;
+
+
+--
 -- Name: orgs orgs_created_by_user_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -4875,4 +4978,8 @@ INSERT INTO public.schema_migrations (version) VALUES
     ('20260521120000'),
     ('20260521140000'),
     ('20260522120000'),
-    ('20260527120000');
+    ('20260527120000'),
+    ('20260611185900'),
+    ('20260612152523'),
+    ('20260618100000'),
+    ('20260618100001');
