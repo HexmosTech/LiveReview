@@ -11,13 +11,8 @@ module.exports = {
     args: 'worker',
     cwd: __dirname,
     watch: false
-  }, {
-    name: 'livereview-staging-worker-2',
-    script: './livereview',
-    args: 'worker',
-    cwd: __dirname,
-    watch: false
-  }, {
+  },
+   {
     name: 'livereview-staging-ui',
     script: './livereview',
     args: ["ui", "--port", "8081"],

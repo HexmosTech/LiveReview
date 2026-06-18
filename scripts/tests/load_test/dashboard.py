@@ -165,11 +165,78 @@ def render_reviews_list():
     col3.metric("Success Reviews", f"{test_details['success_reviews']}")
     col4.metric("Failed Reviews", f"{test_details['failed_reviews']}")
 
-    st.write("---")
-    
     if not rows:
         st.warning("No reviews found for this run.")
         return
+
+    # Convert to Pandas DataFrame
+    df_reviews = pd.DataFrame([dict(r) for r in rows])
+    # Ensure review_id is numeric for correct sorting and X-axis mapping
+    df_reviews['review_id_numeric'] = pd.to_numeric(df_reviews['review_id'], errors='coerce')
+    df_reviews = df_reviews.sort_values(by='review_id_numeric')
+    
+    # Prepare chart data
+    chart_data = pd.DataFrame({
+        'Review ID': df_reviews['review_id_numeric'],
+        'First Comment Offset (s)': df_reviews['first_comment_offset'],
+        'Total Duration (s)': df_reviews['time_taken']
+    })
+    
+    st.subheader("Queue Latency & Processing Times (Step Chart)")
+    
+    # Toggle and controls for showing static labels (great for screenshots)
+    col_t1, col_t2 = st.columns(2)
+    show_labels = col_t1.checkbox("Show static values on chart (for screenshots)", value=True)
+    
+    # Melt dataframe for Altair plotting
+    df_melted = chart_data.melt(id_vars='Review ID', var_name='Metric', value_name='Time (s)')
+    
+    import altair as alt
+    
+    # Base chart encoding
+    base = alt.Chart(df_melted).encode(
+        x=alt.X('Review ID:Q', title='Review ID', scale=alt.Scale(zero=False)),
+        y=alt.Y('Time (s):Q', title='Time (seconds)'),
+        color=alt.Color('Metric:N', legend=alt.Legend(orient='bottom', title=None))
+    )
+    
+    # Render lines & points
+    lines = base.mark_line(strokeWidth=2)
+    points = base.mark_circle(size=40)
+    chart = lines + points
+    
+    if show_labels:
+        label_step = col_t2.slider("Label frequency (show value every Nth point)", min_value=1, max_value=10, value=2)
+        
+        # Sub-slice data to avoid cluttering the visual
+        df_reviews_labels = df_reviews.iloc[::label_step]
+        chart_data_labels = pd.DataFrame({
+            'Review ID': df_reviews_labels['review_id_numeric'],
+            'First Comment Offset (s)': df_reviews_labels['first_comment_offset'],
+            'Total Duration (s)': df_reviews_labels['time_taken']
+        })
+        df_labels = chart_data_labels.melt(id_vars='Review ID', var_name='Metric', value_name='Time (s)')
+        
+        # Render static text label layer
+        labels = alt.Chart(df_labels).mark_text(
+            align='center',
+            baseline='bottom',
+            dy=-10,
+            fontSize=10,
+            fontWeight='bold'
+        ).encode(
+            x='Review ID:Q',
+            y='Time (s):Q',
+            text=alt.Text('Time (s):Q', format='.1f'),
+            color='Metric:N'
+        )
+        chart = chart + labels
+        
+    chart = chart.properties(height=400).interactive()
+    
+    st.altair_chart(chart, use_container_width=True)
+    
+    st.write("---")
 
     # Header row
     cols = st.columns([2, 2, 2, 2, 2, 2])

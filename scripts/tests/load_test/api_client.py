@@ -19,7 +19,7 @@ def submit_review(api_url, api_key, payload_b64, index):
 
     req = urllib.request.Request(url, data=data, headers=headers, method="POST")
     try:
-        with urllib.request.urlopen(req) as resp:
+        with urllib.request.urlopen(req, timeout=15) as resp:
             body = resp.read().decode("utf-8")
             res_json = json.loads(body)
             review_id = res_json.get("review_id")
@@ -39,7 +39,7 @@ def check_status(api_url, api_key, review_id):
     req = urllib.request.Request(url, headers=headers, method="GET")
     start = time.time()
     try:
-        with urllib.request.urlopen(req) as resp:
+        with urllib.request.urlopen(req, timeout=15) as resp:
             body = resp.read().decode("utf-8")
             latency = time.time() - start
             res_json = json.loads(body)
@@ -67,7 +67,7 @@ def fetch_review_events(api_url, api_key, review_id):
     }
     req = urllib.request.Request(url, headers=headers, method="GET")
     try:
-        with urllib.request.urlopen(req) as resp:
+        with urllib.request.urlopen(req, timeout=15) as resp:
             body = resp.read().decode("utf-8")
             res_json = json.loads(body)
             events = res_json.get("events") or []
