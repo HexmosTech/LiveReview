@@ -2,18 +2,11 @@ package api
 
 import (
 	"context"
+
+	coreprocessor "github.com/livereview/internal/core_processor"
 )
 
-type OperationUsageV2 struct {
-	BillableLOC    int64
-	Chargeable     bool
-	Provider       string
-	Model          string
-	PricingVersion string
-	InputTokens    *int64
-	OutputTokens   *int64
-	CostUSD        *float64
-}
+type OperationUsageV2 = coreprocessor.OperationUsageV2
 
 // Phase 1.3: Interfaces with V2 naming for conflict-free migration
 // All interfaces use V2 suffix to prevent conflicts during migration

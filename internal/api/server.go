@@ -25,6 +25,7 @@ import (
 	"github.com/livereview/internal/jobqueue"
 	"github.com/livereview/internal/learnings"
 	"github.com/livereview/internal/license"
+	reviewprocessor "github.com/livereview/internal/review_processor"
 	"github.com/livereview/internal/license/payment"
 	bitbucketprovider "github.com/livereview/internal/provider_input/bitbucket"
 	giteaprovider "github.com/livereview/internal/provider_input/gitea"
@@ -154,8 +155,8 @@ type Server struct {
 	learningsService *learnings.Service
 }
 
-// NewServer creates a new API server
-func NewServer(port int, versionInfo *VersionInfo) (*Server, error) {
+// appContext initializes the core backend database, configurations, queues, and provider subsystems
+func appContext(port int, versionInfo *VersionInfo) (*Server, error) {
 	// Load environment variables from .env file
 	env := map[string]string{}
 
@@ -235,6 +236,9 @@ func NewServer(port int, versionInfo *VersionInfo) (*Server, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to open database connection: %v", err)
 	}
+	db.SetMaxOpenConns(25)
+	db.SetMaxIdleConns(10)
+	db.SetConnMaxLifetime(5 * time.Minute)
 
 	if err := ensureRequiredBillingSchema(context.Background(), db); err != nil {
 		return nil, err
@@ -275,48 +279,6 @@ func NewServer(port int, versionInfo *VersionInfo) (*Server, error) {
 	// Start token cleanup scheduler
 	tokenService.StartCleanupScheduler()
 
-	e := echo.New()
-
-	// Middleware
-	// e.Use(middleware.Logger()) // Disabled to reduce log noise
-	e.Use(middleware.Recover())
-	e.Use(middleware.CORSWithConfig(middleware.CORSConfig{
-		AllowOriginFunc: func(origin string) (bool, error) {
-			// Allow localhost for development
-			if strings.HasPrefix(origin, "http://localhost:") {
-				return true, nil
-			}
-			// Allow hexmos.com and all subdomains
-			if origin == "https://hexmos.com" || origin == "http://hexmos.com" {
-				return true, nil
-			}
-			if strings.HasSuffix(origin, ".hexmos.com") {
-				return true, nil
-			}
-			return false, nil
-		},
-		AllowMethods: []string{
-			echo.GET, echo.POST, echo.PUT, echo.PATCH, echo.DELETE, echo.OPTIONS,
-		},
-		AllowHeaders: []string{
-			echo.HeaderOrigin,
-			echo.HeaderContentType,
-			echo.HeaderAccept,
-			echo.HeaderAuthorization,
-			"X-Requested-With",
-			"X-Org-Context",
-		},
-		AllowCredentials: true,
-	}))
-
-	// Add database to context
-	e.Use(func(next echo.HandlerFunc) echo.HandlerFunc {
-		return func(c echo.Context) error {
-			c.Set("db", db)
-			return next(c)
-		}
-	})
-
 	triggerAutoInstall := func(integrationID int) {
 		if autoWebhookInstaller != nil {
 			autoWebhookInstaller.TriggerAutoInstallation(integrationID)
@@ -326,7 +288,6 @@ func NewServer(port int, versionInfo *VersionInfo) (*Server, error) {
 	learningsSvc := learnings.NewService(learnings.NewPostgresStore(db))
 
 	server := &Server{
-		echo:                 e,
 		port:                 port,
 		db:                   db,
 		jobQueue:             jq,
@@ -359,6 +320,11 @@ func NewServer(port int, versionInfo *VersionInfo) (*Server, error) {
 	// Initialize V2 webhook orchestrator
 	server.webhookOrchestratorV2 = NewWebhookOrchestratorV2(server)
 
+	// Register webhook orchestrator callback with reviewprocessor
+	reviewprocessor.RegisterWebhookReviewHandler(func(ctx context.Context, db *sql.DB, orgID int64, connectorID int64, eventJSON string, scenarioType string) error {
+		return server.webhookOrchestratorV2.ProcessAsync(ctx, orgID, connectorID, eventJSON, scenarioType)
+	})
+
 	// Set the server reference in auto webhook installer (circular dependency)
 	autoWebhookInstaller.server = server
 
@@ -371,7 +337,60 @@ func NewServer(port int, versionInfo *VersionInfo) (*Server, error) {
 		return nil, fmt.Errorf("configuration validation failed: %w", err)
 	}
 
-	// Setup routes
+	return server, nil
+}
+
+// NewServer creates a new API server with HTTP routing and middlewares initialized
+func NewServer(port int, versionInfo *VersionInfo) (*Server, error) {
+	server, err := appContext(port, versionInfo)
+	if err != nil {
+		return nil, err
+	}
+
+	e := echo.New()
+	e.HideBanner = true
+
+	// Middleware
+	e.Use(middleware.Recover())
+	e.Use(middleware.CORSWithConfig(middleware.CORSConfig{
+		AllowOriginFunc: func(origin string) (bool, error) {
+			// Allow localhost for development
+			if strings.HasPrefix(origin, "http://localhost:") {
+				return true, nil
+			}
+			// Allow hexmos.com / hexmos.site and all subdomains
+			if origin == "https://hexmos.com" || origin == "http://hexmos.com" ||
+				origin == "https://hexmos.site" || origin == "http://hexmos.site" {
+				return true, nil
+			}
+			if strings.HasSuffix(origin, ".hexmos.com") || strings.HasSuffix(origin, ".hexmos.site") {
+				return true, nil
+			}
+			return false, nil
+		},
+		AllowMethods: []string{
+			echo.GET, echo.POST, echo.PUT, echo.PATCH, echo.DELETE, echo.OPTIONS,
+		},
+		AllowHeaders: []string{
+			echo.HeaderOrigin,
+			echo.HeaderContentType,
+			echo.HeaderAccept,
+			echo.HeaderAuthorization,
+			"X-Requested-With",
+			"X-Org-Context",
+		},
+		AllowCredentials: true,
+	}))
+
+	// Add database to context
+	e.Use(func(next echo.HandlerFunc) echo.HandlerFunc {
+		return func(c echo.Context) error {
+			c.Set("db", server.db)
+			return next(c)
+		}
+	})
+
+	server.echo = e
 	server.setupRoutes()
 	mcp := mcpserver.New(e)
 	mcp.RegisterSchema("POST", "/api/v1/connectors/trigger-review", nil, TriggerReviewRequest{})
@@ -426,6 +445,11 @@ func NewServer(port int, versionInfo *VersionInfo) (*Server, error) {
 	mcp.Mount("/api/mcp")
 
 	return server, nil
+}
+
+// WorkerContext creates a new Server instance optimized for running background workers (no Echo router initialized)
+func WorkerContext(versionInfo *VersionInfo) (*Server, error) {
+	return appContext(0, versionInfo)
 }
 
 func ensureRequiredBillingSchema(ctx context.Context, db *sql.DB) error {
@@ -1100,15 +1124,6 @@ func (s *Server) Start() error {
 		fmt.Println("Production Mode: Webhooks enabled, configured for reverse proxy")
 	}
 	fmt.Println("Press Ctrl+C to stop the server")
-
-	// Start job queue workers
-	ctx := context.Background()
-	go func() {
-		if err := s.jobQueue.Start(ctx); err != nil {
-			fmt.Printf("Error starting job queue: %v\n", err)
-		}
-	}()
-	fmt.Println("Job queue workers started")
 
 	// Start dashboard manager
 	s.dashboardManager.Start()
@@ -1934,4 +1949,9 @@ func (s *Server) WebhookOrchestratorV2Handler(c echo.Context) error {
 	}
 
 	return s.webhookOrchestratorV2.ProcessWebhookEvent(c)
+}
+
+// GetJobQueue returns the initialized job queue
+func (s *Server) GetJobQueue() *jobqueue.JobQueue {
+	return s.jobQueue
 }

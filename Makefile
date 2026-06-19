@@ -1,7 +1,7 @@
-.PHONY: build run-review run-review-verbose test clean develop develop-reflex river-deps river-install river-migrate river-setup river-ui-install river-ui db-flip version version-bump version-patch version-minor version-major version-bump-dirty version-patch-dirty version-minor-dirty version-major-dirty version-bump-dry version-patch-dry version-minor-dry version-major-dry build-versioned docker-build docker-build-push docker-build-dry docker-interactive docker-interactive-push docker-interactive-dry docker-build docker-build-push docker-build-versioned docker-build-push-versioned docker-build-dry docker-build-push-dry docker-multiarch docker-multiarch-push docker-multiarch-dry docker-interactive-multiarch docker-interactive-multiarch-push cplrops vendor-prompts-encrypt vendor-prompts-build vendor-prompts-rebuild vendor-docker-build vendor-docker-build-dry vendor-docker-build-push vendor-docker-multiarch-dry vendor-docker-multiarch-push run logrun api-with-migrations build-with-ui security-sbom security-sbom-cyclonedx security-sbom-spdx security-sbom-validate release-notes-init release-notes-check release-preflight release-gh niceurl niceurl2
+.PHONY: build build-prod run-review run-review-verbose test clean develop develop-reflex river-deps river-install river-migrate river-setup river-ui-install river-ui db-flip version version-bump version-patch version-minor version-major version-bump-dirty version-patch-dirty version-minor-dirty version-major-dirty version-bump-dry version-patch-dry version-minor-dry version-major-dry build-versioned docker-build docker-build-push docker-build-dry docker-interactive docker-interactive-push docker-interactive-dry docker-build docker-build-push docker-build-versioned docker-build-push-versioned docker-build-dry docker-build-push-dry docker-multiarch docker-multiarch-push docker-multiarch-dry docker-interactive-multiarch docker-interactive-multiarch-push cplrops vendor-prompts-encrypt vendor-prompts-build vendor-prompts-rebuild vendor-docker-build vendor-docker-build-dry vendor-docker-build-push vendor-docker-multiarch-dry vendor-docker-multiarch-push run logrun api-with-migrations build-with-ui security-sbom security-sbom-cyclonedx security-sbom-spdx security-sbom-validate release-notes-init release-notes-check release-preflight release-gh niceurl niceurl2 run-api run-worker
 .PHONY: upload-secrets download-secrets list-secrets-files legacy-secrets-clear generate-openapi
 .PHONY: razorpay-webhook-ensure razorpay-webhook-ensure-dry razorpay-verify-plans razorpay-verify-plans-low-pricing
-.PHONY: raw-deploy raw-deploy-low-pricing raw-deploy-backend raw-deploy-backend-low-pricing
+.PHONY: raw-deploy raw-deploy-low-pricing raw-deploy-backend raw-deploy-backend-low-pricing build-staging-with-ui raw-deploy-staging stop-staging
 
 # Go parameters
 GOENV=env -u GOROOT
@@ -44,6 +44,9 @@ build:
 	rm $(BINARY_NAME) || true
 	$(GOBUILD) -o $(BINARY_NAME)
 
+build-prod:
+	rm $(BINARY_NAME) || true
+	$(GOBUILD) -tags production -o $(BINARY_NAME)
 # Minimal CI build
 build-ci:
 	rm -f $(BINARY_NAME)
@@ -199,6 +202,12 @@ develop-reflex:
 api-with-migrations:
 	dbmate up
 	$(GOCMD) run livereview.go api
+
+run-api: build
+	./$(BINARY_NAME) api
+
+run-worker: build
+	./$(BINARY_NAME) worker
 
 run-review:
 	./$(BINARY_NAME) review --dry-run https://git.apps.hexmos.com/hexmos/liveapi/-/merge_requests/365
@@ -382,6 +391,14 @@ river-migrate:
 river-ui:
 	@echo "Starting River UI with DATABASE_URL: $(DATABASE_URL)"
 	DATABASE_URL="$(DATABASE_URL)" riverui
+
+staging-river-ui:
+	@if [ ! -f $(DEPLOY_STAGING_ENV_FILE) ]; then \
+		echo "❌ ERROR: $(DEPLOY_STAGING_ENV_FILE) not found"; \
+		exit 1; \
+	fi
+	@echo "Starting River UI with Staging DATABASE_URL..."
+	@set -a && . ./$(DEPLOY_STAGING_ENV_FILE) && set +a && DATABASE_URL="$$DATABASE_URL" riverui
 
 # 🚀 ONE COMMAND TO DO IT ALL - Install River dependencies, CLI tool, UI tool, and run migrations
 river-setup: river-deps river-install river-ui-install river-migrate
@@ -617,6 +634,51 @@ raw-deploy: build-with-ui
 	ssh $(DEPLOY_HOST) "cd $(DEPLOY_PATH) && chmod a+x db-ready.sh && ./db-ready.sh"
 	ssh $(DEPLOY_HOST) "cd $(DEPLOY_PATH) && pm2 reload ecosystem.config.js --update-env"
 	@echo "✅ Production deployment complete!"
+
+DEPLOY_STAGING_ENV_FILE=.env.staging
+DEPLOY_STAGING_PATH=/home/ubuntu/staging_lr
+DEPLOY_STAGING_HOST=nats03-do
+
+build-staging-with-ui:
+	@echo "🔨 Building for STAGING deployment (mock AI enabled)"
+	@if [ ! -f .env.staging ]; then \
+		echo "❌ ERROR: .env.staging not found! Cannot build for staging."; \
+		exit 1; \
+	fi
+	rm $(BINARY_NAME) || true
+	cd ui/ && npm install && set -a && . ./.env.staging && set +a && LIVEREVIEW_BUILD_MODE=prod NODE_ENV=production npm run build:obfuscated && cd ..
+	env -u GOROOT go build livereview.go
+	@echo "✅ Staging build complete. Binary ready for raw-deploy-staging."
+
+raw-deploy-staging: build-staging-with-ui
+	@echo "🚀 Deploying to staging server..."
+	@if [ ! -f ./livereview ]; then \
+		echo "❌ ERROR: livereview binary not found!"; \
+		exit 1; \
+	fi
+	@if [ ! -f ./$(DEPLOY_PLAN_CATALOG_FILE) ]; then \
+		echo "❌ ERROR: $(DEPLOY_PLAN_CATALOG_FILE) not found"; \
+		exit 1; \
+	fi
+	@if [ ! -f $(DEPLOY_STAGING_ENV_FILE) ]; then \
+		echo "❌ ERROR: $(DEPLOY_STAGING_ENV_FILE) not found"; \
+		exit 1; \
+	fi
+	@echo "🔄 Running database migrations from local machine..."
+	set -a && . ./$(DEPLOY_STAGING_ENV_FILE) && set +a && dbmate --url "$$DATABASE_URL" up && river migrate-up --database-url "$$DATABASE_URL"
+	ssh $(DEPLOY_STAGING_HOST) "mkdir -p $(DEPLOY_STAGING_PATH) && cd $(DEPLOY_STAGING_PATH) && mv ./livereview ./livereview.bak || true"
+	rsync -avz ./livereview ecosystem.staging.config.js $(DEPLOY_STAGING_HOST):$(DEPLOY_STAGING_PATH)/
+	rsync -avz ./$(DEPLOY_STAGING_ENV_FILE) $(DEPLOY_STAGING_HOST):$(DEPLOY_STAGING_PATH)/.env
+	ssh $(DEPLOY_STAGING_HOST) "mkdir -p $(DEPLOY_STAGING_PATH)/config $(DEPLOY_STAGING_PATH)/internal/mockllm"
+	rsync -avz ./$(DEPLOY_PLAN_CATALOG_FILE) $(DEPLOY_STAGING_HOST):$(DEPLOY_STAGING_PATH)/$(DEPLOY_PLAN_CATALOG_FILE)
+	rsync -avz ./internal/mockllm/mockllm.toml $(DEPLOY_STAGING_HOST):$(DEPLOY_STAGING_PATH)/internal/mockllm/mockllm.toml
+	ssh $(DEPLOY_STAGING_HOST) "bash -ic 'cd $(DEPLOY_STAGING_PATH) && pm2 reload ecosystem.staging.config.js --update-env || pm2 start ecosystem.staging.config.js'"
+	@echo "✅ Staging deployment complete!"
+
+stop-staging:
+	@echo "🛑 Stopping staging processes on server..."
+	ssh $(DEPLOY_STAGING_HOST) "bash -ic 'cd $(DEPLOY_STAGING_PATH) && pm2 delete ecosystem.staging.config.js || true'"
+	@echo "✅ Staging processes stopped and removed from PM2!"
 
 raw-deploy-low-pricing: build-with-ui
 	@echo "🚀 Deploying to production server with LOW pricing profile..."

@@ -1,18 +1,19 @@
 module.exports = {
   apps : [{
-    name: 'livereview-api',
+    name: 'livereview-staging-api',
     script: './livereview',
     args: 'api',
     cwd: __dirname,
     watch: false
   }, {
-    name: 'livereview-worker',
+    name: 'livereview-staging-worker',
     script: './livereview',
     args: 'worker',
     cwd: __dirname,
     watch: false
-  }, {
-    name: 'livereview-ui',
+  },
+   {
+    name: 'livereview-staging-ui',
     script: './livereview',
     args: ["ui", "--port", "8081"],
     cwd: __dirname,
