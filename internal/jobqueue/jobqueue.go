@@ -2263,9 +2263,10 @@ func (w *WebhookRemovalWorker) updateWebhookRegistryForGiteaRemoval(ctx context.
 
 // JobQueue manages the River job queue
 type JobQueue struct {
-	client *river.Client[pgx.Tx]
-	pool   *pgxpool.Pool
-	config *QueueConfig
+	client                *river.Client[pgx.Tx]
+	pool                  *pgxpool.Pool
+	db                    *sql.DB
+	config                *QueueConfig
 }
 
 // NewJobQueue creates a new job queue instance
@@ -2291,23 +2292,40 @@ func NewJobQueue(databaseURL string, db *sql.DB) (*JobQueue, error) {
 	}
 	httpClient := networkjobqueue.NewWebhookHTTPClient(30 * time.Second)
 
+	webhookWorker := &WebhookReviewWorker{}
+	manualWorker := &ManualReviewWorker{}
+	diffWorker := &DiffReviewWorker{db: db, pool: pool}
 	river.AddWorker(workers, &WebhookInstallWorker{pool: pool, config: config, store: store, httpClient: httpClient})
 	river.AddWorker(workers, &WebhookRemovalWorker{pool: pool, config: config, store: store, httpClient: httpClient})
+	river.AddWorker(workers, diffWorker)
+	river.AddWorker(workers, webhookWorker)
+	river.AddWorker(workers, manualWorker)
+	river.AddWorker(workers, &UpdateOrgUsageWorker{db: db, pool: pool})
 
 	client, err := river.NewClient(riverpgxv5.New(pool), &river.Config{
-		Queues:  config.RiverQueueConfig(),
-		Workers: workers,
+		Queues:                      config.RiverQueueConfig(),
+		Workers:                     workers,
+		CompletedJobRetentionPeriod: 365 * 24 * time.Hour,
+		CancelledJobRetentionPeriod: 365 * 24 * time.Hour,
+		DiscardedJobRetentionPeriod: 365 * 24 * time.Hour,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("failed to create River client: %w", err)
 	}
 
-	return &JobQueue{
+	jq := &JobQueue{
 		client: client,
 		pool:   pool,
+		db:     db,
 		config: config,
-	}, nil
+	}
+	webhookWorker.jq = jq
+	manualWorker.jq = jq
+	diffWorker.jq = jq
+
+	return jq, nil
 }
+
 
 // Start starts the job queue workers
 func (jq *JobQueue) Start(ctx context.Context) error {
@@ -2329,7 +2347,7 @@ func (jq *JobQueue) QueueWebhookInstallJob(ctx context.Context, connectorID int,
 		PAT:         pat,
 	}
 
-	_, err := jq.client.Insert(ctx, args, nil)
+	_, err := jq.client.Insert(ctx, args, &river.InsertOpts{MaxAttempts: 5})
 	if err != nil {
 		return fmt.Errorf("failed to queue webhook install job: %w", err)
 	}
@@ -2348,10 +2366,65 @@ func (jq *JobQueue) QueueWebhookRemovalJob(ctx context.Context, connectorID int,
 		SkipRegistryUpdate: skipRegistryUpdate,
 	}
 
-	_, err := jq.client.Insert(ctx, args, nil)
+	_, err := jq.client.Insert(ctx, args, &river.InsertOpts{MaxAttempts: 5})
 	if err != nil {
 		return fmt.Errorf("failed to queue webhook removal job: %w", err)
 	}
 
 	return nil
 }
+
+// QueueReviewJob enqueues a new diff review job to the "review" queue.
+func (jq *JobQueue) QueueReviewJob(ctx context.Context, args DiffReviewJobArgs) error {
+	_, err := jq.client.Insert(ctx, args, &river.InsertOpts{Queue: "review", MaxAttempts: 5})
+	if err != nil {
+		log.Printf("[ERROR] Failed to queue review job: %v", err)
+		return fmt.Errorf("failed to queue review job: %w", err)
+	}
+	return nil
+}
+
+// QueueWebhookReviewJob enqueues a new webhook review job to the "review" queue.
+func (jq *JobQueue) QueueWebhookReviewJob(ctx context.Context, orgID int64, connectorID int64, eventJSON string, scenarioType string) error {
+	args := WebhookReviewJobArgs{
+		OrgID:        orgID,
+		ConnectorID:  connectorID,
+		EventJSON:    eventJSON,
+		ScenarioType: scenarioType,
+	}
+	_, err := jq.client.Insert(ctx, args, &river.InsertOpts{Queue: "review", MaxAttempts: 5})
+	if err != nil {
+		log.Printf("[ERROR] Failed to queue webhook review job: %v", err)
+		return fmt.Errorf("failed to queue webhook review job: %w", err)
+	}
+	return nil
+}
+
+// QueueManualReviewJob enqueues a new manual review job to the "review" queue.
+func (jq *JobQueue) QueueManualReviewJob(ctx context.Context, orgID int64, planCode string, actorUserID *int64, actorEmail string, reviewID int64, requestJSON string) error {
+	args := ManualReviewJobArgs{
+		OrgID:       orgID,
+		PlanCode:    planCode,
+		ActorUserID: actorUserID,
+		ActorEmail:  actorEmail,
+		ReviewID:    reviewID,
+		RequestJSON: requestJSON,
+	}
+	_, err := jq.client.Insert(ctx, args, &river.InsertOpts{Queue: "review", MaxAttempts: 5})
+	if err != nil {
+		log.Printf("[ERROR] Failed to queue manual review job: %v", err)
+		return fmt.Errorf("failed to queue manual review job: %w", err)
+	}
+	return nil
+}
+
+// QueueUpdateOrgUsageJob enqueues a new organization usage finalization job.
+func (jq *JobQueue) QueueUpdateOrgUsageJob(ctx context.Context, args UpdateOrgUsageJobArgs) error {
+	_, err := jq.client.Insert(ctx, args, &river.InsertOpts{MaxAttempts: 5})
+	if err != nil {
+		log.Printf("[ERROR] Failed to queue update org usage job: %v", err)
+		return fmt.Errorf("failed to queue update org usage job: %w", err)
+	}
+	return nil
+}
+

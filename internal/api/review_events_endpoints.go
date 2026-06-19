@@ -90,7 +90,7 @@ func (h *ReviewEventsHandler) GetReviewEvents(c echo.Context) error {
 
 	var reviewStatus *string
 	var statusValue string
-	statusErr := h.service.repo.db.QueryRowContext(
+	statusErr := h.service.repo.DB().QueryRowContext(
 		c.Request().Context(),
 		`SELECT status FROM reviews WHERE id = $1 AND org_id = $2`,
 		reviewID,
