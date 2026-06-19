@@ -65,7 +65,7 @@ def main():
     if not api_key:
         print("[-] API key could not be loaded from ~/.lrc.toml. Please authenticate first using 'lrc ui' or check the file.")
         sys.exit(1)
-    print(f"[+] Loaded API key (prefix: {api_key[:8]}...)")
+    print("[+] API key loaded successfully.")
 
     api_url = get_api_url()
     num_jobs = 50
