@@ -9,6 +9,7 @@ export interface UserInfo {
   updated_at: string;
   plan_type?: string;
   license_expires_at?: string;
+  default_org_id?: number;
 }
 
 export interface OrgInfo {

@@ -563,6 +563,7 @@ func (s *Server) setupRoutes() {
 	public.POST("/auth/refresh", s.authHandlers.RefreshToken)
 	public.GET("/auth/setup-status", s.authHandlers.CheckSetupStatus)
 	public.POST("/auth/setup", s.authHandlers.SetupAdmin)
+	public.POST("/auth/onboard", s.Onboard)
 
 	// Diff review endpoints (protected by API key middleware)
 	diffReviewGroup := v1.Group("/diff-review")
@@ -621,6 +622,7 @@ func (s *Server) setupRoutes() {
 	// Self-service profile endpoints
 	protected.GET("/users/profile", s.profileHandlers.GetProfile)
 	protected.PUT("/users/profile", s.profileHandlers.UpdateProfile)
+	protected.PUT("/users/default-org", s.orgHandlers.SetDefaultOrganization)
 	protected.PUT("/users/password", s.profileHandlers.ChangePassword)
 
 	// Development mode test endpoints (only enabled when DEV_MODE=true)

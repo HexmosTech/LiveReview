@@ -677,3 +677,52 @@ func (s *OrganizationService) GetOrganizationAnalytics(orgID int64) (*models.Org
 
 	return analytics, nil
 }
+
+// SetUserDefaultOrganization updates the default organization ID for a user
+func (s *OrganizationService) SetUserDefaultOrganization(userID int64, orgID int64) error {
+	// Check if user is a member of the organization
+	var isMember bool
+	membershipCheckQuery := `
+		SELECT EXISTS(
+			SELECT 1 FROM user_roles 
+			WHERE user_id = $1 AND org_id = $2
+		)
+	`
+	err := s.db.QueryRow(membershipCheckQuery, userID, orgID).Scan(&isMember)
+	if err != nil {
+		return fmt.Errorf("failed to check organization membership: %w", err)
+	}
+
+	if !isMember {
+		// Check if user is a super admin
+		var isSuperAdmin bool
+		superAdminCheckQuery := `
+			SELECT EXISTS(
+				SELECT 1 FROM user_roles ur
+				JOIN roles r ON ur.role_id = r.id
+				WHERE ur.user_id = $1 AND r.name = 'super_admin'
+			)
+		`
+		err = s.db.QueryRow(superAdminCheckQuery, userID).Scan(&isSuperAdmin)
+		if err != nil {
+			return fmt.Errorf("failed to check super admin status: %w", err)
+		}
+
+		if !isSuperAdmin {
+			return fmt.Errorf("user is not a member of this organization")
+		}
+	}
+
+	// Update user's default_org_id
+	_, err = s.db.Exec(`
+		UPDATE users 
+		SET default_org_id = $1 
+		WHERE id = $2
+	`, orgID, userID)
+	if err != nil {
+		return fmt.Errorf("failed to update user default organization: %w", err)
+	}
+
+	return nil
+}
+
