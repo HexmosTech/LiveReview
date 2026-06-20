@@ -167,3 +167,11 @@ Latest milestone batch note (MF-LOC-007, MF-LOC-008, MF-PRORATION-003, MF-ATTRIB
 | tools.GetEnabledToolsForOrg | added | [GetEnabledToolsForOrg](tools/tools_store.go#L124) |
 | tools.InsertToolResultEvent | added | [InsertToolResultEvent](tools/tools_store.go#L167) |
 | tools.GetToolResultsForReview | added | [GetToolResultsForReview](tools/tools_store.go#L236) |
+
+### `tools/credit_store.go`
+Manages static analysis tool credits, monthly budgets, and accounting ledger.
+- `NewCreditStore`: file:///home/gk/hex/LiveReview/storage/tools/credit_store.go#L20-L22
+- `ensureAndLockBillingState`: file:///home/gk/hex/LiveReview/storage/tools/credit_store.go#L24-L57
+- `GetCreditUsage`: file:///home/gk/hex/LiveReview/storage/tools/credit_store.go#L59-L89
+- `CheckCreditPreflight`: file:///home/gk/hex/LiveReview/storage/tools/credit_store.go#L91-L100
+- `DeductCredits`: file:///home/gk/hex/LiveReview/storage/tools/credit_store.go#L102-L149

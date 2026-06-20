@@ -667,6 +667,7 @@ func (s *Server) setupRoutes() {
 
 	// Third-party tools endpoints within org context
 	orgGroup.GET("/tools", s.ListOrgTools)
+	orgGroup.GET("/tools/credits", s.GetOrgToolCredits)
 	orgGroup.PUT("/tools/:tool_id", s.UpdateOrgTool)
 
 	// Organization creation - available to all authenticated users

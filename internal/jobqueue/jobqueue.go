@@ -30,10 +30,13 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+	reviewpkg "github.com/livereview/internal/review"
+	"github.com/livereview/pkg/models"
 	"github.com/livereview/internal/providers/gitea"
 	networkjobqueue "github.com/livereview/network/jobqueue"
 	awsconfig "github.com/aws/aws-sdk-go-v2/config"
@@ -179,26 +182,24 @@ type WebhookRemovalWorker struct {
 	httpClient *networkjobqueue.WebhookHTTPClient
 }
 
-// ToolInvocationJobArgs represents the arguments for a static analysis tool invocation job
-type ToolInvocationJobArgs struct {
-	ReviewID    int64  `json:"review_id"`
-	OrgID       int64  `json:"org_id"`
-	ToolID      int64  `json:"tool_id"`
-	ToolName    string `json:"tool_name"`
-	LambdaARN   string `json:"lambda_arn"`
-	PRURL       string `json:"pr_url"`
-	ConnectorID int64  `json:"connector_id"`
-	Provider    string `json:"provider"`
+// ToolReviewOrchestratorJobArgs represents the arguments for orchestrating tool reviews
+type ToolReviewOrchestratorJobArgs struct {
+	ReviewID        int64   `json:"review_id"`
+	OrgID           int64   `json:"org_id"`
+	PRURL           string  `json:"pr_url"`
+	ConnectorID     int64   `json:"connector_id"`
+	Provider        string  `json:"provider"`
+	TotalMultiplier float64 `json:"total_multiplier"`
 }
 
 // Kind returns the job kind for River
-func (ToolInvocationJobArgs) Kind() string {
-	return "tool_invocation"
+func (ToolReviewOrchestratorJobArgs) Kind() string {
+	return "tool_review_orchestrator"
 }
 
-// ToolInvocationWorker handles tool invocation jobs
-type ToolInvocationWorker struct {
-	river.WorkerDefaults[ToolInvocationJobArgs]
+// ToolReviewOrchestratorWorker handles the entire tool review orchestration pipeline
+type ToolReviewOrchestratorWorker struct {
+	river.WorkerDefaults[ToolReviewOrchestratorJobArgs]
 	db           *sql.DB
 	lambdaClient tools.LambdaClient
 }
@@ -2329,7 +2330,7 @@ func NewJobQueue(databaseURL string, db *sql.DB) (*JobQueue, error) {
 	} else {
 		lambdaClient = awslambda.NewFromConfig(awsCfg)
 	}
-	river.AddWorker(workers, &ToolInvocationWorker{db: db, lambdaClient: lambdaClient})
+	river.AddWorker(workers, &ToolReviewOrchestratorWorker{db: db, lambdaClient: lambdaClient})
 
 	client, err := river.NewClient(riverpgxv5.New(pool), &river.Config{
 		Queues:  config.RiverQueueConfig(),
@@ -2393,72 +2394,202 @@ func (jq *JobQueue) QueueWebhookRemovalJob(ctx context.Context, connectorID int,
 	return nil
 }
 
-// Work performs the tool invocation logic
-func (w *ToolInvocationWorker) Work(ctx context.Context, job *river.Job[ToolInvocationJobArgs]) error {
+// Work performs the full tool review pipeline (diff fetch, credit deduct, tool invocation, comment post)
+func (w *ToolReviewOrchestratorWorker) Work(ctx context.Context, job *river.Job[ToolReviewOrchestratorJobArgs]) error {
 	args := job.Args
 
-	log.Printf("[INFO] ToolInvocationWorker: processing review=%d, tool=%s, ARN=%s",
-		args.ReviewID, args.ToolName, args.LambdaARN)
-
-	// 1. Fetch raw diff from the reviews table.
-	var diff sql.NullString
-	err := w.db.QueryRowContext(ctx, "SELECT diff FROM public.reviews WHERE id = $1 AND org_id = $2", args.ReviewID, args.OrgID).Scan(&diff)
+	log.Printf("[INFO] ToolReviewOrchestrator: starting for review=%d, org=%d, provider=%s", args.ReviewID, args.OrgID, args.Provider)
+	
+	// 1. Fetch enabled tools
+	toolsStore := storagetools.NewToolsStore(w.db)
+	enabledTools, err := toolsStore.GetEnabledToolsForOrg(ctx, args.OrgID)
 	if err != nil {
-		if err == sql.ErrNoRows {
-			log.Printf("[WARN] ToolInvocationWorker: review %d not found or not belonging to org %d", args.ReviewID, args.OrgID)
-			return nil
-		}
-		return fmt.Errorf("failed to query review diff: %w", err)
+		_, _ = w.db.ExecContext(ctx, "UPDATE public.reviews SET status = $1 WHERE id = $2", "failed", args.ReviewID)
+		return fmt.Errorf("failed to fetch enabled tools: %w", err)
 	}
-
-	if !diff.Valid || strings.TrimSpace(diff.String) == "" {
-		log.Printf("[INFO] ToolInvocationWorker: empty diff for review %d, skipping invocation", args.ReviewID)
+	if len(enabledTools) == 0 {
+		log.Printf("[INFO] ToolReviewOrchestrator: No enabled tools for org %d", args.OrgID)
+		_, _ = w.db.ExecContext(ctx, "UPDATE public.reviews SET status = $1 WHERE id = $2", "completed", args.ReviewID)
 		return nil
 	}
 
-	// 2. Prepare Lambda payload.
-	payloadMap := map[string]interface{}{
-		"review_id": args.ReviewID,
-		"diff":      diff.String,
-	}
-	payloadBytes, err := json.Marshal(payloadMap)
+	// 2. Deduct Credits
+	creditStore := storagetools.NewCreditStore(w.db)
+	err = creditStore.DeductCredits(ctx, args.OrgID, args.ReviewID, args.TotalMultiplier)
 	if err != nil {
-		return fmt.Errorf("failed to marshal lambda payload: %w", err)
+		_, _ = w.db.ExecContext(ctx, "UPDATE public.reviews SET status = $1 WHERE id = $2", "failed", args.ReviewID)
+		return fmt.Errorf("failed to deduct credits: %w", err)
 	}
 
-	// 3. Invoke Lambda by ARN via aws-sdk-go-v2.
-	respBytes, err := tools.InvokeTool(ctx, w.lambdaClient, args.LambdaARN, payloadBytes)
+	// 3. Fetch Connection and Diff from Provider
+	providerFactory := reviewpkg.NewStandardProviderFactory()
+	
+	// Fetch connection details to build ProviderConfig
+	var token string
+	var patToken sql.NullString
+	var tokenType sql.NullString
+	var providerURL sql.NullString
+	
+	err = w.db.QueryRowContext(ctx, `SELECT access_token, pat_token, token_type, provider_url FROM integration_tokens WHERE id = $1 AND org_id = $2`, args.ConnectorID, args.OrgID).Scan(&token, &patToken, &tokenType, &providerURL)
 	if err != nil {
-		return fmt.Errorf("lambda invocation failed: %w", err)
+		_, _ = w.db.ExecContext(ctx, "UPDATE public.reviews SET status = $1 WHERE id = $2", "failed", args.ReviewID)
+		return fmt.Errorf("failed to get integration token: %w", err)
+	}
+	
+	actualToken := token
+	if tokenType.Valid && tokenType.String == "PAT" && patToken.Valid && patToken.String != "" {
+		actualToken = patToken.String
+	}
+	
+	providerConfigMap := map[string]interface{}{}
+	if tokenType.Valid && tokenType.String == "PAT" && patToken.Valid && patToken.String != "" {
+		providerConfigMap["pat_token"] = patToken.String
+		if strings.HasPrefix(args.Provider, "bitbucket") {
+			providerConfigMap["repo_url"] = args.PRURL
+		}
+	}
+	
+	provConfig := reviewpkg.ProviderConfig{
+		Type:   args.Provider,
+		URL:    providerURL.String,
+		Token:  actualToken,
+		Config: providerConfigMap,
 	}
 
-	// 4. Save results to review_events.
-	store := storagetools.NewToolsStore(w.db)
-	err = store.InsertToolResultEvent(ctx, args.ReviewID, args.OrgID, args.ToolID, args.ToolName, respBytes)
+	providerInstance, err := providerFactory.CreateProvider(ctx, provConfig)
 	if err != nil {
-		return fmt.Errorf("failed to insert tool result review event: %w", err)
+		_, _ = w.db.ExecContext(ctx, "UPDATE public.reviews SET status = $1 WHERE id = $2", "failed", args.ReviewID)
+		return fmt.Errorf("failed to create provider: %w", err)
 	}
 
-	log.Printf("[INFO] ToolInvocationWorker: successfully processed review=%d, tool=%s", args.ReviewID, args.ToolName)
+	// Resolve PR ID
+	prID := fmt.Sprintf("%d", args.ReviewID)
+	parsedURL, err := url.Parse(args.PRURL)
+	if err == nil {
+		parts := strings.Split(parsedURL.Path, "/")
+		if strings.HasPrefix(args.Provider, "github") && len(parts) >= 5 && parts[3] == "pull" {
+			prID = parts[1] + "/" + parts[2] + "/" + parts[4]
+		} else if strings.HasPrefix(args.Provider, "bitbucket") && len(parts) >= 5 && parts[3] == "pull-requests" {
+			prID = parts[1] + "/" + parts[2] + "/" + parts[4]
+		}
+	}
+
+	mrDetails, err := providerInstance.GetMergeRequestDetails(ctx, args.PRURL)
+	if err == nil && mrDetails != nil {
+		prID = mrDetails.ID
+		if args.Provider == "github" {
+			u, parseErr := url.Parse(mrDetails.URL)
+			if parseErr == nil {
+				parts := strings.Split(u.Path, "/")
+				if len(parts) >= 5 && parts[3] == "pull" {
+					prID = parts[1] + "/" + parts[2] + "/" + parts[4]
+				}
+			}
+		} else if args.Provider == "bitbucket" {
+			u, parseErr := url.Parse(mrDetails.URL)
+			if parseErr == nil {
+				parts := strings.Split(u.Path, "/")
+				if len(parts) >= 5 && parts[3] == "pull-requests" {
+					prID = parts[1] + "/" + parts[2] + "/" + parts[4]
+				}
+			}
+		}
+	}
+
+	changes, err := providerInstance.GetMergeRequestChanges(ctx, prID)
+	if err != nil {
+		_, _ = w.db.ExecContext(ctx, "UPDATE public.reviews SET status = $1 WHERE id = $2", "failed", args.ReviewID)
+		return fmt.Errorf("failed to get MR changes: %w", err)
+	}
+
+	rawDiff := reviewpkg.FormatDiffs(changes)
+	if rawDiff == "" {
+		log.Printf("[INFO] ToolReviewOrchestrator: empty diff for review %d", args.ReviewID)
+		_, _ = w.db.ExecContext(ctx, "UPDATE public.reviews SET status = $1 WHERE id = $2", "completed", args.ReviewID)
+		return nil
+	}
+
+	// 4. Run Tools in Parallel
+	var wg sync.WaitGroup
+	var mu sync.Mutex
+	var allComments []string
+
+	for _, tool := range enabledTools {
+		wg.Add(1)
+		go func(t storagetools.AvailableTool) {
+			defer wg.Done()
+
+			payloadMap := map[string]interface{}{
+				"review_id": args.ReviewID,
+				"diff":      rawDiff,
+			}
+			payloadBytes, err := json.Marshal(payloadMap)
+			if err != nil {
+				log.Printf("[ERROR] Tool %s payload marshal failed: %v", t.Name, err)
+				return
+			}
+
+			respBytes, err := tools.InvokeTool(ctx, w.lambdaClient, t.LambdaARN, payloadBytes)
+			if err != nil {
+				log.Printf("[ERROR] Tool %s lambda invocation failed: %v", t.Name, err)
+				return
+			}
+
+			// Parse response to see if there are findings
+			var result struct {
+				Findings []storagetools.ToolFinding `json:"findings"`
+			}
+			_ = json.Unmarshal(respBytes, &result)
+
+			// Store the event in review_events
+			_ = toolsStore.InsertToolResultEvent(ctx, args.ReviewID, args.OrgID, t.ID, t.Name, respBytes)
+
+			// Collect comments
+			if len(result.Findings) > 0 {
+				mu.Lock()
+				for _, f := range result.Findings {
+					comment := fmt.Sprintf("**[%s]** `%s:%d:%d` %s\n%s", t.Name, f.File, f.Line, f.Col, f.Rule, f.Message)
+					allComments = append(allComments, comment)
+				}
+				mu.Unlock()
+			}
+		}(tool)
+	}
+
+	wg.Wait()
+
+	// 5. Post Combined Comments to Provider
+	if len(allComments) > 0 {
+		combinedComment := "### LiveReview Static Analysis Findings\n\n" + strings.Join(allComments, "\n\n---\n")
+		commentObj := &models.ReviewComment{
+			Content: combinedComment,
+		}
+		postErr := providerInstance.PostComment(ctx, prID, commentObj)
+		if postErr != nil {
+			log.Printf("[ERROR] Failed to post static analysis comments to PR: %v", postErr)
+		}
+	}
+
+	// 6. Finalize
+	_, _ = w.db.ExecContext(ctx, "UPDATE public.reviews SET status = $1 WHERE id = $2", "completed", args.ReviewID)
+	log.Printf("[INFO] ToolReviewOrchestrator: completed review=%d", args.ReviewID)
 	return nil
 }
 
-// QueueToolInvocationJob queues a static-analysis tool invocation job
-func (jq *JobQueue) QueueToolInvocationJob(ctx context.Context, reviewID, orgID, toolID int64, toolName, lambdaARN, prURL string, connectorID int64, provider string) error {
-	args := ToolInvocationJobArgs{
-		ReviewID:    reviewID,
-		OrgID:       orgID,
-		ToolID:      toolID,
-		ToolName:    toolName,
-		LambdaARN:   lambdaARN,
-		PRURL:       prURL,
-		ConnectorID: connectorID,
-		Provider:    provider,
+// QueueToolReviewOrchestratorJob queues the single orchestrator job for tool reviews
+func (jq *JobQueue) QueueToolReviewOrchestratorJob(ctx context.Context, reviewID, orgID int64, prURL string, connectorID int64, provider string, totalMultiplier float64) error {
+	args := ToolReviewOrchestratorJobArgs{
+		ReviewID:        reviewID,
+		OrgID:           orgID,
+		PRURL:           prURL,
+		ConnectorID:     connectorID,
+		Provider:        provider,
+		TotalMultiplier: totalMultiplier,
 	}
 
 	_, err := jq.client.Insert(ctx, args, nil)
 	if err != nil {
-		return fmt.Errorf("failed to queue tool invocation job: %w", err)
+		return fmt.Errorf("failed to queue tool review orchestrator job: %w", err)
 	}
 
 	return nil
