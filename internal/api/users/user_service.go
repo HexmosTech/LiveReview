@@ -120,6 +120,16 @@ func (us *UserService) CreateUserInOrg(orgID, createdByUserID int64, req CreateU
 			return fmt.Errorf("failed to assign user role: %w", err)
 		}
 
+		// Update user's default_org_id if it is currently NULL
+		_, err = us.store.TxExec(tx, `
+			UPDATE users 
+			SET default_org_id = COALESCE(default_org_id, $1) 
+			WHERE id = $2
+		`, orgID, userID)
+		if err != nil {
+			return fmt.Errorf("failed to update user default organization: %w", err)
+		}
+
 		// Add audit trail
 		err = us.addUserAuditLog(tx, orgID, userID, createdByUserID, "created", map[string]interface{}{
 			"role_id": req.RoleID,

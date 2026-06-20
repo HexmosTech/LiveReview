@@ -140,7 +140,13 @@ const Cloud: React.FC = () => {
                         
                         // Populate Organizations store immediately to avoid extra API calls
                         if (data.organizations && data.organizations.length > 0) {
-                            dispatch({ type: 'organizations/setOrganizationsFromAuth', payload: data.organizations });
+                            dispatch({
+                                type: 'organizations/setOrganizationsFromAuth',
+                                payload: {
+                                    organizations: data.organizations,
+                                    defaultOrgId: data.user?.default_org_id
+                                }
+                            });
                         }
                         
                         handleLoginSuccess(loginResponse, dispatch);
