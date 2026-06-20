@@ -852,6 +852,7 @@ func (s *Server) setupRoutes() {
 	// Main reviews endpoints (with org scoping)
 	reviewsGroup.GET("", s.getReviews)
 	reviewsGroup.POST("", s.createReview)
+	reviewsGroup.POST("/tool-reviews", s.CreateToolReview)
 	reviewsGroup.GET("/:id", s.getReviewByID)
 
 	// Initialize review events handler

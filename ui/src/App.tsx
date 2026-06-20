@@ -17,6 +17,7 @@ const GitProviders = React.lazy(() => import('./pages/GitProviders/GitProviders'
 const AIProviders = React.lazy(() => import('./pages/AIProviders/AIProviders'));
 const Settings = React.lazy(() => import('./pages/Settings/Settings'));
 const ReviewsRoutes = React.lazy(() => import('./pages/Reviews/ReviewsRoutes'));
+const BetaToolReviewPage = React.lazy(() => import('./pages/Reviews/BetaToolReviewPage'));
 const Login = React.lazy(() => import('./pages/Auth/Login'));
 const SelfHosted = React.lazy(() => import('./pages/Auth/SelfHosted'));
 const Setup = React.lazy(() => import('./pages/Setup/Setup'));
@@ -314,6 +315,7 @@ const AppContent: React.FC = () => {
                                 <Route path="/subscribe/subscriptions/:id/assign" element={<LicenseAssignment />} />
                                 <Route path="/checkout/team" element={<TeamCheckout />} />
                                 <Route path="/reviews/*" element={<ReviewsRoutes />} />
+                                <Route path="/reviews-tools/new" element={<BetaToolReviewPage />} />
                                 <Route path="/git/*" element={<GitProviders />} />
                                 <Route path="/ai" element={<AIProviders />} />
                                 <Route path="/ai/:provider" element={<AIProviders />} />

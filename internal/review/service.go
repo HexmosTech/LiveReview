@@ -91,6 +91,7 @@ type ReviewResult struct {
 	OutputTokens   *int64
 	CostUSD        *float64
 	Duration       time.Duration
+	RawDiff        string
 }
 
 // ReviewWorkflowResult contains the full workflow result including MR details
@@ -98,6 +99,7 @@ type ReviewWorkflowResult struct {
 	MRDetails   *providers.MergeRequestDetails
 	Result      *models.ReviewResult
 	BillableLOC int64
+	RawDiff     string
 }
 
 // ProviderFactory creates provider instances
@@ -341,6 +343,7 @@ func (s *Service) ProcessReview(ctx context.Context, request ReviewRequest) *Rev
 	result.OutputTokens = &outputTokens
 	result.CostUSD = &costUSD
 	result.Duration = time.Since(start)
+	result.RawDiff = reviewData.RawDiff
 
 	if s.logger != nil {
 		s.logger.Log("✓ Review finalization complete")
@@ -585,10 +588,13 @@ func (s *Service) executeReviewWorkflow(
 	}
 	log.Printf("[DEBUG] AI Review (batching) completed successfully with %d comments", len(result.Comments))
 
+	rawDiff := FormatDiffs(changes)
+
 	return &ReviewWorkflowResult{
 		MRDetails:   mrDetails,
 		Result:      result,
 		BillableLOC: billableLOC,
+		RawDiff:     rawDiff,
 	}, nil
 }
 
@@ -754,4 +760,27 @@ func (s *Service) ProcessReviewAsync(ctx context.Context, request ReviewRequest,
 			callback(result)
 		}
 	}()
+}
+
+func FormatDiffs(diffs []*models.CodeDiff) string {
+	var b strings.Builder
+	for _, d := range diffs {
+		if d == nil {
+			continue
+		}
+		b.WriteString(fmt.Sprintf("diff --git a/%s b/%s\n", d.FilePath, d.FilePath))
+		if d.IsNew {
+			b.WriteString("new file mode 100644\n")
+		} else if d.IsDeleted {
+			b.WriteString("deleted file mode 100644\n")
+		}
+		for _, hunk := range d.Hunks {
+			b.WriteString(fmt.Sprintf("@@ -%d,%d +%d,%d @@\n", hunk.OldStartLine, hunk.OldLineCount, hunk.NewStartLine, hunk.NewLineCount))
+			b.WriteString(hunk.Content)
+			if !strings.HasSuffix(hunk.Content, "\n") {
+				b.WriteString("\n")
+			}
+		}
+	}
+	return b.String()
 }

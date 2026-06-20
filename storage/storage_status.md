@@ -166,3 +166,4 @@ Latest milestone batch note (MF-LOC-007, MF-LOC-008, MF-PRORATION-003, MF-ATTRIB
 | tools.UpsertOrgTool | added | [UpsertOrgTool](tools/tools_store.go#L89) |
 | tools.GetEnabledToolsForOrg | added | [GetEnabledToolsForOrg](tools/tools_store.go#L124) |
 | tools.InsertToolResultEvent | added | [InsertToolResultEvent](tools/tools_store.go#L167) |
+| tools.GetToolResultsForReview | added | [GetToolResultsForReview](tools/tools_store.go#L236) |

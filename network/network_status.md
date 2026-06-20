@@ -68,3 +68,6 @@ Latest milestone batch note (MF-051, MF-059, MF-073, MF-074, MF-076, MF-083, MF-
 | api.ListAvailableTools | added | [ListAvailableTools](../internal/api/tools_handler.go#L48) |
 | api.ListOrgTools | added | [ListOrgTools](../internal/api/tools_handler.go#L95) |
 | api.UpdateOrgTool | added | [UpdateOrgTool](../internal/api/tools_handler.go#L115) |
+| api.CreateToolReview | added | [CreateToolReview](../internal/api/tool_review.go#L20) |
+| api.GetDiffReviewStatus | updated | [GetDiffReviewStatus](../internal/api/diff_review.go#L254) |
+| tools.InvokeTool | added | [InvokeTool](tools/lambda_client.go#L18) |

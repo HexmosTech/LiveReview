@@ -15,6 +15,7 @@ import (
 	"github.com/livereview/internal/logging"
 	reviewpkg "github.com/livereview/internal/review"
 	"github.com/livereview/pkg/models"
+	storagetools "github.com/livereview/storage/tools"
 )
 
 const defaultUpgradeURL = "/settings-subscriptions-overview"
@@ -568,6 +569,43 @@ func (s *Server) launchBackgroundProcessing(ctx *reviewSetupContext) {
 		rm := NewReviewManager(s.db)
 		if result != nil && result.Success {
 			_ = rm.UpdateReviewStatus(ctx.review.ID, "completed")
+
+			if result.RawDiff != "" {
+				_, err := s.db.Exec(`UPDATE public.reviews SET diff = $1 WHERE id = $2`, result.RawDiff, ctx.review.ID)
+				if err != nil {
+					log.Printf("[WARN] Failed to save diff for review %d: %v", ctx.review.ID, err)
+				}
+			}
+
+			toolsStore := storagetools.NewToolsStore(s.db)
+			enabledTools, err := toolsStore.GetEnabledToolsForOrg(context.Background(), ctx.orgID)
+			if err != nil {
+				log.Printf("[WARN] Failed to fetch enabled tools for org %d: %v", ctx.orgID, err)
+			} else {
+				var connID int64
+				if ctx.review.ConnectorID != nil {
+					connID = *ctx.review.ConnectorID
+				}
+				for _, t := range enabledTools {
+					err := s.jobQueue.QueueToolInvocationJob(
+						context.Background(),
+						ctx.review.ID,
+						ctx.orgID,
+						t.ID,
+						t.Name,
+						t.LambdaARN,
+						ctx.review.PrMrURL,
+						connID,
+						ctx.review.Provider,
+					)
+					if err != nil {
+						log.Printf("[WARN] Failed to queue tool invocation job for review %d, tool %s: %v", ctx.review.ID, t.Name, err)
+					} else {
+						log.Printf("[INFO] Queued tool invocation job for review %d, tool %s", ctx.review.ID, t.Name)
+					}
+				}
+			}
+
 			reviewID := ctx.review.ID
 
 			operationID := fmt.Sprintf("manual-review:%d", ctx.review.ID)

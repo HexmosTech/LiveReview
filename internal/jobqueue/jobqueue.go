@@ -36,7 +36,11 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/livereview/internal/providers/gitea"
 	networkjobqueue "github.com/livereview/network/jobqueue"
+	awsconfig "github.com/aws/aws-sdk-go-v2/config"
+	awslambda "github.com/aws/aws-sdk-go-v2/service/lambda"
+	"github.com/livereview/network/tools"
 	storagejobqueue "github.com/livereview/storage/jobqueue"
+	storagetools "github.com/livereview/storage/tools"
 	"github.com/riverqueue/river"
 	"github.com/riverqueue/river/riverdriver/riverpgxv5"
 )
@@ -173,6 +177,30 @@ type WebhookRemovalWorker struct {
 	config     *QueueConfig
 	store      *storagejobqueue.WebhookStore
 	httpClient *networkjobqueue.WebhookHTTPClient
+}
+
+// ToolInvocationJobArgs represents the arguments for a static analysis tool invocation job
+type ToolInvocationJobArgs struct {
+	ReviewID    int64  `json:"review_id"`
+	OrgID       int64  `json:"org_id"`
+	ToolID      int64  `json:"tool_id"`
+	ToolName    string `json:"tool_name"`
+	LambdaARN   string `json:"lambda_arn"`
+	PRURL       string `json:"pr_url"`
+	ConnectorID int64  `json:"connector_id"`
+	Provider    string `json:"provider"`
+}
+
+// Kind returns the job kind for River
+func (ToolInvocationJobArgs) Kind() string {
+	return "tool_invocation"
+}
+
+// ToolInvocationWorker handles tool invocation jobs
+type ToolInvocationWorker struct {
+	river.WorkerDefaults[ToolInvocationJobArgs]
+	db           *sql.DB
+	lambdaClient tools.LambdaClient
 }
 
 // getWebhookEndpointForProvider returns the correct webhook endpoint based on the provider
@@ -2294,6 +2322,15 @@ func NewJobQueue(databaseURL string, db *sql.DB) (*JobQueue, error) {
 	river.AddWorker(workers, &WebhookInstallWorker{pool: pool, config: config, store: store, httpClient: httpClient})
 	river.AddWorker(workers, &WebhookRemovalWorker{pool: pool, config: config, store: store, httpClient: httpClient})
 
+	awsCfg, awsErr := awsconfig.LoadDefaultConfig(context.Background())
+	var lambdaClient tools.LambdaClient
+	if awsErr != nil {
+		log.Printf("[WARN] Failed to load AWS config for Lambda: %v. Lambda tools will fail to invoke.", awsErr)
+	} else {
+		lambdaClient = awslambda.NewFromConfig(awsCfg)
+	}
+	river.AddWorker(workers, &ToolInvocationWorker{db: db, lambdaClient: lambdaClient})
+
 	client, err := river.NewClient(riverpgxv5.New(pool), &river.Config{
 		Queues:  config.RiverQueueConfig(),
 		Workers: workers,
@@ -2351,6 +2388,77 @@ func (jq *JobQueue) QueueWebhookRemovalJob(ctx context.Context, connectorID int,
 	_, err := jq.client.Insert(ctx, args, nil)
 	if err != nil {
 		return fmt.Errorf("failed to queue webhook removal job: %w", err)
+	}
+
+	return nil
+}
+
+// Work performs the tool invocation logic
+func (w *ToolInvocationWorker) Work(ctx context.Context, job *river.Job[ToolInvocationJobArgs]) error {
+	args := job.Args
+
+	log.Printf("[INFO] ToolInvocationWorker: processing review=%d, tool=%s, ARN=%s",
+		args.ReviewID, args.ToolName, args.LambdaARN)
+
+	// 1. Fetch raw diff from the reviews table.
+	var diff sql.NullString
+	err := w.db.QueryRowContext(ctx, "SELECT diff FROM public.reviews WHERE id = $1 AND org_id = $2", args.ReviewID, args.OrgID).Scan(&diff)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			log.Printf("[WARN] ToolInvocationWorker: review %d not found or not belonging to org %d", args.ReviewID, args.OrgID)
+			return nil
+		}
+		return fmt.Errorf("failed to query review diff: %w", err)
+	}
+
+	if !diff.Valid || strings.TrimSpace(diff.String) == "" {
+		log.Printf("[INFO] ToolInvocationWorker: empty diff for review %d, skipping invocation", args.ReviewID)
+		return nil
+	}
+
+	// 2. Prepare Lambda payload.
+	payloadMap := map[string]interface{}{
+		"review_id": args.ReviewID,
+		"diff":      diff.String,
+	}
+	payloadBytes, err := json.Marshal(payloadMap)
+	if err != nil {
+		return fmt.Errorf("failed to marshal lambda payload: %w", err)
+	}
+
+	// 3. Invoke Lambda by ARN via aws-sdk-go-v2.
+	respBytes, err := tools.InvokeTool(ctx, w.lambdaClient, args.LambdaARN, payloadBytes)
+	if err != nil {
+		return fmt.Errorf("lambda invocation failed: %w", err)
+	}
+
+	// 4. Save results to review_events.
+	store := storagetools.NewToolsStore(w.db)
+	err = store.InsertToolResultEvent(ctx, args.ReviewID, args.OrgID, args.ToolID, args.ToolName, respBytes)
+	if err != nil {
+		return fmt.Errorf("failed to insert tool result review event: %w", err)
+	}
+
+	log.Printf("[INFO] ToolInvocationWorker: successfully processed review=%d, tool=%s", args.ReviewID, args.ToolName)
+	return nil
+}
+
+// QueueToolInvocationJob queues a static-analysis tool invocation job
+func (jq *JobQueue) QueueToolInvocationJob(ctx context.Context, reviewID, orgID, toolID int64, toolName, lambdaARN, prURL string, connectorID int64, provider string) error {
+	args := ToolInvocationJobArgs{
+		ReviewID:    reviewID,
+		OrgID:       orgID,
+		ToolID:      toolID,
+		ToolName:    toolName,
+		LambdaARN:   lambdaARN,
+		PRURL:       prURL,
+		ConnectorID: connectorID,
+		Provider:    provider,
+	}
+
+	_, err := jq.client.Insert(ctx, args, nil)
+	if err != nil {
+		return fmt.Errorf("failed to queue tool invocation job: %w", err)
 	}
 
 	return nil

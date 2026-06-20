@@ -223,13 +223,13 @@ const ThirdPartyToolsTab: React.FC = () => {
 					</span>
 				</div>
 				<div className="flex flex-col justify-between space-y-1 border-t md:border-t-0 md:border-l border-slate-700/60 pt-3 md:pt-0 md:pl-5">
-					<span className="text-xs font-semibold text-slate-400 uppercase tracking-wider">Total Multiplier</span>
+					<span className="text-xs font-semibold text-slate-400 uppercase tracking-wider">Credits Used Per Review</span>
 					<span className="text-3xl font-bold text-violet-400 transition-all duration-300">
 						{totalMultiplier.toFixed(1)}<span className="text-lg font-medium">×</span>
 					</span>
 				</div>
 				<div className="flex flex-col justify-between space-y-1 border-t md:border-t-0 md:border-l border-slate-700/60 pt-3 md:pt-0 md:pl-5">
-					<span className="text-xs font-semibold text-slate-400 uppercase tracking-wider">Estimated Reviews</span>
+					<span className="text-xs font-semibold text-slate-400 uppercase tracking-wider">Reviews Remaining / Month</span>
 					<span className="text-3xl font-bold text-amber-400 transition-all duration-300">
 						{totalMultiplier > 0 ? estimatedReviews.toLocaleString() : '—'} <span className="text-sm font-medium text-slate-400">reviews (50k pool)</span>
 					</span>

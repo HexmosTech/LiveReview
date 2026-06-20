@@ -215,3 +215,46 @@ func (s *ToolsStore) InsertToolResultEvent(ctx context.Context, reviewID, orgID,
 	}
 	return nil
 }
+
+type ToolFinding struct {
+	File    string `json:"file"`
+	Line    int    `json:"line"`
+	Col     int    `json:"col"`
+	Rule    string `json:"rule"`
+	Message string `json:"message"`
+}
+
+type ToolResultEventData struct {
+	ToolID      int64         `json:"tool_id"`
+	ToolName    string        `json:"tool_name"`
+	ExitCode    int           `json:"exit_code"`
+	Findings    []ToolFinding `json:"findings"`
+	LinesOfCode int           `json:"lines_of_code"`
+	Stderr      string        `json:"stderr"`
+}
+
+func (s *ToolsStore) GetToolResultsForReview(ctx context.Context, reviewID int64) ([]ToolResultEventData, error) {
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT data 
+		FROM public.review_events 
+		WHERE review_id = $1 AND event_type = 'tool_result'
+	`, reviewID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var results []ToolResultEventData
+	for rows.Next() {
+		var rawData []byte
+		if err := rows.Scan(&rawData); err != nil {
+			return nil, err
+		}
+		var data ToolResultEventData
+		if err := json.Unmarshal(rawData, &data); err != nil {
+			return nil, err
+		}
+		results = append(results, data)
+	}
+	return results, nil
+}

@@ -1413,6 +1413,7 @@ CREATE TABLE public.reviews (
     author_name text,
     author_username text,
     friendly_name text,
+    diff text,
     CONSTRAINT reviews_status_check CHECK (((status)::text = ANY ((ARRAY['created'::character varying, 'in_progress'::character varying, 'completed'::character varying, 'failed'::character varying])::text[])))
 );
 
@@ -4982,4 +4983,5 @@ INSERT INTO public.schema_migrations (version) VALUES
     ('20260611185900'),
     ('20260612152523'),
     ('20260618100000'),
-    ('20260618100001');
+    ('20260618100001'),
+    ('20260618100002');
