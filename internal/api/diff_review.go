@@ -28,6 +28,7 @@ import (
 	"github.com/livereview/internal/review"
 	"github.com/livereview/pkg/models"
 	"github.com/livereview/storage/archive"
+	storagetools "github.com/livereview/storage/tools"
 )
 
 // DiffReviewRequest models the incoming POST payload for diff reviews.
@@ -346,6 +347,15 @@ func (s *Server) GetDiffReviewStatus(c echo.Context) error {
 		"review_id": fmt.Sprintf("%d", reviewRecord.ID),
 		"summary":   result.Summary,
 		"files":     files,
+	}
+
+	// Fetch tool result events for this review
+	toolsStore := storagetools.NewToolsStore(s.db)
+	toolResults, err := toolsStore.GetToolResultsForReview(c.Request().Context(), reviewRecord.ID)
+	if err == nil && len(toolResults) > 0 {
+		response["tool_results"] = toolResults
+	} else if err != nil {
+		log.Printf("[WARN] Failed to fetch tool result events for review %d: %v", reviewRecord.ID, err)
 	}
 
 	if excluded, ok := meta["excluded_files"].([]interface{}); ok && len(excluded) > 0 {

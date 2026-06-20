@@ -16,6 +16,7 @@ import (
 	coreprocessor "github.com/livereview/internal/core_processor"
 	"github.com/livereview/internal/license"
 	storagelicense "github.com/livereview/storage/license"
+	storagetools "github.com/livereview/storage/tools"
 )
 
 // Phase 8: Webhook Orchestrator for coordinating provider and processing layers
@@ -419,6 +420,51 @@ func (wo *WebhookOrchestratorV2) handleFullReviewFlow(ctx context.Context, event
 
 	if usage != nil && usage.Chargeable && usage.BillableLOC > 0 {
 		wo.accountWebhookSuccess(ctx, orgID, event, usage, "webhook_full_review")
+	}
+
+	// Trigger tool review invocation if any are enabled for this organization
+	toolsStore := storagetools.NewToolsStore(wo.server.db)
+	enabledTools, err := toolsStore.GetEnabledToolsForOrg(ctx, orgID)
+	if err == nil && len(enabledTools) > 0 {
+		reviewID := extractWebhookReviewID(event)
+		if reviewID > 0 {
+			var connID int64
+			if event.MergeRequest != nil && event.MergeRequest.Metadata != nil {
+				if cid, ok := event.MergeRequest.Metadata["connector_id"].(int64); ok {
+					connID = cid
+				}
+			}
+			var totalMultiplier float64
+			for _, t := range enabledTools {
+				totalMultiplier += t.Multiplier
+				err := wo.server.jobQueue.QueueToolInvocationJob(
+					ctx,
+					reviewID,
+					orgID,
+					t.ID,
+					t.Name,
+					t.LambdaARN,
+					event.MergeRequest.WebURL,
+					connID,
+					event.Provider,
+				)
+				if err != nil {
+					log.Printf("[WARN] Webhook: Failed to queue tool job for review %d, tool %s: %v", reviewID, t.Name, err)
+				} else {
+					log.Printf("[INFO] Webhook: Queued tool job for review %d, tool %s", reviewID, t.Name)
+				}
+			}
+			if totalMultiplier > 0 {
+				_, err = wo.server.db.Exec(`
+					UPDATE public.reviews 
+					SET metadata = metadata || jsonb_build_object('multiplier_used', $1) 
+					WHERE id = $2
+				`, totalMultiplier, reviewID)
+				if err != nil {
+					log.Printf("[WARN] Webhook: Failed to save multiplier for review %d: %v", reviewID, err)
+				}
+			}
+		}
 	}
 
 	log.Printf("[INFO] Full review posted successfully for event %s/%s with %d comments",
