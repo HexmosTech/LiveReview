@@ -107,6 +107,20 @@ $$;
 
 
 --
+-- Name: org_tool_billing_state_set_updated_at(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.org_tool_billing_state_set_updated_at() RETURNS trigger
+    LANGUAGE plpgsql
+    AS $$
+BEGIN
+    NEW.updated_at = NOW();
+    RETURN NEW;
+END;
+$$;
+
+
+--
 -- Name: plan_catalog_set_updated_at(); Type: FUNCTION; Schema: public; Owner: -
 --
 
@@ -913,6 +927,43 @@ ALTER SEQUENCE public.org_billing_state_id_seq OWNED BY public.org_billing_state
 
 
 --
+-- Name: org_tool_billing_state; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.org_tool_billing_state (
+    id bigint NOT NULL,
+    org_id bigint NOT NULL,
+    credits_used_month double precision DEFAULT 0.0 NOT NULL,
+    credits_limit_month double precision DEFAULT 50000.0 NOT NULL,
+    billing_period_start timestamp with time zone NOT NULL,
+    billing_period_end timestamp with time zone NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT chk_tool_billing_period_valid CHECK ((billing_period_end > billing_period_start)),
+    CONSTRAINT chk_tool_billing_used_non_negative CHECK ((credits_used_month >= (0.0)::double precision))
+);
+
+
+--
+-- Name: org_tool_billing_state_id_seq; Type: SEQUENCE; Schema: public; Owner: -
+--
+
+CREATE SEQUENCE public.org_tool_billing_state_id_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+
+--
+-- Name: org_tool_billing_state_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: -
+--
+
+ALTER SEQUENCE public.org_tool_billing_state_id_seq OWNED BY public.org_tool_billing_state.id;
+
+
+--
 -- Name: org_tools; Type: TABLE; Schema: public; Owner: -
 --
 
@@ -1413,7 +1464,6 @@ CREATE TABLE public.reviews (
     author_name text,
     author_username text,
     friendly_name text,
-    diff text,
     CONSTRAINT reviews_status_check CHECK (((status)::text = ANY ((ARRAY['created'::character varying, 'in_progress'::character varying, 'completed'::character varying, 'failed'::character varying])::text[])))
 );
 
@@ -1797,6 +1847,39 @@ CREATE SEQUENCE public.system_default_ai_configs_id_seq
 --
 
 ALTER SEQUENCE public.system_default_ai_configs_id_seq OWNED BY public.system_default_ai_configs.id;
+
+
+--
+-- Name: tool_credit_ledger; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.tool_credit_ledger (
+    id bigint NOT NULL,
+    org_id bigint NOT NULL,
+    review_id bigint,
+    credits_deducted double precision NOT NULL,
+    idempotency_key character varying(255) NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL
+);
+
+
+--
+-- Name: tool_credit_ledger_id_seq; Type: SEQUENCE; Schema: public; Owner: -
+--
+
+CREATE SEQUENCE public.tool_credit_ledger_id_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+
+--
+-- Name: tool_credit_ledger_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: -
+--
+
+ALTER SEQUENCE public.tool_credit_ledger_id_seq OWNED BY public.tool_credit_ledger.id;
 
 
 --
@@ -2315,6 +2398,13 @@ ALTER TABLE ONLY public.org_billing_state ALTER COLUMN id SET DEFAULT nextval('p
 
 
 --
+-- Name: org_tool_billing_state id; Type: DEFAULT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.org_tool_billing_state ALTER COLUMN id SET DEFAULT nextval('public.org_tool_billing_state_id_seq'::regclass);
+
+
+--
 -- Name: orgs id; Type: DEFAULT; Schema: public; Owner: -
 --
 
@@ -2424,6 +2514,13 @@ ALTER TABLE ONLY public.subscriptions ALTER COLUMN id SET DEFAULT nextval('publi
 --
 
 ALTER TABLE ONLY public.system_default_ai_configs ALTER COLUMN id SET DEFAULT nextval('public.system_default_ai_configs_id_seq'::regclass);
+
+
+--
+-- Name: tool_credit_ledger id; Type: DEFAULT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.tool_credit_ledger ALTER COLUMN id SET DEFAULT nextval('public.tool_credit_ledger_id_seq'::regclass);
 
 
 --
@@ -2682,6 +2779,22 @@ ALTER TABLE ONLY public.org_billing_state
 
 
 --
+-- Name: org_tool_billing_state org_tool_billing_state_org_id_key; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.org_tool_billing_state
+    ADD CONSTRAINT org_tool_billing_state_org_id_key UNIQUE (org_id);
+
+
+--
+-- Name: org_tool_billing_state org_tool_billing_state_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.org_tool_billing_state
+    ADD CONSTRAINT org_tool_billing_state_pkey PRIMARY KEY (id);
+
+
+--
 -- Name: org_tools org_tools_pkey; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -2914,6 +3027,14 @@ ALTER TABLE ONLY public.system_default_ai_configs
 
 
 --
+-- Name: tool_credit_ledger tool_credit_ledger_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.tool_credit_ledger
+    ADD CONSTRAINT tool_credit_ledger_pkey PRIMARY KEY (id);
+
+
+--
 -- Name: trial_eligibility trial_eligibility_normalized_email_key; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -3031,6 +3152,14 @@ ALTER TABLE ONLY public.quota_operation_aggregates
 
 ALTER TABLE ONLY public.quota_policy_catalog
     ADD CONSTRAINT uq_quota_policy_catalog_plan_provider UNIQUE (plan_code, provider_key);
+
+
+--
+-- Name: tool_credit_ledger uq_tool_credit_ledger_idempotency; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.tool_credit_ledger
+    ADD CONSTRAINT uq_tool_credit_ledger_idempotency UNIQUE (org_id, idempotency_key);
 
 
 --
@@ -4195,6 +4324,13 @@ CREATE TRIGGER trg_org_billing_state_updated_at BEFORE UPDATE ON public.org_bill
 
 
 --
+-- Name: org_tool_billing_state trg_org_tool_billing_state_updated_at; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER trg_org_tool_billing_state_updated_at BEFORE UPDATE ON public.org_tool_billing_state FOR EACH ROW EXECUTE FUNCTION public.org_tool_billing_state_set_updated_at();
+
+
+--
 -- Name: plan_catalog trg_plan_catalog_updated_at; Type: TRIGGER; Schema: public; Owner: -
 --
 
@@ -4454,6 +4590,14 @@ ALTER TABLE ONLY public.org_billing_state
 
 
 --
+-- Name: org_tool_billing_state org_tool_billing_state_org_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.org_tool_billing_state
+    ADD CONSTRAINT org_tool_billing_state_org_id_fkey FOREIGN KEY (org_id) REFERENCES public.orgs(id) ON DELETE CASCADE;
+
+
+--
 -- Name: org_tools org_tools_org_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -4659,6 +4803,22 @@ ALTER TABLE ONLY public.subscriptions
 
 ALTER TABLE ONLY public.subscriptions
     ADD CONSTRAINT subscriptions_owner_user_id_fkey FOREIGN KEY (owner_user_id) REFERENCES public.users(id);
+
+
+--
+-- Name: tool_credit_ledger tool_credit_ledger_org_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.tool_credit_ledger
+    ADD CONSTRAINT tool_credit_ledger_org_id_fkey FOREIGN KEY (org_id) REFERENCES public.orgs(id) ON DELETE CASCADE;
+
+
+--
+-- Name: tool_credit_ledger tool_credit_ledger_review_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.tool_credit_ledger
+    ADD CONSTRAINT tool_credit_ledger_review_id_fkey FOREIGN KEY (review_id) REFERENCES public.reviews(id) ON DELETE SET NULL;
 
 
 --
@@ -4984,4 +5144,5 @@ INSERT INTO public.schema_migrations (version) VALUES
     ('20260612152523'),
     ('20260618100000'),
     ('20260618100001'),
-    ('20260618100002');
+    ('20260618100002'),
+    ('20260620120000');

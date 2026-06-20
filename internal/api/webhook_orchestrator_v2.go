@@ -437,21 +437,27 @@ func (wo *WebhookOrchestratorV2) handleFullReviewFlow(ctx context.Context, event
 			var totalMultiplier float64
 			for _, t := range enabledTools {
 				totalMultiplier += t.Multiplier
-				err := wo.server.jobQueue.QueueToolInvocationJob(
+			}
+			
+			// Pre-flight credit check
+			creditStore := storagetools.NewCreditStore(wo.server.db)
+			err = creditStore.CheckCreditPreflight(ctx, orgID, totalMultiplier)
+			if err != nil {
+				log.Printf("[WARN] Insufficient tool credits for org %d: %v", orgID, err)
+			} else {
+				err = wo.server.jobQueue.QueueToolReviewOrchestratorJob(
 					ctx,
 					reviewID,
 					orgID,
-					t.ID,
-					t.Name,
-					t.LambdaARN,
 					event.MergeRequest.WebURL,
 					connID,
 					event.Provider,
+					totalMultiplier,
 				)
 				if err != nil {
-					log.Printf("[WARN] Webhook: Failed to queue tool job for review %d, tool %s: %v", reviewID, t.Name, err)
+					log.Printf("[WARN] Failed to queue tool orchestrator job for review %d: %v", reviewID, err)
 				} else {
-					log.Printf("[INFO] Webhook: Queued tool job for review %d, tool %s", reviewID, t.Name)
+					log.Printf("[INFO] Queued tool orchestrator job for review %d", reviewID)
 				}
 			}
 			if totalMultiplier > 0 {

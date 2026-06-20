@@ -570,38 +570,40 @@ func (s *Server) launchBackgroundProcessing(ctx *reviewSetupContext) {
 		if result != nil && result.Success {
 			_ = rm.UpdateReviewStatus(ctx.review.ID, "completed")
 
-			if result.RawDiff != "" {
-				_, err := s.db.Exec(`UPDATE public.reviews SET diff = $1 WHERE id = $2`, result.RawDiff, ctx.review.ID)
-				if err != nil {
-					log.Printf("[WARN] Failed to save diff for review %d: %v", ctx.review.ID, err)
-				}
-			}
-
 			toolsStore := storagetools.NewToolsStore(s.db)
 			enabledTools, err := toolsStore.GetEnabledToolsForOrg(context.Background(), ctx.orgID)
 			if err != nil {
 				log.Printf("[WARN] Failed to fetch enabled tools for org %d: %v", ctx.orgID, err)
-			} else {
+			} else if len(enabledTools) > 0 {
+				var totalMultiplier float64
+				for _, t := range enabledTools {
+					totalMultiplier += t.Multiplier
+				}
+
 				var connID int64
 				if ctx.review.ConnectorID != nil {
 					connID = *ctx.review.ConnectorID
 				}
-				for _, t := range enabledTools {
-					err := s.jobQueue.QueueToolInvocationJob(
+
+				// Pre-flight credit check
+				creditStore := storagetools.NewCreditStore(s.db)
+				err = creditStore.CheckCreditPreflight(context.Background(), ctx.orgID, totalMultiplier)
+				if err != nil {
+					log.Printf("[WARN] Insufficient tool credits for org %d: %v", ctx.orgID, err)
+				} else {
+					err = s.jobQueue.QueueToolReviewOrchestratorJob(
 						context.Background(),
 						ctx.review.ID,
 						ctx.orgID,
-						t.ID,
-						t.Name,
-						t.LambdaARN,
 						ctx.review.PrMrURL,
 						connID,
 						ctx.review.Provider,
+						totalMultiplier,
 					)
 					if err != nil {
-						log.Printf("[WARN] Failed to queue tool invocation job for review %d, tool %s: %v", ctx.review.ID, t.Name, err)
+						log.Printf("[WARN] Failed to queue tool orchestrator job for review %d: %v", ctx.review.ID, err)
 					} else {
-						log.Printf("[INFO] Queued tool invocation job for review %d, tool %s", ctx.review.ID, t.Name)
+						log.Printf("[INFO] Queued tool orchestrator job for review %d", ctx.review.ID)
 					}
 				}
 			}

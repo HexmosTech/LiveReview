@@ -151,3 +151,23 @@ func (s *Server) UpdateOrgTool(c echo.Context) error {
 
 	return c.JSON(http.StatusOK, row)
 }
+
+// GetOrgToolCredits handles GET /api/v1/orgs/:org_id/tools/credits
+// Returns the actual tool credit usage and limits.
+func (s *Server) GetOrgToolCredits(c echo.Context) error {
+	pc := auth.MustGetPermissionContext(c)
+	orgID := pc.GetOrgID()
+
+	// Cloud gate check
+	if !s.deploymentConfig.IsCloud {
+		return c.JSON(http.StatusForbidden, map[string]string{"error": "Third-party tools are only available in cloud mode"})
+	}
+
+	creditStore := tools.NewCreditStore(s.db)
+	usage, err := creditStore.GetCreditUsage(c.Request().Context(), orgID, 0)
+	if err != nil {
+		return c.JSON(http.StatusInternalServerError, map[string]string{"error": err.Error()})
+	}
+
+	return c.JSON(http.StatusOK, usage)
+}

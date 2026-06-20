@@ -22,11 +22,12 @@ const ThirdPartyToolsTab: React.FC = () => {
 	const isOwner = currentOrg?.role === 'owner';
 
 	const [tools, setTools] = useState<Tool[]>([]);
+	const [localEnabled, setLocalEnabled] = useState<Record<number, boolean>>({});
+	const [creditUsage, setCreditUsage] = useState<any>(null);
 	const [loading, setLoading] = useState(true);
 	const [saving, setSaving] = useState(false);
 	const [error, setError] = useState<string | null>(null);
 	const [success, setSuccess] = useState<string | null>(null);
-	const [localEnabled, setLocalEnabled] = useState<Record<number, boolean>>({});
 
 	const [sortField, setSortField] = useState<'name' | 'use_case' | 'multiplier' | 'enabled'>('name');
 	const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('asc');
@@ -107,6 +108,9 @@ const ThirdPartyToolsTab: React.FC = () => {
 			});
 			setLocalEnabled(initialMap);
 			setCurrentPage(1); // Reset page on org change
+
+			const creditResp = await apiClient.get<any>(`/orgs/${currentOrg.id}/tools/credits`);
+			setCreditUsage(creditResp);
 		} catch (err: any) {
 			setError(err.message || 'Failed to load tools');
 		} finally {
@@ -166,8 +170,11 @@ const ThirdPartyToolsTab: React.FC = () => {
 	const enabledToolsCount = tools.filter(t => localEnabled[t.id]).length;
 	const rawTotalMultiplier = tools.reduce((acc, t) => acc + (localEnabled[t.id] ? Number(t.multiplier) : 0), 0);
 	const totalMultiplier = Number(rawTotalMultiplier.toFixed(2));
-	const totalCreditPool = 50000;
-	const estimatedReviews = totalMultiplier > 0 ? Math.floor(totalCreditPool / totalMultiplier) : 0;
+	
+	const totalCreditPool = creditUsage?.credits_limit_month || 50000;
+	const usedCredits = creditUsage?.credits_used_month || 0;
+	const remainingCredits = Math.max(0, totalCreditPool - usedCredits);
+	const estimatedReviews = totalMultiplier > 0 ? Math.floor(remainingCredits / totalMultiplier) : 0;
 	const hasChanges = tools.some(t => localEnabled[t.id] !== t.enabled);
 
 	const totalPages = Math.ceil(sortedTools.length / pageSize);
@@ -192,7 +199,7 @@ const ThirdPartyToolsTab: React.FC = () => {
 					Credit Pool & Limits
 				</h4>
 				<p className="text-xs text-slate-300 leading-relaxed">
-					Each tool invocation deducts credits from your organization's <strong>50,000 credit budget</strong>. 
+					Each tool invocation deducts credits from your organization's budget of <strong>{totalCreditPool.toLocaleString()} credits/month</strong>. 
 					The credit cost of a review is equal to the sum of the multipliers of all enabled tools (<strong>Total Multiplier</strong>). 
 					Based on your current configuration, your pool allows for up to{' '}
 					<strong className="text-amber-400">
@@ -231,7 +238,7 @@ const ThirdPartyToolsTab: React.FC = () => {
 				<div className="flex flex-col justify-between space-y-1 border-t md:border-t-0 md:border-l border-slate-700/60 pt-3 md:pt-0 md:pl-5">
 					<span className="text-xs font-semibold text-slate-400 uppercase tracking-wider">Reviews Remaining / Month</span>
 					<span className="text-3xl font-bold text-amber-400 transition-all duration-300">
-						{totalMultiplier > 0 ? estimatedReviews.toLocaleString() : '—'} <span className="text-sm font-medium text-slate-400">reviews (50k pool)</span>
+						{totalMultiplier > 0 ? estimatedReviews.toLocaleString() : '—'} <span className="text-sm font-medium text-slate-400">reviews ({Math.round(totalCreditPool/1000)}k pool)</span>
 					</span>
 				</div>
 			</div>
