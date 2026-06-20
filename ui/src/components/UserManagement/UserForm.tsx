@@ -10,6 +10,7 @@ import { Button, Input, Select } from '../UIPrimitives';
 import { useAppDispatch } from '../../store/configureStore';
 import { loadUserOrganizations } from '../../store/Organizations/reducer';
 import { UpgradePromptModal } from '../Subscriptions';
+import { UserOnboardingDetails } from './UserOnboardingDetails';
 
 const baseSchema = z.object({
   email: z.string().email({ message: 'Invalid email address' }),
@@ -81,6 +82,7 @@ const UserForm: React.FC = () => {
   );
 
   const [user, setUser] = useState<Member | null>(null);
+  const [createdUser, setCreatedUser] = useState<Member | null>(null);
   const [loading, setLoading] = useState(false);
   const [showUpgradeModal, setShowUpgradeModal] = useState(false);
 
@@ -202,12 +204,8 @@ const UserForm: React.FC = () => {
           password: data.password,
         });
         toast.success(`User ${newUser.email} created successfully!`);
-        
-        // Show upgrade prompt if on free plan
-        if (currentOrg?.plan_type === 'free') {
-          setShowUpgradeModal(true);
-          return; // Don't navigate yet, let user see modal
-        }
+        setCreatedUser(newUser);
+        return;
       }
       navigate('/settings#users');
     } catch (error) {
@@ -224,6 +222,21 @@ const UserForm: React.FC = () => {
       <div className="p-6 bg-gray-900 text-white text-center">
         <h1 className="text-3xl font-bold">Loading User...</h1>
       </div>
+    );
+  }
+
+  if (createdUser) {
+    return (
+      <UserOnboardingDetails
+        user={createdUser}
+        onContinue={() => {
+          if (currentOrg?.plan_type === 'free') {
+            setShowUpgradeModal(true);
+          } else {
+            navigate('/settings#users');
+          }
+        }}
+      />
     );
   }
 

@@ -15,15 +15,22 @@ import (
 
 const defaultProductionURL = "https://livereview.hexmos.com"
 
+// APIKeyGenerator defines a function type to generate onboarding keys without circular imports
+type APIKeyGenerator func(userID, orgID int64) (string, error)
+
 // UserService handles core user management operations
 type UserService struct {
-	store *storageusers.UserStore
+	store           *storageusers.UserStore
+	db              *sql.DB
+	apiKeyGenerator APIKeyGenerator
 }
 
 // NewUserService creates a new user service
-func NewUserService(db *sql.DB) *UserService {
+func NewUserService(db *sql.DB, apiKeyGenerator APIKeyGenerator) *UserService {
 	return &UserService{
-		store: storageusers.NewUserStore(db),
+		store:           storageusers.NewUserStore(db),
+		db:              db,
+		apiKeyGenerator: apiKeyGenerator,
 	}
 }
 
@@ -44,6 +51,7 @@ type UserWithRole struct {
 	Role                  string     `json:"role"`
 	RoleID                int64      `json:"role_id"`
 	OrgID                 int64      `json:"org_id"`
+	OnboardingAPIKey      string     `json:"onboarding_api_key,omitempty"`
 }
 
 // CreateUserRequest represents the request to create a new user
@@ -152,6 +160,21 @@ func (us *UserService) CreateUserInOrg(orgID, createdByUserID int64, req CreateU
 		return nil, err
 	}
 
+	// Generate onboarding API key if generator is configured and key is empty
+	if us.apiKeyGenerator != nil && user.OnboardingAPIKey == "" {
+		newKey, err := us.apiKeyGenerator(user.ID, orgID)
+		if err != nil {
+			log.Printf("[Invitation] Error generating onboarding API key for user %d: %v", user.ID, err)
+		} else {
+			_, err = us.db.Exec(`UPDATE users SET onboarding_api_key = $1 WHERE id = $2`, newKey, user.ID)
+			if err != nil {
+				log.Printf("[Invitation] Error updating onboarding_api_key in db for user %d: %v", user.ID, err)
+			} else {
+				user.OnboardingAPIKey = newKey
+			}
+		}
+	}
+
 	// Send invitation email asynchronously
 	go us.sendInvitation(user, createdByUserID)
 
@@ -172,12 +195,21 @@ func (us *UserService) sendInvitation(user *UserWithRole, invitedByUserID int64)
 		invitedToName = *user.FirstName
 	}
 
+	installCmdLinux := ""
+	installCmdWindows := ""
+	if user.OnboardingAPIKey != "" {
+		installCmdLinux = fmt.Sprintf("curl -fsSL https://hexmos.com/lrc-install.sh | LRC_API_KEY=%q LRC_API_URL=%q bash", user.OnboardingAPIKey, defaultProductionURL)
+		installCmdWindows = fmt.Sprintf("$env:LRC_API_KEY=%q; $env:LRC_API_URL=%q; iwr -useb https://hexmos.com/lrc-install.ps1 | iex", user.OnboardingAPIKey, defaultProductionURL)
+	}
+
 	err := email.SendInvitationEmail(email.InvitationParams{
-		AppName:        "LiveReview",
-		InvitedToName:  invitedToName,
-		InvitedToEmail: user.Email,
-		InvitedByName:  invitedByName,
-		URL:            defaultProductionURL,
+		AppName:               "LiveReview",
+		InvitedToName:         invitedToName,
+		InvitedToEmail:        user.Email,
+		InvitedByName:         invitedByName,
+		URL:                   defaultProductionURL,
+		InstallCommandLinux:   installCmdLinux,
+		InstallCommandWindows: installCmdWindows,
 	})
 	if err != nil {
 		log.Printf("[Invitation] Error: failed to send invitation email to %s: %v\n", user.Email, err)
@@ -236,11 +268,12 @@ func (us *UserService) CheckUserByEmail(email string) (*UserCheckResponse, error
 // GetUserInOrg gets a user in a specific organization with their role
 func (us *UserService) GetUserInOrg(orgID, userID int64) (*UserWithRole, error) {
 	user := &UserWithRole{}
+	var onboardingKey sql.NullString
 	err := us.store.QueryRow(`
 		SELECT u.id, u.email, u.first_name, u.last_name, u.is_active, u.last_login_at,
 		       u.created_at, u.updated_at, u.created_by_user_id, u.deactivated_at,
 		       u.deactivated_by_user_id, u.password_reset_required,
-		       r.name as role, r.id as role_id, ur.org_id
+		       r.name as role, r.id as role_id, ur.org_id, u.onboarding_api_key
 		FROM users u
 		JOIN user_roles ur ON u.id = ur.user_id
 		JOIN roles r ON ur.role_id = r.id
@@ -249,7 +282,7 @@ func (us *UserService) GetUserInOrg(orgID, userID int64) (*UserWithRole, error) 
 		&user.ID, &user.Email, &user.FirstName, &user.LastName, &user.IsActive,
 		&user.LastLoginAt, &user.CreatedAt, &user.UpdatedAt, &user.CreatedByUserID,
 		&user.DeactivatedAt, &user.DeactivatedByUserID, &user.PasswordResetRequired,
-		&user.Role, &user.RoleID, &user.OrgID,
+		&user.Role, &user.RoleID, &user.OrgID, &onboardingKey,
 	)
 
 	if err != nil {
@@ -257,6 +290,10 @@ func (us *UserService) GetUserInOrg(orgID, userID int64) (*UserWithRole, error) 
 			return nil, fmt.Errorf("user not found in organization")
 		}
 		return nil, fmt.Errorf("failed to get user: %w", err)
+	}
+
+	if onboardingKey.Valid {
+		user.OnboardingAPIKey = onboardingKey.String
 	}
 
 	return user, nil
@@ -282,7 +319,7 @@ func (us *UserService) ListUsersInOrg(orgID int64, offset, limit int) ([]*UserWi
 		SELECT u.id, u.email, u.first_name, u.last_name, u.is_active, u.last_login_at,
 		       u.created_at, u.updated_at, u.created_by_user_id, u.deactivated_at,
 		       u.deactivated_by_user_id, u.password_reset_required,
-		       r.name as role, r.id as role_id, ur.org_id
+		       r.name as role, r.id as role_id, ur.org_id, u.onboarding_api_key
 		FROM users u
 		JOIN user_roles ur ON u.id = ur.user_id
 		JOIN roles r ON ur.role_id = r.id
@@ -299,14 +336,18 @@ func (us *UserService) ListUsersInOrg(orgID int64, offset, limit int) ([]*UserWi
 	var users []*UserWithRole
 	for rows.Next() {
 		user := &UserWithRole{}
+		var onboardingKey sql.NullString
 		err := rows.Scan(
 			&user.ID, &user.Email, &user.FirstName, &user.LastName, &user.IsActive,
 			&user.LastLoginAt, &user.CreatedAt, &user.UpdatedAt, &user.CreatedByUserID,
 			&user.DeactivatedAt, &user.DeactivatedByUserID, &user.PasswordResetRequired,
-			&user.Role, &user.RoleID, &user.OrgID,
+			&user.Role, &user.RoleID, &user.OrgID, &onboardingKey,
 		)
 		if err != nil {
 			return nil, 0, fmt.Errorf("failed to scan user: %w", err)
+		}
+		if onboardingKey.Valid {
+			user.OnboardingAPIKey = onboardingKey.String
 		}
 		users = append(users, user)
 	}
