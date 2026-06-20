@@ -66,6 +66,7 @@ type UserWithRole struct {
 	LicenseExpiresAt       *time.Time `json:"license_expires_at,omitempty"`
 	ActiveSubscriptionID   *int64     `json:"active_subscription_id,omitempty"`
 	RazorpaySubscriptionID *string    `json:"razorpay_subscription_id,omitempty"`
+	OnboardingAPIKey       string     `json:"onboarding_api_key,omitempty"`
 }
 
 // UserProfile represents user profile information for self-service updates

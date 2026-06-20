@@ -261,7 +261,11 @@ func appContext(port int, versionInfo *VersionInfo) (*Server, error) {
 	authHandlers := auth.NewAuthHandlers(tokenService, db)
 
 	// Initialize user management system
-	userService := users.NewUserService(db)
+	apiKeyManager := NewAPIKeyManager(db)
+	userService := users.NewUserService(db, func(userID, orgID int64) (string, error) {
+		_, key, err := apiKeyManager.CreateAPIKey(userID, orgID, "Onboarding API Key", []string{}, nil)
+		return key, err
+	})
 	userHandlers := users.NewUserHandlers(userService, db)
 
 	// Initialize profile management system
