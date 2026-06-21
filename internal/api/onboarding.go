@@ -71,19 +71,6 @@ func (s *Server) TrackCLIUsage(c echo.Context) error {
 func (s *Server) Onboard(c echo.Context) error {
 	apiKey := c.Request().Header.Get("X-API-Key")
 	if apiKey == "" {
-		apiKey = c.QueryParam("api_key")
-	}
-	if apiKey == "" {
-		// Try to read from JSON body
-		var req struct {
-			APIKey string `json:"api_key"`
-		}
-		if err := c.Bind(&req); err == nil && req.APIKey != "" {
-			apiKey = req.APIKey
-		}
-	}
-
-	if apiKey == "" {
 		return c.JSON(http.StatusBadRequest, map[string]string{
 			"error": "API key required",
 		})
