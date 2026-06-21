@@ -103,9 +103,9 @@ func ValidateWithCloudSecret(tokenString string, db *sql.DB) (*models.User, erro
 	user := &models.User{}
 	if claims.UserID != 0 {
 		err = db.QueryRow(`
-			SELECT id, email, password_hash, created_at, updated_at
+			SELECT id, email, password_hash, default_org_id, created_at, updated_at
 			FROM users WHERE id = $1
-		`, claims.UserID).Scan(&user.ID, &user.Email, &user.PasswordHash, &user.CreatedAt, &user.UpdatedAt)
+		`, claims.UserID).Scan(&user.ID, &user.Email, &user.PasswordHash, &user.DefaultOrgID, &user.CreatedAt, &user.UpdatedAt)
 		if err == nil {
 			return user, nil
 		}
@@ -117,9 +117,9 @@ func ValidateWithCloudSecret(tokenString string, db *sql.DB) (*models.User, erro
 	// Fallback: resolve by email if present
 	if strings.TrimSpace(claims.Email) != "" {
 		err = db.QueryRow(`
-			SELECT id, email, password_hash, created_at, updated_at
+			SELECT id, email, password_hash, default_org_id, created_at, updated_at
 			FROM users WHERE email = $1
-		`, claims.Email).Scan(&user.ID, &user.Email, &user.PasswordHash, &user.CreatedAt, &user.UpdatedAt)
+		`, claims.Email).Scan(&user.ID, &user.Email, &user.PasswordHash, &user.DefaultOrgID, &user.CreatedAt, &user.UpdatedAt)
 		if err == nil {
 			return user, nil
 		}

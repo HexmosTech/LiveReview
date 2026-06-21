@@ -152,7 +152,7 @@ export const UserManagement: React.FC<UserManagementProps> = ({
                             </svg>
                         }
                     >
-                        Add User
+                        Invite User
                     </Button>
                 )}
             </div>
