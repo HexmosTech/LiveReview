@@ -4,6 +4,7 @@ import classNames from 'classnames';
 import { Button, Tooltip, Popover } from '../UIPrimitives';
 import { Member } from '../../api/users';
 import { useOrgContext } from '../../hooks/useOrgContext';
+import toast from 'react-hot-toast';
 
 export interface UserListProps {
     /**
@@ -83,6 +84,40 @@ export const UserList: React.FC<UserListProps> = ({
         }
     };
 
+    const handleDownloadSelectedCredentials = () => {
+        if (selectedUsers.size === 0) {
+            toast.error('Please select at least one user first');
+            return;
+        }
+
+        const selectedMembers = users.filter(u => selectedUsers.has(u.id));
+        const installUrl = window.location.origin;
+
+        const headers = ['Email', 'Name', 'Linux/Mac Command', 'Windows Command'];
+        const rows = selectedMembers.map(user => {
+            const name = `${user.first_name || ''} ${user.last_name || ''}`.trim() || user.email;
+            const installCmdLinux = `curl -fsSL https://hexmos.com/lrc-install.sh | LRC_API_KEY="${user.onboarding_api_key || ''}" LRC_API_URL="${installUrl}" bash`;
+            const installCmdWindows = `$env:LRC_API_KEY="${user.onboarding_api_key || ''}"; $env:LRC_API_URL="${installUrl}"; iwr -useb https://hexmos.com/lrc-install.ps1 | iex`;
+            return [user.email, name, installCmdLinux, installCmdWindows];
+        });
+
+        const escapeCsv = (val: string) => `"${val.replace(/"/g, '""')}"`;
+        const csvContent = [
+            headers.map(escapeCsv).join(','),
+            ...rows.map(row => row.map(escapeCsv).join(','))
+        ].join('\n');
+
+        const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.setAttribute('href', url);
+        link.setAttribute('download', 'git-lrc-setup.csv');
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        toast.success(`git-lrc-setup.csv downloaded successfully for ${selectedUsers.size} user(s)!`);
+    };
+
     // Loading state
     if (loading && users.length === 0) {
         return (
@@ -156,21 +191,40 @@ export const UserList: React.FC<UserListProps> = ({
                         </span>
                     </div>
                     
-                    {onRefresh && (
-                        <Button
-                            variant="ghost"
-                            size="sm"
-                            onClick={onRefresh}
-                            disabled={loading}
-                            icon={
-                                <svg className={classNames('w-4 h-4', loading && 'animate-spin')} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-                                </svg>
-                            }
-                        >
-                            Refresh
-                        </Button>
-                    )}
+                    <div className="flex items-center space-x-2">
+                        {canManageUsers && (
+                            <Button
+                                variant="secondary"
+                                size="sm"
+                                onClick={handleDownloadSelectedCredentials}
+                                disabled={loading}
+                                className="flex items-center"
+                                title="Download the git-lrc installation details for the users"
+                                icon={
+                                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                                    </svg>
+                                }
+                            >
+                                Download Onboarding Command
+                            </Button>
+                        )}
+                        {onRefresh && (
+                            <Button
+                                variant="ghost"
+                                size="sm"
+                                onClick={onRefresh}
+                                disabled={loading}
+                                icon={
+                                    <svg className={classNames('w-4 h-4', loading && 'animate-spin')} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                                    </svg>
+                                }
+                            >
+                                Refresh
+                            </Button>
+                        )}
+                    </div>
                 </div>
             </div>
 
@@ -190,7 +244,6 @@ export const UserList: React.FC<UserListProps> = ({
                             >
                                 Clear
                             </Button>
-                            {/* Add bulk actions here if needed */}
                         </div>
                     </div>
                 </div>

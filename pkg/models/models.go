@@ -53,6 +53,7 @@ type User struct {
 	UpdatedAt             time.Time  `json:"updated_at" db:"updated_at"`
 	CreatedByUserID       *int64     `json:"created_by_user_id,omitempty" db:"created_by_user_id"`
 	PasswordResetRequired bool       `json:"password_reset_required" db:"password_reset_required"`
+	DefaultOrgID          *int64     `json:"default_org_id,omitempty" db:"default_org_id"`
 }
 
 // UserWithRole extends User with role information for a specific organization
@@ -65,6 +66,7 @@ type UserWithRole struct {
 	LicenseExpiresAt       *time.Time `json:"license_expires_at,omitempty"`
 	ActiveSubscriptionID   *int64     `json:"active_subscription_id,omitempty"`
 	RazorpaySubscriptionID *string    `json:"razorpay_subscription_id,omitempty"`
+	OnboardingAPIKey       string     `json:"onboarding_api_key,omitempty"`
 }
 
 // UserProfile represents user profile information for self-service updates

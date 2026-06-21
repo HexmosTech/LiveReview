@@ -261,7 +261,11 @@ func appContext(port int, versionInfo *VersionInfo) (*Server, error) {
 	authHandlers := auth.NewAuthHandlers(tokenService, db)
 
 	// Initialize user management system
-	userService := users.NewUserService(db)
+	apiKeyManager := NewAPIKeyManager(db)
+	userService := users.NewUserService(db, func(tx *sql.Tx, userID, orgID int64) (string, error) {
+		_, key, err := apiKeyManager.CreateAPIKeyTx(tx, userID, orgID, "Onboarding API Key", []string{}, nil)
+		return key, err
+	})
 	userHandlers := users.NewUserHandlers(userService, db)
 
 	// Initialize profile management system
@@ -563,6 +567,7 @@ func (s *Server) setupRoutes() {
 	public.POST("/auth/refresh", s.authHandlers.RefreshToken)
 	public.GET("/auth/setup-status", s.authHandlers.CheckSetupStatus)
 	public.POST("/auth/setup", s.authHandlers.SetupAdmin)
+	public.POST("/auth/onboard", s.Onboard)
 
 	// Diff review endpoints (protected by API key middleware)
 	diffReviewGroup := v1.Group("/diff-review")
@@ -621,6 +626,7 @@ func (s *Server) setupRoutes() {
 	// Self-service profile endpoints
 	protected.GET("/users/profile", s.profileHandlers.GetProfile)
 	protected.PUT("/users/profile", s.profileHandlers.UpdateProfile)
+	protected.PUT("/users/default-org", s.orgHandlers.SetDefaultOrganization)
 	protected.PUT("/users/password", s.profileHandlers.ChangePassword)
 
 	// Development mode test endpoints (only enabled when DEV_MODE=true)

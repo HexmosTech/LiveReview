@@ -16,6 +16,8 @@ type InvitationParams struct {
 	InvitedToEmail string `json:"invitedToEmail"`
 	InvitedByName  string `json:"invitedByName"`
 	URL            string `json:"url"`
+	InstallCommandLinux   string `json:"installCommandLinux,omitempty"`
+	InstallCommandWindows string `json:"installCommandWindows,omitempty"`
 }
 
 func getParseAppID() string {
