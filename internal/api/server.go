@@ -262,8 +262,8 @@ func appContext(port int, versionInfo *VersionInfo) (*Server, error) {
 
 	// Initialize user management system
 	apiKeyManager := NewAPIKeyManager(db)
-	userService := users.NewUserService(db, func(userID, orgID int64) (string, error) {
-		_, key, err := apiKeyManager.CreateAPIKey(userID, orgID, "Onboarding API Key", []string{}, nil)
+	userService := users.NewUserService(db, func(tx *sql.Tx, userID, orgID int64) (string, error) {
+		_, key, err := apiKeyManager.CreateAPIKeyTx(tx, userID, orgID, "Onboarding API Key", []string{}, nil)
 		return key, err
 	})
 	userHandlers := users.NewUserHandlers(userService, db)

@@ -4,10 +4,10 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
-	"log"
 	"strings"
 	"time"
 
+	"github.com/rs/zerolog/log"
 	"github.com/livereview/network/email"
 	storageusers "github.com/livereview/storage/users"
 	"golang.org/x/crypto/bcrypt"
@@ -15,17 +15,17 @@ import (
 
 const defaultProductionURL = "https://livereview.hexmos.com"
 
-// APIKeyGenerator defines a function type to generate onboarding keys without circular imports
-type APIKeyGenerator func(userID, orgID int64) (string, error)
+// APIKeyGeneratorTx defines a function type to generate onboarding keys within a transaction context
+type APIKeyGeneratorTx func(tx *sql.Tx, userID, orgID int64) (string, error)
 
 // UserService handles core user management operations
 type UserService struct {
 	store           *storageusers.UserStore
-	apiKeyGenerator APIKeyGenerator
+	apiKeyGenerator APIKeyGeneratorTx
 }
 
 // NewUserService creates a new user service
-func NewUserService(db *sql.DB, apiKeyGenerator APIKeyGenerator) *UserService {
+func NewUserService(db *sql.DB, apiKeyGenerator APIKeyGeneratorTx) *UserService {
 	return &UserService{
 		store:           storageusers.NewUserStore(db),
 		apiKeyGenerator: apiKeyGenerator,
@@ -136,6 +136,18 @@ func (us *UserService) CreateUserInOrg(orgID, createdByUserID int64, req CreateU
 			return fmt.Errorf("failed to update user default organization: %w", err)
 		}
 
+		// Generate onboarding API key if generator is configured
+		if us.apiKeyGenerator != nil {
+			newKey, err := us.apiKeyGenerator(tx, userID, orgID)
+			if err != nil {
+				return fmt.Errorf("failed to generate onboarding API key: %w", err)
+			}
+			_, err = us.store.TxExec(tx, `UPDATE users SET onboarding_api_key = $1 WHERE id = $2`, newKey, userID)
+			if err != nil {
+				return fmt.Errorf("failed to update onboarding API key in database: %w", err)
+			}
+		}
+
 		// Add audit trail
 		err = us.addUserAuditLog(tx, orgID, userID, createdByUserID, "created", map[string]interface{}{
 			"role_id": req.RoleID,
@@ -158,17 +170,6 @@ func (us *UserService) CreateUserInOrg(orgID, createdByUserID int64, req CreateU
 		return nil, err
 	}
 
-	// Generate onboarding API key if generator is configured and key is empty
-	if us.apiKeyGenerator != nil && user.OnboardingAPIKey == "" {
-		newKey, err := us.apiKeyGenerator(user.ID, orgID)
-		if err == nil {
-			_, err = us.store.Exec(`UPDATE users SET onboarding_api_key = $1 WHERE id = $2`, newKey, user.ID)
-			if err == nil {
-				user.OnboardingAPIKey = newKey
-			}
-		}
-	}
-
 	// Send invitation email asynchronously
 	go us.sendInvitation(user, createdByUserID)
 
@@ -178,7 +179,7 @@ func (us *UserService) CreateUserInOrg(orgID, createdByUserID int64, req CreateU
 func (us *UserService) sendInvitation(user *UserWithRole, invitedByUserID int64) {
 	defer func() {
 		if r := recover(); r != nil {
-			log.Printf("[Invitation] Critical: panic recovered in invitation flow: %v\n", r)
+			log.Error().Msgf("Critical: panic recovered in invitation flow: %v", r)
 		}
 	}()
 
@@ -206,7 +207,7 @@ func (us *UserService) sendInvitation(user *UserWithRole, invitedByUserID int64)
 		InstallCommandWindows: installCmdWindows,
 	})
 	if err != nil {
-		log.Printf("[Invitation] Error: failed to send invitation email to %s: %v\n", user.Email, err)
+		log.Error().Err(err).Str("email", user.Email).Msg("Failed to send invitation email")
 	}
 }
 
