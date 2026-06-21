@@ -206,7 +206,7 @@ export const UserList: React.FC<UserListProps> = ({
                                     </svg>
                                 }
                             >
-                                Download Onboarding Commands
+                                Download Onboarding Command
                             </Button>
                         )}
                         {onRefresh && (

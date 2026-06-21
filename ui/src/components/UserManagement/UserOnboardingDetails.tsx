@@ -38,11 +38,11 @@ export const UserOnboardingDetails: React.FC<UserOnboardingDetailsProps> = ({ us
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
     link.setAttribute('href', url);
-    link.setAttribute('download', `${user.email}_credentials.csv`);
+    link.setAttribute('download', `${user.email}_git-lrc-setup.csv`);
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
-    toast.success('credentials.csv downloaded successfully!');
+    toast.success('git-lrc-setup.csv downloaded successfully!');
   };
 
   return (
@@ -183,7 +183,7 @@ export const UserOnboardingDetails: React.FC<UserOnboardingDetailsProps> = ({ us
               <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
               </svg>
-              Download credentials.csv
+              Download Onboarding Command
             </Button>
             <Button
               onClick={onContinue}

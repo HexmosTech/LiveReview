@@ -136,18 +136,6 @@ func (us *UserService) CreateUserInOrg(orgID, createdByUserID int64, req CreateU
 			return fmt.Errorf("failed to update user default organization: %w", err)
 		}
 
-		// Generate onboarding API key if generator is configured
-		if us.apiKeyGenerator != nil {
-			newKey, err := us.apiKeyGenerator(userID, orgID)
-			if err != nil {
-				return fmt.Errorf("failed to generate onboarding API key: %w", err)
-			}
-			_, err = us.store.TxExec(tx, `UPDATE users SET onboarding_api_key = $1 WHERE id = $2`, newKey, userID)
-			if err != nil {
-				return fmt.Errorf("failed to update onboarding API key in db: %w", err)
-			}
-		}
-
 		// Add audit trail
 		err = us.addUserAuditLog(tx, orgID, userID, createdByUserID, "created", map[string]interface{}{
 			"role_id": req.RoleID,
@@ -168,6 +156,17 @@ func (us *UserService) CreateUserInOrg(orgID, createdByUserID int64, req CreateU
 	user, err := us.GetUserInOrg(orgID, userID)
 	if err != nil {
 		return nil, err
+	}
+
+	// Generate onboarding API key if generator is configured and key is empty
+	if us.apiKeyGenerator != nil && user.OnboardingAPIKey == "" {
+		newKey, err := us.apiKeyGenerator(user.ID, orgID)
+		if err == nil {
+			_, err = us.store.Exec(`UPDATE users SET onboarding_api_key = $1 WHERE id = $2`, newKey, user.ID)
+			if err == nil {
+				user.OnboardingAPIKey = newKey
+			}
+		}
 	}
 
 	// Send invitation email asynchronously
