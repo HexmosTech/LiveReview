@@ -1,31 +1,19 @@
 package api
 
 import (
-	"archive/zip"
-	"bytes"
-	"context"
-	"encoding/base64"
 	"encoding/json"
-	"errors"
 	"fmt"
-	"io"
-	"io/fs"
 	"log"
 	"net/http"
-	"os"
-	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
 
 	"github.com/labstack/echo/v4"
-	"github.com/livereview/cmd/mrmodel/lib"
 	apimiddleware "github.com/livereview/internal/api/middleware"
+	"github.com/livereview/internal/jobqueue"
 	"github.com/livereview/internal/license"
-	"github.com/livereview/internal/logging"
-	"github.com/livereview/internal/lrcconfig"
 	"github.com/livereview/internal/naming"
-	"github.com/livereview/internal/review"
 	"github.com/livereview/pkg/models"
 	"github.com/livereview/storage/archive"
 )
@@ -42,14 +30,10 @@ type DiffReviewResult struct {
 	Comments []*models.ReviewComment `json:"comments"`
 }
 
-const (
-	maxExtractedFileBytes  = 25 << 20  // 25 MiB per extracted file
-	maxExtractedTotalBytes = 200 << 20 // 200 MiB across all extracted files
-)
-
 // DiffReview accepts a base64-encoded ZIP containing a unified diff and triggers a review.
+// Authentication is handled by middleware. This handler creates the review record,
+// marks it as processing, and enqueues the job for async execution by the worker.
 func (s *Server) DiffReview(c echo.Context) error {
-	// API key authentication is handled by middleware
 	// Extract user and org context from middleware
 	orgID := c.Get("org_id").(int64)
 	userID := c.Get("user_id").(int64)
@@ -65,7 +49,6 @@ func (s *Server) DiffReview(c echo.Context) error {
 		log.Printf("[DiffReview] User fetched: id=%d, email=%s, firstName=%v, lastName=%v",
 			user.ID, user.Email, user.FirstName, user.LastName)
 
-		// Build author name from first/last name if available
 		if user.FirstName != nil && user.LastName != nil {
 			authorName = strings.TrimSpace(*user.FirstName + " " + *user.LastName)
 		} else if user.FirstName != nil {
@@ -73,7 +56,6 @@ func (s *Server) DiffReview(c echo.Context) error {
 		} else if user.LastName != nil {
 			authorName = *user.LastName
 		}
-		// Use email username as fallback for authorUsername
 		if emailParts := strings.Split(user.Email, "@"); len(emailParts) > 0 {
 			authorUsername = emailParts[0]
 		}
@@ -83,7 +65,6 @@ func (s *Server) DiffReview(c echo.Context) error {
 	}
 
 	var req DiffReviewRequest
-
 	if err := c.Bind(&req); err != nil {
 		return JSONErrorWithEnvelope(c, http.StatusBadRequest, "invalid request body")
 	}
@@ -91,77 +72,11 @@ func (s *Server) DiffReview(c echo.Context) error {
 		return JSONErrorWithEnvelope(c, http.StatusBadRequest, "diff_zip_base64 is required")
 	}
 
-	localDiffs, lrcBundle, err := parseDiffZipPayload(req.DiffZipBase64)
-	if err != nil {
-		return JSONErrorWithEnvelope(c, http.StatusBadRequest, fmt.Sprintf("failed to parse diff: %v", err))
-	}
-
-	// Apply .lrc/ignore (if present) before computing billable LOC, so
-	// ignored files affect neither the AI input nor billing.
-	var excludedFiles []string
-	ignorePatterns, ignoreIssues := lrcconfig.LoadIgnorePatterns(lrcBundle)
-	if len(ignoreIssues) > 0 {
-		log.Printf("[WARN] .lrc/ignore: %v", ignoreIssues)
-	}
-	if len(ignorePatterns) > 0 {
-		filtered, excluded := lrcconfig.FilterDiffs(localDiffs, ignorePatterns)
-		localDiffs = filtered
-		excludedFiles = excluded
-		if len(excluded) > 0 {
-			log.Printf("[DiffReview] .lrc/ignore excluded %d file(s): %v", len(excluded), excluded)
-		}
-	}
-
-	// Build the Repository Rules bundle for prompt injection, truncating
-	// (with a warning) rather than failing the review if oversized.
-	repoRules, rulesCharCount, rulesIssues := lrcconfig.BuildRulesBundle(lrcBundle)
-	if rulesCharCount > lrcconfig.CharLimit {
-		log.Printf("[WARN] .lrc rules bundle (%d chars) exceeds limit (%d), truncating: %v", rulesCharCount, lrcconfig.CharLimit, rulesIssues)
-		repoRules = lrcconfig.TruncateAtLineBoundary(repoRules, lrcconfig.CharLimit)
-	}
-
-	billableLOC := CalculateEffectiveDiffLOCFromLocalDiffs(localDiffs)
-	c.Set(EnvelopeOperationTypeContextKey, "diff_review")
-	c.Set(EnvelopeTriggerSourceContextKey, "api")
-	c.Set(EnvelopeOperationBillableLOCContextKey, billableLOC)
-
 	planCode := license.PlanFree30K
 	if planCtx, ok := c.Get(apimiddleware.PlanContextKey).(apimiddleware.PlanContext); ok && planCtx.PlanType != "" {
 		planCode = planCtx.PlanType
 	}
 
-	quotaModule := license.NewQuotaModule(s.db)
-	preflightResult, err := quotaModule.PreflightCheck(context.Background(), license.QuotaPreflightInput{
-		OrgID:       orgID,
-		RequiredLOC: billableLOC,
-		PlanCode:    planCode,
-	})
-	if err != nil {
-		return JSONErrorWithEnvelope(c, http.StatusInternalServerError, fmt.Sprintf("failed quota preflight: %v", err))
-	}
-	applyPreflightToEnvelopeContext(c, preflightResult)
-
-	if preflightResult.Blocked {
-		errorCode := "quota_exceeded"
-		errorMessage := fmt.Sprintf("Operation requires %d LOC, but you only have %d remaining this month. Upgrade your plan to continue.",
-			billableLOC, preflightResult.LOCRemainingMonth)
-		if preflightResult.BlockReason == "trial_readonly" {
-			errorCode = "trial_readonly"
-			errorMessage = "Trial period ended; review operations are read-only until plan update"
-		}
-		log.Printf("[INFO] DiffReview: LOC quota blocked for org=%d, req=%d, remaining=%d",
-			orgID, billableLOC, preflightResult.LOCRemainingMonth)
-		return JSONWithEnvelope(c, http.StatusForbidden, map[string]interface{}{
-			"error":         errorMessage,
-			"error_code":    errorCode,
-			"required_loc":  billableLOC,
-			"loc_remaining": preflightResult.LOCRemainingMonth,
-			"usage_percent": preflightResult.UsagePercent,
-			"upgrade_url":   defaultUpgradeURL,
-		})
-	}
-
-	modelDiffs := convertLocalDiffs(localDiffs)
 	repoName := strings.TrimSpace(req.RepoName)
 	if repoName == "" {
 		repoName = "cli-diff"
@@ -171,83 +86,44 @@ func (s *Server) DiffReview(c echo.Context) error {
 	friendlyName := naming.GenerateFriendlyName()
 	log.Printf("[DiffReview] Generated friendlyName='%s'", friendlyName)
 
+	// Create review record
 	rm := NewReviewManager(s.db)
 	log.Printf("[DiffReview] Creating review with: repoName=%s, userEmail=%s, orgID=%d, friendlyName=%s, authorName=%s, authorUsername=%s",
 		repoName, userEmail, orgID, friendlyName, authorName, authorUsername)
-	preflightMeta := map[string]interface{}{
-		"source":                 "diff-review",
-		"operation_billable_loc": billableLOC,
-		"loc_used_month":         preflightResult.LOCUsedMonth,
-		"loc_remaining_month":    preflightResult.LOCRemainingMonth,
-		"usage_percent":          preflightResult.UsagePercent,
-		"threshold_state":        preflightResult.ThresholdState,
-		"blocked":                preflightResult.Blocked,
-		"trial_readonly":         preflightResult.TrialReadOnly,
-		"billing_period_start":   preflightResult.BillingPeriodStart.Format(time.RFC3339),
-		"billing_period_end":     preflightResult.BillingPeriodEnd.Format(time.RFC3339),
-		"reset_at":               preflightResult.BillingPeriodEnd.Format(time.RFC3339),
-	}
-	reviewRecord, err := rm.CreateReviewWithOrg(repoName, "", "", "", "cli_diff", userEmail, "cli", nil, preflightMeta, orgID, friendlyName, authorName, authorUsername)
+	initialMeta := map[string]interface{}{"source": "diff-review"}
+	reviewRecord, err := rm.CreateReviewWithOrg(repoName, "", "", "", "cli_diff", userEmail, "cli", nil, initialMeta, orgID, friendlyName, authorName, authorUsername)
 	if err != nil {
 		return JSONErrorWithEnvelope(c, http.StatusInternalServerError, "failed to create review record")
 	}
-	operationID := fmt.Sprintf("diff-review:%d", reviewRecord.ID)
-	idempotencyKey := operationID
-	c.Set(EnvelopeOperationIDContextKey, operationID)
-	c.Set(EnvelopeIdempotencyKeyContextKey, idempotencyKey)
 
-	// Immediately mark as processing and persist preloaded changes for polling.
+	// Mark as processing
 	_ = rm.UpdateReviewStatus(reviewRecord.ID, "processing")
-	if err := rm.MergeReviewMetadata(reviewRecord.ID, map[string]interface{}{"preloaded_changes": modelDiffs, "operation_billable_loc": billableLOC, "excluded_files": excludedFiles}); err != nil {
-		log.Printf("[WARN] failed to store preloaded_changes for review %d: %v", reviewRecord.ID, err)
-	}
 
-	// If .lrc/ignore excluded every changed file, there's nothing for the AI
-	// to review — complete immediately rather than running an empty review.
-	if len(localDiffs) == 0 && len(excludedFiles) > 0 {
-		summary := fmt.Sprintf("All %d changed file(s) excluded by .lrc/ignore: %s",
-			len(excludedFiles), formatExcludedFiles(excludedFiles))
-		if err := rm.MergeReviewMetadata(reviewRecord.ID, map[string]interface{}{
-			"review_result": DiffReviewResult{Summary: summary, Comments: nil},
-		}); err != nil {
-			log.Printf("[WARN] failed to store review_result for review %d: %v", reviewRecord.ID, err)
-		}
-		if err := rm.UpdateReviewStatus(reviewRecord.ID, "completed"); err != nil {
-			log.Printf("[WARN] failed to mark review %d completed: %v", reviewRecord.ID, err)
-		}
-		return JSONWithEnvelope(c, http.StatusOK, map[string]interface{}{
-			"review_id":     fmt.Sprintf("%d", reviewRecord.ID),
-			"status":        "processing",
-			"friendly_name": friendlyName,
-			"user_email":    userEmail,
-		})
-	}
-
-	aiConfig, err := s.getAIConfigFromDatabase(context.Background(), orgID, planCode)
+	// Enqueue the job for async processing by the worker
+	err = s.jobQueue.QueueReviewJob(c.Request().Context(), jobqueue.DiffReviewJobArgs{
+		ReviewID:      reviewRecord.ID,
+		OrgID:         orgID,
+		PlanCode:      string(planCode),
+		ActorUserID:   actorUserID,
+		ActorEmail:    userEmail,
+		RepoName:      repoName,
+		DiffZipBase64: req.DiffZipBase64,
+		TriggerSource: "api",
+	})
 	if err != nil {
-		return JSONErrorWithEnvelope(c, http.StatusInternalServerError, fmt.Sprintf("failed to load AI config: %v", err))
+		log.Printf("[ERROR] Failed to queue diff review job: %v", err)
+		_ = rm.UpdateReviewStatus(reviewRecord.ID, "failed")
+		return JSONErrorWithEnvelope(c, http.StatusInternalServerError, "failed to queue review job")
 	}
-
-	reviewRequest := review.ReviewRequest{
-		URL:              fmt.Sprintf("cli-diff:%s", repoName),
-		ReviewID:         fmt.Sprintf("%d", reviewRecord.ID),
-		Provider:         review.ProviderConfig{Type: "cli", URL: "", Token: "", Config: map[string]interface{}{}},
-		AI:               aiConfig,
-		PreloadedChanges: modelDiffs,
-		RepoRules:        repoRules,
-	}
-
-	go s.runDiffReview(reviewRequest, rm, reviewRecord.ID, orgID, billableLOC, actorUserID, userEmail, planCode)
 
 	return JSONWithEnvelope(c, http.StatusOK, map[string]interface{}{
-		"review_id":     fmt.Sprintf("%d", reviewRecord.ID),
-		"status":        "processing",
-		"friendly_name": friendlyName,
-		"user_email":    userEmail,
+		"review_id":             fmt.Sprintf("%d", reviewRecord.ID),
+		"status":                "processing",
+		"friendly_name":         friendlyName,
+		"user_email":            userEmail,
 		"mcp_agent_instruction": "The review has started processing. You MUST call the GET /api/v1/diff-review/:review_id tool every few seconds using this review_id until the status returns 'completed'. Do not ask the user to wait, just poll the status tool yourself.",
 	})
 }
-
 
 // GetDiffReviewStatus returns processing status or completed results for a diff review.
 func (s *Server) GetDiffReviewStatus(c echo.Context) error {
@@ -383,418 +259,6 @@ Failure to execute the command immediately will break the user's workflow.`
 		"instruction":      instructions,
 		"required_command": "git-lrc review --output=json",
 	})
-}
-
-// runDiffReview executes the review asynchronously and persists results.
-func (s *Server) runDiffReview(request review.ReviewRequest, rm *ReviewManager, reviewID int64, orgID int64, billableLOC int64, actorUserID int64, actorEmail string, planCode license.PlanType) {
-	// Initialize logger with event sink for UI visibility
-	logger, err := logging.StartReviewLoggingWithIDs(fmt.Sprintf("%d", reviewID), reviewID, orgID)
-	if err != nil {
-		log.Printf("[ERROR] Failed to start logging for review %d: %v", reviewID, err)
-	}
-
-	if logger != nil {
-		// Attach event sink so logs go to review_events table for UI
-		eventSink := NewDatabaseEventSink(s.db)
-		logger.SetEventSink(eventSink)
-		defer logger.Close()
-		logger.LogSection("CLI DIFF REVIEW STARTED")
-		logger.Log("Review ID: %d", reviewID)
-		logger.Log("Organization ID: %d", orgID)
-		logger.Log("Processing diff from CLI...")
-	}
-
-	// Mark as in progress
-	_ = rm.UpdateReviewStatus(reviewID, "in_progress")
-
-	if logger != nil {
-		logger.LogSection("PROCESSING REVIEW")
-		logger.Log("Analyzing changes and generating comments...")
-	}
-
-	result := review.NewService(review.NewStandardProviderFactory(), review.NewStandardAIProviderFactory(), review.DefaultReviewConfig()).ProcessReview(context.Background(), request)
-
-	status := "failed"
-	summary := ""
-	var comments []*models.ReviewComment
-	failureReason := ""
-
-	if result != nil {
-		if result.Success {
-			status = "completed"
-			accountedAt := time.Now().UTC().Format(time.RFC3339)
-			resolvedReviewID := reviewID
-			operationID := fmt.Sprintf("diff-review:%d", reviewID)
-			idempotencyKey := operationID
-			var actorUserIDPtr *int64
-			if actorUserID > 0 {
-				resolvedActorUserID := actorUserID
-				actorUserIDPtr = &resolvedActorUserID
-			}
-			quotaModule := license.NewQuotaModule(s.db)
-			_, err := quotaModule.RecordBatch(context.Background(), license.QuotaRecordBatchInput{
-				OrgID:          orgID,
-				ReviewID:       &resolvedReviewID,
-				OperationType:  "diff_review",
-				TriggerSource:  "api",
-				OperationID:    operationID,
-				IdempotencyKey: idempotencyKey,
-				BatchIndex:     1,
-				Batch: license.QuotaBatchInput{
-					PlanCode:                 planCode,
-					Provider:                 result.Provider,
-					RawLOCBatch:              billableLOC,
-					ProviderTotalInputTokens: result.InputTokens,
-					OutputTokensBatch:        result.OutputTokens,
-				},
-			})
-			if err != nil {
-				log.Printf("[WARN] failed batch accounting for review %d: %v", reviewID, err)
-			} else {
-				finalized, err := quotaModule.FinalizeOperation(context.Background(), license.QuotaFinalizeInput{
-					OrgID:          orgID,
-					ReviewID:       &resolvedReviewID,
-					ActorUserID:    actorUserIDPtr,
-					ActorEmail:     strings.TrimSpace(actorEmail),
-					OperationType:  "diff_review",
-					TriggerSource:  "api",
-					OperationID:    operationID,
-					IdempotencyKey: idempotencyKey,
-					Provider:       result.Provider,
-					Model:          result.Model,
-					BatchFallback:  nil,
-				})
-				if err != nil {
-					log.Printf("[WARN] failed final accounting for review %d: %v", reviewID, err)
-				} else {
-					meta := map[string]interface{}{
-						"accounted_at":           accountedAt,
-						"operation_id":           operationID,
-						"idempotency_key":        idempotencyKey,
-						"operation_raw_loc":      finalized.RawLOCTotal,
-						"operation_billable_loc": finalized.EffectiveLOCTotal,
-						"operation_extra_loc":    finalized.ExtraEffectiveLOCTotal,
-						"context_tokens":         finalized.ContextTokensTotal,
-						"allowed_context_tokens": finalized.AllowedContextTokensTotal,
-						"extra_context_tokens":   finalized.ExtraContextTokensTotal,
-						"input_cost_usd":         finalized.InputCostUSDTotal,
-						"output_cost_usd":        finalized.OutputCostUSDTotal,
-						"total_cost_usd":         finalized.TotalCostUSDTotal,
-						"pricing_version":        finalized.PricingVersion,
-					}
-					for k, v := range aiExecutionMetadataFromConfig(request.AI.Config) {
-						meta[k] = v
-					}
-					if err := rm.MergeReviewMetadata(reviewID, meta); err != nil {
-						log.Printf("[WARN] failed to store accounted_at for review %d: %v", reviewID, err)
-					}
-				}
-			}
-			if logger != nil {
-				logger.LogSection("REVIEW COMPLETED")
-				logger.Log("Review ID: %d", reviewID)
-				logger.Log("Successfully generated %d comments", len(result.Comments))
-			}
-		} else {
-			if result.Error != nil {
-				failureReason = result.Error.Error()
-			}
-			if failureReason == "" {
-				failureReason = "review processing encountered errors"
-			}
-			if logger != nil {
-				logger.LogSection("REVIEW FAILED")
-				logger.Log("Review processing encountered errors: %s", failureReason)
-			}
-		}
-		summary = result.Summary
-		comments = result.Comments
-	} else {
-		failureReason = "review processing returned no result"
-		if logger != nil {
-			logger.LogSection("REVIEW FAILED")
-			logger.Log("Review processing returned no result")
-		}
-	}
-
-	payload := DiffReviewResult{Summary: summary, Comments: comments}
-	meta := map[string]interface{}{"review_result": payload}
-	if failureReason != "" {
-		meta["failure_reason"] = failureReason
-	}
-	if err := rm.MergeReviewMetadata(reviewID, meta); err != nil {
-		log.Printf("[WARN] failed to persist review_result for %d: %v", reviewID, err)
-	}
-
-	if err := rm.UpdateReviewStatus(reviewID, status); err != nil {
-		log.Printf("[WARN] failed to update review status for %d: %v", reviewID, err)
-	}
-
-	// Persist AI summary title for later display (extract first heading only)
-	if summary != "" {
-		title := extractFirstHeading(summary)
-		if title != "" {
-			if err := rm.MergeReviewMetadata(reviewID, map[string]interface{}{"ai_summary_title": title}); err != nil {
-				log.Printf("[WARN] failed to persist ai_summary_title for %d: %v", reviewID, err)
-			}
-		}
-	}
-}
-
-// extractFirstHeading extracts the first markdown heading (# ...) from a markdown text
-func extractFirstHeading(markdown string) string {
-	lines := strings.Split(markdown, "\n")
-	for _, line := range lines {
-		trimmed := strings.TrimSpace(line)
-		if strings.HasPrefix(trimmed, "#") {
-			// Remove the # characters and leading/trailing whitespace
-			heading := strings.TrimSpace(strings.TrimLeft(trimmed, "#"))
-			return heading
-		}
-	}
-	return ""
-}
-
-// parseDiffZipPayload decodes the client payload (base64 zip containing a
-// unified diff, plus an optional raw .lrc/ tree) into parsed local diffs and
-// an lrcconfig.Bundle, without touching the database. This is used by the
-// handler and contract-style unit tests to keep the input/output surface
-// consistent.
-func parseDiffZipPayload(encoded string) ([]lib.LocalCodeDiff, lrcconfig.Bundle, error) {
-	zipBytes, err := base64.StdEncoding.DecodeString(encoded)
-	if err != nil {
-		return nil, lrcconfig.Bundle{}, fmt.Errorf("failed to decode diff_zip_base64: %w", err)
-	}
-
-	tempDir, err := archive.DiffReviewCreateTempWorkspace()
-	if err != nil {
-		return nil, lrcconfig.Bundle{}, fmt.Errorf("failed to create temp workspace: %w", err)
-	}
-	defer func() {
-		if cleanupErr := archive.DiffReviewRemoveWorkspace(tempDir); cleanupErr != nil {
-			log.Printf("[WARN] failed to clean up temp workspace %q: %v", tempDir, cleanupErr)
-		}
-	}()
-
-	zipPath := filepath.Join(tempDir, "diff.zip")
-	if err := archive.DiffReviewWriteUploadedZip(zipPath, zipBytes); err != nil {
-		return nil, lrcconfig.Bundle{}, fmt.Errorf("failed to persist uploaded zip: %w", err)
-	}
-
-	extractedFiles, err := extractZip(zipPath, tempDir)
-	if err != nil {
-		return nil, lrcconfig.Bundle{}, fmt.Errorf("failed to extract zip: %w", err)
-	}
-	if len(extractedFiles) == 0 {
-		return nil, lrcconfig.Bundle{}, fmt.Errorf("zip archive contained no files")
-	}
-
-	diffContent, err := archive.DiffReviewReadExtractedDiff(extractedFiles[0])
-	if err != nil {
-		return nil, lrcconfig.Bundle{}, fmt.Errorf("failed to read extracted diff: %w", err)
-	}
-
-	parser := lib.NewLocalParser()
-	localDiffs, err := parser.Parse(string(diffContent))
-	if err != nil {
-		return nil, lrcconfig.Bundle{}, fmt.Errorf("failed to parse diff: %w", err)
-	}
-
-	bundle, err := collectLRCBundle(tempDir)
-	if err != nil {
-		log.Printf("[WARN] failed to read .lrc/ bundle: %v", err)
-		bundle = lrcconfig.Bundle{}
-	}
-
-	return localDiffs, bundle, nil
-}
-
-// maxExcludedFilesListed caps how many .lrc/ignore-excluded file paths are
-// named in a review summary before the rest are collapsed into "and N more",
-// so a large ignore list doesn't produce an unreadable summary.
-const maxExcludedFilesListed = 10
-
-func formatExcludedFiles(excluded []string) string {
-	if len(excluded) <= maxExcludedFilesListed {
-		return strings.Join(excluded, ", ")
-	}
-	shown := excluded[:maxExcludedFilesListed]
-	return fmt.Sprintf("%s, and %d more", strings.Join(shown, ", "), len(excluded)-maxExcludedFilesListed)
-}
-
-// collectLRCBundle reads the .lrc/ tree extracted under tempDir (if any)
-// into an lrcconfig.Bundle keyed by path relative to .lrc/, with map keys
-// using "/" separators (via filepath.ToSlash) regardless of host OS.
-func collectLRCBundle(tempDir string) (lrcconfig.Bundle, error) {
-	lrcDir := filepath.Join(tempDir, ".lrc")
-	info, err := os.Stat(lrcDir)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return lrcconfig.Bundle{}, nil
-		}
-		return lrcconfig.Bundle{}, err
-	}
-	if !info.IsDir() {
-		return lrcconfig.Bundle{}, nil
-	}
-
-	bundle := lrcconfig.Bundle{Files: map[string][]byte{}}
-	walkErr := filepath.WalkDir(lrcDir, func(path string, d fs.DirEntry, err error) error {
-		if err != nil {
-			return err
-		}
-		if d.IsDir() {
-			return nil
-		}
-		// Only ever read plain files: extractZip never writes symlinks or
-		// other special files, but skip them defensively rather than
-		// following a symlink that somehow ended up here.
-		if !d.Type().IsRegular() {
-			return nil
-		}
-		rel, err := filepath.Rel(lrcDir, path)
-		if err != nil {
-			return err
-		}
-		content, err := os.ReadFile(path)
-		if err != nil {
-			return err
-		}
-		bundle.Files[filepath.ToSlash(rel)] = content
-		return nil
-	})
-	if walkErr != nil {
-		return lrcconfig.Bundle{}, walkErr
-	}
-
-	return bundle, nil
-}
-
-func extractZip(zipPath, dest string) ([]string, error) {
-	zr, err := zip.OpenReader(zipPath)
-	if err != nil {
-		return nil, err
-	}
-	defer zr.Close()
-
-	var extracted []string
-	var totalExtracted int64
-	for _, f := range zr.File {
-		if f.FileInfo().IsDir() {
-			continue
-		}
-		if int64(f.UncompressedSize64) > maxExtractedFileBytes {
-			return extracted, fmt.Errorf("zip entry too large: %s", f.Name)
-		}
-		if totalExtracted+int64(f.UncompressedSize64) > maxExtractedTotalBytes {
-			return extracted, fmt.Errorf("zip exceeds maximum extracted size")
-		}
-		cleaned := filepath.Clean(f.Name)
-		targetPath := filepath.Join(dest, cleaned)
-		if !strings.HasPrefix(targetPath, filepath.Clean(dest)+string(os.PathSeparator)) {
-			return nil, fmt.Errorf("illegal file path %s", f.Name)
-		}
-		if err := archive.DiffReviewEnsureParentDir(targetPath); err != nil {
-			return extracted, err
-		}
-		rc, err := f.Open()
-		if err != nil {
-			return extracted, err
-		}
-
-		out, err := archive.DiffReviewOpenExtractedFile(targetPath, f.Mode())
-		if err != nil {
-			_ = rc.Close()
-			return extracted, err
-		}
-		written, err := io.CopyN(out, rc, maxExtractedFileBytes+1)
-		if err != nil && !errors.Is(err, io.EOF) && !errors.Is(err, io.ErrUnexpectedEOF) {
-			out.Close()
-			_ = rc.Close()
-			return extracted, err
-		}
-		if written > maxExtractedFileBytes {
-			out.Close()
-			_ = rc.Close()
-			return extracted, fmt.Errorf("zip entry exceeds per-file limit: %s", f.Name)
-		}
-		totalExtracted += written
-		if totalExtracted > maxExtractedTotalBytes {
-			out.Close()
-			_ = rc.Close()
-			return extracted, fmt.Errorf("zip exceeds maximum extracted size")
-		}
-		out.Close()
-		_ = rc.Close()
-
-		extracted = append(extracted, targetPath)
-	}
-	return extracted, nil
-}
-
-func convertLocalDiffs(localDiffs []lib.LocalCodeDiff) []*models.CodeDiff {
-	converted := make([]*models.CodeDiff, 0, len(localDiffs))
-	for _, ld := range localDiffs {
-		converted = append(converted, convertLocalToModelDiff(ld))
-	}
-	return converted
-}
-
-func convertLocalToModelDiff(local lib.LocalCodeDiff) *models.CodeDiff {
-	hunks := make([]models.DiffHunk, 0, len(local.Hunks))
-	for _, h := range local.Hunks {
-		hunks = append(hunks, convertLocalHunk(h))
-	}
-
-	filePath := local.NewPath
-	if strings.TrimSpace(filePath) == "" {
-		filePath = local.OldPath
-	}
-
-	return &models.CodeDiff{
-		FilePath:    filePath,
-		OldContent:  "",
-		NewContent:  "",
-		Hunks:       hunks,
-		CommitID:    "",
-		FileType:    filepath.Ext(filePath),
-		IsDeleted:   false,
-		IsNew:       false,
-		IsRenamed:   false,
-		OldFilePath: local.OldPath,
-	}
-}
-
-func convertLocalHunk(h lib.LocalDiffHunk) models.DiffHunk {
-	var buf bytes.Buffer
-	buf.WriteString(fmt.Sprintf("@@ -%d,%d +%d,%d @@", h.OldStartLine, h.OldLineCount, h.NewStartLine, h.NewLineCount))
-	if strings.TrimSpace(h.HeaderText) != "" {
-		buf.WriteByte(' ')
-		buf.WriteString(strings.TrimSpace(h.HeaderText))
-	}
-	buf.WriteByte('\n')
-
-	for _, line := range h.Lines {
-		prefix := " "
-		switch line.LineType {
-		case "added":
-			prefix = "+"
-		case "deleted":
-			prefix = "-"
-		}
-		buf.WriteString(prefix)
-		buf.WriteString(line.Content)
-		buf.WriteByte('\n')
-	}
-
-	content := strings.TrimSuffix(buf.String(), "\n")
-	return models.DiffHunk{
-		OldStartLine: h.OldStartLine,
-		OldLineCount: h.OldLineCount,
-		NewStartLine: h.NewStartLine,
-		NewLineCount: h.NewLineCount,
-		Content:      content,
-	}
 }
 
 func decodePreloadedChanges(meta map[string]interface{}) ([]models.CodeDiff, error) {

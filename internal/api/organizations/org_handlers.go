@@ -82,9 +82,21 @@ func (h *OrganizationHandlers) GetUserOrganizations(c echo.Context) error {
 		return echo.NewHTTPError(http.StatusInternalServerError, "failed to get organizations")
 	}
 
+	var defaultOrgID *int64
+	if user.DefaultOrgID != nil {
+		// Verify it's in user's organizations
+		for _, org := range orgs {
+			if org.ID == *user.DefaultOrgID {
+				defaultOrgID = user.DefaultOrgID
+				break
+			}
+		}
+	}
+
 	return c.JSON(http.StatusOK, map[string]interface{}{
-		"organizations": orgs,
-		"total":         len(orgs),
+		"organizations":  orgs,
+		"default_org_id": defaultOrgID,
+		"total":          len(orgs),
 	})
 }
 
@@ -358,5 +370,40 @@ func (h *OrganizationHandlers) GetOrganizationAnalytics(c echo.Context) error {
 
 	return c.JSON(http.StatusOK, map[string]interface{}{
 		"analytics": analytics,
+	})
+}
+
+// SetDefaultOrgRequest represents a request to update the user's default organization
+type SetDefaultOrgRequest struct {
+	OrgID int64 `json:"org_id"`
+}
+
+// SetDefaultOrganization sets the default organization for the current user
+func (h *OrganizationHandlers) SetDefaultOrganization(c echo.Context) error {
+	user := auth.GetUser(c)
+	if user == nil {
+		return echo.NewHTTPError(http.StatusUnauthorized, "authentication required")
+	}
+
+	var req SetDefaultOrgRequest
+	if err := c.Bind(&req); err != nil {
+		return echo.NewHTTPError(http.StatusBadRequest, "invalid request body")
+	}
+
+	if req.OrgID <= 0 {
+		return echo.NewHTTPError(http.StatusBadRequest, "invalid organization ID")
+	}
+
+	err := h.service.SetUserDefaultOrganization(user.ID, req.OrgID)
+	if err != nil {
+		if strings.Contains(err.Error(), "not a member") {
+			return echo.NewHTTPError(http.StatusForbidden, err.Error())
+		}
+		h.logger.Printf("Error setting user default organization: %v", err)
+		return echo.NewHTTPError(http.StatusInternalServerError, "failed to set default organization")
+	}
+
+	return c.JSON(http.StatusOK, map[string]string{
+		"message": "default organization updated successfully",
 	})
 }

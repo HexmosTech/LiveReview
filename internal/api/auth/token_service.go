@@ -239,9 +239,9 @@ func (ts *TokenService) ValidateAccessToken(tokenString string) (*models.User, e
 	// Get user details
 	user := &models.User{}
 	err = ts.db.QueryRow(`
-		SELECT id, email, password_hash, created_at, updated_at
+		SELECT id, email, password_hash, default_org_id, created_at, updated_at
 		FROM users WHERE id = $1
-	`, claims.UserID).Scan(&user.ID, &user.Email, &user.PasswordHash, &user.CreatedAt, &user.UpdatedAt)
+	`, claims.UserID).Scan(&user.ID, &user.Email, &user.PasswordHash, &user.DefaultOrgID, &user.CreatedAt, &user.UpdatedAt)
 
 	if err != nil {
 		return nil, fmt.Errorf("failed to get user: %w", err)
@@ -274,9 +274,9 @@ func (ts *TokenService) RefreshTokenPair(refreshToken, userAgent, ipAddress stri
 	// Get user details
 	user := &models.User{}
 	err = ts.db.QueryRow(`
-		SELECT id, email, password_hash, created_at, updated_at
+		SELECT id, email, password_hash, default_org_id, created_at, updated_at
 		FROM users WHERE id = $1
-	`, userID).Scan(&user.ID, &user.Email, &user.PasswordHash, &user.CreatedAt, &user.UpdatedAt)
+	`, userID).Scan(&user.ID, &user.Email, &user.PasswordHash, &user.DefaultOrgID, &user.CreatedAt, &user.UpdatedAt)
 
 	if err != nil {
 		return nil, fmt.Errorf("failed to get user: %w", err)
