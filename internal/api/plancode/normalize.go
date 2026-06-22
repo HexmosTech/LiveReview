@@ -21,6 +21,8 @@ func NormalizePlanTypeCode(raw string) string {
 	switch trimmed {
 	case "free":
 		return string(license.PlanFree)
+	case "enterprise":
+		return string(license.PlanEnterprise)
 	case "team", "team_monthly", "team_annual", "team_yearly", "monthly", "yearly":
 		return string(license.PlanTeam)
 	default:

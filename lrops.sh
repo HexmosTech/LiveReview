@@ -1864,6 +1864,10 @@ DATABASE_URL=postgres://livereview:$DB_PASSWORD@livereview-db:5432/livereview?ss
 JWT_SECRET=$JWT_SECRET
 # Application version (fallback to latest if unset at generation time)
 LIVEREVIEW_VERSION=${LIVEREVIEW_VERSION:-latest}
+
+# Pricing
+LIVEREVIEW_PRICING_PROFILE=actual
+
 EOF
     
     # Set secure permissions on .env file (readable by Docker containers)
@@ -2110,7 +2114,6 @@ env_validate_cmd() {
 # Pull required Docker images
 pull_docker_images() {
     local resolved_version="$1"
-    
     section_header "PULLING DOCKER IMAGES"
     log_info "Pulling required Docker images..."
     
@@ -2137,7 +2140,6 @@ pull_docker_images() {
     log_success "Successfully pulled PostgreSQL image"
     log_success "All required Docker images pulled successfully"
 }
-
 # Start containers with docker compose
 start_containers() {
     section_header "STARTING CONTAINERS"
@@ -5510,7 +5512,11 @@ main() {
     # =============================================================================
     # PHASE 5: DOCKER DEPLOYMENT
     # =============================================================================
-    
+    if [[ "$LOCAL_IMAGE" == "true" ]]; then
+        build_local_image
+        resolved_version="dev"            # matches the tag suffix
+    fi
+
     # Step 8: Deploy with Docker
     deploy_with_docker "$resolved_version" "$config_file"
     
@@ -5548,7 +5554,7 @@ exit 0
 # === DATA:docker-compose.yml ===
 services:
     livereview-app:
-        image: ghcr.io/hexmostech/livereview:${LIVEREVIEW_VERSION}
+        image: ${LIVEREVIEW_IMAGE:-ghcr.io/hexmostech/livereview}:${LIVEREVIEW_VERSION}
         container_name: livereview-app
         env_file:
             - .env
@@ -5560,6 +5566,7 @@ services:
             LIVEREVIEW_BACKEND_PORT: ${LIVEREVIEW_BACKEND_PORT:-8888}
             LIVEREVIEW_FRONTEND_PORT: ${LIVEREVIEW_FRONTEND_PORT:-8081}
             LIVEREVIEW_REVERSE_PROXY: ${LIVEREVIEW_REVERSE_PROXY:-false}
+            LIVEREVIEW_PRICING_PROFILE: ${LIVEREVIEW_PRICING_PROFILE:-actual}  
             # Framework-specific API vars are derived at runtime in entrypoint
         ports:
             - "${LIVEREVIEW_FRONTEND_PORT:-8081}:8081"  # Frontend UI
@@ -5613,6 +5620,9 @@ DATABASE_URL=postgres://livereview:${DB_PASSWORD}@livereview-db:5432/livereview?
 
 # Security
 JWT_SECRET=${JWT_SECRET}
+
+# Pricing
+LIVEREVIEW_PRICING_PROFILE=actual
 # === END:.env ===
 
 # === DATA:nginx.conf.example ===
