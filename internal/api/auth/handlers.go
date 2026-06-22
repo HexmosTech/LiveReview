@@ -362,21 +362,7 @@ func (h *AuthHandlers) SetupAdmin(c echo.Context) error {
 	}
 	defer tx.Rollback()
 
-	// Create default organization
-	var orgID int64
-	err = tx.QueryRow(`
-		INSERT INTO orgs (name, created_at, updated_at)
-		VALUES ($1, NOW(), NOW())
-		RETURNING id
-	`, req.OrgName).Scan(&orgID)
-
-	if err != nil {
-		return c.JSON(http.StatusInternalServerError, map[string]string{
-			"error": "Failed to create organization",
-		})
-	}
-
-	// Create admin user
+	// Create admin user first
 	var userID int64
 	err = tx.QueryRow(`
 		INSERT INTO users (email, password_hash, created_at, updated_at)
@@ -387,6 +373,20 @@ func (h *AuthHandlers) SetupAdmin(c echo.Context) error {
 	if err != nil {
 		return c.JSON(http.StatusInternalServerError, map[string]string{
 			"error": "Failed to create user",
+		})
+	}
+
+	// Create default organization with created_by_user_id
+	var orgID int64
+	err = tx.QueryRow(`
+		INSERT INTO orgs (name, created_by_user_id, created_at, updated_at)
+		VALUES ($1, $2, NOW(), NOW())
+		RETURNING id
+	`, req.OrgName, userID).Scan(&orgID)
+
+	if err != nil {
+		return c.JSON(http.StatusInternalServerError, map[string]string{
+			"error": "Failed to create organization",
 		})
 	}
 

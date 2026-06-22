@@ -112,6 +112,25 @@
       "envelope_visibility": {
         "show_price": true
       }
+    },
+    {
+      "code": "enterprise",
+      "display_name": "Enterprise",
+      "active": true,
+      "rank": 999,
+      "monthly_price_usd": 0,
+      "monthly_loc_limit": -1,
+      "feature_flags": [
+        "unlimited_reviews",
+        "hosted_auto_model"
+      ],
+      "trial_policy": {
+        "enabled": false,
+        "days": 0
+      },
+      "envelope_visibility": {
+        "show_price": false
+      }
     }
   ]
 }

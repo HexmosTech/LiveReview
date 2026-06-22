@@ -26,7 +26,7 @@ RUN echo "✅ Verifying UI build output..." && \
     echo "UI build completed successfully"
 
 # Stage 2: Build Go binary with embedded UI
-FROM golang:1.25-alpine AS go-builder
+FROM golang:1.26-alpine AS go-builder
 
 # Platform arguments for multi-arch builds
 ARG TARGETPLATFORM
