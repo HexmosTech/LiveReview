@@ -1,3 +1,5 @@
+//go:build ignore
+
 package main
 
 import (
@@ -32,3 +34,4 @@ func main() {
 	valid := json.Valid([]byte(repaired))
 	fmt.Printf("Parse valid: %v\n", valid)
 }
+

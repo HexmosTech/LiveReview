@@ -1,3 +1,5 @@
+//go:build ignore
+
 package main
 
 import (
@@ -315,3 +317,4 @@ func sendTestWebhook(payload TestGitLabNotePayload, testName string) {
 		fmt.Printf("   Response: %s\n", responseBody.String())
 	}
 }
+
