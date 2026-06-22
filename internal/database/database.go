@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 	"unicode"
 
 	_ "github.com/lib/pq"
@@ -24,6 +25,9 @@ func NewDB() (*sql.DB, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to open db: %w", err)
 	}
+	db.SetMaxOpenConns(25)
+	db.SetMaxIdleConns(10)
+	db.SetConnMaxLifetime(5 * time.Minute)
 
 	if err := db.Ping(); err != nil {
 		return nil, fmt.Errorf("failed to ping db: %w", err)

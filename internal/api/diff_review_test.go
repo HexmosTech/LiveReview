@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/livereview/cmd/mrmodel/lib"
+	"github.com/livereview/internal/diffutil"
 	"github.com/livereview/internal/lrcconfig"
 	"github.com/livereview/pkg/models"
 )
@@ -29,7 +30,7 @@ func TestConvertLocalToModelDiffUsesOldPathWhenNewEmpty(t *testing.T) {
 		},
 	}
 
-	result := convertLocalToModelDiff(local)
+	result := diffutil.ConvertLocalToModelDiff(local)
 
 	if result.FilePath != "old/foo.go" {
 		t.Fatalf("expected FilePath to fallback to old path, got %s", result.FilePath)
@@ -56,7 +57,7 @@ func TestConvertLocalHunkFormatting(t *testing.T) {
 		},
 	}
 
-	result := convertLocalHunk(hunk)
+	result := diffutil.ConvertLocalHunk(hunk)
 
 	expected := "@@ -10,2 +12,3 @@ func foo\n line one\n+added line\n-old line"
 	if result.Content != expected {
@@ -166,8 +167,7 @@ func TestDiffReviewContractExample(t *testing.T) {
 
 	encoded := base64.StdEncoding.EncodeToString(buf.Bytes())
 
-	// Parse the payload using the same helper the handler uses.
-	localDiffs, _, err := parseDiffZipPayload(encoded)
+	localDiffs, _, err := diffutil.ParseDiffZipBase64(encoded)
 	if err != nil {
 		t.Fatalf("parseDiffZipPayload failed: %v", err)
 	}
@@ -175,7 +175,7 @@ func TestDiffReviewContractExample(t *testing.T) {
 		t.Fatalf("expected 1 local diff, got %d", len(localDiffs))
 	}
 
-	modelDiffs := convertLocalDiffs(localDiffs)
+	modelDiffs := diffutil.ConvertLocalDiffs(localDiffs)
 	comments := []*models.ReviewComment{{
 		FilePath: modelDiffs[0].FilePath,
 		Line:     modelDiffs[0].Hunks[0].NewStartLine,
@@ -227,7 +227,7 @@ func TestParseDiffZipPayloadExtractsLRCBundle(t *testing.T) {
 
 	encoded := base64.StdEncoding.EncodeToString(buf.Bytes())
 
-	localDiffs, bundle, err := parseDiffZipPayload(encoded)
+	localDiffs, bundle, err := diffutil.ParseDiffZipBase64(encoded)
 	if err != nil {
 		t.Fatalf("parseDiffZipPayload failed: %v", err)
 	}
@@ -272,7 +272,7 @@ func TestParseDiffZipPayloadNoLRC(t *testing.T) {
 
 	encoded := base64.StdEncoding.EncodeToString(buf.Bytes())
 
-	localDiffs, bundle, err := parseDiffZipPayload(encoded)
+	localDiffs, bundle, err := diffutil.ParseDiffZipBase64(encoded)
 	if err != nil {
 		t.Fatalf("parseDiffZipPayload failed: %v", err)
 	}
@@ -399,8 +399,8 @@ func TestDiffReviewHandlerStoresPreloadedChanges(t *testing.T) {
 	zw.Close()
 
 	encoded := base64.StdEncoding.EncodeToString(buf.Bytes())
-	localDiffs, _, _ := parseDiffZipPayload(encoded)
-	modelDiffs := convertLocalDiffs(localDiffs)
+	localDiffs, _, _ := diffutil.ParseDiffZipBase64(encoded)
+	modelDiffs := diffutil.ConvertLocalDiffs(localDiffs)
 
 	// Create review via mock
 	review, err := mockRM.CreateReviewWithOrg("test-repo", "", "", "", "cli_diff", "", "cli", nil, map[string]interface{}{"source": "diff-review"}, 1, "Test Friendly", "", "")
@@ -573,8 +573,8 @@ func TestDiffReviewPollingWithCompletedStatus(t *testing.T) {
 	w.Write([]byte(diff))
 	zw.Close()
 	encoded := base64.StdEncoding.EncodeToString(buf.Bytes())
-	localDiffs, _, _ := parseDiffZipPayload(encoded)
-	modelDiffs := convertLocalDiffs(localDiffs)
+	localDiffs, _, _ := diffutil.ParseDiffZipBase64(encoded)
+	modelDiffs := diffutil.ConvertLocalDiffs(localDiffs)
 
 	mockRM.MergeReviewMetadata(review.ID, map[string]interface{}{"preloaded_changes": modelDiffs})
 
@@ -651,7 +651,7 @@ func TestDiffReviewAllFilesExcludedCompletesImmediately(t *testing.T) {
 	}
 	encoded := base64.StdEncoding.EncodeToString(buf.Bytes())
 
-	localDiffs, bundle, err := parseDiffZipPayload(encoded)
+	localDiffs, bundle, err := diffutil.ParseDiffZipBase64(encoded)
 	if err != nil {
 		t.Fatalf("parseDiffZipPayload failed: %v", err)
 	}
@@ -669,7 +669,7 @@ func TestDiffReviewAllFilesExcludedCompletesImmediately(t *testing.T) {
 	}
 
 	review, _ := mockRM.CreateReviewWithOrg("test-repo", "", "", "", "cli_diff", "", "cli", nil, map[string]interface{}{}, 1, "", "", "")
-	modelDiffs := convertLocalDiffs(filtered)
+	modelDiffs := diffutil.ConvertLocalDiffs(filtered)
 	mockRM.MergeReviewMetadata(review.ID, map[string]interface{}{
 		"preloaded_changes":      modelDiffs,
 		"operation_billable_loc": int64(0),
@@ -732,7 +732,7 @@ func TestDiffReviewPartialExclusionExposesExcludedFiles(t *testing.T) {
 	}
 	encoded := base64.StdEncoding.EncodeToString(buf.Bytes())
 
-	localDiffs, bundle, err := parseDiffZipPayload(encoded)
+	localDiffs, bundle, err := diffutil.ParseDiffZipBase64(encoded)
 	if err != nil {
 		t.Fatalf("parseDiffZipPayload failed: %v", err)
 	}
@@ -750,7 +750,7 @@ func TestDiffReviewPartialExclusionExposesExcludedFiles(t *testing.T) {
 	}
 
 	review, _ := mockRM.CreateReviewWithOrg("test-repo", "", "", "", "cli_diff", "", "cli", nil, map[string]interface{}{}, 1, "", "", "")
-	modelDiffs := convertLocalDiffs(filtered)
+	modelDiffs := diffutil.ConvertLocalDiffs(filtered)
 	mockRM.MergeReviewMetadata(review.ID, map[string]interface{}{
 		"preloaded_changes": modelDiffs,
 		"excluded_files":    excluded,

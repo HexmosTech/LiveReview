@@ -10,6 +10,7 @@ import { Button, Input, Select } from '../UIPrimitives';
 import { useAppDispatch } from '../../store/configureStore';
 import { loadUserOrganizations } from '../../store/Organizations/reducer';
 import { UpgradePromptModal } from '../Subscriptions';
+import { UserOnboardingDetails } from './UserOnboardingDetails';
 
 const baseSchema = z.object({
   email: z.string().email({ message: 'Invalid email address' }),
@@ -81,6 +82,7 @@ const UserForm: React.FC = () => {
   );
 
   const [user, setUser] = useState<Member | null>(null);
+  const [createdUser, setCreatedUser] = useState<Member | null>(null);
   const [loading, setLoading] = useState(false);
   const [showUpgradeModal, setShowUpgradeModal] = useState(false);
 
@@ -201,17 +203,13 @@ const UserForm: React.FC = () => {
           role_id: roleNameToId(data.role),
           password: data.password,
         });
-        toast.success(`User ${newUser.email} created successfully!`);
-        
-        // Show upgrade prompt if on free plan
-        if (currentOrg?.plan_type === 'free') {
-          setShowUpgradeModal(true);
-          return; // Don't navigate yet, let user see modal
-        }
+        toast.success(`User ${newUser.email} invited successfully!`);
+        setCreatedUser(newUser);
+        return;
       }
       navigate('/settings#users');
     } catch (error) {
-      const action = isEditMode ? 'update' : 'create';
+      const action = isEditMode ? 'update' : 'invite';
       const rawMessage = (error as Error).message || 'An unknown error occurred.';
       const errorMessage = rawMessage.replace(/[\r\n]+/g, ' ').trim().slice(0, 200) || 'An unknown error occurred.';
       toast.error(['Failed to', action, 'user:', errorMessage].join(' '));
@@ -227,13 +225,28 @@ const UserForm: React.FC = () => {
     );
   }
 
+  if (createdUser) {
+    return (
+      <UserOnboardingDetails
+        user={createdUser}
+        onContinue={() => {
+          if (currentOrg?.plan_type === 'free') {
+            setShowUpgradeModal(true);
+          } else {
+            navigate('/settings#users');
+          }
+        }}
+      />
+    );
+  }
+
   return (
     <div className="p-6 bg-gray-900 text-white">
       <div className="max-w-4xl mx-auto">
         <div className="mb-8">
-          <h1 className="text-3xl font-bold">{isEditMode ? 'Edit User' : 'Add New User'}</h1>
+          <h1 className="text-3xl font-bold">{isEditMode ? 'Edit User' : 'Invite New User'}</h1>
           <p className="text-gray-400 mt-2">
-            {isEditMode ? `Update details for ${user?.email}` : 'Create a new user for the selected organization.'}
+            {isEditMode ? `Update details for ${user?.email}` : 'Invite a new user to the organization.'}
           </p>
         </div>
 
@@ -321,7 +334,7 @@ const UserForm: React.FC = () => {
               Cancel
             </Button>
             <Button type="submit" disabled={isSubmitting}>
-              {isSubmitting ? (isEditMode ? 'Updating User...' : 'Creating User...') : (isEditMode ? 'Update User' : 'Create User')}
+              {isSubmitting ? (isEditMode ? 'Updating User...' : 'Inviting User...') : (isEditMode ? 'Update User' : 'Invite User')}
             </Button>
           </div>
         </form>

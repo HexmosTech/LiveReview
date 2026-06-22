@@ -43,6 +43,7 @@ func main() {
 			cmd.ReviewCommand(),
 			cmd.ConfigCommand(),
 			cmd.APICommand(),
+			cmd.WorkerCommand(),
 			cmd.UICommand(uiAssets),
 		},
 	}

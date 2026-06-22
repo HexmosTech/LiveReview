@@ -26,6 +26,7 @@ export interface Member {
   role: string;
   role_id: number;
   org_id: number;
+  onboarding_api_key?: string;
 }
 
 export interface FetchUsersResponse {
