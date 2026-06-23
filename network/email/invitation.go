@@ -2,11 +2,13 @@ package email
 
 import (
 	"bytes"
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
 	"os"
+	"strings"
 	"time"
 )
 
@@ -27,11 +29,45 @@ func getParseAppID() string {
 	return "impressionserver"
 }
 
-// SendInvitationEmail sends an invitation email via the Parse Cloud Function
-func SendInvitationEmail(params InvitationParams) error {
+// SendInvitationEmail sends an invitation email. It uses SMTP for self-hosted/enterprise deployments
+func SendInvitationEmail(db *sql.DB, params InvitationParams) error {
+	isCloud := strings.ToLower(os.Getenv("LIVEREVIEW_IS_CLOUD")) == "true"
+	if !isCloud {
+		// First try fetching from database system_settings
+		var data []byte
+		
+		err := db.QueryRow("SELECT data FROM system_settings WHERE name = 'smtp'").Scan(&data)
+		if err == nil {
+			var settings struct {
+				Host       string `json:"host"`
+				Port       int    `json:"port"`
+				Username   string `json:"username"`
+				Password   string `json:"password"`
+				Sender     string `json:"sender"`
+				SenderName string `json:"sender_name"`
+				SkipTLS    bool   `json:"skip_tls"`
+			}
+			if err := json.Unmarshal(data, &settings); err == nil && settings.Host != "" {
+				return SendInvitationEmailSMTP(
+					settings.Host,
+					settings.Port,
+					settings.Username,
+					settings.Password,
+					settings.Sender,
+					settings.SenderName,
+					settings.SkipTLS,
+					params,
+				)
+			}
+		}
+
+		fmt.Println("[Invitation] Selfhosted/Enterprise mode: SMTP settings not found in database, skipping invitation email")
+		return nil
+	}
+
 	baseURL := os.Getenv("FW_PARSE_BASE_URL")
 	if baseURL == "" {
-		fmt.Println("[Invitation] FW_PARSE_BASE_URL not set, skipping invitation");
+		fmt.Println("[Invitation] Cloud mode: FW_PARSE_BASE_URL not set, skipping invitation")
 		return nil
 	}
 	apiURL := fmt.Sprintf("%s/parse/functions/userInvitation", baseURL)
