@@ -5512,10 +5512,6 @@ main() {
     # =============================================================================
     # PHASE 5: DOCKER DEPLOYMENT
     # =============================================================================
-    if [[ "$LOCAL_IMAGE" == "true" ]]; then
-        build_local_image
-        resolved_version="dev"            # matches the tag suffix
-    fi
 
     # Step 8: Deploy with Docker
     deploy_with_docker "$resolved_version" "$config_file"
@@ -5554,7 +5550,7 @@ exit 0
 # === DATA:docker-compose.yml ===
 services:
     livereview-app:
-        image: ${LIVEREVIEW_IMAGE:-ghcr.io/hexmostech/livereview}:${LIVEREVIEW_VERSION}
+        image: ghcr.io/hexmostech/livereview:${LIVEREVIEW_VERSION}
         container_name: livereview-app
         env_file:
             - .env
