@@ -8,7 +8,7 @@ const (
 	PlanTeam32USD  PlanType = "team_32usd"
 	PlanFree       PlanType = PlanFree30K
 	PlanTeam       PlanType = PlanTeam32USD
-	PlanEnterprise PlanType = "enterprise"
+	PlanEnterpriseSelfhosted PlanType = "enterprise-selfhosted"
 
 	PlanStarter100K PlanType = PlanTeam32USD
 	PlanLOC200K     PlanType = "loc_200k"
@@ -142,8 +142,8 @@ var PlanDefinitions = map[PlanType]PlanLimits{
 			"priority_support",
 		},
 	},
-	PlanEnterprise: {
-		PlanType:         PlanEnterprise,
+	PlanEnterpriseSelfhosted: {
+		PlanType:         PlanEnterpriseSelfhosted,
 		MaxReviewsPerDay: -1,
 		MaxOrganizations: -1,
 		MaxUsers:         -1,

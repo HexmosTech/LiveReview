@@ -144,7 +144,7 @@ func (m *QuotaModule) BuildBatchSettlement(input QuotaBatchInput) (QuotaBatchSet
 		return QuotaBatchSettlement{}, err
 	}
 
-	// Allow unlimited LOC (represented by negative value, e.g. -1) for enterprise plans.
+	// Allow unlimited LOC (represented by negative value, e.g. -1) for enterprise-selfhosted plans.
 	// Downstream calculations guard on > 0 where a finite limit is required.
 	if policy.InputCharsPerLOC <= 0 || policy.CharsPerToken <= 0 {
 		return QuotaBatchSettlement{}, fmt.Errorf("invalid token conversion policy for plan=%s provider=%s", policy.PlanCode, policy.ProviderKey)

@@ -25,7 +25,7 @@ func BuildOrgBillingPlanContext(db *sql.DB, licenseSvc *license.Service) echo.Mi
 				if licenseSvc != nil {
 					state, err := licenseSvc.LoadOrInit(c.Request().Context())
 					if err == nil && !state.IsTerminal() && !state.IsMissing() {
-						c.Set("plan_type", "enterprise")
+						c.Set("plan_type", "enterprise-selfhosted")
 					} else {
 						c.Set("plan_type", "free_30k")
 					}

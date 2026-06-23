@@ -255,8 +255,8 @@ export const Dashboard: React.FC = () => {
 
                 const planCode = String(billing.billing.current_plan_code || 'free_30k').trim();
                 
-                // Hide billing insight for self-hosted enterprise (licensed)
-                if (!isCloudMode() && planCode === 'enterprise') {
+                // Hide billing insight for enterprise-selfhosted (licensed)
+                if (!isCloudMode() && planCode === 'enterprise-selfhosted') {
                     setBillingInsight(null);
                     return;
                 }
