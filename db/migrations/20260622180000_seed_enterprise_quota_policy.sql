@@ -18,7 +18,7 @@ INSERT INTO quota_policy_catalog (
     active
 )
 SELECT
-    'enterprise',
+    'enterprise-selfhosted',
     rates.provider_key,
     120,
     87,
@@ -48,4 +48,4 @@ ON CONFLICT (plan_code, provider_key) DO NOTHING;
 
 -- migrate:down
 
-DELETE FROM quota_policy_catalog WHERE plan_code = 'enterprise';
+DELETE FROM quota_policy_catalog WHERE plan_code = 'enterprise-selfhosted';

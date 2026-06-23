@@ -20,8 +20,8 @@ INSERT INTO plan_catalog (
     envelope_show_price
 )
 VALUES (
-    'enterprise',
-    'Enterprise',
+    'enterprise-selfhosted',
+    'Enterprise - Self Hosted',
     TRUE,
     999,
     0,
@@ -48,7 +48,7 @@ SET
 -- migrate:down
 
 DELETE FROM plan_catalog
-WHERE plan_code = 'enterprise';
+WHERE plan_code = 'enterprise-selfhosted';
 
 ALTER TABLE plan_catalog
 DROP CONSTRAINT chk_plan_catalog_loc_non_negative;
