@@ -364,13 +364,27 @@ func (h *AuthHandlers) SetupAdmin(c echo.Context) error {
 	}
 	defer tx.Rollback()
 
-	// Create default organization
+	// Create admin user first
+	var userID int64
+	err = tx.QueryRow(`
+		INSERT INTO users (email, password_hash, created_at, updated_at)
+		VALUES ($1, $2, NOW(), NOW())
+		RETURNING id
+	`, req.Email, string(hashedPassword)).Scan(&userID)
+
+	if err != nil {
+		return c.JSON(http.StatusInternalServerError, map[string]string{
+			"error": "Failed to create user",
+		})
+	}
+
+	// Create default organization with created_by_user_id
 	var orgID int64
 	err = tx.QueryRow(`
-		INSERT INTO orgs (name, created_at, updated_at)
-		VALUES ($1, NOW(), NOW())
+		INSERT INTO orgs (name, created_by_user_id, created_at, updated_at)
+		VALUES ($1, $2, NOW(), NOW())
 		RETURNING id
-	`, req.OrgName).Scan(&orgID)
+	`, req.OrgName, userID).Scan(&orgID)
 
 	if err != nil {
 		return c.JSON(http.StatusInternalServerError, map[string]string{
@@ -378,17 +392,14 @@ func (h *AuthHandlers) SetupAdmin(c echo.Context) error {
 		})
 	}
 
-	// Create admin user
-	var userID int64
-	err = tx.QueryRow(`
-		INSERT INTO users (email, password_hash, default_org_id, created_at, updated_at)
-		VALUES ($1, $2, $3, NOW(), NOW())
-		RETURNING id
-	`, req.Email, string(hashedPassword), orgID).Scan(&userID)
-
+	_, err = tx.Exec(`
+		UPDATE users
+		SET default_org_id = $1
+		WHERE id = $2
+	`, orgID, userID)
 	if err != nil {
 		return c.JSON(http.StatusInternalServerError, map[string]string{
-			"error": "Failed to create user",
+			"error": "Failed to update user's default organization",
 		})
 	}
 
