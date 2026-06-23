@@ -65,7 +65,7 @@ func RequirePlan(minPlan license.PlanType) echo.MiddlewareFunc {
 	planHierarchy := map[license.PlanType]int{
 		license.PlanFree:       0,
 		license.PlanTeam:       1,
-		license.PlanEnterprise: 2,
+		license.PlanEnterpriseSelfhosted: 2,
 	}
 
 	return func(next echo.HandlerFunc) echo.HandlerFunc {

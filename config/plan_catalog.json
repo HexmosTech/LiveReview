@@ -114,8 +114,8 @@
       }
     },
     {
-      "code": "enterprise",
-      "display_name": "Enterprise",
+      "code": "enterprise-selfhosted",
+      "display_name": "Enterprise - Self Hosted",
       "active": true,
       "rank": 999,
       "monthly_price_usd": 0,
