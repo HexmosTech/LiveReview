@@ -589,6 +589,7 @@ docs/openapi.yaml internal/api/docs/spec.go: $(API_SPEC_INPUTS) typed-install
 	@chmod 755 docs internal/api/docs
 	@PATH="$(TYPED_BIN_DIR):$$PATH" typed -config typed.yaml > /tmp/lr_typed_build.log 2>&1 || (echo "❌ Typed generation failed. Logs:" && cat /tmp/lr_typed_build.log && exit 1)
 	@$(GOCMD) run internal/api/docs/spec.go > /tmp/lr_spec_build.log 2>&1 || (echo "❌ OpenAPI spec generation failed. Logs:" && cat /tmp/lr_spec_build.log && exit 1)
+	@python3 scripts/openapi/fix-openapi-spec.py docs/openapi.yaml
 
 
 generate-openapi: docs/openapi.yaml
