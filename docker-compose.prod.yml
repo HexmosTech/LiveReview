@@ -14,6 +14,9 @@ services:
       - LIVEREVIEW_BACKEND_PORT=${LIVEREVIEW_BACKEND_PORT:-8888}
       - LIVEREVIEW_FRONTEND_PORT=${LIVEREVIEW_FRONTEND_PORT:-8081}
       - LIVEREVIEW_REVERSE_PROXY=${LIVEREVIEW_REVERSE_PROXY:-false}
+
+      # Worker configuration
+      - LIVEREVIEW_WORKER_CONCURRENT_REVIEWS=${LIVEREVIEW_WORKER_CONCURRENT_REVIEWS:-10}
     depends_on:
       livereview-db:
         condition: service_healthy
