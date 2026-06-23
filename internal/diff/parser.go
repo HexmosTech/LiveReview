@@ -102,10 +102,13 @@ func (p *Parser) extractFilePath(diffText string) (string, error) {
 	return matches[2], nil
 }
 
-// extractHunks extracts diff hunks from a file diff
+// extractHunks extracts diff hunks from a file diff.
+// Handles both full form (@@ -l,s +l,s @@) and short form (@@ -l,s +l @@)
+// where an omitted count means 1 per the unified diff specification.
 func (p *Parser) extractHunks(diffText string) ([]models.DiffHunk, error) {
-	// Example: @@ -1,3 +1,4 @@
-	re := regexp.MustCompile(`@@ -(\d+),(\d+) \+(\d+),(\d+) @@`)
+	// Match both forms: count may be omitted (e.g. "@@ -0,0 +1 @@").
+	// Capture groups: 1=oldStart 2=oldCount 3=newStart 4=newCount(optional)
+	re := regexp.MustCompile(`@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@`)
 
 	hunkMatches := re.FindAllStringSubmatchIndex(diffText, -1)
 	if len(hunkMatches) == 0 {
@@ -115,11 +118,19 @@ func (p *Parser) extractHunks(diffText string) ([]models.DiffHunk, error) {
 	hunks := make([]models.DiffHunk, 0, len(hunkMatches))
 
 	for i, match := range hunkMatches {
-		// Extract hunk header information
-		oldStart, _ := strconv.Atoi(diffText[match[2]:match[3]])
-		oldCount, _ := strconv.Atoi(diffText[match[4]:match[5]])
-		newStart, _ := strconv.Atoi(diffText[match[6]:match[7]])
-		newCount, _ := strconv.Atoi(diffText[match[8]:match[9]])
+		// Helper to parse a capture group that may be absent (index == -1 means omitted → default 1).
+		captureInt := func(start, end int) int {
+			if start == -1 {
+				return 1 // omitted count defaults to 1 per unified diff spec
+			}
+			v, _ := strconv.Atoi(diffText[start:end])
+			return v
+		}
+
+		oldStart := captureInt(match[2], match[3])
+		oldCount := captureInt(match[4], match[5])
+		newStart := captureInt(match[6], match[7])
+		newCount := captureInt(match[8], match[9])
 
 		// Extract hunk content
 		var content string
@@ -133,6 +144,21 @@ func (p *Parser) extractHunks(diffText string) ([]models.DiffHunk, error) {
 		contentLines := strings.SplitN(content, "\n", 2)
 		if len(contentLines) > 1 {
 			content = contentLines[1]
+		}
+
+		// When newCount is 1 (explicit or defaulted) but the actual content has more
+		// added lines (e.g. a new file where the header omitted the count), count
+		// the real added lines so lineWithinHunks covers the full hunk.
+		if newCount <= 1 {
+			actual := 0
+			for _, line := range strings.Split(content, "\n") {
+				if strings.HasPrefix(line, "+") {
+					actual++
+				}
+			}
+			if actual > newCount {
+				newCount = actual
+			}
 		}
 
 		hunks = append(hunks, models.DiffHunk{
