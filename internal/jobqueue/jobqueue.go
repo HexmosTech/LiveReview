@@ -17,9 +17,11 @@ prompting users to reconfigure via the "Enable Manual Trigger" button.
 package jobqueue
 
 import (
+	"archive/zip"
 	"bytes"
 	"context"
 	"database/sql"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -35,12 +37,13 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/livereview/internal/logging"
 	reviewpkg "github.com/livereview/internal/review"
 	"github.com/livereview/pkg/models"
 	"github.com/livereview/internal/providers/gitea"
 	networkjobqueue "github.com/livereview/network/jobqueue"
+	"github.com/aws/aws-sdk-go-v2/aws"
 	awsconfig "github.com/aws/aws-sdk-go-v2/config"
-	awslambda "github.com/aws/aws-sdk-go-v2/service/lambda"
 	"github.com/livereview/network/tools"
 	storagejobqueue "github.com/livereview/storage/jobqueue"
 	storagetools "github.com/livereview/storage/tools"
@@ -200,8 +203,8 @@ func (ToolReviewOrchestratorJobArgs) Kind() string {
 // ToolReviewOrchestratorWorker handles the entire tool review orchestration pipeline
 type ToolReviewOrchestratorWorker struct {
 	river.WorkerDefaults[ToolReviewOrchestratorJobArgs]
-	db           *sql.DB
-	lambdaClient tools.LambdaClient
+	db     *sql.DB
+	awsCfg aws.Config
 }
 
 // getWebhookEndpointForProvider returns the correct webhook endpoint based on the provider
@@ -2324,13 +2327,10 @@ func NewJobQueue(databaseURL string, db *sql.DB) (*JobQueue, error) {
 	river.AddWorker(workers, &WebhookRemovalWorker{pool: pool, config: config, store: store, httpClient: httpClient})
 
 	awsCfg, awsErr := awsconfig.LoadDefaultConfig(context.Background())
-	var lambdaClient tools.LambdaClient
 	if awsErr != nil {
 		log.Printf("[WARN] Failed to load AWS config for Lambda: %v. Lambda tools will fail to invoke.", awsErr)
-	} else {
-		lambdaClient = awslambda.NewFromConfig(awsCfg)
 	}
-	river.AddWorker(workers, &ToolReviewOrchestratorWorker{db: db, lambdaClient: lambdaClient})
+	river.AddWorker(workers, &ToolReviewOrchestratorWorker{db: db, awsCfg: awsCfg})
 
 	client, err := river.NewClient(riverpgxv5.New(pool), &river.Config{
 		Queues:  config.RiverQueueConfig(),
@@ -2400,11 +2400,23 @@ func (w *ToolReviewOrchestratorWorker) Work(ctx context.Context, job *river.Job[
 
 	log.Printf("[INFO] ToolReviewOrchestrator: starting for review=%d, org=%d, provider=%s", args.ReviewID, args.OrgID, args.Provider)
 	
+	logger, err := logging.StartReviewLoggingWithIDs(strconv.FormatInt(args.ReviewID, 10), args.ReviewID, args.OrgID)
+	if err != nil {
+		log.Printf("[WARN] ToolReviewOrchestrator: failed to start review logger: %v", err)
+	} else {
+		defer logger.Close()
+		logger.LogSection("ORCHESTRATOR STARTED")
+		logger.Log("Tool Review Orchestrator initialized for review ID %d", args.ReviewID)
+	}
+
 	// 1. Fetch enabled tools
 	toolsStore := storagetools.NewToolsStore(w.db)
 	enabledTools, err := toolsStore.GetEnabledToolsForOrg(ctx, args.OrgID)
 	if err != nil {
 		_, _ = w.db.ExecContext(ctx, "UPDATE public.reviews SET status = $1 WHERE id = $2", "failed", args.ReviewID)
+		if logger != nil {
+			logger.EmitReviewFailure(fmt.Errorf("failed to fetch enabled tools: %w", err))
+		}
 		return fmt.Errorf("failed to fetch enabled tools: %w", err)
 	}
 	if len(enabledTools) == 0 {
@@ -2418,6 +2430,9 @@ func (w *ToolReviewOrchestratorWorker) Work(ctx context.Context, job *river.Job[
 	err = creditStore.DeductCredits(ctx, args.OrgID, args.ReviewID, args.TotalMultiplier)
 	if err != nil {
 		_, _ = w.db.ExecContext(ctx, "UPDATE public.reviews SET status = $1 WHERE id = $2", "failed", args.ReviewID)
+		if logger != nil {
+			logger.EmitReviewFailure(fmt.Errorf("failed to deduct credits: %w", err))
+		}
 		return fmt.Errorf("failed to deduct credits: %w", err)
 	}
 
@@ -2433,6 +2448,9 @@ func (w *ToolReviewOrchestratorWorker) Work(ctx context.Context, job *river.Job[
 	err = w.db.QueryRowContext(ctx, `SELECT access_token, pat_token, token_type, provider_url FROM integration_tokens WHERE id = $1 AND org_id = $2`, args.ConnectorID, args.OrgID).Scan(&token, &patToken, &tokenType, &providerURL)
 	if err != nil {
 		_, _ = w.db.ExecContext(ctx, "UPDATE public.reviews SET status = $1 WHERE id = $2", "failed", args.ReviewID)
+		if logger != nil {
+			logger.EmitReviewFailure(fmt.Errorf("failed to get integration token: %w", err))
+		}
 		return fmt.Errorf("failed to get integration token: %w", err)
 	}
 	
@@ -2459,6 +2477,9 @@ func (w *ToolReviewOrchestratorWorker) Work(ctx context.Context, job *river.Job[
 	providerInstance, err := providerFactory.CreateProvider(ctx, provConfig)
 	if err != nil {
 		_, _ = w.db.ExecContext(ctx, "UPDATE public.reviews SET status = $1 WHERE id = $2", "failed", args.ReviewID)
+		if logger != nil {
+			logger.EmitReviewFailure(fmt.Errorf("failed to create provider: %w", err))
+		}
 		return fmt.Errorf("failed to create provider: %w", err)
 	}
 
@@ -2494,11 +2515,38 @@ func (w *ToolReviewOrchestratorWorker) Work(ctx context.Context, job *river.Job[
 				}
 			}
 		}
+		
+		// Update review metadata (Issue #5)
+		authorName := mrDetails.AuthorName
+		if authorName == "" {
+			authorName = mrDetails.Author
+		}
+		authorUsername := mrDetails.AuthorUsername
+		if authorUsername == "" {
+			authorUsername = mrDetails.Author
+		}
+		
+		_, dbErr := w.db.ExecContext(ctx, `
+			UPDATE public.reviews
+			SET repository = COALESCE(NULLIF($1, ''), repository),
+			    branch = COALESCE(NULLIF($2, ''), branch),
+			    mr_title = COALESCE(NULLIF($3, ''), mr_title),
+			    author_name = COALESCE(NULLIF($4, ''), author_name),
+			    author_username = COALESCE(NULLIF($5, ''), author_username)
+			WHERE id = $6
+		`, mrDetails.RepositoryURL, mrDetails.SourceBranch, mrDetails.Title, authorName, authorUsername, args.ReviewID)
+		
+		if dbErr != nil {
+			log.Printf("[WARN] ToolReviewOrchestrator: failed to update review metadata for review=%d: %v", args.ReviewID, dbErr)
+		}
 	}
 
 	changes, err := providerInstance.GetMergeRequestChanges(ctx, prID)
 	if err != nil {
 		_, _ = w.db.ExecContext(ctx, "UPDATE public.reviews SET status = $1 WHERE id = $2", "failed", args.ReviewID)
+		if logger != nil {
+			logger.EmitReviewFailure(fmt.Errorf("failed to get MR changes: %w", err))
+		}
 		return fmt.Errorf("failed to get MR changes: %w", err)
 	}
 
@@ -2519,9 +2567,18 @@ func (w *ToolReviewOrchestratorWorker) Work(ctx context.Context, job *river.Job[
 		go func(t storagetools.AvailableTool) {
 			defer wg.Done()
 
+			var buf bytes.Buffer
+			zipWriter := zip.NewWriter(&buf)
+			if f, err := zipWriter.Create("diff.txt"); err == nil {
+				f.Write([]byte(rawDiff))
+			}
+			zipWriter.Close()
+			zipBase64 := base64.StdEncoding.EncodeToString(buf.Bytes())
+
 			payloadMap := map[string]interface{}{
 				"review_id": args.ReviewID,
 				"diff":      rawDiff,
+				"zip_file":  zipBase64,
 			}
 			payloadBytes, err := json.Marshal(payloadMap)
 			if err != nil {
@@ -2529,7 +2586,7 @@ func (w *ToolReviewOrchestratorWorker) Work(ctx context.Context, job *river.Job[
 				return
 			}
 
-			respBytes, err := tools.InvokeTool(ctx, w.lambdaClient, t.LambdaARN, payloadBytes)
+			respBytes, err := tools.InvokeTool(ctx, w.awsCfg, t.LambdaARN, payloadBytes)
 			if err != nil {
 				log.Printf("[ERROR] Tool %s lambda invocation failed: %v", t.Name, err)
 				return
@@ -2573,6 +2630,9 @@ func (w *ToolReviewOrchestratorWorker) Work(ctx context.Context, job *river.Job[
 	// 6. Finalize
 	_, _ = w.db.ExecContext(ctx, "UPDATE public.reviews SET status = $1 WHERE id = $2", "completed", args.ReviewID)
 	log.Printf("[INFO] ToolReviewOrchestrator: completed review=%d", args.ReviewID)
+	if logger != nil {
+		logger.EmitReviewCompletion(len(allComments), "Tool static analysis complete")
+	}
 	return nil
 }
 

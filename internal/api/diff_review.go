@@ -16,6 +16,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/labstack/echo/v4"
@@ -29,12 +30,15 @@ import (
 	"github.com/livereview/pkg/models"
 	"github.com/livereview/storage/archive"
 	storagetools "github.com/livereview/storage/tools"
+	awsconfig "github.com/aws/aws-sdk-go-v2/config"
+	"github.com/livereview/network/tools"
 )
 
 // DiffReviewRequest models the incoming POST payload for diff reviews.
 type DiffReviewRequest struct {
 	DiffZipBase64 string `json:"diff_zip_base64"`
 	RepoName      string `json:"repo_name"`
+	ToolsOnly     bool   `json:"tools_only,omitempty"`
 }
 
 // DiffReviewResult holds persisted review output that is safe to marshal.
@@ -238,7 +242,7 @@ func (s *Server) DiffReview(c echo.Context) error {
 		RepoRules:        repoRules,
 	}
 
-	go s.runDiffReview(reviewRequest, rm, reviewRecord.ID, orgID, billableLOC, actorUserID, userEmail, planCode)
+	go s.runDiffReview(reviewRequest, rm, reviewRecord.ID, orgID, billableLOC, actorUserID, userEmail, planCode, req.ToolsOnly, req.DiffZipBase64)
 
 	return JSONWithEnvelope(c, http.StatusOK, map[string]interface{}{
 		"review_id":     fmt.Sprintf("%d", reviewRecord.ID),
@@ -342,11 +346,34 @@ func (s *Server) GetDiffReviewStatus(c echo.Context) error {
 
 	files := buildDiffFiles(preloaded, result.Comments)
 
+	// Build a flat tool_comments list so git-lrc can access tool findings
+	// directly without parsing them out of files[].comments.
+	type toolComment struct {
+		FilePath string `json:"file_path"`
+		Line     int    `json:"line"`
+		Content  string `json:"content"`
+		Severity string `json:"severity"`
+		Category string `json:"category"`
+	}
+	var toolComments []toolComment
+	for _, c := range result.Comments {
+		if c.Category == "tool-generated" {
+			toolComments = append(toolComments, toolComment{
+				FilePath: c.FilePath,
+				Line:     c.Line,
+				Content:  string(c.Content),
+				Severity: string(c.Severity),
+				Category: c.Category,
+			})
+		}
+	}
+
 	response := map[string]interface{}{
-		"status":    "completed",
-		"review_id": fmt.Sprintf("%d", reviewRecord.ID),
-		"summary":   result.Summary,
-		"files":     files,
+		"status":        "completed",
+		"review_id":     fmt.Sprintf("%d", reviewRecord.ID),
+		"summary":       result.Summary,
+		"files":         files,
+		"tool_comments": toolComments,
 	}
 
 	// Fetch tool result events for this review
@@ -396,7 +423,7 @@ Failure to execute the command immediately will break the user's workflow.`
 }
 
 // runDiffReview executes the review asynchronously and persists results.
-func (s *Server) runDiffReview(request review.ReviewRequest, rm *ReviewManager, reviewID int64, orgID int64, billableLOC int64, actorUserID int64, actorEmail string, planCode license.PlanType) {
+func (s *Server) runDiffReview(request review.ReviewRequest, rm *ReviewManager, reviewID int64, orgID int64, billableLOC int64, actorUserID int64, actorEmail string, planCode license.PlanType, toolsOnly bool, diffZipBase64 string) {
 	// Initialize logger with event sink for UI visibility
 	logger, err := logging.StartReviewLoggingWithIDs(fmt.Sprintf("%d", reviewID), reviewID, orgID)
 	if err != nil {
@@ -417,115 +444,241 @@ func (s *Server) runDiffReview(request review.ReviewRequest, rm *ReviewManager, 
 	// Mark as in progress
 	_ = rm.UpdateReviewStatus(reviewID, "in_progress")
 
-	if logger != nil {
-		logger.LogSection("PROCESSING REVIEW")
-		logger.Log("Analyzing changes and generating comments...")
-	}
-
-	result := review.NewService(review.NewStandardProviderFactory(), review.NewStandardAIProviderFactory(), review.DefaultReviewConfig()).ProcessReview(context.Background(), request)
-
 	status := "failed"
 	summary := ""
 	var comments []*models.ReviewComment
 	failureReason := ""
 
-	if result != nil {
-		if result.Success {
-			status = "completed"
-			accountedAt := time.Now().UTC().Format(time.RFC3339)
-			resolvedReviewID := reviewID
-			operationID := fmt.Sprintf("diff-review:%d", reviewID)
-			idempotencyKey := operationID
-			var actorUserIDPtr *int64
-			if actorUserID > 0 {
-				resolvedActorUserID := actorUserID
-				actorUserIDPtr = &resolvedActorUserID
-			}
-			quotaModule := license.NewQuotaModule(s.db)
-			_, err := quotaModule.RecordBatch(context.Background(), license.QuotaRecordBatchInput{
-				OrgID:          orgID,
-				ReviewID:       &resolvedReviewID,
-				OperationType:  "diff_review",
-				TriggerSource:  "api",
-				OperationID:    operationID,
-				IdempotencyKey: idempotencyKey,
-				BatchIndex:     1,
-				Batch: license.QuotaBatchInput{
-					PlanCode:                 planCode,
-					Provider:                 result.Provider,
-					RawLOCBatch:              billableLOC,
-					ProviderTotalInputTokens: result.InputTokens,
-					OutputTokensBatch:        result.OutputTokens,
-				},
-			})
-			if err != nil {
-				log.Printf("[WARN] failed batch accounting for review %d: %v", reviewID, err)
-			} else {
-				finalized, err := quotaModule.FinalizeOperation(context.Background(), license.QuotaFinalizeInput{
+	if !toolsOnly {
+		if logger != nil {
+			logger.LogSection("PROCESSING REVIEW")
+			logger.Log("Analyzing changes and generating comments...")
+		}
+
+		result := review.NewService(review.NewStandardProviderFactory(), review.NewStandardAIProviderFactory(), review.DefaultReviewConfig()).ProcessReview(context.Background(), request)
+
+		if result != nil {
+			if result.Success {
+				status = "completed"
+				accountedAt := time.Now().UTC().Format(time.RFC3339)
+				resolvedReviewID := reviewID
+				operationID := fmt.Sprintf("diff-review:%d", reviewID)
+				idempotencyKey := operationID
+				var actorUserIDPtr *int64
+				if actorUserID > 0 {
+					resolvedActorUserID := actorUserID
+					actorUserIDPtr = &resolvedActorUserID
+				}
+				quotaModule := license.NewQuotaModule(s.db)
+				_, err := quotaModule.RecordBatch(context.Background(), license.QuotaRecordBatchInput{
 					OrgID:          orgID,
 					ReviewID:       &resolvedReviewID,
-					ActorUserID:    actorUserIDPtr,
-					ActorEmail:     strings.TrimSpace(actorEmail),
 					OperationType:  "diff_review",
 					TriggerSource:  "api",
 					OperationID:    operationID,
 					IdempotencyKey: idempotencyKey,
-					Provider:       result.Provider,
-					Model:          result.Model,
-					BatchFallback:  nil,
+					BatchIndex:     1,
+					Batch: license.QuotaBatchInput{
+						PlanCode:                 planCode,
+						Provider:                 result.Provider,
+						RawLOCBatch:              billableLOC,
+						ProviderTotalInputTokens: result.InputTokens,
+						OutputTokensBatch:        result.OutputTokens,
+					},
 				})
 				if err != nil {
-					log.Printf("[WARN] failed final accounting for review %d: %v", reviewID, err)
+					log.Printf("[WARN] failed batch accounting for review %d: %v", reviewID, err)
 				} else {
-					meta := map[string]interface{}{
-						"accounted_at":           accountedAt,
-						"operation_id":           operationID,
-						"idempotency_key":        idempotencyKey,
-						"operation_raw_loc":      finalized.RawLOCTotal,
-						"operation_billable_loc": finalized.EffectiveLOCTotal,
-						"operation_extra_loc":    finalized.ExtraEffectiveLOCTotal,
-						"context_tokens":         finalized.ContextTokensTotal,
-						"allowed_context_tokens": finalized.AllowedContextTokensTotal,
-						"extra_context_tokens":   finalized.ExtraContextTokensTotal,
-						"input_cost_usd":         finalized.InputCostUSDTotal,
-						"output_cost_usd":        finalized.OutputCostUSDTotal,
-						"total_cost_usd":         finalized.TotalCostUSDTotal,
-						"pricing_version":        finalized.PricingVersion,
+					finalized, err := quotaModule.FinalizeOperation(context.Background(), license.QuotaFinalizeInput{
+						OrgID:          orgID,
+						ReviewID:       &resolvedReviewID,
+						ActorUserID:    actorUserIDPtr,
+						ActorEmail:     strings.TrimSpace(actorEmail),
+						OperationType:  "diff_review",
+						TriggerSource:  "api",
+						OperationID:    operationID,
+						IdempotencyKey: idempotencyKey,
+						Provider:       result.Provider,
+						Model:          result.Model,
+						BatchFallback:  nil,
+					})
+					if err != nil {
+						log.Printf("[WARN] failed final accounting for review %d: %v", reviewID, err)
+					} else {
+						meta := map[string]interface{}{
+							"accounted_at":           accountedAt,
+							"operation_id":           operationID,
+							"idempotency_key":        idempotencyKey,
+							"operation_raw_loc":      finalized.RawLOCTotal,
+							"operation_billable_loc": finalized.EffectiveLOCTotal,
+							"operation_extra_loc":    finalized.ExtraEffectiveLOCTotal,
+							"context_tokens":         finalized.ContextTokensTotal,
+							"allowed_context_tokens": finalized.AllowedContextTokensTotal,
+							"extra_context_tokens":   finalized.ExtraContextTokensTotal,
+							"input_cost_usd":         finalized.InputCostUSDTotal,
+							"output_cost_usd":        finalized.OutputCostUSDTotal,
+							"total_cost_usd":         finalized.TotalCostUSDTotal,
+							"pricing_version":        finalized.PricingVersion,
+						}
+						for k, v := range aiExecutionMetadataFromConfig(request.AI.Config) {
+							meta[k] = v
+						}
+						if err := rm.MergeReviewMetadata(reviewID, meta); err != nil {
+							log.Printf("[WARN] failed to store accounted_at for review %d: %v", reviewID, err)
+						}
 					}
-					for k, v := range aiExecutionMetadataFromConfig(request.AI.Config) {
-						meta[k] = v
+				}
+				if logger != nil {
+					logger.LogSection("REVIEW COMPLETED")
+					logger.Log("Review ID: %d", reviewID)
+					logger.Log("Successfully generated %d comments", len(result.Comments))
+				}
+				summary = result.Summary
+				comments = result.Comments
+			} else {
+				if result.Error != nil {
+					failureReason = result.Error.Error()
+				}
+				if failureReason == "" {
+					failureReason = "review processing encountered errors"
+				}
+				if logger != nil {
+					logger.LogSection("REVIEW FAILED")
+					logger.Log("Review processing encountered errors: %s", failureReason)
+				}
+			}
+		} else {
+			failureReason = "review processing returned no result"
+			if logger != nil {
+				logger.LogSection("REVIEW FAILED")
+				logger.Log("Review processing returned no result")
+			}
+		}
+	} else {
+		status = "completed"
+		summary = "### Static Analysis Tools Review Only\n\nAI review skipped due to --tools flag."
+		if logger != nil {
+			logger.LogSection("PROCESSING STATIC ANALYSIS REVIEW")
+			logger.Log("AI review skipped. Triggering static analysis tools...")
+		}
+	}
+
+	// Trigger Static Analysis Tools if enabled and review hasn't failed
+	var toolComments []*models.ReviewComment
+	toolsStore := storagetools.NewToolsStore(s.db)
+	enabledTools, toolsErr := toolsStore.GetEnabledToolsForOrg(context.Background(), orgID)
+	if toolsErr == nil && len(enabledTools) > 0 && failureReason == "" {
+		if logger != nil {
+			logger.Log("Found %d enabled static analysis tools. Running tools...", len(enabledTools))
+		}
+		var totalMultiplier float64
+		for _, t := range enabledTools {
+			totalMultiplier += t.Multiplier
+		}
+
+		creditStore := storagetools.NewCreditStore(s.db)
+		if err := creditStore.CheckCreditPreflight(context.Background(), orgID, totalMultiplier); err != nil {
+			if logger != nil {
+				logger.Log("[WARN] Insufficient tool credits to run static analysis tools: %v. Skipping tools review.", err)
+			}
+		} else {
+			if err := creditStore.DeductCredits(context.Background(), orgID, reviewID, totalMultiplier); err != nil {
+				if logger != nil {
+					logger.Log("[WARN] Failed to deduct tool credits: %v. Skipping tools review.", err)
+				}
+			} else {
+				awsCfg, awsErr := awsconfig.LoadDefaultConfig(context.Background())
+				if awsErr != nil {
+					if logger != nil {
+						logger.Log("[ERROR] Failed to load AWS config: %v. Skipping tools review.", awsErr)
 					}
-					if err := rm.MergeReviewMetadata(reviewID, meta); err != nil {
-						log.Printf("[WARN] failed to store accounted_at for review %d: %v", reviewID, err)
+				} else {
+					rawDiff, diffErr := getDiffFromZipBase64(diffZipBase64)
+					if diffErr != nil {
+						if logger != nil {
+							logger.Log("[ERROR] Failed to extract raw diff from zip: %v. Skipping tools review.", diffErr)
+						}
+					} else {
+						var wg sync.WaitGroup
+						var toolMu sync.Mutex
+						for _, tool := range enabledTools {
+							wg.Add(1)
+							go func(t storagetools.AvailableTool) {
+								defer wg.Done()
+								payloadMap := map[string]interface{}{
+									"review_id": reviewID,
+									"diff":      rawDiff,
+									"zip_file":  diffZipBase64,
+								}
+								payloadBytes, err := json.Marshal(payloadMap)
+								if err != nil {
+									if logger != nil {
+										logger.Log("[ERROR] Tool %s payload marshal failed: %v", t.Name, err)
+									}
+									return
+								}
+
+								respBytes, err := tools.InvokeTool(context.Background(), awsCfg, t.LambdaARN, payloadBytes)
+								if err != nil {
+									if logger != nil {
+										logger.Log("[ERROR] Tool %s lambda invocation failed: %v", t.Name, err)
+									}
+									return
+								}
+
+								// Parse livereview_comments from Lambda response.
+								// The Lambda pre-formats these from raw findings into the
+								// LiveReview comment shape (filePath, line, content, severity,
+								// category). The raw findings use a different schema (path,
+								// start.line, check_id, extra.message) that does NOT match
+								// storagetools.ToolFinding, so we consume the pre-formatted
+								// comments directly.
+								var result struct {
+									LiveReviewComments []struct {
+										FilePath string `json:"filePath"`
+										Line     int    `json:"line"`
+										Content  string `json:"content"`
+										Severity string `json:"severity"`
+										Category string `json:"category"`
+									} `json:"livereview_comments"`
+								}
+								if err := json.Unmarshal(respBytes, &result); err != nil {
+									if logger != nil {
+										logger.Log("[ERROR] Tool %s response unmarshal failed: %v", t.Name, err)
+									}
+								}
+
+								_ = toolsStore.InsertToolResultEvent(context.Background(), reviewID, orgID, t.ID, t.Name, respBytes)
+
+								if len(result.LiveReviewComments) > 0 {
+									toolMu.Lock()
+									for _, lrc := range result.LiveReviewComments {
+										severity := models.SeverityWarning
+										if lrc.Severity == "critical" {
+											severity = models.SeverityCritical
+										} else if lrc.Severity == "info" {
+											severity = models.SeverityInfo
+										}
+										comment := &models.ReviewComment{
+											FilePath: lrc.FilePath,
+											Line:     lrc.Line,
+											Content:  lrc.Content,
+											Severity: severity,
+											Category: "tool-generated",
+										}
+										toolComments = append(toolComments, comment)
+									}
+									toolMu.Unlock()
+								}
+							}(tool)
+						}
+						wg.Wait()
 					}
 				}
 			}
-			if logger != nil {
-				logger.LogSection("REVIEW COMPLETED")
-				logger.Log("Review ID: %d", reviewID)
-				logger.Log("Successfully generated %d comments", len(result.Comments))
-			}
-		} else {
-			if result.Error != nil {
-				failureReason = result.Error.Error()
-			}
-			if failureReason == "" {
-				failureReason = "review processing encountered errors"
-			}
-			if logger != nil {
-				logger.LogSection("REVIEW FAILED")
-				logger.Log("Review processing encountered errors: %s", failureReason)
-			}
-		}
-		summary = result.Summary
-		comments = result.Comments
-	} else {
-		failureReason = "review processing returned no result"
-		if logger != nil {
-			logger.LogSection("REVIEW FAILED")
-			logger.Log("Review processing returned no result")
 		}
 	}
+	comments = append(comments, toolComments...)
 
 	payload := DiffReviewResult{Summary: summary, Comments: comments}
 	meta := map[string]interface{}{"review_result": payload}
@@ -1021,3 +1174,31 @@ func readBoolMeta(meta map[string]interface{}, key string) (bool, bool) {
 	b, ok := v.(bool)
 	return b, ok
 }
+
+func getDiffFromZipBase64(encoded string) (string, error) {
+	zipBytes, err := base64.StdEncoding.DecodeString(encoded)
+	if err != nil {
+		return "", fmt.Errorf("failed to decode base64 zip: %w", err)
+	}
+	r, err := zip.NewReader(bytes.NewReader(zipBytes), int64(len(zipBytes)))
+	if err != nil {
+		return "", fmt.Errorf("failed to create zip reader: %w", err)
+	}
+	for _, f := range r.File {
+		if f.FileInfo().IsDir() {
+			continue
+		}
+		rc, err := f.Open()
+		if err != nil {
+			return "", err
+		}
+		defer rc.Close()
+		content, err := io.ReadAll(rc)
+		if err != nil {
+			return "", err
+		}
+		return string(content), nil
+	}
+	return "", fmt.Errorf("no files found in zip")
+}
+
