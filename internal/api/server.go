@@ -672,6 +672,11 @@ func (s *Server) setupRoutes() {
 	adminGroup.PUT("/users/:user_id/org", s.userHandlers.TransferUserToOrg)
 	adminGroup.GET("/analytics/users", s.userHandlers.GetUserAnalytics)
 
+	// Super admin SMTP settings endpoints
+	adminGroup.GET("/settings/smtp", s.GetSMTPSettings)
+	adminGroup.PUT("/settings/smtp", s.UpdateSMTPSettings)
+	adminGroup.POST("/settings/smtp/test", s.TestSMTPSettings)
+
 	// Organization management endpoints
 	// User organization access (get their orgs) - needs permission context to detect super admin
 	protectedOrgsGroup := protected.Group("")
