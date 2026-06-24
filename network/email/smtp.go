@@ -31,13 +31,22 @@ func SendInvitationEmailSMTP(host string, port int, username, password, sender, 
 		return fmt.Errorf("SMTP sender is not set")
 	}
 
+	// Prepare data for templates
+	data := struct {
+		InvitationParams
+		CurrentYear int
+	}{
+		InvitationParams: params,
+		CurrentYear:      time.Now().Year(),
+	}
+
 	// Render templates
 	htmlTmpl, err := template.New("invitationHTML").Parse(invitationHTMLTemplate)
 	if err != nil {
 		return fmt.Errorf("failed to parse HTML template: %w", err)
 	}
 	var htmlBuf bytes.Buffer
-	if err := htmlTmpl.Execute(&htmlBuf, params); err != nil {
+	if err := htmlTmpl.Execute(&htmlBuf, data); err != nil {
 		return fmt.Errorf("failed to execute HTML template: %w", err)
 	}
 
@@ -46,7 +55,7 @@ func SendInvitationEmailSMTP(host string, port int, username, password, sender, 
 		return fmt.Errorf("failed to parse text template: %w", err)
 	}
 	var textBuf bytes.Buffer
-	if err := textTmpl.Execute(&textBuf, params); err != nil {
+	if err := textTmpl.Execute(&textBuf, data); err != nil {
 		return fmt.Errorf("failed to execute text template: %w", err)
 	}
 

@@ -3,6 +3,7 @@ package api
 import (
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"net/http"
 
 	"github.com/labstack/echo/v4"
@@ -13,6 +14,18 @@ import (
 )
 
 
+func validateSMTPSettings(settings models.SMTPSettings) error {
+	if settings.Host == "" {
+		return errors.New("SMTP Host is required")
+	}
+	if settings.Port <= 0 || settings.Port > 65535 {
+		return errors.New("Invalid SMTP Port")
+	}
+	if settings.Sender == "" {
+		return errors.New("Sender email is required")
+	}
+	return nil
+}
 
 // GetSMTPSettings fetches the global SMTP configuration from system_settings
 func (s *Server) GetSMTPSettings(c echo.Context) error {
@@ -24,13 +37,13 @@ func (s *Server) GetSMTPSettings(c echo.Context) error {
 			return c.JSON(http.StatusOK, models.SMTPSettings{})
 		}
 		log.Error().Err(err).Msg("Failed to fetch SMTP settings")
-		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "Failed to fetch SMTP settings: " + err.Error()})
+		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "Failed to fetch SMTP settings"})
 	}
 
 	var settings models.SMTPSettings
 	if err := json.Unmarshal(data, &settings); err != nil {
 		log.Error().Err(err).Msg("Failed to parse SMTP settings")
-		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "Failed to parse SMTP settings: " + err.Error()})
+		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "Failed to parse SMTP settings"})
 	}
 
 	return c.JSON(http.StatusOK, settings)
@@ -43,14 +56,8 @@ func (s *Server) UpdateSMTPSettings(c echo.Context) error {
 		return c.JSON(http.StatusBadRequest, map[string]string{"error": "Invalid request payload"})
 	}
 
-	if settings.Host == "" {
-		return c.JSON(http.StatusBadRequest, map[string]string{"error": "SMTP Host is required"})
-	}
-	if settings.Port <= 0 || settings.Port > 65535 {
-		return c.JSON(http.StatusBadRequest, map[string]string{"error": "Invalid SMTP Port"})
-	}
-	if settings.Sender == "" {
-		return c.JSON(http.StatusBadRequest, map[string]string{"error": "Sender email is required"})
+	if err := validateSMTPSettings(settings); err != nil {
+		return c.JSON(http.StatusBadRequest, map[string]string{"error": err.Error()})
 	}
 
 	data, err := json.Marshal(settings)
@@ -67,7 +74,7 @@ func (s *Server) UpdateSMTPSettings(c echo.Context) error {
 	
 	if err != nil {
 		log.Error().Err(err).Msg("Failed to save SMTP settings")
-		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "Failed to save SMTP settings: " + err.Error()})
+		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "Failed to save SMTP settings"})
 	}
 
 	return c.JSON(http.StatusOK, map[string]string{"message": "SMTP settings updated successfully"})
@@ -80,14 +87,8 @@ func (s *Server) TestSMTPSettings(c echo.Context) error {
 		return c.JSON(http.StatusBadRequest, map[string]string{"error": "Invalid request payload"})
 	}
 
-	if settings.Host == "" {
-		return c.JSON(http.StatusBadRequest, map[string]string{"error": "SMTP Host is required"})
-	}
-	if settings.Port <= 0 || settings.Port > 65535 {
-		return c.JSON(http.StatusBadRequest, map[string]string{"error": "Invalid SMTP Port"})
-	}
-	if settings.Sender == "" {
-		return c.JSON(http.StatusBadRequest, map[string]string{"error": "Sender email is required"})
+	if err := validateSMTPSettings(settings); err != nil {
+		return c.JSON(http.StatusBadRequest, map[string]string{"error": err.Error()})
 	}
 
 	// Make sure we have an email to send to

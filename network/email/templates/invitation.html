@@ -120,7 +120,7 @@
   <div class="wrapper">
     <div class="container">
       <div class="header">
-        <h1>LiveReview</h1>
+        <h1>{{.AppName}}</h1>
       </div>
       <div class="content">
         <div class="greeting">Hi {{.InvitedToName}},</div>
@@ -149,7 +149,7 @@
       </div>
       <div class="footer">
         This is an automated invitation email. If you did not expect this, you can safely ignore it.<br>
-        &copy; 2026 LiveReview. All rights reserved.
+        &copy; {{.CurrentYear}} {{.AppName}}. All rights reserved.
       </div>
     </div>
   </div>
