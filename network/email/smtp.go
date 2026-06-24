@@ -59,15 +59,20 @@ func SendInvitationEmailSMTP(host string, port int, username, password, sender, 
 		return fmt.Errorf("failed to execute text template: %w", err)
 	}
 
+	subject := fmt.Sprintf("Join %s Workspace", params.AppName)
+	return SendRawEmailSMTP(host, port, username, password, sender, senderName, skipTLS, params.InvitedToEmail, subject, textBuf.String(), htmlBuf.String())
+}
+
+// SendRawEmailSMTP handles the actual SMTP protocol and MIME multipart generation
+func SendRawEmailSMTP(host string, port int, username, password, sender, senderName string, skipTLS bool, recipient, subject, textBody, htmlBody string) error {
 	// Construct email message with multipart/alternative MIME type
 	randBytes := make([]byte, 16)
 	_, _ = rand.Read(randBytes)
 	boundary := fmt.Sprintf("livereview-smtp-boundary-%x", randBytes)
-	subject := fmt.Sprintf("Join %s Workspace", params.AppName)
 
 	header := make(map[string]string)
 	header["From"] = fmt.Sprintf("%s <%s>", senderName, sender)
-	header["To"] = params.InvitedToEmail
+	header["To"] = recipient
 	header["Subject"] = subject
 	header["MIME-Version"] = "1.0"
 	header["Content-Type"] = fmt.Sprintf("multipart/alternative; boundary=%s", boundary)
@@ -82,14 +87,14 @@ func SendInvitationEmailSMTP(host string, port int, username, password, sender, 
 	message.WriteString(fmt.Sprintf("--%s\r\n", boundary))
 	message.WriteString("Content-Type: text/plain; charset=\"utf-8\"\r\n")
 	message.WriteString("Content-Transfer-Encoding: 7bit\r\n\r\n")
-	message.WriteString(textBuf.String())
+	message.WriteString(textBody)
 	message.WriteString("\r\n\r\n")
 
 	// HTML boundary section
 	message.WriteString(fmt.Sprintf("--%s\r\n", boundary))
 	message.WriteString("Content-Type: text/html; charset=\"utf-8\"\r\n")
 	message.WriteString("Content-Transfer-Encoding: 7bit\r\n\r\n")
-	message.WriteString(htmlBuf.String())
+	message.WriteString(htmlBody)
 	message.WriteString("\r\n\r\n")
 
 	message.WriteString(fmt.Sprintf("--%s--\r\n", boundary))
@@ -100,9 +105,10 @@ func SendInvitationEmailSMTP(host string, port int, username, password, sender, 
 		InsecureSkipVerify: skipTLS,
 	}
 
-	log.Info().Msgf("[Invitation] Sending SMTP email via %s to %s", addr, params.InvitedToEmail)
+	log.Info().Msgf("[SMTP] Sending email via %s to %s", addr, recipient)
 
 	var conn net.Conn
+	var err error
 	if port == 465 {
 		// SSL/TLS direct connection
 		conn, err = tls.DialWithDialer(&net.Dialer{Timeout: 10 * time.Second}, "tcp", addr, tlsConfig)
@@ -143,7 +149,7 @@ func SendInvitationEmailSMTP(host string, port int, username, password, sender, 
 		return fmt.Errorf("failed to set SMTP mail sender: %w", err)
 	}
 
-	if err = client.Rcpt(params.InvitedToEmail); err != nil {
+	if err = client.Rcpt(recipient); err != nil {
 		return fmt.Errorf("failed to set SMTP mail recipient: %w", err)
 	}
 
@@ -158,18 +164,27 @@ func SendInvitationEmailSMTP(host string, port int, username, password, sender, 
 		return fmt.Errorf("failed to write SMTP message: %w", err)
 	}
 
-	log.Info().Msgf("[Invitation] Successfully sent SMTP email to: %s", params.InvitedToEmail)
+	log.Info().Msgf("[SMTP] Successfully sent email to: %s", recipient)
 	return nil
 }
 
 // SendVerificationEmailSMTP sends a verification email to confirm SMTP settings from the admin dashboard
 func SendVerificationEmailSMTP(host string, port int, username, password, sender, senderName string, skipTLS bool, recipient string) error {
-	params := InvitationParams{
-		AppName:        "LiveReview (Test)",
-		InvitedToName:  "Admin",
-		InvitedToEmail: recipient,
-		InvitedByName:  "System Administrator",
-		URL:            "https://livereview.io",
-	}
-	return SendInvitationEmailSMTP(host, port, username, password, sender, senderName, skipTLS, params)
+	subject := "LiveReview SMTP Verification"
+	
+	htmlBody := `<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+</head>
+<body style="font-family: sans-serif; padding: 20px;">
+  <h2>SMTP Configuration Successful!</h2>
+  <p>This is a test email from <strong>LiveReview Enterprise version</strong>.</p>
+  <p>Your SMTP configuration has been correctly applied to your self-hosted instance.</p>
+</body>
+</html>`
+
+	textBody := "SMTP Configuration Successful!\n\nThis is a test email from LiveReview Enterprise version.\nYour SMTP configuration has been correctly applied to your self-hosted instance."
+
+	return SendRawEmailSMTP(host, port, username, password, sender, senderName, skipTLS, recipient, subject, textBody, htmlBody)
 }

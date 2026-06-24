@@ -284,7 +284,7 @@ const Settings = () => {
     // Available tabs based on permissions
     const tabs = [
         ...(isSuperAdmin ? [{ id: 'instance', name: 'Instance', icon: <Icons.Settings /> }] : []),
-        ...(isSuperAdmin ? [{ 
+        ...(isSuperAdmin && !isCloudMode() ? [{ 
             id: 'smtp', 
             name: 'SMTP', 
             icon: (
@@ -703,7 +703,7 @@ const Settings = () => {
                         </Card>
                     )}
 
-                    {activeTab === 'smtp' && isSuperAdmin && (
+                    {activeTab === 'smtp' && isSuperAdmin && !isCloudMode() && (
                         <Card>
                             <SMTPSettingsTab />
                         </Card>
