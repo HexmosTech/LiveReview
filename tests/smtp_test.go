@@ -2,8 +2,9 @@ package livereview
 
 import (
 	"bufio"
+	"fmt"
 	"net"
-	"os"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -23,26 +24,7 @@ func TestSendInvitationEmailSMTP(t *testing.T) {
 		t.Fatalf("failed to get port: %v", err)
 	}
 
-	// Set env vars
-	os.Setenv("LIVEREVIEW_IS_CLOUD", "false")
-	os.Setenv("SMTP_HOST", "127.0.0.1")
-	os.Setenv("SMTP_PORT", portStr)
-	os.Setenv("SMTP_USERNAME", "testuser")
-	os.Setenv("SMTP_PASSWORD", "testpass")
-	os.Setenv("SMTP_SENDER", "sender@example.com")
-	os.Setenv("SMTP_SENDER_NAME", "Test Sender")
-	os.Setenv("SMTP_SKIP_TLS", "true") // bypass TLS validation in test
 
-	defer func() {
-		os.Unsetenv("LIVEREVIEW_IS_CLOUD")
-		os.Unsetenv("SMTP_HOST")
-		os.Unsetenv("SMTP_PORT")
-		os.Unsetenv("SMTP_USERNAME")
-		os.Unsetenv("SMTP_PASSWORD")
-		os.Unsetenv("SMTP_SENDER")
-		os.Unsetenv("SMTP_SENDER_NAME")
-		os.Unsetenv("SMTP_SKIP_TLS")
-	}()
 
 	errChan := make(chan error, 1)
 	receivedMsgChan := make(chan string, 1)
@@ -65,7 +47,7 @@ func TestSendInvitationEmailSMTP(t *testing.T) {
 		// Read HELO/EHLO
 		line, _ := reader.ReadString('\n')
 		if !strings.HasPrefix(line, "EHLO") && !strings.HasPrefix(line, "HELO") {
-			errChan <- nil
+			errChan <- fmt.Errorf("expected EHLO/HELO, got: %s", line)
 			return
 		}
 		writer.WriteString("250-localhost\r\n250 AUTH PLAIN\r\n")
@@ -81,7 +63,7 @@ func TestSendInvitationEmailSMTP(t *testing.T) {
 
 		// Mail From
 		if !strings.HasPrefix(line, "MAIL FROM:") {
-			errChan <- nil
+			errChan <- fmt.Errorf("expected MAIL FROM, got: %s", line)
 			return
 		}
 		writer.WriteString("250 2.1.0 Ok\r\n")
@@ -90,7 +72,7 @@ func TestSendInvitationEmailSMTP(t *testing.T) {
 		// RCPT To
 		line, _ = reader.ReadString('\n')
 		if !strings.HasPrefix(line, "RCPT TO:") {
-			errChan <- nil
+			errChan <- fmt.Errorf("expected RCPT TO, got: %s", line)
 			return
 		}
 		writer.WriteString("250 2.1.5 Ok\r\n")
@@ -99,7 +81,7 @@ func TestSendInvitationEmailSMTP(t *testing.T) {
 		// Data
 		line, _ = reader.ReadString('\n')
 		if !strings.HasPrefix(line, "DATA") {
-			errChan <- nil
+			errChan <- fmt.Errorf("expected DATA, got: %s", line)
 			return
 		}
 		writer.WriteString("354 Start mail input; end with <CR><LF>.<CR><LF>\r\n")
@@ -131,7 +113,17 @@ func TestSendInvitationEmailSMTP(t *testing.T) {
 		InstallCommandWindows: "iwr install",
 	}
 
-	err = email.SendInvitationEmail(params)
+	port, _ := strconv.Atoi(portStr)
+	err = email.SendInvitationEmailSMTP(
+		"127.0.0.1",
+		port,
+		"testuser",
+		"testpass",
+		"sender@example.com",
+		"Test Sender",
+		true,
+		params,
+	)
 	if err != nil {
 		t.Fatalf("failed to send SMTP email: %v", err)
 	}
