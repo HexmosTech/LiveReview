@@ -20,6 +20,7 @@ type APIKeyGeneratorTx func(tx *sql.Tx, userID, orgID int64) (string, error)
 
 // UserService handles core user management operations
 type UserService struct {
+	db              *sql.DB
 	store           *storageusers.UserStore
 	apiKeyGenerator APIKeyGeneratorTx
 }
@@ -27,6 +28,7 @@ type UserService struct {
 // NewUserService creates a new user service
 func NewUserService(db *sql.DB, apiKeyGenerator APIKeyGeneratorTx) *UserService {
 	return &UserService{
+		db:              db,
 		store:           storageusers.NewUserStore(db),
 		apiKeyGenerator: apiKeyGenerator,
 	}
@@ -197,7 +199,7 @@ func (us *UserService) sendInvitation(user *UserWithRole, invitedByUserID int64)
 		installCmdWindows = fmt.Sprintf("$env:LRC_API_KEY=%q; $env:LRC_API_URL=%q; iwr -useb https://hexmos.com/lrc-install.ps1 | iex", user.OnboardingAPIKey, defaultProductionURL)
 	}
 
-	err := email.SendInvitationEmail(email.InvitationParams{
+	err := email.SendInvitationEmail(us.db, email.InvitationParams{
 		AppName:               "LiveReview",
 		InvitedToName:         invitedToName,
 		InvitedToEmail:        user.Email,
