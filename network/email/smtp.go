@@ -6,7 +6,9 @@ import (
 	"crypto/tls"
 	"fmt"
 	"html/template"
+	"mime"
 	"net"
+	"net/mail"
 	"net/smtp"
 	"strings"
 	textTemplate "text/template"
@@ -71,15 +73,20 @@ func SendRawEmailSMTP(host string, port int, username, password, sender, senderN
 	boundary := fmt.Sprintf("livereview-smtp-boundary-%x", randBytes)
 
 	header := make(map[string]string)
-	header["From"] = fmt.Sprintf("%s <%s>", senderName, sender)
-	header["To"] = recipient
-	header["Subject"] = subject
+	
+	fromAddr := mail.Address{Name: senderName, Address: sender}
+	header["From"] = fromAddr.String()
+	
+	toAddr := mail.Address{Address: recipient}
+	header["To"] = toAddr.String()
+	
+	header["Subject"] = mime.QEncoding.Encode("utf-8", subject)
 	header["MIME-Version"] = "1.0"
 	header["Content-Type"] = fmt.Sprintf("multipart/alternative; boundary=%s", boundary)
 
 	var message strings.Builder
 	for k, v := range header {
-		// Prevent CRLF injection in email headers
+		// Prevent CRLF injection in any future arbitrary headers (defense in depth)
 		safeV := strings.ReplaceAll(v, "\r", "")
 		safeV = strings.ReplaceAll(safeV, "\n", "")
 		message.WriteString(fmt.Sprintf("%s: %s\r\n", k, safeV))
