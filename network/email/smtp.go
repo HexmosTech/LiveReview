@@ -79,7 +79,10 @@ func SendRawEmailSMTP(host string, port int, username, password, sender, senderN
 
 	var message strings.Builder
 	for k, v := range header {
-		message.WriteString(fmt.Sprintf("%s: %s\r\n", k, v))
+		// Prevent CRLF injection in email headers
+		safeV := strings.ReplaceAll(v, "\r", "")
+		safeV = strings.ReplaceAll(safeV, "\n", "")
+		message.WriteString(fmt.Sprintf("%s: %s\r\n", k, safeV))
 	}
 	message.WriteString("\r\n")
 
