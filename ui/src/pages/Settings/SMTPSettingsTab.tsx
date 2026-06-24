@@ -34,7 +34,7 @@ const SMTPSettingsTab: React.FC = () => {
     const fetchSettings = async () => {
         try {
             const data = await apiClient.get<SMTPSettings>('/api/v1/admin/settings/smtp');
-            if (data) {
+            if (data && Object.keys(data).length > 0) {
                 setSettings(data);
             }
         } catch (error) {
