@@ -171,3 +171,13 @@ const (
 	SeverityWarning  CommentSeverity = "warning"
 	SeverityCritical CommentSeverity = "critical"
 )
+
+type SMTPSettings struct {
+	Host       string `json:"host"`
+	Port       int    `json:"port"`
+	Username   string `json:"username"`
+	Password   string `json:"password"`
+	Sender     string `json:"sender"`
+	SenderName string `json:"sender_name"`
+	SkipTLS    bool   `json:"skip_tls"`
+}

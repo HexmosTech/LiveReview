@@ -34,7 +34,7 @@ const SMTPSettingsTab: React.FC = () => {
     const fetchSettings = async () => {
         try {
             const data = await apiClient.get<SMTPSettings>('/api/v1/admin/settings/smtp');
-            if (data && data.host) {
+            if (data) {
                 setSettings(data);
             }
         } catch (error) {
@@ -49,7 +49,13 @@ const SMTPSettingsTab: React.FC = () => {
         setSettings(prev => ({ ...prev, [field]: value }));
     };
 
+    const isValidEmail = (email: string) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
+
     const handleSave = async () => {
+        if (!settings.sender || !isValidEmail(settings.sender)) {
+            toast.error('Please enter a valid Sender Email address');
+            return;
+        }
         setIsSaving(true);
         try {
             await apiClient.put('/api/v1/admin/settings/smtp', settings);
@@ -62,10 +68,14 @@ const SMTPSettingsTab: React.FC = () => {
     };
 
     const handleTest = async () => {
+        if (!settings.sender || !isValidEmail(settings.sender)) {
+            toast.error('Please enter a valid Sender Email address');
+            return;
+        }
         setIsTesting(true);
         try {
-            await apiClient.post('/api/v1/admin/settings/smtp/test', settings);
-            toast.success('Test email sent successfully! Please check your inbox.');
+            const response = await apiClient.post<{message: string}>('/api/v1/admin/settings/smtp/test', settings);
+            toast.success(response?.message || 'Test email sent successfully! Please check your inbox.');
         } catch (error: any) {
             toast.error(error?.message || 'Failed to send test email');
         } finally {
@@ -91,7 +101,7 @@ const SMTPSettingsTab: React.FC = () => {
                 </div>
                 <div>
                     <h3 className="font-medium text-white">SMTP Configuration</h3>
-                    <p className="text-sm text-slate-300">Configure global email delivery settings for user invitations</p>
+                    <p className="text-sm text-slate-300">Configure global email delivery settings</p>
                 </div>
             </div>
 
@@ -161,7 +171,7 @@ const SMTPSettingsTab: React.FC = () => {
                         variant="outline"
                         onClick={handleTest}
                         isLoading={isTesting}
-                        disabled={isSaving || isTesting || !settings.host}
+                        disabled={isSaving || isTesting || !settings.host || !settings.sender}
                     >
                         Test Connection
                     </Button>
@@ -169,7 +179,7 @@ const SMTPSettingsTab: React.FC = () => {
                         variant="primary"
                         onClick={handleSave}
                         isLoading={isSaving}
-                        disabled={isSaving || isTesting || !settings.host}
+                        disabled={isSaving || isTesting || !settings.host || !settings.sender}
                     >
                         Save Settings
                     </Button>
