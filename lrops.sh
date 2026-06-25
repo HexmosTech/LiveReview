@@ -353,7 +353,12 @@ DOCKER_COMPOSE_CMD=""
 
 # Detect and set the correct docker compose command
 detect_docker_compose_cmd() {
-    if command -v docker-compose >/dev/null 2>&1; then
+    if docker compose version >/dev/null 2>&1; then
+        # Modern docker compose plugin is available
+        # 'docker' may already be wrapped to sudo by maybe_enable_sudo_for_docker
+        DOCKER_COMPOSE_CMD="docker compose"
+        log_debug "Using modern docker compose plugin"
+    elif command -v docker-compose >/dev/null 2>&1; then
         # Legacy docker-compose is available
         if [[ "${USE_SUDO_DOCKER:-false}" == "true" ]]; then
             DOCKER_COMPOSE_CMD="sudo docker-compose"
@@ -361,13 +366,8 @@ detect_docker_compose_cmd() {
             DOCKER_COMPOSE_CMD="docker-compose"
         fi
         log_debug "Using legacy docker-compose command"
-    elif docker compose version >/dev/null 2>&1; then
-        # Modern docker compose plugin is available
-        # 'docker' may already be wrapped to sudo by maybe_enable_sudo_for_docker
-        DOCKER_COMPOSE_CMD="docker compose"
-        log_debug "Using modern docker compose plugin"
     else
-        log_error "Neither docker-compose nor docker compose is available"
+        log_error "Neither docker compose nor docker-compose is available"
         return 1
     fi
     return 0
