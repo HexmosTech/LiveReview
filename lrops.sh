@@ -763,8 +763,8 @@ check_existing_installation() {
     local installation_exists=false
     
     # Check for installation directory
-    if [[ -d "$LIVEREVIEW_INSTALL_DIR" ]]; then
-        log_warning "Installation directory exists: $LIVEREVIEW_INSTALL_DIR"
+    if [[ -d "$LIVEREVIEW_INSTALL_DIR" ]] && [[ -n "$(ls -A "$LIVEREVIEW_INSTALL_DIR" 2>/dev/null)" ]]; then
+        log_warning "Installation directory exists and is not empty: $LIVEREVIEW_INSTALL_DIR"
         installation_exists=true
     fi
     
@@ -1556,11 +1556,11 @@ EOF
     else
         log_info "Interactive configuration mode"
     log_info "Choose your deployment mode:"
-        echo
-        echo "1) Demo Mode (localhost only, no webhooks, quickstart)"
-        echo "2) Production Mode (with reverse proxy, webhooks enabled)"
-        echo
-    echo -n "Select deployment mode [1]: "
+        echo >&2
+        echo "1) Demo Mode (localhost only, no webhooks, quickstart)" >&2
+        echo "2) Production Mode (with reverse proxy, webhooks enabled)" >&2
+        echo >&2
+    echo -n "Select deployment mode [1]: " >&2
         read -r mode_choice
         
         local deployment_mode="demo"
@@ -1576,7 +1576,7 @@ EOF
         # Generate database password
         local db_password
         db_password=$(generate_password 32)
-        echo -n "Database password [auto-generated secure password]: "
+        echo -n "Database password [auto-generated secure password]: " >&2
         read -r user_input
         if [[ -n "$user_input" ]]; then
             db_password="$user_input"
@@ -1585,7 +1585,7 @@ EOF
         # Generate JWT Secret
         local jwt_secret
         jwt_secret=$(generate_jwt_secret)
-        echo -n "JWT secret key [auto-generated secure key]: "
+        echo -n "JWT secret key [auto-generated secure key]: " >&2
         read -r user_input
         if [[ -n "$user_input" ]]; then
             jwt_secret="$user_input"
@@ -1599,10 +1599,10 @@ EOF
     configure_deployment_mode "$deployment_mode" "$backend_port" "$frontend_port"
         
         if [[ "$deployment_mode" == "production" ]]; then
-            echo "Production mode will use standard ports (8888 backend, 8081 frontend)"
-            echo "Configure your reverse proxy to route:"
-            echo "  /api/* → http://127.0.0.1:8888"
-            echo "  /* → http://127.0.0.1:8081"
+            echo "Production mode will use standard ports (8888 backend, 8081 frontend)" >&2
+            echo "Configure your reverse proxy to route:" >&2
+            echo "  /api/* → http://127.0.0.1:8888" >&2
+            echo "  /* → http://127.0.0.1:8081" >&2
         fi
         
     # Save configuration with simplified user-facing format
@@ -1628,7 +1628,7 @@ LIVEREVIEW_BACKEND_PORT=$backend_port
 LIVEREVIEW_FRONTEND_PORT=$frontend_port
 
 # Reverse proxy setup (only change if using nginx/apache in front)
-LIVEREVIEW_REVERSE_PROXY=$REVERSE_PROXY
+LIVEREVIEW_REVERSE_PROXY=$([[ "$deployment_mode" == "production" ]] && echo "true" || echo "false")
 
 #==============================================================================
 # OPTIONAL CONFIGURATION
@@ -1792,7 +1792,7 @@ create_directory_structure() {
 
 # Handle existing directory conflicts
 handle_existing_directories() {
-    if [[ -d "$LIVEREVIEW_INSTALL_DIR" ]]; then
+    if [[ -d "$LIVEREVIEW_INSTALL_DIR" ]] && [[ -n "$(ls -A "$LIVEREVIEW_INSTALL_DIR" 2>/dev/null)" ]]; then
         if [[ "$FORCE_INSTALL" != "true" ]]; then
             log_error "Installation directory already exists: $LIVEREVIEW_INSTALL_DIR"
             log_info "Use --force to overwrite existing installation"
@@ -1839,7 +1839,11 @@ generate_env_file() {
     source "$config_file"
     
     # Use new variables with fallback to legacy ones
-    local deployment_mode="${DEPLOYMENT_MODE:-demo}"
+    local reverse_proxy="${LIVEREVIEW_REVERSE_PROXY:-false}"
+    local deployment_mode="demo"
+    if [[ "$reverse_proxy" == "true" ]]; then
+        deployment_mode="production"
+    fi
     local backend_port="${BACKEND_PORT:-$LIVEREVIEW_BACKEND_PORT}"
     local frontend_port="${FRONTEND_PORT:-$LIVEREVIEW_FRONTEND_PORT}"
     
