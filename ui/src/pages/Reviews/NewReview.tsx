@@ -216,9 +216,9 @@ const NewReview: React.FC = () => {
           setError(errorData.message || err.message || 'Failed to trigger review. Please try again later.');
         }
       } else if (err?.status === 403) {
-        // LOC quota exceeded (from new backend enforcement)
+        // LOC quota exceeded or Seat Assignment Error
         const errorData = err?.data || err;
-        setError(errorData.error || 'Monthly LOC quota exceeded. Upgrade your plan or wait for reset.');
+        setError(errorData.error || errorData.message || 'Monthly LOC quota exceeded. Upgrade your plan or wait for reset.');
       } else if (err?.status === 429) {
         const trialReadOnly = Boolean(err?.data?.envelope?.trial_readonly);
         if (trialReadOnly) {

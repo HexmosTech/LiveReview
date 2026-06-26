@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"strings"
 
 	"github.com/labstack/echo/v4"
 	"github.com/livereview/internal/api/auth"
@@ -14,7 +15,13 @@ import (
 )
 
 
-func validateSMTPSettings(settings models.SMTPSettings) error {
+func validateSMTPSettings(settings *models.SMTPSettings) error {
+	settings.Host = strings.TrimSpace(settings.Host)
+	settings.Username = strings.TrimSpace(settings.Username)
+	settings.Password = strings.TrimSpace(settings.Password)
+	settings.Sender = strings.TrimSpace(settings.Sender)
+	settings.SenderName = strings.TrimSpace(settings.SenderName)
+
 	if settings.Host == "" {
 		return errors.New("SMTP Host is required")
 	}
@@ -56,7 +63,7 @@ func (s *Server) UpdateSMTPSettings(c echo.Context) error {
 		return c.JSON(http.StatusBadRequest, map[string]string{"error": "Invalid request payload"})
 	}
 
-	if err := validateSMTPSettings(settings); err != nil {
+	if err := validateSMTPSettings(&settings); err != nil {
 		return c.JSON(http.StatusBadRequest, map[string]string{"error": err.Error()})
 	}
 
@@ -87,7 +94,7 @@ func (s *Server) TestSMTPSettings(c echo.Context) error {
 		return c.JSON(http.StatusBadRequest, map[string]string{"error": "Invalid request payload"})
 	}
 
-	if err := validateSMTPSettings(settings); err != nil {
+	if err := validateSMTPSettings(&settings); err != nil {
 		return c.JSON(http.StatusBadRequest, map[string]string{"error": err.Error()})
 	}
 
