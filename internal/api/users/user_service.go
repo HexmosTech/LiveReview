@@ -69,6 +69,7 @@ type UpdateUserRequest struct {
 	LastName  *string `json:"last_name"`
 	IsActive  *bool   `json:"is_active"`
 	RoleID    *int64  `json:"role_id"`
+	Password  *string `json:"password,omitempty"`
 }
 
 // CreateUserInOrg creates a new user in the specified organization
@@ -386,6 +387,17 @@ func (us *UserService) UpdateUserInOrg(orgID, userID, updatedByUserID int64, req
 			args = append(args, updatedByUserID)
 			argIndex++
 		}
+	}
+
+	if req.Password != nil && *req.Password != "" {
+		hashedPassword, hashErr := bcrypt.GenerateFromPassword([]byte(*req.Password), bcrypt.DefaultCost)
+		if hashErr != nil {
+			return nil, fmt.Errorf("failed to hash password: %w", hashErr)
+		}
+		setParts = append(setParts, fmt.Sprintf("password_hash = $%d", argIndex))
+		args = append(args, string(hashedPassword))
+		auditDetails["password_changed"] = true
+		argIndex++
 	}
 
 	err := us.store.WithTx(func(tx *sql.Tx) error {
