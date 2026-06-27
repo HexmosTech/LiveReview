@@ -2302,8 +2302,20 @@ func NewJobQueue(databaseURL string, db *sql.DB) (*JobQueue, error) {
 	river.AddWorker(workers, manualWorker)
 	river.AddWorker(workers, &UpdateOrgUsageWorker{db: db, pool: pool})
 
+	var workerConcurrency int
+	// instance_details is a singleton table; ORDER BY id ASC LIMIT 1 is used for determinism.
+	err = db.QueryRow("SELECT COALESCE(worker_concurrent_reviews, 10) FROM instance_details ORDER BY id ASC LIMIT 1").Scan(&workerConcurrency)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			log.Printf("[INFO] No worker concurrency value found in database, using default: 10")
+		} else {
+			log.Printf("[WARN] Failed to fetch worker concurrency from database: %v", err)
+		}
+		workerConcurrency = 10
+	}
+
 	client, err := river.NewClient(riverpgxv5.New(pool), &river.Config{
-		Queues:                      config.RiverQueueConfig(),
+		Queues:                      config.RiverQueueConfig(workerConcurrency),
 		Workers:                     workers,
 		CompletedJobRetentionPeriod: 365 * 24 * time.Hour,
 		CancelledJobRetentionPeriod: 365 * 24 * time.Hour,

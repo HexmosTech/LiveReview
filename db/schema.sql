@@ -1,7 +1,7 @@
 \restrict dbmate
 
--- Dumped from database version 15.17 (Debian 15.17-1.pgdg13+1)
--- Dumped by pg_dump version 16.13 (Ubuntu 16.13-0ubuntu0.24.04.1)
+-- Dumped from database version 15.18 (Debian 15.18-1.pgdg13+1)
+-- Dumped by pg_dump version 16.14 (Ubuntu 16.14-0ubuntu0.24.04.1)
 
 SET statement_timeout = 0;
 SET lock_timeout = 0;
@@ -510,7 +510,8 @@ CREATE TABLE public.instance_details (
     livereview_prod_url text,
     created_at timestamp with time zone DEFAULT CURRENT_TIMESTAMP NOT NULL,
     updated_at timestamp with time zone DEFAULT CURRENT_TIMESTAMP NOT NULL,
-    admin_password text NOT NULL
+    admin_password text NOT NULL,
+    worker_concurrent_reviews integer DEFAULT 10 NOT NULL
 );
 
 
@@ -4875,4 +4876,5 @@ INSERT INTO public.schema_migrations (version) VALUES
     ('20260521120000'),
     ('20260521140000'),
     ('20260522120000'),
-    ('20260527120000');
+    ('20260527120000'),
+    ('20260623152712');

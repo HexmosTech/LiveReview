@@ -275,11 +275,14 @@ func GetQueueConfig() *QueueConfig {
 }
 
 // RiverQueueConfig converts our config to River's queue configuration format
-func (c *QueueConfig) RiverQueueConfig() map[string]river.QueueConfig {
-	reviewWorkers := 10 // default concurrency for review jobs
-	if envVal := os.Getenv("LIVEREVIEW_WORKER_CONCURRENT_REVIEWS"); envVal != "" {
-		if val, err := strconv.Atoi(envVal); err == nil && val > 0 {
-			reviewWorkers = val
+func (c *QueueConfig) RiverQueueConfig(dbConcurrency int) map[string]river.QueueConfig {
+	reviewWorkers := dbConcurrency
+	if reviewWorkers <= 0 {
+		reviewWorkers = 10 // default fallback
+		if envVal := os.Getenv("LIVEREVIEW_WORKER_CONCURRENT_REVIEWS"); envVal != "" {
+			if val, err := strconv.Atoi(envVal); err == nil && val > 0 {
+				reviewWorkers = val
+			}
 		}
 	}
 

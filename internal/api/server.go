@@ -672,6 +672,13 @@ func (s *Server) setupRoutes() {
 	adminGroup.PUT("/users/:user_id/org", s.userHandlers.TransferUserToOrg)
 	adminGroup.GET("/analytics/users", s.userHandlers.GetUserAnalytics)
 
+	// Super admin session-only routes (no API keys allowed)
+	adminSessionGroup := v1.Group("/admin")
+	adminSessionGroup.Use(authMiddleware.RequireAuth())
+	adminSessionGroup.Use(authMiddleware.RequireSuperAdmin())
+	adminSessionGroup.GET("/worker-config", s.GetWorkerConfig)
+	adminSessionGroup.PUT("/worker-config", s.UpdateWorkerConfig)
+
 	// Organization management endpoints
 	// User organization access (get their orgs) - needs permission context to detect super admin
 	protectedOrgsGroup := protected.Group("")

@@ -274,6 +274,11 @@ const Settings = () => {
     const [error, setError] = useState('');
     const [isLoading, setIsLoading] = useState(false);
     
+    const [workerConcurrency, setWorkerConcurrency] = useState<number>(10);
+    const [workerSaved, setWorkerSaved] = useState(false);
+    const [workerError, setWorkerError] = useState('');
+    const [workerLoading, setWorkerLoading] = useState(false);
+    
     // Deployment tab state
     const [systemInfo, setSystemInfo] = useState<any>(null);
     const [deploymentLoading, setDeploymentLoading] = useState(false);
@@ -489,6 +494,58 @@ const Settings = () => {
         fetchProductionUrl();
     }, [dispatch]);
 
+    // Fetch worker concurrency on component mount (for super admins)
+    useEffect(() => {
+        if (!isSuperAdmin) return;
+        
+        const fetchWorkerConcurrency = async () => {
+            setWorkerLoading(true);
+            try {
+                const response = await apiClient.get<{ worker_concurrent_reviews: number }>('/api/v1/admin/worker-config');
+                if (response && typeof response.worker_concurrent_reviews === 'number') {
+                    setWorkerConcurrency(response.worker_concurrent_reviews);
+                }
+            } catch (error) {
+                console.error('Failed to fetch worker concurrency:', error);
+            } finally {
+                setWorkerLoading(false);
+            }
+        };
+        
+        fetchWorkerConcurrency();
+    }, [isSuperAdmin]);
+
+    const handleSaveWorkerConcurrency = async () => {
+        if (workerConcurrency < 1 || workerConcurrency > 40) {
+            setWorkerError('Worker concurrency must be between 1 and 40.');
+            return;
+        }
+        
+        setWorkerLoading(true);
+        setWorkerError('');
+        setWorkerSaved(false);
+        
+        try {
+            const response = await apiClient.put<{ success: boolean; message: string; worker_concurrent_reviews: number }>('/api/v1/admin/worker-config', {
+                worker_concurrent_reviews: Number(workerConcurrency)
+            });
+            
+            if (response && response.success) {
+                setWorkerSaved(true);
+                setWorkerConcurrency(response.worker_concurrent_reviews);
+                setTimeout(() => setWorkerSaved(false), 5000);
+            } else {
+                setWorkerError(response?.message || 'Failed to update worker concurrency');
+            }
+        } catch (error) {
+            console.error('[Settings] Failed to save worker concurrency:', error);
+            const apiError = error as { response?: { data?: { error?: string } }; message?: string };
+            setWorkerError(apiError?.response?.data?.error || apiError?.message || 'An error occurred while saving.');
+        } finally {
+            setWorkerLoading(false);
+        }
+    };
+
     const handleSaveDomain = async () => {
         // Remove trailing slashes from the URL only when saving
         const trimmedUrl = productionUrl.replace(/\/+$/, '');
@@ -694,25 +751,77 @@ const Settings = () => {
                     )}
 
                     {activeTab === 'deployment' && isSuperAdmin && (
-                        <Card>
-                            <div className="flex items-center mb-6">
-                                <div className="text-blue-400 mr-3">
-                                    <svg className="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 3v2m6-2v2M9 19v2m6-2v2M5 9H3m2 6H3m18-6h-2m2 6h-2M7 19h10a2 2 0 002-2V7a2 2 0 00-2-2H7a2 2 0 00-2 2v10a2 2 0 002 2zM9 9h6v6H9V9z" />
-                                    </svg>
+                        <>
+                            <Card>
+                                <div className="flex items-center mb-6">
+                                    <div className="text-blue-400 mr-3">
+                                        <svg className="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 3v2m6-2v2M9 19v2m6-2v2M5 9H3m2 6H3m18-6h-2m2 6h-2M7 19h10a2 2 0 002-2V7a2 2 0 00-2-2H7a2 2 0 00-2 2v10a2 2 0 002 2zM9 9h6v6H9V9z" />
+                                        </svg>
+                                    </div>
+                                    <div>
+                                        <h3 className="font-medium text-white">Deployment Information</h3>
+                                        <p className="text-sm text-slate-300">Current deployment mode and configuration</p>
+                                    </div>
                                 </div>
-                                <div>
-                                    <h3 className="font-medium text-white">Deployment Information</h3>
-                                    <p className="text-sm text-slate-300">Current deployment mode and configuration</p>
-                                </div>
-                            </div>
 
-                            <DeploymentSettings 
-                                systemInfo={systemInfo}
-                                isLoading={deploymentLoading}
-                                onRefresh={handleRefreshSystemInfo}
-                            />
-                        </Card>
+                                <DeploymentSettings 
+                                    systemInfo={systemInfo}
+                                    isLoading={deploymentLoading}
+                                    onRefresh={handleRefreshSystemInfo}
+                                />
+                            </Card>
+
+                            <Card className="mt-6">
+                                <div className="flex items-center mb-6">
+                                    <div className="text-blue-400 mr-3">
+                                        <svg className="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
+                                        </svg>
+                                    </div>
+                                    <div>
+                                        <h3 className="font-medium text-white">Background Worker Concurrency</h3>
+                                        <p className="text-sm text-slate-300">Configure global background job processing capacity</p>
+                                    </div>
+                                </div>
+
+                                {workerSaved && (
+                                    <SuccessAlert onClose={() => setWorkerSaved(false)}>
+                                        Worker concurrency settings saved successfully! A restart of the background worker processes is required to apply the changes.
+                                    </SuccessAlert>
+                                )}
+
+                                {workerError && (
+                                    <ErrorAlert onClose={() => setWorkerError('')}>
+                                        {workerError}
+                                    </ErrorAlert>
+                                )}
+
+                                <div className="space-y-4">
+                                    <Input
+                                        type="number"
+                                        label="Worker Concurrency Limit"
+                                        placeholder="10"
+                                        value={workerConcurrency}
+                                        onChange={(e) => setWorkerConcurrency(Number(e.target.value))}
+                                        helperText="Set the maximum concurrent review jobs. Safe range is 1 to 40. High limits (above 15) may require a connection pooler like pgBouncer."
+                                        disabled={workerLoading}
+                                        min={1}
+                                        max={40}
+                                    />
+                                    <div className="flex justify-end">
+                                        <Button 
+                                            onClick={handleSaveWorkerConcurrency}
+                                            variant="primary"
+                                            isLoading={workerLoading}
+                                            disabled={workerLoading}
+                                        >
+                                            Save
+                                        </Button>
+                                    </div>
+                                </div>
+                            </Card>
+                        </>
                     )}
 
                     {activeTab === 'license' && (isCloudMode() ? isSuperAdmin : (isSuperAdmin || currentOrg?.role === 'owner')) && (
