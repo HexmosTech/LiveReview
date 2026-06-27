@@ -70,6 +70,7 @@ export interface UpdateUserPayload {
   first_name?: string;
   last_name?: string;
   role_id?: number;
+  password?: string;
 }
 
 export const updateOrgUser = async (
