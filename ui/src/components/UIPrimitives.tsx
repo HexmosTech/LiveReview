@@ -216,6 +216,7 @@ export const Input: React.FC<InputProps> = ({
             className
           )}
           aria-invalid={error ? 'true' : 'false'}
+          autoComplete={props.autoComplete || 'off'}
           {...props}
         />
         {icon && iconPosition === 'right' && (

@@ -70,38 +70,41 @@ func (s *Server) TriggerReviewV2(c echo.Context) error {
 	log.Printf("[DEBUG] TriggerReviewV2: Starting review request handling")
 
 	// LOC Quota preflight check — block before creating any DB records
-	orgID, orgOK := c.Get("org_id").(int64)
-	planCode := license.PlanFree30K
-	if planCtx, ok := c.Get(apimiddleware.PlanContextKey).(apimiddleware.PlanContext); ok && planCtx.PlanType != "" {
-		planCode = planCtx.PlanType
-	}
-	if orgOK && orgID > 0 {
-		accountingService := license.NewLOCAccountingService(s.db)
-		preflightResult, pfErr := accountingService.CheckPreflight(context.Background(), license.LOCPreflightInput{
-			OrgID:       orgID,
-			RequiredLOC: 0, // unknown at this point, just check current state
-			PlanCode:    planCode,
-		})
-		if pfErr != nil {
-			log.Printf("[WARN] LOC preflight check failed for org=%d: %v", orgID, pfErr)
-		} else {
-			applyPreflightToEnvelopeContext(c, preflightResult)
-			if preflightResult.Blocked {
-				errorCode := "quota_exceeded"
-				errorMessage := "monthly LOC quota exceeded for this organization"
-				if preflightResult.BlockReason == "trial_readonly" {
-					errorCode = "trial_readonly"
-					errorMessage = "trial period ended; review operations are read-only until plan update"
+	// Only run LOC quota preflight in Cloud Mode
+	if apimiddleware.IsCloudMode() {
+		orgID, orgOK := c.Get("org_id").(int64)
+		planCode := license.PlanFree30K
+		if planCtx, ok := c.Get(apimiddleware.PlanContextKey).(apimiddleware.PlanContext); ok && planCtx.PlanType != "" {
+			planCode = planCtx.PlanType
+		}
+		if orgOK && orgID > 0 {
+			accountingService := license.NewLOCAccountingService(s.db)
+			preflightResult, pfErr := accountingService.CheckPreflight(context.Background(), license.LOCPreflightInput{
+				OrgID:       orgID,
+				RequiredLOC: 0, // unknown at this point, just check current state
+				PlanCode:    planCode,
+			})
+			if pfErr != nil {
+				log.Printf("[WARN] LOC preflight check failed for org=%d: %v", orgID, pfErr)
+			} else {
+				applyPreflightToEnvelopeContext(c, preflightResult)
+				if preflightResult.Blocked {
+					errorCode := "quota_exceeded"
+					errorMessage := "monthly LOC quota exceeded for this organization"
+					if preflightResult.BlockReason == "trial_readonly" {
+						errorCode = "trial_readonly"
+						errorMessage = "trial period ended; review operations are read-only until plan update"
+					}
+					log.Printf("[INFO] TriggerReviewV2: LOC quota blocked for org=%d, used=%d, limit=%d",
+						orgID, preflightResult.LOCUsedMonth, preflightResult.LOCLimitMonth)
+					return JSONWithEnvelope(c, http.StatusForbidden, map[string]interface{}{
+						"error":         errorMessage,
+						"error_code":    errorCode,
+						"loc_remaining": preflightResult.LOCRemainingMonth,
+						"usage_percent": preflightResult.UsagePercent,
+						"upgrade_url":   defaultUpgradeURL,
+					})
 				}
-				log.Printf("[INFO] TriggerReviewV2: LOC quota blocked for org=%d, used=%d, limit=%d",
-					orgID, preflightResult.LOCUsedMonth, preflightResult.LOCLimitMonth)
-				return JSONWithEnvelope(c, http.StatusForbidden, map[string]interface{}{
-					"error":         errorMessage,
-					"error_code":    errorCode,
-					"loc_remaining": preflightResult.LOCRemainingMonth,
-					"usage_percent": preflightResult.UsagePercent,
-					"upgrade_url":   defaultUpgradeURL,
-				})
 			}
 		}
 	}
@@ -116,30 +119,32 @@ func (s *Server) TriggerReviewV2(c echo.Context) error {
 		return c.JSON(http.StatusBadRequest, ErrorResponse{Error: err.Error()})
 	}
 
-	quotaModule := license.NewQuotaModule(s.db)
-	quotaPreflight, err := quotaModule.PreflightCheck(c.Request().Context(), license.QuotaPreflightInput{
-		OrgID:       ctx.orgID,
-		RequiredLOC: 1,
-		PlanCode:    ctx.planCode,
-	})
-	if err != nil {
-		return c.JSON(http.StatusInternalServerError, ErrorResponse{Error: fmt.Sprintf("failed quota preflight: %v", err)})
-	}
-	if quotaPreflight.Blocked {
-		errorCode := "quota_exceeded"
-		errorMessage := "monthly LOC quota exceeded for this operation"
-		if quotaPreflight.BlockReason == "trial_readonly" {
-			errorCode = "trial_readonly"
-			errorMessage = "trial period ended; review operations are read-only until plan update"
-		}
-		return JSONWithEnvelope(c, http.StatusForbidden, map[string]interface{}{
-			"error":         errorMessage,
-			"error_code":    errorCode,
-			"required_loc":  1,
-			"loc_remaining": quotaPreflight.LOCRemainingMonth,
-			"usage_percent": quotaPreflight.UsagePercent,
-			"upgrade_url":   defaultUpgradeURL,
+	if apimiddleware.IsCloudMode() {
+		quotaModule := license.NewQuotaModule(s.db)
+		quotaPreflight, err := quotaModule.PreflightCheck(c.Request().Context(), license.QuotaPreflightInput{
+			OrgID:       ctx.orgID,
+			RequiredLOC: 1,
+			PlanCode:    ctx.planCode,
 		})
+		if err != nil {
+			return c.JSON(http.StatusInternalServerError, ErrorResponse{Error: fmt.Sprintf("failed quota preflight: %v", err)})
+		}
+		if quotaPreflight.Blocked {
+			errorCode := "quota_exceeded"
+			errorMessage := "monthly LOC quota exceeded for this operation"
+			if quotaPreflight.BlockReason == "trial_readonly" {
+				errorCode = "trial_readonly"
+				errorMessage = "trial period ended; review operations are read-only until plan update"
+			}
+			return JSONWithEnvelope(c, http.StatusForbidden, map[string]interface{}{
+				"error":         errorMessage,
+				"error_code":    errorCode,
+				"required_loc":  1,
+				"loc_remaining": quotaPreflight.LOCRemainingMonth,
+				"usage_percent": quotaPreflight.UsagePercent,
+				"upgrade_url":   defaultUpgradeURL,
+			})
+		}
 	}
 
 	// Phase 2: Prepare authentication (URL validation, token lookup, OAuth refresh)
