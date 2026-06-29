@@ -19,6 +19,7 @@ import (
 	"github.com/livereview/internal/aisanitize"
 	coreprocessor "github.com/livereview/internal/core_processor"
 	"github.com/livereview/internal/learnings"
+	"github.com/livereview/internal/prompts"
 	giteainput "github.com/livereview/internal/provider_input/gitea"
 	bitbucketmentions "github.com/livereview/internal/providers/bitbucket"
 	githubmentions "github.com/livereview/internal/providers/github"
@@ -344,7 +345,7 @@ func calculateBillableLOCFromArtifactDiffs(artifact *mrmodel.UnifiedArtifact) in
 }
 
 // buildCommentReplyPromptWithLearning creates LLM prompt with learning instructions
-func (p *UnifiedProcessorV2Impl) buildCommentReplyPromptWithLearning(event UnifiedWebhookEventV2, timeline *UnifiedTimelineV2, artifact *mrmodel.UnifiedArtifact) string {
+func (p *UnifiedProcessorV2Impl) buildCommentReplyPromptWithLearning(event UnifiedWebhookEventV2, timeline *UnifiedTimelineV2, artifact *mrmodel.UnifiedArtifact, repoRulesSection string) string {
 	staticPrompt := &strings.Builder{}
 
 	// Core context
@@ -353,6 +354,12 @@ func (p *UnifiedProcessorV2Impl) buildCommentReplyPromptWithLearning(event Unifi
 	staticPrompt.WriteString(fmt.Sprintf("- Repository: %s\n", event.Repository.Name))
 	if event.MergeRequest != nil {
 		staticPrompt.WriteString(fmt.Sprintf("- MR/PR title: %s\n", event.MergeRequest.Title))
+	}
+
+	// Inject repository rules (from .lrc/rules) if present.
+	if repoRulesSection != "" {
+		staticPrompt.WriteString("\n")
+		staticPrompt.WriteString(repoRulesSection)
 	}
 
 	// Build timeline section separately
@@ -478,7 +485,8 @@ func (p *UnifiedProcessorV2Impl) buildCommentReplyPromptWithLearning(event Unifi
 
 // buildContextualResponseWithLearningV2 creates response using LLM with learning instructions
 func (p *UnifiedProcessorV2Impl) buildContextualResponseWithLearningV2(ctx context.Context, event UnifiedWebhookEventV2, timeline *UnifiedTimelineV2, orgID int64, artifact *mrmodel.UnifiedArtifact) (string, *LearningMetadataV2, *OperationUsageV2) {
-	prompt := p.buildCommentReplyPromptWithLearning(event, timeline, artifact)
+	repoRulesSection := prompts.BuildRepoRulesSection(ctx)
+	prompt := p.buildCommentReplyPromptWithLearning(event, timeline, artifact, repoRulesSection)
 
 	var relevantLearnings []*learnings.Learning
 	if orgID != 0 {
