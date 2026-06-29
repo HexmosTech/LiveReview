@@ -28,6 +28,19 @@ Use `mrDetails.TargetBranch` (the PR's base branch, usually `main`/`master`).
 
 ---
 
+## Trigger Paths Covered
+
+| Trigger | Provider family | `.lrc/` supported |
+|---------|----------------|-------------------|
+| CLI (`git-lrc`) | local filesystem | ✅ always (bundled at upload) |
+| Webhook — PR opened | `provider_input/` V2 providers | ✅ via `injectLRCRules` in `webhook_orchestrator_v2.go` |
+| Webhook — bot mention | `provider_input/` V2 providers | ✅ same path |
+| Web UI — PR URL submitted | `providers/` legacy providers | ✅ via `ProcessReview` in `review/service.go` |
+
+The web UI path (`TriggerReviewV2` → `ProcessReview`) uses a different provider family (`internal/providers/github` etc.) than the webhook path (`internal/provider_input/github` etc.). Both families now implement `lrcfetch.Provider`.
+
+---
+
 ## Architecture
 
 ### New Package: `internal/lrcfetch`
@@ -271,10 +284,14 @@ Unlike GitHub, Gitea does not support `Accept: application/vnd.github.raw+json`.
 | Create | `internal/lrcfetch/provider.go` | Cycle-breaking interface |
 | Modify | `internal/lrcconfig/provider.go` | Added `BundleFromFiles` helper |
 | Modify | `internal/lrcconfig/lrcconfig.go` | Added `FilterCodeDiffs` for `[]*models.CodeDiff` |
-| Create | `internal/provider_input/github/lrc_fetch.go` | GitHub implementation |
-| Create | `internal/provider_input/gitlab/lrc_fetch.go` | GitLab implementation + `WithInstanceURL`, `ExtractGitLabInstanceURL` |
-| Create | `internal/provider_input/bitbucket/lrc_fetch.go` | Bitbucket implementation |
-| Create | `internal/provider_input/gitea/lrc_fetch.go` | Gitea implementation |
+| Create | `internal/provider_input/github/lrc_fetch.go` | GitHub V2 (webhook path) implementation |
+| Create | `internal/provider_input/gitlab/lrc_fetch.go` | GitLab V2 (webhook path) + `WithInstanceURL`, `ExtractGitLabInstanceURL` |
+| Create | `internal/provider_input/bitbucket/lrc_fetch.go` | Bitbucket V2 (webhook path) implementation |
+| Create | `internal/provider_input/gitea/lrc_fetch.go` | Gitea V2 (webhook path) implementation |
+| Create | `internal/providers/github/lrc_fetch.go` | GitHub legacy (web UI path) implementation |
+| Create | `internal/providers/gitlab/lrc_fetch.go` | GitLab legacy (web UI path) implementation |
+| Create | `internal/providers/bitbucket/lrc_fetch.go` | Bitbucket legacy (web UI path) implementation |
+| Create | `internal/providers/gitea/lrc_fetch.go` | Gitea legacy (web UI path) implementation |
 | Modify | `internal/review/service.go` | Activated TODO block; fetches `.lrc/` using target branch |
 | Modify | `internal/api/webhook_orchestrator_v2.go` | `injectLRCRules` after `FetchMergeRequestData` |
 | Modify | `internal/api/unified_processor_v2.go` | Passes repo rules section into comment reply prompt |
