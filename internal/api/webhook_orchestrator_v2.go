@@ -15,12 +15,12 @@ import (
 
 	"github.com/livereview/internal/api/auth"
 	coreprocessor "github.com/livereview/internal/core_processor"
+	"github.com/livereview/internal/jobqueue"
+	"github.com/livereview/internal/license"
 	"github.com/livereview/internal/lrcconfig"
 	"github.com/livereview/internal/lrcfetch"
 	"github.com/livereview/internal/prompts"
 	gitlabinput "github.com/livereview/internal/provider_input/gitlab"
-	"github.com/livereview/internal/jobqueue"
-	"github.com/livereview/internal/license"
 	storagelicense "github.com/livereview/storage/license"
 )
 
