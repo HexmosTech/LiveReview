@@ -70,6 +70,13 @@ export const switchOrganization = createAsyncThunk(
             
             // Store in localStorage for persistence
             localStorage.setItem('currentOrgId', orgId.toString());
+
+            // Update default organization on the backend
+            try {
+                await organizationsApi.setDefaultOrganization(orgId);
+            } catch (err) {
+                console.error('Failed to update default organization on the backend:', err);
+            }
             
             return org;
         } catch (error: any) {
@@ -143,15 +150,18 @@ const organizationsSlice = createSlice({
                 state.currentOrgId = parseInt(currentOrgId, 10);
             }
         },
-        setOrganizationsFromAuth(state, action: PayloadAction<Organization[]>) {
+        setOrganizationsFromAuth(state, action: PayloadAction<Organization[] | { organizations: Organization[], defaultOrgId?: number }>) {
             // Set organizations directly from auth response (avoid extra API call)
-            state.userOrganizations = action.payload;
+            const payload = action.payload;
+            const orgs = Array.isArray(payload) ? payload : payload.organizations;
+            const defaultOrgId = Array.isArray(payload) ? undefined : payload.defaultOrgId;
             
-            const orgs = action.payload;
+            state.userOrganizations = orgs;
+            
             if (orgs && orgs.length > 0) {
                 const localStorageOrgIdStr = localStorage.getItem('currentOrgId');
                 const localStorageOrgId = localStorageOrgIdStr ? parseInt(localStorageOrgIdStr, 10) : null;
-                const storedOrgId = state.currentOrgId || localStorageOrgId;
+                const storedOrgId = state.currentOrgId || localStorageOrgId || defaultOrgId;
                 let orgToSelect = storedOrgId ? orgs.find(o => o.id === storedOrgId) : undefined;
 
                 if (!orgToSelect) {
@@ -177,14 +187,14 @@ const organizationsSlice = createSlice({
             })
             .addCase(loadUserOrganizations.fulfilled, (state, action) => {
                 state.loading.organizations = false;
-                state.userOrganizations = action.payload;
+                const { organizations: orgs, defaultOrgId } = action.payload;
+                state.userOrganizations = orgs;
 
-                const orgs = action.payload;
                 if (orgs && orgs.length > 0) {
                     const localStorageOrgIdStr = localStorage.getItem('currentOrgId');
                     const localStorageOrgId = localStorageOrgIdStr ? parseInt(localStorageOrgIdStr, 10) : null;
-                    const storedOrgId = state.currentOrgId || localStorageOrgId;
-                    let orgToSelect = storedOrgId ? orgs.find(o => o.id === storedOrgId) : undefined;
+                    const storedOrgId = state.currentOrgId || localStorageOrgId || defaultOrgId;
+                    let orgToSelect = storedOrgId ? orgs.find((o: Organization) => o.id === storedOrgId) : undefined;
 
                     if (!orgToSelect) {
                         orgToSelect = orgs[0];

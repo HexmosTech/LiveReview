@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/labstack/echo/v4"
+	"github.com/livereview/internal/api/auth"
 	"github.com/livereview/internal/learnings"
 )
 
@@ -84,17 +85,12 @@ func (h *LearningsHandler) Get(c echo.Context) error {
 }
 
 func (h *LearningsHandler) Upsert(c echo.Context) error {
-	orgID, ok := c.Get("org_id").(int64)
-	if !ok {
-		return echo.NewHTTPError(http.StatusBadRequest, "Missing organization context")
+	pc := auth.MustGetPermissionContext(c)
+	if err := pc.RequireOrgOwner(); err != nil {
+		return echo.NewHTTPError(http.StatusForbidden, err.Error())
 	}
-	var body struct {
-		Title  string   `json:"title"`
-		Body   string   `json:"body"`
-		Tags   []string `json:"tags"`
-		Scope  string   `json:"scope_kind"`
-		RepoID string   `json:"repo_id"`
-	}
+	orgID := pc.GetOrgID()
+	var body UpsertLearningRequest
 	if err := c.Bind(&body); err != nil {
 		return echo.NewHTTPError(http.StatusBadRequest, "invalid body")
 	}
@@ -107,10 +103,11 @@ func (h *LearningsHandler) Upsert(c echo.Context) error {
 }
 
 func (h *LearningsHandler) Update(c echo.Context) error {
-	orgID, ok := c.Get("org_id").(int64)
-	if !ok {
-		return echo.NewHTTPError(http.StatusBadRequest, "Missing organization context")
+	pc := auth.MustGetPermissionContext(c)
+	if err := pc.RequireOrgOwner(); err != nil {
+		return echo.NewHTTPError(http.StatusForbidden, err.Error())
 	}
+	orgID := pc.GetOrgID()
 	id := c.Param("id")
 	// fetch to get short_id
 	l, err := h.store.GetByID(c.Request().Context(), id)
@@ -141,10 +138,11 @@ func (h *LearningsHandler) Update(c echo.Context) error {
 }
 
 func (h *LearningsHandler) Delete(c echo.Context) error {
-	orgID, ok := c.Get("org_id").(int64)
-	if !ok {
-		return echo.NewHTTPError(http.StatusBadRequest, "Missing organization context")
+	pc := auth.MustGetPermissionContext(c)
+	if err := pc.RequireOrgOwner(); err != nil {
+		return echo.NewHTTPError(http.StatusForbidden, err.Error())
 	}
+	orgID := pc.GetOrgID()
 	id := c.Param("id")
 	l, err := h.store.GetByID(c.Request().Context(), id)
 	if err != nil {

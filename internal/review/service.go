@@ -299,7 +299,9 @@ func (s *Service) ProcessReview(ctx context.Context, request ReviewRequest) *Rev
 			result.Duration = time.Since(start)
 			return result
 		}
-		err = s.postReviewResults(reviewCtx, provider, postingID, reviewData.Result)
+		postCtx, postCancel := context.WithTimeout(ctx, 2*time.Minute)
+		defer postCancel()
+		err = s.postReviewResults(postCtx, provider, postingID, reviewData.Result)
 		if err != nil {
 			if s.logger != nil {
 				s.logger.LogError("Failed to post results", err)

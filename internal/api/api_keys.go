@@ -11,6 +11,8 @@ import (
 	"fmt"
 	"strings"
 	"time"
+
+	"github.com/livereview/pkg/models"
 )
 
 var (
@@ -118,18 +120,27 @@ func (m *APIKeyManager) CreateAPIKey(userID, orgID int64, label string, scopes [
 	return &apiKey, key, nil
 }
 
-// ValidateAPIKey checks if a key is valid and returns the associated key record
-func (m *APIKeyManager) ValidateAPIKey(key string) (*APIKey, error) {
+// CreateAPIKeyTx generates and stores a new API key within a transaction context
+func (m *APIKeyManager) CreateAPIKeyTx(tx *sql.Tx, userID, orgID int64, label string, scopes []string, expiresAt *time.Time) (*APIKey, string, error) {
+	// Generate the key
+	key, err := m.GenerateAPIKey()
+	if err != nil {
+		return nil, "", err
+	}
+
 	keyHash := m.HashAPIKey(key)
+	keyPrefix := m.GetKeyPrefix(key)
+
+	scopesJSON, _ := json.Marshal(scopes)
 
 	query := `
-		SELECT id, user_id, org_id, key_hash, key_prefix, label, scopes, last_used_at, created_at, expires_at, revoked_at
-		FROM api_keys
-		WHERE key_hash = $1
+		INSERT INTO api_keys (user_id, org_id, key_hash, key_prefix, label, scopes, expires_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7)
+		RETURNING id, user_id, org_id, key_hash, key_prefix, label, scopes, last_used_at, created_at, expires_at, revoked_at
 	`
 
 	var apiKey APIKey
-	err := m.db.QueryRow(query, keyHash).Scan(
+	err = tx.QueryRow(query, userID, orgID, keyHash, keyPrefix, label, scopesJSON, expiresAt).Scan(
 		&apiKey.ID,
 		&apiKey.UserID,
 		&apiKey.OrgID,
@@ -142,23 +153,66 @@ func (m *APIKeyManager) ValidateAPIKey(key string) (*APIKey, error) {
 		&apiKey.ExpiresAt,
 		&apiKey.RevokedAt,
 	)
+	if err != nil {
+		return nil, "", fmt.Errorf("failed to create API key in transaction: %w", err)
+	}
+
+	return &apiKey, key, nil
+}
+
+
+// ValidateAPIKey checks if a key is valid and returns the associated key record and user model
+func (m *APIKeyManager) ValidateAPIKey(key string) (*APIKey, *models.User, error) {
+	keyHash := m.HashAPIKey(key)
+
+	query := `
+		SELECT 
+			ak.id, ak.user_id, ak.org_id, ak.key_hash, ak.key_prefix, 
+			ak.label, ak.scopes, ak.last_used_at, ak.created_at, ak.expires_at, ak.revoked_at,
+			u.id, u.email, u.password_hash, u.created_at, u.updated_at
+		FROM api_keys ak
+		JOIN users u ON ak.user_id = u.id
+		JOIN user_roles ur ON u.id = ur.user_id AND ak.org_id = ur.org_id
+		WHERE ak.key_hash = $1 AND u.is_active = true
+	`
+
+	var apiKey APIKey
+	var user models.User
+	err := m.db.QueryRow(query, keyHash).Scan(
+		&apiKey.ID,
+		&apiKey.UserID,
+		&apiKey.OrgID,
+		&apiKey.KeyHash,
+		&apiKey.KeyPrefix,
+		&apiKey.Label,
+		&apiKey.Scopes,
+		&apiKey.LastUsedAt,
+		&apiKey.CreatedAt,
+		&apiKey.ExpiresAt,
+		&apiKey.RevokedAt,
+		&user.ID,
+		&user.Email,
+		&user.PasswordHash,
+		&user.CreatedAt,
+		&user.UpdatedAt,
+	)
 	if err == sql.ErrNoRows {
-		return nil, ErrLiveReviewAPIKeyInvalid
+		return nil, nil, ErrLiveReviewAPIKeyInvalid
 	}
 	if err != nil {
-		return nil, fmt.Errorf("%w: %v", ErrLiveReviewAPIKeyValidationFailed, err)
+		return nil, nil, fmt.Errorf("%w: %v", ErrLiveReviewAPIKeyValidationFailed, err)
 	}
 
 	if apiKey.RevokedAt != nil {
-		return nil, ErrLiveReviewAPIKeyRevoked
+		return nil, nil, ErrLiveReviewAPIKeyRevoked
 	}
 
 	// Check if expired
 	if apiKey.ExpiresAt != nil && apiKey.ExpiresAt.Before(time.Now()) {
-		return nil, ErrLiveReviewAPIKeyExpired
+		return nil, nil, ErrLiveReviewAPIKeyExpired
 	}
 
-	return &apiKey, nil
+	return &apiKey, &user, nil
 }
 
 // UpdateLastUsed updates the last_used_at timestamp for a key

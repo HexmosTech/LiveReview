@@ -8,8 +8,8 @@ Latest milestone batch note (MF-051, MF-059, MF-073, MF-074, MF-076, MF-083, MF-
 | payment.CreateOrder | added | [CreateOrder](../internal/license/payment/payment.go#L359) |
 | payment.CreateSubscriptionAt | added | [CreateSubscriptionAt](../internal/license/payment/subscription.go#L78) |
 | payment.CancelScheduledChangesByID | added | [CancelScheduledChangesByID](../internal/license/payment/subscription.go#L295) |
-| api.CreateSubscription | updated | [CreateSubscription](../internal/api/subscriptions_handler.go#L129) |
-| api.CancelSubscription | updated | [CancelSubscription](../internal/api/subscriptions_handler.go#L287) |
+| api.CreateSubscription | updated | [CreateSubscription](../internal/api/subscriptions_handler.go#L141) |
+| api.CancelSubscription | updated | [CancelSubscription](../internal/api/subscriptions_handler.go#L299) |
 | api.GetBillingStatus | updated | [GetBillingStatus](../internal/api/billing_actions_handler.go#L1311) |
 | api.checkGitHubParentCommentAuthor | updated | [checkGitHubParentCommentAuthor](../internal/api/unified_processor_v2.go#L707) |
 | api.checkBitbucketParentCommentAuthor | updated | [checkBitbucketParentCommentAuthor](../internal/api/unified_processor_v2.go#L776) |

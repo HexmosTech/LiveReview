@@ -1,0 +1,18 @@
+Hi {{.InvitedToName}},
+
+{{.InvitedByName}} has invited you to join the {{.AppName}} workspace!
+
+Join Workspace:
+{{.URL}}
+{{if or .InstallCommandLinux .InstallCommandWindows}}
+Get Started with the CLI:
+{{if .InstallCommandLinux}}
+Linux / macOS:
+{{.InstallCommandLinux}}
+{{end}}
+{{if .InstallCommandWindows}}
+Windows PowerShell:
+{{.InstallCommandWindows}}
+{{end}}
+{{end}}
+This is an automated invitation email. If you did not expect this, you can safely ignore it.

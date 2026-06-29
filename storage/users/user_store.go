@@ -18,6 +18,10 @@ func (s *UserStore) Query(query string, args ...interface{}) (*sql.Rows, error) 
 	return s.db.Query(query, args...)
 }
 
+func (s *UserStore) Exec(query string, args ...interface{}) (sql.Result, error) {
+	return s.db.Exec(query, args...)
+}
+
 func (s *UserStore) TxQueryRow(tx *sql.Tx, query string, args ...interface{}) *sql.Row {
 	return tx.QueryRow(query, args...)
 }

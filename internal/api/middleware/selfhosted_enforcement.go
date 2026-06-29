@@ -81,7 +81,7 @@ func isAdminOrOwner(db *sql.DB, userID int64) (bool, error) {
 			SELECT 1 FROM user_roles ur
 			JOIN roles r ON ur.role_id = r.id
 			WHERE ur.user_id = $1 
-			AND r.name IN ('admin', 'owner')
+			AND r.name IN ('admin', 'owner', 'super_admin')
 		)
 	`, userID).Scan(&hasAdminRole)
 
@@ -149,11 +149,8 @@ func InvalidateSeatAssignmentCache() {
 func EnforceSelfHostedLicense(db *sql.DB, licenseService *license.Service) echo.MiddlewareFunc {
 	return func(next echo.HandlerFunc) echo.HandlerFunc {
 		return func(c echo.Context) error {
-			// CRITICAL: Only enforce in self-hosted mode
-			// In cloud mode, use subscription-based enforcement instead
-			if isCloudMode() {
-				return next(c)
-			}
+			// TEMPORARILY DISABLED: Seat enforcement is bypassed for all self-hosted APIs
+			return next(c)
 
 			userID, ok := selfHostedLicenseUserID(c)
 			if !ok {

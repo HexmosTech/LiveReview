@@ -161,6 +161,13 @@ func (uh *UserHandlers) UpdateUser(c echo.Context) error {
 		return echo.NewHTTPError(http.StatusBadRequest, "Invalid request body")
 	}
 
+	// Security: Only super admins can update passwords
+	if req.Password != nil && *req.Password != "" {
+		if !permCtx.IsSuperAdmin {
+			return echo.NewHTTPError(http.StatusForbidden, "Permission denied: only super admins can change user passwords")
+		}
+	}
+
 	// Update user
 	user, err := uh.userService.UpdateUserInOrg(permCtx.OrgID, userID, permCtx.User.ID, req)
 	if err != nil {

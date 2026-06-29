@@ -399,7 +399,28 @@ func enqueueQuotaThresholdNotificationsTx(ctx context.Context, tx *sql.Tx, orgID
 	if err != nil {
 		return fmt.Errorf("load quota notification recipients: %w", err)
 	}
-	defer recipientRows.Close()
+
+	type quotaNotificationRecipient struct {
+		userID int64
+		email  string
+	}
+
+	recipients := make([]quotaNotificationRecipient, 0)
+	for recipientRows.Next() {
+		var recipient quotaNotificationRecipient
+		if err := recipientRows.Scan(&recipient.userID, &recipient.email); err != nil {
+			_ = recipientRows.Close()
+			return fmt.Errorf("scan quota notification recipient: %w", err)
+		}
+		recipients = append(recipients, recipient)
+	}
+	if err := recipientRows.Err(); err != nil {
+		_ = recipientRows.Close()
+		return fmt.Errorf("iterate quota notification recipients: %w", err)
+	}
+	if err := recipientRows.Close(); err != nil {
+		return fmt.Errorf("close quota notification recipients: %w", err)
+	}
 
 	payload := map[string]interface{}{
 		"event_type":        fmt.Sprintf("quota_%d", threshold),
@@ -418,14 +439,8 @@ func enqueueQuotaThresholdNotificationsTx(ctx context.Context, tx *sql.Tx, orgID
 		return fmt.Errorf("marshal quota notification payload: %w", err)
 	}
 
-	for recipientRows.Next() {
-		var userID int64
-		var email string
-		if err := recipientRows.Scan(&userID, &email); err != nil {
-			return fmt.Errorf("scan quota notification recipient: %w", err)
-		}
-
-		baseDedupe := fmt.Sprintf("quota_%d:%d:%s:%d", threshold, orgID, periodStart.UTC().Format("2006-01"), userID)
+	for _, recipient := range recipients {
+		baseDedupe := fmt.Sprintf("quota_%d:%d:%s:%d", threshold, orgID, periodStart.UTC().Format("2006-01"), recipient.userID)
 		if _, err := tx.ExecContext(ctx, `
 			INSERT INTO billing_notification_outbox (
 				org_id,
@@ -451,11 +466,11 @@ func enqueueQuotaThresholdNotificationsTx(ctx context.Context, tx *sql.Tx, orgID
 				NOW()
 			)
 			ON CONFLICT (channel, dedupe_key) DO NOTHING
-		`, orgID, fmt.Sprintf("quota_%d", threshold), baseDedupe+":in_app", string(payloadJSON), userID); err != nil {
+		`, orgID, fmt.Sprintf("quota_%d", threshold), baseDedupe+":in_app", string(payloadJSON), recipient.userID); err != nil {
 			return fmt.Errorf("enqueue in_app quota notification: %w", err)
 		}
 
-		email = strings.TrimSpace(email)
+		email := strings.TrimSpace(recipient.email)
 		if email == "" {
 			continue
 		}
@@ -487,13 +502,9 @@ func enqueueQuotaThresholdNotificationsTx(ctx context.Context, tx *sql.Tx, orgID
 				NOW()
 			)
 			ON CONFLICT (channel, dedupe_key) DO NOTHING
-		`, orgID, fmt.Sprintf("quota_%d", threshold), baseDedupe+":email", string(payloadJSON), userID, email); err != nil {
+		`, orgID, fmt.Sprintf("quota_%d", threshold), baseDedupe+":email", string(payloadJSON), recipient.userID, email); err != nil {
 			return fmt.Errorf("enqueue email quota notification: %w", err)
 		}
-	}
-
-	if err := recipientRows.Err(); err != nil {
-		return fmt.Errorf("iterate quota notification recipients: %w", err)
 	}
 
 	return nil

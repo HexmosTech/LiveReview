@@ -54,6 +54,7 @@ type UserInfo struct {
 	UpdatedAt        time.Time  `json:"updated_at"`
 	PlanType         string     `json:"plan_type,omitempty"`
 	LicenseExpiresAt *time.Time `json:"license_expires_at,omitempty"`
+	DefaultOrgID     *int64     `json:"default_org_id,omitempty"`
 }
 
 // OrgInfo represents organization information for the user
@@ -96,9 +97,9 @@ func (h *AuthHandlers) Login(c echo.Context) error {
 	// Get user by email
 	user := &models.User{}
 	err := h.db.QueryRow(`
-		SELECT id, email, password_hash, created_at, updated_at
+		SELECT id, email, password_hash, default_org_id, created_at, updated_at
 		FROM users WHERE email = $1
-	`, req.Email).Scan(&user.ID, &user.Email, &user.PasswordHash, &user.CreatedAt, &user.UpdatedAt)
+	`, req.Email).Scan(&user.ID, &user.Email, &user.PasswordHash, &user.DefaultOrgID, &user.CreatedAt, &user.UpdatedAt)
 
 	if err == sql.ErrNoRows {
 		return c.JSON(http.StatusUnauthorized, map[string]string{
@@ -167,6 +168,7 @@ func (h *AuthHandlers) Login(c echo.Context) error {
 			UpdatedAt:        user.UpdatedAt,
 			PlanType:         planType,
 			LicenseExpiresAt: licenseExpiresAt,
+			DefaultOrgID:     user.DefaultOrgID,
 		},
 		TokenPair:     tokenPair,
 		Organizations: organizations,
@@ -362,21 +364,7 @@ func (h *AuthHandlers) SetupAdmin(c echo.Context) error {
 	}
 	defer tx.Rollback()
 
-	// Create default organization
-	var orgID int64
-	err = tx.QueryRow(`
-		INSERT INTO orgs (name, created_at, updated_at)
-		VALUES ($1, NOW(), NOW())
-		RETURNING id
-	`, req.OrgName).Scan(&orgID)
-
-	if err != nil {
-		return c.JSON(http.StatusInternalServerError, map[string]string{
-			"error": "Failed to create organization",
-		})
-	}
-
-	// Create admin user
+	// Create admin user first
 	var userID int64
 	err = tx.QueryRow(`
 		INSERT INTO users (email, password_hash, created_at, updated_at)
@@ -387,6 +375,31 @@ func (h *AuthHandlers) SetupAdmin(c echo.Context) error {
 	if err != nil {
 		return c.JSON(http.StatusInternalServerError, map[string]string{
 			"error": "Failed to create user",
+		})
+	}
+
+	// Create default organization with created_by_user_id
+	var orgID int64
+	err = tx.QueryRow(`
+		INSERT INTO orgs (name, created_by_user_id, created_at, updated_at)
+		VALUES ($1, $2, NOW(), NOW())
+		RETURNING id
+	`, req.OrgName, userID).Scan(&orgID)
+
+	if err != nil {
+		return c.JSON(http.StatusInternalServerError, map[string]string{
+			"error": "Failed to create organization",
+		})
+	}
+
+	_, err = tx.Exec(`
+		UPDATE users
+		SET default_org_id = $1
+		WHERE id = $2
+	`, orgID, userID)
+	if err != nil {
+		return c.JSON(http.StatusInternalServerError, map[string]string{
+			"error": "Failed to update user's default organization",
 		})
 	}
 
@@ -712,6 +725,16 @@ func (h *AuthHandlers) EnsureCloudUser(c echo.Context) error {
 		}
 	}
 
+	// Update user's default_org_id to this organization ID if it is currently NULL
+	_, err = tx.Exec(`
+		UPDATE users 
+		SET default_org_id = COALESCE(default_org_id, $1) 
+		WHERE id = $2
+	`, orgID, userID)
+	if err != nil {
+		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "failed to set user default organization"})
+	}
+
 	// 3. Ensure super_admin role assignment for user in this org
 	var superAdminRoleID int64
 	err = tx.QueryRow(`SELECT id FROM roles WHERE name = 'owner' LIMIT 1`).Scan(&superAdminRoleID)
@@ -749,11 +772,15 @@ func (h *AuthHandlers) EnsureCloudUser(c echo.Context) error {
 	}
 
 	// Create full user object for token generation
+	var dbDefaultOrgID *int64
+	_ = h.db.QueryRow(`SELECT default_org_id FROM users WHERE id = $1`, userID).Scan(&dbDefaultOrgID)
+
 	user := &models.User{
-		ID:        userID,
-		Email:     req.Email,
-		CreatedAt: time.Now(),
-		UpdatedAt: time.Now(),
+		ID:           userID,
+		Email:        req.Email,
+		DefaultOrgID: dbDefaultOrgID,
+		CreatedAt:    time.Now(),
+		UpdatedAt:    time.Now(),
 	}
 
 	// Create session tokens like normal login
@@ -786,10 +813,11 @@ func (h *AuthHandlers) EnsureCloudUser(c echo.Context) error {
 		"email":                req.Email,
 		// Add standard login response fields
 		"user": &UserInfo{
-			ID:        userID,
-			Email:     req.Email,
-			CreatedAt: user.CreatedAt,
-			UpdatedAt: user.UpdatedAt,
+			ID:           userID,
+			Email:        req.Email,
+			DefaultOrgID: dbDefaultOrgID,
+			CreatedAt:    user.CreatedAt,
+			UpdatedAt:    user.UpdatedAt,
 		},
 		"tokens":        tokenPair,
 		"organizations": organizations,
