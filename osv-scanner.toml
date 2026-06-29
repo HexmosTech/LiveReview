@@ -1,1 +1,4 @@
-# OSV ignore list is currently empty.
+# OSV ignore list
+[[ignoredVulns]]
+id = "GHSA-64mm-vxmg-q3vj"
+reason = "Webpack dev-server proxy configuration does not use the vulnerable host+path router option, and it is a development-only dependency that is never deployed to production."

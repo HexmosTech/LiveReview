@@ -4,10 +4,10 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
-	"log"
 	"strings"
 	"time"
 
+	"github.com/rs/zerolog/log"
 	"github.com/livereview/network/email"
 	storageusers "github.com/livereview/storage/users"
 	"golang.org/x/crypto/bcrypt"
@@ -15,15 +15,22 @@ import (
 
 const defaultProductionURL = "https://livereview.hexmos.com"
 
+// APIKeyGeneratorTx defines a function type to generate onboarding keys within a transaction context
+type APIKeyGeneratorTx func(tx *sql.Tx, userID, orgID int64) (string, error)
+
 // UserService handles core user management operations
 type UserService struct {
-	store *storageusers.UserStore
+	db              *sql.DB
+	store           *storageusers.UserStore
+	apiKeyGenerator APIKeyGeneratorTx
 }
 
 // NewUserService creates a new user service
-func NewUserService(db *sql.DB) *UserService {
+func NewUserService(db *sql.DB, apiKeyGenerator APIKeyGeneratorTx) *UserService {
 	return &UserService{
-		store: storageusers.NewUserStore(db),
+		db:              db,
+		store:           storageusers.NewUserStore(db),
+		apiKeyGenerator: apiKeyGenerator,
 	}
 }
 
@@ -44,6 +51,7 @@ type UserWithRole struct {
 	Role                  string     `json:"role"`
 	RoleID                int64      `json:"role_id"`
 	OrgID                 int64      `json:"org_id"`
+	OnboardingAPIKey      string     `json:"onboarding_api_key,omitempty"`
 }
 
 // CreateUserRequest represents the request to create a new user
@@ -61,6 +69,7 @@ type UpdateUserRequest struct {
 	LastName  *string `json:"last_name"`
 	IsActive  *bool   `json:"is_active"`
 	RoleID    *int64  `json:"role_id"`
+	Password  *string `json:"password,omitempty"`
 }
 
 // CreateUserInOrg creates a new user in the specified organization
@@ -120,6 +129,28 @@ func (us *UserService) CreateUserInOrg(orgID, createdByUserID int64, req CreateU
 			return fmt.Errorf("failed to assign user role: %w", err)
 		}
 
+		// Update user's default_org_id if it is currently NULL
+		_, err = us.store.TxExec(tx, `
+			UPDATE users 
+			SET default_org_id = COALESCE(default_org_id, $1) 
+			WHERE id = $2
+		`, orgID, userID)
+		if err != nil {
+			return fmt.Errorf("failed to update user default organization: %w", err)
+		}
+
+		// Generate onboarding API key if generator is configured
+		if us.apiKeyGenerator != nil {
+			newKey, err := us.apiKeyGenerator(tx, userID, orgID)
+			if err != nil {
+				return fmt.Errorf("failed to generate onboarding API key: %w", err)
+			}
+			_, err = us.store.TxExec(tx, `UPDATE users SET onboarding_api_key = $1 WHERE id = $2`, newKey, userID)
+			if err != nil {
+				return fmt.Errorf("failed to update onboarding API key in database: %w", err)
+			}
+		}
+
 		// Add audit trail
 		err = us.addUserAuditLog(tx, orgID, userID, createdByUserID, "created", map[string]interface{}{
 			"role_id": req.RoleID,
@@ -151,7 +182,7 @@ func (us *UserService) CreateUserInOrg(orgID, createdByUserID int64, req CreateU
 func (us *UserService) sendInvitation(user *UserWithRole, invitedByUserID int64) {
 	defer func() {
 		if r := recover(); r != nil {
-			log.Printf("[Invitation] Critical: panic recovered in invitation flow: %v\n", r)
+			log.Error().Msgf("Critical: panic recovered in invitation flow: %v", r)
 		}
 	}()
 
@@ -162,15 +193,24 @@ func (us *UserService) sendInvitation(user *UserWithRole, invitedByUserID int64)
 		invitedToName = *user.FirstName
 	}
 
-	err := email.SendInvitationEmail(email.InvitationParams{
-		AppName:        "LiveReview",
-		InvitedToName:  invitedToName,
-		InvitedToEmail: user.Email,
-		InvitedByName:  invitedByName,
-		URL:            defaultProductionURL,
+	installCmdLinux := ""
+	installCmdWindows := ""
+	if user.OnboardingAPIKey != "" {
+		installCmdLinux = fmt.Sprintf("curl -fsSL https://hexmos.com/lrc-install.sh | LRC_API_KEY=%q LRC_API_URL=%q bash", user.OnboardingAPIKey, defaultProductionURL)
+		installCmdWindows = fmt.Sprintf("$env:LRC_API_KEY=%q; $env:LRC_API_URL=%q; iwr -useb https://hexmos.com/lrc-install.ps1 | iex", user.OnboardingAPIKey, defaultProductionURL)
+	}
+
+	err := email.SendInvitationEmail(us.db, email.InvitationParams{
+		AppName:               "LiveReview",
+		InvitedToName:         invitedToName,
+		InvitedToEmail:        user.Email,
+		InvitedByName:         invitedByName,
+		URL:                   defaultProductionURL,
+		InstallCommandLinux:   installCmdLinux,
+		InstallCommandWindows: installCmdWindows,
 	})
 	if err != nil {
-		log.Printf("[Invitation] Error: failed to send invitation email to %s: %v\n", user.Email, err)
+		log.Error().Err(err).Str("email", user.Email).Msg("Failed to send invitation email")
 	}
 }
 
@@ -226,11 +266,12 @@ func (us *UserService) CheckUserByEmail(email string) (*UserCheckResponse, error
 // GetUserInOrg gets a user in a specific organization with their role
 func (us *UserService) GetUserInOrg(orgID, userID int64) (*UserWithRole, error) {
 	user := &UserWithRole{}
+	var onboardingKey sql.NullString
 	err := us.store.QueryRow(`
 		SELECT u.id, u.email, u.first_name, u.last_name, u.is_active, u.last_login_at,
 		       u.created_at, u.updated_at, u.created_by_user_id, u.deactivated_at,
 		       u.deactivated_by_user_id, u.password_reset_required,
-		       r.name as role, r.id as role_id, ur.org_id
+		       r.name as role, r.id as role_id, ur.org_id, u.onboarding_api_key
 		FROM users u
 		JOIN user_roles ur ON u.id = ur.user_id
 		JOIN roles r ON ur.role_id = r.id
@@ -239,7 +280,7 @@ func (us *UserService) GetUserInOrg(orgID, userID int64) (*UserWithRole, error) 
 		&user.ID, &user.Email, &user.FirstName, &user.LastName, &user.IsActive,
 		&user.LastLoginAt, &user.CreatedAt, &user.UpdatedAt, &user.CreatedByUserID,
 		&user.DeactivatedAt, &user.DeactivatedByUserID, &user.PasswordResetRequired,
-		&user.Role, &user.RoleID, &user.OrgID,
+		&user.Role, &user.RoleID, &user.OrgID, &onboardingKey,
 	)
 
 	if err != nil {
@@ -247,6 +288,10 @@ func (us *UserService) GetUserInOrg(orgID, userID int64) (*UserWithRole, error) 
 			return nil, fmt.Errorf("user not found in organization")
 		}
 		return nil, fmt.Errorf("failed to get user: %w", err)
+	}
+
+	if onboardingKey.Valid {
+		user.OnboardingAPIKey = onboardingKey.String
 	}
 
 	return user, nil
@@ -272,7 +317,7 @@ func (us *UserService) ListUsersInOrg(orgID int64, offset, limit int) ([]*UserWi
 		SELECT u.id, u.email, u.first_name, u.last_name, u.is_active, u.last_login_at,
 		       u.created_at, u.updated_at, u.created_by_user_id, u.deactivated_at,
 		       u.deactivated_by_user_id, u.password_reset_required,
-		       r.name as role, r.id as role_id, ur.org_id
+		       r.name as role, r.id as role_id, ur.org_id, u.onboarding_api_key
 		FROM users u
 		JOIN user_roles ur ON u.id = ur.user_id
 		JOIN roles r ON ur.role_id = r.id
@@ -289,14 +334,18 @@ func (us *UserService) ListUsersInOrg(orgID int64, offset, limit int) ([]*UserWi
 	var users []*UserWithRole
 	for rows.Next() {
 		user := &UserWithRole{}
+		var onboardingKey sql.NullString
 		err := rows.Scan(
 			&user.ID, &user.Email, &user.FirstName, &user.LastName, &user.IsActive,
 			&user.LastLoginAt, &user.CreatedAt, &user.UpdatedAt, &user.CreatedByUserID,
 			&user.DeactivatedAt, &user.DeactivatedByUserID, &user.PasswordResetRequired,
-			&user.Role, &user.RoleID, &user.OrgID,
+			&user.Role, &user.RoleID, &user.OrgID, &onboardingKey,
 		)
 		if err != nil {
 			return nil, 0, fmt.Errorf("failed to scan user: %w", err)
+		}
+		if onboardingKey.Valid {
+			user.OnboardingAPIKey = onboardingKey.String
 		}
 		users = append(users, user)
 	}
@@ -338,6 +387,17 @@ func (us *UserService) UpdateUserInOrg(orgID, userID, updatedByUserID int64, req
 			args = append(args, updatedByUserID)
 			argIndex++
 		}
+	}
+
+	if req.Password != nil && *req.Password != "" {
+		hashedPassword, hashErr := bcrypt.GenerateFromPassword([]byte(*req.Password), bcrypt.DefaultCost)
+		if hashErr != nil {
+			return nil, fmt.Errorf("failed to hash password: %w", hashErr)
+		}
+		setParts = append(setParts, fmt.Sprintf("password_hash = $%d", argIndex))
+		args = append(args, string(hashedPassword))
+		auditDetails["password_changed"] = true
+		argIndex++
 	}
 
 	err := us.store.WithTx(func(tx *sql.Tx) error {

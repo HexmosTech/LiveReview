@@ -231,9 +231,9 @@ func (s *OrganizationService) GetUserOrganizations(userID int64, isSuperAdmin bo
 			org.CreatorLastName = &creatorLastName.String
 		}
 
-		// Set plan type to enterprise for self-hosted instances
+		// Set plan type to enterprise-selfhosted for self-hosted instances
 		if !middleware.IsCloudMode() {
-			planType := "enterprise"
+			planType := "enterprise-selfhosted"
 			org.PlanType = &planType
 		}
 
@@ -317,9 +317,9 @@ func (s *OrganizationService) GetOrganizationByID(orgID int64, userID int64, isS
 		org.Settings = "{}"
 	}
 
-	// Set plan type to enterprise for self-hosted instances
+	// Set plan type to enterprise-selfhosted for self-hosted instances
 	if !middleware.IsCloudMode() {
-		planType := "enterprise"
+		planType := "enterprise-selfhosted"
 		org.PlanType = &planType
 	}
 
@@ -477,7 +477,8 @@ func (s *OrganizationService) GetOrganizationMembers(orgID int64, limit, offset 
 		       obs.current_plan_code as plan_type,
 		       obs.billing_period_end as license_expires_at,
 		       ur.active_subscription_id,
-		       s.razorpay_subscription_id
+		       s.razorpay_subscription_id,
+		       u.onboarding_api_key
 		FROM users u
 		INNER JOIN user_roles ur ON u.id = ur.user_id
 		INNER JOIN roles r ON ur.role_id = r.id
@@ -504,6 +505,7 @@ func (s *OrganizationService) GetOrganizationMembers(orgID int64, limit, offset 
 		var licenseExpiresAt sql.NullTime
 		var activeSubscriptionID sql.NullInt64
 		var razorpaySubscriptionID sql.NullString
+		var onboardingKey sql.NullString
 
 		err := rows.Scan(
 			&user.ID,
@@ -523,10 +525,15 @@ func (s *OrganizationService) GetOrganizationMembers(orgID int64, limit, offset 
 			&licenseExpiresAt,
 			&activeSubscriptionID,
 			&razorpaySubscriptionID,
+			&onboardingKey,
 		)
 		if err != nil {
 			s.logger.Printf("Error scanning member row: %v", err)
 			continue
+		}
+
+		if onboardingKey.Valid {
+			user.OnboardingAPIKey = onboardingKey.String
 		}
 
 		if firstName.Valid {
@@ -677,3 +684,52 @@ func (s *OrganizationService) GetOrganizationAnalytics(orgID int64) (*models.Org
 
 	return analytics, nil
 }
+
+// SetUserDefaultOrganization updates the default organization ID for a user
+func (s *OrganizationService) SetUserDefaultOrganization(userID int64, orgID int64) error {
+	// Check if user is a member of the organization
+	var isMember bool
+	membershipCheckQuery := `
+		SELECT EXISTS(
+			SELECT 1 FROM user_roles 
+			WHERE user_id = $1 AND org_id = $2
+		)
+	`
+	err := s.db.QueryRow(membershipCheckQuery, userID, orgID).Scan(&isMember)
+	if err != nil {
+		return fmt.Errorf("failed to check organization membership: %w", err)
+	}
+
+	if !isMember {
+		// Check if user is a super admin
+		var isSuperAdmin bool
+		superAdminCheckQuery := `
+			SELECT EXISTS(
+				SELECT 1 FROM user_roles ur
+				JOIN roles r ON ur.role_id = r.id
+				WHERE ur.user_id = $1 AND r.name = 'super_admin'
+			)
+		`
+		err = s.db.QueryRow(superAdminCheckQuery, userID).Scan(&isSuperAdmin)
+		if err != nil {
+			return fmt.Errorf("failed to check super admin status: %w", err)
+		}
+
+		if !isSuperAdmin {
+			return fmt.Errorf("user is not a member of this organization")
+		}
+	}
+
+	// Update user's default_org_id
+	_, err = s.db.Exec(`
+		UPDATE users 
+		SET default_org_id = $1 
+		WHERE id = $2
+	`, orgID, userID)
+	if err != nil {
+		return fmt.Errorf("failed to update user default organization: %w", err)
+	}
+
+	return nil
+}
+

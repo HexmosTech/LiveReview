@@ -21,7 +21,7 @@ RUN echo "🔨 Building UI for SELF-HOSTED deployment (is_cloud=false)..." && \
     echo "✅ UI build completed successfully"
 
 # Stage 2: Cross-compile all binaries for all architectures in one stage
-FROM --platform=$BUILDPLATFORM golang:1.25-alpine AS builder
+FROM --platform=$BUILDPLATFORM golang:1.26-alpine AS builder
 
 # Accept target platform args (injected by buildx)
 ARG TARGETOS

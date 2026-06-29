@@ -6,6 +6,7 @@ import LicenseTab from './LicenseTab';
 import SubscriptionTab from './SubscriptionTab';
 import LearningsTab from './LearningsTab';
 import APIKeysTab from './APIKeysTab';
+import SMTPSettingsTab from './SMTPSettingsTab';
 import { UserManagement } from '../../components/UserManagement';
 import LicenseManagement from '../Licenses/LicenseManagement';
 import { useOrgContext } from '../../hooks/useOrgContext';
@@ -283,6 +284,15 @@ const Settings = () => {
     // Available tabs based on permissions
     const tabs = [
         ...(isSuperAdmin ? [{ id: 'instance', name: 'Instance', icon: <Icons.Settings /> }] : []),
+        ...(isSuperAdmin && !isCloudMode() ? [{ 
+            id: 'smtp', 
+            name: 'SMTP', 
+            icon: (
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
+                </svg>
+            )
+        }] : []),
         ...(isSuperAdmin ? [{ 
             id: 'deployment', 
             name: 'Deployment', 
@@ -690,6 +700,12 @@ const Settings = () => {
                                     </div>
                                 </div>
                             </div>
+                        </Card>
+                    )}
+
+                    {activeTab === 'smtp' && isSuperAdmin && !isCloudMode() && (
+                        <Card>
+                            <SMTPSettingsTab />
                         </Card>
                     )}
 

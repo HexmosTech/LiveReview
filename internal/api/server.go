@@ -13,6 +13,8 @@ import (
 	"strings"
 	"time"
 
+	mcpserver "github.com/BrunoKrugel/echo-mcp"
+
 	"github.com/labstack/echo/v4"
 	"github.com/labstack/echo/v4/middleware"
 	"github.com/livereview/internal/aiconnectors"
@@ -23,6 +25,7 @@ import (
 	"github.com/livereview/internal/jobqueue"
 	"github.com/livereview/internal/learnings"
 	"github.com/livereview/internal/license"
+	reviewprocessor "github.com/livereview/internal/review_processor"
 	"github.com/livereview/internal/license/payment"
 	bitbucketprovider "github.com/livereview/internal/provider_input/bitbucket"
 	giteaprovider "github.com/livereview/internal/provider_input/gitea"
@@ -104,6 +107,13 @@ func getDeploymentConfig() *DeploymentConfig {
 	return config
 }
 
+func isMCPRequest(c echo.Context) bool {
+	if c == nil || c.Request() == nil {
+		return false
+	}
+	return c.Request().Header.Get("X-MCP-Request") == "true"
+}
+
 // Server represents the API server
 type Server struct {
 	echo                 *echo.Echo
@@ -145,12 +155,19 @@ type Server struct {
 	learningsService *learnings.Service
 }
 
-// NewServer creates a new API server
-func NewServer(port int, versionInfo *VersionInfo) (*Server, error) {
+// appContext initializes the core backend database, configurations, queues, and provider subsystems
+func appContext(port int, versionInfo *VersionInfo) (*Server, error) {
 	// Load environment variables from .env file
-	env, err := loadEnvFile(".env")
-	if err != nil {
-		return nil, fmt.Errorf("error loading .env file: %v\n\nPlease create a .env file with DATABASE_URL like:\nDATABASE_URL=postgres://username:password@localhost:5432/dbname?sslmode=disable", err)
+	env := map[string]string{}
+
+	// Try loading .env, but don't fail if missing
+	if loadedEnv, err := loadEnvFile(".env"); err == nil {
+		env = loadedEnv
+	} else {
+		fmt.Printf(
+			"error loading .env file: %v\n\nUsing environment variables instead.\nIf needed, create a .env file with DATABASE_URL like:\nDATABASE_URL=postgres://username:password@localhost:5432/dbname?sslmode=disable\n",
+		err,
+	)
 	}
 
 	// print env variables
@@ -169,17 +186,30 @@ func NewServer(port int, versionInfo *VersionInfo) (*Server, error) {
 		port = deploymentConfig.BackendPort
 	}
 
-	// Get database URL
-	dbURL, ok := env["DATABASE_URL"]
-	if !ok || dbURL == "" {
-		return nil, fmt.Errorf("DATABASE_URL not found in .env file\n\nPlease add DATABASE_URL to your .env file:\nDATABASE_URL=postgres://username:password@localhost:5432/dbname?sslmode=disable")
+	dbURL := env["DATABASE_URL"]
+	if dbURL == "" {
+		dbURL = os.Getenv("DATABASE_URL")
+	}
+	if dbURL == "" {
+		return nil, fmt.Errorf(
+			"DATABASE_URL not found in .env file or environment variables\n\n" +
+				"Please add DATABASE_URL to your .env file or export it as an environment variable:\n" +
+				"DATABASE_URL=postgres://username:password@localhost:5432/dbname?sslmode=disable",
+		)
 	}
 
-	// Get JWT secret key (required for new auth system)
-	jwtSecret, ok := env["JWT_SECRET"]
-	if !ok || jwtSecret == "" {
-		return nil, fmt.Errorf("JWT_SECRET not found in .env file\n\nPlease add JWT_SECRET to your .env file:\nJWT_SECRET=your-secure-random-secret-key")
+	jwtSecret := env["JWT_SECRET"]
+	if jwtSecret == "" {
+		jwtSecret = os.Getenv("JWT_SECRET")
 	}
+	if jwtSecret == "" {
+		return nil, fmt.Errorf(
+			"JWT_SECRET not found in .env file or environment variables\n\n" +
+				"Please add JWT_SECRET to your .env file or export it as an environment variable:\n" +
+				"JWT_SECRET=your-secure-random-secret-key",
+		)
+	}
+		
 
 	planCatalogPath := strings.TrimSpace(os.Getenv("LIVEREVIEW_PLAN_CATALOG_PATH"))
 	if planCatalogPath == "" {
@@ -196,7 +226,7 @@ func NewServer(port int, versionInfo *VersionInfo) (*Server, error) {
 	}
 
 	// Validate database connection
-	err = validateDatabaseConnection(dbURL)
+	err := validateDatabaseConnection(dbURL)
 	if err != nil {
 		return nil, err
 	}
@@ -206,6 +236,9 @@ func NewServer(port int, versionInfo *VersionInfo) (*Server, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to open database connection: %v", err)
 	}
+	db.SetMaxOpenConns(25)
+	db.SetMaxIdleConns(10)
+	db.SetConnMaxLifetime(5 * time.Minute)
 
 	if err := ensureRequiredBillingSchema(context.Background(), db); err != nil {
 		return nil, err
@@ -228,7 +261,11 @@ func NewServer(port int, versionInfo *VersionInfo) (*Server, error) {
 	authHandlers := auth.NewAuthHandlers(tokenService, db)
 
 	// Initialize user management system
-	userService := users.NewUserService(db)
+	apiKeyManager := NewAPIKeyManager(db)
+	userService := users.NewUserService(db, func(tx *sql.Tx, userID, orgID int64) (string, error) {
+		_, key, err := apiKeyManager.CreateAPIKeyTx(tx, userID, orgID, "Onboarding API Key", []string{}, nil)
+		return key, err
+	})
 	userHandlers := users.NewUserHandlers(userService, db)
 
 	// Initialize profile management system
@@ -246,48 +283,6 @@ func NewServer(port int, versionInfo *VersionInfo) (*Server, error) {
 	// Start token cleanup scheduler
 	tokenService.StartCleanupScheduler()
 
-	e := echo.New()
-
-	// Middleware
-	// e.Use(middleware.Logger()) // Disabled to reduce log noise
-	e.Use(middleware.Recover())
-	e.Use(middleware.CORSWithConfig(middleware.CORSConfig{
-		AllowOriginFunc: func(origin string) (bool, error) {
-			// Allow localhost for development
-			if strings.HasPrefix(origin, "http://localhost:") {
-				return true, nil
-			}
-			// Allow hexmos.com and all subdomains
-			if origin == "https://hexmos.com" || origin == "http://hexmos.com" {
-				return true, nil
-			}
-			if strings.HasSuffix(origin, ".hexmos.com") {
-				return true, nil
-			}
-			return false, nil
-		},
-		AllowMethods: []string{
-			echo.GET, echo.POST, echo.PUT, echo.PATCH, echo.DELETE, echo.OPTIONS,
-		},
-		AllowHeaders: []string{
-			echo.HeaderOrigin,
-			echo.HeaderContentType,
-			echo.HeaderAccept,
-			echo.HeaderAuthorization,
-			"X-Requested-With",
-			"X-Org-Context",
-		},
-		AllowCredentials: true,
-	}))
-
-	// Add database to context
-	e.Use(func(next echo.HandlerFunc) echo.HandlerFunc {
-		return func(c echo.Context) error {
-			c.Set("db", db)
-			return next(c)
-		}
-	})
-
 	triggerAutoInstall := func(integrationID int) {
 		if autoWebhookInstaller != nil {
 			autoWebhookInstaller.TriggerAutoInstallation(integrationID)
@@ -297,7 +292,6 @@ func NewServer(port int, versionInfo *VersionInfo) (*Server, error) {
 	learningsSvc := learnings.NewService(learnings.NewPostgresStore(db))
 
 	server := &Server{
-		echo:                 e,
 		port:                 port,
 		db:                   db,
 		jobQueue:             jq,
@@ -330,6 +324,11 @@ func NewServer(port int, versionInfo *VersionInfo) (*Server, error) {
 	// Initialize V2 webhook orchestrator
 	server.webhookOrchestratorV2 = NewWebhookOrchestratorV2(server)
 
+	// Register webhook orchestrator callback with reviewprocessor
+	reviewprocessor.RegisterWebhookReviewHandler(func(ctx context.Context, db *sql.DB, orgID int64, connectorID int64, eventJSON string, scenarioType string) error {
+		return server.webhookOrchestratorV2.ProcessAsync(ctx, orgID, connectorID, eventJSON, scenarioType)
+	})
+
 	// Set the server reference in auto webhook installer (circular dependency)
 	autoWebhookInstaller.server = server
 
@@ -342,10 +341,119 @@ func NewServer(port int, versionInfo *VersionInfo) (*Server, error) {
 		return nil, fmt.Errorf("configuration validation failed: %w", err)
 	}
 
-	// Setup routes
+	return server, nil
+}
+
+// NewServer creates a new API server with HTTP routing and middlewares initialized
+func NewServer(port int, versionInfo *VersionInfo) (*Server, error) {
+	server, err := appContext(port, versionInfo)
+	if err != nil {
+		return nil, err
+	}
+
+	e := echo.New()
+	e.HideBanner = true
+
+	// Middleware
+	e.Use(middleware.Recover())
+	e.Use(middleware.CORSWithConfig(middleware.CORSConfig{
+		AllowOriginFunc: func(origin string) (bool, error) {
+			// Allow localhost for development
+			if strings.HasPrefix(origin, "http://localhost:") {
+				return true, nil
+			}
+			// Allow hexmos.com / hexmos.site and all subdomains
+			if origin == "https://hexmos.com" || origin == "http://hexmos.com" ||
+				origin == "https://hexmos.site" || origin == "http://hexmos.site" {
+				return true, nil
+			}
+			if strings.HasSuffix(origin, ".hexmos.com") || strings.HasSuffix(origin, ".hexmos.site") {
+				return true, nil
+			}
+			return false, nil
+		},
+		AllowMethods: []string{
+			echo.GET, echo.POST, echo.PUT, echo.PATCH, echo.DELETE, echo.OPTIONS,
+		},
+		AllowHeaders: []string{
+			echo.HeaderOrigin,
+			echo.HeaderContentType,
+			echo.HeaderAccept,
+			echo.HeaderAuthorization,
+			"X-Requested-With",
+			"X-Org-Context",
+		},
+		AllowCredentials: true,
+	}))
+
+	// Add database to context
+	e.Use(func(next echo.HandlerFunc) echo.HandlerFunc {
+		return func(c echo.Context) error {
+			c.Set("db", server.db)
+			return next(c)
+		}
+	})
+
+	server.echo = e
 	server.setupRoutes()
+	mcp := mcpserver.New(e)
+	mcp.RegisterSchema("POST", "/api/v1/connectors/trigger-review", nil, TriggerReviewRequest{})
+	mcp.RegisterSchema("POST", "/api/v1/integration_tokens/pat", nil, CreatePATRequest{})
+	mcp.RegisterSchema("GET", "/api/v1/diff-review/trigger-local-review", nil, nil)
+	mcp.RegisterSchema("POST", "/api/v1/billing/upgrade/preview", nil, PlanChangeRequest{})
+	mcp.RegisterSchema("POST", "/api/v1/aiconnectors", nil, AIConnectorCreateRequest{})
+	mcp.RegisterSchema("POST", "/api/v1/aiconnectors/validate-key", nil, AIConnectorKeyValidationRequest{})
+	mcp.RegisterSchema("PUT", "/api/v1/aiconnectors/reorder", nil, []aiconnectors.DisplayOrderUpdate{})
+	mcp.RegisterSchema("GET", "/api/v1/reviews", nil, ReviewsQuery{})
+	mcp.RegisterSchema("GET", "/api/v1/reviews/:id", nil, nil)
+	mcp.RegisterSchema("GET", "/api/v1/reviews/:id/events", nil, nil)
+	mcp.RegisterSchema("GET", "/api/v1/reviews/:id/summary", nil, nil)
+	mcp.RegisterSchema("GET", "/api/v1/reviews/:id/accounting", nil, nil)
+	mcp.RegisterSchema("GET", "/api/v1/learnings", nil, LearningsQuery{})
+	mcp.RegisterSchema("POST", "/api/v1/learnings", nil, UpsertLearningRequest{})
+	mcp.RegisterSchema("GET", "/api/v1/learnings/:id", nil, nil)
+	mcp.RegisterSchema("PUT", "/api/v1/learnings/:id", nil, UpdateLearningRequest{})
+	mcp.RegisterSchema("DELETE", "/api/v1/learnings/:id", nil, nil)
+	mcp.RegisterSchema("GET", "/api/v1/prompts/catalog", nil, nil)
+	mcp.RegisterSchema("GET", "/api/v1/prompts/:key/variables", nil, RenderPromptQuery{})
+	mcp.RegisterSchema("GET", "/api/v1/prompts/:key/render", nil, RenderPromptQuery{})
+
+	mcp.RegisterEndpoints([]string{
+		"/api/v1/auth/me",
+		"/api/v1/connectors/trigger-review",
+		"/api/v1/integration_tokens/pat",
+		"/api/v1/diff-review/trigger-local-review",
+		"/api/v1/quota/status",
+		"/api/v1/billing/status",
+		"/api/v1/billing/usage/summary",
+		"/api/v1/billing/usage/members",
+		"/api/v1/billing/usage/operations",
+		"/api/v1/billing/upgrade/preview",
+		"/api/v1/reviews",
+		"/api/v1/reviews/:id",
+		"/api/v1/reviews/:id/events",
+		"/api/v1/reviews/:id/summary",
+		"/api/v1/reviews/:id/accounting",
+		"/api/v1/learnings",
+		"/api/v1/learnings/:id",
+		"/api/v1/prompts/catalog",
+		"/api/v1/prompts/:key/variables",
+		"/api/v1/prompts/:key/render",
+		"/api/v1/connectors",
+		"/api/v1/aiconnectors",
+		"/api/v1/aiconnectors/validate-key",
+		"/api/v1/aiconnectors/reorder",
+		"/api/v1/mcp-api-integration-guide",
+	})
+
+	mcp.Mount("/api/mcp")
 
 	return server, nil
+}
+
+// WorkerContext creates a new Server instance optimized for running background workers (no Echo router initialized)
+func WorkerContext(versionInfo *VersionInfo) (*Server, error) {
+	return appContext(0, versionInfo)
 }
 
 func ensureRequiredBillingSchema(ctx context.Context, db *sql.DB) error {
@@ -459,6 +567,7 @@ func (s *Server) setupRoutes() {
 	public.POST("/auth/refresh", s.authHandlers.RefreshToken)
 	public.GET("/auth/setup-status", s.authHandlers.CheckSetupStatus)
 	public.POST("/auth/setup", s.authHandlers.SetupAdmin)
+	public.POST("/auth/onboard", s.Onboard)
 
 	// Diff review endpoints (protected by API key middleware)
 	diffReviewGroup := v1.Group("/diff-review")
@@ -466,6 +575,7 @@ func (s *Server) setupRoutes() {
 	diffReviewGroup.Use(apimiddleware.BuildOrgBillingPlanContext(s.db, s.licenseService()))
 	diffReviewGroup.Use(apimiddleware.BuildPlanContext())
 	diffReviewGroup.POST("", s.DiffReview)
+	diffReviewGroup.GET("/trigger-local-review", s.TriggerLocalReview)
 	diffReviewGroup.GET("/:review_id", s.GetDiffReviewStatus)
 
 	// Review events endpoints (alternative API key-based access for CLI)
@@ -491,13 +601,14 @@ func (s *Server) setupRoutes() {
 	// System info endpoints (public)
 	public.GET("/system/info", s.getSystemInfo)
 	public.GET("/ui-config", s.getUIConfig)
+	public.GET("/mcp-api-integration-guide", s.APIIntegrationHelper)
 
 	// Cloud user ensure endpoint (now public; handler performs CLOUD_JWT_SECRET validation)
 	public.POST("/auth/ensure-cloud-user", s.authHandlers.EnsureCloudUser)
 
-	// Protected routes (require authentication)
+	// Protected routes (require authentication - supports both Bearer tokens and API keys)
 	protected := v1.Group("")
-	protected.Use(auth.RequireAuth(s.tokenService, s.db))
+	protected.Use(RequireAuthOrAPIKey(s.tokenService, s.db))
 
 	// Apply subscription enforcement middleware (cloud mode only)
 	authMiddleware := auth.NewAuthMiddleware(s.tokenService, s.db)
@@ -515,6 +626,7 @@ func (s *Server) setupRoutes() {
 	// Self-service profile endpoints
 	protected.GET("/users/profile", s.profileHandlers.GetProfile)
 	protected.PUT("/users/profile", s.profileHandlers.UpdateProfile)
+	protected.PUT("/users/default-org", s.orgHandlers.SetDefaultOrganization)
 	protected.PUT("/users/password", s.profileHandlers.ChangePassword)
 
 	// Development mode test endpoints (only enabled when DEV_MODE=true)
@@ -533,7 +645,7 @@ func (s *Server) setupRoutes() {
 
 	// Org routes group - requires org context and permissions
 	orgGroup := v1.Group("/orgs/:org_id")
-	orgGroup.Use(authMiddleware.RequireAuth())
+	orgGroup.Use(RequireAuthOrAPIKey(s.tokenService, s.db))
 	orgGroup.Use(authMiddleware.BuildOrgContext())
 	orgGroup.Use(authMiddleware.ValidateOrgAccess())
 	orgGroup.Use(authMiddleware.BuildPermissionContext())
@@ -551,7 +663,7 @@ func (s *Server) setupRoutes() {
 
 	// Super admin routes - Production
 	adminGroup := v1.Group("/admin")
-	adminGroup.Use(authMiddleware.RequireAuth())
+	adminGroup.Use(RequireAuthOrAPIKey(s.tokenService, s.db))
 	adminGroup.Use(authMiddleware.RequireSuperAdmin())
 
 	// Super admin user management endpoints
@@ -559,6 +671,11 @@ func (s *Server) setupRoutes() {
 	adminGroup.POST("/orgs/:org_id/users", s.userHandlers.CreateUserInAnyOrg)
 	adminGroup.PUT("/users/:user_id/org", s.userHandlers.TransferUserToOrg)
 	adminGroup.GET("/analytics/users", s.userHandlers.GetUserAnalytics)
+
+	// Super admin SMTP settings endpoints
+	adminGroup.GET("/settings/smtp", s.GetSMTPSettings)
+	adminGroup.PUT("/settings/smtp", s.UpdateSMTPSettings)
+	adminGroup.POST("/settings/smtp/test", s.TestSMTPSettings)
 
 	// Organization management endpoints
 	// User organization access (get their orgs) - needs permission context to detect super admin
@@ -588,7 +705,7 @@ func (s *Server) setupRoutes() {
 	// Learnings endpoints (organization-scoped, MVP)
 	learningsHandler := NewLearningsHandler(s.db)
 	learningsGroup := v1.Group("/learnings")
-	learningsGroup.Use(authMiddleware.RequireAuth())
+	learningsGroup.Use(RequireAuthOrAPIKey(s.tokenService, s.db))
 	learningsGroup.Use(authMiddleware.BuildOrgContextFromHeader())
 	learningsGroup.Use(authMiddleware.ValidateOrgAccess())
 	learningsGroup.Use(authMiddleware.BuildPermissionContext())
@@ -606,7 +723,7 @@ func (s *Server) setupRoutes() {
 
 		// Super admin routes - TEST
 		adminGroup := v1.Group("/admin")
-		adminGroup.Use(authMiddleware.RequireAuth())
+		adminGroup.Use(RequireAuthOrAPIKey(s.tokenService, s.db))
 		adminGroup.Use(authMiddleware.RequireSuperAdmin())
 
 		// TEST: Super admin test endpoint
@@ -633,7 +750,7 @@ func (s *Server) setupRoutes() {
 
 	// Connector endpoints (organization-scoped via headers)
 	connectorGroup := v1.Group("/connectors")
-	connectorGroup.Use(authMiddleware.RequireAuth())
+	connectorGroup.Use(RequireAuthOrAPIKey(s.tokenService, s.db))
 	connectorGroup.Use(authMiddleware.BuildOrgContextFromHeader())
 	connectorGroup.Use(authMiddleware.ValidateOrgAccess())
 	connectorGroup.Use(authMiddleware.BuildPermissionContext())
@@ -663,7 +780,7 @@ func (s *Server) setupRoutes() {
 
 	// Organization-scoped PAT creation (uses X-Org-Context header for organization context)
 	patGroup := v1.Group("/integration_tokens")
-	patGroup.Use(authMiddleware.RequireAuth())
+	patGroup.Use(RequireAuthOrAPIKey(s.tokenService, s.db))
 	patGroup.Use(authMiddleware.BuildOrgContextFromHeader())
 	patGroup.Use(authMiddleware.ValidateOrgAccess())
 	patGroup.Use(authMiddleware.BuildPermissionContext())
@@ -671,7 +788,7 @@ func (s *Server) setupRoutes() {
 
 	// Prompts management endpoints (Phase 7)
 	promptsGroup := v1.Group("/prompts")
-	promptsGroup.Use(authMiddleware.RequireAuth())
+	promptsGroup.Use(RequireAuthOrAPIKey(s.tokenService, s.db))
 	promptsGroup.Use(authMiddleware.BuildOrgContextFromHeader())
 	promptsGroup.Use(authMiddleware.ValidateOrgAccess())
 	promptsGroup.Use(authMiddleware.BuildPermissionContext())
@@ -712,7 +829,7 @@ func (s *Server) setupRoutes() {
 
 	// AI Connector endpoints (organization scoped)
 	aiConnectorGroup := v1.Group("/aiconnectors")
-	aiConnectorGroup.Use(authMiddleware.RequireAuth())
+	aiConnectorGroup.Use(RequireAuthOrAPIKey(s.tokenService, s.db))
 	aiConnectorGroup.Use(authMiddleware.BuildOrgContextFromHeader())
 	aiConnectorGroup.Use(authMiddleware.ValidateOrgAccess())
 	aiConnectorGroup.Use(authMiddleware.BuildPermissionContext())
@@ -728,7 +845,7 @@ func (s *Server) setupRoutes() {
 
 	// Dashboard endpoints (organization scoped)
 	dashboardGroup := v1.Group("/dashboard")
-	dashboardGroup.Use(authMiddleware.RequireAuth())
+	dashboardGroup.Use(RequireAuthOrAPIKey(s.tokenService, s.db))
 	dashboardGroup.Use(authMiddleware.BuildOrgContextFromHeader())
 	dashboardGroup.Use(authMiddleware.ValidateOrgAccess())
 	dashboardGroup.Use(authMiddleware.BuildPermissionContext())
@@ -737,7 +854,7 @@ func (s *Server) setupRoutes() {
 
 	// Activity endpoints (organization scoped)
 	activityGroup := v1.Group("/activities")
-	activityGroup.Use(authMiddleware.RequireAuth())
+	activityGroup.Use(RequireAuthOrAPIKey(s.tokenService, s.db))
 	activityGroup.Use(authMiddleware.BuildOrgContextFromHeader())
 	activityGroup.Use(authMiddleware.ValidateOrgAccess())
 	activityGroup.Use(authMiddleware.BuildPermissionContext())
@@ -751,7 +868,7 @@ func (s *Server) setupRoutes() {
 
 	// Review events endpoints (Phase 3) - Review Progress UI
 	reviewsGroup := v1.Group("/reviews")
-	reviewsGroup.Use(authMiddleware.RequireAuth())
+	reviewsGroup.Use(RequireAuthOrAPIKey(s.tokenService, s.db))
 	reviewsGroup.Use(authMiddleware.BuildOrgContextFromHeader())
 	reviewsGroup.Use(authMiddleware.ValidateOrgAccess())
 	reviewsGroup.Use(authMiddleware.BuildPermissionContext())
@@ -776,7 +893,7 @@ func (s *Server) setupRoutes() {
 	// Subscription endpoints (organization scoped)
 	subscriptionsHandler := NewSubscriptionsHandler(s.db)
 	subscriptionsGroup := v1.Group("/subscriptions")
-	subscriptionsGroup.Use(authMiddleware.RequireAuth())
+	subscriptionsGroup.Use(RequireAuthOrAPIKey(s.tokenService, s.db))
 	subscriptionsGroup.Use(authMiddleware.BuildOrgContextFromHeader())
 	subscriptionsGroup.Use(authMiddleware.ValidateOrgAccess())
 	subscriptionsGroup.Use(authMiddleware.BuildPermissionContext())
@@ -803,7 +920,7 @@ func (s *Server) setupRoutes() {
 	// Quota status endpoint (organization scoped)
 	quotaHandler := NewQuotaStatusHandler(s.db)
 	quotaGroup := v1.Group("/quota")
-	quotaGroup.Use(authMiddleware.RequireAuth())
+	quotaGroup.Use(RequireAuthOrAPIKey(s.tokenService, s.db))
 	quotaGroup.Use(authMiddleware.BuildOrgContextFromHeader())
 	quotaGroup.Use(authMiddleware.ValidateOrgAccess())
 	quotaGroup.Use(authMiddleware.BuildPermissionContext())
@@ -815,7 +932,7 @@ func (s *Server) setupRoutes() {
 	// Billing actions endpoints (organization scoped)
 	billingActionsHandler := NewBillingActionsHandler(s.db)
 	billingGroup := v1.Group("/billing")
-	billingGroup.Use(authMiddleware.RequireAuth())
+	billingGroup.Use(RequireAuthOrAPIKey(s.tokenService, s.db))
 	billingGroup.Use(authMiddleware.BuildOrgContextFromHeader())
 	billingGroup.Use(authMiddleware.ValidateOrgAccess())
 	billingGroup.Use(authMiddleware.BuildPermissionContext())
@@ -836,7 +953,7 @@ func (s *Server) setupRoutes() {
 	billingGroup.POST("/downgrade/cancel", billingActionsHandler.CancelScheduledDowngrade)
 
 	adminBillingGroup := v1.Group("/admin/billing")
-	adminBillingGroup.Use(authMiddleware.RequireAuth())
+	adminBillingGroup.Use(RequireAuthOrAPIKey(s.tokenService, s.db))
 	adminBillingGroup.Use(authMiddleware.RequireSuperAdmin())
 	adminBillingGroup.GET("/portfolio/summary", billingActionsHandler.GetAdminBillingPortfolioSummary)
 	adminBillingGroup.GET("/portfolio/orgs", billingActionsHandler.ListAdminBillingPortfolioOrganizations)
@@ -1019,15 +1136,6 @@ func (s *Server) Start() error {
 	}
 	fmt.Println("Press Ctrl+C to stop the server")
 
-	// Start job queue workers
-	ctx := context.Background()
-	go func() {
-		if err := s.jobQueue.Start(ctx); err != nil {
-			fmt.Printf("Error starting job queue: %v\n", err)
-		}
-	}()
-	fmt.Println("Job queue workers started")
-
 	// Start dashboard manager
 	s.dashboardManager.Start()
 	fmt.Println("Dashboard manager started")
@@ -1136,6 +1244,14 @@ type ReviewResponse struct {
 	OrgID          int64                  `json:"orgId"`
 }
 
+type ReviewsQuery struct {
+	Page     int    `form:"page" query:"page" json:"page,omitempty" jsonschema:"description=Page number for pagination"`
+	PerPage  int    `form:"per_page" query:"per_page" json:"per_page,omitempty" jsonschema:"description=Number of items per page"`
+	Status   string `form:"status" query:"status" json:"status,omitempty" jsonschema:"description=Filter reviews by status (e.g. pending, completed, failed)"`
+	Provider string `form:"provider" query:"provider" json:"provider,omitempty" jsonschema:"description=Filter reviews by Git provider (e.g. github, gitlab)"`
+	Search   string `form:"search" query:"search" json:"search,omitempty" jsonschema:"description=Search pattern for repository name, MR title, or author"`
+}
+
 type ReviewsListResponse struct {
 	Reviews     []ReviewResponse `json:"reviews"`
 	Total       int              `json:"total"`
@@ -1144,6 +1260,35 @@ type ReviewsListResponse struct {
 	TotalPages  int              `json:"totalPages"`
 	HasNext     bool             `json:"hasNext"`
 	HasPrevious bool             `json:"hasPrevious"`
+}
+
+type LearningsQuery struct {
+	Page            int    `form:"page" query:"page" json:"page,omitempty" jsonschema:"description=Page number for pagination"`
+	Limit           int    `form:"limit" query:"limit" json:"limit,omitempty" jsonschema:"description=Number of items per page (default: 20)"`
+	Search          string `form:"search" query:"search" json:"search,omitempty" jsonschema:"description=Search keyword for learning title or body"`
+	IncludeArchived bool   `form:"include_archived" query:"include_archived" json:"include_archived,omitempty" jsonschema:"description=Include archived learnings"`
+}
+
+type UpsertLearningRequest struct {
+	Title  string   `json:"title" jsonschema:"required,description=The title of the learning rule"`
+	Body   string   `json:"body" jsonschema:"required,description=The body of the learning containing code rules or comments"`
+	Tags   []string `json:"tags,omitempty" jsonschema:"description=Tags for categorization"`
+	Scope  string   `json:"scope_kind" jsonschema:"required,enum=org,enum=repo,description=Scope of the learning (must be either 'org' for organization-wide or 'repo' for repository-specific)"`
+	RepoID string   `json:"repo_id,omitempty" jsonschema:"description=Specific repository ID (required if scope_kind is 'repo')"`
+}
+
+type UpdateLearningRequest struct {
+	Title     *string   `json:"title,omitempty" jsonschema:"description=Updated title"`
+	Body      *string   `json:"body,omitempty" jsonschema:"description=Updated body/instructions"`
+	Tags      *[]string `json:"tags,omitempty" jsonschema:"description=Updated tags"`
+	ScopeKind *string   `json:"scope_kind,omitempty" jsonschema:"enum=org,enum=repo,description=Updated scope kind (must be either 'org' or 'repo')"`
+	RepoID    *string   `json:"repo_id,omitempty" jsonschema:"description=Updated repository ID"`
+}
+
+type RenderPromptQuery struct {
+	AIConnectorID      int64  `form:"ai_connector_id" query:"ai_connector_id" json:"ai_connector_id,omitempty" jsonschema:"description=AI connector ID"`
+	IntegrationTokenID int64  `form:"integration_token_id" query:"integration_token_id" json:"integration_token_id,omitempty" jsonschema:"description=Integration token/connector ID"`
+	Repository         string `form:"repository" query:"repository" json:"repository,omitempty" jsonschema:"description=Repository name"`
 }
 
 // getReviews handles GET /api/v1/reviews with filtering and pagination
@@ -1571,6 +1716,27 @@ func (s *Server) getVersion(c echo.Context) error {
 	return c.JSON(http.StatusOK, response)
 }
 
+// @Summary      LiveReview API Integration Guide
+// @Description  This tool provides instructions on how to integrate the LiveReview API into your codebase using MCP. It explains API key usage, base URL selection, OpenAPI specs location, and how to use tools for schema information. For getting the accurate API paths, refer to the OpenAPI spec. Use this tool if you need to know how to integrate an API.
+// @Tags         integration
+// @Produce      json
+// @Success      200  {object}  map[string]interface{}
+// @Router       /api/v1/mcp-api-integration-guide [get]
+func (s *Server) APIIntegrationHelper(c echo.Context) error {
+	specContent := "OpenAPI specification could not be loaded directly. Please check the public documentation."
+	if data, err := os.ReadFile("docs/openapi.yaml"); err == nil {
+		specContent = string(data)
+	}
+
+	return c.JSON(http.StatusOK, map[string]interface{}{
+		"message":            "Welcome to the LiveReview API Integration Guide!",
+		"base_url":           "Use https://livereview.hexmos.com as the default Base URL for all API requests. IMPORTANT: Please ask the user in the beginning whether they want to use livereview.hexmos.com or a different Base URL (e.g., for a self-hosted instance).",
+		"authentication":     "To authenticate requests, you MUST use the 'X-API-KEY' header and pass your API key. Do not use Bearer token authentication for API integration.",
+		"schema_information": "Check the available MCP tools for specific schema information of individual endpoints. They provide the required parameters and payload structures.",
+		"openapi_spec":       specContent,
+	})
+}
+
 // EnableManualTriggerForAllProjects handles enabling manual trigger for all projects for a connector
 func (s *Server) EnableManualTriggerForAllProjects(c echo.Context) error {
 	connectorIdStr := c.Param("connectorId")
@@ -1794,4 +1960,9 @@ func (s *Server) WebhookOrchestratorV2Handler(c echo.Context) error {
 	}
 
 	return s.webhookOrchestratorV2.ProcessWebhookEvent(c)
+}
+
+// GetJobQueue returns the initialized job queue
+func (s *Server) GetJobQueue() *jobqueue.JobQueue {
+	return s.jobQueue
 }

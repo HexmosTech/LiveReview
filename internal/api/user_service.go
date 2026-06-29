@@ -71,10 +71,10 @@ func (s *UserService) CreateFirstAdminUser(email, password string) error {
 
 	var userID int64
 	err = tx.QueryRow(`
-		INSERT INTO users (email, password_hash) 
-		VALUES ($1, $2) 
+		INSERT INTO users (email, password_hash, default_org_id) 
+		VALUES ($1, $2, $3) 
 		RETURNING id
-	`, email, string(hashedPassword)).Scan(&userID)
+	`, email, string(hashedPassword), orgID).Scan(&userID)
 	if err != nil {
 		return fmt.Errorf("failed to create user: %v", err)
 	}
@@ -155,8 +155,8 @@ func (s *UserService) MigrateExistingAdminPassword() error {
 	// Create super admin user with existing password
 	var userID int64
 	err = tx.QueryRow(`
-		INSERT INTO users (email, password_hash) 
-		VALUES ('admin@localhost', $1) 
+		INSERT INTO users (email, password_hash, default_org_id) 
+		VALUES ('admin@localhost', $1, 1) 
 		RETURNING id
 	`, adminPassword).Scan(&userID)
 	if err != nil {
@@ -195,10 +195,10 @@ func (s *UserService) CheckSetupStatus() (bool, error) {
 func (s *UserService) GetUserByEmail(email string) (*models.User, error) {
 	user := &models.User{}
 	err := s.db.QueryRow(`
-		SELECT id, email, password_hash, created_at, updated_at 
+		SELECT id, email, password_hash, default_org_id, created_at, updated_at 
 		FROM users 
 		WHERE email = $1
-	`, email).Scan(&user.ID, &user.Email, &user.PasswordHash, &user.CreatedAt, &user.UpdatedAt)
+	`, email).Scan(&user.ID, &user.Email, &user.PasswordHash, &user.DefaultOrgID, &user.CreatedAt, &user.UpdatedAt)
 	if err != nil {
 		return nil, err
 	}

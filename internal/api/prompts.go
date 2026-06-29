@@ -261,8 +261,8 @@ func (s *Server) CreatePromptChunk(c echo.Context) error {
 		}
 	} else {
 		req.Type = "user"
-		if !(pc.IsOwner || pc.IsMember || pc.IsSuperAdmin) {
-			return c.JSON(http.StatusForbidden, map[string]string{"error": "insufficient permissions"})
+		if !(pc.IsOwner || pc.IsSuperAdmin) {
+			return c.JSON(http.StatusForbidden, map[string]string{"error": "owner or super admin required to customize prompts"})
 		}
 	}
 
