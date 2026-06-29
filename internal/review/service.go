@@ -14,6 +14,8 @@ import (
 	"github.com/livereview/internal/aidefault"
 	"github.com/livereview/internal/batch"
 	"github.com/livereview/internal/logging"
+	"github.com/livereview/internal/lrcconfig"
+	"github.com/livereview/internal/lrcfetch"
 	"github.com/livereview/internal/prompts"
 	"github.com/livereview/internal/providers"
 	"github.com/livereview/pkg/models"
@@ -515,23 +517,33 @@ func (s *Service) executeReviewWorkflow(
 			s.logger.EmitStageCompleted("Analysis", fmt.Sprintf("Retrieved %d changed files from merge request", len(changes)))
 		}
 
-		// TODO(repo-rules): once providers implement lrcconfig.RepoConfigProvider,
-		// fetch .lrc/ at mrDetails' head ref and run it through the same
-		// lrcconfig pipeline used for CLI reviews (LoadIgnorePatterns ->
-		// FilterDiffs -> BuildRulesBundle -> prompts.WithRepoRules), e.g.:
-		//
-		//   if rcp, ok := provider.(lrcconfig.RepoConfigProvider); ok {
-		//       if bundle, found, err := rcp.GetRepoConfigBundle(ctx, mrDetails.SourceBranch); err == nil && found {
-		//           patterns, _ := lrcconfig.LoadIgnorePatterns(bundle)
-		//           changes, _ = lrcconfig.FilterDiffs(changes, patterns)
-		//           rulesText, _, _ := lrcconfig.BuildRulesBundle(bundle)
-		//           ctx = prompts.WithRepoRules(ctx, rulesText)
-		//       }
-		//   }
-		//
-		// Open questions: cache .lrc/ fetches per repo+ref to avoid an extra
-		// API call on every review, and decide which ref to use when .lrc/
-		// only exists on the default branch (not mrDetails.SourceBranch).
+		// Fetch .lrc/ rules from the target branch and inject into the AI prompt.
+		// Uses target branch (not source) so PR authors cannot inject arbitrary
+		// instructions via their feature branch.
+		if rcp, ok := provider.(lrcfetch.Provider); ok {
+			ref := mrDetails.TargetBranch
+			if ref == "" {
+				ref = mrDetails.SourceBranch
+			}
+			repoFullName := extractRepoFullName(mrDetails.RepositoryURL)
+			if repoFullName != "" && ref != "" {
+				lrcFiles, found, lrcErr := rcp.GetRepoConfigFiles(ctx, repoFullName, ref)
+				if lrcErr != nil {
+					log.Printf("[WARN] .lrc fetch failed for %s@%s: %v", mrDetails.RepositoryURL, ref, lrcErr)
+				} else if found {
+					bundle := lrcconfig.BundleFromFiles(lrcFiles)
+					patterns, _ := lrcconfig.LoadIgnorePatterns(bundle)
+					if len(patterns) > 0 {
+						changes, _ = lrcconfig.FilterCodeDiffs(changes, patterns)
+					}
+					rulesText, _, _ := lrcconfig.BuildRulesBundle(bundle)
+					ctx = prompts.WithRepoRules(ctx, rulesText)
+					if s.logger != nil {
+						s.logger.Log("✓ Loaded .lrc rules from %s@%s", repoFullName, ref)
+					}
+				}
+			}
+		}
 	}
 
 	// Check if there are no changes to review
@@ -752,4 +764,23 @@ func (s *Service) ProcessReviewAsync(ctx context.Context, request ReviewRequest,
 			callback(result)
 		}
 	}()
+}
+
+// extractRepoFullName parses "owner/repo" from a git host URL.
+// Works for GitHub, GitLab, Bitbucket, and Gitea URL shapes.
+// Returns "" when the URL cannot be parsed.
+func extractRepoFullName(rawURL string) string {
+	if rawURL == "" {
+		return ""
+	}
+	u, err := neturl.Parse(rawURL)
+	if err != nil {
+		return ""
+	}
+	// Path looks like "/owner/repo" or "/owner/repo/pulls/1" etc.
+	parts := strings.SplitN(strings.TrimPrefix(u.Path, "/"), "/", 3)
+	if len(parts) < 2 || parts[0] == "" || parts[1] == "" {
+		return ""
+	}
+	return parts[0] + "/" + parts[1]
 }
