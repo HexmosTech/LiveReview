@@ -42,7 +42,7 @@ func main() {
 		Commands: []*cli.Command{
 			cmd.ReviewCommand(),
 			cmd.ConfigCommand(),
-			cmd.APICommand(),
+			cmd.APICommand(openapiSpec),
 			cmd.WorkerCommand(),
 			cmd.UICommand(uiAssets),
 		},
