@@ -2,7 +2,6 @@ package gitlab
 
 import (
 	"context"
-	"database/sql"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -131,13 +130,7 @@ func (p *GitLabV2Provider) getGitLabAccessTokenForLRC(instanceURL string) (strin
 	if err != sql.ErrNoRows {
 		return "", fmt.Errorf("token query error: %w", err)
 	}
-	// Fallback: return any GitLab token (useful when instance URL is generic).
-	fallback := `SELECT pat_token FROM integration_tokens WHERE provider IN ('gitlab', 'gitlab-com', 'gitlab-self-hosted') LIMIT 1`
-	err = p.db.QueryRow(fallback).Scan(&token)
-	if err != nil {
-		return "", fmt.Errorf("no GitLab token found: %w", err)
-	}
-	return token, nil
+	return "", fmt.Errorf("no GitLab token found for instance %s", instanceURL)
 }
 
 // gitlabFetchTree calls the GitLab repository tree API and returns all entries.
