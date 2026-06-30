@@ -779,10 +779,12 @@ func extractRepoFullName(rawURL string) string {
 	if err != nil {
 		return ""
 	}
-	// Path looks like "/owner/repo" or "/owner/repo/pulls/1" etc.
-	parts := strings.SplitN(strings.TrimPrefix(u.Path, "/"), "/", 3)
-	if len(parts) < 2 || parts[0] == "" || parts[1] == "" {
+	// RepositoryURL is already the project root (no trailing path segments like
+	// /pulls or /-/merge_requests). Return the full path so nested GitLab group
+	// paths like "group/subgroup/project" are preserved correctly.
+	path := strings.Trim(u.Path, "/")
+	if !strings.Contains(path, "/") {
 		return ""
 	}
-	return parts[0] + "/" + parts[1]
+	return path
 }
