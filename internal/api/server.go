@@ -153,6 +153,8 @@ type Server struct {
 	webhookOrchestratorV2 *WebhookOrchestratorV2
 
 	learningsService *learnings.Service
+
+	openapiSpec string
 }
 
 // appContext initializes the core backend database, configurations, queues, and provider subsystems
@@ -454,6 +456,11 @@ func NewServer(port int, versionInfo *VersionInfo) (*Server, error) {
 // WorkerContext creates a new Server instance optimized for running background workers (no Echo router initialized)
 func WorkerContext(versionInfo *VersionInfo) (*Server, error) {
 	return appContext(0, versionInfo)
+}
+
+// SetOpenAPISpec sets the OpenAPI specification content for the integration guide endpoint
+func (s *Server) SetOpenAPISpec(spec string) {
+	s.openapiSpec = spec
 }
 
 func ensureRequiredBillingSchema(ctx context.Context, db *sql.DB) error {
@@ -1723,17 +1730,12 @@ func (s *Server) getVersion(c echo.Context) error {
 // @Success      200  {object}  map[string]interface{}
 // @Router       /api/v1/mcp-api-integration-guide [get]
 func (s *Server) APIIntegrationHelper(c echo.Context) error {
-	specContent := "OpenAPI specification could not be loaded directly. Please check the public documentation."
-	if data, err := os.ReadFile("docs/openapi.yaml"); err == nil {
-		specContent = string(data)
-	}
-
 	return c.JSON(http.StatusOK, map[string]interface{}{
 		"message":            "Welcome to the LiveReview API Integration Guide!",
 		"base_url":           "Use https://livereview.hexmos.com as the default Base URL for all API requests. IMPORTANT: Please ask the user in the beginning whether they want to use livereview.hexmos.com or a different Base URL (e.g., for a self-hosted instance).",
 		"authentication":     "To authenticate requests, you MUST use the 'X-API-KEY' header and pass your API key. Do not use Bearer token authentication for API integration.",
 		"schema_information": "Check the available MCP tools for specific schema information of individual endpoints. They provide the required parameters and payload structures.",
-		"openapi_spec":       specContent,
+		"openapi_spec":       s.openapiSpec,
 	})
 }
 

@@ -18,7 +18,7 @@ var (
 )
 
 // APICommand returns the CLI command for starting the API server
-func APICommand() *cli.Command {
+func APICommand(openapiSpec string) *cli.Command {
 	return &cli.Command{
 		Name:  "api",
 		Usage: "Start the LiveReview API server",
@@ -117,6 +117,7 @@ func APICommand() *cli.Command {
 				fmt.Fprintf(os.Stderr, "Error initializing server: %v\n", err)
 				return err
 			}
+			server.SetOpenAPISpec(openapiSpec)
 
 			// Handle set admin password
 			if password := c.String("set-admin-password"); password != "" {
