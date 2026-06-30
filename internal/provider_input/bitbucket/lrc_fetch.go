@@ -63,13 +63,13 @@ func (p *BitbucketV2Provider) GetRepoConfigFiles(ctx context.Context, repoFullNa
 
 	for _, entry := range rootEntries {
 		switch {
-		case entry.Type == "commit_file" && strings.HasSuffix(entry.Path, "/.lrc/ignore"):
+		case entry.Type == "commit_file" && entry.Path == ".lrc/ignore":
 			content, err := bitbucketFetchFile(ctx, client, "https://api.bitbucket.org/2.0/repositories/"+repoFullName+"/src/"+ref+"/.lrc/ignore", email, token.PatToken)
 			if err != nil {
 				return nil, false, err
 			}
 			files["ignore"] = content
-		case entry.Type == "commit_directory" && (entry.Path == ".lrc/rules" || strings.HasSuffix(entry.Path, "/.lrc/rules")):
+		case entry.Type == "commit_directory" && entry.Path == ".lrc/rules":
 			hasRulesDir = true
 		}
 	}
