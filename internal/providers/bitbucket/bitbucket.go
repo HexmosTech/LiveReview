@@ -212,7 +212,7 @@ func (p *BitbucketProvider) GetMergeRequestDetails(ctx context.Context, prURL st
 		return nil, fmt.Errorf("failed to decode PR response: %w", err)
 	}
 
-	return &providers.MergeRequestDetails{
+	details := &providers.MergeRequestDetails{
 		ID:             fmt.Sprintf("%d", pr.ID),
 		Title:          pr.Title,
 		Description:    pr.Description,
@@ -231,7 +231,11 @@ func (p *BitbucketProvider) GetMergeRequestDetails(ctx context.Context, prURL st
 		},
 		ProviderType:  "bitbucket",
 		RepositoryURL: pr.Repository.Links.HTML.Href,
-	}, nil
+	}
+	if details.RepositoryURL == "" {
+		details.RepositoryURL = fmt.Sprintf("https://bitbucket.org/%s/%s", p.workspace, p.repoSlug)
+	}
+	return details, nil
 }
 
 func (p *BitbucketProvider) GetMergeRequestChanges(ctx context.Context, prID string) ([]*models.CodeDiff, error) {
