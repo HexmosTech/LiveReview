@@ -17,6 +17,10 @@ import (
 	coreprocessor "github.com/livereview/internal/core_processor"
 	"github.com/livereview/internal/jobqueue"
 	"github.com/livereview/internal/license"
+	"github.com/livereview/internal/lrcconfig"
+	"github.com/livereview/internal/lrcfetch"
+	"github.com/livereview/internal/prompts"
+	gitlabinput "github.com/livereview/internal/provider_input/gitlab"
 	storagelicense "github.com/livereview/storage/license"
 )
 
@@ -294,6 +298,10 @@ func (wo *WebhookOrchestratorV2) processEventAsync(ctx context.Context, event *U
 	if err := provider.FetchMergeRequestData(event); err != nil {
 		log.Printf("[WARN] Failed to fetch MR data, continuing with available data: %v", err)
 	}
+
+	// Fetch .lrc/ rules from the target branch and inject into the processing
+	// context so both review and comment-reply prompts can use them.
+	processingCtx = injectLRCRules(processingCtx, provider, event)
 
 	if blocked, reason, locUsed, locLimit := wo.enforceWebhookPreflight(processingCtx, event, scenario.Type, orgID); blocked {
 		log.Printf("[INFO] Webhook operation blocked by preflight checks for event %s/%s: %s", event.EventType, event.Provider, reason)
@@ -967,4 +975,49 @@ func (wo *WebhookOrchestratorV2) GetProcessingStats() map[string]interface{} {
 func (wo *WebhookOrchestratorV2) UpdateProcessingTimeout(timeoutSec int) {
 	wo.processingTimeoutSec = timeoutSec
 	log.Printf("[INFO] Processing timeout updated to %d seconds", timeoutSec)
+}
+
+// injectLRCRules fetches the .lrc/ bundle from the PR's target branch and
+// stores the rules text in ctx via prompts.WithRepoRules. Returns ctx unchanged
+// when the provider doesn't support the interface, .lrc/ doesn't exist, or any
+// API error occurs (all failures are non-fatal and logged at WARN level).
+func injectLRCRules(ctx context.Context, provider WebhookProviderV2, event *UnifiedWebhookEventV2) context.Context {
+	rcp, ok := provider.(lrcfetch.Provider)
+	if !ok {
+		return ctx
+	}
+
+	repoFull := event.Repository.FullName
+	if repoFull == "" {
+		return ctx
+	}
+
+	ref := ""
+	if event.MergeRequest != nil {
+		ref = event.MergeRequest.TargetBranch
+	}
+	if ref == "" {
+		return ctx
+	}
+
+	// For GitLab, inject the instance URL so the provider can look up the right token.
+	if strings.EqualFold(event.Provider, "gitlab") && event.Repository.WebURL != "" {
+		instanceURL := gitlabinput.ExtractGitLabInstanceURL(event.Repository.WebURL)
+		if instanceURL != "" {
+			ctx = gitlabinput.WithInstanceURL(ctx, instanceURL)
+		}
+	}
+
+	lrcFiles, found, err := rcp.GetRepoConfigFiles(ctx, repoFull, ref)
+	if err != nil {
+		log.Printf("[WARN] .lrc fetch for webhook %s@%s: %v", repoFull, ref, err)
+		return ctx
+	}
+	if !found {
+		return ctx
+	}
+
+	bundle := lrcconfig.BundleFromFiles(lrcFiles)
+	rulesText, _, _ := lrcconfig.BuildRulesBundle(bundle)
+	return prompts.WithRepoRules(ctx, rulesText)
 }

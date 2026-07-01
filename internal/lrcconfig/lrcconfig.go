@@ -17,6 +17,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/livereview/cmd/mrmodel/lib"
+	"github.com/livereview/pkg/models"
 	gitignore "github.com/sabhiram/go-gitignore"
 )
 
@@ -145,6 +146,37 @@ func FilterDiffs(diffs []lib.LocalCodeDiff, patterns []string) ([]lib.LocalCodeD
 		path := d.NewPath
 		if strings.TrimSpace(path) == "" {
 			path = d.OldPath
+		}
+		if matcher.MatchesPath(path) {
+			excluded = append(excluded, path)
+			continue
+		}
+		kept = append(kept, d)
+	}
+
+	return kept, excluded
+}
+
+// FilterCodeDiffs is the []*models.CodeDiff counterpart of FilterDiffs for
+// webhook-triggered reviews where changes are fetched via provider API (not
+// from a CLI-uploaded zip). Matching files are dropped; excluded paths are
+// returned so callers can log them.
+func FilterCodeDiffs(diffs []*models.CodeDiff, patterns []string) ([]*models.CodeDiff, []string) {
+	if len(patterns) == 0 {
+		return diffs, nil
+	}
+
+	matcher := gitignore.CompileIgnoreLines(patterns...)
+
+	kept := make([]*models.CodeDiff, 0, len(diffs))
+	var excluded []string
+	for _, d := range diffs {
+		if d == nil {
+			continue
+		}
+		path := d.FilePath
+		if strings.TrimSpace(path) == "" {
+			path = d.OldFilePath
 		}
 		if matcher.MatchesPath(path) {
 			excluded = append(excluded, path)
