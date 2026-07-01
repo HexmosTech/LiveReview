@@ -239,7 +239,7 @@ const NewReview: React.FC = () => {
       <div className="container mx-auto px-4 py-8">
         <PageHeader
           title="New Review"
-          description="Generate review comments safely — no comments posted automatically"
+          description="Run an AI-powered code review on any pull request or merge request"
           actions={
             <Button
               variant="outline"
@@ -395,11 +395,7 @@ const NewReview: React.FC = () => {
                   <div>• GitHub: https://github.com/owner/repo/pull/123</div>
                   <div>• Bitbucket: https://bitbucket.org/workspace/repo/pull-requests/123</div>
                 </div>
-                <div className="mt-3 pt-3 border-t border-slate-600">
-                  <p className="text-xs text-green-300 font-medium">
-                    🔒 Safe run - No comments will be posted to your PR/MR
-                  </p>
-                </div>
+                
               </div>
 
               <div className="flex justify-end space-x-3">
