@@ -446,7 +446,7 @@ func (p *BatchProcessor) AggregateAndCombineOutputs(ctx context.Context, llm llm
 		}
 	}
 	orderedSummaries := flattenSummaries(summaryOrder, summaryByFile)
-	promptText := base + "\n\n" + prompts.BuildSummarySection(orderedSummaries) + "\n\n" + prompts.SummaryStructure
+	promptText := base + "\n\n" + prompts.BuildRepoRulesSection(ctx) + prompts.BuildSummarySection(orderedSummaries) + "\n\n" + prompts.SummaryStructure
 
 	generalSummary, err := llms.GenerateFromSinglePrompt(ctx, llm, promptText, callOptions...)
 	if err != nil {
