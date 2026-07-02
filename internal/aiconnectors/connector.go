@@ -538,6 +538,28 @@ func (t *atlasLoggingTransport) RoundTrip(req *http.Request) (*http.Response, er
 	return resp, err
 }
 
+// buildCallOptions creates a slice of llms.CallOption with the connector's
+// default model configuration, appending any extra options.
+func (c *Connector) buildCallOptions(options ...llms.CallOption) []llms.CallOption {
+	callOptions := []llms.CallOption{
+		llms.WithTemperature(c.options.ModelConfig.Temperature),
+	}
+	if c.options.ModelConfig.Model != "" {
+		callOptions = append(callOptions, llms.WithModel(c.options.ModelConfig.Model))
+	}
+	if c.options.ModelConfig.MaxTokens > 0 {
+		callOptions = append(callOptions, llms.WithMaxTokens(c.options.ModelConfig.MaxTokens))
+	}
+	if c.options.ModelConfig.TopP > 0 {
+		callOptions = append(callOptions, llms.WithTopP(c.options.ModelConfig.TopP))
+	}
+	if c.options.ModelConfig.TopK > 0 {
+		callOptions = append(callOptions, llms.WithTopK(int(c.options.ModelConfig.TopK)))
+	}
+	callOptions = append(callOptions, options...)
+	return callOptions
+}
+
 // Call calls the LLM with the given input and returns the response
 func (c *Connector) Call(ctx context.Context, input string, options ...llms.CallOption) (string, error) {
 	log.Debug().
@@ -546,34 +568,7 @@ func (c *Connector) Call(ctx context.Context, input string, options ...llms.Call
 		Float64("temperature", c.options.ModelConfig.Temperature).
 		Msg("Connector.Call invoked with model config")
 
-	// Add default options based on connector configuration
-	callOptions := []llms.CallOption{
-		llms.WithTemperature(c.options.ModelConfig.Temperature),
-	}
-
-	// CRITICAL: Pass the model to the API call - required for Gemini and other providers
-	// Without this, Gemini uses the langchaingo library default (gemini-2.0-flash)
-	if c.options.ModelConfig.Model != "" {
-		log.Debug().Str("model", c.options.ModelConfig.Model).Msg("Adding llms.WithModel to call options")
-		callOptions = append(callOptions, llms.WithModel(c.options.ModelConfig.Model))
-	} else {
-		log.Warn().Msg("Model is empty in ModelConfig - will use library default!")
-	}
-
-	if c.options.ModelConfig.MaxTokens > 0 {
-		callOptions = append(callOptions, llms.WithMaxTokens(c.options.ModelConfig.MaxTokens))
-	}
-
-	if c.options.ModelConfig.TopP > 0 {
-		callOptions = append(callOptions, llms.WithTopP(c.options.ModelConfig.TopP))
-	}
-
-	if c.options.ModelConfig.TopK > 0 {
-		callOptions = append(callOptions, llms.WithTopK(int(c.options.ModelConfig.TopK)))
-	}
-
-	// Append any additional options passed to the Call function
-	callOptions = append(callOptions, options...)
+	callOptions := c.buildCallOptions(options...)
 
 	normalizedProvider := strings.ToLower(string(c.provider))
 	if isCloudProviderProvider(c.provider) {
@@ -623,23 +618,7 @@ func (c *Connector) ModelConfig() ModelConfig {
 // and returns the full content response. This is the preferred method
 // when tool/function calling is needed.
 func (c *Connector) GenerateContent(ctx context.Context, messages []llms.MessageContent, options ...llms.CallOption) (*llms.ContentResponse, error) {
-	callOptions := []llms.CallOption{
-		llms.WithTemperature(c.options.ModelConfig.Temperature),
-	}
-	if c.options.ModelConfig.Model != "" {
-		callOptions = append(callOptions, llms.WithModel(c.options.ModelConfig.Model))
-	}
-	if c.options.ModelConfig.MaxTokens > 0 {
-		callOptions = append(callOptions, llms.WithMaxTokens(c.options.ModelConfig.MaxTokens))
-	}
-	if c.options.ModelConfig.TopP > 0 {
-		callOptions = append(callOptions, llms.WithTopP(c.options.ModelConfig.TopP))
-	}
-	if c.options.ModelConfig.TopK > 0 {
-		callOptions = append(callOptions, llms.WithTopK(int(c.options.ModelConfig.TopK)))
-	}
-	callOptions = append(callOptions, options...)
-
+	callOptions := c.buildCallOptions(options...)
 	return c.llm.GenerateContent(ctx, messages, callOptions...)
 }
 

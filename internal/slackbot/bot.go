@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -15,19 +16,31 @@ import (
 	"github.com/slack-go/slack/socketmode"
 )
 
+const (
+	maxConversations    = 100
+	agentTimeout        = 2 * time.Minute
+)
+
 // Bot is the Slack bot that listens for messages, runs the agent loop
 // against an MCP server, and posts responses back to Slack.
 type Bot struct {
 	slackClient   *slack.Client
 	socketClient  *socketmode.Client
 	agent         *mcpagent.Agent
-	conversations map[string][]mcpagent.HistoryEntry
+	conversations map[string]*conversation
 	mu            sync.Mutex
 	botUserID     string
 	mcpServerURL  string
 	mcpHeaders    map[string]string
 	connector     *aiconnectors.Connector
 	maxAgentSteps int
+	ctx           context.Context
+	cancel        context.CancelFunc
+}
+
+type conversation struct {
+	history  []mcpagent.HistoryEntry
+	lastUsed time.Time
 }
 
 // Config holds pre-resolved configuration for the Slack bot.
@@ -58,13 +71,19 @@ func New(cfg *Config) (*Bot, error) {
 		cfg.MaxAgentSteps = 8
 	}
 
+	for k, v := range cfg.MCPHeaders {
+		if isSensitiveHeader(k, v) {
+			log.Printf("[SlackBot] Warning: MCP header %q may contain a secret value", k)
+		}
+	}
+
 	slackClient := slack.New(cfg.SlackBotToken, slack.OptionAppLevelToken(cfg.SlackAppToken))
 	socketClient := socketmode.New(slackClient)
 
 	return &Bot{
 		slackClient:   slackClient,
 		socketClient:  socketClient,
-		conversations: make(map[string][]mcpagent.HistoryEntry),
+		conversations: make(map[string]*conversation),
 		mcpServerURL:  cfg.MCPServerURL,
 		mcpHeaders:    cfg.MCPHeaders,
 		connector:     cfg.Connector,
@@ -74,9 +93,11 @@ func New(cfg *Config) (*Bot, error) {
 
 // Start connects to Slack Socket Mode and blocks forever handling events.
 func (b *Bot) Start(ctx context.Context) error {
+	b.ctx, b.cancel = context.WithCancel(ctx)
+
 	// Connect to MCP server at startup
 	log.Printf("[SlackBot] Connecting to MCP server at %s", b.mcpServerURL)
-	mcpCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	mcpCtx, cancel := context.WithTimeout(b.ctx, 30*time.Second)
 	defer cancel()
 
 	mcpSession, err := mcpagent.ConnectMCP(mcpCtx, b.mcpServerURL, b.mcpHeaders)
@@ -159,21 +180,29 @@ func (b *Bot) processMessage(channel, ts, threadTS, text string) {
 	}
 
 	b.mu.Lock()
-	history := b.conversations[key]
+	conv, exists := b.conversations[key]
+	if !exists {
+		conv = &conversation{}
+		b.conversations[key] = conv
+		b.pruneConversationsLocked()
+	}
+	history := conv.history
 	b.mu.Unlock()
 
+	// Post a placeholder message
 	b.slackClient.PostMessage(channel, slack.MsgOptionText("_Thinking..._", false), slack.MsgOptionTS(ts))
 
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+	ctx, cancel := context.WithTimeout(b.ctx, agentTimeout)
 	defer cancel()
 
 	finalText, updatedHistory, err := b.agent.RunTurn(ctx, history, text)
 	if err != nil {
-		finalText = fmt.Sprintf("Sorry, I ran into an error: %s", err)
+		finalText = "Sorry, I ran into an error processing your request."
 	}
 
 	b.mu.Lock()
-	b.conversations[key] = updatedHistory
+	conv.history = updatedHistory
+	conv.lastUsed = time.Now()
 	b.mu.Unlock()
 
 	if finalText == "" {
@@ -181,6 +210,40 @@ func (b *Bot) processMessage(channel, ts, threadTS, text string) {
 	}
 
 	b.slackClient.PostMessage(channel, slack.MsgOptionText(finalText, false), slack.MsgOptionTS(ts))
+}
+
+func (b *Bot) pruneConversationsLocked() {
+	if len(b.conversations) <= maxConversations {
+		return
+	}
+
+	type kv struct {
+		key string
+		t   time.Time
+	}
+	var sorted []kv
+	for k, v := range b.conversations {
+		sorted = append(sorted, kv{k, v.lastUsed})
+	}
+	sort.Slice(sorted, func(i, j int) bool {
+		return sorted[i].t.Before(sorted[j].t)
+	})
+
+	toRemove := len(b.conversations) - maxConversations
+	for i := 0; i < toRemove; i++ {
+		delete(b.conversations, sorted[i].key)
+	}
+}
+
+func isSensitiveHeader(key, value string) bool {
+	if len(value) < 10 {
+		return false
+	}
+	lower := strings.ToLower(key)
+	if strings.Contains(lower, "key") || strings.Contains(lower, "token") || strings.Contains(lower, "auth") || strings.Contains(lower, "secret") {
+		return true
+	}
+	return strings.HasPrefix(value, "sk-") || strings.HasPrefix(value, "ghp_")
 }
 
 func stripMention(text, botUserID string) string {
