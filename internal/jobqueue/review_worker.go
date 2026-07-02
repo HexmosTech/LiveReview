@@ -19,6 +19,7 @@ import (
 	"github.com/livereview/internal/review"
 	reviewprocessor "github.com/livereview/internal/review_processor"
 	"github.com/livereview/pkg/models"
+	storageaiconnectors "github.com/livereview/storage/aiconnectors"
 	"github.com/riverqueue/river"
 )
 
@@ -268,7 +269,7 @@ func (w *DiffReviewWorker) Work(ctx context.Context, job *river.Job[DiffReviewJo
 	_ = rm.UpdateReviewStatus(args.ReviewID, "in_progress")
 
 	// 7. Load AI Configuration
-	aiConfig, err := w.getAIConfigFromDatabase(ctx, args.OrgID, planCode)
+	selection, err := w.getReviewAISelectionFromDatabase(ctx, args.OrgID, planCode)
 	if err != nil {
 		w.handleFailure(ctx, args, logger, eventSink, fmt.Sprintf("failed to load AI config: %v", err), "failed_to_load_ai_config")
 		return nil
@@ -278,7 +279,10 @@ func (w *DiffReviewWorker) Work(ctx context.Context, job *river.Job[DiffReviewJo
 		URL:              fmt.Sprintf("cli-diff:%s", args.RepoName),
 		ReviewID:         fmt.Sprintf("%d", args.ReviewID),
 		Provider:         review.ProviderConfig{Type: "cli", URL: "", Token: "", Config: map[string]interface{}{}},
-		AI:               aiConfig,
+		AI:               selection.Leader,
+		HelperAI:         selection.Helper,
+		HelperEnabled:    selection.HelperEnabled,
+		HelperMode:       selection.HelperMode,
 		PreloadedChanges: modelDiffs,
 		RepoRules:        repoRules,
 	}
@@ -308,6 +312,9 @@ func (w *DiffReviewWorker) Work(ctx context.Context, job *river.Job[DiffReviewJo
 	if result != nil {
 		if result.Success {
 			status = "completed"
+			if err := rm.MergeReviewMetadata(args.ReviewID, buildQueuedReviewAIMetadata(&reviewRequest, result)); err != nil {
+				log.Printf("[WARN] failed to persist AI stage metadata for review %d: %v", args.ReviewID, err)
+			}
 			resolvedReviewID := args.ReviewID
 			operationID := fmt.Sprintf("diff-review:%d", args.ReviewID)
 			idempotencyKey := operationID
@@ -317,11 +324,8 @@ func (w *DiffReviewWorker) Work(ctx context.Context, job *river.Job[DiffReviewJo
 				actorUserIDPtr = &resolvedActorUserID
 			}
 
-			// Queue the billing update, batch recording, and metadata calculations asynchronously
-			extraMeta := make(map[string]any)
-			for k, v := range aiExecutionMetadataFromConfig(reviewRequest.AI.Config) {
-				extraMeta[k] = v
-			}
+			// Queue the billing update, batch recording, and AI stage metadata asynchronously.
+			extraMeta := buildQueuedReviewAIMetadata(&reviewRequest, result)
 
 			err = w.jq.QueueUpdateOrgUsageJob(ctx, UpdateOrgUsageJobArgs{
 				OrgID:          args.OrgID,
@@ -341,7 +345,7 @@ func (w *DiffReviewWorker) Work(ctx context.Context, job *river.Job[DiffReviewJo
 					ProviderTotalInputTokens: result.InputTokens,
 					OutputTokensBatch:        result.OutputTokens,
 				},
-				ExtraMeta:      extraMeta,
+				ExtraMeta: extraMeta,
 			})
 			if err != nil {
 				log.Printf("[WARN] failed to queue billing finalization for review %d: %v", args.ReviewID, err)
@@ -425,23 +429,68 @@ func (w *DiffReviewWorker) handleFailure(ctx context.Context, args DiffReviewJob
 	_ = eventSink.EmitCompletionEvent(ctx, args.ReviewID, args.OrgID, "", 0, failureReason)
 }
 
-
-
 // --- AI Config helpers (replicated from api/reviews_api.go) ---
 
-func (w *DiffReviewWorker) getAIConfigFromDatabase(ctx context.Context, orgID int64, planCode license.PlanType) (review.AIConfig, error) {
-	storage := aiconnectors.NewStorage(w.db)
+type diffReviewAISelection struct {
+	Leader        review.AIConfig
+	Helper        *review.AIConfig
+	HelperEnabled bool
+	HelperMode    string
+}
 
-	connectors, err := storage.GetAllConnectors(ctx, orgID)
+func (w *DiffReviewWorker) getReviewAISelectionFromDatabase(ctx context.Context, orgID int64, planCode license.PlanType) (*diffReviewAISelection, error) {
+	storage := aiconnectors.NewStorage(w.db)
+	leaderConnectors, err := storage.GetConnectorsByRole(ctx, orgID, storageaiconnectors.AIConnectorRoleLeader)
 	if err != nil {
-		return review.AIConfig{}, fmt.Errorf("failed to get AI connectors: %w", err)
+		return nil, fmt.Errorf("failed to get Leader AI connectors: %w", err)
 	}
 
+	leaderConfig, err := w.selectLeaderAIConfig(ctx, leaderConnectors, planCode)
+	if err != nil {
+		return nil, err
+	}
+
+	settingsStore := storageaiconnectors.NewReviewAISettingsStore(w.db)
+	settings, err := settingsStore.GetByOrgID(ctx, orgID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get review AI settings: %w", err)
+	}
+
+	selection := &diffReviewAISelection{
+		Leader:        leaderConfig,
+		HelperEnabled: settings.HelperEnabled,
+		HelperMode:    settings.HelperMode,
+	}
+
+	if !settings.HelperEnabled {
+		return selection, nil
+	}
+
+	helperConnectors, err := storage.GetConnectorsByRole(ctx, orgID, storageaiconnectors.AIConnectorRoleHelper)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get Helper AI connectors: %w", err)
+	}
+	if len(helperConnectors) == 0 {
+		// Adaptive Review is on but no helper connector is configured yet.
+		// Degrade to leader-only instead of failing the review.
+		log.Printf("[WARN] org %d: helper_enabled=true but no Helper AI connector configured; falling back to leader-only", orgID)
+		selection.HelperEnabled = false
+		return selection, nil
+	}
+	helperConfig, err := w.selectHelperAIConfig(ctx, helperConnectors)
+	if err != nil {
+		return nil, err
+	}
+	selection.Helper = &helperConfig
+
+	return selection, nil
+}
+
+func (w *DiffReviewWorker) selectLeaderAIConfig(ctx context.Context, connectors []*aiconnectors.ConnectorRecord, planCode license.PlanType) (review.AIConfig, error) {
 	if planCode == "" {
 		planCode = license.PlanFree30K
 	}
 
-	// Free tier enforces BYOK strictly
 	if planCode == license.PlanFree30K {
 		var byokConnector *aiconnectors.ConnectorRecord
 		for _, c := range connectors {
@@ -450,14 +499,12 @@ func (w *DiffReviewWorker) getAIConfigFromDatabase(ctx context.Context, orgID in
 				break
 			}
 		}
-
 		if byokConnector == nil {
 			return review.AIConfig{}, fmt.Errorf("the Free plan requires you to configure your own LLM API key (BYOK) for your organization.")
 		}
 		return w.buildBYOKAIConfig(ctx, byokConnector, "byok_required")
 	}
 
-	// Paid team defaults to hosted auto model when no BYOK connector is configured.
 	if planCode == license.PlanTeam32USD {
 		if len(connectors) > 0 {
 			connector := connectors[0]
@@ -469,11 +516,23 @@ func (w *DiffReviewWorker) getAIConfigFromDatabase(ctx context.Context, orgID in
 		return w.buildHostedAutoAIConfig(ctx)
 	}
 
-	// Fallback for other plans: prefer BYOK if present, else hosted-auto.
 	if len(connectors) > 0 {
 		return w.buildBYOKAIConfig(ctx, connectors[0], "byok_optional")
 	}
 	return w.buildHostedAutoAIConfig(ctx)
+}
+
+func (w *DiffReviewWorker) selectHelperAIConfig(ctx context.Context, connectors []*aiconnectors.ConnectorRecord) (review.AIConfig, error) {
+	if len(connectors) == 0 {
+		// Defensive: callers should already have routed around this via the
+		// empty-helperConnectors check in getReviewAISelectionFromDatabase.
+		return review.AIConfig{}, fmt.Errorf("helper model is enabled but no Helper AI connector is configured")
+	}
+	connector := connectors[0]
+	if connector.ProviderName == aidefault.ProviderName {
+		return buildDefaultAIConfig(ctx, w.db, connector)
+	}
+	return w.buildBYOKAIConfig(ctx, connector, "helper_connector")
 }
 
 func buildDefaultAIConfig(ctx context.Context, db *sql.DB, record *aiconnectors.ConnectorRecord) (review.AIConfig, error) {
@@ -621,6 +680,84 @@ func (w *DiffReviewWorker) buildHostedAutoAIConfig(ctx context.Context) (review.
 	}, nil
 }
 
+func buildQueuedReviewAIMetadata(request *review.ReviewRequest, result *review.ReviewResult) map[string]interface{} {
+	if request == nil || result == nil {
+		return map[string]interface{}{}
+	}
+
+	meta := map[string]interface{}{
+		"helper_enabled": request.HelperEnabled,
+		"helper_mode":    strings.TrimSpace(request.HelperMode),
+	}
+
+	stages := make([]map[string]interface{}, 0, 2)
+	if result.LeaderUsage != nil {
+		stages = append(stages, queuedStageUsageToMetadata(result.LeaderUsage))
+	}
+	if result.HelperUsage != nil {
+		stages = append(stages, queuedStageUsageToMetadata(result.HelperUsage))
+	}
+	if len(stages) > 0 {
+		meta["stage_breakdown"] = stages
+	}
+
+	for k, v := range queuedAIExecutionMetadataForRole("leader", request.AI.Config) {
+		meta[k] = v
+	}
+	if request.HelperAI != nil {
+		for k, v := range queuedAIExecutionMetadataForRole("helper", request.HelperAI.Config) {
+			meta[k] = v
+		}
+	}
+
+	return meta
+}
+
+func queuedStageUsageToMetadata(usage *review.AIStageUsage) map[string]interface{} {
+	meta := map[string]interface{}{
+		"stage":           usage.Stage,
+		"provider":        usage.Provider,
+		"model":           usage.Model,
+		"pricing_version": usage.PricingVersion,
+	}
+	if usage.InputTokens != nil {
+		meta["input_tokens"] = *usage.InputTokens
+	}
+	if usage.OutputTokens != nil {
+		meta["output_tokens"] = *usage.OutputTokens
+	}
+	if usage.CostUSD != nil {
+		meta["cost_usd"] = *usage.CostUSD
+	}
+	return meta
+}
+
+func queuedAIExecutionMetadataForRole(role string, config map[string]interface{}) map[string]interface{} {
+	meta := map[string]interface{}{}
+	if len(config) == 0 {
+		return meta
+	}
+	prefix := strings.TrimSpace(role)
+	if prefix == "" {
+		prefix = "ai"
+	} else {
+		prefix = prefix + "_ai"
+	}
+	if mode, ok := config["ai_execution_mode"].(string); ok && strings.TrimSpace(mode) != "" {
+		meta[prefix+"_execution_mode"] = strings.TrimSpace(mode)
+	}
+	if source, ok := config["ai_execution_source"].(string); ok && strings.TrimSpace(source) != "" {
+		meta[prefix+"_execution_source"] = strings.TrimSpace(source)
+	}
+	if provider, ok := config["provider_name"].(string); ok && strings.TrimSpace(provider) != "" {
+		meta[prefix+"_provider_name"] = strings.TrimSpace(provider)
+	}
+	if connectorName, ok := config["connector_name"].(string); ok && strings.TrimSpace(connectorName) != "" {
+		meta[prefix+"_connector_name"] = strings.TrimSpace(connectorName)
+	}
+	return meta
+}
+
 // --- Small utility helpers ---
 
 func aiExecutionMetadataFromConfig(config map[string]interface{}) map[string]interface{} {
@@ -653,5 +790,3 @@ func extractFirstHeading(markdown string) string {
 	}
 	return ""
 }
-
-

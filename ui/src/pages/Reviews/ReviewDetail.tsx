@@ -16,6 +16,7 @@ import {
   ReviewEvent, 
   ReviewSummary, 
     ReviewAccounting,
+    ReviewAccountingStage,
   ReviewEventLevel,
   ReviewEventType 
 } from '../../types/reviews';
@@ -30,6 +31,7 @@ const hasAccountingDetails = (value: ReviewAccounting | null): boolean => {
         return value.accountedOperations > 0 ||
                 value.totalBillableLoc > 0 ||
                 value.tokenTrackedOperations > 0 ||
+            !!value.stageBreakdown?.length ||
                 !!value.latestOperation;
 };
 
@@ -300,10 +302,46 @@ const ReviewDetail: React.FC = () => {
         return `$${value.toFixed(4)}`;
     };
 
-    const aiExecutionMode = typeof review.metadata?.ai_execution_mode === 'string' ? review.metadata.ai_execution_mode : '';
-    const aiExecutionSource = typeof review.metadata?.ai_execution_source === 'string' ? review.metadata.ai_execution_source : '';
-    const aiExecutionProvider = typeof review.metadata?.ai_provider_name === 'string' ? review.metadata.ai_provider_name : '';
-    const aiExecutionConnector = typeof review.metadata?.ai_connector_name === 'string' ? review.metadata.ai_connector_name : '';
+    const leaderAIExecutionMode = typeof review.metadata?.leader_ai_execution_mode === 'string' ? review.metadata.leader_ai_execution_mode : '';
+    const leaderAIExecutionSource = typeof review.metadata?.leader_ai_execution_source === 'string' ? review.metadata.leader_ai_execution_source : '';
+    const leaderAIExecutionProvider = typeof review.metadata?.leader_ai_provider_name === 'string' ? review.metadata.leader_ai_provider_name : '';
+    const leaderAIExecutionConnector = typeof review.metadata?.leader_ai_connector_name === 'string' ? review.metadata.leader_ai_connector_name : '';
+    const helperAIExecutionMode = typeof review.metadata?.helper_ai_execution_mode === 'string' ? review.metadata.helper_ai_execution_mode : '';
+    const helperAIExecutionSource = typeof review.metadata?.helper_ai_execution_source === 'string' ? review.metadata.helper_ai_execution_source : '';
+    const helperAIExecutionProvider = typeof review.metadata?.helper_ai_provider_name === 'string' ? review.metadata.helper_ai_provider_name : '';
+    const helperAIExecutionConnector = typeof review.metadata?.helper_ai_connector_name === 'string' ? review.metadata.helper_ai_connector_name : '';
+    const helperEnabled = !!accounting?.helperEnabled;
+    const helperMode = accounting?.helperMode || '';
+    const stageBreakdown = accounting?.stageBreakdown || [];
+
+    const formatStageLabel = (stage: string): string => {
+        switch (stage) {
+            case 'leader':
+                return 'Leader model';
+            case 'helper':
+                return 'Helper model';
+            default:
+                return stage.charAt(0).toUpperCase() + stage.slice(1);
+        }
+    };
+
+    const getStageRouteText = (stage: ReviewAccountingStage): string => {
+        if (stage.stage === 'helper') {
+            return [helperAIExecutionProvider || stage.provider, helperAIExecutionConnector]
+                .filter(Boolean)
+                .join(' / ');
+        }
+        return [leaderAIExecutionProvider || stage.provider, leaderAIExecutionConnector]
+            .filter(Boolean)
+            .join(' / ');
+    };
+
+    const getStageExecutionText = (stage: ReviewAccountingStage): string => {
+        if (stage.stage === 'helper') {
+            return [helperAIExecutionMode, helperAIExecutionSource].filter(Boolean).join(' via ');
+        }
+        return [leaderAIExecutionMode, leaderAIExecutionSource].filter(Boolean).join(' via ');
+    };
 
     const accountingBannerClass = accountingErrorTone === 'warning'
         ? 'mb-4 rounded-md border border-amber-700 bg-amber-900/30 p-3 text-xs text-amber-200'
@@ -442,6 +480,79 @@ const ReviewDetail: React.FC = () => {
                         <p className="text-white font-semibold text-base">{(accounting?.tokenTrackedOperations || 0).toLocaleString()}</p>
                     </div>
                 </div>
+                <div className="mb-4 flex flex-wrap gap-2 text-xs">
+                    <span className="rounded-full border border-slate-600 bg-slate-900 px-3 py-1 text-slate-200">
+                        Helper {helperEnabled ? 'enabled' : 'disabled'}
+                    </span>
+                    {helperEnabled && helperMode && (
+                        <span className="rounded-full border border-sky-700 bg-sky-900/30 px-3 py-1 text-sky-200">
+                            Mode: {helperMode}
+                        </span>
+                    )}
+                    {!!stageBreakdown.length && (
+                        <span className="rounded-full border border-emerald-700 bg-emerald-900/30 px-3 py-1 text-emerald-200">
+                            Stages tracked: {stageBreakdown.length}
+                        </span>
+                    )}
+                </div>
+                {!!stageBreakdown.length && (
+                    <div className="mb-4">
+                        <div className="mb-2 flex items-center justify-between">
+                            <h3 className="text-sm font-medium text-white">Model Breakdown</h3>
+                            <span className="text-xs text-slate-400">
+                                {helperEnabled ? 'Leader and Helper stages' : 'Single-stage review'}
+                            </span>
+                        </div>
+                        <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
+                            {stageBreakdown.map((stage) => {
+                                const routeText = getStageRouteText(stage);
+                                const executionText = getStageExecutionText(stage);
+                                return (
+                                    <div
+                                        key={`${stage.stage}-${stage.provider || 'unknown'}-${stage.model || 'unknown'}`}
+                                        className="rounded-md border border-slate-700 bg-slate-900 p-3"
+                                    >
+                                        <div className="mb-2 flex items-start justify-between gap-3">
+                                            <div>
+                                                <p className="text-sm font-semibold text-white">{formatStageLabel(stage.stage)}</p>
+                                                <p className="text-xs text-slate-400">
+                                                    {(stage.provider || 'unknown provider')} / {(stage.model || 'unknown model')}
+                                                </p>
+                                            </div>
+                                            {stage.pricingVersion && (
+                                                <span className="rounded-full border border-slate-600 px-2 py-0.5 text-[11px] text-slate-300">
+                                                    {stage.pricingVersion}
+                                                </span>
+                                            )}
+                                        </div>
+                                        <div className="grid grid-cols-3 gap-2 text-xs mb-3">
+                                            <div className="rounded border border-slate-700 bg-slate-950 p-2">
+                                                <p className="text-slate-500">Input</p>
+                                                <p className="mt-1 text-sm font-medium text-white">{formatInt(stage.inputTokens)}</p>
+                                            </div>
+                                            <div className="rounded border border-slate-700 bg-slate-950 p-2">
+                                                <p className="text-slate-500">Output</p>
+                                                <p className="mt-1 text-sm font-medium text-white">{formatInt(stage.outputTokens)}</p>
+                                            </div>
+                                            <div className="rounded border border-slate-700 bg-slate-950 p-2">
+                                                <p className="text-slate-500">Cost</p>
+                                                <p className="mt-1 text-sm font-medium text-white">{formatCurrency(stage.costUsd)}</p>
+                                            </div>
+                                        </div>
+                                        <div className="space-y-1 text-xs text-slate-300">
+                                            {executionText && (
+                                                <p><span className="text-slate-500">Execution:</span> {executionText}</p>
+                                            )}
+                                            {routeText && (
+                                                <p><span className="text-slate-500">Route:</span> {routeText}</p>
+                                            )}
+                                        </div>
+                                    </div>
+                                );
+                            })}
+                        </div>
+                    </div>
+                )}
                 {accounting?.latestOperation && (
                     <div className="bg-slate-900 rounded-md p-3 border border-slate-700 text-xs">
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-y-2 gap-x-4">
@@ -451,11 +562,17 @@ const ReviewDetail: React.FC = () => {
                             <p className="text-slate-300"><span className="text-slate-500">Pricing version:</span> {accounting.latestOperation.pricingVersion || 'unknown'}</p>
                             <p className="text-slate-300"><span className="text-slate-500">Operation ID:</span> {accounting.latestOperation.operationId}</p>
                             <p className="text-slate-300"><span className="text-slate-500">Idempotency key:</span> {accounting.latestOperation.idempotencyKey}</p>
-                            {(aiExecutionMode || aiExecutionSource) && (
-                                <p className="text-slate-300"><span className="text-slate-500">AI execution:</span> {(aiExecutionMode || 'unknown')} via {(aiExecutionSource || 'unknown')}</p>
+                            {(leaderAIExecutionMode || leaderAIExecutionSource) && (
+                                <p className="text-slate-300"><span className="text-slate-500">Leader execution:</span> {(leaderAIExecutionMode || 'unknown')} via {(leaderAIExecutionSource || 'unknown')}</p>
                             )}
-                            {(aiExecutionProvider || aiExecutionConnector) && (
-                                <p className="text-slate-300"><span className="text-slate-500">AI route:</span> {(aiExecutionProvider || 'unknown')} / {(aiExecutionConnector || 'unknown')}</p>
+                            {(leaderAIExecutionProvider || leaderAIExecutionConnector) && (
+                                <p className="text-slate-300"><span className="text-slate-500">Leader route:</span> {(leaderAIExecutionProvider || 'unknown')} / {(leaderAIExecutionConnector || 'unknown')}</p>
+                            )}
+                            {helperEnabled && (helperAIExecutionMode || helperAIExecutionSource) && (
+                                <p className="text-slate-300"><span className="text-slate-500">Helper execution:</span> {(helperAIExecutionMode || 'unknown')} via {(helperAIExecutionSource || 'unknown')}</p>
+                            )}
+                            {helperEnabled && (helperAIExecutionProvider || helperAIExecutionConnector) && (
+                                <p className="text-slate-300"><span className="text-slate-500">Helper route:</span> {(helperAIExecutionProvider || 'unknown')} / {(helperAIExecutionConnector || 'unknown')}</p>
                             )}
                         </div>
                     </div>

@@ -17,6 +17,7 @@ import (
 	"github.com/livereview/internal/config"
 	"github.com/livereview/internal/license"
 	"github.com/livereview/internal/review"
+	storageaiconnectors "github.com/livereview/storage/aiconnectors"
 )
 
 // validateAndParseURL validates the input URL string, parses it, and returns the parsed URL and base URL.
@@ -315,22 +316,75 @@ func (s *Server) createReviewService(token *IntegrationToken) (*review.Service, 
 	return reviewService, nil
 }
 
-// getAIConfigFromDatabase retrieves AI configuration from ai_connectors table
-func (s *Server) getAIConfigFromDatabase(ctx context.Context, orgID int64, planCode license.PlanType) (review.AIConfig, error) {
-	// Create storage instance to query ai_connectors table
-	storage := aiconnectors.NewStorage(s.db)
+type reviewAISelection struct {
+	Leader        review.AIConfig
+	Helper        *review.AIConfig
+	HelperEnabled bool
+	HelperMode    string
+}
 
-	// Get all connectors ordered by display_order
-	connectors, err := storage.GetAllConnectors(ctx, orgID)
+// getAIConfigFromDatabase retrieves the Leader AI configuration for compatibility with existing call sites.
+func (s *Server) getAIConfigFromDatabase(ctx context.Context, orgID int64, planCode license.PlanType) (review.AIConfig, error) {
+	selection, err := s.getReviewAISelectionFromDatabase(ctx, orgID, planCode)
 	if err != nil {
-		return review.AIConfig{}, fmt.Errorf("failed to get AI connectors: %w", err)
+		return review.AIConfig{}, err
+	}
+	return selection.Leader, nil
+}
+
+func (s *Server) getReviewAISelectionFromDatabase(ctx context.Context, orgID int64, planCode license.PlanType) (*reviewAISelection, error) {
+	storage := aiconnectors.NewStorage(s.db)
+	leaderConnectors, err := storage.GetConnectorsByRole(ctx, orgID, storageaiconnectors.AIConnectorRoleLeader)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get Leader AI connectors: %w", err)
 	}
 
+	leaderConfig, err := s.selectLeaderAIConfig(ctx, leaderConnectors, planCode)
+	if err != nil {
+		return nil, err
+	}
+
+	settingsStore := storageaiconnectors.NewReviewAISettingsStore(s.db)
+	settings, err := settingsStore.GetByOrgID(ctx, orgID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get review AI settings: %w", err)
+	}
+
+	selection := &reviewAISelection{
+		Leader:        leaderConfig,
+		HelperEnabled: settings.HelperEnabled,
+		HelperMode:    settings.HelperMode,
+	}
+
+	if !settings.HelperEnabled {
+		return selection, nil
+	}
+
+	helperConnectors, err := storage.GetConnectorsByRole(ctx, orgID, storageaiconnectors.AIConnectorRoleHelper)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get Helper AI connectors: %w", err)
+	}
+	if len(helperConnectors) == 0 {
+		// Adaptive Review is on but no helper connector is configured yet.
+		// Degrade to leader-only instead of failing the review.
+		log.Printf("[WARN] org %d: helper_enabled=true but no Helper AI connector configured; falling back to leader-only", orgID)
+		selection.HelperEnabled = false
+		return selection, nil
+	}
+	helperConfig, err := s.selectHelperAIConfig(ctx, helperConnectors)
+	if err != nil {
+		return nil, err
+	}
+	selection.Helper = &helperConfig
+
+	return selection, nil
+}
+
+func (s *Server) selectLeaderAIConfig(ctx context.Context, connectors []*aiconnectors.ConnectorRecord, planCode license.PlanType) (review.AIConfig, error) {
 	if planCode == "" {
 		planCode = license.PlanFree30K
 	}
 
-	// Free tier enforces BYOK strictly (system default AI provider is not available).
 	if planCode == license.PlanFree30K {
 		var byokConnector *aiconnectors.ConnectorRecord
 		for _, c := range connectors {
@@ -339,14 +393,12 @@ func (s *Server) getAIConfigFromDatabase(ctx context.Context, orgID int64, planC
 				break
 			}
 		}
-
 		if byokConnector == nil {
 			return review.AIConfig{}, fmt.Errorf("the Free plan requires you to configure your own LLM API key (BYOK) for your organization.")
 		}
 		return s.buildBYOKAIConfig(ctx, byokConnector, "byok_required")
 	}
 
-	// Paid team defaults to hosted auto model when no BYOK connector is configured.
 	if planCode == license.PlanTeam32USD {
 		if len(connectors) > 0 {
 			connector := connectors[0]
@@ -358,11 +410,23 @@ func (s *Server) getAIConfigFromDatabase(ctx context.Context, orgID int64, planC
 		return s.buildHostedAutoAIConfig(ctx)
 	}
 
-	// Fallback for other plans: prefer BYOK if present, else hosted-auto.
 	if len(connectors) > 0 {
 		return s.buildBYOKAIConfig(ctx, connectors[0], "byok_optional")
 	}
 	return s.buildHostedAutoAIConfig(ctx)
+}
+
+func (s *Server) selectHelperAIConfig(ctx context.Context, connectors []*aiconnectors.ConnectorRecord) (review.AIConfig, error) {
+	if len(connectors) == 0 {
+		// Defensive: callers should already have routed around this via the
+		// empty-helperConnectors check in getReviewAISelectionFromDatabase.
+		return review.AIConfig{}, fmt.Errorf("helper model is enabled but no Helper AI connector is configured")
+	}
+	connector := connectors[0]
+	if connector.ProviderName == aidefault.ProviderName {
+		return buildDefaultAIConfig(ctx, s.db, connector)
+	}
+	return s.buildBYOKAIConfig(ctx, connector, "helper_connector")
 }
 
 func buildDefaultAIConfig(ctx context.Context, db *sql.DB, record *aiconnectors.ConnectorRecord) (review.AIConfig, error) {
@@ -542,8 +606,7 @@ func (s *Server) buildReviewRequest(
 	orgID int64,
 	planCode license.PlanType,
 ) (*review.ReviewRequest, error) {
-	// Get AI configuration from database instead of config files
-	aiConfig, err := s.getAIConfigFromDatabase(context.Background(), orgID, planCode)
+	selection, err := s.getReviewAISelectionFromDatabase(context.Background(), orgID, planCode)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get AI configuration from database: %w", err)
 	}
@@ -602,10 +665,13 @@ func (s *Server) buildReviewRequest(
 
 	// Create review request directly without config service
 	reviewRequest := &review.ReviewRequest{
-		URL:      requestURL,
-		ReviewID: reviewID,
-		Provider: providerConfig,
-		AI:       aiConfig,
+		URL:           requestURL,
+		ReviewID:      reviewID,
+		Provider:      providerConfig,
+		AI:            selection.Leader,
+		HelperAI:      selection.Helper,
+		HelperEnabled: selection.HelperEnabled,
+		HelperMode:    selection.HelperMode,
 	}
 
 	return reviewRequest, nil

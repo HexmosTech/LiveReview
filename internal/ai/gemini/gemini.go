@@ -165,7 +165,7 @@ func (p *GeminiProvider) ReviewCode(ctx context.Context, diffs []*models.CodeDif
 	if err != nil {
 		return nil, fmt.Errorf("build prompt failed: %w", err)
 	}
-	prompt := base + "\n\n" + prompts.BuildRepoRulesSection(ctx) + prompts.BuildCodeChangesSectionWithContext(ctx, diffs)
+	prompt := base + "\n\n" + prompts.BuildConciseModeSection(ctx) + prompts.BuildRepoRulesSection(ctx) + prompts.BuildCodeChangesSectionWithContext(ctx, diffs)
 
 	// Call the Gemini API
 	response, err := p.callGeminiAPI(ctx, prompt)

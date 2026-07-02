@@ -4,4 +4,5 @@ export { default as ConnectorForm } from './ConnectorForm';
 export { default as ConnectorsList } from './ConnectorsList';
 export { default as ConnectorCard } from './ConnectorCard';
 export { default as UsageTips } from './UsageTips';
+export { default as AdaptiveReviewInfo } from './AdaptiveReviewInfo';
 export { default as OllamaConnectorForm } from './OllamaConnectorForm';

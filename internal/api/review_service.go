@@ -12,7 +12,6 @@ import (
 	"github.com/labstack/echo/v4"
 	apimiddleware "github.com/livereview/internal/api/middleware"
 	"github.com/livereview/internal/config"
-	"github.com/livereview/internal/jobqueue"
 	"github.com/livereview/internal/license"
 	"github.com/livereview/internal/logging"
 	reviewpkg "github.com/livereview/internal/review"
@@ -63,7 +62,6 @@ func NewReviewService(cfg *config.Config) *ReviewService {
 		resultCallbacks: make(map[string]func(*reviewpkg.ReviewResult)),
 	}
 }
-
 
 // TriggerReviewV2 handles the request to trigger a code review using the new decoupled architecture
 func (s *Server) TriggerReviewV2(c echo.Context) error {
@@ -562,116 +560,4 @@ func (s *Server) launchBackgroundProcessing(ctx *reviewSetupContext) error {
 		ctx.logger.Close()
 	}
 	return nil
-}
-
-// ProcessManualReview implements jobqueue.ManualReviewProcessor.
-func (s *Server) ProcessManualReview(ctx context.Context, orgID int64, planCode string, actorUserID *int64, actorEmail string, reviewID int64, requestJSON string) error {
-	var request reviewpkg.ReviewRequest
-	if err := json.Unmarshal([]byte(requestJSON), &request); err != nil {
-		log.Printf("[ERROR] ProcessManualReview: Failed to unmarshal review request: %v", err)
-		return fmt.Errorf("failed to unmarshal review request: %w", err)
-	}
-
-	// Recreate reviewService instance based on the provider config URL
-	token := &IntegrationToken{
-		Provider:    request.Provider.Type,
-		ProviderURL: request.Provider.URL,
-	}
-	reviewService, err := s.createReviewService(token)
-	if err != nil {
-		log.Printf("[ERROR] ProcessManualReview: Failed to create review service: %v", err)
-		return fmt.Errorf("failed to create review service: %w", err)
-	}
-
-	reviewIDStr := fmt.Sprintf("%d", reviewID)
-	logger, err := logging.StartReviewLoggingWithIDs(reviewIDStr, reviewID, orgID)
-	if err != nil {
-		log.Printf("[WARN] ProcessManualReview: Failed to start logging: %v", err)
-	}
-
-	if logger != nil {
-		eventSink := NewDatabaseEventSink(s.db)
-		logger.SetEventSink(eventSink)
-		logger.LogSection("REVIEW PROCESSING STARTED VIA QUEUE")
-		logger.Log("Review ID: %d", reviewID)
-		logger.Log("Organization ID: %d", orgID)
-	}
-
-	// Update review status to in_progress
-	rm := NewReviewManager(s.db)
-	_ = rm.UpdateReviewStatus(reviewID, "in_progress")
-
-	// Call ProcessReview
-	result := reviewService.ProcessReview(ctx, request)
-
-	if logger != nil {
-		logger.LogSection("REVIEW COMPLETION CALLBACK")
-		logger.Log("Review processing completed")
-	}
-
-	if result != nil && result.Success {
-		_ = rm.UpdateReviewStatus(reviewID, "completed")
-
-		operationID := fmt.Sprintf("manual-review:%d", reviewID)
-		idempotencyKey := operationID
-		if result.BillableLOC > 0 {
-			extraMeta := make(map[string]any)
-			for k, v := range aiExecutionMetadataFromConfig(request.AI.Config) {
-				extraMeta[k] = v
-			}
-
-			err = s.jobQueue.QueueUpdateOrgUsageJob(ctx, jobqueue.UpdateOrgUsageJobArgs{
-				OrgID:          orgID,
-				ReviewID:       &reviewID,
-				ActorUserID:    actorUserID,
-				ActorEmail:     actorEmail,
-				OperationType:  "manual_review",
-				TriggerSource:  "manual",
-				OperationID:    operationID,
-				IdempotencyKey: idempotencyKey,
-				Provider:       result.Provider,
-				Model:          result.Model,
-				Batch: license.QuotaBatchInput{
-					PlanCode:                 license.PlanType(planCode),
-					Provider:                 result.Provider,
-					RawLOCBatch:              result.BillableLOC,
-					ProviderTotalInputTokens: result.InputTokens,
-					OutputTokensBatch:        result.OutputTokens,
-				},
-				ExtraMeta:      extraMeta,
-			})
-			if err != nil {
-				log.Printf("[WARN] Manual review billing finalization queue failed for review %d: %v", reviewID, err)
-			}
-		}
-	} else {
-		_ = rm.UpdateReviewStatus(reviewID, "failed")
-	}
-
-	if logger != nil {
-		logger.Log("=== Background processing completed ===")
-		logger.Close()
-	}
-
-	return nil
-}
-
-func aiExecutionMetadataFromConfig(config map[string]interface{}) map[string]interface{} {
-	meta := map[string]interface{}{}
-	if len(config) == 0 {
-		return meta
-	}
-	if mode, ok := config["ai_execution_mode"].(string); ok && strings.TrimSpace(mode) != "" {
-		meta["ai_execution_mode"] = strings.TrimSpace(mode)
-	}
-	if source, ok := config["ai_execution_source"].(string); ok && strings.TrimSpace(source) != "" {
-		meta["ai_execution_source"] = strings.TrimSpace(source)
-	}
-	if provider, ok := config["provider_name"].(string); ok && strings.TrimSpace(provider) != "" {
-		meta["ai_provider_name"] = strings.TrimSpace(provider)
-	}
-	if connectorName, ok := config["connector_name"].(string); ok && strings.TrimSpace(connectorName) != "" {
-		meta["ai_connector_name"] = strings.TrimSpace(connectorName)
-	}
-	return meta
 }
