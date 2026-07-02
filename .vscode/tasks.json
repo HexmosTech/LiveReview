@@ -9,6 +9,55 @@
                 "cwd": "${workspaceFolder}/LiveReview"
             },
             "problemMatcher": ["$go"]
+        },
+        {
+            "label": "livereview: api",
+            "type": "shell",
+            "command": "bash -lc 'api_ready=/tmp/livereview-api-ready; ui_ready=/tmp/livereview-ui-ready; rm -f \"$api_ready\" \"$ui_ready\"; for port in 8888 2345; do pids=$(lsof -ti TCP:$port -sTCP:LISTEN 2>/dev/null || true); if [ -n \"$pids\" ]; then echo \"Killing existing listeners on port $port: $pids\"; kill -9 $pids || true; fi; done; make run & pid=$!; until (echo >/dev/tcp/127.0.0.1/8888) >/dev/null 2>&1; do echo \"Waiting for LiveReview API port 8888\"; sleep 1; done; echo \"LiveReview API port 8888 is available\"; touch \"$api_ready\"; wait $pid'",
+            "options": {
+                "cwd": "${workspaceFolder}"
+            },
+            "presentation": {
+                "reveal": "always",
+                "panel": "dedicated"
+            },
+            "problemMatcher": []
+        },
+        {
+            "label": "livereview: ui",
+            "type": "shell",
+            "command": "bash -lc 'api_ready=/tmp/livereview-api-ready; ui_ready=/tmp/livereview-ui-ready; rm -f \"$ui_ready\"; until [ -f \"$api_ready\" ] && (echo >/dev/tcp/127.0.0.1/8888) >/dev/null 2>&1; do echo \"Waiting for LiveReview API startup\"; sleep 1; done; for port in 8081; do pids=$(lsof -ti TCP:$port -sTCP:LISTEN 2>/dev/null || true); if [ -n \"$pids\" ]; then echo \"Killing existing listeners on port $port: $pids\"; kill -9 $pids || true; fi; done; make run & pid=$!; until (echo >/dev/tcp/127.0.0.1/8081) >/dev/null 2>&1; do echo \"Waiting for LiveReview UI port 8081\"; sleep 1; done; echo \"LiveReview UI port 8081 is available\"; touch \"$ui_ready\"; wait $pid'",
+            "options": {
+                "cwd": "${workspaceFolder}/ui"
+            },
+            "presentation": {
+                "reveal": "always",
+                "panel": "dedicated"
+            },
+            "problemMatcher": []
+        },
+        {
+            "label": "livereview: niceurl2",
+            "type": "shell",
+            "command": "bash -lc 'ui_ready=/tmp/livereview-ui-ready; until [ -f \"$ui_ready\" ] && (echo >/dev/tcp/127.0.0.1/8081) >/dev/null 2>&1; do echo \"Waiting for LiveReview UI startup\"; sleep 1; done; echo \"LiveReview UI port 8081 is available\"; exec make niceurl2'",
+            "options": {
+                "cwd": "${workspaceFolder}"
+            },
+            "presentation": {
+                "reveal": "always",
+                "panel": "dedicated"
+            },
+            "problemMatcher": []
+        },
+        {
+            "label": "livereview: start all",
+            "dependsOn": [
+                "livereview: api",
+                "livereview: ui",
+                "livereview: niceurl2"
+            ],
+            "dependsOrder": "parallel",
+            "problemMatcher": []
         }
     ]
 }
