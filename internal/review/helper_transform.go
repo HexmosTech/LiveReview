@@ -20,7 +20,7 @@ type helperTransformResponse struct {
 }
 
 func (s *Service) applyHelperStage(ctx context.Context, helperConfig AIConfig, helperMode string, leaderResult *models.ReviewResult) (*models.ReviewResult, *AIStageUsage, error) {
-	options, providerName, err := connectorOptionsFromAIConfig(helperConfig)
+	options, providerName, err := connectorOptionsFromAIConfig(helperConfig, len(leaderResult.Comments))
 	if err != nil {
 		return nil, nil, err
 	}
@@ -73,7 +73,7 @@ func (s *Service) applyHelperStage(ctx context.Context, helperConfig AIConfig, h
 	return transformed, usage, nil
 }
 
-func connectorOptionsFromAIConfig(config AIConfig) (aiconnectors.ConnectorOptions, string, error) {
+func connectorOptionsFromAIConfig(config AIConfig, commentCount int) (aiconnectors.ConnectorOptions, string, error) {
 	providerName, _ := config.Config["provider_name"].(string)
 	providerType, ok := config.Config["ai_provider_type"].(string)
 	if !ok || strings.TrimSpace(providerType) == "" {
@@ -95,10 +95,34 @@ func connectorOptionsFromAIConfig(config AIConfig) (aiconnectors.ConnectorOption
 		GCPLocation:  location,
 		ModelConfig: aiconnectors.ModelConfig{
 			Temperature: config.Temperature,
-			MaxTokens:   4096,
+			MaxTokens:   helperMaxTokens(commentCount),
 			Model:       config.Model,
 		},
 	}, strings.TrimSpace(providerName), nil
+}
+
+// helperMaxTokens sizes the helper stage's output budget to the number of
+// comments it has to rewrite in a single batched call (see buildHelperPrompt),
+// since a flat cap risks truncating the JSON response — and therefore
+// silently losing the helper's wording polish via the parse-mismatch
+// fallback in applyHelperStage's caller — on reviews with many findings.
+func helperMaxTokens(commentCount int) int {
+	const (
+		base = 1024
+		// perComment: rewritten comments in practice run ~60-90 tokens
+		// (docs/adaptive_review_overview.html's live examples), plus
+		// per-item JSON structure overhead and headroom for longer ones.
+		perComment = 220
+		ceiling    = 32768
+	)
+	tokens := base + commentCount*perComment
+	if tokens < 4096 {
+		return 4096
+	}
+	if tokens > ceiling {
+		return ceiling
+	}
+	return tokens
 }
 
 func buildHelperPrompt(helperMode string, leaderResult *models.ReviewResult) string {
