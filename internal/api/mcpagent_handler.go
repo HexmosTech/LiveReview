@@ -2,7 +2,6 @@ package api
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"net/http"
 
@@ -15,18 +14,18 @@ import (
 
 // MCPAgentChatRequest is the request body for the MCP agent chat endpoint.
 type MCPAgentChatRequest struct {
-	ConnectorID  int64             `json:"connector_id"`
-	MCPServerURL string            `json:"mcp_server_url"`
-	MCPHeaders   map[string]string `json:"mcp_headers,omitempty"`
-	Message      string            `json:"message"`
-	History      []json.RawMessage `json:"history,omitempty"`
+	ConnectorID  int64                  `json:"connector_id"`
+	MCPServerURL string                 `json:"mcp_server_url"`
+	MCPHeaders   map[string]string      `json:"mcp_headers,omitempty"`
+	Message      string                 `json:"message"`
+	History      []mcpagent.HistoryEntry `json:"history,omitempty"`
 }
 
 // MCPAgentChatResponse is the response from the MCP agent chat endpoint.
 type MCPAgentChatResponse struct {
-	Response string              `json:"response"`
-	History  []json.RawMessage   `json:"history"`
-	Tools    []mcpagent.MCPToolDef `json:"tools,omitempty"`
+	Response string                `json:"response"`
+	History  []mcpagent.HistoryEntry `json:"history"`
+	Tools    []mcpagent.MCPToolDef   `json:"tools,omitempty"`
 }
 
 // HandleMCPAgentChat processes a chat message through the agent loop.
@@ -46,11 +45,11 @@ func (s *Server) HandleMCPAgentChat(c echo.Context) error {
 		return c.JSON(http.StatusBadRequest, map[string]string{"error": "mcp_server_url is required"})
 	}
 
-	pc := auth.MustGetPermissionContext(c)
-	orgID := pc.OrgID
-	if orgID <= 0 {
-		return c.JSON(http.StatusBadRequest, map[string]string{"error": "organization context required"})
+	pc := auth.GetPermissionContext(c)
+	if pc == nil {
+		return c.JSON(http.StatusUnauthorized, map[string]string{"error": "authentication required"})
 	}
+	orgID := pc.OrgID
 
 	ctx := c.Request().Context()
 
@@ -71,36 +70,16 @@ func (s *Server) HandleMCPAgentChat(c echo.Context) error {
 	provider := mcpagent.NewProvider(connector)
 	agent := mcpagent.NewAgent(provider, mcpSession, 0)
 
-	// 4. Convert history from raw JSON
-	history := make([]mcpagent.HistoryEntry, len(req.History))
-	for i, raw := range req.History {
-		var entry mcpagent.HistoryEntry
-		if err := json.Unmarshal(raw, &entry); err != nil {
-			return c.JSON(http.StatusBadRequest, map[string]string{"error": fmt.Sprintf("invalid history entry %d: %s", i, err.Error())})
-		}
-		history[i] = entry
-	}
-
-	// 5. Run the agent loop
-	responseText, updatedHistory, err := agent.RunTurn(ctx, history, req.Message)
+	// 4. Run the agent loop
+	responseText, updatedHistory, err := agent.RunTurn(ctx, req.History, req.Message)
 	if err != nil {
 		log.Error().Err(err).Msg("Agent loop failed")
 		return c.JSON(http.StatusInternalServerError, map[string]string{"error": fmt.Sprintf("Agent loop failed: %s", err.Error())})
 	}
 
-	// 6. Convert updated history back to raw JSON
-	historyJSON := make([]json.RawMessage, len(updatedHistory))
-	for i, entry := range updatedHistory {
-		raw, err := json.Marshal(entry)
-		if err != nil {
-			return c.JSON(http.StatusInternalServerError, map[string]string{"error": "failed to serialize history"})
-		}
-		historyJSON[i] = raw
-	}
-
 	return c.JSON(http.StatusOK, MCPAgentChatResponse{
 		Response: responseText,
-		History:  historyJSON,
+		History:  updatedHistory,
 		Tools:    mcpSession.Tools,
 	})
 }

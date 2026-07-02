@@ -25,10 +25,12 @@ func (p *Provider) FormatTools(tools []MCPToolDef) []llms.Tool {
 	}
 	result := make([]llms.Tool, len(tools))
 	for i, t := range tools {
-		schemaBytes, _ := json.Marshal(t.InputSchema)
-		var schema map[string]any
-		if err := json.Unmarshal(schemaBytes, &schema); err != nil {
-			schema = map[string]any{}
+		schema := map[string]any{}
+		if t.InputSchema != nil {
+			schemaBytes, err := json.Marshal(t.InputSchema)
+			if err == nil {
+				json.Unmarshal(schemaBytes, &schema)
+			}
 		}
 
 		result[i] = llms.Tool{
@@ -92,7 +94,10 @@ func (p *Provider) Complete(ctx context.Context, history []HistoryEntry, tools [
 func (p *Provider) historyToMessages(history []HistoryEntry) []llms.MessageContent {
 	var messages []llms.MessageContent
 	for _, entry := range history {
-		role, _ := entry["role"].(string)
+		role, ok := entry["role"].(string)
+		if !ok {
+			continue
+		}
 
 		switch role {
 		case "system":

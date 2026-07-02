@@ -528,8 +528,10 @@ func initSlackBot(db *sql.DB) (*slackbot.Bot, error) {
 
 	maxSteps := 20
 	if s := os.Getenv("SLACK_MAX_AGENT_STEPS"); s != "" {
-		if n, err := fmt.Sscanf(s, "%d", &maxSteps); err != nil || n != 1 {
+		if n, err := strconv.Atoi(s); err != nil || n <= 0 {
 			maxSteps = 20
+		} else {
+			maxSteps = n
 		}
 	}
 

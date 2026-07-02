@@ -98,9 +98,10 @@ func buildSystemPrompt(tools []MCPToolDef) string {
 
 	b.WriteString("\nWhen you need to call a tool, respond with a JSON code block like this:\n")
 	b.WriteString("```json\n{\"tool\": \"tool_name\", \"arguments\": {...}}\n```\n")
-	b.WriteString("You can call at most one tool per response. After you get the result, ")
-	b.WriteString("continue the conversation. When you have all the information needed, ")
-	b.WriteString("respond with a normal text answer.\n\n")
+	b.WriteString("To call multiple tools, use multiple JSON blocks or a JSON array:\n")
+	b.WriteString("```json\n[{\"tool\": \"tool_a\", \"arguments\": {...}}, {\"tool\": \"tool_b\", \"arguments\": {...}}]\n```\n")
+	b.WriteString("After you get the results, continue the conversation. When you have ")
+	b.WriteString("all the information needed, respond with a normal text answer.\n\n")
 	b.WriteString("Do not call the same tool repeatedly with the same arguments. ")
 	b.WriteString("If a result is insufficient, explain what additional information you need.")
 

@@ -7,12 +7,17 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"sync/atomic"
 	"time"
 
 	"github.com/rs/zerolog/log"
 )
 
-const defaultMCPTimeout = 120 * time.Second
+const defaultMCPTimeout = 60 * time.Second
+
+var mcpReqID atomic.Int64
+
+var mcpHTTPClient = &http.Client{Timeout: defaultMCPTimeout}
 
 // jsonrpcMessage is a JSON-RPC 2.0 request/response.
 type jsonrpcMessage struct {
@@ -57,10 +62,8 @@ type callToolResult struct {
 // ConnectMCP opens a session with a remote MCP server via Streamable HTTP,
 // performs the initialize handshake, and lists available tools.
 func ConnectMCP(ctx context.Context, serverURL string, headers map[string]string) (*MCPSession, error) {
-	reqID := 1
-
 	// 1. initialize
-	initResult, err := doJSONRPC(ctx, serverURL, headers, reqID, "initialize", map[string]any{
+	initResult, err := doJSONRPC(ctx, serverURL, headers, int(mcpReqID.Add(1)), "initialize", map[string]any{
 		"protocolVersion": "2025-03-26",
 		"client": map[string]string{
 			"name":    "livereview-mcp-agent",
@@ -71,16 +74,17 @@ func ConnectMCP(ctx context.Context, serverURL string, headers map[string]string
 		return nil, fmt.Errorf("mcp initialize: %w", err)
 	}
 	log.Debug().Str("server", serverURL).Any("result", initResult).Msg("MCP initialized")
-	reqID++
 
 	// 2. tools/list
-	listResult, err := doJSONRPC(ctx, serverURL, headers, reqID, "tools/list", nil)
+	listResult, err := doJSONRPC(ctx, serverURL, headers, int(mcpReqID.Add(1)), "tools/list", nil)
 	if err != nil {
 		return nil, fmt.Errorf("mcp tools/list: %w", err)
 	}
-	reqID++
 
-	b, _ := json.Marshal(listResult)
+	b, err := json.Marshal(listResult)
+	if err != nil {
+		return nil, fmt.Errorf("mcp tools/list marshal: %w", err)
+	}
 	var ltr listToolsResult
 	if err := json.Unmarshal(b, &ltr); err != nil {
 		return nil, fmt.Errorf("mcp tools/list decode: %w", err)
@@ -110,9 +114,7 @@ func ConnectMCP(ctx context.Context, serverURL string, headers map[string]string
 
 // CallTool invokes a tool on the remote MCP server.
 func CallTool(ctx context.Context, session *MCPSession, name string, args map[string]any) (string, error) {
-	reqID := 1
-
-	result, err := doJSONRPC(ctx, session.ServerURL, session.Headers, reqID, "tools/call", callToolParams{
+	result, err := doJSONRPC(ctx, session.ServerURL, session.Headers, int(mcpReqID.Add(1)), "tools/call", callToolParams{
 		Name:      name,
 		Arguments: args,
 	})
@@ -120,7 +122,10 @@ func CallTool(ctx context.Context, session *MCPSession, name string, args map[st
 		return "", fmt.Errorf("mcp tools/call %s: %w", name, err)
 	}
 
-	b, _ := json.Marshal(result)
+	b, err := json.Marshal(result)
+	if err != nil {
+		return "", fmt.Errorf("mcp tools/call %s marshal: %w", name, err)
+	}
 	var ctr callToolResult
 	if err := json.Unmarshal(b, &ctr); err != nil {
 		return "", fmt.Errorf("mcp tools/call %s decode: %w", name, err)
@@ -168,8 +173,7 @@ func doJSONRPC(ctx context.Context, url string, headers map[string]string, id in
 		req.Header.Set(k, v)
 	}
 
-	client := &http.Client{Timeout: defaultMCPTimeout}
-	resp, err := client.Do(req)
+	resp, err := mcpHTTPClient.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("http do: %w", err)
 	}
