@@ -27,6 +27,7 @@ import (
 	"github.com/livereview/internal/license"
 	reviewprocessor "github.com/livereview/internal/review_processor"
 	"github.com/livereview/internal/license/payment"
+	"github.com/livereview/internal/slackbot"
 	bitbucketprovider "github.com/livereview/internal/provider_input/bitbucket"
 	giteaprovider "github.com/livereview/internal/provider_input/gitea"
 	githubprovider "github.com/livereview/internal/provider_input/github"
@@ -137,6 +138,7 @@ type Server struct {
 	licenseScheduler     *license.Scheduler
 	billingActionsCancel context.CancelFunc
 	modelSyncCancel      context.CancelFunc
+	slackBotCancel       context.CancelFunc
 
 	// V2 Webhook Providers
 	gitlabProviderV2    *gitlabprovider.GitLabV2Provider
@@ -153,6 +155,8 @@ type Server struct {
 	webhookOrchestratorV2 *WebhookOrchestratorV2
 
 	learningsService *learnings.Service
+
+	slackBot  *slackbot.Bot
 
 	openapiSpec string
 }
@@ -418,7 +422,7 @@ func NewServer(port int, versionInfo *VersionInfo) (*Server, error) {
 	mcp.RegisterSchema("DELETE", "/api/v1/learnings/:id", nil, nil)
 	mcp.RegisterSchema("GET", "/api/v1/prompts/catalog", nil, nil)
 	mcp.RegisterSchema("GET", "/api/v1/prompts/:key/variables", nil, RenderPromptQuery{})
-	mcp.RegisterSchema("GET", "/api/v1/prompts/:key/render", nil, RenderPromptQuery{})
+	mcp.RegisterSchema("POST", "/api/v1/mcp-agent/chat", nil, MCPAgentChatRequest{})
 
 	mcp.RegisterEndpoints([]string{
 		"/api/v1/auth/me",
@@ -446,9 +450,21 @@ func NewServer(port int, versionInfo *VersionInfo) (*Server, error) {
 		"/api/v1/aiconnectors/validate-key",
 		"/api/v1/aiconnectors/reorder",
 		"/api/v1/mcp-api-integration-guide",
+		"/api/v1/mcp-agent/chat",
 	})
 
 	mcp.Mount("/api/mcp")
+
+	// Initialize Slack bot if environment variables are configured
+	if os.Getenv("SLACK_BOT_TOKEN") != "" && os.Getenv("SLACK_APP_TOKEN") != "" {
+		bot, err := initSlackBot(server.db)
+		if err != nil {
+			fmt.Printf("Warning: Failed to initialize Slack bot: %v (Slack bot disabled)\n", err)
+		} else {
+			server.slackBot = bot
+			fmt.Println("Slack bot initialized (will start with server)")
+		}
+	}
 
 	return server, nil
 }
@@ -456,6 +472,77 @@ func NewServer(port int, versionInfo *VersionInfo) (*Server, error) {
 // WorkerContext creates a new Server instance optimized for running background workers (no Echo router initialized)
 func WorkerContext(versionInfo *VersionInfo) (*Server, error) {
 	return appContext(0, versionInfo)
+}
+
+// initSlackBot resolves the LiveReview API key to a user+org, finds an AI
+// connector in that org (trying each in order), and creates the Slack bot.
+func initSlackBot(db *sql.DB) (*slackbot.Bot, error) {
+	apiKey := os.Getenv("SLACK_API_KEY")
+	if apiKey == "" {
+		return nil, fmt.Errorf("SLACK_API_KEY is required for Slack bot")
+	}
+
+	// Resolve API key -> user + org
+	mgr := NewAPIKeyManager(db)
+	keyRecord, _, err := mgr.ValidateAPIKey(apiKey)
+	if err != nil {
+		return nil, fmt.Errorf("invalid SLACK_API_KEY: %w", err)
+	}
+	orgID := keyRecord.OrgID
+
+	// Find connectors in the org and try each until one works
+	storage := aiconnectors.NewStorage(db)
+	connectors, err := storage.GetAllConnectors(context.Background(), orgID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query connectors for org %d: %w", orgID, err)
+	}
+	if len(connectors) == 0 {
+		return nil, fmt.Errorf("no AI connectors configured in org %d", orgID)
+	}
+
+	var connector *aiconnectors.Connector
+	var chosenName string
+	for _, record := range connectors {
+		options := storage.GetConnectorOptions(context.Background(), record)
+		c, err := aiconnectors.NewConnector(context.Background(), options)
+		if err != nil {
+			log.Printf("Slack bot: connector %q (%s) failed to init: %v — trying next", record.ConnectorName, record.ProviderName, err)
+			continue
+		}
+		connector = c
+		chosenName = fmt.Sprintf("%q (%s, model=%s)", record.ConnectorName, record.ProviderName, options.ModelConfig.Model)
+		log.Printf("Slack bot: using connector %s", chosenName)
+		break
+	}
+	if connector == nil {
+		return nil, fmt.Errorf("all %d connectors in org %d failed to initialize", len(connectors), orgID)
+	}
+
+	// Build MCP headers — pass the API key as X-API-Key to the MCP server
+	mcpHeaders := map[string]string{"X-API-Key": apiKey}
+
+	mcpServerURL := os.Getenv("SLACK_MCP_SERVER_URL")
+	if mcpServerURL == "" {
+		mcpServerURL = "https://livereview.hexmos.com/api/mcp"
+	}
+
+	maxSteps := 20
+	if s := os.Getenv("SLACK_MAX_AGENT_STEPS"); s != "" {
+		if n, err := fmt.Sscanf(s, "%d", &maxSteps); err != nil || n != 1 {
+			maxSteps = 20
+		}
+	}
+
+	cfg := &slackbot.Config{
+		SlackBotToken: os.Getenv("SLACK_BOT_TOKEN"),
+		SlackAppToken: os.Getenv("SLACK_APP_TOKEN"),
+		MCPServerURL:  mcpServerURL,
+		MCPHeaders:    mcpHeaders,
+		Connector:     connector,
+		MaxAgentSteps: maxSteps,
+	}
+
+	return slackbot.New(cfg)
 }
 
 // SetOpenAPISpec sets the OpenAPI specification content for the integration guide endpoint
@@ -850,6 +937,14 @@ func (s *Server) setupRoutes() {
 	aiConnectorGroup.POST("/ollama/models", s.FetchOllamaModels)
 	aiConnectorGroup.GET("/providers/:provider/models", s.GetAIProviderModels)
 
+	// MCP Agent endpoints (organization scoped)
+	mcpAgentGroup := v1.Group("/mcp-agent")
+	mcpAgentGroup.Use(RequireAuthOrAPIKey(s.tokenService, s.db))
+	mcpAgentGroup.Use(authMiddleware.BuildOrgContextFromHeader())
+	mcpAgentGroup.Use(authMiddleware.ValidateOrgAccess())
+	mcpAgentGroup.Use(authMiddleware.BuildPermissionContext())
+	mcpAgentGroup.POST("/chat", s.HandleMCPAgentChat)
+
 	// Dashboard endpoints (organization scoped)
 	dashboardGroup := v1.Group("/dashboard")
 	dashboardGroup.Use(RequireAuthOrAPIKey(s.tokenService, s.db))
@@ -1174,6 +1269,18 @@ func (s *Server) Start() error {
 		syncCtx, cancel := context.WithCancel(context.Background())
 		s.modelSyncCancel = cancel
 		aiconnectors.RunAIModelSyncScheduler(syncCtx, s.db, 24*time.Hour)
+	}
+
+	// Start Slack bot if configured
+	if s.slackBot != nil {
+		slackCtx, cancel := context.WithCancel(context.Background())
+		s.slackBotCancel = cancel
+		go func() {
+			fmt.Println("Slack bot starting...")
+			if err := s.slackBot.Start(slackCtx); err != nil {
+				fmt.Printf("Slack bot failed: %v\n", err)
+			}
+		}()
 	}
 
 	// Wait for interrupt signal to gracefully shut down the server

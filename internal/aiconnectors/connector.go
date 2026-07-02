@@ -614,6 +614,35 @@ func (c *Connector) GetProvider() Provider {
 	return c.provider
 }
 
+// ModelConfig returns the model configuration for this connector.
+func (c *Connector) ModelConfig() ModelConfig {
+	return c.options.ModelConfig
+}
+
+// GenerateContent sends messages to the LLM with optional tool support
+// and returns the full content response. This is the preferred method
+// when tool/function calling is needed.
+func (c *Connector) GenerateContent(ctx context.Context, messages []llms.MessageContent, options ...llms.CallOption) (*llms.ContentResponse, error) {
+	callOptions := []llms.CallOption{
+		llms.WithTemperature(c.options.ModelConfig.Temperature),
+	}
+	if c.options.ModelConfig.Model != "" {
+		callOptions = append(callOptions, llms.WithModel(c.options.ModelConfig.Model))
+	}
+	if c.options.ModelConfig.MaxTokens > 0 {
+		callOptions = append(callOptions, llms.WithMaxTokens(c.options.ModelConfig.MaxTokens))
+	}
+	if c.options.ModelConfig.TopP > 0 {
+		callOptions = append(callOptions, llms.WithTopP(c.options.ModelConfig.TopP))
+	}
+	if c.options.ModelConfig.TopK > 0 {
+		callOptions = append(callOptions, llms.WithTopK(int(c.options.ModelConfig.TopK)))
+	}
+	callOptions = append(callOptions, options...)
+
+	return c.llm.GenerateContent(ctx, messages, callOptions...)
+}
+
 // GetModel returns the model name from the config
 func (c *Connector) GetModel() string {
 	return c.options.ModelConfig.Model
